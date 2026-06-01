@@ -10836,96 +10836,74 @@
             }
           }
 
+          // ── Marti 1.6.2026 refaktor: kompaktní design — entity_picker
+          // vypadá jako NORMÁLNÍ textové pole + ikona napravo na výběr
+          // existujícího záznamu (jako ErpDate). Drop velký bordered box,
+          // ds badge, separátní "Číslo" + multi-akce row. Logiku (picker,
+          // _selectedValue, onDirty) zachovat — save čte wrap._selectedValue.
           const wrap = document.createElement("div");
           wrap.className = "erp-field erp-field-design erp-entity-picker-host";
-          // Phase 38.4 Krok 14g Etapa F Krok 5.J-B1 (16.5.2026 ~23:50, Marti's
-          // screenshot diff vs Form 1): kompaktnější styl — padding 12→8,
-          // gap 6→3, border-radius 6→4. Form 1 (DesignSoudecekCoreForm) má
-          // tighter visual rhythm — pojď shodit DesignFwForm na stejnou level.
-          wrap.style.cssText =
-            "display:flex;flex-direction:column;gap:3px;" +
-            "border:1px solid #2a3340;border-radius:4px;padding:8px 10px;background:#0f1419;";
+          wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
           wrap._fieldKey = fieldKey;
           wrap._kind = "entity_picker";
           wrap._displayMode = displayMode;
           wrap._fieldExtern = fieldExtern;
 
-          // Header — label + data_source code/name badge
-          // Krok 5.J-B1: kompaktnější padding (4→2) — Form 1 styl
-          const headerRow = document.createElement("div");
-          headerRow.style.cssText =
-            "display:flex;justify-content:space-between;align-items:center;" +
-            "padding-bottom:2px;border-bottom:1px solid #1f2630;";
-
+          // Label nahoře (jako normální pole — .erp-input-label pro state rules)
           const labelEl = document.createElement("div");
-          labelEl.style.cssText =
-            "font-size:11px;font-weight:600;color:#a8b4c2;letter-spacing:0.05em;" +
-            "text-transform:uppercase;cursor:context-menu;";
+          labelEl.className = "erp-input-label";
+          labelEl.style.cssText = "font-size:12px;color:#a8b4c2;cursor:context-menu;";
           labelEl.setAttribute("data-design-fieldkey", fieldKey);
           labelEl.dataset.designOrigLabel = label;
           labelEl.textContent = label;
-          headerRow.appendChild(labelEl);
-
-          if (dsCode) {
-            const badge = document.createElement("div");
-            badge.style.cssText =
-              "font-size:10px;color:#6a7684;font-style:italic;";
-            badge.title = dsName || dsCode;
-            badge.textContent = "ds: " + dsCode;
-            headerRow.appendChild(badge);
-          }
-
-          // Display-mode badge — visual distinction pro origin/self pickery
-          // (Marti-AI's "neni to omezeni, je to pojistka" doctrine 27.4.)
           if (isDisplayOnly) {
-            const modeBadge = document.createElement("div");
-            modeBadge.style.cssText =
-              "font-size:10px;color:#8fb8d4;font-style:italic;" +
-              "padding:2px 6px;background:#1a2632;border-radius:3px;";
-            if (displayMode === "origin") {
-              modeBadge.textContent = "📍 origin";
-              modeBadge.title = "Display-only: zobrazeno z origin_menu_node_id (Soudeček, ze kterého byl form otevřen)";
-            } else if (displayMode === "self") {
-              modeBadge.textContent = "↺ self";
-              modeBadge.title = "Display-only: editujeme tento záznam (self-reference)";
-            }
-            headerRow.appendChild(modeBadge);
+            labelEl.textContent = label + (displayMode === "origin" ? "  📍" : "  ↺");
+            labelEl.title = (displayMode === "origin")
+              ? "Display-only: z origin_menu_node_id"
+              : "Display-only: self-reference";
           }
-          wrap.appendChild(headerRow);
+          wrap.appendChild(labelEl);
 
-          // Action ikony row (🔗 / 🚫 / ➕)
-          const actionsRow = document.createElement("div");
-          actionsRow.style.cssText = "display:flex;gap:6px;align-items:center;";
+          // Hidden id input — drží FK ID (display only; save čte wrap._selectedValue)
+          const _idInput = document.createElement("input");
+          _idInput.type = "hidden";
+          _idInput.value = initialId != null ? String(initialId) : "";
+
+          // Input row: Název (readonly text) + ikona napravo (🔗 picker [+ 🚫])
+          const fieldsRow = document.createElement("div");
+          fieldsRow.className = "erp-input-row";
+          fieldsRow.style.cssText =
+            "display:flex;align-items:stretch;border:1px solid #2a3340;" +
+            "border-radius:4px;overflow:hidden;background:#0f1419;";
+
+          const _labelInput = document.createElement("input");
+          _labelInput.type = "text";
+          _labelInput.readOnly = true;
+          _labelInput.value = initialLabel != null ? String(initialLabel) : "";
+          _labelInput.placeholder = dsCode ? "— vyber —" : "⚠ data_source nenastaven";
+          _labelInput.style.cssText =
+            "flex:1;background:transparent;border:none;color:#cfd6df;" +
+            "font-size:13px;padding:6px 8px;outline:none;cursor:default;";
+
+          // idCol/labelCol shim — handlery níže referencují
+          // idCol/labelCol.querySelector("input"). Drž je jako lehké wrappery
+          // (span) kolem _idInput/_labelInput → minimální změna handlerů.
+          const labelCol = document.createElement("span");
+          labelCol.style.cssText = "flex:1;display:flex;";
+          labelCol.appendChild(_labelInput);
+          fieldsRow.appendChild(labelCol);
+          const idCol = document.createElement("span");
+          idCol.style.cssText = "display:none;";
+          idCol.appendChild(_idInput);
+          fieldsRow.appendChild(idCol);
+
+          // Action ikony (🔗 / 🚫) — napravo, kompaktní (drop ➕ create_new)
+          const actionsRow = fieldsRow;  // ikony jdou do fieldsRow (napravo)
 
           const ACTION_DEFS = {
-            link: { icon: "🔗", title: "Vybrat existující záznam", color: "#8fb8d4" },
-            unlink: { icon: "🚫", title: "Zrušit asociaci", color: "#d48787" },
-            create_new: { icon: "➕", title: "Vytvořit nový záznam", color: "#7ed4a8" },
+            link: { icon: "🔗", title: "Vybrat existující záznam", color: "#fff" },
+            unlink: { icon: "🚫", title: "Zrušit výběr", color: "#d48787" },
           };
-
-          // Číslo (id) + Název (display) fields (read-only — populate přes link)
-          const fieldsRow = document.createElement("div");
-          fieldsRow.style.cssText =
-            "display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:end;flex:1;";
-
-          // Krok 5.I-D/E: pre-populate s initialId/initialLabel (z origin/self
-          // display_mode). Pro editable mode initialId zatim null — Krok 5.I-F
-          // pro post-load fetch z data_source.
-          const idColValue = initialId != null ? String(initialId) : "";
-          const labelColValue = initialLabel != null ? String(initialLabel) : "";
-          const idCol = _field("Číslo", idColValue, {
-            fieldKey: fieldKey + "._id",
-            readonly: true,
-            mono: true,
-            onDirty: onDirty,
-          });
-          const labelCol = _field("Název", labelColValue, {
-            fieldKey: fieldKey + "._label",
-            readonly: true,
-            onDirty: onDirty,
-          });
-          fieldsRow.appendChild(idCol);
-          fieldsRow.appendChild(labelCol);
 
           // Store initial value pro dirty check.
           // Phase 38.4 Krok 14g Etapa F Krok 5.J-B7 (17.5.2026, Marti's
@@ -10958,10 +10936,16 @@
             // (display-only), Picker #2 cte z current core row (readonly self-ref).
             const btnDisabled = isDisplayOnly || (readonly && act !== "link");
             btn.disabled = btnDisabled;
+            // Marti 1.6.2026: tlačítka integrovaná do input borderu (segmented
+            // look). 🔗 = prominentní accent trigger (jako ErpDate), 🚫 = subtle.
+            const _isLink = act === "link";
             btn.style.cssText =
-              "padding:6px 10px;font-size:14px;border-radius:4px;cursor:" +
+              "padding:0 12px;font-size:15px;border:none;" +
+              "border-left:1px solid #2a3340;cursor:" +
               (btnDisabled ? "default" : "pointer") + ";" +
-              "background:#1a1f26;border:1px solid #2a3340;color:" + def.color + ";" +
+              "background:" + (_isLink ? "var(--accent,#4f8ef7)" : "#141a21") + ";" +
+              "color:" + (_isLink ? "#fff" : def.color) + ";" +
+              "display:flex;align-items:center;justify-content:center;" +
               (btnDisabled ? "opacity:0.4;" : "");
 
             if (act === "link" && dsCode) {

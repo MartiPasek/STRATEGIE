@@ -14589,6 +14589,10 @@ def _render_workspace_page(user_id: int) -> str:
          + render 🔴 N err pill vlevo od Module Health banner. Marti's doctrine
          "Bezpecnost pres probuzeni, ne pres ticho". -->
     <script src="/static/erp/components/erp_error_badge.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Phase D (1.6.2026, Marti): per-user nastaveni prostredi. Prvni
+         setting = prosviceni textu gridu (injektovany <style> s !important
+         prebije inline AG theme override). Auto-init aplikuje ulozeny jas. -->
+    <script src="/static/erp/erp_user_settings.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Krok 5.X (23.5.2026): batch row action helper — Mód 1 (Centrála 1
          cyklicky per-row). Generic _erpBatchRowAction(opts) — reusable napříč
          existing Smazat + future HW/FW dynamic actions. -->
@@ -17092,7 +17096,25 @@ def _render_workspace_page(user_id: int) -> str:
           });
           pop.appendChild(designItem);
         }
-        // Future: další položky (profile, settings, logout, atd.)
+        // Phase D (1.6.2026, Marti): Nastavení prostředí — per-user, pro VŠECHNY
+        // (rodiče i členy). První setting = prosvícení gridu (Pavel). Otevře
+        // ErpUserSettings panel.
+        try {
+          if (window.ErpUserSettings) {
+            const setItem = document.createElement('div');
+            setItem.className = 'erp-user-popover-item';
+            setItem.innerHTML =
+              '<span class="erp-user-popover-item-label">⚙ Nastavení prostředí</span>';
+            setItem.title = 'Per-user nastavení vzhledu (prosvícení gridu, …).';
+            setItem.addEventListener('click', () => {
+              const pop2 = document.getElementById('erpFooterUserPopover');
+              if (pop2) pop2.setAttribute('hidden', '');
+              window.ErpUserSettings.openPanel();
+            });
+            pop.appendChild(setItem);
+          }
+        } catch (e) { console.warn('[user-settings menu] failed', e); }
+        // Future: další položky (profile, logout, atd.)
       }
 
       function _erpToggleUserPopover() {

@@ -13587,6 +13587,23 @@ def _render_audit_dashboard_page(
   <title>STRATEGIE | Audit konverzací</title>
   <link rel="manifest" href="/static/erp/manifest.json">
   <meta name="theme-color" content="#0e0f11">
+  <!-- Phase D (1.6.2026, Marti): beforeinstallprompt zachyt CO NEJDRIV (v head,
+       pred workspace JS). Event se firne jednou; pozdni listener ho minul →
+       klik na install dal jen fallback hint. Uloz do window._deferredInstallPrompt,
+       workspace click handler cte odtud. -->
+  <script>
+    window._deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', function (ev) {{
+      ev.preventDefault();
+      window._deferredInstallPrompt = ev;
+      try {{ var b = document.getElementById('erpInstallBtn'); if (b) b.style.display = 'inline-flex'; }} catch (e) {{}}
+      console.log('[install] beforeinstallprompt captured (early head)');
+    }});
+    window.addEventListener('appinstalled', function () {{
+      window._deferredInstallPrompt = null;
+      try {{ var b = document.getElementById('erpInstallBtn'); if (b) b.style.display = 'none'; }} catch (e) {{}}
+    }});
+  </script>
   <!-- Phase 35-E.4 fix 9.5. odpoledne: explicit verze 32.3.5 (major @32
        nemusi resolvovat na CDN, vede k neuplnemu loadu). -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.5/styles/ag-grid.css">
@@ -13716,12 +13733,18 @@ def _render_audit_dashboard_page(
       min-height: 0 !important;
     }}
     /* Dark theme via explicit CSS variables (v32 community).
-       data-ag-theme-mode="dark" attribute v32 podporuje, ale safer override. */
-    .ag-theme-quartz {{
+       Marti 1.6.2026 (Pavel — špatná čitelnost v dark mode): selektor musí
+       pokrýt i .ag-theme-quartz-dark (grid běží defaultně dark, viz
+       datagrid.js _init) — dřív se overrides aplikovaly jen na .ag-theme-quartz
+       a grid používal tlumený AG default. Plus zesvětlené písmo
+       (#e8e8ea → #f3f4f6 data/foreground, #9ca3af → #b9c2cf secondary). */
+    .ag-theme-quartz,
+    .ag-theme-quartz-dark,
+    .erp-ag-grid {{
       --ag-background-color: #14161a;
-      --ag-foreground-color: #e8e8ea;
+      --ag-foreground-color: #f3f4f6;
       --ag-header-background-color: #1a1d22;
-      --ag-header-foreground-color: #e8e8ea;
+      --ag-header-foreground-color: #f3f4f6;
       --ag-border-color: #2a2d33;
       --ag-row-hover-color: #1f2228;
       --ag-selected-row-background-color: #2a3340;
@@ -13729,8 +13752,8 @@ def _render_audit_dashboard_page(
       --ag-control-panel-background-color: #14161a;
       --ag-input-background-color: #14161a;
       --ag-input-border-color: #2a2d33;
-      --ag-data-color: #e8e8ea;
-      --ag-secondary-foreground-color: #9ca3af;
+      --ag-data-color: #f3f4f6;
+      --ag-secondary-foreground-color: #b9c2cf;
       --ag-row-border-color: #2a2d33;
       color-scheme: dark;
     }}
@@ -18323,19 +18346,19 @@ def _render_workspace_page(user_id: int) -> str:
       // success (manifest valid + sw.js + HTTPS + ne uz installed).
       // Zachyt event, ulozi pro lazy trigger pri user click.
       // ════════════════════════════════════════════════════════════════
-      let _deferredInstallPrompt = null;
+      // Phase D (1.6.2026): beforeinstallprompt už zachycen brzy v <head>
+      // (window._deferredInstallPrompt). Tento listener je backup pokud event
+      // přijde později — sync do window.
       window.addEventListener('beforeinstallprompt', (ev) => {
-        // Prevent default mini-infobar (Chrome desktop default UI)
         ev.preventDefault();
-        _deferredInstallPrompt = ev;
+        window._deferredInstallPrompt = ev;
         const btn = document.getElementById('erpInstallBtn');
         if (btn) btn.style.display = 'inline-flex';
-        console.log('[install] beforeinstallprompt captured — button shown');
       });
       const _installBtn = document.getElementById('erpInstallBtn');
       if (_installBtn) {
         _installBtn.addEventListener('click', async () => {
-          if (!_deferredInstallPrompt) {
+          if (!window._deferredInstallPrompt) {
             // Platform-aware hint — žádný deferred prompt (iOS Safari, nebo
             // Chrome co event nefírnul). Ukaž návod dle platformy.
             const _ua = navigator.userAgent || '';
@@ -18359,8 +18382,8 @@ def _render_workspace_page(user_id: int) -> str:
             return;
           }
           try {
-            _deferredInstallPrompt.prompt();
-            const { outcome } = await _deferredInstallPrompt.userChoice;
+            window._deferredInstallPrompt.prompt();
+            const { outcome } = await window._deferredInstallPrompt.userChoice;
             console.log('[install] user choice:', outcome);
             if (outcome === 'accepted') {
               _installBtn.style.display = 'none';
@@ -18368,7 +18391,7 @@ def _render_workspace_page(user_id: int) -> str:
           } catch (e) {
             console.error('[install] prompt failed:', e);
           }
-          _deferredInstallPrompt = null;
+          window._deferredInstallPrompt = null;
         });
       }
       // Hide install button kdyz uz je nainstalovany (post-install event)

@@ -10559,6 +10559,45 @@
 
         case "lookup":
         case "combobox": {
+          // ── Dynamický číselník lookup (Marti 1.6.2026) ──────────────────
+          // Pokud pole bound na data_source (field.data_source_code z
+          // comp_def.data_source_id FK), fetchni options ŽIVĚ z číselníku
+          // /api/v1/erp/data/{code} → dropdown ukáže label (Zeme/TypZakazky/
+          // Kategorie), uloží ID. Jinak fallback na statické enum_values.
+          {
+            const _lkDs = field.data_source_code || null;
+            if (_lkDs) {
+              const _vCol = fieldLayout.lookup_id_field || "ID";
+              const _lCol = fieldLayout.lookup_display_field || "Nazev";
+              const _el = _dropdown(label, value, [], {
+                fieldKey: fieldKey, readonly: readonly, onDirty: onDirty,
+              });
+              try { if (_el._inst && _el._inst.setLoading) _el._inst.setLoading(true); } catch (e) {}
+              fetch("/api/v1/erp/data/" + encodeURIComponent(_lkDs) + "?limit=1000",
+                    { credentials: "include" })
+                .then(r => r.json())
+                .then(j => {
+                  const opts = ((j && j.rows) || []).map(row => {
+                    const v = row[_vCol], l = row[_lCol];
+                    return { value: v != null ? String(v) : "",
+                             label: l != null ? String(l) : (v != null ? String(v) : "") };
+                  }).filter(o => o.value !== "");
+                  try {
+                    if (_el._inst) {
+                      if (_el._inst.setLoading) _el._inst.setLoading(false);
+                      if (_el._inst.setItems) _el._inst.setItems(opts);
+                      if (_el._inst.setValue && value != null && value !== "")
+                        _el._inst.setValue(String(value));
+                    }
+                  } catch (e) { console.warn("[lookup dyn] setItems " + _lkDs, e); }
+                })
+                .catch(e => {
+                  console.warn("[lookup dyn] fetch " + _lkDs, e);
+                  try { if (_el._inst && _el._inst.setLoading) _el._inst.setLoading(false); } catch (_) {}
+                });
+              return _el;
+            }
+          }
           // Lookup / combobox — _dropdown helper s enum_values z layout
           //
           // Krok 14b+13.2 hotfix (14.5.2026 ~01:00, Marti's smoke "Detekce
@@ -10608,6 +10647,44 @@
         }
 
         case "lookup_multi": {
+          // ── Dynamický číselník lookup (Marti 1.6.2026) — single-select.
+          // Kontakt FK je single smallint (Zeme/TypZakazky/Kategorie); pravý
+          // multi-select (CSV/junction) = future. Pokud bound na data_source,
+          // render dynamic dropdown stejně jako Lookup (110).
+          {
+            const _lkDs = field.data_source_code || null;
+            if (_lkDs) {
+              const _vCol = fieldLayout.lookup_id_field || "ID";
+              const _lCol = fieldLayout.lookup_display_field || "Nazev";
+              const _el = _dropdown(label, value, [], {
+                fieldKey: fieldKey, readonly: readonly, onDirty: onDirty,
+              });
+              try { if (_el._inst && _el._inst.setLoading) _el._inst.setLoading(true); } catch (e) {}
+              fetch("/api/v1/erp/data/" + encodeURIComponent(_lkDs) + "?limit=1000",
+                    { credentials: "include" })
+                .then(r => r.json())
+                .then(j => {
+                  const opts = ((j && j.rows) || []).map(row => {
+                    const v = row[_vCol], l = row[_lCol];
+                    return { value: v != null ? String(v) : "",
+                             label: l != null ? String(l) : (v != null ? String(v) : "") };
+                  }).filter(o => o.value !== "");
+                  try {
+                    if (_el._inst) {
+                      if (_el._inst.setLoading) _el._inst.setLoading(false);
+                      if (_el._inst.setItems) _el._inst.setItems(opts);
+                      if (_el._inst.setValue && value != null && value !== "")
+                        _el._inst.setValue(String(value));
+                    }
+                  } catch (e) { console.warn("[lookup_multi dyn] setItems " + _lkDs, e); }
+                })
+                .catch(e => {
+                  console.warn("[lookup_multi dyn] fetch " + _lkDs, e);
+                  try { if (_el._inst && _el._inst.setLoading) _el._inst.setLoading(false); } catch (_) {}
+                });
+              return _el;
+            }
+          }
           // Multi-select — fallback na _field s comma-separated values (MVP).
           // Future: dedicated multi-select komponent.
           const displayVal = Array.isArray(value) ? value.join(", ") : (value || "");

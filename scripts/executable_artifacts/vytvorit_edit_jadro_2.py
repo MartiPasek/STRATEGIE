@@ -77,12 +77,14 @@ SKIP_COLUMNS = frozenset({
 # Helpers — fail/skip (žádný tichý ok=True)
 # ============================================================================
 def _fail(msg):
-    """Vytiskni důvod + exit 1 → sandbox vrátí ok=False (viditelný error)."""
+    """Vytiskni důvod + RAISE (ne sys.exit!) → runner wrapper chytí Exception
+    a zapíše ok=False SE zachyceným stdoutem (důvod). sys.exit/SystemExit by
+    propadl mimo wrapper → _result se nezapíše → stdout se ZTRATÍ (prázdný)."""
     print()
     print("=" * 70)
     print(f"✗ FAIL: {msg}")
     print("=" * 70)
-    sys.exit(1)
+    raise RuntimeError(msg)
 
 
 def _ok(msg):
@@ -586,12 +588,13 @@ def main():
 
 try:
     main()
-except SystemExit:
-    raise
-except Exception as e:
+except Exception:
+    # ŽÁDNÝ sys.exit! Runner wrapper captuje stdout do StringIO a chytá jen
+    # Exception (NE SystemExit). Vytiskneme traceback do stdoutu (runner ho
+    # zachytí) a RE-RAISE → wrapper zapíše ok=False + tento stdout (důvod).
     import traceback
-    print("=" * 70)
-    print(f"✗ ORCHESTRATOR EXCEPTION: {type(e).__name__}: {e}")
-    print("=" * 70)
+    print("\n" + "=" * 70)
+    print("✗ ORCHESTRATOR EXCEPTION (traceback):")
     print(traceback.format_exc())
-    sys.exit(1)
+    print("=" * 70)
+    raise

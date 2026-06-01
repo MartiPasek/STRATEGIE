@@ -4870,6 +4870,47 @@ async def contact_vcard(req: Request):
     )
 
 
+# ── Fáze (1.6.2026, Marti: "při každém nasazení request na Hard Reset") ──────
+# Verze = git HEAD sha (mění se KAŽDÝM deployem — i static-only, čteme z disku).
+# Klient (app_version_watch.js) polluje; při změně vs načtená verze → lišta
+# "Nová verze — Obnovit". 30s in-memory cache (disk read levný, ne per-request).
+_APP_VERSION_CACHE = {"v": None, "ts": 0.0}
+
+
+def _read_git_head_sha():
+    try:
+        from pathlib import Path as _PathAV
+        root = _PathAV(__file__).resolve().parents[3]  # modules/erp/api → repo root
+        head = (root / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref:"):
+            ref = head.split(" ", 1)[1].strip()
+            refp = root / ".git" / ref
+            if refp.exists():
+                return refp.read_text(encoding="utf-8").strip()[:12]
+            packed = root / ".git" / "packed-refs"
+            if packed.exists():
+                for line in packed.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and line.endswith(ref):
+                        return line.split(" ", 1)[0].strip()[:12]
+            return None
+        return head[:12]  # detached HEAD = přímo sha
+    except Exception:
+        return None
+
+
+@api_router.get("/app-version")
+async def app_version(req: Request) -> JSONResponse:
+    """Aktuální verze nasazeného kódu (git HEAD sha). Veřejné (žádný auth) —
+    klient porovnává s verzí při načtení a nabídne obnovení po deployi."""
+    import time as _time_av
+    now = _time_av.time()
+    if _APP_VERSION_CACHE["v"] is None or (now - _APP_VERSION_CACHE["ts"]) > 30:
+        _APP_VERSION_CACHE["v"] = _read_git_head_sha() or "unknown"
+        _APP_VERSION_CACHE["ts"] = now
+    return JSONResponse({"version": _APP_VERSION_CACHE["v"]})
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.
@@ -15182,6 +15223,8 @@ def _render_workspace_page(user_id: int) -> str:
          → tel:/mailto:/open + auto-archiv fw.contact_action_log). Dispatcher
          pro grid (onCellDoubleClicked) i form (dblclick na pole). -->
     <script src="/static/erp/components/erp_cell_actions.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Update prompt (1.6.2026, Marti): po deployi nabídne "Obnovit". -->
+    <script src="/static/app_version_watch.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Master-detail Krok 6 (24.5.2026): custom JS renderer pro Data
          Sources → Data Source Op detail (nested ErpDataGrid s layoutKey
          "data_source_op" persistence). Marti's Varianta B — full features

@@ -10890,7 +10890,8 @@
           // _selectedValue, onDirty) zachovat — save čte wrap._selectedValue.
           const wrap = document.createElement("div");
           wrap.className = "erp-field erp-field-design erp-entity-picker-host";
-          wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+          wrap.style.cssText =
+            "display:flex;flex-direction:column;gap:3px;width:100%;box-sizing:border-box;";
           wrap._fieldKey = fieldKey;
           wrap._kind = "entity_picker";
           wrap._displayMode = displayMode;
@@ -10920,8 +10921,9 @@
           const fieldsRow = document.createElement("div");
           fieldsRow.className = "erp-input-row";
           fieldsRow.style.cssText =
-            "display:flex;align-items:stretch;border:1px solid #2a3340;" +
-            "border-radius:4px;overflow:hidden;background:#0f1419;";
+            "display:flex;align-items:stretch;width:100%;box-sizing:border-box;" +
+            "border:1px solid #2a3340;border-radius:4px;overflow:hidden;" +
+            "background:#0f1419;";
 
           const _labelInput = document.createElement("input");
           _labelInput.type = "text";

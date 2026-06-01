@@ -2868,20 +2868,75 @@
               document.body.appendChild(ov);
               try { okBtn.focus(); } catch (e) {}
             } else {
-              // Error — show toast + restore buttons
-              const errMsg = (r && r.error) || "unknown";
+              // Error — restore buttons + POPUP s důvodem failu (z r.stdout
+              // "✗ FAIL:" / konec stdout). Marti 1.6.2026 "ošetřit po všech
+              // stránkách": důvod rovnou v UI, ne jen generický toast.
               btnYes.disabled = false;
               btnNo.disabled = false;
               btnYes.textContent = "✓ Ano, vygeneruj";
-              try {
-                _showToast(
-                  "Generování selhalo: " + errMsg,
-                  "error",
-                  4500
-                );
-              } catch (e) {
-                alert("Generování selhalo: " + errMsg);
+
+              var _stdout = String((r && r.stdout) || "");
+              var _reason = "";
+              var _fi = _stdout.lastIndexOf("✗ FAIL:");
+              if (_fi >= 0) {
+                _reason = _stdout.slice(_fi).split("\n").slice(0, 4).join("\n").trim();
               }
+              if (!_reason) {
+                var _exi = _stdout.lastIndexOf("ORCHESTRATOR EXCEPTION");
+                if (_exi >= 0) _reason = _stdout.slice(_exi).split("\n")[0].trim();
+              }
+              var _errTop = (r && r.error) || "unknown";
+              var _tail = _stdout.slice(-1400) || (r && r.stderr ? String(r.stderr).slice(-1400) : "");
+
+              var eov = document.createElement("div");
+              eov.style.cssText =
+                "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200000;" +
+                "display:flex;align-items:center;justify-content:center;";
+              var edlg = document.createElement("div");
+              edlg.style.cssText =
+                "background:#1f1414;border:1px solid #5a2828;border-radius:8px;" +
+                "width:640px;max-width:94vw;color:#e8d4d4;font-size:13px;" +
+                "box-shadow:0 16px 50px rgba(0,0,0,0.6);overflow:hidden;";
+              var eBody =
+                '<div style="margin-bottom:8px;color:#f0a0a0;">Chyba: ' +
+                _esc(_errTop) +
+                (r && r.error_kind ? ' <span style="opacity:0.6;">(' + _esc(r.error_kind) + ')</span>' : '') +
+                '</div>';
+              if (_reason) {
+                eBody +=
+                  '<div style="background:#2a1818;border:1px solid #5a2828;border-radius:4px;' +
+                  'padding:10px 12px;margin-bottom:10px;color:#ffc8c8;white-space:pre-wrap;' +
+                  'font-size:12px;">' + _esc(_reason) + '</div>';
+              }
+              eBody +=
+                '<details><summary style="cursor:pointer;color:#a8b4c2;font-size:11px;">' +
+                'Celý výpis</summary>' +
+                '<pre style="font-size:11px;color:#9aa6b4;background:#11151b;' +
+                'border:1px solid #2a3340;border-radius:4px;padding:8px;margin-top:6px;' +
+                'max-height:300px;overflow:auto;white-space:pre-wrap;">' +
+                _esc(_tail) + '</pre></details>';
+              edlg.innerHTML =
+                '<div style="padding:14px 18px;border-bottom:1px solid #5a2828;' +
+                'background:#1a1010;font-size:14px;font-weight:600;color:#f0b0b0;">' +
+                '✗ Generování selhalo</div>' +
+                '<div style="padding:18px;line-height:1.5;">' + eBody + '</div>';
+              var eftr = document.createElement("div");
+              eftr.style.cssText =
+                "padding:12px 18px;border-top:1px solid #5a2828;background:#1a1010;" +
+                "display:flex;justify-content:flex-end;";
+              var eOk = document.createElement("button");
+              eOk.type = "button";
+              eOk.textContent = "Zavřít";
+              eOk.style.cssText =
+                "background:#3a2020;border:1px solid #5a2828;color:#e8d4d4;" +
+                "padding:8px 18px;border-radius:4px;cursor:pointer;font-size:13px;";
+              eOk.addEventListener("click", function () { try { eov.remove(); } catch (e) {} });
+              eftr.appendChild(eOk);
+              edlg.appendChild(eftr);
+              eov.appendChild(edlg);
+              eov.addEventListener("click", function (ev) { if (ev.target === eov) eov.remove(); });
+              document.body.appendChild(eov);
+              try { eOk.focus(); } catch (e) {}
             }
           } catch (e) {
             btnYes.disabled = false;

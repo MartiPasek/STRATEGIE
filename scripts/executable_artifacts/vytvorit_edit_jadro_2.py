@@ -43,6 +43,16 @@ import json
 import sys
 import psycopg2
 
+# 1.6.2026 (Marti): Windows subprocess stdout = cp1252 → print() s diakritikou
+# (ů) / emoji (🪄) / box-drawing (─) crashne UnicodeEncodeError JEŠTĚ PŘED
+# zápisem. PYTHONIOENCODING=utf-8 to řeší v python_runner; tohle je 2. pojistka
+# (kdyby env nepropagoval) — reconfigure stdout/stderr na utf-8.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 # ============================================================================
 # Konfigurace
 # ============================================================================

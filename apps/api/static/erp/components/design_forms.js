@@ -2734,13 +2734,28 @@
           btnNo.disabled = true;
           btnYes.textContent = "⏳ Generuji…";
           try {
+            // Krok H+6 (1.6.2026): orchestrator (sandbox) má MCP UNREACHABLE —
+            // fieldy datasetu zjistíme v API (kde MCP funguje) přes
+            // /core/{id}/dataset-fields a pošleme je jako ctx.fields. Fallback:
+            // když fetch selže, pošleme jen coreId (orchestrator failne viditelně).
+            var _genBody = { coreId: core.id };
+            try {
+              var _ff = await fetch(
+                "/api/v1/erp/core/" + encodeURIComponent(core.id) + "/dataset-fields",
+                { credentials: "include" }
+              ).then(function (x) { return x.json(); });
+              if (_ff && _ff.ok && Array.isArray(_ff.fields) && _ff.fields.length) {
+                _genBody.fields = _ff.fields;
+              }
+            } catch (e) { /* fallback bez fields */ }
+
             const r = await fetch(
               "/api/v1/erp/sandbox/execute/vytvorit_edit_jadro_2",
               {
                 method: "POST",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ coreId: core.id }),
+                body: JSON.stringify(_genBody),
               }
             ).then(function (rr) { return rr.json(); });
 

@@ -873,6 +873,67 @@ _SYSTEM_TREE_NODES = [
 # ─────────────────────────────────────────────────────────────────────
 
 
+@api_router.get("/core/{core_id}/dataset-fields")
+def core_dataset_fields(core_id: int, req: Request) -> JSONResponse:
+    """Krok H+6 (1.6.2026, Marti orchestrator): fieldy datasetu pro edit core.
+
+    Orchestrator (sandbox subprocess) má MCP UNREACHABLE (vlastní klient se
+    nepřipojí) → nemůže si fieldy MSSQL datasetu zjistit. Tenhle endpoint běží
+    v API procesu (kde MCP funguje — grid loady to dokazují) — resolve edit
+    core → data_source → SELECT op (limit 1 přes run_data_source) → názvy
+    sloupců výsledku. Frontend je pošle orchestrátoru jako ctx.fields.
+    Parent-only (orchestrator je taky parent-only).
+
+    Returns: {ok, fields: [str], data_source_code} | {ok:False, error}
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_df
+    from sqlalchemy import text as _sql_df
+
+    session = _gds_df()
+    try:
+        op_row = session.execute(_sql_df("""
+            SELECT ds.code
+            FROM fw.data_source_op op
+            JOIN fw.data_source ds ON ds.id = op.data_source_id
+            WHERE op.core_id = :cid
+              AND op.operation_kind IN ('edit', 'insert')
+            ORDER BY CASE op.operation_kind WHEN 'edit' THEN 0 ELSE 1 END, op.id ASC
+            LIMIT 1
+        """), {"cid": core_id}).mappings().one_or_none()
+        if not op_row or not op_row["code"]:
+            return JSONResponse(
+                {"ok": False, "error": f"core #{core_id}: žádný edit/insert op s data_source.code"},
+                status_code=404,
+            )
+        ds_code = op_row["code"]
+        try:
+            result = ds_runner.run_data_source(
+                session, code=ds_code, raw_params={"limit": "1"},
+                variant="default", kind="select",
+            )
+        except Exception as exc:
+            return JSONResponse(
+                {"ok": False, "error": f"select run failed: {type(exc).__name__}: {exc}"},
+                status_code=500,
+            )
+        rows = result.get("rows") or []
+        if not rows:
+            return JSONResponse(
+                {"ok": False, "error": "select vrátil 0 rows — nelze odvodit sloupce"},
+                status_code=200,
+            )
+        fields = list(rows[0].keys())
+        return JSONResponse({"ok": True, "fields": fields, "data_source_code": ds_code})
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+
 @api_router.get("/data-by-id/{ds_id}")
 def data_source_execute_by_id(
     ds_id: int,

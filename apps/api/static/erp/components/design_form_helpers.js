@@ -1655,6 +1655,30 @@
           );
         }
       }
+      // Krok 5.Z (30.5.2026, Marti: "kdyz je ve fieldu hypertextovy odkaz (web),
+      // udelej ho jako odkaz — obecne ve vsech editech"): pokud value je URL
+      // (http/https), pridej klikaci 🔗 ikonu do field row -> otevre v novem
+      // okne. Input zustava editovatelny; ikona je jen "open link" affordance.
+      if (/^https?:\/\//i.test(displayValue) && inp.input) {
+        const linkIco = document.createElement("a");
+        linkIco.href = displayValue;
+        linkIco.target = "_blank";
+        linkIco.rel = "noopener noreferrer";
+        linkIco.textContent = "🔗";
+        linkIco.title = "Otevřít odkaz v novém okně:\n" + displayValue;
+        linkIco.style.cssText =
+          "position:absolute;right:6px;top:50%;transform:translateY(-50%);" +
+          "text-decoration:none;font-size:13px;cursor:pointer;opacity:0.65;" +
+          "z-index:2;line-height:1;";
+        linkIco.addEventListener("mouseenter", () => { linkIco.style.opacity = "1"; });
+        linkIco.addEventListener("mouseleave", () => { linkIco.style.opacity = "0.65"; });
+        // Klik na ikonu nesmi triggernout focus/edit inputu
+        linkIco.addEventListener("mousedown", (ev) => { ev.stopPropagation(); });
+        const _row = inp.input.parentElement || wrap;
+        _row.style.position = "relative";
+        inp.input.style.paddingRight = "26px";
+        _row.appendChild(linkIco);
+      }
       // Krok 14a-A1f #4: attach instance + origVal pro _revertAll()
       wrap._inst = inp;
       wrap._origVal = displayValue;
@@ -2344,8 +2368,13 @@
           // Dynamic marker: pri dirty pridame marker na puvodni polozku
           // (jen v panel — trigger label ukazuje aktualne vybranou, ktera
           // marker nepotrebuje). Pri clean state: items bez markerů.
+          // Marti 1.6.2026 fix: použij dd._baseItems (živý seznam) místo
+          // closure resolvedItems — pro dynamický číselník lookup je closure
+          // prázdný [] (items dotaženy async přes setItems). Bez tohoto by
+          // onChange resetoval items na [] → "Žádné položky" po výběru.
+          const _base = dd._baseItems || resolvedItems;
           if (isDirty && resolvedValue) {
-            const markedItems = resolvedItems.map(it => {
+            const markedItems = _base.map(it => {
               if (String(it.value) === String(resolvedValue)) {
                 return Object.assign({}, it, { label: it.label + "  ← původní" });
               }
@@ -2353,13 +2382,17 @@
             });
             dd.setItems(markedItems);
           } else {
-            dd.setItems(resolvedItems);
+            dd.setItems(_base);
           }
           if (typeof opts.onDirty === "function" && opts.fieldKey) {
             opts.onDirty(opts.fieldKey, isDirty);
           }
         },
       });
+      // Marti 1.6.2026: živý base items seznam. Dynamický číselník lookup
+      // ho po async fetch přepíše přes _inst._baseItems = opts. onChange
+      // marker logika čte odtud místo ze stale closure resolvedItems.
+      dd._baseItems = resolvedItems;
       // Readonly vizualni boost
       // Krok 14a-A1p (12.5.2026 vecer): accent border zrusen u RO,
       // viz _field komentar (RO = tichy lock pattern).

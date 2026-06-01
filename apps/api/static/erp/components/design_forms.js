@@ -4293,10 +4293,19 @@
         // entity_picker changes pro comp_def root PATCH (Marti's two-layer
         // data_source pattern). Picker #3 Datovy zdroj (display_mode='editable',
         // field_extern='data_source_id') ukladame na form root comp_def.
+        // Marti 1.6.2026: META columns = design-meta pickery (two-layer
+        // pattern — form root comp_def.data_source_id / menu_node.core_id).
+        // Vše ostatní = DATA FK picker → píše se do datového záznamu jako
+        // normální field (CRM Typ zakázky / Země / Kategorie). Bez tohoto
+        // rozlišení save posílal field_extern='typ_zakazky' jako sloupec do
+        // PATCH comp_def → HTTP 400 (není to comp_def sloupec).
+        const META_PICKER_COLS = new Set([
+          "data_source_id", "core_id", "parent_comp_def_id", "menu_node_id",
+        ]);
         const compDefChanges = {};
         const pickerWraps = this._shell.body.querySelectorAll(".erp-entity-picker-host");
         for (const pwrap of pickerWraps) {
-          if (pwrap._displayMode !== "editable" || !pwrap._fieldExtern) continue;
+          if (pwrap._displayMode !== "editable") continue;
           const initialId = pwrap._initialValue ? pwrap._initialValue.id : null;
           // _selectedValue je null po unlink, undefined pred user action.
           // Pokud undefined -> stale na initial. Pokud null nebo new value -> changed.
@@ -4308,8 +4317,25 @@
           } else {
             currentId = pwrap._selectedValue.id;
           }
-          if (currentId !== initialId) {
-            compDefChanges[pwrap._fieldExtern] = currentId;
+          if (currentId === initialId) continue;  // beze změny
+
+          const _fe = pwrap._fieldExtern;
+          if (_fe && META_PICKER_COLS.has(_fe)) {
+            // Design-meta picker → form root comp_def PATCH (existing).
+            compDefChanges[_fe] = currentId;
+          } else {
+            // DATA FK picker → datový záznam (jako normální field). Cílový
+            // sloupec = field name z fieldKey "<core.code>.<field.name>"
+            // (backend ho mapuje na save binding stejně jako u edit/dropdown).
+            // Uložená hodnota = currentId = row[Lookup ID field] — pro text
+            // číselník nastav Lookup ID field na text sloupec, pro FK na "ID".
+            const _pfk = pwrap._fieldKey || "";
+            const _pparts = _pfk.split(".");
+            if (_pparts.length >= 2) {
+              fieldChanges[_pparts.slice(1).join(".")] = currentId;
+            } else {
+              console.warn("[entity_picker] data picker bez fieldName:", _pfk);
+            }
           }
         }
 
@@ -10585,6 +10611,10 @@
                   try {
                     if (_el._inst) {
                       if (_el._inst.setLoading) _el._inst.setLoading(false);
+                      // Marti 1.6.2026: aktualizuj _baseItems (onChange marker
+                      // logika čte odtud — jinak po výběru reset na prázdný
+                      // closure [] → "Žádné položky" + ztráta hodnoty).
+                      _el._inst._baseItems = opts;
                       if (_el._inst.setItems) _el._inst.setItems(opts);
                       if (_el._inst.setValue && value != null && value !== "")
                         _el._inst.setValue(String(value));
@@ -10672,6 +10702,8 @@
                   try {
                     if (_el._inst) {
                       if (_el._inst.setLoading) _el._inst.setLoading(false);
+                      // Marti 1.6.2026: aktualizuj _baseItems (viz lookup výše).
+                      _el._inst._baseItems = opts;
                       if (_el._inst.setItems) _el._inst.setItems(opts);
                       if (_el._inst.setValue && value != null && value !== "")
                         _el._inst.setValue(String(value));

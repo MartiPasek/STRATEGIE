@@ -18381,26 +18381,11 @@ def _render_workspace_page(user_id: int) -> str:
       if (_installBtn) {
         _installBtn.addEventListener('click', async () => {
           if (!window._deferredInstallPrompt) {
-            // Platform-aware hint — žádný deferred prompt (iOS Safari, nebo
-            // Chrome co event nefírnul). Ukaž návod dle platformy.
-            const _ua = navigator.userAgent || '';
-            const _isIOS = /iPad|iPhone|iPod/.test(_ua)
-              || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-            if (_isIOS) {
-              alert(
-                "Instalace na iPhonu/iPadu:\\n\\n" +
-                "1. Klepni na ikonu Sdílet (čtvereček se šipkou nahoru) dole.\\n" +
-                "2. Vyber 'Přidat na plochu'.\\n\\n" +
-                "STRATEGIE ERP se pak otevře na plnou obrazovku bez lišty prohlížeče."
-              );
-            } else {
-              alert(
-                "Instalace jako aplikace (plná obrazovka bez lišty prohlížeče):\\n\\n" +
-                "Klikni na ikonu instalace v adresním řádku vpravo, nebo\\n" +
-                "menu prohlížeče (⋮ / ⋯) → 'Nainstalovat STRATEGIE ERP'.\\n\\n" +
-                "Pokud možnost nevidíš, obnov stránku (Ctrl+Shift+R) a zkus znovu."
-              );
-            }
+            // Marti 1.6.2026: ŽÁDNÉ blokující dialogové okno. Když deferred
+            // prompt není k dispozici (Chrome ho nenabídl / už nainstalováno),
+            // klik tiše nedělá nic — instalace přes nativní install ikonu
+            // v adresním řádku prohlížeče. Dřívější alert blokoval flow.
+            console.log('[install] no deferred prompt — silent (native install via address bar)');
             return;
           }
           try {

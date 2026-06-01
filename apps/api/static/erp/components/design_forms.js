@@ -7051,6 +7051,49 @@
           (field.name || "") + "'";
         basicPaneEl.appendChild(_row("Data sloupec (column_name)", colNameInput));
 
+        // Krok 5.Z+ (1.6.2026, Marti: "Save cil mit na ocich"): absolutní SAVE
+        // binding (layout.save = schema.table.column + row_key), naplněný přes
+        // 🔗 Vyřešit save bindingy (sqlglot lineage). READ-ONLY display — KAM se
+        // hodnota zapíše. NE column_name (to je čtecí SQL alias). U composite
+        // datasetu (isnull(...)) je alias počítaný → save cíl je jiný než read.
+        const _escST = function (s) {
+          const d = document.createElement("div");
+          d.textContent = String(s == null ? "" : s);
+          return d.innerHTML;
+        };
+        const _saveBind = currentLayout.save || null;
+        const saveTargetEl = document.createElement("div");
+        saveTargetEl.style.cssText =
+          "font-size:11px;line-height:1.5;padding:6px 8px;border:1px solid #2a3340;" +
+          "border-radius:4px;background:#141a20;";
+        if (!_saveBind) {
+          saveTargetEl.innerHTML =
+            '<span style="color:#7a8696;">(nenastaveno) — spusť ' +
+            '<b style="color:#7ad4a8;">🔗 Vyřešit save bindingy</b> v menu formu</span>';
+        } else if (_saveBind.readonly) {
+          saveTargetEl.innerHTML =
+            '<span style="color:#9a7686;">⊘ Neukládá se</span>' +
+            (_saveBind.reason
+              ? ' <span style="color:#6a7686;">— ' + _escST(_saveBind.reason) + '</span>'
+              : '');
+        } else {
+          const _tgt = (_saveBind.schema ? _saveBind.schema + "." : "") +
+                       (_saveBind.table || "?") + "." + (_saveBind.column || "?");
+          const _rkObj = _saveBind.row_key || {};
+          const _rkKeys = Object.keys(_rkObj);
+          let _rkHtml = "";
+          if (_rkKeys.length) {
+            _rkHtml = '<div style="margin-top:4px;color:#6a7686;">WHERE ' +
+              _rkKeys.map(function (k) {
+                return _escST(k) + "=" + _escST(String(_rkObj[k]));
+              }).join(" AND ") + '</div>';
+          }
+          saveTargetEl.innerHTML =
+            '<span style="color:#7aa8d4;font-family:ui-monospace,monospace;">' +
+            _escST(_tgt) + '</span>' + _rkHtml;
+        }
+        basicPaneEl.appendChild(_row("Save cíl", saveTargetEl));
+
         placeholderInput = document.createElement("input");
         placeholderInput.type = "text";
         placeholderInput.style.cssText = _inputStyle;

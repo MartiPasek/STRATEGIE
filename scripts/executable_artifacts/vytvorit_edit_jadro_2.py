@@ -428,13 +428,17 @@ def main():
             else:
                 form_created = True
                 form_caption = c_label or 'Editace záznamu'
+                # Schema Fix #11 (28.5.2026): fw.comp_def má `root` SMALLINT
+                # marker (1=primary). CHECK chk_comp_def_single_parent =
+                # XOR(root, parent_comp_def_id). Form root MUSÍ mít root=1
+                # (parent_comp_def_id=NULL). core_id se na děti dědí triggerem.
                 cur.execute("""
                     INSERT INTO fw.comp_def (
-                        type_id, core_id, parent_comp_def_id, name, caption,
+                        type_id, core_id, parent_comp_def_id, root, name, caption,
                         layout, sort_order, region_slot, data_source_id,
                         is_active, created_by_id, created_by_text,
                         updated_by_id, updated_by_text
-                    ) VALUES (%s, %s, NULL, %s, %s, %s::jsonb, 0, %s, %s,
+                    ) VALUES (%s, %s, NULL, 1, %s, %s, %s::jsonb, 0, %s, %s,
                               TRUE, %s, %s, %s, %s)
                     RETURNING id
                 """, (

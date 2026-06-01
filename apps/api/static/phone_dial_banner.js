@@ -78,7 +78,8 @@
     bar.style.cssText =
       "position:fixed;top:0;left:0;right:0;z-index:100050;" +
       "background:#1f4858;border-bottom:2px solid #3a8aa8;color:#e8f4f8;" +
-      "padding:12px 14px;display:flex;align-items:center;gap:12px;" +
+      "padding:12px 14px;display:flex;align-items:center;flex-wrap:wrap;" +
+      "gap:10px;row-gap:8px;" +
       "box-shadow:0 4px 16px rgba(0,0,0,0.5);font-size:15px;";
 
     var txt = document.createElement("div");
@@ -106,31 +107,33 @@
     var callBtn = document.createElement("button");
     callBtn.type = "button";
     callBtn.textContent = "Volat";
+    // Akční controls VLEVO (Marti 1.6.2026: "Volat i vCard doleva" — ať jsou
+    // v portrétu vždy vidět). Pořadí: [📞 Volat] [📇] [text flex:1] [×].
     callBtn.style.cssText =
-      "background:#2ea043;color:#fff;border:none;padding:12px 22px;" +
-      "border-radius:6px;font-weight:700;font-size:16px;white-space:nowrap;cursor:pointer;";
+      "flex:0 0 auto;background:#2ea043;color:#fff;border:none;padding:11px 16px;" +
+      "border-radius:6px;font-weight:700;font-size:15px;white-space:nowrap;cursor:pointer;";
     callBtn.addEventListener("click", doDial);
-    bar.appendChild(callBtn);
+    bar.insertBefore(callBtn, bar.firstChild);  // úplně vlevo
 
     var saveBtn = document.createElement("button");
     saveBtn.type = "button";
-    saveBtn.textContent = "📇";
+    saveBtn.textContent = "📇 Uložit";
     saveBtn.title = "Uložit do kontaktů telefonu";
     saveBtn.style.cssText =
-      "background:#243a44;color:#a8d4dc;border:1px solid #356e6e;padding:10px 12px;" +
-      "border-radius:6px;font-size:16px;cursor:pointer;white-space:nowrap;";
+      "flex:0 0 auto;background:#243a44;color:#a8d4dc;border:1px solid #356e6e;" +
+      "padding:11px 14px;border-radius:6px;font-size:14px;cursor:pointer;white-space:nowrap;";
     saveBtn.addEventListener("click", function (ev) {
       try { ev.stopPropagation(); } catch (e) {}
       _saveVcard(title, phone);
     });
-    bar.appendChild(saveBtn);
+    bar.insertBefore(saveBtn, txt);  // hned za Volat, před text
 
     var closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.textContent = "×";
     closeBtn.style.cssText =
-      "background:transparent;border:none;color:#bfe3ef;font-size:26px;" +
-      "line-height:1;cursor:pointer;padding:4px 10px;";
+      "flex:0 0 auto;margin-left:auto;background:transparent;border:none;" +
+      "color:#bfe3ef;font-size:26px;line-height:1;cursor:pointer;padding:4px 10px;";
     closeBtn.addEventListener("click", function (ev) {
       try { ev.stopPropagation(); } catch (e) {}
       _beaconConsume(reqObj.id, "dismissed");

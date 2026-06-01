@@ -10779,7 +10779,12 @@
           const dsName = field.data_source_name || null;
           const lookupId = (fieldLayout.lookup_id_field) || "id";
           const lookupDisplay = (fieldLayout.lookup_display_field) || "label";
-          const actions = fieldLayout.show_quick_actions || ["link", "unlink", "create_new"];
+          // Marti 1.6.2026 refaktor 2: picker vždy ukáže ⋮ (link) bez ohledu
+          // na show_quick_actions. Bez tohoto: pole s uloženým []
+          // (leftover z lookup_multi) → "[] || default" = [] (truthy) →
+          // žádné tlačítko → žádný ⋮ (Země bug). unlink/create se stejně už
+          // nerenderují (clear = smazání textu).
+          const actions = ["link"];
 
           // Phase 38.4 Krok 14g Etapa F Krok 5.I-D/E/F (16.5.2026 vecer,
           // Marti's two-layer data_source pattern volby):

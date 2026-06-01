@@ -4548,6 +4548,7 @@ async def design_resolve_save_bindings(core_id: int, req: Request) -> JSONRespon
         # SELECT * i :ID. Fallback (grid composite multi-table) → sqlglot lineage.
         bindings = None
         conn_id = None
+        dsid = None
         _edit_tbl = _introspect_edit_base_table(ds, core_id)
         if _edit_tbl and _edit_tbl.get("columns"):
             _sch = _edit_tbl.get("schema")

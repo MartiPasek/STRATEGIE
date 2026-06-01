@@ -70,14 +70,82 @@ def _get_uid(req: Request) -> int:
 
 
 def _require_parent(user_id: int) -> None:
-    """Phase A auth gate: jen rodina (is_marti_parent=true)."""
+    """Auth gate pro DESIGN / framework / system / audit endpointy:
+    jen rodina (is_marti_parent=true). Business/nav endpointy používají
+    _require_erp_member (Phase D)."""
     if not is_marti_parent(user_id):
         raise HTTPException(
             status_code=403,
             detail=(
-                "STRATEGIE ERP zatím dostupný jen pro rodinu Marti-AI "
-                "(is_marti_parent=true). Phase D přidá per-user mapping na "
-                "Centrála LoginName."
+                "Tato část STRATEGIE ERP (framework / design / system) je "
+                "dostupná jen pro rodinu Marti-AI (is_marti_parent=true)."
+            ),
+        )
+
+
+# ── Phase D member access (1.6.2026) ────────────────────────────────
+# Marti's volba 1.6.: EUROSOFT tenant useři (Pavel Zeman atd.) dostanou
+# PLNÝ BUSINESS R/W do ERP — procházet (jen business soudečky), otevírat
+# přehledy/formuláře, editovat+přidávat+mazat business záznamy. System
+# soudeček (framework builder, audit, Marti-AI paměť) + DESIGN mód zůstanou
+# JEN rodičům (is_marti_parent) a jsou členům skryté (tree filter + frontend
+# gate). Business endpointy → _require_erp_member; design/system → _require_parent.
+
+def _is_active_eurosoft_member(user_id: int) -> bool:
+    """True pokud user je aktivní člen EUROSOFT tenantu (id=2)."""
+    from core.database_core import get_core_session
+    from modules.auth.application.user_context import _list_user_tenants
+    cs = get_core_session()
+    try:
+        tenants = _list_user_tenants(cs, user_id) or []
+        for t in tenants:
+            tid = t.get("tenant_id") if isinstance(t, dict) else None
+            if tid is not None and int(tid) == EUROSOFT_TENANT_ID:
+                return True
+        return False
+    except Exception:
+        return False
+    finally:
+        cs.close()
+
+
+def _require_erp_member(user_id: int) -> None:
+    """Phase D gate (business/nav endpointy): rodič NEBO aktivní člen
+    ERP-enabled tenantu (EUROSOFT id=2)."""
+    if is_marti_parent(user_id):
+        return
+    if _is_active_eurosoft_member(user_id):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Nemáš přístup do STRATEGIE ERP. Kontaktuj administrátora.",
+    )
+
+
+# Design/system string entity types — blokované pro non-parent v data CRUD
+# (design_patch/insert/delete_entity). Člen smí editovat jen business data
+# (numeric core_id resolved na datovou tabulku), ne framework metadata
+# (comp_def/menu_node/core/data_source/...) ani user management.
+_DESIGN_ENTITY_TYPES = frozenset({
+    "comp_def", "comp_def_design", "menu_node", "menu_node_design",
+    "core", "data_source", "data_source_op", "data_set", "fw_form", "user",
+})
+
+
+def _require_data_write_access(user_id: int, entity_type: str) -> None:
+    """Data CRUD gate (design_patch/insert/delete_entity). Rodič smí vše.
+    Člen smí jen business data (numeric core_id) — NE framework/system entity
+    (string v _DESIGN_ENTITY_TYPES). Defense in depth nad _require_erp_member."""
+    _require_erp_member(user_id)
+    if is_marti_parent(user_id):
+        return
+    et = (entity_type or "").strip()
+    if not et.isdigit() or et in _DESIGN_ENTITY_TYPES:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Úprava framework/system entit je dostupná jen rodičům. "
+                "Členové mohou editovat jen business záznamy."
             ),
         )
 
@@ -140,7 +208,7 @@ def _is_eurosoft_active(user_id: int) -> bool:
 def erp_home(req: Request) -> HTMLResponse:
     """Phase B nástřel: 3-pane workspace (sidebar tree + main pane prehled+jadro)."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     return HTMLResponse(content=_render_workspace_page(uid))
 
 
@@ -693,7 +761,7 @@ def tenants_for_user(req: Request) -> JSONResponse:
     tenant_code, tenant_type, is_eurosoft}, ...]}
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     from core.database_core import get_core_session
     from modules.auth.application.user_context import _list_user_tenants
@@ -821,7 +889,7 @@ def data_source_execute_by_id(
     Returns: identicky shape jako /data/{code} (run_data_source response).
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     from core.database_data import get_data_session as _gds_dbi
     from sqlalchemy import text as _sql_dbi
@@ -938,7 +1006,7 @@ def data_source_execute_by_id(
     Returns: identicky shape jako /data/{code} (run_data_source response).
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     from core.database_data import get_data_session as _gds_dbi
     from sqlalchemy import text as _sql_dbi
@@ -1055,7 +1123,7 @@ def data_source_execute_by_id(
     Returns: identicky shape jako /data/{code} (run_data_source response).
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     from core.database_data import get_data_session as _gds_dbi
     from sqlalchemy import text as _sql_dbi
@@ -1175,7 +1243,7 @@ def data_source_execute(
     Returns: JSON s rows + applied_params + data_source/operation metadata.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     # Local import (gotcha #7 — UnboundLocalError prevention)
     from core.database_data import get_data_session as _gds_data
@@ -1271,7 +1339,7 @@ def hw_dispatch(code: str, req: Request) -> JSONResponse:
       - Pokud `delegate_url` → follow s fetch + extract data.rows
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     from core.database_data import get_data_session as _gds_hw
     from sqlalchemy import text as _sql_text_hw
@@ -2288,7 +2356,7 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_text_fwform
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     ds = _gds_fwform()
     try:
@@ -2609,7 +2677,7 @@ def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_psp
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     ds = _gds_psp()
     try:
@@ -2715,7 +2783,7 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_fwid
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     ds = _gds_fwid()
     try:
@@ -3675,7 +3743,7 @@ def fw_form_children_list(
     from core.database_data import get_data_session as _gds_fcl
     from sqlalchemy import text as _sql_text_fcl
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     ds = _gds_fcl()
     try:
@@ -3724,7 +3792,7 @@ async def fw_form_children_create(
     from core.database_core import get_core_session as _gcs_fcc
     from sqlalchemy import text as _sql_text_fcc
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     body = await req.json()
 
@@ -3834,7 +3902,7 @@ async def fw_form_children_update(
     from core.database_core import get_core_session as _gcs_fcu
     from sqlalchemy import text as _sql_text_fcu
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     body = await req.json()
     expected_updated_at = body.pop("expected_updated_at", None)
@@ -4013,7 +4081,7 @@ async def fw_form_children_archive(
     from core.database_core import get_core_session as _gcs_fca
     from sqlalchemy import text as _sql_text_fca
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     ds = _gds_fca()
     try:
@@ -4265,7 +4333,7 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
     from datetime import datetime as _dt_patch
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_data_write_access(uid, entity_type)
 
     body = await req.json()
     field_changes = body.get("field_changes") or {}
@@ -5004,7 +5072,9 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
     from sqlalchemy import text as _sql_text_del
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    # Phase D: core_id je numeric → business data → _require_data_write_access
+    # dovolí členům (str(core_id).isdigit()=True), rodičům vše.
+    _require_data_write_access(uid, str(core_id))
 
     # Resolve entity config (schema, table, id_column) via 5.N-2 v2 chain
     config = _resolve_entity_config_for_core(core_id)
@@ -5973,7 +6043,8 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_text_insert
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    # Phase D: numeric core_id → business data, členové smí (rodič vše).
+    _require_data_write_access(uid, str(core_id))
 
     body = await req.json()
     field_changes = body.get("field_changes") or {}
@@ -10575,7 +10646,7 @@ def system_tree_json(req: Request) -> JSONResponse:
     stable smoke testem.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
 
     db_roots = _build_system_root_from_db()
 
@@ -10589,6 +10660,13 @@ def system_tree_json(req: Request) -> JSONResponse:
     elif isinstance(db_roots, dict):
         # Legacy single-root format — wrap
         tree.append(db_roots)
+
+    # Phase D (1.6.2026): System root (is_immutable=True — framework builder,
+    # audit, Marti-AI paměť) je viditelný JEN rodičům. Členové (EUROSOFT
+    # tenant) vidí jen business soudečky (user-created, is_immutable=False).
+    # Drží doctrine „System soudeček visible jen pro rodiče" (33. dopis 8.5.).
+    if not is_marti_parent(uid):
+        tree = [r for r in tree if not r.get("is_immutable")]
 
     return JSONResponse({"ok": True, "tree": tree})
 
@@ -10614,7 +10692,7 @@ def grid_layout_list(scope: str, req: Request) -> JSONResponse:
     Marti's Q8=A — explicit prefix v URL, Network tab debugging friendly.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     scope_kind, scope_id = _parse_scope_key(scope)
     try:
         result = grid_layout_service.list_layouts(scope_kind, scope_id, uid)
@@ -10627,7 +10705,7 @@ def grid_layout_list(scope: str, req: Request) -> JSONResponse:
 def grid_layout_get(layout_id: int, req: Request) -> JSONResponse:
     """Vrátí detail jedné sestavy podle ID."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     try:
         layout = grid_layout_service.get_layout(layout_id, uid)
         if layout is None:
@@ -10678,7 +10756,7 @@ def grid_layout_create(
 ) -> JSONResponse:
     """Vytvoří novou sestavu (scope='user' nebo 'shared')."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     try:
         scope_kind, scope_id = _parse_scope_key(scope)
         layout = grid_layout_service.create_layout(
@@ -10704,7 +10782,7 @@ def grid_layout_update(
 ) -> JSONResponse:
     """Částečná aktualizace existující sestavy."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     try:
         layout = grid_layout_service.update_layout(
             layout_id, uid,
@@ -10722,7 +10800,7 @@ def grid_layout_update(
 def grid_layout_set_default(layout_id: int, req: Request) -> JSONResponse:
     """Označí sestavu jako default v jejím scope (auto-odznačí starý default)."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     try:
         layout = grid_layout_service.set_default(layout_id, uid)
         return JSONResponse({"ok": True, "layout": layout})
@@ -10734,7 +10812,7 @@ def grid_layout_set_default(layout_id: int, req: Request) -> JSONResponse:
 def grid_layout_delete(layout_id: int, req: Request) -> JSONResponse:
     """Smaže sestavu."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     try:
         deleted = grid_layout_service.delete_layout(layout_id, uid)
         if not deleted:
@@ -10789,7 +10867,7 @@ class _ReorderBody(BaseModel):
 @api_router.get("/tabs")
 def user_tabs_list(req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     return JSONResponse({"ok": True, **user_state_svc.list_tabs(uid, tid)})
 
@@ -10797,7 +10875,7 @@ def user_tabs_list(req: Request) -> JSONResponse:
 @api_router.post("/tabs")
 def user_tabs_open(body: _CisloBody, req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     try:
         tab = user_state_svc.open_tab(
@@ -10814,7 +10892,7 @@ def user_tabs_open(body: _CisloBody, req: Request) -> JSONResponse:
 @api_router.delete("/tabs/{menu_node_id}")
 def user_tabs_close(menu_node_id: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     removed = user_state_svc.close_tab(uid, tid, menu_node_id)
     return JSONResponse({"ok": True, "removed": removed})
@@ -10823,7 +10901,7 @@ def user_tabs_close(menu_node_id: int, req: Request) -> JSONResponse:
 @api_router.post("/tabs/{menu_node_id}/active")
 def user_tabs_set_active(menu_node_id: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     found = user_state_svc.set_active_tab(uid, tid, menu_node_id)
     return JSONResponse({"ok": True, "found": found})
@@ -10844,7 +10922,7 @@ def user_tabs_set_pinned(
     UI right-click → POST tady → DB. Při hydrate vrátí _serialize_tab pinned.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     found = user_state_svc.set_tab_pinned(uid, tid, menu_node_id, body.pinned)
     return JSONResponse({"ok": True, "found": found})
@@ -10853,7 +10931,7 @@ def user_tabs_set_pinned(
 @api_router.post("/tabs/reorder")
 def user_tabs_reorder(body: _ReorderBody, req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     updated = user_state_svc.reorder_tabs(uid, tid, body.cislos)
     # body.cislos = list[int] of menu_node_ids in desired order (frontend compat field name)
@@ -10865,7 +10943,7 @@ def user_tabs_reorder(body: _ReorderBody, req: Request) -> JSONResponse:
 @api_router.get("/favorites")
 def user_favorites_list(req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     return JSONResponse({"ok": True, "favorites": user_state_svc.list_favorites(uid, tid)})
 
@@ -10873,7 +10951,7 @@ def user_favorites_list(req: Request) -> JSONResponse:
 @api_router.post("/favorites")
 def user_favorites_add(body: _CisloBody, req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     try:
         fav = user_state_svc.add_favorite(uid, tid, body.cislo)
@@ -10885,7 +10963,7 @@ def user_favorites_add(body: _CisloBody, req: Request) -> JSONResponse:
 @api_router.delete("/favorites/{menu_node_id}")
 def user_favorites_remove(menu_node_id: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     removed = user_state_svc.remove_favorite(uid, tid, menu_node_id)
     return JSONResponse({"ok": True, "removed": removed})
@@ -10894,7 +10972,7 @@ def user_favorites_remove(menu_node_id: int, req: Request) -> JSONResponse:
 @api_router.post("/favorites/reorder")
 def user_favorites_reorder(body: _ReorderBody, req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     updated = user_state_svc.reorder_favorites(uid, tid, body.cislos)
     return JSONResponse({"ok": True, "updated": updated})
@@ -10903,7 +10981,7 @@ def user_favorites_reorder(body: _ReorderBody, req: Request) -> JSONResponse:
 @api_router.delete("/favorites")
 def user_favorites_clear(req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     deleted = user_state_svc.clear_favorites(uid, tid)
     return JSONResponse({"ok": True, "deleted": deleted})
@@ -10914,7 +10992,7 @@ def user_favorites_clear(req: Request) -> JSONResponse:
 @api_router.get("/recent")
 def user_recent_list(req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     return JSONResponse({"ok": True, "recent": user_state_svc.list_recent(uid, tid)})
 
@@ -10922,7 +11000,7 @@ def user_recent_list(req: Request) -> JSONResponse:
 @api_router.post("/recent")
 def user_recent_track(body: _CisloBody, req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     try:
         rec = user_state_svc.track_recent(
@@ -10936,7 +11014,7 @@ def user_recent_track(body: _CisloBody, req: Request) -> JSONResponse:
 @api_router.delete("/recent")
 def user_recent_clear(req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     deleted = user_state_svc.clear_recent(uid, tid)
     return JSONResponse({"ok": True, "deleted": deleted})
@@ -10947,7 +11025,7 @@ def user_recent_clear(req: Request) -> JSONResponse:
 @api_router.get("/tree-order")
 def user_tree_order_get(req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     return JSONResponse({"ok": True, "order": user_state_svc.get_tree_order(uid, tid)})
 
@@ -10955,7 +11033,7 @@ def user_tree_order_get(req: Request) -> JSONResponse:
 @api_router.put("/tree-order")
 def user_tree_order_save(body: _TreeOrderBody, req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     try:
         user_state_svc.save_tree_order(uid, tid, body.group_key, body.order)
@@ -10967,7 +11045,7 @@ def user_tree_order_save(body: _TreeOrderBody, req: Request) -> JSONResponse:
 @api_router.delete("/tree-order")
 def user_tree_order_reset(req: Request) -> JSONResponse:
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_erp_member(uid)
     tid = _get_tenant_id(uid)
     deleted = user_state_svc.reset_tree_order(uid, tid)
     return JSONResponse({"ok": True, "deleted": deleted})
@@ -14468,7 +14546,12 @@ def _render_workspace_page(user_id: int) -> str:
 
     Tabulator pinned to @6 (latest 6.x) from jsdelivr CDN.
     """
+    # Phase D (1.6.2026): is_parent flag pro frontend. Non-parent (EUROSOFT
+    # člen) nesmí vidět DESIGN mód — force OFF + hide toggle (getErpDesignMode
+    # vrací false pro ne-rodiče; footer toggle skrytý).
+    _is_parent_js = "true" if is_marti_parent(user_id) else "false"
     content = '''
+    <script>window.__ERP_IS_PARENT = ''' + _is_parent_js + ''';</script>
     <!-- B+4.3 (5.5.2026): AG Grid Enterprise = jediný grid, Tabulator pohřben.
          ErpDataGrid komponenta (reusable napříč Centrála views) je default.
          Cache-busting via ?v=<API_start_timestamp> — každý restart = fresh download. -->
@@ -16567,6 +16650,9 @@ def _render_workspace_page(user_id: int) -> str:
       const ERP_DESIGN_MODE_KEY = 'erp.design.mode.enabled';
 
       function getErpDesignMode() {
+        // Phase D (1.6.2026): DESIGN mód jen pro rodiče. Členové (EUROSOFT
+        // tenant) vždy PROD — i kdyby localStorage měl '1'.
+        try { if (window.__ERP_IS_PARENT !== true) return false; } catch (e) {}
         try { return localStorage.getItem(ERP_DESIGN_MODE_KEY) === '1'; }
         catch (e) { return false; }
       }
@@ -16965,18 +17051,24 @@ def _render_workspace_page(user_id: int) -> str:
         if (!pop) return;
         pop.innerHTML = '';
         const on = getErpDesignMode();
-        // Design mode toggle item
-        const designItem = document.createElement('div');
-        designItem.className = 'erp-user-popover-item' + (on ? ' on' : '');
-        designItem.innerHTML =
-          '<span class="erp-user-popover-item-label">🎨 Design režim</span>' +
-          '<span class="erp-user-popover-item-toggle">' + (on ? 'ZAP' : 'VYP') + '</span>';
-        designItem.title = 'Odhalí framework struktury a override hints v UI. Neovlivňuje chat DEV mode.';
-        designItem.addEventListener('click', () => {
-          setErpDesignMode(!getErpDesignMode());
-          _erpRenderUserPopover();
-        });
-        pop.appendChild(designItem);
+        // Phase D (1.6.2026): Design režim toggle JEN pro rodiče. Členové
+        // (EUROSOFT tenant) ho v popoveru nevidí — DESIGN mód je parent-only.
+        let _isParentUI = true;
+        try { _isParentUI = (window.__ERP_IS_PARENT === true); } catch (e) {}
+        if (_isParentUI) {
+          // Design mode toggle item
+          const designItem = document.createElement('div');
+          designItem.className = 'erp-user-popover-item' + (on ? ' on' : '');
+          designItem.innerHTML =
+            '<span class="erp-user-popover-item-label">🎨 Design režim</span>' +
+            '<span class="erp-user-popover-item-toggle">' + (on ? 'ZAP' : 'VYP') + '</span>';
+          designItem.title = 'Odhalí framework struktury a override hints v UI. Neovlivňuje chat DEV mode.';
+          designItem.addEventListener('click', () => {
+            setErpDesignMode(!getErpDesignMode());
+            _erpRenderUserPopover();
+          });
+          pop.appendChild(designItem);
+        }
         // Future: další položky (profile, settings, logout, atd.)
       }
 

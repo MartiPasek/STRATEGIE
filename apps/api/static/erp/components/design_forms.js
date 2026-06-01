@@ -408,6 +408,64 @@
     try { ok.focus(); } catch (e) {}
   }
 
+  // Náhled dataset SQL (1.6.2026, Marti: "na CORE zobrazit dataset, ať se
+  // nezamotáme"). Monospace, široký, scroll. + metadata (data_source/db_type).
+  function _genSqlPopup(meta, sql) {
+    var ds = (meta && meta.data_source) || {};
+    var conn = (meta && meta.connection) || {};
+    var metaLine = "data_source: " + (ds.code || ("#" + ds.id)) +
+      " · db_type: " + ((meta && meta.db_type) || "?") +
+      " · connection: " + (conn.code || ("#" + conn.id)) +
+      " · data_set #" + ((meta && meta.data_set_id) || "?");
+    var ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200000;" +
+      "display:flex;align-items:center;justify-content:center;";
+    var dlg = document.createElement("div");
+    dlg.style.cssText = "background:#1a1f26;border:1px solid #2a3340;border-radius:8px;" +
+      "width:840px;max-width:96vw;color:#cfd6df;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,0.6);" +
+      "overflow:hidden;display:flex;flex-direction:column;max-height:88vh;";
+    dlg.innerHTML =
+      '<div style="padding:14px 18px;border-bottom:1px solid #2a3340;background:#141a20;' +
+      'font-size:14px;font-weight:600;color:#e8eef5;">📄 Dataset SQL</div>' +
+      '<div style="padding:8px 18px;border-bottom:1px solid #2a3340;font-size:11px;color:#8a96a4;">' +
+      _genEsc(metaLine) + '</div>' +
+      '<pre style="margin:0;padding:14px 18px;font-size:12px;color:#cfe0d4;' +
+      'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;' +
+      'overflow:auto;line-height:1.5;flex:1 1 auto;">' + _genEsc(sql || "(prázdný sql_text)") + '</pre>';
+    var ftr = document.createElement("div");
+    ftr.style.cssText = "padding:12px 18px;border-top:1px solid #2a3340;background:#141a20;" +
+      "display:flex;justify-content:flex-end;";
+    var ok = document.createElement("button");
+    ok.type = "button";
+    ok.textContent = "Zavřít";
+    ok.style.cssText = "background:#2a3340;border:1px solid #3a4452;color:#cfd6df;" +
+      "padding:8px 18px;border-radius:4px;cursor:pointer;font-size:13px;";
+    ok.addEventListener("click", function () { try { ov.remove(); } catch (e) {} });
+    ftr.appendChild(ok);
+    dlg.appendChild(ftr);
+    ov.appendChild(dlg);
+    ov.addEventListener("click", function (ev) { if (ev.target === ov) ov.remove(); });
+    document.body.appendChild(ov);
+    try { ok.focus(); } catch (e) {}
+  }
+
+  // Načte + zobrazí dataset SQL daného core (📄 tlačítko v DESIGN toolbaru).
+  async function _showDatasetSql(coreId) {
+    try {
+      var j = await fetch(
+        "/api/v1/erp/core/" + encodeURIComponent(coreId) + "/dataset-sql",
+        { credentials: "include" }
+      ).then(function (x) { return x.json(); });
+      if (!j || !j.ok) {
+        _genNotePopup("✗ Dataset SQL — chyba", (j && j.error) || "HTTP chyba", true);
+        return;
+      }
+      _genSqlPopup(j, j.sql);
+    } catch (e) {
+      _genNotePopup("✗ Dataset SQL — síťová chyba", String(e && e.message || e), true);
+    }
+  }
+
   // Spustí orchestrator vytvorit_edit_jadro_2 (fetch dataset-fields → POST) a
   // ukáže success/error popup. onReopen() se zavolá po OK na success popupu.
   // triggerBtn (volitelný) se disable/restore s labelem restoreLabel.
@@ -3534,6 +3592,19 @@
               _resolveSaveBindingsFlow(_dtCoreId, _dtCoreLabel);
             });
             dtBar.appendChild(bindBtn);
+
+            const dtDiv2 = document.createElement("span");
+            dtDiv2.style.cssText = "width:1px;height:20px;background:#3a4452;margin:0 2px;";
+            dtBar.appendChild(dtDiv2);
+
+            const sqlBtn = document.createElement("button");
+            sqlBtn.type = "button";
+            sqlBtn.textContent = "📄 Dataset SQL";
+            sqlBtn.title = "Zobrazí raw SELECT data_source tohoto jádra (náhled + debug bindingů).";
+            sqlBtn.style.cssText = "padding:6px 12px;background:#2a2438;border:1px solid #4a3a6e;" +
+              "border-radius:3px;color:#c4a8e8;cursor:pointer;font-size:12px;";
+            sqlBtn.addEventListener("click", function () { _showDatasetSql(_dtCoreId); });
+            dtBar.appendChild(sqlBtn);
 
             sec.grid.appendChild(dtBar);
           }

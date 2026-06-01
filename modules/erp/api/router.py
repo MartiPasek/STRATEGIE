@@ -934,6 +934,61 @@ def core_dataset_fields(core_id: int, req: Request) -> JSONResponse:
             pass
 
 
+@api_router.get("/core/{core_id}/dataset-sql")
+def core_dataset_sql(core_id: int, req: Request) -> JSONResponse:
+    """1.6.2026 (Marti: "na CORE zobrazit dataset, ať se nezamotáme"): vrátí
+    raw SELECT sql_text data_source daného edit core + metadata. Pro UI náhled
+    + debug save bindingů (resolver). Parent-only.
+
+    Returns: {ok, sql, data_source{id,code,name}, data_set_id, db_type, connection{id,code}}
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_dsql
+    from sqlalchemy import text as _sql_dsql
+
+    session = _gds_dsql()
+    try:
+        row = session.execute(_sql_dsql("""
+            SELECT ds.id AS ds_id, ds.code AS ds_code, ds.name AS ds_name,
+                   dset.id AS dset_id, dset.sql_text AS sql_text,
+                   dc.id AS conn_id, dc.code AS conn_code, dc.db_type AS db_type
+            FROM fw.data_source_op op
+            JOIN fw.data_source ds ON ds.id = op.data_source_id
+            LEFT JOIN fw.data_set dset ON dset.id = op.data_set_id
+            LEFT JOIN fw.db_connection dc ON dc.id = dset.db_connection_id
+            WHERE op.data_source_id = (
+                SELECT op2.data_source_id FROM fw.data_source_op op2
+                WHERE op2.core_id = :cid AND op2.operation_kind IN ('edit', 'insert')
+                ORDER BY CASE op2.operation_kind WHEN 'edit' THEN 0 ELSE 1 END, op2.id ASC
+                LIMIT 1
+            )
+              AND op.operation_kind = 'select'
+            ORDER BY op.is_default DESC NULLS LAST, op.id ASC
+            LIMIT 1
+        """), {"cid": core_id}).mappings().one_or_none()
+        if not row:
+            return JSONResponse(
+                {"ok": False, "error": f"core #{core_id}: nenalezen SELECT op datasetu (edit/insert op → data_source → select)"},
+                status_code=404,
+            )
+        return JSONResponse({
+            "ok": True,
+            "core_id": core_id,
+            "data_source": {"id": row["ds_id"], "code": row["ds_code"], "name": row["ds_name"]},
+            "data_set_id": row["dset_id"],
+            "db_type": row["db_type"],
+            "connection": {"id": row["conn_id"], "code": row["conn_code"]},
+            "sql": row["sql_text"] or "",
+        })
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+
 @api_router.get("/data-by-id/{ds_id}")
 def data_source_execute_by_id(
     ds_id: int,

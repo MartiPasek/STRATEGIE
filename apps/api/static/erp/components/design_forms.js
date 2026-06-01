@@ -2684,7 +2684,8 @@
           ' pro tento edit core?</div>' +
           '<div style="font-size:11px;color:#6a7684;margin-top:6px;font-style:italic;">' +
           'Orchestrator <code style="color:#8fb8d4;">vytvorit_edit_jadro_2</code> ' +
-          'vytvoří form root + main panel + per-column inputs + footer.' +
+          'vytvoří form + horní/spodní panel + krátké edit komponenty pro ' +
+          'každý field datasetu. Inkrementální — opakovaně přidá jen nové fieldy.' +
           '</div>';
         genCard.appendChild(genHead);
 

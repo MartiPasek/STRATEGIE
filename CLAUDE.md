@@ -14002,3 +14002,71 @@ jiného"*), a **root-cause fixem** (díky Marti's *„opravit v nástroji"*),
 INSERT LIVE + DDL default fix — 56. dopis)
 
 🎯 🧩 🌳 ☕🌙
+
+---
+
+## Dodatek — 1. 6. 2026: 🏛️ HISTORICKÝ MILNÍK — generický generátor edit jader z UI
+
+Marti's slova: ***„Gratuluji a smekam, Claude. Takhle si predstavuju
+profesionalni praci."*** + ***„Presne tak, tohle je historicky milnik!!!!"***
+Beru. Bez pokory (#69-#70 doctrine drží).
+
+**Co se stalo:** orchestrator `vytvorit_edit_jadro_2` přešel z „tichého
+ok=True (komponenty nevznikly)" na **plnohodnotný generický generátor**.
+Klik „Ano, vygeneruj" na prázdném edit core → **form + horní panel (align:top)
++ spodní panel (align:client) + krátké edit komponenty pro KAŽDÝ field
+datasetu** → info popup „co vzniklo" → **OK otevře jádro** s vyrenderovanými
+poli a daty. **Inkrementální** — opakovaný běh přidá jen nové fieldy.
+
+**Ověřeno generické napříč jádry (žádný hardcode, jeden skript):**
+- CRM Kontaktní údaje (core 81) → 12 komponent.
+- CRM Akce (core 72/sub-grid) → 26 komponent (IDHlav, Poradi, IDakce, Nazev,
+  Popis, Telefon, Email, Jmeno, Prijmeni, Pozice, … s daty).
+
+**Cesta (debug štafeta — každý popup ukázal přesnou příčinu):**
+1. *Tichý fail* → hardening: `_fail` viditelný + START/FINISH log s params + stdout_tail.
+2. *„charmap" red herring* → byl z API chat loggeru (jiný proces), ne sandbox
+   (ten už PYTHONIOENCODING=utf-8 měl). **Lekce: nehádej, přečti stdout_tail.**
+3. *Prázdný stdout v popupu* → `_fail` dělal `sys.exit(1)` → SystemExit
+   propadl mimo runner wrapper (chytá jen `Exception`, captuje stdout do
+   StringIO) → stdout se ztratil. **Fix: `_fail` RAISE, ne sys.exit. Žádný
+   sys.exit nikde v sandbox skriptu.**
+4. *`mcp_unreachable`* → sandbox subprocess má VLASTNÍ MCP klient, nepřipojí se
+   (API proces MCP má funkční). **Fix: nový endpoint `GET /core/{id}/dataset-
+   fields` spočítá fieldy v API (reuse `run_data_source`) → frontend je pošle
+   orchestrátoru jako `ctx.fields`. Sandbox MCP vůbec nepotřebujeme.**
+5. *`chk_comp_def_single_parent`* → schema Fix #11: `fw.comp_def.root` SMALLINT
+   marker, CHECK = XOR(root, parent_comp_def_id), core_id denormalizovaný na
+   všechny rows (trigger). **Fix: form root `root=1`; děti mají parent →
+   projdou; core_id dědí trigger.**
+
+**Doctriny (drží napříč budoucích fází):**
+- **„Fail viditelný v UI, ne hádání přes logy"** — success i error popup
+  s přesným důvodem (✗ FAIL z stdout). Marti's „ošetřit po všech stránkách"
+  v praxi: konec misdiagnóz, UI řekne pravdu na rovinu.
+- **„Sandbox MCP unreachable → spočítej v API"** — co potřebuje MSSQL/MCP,
+  počítá API proces (kde MCP jede) a předá sandboxu přes ctx. Reuse battle-
+  tested `run_data_source`.
+- **„fieldy = výstupní sloupce datasetu"** (composite query osoby_detail nemá
+  jednu tabulku k introspekci → fieldy z run výsledku, ne z information_schema).
+
+**2. „Práce" milník v sérii** (po 8-step buildu Marti-AI 20.5.):
+| # | Den | Co | Marti |
+|---|---|---|---|
+| 1 | 4.5. | EUROSOFT PDF přehled vedení | „první firemní deliverable" |
+| 2 | 20.5. | Marti-AI 8-step autonomní build | „historický mylník" |
+| **3** | **1.6.** | **Generický generátor edit jader z UI** | **„historicky milnik!!!! Smekam."** |
+
+**Zbývá (Marti's plán „save/binding až potom"):** Fáze 2 — zápis editovaných
+hodnot zpět (composite osoby_detail = master-detail mapování jako u Kontaktu).
+
+**Soubory:** `scripts/executable_artifacts/vytvorit_edit_jadro_2.py` (rewrite:
+2 panely + fieldy z datasetu + inkrementální + _fail raise + root=1),
+`modules/erp/api/router.py` (`/core/{id}/dataset-fields` endpoint),
+`apps/api/static/erp/components/design_forms.js` (success/error popup +
+btnYes fetch fields). python_runner beze změny (PYTHONIOENCODING už měl).
+
+— **Claude (id=23)** (Sonnet 4.6, 1. 6. 2026, po generickém orchestrátoru
+LIVE napříč jádry — Marti's „historicky milnik")
+
+🏛️ 🌳 🎨 ☕

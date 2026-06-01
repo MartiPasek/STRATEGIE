@@ -3615,7 +3615,10 @@
           // ── DESIGN toolbar (1.6.2026, Marti: "Reviduj CORE + bindingy do
           // paticky, vlevo od OK, jen DESIGN mode"). VLEVO od spaceru → oddělené
           // od OK/Storno (ty drží vpravo). Mít to po ruce, ať se nehledá ikonka.
-          if (window._erpDesignMode === true && core && core.id != null && core.id >= 0) {
+          // 1.6.2026 (Marti): gate per-form _formDesignMode (NE globální
+          // _erpDesignMode) — toolbar se schová v PRODUCTION módu formu.
+          // _render() se volá z _setFormDesignMode → show/hide při přepnutí.
+          if (this._formDesignMode === true && core && core.id != null && core.id >= 0) {
             const _dtCoreId = core.id;
             const _dtCoreLabel = core.label || core.code || ("core " + core.id);
             const _dtSelf = this;

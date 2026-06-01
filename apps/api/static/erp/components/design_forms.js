@@ -10920,12 +10920,41 @@
 
           const _labelInput = document.createElement("input");
           _labelInput.type = "text";
-          _labelInput.readOnly = true;
+          // Marti 1.6.2026 refaktor 2: editable (ne readonly) — uživatel zruší
+          // výběr smazáním textu v poli (místo 🚫 tlačítka). Free-text se
+          // neuloží (jen ⋮ picker nastaví _selectedValue); prázdné pole = unlink.
           _labelInput.value = initialLabel != null ? String(initialLabel) : "";
           _labelInput.placeholder = dsCode ? "— vyber —" : "⚠ data_source nenastaven";
+          _labelInput.readOnly = !!(readonly || isDisplayOnly);
           _labelInput.style.cssText =
             "flex:1;background:transparent;border:none;color:#cfd6df;" +
-            "font-size:13px;padding:6px 8px;outline:none;cursor:default;";
+            "font-size:13px;padding:6px 8px;outline:none;cursor:text;";
+          if (!_labelInput.readOnly) {
+            // Smazání textu (prázdné pole) = zrušený výběr (unlink).
+            _labelInput.addEventListener("input", function () {
+              if (_labelInput.value.trim() === "") {
+                wrap._selectedValue = null;
+                if (_idInput) _idInput.value = "";
+                const hadInitial = !!(wrap._initialValue && wrap._initialValue.id != null);
+                if (typeof onDirty === "function") onDirty(fieldKey, hadInitial);
+              }
+            });
+            // Free-text není povolen — na blur vrať poslední platný display
+            // (pokud uživatel naťukal nesmysl). Prázdné = ponecháme (unlink).
+            _labelInput.addEventListener("blur", function () {
+              if (_labelInput.value.trim() === "") return;
+              let expected;
+              if (wrap._selectedValue && wrap._selectedValue.display != null) {
+                expected = String(wrap._selectedValue.display);
+              } else if (wrap._selectedValue === null) {
+                expected = "";
+              } else {
+                expected = (wrap._initialValue && wrap._initialValue.display != null)
+                  ? String(wrap._initialValue.display) : "";
+              }
+              if (_labelInput.value !== expected) _labelInput.value = expected;
+            });
+          }
 
           // idCol/labelCol shim — handlery níže referencují
           // idCol/labelCol.querySelector("input"). Drž je jako lehké wrappery
@@ -10939,12 +10968,14 @@
           idCol.appendChild(_idInput);
           fieldsRow.appendChild(idCol);
 
-          // Action ikony (🔗 / 🚫) — napravo, kompaktní (drop ➕ create_new)
-          const actionsRow = fieldsRow;  // ikony jdou do fieldsRow (napravo)
+          // Marti 1.6.2026 refaktor 2: jen ⋮ picker (drop 🚫 unlink — clear
+          // přes smazání textu v poli; drop ➕ create_new). ⋮ jako filtr gridu,
+          // neutrální barva (ne accent modrá). unlink/create_new v actions
+          // configu se auto-přeskočí (def === undefined → return).
+          const actionsRow = fieldsRow;  // ikona jde do fieldsRow (napravo)
 
           const ACTION_DEFS = {
-            link: { icon: "🔗", title: "Vybrat existující záznam", color: "#fff" },
-            unlink: { icon: "🚫", title: "Zrušit výběr", color: "#d48787" },
+            link: { icon: "⋮", title: "Vybrat existující záznam", color: "#8a96a4" },
           };
 
           // Store initial value pro dirty check.
@@ -10978,15 +11009,13 @@
             // (display-only), Picker #2 cte z current core row (readonly self-ref).
             const btnDisabled = isDisplayOnly || (readonly && act !== "link");
             btn.disabled = btnDisabled;
-            // Marti 1.6.2026: tlačítka integrovaná do input borderu (segmented
-            // look). 🔗 = prominentní accent trigger (jako ErpDate), 🚫 = subtle.
-            const _isLink = act === "link";
+            // Marti 1.6.2026 refaktor 2: ⋮ trigger integrovaný do input borderu
+            // (jako ⋮ menu na filtrech gridu) — neutrální, bez accent modré.
             btn.style.cssText =
-              "padding:0 12px;font-size:15px;border:none;" +
+              "padding:0 10px;font-size:18px;line-height:1;border:none;" +
               "border-left:1px solid #2a3340;cursor:" +
               (btnDisabled ? "default" : "pointer") + ";" +
-              "background:" + (_isLink ? "var(--accent,#4f8ef7)" : "#141a21") + ";" +
-              "color:" + (_isLink ? "#fff" : def.color) + ";" +
+              "background:#141a21;color:" + def.color + ";" +
               "display:flex;align-items:center;justify-content:center;" +
               (btnDisabled ? "opacity:0.4;" : "");
 

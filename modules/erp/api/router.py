@@ -18336,12 +18336,26 @@ def _render_workspace_page(user_id: int) -> str:
       if (_installBtn) {
         _installBtn.addEventListener('click', async () => {
           if (!_deferredInstallPrompt) {
-            // Fallback: ukaz user kde ma manualne kliknout
-            alert(
-              "Pro instalaci klikni na 3 tečky vpravo nahoře v Chrome → " +
-              "'Nainstalovat STRATEGIE ERP'.\\n\\n" +
-              "Pokud možnost nevidíš, zkus reload stránky."
-            );
+            // Platform-aware hint — žádný deferred prompt (iOS Safari, nebo
+            // Chrome co event nefírnul). Ukaž návod dle platformy.
+            const _ua = navigator.userAgent || '';
+            const _isIOS = /iPad|iPhone|iPod/.test(_ua)
+              || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            if (_isIOS) {
+              alert(
+                "Instalace na iPhonu/iPadu:\\n\\n" +
+                "1. Klepni na ikonu Sdílet (čtvereček se šipkou nahoru) dole.\\n" +
+                "2. Vyber 'Přidat na plochu'.\\n\\n" +
+                "STRATEGIE ERP se pak otevře na plnou obrazovku bez lišty prohlížeče."
+              );
+            } else {
+              alert(
+                "Instalace jako aplikace (plná obrazovka bez lišty prohlížeče):\\n\\n" +
+                "Klikni na ikonu instalace v adresním řádku vpravo, nebo\\n" +
+                "menu prohlížeče (⋮ / ⋯) → 'Nainstalovat STRATEGIE ERP'.\\n\\n" +
+                "Pokud možnost nevidíš, obnov stránku (Ctrl+Shift+R) a zkus znovu."
+              );
+            }
             return;
           }
           try {
@@ -18363,11 +18377,20 @@ def _render_workspace_page(user_id: int) -> str:
         if (btn) btn.style.display = 'none';
         console.log('[install] appinstalled event — button hidden');
       });
-      // Hide install button v PWA standalone mode (uz nainstalovany)
-      if (window.matchMedia('(display-mode: standalone)').matches) {
+      // Phase D (1.6.2026, Marti): persistentní install nabídka. Pokud ERP
+      // NEběží jako standalone PWA (= je v browser tabu → méně místa na
+      // obrazovce), ukaž install ikonu VŽDY — i bez beforeinstallprompt
+      // (iOS Safari ho nefírne nikdy; Chrome ho nemusí fírnout dle heuristiky
+      // nebo když už je nainstalovaný chat na stejné doméně). Klik → deferred
+      // prompt (pokud zachycen) nebo platform-aware hint. V standalone mode
+      // (už nainstalováno) ikonu schovej.
+      (function _erpInitInstallAffordance() {
         const btn = document.getElementById('erpInstallBtn');
-        if (btn) btn.style.display = 'none';
-      }
+        if (!btn) return;
+        const _standalone = window.matchMedia('(display-mode: standalone)').matches
+          || window.navigator.standalone === true;  // iOS Safari standalone
+        btn.style.display = _standalone ? 'none' : 'inline-flex';
+      })();
 
       function loadTabsState() {
         try {

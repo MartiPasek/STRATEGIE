@@ -4663,6 +4663,66 @@ async def design_resolve_save_bindings(core_id: int, req: Request) -> JSONRespon
         ds.close()
 
 
+@api_router.post("/contact-action")
+async def log_contact_action(req: Request) -> JSONResponse:
+    """Fáze 1A (1.6.2026, Marti: "archivovat čísla která se vytáčely"):
+    archiv akcí na buňkách/polích (phone/email/web). Volá frontend
+    erp_cell_actions.js _log() při dvojkliku v gridu / klik na ikonu ve formu.
+
+    Append-only audit (Fix N doctrine) — jen INSERT. Auth: jakýkoliv
+    přihlášený user (Pavel obchodník to potřebuje, ne jen parent).
+    NE-anonymní — user_id + login_name.
+
+    Body: {action_kind: phone|email|web, value, contact_table?,
+           contact_row_id?, template_id?}
+    """
+    from core.database_data import get_data_session as _gds_ca
+    from sqlalchemy import text as _sql_ca
+
+    uid = _get_uid(req)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    kind = (str(body.get("action_kind") or "")).strip().lower()
+    if kind not in ("phone", "email", "web"):
+        return JSONResponse({"ok": False, "error": "neznámý action_kind"}, status_code=400)
+    value = body.get("value")
+    contact_table = body.get("contact_table")
+    _cr_raw = body.get("contact_row_id")
+    try:
+        contact_row_id = int(_cr_raw) if _cr_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        contact_row_id = None
+    _tid_raw = body.get("template_id")
+    try:
+        template_id = int(_tid_raw) if _tid_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        template_id = None
+
+    ds = _gds_ca()
+    try:
+        ln = ds.execute(_sql_ca(
+            "SELECT COALESCE(login_name, short_name, first_name, '') "
+            "FROM public.users WHERE id = :uid"
+        ), {"uid": uid}).scalar()
+        ds.execute(_sql_ca("""
+            INSERT INTO fw.contact_action_log
+              (user_id, user_login_name, action_kind, value,
+               contact_table, contact_row_id, template_id)
+            VALUES (:uid, :ln, :k, :v, :ct, :cr, :tid)
+        """), {"uid": uid, "ln": ln, "k": kind, "v": value,
+               "ct": contact_table, "cr": contact_row_id, "tid": template_id})
+        ds.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[log_contact_action] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.
@@ -14971,6 +15031,10 @@ def _render_workspace_page(user_id: int) -> str:
          (context menu, grid header, workspace toolbar). Marti doctrine
          "stejne zobrazit, stejne funkce". -->
     <script src="/static/erp/components/erp_grid_actions.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Cell actions Fáze 1 (1.6.2026, Marti: dvojklik na telefon/email/web
+         → tel:/mailto:/open + auto-archiv fw.contact_action_log). Dispatcher
+         pro grid (onCellDoubleClicked) i form (dblclick na pole). -->
+    <script src="/static/erp/components/erp_cell_actions.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Master-detail Krok 6 (24.5.2026): custom JS renderer pro Data
          Sources → Data Source Op detail (nested ErpDataGrid s layoutKey
          "data_source_op" persistence). Marti's Varianta B — full features

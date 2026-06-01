@@ -9965,6 +9965,9 @@
           _lblEl0.dataset.srOrigText = String(comp.caption || comp.name || "");
         }
       } catch (_e) { /* fail-safe */ }
+      // Marti 1.6.2026 (cell actions ve formu): dvojklik na pole s telefonem/
+      // emailem/webem → akce. Jen PROD/use mode (v DESIGN se needituje).
+      try { this._attachFieldCellAction(fieldEl, comp, value); } catch (_e) { /* fail-safe */ }
       if (this._formDesignMode !== true && comp.state_overrides) {
         this._applyStateOverrides(fieldEl, comp);
       }
@@ -11012,6 +11015,36 @@
         if (childEl) fallback.appendChild(childEl);
       }
       return fallback;
+    }
+
+    // Marti 1.6.2026 (cell actions): dvojklik na pole telefon/email/web →
+    // akce přes window.ErpCellActions (tel: / mailto: / open + auto-archiv).
+    // Jen v PROD/use mode (DESIGN = struktura, ne data). Honoruje "double
+    // klikne ve formuláři" + konzistentní s gridem onCellDoubleClicked.
+    _attachFieldCellAction(fieldEl, comp, value) {
+      if (this._formDesignMode === true) return;
+      if (!window.ErpCellActions || !fieldEl) return;
+      const action = window.ErpCellActions.resolve((comp && comp.layout) || {}, value);
+      if (!action) return;
+      const HINT = {
+        phone: "Dvojklik → vytočit číslo",
+        email: "Dvojklik → napsat email",
+        web: "Dvojklik → otevřít web",
+      };
+      const inp = fieldEl.querySelector(
+        ".erp-input-input, input, textarea, .erp-formlist-trigger, .erp-dropdown-trigger"
+      );
+      const target = inp || fieldEl;
+      try { target.title = (HINT[action.kind] || "Dvojklik → akce") + ": " + action.value; } catch (e) {}
+      target.addEventListener("dblclick", (ev) => {
+        ev.preventDefault();
+        try { window.getSelection().removeAllRanges(); } catch (e) {}
+        window.ErpCellActions.execute(action, {
+          table: (this._spec && this._spec.core && this._spec.core.code) || null,
+          rowId: this.opts && this.opts.rowId,
+          fieldName: comp && comp.name,
+        });
+      });
     }
 
     _renderField(field, value, onDirty) {

@@ -2839,11 +2839,36 @@
             opts.onRowClick(event.data, event.event);
           }
         },
-        onRowDoubleClicked: (event) => {
-          // Excel/Windows standard — double-click opens detail/jádro
+        onCellDoubleClicked: (event) => {
+          // Marti 1.6.2026 (cell actions): dvojklik na buňku s telefonem /
+          // emailem / webem → akce (tel: / mailto: / open) MÁ PŘEDNOST před
+          // open-form. Jinak → otevři detail/jádro. Open-logika přesunuta sem
+          // z onRowDoubleClicked, protože dblclick je VŽDY na buňce (žádná
+          // závislost na pořadí cell/row eventů).
+          try {
+            if (window.ErpCellActions) {
+              const _colLay = (event.colDef && event.colDef._erpLayout) || {};
+              const _act = window.ErpCellActions.resolve(_colLay, event.value);
+              if (_act) {
+                const _d = event.data || {};
+                const _rid = (_d.ID != null) ? _d.ID
+                  : (_d.Id != null) ? _d.Id
+                  : (_d.id != null) ? _d.id : null;
+                window.ErpCellActions.execute(_act, {
+                  table: opts.gridCode || opts.code || opts.dataSourceCode || null,
+                  rowId: _rid,
+                });
+                return;  // akce provedena → neotvírej form
+              }
+            }
+          } catch (e) { console.warn("[datagrid cell-action]", e); }
           if (typeof opts.onRowDoubleClick === "function") {
             opts.onRowDoubleClick(event.data, event.event);
           }
+        },
+        onRowDoubleClicked: (event) => {
+          // Open-form přesunut do onCellDoubleClicked (1.6.2026, cell actions)
+          // — cell event umožní akci telefon/email/web přednost. Tady už NIC.
         },
         // Phase 38.4 Krok 14b (12.5.2026 vecer): Enter na radku gridu = open detail.
         // Marti's spec: "Pri ENTER na radku gridu uzivatelu, nebo pres double clik

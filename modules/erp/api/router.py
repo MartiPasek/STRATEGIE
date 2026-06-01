@@ -873,6 +873,80 @@ _SYSTEM_TREE_NODES = [
 # ─────────────────────────────────────────────────────────────────────
 
 
+def _introspect_edit_base_table(session, core_id: int):
+    """1.6.2026 (Marti: "detail core = jednoduchý SELECT WHERE ID=:ID"): pro
+    edit core s VLASTNÍM data_set edit-opem (≠ grid select) parsuje base table
+    z FROM + introspektuje sloupce (MCP describe_table pro mssql / info_schema
+    pro pg). Vrací {schema, table, columns:[names], db_type} nebo None (caller
+    fallback na grid select). Zvládne `SELECT *` i `:ID` (neběží query — čte
+    schema tabulky).
+    """
+    import re as _re_iebt
+    from sqlalchemy import text as _sql_iebt
+
+    row = session.execute(_sql_iebt("""
+        SELECT dset.sql_text, dc.db_type, op.data_set_id,
+               (SELECT op2.data_set_id FROM fw.data_source_op op2
+                WHERE op2.data_source_id = op.data_source_id AND op2.operation_kind = 'select'
+                ORDER BY op2.is_default DESC NULLS LAST, op2.id LIMIT 1) AS sel_dset_id
+        FROM fw.data_source_op op
+        JOIN fw.data_set dset ON dset.id = op.data_set_id
+        LEFT JOIN fw.db_connection dc ON dc.id = dset.db_connection_id
+        WHERE op.core_id = :cid AND op.operation_kind IN ('edit', 'insert')
+        ORDER BY CASE op.operation_kind WHEN 'edit' THEN 0 ELSE 1 END, op.id LIMIT 1
+    """), {"cid": core_id}).mappings().one_or_none()
+    if not row or not row["sql_text"]:
+        return None
+    if row["data_set_id"] == row["sel_dset_id"]:
+        return None  # edit-op sdílí grid select → není dedikovaný edit-select
+
+    sql = row["sql_text"]
+    db_type = (row["db_type"] or "").lower().strip()
+    s = _re_iebt.sub(r'--[^\n]*', ' ', sql)
+    s = _re_iebt.sub(r'/\*.*?\*/', ' ', s, flags=_re_iebt.S)
+    m = _re_iebt.search(
+        r'\bFROM\s+[\[\"]?([A-Za-z_]\w*)[\]\"]?\s*\.\s*[\[\"]?([A-Za-z_]\w*)[\]\"]?',
+        s, _re_iebt.I,
+    )
+    if m:
+        schema, table = m.group(1), m.group(2)
+    else:
+        m2 = _re_iebt.search(r'\bFROM\s+[\[\"]?([A-Za-z_]\w*)[\]\"]?', s, _re_iebt.I)
+        if not m2:
+            return None
+        schema, table = None, m2.group(1)
+
+    if db_type == "mssql":
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+            import json as _j_iebt
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                return None
+            rj = mcp.call_tool_sync(
+                "eurosoft_strategie_describe_table",
+                {"schema": schema or "dbo", "table": table, "db_name": "DB_EC"},
+                conversation_id=None,
+            )
+            res = _j_iebt.loads(rj) if isinstance(rj, str) else rj
+            if not isinstance(res, dict) or res.get("ok", True) is not True:
+                return None
+            cols = [(c.get("name") or c.get("column_name") or "")
+                    for c in (res.get("columns") or []) if isinstance(c, dict)]
+            cols = [c for c in cols if c]
+        except Exception:
+            return None
+    else:
+        from sqlalchemy import text as _t2
+        cols = [r2[0] for r2 in session.execute(_t2("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = :s AND table_name = :t ORDER BY ordinal_position
+        """), {"s": (schema or "public").lower(), "t": table.lower()}).fetchall()]
+    if not cols:
+        return None
+    return {"schema": schema, "table": table, "columns": cols, "db_type": db_type}
+
+
 @api_router.get("/core/{core_id}/dataset-fields")
 def core_dataset_fields(core_id: int, req: Request) -> JSONResponse:
     """Krok H+6 (1.6.2026, Marti orchestrator): fieldy datasetu pro edit core.
@@ -894,6 +968,19 @@ def core_dataset_fields(core_id: int, req: Request) -> JSONResponse:
 
     session = _gds_df()
     try:
+        # 1.6.2026 (Marti): edit core s VLASTNÍM edit-selectem (SELECT * FROM
+        # tabulka WHERE ID=:ID) → introspektuj base tabulku (reálné sloupce),
+        # NE grid composite. Zvládne SELECT * i :ID (čte schema, neběží query).
+        _edit_tbl = _introspect_edit_base_table(session, core_id)
+        if _edit_tbl and _edit_tbl.get("columns"):
+            _et_name = ((_edit_tbl.get("schema") + ".") if _edit_tbl.get("schema") else "") + _edit_tbl["table"]
+            return JSONResponse({
+                "ok": True,
+                "fields": _edit_tbl["columns"],
+                "source": "edit_table_introspect",
+                "edit_table": _et_name,
+            })
+
         op_row = session.execute(_sql_df("""
             SELECT ds.code
             FROM fw.data_source_op op
@@ -4438,38 +4525,62 @@ async def design_resolve_save_bindings(core_id: int, req: Request) -> JSONRespon
 
     ds = _gds_rsb()
     try:
-        # 1) root data_source core -> select op data_set SQL + db_connection_id
-        root = ds.execute(_sql_rsb(
-            "SELECT data_source_id FROM fw.comp_def "
-            "WHERE core_id = :cid AND parent_comp_def_id IS NULL "
-            "AND data_source_id IS NOT NULL ORDER BY id LIMIT 1"
-        ), {"cid": core_id}).mappings().first()
-        if not root:
-            return JSONResponse(
-                {"ok": False, "error": f"core {core_id} nema root comp_def s data_source"},
-                status_code=404,
-            )
-        dsid = root["data_source_id"]
-        op = ds.execute(_sql_rsb(
-            "SELECT dset.sql_text, dset.db_connection_id "
-            "FROM fw.data_source_op o JOIN fw.data_set dset ON dset.id = o.data_set_id "
-            "WHERE o.data_source_id = :dsid AND o.operation_kind = 'select' "
-            "ORDER BY o.is_default DESC NULLS LAST, o.id LIMIT 1"
-        ), {"dsid": dsid}).mappings().first()
-        if not op or not op["sql_text"]:
-            return JSONResponse(
-                {"ok": False, "error": f"data_source {dsid} nema select op s SQL"},
-                status_code=404,
-            )
-        conn_id = op["db_connection_id"]
+        # 1.6.2026 (Marti): edit core s VLASTNÍM edit-selectem (SELECT * FROM
+        # tabulka WHERE ID=:ID) → bindingy z introspekce base tabulky (každý
+        # sloupec → table, row_key {ID:@id}). NE z grid composite. Zvládne
+        # SELECT * i :ID. Fallback (grid composite multi-table) → sqlglot lineage.
+        bindings = None
+        conn_id = None
+        _edit_tbl = _introspect_edit_base_table(ds, core_id)
+        if _edit_tbl and _edit_tbl.get("columns"):
+            _sch = _edit_tbl.get("schema")
+            _tbl = _edit_tbl["table"]
+            bindings = {}
+            for _col in _edit_tbl["columns"]:
+                bindings[_col] = {
+                    "schema": _sch, "table": _tbl, "column": _col,
+                    "row_key": {"ID": "@id"}, "readonly": False, "reason": None,
+                }
+            _cr = ds.execute(_sql_rsb(
+                "SELECT dset.db_connection_id FROM fw.data_source_op op "
+                "JOIN fw.data_set dset ON dset.id = op.data_set_id "
+                "WHERE op.core_id = :cid AND op.operation_kind IN ('edit','insert') "
+                "ORDER BY CASE op.operation_kind WHEN 'edit' THEN 0 ELSE 1 END, op.id LIMIT 1"
+            ), {"cid": core_id}).mappings().first()
+            conn_id = _cr["db_connection_id"] if _cr else None
 
-        # 2) lineage
-        bindings = resolve_save_bindings(op["sql_text"])
-        if not bindings:
-            return JSONResponse(
-                {"ok": False, "error": "sqlglot nevratil zadne bindings (parse fail?)"},
-                status_code=422,
-            )
+        if bindings is None:
+            # fallback — grid composite (multi-table) → sqlglot lineage
+            # 1) root data_source core -> select op data_set SQL + db_connection_id
+            root = ds.execute(_sql_rsb(
+                "SELECT data_source_id FROM fw.comp_def "
+                "WHERE core_id = :cid AND parent_comp_def_id IS NULL "
+                "AND data_source_id IS NOT NULL ORDER BY id LIMIT 1"
+            ), {"cid": core_id}).mappings().first()
+            if not root:
+                return JSONResponse(
+                    {"ok": False, "error": f"core {core_id} nema root comp_def s data_source"},
+                    status_code=404,
+                )
+            dsid = root["data_source_id"]
+            op = ds.execute(_sql_rsb(
+                "SELECT dset.sql_text, dset.db_connection_id "
+                "FROM fw.data_source_op o JOIN fw.data_set dset ON dset.id = o.data_set_id "
+                "WHERE o.data_source_id = :dsid AND o.operation_kind = 'select' "
+                "ORDER BY o.is_default DESC NULLS LAST, o.id LIMIT 1"
+            ), {"dsid": dsid}).mappings().first()
+            if not op or not op["sql_text"]:
+                return JSONResponse(
+                    {"ok": False, "error": f"data_source {dsid} nema select op s SQL"},
+                    status_code=404,
+                )
+            conn_id = op["db_connection_id"]
+            bindings = resolve_save_bindings(op["sql_text"])
+            if not bindings:
+                return JSONResponse(
+                    {"ok": False, "error": "sqlglot nevratil zadne bindings (parse fail?)"},
+                    status_code=422,
+                )
         # case-insensitive lookup
         bind_ci = {k.lower(): (k, v) for k, v in bindings.items()}
 

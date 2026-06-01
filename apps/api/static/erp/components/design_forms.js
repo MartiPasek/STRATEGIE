@@ -9283,6 +9283,17 @@
       // zase zobrazit bez re-renderu.
       try { fieldEl.dataset.compDefId = String(comp.id); } catch (_e) { /* fail-safe */ }
       if (dataKey) { try { fieldEl.dataset.compCol = String(dataKey); } catch (_e) { /* fail-safe */ } }
+      // Marti 1.6.2026: srOrigText = systemovy caption z comp (spolehlivy zdroj,
+      // NE DOM ktery uz muze byt override-merged). Bez tohoto po smazani
+      // label_text rule (NULL) zustal posledni custom — reset v _applyStateOverrides
+      // restoroval srOrigText zachyceny pri prvnim apply (= custom, kdyz pole
+      // bylo uz custom-rendered). Capture pred apply, z comp.caption = system.
+      try {
+        const _lblEl0 = fieldEl.querySelector(".erp-input-label");
+        if (_lblEl0 && _lblEl0.dataset.srOrigText == null) {
+          _lblEl0.dataset.srOrigText = String(comp.caption || comp.name || "");
+        }
+      } catch (_e) { /* fail-safe */ }
       if (this._formDesignMode !== true && comp.state_overrides) {
         this._applyStateOverrides(fieldEl, comp);
       }

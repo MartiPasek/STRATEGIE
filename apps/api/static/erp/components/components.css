@@ -8,6 +8,35 @@
  * Phase B+6.2+: ErpInput, ErpCheckbox, ErpDropdown, ErpFormList, ...
  */
 
+/* ── Phase 38.4 Krok H+5+ (26.5.2026, Marti's UX): zeslabit popup backdrop ──
+ *
+ * Marti's pozadavek: "kdyz se otevira jakykoli popup, tak je nastaveny efekt,
+ * ze vsechno za nim potmavne. My vyuzivame toto, ze na data za vedle popupu
+ * vidime a tohleto nam zhorsuje jejich citelnost."
+ *
+ * Centralni override — overlays maji bud rgba(0,0,0,0.5-0.75) inline styles,
+ * nebo .modal-bg / .modal-overlay class. Snizeni opacity na 0.18 zachova
+ * mirny visual focus (popup je videt) ale nezhorsi cteni dat pod nim.
+ *
+ * Plus drop backdrop-filter:blur — Marti vidi data za popupem, ne rozmazane.
+ *
+ * Attribute selector funguje pro inline styly, .class selektory pro CSS
+ * class-based overlays (index.html legacy + ERP komponenty).
+ */
+div[style*="position:fixed"][style*="inset:0"][style*="background:rgba(0,0,0"],
+div[style*="position: fixed"][style*="inset: 0"][style*="background: rgba(0, 0, 0"],
+.modal-overlay,
+.modal-bg,
+.persona-modal-bg,
+.members-modal-bg,
+.new-conv-modal-bg,
+.sms-modal-bg,
+.file-preview-bg {
+  background: rgba(0, 0, 0, 0.18) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 /* ── Reset/base pro UI Kit komponenty ─────────────────────────────── */
 
 .erp-btn,
@@ -1168,14 +1197,19 @@
   align-items: stretch;
 }
 
+/* Marti 1.6.2026: prominentni dropdown-style trigger (drive dark-on-dark,
+   nenapadny). Accent-tinted zona napravo + accent border + vetsi ikona →
+   jasne klikaci, vypada jako dropdown. */
 .erp-date-trigger {
-  background: var(--surface2, #252830);
+  background: var(--accent-soft, rgba(79, 142, 247, 0.16));
   border: none;
-  border-left: 1px solid var(--border, #3a3d44);
-  color: var(--text-muted, #b0b3bc);
-  padding: 0 10px;
+  border-left: 1px solid var(--accent, #4f8ef7);
+  color: var(--accent, #4f8ef7);
+  padding: 0 11px;
+  min-width: 36px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
+  line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1185,8 +1219,8 @@
 }
 
 .erp-date-trigger:hover:not(:disabled) {
-  background: var(--surface3, #2d3038);
-  color: var(--text, #f0f1f5);
+  background: var(--accent, #4f8ef7);
+  color: #fff;
 }
 
 .erp-date-trigger:disabled {

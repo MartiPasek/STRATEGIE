@@ -361,6 +361,185 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════
+  // Orchestrator gen — sdílené popupy (1.6.2026, Marti: "Reviduj CORE" v
+  // patičce + "Ano, vygeneruj" v prázdném core sdílí stejné UI).
+  // ══════════════════════════════════════════════════════════════════════
+  function _genEsc(s) {
+    var d = document.createElement("div");
+    d.textContent = String(s == null ? "" : s);
+    return d.innerHTML;
+  }
+
+  // Spustí orchestrator vytvorit_edit_jadro_2 (fetch dataset-fields → POST) a
+  // ukáže success/error popup. onReopen() se zavolá po OK na success popupu.
+  // triggerBtn (volitelný) se disable/restore s labelem restoreLabel.
+  async function _runEditCoreGen(coreId, onReopen, triggerBtn, restoreLabel) {
+    var _restore = function () {
+      if (triggerBtn) { triggerBtn.disabled = false; triggerBtn.textContent = restoreLabel; }
+    };
+    if (triggerBtn) { triggerBtn.disabled = true; triggerBtn.textContent = "⏳ Generuji…"; }
+    try {
+      // Fieldy spočítá API (sandbox má MCP unreachable) → ctx.fields.
+      var _body = { coreId: coreId };
+      try {
+        var _ff = await fetch(
+          "/api/v1/erp/core/" + encodeURIComponent(coreId) + "/dataset-fields",
+          { credentials: "include" }
+        ).then(function (x) { return x.json(); });
+        if (_ff && _ff.ok && Array.isArray(_ff.fields) && _ff.fields.length) {
+          _body.fields = _ff.fields;
+        }
+      } catch (e) { /* fallback bez fields */ }
+
+      var r = await fetch(
+        "/api/v1/erp/sandbox/execute/vytvorit_edit_jadro_2",
+        {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(_body),
+        }
+      ).then(function (rr) { return rr.json(); });
+
+      if (r && r.ok) {
+        _restore();
+        _genSuccessPopup(r.stdout || "", onReopen);
+      } else {
+        _restore();
+        _genErrorPopup(r || {});
+      }
+    } catch (e) {
+      _restore();
+      _genErrorPopup({ error: "network: " + (e && e.message || e) });
+    }
+  }
+
+  // Success popup — parse __SUMMARY__{json} ze stdout → „co vzniklo". OK → onReopen().
+  function _genSuccessPopup(stdoutStr, onReopen) {
+    var _summary = null;
+    try {
+      var _so = String(stdoutStr || "");
+      var _mk = _so.indexOf("__SUMMARY__");
+      if (_mk >= 0) {
+        var _line = _so.slice(_mk + "__SUMMARY__".length);
+        var _nl = _line.indexOf("\n");
+        if (_nl >= 0) _line = _line.slice(0, _nl);
+        _summary = JSON.parse(_line.trim());
+      }
+    } catch (e) { _summary = null; }
+
+    var bodyHtml = "";
+    if (_summary) {
+      var added = Array.isArray(_summary.added) ? _summary.added : [];
+      var skipped = Array.isArray(_summary.skipped) ? _summary.skipped : [];
+      if (_summary.form_created) {
+        bodyHtml += '<div style="margin-bottom:8px;">✓ Vytvořen <strong>form</strong> + ' +
+          '<strong>horní panel</strong> (align:top) + <strong>spodní panel</strong> (align:client).</div>';
+      } else {
+        bodyHtml += '<div style="margin-bottom:8px;color:#8a96a4;">Form i panely už existovaly — inkrementální doplnění.</div>';
+      }
+      if (added.length) {
+        bodyHtml += '<div style="margin-bottom:6px;"><strong style="color:#7fc77f;">+ Přidáno ' +
+          added.length + ' komponent</strong> (edit) do spodního panelu:</div>' +
+          '<div style="font-size:12px;color:#a8c5dc;line-height:1.7;margin-bottom:8px;">' +
+          added.map(function (f) { return _genEsc(f); }).join(", ") + '</div>';
+      } else {
+        bodyHtml += '<div style="margin-bottom:8px;color:#8a96a4;">Žádný nový field — vše už bylo vygenerováno.</div>';
+      }
+      if (skipped.length) {
+        bodyHtml += '<div style="font-size:11px;color:#6a7684;">= Přeskočeno ' + skipped.length +
+          ' už existujících: ' + skipped.map(function (f) { return _genEsc(f); }).join(", ") + '</div>';
+      }
+      if (_summary.field_source) {
+        bodyHtml += '<div style="font-size:10px;color:#5a6674;margin-top:10px;">Zdroj fieldů: ' +
+          _genEsc(_summary.field_source) + '</div>';
+      }
+    } else {
+      var tail = String(stdoutStr || "").slice(-700);
+      bodyHtml = '<div style="margin-bottom:8px;">Skript doběhl úspěšně.</div>' +
+        '<pre style="font-size:11px;color:#8a96a4;background:#11151b;border:1px solid #2a3340;' +
+        'border-radius:4px;padding:8px;max-height:240px;overflow:auto;white-space:pre-wrap;">' +
+        _genEsc(tail) + '</pre>';
+    }
+
+    var ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200000;" +
+      "display:flex;align-items:center;justify-content:center;";
+    var dlg = document.createElement("div");
+    dlg.style.cssText = "background:#1a1f26;border:1px solid #2a3340;border-radius:8px;" +
+      "width:520px;max-width:94vw;color:#cfd6df;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,0.6);overflow:hidden;";
+    dlg.innerHTML = '<div style="padding:14px 18px;border-bottom:1px solid #2a3340;background:#141a20;' +
+      'font-size:14px;font-weight:600;color:#e8eef5;">🪄 Komponenty vygenerovány</div>' +
+      '<div style="padding:18px;line-height:1.55;">' + bodyHtml + '</div>';
+    var ftr = document.createElement("div");
+    ftr.style.cssText = "padding:12px 18px;border-top:1px solid #2a3340;background:#141a20;" +
+      "display:flex;justify-content:flex-end;gap:8px;";
+    var okBtn = document.createElement("button");
+    okBtn.type = "button";
+    okBtn.textContent = "OK — otevřít jádro";
+    okBtn.style.cssText = "background:var(--accent,#4f8ef7);border:none;color:#fff;" +
+      "padding:8px 18px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;";
+    okBtn.addEventListener("click", function () {
+      try { ov.remove(); } catch (e) {}
+      if (typeof onReopen === "function") onReopen();
+    });
+    ftr.appendChild(okBtn);
+    dlg.appendChild(ftr);
+    ov.appendChild(dlg);
+    document.body.appendChild(ov);
+    try { okBtn.focus(); } catch (e) {}
+  }
+
+  // Error popup — vytáhne „✗ FAIL:" z r.stdout + r.error + celý výpis.
+  function _genErrorPopup(r) {
+    var _stdout = String((r && r.stdout) || "");
+    var _reason = "";
+    var _fi = _stdout.lastIndexOf("✗ FAIL:");
+    if (_fi >= 0) _reason = _stdout.slice(_fi).split("\n").slice(0, 4).join("\n").trim();
+    if (!_reason) {
+      var _exi = _stdout.lastIndexOf("ORCHESTRATOR EXCEPTION");
+      if (_exi >= 0) _reason = _stdout.slice(_exi).split("\n")[0].trim();
+    }
+    var _errTop = (r && r.error) || "unknown";
+    var _tail = _stdout.slice(-1400) || (r && r.stderr ? String(r.stderr).slice(-1400) : "");
+
+    var eov = document.createElement("div");
+    eov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200000;" +
+      "display:flex;align-items:center;justify-content:center;";
+    var edlg = document.createElement("div");
+    edlg.style.cssText = "background:#1f1414;border:1px solid #5a2828;border-radius:8px;" +
+      "width:640px;max-width:94vw;color:#e8d4d4;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,0.6);overflow:hidden;";
+    var eBody = '<div style="margin-bottom:8px;color:#f0a0a0;">Chyba: ' + _genEsc(_errTop) +
+      (r && r.error_kind ? ' <span style="opacity:0.6;">(' + _genEsc(r.error_kind) + ')</span>' : '') + '</div>';
+    if (_reason) {
+      eBody += '<div style="background:#2a1818;border:1px solid #5a2828;border-radius:4px;' +
+        'padding:10px 12px;margin-bottom:10px;color:#ffc8c8;white-space:pre-wrap;font-size:12px;">' +
+        _genEsc(_reason) + '</div>';
+    }
+    eBody += '<details><summary style="cursor:pointer;color:#a8b4c2;font-size:11px;">Celý výpis</summary>' +
+      '<pre style="font-size:11px;color:#9aa6b4;background:#11151b;border:1px solid #2a3340;' +
+      'border-radius:4px;padding:8px;margin-top:6px;max-height:300px;overflow:auto;white-space:pre-wrap;">' +
+      _genEsc(_tail) + '</pre></details>';
+    edlg.innerHTML = '<div style="padding:14px 18px;border-bottom:1px solid #5a2828;background:#1a1010;' +
+      'font-size:14px;font-weight:600;color:#f0b0b0;">✗ Generování selhalo</div>' +
+      '<div style="padding:18px;line-height:1.5;">' + eBody + '</div>';
+    var eftr = document.createElement("div");
+    eftr.style.cssText = "padding:12px 18px;border-top:1px solid #5a2828;background:#1a1010;" +
+      "display:flex;justify-content:flex-end;";
+    var eOk = document.createElement("button");
+    eOk.type = "button";
+    eOk.textContent = "Zavřít";
+    eOk.style.cssText = "background:#3a2020;border:1px solid #5a2828;color:#e8d4d4;" +
+      "padding:8px 18px;border-radius:4px;cursor:pointer;font-size:13px;";
+    eOk.addEventListener("click", function () { try { eov.remove(); } catch (e) {} });
+    eftr.appendChild(eOk);
+    edlg.appendChild(eftr);
+    eov.appendChild(edlg);
+    eov.addEventListener("click", function (ev) { if (ev.target === eov) eov.remove(); });
+    document.body.appendChild(eov);
+    try { eOk.focus(); } catch (e) {}
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
   // FW State Rules — registr řídicích polí (31.5.2026, #2-B modal "2").
   // Správa fw.form_discriminator pro jádro: list + add + priorita/popis +
   // soft-delete. Orchestrace s in-context lištou (Marti: "co ne v 1, do 2").
@@ -3267,6 +3446,60 @@
           const spacer = document.createElement("div");
           spacer.className = "erp-form-footer-spacer";
           spacer.style.cssText = "flex:1 1 auto;";
+
+          // ── DESIGN toolbar (1.6.2026, Marti: "Reviduj CORE + bindingy do
+          // paticky, vlevo od OK, jen DESIGN mode"). VLEVO od spaceru → oddělené
+          // od OK/Storno (ty drží vpravo). Mít to po ruce, ať se nehledá ikonka.
+          if (window._erpDesignMode === true && core && core.id != null && core.id >= 0) {
+            const _dtCoreId = core.id;
+            const _dtCoreLabel = core.label || core.code || ("core " + core.id);
+            const _dtSelf = this;
+            const dtBar = document.createElement("div");
+            dtBar.style.cssText = "display:flex;align-items:center;gap:8px;";
+
+            const reviewBtn = document.createElement("button");
+            reviewBtn.type = "button";
+            reviewBtn.textContent = "🔄 Reviduj CORE";
+            reviewBtn.title = "Spustí generátor komponent (vytvorit_edit_jadro_2) — " +
+              "inkrementálně dotáhne nové fieldy datasetu k existujícím.";
+            reviewBtn.style.cssText = "padding:6px 12px;background:#243044;border:1px solid #35506e;" +
+              "border-radius:3px;color:#a8c5dc;cursor:pointer;font-size:12px;";
+            reviewBtn.addEventListener("click", function () {
+              const _reopen = function () {
+                try { _dtSelf._shell.close(); } catch (e) {}
+                setTimeout(function () {
+                  try {
+                    const f2 = new global.DesignFwForm({
+                      coreId: _dtCoreId, rowId: _dtSelf.opts.rowId,
+                      mode: _dtSelf.opts.mode, onSaveSuccess: _dtSelf.opts.onSaveSuccess,
+                    });
+                    if (typeof f2.open === "function") f2.open();
+                  } catch (e) { console.error("[reviduj] reopen failed:", e); }
+                }, 350);
+              };
+              _runEditCoreGen(_dtCoreId, _reopen, reviewBtn, "🔄 Reviduj CORE");
+            });
+            dtBar.appendChild(reviewBtn);
+
+            const dtDiv = document.createElement("span");
+            dtDiv.style.cssText = "width:1px;height:20px;background:#3a4452;margin:0 2px;";
+            dtBar.appendChild(dtDiv);
+
+            const bindBtn = document.createElement("button");
+            bindBtn.type = "button";
+            bindBtn.textContent = "🔗 Save bindingy";
+            bindBtn.title = "Vyřeší absolutní save cíle polí (schema.table.column) přes sqlglot " +
+              "lineage. Dry-run náhled → aplikovat. Výsledek vidíš v ⚙ pole → 'Save cíl'.";
+            bindBtn.style.cssText = "padding:6px 12px;background:#1f3a2e;border:1px solid #2f5a44;" +
+              "border-radius:3px;color:#7ad4a8;cursor:pointer;font-size:12px;";
+            bindBtn.addEventListener("click", function () {
+              _resolveSaveBindingsFlow(_dtCoreId, _dtCoreLabel);
+            });
+            dtBar.appendChild(bindBtn);
+
+            sec.grid.appendChild(dtBar);
+          }
+
           sec.grid.appendChild(spacer);
 
           // Update visibility podle aktualniho dirty count (volane po _render)

@@ -1197,30 +1197,29 @@ div[style*="position: fixed"][style*="inset: 0"][style*="background: rgba(0, 0, 
   align-items: stretch;
 }
 
-/* Marti 1.6.2026: prominentni dropdown-style trigger (drive dark-on-dark,
-   nenapadny). Accent-tinted zona napravo + accent border + vetsi ikona →
-   jasne klikaci, vypada jako dropdown. */
+/* Marti 1.6.2026: prominentni dropdown trigger (drive dark-on-dark,
+   nenapadny). SOLID accent button + bila ikona = neprehlednutelne, jasne
+   klikaci jako dropdown. */
 .erp-date-trigger {
-  background: var(--accent-soft, rgba(79, 142, 247, 0.16));
+  background: var(--accent, #4f8ef7);
   border: none;
-  border-left: 1px solid var(--accent, #4f8ef7);
-  color: var(--accent, #4f8ef7);
-  padding: 0 11px;
-  min-width: 36px;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  padding: 0 12px;
+  min-width: 38px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 17px;
   line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.12s, color 0.12s;
+  transition: filter 0.12s;
   user-select: none;
   -webkit-user-select: none;
 }
 
 .erp-date-trigger:hover:not(:disabled) {
-  background: var(--accent, #4f8ef7);
-  color: #fff;
+  filter: brightness(1.15);
 }
 
 .erp-date-trigger:disabled {

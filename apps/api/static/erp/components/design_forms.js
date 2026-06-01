@@ -8732,7 +8732,14 @@
         if (has("display")) fieldEl.style.display = "";
         if (has("color")) { fieldEl.style.color = ""; inputs.forEach((i) => { i.style.color = ""; }); }
         if (has("label_color") && labelEl) labelEl.style.color = "";
-        if (has("label_text") && labelEl && labelEl.dataset.srOrigText != null) labelEl.textContent = labelEl.dataset.srOrigText;
+        if (has("label_text") && labelEl) {
+          // Marti 1.6.: restore na autoritativni comp.caption (z live spec pres
+          // reapply / z full comp pri renderu), srOrigText jen fallback.
+          const _sysLbl = (comp && comp.caption != null && comp.caption !== "")
+            ? comp.caption
+            : (labelEl.dataset.srOrigText != null ? labelEl.dataset.srOrigText : null);
+          if (_sysLbl != null) labelEl.textContent = _sysLbl;
+        }
         if (has("hint")) fieldEl.title = "";
         if (has("inside_hint")) inputs.forEach((i) => { if (i.dataset.srOrigPlaceholder != null) i.setAttribute("placeholder", i.dataset.srOrigPlaceholder); });
         if (has("background")) { fieldEl.style.background = ""; fieldEl.style.borderRadius = ""; fieldEl.style.padding = ""; }
@@ -9191,7 +9198,16 @@
       // Živá projekce na komponentu (i v design módu) — hned vidět změnu. [7]
       const reapply = () => {
         const el = self._shell && self._shell.body && self._shell.body.querySelector('[data-comp-def-id="' + compId + '"]');
-        if (el) self._applyStateOverrides(el, { state_overrides: Object.assign({}, loaded) });
+        if (!el) return;
+        // Marti 1.6.: predej AKTUALNI caption z live spec → restore na NULL
+        // label_text jde na autoritativni Komponenta caption (ne stale DOM).
+        const _fc = ((self._spec && self._spec.fields) || [])
+          .find((f) => String(f.id) === String(compId));
+        self._applyStateOverrides(el, {
+          state_overrides: Object.assign({}, loaded),
+          caption: _fc ? _fc.caption : undefined,
+          name: _fc ? _fc.name : undefined,
+        });
       };
       const loadOverrides = () => {
         if (isStatic()) {

@@ -110,8 +110,33 @@ def resolve_save_bindings(
         logger.warning("[sql_lineage] parse_one failed (%s): %r", dialect, e)
         return {}
 
-    if not isinstance(ast, exp.Select):
-        logger.warning("[sql_lineage] top node neni SELECT (%s)", type(ast).__name__)
+    # Krok 5.Z+ (1.6.2026, Marti: composite osoby_detail): rozbal vnější
+    # "SELECT * FROM (subquery)" wrappery (i vnořené) + UNION (levá větev) —
+    # reálné projekce (1 as Typ, isnull(...) as FirmaOrPozice, KA.Telefon, ...)
+    # jsou až ve vnitřním SELECTu. Bez toho top-level vidí jen `*` → 0 bindings.
+    def _unwrap_to_select(node):
+        for _ in range(6):
+            if isinstance(node, exp.Union):
+                node = node.this  # leva vetev (sloupce shodne s pravou)
+                continue
+            if not isinstance(node, exp.Select):
+                break
+            exprs = list(node.expressions or [])
+            only_star = len(exprs) == 1 and isinstance(exprs[0], exp.Star)
+            if not only_star:
+                break  # ma realne projekce → konec
+            frm = node.args.get("from")
+            if frm is None:
+                break
+            subq = frm.find(exp.Subquery)
+            if subq is None or subq.this is None:
+                break
+            node = subq.this
+        return node if isinstance(node, exp.Select) else None
+
+    ast = _unwrap_to_select(ast)
+    if ast is None:
+        logger.warning("[sql_lineage] nelze rozbalit na SELECT s realnymi projekcemi")
         return {}
 
     # ── base tabulka (prvni v FROM) ────────────────────────────────────

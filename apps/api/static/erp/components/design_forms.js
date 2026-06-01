@@ -223,17 +223,23 @@
       .then(function (res) {
         var j = res.j || {};
         if (!res.ok || !j.ok) {
-          toast("Resolve bindingů selhal: " + (j.error || "HTTP chyba"), "error", 4000);
+          _genNotePopup("✗ Save bindingy — chyba",
+            (j.error || "HTTP chyba") +
+            "\n\nResolver rozbaluje composite SELECT * FROM (...). Pokud i tak chyba, " +
+            "dataset nelze rozparsovat (zkontroluj SQL data_source).", true);
           return;
         }
         if (!j.matched) {
-          toast("Resolve: 0 bindingů — žádný field se nespároval se SELECT sloupci.", "warn", 4000);
+          _genNotePopup("Save bindingy — 0 výsledků",
+            "Žádný field se nespároval se SELECT sloupci.\n\nMožné příčiny: dataset má " +
+            "jen computed sloupce (isnull, literal) → nic přímo uložitelného, nebo názvy " +
+            "polí ≠ SQL aliasy.", false);
           return;
         }
         _showResolveBindingsModal(coreId, coreLabel, j);
       })
       .catch(function (e) {
-        toast("Resolve bindingů — síťová chyba: " + (e.message || e), "error", 4000);
+        _genNotePopup("✗ Save bindingy — síťová chyba", String(e && e.message || e), true);
       });
   }
 
@@ -368,6 +374,38 @@
     var d = document.createElement("div");
     d.textContent = String(s == null ? "" : s);
     return d.innerHTML;
+  }
+
+  // Jednoduchý info/error popup (1.6.2026, Marti: "stejnej system jako Reviduj
+  // CORE" — místo prchavého toastu). isError → červený rám.
+  function _genNotePopup(title, msg, isError) {
+    var bd = isError ? "#5a2828" : "#2a3340";
+    var hc = isError ? "#f0b0b0" : "#e8eef5";
+    var bg = isError ? "#1f1414" : "#1a1f26";
+    var ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200000;" +
+      "display:flex;align-items:center;justify-content:center;";
+    var dlg = document.createElement("div");
+    dlg.style.cssText = "background:" + bg + ";border:1px solid " + bd + ";border-radius:8px;" +
+      "width:520px;max-width:94vw;color:#cfd6df;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,0.6);overflow:hidden;";
+    dlg.innerHTML = '<div style="padding:14px 18px;border-bottom:1px solid ' + bd +
+      ';background:#141a20;font-size:14px;font-weight:600;color:' + hc + ';">' + _genEsc(title) + '</div>' +
+      '<div style="padding:18px;line-height:1.55;white-space:pre-wrap;">' + _genEsc(msg) + '</div>';
+    var ftr = document.createElement("div");
+    ftr.style.cssText = "padding:12px 18px;border-top:1px solid " + bd + ";background:#141a20;" +
+      "display:flex;justify-content:flex-end;";
+    var ok = document.createElement("button");
+    ok.type = "button";
+    ok.textContent = "Zavřít";
+    ok.style.cssText = "background:#2a3340;border:1px solid #3a4452;color:#cfd6df;" +
+      "padding:8px 18px;border-radius:4px;cursor:pointer;font-size:13px;";
+    ok.addEventListener("click", function () { try { ov.remove(); } catch (e) {} });
+    ftr.appendChild(ok);
+    dlg.appendChild(ftr);
+    ov.appendChild(dlg);
+    ov.addEventListener("click", function (ev) { if (ev.target === ov) ov.remove(); });
+    document.body.appendChild(ov);
+    try { ok.focus(); } catch (e) {}
   }
 
   // Spustí orchestrator vytvorit_edit_jadro_2 (fetch dataset-fields → POST) a

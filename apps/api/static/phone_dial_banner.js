@@ -41,6 +41,19 @@
     } catch (e) {}
   }
 
+  // sendBeacon přežije navigaci na tel: (fetch by se zrušil → řádek by zůstal
+  // pending → banner by se znovu objevil). Cookies jdou s beaconem automaticky.
+  function _beaconConsume(id, status) {
+    var url = "/api/v1/erp/phone-dial-request/" + id + "/consume";
+    try {
+      if (navigator.sendBeacon) {
+        var blob = new Blob([JSON.stringify({ status: status })], { type: "application/json" });
+        if (navigator.sendBeacon(url, blob)) return;
+      }
+    } catch (e) {}
+    _consume(id, status);  // fallback
+  }
+
   function _showBanner(reqObj) {
     if (_shownId === reqObj.id) return;
     _removeBanner();
@@ -68,26 +81,33 @@
     txt.appendChild(t2);
     bar.appendChild(txt);
 
-    var callBtn = document.createElement("a");
-    callBtn.href = "tel:" + phone;
+    // Vytočit: consume (beacon, přežije navigaci) → banner pryč → tel:.
+    var doDial = function () {
+      _beaconConsume(reqObj.id, "done");
+      _removeBanner();
+      try { window.location.href = "tel:" + phone; } catch (e) {}
+    };
+    // Celý text je ťukací (min. tapů — ťukneš kamkoliv na banner → vytočí).
+    try { txt.style.cursor = "pointer"; txt.addEventListener("click", doDial); } catch (e) {}
+
+    var callBtn = document.createElement("button");
+    callBtn.type = "button";
     callBtn.textContent = "Volat";
     callBtn.style.cssText =
-      "background:#2ea043;color:#fff;text-decoration:none;padding:10px 18px;" +
-      "border-radius:6px;font-weight:600;font-size:15px;white-space:nowrap;";
-    callBtn.addEventListener("click", function () {
-      _consume(reqObj.id, "done");
-      setTimeout(_removeBanner, 100);
-    });
+      "background:#2ea043;color:#fff;border:none;padding:12px 22px;" +
+      "border-radius:6px;font-weight:700;font-size:16px;white-space:nowrap;cursor:pointer;";
+    callBtn.addEventListener("click", doDial);
     bar.appendChild(callBtn);
 
     var closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.textContent = "×";
     closeBtn.style.cssText =
-      "background:transparent;border:none;color:#bfe3ef;font-size:24px;" +
-      "line-height:1;cursor:pointer;padding:4px 8px;";
-    closeBtn.addEventListener("click", function () {
-      _consume(reqObj.id, "dismissed");
+      "background:transparent;border:none;color:#bfe3ef;font-size:26px;" +
+      "line-height:1;cursor:pointer;padding:4px 10px;";
+    closeBtn.addEventListener("click", function (ev) {
+      try { ev.stopPropagation(); } catch (e) {}
+      _beaconConsume(reqObj.id, "dismissed");
       _removeBanner();
     });
     bar.appendChild(closeBtn);

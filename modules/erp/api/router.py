@@ -5055,6 +5055,30 @@ async def diag_sql(req: Request) -> JSONResponse:
     if not sql:
         return JSONResponse({"ok": False, "error": "sql chybí"}, status_code=400)
 
+    # Krok 2 (1.6.2026): WRITE (ne SELECT/WITH/EXPLAIN/SHOW) → nespouštět,
+    # vytvořit pending request → Marti schválí v chatu/ERP banneru.
+    import re as _re_ds
+    _s_chk = _re_ds.sub(r"--[^\n]*", " ", sql)
+    _s_chk = _re_ds.sub(r"/\*.*?\*/", " ", _s_chk, flags=_re_ds.S).strip()
+    _is_read = bool(_re_ds.match(r"\s*(SELECT|WITH|EXPLAIN|SHOW)\b", _s_chk, _re_ds.I))
+    if not _is_read:
+        if db != "pg":
+            return JSONResponse({"ok": False,
+                                 "error": "Write přes bridge zatím jen pro PG (Krok 2)."})
+        from core.database_data import get_data_session as _gw_ds
+        from sqlalchemy import text as _tw_ds
+        _wds = _gw_ds()
+        try:
+            rid = _wds.execute(_tw_ds(
+                "INSERT INTO fw.claude_write_request (db_target, sql_text, requested_by) "
+                "VALUES (:db, :sql, :by) RETURNING id"
+            ), {"db": db, "sql": sql, "by": actor}).scalar()
+            _wds.commit()
+        finally:
+            _wds.close()
+        return JSONResponse({"ok": False, "pending": True, "request_id": rid,
+                             "message": "Write čeká na schválení Marti (request #%s)." % rid})
+
     if db == "mssql":
         try:
             from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
@@ -5100,6 +5124,116 @@ async def diag_sql(req: Request) -> JSONResponse:
         pass
 
     return JSONResponse(res if isinstance(res, dict) else {"ok": False, "error": "neznámý výstup"})
+
+
+@api_router.get("/diag-write/pending")
+async def diag_write_pending(req: Request) -> JSONResponse:
+    """Claude SQL bridge Krok 2: pending write requesty pro approval banner.
+    Parent-only → 403 schová banner non-parentům."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    from core.database_data import get_data_session as _gp
+    from sqlalchemy import text as _tp
+    ds = _gp()
+    try:
+        rows = ds.execute(_tp(
+            "SELECT id, db_target, sql_text, requested_by, created_at "
+            "FROM fw.claude_write_request WHERE status='pending' ORDER BY id ASC"
+        )).mappings().all()
+        return JSONResponse(jsonable_encoder({"ok": True, "requests": [dict(r) for r in rows]}))
+    finally:
+        ds.close()
+
+
+@api_router.post("/diag-write/{req_id}/decide")
+async def diag_write_decide(req_id: int, req: Request) -> JSONResponse:
+    """Marti approve/reject pending write. Parent-only. Approve → spustí SQL
+    přes strategie_pg (Marti-AI engine — UPDATE/INSERT na public.* povolen,
+    audit jako Marti-AI), uloží výsledek; watcher si ho vyzvedne přes status."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    from core.database_data import get_data_session as _gd
+    from sqlalchemy import text as _td
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    decision = (str(body.get("decision") or "")).strip().lower()
+    if decision not in ("approve", "reject"):
+        return JSONResponse({"ok": False, "error": "decision musí být approve|reject"}, status_code=400)
+
+    ds = _gd()
+    try:
+        row = ds.execute(_td(
+            "SELECT id, db_target, sql_text, status FROM fw.claude_write_request WHERE id=:id"
+        ), {"id": req_id}).mappings().first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "request nenalezen"}, status_code=404)
+        if row["status"] != "pending":
+            return JSONResponse({"ok": False, "error": "request už není pending (%s)" % row["status"]})
+
+        if decision == "reject":
+            ds.execute(_td("UPDATE fw.claude_write_request SET status='rejected', "
+                           "decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
+                       {"u": uid, "id": req_id})
+            ds.commit()
+            return JSONResponse({"ok": True, "status": "rejected"})
+
+        # approve → execute write přes strategie_pg (Marti-AI role)
+        sql = row["sql_text"]
+        err = None
+        rc = None
+        try:
+            from modules.strategie_pg.application.service import get_session as _pgs
+            with _pgs() as s:
+                r = s.execute(_td(sql))
+                try:
+                    rc = r.rowcount
+                except Exception:
+                    rc = None
+                s.commit()
+        except Exception as exc:
+            err = "%s: %s" % (type(exc).__name__, exc)
+
+        if err:
+            ds.execute(_td("UPDATE fw.claude_write_request SET status='error', error=:e, "
+                           "decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
+                       {"e": err[:4000], "u": uid, "id": req_id})
+            ds.commit()
+            return JSONResponse({"ok": False, "status": "error", "error": err})
+
+        result_text = "OK · %s řádků dotčeno" % (rc if rc is not None else "?")
+        ds.execute(_td("UPDATE fw.claude_write_request SET status='done', row_count=:rc, "
+                       "result_text=:rt, decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
+                   {"rc": rc, "rt": result_text, "u": uid, "id": req_id})
+        ds.commit()
+        return JSONResponse({"ok": True, "status": "done", "row_count": rc, "result_text": result_text})
+    finally:
+        ds.close()
+
+
+@api_router.get("/diag-write/{req_id}/status")
+async def diag_write_status(req_id: int, req: Request) -> JSONResponse:
+    """Watcher polluje (X-Deploy-Token) NEBO parent. Vrací stav + výsledek."""
+    import os as _os_ws
+    token = req.headers.get("X-Deploy-Token")
+    env_token = _os_ws.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env_token and token == env_token):
+        uid = _get_uid(req)
+        _require_parent(uid)
+    from core.database_data import get_data_session as _gws
+    from sqlalchemy import text as _tws
+    ds = _gws()
+    try:
+        row = ds.execute(_tws(
+            "SELECT status, row_count, result_text, error "
+            "FROM fw.claude_write_request WHERE id=:id"
+        ), {"id": req_id}).mappings().first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "request nenalezen"}, status_code=404)
+        return JSONResponse(jsonable_encoder({"ok": True, **dict(row)}))
+    finally:
+        ds.close()
 
 
 @api_router.patch("/design/{entity_type}/{row_id}")
@@ -15418,6 +15552,8 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/app_version_watch.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Deploy na povel (1.6.2026, Marti): 🚀 tlačítko jen pro rodiče. -->
     <script src="/static/deploy_button.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Claude SQL bridge Krok 2: write approval banner (jen rodiče). -->
+    <script src="/static/claude_write_approval.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Master-detail Krok 6 (24.5.2026): custom JS renderer pro Data
          Sources → Data Source Op detail (nested ErpDataGrid s layoutKey
          "data_source_op" persistence). Marti's Varianta B — full features

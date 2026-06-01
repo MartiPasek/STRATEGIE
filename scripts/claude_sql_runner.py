@@ -103,6 +103,26 @@ def _forward(sql: str, db: str) -> dict:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+def _poll_write_status(request_id, max_wait_sec: int = 120) -> dict | None:
+    """Krok 2: write čeká na schválení Marti. Polluje /diag-write/{id}/status
+    dokud done/rejected/error nebo timeout. Returns final dict nebo None (timeout)."""
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
+    url = CLOUD_URL.replace("/diag-sql", f"/diag-write/{request_id}/status")
+    deadline = time.time() + max_wait_sec
+    while time.time() < deadline:
+        try:
+            rq = urllib.request.Request(
+                url, method="GET", headers={"X-Deploy-Token": token})
+            with urllib.request.urlopen(rq, timeout=HTTP_TIMEOUT_SEC) as resp:
+                j = json.loads(resp.read().decode("utf-8", errors="replace"))
+            if j.get("status") in ("done", "rejected", "error"):
+                return j
+        except Exception:
+            pass
+        time.sleep(2.0)
+    return None
+
+
 def _md_table(columns: list, rows: list) -> str:
     def _cell(v) -> str:
         s = "" if v is None else str(v)
@@ -159,6 +179,31 @@ def _process() -> None:
     t0 = time.time()
     res = _forward(sql, db)
     el = int((time.time() - t0) * 1000)
+
+    # Krok 2: write detekován na cloudu → pending → poll na schválení Marti
+    if isinstance(res, dict) and res.get("pending") and res.get("request_id"):
+        rid = res["request_id"]
+        _log(f"WRITE pending #{rid} — čekám na schválení Marti…")
+        _write_out(
+            f"# STATUS: ČEKÁ NA SCHVÁLENÍ · request #{rid} · db={db}\n# {ts}\n\n"
+            "Write detekován → Marti to schvaluje v banneru (chat/ERP). "
+            "Polluju stav (max 120 s)…\n\n```sql\n" + sql[:2000] + "\n```\n"
+        )
+        final = _poll_write_status(rid)
+        if final is None:
+            _write_out(f"# STATUS: TIMEOUT · request #{rid} pořád pending po 120 s.\n# {ts}\n")
+        elif final.get("status") == "done":
+            _write_out(f"# STATUS: WRITE OK · {final.get('row_count')} řádků · request #{rid}\n"
+                       f"# {ts}\n\n{final.get('result_text') or 'hotovo'}\n")
+        elif final.get("status") == "rejected":
+            _write_out(f"# STATUS: ODMÍTNUTO Marti · request #{rid}\n# {ts}\n")
+        elif final.get("status") == "error":
+            _write_out(f"# STATUS: WRITE CHYBA · request #{rid}\n# {ts}\n\n{final.get('error')}\n")
+        else:
+            _write_out(f"# STATUS: {final.get('status')} · request #{rid}\n# {ts}\n")
+        _log(f"WRITE #{rid} resolved: {final.get('status') if final else 'timeout'}")
+        _consume()
+        return
 
     if not isinstance(res, dict) or not res.get("ok"):
         err = (res.get("error") if isinstance(res, dict) else str(res)) or "neznámá chyba"

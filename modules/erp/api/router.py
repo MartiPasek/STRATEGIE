@@ -5027,6 +5027,81 @@ async def restart_api(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "marker": info, "message": "Restart spuštěn"})
 
 
+@api_router.post("/diag-sql")
+async def diag_sql(req: Request) -> JSONResponse:
+    """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):
+    read-only diagnostický SQL proti PRODUKCI přes existující tooly —
+    strategie_pg.query_raw (PG) / EUROSOFT MCP strategie_query_raw (MSSQL).
+    Běží na cloud APP (dosáhne na cloud SQL i MSSQL). Volá NB watcher
+    (forwarder přes HTTPS). Auth: parent session NEBO X-Deploy-Token.
+    Read-only guard je v query_raw (SELECT/WITH/EXPLAIN/SHOW)."""
+    import os as _os_ds
+    token = req.headers.get("X-Deploy-Token")
+    env_token = _os_ds.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    actor = "token"
+    if token and env_token and token == env_token:
+        pass
+    else:
+        uid = _get_uid(req)
+        _require_parent(uid)
+        actor = "user_%s" % uid
+
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    sql = (str(body.get("sql") or "")).strip()
+    db = (str(body.get("db") or "pg")).strip().lower()
+    if not sql:
+        return JSONResponse({"ok": False, "error": "sql chybí"}, status_code=400)
+
+    if db == "mssql":
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+            import json as _j_ds
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                res = {"ok": False, "error": "EUROSOFT MCP nedostupný"}
+            else:
+                rj = mcp.call_tool_sync(
+                    "eurosoft_strategie_query_raw",
+                    {"sql": sql, "db_name": "DB_EC"},
+                    conversation_id=None,
+                )
+                res = _j_ds.loads(rj) if isinstance(rj, str) else rj
+        except Exception as exc:
+            res = {"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}
+    else:
+        try:
+            from modules.strategie_pg.application import service as _pg_ds
+            res = _pg_ds.query_raw(sql)
+        except Exception as exc:
+            res = {"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}
+
+    # Audit (best-effort) do fw.claude_sql_log
+    try:
+        from core.database_data import get_data_session as _gds_ds
+        from sqlalchemy import text as _t_ds
+        _ds = _gds_ds()
+        try:
+            _ds.execute(_t_ds(
+                "INSERT INTO fw.claude_sql_log "
+                "(actor, db_target, sql_text, status, row_count, error) "
+                "VALUES (:a, :db, :sql, :st, :rc, :err)"
+            ), {"a": actor, "db": db, "sql": sql[:8000],
+                "st": "ok" if (isinstance(res, dict) and res.get("ok")) else "error",
+                "rc": (res.get("count") if isinstance(res, dict) else None),
+                "err": (None if (isinstance(res, dict) and res.get("ok"))
+                        else str(res.get("error"))[:2000] if isinstance(res, dict) else None)})
+            _ds.commit()
+        finally:
+            _ds.close()
+    except Exception:
+        pass
+
+    return JSONResponse(res if isinstance(res, dict) else {"ok": False, "error": "neznámý výstup"})
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.

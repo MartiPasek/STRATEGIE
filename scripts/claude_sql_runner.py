@@ -1,47 +1,46 @@
-"""Claude SQL bridge — watcher (Marti 1.6.2026).
+r"""Claude SQL bridge — NB watcher / forwarder (Marti 1.6.2026).
 
-Zrychleni spoluprace: Claude (Cowork) nema primy pristup k DB. Misto rucniho
-copy-paste vysledku Claude zapise SELECT do souboru a tenhle watcher ho spusti
-a vrati vysledek do souboru.
+Zrychleni spoluprace: Claude (Cowork) nema primy pristup k DB. Zapise SELECT
+do souboru, tenhle watcher ho FORWARDNE na cloud APP endpoint /api/v1/erp/diag-sql,
+ktery ho spusti pres EXISTUJICI STRATEGIE tooly (strategie_pg pro PG /
+EUROSOFT MCP pro MSSQL) proti PRODUKCI a vrati vysledek. Watcher ho zapise zpet.
 
-KROK 1 (tento soubor): read-only SELECT auto (PG + MSSQL EUROSOFT) + audit.
-KROK 2 (pozdeji): write (UPDATE/INSERT/DDL) -> popup v chatu/ERP, Marti potvrdi.
+Proc forwarder: NB nedosahne na produkcni cloud SQL (interni VPN) — ale na
+verejne HTTPS strategie-ai.com ano. SQL fakt bezi na cloud APP. Pouziva jen
+stdlib (urllib) — zadny venv, zadne DB drivery, bezi i systemovym Pythonem.
+
+KROK 1: read-only SELECT (PG + MSSQL). Cloud endpoint to vynuti (query_raw guard).
+KROK 2 (pozdeji): write -> potvrzovaci popup v chatu/ERP.
 
 Protokol (slozka scripts/claude_sql/, gitignored):
   CLAUDE_SQL.sql   - Claude zapise SELECT (cely soubor = jeden dotaz).
   CLAUDE_GO.txt    - trigger (Claude zapise JAKO POSLEDNI). Volitelne 1. radek:
-                       db=pg   (default) nebo db=mssql
+                       db=pg (default) nebo db=mssql
   CLAUDE_OUT.txt   - watcher zapise vysledek (markdown tabulka + status).
 
-Workflow watcheru:
-  1. polluje CLAUDE_GO.txt kazde ~1.5 s
-  2. precte CLAUDE_SQL.sql + db target z CLAUDE_GO.txt
-  3. SELECT-only guard (WITH/SELECT/EXPLAIN). Write -> blok (Krok 2).
-  4. spusti read-only proti DB (PG SQLAlchemy / MSSQL pyodbc)
-  5. zapise markdown vysledek do CLAUDE_OUT.txt + audit do fw.claude_sql_log
-  6. smaze CLAUDE_GO.txt (consumed)
+Env (povinne):
+  STRATEGIE_DEPLOY_TOKEN  - stejny token jako na cloud APP (auth diag-sql).
+Env (volitelne):
+  CLAUDE_SQL_CLOUD_URL    - default https://strategie-ai.com/api/v1/erp/diag-sql
 
-NSSM install (jednorazove na NB, z repo rootu D:\Projekty\STRATEGIE):
-  C:\Tools\nssm.exe install STRATEGIE-CLAUDE-SQL python ^
-    "D:\Projekty\STRATEGIE\scripts\claude_sql_runner.py"
-  C:\Tools\nssm.exe set STRATEGIE-CLAUDE-SQL AppDirectory D:\Projekty\STRATEGIE
-  C:\Tools\nssm.exe set STRATEGIE-CLAUDE-SQL AppStdout D:\Projekty\STRATEGIE\scripts\claude_sql\watcher.log
-  C:\Tools\nssm.exe set STRATEGIE-CLAUDE-SQL AppStderr D:\Projekty\STRATEGIE\scripts\claude_sql\watcher.log
-  C:\Tools\nssm.exe set STRATEGIE-CLAUDE-SQL Start SERVICE_AUTO_START
-  C:\Tools\nssm.exe start STRATEGIE-CLAUDE-SQL
-  (pokud poetry venv: nastav Application na cestu k venv python.exe)
-
-MSSQL (volitelne, pro db=mssql) - nastav env:
-  CLAUDE_SQL_MSSQL_CONN = "DRIVER={ODBC Driver 17 for SQL Server};SERVER=192.168.30.11;DATABASE=DB_EC;UID=Marti-AI;PWD=<heslo>;TrustServerCertificate=yes"
+NSSM install (NB) — diky urllib staci SYSTEMOVY python (ne venv):
+  $nssm = "C:\Users\Martin\AppData\Local\Microsoft\WinGet\Links\nssm.exe"
+  & $nssm install STRATEGIE-CLAUDE-SQL "python" "D:\Projekty\STRATEGIE\scripts\claude_sql_runner.py"
+  & $nssm set STRATEGIE-CLAUDE-SQL AppDirectory D:\Projekty\STRATEGIE
+  & $nssm set STRATEGIE-CLAUDE-SQL AppEnvironmentExtra "STRATEGIE_DEPLOY_TOKEN=<token>"
+  & $nssm set STRATEGIE-CLAUDE-SQL Start SERVICE_AUTO_START
+  & $nssm restart STRATEGIE-CLAUDE-SQL
 
 Manual (debug):  python scripts/claude_sql_runner.py   (Ctrl+C konec)
 """
 from __future__ import annotations
 
+import json
 import os
-import re
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -59,16 +58,11 @@ OUT_FILE = BRIDGE_DIR / "CLAUDE_OUT.txt"
 LOG_FILE = BRIDGE_DIR / "watcher.log"
 
 SCAN_INTERVAL_SEC = 1.5
+HTTP_TIMEOUT_SEC = 30
 ROW_CAP = 500
-STMT_TIMEOUT_MS = 15000   # 15 s
-CELL_MAX = 200            # max delka bunky v markdown
-
-# SELECT-only guard (Krok 1). Write detekce -> blok + hlaska na Krok 2.
-_READ_PREFIX = re.compile(r"^\s*(WITH|SELECT|EXPLAIN)\b", re.IGNORECASE)
-_WRITE_KEYWORDS = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|GRANT|"
-    r"REVOKE|REPLACE|CALL|EXEC|EXECUTE)\b",
-    re.IGNORECASE,
+CELL_MAX = 200
+CLOUD_URL = os.environ.get(
+    "CLAUDE_SQL_CLOUD_URL", "https://strategie-ai.com/api/v1/erp/diag-sql"
 )
 
 
@@ -84,119 +78,50 @@ def _log(msg: str) -> None:
     print(line, flush=True)
 
 
-def _strip_comments(sql: str) -> str:
-    s = re.sub(r"--[^\n]*", " ", sql)
-    s = re.sub(r"/\*.*?\*/", " ", s, flags=re.S)
-    return s.strip()
-
-
-def _is_read_only(sql: str) -> bool:
-    s = _strip_comments(sql)
-    if not _READ_PREFIX.match(s):
-        return False
-    # WITH ... muze obsahovat data-modifying CTE (INSERT/UPDATE) -> blok pro jistotu
-    return _WRITE_KEYWORDS.search(s) is None
-
-
-def _pg_url() -> str | None:
-    # env override -> jinak core.config settings
-    env = os.environ.get("CLAUDE_SQL_PG_URL") or os.environ.get("STRATEGIE_DATA_DB_URL")
-    if env:
-        return env
+def _forward(sql: str, db: str) -> dict:
+    """POST {sql, db} na cloud diag-sql endpoint. Returns parsed dict."""
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not token:
+        return {"ok": False, "error": "chybí env STRATEGIE_DEPLOY_TOKEN na NB"}
+    payload = json.dumps({"sql": sql, "db": db}).encode("utf-8")
+    rq = urllib.request.Request(
+        CLOUD_URL, data=payload, method="POST",
+        headers={"Content-Type": "application/json", "X-Deploy-Token": token},
+    )
     try:
-        from core.config import settings
-        return settings.database_data_url or settings.database_url or None
+        with urllib.request.urlopen(rq, timeout=HTTP_TIMEOUT_SEC) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        return json.loads(raw)
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")[:500]
+        except Exception:
+            pass
+        return {"ok": False, "error": f"HTTP {e.code}: {body or e.reason}"}
     except Exception as exc:
-        _log(f"core.config import failed: {exc}")
-        return None
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def _md_table(columns: list[str], rows: list[tuple]) -> str:
+def _md_table(columns: list, rows: list) -> str:
     def _cell(v) -> str:
         s = "" if v is None else str(v)
         s = s.replace("\r", " ").replace("\n", " ").replace("|", "\\|")
         return s if len(s) <= CELL_MAX else s[:CELL_MAX] + "…"
     if not columns:
         return "(0 sloupců)"
-    head = "| " + " | ".join(columns) + " |"
+    capped = rows[:ROW_CAP]
+    head = "| " + " | ".join(str(c) for c in columns) + " |"
     sep = "| " + " | ".join("---" for _ in columns) + " |"
-    body = "\n".join("| " + " | ".join(_cell(c) for c in r) + " |" for r in rows)
+    body_lines = []
+    for r in capped:
+        if isinstance(r, dict):
+            vals = [_cell(r.get(c)) for c in columns]
+        else:
+            vals = [_cell(v) for v in r]
+        body_lines.append("| " + " | ".join(vals) + " |")
+    body = "\n".join(body_lines)
     return head + "\n" + sep + ("\n" + body if body else "")
-
-
-def _audit(db_target: str, sql: str, status: str,
-           row_count: int | None, elapsed_ms: int, error: str | None) -> None:
-    url = _pg_url()
-    if not url:
-        return
-    try:
-        from sqlalchemy import create_engine, text
-        eng = create_engine(url, pool_pre_ping=True)
-        with eng.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO fw.claude_sql_log "
-                "(actor, db_target, sql_text, status, row_count, elapsed_ms, error) "
-                "VALUES ('claude', :db, :sql, :st, :rc, :el, :err)"
-            ), {"db": db_target, "sql": sql[:8000], "st": status,
-                "rc": row_count, "el": elapsed_ms, "err": (error or None)})
-        eng.dispose()
-    except Exception as exc:
-        _log(f"audit insert failed: {exc}")
-
-
-def _run_pg(sql: str) -> tuple[str, int | None, int, str | None]:
-    """Returns (markdown, row_count, elapsed_ms, error)."""
-    url = _pg_url()
-    if not url:
-        return "", None, 0, "PG connection URL nenalezena (env / core.config)."
-    from sqlalchemy import create_engine, text
-    t0 = time.time()
-    eng = create_engine(url, pool_pre_ping=True)
-    try:
-        with eng.connect() as conn:
-            try:
-                conn.execute(text("SET statement_timeout = :t"), {"t": STMT_TIMEOUT_MS})
-                conn.execute(text("SET TRANSACTION READ ONLY"))
-            except Exception:
-                pass
-            res = conn.execute(text(sql))
-            cols = list(res.keys())
-            rows = res.fetchmany(ROW_CAP)
-        elapsed = int((time.time() - t0) * 1000)
-        md = _md_table(cols, [tuple(r) for r in rows])
-        return md, len(rows), elapsed, None
-    except Exception as exc:
-        elapsed = int((time.time() - t0) * 1000)
-        return "", None, elapsed, f"{type(exc).__name__}: {exc}"
-    finally:
-        eng.dispose()
-
-
-def _run_mssql(sql: str) -> tuple[str, int | None, int, str | None]:
-    conn_str = os.environ.get("CLAUDE_SQL_MSSQL_CONN")
-    if not conn_str:
-        return "", None, 0, ("MSSQL není nakonfigurován (chybí env "
-                             "CLAUDE_SQL_MSSQL_CONN). Viz docstring.")
-    try:
-        import pyodbc
-    except ImportError:
-        return "", None, 0, "pyodbc není nainstalován na NB (pip install pyodbc)."
-    t0 = time.time()
-    try:
-        cn = pyodbc.connect(conn_str, timeout=10, readonly=True)
-        try:
-            cur = cn.cursor()
-            cur.execute(sql)
-            cols = [d[0] for d in cur.description] if cur.description else []
-            rows = cur.fetchmany(ROW_CAP) if cols else []
-        finally:
-            cn.close()
-        elapsed = int((time.time() - t0) * 1000)
-        md = _md_table(cols, [tuple(r) for r in rows])
-        return md, len(rows), elapsed, None
-    except Exception as exc:
-        elapsed = int((time.time() - t0) * 1000)
-        return "", None, elapsed, f"{type(exc).__name__}: {exc}"
 
 
 def _write_out(text_body: str) -> None:
@@ -208,13 +133,13 @@ def _write_out(text_body: str) -> None:
 
 
 def _process() -> None:
-    # db target z GO souboru (1. radek "db=pg" / "db=mssql")
-    db_target = "pg"
+    db = "pg"
     try:
         go_raw = GO_FILE.read_text(encoding="utf-8", errors="replace").strip().lower()
+        import re
         m = re.search(r"db\s*=\s*(pg|mssql)", go_raw)
         if m:
-            db_target = m.group(1)
+            db = m.group(1)
     except Exception:
         pass
 
@@ -225,46 +150,40 @@ def _process() -> None:
         _log(f"read SQL failed: {exc}")
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
     if not sql:
         _write_out(f"# STATUS: prázdný SQL\n# {ts}\n")
         _consume()
         return
 
-    if not _is_read_only(sql):
+    _log(f"forward {db}: {sql[:80]!r}")
+    t0 = time.time()
+    res = _forward(sql, db)
+    el = int((time.time() - t0) * 1000)
+
+    if not isinstance(res, dict) or not res.get("ok"):
+        err = (res.get("error") if isinstance(res, dict) else str(res)) or "neznámá chyba"
         _write_out(
-            f"# STATUS: BLOKOVÁNO (write detekován)\n# {ts}\n# db={db_target}\n\n"
-            "Watcher v Kroku 1 pouští jen read-only SELECT/WITH/EXPLAIN.\n"
-            "Write (INSERT/UPDATE/DELETE/DDL) bude přes potvrzovací popup v Kroku 2.\n\n"
+            f"# STATUS: CHYBA\n# {ts}\n# db={db} · {el} ms\n\n{err}\n\n"
             "```sql\n" + sql[:2000] + "\n```\n"
         )
-        _audit(db_target, sql, "blocked", None, 0, "write blocked (krok 1)")
-        _log(f"BLOCKED write ({db_target}): {sql[:80]!r}")
+        _log(f"ERROR ({db}): {str(err)[:160]}")
         _consume()
         return
 
-    _log(f"run {db_target}: {sql[:80]!r}")
-    if db_target == "mssql":
-        md, rc, el, err = _run_mssql(sql)
-    else:
-        md, rc, el, err = _run_pg(sql)
-
-    if err:
-        _write_out(
-            f"# STATUS: CHYBA\n# {ts}\n# db={db_target} · {el} ms\n\n{err}\n\n"
-            "```sql\n" + sql[:2000] + "\n```\n"
-        )
-        _audit(db_target, sql, "error", None, el, err)
-        _log(f"ERROR ({db_target}): {err[:160]}")
-    else:
-        cap_note = f" (capped {ROW_CAP})" if (rc is not None and rc >= ROW_CAP) else ""
-        _write_out(
-            f"# STATUS: OK · {rc} řádků{cap_note} · {el} ms · db={db_target}\n# {ts}\n\n"
-            + md + "\n"
-        )
-        _audit(db_target, sql, "ok", rc, el, None)
-        _log(f"OK ({db_target}): {rc} rows, {el} ms")
-
+    columns = res.get("columns")
+    rows = res.get("rows") or []
+    if not columns and rows and isinstance(rows[0], dict):
+        columns = list(rows[0].keys())
+    count = res.get("count")
+    if count is None:
+        count = len(rows)
+    cap_note = f" (zobrazeno {ROW_CAP})" if count and count > ROW_CAP else ""
+    md = _md_table(columns or [], rows)
+    _write_out(
+        f"# STATUS: OK · {count} řádků{cap_note} · {el} ms · db={db}\n# {ts}\n\n"
+        + md + "\n"
+    )
+    _log(f"OK ({db}): {count} rows, {el} ms")
     _consume()
 
 
@@ -278,7 +197,9 @@ def _consume() -> None:
 
 def main() -> None:
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
-    _log(f"STRATEGIE-CLAUDE-SQL watcher started · dir={BRIDGE_DIR} · interval={SCAN_INTERVAL_SEC}s")
+    _log(f"STRATEGIE-CLAUDE-SQL forwarder started · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
+    if not os.environ.get("STRATEGIE_DEPLOY_TOKEN"):
+        _log("WARNING: STRATEGIE_DEPLOY_TOKEN není nastaven — dotazy selžou na auth.")
     try:
         while True:
             try:
@@ -293,7 +214,7 @@ def main() -> None:
                     pass
             time.sleep(SCAN_INTERVAL_SEC)
     except KeyboardInterrupt:
-        _log("STRATEGIE-CLAUDE-SQL watcher stopped (Ctrl+C)")
+        _log("STRATEGIE-CLAUDE-SQL forwarder stopped (Ctrl+C)")
 
 
 if __name__ == "__main__":

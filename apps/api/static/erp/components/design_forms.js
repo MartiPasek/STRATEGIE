@@ -10932,7 +10932,7 @@
           _labelInput.placeholder = dsCode ? "— vyber —" : "⚠ data_source nenastaven";
           _labelInput.readOnly = !!(readonly || isDisplayOnly);
           _labelInput.style.cssText =
-            "flex:1;background:transparent;border:none;color:#cfd6df;" +
+            "flex:1 1 0;min-width:0;background:transparent;border:none;color:#cfd6df;" +
             "font-size:13px;padding:6px 8px;outline:none;cursor:text;";
           if (!_labelInput.readOnly) {
             // Smazání textu (prázdné pole) = zrušený výběr (unlink).
@@ -10965,7 +10965,7 @@
           // idCol/labelCol.querySelector("input"). Drž je jako lehké wrappery
           // (span) kolem _idInput/_labelInput → minimální změna handlerů.
           const labelCol = document.createElement("span");
-          labelCol.style.cssText = "flex:1;display:flex;";
+          labelCol.style.cssText = "flex:1 1 0;min-width:0;display:flex;";
           labelCol.appendChild(_labelInput);
           fieldsRow.appendChild(labelCol);
           const idCol = document.createElement("span");
@@ -11017,7 +11017,7 @@
             // Marti 1.6.2026 refaktor 2: ⋮ trigger integrovaný do input borderu
             // (jako ⋮ menu na filtrech gridu) — neutrální, bez accent modré.
             btn.style.cssText =
-              "padding:0 10px;font-size:18px;line-height:1;border:none;" +
+              "padding:0 10px;font-size:18px;line-height:1;border:none;flex:0 0 auto;" +
               "border-left:1px solid #2a3340;cursor:" +
               (btnDisabled ? "default" : "pointer") + ";" +
               "background:#141a21;color:" + def.color + ";" +

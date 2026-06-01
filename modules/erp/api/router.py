@@ -2529,8 +2529,20 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
         # Krok 5-Z (28.5.2026): JOIN db_connection pro db_type detect.
         # PG path: existing direct SELECT, MSSQL path: dispatch via MCP
         # eurosoft_strategie_get_row (Marti's (α) doctrine 28.5. ranni).
-        row = ds.execute(_sql_resolve("""
-            SELECT dset.sql_text, dc.db_type, dc.code AS dc_code
+        # 1.6.2026 (Marti): edit core s VLASTNÍM edit-selectem (dedikovaný
+        # data_set edit-opu ≠ grid select) → read+save z NĚJ (jednoduchý SELECT
+        # WHERE ID=:ID), ne z grid composite (jehož sloupce nesedí na pole).
+        edit_row = ds.execute(_sql_resolve("""
+            SELECT dset.id AS dset_id, dset.sql_text, dc.db_type, dc.code AS dc_code
+            FROM fw.data_source_op op
+            JOIN fw.data_set dset ON dset.id = op.data_set_id
+            LEFT JOIN fw.db_connection dc ON dc.id = dset.db_connection_id
+            WHERE op.core_id = :core_id AND op.operation_kind IN ('edit', 'insert')
+            ORDER BY CASE op.operation_kind WHEN 'edit' THEN 0 ELSE 1 END, op.id ASC
+            LIMIT 1
+        """), {"core_id": core_id}).mappings().one_or_none()
+        sel_row = ds.execute(_sql_resolve("""
+            SELECT dset.id AS dset_id, dset.sql_text, dc.db_type, dc.code AS dc_code
             FROM fw.core c
             JOIN fw.comp_def cd
                 ON cd.core_id = c.id
@@ -2549,6 +2561,11 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
             ORDER BY op.is_default DESC NULLS LAST, op.id ASC
             LIMIT 1
         """), {"core_id": core_id}).mappings().one_or_none()
+        # preferuj edit-op data_set pokud dedikovaný (≠ grid select data_set)
+        if edit_row and (sel_row is None or edit_row["dset_id"] != sel_row["dset_id"]):
+            row = edit_row
+        else:
+            row = sel_row
         if not row:
             logger.info(f"_resolve_entity_config_from_db: no core/data_set chain for core_id={core_id}")
             return None

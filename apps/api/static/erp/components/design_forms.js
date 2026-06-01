@@ -10838,33 +10838,43 @@
             const coreRow = (this._spec && this._spec.core) || {};
             initialId = coreRow.id != null ? coreRow.id : null;
             initialLabel = coreRow.label || coreRow.code || null;
-          } else if (displayMode === "editable" && fieldExtern) {
-            // Phase 38.4 Krok 5.M-5+2 (17.5.2026, Marti's "ze stromu predat
-            // PK ID a FK core_id"): Picker #2 Prehled (field_extern='core_id')
-            // — initial z runtime menu_node.core_id (tree contextmenu),
-            // ne z form root.
+          } else if (displayMode === "editable") {
+            // META field_extern = design-meta picker (two-layer pattern):
+            // initial z form root comp_def / runtime menu_node. Vše ostatní
+            // (vč. prázdného field_extern) = DATA FK picker → initial z field
+            // value (datový sloupec, Marti 1.6.2026 Krok 5.I-F).
+            const _METList =
+              ["core_id", "data_source_id", "parent_comp_def_id", "menu_node_id"];
             if (fieldExtern === "core_id") {
+              // Picker #2 Prehled — initial z runtime menu_node.core_id
               const runtimeCoreId = (this.opts && this.opts.runtimeMenuNodeCoreId) || null;
               if (runtimeCoreId != null) {
                 initialId = runtimeCoreId;
-                initialLabel = null;  // backend label lookup pres picker reload (label fetched z framework_core_list data_source)
+                initialLabel = null;  // label fetched z framework_core_list
               } else {
-                // Fallback: form root (legacy, non-tree contextmenu open)
                 const formRoot = (this._spec && this._spec.form) || {};
                 initialId = formRoot.core_id != null ? formRoot.core_id : null;
                 initialLabel = null;
               }
             } else if (fieldExtern === "data_source_id") {
               // Picker #3 Datovy zdroj — initial z form root comp_def
-              // (Krok 5.I-F backend extension JOIN).
               const formRoot = (this._spec && this._spec.form) || {};
               initialId = formRoot.data_source_id != null ? formRoot.data_source_id : null;
               initialLabel = formRoot.data_source_name || formRoot.data_source_code || null;
-            } else {
-              // Generic fallback — budouci pickery s jinym field_extern.
+            } else if (fieldExtern && _METList.includes(fieldExtern)) {
+              // Generic META fallback — form root meta sloupec.
               const formRoot = (this._spec && this._spec.form) || {};
               initialId = formRoot[fieldExtern] != null ? formRoot[fieldExtern] : null;
               initialLabel = null;
+            } else {
+              // DATA FK picker — initial z field value (datový sloupec).
+              // value = uložená hodnota (row[Lookup ID field]: text pro
+              // denormalizovaný číselník, ID pro FK). initialLabel = raw
+              // value; async fetch níže resolve display label z číselníku.
+              if (value != null && value !== "") {
+                initialId = value;
+                initialLabel = String(value);
+              }
             }
           }
 
@@ -11106,6 +11116,30 @@
           innerRow.appendChild(actionsRow);
           innerRow.appendChild(fieldsRow);
           wrap.appendChild(innerRow);
+
+          // Marti 1.6.2026 Krok 5.I-F: DATA FK picker — resolve display label
+          // z číselníku (initialId = uložená hodnota = row[lookupId]). Pro
+          // FK-by-id (ZemeID) je initialId číslo → najde row.ID===initialId →
+          // label = row[lookupDisplay] (text). Pro text číselník (TypZakazky)
+          // je initialId rovnou text → label se jen potvrdí. Cosmetic only —
+          // nenastavuje _selectedValue (žádný dirty).
+          const _isMetaPicker = fieldExtern && [
+            "core_id", "data_source_id", "parent_comp_def_id", "menu_node_id",
+          ].includes(fieldExtern);
+          if (displayMode === "editable" && !_isMetaPicker && dsCode
+              && initialId != null && String(initialId) !== "") {
+            fetch("/api/v1/erp/data/" + encodeURIComponent(dsCode) + "?limit=1000",
+                  { credentials: "include" })
+              .then(r => r.json())
+              .then(j => {
+                const rows = (j && j.rows) || [];
+                const match = rows.find(rw => String(rw[lookupId]) === String(initialId));
+                if (match && match[lookupDisplay] != null && _labelInput) {
+                  _labelInput.value = String(match[lookupDisplay]);
+                }
+              })
+              .catch(e => console.warn("[entity_picker dyn label] " + dsCode, e));
+          }
 
           // Krok 5.H placeholder hint
           if (!dsCode) {

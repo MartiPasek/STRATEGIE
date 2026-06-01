@@ -408,48 +408,116 @@
     try { ok.focus(); } catch (e) {}
   }
 
-  // Náhled dataset SQL (1.6.2026, Marti: "na CORE zobrazit dataset, ať se
-  // nezamotáme"). Monospace, široký, scroll. + metadata (data_source/db_type).
-  function _genSqlPopup(meta, sql) {
+  // Dataset jádra (1.6.2026, Marti: "detail core = jednoduchý SELECT WHERE
+  // ID=:ID, ne grid composite"). Grid composite read-only reference +
+  // EDITOVATELNÝ edit-select → Uložit zapíše vlastní data_set edit-opu.
+  function _genSqlPopup(meta, gridSql, coreId) {
     var ds = (meta && meta.data_source) || {};
     var conn = (meta && meta.connection) || {};
     var metaLine = "data_source: " + (ds.code || ("#" + ds.id)) +
       " · db_type: " + ((meta && meta.db_type) || "?") +
-      " · connection: " + (conn.code || ("#" + conn.id)) +
-      " · data_set #" + ((meta && meta.data_set_id) || "?");
+      " · connection: " + (conn.code || ("#" + conn.id));
+    var editSql = (meta && meta.edit_sql) || "";
+
     var ov = document.createElement("div");
     ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200000;" +
       "display:flex;align-items:center;justify-content:center;";
     var dlg = document.createElement("div");
     dlg.style.cssText = "background:#1a1f26;border:1px solid #2a3340;border-radius:8px;" +
-      "width:840px;max-width:96vw;color:#cfd6df;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,0.6);" +
-      "overflow:hidden;display:flex;flex-direction:column;max-height:88vh;";
+      "width:860px;max-width:96vw;color:#cfd6df;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,0.6);" +
+      "overflow:hidden;display:flex;flex-direction:column;max-height:90vh;";
     dlg.innerHTML =
       '<div style="padding:14px 18px;border-bottom:1px solid #2a3340;background:#141a20;' +
-      'font-size:14px;font-weight:600;color:#e8eef5;">📄 Dataset SQL</div>' +
+      'font-size:14px;font-weight:600;color:#e8eef5;">📄 Dataset jádra</div>' +
       '<div style="padding:8px 18px;border-bottom:1px solid #2a3340;font-size:11px;color:#8a96a4;">' +
-      _genEsc(metaLine) + '</div>' +
-      '<pre style="margin:0;padding:14px 18px;font-size:12px;color:#cfe0d4;' +
-      'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;' +
-      'overflow:auto;line-height:1.5;flex:1 1 auto;">' + _genEsc(sql || "(prázdný sql_text)") + '</pre>';
+      _genEsc(metaLine) + '</div>';
+
+    var bodyWrap = document.createElement("div");
+    bodyWrap.style.cssText = "padding:14px 18px;overflow:auto;flex:1 1 auto;" +
+      "display:flex;flex-direction:column;gap:12px;";
+
+    // Sekce 1 — grid composite (read-only reference, collapsible)
+    var gridSec = document.createElement("div");
+    gridSec.innerHTML = '<details><summary style="cursor:pointer;color:#a8b4c2;' +
+      'font-size:12px;font-weight:600;">Grid dataset (composite — jen zobrazení, read-only)</summary>' +
+      '<pre style="margin:6px 0 0;padding:10px 12px;font-size:11px;color:#9aa6b4;' +
+      'background:#11151b;border:1px solid #2a3340;border-radius:4px;white-space:pre;' +
+      'overflow:auto;max-height:200px;line-height:1.45;">' + _genEsc(gridSql || "(prázdný)") + '</pre></details>';
+    bodyWrap.appendChild(gridSec);
+
+    // Sekce 2 — editovatelný edit-select
+    var lbl = document.createElement("div");
+    lbl.style.cssText = "font-size:12px;font-weight:600;color:#7ad4a8;";
+    lbl.textContent = "Edit-select jádra (kam se edit váže) — jednoduchý SELECT s WHERE ID = :ID";
+    bodyWrap.appendChild(lbl);
+    var hint = document.createElement("div");
+    hint.style.cssText = "font-size:11px;color:#8a96a4;line-height:1.5;";
+    hint.textContent = "Detail core = single-table SELECT. Uložit → vlastní data_set edit-opu " +
+      "(grid composite se nezmění). Pak v patičce 🔄 Reviduj CORE + 🔗 Save bindingy.";
+    bodyWrap.appendChild(hint);
+    var ta = document.createElement("textarea");
+    ta.value = editSql || "SELECT KA.*\nFROM <schema.tabulka> as KA\nWHERE KA.ID = :ID";
+    ta.style.cssText = "width:100%;box-sizing:border-box;min-height:170px;padding:10px 12px;" +
+      "font-size:12px;color:#cfe0d4;background:#11151b;border:1px solid #2f5a44;border-radius:4px;" +
+      "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.5;resize:vertical;";
+    bodyWrap.appendChild(ta);
+    dlg.appendChild(bodyWrap);
+
     var ftr = document.createElement("div");
     ftr.style.cssText = "padding:12px 18px;border-top:1px solid #2a3340;background:#141a20;" +
-      "display:flex;justify-content:flex-end;";
-    var ok = document.createElement("button");
-    ok.type = "button";
-    ok.textContent = "Zavřít";
-    ok.style.cssText = "background:#2a3340;border:1px solid #3a4452;color:#cfd6df;" +
+      "display:flex;justify-content:flex-end;gap:8px;";
+    var saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.textContent = "💾 Uložit edit-select";
+    saveBtn.style.cssText = "background:#1f3a2e;border:1px solid #2f5a44;color:#7ad4a8;" +
+      "padding:8px 16px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;";
+    saveBtn.addEventListener("click", async function () {
+      var newSql = ta.value.trim();
+      if (!newSql) { _genNotePopup("Edit-select", "Prázdný SQL.", true); return; }
+      saveBtn.disabled = true;
+      saveBtn.textContent = "⏳ Ukládám…";
+      try {
+        var jr = await fetch(
+          "/api/v1/erp/core/" + encodeURIComponent(coreId) + "/edit-select",
+          {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sql: newSql }),
+          }
+        ).then(function (x) { return x.json(); });
+        if (jr && jr.ok) {
+          try { ov.remove(); } catch (e) {}
+          _genNotePopup("✓ Edit-select uložen",
+            "data_set #" + jr.data_set_id + (jr.created ? " (vytvořen)" : " (aktualizován)") +
+            ".\n\nTeď v patičce: 🔄 Reviduj CORE (přegeneruje pole z nového selectu) " +
+            "→ pak 🔗 Save bindingy.", false);
+        } else {
+          saveBtn.disabled = false;
+          saveBtn.textContent = "💾 Uložit edit-select";
+          _genNotePopup("✗ Edit-select — chyba", (jr && jr.error) || "HTTP chyba", true);
+        }
+      } catch (e) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "💾 Uložit edit-select";
+        _genNotePopup("✗ Edit-select — síťová chyba", String(e && e.message || e), true);
+      }
+    });
+    var closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "Zavřít";
+    closeBtn.style.cssText = "background:#2a3340;border:1px solid #3a4452;color:#cfd6df;" +
       "padding:8px 18px;border-radius:4px;cursor:pointer;font-size:13px;";
-    ok.addEventListener("click", function () { try { ov.remove(); } catch (e) {} });
-    ftr.appendChild(ok);
+    closeBtn.addEventListener("click", function () { try { ov.remove(); } catch (e) {} });
+    ftr.appendChild(saveBtn);
+    ftr.appendChild(closeBtn);
     dlg.appendChild(ftr);
     ov.appendChild(dlg);
     ov.addEventListener("click", function (ev) { if (ev.target === ov) ov.remove(); });
     document.body.appendChild(ov);
-    try { ok.focus(); } catch (e) {}
+    try { ta.focus(); } catch (e) {}
   }
 
-  // Načte + zobrazí dataset SQL daného core (📄 tlačítko v DESIGN toolbaru).
+  // Načte + zobrazí dataset jádra (📄 tlačítko v DESIGN toolbaru).
   async function _showDatasetSql(coreId) {
     try {
       var j = await fetch(
@@ -457,19 +525,19 @@
         { credentials: "include" }
       ).then(function (x) { return x.json(); });
       if (!j || !j.ok) {
-        _genNotePopup("✗ Dataset SQL — chyba", (j && j.error) || "HTTP chyba", true);
+        _genNotePopup("✗ Dataset — chyba", (j && j.error) || "HTTP chyba", true);
         return;
       }
-      _genSqlPopup(j, j.sql);
+      _genSqlPopup(j, j.sql, coreId);
     } catch (e) {
-      _genNotePopup("✗ Dataset SQL — síťová chyba", String(e && e.message || e), true);
+      _genNotePopup("✗ Dataset — síťová chyba", String(e && e.message || e), true);
     }
   }
 
   // Spustí orchestrator vytvorit_edit_jadro_2 (fetch dataset-fields → POST) a
   // ukáže success/error popup. onReopen() se zavolá po OK na success popupu.
   // triggerBtn (volitelný) se disable/restore s labelem restoreLabel.
-  async function _runEditCoreGen(coreId, onReopen, triggerBtn, restoreLabel) {
+  async function _runEditCoreGen(coreId, onReopen, triggerBtn, restoreLabel, force) {
     var _restore = function () {
       if (triggerBtn) { triggerBtn.disabled = false; triggerBtn.textContent = restoreLabel; }
     };
@@ -477,6 +545,7 @@
     try {
       // Fieldy spočítá API (sandbox má MCP unreachable) → ctx.fields.
       var _body = { coreId: coreId };
+      if (force) _body.force = true;
       try {
         var _ff = await fetch(
           "/api/v1/erp/core/" + encodeURIComponent(coreId) + "/dataset-fields",
@@ -3561,6 +3630,11 @@
             reviewBtn.style.cssText = "padding:6px 12px;background:#243044;border:1px solid #35506e;" +
               "border-radius:3px;color:#a8c5dc;cursor:pointer;font-size:12px;";
             reviewBtn.addEventListener("click", function () {
+              const _force = window.confirm(
+                "Reviduj CORE — přegenerovat OD NULY?\n\n" +
+                "OK = od nuly (smaže stávající komponenty + vytvoří znovu z aktuálního edit-selectu)\n" +
+                "Zrušit = jen doplnit nové fieldy (inkrementálně)"
+              );
               const _reopen = function () {
                 try { _dtSelf._shell.close(); } catch (e) {}
                 setTimeout(function () {
@@ -3573,7 +3647,7 @@
                   } catch (e) { console.error("[reviduj] reopen failed:", e); }
                 }, 350);
               };
-              _runEditCoreGen(_dtCoreId, _reopen, reviewBtn, "🔄 Reviduj CORE");
+              _runEditCoreGen(_dtCoreId, _reopen, reviewBtn, "🔄 Reviduj CORE", _force);
             });
             dtBar.appendChild(reviewBtn);
 

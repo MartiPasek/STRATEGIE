@@ -973,6 +973,19 @@ def core_dataset_sql(core_id: int, req: Request) -> JSONResponse:
                 {"ok": False, "error": f"core #{core_id}: nenalezen SELECT op datasetu (edit/insert op → data_source → select)"},
                 status_code=404,
             )
+        # edit-op vlastní data_set sql (pokud má dedikovaný — pro prefill editoru)
+        edit_row = session.execute(_sql_dsql("""
+            SELECT dset.sql_text, op.data_set_id
+            FROM fw.data_source_op op
+            JOIN fw.data_set dset ON dset.id = op.data_set_id
+            WHERE op.core_id = :cid AND op.operation_kind IN ('edit', 'insert')
+            ORDER BY CASE op.operation_kind WHEN 'edit' THEN 0 ELSE 1 END, op.id ASC
+            LIMIT 1
+        """), {"cid": core_id}).mappings().one_or_none()
+        # dedikovaný edit-select jen pokud != grid select data_set
+        edit_sql = None
+        if edit_row and edit_row["data_set_id"] != row["dset_id"]:
+            edit_sql = edit_row["sql_text"]
         return JSONResponse({
             "ok": True,
             "core_id": core_id,
@@ -981,7 +994,99 @@ def core_dataset_sql(core_id: int, req: Request) -> JSONResponse:
             "db_type": row["db_type"],
             "connection": {"id": row["conn_id"], "code": row["conn_code"]},
             "sql": row["sql_text"] or "",
+            "edit_sql": edit_sql,
         })
+    finally:
+        try:
+            session.close()
+        except Exception:
+            pass
+
+
+@api_router.post("/core/{core_id}/edit-select")
+async def core_set_edit_select(core_id: int, req: Request) -> JSONResponse:
+    """1.6.2026 (Marti: "detail core = jednoduchý SELECT WHERE ID=:ID, ne grid
+    composite"): nastaví edit-opu VLASTNÍ data_set s jednoduchým edit-selectem.
+    Grid composite (select op) zůstává nedotčený. Parent-only.
+
+    Body: {sql}. Pokud edit-op už má vlastní data_set → UPDATE sql_text. Jinak
+    naklonuje grid data_set (schema-agnostic přes information_schema), přepíše
+    sql_text + code, a přiřadí edit-opu. Returns {ok, data_set_id, created}.
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    new_sql = (body.get("sql") or "").strip()
+    if not new_sql:
+        return JSONResponse({"ok": False, "error": "prázdný sql"}, status_code=422)
+
+    from core.database_data import get_data_session as _gds_es
+    from sqlalchemy import text as _sql_es
+
+    session = _gds_es()
+    try:
+        op = session.execute(_sql_es("""
+            SELECT op.id AS op_id, op.data_source_id, op.data_set_id
+            FROM fw.data_source_op op
+            WHERE op.core_id = :cid AND op.operation_kind IN ('edit', 'insert')
+            ORDER BY CASE op.operation_kind WHEN 'edit' THEN 0 ELSE 1 END, op.id ASC
+            LIMIT 1
+        """), {"cid": core_id}).mappings().one_or_none()
+        if not op:
+            return JSONResponse(
+                {"ok": False, "error": f"core #{core_id}: žádný edit/insert op"},
+                status_code=404,
+            )
+        sel = session.execute(_sql_es("""
+            SELECT op.data_set_id FROM fw.data_source_op op
+            WHERE op.data_source_id = :dsid AND op.operation_kind = 'select'
+            ORDER BY op.is_default DESC NULLS LAST, op.id ASC LIMIT 1
+        """), {"dsid": op["data_source_id"]}).mappings().one_or_none()
+        select_dset_id = sel["data_set_id"] if sel else None
+        edit_dset_id = op["data_set_id"]
+
+        # edit-op už má VLASTNÍ data_set (ne sdílený s grid select) → update sql
+        if edit_dset_id is not None and edit_dset_id != select_dset_id:
+            session.execute(_sql_es("UPDATE fw.data_set SET sql_text = :s WHERE id = :i"),
+                            {"s": new_sql, "i": edit_dset_id})
+            session.commit()
+            return JSONResponse({"ok": True, "data_set_id": edit_dset_id, "created": False})
+
+        # jinak CREATE dedicated data_set — clone grid template (schema-agnostic)
+        if select_dset_id is None:
+            return JSONResponse(
+                {"ok": False, "error": "select op nemá data_set (nelze klonovat template)"},
+                status_code=422,
+            )
+        cols = [r[0] for r in session.execute(_sql_es("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'fw' AND table_name = 'data_set'
+            ORDER BY ordinal_position
+        """)).fetchall()]
+        skip = {"id", "created_at", "updated_at"}
+        clone_cols = [c for c in cols if c not in skip]
+        sel_parts = []
+        for c in clone_cols:
+            if c == "sql_text":
+                sel_parts.append(":newsql AS sql_text")
+            elif c == "code":
+                sel_parts.append("(COALESCE(code, 'ds') || '_edit_c" + str(int(core_id)) + "') AS code")
+            else:
+                sel_parts.append(c)
+        new_id = session.execute(_sql_es(
+            "INSERT INTO fw.data_set (" + ", ".join(clone_cols) + ") "
+            "SELECT " + ", ".join(sel_parts) + " FROM fw.data_set WHERE id = :tid RETURNING id"
+        ), {"newsql": new_sql, "tid": select_dset_id}).scalar()
+        session.execute(_sql_es("UPDATE fw.data_source_op SET data_set_id = :nid WHERE id = :oid"),
+                        {"nid": new_id, "oid": op["op_id"]})
+        session.commit()
+        return JSONResponse({"ok": True, "data_set_id": new_id, "created": True})
+    except Exception as exc:
+        session.rollback()
+        return JSONResponse({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status_code=500)
     finally:
         try:
             session.close()

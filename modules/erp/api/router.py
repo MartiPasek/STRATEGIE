@@ -4911,6 +4911,86 @@ async def app_version(req: Request) -> JSONResponse:
     return JSONResponse({"version": _APP_VERSION_CACHE["v"]})
 
 
+# ── Deploy na povel (1.6.2026, Marti: "git pull + restart na povel") ────────
+# Reuse Phase 42 deployment_service (git pull + marker → RESTART-WATCHER).
+# Jednoklik: spuštění = schválení. Auth: parent session (UI) NEBO X-Deploy-Token
+# (NB skript / push-to-deploy). Token z env STRATEGIE_DEPLOY_TOKEN.
+
+@api_router.get("/deploy/preview")
+async def deploy_preview(req: Request) -> JSONResponse:
+    """Náhled co se nasadí (pro confirm dialog + parent-check pro UI tlačítko).
+    Parent-only → 403 schová tlačítko non-parentům. ?fetch=1 udělá git fetch
+    (čerstvý origin); bez něj jen lokální porovnání (levné, pro init)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    from modules.conversation.application import deployment_service as _dep
+
+    clean, detail = _dep._git_working_tree_clean()
+    if not clean:
+        return JSONResponse({"ok": True, "deployable": False,
+                             "reason": "dirty_working_tree", "detail": detail[:500]})
+    if req.query_params.get("fetch") == "1":
+        fok, fmsg = _dep._git_fetch_origin()
+        if not fok:
+            return JSONResponse({"ok": True, "deployable": False,
+                                 "reason": "fetch_failed", "detail": fmsg})
+    head = _dep._git_current_head_sha()
+    origin = _dep._git_origin_head_sha()
+    if not head or not origin:
+        return JSONResponse({"ok": True, "deployable": False, "reason": "git_sha_failed"})
+    if head == origin:
+        return JSONResponse({"ok": True, "deployable": False,
+                             "reason": "already_up_to_date", "head": head[:12]})
+    files, _diff = _dep._git_diff_stat(head, origin)
+    msg = _dep._git_commit_message_first_line(origin)
+    return JSONResponse({
+        "ok": True, "deployable": True,
+        "head": head[:12], "target": origin[:12],
+        "files_changed": files, "commit_message": (msg or "")[:200],
+    })
+
+
+@api_router.post("/deploy/now")
+async def deploy_now(req: Request) -> JSONResponse:
+    """Jednoklik deploy: git pull origin main + marker (RESTART-WATCHER restartne
+    STRATEGIE-API). Auth: X-Deploy-Token (NB push-to-deploy) NEBO parent session
+    (UI tlačítko). Zaznamená proposal pro audit (Phase 42 tabulka)."""
+    import os as _os_dn
+    from modules.conversation.application import deployment_service as _dep
+
+    token = req.headers.get("X-Deploy-Token")
+    env_token = _os_dn.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    proposed_by = None
+    if token and env_token and token == env_token:
+        pass  # token auth (NB) — předautorizováno
+    else:
+        uid = _get_uid(req)
+        _require_parent(uid)
+        proposed_by = uid
+
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    desc = (str(body.get("description") or "").strip()
+            or "Deploy na povel (one-shot)")
+
+    prop = _dep.propose_deployment(
+        description=desc, conversation_id=None, proposed_by_user_id=proposed_by,
+    )
+    if not prop.get("ok"):
+        # not deployable (dirty / already up-to-date / fetch fail) — vrať důvod
+        return JSONResponse(prop, status_code=200)
+
+    pid = prop["proposal_id"]
+    result = _dep._execute_deployment(pid)  # git pull + marker (pending→deployed)
+    result.setdefault("proposal_id", pid)
+    result["files_changed"] = prop.get("files_changed")
+    result["target_sha"] = prop.get("target_sha")
+    result["commit_message"] = prop.get("commit_message", "")
+    return JSONResponse(result)
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.
@@ -15225,6 +15305,8 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/erp/components/erp_cell_actions.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Update prompt (1.6.2026, Marti): po deployi nabídne "Obnovit". -->
     <script src="/static/app_version_watch.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Deploy na povel (1.6.2026, Marti): 🚀 tlačítko jen pro rodiče. -->
+    <script src="/static/deploy_button.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Master-detail Krok 6 (24.5.2026): custom JS renderer pro Data
          Sources → Data Source Op detail (nested ErpDataGrid s layoutKey
          "data_source_op" persistence). Marti's Varianta B — full features

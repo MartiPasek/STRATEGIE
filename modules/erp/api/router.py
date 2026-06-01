@@ -4819,6 +4819,57 @@ async def consume_phone_dial_request(req_id: int, req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.get("/contact-vcard")
+async def contact_vcard(req: Request):
+    """Fáze (1.6.2026, Marti: "přidávat čísla do kontaktů telefonu" — callback
+    caller-ID): vygeneruje vCard 3.0 (.vcf). Web nemůže psát do adresáře přímo;
+    .vcf s Content-Disposition attachment → OS nabídne "Přidat do kontaktů".
+
+    Query (vše optional): given, family, fn, org, email, url,
+    tel_cell, tel_work, tel. Slouží MVP banneru (fn+tel_cell) i plnému
+    kontaktu z CRM řádku (frontend namapuje pole → params).
+    """
+    from fastapi.responses import Response as _VResp
+
+    _get_uid(req)  # jakýkoliv přihlášený
+    q = req.query_params
+
+    def _vesc(s):
+        return (str(s or "")
+                .replace("\\", "\\\\").replace(";", "\\;")
+                .replace(",", "\\,").replace("\r", "").replace("\n", "\\n"))
+
+    given = (q.get("given") or "").strip()
+    family = (q.get("family") or "").strip()
+    org = (q.get("org") or "").strip()
+    fn = (q.get("fn") or "").strip() or (given + " " + family).strip() or org or "Kontakt"
+    email = (q.get("email") or "").strip()
+    url = (q.get("url") or "").strip()
+
+    lines = ["BEGIN:VCARD", "VERSION:3.0",
+             "N:%s;%s;;;" % (_vesc(family), _vesc(given)),
+             "FN:%s" % _vesc(fn)]
+    if org:
+        lines.append("ORG:%s" % _vesc(org))
+    for key, typ in (("tel_cell", "CELL"), ("tel_work", "WORK"), ("tel", "VOICE")):
+        num = (q.get(key) or "").strip()
+        if num:
+            lines.append("TEL;TYPE=%s:%s" % (typ, _vesc(num)))
+    if email:
+        lines.append("EMAIL;TYPE=WORK:%s" % _vesc(email))
+    if url:
+        lines.append("URL:%s" % _vesc(url))
+    lines.append("END:VCARD")
+    vcf = "\r\n".join(lines) + "\r\n"
+
+    safe = "".join(c for c in fn if c.isalnum() or c in " _-")[:50].strip() or "kontakt"
+    return _VResp(
+        content=vcf,
+        media_type="text/vcard; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="%s.vcf"' % safe},
+    )
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.

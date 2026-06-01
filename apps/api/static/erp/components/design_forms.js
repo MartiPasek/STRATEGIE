@@ -3686,6 +3686,37 @@
             sec.grid.appendChild(dtBar);
           }
 
+          // Marti 1.6.2026 (kontakt ↔ telefon): PROD-only nástroje. Jen pokud
+          // form má kontaktní pole (telefon/email). "📇 Uložit kontakt" =
+          // vCard export (všude); "📇 Z telefonu" = Contact Picker import
+          // (Android Chrome — navigator.contacts).
+          if (this._formDesignMode !== true && this._hasContactFields()) {
+            const ctBar = document.createElement("div");
+            ctBar.style.cssText = "display:flex;align-items:center;gap:8px;";
+
+            const vcfBtn = document.createElement("button");
+            vcfBtn.type = "button";
+            vcfBtn.textContent = "📇 Uložit kontakt";
+            vcfBtn.title = "Uloží tento kontakt do telefonu (.vcf) — při zpětném volání se ukáže jméno.";
+            vcfBtn.style.cssText = "padding:6px 12px;background:#243a44;border:1px solid #356e6e;" +
+              "border-radius:3px;color:#a8d4dc;cursor:pointer;font-size:12px;";
+            vcfBtn.addEventListener("click", () => this._saveContactVcard());
+            ctBar.appendChild(vcfBtn);
+
+            if (navigator.contacts && typeof navigator.contacts.select === "function") {
+              const impBtn = document.createElement("button");
+              impBtn.type = "button";
+              impBtn.textContent = "📇 Z telefonu";
+              impBtn.title = "Importuje kontakt z telefonu (jméno/číslo/email) do polí formuláře.";
+              impBtn.style.cssText = "padding:6px 12px;background:#2a2438;border:1px solid #4a3a6e;" +
+                "border-radius:3px;color:#c4a8e8;cursor:pointer;font-size:12px;";
+              impBtn.addEventListener("click", () => this._importContactFromPhone());
+              ctBar.appendChild(impBtn);
+            }
+
+            sec.grid.appendChild(ctBar);
+          }
+
           sec.grid.appendChild(spacer);
 
           // Update visibility podle aktualniho dirty count (volane po _render)
@@ -11015,6 +11046,119 @@
         if (childEl) fallback.appendChild(childEl);
       }
       return fallback;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Marti 1.6.2026 — kontakt ↔ telefon (vCard export + Contact Picker import).
+    // Mapování CRM sloupců (lowercase column_name) → vCard role.
+    // ════════════════════════════════════════════════════════════════
+    _contactFieldRole(col) {
+      const c = String(col || "").toLowerCase();
+      if (["jmeno", "first_name", "given", "krestnijmeno"].indexOf(c) >= 0) return "given";
+      if (["prijmeni", "last_name", "family", "surname"].indexOf(c) >= 0) return "family";
+      if (["firmatext", "firma", "nazevfirmy", "company", "org"].indexOf(c) >= 0) return "org";
+      if (["mobil", "mobile", "cell"].indexOf(c) >= 0) return "tel_cell";
+      if (["telefon", "tel", "phone", "pevna"].indexOf(c) >= 0) return "tel_work";
+      if (["email", "mail", "e_mail"].indexOf(c) >= 0) return "email";
+      if (["web", "firmaweb", "www", "url", "stranky"].indexOf(c) >= 0) return "url";
+      return null;
+    }
+
+    _formInputEls() {
+      const out = [];
+      const body = this._shell && this._shell.body;
+      if (!body) return out;
+      const wraps = body.querySelectorAll("[data-comp-col]");
+      for (let i = 0; i < wraps.length; i++) {
+        const w = wraps[i];
+        const inp = w.querySelector(".erp-input-input, input, textarea");
+        out.push({ col: w.dataset.compCol, input: inp });
+      }
+      return out;
+    }
+
+    _hasContactFields() {
+      const items = this._formInputEls();
+      for (let i = 0; i < items.length; i++) {
+        const role = this._contactFieldRole(items[i].col);
+        if (role === "tel_cell" || role === "tel_work" || role === "email") return true;
+      }
+      return false;
+    }
+
+    _gatherContactFields() {
+      const acc = {};
+      const items = this._formInputEls();
+      for (let i = 0; i < items.length; i++) {
+        const role = this._contactFieldRole(items[i].col);
+        if (!role) continue;
+        const v = items[i].input ? String(items[i].input.value || "").trim() : "";
+        if (v && !acc[role]) acc[role] = v;  // první neprázdná hodnota pro roli
+      }
+      return acc;
+    }
+
+    // vCard export — uloží kontakt do telefonu (.vcf → OS "Přidat do kontaktů").
+    _saveContactVcard() {
+      const f = this._gatherContactFields();
+      const keys = Object.keys(f);
+      if (!keys.length) {
+        try { _showToast("Žádná kontaktní pole k uložení", "info", 2200); } catch (e) {}
+        return;
+      }
+      const params = keys.map((k) => k + "=" + encodeURIComponent(f[k]));
+      const url = "/api/v1/erp/contact-vcard?" + params.join("&");
+      try {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "";  // server Content-Disposition určí název
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} }, 0);
+      } catch (e) {
+        try { window.location.href = url; } catch (e2) {}
+      }
+    }
+
+    // Contact Picker import (Android Chrome) — telefon → pole formuláře.
+    async _importContactFromPhone() {
+      try {
+        if (!navigator.contacts || !navigator.contacts.select) {
+          _showToast("Import z telefonu funguje jen na Androidu (Chrome)", "info", 3000);
+          return;
+        }
+        const picked = await navigator.contacts.select(["name", "tel", "email"], { multiple: false });
+        if (!picked || !picked.length) return;
+        const c = picked[0];
+        const name = (c.name && c.name[0]) || "";
+        const parts = String(name).trim().split(/\s+/).filter(Boolean);
+        const given = parts.length > 1 ? parts.slice(0, -1).join(" ") : (parts[0] || "");
+        const family = parts.length > 1 ? parts[parts.length - 1] : "";
+        const tel = (c.tel && c.tel[0]) || "";
+        const email = (c.email && c.email[0]) || "";
+        const setByRole = (role, val) => {
+          if (!val) return;
+          const items = this._formInputEls();
+          for (let i = 0; i < items.length; i++) {
+            if (this._contactFieldRole(items[i].col) === role && items[i].input) {
+              items[i].input.value = val;
+              try { items[i].input.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
+              try { items[i].input.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {}
+              return;
+            }
+          }
+        };
+        setByRole("given", given);
+        setByRole("family", family);
+        setByRole("tel_cell", tel);
+        setByRole("email", email);
+        _showToast("Kontakt naimportován z telefonu", "success", 2500);
+      } catch (e) {
+        if (e && e.name === "AbortError") return;  // user zrušil picker
+        console.warn("[contact import]", e);
+        _showToast("Import z telefonu selhal", "error", 3000);
+      }
     }
 
     // Marti 1.6.2026 (cell actions): dvojklik na pole telefon/email/web →

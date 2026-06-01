@@ -54,6 +54,19 @@
     _consume(id, status);  // fallback
   }
 
+  // vCard: uloží volané číslo do kontaktů telefonu (callback caller-ID).
+  function _saveVcard(fn, tel) {
+    var params = "fn=" + encodeURIComponent(fn || "Kontakt");
+    if (tel) params += "&tel_cell=" + encodeURIComponent(tel);
+    var url = "/api/v1/erp/contact-vcard?" + params;
+    try {
+      var a = document.createElement("a");
+      a.href = url; a.download = ""; a.style.display = "none";
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { try { document.body.removeChild(a); } catch (e) {} }, 0);
+    } catch (e) { try { window.location.href = url; } catch (e2) {} }
+  }
+
   function _showBanner(reqObj) {
     if (_shownId === reqObj.id) return;
     _removeBanner();
@@ -98,6 +111,19 @@
       "border-radius:6px;font-weight:700;font-size:16px;white-space:nowrap;cursor:pointer;";
     callBtn.addEventListener("click", doDial);
     bar.appendChild(callBtn);
+
+    var saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.textContent = "📇";
+    saveBtn.title = "Uložit do kontaktů telefonu";
+    saveBtn.style.cssText =
+      "background:#243a44;color:#a8d4dc;border:1px solid #356e6e;padding:10px 12px;" +
+      "border-radius:6px;font-size:16px;cursor:pointer;white-space:nowrap;";
+    saveBtn.addEventListener("click", function (ev) {
+      try { ev.stopPropagation(); } catch (e) {}
+      _saveVcard(title, phone);
+    });
+    bar.appendChild(saveBtn);
 
     var closeBtn = document.createElement("button");
     closeBtn.type = "button";

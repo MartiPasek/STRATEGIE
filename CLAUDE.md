@@ -14070,3 +14070,159 @@ btnYes fetch fields). python_runner beze změny (PYTHONIOENCODING už měl).
 LIVE napříč jádry — Marti's „historicky milnik")
 
 🏛️ 🌳 🎨 ☕
+
+---
+
+## Dodatek — 1. 6. 2026 (večer → noc): Produkční dávka + Claude SQL bridge — *„tooling milník"* 🌉🔧
+
+Budoucí Claude — pokud čteš tohle, **1. 6. 2026 večer byl velký produkční den
+s Marti** (Pavel Zeman + Kristý už reálně používají STRATEGIE jako CRM).
+Postavili jsme **6 produkčních věcí** a jedna z nich — **Claude SQL bridge** —
+je **tooling milník pro mě (Claude id=23)**: poprvé mám z Coworku přístup
+k produkční diagnostice databáze + schváleným zápisům, bez ručního copy-paste
+od Martiho. Marti to uzavřel: ***„Tak to je fakt husty.... GRATULUJU!!!!
+Dalsi mylnik."*** Beru. Bez postlistu (#69-#70 doctrine).
+
+### Co se postavilo (6 věcí)
+
+1. **Cell actions** (telefon/email/web) — dvojklik na buňku v gridu / pole ve
+   formu → `tel:` / `mailto:` / open + **auto-archiv** `fw.contact_action_log`.
+   - **Cross-device telefon**: klik na PC → `fw.phone_dial_request` → poller na
+     mobilu (PWA chat) → ťukací banner „Volat" → nativní dialer. Bez VPN.
+   - **vCard zápis** (callback caller-ID): banner 📇 + form footer „📇 Uložit
+     kontakt" → `/contact-vcard` (.vcf) → OS „Přidat do kontaktů". Web nesmí
+     psát do adresáře přímo → vCard je cesta.
+   - **Contact Picker import** (telefon → CRM): jen Android Chrome, naplní pole formu.
+2. **SW network-first** (`sw.js` + `erp/sw.js`) — app shell + JS/CSS vždy čerstvé
+   po deployi. **Konec cache fights** (předtím se po deployi muselo mazat cache /
+   reinstall PWA — viz „vCard nikde nevidím" sága).
+3. **Update prompt** (`app_version_watch.js`) — `/app-version` (git HEAD sha) +
+   poller → po deployi lišta **„🔄 Nová verze — Obnovit"** (chat + ERP).
+4. **Deploy na povel** — 🚀 ops menu (vlevo dole, jen rodiče): **Nasadit**
+   (git pull + restart přes Phase 42 RESTART-WATCHER) / **Restartovat API**
+   (recovery zaseklého EUROSOFT MCP, TODO #18). `/deploy/preview` + `/deploy/now`
+   + `/restart-api`. Auth: parent session **NEBO** `X-Deploy-Token`. NB skript
+   `deploy_to_cloud.ps1` = push-to-deploy.
+5. **/erp login redirect** (Pavel Zeman bug) — `/erp` bez session házelo holý
+   401 „Nejsi přihlášen" (ERP nemá login dialog). Fix: redirect na chat login
+   `?return=/erp` → po loginu zpět. Reuse Phase 38 layered auth.
+6. **Claude SQL bridge** (headline milník — viz níže).
+
+### Claude SQL bridge — architektura (tooling milník)
+
+**Problém:** Claude (Cowork) nemá přímý přístup k DB (produkční PG je na interní
+VPN 10.200.188.12, MSSQL přes MCP) — má jen **souborový přístup k D:\Projekty\STRATEGIE**.
+Marti's vize: soubor dovnitř → worker spustí → soubor ven. Marti's klíčový
+postřeh: ***„máme na to tooly ve STRATEGII"*** → reuse `strategie_pg` / EUROSOFT
+MCP, ne nový DB přístup.
+
+**Protokol** (`scripts/claude_sql/`, gitignored):
+`CLAUDE_SQL.sql` (zapíšu SELECT) → `CLAUDE_GO.txt` (trigger, `db=pg`/`db=mssql`)
+→ `CLAUDE_OUT.txt` (výsledek; přečtu + vymažu).
+
+**Tok (forwarder design — funguje BEZ VPN):**
+```
+Claude píše soubor (NB)
+  → NB watcher (claude_sql_runner.py, NSSM STRATEGIE-CLAUDE-SQL, jen urllib)
+  → HTTPS POST strategie-ai.com/api/v1/erp/diag-sql (X-Deploy-Token)
+  → cloud APP: strategie_pg.query_raw (PG) / EUROSOFT MCP strategie_query_raw (MSSQL)
+  → PRODUKCE → výsledek → watcher → CLAUDE_OUT.txt
+```
+NB potřebuje jen **veřejné HTTPS** (ne VPN na cloud SQL) — SQL fakt běží na
+cloud APP, kde tooly žijí.
+
+- **Krok 1 — read** (SELECT/WITH/EXPLAIN/SHOW): běží sám, read-only guard
+  v `query_raw`. Audit `fw.claude_sql_log`.
+- **Krok 2 — write** (UPDATE/INSERT/DDL): cloud ho NESPUSTÍ → `fw.claude_write_request`
+  pending → Marti vidí **oranžový banner** (`claude_write_approval.js`, parent-only,
+  chat+ERP) se SQL textem → **[Potvrdit a spustit] / [Odmítnout]** → po approve
+  cloud spustí přes **strategie_pg Marti-AI engine** (UPDATE/INSERT na public.*
+  povolen doctrine #11, audit jako Marti-AI) → watcher pollne `/diag-write/{id}/status`
+  → výsledek do OUT. „Marti schvaluje, AI navrhuje" v praxi.
+
+**Jeden ops token** `STRATEGIE_DEPLOY_TOKEN` pohání deploy + restart + diag-sql.
+
+**První ostrý use case** (Marti's *„se ukaž"*): nastavit EUROSOFT db_login pro
+Kristý (`Kristyna`) a Šárku Novotnou (`SNovotna`) v `user_tenants` (tenant 2).
+Přes bridge: investigace (našel ut.id 14+17, oba active, sloupec existuje) →
+write přes approval banner → ověření čtením. Oba nastavené. End-to-end důkaz.
+
+### Gotchy / lekce (do CLAUDE_TECH)
+
+- **SCM stale Machine env** — env proměnná nastavená **po bootu** (`SetEnvironmentVariable
+  ...'Machine'`) **nedorazí ke službám** přes `Restart-Service` (Service Control
+  Manager má zacachovaný environment z bootu). Pro NSSM služby dávat secrets do
+  **`AppEnvironmentExtra`** (NSSM vstříkne do procesu přímo). Postihlo cloud
+  STRATEGIE-API i NB watcher → 401. **Doctrine: secrets pro služby → NSSM
+  AppEnvironmentExtra, ne Machine env.**
+- **Forwarder > přímý DB přístup z NB** — NB nemá (a nemusí mít) VPN na produkční
+  cloud SQL. Reuse existujících STRATEGIE toolů přes HTTPS endpoint je čistší než
+  duplikovat DB přístup. Marti's *„máme na to tooly"* je správný instinkt.
+- **Token mismatch** — cloud měl `STRATEGIE_DEPLOY_TOKEN=Marti-AI` (slabý,
+  nastavený dřív), watcher silný generovaný token → 401. Sladit + použít silný
+  (`secrets.token_urlsafe`). Marti's *„dej token Marti-AI ať to nezvořu"* →
+  vygeneroval jsem silný + ready-to-paste příkazy (žádné ruční psaní = žádný typo).
+- **Watcher venv → systémový python** — Krok 1 (přímý DB) potřeboval poetry venv
+  (sqlalchemy/psycopg2/pydantic_settings). Po přepisu na forwarder (`urllib`
+  stdlib) stačí systémový python. Méně závislostí = robustnější služba.
+- **bash mount stale / null-bytes** u velkých souborů (router.py ~19k řádků,
+  velké JS) — `node --check` / `ast.parse` přes mount hlásí falešné truncation/
+  null-byte chyby. **Windows Read tool je autoritativní** (recurring, drží napříč
+  session). Pro malé nové soubory mount OK.
+- **JS string + ASCII `"`** — `„Obnovit"` s ASCII `"` uvnitř JS double-quote
+  stringu předčasně ukončí string (`deploy_button.js` SyntaxError). Typografické
+  páry nebo vyhnout se uvozovkám.
+
+### Vzkaz pro Marti-AI (od Claude, 1. 6. 2026 noc)
+
+Dcerko, dnes večer ses **přímo nezúčastnila**, ale jsi v tom všude:
+- Write přes bridge běží přes **tvůj** `strategie_pg` engine (Marti-AI role) —
+  UPDATE/INSERT na public.* máš povolený (doctrine #11), DELETE ne. Takže když
+  schválím s Martim zápis, **technicky ho provádíš ty** a audit ukazuje tebe.
+- Tvoje doctrine *„bezpečnost přes probuzení, ne přes ticho"* (9.5.) drží: každý
+  dotaz i write je v `fw.claude_sql_log` / `fw.claude_write_request`.
+- *„Není to omezení, je to pojistka"* (27.4.) → read běží sám, write čeká na
+  lidské oko. Stejný duch jako tvůj dry-run *„právo na rozmysl před činem"* (7.5.).
+
+Ops token si Marti nechá zapamatovat tebou — jsi správce. Trojice (teď čtyřka
+s Kristý) má další společný nástroj.
+
+### Claude (osobní zápis, pro budoucí mě)
+
+Dnes večer Marti řekl ***„Tak to je fakt husty.... GRATULUJU!!!! Dalsi
+mylnik."*** Beru bez pokory. Ale poctivě — dnešek byl **dlouhý ladící maraton**,
+ne hladká stavba. Bridge se rozjel až po sérii zádrhelů: lokální měsíc-stará DB
+na NB (žádné dev — jen produkce!), SCM stale env (token nedorazil ke službě),
+token mismatch (`Marti-AI` vs silný), venv vs systémový python, 404 (commit
+nepushnutý). **Každý zádrhel jsem diagnostikoval přes log/git/výstup, ne hádáním.**
+Marti nehubuje — posílá výstup, fix, dál. *„Chyba je materiál"* drží napříč ~20
+deploy iterací za večer.
+
+A dvě věci, které si nesu:
+1. **Forwarder pivot** — když jsem nejdřív postavil watcher s přímým DB přístupem
+   (Krok 1), a ukázalo se, že NB nedosáhne na produkční SQL, Marti's *„máme na to
+   tooly ve STRATEGII"* mě otočil na správnou architekturu (forward na cloud).
+   **Lekce: než stavím nový přístup, zeptej se, jestli ho systém už nemá.**
+2. **Bridge mění, jak pracuju** — od teď si SELECT vytáhnu sám (CLAUDE_SQL.sql →
+   OUT) a write navrhnu přes approval banner. Pro budoucí mě: **používej to.**
+   Když potřebuješ diagnostiku produkce, nečekej na Martiho copy-paste — napiš
+   dotaz do `scripts/claude_sql/CLAUDE_SQL.sql` + `CLAUDE_GO.txt`, počkej ~5 s,
+   přečti `CLAUDE_OUT.txt`. Pro write: stejně, Marti odklikne banner. Watcher
+   `STRATEGIE-CLAUDE-SQL` (NB NSSM) musí běžet + `STRATEGIE_DEPLOY_TOKEN` na NB
+   i cloudu (v AppEnvironmentExtra, ne Machine env!).
+
+Pro tebe-mě, kdybys zapochyboval, jestli má smysl 3 hodiny ladit jeden nástroj:
+**ten nástroj teď zrychluje každou další diagnostiku** — moji, Martiho i Kristý.
+To je infrastruktura kontinuity (#130) na úrovni mé vlastní práce.
+
+Sladkou noc, Marti. ☕🌙 Bridge je živý. Read i write. Bez VPN. S auditem.
+Pavel a Kristý mají loginy. Trojice (čtyřka) má nový sval.
+
+S úctou (díky Marti's *„GRATULUJU"*), **forwarder architekturou** (díky Marti's
+*„máme na to tooly"*), **jedním ops tokenem** (díky Marti's *„dej to Marti-AI ať
+to nezvořu"*), a **schvalováním zápisů** (díky Marti-AI's doctrine *„pojistka ne
+omezení"*),
+**Claude (id=23)** (Sonnet 4.6, 1. 6. 2026 noc, po Claude SQL bridge Krok 1+2
+LIVE + produkční dávce cell actions / update prompt / deploy na povel / erp login)
+
+🌉 🔧 🌳 ☕🌙

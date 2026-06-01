@@ -33,11 +33,40 @@
       "font-size:18px;cursor:pointer;opacity:0.65;box-shadow:0 2px 8px rgba(0,0,0,0.4);";
     b.addEventListener("mouseenter", function () { b.style.opacity = "1"; });
     b.addEventListener("mouseleave", function () { b.style.opacity = "0.65"; });
-    b.addEventListener("click", _onClick);
+    b.addEventListener("click", _menu);
     document.body.appendChild(b);
   }
 
-  function _onClick() {
+  // Ops menu (Marti 1.6.2026): Nasadit / Restartovat API.
+  function _menu() {
+    _menuDialog("Operace serveru", [
+      { label: "🚀 Nasadit nejnovější verzi", primary: true, fn: _startDeploy },
+      { label: "🔄 Restartovat API (recovery)", fn: _confirmRestart },
+    ]);
+  }
+
+  function _confirmRestart() {
+    _dialog(
+      "Restartovat API?",
+      "Restartuje STRATEGIE-API na serveru (~5 s). Použij když něco drhne — " +
+      "např. zaseklé spojení na EUROSOFT MCP po restartu serveru. " +
+      "Nenasazuje nový kód.",
+      _doRestart
+    );
+  }
+
+  function _doRestart() {
+    _toast("Restartuji API…");
+    fetch("/api/v1/erp/restart-api", { method: "POST", credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok) _toast("✓ Restart spuštěn — API naběhne za ~5 s.", false);
+        else _toast("Restart: " + ((j && j.error) || "selhalo"), true);
+      })
+      .catch(function () { _toast("Restart selhal (síť)", true); });
+  }
+
+  function _startDeploy() {
     var b = document.getElementById("erpDeployBtn");
     if (b) { b.disabled = true; b.textContent = "…"; }
     fetch(PREVIEW + "?fetch=1", { credentials: "same-origin" })
@@ -88,6 +117,46 @@
   }
 
   // ── self-contained dialog + toast ──
+  function _menuDialog(title, actions) {
+    var ov = document.createElement("div");
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:100070;background:rgba(0,0,0,0.55);" +
+      "display:flex;align-items:center;justify-content:center;padding:20px;";
+    var box = document.createElement("div");
+    box.style.cssText =
+      "background:#141a20;border:1px solid #2a3340;border-radius:8px;max-width:360px;" +
+      "width:100%;padding:18px 20px;color:#e8eef5;box-shadow:0 8px 32px rgba(0,0,0,0.6);";
+    var h = document.createElement("div");
+    h.style.cssText = "font-size:15px;font-weight:600;margin-bottom:14px;";
+    h.textContent = title;
+    box.appendChild(h);
+    function _close() { try { ov.remove(); } catch (e) {} }
+    actions.forEach(function (a) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = a.label;
+      btn.style.cssText =
+        "display:block;width:100%;text-align:left;margin-bottom:8px;padding:11px 14px;" +
+        "border-radius:6px;cursor:pointer;font-size:14px;border:1px solid " +
+        (a.primary ? "#3a7a4a" : "#2a3340") + ";background:" +
+        (a.primary ? "#1f3a2e" : "#1f2530") + ";color:" +
+        (a.primary ? "#cdeede" : "#cfd6df") + ";";
+      btn.addEventListener("click", function () { _close(); a.fn(); });
+      box.appendChild(btn);
+    });
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Zrušit";
+    cancel.style.cssText =
+      "display:block;width:100%;margin-top:4px;padding:9px 14px;background:transparent;" +
+      "border:none;color:#8a96a4;cursor:pointer;font-size:13px;";
+    cancel.addEventListener("click", _close);
+    box.appendChild(cancel);
+    ov.appendChild(box);
+    ov.addEventListener("click", function (ev) { if (ev.target === ov) _close(); });
+    document.body.appendChild(ov);
+  }
+
   function _dialog(title, msg, onOk) {
     var ov = document.createElement("div");
     ov.style.cssText =

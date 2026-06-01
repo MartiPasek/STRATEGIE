@@ -4991,6 +4991,34 @@ async def deploy_now(req: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+@api_router.post("/restart-api")
+async def restart_api(req: Request) -> JSONResponse:
+    """Restart STRATEGIE-API BEZ git pull (recovery — např. zaseklý EUROSOFT
+    MCP po restartu EC-SERVER2, TODO #18). Touch marker → RESTART-WATCHER
+    restartne službu. Auth: parent session NEBO X-Deploy-Token."""
+    import os as _os_ra
+    from modules.conversation.application import deployment_service as _dep
+
+    token = req.headers.get("X-Deploy-Token")
+    env_token = _os_ra.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    actor = "token"
+    if token and env_token and token == env_token:
+        pass
+    else:
+        uid = _get_uid(req)
+        _require_parent(uid)
+        actor = "user_%s" % uid
+
+    ok, info = _dep._touch_restart_marker(0, "restart_%s" % actor)
+    if not ok:
+        return JSONResponse({"ok": False, "error": info}, status_code=500)
+    try:
+        logger.warning("[restart_api] manual restart triggered by %s, marker=%s", actor, info)
+    except Exception:
+        pass
+    return JSONResponse({"ok": True, "marker": info, "message": "Restart spuštěn"})
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.

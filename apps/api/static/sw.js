@@ -20,7 +20,7 @@
  * Identický s /static/erp/sw.js, jen jiný scope ('/' vs '/erp/').
  */
 
-const SW_VERSION = "chat-v1-2026-05-10";
+const SW_VERSION = "chat-v2-network-first-2026-06-01";
 
 self.addEventListener("install", (event) => {
   console.log("[SW chat] install", SW_VERSION);
@@ -32,6 +32,20 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Network-first pro app shell (navigace) + JS/CSS — po každém nasazení se
+// natáhne ČERSTVÁ verze sama (cache: no-store obejde HTTP cache prohlížeče).
+// Marti 1.6.2026: konec "po deploy musím mazat cache / odinstalovat PWA".
+// Ostatní (API, obrázky, fonty) → browser default. Offline fallback na
+// běžný fetch (chat stejně vyžaduje síť).
 self.addEventListener("fetch", (event) => {
-  return;
+  const req = event.request;
+  if (req.method !== "GET") return;
+  const dest = req.destination;
+  if (req.mode === "navigate" || dest === "document" ||
+      dest === "script" || dest === "style") {
+    event.respondWith(
+      fetch(req.url, { cache: "no-store", credentials: "same-origin" })
+        .catch(function () { return fetch(req); })
+    );
+  }
 });

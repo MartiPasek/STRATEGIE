@@ -16,7 +16,7 @@
  * pokud bude potřeba offline mode.
  */
 
-const SW_VERSION = "v1-2026-05-06";
+const SW_VERSION = "v2-network-first-2026-06-01";
 
 // Install — claim immediately (žádný old SW retention)
 self.addEventListener("install", (event) => {
@@ -31,17 +31,21 @@ self.addEventListener("activate", (event) => {
 });
 
 /**
- * Fetch — pure passthrough.
- * STRATEGIE má dynamic data (auth cookies, MCP tools, AG Grid live updates)
- * — caching by jen rozbil consistency. SW jen "existuje" pro PWA criteria,
- * fetch handler nedělá žádnou cache.
- *
- * Pokud jednou budeme chtít offline mode (read-only přehledy), tady přidat
- * cache-first strategy pro /static/* a network-first pro /api/*.
+ * Fetch — network-first pro app shell + JS/CSS (Marti 1.6.2026).
+ * Po každém nasazení se natáhne ČERSTVÁ verze sama (cache: no-store obejde
+ * HTTP cache) — konec "po deploy mazat cache / reinstall PWA". Ostatní
+ * (API, obrázky, fonty) → browser default. Offline fallback na běžný fetch
+ * (ERP stejně vyžaduje síť + live data).
  */
 self.addEventListener("fetch", (event) => {
-  // Pass-through — Chrome to detekuje jako "fetch handler exists" a oznámí
-  // site jako installable. event.respondWith volat netřeba (browser default
-  // handles fetch normálně).
-  return;
+  const req = event.request;
+  if (req.method !== "GET") return;
+  const dest = req.destination;
+  if (req.mode === "navigate" || dest === "document" ||
+      dest === "script" || dest === "style") {
+    event.respondWith(
+      fetch(req.url, { cache: "no-store", credentials: "same-origin" })
+        .catch(function () { return fetch(req); })
+    );
+  }
 });

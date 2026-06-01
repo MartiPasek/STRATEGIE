@@ -118,6 +118,50 @@
       }
     }
 
+    // Fáze 3 (cross-device telefon): mobil → lokální dialer; PC → push do
+    // fronty fw.phone_dial_request → mobil (PWA chat) pollne + ťukne + vytočí.
+    function _isMobile() {
+      try {
+        if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "")) return true;
+        if (window.matchMedia && window.matchMedia("(pointer:coarse)").matches) return true;
+      } catch (e) {}
+      return false;
+    }
+
+    function _miniToast(msg) {
+      try {
+        var t = document.createElement("div");
+        t.textContent = msg;
+        t.style.cssText =
+          "position:fixed;left:50%;bottom:32px;transform:translateX(-50%);" +
+          "background:#1f3a2e;border:1px solid #2f5a44;color:#cdeede;" +
+          "padding:10px 18px;border-radius:6px;font-size:13px;z-index:100002;" +
+          "box-shadow:0 4px 16px rgba(0,0,0,0.4);opacity:0;transition:opacity .15s;";
+        document.body.appendChild(t);
+        requestAnimationFrame(function () { t.style.opacity = "1"; });
+        setTimeout(function () {
+          t.style.opacity = "0";
+          setTimeout(function () { try { document.body.removeChild(t); } catch (e) {} }, 220);
+        }, 2600);
+      } catch (e) {}
+    }
+
+    function _pushDialRequest(phone, raw, label) {
+      try {
+        fetch("/api/v1/erp/phone-dial-request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ phone: phone, raw_value: raw, label: label || null }),
+        }).then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (j && j.ok) _miniToast("📲 Posláno na mobil — vytoč tam: " + (label || phone));
+            else _miniToast("⚠ Odeslání na mobil selhalo");
+          })
+          .catch(function () { _miniToast("⚠ Odeslání na mobil selhalo"); });
+      } catch (e) { console.warn("[cell-action dial push]", e); }
+    }
+
     /** Provede akci + zaloguje. Vrací true pokud něco udělala. */
     function execute(action, ctx) {
       if (!action || !action.kind) return false;
@@ -133,7 +177,13 @@
       }
       if (action.kind === "phone") {
         _log("phone", val, ctx);
-        _openTel(action.normalized || _digits(val));
+        var tel = action.normalized || _digits(val);
+        if (_isMobile()) {
+          _openTel(tel);  // lokální dialer (mobil v PWA)
+        } else {
+          // PC → cross-device: vytočí mobil přes frontu + banner
+          _pushDialRequest(tel, val, (ctx && ctx.label) || null);
+        }
         return true;
       }
       if (action.kind === "email") {

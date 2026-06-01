@@ -4723,6 +4723,102 @@ async def log_contact_action(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/phone-dial-request")
+async def create_phone_dial_request(req: Request) -> JSONResponse:
+    """Fáze 3A (1.6.2026, Marti: telefon cross-device): PC klik na telefon →
+    fronta pro mobil. target_user_id = sám sebe (Marti na PC chce vytočit
+    svůj mobil). Mobil pollne /pending → ťukací banner → tel: → consume."""
+    from core.database_data import get_data_session as _gds_pdr
+    from sqlalchemy import text as _sql_pdr
+
+    uid = _get_uid(req)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    phone = (str(body.get("phone") or "")).strip()
+    if not phone:
+        return JSONResponse({"ok": False, "error": "chybí phone"}, status_code=400)
+    raw_value = (str(body.get("raw_value") or "")).strip() or None
+    label = (str(body.get("label") or "")).strip() or None
+
+    ds = _gds_pdr()
+    try:
+        rid = ds.execute(_sql_pdr("""
+            INSERT INTO fw.phone_dial_request
+              (target_user_id, phone, raw_value, label)
+            VALUES (:uid, :ph, :rv, :lb) RETURNING id
+        """), {"uid": uid, "ph": phone[:64],
+               "rv": raw_value[:128] if raw_value else None,
+               "lb": label[:200] if label else None}).scalar()
+        ds.commit()
+        return JSONResponse({"ok": True, "id": rid})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[create_phone_dial_request] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.get("/phone-dial-request/pending")
+async def list_pending_phone_dials(req: Request) -> JSONResponse:
+    """Pending dial requesty pro current usera (last 10 min). Mobil poll."""
+    from core.database_data import get_data_session as _gds_pdr2
+    from sqlalchemy import text as _sql_pdr2
+
+    uid = _get_uid(req)
+    ds = _gds_pdr2()
+    try:
+        rows = ds.execute(_sql_pdr2("""
+            SELECT id, phone, raw_value, label, created_at
+            FROM fw.phone_dial_request
+            WHERE target_user_id = :uid AND status = 'pending'
+              AND created_at > now() - interval '10 minutes'
+            ORDER BY id ASC
+        """), {"uid": uid}).mappings().all()
+        return JSONResponse(jsonable_encoder({
+            "ok": True, "requests": [dict(r) for r in rows],
+        }))
+    except Exception as exc:
+        logger.exception("[list_pending_phone_dials] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.post("/phone-dial-request/{req_id}/consume")
+async def consume_phone_dial_request(req_id: int, req: Request) -> JSONResponse:
+    """Mobil označí dial request done/dismissed po tapu na banner."""
+    from core.database_data import get_data_session as _gds_pdr3
+    from sqlalchemy import text as _sql_pdr3
+
+    uid = _get_uid(req)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    status = (str(body.get("status") or "done")).strip().lower()
+    if status not in ("done", "dismissed"):
+        status = "done"
+
+    ds = _gds_pdr3()
+    try:
+        ds.execute(_sql_pdr3("""
+            UPDATE fw.phone_dial_request
+            SET status = :st, consumed_at = now()
+            WHERE id = :id AND target_user_id = :uid AND status = 'pending'
+        """), {"st": status, "id": req_id, "uid": uid})
+        ds.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[consume_phone_dial_request] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.

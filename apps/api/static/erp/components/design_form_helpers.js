@@ -1142,10 +1142,13 @@
       ? "position:fixed;top:" + floatingStartTop + ";left:" + floatingStartLeft +
         ";pointer-events:auto;"
       : "";
+    // Marti 1.6.2026: zvětšen resize strop (95vw/90vh → 98vw/96vh) — uživatel
+    // narážel a nešlo formulář zvětšit víc. resize:both nepustí přes max-width/
+    // max-height, takže cap = skutečný strop. Teď téměř plná plocha.
     dialog.style.cssText = positioning +
       "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;" +
-      "width:" + (opts.width || "920px") + ";max-width:95vw;max-height:" +
-      (isFloating ? "85vh" : "90vh") +
+      "width:" + (opts.width || "920px") + ";max-width:98vw;max-height:" +
+      (isFloating ? "92vh" : "96vh") +
       ";display:flex;flex-direction:column;color:#cfd6df;font-size:13px;" +
       "box-shadow:0 12px 40px rgba(0,0,0,0.5);resize:both;overflow:hidden;";
 

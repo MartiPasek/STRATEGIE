@@ -62,9 +62,11 @@ FIELD_MIN_WIDTH = 220       # krátká komponenta (Marti „relativně krátké 
 TOP_PANEL_HEIGHT = 48       # header strip (align:top), zatím prázdný
 DEFAULT_MSSQL_DB = 'DB_EC'
 
-# Sloupce přeskočené při generování inputů (PK / audit / discriminator).
+# Systémové sloupce (PK / audit / verze) — 1.6.2026 (Marti, Volba B):
+# generují se TAKY, ale jako readonly (zobrazení se hodí, edit nemá smysl —
+# PK = identity, audit plní DB defaulty getdate()/suser_name()).
 # PG (lowercase) + Centrála 1 / MSSQL (PascalCase, match přes .lower()).
-SKIP_COLUMNS = frozenset({
+READONLY_COLUMNS = frozenset({
     'id', 'created_at', 'updated_at',
     'created_by_id', 'created_by_text',
     'updated_by_id', 'updated_by_text',
@@ -374,13 +376,18 @@ def main():
                   f"(ctx.fields prázdné, SELECT op nelze spustit ani introspektovat). "
                   f"db_type={sel_db_type}, sql={(sel_sql or '')[:160]!r}")
 
-        user_fields = [f for f in field_names if f.lower() not in SKIP_COLUMNS]
-        print(f"Fieldy datasetu ({src}): {len(field_names)} total, "
-              f"{len(user_fields)} po skip system.")
-        print(f"  user fieldy: {', '.join(user_fields)}")
+        # Volba B (Marti 1.6.2026): generuj VŠECHNY sloupce. Systémové
+        # (READONLY_COLUMNS) půjdou jako readonly (zobrazení, ne edit).
+        user_fields = list(field_names)
+        _ro = [f for f in field_names if f.lower() in READONLY_COLUMNS]
+        print(f"Fieldy datasetu ({src}): {len(field_names)} total "
+              f"({len(_ro)} z toho readonly system).")
+        print(f"  fieldy: {', '.join(user_fields)}")
+        if _ro:
+            print(f"  readonly: {', '.join(_ro)}")
         print()
         if not user_fields:
-            _fail("Po skip system columns nezbyly žádné user fieldy (jen PK/audit).")
+            _fail("Dataset nevrátil žádné sloupce.")
 
         # ── Step 5: comp_type IDs ───────────────────────────────────────────
         cur = conn.cursor()
@@ -528,6 +535,8 @@ def main():
                 layout = dict(edit_layout_base)
                 if 'width' not in layout and 'min_width' not in layout:
                     layout['min_width'] = FIELD_MIN_WIDTH
+                if fld.lower() in READONLY_COLUMNS:
+                    layout['readonly'] = True
                 caption = fld.replace('_', ' ').strip().capitalize()
                 cur.execute("""
                     INSERT INTO fw.comp_def (

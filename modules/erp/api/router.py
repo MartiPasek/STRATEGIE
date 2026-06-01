@@ -7500,6 +7500,12 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
                     "error": result.error,
                     "error_kind": result.error_kind,
                     "params": _sandbox_ctx_json_sx,
+                    # Marti 1.6.2026: tail stdout/stderr do diag logu — orchestrator
+                    # skripty tisknou důvod (target table, počet sloupců, kde
+                    # skončily) do stdout; bez toho vidíme jen stdout_len. Tail =
+                    # konec výpisu, kde je finální status / chyba.
+                    "stdout_tail": (result.stdout or "")[-1500:],
+                    "stderr_tail": (result.stderr or "")[-800:],
                 },
             )
         except Exception:

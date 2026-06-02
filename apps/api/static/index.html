@@ -2354,6 +2354,8 @@
           <input type="file" id="docInboxFileInput" multiple style="display:none">
           <input type="file" id="docInboxFolderInput" webkitdirectory directory multiple style="display:none">
           <button class="attach-btn" id="attachBtn" title="Pripojit obrazek nebo audio (klik nebo prtahni mysi)" aria-label="Pripojit obrazek nebo audio">📎</button>
+          <!-- Faze 2B (2.6.2026): sdileni obrazovky do skupiny. Jen ve sdilene konverzaci. -->
+          <button class="attach-btn" id="screenShareBtn" type="button" title="Sdílet obrazovku do skupiny (snímek na povel / auto á 5 s)" aria-label="Sdílet obrazovku" style="display:none;">🖥️</button>
           <input type="file" id="fileInput" multiple accept="image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp3,audio/m4a,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm" style="display:none">
           <!-- Phase 26 (1.5.2026): emoji palette picker. Marti-AI managuje paletu, klik vlozi do textarea. -->
           <span class="emoji-picker-wrap">
@@ -5955,6 +5957,9 @@
     const cb = document.getElementById('aiTurnToggle');
     if (wrap) wrap.style.display = currentConvIsShared ? 'inline-flex' : 'none';
     if (cb) cb.checked = false;   // default vyp / reset (one-turn)
+    // Faze 2B: tlacitko sdileni obrazovky taky jen ve sdilene konverzaci
+    const sb = document.getElementById('screenShareBtn');
+    if (sb) sb.style.display = currentConvIsShared ? 'inline-flex' : 'none';
   }
   function _stopGroupPoll() {
     if (_groupPollTimer) { clearInterval(_groupPollTimer); _groupPollTimer = null; }
@@ -6163,6 +6168,28 @@
         reader.onload = (ev) => { img.src = ev.target.result; };
         reader.readAsDataURL(item.file);
         thumb.appendChild(img);
+        // Faze 2A (2.6.2026): ✏️ oznac/uprav printscreen pred odeslanim.
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.title = 'Označit / upravit (co je blbě)';
+        editBtn.textContent = '✏';
+        editBtn.style.cssText = 'position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:10px;border:none;background:rgba(0,0,0,0.55);color:#fff;font-size:11px;cursor:pointer;line-height:1;padding:0;z-index:2;';
+        editBtn.addEventListener('click', () => {
+          const rd = new FileReader();
+          rd.onload = (ev2) => {
+            window.openAnnotator(ev2.target.result, (blob) => {
+              if (!blob) return;
+              const base = ((item.file && item.file.name) || 'screenshot').replace(/\.[^.]+$/, '');
+              item.file = new File([blob], base + '_anot.png', { type: 'image/png' });
+              item.mediaId = null;
+              item.status = 'uploading';
+              _renderMediaPreview();
+              _uploadMediaFile(item);
+            });
+          };
+          rd.readAsDataURL(item.file);
+        });
+        thumb.appendChild(editBtn);
       }
       // Spinner pri uploadu
       if (item.status === 'uploading') {
@@ -6903,6 +6930,187 @@
     document.body.appendChild(win);
     return win;
   };
+
+  // Faze 2A (2.6.2026): anotacni editor printscreenu — oznac cervene, co je blbe.
+  // Canvas nad obrazkem: obdelnik / sipka / tuzka / text / barva / zpet.
+  // onSave dostane Blob (PNG) s vypalenymi anotacemi (nebo null pri zruseni).
+  window.openAnnotator = function(imgUrl, onSave) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:100090;background:rgba(0,0,0,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;';
+    const tb = document.createElement('div');
+    tb.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;background:#1f262e;border-radius:8px 8px 0 0;color:#cfd6dd;font-size:13px;max-width:94vw;';
+    let tool = 'rect';
+    let color = '#ff3b30';
+    const toolBtns = {};
+    [['rect','▭'],['arrow','↗'],['pen','✏'],['text','T']].forEach(function(pair){
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = pair[1];
+      b.title = pair[0]; b.style.cssText = 'background:#2c3640;border:2px solid #3a4450;color:#cfd6dd;padding:5px 11px;border-radius:5px;cursor:pointer;font-size:15px;';
+      b.addEventListener('click', function(){ tool = pair[0]; Object.keys(toolBtns).forEach(function(k){ toolBtns[k].style.borderColor = '#3a4450'; }); b.style.borderColor = color; });
+      toolBtns[pair[0]] = b; tb.appendChild(b);
+    });
+    toolBtns['rect'].style.borderColor = color;
+    ['#ff3b30','#ffcc00','#34c759','#0a84ff','#ffffff','#111111'].forEach(function(c){
+      const sw = document.createElement('button'); sw.type = 'button';
+      sw.style.cssText = 'width:22px;height:22px;border-radius:50%;border:2px solid #555;cursor:pointer;background:' + c + ';';
+      sw.addEventListener('click', function(){ color = c; if (toolBtns[tool]) toolBtns[tool].style.borderColor = c; });
+      tb.appendChild(sw);
+    });
+    const undoBtn = document.createElement('button'); undoBtn.type = 'button'; undoBtn.textContent = '↶ Zpět';
+    undoBtn.style.cssText = 'background:#2c3640;border:1px solid #3a4450;color:#cfd6dd;padding:5px 9px;border-radius:5px;cursor:pointer;';
+    tb.appendChild(undoBtn);
+    const spacer = document.createElement('span'); spacer.style.flex = '1'; tb.appendChild(spacer);
+    const saveBtn = document.createElement('button'); saveBtn.type = 'button'; saveBtn.textContent = '✓ Hotovo';
+    saveBtn.style.cssText = 'background:#3a7a3a;border:none;color:#fff;padding:6px 14px;border-radius:5px;cursor:pointer;font-weight:600;';
+    const cancelBtn = document.createElement('button'); cancelBtn.type = 'button'; cancelBtn.textContent = '✕ Zrušit';
+    cancelBtn.style.cssText = 'background:#5a3a3a;border:none;color:#fff;padding:6px 14px;border-radius:5px;cursor:pointer;';
+    tb.appendChild(saveBtn); tb.appendChild(cancelBtn);
+    overlay.appendChild(tb);
+
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'max-width:94vw;max-height:80vh;background:#fff;cursor:crosshair;border-radius:0 0 8px 8px;';
+    overlay.appendChild(canvas);
+    document.body.appendChild(overlay);
+
+    const ctx = canvas.getContext('2d');
+    const undoStack = [];
+    const img = new Image();
+    img.onload = function(){ canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; ctx.drawImage(img, 0, 0); };
+    img.src = imgUrl;
+
+    function pushUndo(){ try { undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height)); if (undoStack.length > 30) undoStack.shift(); } catch (e) {} }
+    undoBtn.addEventListener('click', function(){ if (undoStack.length) ctx.putImageData(undoStack.pop(), 0, 0); });
+    function pos(e){ const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left) * (canvas.width / r.width), y: (e.clientY - r.top) * (canvas.height / r.height) }; }
+    function lw(){ return Math.max(2, Math.round(canvas.width / 350)); }
+    function drawArrow(x1, y1, x2, y2){ const w = lw(); ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); const a = Math.atan2(y2 - y1, x2 - x1); const h = Math.max(14, w * 4); ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - h * Math.cos(a - Math.PI / 6), y2 - h * Math.sin(a - Math.PI / 6)); ctx.lineTo(x2 - h * Math.cos(a + Math.PI / 6), y2 - h * Math.sin(a + Math.PI / 6)); ctx.closePath(); ctx.fill(); }
+    let drawing = false, sx = 0, sy = 0, snap = null;
+    canvas.addEventListener('mousedown', function(e){
+      const p = pos(e);
+      if (tool === 'text'){ const t = prompt('Text k printscreenu:'); if (t){ pushUndo(); ctx.fillStyle = color; ctx.font = 'bold ' + Math.max(16, Math.round(canvas.width / 28)) + 'px sans-serif'; ctx.fillText(t, p.x, p.y); } return; }
+      drawing = true; sx = p.x; sy = p.y; pushUndo();
+      snap = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      if (tool === 'pen'){ ctx.strokeStyle = color; ctx.lineWidth = lw(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+    });
+    canvas.addEventListener('mousemove', function(e){
+      if (!drawing) return; const p = pos(e);
+      if (tool === 'pen'){ ctx.lineTo(p.x, p.y); ctx.stroke(); return; }
+      if (snap) ctx.putImageData(snap, 0, 0);
+      if (tool === 'rect'){ ctx.strokeStyle = color; ctx.lineWidth = lw(); ctx.strokeRect(sx, sy, p.x - sx, p.y - sy); }
+      else if (tool === 'arrow'){ drawArrow(sx, sy, p.x, p.y); }
+    });
+    function endDraw(){ drawing = false; snap = null; }
+    canvas.addEventListener('mouseup', endDraw);
+    canvas.addEventListener('mouseleave', endDraw);
+
+    function close(){ overlay.remove(); }
+    cancelBtn.addEventListener('click', function(){ close(); if (onSave) onSave(null); });
+    saveBtn.addEventListener('click', function(){ canvas.toBlob(function(blob){ close(); if (onSave) onSave(blob); }, 'image/png'); });
+  };
+
+  // ── Faze 2B (2.6.2026): sdileni obrazovky do skupiny ──────────────────────
+  // getDisplayMedia → vyber okna (prompt prohlizece, nelze obejit) → snimek
+  // na povel / auto a 5s → upload → post jako ai_turn=false zprava do skupiny.
+  let _screenStream = null, _screenVideo = null, _screenAutoTimer = null;
+
+  async function _postScreenshot(mediaId) {
+    try { addMessage('user', '', 'text', { mediaIds: [mediaId], mediaItems: [{ id: mediaId, kind: 'image' }] }); } catch (e) {}
+    try {
+      await fetch('/api/v1/conversation/chat', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: '', conversation_id: conversationId, ai_turn: false, media_ids: [mediaId] }),
+      });
+      if (typeof loadConversationList === 'function') loadConversationList();
+    } catch (e) {}
+  }
+
+  async function _uploadScreenBlob(blob) {
+    const fd = new FormData();
+    fd.append('file', new File([blob], 'screen_' + Date.now() + '.png', { type: 'image/png' }));
+    if (conversationId) fd.append('conversation_id', String(conversationId));
+    try {
+      const r = await fetch('/api/v1/media/upload', { method: 'POST', body: fd, credentials: 'include' });
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d && d.id) await _postScreenshot(d.id);
+    } catch (e) {}
+  }
+
+  function _captureFrameAndPost(annotate) {
+    if (!_screenVideo || !_screenVideo.videoWidth) return;
+    const c = document.createElement('canvas');
+    c.width = _screenVideo.videoWidth; c.height = _screenVideo.videoHeight;
+    c.getContext('2d').drawImage(_screenVideo, 0, 0, c.width, c.height);
+    c.toBlob(function(blob){
+      if (!blob) return;
+      if (annotate) {
+        const url = URL.createObjectURL(blob);
+        window.openAnnotator(url, function(annotatedBlob){
+          URL.revokeObjectURL(url);
+          if (annotatedBlob) _uploadScreenBlob(annotatedBlob);
+        });
+      } else {
+        _uploadScreenBlob(blob);
+      }
+    }, 'image/png');
+  }
+
+  function _stopScreenShare() {
+    if (_screenAutoTimer) { clearInterval(_screenAutoTimer); _screenAutoTimer = null; }
+    if (_screenStream) { try { _screenStream.getTracks().forEach(function(t){ t.stop(); }); } catch (e) {} _screenStream = null; }
+    _screenVideo = null;
+    const panel = document.getElementById('screenSharePanel'); if (panel) panel.remove();
+  }
+
+  function _showScreenPanel() {
+    if (document.getElementById('screenSharePanel')) return;
+    const panel = document.createElement('div');
+    panel.id = 'screenSharePanel';
+    panel.style.cssText = 'position:fixed;bottom:96px;right:20px;z-index:100085;background:#1f262e;border:1px solid #3a4450;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.5);padding:11px 13px;display:flex;flex-direction:column;gap:8px;color:#cfd6dd;font-size:12px;min-width:190px;';
+    const t = document.createElement('div'); t.textContent = '🖥️ Sdílím obrazovku'; t.style.fontWeight = '600'; panel.appendChild(t);
+    const snap = document.createElement('button'); snap.type = 'button'; snap.textContent = '📸 Snímek do skupiny';
+    snap.style.cssText = 'background:#3a7a3a;border:none;color:#fff;padding:7px 10px;border-radius:6px;cursor:pointer;font-weight:600;';
+    snap.addEventListener('click', function(){ _captureFrameAndPost(false); });
+    panel.appendChild(snap);
+    const snapEdit = document.createElement('button'); snapEdit.type = 'button'; snapEdit.textContent = '✏️ Snímek + označit';
+    snapEdit.style.cssText = 'background:#2c3640;border:1px solid #3a4450;color:#cfd6dd;padding:7px 10px;border-radius:6px;cursor:pointer;';
+    snapEdit.addEventListener('click', function(){ _captureFrameAndPost(true); });
+    panel.appendChild(snapEdit);
+    const autoWrap = document.createElement('label'); autoWrap.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;';
+    const auto = document.createElement('input'); auto.type = 'checkbox';
+    auto.addEventListener('change', function(){
+      if (auto.checked) { _captureFrameAndPost(false); _screenAutoTimer = setInterval(function(){ _captureFrameAndPost(false); }, 5000); }
+      else if (_screenAutoTimer) { clearInterval(_screenAutoTimer); _screenAutoTimer = null; }
+    });
+    autoWrap.appendChild(auto); autoWrap.appendChild(document.createTextNode('Auto á 5 s'));
+    panel.appendChild(autoWrap);
+    const stop = document.createElement('button'); stop.type = 'button'; stop.textContent = '⏹ Ukončit sdílení';
+    stop.style.cssText = 'background:#5a3a3a;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;';
+    stop.addEventListener('click', _stopScreenShare);
+    panel.appendChild(stop);
+    document.body.appendChild(panel);
+  }
+
+  async function _startScreenShare() {
+    if (_screenStream) { _showScreenPanel(); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      alert('Tvůj prohlížeč neumí sdílení obrazovky (potřebuje HTTPS + moderní prohlížeč).');
+      return;
+    }
+    try {
+      _screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    } catch (e) { return; }   // user zrusil vyber okna
+    _screenVideo = document.createElement('video');
+    _screenVideo.srcObject = _screenStream;
+    _screenVideo.muted = true;
+    try { await _screenVideo.play(); } catch (e) {}
+    try { _screenStream.getVideoTracks()[0].addEventListener('ended', _stopScreenShare); } catch (e) {}
+    _showScreenPanel();
+  }
+
+  (function(){
+    const ssb = document.getElementById('screenShareBtn');
+    if (ssb) ssb.addEventListener('click', _startScreenShare);
+  })();
 
   function currentAgentLabel() {
     // Aktuálně aktivní persona — čteme z hlavičky, kam ji server při každé

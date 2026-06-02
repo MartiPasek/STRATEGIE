@@ -7020,6 +7020,7 @@
   // getDisplayMedia → vyber okna (prompt prohlizece, nelze obejit) → snimek
   // na povel / auto a 5s → upload → post jako ai_turn=false zprava do skupiny.
   let _screenStream = null, _screenVideo = null, _screenAutoTimer = null;
+  let _screenTrack = null, _screenCapture = null;
   window._liveWindows = window._liveWindows || {};
 
   // Faze 2B+ (2.6.2026): zive sdileni — frame do slotu (zadna nova zprava).
@@ -7035,16 +7036,32 @@
         }
       }).catch(function(){});
   }
-  function _liveTick() {
-    if (!_screenVideo) return;
-    // Watchdog: kdyz video zamrzlo / nehraje (videoWidth 0 nebo paused), zkus
-    // ho rozjet znovu — tim se sdileni samo "resetuje" misto aby umrelo.
-    if (!_screenVideo.videoWidth || _screenVideo.paused) { try { _screenVideo.play(); } catch (e) {} return; }
+  function _frameToUpload(w, h, drawFn) {
+    if (!w || !h) return;
     const c = document.createElement('canvas');
-    c.width = _screenVideo.videoWidth; c.height = _screenVideo.videoHeight;
-    try { c.getContext('2d').drawImage(_screenVideo, 0, 0, c.width, c.height); } catch (e) { return; }
-    // JPEG 0.6 — lehci nez PNG (rychlejsi upload, mene zatezi, mensi storage).
+    c.width = w; c.height = h;
+    try { drawFn(c.getContext('2d')); } catch (e) { return; }
     c.toBlob(function(blob){ if (blob) _uploadScreenFrameLive(blob); }, 'image/jpeg', 0.6);
+  }
+  function _liveTickVideo() {
+    // Fallback: snimek z <video> elementu. Pozn.: na pozadi muze zamrzat.
+    if (!_screenVideo) return;
+    if (!_screenVideo.videoWidth) { try { _screenVideo.play(); } catch (e) {} return; }
+    _frameToUpload(_screenVideo.videoWidth, _screenVideo.videoHeight, function(ctx){
+      ctx.drawImage(_screenVideo, 0, 0, _screenVideo.videoWidth, _screenVideo.videoHeight);
+    });
+  }
+  function _liveTick() {
+    // Primarne ImageCapture.grabFrame() — snima primo z tracku, NEZAVISLE na
+    // viditelnosti tabu/elementu (proto nezamrza na pozadi). Fallback = <video>.
+    if (_screenCapture && typeof _screenCapture.grabFrame === 'function') {
+      _screenCapture.grabFrame().then(function(bitmap){
+        _frameToUpload(bitmap.width, bitmap.height, function(ctx){ ctx.drawImage(bitmap, 0, 0); });
+        if (bitmap && bitmap.close) try { bitmap.close(); } catch (e) {}
+      }).catch(function(){ _liveTickVideo(); });
+    } else {
+      _liveTickVideo();
+    }
   }
 
   // Zive okno — obcerstvuje JEDEN obraz (poll live slotu). Dedup per konverzace.
@@ -7170,6 +7187,7 @@
     if (_screenAutoTimer) { clearInterval(_screenAutoTimer); _screenAutoTimer = null; }
     if (_screenStream) { try { _screenStream.getTracks().forEach(function(t){ t.stop(); }); } catch (e) {} _screenStream = null; }
     if (_screenVideo) { try { if (_screenVideo.parentNode) _screenVideo.parentNode.removeChild(_screenVideo); } catch (e) {} _screenVideo = null; }
+    _screenTrack = null; _screenCapture = null;
     const panel = document.getElementById('screenSharePanel'); if (panel) panel.remove();
   }
 
@@ -7185,10 +7203,10 @@
     const liveBtn = document.createElement('button'); liveBtn.type = 'button';
     function _renderLiveBtn() {
       if (_screenAutoTimer) {
-        liveBtn.textContent = '⏹ Zastavit živé';
+        liveBtn.textContent = '⏹ Zastavit živé sdílení';
         liveBtn.style.cssText = 'background:#b0413e;border:none;color:#fff;padding:10px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:14px;';
       } else {
-        liveBtn.textContent = '🔴 Živě (obnovuje 1 okno)';
+        liveBtn.textContent = '🔴 Zapnout živé sdílení';
         liveBtn.style.cssText = 'background:#3a7a3a;border:none;color:#fff;padding:10px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:14px;';
       }
     }
@@ -7237,6 +7255,10 @@
     try {
       _screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
     } catch (e) { return; }   // user zrusil vyber okna
+    _screenTrack = _screenStream.getVideoTracks()[0] || null;
+    // ImageCapture = robustni snimani PRIMO z tracku, nezavisle na viditelnosti
+    // tabu/elementu -> nezamrza na pozadi (Chrome/Edge). Fallback = <video>.
+    try { _screenCapture = (_screenTrack && ('ImageCapture' in window)) ? new ImageCapture(_screenTrack) : null; } catch (e) { _screenCapture = null; }
     _screenVideo = document.createElement('video');
     _screenVideo.srcObject = _screenStream;
     _screenVideo.muted = true; _screenVideo.autoplay = true; _screenVideo.playsInline = true;
@@ -7245,13 +7267,17 @@
     _screenVideo.style.cssText = 'position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;';
     document.body.appendChild(_screenVideo);
     try { await _screenVideo.play(); } catch (e) {}
-    try { _screenStream.getVideoTracks()[0].addEventListener('ended', _stopScreenShare); } catch (e) {}
+    try { if (_screenTrack) _screenTrack.addEventListener('ended', _stopScreenShare); } catch (e) {}
     _showScreenPanel();
   }
 
   (function(){
     const ssb = document.getElementById('screenShareBtn');
     if (ssb) ssb.addEventListener('click', _startScreenShare);
+    // Obnova: po navratu na STRATEGIE tab hned posli snimek (kdyz bezi zive).
+    document.addEventListener('visibilitychange', function(){
+      if (!document.hidden && _screenAutoTimer) { try { _liveTick(); } catch (e) {} }
+    });
   })();
 
   function currentAgentLabel() {

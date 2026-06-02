@@ -234,7 +234,7 @@ def get_live_screen(conversation_id: int, req: Request) -> dict:
         return {"active": False}
     with _LIVE_SCREEN_LOCK:
         slot = _LIVE_SCREEN.get(conversation_id)
-    if not slot or (_ls_time.time() - slot.get("ts", 0)) > 20:
+    if not slot or (_ls_time.time() - slot.get("ts", 0)) > 60:
         return {"active": False}
     return {
         "active": True, "media_id": slot["media_id"],

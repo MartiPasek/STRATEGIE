@@ -2670,10 +2670,10 @@
     <!-- Phase 14b+ (13.5.2026): RO/RW toggle pro add. Default RO (safer). -->
     <div class="members-share-mode" id="convShareModeToggle" style="margin-bottom:8px; display:flex; gap:14px; padding:6px 4px;">
       <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:13px;">
-        <input type="radio" name="convShareMode" value="read" checked> <span>📖 Jen čtení</span>
+        <input type="radio" name="convShareMode" value="write" checked> <span>✏️ Čtení + zápis</span>
       </label>
       <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:13px;">
-        <input type="radio" name="convShareMode" value="write"> <span>✏️ Čtení + zápis</span>
+        <input type="radio" name="convShareMode" value="read"> <span>📖 Jen čtení</span>
       </label>
     </div>
     <div class="members-picker" id="convSharePicker">
@@ -5002,7 +5002,7 @@
   // Univerzální modal — confirm i prompt v jednom.
   // Použití confirm:  const ok = await customConfirm({title, text, confirmLabel, danger});
   // Použití prompt:   const val = await customConfirm({title, text, input: true, defaultValue, ...}); // vrátí string nebo null
-  function customConfirm({ title = 'Potvrzení', text = '', confirmLabel = 'OK', cancelLabel = 'Zrušit', danger = false, input = false, defaultValue = '', placeholder = '' } = {}) {
+  function customConfirm({ title = 'Potvrzení', text = '', confirmLabel = 'OK', cancelLabel = 'Zrušit', danger = false, input = false, defaultValue = '', placeholder = '', okFirst = false } = {}) {
     return new Promise((resolve) => {
       const overlay = document.getElementById('confirmModal');
       const titleEl = document.getElementById('confirmModalTitle');
@@ -5026,6 +5026,10 @@
       okBtn.textContent = confirmLabel;
       cancelBtn.textContent = cancelLabel;
       okBtn.classList.toggle('danger', !!danger);
+      // Marti 2.6.2026: okFirst → primární tlačítko vlevo (1. místo), cancel
+      // vpravo. Default (false) zachová původní pořadí pro ostatní dialogy.
+      if (okFirst) { okBtn.style.order = '0'; cancelBtn.style.order = '1'; }
+      else { okBtn.style.order = ''; cancelBtn.style.order = ''; }
       // Input mode (prompt)
       if (input) {
         inputEl.style.display = '';
@@ -9730,6 +9734,9 @@
     if (!convShareModalBg) return;
     convShareModalBg.dataset.conversationId = String(conversationId);
     convShareTitle.textContent = `Sdílet: ${conversationTitle}`;
+    // Marti 2.6.2026: vždy default read+write při otevření (ne poslední volba).
+    const _rw = convShareModalBg.querySelector('input[name="convShareMode"][value="write"]');
+    if (_rw) _rw.checked = true;
     convShareList.innerHTML = '<div class="members-picker-empty">Načítám…</div>';
     convSharePicker.innerHTML = '<div class="members-picker-empty">Načítám…</div>';
     convShareModalBg.classList.add('open');
@@ -11434,6 +11441,9 @@
     dmConvView.style.display   = (mode === 'dm' && activeDmId)  ? 'flex' : 'none';
     if (mode === 'ai') stopDmPoll();
     if (mode === 'dm' && !activeDmId) loadDmList();
+    // Marti 2.6.2026: pojistka — při vstupu do AI chatu vždy obnov viditelnost
+    // "Marti-AI" checkboxu + 🖥️ dle currentConvIsShared (shared→normal refresh).
+    if (mode === 'ai' && typeof _updateAiTurnToggle === 'function') _updateAiTurnToggle();
   }
   modeAiBtn.addEventListener('click', () => setMode('ai'));
   modeDmBtn.addEventListener('click', () => { activeDmId = null; setMode('dm'); });
@@ -14193,8 +14203,9 @@
         const ok = await customConfirm({
           title: 'Obnovit STRATEGII?',
           text: 'Hard reload — načte nejnovější verzi aplikace a vrátí tě na poslední konverzaci.',
-          confirmLabel: 'Obnovit',
-          cancelLabel: 'Zrušit'
+          confirmLabel: 'Obnovit teď',
+          cancelLabel: 'Za chvíli',
+          okFirst: true
         });
         if (ok) window.location.reload();
       });

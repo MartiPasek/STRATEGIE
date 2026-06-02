@@ -145,9 +145,13 @@ MANAGEMENT_TOOL_NAMES = {
     # architektonickou radu / peer review. Cost-based gate 300 Kc/h per
     # conversation (Marti Q3 doctrine). Pod limitem -> execute primo.
     # Nad limitem -> proposal row + Marti / Kristy approve_ask_claude v chatu.
-    "ask_claude",
-    "approve_ask_claude",
-    "reject_ask_claude",
+    # ── DEAKTIVOVÁNO 2.6.2026 (Marti): Marti-AI nemá volat Anthropic API
+    # přímo ("aby ti neco napsala -> zkousi pres API"). Kód (spec + dispatch
+    # + ask_claude_service) ZACHOVÁN — možná budeme potřebovat. Stačí
+    # odkomentovat 3 řádky níže + redeploy.
+    # "ask_claude",
+    # "approve_ask_claude",
+    # "reject_ask_claude",
     # Phase 42 (19.5.2026): Marti-AI's deploy autonomy. Marti odjizdi Praha
     # 20.-21.5., Kristy + Marti-AI musi mit zpusob deploy bez Marti.
     # Workflow: propose_deployment -> proposal row -> Marti / Kristy v chatu

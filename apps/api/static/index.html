@@ -3551,7 +3551,11 @@
     activeDmId = null;
     setMode('ai');
     updateProjectIndicator();          // agent-bar "Projekt: …" dle currentUser
-    await loadLastConversation();
+    // Reset/reload: zkus obnovit POSLEDNÍ otevřenou konverzaci (vč. sdílené).
+    // Když není uložená / nejde načíst (smazaná, jiný tenant), spadni na
+    // /conversation/last (vlastní poslední).
+    const _restored = await _restoreLastViewedConv();
+    if (!_restored) await loadLastConversation();
     await loadConversationList();      // sidebar
     await loadProjectsList();          // dropdown s projekty
     await loadPersonasList();          // persona picker v agent baru
@@ -3588,6 +3592,7 @@
     // Pokud nic sdileno, skryjeme celou sekci -- zbytecny empty state.
     if (!sharedWithMeCache || sharedWithMeCache.length === 0) {
       wrap.style.display = 'none';
+      _refreshDropdownSharedSection();   // odstraní případnou starou sekci v dropdownu
       return;
     }
     wrap.style.display = '';
@@ -3611,6 +3616,10 @@
         await openConversation(cid);
       });
     });
+
+    // Mobil / úzké okno: přerendruj sdílenou sekci i v dropdownu hlavičky
+    // (sharedWithMeCache se obvykle načte až po prvním vykreslení dropdownu).
+    _refreshDropdownSharedSection();
   }
 
   // Title v záložce prohlížeče: "STRATEGIE — Marti" (s display_name).
@@ -3661,6 +3670,7 @@
       _renderedMsgIds = new Set((data.messages || []).map(m => m.id).filter(Boolean));
       _updateAiTurnToggle();
       _startGroupPoll(conversationId);
+      _rememberLastViewedConv(conversationId);
     } catch (e) {}
   }
 
@@ -3742,21 +3752,90 @@
         items.forEach(it => listEl.appendChild(_buildConvListItem(it, 'sidebar-item')));
       }
     }
-    // Dropdown panel v hlavičce (úzké okno) — vždy aktivní konverzace + dole archiv
+    // Dropdown panel v hlavičce (úzké okno / mobil) — aktivní konverzace
+    // + sekce "Sdílené se mnou" + dole archiv. Na mobilu je tohle jediný
+    // seznam (levý sidebar není), takže sdílené sem MUSÍ.
     if (ddPanel) {
       ddPanel.innerHTML = '';
-      if (empty) {
+      const sharedEmpty = !sharedWithMeCache || sharedWithMeCache.length === 0;
+      if (empty && sharedEmpty) {
         ddPanel.innerHTML = '<div class="sidebar-empty">Žádné konverzace zatím.</div>';
       } else {
-        items.forEach(it => ddPanel.appendChild(_buildConvListItem(it, 'conv-dd-item')));
+        if (!empty) items.forEach(it => ddPanel.appendChild(_buildConvListItem(it, 'conv-dd-item')));
+        _appendSharedSectionToDropdown(ddPanel);
       }
       ddPanel.appendChild(_buildArchiveOpenerForDropdown());
     }
   }
 
+  // Sekce "Sdílené se mnou" v dropdownu hlavičky (mobil + úzké okno).
+  // Čte sharedWithMeCache (naplněno loadSharedWithMeList). Vrací/přidává
+  // do panelu blok s id="convDdSharedSection" (kvůli re-renderu, viz níže).
+  function _appendSharedSectionToDropdown(ddPanel) {
+    if (!ddPanel) return;
+    if (!sharedWithMeCache || sharedWithMeCache.length === 0) return;
+    const sec = document.createElement('div');
+    sec.id = 'convDdSharedSection';
+
+    const divider = document.createElement('div');
+    divider.className = 'conv-dd-section-divider';
+    sec.appendChild(divider);
+
+    const hdr = document.createElement('div');
+    hdr.className = 'conv-dd-item conv-dd-item-special';
+    hdr.style.cursor = 'default';
+    hdr.textContent = '🔗 Sdílené se mnou';
+    sec.appendChild(hdr);
+
+    for (const it of sharedWithMeCache) {
+      const item = document.createElement('div');
+      item.className = 'conv-dd-item' + (it.conversation_id === conversationId ? ' active' : '');
+      item.setAttribute('data-shared-conv-id', it.conversation_id);
+      const ownerPart = it.owner_name ? ` · od ${escapeHtml(it.owner_name)}` : '';
+      const t = document.createElement('div');
+      t.className = 'conv-dd-item-title';
+      t.textContent = `🔗 ${it.title || 'Sdílená konverzace'}${it.owner_name ? ' · od ' + it.owner_name : ''}`;
+      t.title = `${it.title || ''} — sdíleno${ownerPart}`;
+      const meta = document.createElement('div');
+      meta.className = 'conv-dd-item-meta';
+      const act = it.last_message_at ? formatRelative(it.last_message_at) : (it.shared_at ? formatRelative(it.shared_at) : '');
+      meta.textContent = act;
+      item.appendChild(t);
+      item.appendChild(meta);
+      item.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const dd = document.getElementById('convDdPanel');
+        if (dd) dd.classList.remove('open');
+        await openConversation(it.conversation_id);
+      });
+      sec.appendChild(item);
+    }
+    ddPanel.appendChild(sec);
+  }
+
+  // Když se sharedWithMeCache načte/změní AŽ po vykreslení dropdownu,
+  // přerendruj jen sdílenou sekci (vlož před archiv-opener). Volá to
+  // renderSharedWithMeSection.
+  function _refreshDropdownSharedSection() {
+    const dd = document.getElementById('convDdPanel');
+    if (!dd) return;
+    const old = document.getElementById('convDdSharedSection');
+    if (old) old.remove();
+    if (!sharedWithMeCache || sharedWithMeCache.length === 0) return;
+    // Pokud je v panelu jen empty-placeholder, vyčisti ho — teď máme obsah.
+    const emptyPh = dd.querySelector('.sidebar-empty');
+    if (emptyPh) emptyPh.remove();
+    _appendSharedSectionToDropdown(dd);
+    // Přesuň sdílenou sekci PŘED archiv-opener (ten má zůstat poslední).
+    const opener = document.getElementById('convDdArchiveOpener');
+    const sec = document.getElementById('convDdSharedSection');
+    if (opener && sec) dd.insertBefore(sec, opener);
+  }
+
   function _buildArchiveOpenerForDropdown() {
     const item = document.createElement('div');
     item.className = 'conv-dd-item';
+    item.id = 'convDdArchiveOpener';
     item.style.marginTop = '6px';
     item.style.borderTop = '1px solid var(--border)';
     item.style.paddingTop = '10px';
@@ -6000,12 +6079,13 @@
     }, 3000);
   }
 
-  async function openConversation(convId) {
+  async function openConversation(convId, opts) {
+    const _silent = opts && opts.silent;   // restore po reloadu: žádný alert, vrať bool
     try {
       const res = await fetch(`/api/v1/conversation/load/${convId}`, { credentials: 'include' });
       if (!res.ok) {
-        alert('Konverzaci nelze načíst.');
-        return;
+        if (!_silent) alert('Konverzaci nelze načíst.');
+        return false;
       }
       const data = await res.json();
       conversationId = data.conversation_id;
@@ -6053,9 +6133,36 @@
       // Phase 15b: spustit polling notebook badge pro tuto konverzaci
       _startNotebookPolling();
       inputEl.focus();
+      // Zapamatuj poslední otevřenou konverzaci (vč. sdílené), ať reset/reload
+      // nepřepne jinam — restore proběhne v showApp().
+      _rememberLastViewedConv(conversationId);
+      return true;
     } catch (e) {
-      alert('Chyba spojení při načítání konverzace.');
+      if (!_silent) alert('Chyba spojení při načítání konverzace.');
+      return false;
     }
+  }
+
+  // ── RESTORE LAST-VIEWED CONVERSATION (přežije reload, vč. sdílené) ──────
+  // /conversation/last vrací jen VLASTNÍ poslední konverzaci, takže po
+  // reloadu na sdílené konverzaci by to "přepnulo jinam". Proto si poslední
+  // otevřenou (libovolnou — vlastní i sdílenou) pamatujeme per-user.
+  function _lastViewedKey() {
+    const uid = (currentUser && currentUser.id) ? currentUser.id : 'anon';
+    // Klíč per (user, tenant) — po přepnutí tenantu se restore neplete.
+    const tn = (currentUser && currentUser.tenant_name) ? currentUser.tenant_name : '';
+    return `last_viewed_conv_${uid}_${tn}`;
+  }
+  function _rememberLastViewedConv(cid) {
+    try { if (cid) localStorage.setItem(_lastViewedKey(), String(cid)); } catch (_) {}
+  }
+  async function _restoreLastViewedConv() {
+    let stored = null;
+    try { stored = localStorage.getItem(_lastViewedKey()); } catch (_) {}
+    if (!stored) return false;
+    const cid = parseInt(stored, 10);
+    if (!cid) return false;
+    return await openConversation(cid, { silent: true });   // bez alertu; bool
   }
 
   inputEl.addEventListener('input', () => {

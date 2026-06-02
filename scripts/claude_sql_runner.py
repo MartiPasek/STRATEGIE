@@ -12,15 +12,26 @@ stdlib (urllib) — zadny venv, zadne DB drivery, bezi i systemovym Pythonem.
 KROK 1: read-only SELECT (PG + MSSQL). Cloud endpoint to vynuti (query_raw guard).
 KROK 2 (pozdeji): write -> potvrzovaci popup v chatu/ERP.
 
-Protokol (slozka scripts/claude_sql/, gitignored):
+Protokol SQL (slozka scripts/claude_sql/, gitignored):
   CLAUDE_SQL.sql   - Claude zapise SELECT (cely soubor = jeden dotaz).
   CLAUDE_GO.txt    - trigger (Claude zapise JAKO POSLEDNI). Volitelne 1. radek:
                        db=pg (default) nebo db=mssql
   CLAUDE_OUT.txt   - watcher zapise vysledek (markdown tabulka + status).
 
+Protokol AUTO-DEPLOY (Marti 2.6.2026) — Claude nasadi bez rucniho git:
+  CLAUDE_DEPLOY.txt     - 1. radek = commit message; dalsi radky = cesty souboru
+                            ke `git add` (relativne k repo). Radek "ALL" = git add -A.
+  CLAUDE_DEPLOY_GO.txt   - trigger (Claude zapise JAKO POSLEDNI).
+  CLAUDE_DEPLOY_OUT.txt  - watcher zapise vysledek (git add/commit/push + cloud deploy).
+  Tok: git add <soubory> -> commit -> push (PAT) -> POST cloud /deploy/now
+       (git pull + restart API pres RESTART-WATCHER).
+
 Env (povinne):
-  STRATEGIE_DEPLOY_TOKEN  - stejny token jako na cloud APP (auth diag-sql).
+  STRATEGIE_DEPLOY_TOKEN  - stejny token jako na cloud APP (auth diag-sql + deploy).
 Env (volitelne):
+  STRATEGIE_GIT_PAT       - GitHub PAT (Contents: read/write) pro `git push` bez
+                              credential manageru (funguje i pod LocalSystem). Bez
+                              nej fallback na `git push origin main`.
   CLAUDE_SQL_CLOUD_URL    - default https://strategie-ai.com/api/v1/erp/diag-sql
 
 NSSM install (NB) — diky urllib staci SYSTEMOVY python (ne venv):
@@ -57,6 +68,12 @@ GO_FILE = BRIDGE_DIR / "CLAUDE_GO.txt"
 OUT_FILE = BRIDGE_DIR / "CLAUDE_OUT.txt"
 LOG_FILE = BRIDGE_DIR / "watcher.log"
 
+# Auto-deploy (Marti 2.6.2026): Claude zapíše commit message + seznam souborů,
+# watcher na NB udělá git add/commit/push + zavolá cloud /deploy/now.
+DEPLOY_MSG_FILE = BRIDGE_DIR / "CLAUDE_DEPLOY.txt"      # 1. řádek = commit msg; další řádky = cesty (nebo "ALL")
+DEPLOY_GO_FILE = BRIDGE_DIR / "CLAUDE_DEPLOY_GO.txt"    # trigger (zapsat JAKO POSLEDNÍ)
+DEPLOY_OUT_FILE = BRIDGE_DIR / "CLAUDE_DEPLOY_OUT.txt"  # watcher zapíše výsledek
+
 SCAN_INTERVAL_SEC = 1.5
 HTTP_TIMEOUT_SEC = 30
 ROW_CAP = 500
@@ -64,6 +81,7 @@ CELL_MAX = 200
 CLOUD_URL = os.environ.get(
     "CLAUDE_SQL_CLOUD_URL", "https://strategie-ai.com/api/v1/erp/diag-sql"
 )
+DEPLOY_URL = CLOUD_URL.replace("/diag-sql", "/deploy/now")
 
 
 def _log(msg: str) -> None:
@@ -240,6 +258,189 @@ def _consume() -> None:
         _log(f"consume GO unlink failed: {exc}")
 
 
+# ── Auto-deploy (git add/commit/push na NB → cloud /deploy/now) ──────────
+import subprocess
+
+
+def _git_exe() -> str:
+    """git v PATH, jinak běžné Windows cesty."""
+    for cand in (
+        "git",
+        r"C:\Program Files\Git\cmd\git.exe",
+        r"C:\Program Files (x86)\Git\cmd\git.exe",
+    ):
+        try:
+            subprocess.run([cand, "--version"], capture_output=True, timeout=10)
+            return cand
+        except Exception:
+            continue
+    return "git"
+
+
+_GIT = None
+
+
+def _run_git(args: list[str], timeout: int = 90) -> tuple[int, str]:
+    """Spustí git v REPO_ROOT. Vrací (returncode, stdout+stderr)."""
+    global _GIT
+    if _GIT is None:
+        _GIT = _git_exe()
+    # Inline -c (žádný global config; služba běží pod LocalSystem bez git identity):
+    #  • safe.directory → repo vlastní Marti, jinak "dubious ownership"
+    #  • user.name/email → commit author (LocalSystem nemá ~/.gitconfig)
+    #  • credential.helper= (prázdné) → vypne helpery (push jede přes PAT v URL)
+    safe = [
+        "-c", "safe.directory=*",
+        "-c", f"safe.directory={REPO_ROOT.as_posix()}",
+        "-c", "user.name=Claude auto-deploy",
+        "-c", "user.email=claude@strategie-ai.com",
+        "-c", "credential.helper=",
+    ]
+    # GIT_TERMINAL_PROMPT=0 → špatné/chybějící creds selžou rychle, nezaseknou se
+    # na interaktivním promptu (služba nemá konzoli → jinak hang do timeoutu).
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    try:
+        p = subprocess.run(
+            [_GIT] + safe + args, cwd=str(REPO_ROOT),
+            capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace", env=env,
+        )
+        out = (p.stdout or "") + (p.stderr or "")
+        return p.returncode, out.strip()
+    except Exception as exc:
+        return 1, f"{type(exc).__name__}: {exc}"
+
+
+def _push_cmd() -> list[str]:
+    """git push args. PAT z env → authed URL (bez závislosti na credential
+    manageru, funguje i pod LocalSystem). Jinak fallback na origin."""
+    pat = os.environ.get("STRATEGIE_GIT_PAT")
+    if pat:
+        rc, url = _run_git(["remote", "get-url", "origin"])
+        url = url.strip()
+        if rc == 0 and url.startswith("https://"):
+            authed = url.replace("https://", f"https://{pat}@", 1)
+            return ["push", authed, "HEAD:main"]
+    return ["push", "origin", "main"]
+
+
+def _cloud_deploy(description: str) -> dict:
+    """POST cloud /deploy/now (git pull + restart API přes RESTART-WATCHER)."""
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
+    payload = json.dumps({"description": description}).encode("utf-8")
+    rq = urllib.request.Request(
+        DEPLOY_URL, data=payload, method="POST",
+        headers={"Content-Type": "application/json", "X-Deploy-Token": token},
+    )
+    try:
+        with urllib.request.urlopen(rq, timeout=90) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")[:400]
+        except Exception:
+            pass
+        return {"ok": False, "error": f"HTTP {e.code}: {body or e.reason}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _write_deploy_out(text_body: str) -> None:
+    try:
+        DEPLOY_OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        DEPLOY_OUT_FILE.write_text(text_body, encoding="utf-8")
+    except OSError as exc:
+        _log(f"write DEPLOY_OUT failed: {exc}")
+
+
+def _consume_deploy() -> None:
+    try:
+        if DEPLOY_GO_FILE.exists():
+            DEPLOY_GO_FILE.unlink()
+    except OSError as exc:
+        _log(f"consume DEPLOY_GO unlink failed: {exc}")
+
+
+def _process_deploy() -> None:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    # 1) commit message + soubory ke stage
+    msg = "Auto-deploy od Claude"
+    file_specs: list[str] = []
+    try:
+        raw = DEPLOY_MSG_FILE.read_text(encoding="utf-8", errors="replace")
+        lines = [ln.rstrip() for ln in raw.splitlines()]
+        if lines and lines[0].strip():
+            msg = lines[0].strip()
+        file_specs = [ln.strip() for ln in lines[1:] if ln.strip()]
+    except Exception:
+        pass
+
+    log_lines: list[str] = []
+
+    def _step(label: str, rc: int, out: str) -> None:
+        status = "OK" if rc == 0 else f"FAIL(rc={rc})"
+        log_lines.append(f"## {label} — {status}\n{out or '(bez výstupu)'}")
+        _log(f"DEPLOY {label}: {status} · {out[:120]!r}")
+
+    _log(f"DEPLOY trigger · msg={msg!r} · files={file_specs or 'ALL'}")
+
+    # 2) git add
+    if not file_specs or file_specs == ["ALL"]:
+        rc, out = _run_git(["add", "-A"])
+        _step("git add -A", rc, out)
+    else:
+        rc, out = _run_git(["add", "--"] + file_specs)
+        _step("git add " + " ".join(file_specs), rc, out)
+
+    # 3) je co commitnout?
+    rc_diff, _ = _run_git(["diff", "--cached", "--quiet"])
+    committed_sha = None
+    if rc_diff == 1:  # jsou staged změny
+        rc, out = _run_git(["commit", "-m", msg])
+        _step("git commit", rc, out)
+        if rc == 0:
+            rc2, sha = _run_git(["rev-parse", "--short", "HEAD"])
+            committed_sha = sha.strip() if rc2 == 0 else None
+    else:
+        log_lines.append("## git commit — SKIP (nic ke commitnutí)")
+        _log("DEPLOY commit: skip (clean index)")
+
+    # 4) git push
+    rc, out = _run_git(_push_cmd())
+    push_ok = rc == 0
+    # ututlej PAT v logu
+    safe = out
+    pat = os.environ.get("STRATEGIE_GIT_PAT")
+    if pat:
+        safe = safe.replace(pat, "***")
+    _step("git push", rc, safe)
+
+    # 5) cloud deploy (pull + restart) — jen pokud push prošel
+    cloud_summary = "(přeskočeno — push selhal)"
+    if push_ok:
+        cd = _cloud_deploy(f"Auto-deploy: {msg}")
+        if cd.get("ok") or cd.get("status") == "deployed":
+            cloud_summary = (
+                f"OK — {cd.get('files_changed', '?')} souborů, "
+                f"target {cd.get('target_sha', '?')}, API restart (~5 s)"
+            )
+        elif cd.get("reason") == "already_up_to_date":
+            cloud_summary = "cloud už běží na nejnovější verzi"
+        else:
+            cloud_summary = f"NENASAZENO: reason={cd.get('reason')} error={cd.get('error')}"
+        _log(f"DEPLOY cloud: {cloud_summary}")
+
+    header = "OK" if push_ok else "CHYBA (push selhal)"
+    _write_deploy_out(
+        f"# DEPLOY: {header}\n# {ts}\n"
+        f"# commit: {committed_sha or '(žádný nový)'} · cloud: {cloud_summary}\n\n"
+        + "\n\n".join(log_lines) + "\n"
+    )
+    _consume_deploy()
+
+
 def main() -> None:
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
     _log(f"STRATEGIE-CLAUDE-SQL forwarder started · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
@@ -248,6 +449,8 @@ def main() -> None:
     try:
         while True:
             try:
+                if DEPLOY_GO_FILE.exists():
+                    _process_deploy()
                 if GO_FILE.exists():
                     _process()
             except Exception as exc:
@@ -255,6 +458,8 @@ def main() -> None:
                 try:
                     _write_out(f"# STATUS: WATCHER CRASH\n{type(exc).__name__}: {exc}\n")
                     _consume()
+                    _write_deploy_out(f"# DEPLOY: WATCHER CRASH\n{type(exc).__name__}: {exc}\n")
+                    _consume_deploy()
                 except Exception:
                     pass
             time.sleep(SCAN_INTERVAL_SEC)

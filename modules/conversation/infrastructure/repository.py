@@ -666,7 +666,7 @@ def list_conversations(user_id: int, tenant_id: int | None = None, limit: int = 
     Pole per item: id, title (preview), tenant_id, last_message_at,
     message_count. DM konverzace vynechány (mají vlastní UI).
     """
-    from sqlalchemy import or_
+    from sqlalchemy import or_, func
     session = get_data_session()
     try:
         filters = [
@@ -680,11 +680,14 @@ def list_conversations(user_id: int, tenant_id: int | None = None, limit: int = 
                 Conversation.tenant_id == tenant_id,
                 Conversation.tenant_id.is_(None),  # legacy — viditelné všude
             ))
+        # Marti 2.6.2026: COALESCE(last_message_at, created_at) — nová prázdná
+        # konverzace (last_message_at NULL) se po "+ Nová" zobrazí NAHOŘE
+        # (dle created_at), ne až dole přes nullslast. Ať ji Marti hned vidí + sdílí.
         rows = (
             session.query(Conversation)
             .filter(*filters)
             .order_by(
-                Conversation.last_message_at.desc().nullslast(),
+                func.coalesce(Conversation.last_message_at, Conversation.created_at).desc(),
                 Conversation.id.desc(),
             )
             .limit(limit)

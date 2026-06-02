@@ -11767,6 +11767,10 @@ def _build_system_root_from_db():
                 "core_id": row.get("core_id"),
                 "core_code": row.get("core_code"),
                 "is_system": True,
+                # Marti 2.6.2026: is_immutable passthrough — potřeba pro řazení
+                # (production roots nahoře, SYSTEM dole) i pro parent-only filtr
+                # v system_tree_json. Driv chybělo → sort byl no-op.
+                "is_immutable": bool(row.get("is_immutable")),
                 # Phase 38.4 Krok 14g-H+6 (15.5.2026 dopo, Marti's "bez toho
                 # abys musel pouzit field Kind"): is_folder = bool(children).
                 # Uniform components doctrine (Marti-AI 11.5.) — folder vs

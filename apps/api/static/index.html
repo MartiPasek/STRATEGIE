@@ -6199,6 +6199,13 @@
           renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media, m.is_anchored, m.cost_czk, m.cum_cost_czk, m.zoom_in_n, m.window_size_at_send, m.notebook_count_at_send, m.author_user_id, m.author_short_name, m.author_color);
         }
       });
+      // Marti 2.6.2026: prázdná konverzace (např. po "+ Nová" + reload restore)
+      // má ukázat ✨ greeting, ne prázdno. Driv emptyState skryt → text "problikl".
+      if (!data.messages || data.messages.length === 0) {
+        messagesEl.appendChild(emptyState);
+        emptyState.style.display = '';
+        _updateEmptyStateGreeting();
+      }
       messagesEl.scrollTop = messagesEl.scrollHeight;
       // Skupina F1 (2.6.2026): dedup baseline + checkbox toggle + zivy poller
       _renderedMsgIds = new Set((data.messages || []).map(m => m.id).filter(Boolean));

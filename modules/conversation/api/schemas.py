@@ -15,6 +15,12 @@ class ChatRequest(BaseModel):
     # composer pak v build_prompt vytvori multimodal content blocks pro
     # Anthropic API. Maximalne 5 souboru per zprava.
     media_ids: list[int] | None = None
+    # Skupina F1 (2.6.2026): ai_turn=False -> zprava se jen ulozi do (sdilene)
+    # konverzace, composer/Marti-AI NEBEZI (lidska skupinova komunikace).
+    # Default True = solo chat beze zmeny (Marti-AI odpovida jako dosud).
+    # Frontend posila False pro skupinove human zpravy; True kdyz user zaskrtne
+    # checkbox "zapojit Marti-AI" (one-turn).
+    ai_turn: bool = True
 
 
 class ExtraMessage(BaseModel):

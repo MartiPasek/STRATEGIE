@@ -2360,6 +2360,12 @@
             <button class="attach-btn" id="emojiPickerBtn" title="Emoji paleta (Marti-AI ji pro tebe spravuje)" aria-label="Emoji paleta">😊</button>
             <div class="emoji-picker-dropdown" id="emojiPickerDropdown"></div>
           </span>
+          <!-- Skupina F1 (2.6.2026): zapojit Marti-AI do teto zpravy. Jen ve
+               sdilene konverzaci (currentConvIsShared), default vyp = lidsky
+               skupinovy chat. Zaskrtnuti = one-turn, po odeslani zhasne. -->
+          <label class="ai-turn-toggle" id="aiTurnToggleWrap" style="display:none;align-items:center;gap:5px;font-size:12px;color:#9fb3c8;white-space:nowrap;cursor:pointer;padding:0 8px;user-select:none;" title="Zapojit Marti-AI do téhle zprávy (jinak píšeš jen lidem ve skupině). Po odeslání se samo vypne.">
+            <input type="checkbox" id="aiTurnToggle" style="cursor:pointer;"> 🌳&nbsp;Marti-AI
+          </label>
           <textarea id="inputText" placeholder="Jsem tu, tak povídej…" rows="1"></textarea>
           <button class="send-btn" id="sendBtn" title="Klikni pro odeslání · podrž šipku pro nahrání hlasu">
             <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
@@ -3649,6 +3655,10 @@
         }
       });
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      // Skupina F1 (2.6.2026): dedup baseline + toggle + poller i pri auto-loadu
+      _renderedMsgIds = new Set((data.messages || []).map(m => m.id).filter(Boolean));
+      _updateAiTurnToggle();
+      _startGroupPoll(conversationId);
     } catch (e) {}
   }
 
@@ -5931,6 +5941,50 @@
     setTimeout(_wireAndKick, 0);
   }
 
+  // ── Skupina F1 (2.6.2026): zivy poller sdilene konverzace + dedup + toggle ──
+  // Poller reusne /load (autor/barvy/media stejnou cestou jako historie).
+  // Dedup: _renderedMsgIds drzi uz vykreslene id; vlastni zpravy renderuju
+  // lokalne (poller je preskakuje podle author_user_id == muj).
+  let _groupPollTimer = null;
+  let _renderedMsgIds = new Set();
+  function _myUserId() {
+    return (typeof currentUser !== 'undefined' && currentUser && currentUser.user_id) || null;
+  }
+  function _updateAiTurnToggle() {
+    const wrap = document.getElementById('aiTurnToggleWrap');
+    const cb = document.getElementById('aiTurnToggle');
+    if (wrap) wrap.style.display = currentConvIsShared ? 'inline-flex' : 'none';
+    if (cb) cb.checked = false;   // default vyp / reset (one-turn)
+  }
+  function _stopGroupPoll() {
+    if (_groupPollTimer) { clearInterval(_groupPollTimer); _groupPollTimer = null; }
+  }
+  function _startGroupPoll(convId) {
+    _stopGroupPoll();
+    if (!currentConvIsShared) return;
+    _groupPollTimer = setInterval(async () => {
+      if (conversationId !== convId || !currentConvIsShared) { _stopGroupPoll(); return; }
+      try {
+        const r = await fetch(`/api/v1/conversation/load/${convId}`, { credentials: 'include' });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (conversationId !== convId) return;   // user mezitim prepnul
+        const mine = _myUserId();
+        const nearBottom = (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight) < 140;
+        let added = false;
+        (d.messages || []).forEach(m => {
+          if (!m || m.type === 'divider' || !m.id) return;
+          if (_renderedMsgIds.has(m.id)) return;
+          if (mine && m.author_user_id === mine) { _renderedMsgIds.add(m.id); return; }
+          renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media, m.is_anchored, m.cost_czk, m.cum_cost_czk, m.zoom_in_n, m.window_size_at_send, m.notebook_count_at_send, m.author_user_id, m.author_short_name, m.author_color);
+          _renderedMsgIds.add(m.id);
+          added = true;
+        });
+        if (added && nearBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+      } catch (e) { /* silent */ }
+    }, 3000);
+  }
+
   async function openConversation(convId) {
     try {
       const res = await fetch(`/api/v1/conversation/load/${convId}`, { credentials: 'include' });
@@ -5969,6 +6023,10 @@
         }
       });
       messagesEl.scrollTop = messagesEl.scrollHeight;
+      // Skupina F1 (2.6.2026): dedup baseline + checkbox toggle + zivy poller
+      _renderedMsgIds = new Set((data.messages || []).map(m => m.id).filter(Boolean));
+      _updateAiTurnToggle();
+      _startGroupPoll(conversationId);
       // Update aktivní položky v sidebaru I v dropdownu hlavičky
       // (dropdown se neredendruje při openConversation, takže by jinak
       // zůstával podbarvený předchozí výběr).
@@ -6743,6 +6801,83 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') closeLightbox();
   });
+
+  // Skupina F1 (2.6.2026): plovouci okno pro printscreeny. NE modalni overlay
+  // (jako lightbox) — okno zustava otevrene VEDLE prace, da se pretahnout a
+  // zvetsit (CSS resize), abys mohl koukat na screenshot a zaroven editovat fw.
+  window._imgWinZ = window._imgWinZ || 4000;
+  window._imgWinCount = window._imgWinCount || 0;
+  window.openImageWindow = function(mediaId) {
+    const off = (window._imgWinCount++ % 6) * 28;
+    const win = document.createElement('div');
+    win.style.cssText =
+      'position:fixed;top:' + (80 + off) + 'px;left:' + (140 + off) + 'px;' +
+      'width:640px;height:480px;min-width:240px;min-height:160px;' +
+      'background:#14181d;border:1px solid #3a4450;border-radius:8px;' +
+      'box-shadow:0 12px 44px rgba(0,0,0,0.65);z-index:' + (++window._imgWinZ) + ';' +
+      'display:flex;flex-direction:column;overflow:hidden;resize:both;';
+    win.addEventListener('mousedown', () => { win.style.zIndex = (++window._imgWinZ); });
+
+    const bar = document.createElement('div');
+    bar.style.cssText =
+      'flex:0 0 auto;display:flex;align-items:center;gap:8px;cursor:move;' +
+      'padding:7px 10px;background:#1f262e;border-bottom:1px solid #2c3640;' +
+      'color:#cfd6dd;font-size:12px;user-select:none;';
+    const title = document.createElement('span');
+    title.textContent = '🖼 Printscreen';
+    title.style.cssText = 'flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    bar.appendChild(title);
+    const openRaw = document.createElement('a');
+    openRaw.href = '/api/v1/media/' + mediaId + '/raw';
+    openRaw.target = '_blank';
+    openRaw.textContent = '⤢';
+    openRaw.title = 'Otevřít v nové záložce (plná velikost)';
+    openRaw.style.cssText = 'color:#9fb3c8;text-decoration:none;font-size:15px;padding:0 4px;';
+    bar.appendChild(openRaw);
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.textContent = '×';
+    closeBtn.title = 'Zavřít okno';
+    closeBtn.style.cssText =
+      'background:none;border:none;color:#cfd6dd;font-size:18px;line-height:1;cursor:pointer;padding:0 4px;';
+    bar.appendChild(closeBtn);
+    win.appendChild(bar);
+
+    const body = document.createElement('div');
+    body.style.cssText =
+      'flex:1 1 auto;overflow:auto;display:flex;align-items:center;justify-content:center;background:#0d1014;';
+    const img = document.createElement('img');
+    img.src = '/api/v1/media/' + mediaId + '/raw';
+    img.alt = 'printscreen';
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+    body.appendChild(img);
+    win.appendChild(body);
+
+    let dx = 0, dy = 0, dragging = false;
+    const onMove = (e) => {
+      if (!dragging) return;
+      win.style.left = Math.max(0, e.clientX - dx) + 'px';
+      win.style.top = Math.max(0, e.clientY - dy) + 'px';
+    };
+    const onUp = () => { dragging = false; };
+    bar.addEventListener('mousedown', (e) => {
+      if (e.target === closeBtn || e.target === openRaw) return;
+      dragging = true;
+      const r = win.getBoundingClientRect();
+      dx = e.clientX - r.left; dy = e.clientY - r.top;
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    closeBtn.addEventListener('click', () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      win.remove();
+    });
+
+    document.body.appendChild(win);
+    return win;
+  };
 
   function currentAgentLabel() {
     // Aktuálně aktivní persona — čteme z hlavičky, kam ji server při každé
@@ -9987,7 +10122,7 @@
           img.src = `/api/v1/media/${m.id}/preview`;
           img.alt = m.description || m.original_filename || 'Pripojeny obrazek';
           img.title = m.description || '';
-          img.addEventListener('click', () => window.openLightbox(m.id));
+          img.addEventListener('click', () => window.openImageWindow(m.id));
           mediaWrap.appendChild(img);
           if (m.description) {
             const descEl = document.createElement('div');
@@ -10222,7 +10357,7 @@
             img.className = 'msg-media-img';
             img.src = `/api/v1/media/${it.id}/preview`;
             img.alt = 'Pripojeny obrazek';
-            img.addEventListener('click', () => window.openLightbox(it.id));
+            img.addEventListener('click', () => window.openImageWindow(it.id));
             mediaWrap.appendChild(img);
           }
         }
@@ -10348,12 +10483,28 @@
     const mediaIds = hasPendingMedia ? await window._consumePendingMediaIds() : [];
     const mediaItems = hasPendingMedia ? (window._lastConsumedMediaItems || []) : [];
     window._lastConsumedMediaItems = [];   // F12b fix: reset po consume, jinak dalsi text-only zprava zdedi audio bubble z predchozi
-    addMessage('user', text, 'text', { mediaIds, mediaItems });
-    const loadingMsg = addMessage('loading', '', 'loading');
+    // Skupina F1 (2.6.2026): ve sdilene konverzaci default LIDSKA zprava
+    // (Marti-AI mlci); checkbox "zapojit Marti-AI" = one-turn invoke.
+    // V solo chatu vzdy AI (beze zmeny).
+    const _aiTurn = currentConvIsShared
+      ? !!(document.getElementById('aiTurnToggle') && document.getElementById('aiTurnToggle').checked)
+      : true;
+    const _userMsgEl = addMessage('user', text, 'text', { mediaIds, mediaItems });
+    if (_aiTurn && currentConvIsShared && _userMsgEl) {
+      try {
+        const _tag = document.createElement('span');
+        _tag.textContent = ' → Marti-AI';
+        _tag.style.cssText = 'font-size:11px;color:#efd9a8;opacity:.85;margin-left:6px;white-space:nowrap;';
+        const _b = _userMsgEl.querySelector('.msg-bubble');
+        if (_b) _b.appendChild(_tag);
+      } catch (e) {}
+    }
+    // Loading "Premyslim…" bublina jen kdyz volame Marti-AI.
+    const loadingMsg = _aiTurn ? addMessage('loading', '', 'loading') : null;
     // Live progress (Marti 2.6.2026): behem "Premyslim…" ukazuj, kde Marti-AI
     // zrovna je (v jejim tonu). Pollni /conversation/progress kazdou ~1.2s;
     // meni jen text (tecky animuji dal). Auto-stop, kdyz bublina zmizi.
-    (function(){
+    if (loadingMsg) (function(){
       const bubble = loadingMsg && loadingMsg.querySelector
         ? loadingMsg.querySelector('.msg-bubble') : null;
       if (!bubble) return;
@@ -10383,6 +10534,7 @@
       // Pokud mame "pending" personu z UI (user ji vybral pred vznikem
       // konverzace), posleme ji do backendu. Po odpovedi vycistime.
       const reqBody = { text, conversation_id: conversationId };
+      reqBody.ai_turn = _aiTurn;   // Skupina F1: false = lidska zprava bez Marti-AI
       if (!conversationId && pendingPersonaId) {
         reqBody.preferred_persona_id = pendingPersonaId;
       }
@@ -10396,7 +10548,7 @@
         body: JSON.stringify(reqBody),
         credentials: 'include',
       });
-      loadingMsg.remove();
+      if (loadingMsg) loadingMsg.remove();
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         // Backend vraci strukturovany error: { detail: { code, message, error_type } }
@@ -10416,6 +10568,13 @@
       } else {
         const data = await res.json();
         conversationId = data.conversation_id;
+        // Skupina F1 (2.6.2026): ai_turn=false -> lidska zprava ulozena, AI mlci.
+        // Vlastni zprava uz vykreslena optimisticky; ostatni ji vidi pres poller.
+        if (!_aiTurn) {
+          const _cbf = document.getElementById('aiTurnToggle'); if (_cbf) _cbf.checked = false;
+          loadConversationList();
+          return;
+        }
         pendingPersonaId = null;   // uz aplikovano backendem pri create
         convIdLabel.textContent = `#${conversationId}`;
         // Phase 15b-fix2: po kazde odpovedi obnov notebook badge
@@ -10494,6 +10653,7 @@
           for (const xm of data.extra_messages) {
             try {
               addExtraMessage(xm);
+              if (xm && xm.id) _renderedMsgIds.add(xm.id);   // Skupina F1: dedup pro poller
             } catch (e) {
               console.warn('addExtraMessage failed:', e, xm);
             }
@@ -10512,6 +10672,9 @@
           windowSizeAtSend: (typeof data.context_window_size === 'number') ? data.context_window_size : null,
           notebookCountAtSend: null,   // backfill v history po reload
         });
+        // Skupina F1 (2.6.2026): dedup (poller preskoci) + one-turn reset checkboxu
+        if (data.assistant_message_id) _renderedMsgIds.add(data.assistant_message_id);
+        const _cbt = document.getElementById('aiTurnToggle'); if (_cbt) _cbt.checked = false;
         // Banner pokud backend shrnul starší historii v tomto cyklu
         if (data.summary_notice) {
           showSummaryBanner(data.summary_notice);
@@ -10532,7 +10695,7 @@
         loadConversationList();
       }
     } catch (e) {
-      loadingMsg.remove();
+      if (loadingMsg) loadingMsg.remove();
       addMessage('error', 'Nepodařilo se spojit se serverem.', 'error');
     } finally {
       sendBtn.disabled = false;

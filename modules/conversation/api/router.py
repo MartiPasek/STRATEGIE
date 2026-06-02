@@ -241,6 +241,30 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
                         ),
                     )
 
+        # Skupina F1 (2.6.2026): ai_turn=False -> lidska zprava do (sdilene)
+        # konverzace BEZ composeru (Marti-AI mlci). Default True zachovava solo
+        # chat. ACL uz vynuceno vyse (shared_read 403). Vraci minimal ChatResponse
+        # -- frontend jen vykresli vlastni zpravu, ostatni ji vidi pres poller.
+        if not request.ai_turn:
+            _cid_g = request.conversation_id
+            if _cid_g is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Skupinová zpráva (ai_turn=false) vyžaduje conversation_id.",
+                )
+            from modules.conversation.infrastructure.repository import save_message as _save_g
+            _mid_g = _save_g(
+                _cid_g, role="user", content=request.text,
+                author_type="human", author_user_id=user_id,
+            )
+            if request.media_ids:
+                try:
+                    from modules.media.application.service import attach_to_message as _att_g
+                    _att_g(request.media_ids, _mid_g)
+                except Exception as _eg:
+                    logger.warning(f"[group] media attach failed (msg={_mid_g}): {_eg}")
+            return ChatResponse(conversation_id=_cid_g, reply="")
+
         # Phase 43 Mini-faze A (19.5.2026): pre_msg_id zachytava posledni msg
         # ID v dane konverzaci PRED chat() flow. Po chat() turn-u backend
         # SELECT messages s id > pre_msg_id AND author_user_id IN (3, 23) —

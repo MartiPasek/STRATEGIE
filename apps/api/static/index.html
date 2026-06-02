@@ -2196,7 +2196,7 @@
       <!-- Phase 36-C (9.5.2026): Logo s audit pulse + badge.
            Klik → modal s pending konverzacemi. -->
       <div class="logo logo-with-audit" id="brandLogo" role="button"
-           title="STRATEGIE — klikni pro audit konverzací">Strategie<span class="audit-badge" id="auditBadge" hidden></span></div>
+           title="STRATEGIE — klikni pro obnovení (hard reload). Klik na oranžovou plošku = audit konverzací.">Strategie<span class="audit-badge" id="auditBadge" hidden></span></div>
       <div class="header-right">
         <div class="conv-group">
           <!-- Projekty dropdown — VLEVO od Konverzace. Symetrický design.
@@ -14116,10 +14116,26 @@
     if (window._auditStatsPollerStarted) return;
     window._auditStatsPollerStarted = true;
 
-    // Click handler na logo → otevře audit modal
+    // Click handler na logo:
+    //  - klik na audit badge (kurátor, parent) → audit modal,
+    //  - klik na text loga → HARD RESET (jako v ERP) s potvrzovacím dialogem.
     const logo = document.getElementById('brandLogo');
     if (logo) {
-      logo.addEventListener('click', openAuditModal);
+      logo.addEventListener('click', async (ev) => {
+        // Pokud klik mířil na audit badge, otevři audit (nezasahuj reload).
+        if (ev.target && (ev.target.id === 'auditBadge' || ev.target.closest('#auditBadge'))) {
+          ev.stopPropagation();
+          openAuditModal();
+          return;
+        }
+        const ok = await customConfirm({
+          title: 'Obnovit STRATEGII?',
+          text: 'Hard reload — načte nejnovější verzi aplikace a vrátí tě na poslední konverzaci.',
+          confirmLabel: 'Obnovit',
+          cancelLabel: 'Zrušit'
+        });
+        if (ok) window.location.reload();
+      });
     }
 
     refreshAuditStats();

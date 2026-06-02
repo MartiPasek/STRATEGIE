@@ -4699,12 +4699,15 @@ def _vc_escape(v) -> str:
             .replace(";", "\\;").replace("\n", "\\n").replace("\r", ""))
 
 
-def _build_crm_vcard(contact_ref, called_phone, row: dict) -> str:
+def _build_crm_vcard(contact_ref, called_phone, row: dict, category=None) -> str:
     name = (row.get("FirmaText") or row.get("KontaktText") or "Kontakt").strip() or "Kontakt"
     lines = ["BEGIN:VCARD", "VERSION:3.0",
              "UID:strategie-crm-" + str(contact_ref),
              "FN:" + _vc_escape(name),
              "ORG:" + _vc_escape(row.get("FirmaText") or name)]
+    # CATEGORIES → viditelný štítek/skupina v telefonu (DAVx5 režim "categories").
+    if category:
+        lines.append("CATEGORIES:" + _vc_escape(category))
     phones = []
     for p in (called_phone, row.get("FirmaTelefon")):
         if p:
@@ -4784,7 +4787,8 @@ def _carddav_touch_from_call(uid: int, contact_ref, called_phone,
             addressbook = "potential" if row.get("TypZakazky") == 10 else "real"
             cref = str(cref_int)
 
-        vcard = _build_crm_vcard(cref, called_phone, row)
+        _cat = "Potenciální klienti" if addressbook == "potential" else "Reální klienti"
+        vcard = _build_crm_vcard(cref, called_phone, row, category=_cat)
 
         from core.database_data import get_data_session as _gds_cd
         from sqlalchemy import text as _sql_cd

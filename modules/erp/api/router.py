@@ -4739,8 +4739,23 @@ def _carddav_touch_from_call(uid: int, contact_ref, called_phone,
     try:
         if not uid or not called_phone:
             return
-        # Jen EUROSOFT tenant (tam žije CRM).
-        if _get_tenant_id(uid) != EUROSOFT_TENANT_ID:
+        # CRM kontakty jsou EUROSOFT bez ohledu na to, v jakém tenantu user
+        # zrovna "sedí". Povol: rodič (cross-tenant) NEBO aktivní člen EUROSOFT.
+        # (Dřív se gateovalo na last_active_tenant → blokovalo rodiče jako Marti.)
+        from core.database_data import get_data_session as _gds_chk
+        from sqlalchemy import text as _sql_chk
+        _chk = _gds_chk()
+        try:
+            _allowed = _chk.execute(_sql_chk(
+                "SELECT (u.is_marti_parent OR EXISTS("
+                "  SELECT 1 FROM public.user_tenants ut "
+                "  WHERE ut.user_id = u.id AND ut.tenant_id = :t "
+                "    AND ut.membership_status = 'active')) "
+                "FROM public.users u WHERE u.id = :uid"
+            ), {"uid": uid, "t": EUROSOFT_TENANT_ID}).scalar()
+        finally:
+            _chk.close()
+        if not _allowed:
             return
 
         name = (str(contact_name).strip() if contact_name not in (None, "") else "")
@@ -4797,7 +4812,7 @@ def _carddav_touch_from_call(uid: int, contact_ref, called_phone,
 
         from core.database_data import get_data_session as _gds_cd
         from sqlalchemy import text as _sql_cd
-        tenant_id = _get_tenant_id(uid) or EUROSOFT_TENANT_ID
+        tenant_id = EUROSOFT_TENANT_ID  # CRM kontakt → vždy EUROSOFT tenant
         s = _gds_cd()
         try:
             s.execute(_sql_cd('''

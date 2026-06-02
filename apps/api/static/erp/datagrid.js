@@ -2854,9 +2854,16 @@
                 const _rid = (_d.ID != null) ? _d.ID
                   : (_d.Id != null) ? _d.Id
                   : (_d.id != null) ? _d.id : null;
+                // CardDAV F1.2: jméno z řádku (heuristika napříč CRM gridy) + typ.
+                const _nm = _d.FirmaText || _d.Firma || _d.Nazev || _d.Nazev1
+                  || _d.FirmaOrPozice || _d.KontaktText
+                  || [_d.Jmeno, _d.Prijmeni].filter(Boolean).join(" ").trim()
+                  || _d.name || null;
                 window.ErpCellActions.execute(_act, {
                   table: opts.gridCode || opts.code || opts.dataSourceCode || null,
                   rowId: _rid,
+                  name: _nm,
+                  typ: (_d.TypZakazky != null ? _d.TypZakazky : null),
                 });
                 return;  // akce provedena → neotvírej form
               }

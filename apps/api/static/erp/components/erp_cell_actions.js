@@ -103,6 +103,8 @@
             contact_table: (ctx && ctx.table) || null,
             contact_row_id: (ctx && ctx.rowId) || null,
             template_id: (ctx && ctx.templateId) || null,
+            contact_name: (ctx && ctx.name) || null,            // CardDAV F1.2: jméno z řádku
+            typ_zakazky: (ctx && ctx.typ != null) ? ctx.typ : null,  // 10 = potential
           }),
         }).catch(function () { /* offline / 500 — akce proběhne i tak */ });
       } catch (e) { /* defensive */ }

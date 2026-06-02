@@ -4721,40 +4721,70 @@ def _build_crm_vcard(contact_ref, called_phone, row: dict) -> str:
     return "\r\n".join(lines)
 
 
-def _carddav_touch_from_call(uid: int, contact_ref, called_phone) -> None:
-    """Best-effort upsert kontaktu do CardDAV aktivní sady po hovoru."""
+def _carddav_touch_from_call(uid: int, contact_ref, called_phone,
+                             contact_name=None, typ_zakazky=None,
+                             contact_table=None) -> None:
+    """Best-effort upsert kontaktu do CardDAV aktivní sady po hovoru.
+
+    Grid-agnostic: frontend pošle jméno (+ volitelně TypZakazky) z řádku →
+    vCard z jména + voleného čísla, klasifikace z typu. Fallback (bez jména):
+    firemní grid (rowId = EC_Kontakt.ID) → MCP fetch z EC_Kontakt.
+    """
     try:
-        if not uid or contact_ref in (None, ""):
+        if not uid or not called_phone:
             return
-        # Jen EUROSOFT tenant (tam žije CRM); jinde nemá smysl sahat na EC_Kontakt.
+        # Jen EUROSOFT tenant (tam žije CRM).
         if _get_tenant_id(uid) != EUROSOFT_TENANT_ID:
             return
-        try:
-            cref_int = int(contact_ref)
-        except (TypeError, ValueError):
-            return
-        from modules.conversation.application.eurosoft_mcp_client import (
-            get_eurosoft_mcp_client,
-        )
-        import json as _json_cd
-        mcp = get_eurosoft_mcp_client()
-        if mcp is None:
-            return
-        sql = (
-            "SELECT ID, FirmaText, FirmaTelefon, FirmaEmail, FirmaWeb, "
-            "TypZakazky, KontaktText FROM EC_Kontakt WHERE ID = " + str(cref_int)
-        )
-        raw = mcp.call_tool_sync(
-            full_name="eurosoft_strategie_query_raw",
-            arguments={"sql": sql, "db_name": "DB_EC"},
-            conversation_id=None,
-        )
-        res = _json_cd.loads(raw)
-        if not res.get("ok") or not res.get("rows"):
-            return
-        row = res["rows"][0]
-        addressbook = "potential" if row.get("TypZakazky") == 10 else "real"
-        vcard = _build_crm_vcard(cref_int, called_phone, row)
+
+        name = (str(contact_name).strip() if contact_name not in (None, "") else "")
+        import re as _re_cd
+        # contact_ref klíč: stabilní per řádek (grid-agnostic). Bez rowId → dle čísla.
+        if contact_ref not in (None, ""):
+            cref = (str(contact_table) + ":" + str(contact_ref)) if contact_table else str(contact_ref)
+        else:
+            cref = "tel:" + (_re_cd.sub(r"\D", "", str(called_phone)) or "x")
+
+        if name:
+            # Frontend dal jméno → grid-agnostic, žádný MCP fetch.
+            row = {"FirmaText": name}
+            if typ_zakazky not in (None, ""):
+                try:
+                    addressbook = "potential" if int(typ_zakazky) == 10 else "real"
+                except (TypeError, ValueError):
+                    addressbook = "real"
+            else:
+                addressbook = "real"
+        else:
+            # Fallback: firemní grid, rowId = EC_Kontakt.ID → MCP fetch.
+            try:
+                cref_int = int(contact_ref)
+            except (TypeError, ValueError):
+                return
+            from modules.conversation.application.eurosoft_mcp_client import (
+                get_eurosoft_mcp_client,
+            )
+            import json as _json_cd
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                return
+            sql = (
+                "SELECT ID, FirmaText, FirmaTelefon, FirmaEmail, FirmaWeb, "
+                "TypZakazky, KontaktText FROM EC_Kontakt WHERE ID = " + str(cref_int)
+            )
+            raw = mcp.call_tool_sync(
+                full_name="eurosoft_strategie_query_raw",
+                arguments={"sql": sql, "db_name": "DB_EC"},
+                conversation_id=None,
+            )
+            res = _json_cd.loads(raw)
+            if not res.get("ok") or not res.get("rows"):
+                return
+            row = res["rows"][0]
+            addressbook = "potential" if row.get("TypZakazky") == 10 else "real"
+            cref = str(cref_int)
+
+        vcard = _build_crm_vcard(cref, called_phone, row)
 
         from core.database_data import get_data_session as _gds_cd
         from sqlalchemy import text as _sql_cd
@@ -4773,17 +4803,17 @@ def _carddav_touch_from_call(uid: int, contact_ref, called_phone) -> None:
                    vcard_cache = EXCLUDED.vcard_cache,
                    ttl_days = 30,
                    removed_at = NULL
-            '''), {"uid": uid, "tid": tenant_id, "cr": str(cref_int),
+            '''), {"uid": uid, "tid": tenant_id, "cr": cref,
                    "ab": addressbook, "vc": vcard})
             s.execute(_sql_cd('''
                 INSERT INTO "user".carddav_sync_event (user_id, contact_ref, event_type)
                 VALUES (:uid, :cr, 'add')
-            '''), {"uid": uid, "cr": str(cref_int)})
+            '''), {"uid": uid, "cr": cref})
             s.commit()
         finally:
             s.close()
-        logger.info("[carddav] active-set upsert user=%s contact=%s ab=%s",
-                    uid, cref_int, addressbook)
+        logger.info("[carddav] active-set upsert user=%s ref=%s ab=%s name=%r",
+                    uid, cref, addressbook, name or "(mcp)")
     except Exception as exc:
         logger.warning("[carddav_touch] best-effort skip: %s", exc)
 
@@ -4824,6 +4854,8 @@ async def log_contact_action(req: Request) -> JSONResponse:
         template_id = int(_tid_raw) if _tid_raw not in (None, "") else None
     except (TypeError, ValueError):
         template_id = None
+    contact_name = body.get("contact_name")       # CardDAV F1.2: jméno z řádku
+    typ_zakazky = body.get("typ_zakazky")          # CardDAV F1.2: TypZakazky z řádku (10=potential)
 
     ds = _gds_ca()
     try:
@@ -4840,8 +4872,11 @@ async def log_contact_action(req: Request) -> JSONResponse:
                "ct": contact_table, "cr": contact_row_id, "tid": template_id})
         ds.commit()
         # CardDAV F1.2: po hovoru přidej kontakt do aktivní sady (best-effort).
-        if kind == "phone" and contact_row_id is not None:
-            _carddav_touch_from_call(uid, contact_row_id, value)
+        if kind == "phone":
+            _carddav_touch_from_call(uid, contact_row_id, value,
+                                     contact_name=contact_name,
+                                     typ_zakazky=typ_zakazky,
+                                     contact_table=contact_table)
         return JSONResponse({"ok": True})
     except Exception as exc:
         ds.rollback()

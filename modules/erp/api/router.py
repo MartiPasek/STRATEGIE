@@ -5249,6 +5249,10 @@ async def deploy_now(req: Request) -> JSONResponse:
         body = {}
     desc = (str(body.get("description") or "").strip()
             or "Deploy na povel (one-shot)")
+    # Atribuce (Marti 2.6.): ktera instance Claude (23/24) deploy spustila
+    _inst = str(body.get("instance_id") or "").strip()
+    if _inst and _inst != "?":
+        desc = "[Claude-%s] %s" % (_inst, desc)
 
     prop = _dep.propose_deployment(
         description=desc, conversation_id=None, proposed_by_user_id=proposed_by,
@@ -5319,6 +5323,10 @@ async def diag_sql(req: Request) -> JSONResponse:
         body = {}
     sql = (str(body.get("sql") or "")).strip()
     db = (str(body.get("db") or "pg")).strip().lower()
+    # Atribuce (Marti 2.6.): token auth -> ktera instance Claude (23/24)
+    _inst = str(body.get("instance_id") or "").strip()
+    if actor == "token" and _inst and _inst != "?":
+        actor = "Claude-%s" % _inst
     if not sql:
         return JSONResponse({"ok": False, "error": "sql chybí"}, status_code=400)
 

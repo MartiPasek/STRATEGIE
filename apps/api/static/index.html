@@ -7064,6 +7064,16 @@
     title.textContent = '🔴 Živý obraz — ' + (byName || '');
     title.style.cssText = 'flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
     bar.appendChild(title);
+    // ✏️ Oznac aktualni snimek ziveho obrazu -> editor -> posli do skupiny.
+    const annBtn = document.createElement('button'); annBtn.type = 'button'; annBtn.textContent = '✏️';
+    annBtn.title = 'Označit aktuální snímek a poslat do skupiny';
+    annBtn.style.cssText = 'background:none;border:none;color:#f0d0d0;font-size:14px;line-height:1;cursor:pointer;padding:0 4px;';
+    annBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      if (!img.src) return;
+      window.openAnnotator(img.src, function(b){ if (b && typeof _uploadScreenBlob === 'function') _uploadScreenBlob(b); });
+    });
+    bar.appendChild(annBtn);
     const closeBtn = document.createElement('button'); closeBtn.type = 'button'; closeBtn.textContent = '×';
     closeBtn.style.cssText = 'background:none;border:none;color:#f0d0d0;font-size:18px;line-height:1;cursor:pointer;padding:0 4px;';
     bar.appendChild(closeBtn);
@@ -7081,7 +7091,7 @@
     let dx = 0, dy = 0, dragging = false;
     const onMove = function(e){ if (!dragging) return; win.style.left = Math.max(0, e.clientX - dx) + 'px'; win.style.top = Math.max(0, e.clientY - dy) + 'px'; win.style.right = 'auto'; };
     const onUp = function(){ dragging = false; };
-    bar.addEventListener('mousedown', function(e){ if (e.target === closeBtn) return; dragging = true; const r = win.getBoundingClientRect(); dx = e.clientX - r.left; dy = e.clientY - r.top; e.preventDefault(); });
+    bar.addEventListener('mousedown', function(e){ if (e.target === closeBtn || e.target === annBtn) return; dragging = true; const r = win.getBoundingClientRect(); dx = e.clientX - r.left; dy = e.clientY - r.top; e.preventDefault(); });
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
     let lastMid = null;

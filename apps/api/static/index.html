@@ -10424,9 +10424,13 @@
     conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
     currentConvRole = 'owner';   // nova konverzace je moje
     currentLifecycleState = null;  // Phase 19c-e1: nova chat = nepersonal
+    currentConvIsShared = false;   // nova konverzace NENI sdilena -> schovej checkbox/sdileni
     pendingPersonaId = null;  // reset: novy chat zacina s default personou
     applyReadonlyMode();
     updateShareBadge('owner', null, 0);  // schova share badge pro empty chat
+    if (typeof _stopGroupPoll === 'function') _stopGroupPoll();   // ukonci poller sdilene konverzace
+    _renderedMsgIds = new Set();
+    if (typeof _updateAiTurnToggle === 'function') _updateAiTurnToggle();  // skryje "Marti-AI" checkbox + 🖥️
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';

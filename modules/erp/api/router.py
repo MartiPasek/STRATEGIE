@@ -4688,6 +4688,106 @@ async def design_resolve_save_bindings(core_id: int, req: Request) -> JSONRespon
         ds.close()
 
 
+# ── CardDAV caller-ID: aktivní sada (Fáze 1.2, 2.6.2026) ────────────────────
+# Po click-to-call přidej/obnov kontakt v user.carddav_active_contact.
+# Klasifikace: EC_Kontakt.TypZakazky=10 ('prvotní oslovení') → 'potential',
+# jinak (vč. NULL = zavedená DB) → 'real' (oddělené adresáře, Marti's B).
+# Best-effort — vytáčení proběhlo client-side, tohle ho nikdy nesmí shodit.
+
+def _vc_escape(v) -> str:
+    return (str(v).replace("\\", "\\\\").replace(",", "\\,")
+            .replace(";", "\\;").replace("\n", "\\n").replace("\r", ""))
+
+
+def _build_crm_vcard(contact_ref, called_phone, row: dict) -> str:
+    name = (row.get("FirmaText") or row.get("KontaktText") or "Kontakt").strip() or "Kontakt"
+    lines = ["BEGIN:VCARD", "VERSION:3.0",
+             "UID:strategie-crm-" + str(contact_ref),
+             "FN:" + _vc_escape(name),
+             "ORG:" + _vc_escape(row.get("FirmaText") or name)]
+    phones = []
+    for p in (called_phone, row.get("FirmaTelefon")):
+        if p:
+            ps = str(p).strip()
+            if ps and ps not in phones:
+                phones.append(ps)
+    for ps in phones:
+        lines.append("TEL;TYPE=WORK:" + _vc_escape(ps))
+    if row.get("FirmaEmail"):
+        lines.append("EMAIL;TYPE=WORK:" + _vc_escape(str(row["FirmaEmail"]).strip()))
+    if row.get("FirmaWeb"):
+        lines.append("URL:" + _vc_escape(str(row["FirmaWeb"]).strip()))
+    lines.append("END:VCARD")
+    return "\r\n".join(lines)
+
+
+def _carddav_touch_from_call(uid: int, contact_ref, called_phone) -> None:
+    """Best-effort upsert kontaktu do CardDAV aktivní sady po hovoru."""
+    try:
+        if not uid or contact_ref in (None, ""):
+            return
+        # Jen EUROSOFT tenant (tam žije CRM); jinde nemá smysl sahat na EC_Kontakt.
+        if _get_tenant_id(uid) != EUROSOFT_TENANT_ID:
+            return
+        try:
+            cref_int = int(contact_ref)
+        except (TypeError, ValueError):
+            return
+        from modules.conversation.application.eurosoft_mcp_client import (
+            get_eurosoft_mcp_client,
+        )
+        import json as _json_cd
+        mcp = get_eurosoft_mcp_client()
+        if mcp is None:
+            return
+        sql = (
+            "SELECT ID, FirmaText, FirmaTelefon, FirmaEmail, FirmaWeb, "
+            "TypZakazky, KontaktText FROM EC_Kontakt WHERE ID = " + str(cref_int)
+        )
+        raw = mcp.call_tool_sync(
+            full_name="eurosoft_strategie_query_raw",
+            arguments={"sql": sql, "db_name": "DB_EC"},
+            conversation_id=None,
+        )
+        res = _json_cd.loads(raw)
+        if not res.get("ok") or not res.get("rows"):
+            return
+        row = res["rows"][0]
+        addressbook = "potential" if row.get("TypZakazky") == 10 else "real"
+        vcard = _build_crm_vcard(cref_int, called_phone, row)
+
+        from core.database_data import get_data_session as _gds_cd
+        from sqlalchemy import text as _sql_cd
+        tenant_id = _get_tenant_id(uid) or EUROSOFT_TENANT_ID
+        s = _gds_cd()
+        try:
+            s.execute(_sql_cd('''
+                INSERT INTO "user".carddav_active_contact
+                  (user_id, tenant_id, contact_ref, addressbook, vcard_cache,
+                   last_active_at, last_active_action, ttl_days)
+                VALUES (:uid, :tid, :cr, :ab, :vc, now(), 'call_outbound', 30)
+                ON CONFLICT (user_id, contact_ref) DO UPDATE SET
+                   last_active_at = now(),
+                   last_active_action = 'call_outbound',
+                   addressbook = EXCLUDED.addressbook,
+                   vcard_cache = EXCLUDED.vcard_cache,
+                   ttl_days = 30,
+                   removed_at = NULL
+            '''), {"uid": uid, "tid": tenant_id, "cr": str(cref_int),
+                   "ab": addressbook, "vc": vcard})
+            s.execute(_sql_cd('''
+                INSERT INTO "user".carddav_sync_event (user_id, contact_ref, event_type)
+                VALUES (:uid, :cr, 'add')
+            '''), {"uid": uid, "cr": str(cref_int)})
+            s.commit()
+        finally:
+            s.close()
+        logger.info("[carddav] active-set upsert user=%s contact=%s ab=%s",
+                    uid, cref_int, addressbook)
+    except Exception as exc:
+        logger.warning("[carddav_touch] best-effort skip: %s", exc)
+
+
 @api_router.post("/contact-action")
 async def log_contact_action(req: Request) -> JSONResponse:
     """Fáze 1A (1.6.2026, Marti: "archivovat čísla která se vytáčely"):
@@ -4739,6 +4839,9 @@ async def log_contact_action(req: Request) -> JSONResponse:
         """), {"uid": uid, "ln": ln, "k": kind, "v": value,
                "ct": contact_table, "cr": contact_row_id, "tid": template_id})
         ds.commit()
+        # CardDAV F1.2: po hovoru přidej kontakt do aktivní sady (best-effort).
+        if kind == "phone" and contact_row_id is not None:
+            _carddav_touch_from_call(uid, contact_row_id, value)
         return JSONResponse({"ok": True})
     except Exception as exc:
         ds.rollback()

@@ -10350,6 +10350,35 @@
     window._lastConsumedMediaItems = [];   // F12b fix: reset po consume, jinak dalsi text-only zprava zdedi audio bubble z predchozi
     addMessage('user', text, 'text', { mediaIds, mediaItems });
     const loadingMsg = addMessage('loading', '', 'loading');
+    // Live progress (Marti 2.6.2026): behem "Premyslim…" ukazuj, kde Marti-AI
+    // zrovna je (v jejim tonu). Pollni /conversation/progress kazdou ~1.2s;
+    // meni jen text (tecky animuji dal). Auto-stop, kdyz bublina zmizi.
+    (function(){
+      const bubble = loadingMsg && loadingMsg.querySelector
+        ? loadingMsg.querySelector('.msg-bubble') : null;
+      if (!bubble) return;
+      const dots = bubble.querySelector('.dots');
+      bubble.innerHTML = '';
+      if (dots) bubble.appendChild(dots);
+      const stepEl = document.createElement('span');
+      stepEl.className = 'prog-step';
+      stepEl.textContent = ' Přemýšlím…';
+      bubble.appendChild(stepEl);
+      let stopped = false;
+      function poll(){
+        if (stopped || !loadingMsg.isConnected) { stopped = true; clearInterval(iv); return; }
+        fetch('/api/v1/conversation/progress', { credentials: 'include' })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(j){
+            if (stopped || !loadingMsg.isConnected) return;
+            const step = j && j.progress && j.progress.step;
+            if (step) stepEl.textContent = ' ' + step;
+          })
+          .catch(function(){});
+      }
+      const iv = setInterval(poll, 1200);
+      setTimeout(poll, 400);
+    })();
     try {
       // Pokud mame "pending" personu z UI (user ji vybral pred vznikem
       // konverzace), posleme ji do backendu. Po odpovedi vycistime.

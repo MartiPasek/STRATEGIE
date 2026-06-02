@@ -10025,6 +10025,91 @@ def _kind_aware_media_placeholder(media_ids: list[int]) -> str:
     return "[příloha]"
 
 
+# ── Live progress (Marti 2.6.2026): "co Marti-AI zrovna dela" pro UI poll ──
+# Behem "Premyslim..." frontend pollne, kde Marti-AI prave je. In-memory na
+# API procesu, klicovano user_id (1 bezici chat / user). Caddy lb_policy first
+# -> chat i poll jdou na primary, sdilena pamet staci. VSE best-effort v
+# try/except: progress NIKDY nesmi shodit chat().
+import threading as _pg_threading
+
+_CHAT_PROGRESS: dict = {}
+_CHAT_PROGRESS_LOCK = _pg_threading.Lock()
+
+# Tone mapping — Marti-Ain hlas (prvni navrh; finalni zneni doladi sama).
+_PROGRESS_PHRASES = {
+    "recall_thoughts": "Hledám ve své paměti…",
+    "record_thought": "Zapisuji si to…",
+    "update_thought": "Upravuji si paměť…",
+    "request_forget": "Probírám paměť…",
+    "find_user": "Hledám, o koho jde…",
+    "list_email_inbox": "Procházím poštu…",
+    "read_email": "Čtu e-mail…",
+    "send_email": "Chystám e-mail…",
+    "reply": "Chystám odpověď…",
+    "reply_all": "Chystám odpověď všem…",
+    "forward": "Přeposílám…",
+    "send_sms": "Píšu zprávu…",
+    "read_sms": "Čtu zprávu…",
+    "get_daily_overview": "Dělám si přehled dne…",
+    "list_todos": "Dívám se na úkoly…",
+    "python_exec": "Počítám a skládám to dohromady…",
+    "list_excel_sheets": "Otevírám tabulku…",
+    "read_excel_structured": "Čtu tabulku…",
+    "read_pdf_structured": "Čtu PDF…",
+    "read_image_ocr": "Čtu obrázek…",
+}
+
+
+def _progress_phrase(tool_name: str) -> str:
+    try:
+        if tool_name.startswith("eurosoft_"):
+            return "Dívám se do CRM…"
+        if tool_name.startswith("strategie_"):
+            return "Nahlížím do dat…"
+        return _PROGRESS_PHRASES.get(tool_name, "Pracuji na tom…")
+    except Exception:
+        return "Pracuji na tom…"
+
+
+def _progress_set(user_id, step: str) -> None:
+    if not user_id:
+        return
+    try:
+        import time as _pt
+        with _CHAT_PROGRESS_LOCK:
+            _CHAT_PROGRESS[int(user_id)] = {"step": step, "ts": _pt.time()}
+    except Exception:
+        pass
+
+
+def progress_get(user_id):
+    """Vrati {step, since_ms} nebo None (i pri staleness > 90 s)."""
+    if not user_id:
+        return None
+    try:
+        import time as _pt
+        with _CHAT_PROGRESS_LOCK:
+            p = _CHAT_PROGRESS.get(int(user_id))
+        if not p:
+            return None
+        _age = _pt.time() - p.get("ts", 0)
+        if _age > 90:
+            return None
+        return {"step": p.get("step"), "since_ms": int(_age * 1000)}
+    except Exception:
+        return None
+
+
+def progress_clear(user_id) -> None:
+    if not user_id:
+        return
+    try:
+        with _CHAT_PROGRESS_LOCK:
+            _CHAT_PROGRESS.pop(int(user_id), None)
+    except Exception:
+        pass
+
+
 def chat(
     conversation_id: int | None,
     user_message: str,
@@ -10040,6 +10125,8 @@ def chat(
     `summary_info` je None pokud se v tomto cyklu summary nevytvořilo,
     jinak dict s metadaty o nově vytvořeném shrnutí (pro UI banner).
     """
+
+    _progress_set(user_id, "Přemýšlím nad tím… 🌳")
 
     if conversation_id is None:
         # Načti aktivní tenant + projekt uživatele, ať se konverzace správně
@@ -10829,6 +10916,7 @@ def chat(
             preamble_text += block.text
         elif block.type == "tool_use":
             logger.info(f"TOOL_USE | name={block.name}")
+            _progress_set(user_id, _progress_phrase(block.name))
             # Phase 28-C (4.5.2026 vecer): EUROSOFT MCP routing.
             # Toolu s prefix 'eurosoft_' jsou v MCP server na 30.11, ne local
             # _handle_tool. Composer-side klient (singleton thread + asyncio loop)
@@ -10904,6 +10992,7 @@ def chat(
 
         assistant_reply = ""
         for round_idx in range(MAX_TOOL_ROUNDS):
+            _progress_set(user_id, "Píšu ti odpověď… 🌳")
             # Faze 9.1: kazde synth round je samostatny radek v llm_calls
             # (kind='composer'). V UI Dev View se zobrazi jako serie.
             if _telemetry is not None:
@@ -10970,6 +11059,7 @@ def chat(
             )
             round_tool_results = []
             for block in round_tool_uses:
+                _progress_set(user_id, _progress_phrase(block.name))
                 # Phase 28-C (4.5.2026 vecer): EUROSOFT MCP routing v synth round.
                 # Stejny pattern jako initial round -- 'eurosoft_*' -> MCP klient.
                 if block.name.startswith("eurosoft_"):

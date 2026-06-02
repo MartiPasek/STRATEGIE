@@ -170,6 +170,19 @@ def _get_current_project_for_user(
         session.close()
 
 
+@router.get("/progress")
+def chat_progress(req: Request) -> dict:
+    """Live progress (Marti 2.6.2026): "co Marti-AI zrovna dela" pro UI poll
+    behem "Premyslim...". Keyed user_id (session cookie). Best-effort, in-memory."""
+    try:
+        from modules.conversation.application.service import progress_get as _pg
+        uid_s = req.cookies.get("user_id")
+        uid = int(uid_s) if uid_s else None
+        return {"ok": True, "progress": _pg(uid)}
+    except Exception:
+        return {"ok": True, "progress": None}
+
+
 @router.post("/chat", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
     try:
@@ -261,6 +274,14 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             preferred_persona_id=request.preferred_persona_id,
             media_ids=request.media_ids,
         )
+
+        # Live progress (Marti 2.6.2026): turn dobehl -> uklid (poll uz nebezi;
+        # staleness 90s je backstop pro chybove cesty). Best-effort.
+        try:
+            from modules.conversation.application.service import progress_clear as _pc
+            _pc(user_id)
+        except Exception:
+            pass
 
         # Phase 43 Mini-faze A: post-chat extra_messages fetch. Hleda nove
         # messages od non-current-user actoru (Claude id=23, STRATEGIE id=3),

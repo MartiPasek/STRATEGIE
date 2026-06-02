@@ -10436,11 +10436,22 @@
     if (targetProjectId !== curPid) {
       await switchProject(targetProjectId);
     }
-    // Připrav čistý chat — podobně jako původní newChatBtn
-    // Sentinel: reset/reload zůstane na prázdném novém tématu (nepřeskočí
-    // zpět na poslední reálnou konverzaci). Přepíše se reálným id po odeslání.
-    _markFreshConversation();
-    conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
+    // Marti 2.6.2026: FYZICKY vytvoř prázdnou konverzaci (POST /create), ať se
+    // hned objeví v seznamu a jde sdílet — bez nutnosti nejdřív psát a čekat
+    // na reakci Marti-AI. Fallback: kdyby create selhal, chovej se jako dřív
+    // (virtuální nová + sentinel).
+    let _newCid = null, _newPersona = null;
+    try {
+      const _res = await fetch('/api/v1/conversation/create', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: targetProjectId })
+      });
+      if (_res.ok) { const _d = await _res.json(); _newCid = _d.conversation_id; _newPersona = _d.active_persona; }
+    } catch (e) {}
+
+    conversationId = _newCid;   // reálné id (nebo null fallback)
+    conversationIsArchived = false; convIdLabel.textContent = _newCid ? ('#' + _newCid) : '';
     currentConvRole = 'owner';   // nova konverzace je moje
     currentLifecycleState = null;  // Phase 19c-e1: nova chat = nepersonal
     currentConvIsShared = false;   // nova konverzace NENI sdilena -> schovej checkbox/sdileni
@@ -10454,6 +10465,15 @@
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';
     document.querySelectorAll('.sidebar-item.active').forEach(el => el.classList.remove('active'));
+
+    if (_newCid) {
+      // Reálná konverzace → reset/reload ji obnoví, objev se v seznamu, jde sdílet.
+      _rememberLastViewedConv(_newCid);
+      loadConversationList();          // sidebar refresh — nová konverzace se zobrazí
+    } else {
+      // Fallback (create selhal): virtuální nová + sentinel jako dřív.
+      _markFreshConversation();
+    }
 
     // Zjisti personu pro hlavicku: pokud cilovy projekt ma default personu,
     // pouzij ji (pending), jinak globalni default.

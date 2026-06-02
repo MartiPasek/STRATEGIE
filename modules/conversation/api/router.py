@@ -10,7 +10,7 @@ from modules.conversation.infrastructure.repository import (
     get_last_conversation, get_active_persona_name,
     list_conversations, load_conversation, set_conversation_flag,
     rename_conversation, list_archived_conversations,
-    list_personal_conversations,
+    list_personal_conversations, create_conversation,
 )
 from pydantic import BaseModel
 from core.database_core import get_core_session
@@ -722,6 +722,51 @@ def list_user_conversations(req: Request):
 
     items = list_conversations(user_id, tenant_id=active_tenant_id)
     return [ConversationListItem(**i) for i in items]
+
+
+class _CreateConvRequest(BaseModel):
+    # project_id: explicitní projekt (z modalu "+ Nová"); None = aktivní projekt usera.
+    project_id: int | None = None
+
+
+@router.post("/create")
+def create_empty_conversation(body: _CreateConvRequest, req: Request) -> dict:
+    """Marti 2.6.2026: fyzicky vytvoří prázdnou konverzaci (bez zprávy), aby
+    šla hned sdílet a objevila se v seznamu — uživatel nemusí nejdřív psát
+    a čekat na reakci Marti-AI. Tenant z DB (active), project z body nebo
+    user.last_active_project_id.
+    """
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
+
+    active_tenant_id: int | None = None
+    active_project_id: int | None = body.project_id
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        if u:
+            active_tenant_id = u.last_active_tenant_id
+            if active_project_id is None:
+                active_project_id = getattr(u, "last_active_project_id", None)
+    finally:
+        cs.close()
+
+    cid = create_conversation(
+        user_id=user_id,
+        tenant_id=active_tenant_id,
+        project_id=active_project_id,
+    )
+    persona_name = get_active_persona_name(cid)
+    return {
+        "conversation_id": cid,
+        "project_id": active_project_id,
+        "active_persona": persona_name,
+    }
 
 
 @router.get("/audit-stats")

@@ -83,6 +83,15 @@ CLOUD_URL = os.environ.get(
 )
 DEPLOY_URL = CLOUD_URL.replace("/diag-sql", "/deploy/now")
 
+# Instance identita (Marti 2.6.2026) — dvě běžící instance Claude se nesmí poprat.
+#   NB Marti = 23, NB Kristy = 24. Nastav v NSSM AppEnvironmentExtra:
+#     nssm set STRATEGIE-CLAUDE-SQL AppEnvironmentExtra "...";"CLAUDE_INSTANCE_ID=23"
+INSTANCE_ID = (os.environ.get("CLAUDE_INSTANCE_ID") or "?").strip()
+_INSTANCE_NAMES = {"23": "Marti", "24": "Kristy"}
+INSTANCE_NAME = (os.environ.get("CLAUDE_INSTANCE_NAME")
+                 or _INSTANCE_NAMES.get(INSTANCE_ID, "?"))
+INSTANCE_LABEL = f"Claude-{INSTANCE_ID} ({INSTANCE_NAME})"
+
 
 def _log(msg: str) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -101,7 +110,7 @@ def _forward(sql: str, db: str) -> dict:
     token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
     if not token:
         return {"ok": False, "error": "chybí env STRATEGIE_DEPLOY_TOKEN na NB"}
-    payload = json.dumps({"sql": sql, "db": db}).encode("utf-8")
+    payload = json.dumps({"sql": sql, "db": db, "instance_id": INSTANCE_ID}).encode("utf-8")
     rq = urllib.request.Request(
         CLOUD_URL, data=payload, method="POST",
         headers={"Content-Type": "application/json", "X-Deploy-Token": token},
@@ -292,8 +301,8 @@ def _run_git(args: list[str], timeout: int = 90) -> tuple[int, str]:
     safe = [
         "-c", "safe.directory=*",
         "-c", f"safe.directory={REPO_ROOT.as_posix()}",
-        "-c", "user.name=Claude auto-deploy",
-        "-c", "user.email=claude@strategie-ai.com",
+        "-c", f"user.name={INSTANCE_LABEL}",
+        "-c", f"user.email=claude-{INSTANCE_ID}@strategie-ai.com",
         "-c", "credential.helper=",
     ]
     # GIT_TERMINAL_PROMPT=0 → špatné/chybějící creds selžou rychle, nezaseknou se
@@ -325,10 +334,36 @@ def _push_cmd() -> list[str]:
     return ["push", "origin", "main"]
 
 
+def _authed_remote() -> str:
+    """Authed URL pro fetch (PAT v URL → funguje na privátní repo pod
+    LocalSystem) nebo 'origin' fallback."""
+    pat = os.environ.get("STRATEGIE_GIT_PAT")
+    rc, url = _run_git(["remote", "get-url", "origin"])
+    url = url.strip()
+    if pat and rc == 0 and url.startswith("https://"):
+        return url.replace("https://", f"https://{pat}@", 1)
+    return "origin"
+
+
+def _sync_with_remote() -> tuple[str, str]:
+    """Anti-přepis (Marti 2.6.2026): rebase lokálních commitů na aktuální
+    origin/main PŘED push, aby si dvě instance Claude (23/24) nepřepsaly main.
+    Returns ('ok'|'conflict'|'fail', detail). Při konfliktu rebase abortne."""
+    remote = _authed_remote()
+    rc_f, out_f = _run_git(["fetch", remote, "main"])
+    if rc_f != 0:
+        return "fail", "fetch: " + out_f
+    rc_r, out_r = _run_git(["rebase", "FETCH_HEAD"])
+    if rc_r != 0:
+        _run_git(["rebase", "--abort"])
+        return "conflict", "rebase: " + out_r
+    return "ok", (out_r or "(rebase ok / už aktuální)")
+
+
 def _cloud_deploy(description: str) -> dict:
     """POST cloud /deploy/now (git pull + restart API přes RESTART-WATCHER)."""
     token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
-    payload = json.dumps({"description": description}).encode("utf-8")
+    payload = json.dumps({"description": description, "instance_id": INSTANCE_ID}).encode("utf-8")
     rq = urllib.request.Request(
         DEPLOY_URL, data=payload, method="POST",
         headers={"Content-Type": "application/json", "X-Deploy-Token": token},
@@ -407,8 +442,34 @@ def _process_deploy() -> None:
         log_lines.append("## git commit — SKIP (nic ke commitnutí)")
         _log("DEPLOY commit: skip (clean index)")
 
-    # 4) git push
+    # 3.5) anti-přepis: srovnej se s origin/main (druhá instance mohla pushnout)
+    sync_state, sync_out = _sync_with_remote()
+    _pat0 = os.environ.get("STRATEGIE_GIT_PAT")
+    if _pat0:
+        sync_out = sync_out.replace(_pat0, "***")
+    if sync_state == "conflict":
+        _step("git rebase origin/main", 1, sync_out +
+              "\n⚠ KONFLIKT — druhá instance Claude měnila stejné soubory. "
+              "Deploy ZASTAVEN, push přeskočen. Sjednoť/přegeneruj změnu.")
+        _write_deploy_out(
+            f"# DEPLOY: KONFLIKT (rebase) · {INSTANCE_LABEL}\n# {ts}\n"
+            f"# commit: {committed_sha or '(žádný nový)'} — NEPUSHNUTO\n\n"
+            + "\n\n".join(log_lines) + "\n"
+        )
+        _consume_deploy()
+        return
+    _step("git rebase origin/main", 0 if sync_state == "ok" else 1, sync_out)
+
+    # 4) git push (+ 1 retry po rebase, kdyby někdo pushnul mezitím)
     rc, out = _run_git(_push_cmd())
+    if rc != 0 and any(k in out for k in
+                       ("non-fast-forward", "rejected", "fetch first", "behind")):
+        s2, _so2 = _sync_with_remote()
+        if s2 == "ok":
+            rc, out = _run_git(_push_cmd())
+        else:
+            out = out + f"\n(retry rebase: {s2} — push přeskočen)"
+            rc = 1
     push_ok = rc == 0
     # ututlej PAT v logu
     safe = out
@@ -443,7 +504,9 @@ def _process_deploy() -> None:
 
 def main() -> None:
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
-    _log(f"STRATEGIE-CLAUDE-SQL forwarder started · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
+    _log(f"STRATEGIE-CLAUDE-SQL forwarder started · {INSTANCE_LABEL} · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
+    if INSTANCE_ID == "?":
+        _log("WARNING: CLAUDE_INSTANCE_ID není nastaven — atribuce commitů/deploye bude '?'. Nastav v NSSM (23=Marti, 24=Kristy).")
     if not os.environ.get("STRATEGIE_DEPLOY_TOKEN"):
         _log("WARNING: STRATEGIE_DEPLOY_TOKEN není nastaven — dotazy selžou na auth.")
     try:

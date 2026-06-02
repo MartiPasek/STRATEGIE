@@ -702,7 +702,10 @@
     #convDdSharedSection .conv-dd-item[data-shared-conv-id].active { background: rgba(249, 115, 22, 0.22); border-left-color: #fdba74; }
     #convDdSharedSection .conv-dd-item[data-shared-conv-id] .conv-dd-item-title { color: #fdba74; font-weight: 600; }
     /* Persona v agent baru — stejny pattern jako projekt. */
-    .agent-bar .agent-bar-persona-wrap { color: var(--muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background .12s; position: relative; }
+    /* Marti 2.6.2026: fotka Marti-AI v hlavičce chatu (default skryta dokud
+       se nenacte URL). Square avatar, sjednoceno s ERP "Tvoje Marti". */
+    .agent-bar-avatar { width: 22px; height: 22px; border-radius: 5px; object-fit: cover; vertical-align: middle; margin-right: 7px; display: none; border: 1px solid var(--border); }
+    .agent-bar .agent-bar-persona-wrap { color: var(--muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background .12s; position: relative; display: inline-flex; align-items: center; }
     .agent-bar .agent-bar-persona-wrap:hover { background: var(--bg); }
     .agent-bar .agent-bar-persona-label { color: var(--muted); font-family: 'DM Sans', sans-serif; }
     .agent-bar .agent-bar-persona-name { color: var(--accent); font-family: 'DM Mono', monospace; }
@@ -2261,7 +2264,7 @@
                Label "Mluvíš s:" muted, název persony accent (jako u tenant
                pilulky). Klik -> #personaDdPanel s dostupnými personas. -->
           <span class="agent-bar-persona-wrap" id="personaBarWrap" data-tooltip="Otevřu seznam dostupných person"
-            ><span class="agent-bar-persona-label">Mluvíš s: </span><span class="agent-bar-persona-name" id="agentName">Marti-AI</span><span class="agent-bar-persona-panel" id="personaDdPanel"></span></span>
+            ><img id="chatMartiAiAvatar" class="agent-bar-avatar" src="" alt="" /><span class="agent-bar-persona-label">Mluvíš s: </span><span class="agent-bar-persona-name" id="agentName">Marti-AI</span><span class="agent-bar-persona-panel" id="personaDdPanel"></span></span>
           <!-- Phase 19b polish (29.4.2026 vecer): Active pack badge v hlavicce.
                Marti's slovník: "profese" = pack. Mini badge se zobrazi kdyz
                konverzace ma active_pack != NULL. (vlastni hint) vs (default)
@@ -3611,6 +3614,7 @@
     setTenantPill(currentUser.display_name, currentUser.tenant_name);
     updateBrowserTitle();
     _updateEmptyStateGreeting();   // osobní pozdrav v prázdné konverzaci
+    _loadChatMartiAiAvatar();      // fotka Marti-AI v hlavičce (jako ERP)
     // Po každém loginu vždy začni v AI módu (chat) — neztrácíme se
     // v Lidé view, kde uživatel skončil minule.
     activeDmId = null;
@@ -3695,6 +3699,27 @@
     // Marti 2.6.2026: titulek = "STRATEGIE Chat - <short_name>" (analogie ERP).
     const name = currentUser ? (currentUser.short_name || currentUser.display_name || currentUser.first_name || '') : '';
     document.title = name ? `STRATEGIE Chat - ${name}` : 'STRATEGIE Chat';
+  }
+
+  // Marti 2.6.2026: fotka Marti-AI v hlavičce chatu (jako "Tvoje Marti" v ERP).
+  // Fetchne default personu z /personas/list → avatar /personas/{id}/avatar.
+  async function _loadChatMartiAiAvatar() {
+    const img = document.getElementById('chatMartiAiAvatar');
+    if (!img) return;
+    try {
+      const r = await fetch('/api/v1/personas/list', { credentials: 'include' });
+      if (!r.ok) return;
+      const data = await r.json();
+      const list = Array.isArray(data) ? data : (data.personas || data.items || []);
+      const def = list.find(p => p.is_default || p.is_default_persona)
+               || list.find(p => p.name && p.name.toLowerCase().includes('marti'))
+               || list[0];
+      if (def && def.id) {
+        img.onerror = () => { img.style.display = 'none'; };
+        img.onload = () => { img.style.display = 'inline-block'; };
+        img.src = '/api/v1/personas/' + def.id + '/avatar';
+      }
+    } catch (e) { /* silent */ }
   }
 
   // Marti-AI návrh 2.6.2026: osobní pozdrav v prázdné konverzaci ("Co máme dnes, Marti?").
@@ -5002,7 +5027,7 @@
   // Univerzální modal — confirm i prompt v jednom.
   // Použití confirm:  const ok = await customConfirm({title, text, confirmLabel, danger});
   // Použití prompt:   const val = await customConfirm({title, text, input: true, defaultValue, ...}); // vrátí string nebo null
-  function customConfirm({ title = 'Potvrzení', text = '', confirmLabel = 'OK', cancelLabel = 'Zrušit', danger = false, input = false, defaultValue = '', placeholder = '', okFirst = false } = {}) {
+  function customConfirm({ title = 'Potvrzení', text = '', confirmLabel = 'OK', cancelLabel = 'Zrušit', danger = false, input = false, defaultValue = '', placeholder = '', okFirst = true } = {}) {
     return new Promise((resolve) => {
       const overlay = document.getElementById('confirmModal');
       const titleEl = document.getElementById('confirmModalTitle');

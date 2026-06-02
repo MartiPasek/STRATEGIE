@@ -4699,12 +4699,15 @@ def _vc_escape(v) -> str:
             .replace(";", "\\;").replace("\n", "\\n").replace("\r", ""))
 
 
-def _build_crm_vcard(contact_ref, called_phone, row: dict, category=None) -> str:
-    name = (row.get("FirmaText") or row.get("KontaktText") or "Kontakt").strip() or "Kontakt"
+def _build_crm_vcard(contact_ref, called_phone, row: dict, category=None, name=None) -> str:
+    fn = str(name or row.get("FirmaText") or row.get("KontaktText") or "Kontakt").strip() or "Kontakt"
     lines = ["BEGIN:VCARD", "VERSION:3.0",
              "UID:strategie-crm-" + str(contact_ref),
-             "FN:" + _vc_escape(name),
-             "ORG:" + _vc_escape(row.get("FirmaText") or name)]
+             "FN:" + _vc_escape(fn)]
+    # ORG jen když máme reálnou firmu odlišnou od jména (žádná duplicita FN/ORG).
+    _firma = (str(row.get("FirmaText")).strip() if row.get("FirmaText") else "")
+    if _firma and _firma != fn:
+        lines.append("ORG:" + _vc_escape(_firma))
     # CATEGORIES → viditelný štítek/skupina v telefonu (DAVx5 režim "categories").
     if category:
         lines.append("CATEGORIES:" + _vc_escape(category))
@@ -4749,8 +4752,9 @@ def _carddav_touch_from_call(uid: int, contact_ref, called_phone,
             cref = "tel:" + (_re_cd.sub(r"\D", "", str(called_phone)) or "x")
 
         if name:
-            # Frontend dal jméno → grid-agnostic, žádný MCP fetch.
-            row = {"FirmaText": name}
+            # Frontend dal jméno → grid-agnostic, žádný MCP fetch. row={} →
+            # FN=name, žádné ORG (nevíme firmu, ať není duplicita).
+            row = {}
             if typ_zakazky not in (None, ""):
                 try:
                     addressbook = "potential" if int(typ_zakazky) == 10 else "real"
@@ -4788,7 +4792,8 @@ def _carddav_touch_from_call(uid: int, contact_ref, called_phone,
             cref = str(cref_int)
 
         _cat = "Potenciální klienti" if addressbook == "potential" else "Reální klienti"
-        vcard = _build_crm_vcard(cref, called_phone, row, category=_cat)
+        vcard = _build_crm_vcard(cref, called_phone, row, category=_cat,
+                                 name=(name or None))
 
         from core.database_data import get_data_session as _gds_cd
         from sqlalchemy import text as _sql_cd

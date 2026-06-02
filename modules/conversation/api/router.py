@@ -183,6 +183,65 @@ def chat_progress(req: Request) -> dict:
         return {"ok": True, "progress": None}
 
 
+# Faze 2B+ (2.6.2026): zive sdileni obrazovky — in-memory slot per konverzace.
+# Sharer posila frame (media_id) ~kazde 3s do slotu (POST), vieweri pollnou
+# nejnovejsi (GET) a obcerstvi JEDNO okno — zadny flood zprav. Slot expiruje za
+# 20s ticha (= sdileni skoncilo). Caddy lb_policy first -> vse na primary.
+import time as _ls_time
+import threading as _ls_threading
+_LIVE_SCREEN: dict = {}
+_LIVE_SCREEN_LOCK = _ls_threading.Lock()
+
+
+@router.post("/{conversation_id}/live-screen")
+def set_live_screen(conversation_id: int, media_id: int, req: Request) -> dict:
+    """Sharer ulozi nejnovejsi frame (media_id) do live slotu konverzace."""
+    uid_s = req.cookies.get("user_id")
+    uid = int(uid_s) if uid_s else None
+    if not uid:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    from modules.conversation.application.share_service import can_user_view_conversation as _cv_ls
+    can, _role = _cv_ls(uid, conversation_id)
+    if not can:
+        raise HTTPException(status_code=403, detail="Nemáš přístup k této konverzaci.")
+    _name = None
+    try:
+        from core.database_core import get_core_session as _gcs_ls
+        from modules.core.infrastructure.models_core import User as _U_ls
+        _cs_ls = _gcs_ls()
+        try:
+            _u_ls = _cs_ls.query(_U_ls.short_name, _U_ls.first_name).filter(_U_ls.id == uid).first()
+            if _u_ls:
+                _name = _u_ls[0] or _u_ls[1]
+        finally:
+            _cs_ls.close()
+    except Exception:
+        pass
+    with _LIVE_SCREEN_LOCK:
+        _LIVE_SCREEN[conversation_id] = {
+            "media_id": media_id, "by_user_id": uid,
+            "by_name": _name or ("#%s" % uid), "ts": _ls_time.time(),
+        }
+    return {"ok": True}
+
+
+@router.get("/{conversation_id}/live-screen")
+def get_live_screen(conversation_id: int, req: Request) -> dict:
+    """Viewer pollne nejnovejsi live frame. active=False kdyz sdileni neni/skonci."""
+    uid_s = req.cookies.get("user_id")
+    uid = int(uid_s) if uid_s else None
+    if not uid:
+        return {"active": False}
+    with _LIVE_SCREEN_LOCK:
+        slot = _LIVE_SCREEN.get(conversation_id)
+    if not slot or (_ls_time.time() - slot.get("ts", 0)) > 20:
+        return {"active": False}
+    return {
+        "active": True, "media_id": slot["media_id"],
+        "by_user_id": slot["by_user_id"], "by_name": slot["by_name"],
+    }
+
+
 @router.post("/chat", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
     try:

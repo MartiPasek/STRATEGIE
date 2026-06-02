@@ -4699,8 +4699,13 @@ def _vc_escape(v) -> str:
             .replace(";", "\\;").replace("\n", "\\n").replace("\r", ""))
 
 
-def _build_crm_vcard(contact_ref, called_phone, row: dict, category=None, name=None) -> str:
+def _build_crm_vcard(contact_ref, called_phone, row: dict, category=None,
+                     name=None, fn_prefix="") -> str:
     fn = str(name or row.get("FirmaText") or row.get("KontaktText") or "Kontakt").strip() or "Kontakt"
+    # Prefix do jména (STR-P/STR-Z) → vyhledatelné v telefonu (Marti: telefon
+    # neumí hledat dle skupiny, ale dle jména ano).
+    if fn_prefix:
+        fn = fn_prefix + " " + fn
     lines = ["BEGIN:VCARD", "VERSION:3.0",
              "UID:strategie-crm-" + str(contact_ref),
              "FN:" + _vc_escape(fn)]
@@ -4806,9 +4811,12 @@ def _carddav_touch_from_call(uid: int, contact_ref, called_phone,
             addressbook = "potential" if row.get("TypZakazky") == 10 else "real"
             cref = str(cref_int)
 
-        _cat = "Potenciální klienti" if addressbook == "potential" else "Reální klienti"
+        if addressbook == "potential":
+            _prefix, _cat = "STR-P", "Potenciální"
+        else:
+            _prefix, _cat = "STR-Z", "Zákazníci"
         vcard = _build_crm_vcard(cref, called_phone, row, category=_cat,
-                                 name=(name or None))
+                                 name=(name or None), fn_prefix=_prefix)
 
         from core.database_data import get_data_session as _gds_cd
         from sqlalchemy import text as _sql_cd

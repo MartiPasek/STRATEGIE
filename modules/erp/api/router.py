@@ -12362,11 +12362,12 @@ def _render_full_page(
   <meta name="theme-color" content="#0e0f11">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="STRATEGIE">
+  <meta name="apple-mobile-web-app-title" content="STRATEGIE ERP">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="apple-touch-icon" href="/static/erp/icon-192.png">
-  <link rel="apple-touch-icon" sizes="192x192" href="/static/erp/icon-192.png">
-  <link rel="apple-touch-icon" sizes="512x512" href="/static/erp/icon-512.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/erp/icon-erp-192.png?v=20260602">
+  <link rel="apple-touch-icon" href="/static/erp/icon-erp-192.png?v=20260602">
+  <link rel="apple-touch-icon" sizes="192x192" href="/static/erp/icon-erp-192.png?v=20260602">
+  <link rel="apple-touch-icon" sizes="512x512" href="/static/erp/icon-erp-512.png?v=20260602">
 
   <!-- Service Worker registration — Chrome's installability criteria.
        Bez SW dostane user jen "Přidat na plochu" (bookmark s URL bar).
@@ -14672,7 +14673,7 @@ def _render_full_page(
              "| <přehled>" + Marti-AI ploška vedle (avatar + "Tvoje Marti-AI"). -->
         <div class="erp-header-brand-row">
           <a href="/erp/" class="erp-logo" id="erpLogoLink"
-             data-hint="Obnovit  ·  Ctrl+Shift+klik = hard reset (vymaže cache)">STRATEGIE</a>
+             data-hint="Klikni pro obnovení (hard reload) — s potvrzením">STRATEGIE ERP</a>
           <span class="erp-header-dot" aria-hidden="true">·</span>
           <button type="button" class="erp-marti-btn" id="erpMartiAiBtn"
                   data-hint="Otevři chat s Marti-AI v novém tabu">
@@ -19647,6 +19648,32 @@ def _render_workspace_page(user_id: int) -> str:
         const _standalone = window.matchMedia('(display-mode: standalone)').matches
           || window.navigator.standalone === true;  // iOS Safari standalone
         btn.style.display = _standalone ? 'none' : 'inline-flex';
+      })();
+
+      // Logo "STRATEGIE" → HARD RELOAD s potvrzovacím dialogem (parita s Chatem,
+      // Marti 2.6.2026). Drive jen <a href="/erp/"> bez potvrzeni.
+      (function _erpInitLogoReload() {
+        const logo = document.getElementById('erpLogoLink');
+        if (!logo) return;
+        logo.addEventListener('click', async (ev) => {
+          ev.preventDefault();
+          let ok = true;
+          try {
+            if (window._erpDFH && typeof window._erpDFH._confirmDarkDialog === 'function') {
+              ok = await window._erpDFH._confirmDarkDialog({
+                title: 'Obnovit STRATEGIE ERP?',
+                message: 'Hard reload — načte nejnovější verzi aplikace.',
+                ok: 'Obnovit',
+                cancel: 'Zrušit'
+              });
+            } else {
+              ok = window.confirm('Obnovit STRATEGIE ERP? (hard reload)');
+            }
+          } catch (_e) {
+            ok = window.confirm('Obnovit STRATEGIE ERP? (hard reload)');
+          }
+          if (ok) window.location.reload();
+        });
       })();
 
       function loadTabsState() {

@@ -41,6 +41,7 @@ from modules.media.api.router import router as media_router
 from modules.md_pyramid.api.router import router as md_pyramid_router
 # Phase A (5.5.2026) — STRATEGIE ERP renderer (read-only Centrála 1 jádra)
 from modules.erp.api.router import router as erp_router, api_router as erp_api_router
+from modules.erp.api.carddav import carddav_router
 
 setup_logging()
 
@@ -618,6 +619,7 @@ app.include_router(md_pyramid_router)  # Phase 24-F UI Pyramida Browser
 # Phase A — STRATEGIE ERP (5.5.2026): /erp/* HTML + /api/v1/erp/* JSON
 app.include_router(erp_router)
 app.include_router(erp_api_router)
+app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.well-known/carddav
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

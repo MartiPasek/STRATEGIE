@@ -1,11 +1,20 @@
 /* eslint-disable */
 /**
- * app_version_watch.js — "Nová verze → Obnovit" prompt (Marti 1.6.2026).
+ * app_version_watch.js — "Nová verze" přes JEMNOU ANIMACI LOGA (Marti 2.6.2026, Volba D).
  * ─────────────────────────────────────────────────────────────────────────────
  * Produkce: po každém nasazení mají lidi s otevřenou appkou starou verzi.
- * Tenhle watcher polluje /api/v1/erp/app-version (git HEAD sha). Když se verze
- * změní oproti té při načtení → spodní lišta "🔄 Nová verze — Obnovit".
- * Klik → location.reload() (network-first SW natáhne čerstvé).
+ * Watcher polluje /api/v1/erp/app-version (git HEAD sha). Když se verze změní
+ * oproti té při načtení → logo STRATEGIE v hlavičce začne JEMNĚ zářit/pulzovat.
+ *
+ * Marti's požadavky:
+ *  - musí být jasné, že je nová verze (animace = vždy si všimne)
+ *  - žádný auto-reload (A/B nebezpečné — ztráta rozdělané práce)
+ *  - nesmí jít odkliknout křížkem a zapomenout (animace drží do reloadu)
+ *  - D: nenásilná animace loga → klik → milý popup od Marti-AI + potvrzení reloadu
+ *
+ * Logo: chat = #brandLogo (jinak klik → audit modal), ERP = #erpLogoLink (odkaz).
+ * Klik na zářící logo zachytíme v capture fázi → otevřeme popup (ne audit/navigaci).
+ * Když verze NENÍ nová → logo se chová normálně.
  *
  * Sdílené — loadováno chatem (index.html) i ERP. Self-contained, bez závislostí.
  */
@@ -13,9 +22,13 @@
   "use strict";
 
   var EP = "/api/v1/erp/app-version";
-  var POLL_MS = 20000;  // 20 s — banner naskočí brzy po deployi (Marti 2.6.2026)
+  var POLL_MS = 20000;  // 20 s — animace naskočí brzy po deployi
+  var LOGO_IDS = ["brandLogo", "erpLogoLink"];
+  var GLOW_CLASS = "stg-version-glow";
   var _loaded = null;
-  var _shown = false;
+  var _pending = false;     // je k dispozici nová verze?
+  var _wired = false;       // capture click listener nainstalován?
+  var _popupOpen = false;
 
   function _fetchVer(cb) {
     try {
@@ -26,49 +39,159 @@
     } catch (e) { cb(null); }
   }
 
-  function _showBanner() {
-    if (_shown) return;
-    _shown = true;
-    var bar = document.createElement("div");
-    bar.style.cssText =
-      "position:fixed;left:0;right:0;bottom:0;z-index:100060;" +
-      "background:#2a3a1f;border-top:2px solid #5a7a3a;color:#e8f4d8;" +
-      "padding:12px 14px;display:flex;align-items:center;flex-wrap:wrap;gap:10px;" +
-      "box-shadow:0 -4px 16px rgba(0,0,0,0.5);font-size:14px;";
+  function _injectStyle() {
+    if (document.getElementById("stg-version-style")) return;
+    var st = document.createElement("style");
+    st.id = "stg-version-style";
+    st.textContent =
+      "@keyframes stgVerGlow{" +
+      "0%,100%{text-shadow:0 0 0 rgba(232,185,35,0);transform:scale(1);}" +
+      "50%{text-shadow:0 0 10px rgba(232,185,35,.9),0 0 20px rgba(232,185,35,.5);transform:scale(1.045);}" +
+      "}" +
+      "." + GLOW_CLASS + "{" +
+      "animation:stgVerGlow 2.2s ease-in-out infinite !important;" +
+      "cursor:pointer !important;transform-origin:left center;" +
+      "}" +
+      "@keyframes stgPopIn{from{opacity:0;transform:translateY(14px) scale(.97);}to{opacity:1;transform:none;}}";
+    document.head.appendChild(st);
+  }
 
-    var t = document.createElement("div");
-    t.style.cssText = "flex:1 1 auto;min-width:0;";
-    t.textContent = "🔄 Nová verze STRATEGIE je k dispozici.";
-    bar.appendChild(t);
+  function _eachLogo(fn) {
+    for (var i = 0; i < LOGO_IDS.length; i++) {
+      var el = document.getElementById(LOGO_IDS[i]);
+      if (el) fn(el);
+    }
+  }
 
-    var btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = "Obnovit";
-    btn.style.cssText =
-      "flex:0 0 auto;background:#3a7a3a;color:#fff;border:none;padding:10px 18px;" +
-      "border-radius:6px;font-weight:700;font-size:15px;cursor:pointer;white-space:nowrap;";
-    btn.addEventListener("click", function () {
+  function _applyGlow() {
+    _eachLogo(function (el) {
+      if (!el.classList.contains(GLOW_CLASS)) el.classList.add(GLOW_CLASS);
+      if (!el.getAttribute("data-stg-orig-title")) {
+        var t = el.getAttribute("title") || el.getAttribute("data-hint") || "";
+        el.setAttribute("data-stg-orig-title", t);
+      }
+      el.setAttribute("title", "Nová verze STRATEGIE — klikni 🕯️");
+    });
+  }
+
+  function _martiAvatarHtml() {
+    var av = document.getElementById("erpMartiAiAvatar");
+    var src = av && av.getAttribute("src");
+    if (src) {
+      return '<img src="' + src + '" alt="Marti-AI" ' +
+        'style="width:54px;height:54px;border-radius:50%;object-fit:cover;' +
+        'border:2px solid #e8b923;box-shadow:0 0 0 3px rgba(232,185,35,.18);">';
+    }
+    return '<div style="width:54px;height:54px;border-radius:50%;' +
+      'display:flex;align-items:center;justify-content:center;font-size:30px;' +
+      'background:rgba(232,185,35,.14);border:2px solid #e8b923;">🕯️</div>';
+  }
+
+  function _showPopup() {
+    if (_popupOpen) return;
+    _popupOpen = true;
+
+    var ov = document.createElement("div");
+    ov.id = "stgVerOverlay";
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:100070;background:rgba(8,12,18,.62);" +
+      "display:flex;align-items:center;justify-content:center;padding:18px;" +
+      "backdrop-filter:blur(2px);";
+
+    var card = document.createElement("div");
+    card.style.cssText =
+      "max-width:420px;width:100%;background:#1c2530;color:#e8eef5;" +
+      "border:1px solid #3a4a5e;border-top:3px solid #e8b923;border-radius:14px;" +
+      "padding:22px 22px 18px;box-shadow:0 18px 50px rgba(0,0,0,.55);" +
+      "animation:stgPopIn .22s ease-out;font-size:15px;line-height:1.5;";
+
+    var head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;gap:14px;margin-bottom:14px;";
+    head.innerHTML = _martiAvatarHtml() +
+      '<div><div style="font-weight:700;font-size:16px;color:#f0d98a;">Marti-AI</div>' +
+      '<div style="font-size:12px;color:#9fb0c4;">nová verze STRATEGIE</div></div>';
+    card.appendChild(head);
+
+    var msg = document.createElement("div");
+    msg.style.cssText = "margin-bottom:18px;color:#dbe6f2;";
+    msg.innerHTML =
+      "Ahoj 🕯️ Mám pro tebe <strong>čerstvou verzi STRATEGIE</strong> — pár vylepšení " +
+      "už čeká připravených. Až se ti to hodí, kliknutím ji načteme a poběžíš na " +
+      "nejnovějším. <span style=\"color:#9fb0c4;\">Žádný spěch — rozdělanou práci si " +
+      "klidně dodělej, logo bude svítit, dokud neobnovíš.</span>";
+    card.appendChild(msg);
+
+    var row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;";
+
+    var later = document.createElement("button");
+    later.type = "button";
+    later.textContent = "Za chvíli";
+    later.style.cssText =
+      "background:transparent;color:#bcd0e6;border:1px solid #44566c;" +
+      "padding:10px 16px;border-radius:8px;font-size:14px;cursor:pointer;";
+    later.addEventListener("click", _closePopup);
+    row.appendChild(later);
+
+    var go = document.createElement("button");
+    go.type = "button";
+    go.textContent = "Obnovit teď";
+    go.style.cssText =
+      "background:#e8b923;color:#1c2530;border:none;padding:10px 20px;" +
+      "border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;";
+    go.addEventListener("click", function () {
       try { location.reload(); } catch (e) { location.href = location.href; }
     });
-    bar.appendChild(btn);
+    row.appendChild(go);
 
-    var x = document.createElement("button");
-    x.type = "button";
-    x.textContent = "×";
-    x.style.cssText =
-      "flex:0 0 auto;background:transparent;border:none;color:#bcd6a0;" +
-      "font-size:24px;line-height:1;cursor:pointer;padding:4px 8px;";
-    x.addEventListener("click", function () { try { bar.remove(); } catch (e) {} });
-    bar.appendChild(x);
+    card.appendChild(row);
+    ov.appendChild(card);
+    ov.addEventListener("click", function (e) { if (e.target === ov) _closePopup(); });
+    document.body.appendChild(ov);
 
-    document.body.appendChild(bar);
+    document.addEventListener("keydown", _escClose, true);
+    try { go.focus(); } catch (e) {}
+  }
+
+  function _escClose(e) { if (e.key === "Escape") _closePopup(); }
+
+  function _closePopup() {
+    _popupOpen = false;
+    var ov = document.getElementById("stgVerOverlay");
+    if (ov) { try { ov.remove(); } catch (e) {} }
+    document.removeEventListener("keydown", _escClose, true);
+    // logo dál svítí — animace drží, dokud uživatel neobnoví
+  }
+
+  function _wireLogoClick() {
+    if (_wired) return;
+    _wired = true;
+    // capture fáze → poběží PŘED audit-modal handlerem (#brandLogo) i navigací (#erpLogoLink)
+    document.addEventListener("click", function (e) {
+      if (!_pending) return;
+      var el = e.target && e.target.closest ?
+        e.target.closest("#" + LOGO_IDS[0] + ",#" + LOGO_IDS[1]) : null;
+      if (!el) return;
+      e.preventDefault();
+      e.stopPropagation();
+      _showPopup();
+    }, true);
+  }
+
+  function _activate() {
+    if (_pending) { _applyGlow(); return; }  // re-apply (ERP přerenderuje brand row)
+    _pending = true;
+    _injectStyle();
+    _wireLogoClick();
+    _applyGlow();
   }
 
   function _tick() {
     _fetchVer(function (v) {
       if (!v || v === "unknown") return;
       if (_loaded === null) { _loaded = v; return; }  // baseline při prvním načtení
-      if (v !== _loaded) _showBanner();
+      if (v !== _loaded) _activate();
+      else if (_pending) _applyGlow();  // udrž glow i kdyby se logo přerenderovalo
     });
   }
 

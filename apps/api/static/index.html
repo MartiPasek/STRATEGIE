@@ -7025,7 +7025,7 @@
   // Faze 2B+ (2.6.2026): zive sdileni — frame do slotu (zadna nova zprava).
   function _uploadScreenFrameLive(blob) {
     const fd = new FormData();
-    fd.append('file', new File([blob], 'live_' + Date.now() + '.png', { type: 'image/png' }));
+    fd.append('file', new File([blob], 'live_' + Date.now() + '.jpg', { type: 'image/jpeg' }));
     if (conversationId) fd.append('conversation_id', String(conversationId));
     return fetch('/api/v1/media/upload', { method: 'POST', body: fd, credentials: 'include' })
       .then(function(r){ return r.ok ? r.json() : null; })
@@ -7036,11 +7036,15 @@
       }).catch(function(){});
   }
   function _liveTick() {
-    if (!_screenVideo || !_screenVideo.videoWidth) return;
+    if (!_screenVideo) return;
+    // Watchdog: kdyz video zamrzlo / nehraje (videoWidth 0 nebo paused), zkus
+    // ho rozjet znovu — tim se sdileni samo "resetuje" misto aby umrelo.
+    if (!_screenVideo.videoWidth || _screenVideo.paused) { try { _screenVideo.play(); } catch (e) {} return; }
     const c = document.createElement('canvas');
     c.width = _screenVideo.videoWidth; c.height = _screenVideo.videoHeight;
-    c.getContext('2d').drawImage(_screenVideo, 0, 0, c.width, c.height);
-    c.toBlob(function(blob){ if (blob) _uploadScreenFrameLive(blob); }, 'image/png');
+    try { c.getContext('2d').drawImage(_screenVideo, 0, 0, c.width, c.height); } catch (e) { return; }
+    // JPEG 0.6 — lehci nez PNG (rychlejsi upload, mene zatezi, mensi storage).
+    c.toBlob(function(blob){ if (blob) _uploadScreenFrameLive(blob); }, 'image/jpeg', 0.6);
   }
 
   // Zive okno — obcerstvuje JEDEN obraz (poll live slotu). Dedup per konverzace.
@@ -7081,6 +7085,7 @@
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
     let lastMid = null;
+    img.onerror = function(){ lastMid = null; };   // chyba nacteni -> pristi poll zkusi znovu
     const pollIv = setInterval(function(){
       if (!win.isConnected) { clearInterval(pollIv); return; }
       fetch('/api/v1/conversation/' + cid + '/live-screen', { credentials: 'include' })
@@ -7154,7 +7159,7 @@
   function _stopScreenShare() {
     if (_screenAutoTimer) { clearInterval(_screenAutoTimer); _screenAutoTimer = null; }
     if (_screenStream) { try { _screenStream.getTracks().forEach(function(t){ t.stop(); }); } catch (e) {} _screenStream = null; }
-    _screenVideo = null;
+    if (_screenVideo) { try { if (_screenVideo.parentNode) _screenVideo.parentNode.removeChild(_screenVideo); } catch (e) {} _screenVideo = null; }
     const panel = document.getElementById('screenSharePanel'); if (panel) panel.remove();
   }
 
@@ -7191,7 +7196,12 @@
   }
 
   async function _startScreenShare() {
-    if (_screenStream) { _showScreenPanel(); return; }
+    // Re-share: pokud bezi ZDRAVY stream, jen ukaz panel; jinak uklid + cerstvy start.
+    if (_screenStream) {
+      const tr0 = _screenStream.getVideoTracks()[0];
+      if (tr0 && tr0.readyState === 'live') { _showScreenPanel(); return; }
+      _stopScreenShare();   // mrtvy stream -> uklidit pred novym sdilenim
+    }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
       alert('Tvůj prohlížeč neumí sdílení obrazovky (potřebuje HTTPS + moderní prohlížeč).');
       return;
@@ -7201,7 +7211,11 @@
     } catch (e) { return; }   // user zrusil vyber okna
     _screenVideo = document.createElement('video');
     _screenVideo.srcObject = _screenStream;
-    _screenVideo.muted = true;
+    _screenVideo.muted = true; _screenVideo.autoplay = true; _screenVideo.playsInline = true;
+    // DULEZITE: <video> MUSI byt v DOM (byt skryte 2px mimo obrazovku), jinak
+    // prohlizec po chvili frames throttluje/zamrzne -> sdileni "umre".
+    _screenVideo.style.cssText = 'position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;';
+    document.body.appendChild(_screenVideo);
     try { await _screenVideo.play(); } catch (e) {}
     try { _screenStream.getVideoTracks()[0].addEventListener('ended', _stopScreenShare); } catch (e) {}
     _showScreenPanel();

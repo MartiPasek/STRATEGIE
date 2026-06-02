@@ -663,8 +663,9 @@ def get_last_conversation(user_id: int) -> dict | None:
     return {
         "conversation_id": conversation.id,
         "is_archived": bool(conversation.is_archived),
-        # Phase 40 v2 r3 (19.5.2026): shared chat detection cache
-        "is_shared": bool(getattr(conversation, "is_shared", False)),
+        # Marti 2.6.2026 oprava: "sdílená" = fyzicky nasdílená (shares_count > 0),
+        # ne stored Conversation.is_shared. /last vrací vždy moji (owner) konverzaci.
+        "is_shared": bool(shares_count > 0),
         "my_role": "owner",    # /last vraci vzdy moji konverzaci
         "shares_count": shares_count,
         "messages": msg_rows,
@@ -1051,6 +1052,9 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
         # Phase 19b polish: active_pack + custom flag
         "active_pack": conv_active_pack,
         "pack_overlay_custom": conv_pack_overlay_custom,
-        # Phase 40 v2 r3 (19.5.2026): shared chat detection cache
-        "is_shared": conv_is_shared,
+        # Marti 2.6.2026 oprava: "sdílená/skupinová" = FYZICKY nasdílená
+        # (shares_count > 0) NEBO sdílená se mnou (jsem viewer). Driv se bralo
+        # ze stored Conversation.is_shared (set až když ne-owner napsal zprávu),
+        # což davalo checkbox Marti-AI u nesprávných konverzaci.
+        "is_shared": bool(shares_count > 0 or (my_role is not None and my_role != "owner")),
     }

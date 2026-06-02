@@ -13,7 +13,7 @@
   "use strict";
 
   var EP = "/api/v1/erp/app-version";
-  var POLL_MS = 150000;  // 2.5 min
+  var POLL_MS = 20000;  // 20 s — banner naskočí brzy po deployi (Marti 2.6.2026)
   var _loaded = null;
   var _shown = false;
 
@@ -77,4 +77,5 @@
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) _tick();
   });
+  window.addEventListener("focus", _tick);  // návrat na okno → okamžitá kontrola
 })();

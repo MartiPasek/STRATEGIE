@@ -4913,7 +4913,7 @@ async def app_version(req: Request) -> JSONResponse:
     klient porovnává s verzí při načtení a nabídne obnovení po deployi."""
     import time as _time_av
     now = _time_av.time()
-    if _APP_VERSION_CACHE["v"] is None or (now - _APP_VERSION_CACHE["ts"]) > 30:
+    if _APP_VERSION_CACHE["v"] is None or (now - _APP_VERSION_CACHE["ts"]) > 10:
         _APP_VERSION_CACHE["v"] = _read_git_head_sha() or "unknown"
         _APP_VERSION_CACHE["ts"] = now
     return JSONResponse({"version": _APP_VERSION_CACHE["v"]})

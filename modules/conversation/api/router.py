@@ -11,6 +11,7 @@ from modules.conversation.infrastructure.repository import (
     list_conversations, load_conversation, set_conversation_flag,
     rename_conversation, list_archived_conversations,
     list_personal_conversations, create_conversation,
+    find_empty_unshared_conversation,
 )
 from pydantic import BaseModel
 from core.database_core import get_core_session
@@ -756,16 +757,24 @@ def create_empty_conversation(body: _CreateConvRequest, req: Request) -> dict:
     finally:
         cs.close()
 
-    cid = create_conversation(
-        user_id=user_id,
-        tenant_id=active_tenant_id,
-        project_id=active_project_id,
-    )
+    # Marti 2.6.2026: pokud už existuje prázdná NENASDÍLENÁ konverzace,
+    # nezakládej duplikát — vrať ji (případně přemapovanou na zvolený projekt).
+    reused = False
+    cid = find_empty_unshared_conversation(user_id, active_tenant_id, active_project_id)
+    if cid is not None:
+        reused = True
+    else:
+        cid = create_conversation(
+            user_id=user_id,
+            tenant_id=active_tenant_id,
+            project_id=active_project_id,
+        )
     persona_name = get_active_persona_name(cid)
     return {
         "conversation_id": cid,
         "project_id": active_project_id,
         "active_persona": persona_name,
+        "reused": reused,
     }
 
 

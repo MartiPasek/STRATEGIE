@@ -83,6 +83,48 @@ def create_conversation(
         session.close()
 
 
+def find_empty_unshared_conversation(
+    user_id: int,
+    tenant_id: int | None = None,
+    project_id: int | None = None,
+) -> int | None:
+    """Marti 2.6.2026: nezakládej duplikát prázdné nenasdílené konverzace.
+
+    Najde existující konverzaci usera (v daném tenantu), která NEMÁ žádné
+    zprávy a NENÍ s nikým sdílená. Pokud najde a project_id se liší od
+    požadovaného, přemapuje ji na požadovaný projekt (prázdnou lze beztrestně
+    přeúčelovat). Vrací její id, jinak None (→ caller vytvoří novou).
+    """
+    from modules.core.infrastructure.models_data import ConversationShare
+    session = get_data_session()
+    try:
+        q = session.query(Conversation).filter(
+            Conversation.user_id == user_id,
+            Conversation.is_deleted == False,  # noqa: E712
+            Conversation.is_archived == False,  # noqa: E712
+            Conversation.conversation_type == "ai",
+            Conversation.last_message_at.is_(None),  # rychlý filtr: prázdná
+        )
+        if tenant_id is not None:
+            q = q.filter(Conversation.tenant_id == tenant_id)
+        candidates = q.order_by(Conversation.id.desc()).limit(10).all()
+        for c in candidates:
+            msg_count = session.query(Message).filter_by(conversation_id=c.id).count()
+            if msg_count > 0:
+                continue
+            shares = session.query(ConversationShare).filter_by(conversation_id=c.id).count()
+            if shares > 0:
+                continue
+            # Reuse — případně přemapuj na požadovaný projekt (prázdnou lze).
+            if project_id is not None and c.project_id != project_id:
+                c.project_id = project_id
+                session.commit()
+            return c.id
+        return None
+    finally:
+        session.close()
+
+
 def save_message(
     conversation_id: int,
     role: str,
@@ -651,7 +693,8 @@ def _conversation_title(session, conversation: Conversation) -> str:
     if first_msg and first_msg.content:
         text = first_msg.content.strip().replace("\n", " ")
         return text[:60] + ("…" if len(text) > 60 else "")
-    return f"Konverzace #{conversation.id}"
+    # Marti 2.6.2026: prázdná konverzace (bez zpráv) = "Nová konverzace".
+    return "Nová konverzace"
 
 
 def list_conversations(user_id: int, tenant_id: int | None = None, limit: int = 50) -> list[dict]:

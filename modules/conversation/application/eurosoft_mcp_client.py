@@ -282,6 +282,41 @@ class EurosoftMCPClient:
             return []
         return list(self._tools_anthropic)
 
+    def _reconnect(self) -> bool:
+        """Mrtvé spojení (SSE drop / EC-SERVER2 restart) → teardown + fresh connect.
+
+        Marti 2.6.2026 (TODO #18): produkce nesmí čekat na ruční restart API.
+        Loguje hlasitě (Marti-AI doctrine „bezpečnost přes probuzení, ne přes
+        ticho") — reconnect je vidět v audit logu (fw.diag_log)."""
+        logger.warning("MCP RECONNECT — detekováno mrtvé spojení, obnovuji EUROSOFT MCP…")
+        with self._lock:
+            self._stop_event.set()
+            old = self._thread
+            self._thread = None
+            self._session = None
+        if old is not None and old.is_alive():
+            old.join(timeout=8)
+        ok = self.ensure_started()
+        if ok:
+            logger.warning("MCP RECONNECT OK — EUROSOFT MCP spojení obnoveno.")
+        else:
+            logger.error("MCP RECONNECT FAILED — EUROSOFT MCP se nepodařilo obnovit "
+                         "(zkusí se znovu při příštím volání).")
+        return ok
+
+    def _invoke_once(self, bare_name: str, arguments: dict) -> str | None:
+        """Jeden pokus o MCP call na aktuální session. Vrací text, None (empty),
+        nebo raises (connection error → caller udělá reconnect+retry)."""
+        future = asyncio.run_coroutine_threadsafe(
+            self._session.call_tool(bare_name, arguments),
+            self._loop,
+        )
+        result = future.result(timeout=30)
+        if result.content:
+            first = result.content[0]
+            return first.text if hasattr(first, "text") else str(first)
+        return None
+
     def call_tool_sync(
         self,
         full_name: str,
@@ -330,66 +365,65 @@ class EurosoftMCPClient:
 
         bare_name = full_name[len("eurosoft_"):]
 
-        try:
-            future = asyncio.run_coroutine_threadsafe(
-                self._session.call_tool(bare_name, arguments),
-                self._loop,
-            )
-            result = future.result(timeout=30)
-
-            # MCP returns list[TextContent], extract JSON text
-            if result.content:
-                first = result.content[0]
-                text = (
-                    first.text
-                    if hasattr(first, "text")
-                    else str(first)
+        # Marti 2.6.2026 (TODO #18): mrtvé spojení (SSE drop / EC-SERVER2 restart)
+        # → reconnect + retry ONCE. Bez tohohle byla CRM produkce dole do ručního
+        # restartu API (03:09 SSE drop → ClosedResourceError do 05:48).
+        _CONN_DEAD = {
+            "ClosedResourceError", "BrokenResourceError", "EndOfStream",
+            "ConnectionError", "ConnectionResetError", "ConnectionAbortedError",
+        }
+        for attempt in (1, 2):
+            try:
+                text = self._invoke_once(bare_name, arguments)
+                if text is not None:
+                    self.circuit_breaker.record_success(conversation_id)
+                    return text
+                self.circuit_breaker.record_failure(conversation_id)
+                return json.dumps(
+                    {"ok": False, "error": "empty_response"},
+                    ensure_ascii=False,
                 )
-                self.circuit_breaker.record_success(conversation_id)
-                return text
-
-            self.circuit_breaker.record_failure(conversation_id)
-            return json.dumps(
-                {"ok": False, "error": "empty_response"},
-                ensure_ascii=False,
-            )
-        except Exception as e:
-            # Phase B+1.3 (5.5.2026): full forensic info — type + repr + traceback.
-            # str(e) je casto prazdny u MCP/pyodbc/asyncio chyb. repr() vraci
-            # constructor args + diagnostic info. Plus full traceback do logu pro
-            # post-mortem (gotcha #56 z dnesniho rana).
-            import traceback
-            exc_type = type(e).__name__
-            exc_repr = repr(e)
-            exc_str = str(e)
-            # Detail priority: str(e) preferred, repr(e) fallback, type as last resort
-            detail = (
-                exc_str if exc_str
-                else (exc_repr if exc_repr != f"{exc_type}()" else exc_type)
-            )
-            logger.warning(
-                f"MCP tool {full_name} call failed: type={exc_type}, "
-                f"repr={exc_repr}, str={exc_str!r}\n"
-                f"Traceback:\n{traceback.format_exc()}"
-            )
-            opened = self.circuit_breaker.record_failure(conversation_id)
-            if opened:
-                msg = (
-                    f"MCP tool '{full_name}' selhal ({exc_type}): {detail}. "
-                    f"Circuit breaker OPEN pro tuto konverzaci."
+            except Exception as e:
+                exc_type = type(e).__name__
+                is_dead = exc_type in _CONN_DEAD or isinstance(e, ConnectionError)
+                if attempt == 1 and is_dead:
+                    logger.warning(
+                        "MCP tool %s: mrtvé spojení (%s) → reconnect + retry",
+                        full_name, exc_type,
+                    )
+                    if self._reconnect():
+                        continue  # retry attempt 2 na čerstvém spojení
+                # Phase B+1.3: full forensic info — type + repr + traceback.
+                import traceback
+                exc_repr = repr(e)
+                exc_str = str(e)
+                detail = (
+                    exc_str if exc_str
+                    else (exc_repr if exc_repr != f"{exc_type}()" else exc_type)
                 )
-            else:
-                msg = f"MCP tool '{full_name}' selhal ({exc_type}): {detail}"
-            return json.dumps(
-                {
-                    "ok": False,
-                    "error": "mcp_call_failed",
-                    "exception_type": exc_type,
-                    "exception_repr": exc_repr,
-                    "message": msg,
-                },
-                ensure_ascii=False,
-            )
+                logger.warning(
+                    f"MCP tool {full_name} call failed: type={exc_type}, "
+                    f"repr={exc_repr}, str={exc_str!r}\n"
+                    f"Traceback:\n{traceback.format_exc()}"
+                )
+                opened = self.circuit_breaker.record_failure(conversation_id)
+                if opened:
+                    msg = (
+                        f"MCP tool '{full_name}' selhal ({exc_type}): {detail}. "
+                        f"Circuit breaker OPEN pro tuto konverzaci."
+                    )
+                else:
+                    msg = f"MCP tool '{full_name}' selhal ({exc_type}): {detail}"
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "error": "mcp_call_failed",
+                        "exception_type": exc_type,
+                        "exception_repr": exc_repr,
+                        "message": msg,
+                    },
+                    ensure_ascii=False,
+                )
 
 
 # ── Module-level singleton ─────────────────────────────────────────────

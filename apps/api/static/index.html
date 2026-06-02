@@ -61,9 +61,27 @@
       const installBtn = document.getElementById("pwaInstallBtn");
       const dismissBtn = document.getElementById("pwaInstallDismiss");
 
+      // Marti 2.6.2026 (Sarka: "ERP ma install ikonu, Chat ne"): persistentni
+      // install nabidka — analog ERP Phase D. Ukaz banner i BEZ beforeinstallprompt,
+      // pokud Chat NEbezi jako standalone PWA a neni dismissnuto. iOS Safari /
+      // Chrome heuristika ten event casto nefirne, proto banner driv nebyl videt.
+      try {
+        const _standalone = window.matchMedia("(display-mode: standalone)").matches
+          || window.navigator.standalone === true;
+        let _dismissed = false;
+        try { _dismissed = !!localStorage.getItem(PWA_DISMISS_KEY); } catch (e) {}
+        if (!_standalone && !_dismissed && banner) banner.style.display = "flex";
+      } catch (e) {}
+
       if (installBtn) {
         installBtn.addEventListener("click", async () => {
-          if (!_deferredInstallPrompt) return;
+          if (!_deferredInstallPrompt) {
+            // Chrome/iOS nenabidl native prompt — naveď usera na install ikonu
+            // v adresnim radku (non-blocking, zadny alert).
+            const sub = banner ? banner.querySelector(".pwa-install-banner-sub") : null;
+            if (sub) sub.textContent = "Použij ikonu instalace v adresním řádku prohlížeče (vpravo nahoře).";
+            return;
+          }
           try {
             _deferredInstallPrompt.prompt();
             const { outcome } = await _deferredInstallPrompt.userChoice;
@@ -3670,8 +3688,9 @@
   // Title v záložce prohlížeče: "STRATEGIE — Marti" (s display_name).
   // Aktualizuje se při loginu, tenant switch, odhlášení.
   function updateBrowserTitle() {
-    const name = currentUser ? (currentUser.display_name || currentUser.first_name || '') : '';
-    document.title = name ? `STRATEGIE - ${name}` : 'STRATEGIE';
+    // Marti 2.6.2026: titulek = "STRATEGIE Chat - <short_name>" (analogie ERP).
+    const name = currentUser ? (currentUser.short_name || currentUser.display_name || currentUser.first_name || '') : '';
+    document.title = name ? `STRATEGIE Chat - ${name}` : 'STRATEGIE Chat';
   }
 
   // ── LAST CONVERSATION ──────────────────────────────────────────────────

@@ -11878,6 +11878,10 @@ def system_tree_json(req: Request) -> JSONResponse:
         # Legacy single-root format — wrap
         tree.append(db_roots)
 
+    # Marti 2.6.2026: production (business) soudečky NEJDŘÍV, SYSTEM (is_immutable)
+    # až DOLE. Stabilní sort zachová pořadí uvnitř skupin.
+    tree.sort(key=lambda r: 1 if (isinstance(r, dict) and r.get("is_immutable")) else 0)
+
     # Phase D (1.6.2026): System root (is_immutable=True — framework builder,
     # audit, Marti-AI paměť) je viditelný JEN rodičům. Členové (EUROSOFT
     # tenant) vidí jen business soudečky (user-created, is_immutable=False).
@@ -12293,6 +12297,10 @@ def _render_full_page(
     # Marti's drobnost 6.5.2026: footer s user.short_name + tenant.tenant_name
     user_name_html = ""
     tenant_name_html = ""
+    # Marti 2.6.2026: titulek aplikace = "STRATEGIE ERP - <short_name>"
+    # (v hlavicce zustava jen logo "STRATEGIE"). title_tag_html pro <title>,
+    # title_base_js pro JS (switchTab prepise document.title).
+    _title_text = "STRATEGIE ERP"
     if user_id is not None:
         try:
             from core.database_core import get_core_session
@@ -12307,6 +12315,9 @@ def _render_full_page(
                         or (u.email if hasattr(u, "email") else None)
                         or f"User #{user_id}"
                     )
+                    # Marti 2.6.2026: short_name usera do titulku aplikace
+                    # ("STRATEGIE ERP - Marti") — v hlavicce zustava jen logo.
+                    _title_text = f"STRATEGIE ERP - {name}"
                     # Phase 38.4 (11.5.2026 vecer): footer user je teď clickable
                     # button s popoverem. V popoveru toggle Design mode (analog
                     # tenant switcher pattern). Marti's spec: separate flag od
@@ -12345,15 +12356,22 @@ def _render_full_page(
         except Exception:
             pass  # silent fallback — footer just shows base text
 
+    # Marti 2.6.2026: titulek = "STRATEGIE ERP - <short_name>". title_tag_html
+    # pro <title>, title_base_js (JS-safe literal) pro switchTab override.
+    title_tag_html = html.escape(_title_text)
+    _js_safe = _title_text.replace("\\", "\\\\").replace('"', '\\"')
+    title_base_js = '"' + _js_safe + '"'
+
     return f'''<!DOCTYPE html>
 <html lang="cs">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <!-- B+10+++ (6.5.2026 Marti's drobnost): title format zjednodušen na
-       "STRATEGIE | <přehled>" (bez "ERP"). Default při pageload je jen
-       "STRATEGIE", JS přidá " | <tab.label>" při switchTab. -->
-  <title>STRATEGIE</title>
+  <!-- Marti 2.6.2026: titulek aplikace = "STRATEGIE ERP - <short_name>".
+       V hlavicce zustava jen logo "STRATEGIE". JS (switchTab) prida " · <tab>"
+       za base (window._erpTitleBase). -->
+  <title>{title_tag_html}</title>
+  <script>window._erpTitleBase = {title_base_js};</script>
 
   <!-- B+9+++ (6.5.2026): PWA install — Add to Home Screen na mobilu
        → standalone mode bez URL bar / browser chrome.
@@ -14673,7 +14691,7 @@ def _render_full_page(
              "| <přehled>" + Marti-AI ploška vedle (avatar + "Tvoje Marti-AI"). -->
         <div class="erp-header-brand-row">
           <a href="/erp/" class="erp-logo" id="erpLogoLink"
-             data-hint="Klikni pro obnovení (hard reload) — s potvrzením">STRATEGIE ERP</a>
+             data-hint="Klikni pro obnovení (hard reload) — s potvrzením">STRATEGIE</a>
           <span class="erp-header-dot" aria-hidden="true">·</span>
           <button type="button" class="erp-marti-btn" id="erpMartiAiBtn"
                   data-hint="Otevři chat s Marti-AI v novém tabu">
@@ -19801,7 +19819,12 @@ def _render_workspace_page(user_id: int) -> str:
         // brand row "STRATEGIE · <přehled>" — synchronizováno s tab.
         // B+10++++ (po návratu): | → · (sjednocený separator s footerem).
         const _tabLabel = tab.label || ("Přehled #" + tab.cislo);
-        try { document.title = "STRATEGIE · " + _tabLabel; } catch (e) {}
+        // Marti 2.6.2026: base = "STRATEGIE ERP - <short_name>" (window._erpTitleBase),
+        // za nej " · <přehled>". V hlavicce zustava jen logo "STRATEGIE".
+        try {
+          const _base = window._erpTitleBase || "STRATEGIE ERP";
+          document.title = _base + " · " + _tabLabel;
+        } catch (e) {}
         try {
           const _hdrSep = document.getElementById("erpHeaderSep");
           const _hdrPre = document.getElementById("erpHeaderPrehled");

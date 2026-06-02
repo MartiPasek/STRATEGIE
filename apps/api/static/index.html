@@ -2172,20 +2172,20 @@
           <button class="sidebar-footer-btn" id="sidebarArchiveToggle" data-tooltip="Otevřu tvůj archiv">📦 Můj archív konverzací</button>
         </div>
       </div>
-      <!-- MIDDLE: PROJEKTY — fixed max-height, vlastni scroll, oddeleno divider -->
-      <div class="sidebar-section sidebar-projects">
-        <div class="sidebar-title">Projekty</div>
-        <div class="sidebar-project-list" id="sidebarProjectList">
-          <div class="sidebar-empty">Načítám…</div>
-        </div>
-      </div>
-      <!-- BOTTOM: Sdilene se mnou -- konverzace od jinych userov na ktere mam
-           pristup. Zobrazeno jen pokud nejaka jsou (refreshSharedWithMeSection
-           JS funkce resi visibility). -->
+      <!-- Sdilene se mnou -- konverzace od jinych userov na ktere mam pristup.
+           Patri NAD projekty (Marti 2.6.2026 — at se neztrati dole).
+           Zobrazeno jen pokud nejaka jsou (renderSharedWithMeSection resi visibility). -->
       <div class="sidebar-section sidebar-shared" id="sidebarSharedWrap" style="display:none;">
         <div class="sidebar-title">🔗 Sdílené se mnou<span class="shared-count-badge" id="sharedCountBadge">0</span></div>
         <div class="sidebar-project-list" id="sidebarSharedList">
           <div class="sidebar-empty">Nic sdíleného.</div>
+        </div>
+      </div>
+      <!-- PROJEKTY — fixed max-height, vlastni scroll, oddeleno divider -->
+      <div class="sidebar-section sidebar-projects">
+        <div class="sidebar-title">Projekty</div>
+        <div class="sidebar-project-list" id="sidebarProjectList">
+          <div class="sidebar-empty">Načítám…</div>
         </div>
       </div>
     </aside>
@@ -6207,10 +6207,41 @@
   function _rememberLastViewedConv(cid) {
     try { if (cid) localStorage.setItem(_lastViewedKey(), String(cid)); } catch (_) {}
   }
+  // "+ Nová" = vědomé ukončení předchozího tématu. Nová konverzace se fyzicky
+  // vytvoří až prvním odesláním, ale reset/reload má zůstat na PRÁZDNÉM novém
+  // tématu (ne skočit zpět na poslední reálnou). Sentinel 'new' to drží.
+  function _markFreshConversation() {
+    try { localStorage.setItem(_lastViewedKey(), 'new'); } catch (_) {}
+  }
+  function _renderEmptyNewChatState() {
+    conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
+    currentConvRole = 'owner';
+    currentLifecycleState = null;
+    currentConvIsShared = false;
+    pendingPersonaId = null;
+    applyReadonlyMode();
+    updateShareBadge('owner', null, 0);
+    if (typeof _stopGroupPoll === 'function') _stopGroupPoll();
+    _renderedMsgIds = new Set();
+    if (typeof _updateAiTurnToggle === 'function') _updateAiTurnToggle();
+    messagesEl.innerHTML = '';
+    messagesEl.appendChild(emptyState);
+    emptyState.style.display = '';
+    document.querySelectorAll('.sidebar-item.active, .conv-dd-item.active, .sidebar-project-item.active')
+      .forEach(el => el.classList.remove('active'));
+    const pn = (currentUser && currentUser.default_persona_name) || 'Marti-AI';
+    document.getElementById('agentName').textContent = pn;
+    if (typeof renderPersonaDropdown === 'function') renderPersonaDropdown();
+  }
   async function _restoreLastViewedConv() {
     let stored = null;
     try { stored = localStorage.getItem(_lastViewedKey()); } catch (_) {}
     if (!stored) return false;
+    if (stored === 'new') {
+      // Minule jsi zahájil "+ Nová" a neodeslal zprávu — zůstaň na prázdném tématu.
+      _renderEmptyNewChatState();
+      return true;
+    }
     const cid = parseInt(stored, 10);
     if (!cid) return false;
     return await openConversation(cid, { silent: true });   // bez alertu; bool
@@ -10387,6 +10418,9 @@
       await switchProject(targetProjectId);
     }
     // Připrav čistý chat — podobně jako původní newChatBtn
+    // Sentinel: reset/reload zůstane na prázdném novém tématu (nepřeskočí
+    // zpět na poslední reálnou konverzaci). Přepíše se reálným id po odeslání.
+    _markFreshConversation();
     conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
     currentConvRole = 'owner';   // nova konverzace je moje
     currentLifecycleState = null;  // Phase 19c-e1: nova chat = nepersonal
@@ -11127,6 +11161,9 @@
       } else {
         const data = await res.json();
         conversationId = data.conversation_id;
+        // Konverzace teď fyzicky existuje — přepiš sentinel 'new' reálným id,
+        // ať reset/reload obnoví TUTO konverzaci (ne prázdné nové téma).
+        _rememberLastViewedConv(conversationId);
         // Skupina F1 (2.6.2026): ai_turn=false -> lidska zprava ulozena, AI mlci.
         // Vlastni zprava uz vykreslena optimisticky; ostatni ji vidi pres poller.
         if (!_aiTurn) {

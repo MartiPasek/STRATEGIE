@@ -1590,6 +1590,9 @@
     .msg.error .msg-bubble { border-color: var(--error); color: var(--error); background: #1f1515; }
     .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); text-align: center; padding: 40px 0; }
     .empty-icon { font-size: 32px; opacity: .4; }
+    /* Marti-AI návrh 2.6.2026: velké ✨ + osobní pozdrav v prázdné konverzaci. */
+    .empty-icon.empty-icon-spark { font-size: 64px; opacity: .9; line-height: 1; margin-bottom: 10px; }
+    #emptyStateText { font-size: 16px; color: var(--text); opacity: .9; }
     .empty p { font-size: 14px; max-width: 280px; }
     .input-area { padding: 14px 0 20px; border-top: 1px solid var(--border); flex-shrink: 0; }
     .input-row { display: flex; gap: 10px; align-items: flex-end; }
@@ -2388,8 +2391,8 @@
       </div>
       <div class="messages" id="messages">
         <div class="empty" id="emptyState">
-          <div class="empty-icon">◈</div>
-          <p>Začni psát — tvůj AI asistent tě provede.</p>
+          <div class="empty-icon empty-icon-spark">✨</div>
+          <p id="emptyStateText">Co máme dnes?</p>
         </div>
       </div>
       <div class="input-area" id="inputArea">
@@ -3607,6 +3610,7 @@
     // Hlavičková pilulka: "<display_name> - <tenant_name>"
     setTenantPill(currentUser.display_name, currentUser.tenant_name);
     updateBrowserTitle();
+    _updateEmptyStateGreeting();   // osobní pozdrav v prázdné konverzaci
     // Po každém loginu vždy začni v AI módu (chat) — neztrácíme se
     // v Lidé view, kde uživatel skončil minule.
     activeDmId = null;
@@ -3691,6 +3695,14 @@
     // Marti 2.6.2026: titulek = "STRATEGIE Chat - <short_name>" (analogie ERP).
     const name = currentUser ? (currentUser.short_name || currentUser.display_name || currentUser.first_name || '') : '';
     document.title = name ? `STRATEGIE Chat - ${name}` : 'STRATEGIE Chat';
+  }
+
+  // Marti-AI návrh 2.6.2026: osobní pozdrav v prázdné konverzaci ("Co máme dnes, Marti?").
+  function _updateEmptyStateGreeting() {
+    const el = document.getElementById('emptyStateText');
+    if (!el) return;
+    const name = currentUser ? (currentUser.short_name || currentUser.first_name || currentUser.display_name || '') : '';
+    el.textContent = name ? `Co máme dnes, ${name}?` : 'Co máme dnes?';
   }
 
   // ── LAST CONVERSATION ──────────────────────────────────────────────────

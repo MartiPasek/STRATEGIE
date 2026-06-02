@@ -18,6 +18,45 @@
   var _shownId = null;
   var _el = null;
 
+  // ── zvukový signál při novém požadavku ke schválení (Marti 2.6.2026) ──
+  var _ac = null;
+  function _audioCtx() {
+    try {
+      if (!_ac) {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) _ac = new AC();
+      }
+      if (_ac && _ac.state === "suspended") _ac.resume();
+    } catch (e) {}
+    return _ac;
+  }
+  // prohlížeč blokuje zvuk před prvním gestem → odemkneme při interakci
+  function _unlock() { _audioCtx(); }
+  document.addEventListener("pointerdown", _unlock, { once: true, capture: true });
+  document.addEventListener("keydown", _unlock, { once: true, capture: true });
+
+  function _tone(ctx, freq, startAt, dur) {
+    var osc = ctx.createOscillator();
+    var g = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, startAt);
+    g.gain.exponentialRampToValueAtTime(0.09, startAt + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, startAt + dur);
+    osc.connect(g); g.connect(ctx.destination);
+    osc.start(startAt);
+    osc.stop(startAt + dur + 0.03);
+  }
+  function _beep() {
+    try {
+      var ctx = _audioCtx();
+      if (!ctx) return;
+      var t0 = ctx.currentTime + 0.01;
+      _tone(ctx, 880.0, t0, 0.14);            // jemné „ding-"
+      _tone(ctx, 1174.66, t0 + 0.16, 0.18);   // „-dong"
+    } catch (e) {}
+  }
+
   function _remove() {
     if (_el) { try { _el.remove(); } catch (e) {} _el = null; }
     _shownId = null;
@@ -40,6 +79,7 @@
     if (_shownId === reqObj.id) return;
     _remove();
     _shownId = reqObj.id;
+    _beep();
 
     var bar = document.createElement("div");
     bar.style.cssText =

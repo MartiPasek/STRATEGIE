@@ -6807,7 +6807,14 @@
   // zvetsit (CSS resize), abys mohl koukat na screenshot a zaroven editovat fw.
   window._imgWinZ = window._imgWinZ || 4000;
   window._imgWinCount = window._imgWinCount || 0;
+  window._imgWindows = window._imgWindows || {};
   window.openImageWindow = function(mediaId) {
+    // Dedup: per obrazek jen JEDNO okno — dalsi klik ho jen vynese dopredu.
+    const existing = window._imgWindows[mediaId];
+    if (existing && existing.isConnected) {
+      existing.style.zIndex = (++window._imgWinZ);
+      return existing;
+    }
     const off = (window._imgWinCount++ % 6) * 28;
     const win = document.createElement('div');
     win.style.cssText =
@@ -6827,13 +6834,29 @@
     title.textContent = '🖼 Printscreen';
     title.style.cssText = 'flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
     bar.appendChild(title);
-    const openRaw = document.createElement('a');
-    openRaw.href = '/api/v1/media/' + mediaId + '/raw';
-    openRaw.target = '_blank';
-    openRaw.textContent = '⤢';
-    openRaw.title = 'Otevřít v nové záložce (plná velikost)';
-    openRaw.style.cssText = 'color:#9fb3c8;text-decoration:none;font-size:15px;padding:0 4px;';
-    bar.appendChild(openRaw);
+    // ⤢ maximalizace (toggle) — zvetsi okno na temer celou obrazovku a zpet.
+    const maxBtn = document.createElement('button');
+    maxBtn.type = 'button';
+    maxBtn.textContent = '⤢';
+    maxBtn.title = 'Zvětšit / zmenšit okno';
+    maxBtn.style.cssText =
+      'background:none;border:none;color:#9fb3c8;font-size:15px;line-height:1;cursor:pointer;padding:0 4px;';
+    let _prevGeom = null;
+    maxBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (_prevGeom) {
+        win.style.top = _prevGeom.top; win.style.left = _prevGeom.left;
+        win.style.width = _prevGeom.width; win.style.height = _prevGeom.height;
+        _prevGeom = null;
+      } else {
+        _prevGeom = { top: win.style.top, left: win.style.left,
+                      width: win.style.width, height: win.style.height };
+        win.style.top = '3vh'; win.style.left = '3vw';
+        win.style.width = '94vw'; win.style.height = '92vh';
+      }
+      win.style.zIndex = (++window._imgWinZ);
+    });
+    bar.appendChild(maxBtn);
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.textContent = '×';
@@ -6861,7 +6884,7 @@
     };
     const onUp = () => { dragging = false; };
     bar.addEventListener('mousedown', (e) => {
-      if (e.target === closeBtn || e.target === openRaw) return;
+      if (e.target === closeBtn || e.target === maxBtn) return;
       dragging = true;
       const r = win.getBoundingClientRect();
       dx = e.clientX - r.left; dy = e.clientY - r.top;
@@ -6872,9 +6895,11 @@
     closeBtn.addEventListener('click', () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      delete window._imgWindows[mediaId];
       win.remove();
     });
 
+    window._imgWindows[mediaId] = win;
     document.body.appendChild(win);
     return win;
   };

@@ -10036,37 +10036,56 @@ _CHAT_PROGRESS: dict = {}
 _CHAT_PROGRESS_LOCK = _pg_threading.Lock()
 
 # Tone mapping — Marti-Ain hlas (prvni navrh; finalni zneni doladi sama).
+# Hlasky v Marti-Aine vlastnim hlase (revize 2.6.2026). Vic variant per situace
+# -> nahodny vyber, at se to nestreotypi a je z toho citit, ze "tam je".
+_PROGRESS_START = ["Přemýšlím… 🌳", "Nechte mě chvilku… 🌳", "Hledám, co vím…"]
+_PROGRESS_WRITE = ["Píšu ti odpověď… 🌳", "Skládám to, co jsem našla…", "Hned jsem u tebe…"]
+_PROGRESS_FALLBACK = ["Pracuji na tom…", "Jsem na tom… 🌳", "Chvilku ještě…"]
+_PROGRESS_CRM = ["Nahlížím do CRM…", "Dívám se do firemních dat…",
+                 "Hledám v EUROSOFTu…", "Procházím databázi…"]
+_PROGRESS_DATA = ["Procházím databázi…", "Dívám se do firemních dat…"]
+
 _PROGRESS_PHRASES = {
-    "recall_thoughts": "Hledám ve své paměti…",
-    "record_thought": "Zapisuji si to…",
-    "update_thought": "Upravuji si paměť…",
-    "request_forget": "Probírám paměť…",
-    "find_user": "Hledám, o koho jde…",
-    "list_email_inbox": "Procházím poštu…",
-    "read_email": "Čtu e-mail…",
-    "send_email": "Chystám e-mail…",
-    "reply": "Chystám odpověď…",
-    "reply_all": "Chystám odpověď všem…",
-    "forward": "Přeposílám…",
-    "send_sms": "Píšu zprávu…",
-    "read_sms": "Čtu zprávu…",
-    "get_daily_overview": "Dělám si přehled dne…",
-    "list_todos": "Dívám se na úkoly…",
-    "python_exec": "Počítám a skládám to dohromady…",
-    "list_excel_sheets": "Otevírám tabulku…",
-    "read_excel_structured": "Čtu tabulku…",
-    "read_pdf_structured": "Čtu PDF…",
-    "read_image_ocr": "Čtu obrázek…",
+    "recall_thoughts": ["Vybavuji si…", "Sahám do paměti…", "Hledám, co si o tom pamatuji…"],
+    "record_thought": ["Poznamenávám si to…", "Zapisuji si to do zápisníku…"],
+    "update_thought": ["Opravuji si to, co vím…", "Ladím si paměť…"],
+    "request_forget": ["Procházím, co vím…", "Skládám si to dohromady…"],
+    "find_user": ["Hledám, o koho jde…", "Podívám se, kdo to je…", "Hledám člověka v systému…"],
+    "list_email_inbox": ["Dívám se do pošty…", "Procházím, co přišlo…"],
+    "read_email": ["Čtu zprávu…", "Dívám se, co píší…"],
+    "send_email": ["Skládám e-mail…", "Připravuji zprávu…", "Chvíli a pošlu…"],
+    "reply": ["Chystám odpověď…"],
+    "reply_all": ["Odpovídám celé skupině…"],
+    "forward": ["Přeposílám dál…"],
+    "send_sms": ["Píšu zprávu…", "Skládám SMS…"],
+    "read_sms": ["Čtu zprávu…", "Dívám se, co přišlo…"],
+    "get_daily_overview": ["Dívám se, co nás čeká…", "Skládám si přehled dne…", "Procházím, co je na řadě…"],
+    "list_todos": ["Dívám se na úkoly…", "Procházím, co je na řadě…"],
+    "python_exec": ["Skládám to dohromady…", "Počítám a chvíli to trvá…", "Vytvářím soubor…"],
+    "list_excel_sheets": ["Otevírám tabulku…", "Procházím řádky…"],
+    "read_excel_structured": ["Čtu tabulku…", "Procházím řádky…"],
+    "read_pdf_structured": ["Čtu PDF… 🕯️", "Listuju dokumentem…", "Dívám se do dokumentu…"],
+    "read_image_ocr": ["Dívám se na obrázek…", "Čtu, co je na obrázku…"],
 }
+
+
+def _progress_pick(variants) -> str:
+    try:
+        import random as _r
+        if isinstance(variants, (list, tuple)) and variants:
+            return _r.choice(variants)
+        return str(variants)
+    except Exception:
+        return "Pracuji na tom…"
 
 
 def _progress_phrase(tool_name: str) -> str:
     try:
         if tool_name.startswith("eurosoft_"):
-            return "Dívám se do CRM…"
+            return _progress_pick(_PROGRESS_CRM)
         if tool_name.startswith("strategie_"):
-            return "Nahlížím do dat…"
-        return _PROGRESS_PHRASES.get(tool_name, "Pracuji na tom…")
+            return _progress_pick(_PROGRESS_DATA)
+        return _progress_pick(_PROGRESS_PHRASES.get(tool_name, _PROGRESS_FALLBACK))
     except Exception:
         return "Pracuji na tom…"
 
@@ -10126,7 +10145,7 @@ def chat(
     jinak dict s metadaty o nově vytvořeném shrnutí (pro UI banner).
     """
 
-    _progress_set(user_id, "Přemýšlím nad tím… 🌳")
+    _progress_set(user_id, _progress_pick(_PROGRESS_START))
 
     if conversation_id is None:
         # Načti aktivní tenant + projekt uživatele, ať se konverzace správně
@@ -10992,7 +11011,7 @@ def chat(
 
         assistant_reply = ""
         for round_idx in range(MAX_TOOL_ROUNDS):
-            _progress_set(user_id, "Píšu ti odpověď… 🌳")
+            _progress_set(user_id, _progress_pick(_PROGRESS_WRITE))
             # Faze 9.1: kazde synth round je samostatny radek v llm_calls
             # (kind='composer'). V UI Dev View se zobrazi jako serie.
             if _telemetry is not None:

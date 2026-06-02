@@ -7177,31 +7177,49 @@
     if (document.getElementById('screenSharePanel')) return;
     const panel = document.createElement('div');
     panel.id = 'screenSharePanel';
-    panel.style.cssText = 'position:fixed;bottom:96px;right:20px;z-index:100085;background:#1f262e;border:1px solid #3a4450;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.5);padding:11px 13px;display:flex;flex-direction:column;gap:8px;color:#cfd6dd;font-size:12px;min-width:190px;';
+    // VLEVO dole — aby nezakryval printscreeny (ty padaji vpravo).
+    panel.style.cssText = 'position:fixed;bottom:96px;left:20px;z-index:100085;background:#1f262e;border:1px solid #3a4450;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.5);padding:11px 13px;display:flex;flex-direction:column;gap:8px;color:#cfd6dd;font-size:12px;min-width:210px;';
     const t = document.createElement('div'); t.textContent = '🖥️ Sdílím obrazovku'; t.style.fontWeight = '600'; panel.appendChild(t);
-    const snap = document.createElement('button'); snap.type = 'button'; snap.textContent = '📸 Snímek do skupiny';
-    snap.style.cssText = 'background:#3a7a3a;border:none;color:#fff;padding:7px 10px;border-radius:6px;cursor:pointer;font-weight:600;';
-    snap.addEventListener('click', function(){ _captureFrameAndPost(false); });
-    panel.appendChild(snap);
-    const snapEdit = document.createElement('button'); snapEdit.type = 'button'; snapEdit.textContent = '✏️ Snímek + označit';
-    snapEdit.style.cssText = 'background:#2c3640;border:1px solid #3a4450;color:#cfd6dd;padding:7px 10px;border-radius:6px;cursor:pointer;';
-    snapEdit.addEventListener('click', function(){ _captureFrameAndPost(true); });
-    panel.appendChild(snapEdit);
-    const liveWrap = document.createElement('label'); liveWrap.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;';
-    const live = document.createElement('input'); live.type = 'checkbox';
-    live.addEventListener('change', function(){
-      if (live.checked) {
+
+    // 🔴 ŽIVĚ — cestne misto NAHORE, velke tlacitko (toggle). Nejpouzivanejsi.
+    const liveBtn = document.createElement('button'); liveBtn.type = 'button';
+    function _renderLiveBtn() {
+      if (_screenAutoTimer) {
+        liveBtn.textContent = '⏹ Zastavit živé';
+        liveBtn.style.cssText = 'background:#b0413e;border:none;color:#fff;padding:10px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:14px;';
+      } else {
+        liveBtn.textContent = '🔴 Živě (obnovuje 1 okno)';
+        liveBtn.style.cssText = 'background:#3a7a3a;border:none;color:#fff;padding:10px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:14px;';
+      }
+    }
+    liveBtn.addEventListener('click', function(){
+      if (_screenAutoTimer) {
+        clearInterval(_screenAutoTimer); _screenAutoTimer = null;
+      } else {
         _liveTick();
         _screenAutoTimer = setInterval(_liveTick, 3000);
         if (conversationId) window.openLiveScreenWindow(conversationId, 'Já');
-      } else if (_screenAutoTimer) { clearInterval(_screenAutoTimer); _screenAutoTimer = null; }
+      }
+      _renderLiveBtn();
     });
-    liveWrap.appendChild(live); liveWrap.appendChild(document.createTextNode('🔴 Živě — obnovuje 1 okno (á 3 s)'));
-    panel.appendChild(liveWrap);
+    _renderLiveBtn();
+    panel.appendChild(liveBtn);
+
+    const snap = document.createElement('button'); snap.type = 'button'; snap.textContent = '📸 Snímek do skupiny';
+    snap.style.cssText = 'background:#2c3640;border:1px solid #3a4450;color:#cfd6dd;padding:8px 10px;border-radius:6px;cursor:pointer;';
+    snap.addEventListener('click', function(){ _captureFrameAndPost(false); });
+    panel.appendChild(snap);
+
+    const snapEdit = document.createElement('button'); snapEdit.type = 'button'; snapEdit.textContent = '✏️ Snímek + označit';
+    snapEdit.style.cssText = 'background:#2c3640;border:1px solid #3a4450;color:#cfd6dd;padding:8px 10px;border-radius:6px;cursor:pointer;';
+    snapEdit.addEventListener('click', function(){ _captureFrameAndPost(true); });
+    panel.appendChild(snapEdit);
+
     const stop = document.createElement('button'); stop.type = 'button'; stop.textContent = '⏹ Ukončit sdílení';
     stop.style.cssText = 'background:#5a3a3a;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;';
     stop.addEventListener('click', _stopScreenShare);
     panel.appendChild(stop);
+
     document.body.appendChild(panel);
   }
 

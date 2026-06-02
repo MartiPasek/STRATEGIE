@@ -6901,6 +6901,12 @@
         action: () => toggleCacheEnabled(),
       },
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
+      // Per-user volba jak otevírat e-maily z ERP buněk (Marti 2.6.2026):
+      // systémový klient / webmail OWA / kopírovat. První dvojklik na e-mail
+      // v ERP nabídne volbu; tady jde kdykoli změnit.
+      { icon: '✉', label: 'Otevírání e-mailů', action: () => {
+          if (window.ErpCellActions && window.ErpCellActions.openEmailPrefDialog) window.ErpCellActions.openEmailPrefDialog();
+        } },
       { divider: true },
       { icon: '⏻', label: 'Odhlásit', danger: true, action: () => document.getElementById('logoutBtn').click() },
     ];
@@ -13832,5 +13838,8 @@
   <script src="/static/deploy_button.js?v=20260601b"></script>
   <!-- Claude SQL bridge Krok 2: write approval banner (jen rodiče). -->
   <script src="/static/claude_write_approval.js?v=20260601a"></script>
+  <!-- Cell actions (2.6.2026): per-user volba otevírání e-mailů (profil menu
+       → openEmailPrefDialog). Self-contained, loader fallback bez _erpLoadModule. -->
+  <script src="/static/erp/components/erp_cell_actions.js?v=20260602e"></script>
 </body>
 </html>

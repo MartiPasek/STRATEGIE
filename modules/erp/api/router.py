@@ -4919,6 +4919,86 @@ async def app_version(req: Request) -> JSONResponse:
     return JSONResponse({"version": _APP_VERSION_CACHE["v"]})
 
 
+# ── Per-user UI preference (2.6.2026, Marti: chování e-mailových odkazů) ─────
+# Uloženo v "user".ui_pref (Marti-AI's 4. tier — per-user config). App (strategie
+# role) má SELECT/INSERT/UPDATE (GRANT v DDL). JSONB prefs — zatím email_link_mode,
+# additivně další klíče. email_link_mode: 'mailto' (default) | 'owa' | 'copy'.
+_UI_PREF_EMAIL_MODES = {"mailto", "owa", "copy"}
+
+
+@api_router.get("/user-prefs")
+def get_user_prefs(req: Request) -> JSONResponse:
+    """Vrací per-user UI prefs ({} pokud nic nenastaveno / tabulka chybí)."""
+    uid = _get_uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    from core.database_data import get_data_session as _gds_up
+    from sqlalchemy import text as _sql_up
+    s = _gds_up()
+    try:
+        row = s.execute(_sql_up(
+            'SELECT prefs FROM "user".ui_pref WHERE user_id = :uid'
+        ), {"uid": uid}).mappings().one_or_none()
+        prefs = (row["prefs"] if row else None) or {}
+    except Exception as exc:
+        logger.warning("get_user_prefs failed (table missing?): %s", exc)
+        prefs = {}
+    finally:
+        s.close()
+    return JSONResponse({"ok": True, "prefs": prefs})
+
+
+@api_router.post("/user-prefs")
+async def set_user_prefs(req: Request) -> JSONResponse:
+    """Merge per-user UI prefs (upsert do "user".ui_pref). Body: {email_link_mode}."""
+    uid = _get_uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "not_authenticated"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    patch = {}
+    elm = body.get("email_link_mode")
+    if elm is not None:
+        if elm not in _UI_PREF_EMAIL_MODES:
+            return JSONResponse(
+                {"ok": False, "error": "invalid_email_link_mode",
+                 "allowed": sorted(_UI_PREF_EMAIL_MODES)},
+                status_code=400,
+            )
+        patch["email_link_mode"] = elm
+    if not patch:
+        return JSONResponse(
+            {"ok": False, "error": "no_known_pref_keys"}, status_code=400)
+    from core.database_data import get_data_session as _gds_up
+    from sqlalchemy import text as _sql_up
+    import json as _json_up
+    s = _gds_up()
+    try:
+        s.execute(_sql_up('''
+            INSERT INTO "user".ui_pref (user_id, prefs, updated_at)
+            VALUES (:uid, CAST(:patch AS jsonb), now())
+            ON CONFLICT (user_id)
+            DO UPDATE SET prefs = "user".ui_pref.prefs || EXCLUDED.prefs,
+                          updated_at = now()
+        '''), {"uid": uid, "patch": _json_up.dumps(patch)})
+        s.commit()
+        row = s.execute(_sql_up(
+            'SELECT prefs FROM "user".ui_pref WHERE user_id = :uid'
+        ), {"uid": uid}).mappings().one_or_none()
+        prefs = (row["prefs"] if row else patch) or {}
+    except Exception as exc:
+        s.rollback()
+        logger.warning("set_user_prefs failed: %s", exc)
+        return JSONResponse(
+            {"ok": False, "error": "save_failed", "detail": str(exc)[:300]},
+            status_code=500)
+    finally:
+        s.close()
+    return JSONResponse({"ok": True, "prefs": prefs})
+
+
 # ── Deploy na povel (1.6.2026, Marti: "git pull + restart na povel") ────────
 # Reuse Phase 42 deployment_service (git pull + marker → RESTART-WATCHER).
 # Jednoklik: spuštění = schválení. Auth: parent session (UI) NEBO X-Deploy-Token

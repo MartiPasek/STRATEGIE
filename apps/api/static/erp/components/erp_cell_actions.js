@@ -162,6 +162,156 @@
       } catch (e) { console.warn("[cell-action dial push]", e); }
     }
 
+    // ── Email link mode (Marti 2.6.2026, "Obojí"): per-user volba jak otevřít
+    // e-mail. 'mailto' (default = systémový klient) | 'owa' (webmail compose
+    // v prohlížeči) | 'copy' (zkopírovat adresu). Uloženo v "user".ui_pref
+    // přes /api/v1/erp/user-prefs. První dvojklik nabídne volbu + zapamatuje;
+    // změna kdykoli přes ErpCellActions.openEmailPrefDialog() (profil menu).
+    var _emailMode = null;        // null = nenačteno / nenastaveno → chooser
+    var OWA_BASE = "https://mail.eurosoft-control.cz/owa/?path=/mail/action/compose&to=";
+
+    function _loadPrefs() {
+      try {
+        fetch("/api/v1/erp/user-prefs", { credentials: "same-origin", cache: "no-store" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (j) {
+            if (j && j.prefs && j.prefs.email_link_mode) _emailMode = j.prefs.email_link_mode;
+          })
+          .catch(function () {});
+      } catch (e) {}
+    }
+    _loadPrefs();
+
+    function _savePrefMode(mode) {
+      _emailMode = mode;
+      try {
+        fetch("/api/v1/erp/user-prefs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ email_link_mode: mode }),
+        }).catch(function () {});
+      } catch (e) {}
+    }
+
+    function _modeLabel(mode) {
+      if (mode === "owa") return "Webmail (OWA)";
+      if (mode === "copy") return "Kopírovat adresu";
+      return "Systémový klient";
+    }
+
+    function _owaCompose(email) {
+      try { window.open(OWA_BASE + encodeURIComponent(email), "_blank", "noopener,noreferrer"); }
+      catch (e) { console.warn("[cell-action owa]", e); }
+    }
+
+    function _copyEmail(email) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(email).then(
+            function () { _miniToast("📋 Zkopírováno: " + email); },
+            function () { _miniToast("📋 " + email); }
+          );
+          return;
+        }
+      } catch (e) {}
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = email;
+        ta.style.cssText = "position:fixed;opacity:0;";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); _miniToast("📋 Zkopírováno: " + email); }
+        catch (e2) { _miniToast("📋 " + email); }
+        document.body.removeChild(ta);
+      } catch (e3) { _miniToast("📋 " + email); }
+    }
+
+    function _dispatchEmail(mode, email) {
+      if (mode === "owa") { _owaCompose(email); return; }
+      if (mode === "copy") { _copyEmail(email); return; }
+      try { window.location.href = "mailto:" + encodeURIComponent(email); }
+      catch (e) { console.warn("[cell-action email]", e); }
+    }
+
+    /**
+     * Chooser dialog (3 možnosti + "zapamatovat"). onPick(mode, remember).
+     * email==null → settings režim (z profilu): podtitulek bez konkrétní adresy.
+     */
+    function _emailChooser(email, onPick) {
+      var ov = document.createElement("div");
+      ov.style.cssText =
+        "position:fixed;inset:0;z-index:100065;background:rgba(8,12,18,.6);" +
+        "display:flex;align-items:center;justify-content:center;padding:18px;";
+      var card = document.createElement("div");
+      card.style.cssText =
+        "max-width:440px;width:100%;background:#1c2530;color:#e8eef5;" +
+        "border:1px solid #3a4a5e;border-radius:12px;padding:20px;" +
+        "box-shadow:0 18px 50px rgba(0,0,0,.55);font-size:14px;";
+
+      var h = document.createElement("div");
+      h.style.cssText = "font-weight:700;font-size:15px;margin-bottom:6px;";
+      h.textContent = "Jak otevírat e-maily?";
+      card.appendChild(h);
+
+      var sub = document.createElement("div");
+      sub.style.cssText = "color:#9fb0c4;font-size:12px;margin-bottom:14px;";
+      sub.textContent = email
+        ? ("Kliknul jsi na " + email)
+        : "Vyber, jak se otevře e-mail po dvojkliku na buňku/pole.";
+      card.appendChild(sub);
+
+      function close() { try { ov.remove(); } catch (e) {} document.removeEventListener("keydown", esc, true); }
+      function esc(e) { if (e.key === "Escape") close(); }
+
+      [
+        { mode: "mailto", title: "Systémový klient", desc: "Otevře výchozí e-mailový program (Outlook…)." },
+        { mode: "owa", title: "Webmail (OWA)", desc: "Napsat v prohlížeči přes webový Outlook." },
+        { mode: "copy", title: "Zkopírovat adresu", desc: "Jen zkopíruje e-mail do schránky." },
+      ].forEach(function (o) {
+        var b = document.createElement("button");
+        b.type = "button";
+        var sel = (o.mode === _emailMode);
+        b.style.cssText =
+          "display:block;width:100%;text-align:left;margin-bottom:8px;" +
+          "background:#243140;color:#e8eef5;border:1px solid " +
+          (sel ? "#e8b923" : "#3a4a5e") + ";border-radius:8px;padding:10px 12px;cursor:pointer;";
+        b.innerHTML =
+          "<div style='font-weight:600;'>" + o.title + (sel ? " ✓" : "") + "</div>" +
+          "<div style='font-size:12px;color:#9fb0c4;margin-top:2px;'>" + o.desc + "</div>";
+        b.addEventListener("click", function () {
+          var remember = !rememberCb || rememberCb.checked;
+          close();
+          onPick(o.mode, remember);
+        });
+        card.appendChild(b);
+      });
+
+      var foot = document.createElement("label");
+      foot.style.cssText =
+        "display:flex;align-items:center;gap:8px;margin-top:6px;" +
+        "font-size:12px;color:#bcd0e6;cursor:pointer;";
+      var rememberCb = document.createElement("input");
+      rememberCb.type = "checkbox";
+      rememberCb.checked = true;
+      foot.appendChild(rememberCb);
+      foot.appendChild(document.createTextNode("Zapamatovat tuto volbu (lze změnit v profilu)"));
+      card.appendChild(foot);
+
+      ov.appendChild(card);
+      ov.addEventListener("click", function (e) { if (e.target === ov) close(); });
+      document.addEventListener("keydown", esc, true);
+      document.body.appendChild(ov);
+    }
+
+    /** Otevři chooser jako nastavení (z profil menu). Vždy uloží volbu. */
+    function openEmailPrefDialog() {
+      _emailChooser(null, function (mode) {
+        _savePrefMode(mode);
+        _miniToast("✉ E-maily: " + _modeLabel(mode));
+      });
+    }
+
     /** Provede akci + zaloguje. Vrací true pokud něco udělala. */
     function execute(action, ctx) {
       if (!action || !action.kind) return false;
@@ -187,10 +337,16 @@
         return true;
       }
       if (action.kind === "email") {
-        // Fáze 1 fallback: mailto:. Fáze 2 nahradí in-app editorem + šablonou.
         _log("email", val, Object.assign({}, ctx, { templateId: action.template_id || null }));
-        try { window.location.href = "mailto:" + encodeURIComponent(val); }
-        catch (e) { console.warn("[cell-action email]", e); }
+        if (_emailMode) {
+          _dispatchEmail(_emailMode, val);          // volba už uložená
+        } else {
+          // první použití → nabídni volbu, případně zapamatuj
+          _emailChooser(val, function (mode, remember) {
+            if (remember) _savePrefMode(mode);      // persist (+ set _emailMode)
+            _dispatchEmail(mode, val);
+          });
+        }
         return true;
       }
       return false;
@@ -200,6 +356,7 @@
       detect: detect,
       resolve: resolve,
       execute: execute,
+      openEmailPrefDialog: openEmailPrefDialog,
       _log: _log,
     };
   });

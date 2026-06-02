@@ -20,7 +20,7 @@
  * Identický s /static/erp/sw.js, jen jiný scope ('/' vs '/erp/').
  */
 
-const SW_VERSION = "chat-v2-network-first-2026-06-01";
+const SW_VERSION = "chat-v3-redirect-manual-2026-06-02";
 
 self.addEventListener("install", (event) => {
   console.log("[SW chat] install", SW_VERSION);
@@ -41,8 +41,20 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
   const dest = req.destination;
-  if (req.mode === "navigate" || dest === "document" ||
-      dest === "script" || dest === "style") {
+
+  // NAVIGACE: redirect:"manual" → server 302 vrátí opaqueredirect a browser
+  // si redirect zpracuje sám. fetch(redirect:follow) by vrátil "redirected"
+  // response → Chrome ji pro navigaci odmítne (ERR_FAILED). Pavel Zeman bug 2.6.
+  if (req.mode === "navigate" || dest === "document") {
+    event.respondWith(
+      fetch(req.url, { cache: "no-store", credentials: "same-origin", redirect: "manual" })
+        .catch(function () { return fetch(req); })
+    );
+    return;
+  }
+
+  // JS/CSS app shell: network-first (always-fresh po deployi).
+  if (dest === "script" || dest === "style") {
     event.respondWith(
       fetch(req.url, { cache: "no-store", credentials: "same-origin" })
         .catch(function () { return fetch(req); })

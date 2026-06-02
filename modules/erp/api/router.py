@@ -211,10 +211,27 @@ def erp_home(req: Request):
     1.6.2026 (Marti, Pavel Zeman bug): bez session NEhážeme holý 401
     "Nejsi přihlášen" (ERP nemá login dialog), ale přesměrujeme na chat
     login s ?return=/erp → po přihlášení se uživatel vrátí zpět na /erp.
+
+    2.6.2026 (Pavel Zeman "web nedostupný"): NE 302 server-redirect! ERP
+    Service Worker (network-first) u navigace dělá fetch(redirect:follow)
+    → výsledná "redirected" response → Chrome ji pro navigaci ODMÍTNE
+    (ERR_FAILED = "web nedostupný"). Vracíme 200 HTML stub s client-side
+    přesměrováním → SW dostane čistou 200, žádný redirect, funguje i se
+    stávajícím (starým) SW bez reinstalu.
     """
-    from fastapi.responses import RedirectResponse
     if not req.cookies.get("user_id"):
-        return RedirectResponse(url="/?return=%2Ferp", status_code=302)
+        return HTMLResponse(content=(
+            '<!DOCTYPE html><html lang="cs"><head><meta charset="UTF-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+            '<meta http-equiv="refresh" content="0; url=/?return=%2Ferp">'
+            '<title>STRATEGIE</title></head>'
+            '<body style="margin:0;background:#0e0f11;color:#cfd6df;'
+            'font-family:system-ui,-apple-system,sans-serif;display:flex;'
+            'align-items:center;justify-content:center;height:100vh;">'
+            '<div>Přihlášení…</div>'
+            '<script>location.replace("/?return=%2Ferp");</script>'
+            '</body></html>'
+        ))
     uid = _get_uid(req)
     _require_erp_member(uid)
     return HTMLResponse(content=_render_workspace_page(uid))

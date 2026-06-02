@@ -16,7 +16,7 @@
  * pokud bude potřeba offline mode.
  */
 
-const SW_VERSION = "v2-network-first-2026-06-01";
+const SW_VERSION = "v3-redirect-manual-2026-06-02";
 
 // Install — claim immediately (žádný old SW retention)
 self.addEventListener("install", (event) => {
@@ -41,8 +41,22 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
   const dest = req.destination;
-  if (req.mode === "navigate" || dest === "document" ||
-      dest === "script" || dest === "style") {
+
+  // NAVIGACE: redirect:"manual" → server 302 vrátí opaqueredirect a BROWSER
+  // si redirect zpracuje sám. Bez tohohle: fetch(redirect:follow) vrátí
+  // "redirected" response → Chrome ji pro navigaci ODMÍTNE (ERR_FAILED =
+  // "web nedostupný"). Pavel Zeman bug 2.6.2026.
+  if (req.mode === "navigate" || dest === "document") {
+    event.respondWith(
+      fetch(req.url, { cache: "no-store", credentials: "same-origin", redirect: "manual" })
+        .catch(function () { return fetch(req); })
+    );
+    return;
+  }
+
+  // JS/CSS app shell: network-first (always-fresh po deployi). Tyto se
+  // neredirectují (200), takže default redirect:follow je v pohodě.
+  if (dest === "script" || dest === "style") {
     event.respondWith(
       fetch(req.url, { cache: "no-store", credentials: "same-origin" })
         .catch(function () { return fetch(req); })

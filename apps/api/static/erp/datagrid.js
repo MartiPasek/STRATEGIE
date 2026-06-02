@@ -2855,10 +2855,12 @@
                   : (_d.Id != null) ? _d.Id
                   : (_d.id != null) ? _d.id : null;
                 // CardDAV F1.2: jméno z řádku (heuristika napříč CRM gridy) + typ.
-                const _nm = _d.FirmaText || _d.Firma || _d.Nazev || _d.Nazev1
-                  || _d.FirmaOrPozice || _d.KontaktText
-                  || [_d.Jmeno, _d.Prijmeni].filter(Boolean).join(" ").trim()
-                  || _d.name || null;
+                // Priorita: jméno osoby → firma → kontakt-text → pozice (poslední).
+                const _person = [_d.Jmeno, _d.Prijmeni].filter(Boolean).join(" ").trim();
+                const _nm = (_person || null)
+                  || _d.FirmaText || _d.Firma || _d.Nazev || _d.Nazev1
+                  || _d.KontaktText || _d.Kontakt || _d.OdpOsobaAtext
+                  || _d.FirmaOrPozice || _d.name || null;
                 window.ErpCellActions.execute(_act, {
                   table: opts.gridCode || opts.code || opts.dataSourceCode || null,
                   rowId: _rid,

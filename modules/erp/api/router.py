@@ -5284,6 +5284,8 @@ async def deploy_preview(req: Request) -> JSONResponse:
         "ok": True, "deployable": True,
         "head": head[:12], "target": origin[:12],
         "files_changed": files, "commit_message": (msg or "")[:200],
+        # Koordinace 23/24 (Marti 3.6.): kdo je teď aktivní (awareness před deployem)
+        "active_instances": _active_instances(),
     })
 
 

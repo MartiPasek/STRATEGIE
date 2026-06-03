@@ -83,11 +83,21 @@
           _dialog("Deploy", why, null);
           return;
         }
+        // Koordinace 23/24 (Marti 3.6.): varuj, pokud je aktivní i druhá instance
+        var actWarn = "";
+        try {
+          var act = (j.active_instances || []);
+          if (act.length) {
+            actWarn = "\n\n⚠ Aktivní i: " + act.map(function (o) {
+              return "Claude-" + o.instance_id + " (" + (o.instance_name || "?") + ")";
+            }).join(", ") + " — deploy je serializovaný (advisory lock).";
+          }
+        } catch (e) {}
         _dialog(
           "Nasadit nejnovější verzi?",
           j.files_changed + " souborů změněno · cíl " + j.target +
           "\n„" + (j.commit_message || "") + "\"\n\n" +
-          "Spustí git pull + restart API na serveru.",
+          "Spustí git pull + restart API na serveru." + actWarn,
           _doDeploy
         );
       })

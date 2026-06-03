@@ -16181,6 +16181,9 @@ def _render_workspace_page(user_id: int) -> str:
          Renders pill v <div id="erpFooterApiVersion"> + dropup menu s pin/unpin/diff.
          Polluje GET /api/v1/erp/api-versions every 60s pro current_pin + versions list. -->
     <script src="/static/erp/components/api_version_dropup.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- CardDAV F1.6 (3.6.2026, Marti — "kontakty pro Pavla"): self-service
+         připojení telefonu (token + návod). window.openCarddavConnect(). -->
+    <script src="/static/carddav_connect.js?v=''' + _STATIC_VERSION + '''"></script>
     <link rel="stylesheet" href="/static/erp/datagrid.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/datagrid.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- B+10+ (6.5.2026): conditional formatting engine + UI editor -->
@@ -18684,6 +18687,23 @@ def _render_workspace_page(user_id: int) -> str:
             pop.appendChild(setItem);
           }
         } catch (e) { console.warn('[user-settings menu] failed', e); }
+        // CardDAV F1.6 (3.6.2026, Marti — "kontakty pro Pavla"): připoj telefon
+        // -> při hovoru jméno klienta. Pro VŠECHNY (rodiče i členy).
+        try {
+          if (window.openCarddavConnect) {
+            const cdItem = document.createElement('div');
+            cdItem.className = 'erp-user-popover-item';
+            cdItem.innerHTML =
+              '<span class="erp-user-popover-item-label">📱 Připojit telefon (kontakty)</span>';
+            cdItem.title = 'Synchronizace kontaktů do telefonu — při hovoru uvidíš jméno klienta.';
+            cdItem.addEventListener('click', () => {
+              const pop2 = document.getElementById('erpFooterUserPopover');
+              if (pop2) pop2.setAttribute('hidden', '');
+              window.openCarddavConnect();
+            });
+            pop.appendChild(cdItem);
+          }
+        } catch (e) { console.warn('[carddav menu] failed', e); }
         // Future: další položky (profile, logout, atd.)
       }
 

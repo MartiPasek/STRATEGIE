@@ -1,0 +1,329 @@
+/* eslint-disable */
+/**
+ * carddav_connect.js — F1.6/F1.7: self-service připojení telefonu na kontakty.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Marti 3.6.2026 ("dotáhnout kontakty pro Pavla"): každý user (Pavel, Kristý…)
+ * si sám klikem vygeneruje CardDAV přístup pro svůj telefon + dostane návod.
+ * Žádné ruční SQL tokeny.
+ *
+ * Modal: stav (kolik kontaktů připraveno) + seznam zařízení (odpojit) +
+ * "Připojit nový telefon" → token (PLAINTEXT 1×) + URL/login + krok-za-krokem
+ * (Android přes DAVx5, iOS nativně).
+ *
+ * Backend (carddav.py mgmt router):
+ *   GET  /api/v1/erp/carddav/info
+ *   POST /api/v1/erp/carddav/token            {device_label}
+ *   POST /api/v1/erp/carddav/token/{id}/revoke
+ *
+ * Sdílené — loadováno chatem (index.html) i ERP. Self-contained.
+ * Expozice: window.openCarddavConnect().
+ */
+(function () {
+  "use strict";
+
+  var BASE = "/api/v1/erp/carddav";
+  var _open = false;
+
+  function _esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  function _toast(msg) {
+    try {
+      var t = document.createElement("div");
+      t.textContent = msg;
+      t.style.cssText =
+        "position:fixed;left:50%;bottom:34px;transform:translateX(-50%);" +
+        "background:#1f2a37;color:#e8eef5;border:1px solid #3a4a5e;" +
+        "border-radius:9px;padding:9px 16px;font-size:13px;z-index:100090;" +
+        "box-shadow:0 8px 24px rgba(0,0,0,.45);";
+      document.body.appendChild(t);
+      setTimeout(function () { try { t.remove(); } catch (e) {} }, 1900);
+    } catch (e) {}
+  }
+
+  function _copy(text, label) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () { _toast("✓ Zkopírováno" + (label ? " — " + label : "")); },
+          function () { _fallbackCopy(text, label); });
+      } else { _fallbackCopy(text, label); }
+    } catch (e) { _fallbackCopy(text, label); }
+  }
+  function _fallbackCopy(text, label) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.style.cssText = "position:fixed;opacity:0;";
+      document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); ta.remove();
+      _toast("✓ Zkopírováno" + (label ? " — " + label : ""));
+    } catch (e) { _toast("Kopírování selhalo — zkopíruj ručně."); }
+  }
+
+  function _api(path, method, body) {
+    var opts = { method: method || "GET", credentials: "same-origin",
+                 headers: { "Accept": "application/json" } };
+    if (body) { opts.headers["Content-Type"] = "application/json";
+                opts.body = JSON.stringify(body); }
+    return fetch(BASE + path, opts).then(function (r) {
+      return r.json().catch(function () { return { ok: false, error: "parse" }; })
+        .then(function (j) { j._status = r.status; return j; });
+    });
+  }
+
+  // ── DOM ────────────────────────────────────────────────────────────────
+
+  function _close() {
+    _open = false;
+    var ov = document.getElementById("carddavConnectOverlay");
+    if (ov) { try { ov.remove(); } catch (e) {} }
+    document.removeEventListener("keydown", _esckey, true);
+  }
+  function _esckey(e) { if (e.key === "Escape") _close(); }
+
+  function _row(label, value, copyLabel) {
+    return '<div style="display:flex;align-items:center;gap:8px;margin:6px 0;">' +
+      '<div style="min-width:78px;color:#9fb0c4;font-size:12px;">' + _esc(label) + '</div>' +
+      '<code style="flex:1;background:#0f1620;border:1px solid #2c3a4c;border-radius:6px;' +
+      'padding:7px 9px;font-size:12.5px;color:#dbe6f2;word-break:break-all;">' + _esc(value) + '</code>' +
+      '<button type="button" class="cdav-copy" data-copy="' + _esc(value) + '" ' +
+      'data-lbl="' + _esc(copyLabel || label) + '" ' +
+      'style="background:#2b3a4d;color:#cfe0f2;border:none;border-radius:6px;' +
+      'padding:7px 10px;font-size:12px;cursor:pointer;white-space:nowrap;">Kopírovat</button>' +
+      '</div>';
+  }
+
+  function _devicesHtml(tokens) {
+    var active = (tokens || []).filter(function (t) { return !t.revoked; });
+    if (!active.length) {
+      return '<div style="color:#8aa0b8;font-size:13px;padding:4px 0 2px;">' +
+        'Zatím nemáš připojené žádné zařízení.</div>';
+    }
+    var h = '';
+    active.forEach(function (t) {
+      h += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;' +
+        'border-bottom:1px solid #233140;">' +
+        '<span style="font-size:18px;">📱</span>' +
+        '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:13.5px;color:#e8eef5;">' + _esc(t.device_label || "Telefon") + '</div>' +
+        '<div style="font-size:11px;color:#8aa0b8;">připojeno ' + _esc(t.created || "") +
+        (t.last_used ? ' · naposledy ' + _esc(t.last_used) : ' · zatím nesynchronizováno') + '</div>' +
+        '</div>' +
+        '<button type="button" class="cdav-revoke" data-id="' + t.id + '" ' +
+        'data-lbl="' + _esc(t.device_label || "Telefon") + '" ' +
+        'style="background:transparent;color:#e89b9b;border:1px solid #5a3a3a;' +
+        'border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Odpojit</button>' +
+        '</div>';
+    });
+    return h;
+  }
+
+  function _instructionsHtml(info, username, token) {
+    var url = info.carddav_url || "";
+    return '' +
+      '<details style="margin-top:14px;" open>' +
+      '<summary style="cursor:pointer;color:#bcd0e6;font-size:13px;font-weight:600;' +
+      'margin-bottom:8px;">📖 Návod — jak telefon připojit</summary>' +
+      '<div style="font-size:13px;color:#d4e0ec;line-height:1.55;">' +
+
+      '<div style="font-weight:700;color:#7fd6c2;margin:10px 0 4px;">📱 Android (přes DAVx5)</div>' +
+      '<ol style="margin:0 0 6px 18px;padding:0;">' +
+      '<li>Z Google Play nainstaluj zdarma appku <strong>DAVx5</strong>.</li>' +
+      '<li>Otevři DAVx5 → <strong>+</strong> → <strong>Přihlásit pomocí URL a hesla</strong>.</li>' +
+      '<li>Základní&nbsp;URL: vlož <code style="color:#bfe;">' + _esc(url) + '</code></li>' +
+      '<li>Uživatel: <code style="color:#bfe;">' + _esc(username) + '</code> · Heslo: vlož <strong>token</strong> výše.</li>' +
+      '<li>Přihlásit → zatrhni adresáře <em>Reální / Potenciální klienti</em> → hotovo.</li>' +
+      '</ol>' +
+
+      '<div style="font-weight:700;color:#7fd6c2;margin:12px 0 4px;">🍏 iPhone (nativně)</div>' +
+      '<ol style="margin:0 0 6px 18px;padding:0;">' +
+      '<li>Nastavení → <strong>Kontakty</strong> → Účty → <strong>Přidat účet</strong> → <strong>Jiný</strong>.</li>' +
+      '<li>Přidat účet <strong>CardDAV</strong>.</li>' +
+      '<li>Server: <code style="color:#bfe;">' + _esc((url || "").replace(/^https?:\/\//, "").replace(/\/carddav\/?$/, "")) + '</code></li>' +
+      '<li>Uživatel: <code style="color:#bfe;">' + _esc(username) + '</code> · Heslo: <strong>token</strong> výše.</li>' +
+      '<li>Další → Uložit. Kontakty se objeví v aplikaci Telefon/Kontakty.</li>' +
+      '</ol>' +
+
+      '<div style="margin-top:8px;color:#8aa0b8;font-size:12px;">' +
+      'Sync je <strong>jednosměrný</strong> (telefon zrcadlí STRATEGII) a <strong>jen pro čtení</strong> — ' +
+      'úpravy v telefonu se nikam nepřepíšou. Sada se průběžně doplňuje, jak voláš klientům.</div>' +
+      '</div></details>';
+  }
+
+  function _credentialPanel(info, res) {
+    // res = výsledek POST /token (obsahuje plaintext token 1×)
+    return '' +
+      '<div style="background:rgba(232,185,35,.08);border:1px solid #6b5a22;' +
+      'border-radius:10px;padding:14px;margin-top:12px;">' +
+      '<div style="font-size:13px;color:#f0d98a;font-weight:700;margin-bottom:4px;">' +
+      '🔑 Přístup pro „' + _esc(res.device_label || "Telefon") + '"</div>' +
+      '<div style="font-size:12px;color:#cdb87a;margin-bottom:10px;">' +
+      'Token se zobrazí <strong>jen teď</strong> — zkopíruj ho do telefonu. ' +
+      'Pak už ho z bezpečnosti neuvidíš (vygeneruješ nový).</div>' +
+      _row("Token", res.token, "token") +
+      _row("Adresa", info.carddav_url, "CardDAV URL") +
+      _row("Uživatel", info.username, "uživatel") +
+      _instructionsHtml(info, info.username, res.token) +
+      '</div>';
+  }
+
+  function _render(info, credPanelHtml) {
+    var ov = document.getElementById("carddavConnectOverlay");
+    if (!ov) return;
+    var card = ov.querySelector("[data-cdav-card]");
+    if (!card) return;
+
+    var n = info.active_contacts || 0;
+    var contactsLine = n > 0
+      ? '<strong style="color:#7fd6c2;">' + n + '</strong> ' +
+        (n === 1 ? "kontakt připraven" : (n < 5 ? "kontakty připraveny" : "kontaktů připraveno")) +
+        " k synchronizaci"
+      : 'Sada se naplní automaticky, jak začneš <strong>volat klientům</strong> z CRM.';
+
+    card.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
+      '<div style="font-size:17px;font-weight:700;color:#e8eef5;">📱 Připojit telefon — kontakty</div>' +
+      '<button type="button" data-cdav-close style="background:transparent;border:none;' +
+      'color:#9fb0c4;font-size:22px;line-height:1;cursor:pointer;">×</button></div>' +
+
+      '<div style="font-size:13px;color:#bcd0e6;line-height:1.5;margin-bottom:12px;">' +
+      'Když si telefon připojíš, při <strong>příchozím i odchozím hovoru uvidíš jméno klienta</strong> ' +
+      'ze STRATEGIE. ' + contactsLine + '</div>' +
+
+      // credential panel (jen po vytvoření)
+      (credPanelHtml || '') +
+
+      // device list
+      '<div style="margin-top:14px;">' +
+      '<div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;' +
+      'color:#7e93a8;font-weight:700;margin-bottom:4px;">Připojená zařízení</div>' +
+      '<div data-cdav-devices>' + _devicesHtml(info.tokens) + '</div></div>' +
+
+      // create button
+      '<div data-cdav-create style="margin-top:14px;"></div>';
+
+    // wire close
+    var cl = card.querySelector("[data-cdav-close]");
+    if (cl) cl.addEventListener("click", _close);
+
+    // wire copy
+    card.querySelectorAll(".cdav-copy").forEach(function (b) {
+      b.addEventListener("click", function () {
+        _copy(b.getAttribute("data-copy") || "", b.getAttribute("data-lbl") || "");
+      });
+    });
+    // wire revoke
+    card.querySelectorAll(".cdav-revoke").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var id = b.getAttribute("data-id");
+        var lbl = b.getAttribute("data-lbl") || "zařízení";
+        if (!confirm('Odpojit „' + lbl + '"? Telefon přestane synchronizovat kontakty.')) return;
+        b.disabled = true; b.textContent = "…";
+        _api("/token/" + id + "/revoke", "POST").then(function (j) {
+          if (j && j.ok) { _toast("✓ Odpojeno"); info.tokens = j.tokens || info.tokens; _render(info, ''); }
+          else { b.disabled = false; b.textContent = "Odpojit"; _toast("Nepodařilo se odpojit."); }
+        });
+      });
+    });
+
+    _renderCreateArea(card, info);
+  }
+
+  function _renderCreateArea(card, info) {
+    var area = card.querySelector("[data-cdav-create]");
+    if (!area) return;
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "➕ Připojit nový telefon";
+    btn.style.cssText =
+      "background:#e8b923;color:#1c2530;border:none;padding:11px 18px;" +
+      "border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;width:100%;";
+    btn.addEventListener("click", function () { _showCreateForm(area, info); });
+    area.innerHTML = "";
+    area.appendChild(btn);
+  }
+
+  function _showCreateForm(area, info) {
+    area.innerHTML =
+      '<div style="display:flex;gap:8px;align-items:center;">' +
+      '<input type="text" data-cdav-label placeholder="Název zařízení (např. Můj mobil)" ' +
+      'maxlength="80" style="flex:1;background:#0f1620;border:1px solid #2c3a4c;' +
+      'border-radius:8px;padding:10px 11px;color:#e8eef5;font-size:13px;">' +
+      '<button type="button" data-cdav-go style="background:#e8b923;color:#1c2530;' +
+      'border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:700;' +
+      'cursor:pointer;white-space:nowrap;">Vygenerovat</button>' +
+      '<button type="button" data-cdav-cancel style="background:transparent;color:#9fb0c4;' +
+      'border:1px solid #44566c;padding:10px 12px;border-radius:8px;font-size:13px;' +
+      'cursor:pointer;">Zpět</button></div>';
+    var inp = area.querySelector("[data-cdav-label]");
+    var go = area.querySelector("[data-cdav-go]");
+    var cancel = area.querySelector("[data-cdav-cancel]");
+    if (inp) { try { inp.focus(); } catch (e) {} }
+    if (cancel) cancel.addEventListener("click", function () { _renderCreateArea(area.closest("[data-cdav-card]"), info); });
+    function _do() {
+      var label = (inp && inp.value || "").trim() || "Telefon";
+      go.disabled = true; go.textContent = "…";
+      _api("/token", "POST", { device_label: label }).then(function (j) {
+        if (j && j.ok && j.token) {
+          // re-render celý modal s credential panelem (token 1×)
+          info.tokens = j.tokens || info.tokens;
+          info.active_contacts = (j.active_contacts != null) ? j.active_contacts : info.active_contacts;
+          _render(info, _credentialPanel(info, j));
+        } else if (j && j.error === "limit") {
+          go.disabled = false; go.textContent = "Vygenerovat";
+          _toast(j.message || "Dosažen limit zařízení.");
+        } else {
+          go.disabled = false; go.textContent = "Vygenerovat";
+          _toast((j && j.message) || "Nepodařilo se vygenerovat token.");
+        }
+      });
+    }
+    if (go) go.addEventListener("click", _do);
+    if (inp) inp.addEventListener("keydown", function (e) { if (e.key === "Enter") _do(); });
+  }
+
+  function _shell() {
+    var ov = document.createElement("div");
+    ov.id = "carddavConnectOverlay";
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:100060;background:rgba(8,12,18,.64);" +
+      "display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;" +
+      "overflow:auto;backdrop-filter:blur(2px);";
+    var card = document.createElement("div");
+    card.setAttribute("data-cdav-card", "1");
+    card.style.cssText =
+      "max-width:480px;width:100%;margin:auto;background:#1c2530;color:#e8eef5;" +
+      "border:1px solid #3a4a5e;border-top:3px solid #e8b923;border-radius:14px;" +
+      "padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.55);font-family:inherit;";
+    card.innerHTML = '<div style="padding:30px;text-align:center;color:#8aa0b8;">Načítám…</div>';
+    ov.appendChild(card);
+    ov.addEventListener("click", function (e) { if (e.target === ov) _close(); });
+    document.body.appendChild(ov);
+    document.addEventListener("keydown", _esckey, true);
+  }
+
+  function openCarddavConnect() {
+    if (_open) return;
+    _open = true;
+    _shell();
+    _api("/info", "GET").then(function (info) {
+      if (!info || info.ok === false) {
+        if (info && info._status === 401) { _close(); _toast("Nejdřív se přihlas."); return; }
+        var card = document.querySelector("#carddavConnectOverlay [data-cdav-card]");
+        if (card) card.innerHTML =
+          '<div style="padding:24px;text-align:center;color:#e89b9b;">Nepodařilo se načíst.' +
+          '<br><button type="button" onclick="(window.openCarddavConnect&&(' +
+          'document.getElementById(\'carddavConnectOverlay\').remove(),window.__cdavReopen()))" ' +
+          'style="margin-top:12px;background:#2b3a4d;color:#cfe0f2;border:none;border-radius:7px;' +
+          'padding:8px 14px;cursor:pointer;">Zkusit znovu</button></div>';
+        return;
+      }
+      _render(info, '');
+    });
+  }
+  window.__cdavReopen = function () { _open = false; openCarddavConnect(); };
+  window.openCarddavConnect = openCarddavConnect;
+})();

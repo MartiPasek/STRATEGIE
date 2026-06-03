@@ -24,15 +24,22 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import secrets
 from xml.sax.saxutils import escape as _xesc
 
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy import text as _sql
 
 logger = logging.getLogger("strategie.carddav")
 
 carddav_router = APIRouter()
+
+# Správa tokenů (F1.6) — session auth, mount /api/v1/erp/carddav.
+carddav_mgmt_router = APIRouter(prefix="/api/v1/erp/carddav", tags=["carddav-mgmt"])
+
+# Bezpečnostní limity self-service.
+_MAX_ACTIVE_TOKENS = 5  # kolik zařízení smí mít user současně připojeno
 
 _NS = (
     'xmlns:d="DAV:" '
@@ -292,3 +299,202 @@ async def carddav_entry(path: str, request: Request):
             return Response(status_code=405)
 
     return Response(status_code=404)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# F1.6 — Self-service správa tokenů (přihlášený user spravuje SVÁ zařízení)
+# ══════════════════════════════════════════════════════════════════════════
+#  GET  /api/v1/erp/carddav/info     → údaje pro připojení (URL, login, počet
+#                                       kontaktů, návod), bez tajemství
+#  GET  /api/v1/erp/carddav/tokens   → seznam zařízení usera (bez tokenu)
+#  POST /api/v1/erp/carddav/token    → vygeneruje token (vrátí PLAINTEXT 1×)
+#  POST /api/v1/erp/carddav/token/{id}/revoke → odpojí zařízení
+#
+# Auth: session cookie user_id (každý spravuje JEN svá zařízení). Token sám
+# se nikdy nečte z DB (drží se jen sha256 hash) — proto se vrací jedenkrát
+# při vytvoření; jinak nutno vygenerovat nový.
+
+
+def _session_uid(request: Request) -> int | None:
+    """Přihlášený user z cookie (stejná identita jako ERP/Chat)."""
+    raw = request.cookies.get("user_id")
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _carddav_base(request: Request) -> str:
+    """Veřejná base URL pro CardDAV (z hostu requestu; prod = strategie-ai.com).
+
+    Respektuje reverse-proxy hlavičky (Caddy) a vynutí https mimo localhost.
+    """
+    host = (request.headers.get("x-forwarded-host")
+            or request.headers.get("host") or "").strip()
+    if not host:
+        from core.config import settings
+        return (settings.app_base_url or "https://strategie-ai.com").rstrip("/")
+    proto = (request.headers.get("x-forwarded-proto") or "").strip().lower()
+    if not proto:
+        proto = "http" if host.startswith(("localhost", "127.0.0.1")) else "https"
+    return f"{proto}://{host}"
+
+
+def _user_login(uid: int) -> str:
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        row = s.execute(_sql(
+            "SELECT COALESCE(NULLIF(login_name,''), NULLIF(short_name,''), "
+            "'user'||id::text) FROM public.users WHERE id = :id"
+        ), {"id": uid}).first()
+        return row[0] if row else ("user" + str(uid))
+    finally:
+        s.close()
+
+
+def _active_contact_count(uid: int) -> int:
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        row = s.execute(_sql(
+            'SELECT count(*) FROM "user".carddav_active_contact '
+            'WHERE user_id = :uid AND removed_at IS NULL'
+        ), {"uid": uid}).first()
+        return int(row[0]) if row else 0
+    finally:
+        s.close()
+
+
+def _list_tokens(uid: int) -> list[dict]:
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        rows = s.execute(_sql('''
+            SELECT id, device_label,
+                   to_char(created_at,  'YYYY-MM-DD HH24:MI') AS created,
+                   to_char(last_used_at, 'YYYY-MM-DD HH24:MI') AS last_used,
+                   (revoked_at IS NOT NULL) AS revoked
+            FROM "user".carddav_token
+            WHERE user_id = :uid
+            ORDER BY (revoked_at IS NOT NULL), id DESC
+        '''), {"uid": uid}).mappings().all()
+        return [dict(r) for r in rows]
+    finally:
+        s.close()
+
+
+def _conn_info(request: Request, uid: int) -> dict:
+    base = _carddav_base(request)
+    login = _user_login(uid)
+    return {
+        "carddav_url": base + "/carddav/",
+        "well_known": base + "/.well-known/carddav",
+        "username": login,
+        "books": [
+            {"key": "real", "label": _BOOK_LABEL["real"]},
+            {"key": "potential", "label": _BOOK_LABEL["potential"]},
+        ],
+        "active_contacts": _active_contact_count(uid),
+        "max_devices": _MAX_ACTIVE_TOKENS,
+    }
+
+
+@carddav_mgmt_router.get("/info")
+def carddav_info(request: Request) -> JSONResponse:
+    """Údaje pro připojení + počet připravených kontaktů (bez tajemství)."""
+    uid = _session_uid(request)
+    if uid is None:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    info = _conn_info(request, uid)
+    info["ok"] = True
+    info["tokens"] = _list_tokens(uid)
+    return JSONResponse(info)
+
+
+@carddav_mgmt_router.get("/tokens")
+def carddav_tokens(request: Request) -> JSONResponse:
+    uid = _session_uid(request)
+    if uid is None:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    return JSONResponse({"ok": True, "tokens": _list_tokens(uid)})
+
+
+@carddav_mgmt_router.post("/token")
+async def carddav_token_create(request: Request) -> JSONResponse:
+    """Vygeneruje nový token pro zařízení. Plaintext vrací JEN TEĎ (1×)."""
+    uid = _session_uid(request)
+    if uid is None:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+
+    label = ""
+    try:
+        body = await request.json()
+        label = str((body or {}).get("device_label") or "").strip()[:80]
+    except Exception:
+        label = ""
+    if not label:
+        label = "Telefon"
+
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        active = s.execute(_sql(
+            'SELECT count(*) FROM "user".carddav_token '
+            'WHERE user_id = :uid AND revoked_at IS NULL'
+        ), {"uid": uid}).scalar() or 0
+        if int(active) >= _MAX_ACTIVE_TOKENS:
+            return JSONResponse({
+                "ok": False, "error": "limit",
+                "message": (f"Máš už {active} připojených zařízení (max "
+                            f"{_MAX_ACTIVE_TOKENS}). Nejdřív některé odpoj.")
+            }, status_code=429)
+
+        plaintext = "STG-DAV-" + secrets.token_urlsafe(24)
+        token_hash = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+        row = s.execute(_sql('''
+            INSERT INTO "user".carddav_token (user_id, device_label, token_hash, created_at)
+            VALUES (:uid, :label, :h, now())
+            RETURNING id
+        '''), {"uid": uid, "label": label, "h": token_hash}).first()
+        s.commit()
+        new_id = int(row[0]) if row else None
+    except Exception as exc:
+        s.rollback()
+        logger.warning("[carddav token create] %s", exc)
+        return JSONResponse({"ok": False, "error": "server",
+                             "message": str(exc)}, status_code=500)
+    finally:
+        s.close()
+
+    info = _conn_info(request, uid)
+    info.update({"ok": True, "token_id": new_id, "device_label": label,
+                 "token": plaintext, "tokens": _list_tokens(uid)})
+    return JSONResponse(info)
+
+
+@carddav_mgmt_router.post("/token/{token_id}/revoke")
+def carddav_token_revoke(token_id: int, request: Request) -> JSONResponse:
+    uid = _session_uid(request)
+    if uid is None:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        res = s.execute(_sql(
+            'UPDATE "user".carddav_token SET revoked_at = now() '
+            'WHERE id = :id AND user_id = :uid AND revoked_at IS NULL'
+        ), {"id": token_id, "uid": uid})
+        s.commit()
+        changed = res.rowcount or 0
+    except Exception as exc:
+        s.rollback()
+        logger.warning("[carddav token revoke] %s", exc)
+        return JSONResponse({"ok": False, "error": "server",
+                             "message": str(exc)}, status_code=500)
+    finally:
+        s.close()
+    return JSONResponse({"ok": True, "revoked": int(changed),
+                         "tokens": _list_tokens(uid)})

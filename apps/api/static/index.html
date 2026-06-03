@@ -7699,6 +7699,10 @@
       { icon: '✉', label: 'Otevírání e-mailů', action: () => {
           if (window.ErpCellActions && window.ErpCellActions.openEmailPrefDialog) window.ErpCellActions.openEmailPrefDialog();
         } },
+      // CardDAV F1.6 (3.6.2026): připoj si telefon -> při hovoru jméno klienta.
+      { icon: '📱', label: 'Připojit telefon (kontakty)', action: () => {
+          if (window.openCarddavConnect) window.openCarddavConnect();
+        } },
       { divider: true },
       { icon: '⏻', label: 'Odhlásit', danger: true, action: () => document.getElementById('logoutBtn').click() },
     ];
@@ -14743,5 +14747,8 @@
   <!-- Cell actions (2.6.2026): per-user volba otevírání e-mailů (profil menu
        → openEmailPrefDialog). Self-contained, loader fallback bez _erpLoadModule. -->
   <script src="/static/erp/components/erp_cell_actions.js?v=20260602e"></script>
+  <!-- CardDAV F1.6 (3.6.2026, Marti — "kontakty pro Pavla"): self-service
+       připojení telefonu (token + návod). window.openCarddavConnect(). -->
+  <script src="/static/carddav_connect.js?v=20260603a"></script>
 </body>
 </html>

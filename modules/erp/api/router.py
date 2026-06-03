@@ -5191,6 +5191,68 @@ async def set_user_prefs(req: Request) -> JSONResponse:
 # Jednoklik: spuštění = schválení. Auth: parent session (UI) NEBO X-Deploy-Token
 # (NB skript / push-to-deploy). Token z env STRATEGIE_DEPLOY_TOKEN.
 
+# ── Koordinace dvou instancí Claude (23 Marti / 24 Kristy) — Marti 3.6.2026 ──
+# Advisory lock serializuje cloud deploy (git pull + restart) — dvě instance
+# nesmí pullovat/restartovat současně. Presence board (fw.claude_instance)
+# eviduje, kdo je online + co dělá.
+_DEPLOY_LOCK_KEY = 778899   # pg_advisory_lock klíč pro /deploy/now
+_CLAUDE_INSTANCE_NAMES = {"23": "Marti", "24": "Kristy"}
+
+
+def _record_instance_presence(instance_id, action: str, hostname=None) -> None:
+    """Upsert fw.claude_instance (presence board). Best-effort — nikdy neshodí
+    endpoint. Volá se na každý bridge call (deploy / sql / restart / heartbeat)."""
+    iid = str(instance_id or "").strip()
+    if not iid or iid == "?":
+        return
+    try:
+        from core.database_data import get_data_session as _gp_pi
+        from sqlalchemy import text as _tp_pi
+        name = _CLAUDE_INSTANCE_NAMES.get(iid)
+        s = _gp_pi()
+        try:
+            s.execute(_tp_pi(
+                "INSERT INTO fw.claude_instance "
+                "(instance_id, instance_name, hostname, last_seen_at, last_action, last_action_at) "
+                "VALUES (:id, :nm, :host, now(), :act, now()) "
+                "ON CONFLICT (instance_id) DO UPDATE SET "
+                "  last_seen_at = now(), last_action = EXCLUDED.last_action, last_action_at = now(), "
+                "  instance_name = COALESCE(EXCLUDED.instance_name, fw.claude_instance.instance_name), "
+                "  hostname = COALESCE(EXCLUDED.hostname, fw.claude_instance.hostname)"
+            ), {"id": iid, "nm": name, "host": (str(hostname).strip() or None) if hostname else None,
+                "act": action})
+            s.commit()
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+
+def _active_instances(exclude_id=None, within_min: int = 3) -> list:
+    """Vrátí instance s heartbeatem < within_min (online). exclude_id vynechá
+    volajícího (pro 'kdo DALŠÍ je aktivní')."""
+    try:
+        from core.database_data import get_data_session as _gp_ai
+        from sqlalchemy import text as _tp_ai
+        s = _gp_ai()
+        try:
+            rows = s.execute(_tp_ai(
+                "SELECT instance_id, instance_name, hostname, last_action, "
+                "  EXTRACT(EPOCH FROM (now() - last_seen_at))::int AS seen_ago_s "
+                "FROM fw.claude_instance "
+                "WHERE last_seen_at > now() - make_interval(mins => :m) "
+                "ORDER BY instance_id"
+            ), {"m": within_min}).mappings().all()
+            out = [dict(r) for r in rows]
+            if exclude_id:
+                out = [r for r in out if str(r.get("instance_id")) != str(exclude_id)]
+            return out
+        finally:
+            s.close()
+    except Exception:
+        return []
+
+
 @api_router.get("/deploy/preview")
 async def deploy_preview(req: Request) -> JSONResponse:
     """Náhled co se nasadí (pro confirm dialog + parent-check pro UI tlačítko).
@@ -5253,21 +5315,45 @@ async def deploy_now(req: Request) -> JSONResponse:
     _inst = str(body.get("instance_id") or "").strip()
     if _inst and _inst != "?":
         desc = "[Claude-%s] %s" % (_inst, desc)
+    # Presence board (Marti 3.6.): zaznamenej, ze instance prave deployuje.
+    _record_instance_presence(_inst, "deploy", body.get("hostname"))
 
-    prop = _dep.propose_deployment(
-        description=desc, conversation_id=None, proposed_by_user_id=proposed_by,
-    )
-    if not prop.get("ok"):
-        # not deployable (dirty / already up-to-date / fetch fail) — vrať důvod
-        return JSONResponse(prop, status_code=200)
-
-    pid = prop["proposal_id"]
-    result = _dep._execute_deployment(pid)  # git pull + marker (pending→deployed)
-    result.setdefault("proposal_id", pid)
-    result["files_changed"] = prop.get("files_changed")
-    result["target_sha"] = prop.get("target_sha")
-    result["commit_message"] = prop.get("commit_message", "")
-    return JSONResponse(result)
+    # Advisory lock (Marti 3.6.): serializace cloud deploye — dvě instance
+    # Claude nesmí pullovat/restartovat současně (kolize git indexu, dvojí
+    # restart). pg_try_advisory_lock → když nezískám, druhý deploy běží.
+    from core.database_data import get_data_session as _gl_dn
+    from sqlalchemy import text as _tl_dn
+    _lock_sess = _gl_dn()
+    try:
+        _got = _lock_sess.execute(
+            _tl_dn("SELECT pg_try_advisory_lock(:k)"), {"k": _DEPLOY_LOCK_KEY}
+        ).scalar()
+        if not _got:
+            others = _active_instances(exclude_id=_inst)
+            who = ", ".join("Claude-%s" % o["instance_id"] for o in others) or "jiná instance"
+            return JSONResponse({
+                "ok": False, "reason": "deploy_locked",
+                "message": "Jiný deploy právě běží (%s) — zkus za chvíli." % who,
+            }, status_code=200)
+        try:
+            prop = _dep.propose_deployment(
+                description=desc, conversation_id=None, proposed_by_user_id=proposed_by,
+            )
+            if not prop.get("ok"):
+                # not deployable (dirty / already up-to-date / fetch fail)
+                return JSONResponse(prop, status_code=200)
+            pid = prop["proposal_id"]
+            result = _dep._execute_deployment(pid)  # git pull + marker
+            result.setdefault("proposal_id", pid)
+            result["files_changed"] = prop.get("files_changed")
+            result["target_sha"] = prop.get("target_sha")
+            result["commit_message"] = prop.get("commit_message", "")
+            return JSONResponse(result)
+        finally:
+            _lock_sess.execute(_tl_dn("SELECT pg_advisory_unlock(:k)"), {"k": _DEPLOY_LOCK_KEY})
+            _lock_sess.commit()
+    finally:
+        _lock_sess.close()
 
 
 @api_router.post("/restart-api")
@@ -5327,6 +5413,8 @@ async def diag_sql(req: Request) -> JSONResponse:
     _inst = str(body.get("instance_id") or "").strip()
     if actor == "token" and _inst and _inst != "?":
         actor = "Claude-%s" % _inst
+    # Presence board (Marti 3.6.): instance prave bezi SQL pres bridge.
+    _record_instance_presence(_inst, "sql", body.get("hostname"))
     if not sql:
         return JSONResponse({"ok": False, "error": "sql chybí"}, status_code=400)
 
@@ -5509,6 +5597,39 @@ async def diag_write_status(req_id: int, req: Request) -> JSONResponse:
         return JSONResponse(jsonable_encoder({"ok": True, **dict(row)}))
     finally:
         ds.close()
+
+
+# ── Presence board dvou instancí Claude (Marti 3.6.2026) ────────────────────
+@api_router.post("/instance/heartbeat")
+async def instance_heartbeat(req: Request) -> JSONResponse:
+    """Watcher periodicky (~30 s) hlásí, že žije. Auth: X-Deploy-Token.
+    Upsert fw.claude_instance + vrátí ostatní aktivní instance (awareness)."""
+    import os as _os_hb
+    token = req.headers.get("X-Deploy-Token")
+    env_token = _os_hb.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env_token and token == env_token):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    iid = str(body.get("instance_id") or "").strip()
+    if not iid or iid == "?":
+        return JSONResponse({"ok": False, "error": "instance_id chybí"}, status_code=400)
+    _record_instance_presence(iid, str(body.get("action") or "heartbeat"), body.get("hostname"))
+    return JSONResponse(jsonable_encoder({"ok": True, "others": _active_instances(exclude_id=iid)}))
+
+
+@api_router.get("/instance/active")
+async def instance_active(req: Request) -> JSONResponse:
+    """Kdo je online (heartbeat < 3 min). Parent session NEBO X-Deploy-Token."""
+    import os as _os_ia
+    token = req.headers.get("X-Deploy-Token")
+    env_token = _os_ia.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env_token and token == env_token):
+        uid = _get_uid(req)
+        _require_parent(uid)
+    return JSONResponse(jsonable_encoder({"ok": True, "instances": _active_instances()}))
 
 
 @api_router.patch("/design/{entity_type}/{row_id}")

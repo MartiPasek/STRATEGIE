@@ -237,7 +237,7 @@
 
     card.innerHTML =
       '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
-      '<div style="font-size:17px;font-weight:700;color:#e8eef5;">📱 Připojit telefon — kontakty</div>' +
+      '<div style="font-size:17px;font-weight:700;color:#e8eef5;">📱 Synchronizace s telefonem</div>' +
       '<button type="button" data-cdav-close style="background:transparent;border:none;' +
       'color:#9fb0c4;font-size:22px;line-height:1;cursor:pointer;">×</button></div>' +
 
@@ -297,7 +297,7 @@
         rf.disabled = false; rf.innerHTML = old;
         if (j && j.ok) {
           _toast("✓ Sjednoceno " + (j.refreshed || 0) + " z " + (j.total || 0) +
-                 " kontaktů. V telefonu ťukni „Synchronizovat".");
+                 " kontaktů. V telefonu ťukni Synchronizovat.");
         } else { _toast("Obnovení se nepodařilo."); }
       });
     });

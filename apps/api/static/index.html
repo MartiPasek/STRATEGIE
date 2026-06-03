@@ -7700,7 +7700,7 @@
           if (window.ErpCellActions && window.ErpCellActions.openEmailPrefDialog) window.ErpCellActions.openEmailPrefDialog();
         } },
       // CardDAV F1.6 (3.6.2026): připoj si telefon -> při hovoru jméno klienta.
-      { icon: '📱', label: 'Připojit telefon (kontakty)', action: () => {
+      { icon: '📱', label: 'Synchronizace s telefonem', action: () => {
           if (window.openCarddavConnect) window.openCarddavConnect();
         } },
       { divider: true },
@@ -14749,6 +14749,6 @@
   <script src="/static/erp/components/erp_cell_actions.js?v=20260602e"></script>
   <!-- CardDAV F1.6 (3.6.2026, Marti — "kontakty pro Pavla"): self-service
        připojení telefonu (token + návod). window.openCarddavConnect(). -->
-  <script src="/static/carddav_connect.js?v=20260603e"></script>
+  <script src="/static/carddav_connect.js?v=20260603f"></script>
 </body>
 </html>

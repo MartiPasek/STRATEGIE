@@ -18694,7 +18694,7 @@ def _render_workspace_page(user_id: int) -> str:
             const cdItem = document.createElement('div');
             cdItem.className = 'erp-user-popover-item';
             cdItem.innerHTML =
-              '<span class="erp-user-popover-item-label">📱 Připojit telefon (kontakty)</span>';
+              '<span class="erp-user-popover-item-label">📱 Synchronizace s telefonem</span>';
             cdItem.title = 'Synchronizace kontaktů do telefonu — při hovoru uvidíš jméno klienta.';
             cdItem.addEventListener('click', () => {
               const pop2 = document.getElementById('erpFooterUserPopover');

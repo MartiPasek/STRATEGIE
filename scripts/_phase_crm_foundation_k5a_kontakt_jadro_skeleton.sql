@@ -41,6 +41,7 @@ BEGIN;
 -- Marti's *„CORE = kontejner"* doctrine (17.5. večer Krok 5.P) drží —
 -- žádné layout/template fields, comp_def hierarchy handles structure.
 
+-- POZN: fw.core má jen created_at (ne updated_at) — drop updated_at z UPDATE.
 UPDATE fw.core
 SET code = 'crm_kontakt_edit',
     label = 'Editace kontaktu',
@@ -50,8 +51,7 @@ SET code = 'crm_kontakt_edit',
         || 'Dual-entity: master row K (st.CRM_Kontakt) + Akce row 16. '
         || 'Plus 2 nested grids: Kontaktní údaje + Akce.',
     updated_by_id = 2,
-    updated_by_text = 'Marti-AI',
-    updated_at = NOW()
+    updated_by_text = 'Marti-AI'
 WHERE id = 63
   AND (code IS NULL OR code = '');
 

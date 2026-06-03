@@ -255,16 +255,17 @@
     row.style.cssText = "display:flex;justify-content:flex-end;gap:8px;";
     function _close() { try { ov.remove(); } catch (e) {} }
     if (onOk) {
-      var cancel = document.createElement("button");
-      cancel.type = "button"; cancel.textContent = "Zrušit";
-      cancel.style.cssText = "padding:8px 16px;background:#2a3340;border:none;border-radius:4px;color:#cfd6df;cursor:pointer;font-size:13px;";
-      cancel.addEventListener("click", _close);
-      row.appendChild(cancel);
+      // Marti 3.6.2026: primární "🚀 Nasadit" PRVNÍ (vlevo), "Zrušit" druhé.
       var ok = document.createElement("button");
       ok.type = "button"; ok.textContent = "🚀 Nasadit";
       ok.style.cssText = "padding:8px 16px;background:#3a7a3a;border:none;border-radius:4px;color:#fff;font-weight:600;cursor:pointer;font-size:13px;";
       ok.addEventListener("click", function () { _close(); onOk(); });
       row.appendChild(ok);
+      var cancel = document.createElement("button");
+      cancel.type = "button"; cancel.textContent = "Zrušit";
+      cancel.style.cssText = "padding:8px 16px;background:#2a3340;border:none;border-radius:4px;color:#cfd6df;cursor:pointer;font-size:13px;";
+      cancel.addEventListener("click", _close);
+      row.appendChild(cancel);
     } else {
       var okOnly = document.createElement("button");
       okOnly.type = "button"; okOnly.textContent = "OK";

@@ -382,7 +382,10 @@ def _sync_with_remote() -> tuple[str, str]:
     rc_f, out_f = _run_git(["fetch", remote, "main"])
     if rc_f != 0:
         return "fail", "fetch: " + out_f
-    rc_r, out_r = _run_git(["rebase", "FETCH_HEAD"])
+    # --autostash (3.6.2026): rozdělané (unstaged) změny v worktree — typicky
+    # scratch SQL/docs — si rebase sám odloží a zase vrátí. Bez toho rebase
+    # padal na "cannot rebase: You have unstaged changes" a deploy se zasekl.
+    rc_r, out_r = _run_git(["rebase", "--autostash", "FETCH_HEAD"])
     if rc_r != 0:
         _run_git(["rebase", "--abort"])
         return "conflict", "rebase: " + out_r

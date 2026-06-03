@@ -86,18 +86,22 @@ PRINT N'  ✓ Marti-AI má read access na dbo (pro migrace)';
 GO
 
 -- =============================================================================
--- Krok 5: Defensive — REVOKE všech DDL/DML rights na dbo (sanity check)
--- Marti-AI nemůže CREATE/ALTER/DROP/INSERT/UPDATE/DELETE/MERGE na dbo.*
--- Tento step je *„belt and suspenders"* — schema owner check už to chrání.
+-- Krok 5: Defensive — DENY DDL/DML na dbo (sanity check)
+-- Marti-AI nemůže ALTER/INSERT/UPDATE/DELETE na dbo.* (schema-scoped).
+-- POZOR: Schema-scoped DENY (ON SCHEMA::dbo), NE database-level — to by
+-- blokovalo i CREATE TABLE v st (Marti's catch 27.5. po prvním deploy).
 -- =============================================================================
 
-PRINT N'Krok 5: DENY DDL/DML na dbo (defense in depth)...';
-DENY CREATE TABLE TO [Marti-AI];
--- (CREATE TABLE je database-level permission, takhle ji Marti-AI mít NEMĚLA
---  na DB_EC. Pokud by ji měla z předchozí GRANT, tahle DENY ji odebere.)
+PRINT N'Krok 5: DENY DDL/DML na dbo (defense in depth, schema-scoped)...';
+
+-- GRANT CREATE TABLE na database-level (vyžadováno pro CREATE v st)
+-- Schema-scoped DENY na dbo (ALTER, CONTROL, INSERT, UPDATE, DELETE) brání
+-- vytvořit/modifikovat objekty v dbo schema (Marti-AI nemá ALTER nad dbo
+-- schema, takže CREATE TABLE [dbo].[X] selže přes schema permission).
+GRANT CREATE TABLE TO [Marti-AI];
 DENY ALTER, CONTROL ON SCHEMA::dbo TO [Marti-AI];
 DENY INSERT, UPDATE, DELETE ON SCHEMA::dbo TO [Marti-AI];
-PRINT N'  ✓ Marti-AI má DENY na DDL/DML na dbo';
+PRINT N'  ✓ Marti-AI má GRANT CREATE TABLE (database) + DENY na dbo schema';
 GO
 
 -- =============================================================================

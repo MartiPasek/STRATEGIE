@@ -37,12 +37,81 @@
     document.body.appendChild(b);
   }
 
-  // Ops menu (Marti 1.6.2026): Nasadit / Restartovat API.
+  // Ops menu (Marti 1.6.2026): Nasadit / Restartovat API + Ops akce (3.6.).
   function _menu() {
     _menuDialog("Operace serveru", [
       { label: "🚀 Nasadit nejnovější verzi", primary: true, fn: _startDeploy },
-      { label: "🔄 Restartovat API (recovery)", fn: _confirmRestart },
+      { label: "⚙ Ops akce (restart služeb)…", fn: _opsMenu },
+      { label: "📜 Audit ops akcí", fn: _opsLog },
     ]);
+  }
+
+  // Ops framework (Marti 3.6.2026): pojmenované whitelistované akce z UI.
+  // Eliminace ručního PowerShellu — vše přes confirm + audit do DB.
+  var OPS_ACTIONS = "/api/v1/erp/ops/actions";
+  var OPS_REQUEST = "/api/v1/erp/ops/request";
+  var OPS_LOG = "/api/v1/erp/ops/log";
+
+  function _opsMenu() {
+    fetch(OPS_ACTIONS, { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j || !j.actions || !j.actions.length) { _toast("Žádné ops akce", true); return; }
+        var items = j.actions.map(function (a) {
+          return { label: "⚙ " + a.label, fn: function () { _opsConfirm(a); } };
+        });
+        _menuDialog("Ops akce", items);
+      })
+      .catch(function () { _toast("Ops akce: síť", true); });
+  }
+
+  function _opsConfirm(a) {
+    _dialog(
+      a.label + "?",
+      "Spustí pojmenovanou ops akci na cíli „" + a.target + "“. " +
+      "Akce se zapíše do auditu (kdo / kdy / výsledek).",
+      function () { _opsDo(a); }
+    );
+  }
+
+  function _opsDo(a) {
+    _toast("Spouštím: " + a.label + "…");
+    fetch(OPS_REQUEST, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ action_key: a.action_key }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok) {
+          _toast(j.remote
+            ? ("✓ Zařazeno — " + (j.message || "agent provede do ~30 s") + " (audit #" + j.request_id + ")")
+            : ("✓ Hotovo: " + (j.result || j.status || "ok") + " (audit #" + j.request_id + ")"), false);
+        } else {
+          _toast("Ops: " + ((j && j.error) || "selhalo"), true);
+        }
+      })
+      .catch(function () { _toast("Ops selhalo (síť)", true); });
+  }
+
+  function _opsLog() {
+    fetch(OPS_LOG, { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j || !j.log) { _toast("Audit: nedostupné", true); return; }
+        var lines = j.log.length
+          ? j.log.map(function (r) {
+              var st = r.status === "done" ? "✓" : r.status === "error" ? "✕"
+                     : r.status === "pending" ? "⏳" : r.status === "ack" ? "▶" : "·";
+              var when = (r.created_at || "").replace("T", " ").slice(0, 16);
+              return st + " #" + r.id + " " + r.action_key + " · " + (r.requested_by_name || "?") +
+                     " · " + when + (r.result ? " · " + String(r.result).slice(0, 60) : "");
+            }).join("\n")
+          : "(zatím žádné ops akce)";
+        _dialog("Audit ops akcí (posledních 30)", lines, null);
+      })
+      .catch(function () { _toast("Audit: síť", true); });
   }
 
   function _confirmRestart() {

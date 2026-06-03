@@ -5619,7 +5619,12 @@ async def instance_heartbeat(req: Request) -> JSONResponse:
     if not iid or iid == "?":
         return JSONResponse({"ok": False, "error": "instance_id chybí"}, status_code=400)
     _record_instance_presence(iid, str(body.get("action") or "heartbeat"), body.get("hostname"))
-    return JSONResponse(jsonable_encoder({"ok": True, "others": _active_instances(exclude_id=iid)}))
+    # Ops framework (Marti 3.6.): watcher si v odpovedi vyzvedne pending ops
+    # pro svou instanci (napr. restart_watcher) — oznaci je ack, provede, reportne.
+    ops = _ops_pending_for_instance(iid)
+    return JSONResponse(jsonable_encoder({
+        "ok": True, "others": _active_instances(exclude_id=iid), "ops": ops,
+    }))
 
 
 @api_router.get("/instance/active")
@@ -5632,6 +5637,198 @@ async def instance_active(req: Request) -> JSONResponse:
         uid = _get_uid(req)
         _require_parent(uid)
     return JSONResponse(jsonable_encoder({"ok": True, "instances": _active_instances()}))
+
+
+# ── Ops framework (Marti 3.6.2026): eliminovat ručně spouštěný PowerShell ────
+# Whitelist pojmenovaných akcí (žádný volný příkaz). Parent + confirm + audit
+# do fw.ops_request. Cloud akce běží inline; remote (instance/EC-SERVER2) jdou
+# do fronty, agent (watcher) si je vyzvedne v heartbeatu.
+_OPS_ACTIONS = {
+    "restart_watcher_23": {
+        "label": "Restartovat watcher Claude-23 (Marti NB)",
+        "target": "instance:23", "remote": True, "op": "restart_self",
+    },
+    "restart_watcher_24": {
+        "label": "Restartovat watcher Claude-24 (Kristy)",
+        "target": "instance:24", "remote": True, "op": "restart_self",
+    },
+    "restart_api": {
+        "label": "Restartovat cloud API (recovery)",
+        "target": "cloud", "remote": False,
+    },
+}
+
+
+def _ops_pending_for_instance(iid: str) -> list:
+    """Vrátí pending ops pro instanci a označí je 'ack' (picked_at). Watcher je
+    provede + reportne přes /ops/{id}/result. Best-effort."""
+    target = "instance:%s" % iid
+    try:
+        from core.database_data import get_data_session as _gp_op
+        from sqlalchemy import text as _tp_op
+        s = _gp_op()
+        try:
+            rows = s.execute(_tp_op(
+                "SELECT id, action_key, params FROM fw.ops_request "
+                "WHERE target = :t AND status = 'pending' ORDER BY id ASC"
+            ), {"t": target}).mappings().all()
+            out = [dict(r) for r in rows]
+            if out:
+                ids = [r["id"] for r in out]
+                s.execute(_tp_op(
+                    "UPDATE fw.ops_request SET status='ack', picked_at=now() "
+                    "WHERE id = ANY(:ids)"
+                ), {"ids": ids})
+                s.commit()
+            # přidej op-handler key z registru (watcher ví, co dělat)
+            for r in out:
+                meta = _OPS_ACTIONS.get(r["action_key"], {})
+                r["op"] = meta.get("op")
+            return out
+        finally:
+            s.close()
+    except Exception:
+        return []
+
+
+@api_router.post("/ops/request")
+async def ops_request(req: Request) -> JSONResponse:
+    """Parent požádá o pojmenovanou ops akci (z whitelistu). Cloud akce běží
+    hned; remote jdou do fronty pro agenta. Vše do fw.ops_request (audit)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    action_key = str(body.get("action_key") or "").strip()
+    meta = _OPS_ACTIONS.get(action_key)
+    if not meta:
+        return JSONResponse({"ok": False, "error": "neznámá akce (mimo whitelist)"}, status_code=400)
+
+    # jméno žadatele pro audit
+    name = None
+    try:
+        from core.database_core import get_core_session as _gcs_op
+        from modules.core.infrastructure.models_core import User as _U_op
+        _cs = _gcs_op()
+        try:
+            u = _cs.query(_U_op).filter_by(id=uid).first()
+            if u:
+                name = (u.short_name or getattr(u, "first_name", None) or ("#%s" % uid))
+        finally:
+            _cs.close()
+    except Exception:
+        pass
+
+    from core.database_data import get_data_session as _gp_or
+    from sqlalchemy import text as _tp_or
+    s = _gp_or()
+    try:
+        rid = s.execute(_tp_or(
+            "INSERT INTO fw.ops_request (action_key, target, status, requested_by_user_id, requested_by_name) "
+            "VALUES (:ak, :tg, 'pending', :uid, :nm) RETURNING id"
+        ), {"ak": action_key, "tg": meta["target"], "uid": uid, "nm": name}).scalar()
+        s.commit()
+    finally:
+        s.close()
+
+    # Cloud akce → spustit hned inline.
+    if not meta.get("remote"):
+        result = _ops_execute_cloud(action_key, rid, uid)
+        return JSONResponse(jsonable_encoder({"ok": True, "request_id": rid,
+                                              "remote": False, **result}))
+    # Remote akce → ve frontě, agent si ji vyzvedne v heartbeatu (do ~30 s).
+    return JSONResponse({"ok": True, "request_id": rid, "remote": True,
+                         "message": "Příkaz zařazen — %s provede do ~30 s." % meta["target"]})
+
+
+def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
+    """Spustí cloud-lokální ops akci (běží na cloud APP). Zatím: restart_api
+    přes RESTART-WATCHER marker. Aktualizuje fw.ops_request."""
+    from core.database_data import get_data_session as _gp_ec
+    from sqlalchemy import text as _tp_ec
+    status = "done"
+    result = ""
+    try:
+        if action_key == "restart_api":
+            from modules.conversation.application import deployment_service as _dep_ec
+            ok, info = _dep_ec._touch_restart_marker(0, "ops_restart_api_user_%s" % uid)
+            status = "done" if ok else "error"
+            result = "marker: %s" % info
+        else:
+            status, result = "error", "cloud handler chybí pro %s" % action_key
+    except Exception as exc:
+        status, result = "error", "%s: %s" % (type(exc).__name__, exc)
+    try:
+        s = _gp_ec()
+        try:
+            s.execute(_tp_ec("UPDATE fw.ops_request SET status=:st, result=:r, finished_at=now() WHERE id=:id"),
+                      {"st": status, "r": result[:4000], "id": rid})
+            s.commit()
+        finally:
+            s.close()
+    except Exception:
+        pass
+    return {"status": status, "result": result}
+
+
+@api_router.post("/ops/{req_id}/result")
+async def ops_result(req_id: int, req: Request) -> JSONResponse:
+    """Agent (watcher) reportuje výsledek ops akce. Auth: X-Deploy-Token."""
+    import os as _os_orr
+    token = req.headers.get("X-Deploy-Token")
+    env_token = _os_orr.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env_token and token == env_token):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    st = (str(body.get("status") or "done")).strip()
+    if st not in ("done", "error", "ack"):
+        st = "done"
+    result = str(body.get("result") or "")[:4000]
+    from core.database_data import get_data_session as _gp_orr
+    from sqlalchemy import text as _tp_orr
+    s = _gp_orr()
+    try:
+        s.execute(_tp_orr(
+            "UPDATE fw.ops_request SET status=:st, result=:r, finished_at=now() WHERE id=:id"
+        ), {"st": st, "r": result, "id": req_id})
+        s.commit()
+    finally:
+        s.close()
+    return JSONResponse({"ok": True})
+
+
+@api_router.get("/ops/actions")
+async def ops_actions(req: Request) -> JSONResponse:
+    """Whitelist dostupných ops akcí pro UI (parent-only)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    items = [{"action_key": k, "label": v["label"], "target": v["target"]}
+             for k, v in _OPS_ACTIONS.items()]
+    return JSONResponse({"ok": True, "actions": items})
+
+
+@api_router.get("/ops/log")
+async def ops_log(req: Request) -> JSONResponse:
+    """Audit posledních ops akcí (parent-only)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    from core.database_data import get_data_session as _gp_ol
+    from sqlalchemy import text as _tp_ol
+    s = _gp_ol()
+    try:
+        rows = s.execute(_tp_ol(
+            "SELECT id, action_key, target, status, requested_by_name, "
+            "  created_at, finished_at, result "
+            "FROM fw.ops_request ORDER BY id DESC LIMIT 30"
+        )).mappings().all()
+        return JSONResponse(jsonable_encoder({"ok": True, "log": [dict(r) for r in rows]}))
+    finally:
+        s.close()
 
 
 @api_router.patch("/design/{entity_type}/{row_id}")

@@ -532,9 +532,63 @@ def _process_deploy() -> None:
     _consume_deploy()
 
 
+def _ops_report(req_id, status: str, result: str) -> None:
+    """Reportni vysledek ops akce zpet na cloud (audit). Best-effort."""
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
+    url = CLOUD_URL.replace("/diag-sql", f"/ops/{req_id}/result")
+    payload = json.dumps({"status": status, "result": result}).encode("utf-8")
+    rq = urllib.request.Request(
+        url, data=payload, method="POST",
+        headers={"Content-Type": "application/json", "X-Deploy-Token": token},
+    )
+    try:
+        with urllib.request.urlopen(rq, timeout=10) as resp:
+            resp.read()
+    except Exception:
+        pass
+
+
+def _restart_self() -> None:
+    """Restartuj vlastni NSSM sluzbu (STRATEGIE-CLAUDE-SQL). Spusti odpojeny
+    PowerShell, ktery po 3 s sluzbu restartne (= zabije tento proces a spusti
+    fresh s aktualnim kodem). LocalSystem ma na Restart-Service prava."""
+    svc = os.environ.get("CLAUDE_WATCHER_SERVICE", "STRATEGIE-CLAUDE-SQL")
+    cmd = ('powershell -NoProfile -ExecutionPolicy Bypass -Command '
+           '"Start-Sleep -Seconds 3; Restart-Service -Name \'%s\' -Force"' % svc)
+    flags = 0
+    try:
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    except Exception:
+        flags = 0
+    try:
+        subprocess.Popen(cmd, shell=True, creationflags=flags,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    except Exception as exc:
+        _log(f"restart_self spawn failed: {exc}")
+
+
+def _handle_ops(ops: list) -> None:
+    """Zpracuj pending ops z heartbeat odpovedi (whitelist akci z cloudu)."""
+    for op in (ops or []):
+        rid = op.get("id")
+        kind = op.get("op")
+        _log(f"OPS #{rid}: {op.get('action_key')} (op={kind})")
+        if kind == "restart_self":
+            _ops_report(rid, "done", f"restart watcheru {INSTANCE_LABEL} na {HOSTNAME} (za ~3 s)")
+            _log(f"OPS #{rid}: restartuji vlastni sluzbu za 3 s…")
+            _restart_self()
+            time.sleep(1.0)
+            sys.exit(0)   # restarter naběhne fresh proces
+        else:
+            _ops_report(rid, "error", f"neznama op '{kind}' na watcheru")
+
+
 def _send_heartbeat(action: str = "heartbeat") -> None:
     """Presence (Marti 3.6.2026): POST /instance/heartbeat — cloud upsertne
-    fw.claude_instance. Best-effort, tichy fail. Bez instance_id (="?") skip."""
+    fw.claude_instance. Best-effort, tichy fail. Bez instance_id (="?") skip.
+    V odpovedi muze prijit 'ops' (pending akce pro tuhle instanci)."""
     if INSTANCE_ID == "?":
         return
     token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
@@ -554,6 +608,11 @@ def _send_heartbeat(action: str = "heartbeat") -> None:
             who = ", ".join("Claude-%s (%s)" % (o.get("instance_id"), o.get("instance_name") or "?")
                             for o in others)
             _log(f"heartbeat OK · DALŠÍ AKTIVNÍ: {who}")
+        ops = (j or {}).get("ops") or []
+        if ops:
+            _handle_ops(ops)   # může proces ukončit (restart_self)
+    except SystemExit:
+        raise
     except Exception:
         pass  # presence je nice-to-have, nikdy neblokuj watcher
 

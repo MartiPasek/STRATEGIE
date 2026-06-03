@@ -221,23 +221,33 @@ def _drive(ds, run_id, from_step_no: int) -> dict:
                 ctx_kind = act_registry.context_of(action["code"]) if action else None
 
                 if ctx_kind == "frontend":
-                    # deferred — pipeline čeká na prohlížeč
-                    token = uuid.uuid4().hex
                     inputs = _resolve_inputs(ds, run_id, run.get("context") or {},
                                              task_def.get("input_mapping"))
-                    ds.execute(_t("UPDATE fw.act_run_step SET status='paused', input=CAST(:i AS jsonb) WHERE id=:id"),
-                               {"i": json.dumps(inputs), "id": run_step_id})
-                    ds.execute(_t("UPDATE fw.act_run SET status='paused', resume_token=:tok WHERE id=:id"),
-                               {"tok": token, "id": run_id})
-                    _log(ds, run_id, f"paused na FE akci {action['code']} (step {cur})",
-                         level="info", step_id=run_step_id)
-                    ds.commit()
-                    return {"status": "paused", "run_id": run_id, "resume_token": token,
-                            "client_action": {"handler": action["code"], "step_no": cur,
-                                              "params": task_def.get("params_schema") or {},
-                                              "inputs": inputs}}
-
-                if ctx_kind == "backend":
+                    _params = task_def.get("params_schema") or {}
+                    if (run.get("context") or {}).get("_auto_fe"):
+                        # smoke/auto mód: FE krok se nesimuluje v prohlížeči, auto-dokončí
+                        # (server-side průchod celé pipeline pro ověření engine).
+                        auto_rc = _params.get("smoke_result") or (
+                            "closed_saved" if action["code"] == "open_core" else "ok")
+                        auto_out = _params.get("smoke_output") or {}
+                        _put_data(ds, run_id, step["step_no"], auto_out)
+                        _log(ds, run_id, f"auto-fe {action['code']} (step {cur}) -> {auto_rc}",
+                             level="info", step_id=run_step_id, detail={"inputs": inputs})
+                        result = {"result_code": auto_rc, "output": auto_out}
+                    else:
+                        # deferred — pipeline čeká na prohlížeč
+                        token = uuid.uuid4().hex
+                        ds.execute(_t("UPDATE fw.act_run_step SET status='paused', input=CAST(:i AS jsonb) WHERE id=:id"),
+                                   {"i": json.dumps(inputs), "id": run_step_id})
+                        ds.execute(_t("UPDATE fw.act_run SET status='paused', resume_token=:tok WHERE id=:id"),
+                                   {"tok": token, "id": run_id})
+                        _log(ds, run_id, f"paused na FE akci {action['code']} (step {cur})",
+                             level="info", step_id=run_step_id)
+                        ds.commit()
+                        return {"status": "paused", "run_id": run_id, "resume_token": token,
+                                "client_action": {"handler": action["code"], "step_no": cur,
+                                                  "params": _params, "inputs": inputs}}
+                elif ctx_kind == "backend":
                     result = _run_be_task(ds, run, step, task_def, action)
                 else:
                     _log(ds, run_id, f"step {cur}: neznámý handler '{action['code'] if action else '?'}'",

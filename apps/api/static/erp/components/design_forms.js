@@ -7581,6 +7581,8 @@
       let reqCheck = null;
       // Krok 5.Z (30.5.2026, Marti: memo fill): "Roztáhnout (fill)" jen pro memo.
       let fillCheck = null;
+      // Marti 3.6.: výška memo komponenty (px). Jen memo (víceřádkové).
+      let heightInput = null;
       if (!isContainer) {
         // Phase 38.4 Krok 14f-M (text length validation, advanced):
         // Max/Min length textu (HTML5 maxlength/minlength). Optional.
@@ -7633,6 +7635,16 @@
         // wrap flex:1 + textarea height:100% (vyplni vysku tab/panel flex-column
         // kontejneru, jako alClient). Leaf fieldy jinak fill nemaji.
         if (field && field.comp_type_code === "memo") {
+          // Výška (px) — Marti 3.6. Když je prázdné, použije se default ErpMemo
+          // (auto-resize). Při fill=true má přednost fill (height:100%).
+          heightInput = document.createElement("input");
+          heightInput.type = "number";
+          heightInput.min = "0";
+          heightInput.style.cssText = _inputStyle;
+          heightInput.value = currentLayout.height != null ? String(currentLayout.height) : "";
+          heightInput.placeholder = "px (např. 120 — výška memo, empty = auto)";
+          basicPaneEl.appendChild(_row("Výška (px)", heightInput));
+
           const fillWrap = document.createElement("div");
           fillWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
           const fillLbl = document.createElement("label");
@@ -8271,6 +8283,10 @@
             // Krok 5.Z memo fill flag (jen memo ma fillCheck)
             if (fillCheck && fillCheck.checked) newLayout.fill = true;
             else delete newLayout.fill;
+            // Marti 3.6.: výška memo (px). Empty = auto (ErpMemo default).
+            const newHeight = heightInput && heightInput.value.trim() ? parseInt(heightInput.value, 10) : null;
+            if (newHeight == null || isNaN(newHeight) || newHeight <= 0) delete newLayout.height;
+            else newLayout.height = newHeight;
           }
 
           // Phase 38.4 Krok 14g Etapa F Krok 5.J-A (16.5.2026 ~23:30):
@@ -11356,6 +11372,15 @@
             // Krok 5.Z (30.5.2026, Marti memo fill): layout.fill -> class
             // erp-field-memo-fill -> CSS flex:1 + textarea height:100%.
             if (memoEl && fieldLayout.fill) memoEl.classList.add("erp-field-memo-fill");
+            // Marti 3.6.: layout.height (px) -> textarea min-height (floor).
+            // Auto-resize ErpMemo to nepřepíše (min-height drží spodní hranici),
+            // memo začne v plné výšce a může dál růst s obsahem. Fill má přednost.
+            else if (memoEl && fieldLayout.height) {
+              try {
+                const _ta = memoEl.querySelector("textarea");
+                if (_ta) _ta.style.minHeight = parseInt(fieldLayout.height, 10) + "px";
+              } catch (e) {}
+            }
             return memoEl;
           }
           // Fallback: _field but multiline (cosmetic — height: 60px)

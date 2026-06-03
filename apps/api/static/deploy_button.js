@@ -24,10 +24,10 @@
   // šetrně, pár rodičů × 1 fetch / 2 min je zanedbatelné). Tune dle potřeby.
   var POLL_MS = 120000;
 
-  // Pravý horní roh. V ERP tam ale sedí DEV badge (top:9px) + Module Health
-  // banner (top:38px right:16px) → raketu posuneme pod ně, ať se nepřekrývají.
+  // Pravý horní roh. V chatu úplně do rohu. V ERP taky nahoru, NAD Module Health
+  // banner — ten je proto v erp_module_kit.js posunutý na top:56px (Kristý 3.6.).
   var IS_ERP = /^\/erp(\/|$)/.test(location.pathname || "");
-  var CORNER = IS_ERP ? "top:74px;right:16px;" : "top:12px;right:12px;";
+  var CORNER = IS_ERP ? "top:8px;right:16px;" : "top:12px;right:12px;";
 
   // Parent-check: preview (bez fetch) vrátí 200 jen rodičům → jinak tlačítko
   // nezobrazíme. Z téže odpovědi rovnou nastavíme úvodní stav (lokální

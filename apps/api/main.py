@@ -631,6 +631,8 @@ app.include_router(erp_router)
 app.include_router(erp_api_router)
 app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.well-known/carddav
 app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa tokenů (/api/v1/erp/carddav/*)
+from modules.act_pipeline.act_router import act_router  # FW Action Pipelines executor (Marti 3.6.)
+app.include_router(act_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

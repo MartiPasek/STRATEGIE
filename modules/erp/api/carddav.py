@@ -28,7 +28,8 @@ import secrets
 from xml.sax.saxutils import escape as _xesc
 
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
+                               RedirectResponse)
 from sqlalchemy import text as _sql
 
 logger = logging.getLogger("strategie.carddav")
@@ -155,6 +156,101 @@ def _resp_ok(href: str, props: str) -> str:
                           methods=["GET", "PROPFIND", "OPTIONS"])
 def well_known(request: Request):
     return RedirectResponse(url="/carddav/", status_code=301)
+
+
+# ── QR handoff stránka pro telefon (F1.6/F1.7) ─────────────────────────────
+# Veřejná (nonce je autorizace) — telefon ji otevře po naskenování QR z PC.
+# Ukáže token + URL + login (každé s tlačítkem Kopírovat) + návod DAVx5/iOS.
+
+def _handoff_page_html(d: dict) -> str:
+    tok = _xesc(d.get("token_plain") or "")
+    url = _xesc(d.get("carddav_url") or "")
+    usr = _xesc(d.get("username") or "")
+    lbl = _xesc(d.get("device_label") or "Telefon")
+    server = (d.get("carddav_url") or "").replace("https://", "").replace(
+        "http://", "").replace("/carddav/", "").rstrip("/")
+    server = _xesc(server)
+
+    def field(label, value, fid):
+        return (
+            '<div class="fld"><div class="lbl">' + label + '</div>'
+            '<div class="row"><code id="' + fid + '">' + value + '</code>'
+            '<button class="cp" data-t="' + fid + '">Kopírovat</button></div></div>')
+
+    return (
+        '<!doctype html><html lang="cs"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>STRATEGIE — připojení kontaktů</title><style>'
+        '*{box-sizing:border-box}body{margin:0;font-family:-apple-system,'
+        'Segoe UI,Roboto,sans-serif;background:#0f1620;color:#e8eef5;'
+        'padding:18px 16px 40px;line-height:1.5}'
+        '.card{max-width:520px;margin:0 auto}'
+        'h1{font-size:19px;margin:4px 0 2px}.sub{color:#9fb0c4;font-size:13px;'
+        'margin-bottom:16px}'
+        '.fld{margin:10px 0}.lbl{font-size:12px;color:#9fb0c4;margin-bottom:3px}'
+        '.row{display:flex;gap:8px;align-items:stretch}'
+        'code{flex:1;background:#1a2531;border:1px solid #2c3a4c;border-radius:8px;'
+        'padding:11px 12px;font-size:14px;color:#dbe6f2;word-break:break-all;'
+        'display:flex;align-items:center}'
+        '.cp{background:#e8b923;color:#1c2530;border:none;border-radius:8px;'
+        'padding:0 16px;font-size:14px;font-weight:700;cursor:pointer;'
+        'white-space:nowrap}'
+        '.cp.ok{background:#2f9e6e;color:#fff}'
+        'h2{font-size:15px;color:#7fd6c2;margin:20px 0 6px}'
+        'ol{margin:0 0 8px 20px;padding:0}li{margin:4px 0;font-size:14px}'
+        '.note{color:#8aa0b8;font-size:12.5px;margin-top:14px}'
+        '.exp{color:#cdb87a;font-size:12px;margin-top:6px}'
+        '</style></head><body><div class="card">'
+        '<h1>📱 Připojení kontaktů STRATEGIE</h1>'
+        '<div class="sub">Pro zařízení „' + lbl + '". Zkopíruj údaje níž do '
+        'aplikace DAVx5 (Android) nebo do Nastavení → Kontakty (iPhone).</div>'
+        + field("Token (heslo)", tok, "f_tok")
+        + field("Adresa (URL)", url, "f_url")
+        + field("Uživatel", usr, "f_usr")
+        + '<div class="exp">⏱ Tato stránka je platná ~' + str(_HANDOFF_TTL_MIN)
+        + ' minut. Token zadej do aplikace co nejdřív.</div>'
+        '<h2>📱 Android</h2><ol>'
+        '<li>Nainstaluj <b>DAVx5</b> (Google Play — malý jednorázový poplatek; '
+        'nebo zdarma přes <b>F-Droid</b>).</li>'
+        '<li>DAVx5 → <b>+</b> → <b>Přihlásit pomocí URL a uživ. jména</b>.</li>'
+        '<li>URL = <b>Adresa</b> výše, Uživatel = <b>Uživatel</b> výše → Pokračovat.</li>'
+        '<li>Heslo = <b>Token</b> výše → Přihlásit.</li>'
+        '<li>Zatrhni <i>Reální / Potenciální klienti</i> → hotovo.</li></ol>'
+        '<h2>🍏 iPhone</h2><ol>'
+        '<li>Nastavení → <b>Kontakty</b> → Účty → Přidat účet → Jiný → <b>CardDAV</b>.</li>'
+        '<li>Server: <b>' + server + '</b></li>'
+        '<li>Uživatel = <b>Uživatel</b>, Heslo = <b>Token</b> výše → Uložit.</li></ol>'
+        '<div class="note">Sync je jednosměrný a jen pro čtení — telefon zrcadlí '
+        'STRATEGII. Sada se doplňuje, jak voláš klientům.</div>'
+        '</div><script>'
+        'function cp(btn){var id=btn.getAttribute("data-t");'
+        'var t=document.getElementById(id).textContent;'
+        'function ok(){btn.textContent="✓ Zkopírováno";btn.classList.add("ok");'
+        'setTimeout(function(){btn.textContent="Kopírovat";btn.classList.remove("ok");},1600);}'
+        'try{if(navigator.clipboard&&navigator.clipboard.writeText){'
+        'navigator.clipboard.writeText(t).then(ok,function(){fb(t,ok);});}'
+        'else fb(t,ok);}catch(e){fb(t,ok);}}'
+        'function fb(t,ok){try{var a=document.createElement("textarea");a.value=t;'
+        'a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);'
+        'a.select();document.execCommand("copy");a.remove();ok();}catch(e){}}'
+        'document.querySelectorAll(".cp").forEach(function(b){'
+        'b.addEventListener("click",function(){cp(b);});});'
+        '</script></body></html>')
+
+
+@carddav_router.get("/carddav-setup/{nonce}")
+def carddav_setup_page(nonce: str) -> HTMLResponse:
+    d = _fetch_handoff(nonce)
+    if not d:
+        return HTMLResponse(
+            '<!doctype html><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<body style="font-family:sans-serif;background:#0f1620;color:#e8eef5;'
+            'padding:30px;text-align:center;line-height:1.6">'
+            '<h2>⏱ Odkaz vypršel</h2><p style="color:#9fb0c4">Tahle stránka už '
+            'není platná. Ve STRATEGII vygeneruj nový přístup a naskenuj QR znovu.</p>'
+            '</body>', status_code=404)
+    return HTMLResponse(_handoff_page_html(d))
 
 
 @carddav_router.api_route(
@@ -368,6 +464,68 @@ def _active_contact_count(uid: int) -> int:
         s.close()
 
 
+_HANDOFF_TTL_MIN = 15  # jak dlouho je QR/odkaz pro telefon platný
+
+
+def _make_handoff(uid: int, plaintext: str, carddav_url: str,
+                  username: str, device_label: str) -> str | None:
+    """Vytvoří jednorázovou handoff stránku (token na telefon přes QR).
+    Vrací nonce, nebo None (např. když tabulka ještě neexistuje — token se
+    vytvoří tak jako tak, jen bez QR)."""
+    nonce = secrets.token_urlsafe(32)
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        # úklid prošlých (best-effort)
+        try:
+            s.execute(_sql('DELETE FROM "user".carddav_handoff '
+                           'WHERE expires_at < now()'))
+        except Exception:
+            pass
+        s.execute(_sql('''
+            INSERT INTO "user".carddav_handoff
+                (nonce, user_id, token_plain, carddav_url, username,
+                 device_label, expires_at)
+            VALUES (:n, :uid, :tok, :url, :usr, :lbl,
+                    now() + (:ttl || ' minutes')::interval)
+        '''), {"n": nonce, "uid": uid, "tok": plaintext, "url": carddav_url,
+               "usr": username, "lbl": device_label,
+               "ttl": str(_HANDOFF_TTL_MIN)})
+        s.commit()
+        return nonce
+    except Exception as exc:
+        s.rollback()
+        logger.warning("[carddav handoff create] %s", exc)
+        return None
+    finally:
+        s.close()
+
+
+def _fetch_handoff(nonce: str) -> dict | None:
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        row = s.execute(_sql('''
+            SELECT token_plain, carddav_url, username, device_label
+            FROM "user".carddav_handoff
+            WHERE nonce = :n AND expires_at > now()
+        '''), {"n": nonce}).mappings().first()
+        if row:
+            try:
+                s.execute(_sql('UPDATE "user".carddav_handoff '
+                               'SET viewed_at = now() WHERE nonce = :n'),
+                          {"n": nonce})
+                s.commit()
+            except Exception:
+                s.rollback()
+        return dict(row) if row else None
+    except Exception as exc:
+        logger.warning("[carddav handoff fetch] %s", exc)
+        return None
+    finally:
+        s.close()
+
+
 def _list_tokens(uid: int) -> list[dict]:
     from core.database_data import get_data_session
     s = get_data_session()
@@ -472,6 +630,12 @@ async def carddav_token_create(request: Request) -> JSONResponse:
     info = _conn_info(request, uid)
     info.update({"ok": True, "token_id": new_id, "device_label": label,
                  "token": plaintext, "tokens": _list_tokens(uid)})
+    # QR handoff: jednorázová stránka pro telefon (token + návod). Best-effort.
+    nonce = _make_handoff(uid, plaintext, info.get("carddav_url", ""),
+                          info.get("username", ""), label)
+    if nonce:
+        info["handoff_url"] = _carddav_base(request) + "/carddav-setup/" + nonce
+        info["handoff_ttl_min"] = _HANDOFF_TTL_MIN
     return JSONResponse(info)
 
 

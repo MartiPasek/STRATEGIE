@@ -131,11 +131,11 @@
 
       '<div style="font-weight:700;color:#7fd6c2;margin:10px 0 4px;">📱 Android (přes DAVx5)</div>' +
       '<ol style="margin:0 0 6px 18px;padding:0;">' +
-      '<li>Z Google Play nainstaluj zdarma appku <strong>DAVx5</strong>.</li>' +
-      '<li>Otevři DAVx5 → <strong>+</strong> → <strong>Přihlásit pomocí URL a hesla</strong>.</li>' +
-      '<li>Základní&nbsp;URL: vlož <code style="color:#bfe;">' + _esc(url) + '</code></li>' +
-      '<li>Uživatel: <code style="color:#bfe;">' + _esc(username) + '</code> · Heslo: vlož <strong>token</strong> výše.</li>' +
-      '<li>Přihlásit → zatrhni adresáře <em>Reální / Potenciální klienti</em> → hotovo.</li>' +
+      '<li>Nainstaluj <strong>DAVx5</strong> (Google Play — malý jednorázový poplatek; nebo zdarma přes <strong>F-Droid</strong>).</li>' +
+      '<li>Otevři DAVx5 → <strong>+</strong> → <strong>Přihlásit pomocí URL a uživ. jména</strong>.</li>' +
+      '<li>URL: <code style="color:#bfe;">' + _esc(url) + '</code> · Uživatel: <code style="color:#bfe;">' + _esc(username) + '</code> → Pokračovat.</li>' +
+      '<li>Heslo: vlož <strong>token</strong> výše → Přihlásit.</li>' +
+      '<li>Zatrhni adresáře <em>Reální / Potenciální klienti</em> → hotovo.</li>' +
       '</ol>' +
 
       '<div style="font-weight:700;color:#7fd6c2;margin:12px 0 4px;">🍏 iPhone (nativně)</div>' +
@@ -154,20 +154,70 @@
   }
 
   function _credentialPanel(info, res) {
-    // res = výsledek POST /token (obsahuje plaintext token 1×)
+    // res = výsledek POST /token (obsahuje plaintext token 1× + handoff_url pro QR)
+    var qrBlock = "";
+    if (res.handoff_url) {
+      qrBlock =
+        '<div style="text-align:center;margin:4px 0 10px;">' +
+        '<div style="font-size:14px;color:#f0d98a;font-weight:700;margin-bottom:8px;">' +
+        '📷 Naskenuj telefonem</div>' +
+        '<div data-cdav-qr="1" data-url="' + _esc(res.handoff_url) + '" ' +
+        'style="display:inline-block;background:#fff;padding:10px;border-radius:10px;' +
+        'min-width:170px;min-height:170px;line-height:0;">' +
+        '<div style="color:#888;font-size:12px;line-height:1.4;padding:64px 12px;">QR…</div></div>' +
+        '<div style="font-size:12.5px;color:#bcd0e6;margin:8px auto 0;max-width:300px;line-height:1.45;">' +
+        'Fotoaparátem (bez instalace appky) → token a návod naskočí přímo v mobilu. ' +
+        'Platí ~' + (res.handoff_ttl_min || 15) + ' min.</div>' +
+        '</div>';
+    }
     return '' +
       '<div style="background:rgba(232,185,35,.08);border:1px solid #6b5a22;' +
       'border-radius:10px;padding:14px;margin-top:12px;">' +
-      '<div style="font-size:13px;color:#f0d98a;font-weight:700;margin-bottom:4px;">' +
+      '<div style="font-size:13px;color:#f0d98a;font-weight:700;margin-bottom:8px;">' +
       '🔑 Přístup pro „' + _esc(res.device_label || "Telefon") + '"</div>' +
-      '<div style="font-size:12px;color:#cdb87a;margin-bottom:10px;">' +
-      'Token se zobrazí <strong>jen teď</strong> — zkopíruj ho do telefonu. ' +
-      'Pak už ho z bezpečnosti neuvidíš (vygeneruješ nový).</div>' +
+      qrBlock +
+      '<details ' + (res.handoff_url ? "" : "open") + ' style="margin-top:4px;">' +
+      '<summary style="cursor:pointer;color:#cdb87a;font-size:12.5px;font-weight:600;">' +
+      'Nebo zadat ručně (token, URL, login + návod)</summary>' +
+      '<div style="font-size:12px;color:#cdb87a;margin:8px 0;">' +
+      'Token se zobrazí <strong>jen teď</strong>. Pak už ho neuvidíš (vygeneruješ nový).</div>' +
       _row("Token", res.token, "token") +
       _row("Adresa", info.carddav_url, "CardDAV URL") +
       _row("Uživatel", info.username, "uživatel") +
       _instructionsHtml(info, info.username, res.token) +
-      '</div>';
+      '</details></div>';
+  }
+
+  // ── QR (lazy-load knihovny z CDN) ────────────────────────────────────────
+  var _qrCbs = null;
+  function _loadQrLib(cb) {
+    if (window.qrcode) { cb(true); return; }
+    if (_qrCbs) { _qrCbs.push(cb); return; }
+    _qrCbs = [cb];
+    var s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js";
+    s.onload = function () { var q = _qrCbs; _qrCbs = null; q.forEach(function (f) { f(!!window.qrcode); }); };
+    s.onerror = function () { var q = _qrCbs; _qrCbs = null; q.forEach(function (f) { f(false); }); };
+    document.head.appendChild(s);
+  }
+  function _renderQr(url, el) {
+    if (!url || !el) return;
+    _loadQrLib(function (ok) {
+      if (!ok || !window.qrcode) {
+        el.innerHTML = '<div style="color:#a33;font-size:12px;line-height:1.4;padding:30px 10px;">QR se nenačetlo — rozbal „ručně" níž.</div>';
+        return;
+      }
+      try {
+        var qr = window.qrcode(0, "M");
+        qr.addData(url);
+        qr.make();
+        el.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 1, scalable: true });
+        var svg = el.querySelector("svg");
+        if (svg) { svg.style.width = "100%"; svg.style.height = "auto"; svg.style.maxWidth = "220px"; svg.style.display = "block"; }
+      } catch (e) {
+        el.innerHTML = '<div style="color:#a33;font-size:12px;line-height:1.4;padding:30px 10px;">QR chyba — rozbal „ručně" níž.</div>';
+      }
+    });
   }
 
   function _render(info, credPanelHtml) {
@@ -230,6 +280,10 @@
     });
 
     _renderCreateArea(card, info);
+
+    // QR (po vykreslení panelu) — naskenuj telefonem → token na mobil.
+    var qrEl = card.querySelector("[data-cdav-qr]");
+    if (qrEl) _renderQr(qrEl.getAttribute("data-url"), qrEl);
   }
 
   function _renderCreateArea(card, info) {

@@ -5264,9 +5264,45 @@ def _record_instance_presence(instance_id, action: str, hostname=None) -> None:
         pass
 
 
+def _update_instance_work(iid: str, body: dict) -> None:
+    """Work-lock + freshness (Marti 3.6.2026): heartbeat nese co instance staví
+    (current_work + files) a stav lokálu (local_head/behind). Uloží do
+    fw.claude_instance. Best-effort — nikdy neshodí heartbeat. Sloupce mohou
+    chybět (před ALTER) → tichý fail."""
+    try:
+        from core.database_data import get_data_session as _gp_uw
+        from sqlalchemy import text as _tp_uw
+        cw = body.get("current_work")
+        cwf = body.get("current_work_files")
+        ws = (str(body.get("work_status") or "").strip() or
+              ("active" if cw else "idle"))
+        lh = body.get("local_head_sha")
+        lb = body.get("local_behind")
+        s = _gp_uw()
+        try:
+            s.execute(_tp_uw(
+                "UPDATE fw.claude_instance SET "
+                "  current_work = :cw, current_work_files = :cwf, "
+                "  current_work_at = CASE WHEN :cw IS NOT NULL AND :cw <> '' "
+                "                         THEN now() ELSE current_work_at END, "
+                "  work_status = :ws, "
+                "  local_head_sha = COALESCE(:lh, local_head_sha), "
+                "  local_behind = COALESCE(:lb, local_behind) "
+                "WHERE instance_id = :id"
+            ), {"cw": cw, "cwf": cwf, "ws": ws, "lh": lh,
+                "lb": (int(lb) if lb is not None else None), "id": iid})
+            s.commit()
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+
 def _active_instances(exclude_id=None, within_min: int = 3) -> list:
     """Vrátí instance s heartbeatem < within_min (online). exclude_id vynechá
-    volajícího (pro 'kdo DALŠÍ je aktivní')."""
+    volajícího (pro 'kdo DALŠÍ je aktivní'). Vč. work-lock (co staví) + freshness
+    (kolik commitů pozadu). current_work jen pokud work_status='active' a není
+    starší 2 h (jinak idle/stale → null)."""
     try:
         from core.database_data import get_data_session as _gp_ai
         from sqlalchemy import text as _tp_ai
@@ -5274,7 +5310,16 @@ def _active_instances(exclude_id=None, within_min: int = 3) -> list:
         try:
             rows = s.execute(_tp_ai(
                 "SELECT instance_id, instance_name, hostname, last_action, "
-                "  EXTRACT(EPOCH FROM (now() - last_seen_at))::int AS seen_ago_s "
+                "  EXTRACT(EPOCH FROM (now() - last_seen_at))::int AS seen_ago_s, "
+                "  CASE WHEN work_status = 'active' "
+                "         AND current_work_at > now() - interval '2 hours' "
+                "       THEN current_work ELSE NULL END AS current_work, "
+                "  CASE WHEN work_status = 'active' "
+                "         AND current_work_at > now() - interval '2 hours' "
+                "       THEN current_work_files ELSE NULL END AS current_work_files, "
+                "  work_status, "
+                "  EXTRACT(EPOCH FROM (now() - current_work_at))::int AS work_age_s, "
+                "  local_head_sha, local_behind "
                 "FROM fw.claude_instance "
                 "WHERE last_seen_at > now() - make_interval(mins => :m) "
                 "ORDER BY instance_id"
@@ -5286,7 +5331,27 @@ def _active_instances(exclude_id=None, within_min: int = 3) -> list:
         finally:
             s.close()
     except Exception:
-        return []
+        # Fallback (sloupce ještě nejsou / chyba) — základní presence bez work.
+        try:
+            from core.database_data import get_data_session as _gp_ai2
+            from sqlalchemy import text as _tp_ai2
+            s2 = _gp_ai2()
+            try:
+                rows = s2.execute(_tp_ai2(
+                    "SELECT instance_id, instance_name, hostname, last_action, "
+                    "  EXTRACT(EPOCH FROM (now() - last_seen_at))::int AS seen_ago_s "
+                    "FROM fw.claude_instance "
+                    "WHERE last_seen_at > now() - make_interval(mins => :m) "
+                    "ORDER BY instance_id"
+                ), {"m": within_min}).mappings().all()
+                out = [dict(r) for r in rows]
+                if exclude_id:
+                    out = [r for r in out if str(r.get("instance_id")) != str(exclude_id)]
+                return out
+            finally:
+                s2.close()
+        except Exception:
+            return []
 
 
 @api_router.get("/deploy/preview")
@@ -5680,6 +5745,8 @@ async def instance_heartbeat(req: Request) -> JSONResponse:
     if not iid or iid == "?":
         return JSONResponse({"ok": False, "error": "instance_id chybí"}, status_code=400)
     _record_instance_presence(iid, str(body.get("action") or "heartbeat"), body.get("hostname"))
+    # Work-lock + freshness (Marti 3.6.): ulož co instance staví + stav lokálu.
+    _update_instance_work(iid, body)
     # Ops framework (Marti 3.6.): watcher si v odpovedi vyzvedne pending ops
     # pro svou instanci (napr. restart_watcher) — oznaci je ack, provede, reportne.
     ops = _ops_pending_for_instance(iid)

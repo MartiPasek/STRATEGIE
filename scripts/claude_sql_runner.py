@@ -75,6 +75,14 @@ DEPLOY_MSG_FILE = BRIDGE_DIR / "CLAUDE_DEPLOY.txt"      # 1. řádek = commit ms
 DEPLOY_GO_FILE = BRIDGE_DIR / "CLAUDE_DEPLOY_GO.txt"    # trigger (zapsat JAKO POSLEDNÍ)
 DEPLOY_OUT_FILE = BRIDGE_DIR / "CLAUDE_DEPLOY_OUT.txt"  # watcher zapíše výsledek
 
+# Sync Claudů (Marti 3.6.2026): freshness + work-lock
+WORK_LOCK_FILE = BRIDGE_DIR / "WORK_LOCK.txt"           # Claude píše: 1.ř popis, další ř soubory
+OTHER_WORK_FILE = BRIDGE_DIR / "OTHER_CLAUDE_WORK.txt"  # watcher píše: co staví ostatní
+LOCAL_STATUS_FILE = BRIDGE_DIR / "LOCAL_STATUS.txt"     # watcher píše: jsi N commitů pozadu
+FRESHNESS_INTERVAL_SEC = 90                            # git fetch + behind check á 90s
+_freshness = {"behind": 0, "head": None, "origin_sha": None,
+              "origin_author": None, "origin_msg": None, "checked_at": None}
+
 SCAN_INTERVAL_SEC = 1.5
 HTTP_TIMEOUT_SEC = 30
 ROW_CAP = 500
@@ -200,12 +208,114 @@ def _md_table(columns: list, rows: list) -> str:
     return head + "\n" + sep + ("\n" + body if body else "")
 
 
+def _freshness_banner() -> str:
+    """Varování pro Clauda, když je lokál pozadu (předřadí se do OUT/DEPLOY_OUT).
+    Prázdné, když je aktuální."""
+    try:
+        b = int(_freshness.get("behind") or 0)
+    except Exception:
+        b = 0
+    if b <= 0:
+        return ""
+    osha = _freshness.get("origin_sha") or "?"
+    oau = _freshness.get("origin_author") or "?"
+    omsg = (_freshness.get("origin_msg") or "")[:60]
+    return (f"# ⚠ TVUJ LOKAL JE POZADI o {b} commitu (posledni: {osha} {oau} '{omsg}').\n"
+            f"# Nez budes editovat sdilene soubory, udelej: git pull origin main\n"
+            f"# (jinak stavis na starem kodu).\n\n")
+
+
 def _write_out(text_body: str) -> None:
     try:
         OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        OUT_FILE.write_text(text_body, encoding="utf-8")
+        OUT_FILE.write_text(_freshness_banner() + text_body, encoding="utf-8")
     except OSError as exc:
         _log(f"write OUT failed: {exc}")
+
+
+def _read_work_lock() -> tuple:
+    """WORK_LOCK.txt → (popis, soubory_str). 1. řádek = co stavím, další = soubory.
+    Chybí/prázdné → (None, None)."""
+    try:
+        if not WORK_LOCK_FILE.exists():
+            return (None, None)
+        lines = [ln.strip() for ln in
+                 WORK_LOCK_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+                 if ln.strip()]
+        if not lines:
+            return (None, None)
+        work = lines[0]
+        files = ", ".join(lines[1:]) if len(lines) > 1 else None
+        return (work, files)
+    except Exception:
+        return (None, None)
+
+
+def _check_freshness() -> None:
+    """git fetch + spočítej behind (HEAD..origin/main) + poslední cizí commit.
+    Uloží do _freshness + LOCAL_STATUS.txt. Best-effort — nikdy neshodí watcher."""
+    global _freshness
+    try:
+        remote = _authed_remote()
+        _run_git(["fetch", remote, "main"], timeout=30)
+        rc_h, head = _run_git(["rev-parse", "--short", "HEAD"])
+        rc_b, behind = _run_git(["rev-list", "--count", "HEAD..FETCH_HEAD"])
+        rc_o, oinfo = _run_git(["log", "-1", "--format=%h|%an|%s", "FETCH_HEAD"])
+        bn = int(behind.strip()) if rc_b == 0 and behind.strip().isdigit() else 0
+        o_sha = o_au = o_msg = None
+        if rc_o == 0 and "|" in oinfo:
+            p = oinfo.strip().split("|", 2)
+            o_sha = p[0] if len(p) > 0 else None
+            o_au = p[1] if len(p) > 1 else None
+            o_msg = p[2] if len(p) > 2 else None
+        _freshness = {
+            "behind": bn, "head": (head.strip() if rc_h == 0 else None),
+            "origin_sha": o_sha, "origin_author": o_au, "origin_msg": o_msg,
+            "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        }
+        if bn > 0:
+            body = (f"# LOKAL POZADI o {bn} commitu\n"
+                    f"# posledni origin: {o_sha} | {o_au} | {o_msg}\n"
+                    f"# tvuj HEAD: {_freshness['head']} · {_freshness['checked_at']}\n"
+                    f"# >>> git pull origin main  (nez budes editovat sdilene soubory)\n")
+        else:
+            body = (f"# LOKAL AKTUALNI (HEAD {_freshness['head']} == origin/main)\n"
+                    f"# {_freshness['checked_at']}\n")
+        try:
+            LOCAL_STATUS_FILE.write_text(body, encoding="utf-8")
+        except OSError:
+            pass
+    except Exception as exc:
+        _log(f"freshness check failed: {type(exc).__name__}: {exc}")
+
+
+def _write_other_work(others: list) -> None:
+    """Zapiš OTHER_CLAUDE_WORK.txt — co staví ostatní instance (pro tohoto Clauda)."""
+    try:
+        lines = []
+        for o in (others or []):
+            iid = o.get("instance_id")
+            nm = o.get("instance_name") or "?"
+            cw = o.get("current_work")
+            if cw:
+                files = o.get("current_work_files")
+                age = o.get("work_age_s")
+                age_txt = (f" (pred {int(age)//60} min)"
+                           if isinstance(age, (int, float)) else "")
+                lines.append(f"Claude-{iid} ({nm}) STAVI: {cw}"
+                             + (f" | soubory: {files}" if files else "") + age_txt)
+            else:
+                beh = o.get("local_behind")
+                beh_txt = f" [lokal {beh} pozadu]" if beh else ""
+                lines.append(f"Claude-{iid} ({nm}): nic nestavi (idle){beh_txt}")
+        if not (others or []):
+            lines.append("Zadna jina instance neni aktivni.")
+        body = ("# Co staví ostatní instance Claude (heartbeat ~30s)\n"
+                f"# {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
+                + "\n".join(lines) + "\n")
+        OTHER_WORK_FILE.write_text(body, encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _process() -> None:
@@ -537,6 +647,16 @@ def _process_deploy() -> None:
             cloud_summary = f"NENASAZENO: reason={cd.get('reason')} error={cd.get('error')}"
         _log(f"DEPLOY cloud: {cloud_summary}")
 
+    # Work-lock release (Marti 3.6.): po úspěšném pushi je práce odeslaná →
+    # uvolni WORK_LOCK + jsme na špici (behind=0).
+    if push_ok:
+        try:
+            if WORK_LOCK_FILE.exists():
+                WORK_LOCK_FILE.unlink()
+        except OSError:
+            pass
+        _freshness["behind"] = 0
+
     header = "OK" if push_ok else "CHYBA (push selhal)"
     _write_deploy_out(
         f"# DEPLOY: {header}\n# {ts}\n"
@@ -608,8 +728,15 @@ def _send_heartbeat(action: str = "heartbeat") -> None:
     token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
     if not token:
         return
-    payload = json.dumps({"instance_id": INSTANCE_ID, "hostname": HOSTNAME,
-                          "action": action}).encode("utf-8")
+    # Work-lock + freshness (Marti 3.6.): co stavím (WORK_LOCK.txt) + stav lokálu.
+    work, files = _read_work_lock()
+    payload = json.dumps({
+        "instance_id": INSTANCE_ID, "hostname": HOSTNAME, "action": action,
+        "current_work": work, "current_work_files": files,
+        "work_status": ("active" if work else "idle"),
+        "local_head_sha": _freshness.get("head"),
+        "local_behind": int(_freshness.get("behind") or 0),
+    }).encode("utf-8")
     rq = urllib.request.Request(
         HEARTBEAT_URL, data=payload, method="POST",
         headers={"Content-Type": "application/json", "X-Deploy-Token": token},
@@ -618,6 +745,7 @@ def _send_heartbeat(action: str = "heartbeat") -> None:
         with urllib.request.urlopen(rq, timeout=10) as resp:
             j = json.loads(resp.read().decode("utf-8", errors="replace"))
         others = (j or {}).get("others") or []
+        _write_other_work(others)   # → OTHER_CLAUDE_WORK.txt (co staví druhý)
         if others:
             who = ", ".join("Claude-%s (%s)" % (o.get("instance_id"), o.get("instance_name") or "?")
                             for o in others)
@@ -638,8 +766,10 @@ def main() -> None:
         _log("WARNING: CLAUDE_INSTANCE_ID není nastaven — atribuce commitů/deploye bude '?'. Nastav v NSSM (23=Marti, 24=Kristy).")
     if not os.environ.get("STRATEGIE_DEPLOY_TOKEN"):
         _log("WARNING: STRATEGIE_DEPLOY_TOKEN není nastaven — dotazy selžou na auth.")
+    _check_freshness()           # hned po startu zjisti, jestli jsme aktuální
     _send_heartbeat("startup")   # hned po startu hlas presence
     _last_hb = time.time()
+    _last_fresh = time.time()
     try:
         while True:
             try:
@@ -647,6 +777,12 @@ def main() -> None:
                     _process_deploy()
                 if GO_FILE.exists():
                     _process()
+                # Freshness (Marti 3.6.): git fetch + behind check á ~90 s →
+                # LOCAL_STATUS.txt + banner v OUT (Claude na startu práce vidí,
+                # jestli má pullnout).
+                if time.time() - _last_fresh >= FRESHNESS_INTERVAL_SEC:
+                    _check_freshness()
+                    _last_fresh = time.time()
                 # Presence heartbeat každých ~30 s (i v klidu)
                 if time.time() - _last_hb >= HEARTBEAT_INTERVAL_SEC:
                     _send_heartbeat()

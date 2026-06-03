@@ -363,6 +363,16 @@
           // Marti's 30.5.2026 ranní: "Core setting" prepended nahoře
           // (inspector fw.core metadat aktualniho core, hardcoded id=49).
           const _ctxMenuActions = ["core-setting", "create", "edit", "delete", "refresh"];
+          // Graf pipeline (Marti 3.6.2026 — prezentace): akce "graph" jen na
+          // pipeline gridu (act_pipeline_def). Otevře ErpActionCard stack.
+          const _coreCodeForGraph = String(
+            (specForRender && specForRender.core && specForRender.core.code) ||
+            _gridCodeForActions || ""
+          );
+          if (/act_pipeline_def/i.test(_coreCodeForGraph) ||
+              /act_pipeline_def/i.test(String(_gridCodeForActions))) {
+            _ctxMenuActions.push("graph");
+          }
           // Register edit form coreId pro gridCode (drz Marti "fw self
           // edited" doctrine 11.5. — DesignFwForm vola registry lookup).
           if (_gridActionsForCtx && _gridActionsForCtx.edit_core_id

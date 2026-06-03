@@ -306,6 +306,34 @@
           return _refreshGrid(ctx.gridCode, ctx.refreshFn);
         },
       },
+      // Graf pipeline (Marti 3.6.2026 — prezentace IT šéfům): vizualizace
+      // pipeline jako naskládané akční karty (ErpActionCard). Jen na pipeline
+      // gridu (page_render gate). Ref = pipeline code (fallback id).
+      graph: {
+        key: "graph",
+        icon: "📊",
+        label: "Graf pipeline",
+        hint: "Vizuální přehled kroků pipeline (akční karty pod sebe)",
+        cssClass: "erp-action-graph",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) {
+          var ref = null;
+          if (ctx.rowData) {
+            ref = ctx.rowData.code || ctx.rowData.id || ctx.rowData.ID || null;
+          }
+          if (ref == null) {
+            alert("⚠ Graf: nejprve vyber pipeline.");
+            return Promise.reject(new Error("no_pipeline_ref"));
+          }
+          if (typeof global.openPipelineGraph !== "function") {
+            alert("⚠ Graf komponenta (action_card.js) není načtena.");
+            return Promise.reject(new Error("graph_component_missing"));
+          }
+          global.openPipelineGraph(ref);
+          return Promise.resolve();
+        },
+      },
     };
 
     // ════════════════════════════════════════════════════════════════════

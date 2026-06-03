@@ -76,6 +76,88 @@ async def act_handlers(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "handlers": act_registry.all_handlers()})
 
 
+@act_router.get("/pipeline/{ref}/graph")
+async def act_pipeline_graph(ref: str, req: Request) -> JSONResponse:
+    """Grafický přehled pipeline pro vizualizaci (Marti 3.6.2026) — kroky
+    pod sebe jako akční karty. Vrací meta pipeline + uspořádané kroky
+    s resolvnutou akcí (code/name/handler context backend|frontend|sub),
+    error_mode a větvením (act_condition_def: result_code -> next_step_no)."""
+    _uid(req)
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+
+    ds = get_data_session()
+    try:
+        if ref.isdigit():
+            pl = ds.execute(_t("SELECT * FROM fw.act_pipeline_def WHERE id = :x"),
+                            {"x": int(ref)}).mappings().first()
+        else:
+            pl = ds.execute(_t("SELECT * FROM fw.act_pipeline_def WHERE code = :x"),
+                            {"x": ref}).mappings().first()
+        if not pl:
+            return JSONResponse({"ok": False, "error": f"pipeline '{ref}' nenalezena"},
+                                status_code=404)
+        pl = dict(pl)
+
+        steps = [dict(r) for r in ds.execute(_t(
+            "SELECT * FROM fw.act_step_def WHERE pipeline_id = :p ORDER BY step_no"
+        ), {"p": pl["id"]}).mappings().all()]
+
+        out_steps = []
+        for st in steps:
+            node = {
+                "step_no": st["step_no"],
+                "step_type": st.get("step_type"),
+                "label": st.get("label"),
+                "error_mode": st.get("error_mode") or pl.get("error_mode") or "stop",
+            }
+            if st.get("step_type") == "sub" and st.get("sub_pipeline_id"):
+                sub = ds.execute(_t("SELECT code, name FROM fw.act_pipeline_def WHERE id = :i"),
+                                 {"i": st["sub_pipeline_id"]}).mappings().first()
+                node["action_code"] = sub["code"] if sub else None
+                node["title"] = st.get("label") or (sub["name"] if sub and sub["name"] else None) \
+                    or (sub["code"] if sub else f"pipeline #{st['sub_pipeline_id']}")
+                node["context"] = "sub"
+                node["kind"] = "sub_pipeline"
+                node["description"] = "Vnořená pipeline (složená akce)"
+            else:
+                td = ds.execute(_t("SELECT * FROM fw.act_task_def WHERE step_id = :s ORDER BY id LIMIT 1"),
+                                {"s": st["id"]}).mappings().first()
+                if td:
+                    ad = ds.execute(_t("SELECT * FROM fw.act_def WHERE id = :i"),
+                                    {"i": td["action_id"]}).mappings().first()
+                    code = ad["code"] if ad else None
+                    node["action_code"] = code
+                    node["title"] = st.get("label") or (ad["name"] if ad and ad["name"] else None) \
+                        or code or f"krok {st['step_no']}"
+                    node["description"] = (ad["description"] if ad else None)
+                    node["context"] = act_registry.context_of(code) if code else None
+                    node["handler"] = (ad["handler"] if ad else None)
+                    node["kind"] = "task"
+                else:
+                    node["title"] = st.get("label") or f"krok {st['step_no']} (bez tasku)"
+                    node["kind"] = "empty"
+                    node["context"] = None
+
+            node["branches"] = [
+                {"result_code": c["result_code"], "next_step_no": c["next_step_no"]}
+                for c in ds.execute(_t(
+                    "SELECT result_code, next_step_no FROM fw.act_condition_def "
+                    "WHERE step_id = :s ORDER BY sort_order NULLS LAST, id"
+                ), {"s": st["id"]}).mappings().all()
+            ]
+            out_steps.append(node)
+
+        return JSONResponse({"ok": True, "pipeline": {
+            "id": pl["id"], "code": pl["code"], "name": pl.get("name"),
+            "version": pl.get("version"), "description": pl.get("description"),
+            "error_mode": pl.get("error_mode"), "status": pl.get("status"),
+            "step_count": len(out_steps),
+        }, "steps": out_steps})
+    finally:
+        ds.close()
+
+
 # Bootstrap registry při importu (FE/BE handlery). Fail-soft — chyba importu
 # handleru nesmí shodit celé API; zaloguje se.
 try:

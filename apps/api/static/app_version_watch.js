@@ -75,7 +75,10 @@
   }
 
   function _martiAvatarHtml() {
-    var av = document.getElementById("erpMartiAiAvatar");
+    // Marti 3.6.2026: avatar Marti-AI v chatu (#chatMartiAiAvatar) i ERP
+    // (#erpMartiAiAvatar). Driv jen ERP -> chat spadl na svicku.
+    var av = document.getElementById("chatMartiAiAvatar")
+          || document.getElementById("erpMartiAiAvatar");
     var src = av && av.getAttribute("src");
     if (src) {
       return '<img src="' + src + '" alt="Marti-AI" ' +
@@ -124,15 +127,7 @@
     var row = document.createElement("div");
     row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;";
 
-    var later = document.createElement("button");
-    later.type = "button";
-    later.textContent = "Za chvíli";
-    later.style.cssText =
-      "background:transparent;color:#bcd0e6;border:1px solid #44566c;" +
-      "padding:10px 16px;border-radius:8px;font-size:14px;cursor:pointer;";
-    later.addEventListener("click", _closePopup);
-    row.appendChild(later);
-
+    // Marti 3.6.2026: primární "Obnovit teď" PRVNÍ (vlevo), "Za chvíli" druhé.
     var go = document.createElement("button");
     go.type = "button";
     go.textContent = "Obnovit teď";
@@ -143,6 +138,15 @@
       try { location.reload(); } catch (e) { location.href = location.href; }
     });
     row.appendChild(go);
+
+    var later = document.createElement("button");
+    later.type = "button";
+    later.textContent = "Za chvíli";
+    later.style.cssText =
+      "background:transparent;color:#bcd0e6;border:1px solid #44566c;" +
+      "padding:10px 16px;border-radius:8px;font-size:14px;cursor:pointer;";
+    later.addEventListener("click", _closePopup);
+    row.appendChild(later);
 
     card.appendChild(row);
     ov.appendChild(card);

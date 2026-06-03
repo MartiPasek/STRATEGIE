@@ -181,9 +181,9 @@
       'Nebo zadat ručně (token, URL, login + návod)</summary>' +
       '<div style="font-size:12px;color:#cdb87a;margin:8px 0;">' +
       'Token se zobrazí <strong>jen teď</strong>. Pak už ho neuvidíš (vygeneruješ nový).</div>' +
-      _row("Token", res.token, "token") +
       _row("Adresa", info.carddav_url, "CardDAV URL") +
       _row("Uživatel", info.username, "uživatel") +
+      _row("Token", res.token, "token") +
       _instructionsHtml(info, info.username, res.token) +
       '</details></div>';
   }

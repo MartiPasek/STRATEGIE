@@ -204,9 +204,9 @@ def _handoff_page_html(d: dict) -> str:
         '<h1>📱 Připojení kontaktů STRATEGIE</h1>'
         '<div class="sub">Pro zařízení „' + lbl + '". Zkopíruj údaje níž do '
         'aplikace DAVx5 (Android) nebo do Nastavení → Kontakty (iPhone).</div>'
-        + field("Token (heslo)", tok, "f_tok")
         + field("Adresa (URL)", url, "f_url")
         + field("Uživatel", usr, "f_usr")
+        + field("Token (heslo)", tok, "f_tok")
         + '<div class="exp">⏱ Tato stránka je platná ~' + str(_HANDOFF_TTL_MIN)
         + ' minut. Token zadej do aplikace co nejdřív.</div>'
         '<h2>📱 Android</h2><ol>'

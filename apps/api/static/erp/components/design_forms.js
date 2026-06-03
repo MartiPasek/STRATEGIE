@@ -1516,8 +1516,9 @@
             // popup nezávisí na (možná stale) this._spec. Řeší memo, kde se
             // parametry nenačítaly. Fail-soft: při chybě použij cached comp.
             try {
-              const fr = await fetch("/api/v1/erp/design/comp-def/get/" + encodeURIComponent(compDefId),
-                                     { credentials: "include" });
+              const fr = await fetch("/api/v1/erp/design/comp-def/get/" + encodeURIComponent(compDefId)
+                                       + "?_=" + Date.now(),
+                                     { credentials: "include", cache: "no-store" });
               if (fr.ok) {
                 const fj = await fr.json();
                 if (fj && fj.ok && fj.comp_def) {

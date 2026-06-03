@@ -7406,7 +7406,12 @@ async def design_get_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
         """), {"id": comp_def_id}).mappings().one_or_none()
         if not row:
             return JSONResponse({"ok": False, "error": "comp_def neexistuje"}, status_code=404)
-        return JSONResponse(jsonable_encoder({"ok": True, "comp_def": dict(row)}))
+        # no-store: settings popup musí vždy číst aktuální DB stav (Marti 3.6.:
+        # cachovaný GET ukazoval stará layout data — max_width drželo starou hodnotu).
+        return JSONResponse(
+            jsonable_encoder({"ok": True, "comp_def": dict(row)}),
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
     finally:
         ds.close()
 

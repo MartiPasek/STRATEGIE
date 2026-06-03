@@ -157,8 +157,19 @@
           body: JSON.stringify({ phone: phone, raw_value: raw, label: label || null }),
         }).then(function (r) { return r.json(); })
           .then(function (j) {
-            if (j && j.ok) _miniToast("📲 Posláno na mobil — vytoč tam: " + (label || phone));
-            else _miniToast("⚠ Odeslání na mobil selhalo");
+            if (j && j.ok) {
+              _miniToast("📲 Posláno na mobil — vytoč tam: " + (label || phone));
+              // Marti 3.6.: po založení záznamu otevři jádro pro zápis hovoru
+              // (Protokol vytáčení → poznámka) na nový řádek. edit_core_id +
+              // id (request) vrací backend; fail-soft pokud DesignFwForm chybí.
+              try {
+                if (j.edit_core_id && j.id && typeof window.DesignFwForm === "function") {
+                  new window.DesignFwForm({ coreId: j.edit_core_id, rowId: j.id });
+                }
+              } catch (e) { console.warn("[cell-action dial→edit form]", e); }
+            } else {
+              _miniToast("⚠ Odeslání na mobil selhalo");
+            }
           })
           .catch(function () { _miniToast("⚠ Odeslání na mobil selhalo"); });
       } catch (e) { console.warn("[cell-action dial push]", e); }

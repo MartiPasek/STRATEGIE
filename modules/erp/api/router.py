@@ -4947,7 +4947,17 @@ async def create_phone_dial_request(req: Request) -> JSONResponse:
                "rv": raw_value[:128] if raw_value else None,
                "lb": label[:200] if label else None}).scalar()
         ds.commit()
-        return JSONResponse({"ok": True, "id": rid})
+        # Marti 3.6.: po založení záznamu vrať i edit core (Protokol vytáčení
+        # → poznámka), ať PC po vytočení rovnou otevře jádro pro zápis hovoru.
+        # Lookup dle code (stabilní), ne magic id. None = frontend neotevře.
+        edit_core_id = None
+        try:
+            edit_core_id = ds.execute(_sql_pdr(
+                "SELECT id FROM fw.core WHERE code = 'crm.phone_dial_log_edit'"
+            )).scalar()
+        except Exception:
+            pass
+        return JSONResponse({"ok": True, "id": rid, "edit_core_id": edit_core_id})
     except Exception as exc:
         ds.rollback()
         logger.exception("[create_phone_dial_request] failed: %s", exc)

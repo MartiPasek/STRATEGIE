@@ -499,6 +499,10 @@ def _execute_via_mcp(
             "db_name": db_name,
         },
         conversation_id=None,
+        # Marti 3.6.2026: grid/detail čtení = krátký timeout 10 s (ne 30).
+        # Blip EUROSOFT MCP nesmí držet uživatele 30 s; reconnect+retry
+        # v call_tool_sync stihne ještě v rámci jednoho user-wait okna.
+        timeout_s=10,
     )
 
     try:

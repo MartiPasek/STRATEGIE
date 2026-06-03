@@ -1206,6 +1206,39 @@ async def core_set_edit_select(core_id: int, req: Request) -> JSONResponse:
             pass
 
 
+def _ds_execute_error_response(exc) -> JSONResponse:
+    """Klasifikace chyby data_source execute (Marti 3.6.2026, prezentace eve).
+
+    MCP / EUROSOFT connectivity (MSSQL DB_EC přes EUROSOFT MCP — timeout, drop,
+    circuit open, unreachable) → 503 + PŘÍVĚTIVÁ hláška, že je dočasně nedostupná
+    externí Centrála, NE chyba STRATEGIE. Frontend ji zobrazí v gridu místo
+    prázdna. Skutečná SQL chyba (syntax, sloupec) → 500 sql_execute_failed (jako dřív).
+    """
+    s = str(exc) or ""
+    low = s.lower()
+    _mcp_markers = (
+        "mcp_call_failed", "mcp_unreachable", "circuit_open", "mcp tool",
+        "timeouterror", "timeout", "closedresource", "brokenresource",
+        "endofstream", "mcp strategie_query_raw", "mcp response",
+    )
+    if any(m in low for m in _mcp_markers):
+        return JSONResponse({
+            "ok": False,
+            "error": "source_unavailable",
+            "source": "EUROSOFT (Centrála 1)",
+            "user_message": (
+                "Spojení s daty EUROSOFT (Centrála 1) je teď dočasně nedostupné. "
+                "Systém se sám zkouší znovu připojit — dej tomu chvíli a načti "
+                "znovu. Není to chyba STRATEGIE."
+            ),
+            "detail": s[:500],
+        }, status_code=503)
+    return JSONResponse(
+        {"ok": False, "error": "sql_execute_failed", "detail": s},
+        status_code=500,
+    )
+
+
 @api_router.get("/data-by-id/{ds_id}")
 def data_source_execute_by_id(
     ds_id: int,
@@ -1301,10 +1334,7 @@ def data_source_execute_by_id(
                     "raw_params_preview": {k: str(v)[:200] for k, v in (raw_params or {}).items()},
                 },
             )
-            return JSONResponse(
-                {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
-                status_code=500,
-            )
+            return _ds_execute_error_response(exc)
         except ds_runner.DataSourceError as exc:
             return JSONResponse(
                 {"ok": False, "error": "data_source_error", "detail": str(exc)},
@@ -1418,10 +1448,7 @@ def data_source_execute_by_id(
                     "raw_params_preview": {k: str(v)[:200] for k, v in (raw_params or {}).items()},
                 },
             )
-            return JSONResponse(
-                {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
-                status_code=500,
-            )
+            return _ds_execute_error_response(exc)
         except ds_runner.DataSourceError as exc:
             return JSONResponse(
                 {"ok": False, "error": "data_source_error", "detail": str(exc)},
@@ -1535,10 +1562,7 @@ def data_source_execute_by_id(
                     "raw_params_preview": {k: str(v)[:200] for k, v in (raw_params or {}).items()},
                 },
             )
-            return JSONResponse(
-                {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
-                status_code=500,
-            )
+            return _ds_execute_error_response(exc)
         except ds_runner.DataSourceError as exc:
             return JSONResponse(
                 {"ok": False, "error": "data_source_error", "detail": str(exc)},
@@ -1632,10 +1656,7 @@ def data_source_execute(
                     "raw_params_preview": {k: str(v)[:200] for k, v in (raw_params or {}).items()},
                 },
             )
-            return JSONResponse(
-                {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
-                status_code=500,
-            )
+            return _ds_execute_error_response(exc)
         except ds_runner.DataSourceError as exc:
             return JSONResponse(
                 {"ok": False, "error": "data_source_error", "detail": str(exc)},

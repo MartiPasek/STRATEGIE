@@ -304,14 +304,16 @@ class EurosoftMCPClient:
                          "(zkusí se znovu při příštím volání).")
         return ok
 
-    def _invoke_once(self, bare_name: str, arguments: dict) -> str | None:
+    def _invoke_once(self, bare_name: str, arguments: dict, timeout_s: int = 30) -> str | None:
         """Jeden pokus o MCP call na aktuální session. Vrací text, None (empty),
-        nebo raises (connection error → caller udělá reconnect+retry)."""
+        nebo raises (connection error → caller udělá reconnect+retry).
+        timeout_s — kratší pro gridy (Marti 3.6.: detail/CRM čtení 10 s, ať blip
+        nedrží uživatele 30 s; default 30 pro ostatní (bulk/insert)."""
         future = asyncio.run_coroutine_threadsafe(
             self._session.call_tool(bare_name, arguments),
             self._loop,
         )
-        result = future.result(timeout=30)
+        result = future.result(timeout=timeout_s)
         if result.content:
             first = result.content[0]
             return first.text if hasattr(first, "text") else str(first)
@@ -322,6 +324,7 @@ class EurosoftMCPClient:
         full_name: str,
         arguments: dict,
         conversation_id: int | None = None,
+        timeout_s: int = 30,
     ) -> str:
         """
         Sync API: Anthropic-style 'eurosoft_X' tool call → MCP server → JSON string.
@@ -374,7 +377,7 @@ class EurosoftMCPClient:
         }
         for attempt in (1, 2):
             try:
-                text = self._invoke_once(bare_name, arguments)
+                text = self._invoke_once(bare_name, arguments, timeout_s)
                 if text is not None:
                     self.circuit_breaker.record_success(conversation_id)
                     return text

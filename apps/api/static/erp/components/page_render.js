@@ -282,7 +282,15 @@
       Promise.all([dataFetch, layoutFetch])
         .then(([data, layoutList]) => {
           if (!data || !data.ok) {
-            throw new Error((data && data.error) || 'data fetch failed');
+            // Marti 3.6.2026: nes přívětivou hlášku (source_unavailable =
+            // externí EUROSOFT/Centrála dočasně dole, ne chyba STRATEGIE).
+            const _e = new Error((data && (data.user_message || data.error)) || 'data fetch failed');
+            if (data) {
+              _e.code = data.error;
+              _e.userMessage = data.user_message || null;
+              _e.source = data.source || null;
+            }
+            throw _e;
           }
           const rows = Array.isArray(data.rows) ? data.rows : [];
           const initialLayout = (layoutList && layoutList.ok && layoutList.effective_default)
@@ -633,10 +641,27 @@
               "data fetch failed: " + (err && err.message || err),
               { extra: { core_id: coreId, ds_code: rootCd.data_source_code } });
           } catch (e) {}
-          gridHost.innerHTML =
-            '<div style="padding:20px;color:#d4a8a8;">' +
-            '❌ Chyba načítání rows: ' + _esc(String(err.message || err)) +
-            '</div>';
+          if (err && (err.code === 'source_unavailable' || err.userMessage)) {
+            // Přívětivá hláška — externí Centrála/EUROSOFT dočasně dole (Marti 3.6.).
+            gridHost.innerHTML =
+              '<div style="padding:26px 24px;max-width:540px;margin:26px auto;' +
+              'background:#1b2530;border:1px solid #3a4b5c;border-left:4px solid #d4954a;' +
+              'border-radius:10px;color:#e8eaed;">' +
+              '<div style="font-size:15px;font-weight:600;margin-bottom:8px;">🔌 ' +
+              _esc(err.source || 'Externí zdroj') + ' je dočasně nedostupný</div>' +
+              '<div style="font-size:13px;color:#bcc8d4;line-height:1.5;margin-bottom:16px;">' +
+              _esc(err.userMessage || err.message) + '</div>' +
+              '<button class="erp-src-retry" style="background:#2c4a66;color:#cfe6ff;' +
+              'border:1px solid #3d5b78;border-radius:7px;padding:8px 16px;font-size:13px;' +
+              'cursor:pointer;">🔄 Načíst znovu</button></div>';
+            var _rb = gridHost.querySelector('.erp-src-retry');
+            if (_rb) _rb.addEventListener('click', function () { location.reload(); });
+          } else {
+            gridHost.innerHTML =
+              '<div style="padding:20px;color:#d4a8a8;">' +
+              '❌ Chyba načítání rows: ' + _esc(String(err.message || err)) +
+              '</div>';
+          }
         });
     }
 

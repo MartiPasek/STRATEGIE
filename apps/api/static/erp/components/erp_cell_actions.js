@@ -130,6 +130,13 @@
       return false;
     }
 
+    function _cookieUid() {
+      try {
+        var m = document.cookie.match(/(?:^|;\s*)user_id=(\d+)/);
+        return m ? parseInt(m[1], 10) : null;
+      } catch (e) { return null; }
+    }
+
     function _miniToast(msg) {
       try {
         var t = document.createElement("div");
@@ -347,8 +354,24 @@
         var tel = action.normalized || _digits(val);
         if (_isMobile()) {
           _openTel(tel);  // lokální dialer (mobil v PWA)
+        } else if (window.ActPipeline && typeof window.ActPipeline.run === "function") {
+          // PC → FW Action Pipeline (3.6.2026, Marti: "prevorat na akce").
+          // Engine ridi: db_insert -> push_notification -> open_core ->
+          // note_writeback -> grid_refresh. Nahrazuje hardcoded _pushDialRequest.
+          window.ActPipeline.run("phone_dial_flow", {
+            phone: tel,
+            raw_value: val,
+            label: (ctx && ctx.label) || null,
+            target_user_id: window._erpCurrentUserId || _cookieUid(),
+            contact_table: (ctx && (ctx.table || ctx.contact_table)) || null,
+            contact_row_id: (ctx && (ctx.rowId || ctx.contact_row_id)) || null
+          }).then(function (res) {
+            if (!res || res.status === "error") {
+              _miniToast("⚠ Pipeline: " + ((res && res.error) || "chyba"));
+            }
+          }).catch(function () { _miniToast("⚠ Telefonní pipeline selhala"); });
         } else {
-          // PC → cross-device: vytočí mobil přes frontu + banner
+          // Fallback (orchestrátor nenačten): původní cross-device push.
           _pushDialRequest(tel, val, (ctx && ctx.label) || null);
         }
         return true;

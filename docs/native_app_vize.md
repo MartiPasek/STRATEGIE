@@ -1,97 +1,108 @@
-# STRATEGIE — vize nativní mobilní aplikace (Android-first)
+# STRATEGIE — vize doprovodné telefonní aplikace (Android-first)
 
 **Stav:** plán / vize (3. 6. 2026). Není v realizaci — mezikrok je CardDAV + PWA.
 **Autoři:** Marti + Claude.
 
 ---
 
-## Proč
+## Klíčové rozhodnutí (Marti 3. 6. 2026)
 
-CardDAV + DAVx5 je **chytrý mezikrok** — dá caller-ID (při hovoru jméno klienta)
-bez vlastní aplikace. Ale platíme dvěma věcmi:
+> **PWA web zůstává NOSNÝ produkční systém.** Hlavní UI (chat, ERP, CRM) je a
+> bude náš web/PWA. **Nechceme z toho dělat nativní appku.**
+>
+> Nativní appka je jen **pomocná „companion" služba**, která:
+> - **komunikuje s STRATEGIE** (přes naše API),
+> - řeší to, co **web v telefonu neumí** — telefonní integraci.
 
-1. **Křehké nastavení** pro netechnické lidi (instalace DAVx5 + poplatek,
-   seskupování podle kategorií, interval synchronizace, VPN volba…).
-2. **Neřídíme UX ani push** — telefon si tahá kontakty sám, my do něj
-   nepushneme, notifikace jsou cizí appky.
-
-Marti (3. 6. 2026): *„V budoucnu to bude chtít vlastní nativní naši aplikaci,
-která bude umět s námi komunikovat. Nejlepší by bylo vyjít z nějaké open-source
-a doladit k našim potřebám. Tahle problematika se nás bude týkat víc a víc."*
+Takže žádný přepis appky. Malý doprovodný program vedle PWA, který zpřístupní
+telefon. PWA dělá byznys, appka dělá „telefonní můstek".
 
 ---
 
-## Doporučený přístup — zabalit stávající PWA přes Capacitor
+## Co appka řeší (a nic víc)
 
-**Nestavět od nuly.** Naše web UI (chat + ERP + CRM) už je PWA. Capacitor
-(Ionic, open-source) z ní udělá nativní Android app a přidá nativní pluginy.
-Tím reuse-neme **veškerý dosavadní web** a doplníme jen to, co web neumí.
-
-Open-source základ = **Capacitor** + naše vlastní webová aplikace. Přesně ve
-smyslu *„vyjít z open-source a doladit"*.
-
-### Co appka přidá nad web
-
-| Schopnost | Co řeší | Plugin / cesta |
-|---|---|---|
-| **Kontakty / caller-ID** | jméno klienta při hovoru, **jeden login** (token STRATEGIE), bez DAVx5 | nativní Contacts API + náš sync; inspirace DAVx5 (GPL) pro sync logiku |
-| **Push notifikace** | doručí i při zavřené appce (to, co pořád chceme) | FCM (Firebase Cloud Messaging) |
-| **Nativní vytáčení / overlay** | klik-volat z CRM, případně overlay při příchozím | Android Call API / overlay |
-| **Offline + nativní pocit** | rychlost, instalace z Play | Capacitor app shell |
-
-Chat, ERP, CRM, deploy bridge, auth — **beze změny**, je to naše web UI uvnitř
-nativního obalu.
-
-### Alternativy (a proč ne teď)
-
-- **React Native / Flutter od nuly** — víc nativní pocit, ale **přepis celého
-  UI** = velký kus práce. Náš web je hotový, škoda ho zahodit.
-- **Fork DAVx5** (GPL) — řeší jen kontakty, ne komunikaci s námi (chat/CRM).
-  Moc úzké.
+1. **Přístup ke kontaktům / caller-ID** — STRATEGIE kontakty v telefonu, **jeden
+   login** (token STRATEGIE), **bez DAVx5**. Při hovoru se ukáže jméno klienta.
+2. **Automatická synchronizace** — sada kontaktů se drží aktuální sama, bez
+   ručního nastavování intervalů (na rozdíl od DAVx5).
+3. **Zmeškaná volání zákazníků** — appka pozná hovor od/na číslo z CRM a
+   **nahlásí zmeškané volání do STRATEGIE** → v CRM se objeví „zmeškal jsi
+   zákazníka X".
+4. **Protokoly hovorů zákazníků** — záznam o hovoru (kdo, kdy, příchozí/odchozí,
+   délka) **se propíše do CRM** jako aktivita u kontaktu.
+5. (volitelně) tlačítko **„Otevřít STRATEGIE"** → spustí náš PWA web.
 
 ---
 
-## Platformy — Android-first
+## Proč to nezvládne samotná PWA
 
-**Rozhodnutí (Marti 3. 6. 2026):** v následujícím roce **jen Android**. Celá
-firma je na Androidu. Apple (iOS) se řešit nebude, dokud si ho **nezaplatí
-konkrétní zákazník** — pak se přidá (Capacitor umí iOS taky, jen je k tomu
-potřeba Apple Developer účet).
-
-Důsledky:
-- Vývoj, build a testy jen pro Android → jednodušší, levnější.
-- iOS se nechá jako pozdější „dolepení" (stejná code-base, jen build + Apple účet).
+Web v prohlížeči **nemá přístup** k telefonnímu seznamu hovorů (call log),
+nemůže spolehlivě běžet na pozadí, ani zapsat kontakty pro caller-ID. To umí jen
+nativní appka s příslušnými oprávněními. Proto ta **tenká doprovodná appka** —
+zbytek (chat/ERP/CRM) zůstává webový.
 
 ---
 
-## Náklady (ověřit aktuální ceny při rozhodnutí)
+## Technicky (až se to rozjede)
 
-- **Google Play** — jednorázový registrační poplatek vývojáře (~$25). FCM má
-  free tier.
-- **Apple Developer** — ~$99/rok. **Odloženo** (až platící zákazník).
-- Build pipeline (Android Studio / CI), údržba, podpis appky.
+- **Malá nativní Android appka** (Kotlin, nebo Capacitor s nativními pluginy) —
+  běží na pozadí jako služba, mluví s naším API.
+- **Kontakty** — zápis STRATEGIE kontaktů do telefonu (caller-ID), 1 login.
+- **Call log** — čtení záznamu hovorů (`READ_CALL_LOG`), filtr na čísla z CRM →
+  POST do STRATEGIE (zmeškaná volání + protokoly).
+- **Auto-sync** — pull kontaktů + push hovorů na pozadí (WorkManager).
+- **Open-source základ** — *„vyjít z open-source a doladit"*: lze začít z
+  open-source call-log / contacts appky a osekat k naší potřebě, nebo postavit
+  minimální nativní + naše REST volání.
 
-Capacitor cesta je z variant **nejlevnější na úsilí** — nepřepisujeme appku.
+### Pozor — oprávnění `READ_CALL_LOG`
+
+Google Play **omezuje** appky čtoucí call log (citlivé oprávnění). Pro nás to ale
+není bloker: jde o **interní firemní appku**, distribuovanou interně (ne přes
+veřejný Play) → policy na call-log se nás netýká. (Veřejný Play řešit, jen kdyby
+appka šla ven.)
+
+---
+
+## Platforma — Android-first
+
+V následujícím roce **jen Android** (celá firma na Androidu). iOS až si ho
+**zaplatí konkrétní zákazník** — pak se přidá.
+
+---
+
+## Náklady (ověřit při rozhodnutí)
+
+- **Distribuce:** interní (firemní) — Google Play registrace (~$25) potřeba jen
+  pro veřejný release; interní/sideload levnější.
+- **Push (FCM)** — free tier, pokud bychom chtěli i notifikace.
+- Build + podpis + údržba malé appky.
+
+Rozsah je malý (telefonní můstek), takže i náklad/úsilí je malé — to je smysl
+toho, že **appka není nosná, jen pomocná**.
 
 ---
 
 ## Fázování
 
-1. **Teď:** CardDAV + PWA mezikrok (funguje, caller-ID přes DAVx5).
-2. **Až bude friction/objem bolet:** Capacitor wrap → Android app v Play s
-   nativními kontakty (bez DAVx5) + push.
-3. **Později / na vyžádání:** iOS build (Apple účet platí zákazník).
+1. **Teď:** CardDAV + PWA mezikrok (caller-ID přes DAVx5).
+2. **Až friction/objem bolí:** doprovodná Android appka → caller-ID bez DAVx5 +
+   auto-sync + zmeškaná volání + protokoly hovorů do CRM.
+3. **PWA zůstává nosná** celou dobu. Appka ji jen doplňuje o telefon.
+4. **iOS** později / na vyžádání platícího zákazníka.
 
 ---
 
 ## Otevřené otázky (na rozhodnutí, až se to rozjede)
 
-- Caller-ID: sync kontaktů do telefonu (jako DAVx5, ale 1 login) **vs.** vlastní
-  overlay při hovoru? (sync = jednodušší, overlay = víc kontroly)
-- Push: jen notifikace, nebo i akce (klik → otevři kontakt/CRM)?
-- Distribuce: veřejně v Play, nebo interní (firemní) distribuce?
-- Kdo to postaví/udržuje (interně vs. externě).
+- Caller-ID: zápis kontaktů do telefonu **vs.** vlastní overlay při hovoru?
+- Protokoly hovorů: všechny hovory, nebo jen shoda s CRM kontaktem?
+- Jak párovat hovor s konkrétním zákazníkem (číslo → CRM kontakt) + co se
+  zmeškanými z neznámých čísel.
+- Distribuce: interní MDM / sideload / privátní Play kanál.
+- Kdo postaví/udržuje (interně vs. externě).
 
 ---
 
-*Tento dokument je živý — doplní se, až se appka dostane na řadu.*
+*Tento dokument je živý — doplní se, až se appka dostane na řadu. Nosný produkční
+systém je a zůstává PWA web.*

@@ -16184,6 +16184,9 @@ def _render_workspace_page(user_id: int) -> str:
     <!-- CardDAV F1.6 (3.6.2026, Marti — "kontakty pro Pavla"): self-service
          připojení telefonu (token + návod). window.openCarddavConnect(). -->
     <script src="/static/carddav_connect.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Signál nové zprávy ve sdílené konverzaci (3.6.2026): ding + animace
+         „Tvoje Marti" (#erpMartiAiBtn) + proklik do chatu na tu konverzaci. -->
+    <script src="/static/shared_signal.js?v=''' + _STATIC_VERSION + '''"></script>
     <link rel="stylesheet" href="/static/erp/datagrid.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/datagrid.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- B+10+ (6.5.2026): conditional formatting engine + UI editor -->

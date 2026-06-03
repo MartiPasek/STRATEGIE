@@ -12,13 +12,15 @@ Opravneni:
 """
 from datetime import datetime, timezone
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from core.database_core import get_core_session
 from core.database_data import get_data_session
 from core.logging import get_logger
 from modules.core.infrastructure.models_core import User, UserTenant
-from modules.core.infrastructure.models_data import Conversation, ConversationShare
+from modules.core.infrastructure.models_data import (
+    Conversation, ConversationShare, Message)
 
 logger = get_logger("conversation.share")
 
@@ -285,3 +287,72 @@ def can_user_view_conversation(user_id: int, conversation_id: int) -> tuple[bool
         return True, role
     finally:
         ds.close()
+
+
+def shared_activity(*, user_id: int) -> dict | None:
+    """Nejnovější zpráva NE od tohoto uživatele napříč jeho sdílenými
+    konverzacemi (vlastní sdílené + sdílené se mnou). Pro signál „přišla zpráva
+    ve sdílené konverzaci" (zvuk + animace avataru). Assistant (NULL autor) =
+    taky aktivita. Vrací {latest_message_id, conversation_id, conv_title,
+    author_name, at} nebo None."""
+    ds = get_data_session()
+    try:
+        owned = (
+            ds.query(ConversationShare.conversation_id)
+            .join(Conversation, Conversation.id == ConversationShare.conversation_id)
+            .filter(Conversation.user_id == user_id,
+                    Conversation.is_deleted.is_(False))
+        )
+        withme = (
+            ds.query(ConversationShare.conversation_id)
+            .join(Conversation, Conversation.id == ConversationShare.conversation_id)
+            .filter(ConversationShare.shared_with_user_id == user_id,
+                    Conversation.is_deleted.is_(False))
+        )
+        conv_ids = {r[0] for r in owned.all()} | {r[0] for r in withme.all()}
+        if not conv_ids:
+            return None
+        msg = (
+            ds.query(Message)
+            .filter(
+                Message.conversation_id.in_(conv_ids),
+                or_(Message.author_user_id.is_(None),
+                    Message.author_user_id != user_id),
+            )
+            .order_by(Message.id.desc())
+            .first()
+        )
+        if msg is None:
+            return None
+        # vytáhni pole PŘED close (jinak DetachedInstanceError)
+        msg_id = msg.id
+        msg_conv_id = msg.conversation_id
+        msg_created = msg.created_at
+        author_uid = msg.author_user_id
+        conv = ds.query(Conversation).filter_by(id=msg_conv_id).first()
+        title = (conv.title if conv and conv.title
+                 else f"Konverzace #{msg_conv_id}")
+    finally:
+        ds.close()
+
+    # jméno autora (Marti-AI když NULL = persona/assistant)
+    author_name = "Marti-AI"
+    if author_uid:
+        cs = get_core_session()
+        try:
+            u = cs.query(User).filter_by(id=author_uid).first()
+            if u:
+                author_name = (u.short_name
+                               or " ".join(filter(None, [u.first_name, u.last_name])).strip()
+                               or f"#{author_uid}")
+            else:
+                author_name = f"#{author_uid}"
+        finally:
+            cs.close()
+    return {
+        "latest_message_id": msg_id,
+        "conversation_id": msg_conv_id,
+        "conv_title": title,
+        "author_name": author_name,
+        "at": msg_created.isoformat() if msg_created else None,
+    }

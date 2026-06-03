@@ -3620,11 +3620,24 @@
     activeDmId = null;
     setMode('ai');
     updateProjectIndicator();          // agent-bar "Projekt: …" dle currentUser
+    // Deep-link z ERP (3.6.2026): klik na animovanou „Tvoje Marti" v ERP →
+    // /?open_conv=<id> → otevři přímo tu sdílenou konverzaci.
+    let _openedDeep = false;
+    try {
+      const _ocp = new URLSearchParams(window.location.search).get('open_conv');
+      if (_ocp) {
+        const _ocid = parseInt(_ocp, 10);
+        try { history.replaceState(null, '', window.location.pathname); } catch (e) {}
+        if (_ocid) _openedDeep = await openConversation(_ocid, { silent: true });
+      }
+    } catch (e) {}
     // Reset/reload: zkus obnovit POSLEDNÍ otevřenou konverzaci (vč. sdílené).
     // Když není uložená / nejde načíst (smazaná, jiný tenant), spadni na
     // /conversation/last (vlastní poslední).
-    const _restored = await _restoreLastViewedConv();
-    if (!_restored) await loadLastConversation();
+    if (!_openedDeep) {
+      const _restored = await _restoreLastViewedConv();
+      if (!_restored) await loadLastConversation();
+    }
     await loadConversationList();      // sidebar
     await loadProjectsList();          // dropdown s projekty
     await loadPersonasList();          // persona picker v agent baru
@@ -6206,6 +6219,8 @@
       currentLifecycleState = data.lifecycle_state || null;
       // Phase 40 v2 r3 (19.5.2026): shared chat detection (Q2 cache).
       currentConvIsShared = !!data.is_shared;
+      // 3.6.2026: signál sdílené konverzace — otevření = potvrzení (stop ding).
+      try { if (window.SharedSignal) window.SharedSignal.notifyOpened(conversationId); } catch (e) {}
       convIdLabel.textContent = `#${conversationId}`;
       messagesEl.innerHTML = '';
       emptyState.style.display = 'none';
@@ -14750,5 +14765,8 @@
   <!-- CardDAV F1.6 (3.6.2026, Marti — "kontakty pro Pavla"): self-service
        připojení telefonu (token + návod). window.openCarddavConnect(). -->
   <script src="/static/carddav_connect.js?v=20260603g"></script>
+  <!-- Signál nové zprávy ve sdílené konverzaci (3.6.2026): jemný ding + opakování;
+       v ERP animace „Tvoje Marti" + proklik. window.SharedSignal. -->
+  <script src="/static/shared_signal.js?v=20260603a"></script>
 </body>
 </html>

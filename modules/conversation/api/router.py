@@ -1119,6 +1119,22 @@ def shared_with_me(req: Request):
     ]
 
 
+@router.get("/shared-activity")
+def shared_activity_endpoint(req: Request):
+    """Nejnovější zpráva ve sdílených konverzacích NE od tohoto uživatele —
+    pro signál (zvuk + animace avataru „Tvoje Marti") napříč chatem i ERP.
+    Klient porovná latest_message_id s localStorage „seen" → nová aktivita."""
+    from modules.conversation.application.share_service import shared_activity
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi prihlasen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatny user_id cookie.")
+    return {"ok": True, "activity": shared_activity(user_id=user_id)}
+
+
 @router.get("/{conversation_id}/shares", response_model=list[ShareInfo])
 def list_conversation_shares(conversation_id: int, req: Request):
     """Seznam sdileni pro danou konverzaci (jen owner)."""

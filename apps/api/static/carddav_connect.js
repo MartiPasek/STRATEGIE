@@ -241,9 +241,16 @@
       '<button type="button" data-cdav-close style="background:transparent;border:none;' +
       'color:#9fb0c4;font-size:22px;line-height:1;cursor:pointer;">×</button></div>' +
 
-      '<div style="font-size:13px;color:#bcd0e6;line-height:1.5;margin-bottom:12px;">' +
+      '<div style="font-size:13px;color:#bcd0e6;line-height:1.5;margin-bottom:10px;">' +
       'Když si telefon připojíš, při <strong>příchozím i odchozím hovoru uvidíš jméno klienta</strong> ' +
       'ze STRATEGIE. ' + contactsLine + '</div>' +
+
+      // F1.4: sjednocení sady (STR- prefix do starších vCardů)
+      (n > 0 ?
+        '<button type="button" data-cdav-refresh style="background:#2b3a4d;' +
+        'color:#cfe0f2;border:1px solid #3a4a5e;border-radius:8px;padding:9px 12px;' +
+        'font-size:12.5px;cursor:pointer;width:100%;margin-bottom:6px;">' +
+        '🔄 Obnovit a sjednotit kontakty (vyhledatelné přes „STR-")</button>' : '') +
 
       // credential panel (jen po vytvoření)
       (credPanelHtml || '') +
@@ -278,6 +285,20 @@
           if (j && j.ok) { _toast("✓ Odpojeno"); info.tokens = j.tokens || info.tokens; _render(info, ''); }
           else { b.disabled = false; b.textContent = "Odpojit"; _toast("Nepodařilo se odpojit."); }
         });
+      });
+    });
+
+    // F1.4 obnovit/sjednotit sadu
+    var rf = card.querySelector("[data-cdav-refresh]");
+    if (rf) rf.addEventListener("click", function () {
+      rf.disabled = true;
+      var old = rf.innerHTML; rf.textContent = "Obnovuji…";
+      _api("/refresh", "POST").then(function (j) {
+        rf.disabled = false; rf.innerHTML = old;
+        if (j && j.ok) {
+          _toast("✓ Sjednoceno " + (j.refreshed || 0) + " z " + (j.total || 0) +
+                 " kontaktů. V telefonu ťukni „Synchronizovat".");
+        } else { _toast("Obnovení se nepodařilo."); }
       });
     });
 

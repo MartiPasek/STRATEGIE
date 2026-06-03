@@ -664,3 +664,83 @@ def carddav_token_revoke(token_id: int, request: Request) -> JSONResponse:
         s.close()
     return JSONResponse({"ok": True, "revoked": int(changed),
                          "tokens": _list_tokens(uid)})
+
+
+# ── F1.4: obnova/sjednocení aktivní sady ───────────────────────────────────
+# Starší vCardy (zavedené před prefixem STR-) nemají STR-Z/STR-P v jméně ani
+# CATEGORIES → v telefonu se nenajdou přes "STR-" a nejsou ve skupinách.
+# Tahle obnova jim to doplní in-place a bumpne (ctag/etag se změní → telefon
+# při příští synchronizaci stáhne aktuální verzi). Bez MCP/CRM fetche.
+
+_FN_PREFIX = {"real": "STR-Z", "potential": "STR-P"}
+_CAT_LABEL = {"real": "Zákazníci", "potential": "Potenciální"}
+
+
+def _normalize_vcard(vcard: str, addressbook: str) -> tuple[str, bool]:
+    """Doplní STR- prefix do FN a CATEGORIES (pokud chybí). Vrací (vcard, změněno)."""
+    prefix = _FN_PREFIX.get(addressbook, "STR-Z")
+    cat = _CAT_LABEL.get(addressbook, "Zákazníci")
+    sep = "\r\n" if "\r\n" in vcard else "\n"
+    lines = vcard.split(sep)
+    changed = False
+    has_cat = False
+    fn_idx = None
+    for i, ln in enumerate(lines):
+        up = ln.upper()
+        if up.startswith("FN:"):
+            fn_idx = i
+            val = ln[3:]
+            if not val.lstrip().startswith("STR-"):
+                lines[i] = "FN:" + prefix + " " + val
+                changed = True
+        elif up.startswith("CATEGORIES"):
+            has_cat = True
+    if not has_cat and fn_idx is not None:
+        ins = fn_idx + 1
+        if ins < len(lines) and lines[ins].upper().startswith("ORG"):
+            ins += 1
+        lines.insert(ins, "CATEGORIES:" + cat)
+        changed = True
+    return (sep.join(lines), changed)
+
+
+def _carddav_refresh_user(uid: int) -> dict:
+    from core.database_data import get_data_session
+    s = get_data_session()
+    refreshed = 0
+    total = 0
+    try:
+        rows = s.execute(_sql('''
+            SELECT id, addressbook, vcard_cache
+            FROM "user".carddav_active_contact
+            WHERE user_id = :uid AND removed_at IS NULL
+        '''), {"uid": uid}).mappings().all()
+        total = len(rows)
+        for r in rows:
+            new_vc, changed = _normalize_vcard(r["vcard_cache"] or "",
+                                               r["addressbook"])
+            if changed:
+                s.execute(_sql(
+                    'UPDATE "user".carddav_active_contact '
+                    'SET vcard_cache = :vc, last_active_at = now() WHERE id = :id'
+                ), {"vc": new_vc, "id": r["id"]})
+                refreshed += 1
+        s.commit()
+    except Exception as exc:
+        s.rollback()
+        logger.warning("[carddav refresh] %s", exc)
+        return {"ok": False, "error": "server", "message": str(exc)}
+    finally:
+        s.close()
+    return {"ok": True, "refreshed": refreshed, "total": total}
+
+
+@carddav_mgmt_router.post("/refresh")
+def carddav_refresh(request: Request) -> JSONResponse:
+    """Sjednotí aktivní sadu (STR- prefix + CATEGORIES) a bumpne → telefon
+    při příští synchronizaci stáhne aktuální kontakty."""
+    uid = _session_uid(request)
+    if uid is None:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    res = _carddav_refresh_user(uid)
+    return JSONResponse(res, status_code=200 if res.get("ok") else 500)

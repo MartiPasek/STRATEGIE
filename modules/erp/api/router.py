@@ -5197,6 +5197,11 @@ async def set_user_prefs(req: Request) -> JSONResponse:
 # eviduje, kdo je online + co dělá.
 _DEPLOY_LOCK_KEY = 778899   # pg_advisory_lock klíč pro /deploy/now
 _CLAUDE_INSTANCE_NAMES = {"23": "Marti", "24": "Kristy"}
+# Binding User<->Claude (Marti 3.6.): write-approval banner musí být per-user.
+# Claude-23 komunikuje s Marti (1), Claude-24 s Kristý (11). Navázání je
+# uložené v fw.claude_instance.bound_user_id; neatribuované/legacy requesty
+# schvaluje default approver (Marti), aby nic neuvázlo.
+_DEFAULT_APPROVER_UID = 1
 
 
 def _record_instance_presence(instance_id, action: str, hostname=None) -> None:
@@ -5501,10 +5506,19 @@ async def diag_write_pending(req: Request) -> JSONResponse:
     from sqlalchemy import text as _tp
     ds = _gp()
     try:
+        # Binding User<->Claude (Marti 3.6.): rodič vidí jen requesty SVÉ Claude
+        # instance. requested_by 'Claude-23'/'Claude-24' -> instance_id ->
+        # fw.claude_instance.bound_user_id. Neatribuované/legacy -> default (Marti).
         rows = ds.execute(_tp(
-            "SELECT id, db_target, sql_text, requested_by, created_at "
-            "FROM fw.claude_write_request WHERE status='pending' ORDER BY id ASC"
-        )).mappings().all()
+            "SELECT w.id, w.db_target, w.sql_text, w.requested_by, w.created_at "
+            "FROM fw.claude_write_request w "
+            "LEFT JOIN fw.claude_instance ci "
+            "  ON ci.instance_id = regexp_replace(w.requested_by, '^Claude-', '') "
+            "WHERE w.status='pending' "
+            "  AND ( ci.bound_user_id = :uid "
+            "        OR (ci.bound_user_id IS NULL AND :uid = :du) ) "
+            "ORDER BY w.id ASC"
+        ), {"uid": uid, "du": _DEFAULT_APPROVER_UID}).mappings().all()
         return JSONResponse(jsonable_encoder({"ok": True, "requests": [dict(r) for r in rows]}))
     finally:
         ds.close()
@@ -5530,12 +5544,28 @@ async def diag_write_decide(req_id: int, req: Request) -> JSONResponse:
     ds = _gd()
     try:
         row = ds.execute(_td(
-            "SELECT id, db_target, sql_text, status FROM fw.claude_write_request WHERE id=:id"
+            "SELECT id, db_target, sql_text, status, requested_by FROM fw.claude_write_request WHERE id=:id"
         ), {"id": req_id}).mappings().first()
         if not row:
             return JSONResponse({"ok": False, "error": "request nenalezen"}, status_code=404)
         if row["status"] != "pending":
             return JSONResponse({"ok": False, "error": "request už není pending (%s)" % row["status"]})
+
+        # Binding guard (Marti 3.6.): jen rodič navázaný na danou Claude instanci
+        # smí rozhodnout. Neatribuované/legacy -> jen default approver (Marti).
+        appr = ds.execute(_td(
+            "SELECT ci.bound_user_id FROM fw.claude_instance ci "
+            "WHERE ci.instance_id = regexp_replace(:rb, '^Claude-', '')"
+        ), {"rb": row["requested_by"] or ""}).scalar()
+        if appr is not None:
+            if appr != uid:
+                return JSONResponse({"ok": False,
+                                     "error": "Tento request schvaluje jiný uživatel (jeho Claude instance)."},
+                                    status_code=403)
+        elif uid != _DEFAULT_APPROVER_UID:
+            return JSONResponse({"ok": False,
+                                 "error": "Neatribuovaný request schvaluje pouze Marti."},
+                                status_code=403)
 
         if decision == "reject":
             ds.execute(_td("UPDATE fw.claude_write_request SET status='rejected', "

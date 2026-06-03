@@ -16241,6 +16241,9 @@ def _render_workspace_page(user_id: int) -> str:
          → tel:/mailto:/open + auto-archiv fw.contact_action_log). Dispatcher
          pro grid (onCellDoubleClicked) i form (dblclick na pole). -->
     <script src="/static/erp/components/erp_cell_actions.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- FW Action Pipelines — FE orchestrátor (3.6.2026, Marti): ActPipeline.run()
+         + resume loop + FE handlery (cell_trigger/open_core/grid_refresh). -->
+    <script src="/static/erp/components/act_orchestrator.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Update prompt (1.6.2026, Marti): po deployi nabídne "Obnovit". -->
     <script src="/static/app_version_watch.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Deploy na povel (1.6.2026, Marti): 🚀 tlačítko jen pro rodiče. -->

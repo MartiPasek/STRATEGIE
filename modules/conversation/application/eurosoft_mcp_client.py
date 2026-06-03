@@ -386,10 +386,18 @@ class EurosoftMCPClient:
             except Exception as e:
                 exc_type = type(e).__name__
                 is_dead = exc_type in _CONN_DEAD or isinstance(e, ConnectionError)
-                if attempt == 1 and is_dead:
+                # Marti 3.6.2026 (CRM 500 prezentace eve): TimeoutError z
+                # future.result(timeout=30) = půl-mrtvé/zaseklé SSE (žije, ale
+                # server neodpovídá). Dřív NEtriggerovalo reconnect → každé
+                # volání čekalo 30 s a padlo, spojení se samo neopravilo.
+                # Teď: timeout na 1. pokus → reconnect + retry na čerstvé session
+                # (CRM detail gridy jsou rychlé ~0,5 s; 30 s = mrtvé, ne pomalé).
+                is_timeout = isinstance(e, TimeoutError) or exc_type == "TimeoutError"
+                if attempt == 1 and (is_dead or is_timeout):
                     logger.warning(
-                        "MCP tool %s: mrtvé spojení (%s) → reconnect + retry",
-                        full_name, exc_type,
+                        "MCP tool %s: %s (%s) → reconnect + retry",
+                        full_name, ("timeout/zaseklé spojení" if is_timeout
+                                    else "mrtvé spojení"), exc_type,
                     )
                     if self._reconnect():
                         continue  # retry attempt 2 na čerstvém spojení

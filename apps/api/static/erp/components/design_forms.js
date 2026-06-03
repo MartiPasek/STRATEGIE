@@ -4878,6 +4878,17 @@
       try {
         const core = this._spec.core;
         const data = this._spec.data || {};
+        // Marti 3.6.: fieldKey = "<core.code>.<field.name>", ale core.code muze
+        // obsahovat tecku (napr. "crm.phone_dial_log_edit"). Strip EXAKTNI
+        // core.code prefix — split(".")[1] by nechal "phone_dial_log_edit.poznamka"
+        // a PATCH by hledal neexistujici sloupec. Fallback: legacy single-token.
+        const _coreCodePrefix = ((core && core.code) || "fw_form") + ".";
+        const _fkToColumn = (fk) => {
+          if (!fk) return null;
+          if (fk.startsWith(_coreCodePrefix)) return fk.slice(_coreCodePrefix.length);
+          const p = fk.split(".");
+          return p.length >= 2 ? p.slice(1).join(".") : null;
+        };
         // Phase 38.4 Krok 5.N-2 (17.5.2026, Marti's "code je optional, ID
         // je truth"): entityType = String(core.id) misto core.code. URL build
         // /design/22/14 (ID-based). Backend dispatcher detekuje numeric vs
@@ -4910,10 +4921,10 @@
           // core entity field. wrap._kind === "entity_picker" identifies.
           if (wrap.classList && wrap.classList.contains("erp-entity-picker-host")) continue;
           if (wrap._kind === "entity_picker") continue;
-          // fieldKey format: "<core.code>.<field.name>" -> extract field name
-          const parts = fk.split(".");
-          if (parts.length < 2) continue;
-          const fieldName = parts.slice(1).join(".");
+          // fieldKey format: "<core.code>.<field.name>" -> extract field name.
+          // _fkToColumn strip EXAKTNI core.code prefix (i s teckou v core.code).
+          const fieldName = _fkToColumn(fk);
+          if (!fieldName) continue;
           // Get current value via UI Kit instance (.value() method) nebo
           // fallback na DOM input.value
           let val = null;
@@ -4968,12 +4979,11 @@
             // (backend ho mapuje na save binding stejně jako u edit/dropdown).
             // Uložená hodnota = currentId = row[Lookup ID field] — pro text
             // číselník nastav Lookup ID field na text sloupec, pro FK na "ID".
-            const _pfk = pwrap._fieldKey || "";
-            const _pparts = _pfk.split(".");
-            if (_pparts.length >= 2) {
-              fieldChanges[_pparts.slice(1).join(".")] = currentId;
+            const _pcol = _fkToColumn(pwrap._fieldKey || "");
+            if (_pcol) {
+              fieldChanges[_pcol] = currentId;
             } else {
-              console.warn("[entity_picker] data picker bez fieldName:", _pfk);
+              console.warn("[entity_picker] data picker bez fieldName:", pwrap._fieldKey);
             }
           }
         }

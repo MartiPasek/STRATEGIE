@@ -87,7 +87,25 @@ DEPLOY_URL = CLOUD_URL.replace("/diag-sql", "/deploy/now")
 # Instance identita (Marti 2.6.2026) — dvě běžící instance Claude se nesmí poprat.
 #   NB Marti = 23, NB Kristy = 24. Nastav v NSSM AppEnvironmentExtra:
 #     nssm set STRATEGIE-CLAUDE-SQL AppEnvironmentExtra "...";"CLAUDE_INSTANCE_ID=23"
-INSTANCE_ID = (os.environ.get("CLAUDE_INSTANCE_ID") or "?").strip()
+def _resolve_instance_id() -> str:
+    """ID instance Claude (23 Marti / 24 Kristy). Priorita: env CLAUDE_INSTANCE_ID,
+    pak soubor scripts/claude_sql/INSTANCE_ID.txt (gitignored, per-machine — bez
+    žonglování s NSSM AppEnvironmentExtra, kde hrozí přepsání tokenu). Jinak '?'."""
+    v = (os.environ.get("CLAUDE_INSTANCE_ID") or "").strip()
+    if v:
+        return v
+    try:
+        f = BRIDGE_DIR / "INSTANCE_ID.txt"
+        if f.exists():
+            first = f.read_text(encoding="utf-8").strip().split()
+            if first:
+                return first[0]
+    except Exception:
+        pass
+    return "?"
+
+
+INSTANCE_ID = _resolve_instance_id()
 _INSTANCE_NAMES = {"23": "Marti", "24": "Kristy"}
 INSTANCE_NAME = (os.environ.get("CLAUDE_INSTANCE_NAME")
                  or _INSTANCE_NAMES.get(INSTANCE_ID, "?"))

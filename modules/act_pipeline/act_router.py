@@ -120,6 +120,10 @@ async def act_pipeline_graph(ref: str, req: Request) -> JSONResponse:
                 node["context"] = "sub"
                 node["kind"] = "sub_pipeline"
                 node["description"] = "Vnořená pipeline (složená akce)"
+                node["detail"] = {
+                    "sub_pipeline_id": st["sub_pipeline_id"],
+                    "sub_pipeline_code": (sub["code"] if sub else None),
+                }
             else:
                 td = ds.execute(_t("SELECT * FROM fw.act_task_def WHERE step_id = :s ORDER BY id LIMIT 1"),
                                 {"s": st["id"]}).mappings().first()
@@ -134,6 +138,18 @@ async def act_pipeline_graph(ref: str, req: Request) -> JSONResponse:
                     node["context"] = act_registry.context_of(code) if code else None
                     node["handler"] = (ad["handler"] if ad else None)
                     node["kind"] = "task"
+                    # Inspektor parametrů (Marti 3.6.2026): co krok fyzicky dělá.
+                    node["detail"] = {
+                        "action_type": (ad["action_type"] if ad else None),
+                        "timeout_ms": (ad["timeout_ms"] if ad else None),
+                        "action_version": (ad["version"] if ad else None),
+                        "action_status": (ad["status"] if ad else None),
+                        "input_mapping": td.get("input_mapping"),
+                        "params_schema": td.get("params_schema"),
+                        "idempotency_key_template": td.get("idempotency_key_template"),
+                        "input_schema": (ad["input_schema"] if ad else None),
+                        "output_schema": (ad["output_schema"] if ad else None),
+                    }
                 else:
                     node["title"] = st.get("label") or f"krok {st['step_no']} (bez tasku)"
                     node["kind"] = "empty"

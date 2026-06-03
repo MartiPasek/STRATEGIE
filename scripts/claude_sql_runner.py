@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 import time
 import urllib.error
@@ -91,6 +92,15 @@ _INSTANCE_NAMES = {"23": "Marti", "24": "Kristy"}
 INSTANCE_NAME = (os.environ.get("CLAUDE_INSTANCE_NAME")
                  or _INSTANCE_NAMES.get(INSTANCE_ID, "?"))
 INSTANCE_LABEL = f"Claude-{INSTANCE_ID} ({INSTANCE_NAME})"
+try:
+    HOSTNAME = socket.gethostname()
+except Exception:
+    HOSTNAME = "?"
+
+# Presence heartbeat (Marti 3.6.2026): periodicky hlásí na cloud, ze instance
+# zije — i v klidu (bez GO souboru). Cloud upsertne fw.claude_instance.
+HEARTBEAT_INTERVAL_SEC = 30
+HEARTBEAT_URL = CLOUD_URL.replace("/diag-sql", "/instance/heartbeat")
 
 
 def _log(msg: str) -> None:
@@ -110,7 +120,8 @@ def _forward(sql: str, db: str) -> dict:
     token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
     if not token:
         return {"ok": False, "error": "chybí env STRATEGIE_DEPLOY_TOKEN na NB"}
-    payload = json.dumps({"sql": sql, "db": db, "instance_id": INSTANCE_ID}).encode("utf-8")
+    payload = json.dumps({"sql": sql, "db": db, "instance_id": INSTANCE_ID,
+                          "hostname": HOSTNAME}).encode("utf-8")
     rq = urllib.request.Request(
         CLOUD_URL, data=payload, method="POST",
         headers={"Content-Type": "application/json", "X-Deploy-Token": token},
@@ -363,7 +374,8 @@ def _sync_with_remote() -> tuple[str, str]:
 def _cloud_deploy(description: str) -> dict:
     """POST cloud /deploy/now (git pull + restart API přes RESTART-WATCHER)."""
     token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
-    payload = json.dumps({"description": description, "instance_id": INSTANCE_ID}).encode("utf-8")
+    payload = json.dumps({"description": description, "instance_id": INSTANCE_ID,
+                          "hostname": HOSTNAME}).encode("utf-8")
     rq = urllib.request.Request(
         DEPLOY_URL, data=payload, method="POST",
         headers={"Content-Type": "application/json", "X-Deploy-Token": token},
@@ -502,13 +514,41 @@ def _process_deploy() -> None:
     _consume_deploy()
 
 
+def _send_heartbeat(action: str = "heartbeat") -> None:
+    """Presence (Marti 3.6.2026): POST /instance/heartbeat — cloud upsertne
+    fw.claude_instance. Best-effort, tichy fail. Bez instance_id (="?") skip."""
+    if INSTANCE_ID == "?":
+        return
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not token:
+        return
+    payload = json.dumps({"instance_id": INSTANCE_ID, "hostname": HOSTNAME,
+                          "action": action}).encode("utf-8")
+    rq = urllib.request.Request(
+        HEARTBEAT_URL, data=payload, method="POST",
+        headers={"Content-Type": "application/json", "X-Deploy-Token": token},
+    )
+    try:
+        with urllib.request.urlopen(rq, timeout=10) as resp:
+            j = json.loads(resp.read().decode("utf-8", errors="replace"))
+        others = (j or {}).get("others") or []
+        if others:
+            who = ", ".join("Claude-%s (%s)" % (o.get("instance_id"), o.get("instance_name") or "?")
+                            for o in others)
+            _log(f"heartbeat OK · DALŠÍ AKTIVNÍ: {who}")
+    except Exception:
+        pass  # presence je nice-to-have, nikdy neblokuj watcher
+
+
 def main() -> None:
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
-    _log(f"STRATEGIE-CLAUDE-SQL forwarder started · {INSTANCE_LABEL} · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
+    _log(f"STRATEGIE-CLAUDE-SQL forwarder started · {INSTANCE_LABEL} · host={HOSTNAME} · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
     if INSTANCE_ID == "?":
         _log("WARNING: CLAUDE_INSTANCE_ID není nastaven — atribuce commitů/deploye bude '?'. Nastav v NSSM (23=Marti, 24=Kristy).")
     if not os.environ.get("STRATEGIE_DEPLOY_TOKEN"):
         _log("WARNING: STRATEGIE_DEPLOY_TOKEN není nastaven — dotazy selžou na auth.")
+    _send_heartbeat("startup")   # hned po startu hlas presence
+    _last_hb = time.time()
     try:
         while True:
             try:
@@ -516,6 +556,10 @@ def main() -> None:
                     _process_deploy()
                 if GO_FILE.exists():
                     _process()
+                # Presence heartbeat každých ~30 s (i v klidu)
+                if time.time() - _last_hb >= HEARTBEAT_INTERVAL_SEC:
+                    _send_heartbeat()
+                    _last_hb = time.time()
             except Exception as exc:
                 _log(f"scan loop crash: {type(exc).__name__}: {exc}")
                 try:

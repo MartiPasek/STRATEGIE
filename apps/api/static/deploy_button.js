@@ -2,10 +2,17 @@
 /**
  * deploy_button.js — "Nasadit na povel" tlačítko (Marti 1.6.2026).
  * ─────────────────────────────────────────────────────────────────────────────
- * Floating 🚀 vlevo dole. Zobrazí se JEN rodičům (preview vrátí 403 ostatním).
+ * Floating 🚀 v pravém horním rohu (Kristý 2.6.2026 — přesun z levého dolního).
+ * Zobrazí se JEN rodičům (preview vrátí 403 ostatním).
  * Klik → náhled (git fetch + diff) → confirm → POST /deploy/now → git pull +
  * restart API přes Phase 42 RESTART-WATCHER. Jednoklik = schválení.
  * Sdílené chatem (index.html) i ERP. Self-contained.
+ *
+ * Animace (Kristý 2.6.2026): pokud existuje nová verze k nasazení
+ * (deploy/preview → deployable:true), raketa "ožije" — jemný bob + pulzující
+ * záře (jako raketa připravená ke startu). Když není co nasadit, je v klidu.
+ * Stav se zjišťuje pravidelným pollem (git fetch + porovnání origin/main).
+ * Respektuje prefers-reduced-motion (vypne pohyb, nechá statický prstenec).
  */
 (function () {
   "use strict";
@@ -13,12 +20,64 @@
   var PREVIEW = "/api/v1/erp/deploy/preview";
   var NOW = "/api/v1/erp/deploy/now";
 
-  // Parent-check: preview (bez fetch) vrátí 200 jen rodičům → jinak tlačítko nezobrazíme.
+  // Jak často kontrolovat, jestli je nová verze (git fetch na serveru — držíme
+  // šetrně, pár rodičů × 1 fetch / 2 min je zanedbatelné). Tune dle potřeby.
+  var POLL_MS = 120000;
+
+  // Pravý horní roh. V ERP tam ale sedí DEV badge (top:9px) + Module Health
+  // banner (top:38px right:16px) → raketu posuneme pod ně, ať se nepřekrývají.
+  var IS_ERP = /^\/erp(\/|$)/.test(location.pathname || "");
+  var CORNER = IS_ERP ? "top:74px;right:16px;" : "top:12px;right:12px;";
+
+  // Parent-check: preview (bez fetch) vrátí 200 jen rodičům → jinak tlačítko
+  // nezobrazíme. Z téže odpovědi rovnou nastavíme úvodní stav (lokální
+  // porovnání, levné), čerstvý git fetch doženou periodické polly.
   try {
     fetch(PREVIEW, { credentials: "same-origin" })
-      .then(function (r) { if (r.ok) _renderButton(); })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function (j) {
+        _injectStyle();
+        _renderButton();
+        _setActive(!!(j && j.deployable), j || {});
+        setTimeout(function () { _poll(true); }, 4000); // první čerstvá kontrola
+        setInterval(function () { _poll(true); }, POLL_MS);
+      })
       .catch(function () {});
   } catch (e) {}
+
+  // Pravidelný poll stavu nasaditelnosti. fresh=true → git fetch (čerstvý
+  // origin); fresh=false → jen lokální porovnání.
+  function _poll(fresh) {
+    fetch(PREVIEW + (fresh ? "?fetch=1" : ""), { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (j) _setActive(!!j.deployable, j); })
+      .catch(function () {});
+  }
+
+  function _injectStyle() {
+    if (document.getElementById("erpDeployStyle")) return;
+    var s = document.createElement("style");
+    s.id = "erpDeployStyle";
+    s.textContent =
+      "#erpDeployBtn{box-shadow:0 2px 8px rgba(0,0,0,0.4);" +
+      "transition:background .3s ease,border-color .3s ease,color .3s ease,opacity .2s ease;}" +
+      // Aktivní raketa: jemný "bob" (nadnáší se a lehce naklání) + pulzující záře.
+      "#erpDeployBtn.erp-deploy-active{" +
+      "animation:erpRocketBob 1.7s ease-in-out infinite,erpRocketGlow 1.9s ease-out infinite;}" +
+      "@keyframes erpRocketBob{" +
+      "0%,100%{transform:translateY(0) rotate(0deg);}" +
+      "30%{transform:translateY(-3px) rotate(-7deg);}" +
+      "60%{transform:translateY(-2px) rotate(7deg);}}" +
+      "@keyframes erpRocketGlow{" +
+      "0%{box-shadow:0 2px 8px rgba(0,0,0,0.4),0 0 0 0 rgba(124,210,150,0.55);}" +
+      "70%{box-shadow:0 2px 10px rgba(0,0,0,0.4),0 0 0 9px rgba(124,210,150,0);}" +
+      "100%{box-shadow:0 2px 8px rgba(0,0,0,0.4),0 0 0 0 rgba(124,210,150,0);}}" +
+      // Ohleduplnost: kdo má omezený pohyb, dostane jen klidný statický prstenec.
+      "@media (prefers-reduced-motion: reduce){" +
+      "#erpDeployBtn.erp-deploy-active{animation:none;" +
+      "box-shadow:0 2px 8px rgba(0,0,0,0.4),0 0 0 3px rgba(124,210,150,0.45);}}";
+    document.head.appendChild(s);
+  }
 
   function _renderButton() {
     if (document.getElementById("erpDeployBtn")) return;
@@ -28,13 +87,40 @@
     b.textContent = "🚀";
     b.title = "Nasadit nejnovější verzi (git pull + restart API)";
     b.style.cssText =
-      "position:fixed;left:12px;bottom:12px;z-index:99000;width:40px;height:40px;" +
+      "position:fixed;" + CORNER + "z-index:99000;width:40px;height:40px;" +
       "border-radius:50%;background:#243a44;border:1px solid #356e6e;color:#a8d4dc;" +
-      "font-size:18px;cursor:pointer;opacity:0.65;box-shadow:0 2px 8px rgba(0,0,0,0.4);";
+      "font-size:18px;cursor:pointer;opacity:0.65;";
     b.addEventListener("mouseenter", function () { b.style.opacity = "1"; });
-    b.addEventListener("mouseleave", function () { b.style.opacity = "0.65"; });
+    b.addEventListener("mouseleave", function () {
+      // Aktivní raketa zůstává výrazná i bez hoveru.
+      b.style.opacity = b.classList.contains("erp-deploy-active") ? "1" : "0.65";
+    });
     b.addEventListener("click", _menu);
     document.body.appendChild(b);
+  }
+
+  // Zapne/vypne "živý" stav rakety podle toho, jestli je co nasadit.
+  function _setActive(active, info) {
+    var b = document.getElementById("erpDeployBtn");
+    if (!b) return;
+    if (active) {
+      b.classList.add("erp-deploy-active");
+      b.style.background = "#1f3a2e";
+      b.style.borderColor = "#46a05e";
+      b.style.color = "#cdeede";
+      b.style.opacity = "1";
+      var extra = "";
+      if (info && info.files_changed != null) extra += " — " + info.files_changed + " souborů";
+      if (info && info.commit_message) extra += " · „" + info.commit_message + "“";
+      b.title = "🚀 Nová verze k nasazení" + extra + " (klik = nasadit)";
+    } else {
+      b.classList.remove("erp-deploy-active");
+      b.style.background = "#243a44";
+      b.style.borderColor = "#356e6e";
+      b.style.color = "#a8d4dc";
+      b.style.opacity = "0.65";
+      b.title = "Nasadit nejnovější verzi (git pull + restart API)";
+    }
   }
 
   // Ops menu (Marti 1.6.2026): Nasadit / Restartovat API + Ops akce (3.6.).
@@ -137,11 +223,12 @@
 
   function _startDeploy() {
     var b = document.getElementById("erpDeployBtn");
-    if (b) { b.disabled = true; b.textContent = "…"; }
+    if (b) { _setActive(false); b.disabled = true; b.textContent = "…"; }
     fetch(PREVIEW + "?fetch=1", { credentials: "same-origin" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
         if (b) { b.disabled = false; b.textContent = "🚀"; }
+        if (j) _setActive(!!j.deployable, j);
         if (!j) { _toast("Náhled selhal", true); return; }
         if (!j.deployable) {
           var why = j.reason === "already_up_to_date"
@@ -191,6 +278,7 @@
         } else {
           _toast("Deploy: " + ((j && (j.error || j.reason)) || "selhalo"), true);
         }
+        setTimeout(function () { _poll(true); }, 3000); // přehodnoť stav rakety
       })
       .catch(function () { _toast("Deploy selhal (síť)", true); });
   }

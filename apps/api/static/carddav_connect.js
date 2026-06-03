@@ -135,7 +135,9 @@
       '<li>Otevři DAVx5 → <strong>+</strong> → <strong>Přihlásit pomocí URL a uživ. jména</strong>.</li>' +
       '<li>URL: <code style="color:#bfe;">' + _esc(url) + '</code> · Uživatel: <code style="color:#bfe;">' + _esc(username) + '</code> → Pokračovat.</li>' +
       '<li>Heslo: vlož <strong>token</strong> výše → Přihlásit.</li>' +
-      '<li>Zatrhni adresáře <em>Reální / Potenciální klienti</em> → hotovo.</li>' +
+      '<li>Otevři účet → <strong>Metoda seskupování kontaktů</strong> → zvol <strong>„Skupiny jako kategorie" (CATEGORIES)</strong>.</li>' +
+      '<li>Vyber nabízené adresáře/skupiny: <em>Reální / Potenciální klienti</em>.</li>' +
+      '<li>Ťukni <strong>Obnovit seznam adresářů</strong> a pak <strong>Synchronizovat nyní</strong> → hotovo.</li>' +
       '</ol>' +
 
       '<div style="font-weight:700;color:#7fd6c2;margin:12px 0 4px;">🍏 iPhone (nativně)</div>' +

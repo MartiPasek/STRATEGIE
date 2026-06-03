@@ -1489,7 +1489,7 @@
         // Najde field v this._spec.fields by id + zavolá popup. Existing
         // popup uz ma per-type detection (entity_picker tab, max_length pro
         // text inputy, atd.) — Marti's "kazda komponenta jinak" priorita.
-        onOpenSettings: (compDefId) => {
+        onOpenSettings: async (compDefId) => {
           try {
             // Krok 5-B (29.5.2026, Marti's "sjednot tu dva ruzna okna
             // parametru"): unified _openFieldSettings handles fields +
@@ -1511,6 +1511,27 @@
               console.warn("[DesignFwForm] onOpenSettings: comp id=" + compDefId + " nenalezen v spec.fields ani v byParent containers");
               alert("Komponenta id=" + compDefId + " nebyla nalezena ve formuláři (možná smazána). Obnov paletu.");
               return;
+            }
+            // Marti 3.6.: dotáhni ČERSTVÝ layout/caption/data_source z DB, ať
+            // popup nezávisí na (možná stale) this._spec. Řeší memo, kde se
+            // parametry nenačítaly. Fail-soft: při chybě použij cached comp.
+            try {
+              const fr = await fetch("/api/v1/erp/design/comp-def/get/" + encodeURIComponent(compDefId),
+                                     { credentials: "include" });
+              if (fr.ok) {
+                const fj = await fr.json();
+                if (fj && fj.ok && fj.comp_def) {
+                  comp = Object.assign({}, comp, {
+                    caption: fj.comp_def.caption,
+                    layout: fj.comp_def.layout || {},
+                    data_source_id: fj.comp_def.data_source_id,
+                    region_slot: fj.comp_def.region_slot,
+                    comp_type_code: fj.comp_def.comp_type_code || comp.comp_type_code,
+                  });
+                }
+              }
+            } catch (e2) {
+              console.warn("[DesignFwForm] fresh comp-def fetch failed, using cached:", e2);
             }
             this._openFieldSettings(comp);
           } catch (e) {
@@ -7642,8 +7663,8 @@
           heightInput.min = "0";
           heightInput.style.cssText = _inputStyle;
           heightInput.value = currentLayout.height != null ? String(currentLayout.height) : "";
-          heightInput.placeholder = "px (např. 120 — výška memo, empty = auto)";
-          basicPaneEl.appendChild(_row("Výška (px)", heightInput));
+          heightInput.placeholder = "px (e.g. 120 — memo height, empty = auto)";
+          basicPaneEl.appendChild(_row("Height (px)", heightInput));
 
           const fillWrap = document.createElement("div");
           fillWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";

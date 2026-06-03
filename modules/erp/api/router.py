@@ -7381,6 +7381,36 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
         ds.close()
 
 
+@api_router.get("/design/comp-def/get/{comp_def_id}")
+async def design_get_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
+    """Čerstvý comp_def pro settings popup (Marti 3.6.: memo nenačítal layout).
+
+    Popup dosud bral field z (možná stale) this._spec.fields. Tento GET vrací
+    aktuální DB stav (layout JSONB + caption + data_source_id + comp_type_code),
+    takže load parametrů nezávisí na stáří front-endového spec. 3-segmentová
+    cesta /design/comp-def/get/{id} se vyhne kolizi s generic /design/{e}/{id}.
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+    from core.database_data import get_data_session as _gds_gcd
+    from sqlalchemy import text as _sql_gcd
+    ds = _gds_gcd()
+    try:
+        row = ds.execute(_sql_gcd("""
+            SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.region_slot,
+                   cd.parent_comp_def_id, cd.data_source_id, cd.layout,
+                   ct.code AS comp_type_code, ct.label AS comp_type_label
+            FROM fw.comp_def cd
+            JOIN fw.comp_type ct ON ct.id = cd.type_id
+            WHERE cd.id = :id AND cd.is_active = true
+        """), {"id": comp_def_id}).mappings().one_or_none()
+        if not row:
+            return JSONResponse({"ok": False, "error": "comp_def neexistuje"}, status_code=404)
+        return JSONResponse(jsonable_encoder({"ok": True, "comp_def": dict(row)}))
+    finally:
+        ds.close()
+
+
 @api_router.get("/design/comp-def/{comp_def_id}/distinct-values")
 async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResponse:
     """Auto-detect dropdown hodnoty pro lookup/combobox field.

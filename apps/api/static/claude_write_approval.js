@@ -124,10 +124,24 @@
     _el = bar;
   }
 
+  var _pollTimer = null;
+  var _stopped = false;   // 403 = uzivatel neni parent -> zastav polling
+
   function _tick() {
+    if (_stopped) return;
     try {
       fetch(PENDING, { credentials: "same-origin" })
-        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (r) {
+          // 403 = uzivatel neni rodic (nema Claude bridge / approval banner).
+          // Zastav polling, at nezahlcuje diag_log warningy (Marti 3.6.:
+          // stovky 403/min od Pavla — non-parent poller bezel kazdou minutu).
+          if (r.status === 403) {
+            _stopped = true;
+            if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+            return null;
+          }
+          return r.ok ? r.json() : null;
+        })
         .then(function (j) {
           if (!j || !j.ok) return;
           var reqs = j.requests || [];
@@ -140,8 +154,8 @@
   }
 
   setTimeout(_tick, 2500);
-  setInterval(_tick, POLL_MS);
+  _pollTimer = setInterval(_tick, POLL_MS);
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) _tick();
+    if (!document.hidden && !_stopped) _tick();
   });
 })();

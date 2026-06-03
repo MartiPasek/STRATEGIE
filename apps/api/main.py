@@ -527,7 +527,17 @@ async def request_id_middleware(request: Request, call_next):
                 any(_path.startswith(_pat) for _pat in _scanner_paths)
                 or any(_plc.endswith(_ext) for _ext in _scanner_exts)
             )
-            _skip = _is_auth_gate_401 or _is_post_root_405 or _is_scanner_noise
+            # Parent-only poll endpointy: non-parent (Pavel) je polluje periodicky
+            # a dostava ocekavany 403. Neni to chyba — banner se proste nezobrazi.
+            # (Marti 3.6.: stovky 403/min od Pavla z diag-write/pending pollu.)
+            _parent_poll_403_paths = (
+                "/api/v1/erp/diag-write/pending",
+            )
+            _is_parent_poll_403 = _status == 403 and _path in _parent_poll_403_paths
+            _skip = (
+                _is_auth_gate_401 or _is_post_root_405
+                or _is_scanner_noise or _is_parent_poll_403
+            )
             if not _skip:
                 try:
                     from core.log_queue import log_event as _log_event_fe

@@ -327,7 +327,7 @@ def main():
         # SELECT op datasetu (= zdroj fieldů, display sloupce gridu)
         cur = conn.cursor()
         cur.execute("""
-            SELECT dset.sql_text, dc.db_type
+            SELECT dset.sql_text, dc.db_type, dset.db_connection_id
             FROM fw.data_source_op op
             JOIN fw.data_set dset ON dset.id = op.data_set_id
             LEFT JOIN fw.db_connection dc ON dc.id = dset.db_connection_id
@@ -339,6 +339,7 @@ def main():
         cur.close()
         sel_sql = sel_row[0] if sel_row else None
         sel_db_type = sel_row[1] if sel_row else None
+        sel_conn_id = sel_row[2] if sel_row else None
         print(f"SELECT op datasetu: db_type={sel_db_type or '(pg default)'}, "
               f"sql_len={len(sel_sql) if sel_sql else 0}")
         print()
@@ -558,6 +559,41 @@ def main():
                 existing_names.add(fld.lower())
                 next_so += 10
 
+            # ── Step 9b: save bindingy (Marti 3.6.2026) ─────────────────────
+            # Fáze 2 = napojit pole na uložení. Pro jednotabulkový edit core
+            # (SELECT * FROM schema.tabulka) je binding deterministický:
+            #   layout.save = {connection_id, schema, table, column,
+            #                  row_key:{ID:@id}, readonly}.
+            # Idempotentní — re-set na VŠECH polích pod client panelem (nově
+            # přidaných i existujících), takže re-run opraví i starší formy.
+            # Composite/CTE (víc tabulek) → přeskočíme; tam patří
+            # /design/core/{id}/resolve-save-bindings (sqlglot lineage).
+            bind_schema, bind_table = _parse_from_table(sel_sql) if sel_sql else (None, None)
+            bound = 0
+            if bind_schema and bind_table and sel_conn_id is not None:
+                for fld in user_fields:
+                    save_b = {
+                        "connection_id": sel_conn_id,
+                        "schema": bind_schema,
+                        "table": bind_table,
+                        "column": fld,
+                        "row_key": {"ID": "@id"},
+                        "readonly": fld.lower() in READONLY_COLUMNS,
+                    }
+                    cur.execute("""
+                        UPDATE fw.comp_def
+                        SET layout = COALESCE(layout, '{}'::jsonb)
+                                     || jsonb_build_object('save', %s::jsonb)
+                        WHERE parent_comp_def_id = %s AND lower(name) = lower(%s)
+                    """, (json.dumps(save_b), client_id, fld))
+                    bound += cur.rowcount
+                print(f"  ⛓ save binding: {bound} polí → "
+                      f"{bind_schema}.{bind_table} (conn={sel_conn_id})")
+            else:
+                print(f"  ⚠ save binding přeskočen (composite/CTE nebo bez conn) "
+                      f"— schema={bind_schema}, table={bind_table}, "
+                      f"conn={sel_conn_id}. Použij resolve-save-bindings endpoint.")
+
             conn.commit()
             cur.close()
 
@@ -571,6 +607,7 @@ def main():
                 "added": [fld for _, fld in added],
                 "skipped": skipped,
                 "field_source": src,
+                "bound": bound,
             }
             print("__SUMMARY__" + json.dumps(summary, ensure_ascii=False))
 

@@ -452,6 +452,17 @@ def _process_deploy() -> None:
         log_lines.append(f"## {label} — {status}\n{out or '(bez výstupu)'}")
         _log(f"DEPLOY {label}: {status} · {out[:120]!r}")
 
+    # Marti 3.6.2026: pojistka — neidentifikovana instance = deploy bez atribuce
+    # (v gridu Claude aktivita se ukaze jako '?'). Hlasite varuj, at to nikdo
+    # neprehledne. Deploy NEBLOKUJEME (emergency deploy musi projit), jen flag.
+    if INSTANCE_ID == "?":
+        _inst_warn = ("INSTANCE_ID neni nastaven ('?') — tento deploy NEBUDE "
+                      "atribuovany. Oprava: zapis '24' (Kristy) nebo '23' (Marti) "
+                      "do scripts\\claude_sql\\INSTANCE_ID.txt + "
+                      "Restart-Service STRATEGIE-CLAUDE-SQL.")
+        log_lines.append("## !!! INSTANCE NEIDENTIFIKOVANA\n" + _inst_warn)
+        _log("DEPLOY WARN: " + _inst_warn)
+
     _log(f"DEPLOY trigger · msg={msg!r} · files={file_specs or 'ALL'}")
 
     # 2) git add

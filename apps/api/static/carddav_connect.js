@@ -136,8 +136,9 @@
       '<li>URL: <code style="color:#bfe;">' + _esc(url) + '</code> · Uživatel: <code style="color:#bfe;">' + _esc(username) + '</code> → Pokračovat.</li>' +
       '<li>Heslo: vlož <strong>token</strong> výše → Přihlásit.</li>' +
       '<li>Otevři účet → <strong>Metoda seskupování kontaktů</strong> → zvol <strong>„Skupiny jako kategorie" (CATEGORIES)</strong>.</li>' +
-      '<li>Vyber nabízené adresáře/skupiny: <em>Reální / Potenciální klienti</em>.</li>' +
-      '<li>Ťukni <strong>Obnovit seznam adresářů</strong> a pak <strong>Synchronizovat nyní</strong> → hotovo.</li>' +
+      '<li><strong>Obnovit seznam adresářů</strong> → vyber <em>Reální / Potenciální klienti</em>.</li>' +
+      '<li><strong>⟳ Synchronizovat</strong> (nebo stáhni seznam dolů) — DAVx5 ukáže svoji sync notifikaci a stáhne kontakty.</li>' +
+      '<li>Zapni <strong>Synchronizace v pravidelných intervalech</strong> a vyber <strong>interval</strong> (např. 1–4 h). Volbu <em>„VPN vyžaduje nadřazené připojení"</em> nech <strong>vypnutou</strong>.</li>' +
       '</ol>' +
 
       '<div style="font-weight:700;color:#7fd6c2;margin:12px 0 4px;">🍏 iPhone (nativně)</div>' +
@@ -297,7 +298,7 @@
         rf.disabled = false; rf.innerHTML = old;
         if (j && j.ok) {
           _toast("✓ Sjednoceno " + (j.refreshed || 0) + " z " + (j.total || 0) +
-                 " kontaktů. V telefonu ťukni Synchronizovat.");
+                 " kontaktů. V DAVx5 ťukni ⟳ Synchronizovat (nebo počkej na interval).");
         } else { _toast("Obnovení se nepodařilo."); }
       });
     });

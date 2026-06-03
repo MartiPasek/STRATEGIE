@@ -376,11 +376,11 @@
     if (!document.body) return null;
     _banner = document.createElement("div");
     _banner.id = "erpDiagBanner";
-    // Kristý 3.6.: raketa (deploy_button.js) je nově úplně nahoře (top:8px, 40px),
-    // takže banner s počtem modulů je pod ní — top:56px, ať se nepřekrývají.
-    // right:16px zarovnání.
+    // Kristý 3.6.: raketa (deploy_button.js) je úplně nahoře (top:8px, 40px).
+    // Banner s počtem modulů je proto VLEVO od ní (right:64px) a v původní výšce
+    // (top:38px nad lištou) — ať nepřekrývá raketu ani lištu pod sebou.
     _banner.style.cssText = [
-      "position:fixed", "top:56px", "right:16px",
+      "position:fixed", "top:38px", "right:64px",
       "background:rgba(20,30,40,0.85)", "color:#cfd6dc",
       "padding:4px 10px", "border-radius:12px",
       "font-size:11px", "font-family:monospace",

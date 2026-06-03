@@ -164,7 +164,11 @@
               // id (request) vrací backend; fail-soft pokud DesignFwForm chybí.
               try {
                 if (j.edit_core_id && j.id && typeof window.DesignFwForm === "function") {
-                  new window.DesignFwForm({ coreId: j.edit_core_id, rowId: j.id });
+                  var _fwf = new window.DesignFwForm({
+                    coreId: j.edit_core_id, rowId: j.id, mode: "edit",
+                  });
+                  // DesignFwForm konstruktor jen uloží opts — render dělá .open()
+                  if (typeof _fwf.open === "function") _fwf.open();
                 }
               } catch (e) { console.warn("[cell-action dial→edit form]", e); }
             } else {

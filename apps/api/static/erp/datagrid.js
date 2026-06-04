@@ -2866,6 +2866,21 @@
                   rowId: _rid,
                   name: _nm,
                   typ: (_d.TypZakazky != null ? _d.TypZakazky : null),
+                  // CRM telefonni pipeline (4.6.2026, Marti): akce CRM_Kontakt_Akce
+                  // patri pod MASTER kartu (IDHlav = coreInfo.refId), ne pod radek
+                  // sub-gridu. Pole z klikleho radku (osoba/firma) se kopiruji do
+                  // akce; IDakce se predvybira: firma (bez jmena) -> 2 "Telefonat
+                  // na firmu", osoba (Jmeno/Prijmeni) -> 4 "Telefonat na OO".
+                  masterId: (opts.coreInfo && opts.coreInfo.refId != null)
+                    ? opts.coreInfo.refId : null,
+                  rowFields: {
+                    jmeno: _d.Jmeno || null,
+                    prijmeni: _d.Prijmeni || null,
+                    pozice: _d.Pozice || _d.FirmaOrPozice || null,
+                    telefon: _d.Telefon || null,
+                    mobil: _d.Mobil || null,
+                    email: _d.Email || null,
+                  },
                 });
                 return;  // akce provedena → neotvírej form
               }

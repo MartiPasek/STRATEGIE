@@ -6397,6 +6397,24 @@
               });
             },
           });
+          // CRM telefonni pipeline (4.6.2026, Marti): po dokonceni pipeline
+          // (grid_refresh krok) obnov tento embedded grid (CRM Akce / Kontaktni
+          // udaje). Contains-guard preskoci uz zavrene karty -> zadne fetche
+          // pro mrtve gridy (listener se sice neodregistruje, ale dead grid nic
+          // nedela; po reloadu stranky zmizi).
+          try {
+            document.addEventListener("erp:pipeline-grid-refresh", function () {
+              if (!host || !document.body.contains(host)) return;
+              _fetchData().then(function (j) {
+                if (j && j.ok && Array.isArray(j.rows) && gridInst && gridInst.gridApi) {
+                  gridInst.gridApi.setGridOption("rowData", j.rows);
+                  try {
+                    if (typeof gridInst.markFresh === "function") gridInst.markFresh();
+                  } catch (_e) {}
+                }
+              }).catch(function () {});
+            });
+          } catch (_eL) {}
         } catch (e) {
           console.error("[DesignFwForm] embedded grid #" + comp.id + " init failed:", e);
           host.innerHTML = '<div style="padding:12px;color:#e57373;font-size:12px;">' +

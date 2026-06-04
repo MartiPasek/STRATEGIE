@@ -358,13 +358,30 @@
           // PC → FW Action Pipeline (3.6.2026, Marti: "prevorat na akce").
           // Engine ridi: db_insert -> push_notification -> open_core ->
           // note_writeback -> grid_refresh. Nahrazuje hardcoded _pushDialRequest.
+          // CRM telefonni pipeline (4.6.2026, Marti): predvyber IDakce z radku
+          // kontaktnich udaju — firma (bez jmena) -> 2 "Telefonat na firmu",
+          // osoba (Jmeno/Prijmeni) -> 4 "Telefonat na OO". Master karta (IDHlav
+          // pro akci + cil PristiKontakt) = ctx.masterId. Pole osoby/firmy se
+          // kopiruji do CRM_Kontakt_Akce.
+          var _rf = (ctx && ctx.rowFields) || {};
+          var _isOsoba = !!(_rf.jmeno || _rf.prijmeni);
           window.ActPipeline.run("phone_dial_flow", {
             phone: tel,
             raw_value: val,
             label: (ctx && ctx.label) || null,
             target_user_id: window._erpCurrentUserId || _cookieUid(),
             contact_table: (ctx && (ctx.table || ctx.contact_table)) || null,
-            contact_row_id: (ctx && (ctx.rowId || ctx.contact_row_id)) || null
+            contact_row_id: (ctx && (ctx.rowId || ctx.contact_row_id)) || null,
+            // master karta (CRM_Kontakt.ID = IDHlav)
+            contact_master_id: (ctx && ctx.masterId != null) ? ctx.masterId : null,
+            // predvybrany typ akce: 4 = osoba, 2 = firma
+            idakce: (_isOsoba ? 4 : 2),
+            akce_jmeno: _rf.jmeno || null,
+            akce_prijmeni: _rf.prijmeni || null,
+            akce_pozice: _rf.pozice || null,
+            akce_telefon: _rf.telefon || tel,
+            akce_mobil: _rf.mobil || null,
+            akce_email: _rf.email || null
           }).then(function (res) {
             if (!res || res.status === "error") {
               _miniToast("⚠ Pipeline: " + ((res && res.error) || "chyba"));

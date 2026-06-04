@@ -44,15 +44,20 @@
                     outputs: { detail: "DesignFwForm/core_id chybí" } });
           return;
         }
-        var saved = false, savedNote = null;
+        var saved = false, savedNote = null, savedPristi = null;
         var fwf = new window.DesignFwForm({
           coreId: coreId, rowId: rowId,
           mode: (rowId != null ? "edit" : "create"),
           onSaveSuccess: function (resp) {
             saved = true;
             try {
-              savedNote = (resp && (resp.poznamka
-                || (resp.data && resp.data.poznamka))) || null;
+              var _d = (resp && resp.data) || resp || {};
+              savedNote = (resp && resp.poznamka) || _d.poznamka || null;
+              // CRM telefonni pipeline (4.6.2026): datum pristiho kontaktu, ktery
+              // Pavel volitelne zada ve formulari hovoru -> zapise se do
+              // CRM_Kontakt.PristiKontakt. Prazdne -> pipeline krok skipne.
+              savedPristi = (resp && resp.pristi_kontakt) || _d.pristi_kontakt
+                || _d.PristiKontakt || null;
             } catch (e) {}
           },
         });
@@ -66,7 +71,8 @@
           if (!stillOpen) {
             clearInterval(iv);
             resolve({ result_code: (saved ? "closed_saved" : "closed_cancel"),
-                      outputs: { rowId: rowId, note: savedNote, saved: saved } });
+                      outputs: { rowId: rowId, note: savedNote,
+                                 pristi_kontakt: savedPristi, saved: saved } });
           } else if (Date.now() - t0 > 30 * 60 * 1000) {
             clearInterval(iv);
             resolve({ result_code: "closed_cancel", outputs: { detail: "timeout" } });

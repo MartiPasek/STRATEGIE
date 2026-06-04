@@ -178,6 +178,8 @@
     var _origin = (location && location.origin) || "";
     var appPairUrl = _origin + "/app-pair?u=" + encodeURIComponent(_origin) +
       "&t=" + encodeURIComponent(res.token || "") + "&k=mobile";
+    var deepLink = "strategiemobil://pair?u=" + encodeURIComponent(_origin) +
+      "&t=" + encodeURIComponent(res.token || "") + "&k=mobile";
     var appQrBlock =
       '<div style="text-align:center;margin:4px 0 10px;border-top:1px solid #5a4d20;padding-top:10px;">' +
       '<div style="font-size:14px;color:#7fd6c2;font-weight:700;margin-bottom:8px;">' +
@@ -186,8 +188,13 @@
       'style="display:inline-block;background:#fff;padding:10px;border-radius:10px;' +
       'min-width:170px;min-height:170px;line-height:0;">' +
       '<div style="color:#888;font-size:12px;line-height:1.4;padding:64px 12px;">QR…</div></div>' +
-      '<div style="font-size:12.5px;color:#bcd0e6;margin:8px auto 0;max-width:300px;line-height:1.45;">' +
-      'V appce ťukni „📷 Spárovat QR kódem" a naskenuj — vyplní adresu i token a zapne vytáčení.</div>' +
+      '<div style="font-size:12.5px;color:#bcd0e6;margin:8px auto 6px;max-width:300px;line-height:1.45;">' +
+      'Z PC: v appce ťukni „📷 Spárovat QR kódem" a naskenuj. <br>' +
+      'Na tomhle telefonu: ťukni níž „Otevřít v appce".</div>' +
+      '<a href="' + _esc(deepLink) + '" ' +
+      'style="display:inline-block;background:#1f3a2e;border:1px solid #3a7a4a;color:#cdeede;' +
+      'border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none;' +
+      'margin:2px;">📲 Otevřít v appce a spárovat</a>' +
       '</div>';
     return '' +
       '<div style="background:rgba(232,185,35,.08);border:1px solid #6b5a22;' +
@@ -262,6 +269,12 @@
       '<div style="font-size:13px;color:#bcd0e6;line-height:1.5;margin-bottom:10px;">' +
       'Když si telefon připojíš, při <strong>příchozím i odchozím hovoru uvidíš jméno klienta</strong> ' +
       'ze STRATEGIE. ' + contactsLine + '</div>' +
+
+      // STRATEGIE Mobil — stažení appky z webu (i pro vzdálené kolegy s loginem).
+      '<a href="/api/v1/erp/app/mobile/download" ' +
+      'style="display:block;text-align:center;background:#22344a;color:#bfe3ff;' +
+      'border:1px solid #35506e;border-radius:8px;padding:10px 12px;font-size:12.5px;' +
+      'text-decoration:none;margin-bottom:6px;">📥 Stáhnout appku STRATEGIE Mobil (Android)</a>' +
 
       // F1.4: sjednocení sady (STR- prefix do starších vCardů)
       (n > 0 ?

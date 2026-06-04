@@ -66,6 +66,20 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true" />
 
+        <!-- Párování přes odkaz z webu (deep link) — samoobsluha na stejném telefonu. -->
+        <activity
+            android:name=".PairActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="strategiemobil" android:host="pair" />
+            </intent-filter>
+        </activity>
+
         <!-- FileProvider: sdílí stažené APK pro instalační intent. -->
         <provider
             android:name="androidx.core.content.FileProvider"

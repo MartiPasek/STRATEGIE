@@ -1,12 +1,14 @@
 package cz.strategie.mobile
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -115,6 +117,25 @@ fun AppRoot(modifier: Modifier = Modifier) {
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             callLogPerm.launch(Manifest.permission.READ_CALL_LOG)
+        }
+        // Android 14+: aby po odemčení vyskočil rovnou dialer (full-screen intent),
+        // appka potřebuje speciální povolení. Když chybí, otevři jeho nastavení.
+        if (Build.VERSION.SDK_INT >= 34) {
+            val nm = context.getSystemService(NotificationManager::class.java)
+            if (nm != null && !nm.canUseFullScreenIntent()) {
+                Toast.makeText(
+                    context,
+                    "Povol „Zobrazit přes celou obrazovku" — pak dialer naskočí hned po odemčení",
+                    Toast.LENGTH_LONG
+                ).show()
+                try {
+                    context.startActivity(
+                        Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                            .setData(Uri.parse("package:" + context.packageName))
+                    )
+                } catch (e: Exception) {
+                }
+            }
         }
     }
 

@@ -49,10 +49,31 @@ def run(ctx):
         if mcp is None:
             return {"result_code": "skip", "output": {"detail": "MCP nedostupný"}}
         # MCP tool strategie_update_row ocekava `data` (ne `values`) + `db_name`.
+        _data = {note_col: note}
+        # Audit (Marti 4.6.): Zmenil = jmeno uzivatele co update spustil (text
+        # z user_tenants.db_login per tenant, fallback profil). Opt-in pres
+        # params.audit_tenant_id; nikdy neshodi update.
+        _audit_tid = p.get("audit_tenant_id")
+        _uid = ctx.get("started_by_user_id")
+        if _audit_tid and _uid:
+            try:
+                _dsa = get_data_session()
+                try:
+                    _nm = _dsa.execute(_t(
+                        "SELECT COALESCE(NULLIF(ut.db_login,''), NULLIF(u.short_name,''), "
+                        "NULLIF(BTRIM(CONCAT(u.first_name,' ',u.last_name)),''), 'user_'||u.id) "
+                        "FROM public.users u "
+                        "LEFT JOIN public.user_tenants ut ON ut.user_id=u.id AND ut.tenant_id=:tid "
+                        "WHERE u.id=:uid"),
+                        {"uid": _uid, "tid": int(_audit_tid)}).scalar()
+                finally:
+                    _dsa.close()
+                if _nm:
+                    _data.setdefault("Zmenil", _nm)
+            except Exception:
+                pass
         args = {"schema": schema, "table": table,
-                "data": {note_col: note}, "where": {id_col: row_id}}
-        if p.get("db_name"):
-            args["db_name"] = p["db_name"]
+                "data": _data, "where": {id_col: row_id}}
         rj = mcp.call_tool_sync("eurosoft_strategie_update_row", args, conversation_id=None)
         if rj is None or (isinstance(rj, str) and rj.strip() == ""):
             return {"result_code": "skip", "output": {"detail": "MCP vrátil prázdnou odpověď (update)"}}

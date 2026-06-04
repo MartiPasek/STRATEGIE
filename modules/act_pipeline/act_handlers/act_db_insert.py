@@ -45,6 +45,31 @@ def run(ctx):
         mcp = get_eurosoft_mcp_client()
         if mcp is None:
             return {"result_code": "error", "output": {"detail": "MCP nedostupný"}}
+        # Audit actor (Marti 4.6.): Autor/Zmenil = jmeno uzivatele co pipeline
+        # spustil (ne MCP service login). Text z user_tenants.db_login per
+        # tenant (EUROSOFT: Marti->"Martin", Pavel->"PZeman"), fallback na jmeno
+        # z profilu. Jen text — uzivatel NEmusi byt EUROSOFT DB user. Opt-in
+        # pres params.audit_tenant_id; nikdy neshodi insert.
+        _audit_tid = p.get("audit_tenant_id")
+        _uid = ctx.get("started_by_user_id")
+        if _audit_tid and _uid:
+            try:
+                _dsa = get_data_session()
+                try:
+                    _nm = _dsa.execute(_t(
+                        "SELECT COALESCE(NULLIF(ut.db_login,''), NULLIF(u.short_name,''), "
+                        "NULLIF(BTRIM(CONCAT(u.first_name,' ',u.last_name)),''), 'user_'||u.id) "
+                        "FROM public.users u "
+                        "LEFT JOIN public.user_tenants ut ON ut.user_id=u.id AND ut.tenant_id=:tid "
+                        "WHERE u.id=:uid"),
+                        {"uid": _uid, "tid": int(_audit_tid)}).scalar()
+                finally:
+                    _dsa.close()
+                if _nm:
+                    row.setdefault("Autor", _nm)
+                    row.setdefault("Zmenil", _nm)
+            except Exception:
+                pass  # audit selhani nesmi shodit insert akce
         args = {"schema": schema, "table": table, "data": row}
         if p.get("db_name"):
             args["db_name"] = p["db_name"]

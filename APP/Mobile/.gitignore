@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Release podpis — NIKDY do gitu (klíč ani hesla)
+/keystore.properties
+*.jks
+*.keystore

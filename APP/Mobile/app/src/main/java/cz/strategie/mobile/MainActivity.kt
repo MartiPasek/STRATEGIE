@@ -57,7 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.google.android.gms.codescanner.GmsBarcodeScanning
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import cz.strategie.mobile.ui.theme.STRATEGIEMobileTheme
 
 private const val PREFS = "strategie_prefs"

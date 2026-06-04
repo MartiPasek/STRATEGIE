@@ -74,6 +74,8 @@ def run(ctx):
                 pass
         args = {"schema": schema, "table": table,
                 "data": _data, "where": {id_col: row_id}}
+        if p.get("db_name"):
+            args["db_name"] = p["db_name"]
         rj = mcp.call_tool_sync("eurosoft_strategie_update_row", args, conversation_id=None)
         if rj is None or (isinstance(rj, str) and rj.strip() == ""):
             return {"result_code": "skip", "output": {"detail": "MCP vrátil prázdnou odpověď (update)"}}

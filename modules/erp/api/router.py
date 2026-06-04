@@ -5078,6 +5078,46 @@ async def consume_phone_dial_request(req_id: int, req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/phone-dial-request/{req_id}/call-result")
+async def report_phone_call_result(req_id: int, req: Request) -> JSONResponse:
+    """Mobilní appka po dokončení hovoru propíše do tabulky vyzvánění výsledek
+    z call-logu: start hovoru (started_at_ms) + doba hovoru (talk_duration_s)
+    + volitelně odhad doby vyzvánění (ring_estimate_s). Bearer token (sdílí
+    CardDAV) NEBO cookie. Identifikace kontaktu = řádek vyzvánění (phone+label).
+    Marti 4.6.2026."""
+    from core.database_data import get_data_session as _gds_cr
+    from sqlalchemy import text as _sql_cr
+
+    uid = _uid_from_token_or_cookie(req)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    started_ms = body.get("started_at_ms")
+    talk = body.get("talk_duration_s")
+    ring = body.get("ring_estimate_s")
+    ds = _gds_cr()
+    try:
+        ds.execute(_sql_cr("""
+            UPDATE fw.phone_dial_request
+            SET call_started_at = CASE WHEN :ms IS NULL THEN call_started_at
+                                       ELSE to_timestamp(:ms / 1000.0) END,
+                talk_duration_s = :talk,
+                ring_estimate_s = :ring,
+                call_reported_at = now()
+            WHERE id = :id AND target_user_id = :uid
+        """), {"ms": started_ms, "talk": talk, "ring": ring,
+               "id": req_id, "uid": uid})
+        ds.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[report_phone_call_result] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.get("/contact-vcard")
 async def contact_vcard(req: Request):
     """Fáze (1.6.2026, Marti: "přidávat čísla do kontaktů telefonu" — callback

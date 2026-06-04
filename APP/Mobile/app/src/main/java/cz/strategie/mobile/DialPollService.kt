@@ -1,0 +1,339 @@
+package cz.strategie.mobile
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.Manifest
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
+import android.provider.CallLog
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
+
+/**
+ * Služba na pozadí (Marti 4.6.2026): pollne `/phone-dial-request/pending` na
+ * serveru (Bearer = CardDAV token) každé ~4 s. Když přijde požadavek (PC dvojklik
+ * na telefon v ERP) → high-priority notifikace „Vytočit …" s full-screen intentem
+ * → DialActivity spustí dialer s číslem. Pak označí požadavek consumed.
+ *
+ * Android pravidlo: služba na pozadí nesmí sama spustit aktivitu (dialer) od
+ * Androidu 10 — proto notifikace (jako příchozí hovor). Full-screen intent +
+ * CATEGORY_CALL = nejblíž „rovnou vyskočí", co OS dovolí.
+ */
+class DialPollService : Service() {
+
+    @Volatile private var running = false
+    private var worker: Thread? = null
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        createChannels()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForegroundCompat()
+        if (!running) {
+            running = true
+            worker = thread(name = "dial-poll") { pollLoop() }
+        }
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        running = false
+        worker?.interrupt()
+        worker = null
+        super.onDestroy()
+    }
+
+    private fun pollLoop() {
+        while (running) {
+            try {
+                val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                val base = (prefs.getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL)
+                    .trim().trimEnd('/')
+                val token = (prefs.getString(KEY_TOKEN, "") ?: "").trim()
+                if (token.isNotEmpty()) {
+                    val reqs = fetchPending(base, token)
+                    for (i in 0 until reqs.length()) {
+                        val r = reqs.getJSONObject(i)
+                        val id = r.optInt("id", -1)
+                        val phone = r.optString("phone", "")
+                        val label = r.optString("label", "")
+                        if (id > 0 && phone.isNotEmpty()) {
+                            notifyDial(id, phone, label)
+                            consume(base, token, id)
+                            recordPendingCall(id, phone)
+                        }
+                    }
+                    processPendingCalls(base, token)
+                }
+            } catch (e: Exception) {
+                // síťová / parse chyba — neshazuj službu, zkus příští kolo
+            }
+            try {
+                Thread.sleep(POLL_MS)
+            } catch (e: InterruptedException) {
+                break
+            }
+        }
+    }
+
+    private fun fetchPending(base: String, token: String): JSONArray {
+        val c = (URL("$base/api/v1/erp/phone-dial-request/pending")
+            .openConnection() as HttpURLConnection)
+        try {
+            c.requestMethod = "GET"
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.connectTimeout = 8000
+            c.readTimeout = 8000
+            if (c.responseCode == 200) {
+                val body = c.inputStream.bufferedReader().use { it.readText() }
+                val obj = JSONObject(body)
+                if (obj.optBoolean("ok", false)) {
+                    return obj.optJSONArray("requests") ?: JSONArray()
+                }
+            }
+        } finally {
+            c.disconnect()
+        }
+        return JSONArray()
+    }
+
+    private fun consume(base: String, token: String, id: Int) {
+        try {
+            val c = (URL("$base/api/v1/erp/phone-dial-request/$id/consume")
+                .openConnection() as HttpURLConnection)
+            try {
+                c.requestMethod = "POST"
+                c.setRequestProperty("Authorization", "Bearer $token")
+                c.setRequestProperty("Content-Type", "application/json")
+                c.doOutput = true
+                c.connectTimeout = 8000
+                c.readTimeout = 8000
+                c.outputStream.use { it.write("{\"status\":\"done\"}".toByteArray()) }
+                c.responseCode
+            } finally {
+                c.disconnect()
+            }
+        } catch (e: Exception) {
+            // consume selhal — příští poll případně znovu (idempotentní na serveru)
+        }
+    }
+
+    private fun notifyDial(id: Int, phone: String, label: String) {
+        val dialIntent = Intent(this, DialActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra("phone", phone)
+        }
+        val pi = PendingIntent.getActivity(
+            this, id, dialIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val title = if (label.isNotBlank()) label else phone
+        val n = NotificationCompat.Builder(this, CH_ALERT)
+            .setSmallIcon(android.R.drawable.sym_action_call)
+            .setContentTitle("Vytočit: $title")
+            .setContentText(phone)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .setFullScreenIntent(pi, true)
+            .build()
+        nm().notify(NOTIF_DIAL_BASE + id, n)
+    }
+
+    private fun startForegroundCompat() {
+        val n = buildOngoing()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ONGOING, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(NOTIF_ONGOING, n)
+        }
+    }
+
+    private fun buildOngoing(): Notification {
+        val openApp = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(this, CH_ONGOING)
+            .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+            .setContentTitle("STRATEGIE")
+            .setContentText("Naslouchám vytáčení z ERP")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setContentIntent(openApp)
+            .build()
+    }
+
+    private fun nm() =
+        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    private fun createChannels() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm().createNotificationChannel(
+                NotificationChannel(
+                    CH_ONGOING, "Služba vytáčení", NotificationManager.IMPORTANCE_LOW
+                )
+            )
+            nm().createNotificationChannel(
+                NotificationChannel(
+                    CH_ALERT, "Příchozí vytáčení", NotificationManager.IMPORTANCE_HIGH
+                )
+            )
+        }
+    }
+
+    // ── Call-log: dohledání startu + doby hovoru pro vytočená čísla ──────
+    // Po vytočení (notify+consume) zaznamenáme {id, phone, ts}. Každé kolo
+    // pak v call-logu hledáme dokončený odchozí hovor na to číslo a propíšeme
+    // start + dobu hovoru do tabulky vyzvánění. Ring (doba vyzvánění) v
+    // call-logu není → doplní až real-time krok.
+    private fun recordPendingCall(id: Int, phone: String) {
+        try {
+            val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val arr = JSONArray(prefs.getString(KEY_PENDING_CALLS, "[]") ?: "[]")
+            for (i in 0 until arr.length()) {
+                if (arr.getJSONObject(i).optInt("id") == id) return  // idempotent
+            }
+            arr.put(JSONObject().apply {
+                put("id", id)
+                put("phone", phone)
+                put("ts", System.currentTimeMillis())
+            })
+            prefs.edit().putString(KEY_PENDING_CALLS, arr.toString()).apply()
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun processPendingCalls(base: String, token: String) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG)
+            != PackageManager.PERMISSION_GRANTED
+        ) return
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val arr = try {
+            JSONArray(prefs.getString(KEY_PENDING_CALLS, "[]") ?: "[]")
+        } catch (e: Exception) {
+            JSONArray()
+        }
+        if (arr.length() == 0) return
+        val keep = JSONArray()
+        val now = System.currentTimeMillis()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val id = o.optInt("id", -1)
+            val phone = o.optString("phone", "")
+            val ts = o.optLong("ts", 0L)
+            if (id <= 0 || phone.isEmpty()) continue
+            if (now - ts > 2 * 60 * 60 * 1000L) continue  // timeout 2h → vzdej
+            val call = findOutgoingCall(phone, ts - 60_000L)
+            if (call != null) {
+                reportCallResult(base, token, id, call.first, call.second)
+            } else {
+                keep.put(o)  // hovor ještě neskončil / není v logu → zkus příště
+            }
+        }
+        prefs.edit().putString(KEY_PENDING_CALLS, keep.toString()).apply()
+    }
+
+    /** Poslední odchozí hovor na číslo od sinceMs. Vrací (startMs, durationS) nebo null. */
+    private fun findOutgoingCall(phone: String, sinceMs: Long): Pair<Long, Int>? {
+        val want = digits(phone)
+        if (want.length < 6) return null
+        try {
+            val proj = arrayOf(
+                CallLog.Calls.NUMBER, CallLog.Calls.DATE,
+                CallLog.Calls.DURATION, CallLog.Calls.TYPE
+            )
+            val sel = "${CallLog.Calls.TYPE} = ? AND ${CallLog.Calls.DATE} >= ?"
+            val args = arrayOf(
+                CallLog.Calls.OUTGOING_TYPE.toString(), sinceMs.toString()
+            )
+            contentResolver.query(
+                CallLog.Calls.CONTENT_URI, proj, sel, args,
+                "${CallLog.Calls.DATE} DESC"
+            )?.use { c ->
+                val iNum = c.getColumnIndex(CallLog.Calls.NUMBER)
+                val iDate = c.getColumnIndex(CallLog.Calls.DATE)
+                val iDur = c.getColumnIndex(CallLog.Calls.DURATION)
+                while (c.moveToNext()) {
+                    val num = digits(c.getString(iNum) ?: "")
+                    if (num.length >= 6 && num.takeLast(9) == want.takeLast(9)) {
+                        return Pair(c.getLong(iDate), c.getInt(iDur))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+        }
+        return null
+    }
+
+    private fun reportCallResult(
+        base: String, token: String, id: Int, startMs: Long, durationS: Int
+    ) {
+        try {
+            val c = (URL("$base/api/v1/erp/phone-dial-request/$id/call-result")
+                .openConnection() as HttpURLConnection)
+            try {
+                c.requestMethod = "POST"
+                c.setRequestProperty("Authorization", "Bearer $token")
+                c.setRequestProperty("Content-Type", "application/json")
+                c.doOutput = true
+                c.connectTimeout = 8000
+                c.readTimeout = 8000
+                val payload = JSONObject().apply {
+                    put("started_at_ms", startMs)
+                    put("talk_duration_s", durationS)
+                }
+                c.outputStream.use { it.write(payload.toString().toByteArray()) }
+                c.responseCode
+            } finally {
+                c.disconnect()
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun digits(s: String): String = s.filter { it.isDigit() }
+
+    companion object {
+        const val PREFS = "strategie_prefs"
+        const val KEY_URL = "server_url"
+        const val KEY_TOKEN = "token"
+        const val KEY_PENDING_CALLS = "pending_calls"
+        const val DEFAULT_URL = "https://strategie-ai.com"
+        const val CH_ONGOING = "dial_ongoing"
+        const val CH_ALERT = "dial_alert"
+        const val NOTIF_ONGOING = 1001
+        const val NOTIF_DIAL_BASE = 2000
+        const val POLL_MS = 4000L
+
+        fun start(ctx: Context) {
+            val i = Intent(ctx, DialPollService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(i)
+            } else {
+                ctx.startService(i)
+            }
+        }
+
+        fun stop(ctx: Context) {
+            ctx.stopService(Intent(ctx, DialPollService::class.java))
+        }
+    }
+}

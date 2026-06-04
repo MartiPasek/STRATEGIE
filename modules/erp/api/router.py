@@ -69,6 +69,39 @@ def _get_uid(req: Request) -> int:
         raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
 
 
+def _uid_from_token_or_cookie(req: Request) -> int:
+    """user_id z Bearer tokenu (nativní mobilní appka — sdílí CardDAV device
+    token z "user".carddav_token) NEBO z cookie (PWA). Marti 4.6.2026 —
+    background služba nemá cookie, autentizuje se tokenem (jeden token pro
+    kontakty i vytáčení). Fallback na cookie když token chybí/neplatí."""
+    auth = req.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        tok = auth[7:].strip()
+        if tok:
+            import hashlib
+            from core.database_data import get_data_session as _gds_tok
+            from sqlalchemy import text as _sql_tok
+            th = hashlib.sha256(tok.encode("utf-8")).hexdigest()
+            ds = _gds_tok()
+            try:
+                uid = ds.execute(_sql_tok(
+                    'SELECT user_id FROM "user".carddav_token '
+                    'WHERE token_hash = :h AND revoked_at IS NULL'
+                ), {"h": th}).scalar()
+                if uid is not None:
+                    ds.execute(_sql_tok(
+                        'UPDATE "user".carddav_token SET last_used_at = now() '
+                        'WHERE token_hash = :h'
+                    ), {"h": th})
+                    ds.commit()
+                    return int(uid)
+            except Exception:
+                ds.rollback()
+            finally:
+                ds.close()
+    return _get_uid(req)
+
+
 def _require_parent(user_id: int) -> None:
     """Auth gate pro DESIGN / framework / system / audit endpointy:
     jen rodina (is_marti_parent=true). Business/nav endpointy používají
@@ -4993,7 +5026,7 @@ async def list_pending_phone_dials(req: Request) -> JSONResponse:
     from core.database_data import get_data_session as _gds_pdr2
     from sqlalchemy import text as _sql_pdr2
 
-    uid = _get_uid(req)
+    uid = _uid_from_token_or_cookie(req)
     ds = _gds_pdr2()
     try:
         rows = ds.execute(_sql_pdr2("""
@@ -5019,7 +5052,7 @@ async def consume_phone_dial_request(req_id: int, req: Request) -> JSONResponse:
     from core.database_data import get_data_session as _gds_pdr3
     from sqlalchemy import text as _sql_pdr3
 
-    uid = _get_uid(req)
+    uid = _uid_from_token_or_cookie(req)
     try:
         body = await req.json()
     except Exception:

@@ -180,21 +180,26 @@
       "&t=" + encodeURIComponent(res.token || "") + "&k=mobile";
     var deepLink = "strategiemobil://pair?u=" + encodeURIComponent(_origin) +
       "&t=" + encodeURIComponent(res.token || "") + "&k=mobile";
+    var _isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+    // Na telefonu: 1-tap deep-link (appka se sama nastaví). Na PC: QR pro appku.
+    var appBody = _isMobile
+      ? ('<div style="font-size:12.5px;color:#bcd0e6;margin:2px auto 8px;max-width:300px;line-height:1.45;">' +
+         'Máš appku nainstalovanou? Ťukni a sama se nastaví:</div>' +
+         '<a href="' + _esc(deepLink) + '" ' +
+         'style="display:inline-block;background:#1f3a2e;border:1px solid #3a7a4a;color:#cdeede;' +
+         'border-radius:8px;padding:11px 18px;font-size:14px;font-weight:700;text-decoration:none;">' +
+         '📲 Otevřít v appce a spárovat</a>')
+      : ('<div data-app-qr="1" data-url="' + _esc(appPairUrl) + '" ' +
+         'style="display:inline-block;background:#fff;padding:10px;border-radius:10px;' +
+         'min-width:160px;min-height:160px;line-height:0;">' +
+         '<div style="color:#888;font-size:12px;line-height:1.4;padding:60px 12px;">QR…</div></div>' +
+         '<div style="font-size:12.5px;color:#bcd0e6;margin:8px auto 0;max-width:300px;line-height:1.45;">' +
+         'V appce na telefonu ťukni „📷 Spárovat QR kódem" a naskenuj.</div>');
     var appQrBlock =
       '<div style="text-align:center;margin:4px 0 10px;border-top:1px solid #5a4d20;padding-top:10px;">' +
       '<div style="font-size:14px;color:#7fd6c2;font-weight:700;margin-bottom:8px;">' +
       '📲 STRATEGIE Mobil — spárovat appku</div>' +
-      '<div data-app-qr="1" data-url="' + _esc(appPairUrl) + '" ' +
-      'style="display:inline-block;background:#fff;padding:10px;border-radius:10px;' +
-      'min-width:170px;min-height:170px;line-height:0;">' +
-      '<div style="color:#888;font-size:12px;line-height:1.4;padding:64px 12px;">QR…</div></div>' +
-      '<div style="font-size:12.5px;color:#bcd0e6;margin:8px auto 6px;max-width:300px;line-height:1.45;">' +
-      'Z PC: v appce ťukni „📷 Spárovat QR kódem" a naskenuj. <br>' +
-      'Na tomhle telefonu: ťukni níž „Otevřít v appce".</div>' +
-      '<a href="' + _esc(deepLink) + '" ' +
-      'style="display:inline-block;background:#1f3a2e;border:1px solid #3a7a4a;color:#cdeede;' +
-      'border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none;' +
-      'margin:2px;">📲 Otevřít v appce a spárovat</a>' +
+      appBody +
       '</div>';
     return '' +
       '<div style="background:rgba(232,185,35,.08);border:1px solid #6b5a22;' +

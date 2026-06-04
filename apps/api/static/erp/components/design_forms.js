@@ -5278,7 +5278,10 @@
         // data. Callback v openFwFormForRow re-renderuje aktualni grid.
         if (typeof this.opts.onSaveSuccess === "function") {
           try {
-            this.opts.onSaveSuccess(respData);
+            // 2. arg = fieldChanges (uložené hodnoty polí {column: value}).
+            // Save odpoved (respData) je neechuje; pipeline open_core z toho
+            // cte poznamku/datum pristiho kontaktu (CRM telefon pipeline 4.6.).
+            this.opts.onSaveSuccess(respData, fieldChanges);
           } catch (e) {
             console.error("[DesignFwForm] onSaveSuccess callback failed:", e);
           }

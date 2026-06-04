@@ -48,15 +48,19 @@
         var fwf = new window.DesignFwForm({
           coreId: coreId, rowId: rowId,
           mode: (rowId != null ? "edit" : "create"),
-          onSaveSuccess: function (resp) {
+          onSaveSuccess: function (resp, fields) {
             saved = true;
             try {
+              // fields = ulozene hodnoty poli {column: value} (2. arg z
+              // DesignFwForm; save odpoved poznamku neechuje). _d = fallback.
+              var _f = fields || {};
               var _d = (resp && resp.data) || resp || {};
-              savedNote = (resp && resp.poznamka) || _d.poznamka || null;
+              savedNote = _f.poznamka || (resp && resp.poznamka) || _d.poznamka || null;
               // CRM telefonni pipeline (4.6.2026): datum pristiho kontaktu, ktery
               // Pavel volitelne zada ve formulari hovoru -> zapise se do
               // CRM_Kontakt.PristiKontakt. Prazdne -> pipeline krok skipne.
-              savedPristi = (resp && resp.pristi_kontakt) || _d.pristi_kontakt
+              savedPristi = _f.pristi_kontakt || _f.PristiKontakt
+                || (resp && resp.pristi_kontakt) || _d.pristi_kontakt
                 || _d.PristiKontakt || null;
             } catch (e) {}
           },

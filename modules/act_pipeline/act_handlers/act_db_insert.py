@@ -38,17 +38,25 @@ def run(ctx):
     returning = p.get("returning", "id")
 
     if db == "mssql":
-        # přes EUROSOFT MCP (cross-connection), idempotency_key z kontextu
+        # přes EUROSOFT MCP (cross-connection). MCP tool strategie_insert_row
+        # ocekava `data` (ne `values`) + `db_name` (None=DB_ST, "DB_EC"=Centrala).
+        # CRM tabulky (st.*) zijou v DB_EC -> params musi mit db_name="DB_EC".
         from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
         mcp = get_eurosoft_mcp_client()
         if mcp is None:
             return {"result_code": "error", "output": {"detail": "MCP nedostupný"}}
-        rj = mcp.call_tool_sync("eurosoft_strategie_insert_row",
-                                {"schema": schema, "table": table, "values": row}, conversation_id=None)
+        args = {"schema": schema, "table": table, "data": row}
+        if p.get("db_name"):
+            args["db_name"] = p["db_name"]
+        rj = mcp.call_tool_sync("eurosoft_strategie_insert_row", args, conversation_id=None)
+        if rj is None or (isinstance(rj, str) and rj.strip() == ""):
+            return {"result_code": "error", "output": {"detail": "MCP vrátil prázdnou odpověď (insert)"}}
         res = json.loads(rj) if isinstance(rj, str) else (rj or {})
-        if res.get("ok"):
+        if isinstance(res, dict) and res.get("ok"):
             return {"result_code": "ok", "output": {"new_id": res.get("id") or res.get("new_id")}}
-        return {"result_code": "error", "output": {"detail": res.get("error")}}
+        _det = (res.get("message") or res.get("exception_repr") or res.get("error")
+                if isinstance(res, dict) else str(res))
+        return {"result_code": "error", "output": {"detail": _det}}
 
     # PG cesta — parametrizovaný INSERT (JSONB hodnoty se castují)
     ds = get_data_session()

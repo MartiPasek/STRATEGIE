@@ -48,12 +48,19 @@ def run(ctx):
         mcp = get_eurosoft_mcp_client()
         if mcp is None:
             return {"result_code": "skip", "output": {"detail": "MCP nedostupný"}}
-        rj = mcp.call_tool_sync("eurosoft_strategie_update_row",
-                                {"schema": schema, "table": table,
-                                 "values": {note_col: note}, "where": {id_col: row_id}},
-                                conversation_id=None)
+        # MCP tool strategie_update_row ocekava `data` (ne `values`) + `db_name`.
+        args = {"schema": schema, "table": table,
+                "data": {note_col: note}, "where": {id_col: row_id}}
+        if p.get("db_name"):
+            args["db_name"] = p["db_name"]
+        rj = mcp.call_tool_sync("eurosoft_strategie_update_row", args, conversation_id=None)
+        if rj is None or (isinstance(rj, str) and rj.strip() == ""):
+            return {"result_code": "skip", "output": {"detail": "MCP vrátil prázdnou odpověď (update)"}}
         res = json.loads(rj) if isinstance(rj, str) else (rj or {})
-        return {"result_code": "ok" if res.get("ok") else "skip", "output": {"detail": res.get("error")}}
+        _ok = isinstance(res, dict) and res.get("ok")
+        _det = (res.get("message") or res.get("exception_repr") or res.get("error")
+                if isinstance(res, dict) else str(res))
+        return {"result_code": "ok" if _ok else "skip", "output": {"detail": _det}}
 
     ds = get_data_session()
     try:

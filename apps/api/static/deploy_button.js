@@ -129,7 +129,132 @@
       { label: "🚀 Nasadit nejnovější verzi", primary: true, fn: _startDeploy },
       { label: "⚙ Ops akce (restart služeb)…", fn: _opsMenu },
       { label: "📜 Audit ops akcí", fn: _opsLog },
+      { label: "📲 Mobilní appky (verze + zařízení)…", fn: _appReleaseModal },
     ]);
+  }
+
+  // ── Mobilní appky: nahrát novou verzi APK + historie verzí + přehled zařízení.
+  // Univerzální přes app_key (Marti 4.6.2026). Self-update: appka stáhne z serveru.
+  function _appReleaseModal() {
+    var APP = "mobile";  // zatím jedna appka; připraveno na víc (app_key)
+    var ov = document.createElement("div");
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:100070;background:rgba(0,0,0,0.55);" +
+      "display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto;";
+    var box = document.createElement("div");
+    box.style.cssText =
+      "background:#141a20;border:1px solid #2a3340;border-radius:8px;max-width:460px;" +
+      "width:100%;margin:auto;padding:18px 20px;color:#e8eef5;box-shadow:0 8px 32px rgba(0,0,0,0.6);";
+    box.innerHTML =
+      '<div style="font-size:15px;font-weight:600;margin-bottom:6px;">📲 Mobilní appky</div>' +
+      '<div style="font-size:12px;color:#8a96a4;margin-bottom:12px;">app_key: <code>' + APP +
+      '</code> — appka se sama aktualizuje z našeho serveru.</div>' +
+      '<div data-app-latest style="font-size:13px;color:#bcd0e6;margin-bottom:12px;">Načítám verzi…</div>' +
+      '<div style="border-top:1px solid #2a3340;padding-top:12px;font-weight:600;font-size:13px;margin-bottom:8px;">Nahrát novou verzi</div>' +
+      '<input data-au-file type="file" accept=".apk" style="width:100%;margin-bottom:8px;color:#cfd6df;font-size:12px;">' +
+      '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
+        '<input data-au-vc type="number" placeholder="versionCode (např. 2)" style="flex:1;background:#0f1620;border:1px solid #2c3a4c;border-radius:6px;padding:8px;color:#e8eef5;font-size:12px;">' +
+        '<input data-au-vn type="text" placeholder="versionName (1.1)" style="flex:1;background:#0f1620;border:1px solid #2c3a4c;border-radius:6px;padding:8px;color:#e8eef5;font-size:12px;">' +
+      '</div>' +
+      '<input data-au-notes type="text" placeholder="Poznámka k verzi (volitelné)" style="width:100%;background:#0f1620;border:1px solid #2c3a4c;border-radius:6px;padding:8px;color:#e8eef5;font-size:12px;margin-bottom:10px;">' +
+      '<button type="button" data-au-go style="width:100%;background:#1f3a2e;border:1px solid #3a7a4a;color:#cdeede;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">⬆ Nahrát verzi</button>' +
+      '<div data-au-msg style="font-size:12px;margin-top:8px;min-height:14px;"></div>' +
+      '<div style="border-top:1px solid #2a3340;padding-top:12px;margin-top:12px;font-weight:600;font-size:13px;margin-bottom:6px;">Historie verzí</div>' +
+      '<div data-app-versions style="font-size:12px;color:#bcc6d2;">…</div>' +
+      '<div style="border-top:1px solid #2a3340;padding-top:12px;margin-top:12px;font-weight:600;font-size:13px;margin-bottom:6px;">Zařízení a verze</div>' +
+      '<div data-app-devices style="font-size:12px;color:#bcc6d2;">…</div>' +
+      '<button type="button" data-au-close style="display:block;width:100%;margin-top:14px;padding:9px;background:transparent;border:none;color:#8a96a4;cursor:pointer;font-size:13px;">Zavřít</button>';
+    ov.appendChild(box);
+    ov.addEventListener("click", function (ev) { if (ev.target === ov) ov.remove(); });
+    document.body.appendChild(ov);
+    box.querySelector("[data-au-close]").addEventListener("click", function () { ov.remove(); });
+
+    function _fmtSize(n) { return n ? (Math.round(n / 1024 / 1024 * 10) / 10) + " MB" : ""; }
+
+    function _loadLatest() {
+      fetch("/api/v1/erp/app/" + APP + "/latest", { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var el = box.querySelector("[data-app-latest]");
+          if (j && j.available) {
+            el.innerHTML = "Aktuální: <strong style='color:#7fd6c2;'>" + (j.version_name || "") +
+              "</strong> (code " + j.version_code + ") · " + _esc2(j.released_at || "") +
+              " · " + _fmtSize(j.size);
+          } else { el.textContent = "Zatím žádná verze nahraná."; }
+        }).catch(function () {});
+    }
+    function _loadVersions() {
+      fetch("/api/v1/erp/app/" + APP + "/versions", { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var el = box.querySelector("[data-app-versions]");
+          if (!j || !j.versions || !j.versions.length) { el.textContent = "—"; return; }
+          el.innerHTML = j.versions.map(function (v) {
+            return "<div style='padding:3px 0;border-bottom:1px solid #20262e;'>" +
+              "<strong>" + _esc2(v.version_name || "") + "</strong> (code " + v.version_code + ") · " +
+              _esc2(v.released_at || "") + (v.notes ? " — " + _esc2(v.notes) : "") + "</div>";
+          }).join("");
+        }).catch(function () {});
+    }
+    function _loadDevices() {
+      fetch("/api/v1/erp/app/devices", { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var el = box.querySelector("[data-app-devices]");
+          if (!j || !j.devices || !j.devices.length) { el.textContent = "Zatím žádné zařízení."; return; }
+          el.innerHTML = j.devices.map(function (d) {
+            var flags = [];
+            if (d.service_enabled) flags.push("naslouchá");
+            if (d.call_log_enabled) flags.push("call-log");
+            if (d.notif_enabled) flags.push("notif");
+            return "<div style='padding:4px 0;border-bottom:1px solid #20262e;'>" +
+              "<strong>" + _esc2(d.user_name || "") + "</strong> · " + _esc2(d.app_key || "") +
+              " v" + _esc2(d.version_name || "?") + " (code " + (d.version_code || "?") + ")<br>" +
+              "<span style='color:#8a96a4;'>" + _esc2(d.device_label || "") +
+              (d.android_release ? " · Android " + _esc2(d.android_release) : "") +
+              " · " + _esc2(d.last_seen || "") +
+              (flags.length ? " · " + flags.join(", ") : "") + "</span></div>";
+          }).join("");
+        }).catch(function () {});
+    }
+
+    box.querySelector("[data-au-go]").addEventListener("click", function () {
+      var f = box.querySelector("[data-au-file]").files[0];
+      var vc = box.querySelector("[data-au-vc]").value;
+      var vn = box.querySelector("[data-au-vn]").value;
+      var notes = box.querySelector("[data-au-notes]").value;
+      var msg = box.querySelector("[data-au-msg]");
+      if (!f) { msg.style.color = "#e89b9b"; msg.textContent = "Vyber soubor .apk"; return; }
+      if (!vc) { msg.style.color = "#e89b9b"; msg.textContent = "Zadej versionCode"; return; }
+      var fd = new FormData();
+      fd.append("file", f);
+      fd.append("version_code", vc);
+      fd.append("version_name", vn || "");
+      fd.append("notes", notes || "");
+      msg.style.color = "#bcd0e6"; msg.textContent = "Nahrávám…";
+      var go = box.querySelector("[data-au-go]"); go.disabled = true;
+      fetch("/api/v1/erp/app/" + APP + "/upload", {
+        method: "POST", credentials: "same-origin", body: fd,
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        go.disabled = false;
+        if (j && j.ok) {
+          msg.style.color = "#7fd6c2";
+          msg.textContent = "✓ Nahráno v" + (j.version_name || "") + " (code " + j.version_code + "). Telefony se aktualizují do ~5 min.";
+          _loadLatest(); _loadVersions();
+        } else {
+          msg.style.color = "#e89b9b";
+          msg.textContent = (j && j.error) || "Nahrání selhalo.";
+        }
+      }).catch(function () { go.disabled = false; msg.style.color = "#e89b9b"; msg.textContent = "Síťová chyba."; });
+    });
+
+    _loadLatest(); _loadVersions(); _loadDevices();
+  }
+
+  function _esc2(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
   }
 
   // Ops framework (Marti 3.6.2026): pojmenované whitelistované akce z UI.

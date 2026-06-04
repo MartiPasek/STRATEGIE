@@ -173,12 +173,29 @@
         'Platí ~' + (res.handoff_ttl_min || 15) + ' min.</div>' +
         '</div>';
     }
+    // QR pro nativní appku STRATEGIE Mobil (stejný token) — appka naskenuje
+    // „📷 Spárovat QR" → vyplní adresu + token a zapne vytáčení.
+    var _origin = (location && location.origin) || "";
+    var appPairUrl = _origin + "/app-pair?u=" + encodeURIComponent(_origin) +
+      "&t=" + encodeURIComponent(res.token || "") + "&k=mobile";
+    var appQrBlock =
+      '<div style="text-align:center;margin:4px 0 10px;border-top:1px solid #5a4d20;padding-top:10px;">' +
+      '<div style="font-size:14px;color:#7fd6c2;font-weight:700;margin-bottom:8px;">' +
+      '📲 STRATEGIE Mobil — spárovat appku</div>' +
+      '<div data-app-qr="1" data-url="' + _esc(appPairUrl) + '" ' +
+      'style="display:inline-block;background:#fff;padding:10px;border-radius:10px;' +
+      'min-width:170px;min-height:170px;line-height:0;">' +
+      '<div style="color:#888;font-size:12px;line-height:1.4;padding:64px 12px;">QR…</div></div>' +
+      '<div style="font-size:12.5px;color:#bcd0e6;margin:8px auto 0;max-width:300px;line-height:1.45;">' +
+      'V appce ťukni „📷 Spárovat QR kódem" a naskenuj — vyplní adresu i token a zapne vytáčení.</div>' +
+      '</div>';
     return '' +
       '<div style="background:rgba(232,185,35,.08);border:1px solid #6b5a22;' +
       'border-radius:10px;padding:14px;margin-top:12px;">' +
       '<div style="font-size:13px;color:#f0d98a;font-weight:700;margin-bottom:8px;">' +
       '🔑 Přístup pro „' + _esc(res.device_label || "Telefon") + '"</div>' +
       qrBlock +
+      appQrBlock +
       '<details ' + (res.handoff_url ? "" : "open") + ' style="margin-top:4px;">' +
       '<summary style="cursor:pointer;color:#cdb87a;font-size:12.5px;font-weight:600;">' +
       'Nebo zadat ručně (token, URL, login + návod)</summary>' +
@@ -308,6 +325,8 @@
     // QR (po vykreslení panelu) — naskenuj telefonem → token na mobil.
     var qrEl = card.querySelector("[data-cdav-qr]");
     if (qrEl) _renderQr(qrEl.getAttribute("data-url"), qrEl);
+    var appQrEl = card.querySelector("[data-app-qr]");
+    if (appQrEl) _renderQr(appQrEl.getAttribute("data-url"), appQrEl);
   }
 
   function _renderCreateArea(card, info) {

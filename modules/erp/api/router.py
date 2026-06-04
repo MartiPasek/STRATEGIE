@@ -20,7 +20,8 @@ from __future__ import annotations
 import html
 import time
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -5116,6 +5117,312 @@ async def report_phone_call_result(req_id: int, req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         ds.close()
+
+
+# ── Distribuce mobilních appek (vlastní APK na našem serveru + samo-aktualizace).
+# UNIVERZÁLNÍ pro víc aplikací přes {app_key} (Marti 4.6.2026). Bez Obchodu Play:
+# appka pollne /app/{key}/latest (token), porovná version_code, novější stáhne
+# z /app/{key}/download a nabídne instalaci. Upload jen rodič. Heartbeat = přehled
+# kdo na jaké verzi + nastavení (fw.mobile_device).
+import re as _re_app
+
+_APP_KEY_RE = _re_app.compile(r"^[a-z0-9][a-z0-9_-]{0,40}$")
+
+
+def _app_key_ok(key: str) -> bool:
+    return bool(_APP_KEY_RE.match(key or ""))
+
+
+def _app_releases_dir(app_key: str) -> str:
+    import os as _os_ar
+    base = _os_ar.environ.get("APP_RELEASES_DIR")
+    if not base:
+        from core.config import settings as _st_ar
+        media = getattr(_st_ar, "media_storage_root", "D:/Data/STRATEGIE/media")
+        base = _os_ar.path.join(_os_ar.path.dirname(media.rstrip("/\\")), "app_releases")
+    d = _os_ar.path.join(base, app_key)
+    _os_ar.makedirs(d, exist_ok=True)
+    return d
+
+
+def _app_latest_row(app_key: str) -> dict:
+    """Nejnovější verze appky z fw.app_version (DB = zdroj pravdy, jako ERP)."""
+    from core.database_data import get_data_session as _gds_lr
+    from sqlalchemy import text as _sql_lr
+    ds = _gds_lr()
+    try:
+        r = ds.execute(_sql_lr("""
+            SELECT app_key, app_name, version_code, version_name, apk_file, size, notes,
+                   to_char(released_at,'YYYY-MM-DD HH24:MI') AS released_at
+            FROM fw.app_version
+            WHERE app_key = :app
+            ORDER BY version_code DESC
+            LIMIT 1
+        """), {"app": app_key}).mappings().first()
+        return dict(r) if r else {}
+    except Exception:
+        return {}
+    finally:
+        ds.close()
+
+
+@api_router.get("/app/{app_key}/latest")
+async def app_latest(app_key: str, req: Request) -> JSONResponse:
+    """Nejnovější dostupná verze appky {app_key} (token NEBO cookie)."""
+    if not _app_key_ok(app_key):
+        return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
+    _uid_from_token_or_cookie(req)
+    row = _app_latest_row(app_key)
+    if not row.get("version_code"):
+        return JSONResponse({"ok": True, "available": False})
+    return JSONResponse({
+        "ok": True,
+        "available": True,
+        "app_key": app_key,
+        "app_name": row.get("app_name") or "",
+        "version_code": int(row.get("version_code") or 0),
+        "version_name": row.get("version_name") or "",
+        "notes": row.get("notes") or "",
+        "size": int(row.get("size") or 0),
+        "released_at": row.get("released_at") or "",
+        "download_url": "/api/v1/erp/app/%s/download" % app_key,
+    })
+
+
+@api_router.get("/app/{app_key}/download")
+async def app_download(app_key: str, req: Request):
+    """Stáhne nejnovější APK appky {app_key} (token NEBO cookie)."""
+    import os as _os_ad
+    if not _app_key_ok(app_key):
+        return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
+    _uid_from_token_or_cookie(req)
+    row = _app_latest_row(app_key)
+    fn = row.get("apk_file")
+    if not fn:
+        return JSONResponse({"ok": False, "error": "Žádná verze"}, status_code=404)
+    path = _os_ad.path.join(_app_releases_dir(app_key), fn)
+    if not _os_ad.path.isfile(path):
+        return JSONResponse({"ok": False, "error": "Soubor chybí"}, status_code=404)
+    return FileResponse(
+        path,
+        media_type="application/vnd.android.package-archive",
+        filename="%s.apk" % app_key,
+    )
+
+
+@api_router.get("/app/{app_key}/versions")
+async def app_versions(app_key: str, req: Request) -> JSONResponse:
+    """Historie verzí appky (jako ERP verzování — s datem a časem). Jen rodič."""
+    from core.database_data import get_data_session as _gds_av
+    from sqlalchemy import text as _sql_av
+    if not _app_key_ok(app_key):
+        return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
+    uid = _get_uid(req)
+    _require_parent(uid)
+    ds = _gds_av()
+    try:
+        rows = ds.execute(_sql_av("""
+            SELECT version_code, version_name, size, notes,
+                   to_char(released_at,'YYYY-MM-DD HH24:MI') AS released_at
+            FROM fw.app_version
+            WHERE app_key = :app
+            ORDER BY version_code DESC
+        """), {"app": app_key}).mappings().all()
+        return JSONResponse({"ok": True, "app_key": app_key,
+                             "versions": [dict(r) for r in rows]})
+    except Exception as exc:
+        logger.exception("[app_versions] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/{app_key}/upload")
+async def app_upload(
+    app_key: str,
+    req: Request,
+    file: UploadFile = File(...),
+    version_code: int = Form(...),
+    version_name: str = Form(""),
+    app_name: str = Form(""),
+    notes: str = Form(""),
+) -> JSONResponse:
+    """Nahraje novou verzi APK appky {app_key} (jen rodič). Uloží APK + záznam
+    verze do fw.app_version (datum+čas vydání = released_at)."""
+    import os as _os_au
+    from core.database_data import get_data_session as _gds_up
+    from sqlalchemy import text as _sql_up
+
+    if not _app_key_ok(app_key):
+        return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    name = (file.filename or "").lower()
+    if not name.endswith(".apk"):
+        return JSONResponse({"ok": False, "error": "Jen soubor .apk"}, status_code=400)
+    if int(version_code) <= 0:
+        return JSONResponse({"ok": False, "error": "Neplatný version_code"}, status_code=400)
+
+    rel_dir = _app_releases_dir(app_key)
+    fname = "%s-%d.apk" % (app_key, int(version_code))
+    dest = _os_au.path.join(rel_dir, fname)
+    size = 0
+    try:
+        with open(dest, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+                size += len(chunk)
+                if size > 200 * 1024 * 1024:  # cap 200 MB
+                    out.close()
+                    _os_au.remove(dest)
+                    return JSONResponse(
+                        {"ok": False, "error": "APK je příliš velké (>200 MB)"},
+                        status_code=400,
+                    )
+    except Exception as exc:
+        logger.exception("[app_upload] save failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    ds = _gds_up()
+    try:
+        ds.execute(_sql_up("""
+            INSERT INTO fw.app_version
+              (app_key, app_name, version_code, version_name, apk_file, size, notes,
+               released_at, uploaded_by)
+            VALUES (:app,:aname,:vc,:vn,:file,:size,:notes, now(), :uid)
+            ON CONFLICT (app_key, version_code) DO UPDATE SET
+              app_name=EXCLUDED.app_name, version_name=EXCLUDED.version_name,
+              apk_file=EXCLUDED.apk_file, size=EXCLUDED.size, notes=EXCLUDED.notes,
+              released_at=now(), uploaded_by=EXCLUDED.uploaded_by
+        """), {"app": app_key, "aname": app_name.strip() or None,
+               "vc": int(version_code), "vn": version_name.strip() or None,
+               "file": fname, "size": size, "notes": notes.strip() or None,
+               "uid": uid})
+        ds.commit()
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[app_upload] db insert failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+    logger.info("[app_upload] %s verze %s (code %d, %d B) nahrál uid=%d",
+                app_key, version_name, int(version_code), size, uid)
+    return JSONResponse({"ok": True, "app_key": app_key, "version_code": int(version_code),
+                         "version_name": version_name.strip(), "size": size})
+
+
+@api_router.post("/app/{app_key}/heartbeat")
+async def app_heartbeat(app_key: str, req: Request) -> JSONResponse:
+    """Appka hlásí svůj stav (verze + nastavení) → fw.mobile_device. Token NEBO cookie."""
+    from core.database_data import get_data_session as _gds_hb
+    from sqlalchemy import text as _sql_hb
+
+    if not _app_key_ok(app_key):
+        return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
+    uid = _uid_from_token_or_cookie(req)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    dev = (str(body.get("device_id") or "")).strip()[:120]
+    if not dev:
+        return JSONResponse({"ok": False, "error": "device_id required"}, status_code=400)
+
+    def _b(v):
+        return bool(v) if v is not None else None
+
+    params = {
+        "app": app_key, "uid": uid, "dev": dev,
+        "label": (str(body.get("device_label") or "")[:120]) or None,
+        "vc": body.get("version_code"),
+        "vn": (str(body.get("version_name") or "")[:40]) or None,
+        "rel": (str(body.get("android_release") or "")[:40]) or None,
+        "svc": _b(body.get("service_enabled")),
+        "clog": _b(body.get("call_log_enabled")),
+        "notif": _b(body.get("notif_enabled")),
+        "url": (str(body.get("server_url") or "")[:200]) or None,
+    }
+    ds = _gds_hb()
+    try:
+        ds.execute(_sql_hb("""
+            INSERT INTO fw.mobile_device
+              (app_key, user_id, device_id, device_label, version_code, version_name,
+               android_release, service_enabled, call_log_enabled, notif_enabled,
+               server_url, last_seen_at)
+            VALUES (:app,:uid,:dev,:label,:vc,:vn,:rel,:svc,:clog,:notif,:url, now())
+            ON CONFLICT (app_key, user_id, device_id) DO UPDATE SET
+              device_label=EXCLUDED.device_label, version_code=EXCLUDED.version_code,
+              version_name=EXCLUDED.version_name, android_release=EXCLUDED.android_release,
+              service_enabled=EXCLUDED.service_enabled, call_log_enabled=EXCLUDED.call_log_enabled,
+              notif_enabled=EXCLUDED.notif_enabled, server_url=EXCLUDED.server_url,
+              last_seen_at=now()
+        """), params)
+        ds.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[app_heartbeat] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.get("/app/devices")
+async def app_devices(req: Request) -> JSONResponse:
+    """Přehled všech mobilních zařízení (kdo / appka / verze / nastavení). Jen rodič."""
+    from core.database_data import get_data_session as _gds_dv
+    from sqlalchemy import text as _sql_dv
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+    ds = _gds_dv()
+    try:
+        rows = ds.execute(_sql_dv("""
+            SELECT d.app_key, d.user_id,
+                   COALESCE(NULLIF(TRIM(CONCAT(u.first_name,' ',u.last_name)),''),
+                            u.login_name, '#'||d.user_id) AS user_name,
+                   d.device_label, d.version_code, d.version_name, d.android_release,
+                   d.service_enabled, d.call_log_enabled, d.notif_enabled, d.server_url,
+                   to_char(d.last_seen_at,'YYYY-MM-DD HH24:MI') AS last_seen
+            FROM fw.mobile_device d
+            LEFT JOIN public.users u ON u.id = d.user_id
+            ORDER BY d.last_seen_at DESC NULLS LAST
+        """)).mappings().all()
+        return JSONResponse({"ok": True, "devices": [dict(r) for r in rows]})
+    except Exception as exc:
+        logger.exception("[app_devices] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.get("/app/avatar")
+def app_avatar(req: Request):
+    """Avatar default persony (Marti-AI) pro mobilní appku. Token NEBO cookie."""
+    from core.database_data import get_data_session as _gds_avt
+    from sqlalchemy import text as _sql_avt
+    from modules.personas.application import avatar_service as _avs
+    _uid_from_token_or_cookie(req)
+    ds = _gds_avt()
+    try:
+        pid = ds.execute(_sql_avt(
+            "SELECT id FROM personas WHERE is_default = true ORDER BY id LIMIT 1"
+        )).scalar()
+    except Exception:
+        pid = None
+    finally:
+        ds.close()
+    if pid is None:
+        raise HTTPException(status_code=404, detail="Žádná default persona")
+    path = _avs.get_avatar_path(int(pid))
+    if not path:
+        raise HTTPException(status_code=404, detail="Avatar neexistuje")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @api_router.get("/contact-vcard")

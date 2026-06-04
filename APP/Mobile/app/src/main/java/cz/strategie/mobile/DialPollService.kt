@@ -35,6 +35,7 @@ class DialPollService : Service() {
 
     @Volatile private var running = false
     private var worker: Thread? = null
+    private var cycle = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -80,7 +81,13 @@ class DialPollService : Service() {
                         }
                     }
                     processPendingCalls(base, token)
+                    // Každých ~5 min: nahlas stav (verze + nastavení) + zkontroluj verzi.
+                    if (cycle % UPDATE_CHECK_EVERY == 0) {
+                        reportHeartbeat(base, token)
+                        checkAppUpdate(base, token)
+                    }
                 }
+                cycle++
             } catch (e: Exception) {
                 // síťová / parse chyba — neshazuj službu, zkus příští kolo
             }
@@ -196,7 +203,137 @@ class DialPollService : Service() {
                     CH_ALERT, "Příchozí vytáčení", NotificationManager.IMPORTANCE_HIGH
                 )
             )
+            nm().createNotificationChannel(
+                NotificationChannel(
+                    CH_UPDATE, "Aktualizace appky", NotificationManager.IMPORTANCE_DEFAULT
+                )
+            )
         }
+    }
+
+    // ── Heartbeat: nahlas serveru verzi + nastavení (fw.mobile_device) ──────
+    private fun deviceId(): String {
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        var id = prefs.getString(KEY_DEVICE_ID, null)
+        if (id.isNullOrBlank()) {
+            id = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString(KEY_DEVICE_ID, id).apply()
+        }
+        return id
+    }
+
+    private fun reportHeartbeat(base: String, token: String) {
+        try {
+            val callLog = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.READ_CALL_LOG
+            ) == PackageManager.PERMISSION_GRANTED
+            val notif = androidx.core.app.NotificationManagerCompat
+                .from(this).areNotificationsEnabled()
+            val payload = JSONObject().apply {
+                put("device_id", deviceId())
+                put("device_label", "${Build.MANUFACTURER} ${Build.MODEL}")
+                put("version_code", BuildConfig.VERSION_CODE)
+                put("version_name", BuildConfig.VERSION_NAME)
+                put("android_release", Build.VERSION.RELEASE)
+                put("service_enabled", true)
+                put("call_log_enabled", callLog)
+                put("notif_enabled", notif)
+                put("server_url", base)
+            }
+            val c = (URL("$base/api/v1/erp/app/$APP_KEY/heartbeat")
+                .openConnection() as HttpURLConnection)
+            try {
+                c.requestMethod = "POST"
+                c.setRequestProperty("Authorization", "Bearer $token")
+                c.setRequestProperty("Content-Type", "application/json")
+                c.doOutput = true
+                c.connectTimeout = 8000
+                c.readTimeout = 8000
+                c.outputStream.use { it.write(payload.toString().toByteArray()) }
+                c.responseCode
+            } finally {
+                c.disconnect()
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    // ── Samo-aktualizace: server řekne, že je nová verze → stáhni → nabídni ──
+    private fun checkAppUpdate(base: String, token: String) {
+        try {
+            val c = (URL("$base/api/v1/erp/app/$APP_KEY/latest")
+                .openConnection() as HttpURLConnection)
+            val body: String
+            try {
+                c.requestMethod = "GET"
+                c.setRequestProperty("Authorization", "Bearer $token")
+                c.connectTimeout = 8000
+                c.readTimeout = 8000
+                if (c.responseCode != 200) return
+                body = c.inputStream.bufferedReader().use { it.readText() }
+            } finally {
+                c.disconnect()
+            }
+            val o = JSONObject(body)
+            if (!o.optBoolean("available", false)) return
+            val remote = o.optInt("version_code", 0)
+            if (remote <= BuildConfig.VERSION_CODE) return  // máme aktuální/novější
+            val vname = o.optString("version_name", "")
+            val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val apkPath = "${cacheDir.absolutePath}/updates/strategie-$remote.apk"
+            val already = prefs.getInt(KEY_DL_CODE, 0) == remote && java.io.File(apkPath).exists()
+            if (!already) {
+                if (!downloadApk(base, token, apkPath)) return
+                prefs.edit().putInt(KEY_DL_CODE, remote).apply()
+            }
+            notifyUpdate(remote, vname, apkPath)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun downloadApk(base: String, token: String, destPath: String): Boolean {
+        return try {
+            val dest = java.io.File(destPath)
+            dest.parentFile?.mkdirs()
+            val c = (URL("$base/api/v1/erp/app/$APP_KEY/download")
+                .openConnection() as HttpURLConnection)
+            try {
+                c.requestMethod = "GET"
+                c.setRequestProperty("Authorization", "Bearer $token")
+                c.connectTimeout = 10000
+                c.readTimeout = 60000
+                if (c.responseCode != 200) return false
+                c.inputStream.use { inp ->
+                    dest.outputStream().use { out -> inp.copyTo(out, 64 * 1024) }
+                }
+            } finally {
+                c.disconnect()
+            }
+            dest.length() > 0
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun notifyUpdate(versionCode: Int, versionName: String, apkPath: String) {
+        val i = Intent(this, InstallActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(InstallActivity.EXTRA_APK, apkPath)
+        }
+        val pi = PendingIntent.getActivity(
+            this, 9000 + versionCode, i,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val label = if (versionName.isNotBlank()) "verze $versionName" else "nová verze"
+        val n = NotificationCompat.Builder(this, CH_UPDATE)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("STRATEGIE — $label k dispozici")
+            .setContentText("Klepni pro instalaci aktualizace")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .build()
+        nm().notify(NOTIF_UPDATE, n)
     }
 
     // ── Call-log: dohledání startu + doby hovoru pro vytočená čísla ──────
@@ -316,12 +453,18 @@ class DialPollService : Service() {
         const val KEY_URL = "server_url"
         const val KEY_TOKEN = "token"
         const val KEY_PENDING_CALLS = "pending_calls"
+        const val KEY_DL_CODE = "downloaded_update_code"
+        const val KEY_DEVICE_ID = "device_id"
+        const val APP_KEY = "mobile"
         const val DEFAULT_URL = "https://strategie-ai.com"
         const val CH_ONGOING = "dial_ongoing"
         const val CH_ALERT = "dial_alert"
+        const val CH_UPDATE = "app_update"
         const val NOTIF_ONGOING = 1001
+        const val NOTIF_UPDATE = 1002
         const val NOTIF_DIAL_BASE = 2000
         const val POLL_MS = 4000L
+        const val UPDATE_CHECK_EVERY = 75  // ~5 min (75 × 4 s)
 
         fun start(ctx: Context) {
             val i = Intent(ctx, DialPollService::class.java)

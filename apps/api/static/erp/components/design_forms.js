@@ -1998,6 +1998,32 @@
         }
       } catch (e) {}
 
+      // CRM telefon pipeline (4.6.2026, Marti): po dokonceni pipeline (telefon
+      // -> CRM akce + PristiKontakt) obnov DATA tohoto formu, aby header pole
+      // (Pristi kontakt) i embedded gridy (Akce) ukazaly nove hodnoty bez
+      // rucniho zavreni/otevreni master karty. _reloadSpec re-fetchne radek +
+      // re-renderuje. Reload jen kdyz form jeste otevreny (contains-guard,
+      // jinak self-odregistrace) a bez neulozenych zmen (jinak by _reloadSpec
+      // prepsal rozdelane editace). Listener pridan JEN jednou (open() se
+      // nevola pri _reloadSpec -> _render).
+      try {
+        if (!this._pipeRefreshHandler) {
+          var _selfPR = this;
+          this._pipeRefreshHandler = function () {
+            try {
+              var _ov = _selfPR._shell && _selfPR._shell.overlay;
+              if (!_ov || !document.body.contains(_ov)) {
+                document.removeEventListener("erp:pipeline-grid-refresh", _selfPR._pipeRefreshHandler);
+                return;
+              }
+              if (_selfPR._dirty && _selfPR._dirty.size > 0) return;  // neprepisuj rozdelane
+              _selfPR._reloadSpec();
+            } catch (e) { /* fail-safe */ }
+          };
+          document.addEventListener("erp:pipeline-grid-refresh", this._pipeRefreshHandler);
+        }
+      } catch (e) {}
+
       // Phase 38.4 Krok 14b+7 (13.5.2026 ~20:00, Marti's "PROD/DESIGN
       // trigger i na tom formu"): attach toggle button v header. Visible
       // jen pokud global _erpDesignMode = true. Default form mode =
@@ -6400,24 +6426,10 @@
               });
             },
           });
-          // CRM telefonni pipeline (4.6.2026, Marti): po dokonceni pipeline
-          // (grid_refresh krok) obnov tento embedded grid (CRM Akce / Kontaktni
-          // udaje). Contains-guard preskoci uz zavrene karty -> zadne fetche
-          // pro mrtve gridy (listener se sice neodregistruje, ale dead grid nic
-          // nedela; po reloadu stranky zmizi).
-          try {
-            document.addEventListener("erp:pipeline-grid-refresh", function () {
-              if (!host || !document.body.contains(host)) return;
-              _fetchData().then(function (j) {
-                if (j && j.ok && Array.isArray(j.rows) && gridInst && gridInst.gridApi) {
-                  gridInst.gridApi.setGridOption("rowData", j.rows);
-                  try {
-                    if (typeof gridInst.markFresh === "function") gridInst.markFresh();
-                  } catch (_e) {}
-                }
-              }).catch(function () {});
-            });
-          } catch (_eL) {}
+          // CRM telefon pipeline: obnova embedded gridu po dokonceni pipeline
+          // resi master form _reloadSpec (listener v open()) — re-render
+          // re-fetchne i tento grid. Zadny per-grid listener (jinak by se
+          // hromadil pri kazdem re-renderu).
         } catch (e) {
           console.error("[DesignFwForm] embedded grid #" + comp.id + " init failed:", e);
           host.innerHTML = '<div style="padding:12px;color:#e57373;font-size:12px;">' +

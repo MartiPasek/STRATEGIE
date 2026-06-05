@@ -601,29 +601,22 @@ async def request_id_middleware(request: Request, call_next):
     except Exception:
         pass  # never crash middleware
 
-    # HR inventura (5.6.): erární PC/tablet přes prohlížeč (cookie device-id).
-    # Telefony řeší companion appka; tady jen pc/tablet. Cookie nastavíme,
-    # pokud chybí. Throttle 60 s/zařízení je uvnitř touch_device.
+    # HR inventura (5.6.): erární PC/tablet přes prohlížeč. device-id generuje
+    # a drží frontend v localStorage a posílá v hlavičce X-Erp-Device-Id
+    # (stabilní per-prohlížeč, bez race). Server NEgeneruje — jen čte.
+    # Telefony řeší companion appka; tady jen pc/tablet. Throttle v touch_device.
     try:
-        from modules.hr.presence import touch_device as _bd_td, client_ip as _bd_ip
-        _bd_uid_raw = request.cookies.get("user_id")
-        _bd_uid = int(_bd_uid_raw) if (_bd_uid_raw and _bd_uid_raw.isdigit()) else None
-        if _bd_uid:
+        _bd_did = (request.headers.get("x-erp-device-id") or "").strip()
+        if _bd_did:
+            from modules.hr.presence import touch_device as _bd_td, client_ip as _bd_ip
+            _bd_uid_raw = request.cookies.get("user_id")
+            _bd_uid = int(_bd_uid_raw) if (_bd_uid_raw and _bd_uid_raw.isdigit()) else None
             _bd_ua = (request.headers.get("user-agent") or "").lower()
             _bd_is_phone = ("ipad" not in _bd_ua) and any(
                 m in _bd_ua for m in ("mobile", "iphone", "ipod"))
-            if not _bd_is_phone:
+            if _bd_uid and not _bd_is_phone:
                 _bd_type = "tablet" if ("ipad" in _bd_ua or "tablet" in _bd_ua) else "pc"
-                _bd_did = request.cookies.get("erp_did")
-                if not _bd_did:
-                    import uuid as _bd_uuid
-                    _bd_did = "br-" + _bd_uuid.uuid4().hex[:20]
-                    try:
-                        response.set_cookie("erp_did", _bd_did, max_age=31536000,
-                                            httponly=True, samesite="lax")
-                    except Exception:
-                        pass
-                _bd_td(device_key=_bd_did, device_type=_bd_type, name=None,
+                _bd_td(device_key=_bd_did[:160], device_type=_bd_type, name=None,
                        uid=_bd_uid, ip_str=_bd_ip(request), source="browser")
     except Exception:
         pass

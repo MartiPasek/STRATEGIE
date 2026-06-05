@@ -284,6 +284,18 @@
               && init.headers["X-Erp-Comp-Def-Id"] === undefined) {
             init.headers["X-Erp-Comp-Def-Id"] = String(_compDefId);
           }
+          // X-Erp-Device-Id — stabilní per-prohlížeč id z localStorage
+          // (HR inventura: erární PC/tablet se hlásí do fw.hr_device).
+          if (init.headers["X-Erp-Device-Id"] === undefined) {
+            let _did = "";
+            try { _did = window.localStorage.getItem("erp_device_id") || ""; } catch (_e2) {}
+            if (!_did) {
+              _did = "br-" + Math.random().toString(36).slice(2, 12)
+                     + Date.now().toString(36);
+              try { window.localStorage.setItem("erp_device_id", _did); } catch (_e3) {}
+            }
+            if (_did) init.headers["X-Erp-Device-Id"] = _did;
+          }
         }
       } catch (_e) { /* never crash fetch */ }
       return _origFetch.call(this, input, init);

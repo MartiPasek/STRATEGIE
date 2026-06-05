@@ -105,6 +105,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
     var serverVersionCode by remember { mutableStateOf(0) }
     var serverVersionName by remember { mutableStateOf("") }
     var updating by remember { mutableStateOf(false) }
+    var canInstall by remember { mutableStateOf(true) }
 
     fun base(): String = serverUrl.trim().trimEnd('/')
 
@@ -200,6 +201,23 @@ fun AppRoot(modifier: Modifier = Modifier) {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(base() + path)))
         } catch (e: Exception) {
             Toast.makeText(context, "Nelze otevřít prohlížeč", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // „Instalace neznámých aplikací" — bez ní si appka nemůže nainstalovat
+    // staženou aktualizaci. Jednorázové povolení per telefon. Marti 5.6.
+    fun canInstallUnknown(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            context.packageManager.canRequestPackageInstalls()
+
+    fun openInstallSources() {
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                    .setData(Uri.parse("package:" + context.packageName))
+            )
+        } catch (e: Exception) {
+            Toast.makeText(context, "Nastavení nelze otevřít", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -323,7 +341,19 @@ fun AppRoot(modifier: Modifier = Modifier) {
             nm != null && !nm.canUseFullScreenIntent()
         if (needNotif || needCallLog || needFsi) {
             toggleService(true)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                   !context.packageManager.canRequestPackageInstalls()) {
+            // Až jsou základní oprávnění hotová, navedeme na povolení instalace
+            // aktualizací (jednou) — pak budoucí verze chodí jako „Aktualizovat?".
+            toastMain("Pro hladké aktualizace povol „Instalace neznámých aplikací“ pro STRATEGIE")
+            openInstallSources()
         }
+    }
+
+    // Stav „Instalace neznámých aplikací" obnov při otevření Nastavení
+    // (uživatel se může vrátit z OS nastavení s nově uděleným povolením).
+    LaunchedEffect(showSettings) {
+        canInstall = canInstallUnknown()
     }
 
     Column(
@@ -388,6 +418,8 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 updating = updating,
                 onUpdate = { updateNow() },
                 onCheck = { checkVersion(true) },
+                canInstall = canInstall,
+                onAllowInstall = { openInstallSources() },
                 onSave = {
                     prefs.edit()
                         .putString(KEY_URL, serverUrl.trim())
@@ -465,6 +497,8 @@ private fun SettingsBody(
     updating: Boolean,
     onUpdate: () -> Unit,
     onCheck: () -> Unit,
+    canInstall: Boolean,
+    onAllowInstall: () -> Unit,
     onSave: () -> Unit,
     onLoginPair: () -> Unit,
     onToggle: (Boolean) -> Unit,
@@ -505,6 +539,23 @@ private fun SettingsBody(
     }
     OutlinedButton(onClick = onCheck, modifier = Modifier.fillMaxWidth()) {
         Text("🔄 Zkontrolovat verzi")
+    }
+    // Instalace aktualizací — jednorázové povolení, ať budoucí verze chodí hladce
+    if (!canInstall) {
+        Text(
+            "⚠ Pro hladké aktualizace povol instalaci",
+            color = Color(0xFFE0B070),
+            style = MaterialTheme.typography.bodySmall
+        )
+        Button(onClick = onAllowInstall, modifier = Modifier.fillMaxWidth()) {
+            Text("📥 Povolit instalaci aktualizací")
+        }
+    } else {
+        Text(
+            "✓ Instalace aktualizací povolena",
+            color = Color(0xFF7FD6C2),
+            style = MaterialTheme.typography.bodySmall
+        )
     }
     if (serverVersionCode > 0) {
         Button(

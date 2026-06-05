@@ -81,6 +81,12 @@ DEPLOY_MSG_FILE = BRIDGE_DIR / "CLAUDE_DEPLOY.txt"      # 1. řádek = commit ms
 DEPLOY_GO_FILE = BRIDGE_DIR / "CLAUDE_DEPLOY_GO.txt"    # trigger (zapsat JAKO POSLEDNÍ)
 DEPLOY_OUT_FILE = BRIDGE_DIR / "CLAUDE_DEPLOY_OUT.txt"  # watcher zapíše výsledek
 
+# Build mobilní appky (Marti 5.6.2026): Claude spustí gradlew přes bridge a vidí
+# průběh (start → běží → OK/ERR). CLAUDE_BUILD.txt volby (volitelné): "noupload".
+BUILD_MSG_FILE = BRIDGE_DIR / "CLAUDE_BUILD.txt"        # volby: "noupload" = jen postavit, nenahrávat
+BUILD_GO_FILE = BRIDGE_DIR / "CLAUDE_BUILD_GO.txt"      # trigger (zapsat JAKO POSLEDNÍ)
+BUILD_OUT_FILE = BRIDGE_DIR / "CLAUDE_BUILD_OUT.txt"    # watcher zapíše průběh + výsledek
+
 # Sync Claudů (Marti 3.6.2026): freshness + work-lock
 WORK_LOCK_FILE = BRIDGE_DIR / "WORK_LOCK.txt"           # Claude píše: 1.ř popis, další ř soubory
 OTHER_WORK_FILE = BRIDGE_DIR / "OTHER_CLAUDE_WORK.txt"  # watcher píše: co staví ostatní
@@ -814,6 +820,112 @@ def _build_publish_app_mobile() -> dict:
     return _publish_app_mobile()
 
 
+def _write_build_out(text_body: str) -> None:
+    try:
+        BUILD_OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        BUILD_OUT_FILE.write_text(text_body, encoding="utf-8")
+    except Exception as exc:
+        _log(f"write BUILD_OUT failed: {exc}")
+
+
+def _process_build() -> None:
+    """Bridge build: Claude zapíše CLAUDE_BUILD_GO.txt → spustíme gradlew
+    assembleRelease (verze +1) a STREAMUJEME průběh do CLAUDE_BUILD_OUT.txt
+    (start → běží → OK/ERR). Po úspěchu APK nahrajeme (pokud není 'noupload')."""
+    import subprocess
+    do_upload = True
+    try:
+        if BUILD_MSG_FILE.exists():
+            if "noupload" in BUILD_MSG_FILE.read_text(encoding="utf-8", errors="replace").lower():
+                do_upload = False
+    except Exception:
+        pass
+    # GO zkonzumuj hned (idempotence — at to nebezi dvakrat)
+    try:
+        if BUILD_GO_FILE.exists():
+            BUILD_GO_FILE.unlink()
+    except Exception as exc:
+        _log(f"consume BUILD_GO unlink failed: {exc}")
+
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    gradlew = APP_MOBILE_DIR / "gradlew.bat"
+    if not gradlew.exists():
+        _write_build_out(f"# BUILD: ERR\n# {ts}\ngradlew.bat nenalezen v APP/Mobile\n")
+        return
+    env = dict(os.environ)
+    jh = env.get("JAVA_HOME")
+    if not jh or not Path(jh).exists():
+        for cand in (
+            r"C:\Program Files\Android\Android Studio\jbr",
+            r"C:\Program Files\Android\Android Studio1\jbr",
+            r"C:\Program Files\Android\Android Studio Preview\jbr",
+        ):
+            if Path(cand).exists():
+                env["JAVA_HOME"] = cand
+                break
+    jdk = env.get("JAVA_HOME", "(systemovy)")
+    _log("BUILD: gradlew assembleRelease …")
+    vc0, vn0 = _read_app_version()
+    head = "# BUILD: start\n# %s · JAVA_HOME=%s\n# verze pred: %s (code %s) → bude +1\n\n" % (
+        ts, jdk, vn0, vc0)
+    _write_build_out(head + "gradlew assembleRelease se spousti…\n")
+
+    tail = []
+    rc = None
+    try:
+        p = subprocess.Popen(
+            ["cmd", "/c", str(gradlew), "assembleRelease", "--console=plain"],
+            cwd=str(APP_MOBILE_DIR), env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
+        last_flush = 0.0
+        for line in p.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            tail.append(line)
+            if len(tail) > 80:
+                tail = tail[-80:]
+            now = time.time()
+            if now - last_flush > 1.5:
+                _write_build_out("# BUILD: bezi…\n# %s · JAVA_HOME=%s\n\n%s\n"
+                                 % (ts, jdk, "\n".join(tail[-50:])))
+                last_flush = now
+        p.wait(timeout=60)
+        rc = p.returncode
+    except Exception as exc:
+        _write_build_out("# BUILD: ERR\n# %s\nspusteni/cteni selhalo: %s\n\n%s\n"
+                         % (ts, exc, "\n".join(tail[-40:])))
+        _log(f"BUILD: ERR exception {exc}")
+        return
+
+    done_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    if rc != 0:
+        _write_build_out("# BUILD: ERR · rc=%d\n# %s\n\n%s\n"
+                         % (rc, done_ts, "\n".join(tail[-50:])))
+        _log(f"BUILD: ERR rc={rc}")
+        return
+
+    vc, vn = _read_app_version()
+    if not do_upload:
+        _write_build_out("# BUILD: OK (bez nahrani) · v%s code%s\n# %s\n\n%s\n"
+                         % (vn, vc, done_ts, "\n".join(tail[-15:])))
+        _log(f"BUILD: OK v{vn} code{vc} (bez nahrani)")
+        return
+
+    pub = _publish_app_mobile()
+    done_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    if pub.get("status") == "done":
+        _write_build_out("# BUILD: OK · %s\n# %s\n\n%s\n"
+                         % (pub.get("msg", ""), done_ts, "\n".join(tail[-15:])))
+        _log(f"BUILD: OK {pub.get('msg')}")
+    else:
+        _write_build_out("# BUILD: build OK, UPLOAD ERR · %s\n# %s\n\n%s\n"
+                         % (pub.get("msg", ""), done_ts, "\n".join(tail[-15:])))
+        _log(f"BUILD: upload ERR {pub.get('msg')}")
+
+
 def _handle_ops(ops: list) -> None:
     """Zpracuj pending ops z heartbeat odpovedi (whitelist akci z cloudu)."""
     for op in (ops or []):
@@ -894,6 +1006,8 @@ def main() -> None:
             try:
                 if DEPLOY_GO_FILE.exists():
                     _process_deploy()
+                if BUILD_GO_FILE.exists():
+                    _process_build()
                 if GO_FILE.exists():
                     _process()
                 # Freshness (Marti 3.6.): git fetch + behind check á ~90 s →

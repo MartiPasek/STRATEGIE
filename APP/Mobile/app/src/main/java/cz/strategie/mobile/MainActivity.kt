@@ -117,6 +117,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
     var canInstall by remember { mutableStateOf(true) }
     var notifs by remember { mutableStateOf<List<CmdItem>>(emptyList()) }
     var notifSel by remember { mutableStateOf(-1L) }
+    var replyText by remember { mutableStateOf("") }
 
     fun base(): String = serverUrl.trim().trimEnd('/')
 
@@ -286,11 +287,13 @@ fun AppRoot(modifier: Modifier = Modifier) {
 
     // akce na příkaz: pošle rozhodnutí na server (accept/reject/done),
     // zruší jeho notifikaci a obnoví seznam
-    fun actCmd(item: CmdItem, decision: String) {
+    fun actCmd(item: CmdItem, decision: String, note: String = "") {
         val t = token.trim()
         cancelCmdNotif(item.id)
         notifSel = -1L
         if (t.isEmpty()) return
+        val payload = JSONObject().put("decision", decision)
+        if (note.isNotBlank()) payload.put("note", note)
         thread {
             try {
                 val c = (URL(base() + "/api/v1/erp/app/command/" + item.id + "/result")
@@ -300,7 +303,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 c.setRequestProperty("Content-Type", "application/json")
                 c.doOutput = true
                 c.connectTimeout = 8000; c.readTimeout = 8000
-                c.outputStream.use { it.write(("{\"decision\":\"" + decision + "\"}").toByteArray()) }
+                c.outputStream.use { it.write(payload.toString().toByteArray()) }
                 c.responseCode
                 c.disconnect()
             } catch (e: Exception) {
@@ -580,10 +583,12 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 onErp = { open("/erp") },
                 notifs = notifs,
                 notifSel = notifSel,
-                onSelectNotif = { notifSel = if (notifSel == it) -1L else it },
-                onAct = { item, decision -> actCmd(item, decision) },
+                onSelectNotif = { replyText = ""; notifSel = if (notifSel == it) -1L else it },
+                onAct = { item, decision, note -> actCmd(item, decision, note) },
                 onSetting = { cmdSetting(it) },
-                onRefresh = { loadNotifs() }
+                onRefresh = { loadNotifs() },
+                replyText = replyText,
+                onReplyChange = { replyText = it }
             )
         }
     }
@@ -599,9 +604,11 @@ private fun HomeBody(
     notifs: List<CmdItem> = emptyList(),
     notifSel: Long = -1L,
     onSelectNotif: (Long) -> Unit = {},
-    onAct: (CmdItem, String) -> Unit = { _, _ -> },
+    onAct: (CmdItem, String, String) -> Unit = { _, _, _ -> },
     onSetting: (CmdItem) -> Unit = {},
     onRefresh: () -> Unit = {},
+    replyText: String = "",
+    onReplyChange: (String) -> Unit = {},
 ) {
     if (!paired) {
         Text(
@@ -665,41 +672,57 @@ private fun HomeBody(
                         )
                     }
                     if (open) {
-                        Spacer(Modifier.width(0.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            when (n.type) {
-                                "claude_confirm" -> {
-                                    Button(
-                                        onClick = { onAct(n, "accept") },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Povolit") }
-                                    OutlinedButton(
-                                        onClick = { onAct(n, "reject") },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Odmítnout") }
-                                }
-                                "claude_msg" -> {
-                                    Button(
-                                        onClick = { onChat(); onAct(n, "done") },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Otevřít chat") }
-                                    OutlinedButton(
-                                        onClick = { onAct(n, "done") },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Zavřít") }
-                                }
-                                else -> {
-                                    Button(
-                                        onClick = { onSetting(n); onAct(n, "accept") },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Povolit") }
-                                    OutlinedButton(
-                                        onClick = { onAct(n, "reject") },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("Teď ne") }
+                        if (n.type == "claude_msg") {
+                            OutlinedTextField(
+                                value = replyText,
+                                onValueChange = onReplyChange,
+                                label = { Text("Odpovědět Claudovi…") },
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { onAct(n, "done", replyText) },
+                                    enabled = replyText.isNotBlank(),
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Odpovědět") }
+                                OutlinedButton(
+                                    onClick = { onChat(); onAct(n, "done", "") },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Chat") }
+                                OutlinedButton(
+                                    onClick = { onAct(n, "done", "") },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Zavřít") }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                when (n.type) {
+                                    "claude_confirm" -> {
+                                        Button(
+                                            onClick = { onAct(n, "accept", "") },
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("Povolit") }
+                                        OutlinedButton(
+                                            onClick = { onAct(n, "reject", "") },
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("Odmítnout") }
+                                    }
+                                    else -> {
+                                        Button(
+                                            onClick = { onSetting(n); onAct(n, "accept", "") },
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("Povolit") }
+                                        OutlinedButton(
+                                            onClick = { onAct(n, "reject", "") },
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("Teď ne") }
+                                    }
                                 }
                             }
                         }

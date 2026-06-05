@@ -373,6 +373,17 @@ async def request_id_middleware(request: Request, call_next):
     except Exception:
         pass  # never crash middleware on context setup
 
+    # HR presence (Marti 5.6.): best-effort detekce „v budově" z firemní IP.
+    # Throttle 60 s/uživatel (in-memory) — DB zápis jen občas, request nezdrží.
+    try:
+        from modules.hr.presence import touch_presence as _hr_touch, client_ip as _hr_ip
+        _hr_uid_raw = request.cookies.get("user_id")
+        _hr_uid = int(_hr_uid_raw) if (_hr_uid_raw and _hr_uid_raw.isdigit()) else None
+        if _hr_uid:
+            _hr_touch(_hr_uid, _hr_ip(request))
+    except Exception:
+        pass
+
     # EMERGENCY (20.5. vecer, Marti's HTTP/2 protocol error po Fix J deploy):
     # Drop Fix E+ request body capture — request._receive override pattern
     # je nestabilni s Starlette BaseHTTPMiddleware (raises "Unexpected

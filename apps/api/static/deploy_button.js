@@ -151,8 +151,10 @@
       '</code> — appka se sama aktualizuje z našeho serveru.</div>' +
       '<div data-app-latest style="font-size:13px;color:#bcd0e6;margin-bottom:12px;">Načítám verzi…</div>' +
       '<div style="border-top:1px solid #2a3340;padding-top:12px;font-weight:600;font-size:13px;margin-bottom:8px;">Nahrát novou verzi</div>' +
-      '<button type="button" data-au-build style="width:100%;background:#1f3a55;border:1px solid #356092;color:#dbeeff;border-radius:6px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:6px;">⬆ Nahrát z buildu (auto, verze +1)</button>' +
-      '<div style="font-size:11px;color:#8a96a4;margin-bottom:10px;">Vezme app-release.apk z buildu na NB a sám zvolí verzi (předchozí +1). Nebo ručně níže:</div>' +
+      '<button type="button" data-au-buildgo style="width:100%;background:#3a2e1f;border:1px solid #8a6b35;color:#ffe7c2;border-radius:6px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:6px;">🔨 Postavit a nahrát novou verzi (v+1)</button>' +
+      '<div style="font-size:11px;color:#8a96a4;margin-bottom:10px;">NB sám spustí gradlew assembleRelease (verze +1) a hotové APK nahraje. Build trvá ~1–3 min.</div>' +
+      '<button type="button" data-au-build style="width:100%;background:#1f3a55;border:1px solid #356092;color:#dbeeff;border-radius:6px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:6px;">⬆ Jen nahrát hotový build</button>' +
+      '<div style="font-size:11px;color:#8a96a4;margin-bottom:10px;">Vezme už postavené app-release.apk z NB (bez kompilace). Nebo ručně níže:</div>' +
       '<input data-au-file type="file" accept=".apk" style="width:100%;margin-bottom:8px;color:#cfd6df;font-size:12px;">' +
       '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
         '<input data-au-vc type="number" placeholder="versionCode (např. 2)" style="flex:1;background:#0f1620;border:1px solid #2c3a4c;border-radius:6px;padding:8px;color:#e8eef5;font-size:12px;">' +
@@ -329,6 +331,30 @@
           msg.style.color = "#7fd6c2";
           msg.textContent = "✓ Příkaz odeslán — APK se nahraje za pár sekund (verze +1). Pak se objeví v historii.";
           setTimeout(function () { _loadLatest(); _loadVersions(); }, 12000);
+        } else {
+          msg.style.color = "#e89b9b";
+          msg.textContent = (j && j.error) || "Nepodařilo se odeslat příkaz.";
+        }
+      }).catch(function () {
+        bb.disabled = false; msg.style.color = "#e89b9b"; msg.textContent = "Síťová chyba.";
+      });
+    });
+
+    box.querySelector("[data-au-buildgo]").addEventListener("click", function () {
+      var msg = box.querySelector("[data-au-msg]");
+      var bb = box.querySelector("[data-au-buildgo]"); bb.disabled = true;
+      msg.style.color = "#bcd0e6"; msg.textContent = "Posílám příkaz na NB — staví se APK (~1–3 min)…";
+      fetch("/api/v1/erp/ops/request", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_key: "build_publish_app_mobile" }),
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        bb.disabled = false;
+        if (j && (j.ok || j.id || j.status)) {
+          msg.style.color = "#7fd6c2";
+          msg.textContent = "✓ Build spuštěn na NB. Za 1–3 min se objeví nová verze (výsledek i v 📜 Audit ops akcí).";
+          setTimeout(function () { _loadLatest(); _loadVersions(); }, 90000);
+          setTimeout(function () { _loadLatest(); _loadVersions(); }, 180000);
         } else {
           msg.style.color = "#e89b9b";
           msg.textContent = (j && j.error) || "Nepodařilo se odeslat příkaz.";

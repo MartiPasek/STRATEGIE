@@ -6316,6 +6316,10 @@ _OPS_ACTIONS = {
         "label": "Nahrát mobilní APK z buildu (NB → server)",
         "target": "instance:23", "remote": True, "op": "publish_app_mobile",
     },
+    "build_publish_app_mobile": {
+        "label": "Postavit APK (gradlew) + nahrát (NB → server, verze +1)",
+        "target": "instance:23", "remote": True, "op": "build_publish_app_mobile",
+    },
 }
 
 

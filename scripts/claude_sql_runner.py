@@ -67,8 +67,9 @@ BRIDGE_DIR = REPO_ROOT / "scripts" / "claude_sql"
 # Mobilni APK publish z buildu (Marti 5.6.2026): watcher precte verzi z
 # version.properties (gradle ji pri release buildu auto-zvysi predchozi+1)
 # + APK z release/ a nahraje na server (zadny rucni vyber souboru v UI).
-APP_VERSION_PROPS = REPO_ROOT / "APP" / "Mobile" / "version.properties"
-APP_APK = REPO_ROOT / "APP" / "Mobile" / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk"
+APP_MOBILE_DIR = REPO_ROOT / "APP" / "Mobile"
+APP_VERSION_PROPS = APP_MOBILE_DIR / "version.properties"
+APP_APK = APP_MOBILE_DIR / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk"
 SQL_FILE = BRIDGE_DIR / "CLAUDE_SQL.sql"
 GO_FILE = BRIDGE_DIR / "CLAUDE_GO.txt"
 OUT_FILE = BRIDGE_DIR / "CLAUDE_OUT.txt"
@@ -769,6 +770,50 @@ def _publish_app_mobile() -> dict:
         return {"status": "error", "msg": str(exc)}
 
 
+def _build_app_mobile() -> dict:
+    """Spusti `gradlew.bat assembleRelease` v APP/Mobile (release build auto-zvysi
+    verzi predchozi+1 a vyrobi app-release.apk). JAVA_HOME nastavi na Android Studio
+    JBR, kdyz chybi. Vraci {status, msg}; pri chybe tail gradle vystupu."""
+    import subprocess
+    gradlew = APP_MOBILE_DIR / "gradlew.bat"
+    if not gradlew.exists():
+        return {"status": "error", "msg": "gradlew.bat nenalezen v APP/Mobile"}
+    env = dict(os.environ)
+    jh = env.get("JAVA_HOME")
+    if not jh or not Path(jh).exists():
+        for cand in (
+            r"C:\Program Files\Android\Android Studio\jbr",
+            r"C:\Program Files\Android\Android Studio1\jbr",
+            r"C:\Program Files\Android\Android Studio Preview\jbr",
+        ):
+            if Path(cand).exists():
+                env["JAVA_HOME"] = cand
+                break
+    try:
+        p = subprocess.run(
+            ["cmd", "/c", str(gradlew), "assembleRelease"],
+            cwd=str(APP_MOBILE_DIR), env=env,
+            capture_output=True, text=True, timeout=900,
+        )
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "msg": "build timeout (>15 min)"}
+    except Exception as exc:
+        return {"status": "error", "msg": "build spusteni selhalo: %s" % exc}
+    if p.returncode != 0:
+        tail = ((p.stdout or "") + (p.stderr or ""))[-400:]
+        tail = tail.replace("\r", " ").replace("\n", " ")
+        return {"status": "error", "msg": "build selhal (rc=%d): ...%s" % (p.returncode, tail)}
+    return {"status": "done", "msg": "build OK"}
+
+
+def _build_publish_app_mobile() -> dict:
+    """Postavi APK (gradlew assembleRelease) a hned ho nahraje na server."""
+    b = _build_app_mobile()
+    if b.get("status") != "done":
+        return b
+    return _publish_app_mobile()
+
+
 def _handle_ops(ops: list) -> None:
     """Zpracuj pending ops z heartbeat odpovedi (whitelist akci z cloudu)."""
     for op in (ops or []):
@@ -784,6 +829,10 @@ def _handle_ops(ops: list) -> None:
         elif kind == "publish_app_mobile":
             _log(f"OPS #{rid}: publikuji mobilni APK z buildu…")
             res = _publish_app_mobile()
+            _ops_report(rid, res.get("status", "done"), res.get("msg", ""))
+        elif kind == "build_publish_app_mobile":
+            _log(f"OPS #{rid}: stavim APK (gradlew assembleRelease) + nahravam…")
+            res = _build_publish_app_mobile()
             _ops_report(rid, res.get("status", "done"), res.get("msg", ""))
         else:
             _ops_report(rid, "error", f"neznama op '{kind}' na watcheru")

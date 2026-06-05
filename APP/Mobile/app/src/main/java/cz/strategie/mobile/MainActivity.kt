@@ -68,6 +68,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
+import kotlinx.coroutines.delay
 
 private const val PREFS = "strategie_prefs"
 private const val KEY_URL = "server_url"
@@ -265,6 +266,32 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 Toast.makeText(context, "Skener QR není dostupný", Toast.LENGTH_SHORT).show()
             }
             .addOnCanceledListener { }
+    }
+
+    // Po automatickém spárování (PairActivity) appka jen uloží token a spustí
+    // službu — runtime oprávnění (notifikace / call-log / celá obrazovka) se ale
+    // nevyžádají. Bez nich služba na pozadí nevyvolá vytáčení. Když je appka
+    // spárovaná a běží, ale některé oprávnění chybí, spustíme stejný řetězec
+    // žádostí jako manuální „Spustit službu". Jen jednou na otevření. Marti 5.6.
+    var autoPermChecked by remember { mutableStateOf(false) }
+    LaunchedEffect(serviceOn, token) {
+        if (autoPermChecked) return@LaunchedEffect
+        if (!serviceOn || token.trim().isEmpty()) return@LaunchedEffect
+        autoPermChecked = true
+        delay(600)  // počkej, až je obrazovka v popředí (dialogy oprávnění to vyžadují)
+        val needNotif = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        val needCallLog = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.READ_CALL_LOG
+        ) != PackageManager.PERMISSION_GRANTED
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val needFsi = Build.VERSION.SDK_INT >= 34 &&
+            nm != null && !nm.canUseFullScreenIntent()
+        if (needNotif || needCallLog || needFsi) {
+            toggleService(true)
+        }
     }
 
     Column(

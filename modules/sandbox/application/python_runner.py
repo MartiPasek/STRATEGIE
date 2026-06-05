@@ -562,7 +562,15 @@ def execute(
     # unblock orchestrator nemůže `import core.database_data`.
     # Marti-AI's python_exec (default False) zachová strict isolation.
     if with_strategie_pythonpath:
-        _effective_blocked = BLOCKED_IMPORTS - {"subprocess", "multiprocessing"}
+        # Trusted orchestrator path (parent-only, executable_artifact pod parent
+        # ACL): unblock subprocess/multiprocessing (SQLAlchemy import chain) +
+        # httpx. httpx je nutny pro EUROSOFT MCP SSE klienta (mcp.client.sse),
+        # cimz se DOKONCUJE zamer Krok H+5 (28.5.2026): inject EUROSOFT_MCP_*
+        # env aby orchestrator cetl DB_EC pres MCP. Bez httpx unblock SSE connect
+        # hodil ImportError -> ensure_started False -> mcp_unreachable. Default
+        # path (Marti-AI python_exec, with_strategie_pythonpath=False) zustava
+        # strict — httpx tam blokovany.
+        _effective_blocked = BLOCKED_IMPORTS - {"subprocess", "multiprocessing", "httpx"}
     else:
         _effective_blocked = BLOCKED_IMPORTS
 

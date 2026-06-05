@@ -11136,6 +11136,15 @@ _DataSetEditor.register_routes(api_router)
 from modules.api_versioning.router import ApiVersioningComponent as _ApiVersioning  # noqa: E402
 _ApiVersioning.register_routes(api_router)
 
+# ════════════════════════════════════════════════════════════════════════
+# Reusable migration runner (5.6.2026): server-side, parent-only, davkovany.
+# POST /migrate/{job_code} + GET /migrate/_jobs. Joby v fw.migration_job.
+# Hlavni proces: tepy MCP read (DB_EC) + zapis jako Marti-AI. Data zustavaji
+# server-side. Velke objemy = batch_size pagination (commit per davka).
+# ════════════════════════════════════════════════════════════════════════
+from modules.migration.migration_runner import register_routes as _register_migration_routes  # noqa: E402
+_register_migration_routes(api_router)
+
 
 @api_router.get("/design/context-menu-items")
 def design_list_context_menu_items(req: Request) -> JSONResponse:

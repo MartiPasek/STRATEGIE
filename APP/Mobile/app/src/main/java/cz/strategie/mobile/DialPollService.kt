@@ -81,6 +81,7 @@ class DialPollService : Service() {
                         }
                     }
                     processPendingCalls(base, token)
+                    checkCommands(base, token)
                     // Každých ~5 min: nahlas stav (verze + nastavení) + zkontroluj verzi.
                     if (cycle % UPDATE_CHECK_EVERY == 0) {
                         reportHeartbeat(base, token)
@@ -208,6 +209,11 @@ class DialPollService : Service() {
                     CH_UPDATE, "Aktualizace appky", NotificationManager.IMPORTANCE_DEFAULT
                 )
             )
+            nm().createNotificationChannel(
+                NotificationChannel(
+                    CH_COMMAND, "Doporučení", NotificationManager.IMPORTANCE_HIGH
+                )
+            )
         }
     }
 
@@ -229,6 +235,9 @@ class DialPollService : Service() {
             ) == PackageManager.PERMISSION_GRANTED
             val notif = androidx.core.app.NotificationManagerCompat
                 .from(this).areNotificationsEnabled()
+            val fullscreen = if (Build.VERSION.SDK_INT >= 34) {
+                try { nm().canUseFullScreenIntent() } catch (e: Exception) { false }
+            } else true
             val payload = JSONObject().apply {
                 put("device_id", deviceId())
                 put("device_label", "${Build.MANUFACTURER} ${Build.MODEL}")
@@ -238,6 +247,7 @@ class DialPollService : Service() {
                 put("service_enabled", true)
                 put("call_log_enabled", callLog)
                 put("notif_enabled", notif)
+                put("fullscreen_enabled", fullscreen)
                 put("server_url", base)
             }
             val c = (URL("$base/api/v1/erp/app/$APP_KEY/heartbeat")
@@ -334,6 +344,71 @@ class DialPollService : Service() {
             .setContentIntent(pi)
             .build()
         nm().notify(NOTIF_UPDATE, n)
+    }
+
+    // ── Vzdálená doporučení parentů → notifikace → CommandActivity dialog ───
+    private fun checkCommands(base: String, token: String) {
+        try {
+            val c = (URL("$base/api/v1/erp/app/$APP_KEY/commands/pending")
+                .openConnection() as HttpURLConnection)
+            val body: String
+            try {
+                c.requestMethod = "GET"
+                c.setRequestProperty("Authorization", "Bearer $token")
+                c.connectTimeout = 8000
+                c.readTimeout = 8000
+                if (c.responseCode != 200) return
+                body = c.inputStream.bufferedReader().use { it.readText() }
+            } finally {
+                c.disconnect()
+            }
+            val arr = JSONObject(body).optJSONArray("commands") ?: return
+            for (i in 0 until arr.length()) {
+                val cmd = arr.getJSONObject(i)
+                notifyCommand(
+                    cmd.optLong("id", -1L),
+                    cmd.optString("command_type", ""),
+                    cmd.optString("title", "Doporučení"),
+                    cmd.optString("message", ""),
+                    cmd.optString("payload", "")
+                )
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun notifyCommand(
+        id: Long, type: String, title: String, msg: String, payload: String
+    ) {
+        if (id < 0L) return
+        val i = Intent(this, CommandActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra("cmd_id", id)
+            putExtra("cmd_type", type)
+            putExtra("cmd_title", title)
+            putExtra("cmd_msg", msg)
+            try {
+                if (type == "open_url" && payload.isNotBlank()) {
+                    putExtra("cmd_url", JSONObject(payload).optString("url", ""))
+                }
+            } catch (e: Exception) {
+            }
+        }
+        val pi = PendingIntent.getActivity(
+            this, (NOTIF_COMMAND_BASE + id).toInt(), i,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val n = NotificationCompat.Builder(this, CH_COMMAND)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(if (msg.isNotBlank()) msg else "Klepni pro zobrazení")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(msg))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(pi)
+            .build()
+        nm().notify((NOTIF_COMMAND_BASE + id).toInt(), n)
     }
 
     // ── Call-log: dohledání startu + doby hovoru pro vytočená čísla ──────
@@ -460,9 +535,11 @@ class DialPollService : Service() {
         const val CH_ONGOING = "dial_ongoing"
         const val CH_ALERT = "dial_alert"
         const val CH_UPDATE = "app_update"
+        const val CH_COMMAND = "app_command"
         const val NOTIF_ONGOING = 1001
         const val NOTIF_UPDATE = 1002
         const val NOTIF_DIAL_BASE = 2000
+        const val NOTIF_COMMAND_BASE = 7000L
         const val POLL_MS = 4000L
         const val UPDATE_CHECK_EVERY = 75  // ~5 min (75 × 4 s)
 

@@ -196,6 +196,10 @@
           }).join("");
         }).catch(function () {});
     }
+    function _flag(on, name) {
+      var c = on ? "#7fd6c2" : "#e08a8a";
+      return "<span style='color:" + c + ";'>" + (on ? "✓" : "✗") + " " + name + "</span>";
+    }
     function _loadDevices() {
       fetch("/api/v1/erp/app/devices", { credentials: "same-origin" })
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -203,19 +207,54 @@
           var el = box.querySelector("[data-app-devices]");
           if (!j || !j.devices || !j.devices.length) { el.textContent = "Zatím žádné zařízení."; return; }
           el.innerHTML = j.devices.map(function (d) {
-            var flags = [];
-            if (d.service_enabled) flags.push("naslouchá");
-            if (d.call_log_enabled) flags.push("call-log");
-            if (d.notif_enabled) flags.push("notif");
-            return "<div style='padding:4px 0;border-bottom:1px solid #20262e;'>" +
+            var flagsLine = [
+              _flag(d.service_enabled, "naslouchá"),
+              _flag(d.call_log_enabled, "call-log"),
+              _flag(d.notif_enabled, "oznámení"),
+              _flag(d.fullscreen_enabled, "celá obr.")
+            ].join(" · ");
+            return "<div style='padding:6px 0;border-bottom:1px solid #20262e;'>" +
+              "<button type='button' data-cmd-user='" + (d.user_id || "") + "' " +
+              "style='float:right;background:#1f3a55;border:1px solid #356092;color:#dbeeff;" +
+              "border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;'>📨 Doporučit</button>" +
               "<strong>" + _esc2(d.user_name || "") + "</strong> · " + _esc2(d.app_key || "") +
               " v" + _esc2(d.version_name || "?") + " (code " + (d.version_code || "?") + ")<br>" +
               "<span style='color:#8a96a4;'>" + _esc2(d.device_label || "") +
               (d.android_release ? " · Android " + _esc2(d.android_release) : "") +
-              " · " + _esc2(d.last_seen || "") +
-              (flags.length ? " · " + flags.join(", ") : "") + "</span></div>";
+              " · " + _esc2(d.last_seen || "") + "</span><br>" +
+              "<span style='font-size:11px;'>" + flagsLine + "</span></div>";
           }).join("");
+          var btns = el.querySelectorAll("[data-cmd-user]");
+          for (var i = 0; i < btns.length; i++) {
+            (function (b) {
+              b.addEventListener("click", function () {
+                _commandPicker(parseInt(b.getAttribute("data-cmd-user"), 10));
+              });
+            })(btns[i]);
+          }
         }).catch(function () {});
+    }
+
+    function _commandPicker(userId) {
+      if (!userId) return;
+      _menuDialog("Poslat doporučení uživateli", [
+        { label: "📲 Povolit zobrazení přes celou obrazovku", fn: function () { _sendCommand(userId, "fullscreen"); } },
+        { label: "📞 Povolit seznam hovorů (délka hovoru)", fn: function () { _sendCommand(userId, "calllog"); } },
+        { label: "🔔 Povolit oznámení", fn: function () { _sendCommand(userId, "notif"); } },
+        { label: "🔋 Vypnout úsporu baterie", fn: function () { _sendCommand(userId, "battery"); } },
+        { label: "⬆ Aktualizovat appku", fn: function () { _sendCommand(userId, "update"); } },
+      ]);
+    }
+    function _sendCommand(userId, type) {
+      fetch("/api/v1/erp/app/command", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_user_id: userId, command_type: type }),
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        _toast(j && j.ok
+          ? "✓ Odesláno — uživateli na mobilu vyskočí dialog Povolit/Zamítnout"
+          : ((j && j.error) || "Nepodařilo se odeslat"), !(j && j.ok));
+      }).catch(function () { _toast("Síťová chyba", true); });
     }
 
     box.querySelector("[data-au-go]").addEventListener("click", function () {

@@ -80,6 +80,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Dialog s doporučením od parentů (Povolit/Zamítnout). -->
+        <activity
+            android:name=".CommandActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- FileProvider: sdílí stažené APK pro instalační intent. -->
         <provider
             android:name="androidx.core.content.FileProvider"

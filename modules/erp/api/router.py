@@ -5345,6 +5345,7 @@ async def app_heartbeat(app_key: str, req: Request) -> JSONResponse:
         "svc": _b(body.get("service_enabled")),
         "clog": _b(body.get("call_log_enabled")),
         "notif": _b(body.get("notif_enabled")),
+        "fs": _b(body.get("fullscreen_enabled")),
         "url": (str(body.get("server_url") or "")[:200]) or None,
     }
     ds = _gds_hb()
@@ -5353,14 +5354,14 @@ async def app_heartbeat(app_key: str, req: Request) -> JSONResponse:
             INSERT INTO fw.mobile_device
               (app_key, user_id, device_id, device_label, version_code, version_name,
                android_release, service_enabled, call_log_enabled, notif_enabled,
-               server_url, last_seen_at)
-            VALUES (:app,:uid,:dev,:label,:vc,:vn,:rel,:svc,:clog,:notif,:url, now())
+               fullscreen_enabled, server_url, last_seen_at)
+            VALUES (:app,:uid,:dev,:label,:vc,:vn,:rel,:svc,:clog,:notif,:fs,:url, now())
             ON CONFLICT (app_key, user_id, device_id) DO UPDATE SET
               device_label=EXCLUDED.device_label, version_code=EXCLUDED.version_code,
               version_name=EXCLUDED.version_name, android_release=EXCLUDED.android_release,
               service_enabled=EXCLUDED.service_enabled, call_log_enabled=EXCLUDED.call_log_enabled,
-              notif_enabled=EXCLUDED.notif_enabled, server_url=EXCLUDED.server_url,
-              last_seen_at=now()
+              notif_enabled=EXCLUDED.notif_enabled, fullscreen_enabled=EXCLUDED.fullscreen_enabled,
+              server_url=EXCLUDED.server_url, last_seen_at=now()
         """), params)
         ds.commit()
         return JSONResponse({"ok": True})
@@ -5387,7 +5388,8 @@ async def app_devices(req: Request) -> JSONResponse:
                    COALESCE(NULLIF(TRIM(CONCAT(u.first_name,' ',u.last_name)),''),
                             u.login_name, '#'||d.user_id) AS user_name,
                    d.device_label, d.version_code, d.version_name, d.android_release,
-                   d.service_enabled, d.call_log_enabled, d.notif_enabled, d.server_url,
+                   d.service_enabled, d.call_log_enabled, d.notif_enabled,
+                   d.fullscreen_enabled, d.server_url,
                    to_char(d.last_seen_at,'YYYY-MM-DD HH24:MI') AS last_seen
             FROM fw.mobile_device d
             LEFT JOIN public.users u ON u.id = d.user_id
@@ -5423,6 +5425,122 @@ def app_avatar(req: Request):
     if not path:
         raise HTTPException(status_code=404, detail="Avatar neexistuje")
     return FileResponse(path, media_type="image/jpeg")
+
+
+# ── Vzdálená doporučení parentů → na mobilu dialog Povolit/Zamítnout (Marti 5.6).
+_CMD_DEFAULTS = {
+    "fullscreen": ("Povolení: vytáčení přes celou obrazovku",
+        "Aby po odemčení vyskočil rovnou dialer, povol „Zobrazit přes celou "
+        "obrazovku“. Klepni Povolit a otevře se přesné nastavení."),
+    "calllog": ("Povolení: seznam hovorů",
+        "Pro zápis délky hovoru do CRM povol přístup k seznamu hovorů. Klepni Povolit."),
+    "notif": ("Povolení: oznámení",
+        "Aby ti chodila upozornění (vytáčení, aktualizace), povol oznámení."),
+    "battery": ("Vypnout úsporu baterie",
+        "Aby appka spolehlivě běžela na pozadí, vyjmi ji z optimalizace baterie."),
+    "update": ("Aktualizace appky",
+        "Je k dispozici novější verze appky. Klepni Povolit pro stažení a instalaci."),
+    "message": ("Zpráva od STRATEGIE", ""),
+}
+
+
+@api_router.post("/app/command")
+async def app_command_create(req: Request) -> JSONResponse:
+    """Parent pošle doporučení uživateli (na mobilu dialog). Jen rodič."""
+    import json as _json_cc
+    from core.database_data import get_data_session as _gds_cc
+    from sqlalchemy import text as _sql_cc
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    target = body.get("target_user_id")
+    ctype = (str(body.get("command_type") or "")).strip()
+    if not target or not ctype:
+        return JSONResponse({"ok": False, "error": "target_user_id + command_type"}, status_code=400)
+    app_key = (str(body.get("app_key") or "mobile")).strip() or "mobile"
+    d_title, d_msg = _CMD_DEFAULTS.get(ctype, ("Doporučení", ""))
+    title = (str(body.get("title") or d_title))[:120]
+    message = (str(body.get("message") or d_msg))[:600]
+    payload = body.get("payload")
+    ds = _gds_cc()
+    try:
+        new_id = ds.execute(_sql_cc("""
+            INSERT INTO fw.mobile_command
+              (app_key, target_user_id, command_type, title, message, payload, created_by)
+            VALUES (:app,:uid,:ct,:title,:msg,
+                    CASE WHEN :payload IS NULL THEN NULL ELSE CAST(:payload AS jsonb) END,
+                    :by)
+            RETURNING id
+        """), {"app": app_key, "uid": int(target), "ct": ctype, "title": title,
+               "msg": message,
+               "payload": (_json_cc.dumps(payload) if payload else None),
+               "by": uid}).scalar()
+        ds.commit()
+        return JSONResponse({"ok": True, "id": new_id})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[app_command_create] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.get("/app/{app_key}/commands/pending")
+async def app_commands_pending(app_key: str, req: Request) -> JSONResponse:
+    """Appka načte čekající doporučení pro přihlášeného uživatele (token NEBO cookie)."""
+    from core.database_data import get_data_session as _gds_cp
+    from sqlalchemy import text as _sql_cp
+    if not _app_key_ok(app_key):
+        return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
+    uid = _uid_from_token_or_cookie(req)
+    ds = _gds_cp()
+    try:
+        rows = ds.execute(_sql_cp("""
+            SELECT id, command_type, title, message, payload
+            FROM fw.mobile_command
+            WHERE app_key=:app AND target_user_id=:uid AND status='pending'
+            ORDER BY id ASC LIMIT 20
+        """), {"app": app_key, "uid": uid}).mappings().all()
+        return JSONResponse({"ok": True, "commands": [dict(r) for r in rows]})
+    except Exception as exc:
+        logger.exception("[app_commands_pending] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/command/{cmd_id}/result")
+async def app_command_result(cmd_id: int, req: Request) -> JSONResponse:
+    """Appka hlásí rozhodnutí uživatele (accept/reject). Token NEBO cookie."""
+    from core.database_data import get_data_session as _gds_cr2
+    from sqlalchemy import text as _sql_cr2
+    uid = _uid_from_token_or_cookie(req)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    decision = (str(body.get("decision") or "")).strip().lower()
+    status = "accepted" if decision == "accept" else (
+        "rejected" if decision == "reject" else "done")
+    note = (str(body.get("note") or ""))[:300] or None
+    ds = _gds_cr2()
+    try:
+        ds.execute(_sql_cr2("""
+            UPDATE fw.mobile_command
+            SET status=:st, result_note=:note, decided_at=now()
+            WHERE id=:id AND target_user_id=:uid AND status='pending'
+        """), {"st": status, "note": note, "id": int(cmd_id), "uid": uid})
+        ds.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[app_command_result] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
 
 
 @api_router.get("/contact-vcard")

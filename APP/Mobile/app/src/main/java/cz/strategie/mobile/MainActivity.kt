@@ -365,12 +365,10 @@ private fun HomeBody(
             style = MaterialTheme.typography.titleMedium
         )
         Text(
-            "V ERP otevři „Synchronizace s telefonem“ a naskenuj QR kód.",
+            "V ERP/Chatu otevři „Synchronizace s telefonem“ → „Připojit nový telefon“ " +
+                "→ „Otevřít v appce a spárovat“. Appka se sama nastaví.",
             style = MaterialTheme.typography.bodyMedium
         )
-        Button(onClick = onPair, modifier = Modifier.fillMaxWidth()) {
-            Text("📷 Spárovat QR kódem")
-        }
     } else {
         Text(
             if (serviceOn) "✓ Naslouchání běží na pozadí"
@@ -418,9 +416,9 @@ private fun SettingsBody(
         Text("Nastavení", style = MaterialTheme.typography.titleMedium)
     }
 
-    // Verze appky + indikace nové verze na serveru.
+    // Verze appky (s datem a časem buildu) + indikace nové verze na serveru.
     Text(
-        "Verze appky: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+        "Verze appky: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.BUILD_TIME}",
         style = MaterialTheme.typography.bodyMedium
     )
     if (serverVersionCode > BuildConfig.VERSION_CODE) {
@@ -440,16 +438,6 @@ private fun SettingsBody(
             style = MaterialTheme.typography.bodySmall
         )
     }
-    HorizontalDivider()
-
-    Button(onClick = onPair, modifier = Modifier.fillMaxWidth()) {
-        Text("📷 Spárovat QR kódem z PC")
-    }
-    Text(
-        "Doporučeno — naskenuj QR z ERP, vyplní adresu i token a zapne naslouchání.",
-        style = MaterialTheme.typography.bodySmall
-    )
-
     HorizontalDivider()
 
     OutlinedTextField(

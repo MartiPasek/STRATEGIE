@@ -52,6 +52,11 @@ android {
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
+        // Datum + čas buildu (zobrazí se u verze v appce).
+        buildConfigField(
+            "String", "BUILD_TIME",
+            "\"" + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date()) + "\""
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

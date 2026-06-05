@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -106,11 +108,22 @@ fun AppRoot(modifier: Modifier = Modifier) {
 
     fun base(): String = serverUrl.trim().trimEnd('/')
 
-    // Zjisti nejnovější verzi na serveru (pro indikaci „nová verze" v nastavení).
-    LaunchedEffect(serverUrl, token) {
+    fun toastMain(msg: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Zjisti nejnovější verzi na serveru. announce=true → po dokončení ukáže
+    // toast s výsledkem (ruční „Zkontrolovat verzi" v nastavení). Marti 5.6.
+    fun checkVersion(announce: Boolean) {
         val t = token.trim()
-        if (t.isEmpty()) return@LaunchedEffect
+        if (t.isEmpty()) {
+            if (announce) Toast.makeText(context, "Nejdřív spáruj telefon", Toast.LENGTH_SHORT).show()
+            return
+        }
         thread {
+            var ok = false
             try {
                 val c = (URL(base() + "/api/v1/erp/app/mobile/latest")
                     .openConnection() as HttpURLConnection)
@@ -121,18 +134,37 @@ fun AppRoot(modifier: Modifier = Modifier) {
                     if (o.optBoolean("available")) {
                         serverVersionCode = o.optInt("version_code")
                         serverVersionName = o.optString("version_name")
+                        ok = true
                     }
                 }
                 c.disconnect()
             } catch (e: Exception) {
             }
+            if (announce) {
+                val msg = when {
+                    !ok || serverVersionCode <= 0 -> "Verzi se nepodařilo zjistit (zkontroluj připojení)"
+                    serverVersionCode > BuildConfig.VERSION_CODE ->
+                        "Na serveru je novější verze " + serverVersionName +
+                            " (" + serverVersionCode + ") — můžeš ji stáhnout níže"
+                    else -> "Máš nejnovější verzi (" + BuildConfig.VERSION_NAME + ")"
+                }
+                toastMain(msg)
+            }
         }
     }
 
+    LaunchedEffect(serverUrl, token) {
+        if (token.trim().isNotEmpty()) checkVersion(false)
+    }
+
     fun updateNow() {
-        if (updating || serverVersionCode <= 0) return
+        if (updating) return
+        if (serverVersionCode <= 0) {
+            Toast.makeText(context, "Nejdřív klepni Zkontrolovat verzi", Toast.LENGTH_SHORT).show()
+            return
+        }
         updating = true
-        Toast.makeText(context, "Stahuji novou verzi…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Stahuji verzi…", Toast.LENGTH_SHORT).show()
         val code = serverVersionCode
         val b = base()
         val t = token.trim()
@@ -355,6 +387,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 serverVersionName = serverVersionName,
                 updating = updating,
                 onUpdate = { updateNow() },
+                onCheck = { checkVersion(true) },
                 onSave = {
                     prefs.edit()
                         .putString(KEY_URL, serverUrl.trim())
@@ -431,6 +464,7 @@ private fun SettingsBody(
     serverVersionName: String,
     updating: Boolean,
     onUpdate: () -> Unit,
+    onCheck: () -> Unit,
     onSave: () -> Unit,
     onLoginPair: () -> Unit,
     onToggle: (Boolean) -> Unit,
@@ -445,27 +479,47 @@ private fun SettingsBody(
         Text("Nastavení", style = MaterialTheme.typography.titleMedium)
     }
 
-    // Verze appky (s datem a časem buildu) + indikace nové verze na serveru.
+    // Verze appky (s datem a časem buildu) + ruční kontrola/stažení.
     Text(
         "Verze appky: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · ${BuildConfig.BUILD_TIME}",
         style = MaterialTheme.typography.bodyMedium
     )
+    if (serverVersionCode > 0) {
+        Text(
+            "Na serveru: $serverVersionName ($serverVersionCode)",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
     if (serverVersionCode > BuildConfig.VERSION_CODE) {
         Text(
-            "🔔 Na serveru je nová verze $serverVersionName",
+            "🔔 Je k dispozici novější verze",
             color = Color(0xFFE0B070),
             style = MaterialTheme.typography.bodySmall
         )
-        Button(
-            onClick = onUpdate, enabled = !updating,
-            modifier = Modifier.fillMaxWidth()
-        ) { Text(if (updating) "Stahuji…" else "📥 Stáhnout a nainstalovat novou verzi") }
     } else if (serverVersionCode > 0) {
         Text(
             "✓ Máš aktuální verzi",
             color = Color(0xFF7FD6C2),
             style = MaterialTheme.typography.bodySmall
         )
+    }
+    OutlinedButton(onClick = onCheck, modifier = Modifier.fillMaxWidth()) {
+        Text("🔄 Zkontrolovat verzi")
+    }
+    if (serverVersionCode > 0) {
+        Button(
+            onClick = onUpdate, enabled = !updating,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                when {
+                    updating -> "Stahuji…"
+                    serverVersionCode > BuildConfig.VERSION_CODE ->
+                        "📥 Stáhnout a nainstalovat verzi $serverVersionName"
+                    else -> "📥 Přeinstalovat verzi $serverVersionName"
+                }
+            )
+        }
     }
     HorizontalDivider()
 

@@ -19,6 +19,7 @@ from sqlalchemy import text as _t
 _nets_cache: dict = {"ts": 0.0, "nets": []}
 _touch_ts: dict[tuple, float] = {}    # (uid, kind) -> last hr_presence upsert
 _event_ts: dict[tuple, float] = {}    # (uid, kind) -> last event log
+_dev_ts: dict[str, float] = {}        # device_key -> last hr_device upsert
 _lock = threading.Lock()
 
 _PRESENCE_THROTTLE_S = 60      # hr_presence upsert max 1×/min/uživatel
@@ -27,6 +28,7 @@ _NETS_TTL_S = 300
 
 
 def _load_building_nets() -> list:
+    """Vrací list (ip_network, place) — place je 'building'/'home_office'/…"""
     now = time.time()
     if _nets_cache["nets"] and (now - _nets_cache["ts"] < _NETS_TTL_S):
         return _nets_cache["nets"]
@@ -36,12 +38,12 @@ def _load_building_nets() -> list:
         s = get_data_session()
         try:
             rows = s.execute(_t(
-                "SELECT value FROM fw.hr_building_network "
+                "SELECT value, COALESCE(place,'building') FROM fw.hr_building_network "
                 "WHERE is_active = true AND kind = 'ip'"
             )).fetchall()
             for r in rows:
                 try:
-                    nets.append(ipaddress.ip_network(str(r[0]), strict=False))
+                    nets.append((ipaddress.ip_network(str(r[0]), strict=False), str(r[1])))
                 except Exception:
                     pass
         finally:
@@ -53,40 +55,46 @@ def _load_building_nets() -> list:
     return _nets_cache["nets"]
 
 
-def ip_in_building(ip_str: str | None) -> bool:
+def ip_place(ip_str: str | None) -> str | None:
+    """Místo dle IP ('building'/'home_office'/…) nebo None."""
     if not ip_str:
-        return False
+        return None
     try:
         ip = ipaddress.ip_address(ip_str.strip())
     except Exception:
-        return False
-    for net in _load_building_nets():
+        return None
+    for net, place in _load_building_nets():
         try:
             if ip in net:
-                return True
+                return place
         except Exception:
             pass
-    return False
+    return None
 
 
-_ssid_cache: dict = {"ts": 0.0, "ssids": set()}
+def ip_in_building(ip_str: str | None) -> bool:
+    return ip_place(ip_str) == "building"
 
 
-def _load_building_ssids() -> set:
-    """Názvy firemních WiFi (kind='ssid' v fw.hr_building_network), lowercase."""
+_ssid_cache: dict = {"ts": 0.0, "ssids": {}}
+
+
+def _load_building_ssids() -> dict:
+    """Mapa firemních WiFi {ssid_lower: place} (kind='ssid')."""
     now = time.time()
     if _ssid_cache["ssids"] and (now - _ssid_cache["ts"] < _NETS_TTL_S):
         return _ssid_cache["ssids"]
-    ssids: set = set()
+    ssids: dict = {}
     try:
         from core.database_data import get_data_session
         s = get_data_session()
         try:
             rows = s.execute(_t(
-                "SELECT lower(value) FROM fw.hr_building_network "
+                "SELECT lower(value), COALESCE(place,'building') "
+                "FROM fw.hr_building_network "
                 "WHERE is_active = true AND kind = 'ssid'"
             )).fetchall()
-            ssids = {str(r[0]).strip() for r in rows if r[0]}
+            ssids = {str(r[0]).strip(): str(r[1]) for r in rows if r[0]}
         finally:
             s.close()
         _ssid_cache["ssids"] = ssids
@@ -96,10 +104,20 @@ def _load_building_ssids() -> set:
     return _ssid_cache["ssids"]
 
 
-def ssid_in_building(ssid: str | None) -> bool:
+def ssid_place(ssid: str | None) -> str | None:
+    """Místo dle WiFi názvu ('building'/'home_office'/…) nebo None."""
     if not ssid:
-        return False
-    return str(ssid).strip().lower() in _load_building_ssids()
+        return None
+    return _load_building_ssids().get(str(ssid).strip().lower())
+
+
+def ssid_in_building(ssid: str | None) -> bool:
+    return ssid_place(ssid) == "building"
+
+
+def match_place(ip_str: str | None, ssid: str | None) -> str | None:
+    """Místo zařízení: WiFi (přesnější) má přednost před IP. None = neznámé."""
+    return ssid_place(ssid) or ip_place(ip_str)
 
 
 def device_kind(user_agent: str | None) -> str:
@@ -176,7 +194,13 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
     device_key = stabilní id (app device_id / machine id / mac)."""
     if not device_key:
         return
-    inb = ip_in_building(ip_str) or ssid_in_building(ssid)
+    now = time.time()
+    with _lock:
+        if now - _dev_ts.get(device_key, 0.0) < _PRESENCE_THROTTLE_S:
+            return
+        _dev_ts[device_key] = now
+    place = match_place(ip_str, ssid)
+    inb = (place == "building")
     try:
         from core.database_data import get_data_session
         s = get_data_session()
@@ -184,16 +208,17 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
             row = s.execute(_t("""
                 INSERT INTO fw.hr_device
                     (device_type, name, owner_user_id, device_key,
-                     last_seen_at, last_source, last_in_building, last_ip)
-                VALUES (:dt, :nm, :uid, :dk, now(), :src, :inb, :ip)
+                     last_seen_at, last_source, last_in_building, last_ip, last_place)
+                VALUES (:dt, :nm, :uid, :dk, now(), :src, :inb, :ip, :place)
                 ON CONFLICT (device_key) WHERE device_key IS NOT NULL DO UPDATE SET
                     name = COALESCE(NULLIF(EXCLUDED.name, ''), fw.hr_device.name),
                     owner_user_id = COALESCE(fw.hr_device.owner_user_id, EXCLUDED.owner_user_id),
                     last_seen_at = now(), last_source = :src,
-                    last_in_building = :inb, last_ip = :ip
+                    last_in_building = :inb, last_ip = :ip, last_place = :place
                 RETURNING id
             """), {"dt": device_type, "nm": (name or ""), "uid": uid, "dk": device_key,
-                   "src": source, "inb": inb, "ip": (ip_str or "")}).fetchone()
+                   "src": source, "inb": inb, "ip": (ip_str or ""),
+                   "place": place}).fetchone()
             dev_id = row[0] if row else None
             if dev_id and uid:
                 s.execute(_t("""

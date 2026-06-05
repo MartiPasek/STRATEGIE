@@ -94,7 +94,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable
 data class CmdItem(
     val id: Long,
     val type: String,
@@ -103,6 +102,7 @@ data class CmdItem(
     val payload: String,
 )
 
+@Composable
 fun AppRoot(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }

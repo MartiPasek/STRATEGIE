@@ -40,6 +40,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,10 +58,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import cz.strategie.mobile.ui.theme.STRATEGIEMobileTheme
+import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
 
 private const val PREFS = "strategie_prefs"
 private const val KEY_URL = "server_url"
@@ -92,8 +99,68 @@ fun AppRoot(modifier: Modifier = Modifier) {
     var token by remember { mutableStateOf(prefs.getString(KEY_TOKEN, "") ?: "") }
     var serviceOn by remember { mutableStateOf(prefs.getBoolean(KEY_SERVICE, false)) }
     var showSettings by remember { mutableStateOf(false) }
+    var serverVersionCode by remember { mutableStateOf(0) }
+    var serverVersionName by remember { mutableStateOf("") }
+    var updating by remember { mutableStateOf(false) }
 
     fun base(): String = serverUrl.trim().trimEnd('/')
+
+    // Zjisti nejnovější verzi na serveru (pro indikaci „nová verze" v nastavení).
+    LaunchedEffect(serverUrl, token) {
+        val t = token.trim()
+        if (t.isEmpty()) return@LaunchedEffect
+        thread {
+            try {
+                val c = (URL(base() + "/api/v1/erp/app/mobile/latest")
+                    .openConnection() as HttpURLConnection)
+                c.setRequestProperty("Authorization", "Bearer $t")
+                c.connectTimeout = 8000; c.readTimeout = 8000
+                if (c.responseCode == 200) {
+                    val o = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+                    if (o.optBoolean("available")) {
+                        serverVersionCode = o.optInt("version_code")
+                        serverVersionName = o.optString("version_name")
+                    }
+                }
+                c.disconnect()
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    fun updateNow() {
+        if (updating || serverVersionCode <= 0) return
+        updating = true
+        Toast.makeText(context, "Stahuji novou verzi…", Toast.LENGTH_SHORT).show()
+        val code = serverVersionCode
+        val b = base()
+        val t = token.trim()
+        thread {
+            try {
+                val dest = File(context.cacheDir, "updates/strategie-$code.apk")
+                dest.parentFile?.mkdirs()
+                val c = (URL("$b/api/v1/erp/app/mobile/download")
+                    .openConnection() as HttpURLConnection)
+                c.setRequestProperty("Authorization", "Bearer $t")
+                c.connectTimeout = 10000; c.readTimeout = 60000
+                if (c.responseCode == 200) {
+                    c.inputStream.use { inp -> dest.outputStream().use { o -> inp.copyTo(o, 64 * 1024) } }
+                }
+                c.disconnect()
+                if (dest.length() > 0) {
+                    val uri = FileProvider.getUriForFile(
+                        context, context.packageName + ".fileprovider", dest
+                    )
+                    context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                }
+            } catch (e: Exception) {
+            }
+            updating = false
+        }
+    }
 
     fun open(path: String) {
         try {
@@ -257,6 +324,10 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 onServerUrl = { serverUrl = it },
                 onToken = { token = it },
                 serviceOn = serviceOn,
+                serverVersionCode = serverVersionCode,
+                serverVersionName = serverVersionName,
+                updating = updating,
+                onUpdate = { updateNow() },
                 onSave = {
                     prefs.edit()
                         .putString(KEY_URL, serverUrl.trim())
@@ -313,9 +384,13 @@ private fun HomeBody(
     }
 
     Spacer(Modifier.width(0.dp))
-    Text("Otevřít aplikace", style = MaterialTheme.typography.titleMedium)
-    Button(onClick = onChat, modifier = Modifier.fillMaxWidth()) { Text("Otevřít Chat") }
-    OutlinedButton(onClick = onErp, modifier = Modifier.fillMaxWidth()) { Text("Otevřít ERP") }
+    Text("Nainstalovat na plochu", style = MaterialTheme.typography.titleMedium)
+    Button(onClick = onChat, modifier = Modifier.fillMaxWidth()) { Text("📲 Chat STRATEGIE") }
+    OutlinedButton(onClick = onErp, modifier = Modifier.fillMaxWidth()) { Text("📲 ERP STRATEGIE") }
+    Text(
+        "Otevře se v prohlížeči — pak v nabídce (⋮) zvol „Přidat na plochu / Nainstalovat aplikaci“.",
+        style = MaterialTheme.typography.bodySmall
+    )
 }
 
 @Composable
@@ -325,6 +400,10 @@ private fun SettingsBody(
     onServerUrl: (String) -> Unit,
     onToken: (String) -> Unit,
     serviceOn: Boolean,
+    serverVersionCode: Int,
+    serverVersionName: String,
+    updating: Boolean,
+    onUpdate: () -> Unit,
     onSave: () -> Unit,
     onPair: () -> Unit,
     onToggle: (Boolean) -> Unit,
@@ -338,6 +417,30 @@ private fun SettingsBody(
         )
         Text("Nastavení", style = MaterialTheme.typography.titleMedium)
     }
+
+    // Verze appky + indikace nové verze na serveru.
+    Text(
+        "Verze appky: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+        style = MaterialTheme.typography.bodyMedium
+    )
+    if (serverVersionCode > BuildConfig.VERSION_CODE) {
+        Text(
+            "🔔 Na serveru je nová verze $serverVersionName",
+            color = Color(0xFFE0B070),
+            style = MaterialTheme.typography.bodySmall
+        )
+        Button(
+            onClick = onUpdate, enabled = !updating,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (updating) "Stahuji…" else "📥 Stáhnout a nainstalovat novou verzi") }
+    } else if (serverVersionCode > 0) {
+        Text(
+            "✓ Máš aktuální verzi",
+            color = Color(0xFF7FD6C2),
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+    HorizontalDivider()
 
     Button(onClick = onPair, modifier = Modifier.fillMaxWidth()) {
         Text("📷 Spárovat QR kódem z PC")

@@ -730,9 +730,22 @@ def _read_app_version() -> tuple:
     return vc, vn
 
 
-def _publish_app_mobile() -> dict:
+def _git_head_subject() -> str:
+    """Posledni commit subject (pro poznamku k verzi, kdyz nedam vlastni)."""
+    import subprocess
+    try:
+        p = subprocess.run(["git", "log", "-1", "--pretty=%s"],
+                           cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=10)
+        if p.returncode == 0:
+            return (p.stdout or "").strip()[:300]
+    except Exception:
+        pass
+    return ""
+
+
+def _publish_app_mobile(notes: str = "") -> dict:
     """Precte APK z release/ + verzi z gradle a nahraje na server (multipart,
-    X-Deploy-Token). Zadny rucni vyber souboru v UI."""
+    X-Deploy-Token). notes = poznamka k verzi (kdyz prazdna → posledni commit)."""
     token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
     if not token:
         return {"status": "error", "msg": "chybi STRATEGIE_DEPLOY_TOKEN na NB"}
@@ -745,6 +758,7 @@ def _publish_app_mobile() -> dict:
         apk = APP_APK.read_bytes()
     except Exception as exc:
         return {"status": "error", "msg": f"cteni APK selhalo: {exc}"}
+    notes = (notes or "").strip() or _git_head_subject()
     boundary = "----STRATEGIEpublish" + str(int(time.time()))
 
     def _part(nm: str, val: str) -> bytes:
@@ -752,6 +766,8 @@ def _publish_app_mobile() -> dict:
                 f'name="{nm}"\r\n\r\n{val}\r\n').encode("utf-8")
 
     body = _part("version_code", str(vc)) + _part("version_name", vn)
+    if notes:
+        body += _part("notes", notes)
     body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
              f"filename=\"app-release.apk\"\r\n"
              f"Content-Type: application/vnd.android.package-archive\r\n\r\n").encode("utf-8")
@@ -834,10 +850,17 @@ def _process_build() -> None:
     (start → běží → OK/ERR). Po úspěchu APK nahrajeme (pokud není 'noupload')."""
     import subprocess
     do_upload = True
+    notes = ""
     try:
         if BUILD_MSG_FILE.exists():
-            if "noupload" in BUILD_MSG_FILE.read_text(encoding="utf-8", errors="replace").lower():
-                do_upload = False
+            raw = BUILD_MSG_FILE.read_text(encoding="utf-8", errors="replace")
+            kept = []
+            for ln in raw.splitlines():
+                if ln.strip().lower() == "noupload":
+                    do_upload = False
+                    continue
+                kept.append(ln)
+            notes = "\n".join(kept).strip()[:300]
     except Exception:
         pass
     # GO zkonzumuj hned (idempotence — at to nebezi dvakrat)
@@ -914,7 +937,7 @@ def _process_build() -> None:
         _log(f"BUILD: OK v{vn} code{vc} (bez nahrani)")
         return
 
-    pub = _publish_app_mobile()
+    pub = _publish_app_mobile(notes)
     done_ts = time.strftime("%Y-%m-%d %H:%M:%S")
     if pub.get("status") == "done":
         _write_build_out("# BUILD: OK · %s\n# %s\n\n%s\n"

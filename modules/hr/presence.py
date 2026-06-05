@@ -235,6 +235,36 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
         pass
 
 
+def refresh_user_phone(uid: int | None, ip_str: str | None) -> None:
+    """Osvěží čerstvost telefonu uživatele (z 4s command-pollu appky), pokud je
+    na firemní IP. Řeší řídké heartbeaty (Android uspává) — poll běží často.
+    Throttle 60 s/uživatel. Best-effort. Neaktualizuje device_type/owner."""
+    if not uid or not ip_in_building(ip_str):
+        return
+    now = time.time()
+    key = "phonepoll:" + str(int(uid))
+    with _lock:
+        if now - _dev_ts.get(key, 0.0) < _PRESENCE_THROTTLE_S:
+            return
+        _dev_ts[key] = now
+    try:
+        from core.database_data import get_data_session
+        s = get_data_session()
+        try:
+            s.execute(_t("""
+                UPDATE fw.hr_device
+                SET last_seen_at = now(), last_in_building = true,
+                    last_place = 'building', last_source = 'mobile_poll'
+                WHERE owner_user_id = :uid AND device_type = 'phone'
+                  AND last_seen_at > now() - interval '2 days'
+            """), {"uid": int(uid)})
+            s.commit()
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+
 def client_ip(request) -> str:
     """Reálná IP klienta za Caddy reverse proxy (X-Forwarded-For)."""
     try:

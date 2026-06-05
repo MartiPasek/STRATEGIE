@@ -5554,6 +5554,13 @@ async def app_commands_pending(app_key: str, req: Request) -> JSONResponse:
     if not _app_key_ok(app_key):
         return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
     uid = _uid_from_token_or_cookie(req)
+    # HR presence (5.6.): tento poll běží často (á 4 s) dokud appka žije →
+    # osvěžíme čerstvost telefonu (řeší řídké ~20min heartbeaty). Throttle 60s.
+    try:
+        from modules.hr.presence import refresh_user_phone as _cp_rp, client_ip as _cp_ip
+        _cp_rp(uid, _cp_ip(req))
+    except Exception:
+        pass
     ds = _gds_cp()
     try:
         rows = ds.execute(_sql_cp("""

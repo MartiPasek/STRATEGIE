@@ -380,7 +380,7 @@ async def request_id_middleware(request: Request, call_next):
         _hr_uid_raw = request.cookies.get("user_id")
         _hr_uid = int(_hr_uid_raw) if (_hr_uid_raw and _hr_uid_raw.isdigit()) else None
         if _hr_uid:
-            _hr_touch(_hr_uid, _hr_ip(request))
+            _hr_touch(_hr_uid, _hr_ip(request), request.headers.get("user-agent"))
     except Exception:
         pass
 

@@ -375,10 +375,8 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
         _extra_messages: list = []
         try:
             from core.database_data import get_data_session as _gds_em
-            from modules.core.infrastructure.models_data import (
-                Message as _M_em,
-                User as _U_em,
-            )
+            from modules.core.infrastructure.models_data import Message as _M_em
+            from modules.core.infrastructure.models_core import User as _U_em
             from core.system_actor import extract_category, is_category_visible
             from modules.conversation.api.schemas import ExtraMessage
 

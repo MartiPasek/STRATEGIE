@@ -188,10 +188,12 @@ def touch_presence(uid: int | None, ip_str: str | None,
 
 def touch_device(device_key: str | None, device_type: str, name: str | None,
                  uid: int | None, ip_str: str | None, source: str,
-                 ssid: str | None = None) -> None:
+                 ssid: str | None = None, force_place: str | None = None,
+                 link_user: bool = True) -> None:
     """Upsert zařízení do IT inventury fw.hr_device + vazba na člověka (1:N).
-    Presence (last_in_building) z firemní IP NEBO firemní WiFi (SSID). Best-effort.
-    device_key = stabilní id (app device_id / machine id / mac)."""
+    Presence (last_place) z firemní IP/WiFi, nebo force_place (např. Mikrotik:
+    zařízení na firemní síti = v budově i drátově). link_user=False u
+    síťově objevených (neznámý vlastník). Best-effort. device_key = stabilní id."""
     if not device_key:
         return
     now = time.time()
@@ -199,7 +201,7 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
         if now - _dev_ts.get(device_key, 0.0) < _PRESENCE_THROTTLE_S:
             return
         _dev_ts[device_key] = now
-    place = match_place(ip_str, ssid)
+    place = force_place or match_place(ip_str, ssid)
     inb = (place == "building")
     try:
         from core.database_data import get_data_session
@@ -220,7 +222,7 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
                    "src": source, "inb": inb, "ip": (ip_str or ""),
                    "place": place}).fetchone()
             dev_id = row[0] if row else None
-            if dev_id and uid:
+            if dev_id and uid and link_user:
                 s.execute(_t("""
                     INSERT INTO fw.hr_device_user (device_id, user_id, rel)
                     VALUES (:d, :u, 'owner')

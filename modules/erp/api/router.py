@@ -5660,6 +5660,47 @@ async def app_notify(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/app/netscan/ingest")
+async def netscan_ingest(req: Request) -> JSONResponse:
+    """Mikrotik/netscan agent (X-Deploy-Token) → seznam zařízení na firemní síti.
+    Body: {devices:[{mac, ip?, hostname?, ssid?, active?}]}. Aktivní = na síti =
+    v budově. Upsert do fw.hr_device dle MAC (device_key='mac:<mac>'). Vlastníka
+    nezná → bez vazby na uživatele (link_user=False). Marti 5.6."""
+    import os as _os_ns
+    token = req.headers.get("X-Deploy-Token")
+    env = _os_ns.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env and token == env):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    devices = body.get("devices") or []
+    if not isinstance(devices, list):
+        return JSONResponse({"ok": False, "error": "devices must be list"}, status_code=400)
+    from modules.hr.presence import touch_device as _ni_td
+    n = 0
+    for d in devices:
+        try:
+            mac = (str(d.get("mac") or "")).strip().lower()
+            if not mac or not d.get("active", True):
+                continue
+            host = (str(d.get("hostname") or "")[:120]) or None
+            ip = (str(d.get("ip") or "")).strip() or None
+            ssid = (str(d.get("ssid") or "")).strip() or None
+            # Síťově objevené = na firemní síti = v budově (i drátové).
+            # Vlastník neznámý → link_user=False. Kategorie 'other' (Marti
+            # přeřadí v inventáři); existující typ se nepřepíše (touch_device
+            # name=COALESCE, ale device_type ano — proto u nových 'other').
+            _ni_td(device_key="mac:" + mac, device_type="other", name=host,
+                   uid=None, ip_str=ip, source="mikrotik", ssid=ssid,
+                   force_place="building", link_user=False)
+            n += 1
+        except Exception:
+            pass
+    return JSONResponse({"ok": True, "count": n})
+
+
 @api_router.get("/contact-vcard")
 async def contact_vcard(req: Request):
     """Fáze (1.6.2026, Marti: "přidávat čísla do kontaktů telefonu" — callback

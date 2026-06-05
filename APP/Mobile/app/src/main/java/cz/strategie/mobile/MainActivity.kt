@@ -335,7 +335,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
                         .apply()
                     Toast.makeText(context, "Nastavení uloženo", Toast.LENGTH_SHORT).show()
                 },
-                onPair = { pairFromQr() },
+                onLoginPair = { open("/app-pair") },
                 onToggle = { toggleService(it) },
                 onBack = { showSettings = false }
             )
@@ -343,7 +343,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
             HomeBody(
                 paired = token.trim().isNotEmpty(),
                 serviceOn = serviceOn,
-                onPair = { pairFromQr() },
+                onLoginPair = { open("/app-pair") },
                 onChat = { open("/") },
                 onErp = { open("/erp") }
             )
@@ -355,7 +355,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
 private fun HomeBody(
     paired: Boolean,
     serviceOn: Boolean,
-    onPair: () -> Unit,
+    onLoginPair: () -> Unit,
     onChat: () -> Unit,
     onErp: () -> Unit,
 ) {
@@ -365,10 +365,12 @@ private fun HomeBody(
             style = MaterialTheme.typography.titleMedium
         )
         Text(
-            "V ERP/Chatu otevři „Synchronizace s telefonem“ → „Připojit nový telefon“ " +
-                "→ „Otevřít v appce a spárovat“. Appka se sama nastaví.",
+            "Stačí se přihlásit — appka se pak nastaví sama.",
             style = MaterialTheme.typography.bodyMedium
         )
+        Button(onClick = onLoginPair, modifier = Modifier.fillMaxWidth()) {
+            Text("🔗 Přihlásit a spárovat")
+        }
     } else {
         Text(
             if (serviceOn) "✓ Naslouchání běží na pozadí"
@@ -403,7 +405,7 @@ private fun SettingsBody(
     updating: Boolean,
     onUpdate: () -> Unit,
     onSave: () -> Unit,
-    onPair: () -> Unit,
+    onLoginPair: () -> Unit,
     onToggle: (Boolean) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -438,6 +440,16 @@ private fun SettingsBody(
             style = MaterialTheme.typography.bodySmall
         )
     }
+    HorizontalDivider()
+
+    Button(onClick = onLoginPair, modifier = Modifier.fillMaxWidth()) {
+        Text("🔗 Přihlásit a spárovat")
+    }
+    Text(
+        "Doporučeno — přihlas se a appka se nastaví sama.",
+        style = MaterialTheme.typography.bodySmall
+    )
+
     HorizontalDivider()
 
     OutlinedTextField(

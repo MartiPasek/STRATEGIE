@@ -684,6 +684,77 @@ def reset_page(token: str):
     return FileResponse(INDEX)
 
 
+@app.get("/app-pair")
+def app_pair(req: Request):
+    """Automatické spárování mobilní appky: po přihlášení vyrobí token a přes
+    deep-link (strategiemobil://pair) ho předá appce — appka se nastaví sama.
+    Nepřihlášený → přesměrování na chat login s návratem sem. Marti 5.6.2026."""
+    import secrets as _sec_ap
+    import hashlib as _hash_ap
+    import html as _html_ap
+    from urllib.parse import quote as _q_ap
+    from fastapi import Response as _Resp_ap
+
+    raw = req.cookies.get("user_id")
+    try:
+        uid = int(raw) if raw else None
+    except (TypeError, ValueError):
+        uid = None
+    if not uid:
+        return _Resp_ap(
+            content='<!doctype html><meta charset="utf-8">'
+                    '<meta http-equiv="refresh" content="0; url=/?return=%2Fapp-pair">'
+                    '<script>location.replace("/?return=%2Fapp-pair");</script>'
+                    'Přesměrování na přihlášení…',
+            media_type="text/html",
+        )
+
+    host = (req.headers.get("x-forwarded-host")
+            or req.headers.get("host") or "strategie-ai.com").strip()
+    proto = (req.headers.get("x-forwarded-proto") or "").strip().lower()
+    if not proto:
+        proto = "http" if host.startswith(("localhost", "127.0.0.1")) else "https"
+    origin = "%s://%s" % (proto, host)
+
+    from core.database_data import get_data_session as _gds_ap
+    from sqlalchemy import text as _sql_ap
+    plaintext = "STG-DAV-" + _sec_ap.token_urlsafe(24)
+    th = _hash_ap.sha256(plaintext.encode("utf-8")).hexdigest()
+    s = _gds_ap()
+    try:
+        s.execute(_sql_ap(
+            'INSERT INTO "user".carddav_token (user_id, device_label, token_hash, created_at) '
+            "VALUES (:uid, :label, :h, now())"
+        ), {"uid": uid, "label": "Mobil (auto)", "h": th})
+        s.commit()
+    except Exception:
+        s.rollback()
+        return _Resp_ap(content="Chyba při vytvoření tokenu.",
+                        media_type="text/html", status_code=500)
+    finally:
+        s.close()
+
+    deeplink = ("strategiemobil://pair?u=" + _q_ap(origin, safe="")
+                + "&t=" + _q_ap(plaintext, safe="") + "&k=mobile")
+    dl_attr = _html_ap.escape(deeplink, quote=True)
+    page = (
+        '<!doctype html><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<body style="background:#0e0f11;color:#e8eef5;font-family:system-ui,sans-serif;'
+        'text-align:center;padding:48px 20px;">'
+        '<div style="font-size:22px;font-weight:700;color:#4a7ba8;">STRATEGIE</div>'
+        '<p style="font-size:15px;color:#bcd0e6;margin:18px 0;">Páruji appku STRATEGIE Mobil…</p>'
+        '<a href="' + dl_attr + '" style="display:inline-block;background:#1f3a55;'
+        'border:1px solid #356092;color:#dbeeff;border-radius:9px;padding:13px 22px;'
+        'font-size:15px;font-weight:700;text-decoration:none;">📲 Otevřít appku a spárovat</a>'
+        '<p style="font-size:12px;color:#8a96a4;margin-top:18px;">Když se appka neotevře sama, '
+        'klepni na tlačítko výše. (Musíš mít appku nainstalovanou.)</p>'
+        '<script>setTimeout(function(){location.href="' + deeplink + '";},400);</script>'
+        '</body>'
+    )
+    return _Resp_ap(content=page, media_type="text/html")
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "version": "0.1.0"}

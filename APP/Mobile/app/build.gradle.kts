@@ -13,6 +13,31 @@ val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) load(FileInputStream(keystorePropsFile))
 }
 
+// Verze z version.properties; RELEASE build ji automaticky zvýší (predchozi+1:
+// versionCode++ a posledni segment versionName, napr. 1.2 -> 1.3). Marti 5.6.
+fun bumpLastSegment(v: String): String {
+    val parts = v.split(".").toMutableList()
+    val last = parts.lastOrNull()?.toIntOrNull() ?: return "$v.1"
+    parts[parts.size - 1] = (last + 1).toString()
+    return parts.joinToString(".")
+}
+val versionPropsFile = rootProject.file("version.properties")
+val versionProps = Properties().apply {
+    if (versionPropsFile.exists()) load(FileInputStream(versionPropsFile))
+}
+var appVersionCode = (versionProps.getProperty("versionCode") ?: "1").trim().toInt()
+var appVersionName = (versionProps.getProperty("versionName") ?: "1.0").trim()
+val isReleaseBuild = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true)
+}
+if (isReleaseBuild && versionPropsFile.exists()) {
+    appVersionCode += 1
+    appVersionName = bumpLastSegment(appVersionName)
+    versionProps.setProperty("versionCode", appVersionCode.toString())
+    versionProps.setProperty("versionName", appVersionName)
+    versionPropsFile.outputStream().use { versionProps.store(it, "auto-bump (release build)") }
+}
+
 android {
     namespace = "cz.strategie.mobile"
     compileSdk {
@@ -25,8 +50,8 @@ android {
         applicationId = "cz.strategie.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

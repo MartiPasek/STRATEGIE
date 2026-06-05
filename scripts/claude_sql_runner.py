@@ -64,6 +64,11 @@ except Exception:
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_DIR = REPO_ROOT / "scripts" / "claude_sql"
+# Mobilni APK publish z buildu (Marti 5.6.2026): watcher precte verzi z
+# version.properties (gradle ji pri release buildu auto-zvysi predchozi+1)
+# + APK z release/ a nahraje na server (zadny rucni vyber souboru v UI).
+APP_VERSION_PROPS = REPO_ROOT / "APP" / "Mobile" / "version.properties"
+APP_APK = REPO_ROOT / "APP" / "Mobile" / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk"
 SQL_FILE = BRIDGE_DIR / "CLAUDE_SQL.sql"
 GO_FILE = BRIDGE_DIR / "CLAUDE_GO.txt"
 OUT_FILE = BRIDGE_DIR / "CLAUDE_OUT.txt"
@@ -703,6 +708,67 @@ def _restart_self() -> None:
         _log(f"restart_self spawn failed: {exc}")
 
 
+def _read_app_version() -> tuple:
+    """Precte (versionCode:int, versionName:str) z version.properties."""
+    vc, vn = 0, ""
+    try:
+        for line in APP_VERSION_PROPS.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line.startswith("versionCode"):
+                vc = int(line.split("=", 1)[1].strip())
+            elif line.startswith("versionName"):
+                vn = line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return vc, vn
+
+
+def _publish_app_mobile() -> dict:
+    """Precte APK z release/ + verzi z gradle a nahraje na server (multipart,
+    X-Deploy-Token). Zadny rucni vyber souboru v UI."""
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
+    if not token:
+        return {"status": "error", "msg": "chybi STRATEGIE_DEPLOY_TOKEN na NB"}
+    if not APP_APK.exists():
+        return {"status": "error", "msg": "APK nenalezeno: nejdriv gradlew assembleRelease"}
+    vc, vn = _read_app_version()
+    if vc <= 0:
+        return {"status": "error", "msg": "neprecetl jsem versionCode z build.gradle.kts"}
+    try:
+        apk = APP_APK.read_bytes()
+    except Exception as exc:
+        return {"status": "error", "msg": f"cteni APK selhalo: {exc}"}
+    boundary = "----STRATEGIEpublish" + str(int(time.time()))
+
+    def _part(nm: str, val: str) -> bytes:
+        return (f"--{boundary}\r\nContent-Disposition: form-data; "
+                f'name="{nm}"\r\n\r\n{val}\r\n').encode("utf-8")
+
+    body = _part("version_code", str(vc)) + _part("version_name", vn)
+    body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+             f"filename=\"app-release.apk\"\r\n"
+             f"Content-Type: application/vnd.android.package-archive\r\n\r\n").encode("utf-8")
+    body += apk + b"\r\n"
+    body += f"--{boundary}--\r\n".encode("utf-8")
+    url = CLOUD_URL.replace("/diag-sql", "/app/mobile/upload")
+    rq = urllib.request.Request(url, data=body, method="POST", headers={
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "X-Deploy-Token": token,
+    })
+    try:
+        with urllib.request.urlopen(rq, timeout=180) as resp:
+            j = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if j.get("ok"):
+            return {"status": "done",
+                    "msg": f"nahrano v{vn} (code {vc}, {len(apk) // 1024} KB)"}
+        return {"status": "error", "msg": f"upload: {j.get('error')}"}
+    except urllib.error.HTTPError as e:
+        return {"status": "error",
+                "msg": f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:200]}"}
+    except Exception as exc:
+        return {"status": "error", "msg": str(exc)}
+
+
 def _handle_ops(ops: list) -> None:
     """Zpracuj pending ops z heartbeat odpovedi (whitelist akci z cloudu)."""
     for op in (ops or []):
@@ -715,6 +781,10 @@ def _handle_ops(ops: list) -> None:
             _restart_self()
             time.sleep(1.0)
             sys.exit(0)   # restarter naběhne fresh proces
+        elif kind == "publish_app_mobile":
+            _log(f"OPS #{rid}: publikuji mobilni APK z buildu…")
+            res = _publish_app_mobile()
+            _ops_report(rid, res.get("status", "done"), res.get("msg", ""))
         else:
             _ops_report(rid, "error", f"neznama op '{kind}' na watcheru")
 

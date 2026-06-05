@@ -5255,8 +5255,14 @@ async def app_upload(
 
     if not _app_key_ok(app_key):
         return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
-    uid = _get_uid(req)
-    _require_parent(uid)
+    # Auth: parent session (UI) NEBO X-Deploy-Token (watcher „nahraj z buildu").
+    _tok = req.headers.get("X-Deploy-Token")
+    _env_tok = _os_au.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if _tok and _env_tok and _tok == _env_tok:
+        uid = 0  # systémový (watcher publish z NB buildu)
+    else:
+        uid = _get_uid(req)
+        _require_parent(uid)
 
     name = (file.filename or "").lower()
     if not name.endswith(".apk"):
@@ -6281,6 +6287,10 @@ _OPS_ACTIONS = {
     "restart_api": {
         "label": "Restartovat cloud API (recovery)",
         "target": "cloud", "remote": False,
+    },
+    "publish_app_mobile": {
+        "label": "Nahrát mobilní APK z buildu (NB → server)",
+        "target": "instance:23", "remote": True, "op": "publish_app_mobile",
     },
 }
 

@@ -192,7 +192,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
             if (nm != null && !nm.canUseFullScreenIntent()) {
                 Toast.makeText(
                     context,
-                    "Povol „Zobrazit přes celou obrazovku" — pak dialer naskočí hned po odemčení",
+                    "Povol „Zobrazit přes celou obrazovku“ — pak dialer naskočí hned po odemčení",
                     Toast.LENGTH_LONG
                 ).show()
                 try {

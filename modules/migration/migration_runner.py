@@ -108,6 +108,31 @@ def _accumulate(total: dict, part) -> dict:
     return total
 
 
+def _safe_err(e: Exception) -> str:
+    """Bezpecna chybova hlaska — NIKDY nesmi obsahovat SQL parametry.
+
+    SQLAlchemy str(e) pripoji '[SQL: ...] [parameters: {...}]' vcetne payloadu
+    s daty zamestnancu (RC, jmena) -> to NESMI ven do HTTP odpovedi ani do logu.
+    Vracime jen primarni DB hlasku (RAISE message) + prvni radek kontextu,
+    pripadne jen typ vyjimky. Vlastni (MCP RuntimeError) jsou bezpecne.
+    """
+    orig = getattr(e, "orig", None)
+    diag = getattr(orig, "diag", None)
+    if diag is not None:
+        m = getattr(diag, "message_primary", None)
+        if m:
+            ctx = getattr(diag, "context", None)
+            first_ctx = ctx.splitlines()[0] if ctx else ""
+            return (m + (" | " + first_ctx if first_ctx else "")).strip()
+    try:
+        from sqlalchemy.exc import SQLAlchemyError
+        if isinstance(e, SQLAlchemyError):
+            return type(e).__name__  # str(e) by mohl nest parametry -> jen typ
+    except Exception:
+        pass
+    return f"{type(e).__name__}: {e}"
+
+
 @_router.get("/migrate/_jobs")
 async def list_migration_jobs(req: Request) -> JSONResponse:
     from modules.erp.api.router import _get_uid, _require_parent
@@ -257,16 +282,17 @@ async def run_migration_job(job_code: str, req: Request) -> JSONResponse:
             if rows:
                 _accumulate(total, _run_chunk(rows))
     except Exception as e:
+        safe = _safe_err(e)  # NIKDY str(e) — obsahoval by payload s daty
         try:
             log_event(
                 level="error", source="py", module_id=f"migration.{job_code}",
-                message=f"FAIL job={job_code} po {batches} davkach / {source_rows} radcich: {type(e).__name__}: {e}",
+                message=f"FAIL job={job_code} po {batches} davkach / {source_rows} radcich: {safe}",
                 extra={"uid": uid, "call_sql": call_sql, "batches_done": batches, "rows_done": source_rows},
             )
         except Exception:
             pass
         return JSONResponse(
-            {"ok": False, "error": f"{type(e).__name__}: {e}",
+            {"ok": False, "error": safe,
              "job_code": job_code, "batches_done": batches, "rows_done": source_rows,
              "partial_result": total, "note": "commit per davka — uz zapsane davky zustavaji, re-run pokracuje (idempotence)"},
             status_code=500,
@@ -295,3 +321,6 @@ def register_routes(parent_router: APIRouter) -> None:
         register_migration_routes(api_router)
     """
     parent_router.include_router(_router)
+
+
+# konec modulu migration_runner (5.6.2026)

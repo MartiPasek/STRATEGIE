@@ -215,12 +215,23 @@
               _flag(d.notif_enabled, "oznámení"),
               _flag(d.fullscreen_enabled, "celá obr.")
             ].join(" · ");
+            var secs = (d.secs_ago == null) ? 999999 : d.secs_ago;
+            var stav = secs < 900
+              ? "<span style='color:#7fd6c2;'>● aktivní</span>"
+              : (secs < 86400
+                ? "<span style='color:#e0b070;'>● offline</span>"
+                : "<span style='color:#8a96a4;'>● nečinné (možná odinstalováno)</span>");
             return "<div style='padding:6px 0;border-bottom:1px solid #20262e;'>" +
+              "<span style='float:right;white-space:nowrap;'>" +
               "<button type='button' data-cmd-user='" + (d.user_id || "") + "' " +
-              "style='float:right;background:#1f3a55;border:1px solid #356092;color:#dbeeff;" +
-              "border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;'>📨 Doporučit</button>" +
+              "style='background:#1f3a55;border:1px solid #356092;color:#dbeeff;" +
+              "border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;'>📨 Doporučit</button> " +
+              "<button type='button' data-dev-remove='" + (d.device_row_id || "") + "' " +
+              "title='Odebrat z přehledu' style='background:#3a1f24;border:1px solid #6e3540;" +
+              "color:#e89b9b;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;'>✕</button>" +
+              "</span>" +
               "<strong>" + _esc2(d.user_name || "") + "</strong> · " + _esc2(d.app_key || "") +
-              " v" + _esc2(d.version_name || "?") + " (code " + (d.version_code || "?") + ")<br>" +
+              " v" + _esc2(d.version_name || "?") + " (code " + (d.version_code || "?") + ") · " + stav + "<br>" +
               "<span style='color:#8a96a4;'>" + _esc2(d.device_label || "") +
               (d.android_release ? " · Android " + _esc2(d.android_release) : "") +
               " · " + _esc2(d.last_seen || "") + "</span><br>" +
@@ -233,6 +244,21 @@
                 _commandPicker(parseInt(b.getAttribute("data-cmd-user"), 10));
               });
             })(btns[i]);
+          }
+          var rbs = el.querySelectorAll("[data-dev-remove]");
+          for (var k = 0; k < rbs.length; k++) {
+            (function (b) {
+              b.addEventListener("click", function () {
+                var did = b.getAttribute("data-dev-remove");
+                if (!did || !confirm("Odebrat toto zařízení z přehledu?")) return;
+                fetch("/api/v1/erp/app/device/" + did + "/remove", {
+                  method: "POST", credentials: "same-origin",
+                }).then(function (r) { return r.json(); }).then(function (jj) {
+                  if (jj && jj.ok) { _toast("✓ Odebráno"); _loadDevices(); }
+                  else { _toast("Nepodařilo se odebrat", true); }
+                }).catch(function () { _toast("Síťová chyba", true); });
+              });
+            })(rbs[k]);
           }
         }).catch(function () {});
     }

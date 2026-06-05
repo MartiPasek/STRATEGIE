@@ -5390,20 +5390,44 @@ async def app_devices(req: Request) -> JSONResponse:
     ds = _gds_dv()
     try:
         rows = ds.execute(_sql_dv("""
-            SELECT d.app_key, d.user_id,
+            SELECT d.id AS device_row_id, d.app_key, d.user_id,
                    COALESCE(NULLIF(TRIM(CONCAT(u.first_name,' ',u.last_name)),''),
                             u.login_name, '#'||d.user_id) AS user_name,
                    d.device_label, d.version_code, d.version_name, d.android_release,
                    d.service_enabled, d.call_log_enabled, d.notif_enabled,
                    d.fullscreen_enabled, d.server_url,
+                   EXTRACT(EPOCH FROM (now() - d.last_seen_at))::int AS secs_ago,
                    to_char(d.last_seen_at,'YYYY-MM-DD HH24:MI') AS last_seen
             FROM fw.mobile_device d
             LEFT JOIN public.users u ON u.id = d.user_id
+            WHERE d.removed_at IS NULL
             ORDER BY d.last_seen_at DESC NULLS LAST
         """)).mappings().all()
         return JSONResponse({"ok": True, "devices": [dict(r) for r in rows]})
     except Exception as exc:
         logger.exception("[app_devices] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/device/{device_row_id}/remove")
+async def app_device_remove(device_row_id: int, req: Request) -> JSONResponse:
+    """Odebere zařízení z přehledu (soft: removed_at). Jen rodič."""
+    from core.database_data import get_data_session as _gds_dr
+    from sqlalchemy import text as _sql_dr
+    uid = _get_uid(req)
+    _require_parent(uid)
+    ds = _gds_dr()
+    try:
+        ds.execute(_sql_dr(
+            "UPDATE fw.mobile_device SET removed_at = now() WHERE id = :id"
+        ), {"id": int(device_row_id)})
+        ds.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[app_device_remove] failed: %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         ds.close()

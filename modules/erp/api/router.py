@@ -16721,6 +16721,8 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/deploy_button.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Claude SQL bridge Krok 2: write approval banner (jen rodiče). -->
     <script src="/static/claude_write_approval.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- PWA → nabídka instalace nativní appky (jen Android). -->
+    <script src="/static/app_install_prompt.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Master-detail Krok 6 (24.5.2026): custom JS renderer pro Data
          Sources → Data Source Op detail (nested ErpDataGrid s layoutKey
          "data_source_op" persistence). Marti's Varianta B — full features

@@ -69,6 +69,39 @@ def ip_in_building(ip_str: str | None) -> bool:
     return False
 
 
+_ssid_cache: dict = {"ts": 0.0, "ssids": set()}
+
+
+def _load_building_ssids() -> set:
+    """Názvy firemních WiFi (kind='ssid' v fw.hr_building_network), lowercase."""
+    now = time.time()
+    if _ssid_cache["ssids"] and (now - _ssid_cache["ts"] < _NETS_TTL_S):
+        return _ssid_cache["ssids"]
+    ssids: set = set()
+    try:
+        from core.database_data import get_data_session
+        s = get_data_session()
+        try:
+            rows = s.execute(_t(
+                "SELECT lower(value) FROM fw.hr_building_network "
+                "WHERE is_active = true AND kind = 'ssid'"
+            )).fetchall()
+            ssids = {str(r[0]).strip() for r in rows if r[0]}
+        finally:
+            s.close()
+        _ssid_cache["ssids"] = ssids
+        _ssid_cache["ts"] = now
+    except Exception:
+        pass
+    return _ssid_cache["ssids"]
+
+
+def ssid_in_building(ssid: str | None) -> bool:
+    if not ssid:
+        return False
+    return str(ssid).strip().lower() in _load_building_ssids()
+
+
 def device_kind(user_agent: str | None) -> str:
     """Hrubá klasifikace zařízení z User-Agent: 'mobile' vs 'pc'."""
     u = (user_agent or "").lower()
@@ -78,14 +111,17 @@ def device_kind(user_agent: str | None) -> str:
 
 
 def touch_presence(uid: int | None, ip_str: str | None,
-                   user_agent: str | None = None, source: str = "company_ip") -> None:
+                   user_agent: str | None = None, source: str = "company_ip",
+                   force_kind: str | None = None) -> None:
     """Když je IP firemní, zapíše presence pro daný typ zařízení (PC/mobil).
+    force_kind='mobile'/'pc' přebije klasifikaci z UA (např. heartbeat appky
+    posílá UA 'okhttp', ale víme, že je to mobil).
     Throttle 60 s/(uživatel, typ). Best-effort — nikdy neshodí request."""
     if not uid:
         return
     if not ip_in_building(ip_str):
         return
-    kind = device_kind(user_agent)
+    kind = force_kind if force_kind in ("pc", "mobile") else device_kind(user_agent)
     is_pc = (kind == "pc")
     is_mobile = (kind == "mobile")
     now = time.time()
@@ -125,6 +161,46 @@ def touch_presence(uid: int | None, ip_str: str | None,
                         (user_id, source, in_building, state)
                     VALUES (:u, :src, true, 'in_building')
                 """), {"u": int(uid), "src": source + "_" + kind})
+            s.commit()
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+
+def touch_device(device_key: str | None, device_type: str, name: str | None,
+                 uid: int | None, ip_str: str | None, source: str,
+                 ssid: str | None = None) -> None:
+    """Upsert zařízení do IT inventury fw.hr_device + vazba na člověka (1:N).
+    Presence (last_in_building) z firemní IP NEBO firemní WiFi (SSID). Best-effort.
+    device_key = stabilní id (app device_id / machine id / mac)."""
+    if not device_key:
+        return
+    inb = ip_in_building(ip_str) or ssid_in_building(ssid)
+    try:
+        from core.database_data import get_data_session
+        s = get_data_session()
+        try:
+            row = s.execute(_t("""
+                INSERT INTO fw.hr_device
+                    (device_type, name, owner_user_id, device_key,
+                     last_seen_at, last_source, last_in_building, last_ip)
+                VALUES (:dt, :nm, :uid, :dk, now(), :src, :inb, :ip)
+                ON CONFLICT (device_key) WHERE device_key IS NOT NULL DO UPDATE SET
+                    name = COALESCE(NULLIF(EXCLUDED.name, ''), fw.hr_device.name),
+                    owner_user_id = COALESCE(fw.hr_device.owner_user_id, EXCLUDED.owner_user_id),
+                    last_seen_at = now(), last_source = :src,
+                    last_in_building = :inb, last_ip = :ip
+                RETURNING id
+            """), {"dt": device_type, "nm": (name or ""), "uid": uid, "dk": device_key,
+                   "src": source, "inb": inb, "ip": (ip_str or "")}).fetchone()
+            dev_id = row[0] if row else None
+            if dev_id and uid:
+                s.execute(_t("""
+                    INSERT INTO fw.hr_device_user (device_id, user_id, rel)
+                    VALUES (:d, :u, 'owner')
+                    ON CONFLICT (device_id, user_id) DO NOTHING
+                """), {"d": int(dev_id), "u": int(uid)})
             s.commit()
         finally:
             s.close()

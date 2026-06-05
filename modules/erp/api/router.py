@@ -5370,6 +5370,31 @@ async def app_heartbeat(app_key: str, req: Request) -> JSONResponse:
               server_url=EXCLUDED.server_url, last_seen_at=now()
         """), params)
         ds.commit()
+
+        # HR inventura + presence (5.6.): telefon appky → fw.hr_device.
+        # in_building z firemní IP NEBO firemní WiFi (SSID hlásí appka).
+        # Best-effort, neovlivní odpověď heartbeatu.
+        try:
+            from modules.hr.presence import (touch_device as _hr_td,
+                                             client_ip as _hr_ip,
+                                             ip_in_building as _hr_inb,
+                                             ssid_in_building as _hr_sib)
+            _hb_ip = _hr_ip(req)
+            _hb_ssid = (str(body.get("wifi_ssid") or "")[:64]) or None
+            _hr_td(device_key=dev, device_type="phone",
+                   name=params.get("label"), uid=uid, ip_str=_hb_ip,
+                   source="mobile_app", ssid=_hb_ssid)
+            try:
+                from core.log_queue import log_event as _hb_log
+                _hb_log(level="info", source="py", module_id="hr.heartbeat",
+                        message=(f"heartbeat uid={uid} dev={dev} ip={_hb_ip} "
+                                 f"ssid={_hb_ssid} in_building="
+                                 f"{_hr_inb(_hb_ip) or _hr_sib(_hb_ssid)}"))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         return JSONResponse({"ok": True})
     except Exception as exc:
         ds.rollback()

@@ -81,12 +81,11 @@ END $fn$;
 CREATE OR REPLACE FUNCTION mod.hr_migrate_ensure_kinds()
 RETURNS void LANGUAGE sql AS $fn$
   INSERT INTO mod.hr_contact_kind(code,label) VALUES
-    ('telefon_firemni','Telefon firemní'),('telefon_soukromy','Telefon soukromý'),
-    ('mobil_firemni','Mobil firemní'),('mobil_soukromy','Mobil soukromý'),
-    ('fax_firemni','Fax firemní'),('fax_soukromy','Fax soukromý'),
-    ('email_firemni','E-mail firemní'),('email_soukromy','E-mail soukromý'),
-    ('www_firemni','WWW firemní'),('www_soukromy','WWW soukromý'),
-    ('skype_firemni','Skype firemní'),('skype_soukromy','Skype soukromý')
+    ('tel_pracovni','Telefon pracovní'),('tel_soukromy','Telefon soukromý'),
+    ('fax_pracovni','Fax pracovní'),('fax_soukromy','Fax soukromý'),
+    ('email_pracovni','E-mail pracovní'),('email_soukromy','E-mail soukromý'),
+    ('www_pracovni','WWW pracovní'),('www_soukromy','WWW soukromý'),
+    ('skype_pracovni','Skype pracovní'),('skype_soukromy','Skype soukromý')
   ON CONFLICT (code) DO NOTHING
 $fn$;
 
@@ -173,9 +172,9 @@ BEGIN
     person_id := mod._hr_src_existing('hr_person','dbo.TabCisZam', c->>'IDCisZam');
     IF person_id IS NULL THEN skip:=skip+1; CONTINUE; END IF;
     druh := nullif(c->>'Druh','')::int; kam := nullif(c->>'Kam','')::int;
-    druhmap := CASE druh WHEN 1 THEN 'telefon' WHEN 2 THEN 'mobil' WHEN 3 THEN 'fax'
+    druhmap := CASE druh WHEN 1 THEN 'tel' WHEN 2 THEN 'tel' WHEN 3 THEN 'fax'
                          WHEN 6 THEN 'email' WHEN 7 THEN 'www' WHEN 11 THEN 'skype' ELSE NULL END;
-    kammap := CASE kam WHEN 0 THEN 'firemni' WHEN 1 THEN 'soukromy' ELSE NULL END;
+    kammap := CASE kam WHEN 0 THEN 'pracovni' WHEN 1 THEN 'soukromy' ELSE NULL END;
     val := nullif(trim(c->>'Spojeni'),'');
     IF druhmap IS NULL OR kammap IS NULL OR val IS NULL THEN skip:=skip+1; CONTINUE; END IF;
     kind := druhmap||'_'||kammap;

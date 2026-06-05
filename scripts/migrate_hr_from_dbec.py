@@ -42,11 +42,11 @@ AUTHOR = "migrace DB_EC"
 SENTINEL_FROM = dt.date(1900, 1, 1)  # když _DatumNastupu chybí (valid_from je NOT NULL)
 
 # Druh (typ spojení) a Kam (umístění) -> contact_kind kód
-DRUH = {1: "telefon", 2: "mobil", 3: "fax", 6: "email", 7: "www", 11: "skype"}
-KAM = {0: "firemni", 1: "soukromy"}
-DRUH_LABEL = {"telefon": "Telefon", "mobil": "Mobil", "fax": "Fax",
+DRUH = {1: "tel", 2: "tel", 3: "fax", 6: "email", 7: "www", 11: "skype"}
+KAM = {0: "pracovni", 1: "soukromy"}
+DRUH_LABEL = {"tel": "Telefon", "fax": "Fax",
               "email": "E-mail", "www": "WWW", "skype": "Skype"}
-KAM_LABEL = {"firemni": "firemní", "soukromy": "soukromý"}
+KAM_LABEL = {"pracovni": "pracovní", "soukromy": "soukromý"}
 
 # (flag v TabCisZam_EXT -> role_kind kód)
 ROLE_FLAGS = [("_HPP", "zamestnanec_hpp"), ("_DPP", "zamestnanec_dpp"), ("_OSVC", "osvc_dodavatel")]

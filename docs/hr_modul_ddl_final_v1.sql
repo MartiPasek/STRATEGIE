@@ -301,18 +301,11 @@ INSERT INTO mod.hr_role_kind (code, label) VALUES
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO mod.hr_contact_kind (code, label) VALUES
-  ('telefon_firemni','Telefon firemní'),('telefon_soukromy','Telefon soukromý'),
-  ('mobil_firemni',  'Mobil firemní'),  ('mobil_soukromy',  'Mobil soukromý'),
-  ('fax_firemni',    'Fax firemní'),    ('fax_soukromy',    'Fax soukromý'),
-  ('email_firemni',  'E-mail firemní'), ('email_soukromy',  'E-mail soukromý'),
-  ('www_firemni',    'WWW firemní'),    ('www_soukromy',    'WWW soukromý'),
-  ('skype_firemni',  'Skype firemní'),  ('skype_soukromy',  'Skype soukromý')
-ON CONFLICT (code) DO NOTHING;
-
--- (legacy generické kódy z prvotního core seedu — ponechány pro ruční záznamy)
-INSERT INTO mod.hr_contact_kind (code, label) VALUES
-  ('tel_soukromy','Telefon soukromý'),('tel_pracovni','Telefon pracovní'),
-  ('email_pracovni','E-mail pracovní')
+  ('tel_pracovni',   'Telefon pracovní'),('tel_soukromy',   'Telefon soukromý'),
+  ('fax_pracovni',   'Fax pracovní'),    ('fax_soukromy',   'Fax soukromý'),
+  ('email_pracovni', 'E-mail pracovní'), ('email_soukromy', 'E-mail soukromý'),
+  ('www_pracovni',   'WWW pracovní'),    ('www_soukromy',   'WWW soukromý'),
+  ('skype_pracovni', 'Skype pracovní'),  ('skype_soukromy', 'Skype soukromý')
 ON CONFLICT (code) DO NOTHING;
 -- ============================================================================
 -- KONEC finálního DDL HR modulu v1.

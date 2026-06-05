@@ -1,4 +1,6 @@
 import java.io.FileInputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Properties
 
 plugins {
@@ -55,7 +57,7 @@ android {
         // Datum + čas buildu (zobrazí se u verze v appce).
         buildConfigField(
             "String", "BUILD_TIME",
-            "\"" + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date()) + "\""
+            "\"" + SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date()) + "\""
         )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

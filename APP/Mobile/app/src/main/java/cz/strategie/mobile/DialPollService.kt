@@ -372,6 +372,11 @@ class DialPollService : Service() {
     }
 
     // ── Vzdálená doporučení parentů → notifikace → CommandActivity dialog ───
+    // Příkazy, které už mají zobrazenou notifikaci — aby se nenotifikovaly
+    // znovu každé kolo (jinak se na ikoně hromadí počet). Marti 5.6.
+    private val shownCommandIds =
+        java.util.Collections.synchronizedSet(HashSet<Long>())
+
     private fun checkCommands(base: String, token: String) {
         try {
             val c = (URL("$base/api/v1/erp/app/$APP_KEY/commands/pending")
@@ -388,16 +393,38 @@ class DialPollService : Service() {
                 c.disconnect()
             }
             val arr = JSONObject(body).optJSONArray("commands") ?: return
+            val current = HashSet<Long>()
             for (i in 0 until arr.length()) {
                 val cmd = arr.getJSONObject(i)
-                notifyCommand(
-                    cmd.optLong("id", -1L),
-                    cmd.optString("command_type", ""),
-                    cmd.optString("title", "Doporučení"),
-                    cmd.optString("message", ""),
-                    cmd.optString("payload", "")
-                )
+                val id = cmd.optLong("id", -1L)
+                if (id < 0L) continue
+                current.add(id)
+                // notifikuj jen NOVÉ příkazy (ne každé kolo znovu)
+                if (shownCommandIds.add(id)) {
+                    notifyCommand(
+                        id,
+                        cmd.optString("command_type", ""),
+                        cmd.optString("title", "Doporučení"),
+                        cmd.optString("message", ""),
+                        cmd.optString("payload", "")
+                    )
+                }
             }
+            // de-pile: příkazy, co už nejsou pending (vyřízené jinde) → zruš jejich
+            // notifikaci, ať počet na ikoně klesá sám.
+            val gone = synchronized(shownCommandIds) { shownCommandIds.toList() }
+                .filter { it !in current }
+            for (gid in gone) {
+                cancelCommandNotif(gid)
+                shownCommandIds.remove(gid)
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun cancelCommandNotif(id: Long) {
+        try {
+            nm().cancel((NOTIF_COMMAND_BASE + id).toInt())
         } catch (e: Exception) {
         }
     }

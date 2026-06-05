@@ -6287,6 +6287,10 @@ def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
             ds.execute(_td("UPDATE fw.claude_write_request SET status='rejected', "
                            "decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
                        {"u": uid, "id": req_id})
+            ds.execute(_td("UPDATE fw.mobile_command SET status='done', decided_at=now() "
+                           "WHERE command_type='claude_confirm' AND status='pending' "
+                           "AND payload->>'write_request_id' = :ridtxt"),
+                       {"ridtxt": str(req_id)})
             ds.commit()
             return {"ok": True, "status": "rejected"}
 
@@ -6316,6 +6320,10 @@ def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
         ds.execute(_td("UPDATE fw.claude_write_request SET status='done', row_count=:rc, "
                        "result_text=:rt, decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
                    {"rc": rc, "rt": result_text, "u": uid, "id": req_id})
+        ds.execute(_td("UPDATE fw.mobile_command SET status='done', decided_at=now() "
+                       "WHERE command_type='claude_confirm' AND status='pending' "
+                       "AND payload->>'write_request_id' = :ridtxt"),
+                   {"ridtxt": str(req_id)})
         ds.commit()
         return {"ok": True, "status": "done", "row_count": rc, "result_text": result_text}
     finally:

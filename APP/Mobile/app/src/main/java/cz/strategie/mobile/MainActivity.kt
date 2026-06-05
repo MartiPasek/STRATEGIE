@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -94,6 +95,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
+data class CmdItem(
+    val id: Long,
+    val type: String,
+    val title: String,
+    val msg: String,
+    val payload: String,
+)
+
 fun AppRoot(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
@@ -106,6 +115,8 @@ fun AppRoot(modifier: Modifier = Modifier) {
     var serverVersionName by remember { mutableStateOf("") }
     var updating by remember { mutableStateOf(false) }
     var canInstall by remember { mutableStateOf(true) }
+    var notifs by remember { mutableStateOf<List<CmdItem>>(emptyList()) }
+    var notifSel by remember { mutableStateOf(-1L) }
 
     fun base(): String = serverUrl.trim().trimEnd('/')
 
@@ -218,6 +229,124 @@ fun AppRoot(modifier: Modifier = Modifier) {
             )
         } catch (e: Exception) {
             Toast.makeText(context, "Nastavení nelze otevřít", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ── Inbox notifikací v appce (Marti 5.6.) — seznam „úkolů od Clauda" ──
+    fun loadNotifs() {
+        val t = token.trim()
+        if (t.isEmpty()) { notifs = emptyList(); return }
+        thread {
+            try {
+                val c = (URL(base() + "/api/v1/erp/app/mobile/commands/pending")
+                    .openConnection() as HttpURLConnection)
+                c.setRequestProperty("Authorization", "Bearer $t")
+                c.connectTimeout = 8000; c.readTimeout = 8000
+                if (c.responseCode == 200) {
+                    val arr = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+                        .optJSONArray("commands")
+                    val list = ArrayList<CmdItem>()
+                    if (arr != null) for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        list.add(
+                            CmdItem(
+                                o.optLong("id", -1L),
+                                o.optString("command_type", ""),
+                                o.optString("title", "Notifikace"),
+                                o.optString("message", ""),
+                                o.optString("payload", "")
+                            )
+                        )
+                    }
+                    Handler(Looper.getMainLooper()).post { notifs = list }
+                }
+                c.disconnect()
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    fun cancelCmdNotif(id: Long) {
+        try {
+            context.getSystemService(NotificationManager::class.java)
+                ?.cancel((DialPollService.NOTIF_COMMAND_BASE + id).toInt())
+        } catch (e: Exception) {
+        }
+    }
+
+    fun appDetails() {
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:" + context.packageName))
+            )
+        } catch (e: Exception) {
+        }
+    }
+
+    // akce na příkaz: pošle rozhodnutí na server (accept/reject/done),
+    // zruší jeho notifikaci a obnoví seznam
+    fun actCmd(item: CmdItem, decision: String) {
+        val t = token.trim()
+        cancelCmdNotif(item.id)
+        notifSel = -1L
+        if (t.isEmpty()) return
+        thread {
+            try {
+                val c = (URL(base() + "/api/v1/erp/app/command/" + item.id + "/result")
+                    .openConnection() as HttpURLConnection)
+                c.requestMethod = "POST"
+                c.setRequestProperty("Authorization", "Bearer $t")
+                c.setRequestProperty("Content-Type", "application/json")
+                c.doOutput = true
+                c.connectTimeout = 8000; c.readTimeout = 8000
+                c.outputStream.use { it.write(("{\"decision\":\"" + decision + "\"}").toByteArray()) }
+                c.responseCode
+                c.disconnect()
+            } catch (e: Exception) {
+            }
+            try { Thread.sleep(500) } catch (e: Exception) {}
+            loadNotifs()
+        }
+    }
+
+    // otevři přesné nastavení podle typu doporučení
+    fun cmdSetting(item: CmdItem) {
+        try {
+            when (item.type) {
+                "fullscreen" -> if (Build.VERSION.SDK_INT >= 34) context.startActivity(
+                    Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                        .setData(Uri.parse("package:" + context.packageName))
+                ) else appDetails()
+                "battery" -> context.startActivity(
+                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                        .setData(Uri.parse("package:" + context.packageName))
+                )
+                "notif" -> context.startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                )
+                "calllog" -> appDetails()
+                "update" -> updateNow()
+                else -> {
+                    val u = try { JSONObject(item.payload).optString("url", "") } catch (e: Exception) { "" }
+                    if (u.isNotBlank()) context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    // načti inbox při otevření + periodicky každých ~12 s
+    LaunchedEffect(token) {
+        if (token.trim().isNotEmpty()) {
+            loadNotifs()
+            while (true) {
+                delay(12000)
+                loadNotifs()
+            }
         }
     }
 
@@ -395,6 +524,17 @@ fun AppRoot(modifier: Modifier = Modifier) {
             Text("Tvoje Marti", fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.weight(1f))
             Text(
+                if (notifs.isEmpty()) "🔔" else "🔔 " + notifs.size,
+                fontSize = 20.sp,
+                color = if (notifs.isEmpty()) Color.Unspecified else Color(0xFFE0B070),
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable { showSettings = false; loadNotifs() }
+                    .padding(6.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
                 "⚙",
                 fontSize = 24.sp,
                 modifier = Modifier
@@ -437,7 +577,13 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 serviceOn = serviceOn,
                 onLoginPair = { open("/app-pair") },
                 onChat = { open("/") },
-                onErp = { open("/erp") }
+                onErp = { open("/erp") },
+                notifs = notifs,
+                notifSel = notifSel,
+                onSelectNotif = { notifSel = if (notifSel == it) -1L else it },
+                onAct = { item, decision -> actCmd(item, decision) },
+                onSetting = { cmdSetting(it) },
+                onRefresh = { loadNotifs() }
             )
         }
     }
@@ -450,6 +596,12 @@ private fun HomeBody(
     onLoginPair: () -> Unit,
     onChat: () -> Unit,
     onErp: () -> Unit,
+    notifs: List<CmdItem> = emptyList(),
+    notifSel: Long = -1L,
+    onSelectNotif: (Long) -> Unit = {},
+    onAct: (CmdItem, String) -> Unit = { _, _ -> },
+    onSetting: (CmdItem) -> Unit = {},
+    onRefresh: () -> Unit = {},
 ) {
     if (!paired) {
         Text(
@@ -464,10 +616,103 @@ private fun HomeBody(
             Text("🔗 Přihlásit a spárovat")
         }
     } else {
+        // ── Inbox notifikací (úkoly od Clauda) — jako e-maily v Outlooku ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "🔔 Notifikace" + if (notifs.isEmpty()) "" else " (" + notifs.size + ")",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "🔄",
+                fontSize = 18.sp,
+                modifier = Modifier.clip(CircleShape).clickable { onRefresh() }.padding(6.dp)
+            )
+        }
+        if (notifs.isEmpty()) {
+            Text(
+                "Žádné notifikace.",
+                color = Color(0xFF8a96a4),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        } else {
+            for (n in notifs) {
+                val open = notifSel == n.id
+                val icon = when (n.type) {
+                    "claude_confirm" -> "✅"
+                    "claude_msg" -> "💬"
+                    "update" -> "📥"
+                    else -> "⚙"
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (open) Color(0xFF14202c) else Color(0xFF11181f))
+                        .clickable { onSelectNotif(n.id) }
+                        .padding(12.dp)
+                ) {
+                    Text(icon + "  " + n.title, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                    if (n.msg.isNotBlank()) {
+                        Text(
+                            n.msg,
+                            color = Color(0xFFbcc6d2),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = if (open) 12 else 2
+                        )
+                    }
+                    if (open) {
+                        Spacer(Modifier.width(0.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            when (n.type) {
+                                "claude_confirm" -> {
+                                    Button(
+                                        onClick = { onAct(n, "accept") },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Povolit") }
+                                    OutlinedButton(
+                                        onClick = { onAct(n, "reject") },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Odmítnout") }
+                                }
+                                "claude_msg" -> {
+                                    Button(
+                                        onClick = { onChat(); onAct(n, "done") },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Otevřít chat") }
+                                    OutlinedButton(
+                                        onClick = { onAct(n, "done") },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Zavřít") }
+                                }
+                                else -> {
+                                    Button(
+                                        onClick = { onSetting(n); onAct(n, "accept") },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Povolit") }
+                                    OutlinedButton(
+                                        onClick = { onAct(n, "reject") },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Teď ne") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider()
         Text(
             if (serviceOn) "✓ Naslouchání běží na pozadí"
             else "Naslouchání je vypnuté (zapni v ⚙ nastavení)",
-            style = MaterialTheme.typography.titleMedium
+            style = MaterialTheme.typography.bodyMedium
         )
         Text(
             "Dvojklik na telefonní číslo v ERP vyvolá na tomto telefonu vytáčení.",

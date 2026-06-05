@@ -87,6 +87,12 @@ BUILD_MSG_FILE = BRIDGE_DIR / "CLAUDE_BUILD.txt"        # volby: "noupload" = je
 BUILD_GO_FILE = BRIDGE_DIR / "CLAUDE_BUILD_GO.txt"      # trigger (zapsat JAKO POSLEDNÍ)
 BUILD_OUT_FILE = BRIDGE_DIR / "CLAUDE_BUILD_OUT.txt"    # watcher zapíše průběh + výsledek
 
+# Notifikace na mobil (Marti 5.6.2026): Claude cinkne uzivateli "hotovo/výsledek".
+# CLAUDE_NOTIFY.txt: 1. řádek = title, další řádky = zpráva; volitelně "user=<id>".
+NOTIFY_MSG_FILE = BRIDGE_DIR / "CLAUDE_NOTIFY.txt"
+NOTIFY_GO_FILE = BRIDGE_DIR / "CLAUDE_NOTIFY_GO.txt"    # trigger (zapsat JAKO POSLEDNÍ)
+NOTIFY_OUT_FILE = BRIDGE_DIR / "CLAUDE_NOTIFY_OUT.txt"  # watcher zapíše výsledek
+
 # Sync Claudů (Marti 3.6.2026): freshness + work-lock
 WORK_LOCK_FILE = BRIDGE_DIR / "WORK_LOCK.txt"           # Claude píše: 1.ř popis, další ř soubory
 OTHER_WORK_FILE = BRIDGE_DIR / "OTHER_CLAUDE_WORK.txt"  # watcher píše: co staví ostatní
@@ -949,6 +955,70 @@ def _process_build() -> None:
         _log(f"BUILD: upload ERR {pub.get('msg')}")
 
 
+def _write_notify_out(text_body: str) -> None:
+    try:
+        NOTIFY_OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        NOTIFY_OUT_FILE.write_text(text_body, encoding="utf-8")
+    except Exception as exc:
+        _log(f"write NOTIFY_OUT failed: {exc}")
+
+
+def _process_notify() -> None:
+    """Bridge: Claude zapíše CLAUDE_NOTIFY.txt (1. řádek title, další = zpráva;
+    volitelně řádek 'user=<id>') → POST /app/notify (claude_msg cinkne na mobil)."""
+    title = ""
+    msg_lines = []
+    uid = None
+    try:
+        raw = NOTIFY_MSG_FILE.read_text(encoding="utf-8", errors="replace") if NOTIFY_MSG_FILE.exists() else ""
+    except Exception:
+        raw = ""
+    for ln in raw.splitlines():
+        s = ln.strip()
+        if uid is None and s.lower().startswith("user="):
+            try:
+                uid = int(s.split("=", 1)[1].strip())
+            except Exception:
+                uid = None
+            continue
+        if not title and s:
+            title = s
+            continue
+        msg_lines.append(ln)
+    message = "\n".join(msg_lines).strip()
+    try:
+        if NOTIFY_GO_FILE.exists():
+            NOTIFY_GO_FILE.unlink()
+    except Exception as exc:
+        _log(f"consume NOTIFY_GO unlink failed: {exc}")
+
+    if not title and not message:
+        _write_notify_out("# NOTIFY: ERR\nprazdna zprava\n")
+        return
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
+    if not token:
+        _write_notify_out("# NOTIFY: ERR\nchybi STRATEGIE_DEPLOY_TOKEN na NB\n")
+        return
+    payload = {"title": title or "Zpráva od Claude", "message": message}
+    if uid is not None:
+        payload["user_id"] = uid
+    url = CLOUD_URL.replace("/diag-sql", "/app/notify")
+    rq = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json", "X-Deploy-Token": token})
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with urllib.request.urlopen(rq, timeout=15) as resp:
+            j = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if j.get("ok"):
+            _write_notify_out("# NOTIFY: OK · id=%s\n# %s\n" % (j.get("id"), ts))
+            _log(f"NOTIFY OK id={j.get('id')}")
+        else:
+            _write_notify_out("# NOTIFY: ERR\n# %s\n%s\n" % (ts, j.get("error")))
+    except Exception as exc:
+        _write_notify_out("# NOTIFY: ERR\n# %s\n%s\n" % (ts, exc))
+
+
 def _handle_ops(ops: list) -> None:
     """Zpracuj pending ops z heartbeat odpovedi (whitelist akci z cloudu)."""
     for op in (ops or []):
@@ -1031,6 +1101,8 @@ def main() -> None:
                     _process_deploy()
                 if BUILD_GO_FILE.exists():
                     _process_build()
+                if NOTIFY_GO_FILE.exists():
+                    _process_notify()
                 if GO_FILE.exists():
                     _process()
                 # Freshness (Marti 3.6.): git fetch + behind check á ~90 s →

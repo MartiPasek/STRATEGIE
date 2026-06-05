@@ -24,22 +24,68 @@ class CommandActivity : Activity() {
         val title = intent.getStringExtra("cmd_title") ?: "Doporučení"
         val msg = intent.getStringExtra("cmd_msg") ?: ""
         if (id < 0L) { finish(); return }
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(msg)
-            .setCancelable(false)
-            .setPositiveButton("Povolit") { _, _ ->
-                doAction(type)
-                report(id, "accept")
-                cancelNotif(id)
-                finish()
+        when (type) {
+            "claude_confirm" -> {
+                // Potvrzení akce Clauda přímo z mobilu — Povolit = zápis se provede
+                AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(msg)
+                    .setCancelable(false)
+                    .setPositiveButton("Povolit") { _, _ ->
+                        report(id, "accept"); cancelNotif(id); finish()
+                    }
+                    .setNegativeButton("Odmítnout") { _, _ ->
+                        report(id, "reject"); cancelNotif(id); finish()
+                    }
+                    .show()
             }
-            .setNegativeButton("Teď ne") { _, _ ->
-                report(id, "reject")
-                cancelNotif(id)
-                finish()
+            "claude_msg" -> {
+                // Zpráva od Clauda (hotovo/výsledek) — jen informace + otevřít chat
+                AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(msg)
+                    .setCancelable(true)
+                    .setPositiveButton("Otevřít chat") { _, _ ->
+                        openChat(); report(id, "done"); cancelNotif(id); finish()
+                    }
+                    .setNegativeButton("Zavřít") { _, _ ->
+                        report(id, "done"); cancelNotif(id); finish()
+                    }
+                    .setOnCancelListener { report(id, "done"); cancelNotif(id); finish() }
+                    .show()
             }
-            .show()
+            else -> {
+                AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(msg)
+                    .setCancelable(false)
+                    .setPositiveButton("Povolit") { _, _ ->
+                        doAction(type)
+                        report(id, "accept")
+                        cancelNotif(id)
+                        finish()
+                    }
+                    .setNegativeButton("Teď ne") { _, _ ->
+                        report(id, "reject")
+                        cancelNotif(id)
+                        finish()
+                    }
+                    .show()
+            }
+        }
+    }
+
+    private fun openChat() {
+        try {
+            val prefs = getSharedPreferences(DialPollService.PREFS, MODE_PRIVATE)
+            val base = (prefs.getString(DialPollService.KEY_URL, DialPollService.DEFAULT_URL)
+                ?: DialPollService.DEFAULT_URL).trim().trimEnd('/')
+            startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(base))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+        }
     }
 
     private fun doAction(type: String) {

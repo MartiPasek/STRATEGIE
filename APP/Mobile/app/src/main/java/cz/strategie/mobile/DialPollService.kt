@@ -9,6 +9,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.net.Uri
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -192,17 +194,30 @@ class DialPollService : Service() {
     private fun nm() =
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+    private fun strategieSound(): Uri =
+        Uri.parse("android.resource://" + packageName + "/" + R.raw.strategie_chime)
+
     private fun createChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val sound = strategieSound()
             nm().createNotificationChannel(
                 NotificationChannel(
                     CH_ONGOING, "Služba vytáčení", NotificationManager.IMPORTANCE_LOW
                 )
             )
+            // Příchozí vytáčení — vlastní STRATEGIE zvuk (nový kanál id v2,
+            // aby se nový zvuk projevil i při update bez reinstalace)
             nm().createNotificationChannel(
                 NotificationChannel(
                     CH_ALERT, "Příchozí vytáčení", NotificationManager.IMPORTANCE_HIGH
-                )
+                ).apply {
+                    setSound(sound, attrs)
+                    enableVibration(true)
+                }
             )
             nm().createNotificationChannel(
                 NotificationChannel(
@@ -213,6 +228,16 @@ class DialPollService : Service() {
                 NotificationChannel(
                     CH_COMMAND, "Doporučení", NotificationManager.IMPORTANCE_HIGH
                 )
+            )
+            // Claude — potvrzení a zprávy (vlastní STRATEGIE zvuk)
+            nm().createNotificationChannel(
+                NotificationChannel(
+                    CH_CLAUDE, "Claude", NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Potvrzení a zprávy od Clauda"
+                    setSound(sound, attrs)
+                    enableVibration(true)
+                }
             )
         }
     }
@@ -398,7 +423,8 @@ class DialPollService : Service() {
             this, (NOTIF_COMMAND_BASE + id).toInt(), i,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val n = NotificationCompat.Builder(this, CH_COMMAND)
+        val ch = if (type == "claude_confirm" || type == "claude_msg") CH_CLAUDE else CH_COMMAND
+        val n = NotificationCompat.Builder(this, ch)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(if (msg.isNotBlank()) msg else "Klepni pro zobrazení")
@@ -533,9 +559,10 @@ class DialPollService : Service() {
         const val APP_KEY = "mobile"
         const val DEFAULT_URL = "https://strategie-ai.com"
         const val CH_ONGOING = "dial_ongoing"
-        const val CH_ALERT = "dial_alert"
+        const val CH_ALERT = "dial_alert_v2"      // v2 = vlastní STRATEGIE zvuk
         const val CH_UPDATE = "app_update"
         const val CH_COMMAND = "app_command"
+        const val CH_CLAUDE = "claude_v1"         // potvrzení + zprávy od Clauda
         const val NOTIF_ONGOING = 1001
         const val NOTIF_UPDATE = 1002
         const val NOTIF_DIAL_BASE = 2000

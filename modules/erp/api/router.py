@@ -5471,6 +5471,9 @@ _CMD_DEFAULTS = {
     "update": ("Aktualizace appky",
         "Je k dispozici novější verze appky. Klepni Povolit pro stažení a instalaci."),
     "message": ("Zpráva od STRATEGIE", ""),
+    "claude_confirm": ("Claude čeká na potvrzení",
+        "Claude chce provést akci. Klepni Povolit pro provedení, nebo Odmítnout."),
+    "claude_msg": ("Zpráva od Claude", ""),
 }
 
 
@@ -5558,16 +5561,75 @@ async def app_command_result(cmd_id: int, req: Request) -> JSONResponse:
     note = (str(body.get("note") or ""))[:300] or None
     ds = _gds_cr2()
     try:
+        cmd = ds.execute(_sql_cr2(
+            "SELECT command_type, payload FROM fw.mobile_command "
+            "WHERE id=:id AND target_user_id=:uid"
+        ), {"id": int(cmd_id), "uid": uid}).mappings().first()
         ds.execute(_sql_cr2("""
             UPDATE fw.mobile_command
             SET status=:st, result_note=:note, decided_at=now()
             WHERE id=:id AND target_user_id=:uid AND status='pending'
         """), {"st": status, "note": note, "id": int(cmd_id), "uid": uid})
         ds.commit()
-        return JSONResponse({"ok": True})
+        # claude_confirm → potvrzení z mobilu rovnou schválí/zamítne zápis
+        wres = None
+        if cmd and cmd["command_type"] == "claude_confirm" and decision in ("accept", "reject"):
+            payload = cmd["payload"] or {}
+            if isinstance(payload, str):
+                try:
+                    import json as _json_cr
+                    payload = _json_cr.loads(payload)
+                except Exception:
+                    payload = {}
+            wr = payload.get("write_request_id") if isinstance(payload, dict) else None
+            if wr:
+                wdec = "approve" if decision == "accept" else "reject"
+                wres = _apply_write_decision(int(wr), wdec, uid)
+                wres.pop("code", None)
+        return JSONResponse({"ok": True, "write": wres})
     except Exception as exc:
         ds.rollback()
         logger.exception("[app_command_result] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/notify")
+async def app_notify(req: Request) -> JSONResponse:
+    """Claude (X-Deploy-Token) pošle uživateli notifikaci na mobil — „hotovo /
+    výsledek / potřebuju pozornost". Vytvoří claude_msg command → appka pollne
+    (á 4 s) a cinkne. Bez potvrzování (jen informace). Marti 5.6."""
+    import os as _os_n
+    from core.database_data import get_data_session as _gn
+    from sqlalchemy import text as _tn
+    token = req.headers.get("X-Deploy-Token")
+    env = _os_n.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env and token == env):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        uid = int(body.get("user_id") or _DEFAULT_APPROVER_UID)
+    except (TypeError, ValueError):
+        uid = _DEFAULT_APPROVER_UID
+    title = (str(body.get("title") or "Zpráva od Claude"))[:120]
+    message = (str(body.get("message") or ""))[:600]
+    ds = _gn()
+    try:
+        nid = ds.execute(_tn("""
+            INSERT INTO fw.mobile_command
+              (app_key, target_user_id, command_type, title, message, created_by)
+            VALUES ('mobile', :uid, 'claude_msg', :title, :msg, NULL)
+            RETURNING id
+        """), {"uid": uid, "title": title, "msg": message}).scalar()
+        ds.commit()
+        return JSONResponse({"ok": True, "id": nid})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[app_notify] failed: %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         ds.close()
@@ -6070,6 +6132,11 @@ async def diag_sql(req: Request) -> JSONResponse:
             _wds.commit()
         finally:
             _wds.close()
+        # Mobil push (Marti 5.6.): cinkni schvalovateli na telefon (claude_confirm)
+        try:
+            _push_confirm_to_phone(rid, db, sql, actor)
+        except Exception as _pexc:
+            logger.warning("[push_confirm_to_phone] %s", _pexc)
         return JSONResponse({"ok": False, "pending": True, "request_id": rid,
                              "message": "Write čeká na schválení Marti (request #%s)." % rid})
 
@@ -6148,57 +6215,81 @@ async def diag_write_pending(req: Request) -> JSONResponse:
         ds.close()
 
 
-@api_router.post("/diag-write/{req_id}/decide")
-async def diag_write_decide(req_id: int, req: Request) -> JSONResponse:
-    """Marti approve/reject pending write. Parent-only. Approve → spustí SQL
-    přes strategie_pg (Marti-AI engine — UPDATE/INSERT na public.* povolen,
-    audit jako Marti-AI), uloží výsledek; watcher si ho vyzvedne přes status."""
-    uid = _get_uid(req)
-    _require_parent(uid)
+def _push_confirm_to_phone(req_id: int, db_target: str, sql: str, actor: str) -> None:
+    """Při pending zápisu cinkne schvalovateli na mobil (claude_confirm command).
+    Cíl = rodič navázaný na danou Claude instanci (Claude-23→Marti), jinak default
+    approver. Appka pollne /commands/pending (á 4 s) a vyvolá oznámení s Povolit/
+    Odmítnout → /app/command/result přímo schválí zápis. Marti 5.6."""
+    import json as _jp
+    import re as _rp
+    from core.database_data import get_data_session as _gp
+    from sqlalchemy import text as _tp
+    ds = _gp()
+    try:
+        iid = _rp.sub(r"^Claude-", "", (actor or "")).strip()
+        uid = None
+        if iid:
+            uid = ds.execute(_tp("SELECT bound_user_id FROM fw.claude_instance WHERE instance_id=:i"),
+                             {"i": iid}).scalar()
+        if not uid:
+            uid = _DEFAULT_APPROVER_UID
+        op = "ZÁPIS"
+        m = _rp.match(r"\s*(\w+)", sql or "")
+        if m:
+            op = m.group(1).upper()
+        snippet = " ".join((sql or "").split())[:160]
+        title = "Claude čeká na potvrzení (#%s)" % req_id
+        message = "%s · %s" % (op, snippet)
+        ds.execute(_tp("""
+            INSERT INTO fw.mobile_command
+              (app_key, target_user_id, command_type, title, message, payload, created_by)
+            VALUES ('mobile', :uid, 'claude_confirm', :title, :msg, CAST(:payload AS jsonb), NULL)
+        """), {"uid": int(uid), "title": title[:120], "msg": message[:600],
+               "payload": _jp.dumps({"write_request_id": int(req_id), "db": db_target})})
+        ds.commit()
+    finally:
+        ds.close()
+
+
+def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
+    """Sdílené jádro schválení/zamítnutí pending claude_write_request — volá ERP
+    banner (/diag-write/decide) i mobil (potvrzení z notifikace). approve → spustí
+    SQL přes strategie_pg (Marti-AI engine). Binding guard: rozhoduje jen rodič
+    navázaný na danou Claude instanci (jinak default approver Marti). Vrací dict;
+    klíč 'code' = HTTP status pro chybu."""
     from core.database_data import get_data_session as _gd
     from sqlalchemy import text as _td
-    try:
-        body = await req.json()
-    except Exception:
-        body = {}
-    decision = (str(body.get("decision") or "")).strip().lower()
     if decision not in ("approve", "reject"):
-        return JSONResponse({"ok": False, "error": "decision musí být approve|reject"}, status_code=400)
-
+        return {"ok": False, "error": "decision musí být approve|reject", "code": 400}
     ds = _gd()
     try:
         row = ds.execute(_td(
             "SELECT id, db_target, sql_text, status, requested_by FROM fw.claude_write_request WHERE id=:id"
         ), {"id": req_id}).mappings().first()
         if not row:
-            return JSONResponse({"ok": False, "error": "request nenalezen"}, status_code=404)
+            return {"ok": False, "error": "request nenalezen", "code": 404}
         if row["status"] != "pending":
-            return JSONResponse({"ok": False, "error": "request už není pending (%s)" % row["status"]})
-
-        # Binding guard (Marti 3.6.): jen rodič navázaný na danou Claude instanci
-        # smí rozhodnout. Neatribuované/legacy -> jen default approver (Marti).
+            return {"ok": False, "error": "request už není pending (%s)" % row["status"]}
         appr = ds.execute(_td(
             "SELECT ci.bound_user_id FROM fw.claude_instance ci "
             "WHERE ci.instance_id = regexp_replace(:rb, '^Claude-', '')"
         ), {"rb": row["requested_by"] or ""}).scalar()
         if appr is not None:
             if appr != uid:
-                return JSONResponse({"ok": False,
-                                     "error": "Tento request schvaluje jiný uživatel (jeho Claude instance)."},
-                                    status_code=403)
+                return {"ok": False,
+                        "error": "Tento request schvaluje jiný uživatel (jeho Claude instance).",
+                        "code": 403}
         elif uid != _DEFAULT_APPROVER_UID:
-            return JSONResponse({"ok": False,
-                                 "error": "Neatribuovaný request schvaluje pouze Marti."},
-                                status_code=403)
+            return {"ok": False,
+                    "error": "Neatribuovaný request schvaluje pouze Marti.", "code": 403}
 
         if decision == "reject":
             ds.execute(_td("UPDATE fw.claude_write_request SET status='rejected', "
                            "decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
                        {"u": uid, "id": req_id})
             ds.commit()
-            return JSONResponse({"ok": True, "status": "rejected"})
+            return {"ok": True, "status": "rejected"}
 
-        # approve → execute write přes strategie_pg (Marti-AI role)
         sql = row["sql_text"]
         err = None
         rc = None
@@ -6219,16 +6310,31 @@ async def diag_write_decide(req_id: int, req: Request) -> JSONResponse:
                            "decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
                        {"e": err[:4000], "u": uid, "id": req_id})
             ds.commit()
-            return JSONResponse({"ok": False, "status": "error", "error": err})
+            return {"ok": False, "status": "error", "error": err}
 
         result_text = "OK · %s řádků dotčeno" % (rc if rc is not None else "?")
         ds.execute(_td("UPDATE fw.claude_write_request SET status='done', row_count=:rc, "
                        "result_text=:rt, decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
                    {"rc": rc, "rt": result_text, "u": uid, "id": req_id})
         ds.commit()
-        return JSONResponse({"ok": True, "status": "done", "row_count": rc, "result_text": result_text})
+        return {"ok": True, "status": "done", "row_count": rc, "result_text": result_text}
     finally:
         ds.close()
+
+
+@api_router.post("/diag-write/{req_id}/decide")
+async def diag_write_decide(req_id: int, req: Request) -> JSONResponse:
+    """Marti approve/reject pending write z ERP banneru. Parent-only."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    decision = (str(body.get("decision") or "")).strip().lower()
+    res = _apply_write_decision(req_id, decision, uid)
+    code = res.pop("code", None) if isinstance(res, dict) else None
+    return JSONResponse(res, status_code=int(code or 200))
 
 
 @api_router.get("/diag-write/{req_id}/status")

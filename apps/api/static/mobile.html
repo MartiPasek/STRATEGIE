@@ -301,9 +301,21 @@
 
   // ───── KONTAKTY ─────
   var _contacts=null;
+  // Sloučení duplikátů kontaktů podle normalizovaného čísla (777 666 555 == 777666555).
+  function _normNum(n){ return (n||"").replace(/[^0-9]/g,""); }
+  function dedupContacts(arr){
+    var seen={}, out=[];
+    (arr||[]).forEach(function(c){
+      var k=_normNum(c.number);
+      if(!k){ out.push(c); return; }
+      if(seen[k]!==undefined){ var i=seen[k]; if(c.photo && !out[i].photo) out[i]=c; return; }
+      seen[k]=out.length; out.push(c);
+    });
+    return out;
+  }
   function renderContactsList(){ var ul=document.getElementById("ctlist"); if(!ul)return; var j=_contacts;
     if(j&&j.need){ ul.innerHTML='<li style="border:none;"><div style="color:var(--mut);margin-bottom:8px;">Appka potřebuje přístup ke kontaktům.</div><button class="green sm" id="ctperm">Povolit přístup</button></li>'; var pb=document.getElementById("ctperm"); if(pb)pb.addEventListener("click",function(){bjson("getContacts",getPrefixes());setTimeout(loadContacts,700);}); return; }
-    var all=(j&&j.contacts)||[]; var sf=document.getElementById("ctsearch"); var f=((sf&&sf.value)||"").trim().toLowerCase(); var nf=f.replace(/\s/g,"");
+    var all=dedupContacts((j&&j.contacts)||[]); var sf=document.getElementById("ctsearch"); var f=((sf&&sf.value)||"").trim().toLowerCase(); var nf=f.replace(/\s/g,"");
     var list=all.filter(function(c){ if(!f)return true; return (c.name||"").toLowerCase().indexOf(f)>=0 || (c.number||"").replace(/\s/g,"").indexOf(nf)>=0; });
     if(!list.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+(f?"Nic nenalezeno.":("Žádné kontakty s prefixem "+esc(getPrefixes())+"."))+'</li>'; return; }
     var pfx=getPrefixes(); ul.innerHTML="";

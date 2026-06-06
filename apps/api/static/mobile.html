@@ -6,15 +6,18 @@
 <title>STRATEGIE Mobil</title>
 <style>
   :root { --bg:#0e0f11; --surf:#16181c; --bord:#2a2d33; --tx:#e8eaf0; --mut:#8a96a4;
-          --blue:#4f8ef7; --green:#10b981; }
+          --blue:#4f8ef7; --green:#10b981; --amber:#e0b070; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--tx); font-family:system-ui,sans-serif;
          padding:16px; -webkit-tap-highlight-color:transparent; }
   h1 { font-size:20px; font-weight:700; margin:4px 0 2px; }
-  .mode { display:inline-block; font-size:12px; padding:4px 10px; border-radius:20px; margin-bottom:14px; }
+  .badges { margin-bottom:14px; }
+  .mode { display:inline-block; font-size:12px; padding:4px 10px; border-radius:20px; margin-right:6px; }
   .mode.native { background:rgba(16,185,129,.15); color:#5ee0b7; border:1px solid #1f6b53; }
   .mode.web { background:rgba(79,142,247,.15); color:#9bc0fb; border:1px solid #2a4d80; }
+  .mode.dev { background:rgba(224,176,112,.15); color:var(--amber); border:1px solid #6e5326; }
   .card { background:var(--surf); border:1px solid var(--bord); border-radius:12px; padding:14px; margin-bottom:14px; }
+  .card.devonly { border-style:dashed; border-color:#6e5326; }
   .card h2 { font-size:15px; margin:0 0 10px; font-weight:600; }
   label { font-size:12px; color:var(--mut); display:block; margin-bottom:4px; }
   input { width:100%; background:#0f1620; border:1px solid var(--bord); border-radius:8px;
@@ -23,33 +26,40 @@
            padding:13px; font-size:15px; font-weight:600; cursor:pointer; }
   button.green { background:var(--green); }
   .hint { font-size:12px; color:var(--mut); margin-top:8px; }
+  .devinfo { margin-top:10px; padding:10px; border-radius:8px; background:rgba(224,176,112,.08);
+             border:1px solid #6e5326; color:#e6c699; font-size:12.5px; line-height:1.5; }
   .hidden { display:none; }
   ul { list-style:none; padding:0; margin:0; }
   li { padding:8px 0; border-bottom:1px solid #20262e; font-size:14px; }
-  .appchip { display:flex; align-items:center; gap:8px; background:rgba(79,142,247,.1);
-             border:1px solid #2a4d80; color:#9bc0fb; border-radius:10px; padding:10px 12px;
-             font-size:13px; margin-bottom:14px; }
+  .appchip { display:flex; gap:8px; background:rgba(79,142,247,.1); border:1px solid #2a4d80;
+             color:#9bc0fb; border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:14px; }
+  .devtoggle { margin-top:18px; font-size:12px; color:var(--mut); text-align:center; }
+  .devtoggle a { color:var(--amber); text-decoration:underline; cursor:pointer; }
 </style>
 </head>
 <body>
   <h1>STRATEGIE Mobil</h1>
-  <span id="mode" class="mode web">prohlížeč (PWA)</span>
+  <div class="badges">
+    <span id="mode" class="mode web">prohlížeč (PWA)</span>
+    <span id="devBadge" class="mode dev hidden">DEV mód</span>
+  </div>
 
-  <!-- Bez mostu (prohlížeč): telefonní funkce skryjeme, nabídneme appku (Marti-AI: skrývat, ne zamykat) -->
   <div id="appchip" class="appchip hidden">📲 Telefonní funkce (vytáčení, call-log) jsou v appce STRATEGIE.</div>
 
   <div class="card hidden" id="phoneCard">
     <h2>📞 Telefon</h2>
     <label>Telefonní číslo</label>
-    <input id="num" type="tel" inputmode="tel" placeholder="+420…" value="">
+    <input id="num" type="tel" inputmode="tel" placeholder="+420…" value="+420">
     <button id="dial" class="green">Vytočit</button>
-    <div class="hint">Vytočí přímo přes nativní most.</div>
+    <div class="hint">Nativní only — vytočí přes most v appce.</div>
+    <div id="dialInfo" class="devinfo hidden"></div>
   </div>
 
   <div class="card hidden" id="listenCard">
     <h2>🟢 Naslouchání</h2>
     <div id="listenState" style="font-size:14px;">—</div>
-    <div class="hint">Appka přijímá požadavky na vytáčení z ERP.</div>
+    <button id="listenBtn" style="margin-top:10px;background:transparent;border:1px solid var(--bord);color:var(--tx);">Zjistit stav</button>
+    <div id="listenInfo" class="devinfo hidden"></div>
   </div>
 
   <div class="card">
@@ -58,31 +68,82 @@
     <div class="hint">Aktualizace tažením / tlačítkem (funguje i v prohlížeči).</div>
   </div>
 
+  <div class="devtoggle">
+    <span id="devLabel"></span> · <a id="devLink"></a>
+  </div>
+
 <script>
 (function () {
   var B = window.STRATEGIE || null;
-  // feature-detection per metoda (robustnější než verze — appky se aktualizují pomalu)
   var canDial = !!(B && typeof B.dial === "function");
   var canListen = !!(B && typeof B.listening === "function");
   var native = canDial || canListen;
 
+  var params = new URLSearchParams(location.search);
+  if (params.get("dev") === "1") { try { localStorage.setItem("stg_mobile_dev", "1"); } catch (e) {} }
+  if (params.get("dev") === "0") { try { localStorage.removeItem("stg_mobile_dev"); } catch (e) {} }
+  var DEV = false;
+  try { DEV = localStorage.getItem("stg_mobile_dev") === "1"; } catch (e) {}
+
   var modeEl = document.getElementById("mode");
   if (native) { modeEl.textContent = "appka (nativní funkce aktivní)"; modeEl.className = "mode native"; }
+  if (DEV) document.getElementById("devBadge").classList.remove("hidden");
 
-  // Skrývat, ne zamykat: v prohlížeči telefonní sekce zmizí, nabídne se appka
-  if (canDial) {
-    document.getElementById("phoneCard").classList.remove("hidden");
+  function showInfo(el, text) { el.textContent = text; el.classList.remove("hidden"); }
+
+  // ── Telefon: zobraz když je most NEBO DEV mód ──
+  if (canDial || DEV) {
+    var pc = document.getElementById("phoneCard");
+    pc.classList.remove("hidden");
+    if (DEV && !canDial) pc.classList.add("devonly");
     document.getElementById("dial").addEventListener("click", function () {
       var n = (document.getElementById("num").value || "").trim();
-      if (n) try { B.dial(n); } catch (e) {}
+      if (!n) return;
+      if (canDial) {
+        try { B.dial(n); } catch (e) {}
+        if (DEV) showInfo(document.getElementById("dialInfo"),
+          "✓ Spuštěno přes most: dialNumber(\"" + n + "\") → ACTION_DIAL otevře systémový dialer s číslem.");
+      } else {
+        showInfo(document.getElementById("dialInfo"),
+          "DEV (bez mostu): most dialNumber(\"" + n + "\") → v appce spustí ACTION_DIAL = otevře systémový dialer s předvyplněným číslem. Vytáčení je nativní-only, v prohlížeči se nic nevytočí.");
+      }
     });
   }
-  if (canListen) {
-    document.getElementById("listenCard").classList.remove("hidden");
-    try { document.getElementById("listenState").textContent =
-            B.listening() === "1" ? "Zapnuto ✓" : "Vypnuto"; } catch (e) {}
+
+  // ── Naslouchání: zobraz když je most NEBO DEV mód ──
+  if (canListen || DEV) {
+    var lc = document.getElementById("listenCard");
+    lc.classList.remove("hidden");
+    if (DEV && !canListen) lc.classList.add("devonly");
+    var ls = document.getElementById("listenState");
+    if (canListen) { try { ls.textContent = B.listening() === "1" ? "Zapnuto ✓" : "Vypnuto"; } catch (e) {} }
+    else { ls.textContent = "(zjistí se přes most v appce)"; }
+    document.getElementById("listenBtn").addEventListener("click", function () {
+      if (canListen) {
+        try { ls.textContent = B.listening() === "1" ? "Zapnuto ✓" : "Vypnuto"; } catch (e) {}
+        if (DEV) showInfo(document.getElementById("listenInfo"),
+          "✓ Most: listening() → vrací stav foreground služby (přijímá vytáčení z ERP).");
+      } else {
+        showInfo(document.getElementById("listenInfo"),
+          "DEV (bez mostu): most listening() → vrátí, jestli v appce běží služba naslouchání vytáčení z ERP (foreground service).");
+      }
+    });
   }
-  if (!native) document.getElementById("appchip").classList.remove("hidden");
+
+  // Production bez mostu → nabídni appku (skrývat, ne zamykat)
+  if (!native && !DEV) document.getElementById("appchip").classList.remove("hidden");
+
+  // Přepínač DEV/Production
+  document.getElementById("devLabel").textContent = DEV ? "DEV mód zapnutý" : "Production mód";
+  var link = document.getElementById("devLink");
+  link.textContent = DEV ? "přepnout na Production" : "zapnout DEV mód";
+  link.addEventListener("click", function () {
+    try {
+      if (DEV) localStorage.removeItem("stg_mobile_dev");
+      else localStorage.setItem("stg_mobile_dev", "1");
+    } catch (e) {}
+    location.href = location.pathname;
+  });
 })();
 </script>
 </body>

@@ -35,6 +35,12 @@
    per funkci (robustnější než semver — appky se aktualizují pomalu). `B.version` (semver)
    k dispozici pro zobrazení. ✅ aplikováno v `mobile.html`.
 
+6. **DEV / Production mód `/mobile`** (Marti 6. 6.). Production = skrývat (dle bodu 3).
+   DEV mód = native-only sekce zůstanou **zobrazené a aktivní**; klik vysvětlí, co
+   metoda mostu dělá v nativní appce (popis i bez mostu, v appce navíc reálně spustí).
+   Přepínání `?dev=1` / `?dev=0` v URL + localStorage `stg_mobile_dev` + přepínač v patičce.
+   ✅ aplikováno v `mobile.html`. (Později lze navázat na globální DEV/PROD flag systému.)
+
 ## Plán build-out (po POC)
 
 - Bridge rename + rozšíření: `dial`→`dialNumber`/`dialDirect`, přidat `getCallLog`,

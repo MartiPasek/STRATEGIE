@@ -787,12 +787,10 @@ def app_pair(req: Request):
     th = _hash_ap.sha256(plaintext.encode("utf-8")).hexdigest()
     s = _gds_ap()
     try:
-        # Dedup: jeden auto-login token na uživatele — předchozí „Mobil (auto)"
-        # odpoj (jinak vznikaly duplikáty při opakovaném párování). Marti 6.6.2026.
-        s.execute(_sql_ap(
-            'UPDATE "user".carddav_token SET revoked_at = now() '
-            "WHERE user_id = :uid AND device_label = 'Mobil (auto)' AND revoked_at IS NULL"
-        ), {"uid": uid})
+        # POZN. (Marti 6.6.2026): dříve tu byl revoke-all „Mobil (auto)" jako dedup,
+        # ale odpojoval i token, který telefon zrovna používal → ztráta autentizace
+        # (vytáčení/příkazy přestaly chodit). Revert: žádné auto-revoke při párování.
+        # Případné duplikáty řeší modal „Odpojit" ručně.
         s.execute(_sql_ap(
             'INSERT INTO "user".carddav_token (user_id, device_label, token_hash, created_at) '
             "VALUES (:uid, :label, :h, now())"

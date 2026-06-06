@@ -37,7 +37,7 @@ class PairActivity : Activity() {
             if (ok) "Spárováno ✓ — naslouchání zapnuto" else "Neplatný párovací odkaz",
             Toast.LENGTH_LONG
         ).show()
-        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        startActivity(Intent(this, HybridActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         finish()
     }
 }

@@ -2,6 +2,7 @@ package cz.strategie.mobile
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -55,6 +56,37 @@ class HybridActivity : ComponentActivity() {
         val n = (name ?: "").trim()
         return n.isNotEmpty() && prefixes.any { n.startsWith(it) }
     }
+    // Foto z WhatsAppu (když kontakt nemá vlastní avatar). WhatsApp ukládá profilovou
+    // fotku jako Data řádek s vlastní mimetype; otevřeme ji jako stream → base64. Marti 6.6.2026.
+    private fun whatsAppPhoto(contactId: Long): String? {
+        if (contactId <= 0L) return null
+        for (mime in arrayOf(
+            "vnd.android.cursor.item/vnd.com.whatsapp.profile.picture",
+            "vnd.android.cursor.item/vnd.com.whatsapp.w4b.profile.picture"
+        )) {
+            try {
+                val q = contentResolver.query(
+                    ContactsContract.Data.CONTENT_URI,
+                    arrayOf(ContactsContract.Data._ID),
+                    ContactsContract.Data.CONTACT_ID + "=? AND " + ContactsContract.Data.MIMETYPE + "=?",
+                    arrayOf(contactId.toString(), mime), null
+                )
+                q?.use { d ->
+                    if (d.moveToFirst()) {
+                        val dataId = d.getLong(0)
+                        val uri = ContentUris.withAppendedId(ContactsContract.Data.CONTENT_URI, dataId)
+                        contentResolver.openInputStream(uri)?.use { ins ->
+                            val bytes = ins.readBytes()
+                            if (bytes.isNotEmpty())
+                                return "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                        }
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+        return null
+    }
+
     private fun notifAccessEnabled(): Boolean {
         return try {
             val flat = android.provider.Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
@@ -135,23 +167,27 @@ class HybridActivity : ComponentActivity() {
                 val cur = contentResolver.query(
                     ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                     arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER,
-                        ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI),
+                        ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI, ContactsContract.CommonDataKinds.Phone.CONTACT_ID),
                     null, null, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
                 )
                 cur?.use { c ->
                     val seen = HashSet<String>()
                     while (c.moveToNext()) {
-                        val nm = c.getString(0); val num = c.getString(1); val photoUri = c.getString(2)
+                        val nm = c.getString(0); val num = c.getString(1); val photoUri = c.getString(2); val contactId = c.getLong(3)
                         if (nameMatches(nm, prefixes) && seen.add((nm ?: "") + "|" + (num ?: ""))) {
                             val o = JSONObject().put("name", nm ?: "").put("number", num ?: "")
+                            var photo: String? = null
                             if (!photoUri.isNullOrBlank()) {
                                 try {
                                     contentResolver.openInputStream(Uri.parse(photoUri))?.use { ins ->
                                         val bytes = ins.readBytes()
-                                        if (bytes.isNotEmpty()) o.put("photo", "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+                                        if (bytes.isNotEmpty()) photo = "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                                     }
                                 } catch (e: Exception) {}
                             }
+                            // Fallback: když kontakt nemá vlastní avatar, zkus WhatsApp profilovku.
+                            if (photo == null) photo = whatsAppPhoto(contactId)
+                            if (photo != null) o.put("photo", photo)
                             arr.put(o)
                         }
                     }

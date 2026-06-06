@@ -40,14 +40,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Staré provizorní „jádro" — ponecháno, ale už není launcher. -->
-        <activity
-            android:name=".MainActivity"
-            android:exported="false"
-            android:label="@string/app_name"
-            android:theme="@style/Theme.STRATEGIEMobile"
-            android:windowSoftInputMode="adjustResize" />
-
         <!-- Tichá aktivita: spustí dialer s číslem (ACTION_DIAL) a hned se zavře.
              Cíl full-screen intentu / tapu na notifikaci vytáčení. -->
         <activity

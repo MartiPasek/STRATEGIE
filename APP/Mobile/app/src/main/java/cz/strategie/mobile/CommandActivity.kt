@@ -109,7 +109,7 @@ class CommandActivity : Activity() {
                 )
                 "calllog" -> openAppDetails()
                 "update" -> startActivity(
-                    Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    Intent(this, HybridActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
                 "open_url" -> {
                     val u = intent.getStringExtra("cmd_url")

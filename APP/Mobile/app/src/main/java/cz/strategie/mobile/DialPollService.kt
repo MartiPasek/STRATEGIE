@@ -178,7 +178,7 @@ class DialPollService : Service() {
 
     private fun buildOngoing(): Notification {
         val openApp = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
+            this, 0, Intent(this, HybridActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CH_ONGOING)

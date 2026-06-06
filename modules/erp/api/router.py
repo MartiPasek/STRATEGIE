@@ -5607,8 +5607,8 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "chybí typy work/overhead pro tenant %s" % tenant},
                             status_code=400)
 
-    sgen = _pg.get_session()
-    sess = next(sgen)
+    _cm = _pg.get_session()      # @contextmanager -> vstoupíme ručně
+    sess = _cm.__enter__()
     total = ins = upd = 0
     emp_cache = {}
     try:
@@ -5679,7 +5679,7 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc), "done_total": total}, status_code=500)
     finally:
         try:
-            sgen.close()
+            _cm.__exit__(None, None, None)
         except Exception:
             pass
 

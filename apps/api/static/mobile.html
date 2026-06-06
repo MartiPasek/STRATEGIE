@@ -38,8 +38,8 @@
   ul { list-style:none; padding:0; margin:0; } li { padding:12px 0; border-bottom:1px solid #20262e; font-size:14px; } li:last-child { border-bottom:none; }
   .nt { font-weight:600; } .nm { color:var(--mut); font-size:13px; margin:3px 0 9px; } .nactions { display:flex; gap:8px; flex-wrap:wrap; }
   .big { font-size:16px; padding:8px 2px; }
-  .homebg { min-height: calc(100vh - 130px); border-radius:14px; background:#1a2330 center top / cover no-repeat;
-            display:flex; flex-direction:column; justify-content:flex-end; padding:20px; }
+  .homebg { height:210px; border-radius:14px; background:#1a2330 center top / cover no-repeat;
+            display:flex; flex-direction:column; justify-content:flex-end; padding:18px; }
   .homebg .h1 { font-size:26px; font-weight:800; } .homebg .h2 { color:#cdd6e2; margin-top:4px; font-size:14px; }
   .homebg .h3 { color:#dfe7f0; margin-top:12px; font-size:15px; font-weight:600; }
   .bottomnav { position:fixed; left:0; right:0; bottom:0; display:flex; background:#121519; border-top:1px solid var(--bord); z-index:50; padding-bottom:env(safe-area-inset-bottom,0); }
@@ -134,10 +134,30 @@
     bg.style.backgroundImage = "linear-gradient(rgba(14,15,17,.15), rgba(14,15,17,.92)), url('"+avatarUrl+"')";
     bg.innerHTML = '<div class="h1">STRATEGIE Mobil</div>'
       + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
-      + '<div class="h3">'+(ls==null?"":(ls?"🟢 Párování aktivní":"🔴 Párování pozastaveno"))+'</div>'
-      + (notifCount?('<div class="h2" style="margin-top:8px;">🔔 Čekající úkoly: '+notifCount+'</div>'):'');
+      + '<div class="h3">'+(ls==null?"":(ls?"🟢 Párování aktivní":"🔴 Párování pozastaveno"))+'</div>';
     app.appendChild(bg);
-    if (notifCount === null) { api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; if(curTab==="home"&&stack.length===1) render(); }); }
+    var sec=el('<div class="panel"></div>');
+    sec.appendChild(el('<div class="group">Notifikace</div>'));
+    sec.appendChild(el('<div class="list" id="homeNotifs"><div style="padding:14px;color:var(--mut);">Načítám…</div></div>'));
+    app.appendChild(sec);
+    loadHomeNotifs();
+  }
+  function loadHomeNotifs(){
+    var box=document.getElementById("homeNotifs"); if(!box)return;
+    var upd=null; try{ if(B&&typeof B.checkUpdate==="function"){ var t=B.checkUpdate(); if(t)upd=JSON.parse(t); } }catch(e){}
+    api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
+      var cmds=(j&&j.commands)||[]; notifCount=cmds.length; renderNav();
+      box.innerHTML=""; var any=false;
+      if(upd&&upd.has_update){ any=true;
+        var ru=el('<div class="row"><div class="ic">🆕</div><div class="tx"><div class="tt">Nová verze STRATEGIE</div><div class="sub">'+esc(upd.latest_name||"")+' k dispozici — klepni pro aktualizaci</div></div><div class="chev">&#8250;</div></div>');
+        ru.addEventListener("click",function(){ curTab="settings"; stack=["settings","set_about"]; render(); }); box.appendChild(ru);
+      }
+      cmds.forEach(function(c){ any=true;
+        var r=el('<div class="row"><div class="ic">'+CLAUDE_SVG.replace('width="26" height="26"','width="22" height="22"')+'</div><div class="tx"><div class="tt">'+esc(c.title||"Claude")+'</div><div class="sub">'+esc((c.message||"").slice(0,70))+'</div></div><div class="chev">&#8250;</div></div>');
+        r.addEventListener("click",function(){ curTab="notifs"; stack=["notifs","claudetasks"]; render(); }); box.appendChild(r);
+      });
+      if(!any) box.innerHTML='<div style="padding:14px;color:var(--mut);">Žádné nové notifikace ✓</div>';
+    });
   }
 
   // ───── TELEFON ─────

@@ -685,13 +685,17 @@ def mobile_page():
     """Hybridní /mobile — PWA v prohlížeči, obal nativní appky na telefonu
     (WebView + JS most window.STRATEGIE). Web-first obsah, nativní síla
     (Temu model). Marti 6.6.2026 (POC)."""
-    return FileResponse(os.path.join(static_dir, "mobile.html"))
+    return FileResponse(os.path.join(static_dir, "mobile.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
 
 
 @app.get("/dochazka")
 def dochazka_page():
     """Docházka — samostatná PWA (zatím stub, plná verze v přípravě). Marti 6.6.2026."""
-    return FileResponse(os.path.join(static_dir, "dochazka.html"))
+    return FileResponse(os.path.join(static_dir, "dochazka.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
 
 
 @app.get("/mobile-sw.js")

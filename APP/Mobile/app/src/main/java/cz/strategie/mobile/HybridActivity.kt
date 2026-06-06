@@ -545,6 +545,9 @@ class HybridActivity : ComponentActivity() {
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.settings.databaseEnabled = true
+        // Vždy čerstvý /mobile (Marti 6.6.2026 — řeší zaseknutí na staré verzi UI).
+        web.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
+        try { web.clearCache(true) } catch (e: Exception) {}
         web.addJavascriptInterface(Bridge(), "STRATEGIE")
         web.webChromeClient = WebChromeClient()
         web.webViewClient = object : WebViewClient() {

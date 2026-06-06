@@ -873,6 +873,180 @@ def me(req: Request) -> LoginResponse:
     ctx = get_user_context(user_id)
     if ctx is None:
         raise HTTPException(status_code=401, detail="Účet není aktivní.")
+    # Impersonace: pokud běží (imp_token cookie + otevřený log row pro tento
+    # target), přidej UI metadata pro banner. Systém jinak vidí cílového usera.
+    _imp = _imp_open_row(req)
+    if _imp and _imp["target_user_id"] == user_id:
+        out = dict(ctx)
+        out["impersonation_active"] = True
+        out["impersonator_name"] = _user_display_name(_imp["parent_user_id"])
+        return LoginResponse(**out)
+    return LoginResponse(**ctx)
+
+
+# ── IMPERSONACE (6.6.2026, Marti's „přihlásit se jako user" z Centrály 1) ──
+# Parent se přepne na účet jiného usera — auth cookies = cílový user, systém
+# se chová, jako by byl on. Cesta zpět drží httponly imp_token cookie (random
+# token → fw.impersonation_log). Od–do plně logováno (fail-closed: bez logu
+# se nepřepíná). Audit: log_event impersonation_start/end.
+
+IMP_COOKIE = "imp_token"
+IMP_MAX_AGE = 60 * 60 * 8  # 8 hodin — pak cookie vyprší (log row uzavře další akce)
+
+
+class ImpersonateRequest(BaseModel):
+    user: str  # id | login_name | e-mail
+
+
+def _user_display_name(user_id: int) -> str | None:
+    s = get_core_session()
+    try:
+        u = s.query(User).filter_by(id=user_id).first()
+        if not u:
+            return None
+        return (u.short_name or " ".join(
+            x for x in (u.first_name, u.last_name) if x) or u.login_name)
+    finally:
+        s.close()
+
+
+def _imp_open_row(req: Request) -> dict | None:
+    """Otevřený impersonation log row podle imp_token cookie, nebo None."""
+    tok = req.cookies.get(IMP_COOKIE)
+    if not tok:
+        return None
+    from sqlalchemy import text as _t
+    s = get_core_session()
+    try:
+        row = s.execute(_t(
+            "SELECT id, parent_user_id, target_user_id FROM fw.impersonation_log "
+            "WHERE token = :tok AND ended_at IS NULL"), {"tok": tok}).first()
+        if not row:
+            return None
+        return {"id": row[0], "parent_user_id": row[1], "target_user_id": row[2]}
+    except Exception:
+        return None
+    finally:
+        s.close()
+
+
+@router.post("/impersonate", response_model=LoginResponse)
+def impersonate(body: ImpersonateRequest, response: Response, req: Request) -> LoginResponse:
+    from sqlalchemy import text as _t
+    import secrets as _sec
+    from modules.audit.application.service import log_event
+    from modules.thoughts.application.service import is_marti_parent
+
+    uid_str = req.cookies.get("user_id")
+    if not uid_str:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    uid = int(uid_str)
+    if _imp_open_row(req):
+        raise HTTPException(status_code=400,
+                            detail="Už jednáš jako jiný user — nejdřív se vrať (Zpět).")
+    if not is_marti_parent(uid):
+        raise HTTPException(status_code=403, detail="Impersonace je dostupná jen rodičům.")
+
+    needle = (body.user or "").strip()
+    if not needle:
+        raise HTTPException(status_code=400, detail="Zadej id, login nebo e-mail usera.")
+
+    s = get_core_session()
+    try:
+        target = None
+        if needle.isdigit():
+            target = s.query(User).filter_by(id=int(needle)).first()
+        if target is None:
+            target = s.query(User).filter(User.login_name.ilike(needle)).first()
+        if target is None:
+            c = (s.query(UserContact)
+                 .filter(UserContact.contact_type == "email",
+                         UserContact.contact_value.ilike(needle),
+                         UserContact.status == "active")
+                 .first())
+            if c:
+                target = s.query(User).filter_by(id=c.user_id).first()
+        if target is None:
+            raise HTTPException(status_code=404, detail=f"User '{needle}' nenalezen.")
+        if target.id == uid:
+            raise HTTPException(status_code=400, detail="Nemůžeš jednat sám za sebe.")
+        target_id = target.id
+    finally:
+        s.close()
+
+    ctx = get_user_context(target_id)
+    if ctx is None:
+        raise HTTPException(status_code=400,
+                            detail="Cílový účet není aktivní — nelze jednat jako on.")
+
+    ip = req.client.host if req.client else None
+    ua = (req.headers.get("user-agent") or "")[:300]
+    token = _sec.token_urlsafe(32)
+
+    # Fail-closed: log row MUSÍ vzniknout před přepnutím cookies.
+    s = get_core_session()
+    try:
+        s.execute(_t(
+            "UPDATE fw.impersonation_log SET ended_at = now(), end_reason = 'auto_new' "
+            "WHERE parent_user_id = :p AND ended_at IS NULL"), {"p": uid})
+        s.execute(_t(
+            "INSERT INTO fw.impersonation_log "
+            "(parent_user_id, target_user_id, token, ip, user_agent) "
+            "VALUES (:p, :tgt, :tok, :ip, :ua)"),
+            {"p": uid, "tgt": target_id, "tok": token, "ip": ip, "ua": ua})
+        s.commit()
+    except Exception as e:
+        s.rollback()
+        logger.error(f"IMPERSONATE | log insert failed: {e}")
+        raise HTTPException(status_code=500,
+                            detail="Impersonaci se nepodařilo zalogovat — přerušeno.")
+    finally:
+        s.close()
+
+    _set_auth_cookies(response, target_id, ctx.get("tenant_id"))
+    response.set_cookie(key=IMP_COOKIE, value=token, httponly=True,
+                        max_age=IMP_MAX_AGE, secure=settings.cookie_secure,
+                        samesite=settings.cookie_samesite)
+    log_event(action="impersonation_start", user_id=uid,
+              ip_address=ip, user_agent=ua,
+              extra_metadata={"target_user_id": target_id})
+    logger.info(f"IMPERSONATE | start | parent={uid} target={target_id}")
+
+    out = dict(ctx)
+    out["impersonation_active"] = True
+    out["impersonator_name"] = _user_display_name(uid)
+    return LoginResponse(**out)
+
+
+@router.post("/impersonate/stop", response_model=LoginResponse)
+def impersonate_stop(response: Response, req: Request) -> LoginResponse:
+    from sqlalchemy import text as _t
+    from modules.audit.application.service import log_event
+
+    row = _imp_open_row(req)
+    if not row:
+        response.delete_cookie(IMP_COOKIE)
+        raise HTTPException(status_code=404, detail="Žádná aktivní impersonace.")
+
+    s = get_core_session()
+    try:
+        s.execute(_t("UPDATE fw.impersonation_log SET ended_at = now(), "
+                     "end_reason = 'manual' WHERE id = :i"), {"i": row["id"]})
+        s.commit()
+    finally:
+        s.close()
+
+    parent_id = row["parent_user_id"]
+    ctx = get_user_context(parent_id)
+    if ctx is None:
+        raise HTTPException(status_code=500, detail="Rodičovský účet nelze obnovit.")
+
+    _set_auth_cookies(response, parent_id, ctx.get("tenant_id"))
+    response.delete_cookie(IMP_COOKIE)
+    ip = req.client.host if req.client else None
+    log_event(action="impersonation_end", user_id=parent_id, ip_address=ip,
+              extra_metadata={"target_user_id": row["target_user_id"]})
+    logger.info(f"IMPERSONATE | end | parent={parent_id} target={row['target_user_id']}")
     return LoginResponse(**ctx)
 
 

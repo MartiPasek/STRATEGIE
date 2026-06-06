@@ -47,6 +47,11 @@ class LoginResponse(BaseModel):
     # "Mluvíš s: …" hned po loginu / nové konverzaci, aby user věděl s kým
     # mluví ještě před první zprávou.
     default_persona_name: str | None = None
+    # Impersonace (6.6.2026, Marti's testovací funkce z Centrály 1): plněno
+    # JEN při aktivní impersonaci (httponly imp_token cookie) — UI banner
+    # "🎭 Jednáš jako X — Zpět". Systém jinak usera vidí jako cílového.
+    impersonation_active: bool = False
+    impersonator_name: str | None = None
     # Superadmin flag — pro UI skrýva/odhaluje admin akce (např. "+ Nová persona").
     # Definováno centrálně v modules/personas/application/service._is_superadmin.
     is_superadmin: bool = False

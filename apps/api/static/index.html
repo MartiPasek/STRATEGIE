@@ -3690,6 +3690,8 @@
     loginScreen.style.display = 'none';
     appScreen.style.display = '';      // necháme CSS rozhodnout (`.app.show` -> grid)
     appScreen.classList.add('show');
+    // Impersonace: banner "Jednáš jako X — Zpět" (jen když běží).
+    try { ensureImpersonationBanner(); } catch (e) {}
     // Jméno persony hlavičky — použij default z /me (typicky "Marti-AI").
     // loadLastConversation případně přepíše na konkrétní active personu
     // z existující konverzace.
@@ -7768,6 +7770,7 @@
       ...(isParent ? [{ icon: '❓', label: 'Otázky od Marti', action: () => openMartiQuestionsModal() }] : []),
       ...(isParent ? [{ icon: '✉️', label: 'Důvěryhodní příjemci', action: () => openConsentsModal() }] : [{ icon: '✉️', label: 'Důvěryhodní příjemci (read)', action: () => openConsentsModal() }]),
       ...(isParent ? [{ icon: '💾', label: 'Zálohovat databáze', action: () => runDatabaseBackup() }] : []),
+      ...(isParent ? [{ icon: '🎭', label: 'Přihlásit jako…', action: () => startImpersonation() }] : []),
       ...(isSuper ? [{ icon: '📋', label: 'Audit log', action: () => openAuditLogModal() }] : []),
       // Faze 10d: Admin LLM Usage dashboard -- karty + grafy.
       ...(isAdmin ? [{ icon: '📊', label: 'LLM Usage', action: () => openLlmUsageModal() }] : []),
@@ -14653,6 +14656,64 @@
   // ── Database backup (Phase 7.11) ─────────────────────────────────────
   // Parent-only. Zavola POST /api/v1/admin/backup-databases, ceka na vysledek,
   // ukaze alert s cestami k vytvorenym dumps.
+  // ── IMPERSONACE (6.6.2026) — parent jedná jako jiný user ───────────────
+  async function startImpersonation() {
+    const who = prompt('Přihlásit jako — zadej id, login nebo e-mail usera:');
+    if (!who || !who.trim()) return;
+    try {
+      const r = await fetch('/api/v1/auth/impersonate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ user: who.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert((typeof d.detail === 'string') ? d.detail : 'Impersonace selhala.');
+        return;
+      }
+      location.reload();
+    } catch (e) { alert('Chyba spojení.'); }
+  }
+
+  async function stopImpersonation() {
+    try {
+      const r = await fetch('/api/v1/auth/impersonate/stop', {
+        method: 'POST', credentials: 'include',
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert((typeof d.detail === 'string') ? d.detail : 'Návrat selhal.');
+        return;
+      }
+      location.reload();
+    } catch (e) { alert('Chyba spojení.'); }
+  }
+
+  function ensureImpersonationBanner() {
+    const existing = document.getElementById('impBanner');
+    if (!currentUser || !currentUser.impersonation_active) {
+      if (existing) existing.remove();
+      return;
+    }
+    if (existing) return;
+    const bar = document.createElement('div');
+    bar.id = 'impBanner';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;'
+      + 'background:#7a4df0;color:#fff;font-size:13px;padding:6px 12px;'
+      + 'display:flex;align-items:center;justify-content:center;gap:12px;'
+      + 'box-shadow:0 2px 8px rgba(0,0,0,.4)';
+    const who = (currentUser.display_name || currentUser.first_name || ('user ' + currentUser.user_id));
+    const txt = document.createElement('span');
+    txt.textContent = '🎭 Jednáš jako ' + who
+      + (currentUser.impersonator_name ? (' (ty: ' + currentUser.impersonator_name + ')') : '');
+    const btn = document.createElement('button');
+    btn.textContent = 'Zpět na svůj účet';
+    btn.style.cssText = 'background:#fff;color:#7a4df0;border:none;border-radius:6px;'
+      + 'padding:3px 12px;font-weight:600;cursor:pointer';
+    btn.addEventListener('click', stopImpersonation);
+    bar.appendChild(txt); bar.appendChild(btn);
+    document.body.appendChild(bar);
+  }
+
   async function runDatabaseBackup() {
     if (!confirm(
       "Spustit zálohu data_db?\n\n" +

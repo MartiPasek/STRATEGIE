@@ -43,8 +43,9 @@
   .homebg .h1 { font-size:26px; font-weight:800; } .homebg .h2 { color:#cdd6e2; margin-top:4px; font-size:14px; }
   .homebg .h3 { color:#dfe7f0; margin-top:12px; font-size:15px; font-weight:600; }
   .bottomnav { position:fixed; left:0; right:0; bottom:0; display:flex; background:#121519; border-top:1px solid var(--bord); z-index:50; padding-bottom:env(safe-area-inset-bottom,0); }
-  .tabbtn { flex:1; background:none; border:none; color:var(--mut); padding:9px 2px; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
+  .tabbtn { position:relative; flex:1; background:none; border:none; color:var(--mut); padding:9px 2px; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
   .tabbtn .i { font-size:21px; line-height:1; } .tabbtn.active { color:var(--blue); }
+  .nbadge { position:absolute; top:3px; left:50%; margin-left:6px; background:#e24b4a; color:#fff; font-size:10px; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 4px; text-align:center; font-weight:600; }
 </style>
 </head>
 <body>
@@ -93,6 +94,7 @@
   function listenState(){ if(!canListen)return null; try{return B.listening()==="1";}catch(e){return null;} }
   function getPrefixes(){ try{ return localStorage.getItem("stg_prefixes") || "STR,EC"; }catch(e){ return "STR,EC"; } }
   function fmtCall(c){ var t={1:"příchozí",2:"odchozí",3:"zmeškaný"}[c.type]||"hovor"; var d=new Date(c.date); var ds=d.toLocaleDateString("cs")+" "+d.toLocaleTimeString("cs",{hour:"2-digit",minute:"2-digit"}); return t+" · "+ds+(c.duration?(" · "+c.duration+" s"):""); }
+  function getBadges(){ try{ if(B&&typeof B.appBadges==="function"){ var t=B.appBadges(); return t?JSON.parse(t):null; } }catch(e){} return null; }
 
   function modeChip(){ var c=native?"native":"web", t=native?"appka":"prohlížeč"; if(DEV){c="dev";t="DEV";} return '<span class="mode '+c+'">'+t+'</span>'; }
   function topbar(title, withBack){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+modeChip()+'</div>'; return b; }
@@ -183,6 +185,7 @@
     l.appendChild(row("📌","Ikony na plochu","ERP a Chat zkratky",function(){go("set_icons");}));
     l.appendChild(row("📲","Nainstalovat na plochu","/mobile jako PWA",function(){go("set_install");}));
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
+    l.appendChild(row("🔔","Přístup k oznámením","Počty WhatsApp / SMS",function(){go("set_notifaccess");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
     l.appendChild(row("ℹ️","O aplikaci", ver?("Verze "+ver):"Verze a stav",function(){go("set_about");}));
     app.appendChild(l); }
@@ -212,34 +215,42 @@
   function openApp(url){ if(B&&typeof B.openExternal==="function")B.openExternal(url); else { try{window.open(url,"_blank");}catch(e){ location.href=url; } } }
   function apps(){
     app.innerHTML=topbar("Aplikace", true);
+    var bd=getBadges()||{whatsapp:0,sms:0,access:true};
     var l=el('<div class="list"></div>');
     l.appendChild(row('<img src="'+avatarUrl+'" style="width:24px;height:24px;border-radius:50%;object-fit:cover;display:block;">',"STRATEGIE - Marti-AI","Chat",function(){openApp("/");}));
     l.appendChild(row('<img src="/static/erp/icon-erp-192.png" style="width:24px;height:24px;border-radius:6px;display:block;">',"STRATEGIE - ERP","Přehledy, jádra",function(){openApp("/erp");}));
-    l.appendChild(row("🕒","STRATEGIE - Docházka","Kdo je v budově",function(){openApp("/erp");}));
-    l.appendChild(row("💬","WhatsApp","",function(){openApp("https://wa.me/");}));
+    l.appendChild(row("🕒","STRATEGIE - Docházka","Kdo je v budově",function(){openApp("/dochazka");}));
+    l.appendChild(row("💬","WhatsApp", bd.whatsapp?(bd.whatsapp+" nových zpráv"):"", function(){openApp("https://wa.me/");}));
+    l.appendChild(row("✉️","SMS", bd.sms?(bd.sms+" nových zpráv"):"", function(){openApp("sms:");}));
     app.appendChild(l);
+    if(bd.access===false){ app.appendChild(el('<div class="hint">Pro počty nových zpráv povol <b>Přístup k oznámením</b> (Nastavení → Přístup k oznámením).</div>')); }
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,contacts:contacts,calllog:calllog,settings:settings,apps:apps,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_dev:set_dev,set_about:set_about};
+  function set_notifaccess(){ app.innerHTML=topbar("Přístup k oznámením", true); var p=el('<div class="panel"></div>');
+    if(!(B&&typeof B.openNotifAccess==="function")){ p.appendChild(el('<div class="hint">Tato funkce je v appce STRATEGIE.</div>')); app.appendChild(p); return; }
+    var bd=getBadges()||{};
+    p.appendChild(el('<div class="big">Stav: <b>'+(bd.access?"povoleno ✓":"nepovoleno")+'</b></div>'));
+    var b=el('<button class="green full">Otevřít nastavení přístupu</button>'); b.addEventListener("click",function(){B.openNotifAccess();}); p.appendChild(b);
+    p.appendChild(el('<div class="hint">Umožní spočítat nová oznámení (WhatsApp, SMS) a zobrazit číslo na ikoně Aplikace. Appka oznámení nečte — jen je počítá.</div>')); app.appendChild(p); }
+  var SCREENS={home:home,phone:phone,notifs:notifs,contacts:contacts,calllog:calllog,settings:settings,apps:apps,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
 
+  function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){
     bnav.innerHTML="";
-    // Slot 1: doma → „Aplikace" (launcher); jinde → „Domů" (zpět domů)
-    var atApps = (stack[stack.length-1]==="apps");
-    var first = (curTab==="home")
-      ? { ic:"📱", lbl:"Aplikace", active:atApps, fn:function(){ if(!atApps) go("apps"); } }
-      : { ic:"🏠", lbl:"Domů", active:false, fn:function(){ selectTab("home"); } };
-    var b0=el('<button class="tabbtn'+(first.active?" active":"")+'"><span class="i">'+first.ic+'</span>'+first.lbl+'</button>');
-    b0.addEventListener("click",first.fn); bnav.appendChild(b0);
-    [["phone","📞","Telefon"],["notifs","🔔","Úkoly"],["contacts","👤","Kontakty"],["settings","⚙️","Nastavení"]].forEach(function(t){
-      var b=el('<button class="tabbtn'+(curTab===t[0]?" active":"")+'"><span class="i">'+t[1]+'</span>'+t[2]+'</button>');
-      b.addEventListener("click",function(){selectTab(t[0]);}); bnav.appendChild(b);
-    });
+    var bd=getBadges();
+    var atApps=(stack[stack.length-1]==="apps");
+    if(curTab==="home") bnav.appendChild(navBtn("📱","Aplikace",atApps,function(){if(!atApps)go("apps");},(bd&&bd.total)||0));
+    else bnav.appendChild(navBtn("🏠","Domů",false,function(){selectTab("home");},0));
+    bnav.appendChild(navBtn("📞","Telefon",curTab==="phone",function(){selectTab("phone");},0));
+    bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));
+    bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
+    bnav.appendChild(navBtn("⚙️","Nastavení",curTab==="settings",function(){selectTab("settings");},0));
   }
   function render(){ (SCREENS[stack[stack.length-1]]||home)(); var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back); renderNav(); }
 
   window.addEventListener("popstate", function(){ if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });
   try{ history.pushState(null,""); }catch(e){}
   render();
+  setInterval(function(){ try{ renderNav(); }catch(e){} }, 12000);
 })();
 </script>
 </body>

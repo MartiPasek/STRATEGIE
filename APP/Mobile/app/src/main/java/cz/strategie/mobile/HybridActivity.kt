@@ -51,6 +51,12 @@ class HybridActivity : ComponentActivity() {
         val n = (name ?: "").trim()
         return n.isNotEmpty() && prefixes.any { n.startsWith(it) }
     }
+    private fun notifAccessEnabled(): Boolean {
+        return try {
+            val flat = android.provider.Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
+            flat.contains("$packageName/$packageName.NotifListener") || flat.contains("$packageName/.NotifListener")
+        } catch (e: Exception) { false }
+    }
 
     inner class Bridge {
         @JavascriptInterface
@@ -181,6 +187,34 @@ class HybridActivity : ComponentActivity() {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 } catch (e: Exception) {
                 }
+            }
+        }
+
+        // Počty oznámení (badge Aplikace): WhatsApp + SMS z notification listeneru.
+        @JavascriptInterface
+        fun appBadges(): String {
+            val raw = getSharedPreferences(prefsName, MODE_PRIVATE).getString("notif_badges", "{}") ?: "{}"
+            var wa = 0; var sms = 0
+            try {
+                val o = JSONObject(raw)
+                val waPkgs = setOf("com.whatsapp", "com.whatsapp.w4b")
+                val smsPkgs = setOf("com.google.android.apps.messaging", "com.samsung.android.messaging",
+                    "com.android.messaging", "com.android.mms")
+                val it = o.keys()
+                while (it.hasNext()) {
+                    val k = it.next(); val v = o.optInt(k, 0)
+                    if (waPkgs.contains(k)) wa += v
+                    if (smsPkgs.contains(k)) sms += v
+                }
+            } catch (e: Exception) {}
+            return JSONObject().put("whatsapp", wa).put("sms", sms).put("total", wa + sms)
+                .put("access", notifAccessEnabled()).toString()
+        }
+
+        @JavascriptInterface
+        fun openNotifAccess() {
+            runOnUiThread {
+                try { startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
             }
         }
 

@@ -95,6 +95,17 @@
             android:label="@string/app_name"
             android:theme="@style/Theme.STRATEGIEMobile" />
 
+        <!-- Notification listener: počítá oznámení (WhatsApp, SMS) pro badge Aplikace. -->
+        <service
+            android:name=".NotifListener"
+            android:exported="false"
+            android:label="STRATEGIE — počty oznámení"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- FileProvider: sdílí stažené APK pro instalační intent. -->
         <provider
             android:name="androidx.core.content.FileProvider"

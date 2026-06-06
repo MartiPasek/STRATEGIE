@@ -688,6 +688,12 @@ def mobile_page():
     return FileResponse(os.path.join(static_dir, "mobile.html"))
 
 
+@app.get("/dochazka")
+def dochazka_page():
+    """Docházka — samostatná PWA (zatím stub, plná verze v přípravě). Marti 6.6.2026."""
+    return FileResponse(os.path.join(static_dir, "dochazka.html"))
+
+
 @app.get("/mobile-sw.js")
 def mobile_service_worker():
     """Service worker pro /mobile PWA (scope /mobile) — kvůli instalovatelnosti."""

@@ -281,7 +281,13 @@
 
   // ───── ÚKOLY / NOTIFIKACE ─────
   var _afterAct=false;
-  function act(id,decision){ _afterAct=true; api("POST","/api/v1/erp/app/command/"+id+"/result",{decision:decision}).then(notifsLoad); }
+  function act(id,decision,li){
+    _afterAct=true;
+    // Optimisticky odeber kartu hned — ať OK reaguje i když síť/POST zlobí.
+    try{ if(li&&li.parentNode){ li.parentNode.removeChild(li); } }catch(e){}
+    if(notifCount>0){ notifCount--; renderNav(); }
+    api("POST","/api/v1/erp/app/command/"+id+"/result",{decision:decision}).then(notifsLoad).catch(function(){});
+  }
   function notifsLoad(){ var ul=document.getElementById("ntlist"); if(!ul)return;
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
       var wasAct=_afterAct; _afterAct=false;
@@ -294,7 +300,7 @@
         var txt=el('<div style="cursor:pointer;"><div class="nt">'+esc(c.title||"Úkol")+'</div>'+(c.message?'<div class="nm" style="max-height:60px;overflow:hidden;">'+esc(c.message)+'</div>':'')+(c.message&&c.message.length>120?'<div style="color:var(--blue);font-size:12px;">klepni pro celé…</div>':'')+'</div>');
         txt.addEventListener("click",function(){ openClaudeDetail(c); });
         var a=el('<div class="nactions" style="margin-top:8px;"></div>');
-        function b(l,cl,d){var x=el('<button class="sm '+cl+'">'+l+'</button>'); x.addEventListener("click",function(e){e.stopPropagation();act(c.id,d);}); a.appendChild(x);}
+        function b(l,cl,d){var x=el('<button class="sm '+cl+'">'+l+'</button>'); x.addEventListener("click",function(e){e.stopPropagation();act(c.id,d,li);}); a.appendChild(x);}
         if(c.command_type==="claude_confirm"){b("Odmítnout","warn","reject");b("Povolit","green","accept");} else {b("OK","ghost","done");}
         li.appendChild(txt); li.appendChild(a); ul.appendChild(li); }); }); }
   function notifs(){ // dashboard s dlaždicemi

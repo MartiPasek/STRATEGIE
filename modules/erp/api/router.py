@@ -6983,6 +6983,14 @@ def _notify_deploy_done(instance_id: str, result: dict) -> None:
         who = ("Claude-%s" % iid) if (iid and iid != "?") else "Claude"
         title = "%s — nasazeno ✓" % who
         message = (cm or "Deploy hotový") + ((" (%s)" % sha) if sha else "")
+        # Dedup (6.6.2026): deploy-notifikace se nesmí hromadit. Předchozí
+        # nedoručené „nasazeno" pro tohoto usera zruš (supersede) — v appce
+        # zůstane jen ta poslední. Marti's „ťukám OK a furt nic" = backlog.
+        ds.execute(_tp2(
+            "UPDATE fw.mobile_command SET status='done', decided_at=now() "
+            "WHERE target_user_id=:uid AND command_type='claude_msg' "
+            "AND status='pending' AND title LIKE '%% — nasazeno ✓'"),
+            {"uid": int(uid)})
         ds.execute(_tp2("""
             INSERT INTO fw.mobile_command
               (app_key, target_user_id, command_type, title, message, created_by)

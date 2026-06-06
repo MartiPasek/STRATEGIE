@@ -65,9 +65,18 @@
   .cav img { width:100%; height:100%; object-fit:cover; }
   .ctname { font-weight:600; font-size:14.5px; } .ctnum { color:var(--mut); font-size:12px; margin-top:1px; }
   .ctexp { padding:2px 4px 12px 53px; }
-  .ctacts { display:flex; gap:20px; }
-  .cact { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .ctacts { display:flex; gap:14px; }
+  .cact { width:38px; height:38px; border-radius:11px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .cact svg { width:22px; height:22px; }
   .cact.call { background:#22c55e; } .cact.sms { background:#3b82f6; }
+  /* Otevřený kontakt (accordion) — záznam ~o 30 % větší + jemné zvýraznění. */
+  .ct.open { background:rgba(79,142,247,.07); border-radius:12px; }
+  .ct.open .cthead { padding:11px 8px; gap:14px; }
+  .ct.open .cav { width:50px; height:50px; border-radius:14px; font-size:19px; }
+  .ct.open .ctname { font-size:18.5px; } .ct.open .ctnum { font-size:14px; }
+  .ct.open .ctexp { padding-left:72px; }
+  .ct.open .cact { width:46px; height:46px; border-radius:14px; }
+  .ct.open .cact svg { width:26px; height:26px; }
 </style>
 </head>
 <body>
@@ -328,10 +337,15 @@
       var acts=exp.querySelector(".ctacts");
       var bCall=el('<div class="cact call">'+PHONE_SVG_W+'</div>'); bCall.addEventListener("click",function(e){e.stopPropagation();doDial(c.number);});
       var bSms=el('<div class="cact sms" style="color:#fff;font-size:20px;">💬</div>'); bSms.addEventListener("click",function(e){e.stopPropagation();openApp("sms:"+(c.number||"").replace(/\s/g,""));});
-      var bWa=el('<div class="cact" style="background:transparent;padding:0;">'+WA_SVG.replace('width="30" height="30"','width="46" height="46"')+'</div>');
+      var bWa=el('<div class="cact" style="background:transparent;">'+WA_SVG+'</div>');
       bWa.addEventListener("click",function(e){ e.stopPropagation(); var num=(c.number||"").replace(/[^0-9]/g,""); if(B&&typeof B.openExternal==="function") B.openExternal("https://wa.me/"+num); else openApp("https://wa.me/"+num); });
       acts.appendChild(bCall); acts.appendChild(bSms); acts.appendChild(bWa);
-      head.addEventListener("click",function(){ exp.style.display=exp.style.display==="none"?"block":"none"; });
+      head.addEventListener("click",function(){
+        var willOpen = exp.style.display==="none";
+        // Accordion: zavři všechny ostatní, otevři jen tenhle.
+        ul.querySelectorAll("li.ct").forEach(function(o){ o.classList.remove("open"); var x=o.querySelector(".ctexp"); if(x)x.style.display="none"; });
+        if(willOpen){ exp.style.display="block"; li.classList.add("open"); li.scrollIntoView({block:"nearest",behavior:"smooth"}); }
+      });
       li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
     }); }
   var _allContacts=false; try{ _allContacts=localStorage.getItem("stg_all_contacts")==="1"; }catch(e){}

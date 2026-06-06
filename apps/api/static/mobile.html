@@ -334,7 +334,7 @@
     bnav.innerHTML="";
     var bd=getBadges();
     var atApps=(stack[stack.length-1]==="apps");
-    if(curTab==="home") bnav.appendChild(navBtn("📱","Aplikace",atApps,function(){if(!atApps)go("apps");},(bd&&bd.total)||0));
+    if(curTab==="home" && !atApps) bnav.appendChild(navBtn("📱","Aplikace",false,function(){go("apps");},(bd&&bd.total)||0));
     else bnav.appendChild(navBtn("🏠","Domů",false,function(){selectTab("home");},0));
     bnav.appendChild(navBtn(PHONE_SVG,"Telefon",curTab==="phone",function(){selectTab("phone");},0));
     bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));

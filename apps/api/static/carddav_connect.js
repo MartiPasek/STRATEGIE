@@ -156,7 +156,7 @@
       '</div></details>';
   }
 
-  function _credentialPanel(info, res) {
+  function _credentialPanel(info, res, mode) {
     // res = výsledek POST /token (obsahuje plaintext token 1× + handoff_url pro QR)
     var qrBlock = "";
     if (res.handoff_url) {
@@ -201,13 +201,20 @@
       '📲 STRATEGIE Mobil — spárovat appku</div>' +
       appBody +
       '</div>';
+    // mode: "app" = mám appku (jen app QR) · "noapp" = nemám (instalace + DAVx5 QR) · jinak obojí
+    var inner;
+    if (mode === "app") inner = appQrBlock;
+    else if (mode === "noapp") inner =
+      '<div style="font-size:12.5px;color:#bcd0e6;margin:0 0 10px;line-height:1.5;">' +
+      'Nemáš appku? Nahoře dej <strong>„📥 Stáhnout appku"</strong>, nainstaluj a pak se vrať a zvol ' +
+      '<strong>„Mám appku"</strong>. Nebo jen kontakty do telefonu přes DAVx5 tímto QR:</div>' + qrBlock;
+    else inner = qrBlock + appQrBlock;
     return '' +
       '<div style="background:rgba(232,185,35,.08);border:1px solid #6b5a22;' +
       'border-radius:10px;padding:14px;margin-top:12px;">' +
       '<div style="font-size:13px;color:#f0d98a;font-weight:700;margin-bottom:8px;">' +
       '🔑 Přístup pro „' + _esc(res.device_label || "Telefon") + '"</div>' +
-      qrBlock +
-      appQrBlock +
+      inner +
       '<details ' + (res.handoff_url ? "" : "open") + ' style="margin-top:4px;">' +
       '<summary style="cursor:pointer;color:#cdb87a;font-size:12.5px;font-weight:600;">' +
       'Nebo zadat ručně (token, URL, login + návod)</summary>' +
@@ -363,41 +370,39 @@
 
   function _showCreateForm(area, info) {
     area.innerHTML =
-      '<div style="display:flex;gap:8px;align-items:center;">' +
+      '<div style="font-size:13px;color:#bcd0e6;margin-bottom:8px;">Pojmenuj zařízení a vyber, jestli na něm máš appku STRATEGIE Mobil:</div>' +
       '<input type="text" data-cdav-label placeholder="Název zařízení (např. Můj mobil)" ' +
-      'maxlength="80" style="flex:1;background:#0f1620;border:1px solid #2c3a4c;' +
-      'border-radius:8px;padding:10px 11px;color:#e8eef5;font-size:13px;">' +
-      '<button type="button" data-cdav-go style="background:#e8b923;color:#1c2530;' +
-      'border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:700;' +
-      'cursor:pointer;white-space:nowrap;">Vygenerovat</button>' +
+      'maxlength="80" style="width:100%;background:#0f1620;border:1px solid #2c3a4c;' +
+      'border-radius:8px;padding:10px 11px;color:#e8eef5;font-size:13px;margin-bottom:8px;">' +
+      '<div style="display:flex;gap:8px;">' +
+      '<button type="button" data-cdav-app style="flex:1;background:#1f3a2e;color:#cdeede;' +
+      'border:1px solid #3a7a4a;padding:11px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">📱 Mám appku</button>' +
+      '<button type="button" data-cdav-noapp style="flex:1;background:#22344a;color:#bfe3ff;' +
+      'border:1px solid #35506e;padding:11px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">📥 Nemám appku</button>' +
+      '</div>' +
       '<button type="button" data-cdav-cancel style="background:transparent;color:#9fb0c4;' +
-      'border:1px solid #44566c;padding:10px 12px;border-radius:8px;font-size:13px;' +
-      'cursor:pointer;">Zpět</button></div>';
+      'border:1px solid #44566c;padding:9px;border-radius:8px;font-size:13px;cursor:pointer;width:100%;margin-top:8px;">Zpět</button>';
     var inp = area.querySelector("[data-cdav-label]");
-    var go = area.querySelector("[data-cdav-go]");
     var cancel = area.querySelector("[data-cdav-cancel]");
     if (inp) { try { inp.focus(); } catch (e) {} }
     if (cancel) cancel.addEventListener("click", function () { _renderCreateArea(area.closest("[data-cdav-card]"), info); });
-    function _do() {
-      var label = (inp && inp.value || "").trim() || "Telefon";
-      go.disabled = true; go.textContent = "…";
-      _api("/token", "POST", { device_label: label }).then(function (j) {
+    function _do(mode) {
+      _api("/token", "POST", { device_label: (inp && inp.value || "").trim() || "Telefon" }).then(function (j) {
         if (j && j.ok && j.token) {
-          // re-render celý modal s credential panelem (token 1×)
           info.tokens = j.tokens || info.tokens;
           info.active_contacts = (j.active_contacts != null) ? j.active_contacts : info.active_contacts;
-          _render(info, _credentialPanel(info, j));
+          _render(info, _credentialPanel(info, j, mode));
         } else if (j && j.error === "limit") {
-          go.disabled = false; go.textContent = "Vygenerovat";
           _toast(j.message || "Dosažen limit zařízení.");
         } else {
-          go.disabled = false; go.textContent = "Vygenerovat";
           _toast((j && j.message) || "Nepodařilo se vygenerovat token.");
         }
       });
     }
-    if (go) go.addEventListener("click", _do);
-    if (inp) inp.addEventListener("keydown", function (e) { if (e.key === "Enter") _do(); });
+    var bApp = area.querySelector("[data-cdav-app]");
+    var bNo = area.querySelector("[data-cdav-noapp]");
+    if (bApp) bApp.addEventListener("click", function () { _do("app"); });
+    if (bNo) bNo.addEventListener("click", function () { _do("noapp"); });
   }
 
   function _shell() {

@@ -168,6 +168,22 @@ class HybridActivity : ComponentActivity() {
             } catch (e: Exception) {}
             return JSONObject().put("calls", arr).toString()
         }
+
+        // Avatar Marti-AI jako data URL (token v headeru) — pozadí hlavní obrazovky.
+        @JavascriptInterface
+        fun avatarDataUrl(): String {
+            return try {
+                val con = URL(base() + "/api/v1/erp/app/avatar").openConnection() as HttpsURLConnection
+                val tok = getSharedPreferences(prefsName, MODE_PRIVATE).getString(keyToken, "") ?: ""
+                if (tok.isNotEmpty()) con.setRequestProperty("Authorization", "Bearer $tok")
+                con.connectTimeout = 8000
+                con.readTimeout = 8000
+                val bytes = con.inputStream.use { it.readBytes() }
+                "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            } catch (e: Exception) {
+                ""
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")

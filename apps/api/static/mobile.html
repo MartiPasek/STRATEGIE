@@ -11,11 +11,10 @@
           --blue:#4f8ef7; --green:#10b981; --amber:#e0b070; --red:#e08a8a; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--tx); font-family:system-ui,sans-serif;
-         padding:14px; -webkit-tap-highlight-color:transparent; }
+         padding:14px 14px 78px; -webkit-tap-highlight-color:transparent; }
   .topbar { display:flex; align-items:center; gap:10px; margin-bottom:6px; min-height:40px; }
   .back { font-size:22px; cursor:pointer; color:var(--tx); background:none; border:none; padding:6px 8px 6px 0; }
   .title { font-size:21px; font-weight:700; }
-  .ava { width:30px; height:30px; border-radius:50%; object-fit:cover; background:#2a3340; }
   .mode { font-size:11px; padding:3px 9px; border-radius:20px; margin-left:auto; }
   .mode.native { background:rgba(16,185,129,.15); color:#5ee0b7; border:1px solid #1f6b53; }
   .mode.web { background:rgba(79,142,247,.15); color:#9bc0fb; border:1px solid #2a4d80; }
@@ -25,39 +24,39 @@
   .row { display:flex; align-items:center; gap:14px; padding:14px; border-bottom:1px solid #20262e; cursor:pointer; }
   .row:last-child { border-bottom:none; }
   .row .ic { font-size:20px; width:26px; text-align:center; }
-  .row .tx { flex:1; min-width:0; }
-  .row .tt { font-size:15px; }
-  .row .sub { font-size:12px; color:var(--mut); margin-top:2px; }
+  .row .tx { flex:1; min-width:0; } .row .tt { font-size:15px; } .row .sub { font-size:12px; color:var(--mut); margin-top:2px; }
   .row .chev { color:var(--mut); font-size:18px; }
   .panel { margin-top:6px; }
   label { font-size:12px; color:var(--mut); display:block; margin:12px 2px 4px; }
   input { width:100%; background:#0f1620; border:1px solid var(--bord); border-radius:8px; padding:12px; color:var(--tx); font-size:15px; }
   button { background:var(--blue); border:none; color:#fff; border-radius:8px; padding:12px 14px; font-size:14px; font-weight:600; cursor:pointer; }
   button.full { width:100%; margin-top:12px; padding:13px; font-size:15px; }
-  button.green { background:var(--green); }
-  button.ghost { background:transparent; border:1px solid var(--bord); color:var(--tx); }
-  button.warn { background:#3a1f24; border:1px solid #6e3540; color:var(--red); }
-  button.sm { padding:8px 12px; font-size:13px; }
+  button.green { background:var(--green); } button.ghost { background:transparent; border:1px solid var(--bord); color:var(--tx); }
+  button.warn { background:#3a1f24; border:1px solid #6e3540; color:var(--red); } button.sm { padding:8px 12px; font-size:13px; }
   .hint { font-size:12px; color:var(--mut); margin-top:10px; line-height:1.5; }
   .devinfo { margin-top:12px; padding:10px; border-radius:8px; background:rgba(224,176,112,.08); border:1px solid #6e5326; color:#e6c699; font-size:12.5px; line-height:1.5; }
-  .hidden { display:none; }
-  ul { list-style:none; padding:0; margin:0; }
-  li { padding:12px 0; border-bottom:1px solid #20262e; font-size:14px; }
-  li:last-child { border-bottom:none; }
-  .nt { font-weight:600; } .nm { color:var(--mut); font-size:13px; margin:3px 0 9px; }
-  .nactions { display:flex; gap:8px; flex-wrap:wrap; }
+  ul { list-style:none; padding:0; margin:0; } li { padding:12px 0; border-bottom:1px solid #20262e; font-size:14px; } li:last-child { border-bottom:none; }
+  .nt { font-weight:600; } .nm { color:var(--mut); font-size:13px; margin:3px 0 9px; } .nactions { display:flex; gap:8px; flex-wrap:wrap; }
   .big { font-size:16px; padding:8px 2px; }
+  .homebg { min-height: calc(100vh - 130px); border-radius:14px; background:#1a2330 center top / cover no-repeat;
+            display:flex; flex-direction:column; justify-content:flex-end; padding:20px; }
+  .homebg .h1 { font-size:26px; font-weight:800; } .homebg .h2 { color:#cdd6e2; margin-top:4px; font-size:14px; }
+  .homebg .h3 { color:#dfe7f0; margin-top:12px; font-size:15px; font-weight:600; }
+  .bottomnav { position:fixed; left:0; right:0; bottom:0; display:flex; background:#121519; border-top:1px solid var(--bord); z-index:50; padding-bottom:env(safe-area-inset-bottom,0); }
+  .tabbtn { flex:1; background:none; border:none; color:var(--mut); padding:9px 2px; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
+  .tabbtn .i { font-size:21px; line-height:1; } .tabbtn.active { color:var(--blue); }
 </style>
 </head>
 <body>
 <div id="app"></div>
+<nav class="bottomnav" id="bnav"></nav>
 <script>
 (function () {
   var B = window.STRATEGIE || null;
-  // PWA install (prohlížeč): zachyt nabídku + zaregistruj service worker
   var deferredPrompt = null;
   window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); deferredPrompt = e; });
   if ("serviceWorker" in navigator) { try { navigator.serviceWorker.register("/mobile-sw.js", { scope: "/mobile" }); } catch (e) {} }
+
   var canDial = !!(B && (typeof B.dialNumber === "function" || typeof B.dial === "function"));
   var canListen = !!(B && typeof B.listening === "function");
   var canFetch = !!(B && typeof B.authedFetch === "function");
@@ -70,13 +69,18 @@
   var DEV = false; try { DEV = localStorage.getItem("stg_mobile_dev") === "1"; } catch(e){}
 
   var app = document.getElementById("app");
+  var bnav = document.getElementById("bnav");
+  var curTab = "home";
   var stack = ["home"];
   var notifCount = null;
+  var avatarUrl = "/api/v1/erp/app/avatar";
+  if (B && typeof B.avatarDataUrl === "function") { try { var d=B.avatarDataUrl(); if(d) avatarUrl=d; } catch(e){} }
 
   function esc(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
   function el(html){ var d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild; }
   function go(id){ stack.push(id); render(); }
   function back(){ if(stack.length>1){ stack.pop(); render(); } }
+  function selectTab(t){ curTab=t; stack=[t]; render(); }
 
   function api(method, path, body){
     if (canFetch){ try{ var t=B.authedFetch(method,path,body?JSON.stringify(body):""); return Promise.resolve(t?JSON.parse(t):null);}catch(e){return Promise.resolve(null);} }
@@ -84,225 +88,128 @@
     if(body){o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body);}
     return fetch(path,o).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;});
   }
+  function bjson(fn, arg){ try{ if(B && typeof B[fn]==="function"){ var t=B[fn](arg); return t?JSON.parse(t):null; } }catch(e){} return null; }
   function doDial(n){ if(B&&typeof B.dialNumber==="function")B.dialNumber(n); else if(B&&typeof B.dial==="function")B.dial(n); }
   function listenState(){ if(!canListen)return null; try{return B.listening()==="1";}catch(e){return null;} }
   function getPrefixes(){ try{ return localStorage.getItem("stg_prefixes") || "STR,EC"; }catch(e){ return "STR,EC"; } }
-  function bjson(fn, arg){ try{ if(B && typeof B[fn]==="function"){ var t=B[fn](arg); return t?JSON.parse(t):null; } }catch(e){} return null; }
   function fmtCall(c){ var t={1:"příchozí",2:"odchozí",3:"zmeškaný"}[c.type]||"hovor"; var d=new Date(c.date); var ds=d.toLocaleDateString("cs")+" "+d.toLocaleTimeString("cs",{hour:"2-digit",minute:"2-digit"}); return t+" · "+ds+(c.duration?(" · "+c.duration+" s"):""); }
 
-  function topbar(title, withBack, extra){
-    var b = '<div class="topbar">';
-    if (withBack) b += '<button class="back" data-back>&#8592;</button>';
-    else b += '<img class="ava" src="/api/v1/erp/app/avatar" alt="" onerror="this.style.visibility=\'hidden\'">';
-    b += '<span class="title">'+esc(title)+'</span>';
-    var mClass = native ? "native" : "web", mTx = native ? "appka" : "prohlížeč";
-    if (DEV) { mClass="dev"; mTx="DEV"; }
-    b += '<span class="mode '+mClass+'">'+mTx+'</span></div>';
-    return b;
-  }
-  function row(ic, tt, sub, onclick){
-    var r = el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div><div class="chev">&#8250;</div></div>');
-    r.addEventListener("click", onclick); return r;
-  }
+  function modeChip(){ var c=native?"native":"web", t=native?"appka":"prohlížeč"; if(DEV){c="dev";t="DEV";} return '<span class="mode '+c+'">'+t+'</span>'; }
+  function topbar(title, withBack){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+modeChip()+'</div>'; return b; }
+  function row(ic, tt, sub, onclick){ var r=el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div><div class="chev">&#8250;</div></div>'); r.addEventListener("click",onclick); return r; }
 
-  // ───────────── HOME (čistá) ─────────────
+  // ───── DOMŮ (pozadí = fotka Marti-AI) ─────
   function home(){
-    app.innerHTML = topbar("STRATEGIE Mobil", false);
-    var list = el('<div class="list"></div>');
-    list.appendChild(row("📞","Telefon","Vytáčení, naslouchání, hovory",function(){go("phone");}));
-    list.appendChild(row("🔔","Notifikace a úkoly", notifCount==null?"…":(notifCount?("Čekající: "+notifCount):"Žádné čekající"), function(){go("notifs");}));
-    list.appendChild(row("👤","Kontakty","Jen prefixy: "+getPrefixes(),function(){go("contacts");}));
-    list.appendChild(row("⚙️","Nastavení","Naslouchání, ikony, vývojář, o aplikaci",function(){go("settings");}));
-    app.appendChild(list);
-    // počet notifikací načti JEN jednou (jinak by re-render spustil další fetch → smyčka)
-    if (notifCount === null) {
-      api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
-        notifCount = j&&j.commands?j.commands.length:0;
-        if(stack[stack.length-1]==="home") render();
-      });
-    }
-  }
-
-  // ───────────── TELEFON ─────────────
-  function phone(){
-    app.innerHTML = topbar("Telefon", true);
-    var p = el('<div class="panel"></div>');
-    if (canDial || DEV){
-      p.appendChild(el('<label>Telefonní číslo</label>'));
-      var inp = el('<input id="num" type="tel" inputmode="tel" placeholder="+420…" value="+420">');
-      p.appendChild(inp);
-      var btn = el('<button class="green full">Vytočit</button>');
-      var info = el('<div class="devinfo hidden"></div>');
-      btn.addEventListener("click", function(){
-        var n=(inp.value||"").trim(); if(!n)return;
-        if(canDial){ doDial(n); if(DEV){info.textContent="✓ Most: dialNumber(\""+n+"\") → ACTION_DIAL otevře dialer.";info.classList.remove("hidden");} }
-        else { info.textContent="DEV (bez mostu): dialNumber(\""+n+"\") → v appce spustí ACTION_DIAL (dialer s číslem). Nativní-only.";info.classList.remove("hidden"); }
-      });
-      p.appendChild(btn); p.appendChild(info);
-    } else {
-      p.appendChild(el('<div class="hint">Vytáčení je nativní funkce — funguje v appce STRATEGIE.</div>'));
-    }
-    // naslouchání zkratka
+    app.innerHTML = "";
     var ls = listenState();
-    p.appendChild(el('<div class="group">Stav</div>'));
-    var sl = el('<div class="list"></div>');
-    sl.appendChild(row("🟢","Naslouchání", ls==null?"(zjistí se v appce)":(ls?"Zapnuto":"Vypnuto"), function(){go("set_listen");}));
-    sl.appendChild(row("🕓","Historie hovorů","Prefixy: "+getPrefixes(),function(){go("calllog");}));
-    p.appendChild(sl);
-    app.appendChild(p);
+    var bg = el('<div class="homebg"></div>');
+    bg.style.backgroundImage = "linear-gradient(rgba(14,15,17,.15), rgba(14,15,17,.92)), url('"+avatarUrl+"')";
+    bg.innerHTML = '<div class="h1">STRATEGIE Mobil</div>'
+      + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
+      + '<div class="h3">'+(ls==null?"":(ls?"🟢 Naslouchání zapnuto":"🔴 Naslouchání vypnuto"))+'</div>'
+      + (notifCount?('<div class="h2" style="margin-top:8px;">🔔 Čekající úkoly: '+notifCount+'</div>'):'');
+    app.appendChild(bg);
+    if (notifCount === null) { api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; if(curTab==="home"&&stack.length===1) render(); }); }
   }
 
-  // ───────────── NOTIFIKACE ─────────────
-  function act(id, decision){ api("POST","/api/v1/erp/app/command/"+id+"/result",{decision:decision}).then(function(){ notifsLoad(); }); }
-  function notifsLoad(){
-    var ul=document.getElementById("ntlist"); if(!ul)return;
+  // ───── TELEFON ─────
+  function phone(){
+    app.innerHTML = topbar("Telefon", false);
+    var p=el('<div class="panel"></div>');
+    if(canDial||DEV){
+      p.appendChild(el('<label>Telefonní číslo</label>'));
+      var inp=el('<input id="num" type="tel" inputmode="tel" placeholder="+420…" value="+420">'); p.appendChild(inp);
+      var btn=el('<button class="green full">Vytočit</button>'); var info=el('<div class="devinfo" style="display:none;"></div>');
+      btn.addEventListener("click",function(){ var n=(inp.value||"").trim(); if(!n)return;
+        if(canDial){ doDial(n); if(DEV){info.textContent="✓ Most: dialNumber(\""+n+"\") → ACTION_DIAL.";info.style.display="block";} }
+        else { info.textContent="DEV (bez mostu): dialNumber(\""+n+"\") → v appce spustí ACTION_DIAL. Nativní-only.";info.style.display="block"; } });
+      p.appendChild(btn); p.appendChild(info);
+    } else { p.appendChild(el('<div class="hint">Vytáčení je nativní funkce — funguje v appce STRATEGIE.</div>')); }
+    var ls=listenState();
+    p.appendChild(el('<div class="group">Další</div>'));
+    var sl=el('<div class="list"></div>');
+    sl.appendChild(row("🟢","Naslouchání", ls==null?"(zjistí se v appce)":(ls?"Zapnuto":"Vypnuto"), function(){go("set_listen");}));
+    sl.appendChild(row("🕓","Historie hovorů","Prefixy: "+getPrefixes(), function(){go("calllog");}));
+    p.appendChild(sl); app.appendChild(p);
+  }
+
+  // ───── ÚKOLY / NOTIFIKACE ─────
+  function act(id,decision){ api("POST","/api/v1/erp/app/command/"+id+"/result",{decision:decision}).then(notifsLoad); }
+  function notifsLoad(){ var ul=document.getElementById("ntlist"); if(!ul)return;
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
       if(!j){ ul.innerHTML='<li style="color:var(--mut);border:none;">Přihlas se (prohlížeč) nebo otevři v appce.</li>'; return; }
       var cmds=j.commands||[]; notifCount=cmds.length;
-      if(!cmds.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné čekající notifikace ✓</li>'; return; }
+      if(!cmds.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné čekající úkoly ✓</li>'; return; }
       ul.innerHTML="";
-      cmds.forEach(function(c){
-        var li=el('<li><div class="nt">'+esc(c.title||"Notifikace")+'</div>'+(c.message?'<div class="nm">'+esc(c.message)+'</div>':'')+'<div class="nactions"></div></li>');
-        var a=li.querySelector(".nactions");
-        function b(lbl,cls,dec){ var x=el('<button class="sm '+cls+'">'+lbl+'</button>'); x.addEventListener("click",function(){act(c.id,dec);}); a.appendChild(x); }
-        if(c.command_type==="claude_confirm"){ b("Povolit","green","accept"); b("Odmítnout","warn","reject"); }
-        else { b("OK","ghost","done"); }
-        ul.appendChild(li);
-      });
-    });
-  }
-  function notifs(){
-    app.innerHTML = topbar("Notifikace a úkoly", true);
-    var p=el('<div class="panel"></div>');
+      cmds.forEach(function(c){ var li=el('<li><div class="nt">'+esc(c.title||"Úkol")+'</div>'+(c.message?'<div class="nm">'+esc(c.message)+'</div>':'')+'<div class="nactions"></div></li>');
+        var a=li.querySelector(".nactions"); function b(l,cl,d){var x=el('<button class="sm '+cl+'">'+l+'</button>'); x.addEventListener("click",function(){act(c.id,d);}); a.appendChild(x);}
+        if(c.command_type==="claude_confirm"){b("Povolit","green","accept");b("Odmítnout","warn","reject");} else {b("OK","ghost","done");}
+        ul.appendChild(li); }); }); }
+  function notifs(){ app.innerHTML=topbar("Úkoly", false); var p=el('<div class="panel"></div>');
     p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="ntlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
-    var r=el('<button class="ghost full">Obnovit</button>'); r.addEventListener("click", notifsLoad); p.appendChild(r);
-    app.appendChild(p); notifsLoad();
-  }
+    var r=el('<button class="ghost full">Obnovit</button>'); r.addEventListener("click",notifsLoad); p.appendChild(r); app.appendChild(p); notifsLoad(); }
 
-  // ───────────── NASTAVENÍ (zanořené) ─────────────
-  function settings(){
-    app.innerHTML = topbar("Nastavení", true);
-    var l=el('<div class="list"></div>');
+  // ───── KONTAKTY ─────
+  function loadContacts(){ var ul=document.getElementById("ctlist"); if(!ul)return; var j=bjson("getContacts", getPrefixes());
+    if(j&&j.need){ ul.innerHTML='<li style="border:none;"><div style="color:var(--mut);margin-bottom:8px;">Appka potřebuje přístup ke kontaktům.</div><button class="green sm" id="ctperm">Povolit přístup</button></li>'; var pb=document.getElementById("ctperm"); if(pb)pb.addEventListener("click",function(){bjson("getContacts",getPrefixes());setTimeout(loadContacts,700);}); return; }
+    var list=(j&&j.contacts)||[]; if(!list.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné kontakty s prefixem '+esc(getPrefixes())+'.</li>'; return; }
+    ul.innerHTML=""; list.forEach(function(c){ var li=el('<li><div class="nt">'+esc(c.name)+'</div><div class="nm">'+esc(c.number)+'</div><div class="nactions"></div></li>');
+      var b=el('<button class="green sm">Vytočit</button>'); b.addEventListener("click",function(){doDial(c.number);}); li.querySelector(".nactions").appendChild(b); ul.appendChild(li); }); }
+  function contacts(){ app.innerHTML=topbar("Kontakty", false); var p=el('<div class="panel"></div>');
+    if(!(B&&typeof B.getContacts==="function")){ p.appendChild(el('<div class="hint">Kontakty jsou nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
+    p.appendChild(el('<div class="hint">Jen kontakty s prefixem: <b>'+esc(getPrefixes())+'</b> (změna v Nastavení).</div>'));
+    p.appendChild(el('<div class="list" style="padding:0 14px;margin-top:10px;"><ul id="ctlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
+    app.appendChild(p); loadContacts(); }
+
+  // ───── HISTORIE HOVORŮ ─────
+  function loadCalllog(){ var ul=document.getElementById("cllist"); if(!ul)return; var j=bjson("getCallLog", getPrefixes());
+    if(j&&j.need){ ul.innerHTML='<li style="border:none;"><div style="color:var(--mut);margin-bottom:8px;">Appka potřebuje přístup k protokolu hovorů.</div><button class="green sm" id="clperm">Povolit přístup</button></li>'; var pb=document.getElementById("clperm"); if(pb)pb.addEventListener("click",function(){bjson("getCallLog",getPrefixes());setTimeout(loadCalllog,700);}); return; }
+    var list=(j&&j.calls)||[]; if(!list.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné hovory s prefixem '+esc(getPrefixes())+'.</li>'; return; }
+    ul.innerHTML=""; list.forEach(function(c){ var li=el('<li><div class="nt">'+esc(c.name||c.number)+'</div><div class="nm">'+esc(fmtCall(c))+'</div><div class="nactions"></div></li>');
+      var b=el('<button class="green sm">Vytočit</button>'); b.addEventListener("click",function(){doDial(c.number);}); li.querySelector(".nactions").appendChild(b); ul.appendChild(li); }); }
+  function calllog(){ app.innerHTML=topbar("Historie hovorů", true); var p=el('<div class="panel"></div>');
+    if(!(B&&typeof B.getCallLog==="function")){ p.appendChild(el('<div class="hint">Historie hovorů je nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
+    p.appendChild(el('<div class="hint">Jen hovory kontaktů s prefixem: <b>'+esc(getPrefixes())+'</b>.</div>'));
+    p.appendChild(el('<div class="list" style="padding:0 14px;margin-top:10px;"><ul id="cllist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>')); app.appendChild(p); loadCalllog(); }
+
+  // ───── NASTAVENÍ ─────
+  function settings(){ app.innerHTML=topbar("Nastavení", false); var l=el('<div class="list"></div>');
     l.appendChild(row("🟢","Naslouchání","Stav služby vytáčení",function(){go("set_listen");}));
     l.appendChild(row("📌","Ikony na plochu","ERP a Chat zkratky",function(){go("set_icons");}));
     l.appendChild(row("📲","Nainstalovat na plochu","/mobile jako PWA",function(){go("set_install");}));
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
     l.appendChild(row("ℹ️","O aplikaci", ver?("Verze "+ver):"Verze a stav",function(){go("set_about");}));
-    app.appendChild(l);
-  }
-  function set_listen(){
-    app.innerHTML = topbar("Naslouchání", true);
-    var p=el('<div class="panel"></div>'); var ls=listenState();
+    app.appendChild(l); }
+  function set_listen(){ app.innerHTML=topbar("Naslouchání", true); var p=el('<div class="panel"></div>'); var ls=listenState();
     p.appendChild(el('<div class="big">Stav: <b>'+(ls==null?"(jen v appce)":(ls?"Zapnuto ✓":"Vypnuto"))+'</b></div>'));
-    p.appendChild(el('<div class="hint">Služba na pozadí přijímá požadavky na vytáčení z ERP. Zapínání/vypínání zatím v hlavní appce; most na přepínání přidáme.</div>'));
-    if(DEV){ var i=el('<div class="devinfo">DEV: listening() → vrací stav foreground služby (1/0).</div>'); p.appendChild(i); }
-    app.appendChild(p);
-  }
-  function set_icons(){
-    app.innerHTML = topbar("Ikony na plochu", true);
-    var p=el('<div class="panel"></div>');
-    p.appendChild(el('<div class="hint">Přidání ikon ERP a Chat na plochu je nativní akce v appce STRATEGIE (Nastavení appky → Přidat ikonu na plochu). Most na přidání ikony z webu doplníme.</div>'));
-    app.appendChild(p);
-  }
-  function set_dev(){
-    app.innerHTML = topbar("Vývojářské", true);
-    var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="hint">Služba na pozadí přijímá požadavky na vytáčení z ERP. Přepínání zatím v hlavní appce; most přidáme.</div>')); app.appendChild(p); }
+  function set_icons(){ app.innerHTML=topbar("Ikony na plochu", true); var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="hint">Přidání ikon ERP a Chat na plochu je nativní akce v appce STRATEGIE. Most doplníme.</div>')); app.appendChild(p); }
+  function set_install(){ app.innerHTML=topbar("Nainstalovat na plochu", true); var p=el('<div class="panel"></div>');
+    var b=el('<button class="green full">Nainstalovat /mobile jako appku</button>'); var info=el('<div class="hint"></div>');
+    b.addEventListener("click",function(){ if(deferredPrompt){deferredPrompt.prompt();try{deferredPrompt.userChoice.then(function(){deferredPrompt=null;});}catch(e){}} else {info.textContent="Pokud nabídka nevyskočí: v prohlížeči ⋮ → Přidat na plochu / Nainstalovat aplikaci.";} });
+    p.appendChild(b); p.appendChild(info); p.appendChild(el('<div class="hint">Nainstaluje /mobile jako samostatnou PWA (vlastní ikona, bez lišty prohlížeče).</div>')); app.appendChild(p); }
+  function set_prefixes(){ app.innerHTML=topbar("Prefixy kontaktů a hovorů", true); var p=el('<div class="panel"></div>');
+    p.appendChild(el('<label>Zobrazovat jen kontakty a hovory začínající (oddělené čárkou)</label>'));
+    var inp=el('<input id="pfx" value="'+esc(getPrefixes())+'">'); p.appendChild(inp);
+    var b=el('<button class="green full">Uložit</button>'); b.addEventListener("click",function(){var v=(inp.value||"").trim()||"STR,EC";try{localStorage.setItem("stg_prefixes",v);}catch(e){}back();}); p.appendChild(b);
+    p.appendChild(el('<div class="hint">Standardně STR, EC. Platí pro Kontakty i Historii hovorů.</div>')); app.appendChild(p); }
+  function set_dev(){ app.innerHTML=topbar("Vývojářské", true); var p=el('<div class="panel"></div>');
     p.appendChild(el('<div class="big">DEV mód: <b>'+(DEV?"zapnutý":"vypnutý")+'</b></div>'));
     var t=el('<button class="'+(DEV?"warn":"green")+' full">'+(DEV?"Vypnout DEV mód":"Zapnout DEV mód")+'</button>');
-    t.addEventListener("click",function(){ try{ if(DEV)localStorage.removeItem("stg_mobile_dev"); else localStorage.setItem("stg_mobile_dev","1"); }catch(e){} location.href=location.pathname; });
-    p.appendChild(t);
-    p.appendChild(el('<div class="hint">V DEV módu se nativní sekce zobrazí i v prohlížeči a klik vysvětlí, co most v appce dělá.</div>'));
-    p.appendChild(el('<div class="devinfo">Most: '+(native?("aktivní — "+[canDial?"dialNumber":"",canListen?"listening":"",canFetch?"authedFetch":""].filter(Boolean).join(", ")):"není (běžíš v prohlížeči)")+'</div>'));
-    app.appendChild(p);
-  }
-  function set_about(){
-    app.innerHTML = topbar("O aplikaci", true);
-    var p=el('<div class="panel"></div>');
-    p.appendChild(el('<div class="list"><div class="row" style="cursor:default"><div class="tx"><div class="tt">Verze appky</div><div class="sub">'+(ver||"— (jen v appce)")+'</div></div></div><div class="row" style="cursor:default"><div class="tx"><div class="tt">Režim</div><div class="sub">'+(native?"nativní appka (most aktivní)":"prohlížeč (PWA)")+'</div></div></div></div>'));
-    app.appendChild(p);
-  }
+    t.addEventListener("click",function(){try{if(DEV)localStorage.removeItem("stg_mobile_dev");else localStorage.setItem("stg_mobile_dev","1");}catch(e){}location.href=location.pathname;}); p.appendChild(t);
+    p.appendChild(el('<div class="devinfo">Most: '+(native?("aktivní — "+[canDial?"dialNumber":"",canListen?"listening":"",canFetch?"authedFetch":"",(B&&B.getContacts)?"getContacts":"",(B&&B.getCallLog)?"getCallLog":""].filter(Boolean).join(", ")):"není (prohlížeč)")+'</div>')); app.appendChild(p); }
+  function set_about(){ app.innerHTML=topbar("O aplikaci", true); var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="list"><div class="row" style="cursor:default"><div class="tx"><div class="tt">Verze appky</div><div class="sub">'+(ver||"— (jen v appce)")+'</div></div></div><div class="row" style="cursor:default"><div class="tx"><div class="tt">Režim</div><div class="sub">'+(native?"nativní appka (most aktivní)":"prohlížeč (PWA)")+'</div></div></div></div>')); app.appendChild(p); }
 
-  function set_install(){
-    app.innerHTML = topbar("Nainstalovat na plochu", true);
-    var p=el('<div class="panel"></div>');
-    var b=el('<button class="green full">Nainstalovat /mobile jako appku</button>');
-    var info=el('<div class="hint"></div>');
-    b.addEventListener("click", function(){
-      if(deferredPrompt){ deferredPrompt.prompt(); try{ deferredPrompt.userChoice.then(function(){ deferredPrompt=null; }); }catch(e){} }
-      else { info.textContent="Pokud nabídka nevyskočí: v prohlížeči ⋮ → Přidat na plochu / Nainstalovat aplikaci. (V nativní appce STRATEGIE jsi už nativně.)"; }
-    });
-    p.appendChild(b); p.appendChild(info);
-    p.appendChild(el('<div class="hint">Nainstaluje /mobile jako samostatnou PWA — vlastní ikona, bez prohlížečové lišty.</div>'));
-    app.appendChild(p);
-  }
-  // ───────────── KONTAKTY ─────────────
-  function loadContacts(){
-    var ul=document.getElementById("ctlist"); if(!ul)return;
-    var j=bjson("getContacts", getPrefixes());
-    if(j&&j.need){ ul.innerHTML='<li style="border:none;"><div style="color:var(--mut);margin-bottom:8px;">Appka potřebuje přístup ke kontaktům.</div><button class="green sm" id="ctperm">Povolit přístup</button></li>'; var pb=document.getElementById("ctperm"); if(pb)pb.addEventListener("click",function(){ bjson("getContacts",getPrefixes()); setTimeout(loadContacts,700); }); return; }
-    var list=(j&&j.contacts)||[];
-    if(!list.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné kontakty s prefixem '+esc(getPrefixes())+'.</li>'; return; }
-    ul.innerHTML="";
-    list.forEach(function(c){
-      var li=el('<li><div class="nt">'+esc(c.name)+'</div><div class="nm">'+esc(c.number)+'</div><div class="nactions"></div></li>');
-      var b=el('<button class="green sm">Vytočit</button>'); b.addEventListener("click",function(){ doDial(c.number); }); li.querySelector(".nactions").appendChild(b);
-      ul.appendChild(li);
-    });
-  }
-  function contacts(){
-    app.innerHTML = topbar("Kontakty", true);
-    var p=el('<div class="panel"></div>');
-    if(!(B&&typeof B.getContacts==="function")){ p.appendChild(el('<div class="hint">Kontakty jsou nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
-    p.appendChild(el('<div class="hint">Zobrazují se jen kontakty s prefixem: <b>'+esc(getPrefixes())+'</b> (změna v Nastavení).</div>'));
-    p.appendChild(el('<div class="list" style="padding:0 14px;margin-top:10px;"><ul id="ctlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
-    app.appendChild(p); loadContacts();
-  }
+  var SCREENS={home:home,phone:phone,notifs:notifs,contacts:contacts,calllog:calllog,settings:settings,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_dev:set_dev,set_about:set_about};
 
-  // ───────────── HISTORIE HOVORŮ ─────────────
-  function loadCalllog(){
-    var ul=document.getElementById("cllist"); if(!ul)return;
-    var j=bjson("getCallLog", getPrefixes());
-    if(j&&j.need){ ul.innerHTML='<li style="border:none;"><div style="color:var(--mut);margin-bottom:8px;">Appka potřebuje přístup k protokolu hovorů.</div><button class="green sm" id="clperm">Povolit přístup</button></li>'; var pb=document.getElementById("clperm"); if(pb)pb.addEventListener("click",function(){ bjson("getCallLog",getPrefixes()); setTimeout(loadCalllog,700); }); return; }
-    var list=(j&&j.calls)||[];
-    if(!list.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné hovory s prefixem '+esc(getPrefixes())+'.</li>'; return; }
-    ul.innerHTML="";
-    list.forEach(function(c){
-      var li=el('<li><div class="nt">'+esc(c.name||c.number)+'</div><div class="nm">'+esc(fmtCall(c))+'</div><div class="nactions"></div></li>');
-      var b=el('<button class="green sm">Vytočit</button>'); b.addEventListener("click",function(){ doDial(c.number); }); li.querySelector(".nactions").appendChild(b);
-      ul.appendChild(li);
-    });
-  }
-  function calllog(){
-    app.innerHTML = topbar("Historie hovorů", true);
-    var p=el('<div class="panel"></div>');
-    if(!(B&&typeof B.getCallLog==="function")){ p.appendChild(el('<div class="hint">Historie hovorů je nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
-    p.appendChild(el('<div class="hint">Jen hovory kontaktů s prefixem: <b>'+esc(getPrefixes())+'</b>.</div>'));
-    p.appendChild(el('<div class="list" style="padding:0 14px;margin-top:10px;"><ul id="cllist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
-    app.appendChild(p); loadCalllog();
-  }
+  var TABS=[["home","🏠","Domů"],["phone","📞","Telefon"],["notifs","🔔","Úkoly"],["contacts","👤","Kontakty"],["settings","⚙️","Nastavení"]];
+  function renderNav(){ bnav.innerHTML=""; TABS.forEach(function(t){ var b=el('<button class="tabbtn'+(curTab===t[0]?" active":"")+'"><span class="i">'+t[1]+'</span>'+t[2]+'</button>'); b.addEventListener("click",function(){selectTab(t[0]);}); bnav.appendChild(b); }); }
+  function render(){ (SCREENS[stack[stack.length-1]]||home)(); var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back); renderNav(); }
 
-  // ───────────── PREFIXY ─────────────
-  function set_prefixes(){
-    app.innerHTML = topbar("Prefixy kontaktů a hovorů", true);
-    var p=el('<div class="panel"></div>');
-    p.appendChild(el('<label>Zobrazovat jen kontakty a hovory začínající (oddělené čárkou)</label>'));
-    var inp=el('<input id="pfx" value="'+esc(getPrefixes())+'">');
-    p.appendChild(inp);
-    var b=el('<button class="green full">Uložit</button>');
-    b.addEventListener("click",function(){ var v=(inp.value||"").trim()||"STR,EC"; try{localStorage.setItem("stg_prefixes",v);}catch(e){} back(); });
-    p.appendChild(b);
-    p.appendChild(el('<div class="hint">Standardně STR, EC. Platí pro Kontakty i Historii hovorů.</div>'));
-    app.appendChild(p);
-  }
-
-  var SCREENS = { home:home, phone:phone, notifs:notifs, contacts:contacts, calllog:calllog, settings:settings, set_listen:set_listen, set_icons:set_icons, set_install:set_install, set_prefixes:set_prefixes, set_dev:set_dev, set_about:set_about };
-  function render(){
-    (SCREENS[stack[stack.length-1]]||home)();
-    var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back);
-  }
-  // hardware/gesto zpět (kde to jde)
-  window.addEventListener("popstate", function(){ if(stack.length>1){ back(); history.pushState(null,""); } });
+  window.addEventListener("popstate", function(){ if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });
   try{ history.pushState(null,""); }catch(e){}
   render();
 })();

@@ -80,6 +80,7 @@ private const val PREFS = "strategie_prefs"
 private const val KEY_URL = "server_url"
 private const val KEY_TOKEN = "token"
 private const val KEY_SERVICE = "service_enabled"
+private const val KEY_LAST_VER = "last_installed_vc"
 private const val DEFAULT_URL = "https://strategie-ai.com"
 private val BRAND_BLUE = Color(0xFF4A7BA8)
 
@@ -232,6 +233,16 @@ fun AppRoot(modifier: Modifier = Modifier) {
                     Toast.LENGTH_LONG
                 ).show()
                 return
+            }
+            // Už je na ploše? (Android 11+ umí dotaz na pinned shortcuts) → nedělej duplikát
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val exists = ShortcutManagerCompat
+                    .getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_PINNED)
+                    .any { it.id == id }
+                if (exists) {
+                    Toast.makeText(context, "Ikona už je na ploše", Toast.LENGTH_SHORT).show()
+                    return
+                }
             }
             val target = Intent(Intent.ACTION_VIEW, Uri.parse(base() + path))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -465,6 +476,24 @@ fun AppRoot(modifier: Modifier = Modifier) {
             .addOnCanceledListener { }
     }
 
+    // Po nové instalaci/aktualizaci appky naslouchání VŽDY zapni automaticky
+    // (Marti 6.6.2026). Když si ho uživatel později vypne ručně (stejná verze),
+    // při dalším otevření ho nenutíme — jen ho na hlavní obrazovce doporučíme.
+    var bootChecked by remember { mutableStateOf(false) }
+    LaunchedEffect(token) {
+        if (bootChecked || token.trim().isEmpty()) return@LaunchedEffect
+        bootChecked = true
+        val cur = BuildConfig.VERSION_CODE
+        val last = prefs.getInt(KEY_LAST_VER, -1)
+        if (last != cur) {
+            prefs.edit().putInt(KEY_LAST_VER, cur).apply()
+            if (!serviceOn) {
+                delay(500)  // počkej na popředí (dialog oprávnění)
+                toggleService(true)
+            }
+        }
+    }
+
     // Po automatickém spárování (PairActivity) appka jen uloží token a spustí
     // službu — runtime oprávnění (notifikace / call-log / celá obrazovka) se ale
     // nevyžádají. Bez nich služba na pozadí nevyvolá vytáčení. Když je appka
@@ -595,6 +624,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 onErp = { open("/erp") },
                 onPinChat = { pinShortcut("stg_chat", "Chat STRATEGIE", "/") },
                 onPinErp = { pinShortcut("stg_erp", "ERP STRATEGIE", "/erp") },
+                onToggle = { toggleService(it) },
                 notifs = notifs,
                 notifSel = notifSel,
                 onSelectNotif = { replyText = ""; notifSel = if (notifSel == it) -1L else it },
@@ -617,6 +647,7 @@ private fun HomeBody(
     onErp: () -> Unit,
     onPinChat: () -> Unit,
     onPinErp: () -> Unit,
+    onToggle: (Boolean) -> Unit = {},
     notifs: List<CmdItem> = emptyList(),
     notifSel: Long = -1L,
     onSelectNotif: (Long) -> Unit = {},
@@ -748,11 +779,26 @@ private fun HomeBody(
         }
 
         HorizontalDivider()
-        Text(
-            if (serviceOn) "✓ Naslouchání běží na pozadí"
-            else "Naslouchání je vypnuté (zapni v ⚙ nastavení)",
-            style = MaterialTheme.typography.bodyMedium
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    if (serviceOn) "🟢 Naslouchání zapnuto" else "🔴 Naslouchání vypnuto",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    if (serviceOn)
+                        "Appka přijímá vytáčení z ERP. V liště telefonu svítí ikona."
+                    else
+                        "Zapni, ať telefon přijímá vytáčení z ERP.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = serviceOn, onCheckedChange = onToggle)
+        }
         Text(
             "Dvojklik na telefonní číslo v ERP vyvolá na tomto telefonu vytáčení.",
             style = MaterialTheme.typography.bodySmall

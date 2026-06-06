@@ -177,7 +177,7 @@
   <main class="login">
     <header>
       <h1>STRATEGIE</h1>
-      <p>Přihlášení přes SMS</p>
+      <p>Přihlášení e-mailem</p>
     </header>
 
     <!-- Stage 1: email input -->
@@ -187,7 +187,7 @@
           <label for="email">E-mailová adresa</label>
           <input id="email" type="email" required autocomplete="email" inputmode="email"
                  placeholder="jmeno@eurosoft.com">
-          <button type="submit" id="submitBtn">Pošli mi kód SMS</button>
+          <button type="submit" id="submitBtn">Pošli ověřovací odkaz</button>
         </form>
       </div>
     </section>
@@ -195,15 +195,12 @@
     <!-- Stage 2: SMS sent, polling -->
     <section data-stage="polling" class="stage">
       <div class="card">
-        <div class="spinner">⏳</div>
-        <h2>Zkontroluj telefon</h2>
-        <p>Poslali jsme ti SMS s kódem.</p>
-        <p>Přepošli ji zpět na</p>
-        <p style="text-align: center;">
-          <span class="phone">+420 778 117 879</span>
-        </p>
+        <div class="spinner">📧</div>
+        <h2>Zkontroluj e-mail</h2>
+        <p>Poslali jsme ti e-mail s ověřovacím odkazem.</p>
+        <p>Otevři e-mail na tomto zařízení a <b>klikni na odkaz</b> — přihlášení se dokončí samo.</p>
         <p class="hint" style="margin-top: 16px;">
-          (nebo pošli ručně jen ten kód — obě cesty fungují)
+          (e-mail chodí od Marti-AI, může chvíli trvat; mrkni i do spamu)
         </p>
         <p class="hint">Čekám na potvrzení...</p>
         <p class="elapsed">Uplynulo: <span id="elapsed">0:00</span></p>
@@ -321,7 +318,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({ email, channel: 'sms' }),
+          body: JSON.stringify({ email, channel: 'email' }),
         });
         if (!resp.ok) {
           // Phase 38.1: 429 Too Many Requests dostane user-friendly hlášku
@@ -344,7 +341,7 @@
         setError(`Chyba: ${e.message}`);
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Pošli mi kód SMS';
+        submitBtn.textContent = 'Pošli ověřovací odkaz';
       }
     });
 

@@ -194,6 +194,13 @@ def verify_email_request(
     ua = req.headers.get("user-agent")
     channel = (body.channel or "email").strip().lower()
 
+    # Marti 6.6.2026: máme vlastní mobilní appku → přihlášení už netaháme přes
+    # cizí SMS bránu. Jakýkoliv požadavek na SMS kanál ověření překlopíme na
+    # e-mailový magic link (kód SMS větve ponechán dormantní, kdyby bylo třeba).
+    if channel == "sms":
+        logger.info("VERIFY_CHANNEL_COERCE sms->email (SMS brana vyrazena z loginu)")
+        channel = "email"
+
     if channel not in ("email", "sms"):
         raise HTTPException(status_code=400, detail=f"Neznámý channel: {channel!r}")
 

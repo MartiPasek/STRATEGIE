@@ -5422,6 +5422,27 @@ async def app_phone_verify_start(req: Request) -> JSONResponse:
         body = {}
     dev = (str((body or {}).get("device_id") or "")).strip()[:120] or None
     lbl = (str((body or {}).get("device_label") or "")).strip()[:120] or None
+    # Zjisti id carddav_tokenu, kterým se appka autentizovala — ať umíme zapsat
+    # ověřené číslo přímo na ten záznam (a dedupovat podle čísla). Marti 6.6.2026.
+    _ctid = None
+    _auth = req.headers.get("authorization") or ""
+    if _auth.lower().startswith("bearer "):
+        _tk = _auth[7:].strip()
+        if _tk:
+            import hashlib as _h_pv
+            from core.database_data import get_data_session as _gds_t
+            from sqlalchemy import text as _sql_t
+            _th = _h_pv.sha256(_tk.encode("utf-8")).hexdigest()
+            _dt = _gds_t()
+            try:
+                _ctid = _dt.execute(_sql_t(
+                    'SELECT id FROM "user".carddav_token '
+                    'WHERE token_hash = :h AND revoked_at IS NULL'
+                ), {"h": _th}).scalar()
+            except Exception:
+                _ctid = None
+            finally:
+                _dt.close()
     import secrets as _sec_pv
     token = "STG-PAIR-" + _sec_pv.token_hex(4).upper()
     from core.database_data import get_data_session as _gds_pv
@@ -5430,9 +5451,9 @@ async def app_phone_verify_start(req: Request) -> JSONResponse:
     try:
         ds.execute(_sql_pv("DELETE FROM fw.phone_verify WHERE expires_at < now()"))
         ds.execute(_sql_pv(
-            "INSERT INTO fw.phone_verify (token, user_id, device_id, device_label, expires_at) "
-            "VALUES (:t, :u, :d, :l, now() + interval '15 minutes')"
-        ), {"t": token, "u": uid, "d": dev, "l": lbl})
+            "INSERT INTO fw.phone_verify (token, user_id, device_id, device_label, carddav_token_id, expires_at) "
+            "VALUES (:t, :u, :d, :l, :ct, now() + interval '15 minutes')"
+        ), {"t": token, "u": uid, "d": dev, "l": lbl, "ct": _ctid})
         ds.commit()
     except Exception as exc:
         ds.rollback()
@@ -5463,6 +5484,73 @@ async def app_phone_verify_status(req: Request, token: str = "") -> JSONResponse
         return JSONResponse({"ok": True, "verified": False, "unknown": True})
     return JSONResponse({"ok": True, "verified": row[1] is not None,
                          "phone_number": row[0]})
+
+
+@api_router.post("/app/phone-set")
+async def app_phone_set(req: Request) -> JSONResponse:
+    """Uloží číslo telefonu přímo z appky (přečtené ze SIM + potvrzené uživatelem)
+    — bez SMS brány. Zapíše k carddav_tokenu (kterým se appka hlásí) + k zařízení
+    a dedupuje: jiné aktivní tokeny téhož uživatele se stejným číslem odpojí.
+    Marti 6.6.2026 (vlastní appka = nepotřebujeme cizí SMS providera)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    phone = (str((body or {}).get("phone_number") or "")).strip()[:32]
+    dev = (str((body or {}).get("device_id") or "")).strip()[:120] or None
+    if len(phone.replace("+", "").replace(" ", "")) < 6:
+        return JSONResponse({"ok": False, "error": "invalid_phone"}, status_code=400)
+    import hashlib as _h_set
+    from core.database_data import get_data_session as _gds_set
+    from sqlalchemy import text as _sql_set
+    # id tokenu, kterým se appka autentizovala (ať číslo zapíšeme na ten záznam)
+    ctid = None
+    _auth = req.headers.get("authorization") or ""
+    if _auth.lower().startswith("bearer "):
+        _tk = _auth[7:].strip()
+        if _tk:
+            _dh = _gds_set()
+            try:
+                ctid = _dh.execute(_sql_set(
+                    'SELECT id FROM "user".carddav_token '
+                    'WHERE token_hash = :h AND revoked_at IS NULL'
+                ), {"h": _h_set.sha256(_tk.encode("utf-8")).hexdigest()}).scalar()
+            except Exception:
+                ctid = None
+            finally:
+                _dh.close()
+    ds = _gds_set()
+    try:
+        if dev:
+            ds.execute(_sql_set(
+                "UPDATE fw.mobile_device SET phone_number=:p, phone_verified_at=now() "
+                "WHERE user_id=:u AND device_id=:d"
+            ), {"p": phone, "u": uid, "d": dev})
+        else:
+            ds.execute(_sql_set(
+                "UPDATE fw.mobile_device SET phone_number=:p, phone_verified_at=now() "
+                "WHERE user_id=:u"
+            ), {"p": phone, "u": uid})
+        if ctid:
+            ds.execute(_sql_set(
+                'UPDATE "user".carddav_token SET phone_number=:p WHERE id=:c'
+            ), {"p": phone, "c": ctid})
+            # dedup: stejné číslo u téhož uživatele → ostatní odpoj (drž jen tenhle)
+            ds.execute(_sql_set(
+                'UPDATE "user".carddav_token SET revoked_at=now() '
+                'WHERE user_id=:u AND phone_number=:p AND revoked_at IS NULL AND id<>:c'
+            ), {"u": uid, "p": phone, "c": ctid})
+        ds.commit()
+    except Exception as exc:
+        ds.rollback()
+        logger.warning("[phone-set] %s", exc)
+        return JSONResponse({"ok": False, "error": "server"}, status_code=500)
+    finally:
+        ds.close()
+    return JSONResponse({"ok": True, "phone_number": phone})
 
 
 @api_router.get("/app/devices")

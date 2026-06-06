@@ -117,6 +117,7 @@
         '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:13.5px;color:#e8eef5;">' + _esc(t.device_label || "Telefon") +
         (uname ? ' <span style="color:#7fd6c2;">· ' + _esc(uname) + '</span>' : '') + '</div>' +
+        (t.phone_number ? '<div style="font-size:12px;color:#cfe0f2;">📞 ' + _esc(t.phone_number) + '</div>' : '') +
         '<div style="font-size:11px;color:#8aa0b8;">spárováno ' + _esc(_dateOnly(t.created)) +
         (t.last_used ? ' · naposledy ' + _esc(t.last_used) : ' · zatím nesynchronizováno') + '</div>' +
         '</div>' +

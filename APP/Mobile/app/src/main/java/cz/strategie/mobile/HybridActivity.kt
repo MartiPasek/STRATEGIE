@@ -131,7 +131,22 @@ class HybridActivity : ComponentActivity() {
             return id
         }
 
-        // Ověření čísla: appka pošle z telefonu SMS s tokenem na trusted SIM
+        // Číslo telefonu přímo ze SIM (bez SMS brány). Nemusí být dostupné u všech
+        // operátorů/SIM → pak vrátí "" a uživatel ho zadá ručně. Vyžádá READ_PHONE_NUMBERS.
+        @JavascriptInterface
+        fun simNumber(): String {
+            return try {
+                if (checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) != PackageManager.PERMISSION_GRANTED) {
+                    runOnUiThread { try { requestPermissions(arrayOf(Manifest.permission.READ_PHONE_NUMBERS), 45) } catch (e: Exception) {} }
+                    return ""
+                }
+                val tm = getSystemService(android.telephony.TelephonyManager::class.java)
+                @Suppress("DEPRECATION", "HardwareIds")
+                (tm?.line1Number ?: "").trim()
+            } catch (e: Exception) { "" }
+        }
+
+        // (ponecháno) Ověření čísla přes SMS — fallback, hlavní cesta je simNumber + uložení.
         // STRATEGIE; server z odesílatele přečte reálné číslo. Vyžádá SEND_SMS.
         @JavascriptInterface
         fun sendSms(number: String, body: String): String {

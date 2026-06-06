@@ -635,7 +635,7 @@ def _list_tokens(uid: int) -> list[dict]:
     s = get_data_session()
     try:
         rows = s.execute(_sql('''
-            SELECT id, device_label,
+            SELECT id, device_label, phone_number,
                    to_char(created_at,  'YYYY-MM-DD HH24:MI') AS created,
                    to_char(last_used_at, 'YYYY-MM-DD HH24:MI') AS last_used,
                    (revoked_at IS NOT NULL) AS revoked

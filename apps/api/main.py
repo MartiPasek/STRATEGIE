@@ -787,6 +787,12 @@ def app_pair(req: Request):
     th = _hash_ap.sha256(plaintext.encode("utf-8")).hexdigest()
     s = _gds_ap()
     try:
+        # Dedup: jeden auto-login token na uživatele — předchozí „Mobil (auto)"
+        # odpoj (jinak vznikaly duplikáty při opakovaném párování). Marti 6.6.2026.
+        s.execute(_sql_ap(
+            'UPDATE "user".carddav_token SET revoked_at = now() '
+            "WHERE user_id = :uid AND device_label = 'Mobil (auto)' AND revoked_at IS NULL"
+        ), {"uid": uid})
         s.execute(_sql_ap(
             'INSERT INTO "user".carddav_token (user_id, device_label, token_hash, created_at) '
             "VALUES (:uid, :label, :h, now())"

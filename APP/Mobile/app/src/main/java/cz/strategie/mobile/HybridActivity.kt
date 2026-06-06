@@ -42,11 +42,13 @@ class HybridActivity : ComponentActivity() {
 
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
     private fun prefixList(csv: String): List<String> {
-        val l = csv.split(",").map { it.trim().uppercase() }.filter { it.isNotEmpty() }
+        // BEZ uppercase — prefix přesně jak je zadán (STR ≠ str). Marti 6.6.2026.
+        val l = csv.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         return if (l.isEmpty()) listOf("STR", "EC") else l
     }
     private fun nameMatches(name: String?, prefixes: List<String>): Boolean {
-        val n = (name ?: "").trim().uppercase()
+        // Case-SENSITIVE: "STR" matchne jen "STR…", ne "str…".
+        val n = (name ?: "").trim()
         return n.isNotEmpty() && prefixes.any { n.startsWith(it) }
     }
 
@@ -167,6 +169,19 @@ class HybridActivity : ComponentActivity() {
                 }
             } catch (e: Exception) {}
             return JSONObject().put("calls", arr).toString()
+        }
+
+        // Otevři externí appku/URL (launcher „Aplikace"): chat, ERP, WhatsApp…
+        @JavascriptInterface
+        fun openExternal(url: String) {
+            val u = url.trim()
+            if (u.isEmpty()) return
+            runOnUiThread {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {
+                }
+            }
         }
 
         // Avatar Marti-AI jako data URL (token v headeru) — pozadí hlavní obrazovky.

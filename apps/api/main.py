@@ -680,6 +680,14 @@ def index():
     return FileResponse(INDEX)
 
 
+@app.get("/mobile")
+def mobile_page():
+    """Hybridní /mobile — PWA v prohlížeči, obal nativní appky na telefonu
+    (WebView + JS most window.STRATEGIE). Web-first obsah, nativní síla
+    (Temu model). Marti 6.6.2026 (POC)."""
+    return FileResponse(os.path.join(static_dir, "mobile.html"))
+
+
 @app.get("/sw.js")
 def core_service_worker():
     """B+10+++++ (6.5.2026 odpoledne): Service Worker pro core STRATEGIE

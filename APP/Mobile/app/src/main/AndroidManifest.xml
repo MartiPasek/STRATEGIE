@@ -87,6 +87,13 @@
             android:excludeFromRecents="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- Hybridní obrazovka: WebView /mobile + JS most na nativní funkce (Temu model, POC). -->
+        <activity
+            android:name=".HybridActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.STRATEGIEMobile" />
+
         <!-- FileProvider: sdílí stažené APK pro instalační intent. -->
         <provider
             android:name="androidx.core.content.FileProvider"

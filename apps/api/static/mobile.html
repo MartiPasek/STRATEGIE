@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>STRATEGIE Mobil</title>
+<style>
+  :root { --bg:#0e0f11; --surf:#16181c; --bord:#2a2d33; --tx:#e8eaf0; --mut:#8a96a4;
+          --blue:#4f8ef7; --green:#10b981; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx); font-family:system-ui,sans-serif;
+         padding:16px; -webkit-tap-highlight-color:transparent; }
+  h1 { font-size:20px; font-weight:700; margin:4px 0 2px; }
+  .mode { display:inline-block; font-size:12px; padding:4px 10px; border-radius:20px; margin-bottom:14px; }
+  .mode.native { background:rgba(16,185,129,.15); color:#5ee0b7; border:1px solid #1f6b53; }
+  .mode.web { background:rgba(79,142,247,.15); color:#9bc0fb; border:1px solid #2a4d80; }
+  .card { background:var(--surf); border:1px solid var(--bord); border-radius:12px; padding:14px; margin-bottom:14px; }
+  .card h2 { font-size:15px; margin:0 0 10px; font-weight:600; }
+  label { font-size:12px; color:var(--mut); display:block; margin-bottom:4px; }
+  input { width:100%; background:#0f1620; border:1px solid var(--bord); border-radius:8px;
+          padding:11px; color:var(--tx); font-size:15px; margin-bottom:10px; }
+  button { width:100%; background:var(--blue); border:none; color:#fff; border-radius:8px;
+           padding:13px; font-size:15px; font-weight:600; cursor:pointer; }
+  button.green { background:var(--green); }
+  button.ghost { background:transparent; border:1px solid var(--bord); color:var(--tx); }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+  .hint { font-size:12px; color:var(--mut); margin-top:8px; }
+  .hidden { display:none; }
+  ul { list-style:none; padding:0; margin:0; }
+  li { padding:8px 0; border-bottom:1px solid #20262e; font-size:14px; }
+</style>
+</head>
+<body>
+  <h1>STRATEGIE Mobil</h1>
+  <span id="mode" class="mode web">prohlížeč (PWA)</span>
+
+  <div class="card">
+    <h2>📞 Telefon</h2>
+    <label>Telefonní číslo</label>
+    <input id="num" type="tel" inputmode="tel" placeholder="+420…" value="">
+    <button id="dial" class="green">Vytočit</button>
+    <div class="hint" id="dialHint">V appce vytočí přímo přes most. V prohlížeči otevře dialer.</div>
+  </div>
+
+  <div class="card" id="listenCard">
+    <h2>🟢 Naslouchání</h2>
+    <div id="listenState" style="font-size:14px;">—</div>
+    <div class="hint">Stav doplní nativní most (most → appka).</div>
+  </div>
+
+  <div class="card">
+    <h2>🔔 Notifikace / úkoly</h2>
+    <ul id="notifs"><li style="color:var(--mut);border:none;">Načte se po napojení API…</li></ul>
+  </div>
+
+<script>
+(function () {
+  var B = (window.STRATEGIE && typeof window.STRATEGIE.dial === "function") ? window.STRATEGIE : null;
+  var modeEl = document.getElementById("mode");
+  if (B) {
+    modeEl.textContent = "appka (nativní funkce aktivní)";
+    modeEl.className = "mode native";
+  }
+  document.getElementById("dial").addEventListener("click", function () {
+    var n = (document.getElementById("num").value || "").trim();
+    if (!n) return;
+    if (B) { try { B.dial(n); } catch (e) {} }
+    else { window.location.href = "tel:" + n; }
+  });
+  var ls = document.getElementById("listenState");
+  if (B && typeof B.listening === "function") {
+    try { ls.textContent = B.listening() === "1" ? "Zapnuto ✓" : "Vypnuto"; } catch (e) { ls.textContent = "—"; }
+  } else {
+    ls.textContent = "(jen v appce)";
+  }
+})();
+</script>
+</body>
+</html>

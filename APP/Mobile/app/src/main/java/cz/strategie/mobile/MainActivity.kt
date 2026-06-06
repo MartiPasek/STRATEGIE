@@ -639,6 +639,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 onPinChat = { pinShortcut("stg_chat", "Marti-AI - STRATEGIE", "/", "chat") },
                 onPinErp = { pinShortcut("stg_erp", "ERP - STRATEGIE", "/erp", "erp") },
                 onToggle = { toggleService(it) },
+                onHybrid = { context.startActivity(Intent(context, HybridActivity::class.java)) },
                 notifs = notifs,
                 notifSel = notifSel,
                 onSelectNotif = { replyText = ""; notifSel = if (notifSel == it) -1L else it },
@@ -662,6 +663,7 @@ private fun HomeBody(
     onPinChat: () -> Unit,
     onPinErp: () -> Unit,
     onToggle: (Boolean) -> Unit = {},
+    onHybrid: () -> Unit = {},
     notifs: List<CmdItem> = emptyList(),
     notifSel: Long = -1L,
     onSelectNotif: (Long) -> Unit = {},
@@ -833,6 +835,13 @@ private fun HomeBody(
     OutlinedButton(onClick = onErp, modifier = Modifier.fillMaxWidth()) { Text("📲 Otevřít ERP") }
     Text(
         "Když launcher ikonu nepřidá sám, otevři tu appku a v prohlížeči zvol ⋮ → Přidat na plochu.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Spacer(Modifier.width(0.dp))
+    Text("Hybrid (test)", style = MaterialTheme.typography.titleMedium)
+    OutlinedButton(onClick = onHybrid, modifier = Modifier.fillMaxWidth()) { Text("🧪 Otevřít /mobile v appce") }
+    Text(
+        "Web /mobile uvnitř appky s nativním mostem (vytáčení). Zkušební.",
         style = MaterialTheme.typography.bodySmall
     )
 }

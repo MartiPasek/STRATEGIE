@@ -59,8 +59,32 @@ api_router = APIRouter(prefix="/api/v1/erp", tags=["erp-api"])
 # ── Auth helpers ────────────────────────────────────────────────────
 
 
+def _impersonation_target_uid(req: Request) -> int | None:
+    """6.6.2026: dokud běží impersonace (httponly imp_token cookie + otevřený
+    fw.impersonation_log row), je cílový user ZDROJ PRAVDY — i kdyby auto-login
+    mezitím přepsal user_id cookie zpět na rodiče. Žádný imp_token → None
+    (nulová režie pro běžné usery)."""
+    tok = req.cookies.get("imp_token")
+    if not tok:
+        return None
+    from core.database_data import get_data_session as _gds_imp
+    from sqlalchemy import text as _sql_imp
+    ds = _gds_imp()
+    try:
+        return ds.execute(_sql_imp(
+            "SELECT target_user_id FROM fw.impersonation_log "
+            "WHERE token = :t AND ended_at IS NULL"), {"t": tok}).scalar()
+    except Exception:
+        return None
+    finally:
+        ds.close()
+
+
 def _get_uid(req: Request) -> int:
-    """Extract user_id z cookie. Raise 401 bez auth."""
+    """Extract user_id z cookie. Raise 401 bez auth. Respektuje impersonaci."""
+    imp = _impersonation_target_uid(req)
+    if imp is not None:
+        return int(imp)
     user_id_str = req.cookies.get("user_id")
     if not user_id_str:
         raise HTTPException(status_code=401, detail="Nejsi přihlášen.")

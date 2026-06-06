@@ -862,6 +862,18 @@ def me(req: Request) -> LoginResponse:
     Vrátí aktuálního uživatele podle cookie `user_id`.
     Používá se po reloadu stránky, ať nepadneme na login když je user stále přihlášený.
     """
+    # Impersonace má přednost: dokud běží (imp_token + otevřený log row),
+    # vracíme cílového usera + banner meta — i kdyby auto-login mezitím
+    # přepsal user_id cookie zpět na rodiče.
+    _imp = _imp_open_row(req)
+    if _imp:
+        ctx = get_user_context(_imp["target_user_id"])
+        if ctx is not None:
+            out = dict(ctx)
+            out["impersonation_active"] = True
+            out["impersonator_name"] = _user_display_name(_imp["parent_user_id"])
+            return LoginResponse(**out)
+
     user_id_str = req.cookies.get("user_id")
     if not user_id_str:
         raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
@@ -873,14 +885,6 @@ def me(req: Request) -> LoginResponse:
     ctx = get_user_context(user_id)
     if ctx is None:
         raise HTTPException(status_code=401, detail="Účet není aktivní.")
-    # Impersonace: pokud běží (imp_token cookie + otevřený log row pro tento
-    # target), přidej UI metadata pro banner. Systém jinak vidí cílového usera.
-    _imp = _imp_open_row(req)
-    if _imp and _imp["target_user_id"] == user_id:
-        out = dict(ctx)
-        out["impersonation_active"] = True
-        out["impersonator_name"] = _user_display_name(_imp["parent_user_id"])
-        return LoginResponse(**out)
     return LoginResponse(**ctx)
 
 

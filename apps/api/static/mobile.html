@@ -543,6 +543,8 @@
     var absBox=el('<div id="absBox" style="display:none;margin-top:8px;background:var(--surf);border:1px solid var(--bord);border-radius:10px;padding:12px;"></div>');
     absBtn.addEventListener("click",function(){ var open=absBox.style.display==="none"; absBox.style.display=open?"block":"none"; if(open&&!absBox.innerHTML) buildAbsForm(absBox); });
     p.appendChild(absBtn); p.appendChild(absBox);
+    p.appendChild(el('<div class="group" style="margin-top:16px;">Odpracováno po dnech</div>'));
+    p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
     p.appendChild(el('<div class="group" style="margin-top:16px;">Poslední záznamy</div>'));
     p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
     app.appendChild(p); dochLoad();
@@ -558,8 +560,24 @@
       var btn=el('<button class="'+(open?'warn':'green')+' full" style="margin-top:12px;font-size:16px;">'+(open?'⏹ Odchod (konec práce)':'▶️ Příchod (začít práci)')+'</button>');
       btn.addEventListener("click",function(){ btn.disabled=true; var ep=open?"checkout":"checkin"; api("POST","/api/v1/erp/app/attendance/"+ep,{}).then(function(){ dochLoad(); }).catch(function(){ btn.disabled=false; }); });
       c.appendChild(btn);
-      dochListLoad();
+      dochDailyLoad(); dochListLoad();
     }).catch(function(){ var c=document.getElementById("dochCard"); if(c)c.textContent="Chyba spojení."; });
+  }
+  function dochDailyLoad(){
+    api("GET","/api/v1/erp/app/attendance/daily?days=14","").then(function(j){
+      var ul=document.getElementById("dochDaily"); if(!ul)return;
+      var rows=(j&&j.days)||[];
+      if(!rows.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím nic.</li>'; return; }
+      var today=new Date().toISOString().substr(0,10);
+      var yest=new Date(Date.now()-86400000).toISOString().substr(0,10);
+      ul.innerHTML="";
+      rows.forEach(function(r){
+        var lbl = r.d===today?"Dnes" : (r.d===yest?"Včera" : r.d);
+        var w=Number(r.worked||0), a=Number(r.absence||0);
+        var right='<b style="color:'+(w>0?'var(--green)':'var(--mut)')+';">'+w+' h</b>'+(a>0?(' <span style="color:var(--amber);">+ '+a+' h nepř.</span>'):'')+(r.active?' 🟢':'');
+        ul.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;"><span class="nt">'+esc(lbl)+'</span><span class="nm" style="margin:0;">'+right+'</span></li>'));
+      });
+    });
   }
   function dochListLoad(){
     api("GET","/api/v1/erp/app/attendance/list?days=14","").then(function(j){
@@ -582,15 +600,19 @@
       +'<option value="family_care">OČR</option><option value="sickday">Sickday</option>'
       +'<option value="unpaid">Neplacené volno</option></select>'
       +'<label>Od</label><input type="date" id="absFrom" value="'+today+'" style="'+ist+'">'
-      +'<label>Do (volitelně)</label><input type="date" id="absTo" value="'+today+'" style="'+ist+'">'
+      +'<label>Do (volitelně, jen pro celé dny)</label><input type="date" id="absTo" value="'+today+'" style="'+ist+'">'
+      +'<label>Počet hodin (část dne — prázdné = celé dny po 8 h)</label><input type="number" step="0.5" min="0" id="absHours" placeholder="např. 1.5 (lékař)" style="'+ist+'">'
       +'<label>Poznámka (volitelné)</label><input id="absNote" placeholder="důvod…" style="'+ist+'">';
     var b=el('<button class="green full" style="margin-top:10px;">Odeslat ke schválení</button>');
     b.addEventListener("click",function(){
       var t=document.getElementById("absType").value, f=document.getElementById("absFrom").value,
-          to=document.getElementById("absTo").value, n=document.getElementById("absNote").value;
+          to=document.getElementById("absTo").value, n=document.getElementById("absNote").value,
+          hv=(document.getElementById("absHours").value||"").trim();
       if(!f){ return; }
+      var payload = hv ? {type_code:t,date_from:f,mode:"hours",hours:parseFloat(hv),note:n}
+                       : {type_code:t,date_from:f,date_to:to,mode:"days",note:n};
       b.disabled=true; b.textContent="Odesílám…";
-      api("POST","/api/v1/erp/app/attendance/absence",{type_code:t,date_from:f,date_to:to,note:n}).then(function(j){
+      api("POST","/api/v1/erp/app/attendance/absence",payload).then(function(j){
         if(j&&j.ok){ box.style.display="none"; box.innerHTML=""; dochListLoad(); alert("Nahlášeno ✓ ("+(j.created||0)+" pracovních dní)"); }
         else { b.disabled=false; b.textContent="Odeslat ke schválení"; alert("Nepodařilo se: "+((j&&j.error)||"")); }
       }).catch(function(){ b.disabled=false; b.textContent="Odeslat ke schválení"; });

@@ -5703,6 +5703,36 @@ async def att_list(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/attendance/daily")
+async def att_daily(req: Request) -> JSONResponse:
+    """Přehled po dnech: kolik odpracováno / nepřítomnost za každý den. Marti 6.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    days = 14
+    try:
+        days = max(1, min(120, int(req.query_params.get("days", "14"))))
+    except Exception:
+        days = 14
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        rows = s.execute(_t(
+            "SELECT to_char(e.entry_date,'YYYY-MM-DD') d, "
+            "COALESCE(round(sum(CASE WHEN et.category='presence' THEN e.hours ELSE 0 END)::numeric,2),0) worked, "
+            "COALESCE(round(sum(CASE WHEN et.category<>'presence' THEN e.hours ELSE 0 END)::numeric,2),0) absence, "
+            "bool_or(e.is_active) active "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date >= current_date - :dd "
+            "GROUP BY e.entry_date ORDER BY e.entry_date DESC"),
+            {"t": _ATT_TENANT, "e2": emp, "dd": days}).mappings().all()
+        s.commit()
+        return JSONResponse({"ok": True, "days": [dict(r) for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/absence")
 async def att_absence(req: Request) -> JSONResponse:
     """Nahlášení nepřítomnosti z appky (dovolená/nemoc/lékař/OČR/sickday/neplacené).
@@ -5743,23 +5773,37 @@ async def att_absence(req: Request) -> JSONResponse:
         if not tr:
             return JSONResponse({"ok": False, "error": "type_not_seeded"}, status_code=400)
         tid = tr[0]
-        day = d0
-        while day <= d1:
-            if day.weekday() < 5:  # Po–Pá
-                ds = day.isoformat()
-                res = s.execute(_t(
-                    "UPDATE tenant.att_entry SET entry_type_id=:et, hours=8, status='pending', "
-                    "source='mobile_app', note=:n, updated_at=now() "
-                    "WHERE tenant_id=:t AND employee_id=:e AND entry_date=:d AND entry_type_id=:et"),
-                    {"et": tid, "n": note, "t": _ATT_TENANT, "e": emp, "d": ds})
-                if (res.rowcount or 0) == 0:
-                    s.execute(_t(
-                        "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                        "status,source,note,is_active,created_by_id,created_at,updated_at) "
-                        "VALUES (:t,:e,:d,:et,8,'pending','mobile_app',:n,false,:u,now(),now())"),
-                        {"t": _ATT_TENANT, "e": emp, "d": ds, "et": tid, "n": note, "u": uid})
-                    created += 1
-            day += _td(days=1)
+        mode = (str(body.get("mode") or "days")).strip().lower()  # 'days' | 'hours'
+
+        def _upsert(ds, hrs):
+            nonlocal created
+            res = s.execute(_t(
+                "UPDATE tenant.att_entry SET entry_type_id=:et, hours=:h, status='pending', "
+                "source='mobile_app', note=:n, updated_at=now() "
+                "WHERE tenant_id=:t AND employee_id=:e AND entry_date=:d AND entry_type_id=:et"),
+                {"et": tid, "h": hrs, "n": note, "t": _ATT_TENANT, "e": emp, "d": ds})
+            if (res.rowcount or 0) == 0:
+                s.execute(_t(
+                    "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                    "status,source,note,is_active,created_by_id,created_at,updated_at) "
+                    "VALUES (:t,:e,:d,:et,:h,'pending','mobile_app',:n,false,:u,now(),now())"),
+                    {"t": _ATT_TENANT, "e": emp, "d": ds, "et": tid, "h": hrs, "n": note, "u": uid})
+                created += 1
+
+        if mode == "hours":
+            try:
+                hrs = round(float(body.get("hours") or 0), 2)
+            except Exception:
+                hrs = 0
+            if hrs <= 0 or hrs > 24:
+                return JSONResponse({"ok": False, "error": "invalid_hours"}, status_code=400)
+            _upsert(d0.isoformat(), hrs)  # část dne na jeden den
+        else:
+            day = d0
+            while day <= d1:
+                if day.weekday() < 5:  # Po–Pá
+                    _upsert(day.isoformat(), 8)
+                day += _td(days=1)
         s.commit()
         return JSONResponse({"ok": True, "created": created})
     except Exception as exc:

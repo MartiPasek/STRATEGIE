@@ -209,7 +209,11 @@ class DialPollService : Service() {
             nm().createNotificationChannel(
                 NotificationChannel(
                     CH_ONGOING, "Služba vytáčení", NotificationManager.IMPORTANCE_LOW
-                )
+                ).apply {
+                    // Trvalá notifikace „Párování s ERP" nesmí dělat odznak (číslo 1)
+                    // na ikoně appky v launcheru. Marti 6.6.2026.
+                    setShowBadge(false)
+                }
             )
             // Příchozí vytáčení — vlastní STRATEGIE zvuk (nový kanál id v2,
             // aby se nový zvuk projevil i při update bez reinstalace)

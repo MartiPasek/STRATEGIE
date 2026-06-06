@@ -459,6 +459,16 @@ class HybridActivity : ComponentActivity() {
         })
     }
 
+    // Spuštění přes ikonu v launcheru (ACTION_MAIN) → vždy hlavní obrazovka,
+    // i když appka zůstala v paměti na podmenu. Marti 6.6.2026.
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent?.action == Intent.ACTION_MAIN) {
+            try { web.evaluateJavascript("(window.__stgHome&&window.__stgHome())", null) } catch (e: Exception) {}
+        }
+    }
+
     private fun confirmExit() {
         try {
             android.app.AlertDialog.Builder(this)

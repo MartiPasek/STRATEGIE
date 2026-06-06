@@ -26,6 +26,7 @@
   .row .ic { font-size:20px; width:26px; text-align:center; }
   .row .tx { flex:1; min-width:0; } .row .tt { font-size:15px; } .row .sub { font-size:12px; color:var(--mut); margin-top:2px; }
   .row .chev { color:var(--mut); font-size:18px; }
+  .row .rbadge { background:#e24b4a; color:#fff; font-size:11px; min-width:18px; height:18px; line-height:18px; border-radius:9px; padding:0 5px; text-align:center; font-weight:700; margin-right:6px; }
   .panel { margin-top:6px; }
   label { font-size:12px; color:var(--mut); display:block; margin:12px 2px 4px; }
   input { width:100%; background:#0f1620; border:1px solid var(--bord); border-radius:8px; padding:12px; color:var(--tx); font-size:15px; }
@@ -38,8 +39,9 @@
   ul { list-style:none; padding:0; margin:0; } li { padding:12px 0; border-bottom:1px solid #20262e; font-size:14px; } li:last-child { border-bottom:none; }
   .nt { font-weight:600; } .nm { color:var(--mut); font-size:13px; margin:3px 0 9px; } .nactions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
   .big { font-size:16px; padding:8px 2px; }
-  .homebg { min-height: calc(100vh - 96px); border-radius:14px; background:#1a2330 center top / cover no-repeat;
-            display:flex; flex-direction:column; justify-content:flex-end; padding:18px; }
+  .homebg { margin:-14px -14px -78px; min-height:100vh; border-radius:0; background:#1a2330 center top / cover no-repeat;
+            display:flex; flex-direction:column; justify-content:flex-end;
+            padding:18px 18px calc(92px + env(safe-area-inset-bottom,0)); }
   .homenotif { background:rgba(20,24,30,.86); border:1px solid #2a2d33; border-radius:12px; padding:12px; margin-bottom:10px; display:flex; align-items:center; gap:12px; cursor:pointer; }
   .homenotif .ic { font-size:22px; width:26px; text-align:center; } .homenotif .chev { color:var(--mut); font-size:18px; }
   .homebg .h1 { font-size:26px; font-weight:800; } .homebg .h2 { color:#cdd6e2; margin-top:4px; font-size:14px; }
@@ -108,6 +110,8 @@
   function selectTab(t){ curTab=t; stack=[t]; render(); }
   // hardwarové zpět (nativní HybridActivity volá): vrať true když jsme šli o úroveň výš, false na home
   window.__stgBack=function(){ if(stack.length>1){ back(); return true; } if(curTab!=="home"){ selectTab("home"); return true; } return false; };
+  // Spuštění přes ikonu v launcheru → vždy hlavní obrazovka (volá nativní onNewIntent).
+  window.__stgHome=function(){ try{ selectTab("home"); }catch(e){} return true; };
 
   function api(method, path, body){
     if (canFetch){ try{ var t=B.authedFetch(method,path,body?JSON.stringify(body):""); return Promise.resolve(t?JSON.parse(t):null);}catch(e){return Promise.resolve(null);} }
@@ -128,7 +132,7 @@
 
   function modeChip(){ var c=native?"native":"web", t=native?"appka":"prohlížeč"; if(DEV){c="dev";t="DEV";} return '<span class="mode '+c+'">'+t+'</span>'; }
   function topbar(title, withBack){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+modeChip()+'</div>'; return b; }
-  function row(ic, tt, sub, onclick){ var r=el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div><div class="chev">&#8250;</div></div>'); r.addEventListener("click",onclick); return r; }
+  function row(ic, tt, sub, onclick, badge){ var bd=(badge&&badge>0)?'<div class="rbadge">'+(badge>99?"99+":badge)+'</div>':''; var r=el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>'+bd+'<div class="chev">&#8250;</div></div>'); r.addEventListener("click",onclick); return r; }
 
   // ───── DOMŮ (pozadí = fotka Marti-AI) ─────
   function home(){
@@ -284,7 +288,7 @@
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
     l.appendChild(row("🔔","Přístup k oznámením","Počty WhatsApp / SMS",function(){go("set_notifaccess");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
-    l.appendChild(row("ℹ️","O aplikaci", _hasUpdate?"🆕 Nová verze k dispozici":(ver?("Verze "+ver):"Verze a stav"),function(){go("set_about");}));
+    l.appendChild(row("ℹ️","O aplikaci", _hasUpdate?"🆕 Nová verze k dispozici":(ver?("Verze "+ver):"Verze a stav"),function(){go("set_about");}, _hasUpdate?1:0));
     app.appendChild(l); }
   function set_listen(){ app.innerHTML=topbar("Párování s ERP", true); var p=el('<div class="panel"></div>'); var ls=listenState();
     p.appendChild(el('<div class="big">Párování: <b>'+(ls==null?"(jen v appce)":(ls?"aktivní ✓":"pozastaveno"))+'</b></div>'));

@@ -7448,6 +7448,14 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                 status_code=400,
             )
 
+    # 6.6.2026 (Marti's "disabled user bez loginu"): prazdny login_name z UI
+    # ukladat jako NULL, ne '' — partial unique index uk_users_login_name
+    # NULL nepocita, '' by kolidovalo mezi disabled usery.
+    if (schema_name == "public" and table_name == "users"
+            and "login_name" in field_changes
+            and (field_changes["login_name"] or "").strip() == ""):
+        field_changes["login_name"] = None
+
     # Phase Audit Actor (28.5.2026 vecer pozde, Marti's "Krok C audit
     # columns autofill univerzalne"): sjednoceno pres resolve_audit_actor.
     # Pro PG branch potrebujeme pg_text (users.short_name). Pro MSSQL

@@ -87,6 +87,7 @@
   if (B && typeof B.avatarDataUrl === "function") { try { var d=B.avatarDataUrl(); if(d) avatarUrl=d; } catch(e){} }
 
   var CLAUDE_SVG='<svg width="26" height="26" viewBox="0 0 100 100"><g stroke="#d97757" stroke-width="8" stroke-linecap="round"><line x1="50" y1="50" x2="50" y2="8"/><line x1="50" y1="50" x2="71" y2="13.6"/><line x1="50" y1="50" x2="86.4" y2="29"/><line x1="50" y1="50" x2="92" y2="50"/><line x1="50" y1="50" x2="86.4" y2="71"/><line x1="50" y1="50" x2="71" y2="86.4"/><line x1="50" y1="50" x2="50" y2="92"/><line x1="50" y1="50" x2="29" y2="86.4"/><line x1="50" y1="50" x2="13.6" y2="71"/><line x1="50" y1="50" x2="8" y2="50"/><line x1="50" y1="50" x2="13.6" y2="29"/><line x1="50" y1="50" x2="29" y2="13.6"/></g></svg>';
+  var PHONE_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="#22c55e"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.6 21 3 13.4 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.4 0 .8-.3 1.1l-2.2 2.1z"/></svg>';
   function esc(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
   function el(html){ var d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild; }
   function go(id){ stack.push(id); render(); }
@@ -263,7 +264,7 @@
     g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Chat",0,function(){openApp("/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"ERP",0,function(){openApp("/erp");}));
     g.appendChild(appCell("🕒","Docházka",0,function(){openApp("/dochazka");}));
-    g.appendChild(appCell("💬","WhatsApp",bd.whatsapp||0,function(){openApp("https://wa.me/");}));
+    g.appendChild(appCell("💬","WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
     g.appendChild(appCell("✉️","Zprávy",bd.sms||0,function(){openApp("sms:");}));
     app.appendChild(g);
     if(bd.access===false){ app.appendChild(el('<div class="hint">Pro počty u WhatsApp / Zprávy povol <b>Přístup k oznámením</b> (Nastavení).</div>')); }
@@ -283,7 +284,7 @@
     var atApps=(stack[stack.length-1]==="apps");
     if(curTab==="home") bnav.appendChild(navBtn("📱","Aplikace",atApps,function(){if(!atApps)go("apps");},(bd&&bd.total)||0));
     else bnav.appendChild(navBtn("🏠","Domů",false,function(){selectTab("home");},0));
-    bnav.appendChild(navBtn("📞","Telefon",curTab==="phone",function(){selectTab("phone");},0));
+    bnav.appendChild(navBtn(PHONE_SVG,"Telefon",curTab==="phone",function(){selectTab("phone");},0));
     bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
     bnav.appendChild(navBtn("⚙️","Nastavení",curTab==="settings",function(){selectTab("settings");},0));

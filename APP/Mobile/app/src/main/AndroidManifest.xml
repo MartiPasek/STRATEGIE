@@ -10,6 +10,12 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- Android 11+ viditelnost balíčků: umožní spustit WhatsApp z launcheru. -->
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+    </queries>
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application

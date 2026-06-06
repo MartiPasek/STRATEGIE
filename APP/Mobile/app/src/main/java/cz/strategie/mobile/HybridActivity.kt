@@ -289,6 +289,20 @@ class HybridActivity : ComponentActivity() {
         @JavascriptInterface
         fun openPairing() { openExternal(base() + "/app-pair") }
 
+        // Spustí nainstalovanou appku podle balíčku (WhatsApp…), jinak fallback URL.
+        @JavascriptInterface
+        fun openPackage(pkg: String, fallbackUrl: String) {
+            runOnUiThread {
+                try {
+                    val i = packageManager.getLaunchIntentForPackage(pkg)
+                    if (i != null) { i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(i) }
+                    else if (fallbackUrl.isNotBlank()) startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {
+                    try { if (fallbackUrl.isNotBlank()) startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallbackUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e2: Exception) {}
+                }
+            }
+        }
+
         // Spárování přes QR: otevře fotoaparát, naskenuje QR z ERP/PC (/app-pair),
         // uloží u+t do prefs a restartuje obrazovku. Marti 6.6.2026.
         @JavascriptInterface

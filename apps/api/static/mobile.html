@@ -368,13 +368,13 @@
   var _allContacts=false; try{ _allContacts=localStorage.getItem("stg_all_contacts")==="1"; }catch(e){}
   function loadContacts(){ _contacts=bjson("getContacts", _allContacts?"*":getPrefixes()); renderContactsList(); }
   var _dialNum="";
-  function setDialNum(n){ _dialNum=(n||"").trim(); var e=document.getElementById("ctdial"); if(!e)return;
-    if(_dialNum){ e.textContent=_dialNum; e.style.color="#0e1014"; } else { e.textContent="📞 Ťukni pro vytáčení"; e.style.color="rgba(14,16,20,.6)"; } }
+  function setDialNum(n){ _dialNum=(n||"").trim(); var e=document.getElementById("ctdialtxt"); if(!e)return;
+    if(_dialNum){ e.textContent=_dialNum; e.style.color="var(--tx)"; } else { e.textContent="Vytáčení"; e.style.color="var(--mut)"; } }
   function contacts(){ app.innerHTML=topbar("", false); var p=el('<div class="panel" style="margin-top:4px;"></div>');
     if(!(B&&typeof B.getContacts==="function")){ p.appendChild(el('<div class="hint">Kontakty jsou nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
     // Zelené telefonní pole: vybraný kontakt → jeho velké číslo; klik na prázdné → nativní klávesnice.
     var drow=el('<div style="display:flex;gap:8px;align-items:stretch;margin-bottom:10px;"></div>');
-    var dial=el('<div id="ctdial" style="flex:1;min-height:44px;background:var(--green);border-radius:8px;padding:0 14px;font-size:16px;font-weight:700;cursor:pointer;color:rgba(14,16,20,.6);display:flex;align-items:center;justify-content:center;">📞 Vytáčení</div>');
+    var dial=el('<div id="ctdial" style="flex:1;min-height:44px;background:#0d1828;border:1px solid var(--green);box-shadow:0 0 0 2px rgba(34,197,94,.18);border-radius:8px;padding:0 14px;font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">'+PHONE_SVG+'<span id="ctdialtxt" style="color:var(--mut);">Vytáčení</span></div>');
     dial.addEventListener("click",function(){ if(_dialNum){ doDial(_dialNum); } else if(B&&typeof B.openDialpad==="function"){ B.openDialpad(); } else { openApp("tel:"); } });
     var bHist=el('<button class="ghost" style="padding:0 13px;font-size:18px;" title="Historie volání">🕓</button>'); bHist.addEventListener("click",function(){ go("calllog"); });
     var bSmsH=el('<button class="ghost" style="padding:0 13px;font-size:18px;" title="Historie SMS">💬</button>'); bSmsH.addEventListener("click",function(){ openApp("sms:"); });

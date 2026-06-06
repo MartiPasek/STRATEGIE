@@ -263,18 +263,23 @@ class HybridActivity : ComponentActivity() {
                         val nm = c.getString(0); val num = c.getString(1); val photoUri = c.getString(2); val contactId = c.getLong(3)
                         if ((showAll || nameMatches(nm, prefixes)) && seen.add((nm ?: "") + "|" + (num ?: ""))) {
                             val o = JSONObject().put("name", nm ?: "").put("number", num ?: "")
-                            var photo: String? = null
-                            if (!photoUri.isNullOrBlank()) {
-                                try {
-                                    contentResolver.openInputStream(Uri.parse(photoUri))?.use { ins ->
-                                        val bytes = ins.readBytes()
-                                        if (bytes.isNotEmpty()) photo = "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-                                    }
-                                } catch (e: Exception) {}
+                            // Fotky načítáme jen u prefix-filtru (malý seznam). U „Vše"
+                            // (stovky kontaktů) by per-kontakt foto + WhatsApp dotaz byly
+                            // extrémně pomalé → vynecháme (zobrazí se písmenkové avatary).
+                            if (!showAll) {
+                                var photo: String? = null
+                                if (!photoUri.isNullOrBlank()) {
+                                    try {
+                                        contentResolver.openInputStream(Uri.parse(photoUri))?.use { ins ->
+                                            val bytes = ins.readBytes()
+                                            if (bytes.isNotEmpty()) photo = "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                                        }
+                                    } catch (e: Exception) {}
+                                }
+                                // Fallback: když kontakt nemá vlastní avatar, zkus WhatsApp profilovku.
+                                if (photo == null) photo = whatsAppPhoto(contactId)
+                                if (photo != null) o.put("photo", photo)
                             }
-                            // Fallback: když kontakt nemá vlastní avatar, zkus WhatsApp profilovku.
-                            if (photo == null) photo = whatsAppPhoto(contactId)
-                            if (photo != null) o.put("photo", photo)
                             arr.put(o)
                         }
                     }

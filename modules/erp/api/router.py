@@ -5562,8 +5562,10 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
     import os as _os_m, json as _json_m
     token = req.headers.get("X-Deploy-Token")
     env = _os_m.environ.get("STRATEGIE_DEPLOY_TOKEN")
-    if not (token and env and token == env):
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if token and env and token == env:
+        pass  # token (bridge / curl)
+    else:
+        _require_parent(_get_uid(req))  # nebo přihlášený rodič (tlačítko v UI)
     try:
         body = await req.json()
     except Exception:

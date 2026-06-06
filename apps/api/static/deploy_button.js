@@ -130,7 +130,28 @@
       { label: "⚙ Ops akce (restart služeb)…", fn: _opsMenu },
       { label: "📜 Audit ops akcí", fn: _opsLog },
       { label: "📲 Mobilní appky (verze + zařízení)…", fn: _appReleaseModal },
+      { label: "🗓️ Migrace docházky (Centrála 1 → 2026)", fn: _migrateDochazka },
     ]);
+  }
+
+  // Migrace docházky EC_Dochazka -> tenant.att_* (in-process MCP). Idempotentni.
+  function _migrateDochazka() {
+    var from = prompt("Migrovat docházku 2026 z Centrály 1.\nOd data (RRRR-MM-DD):", "2026-01-01");
+    if (!from) return;
+    _toast("Migrace běží… (může trvat desítky sekund, nezavírej)");
+    fetch("/api/v1/erp/hr/migrate-dochazka", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: from, tenant_id: 2 })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j && j.ok) {
+        alert("Migrace hotová ✓\nObdobí od: " + j.from +
+          "\nŘádků: " + j.total + "\nVloženo: " + j.inserted +
+          "\nAktualizováno: " + j.updated + "\nZaměstnanců: " + j.employees);
+      } else {
+        alert("Migrace selhala: " + ((j && j.error) || "neznámá chyba"));
+      }
+    }).catch(function (e) { alert("Migrace — chyba spojení / timeout: " + e); });
   }
 
   // ── Mobilní appky: nahrát novou verzi APK + historie verzí + přehled zařízení.

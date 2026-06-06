@@ -120,7 +120,7 @@
         '<div style="font-size:13.5px;color:#e8eef5;">' + _esc(t.device_label || "Telefon") +
         (uname ? ' <span style="color:#7fd6c2;">· ' + _esc(uname) + '</span>' : '') + '</div>' +
         (ph ? '<div style="font-size:12px;color:#cfe0f2;">📞 ' + _esc(ph) + '</div>' : '') +
-        '<div style="font-size:11px;color:#8aa0b8;">spárováno ' + _esc(_dateOnly(t.created)) +
+        '<div style="font-size:11px;color:#8aa0b8;">spárováno ' + _esc(t.created || "") +
         (t.last_used ? ' · naposledy ' + _esc(t.last_used) : ' · zatím nesynchronizováno') + '</div>' +
         '</div>' +
         '<button type="button" class="cdav-revoke" data-id="' + t.id + '" ' +

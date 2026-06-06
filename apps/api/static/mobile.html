@@ -122,9 +122,14 @@
   function selectTab(t){ curTab=t; stack=[t]; render(); }
   // hardwarové zpět (nativní HybridActivity volá): vrať true když jsme šli o úroveň výš, false na home
   window.__stgBack=function(){
-    // V kontaktech: vyplněný filtr → první zpět ho smaže, teprve další odejde.
-    var sf=document.getElementById("ctsearch");
-    if(sf && sf.value && sf.value.length){ sf.value=""; try{renderContactsList();}catch(e){} return true; }
+    // V kontaktech postupně: 1) odscrolluj nahoru, 2) smaž číslo ze zeleného pole,
+    // 3) smaž filtr, teprve pak odejdi. Marti 6.6.2026.
+    if(curTab==="contacts" && stack[stack.length-1]==="contacts"){
+      var st=window.pageYOffset||document.documentElement.scrollTop||(document.body&&document.body.scrollTop)||0;
+      if(st>10){ try{window.scrollTo({top:0,behavior:"smooth"});}catch(e){window.scrollTo(0,0);} return true; }
+      if(_dialNum){ setDialNum(""); return true; }
+      var sf=document.getElementById("ctsearch"); if(sf && sf.value && sf.value.length){ sf.value=""; try{renderContactsList();}catch(e){} return true; }
+    }
     if(stack.length>1){ back(); return true; }
     if(curTab!=="home"){ selectTab("home"); return true; }
     return false;
@@ -368,9 +373,12 @@
   function contacts(){ app.innerHTML=topbar("", false); var p=el('<div class="panel" style="margin-top:4px;"></div>');
     if(!(B&&typeof B.getContacts==="function")){ p.appendChild(el('<div class="hint">Kontakty jsou nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
     // Zelené telefonní pole: vybraný kontakt → jeho velké číslo; klik na prázdné → nativní klávesnice.
-    var dial=el('<div id="ctdial" style="background:var(--green);border-radius:12px;padding:14px 16px;font-size:24px;font-weight:800;text-align:center;letter-spacing:1px;cursor:pointer;margin-bottom:10px;color:rgba(14,16,20,.6);">📞 Ťukni pro vytáčení</div>');
+    var drow=el('<div style="display:flex;gap:8px;align-items:stretch;margin-bottom:10px;"></div>');
+    var dial=el('<div id="ctdial" style="flex:1;min-height:44px;background:var(--green);border-radius:8px;padding:0 14px;font-size:16px;font-weight:700;cursor:pointer;color:rgba(14,16,20,.6);display:flex;align-items:center;justify-content:center;">📞 Vytáčení</div>');
     dial.addEventListener("click",function(){ if(_dialNum){ doDial(_dialNum); } else if(B&&typeof B.openDialpad==="function"){ B.openDialpad(); } else { openApp("tel:"); } });
-    p.appendChild(dial);
+    var bHist=el('<button class="ghost" style="padding:0 13px;font-size:18px;" title="Historie volání">🕓</button>'); bHist.addEventListener("click",function(){ go("calllog"); });
+    var bSmsH=el('<button class="ghost" style="padding:0 13px;font-size:18px;" title="Historie SMS">💬</button>'); bSmsH.addEventListener("click",function(){ openApp("sms:"); });
+    drow.appendChild(dial); drow.appendChild(bHist); drow.appendChild(bSmsH); p.appendChild(drow);
     var bar=el('<div style="display:flex;gap:10px;align-items:stretch;"></div>');
     var s=el('<input id="ctsearch" placeholder="🔍 Hledat kontakt…" autocomplete="off" style="flex:1;border:1px solid var(--blue);background:#0d1828;box-shadow:0 0 0 2px rgba(79,142,247,.18);font-weight:600;">');
     s.addEventListener("input",renderContactsList);
@@ -510,8 +518,9 @@
     bnav.innerHTML="";
     var bd=getBadges();
     var atApps=(stack[stack.length-1]==="apps");
-    if(curTab==="home" && !atApps) bnav.appendChild(navBtn("📱","Aplikace",false,function(){go("apps");},(bd&&bd.total)||0));
-    else bnav.appendChild(navBtn("🏠","Domů",false,function(){selectTab("home");},0));
+    var APPS_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>';
+    bnav.appendChild(navBtn("🏠","Domů",curTab==="home"&&!atApps,function(){selectTab("home");},0));
+    bnav.appendChild(navBtn(APPS_SVG,"Aplikace",atApps,function(){ curTab="home"; stack=["home","apps"]; render(); },(bd&&bd.total)||0));
     bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
     bnav.appendChild(navBtn("⚙️","Nastavení",curTab==="settings",function(){selectTab("settings");},_hasUpdate?1:0));

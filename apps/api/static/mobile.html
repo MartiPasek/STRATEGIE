@@ -525,7 +525,7 @@
   // ───── FIRMA (celá plocha s jemným firemním pozadím, bez spodní lišty) ─────
   function firma(){
     app.innerHTML="";
-    var sec=el('<div style="margin:-14px -14px -78px;min-height:100vh;padding:22px 20px calc(28px + env(safe-area-inset-bottom,0));background:linear-gradient(165deg,#0c1622,#13243a 55%,#0b1420);display:flex;flex-direction:column;"></div>');
+    var sec=el('<div style="margin:-14px -14px -78px;min-height:100vh;padding:22px 20px calc(96px + env(safe-area-inset-bottom,0));background:linear-gradient(165deg,#0c1622,#13243a 55%,#0b1420);display:flex;flex-direction:column;"></div>');
     var bk=el('<button class="ghost sm" style="align-self:flex-start;margin-bottom:20px;">← Zpět</button>');
     bk.addEventListener("click",function(){ selectTab("home"); });
     sec.appendChild(bk);
@@ -541,21 +541,19 @@
     var bd=getBadges();
     var atApps=(stack[stack.length-1]==="apps");
     var APPS_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>';
-    // Firma celá plocha → schovej úplně všechny lišty.
-    if(curTab==="firma"){ navwrap.style.display="none"; return; }
     navwrap.style.display="";
     bnav.appendChild(navBtn("🏠","Domů",curTab==="home"&&!atApps,function(){selectTab("home");},0));
     bnav.appendChild(navBtn(APPS_SVG,"Aplikace",atApps,function(){ curTab="home"; stack=["home","apps"]; render(); },(bd&&bd.total)||0));
     bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
     bnav.appendChild(navBtn("🏢","Firma",curTab==="firma",function(){selectTab("firma");},0));
-    // Na obrazovce Aplikace: dvě extra lišty nad základní; Nastavení vpravo nahoře.
+    // Na obrazovce Aplikace: dvě extra lišty nad základní; Nastavení vpravo v DOLNÍ extra liště.
     bnavx1.innerHTML=""; bnavx2.innerHTML="";
     if(atApps){
-      bnavx1.style.display="flex"; bnavx2.style.display="flex"; bnavx1.style.justifyContent="flex-end";
+      bnavx1.style.display="flex"; bnavx2.style.display="flex"; bnavx2.style.justifyContent="flex-end";
       var setBtn=navBtn("⚙️","Nastavení",false,function(){selectTab("settings");},_hasUpdate?1:0);
       setBtn.style.flex="0 0 auto"; setBtn.style.minWidth="84px";
-      bnavx1.appendChild(setBtn);
+      bnavx2.appendChild(setBtn);
     } else { bnavx1.style.display="none"; bnavx2.style.display="none"; }
   }
   function render(){ (SCREENS[stack[stack.length-1]]||home)(); var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back); renderNav(); }

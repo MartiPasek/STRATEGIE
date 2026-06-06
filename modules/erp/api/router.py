@@ -5718,7 +5718,22 @@ async def app_commands_pending(app_key: str, req: Request) -> JSONResponse:
             WHERE app_key=:app AND target_user_id=:uid AND status='pending'
             ORDER BY id ASC LIMIT 20
         """), {"app": app_key, "uid": uid}).mappings().all()
-        return JSONResponse({"ok": True, "commands": [dict(r) for r in rows]})
+        # Adaptivní interval pollu (Marti 6.6.): je-li co schválit → rychle;
+        # pracuje-li Claude (nedávná aktivita) → svižně; v klidu → šetři baterii.
+        if rows:
+            next_poll_s = 3
+        else:
+            recent = False
+            try:
+                recent = ds.execute(_sql_cp(
+                    "SELECT 1 FROM fw.claude_sql_log "
+                    "WHERE created_at > now() - interval '5 minutes' LIMIT 1"
+                )).first() is not None
+            except Exception:
+                recent = False
+            next_poll_s = 6 if recent else 20
+        return JSONResponse({"ok": True, "commands": [dict(r) for r in rows],
+                             "next_poll_s": next_poll_s})
     except Exception as exc:
         logger.exception("[app_commands_pending] failed: %s", exc)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

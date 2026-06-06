@@ -38,6 +38,9 @@ class DialPollService : Service() {
     @Volatile private var running = false
     private var worker: Thread? = null
     private var cycle = 0
+    // Adaptivní interval pollu — server v /commands/pending vrátí next_poll_s
+    // (rychle když Claude pracuje / je co schválit, pomalu v klidu). Marti 6.6.2026.
+    @Volatile private var pollMs = POLL_MS
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -95,7 +98,7 @@ class DialPollService : Service() {
                 // síťová / parse chyba — neshazuj službu, zkus příští kolo
             }
             try {
-                Thread.sleep(POLL_MS)
+                Thread.sleep(pollMs)
             } catch (e: InterruptedException) {
                 break
             }
@@ -398,7 +401,10 @@ class DialPollService : Service() {
             } finally {
                 c.disconnect()
             }
-            val arr = JSONObject(body).optJSONArray("commands") ?: return
+            val obj = JSONObject(body)
+            val np = obj.optInt("next_poll_s", 0)
+            if (np > 0) pollMs = (np * 1000L).coerceIn(3000L, 60000L)
+            val arr = obj.optJSONArray("commands") ?: return
             val current = HashSet<Long>()
             for (i in 0 until arr.length()) {
                 val cmd = arr.getJSONObject(i)

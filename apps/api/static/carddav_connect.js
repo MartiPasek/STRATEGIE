@@ -23,6 +23,10 @@
 
   var BASE = "/api/v1/erp/carddav";
   var _open = false;
+  // TEL = zařízení s telefonem (mobil / naše appka). APP = PC/notebook/tablet.
+  var IS_TEL = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "") || !!window.STRATEGIE;
+  var IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+  var IS_ANDROID = /Android/i.test(navigator.userAgent || "");
 
   function _esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -96,20 +100,24 @@
       '</div>';
   }
 
-  function _devicesHtml(tokens) {
-    var active = (tokens || []).filter(function (t) { return !t.revoked; });
+  function _dateOnly(s) { return String(s || "").split(" ")[0]; }
+
+  function _devicesHtml(info) {
+    var active = (info.tokens || []).filter(function (t) { return !t.revoked; });
     if (!active.length) {
       return '<div style="color:#8aa0b8;font-size:13px;padding:4px 0 2px;">' +
-        'Zatím nemáš připojené žádné zařízení.</div>';
+        'Zatím žádné spárování.</div>';
     }
+    var uname = info.user_name || "";
     var h = '';
     active.forEach(function (t) {
       h += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;' +
         'border-bottom:1px solid #233140;">' +
         '<span style="font-size:18px;">📱</span>' +
         '<div style="flex:1;min-width:0;">' +
-        '<div style="font-size:13.5px;color:#e8eef5;">' + _esc(t.device_label || "Telefon") + '</div>' +
-        '<div style="font-size:11px;color:#8aa0b8;">připojeno ' + _esc(t.created || "") +
+        '<div style="font-size:13.5px;color:#e8eef5;">' + _esc(t.device_label || "Telefon") +
+        (uname ? ' <span style="color:#7fd6c2;">· ' + _esc(uname) + '</span>' : '') + '</div>' +
+        '<div style="font-size:11px;color:#8aa0b8;">spárováno ' + _esc(_dateOnly(t.created)) +
         (t.last_used ? ' · naposledy ' + _esc(t.last_used) : ' · zatím nesynchronizováno') + '</div>' +
         '</div>' +
         '<button type="button" class="cdav-revoke" data-id="' + t.id + '" ' +
@@ -121,7 +129,7 @@
     return h;
   }
 
-  function _instructionsHtml(info, username, token) {
+  function _instructionsHtml(info, username, token, appleOnly) {
     var url = info.carddav_url || "";
     return '' +
       '<details style="margin-top:14px;" open>' +
@@ -129,6 +137,7 @@
       'margin-bottom:8px;">📖 Návod — jak telefon připojit</summary>' +
       '<div style="font-size:13px;color:#d4e0ec;line-height:1.55;">' +
 
+      (appleOnly ? '' : (
       '<div style="font-weight:700;color:#7fd6c2;margin:10px 0 4px;">📱 Android (přes DAVx5)</div>' +
       '<ol style="margin:0 0 6px 18px;padding:0;">' +
       '<li>Nainstaluj <strong>DAVx5</strong> (Google Play — malý jednorázový poplatek; nebo zdarma přes <strong>F-Droid</strong>).</li>' +
@@ -139,7 +148,7 @@
       '<li><strong>Obnovit seznam adresářů</strong> → vyber <em>Reální / Potenciální klienti</em>.</li>' +
       '<li><strong>⟳ Synchronizovat</strong> (nebo stáhni seznam dolů) — DAVx5 ukáže svoji sync notifikaci a stáhne kontakty.</li>' +
       '<li>Zapni <strong>Synchronizace v pravidelných intervalech</strong> a vyber <strong>interval</strong> (např. 1–4 h). Volbu <em>„VPN vyžaduje nadřazené připojení"</em> nech <strong>vypnutou</strong>.</li>' +
-      '</ol>' +
+      '</ol>')) +
 
       '<div style="font-weight:700;color:#7fd6c2;margin:12px 0 4px;">🍏 iPhone (nativně)</div>' +
       '<ol style="margin:0 0 6px 18px;padding:0;">' +
@@ -201,30 +210,43 @@
       '📲 STRATEGIE Mobil — spárovat appku</div>' +
       appBody +
       '</div>';
-    // mode: "app" = mám appku (jen app QR) · "noapp" = nemám (instalace + DAVx5 QR) · jinak obojí
-    var inner;
-    if (mode === "app") inner = appQrBlock;
-    else if (mode === "noapp") inner =
-      '<div style="font-size:12.5px;color:#bcd0e6;margin:0 0 10px;line-height:1.5;">' +
-      'Nemáš appku? Nahoře dej <strong>„📥 Stáhnout appku"</strong>, nainstaluj a pak se vrať a zvol ' +
-      '<strong>„Mám appku"</strong>. Nebo jen kontakty do telefonu přes DAVx5 tímto QR:</div>' + qrBlock;
-    else inner = qrBlock + appQrBlock;
+    // mode: "app" = mám appku (jen app QR) · "noapp" = iPhone bez appky (Apple
+    // CardDAV); na Androidu jen výzva k instalaci appky · jinak obojí
+    var inner, showCredDetails;
+    if (mode === "app") { inner = appQrBlock; showCredDetails = false; }
+    else if (mode === "noapp") {
+      if (IS_ANDROID) {
+        inner =
+          '<div style="font-size:12.5px;color:#bcd0e6;margin:0 0 6px;line-height:1.5;">' +
+          'Na <strong>Androidu</strong> jedeme jen přes naši appku. Nahoře dej ' +
+          '<strong>„📥 Stáhnout appku"</strong>, nainstaluj ji a pak zvol <strong>„📲 Mám appku"</strong>.</div>';
+        showCredDetails = false;
+      } else {
+        inner =
+          '<div style="font-size:12.5px;color:#bcd0e6;margin:0 0 10px;line-height:1.5;">' +
+          '🍏 <strong>iPhone bez appky</strong> — kontakty přidáš přes nativní CardDAV. Naskenuj QR, ' +
+          'nebo zadej údaje ručně níž:</div>' + qrBlock;
+        showCredDetails = true;
+      }
+    } else { inner = qrBlock + appQrBlock; showCredDetails = true; }
     return '' +
       '<div style="background:rgba(232,185,35,.08);border:1px solid #6b5a22;' +
       'border-radius:10px;padding:14px;margin-top:12px;">' +
       '<div style="font-size:13px;color:#f0d98a;font-weight:700;margin-bottom:8px;">' +
       '🔑 Přístup pro „' + _esc(res.device_label || "Telefon") + '"</div>' +
       inner +
-      '<details ' + (res.handoff_url ? "" : "open") + ' style="margin-top:4px;">' +
-      '<summary style="cursor:pointer;color:#cdb87a;font-size:12.5px;font-weight:600;">' +
-      'Nebo zadat ručně (token, URL, login + návod)</summary>' +
-      '<div style="font-size:12px;color:#cdb87a;margin:8px 0;">' +
-      'Token se zobrazí <strong>jen teď</strong>. Pak už ho neuvidíš (vygeneruješ nový).</div>' +
-      _row("Adresa", info.carddav_url, "CardDAV URL") +
-      _row("Uživatel", info.username, "uživatel") +
-      _row("Token", res.token, "token") +
-      _instructionsHtml(info, info.username, res.token) +
-      '</details></div>';
+      (showCredDetails ?
+        ('<details ' + (res.handoff_url ? "" : "open") + ' style="margin-top:4px;">' +
+        '<summary style="cursor:pointer;color:#cdb87a;font-size:12.5px;font-weight:600;">' +
+        'Nebo zadat ručně (token, URL, login + návod)</summary>' +
+        '<div style="font-size:12px;color:#cdb87a;margin:8px 0;">' +
+        'Token se zobrazí <strong>jen teď</strong>. Pak už ho neuvidíš (vygeneruješ nový).</div>' +
+        _row("Adresa", info.carddav_url, "CardDAV URL") +
+        _row("Uživatel", info.username, "uživatel") +
+        _row("Token", res.token, "token") +
+        _instructionsHtml(info, info.username, res.token, true) +
+        '</details>') : '') +
+      '</div>';
   }
 
   // ── QR (lazy-load knihovny z CDN) ────────────────────────────────────────
@@ -298,11 +320,16 @@
       // credential panel (jen po vytvoření)
       (credPanelHtml || '') +
 
-      // device list
+      // device list (kontext: APP = PC/tablet ukazuje spárované telefony;
+      // TEL = telefon ukazuje, s kým je spárovaný)
       '<div style="margin-top:14px;">' +
       '<div style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;' +
-      'color:#7e93a8;font-weight:700;margin-bottom:4px;">Připojená zařízení</div>' +
-      '<div data-cdav-devices>' + _devicesHtml(info.tokens) + '</div></div>' +
+      'color:#7e93a8;font-weight:700;margin-bottom:4px;">' +
+      (IS_TEL ? "Tento telefon je spárovaný" : "Spárované telefony") +
+      ((info.tokens || []).filter(function (t) { return !t.revoked; }).length
+        ? ' (' + (info.tokens || []).filter(function (t) { return !t.revoked; }).length + ')' : '') +
+      '</div>' +
+      '<div data-cdav-devices>' + _devicesHtml(info) + '</div></div>' +
 
       // create button
       '<div data-cdav-create style="margin-top:14px;"></div>';
@@ -359,7 +386,7 @@
     if (!area) return;
     var btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = "➕ Připojit nový telefon";
+    btn.textContent = "➕ Spárovat s telefonem";
     btn.style.cssText =
       "background:#e8b923;color:#1c2530;border:none;padding:11px 18px;" +
       "border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;width:100%;";
@@ -370,16 +397,19 @@
 
   function _showCreateForm(area, info) {
     area.innerHTML =
-      '<div style="font-size:13px;color:#bcd0e6;margin-bottom:8px;">Pojmenuj zařízení a vyber, jestli na něm máš appku STRATEGIE Mobil:</div>' +
-      '<input type="text" data-cdav-label placeholder="Název zařízení (např. Můj mobil)" ' +
+      '<div style="font-size:13px;color:#bcd0e6;margin-bottom:8px;">Pojmenuj telefon (např. „Mirek soukromý", „Sdílený Mirek+Zuzka") a vyber způsob:</div>' +
+      '<input type="text" data-cdav-label placeholder="Název telefonu" ' +
       'maxlength="80" style="width:100%;background:#0f1620;border:1px solid #2c3a4c;' +
       'border-radius:8px;padding:10px 11px;color:#e8eef5;font-size:13px;margin-bottom:8px;">' +
       '<div style="display:flex;gap:8px;">' +
       '<button type="button" data-cdav-app style="flex:1;background:#1f3a2e;color:#cdeede;' +
-      'border:1px solid #3a7a4a;padding:11px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">📱 Mám appku</button>' +
+      'border:1px solid #3a7a4a;padding:11px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">📲 Mám appku</button>' +
       '<button type="button" data-cdav-noapp style="flex:1;background:#22344a;color:#bfe3ff;' +
-      'border:1px solid #35506e;padding:11px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">📥 Nemám appku</button>' +
+      'border:1px solid #35506e;padding:11px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🍏 Nemám appku (iPhone)</button>' +
       '</div>' +
+      '<div style="font-size:11.5px;color:#8aa0b8;margin-top:6px;line-height:1.45;">' +
+      '<b>Mám appku</b> = spárování s naší appkou STRATEGIE Mobil (Android i iPhone). ' +
+      '<b>Nemám appku</b> = jen iPhone přes nativní kontakty (CardDAV). Android jede vždy přes naši appku.</div>' +
       '<button type="button" data-cdav-cancel style="background:transparent;color:#9fb0c4;' +
       'border:1px solid #44566c;padding:9px;border-radius:8px;font-size:13px;cursor:pointer;width:100%;margin-top:8px;">Zpět</button>';
     var inp = area.querySelector("[data-cdav-label]");

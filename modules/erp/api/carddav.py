@@ -455,6 +455,22 @@ def _user_login(uid: int) -> str:
         s.close()
 
 
+def _user_display(uid: int) -> str:
+    """Zobrazované jméno uživatele (kdo je k zařízení spárovaný)."""
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        row = s.execute(_sql(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(first_name,'')||' '||"
+            "COALESCE(last_name,'')),''), NULLIF(short_name,''), "
+            "NULLIF(login_name,''), 'Uživatel '||id::text) "
+            "FROM public.users WHERE id = :id"
+        ), {"id": uid}).first()
+        return row[0] if row else ("Uživatel " + str(uid))
+    finally:
+        s.close()
+
+
 def _active_contact_count(uid: int) -> int:
     from core.database_data import get_data_session
     s = get_data_session()
@@ -555,6 +571,7 @@ def _conn_info(request: Request, uid: int) -> dict:
         "carddav_url": base + "/carddav/",
         "well_known": base + "/.well-known/carddav",
         "username": login,
+        "user_name": _user_display(uid),
         "books": [
             {"key": "real", "label": _BOOK_LABEL["real"]},
             {"key": "potential", "label": _BOOK_LABEL["potential"]},

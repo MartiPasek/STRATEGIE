@@ -193,12 +193,12 @@
       "&t=" + encodeURIComponent(res.token || "") + "&k=mobile";
     // Na telefonu (Android): tap přímo na app-setup stránku. Na PC: QR.
     var appBody = IS_TEL
-      ? ('<a href="' + _esc(appSetupUrl) + '" ' +
+      ? ('<a href="' + _esc(deepLink) + '" ' +
          'style="display:inline-block;background:#1f3a2e;border:1px solid #3a7a4a;color:#cdeede;' +
          'border-radius:8px;padding:12px 18px;font-size:14px;font-weight:700;text-decoration:none;">' +
-         '⬇️ Stáhnout appku STRATEGIE Mobil</a>' +
-         '<div style="font-size:12px;color:#8aa0b8;margin-top:8px;">Po instalaci appku otevři ' +
-         'a přihlas se — pak se spáruje.</div>')
+         '📲 Otevřít v appce a spárovat</a>' +
+         '<div style="font-size:12px;color:#8aa0b8;margin-top:8px;">Appku ještě nemáš? ' +
+         '<a href="' + _esc(appSetupUrl) + '" style="color:#7fd6c2;">Stáhnout</a></div>')
       : ('<div data-app-qr="1" data-url="' + _esc(appSetupUrl) + '" ' +
          'style="display:inline-block;background:#fff;padding:10px;border-radius:10px;' +
          'min-width:170px;min-height:170px;line-height:0;">' +

@@ -5928,8 +5928,35 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
                 else:
                     upd += 1
             sess.commit()
+        # Obohať zaměstnance o jméno + napojení na usera z TabCisZam (real data).
+        enriched = 0
+        try:
+            from sqlalchemy import text as _te
+            zam = _mcp_rows("SELECT Cislo, LTRIM(RTRIM(ISNULL(Jmeno,'')+' '+ISNULL(Prijmeni,''))) AS nm, "
+                            "LoginId FROM TabCisZam WHERE Cislo IS NOT NULL")
+            for z in zam:
+                cz = str(z.get("Cislo")).strip()
+                nm = (z.get("nm") or "").strip() or None
+                login = (z.get("LoginId") or "").strip() or None
+                uid_m = None
+                if login:
+                    rr = sess.execute(_te("SELECT id FROM public.users WHERE lower(login_name)=lower(:l) LIMIT 1"),
+                                      {"l": login}).first()
+                    uid_m = rr[0] if rr else None
+                r2 = sess.execute(_te(
+                    "UPDATE tenant.att_employee SET full_name=COALESCE(:nm,full_name), "
+                    "user_id=COALESCE(:u,user_id), updated_at=now() "
+                    "WHERE tenant_id=:t AND cislo_zam=:cz"),
+                    {"nm": nm, "u": uid_m, "t": tenant, "cz": cz})
+                if (r2.rowcount or 0) > 0:
+                    enriched += 1
+            sess.commit()
+        except Exception as _ee:
+            sess.rollback()
+            logger.warning("[migrate enrich] %s", _ee)
         return JSONResponse({"ok": True, "total": total, "inserted": ins, "updated": upd,
-                             "employees": len(emp_cache), "tenant": tenant, "from": from_date})
+                             "employees": len(emp_cache), "enriched": enriched,
+                             "tenant": tenant, "from": from_date})
     except Exception as exc:
         try:
             sess.rollback()

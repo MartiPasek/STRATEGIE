@@ -224,7 +224,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
     // → pokud je PWA nainstalovaná, otevře se standalone; jinak v prohlížeči.
     // Řeší případ, kdy uživatel smazal ikonu PWA, ale WebAPK zůstala nainstalovaná
     // (Chrome už install znovu nenabídne). Marti 6.6.2026.
-    fun pinShortcut(id: String, label: String, path: String) {
+    fun pinShortcut(id: String, label: String, path: String, kind: String) {
         try {
             if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) {
                 Toast.makeText(
@@ -244,14 +244,28 @@ fun AppRoot(modifier: Modifier = Modifier) {
                     return
                 }
             }
-            val target = Intent(Intent.ACTION_VIEW, Uri.parse(base() + path))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            val info = ShortcutInfoCompat.Builder(context, id)
-                .setShortLabel(label)
-                .setIcon(IconCompat.createWithResource(context, R.mipmap.ic_launcher))
-                .setIntent(target)
-                .build()
-            ShortcutManagerCompat.requestPinShortcut(context, info, null)
+            fun doPin(icon: IconCompat) {
+                val target = Intent(Intent.ACTION_VIEW, Uri.parse(base() + path))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val info = ShortcutInfoCompat.Builder(context, id)
+                    .setShortLabel(label)
+                    .setIcon(icon)
+                    .setIntent(target)
+                    .build()
+                ShortcutManagerCompat.requestPinShortcut(context, info, null)
+            }
+            if (kind == "chat") {
+                // Fotku Marti-AI stáhni na pozadí, pak slep s energií a vytvoř ikonu
+                val urlStr = base() + "/api/v1/erp/app/avatar"
+                val tok = token.trim()
+                Thread {
+                    val av = IconRender.fetchAvatar(urlStr, tok)
+                    val icon = IconRender.chat(av)
+                    Handler(Looper.getMainLooper()).post { doPin(icon) }
+                }.start()
+            } else {
+                doPin(IconRender.erp())
+            }
         } catch (e: Exception) {
             Toast.makeText(context, "Nepodařilo se přidat ikonu", Toast.LENGTH_SHORT).show()
         }
@@ -622,8 +636,8 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 onLoginPair = { open("/app-pair") },
                 onChat = { open("/") },
                 onErp = { open("/erp") },
-                onPinChat = { pinShortcut("stg_chat", "Chat STRATEGIE", "/") },
-                onPinErp = { pinShortcut("stg_erp", "ERP STRATEGIE", "/erp") },
+                onPinChat = { pinShortcut("stg_chat", "Marti-AI - STRATEGIE", "/", "chat") },
+                onPinErp = { pinShortcut("stg_erp", "ERP - STRATEGIE", "/erp", "erp") },
                 onToggle = { toggleService(it) },
                 notifs = notifs,
                 notifSel = notifSel,

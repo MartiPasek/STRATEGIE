@@ -381,7 +381,24 @@
   try{ history.pushState(null,""); }catch(e){}
   render();
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
-  setInterval(function(){ try{ renderNav(); }catch(e){} }, 12000);
+
+  // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).
+  function pollNotifs(){
+    api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
+      var cmds=(j&&j.commands)||[]; var n=cmds.length; var changed=(n!==notifCount);
+      notifCount=n; renderNav();
+      // Obnov seznam jen na hlavní obrazovce nebo na záložce Úkoly (ne když je
+      // uživatel zanořený v detailu) — žádné vyškubnutí z rozečtené zprávy.
+      if(changed){
+        var top=stack[stack.length-1];
+        if((curTab==="home"&&stack.length===1)||top==="notifs"){ try{ render(); }catch(e){} }
+      }
+    }).catch(function(){});
+  }
+  setInterval(pollNotifs, 6000);
+  // Při návratu do popředí (otevření z notifikace/launcheru) obnov hned.
+  document.addEventListener("visibilitychange", function(){ if(!document.hidden){ refreshUpdate(); pollNotifs(); } });
+  window.addEventListener("focus", function(){ refreshUpdate(); pollNotifs(); });
 })();
 </script>
 </body>

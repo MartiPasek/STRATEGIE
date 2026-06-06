@@ -15921,6 +15921,7 @@ def _render_full_page(
           </button>
           <!-- DEV/DESIGN-only proklik na hybrid /mobile (napravo od Tvoje Marti). Marti 6.6.2026. -->
           <a id="erpMobileDevLink" href="/mobile" target="_blank" rel="noopener"
+             onclick="event.preventDefault(); window.open('/mobile','_blank','noopener');"
              class="erp-marti-btn" style="display:none;text-decoration:none;align-items:center;"
              data-hint="Otevři /mobile (hybrid) — jen DEV/DESIGN režim">📱 /mobile</a>
           <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled

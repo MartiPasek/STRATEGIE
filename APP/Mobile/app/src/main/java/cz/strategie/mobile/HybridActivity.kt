@@ -131,6 +131,26 @@ class HybridActivity : ComponentActivity() {
             return id
         }
 
+        // Poslední příchozí vytočení z ERP (do ~2 min) — pro kartu „Zavolat" na
+        // hlavní obrazovce, ať to uživatel vidí i v appce, ne jen v notifikaci.
+        @JavascriptInterface
+        fun lastDial(): String {
+            return try {
+                val s = getSharedPreferences(prefsName, MODE_PRIVATE)
+                    .getString(DialPollService.KEY_LAST_DIAL, "") ?: ""
+                if (s.isBlank()) return ""
+                val o = org.json.JSONObject(s)
+                val ts = o.optLong("ts", 0L)
+                if (System.currentTimeMillis() - ts > 120000L) "" else s
+            } catch (e: Exception) { "" }
+        }
+
+        @JavascriptInterface
+        fun clearLastDial() {
+            try { getSharedPreferences(prefsName, MODE_PRIVATE).edit()
+                .remove(DialPollService.KEY_LAST_DIAL).apply() } catch (e: Exception) {}
+        }
+
         // Číslo telefonu přímo ze SIM (bez SMS brány). Nemusí být dostupné u všech
         // operátorů/SIM → pak vrátí "" a uživatel ho zadá ručně. Vyžádá READ_PHONE_NUMBERS.
         @JavascriptInterface

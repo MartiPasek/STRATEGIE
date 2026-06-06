@@ -149,18 +149,37 @@
     else e.innerHTML='🔴 Bez odezvy ('+s+' s) — zkontroluj párování';
   }
 
+  // Karta „Zavolat z ERP" na hlavní obrazovce — když přijde vytočení (do ~2 min),
+  // ukáže se i v appce (ne jen jako notifikace). Marti 6.6.2026.
+  function showDialCard(){
+    var box=document.getElementById("homeDialCard"); if(!box) return;
+    var raw=""; try{ if(B&&typeof B.lastDial==="function") raw=B.lastDial()||""; }catch(e){}
+    var d=null; try{ if(raw) d=JSON.parse(raw); }catch(e){}
+    if(!d||!d.phone){ if(box.innerHTML)box.innerHTML=""; return; }
+    if(box.getAttribute("data-ph")===d.phone) return; // už zobrazeno
+    box.setAttribute("data-ph", d.phone);
+    var who=esc(d.label||d.phone);
+    box.innerHTML='<div class="homenotif" style="background:rgba(31,58,46,.94);border-color:#3a7a4a;">'
+      +'<div class="ic">📞</div><div style="flex:1;min-width:0;"><div class="nt">Zavolat z ERP</div>'
+      +'<div class="nm" style="margin:2px 0 0;">'+who+' · '+esc(d.phone)+'</div></div>'
+      +'<button class="green sm" id="dialNowBtn">Vytočit</button></div>';
+    var b=document.getElementById("dialNowBtn");
+    if(b)b.addEventListener("click",function(){ doDial(d.phone); try{B.clearLastDial();}catch(e){} box.innerHTML=""; box.removeAttribute("data-ph"); });
+  }
+
   // ───── DOMŮ (pozadí = fotka Marti-AI) ─────
   function home(){
     app.innerHTML = "";
     var ls = listenState();
     var bg = el('<div class="homebg"></div>');
     bg.style.backgroundImage = "linear-gradient(rgba(14,15,17,.05), rgba(14,15,17,.86)), url('"+avatarUrl+"')";
-    bg.innerHTML = '<div id="homeNotifsWrap"></div>'
+    bg.innerHTML = '<div id="homeDialCard"></div><div id="homeNotifsWrap"></div>'
       + '<div class="h1">STRATEGIE Mobil</div>'
       + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
       + '<div class="h3" id="homeLive"></div>';
     app.appendChild(bg);
     updateLive();
+    showDialCard();
     loadHomeNotifs();
   }
   function loadHomeNotifs(){
@@ -438,7 +457,7 @@
     }).catch(function(){});
   }
   setInterval(pollNotifs, 6000);
-  setInterval(updateLive, 1000);
+  setInterval(function(){ updateLive(); showDialCard(); }, 1000);
   // Při návratu do popředí (otevření z notifikace/launcheru) obnov hned.
   document.addEventListener("visibilitychange", function(){ if(!document.hidden){ refreshUpdate(); pollNotifs(); } });
   window.addEventListener("focus", function(){ refreshUpdate(); pollNotifs(); });

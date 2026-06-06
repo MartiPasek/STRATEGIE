@@ -194,6 +194,14 @@ class DialPollService : Service() {
             .setFullScreenIntent(pi, true)
             .build()
         nm().notify(NOTIF_DIAL_BASE + id, n)
+        // Ulož poslední vytočení i pro appku (karta „Zavolat" na hlavní obrazovce),
+        // ať to uživatel vidí i když otevře appku místo notifikace. Marti 6.6.2026.
+        try {
+            val o = JSONObject()
+            o.put("phone", phone); o.put("label", label); o.put("ts", System.currentTimeMillis())
+            getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_LAST_DIAL, o.toString()).apply()
+        } catch (e: Exception) {}
     }
 
     private fun startForegroundCompat() {
@@ -622,6 +630,7 @@ class DialPollService : Service() {
         const val KEY_PENDING_CALLS = "pending_calls"
         const val KEY_DL_CODE = "downloaded_update_code"
         const val KEY_DEVICE_ID = "device_id"
+        const val KEY_LAST_DIAL = "last_dial"
         const val APP_KEY = "mobile"
         const val DEFAULT_URL = "https://strategie-ai.com"
         const val CH_ONGOING = "dial_ongoing"

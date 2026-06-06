@@ -4,12 +4,15 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import java.net.URL
+import javax.net.ssl.HttpsURLConnection
 
 /**
  * Hybridní obrazovka (Temu model): WebView načte /mobile (web-first obsah) a přes
@@ -23,6 +26,7 @@ class HybridActivity : ComponentActivity() {
 
     private val prefsName = DialPollService.PREFS
     private val keyUrl = DialPollService.KEY_URL
+    private val keyToken = DialPollService.KEY_TOKEN
     private val defUrl = DialPollService.DEFAULT_URL
 
     private fun base(): String {
@@ -56,6 +60,36 @@ class HybridActivity : ComponentActivity() {
         @JavascriptInterface
         fun toast(msg: String) {
             runOnUiThread { Toast.makeText(this@HybridActivity, msg, Toast.LENGTH_SHORT).show() }
+        }
+
+        // Allowlist alias (Marti-AI) — pojmenovaná akce vytáčení.
+        @JavascriptInterface
+        fun dialNumber(number: String) = dial(number)
+
+        // Autentizovaný fetch — token jde JEN v Authorization headeru (NE do DOM/JS;
+        // drží doktrínu „login UPN je secret"). Vrací tělo odpovědi jako text.
+        // method = GET/POST, path = /api/v1/erp/...  Marti 6.6.2026.
+        @JavascriptInterface
+        fun authedFetch(method: String, path: String, body: String): String {
+            Log.d("STRATEGIE.bridge", "authedFetch $method $path")
+            return try {
+                val con = URL(base() + path).openConnection() as HttpsURLConnection
+                con.requestMethod = method.uppercase()
+                val tok = getSharedPreferences(prefsName, MODE_PRIVATE).getString(keyToken, "") ?: ""
+                if (tok.isNotEmpty()) con.setRequestProperty("Authorization", "Bearer $tok")
+                con.connectTimeout = 8000
+                con.readTimeout = 8000
+                if (method.equals("POST", true)) {
+                    con.doOutput = true
+                    con.setRequestProperty("Content-Type", "application/json")
+                    con.outputStream.use { it.write(body.toByteArray()) }
+                }
+                val code = con.responseCode
+                val s = if (code in 200..299) con.inputStream else con.errorStream
+                s?.bufferedReader()?.use { it.readText() } ?: ""
+            } catch (e: Exception) {
+                ""
+            }
         }
     }
 

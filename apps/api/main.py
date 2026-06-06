@@ -688,6 +688,26 @@ def mobile_page():
     return FileResponse(os.path.join(static_dir, "mobile.html"))
 
 
+@app.get("/mobile-sw.js")
+def mobile_service_worker():
+    """Service worker pro /mobile PWA (scope /mobile) — kvůli instalovatelnosti."""
+    from fastapi import Response
+    sw = (
+        "self.addEventListener('install', function(e){ self.skipWaiting(); });\n"
+        "self.addEventListener('activate', function(e){ self.clients.claim(); });\n"
+        "self.addEventListener('fetch', function(e){ e.respondWith("
+        "fetch(e.request).catch(function(){ return new Response('', {status:503}); })); });\n"
+    )
+    return Response(
+        content=sw,
+        media_type="application/javascript",
+        headers={
+            "Service-Worker-Allowed": "/mobile",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
+
+
 @app.get("/sw.js")
 def core_service_worker():
     """B+10+++++ (6.5.2026 odpoledne): Service Worker pro core STRATEGIE

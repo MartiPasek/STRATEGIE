@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e0f11">
+<link rel="manifest" href="/static/mobile-manifest.json">
 <title>STRATEGIE Mobil</title>
 <style>
   :root { --bg:#0e0f11; --surf:#16181c; --bord:#2a2d33; --tx:#e8eaf0; --mut:#8a96a4;
@@ -52,6 +54,10 @@
 <script>
 (function () {
   var B = window.STRATEGIE || null;
+  // PWA install (prohlížeč): zachyt nabídku + zaregistruj service worker
+  var deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); deferredPrompt = e; });
+  if ("serviceWorker" in navigator) { try { navigator.serviceWorker.register("/mobile-sw.js", { scope: "/mobile" }); } catch (e) {} }
   var canDial = !!(B && (typeof B.dialNumber === "function" || typeof B.dial === "function"));
   var canListen = !!(B && typeof B.listening === "function");
   var canFetch = !!(B && typeof B.authedFetch === "function");
@@ -104,11 +110,13 @@
     list.appendChild(row("🔔","Notifikace a úkoly", notifCount==null?"…":(notifCount?("Čekající: "+notifCount):"Žádné čekající"), function(){go("notifs");}));
     list.appendChild(row("⚙️","Nastavení","Naslouchání, ikony, vývojář, o aplikaci",function(){go("settings");}));
     app.appendChild(list);
-    // doplň počet notifikací
-    api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
-      notifCount = j&&j.commands?j.commands.length:0;
-      if(stack[stack.length-1]==="home") render();
-    });
+    // počet notifikací načti JEN jednou (jinak by re-render spustil další fetch → smyčka)
+    if (notifCount === null) {
+      api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
+        notifCount = j&&j.commands?j.commands.length:0;
+        if(stack[stack.length-1]==="home") render();
+      });
+    }
   }
 
   // ───────────── TELEFON ─────────────
@@ -173,6 +181,7 @@
     var l=el('<div class="list"></div>');
     l.appendChild(row("🟢","Naslouchání","Stav služby vytáčení",function(){go("set_listen");}));
     l.appendChild(row("📌","Ikony na plochu","ERP a Chat zkratky",function(){go("set_icons");}));
+    l.appendChild(row("📲","Nainstalovat na plochu","/mobile jako PWA",function(){go("set_install");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
     l.appendChild(row("ℹ️","O aplikaci", ver?("Verze "+ver):"Verze a stav",function(){go("set_about");}));
     app.appendChild(l);
@@ -209,7 +218,20 @@
     app.appendChild(p);
   }
 
-  var SCREENS = { home:home, phone:phone, notifs:notifs, settings:settings, set_listen:set_listen, set_icons:set_icons, set_dev:set_dev, set_about:set_about };
+  function set_install(){
+    app.innerHTML = topbar("Nainstalovat na plochu", true);
+    var p=el('<div class="panel"></div>');
+    var b=el('<button class="green full">Nainstalovat /mobile jako appku</button>');
+    var info=el('<div class="hint"></div>');
+    b.addEventListener("click", function(){
+      if(deferredPrompt){ deferredPrompt.prompt(); try{ deferredPrompt.userChoice.then(function(){ deferredPrompt=null; }); }catch(e){} }
+      else { info.textContent="Pokud nabídka nevyskočí: v prohlížeči ⋮ → Přidat na plochu / Nainstalovat aplikaci. (V nativní appce STRATEGIE jsi už nativně.)"; }
+    });
+    p.appendChild(b); p.appendChild(info);
+    p.appendChild(el('<div class="hint">Nainstaluje /mobile jako samostatnou PWA — vlastní ikona, bez prohlížečové lišty.</div>'));
+    app.appendChild(p);
+  }
+  var SCREENS = { home:home, phone:phone, notifs:notifs, settings:settings, set_listen:set_listen, set_icons:set_icons, set_install:set_install, set_dev:set_dev, set_about:set_about };
   function render(){
     (SCREENS[stack[stack.length-1]]||home)();
     var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back);

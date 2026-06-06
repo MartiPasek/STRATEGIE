@@ -15919,6 +15919,10 @@ def _render_full_page(
             </span>
             <span class="erp-marti-btn-label">Tvoje Marti</span>
           </button>
+          <!-- DEV/DESIGN-only proklik na hybrid /mobile (napravo od Tvoje Marti). Marti 6.6.2026. -->
+          <a id="erpMobileDevLink" href="/mobile" target="_blank" rel="noopener"
+             class="erp-marti-btn" style="display:none;text-decoration:none;align-items:center;"
+             data-hint="Otevři /mobile (hybrid) — jen DEV/DESIGN režim">📱 /mobile</a>
           <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled
                smazány z headeru — duplikát s browser title barem. Zachováno jako
                skryté kotvy pro JS update document.title (žádný visual). -->
@@ -19173,6 +19177,7 @@ def _render_workspace_page(user_id: int) -> str:
       }
       function renderErpDesignBadge() {
         const on = getErpDesignMode();
+        try { var _ml = document.getElementById('erpMobileDevLink'); if (_ml) _ml.style.display = on ? 'inline-flex' : 'none'; } catch (e) {}
         let badge = document.getElementById('erpDesignBadge');
         if (on) {
           if (!badge) {

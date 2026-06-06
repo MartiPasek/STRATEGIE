@@ -1,0 +1,23 @@
+{
+  "id": "strategie-mobile",
+  "name": "STRATEGIE Mobil",
+  "short_name": "STRATEGIE",
+  "description": "STRATEGIE Mobil — telefonní funkce, notifikace a úkoly.",
+  "start_url": "/mobile",
+  "scope": "/mobile",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
+  "background_color": "#0e0f11",
+  "theme_color": "#0e0f11",
+  "lang": "cs",
+  "dir": "ltr",
+  "categories": ["productivity", "business", "utilities"],
+  "prefer_related_applications": false,
+  "launch_handler": { "client_mode": "focus-existing" },
+  "icons": [
+    { "src": "/static/erp/icon-192.png?v=20260606", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/erp/icon-512.png?v=20260606", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/erp/icon-maskable-512.png?v=20260606", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

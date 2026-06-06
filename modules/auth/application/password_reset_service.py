@@ -29,9 +29,13 @@ logger = get_logger("auth.password_reset")
 TOKEN_EXPIRY_MINUTES = 60
 
 
-def create_reset_token(email: str) -> tuple[str, int, str | None] | None:
+def create_reset_token(email: str, allow_pending: bool = False) -> tuple[str, int, str | None] | None:
     """
     Vytvori reset token pro usera s danym emailem.
+
+    Args:
+        allow_pending: True = povol i usery ve stavu 'pending' (aktivacni
+            flow po HR importu — prvni nastaveni hesla pres e-mail link).
 
     Returns:
         (token, user_id, first_name) pokud user existuje a je aktivni
@@ -39,6 +43,7 @@ def create_reset_token(email: str) -> tuple[str, int, str | None] | None:
         no-enumeration: utocnik nesmi zjistit zda email existuje)
     """
     needle = email.strip().lower()
+    allowed = ("active", "pending") if allow_pending else ("active",)
     session = get_core_session()
     try:
         contact = (
@@ -55,7 +60,7 @@ def create_reset_token(email: str) -> tuple[str, int, str | None] | None:
             return None
 
         user = session.query(User).filter_by(id=contact.user_id).first()
-        if not user or user.status != "active":
+        if not user or user.status not in allowed:
             logger.info(f"PASSWORD_RESET | user not active | email={email}")
             return None
 
@@ -114,13 +119,15 @@ def get_reset_info(token: str) -> dict | None:
             return None
 
         user = session.query(User).filter_by(id=prt.user_id).first()
-        if not user or user.status != "active":
+        # pending = aktivacni flow (prvni heslo) — token pro nej vznika vedome
+        if not user or user.status not in ("active", "pending"):
             return None
 
         return {
             "email_masked": _mask_email(prt.sent_to_email),
             "first_name": user.first_name,
             "valid": True,
+            "is_activation": user.status == "pending",
         }
     finally:
         session.close()
@@ -154,7 +161,7 @@ def consume_reset_token(token: str, new_password: str) -> dict | None:
             return None
 
         user = session.query(User).filter_by(id=prt.user_id).first()
-        if not user or user.status != "active":
+        if not user or user.status not in ("active", "pending"):
             logger.warning(f"PASSWORD_RESET | consume: user not active | user_id={prt.user_id}")
             return None
 
@@ -162,13 +169,17 @@ def consume_reset_token(token: str, new_password: str) -> dict | None:
         user.password_hash = new_hash
         user.password_set_at = now
         prt.used_at = now
+        # Aktivacni flow: pending user po nastaveni hesla jeste NENI active —
+        # status preklopi az SMS overeni mobilu (/auth/phone-verify/confirm).
+        needs_phone_verify = user.status == "pending"
         session.commit()
 
         logger.info(
             f"PASSWORD_RESET | password changed via reset | user_id={user.id} | "
-            f"token={token[:8]}..."
+            f"token={token[:8]}... | needs_phone_verify={needs_phone_verify}"
         )
-        return {"user_id": user.id, "email": prt.sent_to_email}
+        return {"user_id": user.id, "email": prt.sent_to_email,
+                "needs_phone_verify": needs_phone_verify}
     except Exception as e:
         session.rollback()
         logger.error(f"PASSWORD_RESET | consume failed: {e}")

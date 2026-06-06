@@ -3193,8 +3193,13 @@
 
     // Validni token -> rozsvit form
     const greetName = info.first_name || '';
-    rTitle.textContent = greetName ? `Ahoj ${greetName}` : 'Nové heslo';
-    rSub.textContent = `Nastavíš heslo pro účet ${info.email_masked}.`;
+    if (info.is_activation) {
+      rTitle.textContent = greetName ? `Vítej, ${greetName}!` : 'Vítej!';
+      rSub.textContent = `Aktivuješ účet ${info.email_masked}. Nastav si heslo.`;
+    } else {
+      rTitle.textContent = greetName ? `Ahoj ${greetName}` : 'Nové heslo';
+      rSub.textContent = `Nastavíš heslo pro účet ${info.email_masked}.`;
+    }
     setTimeout(() => rPw.focus(), 80);
 
     rPwc.addEventListener('keydown', e => { if (e.key === 'Enter') doReset(); });
@@ -3232,28 +3237,105 @@
         }
         // Po uspechu -- backend setnul cookies, refresh /me a do app
         rMsg.style.color = '#7cd99e';
-        rMsg.textContent = '✓ Heslo nastaveno. Přihlašuji…';
         rPw.value = ''; rPwc.value = '';
         try {
           const me = await fetch('/api/v1/auth/me', { credentials: 'include' });
           if (me.ok) currentUser = await me.json();
         } catch (_) {}
-        setTimeout(() => {
-          window.history.replaceState({}, '', '/');
-          rScr.style.display = 'none';
-          if (currentUser) {
-            setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
-            showApp();
-          } else {
-            // Fallback -- backend ackoli nastavil cookies, /me selhalo. Vrat na login.
-            lScr.style.display = 'flex';
-          }
-        }, 800);
+        // Aktivacni onboarding: pending user musi jeste overit mobil SMS kodem.
+        if (d.needs_phone_verify) {
+          rMsg.textContent = '✓ Heslo nastaveno.';
+          showPhoneVerifyStep();
+          return;
+        }
+        rMsg.textContent = '✓ Heslo nastaveno. Přihlašuji…';
+        setTimeout(_enterApp, 800);
       } catch (e) {
         rMsg.style.color = '#e07070';
         rMsg.textContent = 'Chyba spojení.';
         rBtn.disabled = false;
       }
+    }
+
+    function _enterApp() {
+      window.history.replaceState({}, '', '/');
+      rScr.style.display = 'none';
+      if (currentUser) {
+        setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
+        showApp();
+      } else {
+        // Fallback -- backend ackoli nastavil cookies, /me selhalo. Vrat na login.
+        lScr.style.display = 'flex';
+      }
+    }
+
+    // Krok 2 onboardingu: overeni mobilu SMS kodem (po nastaveni hesla).
+    // Dynamicky postavene UI uvnitr resetScreen -- telefon -> SMS kod -> active.
+    function showPhoneVerifyStep() {
+      rTitle.textContent = 'Ověření mobilu';
+      rSub.textContent = 'Zadej své mobilní číslo, pošleme ti SMS s ověřovacím kódem.';
+      rPw.style.display = 'none'; rPwc.style.display = 'none'; rBtn.style.display = 'none';
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;flex-direction:column;gap:10px;width:100%';
+      const phoneIn = document.createElement('input');
+      phoneIn.type = 'tel'; phoneIn.placeholder = '+420 777 123 456';
+      phoneIn.className = rPw.className;
+      const codeIn = document.createElement('input');
+      codeIn.type = 'text'; codeIn.placeholder = 'Kód z SMS';
+      codeIn.inputMode = 'numeric'; codeIn.maxLength = 6;
+      codeIn.className = rPw.className; codeIn.style.display = 'none';
+      const vBtn = document.createElement('button');
+      vBtn.textContent = 'Poslat kód';
+      vBtn.className = rBtn.className;
+      wrap.appendChild(phoneIn); wrap.appendChild(codeIn); wrap.appendChild(vBtn);
+      rBtn.parentNode.insertBefore(wrap, rBtn);
+      let stage = 'phone';
+      async function step() {
+        rMsg.style.color = ''; rMsg.textContent = '';
+        vBtn.disabled = true;
+        try {
+          if (stage === 'phone') {
+            const r = await fetch('/api/v1/auth/phone-verify/start', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ phone: phoneIn.value.trim() }),
+            });
+            const d2 = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              rMsg.style.color = '#e07070';
+              rMsg.textContent = (typeof d2.detail === 'string') ? d2.detail : 'Odeslání SMS selhalo.';
+              vBtn.disabled = false; return;
+            }
+            rMsg.style.color = '#7cd99e';
+            rMsg.textContent = 'SMS odeslána. Zadej kód ze zprávy.';
+            phoneIn.disabled = true; codeIn.style.display = ''; codeIn.focus();
+            vBtn.textContent = 'Ověřit kód'; stage = 'code'; vBtn.disabled = false;
+          } else {
+            const r = await fetch('/api/v1/auth/phone-verify/confirm', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ code: codeIn.value.trim() }),
+            });
+            const d2 = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              rMsg.style.color = '#e07070';
+              rMsg.textContent = (typeof d2.detail === 'string') ? d2.detail : 'Ověření selhalo.';
+              vBtn.disabled = false; return;
+            }
+            rMsg.style.color = '#7cd99e';
+            rMsg.textContent = '✓ Mobil ověřen. Účet je aktivní, přihlašuji…';
+            setTimeout(_enterApp, 900);
+          }
+        } catch (e) {
+          rMsg.style.color = '#e07070';
+          rMsg.textContent = 'Chyba spojení.';
+          vBtn.disabled = false;
+        }
+      }
+      vBtn.addEventListener('click', step);
+      codeIn.addEventListener('keydown', e => { if (e.key === 'Enter') step(); });
+      phoneIn.addEventListener('keydown', e => { if (e.key === 'Enter') step(); });
+      phoneIn.focus();
     }
     return true;
   }

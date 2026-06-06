@@ -30,7 +30,9 @@ from modules.auth.api.schemas import (
     LoginRequest, LoginResponse, SwitchTenantRequest,
     VerifyEmailRequestBody, VerifyEmailRequestResponse, VerifyEmailConfirmResponse,
 )
-from modules.auth.application.service import login_by_email, AmbiguousEmailError, PasswordNotSet
+from modules.auth.application.service import (
+    login_by_email, AmbiguousEmailError, PasswordNotSet, PendingActivation,
+)
 from modules.auth.application.invitation_service import (
     create_invitation, accept_invitation, get_invitation_info,
     UserAlreadyActive, UserDisabled,
@@ -88,6 +90,36 @@ def login(request: LoginRequest, response: Response, req: Request) -> LoginRespo
                   error="ambiguous_email", ip_address=ip, user_agent=ua,
                   extra_metadata={"email": request.email})
         raise HTTPException(status_code=401, detail=str(e))
+    except PendingActivation as pa:
+        # Standardni onboarding (HR import): pending user bez hesla → posli
+        # aktivacni e-mail s linkem na nastaveni hesla. Rate-limit pres stejny
+        # counter (ochrana proti e-mail floodu pres opakovane login pokusy).
+        login_rate_limiter.record_failure(ip)
+        from modules.notifications.application.email_service import send_activation_email
+        email_sent = False
+        try:
+            res = create_reset_token(pa.email, allow_pending=True)
+            if res:
+                a_token, a_uid, a_fname = res
+                email_sent = bool(send_activation_email(
+                    to=pa.email, token=a_token, first_name=a_fname))
+        except Exception as e:
+            logger.error(f"AUTH | activation email failed | user_id={pa.user_id} | {e}")
+        log_event(action="activation_email_sent",
+                  status="success" if email_sent else "error",
+                  user_id=pa.user_id, ip_address=ip, user_agent=ua,
+                  error=None if email_sent else "email_send_failed",
+                  extra_metadata={"email": request.email})
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "activation_email_sent",
+                "message": (
+                    "Účet čeká na aktivaci. Poslali jsme ti e-mail s odkazem "
+                    "pro nastavení hesla — zkontroluj schránku."
+                ),
+            },
+        )
     except PasswordNotSet as e:
         # Pozn.: no_password_set neni "bad credential" v klasickem smyslu,
         # ale rate-limitujeme i tyhle (jinak by utocnik mohl enumerovat usery).
@@ -1213,7 +1245,151 @@ def reset_password(body: ResetPasswordRequest, response: Response, req: Request)
     log_event(action="password_reset", status="success",
               user_id=result["user_id"], ip_address=ip, user_agent=ua)
 
-    return {"status": "password_reset", "email": result["email"]}
+    return {"status": "password_reset", "email": result["email"],
+            "needs_phone_verify": bool(result.get("needs_phone_verify"))}
+
+
+# ── PHONE VERIFY (SMS ověření mobilu — standardní onboarding) ────────────
+
+class PhoneVerifyStartRequest(BaseModel):
+    phone: str
+
+
+class PhoneVerifyConfirmRequest(BaseModel):
+    code: str
+
+
+@router.post("/phone-verify/start")
+def phone_verify_start(body: PhoneVerifyStartRequest, req: Request) -> dict:
+    """Pošle 6místný SMS kód na zadané číslo. Auth required (po nastavení
+    hesla je user přihlášený přes cookies). Kód platí 10 minut, max 3 SMS
+    za 15 minut na usera."""
+    import secrets as _sec
+    from sqlalchemy import text as _t
+    from modules.notifications.application.sms_service import queue_sms, normalize_phone
+    from modules.audit.application.service import log_event
+
+    uid = _get_uid(req)
+    try:
+        phone = normalize_phone(body.phone)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Neplatné telefonní číslo.")
+
+    session = get_core_session()
+    try:
+        cnt = session.execute(_t(
+            "SELECT count(*) FROM fw.phone_verify_code "
+            "WHERE user_id=:u AND created_at > now() - interval '15 minutes'"),
+            {"u": uid}).scalar() or 0
+        if cnt >= 3:
+            raise HTTPException(status_code=429,
+                                detail="Příliš mnoho pokusů. Zkus to za 15 minut.")
+        session.execute(_t(
+            "UPDATE fw.phone_verify_code SET used_at=now() "
+            "WHERE user_id=:u AND used_at IS NULL"), {"u": uid})
+        code = f"{_sec.randbelow(1000000):06d}"
+        session.execute(_t(
+            "INSERT INTO fw.phone_verify_code (user_id, phone, code, expires_at) "
+            "VALUES (:u, :p, :c, now() + interval '10 minutes')"),
+            {"u": uid, "p": phone, "c": code})
+        session.commit()
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"PHONE_VERIFY | start failed | user_id={uid} | {e}")
+        raise HTTPException(status_code=500,
+                            detail="Nepodařilo se vytvořit ověřovací kód.")
+    finally:
+        session.close()
+
+    queue_sms(to=phone,
+              body=f"STRATEGIE: overovaci kod {code}. Plati 10 minut.",
+              purpose="phone_verify", user_id=uid)
+    log_event(action="phone_verify_started", user_id=uid,
+              extra_metadata={"phone": phone})
+    return {"status": "sms_sent"}
+
+
+@router.post("/phone-verify/confirm")
+def phone_verify_confirm(body: PhoneVerifyConfirmRequest, req: Request) -> dict:
+    """Ověří SMS kód, zapíše mobil do user_contacts (is_verified=True),
+    pending usera překlopí na active. Max 5 špatných pokusů na kód."""
+    from sqlalchemy import text as _t
+    from modules.audit.application.service import log_event
+
+    uid = _get_uid(req)
+    code_in = (body.code or "").strip()
+    if not code_in.isdigit() or len(code_in) != 6:
+        raise HTTPException(status_code=400, detail="Kód má 6 číslic.")
+
+    activated = False
+    phone = None
+    session = get_core_session()
+    try:
+        row = session.execute(_t(
+            "SELECT id, phone, code, attempts FROM fw.phone_verify_code "
+            "WHERE user_id=:u AND used_at IS NULL AND expires_at > now() "
+            "ORDER BY id DESC LIMIT 1"), {"u": uid}).first()
+        if not row:
+            raise HTTPException(status_code=404,
+                                detail="Žádný platný kód. Pošli si nový.")
+        vid, phone, code_db, attempts = row[0], row[1], row[2], row[3]
+        if attempts >= 5:
+            session.execute(_t("UPDATE fw.phone_verify_code SET used_at=now() "
+                               "WHERE id=:i"), {"i": vid})
+            session.commit()
+            raise HTTPException(status_code=429,
+                                detail="Příliš mnoho špatných pokusů. Pošli si nový kód.")
+        if code_in != code_db:
+            session.execute(_t("UPDATE fw.phone_verify_code SET attempts=attempts+1 "
+                               "WHERE id=:i"), {"i": vid})
+            session.commit()
+            raise HTTPException(status_code=401, detail="Kód nesedí. Zkus to znovu.")
+
+        # Kód sedí → spotřebuj + zapiš ověřený kontakt + aktivuj usera.
+        session.execute(_t("UPDATE fw.phone_verify_code SET used_at=now() "
+                           "WHERE id=:i"), {"i": vid})
+
+        existing = (
+            session.query(UserContact)
+            .filter_by(user_id=uid, contact_type="phone", contact_value=phone)
+            .first()
+        )
+        if existing:
+            existing.is_verified = True
+            existing.status = "active"
+        else:
+            has_primary = (
+                session.query(UserContact)
+                .filter_by(user_id=uid, contact_type="phone", is_primary=True)
+                .first()
+            ) is not None
+            session.add(UserContact(
+                user_id=uid, contact_type="phone", contact_value=phone,
+                is_primary=not has_primary, is_verified=True, status="active",
+                created_by_id=uid, created_by_text="phone-verify",
+            ))
+
+        user = session.query(User).filter_by(id=uid).first()
+        if user and user.status == "pending":
+            user.status = "active"
+            activated = True
+        session.commit()
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"PHONE_VERIFY | confirm failed | user_id={uid} | {e}")
+        raise HTTPException(status_code=500, detail="Ověření selhalo.")
+    finally:
+        session.close()
+
+    log_event(action="phone_verified", user_id=uid,
+              extra_metadata={"phone": phone, "activated": activated})
+    return {"status": "verified", "activated": activated}
 
 
 # ── CHANGE PASSWORD ──────────────────────────────────────────────────────

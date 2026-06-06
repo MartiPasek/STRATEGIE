@@ -30,6 +30,16 @@ class PasswordNotSet(Exception):
     set-password flow (admin script v MVP, později self-service přes mail)."""
 
 
+class PendingActivation(Exception):
+    """User je ve stavu 'pending' bez hesla — standardní onboarding (HR import).
+    Router na tohle pošle aktivační e-mail s linkem pro nastavení hesla."""
+
+    def __init__(self, user_id: int, email: str):
+        self.user_id = user_id
+        self.email = email
+        super().__init__("Účet čeká na aktivaci.")
+
+
 def login_by_email(email: str, password: str) -> dict | None:
     """
     Login přes email + heslo s bcrypt verify.
@@ -69,15 +79,19 @@ def login_by_email(email: str, password: str) -> dict | None:
 
         contact = contacts[0]
         user = session.query(User).filter_by(id=contact.user_id).first()
-        if not user or user.status != "active":
+        # 'pending' pouštíme dál — buď spustí aktivaci (bez hesla), nebo se
+        # přihlásí nastaveným heslem (SMS ověření dotáhne frontend).
+        if not user or user.status not in ("active", "pending"):
             logger.warning(f"AUTH | user inactive | email={email}")
             return None
 
         # Bezpečnostní brána: účet bez nastaveného hesla nemůže být přihlášen.
-        # Předtím v MVP fázi šlo přihlásit jen emailem (bez hesla) — to je teď
-        # natvrdo zakázáno. Useři bez password_hash musí dostat heslo přes
-        # admin script (scripts/set_initial_passwords.py).
+        # Pending user (HR import) → PendingActivation → router pošle aktivační
+        # e-mail s linkem. Aktivní user bez hesla → PasswordNotSet (admin).
         if not user.password_hash:
+            if user.status == "pending":
+                logger.info(f"AUTH | pending activation | user_id={user.id} | email={email}")
+                raise PendingActivation(user.id, contact.contact_value)
             logger.warning(f"AUTH | password not set | user_id={user.id} | email={email}")
             raise PasswordNotSet(
                 "Účet ještě nemá nastavené heslo. Kontaktuj admina."

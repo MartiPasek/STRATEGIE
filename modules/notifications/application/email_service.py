@@ -2335,3 +2335,46 @@ Tým STRATEGIE
         to=to, subject=subject, body=body,
         persona_id=persona_id,
     )
+
+
+def send_activation_email(
+    to: str,
+    token: str,
+    first_name: str | None = None,
+    gender: str | None = None,
+) -> bool:
+    """
+    Aktivacni e-mail pro nove zalozene (pending) usery — standardni onboarding.
+    Link vede na /reset/{token} (stejna stranka jako obnova hesla), po nastaveni
+    hesla nasleduje SMS overeni mobilu.
+    """
+    from shared.czech import to_vocative
+    from core.config import settings
+
+    base_url = settings.app_base_url.rstrip("/")
+    link = f"{base_url}/reset/{token}"
+
+    vocative = to_vocative(first_name, gender).strip() if first_name else ""
+    greeting = f"Ahoj {vocative}," if vocative else "Ahoj,"
+
+    subject = "Aktivace účtu — STRATEGIE"
+    body = f"""{greeting}
+
+byl ti založen účet v systému STRATEGIE.
+
+Klikni na tento odkaz a nastav si heslo:
+{link}
+
+Odkaz je platný 60 minut a dá se použít jen jednou. Pokud vyprší, stačí se
+znovu zkusit přihlásit svým e-mailem — pošleme ti nový.
+
+Po nastavení hesla tě požádáme o číslo mobilu a ověříme ho SMS kódem.
+
+S pozdravem,
+Tým STRATEGIE
+"""
+    persona_id = _get_default_persona_id()
+    return send_email(
+        to=to, subject=subject, body=body,
+        persona_id=persona_id,
+    )

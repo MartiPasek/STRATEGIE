@@ -201,7 +201,9 @@
       var acts=exp.querySelector(".ctacts");
       var bCall=el('<div class="cact call">'+PHONE_SVG_W+'</div>'); bCall.addEventListener("click",function(e){e.stopPropagation();doDial(c.number);});
       var bSms=el('<div class="cact sms" style="color:#fff;font-size:20px;">💬</div>'); bSms.addEventListener("click",function(e){e.stopPropagation();openApp("sms:"+(c.number||"").replace(/\s/g,""));});
-      acts.appendChild(bCall); acts.appendChild(bSms);
+      var bWa=el('<div class="cact" style="background:transparent;padding:0;">'+WA_SVG.replace('width="30" height="30"','width="46" height="46"')+'</div>');
+      bWa.addEventListener("click",function(e){ e.stopPropagation(); var num=(c.number||"").replace(/[^0-9]/g,""); if(B&&typeof B.openExternal==="function") B.openExternal("https://wa.me/"+num); else openApp("https://wa.me/"+num); });
+      acts.appendChild(bCall); acts.appendChild(bSms); acts.appendChild(bWa);
       head.addEventListener("click",function(){ exp.style.display=exp.style.display==="none"?"block":"none"; });
       li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
     }); }

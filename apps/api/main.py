@@ -180,52 +180,10 @@ async def lifespan(app: FastAPI):
                 f"[lifespan] api_version auto-update failed: {exc}"
             )
 
-    # ── One-off DDL (6.6.2026, Marti bez VPN na cloud): users.login_name
-    # nullable pro disabled usery + partial unique index + CHECK. Idempotentni
-    # (rerun = no-op). SMAZAT po overeni aplikace (fw.diag_log '[ddl-oneoff]').
-    if _instance_name == "primary":
-        try:
-            from core.config import settings as _settings_ddl
-            import psycopg2 as _psycopg2_ddl
-            _ddl_url = _settings_ddl.database_url or _settings_ddl.database_data_url
-            if _ddl_url:
-                _ddl_url = _ddl_url.replace(
-                    "postgresql+psycopg2://", "postgresql://"
-                ).replace("postgresql+asyncpg://", "postgresql://")
-                _dc = _psycopg2_ddl.connect(_ddl_url)
-                _dc.autocommit = True
-                _cur = _dc.cursor()
-                _cur.execute(
-                    "ALTER TABLE public.users ALTER COLUMN login_name DROP NOT NULL")
-                _cur.execute(
-                    "UPDATE public.users SET login_name = NULL WHERE login_name = ''")
-                _cur.execute("""
-                    DO $$ BEGIN
-                      IF EXISTS (SELECT 1 FROM pg_constraint
-                                 WHERE conname = 'uk_users_login_name') THEN
-                        ALTER TABLE public.users DROP CONSTRAINT uk_users_login_name;
-                        CREATE UNIQUE INDEX uk_users_login_name ON public.users (login_name)
-                          WHERE login_name IS NOT NULL AND login_name <> '';
-                      END IF;
-                      IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                                     WHERE conname = 'chk_users_login_name_required') THEN
-                        ALTER TABLE public.users ADD CONSTRAINT chk_users_login_name_required
-                          CHECK (status = 'disabled' OR (login_name IS NOT NULL AND login_name <> ''));
-                      END IF;
-                    END $$
-                """)
-                _cur.close()
-                _dc.close()
-                try:
-                    from core.log_queue import log_event as _log_ddl
-                    _log_ddl(level="info", source="py", module_id="api.lifecycle",
-                             message="[ddl-oneoff] users.login_name nullable + partial unique + CHECK aplikovano")
-                except Exception:
-                    pass
-        except Exception as exc:
-            logging.getLogger(__name__).warning(
-                f"[lifespan] ddl-oneoff users.login_name failed: {exc}"
-            )
+    # Pozn. 6.6.2026: one-off DDL hook (users.login_name nullable + partial
+    # unique + CHECK) zde bezel a byl po uspesne aplikaci odstranen.
+    # Pattern pro priste: kdyz Marti nema VPN, DDL na public.* jde pres
+    # idempotentni lifespan hook (API bezi jako strategie = owner) + deploy.
 
     yield
 

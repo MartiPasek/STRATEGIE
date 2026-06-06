@@ -60,11 +60,11 @@
   .tile { background:var(--surf); border:1px solid var(--bord); border-radius:14px; padding:16px; cursor:pointer; min-height:92px; position:relative; }
   .tile-ic { font-size:26px; } .tile-tt { font-weight:600; margin-top:8px; } .tile-sub { color:var(--mut); font-size:12px; margin-top:3px; }
   .ct { border-bottom:1px solid #20262e; }
-  .cthead { display:flex; align-items:center; gap:14px; padding:12px 4px; cursor:pointer; }
-  .cav { width:46px; height:46px; border-radius:14px; flex-shrink:0; display:flex; align-items:center; justify-content:center; color:#0e1014; font-weight:700; font-size:18px; overflow:hidden; }
+  .cthead { display:flex; align-items:center; gap:11px; padding:7px 4px; cursor:pointer; }
+  .cav { width:38px; height:38px; border-radius:11px; flex-shrink:0; display:flex; align-items:center; justify-content:center; color:#0e1014; font-weight:700; font-size:15px; overflow:hidden; }
   .cav img { width:100%; height:100%; object-fit:cover; }
-  .ctname { font-weight:600; font-size:16px; } .ctnum { color:var(--mut); font-size:13px; margin-top:2px; }
-  .ctexp { padding:2px 4px 16px 60px; }
+  .ctname { font-weight:600; font-size:14.5px; } .ctnum { color:var(--mut); font-size:12px; margin-top:1px; }
+  .ctexp { padding:2px 4px 12px 53px; }
   .ctacts { display:flex; gap:20px; }
   .cact { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .cact.call { background:#22c55e; } .cact.sms { background:#3b82f6; }
@@ -334,11 +334,23 @@
       head.addEventListener("click",function(){ exp.style.display=exp.style.display==="none"?"block":"none"; });
       li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
     }); }
-  function loadContacts(){ _contacts=bjson("getContacts", getPrefixes()); renderContactsList(); }
+  var _allContacts=false; try{ _allContacts=localStorage.getItem("stg_all_contacts")==="1"; }catch(e){}
+  function loadContacts(){ _contacts=bjson("getContacts", _allContacts?"*":getPrefixes()); renderContactsList(); }
   function contacts(){ app.innerHTML=topbar("Kontakty", false); var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.getContacts==="function")){ p.appendChild(el('<div class="hint">Kontakty jsou nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
-    var s=el('<input id="ctsearch" placeholder="Hledat kontakt…" autocomplete="off">'); s.addEventListener("input",renderContactsList); p.appendChild(s);
-    p.appendChild(el('<div class="hint">Jen kontakty s prefixem: <b>'+esc(getPrefixes())+'</b> (změna v Nastavení).</div>'));
+    var bar=el('<div style="display:flex;gap:10px;align-items:stretch;"></div>');
+    var s=el('<input id="ctsearch" placeholder="🔍 Hledat kontakt…" autocomplete="off" style="flex:1;border:1px solid var(--blue);background:#0d1828;box-shadow:0 0 0 2px rgba(79,142,247,.18);font-weight:600;">');
+    s.addEventListener("input",renderContactsList);
+    var allBtn=el('<button id="ctall" class="ghost" style="white-space:nowrap;padding:0 12px;font-size:13px;border-color:'+(_allContacts?'var(--green)':'var(--bord)')+';color:'+(_allContacts?'var(--green)':'var(--mut)')+';">'+(_allContacts?'☑':'☐')+' 👥 Vše</button>');
+    allBtn.addEventListener("click",function(){
+      _allContacts=!_allContacts; try{localStorage.setItem("stg_all_contacts",_allContacts?"1":"0");}catch(e){}
+      allBtn.innerHTML=(_allContacts?'☑':'☐')+' 👥 Vše';
+      allBtn.style.borderColor=_allContacts?'var(--green)':'var(--bord)'; allBtn.style.color=_allContacts?'var(--green)':'var(--mut)';
+      var h=document.getElementById("ctHint"); if(h)h.innerHTML=_allContacts?'Zobrazeny <b>všechny</b> kontakty v telefonu.':'Jen kontakty s prefixem: <b>'+esc(getPrefixes())+'</b> (změna v Nastavení).';
+      loadContacts();
+    });
+    bar.appendChild(s); bar.appendChild(allBtn); p.appendChild(bar);
+    p.appendChild(el('<div class="hint" id="ctHint">'+(_allContacts?'Zobrazeny <b>všechny</b> kontakty v telefonu.':'Jen kontakty s prefixem: <b>'+esc(getPrefixes())+'</b> (změna v Nastavení).')+'</div>'));
     p.appendChild(el('<div class="list" style="padding:0 14px;margin-top:10px;"><ul id="ctlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
     app.appendChild(p); loadContacts(); }
 

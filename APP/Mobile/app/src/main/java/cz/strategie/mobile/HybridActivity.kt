@@ -239,6 +239,7 @@ class HybridActivity : ComponentActivity() {
                 runOnUiThread { try { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 11) } catch (e: Exception) {} }
                 return "{\"need\":\"contacts\"}"
             }
+            val showAll = prefixesCsv.trim() == "*"   // „*" = všechny kontakty (Marti 6.6.)
             val prefixes = prefixList(prefixesCsv)
             val arr = JSONArray()
             try {
@@ -252,7 +253,7 @@ class HybridActivity : ComponentActivity() {
                     val seen = HashSet<String>()
                     while (c.moveToNext()) {
                         val nm = c.getString(0); val num = c.getString(1); val photoUri = c.getString(2); val contactId = c.getLong(3)
-                        if (nameMatches(nm, prefixes) && seen.add((nm ?: "") + "|" + (num ?: ""))) {
+                        if ((showAll || nameMatches(nm, prefixes)) && seen.add((nm ?: "") + "|" + (num ?: ""))) {
                             val o = JSONObject().put("name", nm ?: "").put("number", num ?: "")
                             var photo: String? = null
                             if (!photoUri.isNullOrBlank()) {

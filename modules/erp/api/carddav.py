@@ -555,6 +555,31 @@ def _user_display(uid: int) -> str:
         s.close()
 
 
+def _user_phone(uid: int) -> str | None:
+    """Nejnovější ověřené číslo uživatele (z appky/zařízení) — pro zobrazení
+    v párování i u zařízení bez vlastního čísla na tokenu. Marti 6.6.2026."""
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        row = s.execute(_sql(
+            "SELECT phone_number FROM fw.mobile_device "
+            "WHERE user_id = :u AND phone_number IS NOT NULL "
+            "ORDER BY phone_verified_at DESC NULLS LAST LIMIT 1"
+        ), {"u": uid}).first()
+        if row and row[0]:
+            return row[0]
+        row = s.execute(_sql(
+            'SELECT phone_number FROM "user".carddav_token '
+            'WHERE user_id = :u AND phone_number IS NOT NULL '
+            'ORDER BY id DESC LIMIT 1'
+        ), {"u": uid}).first()
+        return row[0] if row and row[0] else None
+    except Exception:
+        return None
+    finally:
+        s.close()
+
+
 def _active_contact_count(uid: int) -> int:
     from core.database_data import get_data_session
     s = get_data_session()
@@ -656,6 +681,7 @@ def _conn_info(request: Request, uid: int) -> dict:
         "well_known": base + "/.well-known/carddav",
         "username": login,
         "user_name": _user_display(uid),
+        "phone_number": _user_phone(uid),
         "books": [
             {"key": "real", "label": _BOOK_LABEL["real"]},
             {"key": "potential", "label": _BOOK_LABEL["potential"]},

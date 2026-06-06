@@ -5698,7 +5698,7 @@ async def att_list(req: Request) -> JSONResponse:
             "ORDER BY e.entry_date DESC, e.id DESC LIMIT 200"),
             {"t": _ATT_TENANT, "e2": emp, "dd": days}).mappings().all()
         s.commit()
-        return JSONResponse({"ok": True, "entries": [dict(r) for r in rows]})
+        return JSONResponse(jsonable_encoder({"ok": True, "entries": [dict(r) for r in rows]}))
     finally:
         cm.__exit__(None, None, None)
 
@@ -5728,7 +5728,7 @@ async def att_daily(req: Request) -> JSONResponse:
             "GROUP BY e.entry_date ORDER BY e.entry_date DESC"),
             {"t": _ATT_TENANT, "e2": emp, "dd": days}).mappings().all()
         s.commit()
-        return JSONResponse({"ok": True, "days": [dict(r) for r in rows]})
+        return JSONResponse(jsonable_encoder({"ok": True, "days": [dict(r) for r in rows]}))
     finally:
         cm.__exit__(None, None, None)
 

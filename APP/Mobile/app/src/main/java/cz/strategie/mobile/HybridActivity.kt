@@ -204,6 +204,14 @@ class HybridActivity : ComponentActivity() {
         @JavascriptInterface
         fun dialNumber(number: String) = dial(number)
 
+        // Otevři nativní telefonní klávesnici (prázdný dialer) — pro ruční vytočení.
+        @JavascriptInterface
+        fun openDialpad() {
+            runOnUiThread {
+                try { startActivity(Intent(Intent.ACTION_DIAL).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+            }
+        }
+
         // Autentizovaný fetch — token jde JEN v Authorization headeru (NE do DOM/JS;
         // drží doktrínu „login UPN je secret"). Vrací tělo odpovědi jako text.
         // method = GET/POST, path = /api/v1/erp/...  Marti 6.6.2026.

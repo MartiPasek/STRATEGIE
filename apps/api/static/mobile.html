@@ -121,7 +121,14 @@
   function back(){ if(stack.length>1){ stack.pop(); render(); } }
   function selectTab(t){ curTab=t; stack=[t]; render(); }
   // hardwarové zpět (nativní HybridActivity volá): vrať true když jsme šli o úroveň výš, false na home
-  window.__stgBack=function(){ if(stack.length>1){ back(); return true; } if(curTab!=="home"){ selectTab("home"); return true; } return false; };
+  window.__stgBack=function(){
+    // V kontaktech: vyplněný filtr → první zpět ho smaže, teprve další odejde.
+    var sf=document.getElementById("ctsearch");
+    if(sf && sf.value && sf.value.length){ sf.value=""; try{renderContactsList();}catch(e){} return true; }
+    if(stack.length>1){ back(); return true; }
+    if(curTab!=="home"){ selectTab("home"); return true; }
+    return false;
+  };
   // Spuštění přes ikonu v launcheru → vždy hlavní obrazovka (volá nativní onNewIntent).
   window.__stgHome=function(){ try{ selectTab("home"); }catch(e){} return true; };
 
@@ -337,7 +344,7 @@
       var acts=exp.querySelector(".ctacts");
       var bCall=el('<div class="cact call">'+PHONE_SVG_W+'</div>'); bCall.addEventListener("click",function(e){e.stopPropagation();doDial(c.number);});
       var bSms=el('<div class="cact sms" style="color:#fff;font-size:20px;">💬</div>'); bSms.addEventListener("click",function(e){e.stopPropagation();openApp("sms:"+(c.number||"").replace(/\s/g,""));});
-      var bWa=el('<div class="cact" style="background:transparent;">'+WA_SVG+'</div>');
+      var bWa=el('<div class="cact" style="background:#25D366;">'+WA_SVG+'</div>');
       bWa.addEventListener("click",function(e){ e.stopPropagation(); var num=(c.number||"").replace(/[^0-9]/g,""); if(B&&typeof B.openExternal==="function") B.openExternal("https://wa.me/"+num); else openApp("https://wa.me/"+num); });
       acts.appendChild(bCall); acts.appendChild(bSms); acts.appendChild(bWa);
       head.addEventListener("click",function(){
@@ -349,13 +356,21 @@
         // Accordion: zavři všechny ostatní, otevři jen tenhle.
         ul.querySelectorAll("li.ct").forEach(function(o){ o.classList.remove("open"); var x=o.querySelector(".ctexp"); if(x)x.style.display="none"; });
         exp.style.display="block"; li.classList.add("open"); li.scrollIntoView({block:"nearest",behavior:"smooth"});
+        setDialNum(c.number||"");  // vybraný kontakt → jeho číslo do zeleného pole
       });
       li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
     }); }
   var _allContacts=false; try{ _allContacts=localStorage.getItem("stg_all_contacts")==="1"; }catch(e){}
   function loadContacts(){ _contacts=bjson("getContacts", _allContacts?"*":getPrefixes()); renderContactsList(); }
-  function contacts(){ app.innerHTML=topbar("Kontakty", false); var p=el('<div class="panel"></div>');
+  var _dialNum="";
+  function setDialNum(n){ _dialNum=(n||"").trim(); var e=document.getElementById("ctdial"); if(!e)return;
+    if(_dialNum){ e.textContent=_dialNum; e.style.color="#0e1014"; } else { e.textContent="📞 Ťukni pro vytáčení"; e.style.color="rgba(14,16,20,.6)"; } }
+  function contacts(){ app.innerHTML=topbar("", false); var p=el('<div class="panel" style="margin-top:4px;"></div>');
     if(!(B&&typeof B.getContacts==="function")){ p.appendChild(el('<div class="hint">Kontakty jsou nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
+    // Zelené telefonní pole: vybraný kontakt → jeho velké číslo; klik na prázdné → nativní klávesnice.
+    var dial=el('<div id="ctdial" style="background:var(--green);border-radius:12px;padding:14px 16px;font-size:24px;font-weight:800;text-align:center;letter-spacing:1px;cursor:pointer;margin-bottom:10px;color:rgba(14,16,20,.6);">📞 Ťukni pro vytáčení</div>');
+    dial.addEventListener("click",function(){ if(_dialNum){ doDial(_dialNum); } else if(B&&typeof B.openDialpad==="function"){ B.openDialpad(); } else { openApp("tel:"); } });
+    p.appendChild(dial);
     var bar=el('<div style="display:flex;gap:10px;align-items:stretch;"></div>');
     var s=el('<input id="ctsearch" placeholder="🔍 Hledat kontakt…" autocomplete="off" style="flex:1;border:1px solid var(--blue);background:#0d1828;box-shadow:0 0 0 2px rgba(79,142,247,.18);font-weight:600;">');
     s.addEventListener("input",renderContactsList);
@@ -370,7 +385,7 @@
     bar.appendChild(s); bar.appendChild(allBtn); p.appendChild(bar);
     p.appendChild(el('<div class="hint" id="ctHint">'+(_allContacts?'Zobrazeny <b>všechny</b> kontakty v telefonu.':'Jen kontakty s prefixem: <b>'+esc(getPrefixes())+'</b> (změna v Nastavení).')+'</div>'));
     p.appendChild(el('<div class="list" style="padding:0 14px;margin-top:10px;"><ul id="ctlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
-    app.appendChild(p); loadContacts(); }
+    app.appendChild(p); setDialNum(_dialNum); loadContacts(); }
 
   // ───── HISTORIE HOVORŮ ─────
   function loadCalllog(){ var ul=document.getElementById("cllist"); if(!ul)return; var j=bjson("getCallLog", getPrefixes());
@@ -497,7 +512,6 @@
     var atApps=(stack[stack.length-1]==="apps");
     if(curTab==="home" && !atApps) bnav.appendChild(navBtn("📱","Aplikace",false,function(){go("apps");},(bd&&bd.total)||0));
     else bnav.appendChild(navBtn("🏠","Domů",false,function(){selectTab("home");},0));
-    bnav.appendChild(navBtn(PHONE_SVG,"Telefon",curTab==="phone",function(){selectTab("phone");},0));
     bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
     bnav.appendChild(navBtn("⚙️","Nastavení",curTab==="settings",function(){selectTab("settings");},_hasUpdate?1:0));

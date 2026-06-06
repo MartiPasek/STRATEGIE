@@ -398,25 +398,10 @@ fun AppRoot(modifier: Modifier = Modifier) {
         ) {
             callLogPerm.launch(Manifest.permission.READ_CALL_LOG)
         }
-        // Android 14+: aby po odemčení vyskočil rovnou dialer (full-screen intent),
-        // appka potřebuje speciální povolení. Když chybí, otevři jeho nastavení.
-        if (Build.VERSION.SDK_INT >= 34) {
-            val nm = context.getSystemService(NotificationManager::class.java)
-            if (nm != null && !nm.canUseFullScreenIntent()) {
-                Toast.makeText(
-                    context,
-                    "Povol „Zobrazit přes celou obrazovku“ — pak dialer naskočí hned po odemčení",
-                    Toast.LENGTH_LONG
-                ).show()
-                try {
-                    context.startActivity(
-                        Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
-                            .setData(Uri.parse("package:" + context.packageName))
-                    )
-                } catch (e: Exception) {
-                }
-            }
-        }
+        // Full-screen intent (Android 14+, dialer přes zamykací obrazovku) se
+        // NEvynucuje automaticky — otevírání systémového nastavení po instalaci
+        // mátlo uživatele. Povolení lze udělit přes doporučení „Zobrazit přes
+        // celou obrazovku" (cmdSetting) nebo tlačítkem v nastavení. Marti 6.6.2026.
     }
 
     val notifPerm = rememberLauncherForActivityResult(
@@ -498,10 +483,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
         val needCallLog = ContextCompat.checkSelfPermission(
             context, Manifest.permission.READ_CALL_LOG
         ) != PackageManager.PERMISSION_GRANTED
-        val nm = context.getSystemService(NotificationManager::class.java)
-        val needFsi = Build.VERSION.SDK_INT >= 34 &&
-            nm != null && !nm.canUseFullScreenIntent()
-        if (needNotif || needCallLog || needFsi) {
+        if (needNotif || needCallLog) {
             toggleService(true)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                    !context.packageManager.canRequestPackageInstalls()) {

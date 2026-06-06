@@ -2,6 +2,7 @@ package cz.strategie.mobile
 
 import android.app.Activity
 import android.app.KeyguardManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -24,6 +25,11 @@ class DialActivity : Activity() {
             setTurnScreenOn(true)
         }
         val phone = intent?.getStringExtra("phone")?.trim().orEmpty()
+        // Zruš notifikaci vytáčení (ať nevisí odznak na ikoně po auto-otevření).
+        val notifId = intent?.getIntExtra("notif_id", -1) ?: -1
+        if (notifId > 0) {
+            try { (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(notifId) } catch (e: Exception) {}
+        }
         if (phone.isEmpty()) { finish(); return }
 
         val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager

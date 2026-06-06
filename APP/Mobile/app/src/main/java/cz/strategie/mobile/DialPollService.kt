@@ -177,6 +177,7 @@ class DialPollService : Service() {
         val dialIntent = Intent(this, DialActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("phone", phone)
+            putExtra("notif_id", NOTIF_DIAL_BASE + id)  // ať DialActivity zruší notifikaci
         }
         val pi = PendingIntent.getActivity(
             this, id, dialIntent,

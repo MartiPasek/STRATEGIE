@@ -134,15 +134,25 @@ class HybridActivity : ComponentActivity() {
             try {
                 val cur = contentResolver.query(
                     ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                    arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+                    arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER,
+                        ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI),
                     null, null, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
                 )
                 cur?.use { c ->
                     val seen = HashSet<String>()
                     while (c.moveToNext()) {
-                        val nm = c.getString(0); val num = c.getString(1)
+                        val nm = c.getString(0); val num = c.getString(1); val photoUri = c.getString(2)
                         if (nameMatches(nm, prefixes) && seen.add((nm ?: "") + "|" + (num ?: ""))) {
-                            arr.put(JSONObject().put("name", nm ?: "").put("number", num ?: ""))
+                            val o = JSONObject().put("name", nm ?: "").put("number", num ?: "")
+                            if (!photoUri.isNullOrBlank()) {
+                                try {
+                                    contentResolver.openInputStream(Uri.parse(photoUri))?.use { ins ->
+                                        val bytes = ins.readBytes()
+                                        if (bytes.isNotEmpty()) o.put("photo", "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+                                    }
+                                } catch (e: Exception) {}
+                            }
+                            arr.put(o)
                         }
                     }
                 }
@@ -288,6 +298,40 @@ class HybridActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun openPairing() { openExternal(base() + "/app-pair") }
+
+        // ── Naslouchání (foreground služba + zelená ikona) ──
+        @JavascriptInterface
+        fun startListening() {
+            runOnUiThread {
+                try {
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 33)
+                    }
+                    getSharedPreferences(prefsName, MODE_PRIVATE).edit().putBoolean("service_enabled", true).apply()
+                    DialPollService.start(this@HybridActivity)
+                    Toast.makeText(this@HybridActivity, "Naslouchání zapnuto", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {}
+            }
+        }
+
+        @JavascriptInterface
+        fun stopListening() {
+            runOnUiThread {
+                try {
+                    getSharedPreferences(prefsName, MODE_PRIVATE).edit().putBoolean("service_enabled", false).apply()
+                    DialPollService.stop(this@HybridActivity)
+                    Toast.makeText(this@HybridActivity, "Naslouchání vypnuto", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {}
+            }
+        }
+
+        @JavascriptInterface
+        fun openBatterySettings() {
+            runOnUiThread {
+                try { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).setData(Uri.parse("package:$packageName"))) } catch (e: Exception) {}
+            }
+        }
 
         // Spustí nainstalovanou appku podle balíčku (WhatsApp…), jinak fallback URL.
         @JavascriptInterface

@@ -341,10 +341,14 @@
       bWa.addEventListener("click",function(e){ e.stopPropagation(); var num=(c.number||"").replace(/[^0-9]/g,""); if(B&&typeof B.openExternal==="function") B.openExternal("https://wa.me/"+num); else openApp("https://wa.me/"+num); });
       acts.appendChild(bCall); acts.appendChild(bSms); acts.appendChild(bWa);
       head.addEventListener("click",function(){
-        var willOpen = exp.style.display==="none";
+        // Druhý klik na již otevřený kontakt → nativní detail (přes celý displej), nezmenšovat.
+        if(li.classList.contains("open")){
+          if(B&&typeof B.openContact==="function") B.openContact(c.number||"");
+          return;
+        }
         // Accordion: zavři všechny ostatní, otevři jen tenhle.
         ul.querySelectorAll("li.ct").forEach(function(o){ o.classList.remove("open"); var x=o.querySelector(".ctexp"); if(x)x.style.display="none"; });
-        if(willOpen){ exp.style.display="block"; li.classList.add("open"); li.scrollIntoView({block:"nearest",behavior:"smooth"}); }
+        exp.style.display="block"; li.classList.add("open"); li.scrollIntoView({block:"nearest",behavior:"smooth"});
       });
       li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
     }); }

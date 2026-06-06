@@ -275,6 +275,34 @@ class HybridActivity : ComponentActivity() {
             return JSONObject().put("contacts", arr).toString()
         }
 
+        // Otevři nativní detail kontaktu (přes celý displej) podle čísla. Marti 6.6.2026.
+        @JavascriptInterface
+        fun openContact(number: String) {
+            val n = number.trim()
+            if (n.isEmpty()) return
+            runOnUiThread {
+                try {
+                    var contactUri: Uri? = null
+                    if (granted(Manifest.permission.READ_CONTACTS)) {
+                        val lookup = Uri.withAppendedPath(
+                            ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(n))
+                        contentResolver.query(lookup,
+                            arrayOf(ContactsContract.PhoneLookup.LOOKUP_KEY, ContactsContract.PhoneLookup._ID),
+                            null, null, null)?.use { c ->
+                            if (c.moveToFirst()) {
+                                contactUri = ContactsContract.Contacts.getLookupUri(c.getLong(1), c.getString(0))
+                            }
+                        }
+                    }
+                    val intent = if (contactUri != null)
+                        Intent(Intent.ACTION_VIEW, contactUri)
+                    else
+                        Intent(Intent.ACTION_VIEW, Uri.parse("tel:$n"))  // fallback
+                    startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {}
+            }
+        }
+
         // Protokol hovorů — jen záznamy s nakešovaným jménem dle prefixu (STR,EC).
         @JavascriptInterface
         fun getCallLog(prefixesCsv: String): String {

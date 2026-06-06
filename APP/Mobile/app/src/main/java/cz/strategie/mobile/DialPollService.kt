@@ -182,9 +182,10 @@ class DialPollService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CH_ONGOING)
-            .setSmallIcon(android.R.drawable.stat_sys_phone_call)
+            .setSmallIcon(R.drawable.ic_stat_energy)
+            .setColor(0xFF10B981.toInt())
             .setContentTitle("STRATEGIE")
-            .setContentText("Naslouchám vytáčení z ERP")
+            .setContentText("Párování s ERP — aktivní")
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setContentIntent(openApp)

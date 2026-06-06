@@ -310,7 +310,7 @@ class HybridActivity : ComponentActivity() {
                     }
                     getSharedPreferences(prefsName, MODE_PRIVATE).edit().putBoolean("service_enabled", true).apply()
                     DialPollService.start(this@HybridActivity)
-                    Toast.makeText(this@HybridActivity, "Naslouchání zapnuto", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@HybridActivity, "Párování aktivní", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {}
             }
         }
@@ -321,7 +321,7 @@ class HybridActivity : ComponentActivity() {
                 try {
                     getSharedPreferences(prefsName, MODE_PRIVATE).edit().putBoolean("service_enabled", false).apply()
                     DialPollService.stop(this@HybridActivity)
-                    Toast.makeText(this@HybridActivity, "Naslouchání vypnuto", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@HybridActivity, "Párování pozastaveno", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {}
             }
         }

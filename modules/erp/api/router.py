@@ -5582,6 +5582,16 @@ def _att_employee(sess, uid):
             d.close()
     except Exception:
         nm = None
+    # Zkus adoptovat existujícího (Centrála) zaměstnance podle jména, ať nevznikne dvojník.
+    if nm:
+        ra = sess.execute(_t(
+            "SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id IS NULL "
+            "AND cislo_zam NOT LIKE 'U%' AND lower(full_name)=lower(:n) "
+            "ORDER BY id LIMIT 1"), {"t": _ATT_TENANT, "n": nm}).first()
+        if ra:
+            sess.execute(_t("UPDATE tenant.att_employee SET user_id=:u, updated_at=now() WHERE id=:id"),
+                         {"u": uid, "id": ra[0]})
+            return ra[0]
     r = sess.execute(_t(
         "INSERT INTO tenant.att_employee (tenant_id,cislo_zam,user_id,full_name,is_active,created_at,updated_at) "
         "VALUES (:t, :cz, :u, :n, true, now(), now()) RETURNING id"),

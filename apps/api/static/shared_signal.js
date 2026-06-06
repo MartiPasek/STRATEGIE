@@ -109,7 +109,17 @@
           var cid = _curAct.conversation_id;
           _setSeen(_curAct.latest_message_id);
           _stopRepeat();
-          location.href = "/?open_conv=" + cid;
+          // Otevři chat STEJNĚ jako normální klik na avatara: anchor + named
+          // target "strategie-chat" → Chrome focusne existující Chat PWA okno /
+          // tab. Dřív location.href navigoval ERP okno mimo /erp PWA scope =
+          // duplikát chatu s bílou out-of-scope lištou (Marti 5.6.2026 bug).
+          var a = document.createElement("a");
+          a.href = "/?open_conv=" + cid;
+          a.target = "strategie-chat";
+          a.rel = "noopener";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
         }
       };
       el.addEventListener("click", _btnHandler, true);

@@ -17780,6 +17780,8 @@ def _render_workspace_page(user_id: int) -> str:
     <!-- Signál nové zprávy ve sdílené konverzaci (3.6.2026): ding + animace
          „Tvoje Marti" (#erpMartiAiBtn) + proklik do chatu na tu konverzaci. -->
     <script src="/static/shared_signal.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Impersonace (6.6.2026): „Přihlásit jako" + červený indikátor + návrat. -->
+    <script src="/static/erp/components/erp_impersonation.js?v=''' + _STATIC_VERSION + '''"></script>
     <link rel="stylesheet" href="/static/erp/datagrid.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/datagrid.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- B+10+ (6.5.2026): conditional formatting engine + UI editor -->

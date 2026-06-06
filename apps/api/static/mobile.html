@@ -424,6 +424,22 @@
   // Při návratu do popředí (otevření z notifikace/launcheru) obnov hned.
   document.addEventListener("visibilitychange", function(){ if(!document.hidden){ refreshUpdate(); pollNotifs(); } });
   window.addEventListener("focus", function(){ refreshUpdate(); pollNotifs(); });
+
+  // Auto-zachycení čísla telefonu ze SIM (Marti 6.6.) — ať se v párování číslo
+  // ukáže samo, bez ručního kroku. Uloží jen když SIM číslo lze přečíst a změnilo se.
+  function autoCapturePhone(){
+    try{
+      if(!(B&&typeof B.simNumber==="function"&&typeof B.deviceId==="function")) return;
+      var sn=(B.simNumber()||"").trim();
+      if(!sn || sn.replace(/[^0-9]/g,"").length<6) return;
+      var last=""; try{last=localStorage.getItem("stg_saved_phone")||"";}catch(e){}
+      if(sn===last) return;
+      api("POST","/api/v1/erp/app/phone-set",{phone_number:sn,device_id:B.deviceId()}).then(function(j){
+        if(j&&j.ok){ try{localStorage.setItem("stg_saved_phone",sn);}catch(e){} }
+      }).catch(function(){});
+    }catch(e){}
+  }
+  setTimeout(autoCapturePhone, 1500);
 })();
 </script>
 </body>

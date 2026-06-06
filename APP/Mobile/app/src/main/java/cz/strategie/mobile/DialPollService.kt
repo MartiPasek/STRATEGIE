@@ -105,6 +105,31 @@ class DialPollService : Service() {
         }
     }
 
+    // Samouzdravení (Marti 6.6.2026): token neplatný/odpojený (401) → zahoď ho,
+    // upozorni uživatele a přestaň pollovat. Po klepnutí na notifikaci se appka
+    // otevře bez tokenu → login-first → vyrobí nový token → služba se zase rozjede.
+    private fun handleAuthLost() {
+        try {
+            getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_TOKEN).apply()
+        } catch (e: Exception) {}
+        try {
+            val pi = PendingIntent.getActivity(
+                this, 0,
+                Intent(this, HybridActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val n = NotificationCompat.Builder(this, CH_CLAUDE)
+                .setSmallIcon(R.drawable.ic_stat_energy)
+                .setContentTitle("STRATEGIE — přihlas se znovu")
+                .setContentText("Spojení vypršelo. Klepni a přihlas se — párování se obnoví.")
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+            nm().notify(NOTIF_AUTH_LOST, n)
+        } catch (e: Exception) {}
+        try { stop(this) } catch (e: Exception) {}
+    }
+
     private fun fetchPending(base: String, token: String): JSONArray {
         val c = (URL("$base/api/v1/erp/phone-dial-request/pending")
             .openConnection() as HttpURLConnection)
@@ -113,6 +138,7 @@ class DialPollService : Service() {
             c.setRequestProperty("Authorization", "Bearer $token")
             c.connectTimeout = 8000
             c.readTimeout = 8000
+            if (c.responseCode == 401) { handleAuthLost(); return JSONArray() }
             if (c.responseCode == 200) {
                 val body = c.inputStream.bufferedReader().use { it.readText() }
                 val obj = JSONObject(body)
@@ -396,6 +422,7 @@ class DialPollService : Service() {
                 c.setRequestProperty("Authorization", "Bearer $token")
                 c.connectTimeout = 8000
                 c.readTimeout = 8000
+                if (c.responseCode == 401) { handleAuthLost(); return }
                 if (c.responseCode != 200) return
                 body = c.inputStream.bufferedReader().use { it.readText() }
             } finally {
@@ -604,6 +631,7 @@ class DialPollService : Service() {
         const val CH_CLAUDE = "claude_v1"         // potvrzení + zprávy od Clauda
         const val NOTIF_ONGOING = 1001
         const val NOTIF_UPDATE = 1002
+        const val NOTIF_AUTH_LOST = 1003
         const val NOTIF_DIAL_BASE = 2000
         const val NOTIF_COMMAND_BASE = 7000L
         const val POLL_MS = 4000L

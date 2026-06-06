@@ -92,6 +92,8 @@
   var curTab = "home";
   var stack = ["home"];
   var notifCount = null;
+  var _hasUpdate = false;
+  function refreshUpdate(){ try{ if(B&&typeof B.checkUpdate==="function"){ var t=B.checkUpdate(); var u=t?JSON.parse(t):null; _hasUpdate=!!(u&&u.has_update); } }catch(e){} }
   var avatarUrl = "/api/v1/erp/app/avatar";
   if (B && typeof B.avatarDataUrl === "function") { try { var d=B.avatarDataUrl(); if(d) avatarUrl=d; } catch(e){} }
 
@@ -145,6 +147,7 @@
   function loadHomeNotifs(){
     var box=document.getElementById("homeNotifs"); if(!box)return;
     var upd=null; try{ if(B&&typeof B.checkUpdate==="function"){ var t=B.checkUpdate(); if(t)upd=JSON.parse(t); } }catch(e){}
+    _hasUpdate=!!(upd&&upd.has_update);
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
       var cmds=(j&&j.commands)||[]; notifCount=cmds.length; renderNav();
       box.innerHTML=""; var any=false;
@@ -254,7 +257,7 @@
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
     l.appendChild(row("🔔","Přístup k oznámením","Počty WhatsApp / SMS",function(){go("set_notifaccess");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
-    l.appendChild(row("ℹ️","O aplikaci", ver?("Verze "+ver):"Verze a stav",function(){go("set_about");}));
+    l.appendChild(row("ℹ️","O aplikaci", _hasUpdate?"🆕 Nová verze k dispozici":(ver?("Verze "+ver):"Verze a stav"),function(){go("set_about");}));
     app.appendChild(l); }
   function set_listen(){ app.innerHTML=topbar("Párování s ERP", true); var p=el('<div class="panel"></div>'); var ls=listenState();
     p.appendChild(el('<div class="big">Párování: <b>'+(ls==null?"(jen v appce)":(ls?"aktivní ✓":"pozastaveno"))+'</b></div>'));
@@ -339,13 +342,14 @@
     bnav.appendChild(navBtn(PHONE_SVG,"Telefon",curTab==="phone",function(){selectTab("phone");},0));
     bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
-    bnav.appendChild(navBtn("⚙️","Nastavení",curTab==="settings",function(){selectTab("settings");},0));
+    bnav.appendChild(navBtn("⚙️","Nastavení",curTab==="settings",function(){selectTab("settings");},_hasUpdate?1:0));
   }
   function render(){ (SCREENS[stack[stack.length-1]]||home)(); var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back); renderNav(); }
 
   window.addEventListener("popstate", function(){ if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });
   try{ history.pushState(null,""); }catch(e){}
   render();
+  setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
   setInterval(function(){ try{ renderNav(); }catch(e){} }, 12000);
 })();
 </script>

@@ -46,6 +46,15 @@
   .tabbtn { position:relative; flex:1; background:none; border:none; color:var(--mut); padding:9px 2px; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
   .tabbtn .i { font-size:21px; line-height:1; } .tabbtn.active { color:var(--blue); }
   .nbadge { position:absolute; top:3px; left:50%; margin-left:6px; background:#e24b4a; color:#fff; font-size:10px; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 4px; text-align:center; font-weight:600; }
+  .appgrid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px 6px; margin-top:12px; }
+  .appcell { display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer; position:relative; }
+  .appicon { width:58px; height:58px; border-radius:15px; background:#16181c; border:1px solid #2a2d33; display:flex; align-items:center; justify-content:center; font-size:28px; overflow:hidden; }
+  .appicon img { width:100%; height:100%; object-fit:cover; }
+  .applabel { font-size:11px; text-align:center; color:#cdd6e2; line-height:1.2; }
+  .appbadge { position:absolute; top:-4px; right:8px; background:#e24b4a; color:#fff; font-size:10px; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 4px; text-align:center; font-weight:600; }
+  .dashgrid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:8px; }
+  .tile { background:var(--surf); border:1px solid var(--bord); border-radius:14px; padding:16px; cursor:pointer; min-height:92px; position:relative; }
+  .tile-ic { font-size:26px; } .tile-tt { font-weight:600; margin-top:8px; } .tile-sub { color:var(--mut); font-size:12px; margin-top:3px; }
 </style>
 </head>
 <body>
@@ -147,7 +156,14 @@
         var a=li.querySelector(".nactions"); function b(l,cl,d){var x=el('<button class="sm '+cl+'">'+l+'</button>'); x.addEventListener("click",function(){act(c.id,d);}); a.appendChild(x);}
         if(c.command_type==="claude_confirm"){b("Povolit","green","accept");b("Odmítnout","warn","reject");} else {b("OK","ghost","done");}
         ul.appendChild(li); }); }); }
-  function notifs(){ app.innerHTML=topbar("Úkoly", false); var p=el('<div class="panel"></div>');
+  function notifs(){ // dashboard s dlaždicemi
+    app.innerHTML=topbar("Úkoly", false); var p=el('<div class="panel"></div>');
+    var grid=el('<div class="dashgrid"></div>');
+    var ct=el('<div class="tile"><div class="tile-ic">🤖</div><div class="tile-tt">Claude</div><div class="tile-sub" id="claudeSub">…</div></div>');
+    ct.addEventListener("click",function(){go("claudetasks");}); grid.appendChild(ct);
+    p.appendChild(grid); app.appendChild(p);
+    api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; var s=document.getElementById("claudeSub"); if(s)s.textContent=notifCount?(notifCount+" ke schválení / nové"):"Žádné nové"; renderNav(); }); }
+  function claudetasks(){ app.innerHTML=topbar("Claude", true); var p=el('<div class="panel"></div>');
     p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="ntlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
     var r=el('<button class="ghost full">Obnovit</button>'); r.addEventListener("click",notifsLoad); p.appendChild(r); app.appendChild(p); notifsLoad(); }
 
@@ -208,22 +224,43 @@
     var t=el('<button class="'+(DEV?"warn":"green")+' full">'+(DEV?"Vypnout DEV mód":"Zapnout DEV mód")+'</button>');
     t.addEventListener("click",function(){try{if(DEV)localStorage.removeItem("stg_mobile_dev");else localStorage.setItem("stg_mobile_dev","1");}catch(e){}location.href=location.pathname;}); p.appendChild(t);
     p.appendChild(el('<div class="devinfo">Most: '+(native?("aktivní — "+[canDial?"dialNumber":"",canListen?"listening":"",canFetch?"authedFetch":"",(B&&B.getContacts)?"getContacts":"",(B&&B.getCallLog)?"getCallLog":""].filter(Boolean).join(", ")):"není (prohlížeč)")+'</div>')); app.appendChild(p); }
-  function set_about(){ app.innerHTML=topbar("O aplikaci", true); var p=el('<div class="panel"></div>');
-    p.appendChild(el('<div class="list"><div class="row" style="cursor:default"><div class="tx"><div class="tt">Verze appky</div><div class="sub">'+(ver||"— (jen v appce)")+'</div></div></div><div class="row" style="cursor:default"><div class="tx"><div class="tt">Režim</div><div class="sub">'+(native?"nativní appka (most aktivní)":"prohlížeč (PWA)")+'</div></div></div></div>')); app.appendChild(p); }
+  function set_about(){ app.innerHTML=topbar("O aplikaci", true); var p=el('<div class="panel"></div>'); app.appendChild(p);
+    if(!(B&&typeof B.checkUpdate==="function")){
+      p.appendChild(el('<div class="list"><div class="row" style="cursor:default"><div class="tx"><div class="tt">Verze</div><div class="sub">'+(ver||"— (jen v appce)")+'</div></div></div><div class="row" style="cursor:default"><div class="tx"><div class="tt">Režim</div><div class="sub">prohlížeč (PWA)</div></div></div></div>'));
+      return;
+    }
+    var status=el('<div class="hint">Kontroluji novou verzi…</div>'); p.appendChild(status);
+    setTimeout(function(){
+      var j={}; try{ var t=B.checkUpdate(); if(t)j=JSON.parse(t); }catch(e){}
+      var bt=j.build_time||(B.buildTime?(function(){try{return B.buildTime();}catch(e){return "";}})():"");
+      var box=el('<div class="list"></div>');
+      box.appendChild(el('<div class="row" style="cursor:default"><div class="tx"><div class="tt">Verze appky</div><div class="sub">'+esc(j.current_name||ver)+' (code '+esc(String(j.current_code||""))+')</div></div></div>'));
+      box.appendChild(el('<div class="row" style="cursor:default"><div class="tx"><div class="tt">Sestaveno</div><div class="sub">'+esc(bt)+'</div></div></div>'));
+      p.replaceChild(box,status);
+      if(j.has_update){
+        p.appendChild(el('<div class="big" style="color:#5ee0b7;margin-top:12px;">Nová verze '+esc(j.latest_name)+' (code '+esc(String(j.latest_code))+')</div>'));
+        var ub=el('<button class="green full">Aktualizovat na novou verzi</button>'); ub.addEventListener("click",function(){ try{B.installUpdate();}catch(e){} }); p.appendChild(ub);
+      } else if(j.error){ p.appendChild(el('<div class="hint" style="margin-top:12px;">Verzi se nepodařilo zjistit (zkontroluj párování / připojení).</div>')); }
+      else { p.appendChild(el('<div class="hint" style="margin-top:12px;">Máš nejnovější verzi ✓</div>')); }
+      p.appendChild(el('<div class="group">Telefon a ERP</div>'));
+      var pair=el('<button class="ghost full" style="margin-top:0;">Spárovat telefon s ERP</button>'); pair.addEventListener("click",function(){ try{B.openPairing();}catch(e){} }); p.appendChild(pair);
+    },60);
+  }
 
   // ───── APLIKACE (launcher) ─────
   function openApp(url){ if(B&&typeof B.openExternal==="function")B.openExternal(url); else { try{window.open(url,"_blank");}catch(e){ location.href=url; } } }
+  function appCell(iconHtml,label,badge,fn){ var c=el('<div class="appcell"><div class="appicon">'+iconHtml+'</div><div class="applabel">'+esc(label)+'</div>'+(badge?'<span class="appbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</div>'); c.addEventListener("click",fn); return c; }
   function apps(){
     app.innerHTML=topbar("Aplikace", true);
     var bd=getBadges()||{whatsapp:0,sms:0,access:true};
-    var l=el('<div class="list"></div>');
-    l.appendChild(row('<img src="'+avatarUrl+'" style="width:24px;height:24px;border-radius:50%;object-fit:cover;display:block;">',"STRATEGIE - Marti-AI","Chat",function(){openApp("/");}));
-    l.appendChild(row('<img src="/static/erp/icon-erp-192.png" style="width:24px;height:24px;border-radius:6px;display:block;">',"STRATEGIE - ERP","Přehledy, jádra",function(){openApp("/erp");}));
-    l.appendChild(row("🕒","STRATEGIE - Docházka","Kdo je v budově",function(){openApp("/dochazka");}));
-    l.appendChild(row("💬","WhatsApp", bd.whatsapp?(bd.whatsapp+" nových zpráv"):"", function(){openApp("https://wa.me/");}));
-    l.appendChild(row("✉️","SMS", bd.sms?(bd.sms+" nových zpráv"):"", function(){openApp("sms:");}));
-    app.appendChild(l);
-    if(bd.access===false){ app.appendChild(el('<div class="hint">Pro počty nových zpráv povol <b>Přístup k oznámením</b> (Nastavení → Přístup k oznámením).</div>')); }
+    var g=el('<div class="appgrid"></div>');
+    g.appendChild(appCell('<img src="'+avatarUrl+'">',"Chat",0,function(){openApp("/");}));
+    g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"ERP",0,function(){openApp("/erp");}));
+    g.appendChild(appCell("🕒","Docházka",0,function(){openApp("/dochazka");}));
+    g.appendChild(appCell("💬","WhatsApp",bd.whatsapp||0,function(){openApp("https://wa.me/");}));
+    g.appendChild(appCell("✉️","Zprávy",bd.sms||0,function(){openApp("sms:");}));
+    app.appendChild(g);
+    if(bd.access===false){ app.appendChild(el('<div class="hint">Pro počty u WhatsApp / Zprávy povol <b>Přístup k oznámením</b> (Nastavení).</div>')); }
   }
   function set_notifaccess(){ app.innerHTML=topbar("Přístup k oznámením", true); var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.openNotifAccess==="function")){ p.appendChild(el('<div class="hint">Tato funkce je v appce STRATEGIE.</div>')); app.appendChild(p); return; }
@@ -231,7 +268,7 @@
     p.appendChild(el('<div class="big">Stav: <b>'+(bd.access?"povoleno ✓":"nepovoleno")+'</b></div>'));
     var b=el('<button class="green full">Otevřít nastavení přístupu</button>'); b.addEventListener("click",function(){B.openNotifAccess();}); p.appendChild(b);
     p.appendChild(el('<div class="hint">Umožní spočítat nová oznámení (WhatsApp, SMS) a zobrazit číslo na ikoně Aplikace. Appka oznámení nečte — jen je počítá.</div>')); app.appendChild(p); }
-  var SCREENS={home:home,phone:phone,notifs:notifs,contacts:contacts,calllog:calllog,settings:settings,apps:apps,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,contacts:contacts,calllog:calllog,settings:settings,apps:apps,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

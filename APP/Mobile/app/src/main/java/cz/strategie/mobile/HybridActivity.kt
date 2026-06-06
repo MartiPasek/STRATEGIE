@@ -233,6 +233,57 @@ class HybridActivity : ComponentActivity() {
                 ""
             }
         }
+
+        // ── Verze / aktualizace / párování (O aplikaci) ──
+        @JavascriptInterface
+        fun buildTime(): String = BuildConfig.BUILD_TIME
+
+        @JavascriptInterface
+        fun checkUpdate(): String {
+            return try {
+                val con = URL(base() + "/api/v1/erp/app/mobile/latest").openConnection() as HttpsURLConnection
+                val tok = getSharedPreferences(prefsName, MODE_PRIVATE).getString(keyToken, "") ?: ""
+                if (tok.isNotEmpty()) con.setRequestProperty("Authorization", "Bearer $tok")
+                con.connectTimeout = 8000; con.readTimeout = 8000
+                val o = if (con.responseCode == 200) JSONObject(con.inputStream.bufferedReader().use { it.readText() }) else JSONObject()
+                val lc = o.optInt("version_code", 0)
+                JSONObject()
+                    .put("current_code", BuildConfig.VERSION_CODE).put("current_name", BuildConfig.VERSION_NAME)
+                    .put("build_time", BuildConfig.BUILD_TIME)
+                    .put("latest_code", lc).put("latest_name", o.optString("version_name", ""))
+                    .put("has_update", lc > BuildConfig.VERSION_CODE).toString()
+            } catch (e: Exception) {
+                JSONObject().put("current_code", BuildConfig.VERSION_CODE).put("current_name", BuildConfig.VERSION_NAME)
+                    .put("build_time", BuildConfig.BUILD_TIME).put("has_update", false).put("error", true).toString()
+            }
+        }
+
+        @JavascriptInterface
+        fun installUpdate() {
+            val b = base()
+            val tok = getSharedPreferences(prefsName, MODE_PRIVATE).getString(keyToken, "") ?: ""
+            runOnUiThread { Toast.makeText(this@HybridActivity, "Stahuji novou verzi…", Toast.LENGTH_SHORT).show() }
+            Thread {
+                try {
+                    val dest = java.io.File(cacheDir, "updates/strategie-latest.apk")
+                    dest.parentFile?.mkdirs()
+                    val con = URL("$b/api/v1/erp/app/mobile/download").openConnection() as HttpsURLConnection
+                    if (tok.isNotEmpty()) con.setRequestProperty("Authorization", "Bearer $tok")
+                    con.connectTimeout = 10000; con.readTimeout = 60000
+                    if (con.responseCode == 200) { con.inputStream.use { inp -> dest.outputStream().use { o -> inp.copyTo(o, 64 * 1024) } } }
+                    con.disconnect()
+                    if (dest.length() > 0) {
+                        val uri = androidx.core.content.FileProvider.getUriForFile(this@HybridActivity, "$packageName.fileprovider", dest)
+                        runOnUiThread {
+                            try { startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, "application/vnd.android.package-archive"); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK) }) } catch (e: Exception) {}
+                        }
+                    } else runOnUiThread { Toast.makeText(this@HybridActivity, "Stažení selhalo", Toast.LENGTH_SHORT).show() }
+                } catch (e: Exception) { runOnUiThread { Toast.makeText(this@HybridActivity, "Aktualizace selhala", Toast.LENGTH_SHORT).show() } }
+            }.start()
+        }
+
+        @JavascriptInterface
+        fun openPairing() { openExternal(base() + "/app-pair") }
     }
 
     @SuppressLint("SetJavaScriptEnabled")

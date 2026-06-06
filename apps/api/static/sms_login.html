@@ -359,6 +359,15 @@
       pollingToken = null;
       showStage('email');
     });
-  </script>
+
+    // Předvyplň e-mail ze standardního přihlašovacího dialogu (localStorage)
+    // nebo z ?email= v URL. Marti 6.6.2026.
+    try {
+      const _pe = new URLSearchParams(location.search).get('email')
+                || localStorage.getItem('stg_login_email') || '';
+      const _ef = document.getElementById('email');
+      if (_pe && _ef && !_ef.value) _ef.value = _pe;
+    } catch (e) {}
+</script>
 </body>
 </html>

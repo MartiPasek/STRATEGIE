@@ -2140,8 +2140,11 @@
       <div class="box-logo">Strategie</div>
       <div class="box-title">Vítej zpět</div>
       <div class="box-sub">Přihlas se emailem a heslem</div>
-      <input class="box-input" type="email" id="loginEmail" placeholder="tvuj@email.cz" autocomplete="username" />
-      <input class="box-input" type="password" id="loginPassword" placeholder="Heslo" autocomplete="current-password" style="margin-top:8px" />
+      <input class="box-input" type="email" id="loginEmail" placeholder="tvuj@email.cz" autocomplete="username" oninput="try{localStorage.setItem('stg_login_email',this.value.trim())}catch(e){}" />
+      <div style="position:relative;margin-top:8px">
+        <input class="box-input" type="password" id="loginPassword" placeholder="Heslo" autocomplete="current-password" style="margin-top:0;width:100%;padding-right:40px" />
+        <button type="button" id="loginPwToggle" aria-label="Zobrazit heslo" title="Zobrazit heslo" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:4px;line-height:1" onclick="var i=document.getElementById('loginPassword');var s=i.type==='password';i.type=s?'text':'password';this.textContent=s?'🙈':'👁';">👁</button>
+      </div>
       <button class="box-btn" id="loginBtn">Přihlásit se</button>
       <div class="box-error" id="loginError"></div>
       <div style="margin-top:14px;text-align:center;font-size:11px">

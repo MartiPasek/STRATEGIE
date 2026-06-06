@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.CallLog
 import android.provider.ContactsContract
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.webkit.JavascriptInterface
@@ -15,6 +16,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
@@ -35,6 +37,7 @@ class HybridActivity : ComponentActivity() {
     private val keyUrl = DialPollService.KEY_URL
     private val keyToken = DialPollService.KEY_TOKEN
     private val defUrl = DialPollService.DEFAULT_URL
+    private lateinit var web: WebView
 
     private fun base(): String {
         val p = getSharedPreferences(prefsName, MODE_PRIVATE)
@@ -317,7 +320,19 @@ class HybridActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val web = WebView(this)
+        // Náběh appky rovnou do /mobile (provizorní „jádro" už nepotřebujeme).
+        // Pokud je telefon spárovaný, zapni naslouchání jako dřív MainActivity.
+        try {
+            val p = getSharedPreferences(prefsName, MODE_PRIVATE)
+            val hasToken = !(p.getString(keyToken, "") ?: "").isBlank()
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 33)
+            }
+            if (hasToken && p.getBoolean("service_enabled", true)) DialPollService.start(this)
+        } catch (e: Exception) {}
+
+        web = WebView(this)
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.settings.databaseEnabled = true
@@ -339,5 +354,25 @@ class HybridActivity : ComponentActivity() {
         }
         setContentView(web)
         web.loadUrl(base() + "/mobile")
+
+        // Zpět: o úroveň výš v /mobile; na hlavní obrazovce přívětivý dialog „ukončit?".
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                web.evaluateJavascript("(window.__stgBack?window.__stgBack():false)") { r ->
+                    if (r != "true") confirmExit()
+                }
+            }
+        })
+    }
+
+    private fun confirmExit() {
+        try {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Jste doma 🏠")
+                .setMessage("Opravdu chcete STRATEGII ukončit?")
+                .setPositiveButton("Ukončit") { _, _ -> finish() }
+                .setNegativeButton("Zůstat", null)
+                .show()
+        } catch (e: Exception) { finish() }
     }
 }

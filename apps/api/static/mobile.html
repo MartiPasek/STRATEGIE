@@ -92,6 +92,8 @@
   function go(id){ stack.push(id); render(); }
   function back(){ if(stack.length>1){ stack.pop(); render(); } }
   function selectTab(t){ curTab=t; stack=[t]; render(); }
+  // hardwarové zpět (nativní HybridActivity volá): vrať true když jsme šli o úroveň výš, false na home
+  window.__stgBack=function(){ if(stack.length>1){ back(); return true; } if(curTab!=="home"){ selectTab("home"); return true; } return false; };
 
   function api(method, path, body){
     if (canFetch){ try{ var t=B.authedFetch(method,path,body?JSON.stringify(body):""); return Promise.resolve(t?JSON.parse(t):null);}catch(e){return Promise.resolve(null);} }
@@ -252,7 +254,7 @@
   }
 
   // ───── APLIKACE (launcher) ─────
-  function openApp(url){ if(B&&typeof B.openExternal==="function")B.openExternal(url); else { try{window.open(url,"_blank");}catch(e){ location.href=url; } } }
+  function openApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url; if(B&&typeof B.openExternal==="function")B.openExternal(u); else { try{window.open(u,"_blank");}catch(e){ location.href=u; } } }
   function appCell(iconHtml,label,badge,fn){ var c=el('<div class="appcell"><div class="appicon">'+iconHtml+'</div><div class="applabel">'+esc(label)+'</div>'+(badge?'<span class="appbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</div>'); c.addEventListener("click",fn); return c; }
   function apps(){
     app.innerHTML=topbar("Aplikace", true);

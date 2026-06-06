@@ -191,6 +191,7 @@ class DialPollService : Service() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setAutoCancel(true)
+            .setTimeoutAfter(60000)  // ať notifikace nikdy nevisí navždy (auto-zmizí do 60 s)
             .setContentIntent(pi)
             .setFullScreenIntent(pi, true)
             .build()

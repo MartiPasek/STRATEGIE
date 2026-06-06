@@ -486,7 +486,7 @@
     var g=el('<div class="appgrid"></div>');
     g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Chat",0,function(){openApp("/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"ERP",0,function(){openApp("/erp");}));
-    g.appendChild(appCell("🕒","Docházka",0,function(){openApp("/dochazka");}));
+    g.appendChild(appCell("🕒","Docházka",0,function(){go("dochazka");}));
     g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
     g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
     app.appendChild(g);
@@ -533,7 +533,43 @@
     sec.appendChild(el('<div style="color:#cdd6e2;margin-top:10px;font-size:14px;line-height:1.6;max-width:420px;">Firemní rozcestník — připravujeme. Tady budou firemní agendy, přehledy a nástroje.</div>'));
     app.appendChild(sec);
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
+  // ───── DOCHÁZKA (check-in/out + přehled) ─────
+  function dochazka(){
+    app.innerHTML=topbar("Docházka", true);
+    var p=el('<div class="panel"></div>');
+    if(!(B&&typeof B.authedFetch==="function")){ p.appendChild(el('<div class="hint">Docházka funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
+    p.appendChild(el('<div id="dochCard" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
+    p.appendChild(el('<div class="group" style="margin-top:16px;">Poslední záznamy</div>'));
+    p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
+    app.appendChild(p); dochLoad();
+  }
+  function dochLoad(){
+    api("GET","/api/v1/erp/app/attendance/status","").then(function(j){
+      var c=document.getElementById("dochCard"); if(!c)return;
+      if(!j||!j.ok){ c.textContent="Nepodařilo se načíst."; return; }
+      var open=j.open;
+      var h='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:15px;">'+(j.today_hours||0)+' h</b></div>';
+      h+='<div class="big" style="margin:8px 0 2px;'+(open?'color:var(--green);':'')+'">'+(open?('🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')):'⚪ Nepřihlášen k práci')+'</div>';
+      c.innerHTML=h;
+      var btn=el('<button class="'+(open?'warn':'green')+' full" style="margin-top:12px;font-size:16px;">'+(open?'⏹ Odchod (konec práce)':'▶️ Příchod (začít práci)')+'</button>');
+      btn.addEventListener("click",function(){ btn.disabled=true; var ep=open?"checkout":"checkin"; api("POST","/api/v1/erp/app/attendance/"+ep,{}).then(function(){ dochLoad(); }).catch(function(){ btn.disabled=false; }); });
+      c.appendChild(btn);
+      dochListLoad();
+    }).catch(function(){ var c=document.getElementById("dochCard"); if(c)c.textContent="Chyba spojení."; });
+  }
+  function dochListLoad(){
+    api("GET","/api/v1/erp/app/attendance/list?days=14","").then(function(j){
+      var ul=document.getElementById("dochList"); if(!ul)return;
+      var rows=(j&&j.entries)||[];
+      if(!rows.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím žádné záznamy.</li>'; return; }
+      ul.innerHTML="";
+      rows.forEach(function(e){
+        var t=(e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':''));
+        ul.appendChild(el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+e.hours+' h'):'')+' · '+esc(e.status||'')+'</div></li>'));
+      });
+    });
+  }
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

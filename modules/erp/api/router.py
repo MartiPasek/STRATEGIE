@@ -5553,6 +5553,156 @@ async def app_phone_set(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "phone_number": phone})
 
 
+# ── Mobilní docházka (check-in/out + přehled) — Marti 6.6.2026 ──────────────
+# Zapisuje do tenant.att_* přes strategie_pg (Marti-AI engine, vlastní tenant.*).
+_ATT_TENANT = 2  # EUROSOFT (TODO: odvodit z usera pro multi-tenant prodej)
+
+
+def _att_session():
+    from modules.strategie_pg.application import service as _pg
+    cm = _pg.get_session()
+    return cm, cm.__enter__()
+
+
+def _att_employee(sess, uid):
+    from sqlalchemy import text as _t
+    r = sess.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
+                     {"t": _ATT_TENANT, "u": uid}).first()
+    if r:
+        return r[0]
+    nm = None
+    try:
+        from core.database_data import get_data_session as _g
+        d = _g()
+        try:
+            rr = d.execute(_t("SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
+                              "FROM public.users WHERE id=:u"), {"u": uid}).first()
+            nm = rr[0] if rr else None
+        finally:
+            d.close()
+    except Exception:
+        nm = None
+    r = sess.execute(_t(
+        "INSERT INTO tenant.att_employee (tenant_id,cislo_zam,user_id,full_name,is_active,created_at,updated_at) "
+        "VALUES (:t, :cz, :u, :n, true, now(), now()) RETURNING id"),
+        {"t": _ATT_TENANT, "cz": "U" + str(uid), "u": uid, "n": nm}).first()
+    return r[0]
+
+
+def _att_work_type(sess):
+    from sqlalchemy import text as _t
+    r = sess.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='work'"),
+                     {"t": _ATT_TENANT}).first()
+    return r[0] if r else None
+
+
+@api_router.get("/app/attendance/status")
+async def att_status(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        opn = s.execute(_t("SELECT id, to_char(started_at,'YYYY-MM-DD\"T\"HH24:MI:SS') "
+                           "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND is_active=true "
+                           "ORDER BY id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
+        today = s.execute(_t("SELECT COALESCE(round(sum(hours)::numeric,2),0), count(*) "
+                             "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date"),
+                          {"t": _ATT_TENANT, "e": emp}).first()
+        s.commit()
+        return JSONResponse({"ok": True, "open": ({"id": opn[0], "started_at": opn[1]} if opn else None),
+                             "today_hours": float(today[0] or 0), "today_entries": int(today[1] or 0)})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/checkin")
+async def att_checkin(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        opn = s.execute(_t("SELECT id FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND is_active=true"),
+                        {"t": _ATT_TENANT, "e": emp}).first()
+        if opn:
+            s.commit()
+            return JSONResponse({"ok": True, "already_open": True, "id": opn[0]})
+        wt = _att_work_type(s)
+        r = s.execute(_t(
+            "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
+            "status,source,is_active,created_by_id,created_at,updated_at) "
+            "VALUES (:t,:e,current_date,:wt,now(),'pending','mobile_app',true,:u,now(),now()) RETURNING id"),
+            {"t": _ATT_TENANT, "e": emp, "wt": wt, "u": uid}).first()
+        s.commit()
+        return JSONResponse({"ok": True, "id": r[0]})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/checkout")
+async def att_checkout(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        opn = s.execute(_t("SELECT id, started_at FROM tenant.att_entry "
+                           "WHERE tenant_id=:t AND employee_id=:e AND is_active=true ORDER BY id DESC LIMIT 1"),
+                        {"t": _ATT_TENANT, "e": emp}).first()
+        if not opn:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "no_open_entry"})
+        s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
+                     "hours=round((EXTRACT(EPOCH FROM (now()-started_at))/3600.0 "
+                     "- COALESCE(break_minutes,0)/60.0)::numeric,2), updated_at=now() WHERE id=:id"),
+                  {"id": opn[0]})
+        s.commit()
+        r = s.execute(_t("SELECT hours FROM tenant.att_entry WHERE id=:id"), {"id": opn[0]}).first()
+        return JSONResponse({"ok": True, "id": opn[0], "hours": float(r[0] or 0)})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/attendance/list")
+async def att_list(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    days = 14
+    try:
+        days = max(1, min(120, int(req.query_params.get("days", "14"))))
+    except Exception:
+        days = 14
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        rows = s.execute(_t(
+            "SELECT to_char(e.entry_date,'YYYY-MM-DD') d, et.label typ, e.hours, e.project_ref, "
+            "e.status, e.is_active, to_char(e.started_at,'HH24:MI') zac, to_char(e.ended_at,'HH24:MI') kon "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date >= current_date - :dd "
+            "ORDER BY e.entry_date DESC, e.id DESC LIMIT 200"),
+            {"t": _ATT_TENANT, "e2": emp, "dd": days}).mappings().all()
+        s.commit()
+        return JSONResponse({"ok": True, "entries": [dict(r) for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/hr/migrate-dochazka")
 async def hr_migrate_dochazka(req: Request) -> JSONResponse:
     """Migrace EC_Dochazka (MSSQL přes EUROSOFT MCP) → tenant.att_*. Běží IN-PROCESS

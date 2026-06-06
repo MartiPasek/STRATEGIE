@@ -9,76 +9,46 @@
           --blue:#4f8ef7; --green:#10b981; --amber:#e0b070; --red:#e08a8a; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--tx); font-family:system-ui,sans-serif;
-         padding:16px; -webkit-tap-highlight-color:transparent; }
-  h1 { font-size:20px; font-weight:700; margin:4px 0 2px; }
-  .badges { margin-bottom:14px; }
-  .mode { display:inline-block; font-size:12px; padding:4px 10px; border-radius:20px; margin-right:6px; }
+         padding:14px; -webkit-tap-highlight-color:transparent; }
+  .topbar { display:flex; align-items:center; gap:10px; margin-bottom:6px; min-height:40px; }
+  .back { font-size:22px; cursor:pointer; color:var(--tx); background:none; border:none; padding:6px 8px 6px 0; }
+  .title { font-size:21px; font-weight:700; }
+  .ava { width:30px; height:30px; border-radius:50%; object-fit:cover; background:#2a3340; }
+  .mode { font-size:11px; padding:3px 9px; border-radius:20px; margin-left:auto; }
   .mode.native { background:rgba(16,185,129,.15); color:#5ee0b7; border:1px solid #1f6b53; }
   .mode.web { background:rgba(79,142,247,.15); color:#9bc0fb; border:1px solid #2a4d80; }
   .mode.dev { background:rgba(224,176,112,.15); color:var(--amber); border:1px solid #6e5326; }
-  .card { background:var(--surf); border:1px solid var(--bord); border-radius:12px; padding:14px; margin-bottom:14px; }
-  .card.devonly { border-style:dashed; border-color:#6e5326; }
-  .card h2 { font-size:15px; margin:0 0 10px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
-  label { font-size:12px; color:var(--mut); display:block; margin-bottom:4px; }
-  input { width:100%; background:#0f1620; border:1px solid var(--bord); border-radius:8px;
-          padding:11px; color:var(--tx); font-size:15px; margin-bottom:10px; }
-  button { background:var(--blue); border:none; color:#fff; border-radius:8px;
-           padding:11px 14px; font-size:14px; font-weight:600; cursor:pointer; }
-  button.full { width:100%; padding:13px; font-size:15px; }
+  .group { font-size:12px; color:var(--mut); text-transform:uppercase; letter-spacing:.04em; margin:18px 2px 4px; }
+  .list { background:var(--surf); border:1px solid var(--bord); border-radius:12px; overflow:hidden; }
+  .row { display:flex; align-items:center; gap:14px; padding:14px; border-bottom:1px solid #20262e; cursor:pointer; }
+  .row:last-child { border-bottom:none; }
+  .row .ic { font-size:20px; width:26px; text-align:center; }
+  .row .tx { flex:1; min-width:0; }
+  .row .tt { font-size:15px; }
+  .row .sub { font-size:12px; color:var(--mut); margin-top:2px; }
+  .row .chev { color:var(--mut); font-size:18px; }
+  .panel { margin-top:6px; }
+  label { font-size:12px; color:var(--mut); display:block; margin:12px 2px 4px; }
+  input { width:100%; background:#0f1620; border:1px solid var(--bord); border-radius:8px; padding:12px; color:var(--tx); font-size:15px; }
+  button { background:var(--blue); border:none; color:#fff; border-radius:8px; padding:12px 14px; font-size:14px; font-weight:600; cursor:pointer; }
+  button.full { width:100%; margin-top:12px; padding:13px; font-size:15px; }
   button.green { background:var(--green); }
   button.ghost { background:transparent; border:1px solid var(--bord); color:var(--tx); }
-  button.sm { padding:8px 12px; font-size:13px; }
   button.warn { background:#3a1f24; border:1px solid #6e3540; color:var(--red); }
-  .hint { font-size:12px; color:var(--mut); margin-top:8px; }
-  .devinfo { margin-top:10px; padding:10px; border-radius:8px; background:rgba(224,176,112,.08);
-             border:1px solid #6e5326; color:#e6c699; font-size:12.5px; line-height:1.5; }
+  button.sm { padding:8px 12px; font-size:13px; }
+  .hint { font-size:12px; color:var(--mut); margin-top:10px; line-height:1.5; }
+  .devinfo { margin-top:12px; padding:10px; border-radius:8px; background:rgba(224,176,112,.08); border:1px solid #6e5326; color:#e6c699; font-size:12.5px; line-height:1.5; }
   .hidden { display:none; }
   ul { list-style:none; padding:0; margin:0; }
-  li { padding:10px 0; border-bottom:1px solid #20262e; font-size:14px; }
+  li { padding:12px 0; border-bottom:1px solid #20262e; font-size:14px; }
   li:last-child { border-bottom:none; }
-  .nt { font-weight:600; }
-  .nm { color:var(--mut); font-size:13px; margin:3px 0 8px; }
+  .nt { font-weight:600; } .nm { color:var(--mut); font-size:13px; margin:3px 0 9px; }
   .nactions { display:flex; gap:8px; flex-wrap:wrap; }
-  .appchip { display:flex; gap:8px; background:rgba(79,142,247,.1); border:1px solid #2a4d80;
-             color:#9bc0fb; border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:14px; }
-  .devtoggle { margin-top:18px; font-size:12px; color:var(--mut); text-align:center; }
-  .devtoggle a { color:var(--amber); text-decoration:underline; cursor:pointer; }
+  .big { font-size:16px; padding:8px 2px; }
 </style>
 </head>
 <body>
-  <h1>STRATEGIE Mobil</h1>
-  <div class="badges">
-    <span id="mode" class="mode web">prohlížeč (PWA)</span>
-    <span id="devBadge" class="mode dev hidden">DEV mód</span>
-  </div>
-
-  <div id="appchip" class="appchip hidden">📲 Telefonní funkce (vytáčení) jsou v appce STRATEGIE.</div>
-
-  <div class="card hidden" id="phoneCard">
-    <h2>📞 Telefon</h2>
-    <label>Telefonní číslo</label>
-    <input id="num" type="tel" inputmode="tel" placeholder="+420…" value="+420">
-    <button id="dial" class="green full">Vytočit</button>
-    <div class="hint">Nativní only — vytočí přes most v appce.</div>
-    <div id="dialInfo" class="devinfo hidden"></div>
-  </div>
-
-  <div class="card hidden" id="listenCard">
-    <h2>🟢 Naslouchání</h2>
-    <div id="listenState" style="font-size:14px;">—</div>
-    <button id="listenBtn" class="ghost sm" style="margin-top:10px;">Zjistit stav</button>
-    <div id="listenInfo" class="devinfo hidden"></div>
-  </div>
-
-  <div class="card">
-    <h2>🔔 Notifikace / úkoly <button id="refresh" class="ghost sm">Obnovit</button></h2>
-    <ul id="notifs"><li style="color:var(--mut);border:none;">Načítám…</li></ul>
-  </div>
-
-  <div class="devtoggle">
-    <span id="devLabel"></span> · <a id="devLink"></a>
-  </div>
-
+<div id="app"></div>
 <script>
 (function () {
   var B = window.STRATEGIE || null;
@@ -86,114 +56,168 @@
   var canListen = !!(B && typeof B.listening === "function");
   var canFetch = !!(B && typeof B.authedFetch === "function");
   var native = canDial || canListen || canFetch;
+  var ver = (B && typeof B.version === "function") ? (function(){try{return B.version();}catch(e){return "";}})() : "";
 
   var params = new URLSearchParams(location.search);
-  if (params.get("dev") === "1") { try { localStorage.setItem("stg_mobile_dev", "1"); } catch (e) {} }
-  if (params.get("dev") === "0") { try { localStorage.removeItem("stg_mobile_dev"); } catch (e) {} }
-  var DEV = false; try { DEV = localStorage.getItem("stg_mobile_dev") === "1"; } catch (e) {}
+  if (params.get("dev") === "1") { try { localStorage.setItem("stg_mobile_dev","1"); } catch(e){} }
+  if (params.get("dev") === "0") { try { localStorage.removeItem("stg_mobile_dev"); } catch(e){} }
+  var DEV = false; try { DEV = localStorage.getItem("stg_mobile_dev") === "1"; } catch(e){}
 
-  var modeEl = document.getElementById("mode");
-  if (native) { modeEl.textContent = "appka (nativní funkce aktivní)"; modeEl.className = "mode native"; }
-  if (DEV) document.getElementById("devBadge").classList.remove("hidden");
+  var app = document.getElementById("app");
+  var stack = ["home"];
+  var notifCount = null;
 
-  function showInfo(el, t) { el.textContent = t; el.classList.remove("hidden"); }
-  function esc(s) { return (s || "").replace(/[&<>"]/g, function (c) {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function esc(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
+  function el(html){ var d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild; }
+  function go(id){ stack.push(id); render(); }
+  function back(){ if(stack.length>1){ stack.pop(); render(); } }
 
-  // ── Unifikovaný API: v appce přes most (token v headeru), v prohlížeči přes cookie ──
-  function api(method, path, body) {
-    if (canFetch) {
-      try {
-        var txt = B.authedFetch(method, path, body ? JSON.stringify(body) : "");
-        return Promise.resolve(txt ? JSON.parse(txt) : null);
-      } catch (e) { return Promise.resolve(null); }
+  function api(method, path, body){
+    if (canFetch){ try{ var t=B.authedFetch(method,path,body?JSON.stringify(body):""); return Promise.resolve(t?JSON.parse(t):null);}catch(e){return Promise.resolve(null);} }
+    var o={method:method,credentials:"same-origin",headers:{}};
+    if(body){o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body);}
+    return fetch(path,o).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;});
+  }
+  function doDial(n){ if(B&&typeof B.dialNumber==="function")B.dialNumber(n); else if(B&&typeof B.dial==="function")B.dial(n); }
+  function listenState(){ if(!canListen)return null; try{return B.listening()==="1";}catch(e){return null;} }
+
+  function topbar(title, withBack, extra){
+    var b = '<div class="topbar">';
+    if (withBack) b += '<button class="back" data-back>&#8592;</button>';
+    else b += '<img class="ava" src="/api/v1/erp/app/avatar" alt="" onerror="this.style.visibility=\'hidden\'">';
+    b += '<span class="title">'+esc(title)+'</span>';
+    var mClass = native ? "native" : "web", mTx = native ? "appka" : "prohlížeč";
+    if (DEV) { mClass="dev"; mTx="DEV"; }
+    b += '<span class="mode '+mClass+'">'+mTx+'</span></div>';
+    return b;
+  }
+  function row(ic, tt, sub, onclick){
+    var r = el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div><div class="chev">&#8250;</div></div>');
+    r.addEventListener("click", onclick); return r;
+  }
+
+  // ───────────── HOME (čistá) ─────────────
+  function home(){
+    app.innerHTML = topbar("STRATEGIE Mobil", false);
+    var list = el('<div class="list"></div>');
+    list.appendChild(row("📞","Telefon","Vytáčení, naslouchání, hovory",function(){go("phone");}));
+    list.appendChild(row("🔔","Notifikace a úkoly", notifCount==null?"…":(notifCount?("Čekající: "+notifCount):"Žádné čekající"), function(){go("notifs");}));
+    list.appendChild(row("⚙️","Nastavení","Naslouchání, ikony, vývojář, o aplikaci",function(){go("settings");}));
+    app.appendChild(list);
+    // doplň počet notifikací
+    api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
+      notifCount = j&&j.commands?j.commands.length:0;
+      if(stack[stack.length-1]==="home") render();
+    });
+  }
+
+  // ───────────── TELEFON ─────────────
+  function phone(){
+    app.innerHTML = topbar("Telefon", true);
+    var p = el('<div class="panel"></div>');
+    if (canDial || DEV){
+      p.appendChild(el('<label>Telefonní číslo</label>'));
+      var inp = el('<input id="num" type="tel" inputmode="tel" placeholder="+420…" value="+420">');
+      p.appendChild(inp);
+      var btn = el('<button class="green full">Vytočit</button>');
+      var info = el('<div class="devinfo hidden"></div>');
+      btn.addEventListener("click", function(){
+        var n=(inp.value||"").trim(); if(!n)return;
+        if(canDial){ doDial(n); if(DEV){info.textContent="✓ Most: dialNumber(\""+n+"\") → ACTION_DIAL otevře dialer.";info.classList.remove("hidden");} }
+        else { info.textContent="DEV (bez mostu): dialNumber(\""+n+"\") → v appce spustí ACTION_DIAL (dialer s číslem). Nativní-only.";info.classList.remove("hidden"); }
+      });
+      p.appendChild(btn); p.appendChild(info);
+    } else {
+      p.appendChild(el('<div class="hint">Vytáčení je nativní funkce — funguje v appce STRATEGIE.</div>'));
     }
-    var opt = { method: method, credentials: "same-origin", headers: {} };
-    if (body) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
-    return fetch(path, opt).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+    // naslouchání zkratka
+    var ls = listenState();
+    p.appendChild(el('<div class="group">Stav</div>'));
+    var sl = el('<div class="list"></div>');
+    sl.appendChild(row("🟢","Naslouchání", ls==null?"(zjistí se v appce)":(ls?"Zapnuto":"Vypnuto"), function(){go("set_listen");}));
+    p.appendChild(sl);
+    p.appendChild(el('<div class="hint">Připravujeme: historie hovorů → CRM.</div>'));
+    app.appendChild(p);
   }
 
-  function doDial(n) {
-    if (B && typeof B.dialNumber === "function") B.dialNumber(n);
-    else if (B && typeof B.dial === "function") B.dial(n);
-  }
-
-  // ── Telefon (most NEBO DEV) ──
-  if (canDial || DEV) {
-    var pc = document.getElementById("phoneCard"); pc.classList.remove("hidden");
-    if (DEV && !canDial) pc.classList.add("devonly");
-    document.getElementById("dial").addEventListener("click", function () {
-      var n = (document.getElementById("num").value || "").trim(); if (!n) return;
-      if (canDial) {
-        doDial(n);
-        if (DEV) showInfo(document.getElementById("dialInfo"),
-          "✓ Most: dialNumber(\"" + n + "\") → ACTION_DIAL otevře dialer s číslem.");
-      } else {
-        showInfo(document.getElementById("dialInfo"),
-          "DEV (bez mostu): dialNumber(\"" + n + "\") → v appce spustí ACTION_DIAL (dialer s předvyplněným číslem). Nativní-only.");
-      }
+  // ───────────── NOTIFIKACE ─────────────
+  function act(id, decision){ api("POST","/api/v1/erp/app/command/"+id+"/result",{decision:decision}).then(function(){ notifsLoad(); }); }
+  function notifsLoad(){
+    var ul=document.getElementById("ntlist"); if(!ul)return;
+    api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
+      if(!j){ ul.innerHTML='<li style="color:var(--mut);border:none;">Přihlas se (prohlížeč) nebo otevři v appce.</li>'; return; }
+      var cmds=j.commands||[]; notifCount=cmds.length;
+      if(!cmds.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné čekající notifikace ✓</li>'; return; }
+      ul.innerHTML="";
+      cmds.forEach(function(c){
+        var li=el('<li><div class="nt">'+esc(c.title||"Notifikace")+'</div>'+(c.message?'<div class="nm">'+esc(c.message)+'</div>':'')+'<div class="nactions"></div></li>');
+        var a=li.querySelector(".nactions");
+        function b(lbl,cls,dec){ var x=el('<button class="sm '+cls+'">'+lbl+'</button>'); x.addEventListener("click",function(){act(c.id,dec);}); a.appendChild(x); }
+        if(c.command_type==="claude_confirm"){ b("Povolit","green","accept"); b("Odmítnout","warn","reject"); }
+        else { b("OK","ghost","done"); }
+        ul.appendChild(li);
+      });
     });
   }
-
-  // ── Naslouchání (most NEBO DEV) ──
-  if (canListen || DEV) {
-    var lc = document.getElementById("listenCard"); lc.classList.remove("hidden");
-    if (DEV && !canListen) lc.classList.add("devonly");
-    var ls = document.getElementById("listenState");
-    if (canListen) { try { ls.textContent = B.listening() === "1" ? "Zapnuto ✓" : "Vypnuto"; } catch (e) {} }
-    else { ls.textContent = "(zjistí se přes most v appce)"; }
-    document.getElementById("listenBtn").addEventListener("click", function () {
-      if (canListen) {
-        try { ls.textContent = B.listening() === "1" ? "Zapnuto ✓" : "Vypnuto"; } catch (e) {}
-        if (DEV) showInfo(document.getElementById("listenInfo"), "✓ Most: listening() → stav služby naslouchání vytáčení.");
-      } else {
-        showInfo(document.getElementById("listenInfo"),
-          "DEV (bez mostu): listening() → vrátí, jestli v appce běží služba naslouchání vytáčení z ERP.");
-      }
-    });
+  function notifs(){
+    app.innerHTML = topbar("Notifikace a úkoly", true);
+    var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="ntlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
+    var r=el('<button class="ghost full">Obnovit</button>'); r.addEventListener("click", notifsLoad); p.appendChild(r);
+    app.appendChild(p); notifsLoad();
   }
 
-  if (!native && !DEV) document.getElementById("appchip").classList.remove("hidden");
-
-  // ── Notifikace / úkoly (reálná data; v appce token, v prohlížeči cookie) ──
-  function act(id, decision) { api("POST", "/api/v1/erp/app/command/" + id + "/result", { decision: decision }).then(loadNotifs); }
-
-  function renderCmd(c) {
-    var li = document.createElement("li");
-    var h = '<div class="nt">' + esc(c.title || "Notifikace") + '</div>';
-    if (c.message) h += '<div class="nm">' + esc(c.message) + '</div>';
-    h += '<div class="nactions"></div>';
-    li.innerHTML = h;
-    var a = li.querySelector(".nactions");
-    function btn(label, cls, dec) {
-      var b = document.createElement("button"); b.className = "sm " + cls; b.textContent = label;
-      b.addEventListener("click", function () { act(c.id, dec); }); a.appendChild(b);
-    }
-    if (c.command_type === "claude_confirm") { btn("Povolit", "green", "accept"); btn("Odmítnout", "warn", "reject"); }
-    else { btn("OK", "ghost", "done"); }
-    return li;
+  // ───────────── NASTAVENÍ (zanořené) ─────────────
+  function settings(){
+    app.innerHTML = topbar("Nastavení", true);
+    var l=el('<div class="list"></div>');
+    l.appendChild(row("🟢","Naslouchání","Stav služby vytáčení",function(){go("set_listen");}));
+    l.appendChild(row("📌","Ikony na plochu","ERP a Chat zkratky",function(){go("set_icons");}));
+    l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
+    l.appendChild(row("ℹ️","O aplikaci", ver?("Verze "+ver):"Verze a stav",function(){go("set_about");}));
+    app.appendChild(l);
+  }
+  function set_listen(){
+    app.innerHTML = topbar("Naslouchání", true);
+    var p=el('<div class="panel"></div>'); var ls=listenState();
+    p.appendChild(el('<div class="big">Stav: <b>'+(ls==null?"(jen v appce)":(ls?"Zapnuto ✓":"Vypnuto"))+'</b></div>'));
+    p.appendChild(el('<div class="hint">Služba na pozadí přijímá požadavky na vytáčení z ERP. Zapínání/vypínání zatím v hlavní appce; most na přepínání přidáme.</div>'));
+    if(DEV){ var i=el('<div class="devinfo">DEV: listening() → vrací stav foreground služby (1/0).</div>'); p.appendChild(i); }
+    app.appendChild(p);
+  }
+  function set_icons(){
+    app.innerHTML = topbar("Ikony na plochu", true);
+    var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="hint">Přidání ikon ERP a Chat na plochu je nativní akce v appce STRATEGIE (Nastavení appky → Přidat ikonu na plochu). Most na přidání ikony z webu doplníme.</div>'));
+    app.appendChild(p);
+  }
+  function set_dev(){
+    app.innerHTML = topbar("Vývojářské", true);
+    var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="big">DEV mód: <b>'+(DEV?"zapnutý":"vypnutý")+'</b></div>'));
+    var t=el('<button class="'+(DEV?"warn":"green")+' full">'+(DEV?"Vypnout DEV mód":"Zapnout DEV mód")+'</button>');
+    t.addEventListener("click",function(){ try{ if(DEV)localStorage.removeItem("stg_mobile_dev"); else localStorage.setItem("stg_mobile_dev","1"); }catch(e){} location.href=location.pathname; });
+    p.appendChild(t);
+    p.appendChild(el('<div class="hint">V DEV módu se nativní sekce zobrazí i v prohlížeči a klik vysvětlí, co most v appce dělá.</div>'));
+    p.appendChild(el('<div class="devinfo">Most: '+(native?("aktivní — "+[canDial?"dialNumber":"",canListen?"listening":"",canFetch?"authedFetch":""].filter(Boolean).join(", ")):"není (běžíš v prohlížeči)")+'</div>'));
+    app.appendChild(p);
+  }
+  function set_about(){
+    app.innerHTML = topbar("O aplikaci", true);
+    var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="list"><div class="row" style="cursor:default"><div class="tx"><div class="tt">Verze appky</div><div class="sub">'+(ver||"— (jen v appce)")+'</div></div></div><div class="row" style="cursor:default"><div class="tx"><div class="tt">Režim</div><div class="sub">'+(native?"nativní appka (most aktivní)":"prohlížeč (PWA)")+'</div></div></div></div>'));
+    app.appendChild(p);
   }
 
-  function loadNotifs() {
-    var ul = document.getElementById("notifs");
-    api("GET", "/api/v1/erp/app/mobile/commands/pending", "").then(function (j) {
-      if (!j) { ul.innerHTML = '<li style="color:var(--mut);border:none;">Přihlas se (prohlížeč) nebo otevři v appce.</li>'; return; }
-      var cmds = j.commands || [];
-      if (!cmds.length) { ul.innerHTML = '<li style="color:var(--mut);border:none;">Žádné čekající notifikace ✓</li>'; return; }
-      ul.innerHTML = ""; cmds.forEach(function (c) { ul.appendChild(renderCmd(c)); });
-    });
+  var SCREENS = { home:home, phone:phone, notifs:notifs, settings:settings, set_listen:set_listen, set_icons:set_icons, set_dev:set_dev, set_about:set_about };
+  function render(){
+    (SCREENS[stack[stack.length-1]]||home)();
+    var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back);
   }
-  document.getElementById("refresh").addEventListener("click", loadNotifs);
-  loadNotifs();
-
-  // ── Přepínač DEV/Production ──
-  document.getElementById("devLabel").textContent = DEV ? "DEV mód zapnutý" : "Production mód";
-  var link = document.getElementById("devLink");
-  link.textContent = DEV ? "přepnout na Production" : "zapnout DEV mód";
-  link.addEventListener("click", function () {
-    try { if (DEV) localStorage.removeItem("stg_mobile_dev"); else localStorage.setItem("stg_mobile_dev", "1"); } catch (e) {}
-    location.href = location.pathname;
-  });
+  // hardware/gesto zpět (kde to jde)
+  window.addEventListener("popstate", function(){ if(stack.length>1){ back(); history.pushState(null,""); } });
+  try{ history.pushState(null,""); }catch(e){}
+  render();
 })();
 </script>
 </body>

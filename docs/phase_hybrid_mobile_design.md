@@ -41,6 +41,13 @@
    Přepínání `?dev=1` / `?dev=0` v URL + localStorage `stg_mobile_dev` + přepínač v patičce.
    ✅ aplikováno v `mobile.html`. (Později lze navázat na globální DEV/PROD flag systému.)
 
+7. **UX: čistá hlavní obrazovka + zanořené nastavení jako Android Settings** (Marti 6. 6.).
+   Home = jen seznam kategorií (řádek ikona+titul+podtitul+šipka). Funkce/nastavení
+   v podstránkách a dál v podsložkách (Telefon / Notifikace a úkoly / Nastavení →
+   Naslouchání, Ikony, Vývojářské, O aplikaci). Šipka zpět + hardware back.
+   ✅ `/mobile` přestavěno do screen-routeru. Nativní hlavní obrazovka appky se
+   sjednotí stejně (až `/mobile` převezme UI; zatím launcher + 🧪 test).
+
 ## Plán build-out (po POC)
 
 - Bridge rename + rozšíření: `dial`→`dialNumber`/`dialDirect`, přidat `getCallLog`,

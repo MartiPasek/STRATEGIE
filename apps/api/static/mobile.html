@@ -83,6 +83,7 @@
   var canDial = !!(B && (typeof B.dialNumber === "function" || typeof B.dial === "function"));
   var canListen = !!(B && typeof B.listening === "function");
   var canFetch = !!(B && typeof B.authedFetch === "function");
+  var canSms = !!(B && typeof B.sendSms === "function" && typeof B.deviceId === "function");
   var native = canDial || canListen || canFetch;
   var ver = (B && typeof B.version === "function") ? (function(){try{return B.version();}catch(e){return "";}})() : "";
 
@@ -285,6 +286,7 @@
     l.appendChild(row("🟢","Párování s ERP","Stav spojení s ERP",function(){go("set_listen");}));
     l.appendChild(row("📌","Ikony na plochu","ERP a Chat zkratky",function(){go("set_icons");}));
     l.appendChild(row("📲","Nainstalovat na plochu","/mobile jako PWA",function(){go("set_install");}));
+    if(canSms) l.appendChild(row("📞","Telefonní číslo","Ověřit číslo tohoto telefonu",function(){go("set_phone");}));
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
     l.appendChild(row("🔔","Přístup k oznámením","Počty WhatsApp / SMS",function(){go("set_notifaccess");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
@@ -361,7 +363,44 @@
     p.appendChild(el('<div class="big">Stav: <b>'+(bd.access?"povoleno ✓":"nepovoleno")+'</b></div>'));
     var b=el('<button class="green full">Otevřít nastavení přístupu</button>'); b.addEventListener("click",function(){B.openNotifAccess();}); p.appendChild(b);
     p.appendChild(el('<div class="hint">Umožní spočítat nová oznámení (WhatsApp, SMS) a zobrazit číslo na ikoně Aplikace. Appka oznámení nečte — jen je počítá.</div>')); app.appendChild(p); }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
+  // ── OVĚŘENÍ TELEFONNÍHO ČÍSLA (SMS s tokenem → server přečte odesílatele) ──
+  var _pvTimer=null, _pvToken=null;
+  function set_phone(){
+    if(_pvTimer){clearInterval(_pvTimer);_pvTimer=null;}
+    app.innerHTML=topbar("Telefonní číslo", true);
+    var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="hint">Ověříme číslo tohoto telefonu: appka pošle <b>jednu SMS</b> s kódem na STRATEGIE, my z ní přečteme tvé číslo a uložíme ho k tomuto telefonu.</div>'));
+    var status=el('<div class="big" id="pvStatus" style="margin:14px 0;">Číslo zatím neověřeno.</div>'); p.appendChild(status);
+    var btn=el('<button class="green full">📨 Ověřit číslo (odeslat SMS)</button>');
+    btn.addEventListener("click",function(){ startPhoneVerify(status,btn); });
+    p.appendChild(btn);
+    p.appendChild(el('<div class="hint">Odeslání SMS může být zpoplatněno dle tvého tarifu. Appka si vyžádá oprávnění „odesílat SMS".</div>'));
+    app.appendChild(p);
+  }
+  function startPhoneVerify(status,btn){
+    if(!canSms){ status.textContent="Ověření funguje jen v appce STRATEGIE."; return; }
+    btn.disabled=true; status.textContent="Připravuji…";
+    var dev=""; try{ dev=B.deviceId(); }catch(e){}
+    api("POST","/api/v1/erp/app/phone-verify/start",{device_id:dev}).then(function(j){
+      if(!j||!j.ok||!j.token){ status.textContent="Nepodařilo se připravit ověření."; btn.disabled=false; return; }
+      _pvToken=j.token;
+      var r="0"; try{ r=B.sendSms(j.send_to, j.body); }catch(e){ r="0"; }
+      if(r==="need"){ status.textContent="Povol prosím odesílání SMS a zkus to znovu."; btn.disabled=false; return; }
+      if(r!=="1"){ status.textContent="SMS se nepodařilo odeslat."; btn.disabled=false; return; }
+      status.textContent="📨 SMS odeslána, čekám na ověření…";
+      var tries=0;
+      if(_pvTimer)clearInterval(_pvTimer);
+      _pvTimer=setInterval(function(){
+        tries++;
+        api("GET","/api/v1/erp/app/phone-verify/status?token="+encodeURIComponent(_pvToken),"").then(function(s){
+          if(s&&s.verified){ clearInterval(_pvTimer);_pvTimer=null; status.innerHTML="✓ Ověřeno: <b>"+esc(s.phone_number||"")+"</b>"; btn.style.display="none"; }
+          else if(tries>=20){ clearInterval(_pvTimer);_pvTimer=null; status.textContent="Zatím nepřišlo. Zkus to znovu."; btn.disabled=false; }
+        });
+      },3000);
+    }).catch(function(){ status.textContent="Chyba spojení."; btn.disabled=false; });
+  }
+
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

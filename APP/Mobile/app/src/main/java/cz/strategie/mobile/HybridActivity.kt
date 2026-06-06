@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.CallLog
 import android.provider.ContactsContract
+import android.telephony.SmsManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -116,6 +117,38 @@ class HybridActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun version(): String = BuildConfig.VERSION_NAME
+
+        // Stabilní ID tohoto telefonu (shodné s tím, co hlásí služba do
+        // fw.mobile_device) — pro ověření čísla navázané na zařízení.
+        @JavascriptInterface
+        fun deviceId(): String {
+            val p = getSharedPreferences(prefsName, MODE_PRIVATE)
+            var id = p.getString(DialPollService.KEY_DEVICE_ID, null)
+            if (id.isNullOrBlank()) {
+                id = java.util.UUID.randomUUID().toString()
+                p.edit().putString(DialPollService.KEY_DEVICE_ID, id).apply()
+            }
+            return id
+        }
+
+        // Ověření čísla: appka pošle z telefonu SMS s tokenem na trusted SIM
+        // STRATEGIE; server z odesílatele přečte reálné číslo. Vyžádá SEND_SMS.
+        @JavascriptInterface
+        fun sendSms(number: String, body: String): String {
+            val n = number.trim(); val b = body.trim()
+            if (n.isEmpty() || b.isEmpty()) return "0"
+            if (checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+                runOnUiThread { try { requestPermissions(arrayOf(Manifest.permission.SEND_SMS), 44) } catch (e: Exception) {} }
+                return "need"
+            }
+            return try {
+                val sm = if (Build.VERSION.SDK_INT >= 31)
+                    getSystemService(SmsManager::class.java)
+                else @Suppress("DEPRECATION") SmsManager.getDefault()
+                sm.sendTextMessage(n, null, b, null, null)
+                "1"
+            } catch (e: Exception) { "0" }
+        }
 
         @JavascriptInterface
         fun toast(msg: String) {

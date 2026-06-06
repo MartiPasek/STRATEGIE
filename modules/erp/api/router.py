@@ -5404,6 +5404,67 @@ async def app_heartbeat(app_key: str, req: Request) -> JSONResponse:
         ds.close()
 
 
+# ── Ověření telefonního čísla přes SMS (Marti 6.6.2026) ──────────────────
+# Appka po potvrzení uživatelem pošle z telefonu SMS s tokenem STG-PAIR-XXXX
+# na trusted SIM STRATEGIE; příchozí SMS (sms_preprocessor purpose=PAIR) z ní
+# přečte číslo odesílatele → zapíše k zařízení + označí ověřeno. App pollne /status.
+_SMS_VERIFY_TO = "+420778117879"  # Marti-AI / trusted SIM (sdílí 2FA)
+
+
+@api_router.post("/app/phone-verify/start")
+async def app_phone_verify_start(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    dev = (str((body or {}).get("device_id") or "")).strip()[:120] or None
+    lbl = (str((body or {}).get("device_label") or "")).strip()[:120] or None
+    import secrets as _sec_pv
+    token = "STG-PAIR-" + _sec_pv.token_hex(4).upper()
+    from core.database_data import get_data_session as _gds_pv
+    from sqlalchemy import text as _sql_pv
+    ds = _gds_pv()
+    try:
+        ds.execute(_sql_pv("DELETE FROM fw.phone_verify WHERE expires_at < now()"))
+        ds.execute(_sql_pv(
+            "INSERT INTO fw.phone_verify (token, user_id, device_id, device_label, expires_at) "
+            "VALUES (:t, :u, :d, :l, now() + interval '15 minutes')"
+        ), {"t": token, "u": uid, "d": dev, "l": lbl})
+        ds.commit()
+    except Exception as exc:
+        ds.rollback()
+        logger.warning("[phone-verify start] %s", exc)
+        return JSONResponse({"ok": False, "error": "server"}, status_code=500)
+    finally:
+        ds.close()
+    return JSONResponse({"ok": True, "token": token, "send_to": _SMS_VERIFY_TO,
+                         "body": token, "ttl_min": 15})
+
+
+@api_router.get("/app/phone-verify/status")
+async def app_phone_verify_status(req: Request, token: str = "") -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from core.database_data import get_data_session as _gds_ps
+    from sqlalchemy import text as _sql_ps
+    ds = _gds_ps()
+    try:
+        row = ds.execute(_sql_ps(
+            "SELECT phone_number, verified_at FROM fw.phone_verify "
+            "WHERE token = :t AND user_id = :u"
+        ), {"t": (token or "").strip(), "u": uid}).first()
+    finally:
+        ds.close()
+    if not row:
+        return JSONResponse({"ok": True, "verified": False, "unknown": True})
+    return JSONResponse({"ok": True, "verified": row[1] is not None,
+                         "phone_number": row[0]})
+
+
 @api_router.get("/app/devices")
 async def app_devices(req: Request) -> JSONResponse:
     """Přehled všech mobilních zařízení (kdo / appka / verze / nastavení). Jen rodič."""

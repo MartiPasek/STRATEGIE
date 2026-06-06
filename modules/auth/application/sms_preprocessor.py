@@ -189,6 +189,49 @@ def classify_sms(
             handler_result="not_implemented_future",
         )
 
+    if purpose == "PAIR":
+        # Marti 6.6.2026 — ověření telefonního čísla při párování appky.
+        # Appka pošle z telefonu SMS s tokenem; z odesílatele přečteme reálné
+        # číslo telefonu → zapíšeme k zařízení (fw.phone_verify + fw.mobile_device).
+        try:
+            from core.database_data import get_data_session as _gds_pair
+            from sqlalchemy import text as _sql_pair
+            ds = _gds_pair()
+            try:
+                row = ds.execute(_sql_pair(
+                    "UPDATE fw.phone_verify SET phone_number = :p, verified_at = now() "
+                    "WHERE token = :t AND expires_at > now() AND verified_at IS NULL "
+                    "RETURNING user_id, device_id"
+                ), {"p": sender_clean, "t": token}).first()
+                if row:
+                    _uid_p, _dev_p = int(row[0]), row[1]
+                    if _dev_p:
+                        ds.execute(_sql_pair(
+                            "UPDATE fw.mobile_device SET phone_number = :p, "
+                            "phone_verified_at = now() WHERE user_id = :u AND device_id = :d"
+                        ), {"p": sender_clean, "u": _uid_p, "d": _dev_p})
+                    else:
+                        ds.execute(_sql_pair(
+                            "UPDATE fw.mobile_device SET phone_number = :p, "
+                            "phone_verified_at = now() WHERE user_id = :u"
+                        ), {"p": sender_clean, "u": _uid_p})
+                ds.commit()
+                matched = bool(row)
+            except Exception:
+                ds.rollback()
+                matched = False
+            finally:
+                ds.close()
+        except Exception as exc:
+            logger.warning(f"sms_preprocess: PAIR handler error: {exc}")
+            matched = False
+        return PreprocessResult(
+            action="pair_verified" if matched else "pair_no_match",
+            matched_token=token,
+            matched_purpose="PAIR",
+            handler_result=("ok" if matched else "no_pending_token"),
+        )
+
     # Unknown purpose — token format matched, ale purpose nepoznáváme.
     # Audit + don't forward (could be malicious probe).
     logger.warning(

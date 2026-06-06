@@ -125,22 +125,36 @@ def _require_parent(user_id: int) -> None:
 # JEN rodičům (is_marti_parent) a jsou členům skryté (tree filter + frontend
 # gate). Business endpointy → _require_erp_member; design/system → _require_parent.
 
-def _is_active_eurosoft_member(user_id: int) -> bool:
-    """True pokud user je aktivní člen EUROSOFT tenantu (id=2)."""
+def _eurosoft_member_role(user_id: int) -> str | None:
+    """Vrátí roli AKTIVNÍHO členství v EUROSOFT tenantu (id=2), jinak None."""
     from core.database_core import get_core_session
-    from modules.auth.application.user_context import _list_user_tenants
+    from modules.core.infrastructure.models_core import UserTenant
     cs = get_core_session()
     try:
-        tenants = _list_user_tenants(cs, user_id) or []
-        for t in tenants:
-            tid = t.get("tenant_id") if isinstance(t, dict) else None
-            if tid is not None and int(tid) == EUROSOFT_TENANT_ID:
-                return True
-        return False
+        ut = (
+            cs.query(UserTenant)
+            .filter_by(user_id=user_id, tenant_id=EUROSOFT_TENANT_ID,
+                       membership_status="active")
+            .first()
+        )
+        return (ut.role or "").strip() if ut else None
     except Exception:
-        return False
+        return None
     finally:
         cs.close()
+
+
+# Role s business přístupem do ERP (6.6.2026, Marti's "v základě smí vidět
+# jen sebe"): 'employee' = jen vlastní data (docházka, profil, mobil) — do
+# ERP/CRM NEsmí. Business R/W jen explicitně přidělené role (allow-list).
+_ERP_BUSINESS_ROLES = frozenset({"member", "admin", "owner"})
+
+
+def _is_active_eurosoft_member(user_id: int) -> bool:
+    """True pokud user je aktivní BUSINESS člen EUROSOFT tenantu (id=2).
+    Role 'employee' sem nepatří — vidí jen sebe (mobil/docházka)."""
+    role = _eurosoft_member_role(user_id)
+    return role in _ERP_BUSINESS_ROLES
 
 
 def _require_erp_member(user_id: int) -> None:

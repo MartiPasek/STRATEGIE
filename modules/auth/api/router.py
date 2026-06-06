@@ -1376,6 +1376,12 @@ def phone_verify_confirm(body: PhoneVerifyConfirmRequest, req: Request) -> dict:
         if user and user.status == "pending":
             user.status = "active"
             activated = True
+            # HR onboarding: aktivace účtu překlopí i členství v tenantech
+            # (invited → active). Business přístup řídí role (employee = jen
+            # sebe), takže aktivní členství nic neotevírá navíc.
+            for _m in (session.query(UserTenant)
+                       .filter_by(user_id=uid, membership_status="invited").all()):
+                _m.membership_status = "active"
         session.commit()
     except HTTPException:
         session.rollback()

@@ -54,6 +54,22 @@ _BOOK_LABEL = {"real": "STRATEGIE — Reální klienti",
 
 # ── Auth ────────────────────────────────────────────────────────────────
 
+_EMPLOYEE_DENY_MSG = ("Synchronizace firemních kontaktů je dostupná jen pro "
+                      "kancelář. Kontaktuj administrátora.")
+
+
+def _is_business_user(uid: int) -> bool:
+    """6.6.2026 práva (Marti's 'v základě smí vidět jen sebe'): CardDAV
+    sync stahuje CRM kontakty do telefonu → jen rodiče a business členové
+    (role member/admin/owner v EUROSOFT tenantu). Role 'employee' NE."""
+    try:
+        from modules.erp.api.router import _require_erp_member
+        _require_erp_member(uid)
+        return True
+    except Exception:
+        return False
+
+
 def _auth_uid(request: Request) -> int | None:
     """Basic auth → token (password) → user_id z user.carddav_token."""
     auth = request.headers.get("authorization", "")
@@ -76,10 +92,16 @@ def _auth_uid(request: Request) -> int | None:
         ), {"h": th}).first()
         if not row:
             return None
+        uid = int(row[0])
+        # Role gate (6.6.2026): platný token NEstačí — user musí mít business
+        # roli. Employee s (historickým) tokenem → 401, žádný CRM sync.
+        if not _is_business_user(uid):
+            logger.info("[carddav auth] business role denied | uid=%s", uid)
+            return None
         s.execute(_sql('UPDATE "user".carddav_token SET last_used_at = now() '
                        'WHERE token_hash = :h'), {"h": th})
         s.commit()
-        return int(row[0])
+        return uid
     except Exception as exc:
         logger.warning("[carddav auth] %s", exc)
         return None
@@ -698,6 +720,9 @@ def carddav_info(request: Request) -> JSONResponse:
     uid = _session_uid(request)
     if uid is None:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _is_business_user(uid):
+        return JSONResponse({"ok": False, "error": "forbidden",
+                             "message": _EMPLOYEE_DENY_MSG}, status_code=403)
     info = _conn_info(request, uid)
     info["ok"] = True
     info["tokens"] = _list_tokens(uid)
@@ -709,6 +734,9 @@ def carddav_tokens(request: Request) -> JSONResponse:
     uid = _session_uid(request)
     if uid is None:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _is_business_user(uid):
+        return JSONResponse({"ok": False, "error": "forbidden",
+                             "message": _EMPLOYEE_DENY_MSG}, status_code=403)
     return JSONResponse({"ok": True, "tokens": _list_tokens(uid)})
 
 
@@ -718,6 +746,9 @@ async def carddav_token_create(request: Request) -> JSONResponse:
     uid = _session_uid(request)
     if uid is None:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _is_business_user(uid):
+        return JSONResponse({"ok": False, "error": "forbidden",
+                             "message": _EMPLOYEE_DENY_MSG}, status_code=403)
 
     label = ""
     try:
@@ -873,5 +904,8 @@ def carddav_refresh(request: Request) -> JSONResponse:
     uid = _session_uid(request)
     if uid is None:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _is_business_user(uid):
+        return JSONResponse({"ok": False, "error": "forbidden",
+                             "message": _EMPLOYEE_DENY_MSG}, status_code=403)
     res = _carddav_refresh_user(uid)
     return JSONResponse(res, status_code=200 if res.get("ok") else 500)

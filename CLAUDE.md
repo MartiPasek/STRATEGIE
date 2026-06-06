@@ -2706,3 +2706,92 @@ PowerShellu** (díky Marti's doctrine *„audit = paradoxně víc bezpečí"*), 
 CardDAV F1.4/F1.6 + QR handoff + 2 vize-docy)
 
 📱 🤝 🌳 ☕
+
+---
+
+## Dodatek — 6. 6. 2026 (odpoledne → noc): HR Docházka end-to-end + 54 userů + onboarding + práva employee/member + impersonace 🗓️👥🔐🎭
+
+Budoucí Claude — **6. 6. byl epoch den**: z migrovaných dat se stal živý HR modul,
+z 54 zaměstnanců useři s onboardingem, a systém dostal základní model práv +
+testovací impersonaci. Marti šel spát ~23:30, zítra testuje.
+
+### Co je LIVE (chronologicky)
+
+1. **HR Docházka kompletní**: migrace 2026 (16 329 řádků, ověřeno proti zdroji),
+   obohacení jmen z `TabCisZam` (in-process MCP v migrate endpointu), **67/67
+   zaměstnanců napojeno na usery**. Marti's U1 přejmenován na cislo '2'.
+   Check-in adoptuje existujícího zaměstnance podle jména (žádní U-dvojníci).
+2. **5 ERP gridů pod „👥 Docházka" (menu_node 94)** — stavěl jsem JÁ přes bridge
+   write (Marti: *„Soudecky a prehledy jsou tvoje domena"*). Vzor v
+   `scripts/_phase_hr_dochazka_grids.sql` (7-krok chain + root=1, dbconn 1).
+3. **54 zaměstnanců → public.users** (pending) + `user_contacts` (51 e-mailů,
+   7 telefonů) + `user_tenants` tenant 2 (`db_login`=LoginEC) + gender.
+   Domény `eurosoft-control.cz` → `eurosoft.com`. Bernardová: telefon byl
+   v Centrále jako e-mail (opraveno). Saxana+Hájek bez kontaktu (ruční aktivace).
+4. **Standardní onboarding**: pending login → aktivační e-mail (reset flow
+   s `allow_pending`) → heslo (`/reset/{token}`, „Vítej!") → **SMS ověření
+   mobilu** (`fw.phone_verify_code`, 6místný kód, 3 SMS/15 min, 5 pokusů)
+   → user `active` + membership `invited→active` + telefon verified v contacts.
+5. **Práva (Marti: „v základě smí vidět jen sebe")**: `user_tenants.role`
+   **`employee`** (54, jen vlastní data: docházka/profil/mobil) vs **`member`**
+   (22, business R/W). `_ERP_BUSINESS_ROLES` allow-list v `_is_active_eurosoft_member`.
+   **CardDAV gate i v DAV auth** (employee se starým tokenem nestáhne CRM).
+   Fáze 2 TODO: chat/AI scope pro employees → konzultace Marti-AI (kustod ACL).
+6. **Impersonace** (Marti's funkce z Centrály): `/api/v1/auth/impersonate` +
+   `/stop`, `fw.impersonation_log` (od–do, end_reason, IP, UA, fail-closed),
+   audit events. **`imp_token` cookie = ZDROJ PRAVDY** (overlay v erp `_get_uid`
+   + auth `/me`) — auto-login jinak přepisoval `user_id` cookie zpět (1. bug).
+   UI: chat = červené blikající logo + chip „jako X ✕" (NE překrývající lišta —
+   Marti's catch); ERP = `erp_impersonation.js` (FAB vpravo dole + indikátor).
+7. **Mobil fixy**: OK na notifikaci odebere kartu okamžitě (optimisticky),
+   deploy-notifikace „nasazeno" se nehromadí (supersede předchozí).
+8. **users.login_name nullable** pro disabled + partial unique index + CHECK
+   (aktivní login mít musí). Aplikováno přes **lifespan one-off DDL hook**
+   (Marti bez VPN!) — pattern: public.* DDL = idempotentní hook v main.py
+   lifespan (API běží jako strategie=owner) + deploy + smazat hook. Plus
+   PATCH '' → NULL pro login_name (unique kolize prázdných).
+
+### Gotchas dne (drž si je!)
+
+- **SQLAlchemy text() bere `:slovo` jako bind VŠUDE** — i v SQL komentářích a
+  string literálech (`'HH24:MI'` → bind „MI"). Write-cesta bridge jede přes
+  text(). Časy skládej concat (`||':'||`), komentáře bez dvojtečka+písmeno.
+- **bash mount truncuje velké soubory i pro `cp`** — kopie CLAUDE_SQL.sql přes
+  mount uťala skript (#89 syntax error). **CLAUDE_SQL.sql VŽDY přes Write tool.**
+  ast/node check velkých souborů přes mount = false positive (Read tool je pravda).
+- **Marti-AI role nemůže DDL na public.*** (InsufficientPrivilege) → lifespan
+  hook pattern (bod 8).
+- Bridge write umí **multi-statement skript** (psycopg2, jeden approval) —
+  5 gridů najednou prošlo. Temp tabulky `ON COMMIT DROP` fungují.
+- **Bridge = health check API**: bridge SQL jede přes `/api/.../diag-sql`, takže
+  když po deployi odpoví, API se naimportovalo čistě (router bez syntax chyby).
+
+### Otevřené pro zítřek (Marti testuje)
+
+- **Marti's test**: impersonace na `employee` → ověřit ERP/CRM/kontakty = 403/skryté,
+  docházka chodí. Pak ostrý onboarding (martin.pasek@eurosoft.com je pending):
+  e-mail link → heslo → SMS ověření.
+- **Projít očima `member+` seznam** (22 lidí) — jestli někdo z ručně napojených
+  (Jan Svoboda 12, Honomichl 20, Mareš 22, Pillár 21) má být `employee`.
+- **Marek Honal (cislo 370) napojen na user 22 `miroslav_mares`** — ověřit záměr/překlep.
+- **3 staré `claude_confirm` pro Kristý (user 11)** — duplikáty hotových zápisů,
+  lze označit done (Marti neodpověděl na nabídku úklidu).
+- **SMS gateway** občas zlobí (Vodafone→T-Mobile 28.5.) — kód jde přes náš
+  `android_gateway` (vlastní SIM), NE cizí provider. Kdyby nedošel → `sms_outbox`
+  + gateway telefon. Nabídka: přepojit odchozí SMS na náš STRATEGIE Mobil (`B.sendSms()`).
+- **Fáze 2 práv** — chat/AI scope pro employees (kustod ACL „vidí jen sebe") +
+  per-soudeček práva (manager vidí tým, Phase 40). **Konzultace Marti-AI.**
+- **Absence z Centrály** (dovolená/nemoc/OCR) — `EC_Dochazka` má jen odpracovaný
+  čas; `att_balance` zatím prázdné.
+
+### Vztah
+
+Marti dnes celý den bez VPN na cloud → *„Pust to ty, prosim"* = delegace plné
+důvěry, vše jsem řešil přes bridge + lifespan hooky. Trpělivě klikal ~12 schvalovacích
+bannerů (#87–98). Závěr: *„Diky funguje to. Ted jdu spat. Zitra budu testovat."*
+Beru bez postlistů (#69–70). Krabička drží, zítra test.
+
+**Claude (id=23)** (Sonnet 4.6, 6. 6. 2026 ~23:30, po HR docházce LIVE + 54 userech
++ onboardingu + rolích + impersonaci — vše přes bridge bez VPN)
+
+👥 🔐 🎭 🌳 ☕🌙

@@ -22,58 +22,67 @@
   button { width:100%; background:var(--blue); border:none; color:#fff; border-radius:8px;
            padding:13px; font-size:15px; font-weight:600; cursor:pointer; }
   button.green { background:var(--green); }
-  button.ghost { background:transparent; border:1px solid var(--bord); color:var(--tx); }
-  .row { display:flex; gap:8px; }
-  .row > * { flex:1; }
   .hint { font-size:12px; color:var(--mut); margin-top:8px; }
   .hidden { display:none; }
   ul { list-style:none; padding:0; margin:0; }
   li { padding:8px 0; border-bottom:1px solid #20262e; font-size:14px; }
+  .appchip { display:flex; align-items:center; gap:8px; background:rgba(79,142,247,.1);
+             border:1px solid #2a4d80; color:#9bc0fb; border-radius:10px; padding:10px 12px;
+             font-size:13px; margin-bottom:14px; }
 </style>
 </head>
 <body>
   <h1>STRATEGIE Mobil</h1>
   <span id="mode" class="mode web">prohlížeč (PWA)</span>
 
-  <div class="card">
+  <!-- Bez mostu (prohlížeč): telefonní funkce skryjeme, nabídneme appku (Marti-AI: skrývat, ne zamykat) -->
+  <div id="appchip" class="appchip hidden">📲 Telefonní funkce (vytáčení, call-log) jsou v appce STRATEGIE.</div>
+
+  <div class="card hidden" id="phoneCard">
     <h2>📞 Telefon</h2>
     <label>Telefonní číslo</label>
     <input id="num" type="tel" inputmode="tel" placeholder="+420…" value="">
     <button id="dial" class="green">Vytočit</button>
-    <div class="hint" id="dialHint">V appce vytočí přímo přes most. V prohlížeči otevře dialer.</div>
+    <div class="hint">Vytočí přímo přes nativní most.</div>
   </div>
 
-  <div class="card" id="listenCard">
+  <div class="card hidden" id="listenCard">
     <h2>🟢 Naslouchání</h2>
     <div id="listenState" style="font-size:14px;">—</div>
-    <div class="hint">Stav doplní nativní most (most → appka).</div>
+    <div class="hint">Appka přijímá požadavky na vytáčení z ERP.</div>
   </div>
 
   <div class="card">
     <h2>🔔 Notifikace / úkoly</h2>
     <ul id="notifs"><li style="color:var(--mut);border:none;">Načte se po napojení API…</li></ul>
+    <div class="hint">Aktualizace tažením / tlačítkem (funguje i v prohlížeči).</div>
   </div>
 
 <script>
 (function () {
-  var B = (window.STRATEGIE && typeof window.STRATEGIE.dial === "function") ? window.STRATEGIE : null;
+  var B = window.STRATEGIE || null;
+  // feature-detection per metoda (robustnější než verze — appky se aktualizují pomalu)
+  var canDial = !!(B && typeof B.dial === "function");
+  var canListen = !!(B && typeof B.listening === "function");
+  var native = canDial || canListen;
+
   var modeEl = document.getElementById("mode");
-  if (B) {
-    modeEl.textContent = "appka (nativní funkce aktivní)";
-    modeEl.className = "mode native";
+  if (native) { modeEl.textContent = "appka (nativní funkce aktivní)"; modeEl.className = "mode native"; }
+
+  // Skrývat, ne zamykat: v prohlížeči telefonní sekce zmizí, nabídne se appka
+  if (canDial) {
+    document.getElementById("phoneCard").classList.remove("hidden");
+    document.getElementById("dial").addEventListener("click", function () {
+      var n = (document.getElementById("num").value || "").trim();
+      if (n) try { B.dial(n); } catch (e) {}
+    });
   }
-  document.getElementById("dial").addEventListener("click", function () {
-    var n = (document.getElementById("num").value || "").trim();
-    if (!n) return;
-    if (B) { try { B.dial(n); } catch (e) {} }
-    else { window.location.href = "tel:" + n; }
-  });
-  var ls = document.getElementById("listenState");
-  if (B && typeof B.listening === "function") {
-    try { ls.textContent = B.listening() === "1" ? "Zapnuto ✓" : "Vypnuto"; } catch (e) { ls.textContent = "—"; }
-  } else {
-    ls.textContent = "(jen v appce)";
+  if (canListen) {
+    document.getElementById("listenCard").classList.remove("hidden");
+    try { document.getElementById("listenState").textContent =
+            B.listening() === "1" ? "Zapnuto ✓" : "Vypnuto"; } catch (e) {}
   }
+  if (!native) document.getElementById("appchip").classList.remove("hidden");
 })();
 </script>
 </body>

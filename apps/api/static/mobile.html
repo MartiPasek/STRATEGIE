@@ -47,6 +47,9 @@
   .homebg .h1 { font-size:26px; font-weight:800; } .homebg .h2 { color:#cdd6e2; margin-top:4px; font-size:14px; }
   .homebg .h3 { color:#dfe7f0; margin-top:12px; font-size:15px; font-weight:600; }
   .bottomnav { position:fixed; left:0; right:0; bottom:0; display:flex; background:#121519; border-top:1px solid var(--bord); z-index:50; padding-bottom:env(safe-area-inset-bottom,0); }
+  #navwrap { position:fixed; left:0; right:0; bottom:0; z-index:50; }
+  .bnavstatic { position:static; padding-bottom:0; min-height:52px; }
+  #navwrap > .bnavstatic:last-child { padding-bottom:env(safe-area-inset-bottom,0); }
   .tabbtn { position:relative; flex:1; background:none; border:none; color:var(--mut); padding:9px 2px; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
   .tabbtn .i { font-size:21px; line-height:1; } .tabbtn.active { color:var(--blue); }
   .nbadge { position:absolute; top:3px; left:50%; margin-left:6px; background:#e24b4a; color:#fff; font-size:10px; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 4px; text-align:center; font-weight:600; }
@@ -81,7 +84,11 @@
 </head>
 <body>
 <div id="app"></div>
-<nav class="bottomnav" id="bnav"></nav>
+<div id="navwrap">
+  <nav class="bottomnav bnavstatic" id="bnavx1" style="display:none;"></nav>
+  <nav class="bottomnav bnavstatic" id="bnavx2" style="display:none;"></nav>
+  <nav class="bottomnav bnavstatic" id="bnav"></nav>
+</div>
 <script>
 (function () {
   var B = window.STRATEGIE || null;
@@ -103,6 +110,9 @@
 
   var app = document.getElementById("app");
   var bnav = document.getElementById("bnav");
+  var bnavx1 = document.getElementById("bnavx1");
+  var bnavx2 = document.getElementById("bnavx2");
+  var navwrap = document.getElementById("navwrap");
   var curTab = "home";
   var stack = ["home"];
   var notifCount = null;
@@ -481,6 +491,7 @@
     g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
     app.appendChild(g);
     if(bd.access===false){ app.appendChild(el('<div class="hint">Pro počty u WhatsApp / Zprávy povol <b>Přístup k oznámením</b> (Nastavení).</div>')); }
+    app.appendChild(el('<div style="height:120px;"></div>'));  // místo pod dvě extra lišty
   }
   function set_notifaccess(){ app.innerHTML=topbar("Přístup k oznámením", true); var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.openNotifAccess==="function")){ p.appendChild(el('<div class="hint">Tato funkce je v appce STRATEGIE.</div>')); app.appendChild(p); return; }
@@ -511,7 +522,18 @@
     p.appendChild(btn); p.appendChild(status); app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
+  // ───── FIRMA (celá plocha s jemným firemním pozadím, bez spodní lišty) ─────
+  function firma(){
+    app.innerHTML="";
+    var sec=el('<div style="margin:-14px -14px -78px;min-height:100vh;padding:22px 20px calc(28px + env(safe-area-inset-bottom,0));background:linear-gradient(165deg,#0c1622,#13243a 55%,#0b1420);display:flex;flex-direction:column;"></div>');
+    var bk=el('<button class="ghost sm" style="align-self:flex-start;margin-bottom:20px;">← Zpět</button>');
+    bk.addEventListener("click",function(){ selectTab("home"); });
+    sec.appendChild(bk);
+    sec.appendChild(el('<div style="font-size:27px;font-weight:800;">🏢 Firma</div>'));
+    sec.appendChild(el('<div style="color:#cdd6e2;margin-top:10px;font-size:14px;line-height:1.6;max-width:420px;">Firemní rozcestník — připravujeme. Tady budou firemní agendy, přehledy a nástroje.</div>'));
+    app.appendChild(sec);
+  }
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){
@@ -519,11 +541,22 @@
     var bd=getBadges();
     var atApps=(stack[stack.length-1]==="apps");
     var APPS_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>';
+    // Firma celá plocha → schovej úplně všechny lišty.
+    if(curTab==="firma"){ navwrap.style.display="none"; return; }
+    navwrap.style.display="";
     bnav.appendChild(navBtn("🏠","Domů",curTab==="home"&&!atApps,function(){selectTab("home");},0));
     bnav.appendChild(navBtn(APPS_SVG,"Aplikace",atApps,function(){ curTab="home"; stack=["home","apps"]; render(); },(bd&&bd.total)||0));
     bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
-    bnav.appendChild(navBtn("⚙️","Nastavení",curTab==="settings",function(){selectTab("settings");},_hasUpdate?1:0));
+    bnav.appendChild(navBtn("🏢","Firma",curTab==="firma",function(){selectTab("firma");},0));
+    // Na obrazovce Aplikace: dvě extra lišty nad základní; Nastavení vpravo nahoře.
+    bnavx1.innerHTML=""; bnavx2.innerHTML="";
+    if(atApps){
+      bnavx1.style.display="flex"; bnavx2.style.display="flex"; bnavx1.style.justifyContent="flex-end";
+      var setBtn=navBtn("⚙️","Nastavení",false,function(){selectTab("settings");},_hasUpdate?1:0);
+      setBtn.style.flex="0 0 auto"; setBtn.style.minWidth="84px";
+      bnavx1.appendChild(setBtn);
+    } else { bnavx1.style.display="none"; bnavx2.style.display="none"; }
   }
   function render(){ (SCREENS[stack[stack.length-1]]||home)(); var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back); renderNav(); }
 

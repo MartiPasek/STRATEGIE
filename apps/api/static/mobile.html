@@ -98,6 +98,8 @@
   var stack = ["home"];
   var notifCount = null;
   var _hasUpdate = false;
+  var _lastOk = 0;            // čas poslední úspěšné odezvy serveru (liveness)
+  function markOk(){ _lastOk = Date.now(); }
   function refreshUpdate(){ try{ if(B&&typeof B.checkUpdate==="function"){ var t=B.checkUpdate(); var u=t?JSON.parse(t):null; _hasUpdate=!!(u&&u.has_update); } }catch(e){} }
   var avatarUrl = "/api/v1/erp/app/avatar";
   if (B && typeof B.avatarDataUrl === "function") { try { var d=B.avatarDataUrl(); if(d) avatarUrl=d; } catch(e){} }
@@ -135,6 +137,18 @@
   function topbar(title, withBack){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+modeChip()+'</div>'; return b; }
   function row(ic, tt, sub, onclick, badge){ var bd=(badge&&badge>0)?'<div class="rbadge">'+(badge>99?"99+":badge)+'</div>':''; var r=el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>'+bd+'<div class="chev">&#8250;</div></div>'); r.addEventListener("click",onclick); return r; }
 
+  // Živý indikátor spojení s ERP (tep) — ukazuje, že párování žije a telefon odpovídá.
+  function updateLive(){
+    var e=document.getElementById("homeLive"); if(!e) return;
+    var ls=listenState();
+    if(ls===false){ e.innerHTML='🔴 Párování pozastaveno'; return; }
+    if(!_lastOk){ e.innerHTML='🟡 Připojuji se k ERP…'; return; }
+    var s=Math.round((Date.now()-_lastOk)/1000);
+    if(s<=15) e.innerHTML='🟢 Spojení s ERP <b>živé</b> · odezva před '+s+' s';
+    else if(s<=60) e.innerHTML='🟡 Čekám na odezvu ('+s+' s)…';
+    else e.innerHTML='🔴 Bez odezvy ('+s+' s) — zkontroluj párování';
+  }
+
   // ───── DOMŮ (pozadí = fotka Marti-AI) ─────
   function home(){
     app.innerHTML = "";
@@ -144,8 +158,9 @@
     bg.innerHTML = '<div id="homeNotifsWrap"></div>'
       + '<div class="h1">STRATEGIE Mobil</div>'
       + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
-      + '<div class="h3">'+(ls==null?"":(ls?"🟢 Párování aktivní":"🔴 Párování pozastaveno"))+'</div>';
+      + '<div class="h3" id="homeLive"></div>';
     app.appendChild(bg);
+    updateLive();
     loadHomeNotifs();
   }
   function loadHomeNotifs(){
@@ -153,6 +168,7 @@
     var upd=null; try{ if(B&&typeof B.checkUpdate==="function"){ var t=B.checkUpdate(); if(t)upd=JSON.parse(t); } }catch(e){}
     _hasUpdate=!!(upd&&upd.has_update);
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
+      if(j)markOk();
       var cmds=(j&&j.commands)||[]; notifCount=cmds.length; renderNav();
       box.innerHTML="";
       if(upd&&upd.has_update){
@@ -410,6 +426,7 @@
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).
   function pollNotifs(){
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
+      if(j)markOk();
       var cmds=(j&&j.commands)||[]; var n=cmds.length; var changed=(n!==notifCount);
       notifCount=n; renderNav();
       // Obnov seznam jen na hlavní obrazovce nebo na záložce Úkoly (ne když je
@@ -421,6 +438,7 @@
     }).catch(function(){});
   }
   setInterval(pollNotifs, 6000);
+  setInterval(updateLive, 1000);
   // Při návratu do popředí (otevření z notifikace/launcheru) obnov hned.
   document.addEventListener("visibilitychange", function(){ if(!document.hidden){ refreshUpdate(); pollNotifs(); } });
   window.addEventListener("focus", function(){ refreshUpdate(); pollNotifs(); });

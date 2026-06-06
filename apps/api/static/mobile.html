@@ -38,8 +38,10 @@
   ul { list-style:none; padding:0; margin:0; } li { padding:12px 0; border-bottom:1px solid #20262e; font-size:14px; } li:last-child { border-bottom:none; }
   .nt { font-weight:600; } .nm { color:var(--mut); font-size:13px; margin:3px 0 9px; } .nactions { display:flex; gap:8px; flex-wrap:wrap; }
   .big { font-size:16px; padding:8px 2px; }
-  .homebg { height:210px; border-radius:14px; background:#1a2330 center top / cover no-repeat;
+  .homebg { min-height: calc(100vh - 96px); border-radius:14px; background:#1a2330 center top / cover no-repeat;
             display:flex; flex-direction:column; justify-content:flex-end; padding:18px; }
+  .homenotif { background:rgba(20,24,30,.86); border:1px solid #2a2d33; border-radius:12px; padding:12px; margin-bottom:10px; display:flex; align-items:center; gap:12px; cursor:pointer; }
+  .homenotif .ic { font-size:22px; width:26px; text-align:center; } .homenotif .chev { color:var(--mut); font-size:18px; }
   .homebg .h1 { font-size:26px; font-weight:800; } .homebg .h2 { color:#cdd6e2; margin-top:4px; font-size:14px; }
   .homebg .h3 { color:#dfe7f0; margin-top:12px; font-size:15px; font-weight:600; }
   .bottomnav { position:fixed; left:0; right:0; bottom:0; display:flex; background:#121519; border-top:1px solid var(--bord); z-index:50; padding-bottom:env(safe-area-inset-bottom,0); }
@@ -133,33 +135,30 @@
     app.innerHTML = "";
     var ls = listenState();
     var bg = el('<div class="homebg"></div>');
-    bg.style.backgroundImage = "linear-gradient(rgba(14,15,17,.15), rgba(14,15,17,.92)), url('"+avatarUrl+"')";
-    bg.innerHTML = '<div class="h1">STRATEGIE Mobil</div>'
+    bg.style.backgroundImage = "linear-gradient(rgba(14,15,17,.05), rgba(14,15,17,.86)), url('"+avatarUrl+"')";
+    bg.innerHTML = '<div id="homeNotifsWrap"></div>'
+      + '<div class="h1">STRATEGIE Mobil</div>'
       + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
       + '<div class="h3">'+(ls==null?"":(ls?"🟢 Párování aktivní":"🔴 Párování pozastaveno"))+'</div>';
     app.appendChild(bg);
-    var sec=el('<div class="panel"></div>');
-    sec.appendChild(el('<div class="group">Notifikace</div>'));
-    sec.appendChild(el('<div class="list" id="homeNotifs"><div style="padding:14px;color:var(--mut);">Načítám…</div></div>'));
-    app.appendChild(sec);
     loadHomeNotifs();
   }
   function loadHomeNotifs(){
-    var box=document.getElementById("homeNotifs"); if(!box)return;
+    var box=document.getElementById("homeNotifsWrap"); if(!box)return;
     var upd=null; try{ if(B&&typeof B.checkUpdate==="function"){ var t=B.checkUpdate(); if(t)upd=JSON.parse(t); } }catch(e){}
     _hasUpdate=!!(upd&&upd.has_update);
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
       var cmds=(j&&j.commands)||[]; notifCount=cmds.length; renderNav();
-      box.innerHTML=""; var any=false;
-      if(upd&&upd.has_update){ any=true;
-        var ru=el('<div class="row"><div class="ic">🆕</div><div class="tx"><div class="tt">Nová verze STRATEGIE</div><div class="sub">'+esc(upd.latest_name||"")+' k dispozici — klepni pro aktualizaci</div></div><div class="chev">&#8250;</div></div>');
+      box.innerHTML="";
+      if(upd&&upd.has_update){
+        var ru=el('<div class="homenotif"><div class="ic">🆕</div><div style="flex:1;min-width:0;"><div style="font-weight:600;">Nová verze STRATEGIE</div><div style="color:var(--mut);font-size:12px;">'+esc(upd.latest_name||"")+' — klepni pro aktualizaci</div></div><div class="chev">&#8250;</div></div>');
         ru.addEventListener("click",function(){ curTab="settings"; stack=["settings","set_about"]; render(); }); box.appendChild(ru);
       }
-      cmds.forEach(function(c){ any=true;
-        var r=el('<div class="row"><div class="ic">'+CLAUDE_SVG.replace('width="26" height="26"','width="22" height="22"')+'</div><div class="tx"><div class="tt">'+esc(c.title||"Claude")+'</div><div class="sub">'+esc((c.message||"").slice(0,70))+'</div></div><div class="chev">&#8250;</div></div>');
+      cmds.forEach(function(c){
+        var r=el('<div class="homenotif"><div class="ic">'+CLAUDE_SVG.replace('width="26" height="26"','width="22" height="22"')+'</div><div style="flex:1;min-width:0;"><div style="font-weight:600;">'+esc(c.title||"Claude")+'</div><div style="color:var(--mut);font-size:12px;">'+esc((c.message||"").slice(0,60))+'</div></div><div class="chev">&#8250;</div></div>');
         r.addEventListener("click",function(){ curTab="notifs"; stack=["notifs","claudetasks"]; render(); }); box.appendChild(r);
       });
-      if(!any) box.innerHTML='<div style="padding:14px;color:var(--mut);">Žádné nové notifikace ✓</div>';
+      // žádné notifikace → wrap zůstane prázdný (neviditelný)
     });
   }
 
@@ -185,12 +184,14 @@
   }
 
   // ───── ÚKOLY / NOTIFIKACE ─────
-  function act(id,decision){ api("POST","/api/v1/erp/app/command/"+id+"/result",{decision:decision}).then(notifsLoad); }
+  var _afterAct=false;
+  function act(id,decision){ _afterAct=true; api("POST","/api/v1/erp/app/command/"+id+"/result",{decision:decision}).then(notifsLoad); }
   function notifsLoad(){ var ul=document.getElementById("ntlist"); if(!ul)return;
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
+      var wasAct=_afterAct; _afterAct=false;
       if(!j){ ul.innerHTML='<li style="color:var(--mut);border:none;">Přihlas se (prohlížeč) nebo otevři v appce.</li>'; return; }
       var cmds=j.commands||[]; notifCount=cmds.length;
-      if(!cmds.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné čekající úkoly ✓</li>'; return; }
+      if(!cmds.length){ if(wasAct){ renderNav(); selectTab("home"); return; } ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné čekající úkoly ✓</li>'; return; }
       ul.innerHTML="";
       cmds.forEach(function(c){ var li=el('<li><div class="nt">'+esc(c.title||"Úkol")+'</div>'+(c.message?'<div class="nm">'+esc(c.message)+'</div>':'')+'<div class="nactions"></div></li>');
         var a=li.querySelector(".nactions"); function b(l,cl,d){var x=el('<button class="sm '+cl+'">'+l+'</button>'); x.addEventListener("click",function(){act(c.id,d);}); a.appendChild(x);}

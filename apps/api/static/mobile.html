@@ -137,11 +137,25 @@
   function topbar(title, withBack){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+modeChip()+'</div>'; return b; }
   function row(ic, tt, sub, onclick, badge){ var bd=(badge&&badge>0)?'<div class="rbadge">'+(badge>99?"99+":badge)+'</div>':''; var r=el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>'+bd+'<div class="chev">&#8250;</div></div>'); r.addEventListener("click",onclick); return r; }
 
+  // Znovupoužitelný potvrzovací dialog (využije i docházka). Marti 6.6.2026.
+  function confirmDialog(title, msg, okLabel, onOk){
+    var ov=el('<div style="position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;padding:24px;"></div>');
+    var card=el('<div style="background:#161b22;border:1px solid var(--bord);border-radius:14px;padding:20px;max-width:340px;width:100%;box-shadow:0 18px 50px rgba(0,0,0,.5);"></div>');
+    card.innerHTML='<div style="font-size:17px;font-weight:700;margin-bottom:8px;">'+esc(title)+'</div>'
+      +'<div style="color:#cdd6e2;font-size:14px;line-height:1.55;margin-bottom:18px;">'+esc(msg)+'</div>';
+    var row=el('<div class="nactions"></div>');
+    var no=el('<button class="ghost sm">Zrušit</button>'); no.addEventListener("click",function(){ try{ov.remove();}catch(e){} });
+    var yes=el('<button class="green sm">'+esc(okLabel||"OK")+'</button>'); yes.addEventListener("click",function(){ try{ov.remove();}catch(e){} if(onOk)onOk(); });
+    row.appendChild(no); row.appendChild(yes); card.appendChild(row); ov.appendChild(card);
+    ov.addEventListener("click",function(e){ if(e.target===ov) ov.remove(); });
+    document.body.appendChild(ov);
+  }
+
   // Živý indikátor spojení s ERP (tep) — ukazuje, že párování žije a telefon odpovídá.
   function updateLive(){
     var e=document.getElementById("homeLive"); if(!e) return;
     var ls=listenState();
-    if(ls===false){ e.innerHTML='🔴 Párování pozastaveno'; return; }
+    if(ls===false){ e.innerHTML='🔴 Párování pozastaveno — ťukni na název pro spuštění'; return; }
     if(!_lastOk){ e.innerHTML='🟡 Připojuji se k ERP…'; return; }
     var s=Math.round((Date.now()-_lastOk)/1000);
     if(s<=15) e.innerHTML='🟢 Spojení s ERP <b>živé</b> · odezva před '+s+' s';
@@ -174,12 +188,23 @@
     var bg = el('<div class="homebg"></div>');
     bg.style.backgroundImage = "linear-gradient(rgba(14,15,17,.05), rgba(14,15,17,.86)), url('"+avatarUrl+"')";
     bg.innerHTML = '<div id="homeDialCard"></div><div id="homeNotifsWrap"></div>'
-      + '<div class="h1">STRATEGIE Mobil</div>'
+      + '<div class="h1" id="homeTitle">STRATEGIE Mobil</div>'
       + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
       + '<div class="h3" id="homeLive"></div>';
     app.appendChild(bg);
     updateLive();
     showDialCard();
+    // Pozastavené párování → ťuknutí na titulek nabídne spuštění (potvrzení).
+    var ttl=document.getElementById("homeTitle");
+    if(ttl && canListen && listenState()===false){
+      ttl.style.cursor="pointer";
+      ttl.addEventListener("click",function(){
+        confirmDialog("Párování pozastaveno","Spustit párování s ERP? Telefon začne přijímat vytáčení a úkoly.","▶️ Spustit párování",function(){
+          try{ B.startListening(); }catch(e){}
+          setTimeout(function(){ render(); },900);
+        });
+      });
+    }
     loadHomeNotifs();
   }
   function loadHomeNotifs(){

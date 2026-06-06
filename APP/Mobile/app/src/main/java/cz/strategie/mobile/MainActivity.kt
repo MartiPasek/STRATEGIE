@@ -38,6 +38,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -213,6 +216,33 @@ fun AppRoot(modifier: Modifier = Modifier) {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(base() + path)))
         } catch (e: Exception) {
             Toast.makeText(context, "Nelze otevřít prohlížeč", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Přidá ikonu na plochu (Android 8+). Ikona otevře dané URL přes ACTION_VIEW
+    // → pokud je PWA nainstalovaná, otevře se standalone; jinak v prohlížeči.
+    // Řeší případ, kdy uživatel smazal ikonu PWA, ale WebAPK zůstala nainstalovaná
+    // (Chrome už install znovu nenabídne). Marti 6.6.2026.
+    fun pinShortcut(id: String, label: String, path: String) {
+        try {
+            if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) {
+                Toast.makeText(
+                    context,
+                    "Launcher neumí přidat ikonu sám — otevři v prohlížeči a použij ⋮ → Přidat na plochu",
+                    Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+            val target = Intent(Intent.ACTION_VIEW, Uri.parse(base() + path))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val info = ShortcutInfoCompat.Builder(context, id)
+                .setShortLabel(label)
+                .setIcon(IconCompat.createWithResource(context, R.mipmap.ic_launcher))
+                .setIntent(target)
+                .build()
+            ShortcutManagerCompat.requestPinShortcut(context, info, null)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Nepodařilo se přidat ikonu", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -581,6 +611,8 @@ fun AppRoot(modifier: Modifier = Modifier) {
                 onLoginPair = { open("/app-pair") },
                 onChat = { open("/") },
                 onErp = { open("/erp") },
+                onPinChat = { pinShortcut("stg_chat", "Chat STRATEGIE", "/") },
+                onPinErp = { pinShortcut("stg_erp", "ERP STRATEGIE", "/erp") },
                 notifs = notifs,
                 notifSel = notifSel,
                 onSelectNotif = { replyText = ""; notifSel = if (notifSel == it) -1L else it },
@@ -601,6 +633,8 @@ private fun HomeBody(
     onLoginPair: () -> Unit,
     onChat: () -> Unit,
     onErp: () -> Unit,
+    onPinChat: () -> Unit,
+    onPinErp: () -> Unit,
     notifs: List<CmdItem> = emptyList(),
     notifSel: Long = -1L,
     onSelectNotif: (Long) -> Unit = {},
@@ -744,11 +778,19 @@ private fun HomeBody(
     }
 
     Spacer(Modifier.width(0.dp))
-    Text("Nainstalovat na plochu", style = MaterialTheme.typography.titleMedium)
-    Button(onClick = onChat, modifier = Modifier.fillMaxWidth()) { Text("📲 Chat STRATEGIE") }
-    OutlinedButton(onClick = onErp, modifier = Modifier.fillMaxWidth()) { Text("📲 ERP STRATEGIE") }
+    Text("Přidat ikonu na plochu", style = MaterialTheme.typography.titleMedium)
+    Button(onClick = onPinChat, modifier = Modifier.fillMaxWidth()) { Text("📌 Ikonu Chat na plochu") }
+    OutlinedButton(onClick = onPinErp, modifier = Modifier.fillMaxWidth()) { Text("📌 Ikonu ERP na plochu") }
     Text(
-        "Otevře se v prohlížeči — pak v nabídce (⋮) zvol „Přidat na plochu / Nainstalovat aplikaci“.",
+        "Vytvoří ikonu na ploše (na aktuální stránce). Otevře appku samostatně, bez téhle aplikace.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    Spacer(Modifier.width(0.dp))
+    Text("Otevřít rovnou", style = MaterialTheme.typography.titleMedium)
+    Button(onClick = onChat, modifier = Modifier.fillMaxWidth()) { Text("📲 Otevřít Chat") }
+    OutlinedButton(onClick = onErp, modifier = Modifier.fillMaxWidth()) { Text("📲 Otevřít ERP") }
+    Text(
+        "Když launcher ikonu nepřidá sám, otevři tu appku a v prohlížeči zvol ⋮ → Přidat na plochu.",
         style = MaterialTheme.typography.bodySmall
     )
 }

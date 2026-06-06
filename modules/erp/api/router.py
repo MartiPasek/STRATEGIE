@@ -5703,6 +5703,72 @@ async def att_list(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/attendance/absence")
+async def att_absence(req: Request) -> JSONResponse:
+    """Nahlášení nepřítomnosti z appky (dovolená/nemoc/lékař/OČR/sickday/neplacené).
+    Vytvoří att_entry na každý pracovní den v rozsahu (Po–Pá), status 'pending'.
+    Idempotentní per (employee, den, typ). Marti 6.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    code = (str(body.get("type_code") or "")).strip().lower()
+    if code not in ("vacation", "sick", "medical", "family_care", "sickday", "unpaid"):
+        return JSONResponse({"ok": False, "error": "invalid_type"}, status_code=400)
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        d0 = _dt.strptime(str(body.get("date_from") or "")[:10], "%Y-%m-%d").date()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_date_from"}, status_code=400)
+    dt_to = str(body.get("date_to") or "")[:10]
+    try:
+        d1 = _dt.strptime(dt_to, "%Y-%m-%d").date() if dt_to else d0
+    except Exception:
+        d1 = d0
+    if d1 < d0:
+        d1 = d0
+    if (d1 - d0).days > 120:
+        return JSONResponse({"ok": False, "error": "range_too_long"}, status_code=400)
+    note = (str(body.get("note") or "").strip()[:250]) or None
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    created = 0
+    try:
+        emp = _att_employee(s, uid)
+        tr = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
+                       {"t": _ATT_TENANT, "c": code}).first()
+        if not tr:
+            return JSONResponse({"ok": False, "error": "type_not_seeded"}, status_code=400)
+        tid = tr[0]
+        day = d0
+        while day <= d1:
+            if day.weekday() < 5:  # Po–Pá
+                ds = day.isoformat()
+                res = s.execute(_t(
+                    "UPDATE tenant.att_entry SET entry_type_id=:et, hours=8, status='pending', "
+                    "source='mobile_app', note=:n, updated_at=now() "
+                    "WHERE tenant_id=:t AND employee_id=:e AND entry_date=:d AND entry_type_id=:et"),
+                    {"et": tid, "n": note, "t": _ATT_TENANT, "e": emp, "d": ds})
+                if (res.rowcount or 0) == 0:
+                    s.execute(_t(
+                        "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                        "status,source,note,is_active,created_by_id,created_at,updated_at) "
+                        "VALUES (:t,:e,:d,:et,8,'pending','mobile_app',:n,false,:u,now(),now())"),
+                        {"t": _ATT_TENANT, "e": emp, "d": ds, "et": tid, "n": note, "u": uid})
+                    created += 1
+            day += _td(days=1)
+        s.commit()
+        return JSONResponse({"ok": True, "created": created})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/hr/migrate-dochazka")
 async def hr_migrate_dochazka(req: Request) -> JSONResponse:
     """Migrace EC_Dochazka (MSSQL přes EUROSOFT MCP) → tenant.att_*. Běží IN-PROCESS

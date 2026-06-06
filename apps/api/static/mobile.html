@@ -539,6 +539,10 @@
     var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.authedFetch==="function")){ p.appendChild(el('<div class="hint">Docházka funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
     p.appendChild(el('<div id="dochCard" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
+    var absBtn=el('<button class="ghost full" style="margin-top:10px;">🌴 Nahlásit nepřítomnost</button>');
+    var absBox=el('<div id="absBox" style="display:none;margin-top:8px;background:var(--surf);border:1px solid var(--bord);border-radius:10px;padding:12px;"></div>');
+    absBtn.addEventListener("click",function(){ var open=absBox.style.display==="none"; absBox.style.display=open?"block":"none"; if(open&&!absBox.innerHTML) buildAbsForm(absBox); });
+    p.appendChild(absBtn); p.appendChild(absBox);
     p.appendChild(el('<div class="group" style="margin-top:16px;">Poslední záznamy</div>'));
     p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
     app.appendChild(p); dochLoad();
@@ -568,6 +572,30 @@
         ul.appendChild(el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+e.hours+' h'):'')+' · '+esc(e.status||'')+'</div></li>'));
       });
     });
+  }
+  function buildAbsForm(box){
+    var today=new Date().toISOString().substr(0,10);
+    var ist="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;margin-bottom:4px;";
+    box.innerHTML='<label>Typ nepřítomnosti</label>'
+      +'<select id="absType" style="'+ist+'"><option value="vacation">Dovolená</option>'
+      +'<option value="sick">Nemoc (PN)</option><option value="medical">Lékař</option>'
+      +'<option value="family_care">OČR</option><option value="sickday">Sickday</option>'
+      +'<option value="unpaid">Neplacené volno</option></select>'
+      +'<label>Od</label><input type="date" id="absFrom" value="'+today+'" style="'+ist+'">'
+      +'<label>Do (volitelně)</label><input type="date" id="absTo" value="'+today+'" style="'+ist+'">'
+      +'<label>Poznámka (volitelné)</label><input id="absNote" placeholder="důvod…" style="'+ist+'">';
+    var b=el('<button class="green full" style="margin-top:10px;">Odeslat ke schválení</button>');
+    b.addEventListener("click",function(){
+      var t=document.getElementById("absType").value, f=document.getElementById("absFrom").value,
+          to=document.getElementById("absTo").value, n=document.getElementById("absNote").value;
+      if(!f){ return; }
+      b.disabled=true; b.textContent="Odesílám…";
+      api("POST","/api/v1/erp/app/attendance/absence",{type_code:t,date_from:f,date_to:to,note:n}).then(function(j){
+        if(j&&j.ok){ box.style.display="none"; box.innerHTML=""; dochListLoad(); alert("Nahlášeno ✓ ("+(j.created||0)+" pracovních dní)"); }
+        else { b.disabled=false; b.textContent="Odeslat ke schválení"; alert("Nepodařilo se: "+((j&&j.error)||"")); }
+      }).catch(function(){ b.disabled=false; b.textContent="Odeslat ke schválení"; });
+    });
+    box.appendChild(b);
   }
   var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
 

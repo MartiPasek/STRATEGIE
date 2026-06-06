@@ -147,8 +147,18 @@ class HybridActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun clearLastDial() {
-            try { getSharedPreferences(prefsName, MODE_PRIVATE).edit()
-                .remove(DialPollService.KEY_LAST_DIAL).apply() } catch (e: Exception) {}
+            try {
+                val p = getSharedPreferences(prefsName, MODE_PRIVATE)
+                // Zruš i systémovou notifikaci vytáčení (akce proběhla v appce).
+                val s = p.getString(DialPollService.KEY_LAST_DIAL, "") ?: ""
+                if (s.isNotBlank()) {
+                    try {
+                        val nid = org.json.JSONObject(s).optInt("nid", -1)
+                        if (nid > 0) (getSystemService(android.app.NotificationManager::class.java)).cancel(nid)
+                    } catch (e: Exception) {}
+                }
+                p.edit().remove(DialPollService.KEY_LAST_DIAL).apply()
+            } catch (e: Exception) {}
         }
 
         // Číslo telefonu přímo ze SIM (bez SMS brány). Nemusí být dostupné u všech

@@ -200,6 +200,7 @@ class DialPollService : Service() {
         try {
             val o = JSONObject()
             o.put("phone", phone); o.put("label", label); o.put("ts", System.currentTimeMillis())
+            o.put("nid", NOTIF_DIAL_BASE + id)  // id systémové notifikace (pro zrušení z appky)
             getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString(KEY_LAST_DIAL, o.toString()).apply()
         } catch (e: Exception) {}

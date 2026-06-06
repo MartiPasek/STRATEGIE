@@ -257,6 +257,89 @@ def carddav_setup_page(nonce: str) -> HTMLResponse:
     return HTMLResponse(_handoff_page_html(d))
 
 
+# ── Veřejná stránka pro spárování NAŠÍ appky (Android, i nepřihlášený telefon) ──
+# Marti 6.6.2026: čerstvý telefon (nikdy nepřihlášený) si přes /app-pair appku
+# nestáhne (download chce login). Tahle stránka je VEŘEJNÁ (nonce = autorizace),
+# takže telefon: naskenuje QR → stáhne APK bez loginu → po instalaci spáruje.
+
+def _app_setup_html(nonce: str, origin: str, deeplink: str, label: str) -> str:
+    lbl = _xesc(label or "Telefon")
+    dl = _xesc(deeplink)
+    apk = "/app-setup/" + _xesc(nonce) + "/apk"
+    return (
+        '<!doctype html><html lang="cs"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>STRATEGIE Mobil — instalace</title><style>'
+        '*{box-sizing:border-box}body{margin:0;font-family:-apple-system,Segoe UI,'
+        'Roboto,sans-serif;background:#0f1620;color:#e8eef5;padding:20px 16px 40px;'
+        'line-height:1.5}.card{max-width:520px;margin:0 auto}h1{font-size:20px;'
+        'margin:4px 0 2px}.sub{color:#9fb0c4;font-size:13px;margin-bottom:18px}'
+        '.btn{display:block;text-align:center;text-decoration:none;border-radius:10px;'
+        'padding:14px;font-size:15px;font-weight:700;margin:10px 0}'
+        '.dl{background:#e8b923;color:#1c2530}.pair{background:#1f3a2e;color:#cdeede;'
+        'border:1px solid #3a7a4a}.step{background:#1a2531;border:1px solid #2c3a4c;'
+        'border-radius:10px;padding:12px 14px;margin:10px 0;font-size:14px}'
+        '.n{display:inline-block;background:#e8b923;color:#1c2530;width:22px;height:22px;'
+        'border-radius:11px;text-align:center;line-height:22px;font-weight:700;'
+        'margin-right:8px}.note{color:#8aa0b8;font-size:12.5px;margin-top:16px}'
+        '</style></head><body><div class="card">'
+        '<h1>📲 STRATEGIE Mobil</h1>'
+        '<div class="sub">Instalace a spárování telefonu „' + lbl + '" — bez přihlašování.</div>'
+        '<div class="step"><span class="n">1</span>Stáhni a nainstaluj appku '
+        '(po stažení ťukni na soubor → Instalovat; povol „instalaci z tohoto zdroje").</div>'
+        '<a class="btn dl" href="' + apk + '">⬇️ Stáhnout appku (APK)</a>'
+        '<div class="step"><span class="n">2</span>Po instalaci appku spáruj jedním ťuknutím:</div>'
+        '<a class="btn pair" href="' + dl + '">📲 Otevřít v appce a spárovat</a>'
+        '<div class="note">Jen pro <b>Android</b>. iPhone používá nativní kontakty (CardDAV) — '
+        'tam se vrať do STRATEGIE a zvol „🍏 iPhone". Odkaz je platný ~' + str(_HANDOFF_TTL_MIN) +
+        ' min.</div></div></body></html>')
+
+
+@carddav_router.get("/app-setup/{nonce}")
+def app_setup_page(nonce: str) -> HTMLResponse:
+    d = _fetch_handoff(nonce)
+    if not d:
+        return HTMLResponse(
+            '<!doctype html><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<body style="font-family:sans-serif;background:#0f1620;color:#e8eef5;'
+            'padding:30px;text-align:center;line-height:1.6">'
+            '<h2>⏱ Odkaz vypršel</h2><p style="color:#9fb0c4">Ve STRATEGII vygeneruj '
+            'nové spárování a naskenuj QR znovu.</p></body>', status_code=404)
+    url = d.get("carddav_url") or ""
+    origin = url.replace("https://", "").replace("http://", "")
+    origin = (url[:url.find("/carddav")] if "/carddav" in url else url).rstrip("/")
+    tok = d.get("token_plain") or ""
+    from urllib.parse import quote as _q
+    deeplink = ("strategiemobil://pair?u=" + _q(origin, safe="") +
+                "&t=" + _q(tok, safe="") + "&k=mobile")
+    return HTMLResponse(_app_setup_html(nonce, origin, deeplink,
+                                        d.get("device_label") or "Telefon"))
+
+
+@carddav_router.get("/app-setup/{nonce}/apk")
+def app_setup_apk(nonce: str):
+    d = _fetch_handoff(nonce)
+    if not d:
+        return Response(status_code=404)
+    import os as _os
+    try:
+        from modules.erp.api.router import _app_latest_row, _app_releases_dir
+    except Exception as exc:
+        logger.warning("[app-setup apk] import: %s", exc)
+        return Response(status_code=500)
+    row = _app_latest_row("mobile")
+    fn = row.get("apk_file")
+    if not fn:
+        return Response(status_code=404)
+    path = _os.path.join(_app_releases_dir("mobile"), fn)
+    if not _os.path.isfile(path):
+        return Response(status_code=404)
+    from fastapi.responses import FileResponse as _FR
+    return _FR(path, media_type="application/vnd.android.package-archive",
+               filename="strategie-mobil.apk")
+
+
 @carddav_router.api_route(
     "/carddav/{path:path}",
     methods=["OPTIONS", "PROPFIND", "REPORT", "GET", "HEAD"])
@@ -656,6 +739,7 @@ async def carddav_token_create(request: Request) -> JSONResponse:
                           info.get("username", ""), label)
     if nonce:
         info["handoff_url"] = _carddav_base(request) + "/carddav-setup/" + nonce
+        info["app_setup_url"] = _carddav_base(request) + "/app-setup/" + nonce
         info["handoff_ttl_min"] = _HANDOFF_TTL_MIN
     return JSONResponse(info)
 

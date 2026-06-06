@@ -182,52 +182,43 @@
         'Platí ~' + (res.handoff_ttl_min || 15) + ' min.</div>' +
         '</div>';
     }
-    // QR pro nativní appku STRATEGIE Mobil (stejný token) — appka naskenuje
-    // „📷 Spárovat QR" → vyplní adresu + token a zapne vytáčení.
-    var _origin = (location && location.origin) || "";
-    var appPairUrl = _origin + "/app-pair?u=" + encodeURIComponent(_origin) +
+    // Android — veřejná stránka /app-setup (stáhne appku BEZ loginu + spáruje).
+    // Funguje i na čerstvém telefonu, který ve STRATEGII nikdy nebyl přihlášený.
+    var appSetupUrl = res.app_setup_url ||
+      ((location && location.origin || "") + "/app-setup/");
+    var deepLink = "strategiemobil://pair?u=" + encodeURIComponent((location && location.origin) || "") +
       "&t=" + encodeURIComponent(res.token || "") + "&k=mobile";
-    var deepLink = "strategiemobil://pair?u=" + encodeURIComponent(_origin) +
-      "&t=" + encodeURIComponent(res.token || "") + "&k=mobile";
-    var _isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
-    // Na telefonu: 1-tap deep-link (appka se sama nastaví). Na PC: QR pro appku.
-    var appBody = _isMobile
-      ? ('<div style="font-size:12.5px;color:#bcd0e6;margin:2px auto 8px;max-width:300px;line-height:1.45;">' +
-         'Máš appku nainstalovanou? Ťukni a sama se nastaví:</div>' +
-         '<a href="' + _esc(deepLink) + '" ' +
+    // Na telefonu (Android): tap přímo na app-setup stránku. Na PC: QR.
+    var appBody = IS_TEL
+      ? ('<a href="' + _esc(appSetupUrl) + '" ' +
          'style="display:inline-block;background:#1f3a2e;border:1px solid #3a7a4a;color:#cdeede;' +
-         'border-radius:8px;padding:11px 18px;font-size:14px;font-weight:700;text-decoration:none;">' +
-         '📲 Otevřít v appce a spárovat</a>')
-      : ('<div data-app-qr="1" data-url="' + _esc(appPairUrl) + '" ' +
+         'border-radius:8px;padding:12px 18px;font-size:14px;font-weight:700;text-decoration:none;">' +
+         '⬇️ Stáhnout appku a spárovat</a>' +
+         '<div style="font-size:12px;color:#8aa0b8;margin-top:8px;">Máš appku už nainstalovanou? ' +
+         '<a href="' + _esc(deepLink) + '" style="color:#7fd6c2;">Jen spárovat</a></div>')
+      : ('<div data-app-qr="1" data-url="' + _esc(appSetupUrl) + '" ' +
          'style="display:inline-block;background:#fff;padding:10px;border-radius:10px;' +
-         'min-width:160px;min-height:160px;line-height:0;">' +
-         '<div style="color:#888;font-size:12px;line-height:1.4;padding:60px 12px;">QR…</div></div>' +
+         'min-width:170px;min-height:170px;line-height:0;">' +
+         '<div style="color:#888;font-size:12px;line-height:1.4;padding:64px 12px;">QR…</div></div>' +
          '<div style="font-size:12.5px;color:#bcd0e6;margin:8px auto 0;max-width:300px;line-height:1.45;">' +
-         'V appce na telefonu ťukni „📷 Spárovat QR kódem" a naskenuj.</div>');
+         'Naskenuj telefonem fotoaparátem → appka se stáhne a po instalaci spáruje. ' +
+         'Bez přihlašování na telefonu.</div>');
     var appQrBlock =
-      '<div style="text-align:center;margin:4px 0 10px;border-top:1px solid #5a4d20;padding-top:10px;">' +
+      '<div style="text-align:center;margin:4px 0 10px;">' +
       '<div style="font-size:14px;color:#7fd6c2;font-weight:700;margin-bottom:8px;">' +
-      '📲 STRATEGIE Mobil — spárovat appku</div>' +
+      '🤖 Android — STRATEGIE Mobil</div>' +
       appBody +
       '</div>';
-    // mode: "app" = mám appku (jen app QR) · "noapp" = iPhone bez appky (Apple
-    // CardDAV); na Androidu jen výzva k instalaci appky · jinak obojí
+    // mode: "android" = naše appka (app-setup QR, bez loginu) · "ios" = iPhone
+    // nativní CardDAV · jinak obojí
     var inner, showCredDetails;
-    if (mode === "app") { inner = appQrBlock; showCredDetails = false; }
-    else if (mode === "noapp") {
-      if (IS_ANDROID) {
-        inner =
-          '<div style="font-size:12.5px;color:#bcd0e6;margin:0 0 6px;line-height:1.5;">' +
-          'Na <strong>Androidu</strong> jedeme jen přes naši appku. Nahoře dej ' +
-          '<strong>„📥 Stáhnout appku"</strong>, nainstaluj ji a pak zvol <strong>„📲 Mám appku"</strong>.</div>';
-        showCredDetails = false;
-      } else {
-        inner =
-          '<div style="font-size:12.5px;color:#bcd0e6;margin:0 0 10px;line-height:1.5;">' +
-          '🍏 <strong>iPhone bez appky</strong> — kontakty přidáš přes nativní CardDAV. Naskenuj QR, ' +
-          'nebo zadej údaje ručně níž:</div>' + qrBlock;
-        showCredDetails = true;
-      }
+    if (mode === "android") { inner = appQrBlock; showCredDetails = false; }
+    else if (mode === "ios") {
+      inner =
+        '<div style="font-size:12.5px;color:#bcd0e6;margin:0 0 10px;line-height:1.5;">' +
+        '🍏 <strong>iPhone</strong> — kontakty přidáš přes nativní CardDAV. Naskenuj QR, ' +
+        'nebo zadej údaje ručně níž:</div>' + qrBlock;
+      showCredDetails = true;
     } else { inner = qrBlock + appQrBlock; showCredDetails = true; }
     return '' +
       '<div style="background:rgba(232,185,35,.08);border:1px solid #6b5a22;' +
@@ -403,13 +394,13 @@
       'border-radius:8px;padding:10px 11px;color:#e8eef5;font-size:13px;margin-bottom:8px;">' +
       '<div style="display:flex;gap:8px;">' +
       '<button type="button" data-cdav-app style="flex:1;background:#1f3a2e;color:#cdeede;' +
-      'border:1px solid #3a7a4a;padding:11px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">📲 Mám appku</button>' +
+      'border:1px solid #3a7a4a;padding:11px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🤖 Android</button>' +
       '<button type="button" data-cdav-noapp style="flex:1;background:#22344a;color:#bfe3ff;' +
-      'border:1px solid #35506e;padding:11px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🍏 Nemám appku (iPhone)</button>' +
+      'border:1px solid #35506e;padding:11px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🍏 iPhone</button>' +
       '</div>' +
       '<div style="font-size:11.5px;color:#8aa0b8;margin-top:6px;line-height:1.45;">' +
-      '<b>Mám appku</b> = spárování s naší appkou STRATEGIE Mobil (Android i iPhone). ' +
-      '<b>Nemám appku</b> = jen iPhone přes nativní kontakty (CardDAV). Android jede vždy přes naši appku.</div>' +
+      '<b>Android</b> = naše appka STRATEGIE Mobil (QR stáhne a spáruje, i na čerstvém telefonu). ' +
+      '<b>iPhone</b> = nativní kontakty přes CardDAV.</div>' +
       '<button type="button" data-cdav-cancel style="background:transparent;color:#9fb0c4;' +
       'border:1px solid #44566c;padding:9px;border-radius:8px;font-size:13px;cursor:pointer;width:100%;margin-top:8px;">Zpět</button>';
     var inp = area.querySelector("[data-cdav-label]");
@@ -431,8 +422,8 @@
     }
     var bApp = area.querySelector("[data-cdav-app]");
     var bNo = area.querySelector("[data-cdav-noapp]");
-    if (bApp) bApp.addEventListener("click", function () { _do("app"); });
-    if (bNo) bNo.addEventListener("click", function () { _do("noapp"); });
+    if (bApp) bApp.addEventListener("click", function () { _do("android"); });
+    if (bNo) bNo.addEventListener("click", function () { _do("ios"); });
   }
 
   function _shell() {

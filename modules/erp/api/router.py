@@ -6278,6 +6278,12 @@ async def deploy_now(req: Request) -> JSONResponse:
             result["files_changed"] = prop.get("files_changed")
             result["target_sha"] = prop.get("target_sha")
             result["commit_message"] = prop.get("commit_message", "")
+            # Mobil push (Marti 6.6.): po úspěšném deployi cinkni rodiči na telefon.
+            if result.get("ok"):
+                try:
+                    _notify_deploy_done(_inst, result)
+                except Exception as _ndd:
+                    logger.warning("[notify_deploy_done] %s", _ndd)
             return JSONResponse(result)
         finally:
             _lock_sess.execute(_tl_dn("SELECT pg_advisory_unlock(:k)"), {"k": _DEPLOY_LOCK_KEY})
@@ -6483,6 +6489,39 @@ def _push_confirm_to_phone(req_id: int, db_target: str, sql: str, actor: str) ->
             VALUES ('mobile', :uid, 'claude_confirm', :title, :msg, CAST(:payload AS jsonb), NULL)
         """), {"uid": int(uid), "title": title[:120], "msg": message[:600],
                "payload": _jp.dumps({"write_request_id": int(req_id), "db": db_target})})
+        ds.commit()
+    finally:
+        ds.close()
+
+
+def _notify_deploy_done(instance_id: str, result: dict) -> None:
+    """Po úspěšném deployi cinkne rodiči navázanému na danou Claude instanci
+    (Claude-23→Marti, Claude-24→Kristý) na mobil jako claude_msg. Marti 6.6.2026."""
+    import re as _rp2
+    from core.database_data import get_data_session as _gp2
+    from sqlalchemy import text as _tp2
+    ds = _gp2()
+    try:
+        iid = _rp2.sub(r"^Claude-", "", (instance_id or "")).strip()
+        uid = None
+        if iid and iid != "?":
+            uid = ds.execute(_tp2(
+                "SELECT bound_user_id FROM fw.claude_instance WHERE instance_id=:i"
+            ), {"i": iid}).scalar()
+        if not uid:
+            uid = _DEFAULT_APPROVER_UID
+        sha = (result.get("target_sha") or "")[:7]
+        cm = ""
+        if result.get("commit_message"):
+            cm = str(result["commit_message"]).splitlines()[0][:80]
+        who = ("Claude-%s" % iid) if (iid and iid != "?") else "Claude"
+        title = "%s — nasazeno ✓" % who
+        message = (cm or "Deploy hotový") + ((" (%s)" % sha) if sha else "")
+        ds.execute(_tp2("""
+            INSERT INTO fw.mobile_command
+              (app_key, target_user_id, command_type, title, message, created_by)
+            VALUES ('mobile', :uid, 'claude_msg', :title, :msg, NULL)
+        """), {"uid": int(uid), "title": title[:120], "msg": message[:600]})
         ds.commit()
     finally:
         ds.close()

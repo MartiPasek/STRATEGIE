@@ -15,6 +15,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 import org.json.JSONArray
@@ -284,6 +285,33 @@ class HybridActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun openPairing() { openExternal(base() + "/app-pair") }
+
+        // Spárování přes QR: otevře fotoaparát, naskenuje QR z ERP/PC (/app-pair),
+        // uloží u+t do prefs a restartuje obrazovku. Marti 6.6.2026.
+        @JavascriptInterface
+        fun scanPairQr() {
+            runOnUiThread {
+                try {
+                    GmsBarcodeScanning.getClient(this@HybridActivity).startScan()
+                        .addOnSuccessListener { code ->
+                            val raw = code.rawValue
+                            if (raw.isNullOrBlank()) { Toast.makeText(this@HybridActivity, "Prázdný QR", Toast.LENGTH_SHORT).show(); return@addOnSuccessListener }
+                            try {
+                                val uri = Uri.parse(raw)
+                                val u = uri.getQueryParameter("u")
+                                val t = uri.getQueryParameter("t")
+                                if (!u.isNullOrBlank() && !t.isNullOrBlank()) {
+                                    getSharedPreferences(prefsName, MODE_PRIVATE).edit()
+                                        .putString(keyUrl, u.trim()).putString(keyToken, t.trim()).apply()
+                                    Toast.makeText(this@HybridActivity, "Spárováno ✓", Toast.LENGTH_SHORT).show()
+                                    recreate()
+                                } else Toast.makeText(this@HybridActivity, "QR neobsahuje párovací údaje", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) { Toast.makeText(this@HybridActivity, "QR se nepodařilo přečíst", Toast.LENGTH_SHORT).show() }
+                        }
+                        .addOnFailureListener { Toast.makeText(this@HybridActivity, "Skener QR není dostupný", Toast.LENGTH_SHORT).show() }
+                } catch (e: Exception) { Toast.makeText(this@HybridActivity, "Skener QR není dostupný", Toast.LENGTH_SHORT).show() }
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")

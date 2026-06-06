@@ -799,9 +799,11 @@ def app_pair(req: Request):
     finally:
         s.close()
 
+    import json as _json_ap
     deeplink = ("strategiemobil://pair?u=" + _q_ap(origin, safe="")
                 + "&t=" + _q_ap(plaintext, safe="") + "&k=mobile")
     dl_attr = _html_ap.escape(deeplink, quote=True)
+    dl_js = _json_ap.dumps(deeplink)
     page = (
         '<!doctype html><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -814,7 +816,14 @@ def app_pair(req: Request):
         'font-size:15px;font-weight:700;text-decoration:none;">📲 Otevřít appku a spárovat</a>'
         '<p style="font-size:12px;color:#8a96a4;margin-top:18px;">Když se appka neotevře sama, '
         'klepni na tlačítko výše. (Musíš mít appku nainstalovanou.)</p>'
-        '<script>setTimeout(function(){location.href="' + deeplink + '";},400);</script>'
+        '<div id="qrwrap" style="margin:22px auto;width:220px;height:220px;background:#fff;'
+        'border-radius:14px;padding:10px;display:flex;align-items:center;justify-content:center;"></div>'
+        '<p style="font-size:13px;color:#bcd0e6;">Nebo v appce STRATEGIE Mobil → Nastavení → '
+        'O aplikaci → <b>Spárovat</b> → naskenuj tento QR fotoaparátem.</p>'
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>'
+        '<script>try{var _dl=' + dl_js + ';var q=qrcode(0,"M");q.addData(_dl);q.make();'
+        'document.getElementById("qrwrap").innerHTML=q.createImgTag(5,0);}catch(e){}</script>'
+        '<script>setTimeout(function(){location.href="' + deeplink + '";},1500);</script>'
         '</body>'
     )
     return _Resp_ap(content=page, media_type="text/html")

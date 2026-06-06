@@ -86,6 +86,7 @@
   var avatarUrl = "/api/v1/erp/app/avatar";
   if (B && typeof B.avatarDataUrl === "function") { try { var d=B.avatarDataUrl(); if(d) avatarUrl=d; } catch(e){} }
 
+  var CLAUDE_SVG='<svg width="26" height="26" viewBox="0 0 100 100"><g stroke="#d97757" stroke-width="8" stroke-linecap="round"><line x1="50" y1="50" x2="50" y2="8"/><line x1="50" y1="50" x2="71" y2="13.6"/><line x1="50" y1="50" x2="86.4" y2="29"/><line x1="50" y1="50" x2="92" y2="50"/><line x1="50" y1="50" x2="86.4" y2="71"/><line x1="50" y1="50" x2="71" y2="86.4"/><line x1="50" y1="50" x2="50" y2="92"/><line x1="50" y1="50" x2="29" y2="86.4"/><line x1="50" y1="50" x2="13.6" y2="71"/><line x1="50" y1="50" x2="8" y2="50"/><line x1="50" y1="50" x2="13.6" y2="29"/><line x1="50" y1="50" x2="29" y2="13.6"/></g></svg>';
   function esc(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
   function el(html){ var d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild; }
   function go(id){ stack.push(id); render(); }
@@ -159,7 +160,7 @@
   function notifs(){ // dashboard s dlaždicemi
     app.innerHTML=topbar("Úkoly", false); var p=el('<div class="panel"></div>');
     var grid=el('<div class="dashgrid"></div>');
-    var ct=el('<div class="tile"><div class="tile-ic">🤖</div><div class="tile-tt">Claude</div><div class="tile-sub" id="claudeSub">…</div></div>');
+    var ct=el('<div class="tile"><div class="tile-ic">'+CLAUDE_SVG+'</div><div class="tile-tt">Claude</div><div class="tile-sub" id="claudeSub">…</div></div>');
     ct.addEventListener("click",function(){go("claudetasks");}); grid.appendChild(ct);
     p.appendChild(grid); app.appendChild(p);
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; var s=document.getElementById("claudeSub"); if(s)s.textContent=notifCount?(notifCount+" ke schválení / nové"):"Žádné nové"; renderNav(); }); }
@@ -243,7 +244,10 @@
       } else if(j.error){ p.appendChild(el('<div class="hint" style="margin-top:12px;">Verzi se nepodařilo zjistit (zkontroluj párování / připojení).</div>')); }
       else { p.appendChild(el('<div class="hint" style="margin-top:12px;">Máš nejnovější verzi ✓</div>')); }
       p.appendChild(el('<div class="group">Telefon a ERP</div>'));
-      var pair=el('<button class="ghost full" style="margin-top:0;">Spárovat telefon s ERP</button>'); pair.addEventListener("click",function(){ try{B.openPairing();}catch(e){} }); p.appendChild(pair);
+      var pair=el('<button class="ghost full" style="margin-top:0;">Spárovat telefon (sken QR)</button>');
+      pair.addEventListener("click",function(){ try{ if(typeof B.scanPairQr==="function") B.scanPairQr(); else B.openPairing(); }catch(e){} });
+      p.appendChild(pair);
+      p.appendChild(el('<div class="hint">Na PC otevři <b>strategie-ai.com/app-pair</b> (ukáže QR), pak tady klepni Spárovat a naskenuj ho fotoaparátem.</div>'));
     },60);
   }
 
@@ -254,7 +258,7 @@
     app.innerHTML=topbar("Aplikace", true);
     var bd=getBadges()||{whatsapp:0,sms:0,access:true};
     var g=el('<div class="appgrid"></div>');
-    g.appendChild(appCell('<img src="'+avatarUrl+'">',"Chat",0,function(){openApp("/");}));
+    g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Chat",0,function(){openApp("/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"ERP",0,function(){openApp("/erp");}));
     g.appendChild(appCell("🕒","Docházka",0,function(){openApp("/dochazka");}));
     g.appendChild(appCell("💬","WhatsApp",bd.whatsapp||0,function(){openApp("https://wa.me/");}));

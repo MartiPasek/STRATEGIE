@@ -5553,6 +5553,135 @@ async def app_phone_set(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "phone_number": phone})
 
 
+@api_router.post("/hr/migrate-dochazka")
+async def hr_migrate_dochazka(req: Request) -> JSONResponse:
+    """Migrace EC_Dochazka (MSSQL přes EUROSOFT MCP) → tenant.att_*. Běží IN-PROCESS
+    (MCP na EUROSOFT je dostupné jen uvnitř API procesu). Idempotentní dle source_id
+    (opakovatelné — doimport měsíce). Auth: X-Deploy-Token. Marti 6.6.2026.
+    Body: {from:'2026-01-01', to?:'2026-07-01', tenant_id:2, page:2000}."""
+    import os as _os_m, json as _json_m
+    token = req.headers.get("X-Deploy-Token")
+    env = _os_m.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env and token == env):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    tenant = int(body.get("tenant_id") or 2)
+    from_date = str(body.get("from") or "2026-01-01")
+    to_date = str(body.get("to") or "")
+    page = int(body.get("page") or 2000)
+
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupné"}, status_code=503)
+
+    def _mcp_rows(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _json_m.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        if isinstance(r, list):
+            return r
+        return []
+
+    def _type_id(code):
+        res = _pg.query_raw("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c",
+                            {"t": tenant, "c": code})
+        rows = res.get("rows") or res.get("data") or []
+        return (rows[0].get("id") if rows else None)
+    type_work = _type_id("work")
+    type_oh = _type_id("overhead")
+    if not (type_work and type_oh):
+        return JSONResponse({"ok": False, "error": "chybí typy work/overhead pro tenant %s" % tenant},
+                            status_code=400)
+
+    sgen = _pg.get_session()
+    sess = next(sgen)
+    total = ins = upd = 0
+    emp_cache = {}
+    try:
+        def emp_id(cislo):
+            key = str(cislo).strip()
+            if key in emp_cache:
+                return emp_cache[key]
+            r = sess.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:c"),
+                             {"t": tenant, "c": key}).first()
+            if not r:
+                r = sess.execute(_t(
+                    "INSERT INTO tenant.att_employee (tenant_id,cislo_zam,is_active,created_at,updated_at) "
+                    "VALUES (:t,:c,true,now(),now()) RETURNING id"), {"t": tenant, "c": key}).first()
+            emp_cache[key] = r[0]
+            return r[0]
+        last_id = 0
+        cond_to = (" AND DatumPripadu < '%s'" % to_date) if to_date else ""
+        while True:
+            sql = ("SELECT TOP %d ID, CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, "
+                   "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
+                   "CasPauza, CasCelkemZakazka hod, CisloZakazky, LoginFrom, "
+                   "CAST(VedSchvaleno AS int) ved, CAST(SefSchvaleno AS int) sef, CAST(Uzavreno AS int) uz "
+                   "FROM EC_Dochazka WHERE DatumPripadu >= '%s'%s AND ID > %d ORDER BY ID"
+                   % (page, from_date, cond_to, last_id))
+            rows = _mcp_rows(sql)
+            if not rows:
+                break
+            for r in rows:
+                rid = int(r["ID"])
+                last_id = rid
+                total += 1
+                zak = (r.get("CisloZakazky") or "").strip()
+                rezie = zak.lower() == "rezie"
+                lf = (r.get("LoginFrom") or "").strip().upper()
+                src = {"D": "tablet", "C": "manual", "A": "mobile_app"}.get(lf, "import")
+                if int(r.get("uz") or 0):
+                    st = "locked"
+                elif int(r.get("ved") or 0) and int(r.get("sef") or 0):
+                    st = "approved"
+                else:
+                    st = "pending"
+                p = {"t": tenant, "emp": emp_id(r["CisloZam"]), "d": r.get("d"),
+                     "et": type_oh if rezie else type_work, "h": r.get("hod"),
+                     "z": r.get("z"), "k": r.get("k"), "br": int(r.get("CasPauza") or 0),
+                     "proj": None if rezie else (zak or None), "st": st, "src": src, "sid": rid}
+                res = sess.execute(_t(
+                    "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"
+                    "started_at=:z,ended_at=:k,break_minutes=:br,project_ref=:proj,status=:st,source=:src,"
+                    "updated_at=now() WHERE tenant_id=:t AND source_system='centrala1' AND source_id=:sid"), p)
+                if (res.rowcount or 0) == 0:
+                    sess.execute(_t(
+                        "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                        "started_at,ended_at,break_minutes,project_ref,status,source,source_system,source_id,"
+                        "is_active,created_at,updated_at) VALUES (:t,:emp,:d,:et,:h,:z,:k,:br,:proj,:st,:src,"
+                        "'centrala1',:sid,false,now(),now())"), p)
+                    ins += 1
+                else:
+                    upd += 1
+            sess.commit()
+        return JSONResponse({"ok": True, "total": total, "inserted": ins, "updated": upd,
+                             "employees": len(emp_cache), "tenant": tenant, "from": from_date})
+    except Exception as exc:
+        try:
+            sess.rollback()
+        except Exception:
+            pass
+        logger.exception("[migrate-dochazka] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc), "done_total": total}, status_code=500)
+    finally:
+        try:
+            sgen.close()
+        except Exception:
+            pass
+
+
 @api_router.get("/app/devices")
 async def app_devices(req: Request) -> JSONResponse:
     """Přehled všech mobilních zařízení (kdo / appka / verze / nastavení). Jen rodič."""

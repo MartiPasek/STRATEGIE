@@ -288,8 +288,9 @@ def _app_setup_html(nonce: str, origin: str, deeplink: str, label: str) -> str:
         '<div class="step"><span class="n">1</span>Stáhni a nainstaluj appku '
         '(po stažení ťukni na soubor → Instalovat; povol „instalaci z tohoto zdroje").</div>'
         '<a class="btn dl" href="' + apk + '">⬇️ Stáhnout appku (APK)</a>'
-        '<div class="step"><span class="n">2</span>Po instalaci appku spáruj jedním ťuknutím:</div>'
-        '<a class="btn pair" href="' + dl + '">📲 Otevřít v appce a spárovat</a>'
+        '<div class="step"><span class="n">2</span>Po instalaci appku otevři a '
+        '<b>přihlas se svým účtem STRATEGIE</b> — tím se určí, čí telefon to je a '
+        'jaká má práva. Pak appka nabídne spárování.</div>'
         '<div class="note">Jen pro <b>Android</b>. iPhone používá nativní kontakty (CardDAV) — '
         'tam se vrať do STRATEGIE a zvol „🍏 iPhone". Odkaz je platný ~' + str(_HANDOFF_TTL_MIN) +
         ' min.</div></div></body></html>')

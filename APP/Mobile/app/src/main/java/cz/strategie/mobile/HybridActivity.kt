@@ -436,6 +436,22 @@ class HybridActivity : ComponentActivity() {
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(v: WebView?, url: String?): Boolean {
                 val u = url ?: return false
+                // Spárování z /app-pair (po přihlášení) — token přijde přes vlastní
+                // schéma; zachytíme ho přímo zde, uložíme a vejdeme do menu.
+                if (u.startsWith("strategiemobil://")) {
+                    try {
+                        val uri = Uri.parse(u)
+                        val su = uri.getQueryParameter("u"); val st = uri.getQueryParameter("t")
+                        if (!su.isNullOrBlank() && !st.isNullOrBlank()) {
+                            getSharedPreferences(prefsName, MODE_PRIVATE).edit()
+                                .putString(keyUrl, su.trim()).putString(keyToken, st.trim())
+                                .putBoolean("service_enabled", true).apply()
+                            try { DialPollService.start(this@HybridActivity) } catch (e: Exception) {}
+                            v?.post { web.loadUrl(base() + "/mobile") }
+                        }
+                    } catch (e: Exception) {}
+                    return true
+                }
                 if (u.startsWith("tel:") || u.startsWith("mailto:") || u.startsWith("sms:")) {
                     try {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u)))
@@ -447,7 +463,12 @@ class HybridActivity : ComponentActivity() {
             }
         }
         setContentView(web)
-        web.loadUrl(base() + "/mobile")
+        // Login-first (Marti 6.6.2026): nepřihlášený telefon (bez tokenu) NESMÍ do
+        // menu. Nejdřív /app-pair → přihlášení do STRATEGIE → token → spárování →
+        // teprve pak /mobile. Token = identita (čí telefon + jaká práva).
+        val hasTok = !(getSharedPreferences(prefsName, MODE_PRIVATE)
+            .getString(keyToken, "") ?: "").isBlank()
+        web.loadUrl(base() + if (hasTok) "/mobile" else "/app-pair")
 
         // Zpět: o úroveň výš v /mobile; na hlavní obrazovce přívětivý dialog „ukončit?".
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {

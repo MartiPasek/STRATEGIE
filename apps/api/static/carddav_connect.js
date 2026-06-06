@@ -193,9 +193,9 @@
       ? ('<a href="' + _esc(appSetupUrl) + '" ' +
          'style="display:inline-block;background:#1f3a2e;border:1px solid #3a7a4a;color:#cdeede;' +
          'border-radius:8px;padding:12px 18px;font-size:14px;font-weight:700;text-decoration:none;">' +
-         '⬇️ Stáhnout appku a spárovat</a>' +
-         '<div style="font-size:12px;color:#8aa0b8;margin-top:8px;">Máš appku už nainstalovanou? ' +
-         '<a href="' + _esc(deepLink) + '" style="color:#7fd6c2;">Jen spárovat</a></div>')
+         '⬇️ Stáhnout appku STRATEGIE Mobil</a>' +
+         '<div style="font-size:12px;color:#8aa0b8;margin-top:8px;">Po instalaci appku otevři ' +
+         'a přihlas se — pak se spáruje.</div>')
       : ('<div data-app-qr="1" data-url="' + _esc(appSetupUrl) + '" ' +
          'style="display:inline-block;background:#fff;padding:10px;border-radius:10px;' +
          'min-width:170px;min-height:170px;line-height:0;">' +

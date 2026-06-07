@@ -909,7 +909,8 @@ window.onerror=function(msg,src,line){
         // Marti 7.6.: není to „odchod/příchod", je to změna činnosti — rozhovor.
         window._dochMenuTs=0;
         bw.innerHTML="";
-        var btn=el('<button class="'+(open?'ghost':'green')+' full" style="font-size:16px;text-align:left;">💬 Potřebuji ti něco říct…</button>');
+        // Marti 7.6. večer: zelené v obou stavech, bublina vpravo.
+        var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);
         bw.appendChild(btn);
       }

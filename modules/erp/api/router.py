@@ -6443,6 +6443,168 @@ async def app_marti_message(req: Request) -> JSONResponse:
     return JSONResponse(out, status_code=(200 if out.get("ok") else 500))
 
 
+# ── Dotaz nadřízenému (Marti 7.6. večer — „jednoduše, padá na můj mobil") ──
+# v1: všechny dotazy jdou Martimu (user 1). Později: org v2 resolve_role.
+_ASK_BOSS_UID = 1
+
+
+def _user_jmeno(s, uid: int) -> str:
+    from sqlalchemy import text as _t
+    return s.execute(_t(
+        "SELECT COALESCE(NULLIF(TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')),''), login_name) "
+        "FROM public.users WHERE id = :u"), {"u": uid}).scalar() or ("user " + str(uid))
+
+
+@api_router.post("/app/ask-boss")
+async def app_ask_boss(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    q = str((body or {}).get("question") or "").strip()[:1000]
+    if not q:
+        return JSONResponse({"ok": False, "error": "Napiš prosím dotaz."})
+    cm, s = _att_session()
+    try:
+        rid = s.execute(_t(
+            "INSERT INTO tenant.staff_question (tenant_id, from_user_id, to_user_id, question) "
+            "VALUES (:t, :f, :b, :q) RETURNING id"),
+            {"t": _ATT_TENANT, "f": uid, "b": _ASK_BOSS_UID, "q": q}).scalar()
+        jm = _user_jmeno(s, uid)
+        s.execute(_t(
+            "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+            "VALUES ('mobile', :b, 'claude_msg', :ti, :msg, NULL)"),
+            {"b": _ASK_BOSS_UID, "ti": "🙋 Dotaz od " + jm,
+             "msg": (q[:500] + " — odpověz v Docházce.")})
+        s.commit()
+        return JSONResponse({"ok": True, "id": rid})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/ask-boss/pending")
+async def app_ask_boss_pending(req: Request) -> JSONResponse:
+    """Karty nezodpovězených dotazů pro nadřízeného (v jeho Docházce)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT sq.id, sq.question, sq.from_user_id, "
+            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), u.login_name), "
+            "       to_char(sq.created_at AT TIME ZONE 'Europe/Prague', 'HH24:MI') "
+            "FROM tenant.staff_question sq JOIN public.users u ON u.id = sq.from_user_id "
+            "WHERE sq.tenant_id = :t AND sq.to_user_id = :u AND sq.status = 'pending' "
+            "ORDER BY sq.id LIMIT 10"), {"t": _ATT_TENANT, "u": uid}).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "items": [
+            {"id": r[0], "question": r[1], "jmeno": r[3], "cas": r[4]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/ask-boss/answer")
+async def app_ask_boss_answer(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        qid = int((body or {}).get("id") or 0)
+    except Exception:
+        qid = 0
+    ans = str((body or {}).get("answer") or "").strip()[:1000]
+    if not (qid and ans):
+        return JSONResponse({"ok": False, "error": "Chybí odpověď."})
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "UPDATE tenant.staff_question SET answer = :a, status = 'answered', answered_at = now() "
+            "WHERE id = :i AND tenant_id = :t AND to_user_id = :u AND status = 'pending' "
+            "RETURNING from_user_id"), {"a": ans, "i": qid, "t": _ATT_TENANT, "u": uid}).first()
+        if not row:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "Dotaz nenalezen (už zodpovězen?)."})
+        jm = _user_jmeno(s, uid)
+        s.execute(_t(
+            "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+            "VALUES ('mobile', :f, 'claude_msg', :ti, :msg, NULL)"),
+            {"f": int(row[0]), "ti": "🙋 Odpověď od " + jm, "msg": ans[:500]})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/ask-boss/my-answer")
+async def app_ask_boss_my_answer(req: Request) -> JSONResponse:
+    """Nejnovější nepřečtená odpověď pro tazatele (ukáže se v okně v Docházce)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "SELECT sq.id, sq.question, sq.answer, "
+            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), u.login_name) "
+            "FROM tenant.staff_question sq JOIN public.users u ON u.id = sq.to_user_id "
+            "WHERE sq.tenant_id = :t AND sq.from_user_id = :u AND sq.status = 'answered' "
+            "AND sq.seen_at IS NULL ORDER BY sq.id DESC LIMIT 1"),
+            {"t": _ATT_TENANT, "u": uid}).first()
+        s.commit()
+        if not row:
+            return JSONResponse({"ok": True, "id": None})
+        return JSONResponse({"ok": True, "id": row[0], "question": row[1],
+                             "answer": row[2], "boss": row[3]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/ask-boss/seen")
+async def app_ask_boss_seen(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        qid = int((body or {}).get("id") or 0)
+    except Exception:
+        qid = 0
+    cm, s = _att_session()
+    try:
+        s.execute(_t("UPDATE tenant.staff_question SET seen_at = now() "
+                     "WHERE id = :i AND tenant_id = :t AND from_user_id = :u"),
+                  {"i": qid, "t": _ATT_TENANT, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/marti-message/last")
 async def app_marti_message_last(req: Request) -> JSONResponse:
     """Marti 7.6. večer: vyzvednutí odpovědi Marti-AI přímo do mobilního menu.

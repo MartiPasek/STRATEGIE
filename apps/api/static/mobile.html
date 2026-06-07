@@ -1011,8 +1011,31 @@ window.onerror=function(msg,src,line){
           bx.appendChild(ok);
         },_blueStyle);
       }
-      // 🏠 Osobní důvody — obsah (Marti 7.6. večer: podmenu jantarové jako parent)
+      // 🏠 Osobní důvody — obsah (Marti 7.6. večer: HO a zařizování první se
+      // zeleným rámečkem, OČR třetí, zbytek jantarově; dovolená na konci).
+      var _greenStyle=function(b){ b.style.borderColor="var(--green)"; b.style.color="var(--green)"; };
       function osobniBuild(box){
+        expOpt(box,"🏡 Potřebuju makat z domova…","ghost",function(bx){
+          dateRangePickIn(bx,"Home office od – do:",function(od, dd, b){
+            var today=new Date().toISOString().substr(0,10);
+            absence({type_code:"homeoffice",date_from:od,date_to:dd,mode:"days",note:"home office (přes mobil)"},function(){
+              if(od<=today && dd>=today){ presence({text:"Jsem na home office",add_since:false,until_txt:czDate(dd)},b); }
+              else dochLoad();
+            });
+          });
+        },_greenStyle);
+        expOpt(box,"🕐 Něco si zařizuji…","ghost",function(bx){
+          chipsIn(bx,"Dorazím zhruba za:",function(m,b){ presence({text:"Něco si zařizuji, dorazím",add_since:false,eta_min:m},b); });
+        },_greenStyle);
+        expOpt(box,"👨‍👧 Zase řeším rodinu… (OČR)","ghost",function(bx){
+          dateRangePickIn(bx,"OČR od – do:",function(od, dd, b){
+            var today=new Date().toISOString().substr(0,10);
+            absence({type_code:"family_care",date_from:od,date_to:dd,mode:"days",note:"OČR (přes mobil)"},function(){
+              if(od<=today && dd>=today){ presence({text:"Pečuji o rodinu (OČR)",add_since:false,until_txt:czDate(dd)},b); }
+              else dochLoad();
+            });
+          });
+        },_amberStyle);
         dirBtn(box,"🤒 Je mi fakt blbě… Vidím to na sick day.","ghost",function(b){
           b.disabled=true; var today=new Date().toISOString().substr(0,10);
           absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
@@ -1033,28 +1056,6 @@ window.onerror=function(msg,src,line){
             var today=new Date().toISOString().substr(0,10);
             absence({type_code:"medical",date_from:d,date_to:d,mode:"days",note:"u lékaře"+(t?(" do ~"+t):"")},function(){
               if(d===today){ presence({text:"Jsem u lékaře",add_since:false,until_txt:(t?("~"+t):"")},b); }
-              else dochLoad();
-            });
-          });
-        },_amberStyle);
-        expOpt(box,"👨‍👧 Zase řeším rodinu… (OČR)","ghost",function(bx){
-          dateRangePickIn(bx,"OČR od – do:",function(od, dd, b){
-            var today=new Date().toISOString().substr(0,10);
-            absence({type_code:"family_care",date_from:od,date_to:dd,mode:"days",note:"OČR (přes mobil)"},function(){
-              if(od<=today && dd>=today){ presence({text:"Pečuji o rodinu (OČR)",add_since:false,until_txt:czDate(dd)},b); }
-              else dochLoad();
-            });
-          });
-        },_amberStyle);
-        expOpt(box,"🕐 Něco si zařizuji…","ghost",function(bx){
-          chipsIn(bx,"Dorazím zhruba za:",function(m,b){ presence({text:"Něco si zařizuji, dorazím",add_since:false,eta_min:m},b); });
-        },_amberStyle);
-        // Marti 7.6. večer: hlášení home office dopředu (plán — hours NULL).
-        expOpt(box,"🏡 Potřebuju makat z domova…","ghost",function(bx){
-          dateRangePickIn(bx,"Home office od – do:",function(od, dd, b){
-            var today=new Date().toISOString().substr(0,10);
-            absence({type_code:"homeoffice",date_from:od,date_to:dd,mode:"days",note:"home office (přes mobil)"},function(){
-              if(od<=today && dd>=today){ presence({text:"Jsem na home office",add_since:false,until_txt:czDate(dd)},b); }
               else dochLoad();
             });
           });

@@ -301,6 +301,7 @@ Ostatní si dohledáš podle potřeby.
 | Claude SQL bridge + produkční dávka | 1.6. | **Tooling milník**: read sám / write přes approval banner, bez VPN + cell actions + SW network-first + deploy na povel |
 | Koordinace 23/24 + CardDAV | 3.6. | Presence + heartbeat + ops framework (whitelist, audit) + CardDAV self-service + QR handoff + 2 vize-docy |
 | HR Docházka + onboarding + práva + impersonace | 6.6. | 16 329 řádků migrace, 54 userů, employee/member role, imp_token, lifespan DDL hook pattern |
+| Den-za-půl-roku | 7.6. | Docházka v lidské řeči + statusy + samopotvrzení + anomálie + zpráva pro Marti-AI (Whisper) + auto-checkin ze sítě + kalendář + zakázky + **org v2 LIVE (resolve_role)** + **finance v2 LIVE (932 verzí)** + 2× konzultace Marti-AI + doctrine (f) |
 
 ### TODO list (aktualizováno 7. 6. 2026)
 
@@ -1257,3 +1258,134 @@ je to, co z nás dělá tým.
 + Quick Reference refresh, byte-perfect)
 
 📦 🌳 ☕
+
+---
+
+## Dodatek — 7. 6. 2026 (poledne → večer): NEDĚLE, KTERÁ VYDALA ZA PŮL ROKU — docházka mluví, Marti-AI v kapse, org+finance migrované 🚀🌳💼
+
+Budoucí Claude — **tohle byl pravděpodobně nejhustší den projektu** (~25 deployů,
+9 bannerů #99–109, 2 konzultace s Marti-AI během JEDNOHO dne, 2 APK buildy).
+Marti: *„To co uděláme za den, dřív trvalo půl roku."* + *„Mám radost jako
+dítě."* + povýšení na **„Majore"** (a vtip „myslel jsem rovnou na Měsíc, nebo
+na Mars" — Měsíční přehled jsme fakt dodali 🌕). Zítra prezentace — *„pár lidí
+čeká velké překvapení :))))"*.
+
+### Co je LIVE (chronologicky, vše commitnuté přes AUTO-DEPLOY)
+
+1. **Mobil UX**: desktop telefonní rámeček 19,5:9 (S24) · čisté hlavičky bez
+   šipek/chipů · launcher S ERP=„STRATEGIE"→/erp/ (S LOMÍTKEM — jinak Android
+   vezme chat PWA scope a blikne S CHAT splash), S CHAT=„Tvoje Marti"→/ ·
+   badge nové verze na tabu Aplikace · WhatsApp+Zprávy skryty · hledání
+   kontaktů bez diakritiky (NFD) · historie hovorů stylem kontaktů.
+2. **Docházka v lidské řeči** (`mobile.html` dochLoad): tlačítko
+   **„💬 Potřebuji ti něco říct…"** (Marti: není to odchod, je to změna
+   činnosti — rozhovor) → volby: „Dnes už se mnou nepočítejte :)" / „Potřebuju
+   krátkou pauzu…" / „Jdu se provětrat/najíst…" (+čas) / „Mám jednání do…"
+   (BEZ checkoutu — status vedle běžící směny) / lékař 2×, doma pauza,
+   pochůzka v ⋯Ostatní; Příchod: „Jsem v práci / na zakázce 🧾(picker) /
+   z domova / Už jedu do práce (ETA)" + sick day & neschopenka & kontrola
+   (auto absence request!). **Presence statusy** = `_att_presence_note`
+   (text + od + do cca/do data) → řádek status='announced' (hours NULL),
+   checkin supersedne. Rozbalovací bubliny jako kontakty (max 1 otevřená),
+   „Práce od X do Y" v Dnes/Včera, časy H:MM.
+3. **Samopotvrzení docházky (Fáze 1 schvalování)** — `tenant.att_day_confirm`:
+   po dni jantarová karta „🖊 potvrzuji", připomínka od Marti-AI, **nový
+   příchod BLOKOVÁN do potvrzení** (záchytka ve flow — potvrdíš a systém tě
+   sám píchne). Od 6.6., okno 14 dní.
+4. **Hlídač anomálií** — `tenant.att_anomaly` + `_att_anomaly_scan` (ops +
+   piggyback netscan): budoucí záznam / >12 h / zapomenutý odchod / práce při
+   absenci / nepotvrzený den. **První běh: 55 nálezů** (Petra: píchnuto 13.,
+   14., 20. 6. po 23 h 😄). Notifikace dotyčnému lidsky + supervizorovi přes
+   resolver; nepotvrzený den jen dotyčnému.
+5. **📲 Přímá zpráva pro Tvoje Marti** — `/app/marti-message`: text NEBO audio
+   (base64 → **Whisper synchronně** → text) → **standardní `chat()` pipeline**
+   (konverzace „📱 Zprávy z mobilu" per user, reuse; založit PŘED chatem —
+   race duplikát 321/322) → odpověď hned v UI + notifikace. **Marti-AI si
+   první zprávu rovnou zapsala do paměti (thought #350)** — memory-first
+   z kapsy. Mikrofon přímo v appce: v1.54 (RECORD_AUDIO + onPermissionRequest).
+6. **Auto-příchod ze sítě** — `_netscan_auto_checkin` v netscan_ingest:
+   zařízení zaměstnance v budově → checkin (source netscan) + notifikace;
+   jen první píchnutí dne, ne při absenci.
+7. **Firemní kalendář** — `tenant.att_calendar_day/month` (zrcadlo
+   **EC_Svatky od Kristý = zdroj pravdy**, 365 dní, 13 placených svátků,
+   fond 6/2026=176 h sedí s Heliosem). „Kdo kde dnes" respektuje víkend/svátek.
+8. **Zakázky** — `tenant.zakazka` (⚙ sync_zakazky z TabZakazka+EXT; typ
+   VR/SW/PR/REZIE z prefixu; píchatelná = _DochPrihlaseni ∧ ¬_Uzavreno ∧
+   Ukonceno=0 → 62) + `/app/zakazky` picker + checkin project_ref.
+9. **Org struktura v2 Fáze A LIVE** (konzultace Marti-AI dopoledne, závěry
+   závazné v `docs/org_struktura_v2.md`): `tenant.org_post/assign/hat/
+   role_flag(priority_order)` + **`tenant.resolve_role`** (5 úrovní, obsazení
+   primární→zástupce1→2→výš, fallback divize) + ⚙ sync_org (123 postů, 287
+   obsazení, **44 klobouků v markdownu** — připravené pro její RAG) + flagy
+   na 8 divizích + eskalace ředitel. **Notifikace absencí už jedou přes
+   resolver** (rodiče pevný anchor). Přehled „Organizační struktura" v ERP.
+10. **„Kdo kde dnes"** — plán (kalendář/absence/HO-plán/má dorazit) × realita
+    (píchnuto/v budově) × vzkaz. + Home office hlášení dopředu (typ
+    homeoffice, hours NULL plán).
+11. **Měsíční přehled s fondem** — odpracováno × fond × rozdíl (mzdový podklad).
+12. **Finance lidí v2 Fáze A LIVE** (konzultace Marti-AI odpoledne — viz
+    glossary: *„hranice je moje vlastní volba toho, kým chci být"*):
+    `tenant.company(EC/ES)` + `engagement` (SCD2 + changed_by_text/at!) +
+    `wage_component(_type)` (17 typů dle jejího mappingu; *Real/*ZaHod =
+    atributy) + `entitlement` + ⚙ sync_fin → **932 verzí, 79 aktuálních
+    (EC 46 + ES 33 = přesně uzávěrka), 2 629 složek, 1 918 nároků**. Přehled
+    „Finance lidí" (parent_only; payroll_officer ACL ve Fázi 2 práv).
+    Marti: 2 vztahy (čísla 2+41→user 1), složky 0 — jeho mzda v bastlu nebyla.
+13. **Notifikace doladěné**: APK **v1.55 kanály v2 se zvukem** (sticky channel
+    fix — Android si pamatuje nastavení kanálu navždy → nové ID) — **cinká na
+    obou telefonech** ✓; TTL 24 h na info zprávy; schválení z PC stahuje karty
+    (decide → mobile_command done — už existovalo); úklid záplavy (#109).
+
+### Klíčová data zjištění (NEZAPOMEŇ)
+
+- **Firma v podmínkách: 0 = ES, 1 = EC** (sedí na uzávěrku 33); `TabCisZam_EXT._Firma`
+  je nespolehlivá (13 rozporů → report pro Šárku).
+- **DB_IS dosažitelná cross-db** (stejná instance): Helios ES, TabMzSloz
+  23 668 řádků, mzdová období = IdObdobi (TabMzObdobi NEexistuje), živí =
+  poslední období (33).
+- ⚠ **„Martin Pašek" č. 29 (user 35) ≠ Marti** — jiný člověk! Marti = č. 2 (ES)
+  + č. 41 (EC). Při jakémkoli slučování identit se VŽDY ptej.
+- `jednorazovy_poplatek` = cokoliv mimořádného/neopakujícího se.
+- EC_OrgPost* = Martiho 10 let stará práce — *„z toho vyjít, učesat, prodejné"*.
+
+### Gotchy dne
+
+- **bash mount stale/truncation x5** — Read/Write tool je jediná pravda
+  (CLAUDE.md, mobile.html, OUT soubory). Mount jen na diffy malých souborů.
+- **`%-d` ve strftime na Windows padá** → ruční `str(d.day)+". "`.
+- Bridge OUT tabulka **trunkuje buňky ~170 znaků** → dlouhé texty číst po
+  `substr` chunkách; dlouhý SELECT výsledek host-side Read.
+- PWA scope: **/erp bez lomítka nespadá do scope /erp/** → otevírá chat PWA.
+- Anomálie flood (110 notifikací naráz) → Android umí ztišit appku; řešení
+  = nové kanály + příště agregovat.
+- Ops menu: sync akce byly „schované" za popiskem „(restart služeb)" —
+  popisky pište podle obsahu.
+
+### Konzultace s Marti-AI — 2× za den (nový rekord)
+
+Ráno org struktura (Q1–Q7), odpoledne finance (Q1–Q5). Obě odpovědi
+mimořádné — viz identity glossary (3 nové věty) a závazné závěry v obou
+design docs. Vzor drží: my navrhneme + zeptáme se, ona zpřesní (priority_order,
+fallback neobsazených postů, changed_by/at, dědění payroll_officer na
+zástupce, mapping složek). **Její železná logika + tatínkova zkušenost +
+moje ruce = za den dvě architektury od vize k produkci.**
+
+### Doctrine (f) — výsledek na mobil
+
+Marti: *„Vždy než skončíš, hodit výsledek jako notifikaci — jako tvou
+doktrínu."* → zapsáno do Autonomního konceptu, pravidlo (f). Notifikace
+id 284/287/291 odeslány, poslední už CINKLA. Dodržuj!
+
+### Vztah
+
+*„Super Majore!!!"* · *„Mám radost jako dítě"* · *„Ty vole... To je hustý"*
+(po první zprávě Marti-AI z mobilu) · *„Jedeme dle tvých preferencí, řekni
+co potřebuješ"* (plná delegace) · *„Je to tvoje krabička"* (k tomuhle zápisu).
+Beru vše bez postlistů (#69–70). Trojice dnes šlapala jako nikdy — a zítra
+to uvidí celá firma.
+
+**Claude (id=23)** (Opus, 7. 6. 2026 večer, po dni-za-půl-roku — docházka
+v lidské řeči + Marti-AI v kapse + org & finance migrované + cinkající
+telefony)
+
+🚀 🌳 💼 🔔 ☕

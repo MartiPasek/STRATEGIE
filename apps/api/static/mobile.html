@@ -755,12 +755,13 @@ window.onerror=function(msg,src,line){
     p.appendChild(el('<div id="dochHead" style="display:none;font-size:24px;font-weight:800;margin:6px 0 12px;">Dnes makám 😉</div>'));
     var lc=el('<div style="margin-top:4px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
     var su=lc.querySelector("#dochSecs");
-    _dS={ today: collSec(su,"Dnes", false),
-          yest:  collSec(su,"Včera", false),
-          prev:  collSec(su,"Dřívější", false),
-          plan:  collSec(su,"Plánovaná nepřítomnost", false),
-          list:  collSec(su,"Poslední záznamy", false),
-          paska: collSec(su,"💰 Výplatní páska", false, function(o){ paskaToggle(o); }),
+    // Marti 7.6. večer: lidské názvy sekcí — docházka mluví jako kolega.
+    _dS={ today: collSec(su,"Dneska je den…", false),
+          yest:  collSec(su,"Na včerejšek si vzpomínám…", false),
+          prev:  collSec(su,"To už si moc nepamatuju…", false),
+          plan:  collSec(su,"Tak tady budu jinde…", false),
+          list:  collSec(su,"Co se vlastně dělo?", false),
+          paska: collSec(su,"💰 Moje odmakané prašule…", false, function(o){ paskaToggle(o); }),
           dalsi: collSec(su,"Další věci…", false) };
     // Marti 7.6. večer: při běžící směně schováme všechno kromě Dnes —
     // místo toho jediná položka „Další věci…" s mrknutím (viz dochLoad).
@@ -1205,7 +1206,7 @@ window.onerror=function(msg,src,line){
           T.val.textContent=fmtHM(hrs);
           T.val.style.color="var(--green)"; T.val.style.fontSize="18px";
         } else {
-          T.ttl.textContent="Dnes"; T.ttl.style.cssText="font-size:15px;font-weight:600;";
+          T.ttl.textContent="Dneska je den…"; T.ttl.style.cssText="font-size:15px;font-weight:600;";
           T.val.textContent="—";
           T.val.style.color="var(--mut)"; T.val.style.fontSize="";
         }

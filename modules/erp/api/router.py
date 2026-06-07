@@ -5689,25 +5689,44 @@ async def att_status(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _att_presence_note(body: dict) -> str:
+    """Marti 7.6.: lidský status — text [+ ' od HH:MM'] [+ ' do cca HH:MM' z eta]
+    [+ ' do <until_txt>']. Bez textu = default „Už jedu do práce, dorazím ~X"."""
+    from datetime import datetime as _dt, timedelta as _td
+    txt = str((body or {}).get("text") or "").strip()[:160]
+    try:
+        eta = max(0, min(480, int((body or {}).get("eta_min") or 0)))
+    except Exception:
+        eta = 0
+    until_txt = str((body or {}).get("until_txt") or "").strip()[:40]
+    add_since = bool((body or {}).get("add_since", True))
+    if not txt:
+        eta = eta or 30
+        return "Už jedu do práce, dorazím ~" + (_dt.now() + _td(minutes=eta)).strftime("%H:%M")
+    note = txt
+    if add_since:
+        note += " od " + _dt.now().strftime("%H:%M")
+    if eta:
+        note += " do cca " + (_dt.now() + _td(minutes=eta)).strftime("%H:%M")
+    if until_txt:
+        note += " do " + until_txt
+    return note[:240]
+
+
 @api_router.post("/app/attendance/announce")
 async def att_announce(req: Request) -> JSONResponse:
-    """Marti 7.6.: „Jsem na cestě, dorazím za cca X" — ohlášení, NE začátek práce.
-    Řádek status='announced' (hours NULL → nepočítá se), checkin ho supersedne."""
+    """Marti 7.6.: presence status v lidské řeči („Už jedu do práce…", „Mám
+    jednání do cca…"). Řádek status='announced' (hours NULL → nepočítá se),
+    checkin ho supersedne. Může běžet i vedle otevřené směny (jednání)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
-    from datetime import datetime as _dt, timedelta as _td
     try:
         body = await req.json()
     except Exception:
         body = {}
-    try:
-        eta = max(5, min(480, int((body or {}).get("eta_min") or 30)))
-    except Exception:
-        eta = 30
-    eta_txt = (_dt.now() + _td(minutes=eta)).strftime("%H.%M").replace(".", ":")
-    note = "na cestě, dorazí ~" + eta_txt
+    note = _att_presence_note(body)
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
@@ -5950,6 +5969,7 @@ async def att_checkout(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     reason = str((body or {}).get("reason") or "").strip()[:120]
+    presence = str((body or {}).get("presence") or "").strip()[:160]
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
@@ -5963,6 +5983,20 @@ async def att_checkout(req: Request) -> JSONResponse:
             s.execute(_t("UPDATE tenant.att_entry SET note = CASE WHEN note IS NULL OR note = '' "
                          "THEN :r ELSE note || ' / ' || :r END WHERE id=:id"),
                       {"r": reason, "id": opn[0]})
+        if presence:
+            # Marti 7.6.: po odchodu nastav lidský status („Jsem na krátké pauze od 9:02")
+            pnote = _att_presence_note({"text": presence,
+                                        "eta_min": (body or {}).get("presence_eta_min"),
+                                        "add_since": (body or {}).get("add_since", True)})
+            s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
+                         "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date AND status='announced'"),
+                      {"t": _ATT_TENANT, "e": emp})
+            wtp = _att_work_type(s)
+            s.execute(_t(
+                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
+                "status,source,is_active,note,created_by_id,created_at,updated_at) "
+                "VALUES (:t,:e,current_date,:wt,now(),'announced','mobile_app',false,:n,:u,now(),now())"),
+                {"t": _ATT_TENANT, "e": emp, "wt": wtp, "n": pnote, "u": uid})
         s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
                      "hours=round((EXTRACT(EPOCH FROM (now()-started_at))/3600.0 "
                      "- COALESCE(break_minutes,0)/60.0)::numeric,2), updated_at=now() WHERE id=:id"),

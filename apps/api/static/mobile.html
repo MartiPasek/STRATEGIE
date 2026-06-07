@@ -683,9 +683,11 @@
       var open=j.open;
       var runH=0;
       if(open&&open.started_at){ try{ runH=Math.max(0,(Date.now()-new Date(open.started_at).getTime())/3600000); }catch(e){} }
-      var stTxt = open ? ('🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b>')
-                       : (j.announced ? ('🚗 '+esc(j.announced)) : '⚪ Nepřihlášen k práci');
-      cn.innerHTML='<div class="big" style="margin:0;'+(open?'color:var(--green);':(j.announced?'color:var(--amber);':''))+'">'+stTxt+'</div>';
+      var stHtml='';
+      if(open){ stHtml+='<div class="big" style="margin:0;color:var(--green);">🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b></div>'; }
+      if(j.announced){ stHtml+='<div class="big" style="margin:'+(open?'6px':'0')+' 0 0;color:var(--amber);font-size:15px;">💬 '+esc(j.announced)+'</div>'; }
+      if(!open&&!j.announced){ stHtml='<div class="big" style="margin:0;">⚪ Nepřihlášen k práci</div>'; }
+      cn.innerHTML=stHtml;
       // Marti 7.6.: klik na Příchod/Odchod rozbalí volby v lidské řeči;
       // „Ostatní…" = podsekce, „Jsem na cestě" = výběr času dorazím za cca.
       var bw=el('<div style="margin-top:12px;"></div>');
@@ -704,34 +706,52 @@
           bw.appendChild(b);
         });
       }
-      function showEta(){
+      // Výběr „za jak dlouho" (chips) → fn(min)
+      function chips(label, fn){
         bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">Dorazím za cca:</div>'));
-        var chips=el('<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;"></div>');
-        [["15 min",15],["30 min",30],["45 min",45],["1 h",60],["1,5 h",90],["2 h",120]].forEach(function(c){
-          var b=el('<button class="ghost sm" style="border-color:var(--blue);color:var(--blue);">'+c[0]+'</button>');
-          b.addEventListener("click",function(){ b.disabled=true;
-            api("POST","/api/v1/erp/app/attendance/announce",{eta_min:c[1]}).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); });
-          chips.appendChild(b);
+        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
+        var c=el('<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;"></div>');
+        [["15 min",15],["30 min",30],["45 min",45],["1 h",60],["1,5 h",90],["2 h",120]].forEach(function(o){
+          var b=el('<button class="ghost sm" style="border-color:var(--blue);color:var(--blue);">'+o[0]+'</button>');
+          b.addEventListener("click",function(){ b.disabled=true; fn(o[1], b); });
+          c.appendChild(b);
         });
-        bw.appendChild(chips);
+        bw.appendChild(c);
         var z=el('<button class="ghost full" style="margin-top:10px;">Zpět</button>');
         z.addEventListener("click",showOpts); bw.appendChild(z);
       }
+      // Výběr data → fn("YYYY-MM-DD")
+      function datePick(label, fn){
+        bw.innerHTML="";
+        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
+        var d=el('<input type="date" value="'+new Date().toISOString().substr(0,10)+'" style="margin-top:6px;">');
+        bw.appendChild(d);
+        var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
+        ok.addEventListener("click",function(){ if(d.value){ ok.disabled=true; fn(d.value, ok); } });
+        bw.appendChild(ok);
+        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
+        z.addEventListener("click",showOpts); bw.appendChild(z);
+      }
+      function czDate(iso){ var p=(iso||"").split("-"); return p.length===3?(Number(p[2])+". "+Number(p[1])+"."):iso; }
+      function presence(payload, b){ b.disabled=true; api("POST","/api/v1/erp/app/attendance/announce",payload).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); }
+      function absence(payload, then){ return api("POST","/api/v1/erp/app/attendance/absence",payload).then(then); }
       function showOpts(){
         bw.innerHTML="";
         if(open){
           addOpts([
-            ["👋 Dnes už se mnou nepočítejte :)", function(b){ act("checkout",{reason:""},b); }],
-            ["☕ Potřebuju krátkou pauzu…",        function(b){ act("checkout",{reason:"krátká pauza"},b); }],
-            ["🍃 Jdu se provětrat / najíst…",      function(b){ act("checkout",{reason:"pauza — provětrání/jídlo"},b); }]
+            ["👋 Dnes už se mnou nepočítejte :)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítejte :)"},b); }],
+            ["☕ Potřebuju krátkou pauzu…",        function(b){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},b); }],
+            ["🍃 Jdu se provětrat / najíst…",      function(){ chips("Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); }); }],
+            ["📅 Mám jednání do…",                 function(){ chips("Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); }); }]
           ],"warn");
           var more=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more);
           var sub=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
-          [["🩺 Lékař", "přerušení — lékař"],
-           ["🚗 Služební pochůzka", "služební pochůzka"]].forEach(function(o){
+          [["🩺 Jedu k lékaři, nebojte, pak dorazím…", {reason:"lékař — vrátí se",presence:"Jsem u lékaře, pak dorazím"}],
+           ["🩺 Jedu k lékaři… nevidím to dnes dobře…", {reason:"lékař — dnes už nedorazí",presence:"U lékaře, dnes už nedorazím"}],
+           ["☕🏠 Mám doma pauzu…",                     {reason:"pauza (home office)",presence:"Mám doma pauzu"}],
+           ["🚗 Služební pochůzka…",                    {reason:"služební pochůzka",presence:"Na služební pochůzce"}]].forEach(function(o){
             var b=btnEl(o[0],"warn");
-            b.addEventListener("click",function(){ act("checkout",{reason:o[1]},b); });
+            b.addEventListener("click",function(){ act("checkout",o[1],b); });
             sub.appendChild(b);
           });
           bw.appendChild(sub);
@@ -740,14 +760,29 @@
           addOpts([
             ["🏢 Jsem v práci…",       function(b){ act("checkin",{kind:"work"},b); }],
             ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }],
-            ["🚗 Jsem na cestě…",      function(){ showEta(); }]
+            ["🚗 Už jedu do práce…",   function(){ chips("Dorazím za cca:",function(m,b){ presence({eta_min:m},b); }); }]
           ],"green");
           var more2=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more2);
           var sub2=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
-          [["🧰 Režie", {kind:"overhead"}],
-           ["🚙 Služební cesta", {kind:"trip"}]].forEach(function(o){
+          [["🧰 Režie", function(b){ act("checkin",{kind:"overhead"},b); }],
+           ["🚙 Služební cesta", function(b){ act("checkin",{kind:"trip"},b); }],
+           ["🤒 Je mi fakt blbě… beru si sick day", function(b){
+              b.disabled=true; var today=new Date().toISOString().substr(0,10);
+              absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
+                presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); });
+            }],
+           ["🤧 Mám neschopenku do…", function(){
+              datePick("Neschopenka do:",function(d,b){
+                var today=new Date().toISOString().substr(0,10);
+                absence({type_code:"sick",date_from:today,date_to:d,mode:"days",note:"neschopenka (přes mobil)"},function(){
+                  presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); }); });
+            }],
+           ["🩺 Kontrola u lékaře (datum)…", function(){
+              datePick("Kontrola u lékaře — kdy:",function(d,b){
+                absence({type_code:"medical",date_from:d,date_to:d,mode:"days",note:"kontrola u lékaře"},function(){ dochLoad(); }); });
+            }]].forEach(function(o){
             var b=btnEl(o[0],"green");
-            b.addEventListener("click",function(){ act("checkin",o[1],b); });
+            b.addEventListener("click",function(){ o[1](b); });
             sub2.appendChild(b);
           });
           bw.appendChild(sub2);

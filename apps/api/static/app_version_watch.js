@@ -135,7 +135,28 @@
       "background:#e8b923;color:#1c2530;border:none;padding:10px 20px;" +
       "border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;";
     go.addEventListener("click", function () {
-      try { location.reload(); } catch (e) { location.href = location.href; }
+      // Marti 7.6.: HARD reload — smaž SW cache + refresh SW, ať nikdo nemusí
+      // ručně Ctrl+Shift+R. Fallback obyčejný reload (max 2,5 s čekání).
+      var done = false;
+      var fin = function () {
+        if (done) return; done = true;
+        try { location.reload(); } catch (e) { location.href = location.href; }
+      };
+      try {
+        var ps = [];
+        if (window.caches && caches.keys) {
+          ps.push(caches.keys().then(function (ks) {
+            return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+          }));
+        }
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+          ps.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+            return Promise.all(rs.map(function (r) { return r.update(); }));
+          }));
+        }
+        Promise.all(ps).then(fin, fin);
+        setTimeout(fin, 2500);
+      } catch (e) { fin(); }
     });
     row.appendChild(go);
 

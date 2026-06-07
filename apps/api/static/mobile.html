@@ -363,10 +363,12 @@
     });
     return out;
   }
+  // Hledání bez diakritiky (Marti 7.6.): á=a, ě/é=e … jako nativní hledání.
+  function deacc(s){ try{ return (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,""); }catch(e){ return (s||"").toLowerCase(); } }
   function renderContactsList(){ var ul=document.getElementById("ctlist"); if(!ul)return; var j=_contacts;
     if(j&&j.need){ ul.innerHTML='<li style="border:none;"><div style="color:var(--mut);margin-bottom:8px;">Appka potřebuje přístup ke kontaktům.</div><button class="green sm" id="ctperm">Povolit přístup</button></li>'; var pb=document.getElementById("ctperm"); if(pb)pb.addEventListener("click",function(){bjson("getContacts",getPrefixes());setTimeout(loadContacts,700);}); return; }
-    var all=dedupContacts((j&&j.contacts)||[]); var sf=document.getElementById("ctsearch"); var f=((sf&&sf.value)||"").trim().toLowerCase(); var nf=f.replace(/\s/g,"");
-    var list=all.filter(function(c){ if(!f)return true; return (c.name||"").toLowerCase().indexOf(f)>=0 || (c.number||"").replace(/\s/g,"").indexOf(nf)>=0; });
+    var all=dedupContacts((j&&j.contacts)||[]); var sf=document.getElementById("ctsearch"); var f=deacc(((sf&&sf.value)||"").trim()); var nf=f.replace(/\s/g,"");
+    var list=all.filter(function(c){ if(!f)return true; return deacc(c.name).indexOf(f)>=0 || (c.number||"").replace(/\s/g,"").indexOf(nf)>=0; });
     if(!list.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+(f?"Nic nenalezeno.":("Žádné kontakty s prefixem "+esc(getPrefixes())+"."))+'</li>'; return; }
     var pfx=getPrefixes(); ul.innerHTML="";
     list.forEach(function(c){
@@ -630,6 +632,8 @@
     var absBox=el('<div id="absBox" style="display:none;margin-top:8px;background:var(--surf);border:1px solid var(--bord);border-radius:10px;padding:12px;"></div>');
     absBtn.addEventListener("click",function(){ var open=absBox.style.display==="none"; absBox.style.display=open?"block":"none"; if(open&&!absBox.innerHTML) buildAbsForm(absBox); });
     p.appendChild(absBtn); p.appendChild(absBox);
+    p.appendChild(el('<div class="group" id="dochPlanGroup" style="margin-top:16px;display:none;">Plánované nepřítomnosti</div>'));
+    p.appendChild(el('<div class="list" id="dochPlanWrap" style="padding:0 14px;display:none;"><ul id="dochPlan"></ul></div>'));
     p.appendChild(el('<div class="group" style="margin-top:16px;">Odpracováno po dnech</div>'));
     p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
     p.appendChild(el('<div class="group" style="margin-top:16px;">Poslední záznamy</div>'));
@@ -653,10 +657,20 @@
   function dochDailyLoad(){
     api("GET","/api/v1/erp/app/attendance/daily?days=14","").then(function(j){
       var ul=document.getElementById("dochDaily"); if(!ul)return;
-      var rows=(j&&j.days)||[];
-      if(!rows.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím nic.</li>'; return; }
+      var allRows=(j&&j.days)||[];
       var today=new Date().toISOString().substr(0,10);
       var yest=new Date(Date.now()-86400000).toISOString().substr(0,10);
+      // Marti 7.6.: budoucnost (nahlášené dovolené atd.) oddělit od odpracovaného.
+      var rows=allRows.filter(function(r){return (r.d||"")<=today;});
+      var fut=allRows.filter(function(r){return (r.d||"")>today;}).sort(function(a,b){return a.d<b.d?-1:1;});
+      var pg=document.getElementById("dochPlanGroup"), pw=document.getElementById("dochPlanWrap"), pu=document.getElementById("dochPlan");
+      if(pg&&pw&&pu){
+        if(fut.length){ pg.style.display=""; pw.style.display=""; pu.innerHTML="";
+          fut.forEach(function(r){ var a=Number(r.absence||0), w=Number(r.worked||0);
+            pu.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;"><span class="nt">'+esc(r.d)+'</span><span class="nm" style="margin:0;color:var(--amber);">'+(a>0?(a+' h nepřítomnost'):(w+' h'))+'</span></li>')); });
+        } else { pg.style.display="none"; pw.style.display="none"; }
+      }
+      if(!rows.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím nic.</li>'; return; }
       ul.innerHTML="";
       rows.forEach(function(r){
         var lbl = r.d===today?"Dnes" : (r.d===yest?"Včera" : r.d);
@@ -775,6 +789,33 @@
     }catch(e){}
   }
   setTimeout(autoCapturePhone, 1500);
+
+  // ── Nová verze → lišta nahoře, klik = HARD reload (Marti 7.6.) ──────────
+  var _verLoaded=null;
+  function _verHardReload(){
+    var done=false; var fin=function(){ if(done)return; done=true; try{location.reload();}catch(e){location.href=location.pathname;} };
+    try{
+      var ps=[];
+      if(window.caches&&caches.keys) ps.push(caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); }));
+      if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) ps.push(navigator.serviceWorker.getRegistrations().then(function(rs){ return Promise.all(rs.map(function(r){ return r.update(); })); }));
+      Promise.all(ps).then(fin,fin); setTimeout(fin,2500);
+    }catch(e){ fin(); }
+  }
+  function _verTick(){
+    try{
+      fetch("/api/v1/erp/app-version",{cache:"no-store",credentials:"same-origin"})
+        .then(function(r){ return r.ok?r.json():null; })
+        .then(function(j){
+          var v=j&&j.version; if(!v||v==="unknown")return;
+          if(_verLoaded===null){ _verLoaded=v; return; }
+          if(v!==_verLoaded && !document.getElementById("verBar")){
+            var b=el('<div id="verBar" style="position:fixed;top:0;left:0;right:0;z-index:90;background:#3a2f12;border-bottom:1px solid #6e5326;color:#f0d98a;padding:10px 14px;font-size:13.5px;text-align:center;cursor:pointer;">🔄 Nová verze STRATEGIE — klepni pro obnovení</div>');
+            b.addEventListener("click",_verHardReload); document.body.appendChild(b);
+          }
+        }).catch(function(){});
+    }catch(e){}
+  }
+  setInterval(_verTick, 30000); setTimeout(_verTick, 1200);
 })();
 </script>
 </body>

@@ -5656,7 +5656,12 @@ async def att_status(req: Request) -> JSONResponse:
         opn = s.execute(_t("SELECT id, to_char(started_at,'YYYY-MM-DD\"T\"HH24:MI:SS') "
                            "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND is_active=true "
                            "ORDER BY id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
-        today = s.execute(_t("SELECT COALESCE(round(sum(hours)::numeric,2),0), count(*) "
+        # Marti 7.6.: do "dnes odpracovano" pocitej i bezici (otevrenou) smenu —
+        # is_active radek nema hours, tak vezmeme now()-started_at.
+        today = s.execute(_t("SELECT COALESCE(round(sum("
+                             "CASE WHEN is_active THEN GREATEST(EXTRACT(EPOCH FROM (now() - started_at)),0)/3600.0 "
+                             "ELSE COALESCE(hours,0) END"
+                             ")::numeric,2),0), count(*) "
                              "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date"),
                           {"t": _ATT_TENANT, "e": emp}).first()
         s.commit()

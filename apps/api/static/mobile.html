@@ -893,11 +893,40 @@ window.onerror=function(msg,src,line){
                 var row=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;margin-bottom:8px;"></div>');
                 row.appendChild(el('<div style="font-size:13.5px;font-weight:600;">'+esc((e2.zac||"?")+(e2.kon?(" – "+e2.kon):" – …"))+(e2.hours!=null?(' · '+fmtHM(e2.hours)):'')+(e2.project_ref?(' · 🧾 '+esc(e2.project_ref)):'')+'</div>'));
                 if(e2.note) row.appendChild(el('<div class="hint" style="margin-top:2px;">'+esc(e2.note)+'</div>'));
-                var ar=el('<div style="display:flex;gap:8px;margin-top:8px;"></div>');
+                var ar=el('<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;"></div>');
                 var bt=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">⏱ Zkrátit konec</button>');
+                var bz=el('<button class="ghost sm" style="border-color:var(--blue);color:var(--blue);">🧾 Zakázka…</button>');
                 var bx2=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);">✋ Nesedí…</button>');
-                ar.appendChild(bt); ar.appendChild(bx2); row.appendChild(ar);
+                ar.appendChild(bt); ar.appendChild(bz); ar.appendChild(bx2); row.appendChild(ar);
                 var fx=el('<div style="margin-top:6px;"></div>'); row.appendChild(fx);
+                // Marti 7.6. večer: špatná zakázka = realita — změna přímo na jobu.
+                bz.addEventListener("click",function(){
+                  fx.innerHTML="";
+                  fx.appendChild(el('<div class="hint" style="margin-bottom:4px;">Správná zakázka (teď: '+esc(e2.project_ref||"žádná")+'):</div>'));
+                  var si2=el('<input placeholder="🔍 číslo nebo název…" autocomplete="off">');
+                  var res2=el('<div style="margin-top:6px;"></div>');
+                  var st4=el('<div class="hint" style="margin-top:4px;"></div>');
+                  var tmr2=null;
+                  function zload(){
+                    var q=(si2.value||"").trim();
+                    api("GET","/api/v1/erp/app/zakazky"+(q?("?q="+encodeURIComponent(q)):""),"").then(function(jz){
+                      res2.innerHTML="";
+                      ((jz&&jz.zakazky)||[]).forEach(function(z){
+                        var zb2=el('<button class="ghost full" style="margin-top:6px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;">'+((z.typ==="REZIE")?"🧰 ":"🧾 ")+esc(z.cislo)+' — '+esc(z.nazev||"")+'</button>');
+                        zb2.addEventListener("click",function(){
+                          zb2.disabled=true; st4.textContent="⏳ Měním na "+z.cislo+"…";
+                          api("POST","/api/v1/erp/app/attendance/entry-project",{id:e2.id,project_ref:z.cislo}).then(function(r){
+                            if(r&&r.ok){ st4.textContent="✅ Zakázka změněna"; setTimeout(dochLoad,700); }
+                            else{ zb2.disabled=false; st4.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
+                          });
+                        });
+                        res2.appendChild(zb2);
+                      });
+                    });
+                  }
+                  si2.addEventListener("input",function(){ clearTimeout(tmr2); tmr2=setTimeout(zload,300); });
+                  fx.appendChild(si2); fx.appendChild(res2); fx.appendChild(st4); zload();
+                });
                 bt.addEventListener("click",function(){
                   fx.innerHTML="";
                   if(!e2.kon){ fx.innerHTML='<div class="hint">Běžící záznam — nejdřív se odpíchni.</div>'; return; }

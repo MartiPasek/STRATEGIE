@@ -6226,6 +6226,59 @@ async def att_entry_trim(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/attendance/entry-project")
+async def att_entry_project(req: Request) -> JSONResponse:
+    """Marti 7.6. večer: špatné číslo zakázky na jobu — user si ho změní sám.
+    Validace proti tenant.zakazka (píchatelné), typ REZIE → overhead. Původní
+    zakázka zůstává v poznámce."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        eid = int((body or {}).get("id") or 0)
+    except Exception:
+        eid = 0
+    ref = str((body or {}).get("project_ref") or "").strip()[:40]
+    if not (eid and ref):
+        return JSONResponse({"ok": False, "error": "Chybí zakázka."})
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "SELECT e.id, e.project_ref FROM tenant.att_entry e "
+            "JOIN tenant.att_employee em ON em.id = e.employee_id "
+            "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u"),
+            {"i": eid, "t": _ATT_TENANT, "u": uid}).first()
+        if not row:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
+        zak = s.execute(_t(
+            "SELECT typ FROM tenant.zakazka WHERE tenant_id = :t AND cislo = :c AND pichatelna = true"),
+            {"t": _ATT_TENANT, "c": ref}).first()
+        if not zak:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "Zakázka " + ref + " není píchatelná / neexistuje."})
+        tcode = "overhead" if (zak[0] == "REZIE") else "work"
+        nn = ("zakázka změněna uživatelem (původně " + (row[1] or "žádná") + ")")
+        s.execute(_t(
+            "UPDATE tenant.att_entry SET project_ref = :c, "
+            "entry_type_id = COALESCE((SELECT id FROM tenant.att_entry_type WHERE tenant_id = :t AND code = :tc), entry_type_id), "
+            "note = CASE WHEN COALESCE(note,'') = '' THEN :nn ELSE note || ' / ' || :nn END, "
+            "updated_at = now() WHERE id = :i"),
+            {"c": ref, "t": _ATT_TENANT, "tc": tcode, "nn": nn, "i": eid})
+        s.commit()
+        return JSONResponse({"ok": True, "id": eid, "project_ref": ref})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/entry-dispute")
 async def att_entry_dispute(req: Request) -> JSONResponse:
     """„Na tomhle jobu je něco špatně" — poznámka na záznam + notifikace

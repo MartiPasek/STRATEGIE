@@ -5677,9 +5677,54 @@ async def att_status(req: Request) -> JSONResponse:
                              ")::numeric,2),0), count(*) "
                              "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date"),
                           {"t": _ATT_TENANT, "e": emp}).first()
+        ann = s.execute(_t("SELECT note FROM tenant.att_entry "
+                           "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
+                           "AND status='announced' ORDER BY id DESC LIMIT 1"),
+                        {"t": _ATT_TENANT, "e": emp}).first()
         s.commit()
         return JSONResponse({"ok": True, "open": ({"id": opn[0], "started_at": opn[1]} if opn else None),
+                             "announced": (ann[0] if ann else None),
                              "today_hours": float(today[0] or 0), "today_entries": int(today[1] or 0)})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/announce")
+async def att_announce(req: Request) -> JSONResponse:
+    """Marti 7.6.: „Jsem na cestě, dorazím za cca X" — ohlášení, NE začátek práce.
+    Řádek status='announced' (hours NULL → nepočítá se), checkin ho supersedne."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        eta = max(5, min(480, int((body or {}).get("eta_min") or 30)))
+    except Exception:
+        eta = 30
+    eta_txt = (_dt.now() + _td(minutes=eta)).strftime("%H.%M").replace(".", ":")
+    note = "na cestě, dorazí ~" + eta_txt
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
+                     "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date AND status='announced'"),
+                  {"t": _ATT_TENANT, "e": emp})
+        wt = _att_work_type(s)
+        s.execute(_t(
+            "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
+            "status,source,is_active,note,created_by_id,created_at,updated_at) "
+            "VALUES (:t,:e,current_date,:wt,now(),'announced','mobile_app',false,:n,:u,now(),now())"),
+            {"t": _ATT_TENANT, "e": emp, "wt": wt, "n": note, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True, "note": note})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
 
@@ -5874,7 +5919,11 @@ async def att_checkin(req: Request) -> JSONResponse:
         tcode = "overhead" if kind == "overhead" else "work"
         wt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
                        {"t": _ATT_TENANT, "c": tcode}).scalar() or _att_work_type(s)
-        note = "home office" if kind == "homeoffice" else None
+        note = {"homeoffice": "home office", "trip": "služební cesta"}.get(kind)
+        # ohlášení „na cestě" je tímto naplněno → supersede
+        s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
+                     "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date AND status='announced'"),
+                  {"t": _ATT_TENANT, "e": emp})
         r = s.execute(_t(
             "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
             "status,source,is_active,note,created_by_id,created_at,updated_at) "

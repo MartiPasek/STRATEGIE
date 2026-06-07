@@ -683,29 +683,76 @@
       var open=j.open;
       var runH=0;
       if(open&&open.started_at){ try{ runH=Math.max(0,(Date.now()-new Date(open.started_at).getTime())/3600000); }catch(e){} }
-      cn.innerHTML='<div class="big" style="margin:0;'+(open?'color:var(--green);':'')+'">'
-        +(open?('🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b>'):'⚪ Nepřihlášen k práci')+'</div>';
-      // Marti 7.6.: klik na Příchod/Odchod nejdřív rozbalí volby.
+      var stTxt = open ? ('🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b>')
+                       : (j.announced ? ('🚗 '+esc(j.announced)) : '⚪ Nepřihlášen k práci');
+      cn.innerHTML='<div class="big" style="margin:0;'+(open?'color:var(--green);':(j.announced?'color:var(--amber);':''))+'">'+stTxt+'</div>';
+      // Marti 7.6.: klik na Příchod/Odchod rozbalí volby v lidské řeči;
+      // „Ostatní…" = podsekce, „Jsem na cestě" = výběr času dorazím za cca.
       var bw=el('<div style="margin-top:12px;"></div>');
+      function btnEl(label, cls){ return el('<button class="'+cls+' full" style="margin-top:8px;font-size:15px;text-align:left;">'+label+'</button>'); }
+      function act(ep, payload, b){ b.disabled=true; api("POST","/api/v1/erp/app/attendance/"+ep,payload).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); }
       function mainBtn(){
         bw.innerHTML="";
         var btn=el('<button class="'+(open?'warn':'green')+' full" style="font-size:16px;">'+(open?'⏹ Odchod…':'▶️ Příchod…')+'</button>');
         btn.addEventListener("click",showOpts);
         bw.appendChild(btn);
       }
-      function showOpts(){
-        bw.innerHTML="";
-        var opts = open
-          ? [["🔚 Konec práce",{reason:""}],["🍽 Přestávka (oběd)",{reason:"přestávka — oběd"}],["🩺 Lékař",{reason:"přerušení — lékař"}]]
-          : [["🏢 Práce",{kind:"work"}],["🏠 Home office",{kind:"homeoffice"}],["🧰 Režie",{kind:"overhead"}]];
-        opts.forEach(function(o){
-          var b=el('<button class="'+(open?'warn':'green')+' full" style="margin-top:8px;font-size:15px;">'+o[0]+'</button>');
-          b.addEventListener("click",function(){
-            b.disabled=true;
-            api("POST","/api/v1/erp/app/attendance/"+(open?"checkout":"checkin"),o[1]).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; });
-          });
+      function addOpts(defs, cls){
+        defs.forEach(function(o){
+          var b=btnEl(o[0], cls);
+          b.addEventListener("click",function(){ o[1](b); });
           bw.appendChild(b);
         });
+      }
+      function showEta(){
+        bw.innerHTML="";
+        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">Dorazím za cca:</div>'));
+        var chips=el('<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;"></div>');
+        [["15 min",15],["30 min",30],["45 min",45],["1 h",60],["1,5 h",90],["2 h",120]].forEach(function(c){
+          var b=el('<button class="ghost sm" style="border-color:var(--blue);color:var(--blue);">'+c[0]+'</button>');
+          b.addEventListener("click",function(){ b.disabled=true;
+            api("POST","/api/v1/erp/app/attendance/announce",{eta_min:c[1]}).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); });
+          chips.appendChild(b);
+        });
+        bw.appendChild(chips);
+        var z=el('<button class="ghost full" style="margin-top:10px;">Zpět</button>');
+        z.addEventListener("click",showOpts); bw.appendChild(z);
+      }
+      function showOpts(){
+        bw.innerHTML="";
+        if(open){
+          addOpts([
+            ["👋 Dnes už se mnou nepočítejte :)", function(b){ act("checkout",{reason:""},b); }],
+            ["☕ Potřebuju krátkou pauzu…",        function(b){ act("checkout",{reason:"krátká pauza"},b); }],
+            ["🍃 Jdu se provětrat / najíst…",      function(b){ act("checkout",{reason:"pauza — provětrání/jídlo"},b); }]
+          ],"warn");
+          var more=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more);
+          var sub=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
+          [["🩺 Lékař", "přerušení — lékař"],
+           ["🚗 Služební pochůzka", "služební pochůzka"]].forEach(function(o){
+            var b=btnEl(o[0],"warn");
+            b.addEventListener("click",function(){ act("checkout",{reason:o[1]},b); });
+            sub.appendChild(b);
+          });
+          bw.appendChild(sub);
+          more.addEventListener("click",function(){ sub.style.display=sub.style.display==="none"?"block":"none"; });
+        } else {
+          addOpts([
+            ["🏢 Jsem v práci…",       function(b){ act("checkin",{kind:"work"},b); }],
+            ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }],
+            ["🚗 Jsem na cestě…",      function(){ showEta(); }]
+          ],"green");
+          var more2=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more2);
+          var sub2=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
+          [["🧰 Režie", {kind:"overhead"}],
+           ["🚙 Služební cesta", {kind:"trip"}]].forEach(function(o){
+            var b=btnEl(o[0],"green");
+            b.addEventListener("click",function(){ act("checkin",o[1],b); });
+            sub2.appendChild(b);
+          });
+          bw.appendChild(sub2);
+          more2.addEventListener("click",function(){ sub2.style.display=sub2.style.display==="none"?"block":"none"; });
+        }
         var z=el('<button class="ghost full" style="margin-top:8px;">Zrušit</button>');
         z.addEventListener("click",mainBtn); bw.appendChild(z);
       }

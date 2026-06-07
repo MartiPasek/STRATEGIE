@@ -622,7 +622,7 @@
   }
   // ───── DOCHÁZKA (check-in/out + přehled) ─────
   function dochazka(){
-    app.innerHTML=topbar("Docházka", true);
+    app.innerHTML=topbar("", false, true);  // Marti 7.6.: bez nadpisu a šipky; prázdná lišta drží odsazení
     var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.authedFetch==="function")){ p.appendChild(el('<div class="hint">Docházka funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
     p.appendChild(el('<div id="dochCard" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
@@ -724,9 +724,12 @@
     // Na obrazovce Aplikace: dvě extra lišty nad základní; Nastavení vpravo v DOLNÍ extra liště.
     bnavx1.innerHTML=""; bnavx2.innerHTML="";
     if(atApps){
-      bnavx1.style.display="flex"; bnavx2.style.display="flex"; bnavx2.style.justifyContent="flex-end";
+      // Marti 7.6.: dolní extra lišta = neviditelná mřížka 5 sekcí (jako hlavní nav)
+      // → ⚙ Nastavení sedí přesně v 5. sekci, správně vycentrované.
+      bnavx1.style.display="flex";
+      bnavx2.style.display="grid"; bnavx2.style.gridTemplateColumns="repeat(5,1fr)"; bnavx2.style.justifyContent="";
       var setBtn=navBtn("⚙️","Nastavení",false,function(){selectTab("settings");},_hasUpdate?1:0);
-      setBtn.style.flex="0 0 auto"; setBtn.style.minWidth="84px";
+      setBtn.style.gridColumn="5";
       bnavx2.appendChild(setBtn);
     } else { bnavx1.style.display="none"; bnavx2.style.display="none"; }
   }

@@ -694,8 +694,9 @@
       function btnEl(label, cls){ return el('<button class="'+cls+' full" style="margin-top:8px;font-size:15px;text-align:left;">'+label+'</button>'); }
       function act(ep, payload, b){ b.disabled=true; api("POST","/api/v1/erp/app/attendance/"+ep,payload).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); }
       function mainBtn(){
+        // Marti 7.6.: není to „odchod/příchod", je to změna činnosti — rozhovor.
         bw.innerHTML="";
-        var btn=el('<button class="'+(open?'warn':'green')+' full" style="font-size:16px;">'+(open?'⏹ Odchod…':'▶️ Příchod…')+'</button>');
+        var btn=el('<button class="'+(open?'warn':'green')+' full" style="font-size:16px;">💬 Potřebuji ti něco říct…</button>');
         btn.addEventListener("click",showOpts);
         bw.appendChild(btn);
       }

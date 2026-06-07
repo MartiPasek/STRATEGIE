@@ -6199,16 +6199,18 @@ async def att_entry_trim(req: Request) -> JSONResponse:
             s.commit()
             return JSONResponse({"ok": False, "error": "Běžící záznam zkrátit nejde — nejdřív se odpíchni."})
         nn = "zkráceno uživatelem (původně do " + row[1] + ")"
+        # Marti 7.6. večer fix: nový konec na DEN PŮVODNÍHO KONCE (ne entry_date) —
+        # job přes půlnoc (start 6.6. večer, konec 7.6. ráno) jinak nešel zkrátit.
         upd = s.execute(_t(
             "UPDATE tenant.att_entry e SET "
-            "  ended_at = (e.entry_date::text || ' ' || :endt)::timestamp, "
-            "  hours = round(GREATEST(EXTRACT(EPOCH FROM ((e.entry_date::text || ' ' || :endt)::timestamp - e.started_at))/3600.0 "
+            "  ended_at = (e.ended_at::date::text || ' ' || :endt)::timestamp, "
+            "  hours = round(GREATEST(EXTRACT(EPOCH FROM ((e.ended_at::date::text || ' ' || :endt)::timestamp - e.started_at))/3600.0 "
             "        - COALESCE(e.break_minutes,0)/60.0, 0)::numeric,2), "
             "  note = CASE WHEN COALESCE(e.note,'') = '' THEN :nn ELSE e.note || ' / ' || :nn END, "
             "  updated_at = now() "
             "WHERE e.id = :i "
-            "  AND (e.entry_date::text || ' ' || :endt)::timestamp > e.started_at "
-            "  AND (e.entry_date::text || ' ' || :endt)::timestamp < e.ended_at "
+            "  AND (e.ended_at::date::text || ' ' || :endt)::timestamp > e.started_at "
+            "  AND (e.ended_at::date::text || ' ' || :endt)::timestamp < e.ended_at "
             "RETURNING e.id"),
             {"i": eid, "endt": endt, "nn": nn}).first()
         s.commit()

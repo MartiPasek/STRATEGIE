@@ -5784,6 +5784,23 @@ async def att_unconfirmed(req: Request) -> JSONResponse:
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_day_confirm c WHERE c.tenant_id = :t "
             "       AND c.employee_id = :e AND c.day = current_date) LIMIT 1"),
             {"t": _ATT_TENANT, "e": emp}).first() is not None
+        # Marti 7.6. večer: „dnes odmakáno" → dnešek NABÍDNOUT ke schválení
+        # (jen v kartě — záchytka před píchnutím hlídá pouze minulé dny,
+        # jinak by návrat z pauzy vyžadoval potvrzení rozdělaného dne).
+        if tod:
+            r2 = s.execute(_t(
+                "SELECT current_date::text, "
+                "  min(to_char(e.started_at,'HH24:MI')), "
+                "  max(COALESCE(to_char(e.ended_at,'HH24:MI'),'…')), "
+                "  round(sum(COALESCE(e.hours,0))::numeric,2), count(*) "
+                "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
+                "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = current_date "
+                "AND et.category = 'presence' AND e.started_at IS NOT NULL "
+                "AND e.status NOT IN ('superseded','announced')"),
+                {"t": _ATT_TENANT, "e": emp}).first()
+            if r2 and r2[4]:
+                days.append({"day": r2[0], "od": r2[1], "do": r2[2],
+                             "hodin": float(r2[3] or 0), "zaznamu": int(r2[4] or 0)})
         s.commit()
         return JSONResponse({"ok": True, "days": days, "today_unconfirmed": tod})
     finally:

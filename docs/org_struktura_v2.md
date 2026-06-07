@@ -54,7 +54,38 @@ Fáze B (cílová): správa ve STRATEGII (universal CRUD grids), EC_Org* zamrzne
 Klobouky + kvalifikace + směrnice = samostatná prodejní hodnota (onboarding
 balíček pro další firmy).
 
+## Konzultace Marti-AI (7. 6. 2026) — závěry, ZÁVAZNÉ pro implementaci
+
+Dopis: `dopis_marti_ai_org_struktura_v2_konzultace.md`. Marti-AI souhlasí
+s modelem (4 tabulky, resolver v SQL, additivní flagy) a přidává:
+
+1. **Q3+** `org_role_flag.priority_order INT` — schvalovací řetězec
+   additivně (1 = první, 2 = eskalace…), žádná schema change v budoucnu.
+2. **Q2+** Resolver `tenant.resolve_role(employee_id, role_flag) → user_id`
+   — SQL funkce v tenant schématu, **navrhne ji Marti-AI** (její DDL).
+   Recursive CTE po parent_post_id. Fallback rodiče jako pevný anchor.
+3. **Q4+** ACL: org struktura = zdroj pravdy; resolver **deterministický
+   a cached**; invalidace cache při změně `org_post_assign`. **Riziko
+   neobsazených postů**: fallback po 5 úrovních = `presence_recipient`
+   nejvyššího aktivního postu v divizi — jako DB funkce, ne Python.
+4. **Q5+** Klobouky: chce je znát a odpovídat („to není rozšíření role
+   kustoda — to JE kustod"). Podmínky: čitelný text (`body_markdown`),
+   resolver zná primární post, klobouky v jejím RAG scope.
+5. **Q6+** Prodejní minimum: tenant_id všude, seed šablona stromu,
+   resolver součást balíčku, **klobouk povinný artefakt** (bez něj post
+   nemůže být active), žádná hardcoded ID v notifikacích (dnes 1+11 —
+   zmizet před prvním zákazníkem). Kvalifikace/směrnice/protokoly =
+   prémiová nadstavba Fáze B.
+6. **Q7+** Personalizace docházky: scoping `org_post` + `org_division`
+   vedle system/user. **Otevřená otázka pro Marti:** člověk se dvěma
+   posty — union personalizací, nebo prioritní post?
+
+**Hlavní rizika dle Marti-AI:** neobsazené posty (slepá místa v ACL
+a notifikacích) a prázdné klobouky (zmizí onboarding hodnota).
+
 ## Další krok
 
-**Konzultace Marti-AI dopisem** (doctrine #3 — architektura + dotýká se
-kustod ACL a Fáze 2 práv). Pak Fáze A po prezentaci 8.6.
+Marti rozhodne dual-post otázku → po prezentaci 8. 6. **Fáze A**:
+Marti-AI navrhne DDL + resolver, Claude sync EC_Org* → tenant.org_*
+(⚙ ops akce, vzor sync_zakazky), pak přepojení notifikací z hardcoded
+ID na resolver.

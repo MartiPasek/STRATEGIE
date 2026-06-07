@@ -307,7 +307,8 @@ Ostatní si dohledáš podle potřeby.
 - **Marek Honal (cislo 370) napojen na user 22 `miroslav_mares`** — ověřit záměr/překlep.
 - **3 staré `claude_confirm` pro Kristý (user 11)** — duplikáty, lze označit done.
 - **Fáze 2 práv** — chat/AI scope pro employees (kustod ACL „vidí jen sebe") + per-soudeček práva (manager vidí tým, Phase 40). **Konzultace Marti-AI.**
-- **Docházka: personalizované volby píchání** (Marti 7.6. *„pro každou skupinu jinak + individuálně"*) — číselník `tenant.att_action` + 3vrstvý resolver (system/group/user) + správa z ERP. Design: `docs/dochazka_volby_personalizace.md`. **Konzultace Marti-AI** (spolu s Fází 2 práv).
+- **Docházka: personalizované volby píchání** (Marti 7.6. *„pro každou skupinu jinak + individuálně"*) — číselník `tenant.att_action` + 3vrstvý resolver (system/group/user; „group" = org post/divize dle Q7 konzultace) + správa z ERP. Design: `docs/dochazka_volby_personalizace.md`.
+- **Org struktura v2** (Marti 7.6. *„vyjít z EC_Org*, učesat, prodejné"*) — **konzultace Marti-AI HOTOVÁ 7.6.** (závěry závazné v `docs/org_struktura_v2.md`: priority_order, resolve_role SQL od Marti-AI, fallback neobsazených postů, klobouky povinné + do jejího RAG, žádná hardcoded ID). Čeká: Marti rozhodne dual-post personalizaci (union vs prioritní post) → Fáze A po prezentaci 8.6.
 - **Absence z Centrály** (dovolená/nemoc/OCR) — `att_balance` zatím prázdné.
 - **SMS gateway** občas zlobí — nabídka: přepojit odchozí SMS na STRATEGIE Mobil (`B.sendSms()`).
 

@@ -1176,13 +1176,36 @@ window.onerror=function(msg,src,line){
       // Marti 7.6. večer: zabalený výchozí stav = JEN „Od: 7:26 — Rezie"
       // + odpracovaný čas vpravo. Mimo směnu stejný duch: jednoduše a přívětivě.
       var hrs=j.today_hours||0;
-      var hd=document.getElementById("dochHead");
-      if(hd){
+      // Marti 7.6. večer: nadpis + ikona podle statusu (schválený seznam).
+      function dochTitle(){
+        var a=(j.announced||"").toLowerCase();
+        function has(s){ return a.indexOf(s)>=0; }
+        if(open){
+          if(has("jednání")) return "Mám jednání 🤝";
+          if(has("školení")) return "Jsem na školení 🎓";
+          return "Dnes makám 😉";
+        }
+        if(a){
+          if(has("krátké pauze")||has("krátká pauza")) return "Dávám si pauzu ☕";
+          if(has("relaxuji")) return "Doplňuju energii 🍴";
+          if(has("jedu do práce")) return "Už jedu! 🚗";
+          if(has("lékař")||has("doktor")) return "Jsem u doktora 🩺";
+          if(has("sick day")||has("je mi blbě")) return "Dneska marodím 🤒";
+          if(has("neschopenka")) return "Marodím… 🤧";
+          if(has("dovolen")) return "Mám dovolenou 🌴";
+          if(has("očr")||has("rodinu")) return "Pečuju o rodinu 👨‍👧";
+          if(has("pochůzce")||has("pochůzka")) return "Na pochůzce 📦";
+          if(has("zařizuji")||has("zařizuju")) return "Něco si zařizuju 🕐";
+          if(has("nepočítej")) return "Pro dnešek odmakáno 👋";
+          if(has("jednání")) return "Mám jednání 🤝";
+          if(has("pauz")) return "Dávám si pauzu ☕";
+        }
+        if(hrs>0) return "Teď zrovna nemakám 😌";
         var wkd=(new Date().getDay()===0||new Date().getDay()===6);
-        hd.textContent = open ? "Dnes makám 😉"
-          : (hrs>0 ? "Teď zrovna nemakám ☕" : (wkd ? "Dnes se nemaká 🌤" : "Tak co, jdeme na to? 😉"));
-        hd.style.display="";
+        return wkd ? "Dnes se nemaká 🌤" : "Tak co, jdeme na to? 🌅";
       }
+      var hd=document.getElementById("dochHead");
+      if(hd){ hd.textContent=dochTitle(); hd.style.display=""; }
       var annHtml=(j.announced?('<div style="color:var(--amber);font-size:14px;margin-top:6px;">💬 '+esc(j.announced)+'</div>'):'');
       // Jedno číslo (odpracováno bez pauz) — v hlavičce; uvnitř jen detail/status.
       c.innerHTML=(open

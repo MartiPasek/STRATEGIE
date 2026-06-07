@@ -50,8 +50,8 @@
   #navwrap { position:fixed; left:0; right:0; bottom:0; z-index:50; }
   .bnavstatic { position:static; padding-bottom:0; min-height:52px; }
   #navwrap > .bnavstatic:last-child { padding-bottom:env(safe-area-inset-bottom,0); }
-  .tabbtn { position:relative; flex:1; background:none; border:none; color:var(--mut); padding:9px 2px; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
-  .tabbtn .i { font-size:21px; line-height:1; } .tabbtn.active { color:var(--blue); }
+  .tabbtn { position:relative; flex:1; background:none; border:none; color:var(--mut); padding:9px 2px; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; border-radius:10px; margin:3px 2px; }
+  .tabbtn .i { font-size:21px; line-height:1; } .tabbtn.active { color:var(--blue); background:#1a1e25; }
   .nbadge { position:absolute; top:3px; left:50%; margin-left:6px; background:#e24b4a; color:#fff; font-size:10px; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 4px; text-align:center; font-weight:600; }
   .appgrid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px 6px; margin-top:12px; }
   .appcell { display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer; position:relative; }
@@ -92,9 +92,6 @@
            min-height:100vh; box-shadow:0 0 40px rgba(0,0,0,.55); }
     #navwrap { left:50%; right:auto; transform:translateX(-50%);
                width: var(--phone-w); }
-    /* Home fotka: v úzkém rámečku ji cover ořezával ze stran →
-       contain = celá fotka (gradient vrstva zůstává cover). */
-    .homebg { background-size: cover, contain; }
   }
 </style>
 </head>

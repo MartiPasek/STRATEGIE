@@ -5828,11 +5828,25 @@ async def att_confirm_day(req: Request) -> JSONResponse:
         day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
     except Exception:
         return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
-    if day >= _dt.now().date():
-        return JSONResponse({"ok": False, "error": "Potvrdit lze jen ukončený den."}, status_code=400)
+    if day > _dt.now().date():
+        return JSONResponse({"ok": False, "error": "Budoucí den potvrdit nejde."}, status_code=400)
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
+        # Marti 7.6. večer: dnešek lze potvrdit, jen když je den UZAVŘENÝ —
+        # žádná běžící směna + status konce dne (nepočítej / dnes už nedorazím).
+        if day == _dt.now().date():
+            uzavren = s.execute(_t(
+                "SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM tenant.att_entry o "
+                "  WHERE o.tenant_id = :t AND o.employee_id = :e AND o.is_active = true) "
+                "AND EXISTS (SELECT 1 FROM tenant.att_entry a2 WHERE a2.tenant_id = :t "
+                "  AND a2.employee_id = :e AND a2.entry_date = current_date "
+                "  AND a2.status = 'announced' "
+                "  AND (a2.note ILIKE '%nepočítej%' OR a2.note ILIKE '%nedorazím%'))"),
+                {"t": _ATT_TENANT, "e": emp}).first() is not None
+            if not uzavren:
+                s.commit()
+                return JSONResponse({"ok": False, "error": "Dnešek potvrdíš, až den ukončíš."}, status_code=400)
         s.execute(_t(
             "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id) "
             "VALUES (:t, :e, :d, :u) ON CONFLICT (tenant_id, employee_id, day) DO NOTHING"),

@@ -813,6 +813,9 @@ window.onerror=function(msg,src,line){
     // Marti 7.6. večer: pro tlačítko Zpět — zavření otevřeného menu/sekcí.
     window._dochAnyOpen=function(){
       if(!document.body.contains(su)){ window._dochMenuTs=0; return false; }  // jiná obrazovka
+      // Marti 7.6. večer: Zpět zavírá i otevřený detail jobů schvalované docházky.
+      var dbx=document.querySelector(".detbox");
+      if(dbx){ dbx.remove(); return true; }
       if(window._dochMenuTs){ try{ if(window._dochCloseMenu) window._dochCloseMenu(); }catch(e){} window._dochMenuTs=0; return true; }
       var any=false;
       (su._secs||[]).forEach(function(sx){ if(sx.box && sx.box.style.display==="block"){ sx.close(); any=true; } });

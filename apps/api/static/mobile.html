@@ -1032,6 +1032,10 @@ window.onerror=function(msg,src,line){
             ["👋 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)"},b); }]
           ],"ghost");
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
+          // Marti 7.6. večer: poslední položka s mrknutím 😉
+          expOpt(bw,"⋯ Ostatní…","ghost",function(bx){
+            bx.appendChild(el('<div class="hint" style="margin:4px 0 2px;">💼 Teď jsi v práci… Ostatní věci počkají. 😉</div>'));
+          });
         } else {
           // „Už jedu" první · lékaři sem (Marti 7.6. večer) · „Jinde" před zprávou
           expOpt(bw,"🚗 Už jedu do práce…","green",function(bx){

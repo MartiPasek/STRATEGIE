@@ -1161,8 +1161,9 @@ window.onerror=function(msg,src,line){
               };
               mr.start(); recState=mr;
               rec.textContent="⏹"; busy("🔴 Nahrávám… (klepni ⏹)");
-            }).catch(function(){ fileFallback(); });
-          } else { fileFallback(); }
+            }).catch(function(){ if(B){ busy("🎙 Povol prosím mikrofon a klepni znovu."); } else { fileFallback(); } });
+          } else if(B){ busy("🎙 Mikrofon tu není dostupný."); }
+          else { fileFallback(); }
         });
         box.appendChild(ta);
         brow.appendChild(send); brow.appendChild(rec); box.appendChild(brow);

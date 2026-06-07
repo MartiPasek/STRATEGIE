@@ -40,6 +40,27 @@ class HybridActivity : ComponentActivity() {
     private val keyToken = DialPollService.KEY_TOKEN
     private val defUrl = DialPollService.DEFAULT_URL
     private lateinit var web: WebView
+    // Marti 7.6. večer: podržený getUserMedia požadavek (mikrofon) — grant až
+    // po udělení runtime permission. deny() si WebView pamatuje → mic „nereaguje".
+    private var pendingMicReq: android.webkit.PermissionRequest? = null
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 14) {
+            val req = pendingMicReq
+            pendingMicReq = null
+            if (req != null) {
+                try {
+                    if (grantResults.isNotEmpty() &&
+                        grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                        req.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                    } else req.deny()
+                } catch (e: Exception) {}
+            }
+        }
+    }
 
     private fun base(): String {
         val p = getSharedPreferences(prefsName, MODE_PRIVATE)
@@ -620,8 +641,11 @@ class HybridActivity : ComponentActivity() {
                 if (granted(Manifest.permission.RECORD_AUDIO)) {
                     req.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
                 } else {
-                    try { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 14) } catch (e: Exception) {}
-                    req.deny()  // user povolí → příští pokus projde
+                    // Požadavek podržet a grantnout až po udělení permission —
+                    // deny() si WebView pamatuje a mic by „nereagoval".
+                    pendingMicReq = req
+                    try { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 14) }
+                    catch (e: Exception) { pendingMicReq = null; req.deny() }
                 }
             }
         }

@@ -6182,7 +6182,9 @@ async def att_absence(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     code = (str(body.get("type_code") or "")).strip().lower()
-    if code not in ("vacation", "sick", "medical", "family_care", "sickday", "unpaid"):
+    # Marti 7.6.: + homeoffice — hlášení HO dopředu (presence, hours NULL = plán,
+    # reálné hodiny vzniknou až píchnutím; nepočítá se do absencí ani odpracovaného).
+    if code not in ("vacation", "sick", "medical", "family_care", "sickday", "unpaid", "homeoffice"):
         return JSONResponse({"ok": False, "error": "invalid_type"}, status_code=400)
     from datetime import datetime as _dt, timedelta as _td
     try:
@@ -6238,7 +6240,7 @@ async def att_absence(req: Request) -> JSONResponse:
             day = d0
             while day <= d1:
                 if day.weekday() < 5:  # Po–Pá
-                    _upsert(day.isoformat(), 8)
+                    _upsert(day.isoformat(), None if code == "homeoffice" else 8)
                 day += _td(days=1)
         s.commit()
         return JSONResponse({"ok": True, "created": created})
@@ -6723,7 +6725,73 @@ async def netscan_ingest(req: Request) -> JSONResponse:
             n += 1
         except Exception:
             pass
-    return JSONResponse({"ok": True, "count": n})
+    # Marti 7.6.: zařízení zaměstnance v síti → automatický příchod do docházky
+    auto = 0
+    try:
+        auto = _netscan_auto_checkin()
+    except Exception:
+        logger.exception("[netscan] auto-checkin failed")
+    return JSONResponse({"ok": True, "count": n, "auto_checkin": auto})
+
+
+def _netscan_auto_checkin() -> int:
+    """Marti 7.6.2026: „Když se jeho mobil nebo notebook přihlásí do naší sítě,
+    můžeme rovnou člověka přihlásit do docházky." Auto-příchod (source 'netscan')
+    + notifikace na mobil. Pojistky: jen PRVNÍ píchnutí dne (návrat z pauzy řeší
+    člověk sám), ne při nahlášené absenci, jen zařízení s reports_presence."""
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    done = 0
+    try:
+        rows = s.execute(_t(
+            "SELECT DISTINCT em.id AS emp_id, em.user_id "
+            "FROM fw.hr_device d "
+            "JOIN tenant.att_employee em ON em.user_id = d.owner_user_id "
+            "  AND em.tenant_id = :tn AND em.is_active = true "
+            "LEFT JOIN fw.hr_device_category cat ON cat.code = d.device_type "
+            "WHERE d.owner_user_id IS NOT NULL "
+            "  AND COALESCE(cat.reports_presence, true) = true "
+            "  AND d.last_place = 'building' "
+            "  AND d.last_seen_at > now() - interval '12 minutes' "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry x "
+            "       WHERE x.tenant_id = :tn AND x.employee_id = em.id "
+            "         AND x.entry_date = current_date AND x.started_at IS NOT NULL "
+            "         AND x.status NOT IN ('superseded')) "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry ax "
+            "       JOIN tenant.att_entry_type tx ON tx.id = ax.entry_type_id "
+            "       WHERE ax.tenant_id = :tn AND ax.employee_id = em.id "
+            "         AND ax.entry_date = current_date "
+            "         AND tx.category = 'absence' AND ax.status IN ('pending','approved'))"),
+            {"tn": _ATT_TENANT}).fetchall()
+        if not rows:
+            s.commit()
+            return 0
+        wt = _att_work_type(s)
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
+                "status,source,is_active,note,created_by_id,created_at,updated_at) "
+                "VALUES (:t,:e,current_date,:wt,now(),'pending','netscan',true,:n,:u,now(),now())"),
+                {"t": _ATT_TENANT, "e": r[0], "wt": wt,
+                 "n": "auto — zařízení ve firemní síti", "u": r[1]})
+            s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
+                         "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
+                         "AND status='announced'"),
+                      {"t": _ATT_TENANT, "e": r[0]})
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
+                {"uid": r[1], "ti": "▶️ Příchod zapsán automaticky",
+                 "msg": "Vidím tvoje zařízení ve firemní síti — píchla jsem ti příchod. "
+                        "Kdyby to nesedělo, dej v Docházce Odchod, nebo mi napiš. — Tvoje Marti"})
+            done += 1
+        s.commit()
+        return done
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
 
 
 @api_router.get("/contact-vcard")

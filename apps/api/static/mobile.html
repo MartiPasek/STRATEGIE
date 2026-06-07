@@ -93,6 +93,9 @@
     #navwrap { left:50%; right:auto; transform:translateX(-50%);
                width: var(--phone-w); }
   }
+/* Marti 7.6. večer: pulz na rámečku rozhovoru, když čeká neschválená docházka */
+@keyframes dochPulse{0%,100%{box-shadow:0 0 0 0 rgba(224,176,112,0);border-color:#6e5326;}50%{box-shadow:0 0 0 6px rgba(224,176,112,.20);border-color:var(--amber);}}
+.doch-pulse{animation:dochPulse 1.6s ease-in-out infinite;}
 </style>
 </head>
 <body>
@@ -781,10 +784,10 @@ window.onerror=function(msg,src,line){
     var su=lc.querySelector("#dochSecs");
     // Marti 7.6. večer: lidské názvy sekcí — docházka mluví jako kolega.
     _dS={ today: collSec(su,"Dneska je den…", false),
-          yest:  collSec(su,"Včera…", false),
+          yest:  collSec(su,"Na včera si vzpomínám…", false),
           prev:  collSec(su,"To už si moc nepamatuju…", false),
           plan:  collSec(su,"Tak tady budu jinde…", false),
-          list:  collSec(su,"Co se vlastně dělo?", false),
+          list:  collSec(su,"Co se vlastně dělo…?", false),
           paska: collSec(su,"Moje odmakané prašule… 💰", false, function(o){ paskaToggle(o); }),
           dalsi: collSec(su,"Další věci…", false) };
     // Marti 7.6. večer: při běžící směně schováme všechno kromě Dnes —
@@ -978,18 +981,19 @@ window.onerror=function(msg,src,line){
         box.appendChild(ok);
       }
       // Přímá akce do containeru (helper pro inline menu)
-      function dirBtn(parent, label, cls, h){
+      function dirBtn(parent, label, cls, h, style){
         var b=btnEl(label, cls);
+        if(style) style(b);
         b.addEventListener("click",function(){ h(b); });
         parent.appendChild(b);
         return b;
       }
-      // 💼 Služební důvody — obsah (Marti 7.6. večer: + Ostatní s důvodem a návratem)
+      // 💼 Služební důvody — obsah (Marti 7.6. večer: podmenu modré jako parent)
       function sluzebniBuild(box){
-        dirBtn(box,"🚙 Jedu rovnou k zákazníkovi…","green",function(b){ act("checkin",{kind:"trip"},b); });
-        dirBtn(box,"🎓 Jsem na školení…","green",function(b){ act("checkin",{kind:"work"},b,function(){ presence({text:"Jsem na školení"},{disabled:false}); }); });
-        dirBtn(box,"📦 Služební pochůzka, pak dorazím…","green",function(b){ presence({text:"Na služební pochůzce, pak dorazím",add_since:true},b); });
-        expOpt(box,"📝 Ostatní — napíšu důvod…","green",function(bx){
+        dirBtn(box,"🚙 Jedu rovnou k zákazníkovi…","ghost",function(b){ act("checkin",{kind:"trip"},b); },_blueStyle);
+        dirBtn(box,"🎓 Jsem na školení…","ghost",function(b){ act("checkin",{kind:"work"},b,function(){ presence({text:"Jsem na školení"},{disabled:false}); }); },_blueStyle);
+        dirBtn(box,"📦 Služební pochůzka, pak dorazím…","ghost",function(b){ presence({text:"Na služební pochůzce, pak dorazím",add_since:true},b); },_blueStyle);
+        expOpt(box,"📝 Ostatní — napíšu důvod…","ghost",function(bx){
           var ta=el('<textarea rows="2" placeholder="Napiš důvod… (např. jednání na úřadě)" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;margin-top:6px;"></textarea>');
           var t=el('<input type="time" style="margin-top:6px;">');
           bx.appendChild(ta);
@@ -1003,25 +1007,25 @@ window.onerror=function(msg,src,line){
             presence({text:d.substring(0,120),add_since:true,until_txt:(t.value?("~"+t.value):"")},ok);
           });
           bx.appendChild(ok);
-        });
+        },_blueStyle);
       }
-      // 🏠 Osobní důvody — obsah (Marti 7.6. večer: dovolená na konci)
+      // 🏠 Osobní důvody — obsah (Marti 7.6. večer: podmenu jantarové jako parent)
       function osobniBuild(box){
-        dirBtn(box,"🤒 Je mi fakt blbě… Vidím to na sick day.","green",function(b){
+        dirBtn(box,"🤒 Je mi fakt blbě… Vidím to na sick day.","ghost",function(b){
           b.disabled=true; var today=new Date().toISOString().substr(0,10);
           absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
             presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); });
-        });
-        expOpt(box,"🤧 Mám neschopenku do…","green",function(bx){
+        },_amberStyle);
+        expOpt(box,"🤧 Mám neschopenku do…","ghost",function(bx){
           datePickIn(bx,"Neschopenka do:",function(d,b){
             var today=new Date().toISOString().substr(0,10);
             absence({type_code:"sick",date_from:today,date_to:d,mode:"days",note:"neschopenka (přes mobil)"},function(){
               presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); }); });
-        });
-        expOpt(box,"🩺 Jedu k lékaři…","green",function(bx){
+        },_amberStyle);
+        expOpt(box,"🩺 Jedu k lékaři…","ghost",function(bx){
           // Marti 7.6. večer: rychlé volby teď + hlášení dopředu (dny i měsíce).
-          dirBtn(bx,"🩺 Nebojte, pak dorazím…","green",function(b){ presence({text:"Jsem u lékaře, pak dorazím",add_since:true},b); });
-          dirBtn(bx,"🩺 Nevidím to dnes dobře…","green",function(b){ presence({text:"U lékaře, dnes už nedorazím",add_since:false},b); });
+          dirBtn(bx,"🩺 Nebojte, pak dorazím…","ghost",function(b){ presence({text:"Jsem u lékaře, pak dorazím",add_since:true},b); },_amberStyle);
+          dirBtn(bx,"🩺 Nevidím to dnes dobře…","ghost",function(b){ presence({text:"U lékaře, dnes už nedorazím",add_since:false},b); },_amberStyle);
           bx.appendChild(el('<div class="hint" style="margin-top:8px;">…nebo hlásím dopředu:</div>'));
           dateTimePickIn(bx,"Den a do kdy zhruba nebudu:",function(d, t, b){
             var today=new Date().toISOString().substr(0,10);
@@ -1030,8 +1034,8 @@ window.onerror=function(msg,src,line){
               else dochLoad();
             });
           });
-        });
-        expOpt(box,"👨‍👧 Zase řeším rodinu… (OČR)","green",function(bx){
+        },_amberStyle);
+        expOpt(box,"👨‍👧 Zase řeším rodinu… (OČR)","ghost",function(bx){
           dateRangePickIn(bx,"OČR od – do:",function(od, dd, b){
             var today=new Date().toISOString().substr(0,10);
             absence({type_code:"family_care",date_from:od,date_to:dd,mode:"days",note:"OČR (přes mobil)"},function(){
@@ -1039,11 +1043,11 @@ window.onerror=function(msg,src,line){
               else dochLoad();
             });
           });
-        });
-        expOpt(box,"🕐 Něco si zařizuji…","green",function(bx){
+        },_amberStyle);
+        expOpt(box,"🕐 Něco si zařizuji…","ghost",function(bx){
           chipsIn(bx,"Dorazím zhruba za:",function(m,b){ presence({text:"Něco si zařizuji, dorazím",add_since:false,eta_min:m},b); });
-        });
-        expOpt(box,"🌴 Že by dovolená?… 😎","green",function(bx){
+        },_amberStyle);
+        expOpt(box,"🌴 Že by dovolená?… 😎","ghost",function(bx){
           dateRangePickIn(bx,"Dovolená od – do:",function(od, dd, b){
             var today=new Date().toISOString().substr(0,10);
             absence({type_code:"vacation",date_from:od,date_to:dd,mode:"days",note:"přes mobil"},function(){
@@ -1051,7 +1055,7 @@ window.onerror=function(msg,src,line){
               else dochLoad();
             });
           });
-        });
+        },_amberStyle);
       }
       // 🧭 Tady budu asi jinde… — obsah (osobní jantarové jako parent, služební modré)
       function jindeBuild(box){
@@ -1193,7 +1197,7 @@ window.onerror=function(msg,src,line){
           });
           addOpts([
             ["🏢 Jsem v práci…",                 function(b){ act("checkin",{kind:"work"},b); }],
-            ["🏠 Jsem doma… (home office)",      function(b){ act("checkin",{kind:"homeoffice"},b); }]
+            ["🏠 Nejsem v práci… (home office)", function(b){ act("checkin",{kind:"homeoffice"},b); }]
           ],"green");
           expOpt(bw,"🧭 Tady budu asi jinde…","ghost",jindeBuild,_amberStyle);
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
@@ -1209,6 +1213,13 @@ window.onerror=function(msg,src,line){
       var cf=document.getElementById("dochConfirm");
       if(cf){ api("GET","/api/v1/erp/app/attendance/unconfirmed","").then(function(ju){
         renderConfirmList(cf, (ju&&ju.days)||[], function(){});
+        // Marti 7.6. večer: neschválená docházka (vč. dnešní po odmakání)
+        // → rámeček rozhovoru jemně pulzuje.
+        var cnEl=document.getElementById("dochNow");
+        if(cnEl){
+          var pulse=!open && ((((ju&&ju.days)||[]).length>0) || !!(ju&&ju.today_unconfirmed));
+          cnEl.classList.toggle("doch-pulse", pulse);
+        }
       }); }
       // Marti 7.6. večer: zabalený výchozí stav = JEN „Od: 7:26 — Rezie"
       // + odpracovaný čas vpravo. Mimo směnu stejný duch: jednoduše a přívětivě.

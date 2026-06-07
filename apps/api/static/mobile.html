@@ -1056,18 +1056,38 @@ window.onerror=function(msg,src,line){
       bPrev.addEventListener("click",function(){ var p=ps[idx+1]; if(p) paskaLoad(p.y,p.m); });
       bNext.addEventListener("click",function(){ var p=ps[idx-1]; if(p) paskaLoad(p.y,p.m); });
       box.innerHTML=""; box.appendChild(hd);
-      var ul=el('<ul></ul>');
+      // Marti 7.6.: dvě firmy = DVĚ samostatné pásky, každá s plnou hlavičkou.
+      var firmy={}; var poradi=[];
       j.items.forEach(function(it){
-        var vy = ("výplata" === (it.nazev||"").toLowerCase().substring(0,7));
-        var kc = (it.kc!=null) ? (Math.round(it.kc).toLocaleString("cs") + " Kč") : "";
-        var sub = (it.hod ? (it.hod+" h") : "") + (it.dny ? ((it.hod?" · ":"")+it.dny+" dní") : "");
-        ul.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;gap:8px;'+(vy?'background:rgba(16,185,129,.08);border-radius:8px;padding:12px 8px;':'')+'">'
-          +'<span class="nt" style="font-weight:'+(vy?'700':'400')+';font-size:13.5px;">'+(it.firma?('<span style="color:var(--mut);font-size:11px;">'+esc(it.firma)+'</span> '):'')+esc(it.nazev)+(sub?('<div class="sub" style="color:var(--mut);font-size:11.5px;">'+esc(sub)+'</div>'):'')+'</span>'
-          +'<span class="nm" style="margin:0;white-space:nowrap;font-weight:'+(vy?'700':'400')+';'+(vy?'color:var(--green);':'')+'">'+esc(kc)+'</span></li>'));
+        var k=it.firma||"?";
+        if(!firmy[k]){ firmy[k]={nazev:it.firma_nazev||k, items:[]}; poradi.push(k); }
+        firmy[k].items.push(it);
       });
-      box.appendChild(ul);
-      box.appendChild(el('<div class="hint" style="margin-top:8px;">Hrubá mzda: <b style="color:var(--tx);">'+Math.round(j.hruba||0).toLocaleString("cs")+' Kč</b>'+(j.vyplata?(' · K výplatě: <b style="color:var(--green);">'+Math.round(j.vyplata).toLocaleString("cs")+' Kč</b>'):'')+'<br>Zdroj: mzdový systém Helios (oficiální zúčtování).</div>'));
-      if(_dS&&_dS.paska) _dS.paska.val.textContent=(j.vyplata?Math.round(j.vyplata).toLocaleString("cs")+" Kč":"");
+      var celkemVyplata=0;
+      poradi.forEach(function(fk){
+        var f=firmy[fk];
+        var card=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:12px;padding:12px;margin-bottom:10px;"></div>');
+        card.appendChild(el('<div style="font-weight:700;font-size:14.5px;">🏢 '+esc(f.nazev)+'</div>'));
+        card.appendChild(el('<div class="hint" style="margin:2px 0 8px;">Výplatní páska · '+esc(j.jmeno||"")+' · '+esc(_CZ_MES[j.m]||j.m)+' '+j.y+'</div>'));
+        var ul=el('<ul></ul>');
+        var hruba=0, vyplata=0;
+        f.items.forEach(function(it){
+          var vy=("výplata"===(it.nazev||"").toLowerCase().substring(0,7));
+          if(it.hruba) hruba+=(it.kc||0);
+          if(vy) vyplata+=(it.kc||0);
+          var kc=(it.kc!=null)?(Math.round(it.kc).toLocaleString("cs")+" Kč"):"";
+          var sub=(it.hod?(it.hod+" h"):"")+(it.dny?((it.hod?" · ":"")+it.dny+" dní"):"");
+          ul.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;gap:8px;'+(vy?'background:rgba(16,185,129,.08);border-radius:8px;padding:12px 8px;':'')+'">'
+            +'<span class="nt" style="font-weight:'+(vy?'700':'400')+';font-size:13.5px;">'+esc(it.nazev)+(sub?('<div class="sub" style="color:var(--mut);font-size:11.5px;">'+esc(sub)+'</div>'):'')+'</span>'
+            +'<span class="nm" style="margin:0;white-space:nowrap;font-weight:'+(vy?'700':'400')+';'+(vy?'color:var(--green);':'')+'">'+esc(kc)+'</span></li>'));
+        });
+        card.appendChild(ul);
+        card.appendChild(el('<div class="hint" style="margin-top:8px;">Hrubá mzda: <b style="color:var(--tx);">'+Math.round(hruba).toLocaleString("cs")+' Kč</b>'+(vyplata?(' · K výplatě: <b style="color:var(--green);">'+Math.round(vyplata).toLocaleString("cs")+' Kč</b>'):'')+'</div>'));
+        box.appendChild(card);
+        celkemVyplata+=vyplata;
+      });
+      box.appendChild(el('<div class="hint">Zdroj: mzdový systém Helios (oficiální zúčtování).</div>'));
+      if(_dS&&_dS.paska) _dS.paska.val.textContent=(celkemVyplata?Math.round(celkemVyplata).toLocaleString("cs")+" Kč":"");
     });
   }
   // Rozsah práce „od prvního píchnutí do posledního odpíchnutí" (Marti 7.6.).

@@ -5822,24 +5822,25 @@ async def app_payslip(req: Request) -> JSONResponse:
         if not (y and m):
             y, m = int(periods[0][0]), int(periods[0][1])
         rows = s.execute(_t(
-            "SELECT c.code, p.cislo_ms, COALESCE(p.nazev_ms, 'složka ' || p.cislo_ms), "
+            "SELECT c.code, COALESCE(c.nazev, c.code), p.cislo_ms, "
+            "       COALESCE(p.nazev_ms, 'složka ' || p.cislo_ms), "
             "       p.koruny, p.hodiny, p.dny, p.je_hruba "
             "FROM tenant.payslip_item p "
             "LEFT JOIN tenant.company c ON c.id = p.company_id "
             "WHERE p.tenant_id = 2 AND p.employee_id = ANY(:e) AND p.rok = :y AND p.mesic = :m "
             "ORDER BY c.code, p.cislo_ms"), {"e": emps, "y": y, "m": m}).fetchall()
+        jmeno = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), u.login_name) "
+            "FROM public.users u WHERE u.id = :u"), {"u": uid}).scalar() or ""
         s.commit()
-        items = [{"firma": r[0], "ms": r[1], "nazev": r[2],
-                  "kc": (float(r[3]) if r[3] is not None else None),
-                  "hod": (float(r[4]) if r[4] is not None else None),
-                  "dny": (float(r[5]) if r[5] is not None else None),
-                  "hruba": bool(r[6])} for r in rows]
-        hruba = round(sum((i["kc"] or 0) for i in items if i["hruba"]), 2)
-        vyplata = round(sum((i["kc"] or 0) for i in items
-                            if "výplata" in (i["nazev"] or "").lower()), 2)
-        return JSONResponse({"ok": True, "y": y, "m": m,
+        items = [{"firma": r[0], "firma_nazev": r[1], "ms": r[2], "nazev": r[3],
+                  "kc": (float(r[4]) if r[4] is not None else None),
+                  "hod": (float(r[5]) if r[5] is not None else None),
+                  "dny": (float(r[6]) if r[6] is not None else None),
+                  "hruba": bool(r[7])} for r in rows]
+        return JSONResponse({"ok": True, "y": y, "m": m, "jmeno": jmeno,
                              "periods": [{"y": int(p[0]), "m": int(p[1])} for p in periods],
-                             "items": items, "hruba": hruba, "vyplata": vyplata})
+                             "items": items})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

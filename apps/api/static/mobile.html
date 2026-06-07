@@ -660,7 +660,7 @@ window.onerror=function(msg,src,line){
     li.appendChild(head); li.appendChild(box); ulEl.appendChild(li);
     ulEl._secs=ulEl._secs||[]; ulEl._secs.push({box:box, close:close});
     if(defOpen) setOpen(true);
-    return {box:box, val:head.querySelector(".cgv")};
+    return {box:box, val:head.querySelector(".cgv"), ttl:head.firstChild};
   }
   function czDays(n){ return n===1?"1 den":(n>=2&&n<=4?(n+" dny"):(n+" dní")); }
   var _dS=null;
@@ -673,7 +673,7 @@ window.onerror=function(msg,src,line){
     p.appendChild(el('<div id="dochHead" style="display:none;font-size:24px;font-weight:800;margin:6px 0 12px;">Dnes makám 😉</div>'));
     var lc=el('<div style="margin-top:4px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
     var su=lc.querySelector("#dochSecs");
-    _dS={ today: collSec(su,"Dnes", true),
+    _dS={ today: collSec(su,"Dnes", false),
           yest:  collSec(su,"Včera", false),
           prev:  collSec(su,"Dřívější", false),
           plan:  collSec(su,"Plánovaná nepřítomnost", false),
@@ -1071,24 +1071,29 @@ window.onerror=function(msg,src,line){
       if(cf){ api("GET","/api/v1/erp/app/attendance/unconfirmed","").then(function(ju){
         renderConfirmList(cf, (ju&&ju.days)||[], function(){});
       }); }
-      // Marti 7.6. večer: nadpis „Dnes makám 😉" + Dnes: Od / Zakázka / ubíhající čas vpravo.
+      // Marti 7.6. večer: zabalený výchozí stav = JEN „Od: 7:26 · Zakázka: Rezie"
+      // + ubíhající čas vpravo — přímo v hlavičce sekce Dnes. Detail až po rozbalení.
       var hd=document.getElementById("dochHead");
       if(hd) hd.style.display=open?"":"none";
       var annHtml=(j.announced?('<div style="color:var(--amber);font-size:14px;margin-top:6px;">💬 '+esc(j.announced)+'</div>'):'');
-      if(open){
-        var ms=j.morning_start||open.started_at||"";
-        var elap="";
-        try{ if(ms) elap=fmtHM(Math.max(0,(Date.now()-new Date(ms).getTime())/3600000)); }catch(e){}
-        c.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">'
-          +'<div style="font-size:14.5px;line-height:1.6;">Od: <b>'+(ms?esc(ms.substr(11,5)):"—")+'</b>'
-          +(open.project_name||open.project_ref?('<div>Zakázka: <b>'+esc(open.project_name||open.project_ref)+'</b></div>'):'')
-          +'</div>'
-          +'<div style="font-size:26px;font-weight:800;color:var(--green);white-space:nowrap;">'+elap+'</div>'
-          +'</div>'+annHtml;
-      } else {
-        c.innerHTML='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b></div>'+annHtml;
+      c.innerHTML='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b></div>'+annHtml;
+      if(_dS&&_dS.today){
+        var T=_dS.today;
+        if(open){
+          var ms=j.morning_start||open.started_at||"";
+          var elap="";
+          try{ if(ms) elap=fmtHM(Math.max(0,(Date.now()-new Date(ms).getTime())/3600000)); }catch(e){}
+          T.ttl.innerHTML='Od: <b>'+(ms?esc(ms.substr(11,5)):"—")+'</b>'
+            +(open.project_name||open.project_ref?(' &nbsp;·&nbsp; Zakázka: <b>'+esc(open.project_name||open.project_ref)+'</b>'):'');
+          T.ttl.style.cssText="font-size:14.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+          T.val.textContent=elap;
+          T.val.style.color="var(--green)"; T.val.style.fontSize="18px";
+        } else {
+          T.ttl.textContent="Dnes"; T.ttl.style.cssText="font-size:15px;font-weight:600;";
+          T.val.textContent=fmtHM(j.today_hours||0);
+          T.val.style.color="var(--tx)"; T.val.style.fontSize="";
+        }
       }
-      if(_dS&&_dS.today) _dS.today.val.textContent=(open?"🟢 ":"")+fmtHM(j.today_hours||0);
       dochDailyLoad(); dochListLoad();
     }).catch(function(){ var c=document.getElementById("dochNow"); if(c)c.textContent="Chyba spojení."; });
     // živý přepočet běžící směny (jen dokud je obrazovka Docházka otevřená)

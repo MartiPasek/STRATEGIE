@@ -1689,15 +1689,32 @@ window.onerror=function(msg,src,line){
   setTimeout(autoCapturePhone, 1500);
 
   // ── Nová verze → lišta nahoře, klik = HARD reload (Marti 7.6.) ──────────
+  // Marti 7.6. večer fix „detail Not Found": reload AŽ když /mobile odpoví 200.
+  // Hned po deployi se primární API restartuje (~5 s) a Caddy spadne na
+  // secondary (starší snapshot bez /mobile) → 404 bílá obrazovka. Sondujeme.
   var _verLoaded=null;
   function _verHardReload(){
-    var done=false; var fin=function(){ if(done)return; done=true; try{location.reload();}catch(e){location.href=location.pathname;} };
+    var done=false, started=false;
+    var bar=document.getElementById("verBar");
+    function probe(tries){
+      if(done) return;
+      if(bar) bar.textContent="⏳ Obnovuji… (čekám na server)";
+      fetch("/mobile",{cache:"no-store",credentials:"same-origin"}).then(function(r){
+        if(r&&r.ok){ if(!done){ done=true; try{location.reload();}catch(e){location.href="/mobile";} } }
+        else if(tries<10){ setTimeout(function(){probe(tries+1);},2000); }
+        else if(!done){ done=true; try{location.reload();}catch(e){} }
+      }).catch(function(){
+        if(tries<10){ setTimeout(function(){probe(tries+1);},2000); }
+        else if(!done){ done=true; try{location.reload();}catch(e){} }
+      });
+    }
+    function go(){ if(started)return; started=true; probe(0); }
     try{
       var ps=[];
       if(window.caches&&caches.keys) ps.push(caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); }));
       if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) ps.push(navigator.serviceWorker.getRegistrations().then(function(rs){ return Promise.all(rs.map(function(r){ return r.update(); })); }));
-      Promise.all(ps).then(fin,fin); setTimeout(fin,2500);
-    }catch(e){ fin(); }
+      Promise.all(ps).then(go,go); setTimeout(go,2500);
+    }catch(e){ go(); }
   }
   function _verTick(){
     try{

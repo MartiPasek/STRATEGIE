@@ -422,6 +422,7 @@
     bar.appendChild(s); bar.appendChild(allBtn); p.appendChild(bar);
     p.appendChild(el('<div class="hint" id="ctHint">'+(_allContacts?'Zobrazeny <b>všechny</b> kontakty v telefonu.':'Jen kontakty s prefixem: <b>'+esc(getPrefixes())+'</b> (změna v Nastavení).')+'</div>'));
     p.appendChild(el('<div class="list" style="padding:0 14px;margin-top:10px;"><ul id="ctlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
+    p.appendChild(el('<div style="height:120px;"></div>'));  // místo pod patičku + extra lišty (poslední kontakt nesmí zajíždět)
     app.appendChild(p); setDialNum(_dialNum); loadContacts(); }
 
   // ───── HISTORIE HOVORŮ ─────
@@ -448,6 +449,29 @@
       });
       li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
     }); }
+  // ───── HISTORIE SMS (most getSmsLog, Marti 7.6.) ─────
+  function fmtSms(s){ var t={1:"přijatá",2:"odeslaná",3:"koncept",4:"odchozí",5:"neodeslaná",6:"ve frontě"}[s.type]||"SMS"; var d=new Date(s.date); return t+" · "+d.toLocaleDateString("cs")+" "+d.toLocaleTimeString("cs",{hour:"2-digit",minute:"2-digit"}); }
+  function loadSmslog(){ var ul=document.getElementById("smslist"); if(!ul)return; var j=bjson("getSmsLog", getPrefixes());
+    if(j&&j.need){ ul.innerHTML='<li style="border:none;"><div style="color:var(--mut);margin-bottom:8px;">Appka potřebuje přístup ke zprávám SMS.</div><button class="green sm" id="smperm">Povolit přístup</button></li>'; var pb=document.getElementById("smperm"); if(pb)pb.addEventListener("click",function(){bjson("getSmsLog",getPrefixes());setTimeout(loadSmslog,700);}); return; }
+    var list=(j&&j.sms)||[]; if(!list.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné SMS s prefixem '+esc(getPrefixes())+'.</li>'; return; }
+    ul.innerHTML=""; list.forEach(function(s){
+      var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
+      var nm=s.name||s.number||"?";
+      var av='<div class="cav" style="background:'+avColor(nm)+'">'+esc((nm.replace(/[^A-Za-zÀ-ž]/g,"").charAt(0)||"?").toUpperCase())+'</div>';
+      var head=el('<div class="cthead">'+av+'<div style="flex:1;min-width:0;"><div class="ctname">'+esc(nm)+'</div>'
+        +'<div class="ctnum" style="color:var(--tx);opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(s.body||"")+'</div>'
+        +'<div class="ctnum">'+esc(fmtSms(s))+'</div></div></div>');
+      var exp=el('<div class="ctexp" style="display:none;"><div style="color:var(--tx);font-size:13.5px;line-height:1.5;margin-bottom:10px;white-space:pre-wrap;">'+esc(s.body||"")+'</div><div class="ctacts"></div></div>');
+      var acts=exp.querySelector(".ctacts");
+      var bCall=el('<div class="cact call">'+PHONE_SVG_W+'</div>'); bCall.addEventListener("click",function(e){e.stopPropagation();doDial(s.number);});
+      var bSms=el('<div class="cact sms" style="color:#fff;font-size:20px;">💬</div>'); bSms.addEventListener("click",function(e){e.stopPropagation();openApp("sms:"+(s.number||"").replace(/\s/g,""));});
+      acts.appendChild(bCall); acts.appendChild(bSms);
+      head.addEventListener("click",function(){
+        ul.querySelectorAll("li.ct").forEach(function(o){ o.classList.remove("open"); var x=o.querySelector(".ctexp"); if(x)x.style.display="none"; });
+        exp.style.display="block"; li.classList.add("open"); li.scrollIntoView({block:"nearest",behavior:"smooth"});
+      });
+      li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
+    }); }
   var _histMode="calls"; // přepínač Historie: hovory / SMS (Marti 7.6.)
   function calllog(){ app.innerHTML=topbar("", false, true); var p=el('<div class="panel"></div>');
     var hd=el('<div style="display:flex;align-items:center;gap:10px;margin-top:12px;"></div>');
@@ -455,7 +479,9 @@
     var bC=el('<button class="ghost sm">📞 Hovory</button>');
     var bS=el('<button class="ghost sm">💬 SMS</button>');
     hd.appendChild(bC); hd.appendChild(bS); p.appendChild(hd);
-    var body=el('<div></div>'); p.appendChild(body); app.appendChild(p);
+    var body=el('<div></div>'); p.appendChild(body);
+    p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
+    app.appendChild(p);
     function paint(){
       var c=_histMode==="calls";
       bC.style.borderColor=c?"var(--blue)":"var(--bord)"; bC.style.color=c?"var(--blue)":"var(--mut)";
@@ -465,9 +491,14 @@
         body.innerHTML='<div class="hint">Jen hovory kontaktů s prefixem: <b>'+esc(getPrefixes())+'</b>.</div><div class="list" style="padding:0 14px;margin-top:10px;"><ul id="cllist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>';
         loadCalllog();
       } else {
-        body.innerHTML='<div class="hint" style="margin-top:12px;">Historie SMS přímo v appce se připravuje (rozšíření nativního mostu). Zatím:</div>';
-        var b=el('<button class="green sm" style="margin-top:8px;">💬 Otevřít Zprávy</button>');
-        b.addEventListener("click",function(){openApp("sms:");}); body.appendChild(b);
+        if(B&&typeof B.getSmsLog==="function"){
+          body.innerHTML='<div class="hint">Jen SMS kontaktů s prefixem: <b>'+esc(getPrefixes())+'</b>.</div><div class="list" style="padding:0 14px;margin-top:10px;"><ul id="smslist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>';
+          loadSmslog();
+        } else {
+          body.innerHTML='<div class="hint" style="margin-top:12px;">Historie SMS vyžaduje novější verzi appky (aktualizace v Nastavení → O aplikaci). Zatím:</div>';
+          var b=el('<button class="green sm" style="margin-top:8px;">💬 Otevřít Zprávy</button>');
+          b.addEventListener("click",function(){openApp("sms:");}); body.appendChild(b);
+        }
       }
     }
     bC.addEventListener("click",function(){_histMode="calls";paint();});
@@ -539,7 +570,7 @@
   function openApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url; if(B&&typeof B.openExternal==="function")B.openExternal(u); else { try{window.open(u,"_blank");}catch(e){ location.href=u; } } }
   function appCell(iconHtml,label,badge,fn){ var c=el('<div class="appcell"><div class="appicon">'+iconHtml+'</div><div class="applabel">'+esc(label)+'</div>'+(badge?'<span class="appbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</div>'); c.addEventListener("click",fn); return c; }
   function apps(){
-    app.innerHTML=topbar("", false);
+    app.innerHTML=topbar("", false, true);
     var bd=getBadges()||{whatsapp:0,sms:0,access:true};
     var g=el('<div class="appgrid"></div>');
     // Marti 7.6.: ikonky Chat/ERP prohozeny (byly opačně).
@@ -585,7 +616,7 @@
   function firma(){
     app.innerHTML="";
     var sec=el('<div style="margin:-14px -14px -96px;min-height:100vh;padding:22px 20px calc(96px + env(safe-area-inset-bottom,0));background:linear-gradient(165deg,#0c1622,#13243a 55%,#0b1420);display:flex;flex-direction:column;"></div>');
-    sec.appendChild(el('<div style="font-size:27px;font-weight:800;">🏢 Firma</div>'));
+    sec.appendChild(el('<div style="font-size:27px;font-weight:800;margin-top:12px;">🏢 Firma</div>'));
     sec.appendChild(el('<div style="color:#cdd6e2;margin-top:10px;font-size:14px;line-height:1.6;max-width:420px;">Firemní rozcestník — připravujeme. Tady budou firemní agendy, přehledy a nástroje.</div>'));
     app.appendChild(sec);
   }

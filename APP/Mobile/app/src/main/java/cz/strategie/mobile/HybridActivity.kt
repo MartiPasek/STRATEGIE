@@ -347,6 +347,60 @@ class HybridActivity : ComponentActivity() {
             return JSONObject().put("calls", arr).toString()
         }
 
+        // Historie SMS — stejný vzor jako getCallLog (Marti 7.6.2026): jen zprávy
+        // od/pro kontakty se jménem dle prefixu (STR,EC). Jméno se dohledává přes
+        // PhoneLookup (SMS provider jména nekešuje), per-číslo cache.
+        @JavascriptInterface
+        fun getSmsLog(prefixesCsv: String): String {
+            Log.d("STRATEGIE.bridge", "getSmsLog")
+            if (!granted(Manifest.permission.READ_SMS)) {
+                runOnUiThread { try { requestPermissions(arrayOf(Manifest.permission.READ_SMS), 13) } catch (e: Exception) {} }
+                return "{\"need\":\"sms\"}"
+            }
+            val prefixes = prefixList(prefixesCsv)
+            val arr = JSONArray()
+            val nameCache = HashMap<String, String?>()
+            fun lookupName(num: String): String? {
+                if (num.isEmpty() || !granted(Manifest.permission.READ_CONTACTS)) return null
+                if (!nameCache.containsKey(num)) {
+                    var nm: String? = null
+                    try {
+                        val lookup = Uri.withAppendedPath(
+                            ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(num))
+                        contentResolver.query(lookup,
+                            arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
+                            null, null, null)?.use { c ->
+                            if (c.moveToFirst()) nm = c.getString(0)
+                        }
+                    } catch (e: Exception) {}
+                    nameCache[num] = nm
+                }
+                return nameCache[num]
+            }
+            try {
+                val cur = contentResolver.query(
+                    Uri.parse("content://sms"),
+                    arrayOf("address", "body", "type", "date"),
+                    null, null, "date DESC"
+                )
+                cur?.use { c ->
+                    var n = 0
+                    while (c.moveToNext() && n < 200) {
+                        val num = c.getString(0) ?: ""
+                        val nm = lookupName(num)
+                        if (nameMatches(nm, prefixes)) {
+                            var body = c.getString(1) ?: ""
+                            if (body.length > 160) body = body.substring(0, 160) + "…"
+                            arr.put(JSONObject().put("name", nm ?: "").put("number", num)
+                                .put("body", body).put("type", c.getInt(2)).put("date", c.getLong(3)))
+                            n++
+                        }
+                    }
+                }
+            } catch (e: Exception) {}
+            return JSONObject().put("sms", arr).toString()
+        }
+
         // Otevři externí appku/URL (launcher „Aplikace"): chat, ERP, WhatsApp…
         @JavascriptInterface
         fun openExternal(url: String) {

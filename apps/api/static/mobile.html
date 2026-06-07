@@ -684,7 +684,7 @@
       var runH=0;
       if(open&&open.started_at){ try{ runH=Math.max(0,(Date.now()-new Date(open.started_at).getTime())/3600000); }catch(e){} }
       var stHtml='';
-      if(open){ stHtml+='<div class="big" style="margin:0;color:var(--green);">🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b></div>'; }
+      if(open){ stHtml+='<div class="big" style="margin:0;color:var(--green);">🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b>'+(open.project_ref?(' · 🧾 '+esc(open.project_ref)):'')+'</div>'; }
       if(j.announced){ stHtml+='<div class="big" style="margin:'+(open?'6px':'0')+' 0 0;color:var(--amber);font-size:15px;">💬 '+esc(j.announced)+'</div>'; }
       if(!open&&!j.announced){ stHtml='<div class="big" style="margin:0;">⚪ Nepřihlášen k práci</div>'; }
       cn.innerHTML=stHtml;
@@ -734,6 +734,33 @@
         z.addEventListener("click",showOpts); bw.appendChild(z);
       }
       function czDate(iso){ var p=(iso||"").split("-"); return p.length===3?(Number(p[2])+". "+Number(p[1])+"."):iso; }
+      // Píchnutí na zakázku (Marti 7.6.): picker nad tenant.zakazka (⚙ sync_zakazky).
+      function zakPick(){
+        bw.innerHTML="";
+        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">Najdi zakázku (číslo / název):</div>'));
+        var si=el('<input placeholder="🔍 např. VR106… nebo název" autocomplete="off" style="margin-top:6px;">');
+        var res=el('<div style="margin-top:8px;"></div>');
+        var tmr=null;
+        function load(){
+          var q=(si.value||"").trim();
+          api("GET","/api/v1/erp/app/zakazky"+(q?("?q="+encodeURIComponent(q)):""),"").then(function(j){
+            res.innerHTML="";
+            var list=(j&&j.zakazky)||[];
+            if(!list.length){ res.innerHTML='<div class="hint">Nic nenalezeno — zkus jiný text, nebo nech zakázky synchronizovat (⚙).</div>'; return; }
+            list.forEach(function(z){
+              var b=btnEl("🧾 "+z.cislo+" — "+(z.nazev||""),"green");
+              b.style.fontSize="13px"; b.style.whiteSpace="nowrap"; b.style.overflow="hidden"; b.style.textOverflow="ellipsis";
+              b.addEventListener("click",function(){ act("checkin",{kind:"work",project_ref:z.cislo},b); });
+              res.appendChild(b);
+            });
+          });
+        }
+        si.addEventListener("input",function(){ clearTimeout(tmr); tmr=setTimeout(load,300); });
+        bw.appendChild(si); bw.appendChild(res);
+        var z=el('<button class="ghost full" style="margin-top:10px;">Zpět</button>');
+        z.addEventListener("click",showOpts); bw.appendChild(z);
+        load();
+      }
       // Přímá zpráva pro Tvoje Marti (Marti 7.6.): text i audio, odpověď hned + notifikace.
       function martiMsgUI(){
         bw.innerHTML="";
@@ -822,6 +849,7 @@
         } else {
           addOpts([
             ["🏢 Jsem v práci…",       function(b){ act("checkin",{kind:"work"},b); }],
+            ["🧾 Pracuji na zakázce…", function(){ zakPick(); }],
             ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }],
             ["🚗 Už jedu do práce…",   function(){ chips("Dorazím za cca:",function(m,b){ presence({eta_min:m},b); }); }]
           ],"green");

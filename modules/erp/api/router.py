@@ -5666,7 +5666,7 @@ async def att_status(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        opn = s.execute(_t("SELECT id, to_char(started_at,'YYYY-MM-DD\"T\"HH24:MI:SS') "
+        opn = s.execute(_t("SELECT id, to_char(started_at,'YYYY-MM-DD\"T\"HH24:MI:SS'), project_ref "
                            "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND is_active=true "
                            "ORDER BY id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
         # Marti 7.6.: do "dnes odpracovano" pocitej i bezici (otevrenou) smenu —
@@ -5682,7 +5682,8 @@ async def att_status(req: Request) -> JSONResponse:
                            "AND status='announced' ORDER BY id DESC LIMIT 1"),
                         {"t": _ATT_TENANT, "e": emp}).first()
         s.commit()
-        return JSONResponse({"ok": True, "open": ({"id": opn[0], "started_at": opn[1]} if opn else None),
+        return JSONResponse({"ok": True,
+                             "open": ({"id": opn[0], "started_at": opn[1], "project_ref": opn[2]} if opn else None),
                              "announced": (ann[0] if ann else None),
                              "today_hours": float(today[0] or 0), "today_entries": int(today[1] or 0)})
     finally:
@@ -5711,6 +5712,37 @@ def _att_presence_note(body: dict) -> str:
     if until_txt:
         note += " do " + until_txt
     return note[:240]
+
+
+@api_router.get("/app/zakazky")
+async def app_zakazky(req: Request) -> JSONResponse:
+    """Marti 7.6.: picker zakázek pro píchání (VR/SW/PR/Rezie). Jen píchatelné
+    (zrcadlo tenant.zakazka, ⚙ sync_zakazky). Volitelný filtr ?q= (číslo/název)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    q = (req.query_params.get("q") or "").strip()[:60]
+    cm, s = _att_session()
+    try:
+        if q:
+            rows = s.execute(_t(
+                "SELECT cislo, COALESCE(nazev,''), typ FROM tenant.zakazka "
+                "WHERE tenant_id = 2 AND pichatelna = true "
+                "AND (cislo ILIKE :q OR nazev ILIKE :q) "
+                "ORDER BY cislo DESC LIMIT 30"), {"q": "%" + q + "%"}).fetchall()
+        else:
+            rows = s.execute(_t(
+                "SELECT cislo, COALESCE(nazev,''), typ FROM tenant.zakazka "
+                "WHERE tenant_id = 2 AND pichatelna = true "
+                "ORDER BY cislo DESC LIMIT 30")).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "zakazky": [
+            {"cislo": r[0], "nazev": r[1], "typ": r[2]} for r in rows]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
 
 
 @api_router.post("/app/attendance/announce")
@@ -6028,6 +6060,7 @@ async def att_checkin(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     kind = str((body or {}).get("kind") or "work").strip().lower()
+    project_ref = str((body or {}).get("project_ref") or "").strip()[:40] or None
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
@@ -6046,9 +6079,9 @@ async def att_checkin(req: Request) -> JSONResponse:
                   {"t": _ATT_TENANT, "e": emp})
         r = s.execute(_t(
             "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
-            "status,source,is_active,note,created_by_id,created_at,updated_at) "
-            "VALUES (:t,:e,current_date,:wt,now(),'pending','mobile_app',true,:n,:u,now(),now()) RETURNING id"),
-            {"t": _ATT_TENANT, "e": emp, "wt": wt, "n": note, "u": uid}).first()
+            "status,source,is_active,note,project_ref,created_by_id,created_at,updated_at) "
+            "VALUES (:t,:e,current_date,:wt,now(),'pending','mobile_app',true,:n,:pr,:u,now(),now()) RETURNING id"),
+            {"t": _ATT_TENANT, "e": emp, "wt": wt, "n": note, "pr": project_ref, "u": uid}).first()
         s.commit()
         return JSONResponse({"ok": True, "id": r[0]})
     except Exception as exc:
@@ -7659,7 +7692,94 @@ _OPS_ACTIONS = {
         "label": "Postavit APK (gradlew) + nahrát (NB → server, verze +1)",
         "target": "instance:23", "remote": True, "op": "build_publish_app_mobile",
     },
+    "sync_zakazky": {
+        "label": "Synchronizovat zakázky z Centrály (Helios → STRATEGIE)",
+        "target": "cloud", "remote": False,
+    },
 }
+
+
+def _sync_zakazky_from_helios() -> dict:
+    """Marti 7.6.2026: zrcadlo zakázek Helios → tenant.zakazka (píchání na
+    zakázky VR/SW/PR/Rezie). Idempotentní upsert, ⚙ ops akce sync_zakazky.
+    Píchatelná = _DochPrihlaseni=1 ∧ _Uzavreno=0 ∧ _Zruseno=0 ∧ Ukonceno=0."""
+    import json as _json_z
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    sql = ("SELECT z.CisloZakazky c, LEFT(z.Nazev, 200) n, z.Ukonceno uk, "
+           "CAST(ISNULL(x._Uzavreno,0) AS int) uz, CAST(ISNULL(x._DochPrihlaseni,0) AS int) doch, "
+           "x._GarantCisloZam g, x._sefmonterCislo sm "
+           "FROM TabZakazka z LEFT JOIN TabZakazka_EXT x ON x.ID = z.ID "
+           "WHERE ISNULL(x._Zruseno,0) = 0 AND z.Ukonceno = 0 AND z.CisloZakazky IS NOT NULL")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _json_z.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+
+    def _typ(c):
+        cu = (c or "").upper()
+        if cu.startswith("VR"):
+            return "VR"
+        if cu.startswith("SW"):
+            return "SW"
+        if cu.startswith("PR"):
+            return "PR"
+        if "REZ" in cu:
+            return "REZIE"
+        return "OST"
+
+    cm = _pg.get_session()
+    sess = cm.__enter__()
+    n = 0
+    try:
+        sess.execute(_t(
+            "CREATE TABLE IF NOT EXISTS tenant.zakazka ("
+            " tenant_id bigint NOT NULL, cislo varchar(40) NOT NULL, nazev text,"
+            " typ varchar(10), pichatelna boolean NOT NULL DEFAULT false,"
+            " vyrobne_uzavrena boolean, ucetni_stav smallint,"
+            " garant_cislo_zam int, sefmonter_cislo_zam int,"
+            " synced_at timestamptz DEFAULT now(),"
+            " PRIMARY KEY (tenant_id, cislo))"))
+        # plný mirror otevřeného setu: co už není open/píchatelné, zhasne
+        sess.execute(_t("UPDATE tenant.zakazka SET pichatelna = false WHERE tenant_id = 2"))
+        for row in rows:
+            c = str(row.get("c") or "").strip()
+            if not c:
+                continue
+            sess.execute(_t(
+                "INSERT INTO tenant.zakazka (tenant_id, cislo, nazev, typ, pichatelna,"
+                " vyrobne_uzavrena, ucetni_stav, garant_cislo_zam, sefmonter_cislo_zam, synced_at) "
+                "VALUES (2, :c, :n, :ty, :pi, :vu, :us, :g, :sm, now()) "
+                "ON CONFLICT (tenant_id, cislo) DO UPDATE SET nazev = EXCLUDED.nazev,"
+                " typ = EXCLUDED.typ, pichatelna = EXCLUDED.pichatelna,"
+                " vyrobne_uzavrena = EXCLUDED.vyrobne_uzavrena, ucetni_stav = EXCLUDED.ucetni_stav,"
+                " garant_cislo_zam = EXCLUDED.garant_cislo_zam,"
+                " sefmonter_cislo_zam = EXCLUDED.sefmonter_cislo_zam, synced_at = now()"),
+                {"c": c, "n": row.get("n"), "ty": _typ(c),
+                 "pi": bool(int(row.get("doch") or 0)) and not bool(int(row.get("uz") or 0)),
+                 "vu": bool(int(row.get("uz") or 0)), "us": int(row.get("uk") or 0),
+                 "g": row.get("g"), "sm": row.get("sm")})
+            n += 1
+        sess.commit()
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"synced": n}
 
 
 def _ops_pending_for_instance(iid: str) -> list:
@@ -7759,6 +7879,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             ok, info = _dep_ec._touch_restart_marker(0, "ops_restart_api_user_%s" % uid)
             status = "done" if ok else "error"
             result = "marker: %s" % info
+        elif action_key == "sync_zakazky":
+            out = _sync_zakazky_from_helios()
+            status = "done"
+            result = "synchronizováno %s zakázek" % out.get("synced")
         else:
             status, result = "error", "cloud handler chybí pro %s" % action_key
     except Exception as exc:

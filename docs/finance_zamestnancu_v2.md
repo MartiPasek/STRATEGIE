@@ -29,6 +29,34 @@ Satelity: EC_FinPriplatkySrazkyDefinice(+Typy) — příplatky/srážky
 plán/real/hodinová = 3 sloupce místo atributů, HPP a OSVČ ve stejné
 struktuře bez rozlišení režimu, benefity/smlouva/mzda/montáže v jednom.
 
+## Skupina firem EC + ES (analýza 7.6. odpoledne, Marti's upřesnění)
+
+Od ~2021 grupa: **EUROSOFT-Control (EC)** + **EUROSOFT-System (ES)** pod
+jedním tenantem EUROSOFT. Nálezy:
+
+- **`TabCisZam_EXT._Firma`** (DB_EC): hodnoty **0 = 351** (staré/nezadáno),
+  **1 = 64**, **2 = 15** — sémantiku 1/2 potvrdí Marti.
+- **`EC_FinZamPodminky.Firma`**: jen 0/1 (33/46) — **jiné kódování než EXT**
+  a **13 zaměstnanců má rozpor** mezi podmínkami a kartou. Část bastlu.
+- **DB_IS** (Helios ES, účetnictví+mzdy): dosažitelná cross-db ze stejné
+  instance! `TabCisZam` 59 osob, **`TabMzSloz` 23 668 řádků** (oficiální
+  mzdové složky ES). DB_EC má TabMzSloz také (Helios mzdy EC).
+
+**Důsledek pro DDL (prodejnost!):** nový rozměr **`tenant.company`**
+(firma v rámci tenantu/grupy): id, tenant_id, code (EC/ES), nazev, ico…
+`tenant.engagement.company_id NOT NULL` — každý vztah patří konkrétní
+firmě grupy. Stejný vzor jako tenant_group v jádru STRATEGIE — prodejné
+pro jakoukoliv skupinu firem.
+
+**Otevřené otázky pro Marti:**
+1. Sémantika `_Firma`: 1 = EC a 2 = ES? (a 0 = historické EC?)
+2. Proč DB_IS.TabCisZam má 59 osob (víc než _Firma=2 → vede ES Helios
+   mzdy i pro část EC?)
+3. 13 rozporů podmínky×karta — vyřešit při migraci ručním seznamem?
+4. Oficiální mzdy: ES = DB_IS.TabMzSloz; EC = DB_EC.TabMzSloz? Mají být
+   TabMzSloz (skutečně vyplacené) referencí pro kontrolu wage_component
+   (plán vs payroll realita)?
+
 ## Cíl — univerzální standard (tenant.*)
 
 | Tabulka | Obsah |

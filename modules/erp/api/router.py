@@ -6128,6 +6128,158 @@ async def att_dispute_day(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Detail dne + samoobsluha záznamů (Marti 7.6. večer) ──────────────────
+# „Raději chci vidět detaily…" — redukci času akceptujeme (zapomenutý odchod
+# si zkrátí sám), cokoliv jiného = poznámka na záznam → kontrola docházky.
+
+@api_router.get("/app/attendance/day-detail")
+async def att_day_detail(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt
+    try:
+        day = _dt.strptime(str(req.query_params.get("day") or "")[:10], "%Y-%m-%d").date()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        rows = s.execute(_t(
+            "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
+            "       e.hours, e.project_ref, e.note, et.label "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
+            "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = :d "
+            "AND e.status NOT IN ('superseded','announced') "
+            "ORDER BY e.started_at NULLS LAST, e.id"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "entries": [
+            {"id": r[0], "zac": r[1], "kon": r[2],
+             "hours": (float(r[3]) if r[3] is not None else None),
+             "project_ref": r[4], "note": r[5], "typ": r[6]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/entry-trim")
+async def att_entry_trim(req: Request) -> JSONResponse:
+    """Redukce času záznamu (zapomenutý odchod apod.) — JEN zkrácení konce,
+    mezi začátkem a původním koncem. Původní čas zůstává v poznámce."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import re as _re
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        eid = int((body or {}).get("id") or 0)
+    except Exception:
+        eid = 0
+    endt = str((body or {}).get("end") or "").strip()[:5]
+    if not (eid and _re.fullmatch(r"[0-2][0-9]\x3a[0-5][0-9]", endt)):
+        return JSONResponse({"ok": False, "error": "Neplatný čas."})
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "SELECT e.id, to_char(e.ended_at,'HH24:MI') "
+            "FROM tenant.att_entry e JOIN tenant.att_employee em ON em.id = e.employee_id "
+            "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u"),
+            {"i": eid, "t": _ATT_TENANT, "u": uid}).first()
+        if not row:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
+        if not row[1]:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "Běžící záznam zkrátit nejde — nejdřív se odpíchni."})
+        nn = "zkráceno uživatelem (původně do " + row[1] + ")"
+        upd = s.execute(_t(
+            "UPDATE tenant.att_entry e SET "
+            "  ended_at = (e.entry_date::text || ' ' || :endt)::timestamp, "
+            "  hours = round(GREATEST(EXTRACT(EPOCH FROM ((e.entry_date::text || ' ' || :endt)::timestamp - e.started_at))/3600.0 "
+            "        - COALESCE(e.break_minutes,0)/60.0, 0)::numeric,2), "
+            "  note = CASE WHEN COALESCE(e.note,'') = '' THEN :nn ELSE e.note || ' / ' || :nn END, "
+            "  updated_at = now() "
+            "WHERE e.id = :i "
+            "  AND (e.entry_date::text || ' ' || :endt)::timestamp > e.started_at "
+            "  AND (e.entry_date::text || ' ' || :endt)::timestamp < e.ended_at "
+            "RETURNING e.id"),
+            {"i": eid, "endt": endt, "nn": nn}).first()
+        s.commit()
+        if not upd:
+            return JSONResponse({"ok": False, "error": "Čas jde jen ZKRÁTIT — mezi začátkem a původním koncem."})
+        return JSONResponse({"ok": True, "id": eid})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/entry-dispute")
+async def att_entry_dispute(req: Request) -> JSONResponse:
+    """„Na tomhle jobu je něco špatně" — poznámka na záznam + notifikace
+    kontrole docházky (resolver) a tatínkovi jako anchor."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        eid = int((body or {}).get("id") or 0)
+    except Exception:
+        eid = 0
+    note = str((body or {}).get("note") or "").strip()[:500]
+    if not (eid and note):
+        return JSONResponse({"ok": False, "error": "Napiš prosím, co nesedí."})
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "SELECT e.id, e.entry_date::text, to_char(e.started_at,'HH24:MI'), "
+            "       to_char(e.ended_at,'HH24:MI'), e.employee_id "
+            "FROM tenant.att_entry e JOIN tenant.att_employee em ON em.id = e.employee_id "
+            "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u"),
+            {"i": eid, "t": _ATT_TENANT, "u": uid}).first()
+        if not row:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
+        nn = "✋ ROZPOR: " + note
+        s.execute(_t(
+            "UPDATE tenant.att_entry SET note = CASE WHEN COALESCE(note,'') = '' THEN :nn "
+            "ELSE note || ' / ' || :nn END, updated_at = now() WHERE id = :i"),
+            {"nn": nn, "i": eid})
+        who = _user_jmeno(s, uid)
+        targets = {1}
+        try:
+            sup = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                            {"e": int(row[4])}).scalar()
+            if sup:
+                targets.add(int(sup))
+        except Exception:
+            pass
+        msg = (who + " hlásí problém na záznamu " + str(row[1]) + " "
+               + (row[2] or "?") + "–" + (row[3] or "…") + " — „" + note + "“")
+        for uid2 in sorted(targets):
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
+                {"uid": uid2, "ti": "✋ Problém na záznamu docházky", "msg": msg[:600]})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/zakazky")
 async def app_zakazky(req: Request) -> JSONResponse:
     """Marti 7.6.: picker zakázek pro píchání (VR/SW/PR/Rezie). Jen píchatelné

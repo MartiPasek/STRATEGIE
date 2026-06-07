@@ -869,6 +869,67 @@ window.onerror=function(msg,src,line){
             }).catch(function(){ b.disabled=false; });
           });
           card.appendChild(b);
+          // Marti 7.6. večer: detail jednotlivých jobů — redukce času self-service,
+          // cokoliv jiného = poznámka na záznam → kontrola docházky.
+          var det=el('<button class="ghost full" style="margin-top:6px;">🔍 Raději chci vidět detaily…</button>');
+          det.addEventListener("click",function(){
+            var ex=card.querySelector(".detbox");
+            if(ex){ ex.remove(); return; }
+            var db2=el('<div class="detbox" style="margin-top:8px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
+            db2.innerHTML='<div class="hint">Načítám…</div>';
+            card.appendChild(db2);
+            api("GET","/api/v1/erp/app/attendance/day-detail?day="+d.day,"").then(function(jd){
+              db2.innerHTML="";
+              var es=(jd&&jd.entries)||[];
+              if(!es.length){ db2.innerHTML='<div class="hint">Žádné záznamy.</div>'; return; }
+              es.forEach(function(e2){
+                var row=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;margin-bottom:8px;"></div>');
+                row.appendChild(el('<div style="font-size:13.5px;font-weight:600;">'+esc((e2.zac||"?")+(e2.kon?(" – "+e2.kon):" – …"))+(e2.hours!=null?(' · '+fmtHM(e2.hours)):'')+(e2.project_ref?(' · 🧾 '+esc(e2.project_ref)):'')+'</div>'));
+                if(e2.note) row.appendChild(el('<div class="hint" style="margin-top:2px;">'+esc(e2.note)+'</div>'));
+                var ar=el('<div style="display:flex;gap:8px;margin-top:8px;"></div>');
+                var bt=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">⏱ Zkrátit konec</button>');
+                var bx2=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);">✋ Nesedí…</button>');
+                ar.appendChild(bt); ar.appendChild(bx2); row.appendChild(ar);
+                var fx=el('<div style="margin-top:6px;"></div>'); row.appendChild(fx);
+                bt.addEventListener("click",function(){
+                  fx.innerHTML="";
+                  if(!e2.kon){ fx.innerHTML='<div class="hint">Běžící záznam — nejdřív se odpíchni.</div>'; return; }
+                  var ti=el('<input type="time" value="'+esc(e2.kon)+'" style="width:120px;">');
+                  var ok2=el('<button class="green sm" style="margin-left:8px;">Uložit</button>');
+                  var st2=el('<div class="hint" style="margin-top:4px;"></div>');
+                  ok2.addEventListener("click",function(){
+                    if(!ti.value) return;
+                    ok2.disabled=true;
+                    api("POST","/api/v1/erp/app/attendance/entry-trim",{id:e2.id,end:ti.value}).then(function(r){
+                      if(r&&r.ok){ dochLoad(); }
+                      else{ ok2.disabled=false; st2.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
+                    });
+                  });
+                  fx.appendChild(ti); fx.appendChild(ok2); fx.appendChild(st2);
+                });
+                bx2.addEventListener("click",function(){
+                  fx.innerHTML="";
+                  var ta2=el('<textarea rows="2" placeholder="Co je na tomhle záznamu špatně?" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:10px;color:var(--tx);font-size:14px;font-family:inherit;"></textarea>');
+                  var ok3=el('<button class="ghost full" style="margin-top:6px;border-color:var(--amber);color:var(--amber);">Odeslat kontrole docházky</button>');
+                  var st3=el('<div class="hint" style="margin-top:4px;"></div>');
+                  ok3.addEventListener("click",function(){
+                    var n=(ta2.value||"").trim(); if(!n){ st3.textContent="Napiš prosím, co nesedí."; return; }
+                    ok3.disabled=true;
+                    api("POST","/api/v1/erp/app/attendance/entry-dispute",{id:e2.id,note:n}).then(function(r){
+                      if(r&&r.ok){ fx.innerHTML='<div class="hint">✋ Nahlášeno — kontrola docházky se ozve.</div>'; }
+                      else{ ok3.disabled=false; st3.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
+                    });
+                  });
+                  fx.appendChild(ta2); fx.appendChild(ok3); fx.appendChild(st3);
+                });
+                db2.appendChild(row);
+              });
+              var zb=el('<button class="ghost full" style="margin-top:2px;">▲ Zpět</button>');
+              zb.addEventListener("click",function(){ db2.remove(); });
+              db2.appendChild(zb);
+            });
+          });
+          card.appendChild(det);
           // Marti 7.6.: „Musím mít volbu, něco se mi nezdá" → rozporování (odblokuje práci)
           var dis=el('<button class="ghost full" style="margin-top:6px;border-color:var(--amber);color:var(--amber);">✋ Něco mi tu nesedí…</button>');
           dis.addEventListener("click",function(){
@@ -902,6 +963,8 @@ window.onerror=function(msg,src,line){
             });
             var z=el('<button class="ghost full" style="margin-top:6px;">Zrušit</button>');
             z.addEventListener("click",mainBtn); bw.appendChild(z);
+            // Marti 7.6. večer: karty ke schválení hned na oči — scroll nahoru.
+            setTimeout(function(){ try{ bw.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
             return;
           }
           if(after) after(); else dochLoad();
@@ -1232,6 +1295,12 @@ window.onerror=function(msg,src,line){
       var cf=document.getElementById("dochConfirm");
       if(cf){ api("GET","/api/v1/erp/app/attendance/unconfirmed","").then(function(ju){
         renderConfirmList(cf, (ju&&ju.days)||[], function(){});
+        // Marti 7.6. večer: při neschválené docházce karty rovnou na oči
+        // (jen poprvé — tick uživatele nesmí vytrhávat ze čtení).
+        if(((ju&&ju.days)||[]).length && !window._confScrolled){
+          window._confScrolled=true;
+          setTimeout(function(){ try{ cf.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },120);
+        }
       }); }
       // Marti 7.6. večer: zabalený výchozí stav = JEN „Od: 7:26 — Rezie"
       // + odpracovaný čas vpravo. Mimo směnu stejný duch: jednoduše a přívětivě.

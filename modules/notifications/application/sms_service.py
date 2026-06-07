@@ -269,9 +269,11 @@ def queue_sms(
     # Normalizace cisla
     to_phone = normalize_phone(to)
 
-    # Validace purpose
-    if purpose not in ("user_request", "notification", "system"):
-        raise SmsValidationError(f"neznamy purpose: {purpose!r}")
+    # Validace purpose — audit label, ne enum (7.6.: striktni tuple shazoval
+    # phone_verify / pin_reset / INVITE; rate limit stejne vaze jen user_request).
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,31}", purpose or ""):
+        raise SmsValidationError(f"neplatny purpose: {purpose!r}")
 
     ds = get_data_session()
     try:

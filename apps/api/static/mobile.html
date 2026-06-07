@@ -573,9 +573,9 @@
     app.innerHTML=topbar("", false, true);
     var bd=getBadges()||{whatsapp:0,sms:0,access:true};
     var g=el('<div class="appgrid"></div>');
-    // Marti 7.6.: ikonky Chat/ERP prohozeny (byly opačně).
-    g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"Chat",0,function(){openApp("/");}));
-    g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"ERP",0,function(){openApp("/erp");}));
+    // Marti 7.6.: S ERP ikona = „STRATEGIE" → spouští ERP; S CHAT ikona = „Tvoje Marti" → spouští chat.
+    g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"STRATEGIE",0,function(){openApp("/erp");}));
+    g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Tvoje Marti",0,function(){openApp("/");}));
     g.appendChild(appCell("🕒","Docházka",0,function(){go("dochazka");}));
     // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
     // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
@@ -716,7 +716,8 @@
     var APPS_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>';
     navwrap.style.display="";
     bnav.appendChild(navBtn("🏠","Domů",curTab==="home"&&!atApps,function(){selectTab("home");},0));
-    bnav.appendChild(navBtn(APPS_SVG,"Aplikace",atApps,function(){ curTab="home"; stack=["home","apps"]; render(); },(bd&&bd.total)||0));
+    // Badge Aplikace = notifikace (WA/SMS) + nová verze appky (Marti 7.6.: ať je update vidět z hlavního menu).
+    bnav.appendChild(navBtn(APPS_SVG,"Aplikace",atApps,function(){ curTab="home"; stack=["home","apps"]; render(); },(((bd&&bd.total)||0)+(_hasUpdate?1:0))));
     bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
     bnav.appendChild(navBtn("🏢","Firma",curTab==="firma",function(){selectTab("firma");},0));

@@ -275,7 +275,7 @@ window.onerror=function(msg,src,line){
     var bg = el('<div class="homebg"></div>');
     bg.style.backgroundImage = "linear-gradient(rgba(14,15,17,.05), rgba(14,15,17,.86)), url('"+avatarUrl+"')";
     bg.innerHTML = '<div id="homeDialCard"></div><div id="homeNotifsWrap"></div>'
-      + '<div class="h1" id="homeTitle">STRATEGIE Mobil</div>'
+      + '<div class="h1" id="homeTitle" style="font-family:\'DM Sans\',\'Galano Grotesque\',\'Montserrat\',sans-serif;font-weight:800;letter-spacing:-0.5px;background:linear-gradient(135deg,#4f8ef7,#7c5cfc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">STRATEGIE Mobil</div>'
       + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
       + '<div class="h3" id="homeLive"></div>';
     app.appendChild(bg);

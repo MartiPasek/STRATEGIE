@@ -96,6 +96,22 @@
 </style>
 </head>
 <body>
+<script>
+/* Bílá smrt → viditelná chyba (Marti 7.6.). Chytá i parse error dalšího scriptu. */
+window.onerror=function(msg,src,line){
+  try{
+    var d=document.getElementById("bootErr");
+    if(!d){ d=document.createElement("div");
+      d.id="bootErr";
+      d.style.cssText="position:fixed;top:10px;left:10px;right:10px;z-index:99999;background:#3a1f24;border:1px solid #6e3540;border-radius:10px;padding:12px;color:#e08a8a;font:13px/1.5 system-ui;";
+      document.body.appendChild(d); }
+    d.innerHTML="⚠ Appka narazila na chybu — pošli mi prosím screenshot:<br><b>"
+      +String(msg).replace(/</g,"&lt;")+"</b><br>řádek "+line
+      +'<br><button onclick="location.reload()" style="margin-top:8px;padding:8px 14px;border:none;border-radius:8px;background:#4f8ef7;color:#fff;">🔄 Zkusit znovu</button>';
+  }catch(e){}
+  return false;
+};
+</script>
 <div id="app"></div>
 <div id="navwrap">
   <nav class="bottomnav bnavstatic" id="bnavx1" style="display:none;"></nav>
@@ -960,6 +976,9 @@
     if(window._dochTick) clearInterval(window._dochTick);
     window._dochTick=setInterval(function(){
       if(!document.getElementById("dochNow")){ clearInterval(window._dochTick); window._dochTick=null; return; }
+      // Marti 7.6.: NIKDY nepřekreslovat, když člověk píše (rozporování, zpráva Marti…)
+      var ae=document.activeElement;
+      if(ae && (ae.tagName==="TEXTAREA" || ae.tagName==="INPUT")) return;
       dochLoad();
     },60000);
   }

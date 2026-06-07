@@ -48,14 +48,21 @@ jedním tenantem EUROSOFT. Nálezy:
 firmě grupy. Stejný vzor jako tenant_group v jádru STRATEGIE — prodejné
 pro jakoukoliv skupinu firem.
 
-**Otevřené otázky pro Marti:**
-1. Sémantika `_Firma`: 1 = EC a 2 = ES? (a 0 = historické EC?)
-2. Proč DB_IS.TabCisZam má 59 osob (víc než _Firma=2 → vede ES Helios
-   mzdy i pro část EC?)
-3. 13 rozporů podmínky×karta — vyřešit při migraci ručním seznamem?
-4. Oficiální mzdy: ES = DB_IS.TabMzSloz; EC = DB_EC.TabMzSloz? Mají být
-   TabMzSloz (skutečně vyplacené) referencí pro kontrolu wage_component
-   (plán vs payroll realita)?
+**Odpovědi (Marti 7.6. odpoledne):**
+1. **Zdroj pravdy firmy = `EC_FinZamPodminky.Firma`: 0 = ES (33 osob),
+   1 = EC (46)** — sedí přesně na poslední mzdové uzávěrky v DB_IS
+   (období 99–101 = 33 živých lidí). `TabCisZam_EXT._Firma` je nespolehlivá
+   (účetní bordel; 59 karet v DB_IS vs 33 živých).
+2. Živí dle uzávěrky (TabMzSloz × IdObdobi), ne dle karet.
+3. 13 rozporů podmínky×karta → **report pro Šárku**, ruční kontrola.
+4. **Naše složky = zdroj pro Helios** (master ve STRATEGII po migraci);
+   TabMzSloz slouží k doladění (účetní může mít složky navíc) a jako
+   kontrolní reference.
+5. **Marti = jediný s aktivní mzdou v obou firmách**: čísla zam. **2 (ES)**
+   + **41 (EC, „Pašek Marti")** → obě bindovat na **user_id 1**.
+   ⚠ **Číslo 29 „Martin Pašek" (user 35) je JINÝ ČLOVĚK** — nezaměňovat!
+   (Engagement model to řeší nativně: person = user, engagement per
+   firma/číslo — princip #1 „User = člověk, více identit".)
 
 ## Cíl — univerzální standard (tenant.*)
 

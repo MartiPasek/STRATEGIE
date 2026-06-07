@@ -891,7 +891,9 @@ window.onerror=function(msg,src,line){
               if(!es.length){ db2.innerHTML='<div class="hint">Žádné záznamy.</div>'; return; }
               es.forEach(function(e2){
                 var row=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;margin-bottom:8px;"></div>');
-                row.appendChild(el('<div style="font-size:13.5px;font-weight:600;">'+esc((e2.zac||"?")+(e2.kon?(" – "+e2.kon):" – …"))+(e2.hours!=null?(' · '+fmtHM(e2.hours)):'')+(e2.project_ref?(' · 🧾 '+esc(e2.project_ref)):'')+'</div>'));
+                function hdrHtml(){ return esc((e2.zac||"?")+(e2.kon?(" – "+e2.kon):" – …"))+(e2.hours!=null?(' · '+fmtHM(e2.hours)):'')+(e2.project_ref?(' · 🧾 '+esc(e2.project_ref)):''); }
+                var hd2=el('<div style="font-size:13.5px;font-weight:600;">'+hdrHtml()+'</div>');
+                row.appendChild(hd2);
                 if(e2.note) row.appendChild(el('<div class="hint" style="margin-top:2px;">'+esc(e2.note)+'</div>'));
                 var ar=el('<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;"></div>');
                 var bt=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">⏱ Zkrátit konec</button>');
@@ -916,7 +918,8 @@ window.onerror=function(msg,src,line){
                         zb2.addEventListener("click",function(){
                           zb2.disabled=true; st4.textContent="⏳ Měním na "+z.cislo+"…";
                           api("POST","/api/v1/erp/app/attendance/entry-project",{id:e2.id,project_ref:z.cislo}).then(function(r){
-                            if(r&&r.ok){ st4.textContent="✅ Zakázka změněna"; setTimeout(dochLoad,700); }
+                            // Marti 7.6. večer: podmenu nezavírat — jen občerstvit data.
+                            if(r&&r.ok){ e2.project_ref=z.cislo; hd2.innerHTML=hdrHtml(); st4.textContent="✅ Zakázka změněna na "+z.cislo; zb2.disabled=false; }
                             else{ zb2.disabled=false; st4.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
                           });
                         });

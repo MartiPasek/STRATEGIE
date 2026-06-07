@@ -127,7 +127,7 @@
   function _menu() {
     _menuDialog("Operace serveru", [
       { label: "🚀 Nasadit nejnovější verzi", primary: true, fn: _startDeploy },
-      { label: "⚙ Ops akce (restart služeb)…", fn: _opsMenu },
+      { label: "⚙ Ops akce (synchronizace, restarty)…", fn: _opsMenu },
       { label: "📜 Audit ops akcí", fn: _opsLog },
       { label: "📲 Mobilní appky (verze + zařízení)…", fn: _appReleaseModal },
       { label: "🗓️ Migrace docházky (Centrála 1 → 2026)", fn: _migrateDochazka },

@@ -774,7 +774,7 @@ window.onerror=function(msg,src,line){
       function mainBtn(){
         // Marti 7.6.: není to „odchod/příchod", je to změna činnosti — rozhovor.
         bw.innerHTML="";
-        var btn=el('<button class="'+(open?'warn':'green')+' full" style="font-size:16px;">💬 Potřebuji ti něco říct…</button>');
+        var btn=el('<button class="'+(open?'ghost':'green')+' full" style="font-size:16px;">💬 Potřebuji ti něco říct…</button>');
         btn.addEventListener("click",showOpts);
         bw.appendChild(btn);
       }
@@ -1013,37 +1013,38 @@ window.onerror=function(msg,src,line){
       // přepínání obrazovek. Ťuknutí na volbu znovu = zavření.
       function showOpts(){
         bw.innerHTML=""; bw._exps=null;
+        // Marti 7.6. večer: žádná červená — změna činnosti není poplach (ghost).
+        // „Jsem na zakázce" (píchnutej ≠ pracuje), „nepočítej" až na konec.
         if(open){
           // zakázka patří sem — přepnutí BĚHEM směny (switch)
-          expOpt(bw,"🧾 Pracuji na zakázce…","green",zakBuild);
+          expOpt(bw,"🧾 Jsem na zakázce…","green",zakBuild);
           addOpts([
-            ["👋 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)"},b); }],
-            ["☕ Potřebuju krátkou pauzu…",        function(b){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},b); }]
-          ],"warn");
-          expOpt(bw,"🍃 Jdu se provětrat / najíst…","warn",function(bx){
+            ["☕ Potřebuju krátkou pauzu…", function(b){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},b); }]
+          ],"ghost");
+          expOpt(bw,"🍃 Jdu se provětrat / najíst…","ghost",function(bx){
             chipsIn(bx,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
           });
-          expOpt(bw,"📅 Mám jednání do…","warn",function(bx){
+          expOpt(bw,"📅 Mám jednání do…","ghost",function(bx){
             chipsIn(bx,"Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); });
           });
-          expOpt(bw,"⋯ Ostatní…","warn",function(bx){
-            [["🩺 Jedu k lékaři, nebojte, pak dorazím…", {reason:"lékař — vrátí se",presence:"Jsem u lékaře, pak dorazím"}],
-             ["🩺 Jedu k lékaři… nevidím to dnes dobře…", {reason:"lékař — dnes už nedorazí",presence:"U lékaře, dnes už nedorazím"}],
-             ["☕🏠 Mám doma pauzu…",                     {reason:"pauza (home office)",presence:"Mám doma pauzu"}],
-             ["🚗 Služební pochůzka…",                    {reason:"služební pochůzka",presence:"Na služební pochůzce"}]].forEach(function(o){
-              dirBtn(bx,o[0],"warn",function(b){ act("checkout",o[1],b); });
-            });
-          });
+          addOpts([
+            ["🚗 Služební pochůzka…", function(b){ act("checkout",{reason:"služební pochůzka",presence:"Na služební pochůzce"},b); }],
+            ["👋 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)"},b); }]
+          ],"ghost");
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
         } else {
-          // „Už jedu" první · „Tady budu asi jinde…" před zprávou Marti
+          // „Už jedu" první · lékaři sem (Marti 7.6. večer) · „Jinde" před zprávou
           expOpt(bw,"🚗 Už jedu do práce…","green",function(bx){
             chipsIn(bx,"Dorazím za cca:",function(m,b){ presence({eta_min:m},b); });
           });
           addOpts([
-            ["🏢 Jsem v práci…",       function(b){ act("checkin",{kind:"work"},b); }],
-            ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }]
+            ["🏢 Jsem v práci…",                 function(b){ act("checkin",{kind:"work"},b); }],
+            ["🏠 Jsem doma… (home office)",      function(b){ act("checkin",{kind:"homeoffice"},b); }]
           ],"green");
+          addOpts([
+            ["🩺 Jedu k lékaři, nebojte, pak dorazím…",  function(b){ presence({text:"Jsem u lékaře, pak dorazím",add_since:true},b); }],
+            ["🩺 Jedu k lékaři… nevidím to dnes dobře…", function(b){ presence({text:"U lékaře, dnes už nedorazím",add_since:false},b); }]
+          ],"ghost");
           expOpt(bw,"🧭 Tady budu asi jinde…","ghost",jindeBuild,_amberStyle);
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
         }

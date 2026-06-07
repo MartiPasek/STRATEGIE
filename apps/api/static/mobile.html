@@ -576,7 +576,8 @@
     var bd=getBadges()||{whatsapp:0,sms:0,access:true};
     var g=el('<div class="appgrid"></div>');
     // Marti 7.6.: S ERP ikona = „STRATEGIE" → spouští ERP; S CHAT ikona = „Tvoje Marti" → spouští chat.
-    g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"STRATEGIE",0,function(){openApp("/erp");}));
+    // /erp/ S LOMÍTKEM — jinak URL nespadá do scope ERP PWA a Android otevře chat PWA (S CHAT splash).
+    g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"STRATEGIE",0,function(){openApp("/erp/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Tvoje Marti",0,function(){openApp("/");}));
     g.appendChild(appCell("🕒","Docházka",0,function(){go("dochazka");}));
     // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
@@ -627,7 +628,11 @@
     app.innerHTML=topbar("", false, true);  // Marti 7.6.: bez nadpisu a šipky; prázdná lišta drží odsazení
     var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.authedFetch==="function")){ p.appendChild(el('<div class="hint">Docházka funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
-    p.appendChild(el('<div id="dochCard" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
+    // Marti 7.6.: sekce 1) Právě probíhá 2) Dnes 3) plán 4) po dnech (mimo dnešek). Časy v H:MM.
+    p.appendChild(el('<div class="group" style="margin-top:4px;">Právě probíhá</div>'));
+    p.appendChild(el('<div id="dochNow" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
+    p.appendChild(el('<div class="group" style="margin-top:16px;">Dnes</div>'));
+    p.appendChild(el('<div id="dochCard" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:14px 16px;">Načítám…</div>'));
     var absBtn=el('<button class="ghost full" style="margin-top:10px;">🌴 Nahlásit nepřítomnost</button>');
     var absBox=el('<div id="absBox" style="display:none;margin-top:8px;background:var(--surf);border:1px solid var(--bord);border-radius:10px;padding:12px;"></div>');
     absBtn.addEventListener("click",function(){ var open=absBox.style.display==="none"; absBox.style.display=open?"block":"none"; if(open&&!absBox.innerHTML) buildAbsForm(absBox); });
@@ -640,19 +645,28 @@
     p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
     app.appendChild(p); dochLoad();
   }
+  function fmtHM(h){ var m=Math.round(Number(h||0)*60); var hh=Math.floor(m/60), mm=m%60; return hh+":"+(mm<10?"0":"")+mm; }
   function dochLoad(){
     api("GET","/api/v1/erp/app/attendance/status","").then(function(j){
-      var c=document.getElementById("dochCard"); if(!c)return;
-      if(!j||!j.ok){ c.textContent="Nepodařilo se načíst."; return; }
+      var cn=document.getElementById("dochNow"), c=document.getElementById("dochCard"); if(!cn||!c)return;
+      if(!j||!j.ok){ cn.textContent="Nepodařilo se načíst."; c.textContent="—"; return; }
       var open=j.open;
-      var h='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:15px;">'+(j.today_hours||0)+' h</b></div>';
-      h+='<div class="big" style="margin:8px 0 2px;'+(open?'color:var(--green);':'')+'">'+(open?('🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')):'⚪ Nepřihlášen k práci')+'</div>';
-      c.innerHTML=h;
+      var runH=0;
+      if(open&&open.started_at){ try{ runH=Math.max(0,(Date.now()-new Date(open.started_at).getTime())/3600000); }catch(e){} }
+      cn.innerHTML='<div class="big" style="margin:0;'+(open?'color:var(--green);':'')+'">'
+        +(open?('🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b>'):'⚪ Nepřihlášen k práci')+'</div>';
       var btn=el('<button class="'+(open?'warn':'green')+' full" style="margin-top:12px;font-size:16px;">'+(open?'⏹ Odchod (konec práce)':'▶️ Příchod (začít práci)')+'</button>');
       btn.addEventListener("click",function(){ btn.disabled=true; var ep=open?"checkout":"checkin"; api("POST","/api/v1/erp/app/attendance/"+ep,{}).then(function(){ dochLoad(); }).catch(function(){ btn.disabled=false; }); });
-      c.appendChild(btn);
+      cn.appendChild(btn);
+      c.innerHTML='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b></div>';
       dochDailyLoad(); dochListLoad();
-    }).catch(function(){ var c=document.getElementById("dochCard"); if(c)c.textContent="Chyba spojení."; });
+    }).catch(function(){ var c=document.getElementById("dochNow"); if(c)c.textContent="Chyba spojení."; });
+    // živý přepočet běžící směny (jen dokud je obrazovka Docházka otevřená)
+    if(window._dochTick) clearInterval(window._dochTick);
+    window._dochTick=setInterval(function(){
+      if(!document.getElementById("dochNow")){ clearInterval(window._dochTick); window._dochTick=null; return; }
+      dochLoad();
+    },60000);
   }
   function dochDailyLoad(){
     api("GET","/api/v1/erp/app/attendance/daily?days=14","").then(function(j){
@@ -660,22 +674,23 @@
       var allRows=(j&&j.days)||[];
       var today=new Date().toISOString().substr(0,10);
       var yest=new Date(Date.now()-86400000).toISOString().substr(0,10);
-      // Marti 7.6.: budoucnost (nahlášené dovolené atd.) oddělit od odpracovaného.
-      var rows=allRows.filter(function(r){return (r.d||"")<=today;});
+      // Marti 7.6.: budoucnost (nahlášené dovolené atd.) oddělit od odpracovaného;
+      // dnešek má vlastní sekci „Dnes" → po dnech jen minulost.
+      var rows=allRows.filter(function(r){return (r.d||"")<today;});
       var fut=allRows.filter(function(r){return (r.d||"")>today;}).sort(function(a,b){return a.d<b.d?-1:1;});
       var pg=document.getElementById("dochPlanGroup"), pw=document.getElementById("dochPlanWrap"), pu=document.getElementById("dochPlan");
       if(pg&&pw&&pu){
         if(fut.length){ pg.style.display=""; pw.style.display=""; pu.innerHTML="";
           fut.forEach(function(r){ var a=Number(r.absence||0), w=Number(r.worked||0);
-            pu.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;"><span class="nt">'+esc(r.d)+'</span><span class="nm" style="margin:0;color:var(--amber);">'+(a>0?(a+' h nepřítomnost'):(w+' h'))+'</span></li>')); });
+            pu.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;"><span class="nt">'+esc(r.d)+'</span><span class="nm" style="margin:0;color:var(--amber);">'+(a>0?(fmtHM(a)+' nepřítomnost'):fmtHM(w))+'</span></li>')); });
         } else { pg.style.display="none"; pw.style.display="none"; }
       }
       if(!rows.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím nic.</li>'; return; }
       ul.innerHTML="";
       rows.forEach(function(r){
-        var lbl = r.d===today?"Dnes" : (r.d===yest?"Včera" : r.d);
+        var lbl = r.d===yest?"Včera" : r.d;
         var w=Number(r.worked||0), a=Number(r.absence||0);
-        var right='<b style="color:'+(w>0?'var(--green)':'var(--mut)')+';">'+w+' h</b>'+(a>0?(' <span style="color:var(--amber);">+ '+a+' h nepř.</span>'):'')+(r.active?' 🟢':'');
+        var right='<b style="color:'+(w>0?'var(--green)':'var(--mut)')+';">'+fmtHM(w)+'</b>'+(a>0?(' <span style="color:var(--amber);">+ '+fmtHM(a)+' nepř.</span>'):'')+(r.active?' 🟢':'');
         ul.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;"><span class="nt">'+esc(lbl)+'</span><span class="nm" style="margin:0;">'+right+'</span></li>'));
       });
     });
@@ -688,7 +703,7 @@
       ul.innerHTML="";
       rows.forEach(function(e){
         var t=(e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':''));
-        ul.appendChild(el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+e.hours+' h'):'')+' · '+esc(e.status||'')+'</div></li>'));
+        ul.appendChild(el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+fmtHM(e.hours)):'')+' · '+esc(e.status||'')+'</div></li>'));
       });
     });
   }

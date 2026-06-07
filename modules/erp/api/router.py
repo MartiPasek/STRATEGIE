@@ -5732,7 +5732,7 @@ def _att_unconfirmed_days(s, emp) -> list:
         "JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
         "WHERE e.tenant_id = :t AND e.employee_id = :e "
         "  AND e.entry_date < current_date "
-        "  AND e.entry_date >= GREATEST(current_date - 14, :since::date) "
+        "  AND e.entry_date >= GREATEST(current_date - 14, CAST(:since AS date)) "
         "  AND et.category = 'presence' AND e.started_at IS NOT NULL "
         "  AND e.status NOT IN ('superseded','announced') "
         "  AND NOT EXISTS (SELECT 1 FROM tenant.att_day_confirm c "

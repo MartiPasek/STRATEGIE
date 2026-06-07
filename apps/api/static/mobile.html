@@ -92,6 +92,9 @@
            min-height:100vh; box-shadow:0 0 40px rgba(0,0,0,.55); }
     #navwrap { left:50%; right:auto; transform:translateX(-50%);
                width: var(--phone-w); }
+    /* Home fotka: v úzkém rámečku ji cover ořezával ze stran →
+       contain = celá fotka (gradient vrstva zůstává cover). */
+    .homebg { background-size: cover, contain; }
   }
 </style>
 </head>

@@ -643,17 +643,18 @@ window.onerror=function(msg,src,line){
   // ───── DOCHÁZKA (check-in/out + přehled) ─────
   // Rozbalovací sekce jako Kontakty (Marti 7.6.): samostatné bubliny s mezerou,
   // VŽDY otevřená max jedna (ostatní se zavřou) — accordion jako kontakty.
-  function collSec(ulEl, title, defOpen){
+  function collSec(ulEl, title, defOpen, onToggle){
     var li=document.createElement("li");
     li.style.cssText="background:var(--surf);border:1px solid var(--bord);border-radius:12px;margin:0 0 10px;padding:0 8px;list-style:none;";
     var head=el('<div class="cthead" style="padding:13px 8px;"><span style="font-size:15px;font-weight:600;"></span><span class="cgv" style="color:var(--tx);font-weight:700;"></span><span class="cgch" style="margin-left:auto;color:var(--mut);font-size:12px;">▼</span></div>');
     head.firstChild.textContent=title;
     var box=el('<div style="display:none;padding:0 8px 12px;"></div>');
-    function close(){ box.style.display="none"; head.querySelector(".cgch").textContent="▼"; li.style.borderColor="var(--bord)"; li.style.background="var(--surf)"; }
+    function close(){ box.style.display="none"; head.querySelector(".cgch").textContent="▼"; li.style.borderColor="var(--bord)"; li.style.background="var(--surf)"; if(onToggle)onToggle(false); }
     function setOpen(o){
       if(o){ (ulEl._secs||[]).forEach(function(s){ if(s.box!==box) s.close(); }); }
       box.style.display=o?"block":"none"; head.querySelector(".cgch").textContent=o?"▲":"▼";
       li.style.borderColor=o?"#2a4d80":"var(--bord)"; li.style.background=o?"rgba(79,142,247,.07)":"var(--surf)";
+      if(onToggle)onToggle(o);
     }
     head.addEventListener("click",function(){ setOpen(box.style.display==="none"); });
     li.appendChild(head); li.appendChild(box); ulEl.appendChild(li);
@@ -670,10 +671,8 @@ window.onerror=function(msg,src,line){
     p.appendChild(el('<div class="group" style="margin-top:4px;">Právě probíhá</div>'));
     p.appendChild(el('<div id="dochNow" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
     p.appendChild(el('<div id="dochConfirm" style="margin-top:10px;"></div>'));
-    var absBtn=el('<button class="ghost full" style="margin-top:10px;">🌴 Nahlásit nepřítomnost</button>');
-    var absBox=el('<div id="absBox" style="display:none;margin-top:8px;background:var(--surf);border:1px solid var(--bord);border-radius:10px;padding:12px;"></div>');
-    absBtn.addEventListener("click",function(){ var open=absBox.style.display==="none"; absBox.style.display=open?"block":"none"; if(open&&!absBox.innerHTML) buildAbsForm(absBox); });
-    p.appendChild(absBtn); p.appendChild(absBox);
+    // Marti 7.6.: sekce „Nahlásit nepřítomnost" zrušena — vše jde rozhovorem
+    // („Potřebuji ti něco říct…" → ⋯Ostatní → 🧭 Tady budu asi jinde…).
     // Marti 7.6.: rozbalovací sekce 1) Dnes 2) Včera 3) Dřívější 4) Plánovaná
     // nepřítomnost 5) Poslední záznamy — bubliny v jednom bloku jako Kontakty.
     var lc=el('<div style="margin-top:14px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
@@ -683,17 +682,19 @@ window.onerror=function(msg,src,line){
           prev:  collSec(su,"Dřívější", false),
           plan:  collSec(su,"Plánovaná nepřítomnost", false),
           list:  collSec(su,"Poslední záznamy", false),
-          paska: collSec(su,"💰 Výplatní páska", false) };
+          paska: collSec(su,"💰 Výplatní páska", false, function(o){ paskaToggle(o); }) };
     _dS.today.box.innerHTML='<div id="dochSpanToday" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div id="dochCard" style="padding:2px 0 4px;">Načítám…</div>';
     _dS.yest.box.innerHTML='<div id="dochSpanYest" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><ul id="dochYest"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.prev.box.innerHTML='<ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.plan.box.innerHTML='<ul id="dochPlan"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.list.box.innerHTML='<ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
-    _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">Načítám…</div></div>';
+    // Marti 7.6. večer: páska zamčená PINem + jen mimo směnu — souhrn v hlavičce
+    // NIKDY neukazuje částku (🔒), obsah se načte až po odemčení při otevření.
+    _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">🔒 Páska je zamčená.</div></div>';
+    _dS.paska.val.textContent="🔒";
     p.appendChild(lc);
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
     app.appendChild(p);
-    paskaLoad(0,0);  // až PO vložení do dokumentu (getElementById jinak nenajde box)
     dochLoad();
   }
   function fmtHM(h){ var m=Math.round(Number(h||0)*60); var hh=Math.floor(m/60), mm=m%60; return hh+":"+(mm<10?"0":"")+mm; }
@@ -753,7 +754,7 @@ window.onerror=function(msg,src,line){
           container.appendChild(card);
         });
       }
-      function act(ep, payload, b){
+      function act(ep, payload, b, after){
         b.disabled=true;
         api("POST","/api/v1/erp/app/attendance/"+ep,payload).then(function(j){
           if(j&&j.need_confirm&&j.need_confirm.length){
@@ -761,13 +762,13 @@ window.onerror=function(msg,src,line){
             bw.appendChild(el('<div class="hint" style="margin:4px 0 6px;">🖊 Nejdřív si potvrď předchozí docházku — pak tě hned píchnu:</div>'));
             var cc=el('<div></div>'); bw.appendChild(cc);
             renderConfirmList(cc, j.need_confirm, function(){
-              api("POST","/api/v1/erp/app/attendance/"+ep,payload).then(function(){ dochLoad(); }).catch(function(){ dochLoad(); });
+              api("POST","/api/v1/erp/app/attendance/"+ep,payload).then(function(){ if(after)after(); else dochLoad(); }).catch(function(){ dochLoad(); });
             });
             var z=el('<button class="ghost full" style="margin-top:6px;">Zrušit</button>');
             z.addEventListener("click",mainBtn); bw.appendChild(z);
             return;
           }
-          dochLoad();
+          if(after) after(); else dochLoad();
         }).catch(function(){ b.disabled=false; });
       }
       function mainBtn(){
@@ -811,6 +812,85 @@ window.onerror=function(msg,src,line){
         z.addEventListener("click",showOpts); bw.appendChild(z);
       }
       function czDate(iso){ var p=(iso||"").split("-"); return p.length===3?(Number(p[2])+". "+Number(p[1])+"."):iso; }
+      // Výběr rozsahu dat od–do → fn(od, do, btn)
+      function dateRangePick(label, backFn, fn){
+        bw.innerHTML="";
+        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
+        var today=new Date().toISOString().substr(0,10);
+        var d1=el('<input type="date" value="'+today+'" style="margin-top:6px;">');
+        var d2=el('<input type="date" value="'+today+'" style="margin-top:6px;">');
+        bw.appendChild(el('<label>Od</label>')); bw.appendChild(d1);
+        bw.appendChild(el('<label>Do</label>')); bw.appendChild(d2);
+        var ok=el('<button class="green full" style="margin-top:10px;">Potvrdit</button>');
+        ok.addEventListener("click",function(){ if(d1.value&&d2.value){ ok.disabled=true; fn(d1.value, d2.value, ok); } });
+        bw.appendChild(ok);
+        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
+        z.addEventListener("click",backFn); bw.appendChild(z);
+      }
+      // 🧭 Tady budu asi jinde… (Marti 7.6.: místo formuláře nepřítomnosti — rozhovor)
+      function jindeMenu(){
+        bw.innerHTML="";
+        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">🧭 Tady budu asi jinde…</div>'));
+        var b1=btnEl("💼 Služební věci…","green"); b1.addEventListener("click",sluzebniMenu); bw.appendChild(b1);
+        var b2=btnEl("🏠 Osobní věci…","green"); b2.addEventListener("click",osobniMenu); bw.appendChild(b2);
+        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
+        z.addEventListener("click",showOpts); bw.appendChild(z);
+      }
+      function sluzebniMenu(){
+        bw.innerHTML="";
+        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">💼 Služební věci</div>'));
+        addOpts([
+          ["🚙 Jedu rovnou k zákazníkovi…",       function(b){ act("checkin",{kind:"trip"},b); }],
+          ["🎓 Jsem na školení…",                  function(b){ act("checkin",{kind:"work"},b,function(){ presence({text:"Jsem na školení"},{disabled:false}); }); }],
+          ["📦 Služební pochůzka, pak dorazím…",   function(b){ presence({text:"Na služební pochůzce, pak dorazím",add_since:true},b); }]
+        ],"green");
+        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
+        z.addEventListener("click",jindeMenu); bw.appendChild(z);
+      }
+      function osobniMenu(){
+        bw.innerHTML="";
+        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">🏠 Osobní věci</div>'));
+        addOpts([
+          ["🌴 Beru si dovolenou…", function(){
+            dateRangePick("Dovolená od – do:", osobniMenu, function(od, dd, b){
+              var today=new Date().toISOString().substr(0,10);
+              absence({type_code:"vacation",date_from:od,date_to:dd,mode:"days",note:"přes mobil"},function(){
+                if(od<=today && dd>=today){ presence({text:"Mám dovolenou",add_since:false,until_txt:czDate(dd)},b); }
+                else dochLoad();
+              });
+            });
+          }],
+          ["🤒 Je mi fakt blbě… beru si sick day", function(b){
+            b.disabled=true; var today=new Date().toISOString().substr(0,10);
+            absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
+              presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); });
+          }],
+          ["🤧 Mám neschopenku do…", function(){
+            datePick("Neschopenka do:",function(d,b){
+              var today=new Date().toISOString().substr(0,10);
+              absence({type_code:"sick",date_from:today,date_to:d,mode:"days",note:"neschopenka (přes mobil)"},function(){
+                presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); }); });
+          }],
+          ["🩺 Kontrola u lékaře (datum)…", function(){
+            datePick("Kontrola u lékaře — kdy:",function(d,b){
+              absence({type_code:"medical",date_from:d,date_to:d,mode:"days",note:"kontrola u lékaře"},function(){ dochLoad(); }); });
+          }],
+          ["👨‍👧 Musím řešit rodinu (OČR)…", function(){
+            dateRangePick("OČR od – do:", osobniMenu, function(od, dd, b){
+              var today=new Date().toISOString().substr(0,10);
+              absence({type_code:"family_care",date_from:od,date_to:dd,mode:"days",note:"OČR (přes mobil)"},function(){
+                if(od<=today && dd>=today){ presence({text:"Pečuji o rodinu (OČR)",add_since:false,until_txt:czDate(dd)},b); }
+                else dochLoad();
+              });
+            });
+          }],
+          ["🕐 Potřebuju si něco zařídit, přijdu později…", function(){
+            chips("Dorazím za cca:",function(m,b){ presence({text:"Něco si zařizuji, dorazím",add_since:false,eta_min:m},b); });
+          }]
+        ],"green");
+        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
+        z.addEventListener("click",jindeMenu); bw.appendChild(z);
+      }
       // Píchnutí na zakázku (Marti 7.6.): picker nad tenant.zakazka (⚙ sync_zakazky).
       function zakPick(){
         bw.innerHTML="";
@@ -935,27 +1015,13 @@ window.onerror=function(msg,src,line){
           mm2.addEventListener("click",martiMsgUI); bw.appendChild(mm2);
           var more2=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more2);
           var sub2=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
-          [["🧰 Režie", function(b){ act("checkin",{kind:"overhead"},b); }],
-           ["🚙 Služební cesta", function(b){ act("checkin",{kind:"trip"},b); }],
-           ["🤒 Je mi fakt blbě… beru si sick day", function(b){
-              b.disabled=true; var today=new Date().toISOString().substr(0,10);
-              absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
-                presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); });
-            }],
-           ["🤧 Mám neschopenku do…", function(){
-              datePick("Neschopenka do:",function(d,b){
-                var today=new Date().toISOString().substr(0,10);
-                absence({type_code:"sick",date_from:today,date_to:d,mode:"days",note:"neschopenka (přes mobil)"},function(){
-                  presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); }); });
-            }],
-           ["🩺 Kontrola u lékaře (datum)…", function(){
-              datePick("Kontrola u lékaře — kdy:",function(d,b){
-                absence({type_code:"medical",date_from:d,date_to:d,mode:"days",note:"kontrola u lékaře"},function(){ dochLoad(); }); });
-            }]].forEach(function(o){
-            var b=btnEl(o[0],"green");
-            b.addEventListener("click",function(){ o[1](b); });
-            sub2.appendChild(b);
-          });
+          var bRez=btnEl("🧰 Režie","green");
+          bRez.addEventListener("click",function(){ act("checkin",{kind:"overhead"},bRez); });
+          sub2.appendChild(bRez);
+          var bJinde=btnEl("🧭 Tady budu asi jinde…","ghost");
+          bJinde.style.borderColor="var(--amber)"; bJinde.style.color="var(--amber)";
+          bJinde.addEventListener("click",jindeMenu);
+          sub2.appendChild(bJinde);
           bw.appendChild(sub2);
           more2.addEventListener("click",function(){ sub2.style.display=sub2.style.display==="none"?"block":"none"; });
         }
@@ -1035,11 +1101,91 @@ window.onerror=function(msg,src,line){
     });
   }
   // 💰 Výplatní páska (Marti 7.6.: „každej na ni má nárok") — jen vlastní data.
+  // Marti 7.6. večer: ochrana — PIN + jen mimo směnu (aby si lidé v pracovní
+  // době neukazovali, kolik kdo bere). PIN žije jen v paměti otevřené sekce.
   var _CZ_MES=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
+  var _paskaPin=null;
+  function paskaToggle(open){
+    var box=document.getElementById("paskaBox"); if(!box)return;
+    if(open){ paskaLoad(0,0); return; }
+    _paskaPin=null;  // zavření sekce = zámek, PIN znovu při dalším otevření
+    box.innerHTML='<div class="hint">🔒 Páska je zamčená.</div>';
+    if(_dS&&_dS.paska)_dS.paska.val.textContent="🔒";
+  }
+  function _paskaMsg(html){
+    var box=document.getElementById("paskaBox"); if(!box)return null;
+    box.innerHTML=""; var w=el('<div style="padding:4px 0;"></div>'); box.appendChild(w); return w;
+  }
+  function _pinInput(){
+    return el('<input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="• • • •" style="width:120px;text-align:center;font-size:20px;letter-spacing:6px;margin-top:6px;">');
+  }
+  function paskaPinSetup(){
+    var w=_paskaMsg(); if(!w)return;
+    w.appendChild(el('<div style="font-weight:700;">🔐 Nastav si PIN k pásce</div>'));
+    w.appendChild(el('<div class="hint" style="margin:4px 0 2px;">Páska je jen tvoje. Zvol si 4místný PIN — budeš ho zadávat při každém otevření.</div>'));
+    var i1=_pinInput(), i2=_pinInput(); i2.placeholder="znovu";
+    var row=el('<div style="display:flex;gap:10px;align-items:center;"></div>'); row.appendChild(i1); row.appendChild(i2); w.appendChild(row);
+    var st=el('<div class="hint" style="margin-top:6px;"></div>'); w.appendChild(st);
+    var b=el('<button class="green full" style="margin-top:8px;">Nastavit PIN</button>'); w.appendChild(b);
+    b.addEventListener("click",function(){
+      var p1=(i1.value||"").trim(), p2=(i2.value||"").trim();
+      if(!/^[0-9]{4}$/.test(p1)){ st.textContent="PIN jsou 4 číslice."; return; }
+      if(p1!==p2){ st.textContent="PINy se neshodují."; return; }
+      b.disabled=true; st.textContent="Ukládám…";
+      api("POST","/api/v1/erp/app/pin/set",{pin:p1}).then(function(j){
+        if(j&&j.ok){ _paskaPin=p1; paskaLoad(0,0); }
+        else{ b.disabled=false; st.textContent=(j&&j.note)||"Nepodařilo se uložit."; }
+      });
+    });
+  }
+  function paskaPinEntry(j){
+    var w=_paskaMsg(); if(!w)return;
+    _paskaPin=null;
+    w.appendChild(el('<div style="font-weight:700;">🔐 Zadej PIN k pásce</div>'));
+    var st=el('<div class="hint" style="margin:4px 0 2px;"></div>'); w.appendChild(st);
+    if(j&&j.error==="pin_wrong") st.textContent="PIN nesedí — zbývá pokusů: "+(j.left||0)+".";
+    if(j&&j.error==="pin_locked"){ st.textContent="⏳ Příliš mnoho pokusů. Zkus to za "+(j.minutes||15)+" min."; return; }
+    var i1=_pinInput(); w.appendChild(i1);
+    var b=el('<button class="green full" style="margin-top:8px;">Odemknout</button>'); w.appendChild(b);
+    function go(){ var p=(i1.value||"").trim(); if(!/^[0-9]{4}$/.test(p)){ st.textContent="PIN jsou 4 číslice."; return; } _paskaPin=p; paskaLoad(0,0); }
+    b.addEventListener("click",go);
+    i1.addEventListener("input",function(){ if(i1.value.length===4) go(); });
+    var f=el('<button class="ghost full" style="margin-top:8px;font-size:13px;">Zapomněl/a jsem PIN…</button>'); w.appendChild(f);
+    f.addEventListener("click",function(){
+      f.disabled=true;
+      api("POST","/api/v1/erp/app/pin/forgot",{}).then(function(r){
+        if(!(r&&r.ok)){ f.disabled=false; st.textContent=(r&&r.note)||"SMS se nepodařilo poslat."; return; }
+        var w2=_paskaMsg(); if(!w2)return;
+        w2.appendChild(el('<div style="font-weight:700;">📨 Poslali jsme ti SMS kód</div>'));
+        w2.appendChild(el('<div class="hint" style="margin:4px 0 2px;">Na číslo '+esc(r.phone||"")+'. Zadej kód a zvol nový PIN.</div>'));
+        var ci=el('<input inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="SMS kód" style="width:140px;text-align:center;font-size:18px;letter-spacing:4px;margin-top:6px;">');
+        var n1=_pinInput(); n1.placeholder="nový PIN";
+        w2.appendChild(ci); w2.appendChild(el('<div></div>')); w2.appendChild(n1);
+        var st2=el('<div class="hint" style="margin-top:6px;"></div>'); w2.appendChild(st2);
+        var b2=el('<button class="green full" style="margin-top:8px;">Nastavit nový PIN</button>'); w2.appendChild(b2);
+        b2.addEventListener("click",function(){
+          var c=(ci.value||"").trim(), p=(n1.value||"").trim();
+          if(!/^[0-9]{6}$/.test(c)){ st2.textContent="Kód má 6 číslic."; return; }
+          if(!/^[0-9]{4}$/.test(p)){ st2.textContent="PIN jsou 4 číslice."; return; }
+          b2.disabled=true; st2.textContent="Ukládám…";
+          api("POST","/api/v1/erp/app/pin/set",{code:c,pin:p}).then(function(x){
+            if(x&&x.ok){ _paskaPin=p; paskaLoad(0,0); }
+            else{ b2.disabled=false; st2.textContent=(x&&x.note)||"Nepodařilo se."; }
+          });
+        });
+      });
+    });
+  }
   function paskaLoad(y,m){
     var box=document.getElementById("paskaBox"); if(!box)return;
-    api("GET","/api/v1/erp/app/payslip"+(y&&m?("?y="+y+"&m="+m):""),"").then(function(j){
+    api("POST","/api/v1/erp/app/payslip",{y:y||0,m:m||0,pin:_paskaPin||""}).then(function(j){
       box=document.getElementById("paskaBox"); if(!box)return;
+      if(j&&j.error==="on_shift"){
+        box.innerHTML='<div class="hint">💼 Teď jsi v práci — páska počká. Otevřeš ji po odchodu nebo na pauze.</div>';
+        return;
+      }
+      if(j&&j.error==="pin_not_set"){ paskaPinSetup(); return; }
+      if(j&&(j.error==="pin_required"||j.error==="pin_wrong"||j.error==="pin_locked")){ paskaPinEntry(j); return; }
       if(!j||!j.ok){ box.innerHTML='<div class="hint">Pásku se nepodařilo načíst.</div>'; return; }
       if(!j.items||!j.items.length){ box.innerHTML='<div class="hint">'+esc(j.note||"Zatím žádné pásky.")+'</div>'; if(_dS&&_dS.paska)_dS.paska.val.textContent="—"; return; }
       var ps=j.periods||[]; var idx=-1;
@@ -1119,7 +1265,8 @@ window.onerror=function(msg,src,line){
         celkemVyplata+=vyplata;
       });
       box.appendChild(el('<div class="hint">Zdroj: mzdový systém Helios (oficiální zúčtování).</div>'));
-      if(_dS&&_dS.paska) _dS.paska.val.textContent=(celkemVyplata?Math.round(celkemVyplata).toLocaleString("cs")+" Kč":"");
+      // Marti 7.6. večer: částka do hlavičky sekce NEPATŘÍ (vidí ji i zamčená) — jen 🔓.
+      if(_dS&&_dS.paska) _dS.paska.val.textContent="🔓";
     });
   }
   // Rozsah práce „od prvního píchnutí do posledního odpíchnutí" (Marti 7.6.).

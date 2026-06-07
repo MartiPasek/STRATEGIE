@@ -5791,14 +5791,194 @@ async def att_confirm_day(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
-@api_router.get("/app/payslip")
-async def app_payslip(req: Request) -> JSONResponse:
-    """Marti 7.6.: výplatní páska — PŘÍSNĚ jen vlastní data (uid → employee).
-    ?y=&m= volitelné; bez nich poslední dostupné období. Vrací položky + součty."""
+# ── PIN pro výplatní pásku (Marti 7.6. večer) ────────────────────────────
+# „Aby si mezi sebou lidé neukazovali v pracovní době kolik kdo bere."
+# 1) Páska jen mimo směnu (odhlášen / na pauze — žádný att_entry is_active).
+# 2) Vlastní 4místný PIN (hash v fw.user_pin), 5 pokusů → zámek 15 minut.
+#    Zapomenutý PIN → SMS kód (reuse fw.phone_verify_code infra z onboardingu).
+
+def _pin_hash(pin: str, salt: str) -> str:
+    import hashlib
+    return hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"),
+                               salt.encode("utf-8"), 50000).hex()
+
+
+def _pin_gate(s, uid: int, pin: str):
+    """Vrátí None (PIN ok) nebo error dict pro JSONResponse (200)."""
+    from sqlalchemy import text as _t
+    row = s.execute(_t(
+        "SELECT pin_hash, failed_attempts, "
+        "       COALESCE(locked_until > now(), false), "
+        "       GREATEST(CEIL(EXTRACT(EPOCH FROM (locked_until - now())) / 60.0), 1) "
+        "FROM fw.user_pin WHERE user_id = :u"), {"u": uid}).first()
+    if not row:
+        return {"ok": False, "error": "pin_not_set"}
+    if row[2]:
+        return {"ok": False, "error": "pin_locked", "minutes": int(row[3] or 15)}
+    if not pin:
+        return {"ok": False, "error": "pin_required"}
+    ph = row[0] or ""
+    salt, _, hsh = ph.partition("$")
+    if not (pin.isdigit() and _pin_hash(pin, salt) == hsh):
+        fa = int(row[1] or 0) + 1
+        if fa >= 5:
+            s.execute(_t("UPDATE fw.user_pin SET failed_attempts = 0, "
+                         "locked_until = now() + interval '15 minutes', "
+                         "updated_at = now() WHERE user_id = :u"), {"u": uid})
+            s.commit()
+            return {"ok": False, "error": "pin_locked", "minutes": 15}
+        s.execute(_t("UPDATE fw.user_pin SET failed_attempts = :f, "
+                     "updated_at = now() WHERE user_id = :u"), {"f": fa, "u": uid})
+        s.commit()
+        return {"ok": False, "error": "pin_wrong", "left": 5 - fa}
+    if int(row[1] or 0):
+        s.execute(_t("UPDATE fw.user_pin SET failed_attempts = 0, "
+                     "updated_at = now() WHERE user_id = :u"), {"u": uid})
+        s.commit()
+    return None
+
+
+def _pin_consume_sms_code(s, uid: int, code: str) -> bool:
+    """Ověří + spotřebuje SMS kód z fw.phone_verify_code (stejná logika
+    jako onboarding confirm — poslední nepoužitý, neexpirovaný, max 5 pokusů)."""
+    from sqlalchemy import text as _t
+    code = (code or "").strip()
+    if not (code.isdigit() and len(code) == 6):
+        return False
+    row = s.execute(_t(
+        "SELECT id, code, attempts FROM fw.phone_verify_code "
+        "WHERE user_id = :u AND used_at IS NULL AND expires_at > now() "
+        "ORDER BY id DESC LIMIT 1"), {"u": uid}).first()
+    if not row or int(row[2] or 0) >= 5:
+        return False
+    if code != row[1]:
+        s.execute(_t("UPDATE fw.phone_verify_code SET attempts = attempts + 1 "
+                     "WHERE id = :i"), {"i": row[0]})
+        s.commit()
+        return False
+    s.execute(_t("UPDATE fw.phone_verify_code SET used_at = now() WHERE id = :i"),
+              {"i": row[0]})
+    s.commit()
+    return True
+
+
+@api_router.post("/app/pin/set")
+async def app_pin_set(req: Request) -> JSONResponse:
+    """Nastavení / změna PINu. První nastavení bez ověření; změna vyžaduje
+    starý PIN NEBO SMS kód (zapomenutý PIN přes /app/pin/forgot)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
+    import secrets as _sec
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    pin = str((body or {}).get("pin") or "").strip()
+    if not (pin.isdigit() and len(pin) == 4):
+        return JSONResponse({"ok": False, "error": "pin_invalid",
+                             "note": "PIN jsou 4 číslice."})
+    cm, s = _att_session()
+    try:
+        exists = s.execute(_t("SELECT 1 FROM fw.user_pin WHERE user_id = :u"),
+                           {"u": uid}).first() is not None
+        if exists:
+            old_pin = str((body or {}).get("old_pin") or "").strip()
+            code = str((body or {}).get("code") or "").strip()
+            allowed = False
+            if code:
+                allowed = _pin_consume_sms_code(s, uid, code)
+                if not allowed:
+                    return JSONResponse({"ok": False, "error": "code_wrong",
+                                         "note": "SMS kód nesedí nebo vypršel."})
+            elif old_pin:
+                err = _pin_gate(s, uid, old_pin)
+                if err:
+                    return JSONResponse(err)
+                allowed = True
+            if not allowed:
+                return JSONResponse({"ok": False, "error": "verify_required"})
+        salt = _sec.token_hex(8)
+        s.execute(_t(
+            "INSERT INTO fw.user_pin (user_id, pin_hash, failed_attempts, locked_until) "
+            "VALUES (:u, :h, 0, NULL) "
+            "ON CONFLICT (user_id) DO UPDATE SET pin_hash = EXCLUDED.pin_hash, "
+            "failed_attempts = 0, locked_until = NULL, updated_at = now()"),
+            {"u": uid, "h": salt + "$" + _pin_hash(pin, salt)})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/pin/forgot")
+async def app_pin_forgot(req: Request) -> JSONResponse:
+    """Zapomenutý PIN → SMS kód na ověřený mobil (rate limit 3 SMS / 15 min)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import secrets as _sec
+    from modules.notifications.application.sms_service import queue_sms
+    cm, s = _att_session()
+    try:
+        phone = s.execute(_t(
+            "SELECT contact_value FROM public.user_contacts "
+            "WHERE user_id = :u AND contact_type = 'phone' "
+            "  AND COALESCE(status,'active') = 'active' "
+            "ORDER BY COALESCE(is_verified,false) DESC, "
+            "         COALESCE(is_primary,false) DESC, id LIMIT 1"),
+            {"u": uid}).scalar()
+        if not phone:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "no_phone",
+                                 "note": "Nemáš u nás ověřený mobil — ozvi se prosím Marti."})
+        cnt = s.execute(_t(
+            "SELECT count(*) FROM fw.phone_verify_code "
+            "WHERE user_id = :u AND created_at > now() - interval '15 minutes'"),
+            {"u": uid}).scalar() or 0
+        if cnt >= 3:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "rate_limited",
+                                 "note": "Příliš mnoho SMS. Zkus to za 15 minut."})
+        s.execute(_t("UPDATE fw.phone_verify_code SET used_at = now() "
+                     "WHERE user_id = :u AND used_at IS NULL"), {"u": uid})
+        code = f"{_sec.randbelow(1000000):06d}"
+        s.execute(_t(
+            "INSERT INTO fw.phone_verify_code (user_id, phone, code, expires_at) "
+            "VALUES (:u, :p, :c, now() + interval '10 minutes')"),
+            {"u": uid, "p": phone, "c": code})
+        s.commit()
+        queue_sms(to=phone,
+                  body=f"STRATEGIE: kod pro obnovu PIN je {code}. Plati 10 minut.",
+                  purpose="pin_reset", user_id=uid)
+        masked = ("*" * max(len(phone) - 3, 0)) + phone[-3:]
+        return JSONResponse({"ok": True, "phone": masked})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/payslip")
+async def app_payslip(req: Request) -> JSONResponse:
+    """Marti 7.6.: výplatní páska — PŘÍSNĚ jen vlastní data (uid → employee).
+    Body {y, m, pin}; bez y/m poslední dostupné období. POST kvůli PINu v body
+    (nativní authedFetch neumí custom headers). Ochrana (Marti 7.6. večer):
+    jen mimo běžící směnu + 4místný PIN."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
     cm, s = _att_session()
     try:
         emps = [r[0] for r in s.execute(_t(
@@ -5807,6 +5987,19 @@ async def app_payslip(req: Request) -> JSONResponse:
         if not emps:
             s.commit()
             return JSONResponse({"ok": True, "periods": [], "items": [], "note": "Žádné mzdové záznamy."})
+        # Gate 1 — běžící směna (pauza i odchod entry zavírají → is_active stačí).
+        on_shift = s.execute(_t(
+            "SELECT 1 FROM tenant.att_entry WHERE tenant_id = 2 "
+            "AND employee_id = ANY(:e) AND is_active = true LIMIT 1"),
+            {"e": emps}).first() is not None
+        if on_shift:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "on_shift"})
+        # Gate 2 — PIN.
+        err = _pin_gate(s, uid, str((body or {}).get("pin") or "").strip())
+        if err:
+            s.commit()
+            return JSONResponse(err)
         periods = s.execute(_t(
             "SELECT DISTINCT rok, mesic FROM tenant.payslip_item "
             "WHERE tenant_id = 2 AND employee_id = ANY(:e) "
@@ -5815,8 +6008,8 @@ async def app_payslip(req: Request) -> JSONResponse:
             s.commit()
             return JSONResponse({"ok": True, "periods": [], "items": [], "note": "Zatím žádné pásky."})
         try:
-            y = int(req.query_params.get("y") or 0)
-            m = int(req.query_params.get("m") or 0)
+            y = int((body or {}).get("y") or req.query_params.get("y") or 0)
+            m = int((body or {}).get("m") or req.query_params.get("m") or 0)
         except Exception:
             y = m = 0
         if not (y and m):

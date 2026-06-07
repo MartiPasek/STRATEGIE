@@ -5846,6 +5846,62 @@ async def app_payslip(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/attendance/dispute-day")
+async def att_dispute_day(req: Request) -> JSONResponse:
+    """Marti 7.6.: „Musím mít volbu — něco se mi na docházce nezdá." Den se
+    místo potvrzení ROZPORUJE (s poznámkou) → odblokuje příchod (zodpovědnost
+    splněna ozváním se), kontrola docházky dostane notifikaci a řeší."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
+    note = str((body or {}).get("note") or "").strip()[:500]
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        s.execute(_t(
+            "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id, disputed, note) "
+            "VALUES (:t, :e, :d, :u, true, :n) "
+            "ON CONFLICT (tenant_id, employee_id, day) DO UPDATE SET disputed = true, note = EXCLUDED.note"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": uid, "n": note or None})
+        # notifikace kontrole docházky (resolver) + tatínkovi jako anchor
+        who = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id = em.user_id WHERE em.id = :e"),
+            {"e": emp}).scalar() or ("zaměstnanec " + str(emp))
+        targets = {1}
+        try:
+            sup = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                            {"e": emp}).scalar()
+            if sup:
+                targets.add(int(sup))
+        except Exception:
+            pass
+        msg = (who + " rozporoval docházku za " + str(day.day) + ". " + str(day.month) + "."
+               + ((" — „" + note + "“") if note else "") + " Mrkni na záznamy a doladěte to spolu.")
+        for uid2 in sorted(targets):
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
+                {"uid": uid2, "ti": "✋ Rozporovaná docházka", "msg": msg[:600]})
+        s.commit()
+        return JSONResponse({"ok": True, "day": day.isoformat(), "disputed": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/zakazky")
 async def app_zakazky(req: Request) -> JSONResponse:
     """Marti 7.6.: picker zakázek pro píchání (VR/SW/PR/Rezie). Jen píchatelné

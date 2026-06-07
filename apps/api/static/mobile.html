@@ -716,6 +716,24 @@
             }).catch(function(){ b.disabled=false; });
           });
           card.appendChild(b);
+          // Marti 7.6.: „Musím mít volbu, něco se mi nezdá" → rozporování (odblokuje práci)
+          var dis=el('<button class="ghost full" style="margin-top:6px;border-color:var(--amber);color:var(--amber);">✋ Něco mi tu nesedí…</button>');
+          dis.addEventListener("click",function(){
+            if(card.querySelector(".disbox")) return;
+            var db=el('<div class="disbox" style="margin-top:8px;"></div>');
+            var ta=el('<textarea rows="2" placeholder="Co nesedí? (např. zapomněl jsem odchod, časy nesedí…)" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:10px;color:var(--tx);font-size:14px;font-family:inherit;"></textarea>');
+            var send=el('<button class="ghost full" style="margin-top:6px;border-color:var(--amber);color:var(--amber);">Odeslat kontrole docházky (a pusť mě do práce)</button>');
+            send.addEventListener("click",function(){
+              send.disabled=true;
+              api("POST","/api/v1/erp/app/attendance/dispute-day",{day:d.day,note:(ta.value||"").trim()}).then(function(j){
+                if(j&&j.ok){ card.remove(); left--; if(left<=0){ if(after) after(); else dochLoad(); } }
+                else { send.disabled=false; }
+              }).catch(function(){ send.disabled=false; });
+            });
+            db.appendChild(ta); db.appendChild(send); card.appendChild(db);
+            try{ta.focus();}catch(e){}
+          });
+          card.appendChild(dis);
           container.appendChild(card);
         });
       }

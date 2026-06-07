@@ -273,8 +273,14 @@ class DialPollService : Service() {
             nm().createNotificationChannel(
                 NotificationChannel(
                     CH_COMMAND, "Doporučení", NotificationManager.IMPORTANCE_HIGH
-                )
+                ).apply {
+                    setSound(sound, attrs)
+                    enableVibration(true)
+                }
             )
+            // úklid starých kanálů (v1) — jinak v nastavení visí duplicitně
+            try { nm().deleteNotificationChannel("claude_v1") } catch (e: Exception) {}
+            try { nm().deleteNotificationChannel("app_command") } catch (e: Exception) {}
             // Claude — potvrzení a zprávy (vlastní STRATEGIE zvuk)
             nm().createNotificationChannel(
                 NotificationChannel(
@@ -639,8 +645,8 @@ class DialPollService : Service() {
         const val CH_ONGOING = "dial_ongoing"
         const val CH_ALERT = "dial_alert_v2"      // v2 = vlastní STRATEGIE zvuk
         const val CH_UPDATE = "app_update"
-        const val CH_COMMAND = "app_command"
-        const val CH_CLAUDE = "claude_v1"         // potvrzení + zprávy od Clauda
+        const val CH_COMMAND = "app_command_v2"   // v2 (7.6.): zvuk se zasekl na starém kanálu
+        const val CH_CLAUDE = "claude_v2"         // v2 (7.6.): potvrzení + zprávy — hlasité (sticky kanál fix)
         const val NOTIF_ONGOING = 1001
         const val NOTIF_UPDATE = 1002
         const val NOTIF_AUTH_LOST = 1003

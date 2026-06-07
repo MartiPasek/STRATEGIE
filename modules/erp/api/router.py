@@ -6713,6 +6713,18 @@ async def app_commands_pending(app_key: str, req: Request) -> JSONResponse:
         pass
     ds = _gds_cp()
     try:
+        # Marti 7.6.: info zprávy (claude_msg) starší 24 h se samy uklidí —
+        # „když už neplatí, nesmí na mobilu viset". Potvrzení (claude_confirm)
+        # se uklízí při decide; TTL se jich netýká.
+        try:
+            ds.execute(_sql_cp(
+                "UPDATE fw.mobile_command SET status='done', decided_at=now() "
+                "WHERE app_key=:app AND target_user_id=:uid AND status='pending' "
+                "AND command_type='claude_msg' AND created_at < now() - interval '24 hours'"),
+                {"app": app_key, "uid": uid})
+            ds.commit()
+        except Exception:
+            ds.rollback()
         rows = ds.execute(_sql_cp("""
             SELECT id, command_type, title, message, payload
             FROM fw.mobile_command
@@ -7802,7 +7814,183 @@ _OPS_ACTIONS = {
         "label": "Zkontrolovat docházku (anomálie → notifikace)",
         "target": "cloud", "remote": False,
     },
+    "sync_fin": {
+        "label": "Migrovat finance lidí (EC_FinZamPodminky → STRATEGIE, vč. historie)",
+        "target": "cloud", "remote": False,
+    },
 }
+
+
+def _sync_fin_from_ec() -> dict:
+    """Marti 7.6.2026 (Finance v2 Fáze A, dle konzultace Marti-AI): migrace
+    EC_FinZamPodminky (932 verzí) → tenant.engagement (SCD2 + changed_by)
+    + wage_component (složky jako data, plán/real/hodinová) + entitlements.
+    Idempotentní dle ec_id. Firma: 0=ES, 1=EC (Marti potvrdil — sedí na uzávěrku)."""
+    import json as _json_f
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    sql = ("SELECT ID, CisloZam, ISNULL(Firma,0) firma, DruhSmlouvyText druh, "
+           "CONVERT(varchar(10),DatumSmlouvyOd,23) sml_od, CONVERT(varchar(10),DatumSmlouvyDo,23) sml_do, "
+           "CONVERT(varchar(10),ZkusebniDobaDo,23) zkus, "
+           "SmlouvaUvazekT uvt, RealUvazekT uvr, PocetHodMes fond, CAST(ISNULL(Hodinovka,0) AS int) hodinovka, "
+           "CONVERT(varchar(10),StravenkyOD,23) strav, StrucnyPopisPracPozic pozice, Poznamka note, "
+           "CONVERT(varchar(10),COALESCE(PlatnostOd,TarifOD,DatPorizeni),23) vfrom, "
+           "CAST(ISNULL(Aktualni,0) AS int) akt, "
+           "COALESCE(Zmenil, Autor) chby, CONVERT(varchar(19),COALESCE(DatZmeny,DatPorizeni),120) chat, "
+           "Zaklad, ZakladReal, ZakladZaHod, OsOhod, OsOhodReal, OsOhodZaHod, "
+           "MzdPremie, MzdPremieReal, IndividualOhod, IndividualOhodReal, "
+           "VedeniLidi, VedeniLidiReal, VedeniObch, VedeniObchReal, "
+           "Produkce, ProdukceReal, Kvalita, KvalitaReal, FKodexKultur, FKodexKulturReal, "
+           "VykonOhodZaHod, MontazKcHod, CestaMontazKcHod, "
+           "OdmenaJednatel, OdmenaGarant, JednorazovyPoplatek, "
+           "BenefitSluzebAut, PrispevekDoprava, "
+           "SickDayStandard, SickDayNavic, VolnoStandard, VolnoNavic "
+           "FROM EC_FinZamPodminky")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _json_f.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+
+    # (kód složky, sloupec plán, sloupec real, per_hour)
+    comp_map = [
+        ("zaklad", "Zaklad", "ZakladReal", False),
+        ("os_ohodnoceni", "OsOhod", "OsOhodReal", False),
+        ("premie", "MzdPremie", "MzdPremieReal", False),
+        ("individualni", "IndividualOhod", "IndividualOhodReal", False),
+        ("vedeni_lidi", "VedeniLidi", "VedeniLidiReal", False),
+        ("vedeni_obchod", "VedeniObch", "VedeniObchReal", False),
+        ("produkce", "Produkce", "ProdukceReal", False),
+        ("kvalita", "Kvalita", "KvalitaReal", False),
+        ("firemni_kodex", "FKodexKultur", "FKodexKulturReal", False),
+        ("vykon_hod", "VykonOhodZaHod", None, True),
+        ("montaz_hod", "MontazKcHod", None, True),
+        ("cesta_montaz_hod", "CestaMontazKcHod", None, True),
+        ("jednatelska_odmena", "OdmenaJednatel", None, False),
+        ("garant_odmena", "OdmenaGarant", None, False),
+        ("jednorazovy_poplatek", "JednorazovyPoplatek", None, False),
+        ("sluzebni_auto", "BenefitSluzebAut", None, False),
+        ("prispevek_doprava", "PrispevekDoprava", None, False),
+    ]
+    ent_map = [("sick_days_standard", "SickDayStandard"), ("sick_days_navic", "SickDayNavic"),
+               ("dovolena_standard", "VolnoStandard"), ("dovolena_navic", "VolnoNavic")]
+
+    def num(v):
+        try:
+            f = float(v)
+            return f if f != 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    ne = nc = 0
+    try:
+        comp_ids = {r2[0]: r2[1] for r2 in s.execute(_t(
+            "SELECT code, id FROM tenant.wage_component_type WHERE tenant_id = 2")).fetchall()}
+        co_ids = {r2[0]: r2[1] for r2 in s.execute(_t(
+            "SELECT code, id FROM tenant.company WHERE tenant_id = 2")).fetchall()}
+        emp_cache = {}
+
+        def emp_id(cislo):
+            key = str(cislo).strip()
+            if not key:
+                return None
+            if key in emp_cache:
+                return emp_cache[key]
+            r3 = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id = 2 AND cislo_zam = :c"),
+                           {"c": key}).first()
+            if not r3:
+                r3 = s.execute(_t(
+                    "INSERT INTO tenant.att_employee (tenant_id, cislo_zam, is_active, created_at, updated_at) "
+                    "VALUES (2, :c, false, now(), now()) RETURNING id"), {"c": key}).first()
+            emp_cache[key] = r3[0]
+            return r3[0]
+
+        for row in rows:
+            eid = emp_id(row.get("CisloZam"))
+            if eid is None:
+                continue
+            druh = (str(row.get("druh") or "").strip().lower() or None)
+            etype = {"hpp": "hpp", "dpp": "dpp", "dpc": "dpc", "osvc": "osvc"}.get(druh, druh)
+            comp = co_ids.get("ES" if int(row.get("firma") or 0) == 0 else "EC")
+            eng = s.execute(_t(
+                "INSERT INTO tenant.engagement (tenant_id, ec_id, company_id, employee_id,"
+                " engagement_type, druh_text, smlouva_od, smlouva_do, zkusebni_do,"
+                " uvazek_tyden_h, uvazek_real_tyden_h, fond_mesic_h, hodinovka, stravenky_od,"
+                " pozice_text, note, valid_from, is_current, changed_by_text, changed_at) "
+                "VALUES (2, :ec, :co, :emp, :ty, :dr, :so, :sd, :zk, :ut, :ur, :fo, :ho, :st,"
+                " :po, :no, :vf, :cur, :cb, :ca) "
+                "ON CONFLICT (tenant_id, ec_id) DO UPDATE SET company_id = EXCLUDED.company_id,"
+                " employee_id = EXCLUDED.employee_id, engagement_type = EXCLUDED.engagement_type,"
+                " druh_text = EXCLUDED.druh_text, smlouva_od = EXCLUDED.smlouva_od,"
+                " smlouva_do = EXCLUDED.smlouva_do, zkusebni_do = EXCLUDED.zkusebni_do,"
+                " uvazek_tyden_h = EXCLUDED.uvazek_tyden_h, uvazek_real_tyden_h = EXCLUDED.uvazek_real_tyden_h,"
+                " fond_mesic_h = EXCLUDED.fond_mesic_h, hodinovka = EXCLUDED.hodinovka,"
+                " stravenky_od = EXCLUDED.stravenky_od, pozice_text = EXCLUDED.pozice_text,"
+                " note = EXCLUDED.note, valid_from = EXCLUDED.valid_from,"
+                " is_current = EXCLUDED.is_current, changed_by_text = EXCLUDED.changed_by_text,"
+                " changed_at = EXCLUDED.changed_at "
+                "RETURNING id"),
+                {"ec": row.get("ID"), "co": comp, "emp": eid, "ty": etype, "dr": row.get("druh"),
+                 "so": row.get("sml_od") or None, "sd": row.get("sml_do") or None,
+                 "zk": row.get("zkus") or None, "ut": num(row.get("uvt")), "ur": num(row.get("uvr")),
+                 "fo": num(row.get("fond")), "ho": bool(int(row.get("hodinovka") or 0)),
+                 "st": row.get("strav") or None,
+                 "po": (str(row.get("pozice") or "")[:1000] or None),
+                 "no": (str(row.get("note") or "")[:2000] or None),
+                 "vf": row.get("vfrom") or None, "cur": bool(int(row.get("akt") or 0)),
+                 "cb": (str(row.get("chby") or "")[:120] or None),
+                 "ca": row.get("chat") or None}).scalar()
+            ne += 1
+            for code, col_p, col_r, ph in comp_map:
+                tid = comp_ids.get(code)
+                if not tid:
+                    continue
+                ap = num(row.get(col_p))
+                ar = num(row.get(col_r)) if col_r else None
+                if ap is None and ar is None:
+                    continue
+                s.execute(_t(
+                    "INSERT INTO tenant.wage_component (tenant_id, engagement_id, component_type_id,"
+                    " amount_planned, amount_real, per_hour, changed_by_text, changed_at) "
+                    "VALUES (2, :eng, :tid, :ap, :ar, :ph, :cb, :ca) "
+                    "ON CONFLICT (tenant_id, engagement_id, component_type_id) DO UPDATE SET"
+                    " amount_planned = EXCLUDED.amount_planned, amount_real = EXCLUDED.amount_real,"
+                    " per_hour = EXCLUDED.per_hour, changed_by_text = EXCLUDED.changed_by_text,"
+                    " changed_at = EXCLUDED.changed_at"),
+                    {"eng": eng, "tid": tid, "ap": ap, "ar": ar, "ph": ph,
+                     "cb": (str(row.get("chby") or "")[:120] or None), "ca": row.get("chat") or None})
+                nc += 1
+            for code, col in ent_map:
+                v = num(row.get(col))
+                if v is None:
+                    continue
+                s.execute(_t(
+                    "INSERT INTO tenant.engagement_entitlement (tenant_id, engagement_id, code, value) "
+                    "VALUES (2, :eng, :c, :v) "
+                    "ON CONFLICT (tenant_id, engagement_id, code) DO UPDATE SET value = EXCLUDED.value"),
+                    {"eng": eng, "c": code, "v": v})
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"engagements": ne, "components": nc}
 
 
 def _att_anomaly_scan(notify: bool = True) -> dict:
@@ -8242,6 +8430,11 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("anomálie: %s nových nálezů, %s notifikací"
                       % (out.get("found"), out.get("notified")))
+        elif action_key == "sync_fin":
+            out = _sync_fin_from_ec()
+            status = "done"
+            result = ("finance: %s verzí engagementů, %s složek"
+                      % (out.get("engagements"), out.get("components")))
         else:
             status, result = "error", "cloud handler chybí pro %s" % action_key
     except Exception as exc:

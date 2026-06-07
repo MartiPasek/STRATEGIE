@@ -6793,6 +6793,11 @@ async def netscan_ingest(req: Request) -> JSONResponse:
         auto = _netscan_auto_checkin()
     except Exception:
         logger.exception("[netscan] auto-checkin failed")
+    # …a při té příležitosti hlídka anomálií (dedup v tabulce → žádný spam)
+    try:
+        _att_anomaly_scan()
+    except Exception:
+        logger.exception("[netscan] anomaly scan failed")
     return JSONResponse({"ok": True, "count": n, "auto_checkin": auto})
 
 
@@ -7710,7 +7715,109 @@ _OPS_ACTIONS = {
         "label": "Synchronizovat org strukturu (EC_Org* → STRATEGIE)",
         "target": "cloud", "remote": False,
     },
+    "att_anomaly_scan": {
+        "label": "Zkontrolovat docházku (anomálie → notifikace)",
+        "target": "cloud", "remote": False,
+    },
 }
+
+
+def _att_anomaly_scan(notify: bool = True) -> dict:
+    """Marti 7.6.2026: „systém si má všímat nestandardností a sám upozorňovat."
+    Pravidla (z reálných nálezů — Petra: píchnuto v budoucnosti, 23h směny):
+      R1 budouci_zaznam  — presence záznam s časem v budoucnosti
+      R2 dlouha_smena    — hours > 12
+      R3 zapomenuty_odchod — otevřená směna ze včerejška a starší
+      R4 prace_pri_absenci — presence záznam v den schválené absence
+    Dedup přes tenant.att_anomaly (UNIQUE rule+entry). Notifikace: dotyčný
+    + kontrola docházky (resolve_role attendance_supervisor)."""
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    found = 0
+    notified = 0
+    try:
+        rows = s.execute(_t("""
+            WITH kand AS (
+              SELECT e.id, e.employee_id, 'budouci_zaznam' AS rule,
+                     to_char(e.entry_date, 'DD.MM.') || ' záznam v budoucnosti ('
+                       || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
+                       || '–' || COALESCE(to_char(e.ended_at,'HH24') || ':' || to_char(e.ended_at,'MI'), '…') || ')' AS detail
+              FROM tenant.att_entry e
+              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
+              WHERE e.tenant_id = 2 AND et.category = 'presence'
+                AND e.entry_date > current_date AND e.started_at IS NOT NULL
+                AND e.status NOT IN ('superseded','announced')
+              UNION ALL
+              SELECT e.id, e.employee_id, 'dlouha_smena',
+                     to_char(e.entry_date, 'DD.MM.') || ' směna ' || round(e.hours::numeric,1) || ' h ('
+                       || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
+                       || '–' || COALESCE(to_char(e.ended_at,'HH24') || ':' || to_char(e.ended_at,'MI'), '?') || ')'
+              FROM tenant.att_entry e
+              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
+              WHERE e.tenant_id = 2 AND et.category = 'presence'
+                AND e.hours > 12 AND e.status NOT IN ('superseded','announced')
+              UNION ALL
+              SELECT e.id, e.employee_id, 'zapomenuty_odchod',
+                     to_char(e.entry_date, 'DD.MM.') || ' otevřená směna od '
+                       || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
+                       || ' — chybí odchod'
+              FROM tenant.att_entry e
+              WHERE e.tenant_id = 2 AND e.is_active = true AND e.entry_date < current_date
+              UNION ALL
+              SELECT e.id, e.employee_id, 'prace_pri_absenci',
+                     to_char(e.entry_date, 'DD.MM.') || ' píchnutá práce v den nahlášené nepřítomnosti'
+              FROM tenant.att_entry e
+              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
+              WHERE e.tenant_id = 2 AND et.category = 'presence' AND e.started_at IS NOT NULL
+                AND e.status NOT IN ('superseded','announced')
+                AND EXISTS (SELECT 1 FROM tenant.att_entry a2
+                            JOIN tenant.att_entry_type t2 ON t2.id = a2.entry_type_id
+                            WHERE a2.tenant_id = 2 AND a2.employee_id = e.employee_id
+                              AND a2.entry_date = e.entry_date AND t2.category = 'absence'
+                              AND a2.status IN ('pending','approved'))
+            )
+            INSERT INTO tenant.att_anomaly (tenant_id, employee_id, entry_id, rule, detail)
+            SELECT 2, k.employee_id, k.id, k.rule, k.detail FROM kand k
+            ON CONFLICT (tenant_id, rule, entry_id) DO NOTHING
+            RETURNING employee_id, rule, detail
+        """)).fetchall()
+        found = len(rows)
+        if rows and notify:
+            for r in rows:
+                emp_id, rule, detail = r[0], r[1], r[2]
+                info = s.execute(_t(
+                    "SELECT em.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), em.full_name) "
+                    "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id = em.user_id "
+                    "WHERE em.id = :e"), {"e": emp_id}).first()
+                emp_uid = info[0] if info else None
+                emp_name = (info[1] if info else None) or ("zaměstnanec " + str(emp_id))
+                targets = set()
+                if emp_uid:
+                    targets.add(int(emp_uid))
+                try:
+                    sup = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                                    {"e": emp_id}).scalar()
+                    if sup:
+                        targets.add(int(sup))
+                except Exception:
+                    pass
+                for uid2 in sorted(targets):
+                    mine = (emp_uid is not None and uid2 == int(emp_uid))
+                    msg = (("V docházce mám nesrovnalost: " + detail + " — mrkni na to, nebo mi napiš a opravíme to spolu.")
+                           if mine else
+                           (emp_name + ": " + detail))
+                    s.execute(_t(
+                        "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                        "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
+                        {"uid": uid2, "ti": "⚠ Docházka — nesrovnalost", "msg": msg[:600]})
+                    notified += 1
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"found": found, "notified": notified}
 
 
 def _sync_org_from_ec() -> dict:
@@ -8026,6 +8133,11 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("org sync: %s postů, %s obsazení, %s klobouků"
                       % (out.get("posts"), out.get("assigns"), out.get("hats")))
+        elif action_key == "att_anomaly_scan":
+            out = _att_anomaly_scan()
+            status = "done"
+            result = ("anomálie: %s nových nálezů, %s notifikací"
+                      % (out.get("found"), out.get("notified")))
         else:
             status, result = "error", "cloud handler chybí pro %s" % action_key
     except Exception as exc:

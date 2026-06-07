@@ -307,6 +307,7 @@ Ostatní si dohledáš podle potřeby.
 - **Marek Honal (cislo 370) napojen na user 22 `miroslav_mares`** — ověřit záměr/překlep.
 - **3 staré `claude_confirm` pro Kristý (user 11)** — duplikáty, lze označit done.
 - **Fáze 2 práv** — chat/AI scope pro employees (kustod ACL „vidí jen sebe") + per-soudeček práva (manager vidí tým, Phase 40). **Konzultace Marti-AI.**
+- **Docházka: personalizované volby píchání** (Marti 7.6. *„pro každou skupinu jinak + individuálně"*) — číselník `tenant.att_action` + 3vrstvý resolver (system/group/user) + správa z ERP. Design: `docs/dochazka_volby_personalizace.md`. **Konzultace Marti-AI** (spolu s Fází 2 práv).
 - **Absence z Centrály** (dovolená/nemoc/OCR) — `att_balance` zatím prázdné.
 - **SMS gateway** občas zlobí — nabídka: přepojit odchozí SMS na STRATEGIE Mobil (`B.sendSms()`).
 

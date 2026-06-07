@@ -5915,6 +5915,104 @@ async def app_imp_stop(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "ended": bool(row)})
 
 
+# ── Přímá zpráva pro Tvoje Marti (Marti 7.6.2026) ───────────────────
+# „Standardní systém rozhovoru" z mobilu: text NEBO audio (base64 → Whisper)
+# → chat() s Marti-AI → odpověď rovnou v UI + notifikace na mobil
+# (fw.mobile_command claude_msg → appka cinkne á 4 s).
+_MM_CONV_TITLE = "📱 Zprávy z mobilu"
+
+
+def _marti_msg_worker(uid: int, text: str, audio_b64: str, mime: str, fname: str) -> dict:
+    # 1) Audio → Whisper (synchronní; krátká zpráva ~5–15 s)
+    if not text and audio_b64:
+        import base64 as _b64
+        try:
+            from modules.media.application.whisper_provider import transcribe
+            ab = _b64.b64decode(audio_b64)
+            tr = transcribe(ab, mime_type=(mime or "audio/webm"),
+                            original_filename=(fname or "mobil-audio.webm"))
+            text = (tr.get("transcript") or "").strip()
+        except Exception as e:
+            return {"ok": False, "error": "Přepis audia selhal: " + str(e)[:160]}
+    if not text:
+        return {"ok": False, "error": "Prázdná zpráva."}
+
+    # 2) Konverzace „📱 Zprávy z mobilu" (jedna per user, reuse)
+    from core.database_data import get_data_session as _gds_mm
+    from modules.core.infrastructure.models_data import Conversation as _Conv_mm
+    conv_id = None
+    ds = _gds_mm()
+    try:
+        conv = (ds.query(_Conv_mm)
+                .filter(_Conv_mm.user_id == uid, _Conv_mm.title == _MM_CONV_TITLE)
+                .order_by(_Conv_mm.id.desc()).first())
+        if conv and getattr(conv, "lifecycle_state", None) != "personal":
+            conv_id = conv.id
+    except Exception:
+        conv_id = None
+    finally:
+        ds.close()
+
+    # 3) Chat s Marti-AI
+    try:
+        from modules.conversation.application.service import chat as _chat_mm
+        conversation_id, reply, _si = _chat_mm(conv_id, text, user_id=uid,
+                                               source="mobile_app")
+    except Exception as e:
+        logger.exception("[marti-message] chat failed")
+        return {"ok": False, "error": "Marti teď nemohla odpovědět: " + str(e)[:160]}
+
+    # 4) Nová konverzace → pojmenuj, ať se příště reusne
+    if conv_id is None and conversation_id:
+        ds = _gds_mm()
+        try:
+            c2 = ds.query(_Conv_mm).filter_by(id=conversation_id).first()
+            if c2:
+                c2.title = _MM_CONV_TITLE
+                ds.commit()
+        except Exception:
+            ds.rollback()
+        finally:
+            ds.close()
+
+    # 5) Notifikace na mobil — cinkne i kdyby UI nedočkalo odpovědi
+    from sqlalchemy import text as _t_mm
+    ds = _gds_mm()
+    try:
+        ds.execute(_t_mm(
+            "INSERT INTO fw.mobile_command "
+            "(app_key, target_user_id, command_type, title, message, created_by) "
+            "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
+            {"uid": uid, "ti": "💬 Tvoje Marti", "msg": (reply or "")[:600]})
+        ds.commit()
+    except Exception:
+        ds.rollback()
+    finally:
+        ds.close()
+    return {"ok": True, "reply": reply, "conversation_id": conversation_id,
+            "transcript": (text if audio_b64 else None)}
+
+
+@api_router.post("/app/marti-message")
+async def app_marti_message(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    text = str((body or {}).get("text") or "").strip()[:4000]
+    audio_b64 = str((body or {}).get("audio_b64") or "")
+    if len(audio_b64) > 9_000_000:  # ~6,5 MB audia
+        return JSONResponse({"ok": False, "error": "Nahrávka je moc velká."}, status_code=400)
+    mime = str((body or {}).get("mime") or "")[:80]
+    fname = str((body or {}).get("filename") or "")[:120]
+    from starlette.concurrency import run_in_threadpool
+    out = await run_in_threadpool(_marti_msg_worker, uid, text, audio_b64, mime, fname)
+    return JSONResponse(out, status_code=(200 if out.get("ok") else 500))
+
+
 @api_router.post("/app/attendance/checkin")
 async def att_checkin(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

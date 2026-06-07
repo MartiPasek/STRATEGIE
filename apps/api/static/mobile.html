@@ -734,6 +734,65 @@
         z.addEventListener("click",showOpts); bw.appendChild(z);
       }
       function czDate(iso){ var p=(iso||"").split("-"); return p.length===3?(Number(p[2])+". "+Number(p[1])+"."):iso; }
+      // Přímá zpráva pro Tvoje Marti (Marti 7.6.): text i audio, odpověď hned + notifikace.
+      function martiMsgUI(){
+        bw.innerHTML="";
+        bw.appendChild(el('<div class="hint" style="margin:4px 0 4px;">Napiš nebo nahraj — Tvoje Marti odpoví tady a cinkne ti notifikace.</div>'));
+        var ta=el('<textarea rows="3" placeholder="Napiš, co potřebuješ…" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;"></textarea>');
+        var send=el('<button class="green full" style="margin-top:8px;">📤 Odeslat Tvojí Marti</button>');
+        var rec=el('<button class="ghost full" style="margin-top:8px;border-color:var(--blue);color:var(--blue);">🎙 Nahrát audio…</button>');
+        var st=el('<div class="hint" style="margin-top:8px;"></div>');
+        var reply=el('<div style="display:none;margin-top:10px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:10px;padding:12px;font-size:14px;line-height:1.5;white-space:pre-wrap;"></div>');
+        function busy(t){ st.textContent=t; }
+        function doSend(payload){
+          busy("💭 Tvoje Marti přemýšlí…"); send.disabled=true; rec.disabled=true;
+          api("POST","/api/v1/erp/app/marti-message",payload).then(function(j){
+            send.disabled=false; rec.disabled=false;
+            if(j&&j.ok){
+              busy("✅ Odpovězeno — přišla ti i notifikace 🔔");
+              reply.style.display="block";
+              reply.textContent=(payload.audio_b64&&j.transcript?("🎙 Rozuměla jsem: „"+j.transcript+"“\n\n"):"")+(j.reply||"");
+              ta.value="";
+            } else busy("✗ "+((j&&j.error)||"Nepodařilo se."));
+          }).catch(function(){ send.disabled=false; rec.disabled=false; busy("⏳ Trvá to déle — odpověď ti přijde notifikací 🔔"); });
+        }
+        send.addEventListener("click",function(){ var t=(ta.value||"").trim(); if(t) doSend({text:t}); });
+        var recState=null;
+        function fileFallback(){
+          var fi=el('<input type="file" accept="audio/*" capture style="display:none;">');
+          fi.addEventListener("change",function(){
+            var f=fi.files&&fi.files[0]; if(!f)return;
+            if(f.size>6*1024*1024){ busy("✗ Nahrávka je moc velká (max ~6 MB)."); return; }
+            var fr=new FileReader();
+            fr.onload=function(){ doSend({audio_b64:String(fr.result).split(",")[1],mime:f.type||"audio/m4a",filename:f.name||"audio"}); };
+            fr.readAsDataURL(f);
+          });
+          bw.appendChild(fi); fi.click();
+        }
+        rec.addEventListener("click",function(){
+          if(recState){ try{recState.stop();}catch(e){} return; }
+          if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder){
+            navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+              var chunks=[]; var mr=new MediaRecorder(stream);
+              mr.ondataavailable=function(e){ if(e.data&&e.data.size)chunks.push(e.data); };
+              mr.onstop=function(){
+                stream.getTracks().forEach(function(t){t.stop();});
+                rec.textContent="🎙 Nahrát audio…"; recState=null;
+                var blob=new Blob(chunks,{type:mr.mimeType||"audio/webm"});
+                if(blob.size>6*1024*1024){ busy("✗ Nahrávka je moc dlouhá."); return; }
+                var fr=new FileReader();
+                fr.onload=function(){ doSend({audio_b64:String(fr.result).split(",")[1],mime:blob.type,filename:"mobil-audio.webm"}); };
+                fr.readAsDataURL(blob);
+              };
+              mr.start(); recState=mr;
+              rec.textContent="⏹ Zastavit a odeslat"; busy("🔴 Nahrávám… (klepni Zastavit)");
+            }).catch(function(){ fileFallback(); });
+          } else { fileFallback(); }
+        });
+        bw.appendChild(ta); bw.appendChild(send); bw.appendChild(rec); bw.appendChild(st); bw.appendChild(reply);
+        var z=el('<button class="ghost full" style="margin-top:10px;">Zpět</button>');
+        z.addEventListener("click",showOpts); bw.appendChild(z);
+      }
       function presence(payload, b){ b.disabled=true; api("POST","/api/v1/erp/app/attendance/announce",payload).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); }
       function absence(payload, then){ return api("POST","/api/v1/erp/app/attendance/absence",payload).then(then); }
       function showOpts(){
@@ -745,6 +804,9 @@
             ["🍃 Jdu se provětrat / najíst…",      function(){ chips("Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); }); }],
             ["📅 Mám jednání do…",                 function(){ chips("Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); }); }]
           ],"warn");
+          var mm1=btnEl("💬 Přímá zpráva pro Tvoje Marti…","ghost");
+          mm1.style.borderColor="var(--blue)"; mm1.style.color="var(--blue)";
+          mm1.addEventListener("click",martiMsgUI); bw.appendChild(mm1);
           var more=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more);
           var sub=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
           [["🩺 Jedu k lékaři, nebojte, pak dorazím…", {reason:"lékař — vrátí se",presence:"Jsem u lékaře, pak dorazím"}],
@@ -763,6 +825,9 @@
             ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }],
             ["🚗 Už jedu do práce…",   function(){ chips("Dorazím za cca:",function(m,b){ presence({eta_min:m},b); }); }]
           ],"green");
+          var mm2=btnEl("💬 Přímá zpráva pro Tvoje Marti…","ghost");
+          mm2.style.borderColor="var(--blue)"; mm2.style.color="var(--blue)";
+          mm2.addEventListener("click",martiMsgUI); bw.appendChild(mm2);
           var more2=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more2);
           var sub2=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
           [["🧰 Režie", function(b){ act("checkin",{kind:"overhead"},b); }],

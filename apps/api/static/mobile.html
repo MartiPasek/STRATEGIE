@@ -965,19 +965,41 @@ window.onerror=function(msg,src,line){
         var rec=el('<button class="ghost" style="width:64px;font-size:18px;border-color:var(--blue);color:var(--blue);">🎙</button>');
         setTimeout(function(){ try{ box.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
         var st=el('<div class="hint" style="margin-top:8px;"></div>');
-        var reply=el('<div style="display:none;margin-top:10px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:10px;padding:12px;font-size:14px;line-height:1.5;white-space:pre-wrap;"></div>');
+        // Marti 7.6. večer: scrollovací okno odpovědi + polling — odpověď dorazí
+        // PŘÍMO sem do menu, i když to trvá déle (notifikace je jen bonus).
+        var reply=el('<div style="display:none;margin-top:10px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:10px;padding:12px;font-size:14px;line-height:1.5;white-space:pre-wrap;max-height:45vh;overflow-y:auto;"></div>');
         function busy(t){ st.textContent=t; }
+        var mmAfter=0, mmPoll=null;
+        function showReply(txt){
+          send.disabled=false; rec.disabled=false;
+          reply.style.display="block"; reply.textContent=txt; ta.value="";
+          try{ reply.scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(e){}
+        }
+        function pollReply(){
+          if(mmPoll) return;
+          var tries=0;
+          mmPoll=setInterval(function(){
+            if(!document.body.contains(reply)){ clearInterval(mmPoll); mmPoll=null; return; }
+            if(++tries>36){ clearInterval(mmPoll); mmPoll=null; busy("⏳ Odpověď ti dorazí notifikací 🔔"); return; }
+            api("GET","/api/v1/erp/app/marti-message/last?after="+(mmAfter||0),"").then(function(r){
+              if(r&&r.id&&r.reply){
+                clearInterval(mmPoll); mmPoll=null;
+                busy("✅ Odpověď dorazila");
+                showReply(r.reply);
+              }
+            });
+          },5000);
+        }
         function doSend(payload){
           busy("💭 Tvoje Marti přemýšlí…"); send.disabled=true; rec.disabled=true;
+          api("GET","/api/v1/erp/app/marti-message/last","").then(function(b0){ mmAfter=(b0&&b0.id)||0; });
           api("POST","/api/v1/erp/app/marti-message",payload).then(function(j){
-            send.disabled=false; rec.disabled=false;
             if(j&&j.ok){
-              busy("✅ Odpovězeno — přišla ti i notifikace 🔔");
-              reply.style.display="block";
-              reply.textContent=(payload.audio_b64&&j.transcript?("🎙 Rozuměla jsem: „"+j.transcript+"“\n\n"):"")+(j.reply||"");
-              ta.value="";
-            } else busy("✗ "+((j&&j.error)||"Nepodařilo se."));
-          }).catch(function(){ send.disabled=false; rec.disabled=false; busy("⏳ Trvá to déle — odpověď ti přijde notifikací 🔔"); });
+              busy("✅ Odpovězeno");
+              showReply((payload.audio_b64&&j.transcript?("🎙 Rozuměla jsem: „"+j.transcript+"“\n\n"):"")+(j.reply||""));
+            } else if(j&&j.error){ send.disabled=false; rec.disabled=false; busy("✗ "+j.error); }
+            else { busy("⏳ Trvá to déle — čekám na odpověď…"); pollReply(); }
+          }).catch(function(){ busy("⏳ Trvá to déle — čekám na odpověď…"); pollReply(); });
         }
         send.addEventListener("click",function(){ var t=(ta.value||"").trim(); if(t) doSend({text:t}); });
         var recState=null;

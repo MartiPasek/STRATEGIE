@@ -6443,6 +6443,38 @@ async def app_marti_message(req: Request) -> JSONResponse:
     return JSONResponse(out, status_code=(200 if out.get("ok") else 500))
 
 
+@api_router.get("/app/marti-message/last")
+async def app_marti_message_last(req: Request) -> JSONResponse:
+    """Marti 7.6. večer: vyzvednutí odpovědi Marti-AI přímo do mobilního menu.
+    ?after=<message_id> → poslední NOVĚJŠÍ assistant zpráva z konverzace
+    „Zprávy z mobilu" (jen čerstvá — max 10 minut stará, ochrana proti staré)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        after_id = int(req.query_params.get("after") or 0)
+    except Exception:
+        after_id = 0
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session as _gds_ml
+    ds = _gds_ml()
+    try:
+        row = ds.execute(_t(
+            "SELECT m.id, m.content FROM messages m "
+            "JOIN conversations c ON c.id = m.conversation_id "
+            "WHERE c.user_id = :u AND c.title = :tt AND m.role = 'assistant' "
+            "AND m.id > :a AND COALESCE(m.content,'') <> '' "
+            "AND m.created_at > now() - interval '10 minutes' "
+            "ORDER BY m.id DESC LIMIT 1"),
+            {"u": uid, "tt": _MM_CONV_TITLE, "a": after_id}).first()
+        return JSONResponse({"ok": True, "id": (row[0] if row else None),
+                             "reply": (row[1] if row else None)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.post("/app/attendance/checkin")
 async def att_checkin(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

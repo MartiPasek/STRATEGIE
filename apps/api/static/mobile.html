@@ -1077,13 +1077,17 @@ window.onerror=function(msg,src,line){
       if(hd) hd.style.display=open?"":"none";
       var annHtml=(j.announced?('<div style="color:var(--amber);font-size:14px;margin-top:6px;">💬 '+esc(j.announced)+'</div>'):'');
       // Marti 7.6. večer: JEDNO číslo = odpracováno bez pauz (today_hours).
-      c.innerHTML=(open?'':'<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b></div>')+annHtml;
+      // Hlavička jen číslo zakázky, plný název až po rozbalení.
+      c.innerHTML=(open
+          ? (open.project_name?('<div style="font-size:13.5px;">Zakázka: <b>'+esc(open.project_name)+'</b></div>'):'')
+          : '<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b></div>')
+        +annHtml;
       if(_dS&&_dS.today){
         var T=_dS.today;
         if(open){
           var ms=j.morning_start||open.started_at||"";
           T.ttl.innerHTML='Od: <b>'+(ms?esc(ms.substr(11,5)):"—")+'</b>'
-            +(open.project_name||open.project_ref?(' &nbsp;·&nbsp; Zakázka: <b>'+esc(open.project_name||open.project_ref)+'</b>'):'');
+            +(open.project_ref?(' &nbsp;·&nbsp; Zakázka: <b>'+esc(open.project_ref)+'</b>'):'');
           T.ttl.style.cssText="font-size:14.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
           T.val.textContent=fmtHM(j.today_hours||0);
           T.val.style.color="var(--green)"; T.val.style.fontSize="18px";

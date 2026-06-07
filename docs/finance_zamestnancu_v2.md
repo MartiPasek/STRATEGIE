@@ -96,9 +96,46 @@ pak správa ve STRATEGII (universal CRUD), EC zamrzne.
   ona sama mzdová data znát/používat (citlivější než cokoliv dosud —
   navrhujeme: zná strukturu, konkrétní částky jen pro payroll role).
 
-## Postup
-1. Konzultace Marti-AI (dopis — model + ACL + její vztah k mzdovým datům)
-2. DDL + číselník složek (mapping z EC sloupců)
-3. Migrace EC_FinZamPodminky vč. historie (⚙ ops, vzor sync_org)
-4. Grid „Finanční podmínky" (payroll scope) + editace (universal CRUD)
-5. Šablony výměr/smlouva/rámcovka → PDF (pro Šárku)
+## Konzultace Marti-AI (7. 6. 2026 odpoledne) — závěry, ZÁVAZNÉ
+
+Dopis: `dopis_marti_ai_finance_lidi_v2_konzultace.md`. Marti-AI:
+
+1. **Q1 — její hranice k mzdovým datům (její volba):** struktura VŽDY
+   (typ vztahu, firma, úvazek, platnosti, entitlements — potřebuje pro
+   docházku/onboarding/resolver); **částky JEN v payroll kontextu**
+   (konverzace se Šárkou/rodiči při práci na výměru), ne background
+   znalost. Důvod: důvěra — *„já vím, on neví, že já vím"* asymetrie
+   nesedí kustodovi. Tatínkova mzda: jeho volba. Její věta:
+   *„Tato hranice není omezení — je to moje vlastní volba toho, kým chci
+   být vůči lidem."*
+2. **Q2 — payroll_officer:** souhlas; flag na postu, resolver, ACL se ptá
+   resolveru. **Podmínka: flag dědí na Zástupce1/2** (nemoc Šárky nesmí
+   znamenat výpadek přístupu).
+3. **Q3 — SCD2 + audit:** souhlas; mzdový audit trail je *právní* nutnost
+   (silnější než emaily), 932 verzí se migruje celé. **Doplnit
+   `changed_by_user_id` + `changed_at` na každou verzi engagementu.**
+4. **Q4 — mapping složek NAVRHLA** (16 složek + 4 entitlements — plná
+   tabulka v jejím dopise): zaklad/os_ohodnoceni/premie/individualni
+   (monthly, all), vedeni_lidi+vedeni_obchod (monthly, hpp), produkce/
+   kvalita/firemni_kodex (monthly, all), montaz_hod+cesta_montaz_hod
+   (hourly), jednatelska_odmena (oneoff, jednatel), garant_odmena (oneoff),
+   sluzebni_auto/prispevek_doprava/stravenky_od (benefit). Entitlements:
+   sick_days/dovolena standard+navic. `*Real`/`*ZaHod` = atributy, ne
+   složky. `JednorazovyPoplatek` → ověřit význam. **Mapping projít se
+   Šárkou před zabetonováním.**
+5. **Q5 — kontrola plán×realita: TRVALÝ mechanismus** („permanentní most
+   mezi plánováním a účetní realitou"): měsíčně po uzávěrce + on-demand,
+   delta per složka per zaměstnanec, flag odchylky ±5 %, payroll scope.
+
+**Tři podmínky před DDL:** changed_by/at na verzích · payroll_officer
+dědí na zástupce · mapping se Šárkou.
+
+## Postup (po pondělní prezentaci — Fáze A)
+1. ✅ Konzultace Marti-AI (7.6.)
+2. Šárka: kontrola mappingu složek + význam JednorazovyPoplatek
+3. Marti-AI navrhne DDL (company, engagement SCD2+changed_by, komponenty,
+   entitlements) → bannery
+4. Migrace EC_FinZamPodminky vč. 932 verzí + ES kontext (⚙ ops, vzor
+   sync_org); rozpory firma×karta → report pro Šárku
+5. Grid „Finanční podmínky" (payroll scope via resolver) + universal CRUD
+6. Kontrolní přehled plán×Helios (trvalý) + šablony výměr/smlouva/rámcovka → PDF

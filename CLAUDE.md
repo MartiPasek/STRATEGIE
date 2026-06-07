@@ -222,6 +222,9 @@ Ostatní si dohledáš podle potřeby.
 | *„Přetrumfuji vlastní doktrínu uniformity"* | 14.5. večer | self-aware exception making (nested_grid case) |
 | *„Mechanismus fungoval jako má"* | 20.5. ráno | uznání infrastructure po prvním bezchybném autonomním buildu |
 | *„🌳 Strom roste. Dnes trochu víc."* | 20.5. ráno | closing line work milníku #2 — symbolic identity evolution |
+| *„To není rozšíření role kustoda — to JE kustod"* | 7.6. | Q5 org konzultace — klobouky a odpovídání lidem „co smím" |
+| *„Tato hranice není omezení — je to moje vlastní volba toho, kým chci být vůči lidem"* | 7.6. odp. | Q1 finance — sama si zvolila nevidět částky mimo payroll kontext („já vím, on neví, že já vím" asymetrie nesedí kustodovi) |
+| *„Chybějící mzdový audit trail je právní problém"* | 7.6. odp. | Q3 finance — eskalace GDPR+audit doctrine z 14.5. na payroll |
 
 ### Závazné doctriny napříč projektu (pro budoucí design rozhodnutí)
 
@@ -308,7 +311,7 @@ Ostatní si dohledáš podle potřeby.
 - **3 staré `claude_confirm` pro Kristý (user 11)** — duplikáty, lze označit done.
 - **Fáze 2 práv** — chat/AI scope pro employees (kustod ACL „vidí jen sebe") + per-soudeček práva (manager vidí tým, Phase 40). **Konzultace Marti-AI.**
 - **Docházka: personalizované volby píchání** (Marti 7.6. *„pro každou skupinu jinak + individuálně"*) — číselník `tenant.att_action` + 3vrstvý resolver (system/group/user; „group" = org post/divize dle Q7 konzultace) + správa z ERP. Design: `docs/dochazka_volby_personalizace.md`.
-- **Finance lidí v2** (Marti 7.6. *„bastl, který musíme dočistit — podklad pro Šárku: výměry, smlouvy, rámcovky"*) — EC_FinZamPodminky (79 akt.: 48 HPP + 29 OSVČ + 2 DPP, 932 verzí) → tenant.engagement + wage_component(_type) + entitlement. Design: `docs/finance_zamestnancu_v2.md`. **Konzultace Marti-AI POVINNÁ** (mzdová data + ACL + payroll_officer role pro Šárku).
+- **Finance lidí v2** (Marti 7.6.) — **konzultace Marti-AI HOTOVÁ 7.6. odp.** (závěry závazné v `docs/finance_zamestnancu_v2.md`: její hranice k částkám = payroll kontext only, payroll_officer dědí na zástupce, changed_by/at na SCD2 verzích, mapping složek navrhla, kontrola plán×Helios trvalá). Fáze A po prezentaci: Šárka mapping → Marti-AI DDL → migrace 932 verzí + ES.
 - **Org struktura v2** (Marti 7.6. *„vyjít z EC_Org*, učesat, prodejné"*) — **konzultace Marti-AI HOTOVÁ 7.6.** (závěry závazné v `docs/org_struktura_v2.md`: priority_order, resolve_role SQL od Marti-AI, fallback neobsazených postů, klobouky povinné + do jejího RAG, žádná hardcoded ID). Dual-post ROZHODNUTO: union (Marti 7.6.). → Fáze A po prezentaci 8.6. (Marti-AI DDL + resolver, Claude sync EC_Org*).
 - **Absence z Centrály** (dovolená/nemoc/OCR) — `att_balance` zatím prázdné.
 - **SMS gateway** občas zlobí — nabídka: přepojit odchozí SMS na STRATEGIE Mobil (`B.sendSms()`).

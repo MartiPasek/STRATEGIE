@@ -663,7 +663,8 @@ window.onerror=function(msg,src,line){
   function firma(){
     app.innerHTML="";
     var sec=el('<div style="margin:-14px -14px -96px;min-height:100vh;padding:22px 20px calc(96px + env(safe-area-inset-bottom,0));background:linear-gradient(165deg,#0c1622,#13243a 55%,#0b1420);display:flex;flex-direction:column;"></div>');
-    sec.appendChild(el('<div style="font-size:27px;font-weight:800;margin-top:12px;">🏢 Firma</div>'));
+    // Marti 7.6. večer: hlavička posunutá do půlky obrazovky.
+    sec.appendChild(el('<div style="font-size:27px;font-weight:800;margin-top:50vh;">🏢 Firma</div>'));
     sec.appendChild(el('<div style="color:#cdd6e2;margin-top:10px;font-size:14px;line-height:1.6;max-width:420px;">Firemní rozcestník — připravujeme. Tady budou firemní agendy, přehledy a nástroje.</div>'));
     app.appendChild(sec);
   }
@@ -855,7 +856,8 @@ window.onerror=function(msg,src,line){
         if(!days||!days.length){ if(after)after(); return; }
         var left=days.length;
         days.forEach(function(d){
-          var card=el('<div style="background:rgba(224,176,112,.10);border:1px solid #6e5326;border-radius:12px;padding:12px;margin-bottom:8px;"></div>');
+          // Marti 7.6. večer: karta se MUSÍ nabízet — pulzuje jako rámeček rozhovoru.
+          var card=el('<div class="doch-pulse" style="background:rgba(224,176,112,.10);border:1px solid #6e5326;border-radius:12px;padding:12px;margin-bottom:8px;"></div>');
           card.appendChild(el('<div style="font-weight:600;font-size:14.5px;">🖊 '+esc(czDayLabel(d.day))+' · '+esc(d.od||'?')+'–'+esc(d.do||'…')+' · '+fmtHM(d.hodin)+' <span style="color:var(--mut);font-weight:400;">('+d.zaznamu+' zázn.)</span></div>'));
           card.appendChild(el('<div class="hint" style="margin-top:4px;">Zkontroluj si den (detail v Posledních záznamech) a potvrď ho.</div>'));
           var b=el('<button class="green full" style="margin-top:8px;">✓ Potvrzuji svou docházku</button>');

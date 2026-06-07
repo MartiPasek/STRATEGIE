@@ -816,7 +816,8 @@ window.onerror=function(msg,src,line){
     p.appendChild(el('<div id="mmReply" style="display:none;margin-top:12px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:14px;padding:12px;"></div>'));
     p.appendChild(el('<div id="bossAsk"></div>'));
     // Marti 7.6. večer: konec obrazovky = zvýrazněný milý rámeček s rozhovorem.
-    p.appendChild(el('<div id="dochNow" style="margin-top:12px;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:14px;padding:14px;">Načítám…</div>'));
+    // Marti 7.6. večer: rámeček pulzuje NAPOŘÁD (líbí se mu to 😄) — při práci i mimo.
+    p.appendChild(el('<div id="dochNow" class="doch-pulse" style="margin-top:12px;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:14px;padding:14px;">Načítám…</div>'));
     p.appendChild(el('<div id="dochConfirm" style="margin-top:10px;"></div>'));
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
     app.appendChild(p);
@@ -1225,13 +1226,6 @@ window.onerror=function(msg,src,line){
       var cf=document.getElementById("dochConfirm");
       if(cf){ api("GET","/api/v1/erp/app/attendance/unconfirmed","").then(function(ju){
         renderConfirmList(cf, (ju&&ju.days)||[], function(){});
-        // Marti 7.6. večer: neschválená docházka (vč. dnešní po odmakání)
-        // → rámeček rozhovoru jemně pulzuje.
-        var cnEl=document.getElementById("dochNow");
-        if(cnEl){
-          var pulse=!open && ((((ju&&ju.days)||[]).length>0) || !!(ju&&ju.today_unconfirmed));
-          cnEl.classList.toggle("doch-pulse", pulse);
-        }
       }); }
       // Marti 7.6. večer: zabalený výchozí stav = JEN „Od: 7:26 — Rezie"
       // + odpracovaný čas vpravo. Mimo směnu stejný duch: jednoduše a přívětivě.

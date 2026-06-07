@@ -991,10 +991,7 @@ window.onerror=function(msg,src,line){
             ["🍃 Jdu se provětrat / najíst…",      function(){ chips("Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); }); }],
             ["📅 Mám jednání do…",                 function(){ chips("Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); }); }]
           ],"warn");
-          var mm1=btnEl("💬 Píši přímo tobě, Marti…","ghost");
-          mm1.style.borderColor="var(--blue)"; mm1.style.color="var(--blue)";
-          mm1.addEventListener("click",martiMsgUI); bw.appendChild(mm1);
-          var more=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more);
+          var more=btnEl("⋯ Ostatní…","warn"); bw.appendChild(more);
           var sub=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
           [["🩺 Jedu k lékaři, nebojte, pak dorazím…", {reason:"lékař — vrátí se",presence:"Jsem u lékaře, pak dorazím"}],
            ["🩺 Jedu k lékaři… nevidím to dnes dobře…", {reason:"lékař — dnes už nedorazí",presence:"U lékaře, dnes už nedorazím"}],
@@ -1006,16 +1003,17 @@ window.onerror=function(msg,src,line){
           });
           bw.appendChild(sub);
           more.addEventListener("click",function(){ sub.style.display=sub.style.display==="none"?"block":"none"; });
+          var mm1=btnEl("💬 Píši přímo tobě, Marti…","ghost");
+          mm1.style.borderColor="var(--blue)"; mm1.style.color="var(--blue)";
+          mm1.addEventListener("click",martiMsgUI); bw.appendChild(mm1);
         } else {
+          // Marti 7.6. večer: „Už jedu" první · „Ostatní" zelená a PŘED zprávou Marti.
           addOpts([
+            ["🚗 Už jedu do práce…",   function(){ chips("Dorazím za cca:",function(m,b){ presence({eta_min:m},b); }); }],
             ["🏢 Jsem v práci…",       function(b){ act("checkin",{kind:"work"},b); }],
-            ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }],
-            ["🚗 Už jedu do práce…",   function(){ chips("Dorazím za cca:",function(m,b){ presence({eta_min:m},b); }); }]
+            ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }]
           ],"green");
-          var mm2=btnEl("💬 Píši přímo tobě, Marti…","ghost");
-          mm2.style.borderColor="var(--blue)"; mm2.style.color="var(--blue)";
-          mm2.addEventListener("click",martiMsgUI); bw.appendChild(mm2);
-          var more2=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more2);
+          var more2=btnEl("⋯ Ostatní…","green"); bw.appendChild(more2);
           var sub2=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
           var bRez=btnEl("🧰 Režie","green");
           bRez.addEventListener("click",function(){ act("checkin",{kind:"overhead"},bRez); });
@@ -1026,6 +1024,9 @@ window.onerror=function(msg,src,line){
           sub2.appendChild(bJinde);
           bw.appendChild(sub2);
           more2.addEventListener("click",function(){ sub2.style.display=sub2.style.display==="none"?"block":"none"; });
+          var mm2=btnEl("💬 Píši přímo tobě, Marti…","ghost");
+          mm2.style.borderColor="var(--blue)"; mm2.style.color="var(--blue)";
+          mm2.addEventListener("click",martiMsgUI); bw.appendChild(mm2);
         }
         var z=el('<button class="ghost full" style="margin-top:8px;">Zrušit</button>');
         z.addEventListener("click",mainBtn); bw.appendChild(z);

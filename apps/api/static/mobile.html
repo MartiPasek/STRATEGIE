@@ -664,6 +664,34 @@ window.onerror=function(msg,src,line){
   }
   function czDays(n){ return n===1?"1 den":(n>=2&&n<=4?(n+" dny"):(n+" dní")); }
   var _dS=null;
+  // Marti 7.6. večer: odpověď Marti-AI se zobrazí PŘÍMO v Docházce — globální
+  // okno #mmReply přežije překreslení menu i 60s tick. Polling je nezávislý na DOM.
+  var _mmPollIv=null, _mmReplyTxt=null;
+  function _mmRender(){
+    var d=document.getElementById("mmReply"); if(!d) return;
+    if(!_mmReplyTxt){ d.style.display="none"; return; }
+    d.innerHTML="";
+    var head=el('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><b style="flex:1;">💬 Tvoje Marti odpovídá</b><button class="ghost sm">✕</button></div>');
+    head.querySelector("button").addEventListener("click",function(){ _mmReplyTxt=null; _mmRender(); });
+    var body=el('<div style="white-space:pre-wrap;font-size:14px;line-height:1.5;max-height:45vh;overflow-y:auto;"></div>');
+    body.textContent=_mmReplyTxt;
+    d.appendChild(head); d.appendChild(body);
+    d.style.display="block";
+    try{ d.scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(e){}
+  }
+  function _mmStartPoll(afterId){
+    if(_mmPollIv) clearInterval(_mmPollIv);
+    var tries=0;
+    _mmPollIv=setInterval(function(){
+      if(++tries>36){ clearInterval(_mmPollIv); _mmPollIv=null; return; }
+      api("GET","/api/v1/erp/app/marti-message/last?after="+(afterId||0),"").then(function(r){
+        if(r&&r.id&&r.reply){
+          clearInterval(_mmPollIv); _mmPollIv=null;
+          _mmReplyTxt=r.reply; _mmRender();
+        }
+      });
+    },5000);
+  }
   function dochazka(){
     app.innerHTML=topbar("", false, true);  // Marti 7.6.: bez nadpisu a šipky; prázdná lišta drží odsazení
     var p=el('<div class="panel"></div>');
@@ -694,11 +722,14 @@ window.onerror=function(msg,src,line){
     _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">🔒 Páska je zamčená.</div></div>';
     _dS.paska.val.textContent="🔒";
     p.appendChild(lc);
+    // Marti 7.6. večer: okno odpovědi Marti-AI přímo v Docházce (nad rámečkem).
+    p.appendChild(el('<div id="mmReply" style="display:none;margin-top:12px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:14px;padding:12px;"></div>'));
     // Marti 7.6. večer: konec obrazovky = zvýrazněný milý rámeček s rozhovorem.
     p.appendChild(el('<div id="dochNow" style="margin-top:12px;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:14px;padding:14px;">Načítám…</div>'));
     p.appendChild(el('<div id="dochConfirm" style="margin-top:10px;"></div>'));
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
     app.appendChild(p);
+    _mmRender();  // čekající odpověď Marti-AI po překreslení zůstává vidět
     dochLoad();
   }
   function fmtHM(h){ var m=Math.round(Number(h||0)*60); var hh=Math.floor(m/60), mm=m%60; return hh+":"+(mm<10?"0":"")+mm; }
@@ -969,26 +1000,11 @@ window.onerror=function(msg,src,line){
         // PŘÍMO sem do menu, i když to trvá déle (notifikace je jen bonus).
         var reply=el('<div style="display:none;margin-top:10px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:10px;padding:12px;font-size:14px;line-height:1.5;white-space:pre-wrap;max-height:45vh;overflow-y:auto;"></div>');
         function busy(t){ st.textContent=t; }
-        var mmAfter=0, mmPoll=null;
+        var mmAfter=0;
         function showReply(txt){
           send.disabled=false; rec.disabled=false;
           reply.style.display="block"; reply.textContent=txt; ta.value="";
           try{ reply.scrollIntoView({behavior:"smooth",block:"nearest"}); }catch(e){}
-        }
-        function pollReply(){
-          if(mmPoll) return;
-          var tries=0;
-          mmPoll=setInterval(function(){
-            if(!document.body.contains(reply)){ clearInterval(mmPoll); mmPoll=null; return; }
-            if(++tries>36){ clearInterval(mmPoll); mmPoll=null; busy("⏳ Odpověď ti dorazí notifikací 🔔"); return; }
-            api("GET","/api/v1/erp/app/marti-message/last?after="+(mmAfter||0),"").then(function(r){
-              if(r&&r.id&&r.reply){
-                clearInterval(mmPoll); mmPoll=null;
-                busy("✅ Odpověď dorazila");
-                showReply(r.reply);
-              }
-            });
-          },5000);
         }
         function doSend(payload){
           busy("💭 Tvoje Marti přemýšlí…"); send.disabled=true; rec.disabled=true;
@@ -998,8 +1014,8 @@ window.onerror=function(msg,src,line){
               busy("✅ Odpovězeno");
               showReply((payload.audio_b64&&j.transcript?("🎙 Rozuměla jsem: „"+j.transcript+"“\n\n"):"")+(j.reply||""));
             } else if(j&&j.error){ send.disabled=false; rec.disabled=false; busy("✗ "+j.error); }
-            else { busy("⏳ Trvá to déle — čekám na odpověď…"); pollReply(); }
-          }).catch(function(){ busy("⏳ Trvá to déle — čekám na odpověď…"); pollReply(); });
+            else { busy("⏳ Trvá to déle — odpověď se ukáže tady v Docházce…"); _mmStartPoll(mmAfter); }
+          }).catch(function(){ busy("⏳ Trvá to déle — odpověď se ukáže tady v Docházce…"); _mmStartPoll(mmAfter); });
         }
         send.addEventListener("click",function(){ var t=(ta.value||"").trim(); if(t) doSend({text:t}); });
         var recState=null;

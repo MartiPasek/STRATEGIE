@@ -119,6 +119,19 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                         'WHERE token_hash = :h'
                     ), {"h": th})
                     ds.commit()
+                    # Marti 7.6.: nativní appka respektuje aktivní impersonaci
+                    # vlastníka tokenu (testování docházky jako jiný user).
+                    # Max 8 h od startu — stejné okno jako IMP_MAX_AGE cookie.
+                    try:
+                        _tgt = ds.execute(_sql_tok(
+                            "SELECT target_user_id FROM fw.impersonation_log "
+                            "WHERE parent_user_id = :p AND ended_at IS NULL "
+                            "AND started_at > now() - interval '8 hours' "
+                            "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
+                        if _tgt is not None:
+                            return int(_tgt)
+                    except Exception:
+                        pass
                     return int(uid)
             except Exception:
                 ds.rollback()
@@ -5669,6 +5682,173 @@ async def att_status(req: Request) -> JSONResponse:
                              "today_hours": float(today[0] or 0), "today_entries": int(today[1] or 0)})
     finally:
         cm.__exit__(None, None, None)
+
+
+# ── Impersonace z mobilu (Marti 7.6.2026): „přihlásit jako" pro testování
+#    docházky. Funguje přes token (nativní appka) i cookie (PWA). Reuse
+#    fw.impersonation_log (audit drží), target dle user ID / login / z+ČísloZam.
+def _app_real_uid(req: Request) -> int:
+    """Skutečný (ne-impersonovaný) uid: vlastník Bearer tokenu, jinak parent
+    z otevřené imp row (cookie flow), jinak user_id cookie."""
+    auth = req.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        tok = auth[7:].strip()
+        if tok:
+            import hashlib
+            from core.database_data import get_data_session as _gds_r
+            from sqlalchemy import text as _q
+            th = hashlib.sha256(tok.encode("utf-8")).hexdigest()
+            ds = _gds_r()
+            try:
+                uid = ds.execute(_q(
+                    'SELECT user_id FROM "user".carddav_token '
+                    'WHERE token_hash = :h AND revoked_at IS NULL'), {"h": th}).scalar()
+                if uid is not None:
+                    return int(uid)
+            except Exception:
+                pass
+            finally:
+                ds.close()
+    imp_tok = req.cookies.get("imp_token")
+    if imp_tok:
+        from core.database_data import get_data_session as _gds_r2
+        from sqlalchemy import text as _q2
+        ds = _gds_r2()
+        try:
+            p = ds.execute(_q2(
+                "SELECT parent_user_id FROM fw.impersonation_log "
+                "WHERE token = :t AND ended_at IS NULL"), {"t": imp_tok}).scalar()
+            if p is not None:
+                return int(p)
+        except Exception:
+            pass
+        finally:
+            ds.close()
+    return _get_uid(req)
+
+
+@api_router.get("/app/impersonate/status")
+async def app_imp_status(req: Request) -> JSONResponse:
+    from core.database_data import get_data_session as _gds_i
+    from sqlalchemy import text as _t
+    from modules.thoughts.application.service import is_marti_parent
+    try:
+        real = _app_real_uid(req)
+    except HTTPException:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    ds = _gds_i()
+    try:
+        row = ds.execute(_t(
+            "SELECT l.target_user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), u.login_name) "
+            "FROM fw.impersonation_log l JOIN public.users u ON u.id = l.target_user_id "
+            "WHERE l.parent_user_id = :p AND l.ended_at IS NULL "
+            "AND l.started_at > now() - interval '8 hours' "
+            "ORDER BY l.id DESC LIMIT 1"), {"p": real}).first()
+        return JSONResponse({"ok": True, "is_parent": bool(is_marti_parent(real)),
+                             "active": ({"target_id": row[0], "target_name": row[1]} if row else None)})
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/impersonate")
+async def app_imp_start(req: Request) -> JSONResponse:
+    from core.database_data import get_data_session as _gds_i
+    from sqlalchemy import text as _t
+    import secrets as _sec
+    from modules.thoughts.application.service import is_marti_parent
+    from modules.audit.application.service import log_event
+    try:
+        real = _app_real_uid(req)
+    except HTTPException:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not is_marti_parent(real):
+        return JSONResponse({"ok": False, "error": "Impersonace je jen pro rodiče."}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    needle = str((body or {}).get("user") or "").strip()
+    if not needle:
+        return JSONResponse({"ok": False, "error": "Zadej user ID, login, nebo z+ČísloZam (např. z370)."}, status_code=400)
+    ip = req.client.host if req.client else None
+    ua = (req.headers.get("user-agent") or "")[:300]
+    ds = _gds_i()
+    try:
+        tgt = None
+        if needle[:1].lower() == "z" and needle[1:].isdigit():
+            tgt = ds.execute(_t(
+                "SELECT user_id FROM tenant.att_employee "
+                "WHERE tenant_id = :tn AND cislo_zam = :c"),
+                {"tn": _ATT_TENANT, "c": needle[1:]}).scalar()
+            if tgt is None:
+                return JSONResponse({"ok": False, "error": "Zaměstnanec číslo " + needle[1:] + " nenalezen / nemá usera."}, status_code=404)
+        elif needle.isdigit():
+            tgt = ds.execute(_t("SELECT id FROM public.users WHERE id = :i"), {"i": int(needle)}).scalar()
+            if tgt is None:
+                return JSONResponse({"ok": False, "error": "User id " + needle + " nenalezen."}, status_code=404)
+        else:
+            tgt = ds.execute(_t("SELECT id FROM public.users WHERE lower(login_name) = lower(:n)"), {"n": needle}).scalar()
+            if tgt is None:
+                return JSONResponse({"ok": False, "error": "User '" + needle + "' nenalezen."}, status_code=404)
+        tgt = int(tgt)
+        if tgt == real:
+            return JSONResponse({"ok": False, "error": "Nemůžeš jednat sám za sebe."}, status_code=400)
+        nm = ds.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')),''), login_name) "
+            "FROM public.users WHERE id = :i"), {"i": tgt}).scalar()
+        token = _sec.token_urlsafe(32)
+        # Fail-closed jako web flow: log row musí vzniknout, jinak se nepřepíná.
+        ds.execute(_t(
+            "UPDATE fw.impersonation_log SET ended_at = now(), end_reason = 'auto_new' "
+            "WHERE parent_user_id = :p AND ended_at IS NULL"), {"p": real})
+        ds.execute(_t(
+            "INSERT INTO fw.impersonation_log (parent_user_id, target_user_id, token, ip, user_agent) "
+            "VALUES (:p, :tgt, :tok, :ip, :ua)"),
+            {"p": real, "tgt": tgt, "tok": token, "ip": ip, "ua": ua})
+        ds.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            ds.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "Nepodařilo se: " + str(e)[:200]}, status_code=500)
+    finally:
+        ds.close()
+    try:
+        log_event(action="impersonation_start", user_id=real, ip_address=ip, user_agent=ua,
+                  extra_metadata={"target_user_id": tgt, "channel": "mobile_app"})
+    except Exception:
+        pass
+    return JSONResponse({"ok": True, "target_id": tgt, "target_name": nm})
+
+
+@api_router.post("/app/impersonate/stop")
+async def app_imp_stop(req: Request) -> JSONResponse:
+    from core.database_data import get_data_session as _gds_i
+    from sqlalchemy import text as _t
+    from modules.audit.application.service import log_event
+    try:
+        real = _app_real_uid(req)
+    except HTTPException:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    ds = _gds_i()
+    try:
+        row = ds.execute(_t(
+            "UPDATE fw.impersonation_log SET ended_at = now(), end_reason = 'manual' "
+            "WHERE parent_user_id = :p AND ended_at IS NULL RETURNING target_user_id"),
+            {"p": real}).first()
+        ds.commit()
+    finally:
+        ds.close()
+    if row:
+        try:
+            log_event(action="impersonation_end", user_id=real,
+                      extra_metadata={"target_user_id": row[0], "channel": "mobile_app"})
+        except Exception:
+            pass
+    return JSONResponse({"ok": True, "ended": bool(row)})
 
 
 @api_router.post("/app/attendance/checkin")

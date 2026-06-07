@@ -515,6 +515,7 @@
     if(native) l.appendChild(row("📞","Telefonní číslo","Číslo tohoto telefonu (ze SIM)",function(){go("set_phone");}));
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
     l.appendChild(row("🔔","Přístup k oznámením","Počty WhatsApp / SMS",function(){go("set_notifaccess");}));
+    l.appendChild(row("🎭","Přihlásit jako (test)","Docházka za jiného usera — jen rodiče",function(){go("set_imp");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
     l.appendChild(row("ℹ️","O aplikaci", _hasUpdate?"🆕 Nová verze k dispozici":(ver?("Verze "+ver):"Verze a stav"),function(){go("set_about");}, _hasUpdate?1:0));
     app.appendChild(l); }
@@ -624,17 +625,18 @@
     app.appendChild(sec);
   }
   // ───── DOCHÁZKA (check-in/out + přehled) ─────
-  // Rozbalovací sekce (Marti 7.6.): klik na nadpis → rozbalit/sbalit; souhrn vpravo v nadpisu.
-  function collSec(title, defOpen){
-    var wrap=el('<div></div>');
-    var g=el('<div class="group" style="margin-top:14px;cursor:pointer;-webkit-user-select:none;user-select:none;display:flex;align-items:center;gap:8px;"><span></span><span class="cgv" style="color:var(--tx);font-weight:700;text-transform:none;letter-spacing:0;"></span><span class="cgch" style="margin-left:auto;color:var(--mut);font-size:11px;">▼</span></div>');
-    g.firstChild.textContent=title;
-    var box=el('<div style="display:none;"></div>');
-    function setOpen(o){ box.style.display=o?"block":"none"; g.querySelector(".cgch").textContent=o?"▲":"▼"; }
-    g.addEventListener("click",function(){ setOpen(box.style.display==="none"); });
+  // Rozbalovací sekce jako Kontakty (Marti 7.6.): bubliny v jednom .list bloku,
+  // hezky na sebe navazují; klik na hlavičku rozbalí obsah uvnitř bubliny.
+  function collSec(ulEl, title, defOpen){
+    var li=document.createElement("li"); li.className="ct"; li.style.padding="0";
+    var head=el('<div class="cthead" style="padding:13px 6px;"><span style="font-size:15px;font-weight:600;"></span><span class="cgv" style="color:var(--tx);font-weight:700;"></span><span class="cgch" style="margin-left:auto;color:var(--mut);font-size:12px;">▼</span></div>');
+    head.firstChild.textContent=title;
+    var box=el('<div style="display:none;padding:0 6px 12px;"></div>');
+    function setOpen(o){ box.style.display=o?"block":"none"; head.querySelector(".cgch").textContent=o?"▲":"▼"; li.classList.toggle("open",o); }
+    head.addEventListener("click",function(){ setOpen(box.style.display==="none"); });
     if(defOpen) setOpen(true);
-    wrap.appendChild(g); wrap.appendChild(box);
-    return {wrap:wrap, box:box, val:g.querySelector(".cgv")};
+    li.appendChild(head); li.appendChild(box); ulEl.appendChild(li);
+    return {box:box, val:head.querySelector(".cgv")};
   }
   function czDays(n){ return n===1?"1 den":(n>=2&&n<=4?(n+" dny"):(n+" dní")); }
   var _dS=null;
@@ -648,19 +650,21 @@
     var absBox=el('<div id="absBox" style="display:none;margin-top:8px;background:var(--surf);border:1px solid var(--bord);border-radius:10px;padding:12px;"></div>');
     absBtn.addEventListener("click",function(){ var open=absBox.style.display==="none"; absBox.style.display=open?"block":"none"; if(open&&!absBox.innerHTML) buildAbsForm(absBox); });
     p.appendChild(absBtn); p.appendChild(absBox);
-    // Marti 7.6.: rozbalovací sekce 1) Dnes 2) Včera 3) Dřívější 4) Plánovaná nepřítomnost 5) Poslední záznamy.
-    _dS={ today: collSec("Dnes", true),
-          yest:  collSec("Včera", false),
-          prev:  collSec("Dřívější", false),
-          plan:  collSec("Plánovaná nepřítomnost", false),
-          list:  collSec("Poslední záznamy", false) };
-    _dS.today.box.innerHTML='<div id="dochCard" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:14px 16px;">Načítám…</div>';
-    _dS.yest.box.innerHTML='<div class="list" style="padding:0 14px;"><ul id="dochYest"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>';
-    _dS.prev.box.innerHTML='<div class="list" style="padding:0 14px;"><ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>';
-    _dS.plan.box.innerHTML='<div class="list" style="padding:0 14px;"><ul id="dochPlan"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>';
-    _dS.list.box.innerHTML='<div class="list" style="padding:0 14px;"><ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>';
-    p.appendChild(_dS.today.wrap); p.appendChild(_dS.yest.wrap); p.appendChild(_dS.prev.wrap);
-    p.appendChild(_dS.plan.wrap); p.appendChild(_dS.list.wrap);
+    // Marti 7.6.: rozbalovací sekce 1) Dnes 2) Včera 3) Dřívější 4) Plánovaná
+    // nepřítomnost 5) Poslední záznamy — bubliny v jednom bloku jako Kontakty.
+    var lc=el('<div class="list" style="margin-top:14px;padding:0 14px;"><ul id="dochSecs"></ul></div>');
+    var su=lc.querySelector("#dochSecs");
+    _dS={ today: collSec(su,"Dnes", true),
+          yest:  collSec(su,"Včera", false),
+          prev:  collSec(su,"Dřívější", false),
+          plan:  collSec(su,"Plánovaná nepřítomnost", false),
+          list:  collSec(su,"Poslední záznamy", false) };
+    _dS.today.box.innerHTML='<div id="dochCard" style="padding:2px 0 4px;">Načítám…</div>';
+    _dS.yest.box.innerHTML='<ul id="dochYest"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
+    _dS.prev.box.innerHTML='<ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
+    _dS.plan.box.innerHTML='<ul id="dochPlan"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
+    _dS.list.box.innerHTML='<ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
+    p.appendChild(lc);
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
     app.appendChild(p); dochLoad();
   }
@@ -739,6 +743,40 @@
       });
     });
   }
+  // ───── PŘIHLÁSIT JAKO (impersonace pro test docházky, Marti 7.6.) ─────
+  function set_imp(){
+    app.innerHTML=topbar("Přihlásit jako (test)", true);
+    var p=el('<div class="panel"></div>');
+    var st=el('<div class="hint" id="impSt" style="font-size:13.5px;">Zjišťuji stav…</div>'); p.appendChild(st);
+    p.appendChild(el('<label>User ID, login, nebo z+ČísloZam (např. z370)</label>'));
+    var inp=el('<input id="impUser" placeholder="např. 30 nebo z370" autocomplete="off">'); p.appendChild(inp);
+    var go=el('<button class="green full">🎭 Přihlásit jako</button>');
+    var bk=el('<button class="warn full" style="margin-top:8px;">Vrátit se k sobě</button>');
+    function refresh(){
+      api("GET","/api/v1/erp/app/impersonate/status","").then(function(j){
+        var e=document.getElementById("impSt"); if(!e)return;
+        if(!j||!j.ok){ e.textContent="Stav se nepodařilo načíst."; return; }
+        if(j.active){ e.innerHTML='🎭 Právě jednáš jako <b>'+esc(j.active.target_name||String(j.active.target_id))+'</b> — Docházka ukazuje jeho data.'; }
+        else if(!j.is_parent){ e.textContent="Tahle funkce je dostupná jen rodičům."; }
+        else { e.textContent="Žádná aktivní impersonace — jednáš sám za sebe."; }
+      });
+    }
+    go.addEventListener("click",function(){
+      var q=(inp.value||"").trim(); if(!q)return; go.disabled=true;
+      api("POST","/api/v1/erp/app/impersonate",{user:q}).then(function(j){
+        go.disabled=false; var e=document.getElementById("impSt"); if(!e)return;
+        if(j&&j.ok){ e.innerHTML='✅ Jednáš jako <b>'+esc(j.target_name||String(j.target_id))+'</b>. Otevři Docházku — uvidíš jeho data.'; inp.value=""; }
+        else { e.textContent="✗ "+((j&&j.error)||"Nepodařilo se."); }
+      });
+    });
+    bk.addEventListener("click",function(){
+      bk.disabled=true;
+      api("POST","/api/v1/erp/app/impersonate/stop",{}).then(function(){ bk.disabled=false; refresh(); });
+    });
+    p.appendChild(go); p.appendChild(bk);
+    p.appendChild(el('<div class="hint">Pro testování docházky a práv. Vše se loguje do fw.impersonation_log (od–do, kdo, koho). Automaticky končí po 8 hodinách nebo tlačítkem výše.</div>'));
+    app.appendChild(p); refresh();
+  }
   function buildAbsForm(box){
     var today=new Date().toISOString().substr(0,10);
     var ist="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;margin-bottom:4px;";
@@ -767,7 +805,7 @@
     });
     box.appendChild(b);
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){
@@ -856,7 +894,7 @@
           var v=j&&j.version; if(!v||v==="unknown")return;
           if(_verLoaded===null){ _verLoaded=v; return; }
           if(v!==_verLoaded && !document.getElementById("verBar")){
-            var b=el('<div id="verBar" style="position:fixed;top:0;left:0;right:0;z-index:90;background:#3a2f12;border-bottom:1px solid #6e5326;color:#f0d98a;padding:10px 14px;font-size:13.5px;text-align:center;cursor:pointer;">🔄 Nová verze STRATEGIE — klepni pro obnovení</div>');
+            var b=el('<div id="verBar" style="position:fixed;top:74px;left:10px;right:10px;z-index:90;background:#3a2f12;border:1px solid #6e5326;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.4);color:#f0d98a;padding:11px 14px;font-size:13.5px;text-align:center;cursor:pointer;">🔄 Nová verze STRATEGIE — klepni pro obnovení</div>');
             b.addEventListener("click",_verHardReload); document.body.appendChild(b);
           }
         }).catch(function(){});

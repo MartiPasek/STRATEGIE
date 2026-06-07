@@ -7929,10 +7929,11 @@ def _sync_pasky_from_helios() -> dict:
             return r3[0]
 
         for src, dbp in (("EC", ""), ("ES", "DB_IS.dbo.")):
-            # období: Id → rok/měsíc
-            obd = {int(o["Id"]): (int(o["r"]), int(o["m"])) for o in rows_of(
-                "SELECT Id, YEAR(DatumOd) r, MONTH(DatumOd) m FROM " + dbp + "TabObdobi "
-                "WHERE DatumOd IS NOT NULL")}
+            # MZDOVÁ období: TabMzdObd (ID, Rok, Mesic) — POZOR, ne účetní TabObdobi!
+            # (gotcha 7.6.: TabObdobi = účetnictví, IdObdobi mezd tam není → 0 položek)
+            obd = {int(o["ID"]): (int(o["Rok"]), int(o["Mesic"])) for o in rows_of(
+                "SELECT ID, Rok, Mesic FROM " + dbp + "TabMzdObd "
+                "WHERE Rok IS NOT NULL AND Mesic IS NOT NULL")}
             # číselník složek (per období)
             cat = {}
             for c in rows_of("SELECT IdObdobi, CisloMzSl, NazevMS, "

@@ -5691,12 +5691,19 @@ async def att_status(req: Request) -> JSONResponse:
         if opn and opn[2]:
             pname = s.execute(_t("SELECT nazev FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c"),
                               {"t": _ATT_TENANT, "c": opn[2]}).scalar()
+        # Marti 7.6. večer: poslední odchod dne — pro přívětivý stav mimo směnu.
+        lend = s.execute(_t(
+            "SELECT to_char(MAX(ended_at),'YYYY-MM-DD\"T\"HH24:MI:SS') FROM tenant.att_entry "
+            "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
+            "AND ended_at IS NOT NULL AND status NOT IN ('announced','superseded')"),
+            {"t": _ATT_TENANT, "e": emp}).first()
         s.commit()
         return JSONResponse({"ok": True,
                              "open": ({"id": opn[0], "started_at": opn[1], "project_ref": opn[2],
                                        "project_name": pname} if opn else None),
                              "announced": (ann[0] if ann else None),
                              "morning_start": (first[0] if first else None),
+                             "last_end": (lend[0] if lend else None),
                              "today_hours": float(today[0] or 0), "today_entries": int(today[1] or 0)})
     finally:
         cm.__exit__(None, None, None)

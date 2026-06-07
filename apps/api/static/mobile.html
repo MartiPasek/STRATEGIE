@@ -668,14 +668,9 @@ window.onerror=function(msg,src,line){
     app.innerHTML=topbar("", false, true);  // Marti 7.6.: bez nadpisu a šipky; prázdná lišta drží odsazení
     var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.authedFetch==="function")){ p.appendChild(el('<div class="hint">Docházka funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
-    p.appendChild(el('<div class="group" style="margin-top:4px;">Právě probíhá</div>'));
-    p.appendChild(el('<div id="dochNow" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
-    p.appendChild(el('<div id="dochConfirm" style="margin-top:10px;"></div>'));
-    // Marti 7.6.: sekce „Nahlásit nepřítomnost" zrušena — vše jde rozhovorem
-    // („Potřebuji ti něco říct…" → ⋯Ostatní → 🧭 Tady budu asi jinde…).
-    // Marti 7.6.: rozbalovací sekce 1) Dnes 2) Včera 3) Dřívější 4) Plánovaná
-    // nepřítomnost 5) Poslední záznamy — bubliny v jednom bloku jako Kontakty.
-    var lc=el('<div style="margin-top:14px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
+    // Marti 7.6. večer: „Dnes" logicky nahoru — obrazovka KONČÍ kartou
+    // „Potřebuji ti něco říct…". Sekce nahoře, stav + rozhovor dole.
+    var lc=el('<div style="margin-top:4px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
     var su=lc.querySelector("#dochSecs");
     _dS={ today: collSec(su,"Dnes", true),
           yest:  collSec(su,"Včera", false),
@@ -698,6 +693,9 @@ window.onerror=function(msg,src,line){
     _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">🔒 Páska je zamčená.</div></div>';
     _dS.paska.val.textContent="🔒";
     p.appendChild(lc);
+    p.appendChild(el('<div class="group" style="margin-top:8px;">Právě probíhá</div>'));
+    p.appendChild(el('<div id="dochNow" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
+    p.appendChild(el('<div id="dochConfirm" style="margin-top:10px;"></div>'));
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
     app.appendChild(p);
     dochLoad();

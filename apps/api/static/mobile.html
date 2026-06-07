@@ -1047,6 +1047,16 @@ window.onerror=function(msg,src,line){
         expOpt(box,"🕐 Něco si zařizuji…","ghost",function(bx){
           chipsIn(bx,"Dorazím zhruba za:",function(m,b){ presence({text:"Něco si zařizuji, dorazím",add_since:false,eta_min:m},b); });
         },_amberStyle);
+        // Marti 7.6. večer: hlášení home office dopředu (plán — hours NULL).
+        expOpt(box,"🏡 Potřebuju makat z domova…","ghost",function(bx){
+          dateRangePickIn(bx,"Home office od – do:",function(od, dd, b){
+            var today=new Date().toISOString().substr(0,10);
+            absence({type_code:"homeoffice",date_from:od,date_to:dd,mode:"days",note:"home office (přes mobil)"},function(){
+              if(od<=today && dd>=today){ presence({text:"Jsem na home office",add_since:false,until_txt:czDate(dd)},b); }
+              else dochLoad();
+            });
+          });
+        },_amberStyle);
         expOpt(box,"🌴 Že by dovolená?… 😎","ghost",function(bx){
           dateRangePickIn(bx,"Dovolená od – do:",function(od, dd, b){
             var today=new Date().toISOString().substr(0,10);
@@ -1061,16 +1071,6 @@ window.onerror=function(msg,src,line){
       function jindeBuild(box){
         expOpt(box,"🏠 Osobní důvody…","ghost",osobniBuild,_amberStyle);
         expOpt(box,"💼 Služební důvody…","ghost",sluzebniBuild,_blueStyle);
-        // Marti 7.6. večer: hlášení home office dopředu (plán — hours NULL).
-        expOpt(box,"🏡 Budu na home office…","ghost",function(bx){
-          dateRangePickIn(bx,"Home office od – do:",function(od, dd, b){
-            var today=new Date().toISOString().substr(0,10);
-            absence({type_code:"homeoffice",date_from:od,date_to:dd,mode:"days",note:"home office (přes mobil)"},function(){
-              if(od<=today && dd>=today){ presence({text:"Jsem na home office",add_since:false,until_txt:czDate(dd)},b); }
-              else dochLoad();
-            });
-          });
-        },_blueStyle);
       }
       // Píchnutí na zakázku (Marti 7.6.): picker nad tenant.zakazka (⚙ sync_zakazky).
       function zakBuild(box){
@@ -1196,13 +1196,13 @@ window.onerror=function(msg,src,line){
           });
           addOpts([
             ["🚗 Mám služební pochůzku…", function(b){ act("checkout",{reason:"služební pochůzka",presence:"Na služební pochůzce"},b); }],
-            ["👋 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},b); }]
+            ["🫡 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},b); }]
           ],"ghost");
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
           expOpt(bw,"🙋 Mám dotaz na nadřízeného…","ghost",bossAskBuild,_blueStyle);
         } else {
           // „Už jedu" první · lékaři sem (Marti 7.6. večer) · „Jinde" před zprávou
-          expOpt(bw,"🚗 Už jedu do práce…","green",function(bx){
+          expOpt(bw,"🚗 Jedu do práce…","green",function(bx){
             chipsIn(bx,"Dorazím za cca:",function(m,b){ presence({eta_min:m},b); });
           });
           addOpts([
@@ -1216,6 +1216,8 @@ window.onerror=function(msg,src,line){
         // Marti 7.6. večer: místo „Zrušit" šipka nahoru = zavřít.
         var z=el('<button class="ghost full" style="margin-top:8px;text-align:center;">▲</button>');
         z.addEventListener("click",mainBtn); bw.appendChild(z);
+        // Marti 7.6. večer: po otevření rozhovoru odscrollovat nahoru k volbám.
+        setTimeout(function(){ try{ bw.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
       }
       window._dochCloseMenu=mainBtn;
       mainBtn(); cn.appendChild(bw);
@@ -1636,6 +1638,14 @@ window.onerror=function(msg,src,line){
       var setBtn=navBtn("⚙️","Nastavení",false,function(){selectTab("settings");},_hasUpdate?1:0);
       setBtn.style.gridColumn="5";
       bnavx2.appendChild(setBtn);
+    } else if(curTab==="firma" && stack[stack.length-1]==="firma"){
+      // Marti 7.6. večer: stejné extra lišty jako v Aplikacích — místo Nastavení
+      // hlavní pracovní nástroj (docházka + komunikace). Název/ikona dle Marti.
+      bnavx1.style.display="flex";
+      bnavx2.style.display="grid"; bnavx2.style.gridTemplateColumns="repeat(5,1fr)"; bnavx2.style.justifyContent="";
+      var dnBtn=navBtn("🟢","Můj den",false,function(){ go("dochazka"); },0);
+      dnBtn.style.gridColumn="5";
+      bnavx2.appendChild(dnBtn);
     } else { bnavx1.style.display="none"; bnavx2.style.display="none"; }
   }
   function render(){ (SCREENS[stack[stack.length-1]]||home)(); var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back); renderNav(); }

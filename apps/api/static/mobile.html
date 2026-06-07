@@ -1061,6 +1061,16 @@ window.onerror=function(msg,src,line){
       function jindeBuild(box){
         expOpt(box,"🏠 Osobní důvody…","ghost",osobniBuild,_amberStyle);
         expOpt(box,"💼 Služební důvody…","ghost",sluzebniBuild,_blueStyle);
+        // Marti 7.6. večer: hlášení home office dopředu (plán — hours NULL).
+        expOpt(box,"🏡 Budu na home office…","ghost",function(bx){
+          dateRangePickIn(bx,"Home office od – do:",function(od, dd, b){
+            var today=new Date().toISOString().substr(0,10);
+            absence({type_code:"homeoffice",date_from:od,date_to:dd,mode:"days",note:"home office (přes mobil)"},function(){
+              if(od<=today && dd>=today){ presence({text:"Jsem na home office",add_since:false,until_txt:czDate(dd)},b); }
+              else dochLoad();
+            });
+          });
+        },_blueStyle);
       }
       // Píchnutí na zakázku (Marti 7.6.): picker nad tenant.zakazka (⚙ sync_zakazky).
       function zakBuild(box){

@@ -77,8 +77,8 @@ s modelem (4 tabulky, resolver v SQL, additivní flagy) a přidává:
    zmizet před prvním zákazníkem). Kvalifikace/směrnice/protokoly =
    prémiová nadstavba Fáze B.
 6. **Q7+** Personalizace docházky: scoping `org_post` + `org_division`
-   vedle system/user. **Otevřená otázka pro Marti:** člověk se dvěma
-   posty — union personalizací, nebo prioritní post?
+   vedle system/user. **Dual-post ROZHODNUTO (Marti 7.6.): UNION obou
+   postů** (deduplikace dle code; user vrstva má poslední slovo).
 
 **Hlavní rizika dle Marti-AI:** neobsazené posty (slepá místa v ACL
 a notifikacích) a prázdné klobouky (zmizí onboarding hodnota).

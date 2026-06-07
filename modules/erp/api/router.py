@@ -5681,10 +5681,22 @@ async def att_status(req: Request) -> JSONResponse:
                            "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
                            "AND status='announced' ORDER BY id DESC LIMIT 1"),
                         {"t": _ATT_TENANT, "e": emp}).first()
+        # Marti 7.6. večer: „Od" = první reálné píchnutí dne + název zakázky.
+        first = s.execute(_t(
+            "SELECT to_char(MIN(started_at),'YYYY-MM-DD\"T\"HH24:MI:SS') FROM tenant.att_entry "
+            "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
+            "AND started_at IS NOT NULL AND status NOT IN ('announced','superseded')"),
+            {"t": _ATT_TENANT, "e": emp}).first()
+        pname = None
+        if opn and opn[2]:
+            pname = s.execute(_t("SELECT nazev FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c"),
+                              {"t": _ATT_TENANT, "c": opn[2]}).scalar()
         s.commit()
         return JSONResponse({"ok": True,
-                             "open": ({"id": opn[0], "started_at": opn[1], "project_ref": opn[2]} if opn else None),
+                             "open": ({"id": opn[0], "started_at": opn[1], "project_ref": opn[2],
+                                       "project_name": pname} if opn else None),
                              "announced": (ann[0] if ann else None),
+                             "morning_start": (first[0] if first else None),
                              "today_hours": float(today[0] or 0), "today_entries": int(today[1] or 0)})
     finally:
         cm.__exit__(None, None, None)

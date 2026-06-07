@@ -669,7 +669,8 @@ window.onerror=function(msg,src,line){
     var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.authedFetch==="function")){ p.appendChild(el('<div class="hint">Docházka funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
     // Marti 7.6. večer: „Dnes" logicky nahoru — obrazovka KONČÍ kartou
-    // „Potřebuji ti něco říct…". Sekce nahoře, stav + rozhovor dole.
+    // „Potřebuji ti něco říct…". Nadpis „Dnes makám 😉" při běžící směně.
+    p.appendChild(el('<div id="dochHead" style="display:none;font-size:24px;font-weight:800;margin:6px 0 12px;">Dnes makám 😉</div>'));
     var lc=el('<div style="margin-top:4px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
     var su=lc.querySelector("#dochSecs");
     _dS={ today: collSec(su,"Dnes", true),
@@ -1070,10 +1071,23 @@ window.onerror=function(msg,src,line){
       if(cf){ api("GET","/api/v1/erp/app/attendance/unconfirmed","").then(function(ju){
         renderConfirmList(cf, (ju&&ju.days)||[], function(){});
       }); }
-      // Marti 7.6. večer: zelený puntík + status patří do sekce Dnes.
-      c.innerHTML='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b>'
-        +(open&&open.project_ref?(' · 🧾 '+esc(open.project_ref)):'')+'</div>'
-        +(j.announced?('<div style="color:var(--amber);font-size:14px;margin-top:4px;">💬 '+esc(j.announced)+'</div>'):'');
+      // Marti 7.6. večer: nadpis „Dnes makám 😉" + Dnes: Od / Zakázka / ubíhající čas vpravo.
+      var hd=document.getElementById("dochHead");
+      if(hd) hd.style.display=open?"":"none";
+      var annHtml=(j.announced?('<div style="color:var(--amber);font-size:14px;margin-top:6px;">💬 '+esc(j.announced)+'</div>'):'');
+      if(open){
+        var ms=j.morning_start||open.started_at||"";
+        var elap="";
+        try{ if(ms) elap=fmtHM(Math.max(0,(Date.now()-new Date(ms).getTime())/3600000)); }catch(e){}
+        c.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">'
+          +'<div style="font-size:14.5px;line-height:1.6;">Od: <b>'+(ms?esc(ms.substr(11,5)):"—")+'</b>'
+          +(open.project_name||open.project_ref?('<div>Zakázka: <b>'+esc(open.project_name||open.project_ref)+'</b></div>'):'')
+          +'</div>'
+          +'<div style="font-size:26px;font-weight:800;color:var(--green);white-space:nowrap;">'+elap+'</div>'
+          +'</div>'+annHtml;
+      } else {
+        c.innerHTML='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b></div>'+annHtml;
+      }
       if(_dS&&_dS.today) _dS.today.val.textContent=(open?"🟢 ":"")+fmtHM(j.today_hours||0);
       dochDailyLoad(); dochListLoad();
     }).catch(function(){ var c=document.getElementById("dochNow"); if(c)c.textContent="Chyba spojení."; });

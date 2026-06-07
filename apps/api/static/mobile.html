@@ -894,6 +894,7 @@ window.onerror=function(msg,src,line){
                 bt.addEventListener("click",function(){
                   fx.innerHTML="";
                   if(!e2.kon){ fx.innerHTML='<div class="hint">Běžící záznam — nejdřív se odpíchni.</div>'; return; }
+                  fx.appendChild(el('<div class="hint" style="margin-bottom:4px;">Nový konec (původně '+esc(e2.kon)+'):</div>'));
                   var ti=el('<input type="time" value="'+esc(e2.kon)+'" style="width:120px;">');
                   var ok2=el('<button class="green sm" style="margin-left:8px;">Uložit</button>');
                   var st2=el('<div class="hint" style="margin-top:4px;"></div>');
@@ -916,7 +917,7 @@ window.onerror=function(msg,src,line){
                     var n=(ta2.value||"").trim(); if(!n){ st3.textContent="Napiš prosím, co nesedí."; return; }
                     ok3.disabled=true;
                     api("POST","/api/v1/erp/app/attendance/entry-dispute",{id:e2.id,note:n}).then(function(r){
-                      if(r&&r.ok){ fx.innerHTML='<div class="hint">✋ Nahlášeno — kontrola docházky se ozve.</div>'; }
+                      if(r&&r.ok){ fx.innerHTML='<div class="hint">✋ Nahlášeno — kontrola docházky se ozve.</div>'; setTimeout(dochLoad,1600); }
                       else{ ok3.disabled=false; st3.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
                     });
                   });
@@ -930,24 +931,8 @@ window.onerror=function(msg,src,line){
             });
           });
           card.appendChild(det);
-          // Marti 7.6.: „Musím mít volbu, něco se mi nezdá" → rozporování (odblokuje práci)
-          var dis=el('<button class="ghost full" style="margin-top:6px;border-color:var(--amber);color:var(--amber);">✋ Něco mi tu nesedí…</button>');
-          dis.addEventListener("click",function(){
-            if(card.querySelector(".disbox")) return;
-            var db=el('<div class="disbox" style="margin-top:8px;"></div>');
-            var ta=el('<textarea rows="2" placeholder="Co nesedí? (např. zapomněl jsem odchod, časy nesedí…)" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:10px;color:var(--tx);font-size:14px;font-family:inherit;"></textarea>');
-            var send=el('<button class="ghost full" style="margin-top:6px;border-color:var(--amber);color:var(--amber);">Odeslat kontrole docházky (a pusť mě do práce)</button>');
-            send.addEventListener("click",function(){
-              send.disabled=true;
-              api("POST","/api/v1/erp/app/attendance/dispute-day",{day:d.day,note:(ta.value||"").trim()}).then(function(j){
-                if(j&&j.ok){ card.remove(); left--; if(left<=0){ if(after) after(); else dochLoad(); } }
-                else { send.disabled=false; }
-              }).catch(function(){ send.disabled=false; });
-            });
-            db.appendChild(ta); db.appendChild(send); card.appendChild(db);
-            try{ta.focus();}catch(e){}
-          });
-          card.appendChild(dis);
+          // Marti 7.6. večer: denní „Něco mi tu nesedí" zrušeno — rozpor se
+          // hlásí na konkrétním jobu v detailech (a stejně odblokuje práci).
           container.appendChild(card);
         });
       }

@@ -6255,6 +6255,13 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
             "UPDATE tenant.att_entry SET note = CASE WHEN COALESCE(note,'') = '' THEN :nn "
             "ELSE note || ' / ' || :nn END, updated_at = now() WHERE id = :i"),
             {"nn": nn, "i": eid})
+        # Rozpor na jobu = zodpovědnost za den splněna → den označit disputed
+        # (odblokuje nový příchod — denní tlačítko bylo zrušeno, tohle ho nahrazuje).
+        s.execute(_t(
+            "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id, disputed, note) "
+            "VALUES (:t, :e, :d, :u, true, :n) "
+            "ON CONFLICT (tenant_id, employee_id, day) DO UPDATE SET disputed = true"),
+            {"t": _ATT_TENANT, "e": int(row[4]), "d": str(row[1]), "u": uid, "n": note[:300]})
         who = _user_jmeno(s, uid)
         targets = {1}
         try:

@@ -5937,7 +5937,9 @@ def _marti_msg_worker(uid: int, text: str, audio_b64: str, mime: str, fname: str
     if not text:
         return {"ok": False, "error": "Prázdná zpráva."}
 
-    # 2) Konverzace „📱 Zprávy z mobilu" (jedna per user, reuse)
+    # 2) Konverzace „📱 Zprávy z mobilu" (jedna per user, reuse). Založení +
+    #    pojmenování PŘED chatem — jinak race: druhá rychlá zpráva nenajde
+    #    titulek (chat běží ~10 s) a založí duplikát (stalo se 7.6., conv 321+322).
     from core.database_data import get_data_session as _gds_mm
     from modules.core.infrastructure.models_data import Conversation as _Conv_mm
     conv_id = None
@@ -5952,8 +5954,22 @@ def _marti_msg_worker(uid: int, text: str, audio_b64: str, mime: str, fname: str
         conv_id = None
     finally:
         ds.close()
+    if conv_id is None:
+        try:
+            from modules.conversation.infrastructure.repository import create_conversation as _cc_mm
+            conv_id = _cc_mm(user_id=uid)
+            ds = _gds_mm()
+            try:
+                c2 = ds.query(_Conv_mm).filter_by(id=conv_id).first()
+                if c2:
+                    c2.title = _MM_CONV_TITLE
+                    ds.commit()
+            finally:
+                ds.close()
+        except Exception:
+            conv_id = None  # fallback: chat() si konverzaci založí sám
 
-    # 3) Chat s Marti-AI
+    # 3) Chat s Marti-AI (standardní pipeline — paměť, RAG, tooly)
     try:
         from modules.conversation.application.service import chat as _chat_mm
         conversation_id, reply, _si = _chat_mm(conv_id, text, user_id=uid,
@@ -5961,19 +5977,6 @@ def _marti_msg_worker(uid: int, text: str, audio_b64: str, mime: str, fname: str
     except Exception as e:
         logger.exception("[marti-message] chat failed")
         return {"ok": False, "error": "Marti teď nemohla odpovědět: " + str(e)[:160]}
-
-    # 4) Nová konverzace → pojmenuj, ať se příště reusne
-    if conv_id is None and conversation_id:
-        ds = _gds_mm()
-        try:
-            c2 = ds.query(_Conv_mm).filter_by(id=conversation_id).first()
-            if c2:
-                c2.title = _MM_CONV_TITLE
-                ds.commit()
-        except Exception:
-            ds.rollback()
-        finally:
-            ds.close()
 
     # 5) Notifikace na mobil — cinkne i kdyby UI nedočkalo odpovědi
     from sqlalchemy import text as _t_mm

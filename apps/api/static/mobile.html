@@ -674,10 +674,11 @@
     _dS.plan.box.innerHTML='<ul id="dochPlan"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.list.box.innerHTML='<ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">Načítám…</div></div>';
-    paskaLoad(0,0);
     p.appendChild(lc);
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
-    app.appendChild(p); dochLoad();
+    app.appendChild(p);
+    paskaLoad(0,0);  // až PO vložení do dokumentu (getElementById jinak nenajde box)
+    dochLoad();
   }
   function fmtHM(h){ var m=Math.round(Number(h||0)*60); var hh=Math.floor(m/60), mm=m%60; return hh+":"+(mm<10?"0":"")+mm; }
   function dochLoad(){

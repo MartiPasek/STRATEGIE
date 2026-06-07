@@ -6181,7 +6181,9 @@ async def att_entry_trim(req: Request) -> JSONResponse:
     except Exception:
         eid = 0
     endt = str((body or {}).get("end") or "").strip()[:5]
+    logger.warning("ENTRY-TRIM | start | uid=%s id=%s end=%r", uid, (body or {}).get("id"), endt)
     if not (eid and _re.fullmatch(r"[0-2][0-9]\x3a[0-5][0-9]", endt)):
+        logger.warning("ENTRY-TRIM | invalid time | uid=%s end=%r", uid, endt)
         return JSONResponse({"ok": False, "error": "Neplatný čas."})
     cm, s = _att_session()
     try:
@@ -6211,7 +6213,9 @@ async def att_entry_trim(req: Request) -> JSONResponse:
             {"i": eid, "endt": endt, "nn": nn}).first()
         s.commit()
         if not upd:
-            return JSONResponse({"ok": False, "error": "Čas jde jen ZKRÁTIT — mezi začátkem a původním koncem."})
+            logger.warning("ENTRY-TRIM | guard fail (ne-redukce) | uid=%s id=%s end=%s puvodni=%s", uid, eid, endt, row[1])
+            return JSONResponse({"ok": False, "error": "Čas jde jen ZKRÁTIT — mezi začátkem a původním koncem (" + row[1] + ")."})
+        logger.warning("ENTRY-TRIM | OK | uid=%s id=%s end=%s", uid, eid, endt)
         return JSONResponse({"ok": True, "id": eid})
     except Exception as exc:
         s.rollback()

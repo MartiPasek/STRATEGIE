@@ -906,11 +906,22 @@ window.onerror=function(msg,src,line){
                   var ok2=el('<button class="green sm" style="margin-left:8px;">Uložit</button>');
                   var st2=el('<div class="hint" style="margin-top:4px;"></div>');
                   ok2.addEventListener("click",function(){
-                    if(!ti.value) return;
-                    ok2.disabled=true;
-                    api("POST","/api/v1/erp/app/attendance/entry-trim",{id:e2.id,end:ti.value}).then(function(r){
-                      if(r&&r.ok){ dochLoad(); }
-                      else{ ok2.disabled=false; st2.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
+                    if(!ti.value){ st2.textContent="Vyber prosím čas."; return; }
+                    // Marti 7.6. večer: potvrzení před zápisem.
+                    fx.querySelectorAll(".trimconf").forEach(function(x){x.remove();});
+                    var cw=el('<div class="trimconf" style="margin-top:6px;background:rgba(16,185,129,.10);border:1px solid var(--green);border-radius:8px;padding:10px;"></div>');
+                    cw.appendChild(el('<div style="font-size:14px;">Opravdu zkrátit konec z <b>'+esc(e2.kon)+'</b> na <b>'+esc(ti.value)+'</b>?</div>'));
+                    var br=el('<div style="display:flex;gap:8px;margin-top:8px;"></div>');
+                    var ano=el('<button class="green sm" style="flex:1;">Ano, zkrátit</button>');
+                    var ne=el('<button class="ghost sm">Ne</button>');
+                    br.appendChild(ano); br.appendChild(ne); cw.appendChild(br); fx.appendChild(cw);
+                    ne.addEventListener("click",function(){ cw.remove(); });
+                    ano.addEventListener("click",function(){
+                      ano.disabled=true; ne.disabled=true; st2.textContent="⏳ Ukládám…";
+                      api("POST","/api/v1/erp/app/attendance/entry-trim",{id:e2.id,end:ti.value}).then(function(r){
+                        if(r&&r.ok){ st2.textContent="✅ Zkráceno — přepočítávám den…"; setTimeout(dochLoad,700); }
+                        else{ ano.disabled=false; ne.disabled=false; st2.textContent="✗ "+((r&&(r.error||JSON.stringify(r)))||"Bez odpovědi serveru."); }
+                      });
                     });
                   });
                   fx.appendChild(ti); fx.appendChild(ok2); fx.appendChild(st2);

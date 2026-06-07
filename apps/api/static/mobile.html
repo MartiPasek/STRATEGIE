@@ -623,7 +623,7 @@ window.onerror=function(msg,src,line){
     // /erp/ S LOMÍTKEM — jinak URL nespadá do scope ERP PWA a Android otevře chat PWA (S CHAT splash).
     g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"STRATEGIE",0,function(){openApp("/erp/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Tvoje Marti",0,function(){openApp("/");}));
-    g.appendChild(appCell("🕒","Docházka",0,function(){go("dochazka");}));
+    g.appendChild(appCell("🤝","Spolupráce",0,function(){go("dochazka");}));
     // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
     // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
     // g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));

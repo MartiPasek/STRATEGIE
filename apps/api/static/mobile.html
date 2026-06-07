@@ -785,159 +785,147 @@ window.onerror=function(msg,src,line){
           bw.appendChild(b);
         });
       }
-      // Výběr „za jak dlouho" (chips) → fn(min)
-      function chips(label, fn){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
+      // Marti 7.6. večer: rozbalování NA MÍSTĚ jako Kontakty — tlačítko + obsah
+      // hned pod ním, v rámci jedné úrovně max jedno otevřené. Žádné přepínání
+      // celých obrazovek, žádná tlačítka Zpět (zavře se ťuknutím na volbu znovu).
+      function expOpt(parent, label, cls, build, style){
+        var b=btnEl(label, cls);
+        if(style) style(b);
+        var box=el('<div style="display:none;margin:6px 0 4px 10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
+        b.addEventListener("click",function(){
+          var isOpen=box.style.display!=="none";
+          (parent._exps||[]).forEach(function(x){ x.style.display="none"; });
+          if(!isOpen){ box.innerHTML=""; box._exps=null; build(box, b); box.style.display="block"; }
+        });
+        parent.appendChild(b); parent.appendChild(box);
+        parent._exps=parent._exps||[]; parent._exps.push(box);
+        return b;
+      }
+      // Chips „za jak dlouho" do boxu → fn(min, btn)
+      function chipsIn(box, label, fn){
+        box.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
         var c=el('<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;"></div>');
         [["15 min",15],["30 min",30],["45 min",45],["1 h",60],["1,5 h",90],["2 h",120]].forEach(function(o){
           var b=el('<button class="ghost sm" style="border-color:var(--blue);color:var(--blue);">'+o[0]+'</button>');
           b.addEventListener("click",function(){ b.disabled=true; fn(o[1], b); });
           c.appendChild(b);
         });
-        bw.appendChild(c);
-        var z=el('<button class="ghost full" style="margin-top:10px;">Zpět</button>');
-        z.addEventListener("click",showOpts); bw.appendChild(z);
+        box.appendChild(c);
       }
-      // Výběr data → fn("YYYY-MM-DD")
-      function datePick(label, fn){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
+      // Výběr data do boxu → fn("YYYY-MM-DD", btn)
+      function datePickIn(box, label, fn){
+        box.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
         var d=el('<input type="date" value="'+new Date().toISOString().substr(0,10)+'" style="margin-top:6px;">');
-        bw.appendChild(d);
+        box.appendChild(d);
         var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
         ok.addEventListener("click",function(){ if(d.value){ ok.disabled=true; fn(d.value, ok); } });
-        bw.appendChild(ok);
-        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
-        z.addEventListener("click",showOpts); bw.appendChild(z);
+        box.appendChild(ok);
       }
       function czDate(iso){ var p=(iso||"").split("-"); return p.length===3?(Number(p[2])+". "+Number(p[1])+"."):iso; }
-      // Výběr rozsahu dat od–do → fn(od, do, btn)
-      function dateRangePick(label, backFn, fn){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
+      // Výběr rozsahu dat od–do do boxu → fn(od, do, btn)
+      function dateRangePickIn(box, label, fn){
+        box.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
         var today=new Date().toISOString().substr(0,10);
         var d1=el('<input type="date" value="'+today+'" style="margin-top:6px;">');
         var d2=el('<input type="date" value="'+today+'" style="margin-top:6px;">');
-        bw.appendChild(el('<label>Od</label>')); bw.appendChild(d1);
-        bw.appendChild(el('<label>Do</label>')); bw.appendChild(d2);
+        box.appendChild(el('<label>Od</label>')); box.appendChild(d1);
+        box.appendChild(el('<label>Do</label>')); box.appendChild(d2);
         var ok=el('<button class="green full" style="margin-top:10px;">Potvrdit</button>');
         ok.addEventListener("click",function(){ if(d1.value&&d2.value){ ok.disabled=true; fn(d1.value, d2.value, ok); } });
-        bw.appendChild(ok);
-        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
-        z.addEventListener("click",backFn); bw.appendChild(z);
+        box.appendChild(ok);
       }
-      // Výběr dne + času „do kdy zhruba" → fn(datum, čas, btn) — Marti 7.6.: lékař
-      function dateTimePick(label, backFn, fn){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
+      // Výběr dne + času „do kdy zhruba" do boxu → fn(datum, čas, btn) — lékař
+      function dateTimePickIn(box, label, fn){
+        box.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
         var today=new Date().toISOString().substr(0,10);
         var d=el('<input type="date" value="'+today+'" style="margin-top:6px;">');
         var t=el('<input type="time" style="margin-top:6px;">');
-        bw.appendChild(el('<label>Den</label>')); bw.appendChild(d);
-        bw.appendChild(el('<label>Do kdy zhruba</label>')); bw.appendChild(t);
+        box.appendChild(el('<label>Den</label>')); box.appendChild(d);
+        box.appendChild(el('<label>Do kdy zhruba</label>')); box.appendChild(t);
         var ok=el('<button class="green full" style="margin-top:10px;">Potvrdit</button>');
         ok.addEventListener("click",function(){ if(d.value){ ok.disabled=true; fn(d.value, t.value||"", ok); } });
-        bw.appendChild(ok);
-        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
-        z.addEventListener("click",backFn); bw.appendChild(z);
+        box.appendChild(ok);
       }
-      // 🧭 Tady budu asi jinde… (Marti 7.6.: místo formuláře nepřítomnosti — rozhovor)
-      // Marti 7.6. večer: osobní důvody první, služební druhé.
-      function jindeMenu(){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">🧭 Tady budu asi jinde…</div>'));
-        var b2=btnEl("🏠 Osobní důvody…","green"); b2.addEventListener("click",osobniMenu); bw.appendChild(b2);
-        var b1=btnEl("💼 Služební důvody…","green"); b1.addEventListener("click",sluzebniMenu); bw.appendChild(b1);
-        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
-        z.addEventListener("click",showOpts); bw.appendChild(z);
+      // Přímá akce do containeru (helper pro inline menu)
+      function dirBtn(parent, label, cls, h){
+        var b=btnEl(label, cls);
+        b.addEventListener("click",function(){ h(b); });
+        parent.appendChild(b);
+        return b;
       }
-      function sluzebniMenu(){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">💼 Služební důvody</div>'));
-        addOpts([
-          ["🚙 Jedu rovnou k zákazníkovi…",       function(b){ act("checkin",{kind:"trip"},b); }],
-          ["🎓 Jsem na školení…",                  function(b){ act("checkin",{kind:"work"},b,function(){ presence({text:"Jsem na školení"},{disabled:false}); }); }],
-          ["📦 Služební pochůzka, pak dorazím…",   function(b){ presence({text:"Na služební pochůzce, pak dorazím",add_since:true},b); }],
-          ["📝 Ostatní — napíšu důvod…",            function(){ sluzebniJine(); }]
-        ],"green");
-        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
-        z.addEventListener("click",jindeMenu); bw.appendChild(z);
-      }
-      // Marti 7.6. večer: Služební → Ostatní — vypsat důvod + čas návratu.
-      function sluzebniJine(){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">📝 Služební — jiný důvod</div>'));
-        var ta=el('<textarea rows="2" placeholder="Napiš důvod… (např. jednání na úřadě)" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;margin-top:6px;"></textarea>');
-        var t=el('<input type="time" style="margin-top:6px;">');
-        bw.appendChild(ta);
-        bw.appendChild(el('<label>Vrátím se zhruba v</label>')); bw.appendChild(t);
-        var st=el('<div class="hint" style="margin-top:6px;"></div>'); bw.appendChild(st);
-        var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
-        ok.addEventListener("click",function(){
-          var d=(ta.value||"").trim();
-          if(!d){ st.textContent="Napiš prosím důvod."; return; }
-          ok.disabled=true;
-          presence({text:d.substring(0,120),add_since:true,until_txt:(t.value?("~"+t.value):"")},ok);
+      // 💼 Služební důvody — obsah (Marti 7.6. večer: + Ostatní s důvodem a návratem)
+      function sluzebniBuild(box){
+        dirBtn(box,"🚙 Jedu rovnou k zákazníkovi…","green",function(b){ act("checkin",{kind:"trip"},b); });
+        dirBtn(box,"🎓 Jsem na školení…","green",function(b){ act("checkin",{kind:"work"},b,function(){ presence({text:"Jsem na školení"},{disabled:false}); }); });
+        dirBtn(box,"📦 Služební pochůzka, pak dorazím…","green",function(b){ presence({text:"Na služební pochůzce, pak dorazím",add_since:true},b); });
+        expOpt(box,"📝 Ostatní — napíšu důvod…","green",function(bx){
+          var ta=el('<textarea rows="2" placeholder="Napiš důvod… (např. jednání na úřadě)" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;margin-top:6px;"></textarea>');
+          var t=el('<input type="time" style="margin-top:6px;">');
+          bx.appendChild(ta);
+          bx.appendChild(el('<label>Vrátím se zhruba v</label>')); bx.appendChild(t);
+          var st=el('<div class="hint" style="margin-top:6px;"></div>'); bx.appendChild(st);
+          var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
+          ok.addEventListener("click",function(){
+            var d=(ta.value||"").trim();
+            if(!d){ st.textContent="Napiš prosím důvod."; return; }
+            ok.disabled=true;
+            presence({text:d.substring(0,120),add_since:true,until_txt:(t.value?("~"+t.value):"")},ok);
+          });
+          bx.appendChild(ok);
         });
-        bw.appendChild(ok);
-        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
-        z.addEventListener("click",sluzebniMenu); bw.appendChild(z);
       }
-      // Marti 7.6. večer: nové texty + pořadí (dovolená až na konec).
-      function osobniMenu(){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">🏠 Osobní důvody</div>'));
-        addOpts([
-          ["🤒 Je mi fakt blbě… Vidím to na sick day.", function(b){
-            b.disabled=true; var today=new Date().toISOString().substr(0,10);
-            absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
-              presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); });
-          }],
-          ["🤧 Mám neschopenku do…", function(){
-            datePick("Neschopenka do:",function(d,b){
-              var today=new Date().toISOString().substr(0,10);
-              absence({type_code:"sick",date_from:today,date_to:d,mode:"days",note:"neschopenka (přes mobil)"},function(){
-                presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); }); });
-          }],
-          ["🩺 Jdu k lékaři…", function(){
-            dateTimePick("Jdu k lékaři — den a do kdy zhruba nebudu:", osobniMenu, function(d, t, b){
-              var today=new Date().toISOString().substr(0,10);
-              absence({type_code:"medical",date_from:d,date_to:d,mode:"days",note:"u lékaře"+(t?(" do ~"+t):"")},function(){
-                if(d===today){ presence({text:"Jsem u lékaře",add_since:false,until_txt:(t?("~"+t):"")},b); }
-                else dochLoad();
-              });
+      // 🏠 Osobní důvody — obsah (Marti 7.6. večer: dovolená na konci)
+      function osobniBuild(box){
+        dirBtn(box,"🤒 Je mi fakt blbě… Vidím to na sick day.","green",function(b){
+          b.disabled=true; var today=new Date().toISOString().substr(0,10);
+          absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
+            presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); });
+        });
+        expOpt(box,"🤧 Mám neschopenku do…","green",function(bx){
+          datePickIn(bx,"Neschopenka do:",function(d,b){
+            var today=new Date().toISOString().substr(0,10);
+            absence({type_code:"sick",date_from:today,date_to:d,mode:"days",note:"neschopenka (přes mobil)"},function(){
+              presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); }); });
+        });
+        expOpt(box,"🩺 Jdu k lékaři…","green",function(bx){
+          dateTimePickIn(bx,"Den a do kdy zhruba nebudu:",function(d, t, b){
+            var today=new Date().toISOString().substr(0,10);
+            absence({type_code:"medical",date_from:d,date_to:d,mode:"days",note:"u lékaře"+(t?(" do ~"+t):"")},function(){
+              if(d===today){ presence({text:"Jsem u lékaře",add_since:false,until_txt:(t?("~"+t):"")},b); }
+              else dochLoad();
             });
-          }],
-          ["👨‍👧 Zase řeším rodinu… (OČR)", function(){
-            dateRangePick("OČR od – do:", osobniMenu, function(od, dd, b){
-              var today=new Date().toISOString().substr(0,10);
-              absence({type_code:"family_care",date_from:od,date_to:dd,mode:"days",note:"OČR (přes mobil)"},function(){
-                if(od<=today && dd>=today){ presence({text:"Pečuji o rodinu (OČR)",add_since:false,until_txt:czDate(dd)},b); }
-                else dochLoad();
-              });
+          });
+        });
+        expOpt(box,"👨‍👧 Zase řeším rodinu… (OČR)","green",function(bx){
+          dateRangePickIn(bx,"OČR od – do:",function(od, dd, b){
+            var today=new Date().toISOString().substr(0,10);
+            absence({type_code:"family_care",date_from:od,date_to:dd,mode:"days",note:"OČR (přes mobil)"},function(){
+              if(od<=today && dd>=today){ presence({text:"Pečuji o rodinu (OČR)",add_since:false,until_txt:czDate(dd)},b); }
+              else dochLoad();
             });
-          }],
-          ["🕐 Něco si zařizuji…", function(){
-            chips("Dorazím zhruba za:",function(m,b){ presence({text:"Něco si zařizuji, dorazím",add_since:false,eta_min:m},b); });
-          }],
-          ["🌴 Že by dovolená?… 😎", function(){
-            dateRangePick("Dovolená od – do:", osobniMenu, function(od, dd, b){
-              var today=new Date().toISOString().substr(0,10);
-              absence({type_code:"vacation",date_from:od,date_to:dd,mode:"days",note:"přes mobil"},function(){
-                if(od<=today && dd>=today){ presence({text:"Mám dovolenou",add_since:false,until_txt:czDate(dd)},b); }
-                else dochLoad();
-              });
+          });
+        });
+        expOpt(box,"🕐 Něco si zařizuji…","green",function(bx){
+          chipsIn(bx,"Dorazím zhruba za:",function(m,b){ presence({text:"Něco si zařizuji, dorazím",add_since:false,eta_min:m},b); });
+        });
+        expOpt(box,"🌴 Že by dovolená?… 😎","green",function(bx){
+          dateRangePickIn(bx,"Dovolená od – do:",function(od, dd, b){
+            var today=new Date().toISOString().substr(0,10);
+            absence({type_code:"vacation",date_from:od,date_to:dd,mode:"days",note:"přes mobil"},function(){
+              if(od<=today && dd>=today){ presence({text:"Mám dovolenou",add_since:false,until_txt:czDate(dd)},b); }
+              else dochLoad();
             });
-          }]
-        ],"green");
-        var z=el('<button class="ghost full" style="margin-top:8px;">Zpět</button>');
-        z.addEventListener("click",jindeMenu); bw.appendChild(z);
+          });
+        });
+      }
+      // 🧭 Tady budu asi jinde… — obsah (osobní první, služební druhé)
+      function jindeBuild(box){
+        expOpt(box,"🏠 Osobní důvody…","green",osobniBuild);
+        expOpt(box,"💼 Služební důvody…","green",sluzebniBuild);
       }
       // Píchnutí na zakázku (Marti 7.6.): picker nad tenant.zakazka (⚙ sync_zakazky).
-      function zakPick(){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 2px;">Najdi zakázku (číslo / název):</div>'));
+      function zakBuild(box){
+        box.appendChild(el('<div class="hint" style="margin:4px 0 2px;">Najdi zakázku (číslo / název):</div>'));
         var si=el('<input placeholder="🔍 např. VR106… nebo název" autocomplete="off" style="margin-top:6px;">');
         var res=el('<div style="margin-top:8px;"></div>');
         var tmr=null;
@@ -958,15 +946,12 @@ window.onerror=function(msg,src,line){
           });
         }
         si.addEventListener("input",function(){ clearTimeout(tmr); tmr=setTimeout(load,300); });
-        bw.appendChild(si); bw.appendChild(res);
-        var z=el('<button class="ghost full" style="margin-top:10px;">Zpět</button>');
-        z.addEventListener("click",showOpts); bw.appendChild(z);
+        box.appendChild(si); box.appendChild(res);
         load();
       }
-      // Přímá zpráva pro Tvoje Marti (Marti 7.6.): text i audio, odpověď hned + notifikace.
-      function martiMsgUI(){
-        bw.innerHTML="";
-        bw.appendChild(el('<div class="hint" style="margin:4px 0 4px;">Napiš nebo nahraj — Tvoje Marti odpoví tady a cinkne ti notifikace.</div>'));
+      // Přímá zpráva (Marti 7.6.): text i audio, odpověď hned + notifikace.
+      function martiMsgBuild(box){
+        box.appendChild(el('<div class="hint" style="margin:4px 0 4px;">Napiš nebo nahraj — Tvoje Marti odpoví tady a cinkne ti notifikace.</div>'));
         var ta=el('<textarea rows="3" placeholder="Napiš, co potřebuješ…" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;"></textarea>');
         var send=el('<button class="green full" style="margin-top:8px;">📤 Odeslat Tvojí Marti</button>');
         var rec=el('<button class="ghost full" style="margin-top:8px;border-color:var(--blue);color:var(--blue);">🎙 Nahrát audio…</button>');
@@ -996,7 +981,7 @@ window.onerror=function(msg,src,line){
             fr.onload=function(){ doSend({audio_b64:String(fr.result).split(",")[1],mime:f.type||"audio/m4a",filename:f.name||"audio"}); };
             fr.readAsDataURL(f);
           });
-          bw.appendChild(fi); fi.click();
+          box.appendChild(fi); fi.click();
         }
         rec.addEventListener("click",function(){
           if(recState){ try{recState.stop();}catch(e){} return; }
@@ -1018,55 +1003,49 @@ window.onerror=function(msg,src,line){
             }).catch(function(){ fileFallback(); });
           } else { fileFallback(); }
         });
-        bw.appendChild(ta); bw.appendChild(send); bw.appendChild(rec); bw.appendChild(st); bw.appendChild(reply);
-        var z=el('<button class="ghost full" style="margin-top:10px;">Zpět</button>');
-        z.addEventListener("click",showOpts); bw.appendChild(z);
+        box.appendChild(ta); box.appendChild(send); box.appendChild(rec); box.appendChild(st); box.appendChild(reply);
       }
       function presence(payload, b){ b.disabled=true; api("POST","/api/v1/erp/app/attendance/announce",payload).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); }
       function absence(payload, then){ return api("POST","/api/v1/erp/app/attendance/absence",payload).then(then); }
+      var _blueStyle=function(b){ b.style.borderColor="var(--blue)"; b.style.color="var(--blue)"; };
+      var _amberStyle=function(b){ b.style.borderColor="var(--amber)"; b.style.color="var(--amber)"; };
+      // Marti 7.6. večer: vše se rozbaluje NA MÍSTĚ (jako Kontakty), žádné
+      // přepínání obrazovek. Ťuknutí na volbu znovu = zavření.
       function showOpts(){
-        bw.innerHTML="";
+        bw.innerHTML=""; bw._exps=null;
         if(open){
-          // Marti 7.6. večer: zakázka patří sem — přepnutí BĚHEM směny (switch).
-          var bZak=btnEl("🧾 Pracuji na zakázce…","green");
-          bZak.addEventListener("click",zakPick); bw.appendChild(bZak);
+          // zakázka patří sem — přepnutí BĚHEM směny (switch)
+          expOpt(bw,"🧾 Pracuji na zakázce…","green",zakBuild);
           addOpts([
             ["👋 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)"},b); }],
-            ["☕ Potřebuju krátkou pauzu…",        function(b){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},b); }],
-            ["🍃 Jdu se provětrat / najíst…",      function(){ chips("Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); }); }],
-            ["📅 Mám jednání do…",                 function(){ chips("Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); }); }]
+            ["☕ Potřebuju krátkou pauzu…",        function(b){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},b); }]
           ],"warn");
-          var more=btnEl("⋯ Ostatní…","warn"); bw.appendChild(more);
-          var sub=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
-          [["🩺 Jedu k lékaři, nebojte, pak dorazím…", {reason:"lékař — vrátí se",presence:"Jsem u lékaře, pak dorazím"}],
-           ["🩺 Jedu k lékaři… nevidím to dnes dobře…", {reason:"lékař — dnes už nedorazí",presence:"U lékaře, dnes už nedorazím"}],
-           ["☕🏠 Mám doma pauzu…",                     {reason:"pauza (home office)",presence:"Mám doma pauzu"}],
-           ["🚗 Služební pochůzka…",                    {reason:"služební pochůzka",presence:"Na služební pochůzce"}]].forEach(function(o){
-            var b=btnEl(o[0],"warn");
-            b.addEventListener("click",function(){ act("checkout",o[1],b); });
-            sub.appendChild(b);
+          expOpt(bw,"🍃 Jdu se provětrat / najíst…","warn",function(bx){
+            chipsIn(bx,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
           });
-          bw.appendChild(sub);
-          more.addEventListener("click",function(){ sub.style.display=sub.style.display==="none"?"block":"none"; });
-          var mm1=btnEl("💬 Píši přímo tobě, Marti…","ghost");
-          mm1.style.borderColor="var(--blue)"; mm1.style.color="var(--blue)";
-          mm1.addEventListener("click",martiMsgUI); bw.appendChild(mm1);
+          expOpt(bw,"📅 Mám jednání do…","warn",function(bx){
+            chipsIn(bx,"Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); });
+          });
+          expOpt(bw,"⋯ Ostatní…","warn",function(bx){
+            [["🩺 Jedu k lékaři, nebojte, pak dorazím…", {reason:"lékař — vrátí se",presence:"Jsem u lékaře, pak dorazím"}],
+             ["🩺 Jedu k lékaři… nevidím to dnes dobře…", {reason:"lékař — dnes už nedorazí",presence:"U lékaře, dnes už nedorazím"}],
+             ["☕🏠 Mám doma pauzu…",                     {reason:"pauza (home office)",presence:"Mám doma pauzu"}],
+             ["🚗 Služební pochůzka…",                    {reason:"služební pochůzka",presence:"Na služební pochůzce"}]].forEach(function(o){
+              dirBtn(bx,o[0],"warn",function(b){ act("checkout",o[1],b); });
+            });
+          });
+          expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
         } else {
-          // Marti 7.6. večer: „Už jedu" první · „Ostatní" zelená a PŘED zprávou Marti.
+          // „Už jedu" první · „Tady budu asi jinde…" před zprávou Marti
+          expOpt(bw,"🚗 Už jedu do práce…","green",function(bx){
+            chipsIn(bx,"Dorazím za cca:",function(m,b){ presence({eta_min:m},b); });
+          });
           addOpts([
-            ["🚗 Už jedu do práce…",   function(){ chips("Dorazím za cca:",function(m,b){ presence({eta_min:m},b); }); }],
             ["🏢 Jsem v práci…",       function(b){ act("checkin",{kind:"work"},b); }],
             ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }]
           ],"green");
-          // Marti 7.6. večer: menu „Ostatní" pryč — „Tady budu asi jinde…" přímo
-          // (Režie se přestěhovala do výběru zakázky, je to taky zakázka).
-          var bJinde=btnEl("🧭 Tady budu asi jinde…","ghost");
-          bJinde.style.borderColor="var(--amber)"; bJinde.style.color="var(--amber)";
-          bJinde.addEventListener("click",jindeMenu);
-          bw.appendChild(bJinde);
-          var mm2=btnEl("💬 Píši přímo tobě, Marti…","ghost");
-          mm2.style.borderColor="var(--blue)"; mm2.style.color="var(--blue)";
-          mm2.addEventListener("click",martiMsgUI); bw.appendChild(mm2);
+          expOpt(bw,"🧭 Tady budu asi jinde…","ghost",jindeBuild,_amberStyle);
+          expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
         }
         var z=el('<button class="ghost full" style="margin-top:8px;">Zrušit</button>');
         z.addEventListener("click",mainBtn); bw.appendChild(z);

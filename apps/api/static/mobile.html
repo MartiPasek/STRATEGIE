@@ -1196,7 +1196,8 @@ window.onerror=function(msg,src,line){
             bx.appendChild(t); bx.appendChild(ok);
           });
           addOpts([
-            ["🚗 Mám služební pochůzku…", function(b){ act("checkout",{reason:"služební pochůzka",presence:"Na služební pochůzce"},b); }],
+            // Marti 7.6. večer: pochůzka je taky práce — směna BĚŽÍ dál, jen status.
+            ["🚗 Mám služební pochůzku…", function(b){ presence({text:"Na služební pochůzce",add_since:true},b); }],
             ["🫡 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},b); }]
           ],"ghost");
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
@@ -1237,6 +1238,7 @@ window.onerror=function(msg,src,line){
         if(open){
           if(has("jednání")) return "Mám jednání 🤝";
           if(has("školení")) return "Jsem na školení 🎓";
+          if(has("pochůzce")||has("pochůzka")) return "Na pochůzce 📦";
           return "Dnes makám 😉";
         }
         if(a){

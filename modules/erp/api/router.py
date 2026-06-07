@@ -6429,18 +6429,32 @@ async def att_announce(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     note = _att_presence_note(body)
+    # Marti 7.6. večer: volitelně i pro BUDOUCÍ den („v pátek končím dříve") —
+    # status se uloží na ten den a „Kdo kde dnes" ho ten den ukáže.
+    from datetime import datetime as _dta
+    day = None
+    draw = str((body or {}).get("day") or "").strip()[:10]
+    if draw:
+        try:
+            dd = _dta.strptime(draw, "%Y-%m-%d").date()
+            if dd < _dta.now().date():
+                return JSONResponse({"ok": False, "error": "Minulý den ohlásit nejde."}, status_code=400)
+            day = dd.isoformat()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
         s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
-                     "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date AND status='announced'"),
-                  {"t": _ATT_TENANT, "e": emp})
+                     "WHERE tenant_id=:t AND employee_id=:e "
+                     "AND entry_date = COALESCE(CAST(:d AS date), current_date) AND status='announced'"),
+                  {"t": _ATT_TENANT, "e": emp, "d": day})
         wt = _att_work_type(s)
         s.execute(_t(
             "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
             "status,source,is_active,note,created_by_id,created_at,updated_at) "
-            "VALUES (:t,:e,current_date,:wt,now(),'announced','mobile_app',false,:n,:u,now(),now())"),
-            {"t": _ATT_TENANT, "e": emp, "wt": wt, "n": note, "u": uid})
+            "VALUES (:t,:e,COALESCE(CAST(:d AS date), current_date),:wt,now(),'announced','mobile_app',false,:n,:u,now(),now())"),
+            {"t": _ATT_TENANT, "e": emp, "d": day, "wt": wt, "n": note, "u": uid})
         s.commit()
         return JSONResponse({"ok": True, "note": note})
     except Exception as exc:

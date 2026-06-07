@@ -1276,6 +1276,26 @@ window.onerror=function(msg,src,line){
       function absence(payload, then){ return api("POST","/api/v1/erp/app/attendance/absence",payload).then(then); }
       var _blueStyle=function(b){ b.style.borderColor="var(--blue)"; b.style.color="var(--blue)"; };
       var _amberStyle=function(b){ b.style.borderColor="var(--amber)"; b.style.color="var(--amber)"; };
+      // Marti 7.6. večer: ohlášení dřívějšího konce / pozdějšího příchodu —
+      // dnes i dopředu (den + čas), status se ukáže ten den.
+      function _denCasBuild(bx, otazkaCas, textFn){
+        var today=new Date().toISOString().substr(0,10);
+        bx.appendChild(el('<div class="hint" style="margin-bottom:2px;">Který den?</div>'));
+        var dI=el('<input type="date" value="'+today+'">');
+        bx.appendChild(dI);
+        bx.appendChild(el('<div class="hint" style="margin:6px 0 2px;">'+otazkaCas+'</div>'));
+        var t=el('<input type="time">');
+        var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
+        ok.addEventListener("click",function(){
+          if(!t.value||!dI.value) return;
+          ok.disabled=true;
+          var pref=(dI.value===today)?"Dnes":czDate(dI.value);
+          presence({text:textFn(pref, t.value),add_since:false,day:dI.value},ok);
+        });
+        bx.appendChild(t); bx.appendChild(ok);
+      }
+      function driveBuild(bx){ _denCasBuild(bx,"V kolik budeš končit?",function(p,t){ return p+" končím dříve, asi v "+t; }); }
+      function pozdejiBuild(bx){ _denCasBuild(bx,"V kolik dorazíš?",function(p,t){ return p+" přijdu později, dorazím asi v "+t; }); }
       // Marti 7.6. večer: vše se rozbaluje NA MÍSTĚ (jako Kontakty), žádné
       // přepínání obrazovek. Ťuknutí na volbu znovu = zavření.
       function showOpts(){
@@ -1292,14 +1312,8 @@ window.onerror=function(msg,src,line){
           expOpt(bw,"🍃 Jdu se provětrat / najíst…","ghost",function(bx){
             chipsIn(bx,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
           });
-          // Marti 7.6. večer: ohlášení dřívějšího konce dne (status + čas).
-          expOpt(bw,"🕔 Dnes potřebuji skončit dříve…","ghost",function(bx){
-            bx.appendChild(el('<div class="hint" style="margin-bottom:4px;">V kolik budeš končit?</div>'));
-            var t=el('<input type="time">');
-            var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
-            ok.addEventListener("click",function(){ if(!t.value){ return; } ok.disabled=true; presence({text:"Dnes končím dříve, asi v "+t.value,add_since:false},ok); });
-            bx.appendChild(t); bx.appendChild(ok);
-          });
+          expOpt(bw,"🕔 Potřebuji skončit dříve…","ghost",driveBuild);
+          expOpt(bw,"🌅 Potřebuji přijít později…","ghost",pozdejiBuild);
           expOpt(bw,"📅 Mám jednání…","ghost",function(bx){
             chipsIn(bx,"Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); });
             // Marti 7.6. večer: nebo rovnou do kolika
@@ -1325,6 +1339,8 @@ window.onerror=function(msg,src,line){
             ["🏢 Jsem v práci…",                 function(b){ act("checkin",{kind:"work"},b); }],
             ["🏠 Nejsem v práci… (home office)", function(b){ act("checkin",{kind:"homeoffice"},b); }]
           ],"green");
+          expOpt(bw,"🌅 Potřebuji přijít později…","ghost",pozdejiBuild);
+          expOpt(bw,"🕔 Potřebuji skončit dříve…","ghost",driveBuild);
           expOpt(bw,"🧭 Tady budu asi jinde…","ghost",jindeBuild,_amberStyle);
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
           expOpt(bw,"🙋 Mám dotaz na nadřízeného…","ghost",bossAskBuild,_blueStyle);
@@ -1366,6 +1382,7 @@ window.onerror=function(msg,src,line){
           if(has("krátké pauze")||has("krátká pauza")) return "Dávám si pauzu ☕";
           if(has("relaxuji")) return "Doplňuju energii 🍴";
           if(has("jedu do práce")) return "Už jedu! 🚗";
+          if(has("přijdu později")) return "Dorazím později 🌅";
           if(has("lékař")||has("doktor")) return "Jsem u doktora 🩺";
           if(has("sick day")||has("je mi blbě")) return "Dneska marodím 🤒";
           if(has("neschopenka")) return "Marodím… 🤧";

@@ -204,10 +204,17 @@ window.onerror=function(msg,src,line){
   window.__stgHome=function(){ try{ selectTab("home"); }catch(e){} return true; };
 
   function api(method, path, body){
-    if (canFetch){ try{ var t=B.authedFetch(method,path,body?JSON.stringify(body):""); return Promise.resolve(t?JSON.parse(t):null);}catch(e){return Promise.resolve(null);} }
+    // Marti 7.6. večer: během restartu API po deployi odpovídá starší secondary
+    // 404 {"detail":"Not Found"} — přelož na lidskou hlášku místo ticha.
+    function mk(t){
+      var j=null; try{ j=t?JSON.parse(t):null; }catch(e){ return null; }
+      if(j && j.detail==="Not Found") return {ok:false,error:"Server se právě aktualizuje — zkus to za pár vteřin."};
+      return j;
+    }
+    if (canFetch){ try{ var t=B.authedFetch(method,path,body?JSON.stringify(body):""); return Promise.resolve(mk(t));}catch(e){return Promise.resolve(null);} }
     var o={method:method,credentials:"same-origin",headers:{}};
     if(body){o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body);}
-    return fetch(path,o).then(function(r){return r.ok?r.json():null;}).catch(function(){return null;});
+    return fetch(path,o).then(function(r){ return r.text().then(mk); }).catch(function(){return null;});
   }
   function bjson(fn, arg){ try{ if(B && typeof B[fn]==="function"){ var t=B[fn](arg); return t?JSON.parse(t):null; } }catch(e){} return null; }
   function doDial(n){ if(B&&typeof B.dialNumber==="function")B.dialNumber(n); else if(B&&typeof B.dial==="function")B.dial(n); }

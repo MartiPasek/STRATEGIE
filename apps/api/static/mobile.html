@@ -1087,7 +1087,7 @@ window.onerror=function(msg,src,line){
         if(open){
           var ms=j.morning_start||open.started_at||"";
           T.ttl.innerHTML='Od: <b>'+(ms?esc(ms.substr(11,5)):"—")+'</b>'
-            +(open.project_ref?(' &nbsp;·&nbsp; Zakázka: <b>'+esc(open.project_ref)+'</b>'):'');
+            +(open.project_ref?(' &nbsp;—&nbsp; <b>'+esc(open.project_ref)+'</b>'):'');
           T.ttl.style.cssText="font-size:14.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
           T.val.textContent=fmtHM(j.today_hours||0);
           T.val.style.color="var(--green)"; T.val.style.fontSize="18px";

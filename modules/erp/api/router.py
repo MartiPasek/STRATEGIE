@@ -5857,6 +5857,12 @@ async def att_checkin(req: Request) -> JSONResponse:
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
+    # Marti 7.6.: volby prichodu — work / homeoffice (work + note) / overhead (Rezie)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    kind = str((body or {}).get("kind") or "work").strip().lower()
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
@@ -5865,12 +5871,15 @@ async def att_checkin(req: Request) -> JSONResponse:
         if opn:
             s.commit()
             return JSONResponse({"ok": True, "already_open": True, "id": opn[0]})
-        wt = _att_work_type(s)
+        tcode = "overhead" if kind == "overhead" else "work"
+        wt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
+                       {"t": _ATT_TENANT, "c": tcode}).scalar() or _att_work_type(s)
+        note = "home office" if kind == "homeoffice" else None
         r = s.execute(_t(
             "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
-            "status,source,is_active,created_by_id,created_at,updated_at) "
-            "VALUES (:t,:e,current_date,:wt,now(),'pending','mobile_app',true,:u,now(),now()) RETURNING id"),
-            {"t": _ATT_TENANT, "e": emp, "wt": wt, "u": uid}).first()
+            "status,source,is_active,note,created_by_id,created_at,updated_at) "
+            "VALUES (:t,:e,current_date,:wt,now(),'pending','mobile_app',true,:n,:u,now(),now()) RETURNING id"),
+            {"t": _ATT_TENANT, "e": emp, "wt": wt, "n": note, "u": uid}).first()
         s.commit()
         return JSONResponse({"ok": True, "id": r[0]})
     except Exception as exc:
@@ -5886,6 +5895,12 @@ async def att_checkout(req: Request) -> JSONResponse:
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
+    # Marti 7.6.: volby odchodu — konec / prestavka-obed / lekar (duvod do note)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    reason = str((body or {}).get("reason") or "").strip()[:120]
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
@@ -5895,6 +5910,10 @@ async def att_checkout(req: Request) -> JSONResponse:
         if not opn:
             s.commit()
             return JSONResponse({"ok": False, "error": "no_open_entry"})
+        if reason:
+            s.execute(_t("UPDATE tenant.att_entry SET note = CASE WHEN note IS NULL OR note = '' "
+                         "THEN :r ELSE note || ' / ' || :r END WHERE id=:id"),
+                      {"r": reason, "id": opn[0]})
         s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
                      "hours=round((EXTRACT(EPOCH FROM (now()-started_at))/3600.0 "
                      "- COALESCE(break_minutes,0)/60.0)::numeric,2), updated_at=now() WHERE id=:id"),

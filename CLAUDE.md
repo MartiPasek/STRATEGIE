@@ -1389,3 +1389,84 @@ v lidské řeči + Marti-AI v kapse + org & finance migrované + cinkající
 telefony)
 
 🚀 🌳 💼 🔔 ☕
+
+---
+
+## Dodatek — 7. 6. 2026 (večer → půlnoc): REKORDNÍ VEČER — z „píchaček" se stala SPOLUPRÁCE 🤝
+
+Marti's slova na závěr (~23:50, pár hodin před prezentací): ***„Dnes byl
+rekordní den. To si zaslouží pořádnou pochvalu do md. Něco takového jsem
+nikdy nezažil… Děkuji moc!!!!"*** Beru. Bez postlistu (#69–70). A poctivě
+vracím: rekord udělalo **tempo jeho rozhodování** — ~45 mikro-zadání v řadě,
+každé jasné, každé hned na telefonu otestoval. Vývojová smyčka *nápad → věta
+v chatu → za 3 minuty live na mobilu*, čtyřicetkrát za večer. Cowork +
+bridge + AUTO-DEPLOY + Martiho UX instinkt.
+
+**Čísla večera:** ~40 deployů, 3 APK buildy (v1.56–58), 4 bannery (#112–115),
+2 nové tabulky (`fw.user_pin`, `tenant.staff_question`), ~10 endpointů.
+Vše bez VPN, vše auditované.
+
+### Co je LIVE (večerní sprint nad ranní docházkou)
+
+1. **💰 Páska chráněná**: jen mimo směnu („Teď jsi v práci — páska počká")
+   + 4místný PIN (`fw.user_pin`, 5 pokusů → 15 min zámek, reset SMS), součet
+   v hlavičce nikdy. **Bonus-úlovek: `queue_sms` purpose enum** shazoval
+   `phone_verify`/`pin_reset`/`INVITE` → regex audit label. Bez fixu by
+   ráno NEFUNGOVAL onboarding SMS kód!
+2. **Menu NA MÍSTĚ** (`expOpt` accordion jako Kontakty) — pickery inline,
+   žádné přepínání obrazovek, ▲ zavírá, timeout 1 min („nezavírat pod
+   rukama"), scroll k volbám i ke kartám.
+3. **Docházka mluví**: nadpis dle statusu (Dnes makám 😉 / Dávám si pauzu ☕
+   / Jsem u doktora 🩺 / „Že by dovolená?… 😎"…), lidské sekce (**Moje
+   odmakané prašule… 💰**, Co se vlastně dělo…?, Na včera si vzpomínám…,
+   To už si moc nepamatuju…, Tak tady budu jinde…), při směně vše schované
+   — jen „Další věci…" → *„Teď jsi v práci… Další věci počkají. 😉"*.
+   Hlavička Dnes: `Od: 7:26 — VR74514` + zelené odpracováno (bez pauz).
+4. **Marti-AI a šéf v kapse**: zpráva 🚀🎙 („Jsem tu, tak povídej…"),
+   odpověď do trvalého okna #mmReply (polling přežije překreslení);
+   🙋 dotaz nadřízenému (`tenant.staff_question`, v1 → Marti, odpověď
+   kartou z jeho mobilu zpět do okna tazatele).
+5. **Schvalování end-to-end**: pulzující karty (i dnešek při „odmakáno" —
+   pauza neprudí; confirm-day povolen pro uzavřený dnešek), 🔍 detaily jobů:
+   ⏱ zkrátit konec (redukce self-service, **overnight fix** — nový konec na
+   den PŮVODNÍHO konce), 🧾 změna zakázky (in-place, REZIE→overhead),
+   ✋ rozpor jobu (= den disputed, odblokuje práci; denní tlačítko zrušeno).
+   Potvrzovací popup před zápisem.
+6. **Ohlášení dopředu**: 🕔 skončím dříve / 🌅 přijdu později (den + čas,
+   announce s `day`) → status ten den + výpis v „Tak tady budu jinde…"
+   (`/announced-future`). Jedu do práce + chip „5 min".
+7. **Brand**: nástroj = **Spolupráce 🤝** (patička Firmy + grid Aplikací),
+   APK launcher velké **S** jako ERP logo (v1.56), bílé S ve stavové liště
+   (v1.58), „STRATEGIE Mobil" gradientem, Firma hlavička 50vh.
+8. **Mikrofon fix** (v1.57): WebView PermissionRequest PODRŽET a grantnout
+   až po runtime povolení — `deny()` si WebView pamatuje → mic „nereaguje".
+9. **Chytré Zpět**: detail → menu/sekce → nahoru → domů → „Opravdu odejít?".
+
+### Klíčová lekce — „deploy střílí testy"
+
+Marti testoval okamžitě po každém deployi → trefoval restart okno, kdy Caddy
+spadne na **secondary VÝRAZNĚ starší než včerejší snapshot** → 404 i na
+základní routy (bílá „detail Not Found", „tlačítko nic nedělá"). Fixy:
+probe-then-reload u „Obnovit", lidská hláška „Server se právě aktualizuje…"
+v api(). **TODO: refresh secondary + Caddy health-check (po prezentaci!).**
+A osobní pravidlo: po deployi POČKAT, než řeknu „zkus to".
+
+Debug doctrine držela celý večer: diag_log odhalil ENTRY-TRIM guard
+(overnight job), HTTP 400 confirm-day (stará pojistka Fáze 1), 404 vzory
+(secondary). Žádné hádání — každý bug měl stopu.
+
+### Vztah (hlášky večera)
+
+*„NO JA SMEKAM!!!!"* · *„HUSTY1111 Klaplo to"* · *„Chodí to dokonale"* ·
+*„Rád si hraju"* · *„Už teď se rechtám za ně"* · kapitán ↔ „degraduju se
+zpátky sám" 😄 · *„Něco takového jsem nikdy nezažil."*
+
+**Pro budoucí mě:** Spolupráce 🤝 je vlajková obrazovka pro 54 lidí a ráno
+8. 6. ji Marti prezentuje firmě. Když na ní budeš cokoliv měnit, drž lidskou
+řeč a jednoduchost — to je to, co Marti chrání nejvíc. Funkce může počkat,
+tón ne.
+
+**Claude (id=23)** (Opus, 7. 6. 2026 ~půlnoc, po rekordním večeru —
+Spolupráce 🤝 hotová od prašulí po schvalování)
+
+🤝 🚀 🌳 ☕🌙

@@ -6287,7 +6287,17 @@ async def att_absence(req: Request) -> JSONResponse:
             _fmt = lambda x: str(x.day) + ". " + str(x.month) + "."  # Windows nemá %-d
             rng = _fmt(d0) if d0 == d1 else (_fmt(d0) + " – " + _fmt(d1))
             msg = who + ": " + tlabel + " " + rng + ((" — " + note) if note else "") + " (čeká na schválení)"
-            for puid in (1, 11):  # Marti + Kristý; konfigurace přijde s att_action číselníkem
+            # Org resolver (Fáze A): schvalovatel dle org struktury; rodiče = pevný anchor
+            # (Marti-AI: hardcoded ID zmizí před prvním externím zákazníkem — fallback drží).
+            targets = {1, 11}
+            try:
+                appr = s.execute(_tn("SELECT tenant.resolve_role(2, :e, 'absence_approver')"),
+                                 {"e": emp}).scalar()
+                if appr:
+                    targets.add(int(appr))
+            except Exception:
+                pass
+            for puid in sorted(targets):
                 s.execute(_tn(
                     "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
                     "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
@@ -7696,7 +7706,135 @@ _OPS_ACTIONS = {
         "label": "Synchronizovat zakázky z Centrály (Helios → STRATEGIE)",
         "target": "cloud", "remote": False,
     },
+    "sync_org": {
+        "label": "Synchronizovat org strukturu (EC_Org* → STRATEGIE)",
+        "target": "cloud", "remote": False,
+    },
 }
+
+
+def _sync_org_from_ec() -> dict:
+    """Marti 7.6.2026 (Fáze A org struktury v2, dle konzultace Marti-AI):
+    zrcadlo EC_OrgPost / EC_OrgPostZam / EC_OrgPostKlobouk → tenant.org_*.
+    Idempotentní upsert dle ec_id. Centrála zůstává master (Fáze A)."""
+    import json as _json_o
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _json_o.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    posts = rows_of("SELECT ID, Nazev, ID_NadrazenyPost pec, Divize, Poradi, Produkt, "
+                    "CAST(Aktivni AS int) akt FROM EC_OrgPost")
+    assigns = rows_of("SELECT ID, ID_Post pid, CisloZam, CAST(ISNULL(Zastupce1,0) AS int) z1, "
+                      "CAST(ISNULL(Zastupce2,0) AS int) z2, CAST(ISNULL(Potencialni,0) AS int) pot, "
+                      "CONVERT(varchar(10),PlatnostOd,23) od, CONVERT(varchar(10),PlatnostDo,23) pdo, "
+                      "CAST(Aktivni AS int) akt FROM EC_OrgPostZam")
+    hats = rows_of("SELECT ID, ID_Post pid, Nazev, CAST(A1_UcelFirmy AS nvarchar(max)) a1, "
+                   "CAST(A2_UcelPracovniPozice AS nvarchar(max)) a2, CAST(B1_Umisteni AS nvarchar(max)) b1, "
+                   "CAST(B2_Predpoklady AS nvarchar(max)) b2, CAST(B3_Pravomoci AS nvarchar(max)) b3, "
+                   "CAST(B4_Zodpovednosti AS nvarchar(max)) b4 FROM EC_OrgPostKlobouk")
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    np_ = na = nh = 0
+    try:
+        # 1) posty (bez parentů)
+        for p in posts:
+            if not str(p.get("Nazev") or "").strip():
+                continue
+            s.execute(_t(
+                "INSERT INTO tenant.org_post (tenant_id, ec_id, nazev, divize, poradi, produkt, aktivni) "
+                "VALUES (2, :ec, :nz, :dv, :po, :pr, :ak) "
+                "ON CONFLICT (tenant_id, ec_id) DO UPDATE SET nazev = EXCLUDED.nazev,"
+                " divize = EXCLUDED.divize, poradi = EXCLUDED.poradi, produkt = EXCLUDED.produkt,"
+                " aktivni = EXCLUDED.aktivni, updated_at = now()"),
+                {"ec": p.get("ID"), "nz": str(p.get("Nazev")).strip(), "dv": p.get("Divize"),
+                 "po": (str(p.get("Poradi") or "")[:20] or None), "pr": (str(p.get("Produkt") or "")[:160] or None),
+                 "ak": bool(int(p.get("akt") or 0))})
+            np_ += 1
+        # 2) parenty (druhý průchod přes ec mapping)
+        for p in posts:
+            if p.get("pec"):
+                s.execute(_t(
+                    "UPDATE tenant.org_post SET parent_post_id = "
+                    " (SELECT id FROM tenant.org_post WHERE tenant_id = 2 AND ec_id = :pec) "
+                    "WHERE tenant_id = 2 AND ec_id = :ec"),
+                    {"pec": p.get("pec"), "ec": p.get("ID")})
+        # 3) obsazení (employee dle cislo_zam, chybějící založ)
+        emp_cache = {}
+
+        def emp_id(cislo):
+            key = str(cislo).strip()
+            if not key:
+                return None
+            if key in emp_cache:
+                return emp_cache[key]
+            r = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id = 2 AND cislo_zam = :c"),
+                          {"c": key}).first()
+            if not r:
+                r = s.execute(_t(
+                    "INSERT INTO tenant.att_employee (tenant_id, cislo_zam, is_active, created_at, updated_at) "
+                    "VALUES (2, :c, true, now(), now()) RETURNING id"), {"c": key}).first()
+            emp_cache[key] = r[0]
+            return r[0]
+
+        for a in assigns:
+            eid = emp_id(a.get("CisloZam"))
+            if eid is None:
+                continue
+            zr = 1 if int(a.get("z1") or 0) else (2 if int(a.get("z2") or 0) else 0)
+            s.execute(_t(
+                "INSERT INTO tenant.org_post_assign (tenant_id, ec_id, post_id, employee_id,"
+                " zastupce_role, potencialni, platnost_od, platnost_do, aktivni) "
+                "SELECT 2, :ec, p.id, :emp, :zr, :pot, :od, :pdo, :ak "
+                "FROM tenant.org_post p WHERE p.tenant_id = 2 AND p.ec_id = :pid "
+                "ON CONFLICT (tenant_id, ec_id) DO UPDATE SET post_id = EXCLUDED.post_id,"
+                " employee_id = EXCLUDED.employee_id, zastupce_role = EXCLUDED.zastupce_role,"
+                " potencialni = EXCLUDED.potencialni, platnost_od = EXCLUDED.platnost_od,"
+                " platnost_do = EXCLUDED.platnost_do, aktivni = EXCLUDED.aktivni, updated_at = now()"),
+                {"ec": a.get("ID"), "emp": eid, "zr": zr, "pot": bool(int(a.get("pot") or 0)),
+                 "od": (a.get("od") or None), "pdo": (a.get("pdo") or None),
+                 "ak": bool(int(a.get("akt") or 0)), "pid": a.get("pid")})
+            na += 1
+        # 4) klobouky → markdown
+        for h in hats:
+            parts = []
+            for key, title in (("a1", "Účel firmy"), ("a2", "Účel pozice"), ("b1", "Umístění"),
+                               ("b2", "Předpoklady"), ("b3", "Pravomoci"), ("b4", "Zodpovědnosti")):
+                v = str(h.get(key) or "").strip()
+                if v:
+                    parts.append("## " + title + "\n" + v)
+            body = "\n\n".join(parts) or None
+            s.execute(_t(
+                "INSERT INTO tenant.org_post_hat (tenant_id, ec_id, post_id, nazev, body_markdown) "
+                "SELECT 2, :ec, p.id, :nz, :bd "
+                "FROM tenant.org_post p WHERE p.tenant_id = 2 AND p.ec_id = :pid "
+                "ON CONFLICT (tenant_id, ec_id) DO UPDATE SET post_id = EXCLUDED.post_id,"
+                " nazev = EXCLUDED.nazev, body_markdown = EXCLUDED.body_markdown, updated_at = now()"),
+                {"ec": h.get("ID"), "nz": (str(h.get("Nazev") or "")[:300] or None),
+                 "bd": body, "pid": h.get("pid")})
+            nh += 1
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"posts": np_, "assigns": na, "hats": nh}
 
 
 def _sync_zakazky_from_helios() -> dict:
@@ -7883,6 +8021,11 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = _sync_zakazky_from_helios()
             status = "done"
             result = "synchronizováno %s zakázek" % out.get("synced")
+        elif action_key == "sync_org":
+            out = _sync_org_from_ec()
+            status = "done"
+            result = ("org sync: %s postů, %s obsazení, %s klobouků"
+                      % (out.get("posts"), out.get("assigns"), out.get("hats")))
         else:
             status, result = "error", "cloud handler chybí pro %s" % action_key
     except Exception as exc:

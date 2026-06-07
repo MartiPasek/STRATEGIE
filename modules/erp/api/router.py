@@ -6243,6 +6243,25 @@ async def att_absence(req: Request) -> JSONResponse:
                     _upsert(day.isoformat(), None if code == "homeoffice" else 8)
                 day += _td(days=1)
         s.commit()
+        # Marti 7.6.: notifikace rodičům (schvalování z kapsy) — kdo, co, odkdy dokdy.
+        try:
+            from sqlalchemy import text as _tn
+            who = s.execute(_tn(
+                "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), u.login_name, em.full_name) "
+                "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id = em.user_id WHERE em.id = :e"),
+                {"e": emp}).scalar() or ("zaměstnanec " + str(emp))
+            tlabel = s.execute(_tn("SELECT label FROM tenant.att_entry_type WHERE id = :i"), {"i": tid}).scalar() or code
+            _fmt = lambda x: str(x.day) + ". " + str(x.month) + "."  # Windows nemá %-d
+            rng = _fmt(d0) if d0 == d1 else (_fmt(d0) + " – " + _fmt(d1))
+            msg = who + ": " + tlabel + " " + rng + ((" — " + note) if note else "") + " (čeká na schválení)"
+            for puid in (1, 11):  # Marti + Kristý; konfigurace přijde s att_action číselníkem
+                s.execute(_tn(
+                    "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                    "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
+                    {"uid": puid, "ti": "🌴 Nahlášená nepřítomnost", "msg": msg[:600]})
+            s.commit()
+        except Exception:
+            s.rollback()  # notifikace nesmí shodit nahlášení
         return JSONResponse({"ok": True, "created": created})
     except Exception as exc:
         s.rollback()

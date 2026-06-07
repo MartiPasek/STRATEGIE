@@ -957,11 +957,13 @@ window.onerror=function(msg,src,line){
         load();
       }
       // Přímá zpráva (Marti 7.6.): text i audio, odpověď hned + notifikace.
+      // Marti 7.6. večer: zelený rámeček „Jsem tu, tak povídej…", 🚀 + 🎙, scroll nahoru.
       function martiMsgBuild(box){
-        box.appendChild(el('<div class="hint" style="margin:4px 0 4px;">Napiš nebo nahraj — Tvoje Marti odpoví tady a cinkne ti notifikace.</div>'));
-        var ta=el('<textarea rows="3" placeholder="Napiš, co potřebuješ…" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;"></textarea>');
-        var send=el('<button class="green full" style="margin-top:8px;">📤 Odeslat Tvojí Marti</button>');
-        var rec=el('<button class="ghost full" style="margin-top:8px;border-color:var(--blue);color:var(--blue);">🎙 Nahrát audio…</button>');
+        var ta=el('<textarea rows="3" placeholder="Jsem tu, tak povídej…" style="width:100%;background:#0f1620;border:1px solid var(--green);box-shadow:0 0 0 2px rgba(16,185,129,.18);border-radius:10px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;"></textarea>');
+        var brow=el('<div style="display:flex;gap:8px;margin-top:8px;"></div>');
+        var send=el('<button class="green" style="flex:1;font-size:18px;">🚀</button>');
+        var rec=el('<button class="ghost" style="width:64px;font-size:18px;border-color:var(--blue);color:var(--blue);">🎙</button>');
+        setTimeout(function(){ try{ box.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
         var st=el('<div class="hint" style="margin-top:8px;"></div>');
         var reply=el('<div style="display:none;margin-top:10px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:10px;padding:12px;font-size:14px;line-height:1.5;white-space:pre-wrap;"></div>');
         function busy(t){ st.textContent=t; }
@@ -998,7 +1000,7 @@ window.onerror=function(msg,src,line){
               mr.ondataavailable=function(e){ if(e.data&&e.data.size)chunks.push(e.data); };
               mr.onstop=function(){
                 stream.getTracks().forEach(function(t){t.stop();});
-                rec.textContent="🎙 Nahrát audio…"; recState=null;
+                rec.textContent="🎙"; recState=null;
                 var blob=new Blob(chunks,{type:mr.mimeType||"audio/webm"});
                 if(blob.size>6*1024*1024){ busy("✗ Nahrávka je moc dlouhá."); return; }
                 var fr=new FileReader();
@@ -1006,11 +1008,13 @@ window.onerror=function(msg,src,line){
                 fr.readAsDataURL(blob);
               };
               mr.start(); recState=mr;
-              rec.textContent="⏹ Zastavit a odeslat"; busy("🔴 Nahrávám… (klepni Zastavit)");
+              rec.textContent="⏹"; busy("🔴 Nahrávám… (klepni ⏹)");
             }).catch(function(){ fileFallback(); });
           } else { fileFallback(); }
         });
-        box.appendChild(ta); box.appendChild(send); box.appendChild(rec); box.appendChild(st); box.appendChild(reply);
+        box.appendChild(ta);
+        brow.appendChild(send); brow.appendChild(rec); box.appendChild(brow);
+        box.appendChild(st); box.appendChild(reply);
       }
       function presence(payload, b){ b.disabled=true; api("POST","/api/v1/erp/app/attendance/announce",payload).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); }
       function absence(payload, then){ return api("POST","/api/v1/erp/app/attendance/absence",payload).then(then); }

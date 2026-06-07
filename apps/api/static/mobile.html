@@ -918,8 +918,8 @@ window.onerror=function(msg,src,line){
                         zb2.addEventListener("click",function(){
                           zb2.disabled=true; st4.textContent="⏳ Měním na "+z.cislo+"…";
                           api("POST","/api/v1/erp/app/attendance/entry-project",{id:e2.id,project_ref:z.cislo}).then(function(r){
-                            // Marti 7.6. večer: podmenu nezavírat — jen občerstvit data.
-                            if(r&&r.ok){ e2.project_ref=z.cislo; hd2.innerHTML=hdrHtml(); st4.textContent="✅ Zakázka změněna na "+z.cislo; zb2.disabled=false; }
+                            // Marti 7.6. večer: detail nezavírat, ale seznam zakázek po výběru ano.
+                            if(r&&r.ok){ e2.project_ref=z.cislo; hd2.innerHTML=hdrHtml(); try{si2.remove();res2.remove();}catch(e){} st4.textContent="✅ Zakázka změněna na "+z.cislo; }
                             else{ zb2.disabled=false; st4.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
                           });
                         });

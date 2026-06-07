@@ -6165,6 +6165,29 @@ async def att_dispute_day(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/attendance/announced-future")
+async def att_announced_future(req: Request) -> JSONResponse:
+    """Marti 7.6. večer: budoucí ohlášení (skončím dříve / přijdu později /
+    statusy dopředu) — pro sekci „Tak tady budu jinde…"."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        rows = s.execute(_t(
+            "SELECT entry_date::text, note FROM tenant.att_entry "
+            "WHERE tenant_id = :t AND employee_id = :e AND status = 'announced' "
+            "AND entry_date > current_date ORDER BY entry_date, id"),
+            {"t": _ATT_TENANT, "e": emp}).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "items": [
+            {"d": r[0], "note": r[1]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Detail dne + samoobsluha záznamů (Marti 7.6. večer) ──────────────────
 # „Raději chci vidět detaily…" — redukci času akceptujeme (zapomenutý odchod
 # si zkrátí sám), cokoliv jiného = poznámka na záznam → kontrola docházky.

@@ -1471,15 +1471,25 @@ window.onerror=function(msg,src,line){
         if(!prev.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím nic.</li>'; }
         else { ul.innerHTML=""; prev.forEach(function(r){ ul.appendChild(_dochDayRow(r.d, r)); }); }
       }
-      // Plánovaná nepřítomnost — budoucnost
+      // Plánovaná nepřítomnost — budoucnost (absence + ohlášení dopředu)
       var pu=document.getElementById("dochPlan");
       if(pu){
-        // Marti 7.6. večer: nulové (jen ohlášené) řádky do počtu nepatří.
+        // Marti 7.6. večer: nulové (jen ohlášené) řádky do počtu absencí nepatří —
+        // ale budoucí OHLÁŠENÍ (skončím dříve / přijdu později) se ukazují zvlášť.
         var fut=allRows.filter(function(r){return (r.d||"")>today && (Number(r.absence||0)>0 || Number(r.worked||0)>0);}).sort(function(a,b){return a.d<b.d?-1:1;});
-        if(_dS&&_dS.plan) _dS.plan.val.textContent=(fut.length?czDays(fut.length):"");
-        if(!fut.length){ pu.innerHTML='<li style="color:var(--mut);border:none;">Žádná nahlášená.</li>'; }
-        else { pu.innerHTML=""; fut.forEach(function(r){ var a=Number(r.absence||0), w=Number(r.worked||0);
-          pu.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;"><span class="nt">'+esc(r.d)+'</span><span class="nm" style="margin:0;color:var(--amber);">'+(a>0?(fmtHM(a)+' nepřítomnost'):fmtHM(w))+'</span></li>')); }); }
+        api("GET","/api/v1/erp/app/attendance/announced-future","").then(function(ja){
+          pu=document.getElementById("dochPlan"); if(!pu)return;
+          var ann=(ja&&ja.items)||[];
+          var dny={}; fut.forEach(function(r){dny[r.d]=1;}); ann.forEach(function(r){dny[r.d]=1;});
+          var n=Object.keys(dny).length;
+          if(_dS&&_dS.plan) _dS.plan.val.textContent=(n?czDays(n):"");
+          if(!fut.length && !ann.length){ pu.innerHTML='<li style="color:var(--mut);border:none;">Žádná nahlášená.</li>'; return; }
+          pu.innerHTML="";
+          fut.forEach(function(r){ var a=Number(r.absence||0), w=Number(r.worked||0);
+            pu.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;"><span class="nt">'+esc(r.d)+'</span><span class="nm" style="margin:0;color:var(--amber);">'+(a>0?(fmtHM(a)+' nepřítomnost'):fmtHM(w))+'</span></li>')); });
+          ann.forEach(function(r){
+            pu.appendChild(el('<li><div class="nt">'+esc(r.d)+'</div><div class="nm" style="margin-bottom:9px;color:var(--amber);">💬 '+esc(r.note||"")+'</div></li>')); });
+        });
       }
     });
   }

@@ -5771,7 +5771,9 @@ async def att_unconfirmed(req: Request) -> JSONResponse:
     try:
         emp = _att_employee(s, uid)
         days = _att_unconfirmed_days(s, emp)
-        # Marti 7.6. večer: dnešek „odmakáno a nepotvrzeno" — pro pulz rámečku.
+        # Marti 7.6. večer: dnešek „odmakáno a nepotvrzeno" — pro pulz rámečku
+        # i nabídku ke schválení. JEN při statusu konce dne („nepočítej" /
+        # „dnes už nedorazím") — normální pauza s tím neprudí.
         from sqlalchemy import text as _t
         tod = s.execute(_t(
             "SELECT 1 FROM tenant.att_entry e "
@@ -5781,6 +5783,10 @@ async def att_unconfirmed(req: Request) -> JSONResponse:
             "  AND e.status NOT IN ('superseded','announced') "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry o WHERE o.tenant_id = :t "
             "       AND o.employee_id = :e AND o.is_active = true) "
+            "  AND EXISTS (SELECT 1 FROM tenant.att_entry a2 WHERE a2.tenant_id = :t "
+            "       AND a2.employee_id = :e AND a2.entry_date = current_date "
+            "       AND a2.status = 'announced' "
+            "       AND (a2.note ILIKE '%nepočítej%' OR a2.note ILIKE '%nedorazím%')) "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_day_confirm c WHERE c.tenant_id = :t "
             "       AND c.employee_id = :e AND c.day = current_date) LIMIT 1"),
             {"t": _ATT_TENANT, "e": emp}).first() is not None

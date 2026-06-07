@@ -1069,20 +1069,49 @@ window.onerror=function(msg,src,line){
         var card=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:12px;padding:12px;margin-bottom:10px;"></div>');
         card.appendChild(el('<div style="font-weight:700;font-size:14.5px;">🏢 '+esc(f.nazev)+'</div>'));
         card.appendChild(el('<div class="hint" style="margin:2px 0 8px;">Výplatní páska · '+esc(j.jmeno||"")+' · '+esc(_CZ_MES[j.m]||j.m)+' '+j.y+'</div>'));
-        var ul=el('<ul></ul>');
-        var hruba=0, vyplata=0;
+        // Marti 7.6.: lidská struktura — 1) co firma poskytla (vč. odvodů firmy)
+        // 2) FIRMA DALA CELKEM (superhrubá) 3) červené srážky (sleva na dani +)
+        // 4) zelená Výplata na účet. Klasifikace dle názvu — doladí Šárka.
+        var dal=[], srazky=[], vyp=[];
         f.items.forEach(function(it){
-          var vy=("výplata"===(it.nazev||"").toLowerCase().substring(0,7));
-          if(it.hruba) hruba+=(it.kc||0);
-          if(vy) vyplata+=(it.kc||0);
-          var kc=(it.kc!=null)?(Math.round(it.kc).toLocaleString("cs")+" Kč"):"";
+          var n=(it.nazev||"").toLowerCase();
+          if(it.kc===0 && !it.hod && !it.dny) return;          // nulové technické řádky skrýt
+          if(n.substring(0,7)==="výplata"){ vyp.push(it); return; }
+          if(it.hruba || n.indexOf("firma")>=0 || n.indexOf("paušál")>=0 || n.indexOf("pausal")>=0
+             || n.indexOf("stravenk")>=0 || n.indexOf("benefit")>=0 || n.indexOf("náhrad")>=0
+             || (!it.kc && (it.hod||it.dny))){ dal.push(it); return; }
+          srazky.push(it);
+        });
+        function radek(it, mode){  // mode: 'plus' | 'minus' | 'sleva'
+          var kc="";
+          if(it.kc!=null){
+            var v=Math.round(it.kc).toLocaleString("cs")+" Kč";
+            kc = (mode==="minus") ? ("− "+v) : ((mode==="sleva") ? ("+ "+v) : v);
+          }
+          var col = (mode==="minus") ? "var(--red)" : ((mode==="sleva") ? "var(--green)" : "var(--tx)");
           var sub=(it.hod?(it.hod+" h"):"")+(it.dny?((it.hod?" · ":"")+it.dny+" dní"):"");
-          ul.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;gap:8px;'+(vy?'background:rgba(16,185,129,.08);border-radius:8px;padding:12px 8px;':'')+'">'
-            +'<span class="nt" style="font-weight:'+(vy?'700':'400')+';font-size:13.5px;">'+esc(it.nazev)+(sub?('<div class="sub" style="color:var(--mut);font-size:11.5px;">'+esc(sub)+'</div>'):'')+'</span>'
-            +'<span class="nm" style="margin:0;white-space:nowrap;font-weight:'+(vy?'700':'400')+';'+(vy?'color:var(--green);':'')+'">'+esc(kc)+'</span></li>'));
+          return el('<li style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+            +'<span class="nt" style="font-size:13.5px;'+(mode==="minus"?'color:var(--red);':'')+'">'+esc(it.nazev)+(sub?('<div class="sub" style="color:var(--mut);font-size:11.5px;">'+esc(sub)+'</div>'):'')+'</span>'
+            +'<span class="nm" style="margin:0;white-space:nowrap;color:'+col+';">'+esc(kc)+'</span></li>');
+        }
+        var ul=el('<ul></ul>');
+        var superhruba=0;
+        dal.forEach(function(it){ superhruba+=(it.kc||0); ul.appendChild(radek(it,"plus")); });
+        ul.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(79,142,247,.08);border-radius:8px;padding:12px 8px;">'
+          +'<span class="nt" style="font-weight:700;font-size:13.5px;">🏢 Firma dala celkem (superhrubá)</span>'
+          +'<span class="nm" style="margin:0;white-space:nowrap;font-weight:700;">'+Math.round(superhruba).toLocaleString("cs")+' Kč</span></li>'));
+        srazky.forEach(function(it){
+          var n=(it.nazev||"").toLowerCase();
+          ul.appendChild(radek(it, n.indexOf("sleva")>=0 ? "sleva" : "minus"));
+        });
+        var vyplata=0;
+        vyp.forEach(function(it){
+          vyplata+=(it.kc||0);
+          ul.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(16,185,129,.10);border-radius:8px;padding:13px 8px;">'
+            +'<span class="nt" style="font-weight:700;font-size:14px;">💚 '+esc(it.nazev)+'</span>'
+            +'<span class="nm" style="margin:0;white-space:nowrap;font-weight:700;color:var(--green);font-size:15px;">'+Math.round(it.kc||0).toLocaleString("cs")+' Kč</span></li>'));
         });
         card.appendChild(ul);
-        card.appendChild(el('<div class="hint" style="margin-top:8px;">Hrubá mzda: <b style="color:var(--tx);">'+Math.round(hruba).toLocaleString("cs")+' Kč</b>'+(vyplata?(' · K výplatě: <b style="color:var(--green);">'+Math.round(vyplata).toLocaleString("cs")+' Kč</b>'):'')+'</div>'));
         box.appendChild(card);
         celkemVyplata+=vyplata;
       });

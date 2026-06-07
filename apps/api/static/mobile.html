@@ -178,7 +178,7 @@
   function fmtName(name,pfxCsv){ var pl=(pfxCsv||"").split(",").map(function(x){return x.trim();}); for(var i=0;i<pl.length;i++){ if(pl[i] && (name||"").indexOf(pl[i])===0){ return '<span style="color:#5ee0b7;font-weight:700;">'+esc(pl[i])+'</span>'+esc(name.slice(pl[i].length)); } } return esc(name); }
 
   function modeChip(){ var c=native?"native":"web", t=native?"appka":"prohlížeč"; if(DEV){c="dev";t="DEV";} return '<span class="mode '+c+'">'+t+'</span>'; }
-  function topbar(title, withBack){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+modeChip()+'</div>'; return b; }
+  function topbar(title, withBack, noChip){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+(noChip?"":modeChip())+'</div>'; return b; }
   function row(ic, tt, sub, onclick, badge){ var bd=(badge&&badge>0)?'<div class="rbadge">'+(badge>99?"99+":badge)+'</div>':''; var r=el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>'+bd+'<div class="chev">&#8250;</div></div>'); r.addEventListener("click",onclick); return r; }
 
   // Znovupoužitelný potvrzovací dialog (využije i docházka). Marti 6.6.2026.
@@ -317,7 +317,7 @@
         if(c.command_type==="claude_confirm"){b("Odmítnout","warn","reject");b("Povolit","green","accept");} else {b("OK","ghost","done");}
         li.appendChild(txt); li.appendChild(a); ul.appendChild(li); }); }); }
   function notifs(){ // dashboard s dlaždicemi
-    app.innerHTML=topbar("Úkoly", false); var p=el('<div class="panel"></div>');
+    app.innerHTML=topbar("", false); var p=el('<div class="panel"></div>');
     var grid=el('<div class="dashgrid"></div>');
     var ct=el('<div class="tile"><div class="tile-ic">'+CLAUDE_SVG+'</div><div class="tile-tt">Claude</div><div class="tile-sub" id="claudeSub">…</div></div>');
     ct.addEventListener("click",function(){go("claudetasks");}); grid.appendChild(ct);
@@ -399,7 +399,7 @@
   var _dialNum="";
   function setDialNum(n){ _dialNum=(n||"").trim(); var e=document.getElementById("ctdialtxt"); if(!e)return;
     if(_dialNum){ e.textContent=_dialNum; e.style.color="var(--tx)"; } else { e.textContent="Vytáčení…"; e.style.color="var(--mut)"; } }
-  function contacts(){ app.innerHTML=topbar("", false); var p=el('<div class="panel" style="margin-top:4px;"></div>');
+  function contacts(){ app.innerHTML=topbar("", false, true); var p=el('<div class="panel" style="margin-top:4px;"></div>');
     if(!(B&&typeof B.getContacts==="function")){ p.appendChild(el('<div class="hint">Kontakty jsou nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
     // Zelené telefonní pole: vybraný kontakt → jeho velké číslo; klik na prázdné → nativní klávesnice.
     var drow=el('<div style="display:flex;gap:8px;align-items:stretch;margin-bottom:10px;"></div>');
@@ -448,10 +448,31 @@
       });
       li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
     }); }
-  function calllog(){ app.innerHTML=topbar("Historie hovorů", true); var p=el('<div class="panel"></div>');
-    if(!(B&&typeof B.getCallLog==="function")){ p.appendChild(el('<div class="hint">Historie hovorů je nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
-    p.appendChild(el('<div class="hint">Jen hovory kontaktů s prefixem: <b>'+esc(getPrefixes())+'</b>.</div>'));
-    p.appendChild(el('<div class="list" style="padding:0 14px;margin-top:10px;"><ul id="cllist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>')); app.appendChild(p); loadCalllog(); }
+  var _histMode="calls"; // přepínač Historie: hovory / SMS (Marti 7.6.)
+  function calllog(){ app.innerHTML=topbar("", false, true); var p=el('<div class="panel"></div>');
+    var hd=el('<div style="display:flex;align-items:center;gap:10px;margin-top:12px;"></div>');
+    hd.appendChild(el('<span class="title">Historie</span>'));
+    var bC=el('<button class="ghost sm">📞 Hovory</button>');
+    var bS=el('<button class="ghost sm">💬 SMS</button>');
+    hd.appendChild(bC); hd.appendChild(bS); p.appendChild(hd);
+    var body=el('<div></div>'); p.appendChild(body); app.appendChild(p);
+    function paint(){
+      var c=_histMode==="calls";
+      bC.style.borderColor=c?"var(--blue)":"var(--bord)"; bC.style.color=c?"var(--blue)":"var(--mut)";
+      bS.style.borderColor=!c?"var(--blue)":"var(--bord)"; bS.style.color=!c?"var(--blue)":"var(--mut)";
+      if(c){
+        if(!(B&&typeof B.getCallLog==="function")){ body.innerHTML='<div class="hint">Historie hovorů je nativní funkce — funguje v appce STRATEGIE.</div>'; return; }
+        body.innerHTML='<div class="hint">Jen hovory kontaktů s prefixem: <b>'+esc(getPrefixes())+'</b>.</div><div class="list" style="padding:0 14px;margin-top:10px;"><ul id="cllist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>';
+        loadCalllog();
+      } else {
+        body.innerHTML='<div class="hint" style="margin-top:12px;">Historie SMS přímo v appce se připravuje (rozšíření nativního mostu). Zatím:</div>';
+        var b=el('<button class="green sm" style="margin-top:8px;">💬 Otevřít Zprávy</button>');
+        b.addEventListener("click",function(){openApp("sms:");}); body.appendChild(b);
+      }
+    }
+    bC.addEventListener("click",function(){_histMode="calls";paint();});
+    bS.addEventListener("click",function(){_histMode="sms";paint();});
+    paint(); }
 
   // ───── NASTAVENÍ ─────
   function settings(){ app.innerHTML=topbar("Nastavení", false); var l=el('<div class="list"></div>');
@@ -518,7 +539,7 @@
   function openApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url; if(B&&typeof B.openExternal==="function")B.openExternal(u); else { try{window.open(u,"_blank");}catch(e){ location.href=u; } } }
   function appCell(iconHtml,label,badge,fn){ var c=el('<div class="appcell"><div class="appicon">'+iconHtml+'</div><div class="applabel">'+esc(label)+'</div>'+(badge?'<span class="appbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</div>'); c.addEventListener("click",fn); return c; }
   function apps(){
-    app.innerHTML=topbar("Aplikace", true);
+    app.innerHTML=topbar("", false);
     var bd=getBadges()||{whatsapp:0,sms:0,access:true};
     var g=el('<div class="appgrid"></div>');
     // Marti 7.6.: ikonky Chat/ERP prohozeny (byly opačně).
@@ -563,10 +584,7 @@
   // ───── FIRMA (celá plocha s jemným firemním pozadím, bez spodní lišty) ─────
   function firma(){
     app.innerHTML="";
-    var sec=el('<div style="margin:-14px -14px -78px;min-height:100vh;padding:22px 20px calc(96px + env(safe-area-inset-bottom,0));background:linear-gradient(165deg,#0c1622,#13243a 55%,#0b1420);display:flex;flex-direction:column;"></div>');
-    var bk=el('<button class="ghost sm" style="align-self:flex-start;margin-bottom:20px;">← Zpět</button>');
-    bk.addEventListener("click",function(){ selectTab("home"); });
-    sec.appendChild(bk);
+    var sec=el('<div style="margin:-14px -14px -96px;min-height:100vh;padding:22px 20px calc(96px + env(safe-area-inset-bottom,0));background:linear-gradient(165deg,#0c1622,#13243a 55%,#0b1420);display:flex;flex-direction:column;"></div>');
     sec.appendChild(el('<div style="font-size:27px;font-weight:800;">🏢 Firma</div>'));
     sec.appendChild(el('<div style="color:#cdd6e2;margin-top:10px;font-size:14px;line-height:1.6;max-width:420px;">Firemní rozcestník — připravujeme. Tady budou firemní agendy, přehledy a nástroje.</div>'));
     app.appendChild(sec);

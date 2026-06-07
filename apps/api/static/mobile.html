@@ -693,8 +693,8 @@ window.onerror=function(msg,src,line){
     _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">🔒 Páska je zamčená.</div></div>';
     _dS.paska.val.textContent="🔒";
     p.appendChild(lc);
-    p.appendChild(el('<div class="group" style="margin-top:8px;">Právě probíhá</div>'));
-    p.appendChild(el('<div id="dochNow" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
+    // Marti 7.6. večer: konec obrazovky = zvýrazněný milý rámeček s rozhovorem.
+    p.appendChild(el('<div id="dochNow" style="margin-top:12px;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:14px;padding:14px;">Načítám…</div>'));
     p.appendChild(el('<div id="dochConfirm" style="margin-top:10px;"></div>'));
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
     app.appendChild(p);
@@ -713,16 +713,12 @@ window.onerror=function(msg,src,line){
         });
         if(_dS.dalsi&&_dS.dalsi.box.parentElement) _dS.dalsi.box.parentElement.style.display=open?"":"none";
       }
-      var runH=0;
-      if(open&&open.started_at){ try{ runH=Math.max(0,(Date.now()-new Date(open.started_at).getTime())/3600000); }catch(e){} }
-      var stHtml='';
-      if(open){ stHtml+='<div class="big" style="margin:0;color:var(--green);">🟢 Dnes jsem od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b>'+(open.project_ref?(' · 🧾 '+esc(open.project_ref)):'')+'</div>'; }
-      if(j.announced){ stHtml+='<div class="big" style="margin:'+(open?'6px':'0')+' 0 0;color:var(--amber);font-size:15px;">💬 '+esc(j.announced)+'</div>'; }
-      if(!open&&!j.announced){ stHtml='<div class="big" style="margin:0;">⚪ Nepřihlášen k práci</div>'; }
-      cn.innerHTML=stHtml;
+      // Marti 7.6. večer: žádný status text v kartě — puntík je v sekci Dnes,
+      // karta je jen milý rámeček s „Potřebuji ti něco říct…".
+      cn.innerHTML="";
       // Marti 7.6.: klik na Příchod/Odchod rozbalí volby v lidské řeči;
       // „Ostatní…" = podsekce, „Jsem na cestě" = výběr času dorazím za cca.
-      var bw=el('<div style="margin-top:12px;"></div>');
+      var bw=el('<div></div>');
       function btnEl(label, cls){ return el('<button class="'+cls+' full" style="margin-top:8px;font-size:15px;text-align:left;">'+label+'</button>'); }
       // Fáze 1 schvalování (Marti 7.6.): nepotvrzené dny — karty + záchytka při příchodu.
       function czDayLabel(iso){ try{ var d=new Date(iso+"T12:00:00"); return d.toLocaleDateString("cs",{weekday:"long",day:"numeric",month:"numeric"}); }catch(e){ return iso; } }
@@ -784,7 +780,7 @@ window.onerror=function(msg,src,line){
       function mainBtn(){
         // Marti 7.6.: není to „odchod/příchod", je to změna činnosti — rozhovor.
         bw.innerHTML="";
-        var btn=el('<button class="'+(open?'ghost':'green')+' full" style="font-size:16px;">💬 Potřebuji ti něco říct…</button>');
+        var btn=el('<button class="'+(open?'ghost':'green')+' full" style="font-size:16px;text-align:left;">💬 Potřebuji ti něco říct…</button>');
         btn.addEventListener("click",showOpts);
         bw.appendChild(btn);
       }
@@ -1034,11 +1030,17 @@ window.onerror=function(msg,src,line){
           expOpt(bw,"🍃 Jdu se provětrat / najíst…","ghost",function(bx){
             chipsIn(bx,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
           });
-          expOpt(bw,"📅 Mám jednání do…","ghost",function(bx){
+          expOpt(bw,"📅 Mám jednání…","ghost",function(bx){
             chipsIn(bx,"Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); });
+            // Marti 7.6. večer: nebo rovnou do kolika
+            bx.appendChild(el('<div class="hint" style="margin-top:8px;">…nebo do kolika:</div>'));
+            var t=el('<input type="time" style="margin-top:4px;">');
+            var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
+            ok.addEventListener("click",function(){ if(t.value){ ok.disabled=true; presence({text:"Mám jednání",add_since:false,until_txt:"~"+t.value},ok); } });
+            bx.appendChild(t); bx.appendChild(ok);
           });
           addOpts([
-            ["🚗 Služební pochůzka…", function(b){ act("checkout",{reason:"služební pochůzka",presence:"Na služební pochůzce"},b); }],
+            ["🚗 Mám služební pochůzku…", function(b){ act("checkout",{reason:"služební pochůzka",presence:"Na služební pochůzce"},b); }],
             ["👋 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)"},b); }]
           ],"ghost");
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
@@ -1058,7 +1060,8 @@ window.onerror=function(msg,src,line){
           expOpt(bw,"🧭 Tady budu asi jinde…","ghost",jindeBuild,_amberStyle);
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
         }
-        var z=el('<button class="ghost full" style="margin-top:8px;">Zrušit</button>');
+        // Marti 7.6. večer: místo „Zrušit" šipka nahoru = zavřít.
+        var z=el('<button class="ghost full" style="margin-top:8px;text-align:center;">▲</button>');
         z.addEventListener("click",mainBtn); bw.appendChild(z);
       }
       mainBtn(); cn.appendChild(bw);
@@ -1067,8 +1070,11 @@ window.onerror=function(msg,src,line){
       if(cf){ api("GET","/api/v1/erp/app/attendance/unconfirmed","").then(function(ju){
         renderConfirmList(cf, (ju&&ju.days)||[], function(){});
       }); }
-      c.innerHTML='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b></div>';
-      if(_dS&&_dS.today) _dS.today.val.textContent=fmtHM(j.today_hours||0);
+      // Marti 7.6. večer: zelený puntík + status patří do sekce Dnes.
+      c.innerHTML='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b>'
+        +(open&&open.project_ref?(' · 🧾 '+esc(open.project_ref)):'')+'</div>'
+        +(j.announced?('<div style="color:var(--amber);font-size:14px;margin-top:4px;">💬 '+esc(j.announced)+'</div>'):'');
+      if(_dS&&_dS.today) _dS.today.val.textContent=(open?"🟢 ":"")+fmtHM(j.today_hours||0);
       dochDailyLoad(); dochListLoad();
     }).catch(function(){ var c=document.getElementById("dochNow"); if(c)c.textContent="Chyba spojení."; });
     // živý přepočet běžící směny (jen dokud je obrazovka Docházka otevřená)

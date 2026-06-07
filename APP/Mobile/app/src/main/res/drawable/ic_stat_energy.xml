@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- STRATEGIE status ikona — velké S (jako ERP logo). Status bar ikony jsou
+     monochromní (systém je tónuje) → bílý tah, žádný gradient. Marti 7.6.2026. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <path android:fillColor="#FF00E676" android:pathData="M4,14 h4 v6 h-4 z" />
-    <path android:fillColor="#FF00E676" android:pathData="M10,10 h4 v10 h-4 z" />
-    <path android:fillColor="#FF00E676" android:pathData="M16,5 h4 v15 h-4 z" />
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.4"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M16.6,5.4 C15.1,3.9 11.4,3.6 9.7,5.1 C8.0,6.6 8.6,9.0 10.9,9.8 C13.2,10.6 15.9,11.0 17.0,12.9 C18.1,14.8 16.7,17.3 14.2,18.0 C11.7,18.7 8.5,17.9 7.2,16.3" />
 </vector>

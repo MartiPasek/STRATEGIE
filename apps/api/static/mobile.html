@@ -80,6 +80,19 @@
   .ct.open .ctexp { padding-left:72px; }
   .ct.open .cact { width:46px; height:46px; border-radius:14px; }
   .ct.open .cact svg { width:26px; height:26px; }
+  /* ── Desktop „telefonní rámeček" (Marti 7.6.2026) ─────────────────────
+     Na PC (široké okno + myš) sevři appku do poměru telefonu 19,5:9
+     (Samsung S24, 2340×1080) — šířka se odvodí z výšky okna, vycentrováno.
+     Na mobilu se neaplikuje nic (media query pointer:fine + min-width). */
+  @media (min-width: 700px) and (pointer: fine) {
+    :root { --phone-w: min(100vw, calc(100vh * 9 / 19.5)); }
+    html { background:#000; }
+    body { max-width: var(--phone-w); margin: 0 auto;
+           border-left:1px solid #2a2d33; border-right:1px solid #2a2d33;
+           min-height:100vh; box-shadow:0 0 40px rgba(0,0,0,.55); }
+    #navwrap { left:50%; right:auto; transform:translateX(-50%);
+               width: var(--phone-w); }
+  }
 </style>
 </head>
 <body>

@@ -1292,6 +1292,14 @@ window.onerror=function(msg,src,line){
           expOpt(bw,"🍃 Jdu se provětrat / najíst…","ghost",function(bx){
             chipsIn(bx,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
           });
+          // Marti 7.6. večer: ohlášení dřívějšího konce dne (status + čas).
+          expOpt(bw,"🕔 Dnes potřebuji skončit dříve…","ghost",function(bx){
+            bx.appendChild(el('<div class="hint" style="margin-bottom:4px;">V kolik budeš končit?</div>'));
+            var t=el('<input type="time">');
+            var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
+            ok.addEventListener("click",function(){ if(!t.value){ return; } ok.disabled=true; presence({text:"Dnes končím dříve, asi v "+t.value,add_since:false},ok); });
+            bx.appendChild(t); bx.appendChild(ok);
+          });
           expOpt(bw,"📅 Mám jednání…","ghost",function(bx){
             chipsIn(bx,"Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); });
             // Marti 7.6. večer: nebo rovnou do kolika
@@ -1351,6 +1359,7 @@ window.onerror=function(msg,src,line){
           if(has("jednání")) return "Mám jednání 🤝";
           if(has("školení")) return "Jsem na školení 🎓";
           if(has("pochůzce")||has("pochůzka")) return "Na pochůzce 📦";
+          if(has("končím dříve")) return "Dnes končím dřív 🕔";
           return "Dnes makám 😉";
         }
         if(a){

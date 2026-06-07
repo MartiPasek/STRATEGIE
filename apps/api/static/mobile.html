@@ -666,12 +666,15 @@
           yest:  collSec(su,"Včera", false),
           prev:  collSec(su,"Dřívější", false),
           plan:  collSec(su,"Plánovaná nepřítomnost", false),
-          list:  collSec(su,"Poslední záznamy", false) };
+          list:  collSec(su,"Poslední záznamy", false),
+          paska: collSec(su,"💰 Výplatní páska", false) };
     _dS.today.box.innerHTML='<div id="dochSpanToday" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div id="dochCard" style="padding:2px 0 4px;">Načítám…</div>';
     _dS.yest.box.innerHTML='<div id="dochSpanYest" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><ul id="dochYest"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.prev.box.innerHTML='<ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.plan.box.innerHTML='<ul id="dochPlan"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.list.box.innerHTML='<ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
+    _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">Načítám…</div></div>';
+    paskaLoad(0,0);
     p.appendChild(lc);
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
     app.appendChild(p); dochLoad();
@@ -991,6 +994,42 @@
         var t=(e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':''));
         ul.appendChild(el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+fmtHM(e.hours)):'')+' · '+esc(e.status||'')+'</div></li>'));
       });
+    });
+  }
+  // 💰 Výplatní páska (Marti 7.6.: „každej na ni má nárok") — jen vlastní data.
+  var _CZ_MES=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
+  function paskaLoad(y,m){
+    var box=document.getElementById("paskaBox"); if(!box)return;
+    api("GET","/api/v1/erp/app/payslip"+(y&&m?("?y="+y+"&m="+m):""),"").then(function(j){
+      box=document.getElementById("paskaBox"); if(!box)return;
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">Pásku se nepodařilo načíst.</div>'; return; }
+      if(!j.items||!j.items.length){ box.innerHTML='<div class="hint">'+esc(j.note||"Zatím žádné pásky.")+'</div>'; if(_dS&&_dS.paska)_dS.paska.val.textContent="—"; return; }
+      var ps=j.periods||[]; var idx=-1;
+      for(var i2=0;i2<ps.length;i2++){ if(ps[i2].y===j.y&&ps[i2].m===j.m){ idx=i2; break; } }
+      var hd=el('<div style="display:flex;align-items:center;gap:8px;margin:2px 0 8px;"></div>');
+      var bPrev=el('<button class="ghost sm">◀</button>');
+      var bNext=el('<button class="ghost sm">▶</button>');
+      hd.appendChild(bPrev);
+      hd.appendChild(el('<div style="flex:1;text-align:center;font-weight:700;">'+esc(_CZ_MES[j.m]||j.m)+' '+j.y+'</div>'));
+      hd.appendChild(bNext);
+      // periods jsou DESC: další v poli = starší
+      bPrev.disabled = idx < 0 || idx >= ps.length-1;
+      bNext.disabled = idx <= 0;
+      bPrev.addEventListener("click",function(){ var p=ps[idx+1]; if(p) paskaLoad(p.y,p.m); });
+      bNext.addEventListener("click",function(){ var p=ps[idx-1]; if(p) paskaLoad(p.y,p.m); });
+      box.innerHTML=""; box.appendChild(hd);
+      var ul=el('<ul></ul>');
+      j.items.forEach(function(it){
+        var vy = ("výplata" === (it.nazev||"").toLowerCase().substring(0,7));
+        var kc = (it.kc!=null) ? (Math.round(it.kc).toLocaleString("cs") + " Kč") : "";
+        var sub = (it.hod ? (it.hod+" h") : "") + (it.dny ? ((it.hod?" · ":"")+it.dny+" dní") : "");
+        ul.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;gap:8px;'+(vy?'background:rgba(16,185,129,.08);border-radius:8px;padding:12px 8px;':'')+'">'
+          +'<span class="nt" style="font-weight:'+(vy?'700':'400')+';font-size:13.5px;">'+(it.firma?('<span style="color:var(--mut);font-size:11px;">'+esc(it.firma)+'</span> '):'')+esc(it.nazev)+(sub?('<div class="sub" style="color:var(--mut);font-size:11.5px;">'+esc(sub)+'</div>'):'')+'</span>'
+          +'<span class="nm" style="margin:0;white-space:nowrap;font-weight:'+(vy?'700':'400')+';'+(vy?'color:var(--green);':'')+'">'+esc(kc)+'</span></li>'));
+      });
+      box.appendChild(ul);
+      box.appendChild(el('<div class="hint" style="margin-top:8px;">Hrubá mzda: <b style="color:var(--tx);">'+Math.round(j.hruba||0).toLocaleString("cs")+' Kč</b>'+(j.vyplata?(' · K výplatě: <b style="color:var(--green);">'+Math.round(j.vyplata).toLocaleString("cs")+' Kč</b>'):'')+'<br>Zdroj: mzdový systém Helios (oficiální zúčtování).</div>'));
+      if(_dS&&_dS.paska) _dS.paska.val.textContent=(j.vyplata?Math.round(j.vyplata).toLocaleString("cs")+" Kč":"");
     });
   }
   // Rozsah práce „od prvního píchnutí do posledního odpíchnutí" (Marti 7.6.).

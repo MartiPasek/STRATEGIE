@@ -5791,6 +5791,61 @@ async def att_confirm_day(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/payslip")
+async def app_payslip(req: Request) -> JSONResponse:
+    """Marti 7.6.: výplatní páska — PŘÍSNĚ jen vlastní data (uid → employee).
+    ?y=&m= volitelné; bez nich poslední dostupné období. Vrací položky + součty."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        emps = [r[0] for r in s.execute(_t(
+            "SELECT id FROM tenant.att_employee WHERE tenant_id = 2 AND user_id = :u"),
+            {"u": uid}).fetchall()]
+        if not emps:
+            s.commit()
+            return JSONResponse({"ok": True, "periods": [], "items": [], "note": "Žádné mzdové záznamy."})
+        periods = s.execute(_t(
+            "SELECT DISTINCT rok, mesic FROM tenant.payslip_item "
+            "WHERE tenant_id = 2 AND employee_id = ANY(:e) "
+            "ORDER BY rok DESC, mesic DESC LIMIT 24"), {"e": emps}).fetchall()
+        if not periods:
+            s.commit()
+            return JSONResponse({"ok": True, "periods": [], "items": [], "note": "Zatím žádné pásky."})
+        try:
+            y = int(req.query_params.get("y") or 0)
+            m = int(req.query_params.get("m") or 0)
+        except Exception:
+            y = m = 0
+        if not (y and m):
+            y, m = int(periods[0][0]), int(periods[0][1])
+        rows = s.execute(_t(
+            "SELECT c.code, p.cislo_ms, COALESCE(p.nazev_ms, 'složka ' || p.cislo_ms), "
+            "       p.koruny, p.hodiny, p.dny, p.je_hruba "
+            "FROM tenant.payslip_item p "
+            "LEFT JOIN tenant.company c ON c.id = p.company_id "
+            "WHERE p.tenant_id = 2 AND p.employee_id = ANY(:e) AND p.rok = :y AND p.mesic = :m "
+            "ORDER BY c.code, p.cislo_ms"), {"e": emps, "y": y, "m": m}).fetchall()
+        s.commit()
+        items = [{"firma": r[0], "ms": r[1], "nazev": r[2],
+                  "kc": (float(r[3]) if r[3] is not None else None),
+                  "hod": (float(r[4]) if r[4] is not None else None),
+                  "dny": (float(r[5]) if r[5] is not None else None),
+                  "hruba": bool(r[6])} for r in rows]
+        hruba = round(sum((i["kc"] or 0) for i in items if i["hruba"]), 2)
+        vyplata = round(sum((i["kc"] or 0) for i in items
+                            if "výplata" in (i["nazev"] or "").lower()), 2)
+        return JSONResponse({"ok": True, "y": y, "m": m,
+                             "periods": [{"y": int(p[0]), "m": int(p[1])} for p in periods],
+                             "items": items, "hruba": hruba, "vyplata": vyplata})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/zakazky")
 async def app_zakazky(req: Request) -> JSONResponse:
     """Marti 7.6.: picker zakázek pro píchání (VR/SW/PR/Rezie). Jen píchatelné
@@ -7818,7 +7873,109 @@ _OPS_ACTIONS = {
         "label": "Migrovat finance lidí (EC_FinZamPodminky → STRATEGIE, vč. historie)",
         "target": "cloud", "remote": False,
     },
+    "sync_pasky": {
+        "label": "Synchronizovat výplatní pásky (Helios EC+ES → STRATEGIE)",
+        "target": "cloud", "remote": False,
+    },
 }
+
+
+def _sync_pasky_from_helios() -> dict:
+    """Marti 7.6.2026: „K docházce patří výplatní páska, každej na ni má nárok."
+    Zrcadlo TabMzSloz z OBOU Heliosů (DB_EC=EC, DB_IS=ES) → tenant.payslip_item.
+    Názvy + Zapocet_HrubaMzda z TabCisMzSl (číselník verzovaný per období),
+    rok/měsíc z TabObdobi.DatumOd. Idempotentní dle (src, src_id), stránkováno."""
+    import json as _json_p
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _json_p.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    total = 0
+    try:
+        co_ids = {r2[0]: r2[1] for r2 in s.execute(_t(
+            "SELECT code, id FROM tenant.company WHERE tenant_id = 2")).fetchall()}
+        emp_cache = {}
+
+        def emp_id(cislo):
+            key = str(cislo).strip()
+            if not key:
+                return None
+            if key in emp_cache:
+                return emp_cache[key]
+            r3 = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id = 2 AND cislo_zam = :c"),
+                           {"c": key}).first()
+            if not r3:
+                r3 = s.execute(_t(
+                    "INSERT INTO tenant.att_employee (tenant_id, cislo_zam, is_active, created_at, updated_at) "
+                    "VALUES (2, :c, false, now(), now()) RETURNING id"), {"c": key}).first()
+            emp_cache[key] = r3[0]
+            return r3[0]
+
+        for src, dbp in (("EC", ""), ("ES", "DB_IS.dbo.")):
+            # období: Id → rok/měsíc
+            obd = {int(o["Id"]): (int(o["r"]), int(o["m"])) for o in rows_of(
+                "SELECT Id, YEAR(DatumOd) r, MONTH(DatumOd) m FROM " + dbp + "TabObdobi "
+                "WHERE DatumOd IS NOT NULL")}
+            # číselník složek (per období)
+            cat = {}
+            for c in rows_of("SELECT IdObdobi, CisloMzSl, NazevMS, "
+                             "CAST(ISNULL(Zapocet_HrubaMzda,0) AS int) hr FROM " + dbp + "TabCisMzSl"):
+                cat[(int(c["IdObdobi"]), int(c["CisloMzSl"]))] = (c.get("NazevMS"), bool(int(c.get("hr") or 0)))
+            last_id = 0
+            while True:
+                batch = rows_of(
+                    "SELECT TOP 4000 s.ID, s.IdObdobi, z.Cislo, s.CisloMS, s.Koruny, s.Hodiny, s.Dny "
+                    "FROM " + dbp + "TabMzSloz s JOIN " + dbp + "TabCisZam z ON z.ID = s.ZamestnanecId "
+                    "WHERE s.ID > %d ORDER BY s.ID" % last_id)
+                if not batch:
+                    break
+                for b in batch:
+                    last_id = int(b["ID"])
+                    per = obd.get(int(b.get("IdObdobi") or 0))
+                    if not per:
+                        continue
+                    eid = emp_id(b.get("Cislo"))
+                    if eid is None:
+                        continue
+                    nm, hr = cat.get((int(b["IdObdobi"]), int(b.get("CisloMS") or 0)), (None, False))
+                    s.execute(_t(
+                        "INSERT INTO tenant.payslip_item (tenant_id, company_id, employee_id, rok, mesic,"
+                        " cislo_ms, nazev_ms, koruny, hodiny, dny, je_hruba, src, src_id, synced_at) "
+                        "VALUES (2, :co, :emp, :r, :m, :cms, :nm, :kc, :hod, :dny, :hr, :src, :sid, now()) "
+                        "ON CONFLICT (tenant_id, src, src_id) DO UPDATE SET nazev_ms = EXCLUDED.nazev_ms,"
+                        " koruny = EXCLUDED.koruny, hodiny = EXCLUDED.hodiny, dny = EXCLUDED.dny,"
+                        " je_hruba = EXCLUDED.je_hruba, rok = EXCLUDED.rok, mesic = EXCLUDED.mesic,"
+                        " employee_id = EXCLUDED.employee_id, synced_at = now()"),
+                        {"co": co_ids.get(src), "emp": eid, "r": per[0], "m": per[1],
+                         "cms": int(b.get("CisloMS") or 0), "nm": nm,
+                         "kc": b.get("Koruny"), "hod": b.get("Hodiny"), "dny": b.get("Dny"),
+                         "hr": hr, "src": src, "sid": int(b["ID"])})
+                    total += 1
+                s.commit()
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"items": total}
 
 
 def _sync_fin_from_ec() -> dict:
@@ -8435,6 +8592,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("finance: %s verzí engagementů, %s složek"
                       % (out.get("engagements"), out.get("components")))
+        elif action_key == "sync_pasky":
+            out = _sync_pasky_from_helios()
+            status = "done"
+            result = "pásky: %s položek (EC+ES)" % out.get("items")
         else:
             status, result = "error", "cloud handler chybí pro %s" % action_key
     except Exception as exc:

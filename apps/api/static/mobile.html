@@ -1072,12 +1072,13 @@ window.onerror=function(msg,src,line){
         // Marti 7.6.: lidská struktura — 1) co firma poskytla (vč. odvodů firmy)
         // 2) FIRMA DALA CELKEM (superhrubá) 3) červené srážky (sleva na dani +)
         // 4) zelená Výplata na účet. Klasifikace dle názvu — doladí Šárka.
-        var dal=[], srazky=[], vyp=[];
+        var dal=[], firmaOdvody=[], srazky=[], vyp=[];
         f.items.forEach(function(it){
           var n=(it.nazev||"").toLowerCase();
           if(it.kc===0 && !it.hod && !it.dny) return;          // nulové technické řádky skrýt
           if(n.substring(0,7)==="výplata"){ vyp.push(it); return; }
-          if(it.hruba || n.indexOf("firma")>=0 || n.indexOf("paušál")>=0 || n.indexOf("pausal")>=0
+          if(n.indexOf("firma")>=0){ firmaOdvody.push(it); return; }  // odvody firmy → dolů červeně (Marti: „to je teprve síla")
+          if(it.hruba || n.indexOf("paušál")>=0 || n.indexOf("pausal")>=0
              || n.indexOf("stravenk")>=0 || n.indexOf("benefit")>=0 || n.indexOf("náhrad")>=0
              || (!it.kc && (it.hod||it.dny))){ dal.push(it); return; }
           srazky.push(it);
@@ -1097,9 +1098,11 @@ window.onerror=function(msg,src,line){
         var ul=el('<ul></ul>');
         var superhruba=0;
         dal.forEach(function(it){ superhruba+=(it.kc||0); ul.appendChild(radek(it,"plus")); });
+        firmaOdvody.forEach(function(it){ superhruba+=(it.kc||0); });  // do CELKEM patří, zobrazí se dole červeně
         ul.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(79,142,247,.08);border-radius:8px;padding:12px 8px;">'
           +'<span class="nt" style="font-weight:700;font-size:13.5px;">🏢 Firma dala celkem (superhrubá)</span>'
           +'<span class="nm" style="margin:0;white-space:nowrap;font-weight:700;">'+Math.round(superhruba).toLocaleString("cs")+' Kč</span></li>'));
+        firmaOdvody.forEach(function(it){ ul.appendChild(radek(it,"minus")); });
         srazky.forEach(function(it){
           var n=(it.nazev||"").toLowerCase();
           ul.appendChild(radek(it, n.indexOf("sleva")>=0 ? "sleva" : "minus"));

@@ -353,7 +353,11 @@ bannery a notifikace i na mobilu (PWA) — počítej s asynchronním schválení
 (d) nikdy git přes bash mount, nikdy volný shell příkaz na produkci;
 (e) **před editem sdílených souborů** čti `LOCAL_STATUS.txt` (jsi N commitů
 pozadu → nejdřív pull) + `OTHER_CLAUDE_WORK.txt` (co staví druhá instance);
-vlastní práci ohlas přes `WORK_LOCK.txt` (1. řádek popis, další soubory).
+vlastní práci ohlas přes `WORK_LOCK.txt` (1. řádek popis, další soubory);
+(f) **výsledek na mobil** (Marti 7.6.: *„vždy než skončíš, hodit výsledek
+jako notifikaci — jako tvou doktrínu"*) — po každém uzavřeném bloku práce
+pošli souhrn přes `CLAUDE_NOTIFY.txt` (+`_GO`) Martimu (user=1), u práce
+pro Kristý jí (user=11).
 
 ### Kde najdeš co (navigace)
 

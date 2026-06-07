@@ -521,13 +521,14 @@
     app.innerHTML=topbar("Aplikace", true);
     var bd=getBadges()||{whatsapp:0,sms:0,access:true};
     var g=el('<div class="appgrid"></div>');
-    g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Chat",0,function(){openApp("/");}));
-    g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"ERP",0,function(){openApp("/erp");}));
+    // Marti 7.6.: ikonky Chat/ERP prohozeny (byly opačně).
+    g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"Chat",0,function(){openApp("/");}));
+    g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"ERP",0,function(){openApp("/erp");}));
     g.appendChild(appCell("🕒","Docházka",0,function(){go("dochazka");}));
-    g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
-    g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
+    // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
+    // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
+    // g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
     app.appendChild(g);
-    if(bd.access===false){ app.appendChild(el('<div class="hint">Pro počty u WhatsApp / Zprávy povol <b>Přístup k oznámením</b> (Nastavení).</div>')); }
     app.appendChild(el('<div style="height:120px;"></div>'));  // místo pod dvě extra lišty
   }
   function set_notifaccess(){ app.innerHTML=topbar("Přístup k oznámením", true); var p=el('<div class="panel"></div>');

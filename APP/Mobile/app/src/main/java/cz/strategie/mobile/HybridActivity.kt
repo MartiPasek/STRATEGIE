@@ -608,7 +608,23 @@ class HybridActivity : ComponentActivity() {
         web.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
         try { web.clearCache(true) } catch (e: Exception) {}
         web.addJavascriptInterface(Bridge(), "STRATEGIE")
-        web.webChromeClient = WebChromeClient()
+        // Marti 7.6.2026: mikrofon pro „Přímá zpráva pro Tvoje Marti" (audio →
+        // Whisper). getUserMedia ve WebView vyžaduje grant v onPermissionRequest
+        // + runtime RECORD_AUDIO permission.
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                val req = request ?: return
+                val wantsAudio = req.resources.contains(
+                    android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                if (!wantsAudio) { req.deny(); return }
+                if (granted(Manifest.permission.RECORD_AUDIO)) {
+                    req.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                } else {
+                    try { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 14) } catch (e: Exception) {}
+                    req.deny()  // user povolí → příští pokus projde
+                }
+            }
+        }
         web.webViewClient = object : WebViewClient() {
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(v: WebView?, url: String?): Boolean {

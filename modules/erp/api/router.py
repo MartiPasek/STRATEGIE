@@ -6448,11 +6448,21 @@ async def att_checkin(req: Request) -> JSONResponse:
         emp = _att_employee(s, uid)
         opn = s.execute(_t("SELECT id FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND is_active=true"),
                         {"t": _ATT_TENANT, "e": emp}).first()
+        switching = False
         if opn:
-            s.commit()
-            return JSONResponse({"ok": True, "already_open": True, "id": opn[0]})
+            if not bool((body or {}).get("switch")):
+                s.commit()
+                return JSONResponse({"ok": True, "already_open": True, "id": opn[0]})
+            # Marti 7.6. večer: přepnutí na zakázku BĚHEM směny — zavřít běžící
+            # záznam (čas se rozdělí) a hned otevřít nový s project_ref.
+            switching = True
+            s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
+                         "hours=round((EXTRACT(EPOCH FROM (now()-started_at))/3600.0 "
+                         "- COALESCE(break_minutes,0)/60.0)::numeric,2), updated_at=now() WHERE id=:id"),
+                      {"id": opn[0]})
         # Fáze 1 schvalování: nový příchod až po potvrzení předchozích dnů
-        nepotvrzene = _att_unconfirmed_days(s, emp)
+        # (při přepnutí během směny záchytka neplatí — směna už běží).
+        nepotvrzene = [] if switching else _att_unconfirmed_days(s, emp)
         if nepotvrzene:
             s.commit()
             return JSONResponse({"ok": False, "need_confirm": nepotvrzene,

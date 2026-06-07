@@ -706,7 +706,7 @@ window.onerror=function(msg,src,line){
       var runH=0;
       if(open&&open.started_at){ try{ runH=Math.max(0,(Date.now()-new Date(open.started_at).getTime())/3600000); }catch(e){} }
       var stHtml='';
-      if(open){ stHtml+='<div class="big" style="margin:0;color:var(--green);">🟢 Pracuješ od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b>'+(open.project_ref?(' · 🧾 '+esc(open.project_ref)):'')+'</div>'; }
+      if(open){ stHtml+='<div class="big" style="margin:0;color:var(--green);">🟢 Dnes jsem od '+(open.started_at?open.started_at.substr(11,5):'')+' · zatím <b>'+fmtHM(runH)+'</b>'+(open.project_ref?(' · 🧾 '+esc(open.project_ref)):'')+'</div>'; }
       if(j.announced){ stHtml+='<div class="big" style="margin:'+(open?'6px':'0')+' 0 0;color:var(--amber);font-size:15px;">💬 '+esc(j.announced)+'</div>'; }
       if(!open&&!j.announced){ stHtml='<div class="big" style="margin:0;">⚪ Nepřihlášen k práci</div>'; }
       cn.innerHTML=stHtml;
@@ -907,7 +907,7 @@ window.onerror=function(msg,src,line){
             list.forEach(function(z){
               var b=btnEl("🧾 "+z.cislo+" — "+(z.nazev||""),"green");
               b.style.fontSize="13px"; b.style.whiteSpace="nowrap"; b.style.overflow="hidden"; b.style.textOverflow="ellipsis";
-              b.addEventListener("click",function(){ act("checkin",{kind:"work",project_ref:z.cislo},b); });
+              b.addEventListener("click",function(){ act("checkin",{kind:"work",project_ref:z.cislo,switch:true},b); });
               res.appendChild(b);
             });
           });
@@ -982,13 +982,16 @@ window.onerror=function(msg,src,line){
       function showOpts(){
         bw.innerHTML="";
         if(open){
+          // Marti 7.6. večer: zakázka patří sem — přepnutí BĚHEM směny (switch).
+          var bZak=btnEl("🧾 Pracuji na zakázce…","green");
+          bZak.addEventListener("click",zakPick); bw.appendChild(bZak);
           addOpts([
-            ["👋 Dnes už se mnou nepočítejte :)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítejte :)"},b); }],
+            ["👋 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)"},b); }],
             ["☕ Potřebuju krátkou pauzu…",        function(b){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},b); }],
             ["🍃 Jdu se provětrat / najíst…",      function(){ chips("Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); }); }],
             ["📅 Mám jednání do…",                 function(){ chips("Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); }); }]
           ],"warn");
-          var mm1=btnEl("💬 Přímá zpráva pro Tvoje Marti…","ghost");
+          var mm1=btnEl("💬 Píši přímo tobě, Marti…","ghost");
           mm1.style.borderColor="var(--blue)"; mm1.style.color="var(--blue)";
           mm1.addEventListener("click",martiMsgUI); bw.appendChild(mm1);
           var more=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more);
@@ -1006,11 +1009,10 @@ window.onerror=function(msg,src,line){
         } else {
           addOpts([
             ["🏢 Jsem v práci…",       function(b){ act("checkin",{kind:"work"},b); }],
-            ["🧾 Pracuji na zakázce…", function(){ zakPick(); }],
             ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }],
             ["🚗 Už jedu do práce…",   function(){ chips("Dorazím za cca:",function(m,b){ presence({eta_min:m},b); }); }]
           ],"green");
-          var mm2=btnEl("💬 Přímá zpráva pro Tvoje Marti…","ghost");
+          var mm2=btnEl("💬 Píši přímo tobě, Marti…","ghost");
           mm2.style.borderColor="var(--blue)"; mm2.style.color="var(--blue)";
           mm2.addEventListener("click",martiMsgUI); bw.appendChild(mm2);
           var more2=btnEl("⋯ Ostatní…","ghost"); bw.appendChild(more2);

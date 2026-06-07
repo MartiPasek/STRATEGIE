@@ -5714,6 +5714,83 @@ def _att_presence_note(body: dict) -> str:
     return note[:240]
 
 
+# ── Fáze 1 schvalování docházky (Marti 7.6.2026): samopotvrzení dne ──
+# „Každý user zodpovídá za svou docházku sám. Systém VYŽADUJE po ukončení
+# dne, nejdéle do začátku další směny, kontrolu a potvrzení předchozí směny."
+_ATT_CONFIRM_SINCE = "2026-06-06"  # od kdy se potvrzování vyžaduje (start pilotu)
+
+
+def _att_unconfirmed_days(s, emp) -> list:
+    """Dny s odpracovanými záznamy bez potvrzení (max 14 dní zpět, od pilotu)."""
+    from sqlalchemy import text as _t
+    rows = s.execute(_t(
+        "SELECT e.entry_date, "
+        "  min(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI')) AS od, "
+        "  max(COALESCE(to_char(e.ended_at,'HH24') || ':' || to_char(e.ended_at,'MI'), '…')) AS do_, "
+        "  round(sum(COALESCE(e.hours,0))::numeric,2) AS hodin, count(*) AS zaznamu "
+        "FROM tenant.att_entry e "
+        "JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
+        "WHERE e.tenant_id = :t AND e.employee_id = :e "
+        "  AND e.entry_date < current_date "
+        "  AND e.entry_date >= GREATEST(current_date - 14, :since::date) "
+        "  AND et.category = 'presence' AND e.started_at IS NOT NULL "
+        "  AND e.status NOT IN ('superseded','announced') "
+        "  AND NOT EXISTS (SELECT 1 FROM tenant.att_day_confirm c "
+        "       WHERE c.tenant_id = :t AND c.employee_id = :e AND c.day = e.entry_date) "
+        "GROUP BY e.entry_date ORDER BY e.entry_date"),
+        {"t": _ATT_TENANT, "e": emp, "since": _ATT_CONFIRM_SINCE}).fetchall()
+    return [{"day": r[0].isoformat(), "od": r[1], "do": r[2],
+             "hodin": float(r[3] or 0), "zaznamu": int(r[4] or 0)} for r in rows]
+
+
+@api_router.get("/app/attendance/unconfirmed")
+async def att_unconfirmed(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        days = _att_unconfirmed_days(s, emp)
+        s.commit()
+        return JSONResponse({"ok": True, "days": days})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/confirm-day")
+async def att_confirm_day(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
+    if day >= _dt.now().date():
+        return JSONResponse({"ok": False, "error": "Potvrdit lze jen ukončený den."}, status_code=400)
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        s.execute(_t(
+            "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id) "
+            "VALUES (:t, :e, :d, :u) ON CONFLICT (tenant_id, employee_id, day) DO NOTHING"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True, "day": day.isoformat()})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/zakazky")
 async def app_zakazky(req: Request) -> JSONResponse:
     """Marti 7.6.: picker zakázek pro píchání (VR/SW/PR/Rezie). Jen píchatelné
@@ -6069,6 +6146,12 @@ async def att_checkin(req: Request) -> JSONResponse:
         if opn:
             s.commit()
             return JSONResponse({"ok": True, "already_open": True, "id": opn[0]})
+        # Fáze 1 schvalování: nový příchod až po potvrzení předchozích dnů
+        nepotvrzene = _att_unconfirmed_days(s, emp)
+        if nepotvrzene:
+            s.commit()
+            return JSONResponse({"ok": False, "need_confirm": nepotvrzene,
+                                 "error": "Nejdřív si prosím potvrď předchozí docházku."})
         tcode = "overhead" if kind == "overhead" else "work"
         wt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
                        {"t": _ATT_TENANT, "c": tcode}).scalar() or _att_work_type(s)
@@ -7764,6 +7847,19 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
               FROM tenant.att_entry e
               WHERE e.tenant_id = 2 AND e.is_active = true AND e.entry_date < current_date
               UNION ALL
+              SELECT min(e.id), e.employee_id, 'nepotvrzeny_den',
+                     to_char(e.entry_date, 'DD.MM.') || ' nepotvrzená docházka'
+              FROM tenant.att_entry e
+              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
+              WHERE e.tenant_id = 2 AND et.category = 'presence' AND e.started_at IS NOT NULL
+                AND e.status NOT IN ('superseded','announced')
+                AND e.entry_date < current_date
+                AND e.entry_date >= GREATEST(current_date - 14, DATE '2026-06-06')
+                AND NOT EXISTS (SELECT 1 FROM tenant.att_day_confirm c
+                                WHERE c.tenant_id = 2 AND c.employee_id = e.employee_id
+                                  AND c.day = e.entry_date)
+              GROUP BY e.employee_id, e.entry_date
+              UNION ALL
               SELECT e.id, e.employee_id, 'prace_pri_absenci',
                      to_char(e.entry_date, 'DD.MM.') || ' píchnutá práce v den nahlášené nepřítomnosti'
               FROM tenant.att_entry e
@@ -7794,22 +7890,30 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                 targets = set()
                 if emp_uid:
                     targets.add(int(emp_uid))
-                try:
-                    sup = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                                    {"e": emp_id}).scalar()
-                    if sup:
-                        targets.add(int(sup))
-                except Exception:
-                    pass
+                # nepotvrzený den = osobní zodpovědnost (Fáze 1) → bez supervizora
+                if rule != "nepotvrzeny_den":
+                    try:
+                        sup = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                                        {"e": emp_id}).scalar()
+                        if sup:
+                            targets.add(int(sup))
+                    except Exception:
+                        pass
                 for uid2 in sorted(targets):
                     mine = (emp_uid is not None and uid2 == int(emp_uid))
-                    msg = (("V docházce mám nesrovnalost: " + detail + " — mrkni na to, nebo mi napiš a opravíme to spolu.")
-                           if mine else
-                           (emp_name + ": " + detail))
+                    if rule == "nepotvrzeny_den":
+                        ti = "🖊 Potvrď si docházku"
+                        msg = (detail + " — otevři Docházku, zkontroluj den a potvrď ho. "
+                               "Bez potvrzení tě nepustím píchnout další příchod. — Tvoje Marti")
+                    else:
+                        ti = "⚠ Docházka — nesrovnalost"
+                        msg = (("V docházce mám nesrovnalost: " + detail + " — mrkni na to, nebo mi napiš a opravíme to spolu.")
+                               if mine else
+                               (emp_name + ": " + detail))
                     s.execute(_t(
                         "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
                         "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
-                        {"uid": uid2, "ti": "⚠ Docházka — nesrovnalost", "msg": msg[:600]})
+                        {"uid": uid2, "ti": ti, "msg": msg[:600]})
                     notified += 1
         s.commit()
     except Exception:

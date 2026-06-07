@@ -653,6 +653,7 @@
     if(!(B&&typeof B.authedFetch==="function")){ p.appendChild(el('<div class="hint">Docházka funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
     p.appendChild(el('<div class="group" style="margin-top:4px;">Právě probíhá</div>'));
     p.appendChild(el('<div id="dochNow" style="background:var(--surf);border:1px solid var(--bord);border-radius:12px;padding:16px;">Načítám…</div>'));
+    p.appendChild(el('<div id="dochConfirm" style="margin-top:10px;"></div>'));
     var absBtn=el('<button class="ghost full" style="margin-top:10px;">🌴 Nahlásit nepřítomnost</button>');
     var absBox=el('<div id="absBox" style="display:none;margin-top:8px;background:var(--surf);border:1px solid var(--bord);border-radius:10px;padding:12px;"></div>');
     absBtn.addEventListener("click",function(){ var open=absBox.style.display==="none"; absBox.style.display=open?"block":"none"; if(open&&!absBox.innerHTML) buildAbsForm(absBox); });
@@ -692,7 +693,45 @@
       // „Ostatní…" = podsekce, „Jsem na cestě" = výběr času dorazím za cca.
       var bw=el('<div style="margin-top:12px;"></div>');
       function btnEl(label, cls){ return el('<button class="'+cls+' full" style="margin-top:8px;font-size:15px;text-align:left;">'+label+'</button>'); }
-      function act(ep, payload, b){ b.disabled=true; api("POST","/api/v1/erp/app/attendance/"+ep,payload).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); }
+      // Fáze 1 schvalování (Marti 7.6.): nepotvrzené dny — karty + záchytka při příchodu.
+      function czDayLabel(iso){ try{ var d=new Date(iso+"T12:00:00"); return d.toLocaleDateString("cs",{weekday:"long",day:"numeric",month:"numeric"}); }catch(e){ return iso; } }
+      function renderConfirmList(container, days, after){
+        container.innerHTML="";
+        if(!days||!days.length){ if(after)after(); return; }
+        var left=days.length;
+        days.forEach(function(d){
+          var card=el('<div style="background:rgba(224,176,112,.10);border:1px solid #6e5326;border-radius:12px;padding:12px;margin-bottom:8px;"></div>');
+          card.appendChild(el('<div style="font-weight:600;font-size:14.5px;">🖊 '+esc(czDayLabel(d.day))+' · '+esc(d.od||'?')+'–'+esc(d.do||'…')+' · '+fmtHM(d.hodin)+' <span style="color:var(--mut);font-weight:400;">('+d.zaznamu+' zázn.)</span></div>'));
+          card.appendChild(el('<div class="hint" style="margin-top:4px;">Zkontroluj si den (detail v Posledních záznamech) a potvrď ho.</div>'));
+          var b=el('<button class="green full" style="margin-top:8px;">✓ Potvrzuji svou docházku</button>');
+          b.addEventListener("click",function(){
+            b.disabled=true;
+            api("POST","/api/v1/erp/app/attendance/confirm-day",{day:d.day}).then(function(j){
+              if(j&&j.ok){ card.remove(); left--; if(left<=0){ if(after) after(); else dochLoad(); } }
+              else { b.disabled=false; }
+            }).catch(function(){ b.disabled=false; });
+          });
+          card.appendChild(b);
+          container.appendChild(card);
+        });
+      }
+      function act(ep, payload, b){
+        b.disabled=true;
+        api("POST","/api/v1/erp/app/attendance/"+ep,payload).then(function(j){
+          if(j&&j.need_confirm&&j.need_confirm.length){
+            bw.innerHTML="";
+            bw.appendChild(el('<div class="hint" style="margin:4px 0 6px;">🖊 Nejdřív si potvrď předchozí docházku — pak tě hned píchnu:</div>'));
+            var cc=el('<div></div>'); bw.appendChild(cc);
+            renderConfirmList(cc, j.need_confirm, function(){
+              api("POST","/api/v1/erp/app/attendance/"+ep,payload).then(function(){ dochLoad(); }).catch(function(){ dochLoad(); });
+            });
+            var z=el('<button class="ghost full" style="margin-top:6px;">Zrušit</button>');
+            z.addEventListener("click",mainBtn); bw.appendChild(z);
+            return;
+          }
+          dochLoad();
+        }).catch(function(){ b.disabled=false; });
+      }
       function mainBtn(){
         // Marti 7.6.: není to „odchod/příchod", je to změna činnosti — rozhovor.
         bw.innerHTML="";
@@ -886,6 +925,11 @@
         z.addEventListener("click",mainBtn); bw.appendChild(z);
       }
       mainBtn(); cn.appendChild(bw);
+      // nepotvrzené dny → karty pod „Právě probíhá"
+      var cf=document.getElementById("dochConfirm");
+      if(cf){ api("GET","/api/v1/erp/app/attendance/unconfirmed","").then(function(ju){
+        renderConfirmList(cf, (ju&&ju.days)||[], function(){});
+      }); }
       c.innerHTML='<div style="font-size:13px;color:var(--mut);">Dnes odpracováno: <b style="color:var(--tx);font-size:16px;">'+fmtHM(j.today_hours||0)+'</b></div>';
       if(_dS&&_dS.today) _dS.today.val.textContent=fmtHM(j.today_hours||0);
       dochDailyLoad(); dochListLoad();

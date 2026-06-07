@@ -11,7 +11,7 @@
           --blue:#4f8ef7; --green:#10b981; --amber:#e0b070; --red:#e08a8a; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--tx); font-family:system-ui,sans-serif;
-         padding:14px 14px 78px; -webkit-tap-highlight-color:transparent; }
+         padding:14px 14px 96px; -webkit-tap-highlight-color:transparent; }
   .topbar { display:flex; align-items:center; gap:10px; margin-bottom:6px; min-height:40px; }
   .back { font-size:22px; cursor:pointer; color:var(--tx); background:none; border:none; padding:6px 8px 6px 0; }
   .title { font-size:21px; font-weight:700; }
@@ -39,7 +39,7 @@
   ul { list-style:none; padding:0; margin:0; } li { padding:12px 0; border-bottom:1px solid #20262e; font-size:14px; } li:last-child { border-bottom:none; }
   .nt { font-weight:600; } .nm { color:var(--mut); font-size:13px; margin:3px 0 9px; } .nactions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
   .big { font-size:16px; padding:8px 2px; }
-  .homebg { margin:-14px -14px -78px; min-height:100vh; border-radius:0; background:#1a2330 center top / cover no-repeat;
+  .homebg { margin:-14px -14px -96px; min-height:100vh; border-radius:0; background:#1a2330 center top / cover no-repeat;
             display:flex; flex-direction:column; justify-content:flex-end;
             padding:18px 18px calc(92px + env(safe-area-inset-bottom,0)); }
   .homenotif { background:rgba(20,24,30,.86); border:1px solid #2a2d33; border-radius:12px; padding:12px; margin-bottom:10px; display:flex; align-items:center; gap:12px; cursor:pointer; }
@@ -51,7 +51,7 @@
   .bnavstatic { position:static; padding-bottom:0; min-height:52px; }
   #navwrap > .bnavstatic:last-child { padding-bottom:env(safe-area-inset-bottom,0); }
   .tabbtn { position:relative; flex:1; background:none; border:none; color:var(--mut); padding:9px 2px; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; border-radius:10px; margin:3px 2px; }
-  .tabbtn .i { font-size:21px; line-height:1; } .tabbtn.active { color:var(--blue); background:#1a1e25; }
+  .tabbtn .i { font-size:21px; line-height:1; } .tabbtn.active { color:var(--blue); background:#262e3a; }
   .nbadge { position:absolute; top:3px; left:50%; margin-left:6px; background:#e24b4a; color:#fff; font-size:10px; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 4px; text-align:center; font-weight:600; }
   .appgrid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px 6px; margin-top:12px; }
   .appcell { display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer; position:relative; }
@@ -428,8 +428,26 @@
   function loadCalllog(){ var ul=document.getElementById("cllist"); if(!ul)return; var j=bjson("getCallLog", getPrefixes());
     if(j&&j.need){ ul.innerHTML='<li style="border:none;"><div style="color:var(--mut);margin-bottom:8px;">Appka potřebuje přístup k protokolu hovorů.</div><button class="green sm" id="clperm">Povolit přístup</button></li>'; var pb=document.getElementById("clperm"); if(pb)pb.addEventListener("click",function(){bjson("getCallLog",getPrefixes());setTimeout(loadCalllog,700);}); return; }
     var list=(j&&j.calls)||[]; if(!list.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné hovory s prefixem '+esc(getPrefixes())+'.</li>'; return; }
-    ul.innerHTML=""; list.forEach(function(c){ var li=el('<li><div class="nt">'+esc(c.name||c.number)+'</div><div class="nm">'+esc(fmtCall(c))+'</div><div class="nactions"></div></li>');
-      var b=el('<button class="green sm">Vytočit</button>'); b.addEventListener("click",function(){doDial(c.number);}); li.querySelector(".nactions").appendChild(b); ul.appendChild(li); }); }
+    // Stejná stylizace jako Kontakty (Marti 7.6.): avatar + jméno + accordion s akcemi.
+    ul.innerHTML=""; list.forEach(function(c){
+      var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
+      var nm=c.name||c.number||"?";
+      var av='<div class="cav" style="background:'+avColor(nm)+'">'+esc((nm.replace(/[^A-Za-zÀ-ž]/g,"").charAt(0)||"?").toUpperCase())+'</div>';
+      var missed=(c.type===3); var tCl=missed?"var(--red)":"var(--mut)";
+      var head=el('<div class="cthead">'+av+'<div style="flex:1;min-width:0;"><div class="ctname">'+esc(nm)+'</div>'
+        +(c.name?('<div class="ctnum">'+esc(c.number||"")+'</div>'):"")
+        +'<div class="ctnum" style="color:'+tCl+';">'+esc(fmtCall(c))+'</div></div></div>');
+      var exp=el('<div class="ctexp" style="display:none;"><div class="ctacts"></div></div>');
+      var acts=exp.querySelector(".ctacts");
+      var bCall=el('<div class="cact call">'+PHONE_SVG_W+'</div>'); bCall.addEventListener("click",function(e){e.stopPropagation();doDial(c.number);});
+      var bSms=el('<div class="cact sms" style="color:#fff;font-size:20px;">💬</div>'); bSms.addEventListener("click",function(e){e.stopPropagation();openApp("sms:"+(c.number||"").replace(/\s/g,""));});
+      acts.appendChild(bCall); acts.appendChild(bSms);
+      head.addEventListener("click",function(){
+        ul.querySelectorAll("li.ct").forEach(function(o){ o.classList.remove("open"); var x=o.querySelector(".ctexp"); if(x)x.style.display="none"; });
+        exp.style.display="block"; li.classList.add("open"); li.scrollIntoView({block:"nearest",behavior:"smooth"});
+      });
+      li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
+    }); }
   function calllog(){ app.innerHTML=topbar("Historie hovorů", true); var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.getCallLog==="function")){ p.appendChild(el('<div class="hint">Historie hovorů je nativní funkce — funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
     p.appendChild(el('<div class="hint">Jen hovory kontaktů s prefixem: <b>'+esc(getPrefixes())+'</b>.</div>'));

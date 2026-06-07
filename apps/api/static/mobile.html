@@ -905,9 +905,11 @@ window.onerror=function(msg,src,line){
             var list=(j&&j.zakazky)||[];
             if(!list.length){ res.innerHTML='<div class="hint">Nic nenalezeno — zkus jiný text, nebo nech zakázky synchronizovat (⚙).</div>'; return; }
             list.forEach(function(z){
-              var b=btnEl("🧾 "+z.cislo+" — "+(z.nazev||""),"green");
+              // Marti 7.6. večer: Režie je taky zakázka — v seznamu první, píchá se jako režie.
+              var rez=(z.typ==="REZIE");
+              var b=btnEl((rez?"🧰 ":"🧾 ")+z.cislo+" — "+(z.nazev||""),"green");
               b.style.fontSize="13px"; b.style.whiteSpace="nowrap"; b.style.overflow="hidden"; b.style.textOverflow="ellipsis";
-              b.addEventListener("click",function(){ act("checkin",{kind:"work",project_ref:z.cislo,switch:true},b); });
+              b.addEventListener("click",function(){ act("checkin",{kind:(rez?"overhead":"work"),project_ref:z.cislo,switch:true},b); });
               res.appendChild(b);
             });
           });
@@ -1013,17 +1015,12 @@ window.onerror=function(msg,src,line){
             ["🏢 Jsem v práci…",       function(b){ act("checkin",{kind:"work"},b); }],
             ["🏠 Pracuji z domova…",   function(b){ act("checkin",{kind:"homeoffice"},b); }]
           ],"green");
-          var more2=btnEl("⋯ Ostatní…","green"); bw.appendChild(more2);
-          var sub2=el('<div style="display:none;margin-left:10px;border-left:2px solid var(--bord);padding-left:8px;"></div>');
-          var bRez=btnEl("🧰 Režie","green");
-          bRez.addEventListener("click",function(){ act("checkin",{kind:"overhead"},bRez); });
-          sub2.appendChild(bRez);
+          // Marti 7.6. večer: menu „Ostatní" pryč — „Tady budu asi jinde…" přímo
+          // (Režie se přestěhovala do výběru zakázky, je to taky zakázka).
           var bJinde=btnEl("🧭 Tady budu asi jinde…","ghost");
           bJinde.style.borderColor="var(--amber)"; bJinde.style.color="var(--amber)";
           bJinde.addEventListener("click",jindeMenu);
-          sub2.appendChild(bJinde);
-          bw.appendChild(sub2);
-          more2.addEventListener("click",function(){ sub2.style.display=sub2.style.display==="none"?"block":"none"; });
+          bw.appendChild(bJinde);
           var mm2=btnEl("💬 Píši přímo tobě, Marti…","ghost");
           mm2.style.borderColor="var(--blue)"; mm2.style.color="var(--blue)";
           mm2.addEventListener("click",martiMsgUI); bw.appendChild(mm2);

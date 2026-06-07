@@ -6107,17 +6107,18 @@ async def app_zakazky(req: Request) -> JSONResponse:
     q = (req.query_params.get("q") or "").strip()[:60]
     cm, s = _att_session()
     try:
+        # Marti 7.6. večer: Režie na první místo — je to taky zakázka.
         if q:
             rows = s.execute(_t(
                 "SELECT cislo, COALESCE(nazev,''), typ FROM tenant.zakazka "
                 "WHERE tenant_id = 2 AND pichatelna = true "
                 "AND (cislo ILIKE :q OR nazev ILIKE :q) "
-                "ORDER BY cislo DESC LIMIT 30"), {"q": "%" + q + "%"}).fetchall()
+                "ORDER BY (typ = 'REZIE') DESC, cislo DESC LIMIT 30"), {"q": "%" + q + "%"}).fetchall()
         else:
             rows = s.execute(_t(
                 "SELECT cislo, COALESCE(nazev,''), typ FROM tenant.zakazka "
                 "WHERE tenant_id = 2 AND pichatelna = true "
-                "ORDER BY cislo DESC LIMIT 30")).fetchall()
+                "ORDER BY (typ = 'REZIE') DESC, cislo DESC LIMIT 30")).fetchall()
         s.commit()
         return JSONResponse({"ok": True, "zakazky": [
             {"cislo": r[0], "nazev": r[1], "typ": r[2]} for r in rows]})

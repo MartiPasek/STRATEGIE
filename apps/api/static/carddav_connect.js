@@ -109,17 +109,19 @@
         'Zatím žádné spárování.</div>';
     }
     var uname = info.user_name || "";
-    var fallbackPhone = info.phone_number || "";
     var h = '';
     active.forEach(function (t) {
-      var ph = t.phone_number || fallbackPhone;
+      // Marti 8.6.: ŽÁDNÝ fallback na číslo uživatele — číslo patří zařízení.
+      // Token bez vlastního ověřeného čísla = „číslo neověřeno".
+      var ph = t.phone_number || "";
       h += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;' +
         'border-bottom:1px solid #233140;">' +
         '<span style="font-size:18px;">📱</span>' +
         '<div style="flex:1;min-width:0;">' +
         '<div style="font-size:13.5px;color:#e8eef5;">' + _esc(t.device_label || "Telefon") +
         (uname ? ' <span style="color:#7fd6c2;">· ' + _esc(uname) + '</span>' : '') + '</div>' +
-        (ph ? '<div style="font-size:12px;color:#cfe0f2;">📞 ' + _esc(ph) + '</div>' : '') +
+        (ph ? '<div style="font-size:12px;color:#cfe0f2;">📞 ' + _esc(ph) + '</div>'
+            : '<div style="font-size:12px;color:#8aa0b8;">📵 číslo neověřeno</div>') +
         '<div style="font-size:11px;color:#8aa0b8;">spárováno ' + _esc(t.created || "") +
         (t.last_used ? ' · naposledy ' + _esc(t.last_used) : ' · zatím nesynchronizováno') + '</div>' +
         '</div>' +

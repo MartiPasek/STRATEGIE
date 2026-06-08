@@ -6506,10 +6506,262 @@ async def app_zakazky(req: Request) -> JSONResponse:
                         "hodin": (float(r[3]) if r[3] is not None else None)} for r in prow]
         except Exception:
             planned = []
+        # Marti 8.6.: ruční přiřazení od vedoucího výroby (s pokynem, v pořadí).
+        assigned = []
+        try:
+            arow = s.execute(_t(
+                "SELECT cislo_zakazky, COALESCE(zakazka_nazev,''), COALESCE(pokyn,''), COALESCE(kdy_ozvat,'') "
+                "FROM tenant.vyroba_prirazeni "
+                "WHERE tenant_id = 2 AND user_id = :uid AND status = 'active' "
+                "ORDER BY poradi, id"), {"uid": uid}).fetchall()
+            assigned = [{"cislo": r[0], "nazev": r[1], "pokyn": r[2], "kdy_ozvat": r[3]} for r in arow]
+        except Exception:
+            assigned = []
         s.commit()
         return JSONResponse({"ok": True, "zakazky": [
             {"cislo": r[0], "nazev": r[1], "typ": r[2]} for r in rows],
-            "planned": planned})
+            "planned": planned, "assigned": assigned})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ═══ Plánování výroby — ruční přiřazení (Marti 8.6.) ═══════════════════════
+# Vedoucí výroby Dušan Havlát (41) + zástupce Marek Honal (85) + rodiče.
+_VYROBA_MANAGERS = {41, 85}
+
+
+def _vyroba_can_manage(uid) -> bool:
+    try:
+        return int(uid) in _VYROBA_MANAGERS or is_marti_parent(uid)
+    except Exception:
+        return False
+
+
+@api_router.get("/app/vyroba/can-manage")
+async def app_vyroba_can_manage(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    return JSONResponse({"ok": True, "can_manage": _vyroba_can_manage(uid)})
+
+
+@api_router.get("/app/vyroba/lidi")
+async def app_vyroba_lidi(req: Request) -> JSONResponse:
+    """Přehled pro vedoucího: lidé z plánu + jejich aktivní ruční přiřazení."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        people = s.execute(_t(
+            "SELECT vp.user_id, COALESCE(vp.zam_jmeno,'#'||vp.cislo_zam) AS jmeno, "
+            " string_agg(DISTINCT vp.cislo_zakazky, ', ') FILTER (WHERE vp.datum = CURRENT_DATE) AS dnes "
+            "FROM tenant.vyroba_plan vp "
+            "WHERE vp.tenant_id=2 AND vp.user_id IS NOT NULL AND vp.cislo_zam < 10000 AND vp.datum >= CURRENT_DATE "
+            "GROUP BY vp.user_id, COALESCE(vp.zam_jmeno,'#'||vp.cislo_zam) "
+            "ORDER BY jmeno")).fetchall()
+        pr = s.execute(_t(
+            "SELECT id, user_id, cislo_zakazky, COALESCE(zakazka_nazev,''), COALESCE(pokyn,''), "
+            " COALESCE(kdy_ozvat,''), poradi "
+            "FROM tenant.vyroba_prirazeni WHERE tenant_id=2 AND status='active' "
+            "ORDER BY user_id, poradi, id")).fetchall()
+        amap = {}
+        for r in pr:
+            amap.setdefault(r[1], []).append({
+                "id": r[0], "cislo": r[2], "nazev": r[3], "pokyn": r[4],
+                "kdy_ozvat": r[5], "poradi": r[6]})
+        lidi = [{"user_id": p[0], "jmeno": p[1], "dnes": p[2] or "",
+                 "prirazeni": amap.get(p[0], [])} for p in people]
+        s.commit()
+        return JSONResponse({"ok": True, "lidi": lidi})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/prirazeni")
+async def app_vyroba_prirazeni_create(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    tgt = (body or {}).get("user_id")
+    cislo = str((body or {}).get("cislo_zakazky") or "").strip()[:40]
+    pokyn = str((body or {}).get("pokyn") or "").strip()[:1000] or None
+    kdy = str((body or {}).get("kdy_ozvat") or "").strip()[:300] or None
+    if not tgt or not cislo:
+        return JSONResponse({"ok": False, "error": "Vyber člověka a zakázku."})
+    cm, s = _att_session()
+    try:
+        naz = s.execute(_t("SELECT nazev FROM tenant.zakazka WHERE tenant_id=2 AND cislo=:c"),
+                        {"c": cislo}).scalar()
+        nextpor = s.execute(_t(
+            "SELECT COALESCE(MAX(poradi),0)+1 FROM tenant.vyroba_prirazeni "
+            "WHERE tenant_id=2 AND user_id=:u AND status='active'"), {"u": tgt}).scalar()
+        jm_ved = _user_jmeno(s, uid)
+        rid = s.execute(_t(
+            "INSERT INTO tenant.vyroba_prirazeni (tenant_id, user_id, cislo_zakazky, zakazka_nazev, "
+            " pokyn, kdy_ozvat, poradi, created_by_user_id, created_by_name) "
+            "VALUES (2, :u, :c, :n, :p, :k, :por, :by, :byn) RETURNING id"),
+            {"u": tgt, "c": cislo, "n": naz, "p": pokyn, "k": kdy, "por": nextpor,
+             "by": uid, "byn": jm_ved}).scalar()
+        msg = "Zakázka " + cislo + ((" — " + naz) if naz else "")
+        if pokyn:
+            msg += " · " + pokyn
+        if kdy:
+            msg += " · ozvi se: " + kdy
+        s.execute(_t(
+            "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+            "VALUES ('mobile', :u, 'claude_msg', :ti, :msg, NULL)"),
+            {"u": tgt, "ti": "📌 Nová zakázka od vedoucího", "msg": msg[:500]})
+        s.commit()
+        return JSONResponse({"ok": True, "id": rid})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/prirazeni/{pid}/zrusit")
+async def app_vyroba_prirazeni_zrusit(pid: int, req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t(
+            "UPDATE tenant.vyroba_prirazeni SET status='cancelled', cancelled_at=now(), cancelled_by_user_id=:by "
+            "WHERE id=:id AND tenant_id=2 AND status='active'"), {"id": pid, "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/prirazeni/{pid}/poradi")
+async def app_vyroba_prirazeni_poradi(pid: int, req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    por = int((body or {}).get("poradi") or 100)
+    cm, s = _att_session()
+    try:
+        s.execute(_t("UPDATE tenant.vyroba_prirazeni SET poradi=:p WHERE id=:id AND tenant_id=2"),
+                  {"p": por, "id": pid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/vyroba/moje")
+async def app_vyroba_moje(req: Request) -> JSONResponse:
+    """Moje aktivní přiřazení (pro člověka), v pořadí."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, cislo_zakazky, COALESCE(zakazka_nazev,''), COALESCE(pokyn,''), "
+            " COALESCE(kdy_ozvat,''), poradi "
+            "FROM tenant.vyroba_prirazeni WHERE tenant_id=2 AND user_id=:u AND status='active' "
+            "ORDER BY poradi, id"), {"u": uid}).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "prirazeni": [
+            {"id": r[0], "cislo": r[1], "nazev": r[2], "pokyn": r[3], "kdy_ozvat": r[4], "poradi": r[5]}
+            for r in rows]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/zprava")
+async def app_vyroba_zprava(req: Request) -> JSONResponse:
+    """Člověk → vedoucí: průběžná zpětná vazba."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    txt = str((body or {}).get("text") or "").strip()[:1000]
+    pid = (body or {}).get("prirazeni_id")
+    cislo = str((body or {}).get("cislo_zakazky") or "").strip()[:40] or None
+    if not txt:
+        return JSONResponse({"ok": False, "error": "Napiš zprávu."})
+    cm, s = _att_session()
+    try:
+        s.execute(_t(
+            "INSERT INTO tenant.vyroba_zprava (tenant_id, prirazeni_id, user_id, cislo_zakazky, text) "
+            "VALUES (2, :pid, :u, :c, :t)"),
+            {"pid": pid, "u": uid, "c": cislo, "t": txt})
+        jm = _user_jmeno(s, uid)
+        for m in _VYROBA_MANAGERS:
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :m, 'claude_msg', :ti, :msg, NULL)"),
+                {"m": m, "ti": "🛠 Zpráva z výroby — " + jm,
+                 "msg": (((cislo + ": ") if cislo else "") + txt)[:500]})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/vyroba/zpravy")
+async def app_vyroba_zpravy(req: Request) -> JSONResponse:
+    """Vedoucí: poslední zprávy z výroby (zpětná vazba lidí)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT z.id, COALESCE(u.short_name, u.last_name, '#'||z.user_id) AS jmeno, "
+            " COALESCE(z.cislo_zakazky,''), z.text, "
+            " to_char(z.created_at,'DD.MM HH24')||':'||to_char(z.created_at,'MI') AS kdy "
+            "FROM tenant.vyroba_zprava z LEFT JOIN public.users u ON u.id = z.user_id "
+            "WHERE z.tenant_id=2 ORDER BY z.created_at DESC LIMIT 50")).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "zpravy": [
+            {"id": r[0], "jmeno": r[1], "cislo": r[2], "text": r[3], "kdy": r[4]} for r in rows]})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

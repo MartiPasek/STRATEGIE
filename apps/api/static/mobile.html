@@ -952,6 +952,8 @@ window.onerror=function(msg,src,line){
   }
   function fmtHM(h){ var m=Math.round(Number(h||0)*60); var hh=Math.floor(m/60), mm=m%60; return hh+":"+(mm<10?"0":"")+mm; }
   function dochLoad(){
+    if(window._canManageVyroba===undefined){ window._canManageVyroba=false;
+      api("GET","/api/v1/erp/app/vyroba/can-manage","").then(function(j){ window._canManageVyroba=!!(j&&j.ok&&j.can_manage); }); }
     api("GET","/api/v1/erp/app/attendance/status","").then(function(j){
       var cn=document.getElementById("dochNow"), c=document.getElementById("dochCard"); if(!cn||!c)return;
       if(!j||!j.ok){ cn.textContent="Nepodařilo se načíst."; c.textContent="—"; return; }
@@ -1438,6 +1440,21 @@ window.onerror=function(msg,src,line){
       }
       function driveBuild(bx){ _denCasBuild(bx,"V kolik budeš končit?",function(p,t){ return p+" končím dříve, asi v "+t; }); }
       function pozdejiBuild(bx){ _denCasBuild(bx,"V kolik dorazíš?",function(p,t){ return p+" přijdu později, dorazím asi v "+t; }); }
+      // Marti 8.6.: zpětná vazba člověka → vedoucímu výroby (průběžně).
+      function vyrobaFbBuild(box){
+        box.appendChild(el('<div class="hint" style="margin:2px 0 4px;">Co se děje na zakázce? Jde rovnou vedoucímu výroby.</div>'));
+        var ta=el('<textarea rows="3" placeholder="např. VR10660 hotová z půlky, zítra dodělám · potřebuju díl · můžu vzít další" style="width:100%;background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;"></textarea>');
+        var send=el('<button class="green full" style="margin-top:8px;">🛠 Odeslat vedoucímu</button>');
+        send.addEventListener("click",function(){
+          var t=(ta.value||"").trim(); if(!t){ ta.focus(); return; }
+          send.disabled=true;
+          api("POST","/api/v1/erp/app/vyroba/zprava",{text:t}).then(function(r){
+            if(r&&r.ok){ box.innerHTML='<div class="hint" style="color:var(--green);padding:6px 0;">✅ Odesláno vedoucímu výroby. Díky!</div>'; }
+            else { send.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); }
+          });
+        });
+        box.appendChild(ta); box.appendChild(send);
+      }
       // Marti 7.6. večer: vše se rozbaluje NA MÍSTĚ (jako Kontakty), žádné
       // přepínání obrazovek. Ťuknutí na volbu znovu = zavření.
       function showOpts(){
@@ -1470,8 +1487,14 @@ window.onerror=function(msg,src,line){
             ["🚗 Mám služební pochůzku…", function(b){ presence({text:"Na služební pochůzce",add_since:true},b); }],
             ["🫡 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},b); }]
           ],"ghost");
+          expOpt(bw,"🛠 Zpráva vedoucímu výroby…","ghost",vyrobaFbBuild,_blueStyle);
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
           expOpt(bw,"🙋 Mám dotaz na nadřízeného…","ghost",bossAskBuild,_blueStyle);
+          if(window._canManageVyroba){
+            var _vb=btnEl("🏭 Plánovač výroby (vedoucí)","green");
+            _vb.addEventListener("click",function(){ location.href="/vyroba"; });
+            bw.appendChild(_vb);
+          }
         } else {
           // „Už jedu" první · lékaři sem (Marti 7.6. večer) · „Jinde" před zprávou
           expOpt(bw,"🚗 Jedu do práce…","green",function(bx){

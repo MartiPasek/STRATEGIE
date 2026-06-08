@@ -19132,6 +19132,11 @@ def _render_full_page(
              onclick="event.preventDefault(); window.open('/mobile','_blank','noopener');"
              class="erp-marti-btn" style="display:none;text-decoration:none;align-items:center;"
              data-hint="Otevři /mobile (hybrid) — jen DEV/DESIGN režim">📱 /mobile</a>
+          <!-- Plánovač výroby — vedoucí výroby + zástupce (gate na /vyroba). Marti 8.6.2026. -->
+          <a id="erpVyrobaLink" href="/vyroba" target="_blank" rel="noopener"
+             onclick="event.preventDefault(); window.open('/vyroba','_blank','noopener');"
+             class="erp-marti-btn" style="text-decoration:none;align-items:center;"
+             data-hint="Plánovač výroby — přiřazení zakázek lidem">🏭 Výroba</a>
           <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled
                smazány z headeru — duplikát s browser title barem. Zachováno jako
                skryté kotvy pro JS update document.title (žádný visual). -->

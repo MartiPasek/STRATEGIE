@@ -1313,6 +1313,23 @@ window.onerror=function(msg,src,line){
               b.addEventListener("click",function(){ act("checkin",{kind:(rez?"overhead":"work"),project_ref:z.cislo,switch:true},b); });
               return b;
             }
+            // Marti 8.6.: ruční přiřazení od vedoucího výroby — úplně nahoře (📌 + pokyn).
+            var assigned=(j&&j.assigned)||[];
+            if(!q && assigned.length){
+              res.appendChild(el('<div class="hint" style="margin:2px 0 4px;color:#f59e0b;">📌 Od vedoucího výroby:</div>'));
+              assigned.forEach(function(z){
+                var b=btnEl("📌 "+z.cislo+" — "+(z.nazev||""),"green");
+                b.style.fontSize="13px"; b.style.whiteSpace="nowrap"; b.style.overflow="hidden"; b.style.textOverflow="ellipsis";
+                b.style.boxShadow="inset 3px 0 0 #f59e0b";
+                b.addEventListener("click",function(){ act("checkin",{kind:"work",project_ref:z.cislo,switch:true},b); });
+                res.appendChild(b);
+                if(z.pokyn||z.kdy_ozvat){
+                  res.appendChild(el('<div class="hint" style="margin:2px 0 9px 8px;font-size:12px;color:#cbd5e1;white-space:normal;">'
+                    +(z.pokyn?('📋 '+esc(z.pokyn)):'')
+                    +(z.kdy_ozvat?((z.pokyn?'<br>':'')+'⏰ ozvi se: '+esc(z.kdy_ozvat)):'')+'</div>'));
+                }
+              });
+            }
             // Marti 8.6.: „Dnes naplánováno" z plánu výroby — nahoře, jen bez hledání.
             var planned=(j&&j.planned)||[];
             if(!q && planned.length){

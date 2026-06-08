@@ -72,6 +72,10 @@
   .cact { width:38px; height:38px; border-radius:11px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .cact svg { width:22px; height:22px; }
   .cact.call { background:#22c55e; } .cact.sms { background:#3b82f6; }
+  /* Marti 8.6.: schovaný scrollbar (rail + seznam Výroby) — scrolluje, ale neruší. */
+  #vyrail, #vylist, #vyrail *, .vy-list { scrollbar-width:none; -ms-overflow-style:none; }
+  #vyrail::-webkit-scrollbar, #vylist::-webkit-scrollbar, .vy-list::-webkit-scrollbar { width:0; height:0; display:none; }
+  .vybadge { position:absolute; top:2px; right:4px; background:#ef4444; color:#fff; font-size:10px; font-weight:700; min-width:16px; height:16px; line-height:16px; border-radius:9px; padding:0 3px; text-align:center; }
   /* Otevřený kontakt (accordion) — záznam ~o 30 % větší + jemné zvýraznění. */
   .ct.open { background:rgba(79,142,247,.07); border-radius:12px; }
   .ct.open .cthead { padding:11px 8px; gap:14px; }
@@ -160,7 +164,11 @@ window.onerror=function(msg,src,line){
   function esc(s){ return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
   function el(html){ var d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild; }
   function go(id){ stack.push(id); render(); }
-  function back(){ if(stack.length>1){ stack.pop(); render(); } }
+  function back(){
+    // Marti 8.6.: nejdřív zavřít otevřený accordion (Výroba/kontakty), teprve pak odejít.
+    try{ var _op=document.querySelector('#vylist li.ct.open'); if(_op){ _op.classList.remove('open'); var _x=_op.querySelector('.ctexp'); if(_x)_x.style.display='none'; return; } }catch(e){}
+    if(stack.length>1){ stack.pop(); render(); }
+  }
   function selectTab(t){ curTab=t; stack=[t]; render(); }
   // hardwarové zpět (nativní HybridActivity volá): vrať true když jsme šli o úroveň výš, false na home
   // Marti 7.6. večer: 1) zavřít otevřené věci · 2) vyjet nahoru · 3) o úroveň
@@ -789,45 +797,57 @@ window.onerror=function(msg,src,line){
     sec.appendChild(el('<div style="color:#cdd6e2;margin-top:10px;font-size:14px;line-height:1.6;max-width:420px;">Firemní rozcestník — připravujeme. Tady budou firemní agendy, přehledy a nástroje.</div>'));
     app.appendChild(sec);
   }
-  // ───── VÝROBA (kontaktní styl + vertikální icon-rail vpravo). Marti 8.6. ─────
-  var _vyView="lidi", _vyPeople=[], _vyData=null;
-  var VY_RAIL=[
-    {k:"lidi",       ic:"👤", l:"Lidé"},
-    {k:"bezprace",   ic:"🚶", l:"Bez práce"},
-    {k:"pozadavky",  ic:"🙋", l:"Požadav."},
-    {k:"vyreshned",  ic:"🔥", l:"Vyřeš hned"},
-    {k:"zakazky",    ic:"🧾", l:"Zakázky"},
-    {k:"sefmonteri", ic:"🛠", l:"Šéfmont."},
-    {k:"vedprojekt", ic:"👔", l:"Ved.proj."},
-    {k:"zastupce",   ic:"🤝", l:"Zástupce"},
-    {k:"skladnik",   ic:"📦", l:"Skladník"},
-    {k:"nakup",      ic:"🛒", l:"Nákup"},
-    {k:"priprava",   ic:"🔧", l:"Příprava"},
-    {k:"zkusebna",   ic:"🧪", l:"Zkušebna"},
-    {k:"odvozy",     ic:"🚚", l:"Odvozy"}
+  // ───── VÝROBA (icon-rail: živé nahoře, neživé dole). Marti 8.6. ─────
+  var _vyView="makam", _vyPeople=[], _vyData=null, _vyZakMode="list";
+  var VY_TOP=[
+    {k:"makam",     ic:"🟢", l:"Makám"},
+    {k:"potrebuji", ic:"🙋", l:"Potřebuji"},
+    {k:"relaxuji",  ic:"☕", l:"Relaxuji"},
+    {k:"cekam",     ic:"⏳", l:"(Čekám…)", badge:true},
+    {k:"finisuji",  ic:"🏁", l:"Finišuji"}
   ];
-  var VY_READY={lidi:1,bezprace:1,pozadavky:1,vyreshned:1,zakazky:1};
+  var VY_BOT=[
+    {k:"zakazky",   ic:"🧾", l:"Zakázky"},
+    {k:"zkusebna",  ic:"🧪", l:"Zkušebna"},
+    {k:"odvozy",    ic:"🚚", l:"Odvozy"},
+    {k:"nakup",     ic:"🛒", l:"Nákup"},
+    {k:"priprava",  ic:"🔧", l:"Příprava"}
+  ];
+  var VY_READY={makam:1,potrebuji:1,cekam:1,zakazky:1};
+  function vyBtn(v){
+    var b=el('<button data-k="'+v.k+'" style="position:relative;margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--bord);background:transparent;color:var(--mut);border-radius:9px;cursor:pointer;"><span style="font-size:18px;">'+v.ic+'</span>'+esc(v.l)+(v.badge?'<span class="vybadge" data-badge style="display:none;">0</span>':'')+'</button>');
+    b.addEventListener("click",function(){
+      if(v.k==="zakazky" && _vyView==="zakazky"){ _vyZakMode=(_vyZakMode==="md"?"list":"md"); vyRender(); return; }
+      _vyView=v.k; if(v.k==="zakazky") _vyZakMode="list"; vyPaintRail(); vyLoad();
+    });
+    return b;
+  }
   function vyroba(){
     app.innerHTML=topbar("🏭 Výroba", true);
     var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 155px);padding:4px 2px 0;"></div>');
     var left=el('<div style="flex:1;min-width:0;display:flex;flex-direction:column;"></div>');
     var s=el('<input id="vysearch" placeholder="🔍 Hledat…" autocomplete="off" style="border:1px solid var(--blue);background:#0d1828;box-shadow:0 0 0 2px rgba(79,142,247,.18);font-weight:600;margin-bottom:8px;">');
     s.addEventListener("input",vyRender);
-    var lw=el('<div class="list" style="flex:1;overflow:auto;padding:0 6px;"><ul id="vylist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>');
+    var lw=el('<div class="list vy-list" style="flex:1;overflow:auto;padding:0 6px;"><ul id="vylist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>');
     left.appendChild(s); left.appendChild(lw);
     var rail=el('<div id="vyrail" style="width:64px;flex:none;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding:1px;"></div>');
-    VY_RAIL.forEach(function(v){
-      var b=el('<button data-k="'+v.k+'" style="margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--bord);background:transparent;color:var(--mut);border-radius:9px;cursor:pointer;"><span style="font-size:18px;">'+v.ic+'</span>'+esc(v.l)+'</button>');
-      b.addEventListener("click",function(){ _vyView=v.k; vyPaintRail(); vyLoad(); });
-      rail.appendChild(b);
-    });
+    VY_TOP.forEach(function(v){ rail.appendChild(vyBtn(v)); });
+    rail.appendChild(el('<div style="flex:1 1 auto;min-height:10px;"></div>'));
+    VY_BOT.forEach(function(v){ rail.appendChild(vyBtn(v)); });
     wrap.appendChild(left); wrap.appendChild(rail); app.appendChild(wrap);
-    vyPaintRail(); vyLoad();
+    vyPaintRail(); vyLoad(); vyRefreshBadge();
   }
   function vyPaintRail(){ var r=document.getElementById("vyrail"); if(!r)return;
-    Array.prototype.forEach.call(r.children,function(b){ var on=b.getAttribute("data-k")===_vyView;
+    Array.prototype.forEach.call(r.querySelectorAll("button[data-k]"),function(b){ var on=b.getAttribute("data-k")===_vyView;
       b.style.background=on?"var(--green)":"transparent"; b.style.color=on?"#04150e":"var(--mut)";
       b.style.borderColor=on?"var(--green)":"var(--bord)"; b.style.fontWeight=on?"700":"400"; });
+  }
+  function vyBezPrace(lidi){ return (lidi||[]).filter(function(pp){ return !(pp.prirazeni&&pp.prirazeni.length) && !((pp.plan||[]).some(function(o){ return !o.hidden; })); }); }
+  function vyRefreshBadge(){
+    function paint(){ var r=document.getElementById("vyrail"); if(!r)return; var bg=r.querySelector('button[data-k="cekam"] [data-badge]'); if(!bg)return;
+      var n=vyBezPrace(_vyPeople).length; bg.textContent=n; bg.style.display=n>0?"block":"none"; }
+    if(_vyPeople.length){ paint(); }
+    else { api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; paint(); }); }
   }
   function vyLoad(){
     var ul=document.getElementById("vylist"); if(ul)ul.innerHTML='<li style="color:var(--mut);border:none;">Načítám…</li>';
@@ -836,25 +856,27 @@ window.onerror=function(msg,src,line){
     if(v==="zakazky"){
       if(!_vyPeople.length) api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(jp){ if(jp&&jp.ok)_vyPeople=jp.lidi||[]; });
       api("GET","/api/v1/erp/app/vyroba/zakazky-lide","").then(function(j){ _vyData=j; vyRender(); });
-    } else if(v==="pozadavky"||v==="vyreshned"){
+    } else if(v==="potrebuji"){
       api("GET","/api/v1/erp/app/vyroba/zpravy","").then(function(j){ _vyData=j; vyRender(); });
     } else {
-      api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; _vyData=j; vyRender(); });
+      api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; _vyData=j; vyRender(); vyRefreshBadge(); });
     }
   }
   function vyRender(){
     var ul=document.getElementById("vylist"); if(!ul)return;
     var f=deacc(((document.getElementById("vysearch")||{}).value||"").trim()), j=_vyData;
-    if(j&&j.todo){ ul.innerHTML='<li style="color:var(--mut);border:none;line-height:1.5;">Sekce <b>'+esc(_vyView)+'</b> zatím čeká na zadání — řekni mi, co tu má být (role z org struktury, nebo kategorie zakázek?) a napojím ji.</li>'; return; }
+    if(j&&j.todo){ ul.innerHTML='<li style="color:var(--mut);border:none;line-height:1.5;">Sekce <b>'+esc(_vyView)+'</b> zatím čeká na zadání — řekni mi, co tu má být a napojím ji.</li>'; return; }
     if(!j||!j.ok){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+((j&&j.error)==="forbidden"?"Jen pro vedoucího výroby a jeho zástupce.":"Nepodařilo se načíst.")+'</li>'; return; }
     ul.innerHTML="";
     if(_vyView==="zakazky"){
       var zak=(j.zakazky||[]).filter(function(x){ return !f||deacc(x.cislo+" "+(x.nazev||"")).indexOf(f)>=0; });
       if(!zak.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Nic.</li>'; return; }
-      zak.forEach(function(z){ ul.appendChild(vyZakLi(z)); });
-    } else if(_vyView==="pozadavky"||_vyView==="vyreshned"){
+      zak.forEach(function(z){ var li=vyZakLi(z); ul.appendChild(li);
+        if(_vyZakMode==="md"){ var exp=li.querySelector(".ctexp"); if(exp){ vyFillZak(exp,z); exp.style.display="block"; li.classList.add("open"); } }
+      });
+    } else if(_vyView==="potrebuji"){
       var zpr=(j.zpravy||[]).filter(function(m){ return !f||deacc((m.jmeno||"")+" "+(m.text||"")).indexOf(f)>=0; });
-      if(!zpr.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné požadavky z výroby.</li>'; return; }
+      if(!zpr.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Nikdo nic nepotřebuje. 👍</li>'; return; }
       zpr.forEach(function(m){
         var li=document.createElement("li"); li.className="ct"; li.style.padding="10px 6px"; li.style.borderBottom="1px solid var(--bord)";
         li.innerHTML='<div style="font-weight:600;color:#cfe3ff;">🙋 '+esc(m.jmeno||"")+(m.cislo?(' · '+esc(m.cislo)):'')+' <span style="color:var(--mut);font-size:12px;font-weight:400;">'+esc(m.kdy||"")+'</span></div><div style="margin-top:3px;">'+esc(m.text||"")+'</div>';
@@ -862,9 +884,10 @@ window.onerror=function(msg,src,line){
       });
     } else {
       var lidi=(j.lidi||[]);
-      if(_vyView==="bezprace"){ lidi=lidi.filter(function(pp){ return !(pp.prirazeni&&pp.prirazeni.length) && !((pp.plan||[]).some(function(o){ return !o.hidden; })); }); }
+      if(_vyView==="cekam"){ lidi=vyBezPrace(lidi); }
+      else if(_vyView==="makam"){ lidi=lidi.filter(function(pp){ return (pp.prirazeni&&pp.prirazeni.length) || ((pp.plan||[]).some(function(o){ return !o.hidden; })); }); }
       lidi=lidi.filter(function(x){ return !f||deacc(x.jmeno).indexOf(f)>=0; });
-      if(!lidi.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+(_vyView==="bezprace"?"Všichni mají práci. 👍":"Nikdo.")+'</li>'; return; }
+      if(!lidi.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+(_vyView==="cekam"?"Všichni mají práci. 👍":"Nikdo.")+'</li>'; return; }
       lidi.forEach(function(pp){ ul.appendChild(vyPersonLi(pp)); });
     }
   }

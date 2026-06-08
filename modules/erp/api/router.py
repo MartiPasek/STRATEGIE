@@ -6602,13 +6602,14 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                 "poradi": r[4], "hidden": bool(r[5]), "done": bool(r[6]),
                 "poznamka": r[7] or ""})
         # stav z docházky (dnes) per člověk: makam / pauza / jedu / pryc / byl / ''
-        stavmap = {}
+        stavinfo = {}
         try:
             srows = s.execute(_t(
                 "SELECT e.user_id, "
                 " bool_or(a.is_active AND et.category='presence' AND a.status NOT IN ('superseded','announced')) AS aktiv, "
                 " count(*) FILTER (WHERE a.status NOT IN ('superseded','announced')) AS zazn, "
-                " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note "
+                " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note, "
+                " (array_agg(a.project_ref ORDER BY a.id DESC) FILTER (WHERE a.is_active AND a.project_ref IS NOT NULL))[1] AS proj "
                 "FROM tenant.att_entry a "
                 "JOIN tenant.att_employee e ON e.id=a.employee_id AND e.tenant_id=2 "
                 "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
@@ -6628,19 +6629,21 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                     st = "byl"
                 else:
                     st = ""
-                stavmap[r[0]] = st
+                stavinfo[r[0]] = {"st": st, "note": (r[3] or ""), "proj": (r[4] or "")}
         except Exception:
-            stavmap = {}
+            stavinfo = {}
         lidi = []
         for p in people:
             _plan = planmap.get(p[0], [])
             _pr = amap.get(p[0], [])
             _haswork = bool(_pr) or any((not o.get("hidden")) for o in _plan)
-            _st = stavmap.get(p[0], "")
+            _si = stavinfo.get(p[0], {})
+            _st = _si.get("st", "")
             if _st == "" and _haswork:
                 _st = "chybi"
             lidi.append({"user_id": p[0], "jmeno": p[1], "dnes": p[2] or "",
-                         "plan": _plan, "prirazeni": _pr, "stav": _st})
+                         "plan": _plan, "prirazeni": _pr, "stav": _st,
+                         "stav_pozn": _si.get("note", ""), "stav_zak": _si.get("proj", "")})
         s.commit()
         return JSONResponse({"ok": True, "lidi": lidi})
     except Exception as exc:

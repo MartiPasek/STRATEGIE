@@ -927,7 +927,12 @@ window.onerror=function(msg,src,line){
     var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
     var nm=pp.jmeno||"?";
     var cnt=((pp.plan||[]).filter(function(o){return !o.hidden;}).length)+((pp.prirazeni||[]).length);
-    var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(nm)+'">'+vyInitial(nm)+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(nm)+'</div><div class="ctnum">'+cnt+' zakázek</div></div></div>');
+    var sub=cnt+' zakázek';
+    if(_vyView==="makam"){ sub=pp.stav_zak?('🧾 '+esc(pp.stav_zak)):'🟢 maká'; }
+    else if(_vyView==="relaxuji"){ sub='☕ '+esc(pp.stav_pozn||'pauza'); }
+    else if(_vyView==="jedu"){ sub='🚗 '+esc(pp.stav_pozn||'na cestě'); }
+    else if(_vyView==="chybi"){ sub='🫥 '+(pp.stav_pozn?esc(pp.stav_pozn):'nepřihlášen'); }
+    var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(nm)+'">'+vyInitial(nm)+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(nm)+'</div><div class="ctnum">'+sub+'</div></div></div>');
     var exp=el('<div class="ctexp" style="display:none;"></div>');
     head.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) vyFillPerson(exp,pp); });
     li.appendChild(head); li.appendChild(exp); return li;

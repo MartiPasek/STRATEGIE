@@ -221,6 +221,23 @@ class HybridActivity : ComponentActivity() {
             runOnUiThread { Toast.makeText(this@HybridActivity, msg, Toast.LENGTH_SHORT).show() }
         }
 
+        // Marti 8.6.: SMS brána — JEN tento telefon (Marti-AI mobil) přeposílá
+        // příchozí ověřovací SMS. Vyžádá RECEIVE_SMS permission. Vrátí stav.
+        @JavascriptInterface
+        fun setSmsGateway(enabled: Boolean): String {
+            getSharedPreferences(prefsName, MODE_PRIVATE).edit()
+                .putBoolean("sms_gateway", enabled).apply()
+            if (enabled && !granted(Manifest.permission.RECEIVE_SMS)) {
+                runOnUiThread { try { requestPermissions(arrayOf(Manifest.permission.RECEIVE_SMS), 45) } catch (e: Exception) {} }
+                return "need"
+            }
+            return if (enabled) "1" else "0"
+        }
+
+        @JavascriptInterface
+        fun isSmsGateway(): Boolean =
+            getSharedPreferences(prefsName, MODE_PRIVATE).getBoolean("sms_gateway", false)
+
         // Allowlist alias (Marti-AI) — pojmenovaná akce vytáčení.
         @JavascriptInterface
         fun dialNumber(number: String) = dial(number)

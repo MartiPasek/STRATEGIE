@@ -5518,6 +5518,34 @@ async def app_phone_verify_start(req: Request) -> JSONResponse:
                          "body": token, "ttl_min": 15})
 
 
+@api_router.post("/app/sms-inbound")
+async def app_sms_inbound(req: Request) -> JSONResponse:
+    """Marti 8.6.: VLASTNÍ příjem příchozích SMS — naše appka (SMS_RECEIVED
+    receiver na gateway telefonu) sem POSTne příchozí SMS. Žádný cizí provider
+    (capcom6/sms-gate.app). Uloží do sms_inbox + spustí PAIR preprocessor
+    (ověření telefonu). Auth: carddav token appky (trusted zařízení)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    from_phone = str((body or {}).get("from") or (body or {}).get("from_phone") or "").strip()
+    text = str((body or {}).get("body") or (body or {}).get("message") or "").strip()
+    to_phone = str((body or {}).get("to") or (body or {}).get("to_phone") or "").strip() or None
+    if not (from_phone and text):
+        return JSONResponse({"ok": False, "error": "from+body required"}, status_code=400)
+    try:
+        from starlette.concurrency import run_in_threadpool
+        from modules.notifications.application.sms_service import store_inbound_sms
+        result = await run_in_threadpool(store_inbound_sms, from_phone, text, to_phone)
+        return JSONResponse({"ok": True, "id": result.get("id")})
+    except Exception as exc:
+        logger.warning("[app sms-inbound] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)[:160]}, status_code=500)
+
+
 @api_router.get("/app/phone-verify/status")
 async def app_phone_verify_status(req: Request, token: str = "") -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

@@ -659,9 +659,30 @@ window.onerror=function(msg,src,line){
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
     l.appendChild(row("🔔","Přístup k oznámením","Počty WhatsApp / SMS",function(){go("set_notifaccess");}));
     l.appendChild(row("🎭","Přihlásit jako (test)","Docházka za jiného usera — jen rodiče",function(){go("set_imp");}));
+    if(native && B && typeof B.isSmsGateway==="function") l.appendChild(row("📨","SMS brána","Tento telefon přeposílá ověřovací SMS",function(){go("set_smsgw");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
     l.appendChild(row("ℹ️","O aplikaci", _hasUpdate?"🆕 Nová verze k dispozici":(ver?("Verze "+ver):"Verze a stav"),function(){go("set_about");}, _hasUpdate?1:0));
     app.appendChild(l); }
+  // Marti 8.6.: SMS brána — JEN Marti-AI mobil přeposílá ověřovací SMS (vlastní
+  // gateway, bez cizího provideru). Ostatní telefony nech vypnuté.
+  function set_smsgw(){
+    app.innerHTML=topbar("SMS brána", true);
+    var p=el('<div class="panel"></div>');
+    var on=false; try{ on=!!(B&&B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
+    p.appendChild(el('<div class="hint" style="margin-bottom:8px;">Zapni JEN na firemním telefonu, který slouží jako brána pro ověřování čísel (Marti-AI mobil). Ten pak přeposílá příchozí ověřovací SMS (s kódem STG-) do STRATEGIE. Soukromé SMS se nikdy nepřeposílají. Na ostatních telefonech nech vypnuté.</div>'));
+    var st=el('<div class="hint" style="margin-top:8px;"></div>');
+    var b=el('<button class="'+(on?"ghost":"green")+' full" style="font-size:16px;">'+(on?"✅ Brána je zapnutá — klepni pro vypnutí":"📨 Zapnout SMS bránu na tomto telefonu")+'</button>');
+    b.addEventListener("click",function(){
+      var want=!on;
+      var r=""; try{ r=B.setSmsGateway(want); }catch(e){ r="0"; }
+      if(r==="need"){ st.textContent="🔐 Povol příjem SMS a klepni znovu."; return; }
+      on=(r==="1");
+      b.className=(on?"ghost":"green")+" full"; b.style.fontSize="16px";
+      b.textContent=on?"✅ Brána je zapnutá — klepni pro vypnutí":"📨 Zapnout SMS bránu na tomto telefonu";
+      st.textContent=on?"✅ Tento telefon teď přeposílá ověřovací SMS.":"Brána vypnuta.";
+    });
+    p.appendChild(b); p.appendChild(st); app.appendChild(p);
+  }
   function set_listen(){ app.innerHTML=topbar("Párování s ERP", true); var p=el('<div class="panel"></div>'); var ls=listenState();
     p.appendChild(el('<div class="big">Párování: <b>'+(ls==null?"(jen v appce)":(ls?"aktivní ✓":"pozastaveno"))+'</b></div>'));
     if(B&&typeof B.startListening==="function"){
@@ -1852,7 +1873,7 @@ window.onerror=function(msg,src,line){
     });
     box.appendChild(b);
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

@@ -242,11 +242,14 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
 
 
 def refresh_user_phone(uid: int | None, ip_str: str | None) -> None:
-    """Osvěží čerstvost telefonu uživatele (z 4s command-pollu appky), pokud je
-    na firemní IP. Řeší řídké heartbeaty (Android uspává) — poll běží často.
-    Throttle 60 s/uživatel. Best-effort. Neaktualizuje device_type/owner."""
-    if not uid or not ip_in_building(ip_str):
+    """Osvěží čerstvost telefonu uživatele (z 4s command-pollu appky). Řeší řídké
+    heartbeaty (Android uspává) — poll běží spolehlivě, dokud appka žije.
+    Marti 8.6.: obnovuje „naposledy" i MIMO budovu → „online (mimo)" místo offline.
+    V budově → place='building'; mimo → place='away' (jen pokud zrovna není doma/
+    u zákazníka z čerstvého netscanu). Throttle 60 s/uživatel. Best-effort."""
+    if not uid:
         return
+    in_bld = ip_in_building(ip_str)
     now = time.time()
     key = "phonepoll:" + str(int(uid))
     with _lock:
@@ -257,13 +260,31 @@ def refresh_user_phone(uid: int | None, ip_str: str | None) -> None:
         from core.database_data import get_data_session
         s = get_data_session()
         try:
-            s.execute(_t("""
-                UPDATE fw.hr_device
-                SET last_seen_at = now(), last_in_building = true,
-                    last_place = 'building', last_source = 'mobile_poll'
-                WHERE owner_user_id = :uid AND device_type = 'phone'
-                  AND last_seen_at > now() - interval '2 days'
-            """), {"uid": int(uid)})
+            if in_bld:
+                s.execute(_t("""
+                    UPDATE fw.hr_device
+                    SET last_seen_at = now(), last_in_building = true,
+                        last_place = 'building', last_source = 'mobile_poll',
+                        first_seen_today = CASE
+                            WHEN first_seen_today IS NULL OR first_seen_today::date < current_date
+                            THEN now() ELSE first_seen_today END
+                    WHERE owner_user_id = :uid AND device_type = 'phone'
+                      AND last_seen_at > now() - interval '2 days'
+                """), {"uid": int(uid)})
+            else:
+                # Mimo budovu: jen „žije" → online (mimo). Nepřepisuj čerstvý
+                # building/home/customer status (z netscanu < 12 min).
+                s.execute(_t("""
+                    UPDATE fw.hr_device
+                    SET last_seen_at = now(), last_in_building = false,
+                        last_source = 'mobile_poll',
+                        last_place = CASE
+                            WHEN last_place IN ('building','home_office','customer')
+                                 AND last_seen_at > now() - interval '12 minutes'
+                            THEN last_place ELSE 'away' END
+                    WHERE owner_user_id = :uid AND device_type = 'phone'
+                      AND last_seen_at > now() - interval '2 days'
+                """), {"uid": int(uid)})
             s.commit()
         finally:
             s.close()

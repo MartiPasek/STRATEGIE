@@ -944,7 +944,7 @@ window.onerror=function(msg,src,line){
         if(st)st.textContent="💭 Přepisuji…"; btn.disabled=true;
         var fr=new FileReader();
         fr.onload=function(){
-          api("POST","/api/v1/erp/app/transcribe",{audio_b64:String(fr.result).split(",")[1],mime:f.type||"audio/m4a"}).then(function(r){
+          api("POST","/api/v1/erp/app/transcribe",{audio_b64:String(fr.result).split(",")[1],mime:f.type||"audio/m4a",filename:f.name||""}).then(function(r){
             btn.disabled=false;
             if(r&&r.ok&&r.text){ ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text; if(st)st.textContent="✅ Přepsáno"; try{ta.focus();}catch(e){} }
             else { if(st)st.textContent="✗ "+((r&&r.error)||"nepřepsáno"); }

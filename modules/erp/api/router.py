@@ -6986,7 +6986,8 @@ async def app_transcribe(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     ab64 = (body or {}).get("audio_b64") or ""
-    mime = str((body or {}).get("mime") or "audio/webm")
+    mime = str((body or {}).get("mime") or "audio/webm").split(";")[0].strip().lower()
+    fname = str((body or {}).get("filename") or "").strip()
     if not ab64:
         return JSONResponse({"ok": False, "error": "Chybí audio."})
     import base64 as _b64
@@ -6994,10 +6995,24 @@ async def app_transcribe(req: Request) -> JSONResponse:
         ab = _b64.b64decode(ab64)
     except Exception:
         return JSONResponse({"ok": False, "error": "Špatné audio."})
+    # Whisper pozná formát z přípony názvu — bez ní vrací 400 Invalid format.
+    _EXT = {"audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/m4a": "m4a", "audio/aac": "m4a",
+            "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/ogg": "ogg", "audio/oga": "ogg",
+            "audio/webm": "webm", "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav",
+            "audio/flac": "flac", "audio/3gpp": "3gp", "audio/3gpp2": "3gp", "audio/amr": "amr"}
+    ext = _EXT.get(mime, "")
+    if "." in fname:
+        ext = fname.rsplit(".", 1)[-1].lower()
+    if not ext:
+        ext = "m4a"
+    if ext in ("3gp", "3gpp", "amr"):
+        return JSONResponse({"ok": False, "error": "Formát záznamníku (" + ext + ") Whisper nepodporuje."})
+    use_name = "diktovani." + ext
+    use_mime = mime if mime.startswith("audio/") else ("audio/" + ext)
     from starlette.concurrency import run_in_threadpool
     from modules.media.application.whisper_provider import transcribe as _whisper
     try:
-        tr = await run_in_threadpool(_whisper, ab, mime_type=mime, original_filename="diktovani")
+        tr = await run_in_threadpool(_whisper, ab, mime_type=use_mime, original_filename=use_name)
         return JSONResponse({"ok": True, "text": (tr.get("transcript") or "")})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

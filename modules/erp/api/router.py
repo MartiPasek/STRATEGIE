@@ -6181,14 +6181,20 @@ async def app_whoami(req: Request) -> JSONResponse:
             "SELECT COALESCE(NULLIF(TRIM(first_name),''), login_name) FROM public.users WHERE id = :u"),
             {"u": uid}).scalar() or ""
         lab = None
+        ph = None
+        phv = False
         if dev:
-            lab = s.execute(_t(
-                "SELECT NULLIF(device_label,'') FROM fw.mobile_device "
+            r2 = s.execute(_t(
+                "SELECT NULLIF(device_label,''), phone_number, (phone_verified_at IS NOT NULL) "
+                "FROM fw.mobile_device "
                 "WHERE user_id = :u AND device_id = :d AND removed_at IS NULL "
                 "ORDER BY last_seen_at DESC NULLS LAST LIMIT 1"),
-                {"u": uid, "d": dev}).scalar()
+                {"u": uid, "d": dev}).first()
+            if r2:
+                lab, ph, phv = r2[0], r2[1], bool(r2[2])
         s.commit()
-        return JSONResponse({"ok": True, "jmeno": jm, "label": lab})
+        return JSONResponse({"ok": True, "jmeno": jm, "label": lab,
+                             "phone": ph, "phone_verified": phv})
     finally:
         cm.__exit__(None, None, None)
 

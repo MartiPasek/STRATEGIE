@@ -300,6 +300,40 @@ window.onerror=function(msg,src,line){
     if(b)b.addEventListener("click",function(){ doDial(d.phone); try{B.clearLastDial();}catch(e){} box.innerHTML=""; box.removeAttribute("data-ph"); });
   }
 
+  // Marti 8.6.: ověření čísla telefonu odchozí SMS na naši SIM — nejsilnější
+  // důkaz (caller-ID nelze ošidit). Karta visí, dokud zařízení nemá ověřeno.
+  function _phoneVerifyCard(dev){
+    var c=document.getElementById("homeVerify"); if(!c) return;
+    c.innerHTML="";
+    var card=el('<div class="doch-pulse" style="margin:10px 0;background:rgba(224,176,112,.10);border:1px solid #6e5326;border-radius:12px;padding:12px;"></div>');
+    card.appendChild(el('<div style="font-weight:700;">📨 Ověř číslo tohoto telefonu</div>'));
+    card.appendChild(el('<div class="hint" style="margin-top:4px;">Odešleš jednu předvyplněnou SMS na firemní číslo — tím se telefon oficiálně ověří. Nic nepíšeš, jen Odeslat.</div>'));
+    var b=el('<button class="green full" style="margin-top:8px;">📨 Odeslat ověřovací SMS</button>');
+    var st=el('<div class="hint" style="margin-top:6px;"></div>');
+    b.addEventListener("click",function(){
+      b.disabled=true; st.textContent="⏳ Připravuji…";
+      api("POST","/api/v1/erp/app/phone-verify/start",{device_id:dev}).then(function(j){
+        if(!(j&&j.ok)){ b.disabled=false; st.textContent="✗ "+((j&&j.error)||"Nepodařilo se."); return; }
+        openApp("sms:"+j.send_to+"?body="+encodeURIComponent(j.body||j.token));
+        st.textContent="📨 Odešli SMS a vrať se sem — čekám na ověření…";
+        var tries=0;
+        var iv=setInterval(function(){
+          if(!document.body.contains(card)){ clearInterval(iv); return; }
+          if(++tries>45){ clearInterval(iv); b.disabled=false; st.textContent="⏳ SMS zatím nedorazila — zkus to znovu."; return; }
+          api("GET","/api/v1/erp/app/phone-verify/status?token="+encodeURIComponent(j.token),"").then(function(r){
+            if(r&&r.verified){
+              clearInterval(iv);
+              card.classList.remove("doch-pulse");
+              card.innerHTML='<div style="font-weight:700;">✅ Číslo ověřeno: '+esc(r.phone_number||"")+'</div><div class="hint" style="margin-top:4px;">Telefon je oficiálně spárovaný.</div>';
+            }
+          });
+        },4000);
+      });
+    });
+    card.appendChild(b); card.appendChild(st);
+    c.appendChild(card);
+  }
+
   // ───── DOMŮ (pozadí = fotka Marti-AI) ─────
   function home(){
     app.innerHTML = "";
@@ -315,16 +349,19 @@ window.onerror=function(msg,src,line){
       +   '</div>'
       + '</div>'
       + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
-      + '<div class="h3" id="homeLive"></div>';
+      + '<div class="h3" id="homeLive"></div>'
+      + '<div id="homeVerify"></div>';
     app.appendChild(bg);
     // Marti 8.6. ráno: identifikace telefonu — jméno i label ZE SERVERU
     // (fw.mobile_device = oficiální tabulka zařízení). Na main screen se NEmění.
+    // Neověřené číslo → pulzující karta „Ověř číslo" hned po spárování.
     (function(){
       var dev=""; try{ if(B&&typeof B.deviceId==="function") dev=B.deviceId()||""; }catch(e){}
       api("GET","/api/v1/erp/app/whoami"+(dev?("?device_id="+encodeURIComponent(dev)):""),"").then(function(w){
         var n=document.getElementById("homeWhoName"), lb=document.getElementById("homeWhoLabel");
         if(n&&w&&w.jmeno) n.textContent=w.jmeno;
-        if(lb) lb.textContent=(w&&w.label)||"";
+        if(lb) lb.textContent=((w&&w.label)||"")+((w&&w.phone_verified&&w.phone)?(" · "+w.phone):"");
+        if(dev && w && w.ok && !w.phone_verified) _phoneVerifyCard(dev);
       });
     })();
     updateLive();

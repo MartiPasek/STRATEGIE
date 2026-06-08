@@ -201,10 +201,10 @@ def classify_sms(
                 row = ds.execute(_sql_pair(
                     "UPDATE fw.phone_verify SET phone_number = :p, verified_at = now() "
                     "WHERE token = :t AND expires_at > now() AND verified_at IS NULL "
-                    "RETURNING user_id, device_id"
+                    "RETURNING user_id, device_id, carddav_token_id"
                 ), {"p": sender_clean, "t": token}).first()
                 if row:
-                    _uid_p, _dev_p = int(row[0]), row[1]
+                    _uid_p, _dev_p, _ct_p = int(row[0]), row[1], row[2]
                     if _dev_p:
                         ds.execute(_sql_pair(
                             "UPDATE fw.mobile_device SET phone_number = :p, "
@@ -215,6 +215,12 @@ def classify_sms(
                             "UPDATE fw.mobile_device SET phone_number = :p, "
                             "phone_verified_at = now() WHERE user_id = :u"
                         ), {"p": sender_clean, "u": _uid_p})
+                    # Marti 8.6.: ověřené číslo propsat i na carddav token zařízení
+                    # (tabulka spárovaných telefonů ho pak ukáže místo „neověřeno").
+                    if _ct_p:
+                        ds.execute(_sql_pair(
+                            'UPDATE "user".carddav_token SET phone_number = :p WHERE id = :i'
+                        ), {"p": sender_clean, "i": int(_ct_p)})
                 ds.commit()
                 matched = bool(row)
             except Exception:

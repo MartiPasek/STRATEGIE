@@ -601,6 +601,44 @@ def _process_deploy() -> None:
         rc, out = _run_git(["add", "--"] + file_specs)
         _step("git add " + " ".join(file_specs), rc, out)
 
+    # 2.5) PRE-DEPLOY SYNTAX CHECK (Claude 8.6.2026 — lekce z outage):
+    # py_compile na všech staged .py souborech. Syntax chyba → deploy STOP,
+    # nic se nepushne ani nenasadí, primary zůstane na funkční verzi.
+    import sys as _sys
+    if not file_specs or file_specs == ["ALL"]:
+        _rcn, _names = _run_git(["diff", "--cached", "--name-only"])
+        _pyfiles = [n.strip() for n in (_names.splitlines() if _rcn == 0 else [])
+                    if n.strip().endswith(".py")]
+    else:
+        _pyfiles = [f for f in file_specs if f.endswith(".py")]
+    _bad = []
+    for _pf in _pyfiles:
+        try:
+            _r = subprocess.run([_sys.executable, "-m", "py_compile", str(REPO_ROOT / _pf)],
+                                capture_output=True, text=True, timeout=60,
+                                encoding="utf-8", errors="replace")
+            if _r.returncode != 0:
+                _bad.append(_pf + ":\n" + ((_r.stderr or _r.stdout or "")[:800]))
+        except Exception as _exc:
+            _bad.append(_pf + ": " + type(_exc).__name__ + ": " + str(_exc))
+    if _bad:
+        _step("py_compile syntax check", 1,
+              "SYNTAX CHYBA — deploy ZASTAVEN (nic nepushnuto):\n" + "\n".join(_bad))
+        # odstage změny, ať zůstane čistý index
+        try:
+            _run_git(["reset", "HEAD", "--"] + _pyfiles)
+        except Exception:
+            pass
+        _write_deploy_out(
+            f"# DEPLOY: ZASTAVEN (syntax check) · {INSTANCE_LABEL}\n# {ts}\n"
+            f"# Syntax chyba ve staged .py — nic nepushnuto/nenasazeno. Oprav a deployni znovu.\n\n"
+            + "\n\n".join(log_lines) + "\n"
+        )
+        _consume_deploy()
+        return
+    if _pyfiles:
+        _step("py_compile syntax check", 0, f"OK — {len(_pyfiles)} .py souborů bez chyby")
+
     # 3) je co commitnout?
     rc_diff, _ = _run_git(["diff", "--cached", "--quiet"])
     committed_sha = None

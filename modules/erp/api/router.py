@@ -6666,11 +6666,6 @@ async def app_vyroba_zakazky_lide(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
 
 
 @api_router.post("/app/vyroba/plan-overlay")

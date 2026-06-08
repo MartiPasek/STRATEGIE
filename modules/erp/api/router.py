@@ -6606,6 +6606,11 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                  "prirazeni": amap.get(p[0], [])} for p in people]
         s.commit()
         return JSONResponse({"ok": True, "lidi": lidi})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
 
 
 @api_router.get("/app/vyroba/zakazky-lide")

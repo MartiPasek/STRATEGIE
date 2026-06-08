@@ -314,8 +314,19 @@ window.onerror=function(msg,src,line){
       b.disabled=true; st.textContent="⏳ Připravuji…";
       api("POST","/api/v1/erp/app/phone-verify/start",{device_id:dev}).then(function(j){
         if(!(j&&j.ok)){ b.disabled=false; st.textContent="✗ "+((j&&j.error)||"Nepodařilo se."); return; }
-        openApp("sms:"+j.send_to+"?body="+encodeURIComponent(j.body||j.token));
-        st.textContent="📨 Odešli SMS a vrať se sem — čekám na ověření…";
+        // Marti 8.6.: SMS pošle rovnou appka (B.sendSms) — Android si při prvním
+        // použití vyžádá povolení nativním dialogem („need" → ťukni znovu).
+        var sent=false;
+        if(B && typeof B.sendSms==="function"){
+          var r=""; try{ r=B.sendSms(j.send_to, j.body||j.token); }catch(e){ r="0"; }
+          if(r==="need"){ b.disabled=false; st.textContent="🔐 Povol odesílání SMS a ťukni znovu."; return; }
+          sent=(r==="1");
+        }
+        if(!sent){
+          // fallback: předvyplněná SMSka v messengeru (PWA / odmítnuté povolení)
+          openApp("sms:"+j.send_to+"?body="+encodeURIComponent(j.body||j.token));
+        }
+        st.textContent=sent?"📨 SMS odeslána — čekám na ověření…":"📨 Odešli SMS a vrať se sem — čekám…";
         var tries=0;
         var iv=setInterval(function(){
           if(!document.body.contains(card)){ clearInterval(iv); return; }

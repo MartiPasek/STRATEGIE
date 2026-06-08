@@ -356,9 +356,10 @@ window.onerror=function(msg,src,line){
       + '<div id="homeVerify"></div>'
       + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">'
       +   '<div class="h1" id="homeTitle" style="font-family:\'DM Sans\',\'Galano Grotesque\',\'Montserrat\',sans-serif;font-weight:800;letter-spacing:-0.5px;background:linear-gradient(135deg,#4f8ef7,#7c5cfc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">STRATEGIE Mobil</div>'
-      +   '<div id="homeWho" style="text-align:right;margin-top:4px;flex-shrink:0;">'
+      +   '<div id="homeWho" style="text-align:right;margin-top:4px;flex-shrink:0;line-height:1.35;">'
       +     '<div id="homeWhoName" style="font-weight:700;font-size:16px;"></div>'
       +     '<div id="homeWhoLabel" style="color:var(--mut);font-size:12px;"></div>'
+      +     '<div id="homeWhoPhone" style="color:var(--mut);font-size:12px;"></div>'
       +   '</div>'
       + '</div>'
       + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
@@ -370,9 +371,10 @@ window.onerror=function(msg,src,line){
     (function(){
       var dev=""; try{ if(B&&typeof B.deviceId==="function") dev=B.deviceId()||""; }catch(e){}
       api("GET","/api/v1/erp/app/whoami"+(dev?("?device_id="+encodeURIComponent(dev)):""),"").then(function(w){
-        var n=document.getElementById("homeWhoName"), lb=document.getElementById("homeWhoLabel");
+        var n=document.getElementById("homeWhoName"), lb=document.getElementById("homeWhoLabel"), ph=document.getElementById("homeWhoPhone");
         if(n&&w&&w.jmeno) n.textContent=w.jmeno;
-        if(lb) lb.textContent=((w&&w.label)||"")+((w&&w.phone_verified&&w.phone)?(" · "+w.phone):"");
+        if(lb) lb.textContent=(w&&w.label)||"";
+        if(ph) ph.textContent=(w&&w.phone_verified&&w.phone)?w.phone:"";
         if(dev && w && w.ok && !w.phone_verified) _phoneVerifyCard(dev);
       });
     })();

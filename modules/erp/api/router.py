@@ -6497,13 +6497,19 @@ async def app_zakazky(req: Request) -> JSONResponse:
         planned = []
         try:
             prow = s.execute(_t(
-                "SELECT vp.cislo_zakazky, COALESCE(z.nazev, vp.zakazka_nazev, ''), z.typ, vp.pocet_hodin "
+                "SELECT vp.cislo_zakazky, COALESCE(z.nazev, vp.zakazka_nazev, ''), z.typ, vp.pocet_hodin, "
+                " COALESCE(o.poznamka,'') "
                 "FROM tenant.vyroba_plan vp "
                 "LEFT JOIN tenant.zakazka z ON z.tenant_id = 2 AND z.cislo = vp.cislo_zakazky "
+                "LEFT JOIN tenant.vyroba_plan_overlay o "
+                "  ON o.tenant_id = 2 AND o.user_id = vp.user_id AND o.cislo_zakazky = vp.cislo_zakazky "
                 "WHERE vp.tenant_id = 2 AND vp.user_id = :uid AND vp.datum = CURRENT_DATE "
-                "ORDER BY vp.pocet_hodin DESC NULLS LAST, vp.cislo_zakazky"), {"uid": uid}).fetchall()
+                "  AND COALESCE(o.hidden,false) = false AND COALESCE(o.done,false) = false "
+                "ORDER BY COALESCE(o.poradi,999), vp.pocet_hodin DESC NULLS LAST, vp.cislo_zakazky"),
+                {"uid": uid}).fetchall()
             planned = [{"cislo": r[0], "nazev": r[1], "typ": r[2],
-                        "hodin": (float(r[3]) if r[3] is not None else None)} for r in prow]
+                        "hodin": (float(r[3]) if r[3] is not None else None),
+                        "poznamka": r[4]} for r in prow]
         except Exception:
             planned = []
         # Marti 8.6.: ruční přiřazení od vedoucího výroby (s pokynem, v pořadí).
@@ -6575,10 +6581,136 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
             amap.setdefault(r[1], []).append({
                 "id": r[0], "cislo": r[2], "nazev": r[3], "pokyn": r[4],
                 "kdy_ozvat": r[5], "poradi": r[6]})
+        # plán zakázek per člověk (z EC plánu, read-only) + náš overlay
+        # (pořadí / skrytí / hotovo / poznámka navázané na člověka+zakázku)
+        plan_rows = s.execute(_t(
+            "SELECT g.user_id, g.cislo_zakazky, g.nazev, g.hod, "
+            " o.poradi, COALESCE(o.hidden,false), COALESCE(o.done,false), o.poznamka "
+            "FROM (SELECT user_id, cislo_zakazky, max(zakazka_nazev) AS nazev, "
+            "        round(sum(pocet_hodin)::numeric,1) AS hod "
+            "      FROM tenant.vyroba_plan "
+            "      WHERE tenant_id=2 AND user_id IS NOT NULL AND cislo_zam < 10000 AND datum >= CURRENT_DATE "
+            "      GROUP BY user_id, cislo_zakazky) g "
+            "LEFT JOIN tenant.vyroba_plan_overlay o "
+            "  ON o.tenant_id=2 AND o.user_id=g.user_id AND o.cislo_zakazky=g.cislo_zakazky "
+            "ORDER BY g.user_id, COALESCE(o.poradi,999), g.cislo_zakazky")).fetchall()
+        planmap = {}
+        for r in plan_rows:
+            planmap.setdefault(r[0], []).append({
+                "cislo": r[1], "nazev": r[2] or "",
+                "hod": (float(r[3]) if r[3] is not None else None),
+                "poradi": r[4], "hidden": bool(r[5]), "done": bool(r[6]),
+                "poznamka": r[7] or ""})
         lidi = [{"user_id": p[0], "jmeno": p[1], "dnes": p[2] or "",
+                 "plan": planmap.get(p[0], []),
                  "prirazeni": amap.get(p[0], [])} for p in people]
         s.commit()
         return JSONResponse({"ok": True, "lidi": lidi})
+
+
+@api_router.get("/app/vyroba/zakazky-lide")
+async def app_vyroba_zakazky_lide(req: Request) -> JSONResponse:
+    """Režim zakázek: zakázky (z plánu + ručních přiřazení) s lidmi na každé.
+    Source 'plan' = z Excelu (read-only), 'manual' = přiřazeno vedoucím (lze odebrat)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        zak = {}
+
+        def ent(cislo, nazev):
+            if cislo not in zak:
+                zak[cislo] = {"cislo": cislo, "nazev": nazev or "", "lide": []}
+            elif nazev and not zak[cislo]["nazev"]:
+                zak[cislo]["nazev"] = nazev
+            return zak[cislo]
+        # z plánu (read-only) + overlay (skryté plán-přiřazení = odebrané z naší view)
+        prows = s.execute(_t(
+            "SELECT g.cislo_zakazky, g.nazev, g.user_id, g.jmeno, g.hod, "
+            " COALESCE(o.hidden,false), COALESCE(o.done,false) "
+            "FROM (SELECT cislo_zakazky, max(zakazka_nazev) AS nazev, user_id, "
+            "        max(COALESCE(zam_jmeno,'#'||cislo_zam)) AS jmeno, round(sum(pocet_hodin)::numeric,1) AS hod "
+            "      FROM tenant.vyroba_plan "
+            "      WHERE tenant_id=2 AND user_id IS NOT NULL AND cislo_zam < 10000 AND datum >= CURRENT_DATE "
+            "      GROUP BY cislo_zakazky, user_id) g "
+            "LEFT JOIN tenant.vyroba_plan_overlay o "
+            "  ON o.tenant_id=2 AND o.user_id=g.user_id AND o.cislo_zakazky=g.cislo_zakazky")).fetchall()
+        for r in prows:
+            if bool(r[5]):
+                continue  # skryté = odebrané z naší view
+            ent(r[0], r[1])["lide"].append({
+                "user_id": r[2], "jmeno": r[3], "source": "plan",
+                "done": bool(r[6]),
+                "hod": (float(r[4]) if r[4] is not None else None)})
+        # ruční přiřazení (lze odebrat)
+        mrows = s.execute(_t(
+            "SELECT vp.cislo_zakazky, vp.zakazka_nazev, vp.user_id, "
+            " COALESCE(u.short_name, u.last_name, '#'||vp.user_id) AS jmeno, vp.id, COALESCE(vp.pokyn,'') "
+            "FROM tenant.vyroba_prirazeni vp LEFT JOIN public.users u ON u.id = vp.user_id "
+            "WHERE vp.tenant_id=2 AND vp.status='active'")).fetchall()
+        for r in mrows:
+            ent(r[0], r[1])["lide"].append({
+                "user_id": r[2], "jmeno": r[3], "source": "manual",
+                "prirazeni_id": r[4], "pokyn": r[5]})
+        s.commit()
+        out = sorted(zak.values(), key=lambda z: z["cislo"])
+        for z in out:
+            z["pocet"] = len(z["lide"])
+        return JSONResponse({"ok": True, "zakazky": out})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/plan-overlay")
+async def app_vyroba_plan_overlay(req: Request) -> JSONResponse:
+    """Overlay nad EC plánem — naváže k (člověk, zakázka) naše pořadí/skrytí/
+    hotovo/poznámku. Plán neměníme. Partial update (pošli jen co měníš)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    tgt = (body or {}).get("user_id")
+    cislo = str((body or {}).get("cislo_zakazky") or "").strip()[:40]
+    if not tgt or not cislo:
+        return JSONResponse({"ok": False, "error": "user_id + cislo_zakazky"}, status_code=400)
+    poradi = (body or {}).get("poradi")
+    hidden = (body or {}).get("hidden")
+    done = (body or {}).get("done")
+    pozn = (body or {}).get("poznamka")
+    if isinstance(pozn, str):
+        pozn = pozn.strip()[:1000]
+    cm, s = _att_session()
+    try:
+        s.execute(_t(
+            "INSERT INTO tenant.vyroba_plan_overlay "
+            " (tenant_id, user_id, cislo_zakazky, poradi, hidden, done, poznamka, updated_by_user_id) "
+            "VALUES (2, :u, :c, :por, COALESCE(:hid,false), COALESCE(:dn,false), :pz, :by) "
+            "ON CONFLICT (tenant_id, user_id, cislo_zakazky) DO UPDATE SET "
+            " poradi = COALESCE(:por, tenant.vyroba_plan_overlay.poradi), "
+            " hidden = COALESCE(:hid, tenant.vyroba_plan_overlay.hidden), "
+            " done = COALESCE(:dn, tenant.vyroba_plan_overlay.done), "
+            " poznamka = COALESCE(:pz, tenant.vyroba_plan_overlay.poznamka), "
+            " updated_by_user_id = :by, updated_at = now()"),
+            {"u": tgt, "c": cislo, "por": poradi, "hid": hidden, "dn": done,
+             "pz": pozn, "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

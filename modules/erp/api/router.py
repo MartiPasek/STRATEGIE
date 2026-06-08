@@ -8721,6 +8721,10 @@ _OPS_ACTIONS = {
         "label": "Synchronizovat výplatní pásky (Helios EC+ES → STRATEGIE)",
         "target": "cloud", "remote": False,
     },
+    "sync_vyroba_plan": {
+        "label": "Synchronizovat plán výroby (EC_Vytizeni_PlanMonteri → STRATEGIE)",
+        "target": "cloud", "remote": False,
+    },
 }
 
 
@@ -9321,6 +9325,90 @@ def _sync_zakazky_from_helios() -> dict:
     return {"synced": n}
 
 
+def _sync_vyroba_plan_from_ec() -> dict:
+    """Marti 8.6.2026: read-only zrcadlo plánu výroby (EC_Vytizeni_PlanMonteri,
+    živý systém za Excelem 'Plánování vytížení') → tenant.vyroba_plan. Řádek =
+    montér × zakázka × den × hodiny. Okno today..+60 dní (DELETE+reload).
+    CisloZam → user_id přes tenant.att_employee. DB_EC zůstává zdroj pravdy."""
+    import json as _json_v
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    sql = ("SELECT m.ID id, m.CisloZam cz, m.CisloZakazky ck, "
+           "LEFT(ISNULL(v.Nazev,''),200) nz, "
+           "CONVERT(varchar(10), m.Datum, 23) dt, m.PocetHodin hod, "
+           "CAST(ISNULL(m.JsemMonter,0) AS int) jm, m.Typ typ "
+           "FROM EC_Vytizeni_PlanMonteri m "
+           "LEFT JOIN EC_Vytizeni_Zakazky v ON v.CisloZakazky = m.CisloZakazky "
+           "WHERE m.Datum >= CAST(GETDATE() AS DATE) "
+           "AND m.Datum < DATEADD(day, 60, CAST(GETDATE() AS DATE))")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _json_v.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+
+    cm = _pg.get_session()
+    sess = cm.__enter__()
+    n = 0
+    try:
+        sess.execute(_t(
+            "CREATE TABLE IF NOT EXISTS tenant.vyroba_plan ("
+            " tenant_id bigint NOT NULL, ext_id bigint NOT NULL,"
+            " cislo_zam int, user_id bigint, cislo_zakazky varchar(40),"
+            " zakazka_nazev text, datum date, pocet_hodin numeric(6,2),"
+            " je_monter boolean, typ varchar(20),"
+            " synced_at timestamptz DEFAULT now(),"
+            " PRIMARY KEY (tenant_id, ext_id))"))
+        sess.execute(_t(
+            "CREATE INDEX IF NOT EXISTS ix_vyroba_plan_user_datum"
+            " ON tenant.vyroba_plan (tenant_id, user_id, datum)"))
+        # mapa CisloZam -> user_id z docházky
+        umap = {}
+        for er in sess.execute(_t(
+            "SELECT cislo_zam, user_id FROM tenant.att_employee"
+            " WHERE tenant_id = 2 AND user_id IS NOT NULL")).mappings().all():
+            umap[str(er["cislo_zam"]).strip()] = er["user_id"]
+        # okno today.. čistě přerovnat
+        sess.execute(_t("DELETE FROM tenant.vyroba_plan"
+                        " WHERE tenant_id = 2 AND datum >= CURRENT_DATE"))
+        for row in rows:
+            cz = row.get("cz")
+            uid = umap.get(str(cz).strip()) if cz is not None else None
+            sess.execute(_t(
+                "INSERT INTO tenant.vyroba_plan (tenant_id, ext_id, cislo_zam, user_id,"
+                " cislo_zakazky, zakazka_nazev, datum, pocet_hodin, je_monter, typ, synced_at)"
+                " VALUES (2, :eid, :cz, :uid, :ck, :nz, :dt, :hod, :jm, :typ, now())"
+                " ON CONFLICT (tenant_id, ext_id) DO UPDATE SET cislo_zam = EXCLUDED.cislo_zam,"
+                " user_id = EXCLUDED.user_id, cislo_zakazky = EXCLUDED.cislo_zakazky,"
+                " zakazka_nazev = EXCLUDED.zakazka_nazev, datum = EXCLUDED.datum,"
+                " pocet_hodin = EXCLUDED.pocet_hodin, je_monter = EXCLUDED.je_monter,"
+                " typ = EXCLUDED.typ, synced_at = now()"),
+                {"eid": row.get("id"), "cz": cz, "uid": uid,
+                 "ck": (str(row.get("ck")).strip() if row.get("ck") is not None else None),
+                 "nz": row.get("nz"), "dt": row.get("dt"), "hod": row.get("hod"),
+                 "jm": bool(int(row.get("jm") or 0)), "typ": row.get("typ")})
+            n += 1
+        sess.commit()
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"synced": n}
+
+
 def _ops_pending_for_instance(iid: str) -> list:
     """Vrátí pending ops pro instanci a označí je 'ack' (picked_at). Watcher je
     provede + reportne přes /ops/{id}/result. Best-effort."""
@@ -9441,6 +9529,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = _sync_pasky_from_helios()
             status = "done"
             result = "pásky: %s položek (EC+ES)" % out.get("items")
+        elif action_key == "sync_vyroba_plan":
+            out = _sync_vyroba_plan_from_ec()
+            status = "done"
+            result = "plán výroby: %s řádků (montér×zakázka×den)" % out.get("synced")
         else:
             status, result = "error", "cloud handler chybí pro %s" % action_key
     except Exception as exc:

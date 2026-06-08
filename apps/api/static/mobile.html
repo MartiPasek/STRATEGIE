@@ -936,32 +936,45 @@ window.onerror=function(msg,src,line){
   // Spolehlivější než getUserMedia ve WebView (to řeší WebView oprávnění).
   // Marti 8.6.: diktování 1:1 jako „Tvoje Marti" — přímé nahrávání (MediaRecorder
   // → webm), žádný nativní recorder. Webm Whisper vždy bere.
+  // Uvolni jakýkoli viselý mikrofonní stream (NotReadableError = HW ještě držený
+  // předchozím getUserMedia, např. Marti chatem). Marti 8.6.: drž 1 globální stream.
+  function _micRelease(){ try{ if(window.__micStream){ window.__micStream.getTracks().forEach(function(t){t.stop();}); window.__micStream=null; } }catch(e){} }
   function vyMic(ta, st){
     var btn=el('<button class="ghost" style="width:52px;font-size:19px;border-color:var(--blue);color:var(--blue);margin:0;flex:none;" title="Nadiktovat">🎙</button>');
     var rec=null;
+    function startRec(stream){
+      window.__micStream=stream;
+      var chunks=[]; var mr=new MediaRecorder(stream);
+      mr.ondataavailable=function(e){ if(e.data&&e.data.size)chunks.push(e.data); };
+      mr.onstop=function(){
+        _micRelease(); btn.textContent="🎙"; rec=null;
+        var blob=new Blob(chunks,{type:mr.mimeType||"audio/webm"});
+        if(blob.size<400){ if(st)st.textContent="✗ Nic nenahráno."; return; }
+        if(st)st.textContent="💭 Přepisuji…"; btn.disabled=true;
+        var fr=new FileReader();
+        fr.onload=function(){
+          api("POST","/api/v1/erp/app/transcribe",{audio_b64:String(fr.result).split(",")[1],mime:blob.type,filename:"mobil-audio.webm"}).then(function(r){
+            btn.disabled=false;
+            if(r&&r.ok&&r.text){ ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text; if(st)st.textContent="✅ Přepsáno"; try{ta.focus();}catch(e){} }
+            else { if(st)st.textContent="✗ "+((r&&r.error)||"nepřepsáno"); }
+          });
+        };
+        fr.readAsDataURL(blob);
+      };
+      mr.start(); rec=mr; btn.textContent="⏹"; if(st)st.textContent="🔴 Mluv… (klepni ⏹)";
+    }
+    function grab(tries){
+      navigator.mediaDevices.getUserMedia({audio:true}).then(startRec).catch(function(err){
+        var nm=(err&&(err.name||err.message))||"?";
+        // NotReadableError = mikrofon ještě držený → uvolni a po chvíli zkus znovu.
+        if(nm==="NotReadableError"&&tries>0){ _micRelease(); if(st)st.textContent="🎙 Připravuji mikrofon…"; setTimeout(function(){ grab(tries-1); },500); return; }
+        if(st)st.textContent="🎙 Mikrofon ["+nm+"] — klepni znovu.";
+      });
+    }
     btn.addEventListener("click",function(){
       if(rec){ try{rec.stop();}catch(e){} return; }
       if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder)){ if(st)st.textContent="🎙 Mikrofon tu není dostupný."; return; }
-      navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
-        var chunks=[]; var mr=new MediaRecorder(stream);
-        mr.ondataavailable=function(e){ if(e.data&&e.data.size)chunks.push(e.data); };
-        mr.onstop=function(){
-          stream.getTracks().forEach(function(t){t.stop();}); btn.textContent="🎙"; rec=null;
-          var blob=new Blob(chunks,{type:mr.mimeType||"audio/webm"});
-          if(blob.size<400){ if(st)st.textContent="✗ Nic nenahráno."; return; }
-          if(st)st.textContent="💭 Přepisuji…"; btn.disabled=true;
-          var fr=new FileReader();
-          fr.onload=function(){
-            api("POST","/api/v1/erp/app/transcribe",{audio_b64:String(fr.result).split(",")[1],mime:blob.type,filename:"mobil-audio.webm"}).then(function(r){
-              btn.disabled=false;
-              if(r&&r.ok&&r.text){ ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text; if(st)st.textContent="✅ Přepsáno"; try{ta.focus();}catch(e){} }
-              else { if(st)st.textContent="✗ "+((r&&r.error)||"nepřepsáno"); }
-            });
-          };
-          fr.readAsDataURL(blob);
-        };
-        mr.start(); rec=mr; btn.textContent="⏹"; if(st)st.textContent="🔴 Mluv… (klepni ⏹) ·v2";
-      }).catch(function(err){ if(st)st.textContent="🎙 Mikrofon ["+((err&&(err.name||err.message))||"?")+"] — klepni znovu. ·v3"; });
+      _micRelease(); if(st)st.textContent="🎙 …"; grab(3);
     });
     return btn;
   }
@@ -1754,10 +1767,11 @@ window.onerror=function(msg,src,line){
           if(recState){ try{recState.stop();}catch(e){} return; }
           if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder){
             navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+              window.__micStream=stream;
               var chunks=[]; var mr=new MediaRecorder(stream);
               mr.ondataavailable=function(e){ if(e.data&&e.data.size)chunks.push(e.data); };
               mr.onstop=function(){
-                stream.getTracks().forEach(function(t){t.stop();});
+                stream.getTracks().forEach(function(t){t.stop();}); window.__micStream=null;
                 rec.textContent="🎙"; recState=null;
                 var blob=new Blob(chunks,{type:mr.mimeType||"audio/webm"});
                 if(blob.size>6*1024*1024){ busy("✗ Nahrávka je moc dlouhá."); return; }

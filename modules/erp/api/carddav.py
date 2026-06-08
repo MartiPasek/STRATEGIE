@@ -596,6 +596,15 @@ def _user_phone(uid: int) -> str | None:
             'WHERE user_id = :u AND phone_number IS NOT NULL '
             'ORDER BY id DESC LIMIT 1'
         ), {"u": uid}).first()
+        if row and row[0]:
+            return row[0]
+        # Marti 8.6.: fallback — ověřený mobil z user_contacts (onboarding SMS).
+        row = s.execute(_sql(
+            "SELECT contact_value FROM public.user_contacts "
+            "WHERE user_id = :u AND contact_type = 'phone' "
+            "AND COALESCE(is_verified, false) = true AND COALESCE(status,'active') = 'active' "
+            "ORDER BY COALESCE(is_primary, false) DESC, id LIMIT 1"
+        ), {"u": uid}).first()
         return row[0] if row and row[0] else None
     except Exception:
         return None

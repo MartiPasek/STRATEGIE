@@ -695,6 +695,14 @@ def mobile_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/privacy")
+def privacy_page():
+    """Zásady ochrany osobních údajů — povinné pro Google Play / App Store.
+    Veřejně dostupné (bez přihlášení). Marti 8.6.2026."""
+    return FileResponse(os.path.join(static_dir, "privacy.html"),
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+
 @app.get("/dochazka")
 def dochazka_page():
     """Docházka — samostatná PWA (zatím stub, plná verze v přípravě). Marti 6.6.2026."""

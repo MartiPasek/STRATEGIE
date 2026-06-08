@@ -6947,6 +6947,33 @@ async def app_vyroba_zpravy(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/vyroba/odvozy")
+async def app_vyroba_odvozy(req: Request) -> JSONResponse:
+    """Odvozy (read-only z Centrály) — nadcházející první, pak nedávné."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT o.cislo_zakazky, to_char(o.datum_odvozu,'DD.MM.YYYY') AS dt, "
+            " COALESCE(o.poznamka,''), COALESCE(o.adresa,''), COALESCE(z.nazev,''), "
+            " (o.datum_odvozu < CURRENT_DATE) AS minulost "
+            "FROM tenant.vyroba_odvoz o "
+            "LEFT JOIN tenant.zakazka z ON z.tenant_id=2 AND z.cislo=o.cislo_zakazky "
+            "WHERE o.tenant_id=2 "
+            "ORDER BY (o.datum_odvozu < CURRENT_DATE), o.datum_odvozu, o.cislo_zakazky")).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "odvozy": [
+            {"cislo": r[0], "datum": r[1], "poznamka": r[2], "adresa": r[3],
+             "nazev": r[4], "minulost": bool(r[5])} for r in rows]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/vyroba/odpoved")
 async def app_vyroba_odpoved(req: Request) -> JSONResponse:
     """Vedoucí → člověk: odpověď na požadavek (push + zpráva). Volitelně vyřeší
@@ -9343,6 +9370,10 @@ _OPS_ACTIONS = {
         "label": "Synchronizovat plán výroby (EC_Vytizeni_PlanMonteri → STRATEGIE)",
         "target": "cloud", "remote": False,
     },
+    "sync_odvozy": {
+        "label": "Synchronizovat odvozy (ECv_Vytizeni_Odvozy → STRATEGIE)",
+        "target": "cloud", "remote": False,
+    },
 }
 
 
@@ -10034,6 +10065,77 @@ def _sync_vyroba_plan_from_ec() -> dict:
     return {"synced": n}
 
 
+def _sync_odvozy_from_ec() -> dict:
+    """Marti 8.6.2026: read-only zrcadlo odvozů (ECv_Vytizeni_Odvozy) →
+    tenant.vyroba_odvoz. Okno -7 dní..budoucnost. RTF adresa očištěná na text."""
+    import json as _json_o, re as _re_o
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def _rtf(s):
+        if not s:
+            return ""
+        x = str(s)
+        x = _re_o.sub(r"\{\\(?:fonttbl|colortbl|stylesheet|generator|\*)[^{}]*\}", " ", x)
+        x = _re_o.sub(r"\\par[d]?\b", "\n", x)
+        x = _re_o.sub(r"\\'[0-9a-fA-F]{2}", "", x)
+        x = _re_o.sub(r"\\[a-zA-Z]+-?[0-9]* ?", "", x)
+        x = x.replace("{", "").replace("}", "")
+        lines = [ln.strip() for ln in x.split("\n")]
+        lines = [ln for ln in lines if ln]
+        return " · ".join(lines)[:220]
+
+    sql = ("SELECT ID id, CisloZakazky ck, CONVERT(varchar(10), DatumOdvozu, 23) dt, "
+           "LEFT(ISNULL(Poznamka,''),500) pozn, AdresaDoruceni adr "
+           "FROM ECv_Vytizeni_Odvozy "
+           "WHERE DatumOdvozu >= DATEADD(day,-7,CAST(GETDATE() AS DATE))")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _json_o.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+
+    cm = _pg.get_session()
+    sess = cm.__enter__()
+    n = 0
+    try:
+        sess.execute(_t(
+            "CREATE TABLE IF NOT EXISTS tenant.vyroba_odvoz ("
+            " tenant_id bigint NOT NULL DEFAULT 2, ext_id bigint NOT NULL,"
+            " cislo_zakazky varchar(40), datum_odvozu date, poznamka text,"
+            " adresa text, synced_at timestamptz DEFAULT now(),"
+            " PRIMARY KEY (tenant_id, ext_id))"))
+        sess.execute(_t("DELETE FROM tenant.vyroba_odvoz WHERE tenant_id = 2"))
+        for row in rows:
+            sess.execute(_t(
+                "INSERT INTO tenant.vyroba_odvoz (tenant_id, ext_id, cislo_zakazky, datum_odvozu, poznamka, adresa, synced_at)"
+                " VALUES (2, :eid, :ck, :dt, :pz, :ad, now())"),
+                {"eid": row.get("id"),
+                 "ck": (str(row.get("ck")).strip() if row.get("ck") is not None else None),
+                 "dt": row.get("dt"), "pz": row.get("pozn"),
+                 "ad": _rtf(row.get("adr"))})
+            n += 1
+        sess.commit()
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"synced": n}
+
+
 def _ops_pending_for_instance(iid: str) -> list:
     """Vrátí pending ops pro instanci a označí je 'ack' (picked_at). Watcher je
     provede + reportne přes /ops/{id}/result. Best-effort."""
@@ -10158,6 +10260,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = _sync_vyroba_plan_from_ec()
             status = "done"
             result = "plán výroby: %s řádků (montér×zakázka×den)" % out.get("synced")
+        elif action_key == "sync_odvozy":
+            out = _sync_odvozy_from_ec()
+            status = "done"
+            result = "odvozy: %s řádků" % out.get("synced")
         else:
             status, result = "error", "cloud handler chybí pro %s" % action_key
     except Exception as exc:

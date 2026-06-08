@@ -696,17 +696,15 @@ class HybridActivity : ComponentActivity() {
                 filePathCb?.onReceiveValue(null)
                 filePathCb = callback
                 val accepts = try { params?.acceptTypes?.joinToString(",") ?: "" } catch (e: Exception) { "" }
-                val intent: Intent? = try {
+                val fallback = Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE) }
+                val intent: Intent = try {
                     if (accepts.contains("audio") && params?.isCaptureEnabled == true)
                         Intent(android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION)
-                    else params?.createIntent()
-                } catch (e: Exception) { try { params?.createIntent() } catch (e2: Exception) { null } }
+                    else (params?.createIntent() ?: fallback)
+                } catch (e: Exception) { fallback }
                 return try {
                     startActivityForResult(intent, 77); true
-                } catch (e: Exception) {
-                    try { startActivityForResult(params?.createIntent(), 77); true }
-                    catch (e2: Exception) { filePathCb = null; false }
-                }
+                } catch (e: Exception) { filePathCb = null; false }
             }
         }
         web.webViewClient = object : WebViewClient() {

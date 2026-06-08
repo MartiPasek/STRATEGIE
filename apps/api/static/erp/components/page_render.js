@@ -502,6 +502,8 @@
               // Pojdme real fetch fetchUrl (defined v parent scope, line ~244)
               // + setGridOption rowData. Paralela s Krok 5.X batch Smazat
               // refreshFn (line ~735 puvodne, dropnuto v Etapa F).
+              // Marti 8.6.: refresh_type='interval' → auto-refresh 5 s (jen aktivní tab).
+              autoRefreshMs: (rootCd && rootCd.refresh_type === 'interval') ? 5000 : 0,
               onRefresh: async function () {
                 try {
                   const r = await fetch(fetchUrl, { credentials: 'include' });

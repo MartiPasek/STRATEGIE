@@ -1647,6 +1647,38 @@
       }
     }
 
+    /** Marti 8.6.: auto-refresh dat každých N ms (refresh_type='interval').
+     *  Tep „živého" gridu. Tvrdé podmínky, ať to neruší práci:
+     *    - tab aktivní (container má offsetParent — neaktivní tab = display:none)
+     *    - dokument na popředí (document.visibilityState === 'visible')
+     *    - žádné rozdělané editace (dirty rows prázdné, Excel mode off)
+     *    - uživatel zrovna needituje buňku (nejsou otevřené editory)
+     *  Cleared v destroy. */
+    _startAutoRefresh() {
+      const ms = this.options.autoRefreshMs | 0;
+      if (!ms || ms < 1000) return;
+      if (this._autoRefreshTimer) return;
+      const self = this;
+      this._autoRefreshTimer = setInterval(() => {
+        if (self._destroyed) {
+          clearInterval(self._autoRefreshTimer); self._autoRefreshTimer = null; return;
+        }
+        try {
+          // tab neaktivní → offsetParent null (display:none na předkovi)
+          if (!self.container || self.container.offsetParent === null) return;
+          if (typeof document !== "undefined" && document.visibilityState && document.visibilityState !== "visible") return;
+          // nerušit rozdělanou práci
+          if (self._excelMode) return;
+          if (self._dirtyRows && self._dirtyRows.size > 0) return;
+          if (self.gridApi && self.gridApi.getEditingCells &&
+              self.gridApi.getEditingCells().length > 0) return;
+          // tichý reload dat (zachová výběr/scroll uvnitř onRefresh)
+          if (typeof self.refreshFromSource === "function") self.refreshFromSource();
+          else if (typeof self.options.onRefresh === "function") self.options.onRefresh();
+        } catch (_e) {}
+      }, ms);
+    }
+
     /** Start polling timer pro periodic freshness re-evaluation. Cleared v destroy. */
     _startFreshnessPolling() {
       if (this._freshnessTimer) return;  // already running
@@ -1783,6 +1815,9 @@
         // toolbar (nested grids). Native #erpRefreshBtn vlevo hidden.
         this._startFreshnessPolling();
       }
+      // Marti 8.6.: auto-refresh dat (refresh_type='interval') — jen aktivní
+      // tab (grid viditelný) a dokument na popředí, žádný edit/dirty rozdělaný.
+      this._startAutoRefresh();
 
       // Resolve columnDefs
       const rowData = this.options.rowData || [];
@@ -5092,6 +5127,11 @@
       if (this._freshnessTimer) {
         try { clearInterval(this._freshnessTimer); } catch (e) {}
         this._freshnessTimer = null;
+      }
+      // Marti 8.6.: auto-refresh timer cleanup
+      if (this._autoRefreshTimer) {
+        try { clearInterval(this._autoRefreshTimer); } catch (e) {}
+        this._autoRefreshTimer = null;
       }
       // Etapa F toolbarHost cleanup — pokud external (caller-owned DOM),
       // vyprazdni jen innerHTML (CRUD buttons). Caller drzi lifecycle elementu

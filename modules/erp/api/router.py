@@ -3162,7 +3162,8 @@ def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
             SELECT cd.id, cd.name, cd.type_id, cd.data_source_id,
                    ct.code AS type_code, ct.label AS type_label,
                    dsrc.code AS data_source_code,
-                   dsrc.name AS data_source_name
+                   dsrc.name AS data_source_name,
+                   dsrc.refresh_type AS refresh_type
             FROM fw.comp_def cd
             JOIN fw.comp_type ct ON ct.id = cd.type_id
             LEFT JOIN fw.data_source dsrc ON dsrc.id = cd.data_source_id

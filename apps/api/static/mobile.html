@@ -76,6 +76,9 @@
   #vyrail, #vylist, #vyrail *, .vy-list { scrollbar-width:none; -ms-overflow-style:none; }
   #vyrail::-webkit-scrollbar, #vylist::-webkit-scrollbar, .vy-list::-webkit-scrollbar { width:0; height:0; display:none; }
   .vybadge { position:absolute; top:2px; right:4px; background:#ef4444; color:#fff; font-size:10px; font-weight:700; min-width:16px; height:16px; line-height:16px; border-radius:9px; padding:0 3px; text-align:center; }
+  .vybadge.gr { background:#10b981; color:#04150e; }
+  .vybadge.pulse { animation: vyp 1.05s ease-in-out infinite; }
+  @keyframes vyp { 0%,100%{ transform:scale(1); box-shadow:0 0 0 0 rgba(239,68,68,.6);} 50%{ transform:scale(1.28); box-shadow:0 0 0 5px rgba(239,68,68,0);} }
   /* Otevřený kontakt (accordion) — záznam ~o 30 % větší + jemné zvýraznění. */
   .ct.open { background:rgba(79,142,247,.07); border-radius:12px; }
   .ct.open .cthead { padding:11px 8px; gap:14px; }
@@ -800,12 +803,12 @@ window.onerror=function(msg,src,line){
   // ───── VÝROBA (icon-rail: živé nahoře, neživé dole). Marti 8.6. ─────
   var _vyView="makam", _vyPeople=[], _vyData=null, _vyZakMode="list";
   var VY_TOP=[
+    {k:"chybi",     ic:"🫥", l:"Chybím"},
     {k:"makam",     ic:"👷", l:"Makám"},
     {k:"relaxuji",  ic:"☕", l:"Relaxuji"},
-    {k:"potrebuji", ic:"🙋", l:"Potřebuji"},
     {k:"informuji", ic:"💡", l:"Informuji"},
+    {k:"potrebuji", ic:"🙋", l:"Potřebuji"},
     {k:"cekam",     ic:"🥱", l:"(Čekám…)", badge:true},
-    {k:"chybi",     ic:"🫥", l:"Chybím"},
     {k:"jedu",      ic:"🚗", l:"Už jedu", onlyIf:true},
     {k:"finisuji",  ic:"🏁", l:"Finišuji"}
   ];
@@ -827,8 +830,9 @@ window.onerror=function(msg,src,line){
     return b;
   }
   function vyroba(){
-    app.innerHTML=topbar("🏭 Výroba", true);
-    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 155px);padding:4px 2px 0;"></div>');
+    app.innerHTML=topbar("🏭 Výroba", true, true);
+    var _tb=app.querySelector('.topbar'); if(_tb) _tb.style.paddingTop="12px";
+    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
     var left=el('<div style="flex:1;min-width:0;display:flex;flex-direction:column;"></div>');
     var s=el('<input id="vysearch" placeholder="🔍 Hledat…" autocomplete="off" style="border:1px solid var(--blue);background:#0d1828;box-shadow:0 0 0 2px rgba(79,142,247,.18);font-weight:600;margin-bottom:8px;">');
     s.addEventListener("input",vyRender);
@@ -849,7 +853,9 @@ window.onerror=function(msg,src,line){
   function vyBezPrace(lidi){ return (lidi||[]).filter(function(pp){ return !(pp.prirazeni&&pp.prirazeni.length) && !((pp.plan||[]).some(function(o){ return !o.hidden; })); }); }
   function vySetBadge(k,n){ var r=document.getElementById("vyrail"); if(!r)return;
     var btn=r.querySelector('button[data-k="'+k+'"]'); if(!btn)return;
-    var bg=btn.querySelector('[data-badge]'); if(bg){ bg.textContent=n; bg.style.display=n>0?"block":"none"; }
+    var bg=btn.querySelector('[data-badge]'); if(bg){ bg.textContent=n; bg.style.display=n>0?"block":"none";
+      bg.classList.toggle("gr", k==="makam"||k==="relaxuji");
+      bg.classList.toggle("pulse", (k==="potrebuji"||k==="cekam") && n>0); }
     if(btn.getAttribute("data-onlyif")==="1"){ btn.style.display=n>0?"flex":"none"; }
   }
   function vyCounts(){
@@ -898,15 +904,7 @@ window.onerror=function(msg,src,line){
     } else if(_vyView==="odvozy"){
       var odv=(j.odvozy||[]).filter(function(o){ return !f||deacc((o.cislo||"")+" "+(o.nazev||"")+" "+(o.adresa||"")).indexOf(f)>=0; });
       if(!odv.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Žádné odvozy. Spusť ⚙ sync odvozů.</li>'; return; }
-      odv.forEach(function(o){
-        var li=document.createElement("li"); li.className="ct"; li.style.padding="10px 6px"; li.style.borderBottom="1px solid var(--bord)";
-        if(o.minulost) li.style.opacity="0.55";
-        li.innerHTML='<div style="font-weight:600;color:#cfe3ff;">🚚 '+esc(o.datum||"")+' · '+esc(o.cislo||"")+'</div>'
-          +(o.nazev?('<div class="hint" style="margin:1px 0;">'+esc(o.nazev)+'</div>'):'')
-          +(o.adresa?('<div style="margin:3px 0;font-size:13px;white-space:normal;">📍 '+esc(o.adresa)+'</div>'):'')
-          +(o.poznamka?('<div class="hint" style="margin:1px 0;white-space:normal;">📝 '+esc(o.poznamka)+'</div>'):'');
-        ul.appendChild(li);
-      });
+      odv.forEach(function(o){ ul.appendChild(vyOdvozLi(o)); });
     } else if(_vyView==="potrebuji"||_vyView==="informuji"||_vyView==="finisuji"){
       var want=(_vyView==="informuji"?"info":(_vyView==="finisuji"?"finish":"pozadavek"));
       var zpr=(j.zpravy||[]).filter(function(m){ return (m.typ||"pozadavek")===want && (!f||deacc((m.jmeno||"")+" "+(m.text||"")).indexOf(f)>=0); });
@@ -934,6 +932,42 @@ window.onerror=function(msg,src,line){
   function vyOverlay(uid,cislo,patch){ var b={user_id:uid,cislo_zakazky:cislo}; for(var k in patch)b[k]=patch[k];
     api("POST","/api/v1/erp/app/vyroba/plan-overlay",b).then(function(r){ if(r&&r.ok) vyLoad(); }); }
   function vyResolve(id){ api("POST","/api/v1/erp/app/vyroba/zprava/"+id+"/resolve",{}).then(function(r){ if(r&&r.ok){ vyLoad(); vyCounts(); } }); }
+  function vyOdvozLi(o){
+    var ul=document.getElementById("vylist");
+    var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
+    if(o.minulost) li.style.opacity="0.55";
+    var sub=(o.nazev||"")+(o.pozn_count?(" · 💬 "+o.pozn_count):"");
+    var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(o.cislo||"?")+';font-size:16px;">🚚</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(o.datum||"")+' · '+esc(o.cislo||"")+'</div><div class="ctnum">'+esc(sub)+'</div></div></div>');
+    var exp=el('<div class="ctexp" style="display:none;"></div>');
+    head.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) vyFillOdvoz(exp,o); });
+    li.appendChild(head); li.appendChild(exp); return li;
+  }
+  function vyFillOdvoz(exp,o){
+    exp.innerHTML="";
+    if(o.adresa) exp.appendChild(el('<div style="padding:4px;font-size:14px;white-space:normal;">📍 '+esc(o.adresa)+'</div>'));
+    if(o.poznamka) exp.appendChild(el('<div class="hint" style="margin:2px 4px;white-space:normal;">📝 '+esc(o.poznamka)+'</div>'));
+    var rwrap=el('<div style="margin:4px 0;"></div>'); exp.appendChild(rwrap);
+    api("GET","/api/v1/erp/app/vyroba/odvoz-pozn?ext_id="+o.ext_id,"").then(function(j){
+      ((j&&j.pozn)||[]).forEach(function(p){
+        rwrap.appendChild(el('<div style="padding:5px 4px;border-top:1px solid var(--bord);font-size:13px;white-space:normal;"><b style="color:#ffd9a8;">'+(p.oddeleni?esc(p.oddeleni):"💬")+'</b> '+esc(p.text||"")+' <span class="hint">· '+esc(p.kdo||"")+' '+esc(p.kdy||"")+'</span></div>'));
+      });
+    });
+    var sel={d:null};
+    var brow=el('<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>');
+    ["Nákup","VP","Zkušebna","Výroba"].forEach(function(d){
+      var b=el('<button class="ghost" style="padding:6px 11px;font-size:13px;margin:0;">'+d+'</button>');
+      b.addEventListener("click",function(){ sel.d=(sel.d===d?null:d);
+        Array.prototype.forEach.call(brow.children,function(x){ x.style.outline=""; x.style.color="var(--mut)"; });
+        if(sel.d){ b.style.outline="2px solid var(--green)"; b.style.color="var(--tx)"; } });
+      brow.appendChild(b);
+    });
+    exp.appendChild(brow);
+    var ta=el('<textarea rows="2" placeholder="Reakce / poznámka k odvozu…" style="width:100%;background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;padding:10px;color:var(--tx);font-size:14px;font-family:inherit;margin-top:8px;"></textarea>');
+    var send=el('<button class="green full" style="margin-top:6px;">💬 Odeslat reakci</button>');
+    send.addEventListener("click",function(){ var t=(ta.value||"").trim(); if(!t&&!sel.d){ ta.focus(); return; } send.disabled=true;
+      api("POST","/api/v1/erp/app/vyroba/odvoz-pozn",{odvoz_ext_id:o.ext_id,cislo_zakazky:o.cislo,oddeleni:sel.d,text:t}).then(function(r){ if(r&&r.ok){ vyLoad(); vyCounts(); } else { send.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+    exp.appendChild(ta); exp.appendChild(send);
+  }
   function vyZpravaLi(m){
     var ul=document.getElementById("vylist");
     var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";

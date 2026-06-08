@@ -214,8 +214,8 @@ window.onerror=function(msg,src,line){
       // Marti 8.6.: jemněji — tišší, měkčí a kratší (sotva slyšitelný ťuk)
       var o=_tapAC.createOscillator(), g=_tapAC.createGain();
       o.type="sine"; o.frequency.value=620;
-      g.gain.setValueAtTime(0.015,_tapAC.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.0006,_tapAC.currentTime+0.045);
+      g.gain.setValueAtTime(0.005,_tapAC.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0004,_tapAC.currentTime+0.04);
       o.connect(g); g.connect(_tapAC.destination);
       o.start(); o.stop(_tapAC.currentTime+0.05);
     }catch(e){}

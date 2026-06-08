@@ -932,6 +932,30 @@ window.onerror=function(msg,src,line){
   function vyOverlay(uid,cislo,patch){ var b={user_id:uid,cislo_zakazky:cislo}; for(var k in patch)b[k]=patch[k];
     api("POST","/api/v1/erp/app/vyroba/plan-overlay",b).then(function(r){ if(r&&r.ok) vyLoad(); }); }
   function vyResolve(id){ api("POST","/api/v1/erp/app/vyroba/zprava/"+id+"/resolve",{}).then(function(r){ if(r&&r.ok){ vyLoad(); vyCounts(); } }); }
+  // Marti 8.6.: diktování do pole přes nativní záznamník (file-capture) → Whisper.
+  // Spolehlivější než getUserMedia ve WebView (to řeší WebView oprávnění).
+  function vyMic(ta, st){
+    var btn=el('<button class="ghost" style="width:52px;font-size:19px;border-color:var(--blue);color:var(--blue);margin:0;flex:none;" title="Nadiktovat">🎙</button>');
+    btn.addEventListener("click",function(){
+      var fi=el('<input type="file" accept="audio/*" capture style="display:none;">');
+      fi.addEventListener("change",function(){
+        var f=fi.files&&fi.files[0]; if(!f) return;
+        if(f.size>9*1024*1024){ if(st)st.textContent="✗ Nahrávka je moc dlouhá."; return; }
+        if(st)st.textContent="💭 Přepisuji…"; btn.disabled=true;
+        var fr=new FileReader();
+        fr.onload=function(){
+          api("POST","/api/v1/erp/app/transcribe",{audio_b64:String(fr.result).split(",")[1],mime:f.type||"audio/m4a"}).then(function(r){
+            btn.disabled=false;
+            if(r&&r.ok&&r.text){ ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text; if(st)st.textContent="✅ Přepsáno"; try{ta.focus();}catch(e){} }
+            else { if(st)st.textContent="✗ "+((r&&r.error)||"nepřepsáno"); }
+          });
+        };
+        fr.readAsDataURL(f);
+      });
+      document.body.appendChild(fi); fi.click();
+    });
+    return btn;
+  }
   function vyOdvozLi(o){
     var ul=document.getElementById("vylist");
     var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
@@ -962,11 +986,14 @@ window.onerror=function(msg,src,line){
       brow.appendChild(b);
     });
     exp.appendChild(brow);
-    var ta=el('<textarea rows="2" placeholder="Reakce / poznámka k odvozu…" style="width:100%;background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;padding:10px;color:var(--tx);font-size:14px;font-family:inherit;margin-top:8px;"></textarea>');
+    var ta=el('<textarea rows="2" placeholder="Reakce / poznámka k odvozu… (nebo nadiktuj 🎙)" style="background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;padding:10px;color:var(--tx);font-size:14px;font-family:inherit;flex:1;"></textarea>');
+    var st=el('<div class="hint" style="margin-top:4px;"></div>');
+    var trow=el('<div style="display:flex;gap:6px;align-items:stretch;margin-top:8px;"></div>');
+    trow.appendChild(ta); trow.appendChild(vyMic(ta,st));
     var send=el('<button class="green full" style="margin-top:6px;">💬 Odeslat reakci</button>');
     send.addEventListener("click",function(){ var t=(ta.value||"").trim(); if(!t&&!sel.d){ ta.focus(); return; } send.disabled=true;
       api("POST","/api/v1/erp/app/vyroba/odvoz-pozn",{odvoz_ext_id:o.ext_id,cislo_zakazky:o.cislo,oddeleni:sel.d,text:t}).then(function(r){ if(r&&r.ok){ vyLoad(); vyCounts(); } else { send.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
-    exp.appendChild(ta); exp.appendChild(send);
+    exp.appendChild(trow); exp.appendChild(st); exp.appendChild(send);
   }
   function vyZpravaLi(m){
     var ul=document.getElementById("vylist");
@@ -988,7 +1015,10 @@ window.onerror=function(msg,src,line){
         api("POST","/api/v1/erp/app/vyroba/odpoved",{user_id:m.user_id,text:t,zprava_id:m.id}).then(function(r){ if(r&&r.ok){ vyLoad(); vyCounts(); } else { send.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
       var done=el('<button class="ghost full" style="margin-top:6px;">✅ Vyřešeno (bez odpovědi)</button>');
       done.addEventListener("click",function(){ vyResolve(m.id); });
-      exp.appendChild(ta); exp.appendChild(send); exp.appendChild(done);
+      var st=el('<div class="hint" style="margin-top:4px;"></div>');
+      var mrow=el('<div style="display:flex;gap:8px;align-items:center;margin-top:6px;"></div>');
+      mrow.appendChild(vyMic(ta,st)); mrow.appendChild(el('<span class="hint">…nebo to nadiktuj</span>'));
+      exp.appendChild(ta); exp.appendChild(mrow); exp.appendChild(st); exp.appendChild(send); exp.appendChild(done);
     } else if(_vyView==="informuji"){
       var ok=el('<button class="green full" style="margin-top:4px;">✅ Potvrdit (přečteno)</button>');
       ok.addEventListener("click",function(){ vyResolve(m.id); });
@@ -1064,7 +1094,10 @@ window.onerror=function(msg,src,line){
     go.addEventListener("click",function(){ if(!chosen.c)return; go.disabled=true;
       api("POST","/api/v1/erp/app/vyroba/prirazeni",{user_id:pp.user_id,cislo_zakazky:chosen.c,pokyn:(pokyn.value||"").trim(),kdy_ozvat:(ozvat.value||"").trim()}).then(function(r){ if(r&&r.ok){ vyLoad(); } else { go.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } });
     });
-    box.appendChild(si);box.appendChild(res);box.appendChild(pokyn);box.appendChild(ozvat);box.appendChild(go); load(); return box;
+    var _pst=el('<div class="hint" style="margin-top:3px;"></div>');
+    var _prow=el('<div style="display:flex;gap:6px;align-items:stretch;margin-top:6px;"></div>');
+    pokyn.style.marginTop="0"; pokyn.style.flex="1"; _prow.appendChild(pokyn); _prow.appendChild(vyMic(pokyn,_pst));
+    box.appendChild(si);box.appendChild(res);box.appendChild(_prow);box.appendChild(_pst);box.appendChild(ozvat);box.appendChild(go); load(); return box;
   }
   function vyZakLi(z){
     var ul=document.getElementById("vylist");

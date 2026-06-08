@@ -6975,6 +6975,34 @@ async def app_vyroba_odvozy(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/transcribe")
+async def app_transcribe(req: Request) -> JSONResponse:
+    """Diktování → text (Whisper). Pro pole poznámek/reakcí. Marti 8.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    ab64 = (body or {}).get("audio_b64") or ""
+    mime = str((body or {}).get("mime") or "audio/webm")
+    if not ab64:
+        return JSONResponse({"ok": False, "error": "Chybí audio."})
+    import base64 as _b64
+    try:
+        ab = _b64.b64decode(ab64)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Špatné audio."})
+    from starlette.concurrency import run_in_threadpool
+    from modules.media.application.whisper_provider import transcribe as _whisper
+    try:
+        tr = await run_in_threadpool(_whisper, ab, mime_type=mime, original_filename="diktovani")
+        return JSONResponse({"ok": True, "text": (tr.get("transcript") or "")})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
 @api_router.get("/app/vyroba/odvoz-pozn")
 async def app_vyroba_odvoz_pozn_list(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

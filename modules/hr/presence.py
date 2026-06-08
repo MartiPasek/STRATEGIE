@@ -210,13 +210,19 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
             row = s.execute(_t("""
                 INSERT INTO fw.hr_device
                     (device_type, name, owner_user_id, device_key,
-                     last_seen_at, last_source, last_in_building, last_ip, last_place)
-                VALUES (:dt, :nm, :uid, :dk, now(), :src, :inb, :ip, :place)
+                     last_seen_at, last_source, last_in_building, last_ip, last_place,
+                     first_seen_today)
+                VALUES (:dt, :nm, :uid, :dk, now(), :src, :inb, :ip, :place, now())
                 ON CONFLICT (device_key) WHERE device_key IS NOT NULL DO UPDATE SET
                     name = COALESCE(NULLIF(EXCLUDED.name, ''), fw.hr_device.name),
                     owner_user_id = COALESCE(fw.hr_device.owner_user_id, EXCLUDED.owner_user_id),
                     last_seen_at = now(), last_source = :src,
-                    last_in_building = :inb, last_ip = :ip, last_place = :place
+                    last_in_building = :inb, last_ip = :ip, last_place = :place,
+                    -- Marti 8.6.: první spatření dne (reset přes půlnoc)
+                    first_seen_today = CASE
+                        WHEN fw.hr_device.first_seen_today IS NULL
+                          OR fw.hr_device.first_seen_today::date < current_date
+                        THEN now() ELSE fw.hr_device.first_seen_today END
                 RETURNING id
             """), {"dt": device_type, "nm": (name or ""), "uid": uid, "dk": device_key,
                    "src": source, "inb": inb, "ip": (ip_str or ""),

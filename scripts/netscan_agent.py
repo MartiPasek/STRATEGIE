@@ -128,12 +128,18 @@ def _collect_api():
         ctx = _ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = _ssl.CERT_NONE
-        # RouterOS v6 self-signed cert = slaby klic/cipher → OpenSSL 3 (SECLEVEL=2)
-        # odmitne handshake. SECLEVEL=0 + starsi TLS to povoli. Marti 8.6.
+        # RouterOS v6 api-ssl bez certu = ANONYMNI sifry (ADH/aNULL) → Python je
+        # ve vychozim listu nenabizi → handshake_failure. Pridat aNULL + SECLEVEL=0
+        # + starsi TLS. Override MIKROTIK_API_CIPHERS pokud by router mel cert. Marti 8.6.
+        _ciphers = os.environ.get("MIKROTIK_API_CIPHERS", "").strip() or "ALL:aNULL:eNULL:@SECLEVEL=0"
         try:
-            ctx.set_ciphers("DEFAULT@SECLEVEL=0")
-        except Exception:
-            pass
+            ctx.set_ciphers(_ciphers)
+        except Exception as _ce:
+            _log("set_ciphers fail (%s) — zkousim ADH" % _ce)
+            try:
+                ctx.set_ciphers("ADH-AES256-SHA:ADH-AES128-SHA:@SECLEVEL=0")
+            except Exception:
+                pass
         try:
             ctx.minimum_version = _ssl.TLSVersion.TLSv1
         except Exception:

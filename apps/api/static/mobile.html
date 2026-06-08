@@ -1302,16 +1302,27 @@ window.onerror=function(msg,src,line){
           var q=(si.value||"").trim();
           api("GET","/api/v1/erp/app/zakazky"+(q?("?q="+encodeURIComponent(q)):""),"").then(function(j){
             res.innerHTML="";
-            var list=(j&&j.zakazky)||[];
-            if(!list.length){ res.innerHTML='<div class="hint">Nic nenalezeno — zkus jiný text, nebo nech zakázky synchronizovat (⚙).</div>'; return; }
-            list.forEach(function(z){
-              // Marti 7.6. večer: Režie je taky zakázka — v seznamu první, píchá se jako režie.
+            function mkBtn(z,planned){
+              // Marti 7.6. večer: Režie je taky zakázka — píchá se jako režie.
               var rez=(z.typ==="REZIE");
-              var b=btnEl((rez?"🧰 ":"🧾 ")+z.cislo+" — "+(z.nazev||""),"green");
+              var lbl=(planned?"📋 ":(rez?"🧰 ":"🧾 "))+z.cislo+" — "+(z.nazev||"")
+                + (planned&&z.hodin!=null?(" ("+z.hodin+"h)"):"");
+              var b=btnEl(lbl,"green");
               b.style.fontSize="13px"; b.style.whiteSpace="nowrap"; b.style.overflow="hidden"; b.style.textOverflow="ellipsis";
+              if(planned){ b.style.boxShadow="inset 3px 0 0 var(--blue)"; }
               b.addEventListener("click",function(){ act("checkin",{kind:(rez?"overhead":"work"),project_ref:z.cislo,switch:true},b); });
-              res.appendChild(b);
-            });
+              return b;
+            }
+            // Marti 8.6.: „Dnes naplánováno" z plánu výroby — nahoře, jen bez hledání.
+            var planned=(j&&j.planned)||[];
+            if(!q && planned.length){
+              res.appendChild(el('<div class="hint" style="margin:2px 0 2px;color:var(--blue);">📋 Dnes naplánováno (z plánu výroby):</div>'));
+              planned.forEach(function(z){ res.appendChild(mkBtn(z,true)); });
+              res.appendChild(el('<div class="hint" style="margin:12px 0 2px;">Ostatní zakázky:</div>'));
+            }
+            var list=(j&&j.zakazky)||[];
+            if(!list.length && !planned.length){ res.innerHTML='<div class="hint">Nic nenalezeno — zkus jiný text, nebo nech zakázky synchronizovat (⚙).</div>'; return; }
+            list.forEach(function(z){ res.appendChild(mkBtn(z,false)); });
           });
         }
         si.addEventListener("input",function(){ clearTimeout(tmr); tmr=setTimeout(load,300); });

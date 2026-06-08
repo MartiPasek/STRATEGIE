@@ -6492,9 +6492,24 @@ async def app_zakazky(req: Request) -> JSONResponse:
                 "SELECT cislo, COALESCE(nazev,''), typ FROM tenant.zakazka "
                 "WHERE tenant_id = 2 AND pichatelna = true "
                 "ORDER BY (typ = 'REZIE') DESC, cislo DESC LIMIT 30")).fetchall()
+        # Marti 8.6.: „Dnes naplánováno" — zakázky, na které je člověk dnes
+        # naplánovaný dle plánu výroby (tenant.vyroba_plan, read-only z Centrály).
+        planned = []
+        try:
+            prow = s.execute(_t(
+                "SELECT vp.cislo_zakazky, COALESCE(z.nazev, vp.zakazka_nazev, ''), z.typ, vp.pocet_hodin "
+                "FROM tenant.vyroba_plan vp "
+                "LEFT JOIN tenant.zakazka z ON z.tenant_id = 2 AND z.cislo = vp.cislo_zakazky "
+                "WHERE vp.tenant_id = 2 AND vp.user_id = :uid AND vp.datum = CURRENT_DATE "
+                "ORDER BY vp.pocet_hodin DESC NULLS LAST, vp.cislo_zakazky"), {"uid": uid}).fetchall()
+            planned = [{"cislo": r[0], "nazev": r[1], "typ": r[2],
+                        "hodin": (float(r[3]) if r[3] is not None else None)} for r in prow]
+        except Exception:
+            planned = []
         s.commit()
         return JSONResponse({"ok": True, "zakazky": [
-            {"cislo": r[0], "nazev": r[1], "typ": r[2]} for r in rows]})
+            {"cislo": r[0], "nazev": r[1], "typ": r[2]} for r in rows],
+            "planned": planned})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

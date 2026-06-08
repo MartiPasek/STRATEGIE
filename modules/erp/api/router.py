@@ -6957,18 +6957,77 @@ async def app_vyroba_odvozy(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         rows = s.execute(_t(
-            "SELECT o.cislo_zakazky, to_char(o.datum_odvozu,'DD.MM.YYYY') AS dt, "
+            "SELECT o.ext_id, o.cislo_zakazky, to_char(o.datum_odvozu,'DD.MM.YYYY') AS dt, "
             " COALESCE(o.poznamka,''), COALESCE(o.adresa,''), COALESCE(z.nazev,''), "
-            " (o.datum_odvozu < CURRENT_DATE) AS minulost "
+            " (o.datum_odvozu < CURRENT_DATE) AS minulost, "
+            " (SELECT count(*) FROM tenant.vyroba_odvoz_pozn p WHERE p.tenant_id=2 AND p.odvoz_ext_id=o.ext_id) AS pc "
             "FROM tenant.vyroba_odvoz o "
             "LEFT JOIN tenant.zakazka z ON z.tenant_id=2 AND z.cislo=o.cislo_zakazky "
             "WHERE o.tenant_id=2 "
             "ORDER BY (o.datum_odvozu < CURRENT_DATE), o.datum_odvozu, o.cislo_zakazky")).fetchall()
         s.commit()
         return JSONResponse({"ok": True, "odvozy": [
-            {"cislo": r[0], "datum": r[1], "poznamka": r[2], "adresa": r[3],
-             "nazev": r[4], "minulost": bool(r[5])} for r in rows]})
+            {"ext_id": r[0], "cislo": r[1], "datum": r[2], "poznamka": r[3], "adresa": r[4],
+             "nazev": r[5], "minulost": bool(r[6]), "pozn_count": r[7]} for r in rows]})
     except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/vyroba/odvoz-pozn")
+async def app_vyroba_odvoz_pozn_list(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    try:
+        ext = int(req.query_params.get("ext_id") or 0)
+    except Exception:
+        ext = 0
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, COALESCE(oddeleni,''), text, COALESCE(created_by_name,''), "
+            " to_char(created_at,'DD.MM HH24')||':'||to_char(created_at,'MI') AS kdy "
+            "FROM tenant.vyroba_odvoz_pozn WHERE tenant_id=2 AND odvoz_ext_id=:e "
+            "ORDER BY created_at DESC LIMIT 50"), {"e": ext}).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "pozn": [
+            {"id": r[0], "oddeleni": r[1], "text": r[2], "kdo": r[3], "kdy": r[4]} for r in rows]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/odvoz-pozn")
+async def app_vyroba_odvoz_pozn_create(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _vyroba_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    ext = (body or {}).get("odvoz_ext_id")
+    cislo = str((body or {}).get("cislo_zakazky") or "").strip()[:40] or None
+    odd = str((body or {}).get("oddeleni") or "").strip()[:20] or None
+    txt = str((body or {}).get("text") or "").strip()[:1000]
+    if not txt and not odd:
+        return JSONResponse({"ok": False, "error": "Napiš poznámku nebo vyber oddělení."})
+    cm, s = _att_session()
+    try:
+        jm = _user_jmeno(s, uid)
+        s.execute(_t(
+            "INSERT INTO tenant.vyroba_odvoz_pozn (tenant_id, odvoz_ext_id, cislo_zakazky, oddeleni, text, created_by_user_id, created_by_name) "
+            "VALUES (2, :e, :c, :o, :t, :by, :byn)"),
+            {"e": ext, "c": cislo, "o": odd, "t": (txt or odd), "by": uid, "byn": jm})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)

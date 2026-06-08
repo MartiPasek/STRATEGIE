@@ -43,6 +43,7 @@ class HybridActivity : ComponentActivity() {
     // Marti 7.6. večer: podržený getUserMedia požadavek (mikrofon) — grant až
     // po udělení runtime permission. deny() si WebView pamatuje → mic „nereaguje".
     private var pendingMicReq: android.webkit.PermissionRequest? = null
+    private var filePathCb: android.webkit.ValueCallback<Array<Uri>>? = null
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
@@ -58,6 +59,28 @@ class HybridActivity : ComponentActivity() {
                         req.grant(arrayOf(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE))
                     } else req.deny()
                 } catch (e: Exception) {}
+            }
+        }
+    }
+
+    // Marti 8.6.2026: bez onShowFileChooser WebView ignoruje <input type=file> →
+    // diktování (nativní záznamník) by „nereagovalo". Audio capture → RECORD_SOUND.
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 77) {
+            val cb = filePathCb
+            filePathCb = null
+            if (cb != null) {
+                var result: Array<Uri>? = null
+                try {
+                    if (resultCode == RESULT_OK) {
+                        val u = data?.data
+                        result = if (u != null) arrayOf(u)
+                                 else android.webkit.WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+                    }
+                } catch (e: Exception) {}
+                cb.onReceiveValue(result)
             }
         }
     }
@@ -663,6 +686,26 @@ class HybridActivity : ComponentActivity() {
                     pendingMicReq = req
                     try { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 14) }
                     catch (e: Exception) { pendingMicReq = null; req.deny() }
+                }
+            }
+            override fun onShowFileChooser(
+                webView: WebView?,
+                callback: android.webkit.ValueCallback<Array<Uri>>?,
+                params: android.webkit.WebChromeClient.FileChooserParams?
+            ): Boolean {
+                filePathCb?.onReceiveValue(null)
+                filePathCb = callback
+                val accepts = try { params?.acceptTypes?.joinToString(",") ?: "" } catch (e: Exception) { "" }
+                val intent: Intent? = try {
+                    if (accepts.contains("audio") && params?.isCaptureEnabled == true)
+                        Intent(android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION)
+                    else params?.createIntent()
+                } catch (e: Exception) { try { params?.createIntent() } catch (e2: Exception) { null } }
+                return try {
+                    startActivityForResult(intent, 77); true
+                } catch (e: Exception) {
+                    try { startActivityForResult(params?.createIntent(), 77); true }
+                    catch (e2: Exception) { filePathCb = null; false }
                 }
             }
         }

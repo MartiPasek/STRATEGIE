@@ -695,6 +695,17 @@ def mobile_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/vyroba")
+def vyroba_page():
+    """Plánovač výroby — interaktivní konzole vedoucího výroby (Dušan + Marek).
+    Funguje na desktopu (ERP/CRM) i v mobilu, gate v API endpointech. SAMEORIGIN
+    pro iframe embed v ERP. Marti 8.6.2026."""
+    return FileResponse(os.path.join(static_dir, "vyroba.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/privacy")
 def privacy_page():
     """Zásady ochrany osobních údajů — povinné pro Google Play / App Store.

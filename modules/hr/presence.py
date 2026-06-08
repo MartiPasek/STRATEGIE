@@ -211,8 +211,11 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
                 INSERT INTO fw.hr_device
                     (device_type, name, owner_user_id, device_key,
                      last_seen_at, last_source, last_in_building, last_ip, last_place,
-                     first_seen_today)
-                VALUES (:dt, :nm, :uid, :dk, now(), :src, :inb, :ip, :place, now())
+                     first_seen_today,
+                     bld_first, bld_last, out_first, out_last)
+                VALUES (:dt, :nm, :uid, :dk, now(), :src, :inb, :ip, :place, now(),
+                     CASE WHEN :inb THEN now() END, CASE WHEN :inb THEN now() END,
+                     CASE WHEN :inb THEN NULL ELSE now() END, CASE WHEN :inb THEN NULL ELSE now() END)
                 ON CONFLICT (device_key) WHERE device_key IS NOT NULL DO UPDATE SET
                     name = COALESCE(NULLIF(EXCLUDED.name, ''), fw.hr_device.name),
                     owner_user_id = COALESCE(fw.hr_device.owner_user_id, EXCLUDED.owner_user_id),
@@ -222,7 +225,16 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
                     first_seen_today = CASE
                         WHEN fw.hr_device.first_seen_today IS NULL
                           OR fw.hr_device.first_seen_today::date < current_date
-                        THEN now() ELSE fw.hr_device.first_seen_today END
+                        THEN now() ELSE fw.hr_device.first_seen_today END,
+                    -- Marti 8.6.: zóny v budově / mimo — poprvé (reset/den) + naposledy
+                    bld_first = CASE WHEN :inb AND (fw.hr_device.bld_first IS NULL
+                                       OR fw.hr_device.bld_first::date < current_date)
+                                     THEN now() ELSE fw.hr_device.bld_first END,
+                    bld_last  = CASE WHEN :inb THEN now() ELSE fw.hr_device.bld_last END,
+                    out_first = CASE WHEN NOT :inb AND (fw.hr_device.out_first IS NULL
+                                       OR fw.hr_device.out_first::date < current_date)
+                                     THEN now() ELSE fw.hr_device.out_first END,
+                    out_last  = CASE WHEN NOT :inb THEN now() ELSE fw.hr_device.out_last END
                 RETURNING id
             """), {"dt": device_type, "nm": (name or ""), "uid": uid, "dk": device_key,
                    "src": source, "inb": inb, "ip": (ip_str or ""),
@@ -267,7 +279,10 @@ def refresh_user_phone(uid: int | None, ip_str: str | None) -> None:
                         last_place = 'building', last_source = 'mobile_poll',
                         first_seen_today = CASE
                             WHEN first_seen_today IS NULL OR first_seen_today::date < current_date
-                            THEN now() ELSE first_seen_today END
+                            THEN now() ELSE first_seen_today END,
+                        bld_first = CASE WHEN bld_first IS NULL OR bld_first::date < current_date
+                                         THEN now() ELSE bld_first END,
+                        bld_last = now()
                     WHERE owner_user_id = :uid AND device_type = 'phone'
                       AND last_seen_at > now() - interval '2 days'
                 """), {"uid": int(uid)})
@@ -281,7 +296,10 @@ def refresh_user_phone(uid: int | None, ip_str: str | None) -> None:
                         last_place = CASE
                             WHEN last_place IN ('building','home_office','customer')
                                  AND last_seen_at > now() - interval '12 minutes'
-                            THEN last_place ELSE 'away' END
+                            THEN last_place ELSE 'away' END,
+                        out_first = CASE WHEN out_first IS NULL OR out_first::date < current_date
+                                         THEN now() ELSE out_first END,
+                        out_last = now()
                     WHERE owner_user_id = :uid AND device_type = 'phone'
                       AND last_seen_at > now() - interval '2 days'
                 """), {"uid": int(uid)})

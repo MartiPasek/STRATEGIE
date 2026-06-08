@@ -816,7 +816,7 @@ window.onerror=function(msg,src,line){
     {k:"nakup",     ic:"🛒", l:"Nákup"},
     {k:"priprava",  ic:"🔧", l:"Příprava"}
   ];
-  var VY_READY={makam:1,relaxuji:1,potrebuji:1,informuji:1,cekam:1,chybi:1,jedu:1,zakazky:1};
+  var VY_READY={makam:1,relaxuji:1,potrebuji:1,informuji:1,finisuji:1,cekam:1,chybi:1,jedu:1,zakazky:1};
   function vyBtn(v){
     var b=el('<button data-k="'+v.k+'" style="position:relative;margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--bord);background:transparent;color:var(--mut);border-radius:9px;cursor:pointer;"><span style="font-size:18px;">'+v.ic+'</span>'+esc(v.l)+'<span class="vybadge" data-badge style="display:none;">0</span></button>');
     if(v.onlyIf) b.style.display="none";
@@ -874,7 +874,7 @@ window.onerror=function(msg,src,line){
     if(v==="zakazky"){
       if(!_vyPeople.length) api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(jp){ if(jp&&jp.ok)_vyPeople=jp.lidi||[]; });
       api("GET","/api/v1/erp/app/vyroba/zakazky-lide","").then(function(j){ _vyData=j; vyRender(); });
-    } else if(v==="potrebuji"||v==="informuji"){
+    } else if(v==="potrebuji"||v==="informuji"||v==="finisuji"){
       api("GET","/api/v1/erp/app/vyroba/zpravy","").then(function(j){ _vyData=j; vyRender(); });
     } else {
       api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; _vyData=j; vyRender(); vyCounts(); });
@@ -892,15 +892,11 @@ window.onerror=function(msg,src,line){
       zak.forEach(function(z){ var li=vyZakLi(z); ul.appendChild(li);
         if(_vyZakMode==="md"){ var exp=li.querySelector(".ctexp"); if(exp){ vyFillZak(exp,z); exp.style.display="block"; li.classList.add("open"); } }
       });
-    } else if(_vyView==="potrebuji"||_vyView==="informuji"){
-      var want=(_vyView==="informuji"?"info":"pozadavek"), icn=(_vyView==="informuji"?"💡 ":"🙋 ");
+    } else if(_vyView==="potrebuji"||_vyView==="informuji"||_vyView==="finisuji"){
+      var want=(_vyView==="informuji"?"info":(_vyView==="finisuji"?"finish":"pozadavek"));
       var zpr=(j.zpravy||[]).filter(function(m){ return (m.typ||"pozadavek")===want && (!f||deacc((m.jmeno||"")+" "+(m.text||"")).indexOf(f)>=0); });
-      if(!zpr.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+(_vyView==="informuji"?"Žádné informace.":"Nikdo nic nepotřebuje. 👍")+'</li>'; return; }
-      zpr.forEach(function(m){
-        var li=document.createElement("li"); li.className="ct"; li.style.padding="10px 6px"; li.style.borderBottom="1px solid var(--bord)";
-        li.innerHTML='<div style="font-weight:600;color:#cfe3ff;">'+icn+esc(m.jmeno||"")+(m.cislo?(' · '+esc(m.cislo)):'')+' <span style="color:var(--mut);font-size:12px;font-weight:400;">'+esc(m.kdy||"")+'</span></div><div style="margin-top:3px;">'+esc(m.text||"")+'</div>';
-        ul.appendChild(li);
-      });
+      if(!zpr.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+({potrebuji:"Nikdo nic nepotřebuje. 👍",informuji:"Žádné informace.",finisuji:"Nikdo zatím nefinišuje."}[_vyView])+'</li>'; return; }
+      zpr.forEach(function(m){ ul.appendChild(vyZpravaLi(m)); });
     } else {
       var lidi=(j.lidi||[]);
       var STMAP={makam:"makam",relaxuji:"pauza",chybi:"chybi",jedu:"jedu"};
@@ -922,6 +918,40 @@ window.onerror=function(msg,src,line){
   function vyInitial(nm){ return esc(((nm||"?").replace(/[^A-Za-zÀ-ž]/g,"").charAt(0)||"?").toUpperCase()); }
   function vyOverlay(uid,cislo,patch){ var b={user_id:uid,cislo_zakazky:cislo}; for(var k in patch)b[k]=patch[k];
     api("POST","/api/v1/erp/app/vyroba/plan-overlay",b).then(function(r){ if(r&&r.ok) vyLoad(); }); }
+  function vyResolve(id){ api("POST","/api/v1/erp/app/vyroba/zprava/"+id+"/resolve",{}).then(function(r){ if(r&&r.ok){ vyLoad(); vyCounts(); } }); }
+  function vyZpravaLi(m){
+    var ul=document.getElementById("vylist");
+    var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
+    var ic=(_vyView==="informuji"?"💡":(_vyView==="finisuji"?"🏁":"🙋"));
+    var sub=(m.kdy||"")+(m.eta_min?(" · za ~"+m.eta_min+" min"):"")+(m.cislo?(" · "+m.cislo):"");
+    var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(m.jmeno||"?")+'">'+vyInitial(m.jmeno||"?")+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+ic+' '+esc(m.jmeno||"")+'</div><div class="ctnum">'+esc(sub)+'</div></div></div>');
+    var exp=el('<div class="ctexp" style="display:none;"></div>');
+    head.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) vyFillZprava(exp,m); });
+    li.appendChild(head); li.appendChild(exp); return li;
+  }
+  function vyFillZprava(exp,m){
+    exp.innerHTML="";
+    exp.appendChild(el('<div style="padding:6px 4px 10px;white-space:normal;font-size:15px;">'+esc(m.text||"")+'</div>'));
+    if(_vyView==="potrebuji"){
+      var ta=el('<textarea rows="6" placeholder="Napiš odpověď…" style="width:100%;min-height:40vh;background:#0f1620;border:1px solid var(--green);border-radius:10px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;"></textarea>');
+      var send=el('<button class="green full" style="margin-top:8px;">🚀 Odeslat odpověď</button>');
+      send.addEventListener("click",function(){ var t=(ta.value||"").trim(); if(!t){ta.focus();return;} send.disabled=true;
+        api("POST","/api/v1/erp/app/vyroba/odpoved",{user_id:m.user_id,text:t,zprava_id:m.id}).then(function(r){ if(r&&r.ok){ vyLoad(); vyCounts(); } else { send.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+      var done=el('<button class="ghost full" style="margin-top:6px;">✅ Vyřešeno (bez odpovědi)</button>');
+      done.addEventListener("click",function(){ vyResolve(m.id); });
+      exp.appendChild(ta); exp.appendChild(send); exp.appendChild(done);
+    } else if(_vyView==="informuji"){
+      var ok=el('<button class="green full" style="margin-top:4px;">✅ Potvrdit (přečteno)</button>');
+      ok.addEventListener("click",function(){ vyResolve(m.id); });
+      var td=el('<button class="ghost full" style="margin-top:6px;">📝 Zapsat do TODO</button>');
+      td.addEventListener("click",function(){ var t=prompt("Úkol do TODO:", m.text||""); if(t){ api("POST","/api/v1/erp/app/vyroba/todo",{text:t,ref_zakazka:(m.cislo||null)}).then(function(r){ if(r&&r.ok) vyResolve(m.id); }); } });
+      exp.appendChild(ok); exp.appendChild(td);
+    } else {
+      var ok2=el('<button class="green full" style="margin-top:4px;">✅ Beru na vědomí</button>');
+      ok2.addEventListener("click",function(){ vyResolve(m.id); });
+      exp.appendChild(ok2);
+    }
+  }
   function vyPersonLi(pp){
     var ul=document.getElementById("vylist");
     var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
@@ -1681,17 +1711,25 @@ window.onerror=function(msg,src,line){
       // Marti 8.6.: zpětná vazba člověka → vedoucímu výroby (průběžně).
       function vyrobaFbBuild(box){
         box.appendChild(el('<div class="hint" style="margin:2px 0 4px;">Co se děje na zakázce? Jde rovnou vedoucímu výroby.</div>'));
-        var ta=el('<textarea rows="3" placeholder="např. VR10660 hotová z půlky, zítra dodělám · potřebuju díl · můžu vzít další" style="width:100%;background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;"></textarea>');
-        var send=el('<button class="green full" style="margin-top:8px;">🛠 Odeslat vedoucímu</button>');
-        send.addEventListener("click",function(){
-          var t=(ta.value||"").trim(); if(!t){ ta.focus(); return; }
-          send.disabled=true;
-          api("POST","/api/v1/erp/app/vyroba/zprava",{text:t}).then(function(r){
+        var ta=el('<textarea rows="3" placeholder="např. potřebuju díl · můžu vzít další · VR10660 hotová z půlky" style="width:100%;background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;"></textarea>');
+        function snd(typ,btn){ var t=(ta.value||"").trim(); if(!t){ ta.focus(); return; } btn.disabled=true;
+          api("POST","/api/v1/erp/app/vyroba/zprava",{text:t,typ:typ}).then(function(r){
             if(r&&r.ok){ box.innerHTML='<div class="hint" style="color:var(--green);padding:6px 0;">✅ Odesláno vedoucímu výroby. Díky!</div>'; }
-            else { send.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); }
-          });
-        });
-        box.appendChild(ta); box.appendChild(send);
+            else { btn.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); }
+        var b1=el('<button class="green full" style="margin-top:8px;">🙋 Něco potřebuju → poslat</button>');
+        b1.addEventListener("click",function(){ snd("pozadavek",b1); });
+        var b2=el('<button class="ghost full" style="margin-top:6px;">💡 Jen informuji → poslat</button>');
+        b2.addEventListener("click",function(){ snd("info",b2); });
+        box.appendChild(ta); box.appendChild(b1); box.appendChild(b2);
+      }
+      function vyrobaFinishBuild(box){
+        box.appendChild(el('<div class="hint" style="margin:2px 0 4px;">Dej vedoucímu vědět, že budeš brzy hotov — ať ti připraví další práci. 🏁</div>'));
+        var ta=el('<textarea rows="2" placeholder="Volitelně: na čem / co dál" style="width:100%;background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;margin-bottom:6px;"></textarea>');
+        box.appendChild(ta);
+        chipsIn(box,"Za jak dlouho asi budeš hotov?",function(min,b){ b.disabled=true;
+          api("POST","/api/v1/erp/app/vyroba/finish",{eta_min:min,text:(ta.value||"").trim()}).then(function(r){
+            if(r&&r.ok){ box.innerHTML='<div class="hint" style="color:var(--green);padding:6px 0;">🏁 Vedoucí ví, že finišuješ. Díky!</div>'; }
+            else { b.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
       }
       // Marti 7.6. večer: vše se rozbaluje NA MÍSTĚ (jako Kontakty), žádné
       // přepínání obrazovek. Ťuknutí na volbu znovu = zavření.
@@ -1726,6 +1764,7 @@ window.onerror=function(msg,src,line){
             ["🫡 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},b); }]
           ],"ghost");
           expOpt(bw,"🛠 Zpráva vedoucímu výroby…","ghost",vyrobaFbBuild,_blueStyle);
+          expOpt(bw,"🏁 Budu brzy hotov…","ghost",vyrobaFinishBuild,_blueStyle);
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
           expOpt(bw,"🙋 Mám dotaz na nadřízeného…","ghost",bossAskBuild,_blueStyle);
           if(window._canManageVyroba){

@@ -128,9 +128,19 @@ def _collect_api():
         ctx = _ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = _ssl.CERT_NONE
+        # RouterOS v6 self-signed cert = slaby klic/cipher → OpenSSL 3 (SECLEVEL=2)
+        # odmitne handshake. SECLEVEL=0 + starsi TLS to povoli. Marti 8.6.
+        try:
+            ctx.set_ciphers("DEFAULT@SECLEVEL=0")
+        except Exception:
+            pass
+        try:
+            ctx.minimum_version = _ssl.TLSVersion.TLSv1
+        except Exception:
+            pass
         kwargs["ssl_wrapper"] = ctx.wrap_socket
         kwargs["port"] = int(os.environ.get("MIKROTIK_API_PORT", "8729") or "8729")
-        _log("api-ssl mode (TLS, port %s)" % kwargs["port"])
+        _log("api-ssl mode (TLS, port %s, SECLEVEL=0)" % kwargs["port"])
     else:
         kwargs["port"] = int(os.environ.get("MIKROTIK_API_PORT", "8728") or "8728")
     api = connect(**kwargs)

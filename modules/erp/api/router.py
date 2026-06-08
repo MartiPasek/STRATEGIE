@@ -6165,6 +6165,24 @@ async def att_dispute_day(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/whoami")
+async def app_whoami(req: Request) -> JSONResponse:
+    """Marti 8.6. ráno: identifikace telefonu na main screen (krátké jméno)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        jm = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(first_name),''), login_name) FROM public.users WHERE id = :u"),
+            {"u": uid}).scalar() or ""
+        s.commit()
+        return JSONResponse({"ok": True, "jmeno": jm})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/announced-future")
 async def att_announced_future(req: Request) -> JSONResponse:
     """Marti 7.6. večer: budoucí ohlášení (skončím dříve / přijdu později /

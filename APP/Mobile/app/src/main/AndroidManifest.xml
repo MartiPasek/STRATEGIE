@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <!-- Marti 8.6.: jemna vibrace pri tapu (navigator.vibrate ve WebView) -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Android 11+ viditelnost balíčků: umožní spustit WhatsApp z launcheru. -->
     <queries>

@@ -113,14 +113,27 @@ def _collect_rest():
 
 
 def _collect_api():
-    """RouterOS v6 binary API (port 8728) — vyzaduje 'librouteros'.
-    Pip: python -m pip install librouteros. Pouzij az bude potvrzeno v6."""
+    """RouterOS v6 binary API — 'librouteros'. Plain API = port 8728;
+    api-ssl (TLS, doporuceno) = port 8729 + MIKROTIK_API_SSL=1 (Marti 8.6.,
+    Michal zapnul api-ssl). Router self-signed cert -> verify vypnuty."""
     try:
         from librouteros import connect  # type: ignore
     except Exception:
         _log("librouteros neni nainstalovan (v6 API). pip install librouteros")
         return []
-    api = connect(host=HOST, username=USER, password=PASS)
+    api_ssl = os.environ.get("MIKROTIK_API_SSL", "").strip() == "1"
+    kwargs = {"host": HOST, "username": USER, "password": PASS}
+    if api_ssl:
+        import ssl as _ssl
+        ctx = _ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+        kwargs["ssl_wrapper"] = ctx.wrap_socket
+        kwargs["port"] = int(os.environ.get("MIKROTIK_API_PORT", "8729") or "8729")
+        _log("api-ssl mode (TLS, port %s)" % kwargs["port"])
+    else:
+        kwargs["port"] = int(os.environ.get("MIKROTIK_API_PORT", "8728") or "8728")
+    api = connect(**kwargs)
     devices = {}
     try:
         for le in api.path("ip", "dhcp-server", "lease"):

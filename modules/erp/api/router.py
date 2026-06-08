@@ -5414,7 +5414,8 @@ async def app_heartbeat(app_key: str, req: Request) -> JSONResponse:
                fullscreen_enabled, server_url, last_seen_at)
             VALUES (:app,:uid,:dev,:label,:vc,:vn,:rel,:svc,:clog,:notif,:fs,:url, now())
             ON CONFLICT (app_key, user_id, device_id) DO UPDATE SET
-              device_label=EXCLUDED.device_label, version_code=EXCLUDED.version_code,
+              device_label=COALESCE(NULLIF(fw.mobile_device.device_label,''), EXCLUDED.device_label),
+              version_code=EXCLUDED.version_code,
               version_name=EXCLUDED.version_name, android_release=EXCLUDED.android_release,
               service_enabled=EXCLUDED.service_enabled, call_log_enabled=EXCLUDED.call_log_enabled,
               notif_enabled=EXCLUDED.notif_enabled, fullscreen_enabled=EXCLUDED.fullscreen_enabled,
@@ -6167,18 +6168,27 @@ async def att_dispute_day(req: Request) -> JSONResponse:
 
 @api_router.get("/app/whoami")
 async def app_whoami(req: Request) -> JSONResponse:
-    """Marti 8.6. ráno: identifikace telefonu na main screen (krátké jméno)."""
+    """Marti 8.6. ráno: identifikace telefonu na main screen — krátké jméno
+    + OFICIÁLNÍ label zařízení ze serveru (fw.mobile_device, tabulka zařízení)."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
+    dev = (req.query_params.get("device_id") or "").strip()[:120]
     cm, s = _att_session()
     try:
         jm = s.execute(_t(
             "SELECT COALESCE(NULLIF(TRIM(first_name),''), login_name) FROM public.users WHERE id = :u"),
             {"u": uid}).scalar() or ""
+        lab = None
+        if dev:
+            lab = s.execute(_t(
+                "SELECT NULLIF(device_label,'') FROM fw.mobile_device "
+                "WHERE user_id = :u AND device_id = :d AND removed_at IS NULL "
+                "ORDER BY last_seen_at DESC NULLS LAST LIMIT 1"),
+                {"u": uid, "d": dev}).scalar()
         s.commit()
-        return JSONResponse({"ok": True, "jmeno": jm})
+        return JSONResponse({"ok": True, "jmeno": jm, "label": lab})
     finally:
         cm.__exit__(None, None, None)
 

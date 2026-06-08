@@ -317,23 +317,14 @@ window.onerror=function(msg,src,line){
       + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
       + '<div class="h3" id="homeLive"></div>';
     app.appendChild(bg);
-    // Marti 8.6. ráno: identifikace telefonu — jméno ze serveru, label lokálně
-    // (výchozí „Privát", ťuknutím přejmenuješ — např. Firemní).
-    api("GET","/api/v1/erp/app/whoami","").then(function(w){
-      var n=document.getElementById("homeWhoName");
-      if(n&&w&&w.jmeno) n.textContent=w.jmeno;
-    });
+    // Marti 8.6. ráno: identifikace telefonu — jméno i label ZE SERVERU
+    // (fw.mobile_device = oficiální tabulka zařízení). Na main screen se NEmění.
     (function(){
-      var lb=document.getElementById("homeWhoLabel"); if(!lb)return;
-      var val=""; try{ val=localStorage.getItem("stg_phone_label")||""; }catch(e){}
-      lb.textContent=val||"Privát";
-      lb.addEventListener("click",function(){
-        var wrap=document.getElementById("homeWho"); if(!wrap||wrap.querySelector("input"))return;
-        var inp=el('<input value="'+esc(lb.textContent)+'" maxlength="20" style="width:110px;text-align:right;font-size:12px;padding:4px 6px;margin-top:2px;">');
-        lb.style.display="none"; wrap.appendChild(inp); try{inp.focus();inp.select();}catch(e){}
-        function done(){ var v=(inp.value||"").trim()||"Privát"; try{localStorage.setItem("stg_phone_label",v);}catch(e){} lb.textContent=v; lb.style.display=""; inp.remove(); }
-        inp.addEventListener("blur",done);
-        inp.addEventListener("keydown",function(ev){ if(ev.key==="Enter") done(); });
+      var dev=""; try{ if(B&&typeof B.deviceId==="function") dev=B.deviceId()||""; }catch(e){}
+      api("GET","/api/v1/erp/app/whoami"+(dev?("?device_id="+encodeURIComponent(dev)):""),"").then(function(w){
+        var n=document.getElementById("homeWhoName"), lb=document.getElementById("homeWhoLabel");
+        if(n&&w&&w.jmeno) n.textContent=w.jmeno;
+        if(lb) lb.textContent=(w&&w.label)||"";
       });
     })();
     updateLive();

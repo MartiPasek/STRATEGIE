@@ -933,49 +933,55 @@ window.onerror=function(msg,src,line){
     api("POST","/api/v1/erp/app/vyroba/plan-overlay",b).then(function(r){ if(r&&r.ok) vyLoad(); }); }
   function vyResolve(id){ api("POST","/api/v1/erp/app/vyroba/zprava/"+id+"/resolve",{}).then(function(r){ if(r&&r.ok){ vyLoad(); vyCounts(); } }); }
   // Marti 8.6.: diktování do pole přes nativní záznamník (file-capture) → Whisper.
-  // Spolehlivější než getUserMedia ve WebView (to řeší WebView oprávnění).
-  // Marti 8.6.: diktování 1:1 jako „Tvoje Marti" — přímé nahrávání (MediaRecorder
-  // → webm), žádný nativní recorder. Webm Whisper vždy bere.
-  // Uvolni jakýkoli viselý mikrofonní stream (NotReadableError = HW ještě držený
-  // předchozím getUserMedia, např. Marti chatem). Marti 8.6.: drž 1 globální stream.
+  // Marti 8.6.: diktování ve Výrobě 1:1 jako velký Marti chat — PODRŽ a mluv,
+  // pusť = přepis. Pointer capture (drží i když ujede prst) + detekce formátu
+  // (webm/opus) + requestData flush před stop (jinak Chrome zapíše jen header).
   function _micRelease(){ try{ if(window.__micStream){ window.__micStream.getTracks().forEach(function(t){t.stop();}); window.__micStream=null; } }catch(e){} }
+  function _micMime(){ var c=["audio/webm;codecs=opus","audio/webm","audio/ogg;codecs=opus","audio/mp4"]; if(typeof MediaRecorder==="undefined")return ""; for(var i=0;i<c.length;i++){ if(MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(c[i]))return c[i]; } return ""; }
+  function _micExt(m){ if(!m)return "webm"; if(m.indexOf("audio/mp4")===0)return "m4a"; if(m.indexOf("audio/ogg")===0)return "ogg"; return "webm"; }
   function vyMic(ta, st){
-    var btn=el('<button class="ghost" style="width:52px;font-size:19px;border-color:var(--blue);color:var(--blue);margin:0;flex:none;" title="Nadiktovat">🎙</button>');
-    var rec=null;
-    function startRec(stream){
-      window.__micStream=stream;
-      var chunks=[]; var mr=new MediaRecorder(stream);
-      mr.ondataavailable=function(e){ if(e.data&&e.data.size)chunks.push(e.data); };
-      mr.onstop=function(){
-        _micRelease(); btn.textContent="🎙"; rec=null;
-        var blob=new Blob(chunks,{type:mr.mimeType||"audio/webm"});
-        if(blob.size<400){ if(st)st.textContent="✗ Nic nenahráno."; return; }
-        if(st)st.textContent="💭 Přepisuji…"; btn.disabled=true;
-        var fr=new FileReader();
-        fr.onload=function(){
-          api("POST","/api/v1/erp/app/transcribe",{audio_b64:String(fr.result).split(",")[1],mime:blob.type,filename:"mobil-audio.webm"}).then(function(r){
-            btn.disabled=false;
-            if(r&&r.ok&&r.text){ ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text; if(st)st.textContent="✅ Přepsáno"; try{ta.focus();}catch(e){} }
-            else { if(st)st.textContent="✗ "+((r&&r.error)||"nepřepsáno"); }
-          });
-        };
-        fr.readAsDataURL(blob);
+    var btn=el('<button class="ghost" style="width:64px;font-size:19px;border-color:var(--blue);color:var(--blue);margin:0;flex:none;touch-action:none;-webkit-user-select:none;user-select:none;" title="Podrž a mluv">🎙</button>');
+    var state="idle";  // idle | starting | recording
+    var mr=null, chunks=[], pid=null;
+    function reset(){ state="idle"; btn.textContent="🎙"; btn.style.background=""; }
+    function doTranscribe(blob){
+      if(blob.size<300){ if(st)st.textContent="✗ Moc krátké — podrž 🎙 a mluv."; return; }
+      if(st)st.textContent="💭 Přepisuji…"; btn.disabled=true;
+      var fr=new FileReader();
+      fr.onload=function(){
+        api("POST","/api/v1/erp/app/transcribe",{audio_b64:String(fr.result).split(",")[1],mime:blob.type,filename:"mobil-audio."+_micExt(blob.type)}).then(function(r){
+          btn.disabled=false;
+          if(r&&r.ok&&r.text){ ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text; if(st)st.textContent="✅ Přepsáno"; try{ta.focus();}catch(e){} }
+          else { if(st)st.textContent="✗ "+((r&&r.error)||"nepřepsáno"); }
+        });
       };
-      mr.start(); rec=mr; btn.textContent="⏹"; if(st)st.textContent="🔴 Mluv… (klepni ⏹)";
+      fr.readAsDataURL(blob);
     }
-    function grab(tries){
-      navigator.mediaDevices.getUserMedia({audio:true}).then(startRec).catch(function(err){
-        var nm=(err&&(err.name||err.message))||"?";
-        // NotReadableError = mikrofon ještě držený → uvolni a po chvíli zkus znovu.
-        if(nm==="NotReadableError"&&tries>0){ _micRelease(); if(st)st.textContent="🎙 Připravuji mikrofon…"; setTimeout(function(){ grab(tries-1); },500); return; }
-        if(st)st.textContent="🎙 Mikrofon ["+nm+"] — klepni znovu.";
-      });
+    function stopRec(){
+      if(state==="starting"){ state="aborting"; return; }   // pustil během getUserMedia
+      if(state!=="recording"||!mr){ return; }
+      reset();
+      try{ if(mr.state==="recording") mr.requestData(); }catch(e){}
+      try{ mr.stop(); }catch(e){ _micRelease(); }
     }
-    btn.addEventListener("click",function(){
-      if(rec){ try{rec.stop();}catch(e){} return; }
+    function startRec(){
+      if(state!=="idle") return;
       if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder)){ if(st)st.textContent="🎙 Mikrofon tu není dostupný."; return; }
-      _micRelease(); if(st)st.textContent="🎙 …"; grab(3);
-    });
+      state="starting"; _micRelease(); btn.textContent="⏺"; btn.style.background="rgba(79,142,247,.18)"; if(st)st.textContent="🎙 …";
+      navigator.mediaDevices.getUserMedia({audio:true}).then(function(s){
+        window.__micStream=s;
+        if(state==="aborting"){ _micRelease(); reset(); if(st)st.textContent=""; return; }
+        var mime=_micMime(); var opts=mime?{mimeType:mime}:{};
+        try{ mr=new MediaRecorder(s,opts); }catch(e){ try{ mr=new MediaRecorder(s); }catch(e2){ _micRelease(); reset(); if(st)st.textContent="🎙 Záznam nejde."; return; } }
+        chunks=[];
+        mr.ondataavailable=function(e){ if(e.data&&e.data.size)chunks.push(e.data); };
+        mr.onstop=function(){ var raw=(mr&&mr.mimeType)||mime||"audio/webm"; var m=raw.split(";")[0].trim()||"audio/webm"; var blob=new Blob(chunks,{type:m}); _micRelease(); mr=null; doTranscribe(blob); };
+        mr.start(); state="recording"; btn.textContent="⏺"; if(st)st.textContent="🔴 Mluv… (pusť pro přepis)";
+      }).catch(function(err){ _micRelease(); reset(); if(st)st.textContent="🎙 Mikrofon ["+((err&&(err.name||err.message))||"?")+"] — podrž znovu."; });
+    }
+    btn.addEventListener("pointerdown",function(ev){ ev.preventDefault(); pid=ev.pointerId; try{btn.setPointerCapture(pid);}catch(e){} startRec(); });
+    btn.addEventListener("pointerup",function(ev){ ev.preventDefault(); try{btn.releasePointerCapture(pid);}catch(e){} stopRec(); });
+    btn.addEventListener("pointercancel",function(){ stopRec(); });
     return btn;
   }
   function vyOdvozLi(o){

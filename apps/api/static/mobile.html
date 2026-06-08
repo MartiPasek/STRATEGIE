@@ -961,7 +961,7 @@ window.onerror=function(msg,src,line){
           fr.readAsDataURL(blob);
         };
         mr.start(); rec=mr; btn.textContent="⏹"; if(st)st.textContent="🔴 Mluv… (klepni ⏹) ·v2";
-      }).catch(function(){ if(st)st.textContent="🎙 Povol prosím mikrofon a klepni znovu."; });
+      }).catch(function(err){ if(st)st.textContent="🎙 Mikrofon ["+((err&&(err.name||err.message))||"?")+"] — klepni znovu. ·v3"; });
     });
     return btn;
   }

@@ -6601,9 +6601,46 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                 "hod": (float(r[3]) if r[3] is not None else None),
                 "poradi": r[4], "hidden": bool(r[5]), "done": bool(r[6]),
                 "poznamka": r[7] or ""})
-        lidi = [{"user_id": p[0], "jmeno": p[1], "dnes": p[2] or "",
-                 "plan": planmap.get(p[0], []),
-                 "prirazeni": amap.get(p[0], [])} for p in people]
+        # stav z docházky (dnes) per člověk: makam / pauza / jedu / pryc / byl / ''
+        stavmap = {}
+        try:
+            srows = s.execute(_t(
+                "SELECT e.user_id, "
+                " bool_or(a.is_active AND et.category='presence' AND a.status NOT IN ('superseded','announced')) AS aktiv, "
+                " count(*) FILTER (WHERE a.status NOT IN ('superseded','announced')) AS zazn, "
+                " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note "
+                "FROM tenant.att_entry a "
+                "JOIN tenant.att_employee e ON e.id=a.employee_id AND e.tenant_id=2 "
+                "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+                "WHERE a.tenant_id=2 AND a.entry_date=CURRENT_DATE AND e.user_id IS NOT NULL "
+                "GROUP BY e.user_id")).fetchall()
+            for r in srows:
+                nl = (r[3] or "").lower()
+                if ("jedu" in nl) or ("cest" in nl):
+                    st = "jedu"
+                elif r[1]:
+                    st = "makam"
+                elif any(k in nl for k in ("pauz", "obed", "relax", "provetr", "jidl", "najist", "provětr", "jídl", "oběd", "najíst")):
+                    st = "pauza"
+                elif any(k in nl for k in ("nepocitej", "nepočítej", "nedoraz", "dovolen", "nemoc", "doktor", "lekar", "lékař")):
+                    st = "pryc"
+                elif (r[2] or 0) > 0:
+                    st = "byl"
+                else:
+                    st = ""
+                stavmap[r[0]] = st
+        except Exception:
+            stavmap = {}
+        lidi = []
+        for p in people:
+            _plan = planmap.get(p[0], [])
+            _pr = amap.get(p[0], [])
+            _haswork = bool(_pr) or any((not o.get("hidden")) for o in _plan)
+            _st = stavmap.get(p[0], "")
+            if _st == "" and _haswork:
+                _st = "chybi"
+            lidi.append({"user_id": p[0], "jmeno": p[1], "dnes": p[2] or "",
+                         "plan": _plan, "prirazeni": _pr, "stav": _st})
         s.commit()
         return JSONResponse({"ok": True, "lidi": lidi})
     except Exception as exc:
@@ -6850,14 +6887,17 @@ async def app_vyroba_zprava(req: Request) -> JSONResponse:
     txt = str((body or {}).get("text") or "").strip()[:1000]
     pid = (body or {}).get("prirazeni_id")
     cislo = str((body or {}).get("cislo_zakazky") or "").strip()[:40] or None
+    typ = str((body or {}).get("typ") or "pozadavek").strip()[:16]
+    if typ not in ("pozadavek", "info"):
+        typ = "pozadavek"
     if not txt:
         return JSONResponse({"ok": False, "error": "Napiš zprávu."})
     cm, s = _att_session()
     try:
         s.execute(_t(
-            "INSERT INTO tenant.vyroba_zprava (tenant_id, prirazeni_id, user_id, cislo_zakazky, text) "
-            "VALUES (2, :pid, :u, :c, :t)"),
-            {"pid": pid, "u": uid, "c": cislo, "t": txt})
+            "INSERT INTO tenant.vyroba_zprava (tenant_id, prirazeni_id, user_id, cislo_zakazky, text, typ) "
+            "VALUES (2, :pid, :u, :c, :t, :ty)"),
+            {"pid": pid, "u": uid, "c": cislo, "t": txt, "ty": typ})
         jm = _user_jmeno(s, uid)
         for m in _VYROBA_MANAGERS:
             s.execute(_t(
@@ -6888,12 +6928,13 @@ async def app_vyroba_zpravy(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "SELECT z.id, COALESCE(u.short_name, u.last_name, '#'||z.user_id) AS jmeno, "
             " COALESCE(z.cislo_zakazky,''), z.text, "
-            " to_char(z.created_at,'DD.MM HH24')||':'||to_char(z.created_at,'MI') AS kdy "
+            " to_char(z.created_at,'DD.MM HH24')||':'||to_char(z.created_at,'MI') AS kdy, "
+            " COALESCE(z.typ,'pozadavek') AS typ "
             "FROM tenant.vyroba_zprava z LEFT JOIN public.users u ON u.id = z.user_id "
-            "WHERE z.tenant_id=2 ORDER BY z.created_at DESC LIMIT 50")).fetchall()
+            "WHERE z.tenant_id=2 ORDER BY z.created_at DESC LIMIT 80")).fetchall()
         s.commit()
         return JSONResponse({"ok": True, "zpravy": [
-            {"id": r[0], "jmeno": r[1], "cislo": r[2], "text": r[3], "kdy": r[4]} for r in rows]})
+            {"id": r[0], "jmeno": r[1], "cislo": r[2], "text": r[3], "kdy": r[4], "typ": r[5]} for r in rows]})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

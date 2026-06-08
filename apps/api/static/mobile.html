@@ -936,23 +936,37 @@ window.onerror=function(msg,src,line){
   // Spolehlivější než getUserMedia ve WebView (to řeší WebView oprávnění).
   function vyMic(ta, st){
     var btn=el('<button class="ghost" style="width:52px;font-size:19px;border-color:var(--blue);color:var(--blue);margin:0;flex:none;" title="Nadiktovat">🎙</button>');
-    btn.addEventListener("click",function(){
+    var rec=null;
+    function trans(blob, name){
+      if(blob.size<400){ if(st)st.textContent="✗ Nic nenahráno."; return; }
+      if(blob.size>9*1024*1024){ if(st)st.textContent="✗ Moc dlouhé."; return; }
+      if(st)st.textContent="💭 Přepisuji…"; btn.disabled=true;
+      var fr=new FileReader();
+      fr.onload=function(){
+        api("POST","/api/v1/erp/app/transcribe",{audio_b64:String(fr.result).split(",")[1],mime:blob.type||"audio/webm",filename:name||""}).then(function(r){
+          btn.disabled=false;
+          if(r&&r.ok&&r.text){ ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text; if(st)st.textContent="✅ Přepsáno"; try{ta.focus();}catch(e){} }
+          else { if(st)st.textContent="✗ "+((r&&r.error)||"nepřepsáno"); }
+        });
+      };
+      fr.readAsDataURL(blob);
+    }
+    function fileFb(){
       var fi=el('<input type="file" accept="audio/*" capture style="display:none;">');
-      fi.addEventListener("change",function(){
-        var f=fi.files&&fi.files[0]; if(!f) return;
-        if(f.size>9*1024*1024){ if(st)st.textContent="✗ Nahrávka je moc dlouhá."; return; }
-        if(st)st.textContent="💭 Přepisuji…"; btn.disabled=true;
-        var fr=new FileReader();
-        fr.onload=function(){
-          api("POST","/api/v1/erp/app/transcribe",{audio_b64:String(fr.result).split(",")[1],mime:f.type||"audio/m4a",filename:f.name||""}).then(function(r){
-            btn.disabled=false;
-            if(r&&r.ok&&r.text){ ta.value=(ta.value?(ta.value.trim()+" "):"")+r.text; if(st)st.textContent="✅ Přepsáno"; try{ta.focus();}catch(e){} }
-            else { if(st)st.textContent="✗ "+((r&&r.error)||"nepřepsáno"); }
-          });
-        };
-        fr.readAsDataURL(f);
-      });
+      fi.addEventListener("change",function(){ var f=fi.files&&fi.files[0]; if(f) trans(f, f.name); });
       document.body.appendChild(fi); fi.click();
+    }
+    btn.addEventListener("click",function(){
+      if(rec){ try{rec.stop();}catch(e){} return; }
+      if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder){
+        navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+          var chunks=[], mr=new MediaRecorder(stream);
+          mr.ondataavailable=function(e){ if(e.data&&e.data.size)chunks.push(e.data); };
+          mr.onstop=function(){ stream.getTracks().forEach(function(t){t.stop();}); btn.textContent="🎙"; rec=null;
+            trans(new Blob(chunks,{type:(mr.mimeType||"audio/webm").split(";")[0]}), ""); };
+          mr.start(); rec=mr; btn.textContent="⏹"; if(st)st.textContent="🔴 Mluv… (klepni ⏹)";
+        }).catch(function(){ if(st)st.textContent="🎙 Povol mikrofon, nebo zkus záznamník…"; fileFb(); });
+      } else { fileFb(); }
     });
     return btn;
   }

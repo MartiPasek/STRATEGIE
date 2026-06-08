@@ -9337,12 +9337,14 @@ def _sync_vyroba_plan_from_ec() -> dict:
     mcp = get_eurosoft_mcp_client()
     if mcp is None:
         raise RuntimeError("EUROSOFT MCP nedostupné")
-    sql = ("SELECT m.ID id, m.CisloZam cz, m.CisloZakazky ck, "
-           "LEFT(ISNULL(v.Nazev,''),200) nz, "
+    sql = ("SELECT m.ID id, m.CisloZam cz, "
+           "LTRIM(RTRIM(ISNULL(z.Prijmeni,'') + ' ' + ISNULL(z.Jmeno,''))) zam, "
+           "m.CisloZakazky ck, LEFT(ISNULL(v.Nazev,''),200) nz, "
            "CONVERT(varchar(10), m.Datum, 23) dt, m.PocetHodin hod, "
            "CAST(ISNULL(m.JsemMonter,0) AS int) jm, m.Typ typ "
            "FROM EC_Vytizeni_PlanMonteri m "
            "LEFT JOIN EC_Vytizeni_Zakazky v ON v.CisloZakazky = m.CisloZakazky "
+           "LEFT JOIN TabCisZam z ON z.Cislo = m.CisloZam "
            "WHERE m.Datum >= CAST(GETDATE() AS DATE) "
            "AND m.Datum < DATEADD(day, 60, CAST(GETDATE() AS DATE))")
     raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
@@ -9366,11 +9368,13 @@ def _sync_vyroba_plan_from_ec() -> dict:
         sess.execute(_t(
             "CREATE TABLE IF NOT EXISTS tenant.vyroba_plan ("
             " tenant_id bigint NOT NULL, ext_id bigint NOT NULL,"
-            " cislo_zam int, user_id bigint, cislo_zakazky varchar(40),"
+            " cislo_zam int, zam_jmeno text, user_id bigint, cislo_zakazky varchar(40),"
             " zakazka_nazev text, datum date, pocet_hodin numeric(6,2),"
             " je_monter boolean, typ varchar(20),"
             " synced_at timestamptz DEFAULT now(),"
             " PRIMARY KEY (tenant_id, ext_id))"))
+        sess.execute(_t(
+            "ALTER TABLE tenant.vyroba_plan ADD COLUMN IF NOT EXISTS zam_jmeno text"))
         sess.execute(_t(
             "CREATE INDEX IF NOT EXISTS ix_vyroba_plan_user_datum"
             " ON tenant.vyroba_plan (tenant_id, user_id, datum)"))
@@ -9387,15 +9391,18 @@ def _sync_vyroba_plan_from_ec() -> dict:
             cz = row.get("cz")
             uid = umap.get(str(cz).strip()) if cz is not None else None
             sess.execute(_t(
-                "INSERT INTO tenant.vyroba_plan (tenant_id, ext_id, cislo_zam, user_id,"
+                "INSERT INTO tenant.vyroba_plan (tenant_id, ext_id, cislo_zam, zam_jmeno, user_id,"
                 " cislo_zakazky, zakazka_nazev, datum, pocet_hodin, je_monter, typ, synced_at)"
-                " VALUES (2, :eid, :cz, :uid, :ck, :nz, :dt, :hod, :jm, :typ, now())"
+                " VALUES (2, :eid, :cz, :zam, :uid, :ck, :nz, :dt, :hod, :jm, :typ, now())"
                 " ON CONFLICT (tenant_id, ext_id) DO UPDATE SET cislo_zam = EXCLUDED.cislo_zam,"
+                " zam_jmeno = EXCLUDED.zam_jmeno,"
                 " user_id = EXCLUDED.user_id, cislo_zakazky = EXCLUDED.cislo_zakazky,"
                 " zakazka_nazev = EXCLUDED.zakazka_nazev, datum = EXCLUDED.datum,"
                 " pocet_hodin = EXCLUDED.pocet_hodin, je_monter = EXCLUDED.je_monter,"
                 " typ = EXCLUDED.typ, synced_at = now()"),
-                {"eid": row.get("id"), "cz": cz, "uid": uid,
+                {"eid": row.get("id"), "cz": cz,
+                 "zam": (str(row.get("zam")).strip() or None) if row.get("zam") is not None else None,
+                 "uid": uid,
                  "ck": (str(row.get("ck")).strip() if row.get("ck") is not None else None),
                  "nz": row.get("nz"), "dt": row.get("dt"), "hod": row.get("hod"),
                  "jm": bool(int(row.get("jm") or 0)), "typ": row.get("typ")})

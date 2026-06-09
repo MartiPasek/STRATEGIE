@@ -10964,6 +10964,10 @@ _OPS_ACTIONS = {
         "label": "Synchronizovat org strukturu (EC_Org* → STRATEGIE)",
         "target": "cloud", "remote": False,
     },
+    "sync_ec_org": {
+        "label": "Synchronizovat organizace z Centrály (TabCisOrg EC+IS → STRATEGIE)",
+        "target": "cloud", "remote": False,
+    },
     "att_anomaly_scan": {
         "label": "Zkontrolovat docházku (anomálie → notifikace)",
         "target": "cloud", "remote": False,
@@ -11588,6 +11592,145 @@ def _sync_zakazky_from_helios() -> dict:
     return {"synced": n}
 
 
+def _sync_ec_org_from_centrala() -> dict:
+    """Marti 9.6.2026: zrcadlo organizací z Centrály (TabCisOrg + TabCisOrg_EXT)
+    z OBOU instancí (DB_EC=EC, DB_IS=IS) → tenant.ec_org. Kurátorovaný výběr pro
+    objednávky/fakturaci živnostníků + kontakty do mobilu. Zdroj pravdy zůstává
+    na straně EUROSOFTU. Idempotentní upsert dle (tenant_id, source_db, ec_id).
+    ⚙ ops akce sync_ec_org. Per-source commit (chyba v IS nezhodí EC)."""
+    import json as _json_o
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _json_o.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    sel = (
+        "SELECT o.ID id, o.CisloOrg cislo, LEFT(ISNULL(o.Nazev,''),255) nazev,"
+        " LEFT(ISNULL(o.DruhyNazev,''),100) druhy, LEFT(ISNULL(o.Jmeno,''),100) jmeno,"
+        " LEFT(ISNULL(o.Prijmeni,''),100) prijmeni, LEFT(ISNULL(o.ICO,''),20) ico,"
+        " LEFT(ISNULL(o.DIC,''),15) dic, LEFT(ISNULL(o.Misto,''),100) misto,"
+        " LEFT(ISNULL(o.PSC,''),10) psc, LEFT(ISNULL(o.UliceSCisly,''),237) ulice,"
+        " LEFT(ISNULL(o.IdZeme,''),3) zeme, LEFT(ISNULL(o.Region,''),15) region,"
+        " LEFT(ISNULL(o.Kontakt,''),40) kontakt,"
+        " CAST(ISNULL(o.JeOdberatel,0) AS int) odb, CAST(ISNULL(o.JeDodavatel,0) AS int) dod,"
+        " CAST(ISNULL(o.JePartner,0) AS int) par, CAST(ISNULL(o.Agent,0) AS int) agent,"
+        " CAST(ISNULL(o.Stav,0) AS int) stav, CAST(ISNULL(o.PravniForma,0) AS int) pf,"
+        " LEFT(ISNULL(o.FormaUhrady,''),30) uhrada, ISNULL(o.LhutaSplatnosti,0) splat,"
+        " LEFT(ISNULL(o.Mena,''),3) mena, LEFT(ISNULL(o.Jazyk,''),15) jazyk,"
+        " ISNULL(o.NadrizenaOrg,0) nadr,"
+        " LEFT(ISNULL(e._Objednavky_Email,''),60) oemail,"
+        " LEFT(ISNULL(e._Objednavky_Telefon,''),20) otel,"
+        " LEFT(ISNULL(e._Objednavky_Fax,''),20) ofax, LEFT(ISNULL(e._Zkratka_nazvu,''),15) zkr,"
+        " LEFT(ISNULL(e._Teritorium,''),20) terit, LEFT(ISNULL(e._Stredisko,''),30) stred,"
+        " CAST(ISNULL(e._JeDopravce,0) AS int) dopravce,"
+        " LEFT(ISNULL(e._PoznamkaOrg,''),1000) pozn,"
+        " CONVERT(varchar(19), o.DatZmeny, 120) dz"
+        " FROM %sTabCisOrg o LEFT JOIN %sTabCisOrg_EXT e ON e.ID = o.ID")
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    counts = {}
+    errors = []
+    try:
+        s.execute(_t(
+            "CREATE TABLE IF NOT EXISTS tenant.ec_org ("
+            " tenant_id bigint NOT NULL, source_db varchar(4) NOT NULL, ec_id int NOT NULL,"
+            " cislo_org int, nazev text, druhy_nazev text, jmeno text, prijmeni text,"
+            " ico varchar(20), dic varchar(15),"
+            " misto text, psc varchar(10), ulice text, zeme varchar(3), region varchar(15),"
+            " kontakt text,"
+            " je_odberatel boolean, je_dodavatel boolean, je_partner boolean,"
+            " agent boolean, je_dopravce boolean,"
+            " stav smallint, pravni_forma smallint,"
+            " forma_uhrady varchar(30), lhuta_splatnosti smallint,"
+            " mena varchar(3), jazyk varchar(15), nadrizena_org int,"
+            " obj_email text, obj_telefon varchar(40), obj_fax varchar(40), zkratka varchar(20),"
+            " teritorium varchar(20), stredisko varchar(40), poznamka text,"
+            " dat_zmeny timestamptz, synced_at timestamptz DEFAULT now(),"
+            " PRIMARY KEY (tenant_id, source_db, ec_id))"))
+        s.commit()
+
+        ins = _t(
+            "INSERT INTO tenant.ec_org (tenant_id, source_db, ec_id, cislo_org, nazev, druhy_nazev,"
+            " jmeno, prijmeni, ico, dic, misto, psc, ulice, zeme, region, kontakt,"
+            " je_odberatel, je_dodavatel, je_partner, agent, je_dopravce, stav, pravni_forma,"
+            " forma_uhrady, lhuta_splatnosti, mena, jazyk, nadrizena_org,"
+            " obj_email, obj_telefon, obj_fax, zkratka, teritorium, stredisko, poznamka,"
+            " dat_zmeny, synced_at) "
+            "VALUES (2, :src, :id, :cislo, :nazev, :druhy, :jmeno, :prijmeni, :ico, :dic,"
+            " :misto, :psc, :ulice, :zeme, :region, :kontakt,"
+            " :odb, :dod, :par, :agent, :dopravce, :stav, :pf,"
+            " :uhrada, :splat, :mena, :jazyk, :nadr,"
+            " :oemail, :otel, :ofax, :zkr, :terit, :stred, :pozn,"
+            " NULLIF(:dz,'')::timestamptz, now()) "
+            "ON CONFLICT (tenant_id, source_db, ec_id) DO UPDATE SET"
+            " cislo_org=EXCLUDED.cislo_org, nazev=EXCLUDED.nazev, druhy_nazev=EXCLUDED.druhy_nazev,"
+            " jmeno=EXCLUDED.jmeno, prijmeni=EXCLUDED.prijmeni, ico=EXCLUDED.ico, dic=EXCLUDED.dic,"
+            " misto=EXCLUDED.misto, psc=EXCLUDED.psc, ulice=EXCLUDED.ulice, zeme=EXCLUDED.zeme,"
+            " region=EXCLUDED.region, kontakt=EXCLUDED.kontakt,"
+            " je_odberatel=EXCLUDED.je_odberatel, je_dodavatel=EXCLUDED.je_dodavatel,"
+            " je_partner=EXCLUDED.je_partner, agent=EXCLUDED.agent, je_dopravce=EXCLUDED.je_dopravce,"
+            " stav=EXCLUDED.stav, pravni_forma=EXCLUDED.pravni_forma,"
+            " forma_uhrady=EXCLUDED.forma_uhrady, lhuta_splatnosti=EXCLUDED.lhuta_splatnosti,"
+            " mena=EXCLUDED.mena, jazyk=EXCLUDED.jazyk, nadrizena_org=EXCLUDED.nadrizena_org,"
+            " obj_email=EXCLUDED.obj_email, obj_telefon=EXCLUDED.obj_telefon, obj_fax=EXCLUDED.obj_fax,"
+            " zkratka=EXCLUDED.zkratka, teritorium=EXCLUDED.teritorium, stredisko=EXCLUDED.stredisko,"
+            " poznamka=EXCLUDED.poznamka, dat_zmeny=EXCLUDED.dat_zmeny, synced_at=now()")
+
+        for src, dbp in (("EC", ""), ("IS", "DB_IS.dbo.")):
+            try:
+                data = rows_of(sel % (dbp, dbp))
+            except Exception as exc:
+                errors.append("%s: %s" % (src, exc))
+                continue
+            n = 0
+            for o in data:
+                oid = o.get("id")
+                if oid is None:
+                    continue
+                s.execute(ins, {
+                    "src": src, "id": int(oid), "cislo": o.get("cislo"),
+                    "nazev": o.get("nazev"), "druhy": o.get("druhy"),
+                    "jmeno": o.get("jmeno"), "prijmeni": o.get("prijmeni"),
+                    "ico": o.get("ico"), "dic": o.get("dic"), "misto": o.get("misto"),
+                    "psc": o.get("psc"), "ulice": o.get("ulice"), "zeme": o.get("zeme"),
+                    "region": o.get("region"), "kontakt": o.get("kontakt"),
+                    "odb": bool(int(o.get("odb") or 0)), "dod": bool(int(o.get("dod") or 0)),
+                    "par": bool(int(o.get("par") or 0)), "agent": bool(int(o.get("agent") or 0)),
+                    "dopravce": bool(int(o.get("dopravce") or 0)),
+                    "stav": int(o.get("stav") or 0), "pf": int(o.get("pf") or 0),
+                    "uhrada": o.get("uhrada"), "splat": int(o.get("splat") or 0),
+                    "mena": o.get("mena"), "jazyk": o.get("jazyk"),
+                    "nadr": int(o.get("nadr") or 0),
+                    "oemail": o.get("oemail"), "otel": o.get("otel"), "ofax": o.get("ofax"),
+                    "zkr": o.get("zkr"), "terit": o.get("terit"), "stred": o.get("stred"),
+                    "pozn": o.get("pozn"), "dz": o.get("dz") or "",
+                })
+                n += 1
+            s.commit()
+            counts[src] = n
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"counts": counts, "errors": errors}
+
+
 def _sync_vyroba_plan_from_ec() -> dict:
     """Marti 8.6.2026: read-only zrcadlo plánu výroby (EC_Vytizeni_PlanMonteri,
     živý systém za Excelem 'Plánování vytížení') → tenant.vyroba_plan. Řádek =
@@ -11856,6 +11999,14 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("org sync: %s postů, %s obsazení, %s klobouků"
                       % (out.get("posts"), out.get("assigns"), out.get("hats")))
+        elif action_key == "sync_ec_org":
+            out = _sync_ec_org_from_centrala()
+            status = "done"
+            _cnt = out.get("counts") or {}
+            result = ("organizace: %s EC + %s IS%s"
+                      % (_cnt.get("EC", 0), _cnt.get("IS", 0),
+                         "" if not out.get("errors") else
+                         " · chyby: " + "; ".join(out["errors"][:2])))
         elif action_key == "att_anomaly_scan":
             out = _att_anomaly_scan()
             status = "done"

@@ -11739,6 +11739,142 @@ def _sync_ec_org_from_centrala() -> dict:
     return {"counts": counts, "errors": errors}
 
 
+def _classify_spojeni(val: str) -> str:
+    """Klasifikace hodnoty spojení na typ kanálu (robustně podle obsahu,
+    nezávisle na EUROSOFT číselníku Druh, který míchá)."""
+    v = (val or "").strip().lower()
+    if not v:
+        return "jine"
+    if "@" in v and "." in v.split("@")[-1]:
+        return "email"
+    if v.startswith("www") or v.startswith("http") or ".cz" in v or ".com" in v or ".de" in v:
+        if "@" not in v:
+            return "web"
+    digits = sum(1 for c in v if c.isdigit())
+    compact = "".join(c for c in v if not c.isspace())
+    if digits >= 6 and compact and digits >= len(compact) * 0.5:
+        return "telefon"
+    return "jine"
+
+
+def _sync_ec_kontakty_from_centrala() -> dict:
+    """Marti 9.6.2026: Fáze 1 zrcadla kontaktů — osoby (TabCisKOs + TabCisZam)
+    a spojení (TabKontakty, polymorfní na org/osoba/zam) z Centrály → tenant.ec_osoba
+    + tenant.ec_spojeni. Zdroj pravdy zůstává EUROSOFT. Klasifikace typu kanálu
+    podle obsahu. Per-source (EC + IS) s vlastním try. Idempotentní upsert."""
+    import json as _json_k
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _json_k.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    counts = {"osoby": 0, "spojeni": 0}
+    errors = []
+    try:
+        s.execute(_t(
+            "CREATE TABLE IF NOT EXISTS tenant.ec_osoba ("
+            " tenant_id bigint NOT NULL, source_db varchar(4) NOT NULL,"
+            " kind varchar(4) NOT NULL, ec_id int NOT NULL, cislo_zam int,"
+            " jmeno text, prijmeni text, titul_pred varchar(40), titul_za varchar(40),"
+            " synced_at timestamptz DEFAULT now(),"
+            " PRIMARY KEY (tenant_id, source_db, kind, ec_id))"))
+        s.execute(_t(
+            "CREATE TABLE IF NOT EXISTS tenant.ec_spojeni ("
+            " tenant_id bigint NOT NULL, source_db varchar(4) NOT NULL, ec_id int NOT NULL,"
+            " org_ec_id int, kos_ec_id int, zam_ec_id int,"
+            " druh smallint, typ varchar(10), hodnota text, hodnota2 text, popis text,"
+            " synced_at timestamptz DEFAULT now(),"
+            " PRIMARY KEY (tenant_id, source_db, ec_id))"))
+        s.execute(_t("CREATE INDEX IF NOT EXISTS ix_ec_spojeni_org ON tenant.ec_spojeni (tenant_id, source_db, org_ec_id)"))
+        s.commit()
+
+        ins_kos = _t(
+            "INSERT INTO tenant.ec_osoba (tenant_id, source_db, kind, ec_id, jmeno, prijmeni,"
+            " titul_pred, titul_za, synced_at) "
+            "VALUES (2, :src, 'kos', :id, :jm, :pr, :tp, :tz, now()) "
+            "ON CONFLICT (tenant_id, source_db, kind, ec_id) DO UPDATE SET jmeno=EXCLUDED.jmeno,"
+            " prijmeni=EXCLUDED.prijmeni, titul_pred=EXCLUDED.titul_pred, titul_za=EXCLUDED.titul_za,"
+            " synced_at=now()")
+        ins_zam = _t(
+            "INSERT INTO tenant.ec_osoba (tenant_id, source_db, kind, ec_id, cislo_zam, jmeno, prijmeni, synced_at) "
+            "VALUES (2, :src, 'zam', :id, :cislo, :jm, :pr, now()) "
+            "ON CONFLICT (tenant_id, source_db, kind, ec_id) DO UPDATE SET cislo_zam=EXCLUDED.cislo_zam,"
+            " jmeno=EXCLUDED.jmeno, prijmeni=EXCLUDED.prijmeni, synced_at=now()")
+        ins_sp = _t(
+            "INSERT INTO tenant.ec_spojeni (tenant_id, source_db, ec_id, org_ec_id, kos_ec_id, zam_ec_id,"
+            " druh, typ, hodnota, hodnota2, popis, synced_at) "
+            "VALUES (2, :src, :id, :org, :kos, :zam, :druh, :typ, :val, :val2, :popis, now()) "
+            "ON CONFLICT (tenant_id, source_db, ec_id) DO UPDATE SET org_ec_id=EXCLUDED.org_ec_id,"
+            " kos_ec_id=EXCLUDED.kos_ec_id, zam_ec_id=EXCLUDED.zam_ec_id, druh=EXCLUDED.druh,"
+            " typ=EXCLUDED.typ, hodnota=EXCLUDED.hodnota, hodnota2=EXCLUDED.hodnota2,"
+            " popis=EXCLUDED.popis, synced_at=now()")
+
+        for src, dbp in (("EC", ""), ("IS", "DB_IS.dbo.")):
+            try:
+                kos = rows_of(
+                    "SELECT ID id, LEFT(ISNULL(Jmeno,''),100) jm, LEFT(ISNULL(Prijmeni,''),100) pr,"
+                    " LEFT(ISNULL(TitulPred,''),40) tp, LEFT(ISNULL(TitulZa,''),40) tz"
+                    " FROM %sTabCisKOs" % dbp)
+                for o in kos:
+                    if o.get("id") is None:
+                        continue
+                    s.execute(ins_kos, {"src": src, "id": int(o["id"]), "jm": o.get("jm"),
+                                        "pr": o.get("pr"), "tp": o.get("tp"), "tz": o.get("tz")})
+                    counts["osoby"] += 1
+                zam = rows_of(
+                    "SELECT ID id, Cislo cislo, LEFT(ISNULL(Jmeno,''),100) jm, LEFT(ISNULL(Prijmeni,''),100) pr"
+                    " FROM %sTabCisZam" % dbp)
+                for o in zam:
+                    if o.get("id") is None:
+                        continue
+                    s.execute(ins_zam, {"src": src, "id": int(o["id"]), "cislo": o.get("cislo"),
+                                        "jm": o.get("jm"), "pr": o.get("pr")})
+                    counts["osoby"] += 1
+                sp = rows_of(
+                    "SELECT ID id, ISNULL(IDOrg,0) org, ISNULL(IDCisKOs,0) kos, ISNULL(IDCisZam,0) zam,"
+                    " ISNULL(Druh,0) druh, LEFT(ISNULL(Spojeni,''),255) val,"
+                    " LEFT(ISNULL(Spojeni2,''),255) val2, LEFT(ISNULL(Popis,''),255) popis"
+                    " FROM %sTabKontakty" % dbp)
+                for o in sp:
+                    if o.get("id") is None:
+                        continue
+                    s.execute(ins_sp, {
+                        "src": src, "id": int(o["id"]),
+                        "org": int(o.get("org") or 0) or None,
+                        "kos": int(o.get("kos") or 0) or None,
+                        "zam": int(o.get("zam") or 0) or None,
+                        "druh": int(o.get("druh") or 0),
+                        "typ": _classify_spojeni(o.get("val")),
+                        "val": o.get("val"), "val2": o.get("val2"), "popis": o.get("popis")})
+                    counts["spojeni"] += 1
+                s.commit()
+            except Exception as exc:
+                s.rollback()
+                errors.append("%s: %s" % (src, str(exc)[:160]))
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"counts": counts, "errors": errors}
+
+
 def _sync_vyroba_plan_from_ec() -> dict:
     """Marti 8.6.2026: read-only zrcadlo plánu výroby (EC_Vytizeni_PlanMonteri,
     živý systém za Excelem 'Plánování vytížení') → tenant.vyroba_plan. Řádek =
@@ -12009,12 +12145,15 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
                       % (out.get("posts"), out.get("assigns"), out.get("hats")))
         elif action_key == "sync_ec_org":
             out = _sync_ec_org_from_centrala()
+            kon = _sync_ec_kontakty_from_centrala()
             status = "done"
             _cnt = out.get("counts") or {}
-            result = ("organizace: %s EC + %s IS%s"
+            _kc = kon.get("counts") or {}
+            _errs = (out.get("errors") or []) + (kon.get("errors") or [])
+            result = ("organizace: %s EC + %s IS · osoby: %s · spojení: %s%s"
                       % (_cnt.get("EC", 0), _cnt.get("IS", 0),
-                         "" if not out.get("errors") else
-                         " · chyby: " + "; ".join(out["errors"][:2])))
+                         _kc.get("osoby", 0), _kc.get("spojeni", 0),
+                         "" if not _errs else " · chyby: " + "; ".join(_errs[:2])))
         elif action_key == "att_anomaly_scan":
             out = _att_anomaly_scan()
             status = "done"

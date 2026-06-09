@@ -9079,6 +9079,7 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2) -> dict:
         sql = ("SELECT ID, CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, "
                "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
                "CasPauza, CasCelkemZakazka hod, CisloZakazky, LoginFrom, "
+               "CAST(ISNULL(PraceAktivni,0) AS int) akt, "
                "CAST(VedSchvaleno AS int) ved, CAST(SefSchvaleno AS int) sef, CAST(Uzavreno AS int) uz "
                "FROM EC_Dochazka WHERE DatumPripadu >= '" + frm + "' ORDER BY ID")
         for r in _rows(sql):
@@ -9092,17 +9093,19 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2) -> dict:
             p = {"t": tenant, "emp": emp_id(r["CisloZam"]), "d": r.get("d"),
                  "et": type_oh if rezie else type_work, "h": r.get("hod"),
                  "z": r.get("z"), "k": r.get("k"), "br": int(r.get("CasPauza") or 0),
-                 "proj": None if rezie else (zak or None), "st": st, "src": src, "sid": rid}
+                 "proj": None if rezie else (zak or None), "st": st, "src": src, "sid": rid,
+                 "akt": (int(r.get("akt") or 0) == 1)}
             res = sess.execute(_t(
                 "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"
                 "started_at=:z,ended_at=:k,break_minutes=:br,project_ref=:proj,status=:st,source=:src,"
-                "updated_at=now() WHERE tenant_id=:t AND source_system='centrala1' AND source_id=:sid"), p)
+                "is_active=:akt,updated_at=now() "
+                "WHERE tenant_id=:t AND source_system='centrala1' AND source_id=:sid"), p)
             if (res.rowcount or 0) == 0:
                 sess.execute(_t(
                     "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
                     "started_at,ended_at,break_minutes,project_ref,status,source,source_system,source_id,"
                     "is_active,created_at,updated_at) VALUES (:t,:emp,:d,:et,:h,:z,:k,:br,:proj,:st,:src,"
-                    "'centrala1',:sid,false,now(),now())"), p)
+                    "'centrala1',:sid,:akt,now(),now())"), p)
                 ins += 1
             else:
                 upd += 1

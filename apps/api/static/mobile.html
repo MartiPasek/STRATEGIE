@@ -1194,7 +1194,7 @@ setTimeout(function(){
     var nrow=el('<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;"></div>');
     var nin=el('<input placeholder="Název telefonu (např. marti-ai)" value="'+esc(curn)+'" style="flex:1;font-size:13px;">');
     var nb=el('<button class="ghost" style="margin:0;width:64px;font-size:13px;">Uložit</button>');
-    nb.addEventListener("click",function(){ var v=(nin.value||"").trim().toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,40); if(!v)return; try{localStorage.setItem("stg_device_key",v);}catch(e){} sdLoad(); });
+    nb.addEventListener("click",function(){ var v=(nin.value||"").trim().slice(0,40); if(!v)return; try{localStorage.setItem("stg_device_key",v);}catch(e){} sdLoad(); });
     nrow.appendChild(nin); nrow.appendChild(nb); p.appendChild(nrow);
     p.appendChild(el('<div class="dashgrid" id="sdgrid"></div>'));
     var add=el('<button class="green full" style="margin-top:12px;">➕ Přidat sebe na tento telefon</button>'); add.addEventListener("click",sdJoin); p.appendChild(add);

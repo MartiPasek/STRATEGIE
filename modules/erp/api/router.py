@@ -7960,6 +7960,138 @@ async def app_task_lide(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Sdílené telefony (až 4 useři na zařízení, PWA) — Marti 9.6.2026 ─────────
+# device_key = stabilní id telefonu z localStorage. Výběr usera = kontext;
+# přepnutí = PIN (fw.user_pin). Citlivá data stejně PIN-gated zvlášť.
+@api_router.post("/app/shared/join")
+async def app_shared_join(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    dk = str((body or {}).get("device_key") or "").strip()[:80]
+    if not dk:
+        return JSONResponse({"ok": False, "error": "chybí device_key"})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        ex = s.execute(_t("SELECT 1 FROM tenant.shared_device_user "
+                          "WHERE device_key=:d AND user_id=:u AND tenant_id=2"),
+                       {"d": dk, "u": uid}).first()
+        if not ex:
+            cnt = s.execute(_t("SELECT count(*) FROM tenant.shared_device_user "
+                               "WHERE device_key=:d AND tenant_id=2"), {"d": dk}).scalar()
+            if (cnt or 0) >= 4:
+                return JSONResponse({"ok": False, "error": "Na tomto telefonu jsou už 4 lidé."})
+        s.execute(_t("INSERT INTO tenant.shared_device_user (tenant_id,device_key,user_id) "
+                     "VALUES (2,:d,:u) ON CONFLICT (device_key,user_id) DO NOTHING"),
+                  {"d": dk, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/shared/users")
+async def app_shared_users(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    dk = str(req.query_params.get("dk") or "").strip()[:80]
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT d.user_id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '#'||d.user_id) AS jmeno, "
+            " EXISTS(SELECT 1 FROM fw.user_pin p WHERE p.user_id=d.user_id) AS has_pin "
+            "FROM tenant.shared_device_user d LEFT JOIN public.users u ON u.id=d.user_id "
+            "WHERE d.device_key=:dk AND d.tenant_id=2 ORDER BY d.sort_order, jmeno"),
+            {"dk": dk}).fetchall()
+        out = [{"user_id": r[0], "jmeno": r[1], "has_pin": bool(r[2]), "current": (r[0] == uid)} for r in rows]
+        return JSONResponse({"ok": True, "users": out, "me": uid})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/shared/switch")
+async def app_shared_switch(req: Request, response: Response) -> dict:
+    cur = _uid_from_token_or_cookie(req)
+    if not cur:
+        return {"ok": False, "error": "unauthorized"}
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    dk = str((body or {}).get("device_key") or "").strip()[:80]
+    try:
+        target = int((body or {}).get("user_id"))
+    except Exception:
+        return {"ok": False, "error": "chybí user_id"}
+    pin = str((body or {}).get("pin") or "").strip()
+    from sqlalchemy import text as _t
+    from core.config import settings as _cfg
+    cm, s = _att_session()
+    try:
+        inlist = s.execute(_t("SELECT 1 FROM tenant.shared_device_user "
+                              "WHERE device_key=:d AND user_id=:u AND tenant_id=2"),
+                           {"d": dk, "u": target}).first()
+        if not inlist:
+            return {"ok": False, "error": "Tento uživatel není na tomto telefonu."}
+        g = _pin_gate(s, target, pin)
+        if g is not None:
+            return g
+        # PIN OK → přepni aktivní cookie na target usera (PWA)
+        response.set_cookie(key="user_id", value=str(target), httponly=True,
+                            max_age=60 * 60 * 24 * 30, secure=_cfg.cookie_secure,
+                            samesite=_cfg.cookie_samesite)
+        response.set_cookie(key="tenant_id", value="2", httponly=True,
+                            max_age=60 * 60 * 24 * 30, secure=_cfg.cookie_secure,
+                            samesite=_cfg.cookie_samesite)
+        return {"ok": True, "user_id": target}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/shared/remove")
+async def app_shared_remove(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    dk = str((body or {}).get("device_key") or "").strip()[:80]
+    try:
+        target = int((body or {}).get("user_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí user_id"})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t("DELETE FROM tenant.shared_device_user "
+                     "WHERE device_key=:d AND user_id=:u AND tenant_id=2"),
+                  {"d": dk, "u": target})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/announce")
 async def att_announce(req: Request) -> JSONResponse:
     """Marti 7.6.: presence status v lidské řeči („Už jedu do práce…", „Mám

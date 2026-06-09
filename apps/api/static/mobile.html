@@ -1021,6 +1021,7 @@ setTimeout(function(){
     g.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
     g.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
     g.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
+    g.appendChild(appCell("📲","Sdílený telefon",0,function(){go("sdileny");}));
     // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
     // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
     // g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
@@ -1181,6 +1182,63 @@ setTimeout(function(){
     }
     srch.addEventListener("input",paint);
     api("GET","/api/v1/erp/app/skupiny/vsichni-lide","").then(function(j){ all=(j&&j.lide)||[]; paint(); });
+  }
+  // ───── Sdílený telefon (až 4 useři, přepínač + PIN). Marti 9.6. ─────
+  function devKey(){ var k=""; try{k=localStorage.getItem("stg_device_key")||"";}catch(e){} if(!k){ k="dev-"+Math.random().toString(36).slice(2,10)+Date.now().toString(36); try{localStorage.setItem("stg_device_key",k);}catch(e){} } return k; }
+  function sdileny(){
+    app.innerHTML=topbar("👥 Sdílený telefon", true);
+    var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.6;">Kdo telefon drží? Klepni na sebe a zadej PIN. Citlivá data (mzda) si vyžádají PIN zvlášť.</div>'));
+    p.appendChild(el('<div class="dashgrid" id="sdgrid"></div>'));
+    var add=el('<button class="green full" style="margin-top:12px;">➕ Přidat sebe na tento telefon</button>'); add.addEventListener("click",sdJoin); p.appendChild(add);
+    var pinb=el('<button class="ghost full" style="margin-top:8px;">🔐 Nastavit / změnit můj PIN</button>'); pinb.addEventListener("click",sdSetPin); p.appendChild(pinb);
+    app.appendChild(p); sdLoad();
+  }
+  function sdLoad(){
+    var g=document.getElementById("sdgrid"); if(!g)return; g.innerHTML='<div class="hint">Načítám…</div>';
+    api("GET","/api/v1/erp/app/shared/users?dk="+encodeURIComponent(devKey()),"").then(function(j){
+      g.innerHTML="";
+      if(!j||!j.ok){ g.innerHTML='<div class="hint">'+esc((j&&j.error)||"Nenačteno.")+'</div>'; return; }
+      var us=j.users||[];
+      if(!us.length){ g.innerHTML='<div class="hint" style="line-height:1.6;">Zatím nikdo. Dej <b>➕ Přidat sebe</b>, ať jsi na tomhle telefonu jako první.</div>'; return; }
+      us.forEach(function(u){
+        var t=el('<div class="tile" style="position:relative;'+(u.current?"outline:2px solid var(--green);":"")+'"><div class="tile-ic"><div class="cav" style="width:46px;height:46px;line-height:46px;font-size:20px;margin:0 auto;background:'+avColor(u.jmeno||"?")+';">'+vyInitial(u.jmeno||"?")+'</div></div><div class="tile-tt">'+esc((u.jmeno||"").split(" ")[0])+'</div><div class="tile-sub">'+(u.current?"právě ty ✓":(u.has_pin?"klepni → PIN":"nemá PIN"))+'</div></div>');
+        t.addEventListener("click",function(){ if(u.current) return; if(!u.has_pin){ alert((u.jmeno||"")+" ještě nemá PIN. Musí si ho nastavit, až bude přihlášený/á (na téhle obrazovce 🔐)."); return; } sdSwitch(u); });
+        g.appendChild(t);
+      });
+    });
+  }
+  function sdSwitch(u){
+    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;"></div>');
+    ov.appendChild(el('<div class="cav" style="width:64px;height:64px;line-height:64px;font-size:26px;background:'+avColor(u.jmeno||"?")+';">'+vyInitial(u.jmeno||"?")+'</div>'));
+    ov.appendChild(el('<div style="font-size:18px;font-weight:700;">'+esc(u.jmeno||"")+'</div>'));
+    ov.appendChild(el('<div class="hint">Zadej PIN</div>'));
+    var inp=el('<input type="tel" inputmode="numeric" maxlength="4" placeholder="••••" style="width:150px;text-align:center;font-size:26px;letter-spacing:10px;">'); ov.appendChild(inp);
+    var st=el('<div class="hint" style="min-height:18px;"></div>'); ov.appendChild(st);
+    var go2=el('<button class="green full" style="max-width:240px;">Přepnout</button>');
+    function doSw(){ var pv=(inp.value||"").trim(); if(pv.length<4){ try{inp.focus();}catch(e){} return; } go2.disabled=true; st.textContent="Přepínám…";
+      api("POST","/api/v1/erp/app/shared/switch",{device_key:devKey(),user_id:u.user_id,pin:pv}).then(function(r){
+        if(r&&r.ok){ st.textContent="✓ Přihlášen/a jako "+(u.jmeno||""); setTimeout(function(){ try{location.reload();}catch(e){} },500); }
+        else { go2.disabled=false; var e=(r&&r.error)||"?"; st.textContent=(e==="pin_wrong"?("Špatný PIN — zbývá "+(r.left||0)):(e==="pin_locked"?("Zamčeno na "+(r.minutes||15)+" min"):(e==="pin_not_set"?"Tento user nemá PIN":e))); inp.value=""; try{inp.focus();}catch(_){} }
+      }); }
+    go2.addEventListener("click",doSw); inp.addEventListener("keydown",function(e){ if(e.key==="Enter")doSw(); });
+    ov.appendChild(go2);
+    var cl=el('<button class="ghost" style="max-width:240px;">Zpět</button>'); cl.addEventListener("click",function(){ov.remove();}); ov.appendChild(cl);
+    app.appendChild(ov); try{inp.focus();}catch(e){}
+  }
+  function sdJoin(){ api("POST","/api/v1/erp/app/shared/join",{device_key:devKey()}).then(function(r){ if(r&&r.ok){ sdLoad(); } else alert("Chyba: "+((r&&r.error)||"?")); }); }
+  function sdSetPin(){
+    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;"></div>');
+    ov.appendChild(el('<div style="font-size:17px;font-weight:700;">🔐 Nastav svůj 4místný PIN</div>'));
+    ov.appendChild(el('<div class="hint" style="text-align:center;max-width:280px;line-height:1.6;">Tímhle PINem se pak přepneš na sebe na sdíleném telefonu.</div>'));
+    var inp=el('<input type="tel" inputmode="numeric" maxlength="4" placeholder="••••" style="width:150px;text-align:center;font-size:26px;letter-spacing:10px;">'); ov.appendChild(inp);
+    var st=el('<div class="hint" style="min-height:18px;"></div>'); ov.appendChild(st);
+    var go2=el('<button class="green full" style="max-width:240px;">Uložit PIN</button>');
+    go2.addEventListener("click",function(){ var pv=(inp.value||"").trim(); if(!(pv.length===4&&/^[0-9]+$/.test(pv))){ st.textContent="PIN jsou 4 číslice."; return; } go2.disabled=true;
+      api("POST","/api/v1/erp/app/pin/set",{pin:pv}).then(function(r){ if(r&&r.ok){ st.textContent="✓ PIN uložen"; setTimeout(function(){ ov.remove(); sdLoad(); },500); } else { go2.disabled=false; st.textContent="Chyba: "+((r&&r.error)||"?")+(r&&r.note?(" — "+r.note):""); } }); });
+    ov.appendChild(go2);
+    var cl=el('<button class="ghost" style="max-width:240px;">Zpět</button>'); cl.addEventListener("click",function(){ov.remove();}); ov.appendChild(cl);
+    app.appendChild(ov); try{inp.focus();}catch(e){}
   }
   function set_notifaccess(){ app.innerHTML=topbar("Přístup k oznámením", true); var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.openNotifAccess==="function")){ p.appendChild(el('<div class="hint">Tato funkce je v appce STRATEGIE.</div>')); app.appendChild(p); return; }
@@ -2733,7 +2791,7 @@ setTimeout(function(){
     });
     box.appendChild(b);
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

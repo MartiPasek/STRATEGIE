@@ -19,7 +19,7 @@ Konfigurace z ENV (AppEnvironmentExtra v NSSM — NE Machine env, NE do gitu):
   MIKROTIK_VERIFY_TLS '0' (default, self-signed router cert) | '1'
   STRATEGIE_URL       default https://strategie-ai.com
   STRATEGIE_DEPLOY_TOKEN  token (stejny jako pro deploy/notify)
-  NETSCAN_INTERVAL_S  default 60
+  NETSCAN_INTERVAL_S  default 300 (5 min) — Marti 9.6.2026
   NETSCAN_DRYRUN      '1' = jen vypis, neodesilat (test)
 
 Spusteni rucne (test):
@@ -49,7 +49,7 @@ SCHEME = os.environ.get("MIKROTIK_REST_SCHEME", "https").strip().lower()
 VERIFY_TLS = os.environ.get("MIKROTIK_VERIFY_TLS", "0").strip() == "1"
 STRATEGIE_URL = os.environ.get("STRATEGIE_URL", "https://strategie-ai.com").rstrip("/")
 TOKEN = os.environ.get("STRATEGIE_DEPLOY_TOKEN", "")
-INTERVAL_S = int(os.environ.get("NETSCAN_INTERVAL_S", "60") or "60")
+INTERVAL_S = int(os.environ.get("NETSCAN_INTERVAL_S", "300") or "300")
 DRYRUN = os.environ.get("NETSCAN_DRYRUN", "").strip() == "1"
 
 

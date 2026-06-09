@@ -9994,6 +9994,15 @@ async def netscan_ingest(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     devices = body.get("devices") or []
+    # Marti 9.6.: jednorázová diagnostika — vzorek syrových dat z Mikrotiku do
+    # diag logu (kde jsou byty / last-seen / signál) → návrh byte-delta presence.
+    try:
+        _smp = body.get("_sample")
+        if _smp:
+            import json as _js_ns
+            logger.warning("[netscan][SAMPLE] %s", _js_ns.dumps(_smp, ensure_ascii=False)[:4000])
+    except Exception:
+        pass
     if not isinstance(devices, list):
         return JSONResponse({"ok": False, "error": "devices must be list"}, status_code=400)
     from modules.hr.presence import touch_device as _ni_td

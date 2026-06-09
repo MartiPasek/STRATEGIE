@@ -214,8 +214,28 @@ def collect():
     return _collect_api() if MODE == "api" else _collect_rest()
 
 
+def _sample_raw():
+    """Vzorek SYROVÝCH dat z Mikrotiku (první 1-2 řádky každého zdroje) — ať
+    backend/Claude uvidí, kde jsou byty/last-seen/signál. Jen REST. Marti 9.6."""
+    if MODE == "api":
+        return {"mode": "api", "note": "sample jen pro REST"}
+    out = {}
+    for p in ("/ip/dhcp-server/lease",
+              "/interface/wireless/registration-table",
+              "/interface/wifiwave2/registration-table",
+              "/ip/accounting",
+              "/ip/accounting/snapshot",
+              "/ip/arp"):
+        try:
+            rows = _rest_get(p)
+            out[p] = (rows[:2] if isinstance(rows, list) else rows)
+        except Exception as exc:
+            out[p] = {"err": str(exc)[:120]}
+    return out
+
+
 def push(devices):
-    payload = json.dumps({"devices": devices}).encode("utf-8")
+    payload = json.dumps({"devices": devices, "_sample": _sample_raw()}).encode("utf-8")
     req = urllib.request.Request(
         f"{STRATEGIE_URL}/api/v1/erp/app/netscan/ingest",
         data=payload, method="POST",

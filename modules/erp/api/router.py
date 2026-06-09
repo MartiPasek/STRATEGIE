@@ -7248,6 +7248,229 @@ async def app_vyroba_todo_done(tid: int, req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Skupiny lidí (volné třídění, vedoucí+zástupce, parent-only) — Marti 9.6.2026 ──
+# Jméno člověka: křestní+příjmení z public.users, fallback att_employee.full_name.
+_SKUP_JMENO = ("COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+               " em.full_name)")
+
+
+@api_router.get("/app/skupiny")
+async def app_skupiny_list(req: Request) -> JSONResponse:
+    """Seznam skupin + počet členů + jména vedoucího/zástupce. Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT g.id, g.name, COALESCE(g.icon,'👥'), g.leader_user_id, g.deputy_user_id, "
+            "  (SELECT count(*) FROM tenant.staff_group_member m WHERE m.group_id=g.id) AS cnt, "
+            "  TRIM(COALESCE(lu.first_name,'')||' '||COALESCE(lu.last_name,'')) AS leader_j, "
+            "  TRIM(COALESCE(du.first_name,'')||' '||COALESCE(du.last_name,'')) AS deputy_j "
+            "FROM tenant.staff_group g "
+            "LEFT JOIN public.users lu ON lu.id=g.leader_user_id "
+            "LEFT JOIN public.users du ON du.id=g.deputy_user_id "
+            "WHERE g.tenant_id=2 AND NOT g.archived "
+            "ORDER BY g.sort_order, g.name")).fetchall()
+        out = [{"id": r[0], "name": r[1], "icon": r[2], "leader_user_id": r[3],
+                "deputy_user_id": r[4], "count": r[5],
+                "leader": (r[6] or "").strip(), "deputy": (r[7] or "").strip()} for r in rows]
+        return JSONResponse({"ok": True, "skupiny": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/skupiny/vsichni-lide")
+async def app_skupiny_vsichni(req: Request) -> JSONResponse:
+    """Všichni aktivní zaměstnanci (pro picker). Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT em.user_id, " + _SKUP_JMENO + " AS jmeno "
+            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id "
+            "WHERE em.tenant_id=2 AND em.user_id IS NOT NULL AND em.is_active "
+            "ORDER BY jmeno")).fetchall()
+        out = [{"user_id": r[0], "jmeno": (r[1] or ("#" + str(r[0])))} for r in rows]
+        return JSONResponse({"ok": True, "lide": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/skupiny/{gid}/lidi")
+async def app_skupiny_lidi(gid: int, req: Request) -> JSONResponse:
+    """Členové skupiny + příznak vedoucí/zástupce. Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        g = s.execute(_t("SELECT leader_user_id, deputy_user_id FROM tenant.staff_group "
+                         "WHERE id=:g AND tenant_id=2"), {"g": gid}).first()
+        if not g:
+            return JSONResponse({"ok": False, "error": "skupina neexistuje"})
+        rows = s.execute(_t(
+            "SELECT m.user_id, " + _SKUP_JMENO + " AS jmeno "
+            "FROM tenant.staff_group_member m "
+            "LEFT JOIN tenant.att_employee em ON em.user_id=m.user_id AND em.tenant_id=2 "
+            "LEFT JOIN public.users u ON u.id=m.user_id "
+            "WHERE m.group_id=:g AND m.tenant_id=2 "
+            "ORDER BY jmeno"), {"g": gid}).fetchall()
+        lead, dep = g[0], g[1]
+        out = [{"user_id": r[0], "jmeno": (r[1] or ("#" + str(r[0]))),
+                "is_leader": (r[0] == lead), "is_deputy": (r[0] == dep)} for r in rows]
+        return JSONResponse({"ok": True, "clenove": out, "leader_user_id": lead, "deputy_user_id": dep})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/skupiny/create")
+async def app_skupiny_create(req: Request) -> JSONResponse:
+    """Nová skupina. Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    name = str((body or {}).get("name") or "").strip()[:60]
+    icon = str((body or {}).get("icon") or "👥").strip()[:8] or "👥"
+    if not name:
+        return JSONResponse({"ok": False, "error": "Zadej název skupiny."})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        r = s.execute(_t(
+            "INSERT INTO tenant.staff_group (tenant_id, name, icon, created_by) "
+            "VALUES (2, :n, :i, :u) RETURNING id"), {"n": name, "i": icon, "u": uid}).first()
+        s.commit()
+        return JSONResponse({"ok": True, "id": r[0]})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/skupiny/{gid}/update")
+async def app_skupiny_update(gid: int, req: Request) -> JSONResponse:
+    """Úprava skupiny (název/ikona/vedoucí/zástupce/pořadí). Jen rodiče.
+    Vedoucí i zástupce se automaticky stanou členy."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    sets, params = [], {"g": gid}
+    if "name" in (body or {}):
+        sets.append("name=:n"); params["n"] = str(body.get("name") or "").strip()[:60]
+    if "icon" in (body or {}):
+        params["i"] = str(body.get("icon") or "👥").strip()[:8] or "👥"; sets.append("icon=:i")
+    if "leader_user_id" in (body or {}):
+        sets.append("leader_user_id=:l"); params["l"] = body.get("leader_user_id") or None
+    if "deputy_user_id" in (body or {}):
+        sets.append("deputy_user_id=:d"); params["d"] = body.get("deputy_user_id") or None
+    if "sort_order" in (body or {}):
+        try: params["so"] = int(body.get("sort_order")); sets.append("sort_order=:so")
+        except Exception: pass
+    if not sets:
+        return JSONResponse({"ok": False, "error": "nic k uložení"})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t("UPDATE tenant.staff_group SET " + ", ".join(sets) +
+                     " WHERE id=:g AND tenant_id=2"), params)
+        # vedoucí/zástupce ať jsou členy
+        for key in ("l", "d"):
+            if params.get(key):
+                s.execute(_t("INSERT INTO tenant.staff_group_member (tenant_id, group_id, user_id, created_by) "
+                             "VALUES (2, :g, :u, :by) ON CONFLICT (group_id, user_id) DO NOTHING"),
+                          {"g": gid, "u": params[key], "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/skupiny/{gid}/archive")
+async def app_skupiny_archive(gid: int, req: Request) -> JSONResponse:
+    """Archivace skupiny (soft delete). Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t("UPDATE tenant.staff_group SET archived=true WHERE id=:g AND tenant_id=2"), {"g": gid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/skupiny/{gid}/clen")
+async def app_skupiny_clen(gid: int, req: Request) -> JSONResponse:
+    """Přidat/odebrat člena skupiny. body: {user_id, action:'add'|'remove'}. Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        tu = int((body or {}).get("user_id") or 0)
+    except Exception:
+        tu = 0
+    action = str((body or {}).get("action") or "add").strip()
+    if not tu:
+        return JSONResponse({"ok": False, "error": "chybí user_id"})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if action == "remove":
+            s.execute(_t("DELETE FROM tenant.staff_group_member WHERE group_id=:g AND user_id=:u AND tenant_id=2"),
+                      {"g": gid, "u": tu})
+            # když odebíraný byl vedoucí/zástupce, vynuluj
+            s.execute(_t("UPDATE tenant.staff_group SET leader_user_id=NULL WHERE id=:g AND leader_user_id=:u"),
+                      {"g": gid, "u": tu})
+            s.execute(_t("UPDATE tenant.staff_group SET deputy_user_id=NULL WHERE id=:g AND deputy_user_id=:u"),
+                      {"g": gid, "u": tu})
+        else:
+            s.execute(_t("INSERT INTO tenant.staff_group_member (tenant_id, group_id, user_id, created_by) "
+                         "VALUES (2, :g, :u, :by) ON CONFLICT (group_id, user_id) DO NOTHING"),
+                      {"g": gid, "u": tu, "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/announce")
 async def att_announce(req: Request) -> JSONResponse:
     """Marti 7.6.: presence status v lidské řeči („Už jedu do práce…", „Mám

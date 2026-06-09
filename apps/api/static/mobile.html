@@ -763,6 +763,7 @@ window.onerror=function(msg,src,line){
     g.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
     g.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
     g.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
+    g.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
     // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
     // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
     // g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
@@ -791,6 +792,115 @@ window.onerror=function(msg,src,line){
     p.appendChild(el('<div class="big">🚧 '+esc(lab)+'</div>'));
     p.appendChild(el('<div class="hint" style="margin-top:8px;line-height:1.6;">Připravujeme — tahle agenda se brzy objeví. Řekni Marti, co tu má být, a napojíme ji.</div>'));
     app.appendChild(p);
+  }
+  // ───── SKUPINY (třídění lidí do skupin, ve stylu Výroby; parent-only). Marti 9.6. ─────
+  var _skView=null, _skGroups=[], _skMembers=null;
+  function skupiny(){
+    app.innerHTML=topbar("👥 Skupiny", true, true);
+    var _tb=app.querySelector('.topbar'); if(_tb) _tb.style.paddingTop="12px";
+    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
+    var left=el('<div id="skleft" style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:auto;"></div>');
+    var rail=el('<div id="skrail" style="width:64px;flex:none;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding:1px;"></div>');
+    wrap.appendChild(left); wrap.appendChild(rail); app.appendChild(wrap);
+    skLoadGroups();
+  }
+  function skBtn(g){
+    var on=(_skView===g.id);
+    var b=el('<button data-g="'+g.id+'" style="position:relative;margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"transparent")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:9px;cursor:pointer;"><span style="font-size:18px;">'+esc(g.icon||"👥")+'</span>'+esc(g.name)+(g.count?'<span class="vybadge" style="display:block;">'+g.count+'</span>':'')+'</button>');
+    b.addEventListener("click",function(){ _skView=g.id; skLoadMembers(); skPaintRail(); });
+    return b;
+  }
+  function skPaintRail(){
+    var r=document.getElementById("skrail"); if(!r)return; r.innerHTML="";
+    _skGroups.forEach(function(g){ r.appendChild(skBtn(g)); });
+    r.appendChild(el('<div style="flex:1 1 auto;min-height:8px;"></div>'));
+    var add=el('<button style="margin:0;padding:8px 1px;font-size:11px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px dashed var(--blue);background:transparent;color:var(--blue);border-radius:9px;cursor:pointer;"><span style="font-size:18px;">➕</span>Nová</button>');
+    add.addEventListener("click",skNewGroup); r.appendChild(add);
+  }
+  function skLoadGroups(){
+    api("GET","/api/v1/erp/app/skupiny","").then(function(j){
+      var L=document.getElementById("skleft");
+      if(!j||!j.ok){ if(L)L.innerHTML='<div class="hint" style="padding:14px;">'+((j&&j.error)==="forbidden"?"Skupiny spravují jen rodiče.":"Nepodařilo se načíst.")+'</div>'; return; }
+      _skGroups=j.skupiny||[]; skPaintRail();
+      if(_skView && !_skGroups.some(function(g){return g.id===_skView;})) _skView=null;
+      if(!_skView && _skGroups.length) _skView=_skGroups[0].id;
+      if(_skView){ skPaintRail(); skLoadMembers(); } else skRenderEmpty();
+    });
+  }
+  function skRenderEmpty(){ var L=document.getElementById("skleft"); if(L)L.innerHTML='<div class="hint" style="padding:18px 12px;line-height:1.7;">Zatím žádná skupina.<br>Přidej první přes <b>➕ Nová</b> vpravo dole.</div>'; }
+  function skLoadMembers(){
+    var L=document.getElementById("skleft"); if(!L)return;
+    L.innerHTML='<div class="hint" style="padding:12px;">Načítám…</div>';
+    api("GET","/api/v1/erp/app/skupiny/"+_skView+"/lidi","").then(function(j){ _skMembers=j; skRenderMembers(); });
+  }
+  function skRenderMembers(){
+    var L=document.getElementById("skleft"); if(!L)return;
+    var g=_skGroups.filter(function(x){return x.id===_skView;})[0]||{}, j=_skMembers||{};
+    L.innerHTML="";
+    var head=el('<div style="display:flex;align-items:center;gap:8px;padding:4px 6px 10px;border-bottom:1px solid var(--bord);"></div>');
+    head.appendChild(el('<div style="font-size:20px;">'+esc(g.icon||"👥")+'</div>'));
+    head.appendChild(el('<div style="flex:1;min-width:0;font-weight:700;font-size:16px;">'+esc(g.name||"")+'</div>'));
+    var gear=el('<button class="ghost" style="margin:0;width:40px;">⚙</button>'); gear.addEventListener("click",function(){ skEditGroup(g); }); head.appendChild(gear);
+    L.appendChild(head);
+    var addp=el('<button class="green" style="margin:8px 6px;">➕ Přidat lidi</button>'); addp.addEventListener("click",function(){ skPickPeople(g); }); L.appendChild(addp);
+    var ul=el('<ul class="list" style="padding:0 6px;"></ul>');
+    var cl=(j.clenove||[]);
+    if(!cl.length){ ul.appendChild(el('<li style="color:var(--mut);border:none;">Zatím tu nikdo není. Přidej lidi ➕.</li>')); }
+    cl.forEach(function(m){
+      var li=el('<li class="ct" style="padding:0;border-bottom:none;"></li>');
+      var role=(m.is_leader?' <span style="color:var(--green);">👑 vedoucí</span>':(m.is_deputy?' <span style="color:var(--blue);">🎖 zástupce</span>':''));
+      var h2=el('<div class="cthead"><div class="cav" style="background:'+avColor(m.jmeno||"?")+'">'+vyInitial(m.jmeno||"?")+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(m.jmeno||"")+role+'</div></div></div>');
+      var exp=el('<div class="ctexp" style="display:none;"></div>');
+      h2.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) skFillMember(exp,g,m); });
+      li.appendChild(h2); li.appendChild(exp); ul.appendChild(li);
+    });
+    L.appendChild(ul);
+  }
+  function skFillMember(exp,g,m){
+    exp.innerHTML="";
+    var row=el('<div style="display:flex;gap:6px;flex-wrap:wrap;padding:8px 4px;"></div>');
+    var bL=el('<button class="ghost" style="margin:0;">👑 Vedoucí</button>'); bL.addEventListener("click",function(){ skUpdate(g.id,{leader_user_id:m.user_id}); });
+    var bD=el('<button class="ghost" style="margin:0;">🎖 Zástupce</button>'); bD.addEventListener("click",function(){ skUpdate(g.id,{deputy_user_id:m.user_id}); });
+    var bR=el('<button class="warn" style="margin:0;">✕ Odebrat</button>'); bR.addEventListener("click",function(){ if(confirm("Odebrat "+(m.jmeno||"")+" ze skupiny?")) skMember(g.id,m.user_id,"remove"); });
+    row.appendChild(bL); row.appendChild(bD); row.appendChild(bR); exp.appendChild(row);
+  }
+  function skNewGroup(){
+    var name=prompt("Název nové skupiny (např. Vedení, IT):"); if(!name) return;
+    var icon=prompt("Ikona (emoji, nepovinné):","👥")||"👥";
+    api("POST","/api/v1/erp/app/skupiny/create",{name:name,icon:icon}).then(function(j){ if(j&&j.ok){ _skView=j.id; skLoadGroups(); } else alert("Chyba: "+((j&&j.error)||"?")); });
+  }
+  function skEditGroup(g){
+    var name=prompt("Název skupiny:",g.name||""); if(name===null) return;
+    var icon=prompt("Ikona (emoji):",g.icon||"👥"); if(icon===null) icon=g.icon||"👥";
+    var arch=confirm("OK = uložit změny.\nZrušit ↓ pak potvrď archivaci skupiny.");
+    if(!arch){ if(confirm("Archivovat skupinu „"+(g.name||"")+"\"? (lidé zůstanou, skupina zmizí)")){ api("POST","/api/v1/erp/app/skupiny/"+g.id+"/archive",{}).then(function(j){ if(j&&j.ok){ _skView=null; skLoadGroups(); } else alert("Chyba: "+((j&&j.error)||"?")); }); } return; }
+    api("POST","/api/v1/erp/app/skupiny/"+g.id+"/update",{name:name,icon:icon||"👥"}).then(function(j){ if(j&&j.ok){ skLoadGroups(); } else alert("Chyba: "+((j&&j.error)||"?")); });
+  }
+  function skUpdate(gid,patch){ api("POST","/api/v1/erp/app/skupiny/"+gid+"/update",patch).then(function(j){ if(j&&j.ok){ skLoadMembers(); skLoadGroups(); } else alert("Chyba: "+((j&&j.error)||"?")); }); }
+  function skMember(gid,uid,action){ api("POST","/api/v1/erp/app/skupiny/"+gid+"/clen",{user_id:uid,action:action}).then(function(j){ if(j&&j.ok){ skLoadMembers(); skLoadGroups(); } else alert("Chyba: "+((j&&j.error)||"?")); }); }
+  function skPickPeople(g){
+    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.94);z-index:200;display:flex;flex-direction:column;padding:14px;"></div>');
+    var hd=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"></div>');
+    hd.appendChild(el('<div style="flex:1;font-weight:700;font-size:16px;">➕ Přidat do: '+esc(g.name||"")+'</div>'));
+    var cl=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); cl.addEventListener("click",function(){ ov.remove(); }); hd.appendChild(cl);
+    ov.appendChild(hd);
+    var srch=el('<input placeholder="🔍 Hledat člověka…" style="margin-bottom:8px;">'); ov.appendChild(srch);
+    var lw=el('<div style="flex:1;overflow:auto;"><ul class="list" id="skpicklist"><li class="hint" style="border:none;">Načítám…</li></ul></div>'); ov.appendChild(lw);
+    app.appendChild(ov);
+    var all=[], inGrp={}; (_skMembers&&_skMembers.clenove||[]).forEach(function(m){ inGrp[m.user_id]=1; });
+    function paint(){
+      var f=deacc((srch.value||"").trim()); var ul=document.getElementById("skpicklist"); if(!ul)return; ul.innerHTML="";
+      var shown=all.filter(function(p){ return !f||deacc(p.jmeno).indexOf(f)>=0; });
+      if(!shown.length){ ul.appendChild(el('<li class="hint" style="border:none;">Nikdo.</li>')); return; }
+      shown.forEach(function(p){
+        var has=inGrp[p.user_id];
+        var li=el('<li class="ct" style="padding:8px 6px;display:flex;align-items:center;gap:8px;cursor:pointer;"><div class="cav" style="background:'+avColor(p.jmeno||"?")+'">'+vyInitial(p.jmeno||"?")+'</div><div style="flex:1;">'+esc(p.jmeno||"")+'</div><div>'+(has?'<span style="color:var(--green);">✓</span>':'<span style="color:var(--blue);font-size:20px;">＋</span>')+'</div></li>');
+        li.addEventListener("click",function(){ if(inGrp[p.user_id]){ skMember(g.id,p.user_id,"remove"); delete inGrp[p.user_id]; } else { skMember(g.id,p.user_id,"add"); inGrp[p.user_id]=1; } paint(); });
+        ul.appendChild(li);
+      });
+    }
+    srch.addEventListener("input",paint);
+    api("GET","/api/v1/erp/app/skupiny/vsichni-lide","").then(function(j){ all=(j&&j.lide)||[]; paint(); });
   }
   function set_notifaccess(){ app.innerHTML=topbar("Přístup k oznámením", true); var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.openNotifAccess==="function")){ p.appendChild(el('<div class="hint">Tato funkce je v appce STRATEGIE.</div>')); app.appendChild(p); return; }
@@ -2346,7 +2456,7 @@ window.onerror=function(msg,src,line){
     });
     box.appendChild(b);
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

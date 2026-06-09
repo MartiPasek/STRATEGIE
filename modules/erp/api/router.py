@@ -9369,6 +9369,71 @@ def _maybe_sync_ec_dochazka():
         logger.warning("[ec_doch_sync] %s", e)
 
 
+# Jemné připomenutí dlouhé běžící směny (hlasem Marti-AI) — Marti 9.6.2026.
+_LAST_NUDGE = [0.0]
+
+
+def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3) -> dict:
+    """Lidem, kterým běží směna > `hours` h v kuse, pošle vlídnou notifikaci
+    hlasem Marti-AI: potvrď že makáš, nebo oprav odchod v Docházce. Dedup —
+    nepřipomínat, když už přišla notifikace v posledních `renag_hours` h."""
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    sent = 0
+    try:
+        rows = s.execute(_t(
+            "SELECT em.user_id, "
+            "  (SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),'') "
+            "   FROM public.users u WHERE u.id=em.user_id) AS jmeno, "
+            "  round(MAX(EXTRACT(EPOCH FROM (now()-e.started_at))/3600.0)) AS hod "
+            "FROM tenant.att_entry e JOIN tenant.att_employee em ON em.id=e.employee_id "
+            "WHERE e.tenant_id=:t AND e.is_active=true AND e.started_at IS NOT NULL "
+            "  AND e.started_at < now() - (:h * interval '1 hour') AND em.user_id IS NOT NULL "
+            "GROUP BY em.user_id"), {"t": tenant, "h": hours}).fetchall()
+        for r in rows:
+            uid = int(r[0])
+            jm = ((r[1] or "").split(" ")[0]) or "ahoj"
+            hod = int(r[2] or 0)
+            recent = s.execute(_t(
+                "SELECT 1 FROM fw.mobile_command WHERE target_user_id=:u "
+                "AND title LIKE '⏰ Dlouhá směna%%' "
+                "AND created_at > now() - (:rn * interval '1 hour') LIMIT 1"),
+                {"u": uid, "rn": renag_hours}).first()
+            if recent:
+                continue
+            msg = ("Ahoj %s, koukám, že ti směna běží už %s hodin v kuse. 🙂 "
+                   "Pořád makáš, nebo jsem ti jen zapomněla zapsat odchod? "
+                   "Mrkni prosím do Docházky — buď mi potvrď, že je všechno v pohodě, "
+                   "nebo oprav čas odchodu. Díky! — Tvoje Marti") % (jm, hod)
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :u, 'claude_msg', :ti, :msg, NULL)"),
+                {"u": uid, "ti": "⏰ Dlouhá směna (%s h)" % hod, "msg": msg})
+            sent += 1
+        s.commit()
+        return {"ok": True, "sent": sent}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc)}
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _maybe_long_shift_nudge():
+    import time as _tm
+    now = _tm.time()
+    if now - _LAST_NUDGE[0] < 3600:   # max 1×/hodina
+        return
+    _LAST_NUDGE[0] = now
+    try:
+        _att_long_shift_nudge()
+    except Exception as e:
+        logger.warning("[long_shift_nudge] %s", e)
+
+
 def _att_resync_full(tenant: int = 2) -> dict:
     """Jednorázový čistý re-import EC_Dochazka 2026-01-01..včera s aktuální
     logikou (PraceAktivni→is_active, rezie→'Režie'). Po měsících (lehčí
@@ -9967,6 +10032,11 @@ async def netscan_ingest(req: Request) -> JSONResponse:
         _maybe_sync_ec_dochazka()
     except Exception:
         logger.exception("[netscan] ec dochazka sync failed")
+    # Marti 9.6.: jemné připomenutí dlouhé běžící směny (hlasem Marti-AI, 1×/hod)
+    try:
+        _maybe_long_shift_nudge()
+    except Exception:
+        logger.exception("[netscan] long shift nudge failed")
     return JSONResponse({"ok": True, "count": n, "auto_checkin": auto})
 
 

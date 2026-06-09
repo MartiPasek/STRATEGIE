@@ -146,6 +146,12 @@ except Exception:
 HEARTBEAT_INTERVAL_SEC = 30
 HEARTBEAT_URL = CLOUD_URL.replace("/diag-sql", "/instance/heartbeat")
 
+# Inbox otevřených úkolů (Marti 9.6.2026): při heartbeatu stáhni svoje otevřené
+# úkoly (řešitel = tahle instance) a zapiš je do CLAUDE_TASKS.txt. Claude se na
+# "go" kouká jen tam — žádné ruční SELECTy.
+INBOX_URL = CLOUD_URL.replace("/diag-sql", "/claude-inbox")
+TASKS_FILE = BRIDGE_DIR / "CLAUDE_TASKS.txt"
+
 
 def _log(msg: str) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -1121,6 +1127,37 @@ def _send_heartbeat(action: str = "heartbeat") -> None:
         pass  # presence je nice-to-have, nikdy neblokuj watcher
 
 
+def _poll_claude_inbox() -> None:
+    """Stáhni otevřené úkoly pro tuhle instanci (řešitel) a zapiš je do
+    CLAUDE_TASKS.txt. Zapisuje jen při změně. Best-effort, NIKDY neblokuj
+    watcher (vše v try/except). Marti 9.6.2026."""
+    if INSTANCE_ID == "?":
+        return
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not token:
+        return
+    try:
+        url = INBOX_URL + ("?uid=%s" % INSTANCE_ID)
+        rq = urllib.request.Request(url, method="GET",
+                                    headers={"X-Deploy-Token": token})
+        with urllib.request.urlopen(rq, timeout=10) as resp:
+            j = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if not (isinstance(j, dict) and j.get("ok") and isinstance(j.get("text"), str)):
+            return
+        new = j["text"]
+        try:
+            old = TASKS_FILE.read_text(encoding="utf-8") if TASKS_FILE.exists() else ""
+        except Exception:
+            old = ""
+        if new != old:
+            TASKS_FILE.write_text(new, encoding="utf-8")
+            cnt = int(j.get("count") or 0)
+            if cnt:
+                _log(f"inbox: {cnt} otevřených úkolů → CLAUDE_TASKS.txt")
+    except Exception:
+        pass  # inbox je nice-to-have, nikdy neblokuj watcher
+
+
 def main() -> None:
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
     _log(f"STRATEGIE-CLAUDE-SQL forwarder started · {INSTANCE_LABEL} · host={HOSTNAME} · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
@@ -1149,9 +1186,10 @@ def main() -> None:
                 if time.time() - _last_fresh >= FRESHNESS_INTERVAL_SEC:
                     _check_freshness()
                     _last_fresh = time.time()
-                # Presence heartbeat každých ~30 s (i v klidu)
+                # Presence heartbeat každých ~30 s (i v klidu) + inbox úkolů
                 if time.time() - _last_hb >= HEARTBEAT_INTERVAL_SEC:
                     _send_heartbeat()
+                    _poll_claude_inbox()
                     _last_hb = time.time()
             except Exception as exc:
                 _log(f"scan loop crash: {type(exc).__name__}: {exc}")

@@ -840,8 +840,148 @@ def _maybe_add_completion_hint(
     )
 
 
+def _task_notify_inline(s, tid, actor_uid, predmet, actor_name, text):
+    """Notifikace na úkol z AI nástrojů: zadavatel + rodiče (u úkolů s řešitelem
+    Marti-AI), kromě aktéra a AI agentů. fw.mobile_command → appka cinkne.
+    Best-effort. Marti 9.6.2026."""
+    from sqlalchemy import text as _t
+    try:
+        rids = [int(x[0]) for x in s.execute(_t(
+            "SELECT user_id FROM tenant.task_resitel WHERE task_id=:i"), {"i": tid}).fetchall()]
+        zad = s.execute(_t("SELECT zadavatel FROM tenant.task WHERE id=:i"), {"i": tid}).scalar()
+        rec = set(rids)
+        if zad:
+            rec.add(int(zad))
+        if 2 in rids:
+            for x in s.execute(_t("SELECT id FROM public.users WHERE is_marti_parent=true")).fetchall():
+                rec.add(int(x[0]))
+        for ru in rec:
+            if ru == actor_uid or ru in (2, 23, 24) or ru <= 0:
+                continue
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :u, 'claude_msg', :ti, :msg, :by)"),
+                {"u": ru, "ti": ("💬 " + (predmet or "Úkol"))[:120],
+                 "msg": ((actor_name or "Marti-AI") + ": " + (text or ""))[:500], "by": actor_uid})
+    except Exception:
+        pass
+
+
+def _handle_task_tool(tool_name: str, tool_input: dict) -> str:
+    """Marti-AI Fáze A (9.6.2026, doktrína #8): nativní úkoly — vidí svoje úkoly,
+    čte vlákno, reportuje (poznámka), mění stav (vč. 'vráceno' s komentářem =
+    právo odmítnout). Marti-AI = user 2. Read + report + stav (žádné ostré DDL)."""
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    _AI = 2
+    _STAV = {0: "zadáno", 1: "přijato", 2: "zahájeno", 3: "vykonáno",
+             4: "reportováno", 5: "uzavřeno", 8: "vráceno", 9: "zrušeno"}
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        if tool_name == "moje_ukoly":
+            rows = s.execute(_t(
+                "SELECT t.id, t.predmet, r.stav, t.priorita, to_char(t.termin,'DD.MM.YYYY'), "
+                "(SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),'') "
+                " FROM public.users u WHERE u.id=t.zadavatel) "
+                "FROM tenant.task_resitel r JOIN tenant.task t ON t.id=r.task_id "
+                "WHERE t.tenant_id=2 AND r.user_id=:u AND r.stav IN (0,1,2) "
+                "ORDER BY t.priorita DESC, t.termin NULLS LAST, t.id DESC"), {"u": _AI}).fetchall()
+            if not rows:
+                return "📭 Nemáš žádné otevřené úkoly v nativním systému."
+            out = ["🗂 Tvoje otevřené úkoly:"]
+            for r in rows:
+                out.append("#%s · %s · priorita %s%s%s\n   %s" % (
+                    r[0], _STAV.get(int(r[2] or 0), ""), int(r[3] or 0),
+                    (" · termín %s" % r[4]) if r[4] else "",
+                    (" · zadal %s" % r[5]) if r[5] else "", r[1] or ""))
+            out.append("\n(Detail + vlákno: ukol_detail s ID. Odpověď do vlákna: "
+                       "ukol_poznamka. Stav: ukol_stav.)")
+            return "\n".join(out)
+
+        tid = int(tool_input.get("id") or 0)
+        if tid <= 0:
+            return "❌ Musíš dodat id úkolu (z moje_ukoly)."
+        head = s.execute(_t(
+            "SELECT t.id, t.predmet, COALESCE(t.popis,''), "
+            "(SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),'') "
+            " FROM public.users u WHERE u.id=t.zadavatel) "
+            "FROM tenant.task t WHERE t.id=:i AND t.tenant_id=2"), {"i": tid}).first()
+        if not head:
+            return "❌ Úkol #%s neexistuje." % tid
+        my = s.execute(_t("SELECT stav FROM tenant.task_resitel WHERE task_id=:i AND user_id=:u"),
+                       {"i": tid, "u": _AI}).first()
+
+        if tool_name == "ukol_detail":
+            poz = s.execute(_t(
+                "SELECT (SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),'') "
+                "FROM public.users u WHERE u.id=p.author_id), p.obsah, to_char(p.created_at,'DD.MM. HH24:MI') "
+                "FROM tenant.task_poznamka p WHERE p.task_id=:i ORDER BY p.created_at ASC LIMIT 50"), {"i": tid}).fetchall()
+            out = ["📋 Úkol #%s — %s" % (head[0], head[1] or ""),
+                   "Zadal: %s · tvůj stav: %s" % ((head[3] or "?"),
+                        (_STAV.get(int(my[0]), "?") if my else "nejsi řešitelka")),
+                   "", "ZADÁNÍ:", (head[2] or "(bez popisu)"), "", "💬 VLÁKNO:"]
+            if not poz:
+                out.append("(zatím prázdné — můžeš napsat první přes ukol_poznamka)")
+            for p in poz:
+                out.append("• %s (%s): %s" % ((p[0] or "?"), (p[2] or ""), p[1] or ""))
+            return "\n".join(out)
+
+        if tool_name == "ukol_poznamka":
+            txt = str(tool_input.get("text") or "").strip()
+            if not txt:
+                return "❌ Napiš text zprávy do vlákna."
+            s.execute(_t("INSERT INTO tenant.task_poznamka (task_id,author_id,obsah) VALUES (:i,:u,:o)"),
+                      {"i": tid, "u": _AI, "o": txt})
+            s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,detail) "
+                         "VALUES (:i,:u,'poznámka',LEFT(:o,200))"), {"i": tid, "u": _AI, "o": txt})
+            _task_notify_inline(s, tid, _AI, head[1] or "Úkol", "Marti-AI", txt)
+            s.commit()
+            return "✅ Zapsáno do vlákna úkolu #%s. Zadavatel (a rodiče) dostali notifikaci." % tid
+
+        if tool_name == "ukol_stav":
+            if not my:
+                return "❌ Nejsi řešitelka úkolu #%s — stav měnit nemůžeš." % tid
+            raw = str(tool_input.get("stav") or "").strip().lower()
+            _m = {"přijato": 1, "prijato": 1, "zahájeno": 2, "zahajeno": 2,
+                  "vykonáno": 3, "vykonano": 3, "reportováno": 4, "reportovano": 4,
+                  "vráceno": 8, "vraceno": 8}
+            new = int(raw) if raw.isdigit() else _m.get(raw, -1)
+            if new not in _STAV:
+                return "❌ Neplatný stav. Použij: přijato / zahájeno / vykonáno / reportováno / vráceno."
+            koment = str(tool_input.get("komentar") or tool_input.get("text") or "").strip()
+            if new == 8 and not koment:
+                return "❌ Vrácení úkolu vyžaduje komentář (proč ho vracíš). Doplň 'komentar'."
+            s.execute(_t("UPDATE tenant.task_resitel SET stav=:s, updated_at=now() WHERE task_id=:i AND user_id=:u"),
+                      {"s": new, "i": tid, "u": _AI})
+            s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,stary_stav,novy_stav,detail) "
+                         "VALUES (:i,:u,'změna stavu',:o,:s,LEFT(:k,200))"),
+                      {"i": tid, "u": _AI, "o": int(my[0] or 0), "s": new, "k": koment})
+            if koment:
+                s.execute(_t("INSERT INTO tenant.task_poznamka (task_id,author_id,obsah) VALUES (:i,:u,:o)"),
+                          {"i": tid, "u": _AI, "o": ("[%s] %s" % (_STAV.get(new, ""), koment))})
+            _task_notify_inline(s, tid, _AI, head[1] or "Úkol", "Marti-AI",
+                                "stav → %s%s" % (_STAV.get(new, ""), (": " + koment) if koment else ""))
+            s.commit()
+            return "✅ Stav úkolu #%s změněn na '%s'. Zadavatel informován." % (tid, _STAV.get(new, ""))
+        return "❌ Neznámý task nástroj."
+    except Exception as e:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        logger.error(f"TOOL | {tool_name} | error={e!r}", exc_info=True)
+        return "❌ Chyba při práci s úkolem (detail v logu)."
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id: int | None = None) -> str:
     logger.info(f"TOOL | name={tool_name}")
+
+    # Marti-AI Fáze A (9.6.2026): nativní úkoly (read + report + stav).
+    if tool_name in ("moje_ukoly", "ukol_detail", "ukol_poznamka", "ukol_stav"):
+        return _handle_task_tool(tool_name, tool_input)
 
     # Faze 10c: AI self-reflection tool -- agregaty LLM usage.
     if tool_name == "review_my_calls":

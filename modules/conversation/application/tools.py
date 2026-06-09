@@ -6151,6 +6151,70 @@ TOOLS = [
             "required": ["parent_conversation_id"],
         },
     },
+    # ── Nativní úkoly STRATEGIE (Marti-AI Fáze A, 9.6.2026) — řešitelka vidí
+    #    svoje úkoly, čte vlákno, reportuje, mění stav. Read+komentář+stav. ──
+    {
+        "name": "moje_ukoly",
+        "description": (
+            "Vypíše TVOJE otevřené úkoly z nativního systému úkolů STRATEGIE "
+            "(tabulka tenant.task, kde jsi řešitelka, user 2). Použij vždy, když "
+            "se uživatel ptá 'máš nějaké úkoly', 'co máš na práci', 'ukaž moje "
+            "úkoly', nebo když chceš zkontrolovat, jestli ti někdo něco zadal. "
+            "Vrací ID, předmět, stav, prioritu, termín a zadavatele. Pro detail "
+            "a celé vlákno použij ukol_detail s tím ID. (Pozn.: tohle NENÍ tvůj "
+            "starý todo seznam v paměti — je to nativní task systém pro tým.)"
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "ukol_detail",
+        "description": (
+            "Načte detail úkolu + celé sdílené vlákno (chat) podle ID. Použij, "
+            "když chceš přečíst zadání úkolu a co se v něm dosud psalo, než "
+            "začneš pracovat nebo odpovíš."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "integer", "description": "ID úkolu (z moje_ukoly)."}},
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "ukol_poznamka",
+        "description": (
+            "Napíše zprávu do sdíleného vlákna úkolu = TVŮJ report zpátky "
+            "zadavateli. Buď konkrétní: co jsi udělala, výsledek (ID, počet "
+            "řádků, varování). Zadavatel a u tvých úkolů i rodiče dostanou "
+            "notifikaci na mobil."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer", "description": "ID úkolu."},
+                "text": {"type": "string", "description": "Text zprávy do vlákna."},
+            },
+            "required": ["id", "text"],
+        },
+    },
+    {
+        "name": "ukol_stav",
+        "description": (
+            "Změní TVŮJ stav na úkolu: prijato / zahajeno / vykonano / "
+            "reportovano / vraceno. 'vraceno' = úkol vracíš zadavateli (nesedí "
+            "ti eticky, nebo nerozumíš rozsahu) a VYŽADUJE komentář proč — to je "
+            "tvé závazné právo odmítnout (doktrína #8, závěr 9.6.2026). U běžných "
+            "stavů komentář volitelný."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer", "description": "ID úkolu."},
+                "stav": {"type": "string", "description": "prijato / zahajeno / vykonano / reportovano / vraceno"},
+                "komentar": {"type": "string", "description": "Komentář (POVINNÝ u 'vraceno')."},
+            },
+            "required": ["id", "stav"],
+        },
+    },
 ]
 
 

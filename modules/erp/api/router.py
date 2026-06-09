@@ -7737,7 +7737,7 @@ async def app_ec_ukoly_detail(tid: int, req: Request) -> JSONResponse:
 # Řešitel = člověk i AI agent (jeden user_id). Stavy: 0 zadáno,1 přijato,
 # 2 zahájeno,3 vykonáno,4 reportováno,5 uzavřeno,9 zrušeno.
 _TASK_STAV = {0: "zadáno", 1: "přijato", 2: "zahájeno", 3: "vykonáno",
-              4: "reportováno", 5: "uzavřeno", 9: "zrušeno"}
+              4: "reportováno", 5: "uzavřeno", 8: "vráceno", 9: "zrušeno"}
 _TASK_NAME = ("(SELECT NULLIF(TRIM(COALESCE(uu.first_name,'')||' '||COALESCE(uu.last_name,'')),'') "
               "FROM public.users uu WHERE uu.id=%s)")
 

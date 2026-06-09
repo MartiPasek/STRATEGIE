@@ -7723,6 +7723,205 @@ async def app_ec_ukoly_detail(tid: int, req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "ukol": h, "poznamky": pz})
 
 
+# ── Nativní úkoly STRATEGIE (tenant.task*, schema od Marti-AI) — Marti 9.6.2026 ──
+# Řešitel = člověk i AI agent (jeden user_id). Stavy: 0 zadáno,1 přijato,
+# 2 zahájeno,3 vykonáno,4 reportováno,5 uzavřeno,9 zrušeno.
+_TASK_STAV = {0: "zadáno", 1: "přijato", 2: "zahájeno", 3: "vykonáno",
+              4: "reportováno", 5: "uzavřeno", 9: "zrušeno"}
+_TASK_NAME = ("(SELECT NULLIF(TRIM(COALESCE(uu.first_name,'')||' '||COALESCE(uu.last_name,'')),'') "
+              "FROM public.users uu WHERE uu.id=%s)")
+
+
+@api_router.get("/app/task")
+async def app_task_list(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    view = (req.query_params.get("view") or "moje").strip().lower()
+    from sqlalchemy import text as _t
+    zadname = _TASK_NAME % "t.zadavatel"
+    cm, s = _att_session()
+    try:
+        if view == "zadane":
+            sql = ("SELECT t.id, t.predmet, t.stav, t.priorita, "
+                   "to_char(t.termin,'DD.MM.YYYY') AS termin, COALESCE(t.zakazka,'') AS zak, "
+                   "CASE WHEN t.termin IS NOT NULL AND t.termin<now() AND t.stav<2 THEN true ELSE false END AS pozde, "
+                   + zadname + " AS zadavatel "
+                   "FROM tenant.task t WHERE t.tenant_id=2 AND t.zadavatel=:u AND t.stav<2 "
+                   "ORDER BY t.termin NULLS LAST, t.priorita DESC, t.id DESC")
+        else:
+            if view == "splnene":
+                cond, order, urg = "r.stav IN (3,4,5)", "r.updated_at DESC, t.id DESC", ""
+            elif view == "urgentni":
+                cond, order, urg = "r.stav IN (0,1,2)", "t.termin NULLS LAST", " AND t.termin IS NOT NULL AND t.termin<now()"
+            else:
+                cond, order, urg = "r.stav IN (0,1,2)", "t.termin NULLS LAST, t.priorita DESC, t.id DESC", ""
+            sql = ("SELECT t.id, t.predmet, r.stav, t.priorita, "
+                   "to_char(t.termin,'DD.MM.YYYY') AS termin, COALESCE(t.zakazka,'') AS zak, "
+                   "CASE WHEN t.termin IS NOT NULL AND t.termin<now() AND r.stav<3 THEN true ELSE false END AS pozde, "
+                   + zadname + " AS zadavatel "
+                   "FROM tenant.task_resitel r JOIN tenant.task t ON t.id=r.task_id "
+                   "WHERE t.tenant_id=2 AND r.user_id=:u AND " + cond + urg + " ORDER BY " + order)
+        rows = s.execute(_t(sql), {"u": uid}).fetchall()
+        out = [{"id": r[0], "predmet": r[1], "stav": int(r[2] or 0),
+                "stav_txt": _TASK_STAV.get(int(r[2] or 0), ""), "priorita": int(r[3] or 0),
+                "termin": r[4], "zak": r[5], "pozde": bool(r[6]), "zadavatel": (r[7] or "")} for r in rows]
+        return JSONResponse({"ok": True, "ukoly": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/task")
+async def app_task_create(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    predmet = str((body or {}).get("predmet") or "").strip()[:255]
+    if not predmet:
+        return JSONResponse({"ok": False, "error": "Zadej předmět úkolu."})
+    popis = (str((body or {}).get("popis") or "").strip() or None)
+    termin = (str((body or {}).get("termin") or "").strip() or None)
+    try:
+        priorita = int((body or {}).get("priorita") or 0)
+    except Exception:
+        priorita = 0
+    zakazka = (str((body or {}).get("zakazka") or "").strip() or None)
+    resitele = (body or {}).get("resitele") or [uid]
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        r = s.execute(_t(
+            "INSERT INTO tenant.task (tenant_id,predmet,popis,stav,priorita,termin,zakazka,zadavatel,created_by) "
+            "VALUES (2,:p,:po,0,:pr, CAST(:tm AS timestamptz), :zk,:u,:u) RETURNING id"),
+            {"p": predmet, "po": popis, "pr": priorita, "tm": termin, "zk": zakazka, "u": uid}).first()
+        tid = r[0]
+        seen = set()
+        for ru in resitele:
+            try:
+                ruid = int(ru)
+            except Exception:
+                continue
+            if ruid in seen:
+                continue
+            seen.add(ruid)
+            s.execute(_t("INSERT INTO tenant.task_resitel (task_id,user_id,stav) VALUES (:t,:r,0) "
+                         "ON CONFLICT (task_id,user_id) DO NOTHING"), {"t": tid, "r": ruid})
+        s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,novy_stav) "
+                     "VALUES (:t,:u,'vytvořen',0)"), {"t": tid, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True, "id": tid})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/task/{tid}")
+async def app_task_detail(tid: int, req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        h = s.execute(_t(
+            "SELECT t.id, t.predmet, COALESCE(t.popis,''), t.stav, t.priorita, "
+            "to_char(t.termin,'DD.MM.YYYY'), COALESCE(t.zakazka,''), t.zadavatel, " + (_TASK_NAME % "t.zadavatel") +
+            " FROM tenant.task t WHERE t.id=:i AND t.tenant_id=2"), {"i": tid}).first()
+        if not h:
+            return JSONResponse({"ok": False, "error": "úkol neexistuje"})
+        res = s.execute(_t(
+            "SELECT r.user_id, r.stav, " + (_TASK_NAME % "r.user_id") +
+            " FROM tenant.task_resitel r WHERE r.task_id=:i ORDER BY r.id"), {"i": tid}).fetchall()
+        poz = s.execute(_t(
+            "SELECT " + (_TASK_NAME % "p.author_id") + ", p.obsah, to_char(p.created_at,'DD.MM HH24:MI') "
+            "FROM tenant.task_poznamka p WHERE p.task_id=:i ORDER BY p.created_at DESC LIMIT 30"), {"i": tid}).fetchall()
+        myr = s.execute(_t("SELECT stav FROM tenant.task_resitel WHERE task_id=:i AND user_id=:u"),
+                        {"i": tid, "u": uid}).first()
+        ukol = {"id": h[0], "predmet": h[1], "popis": h[2], "stav": int(h[3] or 0),
+                "priorita": int(h[4] or 0), "termin": h[5], "zak": h[6], "zadavatel": (h[8] or "")}
+        return JSONResponse({"ok": True, "ukol": ukol,
+                             "resitele": [{"jmeno": (rr[2] or ("#" + str(rr[0]))), "stav": int(rr[1] or 0),
+                                           "stav_txt": _TASK_STAV.get(int(rr[1] or 0), "")} for rr in res],
+                             "poznamky": [{"autor": (pp[0] or ""), "text": pp[1], "kdy": pp[2]} for pp in poz],
+                             "muj_stav": (int(myr[0]) if myr else None),
+                             "jsem_zadavatel": (h[7] == uid)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/task/{tid}/poznamka")
+async def app_task_poznamka(tid: int, req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    obsah = str((body or {}).get("obsah") or "").strip()
+    if not obsah:
+        return JSONResponse({"ok": False, "error": "Prázdná poznámka."})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t("INSERT INTO tenant.task_poznamka (task_id,author_id,obsah) VALUES (:i,:u,:o)"),
+                  {"i": tid, "u": uid, "o": obsah})
+        s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,detail) "
+                     "VALUES (:i,:u,'poznámka',LEFT(:o,200))"), {"i": tid, "u": uid, "o": obsah})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/task/{tid}/stav")
+async def app_task_stav(tid: int, req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+        new = int((body or {}).get("stav"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí stav"})
+    if new not in _TASK_STAV:
+        return JSONResponse({"ok": False, "error": "neplatný stav"})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        old = s.execute(_t("SELECT stav FROM tenant.task_resitel WHERE task_id=:i AND user_id=:u"),
+                        {"i": tid, "u": uid}).first()
+        if old:
+            s.execute(_t("UPDATE tenant.task_resitel SET stav=:s, updated_at=now() "
+                         "WHERE task_id=:i AND user_id=:u"), {"s": new, "i": tid, "u": uid})
+            s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,stary_stav,novy_stav) "
+                         "VALUES (:i,:u,'změna stavu',:o,:s)"), {"i": tid, "u": uid, "o": int(old[0] or 0), "s": new})
+        # rollup hlavičky: všichni řešitelé vykonáno+ → task hotový (1)
+        s.execute(_t("UPDATE tenant.task SET stav = CASE WHEN NOT EXISTS "
+                     "(SELECT 1 FROM tenant.task_resitel rr WHERE rr.task_id=:i AND rr.stav<3) "
+                     "THEN 1 ELSE 0 END, updated_at=now() WHERE id=:i AND stav<2"), {"i": tid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/announce")
 async def att_announce(req: Request) -> JSONResponse:
     """Marti 7.6.: presence status v lidské řeči („Už jedu do práce…", „Mám

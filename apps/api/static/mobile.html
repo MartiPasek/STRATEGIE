@@ -628,6 +628,12 @@ setTimeout(function(){
   function stPaintRail(){ var r=document.getElementById("strail"); if(!r)return;
     Array.prototype.forEach.call(r.querySelectorAll("button[data-k]"),function(b){ var on=b.getAttribute("data-k")===_stView;
       b.style.background=on?"var(--green)":"transparent"; b.style.color=on?"#04150e":"var(--mut)"; b.style.borderColor=on?"var(--green)":"var(--bord)"; }); }
+  function stEnsureParentChip(){
+    var r=document.getElementById("strail"); if(!r) return;
+    if(r.querySelector('button[data-k="marti_ai"]')) return;
+    var b=stBtn({k:"marti_ai",ic:"🤖",l:"Marti-AI"});
+    var spacer=r.querySelector("div"); if(spacer) r.insertBefore(b,spacer); else r.appendChild(b);
+  }
   function stDraftRow(){
     var dr=""; try{ dr=localStorage.getItem("stg_task_draft")||""; }catch(e){}
     if(!dr || _stView!=="moje") return null;
@@ -643,6 +649,7 @@ setTimeout(function(){
       L.innerHTML="";
       if(!j||!j.ok){ L.innerHTML='<div class="hint" style="padding:14px;">'+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>'; return; }
       var items=j.ukoly||[];
+      if(j.is_parent) stEnsureParentChip();
       var lw=el('<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:24px;"></div>');
       var ul=el('<ul class="list" style="padding:0 6px;"></ul>');
       var drow=stDraftRow(); if(drow) ul.appendChild(drow);
@@ -675,10 +682,22 @@ setTimeout(function(){
       if(ms!=null){ if(ms<2) sb("▶ Zahájit",2,"ghost"); if(ms<3) sb("✅ Hotovo",3,"green"); if(ms===3) sb("📣 Reportováno",4,"ghost"); }
       if(j.jsem_zadavatel) sb("🔒 Uzavřít",5,"ghost");
       if(arow.children.length) exp.appendChild(arow);
-      exp.appendChild(el('<div style="padding:8px 6px 2px;font-weight:700;font-size:13px;color:#ffd9a8;">💬 Poznámky</div>'));
-      (j.poznamky||[]).forEach(function(p){ exp.appendChild(el('<div style="padding:4px 6px;border-top:1px solid var(--bord);font-size:13px;white-space:pre-wrap;word-break:break-word;"><b style="color:#9fb0c2;">'+esc(p.autor||"")+'</b> <span class="hint">'+esc(p.kdy||"")+'</span><br>'+esc(p.text||"")+'</div>')); });
+      exp.appendChild(el('<div style="padding:8px 6px 2px;font-weight:700;font-size:13px;color:#ffd9a8;">💬 Vlákno</div>'));
+      var thread=el('<div style="display:flex;flex-direction:column;gap:6px;padding:6px;"></div>');
+      var pz=(j.poznamky||[]).slice().reverse();
+      if(!pz.length){ thread.appendChild(el('<div class="hint" style="text-align:center;padding:6px;">Zatím žádná zpráva. Napiš první.</div>')); }
+      pz.forEach(function(p){
+        var mine=(p.autor_id===j.me), ai=(p.autor_id===2);
+        var bg=mine?'#13412f':(ai?'#3a2418':'#1b2738'), bd=mine?'#1f6b4d':(ai?'#d97757':'#2a3a4d');
+        var row=el('<div style="display:flex;flex-direction:column;max-width:82%;align-self:'+(mine?'flex-end':'flex-start')+';"></div>');
+        if(!mine){ row.appendChild(el('<div class="hint" style="margin:0 0 1px 6px;font-size:11px;">'+(ai?'🤖 ':'')+esc(p.autor||"")+'</div>')); }
+        row.appendChild(el('<div style="background:'+bg+';border:1px solid '+bd+';border-radius:12px;padding:7px 10px;font-size:13.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--tx);">'+esc(p.text||"")+'</div>'));
+        row.appendChild(el('<div class="hint" style="font-size:10px;margin:1px 6px 0;align-self:'+(mine?'flex-end':'flex-start')+';">'+esc(p.kdy||"")+'</div>'));
+        thread.appendChild(row);
+      });
+      exp.appendChild(thread);
       var prow=el('<div style="display:flex;gap:6px;padding:8px 6px;"></div>');
-      var pin=el('<input placeholder="Přidat poznámku…" autocomplete="off" style="flex:1;">');
+      var pin=el('<input placeholder="Napsat zprávu…" autocomplete="off" style="flex:1;">');
       var pb=el('<button class="green" style="width:48px;margin:0;font-size:18px;">➕</button>');
       function addp(){ var v=(pin.value||"").trim(); if(!v)return; pb.disabled=true; api("POST","/api/v1/erp/app/task/"+t.id+"/poznamka",{obsah:v}).then(function(r){ pb.disabled=false; if(r&&r.ok){ pin.value=""; stDetail(exp,t); } else alert("Chyba: "+((r&&r.error)||"?")); }); }
       pb.addEventListener("click",addp); pin.addEventListener("keydown",function(e){ if(e.key==="Enter")addp(); });

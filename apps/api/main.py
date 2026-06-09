@@ -837,10 +837,13 @@ def app_pair(req: Request):
     except (TypeError, ValueError):
         uid = None
     if not uid:
+        # Marti 9.6.: na login přes MOBILNÍ stránku (sms-login), ne přes chat —
+        # lidé chat na telefonu mít nebudou. Po přihlášení zpět na /app-pair
+        # (dokončí nativní párování APK), to pak otevře appku /mobile.
         return _Resp_ap(
             content='<!doctype html><meta charset="utf-8">'
-                    '<meta http-equiv="refresh" content="0; url=/?return=%2Fapp-pair">'
-                    '<script>location.replace("/?return=%2Fapp-pair");</script>'
+                    '<meta http-equiv="refresh" content="0; url=/api/v1/auth/sms-login?next=%2Fapp-pair">'
+                    '<script>location.replace("/api/v1/auth/sms-login?next=%2Fapp-pair");</script>'
                     'Přesměrování na přihlášení…',
             media_type="text/html",
         )

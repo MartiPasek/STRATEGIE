@@ -288,7 +288,14 @@
           stopPolling();
           showStage('success');
           setTimeout(() => {
-            window.location.href = data.redirect || '/';
+            // Marti 9.6.: mobilní login končí v APPCE (/mobile), ne v chatu.
+            // ?next= (jen bezpečná relativní cesta) má přednost; jinak /mobile.
+            var dest = '/mobile';
+            try {
+              var n = new URLSearchParams(location.search).get('next') || '';
+              if (/^\/(?!\/)/.test(n)) dest = n;   // jen "/cesta", ne "//host" (open-redirect)
+            } catch (e) {}
+            window.location.href = dest;
           }, 800);
         } else if (data.status === 'expired') {
           stopPolling();

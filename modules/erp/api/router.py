@@ -7808,7 +7808,9 @@ async def app_task_list(req: Request) -> JSONResponse:
             # Rodičovský dohled: VŠECHNY úkoly, kde řešitelem je Marti-AI (2).
             if not parent:
                 return JSONResponse({"ok": False, "error": "Jen pro rodiče."}, status_code=403)
-            sql = ("SELECT t.id, t.predmet, t.stav, t.priorita, "
+            sql = ("SELECT t.id, t.predmet, "
+                   "COALESCE((SELECT r.stav FROM tenant.task_resitel r WHERE r.task_id=t.id AND r.user_id=2), t.stav), "
+                   "t.priorita, "
                    "to_char(t.termin,'DD.MM.YYYY') AS termin, COALESCE(t.zakazka,'') AS zak, "
                    "CASE WHEN t.termin IS NOT NULL AND t.termin<now() AND t.stav<2 THEN true ELSE false END AS pozde, "
                    + zadname + " AS zadavatel "
@@ -7816,7 +7818,9 @@ async def app_task_list(req: Request) -> JSONResponse:
                    "AND EXISTS (SELECT 1 FROM tenant.task_resitel r WHERE r.task_id=t.id AND r.user_id=2) "
                    "ORDER BY t.stav, t.priorita DESC, t.id DESC")
         elif view == "zadane":
-            sql = ("SELECT t.id, t.predmet, t.stav, t.priorita, "
+            sql = ("SELECT t.id, t.predmet, "
+                   "COALESCE((SELECT MAX(r.stav) FROM tenant.task_resitel r WHERE r.task_id=t.id), t.stav), "
+                   "t.priorita, "
                    "to_char(t.termin,'DD.MM.YYYY') AS termin, COALESCE(t.zakazka,'') AS zak, "
                    "CASE WHEN t.termin IS NOT NULL AND t.termin<now() AND t.stav<2 THEN true ELSE false END AS pozde, "
                    + zadname + " AS zadavatel "

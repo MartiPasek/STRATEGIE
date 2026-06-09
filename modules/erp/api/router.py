@@ -11618,7 +11618,7 @@ def _sync_ec_org_from_centrala() -> dict:
                     return r[k]
         return r if isinstance(r, list) else []
 
-    sel = (
+    org_part = (
         "SELECT o.ID id, o.CisloOrg cislo, LEFT(ISNULL(o.Nazev,''),255) nazev,"
         " LEFT(ISNULL(o.DruhyNazev,''),100) druhy, LEFT(ISNULL(o.Jmeno,''),100) jmeno,"
         " LEFT(ISNULL(o.Prijmeni,''),100) prijmeni, LEFT(ISNULL(o.ICO,''),20) ico,"
@@ -11631,15 +11631,18 @@ def _sync_ec_org_from_centrala() -> dict:
         " CAST(ISNULL(o.Stav,0) AS int) stav, CAST(ISNULL(o.PravniForma,0) AS int) pf,"
         " LEFT(ISNULL(o.FormaUhrady,''),30) uhrada, ISNULL(o.LhutaSplatnosti,0) splat,"
         " LEFT(ISNULL(o.Mena,''),3) mena, LEFT(ISNULL(o.Jazyk,''),15) jazyk,"
-        " ISNULL(o.NadrizenaOrg,0) nadr,"
+        " ISNULL(o.NadrizenaOrg,0) nadr,")
+    # EXT (objednávky/kontakty) má bohaté sloupce jen DB_EC; DB_IS má EXT prázdné
+    # (jen ID + SystemRowVersion) → pro IS dáme NULL/0 a EXT nejoinujeme.
+    ext_ec = (
         " LEFT(ISNULL(e._Objednavky_Email,''),60) oemail,"
         " LEFT(ISNULL(e._Objednavky_Telefon,''),20) otel,"
         " LEFT(ISNULL(e._Objednavky_Fax,''),20) ofax, LEFT(ISNULL(e._Zkratka_nazvu,''),15) zkr,"
         " LEFT(ISNULL(e._Teritorium,''),20) terit, LEFT(ISNULL(e._Stredisko,''),30) stred,"
         " CAST(ISNULL(e._JeDopravce,0) AS int) dopravce,"
-        " LEFT(ISNULL(e._PoznamkaOrg,''),1000) pozn,"
-        " CONVERT(varchar(19), o.DatZmeny, 120) dz"
-        " FROM %sTabCisOrg o LEFT JOIN %sTabCisOrg_EXT e ON e.ID = o.ID")
+        " LEFT(ISNULL(e._PoznamkaOrg,''),1000) pozn,")
+    ext_none = " '' oemail, '' otel, '' ofax, '' zkr, '' terit, '' stred, 0 dopravce, '' pozn,"
+    dz_part = " CONVERT(varchar(19), o.DatZmeny, 120) dz"
 
     cm = _pg.get_session()
     s = cm.__enter__()
@@ -11691,9 +11694,14 @@ def _sync_ec_org_from_centrala() -> dict:
             " zkratka=EXCLUDED.zkratka, teritorium=EXCLUDED.teritorium, stredisko=EXCLUDED.stredisko,"
             " poznamka=EXCLUDED.poznamka, dat_zmeny=EXCLUDED.dat_zmeny, synced_at=now()")
 
-        for src, dbp in (("EC", ""), ("IS", "DB_IS.dbo.")):
+        for src, dbp, has_ext in (("EC", "", True), ("IS", "DB_IS.dbo.", False)):
+            if has_ext:
+                q = (org_part + ext_ec + dz_part
+                     + " FROM %sTabCisOrg o LEFT JOIN %sTabCisOrg_EXT e ON e.ID = o.ID" % (dbp, dbp))
+            else:
+                q = org_part + ext_none + dz_part + " FROM %sTabCisOrg o" % dbp
             try:
-                data = rows_of(sel % (dbp, dbp))
+                data = rows_of(q)
             except Exception as exc:
                 errors.append("%s: %s" % (src, exc))
                 continue

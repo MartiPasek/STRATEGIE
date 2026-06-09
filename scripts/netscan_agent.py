@@ -50,7 +50,23 @@ VERIFY_TLS = os.environ.get("MIKROTIK_VERIFY_TLS", "0").strip() == "1"
 STRATEGIE_URL = os.environ.get("STRATEGIE_URL", "https://strategie-ai.com").rstrip("/")
 TOKEN = os.environ.get("STRATEGIE_DEPLOY_TOKEN", "")
 INTERVAL_S = int(os.environ.get("NETSCAN_INTERVAL_S", "300") or "300")
+# Marti 9.6.2026: aktivní = Mikrotik viděl zařízení (last-seen) max takhle dávno.
+# „bound" DHCP lease sám o sobě NEznamená online (lease přetrvává). Default 10 min.
+ACTIVE_MAX_S = int(os.environ.get("NETSCAN_ACTIVE_MAX_S", "600") or "600")
 DRYRUN = os.environ.get("NETSCAN_DRYRUN", "").strip() == "1"
+
+
+def _ros_dur_s(v):
+    """RouterOS doba ('1w2d3h4m5s', '30s', 'never', '') → sekundy, nebo None."""
+    import re as _re
+    s = (str(v or "")).strip().lower()
+    if not s or s == "never":
+        return None
+    total, found = 0, False
+    for num, unit in _re.findall(r'(\d+)\s*([wdhms])', s):
+        found = True
+        total += int(num) * {"w": 604800, "d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
+    return total if found else None
 
 
 def _log(msg):
@@ -81,13 +97,18 @@ def _collect_rest():
             if not mac:
                 continue
             status = (le.get("status") or "").lower()
-            active = bool(le.get("active-address")) or status == "bound"
+            seen_ago = _ros_dur_s(le.get("last-seen"))
+            if seen_ago is not None:
+                active = seen_ago <= ACTIVE_MAX_S
+            else:  # fallback (starší RouterOS bez last-seen)
+                active = bool(le.get("active-address")) or status == "bound"
             devices[mac] = {
                 "mac": mac,
                 "ip": le.get("active-address") or le.get("address") or "",
                 "hostname": le.get("host-name") or le.get("comment") or "",
                 "ssid": "",
                 "active": active,
+                "seen_ago_s": seen_ago,
             }
     except Exception as exc:
         _log(f"dhcp lease read fail: {exc}")
@@ -105,9 +126,10 @@ def _collect_rest():
             if not mac:
                 continue
             ssid = rg.get("ssid") or rg.get("interface") or ""
-            d = devices.setdefault(mac, {"mac": mac, "ip": "", "hostname": "", "ssid": "", "active": True})
+            d = devices.setdefault(mac, {"mac": mac, "ip": "", "hostname": "", "ssid": "", "active": True, "seen_ago_s": 0})
             d["ssid"] = ssid
             d["active"] = True
+            d["seen_ago_s"] = 0   # na WiFi registrovaný = právě teď online
         break  # prvni existujici cesta staci
     return list(devices.values())
 
@@ -156,21 +178,28 @@ def _collect_api():
             mac = (le.get("mac-address") or "").strip().lower()
             if not mac:
                 continue
+            seen_ago = _ros_dur_s(le.get("last-seen"))
+            if seen_ago is not None:
+                active = seen_ago <= ACTIVE_MAX_S
+            else:
+                active = le.get("status") == "bound" or bool(le.get("active-address"))
             devices[mac] = {
                 "mac": mac,
                 "ip": le.get("active-address") or le.get("address") or "",
                 "hostname": le.get("host-name") or "",
                 "ssid": "",
-                "active": le.get("status") == "bound" or bool(le.get("active-address")),
+                "active": active,
+                "seen_ago_s": seen_ago,
             }
         try:
             for rg in api.path("interface", "wireless", "registration-table"):
                 mac = (rg.get("mac-address") or "").strip().lower()
                 if not mac:
                     continue
-                d = devices.setdefault(mac, {"mac": mac, "ip": "", "hostname": "", "ssid": "", "active": True})
+                d = devices.setdefault(mac, {"mac": mac, "ip": "", "hostname": "", "ssid": "", "active": True, "seen_ago_s": 0})
                 d["ssid"] = rg.get("ssid") or ""
                 d["active"] = True
+                d["seen_ago_s"] = 0
         except Exception:
             pass
     finally:

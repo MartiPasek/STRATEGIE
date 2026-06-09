@@ -10012,7 +10012,8 @@ async def netscan_ingest(req: Request) -> JSONResponse:
             # name=COALESCE, ale device_type ano — proto u nových 'other').
             _ni_td(device_key="mac:" + mac, device_type="other", name=host,
                    uid=None, ip_str=ip, source="mikrotik", ssid=ssid,
-                   force_place="building", link_user=False)
+                   force_place="building", link_user=False,
+                   seen_ago_s=d.get("seen_ago_s"))
             n += 1
         except Exception:
             pass

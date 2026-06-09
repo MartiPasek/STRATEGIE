@@ -189,7 +189,7 @@ def touch_presence(uid: int | None, ip_str: str | None,
 def touch_device(device_key: str | None, device_type: str, name: str | None,
                  uid: int | None, ip_str: str | None, source: str,
                  ssid: str | None = None, force_place: str | None = None,
-                 link_user: bool = True) -> None:
+                 link_user: bool = True, seen_ago_s: float | None = None) -> None:
     """Upsert zařízení do IT inventury fw.hr_device + vazba na člověka (1:N).
     Presence (last_place) z firemní IP/WiFi, nebo force_place (např. Mikrotik:
     zařízení na firemní síti = v budově i drátově). link_user=False u
@@ -215,7 +215,7 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
                      last_seen_at, last_source, last_in_building, last_ip, last_place,
                      first_seen_today,
                      bld_first, bld_last, out_first, out_last)
-                VALUES (:dt, :nm, :uid, :dk, :mac, :ssid, now(), :src, :inb, :ip, :place, now(),
+                VALUES (:dt, :nm, :uid, :dk, :mac, :ssid, (now() - make_interval(secs => :seen)), :src, :inb, :ip, :place, now(),
                      CASE WHEN :inb THEN now() END, CASE WHEN :inb THEN now() END,
                      CASE WHEN :inb THEN NULL ELSE now() END, CASE WHEN :inb THEN NULL ELSE now() END)
                 ON CONFLICT (device_key) WHERE device_key IS NOT NULL DO UPDATE SET
@@ -223,7 +223,7 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
                     mac = COALESCE(NULLIF(EXCLUDED.mac, ''), fw.hr_device.mac),
                     last_ssid = COALESCE(NULLIF(EXCLUDED.last_ssid, ''), fw.hr_device.last_ssid),
                     owner_user_id = COALESCE(fw.hr_device.owner_user_id, EXCLUDED.owner_user_id),
-                    last_seen_at = now(), last_source = :src,
+                    last_seen_at = (now() - make_interval(secs => :seen)), last_source = :src,
                     last_in_building = :inb, last_ip = :ip, last_place = :place,
                     -- Marti 8.6.: první spatření dne (reset přes půlnoc)
                     first_seen_today = CASE
@@ -242,6 +242,7 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
                 RETURNING id
             """), {"dt": device_type, "nm": (name or ""), "uid": uid, "dk": device_key,
                    "mac": mac_val, "ssid": (ssid or ""),
+                   "seen": float(seen_ago_s or 0),
                    "src": source, "inb": inb, "ip": (ip_str or ""),
                    "place": place}).fetchone()
             dev_id = row[0] if row else None

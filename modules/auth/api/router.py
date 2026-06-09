@@ -730,6 +730,29 @@ def verify_email_confirm(
 
     ip = req.client.host if req.client else None
     ua = req.headers.get("user-agent")
+    # Marti 9.6.: magic link klikne ČLOVĚK v prohlížeči (Accept: text/html) →
+    # vracíme HEZKOU stránku + redirect do appky, ne surový JSON. API klient
+    # (Accept: application/json) dostane dál JSON model.
+    wants_html = "text/html" in (req.headers.get("accept") or "").lower()
+
+    def _html_page(body_inner: str, copy_cookies_from=None):
+        from fastapi.responses import HTMLResponse
+        page = (
+            "<!doctype html><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<meta name='google' content='notranslate'><title>STRATEGIE</title>"
+            "<body style='margin:0;background:#0e1622;color:#e6edf5;"
+            "font:16px/1.5 system-ui;display:flex;min-height:100vh;"
+            "align-items:center;justify-content:center'>"
+            "<div style='text-align:center;padding:24px;max-width:340px'>"
+            + body_inner + "</div>"
+        )
+        r = HTMLResponse(content=page)
+        if copy_cookies_from is not None:
+            for hk, hv in copy_cookies_from.raw_headers:
+                if hk.decode().lower() == "set-cookie":
+                    r.raw_headers.append((hk, hv))
+        return r
 
     sec_result = consume_invite(token, req)
 
@@ -741,6 +764,21 @@ def verify_email_confirm(
             result="verify_required",
             reason=sec_result.audit_data.get("reason", "consume_failed"),
         )
+        if wants_html:
+            return _html_page(
+                "<div style='font-size:42px'>&#128274;</div>"
+                "<div style='font-size:18px;font-weight:700;margin:8px 0'>"
+                "Odkaz uz byl pouzity nebo vyprsel</div>"
+                "<div style='color:#9fb0c2;font-size:14px;margin-bottom:18px'>"
+                "Kazdy odkaz plati jen jednou. Pokud ses prave prihlasil, "
+                "jsi uvnitr &#8211; otevri aplikaci. Jinak si vyzadej novy odkaz.</div>"
+                "<a href='/mobile' style='display:inline-block;background:#10b981;"
+                "color:#04150e;text-decoration:none;border-radius:12px;padding:13px 22px;"
+                "font-size:16px;font-weight:700;margin:4px'>Otevrit aplikaci</a>"
+                "<a href='/api/v1/auth/sms-login?next=%2Fmobile' style='display:inline-block;"
+                "background:#1b2738;color:#e6edf5;text-decoration:none;border:1px solid #2a3a4d;"
+                "border-radius:12px;padding:13px 20px;font-size:15px;margin:4px'>Novy odkaz</a>"
+            )
         return VerifyEmailConfirmResponse(
             ok=False,
             error=sec_result.audit_data.get("reason", "token_invalid_or_expired"),
@@ -808,6 +846,19 @@ def verify_email_confirm(
         except Exception as e:
             logger.warning(f"send_post_confirm_notification failed: {e!r}")
 
+        if wants_html:
+            # Cookies jsou nastavené na `response` → přenes je na HTML redirect.
+            return _html_page(
+                "<div style='font-size:46px'>&#10003;</div>"
+                "<div style='font-size:19px;font-weight:700;margin:8px 0'>Prihlaseno</div>"
+                "<div style='color:#9fb0c2;font-size:14px;margin-bottom:16px'>"
+                "Oteviram aplikaci&#8230;</div>"
+                "<a href='/mobile' style='display:inline-block;background:#10b981;"
+                "color:#04150e;text-decoration:none;border-radius:12px;padding:13px 22px;"
+                "font-size:16px;font-weight:700'>Otevrit aplikaci</a>"
+                "<script>setTimeout(function(){location.replace('/mobile');},900);</script>",
+                copy_cookies_from=response,
+            )
         return VerifyEmailConfirmResponse(
             ok=True,
             user_id=user_id,

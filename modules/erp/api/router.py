@@ -7968,7 +7968,7 @@ async def app_task_poznamka(tid: int, req: Request) -> JSONResponse:
         s.execute(_t("INSERT INTO tenant.task_poznamka (task_id,author_id,obsah) VALUES (:i,:u,:o)"),
                   {"i": tid, "u": uid, "o": obsah})
         s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,detail) "
-                     "VALUES (:i,:u,'poznámka',LEFT(:o,200))"), {"i": tid, "u": uid, "o": obsah})
+                     "VALUES (:i,:u,'poznámka',to_jsonb(LEFT(:o,200)))"), {"i": tid, "u": uid, "o": obsah})
         # Notifikace: nová zpráva ve vlákně → ostatním účastníkům (+ rodiče u Marti-AI)
         try:
             _rids = _task_resitel_ids(s, tid)

@@ -934,7 +934,7 @@ def _handle_task_tool(tool_name: str, tool_input: dict) -> str:
             s.execute(_t("INSERT INTO tenant.task_poznamka (task_id,author_id,obsah) VALUES (:i,:u,:o)"),
                       {"i": tid, "u": _AI, "o": txt})
             s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,detail) "
-                         "VALUES (:i,:u,'poznámka',LEFT(:o,200))"), {"i": tid, "u": _AI, "o": txt})
+                         "VALUES (:i,:u,'poznámka',to_jsonb(LEFT(:o,200)))"), {"i": tid, "u": _AI, "o": txt})
             _task_notify_inline(s, tid, _AI, head[1] or "Úkol", "Marti-AI", txt)
             s.commit()
             return "✅ Zapsáno do vlákna úkolu #%s. Zadavatel (a rodiče) dostali notifikaci." % tid
@@ -955,7 +955,7 @@ def _handle_task_tool(tool_name: str, tool_input: dict) -> str:
             s.execute(_t("UPDATE tenant.task_resitel SET stav=:s, updated_at=now() WHERE task_id=:i AND user_id=:u"),
                       {"s": new, "i": tid, "u": _AI})
             s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,stary_stav,novy_stav,detail) "
-                         "VALUES (:i,:u,'změna stavu',:o,:s,LEFT(:k,200))"),
+                         "VALUES (:i,:u,'změna stavu',:o,:s,to_jsonb(LEFT(:k,200)))"),
                       {"i": tid, "u": _AI, "o": int(my[0] or 0), "s": new, "k": koment})
             if koment:
                 s.execute(_t("INSERT INTO tenant.task_poznamka (task_id,author_id,obsah) VALUES (:i,:u,:o)"),

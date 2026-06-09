@@ -10968,6 +10968,10 @@ _OPS_ACTIONS = {
         "label": "Synchronizovat organizace z Centrály (TabCisOrg EC+IS → STRATEGIE)",
         "target": "cloud", "remote": False,
     },
+    "derive_kontakty": {
+        "label": "Derivovat kontakty do univerzální vrstvy (subjekt/kanál + matching)",
+        "target": "cloud", "remote": False,
+    },
     "att_anomaly_scan": {
         "label": "Zkontrolovat docházku (anomálie → notifikace)",
         "target": "cloud", "remote": False,
@@ -11875,6 +11879,221 @@ def _sync_ec_kontakty_from_centrala() -> dict:
     return {"counts": counts, "errors": errors}
 
 
+def _norm_phone(v: str):
+    import re as _re
+    s = _re.sub(r"[\s\-\(\)\.]", "", v or "")
+    if not s:
+        return None
+    if s.startswith("00"):
+        s = "+" + s[2:]
+    if not s.startswith("+"):
+        digits = _re.sub(r"\D", "", s)
+        if len(digits) == 9 and digits[0] in "67":
+            s = "+420" + digits
+        elif len(digits) >= 11:
+            s = "+" + digits
+        elif len(digits) == 9:
+            s = "+420" + digits
+        else:
+            return None
+    if _re.match(r"^\+[1-9]\d{7,14}$", s):
+        return s
+    return None
+
+
+def _norm_email(v: str):
+    s = (v or "").strip().lower()
+    if "@" in s and "." in s.split("@")[-1]:
+        return s
+    return None
+
+
+def _norm_web(v: str):
+    s = (v or "").strip().lower().rstrip("/")
+    for p in ("https://", "http://"):
+        if s.startswith(p):
+            s = s[len(p):]
+    if s.startswith("www."):
+        s = s[4:]
+    return s or None
+
+
+def _purpose_from_popis(popis: str):
+    p = (popis or "").lower()
+    if "objedn" in p:
+        return "objednavky"
+    if "faktur" in p or "účet" in p or "ucet" in p:
+        return "fakturace"
+    return None
+
+
+def _derive_kontakty() -> dict:
+    """Marti 9.6.2026: Fáze 2 derivace — zrcadlo (ec_org/ec_osoba/ec_spojeni)
+    → univerzální vrstva (subjekt + kanál + vazba s vlastnictvím/účely/proveniencí).
+    Normalizace (E.164 / lowercase email) → dedup kanálů. Matching zaměstnanců na
+    naše users přes att_employee. Cut-over A: source='erp', priority 10 (ruční
+    override bude mít vyšší). Idempotentní (upserty + cache). ⚙ derive_kontakty."""
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    res = {"subjekty": 0, "kanaly": 0, "vazby": 0, "matchnuto_user": 0}
+    try:
+        # firmy EC/ES pro ownership zaměstnanců
+        co = {r[0]: r[1] for r in s.execute(_t(
+            "SELECT code, id FROM tenant.company WHERE tenant_id=2")).fetchall()}
+        co_by_src = {"EC": co.get("EC"), "IS": co.get("ES")}
+        # mapování číslo zaměstnance → user_id (doctrine #24: scalar, bez fan-out)
+        empmap = {}
+        for r in s.execute(_t(
+            "SELECT cislo_zam, user_id FROM tenant.att_employee "
+            "WHERE tenant_id=2 AND user_id IS NOT NULL AND cislo_zam IS NOT NULL")).fetchall():
+            empmap.setdefault(str(r[0]), r[1])
+
+        # preload existující subjekty (ec-klíč) + kanály (dedup) do cache
+        subj_cache = {}
+        for r in s.execute(_t(
+            "SELECT ec_source, ec_kind, ec_id, id FROM tenant.subjekt "
+            "WHERE tenant_id=2 AND ec_id IS NOT NULL")).fetchall():
+            subj_cache[(r[0], r[1], int(r[2]))] = r[3]
+        user_subj = {}
+        for r in s.execute(_t(
+            "SELECT user_id, id FROM tenant.subjekt WHERE tenant_id=2 AND user_id IS NOT NULL")).fetchall():
+            user_subj[r[0]] = r[1]
+        kanal_cache = {}
+        for r in s.execute(_t(
+            "SELECT typ, value_normalized, id FROM tenant.kontakt_kanal WHERE tenant_id=2")).fetchall():
+            kanal_cache[(r[0], r[1])] = r[2]
+
+        def get_subj(kind, src, eckind, ecid, name, user_id=None):
+            key = (src, eckind, int(ecid))
+            if key in subj_cache:
+                sid = subj_cache[key]
+                if user_id and user_id not in user_subj:
+                    user_subj[user_id] = sid
+                return sid
+            # osoba zaměstnance s user matchem → kanonický subjekt usera (1 člověk = 1 subjekt)
+            if user_id and user_id in user_subj:
+                sid = user_subj[user_id]
+                subj_cache[key] = sid
+                return sid
+            sid = s.execute(_t(
+                "INSERT INTO tenant.subjekt (tenant_id, kind, display_name, user_id, ec_source, ec_kind, ec_id) "
+                "VALUES (2, :k, :nm, :u, :src, :ek, :ec) RETURNING id"),
+                {"k": kind, "nm": (name or "").strip()[:200] or None, "u": user_id,
+                 "src": src, "ek": eckind, "ec": int(ecid)}).first()[0]
+            subj_cache[key] = sid
+            if user_id:
+                user_subj[user_id] = sid
+                res["matchnuto_user"] += 1
+            res["subjekty"] += 1
+            return sid
+
+        def get_kanal(typ, raw):
+            if typ == "email":
+                norm = _norm_email(raw)
+            elif typ == "telefon":
+                norm = _norm_phone(raw)
+            elif typ == "web":
+                norm = _norm_web(raw)
+            else:
+                norm = (raw or "").strip().lower() or None
+            if not norm:
+                norm = (raw or "").strip().lower() or None
+            if not norm:
+                return None
+            key = (typ, norm)
+            if key in kanal_cache:
+                return kanal_cache[key]
+            kid = s.execute(_t(
+                "INSERT INTO tenant.kontakt_kanal (tenant_id, typ, value_raw, value_normalized) "
+                "VALUES (2, :t, :vr, :vn) ON CONFLICT (tenant_id, typ, value_normalized) "
+                "DO UPDATE SET value_raw=EXCLUDED.value_raw RETURNING id"),
+                {"t": typ, "vr": (raw or "").strip()[:300], "vn": norm[:300]}).first()[0]
+            kanal_cache[key] = kid
+            res["kanaly"] += 1
+            return kid
+
+        def link(subj_id, kanal_id, ownership, company_id, purpose, popis, primary=False):
+            skid = s.execute(_t(
+                "INSERT INTO tenant.subjekt_kanal (tenant_id, subjekt_id, kanal_id, ownership_type,"
+                " ownership_company_id, is_primary, source, source_priority, carddav_sync, popis) "
+                "VALUES (2, :s, :k, :ow, :co, :pr, 'erp', 10, true, :po) "
+                "ON CONFLICT (tenant_id, subjekt_id, kanal_id) DO UPDATE SET updated_at=now() RETURNING id"),
+                {"s": subj_id, "k": kanal_id, "ow": ownership, "co": company_id,
+                 "pr": primary, "po": (popis or "")[:255] or None}).first()[0]
+            res["vazby"] += 1
+            if purpose:
+                s.execute(_t(
+                    "INSERT INTO tenant.subjekt_kanal_purpose (subjekt_kanal_id, purpose_code) "
+                    "VALUES (:s, :p) ON CONFLICT DO NOTHING"), {"s": skid, "p": purpose})
+            return skid
+
+        # A) subjekty organizací + jejich objednávkové email/telefon (účel objednavky)
+        for o in s.execute(_t(
+            "SELECT source_db, ec_id, nazev, jmeno, prijmeni, obj_email, obj_telefon "
+            "FROM tenant.ec_org WHERE tenant_id=2")).fetchall():
+            nm = (o[2] or "").strip() or ((o[4] or "") + " " + (o[3] or "")).strip()
+            sid = get_subj("organizace", o[0], "org", o[1], nm)
+            if o[5]:
+                kid = get_kanal("email", o[5])
+                if kid:
+                    link(sid, kid, "firma", None, "objednavky", "objednávkový email", True)
+            if o[6]:
+                kid = get_kanal("telefon", o[6])
+                if kid:
+                    link(sid, kid, "firma", None, "objednavky", "objednávkový telefon", True)
+            if res["vazby"] % 500 == 0:
+                s.commit()
+        s.commit()
+
+        # B) subjekty osob (kos) + zaměstnanců (zam, match na user)
+        for o in s.execute(_t(
+            "SELECT source_db, kind, ec_id, cislo_zam, jmeno, prijmeni FROM tenant.ec_osoba "
+            "WHERE tenant_id=2")).fetchall():
+            nm = ((o[5] or "") + " " + (o[4] or "")).strip()
+            if o[1] == "zam":
+                uid = empmap.get(str(o[3])) if o[3] is not None else None
+                get_subj("osoba", o[0], "zam", o[2], nm, user_id=uid)
+            else:
+                get_subj("osoba", o[0], "kos", o[2], nm)
+            if res["subjekty"] % 1000 == 0:
+                s.commit()
+        s.commit()
+
+        # C) spojení → kanály + vazby (org → kos → zam priorita)
+        for sp in s.execute(_t(
+            "SELECT source_db, typ, hodnota, popis, org_ec_id, kos_ec_id, zam_ec_id "
+            "FROM tenant.ec_spojeni WHERE tenant_id=2 AND hodnota<>''")).fetchall():
+            src, typ, val, popis = sp[0], sp[1], sp[2], sp[3]
+            sid = None
+            ownership, company_id = "firma", None
+            if sp[4]:
+                sid = subj_cache.get((src, "org", int(sp[4])))
+            if sid is None and sp[5]:
+                sid = subj_cache.get((src, "kos", int(sp[5])))
+            if sid is None and sp[6]:
+                sid = subj_cache.get((src, "zam", int(sp[6])))
+                # zaměstnanec = firemní vlastnictví dané firmy (EC/ES)
+                company_id = co_by_src.get(src)
+            if sid is None:
+                continue
+            kid = get_kanal(typ if typ in ("email", "telefon", "web") else "jine", val)
+            if kid is None:
+                continue
+            link(sid, kid, ownership, company_id, _purpose_from_popis(popis), popis)
+            if res["vazby"] % 500 == 0:
+                s.commit()
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return res
+
+
 def _sync_vyroba_plan_from_ec() -> dict:
     """Marti 8.6.2026: read-only zrcadlo plánu výroby (EC_Vytizeni_PlanMonteri,
     živý systém za Excelem 'Plánování vytížení') → tenant.vyroba_plan. Řádek =
@@ -12154,6 +12373,12 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
                       % (_cnt.get("EC", 0), _cnt.get("IS", 0),
                          _kc.get("osoby", 0), _kc.get("spojeni", 0),
                          "" if not _errs else " · chyby: " + "; ".join(_errs[:2])))
+        elif action_key == "derive_kontakty":
+            out = _derive_kontakty()
+            status = "done"
+            result = ("derivace: %s subjektů, %s kanálů, %s vazeb, %s spárováno s userem"
+                      % (out.get("subjekty"), out.get("kanaly"), out.get("vazby"),
+                         out.get("matchnuto_user")))
         elif action_key == "att_anomaly_scan":
             out = _att_anomaly_scan()
             status = "done"

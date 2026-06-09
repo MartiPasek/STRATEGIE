@@ -7782,10 +7782,16 @@ async def app_task_create(req: Request) -> JSONResponse:
         body = await req.json()
     except Exception:
         body = {}
-    predmet = str((body or {}).get("predmet") or "").strip()[:255]
-    if not predmet:
-        return JSONResponse({"ok": False, "error": "Zadej předmět úkolu."})
+    # Marti 9.6.: žádný povinný předmět — úkol je i vzkaz/poznámka. Jen text.
+    # Předmět (titulek do seznamu) = první řádek; celý text → popis (nic se neztratí).
+    text = str((body or {}).get("text") or (body or {}).get("predmet") or "").strip()
+    if not text:
+        return JSONResponse({"ok": False, "error": "Napiš text úkolu."})
+    _lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    predmet = (_lines[0] if _lines else text)[:200]
     popis = (str((body or {}).get("popis") or "").strip() or None)
+    if popis is None and text != predmet:
+        popis = text
     termin = (str((body or {}).get("termin") or "").strip() or None)
     try:
         priorita = int((body or {}).get("priorita") or 0)

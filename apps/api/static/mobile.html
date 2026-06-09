@@ -679,18 +679,17 @@ setTimeout(function(){
     var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.96);z-index:200;display:flex;flex-direction:column;padding:16px;overflow:auto;"></div>');
     var hd=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;"><div style="flex:1;font-weight:700;font-size:17px;">➕ Nový úkol</div></div>');
     var cl=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); cl.addEventListener("click",function(){ ov.remove(); }); hd.appendChild(cl); ov.appendChild(hd);
-    var pre=el('<input placeholder="Předmět úkolu *" autocomplete="off" style="margin-bottom:8px;">'); ov.appendChild(pre);
-    var pop=el('<textarea rows="3" placeholder="Popis (nepovinné)" style="width:100%;background:#0f1620;border:1px solid #2a3a4d;border-radius:10px;padding:11px;color:var(--tx);font-size:15px;font-family:inherit;margin-bottom:8px;"></textarea>'); ov.appendChild(pop);
+    var txt=el('<textarea rows="4" placeholder="Napiš úkol, vzkaz nebo poznámku…" style="width:100%;background:#0f1620;border:1px solid var(--green);box-shadow:0 0 0 2px rgba(16,185,129,.15);border-radius:10px;padding:12px;color:var(--tx);font-size:15px;font-family:inherit;margin-bottom:10px;"></textarea>'); ov.appendChild(txt);
     ov.appendChild(el('<div class="hint" style="margin-bottom:2px;">Termín splnění</div>'));
     var ter=el('<input type="date" style="margin-bottom:8px;">'); ov.appendChild(ter);
     ov.appendChild(el('<div class="hint" style="margin-bottom:4px;">Priorita</div>'));
     var prio={v:0}; var prow=el('<div style="display:flex;gap:6px;margin-bottom:12px;"></div>');
     [["Nízká",0],["Střední",1],["Vysoká",2]].forEach(function(p){ var b=el('<button class="ghost" style="flex:1;margin:0;">'+p[0]+'</button>'); b.addEventListener("click",function(){ prio.v=p[1]; Array.prototype.forEach.call(prow.children,function(x){x.style.outline="";}); b.style.outline="2px solid var(--green)"; }); if(p[1]===0)b.style.outline="2px solid var(--green)"; prow.appendChild(b); }); ov.appendChild(prow);
-    var sub=el('<button class="green full">Vytvořit úkol pro sebe</button>');
-    sub.addEventListener("click",function(){ var pv=(pre.value||"").trim(); if(!pv){ try{pre.focus();}catch(e){} return; } sub.disabled=true;
-      api("POST","/api/v1/erp/app/task",{predmet:pv,popis:(pop.value||"").trim(),termin:(ter.value||""),priorita:prio.v}).then(function(r){ if(r&&r.ok){ ov.remove(); _stView="moje"; stPaintRail(); stLoad(); } else { sub.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+    var sub=el('<button class="green full">Vytvořit</button>');
+    sub.addEventListener("click",function(){ var pv=(txt.value||"").trim(); if(!pv){ try{txt.focus();}catch(e){} return; } sub.disabled=true;
+      api("POST","/api/v1/erp/app/task",{text:pv,termin:(ter.value||""),priorita:prio.v}).then(function(r){ if(r&&r.ok){ ov.remove(); _stView="moje"; stPaintRail(); stLoad(); } else { sub.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
     ov.appendChild(sub); app.appendChild(ov);
-    try{pre.focus();}catch(e){}
+    try{txt.focus();}catch(e){}
   }
   function claudetasks(){ app.innerHTML=topbar("Claude", true); var p=el('<div class="panel"></div>');
     p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="ntlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));

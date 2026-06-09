@@ -628,6 +628,14 @@ setTimeout(function(){
   function stPaintRail(){ var r=document.getElementById("strail"); if(!r)return;
     Array.prototype.forEach.call(r.querySelectorAll("button[data-k]"),function(b){ var on=b.getAttribute("data-k")===_stView;
       b.style.background=on?"var(--green)":"transparent"; b.style.color=on?"#04150e":"var(--mut)"; b.style.borderColor=on?"var(--green)":"var(--bord)"; }); }
+  function stDraftRow(){
+    var dr=""; try{ dr=localStorage.getItem("stg_task_draft")||""; }catch(e){}
+    if(!dr || _stView!=="moje") return null;
+    var title=esc((dr.split("\n")[0]||"").slice(0,80));
+    var li=el('<li class="ct" style="padding:0;border-bottom:none;"><div class="cthead"><div class="cav" style="background:#e0a44a;font-size:15px;">✏️</div><div style="flex:1;min-width:0;"><div class="ctname" style="color:#ffd9a8;">'+title+'</div><div class="ctnum">rozpracované — pokračovat</div></div></div></li>');
+    li.addEventListener("click",stNew);
+    return li;
+  }
   function stLoad(){
     var L=document.getElementById("stleft"); if(!L)return;
     L.innerHTML='<div class="hint" style="padding:12px;">Načítám…</div>';
@@ -636,8 +644,9 @@ setTimeout(function(){
       if(!j||!j.ok){ L.innerHTML='<div class="hint" style="padding:14px;">'+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>'; return; }
       var items=j.ukoly||[];
       var lw=el('<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:24px;"></div>');
-      if(!items.length){ lw.innerHTML='<div class="hint" style="padding:14px;line-height:1.6;">Žádné úkoly.<br>Přidej přes <b>➕ Nový</b> vpravo dole.</div>'; L.appendChild(lw); return; }
       var ul=el('<ul class="list" style="padding:0 6px;"></ul>');
+      var drow=stDraftRow(); if(drow) ul.appendChild(drow);
+      if(!items.length && !drow){ lw.innerHTML='<div class="hint" style="padding:14px;line-height:1.6;">Žádné úkoly.<br>Přidej přes <b>➕ Nový</b> vpravo dole.</div>'; L.appendChild(lw); return; }
       items.forEach(function(t){
         var li=el('<li class="ct" style="padding:0;border-bottom:none;"></li>');
         var sub=(t.stav_txt?('• '+esc(t.stav_txt)):'')+(t.termin?(' · 📅 '+esc(t.termin)):'')+(t.zak?(' · '+esc(t.zak)):'')+((t.zadavatel&&_stView!=="zadane")?(' · 👤 '+esc(t.zadavatel)):'');

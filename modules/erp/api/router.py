@@ -9026,6 +9026,113 @@ async def att_absence(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Živá docházka EC → naše (hybrid Fáze 1, inkrementální) — Marti 9.6.2026 ──
+_LAST_DOCH_SYNC = [0.0]
+
+
+def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2) -> dict:
+    """Inkrementální upsert EC_Dochazka za posledních N dní → tenant.att_entry
+    (klíč source_system='centrala1'+source_id). Lehká verze migrace bez
+    enrichmentu, volaná často. EUROSOFT/Helios zůstává zdroj pravdy."""
+    import json as _json_d
+    from datetime import date as _date_d, timedelta as _td_d
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return {"ok": False, "error": "mcp_unavailable"}
+
+    def _rows(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _json_d.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    cm = _pg.get_session()
+    sess = cm.__enter__()
+    ins = upd = total = 0
+    try:
+        tw = sess.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='work'"), {"t": tenant}).first()
+        toh = sess.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='overhead'"), {"t": tenant}).first()
+        if not (tw and toh):
+            return {"ok": False, "error": "missing_types"}
+        type_work, type_oh = tw[0], toh[0]
+        emp_cache = {}
+
+        def emp_id(cislo):
+            key = str(cislo).strip()
+            if key in emp_cache:
+                return emp_cache[key]
+            rr = sess.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:c"), {"t": tenant, "c": key}).first()
+            if not rr:
+                rr = sess.execute(_t("INSERT INTO tenant.att_employee (tenant_id,cislo_zam,is_active,created_at,updated_at) VALUES (:t,:c,true,now(),now()) RETURNING id"), {"t": tenant, "c": key}).first()
+            emp_cache[key] = rr[0]
+            return rr[0]
+        frm = (_date_d.today() - _td_d(days=days)).isoformat()
+        sql = ("SELECT ID, CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, "
+               "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
+               "CasPauza, CasCelkemZakazka hod, CisloZakazky, LoginFrom, "
+               "CAST(VedSchvaleno AS int) ved, CAST(SefSchvaleno AS int) sef, CAST(Uzavreno AS int) uz "
+               "FROM EC_Dochazka WHERE DatumPripadu >= '" + frm + "' ORDER BY ID")
+        for r in _rows(sql):
+            rid = int(r["ID"])
+            total += 1
+            zak = (r.get("CisloZakazky") or "").strip()
+            rezie = zak.lower() == "rezie"
+            lf = (r.get("LoginFrom") or "").strip().upper()
+            src = {"D": "tablet", "C": "manual", "A": "mobile_app"}.get(lf, "import")
+            st = "locked" if int(r.get("uz") or 0) else ("approved" if (int(r.get("ved") or 0) and int(r.get("sef") or 0)) else "pending")
+            p = {"t": tenant, "emp": emp_id(r["CisloZam"]), "d": r.get("d"),
+                 "et": type_oh if rezie else type_work, "h": r.get("hod"),
+                 "z": r.get("z"), "k": r.get("k"), "br": int(r.get("CasPauza") or 0),
+                 "proj": None if rezie else (zak or None), "st": st, "src": src, "sid": rid}
+            res = sess.execute(_t(
+                "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"
+                "started_at=:z,ended_at=:k,break_minutes=:br,project_ref=:proj,status=:st,source=:src,"
+                "updated_at=now() WHERE tenant_id=:t AND source_system='centrala1' AND source_id=:sid"), p)
+            if (res.rowcount or 0) == 0:
+                sess.execute(_t(
+                    "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                    "started_at,ended_at,break_minutes,project_ref,status,source,source_system,source_id,"
+                    "is_active,created_at,updated_at) VALUES (:t,:emp,:d,:et,:h,:z,:k,:br,:proj,:st,:src,"
+                    "'centrala1',:sid,false,now(),now())"), p)
+                ins += 1
+            else:
+                upd += 1
+        sess.commit()
+        return {"ok": True, "total": total, "inserted": ins, "updated": upd}
+    except Exception as exc:
+        try:
+            sess.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc)}
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
+def _maybe_sync_ec_dochazka():
+    import time as _tm
+    now = _tm.time()
+    if now - _LAST_DOCH_SYNC[0] < 300:
+        return
+    _LAST_DOCH_SYNC[0] = now
+    try:
+        _sync_ec_dochazka_recent(days=3)
+    except Exception as e:
+        logger.warning("[ec_doch_sync] %s", e)
+
+
 @api_router.post("/hr/migrate-dochazka")
 async def hr_migrate_dochazka(req: Request) -> JSONResponse:
     """Migrace EC_Dochazka (MSSQL přes EUROSOFT MCP) → tenant.att_*. Běží IN-PROCESS
@@ -9525,6 +9632,11 @@ async def netscan_ingest(req: Request) -> JSONResponse:
         _att_anomaly_scan()
     except Exception:
         logger.exception("[netscan] anomaly scan failed")
+    # Marti 9.6.: živá docházka EC → naše (throttle 5 min, hybrid Fáze 1)
+    try:
+        _maybe_sync_ec_dochazka()
+    except Exception:
+        logger.exception("[netscan] ec dochazka sync failed")
     return JSONResponse({"ok": True, "count": n, "auto_checkin": auto})
 
 

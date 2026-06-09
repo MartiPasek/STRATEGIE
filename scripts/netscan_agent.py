@@ -173,11 +173,17 @@ def _collect_api():
         kwargs["port"] = int(os.environ.get("MIKROTIK_API_PORT", "8728") or "8728")
     api = connect(**kwargs)
     devices = {}
+    _API_SAMPLE.clear()
     try:
         for le in api.path("ip", "dhcp-server", "lease"):
             mac = (le.get("mac-address") or "").strip().lower()
             if not mac:
                 continue
+            if not _API_SAMPLE.get("lease"):
+                try:
+                    _API_SAMPLE["lease"] = {k: le[k] for k in le}
+                except Exception:
+                    pass
             seen_ago = _ros_dur_s(le.get("last-seen"))
             if seen_ago is not None:
                 active = seen_ago <= ACTIVE_MAX_S
@@ -196,18 +202,33 @@ def _collect_api():
                 mac = (rg.get("mac-address") or "").strip().lower()
                 if not mac:
                     continue
+                if not _API_SAMPLE.get("reg"):
+                    try:
+                        _API_SAMPLE["reg"] = {k: rg[k] for k in rg}
+                    except Exception:
+                        pass
                 d = devices.setdefault(mac, {"mac": mac, "ip": "", "hostname": "", "ssid": "", "active": True, "seen_ago_s": 0})
                 d["ssid"] = rg.get("ssid") or ""
                 d["active"] = True
                 d["seen_ago_s"] = 0
         except Exception:
             pass
+        # Marti 9.6.: vzorek /ip/accounting (per-host byty, jen pokud zapnuto) — pro byte-delta
+        try:
+            for ac in api.path("ip", "accounting"):
+                _API_SAMPLE["accounting"] = {k: ac[k] for k in ac}
+                break
+        except Exception as _eacc:
+            _API_SAMPLE["accounting_err"] = str(_eacc)[:120]
     finally:
         try:
             api.close()
         except Exception:
             pass
     return list(devices.values())
+
+
+_API_SAMPLE = {}  # syrový vzorek z API módu (lease/reg/accounting) — diagnostika bytů
 
 
 def collect():
@@ -218,7 +239,7 @@ def _sample_raw():
     """Vzorek SYROVÝCH dat z Mikrotiku (první 1-2 řádky každého zdroje) — ať
     backend/Claude uvidí, kde jsou byty/last-seen/signál. Jen REST. Marti 9.6."""
     if MODE == "api":
-        return {"mode": "api", "note": "sample jen pro REST"}
+        return {"mode": "api", "captured": _API_SAMPLE}
     out = {}
     for p in ("/ip/dhcp-server/lease",
               "/interface/wireless/registration-table",

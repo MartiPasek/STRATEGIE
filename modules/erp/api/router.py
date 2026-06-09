@@ -9092,7 +9092,11 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
             sess.execute(_t(wsql), wp)
         _wh = "DatumPripadu >= '" + frm + "'"
         if to:
-            _wh += " AND DatumPripadu <= '" + to + "'"
+            # POZOR: DatumPripadu u zivych/dnesnich radku NENI pulnoc (ma realny
+            # cas, napr. 04:53). '<= to' (= pulnoc) by vyriznul cely den. Proto
+            # exkluzivni dalsi den. Marti 9.6.2026.
+            _to_excl = (_date_d.fromisoformat(to) + _td_d(days=1)).isoformat()
+            _wh += " AND DatumPripadu < '" + _to_excl + "'"
         sql = ("SELECT ID, CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, "
                "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
                "CasPauza, CasCelkemZakazka hod, CisloZakazky, LoginFrom, "

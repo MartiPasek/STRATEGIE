@@ -756,11 +756,41 @@ window.onerror=function(msg,src,line){
     g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"STRATEGIE",0,function(){openApp("/erp/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Tvoje Marti",0,function(){openApp("/");}));
     g.appendChild(appCell("🤝","Spolupráce",0,function(){go("dochazka");}));
+    // Marti 9.6.: vše ze složky Firma = aplikace. Výroba + její seznamy jako ikony,
+    // řízení (Vedení) jako složka. Deep-link otevře Výrobu rovnou na daném seznamu.
+    g.appendChild(appCell("🏭","Výroba",0,function(){openVyroba("makam");}));
+    g.appendChild(appCell("🛒","Nákup",0,function(){openVyroba("nakup");}));
+    g.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
+    g.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
+    g.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
     // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
     // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
     // g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
     app.appendChild(g);
     app.appendChild(el('<div style="height:120px;"></div>'));  // místo pod dvě extra lišty
+  }
+  // Marti 9.6.: složka „Vedení" v Aplikacích — řídicí agendy. Příprava/Odvozy/
+  // Zakázky deep-link do Výroby; IT/PLC/HR zatím placeholder „Připravujeme".
+  function vedeni(){
+    app.innerHTML=topbar("🗂️ Vedení", true);
+    var g=el('<div class="appgrid"></div>');
+    g.appendChild(appCell("🔧","Příprava",0,function(){openVyroba("priprava");}));
+    g.appendChild(appCell("🚚","Odvozy",0,function(){openVyroba("odvozy");}));
+    g.appendChild(appCell("🧾","Zakázky",0,function(){openVyroba("zakazky");}));
+    g.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
+    g.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
+    g.appendChild(appCell("👥","HR",0,function(){openSoon("HR");}));
+    app.appendChild(g);
+    app.appendChild(el('<div style="height:80px;"></div>'));
+  }
+  function openSoon(label){ window._soonLabel=label||""; go("soon"); }
+  function soon(){
+    var lab=window._soonLabel||"";
+    app.innerHTML=topbar(lab||"Připravujeme", true);
+    var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="big">🚧 '+esc(lab)+'</div>'));
+    p.appendChild(el('<div class="hint" style="margin-top:8px;line-height:1.6;">Připravujeme — tahle agenda se brzy objeví. Řekni Marti, co tu má být, a napojíme ji.</div>'));
+    app.appendChild(p);
   }
   function set_notifaccess(){ app.innerHTML=topbar("Přístup k oznámením", true); var p=el('<div class="panel"></div>');
     if(!(B&&typeof B.openNotifAccess==="function")){ p.appendChild(el('<div class="hint">Tato funkce je v appce STRATEGIE.</div>')); app.appendChild(p); return; }
@@ -814,6 +844,7 @@ window.onerror=function(msg,src,line){
   ];
   var VY_BOT=[
     {k:"zakazky",   ic:"🧾", l:"Zakázky"},
+    {k:"vp",        ic:"👔", l:"VP"},
     {k:"zkusebna",  ic:"🧪", l:"Zkušebna"},
     {k:"odvozy",    ic:"🚚", l:"Odvozy"},
     {k:"nakup",     ic:"🛒", l:"Nákup"},
@@ -829,7 +860,10 @@ window.onerror=function(msg,src,line){
     });
     return b;
   }
+  // Marti 9.6.: otevři Výrobu rovnou na konkrétním seznamu (z ikon v Aplikacích).
+  function openVyroba(view){ window._vyInitView=view||"makam"; go("vyroba"); }
   function vyroba(){
+    if(window._vyInitView){ _vyView=window._vyInitView; window._vyInitView=null; }
     app.innerHTML=topbar("🏭 Výroba", true, true);
     var _tb=app.querySelector('.topbar'); if(_tb) _tb.style.paddingTop="12px";
     var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
@@ -2312,7 +2346,7 @@ window.onerror=function(msg,src,line){
     });
     box.appendChild(b);
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

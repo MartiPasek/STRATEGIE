@@ -7610,6 +7610,119 @@ async def app_todo_delete(tid: int, req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Úkoly z Centrály (EC_Ukoly, read-only v1) — Marti 9.6.2026 ──────────────
+# User->EC cislo pres att_employee.cislo_zam. Resitel=Typ 1/4, Kopie=Typ 2 ve
+# EC_UkolyResitelVazba. Zadavatel=EC_Ukoly.Zadavatel. Open=Stav 0/2/4/5/6/7.
+def _ec_user_cisla(uid):
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT DISTINCT cislo_zam FROM tenant.att_employee "
+            "WHERE user_id=:u AND tenant_id=2 AND cislo_zam IS NOT NULL"), {"u": uid}).fetchall()
+    finally:
+        cm.__exit__(None, None, None)
+    return [str(r[0]) for r in rows if str(r[0]).isdigit()]
+
+
+def _ec_mcp_rows(sql):
+    import json as _json
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _json.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                return r[k]
+        return []
+    return r if isinstance(r, list) else []
+
+
+@api_router.get("/app/ec-ukoly")
+async def app_ec_ukoly(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    view = (req.query_params.get("view") or "resitel").strip().lower()
+    nums = _ec_user_cisla(uid)
+    if not nums:
+        return JSONResponse({"ok": True, "ukoly": [], "note": "no_ec_number"})
+    csv = ",".join(nums)
+    cols = ("h.ID id, LEFT(ISNULL(h.Predmet,''),140) predmet, ISNULL(h.StavText,'') stav, "
+            "ISNULL(h.HotovoProcent,0) hp, CONVERT(varchar(10),h.TerminSplneni,104) termin, "
+            "ISNULL(h.CisloZakazky,'') zak, "
+            "LTRIM(RTRIM(ISNULL(zz.Prijmeni,'')+' '+ISNULL(zz.Jmeno,''))) zadavatel, "
+            "CASE WHEN h.TerminSplneni < GETDATE() AND ISNULL(h.HotovoProcent,0)<100 THEN 1 ELSE 0 END pozde")
+    base = "EC_Ukoly h LEFT JOIN TabCisZam zz ON zz.Cislo=h.Zadavatel"
+    if view == "zadavatel":
+        sql = ("SELECT TOP 80 " + cols + " FROM " + base +
+               " WHERE h.Zadavatel IN (" + csv + ") AND h.Stav IN (0,2,4,5,6,7) ORDER BY h.TerminSplneni")
+    elif view in ("resitel", "kopie", "urgentni"):
+        typ = "2" if view == "kopie" else "1,4"
+        extra = " AND (v.TerminOsobni < GETDATE() OR h.TerminSplneni < GETDATE())" if view == "urgentni" else ""
+        sql = ("SELECT TOP 80 " + cols + " FROM EC_UkolyResitelVazba v JOIN " + base +
+               " ON h.ID=v.IDUkol WHERE v.Resitel IN (" + csv + ") AND v.Typ IN (" + typ +
+               ") AND v.Stav IN (0,2,4,5,7)" + extra + " ORDER BY h.TerminSplneni")
+    elif view == "splnene":
+        sql = ("SELECT TOP 80 " + cols + " FROM EC_UkolyResitelVazba v JOIN " + base +
+               " ON h.ID=v.IDUkol WHERE v.Resitel IN (" + csv + ") AND v.Stav IN (10,12) "
+               "ORDER BY v.DatDokonceni DESC")
+    else:
+        return JSONResponse({"ok": False, "error": "neznámý pohled"})
+    try:
+        rows = _ec_mcp_rows(sql)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    out = []
+    for row in rows:
+        if isinstance(row, dict):
+            out.append({"id": row.get("id"), "predmet": row.get("predmet"), "stav": row.get("stav"),
+                        "hp": row.get("hp"), "termin": row.get("termin"), "zak": row.get("zak"),
+                        "zadavatel": (row.get("zadavatel") or "").strip(), "pozde": bool(row.get("pozde"))})
+        elif isinstance(row, (list, tuple)) and len(row) >= 8:
+            out.append({"id": row[0], "predmet": row[1], "stav": row[2], "hp": row[3],
+                        "termin": row[4], "zak": row[5], "zadavatel": (row[6] or "").strip(), "pozde": bool(row[7])})
+    return JSONResponse({"ok": True, "ukoly": out})
+
+
+@api_router.get("/app/ec-ukoly/{tid}/detail")
+async def app_ec_ukoly_detail(tid: int, req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        head = _ec_mcp_rows(
+            "SELECT TOP 1 h.ID id, ISNULL(h.Predmet,'') predmet, "
+            "CAST(ISNULL(h.Popis,'') AS nvarchar(max)) popis, ISNULL(h.StavText,'') stav, "
+            "CONVERT(varchar(10),h.TerminSplneni,104) termin, ISNULL(h.CisloZakazky,'') zak, "
+            "ISNULL(h.HotovoProcent,0) hp, "
+            "LTRIM(RTRIM(ISNULL(zz.Prijmeni,'')+' '+ISNULL(zz.Jmeno,''))) zadavatel "
+            "FROM EC_Ukoly h LEFT JOIN TabCisZam zz ON zz.Cislo=h.Zadavatel WHERE h.ID=" + str(int(tid)))
+        pozn = _ec_mcp_rows(
+            "SELECT TOP 20 ISNULL(p.Autor,'') autor, "
+            "CONVERT(varchar(16),p.DatPorizeni,104) kdy, "
+            "LEFT(CAST(ISNULL(p.Poznamka,'') AS nvarchar(max)),500) text "
+            "FROM EC_UkolyPoznamky p WHERE p.IDUkol=" + str(int(tid)) + " ORDER BY p.DatPorizeni DESC")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    def _d(row, keys):
+        if isinstance(row, dict):
+            return {k: row.get(k) for k in keys}
+        return {keys[i]: (row[i] if i < len(row) else None) for i in range(len(keys))}
+    hk = ["id", "predmet", "popis", "stav", "termin", "zak", "hp", "zadavatel"]
+    h = _d(head[0], hk) if head else {}
+    pk = ["autor", "kdy", "text"]
+    pz = [_d(r, pk) for r in pozn]
+    return JSONResponse({"ok": True, "ukol": h, "poznamky": pz})
+
+
 @api_router.post("/app/attendance/announce")
 async def att_announce(req: Request) -> JSONResponse:
     """Marti 7.6.: presence status v lidské řeči („Už jedu do práce…", „Mám

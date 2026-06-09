@@ -504,6 +504,8 @@ setTimeout(function(){
     ct.addEventListener("click",function(){go("claudetasks");}); grid.appendChild(ct);
     var tt=el('<div class="tile" style="position:relative;"><div class="tile-ic">📝</div><div class="tile-tt">Moje TODO</div><div class="tile-sub" id="todoSub">…</div></div>');
     tt.addEventListener("click",function(){go("mytodo");}); grid.appendChild(tt);
+    var ut=el('<div class="tile"><div class="tile-ic">📋</div><div class="tile-tt">Úkoly</div><div class="tile-sub">Z Centrály</div></div>');
+    ut.addEventListener("click",function(){go("ecukoly");}); grid.appendChild(ut);
     p.appendChild(grid); app.appendChild(p);
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; var s=document.getElementById("claudeSub"); if(s)s.textContent=notifCount?(notifCount+" ke schválení / nové"):"Žádné nové"; var bd=document.getElementById("claudeBadge"); if(bd){ if(notifCount>0){ bd.textContent=notifCount>99?"99+":notifCount; bd.style.display="block"; } else bd.style.display="none"; } renderNav(); });
     api("GET","/api/v1/erp/app/todo","").then(function(j){ var n=((j&&j.todo)||[]).filter(function(t){return !t.done;}).length; var s=document.getElementById("todoSub"); if(s)s.textContent=n?(n+" k vyřízení"):"Vše hotovo ✓"; }); }
@@ -534,6 +536,71 @@ setTimeout(function(){
         del.addEventListener("click",function(){ if(confirm("Smazat úkol?")) api("POST","/api/v1/erp/app/todo/"+t.id+"/delete",{}).then(function(){ todoLoad(); }); });
         li.appendChild(chk); li.appendChild(txt); li.appendChild(del); ul.appendChild(li);
       });
+    }); }
+  // ───── ÚKOLY z Centrály (EC_Ukoly, read-only v1). Marti 9.6. ─────
+  var _ecView="resitel";
+  var EC_VIEWS=[
+    {k:"resitel",  ic:"🛠", l:"Řešitel"},
+    {k:"zadavatel",ic:"📤", l:"Zadané"},
+    {k:"kopie",    ic:"📑", l:"Kopie"},
+    {k:"urgentni", ic:"⏰", l:"Urgent"},
+    {k:"splnene",  ic:"✅", l:"Splněné"}
+  ];
+  function ecukoly(){
+    app.innerHTML=topbar("📋 Úkoly", true, true);
+    var _tb=app.querySelector('.topbar'); if(_tb)_tb.style.paddingTop="12px";
+    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
+    var left=el('<div id="ecleft" style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;"></div>');
+    var rail=el('<div id="ecrail" style="width:64px;flex:none;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding:1px;"></div>');
+    EC_VIEWS.forEach(function(v){ rail.appendChild(ecBtn(v)); });
+    wrap.appendChild(left); wrap.appendChild(rail); app.appendChild(wrap);
+    ecLoad();
+  }
+  function ecBtn(v){
+    var on=(_ecView===v.k);
+    var b=el('<button data-k="'+v.k+'" style="margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid '+(on?"var(--blue)":"var(--bord)")+';background:'+(on?"var(--blue)":"transparent")+';color:'+(on?"#fff":"var(--mut)")+';border-radius:9px;cursor:pointer;"><span style="font-size:17px;">'+v.ic+'</span>'+esc(v.l)+'</button>');
+    b.addEventListener("click",function(){ _ecView=v.k; ecPaintRail(); ecLoad(); });
+    return b;
+  }
+  function ecPaintRail(){ var r=document.getElementById("ecrail"); if(!r)return;
+    Array.prototype.forEach.call(r.querySelectorAll("button[data-k]"),function(b){ var on=b.getAttribute("data-k")===_ecView;
+      b.style.background=on?"var(--blue)":"transparent"; b.style.color=on?"#fff":"var(--mut)"; b.style.borderColor=on?"var(--blue)":"var(--bord)"; }); }
+  function ecLoad(){
+    var L=document.getElementById("ecleft"); if(!L)return;
+    L.innerHTML='<div class="hint" style="padding:12px;">Načítám z Centrály…</div>';
+    api("GET","/api/v1/erp/app/ec-ukoly?view="+_ecView,"").then(function(j){
+      L.innerHTML="";
+      if(!j||!j.ok){ L.innerHTML='<div class="hint" style="padding:14px;">'+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>'; return; }
+      if(j.note==="no_ec_number"){ L.innerHTML='<div class="hint" style="padding:14px;line-height:1.6;">Nemáš přiřazené EC číslo v Centrále.</div>'; return; }
+      var items=j.ukoly||[];
+      var lw=el('<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:24px;"></div>');
+      if(!items.length){ lw.innerHTML='<div class="hint" style="padding:14px;">Žádné úkoly. 👍</div>'; L.appendChild(lw); return; }
+      var ul=el('<ul class="list" style="padding:0 6px;"></ul>');
+      items.forEach(function(t){
+        var li=el('<li class="ct" style="padding:0;border-bottom:none;"></li>');
+        var sub=(t.zadavatel?('👤 '+esc(t.zadavatel)):'')+(t.termin?(' · 📅 '+esc(t.termin)):'')+(t.zak?(' · '+esc(t.zak)):'')+((t.hp!=null&&t.hp!=="")?(' · '+t.hp+'%'):'');
+        var col=t.pozde?'#e06a5a':'var(--tx)';
+        var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(t.predmet||"?")+';font-size:15px;">'+(t.pozde?'⏰':'📋')+'</div><div style="flex:1;min-width:0;"><div class="ctname" style="color:'+col+';">'+esc(t.predmet||"(bez názvu)")+'</div><div class="ctnum">'+sub+'</div></div></div>');
+        var exp=el('<div class="ctexp" style="display:none;"></div>');
+        head.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) ecFillDetail(exp,t); });
+        li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
+      });
+      lw.appendChild(ul); L.appendChild(lw);
+    }); }
+  function ecFillDetail(exp,t){
+    exp.innerHTML='<div class="hint" style="padding:8px;">Načítám detail…</div>';
+    api("GET","/api/v1/erp/app/ec-ukoly/"+t.id+"/detail","").then(function(j){
+      exp.innerHTML="";
+      if(!j||!j.ok){ exp.innerHTML='<div class="hint" style="padding:8px;">Detail se nenačetl.</div>'; return; }
+      var u=j.ukol||{};
+      if(u.popis){ exp.appendChild(el('<div style="padding:8px 6px;white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.55;">'+esc(u.popis)+'</div>')); }
+      exp.appendChild(el('<div class="hint" style="padding:2px 6px;">Stav: '+esc(u.stav||"")+((u.hp!=null&&u.hp!=="")?(' · '+u.hp+'%'):'')+(u.termin?(' · termín '+esc(u.termin)):'')+'</div>'));
+      var pz=j.poznamky||[];
+      if(pz.length){
+        exp.appendChild(el('<div style="padding:8px 6px 2px;font-weight:700;font-size:13px;color:#ffd9a8;">💬 Poznámky</div>'));
+        pz.forEach(function(p){ exp.appendChild(el('<div style="padding:4px 6px;border-top:1px solid var(--bord);font-size:13px;white-space:pre-wrap;word-break:break-word;"><b style="color:#9fb0c2;">'+esc(p.autor||"")+'</b> <span class="hint">'+esc(p.kdy||"")+'</span><br>'+esc(p.text||"")+'</div>')); });
+      }
+      exp.appendChild(el('<div class="hint" style="padding:8px 6px;">Akce (Přidat poznámku, Dát splněno) přidám v dalším kroku.</div>'));
     }); }
   function claudetasks(){ app.innerHTML=topbar("Claude", true); var p=el('<div class="panel"></div>');
     p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="ntlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
@@ -2534,7 +2601,7 @@ setTimeout(function(){
     });
     box.appendChild(b);
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

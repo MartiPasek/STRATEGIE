@@ -9093,7 +9093,7 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2) -> dict:
             p = {"t": tenant, "emp": emp_id(r["CisloZam"]), "d": r.get("d"),
                  "et": type_oh if rezie else type_work, "h": r.get("hod"),
                  "z": r.get("z"), "k": r.get("k"), "br": int(r.get("CasPauza") or 0),
-                 "proj": None if rezie else (zak or None), "st": st, "src": src, "sid": rid,
+                 "proj": ("Režie" if rezie else (zak or None)), "st": st, "src": src, "sid": rid,
                  "akt": (int(r.get("akt") or 0) == 1)}
             res = sess.execute(_t(
                 "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"

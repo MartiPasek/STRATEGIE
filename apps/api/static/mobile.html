@@ -508,7 +508,8 @@ setTimeout(function(){
     ut.addEventListener("click",function(){go("ecukoly");}); grid.appendChild(ut);
     p.appendChild(grid); app.appendChild(p);
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; var s=document.getElementById("claudeSub"); if(s)s.textContent=notifCount?(notifCount+" ke schválení / nové"):"Žádné nové"; var bd=document.getElementById("claudeBadge"); if(bd){ if(notifCount>0){ bd.textContent=notifCount>99?"99+":notifCount; bd.style.display="block"; } else bd.style.display="none"; } renderNav(); });
-    api("GET","/api/v1/erp/app/todo","").then(function(j){ var n=((j&&j.todo)||[]).filter(function(t){return !t.done;}).length; var s=document.getElementById("todoSub"); if(s)s.textContent=n?(n+" k vyřízení"):"Vše hotovo ✓"; }); }
+    (function(){ var s0=document.getElementById("todoSub"); var dr=false; try{dr=!!localStorage.getItem("stg_task_draft");}catch(e){} if(s0&&dr)s0.textContent="✏️ rozpracované…"; })();
+    api("GET","/api/v1/erp/app/task?view=moje","").then(function(j){ var n=((j&&j.ukoly)||[]).length; var s=document.getElementById("todoSub"); var dr=false; try{dr=!!localStorage.getItem("stg_task_draft");}catch(e){} if(s)s.textContent=(dr?"✏️ rozpracované · ":"")+(n?(n+" k vyřízení"):"nic nového"); }); }
   function mytodo(){
     app.innerHTML=topbar("📝 Moje TODO", true);
     var p=el('<div class="panel"></div>');
@@ -680,6 +681,9 @@ setTimeout(function(){
     var hd=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;"><div style="flex:1;font-weight:700;font-size:17px;">➕ Nový úkol</div></div>');
     var cl=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); cl.addEventListener("click",function(){ ov.remove(); }); hd.appendChild(cl); ov.appendChild(hd);
     var txt=el('<textarea rows="4" placeholder="Napiš úkol, vzkaz nebo poznámku…" style="width:100%;background:#0f1620;border:1px solid var(--green);box-shadow:0 0 0 2px rgba(16,185,129,.15);border-radius:10px;padding:12px;color:var(--tx);font-size:15px;font-family:inherit;margin-bottom:10px;"></textarea>'); ov.appendChild(txt);
+    // Marti 9.6.: koncept — rozepsaný text se průběžně ukládá (přežije zavření i zpět).
+    try{ var _dr=localStorage.getItem("stg_task_draft"); if(_dr) txt.value=_dr; }catch(e){}
+    txt.addEventListener("input",function(){ try{ if(txt.value.trim()) localStorage.setItem("stg_task_draft",txt.value); else localStorage.removeItem("stg_task_draft"); }catch(e){} });
     ov.appendChild(el('<div class="hint" style="margin-bottom:2px;">Termín splnění</div>'));
     var ter=el('<input type="date" style="margin-bottom:8px;">'); ov.appendChild(ter);
     ov.appendChild(el('<div class="hint" style="margin-bottom:4px;">Priorita</div>'));
@@ -710,14 +714,14 @@ setTimeout(function(){
         });
       }
       srch.addEventListener("input",rp);
-      api("GET","/api/v1/erp/app/task/lide","").then(function(j){ all=(j&&j.lide)||[]; all.sort(function(a,b){return ((b.agent?1:0)-(a.agent?1:0))||((a.jmeno||"")<(b.jmeno||"")?-1:1);}); rp(); });
+      api("GET","/api/v1/erp/app/task-lide","").then(function(j){ all=(j&&j.lide)||[]; all.sort(function(a,b){return ((b.agent?1:0)-(a.agent?1:0))||((a.jmeno||"")<(b.jmeno||"")?-1:1);}); rp(); });
     }
     paintChips();
     var sub=el('<button class="green full">Vytvořit</button>');
     sub.addEventListener("click",function(){ var pv=(txt.value||"").trim(); if(!pv){ try{txt.focus();}catch(e){} return; } sub.disabled=true;
       var payload={text:pv,termin:(ter.value||""),priorita:prio.v};
       if(resit.ids.length) payload.resitele=resit.ids;
-      api("POST","/api/v1/erp/app/task",payload).then(function(r){ if(r&&r.ok){ ov.remove(); _stView=resit.ids.length?"zadane":"moje"; stPaintRail(); stLoad(); } else { sub.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+      api("POST","/api/v1/erp/app/task",payload).then(function(r){ if(r&&r.ok){ try{localStorage.removeItem("stg_task_draft");}catch(e){} ov.remove(); _stView=resit.ids.length?"zadane":"moje"; stPaintRail(); stLoad(); } else { sub.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
     ov.appendChild(sub); app.appendChild(ov);
     try{txt.focus();}catch(e){}
   }

@@ -7928,9 +7928,10 @@ async def app_task_stav(tid: int, req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
-@api_router.get("/app/task/lide")
+@api_router.get("/app/task-lide")
 async def app_task_lide(req: Request) -> JSONResponse:
-    """Lidé k přiřazení úkolu — tenant 2 useři (active+invited) VČETNĚ AI agentů
+    """Lidé k přiřazení úkolu — tenant 2 useři (active+invited) VČETNĚ AI agentů.
+    Pozn.: route s pomlčkou (NE /app/task/lide) — jinak kolize s /app/task/{tid}.
     (Marti-AI 2, Claude 23/24, označeni agent=true). Marti 9.6."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:

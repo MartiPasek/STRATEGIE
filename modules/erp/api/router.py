@@ -7522,6 +7522,94 @@ async def app_skupiny_skore(gid: int, req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Moje TODO (osobní checklist per user) — Marti 9.6.2026 ──────────────────
+@api_router.get("/app/todo")
+async def app_todo_list(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, text, done, to_char(created_at,'DD.MM') AS kdy "
+            "FROM tenant.user_todo WHERE tenant_id=2 AND user_id=:u "
+            "ORDER BY done, sort_order, id DESC"), {"u": uid}).fetchall()
+        out = [{"id": r[0], "text": r[1], "done": bool(r[2]), "kdy": r[3]} for r in rows]
+        return JSONResponse({"ok": True, "todo": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/todo")
+async def app_todo_add(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    txt = str((body or {}).get("text") or "").strip()[:500]
+    if not txt:
+        return JSONResponse({"ok": False, "error": "Zadej text úkolu."})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        r = s.execute(_t(
+            "INSERT INTO tenant.user_todo (tenant_id, user_id, text) "
+            "VALUES (2, :u, :t) RETURNING id"), {"u": uid, "t": txt}).first()
+        s.commit()
+        return JSONResponse({"ok": True, "id": r[0]})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/todo/{tid}/toggle")
+async def app_todo_toggle(tid: int, req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t(
+            "UPDATE tenant.user_todo SET done = NOT done, "
+            " done_at = CASE WHEN NOT done THEN now() ELSE NULL END "
+            "WHERE id=:id AND user_id=:u AND tenant_id=2"), {"id": tid, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/todo/{tid}/delete")
+async def app_todo_delete(tid: int, req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t("DELETE FROM tenant.user_todo WHERE id=:id AND user_id=:u AND tenant_id=2"),
+                  {"id": tid, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/announce")
 async def att_announce(req: Request) -> JSONResponse:
     """Marti 7.6.: presence status v lidské řeči („Už jedu do práce…", „Mám

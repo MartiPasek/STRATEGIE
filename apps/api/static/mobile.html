@@ -502,8 +502,39 @@ setTimeout(function(){
     var grid=el('<div class="dashgrid"></div>');
     var ct=el('<div class="tile" style="position:relative;"><div class="tile-ic">'+CLAUDE_SVG+'</div><div class="tile-tt">Claude</div><div class="tile-sub" id="claudeSub">…</div><span id="claudeBadge" style="display:none;position:absolute;top:8px;right:8px;background:#e0483d;color:#fff;border-radius:11px;min-width:22px;height:22px;line-height:22px;text-align:center;font-size:12px;font-weight:700;padding:0 6px;box-shadow:0 1px 4px rgba(0,0,0,.35);"></span></div>');
     ct.addEventListener("click",function(){go("claudetasks");}); grid.appendChild(ct);
+    var tt=el('<div class="tile" style="position:relative;"><div class="tile-ic">📝</div><div class="tile-tt">Moje TODO</div><div class="tile-sub" id="todoSub">…</div></div>');
+    tt.addEventListener("click",function(){go("mytodo");}); grid.appendChild(tt);
     p.appendChild(grid); app.appendChild(p);
-    api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; var s=document.getElementById("claudeSub"); if(s)s.textContent=notifCount?(notifCount+" ke schválení / nové"):"Žádné nové"; var bd=document.getElementById("claudeBadge"); if(bd){ if(notifCount>0){ bd.textContent=notifCount>99?"99+":notifCount; bd.style.display="block"; } else bd.style.display="none"; } renderNav(); }); }
+    api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; var s=document.getElementById("claudeSub"); if(s)s.textContent=notifCount?(notifCount+" ke schválení / nové"):"Žádné nové"; var bd=document.getElementById("claudeBadge"); if(bd){ if(notifCount>0){ bd.textContent=notifCount>99?"99+":notifCount; bd.style.display="block"; } else bd.style.display="none"; } renderNav(); });
+    api("GET","/api/v1/erp/app/todo","").then(function(j){ var n=((j&&j.todo)||[]).filter(function(t){return !t.done;}).length; var s=document.getElementById("todoSub"); if(s)s.textContent=n?(n+" k vyřízení"):"Vše hotovo ✓"; }); }
+  function mytodo(){
+    app.innerHTML=topbar("📝 Moje TODO", true);
+    var p=el('<div class="panel"></div>');
+    var arow=el('<div style="display:flex;gap:8px;margin-bottom:10px;"></div>');
+    var inp=el('<input id="todoInp" placeholder="Nový úkol…" autocomplete="off" style="flex:1;">');
+    var add=el('<button class="green" style="width:54px;font-size:22px;margin:0;">＋</button>');
+    function doAdd(){ var t=(inp.value||"").trim(); if(!t)return; add.disabled=true; api("POST","/api/v1/erp/app/todo",{text:t}).then(function(r){ add.disabled=false; if(r&&r.ok){ inp.value=""; try{inp.focus();}catch(e){} todoLoad(); } else alert("Chyba: "+((r&&r.error)||"?")); }); }
+    add.addEventListener("click",doAdd);
+    inp.addEventListener("keydown",function(e){ if(e.key==="Enter") doAdd(); });
+    arow.appendChild(inp); arow.appendChild(add); p.appendChild(arow);
+    p.appendChild(el('<div class="list"><ul id="todoList"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
+    app.appendChild(p); todoLoad();
+  }
+  function todoLoad(){
+    api("GET","/api/v1/erp/app/todo","").then(function(j){
+      var ul=document.getElementById("todoList"); if(!ul)return; ul.innerHTML="";
+      var items=(j&&j.todo)||[];
+      if(!items.length){ ul.appendChild(el('<li style="color:var(--mut);border:none;">Zatím nic. Přidej si úkol nahoře. ✍️</li>')); return; }
+      items.forEach(function(t){
+        var li=el('<li style="display:flex;align-items:center;gap:10px;padding:11px 4px;"></li>');
+        var chk=el('<div style="width:26px;height:26px;flex:none;border-radius:7px;border:2px solid '+(t.done?"var(--green)":"var(--mut)")+';background:'+(t.done?"var(--green)":"transparent")+';color:#04150e;text-align:center;line-height:23px;font-size:16px;cursor:pointer;">'+(t.done?"✓":"")+'</div>');
+        chk.addEventListener("click",function(){ api("POST","/api/v1/erp/app/todo/"+t.id+"/toggle",{}).then(function(){ todoLoad(); }); });
+        var txt=el('<div style="flex:1;min-width:0;white-space:normal;word-break:break-word;'+(t.done?"text-decoration:line-through;color:var(--mut);":"")+'">'+esc(t.text)+'</div>');
+        var del=el('<button class="ghost" style="width:40px;margin:0;color:#e06a5a;flex:none;">✕</button>');
+        del.addEventListener("click",function(){ if(confirm("Smazat úkol?")) api("POST","/api/v1/erp/app/todo/"+t.id+"/delete",{}).then(function(){ todoLoad(); }); });
+        li.appendChild(chk); li.appendChild(txt); li.appendChild(del); ul.appendChild(li);
+      });
+    }); }
   function claudetasks(){ app.innerHTML=topbar("Claude", true); var p=el('<div class="panel"></div>');
     p.appendChild(el('<div class="list" style="padding:0 14px;"><ul id="ntlist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'));
     var r=el('<button class="ghost full">Obnovit</button>'); r.addEventListener("click",notifsLoad); p.appendChild(r); app.appendChild(p); notifsLoad(); }
@@ -2503,7 +2534,7 @@ setTimeout(function(){
     });
     box.appendChild(b);
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

@@ -7321,14 +7321,14 @@ async def app_skupiny_lidi(gid: int, req: Request) -> JSONResponse:
         if not g:
             return JSONResponse({"ok": False, "error": "skupina neexistuje"})
         rows = s.execute(_t(
-            "SELECT m.user_id, " + _SKUP_JMENO + " AS jmeno "
+            "SELECT m.user_id, " + _SKUP_JMENO + " AS jmeno, COALESCE(m.score,0) AS score "
             "FROM tenant.staff_group_member m "
             "LEFT JOIN tenant.att_employee em ON em.user_id=m.user_id AND em.tenant_id=2 "
             "LEFT JOIN public.users u ON u.id=m.user_id "
             "WHERE m.group_id=:g AND m.tenant_id=2 "
-            "ORDER BY jmeno"), {"g": gid}).fetchall()
+            "ORDER BY m.score DESC, jmeno"), {"g": gid}).fetchall()
         lead, dep = g[0], g[1]
-        out = [{"user_id": r[0], "jmeno": (r[1] or ("#" + str(r[0]))),
+        out = [{"user_id": r[0], "jmeno": (r[1] or ("#" + str(r[0]))), "score": int(r[2] or 0),
                 "is_leader": (r[0] == lead), "is_deputy": (r[0] == dep)} for r in rows]
         return JSONResponse({"ok": True, "clenove": out, "leader_user_id": lead, "deputy_user_id": dep})
     except Exception as exc:
@@ -7464,6 +7464,39 @@ async def app_skupiny_clen(gid: int, req: Request) -> JSONResponse:
                       {"g": gid, "u": tu, "by": uid})
         s.commit()
         return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/skupiny/{gid}/clen/skore")
+async def app_skupiny_skore(gid: int, req: Request) -> JSONResponse:
+    """Performia „Kára" skóre člena ve skupině (-100..+100). Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        tu = int((body or {}).get("user_id") or 0)
+        sc = int((body or {}).get("score"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí user_id/score"})
+    if not tu:
+        return JSONResponse({"ok": False, "error": "chybí user_id"})
+    sc = max(-100, min(100, sc))
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t("UPDATE tenant.staff_group_member SET score=:sc "
+                     "WHERE group_id=:g AND user_id=:u AND tenant_id=2"),
+                  {"sc": sc, "g": gid, "u": tu})
+        s.commit()
+        return JSONResponse({"ok": True, "score": sc})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

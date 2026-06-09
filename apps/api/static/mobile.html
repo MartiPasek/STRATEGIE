@@ -6,6 +6,15 @@
 <meta name="theme-color" content="#0e0f11">
 <link rel="manifest" href="/static/mobile-manifest.json">
 <title>STRATEGIE Mobil</title>
+<script>
+  // Marti 9.6.2026: appka je jen na výšku — zamkni orientaci na portrait.
+  // (PWA manifest + APK AndroidManifest jsou primární; tohle je okamžitý
+  // lock pro instalovaný PWA bez reinstalu. Tiše selže tam, kde to nejde.)
+  (function lockPortrait(){
+    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('portrait').catch(function(){}); } catch(e){}
+  })();
+  try { window.addEventListener('orientationchange', function(){ try{ if(screen.orientation&&screen.orientation.lock) screen.orientation.lock('portrait').catch(function(){}); }catch(e){} }); } catch(e){}
+</script>
 <style>
   :root { --bg:#0e0f11; --surf:#16181c; --bord:#2a2d33; --tx:#e8eaf0; --mut:#8a96a4;
           --blue:#4f8ef7; --green:#10b981; --amber:#e0b070; --red:#e08a8a; }

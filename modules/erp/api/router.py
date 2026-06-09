@@ -7788,7 +7788,7 @@ def _task_notify(s, recipients, actor_uid: int, title: str, message: str) -> Non
             s.execute(_t(
                 "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
                 "VALUES ('mobile', :u, 'claude_msg', :ti, :msg, :by)"),
-                {"u": ru, "ti": (title or "")[:120], "msg": (message or "")[:500], "by": actor_uid})
+                {"u": ru, "ti": (title or "")[:120], "msg": (message or "")[:6000], "by": actor_uid})
         except Exception:
             pass
 
@@ -7982,7 +7982,7 @@ async def app_task_poznamka(tid: int, req: Request) -> JSONResponse:
                 _rec += _task_parent_ids(s)
             _an = _user_jmeno(s, uid)
             _pred = ((_zt[1] if _zt else "") or "Úkol")
-            _task_notify(s, _rec, uid, "💬 " + _pred[:60], (_an + ": " + obsah)[:300])
+            _task_notify(s, _rec, uid, "💬 " + _pred[:60], (_an + ": " + obsah)[:6000])
         except Exception:
             pass
         s.commit()

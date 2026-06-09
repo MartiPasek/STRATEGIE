@@ -773,7 +773,7 @@ setTimeout(function(){
     app.innerHTML=topbar("Claude", true);
     var p=el('<div class="panel"></div>');
     p.appendChild(el('<div style="font-weight:700;font-size:17px;margin-bottom:10px;">'+esc(c.title||"Claude")+'</div>'));
-    p.appendChild(el('<div style="color:#d4dde8;font-size:14px;line-height:1.65;white-space:pre-wrap;word-break:break-word;">'+esc(c.message||"")+'</div>'));
+    p.appendChild(el('<div style="color:#d4dde8;font-size:14px;line-height:1.65;white-space:pre-wrap;word-break:break-word;max-height:72vh;overflow-y:auto;-webkit-overflow-scrolling:touch;">'+esc(c.message||"")+'</div>'));
     var a=el('<div class="nactions" style="margin-top:20px;"></div>');
     function b(l,cl,d){var x=el('<button class="'+cl+'">'+l+'</button>'); x.addEventListener("click",function(){ detailAct(c,d); }); a.appendChild(x);}
     if(c.command_type==="claude_confirm"){ b("Odmítnout","warn","reject"); b("Povolit","green","accept"); } else { b("OK","ghost","done"); }

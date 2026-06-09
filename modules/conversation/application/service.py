@@ -862,7 +862,7 @@ def _task_notify_inline(s, tid, actor_uid, predmet, actor_name, text):
                 "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
                 "VALUES ('mobile', :u, 'claude_msg', :ti, :msg, :by)"),
                 {"u": ru, "ti": ("💬 " + (predmet or "Úkol"))[:120],
-                 "msg": ((actor_name or "Marti-AI") + ": " + (text or ""))[:500], "by": actor_uid})
+                 "msg": ((actor_name or "Marti-AI") + ": " + (text or ""))[:6000], "by": actor_uid})
     except Exception:
         pass
 

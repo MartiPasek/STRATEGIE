@@ -7294,10 +7294,22 @@ async def app_skupiny_vsichni(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
+        # Marti 9.6.: zdroj = STRATEGIE useři patřící do tenantu (user_tenants),
+        # status active + invited (=pending); archived/inactive ven (už nepracují).
+        # Marti-AI i Claude PATŘÍ do týmu (necháváme je). Ven jen „STRATEGIE
+        # System" (id 3, automat) a bezejmenné placeholdery.
         rows = s.execute(_t(
-            "SELECT em.user_id, " + _SKUP_JMENO + " AS jmeno "
-            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id "
-            "WHERE em.tenant_id=2 AND em.user_id IS NOT NULL AND em.is_active "
+            "SELECT user_id, jmeno FROM ("
+            " SELECT u.id AS user_id, "
+            "   COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            "     (SELECT em.full_name FROM tenant.att_employee em "
+            "      WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1)) AS jmeno "
+            " FROM public.users u "
+            " WHERE EXISTS (SELECT 1 FROM public.user_tenants ut "
+            "   WHERE ut.user_id=u.id AND ut.tenant_id=2 "
+            "     AND ut.membership_status IN ('active','invited')) "
+            "   AND u.id <> 3 "
+            ") q WHERE jmeno IS NOT NULL "
             "ORDER BY jmeno")).fetchall()
         out = [{"user_id": r[0], "jmeno": (r[1] or ("#" + str(r[0])))} for r in rows]
         return JSONResponse({"ok": True, "lide": out})

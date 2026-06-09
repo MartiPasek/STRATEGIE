@@ -1188,11 +1188,52 @@ setTimeout(function(){
   function sdileny(){
     app.innerHTML=topbar("👥 Sdílený telefon", true);
     var p=el('<div class="panel"></div>');
-    p.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.6;">Kdo telefon drží? Klepni na sebe a zadej PIN. Citlivá data (mzda) si vyžádají PIN zvlášť.</div>'));
+    p.appendChild(el('<div class="hint" style="margin-bottom:8px;line-height:1.6;">Kdo telefon drží? Klepni na sebe a zadej PIN. Citlivá data (mzda) si vyžádají PIN zvlášť.</div>'));
+    // Název telefonu (sjednou) → stabilní device_key (např. „marti-ai").
+    var curn=""; try{curn=localStorage.getItem("stg_device_key")||"";}catch(e){}
+    var nrow=el('<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;"></div>');
+    var nin=el('<input placeholder="Název telefonu (např. marti-ai)" value="'+esc(curn)+'" style="flex:1;font-size:13px;">');
+    var nb=el('<button class="ghost" style="margin:0;width:64px;font-size:13px;">Uložit</button>');
+    nb.addEventListener("click",function(){ var v=(nin.value||"").trim().toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,40); if(!v)return; try{localStorage.setItem("stg_device_key",v);}catch(e){} sdLoad(); });
+    nrow.appendChild(nin); nrow.appendChild(nb); p.appendChild(nrow);
     p.appendChild(el('<div class="dashgrid" id="sdgrid"></div>'));
     var add=el('<button class="green full" style="margin-top:12px;">➕ Přidat sebe na tento telefon</button>'); add.addEventListener("click",sdJoin); p.appendChild(add);
+    var adm=el('<button class="ghost full" style="margin-top:8px;">👨‍👩‍👧 Přidat lidi (rodič)</button>'); adm.addEventListener("click",sdAddPeople); p.appendChild(adm);
     var pinb=el('<button class="ghost full" style="margin-top:8px;">🔐 Nastavit / změnit můj PIN</button>'); pinb.addEventListener("click",sdSetPin); p.appendChild(pinb);
     app.appendChild(p); sdLoad();
+  }
+  function sdAddPeople(){
+    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:210;display:flex;flex-direction:column;padding:14px;"></div>');
+    var h=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><div style="flex:1;font-weight:700;font-size:16px;">Přidat lidi na telefon</div></div>');
+    var x=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); x.addEventListener("click",function(){ov.remove(); sdLoad();}); h.appendChild(x); ov.appendChild(h);
+    var srch=el('<input placeholder="🔍 Hledat…" autocomplete="off" style="margin-bottom:8px;">'); ov.appendChild(srch);
+    var lw=el('<div style="flex:1;overflow:auto;"><ul class="list" id="sapick"><li class="hint" style="border:none;">Načítám…</li></ul></div>'); ov.appendChild(lw);
+    app.appendChild(ov);
+    var all=[], added={};
+    function rp(){ var f=deacc((srch.value||"").trim()); var ul=document.getElementById("sapick"); if(!ul)return; ul.innerHTML="";
+      all.filter(function(pp){return !f||deacc(pp.jmeno).indexOf(f)>=0;}).forEach(function(pp){
+        var has=added[pp.user_id];
+        var li=el('<li class="ct" style="padding:8px 6px;display:flex;align-items:center;gap:8px;cursor:pointer;"><div class="cav" style="background:'+(pp.agent?"#d97757":avColor(pp.jmeno||"?"))+';">'+(pp.agent?"🤖":vyInitial(pp.jmeno||"?"))+'</div><div style="flex:1;">'+esc(pp.jmeno||"")+'</div><div>'+(has?'<span style="color:var(--green);">✓</span>':'<span style="color:var(--blue);font-size:20px;">＋</span>')+'</div></li>');
+        li.addEventListener("click",function(){ if(has)return; api("POST","/api/v1/erp/app/shared/assign",{device_key:devKey(),user_id:pp.user_id}).then(function(r){ if(r&&r.ok){ added[pp.user_id]=1; rp(); } else alert("Chyba: "+((r&&r.error)||"?")); }); });
+        ul.appendChild(li);
+      });
+    }
+    srch.addEventListener("input",rp);
+    api("GET","/api/v1/erp/app/task-lide","").then(function(j){ all=(j&&j.lide)||[]; rp(); });
+  }
+  function sdPinSms(u){
+    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;"></div>');
+    ov.appendChild(el('<div style="font-size:17px;font-weight:700;text-align:center;">🔐 Nastavit PIN pro<br>'+esc(u.jmeno||"")+'</div>'));
+    var st=el('<div class="hint" style="text-align:center;max-width:300px;min-height:18px;line-height:1.5;">Pošlu SMS kód na ověřený mobil tohoto člověka. Po přečtení zadá kód a svůj nový PIN tady.</div>'); ov.appendChild(st);
+    var send=el('<button class="green full" style="max-width:260px;">📨 Poslat SMS kód</button>');
+    var codeIn=el('<input type="tel" inputmode="numeric" maxlength="6" placeholder="kód z SMS" style="width:170px;text-align:center;font-size:20px;letter-spacing:6px;display:none;">');
+    var pinIn=el('<input type="tel" inputmode="numeric" maxlength="4" placeholder="nový PIN ••••" style="width:170px;text-align:center;font-size:22px;letter-spacing:8px;display:none;">');
+    var setb=el('<button class="green full" style="max-width:260px;display:none;">Uložit PIN</button>');
+    send.addEventListener("click",function(){ send.disabled=true; st.textContent="Posílám SMS…"; api("POST","/api/v1/erp/app/shared/pin-send",{user_id:u.user_id}).then(function(r){ if(r&&r.ok){ st.textContent="✓ SMS odeslána na "+(r.phone||"mobil")+". Zadej kód + nový PIN."; send.style.display="none"; codeIn.style.display="block"; pinIn.style.display="block"; setb.style.display="block"; try{codeIn.focus();}catch(e){} } else { send.disabled=false; st.textContent="Chyba: "+((r&&r.error)||"?")+(r&&r.note?(" — "+r.note):""); } }); });
+    setb.addEventListener("click",function(){ var cd=(codeIn.value||"").trim(); var pv=(pinIn.value||"").trim(); if(cd.length<4||!(pv.length===4&&/^[0-9]+$/.test(pv))){ st.textContent="Zadej kód z SMS a 4místný PIN."; return; } setb.disabled=true; st.textContent="Ukládám…"; api("POST","/api/v1/erp/app/shared/pin-set",{user_id:u.user_id,code:cd,pin:pv}).then(function(r){ if(r&&r.ok){ st.textContent="✓ PIN nastaven!"; setTimeout(function(){ ov.remove(); sdLoad(); },700); } else { setb.disabled=false; st.textContent="Chyba: "+((r&&r.error)||"?")+(r&&r.note?(" — "+r.note):""); } }); });
+    ov.appendChild(send); ov.appendChild(codeIn); ov.appendChild(pinIn); ov.appendChild(setb);
+    var cl=el('<button class="ghost" style="max-width:260px;">Zpět</button>'); cl.addEventListener("click",function(){ov.remove();}); ov.appendChild(cl);
+    app.appendChild(ov);
   }
   function sdLoad(){
     var g=document.getElementById("sdgrid"); if(!g)return; g.innerHTML='<div class="hint">Načítám…</div>';
@@ -1203,7 +1244,7 @@ setTimeout(function(){
       if(!us.length){ g.innerHTML='<div class="hint" style="line-height:1.6;">Zatím nikdo. Dej <b>➕ Přidat sebe</b>, ať jsi na tomhle telefonu jako první.</div>'; return; }
       us.forEach(function(u){
         var t=el('<div class="tile" style="position:relative;'+(u.current?"outline:2px solid var(--green);":"")+'"><div class="tile-ic"><div class="cav" style="width:46px;height:46px;line-height:46px;font-size:20px;margin:0 auto;background:'+avColor(u.jmeno||"?")+';">'+vyInitial(u.jmeno||"?")+'</div></div><div class="tile-tt">'+esc((u.jmeno||"").split(" ")[0])+'</div><div class="tile-sub">'+(u.current?"právě ty ✓":(u.has_pin?"klepni → PIN":"nemá PIN"))+'</div></div>');
-        t.addEventListener("click",function(){ if(u.current) return; if(!u.has_pin){ alert((u.jmeno||"")+" ještě nemá PIN. Musí si ho nastavit, až bude přihlášený/á (na téhle obrazovce 🔐)."); return; } sdSwitch(u); });
+        t.addEventListener("click",function(){ if(u.current) return; if(!u.has_pin){ sdPinSms(u); return; } sdSwitch(u); });
         g.appendChild(t);
       });
     });

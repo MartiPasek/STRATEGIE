@@ -8114,6 +8114,126 @@ async def app_shared_remove(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Sdílený telefon: bootstrap (parent přidá lidi + PIN přes SMS) — Marti 9.6. ──
+@api_router.post("/app/shared/assign")
+async def app_shared_assign(req: Request) -> JSONResponse:
+    """Rodič přidá libovolného usera na sdílené zařízení (až 4)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    dk = str((body or {}).get("device_key") or "").strip()[:80]
+    try:
+        target = int((body or {}).get("user_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí user_id"})
+    if not dk:
+        return JSONResponse({"ok": False, "error": "chybí device_key"})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        ex = s.execute(_t("SELECT 1 FROM tenant.shared_device_user "
+                          "WHERE device_key=:d AND user_id=:u AND tenant_id=2"),
+                       {"d": dk, "u": target}).first()
+        if not ex:
+            cnt = s.execute(_t("SELECT count(*) FROM tenant.shared_device_user "
+                               "WHERE device_key=:d AND tenant_id=2"), {"d": dk}).scalar()
+            if (cnt or 0) >= 4:
+                return JSONResponse({"ok": False, "error": "Na telefonu jsou už 4 lidé."})
+        s.execute(_t("INSERT INTO tenant.shared_device_user (tenant_id,device_key,user_id) "
+                     "VALUES (2,:d,:u) ON CONFLICT (device_key,user_id) DO NOTHING"),
+                  {"d": dk, "u": target})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/shared/pin-send")
+async def app_shared_pin_send(req: Request) -> JSONResponse:
+    """Rodič pošle SMS kód danému userovi na nastavení PINu sdíleného telefonu."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+        target = int((body or {}).get("user_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí user_id"})
+    from sqlalchemy import text as _t
+    import secrets as _sec
+    from modules.notifications.application.sms_service import queue_sms
+    cm, s = _att_session()
+    try:
+        phone = s.execute(_t(
+            "SELECT contact_value FROM public.user_contacts "
+            "WHERE user_id=:u AND contact_type='phone' AND COALESCE(status,'active')='active' "
+            "ORDER BY COALESCE(is_verified,false) DESC, COALESCE(is_primary,false) DESC, id LIMIT 1"),
+            {"u": target}).scalar()
+        if not phone:
+            return JSONResponse({"ok": False, "error": "no_phone", "note": "Tento user nemá ověřený mobil."})
+        cnt = s.execute(_t("SELECT count(*) FROM fw.phone_verify_code "
+                           "WHERE user_id=:u AND created_at > now() - interval '15 minutes'"),
+                        {"u": target}).scalar() or 0
+        if cnt >= 3:
+            return JSONResponse({"ok": False, "error": "rate_limited", "note": "Moc SMS, zkus za 15 min."})
+        s.execute(_t("UPDATE fw.phone_verify_code SET used_at=now() WHERE user_id=:u AND used_at IS NULL"),
+                  {"u": target})
+        code = "%06d" % _sec.randbelow(1000000)
+        s.execute(_t("INSERT INTO fw.phone_verify_code (user_id, phone, code, expires_at) "
+                     "VALUES (:u,:p,:c, now() + interval '10 minutes')"),
+                  {"u": target, "p": phone, "c": code})
+        s.commit()
+        queue_sms(to=phone, body="STRATEGIE: kod pro nastaveni PIN je " + code + ". Plati 10 minut.",
+                  purpose="pin_reset", user_id=target)
+        masked = ("*" * max(len(phone) - 3, 0)) + phone[-3:]
+        return JSONResponse({"ok": True, "phone": masked})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/shared/pin-set")
+async def app_shared_pin_set(req: Request) -> JSONResponse:
+    """Nastaví PIN danému userovi po ověření SMS kódem (kód = autorizace)."""
+    try:
+        body = await req.json()
+        target = int((body or {}).get("user_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí user_id"})
+    code = str((body or {}).get("code") or "").strip()
+    pin = str((body or {}).get("pin") or "").strip()
+    if not (pin.isdigit() and len(pin) == 4):
+        return JSONResponse({"ok": False, "error": "pin_invalid", "note": "PIN jsou 4 číslice."})
+    from sqlalchemy import text as _t
+    import secrets as _sec
+    cm, s = _att_session()
+    try:
+        if not _pin_consume_sms_code(s, target, code):
+            return JSONResponse({"ok": False, "error": "code_wrong", "note": "SMS kód nesedí nebo vypršel."})
+        salt = _sec.token_hex(8)
+        s.execute(_t(
+            "INSERT INTO fw.user_pin (user_id, pin_hash, failed_attempts, locked_until) "
+            "VALUES (:u,:h,0,NULL) ON CONFLICT (user_id) DO UPDATE SET pin_hash=EXCLUDED.pin_hash, "
+            "failed_attempts=0, locked_until=NULL, updated_at=now()"),
+            {"u": target, "h": salt + "$" + _pin_hash(pin, salt)})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/announce")
 async def att_announce(req: Request) -> JSONResponse:
     """Marti 7.6.: presence status v lidské řeči („Už jedu do práce…", „Mám

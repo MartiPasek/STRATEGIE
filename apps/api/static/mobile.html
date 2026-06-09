@@ -712,6 +712,7 @@ setTimeout(function(){
       var x=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); x.addEventListener("click",function(){pv.remove();}); h.appendChild(x); pv.appendChild(h);
       var srch=el('<input placeholder="🔍 Hledat…" autocomplete="off" style="margin-bottom:8px;">'); pv.appendChild(srch);
       var lw=el('<div style="flex:1;overflow:auto;"><ul class="list" id="tpick"><li class="hint" style="border:none;">Načítám…</li></ul></div>'); pv.appendChild(lw);
+      var done=el('<button class="green full" style="margin-top:8px;">Hotovo</button>'); done.addEventListener("click",function(){ pv.remove(); }); pv.appendChild(done);
       app.appendChild(pv);
       var all=[];
       function rp(){ var f=deacc((srch.value||"").trim()); var ul=document.getElementById("tpick"); if(!ul)return; ul.innerHTML="";

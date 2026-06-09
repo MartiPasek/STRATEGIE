@@ -685,9 +685,39 @@ setTimeout(function(){
     ov.appendChild(el('<div class="hint" style="margin-bottom:4px;">Priorita</div>'));
     var prio={v:0}; var prow=el('<div style="display:flex;gap:6px;margin-bottom:12px;"></div>');
     [["Nízká",0],["Střední",1],["Vysoká",2]].forEach(function(p){ var b=el('<button class="ghost" style="flex:1;margin:0;">'+p[0]+'</button>'); b.addEventListener("click",function(){ prio.v=p[1]; Array.prototype.forEach.call(prow.children,function(x){x.style.outline="";}); b.style.outline="2px solid var(--green)"; }); if(p[1]===0)b.style.outline="2px solid var(--green)"; prow.appendChild(b); }); ov.appendChild(prow);
+    ov.appendChild(el('<div class="hint" style="margin-bottom:4px;">Komu (prázdné = sobě). Lze i AI 🤖</div>'));
+    var rchips=el('<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;"></div>'); ov.appendChild(rchips);
+    var resit={ids:[],names:{}};
+    function paintChips(){ rchips.innerHTML="";
+      if(!resit.ids.length){ rchips.appendChild(el('<span class="hint">→ pro sebe</span>')); }
+      resit.ids.forEach(function(id){ var c=el('<span style="background:#1b2738;border:1px solid #2a3a4d;border-radius:14px;padding:5px 10px;font-size:13px;display:inline-flex;align-items:center;gap:6px;">'+esc(resit.names[id]||("#"+id))+' <b data-x style="cursor:pointer;color:#e06a5a;">✕</b></span>'); c.querySelector("[data-x]").addEventListener("click",function(){ resit.ids=resit.ids.filter(function(x){return x!==id;}); paintChips(); }); rchips.appendChild(c); });
+      var add=el('<span style="background:transparent;border:1px dashed var(--blue);color:var(--blue);border-radius:14px;padding:5px 10px;font-size:13px;cursor:pointer;">+ Přiřadit</span>'); add.addEventListener("click",openPick); rchips.appendChild(add);
+    }
+    function openPick(){
+      var pv=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:210;display:flex;flex-direction:column;padding:14px;"></div>');
+      var h=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><div style="flex:1;font-weight:700;font-size:16px;">Přiřadit řešitele</div></div>');
+      var x=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); x.addEventListener("click",function(){pv.remove();}); h.appendChild(x); pv.appendChild(h);
+      var srch=el('<input placeholder="🔍 Hledat…" autocomplete="off" style="margin-bottom:8px;">'); pv.appendChild(srch);
+      var lw=el('<div style="flex:1;overflow:auto;"><ul class="list" id="tpick"><li class="hint" style="border:none;">Načítám…</li></ul></div>'); pv.appendChild(lw);
+      app.appendChild(pv);
+      var all=[];
+      function rp(){ var f=deacc((srch.value||"").trim()); var ul=document.getElementById("tpick"); if(!ul)return; ul.innerHTML="";
+        all.filter(function(p){return !f||deacc(p.jmeno).indexOf(f)>=0;}).forEach(function(p){
+          var has=resit.ids.indexOf(p.user_id)>=0;
+          var li=el('<li class="ct" style="padding:8px 6px;display:flex;align-items:center;gap:8px;cursor:pointer;"><div class="cav" style="background:'+(p.agent?"#d97757":avColor(p.jmeno||"?"))+';">'+(p.agent?"🤖":vyInitial(p.jmeno||"?"))+'</div><div style="flex:1;">'+esc(p.jmeno||"")+(p.agent?' <span class="hint">(AI)</span>':'')+'</div><div>'+(has?'<span style="color:var(--green);">✓</span>':'<span style="color:var(--blue);font-size:20px;">＋</span>')+'</div></li>');
+          li.addEventListener("click",function(){ if(has){ resit.ids=resit.ids.filter(function(x){return x!==p.user_id;}); } else { resit.ids.push(p.user_id); resit.names[p.user_id]=p.jmeno; } rp(); paintChips(); });
+          ul.appendChild(li);
+        });
+      }
+      srch.addEventListener("input",rp);
+      api("GET","/api/v1/erp/app/task/lide","").then(function(j){ all=(j&&j.lide)||[]; all.sort(function(a,b){return ((b.agent?1:0)-(a.agent?1:0))||((a.jmeno||"")<(b.jmeno||"")?-1:1);}); rp(); });
+    }
+    paintChips();
     var sub=el('<button class="green full">Vytvořit</button>');
     sub.addEventListener("click",function(){ var pv=(txt.value||"").trim(); if(!pv){ try{txt.focus();}catch(e){} return; } sub.disabled=true;
-      api("POST","/api/v1/erp/app/task",{text:pv,termin:(ter.value||""),priorita:prio.v}).then(function(r){ if(r&&r.ok){ ov.remove(); _stView="moje"; stPaintRail(); stLoad(); } else { sub.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+      var payload={text:pv,termin:(ter.value||""),priorita:prio.v};
+      if(resit.ids.length) payload.resitele=resit.ids;
+      api("POST","/api/v1/erp/app/task",payload).then(function(r){ if(r&&r.ok){ ov.remove(); _stView=resit.ids.length?"zadane":"moje"; stPaintRail(); stLoad(); } else { sub.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } }); });
     ov.appendChild(sub); app.appendChild(ov);
     try{txt.focus();}catch(e){}
   }

@@ -7928,6 +7928,37 @@ async def app_task_stav(tid: int, req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/task/lide")
+async def app_task_lide(req: Request) -> JSONResponse:
+    """Lidé k přiřazení úkolu — tenant 2 useři (active+invited) VČETNĚ AI agentů
+    (Marti-AI 2, Claude 23/24, označeni agent=true). Marti 9.6."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT user_id, jmeno FROM ("
+            " SELECT u.id AS user_id, "
+            "   COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            "     (SELECT em.full_name FROM tenant.att_employee em "
+            "      WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1)) AS jmeno "
+            " FROM public.users u "
+            " WHERE EXISTS (SELECT 1 FROM public.user_tenants ut "
+            "   WHERE ut.user_id=u.id AND ut.tenant_id=2 "
+            "     AND ut.membership_status IN ('active','invited')) "
+            "   AND u.id <> 3 "
+            ") q WHERE jmeno IS NOT NULL ORDER BY jmeno")).fetchall()
+        agents = {2, 23, 24}
+        out = [{"user_id": r[0], "jmeno": r[1], "agent": (r[0] in agents)} for r in rows]
+        return JSONResponse({"ok": True, "lide": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/announce")
 async def att_announce(req: Request) -> JSONResponse:
     """Marti 7.6.: presence status v lidské řeči („Už jedu do práce…", „Mám

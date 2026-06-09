@@ -9030,10 +9030,15 @@ async def att_absence(req: Request) -> JSONResponse:
 _LAST_DOCH_SYNC = [0.0]
 
 
-def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2) -> dict:
-    """Inkrementální upsert EC_Dochazka za posledních N dní → tenant.att_entry
-    (klíč source_system='centrala1'+source_id). Lehká verze migrace bez
-    enrichmentu, volaná často. EUROSOFT/Helios zůstává zdroj pravdy."""
+def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
+                             to: str = None, wipe: bool = False) -> dict:
+    """Inkrementální upsert EC_Dochazka → tenant.att_entry (klíč
+    source_system='centrala1'+source_id). Lehká verze migrace bez enrichmentu.
+    EUROSOFT/Helios zůstává zdroj pravdy.
+
+    frm/to: explicitní rozsah (YYYY-MM-DD); když frm chybí, použije se posledních
+    `days` dní. wipe=True → před importem smaže centrala1 řádky v rozsahu (čistý
+    re-import; naše vlastní píchnutí source_system!=centrala1 zůstanou). Marti 9.6.2026."""
     import json as _json_d
     from datetime import date as _date_d, timedelta as _td_d
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
@@ -9075,13 +9080,25 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2) -> dict:
                 rr = sess.execute(_t("INSERT INTO tenant.att_employee (tenant_id,cislo_zam,is_active,created_at,updated_at) VALUES (:t,:c,true,now(),now()) RETURNING id"), {"t": tenant, "c": key}).first()
             emp_cache[key] = rr[0]
             return rr[0]
-        frm = (_date_d.today() - _td_d(days=days)).isoformat()
+        if not frm:
+            frm = (_date_d.today() - _td_d(days=days)).isoformat()
+        if wipe:
+            wp = {"t": tenant, "f": frm}
+            wsql = ("DELETE FROM tenant.att_entry WHERE tenant_id=:t "
+                    "AND source_system='centrala1' AND entry_date >= :f")
+            if to:
+                wsql += " AND entry_date <= :to"
+                wp["to"] = to
+            sess.execute(_t(wsql), wp)
+        _wh = "DatumPripadu >= '" + frm + "'"
+        if to:
+            _wh += " AND DatumPripadu <= '" + to + "'"
         sql = ("SELECT ID, CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, "
                "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
                "CasPauza, CasCelkemZakazka hod, CisloZakazky, LoginFrom, "
                "CAST(ISNULL(PraceAktivni,0) AS int) akt, "
                "CAST(VedSchvaleno AS int) ved, CAST(SefSchvaleno AS int) sef, CAST(Uzavreno AS int) uz "
-               "FROM EC_Dochazka WHERE DatumPripadu >= '" + frm + "' ORDER BY ID")
+               "FROM EC_Dochazka WHERE " + _wh + " ORDER BY ID")
         for r in _rows(sql):
             rid = int(r["ID"])
             total += 1
@@ -9134,6 +9151,100 @@ def _maybe_sync_ec_dochazka():
         _sync_ec_dochazka_recent(days=3)
     except Exception as e:
         logger.warning("[ec_doch_sync] %s", e)
+
+
+def _att_resync_full(tenant: int = 2) -> dict:
+    """Jednorázový čistý re-import EC_Dochazka 2026-01-01..včera s aktuální
+    logikou (PraceAktivni→is_active, rezie→'Režie'). Po měsících (lehčí
+    transakce, menší MCP payload). Smaže jen centrala1 řádky — naše vlastní
+    píchnutí zůstanou. Marti 9.6.2026."""
+    from datetime import date as _d, timedelta as _td
+    import calendar as _cal
+    yest = _d.today() - _td(days=1)
+    tot = {"total": 0, "inserted": 0, "updated": 0, "chunks": 0, "errors": []}
+    y, m = 2026, 1
+    while True:
+        c0 = _d(y, m, 1)
+        if c0 > yest:
+            break
+        c1 = _d(y, m, _cal.monthrange(y, m)[1])
+        if c1 > yest:
+            c1 = yest
+        r = _sync_ec_dochazka_recent(tenant=tenant, frm=c0.isoformat(),
+                                     to=c1.isoformat(), wipe=True)
+        tot["chunks"] += 1
+        if r.get("ok"):
+            tot["total"] += r.get("total", 0)
+            tot["inserted"] += r.get("inserted", 0)
+            tot["updated"] += r.get("updated", 0)
+        else:
+            tot["errors"].append("%s..%s: %s" % (c0, c1, r.get("error")))
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+    tot["ok"] = not tot["errors"]
+    return tot
+
+
+# --- Živý 30s tik docházky: mirror JEN dnešku z Centrály (Marti 9.6.2026) ---
+_ATT_SYNC_TASK = [None]
+_ATT_SYNC_STOP = [False]
+
+
+def _att_sync_today():
+    """Re-mirror dnešku: wipe dnešních centrala1 řádků + reimport, pod advisory
+    lockem (jen jeden proces / instance). Zachytí i editace/smazání v Centrále
+    ve stejný den. Naše vlastní píchnutí (source_system!=centrala1) netkne."""
+    from datetime import date as _d
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    today = _d.today().isoformat()
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        if not s.execute(_t("SELECT pg_try_advisory_lock(778811)")).scalar():
+            return
+        try:
+            _sync_ec_dochazka_recent(frm=today, to=today, wipe=True)
+        finally:
+            s.execute(_t("SELECT pg_advisory_unlock(778811)"))
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
+async def _att_sync_loop():
+    import asyncio as _aio
+    while not _ATT_SYNC_STOP[0]:
+        try:
+            await _aio.sleep(30)
+            loop = _aio.get_event_loop()
+            await loop.run_in_executor(None, _att_sync_today)
+        except _aio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning("[att_sync_loop] %s", e)
+
+
+def _att_sync_start():
+    """Spuštěno z FastAPI lifespan (uvnitř běžící event loop)."""
+    import asyncio as _aio
+    if _ATT_SYNC_TASK[0] is not None and not _ATT_SYNC_TASK[0].done():
+        return
+    _ATT_SYNC_STOP[0] = False
+    try:
+        _ATT_SYNC_TASK[0] = _aio.create_task(_att_sync_loop())
+        logger.info("[att_sync] background loop started (30s, dnešek)")
+    except Exception as e:
+        logger.warning("[att_sync] start failed: %s", e)
+
+
+def _att_sync_stop_now():
+    _ATT_SYNC_STOP[0] = True
+    if _ATT_SYNC_TASK[0] is not None and not _ATT_SYNC_TASK[0].done():
+        _ATT_SYNC_TASK[0].cancel()
 
 
 @api_router.post("/hr/migrate-dochazka")
@@ -10561,6 +10672,10 @@ _OPS_ACTIONS = {
         "label": "Zkontrolovat docházku (anomálie → notifikace)",
         "target": "cloud", "remote": False,
     },
+    "att_resync_full": {
+        "label": "Re-sync docházky z Centrály (od ledna, čistý import)",
+        "target": "cloud", "remote": False,
+    },
     "sync_fin": {
         "label": "Migrovat finance lidí (EC_FinZamPodminky → STRATEGIE, vč. historie)",
         "target": "cloud", "remote": False,
@@ -11450,6 +11565,14 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("anomálie: %s nových nálezů, %s notifikací"
                       % (out.get("found"), out.get("notified")))
+        elif action_key == "att_resync_full":
+            out = _att_resync_full()
+            status = "done" if out.get("ok") else "error"
+            result = ("re-sync: %s měsíců, %s řádků (%s nových / %s update)%s"
+                      % (out.get("chunks"), out.get("total"), out.get("inserted"),
+                         out.get("updated"),
+                         "" if out.get("ok") else
+                         " · chyby: " + "; ".join(out.get("errors", [])[:3])))
         elif action_key == "sync_fin":
             out = _sync_fin_from_ec()
             status = "done"

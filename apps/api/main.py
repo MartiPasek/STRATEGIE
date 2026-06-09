@@ -185,6 +185,13 @@ async def lifespan(app: FastAPI):
     # Pattern pro priste: kdyz Marti nema VPN, DDL na public.* jde pres
     # idempotentni lifespan hook (API bezi jako strategie = owner) + deploy.
 
+    # Marti 9.6.2026: zivy 30s tik dochazky — mirror dnesku z Centraly.
+    try:
+        from modules.erp.api.router import _att_sync_start as _att_start
+        _att_start()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] att_sync start failed: {exc}")
+
     yield
 
     # Phase HA-1: SHUTDOWN audit (before background drain stop)
@@ -210,6 +217,11 @@ async def lifespan(app: FastAPI):
     # Shutdown
     try:
         stop_background_drain()
+    except Exception:
+        pass
+    try:
+        from modules.erp.api.router import _att_sync_stop_now as _att_stop
+        _att_stop()
     except Exception:
         pass
 

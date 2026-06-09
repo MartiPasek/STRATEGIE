@@ -119,6 +119,16 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                         'WHERE token_hash = :h'
                     ), {"h": th})
                     ds.commit()
+                    # Marti 9.6.: sdílený telefon — override aktivního usera
+                    # (switch+PIN). Token se tváří jako přepnutý user.
+                    try:
+                        _ov = ds.execute(_sql_tok(
+                            "SELECT user_id FROM tenant.shared_active "
+                            "WHERE token_hash = :h"), {"h": th}).scalar()
+                        if _ov is not None:
+                            return int(_ov)
+                    except Exception:
+                        pass
                     # Marti 7.6.: nativní appka respektuje aktivní impersonaci
                     # vlastníka tokenu (testování docházky jako jiný user).
                     # Max 8 h od startu — stejné okno jako IMP_MAX_AGE cookie.
@@ -8049,7 +8059,19 @@ async def app_shared_switch(req: Request, response: Response) -> dict:
         g = _pin_gate(s, target, pin)
         if g is not None:
             return g
-        # PIN OK → přepni aktivní cookie na target usera (PWA)
+        # PIN OK → APK: override aktivního usera pro Bearer token (sdílený telefon)
+        import hashlib as _hsw
+        auth = req.headers.get("authorization") or ""
+        if auth.lower().startswith("bearer "):
+            tok = auth[7:].strip()
+            if tok:
+                th = _hsw.sha256(tok.encode("utf-8")).hexdigest()
+                s.execute(_t("INSERT INTO tenant.shared_active (token_hash,user_id,device_key) "
+                             "VALUES (:h,:u,:d) ON CONFLICT (token_hash) DO UPDATE SET "
+                             "user_id=EXCLUDED.user_id, device_key=EXCLUDED.device_key, set_at=now()"),
+                          {"h": th, "u": target, "d": dk})
+                s.commit()
+        # PWA: přepni aktivní cookie na target usera
         response.set_cookie(key="user_id", value=str(target), httponly=True,
                             max_age=60 * 60 * 24 * 30, secure=_cfg.cookie_secure,
                             samesite=_cfg.cookie_samesite)

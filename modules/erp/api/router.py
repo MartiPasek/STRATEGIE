@@ -7332,10 +7332,16 @@ async def app_skupiny_lidi(gid: int, req: Request) -> JSONResponse:
                          "WHERE id=:g AND tenant_id=2"), {"g": gid}).first()
         if not g:
             return JSONResponse({"ok": False, "error": "skupina neexistuje"})
+        # Marti 9.6.: jméno přes scalar subquery (NE JOIN att_employee) —
+        # user může mít víc docházkových záznamů (Marti = ES č.2 + EC č.41),
+        # JOIN by člena rozmnožil (fan-out → 2× ve skupině). Subquery = 1 řádek.
         rows = s.execute(_t(
-            "SELECT m.user_id, " + _SKUP_JMENO + " AS jmeno, COALESCE(m.score,0) AS score "
+            "SELECT m.user_id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            "   (SELECT em.full_name FROM tenant.att_employee em "
+            "    WHERE em.user_id=m.user_id AND em.tenant_id=2 LIMIT 1)) AS jmeno, "
+            " COALESCE(m.score,0) AS score "
             "FROM tenant.staff_group_member m "
-            "LEFT JOIN tenant.att_employee em ON em.user_id=m.user_id AND em.tenant_id=2 "
             "LEFT JOIN public.users u ON u.id=m.user_id "
             "WHERE m.group_id=:g AND m.tenant_id=2 "
             "ORDER BY m.score DESC, jmeno"), {"g": gid}).fetchall()

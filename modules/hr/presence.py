@@ -203,21 +203,24 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
         _dev_ts[device_key] = now
     place = force_place or match_place(ip_str, ssid)
     inb = (place == "building")
+    # Marti 9.6.2026: MAC do sloupce (dosud jen v device_key 'mac:<mac>').
+    mac_val = device_key[4:] if device_key.startswith("mac:") else None
     try:
         from core.database_data import get_data_session
         s = get_data_session()
         try:
             row = s.execute(_t("""
                 INSERT INTO fw.hr_device
-                    (device_type, name, owner_user_id, device_key,
+                    (device_type, name, owner_user_id, device_key, mac,
                      last_seen_at, last_source, last_in_building, last_ip, last_place,
                      first_seen_today,
                      bld_first, bld_last, out_first, out_last)
-                VALUES (:dt, :nm, :uid, :dk, now(), :src, :inb, :ip, :place, now(),
+                VALUES (:dt, :nm, :uid, :dk, :mac, now(), :src, :inb, :ip, :place, now(),
                      CASE WHEN :inb THEN now() END, CASE WHEN :inb THEN now() END,
                      CASE WHEN :inb THEN NULL ELSE now() END, CASE WHEN :inb THEN NULL ELSE now() END)
                 ON CONFLICT (device_key) WHERE device_key IS NOT NULL DO UPDATE SET
                     name = COALESCE(NULLIF(EXCLUDED.name, ''), fw.hr_device.name),
+                    mac = COALESCE(NULLIF(EXCLUDED.mac, ''), fw.hr_device.mac),
                     owner_user_id = COALESCE(fw.hr_device.owner_user_id, EXCLUDED.owner_user_id),
                     last_seen_at = now(), last_source = :src,
                     last_in_building = :inb, last_ip = :ip, last_place = :place,
@@ -237,6 +240,7 @@ def touch_device(device_key: str | None, device_type: str, name: str | None,
                     out_last  = CASE WHEN NOT :inb THEN now() ELSE fw.hr_device.out_last END
                 RETURNING id
             """), {"dt": device_type, "nm": (name or ""), "uid": uid, "dk": device_key,
+                   "mac": mac_val,
                    "src": source, "inb": inb, "ip": (ip_str or ""),
                    "place": place}).fetchone()
             dev_id = row[0] if row else None

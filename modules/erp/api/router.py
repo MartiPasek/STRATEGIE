@@ -7970,6 +7970,63 @@ async def app_task_lide(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/claude-inbox")
+async def claude_inbox(req: Request) -> JSONResponse:
+    """Inbox otevřených úkolů pro instanci Claude (řešitel = user 23 Marti / 24
+    Kristý). NB watcher to volá ~30 s a hotový text zapisuje do CLAUDE_TASKS.txt.
+    Claude se pak na 'go' kouká jen tam. Auth: X-Deploy-Token. Marti 9.6.2026.
+    Pozn.: to_char bez ':' (SQLAlchemy bere ':MI' jako bind — gotcha)."""
+    import os as _os_ci
+    token = req.headers.get("X-Deploy-Token")
+    env = _os_ci.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env and token == env):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=403)
+    try:
+        uid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        uid = 0
+    if uid <= 0:
+        return JSONResponse({"ok": False, "error": "uid?"}, status_code=400)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt_ci, timezone as _tz_ci
+    cm, s = _att_session()
+    try:
+        zadname = ("(SELECT NULLIF(TRIM(COALESCE(uu.first_name,'')||' '||"
+                   "COALESCE(uu.last_name,'')),'') FROM public.users uu "
+                   "WHERE uu.id=t.zadavatel)")
+        sql = ("SELECT t.id, t.predmet, COALESCE(t.popis,''), r.stav, t.priorita, "
+               "to_char(t.termin,'DD.MM.YYYY') AS termin, COALESCE(t.zakazka,'') AS zak, "
+               + zadname + " AS zadavatel, to_char(t.created_at,'DD.MM.YYYY') AS vytv "
+               "FROM tenant.task_resitel r JOIN tenant.task t ON t.id=r.task_id "
+               "WHERE t.tenant_id=2 AND r.user_id=:u AND r.stav IN (0,1,2) "
+               "ORDER BY t.priorita DESC, t.termin NULLS LAST, t.id DESC")
+        rows = s.execute(_t(sql), {"u": uid}).fetchall()
+        now = _dt_ci.now(_tz_ci.utc).strftime("%Y-%m-%d %H:%M UTC")
+        head = "# CLAUDE INBOX · instance %s · %s · %d otevrenych ukolu\n" % (uid, now, len(rows))
+        if not rows:
+            txt = head + "\n(zadne otevrene ukoly - cekam na zadani)\n"
+        else:
+            blocks = []
+            for r in rows:
+                tid, predmet, popis, stav, prio, termin, zak, zad, vytv = r
+                ln = ["## Ukol #%s · stav: %s · priorita %s%s%s" % (
+                        tid, _TASK_STAV.get(int(stav or 0), ""), int(prio or 0),
+                        (" · termin %s" % termin) if termin else "",
+                        (" · zakazka %s" % zak) if zak else "")]
+                ln.append("zadal: %s%s" % ((zad or "?"),
+                                           (" · vytvoreno %s" % vytv) if vytv else ""))
+                ln.append("PREDMET: %s" % (predmet or ""))
+                if popis and popis.strip() and popis.strip() != (predmet or "").strip():
+                    ln.append("ZADANI:\n%s" % popis)
+                blocks.append("\n".join(ln))
+            txt = head + "\n" + "\n\n".join(blocks) + "\n"
+        return JSONResponse({"ok": True, "count": len(rows), "text": txt})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Sdílené telefony (až 4 useři na zařízení, PWA) — Marti 9.6.2026 ─────────
 # device_key = stabilní id telefonu z localStorage. Výběr usera = kontext;
 # přepnutí = PIN (fw.user_pin). Citlivá data stejně PIN-gated zvlášť.

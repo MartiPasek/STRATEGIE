@@ -833,7 +833,7 @@ setTimeout(function(){
   }
   function skBtn(g){
     var on=(_skView===g.id);
-    var b=el('<button data-g="'+g.id+'" style="position:relative;margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"transparent")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:9px;cursor:pointer;"><span style="font-size:18px;">'+esc(g.icon||"👥")+'</span>'+esc(g.name)+(g.count?'<span class="vybadge" style="display:block;">'+g.count+'</span>':'')+'</button>');
+    var b=el('<button data-g="'+g.id+'" style="position:relative;margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"transparent")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:9px;cursor:pointer;"><span style="font-size:18px;">'+esc(g.icon||"👥")+'</span>'+esc(g.name)+(g.count?'<span class="vybadge" style="display:block;background:var(--blue);color:#fff;">'+g.count+'</span>':'')+'</button>');
     b.addEventListener("click",function(){ _skView=g.id; skLoadMembers(); skPaintRail(); });
     return b;
   }

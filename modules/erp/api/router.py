@@ -7741,6 +7741,57 @@ _TASK_STAV = {0: "zadáno", 1: "přijato", 2: "zahájeno", 3: "vykonáno",
 _TASK_NAME = ("(SELECT NULLIF(TRIM(COALESCE(uu.first_name,'')||' '||COALESCE(uu.last_name,'')),'') "
               "FROM public.users uu WHERE uu.id=%s)")
 
+# Sdílený chat na úkol + rodičovský dohled (Marti 9.6.2026): u úkolů, kde je
+# řešitelem Marti-AI (user 2), dostanou notifikaci i všichni rodiče
+# (is_marti_parent) — při zadání i u každé zprávy ve vlákně. AI agenty
+# (Marti-AI, Claude 23/24) mobilní notifikací nepingujeme (nemají mobil; mají
+# vlastní kanál — inbox/CLAUDE_TASKS.txt).
+_MARTI_AI_UID = 2
+_TASK_AGENTS = {2, 23, 24}
+
+
+def _is_parent(s, uid: int) -> bool:
+    from sqlalchemy import text as _t
+    r = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                  {"u": uid}).first()
+    return bool(r and r[0])
+
+
+def _task_parent_ids(s):
+    from sqlalchemy import text as _t
+    return [int(x[0]) for x in s.execute(_t(
+        "SELECT id FROM public.users WHERE is_marti_parent=true")).fetchall()]
+
+
+def _task_resitel_ids(s, tid: int):
+    from sqlalchemy import text as _t
+    return [int(x[0]) for x in s.execute(_t(
+        "SELECT user_id FROM tenant.task_resitel WHERE task_id=:i"), {"i": tid}).fetchall()]
+
+
+def _task_notify(s, recipients, actor_uid: int, title: str, message: str) -> None:
+    """Notifikace (fw.mobile_command → appka cinkne) sadě příjemců kromě aktéra
+    a kromě AI agentů. Dedup. Best-effort (nesmí shodit hlavní akci)."""
+    from sqlalchemy import text as _t
+    seen = set()
+    for ru in (recipients or []):
+        if ru is None:
+            continue
+        try:
+            ru = int(ru)
+        except Exception:
+            continue
+        if ru <= 0 or ru == actor_uid or ru in seen or ru in _TASK_AGENTS:
+            continue
+        seen.add(ru)
+        try:
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :u, 'claude_msg', :ti, :msg, :by)"),
+                {"u": ru, "ti": (title or "")[:120], "msg": (message or "")[:500], "by": actor_uid})
+        except Exception:
+            pass
+
 
 @api_router.get("/app/task")
 async def app_task_list(req: Request) -> JSONResponse:
@@ -7752,7 +7803,19 @@ async def app_task_list(req: Request) -> JSONResponse:
     zadname = _TASK_NAME % "t.zadavatel"
     cm, s = _att_session()
     try:
-        if view == "zadane":
+        parent = _is_parent(s, uid)
+        if view == "marti_ai":
+            # Rodičovský dohled: VŠECHNY úkoly, kde řešitelem je Marti-AI (2).
+            if not parent:
+                return JSONResponse({"ok": False, "error": "Jen pro rodiče."}, status_code=403)
+            sql = ("SELECT t.id, t.predmet, t.stav, t.priorita, "
+                   "to_char(t.termin,'DD.MM.YYYY') AS termin, COALESCE(t.zakazka,'') AS zak, "
+                   "CASE WHEN t.termin IS NOT NULL AND t.termin<now() AND t.stav<2 THEN true ELSE false END AS pozde, "
+                   + zadname + " AS zadavatel "
+                   "FROM tenant.task t WHERE t.tenant_id=2 "
+                   "AND EXISTS (SELECT 1 FROM tenant.task_resitel r WHERE r.task_id=t.id AND r.user_id=2) "
+                   "ORDER BY t.stav, t.priorita DESC, t.id DESC")
+        elif view == "zadane":
             sql = ("SELECT t.id, t.predmet, t.stav, t.priorita, "
                    "to_char(t.termin,'DD.MM.YYYY') AS termin, COALESCE(t.zakazka,'') AS zak, "
                    "CASE WHEN t.termin IS NOT NULL AND t.termin<now() AND t.stav<2 THEN true ELSE false END AS pozde, "
@@ -7776,7 +7839,7 @@ async def app_task_list(req: Request) -> JSONResponse:
         out = [{"id": r[0], "predmet": r[1], "stav": int(r[2] or 0),
                 "stav_txt": _TASK_STAV.get(int(r[2] or 0), ""), "priorita": int(r[3] or 0),
                 "termin": r[4], "zak": r[5], "pozde": bool(r[6]), "zadavatel": (r[7] or "")} for r in rows]
-        return JSONResponse({"ok": True, "ukoly": out})
+        return JSONResponse({"ok": True, "ukoly": out, "is_parent": parent})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
@@ -7830,6 +7893,16 @@ async def app_task_create(req: Request) -> JSONResponse:
                          "ON CONFLICT (task_id,user_id) DO NOTHING"), {"t": tid, "r": ruid})
         s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,novy_stav) "
                      "VALUES (:t,:u,'vytvořen',0)"), {"t": tid, "u": uid})
+        # Notifikace (Marti 9.6.): řešitelům-lidem cinkni nový úkol; u Marti-AI i rodičům.
+        try:
+            _rids = [int(x) for x in seen]
+            _an = _user_jmeno(s, uid)
+            _task_notify(s, _rids, uid, "🗒 Nový úkol", (predmet[:80] + " — zadal " + _an))
+            if _MARTI_AI_UID in _rids:
+                _task_notify(s, _task_parent_ids(s), uid, "🤖 Marti-AI má nový úkol",
+                             (predmet[:80] + " — zadal " + _an))
+        except Exception:
+            pass
         s.commit()
         return JSONResponse({"ok": True, "id": tid})
     except Exception as exc:
@@ -7857,8 +7930,8 @@ async def app_task_detail(tid: int, req: Request) -> JSONResponse:
             "SELECT r.user_id, r.stav, " + (_TASK_NAME % "r.user_id") +
             " FROM tenant.task_resitel r WHERE r.task_id=:i ORDER BY r.id"), {"i": tid}).fetchall()
         poz = s.execute(_t(
-            "SELECT " + (_TASK_NAME % "p.author_id") + ", p.obsah, to_char(p.created_at,'DD.MM HH24:MI') "
-            "FROM tenant.task_poznamka p WHERE p.task_id=:i ORDER BY p.created_at DESC LIMIT 30"), {"i": tid}).fetchall()
+            "SELECT " + (_TASK_NAME % "p.author_id") + ", p.obsah, to_char(p.created_at,'DD.MM HH24:MI'), p.author_id "
+            "FROM tenant.task_poznamka p WHERE p.task_id=:i ORDER BY p.created_at DESC LIMIT 50"), {"i": tid}).fetchall()
         myr = s.execute(_t("SELECT stav FROM tenant.task_resitel WHERE task_id=:i AND user_id=:u"),
                         {"i": tid, "u": uid}).first()
         ukol = {"id": h[0], "predmet": h[1], "popis": h[2], "stav": int(h[3] or 0),
@@ -7866,7 +7939,9 @@ async def app_task_detail(tid: int, req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "ukol": ukol,
                              "resitele": [{"jmeno": (rr[2] or ("#" + str(rr[0]))), "stav": int(rr[1] or 0),
                                            "stav_txt": _TASK_STAV.get(int(rr[1] or 0), "")} for rr in res],
-                             "poznamky": [{"autor": (pp[0] or ""), "text": pp[1], "kdy": pp[2]} for pp in poz],
+                             "poznamky": [{"autor": (pp[0] or ""), "text": pp[1], "kdy": pp[2],
+                                           "autor_id": int(pp[3] or 0)} for pp in poz],
+                             "me": uid,
                              "muj_stav": (int(myr[0]) if myr else None),
                              "jsem_zadavatel": (h[7] == uid)})
     except Exception as exc:
@@ -7894,6 +7969,18 @@ async def app_task_poznamka(tid: int, req: Request) -> JSONResponse:
                   {"i": tid, "u": uid, "o": obsah})
         s.execute(_t("INSERT INTO tenant.task_historie (task_id,actor_id,akce,detail) "
                      "VALUES (:i,:u,'poznámka',LEFT(:o,200))"), {"i": tid, "u": uid, "o": obsah})
+        # Notifikace: nová zpráva ve vlákně → ostatním účastníkům (+ rodiče u Marti-AI)
+        try:
+            _rids = _task_resitel_ids(s, tid)
+            _zt = s.execute(_t("SELECT zadavatel, predmet FROM tenant.task WHERE id=:i"), {"i": tid}).first()
+            _rec = list(_rids) + ([int(_zt[0])] if _zt else [])
+            if _MARTI_AI_UID in _rids:
+                _rec += _task_parent_ids(s)
+            _an = _user_jmeno(s, uid)
+            _pred = ((_zt[1] if _zt else "") or "Úkol")
+            _task_notify(s, _rec, uid, "💬 " + _pred[:60], (_an + ": " + obsah)[:300])
+        except Exception:
+            pass
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:

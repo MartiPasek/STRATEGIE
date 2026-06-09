@@ -11285,6 +11285,7 @@
     }
 
     sendBtn.disabled = true;
+    window._aiBusy = true;   // Marti-AI pracuje → hard reset si vyžádá potvrzení (Marti 9.6.2026)
     inputEl.value = ''; inputEl.style.height = 'auto';
     // Faze 12a/12b: pripravime media_ids (cekame na uploady, vycisti _pendingMedia).
     // _consumePendingMediaIds naplni window._lastConsumedMediaItems s plnymi
@@ -11511,6 +11512,7 @@
       addMessage('error', 'Nepodařilo se spojit se serverem.', 'error');
     } finally {
       sendBtn.disabled = false;
+      window._aiBusy = false;
       inputEl.focus();
     }
   }
@@ -14347,12 +14349,15 @@
           openAuditModal();
           return;
         }
+        const busy = !!window._aiBusy;
         const ok = await customConfirm({
-          title: 'Obnovit STRATEGII?',
-          text: 'Hard reload — načte nejnovější verzi aplikace a vrátí tě na poslední konverzaci.',
-          confirmLabel: 'Obnovit teď',
-          cancelLabel: 'Za chvíli',
-          okFirst: true
+          title: busy ? '⚠️ Marti-AI právě pracuje' : 'Obnovit STRATEGII?',
+          text: busy
+            ? 'Marti-AI teď zpracovává odpověď. Obnovení ji přeruší a rozpracovaná odpověď se ztratí. Opravdu chceš obnovit?'
+            : 'Hard reload — načte nejnovější verzi aplikace a vrátí tě na poslední konverzaci.',
+          confirmLabel: busy ? 'Přesto obnovit' : 'Obnovit teď',
+          cancelLabel: busy ? 'Počkat na Marti-AI' : 'Za chvíli',
+          okFirst: !busy
         });
         if (ok) window.location.reload();
       });

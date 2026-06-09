@@ -415,6 +415,7 @@ setTimeout(function(){
         if(lb) lb.textContent=(w&&w.label)||"";
         if(ph) ph.textContent=(w&&w.phone_verified&&w.phone)?w.phone:"";
         if(dev && w && w.ok && !w.phone_verified) _phoneVerifyCard(dev);
+        if(!(w && w.jmeno)){ var hv=document.getElementById("homeVerify"); if(hv) renderGuestWelcome(hv); }
       });
     })();
     updateLive();
@@ -431,6 +432,47 @@ setTimeout(function(){
       });
     }
     loadHomeNotifs();
+  }
+  // Prohlídkový režim (Marti 9.6.2026): nepřihlášený host — vlídné uvítání,
+  // spárování, a lead capture (PR funnel pro širokou veřejnost).
+  function renderGuestWelcome(box){
+    box.innerHTML="";
+    var card=el('<div style="background:linear-gradient(135deg,rgba(79,142,247,.14),rgba(124,92,252,.14));border:1px solid #2a4d80;border-radius:14px;padding:14px;margin-bottom:12px;"></div>');
+    card.appendChild(el('<div style="font-weight:800;font-size:16px;margin-bottom:4px;">Vítej v STRATEGII 👋</div>'));
+    card.appendChild(el('<div style="color:#cdd8e6;font-size:13.5px;line-height:1.55;margin-bottom:10px;">Tohle je ukázka — klidně se proklikej, prohlédni si menu a co appka umí. Tvoje data se objeví, až se spáruješ s firmou. Až budeš chtít. 🌳</div>'));
+    var btns=el('<div style="display:flex;flex-direction:column;gap:8px;"></div>');
+    var bPair=el('<button class="green full" style="margin:0;">🔗 Spárovat / Přihlásit se</button>');
+    bPair.addEventListener("click",function(){ location.href="/api/v1/auth/sms-login?next=/mobile"; });
+    var bLead=el('<button class="ghost full" style="margin:0;">💬 Mám zájem — ozvěte se mi</button>');
+    bLead.addEventListener("click",openLeadForm);
+    btns.appendChild(bPair); btns.appendChild(bLead); card.appendChild(btns);
+    box.appendChild(card);
+  }
+  function openLeadForm(){
+    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:300;display:flex;flex-direction:column;justify-content:center;padding:24px;gap:10px;"></div>');
+    ov.appendChild(el('<div style="font-weight:800;font-size:19px;">Nech nám na sebe kontakt 💬</div>'));
+    ov.appendChild(el('<div class="hint" style="line-height:1.55;">Zaujalo tě to? Napiš jméno a telefon nebo e‑mail — ozveme se ti. Odesláním souhlasíš, že tě smíme kontaktovat.</div>'));
+    var nm=el('<input placeholder="Tvoje jméno" autocomplete="name" style="margin:0;">');
+    var ct=el('<input placeholder="Telefon nebo e‑mail" autocomplete="tel" style="margin:0;">');
+    var ms=el('<textarea rows="2" placeholder="Vzkaz (nepovinné)…" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:10px;padding:10px;color:var(--tx);font-family:inherit;font-size:14px;"></textarea>');
+    var st=el('<div class="hint" style="min-height:16px;"></div>');
+    var send=el('<button class="green full" style="margin:0;">Odeslat</button>');
+    var cl=el('<button class="ghost full" style="margin:0;">Zavřít</button>');
+    cl.addEventListener("click",function(){ ov.remove(); });
+    send.addEventListener("click",function(){
+      var c=(ct.value||"").trim();
+      if(!c){ st.textContent="Doplň prosím telefon nebo e‑mail."; return; }
+      send.disabled=true; st.textContent="Odesílám…";
+      var dk=""; try{ if(B&&typeof B.deviceId==="function") dk=B.deviceId()||""; }catch(e){}
+      fetch("/api/v1/erp/app/lead",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({channel:"interest",name:(nm.value||"").trim(),contact:c,message:(ms.value||"").trim(),device_key:dk})})
+        .then(function(r){return r.json();}).then(function(r){
+          if(r&&r.ok){ ov.innerHTML='<div style="text-align:center;margin:auto;"><div style="font-size:44px;">✅</div><div style="font-weight:800;font-size:18px;margin-top:8px;">Děkujeme!</div><div class="hint" style="margin-top:6px;">Ozveme se ti co nejdřív. 🌳</div></div>'; setTimeout(function(){ov.remove();},2400); }
+          else { send.disabled=false; st.textContent=((r&&r.error)||"Nepovedlo se. Zkus to prosím znovu."); }
+        }).catch(function(){ send.disabled=false; st.textContent="Nepovedlo se. Zkus to prosím znovu."; });
+    });
+    ov.appendChild(nm); ov.appendChild(ct); ov.appendChild(ms); ov.appendChild(st); ov.appendChild(send); ov.appendChild(cl);
+    app.appendChild(ov);
   }
   function loadHomeNotifs(){
     var box=document.getElementById("homeNotifsWrap"); if(!box)return;

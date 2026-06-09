@@ -726,6 +726,14 @@ def privacy_page():
                         headers={"Cache-Control": "public, max-age=3600"})
 
 
+@app.get("/googlef2bedb6d3ffdf33d.html")
+def google_site_verification():
+    """Google Search Console / Play ověření vlastnictví webu. Marti 9.6.2026."""
+    return FileResponse(os.path.join(static_dir, "googlef2bedb6d3ffdf33d.html"),
+                        media_type="text/html",
+                        headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/dochazka")
 def dochazka_page():
     """Docházka — samostatná PWA (zatím stub, plná verze v přípravě). Marti 6.6.2026."""

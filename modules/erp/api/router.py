@@ -8118,6 +8118,70 @@ async def claude_inbox(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Lead capture (PR funnel, Marti 9.6.2026) — host v prohlídkovém režimu se
+#    snaží navázat kontakt. Veřejný endpoint (bez auth), rate-limit per device.
+@api_router.post("/app/lead")
+async def app_lead(req: Request) -> JSONResponse:
+    """Záznam snahy hosta navázat kontakt (prohlídkový režim, NEpřihlášený).
+    Veřejné (bez auth) — PR/lead funnel pro širokou veřejnost. Marti 9.6.2026."""
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    channel = (str((body or {}).get("channel") or "interest")).strip()[:32]
+    if channel not in ("interest", "guest_chat", "tour_end"):
+        channel = "interest"
+    message = (str((body or {}).get("message") or "")).strip()[:1000] or None
+    name = (str((body or {}).get("name") or "")).strip()[:120] or None
+    contact = (str((body or {}).get("contact") or "")).strip()[:200] or None
+    device_key = (str((body or {}).get("device_key") or "")).strip()[:80] or None
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if device_key:
+            n = s.execute(_t("SELECT count(*) FROM tenant.contact_lead WHERE device_key=:d "
+                             "AND created_at > now() - interval '1 hour'"), {"d": device_key}).scalar()
+            if (n or 0) >= 30:
+                return JSONResponse({"ok": False, "error": "Díky! Zkus to prosím za chvíli."}, status_code=429)
+        s.execute(_t("INSERT INTO tenant.contact_lead (tenant_id, device_key, channel, message, name, contact) "
+                     "VALUES (2, :d, :c, :m, :n, :k)"),
+                  {"d": device_key, "c": channel, "m": message, "n": name, "k": contact})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/leads")
+async def app_leads(req: Request) -> JSONResponse:
+    """Přehled záznamů zájmu (PR lead funnel) — jen rodiče. Marti 9.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "Jen pro rodiče."}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, to_char(created_at,'DD.MM.YYYY HH24:MI'), channel, COALESCE(message,''), "
+            "COALESCE(name,''), COALESCE(contact,''), status "
+            "FROM tenant.contact_lead WHERE tenant_id=2 ORDER BY created_at DESC LIMIT 200"), {}).fetchall()
+        out = [{"id": r[0], "kdy": r[1], "kanal": r[2], "zprava": r[3], "jmeno": r[4],
+                "kontakt": r[5], "stav": r[6]} for r in rows]
+        return JSONResponse({"ok": True, "leads": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Sdílené telefony (až 4 useři na zařízení, PWA) — Marti 9.6.2026 ─────────
 # device_key = stabilní id telefonu z localStorage. Výběr usera = kontext;
 # přepnutí = PIN (fw.user_pin). Citlivá data stejně PIN-gated zvlášť.

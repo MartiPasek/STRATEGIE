@@ -121,6 +121,33 @@ window.onerror=function(msg,src,line){
   }catch(e){}
   return false;
 };
+/* Marti 9.6.: promise chyby taky zviditelnit (onerror je nechytá). */
+window.addEventListener("unhandledrejection", function(ev){
+  try{ if(window.onerror) window.onerror("Promise: "+((ev&&ev.reason&&(ev.reason.message||ev.reason))||"?"),"",0); }catch(e){}
+});
+/* Boot watchdog: když appka do 7 s nenastartuje (prázdný shell / SW bílá smrt
+   / parse error), ukaž záchranu s tlačítky místo bílé obrazovky. */
+window.__stgBoot=false;
+setTimeout(function(){
+  if(window.__stgBoot) return;
+  try{
+    if(document.getElementById("bootErr")) return;
+    var o=document.createElement("div");
+    o.style.cssText="position:fixed;inset:0;z-index:99998;background:#0e1622;color:#e6edf5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;font:16px/1.5 system-ui;";
+    o.innerHTML='<div style="font-size:42px">🛠️</div><div style="font-size:18px;font-weight:700">Appka se nenačetla</div><div style="color:#9fb0c2;font-size:14px;max-width:300px">Nejspíš zůstala stará verze v paměti. Klepni na Vyčistit a načíst.</div>';
+    var b=document.createElement("button");
+    b.textContent="🧹 Vyčistit a načíst";
+    b.style.cssText="background:#10b981;color:#04150e;border:0;border-radius:12px;padding:14px 22px;font-size:16px;font-weight:700;";
+    b.onclick=function(){ (async function(){ try{var rs=await navigator.serviceWorker.getRegistrations();for(var i=0;i<rs.length;i++){await rs[i].unregister();}}catch(e){} try{var ks=await caches.keys();for(var j=0;j<ks.length;j++){await caches.delete(ks[j]);}}catch(e){} location.reload();})(); };
+    o.appendChild(b);
+    var b2=document.createElement("button");
+    b2.textContent="🔄 Jen zkusit znovu";
+    b2.style.cssText="background:#1b2738;color:#e6edf5;border:1px solid #2a3a4d;border-radius:12px;padding:12px 20px;font-size:15px;";
+    b2.onclick=function(){ location.reload(); };
+    o.appendChild(b2);
+    document.body.appendChild(o);
+  }catch(e){}
+}, 7000);
 </script>
 <div id="app"></div>
 <div id="navwrap">
@@ -2516,11 +2543,20 @@ window.onerror=function(msg,src,line){
       bnavx2.appendChild(dnBtn);
     } else { bnavx1.style.display="none"; bnavx2.style.display="none"; }
   }
-  function render(){ (SCREENS[stack[stack.length-1]]||home)(); var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back); renderNav(); }
+  function render(){
+    try{ (SCREENS[stack[stack.length-1]]||home)(); }
+    catch(e){
+      try{ app.innerHTML='<div style="padding:22px;color:#e6edf5;font:15px/1.6 system-ui;">⚠️ Tahle obrazovka spadla.<br><br><button onclick="stack=[\'home\'];render()" style="background:#4f8ef7;color:#fff;border:0;border-radius:10px;padding:10px 16px;font-size:15px;">Zpět domů</button></div>'; }catch(_){}
+      try{ if(window.onerror) window.onerror("render: "+((e&&e.message)||e),"",0); }catch(_){}
+    }
+    var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back);
+    try{ renderNav(); }catch(_){}
+  }
 
   window.addEventListener("popstate", function(){ if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });
   try{ history.pushState(null,""); }catch(e){}
   render();
+  window.__stgBoot=true;  // appka úspěšně nastartovala → watchdog se nespustí
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
 
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).

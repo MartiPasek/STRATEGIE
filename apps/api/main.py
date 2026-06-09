@@ -724,14 +724,57 @@ def dochazka_page():
 
 @app.get("/mobile-sw.js")
 def mobile_service_worker():
-    """Service worker pro /mobile PWA (scope /mobile) — kvůli instalovatelnosti."""
+    """Service worker pro /mobile PWA (scope /mobile) — kvůli instalovatelnosti.
+
+    Marti 9.6.2026 — ROBUST proti „bílé smrti": navigace network-first
+    s fallbackem na cache, a NIKDY prázdná odpověď. Když fetch selže
+    (deploy okno / přišpendlení na rozbitý secondary), vrátí buď poslední
+    funkční shell z cache, nebo malou recovery stránku s tlačítky
+    (Zkusit znovu / Vyčistit a načíst) — místo bílé obrazovky."""
     from fastapi import Response
-    sw = (
-        "self.addEventListener('install', function(e){ self.skipWaiting(); });\n"
-        "self.addEventListener('activate', function(e){ self.clients.claim(); });\n"
-        "self.addEventListener('fetch', function(e){ e.respondWith("
-        "fetch(e.request).catch(function(){ return new Response('', {status:503}); })); });\n"
-    )
+    sw = r"""
+var CACHE='stg-mobile-v3';
+var SHELL='/mobile';
+var RECOVERY='<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">'
+ +'<body style="margin:0;background:#0e1622;color:#e6edf5;font:16px/1.5 system-ui;display:flex;min-height:100vh;align-items:center;justify-content:center">'
+ +'<div style="text-align:center;padding:24px;max-width:320px">'
+ +'<div style="font-size:42px">&#128296;</div>'
+ +'<div style="font-size:18px;font-weight:700;margin:8px 0">Server se prave aktualizuje</div>'
+ +'<div style="color:#9fb0c2;font-size:14px;margin-bottom:18px">Za chvilku to zkus znovu. Kdyz to potrva, klepni na Vycistit a nacist.</div>'
+ +'<button onclick="location.reload()" style="background:#10b981;color:#04150e;border:0;border-radius:12px;padding:13px 20px;font-size:16px;font-weight:700;margin:4px">Zkusit znovu</button>'
+ +'<button onclick="(async function(){try{var rs=await navigator.serviceWorker.getRegistrations();for(var i=0;i<rs.length;i++){await rs[i].unregister();}}catch(e){}try{var ks=await caches.keys();for(var j=0;j<ks.length;j++){await caches.delete(ks[j]);}}catch(e){}location.reload();})()" style="background:#1b2738;color:#e6edf5;border:1px solid #2a3a4d;border-radius:12px;padding:13px 20px;font-size:15px;margin:4px">Vycistit a nacist</button>'
+ +'</div>';
+self.addEventListener('install', function(e){ self.skipWaiting(); });
+self.addEventListener('activate', function(e){ e.waitUntil((async function(){
+  try{ var ks=await caches.keys(); await Promise.all(ks.map(function(k){ return k===CACHE?null:caches.delete(k); })); }catch(e){}
+  try{ await self.clients.claim(); }catch(e){}
+})()); });
+self.addEventListener('fetch', function(e){
+  var req=e.request;
+  if(req.method!=='GET') return;  // POST/PUT/... necháme projít na síť beze změny
+  var isNav = req.mode==='navigate' || ((req.headers.get('accept')||'').indexOf('text/html')>=0);
+  if(isNav){
+    e.respondWith((async function(){
+      try{
+        var net=await fetch(req);
+        if(net && net.ok){
+          if(req.url.indexOf('/mobile')>=0 && net.url.indexOf('/app-pair')<0){
+            try{ var c=await caches.open(CACHE); c.put(SHELL, net.clone()); }catch(e){}
+          }
+          return net;
+        }
+        var cached=await caches.match(SHELL); if(cached) return cached;
+        return new Response(RECOVERY,{headers:{'Content-Type':'text/html; charset=utf-8'}});
+      }catch(err){
+        var cached2=await caches.match(SHELL); if(cached2) return cached2;
+        return new Response(RECOVERY,{headers:{'Content-Type':'text/html; charset=utf-8'}});
+      }
+    })());
+    return;
+  }
+  e.respondWith(fetch(req).catch(function(){ return caches.match(req).then(function(r){ return r || new Response('',{status:503}); }); }));
+});
+"""
     return Response(
         content=sw,
         media_type="application/javascript",

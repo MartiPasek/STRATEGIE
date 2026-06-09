@@ -9470,6 +9470,90 @@ def _att_resync_full(tenant: int = 2) -> dict:
 # --- Živý 30s tik docházky: mirror JEN dnešku z Centrály (Marti 9.6.2026) ---
 _ATT_SYNC_TASK = [None]
 _ATT_SYNC_STOP = [False]
+_LAST_AUTO_CO = [None]   # poslední Praha-den, kdy proběhlo půlnoční auto-odhlášení
+
+
+def _att_auto_checkout_midnight(tenant: int = 2, notify: bool = True) -> dict:
+    """Marti 10.6.2026: kdo se zapomněl odhlásit, toho před půlnocí automaticky
+    odhlásíme — uzavřeme otevřenou směnu odchodem na 23:59 lokálního (Europe/Prague)
+    dne, kdy začala. Spočítáme hodiny (minus pauza), zapíšeme poznámku a vlídně
+    dáme vědět, ať si případně opraví čas odchodu. Idempotentní (zavřené už nemají
+    ended_at IS NULL)."""
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "WITH targ AS ("
+            "  SELECT e.id, e.started_at,"
+            "    ((e.started_at AT TIME ZONE 'Europe/Prague')::date + (:endt)::time)"
+            "      AT TIME ZONE 'Europe/Prague' AS new_end"
+            "  FROM tenant.att_entry e"
+            "  WHERE e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL"
+            "    AND e.started_at IS NOT NULL"
+            ") "
+            "UPDATE tenant.att_entry e SET"
+            "  ended_at = t.new_end,"
+            "  hours = round(GREATEST(EXTRACT(EPOCH FROM (t.new_end - e.started_at))/3600.0"
+            "    - COALESCE(e.break_minutes,0)/60.0, 0)::numeric, 2),"
+            "  is_active = false,"
+            "  note = CASE WHEN e.note IS NULL OR e.note='' THEN :n ELSE e.note || ' / ' || :n END,"
+            "  updated_at = now() "
+            "FROM targ t "
+            "WHERE e.id = t.id AND t.new_end > e.started_at "
+            "RETURNING e.employee_id"), {
+                "t": tenant, "endt": "23:59", "n": "[auto-odhlášení o půlnoci]"}).fetchall()
+        s.commit()
+        closed = len(rows)
+        sent = 0
+        if notify and rows:
+            for eid in sorted({int(r[0]) for r in rows}):
+                u = s.execute(_t(
+                    "SELECT em.user_id, (SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '"
+                    "||COALESCE(u.last_name,'')),'') FROM public.users u WHERE u.id=em.user_id) "
+                    "FROM tenant.att_employee em WHERE em.id=:e"), {"e": eid}).first()
+                if not u or not u[0]:
+                    continue
+                jm = ((u[1] or "").split(" ")[0]) or "ahoj"
+                msg = ("Ahoj %s, večer ses zapomněl/a odhlásit z docházky, tak jsem ti směnu "
+                       "uzavřela o půlnoci (23:59). 🙂 Jestli to nesedí, mrkni prosím do Docházky "
+                       "a oprav čas odchodu. — Tvoje Marti") % jm
+                s.execute(_t(
+                    "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                    "VALUES ('mobile', :u, 'claude_msg', :ti, :msg, NULL)"),
+                    {"u": int(u[0]), "ti": "🌙 Odhlášení o půlnoci", "msg": msg})
+                sent += 1
+            s.commit()
+        return {"ok": True, "closed": closed, "notified": sent}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc)}
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _maybe_auto_checkout_midnight():
+    """Volá se v 30s smyčce. Spustí auto-odhlášení 1× denně v okně 23:58–24:00
+    lokálního času (Europe/Prague, DST-correct přes PG)."""
+    from sqlalchemy import text as _t
+    try:
+        cm, s = _att_session()
+        try:
+            r = s.execute(_t("SELECT to_char(now() AT TIME ZONE 'Europe/Prague','HH24MI'), "
+                             "(now() AT TIME ZONE 'Europe/Prague')::date")).first()
+            s.commit()
+        finally:
+            cm.__exit__(None, None, None)
+        hm, day = r[0], r[1]
+        if hm < "2358" or _LAST_AUTO_CO[0] == day:
+            return
+        _LAST_AUTO_CO[0] = day
+        out = _att_auto_checkout_midnight()
+        logger.info("[auto_checkout] půlnoční odhlášení: %s", out)
+    except Exception as e:
+        logger.warning("[auto_checkout] %s", e)
 
 
 def _att_sync_today():
@@ -9503,6 +9587,7 @@ async def _att_sync_loop():
             await _aio.sleep(30)
             loop = _aio.get_event_loop()
             await loop.run_in_executor(None, _att_sync_today)
+            await loop.run_in_executor(None, _maybe_auto_checkout_midnight)
         except _aio.CancelledError:
             break
         except Exception as e:
@@ -10976,6 +11061,10 @@ _OPS_ACTIONS = {
         "label": "Zkontrolovat docházku (anomálie → notifikace)",
         "target": "cloud", "remote": False,
     },
+    "att_auto_checkout": {
+        "label": "Odhlásit zapomenuté směny (uzavřít na 23:59 — test/ručně)",
+        "target": "cloud", "remote": False,
+    },
     "att_resync_full": {
         "label": "Re-sync docházky z Centrály (od ledna, čistý import)",
         "target": "cloud", "remote": False,
@@ -12384,6 +12473,12 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("anomálie: %s nových nálezů, %s notifikací"
                       % (out.get("found"), out.get("notified")))
+        elif action_key == "att_auto_checkout":
+            out = _att_auto_checkout_midnight()
+            status = "done" if out.get("ok") else "error"
+            result = ("auto-odhlášení: %s směn uzavřeno, %s upozorněno%s"
+                      % (out.get("closed"), out.get("notified"),
+                         "" if out.get("ok") else " · chyba: " + str(out.get("error"))))
         elif action_key == "att_resync_full":
             out = _att_resync_full()
             status = "done" if out.get("ok") else "error"

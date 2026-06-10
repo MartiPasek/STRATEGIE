@@ -1392,6 +1392,9 @@ setTimeout(function(){
   }
   // ───── VÝROBA (icon-rail: živé nahoře, neživé dole). Marti 8.6. ─────
   var _vyView="makam", _vyPeople=[], _vyData=null, _vyZakMode="list";
+  // Marti 10.6.2026: stejná konzole pro Výrobu i skupiny. mode 'vyroba' | 'group'.
+  var _vyCtx={mode:"vyroba",gid:0,name:"",icon:"🏭"};
+  function _vyIsGroup(){ return _vyCtx.mode==="group"; }
   var VY_TOP=[
     {k:"chybi",     ic:"🫥", l:"Chybím"},
     {k:"makam",     ic:"👷", l:"Makám"},
@@ -1420,10 +1423,10 @@ setTimeout(function(){
     return b;
   }
   // Marti 9.6.: otevři Výrobu rovnou na konkrétním seznamu (z ikon v Aplikacích).
-  function openVyroba(view){ window._vyInitView=view||"makam"; go("vyroba"); }
+  function openVyroba(view){ _vyCtx={mode:"vyroba",gid:0,name:"",icon:"🏭"}; window._vyInitView=view||"makam"; go("vyroba"); }
   function vyroba(){
     if(window._vyInitView){ _vyView=window._vyInitView; window._vyInitView=null; }
-    app.innerHTML=topbar("🏭 Výroba", true, true);
+    app.innerHTML=topbar(_vyIsGroup()?((_vyCtx.icon||"👥")+" "+(_vyCtx.name||"Skupina")):"🏭 Výroba", true, true);
     var _tb=app.querySelector('.topbar'); if(_tb) _tb.style.paddingTop="12px";
     var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
     var left=el('<div style="flex:1;min-width:0;display:flex;flex-direction:column;"></div>');
@@ -1434,7 +1437,7 @@ setTimeout(function(){
     var rail=el('<div id="vyrail" style="width:64px;flex:none;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding:1px;"></div>');
     VY_TOP.forEach(function(v){ rail.appendChild(vyBtn(v)); });
     rail.appendChild(el('<div style="flex:1 1 auto;min-height:10px;"></div>'));
-    VY_BOT.forEach(function(v){ rail.appendChild(vyBtn(v)); });
+    if(!_vyIsGroup()){ VY_BOT.forEach(function(v){ rail.appendChild(vyBtn(v)); }); }
     wrap.appendChild(left); wrap.appendChild(rail); app.appendChild(wrap);
     vyPaintRail(); vyLoad(); vyCounts();
   }
@@ -1457,7 +1460,13 @@ setTimeout(function(){
       vySetBadge("relaxuji", _vyPeople.filter(function(p){return p.stav==="pauza";}).length);
       vySetBadge("chybi", _vyPeople.filter(function(p){return p.stav==="chybi";}).length);
       vySetBadge("jedu", _vyPeople.filter(function(p){return p.stav==="jedu";}).length);
-      vySetBadge("cekam", vyBezPrace(_vyPeople).length);
+      vySetBadge("cekam", (_vyIsGroup()?_vyPeople.filter(function(p){return !p.stav;}):vyBezPrace(_vyPeople)).length);
+    }
+    if(_vyIsGroup()){
+      if(_vyPeople.length){ fromLidi(); }
+      else { api("GET","/api/v1/erp/app/skupina/lidi?gid="+_vyCtx.gid,"").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; fromLidi(); }); }
+      vySetBadge("potrebuji",0); vySetBadge("informuji",0); vySetBadge("finisuji",0);
+      return;
     }
     if(_vyPeople.length){ fromLidi(); }
     else { api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; fromLidi(); }); }
@@ -1471,6 +1480,11 @@ setTimeout(function(){
     var ul=document.getElementById("vylist"); if(ul)ul.innerHTML='<li style="color:var(--mut);border:none;">Načítám…</li>';
     var v=_vyView;
     if(!VY_READY[v]){ _vyData={ok:true,todo:true}; vyRender(); return; }
+    if(_vyIsGroup()){
+      if(v==="potrebuji"||v==="informuji"||v==="finisuji"){ _vyData={ok:true,zpravy:[]}; vyRender(); return; }
+      api("GET","/api/v1/erp/app/skupina/lidi?gid="+_vyCtx.gid,"").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; _vyData=j; vyRender(); vyCounts(); });
+      return;
+    }
     if(v==="zakazky"){
       if(!_vyPeople.length) api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(jp){ if(jp&&jp.ok)_vyPeople=jp.lidi||[]; });
       api("GET","/api/v1/erp/app/vyroba/zakazky-lide","").then(function(j){ _vyData=j; vyRender(); });
@@ -1504,7 +1518,7 @@ setTimeout(function(){
     } else {
       var lidi=(j.lidi||[]);
       var STMAP={makam:"makam",relaxuji:"pauza",chybi:"chybi",jedu:"jedu"};
-      if(_vyView==="cekam"){ lidi=vyBezPrace(lidi); }
+      if(_vyView==="cekam"){ lidi=_vyIsGroup()?lidi.filter(function(pp){ return !pp.stav; }):vyBezPrace(lidi); }
       else if(STMAP[_vyView]){ lidi=lidi.filter(function(pp){ return pp.stav===STMAP[_vyView]; }); }
       lidi=lidi.filter(function(x){ return !f||deacc(x.jmeno).indexOf(f)>=0; });
       if(!lidi.length){
@@ -1656,17 +1670,30 @@ setTimeout(function(){
     var nm=pp.jmeno||"?";
     var cnt=((pp.plan||[]).filter(function(o){return !o.hidden;}).length)+((pp.prirazeni||[]).length);
     var sub=cnt+' zakázek';
-    if(_vyView==="makam"){ sub=pp.stav_zak?('🧾 '+esc(pp.stav_zak)):'🟢 maká'; }
+    if(_vyIsGroup()){
+      var GSM={makam:"🟢 maká",pauza:"☕ pauza",jedu:"🚗 na cestě",chybi:"🫥 nepřihlášen",pryc:"🌙 pryč",byl:"✓ byl"};
+      sub=GSM[pp.stav]||"—";
+      if(pp.stav==="makam"&&pp.stav_zak) sub='🧾 '+esc(pp.stav_zak);
+      else if((pp.stav==="pauza"||pp.stav==="jedu")&&pp.stav_pozn) sub=(GSM[pp.stav]||"").split(" ")[0]+' '+esc(pp.stav_pozn);
+    }
+    else if(_vyView==="makam"){ sub=pp.stav_zak?('🧾 '+esc(pp.stav_zak)):'🟢 maká'; }
     else if(_vyView==="relaxuji"){ sub='☕ '+esc(pp.stav_pozn||'pauza'); }
     else if(_vyView==="jedu"){ sub='🚗 '+esc(pp.stav_pozn||'na cestě'); }
     else if(_vyView==="chybi"){ sub='🫥 '+(pp.stav_pozn?esc(pp.stav_pozn):'nepřihlášen'); }
-    var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(nm)+'">'+vyInitial(nm)+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(nm)+'</div><div class="ctnum">'+sub+'</div></div></div>');
+    var nmDisp=esc(nm);
+    if(_vyIsGroup()){ if(pp.role==="lead") nmDisp="👑 "+nmDisp; else if(pp.role==="deputy") nmDisp="🥈 "+nmDisp; }
+    var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(nm)+'">'+vyInitial(nm)+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+nmDisp+'</div><div class="ctnum">'+sub+'</div></div></div>');
     var exp=el('<div class="ctexp" style="display:none;"></div>');
     head.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) vyFillPerson(exp,pp); });
     li.appendChild(head); li.appendChild(exp); return li;
   }
   function vyFillPerson(exp,pp){
     exp.innerHTML="";
+    if(_vyIsGroup()){
+      var _d=pp.stav_pozn||pp.stav_zak||"";
+      exp.appendChild(el('<div style="padding:8px 4px;color:var(--mut);">'+(_d?('📝 '+esc(_d)):'Bez dalších detailů.')+'</div>'));
+      return;
+    }
     (pp.plan||[]).forEach(function(o){
       var row=el('<div style="padding:8px 4px;border-top:1px solid var(--bord);"></div>');
       row.appendChild(el('<div style="font-weight:600;color:'+(o.done?'#6b7a8a':'#cfe3ff')+';'+(o.done?'text-decoration:line-through;':'')+'">📋 '+esc(o.cislo)+(o.nazev?(' — '+esc(o.nazev)):'')+(o.hidden?' · 🙈 skryté':'')+(o.hod!=null?(' · '+o.hod+'h'):'')+'</div>'));
@@ -2903,51 +2930,9 @@ setTimeout(function(){
     });
     box.appendChild(b);
   }
-  // === Konzole skupiny (Marti 10.6.2026): král → zástupci → ostatní dle výkonnosti, s docházkovým stavem ===
-  var _skupGid=0,_skupName="",_skupIcon="👥",_skupData=null,_skupBarCache=null;
-  var SKUP_ST={makam:{e:"👷",t:"Maká",c:"var(--green)"},pauza:{e:"☕",t:"Pauza",c:"#caa14a"},jedu:{e:"🚗",t:"Na cestě",c:"#4f8ef7"},chybi:{e:"🫥",t:"Chybí",c:"#d66"},pryc:{e:"🌙",t:"Pryč",c:"var(--mut)"},byl:{e:"✓",t:"Byl",c:"var(--mut)"}};
-  function openSkup(gid,name,icon){ _skupGid=gid; _skupName=name||""; _skupIcon=icon||"👥"; _skupData=null; go("skupinaKon"); }
-  function skupinaKon(){
-    app.innerHTML=topbar((_skupIcon||"👥")+" "+(_skupName||"Skupina"), true, true);
-    var wrap=el('<div style="height:calc(100vh - 150px);display:flex;flex-direction:column;padding:4px 2px 0;"></div>');
-    var lw=el('<div class="list" style="flex:1;overflow:auto;padding:0 6px;"><ul id="skuplist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>');
-    wrap.appendChild(lw); app.appendChild(wrap);
-    skupLoad();
-  }
-  function skupLoad(){
-    api("GET","/api/v1/erp/app/skupina/lidi?gid="+_skupGid,"").then(function(j){ _skupData=j; skupRender(); });
-  }
-  function skupPersonLi(p){
-    var st=SKUP_ST[p.stav]||{e:"",t:"",c:"var(--mut)"};
-    var sub=p.stav_pozn||p.stav_zak||"";
-    var sc=(p.score!=null&&p.role==="member")?('<span style="margin-left:6px;color:var(--mut);font-size:12px;flex:none;">'+p.score+'</span>'):'';
-    return el('<li style="display:flex;align-items:center;gap:10px;">'
-      +'<span style="width:30px;height:30px;border-radius:50%;background:#1a2533;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none;">'+vyInitial(p.jmeno)+'</span>'
-      +'<span style="min-width:0;flex:1;"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(p.jmeno)+'</b>'
-      +(sub?'<span style="color:var(--mut);font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(sub)+'</span>':'')+'</span>'
-      +(st.e?'<span style="font-size:12px;color:'+st.c+';white-space:nowrap;flex:none;">'+st.e+' '+st.t+'</span>':'')
-      +sc+'</li>');
-  }
-  function skupRender(){
-    var ul=document.getElementById("skuplist"); if(!ul)return;
-    var j=_skupData;
-    if(!j||!j.ok){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+(((j&&j.error)==="not_found")?"Skupina neexistuje.":"Nepodařilo se načíst.")+'</li>'; return; }
-    var lidi=j.lidi||[];
-    if(!lidi.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Tady zatím nikdo není.</li>'; return; }
-    ul.innerHTML="";
-    var cnt={makam:0,pauza:0,jedu:0,chybi:0};
-    lidi.forEach(function(p){ if(cnt[p.stav]!=null)cnt[p.stav]++; });
-    ul.appendChild(el('<li style="border:none;color:var(--mut);font-size:12.5px;padding:2px 4px 8px;">👷 '+cnt.makam+' · ☕ '+cnt.pauza+' · 🚗 '+cnt.jedu+' · 🫥 '+cnt.chybi+' &nbsp;·&nbsp; '+lidi.length+' lidí</li>'));
-    var curRole=null;
-    lidi.forEach(function(p){
-      if(_skupGid>0 && p.role!==curRole){
-        curRole=p.role;
-        var hd={lead:"👑 Vedoucí",deputy:"🤝 Zástupce",member:"Tým (podle výkonnosti)"}[p.role]||"";
-        if(hd) ul.appendChild(el('<li style="border:none;color:var(--blue);font-weight:700;font-size:11px;letter-spacing:.05em;text-transform:uppercase;padding:12px 4px 4px;">'+hd+'</li>'));
-      }
-      ul.appendChild(skupPersonLi(p));
-    });
-  }
+  // === Lišta skupin (Marti 10.6.2026): skupiny sdílí konzoli Výroby (_vyCtx mode=group) ===
+  var _skupBarCache=null;
+  function openSkup(gid,name,icon){ _vyCtx={mode:"group",gid:gid,name:name||"Skupina",icon:icon||"👥"}; _vyView="makam"; _vyPeople=[]; _vyData=null; go("vyroba"); }
   function skupBtn(ic,lbl,fn,rel){
     var hi=(rel==="lead"||rel==="deputy");
     var b=el('<button class="tabbtn" style="flex:0 0 auto;min-width:60px;'+(hi?"color:var(--blue);":"")+'"><span class="i">'+ic+'</span>'+esc(lbl)+'</button>');
@@ -2970,7 +2955,7 @@ setTimeout(function(){
     if(!_skupBarCache){ api("GET","/api/v1/erp/app/skupiny/bar","").then(function(j){ if(j&&j.ok){ _skupBarCache=j; if(curTab==="firma") paint(); } }); }
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,skupinaKon:skupinaKon,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

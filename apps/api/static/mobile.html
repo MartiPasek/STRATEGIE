@@ -2153,7 +2153,7 @@ setTimeout(function(){
         }
         if(tsKind && actC){
           var _et=_parseEndTime(_ann);
-          if(_et && _isPast(_et)) actC.appendChild(el('<div style="color:var(--amber);background:#241c0a;border:1px solid var(--amber);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:14px;">⏰ Mělo skončit v '+_et+'. Skončilo už?</div>'));
+          if(_et && _isPast(_et, _parseStartTime(_ann))) actC.appendChild(el('<div style="color:var(--amber);background:#241c0a;border:1px solid var(--amber);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:14px;">⏰ Mělo skončit v '+_et+'. Skončilo už?</div>'));
           if(tsMode==="clear"){
             var rowB=el('<div style="display:flex;gap:8px;"></div>');
             var ke=el('<button class="green full" style="flex:1;margin:0;font-weight:700;background:var(--amber);color:#241a02;">✅ Konec</button>');
@@ -2509,7 +2509,14 @@ setTimeout(function(){
       // Marti 10.6.: časovaný status (jednání/pochůzka) — čas přes ČIPY (žádné
       // kruhové hodiny), během statusu jen Konec+Prodloužit, po uplynutí dotaz.
       function _parseEndTime(s){ var m=(s||"").match(/do\s*(?:cca\s*|~)?(\d{1,2}:\d{2})/i); return m?m[1]:null; }
-      function _isPast(hhmm){ var p=(hhmm||"").split(":"); if(p.length<2) return false; var e=new Date(); e.setHours(parseInt(p[0],10),parseInt(p[1],10),0,0); return new Date()>e; }
+      function _parseStartTime(s){ var m=(s||"").match(/od\s*(\d{1,2}:\d{2})/i); return m?m[1]:null; }
+      function _isPast(hhmm, startHHMM){
+        var p=(hhmm||"").split(":"); if(p.length<2) return false;
+        var now=new Date(), e=new Date(); e.setHours(parseInt(p[0],10),parseInt(p[1],10),0,0);
+        if(startHHMM){ var sp=startHHMM.split(":"), sh=parseInt(sp[0],10), sm=parseInt(sp[1],10);
+          if(parseInt(p[0],10)<sh || (parseInt(p[0],10)===sh && parseInt(p[1],10)<=sm)) e.setDate(e.getDate()+1); }
+        else if(now - e > 2*3600*1000){ e.setDate(e.getDate()+1); }  // bez startu: konec >2h v minulosti = zítra (přes půlnoc)
+        return now > e; }
       // Marti 10.6.: čas „do kolika" přes kompaktní rolovací KOLEČKA (HH : MM).
       // Hodiny jen DOPŘEDU od teď (minulý čas nejde), minuty po 5 ve smyčce.
       // Potvrzení hlídá, že čas je po aktuálním.

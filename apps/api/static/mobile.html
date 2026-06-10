@@ -2514,7 +2514,7 @@ setTimeout(function(){
           return w;
         }
         var now=new Date(), nowH=now.getHours(), nowM=now.getMinutes();
-        var hours=[],mins=[],h,m; for(h=nowH;h<24;h++)hours.push(h); for(m=0;m<60;m+=5)mins.push(m);
+        var hours=[],mins=[],h,m; for(h=0;h<24;h++)hours.push((nowH+h)%24); for(m=0;m<60;m+=5)mins.push(m);
         var dMin=Math.ceil((nowM+1)/5)*5, dHi=0; if(dMin>=60){ dMin=0; dHi=Math.min(1,hours.length-1); }
         var dMi=mins.indexOf(dMin); if(dMi<0)dMi=0;
         var row=el('<div style="display:flex;gap:2px;align-items:center;margin-top:6px;position:relative;max-width:200px;"></div>');
@@ -2525,8 +2525,7 @@ setTimeout(function(){
         var warn=el('<div class="hint" style="color:var(--amber);margin-top:2px;"></div>'); box.appendChild(warn);
         var ok=el('<button class="green full" style="margin-top:6px;">Potvrdit čas</button>');
         ok.addEventListener("click",function(){ var hv=wh._values[wh._idx], mv=wm._values[wm._idx];
-          var sel=new Date(); sel.setHours(hv,mv,0,0);
-          if(sel<=new Date()){ warn.textContent="Vyber čas po aktuálním 🙂"; return; }
+          var sel=new Date(); sel.setHours(hv,mv,0,0); if(sel<=new Date()) sel.setDate(sel.getDate()+1);
           ok.disabled=true; onPick(("0"+hv).slice(-2)+":"+("0"+mv).slice(-2),ok); });
         box.appendChild(ok);
       }

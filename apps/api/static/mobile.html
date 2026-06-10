@@ -2168,8 +2168,9 @@ setTimeout(function(){
             actC.appendChild(ke2);
           }
         }
-        // Marti 10.6.: na směně VŽDY vidět „Jsem na zakázce" (časté přepínání).
-        if(open){ expOpt(bw,"🧾 Jsem na zakázce…","green",zakBuild); }
+        // Marti 10.6.: na směně VŽDY „Jsem na zakázce" (časté přepínání), NAD rámečkem
+        // (dochAction), jinou barvou — „Potřebuji ti něco říct" zůstává v rámečku sám.
+        if(open && actC){ expOpt(actC,"🧾 Jsem na zakázce…","green",zakBuild,function(b){ b.style.background="#3b5bdb"; b.style.color="#fff"; b.style.borderColor="#3b5bdb"; }); }
         // Marti 7.6. večer: zelené v obou stavech, bublina vpravo.
         var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);
@@ -2761,7 +2762,9 @@ setTimeout(function(){
         api("GET","/api/v1/erp/app/attendance/announced-future","").then(function(ja){
           pu=document.getElementById("dochPlan"); if(!pu)return;
           var ann=(ja&&ja.items)||[];
-          var dny={}; fut.forEach(function(r){dny[r.d]=1;}); ann.forEach(function(r){dny[r.d]=1;});
+          // Marti 10.6.: do počtu DNŮ jen reálné celodenní absence (fut), ne krátká
+          // ohlášení (jednání 4 min ≠ den). Ohlášení se ukazují v seznamu níž.
+          var dny={}; fut.forEach(function(r){dny[r.d]=1;});
           var n=Object.keys(dny).length;
           if(_dS&&_dS.plan) _dS.plan.val.textContent=(n?czDays(n):"");
           if(!fut.length && !ann.length){ pu.innerHTML='<li style="color:var(--mut);border:none;">Žádná nahlášená.</li>'; return; }

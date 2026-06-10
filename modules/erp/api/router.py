@@ -6776,8 +6776,18 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
             for r in s.execute(_t("SELECT user_id, max(score) FROM tenant.staff_group_member "
                                   "WHERE tenant_id=2 AND user_id IS NOT NULL GROUP BY user_id")).fetchall():
                 scoremap[r[0]] = r[1]
-            for r in s.execute(_t("SELECT DISTINCT user_id FROM tenant.att_employee "
-                                  "WHERE tenant_id=2 AND user_id IS NOT NULL")).fetchall():
+            # „Všichni" = DISTINCT union lidí ze VŠECH skupin (vedoucí + zástupci +
+            # členové) + docházkový roster — ať nikdo nevypadne, i když není v docházce
+            # (Marti 10.6.: PLC členové chyběli, protože nebyli v att_employee).
+            for r in s.execute(_t(
+                "SELECT user_id FROM tenant.att_employee WHERE tenant_id=2 AND user_id IS NOT NULL "
+                "UNION SELECT leader_user_id FROM tenant.staff_group "
+                "  WHERE tenant_id=2 AND leader_user_id IS NOT NULL AND COALESCE(archived,false)=false "
+                "UNION SELECT deputy_user_id FROM tenant.staff_group "
+                "  WHERE tenant_id=2 AND deputy_user_id IS NOT NULL AND COALESCE(archived,false)=false "
+                "UNION SELECT m.user_id FROM tenant.staff_group_member m "
+                "  JOIN tenant.staff_group g ON g.id=m.group_id "
+                "  WHERE g.tenant_id=2 AND m.user_id IS NOT NULL AND COALESCE(g.archived,false)=false")).fetchall():
                 u = r[0]
                 role = "lead" if u in leaders else ("deputy" if u in deputies else "member")
                 ordered.append((u, role, scoremap.get(u)))

@@ -2577,28 +2577,26 @@ setTimeout(function(){
         if(open){
           // zakázka patří sem — přepnutí BĚHEM směny (switch)
           expOpt(bw,"🧾 Jsem na zakázce…","green",zakBuild);
-          addOpts([
-            ["☕ Potřebuju krátkou pauzu…", function(b){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},b); }]
-          ],"ghost");
-          expOpt(bw,"🍃 Jdu se provětrat / najíst…","ghost",function(bx){
-            chipsIn(bx,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
-          });
-          expOpt(bw,"🕔 Potřebuji skončit dříve…","ghost",driveBuild);
-          expOpt(bw,"🌅 Potřebuji přijít později…","ghost",pozdejiBuild);
-          expOpt(bw,"📅 Mám jednání…","ghost",function(bx){
-            chipsIn(bx,"Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); });
-            timeChips(bx,"…nebo do kolika:",function(t,b){ presence({text:"Mám jednání",add_since:false,until_txt:"~"+t},b); });
-          });
-          // Marti 10.6.: pochůzka je taky práce (směna běží) — teď s časem konce.
-          expOpt(bw,"🚗 Mám služební pochůzku…","ghost",function(bx){
-            chipsIn(bx,"Pochůzka potrvá cca:",function(m,b){ presence({text:"Na služební pochůzce",add_since:false,eta_min:m},b); });
-            timeChips(bx,"…nebo do kolika:",function(t,b){ presence({text:"Na služební pochůzce",add_since:false,until_txt:"~"+t},b); });
-            var nb=el('<button class="ghost full" style="margin-top:8px;">Zatím nevím — bez času</button>');
-            nb.addEventListener("click",function(){ nb.disabled=true; presence({text:"Na služební pochůzce",add_since:true},nb); }); bx.appendChild(nb);
-          });
-          addOpts([
-            ["🫡 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},b); }]
-          ],"ghost");
+          // Marti 10.6.: víc místa v „makám" — těchto 7 voleb sbalit pod jeden obal.
+          expOpt(bw,"🙈 Tak tady budu jinde…","ghost",function(bx){
+            var bp=btnEl("☕ Potřebuju krátkou pauzu…","ghost"); bp.addEventListener("click",function(){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},bp); }); bx.appendChild(bp);
+            expOpt(bx,"🍃 Jdu se provětrat / najíst…","ghost",function(b2){
+              chipsIn(b2,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
+            });
+            expOpt(bx,"🕔 Potřebuji skončit dříve…","ghost",driveBuild);
+            expOpt(bx,"🌅 Potřebuji přijít později…","ghost",pozdejiBuild);
+            expOpt(bx,"📅 Mám jednání…","ghost",function(b2){
+              chipsIn(b2,"Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); });
+              timeChips(b2,"…nebo do kolika:",function(t,b){ presence({text:"Mám jednání",add_since:false,until_txt:"~"+t},b); });
+            });
+            expOpt(bx,"🚗 Mám služební pochůzku…","ghost",function(b2){
+              chipsIn(b2,"Pochůzka potrvá cca:",function(m,b){ presence({text:"Na služební pochůzce",add_since:false,eta_min:m},b); });
+              timeChips(b2,"…nebo do kolika:",function(t,b){ presence({text:"Na služební pochůzce",add_since:false,until_txt:"~"+t},b); });
+              var nb=el('<button class="ghost full" style="margin-top:8px;">Zatím nevím — bez času</button>');
+              nb.addEventListener("click",function(){ nb.disabled=true; presence({text:"Na služební pochůzce",add_since:true},nb); }); b2.appendChild(nb);
+            });
+            var bn=btnEl("🫡 Dnes už se mnou nepočítej ;)","ghost"); bn.addEventListener("click",function(){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},bn); }); bx.appendChild(bn);
+          },_amberStyle);
           expOpt(bw,"🛠 Zpráva vedoucímu výroby…","ghost",vyrobaFbBuild,_blueStyle);
           expOpt(bw,"🏁 Budu brzy hotov…","ghost",vyrobaFinishBuild,_blueStyle);
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);

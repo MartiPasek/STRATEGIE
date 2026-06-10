@@ -285,25 +285,24 @@ def render_pdf(html_str):
         raise RuntimeError("xhtml2pdf není nainstalován "
                            "(python -m poetry run pip install xhtml2pdf + restart API)")
     n, b = _font_files()
+    link_cb = None
     if n:
-        try:
-            from reportlab.pdfbase import pdfmetrics
-            from reportlab.pdfbase.ttfonts import TTFont
-            if "Verdana" not in set(pdfmetrics.getRegisteredFontNames()):
-                pdfmetrics.registerFont(TTFont("Verdana", n))
-                pdfmetrics.registerFont(TTFont("Verdana-Bold", b))
-                pdfmetrics.registerFontFamily("Verdana", normal="Verdana", bold="Verdana-Bold")
-        except Exception:
-            pass
-        face = ("@font-face{font-family:'Verdana';src:url('%s')}"
-                "@font-face{font-family:'Verdana';font-weight:bold;src:url('%s')}"
-                % (n.replace("\\", "/"), b.replace("\\", "/")))
+        face = ("@font-face{font-family:'Verdana';src:url('vera_n.ttf')}"
+                "@font-face{font-family:'Verdana';font-weight:bold;src:url('vera_b.ttf')}")
         if "</head>" in html_str:
             html_str = html_str.replace("</head>", "<style>%s</style></head>" % face, 1)
         else:
             html_str = "<style>%s</style>" % face + html_str
+
+        def link_cb(uri, rel=None):
+            if uri == "vera_n.ttf":
+                return n
+            if uri == "vera_b.ttf":
+                return b
+            return uri
+
     buf = io.BytesIO()
-    res = pisa.CreatePDF(src=html_str, dest=buf, encoding="utf-8")
+    res = pisa.CreatePDF(src=html_str, dest=buf, encoding="utf-8", link_callback=link_cb)
     if getattr(res, "err", 0):
         raise RuntimeError("xhtml2pdf: chyba při generování PDF")
     return buf.getvalue()

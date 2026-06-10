@@ -2145,18 +2145,29 @@ setTimeout(function(){
         // Marti 7.6.: není to „odchod/příchod", je to změna činnosti — rozhovor.
         window._dochMenuTs=0;
         bw.innerHTML="";
-        // Marti 10.6.: při aktivním jednání/pochůzce → Konec (jantarově) NAHOŘE,
-        // pod ním běžné „Potřebuji ti něco říct".
-        var _ann=(j.announced||""), _tk=/jedn[aá]n[ií]/i.test(_ann)?"jednání":(/poch[uů]z/i.test(_ann)?"pochůzku":null);
-        if(open && _tk){
+        // Marti 10.6.: u časovaných/přerušených statusů → Konec (jantarově) NAHOŘE,
+        // pod ním běžné „Potřebuji ti něco říct". On-shift (jednání/pochůzka) = zrušit
+        // status; off-shift (pauza/oběd) = zpět do práce (příchod).
+        var _ann=(j.announced||""), tsLab=null, tsMode=null;
+        if(open){
+          if(/jedn[aá]n[ií]/i.test(_ann)){ tsLab="Konec jednání"; tsMode="clear"; }
+          else if(/poch[uů]z/i.test(_ann)){ tsLab="Konec pochůzky"; tsMode="clear"; }
+        } else {
+          if(/pauz/i.test(_ann)){ tsLab="Konec pauzy — jsem zpět"; tsMode="resume"; }
+          else if(/relaxuj|energii|naj[ií]st|ob[ěe]d/i.test(_ann)){ tsLab="Konec přestávky — jsem zpět"; tsMode="resume"; }
+        }
+        if(tsLab){
           var _et=_parseEndTime(_ann);
-          if(_et && _isPast(_et)) bw.appendChild(el('<div style="color:var(--amber);background:#241c0a;border:1px solid var(--amber);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:14px;">⏰ '+(_tk==="jednání"?"Jednání":"Pochůzka")+' mělo skončit v '+_et+'. Skončilo už?</div>'));
-          var ke=el('<button class="green full" style="font-size:16px;font-weight:700;background:var(--amber);color:#241a02;">✅ Konec '+(_tk==="jednání"?"jednání":"pochůzky")+'</button>');
-          ke.addEventListener("click",function(){ ke.disabled=true; api("POST","/api/v1/erp/app/attendance/clear-announce","").then(function(){ dochLoad(); }).catch(function(){ ke.disabled=false; }); });
+          if(_et && _isPast(_et)) bw.appendChild(el('<div style="color:var(--amber);background:#241c0a;border:1px solid var(--amber);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:14px;">⏰ Mělo skončit v '+_et+'. Skončilo už?</div>'));
+          var ke=el('<button class="green full" style="font-size:16px;font-weight:700;background:var(--amber);color:#241a02;">✅ '+tsLab+'</button>');
+          ke.addEventListener("click",function(){ ke.disabled=true;
+            if(tsMode==="resume"){ act("checkin",{kind:"work"},ke); }
+            else { api("POST","/api/v1/erp/app/attendance/clear-announce","").then(function(){ dochLoad(); }).catch(function(){ ke.disabled=false; }); }
+          });
           bw.appendChild(ke);
         }
         // Marti 7.6. večer: zelené v obou stavech, bublina vpravo.
-        var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;'+((open&&_tk)?"margin-top:8px;":"")+'"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
+        var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;'+(tsLab?"margin-top:8px;":"")+'"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);
         bw.appendChild(btn);
       }

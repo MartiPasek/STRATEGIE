@@ -5195,6 +5195,57 @@ def _app_key_ok(key: str) -> bool:
     return bool(_APP_KEY_RE.match(key or ""))
 
 
+_APP_INSTALL_HTML = """<!DOCTYPE html><html lang="cs"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Instalace aplikace STRATEGIE</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1f2430;background:#f4f5f7}
+  .bar{background:#c00;color:#fff;padding:18px 20px;font-size:20px;font-weight:700;letter-spacing:.3px}
+  .wrap{max-width:560px;margin:0 auto;padding:18px}
+  .card{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:20px;margin-bottom:16px}
+  h1{font-size:21px;margin:0 0 6px}
+  .sub{color:#667;font-size:14px;margin:0 0 4px}
+  .dl{display:block;text-align:center;background:#1a8f3c;color:#fff;text-decoration:none;
+      font-size:19px;font-weight:700;padding:18px;border-radius:12px;margin:8px 0 4px}
+  .dl:active{background:#157032}
+  .dlnote{text-align:center;color:#889;font-size:13px;margin-top:6px}
+  ol{margin:6px 0 0;padding:0;list-style:none;counter-reset:s}
+  ol li{position:relative;padding:10px 0 10px 44px;border-top:1px solid #eef0f3;counter-increment:s}
+  ol li:first-child{border-top:0}
+  ol li::before{content:counter(s);position:absolute;left:0;top:9px;width:30px;height:30px;
+      background:#c00;color:#fff;border-radius:50%;text-align:center;line-height:30px;font-weight:700}
+  ol li b{color:#1f2430}
+  .warn{background:#fff7e6;border:1px solid #ffd591;border-radius:10px;padding:12px 14px;font-size:14px;color:#8a5a00}
+  .android{font-size:13px;color:#667;text-align:center;margin-top:10px}
+</style></head><body>
+<div class="bar">STRATEGIE &middot; instalace aplikace</div>
+<div class="wrap">
+  <div class="card">
+    <h1>Aplikace pro telefon</h1>
+    <p class="sub">Verze __VER__ &middot; pro Android</p>
+    <a class="dl" href="__DL__">&#11015;&nbsp; Stáhnout aplikaci</a>
+    <p class="dlnote">~9 MB &middot; klepni na tlačítko výše</p>
+  </div>
+
+  <div class="card">
+    <ol>
+      <li><b>Stáhni</b> aplikaci tlačítkem nahoře.</li>
+      <li>Po stažení <b>klepni na soubor</b> STRATEGIE.apk (v oznámení nebo ve složce Stažené).</li>
+      <li>Pokud telefon napíše <b>&bdquo;z tohoto zdroje nelze instalovat&ldquo;</b>, klepni na <b>Nastavení</b> a zapni <b>&bdquo;Povolit z tohoto zdroje&ldquo;</b>, pak zpět.</li>
+      <li>Když naskočí <b>Play Protect</b> / &bdquo;neznámá aplikace&ldquo;, klepni <b>Více&nbsp;detailů</b> &rarr; <b>Přesto nainstalovat</b>.</li>
+      <li>Po instalaci klepni <b>Otevřít</b>. Aplikaci si můžeš projít &mdash; <b>přihlášení a spárování uděláme společně</b>.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <div class="warn">Je to bezpečné. Aplikace je naše vlastní; varování Androidu se ukazuje jen proto, že ji neinstalujeme z Obchodu&nbsp;Play.</div>
+    <p class="android">Funguje na telefonech s Androidem.</p>
+  </div>
+</div></body></html>"""
+
+
 def _app_releases_dir(app_key: str) -> str:
     import os as _os_ar
     base = _os_ar.environ.get("APP_RELEASES_DIR")
@@ -5270,6 +5321,39 @@ async def app_download(app_key: str, req: Request):
         media_type="application/vnd.android.package-archive",
         filename="%s.apk" % app_key,
     )
+
+
+@api_router.get("/app/{app_key}/get")
+async def app_public_get(app_key: str, req: Request):
+    """VEŘEJNÉ stažení nejnovější APK (bez loginu) — pro tisknutý QR / install
+    stránku (Marti 10.6.2026). APK není citlivá; appka bez přihlášení nic
+    neukáže, takže veřejné stažení je bezpečné a bez tření pro testery."""
+    import os as _os_pg
+    if not _app_key_ok(app_key):
+        return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
+    row = _app_latest_row(app_key)
+    fn = row.get("apk_file")
+    if not fn:
+        return JSONResponse({"ok": False, "error": "Žádná verze"}, status_code=404)
+    path = _os_pg.path.join(_app_releases_dir(app_key), fn)
+    if not _os_pg.path.isfile(path):
+        return JSONResponse({"ok": False, "error": "Soubor chybí"}, status_code=404)
+    return FileResponse(path, media_type="application/vnd.android.package-archive",
+                        filename="STRATEGIE.apk")
+
+
+@api_router.get("/app/{app_key}/install")
+async def app_install_page(app_key: str, req: Request):
+    """VEŘEJNÁ install stránka (cíl tisknutého QR) — kroky sideloadu Androidu
+    + tlačítko stáhnout. Mobile-first. Bez loginu."""
+    from fastapi.responses import HTMLResponse as _H
+    if not _app_key_ok(app_key):
+        return _H(content="Neplatny odkaz", status_code=400)
+    row = _app_latest_row(app_key)
+    ver = row.get("version_name") or ""
+    dl = "/api/v1/erp/app/%s/get" % app_key
+    page = _APP_INSTALL_HTML.replace("__DL__", dl).replace("__VER__", ver)
+    return _H(content=page)
 
 
 @api_router.get("/app/{app_key}/versions")

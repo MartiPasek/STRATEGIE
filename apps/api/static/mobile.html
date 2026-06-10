@@ -2505,7 +2505,7 @@ setTimeout(function(){
           setTimeout(function(){ w.scrollTop=def*ITEM; upd(); },20);
           return w;
         }
-        var hours=[],mins=[],h,m; for(h=0;h<24;h++)hours.push(h); for(m=0;m<60;m++)mins.push(m);
+        var hours=[],mins=[],h,m; for(h=0;h<24;h++)hours.push(h); for(m=0;m<60;m+=5)mins.push(m);
         var row=el('<div style="display:flex;gap:4px;align-items:center;margin-top:6px;position:relative;"></div>');
         row.appendChild(el('<div style="position:absolute;left:0;right:0;top:'+PAD+'px;height:'+ITEM+'px;background:rgba(120,150,200,0.10);border-top:1px solid var(--bord);border-bottom:1px solid var(--bord);pointer-events:none;border-radius:8px;"></div>'));
         var wh=wheel(hours,(new Date().getHours()+1)%24), wm=wheel(mins,0);

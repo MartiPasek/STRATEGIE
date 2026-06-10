@@ -381,6 +381,12 @@
               /act_pipeline_def/i.test(String(_gridCodeForActions))) {
             _ctxMenuActions.push("graph");
           }
+          // Personální dokumenty na klik (Marti 10.6.2026): akce "doc" jen na
+          // přehledu Finance lidí (hr_finance_lidi). Řádek = engagement → id.
+          if (/hr_finance_lidi/i.test(_coreCodeForGraph) ||
+              /hr_finance_lidi/i.test(String(_gridCodeForActions))) {
+            _ctxMenuActions.push("doc");
+          }
           // Register edit form coreId pro gridCode (drz Marti "fw self
           // edited" doctrine 11.5. — DesignFwForm vola registry lookup).
           if (_gridActionsForCtx && _gridActionsForCtx.edit_core_id

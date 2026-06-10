@@ -306,6 +306,52 @@
           return _refreshGrid(ctx.gridCode, ctx.refreshFn);
         },
       },
+      // Personální dokumenty na klik (Marti 10.6.2026). Jen na Finance lidí
+      // gridu (page_render gate hr_finance_lidi). Řádek = engagement → id.
+      // Malý chooser → /api/v1/erp/employee-doc?engagement_id=&typ=.
+      doc: {
+        key: "doc",
+        icon: "📄",
+        label: "Dokumenty",
+        hint: "Vygenerovat personální dokument (smlouva / výměr / popis / DPP)",
+        cssClass: "erp-action-doc",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) {
+          var rid = ctx.rowData ? (ctx.rowData.id != null ? ctx.rowData.id : ctx.rowData.ID) : null;
+          if (rid == null) {
+            alert("⚠ Dokumenty: nejprve vyber zaměstnance v přehledu.");
+            return Promise.reject(new Error("no_row_selected"));
+          }
+          var ex = document.getElementById("erpDocChooser");
+          if (ex) ex.remove();
+          var box = document.createElement("div");
+          box.id = "erpDocChooser";
+          box.style.cssText = "position:fixed;z-index:99999;right:24px;bottom:24px;background:#fff;border:1px solid #1F4E78;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:14px 16px;font-family:Verdana,Arial,sans-serif;min-width:240px;";
+          var h = document.createElement("div");
+          h.textContent = "📄 Generovat dokument";
+          h.style.cssText = "font-weight:bold;color:#1F4E78;margin-bottom:8px;";
+          box.appendChild(h);
+          [["smlouva", "Pracovní smlouva"], ["vymer", "Mzdový výměr"],
+           ["popis", "Popis pracovního místa"], ["dpp", "Dohoda o provedení práce (DPP)"]
+          ].forEach(function (t) {
+            var b = document.createElement("button");
+            b.textContent = t[1];
+            b.style.cssText = "display:block;width:100%;text-align:left;margin:4px 0;padding:7px 10px;border:1px solid #ccc;border-radius:6px;background:#f5f8fb;cursor:pointer;font-family:inherit;font-size:13px;";
+            b.onclick = function () {
+              window.open("/api/v1/erp/employee-doc?engagement_id=" + encodeURIComponent(rid) + "&typ=" + t[0], "_blank");
+            };
+            box.appendChild(b);
+          });
+          var c = document.createElement("button");
+          c.textContent = "Zavřít";
+          c.style.cssText = "margin-top:6px;padding:5px 10px;border:none;background:transparent;color:#888;cursor:pointer;";
+          c.onclick = function () { box.remove(); };
+          box.appendChild(c);
+          document.body.appendChild(box);
+          return Promise.resolve();
+        },
+      },
       // Graf pipeline (Marti 3.6.2026 — prezentace IT šéfům): vizualizace
       // pipeline jako naskládané akční karty (ErpActionCard). Jen na pipeline
       // gridu (page_render gate). Ref = pipeline code (fallback id).

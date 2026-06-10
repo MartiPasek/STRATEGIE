@@ -252,56 +252,56 @@ def render(template_row, context):
 
 # ---------------------------------------------------------------- PDF render
 
-_FONTS_READY = False
-
-
-def _ensure_fonts():
-    """Zaregistruje sans-serif font s českými glyfy pod jménem 'Verdana'
-    (šablony mají font-family:Verdana). Windows Server často Verdanu nemá →
-    zkoušíme řadu běžných fontů a vezmeme první dostupný. Jednorázově."""
-    global _FONTS_READY
-    if _FONTS_READY:
-        return
+def _font_files():
+    """(normal, bold) TTF s českými glyfy. Primárně Bitstream Vera přibalená
+    v reportlabu (vždy přítomná tam, kde reportlab); fallback Windows fonty."""
     import os
     try:
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-        if "Verdana" in set(pdfmetrics.getRegisteredFontNames()):
-            _FONTS_READY = True
-            return
-        fdir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
-        # (normal, bold) kandidáti — Czech glyfy mají všechny
-        cands = [
-            ("verdana.ttf", "verdanab.ttf"),
-            ("segoeui.ttf", "segoeuib.ttf"),
-            ("arial.ttf", "arialbd.ttf"),
-            ("tahoma.ttf", "tahomabd.ttf"),
-            ("calibri.ttf", "calibrib.ttf"),
-        ]
-        for nf, bf in cands:
-            npath = os.path.join(fdir, nf)
-            if not os.path.exists(npath):
-                continue
-            pdfmetrics.registerFont(TTFont("Verdana", npath))
-            bpath = os.path.join(fdir, bf)
-            pdfmetrics.registerFont(TTFont("Verdana-Bold", bpath if os.path.exists(bpath) else npath))
-            pdfmetrics.registerFontFamily("Verdana", normal="Verdana", bold="Verdana-Bold")
-            _FONTS_READY = True
-            return
+        import reportlab as _rl
+        d = os.path.join(os.path.dirname(_rl.__file__), "fonts")
+        n = os.path.join(d, "Vera.ttf"); b = os.path.join(d, "VeraBd.ttf")
+        if os.path.exists(n):
+            return n, (b if os.path.exists(b) else n)
     except Exception:
         pass
+    fdir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    for nf, bf in [("verdana.ttf", "verdanab.ttf"), ("arial.ttf", "arialbd.ttf"),
+                   ("segoeui.ttf", "segoeuib.ttf"), ("tahoma.ttf", "tahomabd.ttf")]:
+        n = os.path.join(fdir, nf)
+        if os.path.exists(n):
+            b = os.path.join(fdir, bf)
+            return n, (b if os.path.exists(b) else n)
+    return None, None
 
 
 def render_pdf(html_str):
     """HTML → PDF (xhtml2pdf, pure Python). Vrací bytes. Vyhodí RuntimeError,
-    pokud engine není nainstalován (chybí xhtml2pdf) nebo render selže."""
+    pokud engine není nainstalován (chybí xhtml2pdf) nebo render selže.
+    Češtinu řeší @font-face (jen pdfmetrics.registerFont xhtml2pdf nestačí)."""
     import io
     try:
         from xhtml2pdf import pisa
     except Exception:
         raise RuntimeError("xhtml2pdf není nainstalován "
                            "(python -m poetry run pip install xhtml2pdf + restart API)")
-    _ensure_fonts()
+    n, b = _font_files()
+    if n:
+        try:
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            if "Verdana" not in set(pdfmetrics.getRegisteredFontNames()):
+                pdfmetrics.registerFont(TTFont("Verdana", n))
+                pdfmetrics.registerFont(TTFont("Verdana-Bold", b))
+                pdfmetrics.registerFontFamily("Verdana", normal="Verdana", bold="Verdana-Bold")
+        except Exception:
+            pass
+        face = ("@font-face{font-family:'Verdana';src:url('%s')}"
+                "@font-face{font-family:'Verdana';font-weight:bold;src:url('%s')}"
+                % (n.replace("\\", "/"), b.replace("\\", "/")))
+        if "</head>" in html_str:
+            html_str = html_str.replace("</head>", "<style>%s</style></head>" % face, 1)
+        else:
+            html_str = "<style>%s</style>" % face + html_str
     buf = io.BytesIO()
     res = pisa.CreatePDF(src=html_str, dest=buf, encoding="utf-8")
     if getattr(res, "err", 0):

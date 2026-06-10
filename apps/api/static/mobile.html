@@ -1426,7 +1426,7 @@ setTimeout(function(){
   function openVyroba(view){ _vyCtx={mode:"vyroba",gid:0,name:"",icon:"🏭"}; window._vyInitView=view||"makam"; go("vyroba"); }
   function vyroba(){
     if(window._vyInitView){ _vyView=window._vyInitView; window._vyInitView=null; }
-    app.innerHTML=topbar(_vyIsGroup()?((_vyCtx.icon||"👥")+" "+(_vyCtx.name||"Skupina")):"🏭 Výroba", true, true);
+    app.innerHTML=topbar(_vyIsGroup()?(((_vyCtx.icon||"👥").split("|")[0])+" "+(_vyCtx.name||"Skupina")):"🏭 Výroba", true, true);
     var _tb=app.querySelector('.topbar'); if(_tb) _tb.style.paddingTop="12px";
     var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
     var left=el('<div style="flex:1;min-width:0;display:flex;flex-direction:column;"></div>');
@@ -2935,9 +2935,23 @@ setTimeout(function(){
   function openSkup(gid,name,icon){ _vyCtx={mode:"group",gid:gid,name:name||"Skupina",icon:icon||"👥"}; _vyView="makam"; _vyPeople=[]; _vyData=null; go("vyroba"); }
   function skupBtn(ic,lbl,fn,rel){
     var hi=(rel==="lead"||rel==="deputy");
-    var b=el('<button class="tabbtn" style="flex:0 0 auto;min-width:60px;'+(hi?"color:var(--blue);":"")+'"><span class="i">'+ic+'</span>'+esc(lbl)+'</button>');
+    var fr=(ic||"").split("|");
+    var iconHtml=(fr.length>1)
+      ? '<span class="i anim-emoji" data-frames="'+fr.join("|")+'" data-fi="0">'+fr[0]+'</span>'
+      : '<span class="i">'+ic+'</span>';
+    var b=el('<button class="tabbtn" style="flex:0 0 auto;min-width:60px;'+(hi?"color:var(--blue);":"")+'">'+iconHtml+esc(lbl)+'</button>');
     b.addEventListener("click",fn); return b;
   }
+  var _animTimer=null;
+  function _tickAnimIcons(){
+    var els=document.querySelectorAll(".anim-emoji");
+    Array.prototype.forEach.call(els,function(sp){
+      var fr=(sp.getAttribute("data-frames")||"").split("|"); if(fr.length<2)return;
+      var i=(parseInt(sp.getAttribute("data-fi")||"0",10)+1)%fr.length;
+      sp.setAttribute("data-fi",i); sp.textContent=fr[i];
+    });
+  }
+  function startAnimIcons(){ if(_animTimer)return; _animTimer=setInterval(_tickAnimIcons,1600); }
   function skupBar(){
     var bar=bnavx2;
     function paint(){
@@ -2951,7 +2965,7 @@ setTimeout(function(){
       bar.appendChild(skupBtn("🤝","Spolupráce",function(){ go("dochazka"); }));
       setTimeout(function(){ try{ bar.scrollLeft=bar.scrollWidth; }catch(e){} },0);
     }
-    paint();
+    paint(); startAnimIcons();
     if(!_skupBarCache){ api("GET","/api/v1/erp/app/skupiny/bar","").then(function(j){ if(j&&j.ok){ _skupBarCache=j; if(curTab==="firma") paint(); } }); }
   }
 

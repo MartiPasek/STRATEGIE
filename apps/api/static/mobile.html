@@ -2487,19 +2487,32 @@ setTimeout(function(){
       // kruhové hodiny), během statusu jen Konec+Prodloužit, po uplynutí dotaz.
       function _parseEndTime(s){ var m=(s||"").match(/do\s*(?:cca\s*|~)?(\d{1,2}:\d{2})/i); return m?m[1]:null; }
       function _isPast(hhmm){ var p=(hhmm||"").split(":"); if(p.length<2) return false; var e=new Date(); e.setHours(parseInt(p[0],10),parseInt(p[1],10),0,0); return new Date()>e; }
-      // Marti 10.6.: zadání času přes dvě pole (hodiny | minuty) — rolovací select.
+      // Marti 10.6.: zadání času přes rolovací KOLEČKA (HH : MM) jako v hodinách —
+      // CSS scroll-snap + zvýraznění středu. Digitální scroll, intuitivní.
       function timeChips(box,label,onPick){
         if(label) box.appendChild(el('<div class="hint" style="margin-top:8px;">'+label+'</div>'));
-        var row=el('<div style="display:flex;gap:8px;align-items:center;margin-top:4px;"></div>');
-        var ss='flex:1;font-size:18px;padding:11px;background:#0f1620;border:1px solid var(--bord);border-radius:8px;color:var(--tx);';
-        var hh=el('<select style="'+ss+'"></select>'), mm=el('<select style="'+ss+'"></select>');
-        var defH=(new Date().getHours()+1)%24;
-        for(var h=0;h<24;h++){ var o=el('<option value="'+h+'">'+("0"+h).slice(-2)+'</option>'); if(h===defH)o.selected=true; hh.appendChild(o); }
-        [0,15,30,45].forEach(function(x){ mm.appendChild(el('<option value="'+x+'">'+("0"+x).slice(-2)+'</option>')); });
-        row.appendChild(hh); row.appendChild(el('<div style="font-size:20px;font-weight:700;color:var(--mut);">:</div>')); row.appendChild(mm);
+        var ITEM=42, VIS=5, PAD=2*ITEM, H=ITEM*VIS;
+        function wheel(values, def){
+          var w=el('<div style="position:relative;flex:1;height:'+H+'px;overflow-y:scroll;scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;"></div>');
+          var inner=el('<div></div>');
+          inner.appendChild(el('<div style="height:'+PAD+'px;"></div>'));
+          values.forEach(function(v){ inner.appendChild(el('<div class="twi" style="height:'+ITEM+'px;line-height:'+ITEM+'px;text-align:center;scroll-snap-align:center;color:var(--mut);font-size:20px;transition:all .1s;">'+("0"+v).slice(-2)+'</div>')); });
+          inner.appendChild(el('<div style="height:'+PAD+'px;"></div>'));
+          w.appendChild(inner);
+          w._values=values; w._idx=def;
+          function upd(){ var idx=Math.round(w.scrollTop/ITEM); var its=inner.querySelectorAll('.twi'); for(var k=0;k<its.length;k++){ var on=(k===idx); its[k].style.color=on?'var(--tx)':'var(--mut)'; its[k].style.fontWeight=on?'700':'400'; its[k].style.fontSize=on?'27px':'20px'; } w._idx=Math.max(0,Math.min(values.length-1,idx)); }
+          w.addEventListener('scroll',function(){ clearTimeout(w._t); w._t=setTimeout(upd,50); });
+          setTimeout(function(){ w.scrollTop=def*ITEM; upd(); },20);
+          return w;
+        }
+        var hours=[],mins=[],h,m; for(h=0;h<24;h++)hours.push(h); for(m=0;m<60;m++)mins.push(m);
+        var row=el('<div style="display:flex;gap:4px;align-items:center;margin-top:6px;position:relative;"></div>');
+        row.appendChild(el('<div style="position:absolute;left:0;right:0;top:'+PAD+'px;height:'+ITEM+'px;background:rgba(120,150,200,0.10);border-top:1px solid var(--bord);border-bottom:1px solid var(--bord);pointer-events:none;border-radius:8px;"></div>'));
+        var wh=wheel(hours,(new Date().getHours()+1)%24), wm=wheel(mins,0);
+        row.appendChild(wh); row.appendChild(el('<div style="font-size:24px;font-weight:700;color:var(--tx);">:</div>')); row.appendChild(wm);
         box.appendChild(row);
-        var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit čas</button>');
-        ok.addEventListener("click",function(){ ok.disabled=true; onPick(("0"+hh.value).slice(-2)+":"+("0"+mm.value).slice(-2),ok); });
+        var ok=el('<button class="green full" style="margin-top:10px;">Potvrdit čas</button>');
+        ok.addEventListener("click",function(){ ok.disabled=true; var t=("0"+wh._values[wh._idx]).slice(-2)+":"+("0"+wm._values[wm._idx]).slice(-2); onPick(t,ok); });
         box.appendChild(ok);
       }
       function buildTimedStatusMenu(kind, ann){

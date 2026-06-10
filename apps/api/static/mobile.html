@@ -2769,7 +2769,26 @@ setTimeout(function(){
           fut.forEach(function(r){ var a=Number(r.absence||0), w=Number(r.worked||0);
             pu.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;"><span class="nt">'+esc(r.d)+'</span><span class="nm" style="margin:0;color:var(--amber);">'+(a>0?(fmtHM(a)+' nepřítomnost'):fmtHM(w))+'</span></li>')); });
           ann.forEach(function(r){
-            pu.appendChild(el('<li><div class="nt">'+esc(r.d)+'</div><div class="nm" style="margin-bottom:9px;color:var(--amber);">💬 '+esc(r.note||"")+'</div></li>')); });
+            var li=el('<li style="padding:0;border-bottom:none;"></li>');
+            var head=el('<div style="cursor:pointer;"><div class="nt">'+esc(r.d)+'</div><div class="nm" style="margin-bottom:6px;color:var(--amber);">💬 '+esc(r.note||"")+'  ✎</div></div>');
+            var box=el('<div style="display:none;margin:0 0 10px;"></div>');
+            head.addEventListener("click",function(){
+              box.style.display=(box.style.display==="none")?"block":"none";
+              if(box.style.display==="block" && !box._b){ box._b=1;
+                var rw=el('<div style="display:flex;gap:8px;"></div>');
+                var be=el('<button class="green full" style="flex:1;margin:0;background:var(--blue);color:#fff;">✏️ Upravit</button>');
+                be.addEventListener("click",function(){ be.disabled=true;
+                  api("POST","/api/v1/erp/app/attendance/announce-delete",{id:r.id}).then(function(j){ if(j&&j.ok){
+                    box.innerHTML='<div class="hint" style="color:var(--green);">Smazáno ✓ Nahlas nově přes 💬 Potřebuji ti něco říct → 🧭 Tady budu asi jinde.</div>'; setTimeout(dochLoad,1500);
+                  } else { be.disabled=false; alert("Chyba: "+((j&&j.error)||"?")); } }); });
+                var bd=el('<button class="green full" style="flex:1;margin:0;background:var(--amber);color:#241a02;">🗑 Smazat</button>');
+                bd.addEventListener("click",function(){ if(!confirm("Smazat nahlášení „"+(r.note||"")+"\" ("+r.d+")?"))return; bd.disabled=true;
+                  api("POST","/api/v1/erp/app/attendance/announce-delete",{id:r.id}).then(function(j){ if(j&&j.ok){ dochLoad(); } else { bd.disabled=false; alert("Chyba: "+((j&&j.error)||"?")); } }); });
+                rw.appendChild(be); rw.appendChild(bd); box.appendChild(rw);
+              }
+            });
+            li.appendChild(head); li.appendChild(box); pu.appendChild(li);
+          });
         });
       }
     });

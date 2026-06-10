@@ -6336,13 +6336,58 @@ async def att_announced_future(req: Request) -> JSONResponse:
     try:
         emp = _att_employee(s, uid)
         rows = s.execute(_t(
-            "SELECT entry_date::text, note FROM tenant.att_entry "
+            "SELECT id, entry_date::text, note FROM tenant.att_entry "
             "WHERE tenant_id = :t AND employee_id = :e AND status = 'announced' "
             "AND entry_date > current_date ORDER BY entry_date, id"),
             {"t": _ATT_TENANT, "e": emp}).fetchall()
         s.commit()
         return JSONResponse({"ok": True, "items": [
-            {"d": r[0], "note": r[1]} for r in rows]})
+            {"id": r[0], "d": r[1], "note": r[2]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/announce-delete")
+async def att_announce_delete(req: Request) -> JSONResponse:
+    """Marti 10.6.: smazání hlášené (budoucí) nepřítomnosti — supersedne řádek
+    + zapíše do tenant.att_audit (kdo/co/kdy/původní hodnota). Jen vlastní."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        eid = int((body or {}).get("id") or 0)
+    except Exception:
+        eid = 0
+    if eid <= 0:
+        return JSONResponse({"ok": False, "error": "missing_id"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        row = s.execute(_t("SELECT entry_date::text, note FROM tenant.att_entry "
+                           "WHERE id=:i AND tenant_id=:t AND employee_id=:e"),
+                        {"i": eid, "t": _ATT_TENANT, "e": emp}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        actor = s.execute(_t("SELECT trim(coalesce(first_name,'')||' '||coalesce(last_name,'')) "
+                             "FROM public.users WHERE id=:u"), {"u": uid}).scalar() or ("user " + str(uid))
+        s.execute(_t("INSERT INTO tenant.att_audit (tenant_id, entry_id, employee_id, action, "
+                     "actor_user_id, actor_text, old_entry_date, old_note, detail, created_at) "
+                     "VALUES (:t,:i,:e,'delete',:u,:at,CAST(:d AS date),:n,'smazano z mobilu',now())"),
+                  {"t": _ATT_TENANT, "i": eid, "e": emp, "u": uid, "at": actor,
+                   "d": row[0], "n": row[1]})
+        s.execute(_t("UPDATE tenant.att_entry SET status='superseded', is_active=false, updated_at=now() "
+                     "WHERE id=:i AND tenant_id=:t AND employee_id=:e"),
+                  {"i": eid, "t": _ATT_TENANT, "e": emp})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
 

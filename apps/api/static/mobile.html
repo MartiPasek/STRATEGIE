@@ -1395,6 +1395,10 @@ setTimeout(function(){
   // Marti 10.6.2026: stejná konzole pro Výrobu i skupiny. mode 'vyroba' | 'group'.
   var _vyCtx={mode:"vyroba",gid:0,name:"",icon:"🏭"};
   function _vyIsGroup(){ return _vyCtx.mode==="group"; }
+  // Marti 10.6.: živý refresh statusů přes UDÁLOSTI (foreground/poll), ne nový
+  // watchdog. Překreslí jen když se podpis stavů změní → žádné rušení bez změny.
+  var _vyLidiSig="";
+  function _vySig(lidi){ return JSON.stringify((lidi||[]).map(function(p){ return [p.user_id,p.stav,p.stav_pozn||"",p.stav_zak||""]; })); }
   var VY_TOP=[
     {k:"chybi",     ic:"🫥", l:"Chybím"},
     {k:"makam",     ic:"👷", l:"Makám"},
@@ -1482,7 +1486,7 @@ setTimeout(function(){
     if(!VY_READY[v]){ _vyData={ok:true,todo:true}; vyRender(); return; }
     if(_vyIsGroup()){
       if(v==="potrebuji"||v==="informuji"||v==="finisuji"){ _vyData={ok:true,zpravy:[]}; vyRender(); return; }
-      api("GET","/api/v1/erp/app/skupina/lidi?gid="+_vyCtx.gid,"").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; _vyData=j; vyRender(); vyCounts(); });
+      api("GET","/api/v1/erp/app/skupina/lidi?gid="+_vyCtx.gid,"").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; _vyLidiSig=_vySig(_vyPeople); _vyData=j; vyRender(); vyCounts(); });
       return;
     }
     if(v==="zakazky"){
@@ -1493,8 +1497,21 @@ setTimeout(function(){
     } else if(v==="potrebuji"||v==="informuji"||v==="finisuji"){
       api("GET","/api/v1/erp/app/vyroba/zpravy","").then(function(j){ _vyData=j; vyRender(); });
     } else {
-      api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; _vyData=j; vyRender(); vyCounts(); });
+      api("GET","/api/v1/erp/app/vyroba/lidi","").then(function(j){ if(j&&j.ok)_vyPeople=j.lidi||[]; _vyLidiSig=_vySig(_vyPeople); _vyData=j; vyRender(); vyCounts(); });
     }
+  }
+  // Živý refresh konzole (Výroba i skupiny) — voláno z existujících událostí
+  // (foreground/focus + heartbeat pollNotifs). Re-render jen při změně statusů.
+  function vyRefreshLive(){
+    if(stack[stack.length-1]!=="vyroba") return;
+    if(["zakazky","odvozy","potrebuji","informuji","finisuji"].indexOf(_vyView)>=0) return;
+    var url=_vyIsGroup()?("/api/v1/erp/app/skupina/lidi?gid="+_vyCtx.gid):"/api/v1/erp/app/vyroba/lidi";
+    api("GET",url,"").then(function(j){
+      if(!j||!j.ok) return;
+      var sig=_vySig(j.lidi);
+      if(sig===_vyLidiSig) return;          // beze změny → neruš
+      _vyLidiSig=sig; _vyPeople=j.lidi||[]; _vyData=j; vyRender(); vyCounts();
+    }).catch(function(){});
   }
   function vyRender(){
     var ul=document.getElementById("vylist"); if(!ul)return;
@@ -2932,7 +2949,7 @@ setTimeout(function(){
   }
   // === Lišta skupin (Marti 10.6.2026): skupiny sdílí konzoli Výroby (_vyCtx mode=group) ===
   var _skupBarCache=null,_skupBarOn=false;
-  function openSkup(gid,name,icon){ _vyCtx={mode:"group",gid:gid,name:name||"Skupina",icon:icon||"👥"}; _vyView="makam"; _vyPeople=[]; _vyData=null; go("vyroba"); }
+  function openSkup(gid,name,icon){ _vyCtx={mode:"group",gid:gid,name:name||"Skupina",icon:icon||"👥"}; _vyView="makam"; _vyPeople=[]; _vyData=null; _vyLidiSig=""; go("vyroba"); }
   function skupBtn(ic,lbl,fn,rel){
     var hi=(rel==="lead"||rel==="deputy");
     var fr=(ic||"").split("|");
@@ -3033,6 +3050,7 @@ setTimeout(function(){
 
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).
   function pollNotifs(){
+    try{ vyRefreshLive(); }catch(e){}   // živý refresh statusů konzole přes události
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
       if(j)markOk();
       var cmds=(j&&j.commands)||[]; var n=cmds.length; var changed=(n!==notifCount);

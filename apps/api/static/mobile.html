@@ -2931,7 +2931,7 @@ setTimeout(function(){
     box.appendChild(b);
   }
   // === Lišta skupin (Marti 10.6.2026): skupiny sdílí konzoli Výroby (_vyCtx mode=group) ===
-  var _skupBarCache=null;
+  var _skupBarCache=null,_skupBarOn=false;
   function openSkup(gid,name,icon){ _vyCtx={mode:"group",gid:gid,name:name||"Skupina",icon:icon||"👥"}; _vyView="makam"; _vyPeople=[]; _vyData=null; go("vyroba"); }
   function skupBtn(ic,lbl,fn,rel){
     var hi=(rel==="lead"||rel==="deputy");
@@ -2988,8 +2988,14 @@ setTimeout(function(){
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
     bnav.appendChild(navBtn("🏢","Firma",curTab==="firma",function(){selectTab("firma");},0));
     // Na obrazovce Aplikace: dvě extra lišty nad základní; Nastavení vpravo v DOLNÍ extra liště.
-    bnavx1.innerHTML=""; bnavx2.innerHTML="";
+    var firmaBar=(curTab==="firma" && stack[stack.length-1]==="firma");
+    bnavx1.innerHTML="";
+    // Marti 10.6.: lištu skupin přestav JEN při vstupu na stránku (ne při každém
+    // renderu z pollingu) — jinak se scroll vrací do výchozího stavu. Když už lišta
+    // stojí a jsme na Firmě, nech ji být a zachovej scroll pozici.
+    if(!(firmaBar && _skupBarOn)){ bnavx2.innerHTML=""; }
     if(atApps){
+      _skupBarOn=false;
       // Marti 7.6.: dolní extra lišta = neviditelná mřížka 5 sekcí (jako hlavní nav)
       // → ⚙ Nastavení sedí přesně v 5. sekci, správně vycentrované.
       bnavx1.style.display="flex";
@@ -2997,7 +3003,7 @@ setTimeout(function(){
       var setBtn=navBtn("⚙️","Nastavení",false,function(){selectTab("settings");},_hasUpdate?1:0);
       setBtn.style.gridColumn="5";
       bnavx2.appendChild(setBtn);
-    } else if(curTab==="firma" && stack[stack.length-1]==="firma"){
+    } else if(firmaBar){
       // Marti 10.6.2026: spodní lišta = vodorovně scrollovatelné skupiny.
       // Zprava: 🤝 Spolupráce (moje docházka) → skupiny kde jsem vedoucí/zástupce
       // → skupiny kde jsem člen → ostatní → 🌐 Všichni vlevo. Výroba je v Aplikacích.
@@ -3006,8 +3012,8 @@ setTimeout(function(){
       bnavx2.style.overflowX="auto"; bnavx2.style.overflowY="hidden";
       bnavx2.style.flexWrap="nowrap"; bnavx2.style.justifyContent="flex-start";
       bnavx2.style.scrollbarWidth="none";
-      skupBar();
-    } else { bnavx1.style.display="none"; bnavx2.style.display="none"; bnavx2.style.overflowX=""; }
+      if(!_skupBarOn){ skupBar(); _skupBarOn=true; } else { startAnimIcons(); }
+    } else { _skupBarOn=false; bnavx1.style.display="none"; bnavx2.style.display="none"; bnavx2.style.overflowX=""; }
   }
   function render(){
     try{ (SCREENS[stack[stack.length-1]]||home)(); }

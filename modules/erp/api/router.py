@@ -10653,9 +10653,14 @@ async def employee_doc(req: Request):
         fname, content = _dg.generate(data, typ)
     except ValueError as exc:
         raise _HX(status_code=400, detail=str(exc))
+    # Content-Disposition musí být latin-1 → ASCII fallback + filename* UTF-8 (RFC 5987)
+    import unicodedata as _ud
+    from urllib.parse import quote as _q
+    _ascii = _ud.normalize("NFKD", fname).encode("ascii", "ignore").decode("ascii") or "dokument.docx"
+    _cd = "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (_ascii, _q(fname))
     return _R(content=content,
               media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-              headers={"Content-Disposition": 'attachment; filename="%s"' % fname})
+              headers={"Content-Disposition": _cd})
 
 
 # ── Fáze (1.6.2026, Marti: "při každém nasazení request na Hard Reset") ──────

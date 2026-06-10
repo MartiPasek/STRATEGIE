@@ -6819,6 +6819,52 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/all-users")
+async def app_all_users(req: Request) -> JSONResponse:
+    """Marti 10.6.2026: všichni uživatelé STRATEGIE napříč tenanty, přepínatelné
+    podle tenantu. JEN PRO RODIČE (is_marti_parent). tenant=0 = všichni."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        isp = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                        {"u": int(uid)}).scalar()
+        if not isp:
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            tid = int(req.query_params.get("tenant", "0"))
+        except Exception:
+            tid = 0
+        tenants = [{"id": r[0], "name": r[1] or ("Tenant " + str(r[0]))}
+                   for r in s.execute(_t(
+                       "SELECT id, tenant_name FROM public.tenants "
+                       "WHERE COALESCE(status,'') <> 'archived' ORDER BY id")).fetchall()]
+        params = {}
+        where = ""
+        if tid:
+            where = " AND ut.tenant_id = :tid"
+            params["tid"] = tid
+        rows = s.execute(_t(
+            "SELECT u.id, NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),'') AS jmeno, "
+            " u.short_name, u.login_name, u.status, COALESCE(u.is_marti_parent,false) AS parent, "
+            " string_agg(DISTINCT t.tenant_name||' ('||COALESCE(ut.role,'?')||')', ', ') AS tenanty "
+            "FROM public.users u "
+            "JOIN public.user_tenants ut ON ut.user_id = u.id "
+            "JOIN public.tenants t ON t.id = ut.tenant_id "
+            "WHERE COALESCE(ut.membership_status,'active') IN ('active','invited')" + where + " "
+            "GROUP BY u.id, u.first_name, u.last_name, u.short_name, u.login_name, u.status, u.is_marti_parent "
+            "ORDER BY jmeno NULLS LAST, u.id"), params).fetchall()
+        users = [{"user_id": r[0], "jmeno": r[1] or (r[2] or r[3] or ("#" + str(r[0]))),
+                  "login": r[3], "status": r[4], "parent": r[5], "tenanty": r[6] or ""}
+                 for r in rows]
+        s.commit()
+        return JSONResponse(jsonable_encoder({"ok": True, "tenants": tenants, "users": users, "tenant": tid}))
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/vyroba/zakazky-lide")
 async def app_vyroba_zakazky_lide(req: Request) -> JSONResponse:
     """Režim zakázek: zakázky (z plánu + ručních přiřazení) s lidmi na každé.

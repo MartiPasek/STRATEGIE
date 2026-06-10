@@ -1092,6 +1092,7 @@ setTimeout(function(){
     g.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
     g.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
     g.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
+    g.appendChild(appCell("🌐","Uživatelé",0,function(){go("alluser");}));
     g.appendChild(appCell("📲","Sdílený telefon",0,function(){go("sdileny");}));
     // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
     // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
@@ -2991,7 +2992,38 @@ setTimeout(function(){
     if(!_skupBarCache){ api("GET","/api/v1/erp/app/skupiny/bar","").then(function(j){ if(j&&j.ok){ _skupBarCache=j; if(curTab==="firma") paint(); } }); }
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
+  // === Všichni uživatelé STRATEGIE napříč tenanty (JEN RODIČE). Marti 10.6.2026 ===
+  var _auTenant=0,_auData=null;
+  function alluser(){
+    app.innerHTML=topbar("🌐 Uživatelé STRATEGIE", true, true);
+    var wrap=el('<div style="height:calc(100vh - 150px);display:flex;flex-direction:column;padding:6px 8px 0;"></div>');
+    var sel=el('<select id="auTenant" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:10px;padding:10px;color:var(--tx);font-size:15px;margin-bottom:8px;"><option value="0">— Všechny tenanty —</option></select>');
+    sel.addEventListener("change",function(){ _auTenant=parseInt(sel.value||"0",10); auLoad(); });
+    var lw=el('<div class="list" style="flex:1;overflow:auto;"><ul id="aulist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>');
+    wrap.appendChild(sel); wrap.appendChild(lw); app.appendChild(wrap);
+    auLoad();
+  }
+  function auLoad(){ api("GET","/api/v1/erp/app/all-users?tenant="+_auTenant,"").then(function(j){ _auData=j; auRender(); }); }
+  function auRender(){
+    var ul=document.getElementById("aulist"); if(!ul)return;
+    var j=_auData;
+    if(!j||!j.ok){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+(((j&&j.error)==="forbidden")?"🔒 Jen pro rodiče.":"Nepodařilo se načíst.")+'</li>'; return; }
+    var sel=document.getElementById("auTenant");
+    if(sel && sel.options.length<=1){ (j.tenants||[]).forEach(function(t){ var o=document.createElement("option"); o.value=t.id; o.textContent=t.name; sel.appendChild(o); }); sel.value=String(_auTenant); }
+    var us=j.users||[];
+    ul.innerHTML="";
+    ul.appendChild(el('<li style="border:none;color:var(--mut);font-size:12.5px;padding:2px 4px 8px;">'+us.length+' uživatelů</li>'));
+    if(!us.length){ ul.appendChild(el('<li style="color:var(--mut);border:none;">Nikdo.</li>')); return; }
+    us.forEach(function(u){
+      ul.appendChild(el('<li style="display:flex;align-items:center;gap:10px;">'
+        +'<span style="width:30px;height:30px;border-radius:50%;background:#1a2533;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none;">'+vyInitial(u.jmeno)+'</span>'
+        +'<span style="min-width:0;flex:1;"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(u.parent?"👑 ":"")+esc(u.jmeno)+'</b>'
+        +'<span style="color:var(--mut);font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(u.tenanty||"")+'</span></span>'
+        +((u.status&&u.status!=="active")?'<span style="font-size:11px;color:#caa14a;flex:none;">'+esc(u.status)+'</span>':'')+'</li>'));
+    });
+  }
+
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

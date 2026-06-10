@@ -6765,9 +6765,22 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
                 seen.add(m[0])
         else:
             group = {"id": 0, "name": "Všichni", "icon": "🌐"}
+            leaders, deputies = set(), set()
+            for r in s.execute(_t("SELECT leader_user_id, deputy_user_id FROM tenant.staff_group "
+                                  "WHERE tenant_id=2 AND COALESCE(archived,false)=false")).fetchall():
+                if r[0]:
+                    leaders.add(r[0])
+                if r[1]:
+                    deputies.add(r[1])
+            scoremap = {}
+            for r in s.execute(_t("SELECT user_id, max(score) FROM tenant.staff_group_member "
+                                  "WHERE tenant_id=2 AND user_id IS NOT NULL GROUP BY user_id")).fetchall():
+                scoremap[r[0]] = r[1]
             for r in s.execute(_t("SELECT DISTINCT user_id FROM tenant.att_employee "
                                   "WHERE tenant_id=2 AND user_id IS NOT NULL")).fetchall():
-                ordered.append((r[0], "member", None))
+                u = r[0]
+                role = "lead" if u in leaders else ("deputy" if u in deputies else "member")
+                ordered.append((u, role, scoremap.get(u)))
 
         uids = [u for (u, _, _) in ordered]
         names = {}
@@ -6783,7 +6796,10 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
                          "role": role, "score": score, "stav": si.get("st", ""),
                          "stav_pozn": si.get("note", ""), "stav_zak": si.get("proj", "")})
         if gid == 0:
-            lidi.sort(key=lambda x: (x["jmeno"] or "").lower())
+            _rr = {"lead": 0, "deputy": 1, "member": 2}
+            lidi.sort(key=lambda x: (_rr.get(x["role"], 2),
+                                     -(x["score"] if x["score"] is not None else -9999),
+                                     (x["jmeno"] or "").lower()))
         s.commit()
         return JSONResponse(jsonable_encoder({"ok": True, "group": group, "lidi": lidi}))
     except Exception as exc:

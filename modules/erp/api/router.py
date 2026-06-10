@@ -10663,6 +10663,117 @@ async def employee_doc(req: Request):
               headers={"Content-Disposition": _cd})
 
 
+# ===================== Systém šablon (iterace 1, 10.6.2026) =====================
+# Návrh + konzultace Marti-AI: docs/sablony_dokumentu_a_emailu.md
+@api_router.get("/doc-template/catalog")
+async def doc_template_catalog(req: Request):
+    """Paleta placeholderů pro editor — z fw.doc_placeholder_catalog."""
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pg
+    ek = (req.query_params.get("entity_kind") or "employee").strip()
+    cm = _pg.get_session(); s = cm.__enter__()
+    try:
+        rows = s.execute(_t(
+            "SELECT pkey, label, popis, datovy_typ, grp, sensitive, sort_order"
+            " FROM fw.doc_placeholder_catalog WHERE entity_kind=:ek"
+            " ORDER BY sort_order, label"), {"ek": ek}).fetchall()
+    finally:
+        cm.__exit__(None, None, None)
+    return {"entity_kind": ek, "fields": [
+        {"key": r[0], "label": r[1], "popis": r[2], "typ": r[3], "grp": r[4],
+         "sensitive": bool(r[5]), "sort_order": r[6]} for r in rows]}
+
+
+@api_router.post("/doc-template/sync-catalog")
+async def doc_template_sync_catalog(req: Request):
+    """Sync polí providerů → katalog (parent only). Pravda v kódu."""
+    from fastapi import HTTPException as _HX
+    from modules.strategie_pg.application import service as _pg
+    from modules.erp.api import doc_templates as _dt
+    uid = _get_uid(req)
+    if not is_marti_parent(uid):
+        raise _HX(status_code=403, detail="Jen rodiče.")
+    cm = _pg.get_session(); s = cm.__enter__()
+    try:
+        n = _dt.sync_catalog(s)
+        s.commit()
+    finally:
+        cm.__exit__(None, None, None)
+    return {"ok": True, "synced": n}
+
+
+@api_router.get("/doc-template/list")
+async def doc_template_list(req: Request):
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pg
+    ek = (req.query_params.get("entity_kind") or "").strip()
+    cm = _pg.get_session(); s = cm.__enter__()
+    try:
+        sql = ("SELECT id, code, nazev, typ, entity_kind, kategorie, is_sensitive, is_active"
+               " FROM tenant.doc_template WHERE tenant_id=2 AND is_current=true")
+        params = {}
+        if ek:
+            sql += " AND entity_kind=:ek"; params["ek"] = ek
+        sql += " ORDER BY nazev"
+        rows = s.execute(_t(sql), params).fetchall()
+    finally:
+        cm.__exit__(None, None, None)
+    return {"templates": [
+        {"id": r[0], "code": r[1], "nazev": r[2], "typ": r[3], "entity_kind": r[4],
+         "kategorie": r[5], "is_sensitive": bool(r[6]), "is_active": bool(r[7])} for r in rows]}
+
+
+@api_router.get("/doc-template/preview")
+async def doc_template_preview(req: Request):
+    """Render šablony na živém záznamu → HTML. ?code=|template_id= &entity_ref="""
+    from fastapi.responses import HTMLResponse as _H
+    from fastapi import HTTPException as _HX
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pg
+    from modules.erp.api import doc_templates as _dt
+    uid = _get_uid(req)
+    q = req.query_params
+    code = (q.get("code") or "").strip()
+    try:
+        tid = int(q.get("template_id") or 0)
+    except ValueError:
+        tid = 0
+    ref = (q.get("entity_ref") or "").strip()
+
+    cm = _pg.get_session(); s = cm.__enter__()
+    try:
+        if tid:
+            tr = s.execute(_t("SELECT id, code, nazev, typ, entity_kind, is_sensitive, subject, body_html, css"
+                              " FROM tenant.doc_template WHERE id=:i AND tenant_id=2"), {"i": tid}).first()
+        else:
+            tr = s.execute(_t("SELECT id, code, nazev, typ, entity_kind, is_sensitive, subject, body_html, css"
+                              " FROM tenant.doc_template WHERE code=:c AND tenant_id=2 AND is_current=true"),
+                           {"c": code}).first()
+        if not tr:
+            raise _HX(status_code=404, detail="šablona nenalezena")
+        t_id, t_code, t_naz, t_typ, t_kind, t_sens, t_subj, t_body, t_css = tr
+        allow_sensitive = bool(is_marti_parent(uid))
+        if not allow_sensitive:
+            er0 = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=2 AND user_id=:u"),
+                            {"u": uid}).first()
+            if er0:
+                try:
+                    po = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'payroll_officer')"),
+                                   {"e": er0[0]}).first()
+                    allow_sensitive = bool(po and po[0] and int(po[0]) == int(er0[0]))
+                except Exception:
+                    allow_sensitive = False
+        if t_sens and not allow_sensitive:
+            raise _HX(status_code=403, detail="Citlivá šablona: jen rodiče nebo payroll_officer.")
+    finally:
+        cm.__exit__(None, None, None)
+
+    prov = _dt.get_provider(t_kind)
+    context = prov.resolve(ref, uid, allow_sensitive) if (prov and ref) else {}
+    out = _dt.render({"body_html": t_body, "css": t_css}, context)
+    return _H(content=out)
+
+
 # ── Fáze (1.6.2026, Marti: "při každém nasazení request na Hard Reset") ──────
 # Verze = git HEAD sha (mění se KAŽDÝM deployem — i static-only, čteme z disku).
 # Klient (app_version_watch.js) polluje; při změně vs načtená verze → lišta

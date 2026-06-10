@@ -10552,6 +10552,112 @@ async def contact_vcard(req: Request):
     )
 
 
+@api_router.get("/employee-doc")
+async def employee_doc(req: Request):
+    """Marti 10.6.2026 — personální dokument „na klik".
+    ?engagement_id=&typ=smlouva|vymer|popis|dpp → branded docx ze živých dat
+    (PG engagement/složky + Helios TabCisZam osobní údaje + číslo účtu).
+    ACL: rodič NEBO payroll_officer (Šárka)."""
+    from fastapi.responses import Response as _R
+    from fastapi import HTTPException as _HX
+    import json as _jdoc
+    import datetime as _dtdoc
+    from sqlalchemy import text as _t
+    from modules.strategie_pg.application import service as _pgdoc
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.erp.api import doc_generator as _dg
+
+    uid = _get_uid(req)
+    q = req.query_params
+    typ = (q.get("typ") or "smlouva").strip()
+    try:
+        eng_id = int(q.get("engagement_id") or 0)
+    except ValueError:
+        eng_id = 0
+    if eng_id <= 0:
+        raise _HX(status_code=400, detail="chybí engagement_id")
+
+    cm = _pgdoc.get_session()
+    s = cm.__enter__()
+    try:
+        allowed = bool(is_marti_parent(uid))
+        if not allowed:
+            er0 = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=2 AND user_id=:u"),
+                            {"u": uid}).first()
+            if er0:
+                try:
+                    po = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'payroll_officer')"),
+                                   {"e": er0[0]}).first()
+                    allowed = bool(po and po[0] and int(po[0]) == int(er0[0]))
+                except Exception:
+                    allowed = False
+        if not allowed:
+            raise _HX(status_code=403, detail="Generování dokumentů: jen rodiče nebo payroll_officer.")
+
+        er = s.execute(_t(
+            "SELECT e.cislo_zam, e.full_name, c.code, en.engagement_type, en.pozice_text,"
+            " to_char(en.smlouva_od,'YYYY-MM-DD'), to_char(en.smlouva_do,'YYYY-MM-DD'), en.uvazek_tyden_h"
+            " FROM tenant.engagement en JOIN tenant.att_employee e ON e.id=en.employee_id"
+            " LEFT JOIN tenant.company c ON c.id=en.company_id"
+            " WHERE en.id=:i AND en.tenant_id=2 AND en.is_current=true"), {"i": eng_id}).first()
+        if not er:
+            raise _HX(status_code=404, detail="engagement nenalezen")
+        cislo, full_name, firma, etyp, pozice, od, do, uvazek = er
+        comps = {}
+        for r2 in s.execute(_t(
+            "SELECT wct.code, wc.amount_planned FROM tenant.wage_component wc"
+            " JOIN tenant.wage_component_type wct ON wct.id=wc.component_type_id"
+            " WHERE wc.engagement_id=:i AND wc.amount_planned IS NOT NULL AND wc.amount_planned<>0"),
+            {"i": eng_id}).fetchall():
+            comps[r2[0]] = float(r2[1])
+    finally:
+        cm.__exit__(None, None, None)
+
+    nar = bydliste = ucet = None
+    try:
+        mcp = get_eurosoft_mcp_client()
+        if mcp is not None and cislo:
+            def _one(sql):
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _jdoc.loads(raw) if isinstance(raw, str) else raw
+                rows = r.get("rows") if isinstance(r, dict) else r
+                return (rows[0] if rows else None)
+            z = _one("SELECT TOP 1 CONVERT(varchar(10),DatumNarozeni,23) nar, AdrTrvUliceSCisly ul,"
+                     " AdrTrvMisto mi, AdrTrvPSC psc FROM TabCisZam WHERE Cislo=%d" % int(cislo))
+            if isinstance(z, dict):
+                nar = z.get("nar")
+                ul, mi, psc = (z.get("ul") or ""), (z.get("mi") or ""), (z.get("psc") or "")
+                bydliste = (ul + ", " + (psc + " " + mi).strip()).strip(", ").strip() or None
+            b = _one("SELECT TOP 1 b.CisloUctu+'/'+u.KodUstavu uc FROM TabBankSpojeni b"
+                     " JOIN TabCisZam z ON z.ID=b.IDZam JOIN TabPenezniUstavy u ON u.ID=b.IDUstavu"
+                     " WHERE z.Cislo=%d AND b.Prednastaveno=1" % int(cislo))
+            if isinstance(b, dict):
+                ucet = b.get("uc")
+    except Exception:
+        pass
+
+    _labels = {"premie": "Prémie", "vedeni_lidi": "Příplatek za vedení lidí",
+               "individualni": "Individuální odměna", "jednatelska_odmena": "Odměna jednatele/společníka"}
+    extra = [(_labels.get(k, k), v) for k, v in comps.items() if k not in ("zaklad", "os_ohodnoceni")]
+    data = {
+        "jmeno": (full_name or "").strip(), "narozeni": nar, "bydliste": bydliste,
+        "firma": (firma or "ES"), "pozice": (pozice or "").strip(),
+        "od": od, "do": do, "uvazek": uvazek,
+        "zaklad": comps.get("zaklad"), "os_ohod": comps.get("os_ohodnoceni"),
+        "extra": extra, "ucet": ucet, "kategorie": "",
+    }
+    _td = _dtdoc.date.today()
+    _dg.TODAY = "%d. %s %d" % (_td.day, _dg.MESICE[_td.month], _td.year)
+    try:
+        fname, content = _dg.generate(data, typ)
+    except ValueError as exc:
+        raise _HX(status_code=400, detail=str(exc))
+    return _R(content=content,
+              media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              headers={"Content-Disposition": 'attachment; filename="%s"' % fname})
+
+
 # ── Fáze (1.6.2026, Marti: "při každém nasazení request na Hard Reset") ──────
 # Verze = git HEAD sha (mění se KAŽDÝM deployem — i static-only, čteme z disku).
 # Klient (app_version_watch.js) polluje; při změně vs načtená verze → lišta

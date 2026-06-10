@@ -253,9 +253,31 @@ def render(template_row, context):
 # ---------------------------------------------------------------- PDF render
 
 def _font_files():
-    """(normal, bold) TTF s českými glyfy. Primárně Bitstream Vera přibalená
-    v reportlabu (vždy přítomná tam, kde reportlab); fallback Windows fonty."""
+    """(normal, bold) TTF s PLNOU českou sadou (vč. ě ů ň ť ď). Pořadí:
+    1) <repo>/fonts/DejaVuSans.ttf (DejaVu = plná čeština) — preferováno,
+    2) běžné Windows fonty (pokud na serveru jsou),
+    3) reportlab Vera (NEúplná čeština — chybí ě — jen nouze)."""
     import os
+    # 1) DejaVu ve fonts/ složce repa (nebo přes env DOC_FONT_PATH)
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.abspath(os.path.join(here, "..", "..", ".."))
+    cand_dirs = [os.path.join(root, "fonts"), os.environ.get("DOC_FONT_DIR", "")]
+    for d in cand_dirs:
+        if not d:
+            continue
+        n = os.path.join(d, "DejaVuSans.ttf")
+        b = os.path.join(d, "DejaVuSans-Bold.ttf")
+        if os.path.exists(n):
+            return n, (b if os.path.exists(b) else n)
+    # 2) Windows fonty
+    fdir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    for nf, bf in [("verdana.ttf", "verdanab.ttf"), ("arial.ttf", "arialbd.ttf"),
+                   ("segoeui.ttf", "segoeuib.ttf"), ("tahoma.ttf", "tahomabd.ttf")]:
+        n = os.path.join(fdir, nf)
+        if os.path.exists(n):
+            b = os.path.join(fdir, bf)
+            return n, (b if os.path.exists(b) else n)
+    # 3) reportlab Vera (nouze — neúplná čeština)
     try:
         import reportlab as _rl
         d = os.path.join(os.path.dirname(_rl.__file__), "fonts")
@@ -264,13 +286,6 @@ def _font_files():
             return n, (b if os.path.exists(b) else n)
     except Exception:
         pass
-    fdir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
-    for nf, bf in [("verdana.ttf", "verdanab.ttf"), ("arial.ttf", "arialbd.ttf"),
-                   ("segoeui.ttf", "segoeuib.ttf"), ("tahoma.ttf", "tahomabd.ttf")]:
-        n = os.path.join(fdir, nf)
-        if os.path.exists(n):
-            b = os.path.join(fdir, bf)
-            return n, (b if os.path.exists(b) else n)
     return None, None
 
 

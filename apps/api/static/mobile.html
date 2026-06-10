@@ -1923,11 +1923,13 @@ setTimeout(function(){
     var su=lc.querySelector("#dochSecs");
     // Marti 7.6. večer: lidské názvy sekcí — docházka mluví jako kolega.
     _dS={ today: collSec(su,"Dneska je den…", false),
+          todayhist: collSec(su,"Tak to bylo dneska…", false),
           yest:  collSec(su,"Na včera si vzpomínám…", false),
-          prev:  collSec(su,"To už si moc nepamatuju…", false),
+          prev:  collSec(su,"To už si moc nepamatuju… (starší)", false),
           plan:  collSec(su,"Tak tady budu jinde…", false),
           list:  collSec(su,"Co se vlastně dělo…?", false),
           paska: collSec(su,"Moje odmakané prašule… 💰", false, function(o){ paskaToggle(o); }) };
+    _dS.todayhist.box.innerHTML='<ul id="dochToday2"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.today.box.innerHTML='<div id="dochSpanToday" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div id="dochCard" style="padding:2px 0 4px;">Načítám…</div>';
     _dS.yest.box.innerHTML='<div id="dochSpanYest" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><ul id="dochYest"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.prev.box.innerHTML='<ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
@@ -2762,11 +2764,8 @@ setTimeout(function(){
         api("GET","/api/v1/erp/app/attendance/announced-future","").then(function(ja){
           pu=document.getElementById("dochPlan"); if(!pu)return;
           var ann=(ja&&ja.items)||[];
-          // Marti 10.6.: do počtu DNŮ jen reálné celodenní absence (fut), ne krátká
-          // ohlášení (jednání 4 min ≠ den). Ohlášení se ukazují v seznamu níž.
-          var dny={}; fut.forEach(function(r){dny[r.d]=1;});
-          var n=Object.keys(dny).length;
-          if(_dS&&_dS.plan) _dS.plan.val.textContent=(n?czDays(n):"");
+          // Marti 10.6.: číslo (počet dnů) u „Tak tady budu jinde" zatím nechceme.
+          if(_dS&&_dS.plan) _dS.plan.val.textContent="";
           if(!fut.length && !ann.length){ pu.innerHTML='<li style="color:var(--mut);border:none;">Žádná nahlášená.</li>'; return; }
           pu.innerHTML="";
           fut.forEach(function(r){ var a=Number(r.absence||0), w=Number(r.worked||0);
@@ -2803,14 +2802,19 @@ setTimeout(function(){
       window._dochEntries=rows; _dochSpans();
       // Marti 10.6.: „Co se vlastně dělo?" = JEN minulost (dnešek je v „Dneska je den").
       var _td=new Date(), tdy=_td.getFullYear()+"-"+("0"+(_td.getMonth()+1)).slice(-2)+"-"+("0"+_td.getDate()).slice(-2);
+      function _entryLi(e){ var t=(e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':''));
+        return el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+fmtHM(e.hours)):'')+' · '+esc(e.status||'')+'</div></li>'); }
+      // Tak to bylo dneska — dnešní záznamy
+      var t2=document.getElementById("dochToday2");
+      if(t2){ var todays=rows.filter(function(e){ return (e.d||"")===tdy; });
+        if(_dS&&_dS.todayhist) _dS.todayhist.val.textContent="";
+        if(!todays.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Dnes zatím nic.</li>'; }
+        else { t2.innerHTML=""; todays.forEach(function(e){ t2.appendChild(_entryLi(e)); }); } }
+      // Co se vlastně dělo — jen minulost
       var past=rows.filter(function(e){ return (e.d||"") < tdy; });
       if(_dS&&_dS.list) _dS.list.val.textContent="";
-      if(!past.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím žádné záznamy.</li>'; return; }
-      ul.innerHTML="";
-      past.forEach(function(e){
-        var t=(e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':''));
-        ul.appendChild(el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+fmtHM(e.hours)):'')+' · '+esc(e.status||'')+'</div></li>'));
-      });
+      if(!past.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím žádné záznamy.</li>'; }
+      else { ul.innerHTML=""; past.forEach(function(e){ ul.appendChild(_entryLi(e)); }); }
     });
   }
   // 💰 Výplatní páska (Marti 7.6.: „každej na ni má nárok") — jen vlastní data.

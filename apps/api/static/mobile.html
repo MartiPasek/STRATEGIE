@@ -2163,7 +2163,7 @@ setTimeout(function(){
             pe.addEventListener("click",function(){ pp.style.display=(pp.style.display==="none")?"block":"none"; });
             rowB.appendChild(ke); rowB.appendChild(pe); actC.appendChild(rowB); actC.appendChild(pp);
           } else {
-            var ke2=el('<button class="green full" style="margin:0;font-weight:700;background:var(--amber);color:#241a02;">✅ Konec '+tsKind+' — jsem zpět</button>');
+            var ke2=el('<button class="green full" style="margin:0;font-weight:700;background:var(--amber);color:#241a02;">✅ Konec '+(tsKind==="pauzu"?"pauzy":(tsKind==="přestávku"?"přestávky":tsKind))+' — jsem zpět</button>');
             ke2.addEventListener("click",function(){ ke2.disabled=true; act("checkin",{kind:"work"},ke2); });
             actC.appendChild(ke2);
           }

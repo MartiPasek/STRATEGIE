@@ -2937,7 +2937,7 @@ setTimeout(function(){
     var hi=(rel==="lead"||rel==="deputy");
     var fr=(ic||"").split("|");
     var iconHtml=(fr.length>1)
-      ? '<span class="i anim-emoji" data-frames="'+fr.join("|")+'" data-fi="0">'+fr[0]+'</span>'
+      ? '<span class="i anim-emoji" data-frames="'+fr.join("|")+'" data-fi="0" data-hold="3">'+fr[0]+'</span>'
       : '<span class="i">'+ic+'</span>';
     var b=el('<button class="tabbtn" style="flex:0 0 auto;min-width:60px;'+(hi?"color:var(--blue);":"")+'">'+iconHtml+esc(lbl)+'</button>');
     b.addEventListener("click",fn); return b;
@@ -2947,11 +2947,14 @@ setTimeout(function(){
     var els=document.querySelectorAll(".anim-emoji");
     Array.prototype.forEach.call(els,function(sp){
       var fr=(sp.getAttribute("data-frames")||"").split("|"); if(fr.length<2)return;
+      var hold=parseInt(sp.getAttribute("data-hold")||"0",10);
+      if(hold>1){ sp.setAttribute("data-hold",hold-1); return; }   // realita (1. snímek) drží dýl
       var i=(parseInt(sp.getAttribute("data-fi")||"0",10)+1)%fr.length;
       sp.setAttribute("data-fi",i); sp.textContent=fr[i];
+      sp.setAttribute("data-hold", i===0?3:1);                    // 1. snímek 3× tak dlouho jako vize
     });
   }
-  function startAnimIcons(){ if(_animTimer)return; _animTimer=setInterval(_tickAnimIcons,1600); }
+  function startAnimIcons(){ if(_animTimer)return; _animTimer=setInterval(_tickAnimIcons,800); }
   function skupBar(){
     var bar=bnavx2;
     function paint(){

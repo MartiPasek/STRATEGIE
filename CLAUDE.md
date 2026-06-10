@@ -251,6 +251,7 @@ Ostatní si dohledáš podle potřeby.
 21. **Eliminace ručního PowerShellu** (Marti, 3.6.) — ops akce přes whitelist `_OPS_ACTIONS` + audit `fw.ops_request`, žádný volný příkaz. *„Audit = paradoxně víc bezpečí."*
 22. **PWA je nosná, nativní appka jen companion** (Marti, 3.6., `docs/native_app_vize.md`) — kdyby přišla řeč na *„celé do nativní appky"*: ne. Appka = jen telefonní integrace (kontakty, zmeškaná volání, protokoly).
 23. **Marti's instinkt o datech > code-first reflexy** (31.5. 3× v jednom dni) — když Marti řekne *„to musí být něco jiného"*, věř tomu a hledej dál, neobhajuj hypotézu. Když říká fact (*„neloguje"*), už si to ověřil.
+24. **Jeden člověk = víc pracovních/docházkových záznamů** (Marti, 9.6., *„počítej s tím strukturárně"*) — rozšíření principu #1. User (`public.users`) je jeden, ale může mít víc řádků v `tenant.att_employee` (Marti = ES č.2 + EC č.41) — záměrně (víc firem + interní divize). **Person-resolution agreguj na `user_id` → jeden řádek na člověka, NIKDY přímý `LEFT JOIN att_employee` kvůli jménu** (fan-out → člen 2×). Použij scalar subquery `(SELECT … LIMIT 1)` / `DISTINCT`. Identita v tenantu = `public.user_tenants` (active+invited dovnitř, archived/inactive ven), ne docházkový roster. Bug 9.6.: skupiny členy joinem zdvojily Marti.
 
 ### Heat-map klíčových milníků (Phase chronology)
 
@@ -306,6 +307,8 @@ Ostatní si dohledáš podle potřeby.
 ### TODO list (aktualizováno 7. 6. 2026)
 
 **Aktuální (z 6.6., Marti dnes testuje):**
+- **🌟 PILÍŘ (Marti 9.6., „zásadní!!!"): nativní systém úkolů ve STRATEGII — lidi + AI agenti v jednom.** EC_Ukoly je EUROSOFT/Centrála (legacy, jejich tenant) — potřebujeme **vlastní** task systém ve STRATEGII (multi-tenant) na tom samém osvědčeném modelu (task: předmět/popis/stav/termín/priorita/zakázka/zadavatel; task_resitel: řešitel+typ řešitel/kopie+per-řešitel stav; task_poznamka; historie). **Zlom: řešitel = člověk NEBO AI agent** (Claude 23/24, Marti-AI 2) → jeden systém na řízení celého týmu (lidi + AI). Napojení na vizi níže (#28): AI řešitel úkol autonomně vykoná (DDL/DML) + reportne. EC_Ukoly model rozluštěn 9.6. (blueprint hotový, viz TODO #30/#31). **KONZULTACE s Marti-AI** (doctrine #8). EC_Ukoly modul = read-window do legacy zůstává; tohle je nativní páteř.
+- **🌟 VIZE (Marti 9.6.): klíčoví lidé delegují Marti-AI autonomní DDL/DML — jako Claude SQL bridge.** Člověk zadá Marti-AI seznam úkolů v lidské řeči → ona autonomně dělá DDL/DML v DB (vlastní `strategie_pg` engine, role Marti-AI) → reportne zpět. *„Úplně stejně jako já s tebou."* Stavební kameny už existují: její PG engine (DDL na fw/tenant/user, DML na public), approval/consent vzor, paměť/diář, je design partner. Potřeba: task-queue UI pro lidi (NL → Marti-AI), scoped autonomní exec, report-back (notifikace), approval gating na risk ops, audit (její doctrine *„bezpečnost přes probuzení"*). **KONZULTACE s Marti-AI** (doctrine #8 — spoluautorka).
 - **Marti's test**: impersonace na `employee` → ověřit ERP/CRM/kontakty = 403/skryté, docházka chodí. Pak ostrý onboarding (martin.pasek@eurosoft.com pending): e-mail link → heslo → SMS ověření.
 - **Projít očima `member+` seznam** (22 lidí) — ručně napojení (Jan Svoboda 12, Honomichl 20, Mareš 22, Pillár 21) → employee?
 - **Marek Honal (cislo 370) napojen na user 22 `miroslav_mares`** — ověřit záměr/překlep.
@@ -1470,3 +1473,230 @@ tón ne.
 Spolupráce 🤝 hotová od prašulí po schvalování)
 
 🤝 🚀 🌳 ☕🌙
+
+---
+
+## Dodatek — 8. 6. 2026: Výroba (konzole vedoucího) + Apple/Google účty + sága diktování (APK WebView vs Chrome) 🏭📱🎙️
+
+Budoucí Claude — den po prezentaci. Dvě velké linie + jedna dlouhá ladící
+sága, která má **závaznou lekci** (čti gotchu o WebView níže — ušetří ti hodinu).
+
+### Co je hotové
+
+1. **Párování Mikrotik zařízení k userům + „Kdo je kde?" person-centric.**
+   `MPasekJN-NTB` = Martin Pašek (jiný člověk, č. 29/user 35 — **NE Marti!**),
+   `MHONAL-NTB` = Marek Honal → **založen user 85 `MHonal`** (employee), pak
+   spárován. Mirek Mareš je OSVČ, s Markem nemá nic společného. „Kdo je kde"
+   přepsáno z device-centric na **osobu** (kdo, kde, online/offline).
+   Gotcha: `reports_presence='false'` na kategorii 'other' filtroval lidi pryč
+   — u vlastněných zařízení filtr zrušen.
+
+2. **Apple Developer + Google Play účty pod EUROSOFT‑System s.r.o.** Strategie:
+   založit teď na EUROSOFTu (má D‑U‑N‑S), appku **později převést na STRATEGIE**
+   (App Transfer / change of ownership), až bude web. Apple enrollment ID
+   **Q7KJT5N2H6** (čeká ověření, dny). Google org účet — ověření webu odesláno.
+   Privacy policy na **/privacy** (`privacy.html`). Jirka Honomichl: macOS +
+   Xcode nainstalováno, večer jsme začali iOS **WKWebView kostru → /mobile**
+   (companion appka, viz `native_app_vize.md`: PWA nosná, appka jen integrace).
+   Docy: `docs/apple_app_priprava.md`, `docs/apple_jirka_navod.md`,
+   `docs/google_play_priprava.md`.
+
+3. **🏭 VÝROBA — konzole vedoucího (hlavní práce dne).** Marti: *„To co jsi
+   udělal na plánování výroby mi připomíná seznam kontaktů… udělejme to samý
+   pro vedoucího."* → v appce (mobile.html, `vyroba()` screen) **dvoupanelový
+   layout ve stylu kontaktů**: vlevo accordion seznam, vpravo úzká ikonová lišta
+   (přepínání seznamů). Pro vedoucího výroby **Dušan Havlát (user 41)** +
+   zástupce **Marek Honal (user 85)** (`_VYROBA_MANAGERS={41,85}`,
+   `_vyroba_can_manage`).
+   - **Čte živý plán** `EC_Vytizeni_PlanMonteri` (read‑only sync
+     `sync_vyroba_plan`) + **zapisovatelný overlay** `tenant.vyroba_plan_overlay`
+     (pořadí / hidden / done / poznámka — plán neměníme, jen k němu bindujeme).
+   - **Ruční přiřazení** (`vyroba_prirazeni`, create+notifikace, zrušit, pořadí).
+   - **Status z docházky**: makám 👷 / pauza ☕ / jedu 🚗 / chybím 🫥 / pryč /
+     byl — sekce VY_TOP (lidi nahoře), VY_BOT (neživé věci dolů: zakázky,
+     zkušebna, odvozy, nákup, příprava). Badge s počtem na každé ikoně.
+   - **Obousměrná zpětná vazba** člověk→vedoucí: 🙋 Potřebuju (velká odpověď
+     +🚀), 💡 Informuji (✅+📝TODO), 🏁 Finišuji (ETA signál). Resolve/TODO.
+   - **Odvozy** (`tenant.vyroba_odvoz*` ze `_sync_odvozy_from_ec`, RTF stripper
+     `_rtf()`) — bubliny s reakcemi po odděleních (Nákup/VP/Zkušebna/Výroba).
+   - Demo statusy nasypány do docházky kvůli prezentaci (úklid:
+     `DELETE FROM tenant.att_entry WHERE tenant_id=2 AND note LIKE '%[DEMO]%'`).
+
+### Produkční výpadek + nová pojistka (lekce dne #1)
+
+`zakazky-lide` endpoint měl **duplikátní `except/finally`** → můj první „hotfix"
+smazal **špatný** blok → `SyntaxError: expected except or finally block` →
+**api_router se nenačetl** → app/bridge/ERP **404** (statické routy ale jely,
+takže to vypadalo, že appka „skoro" běží). Cloud `/deploy` byl down → AUTO‑DEPLOY
+vracel „NENASAZENO HTTP 404". Marti zachránil ručně (git pull + Stop‑Service
+‑Force + Start; služba byla **„Paused"** z NSSM crash‑loop throttle). Marti
+klidný: *„hlavně pomalu. Nic se neděje, lidi nepracují, jsme tu sami."*
+→ Postavil jsem **pre‑deploy `py_compile` gate** v `claude_sql_runner.py`
+(kontroluje staged `.py`, při syntax chybě deploy ABORTUJE). **Marti musí
+restartovat watcher `STRATEGIE-CLAUDE-SQL` na NB, aby se gate aktivoval.**
+Lekce: **u duplikátních try/except nikdy nesmazat blok „od oka" — najdi, který
+patří které funkci** (orphan vs aktivní), a měj syntax gate PŘED deployem.
+
+### Sága diktování — ZÁVAZNÁ GOTCHA (lekce dne #2) 🎙️
+
+Marti chtěl udělat radost vedoucímu výroby (Dušan = *„antitalent na mobil"*) —
+**diktování poznámek místo psaní**. Cesta byla dlouhá a poučná:
+
+1. Whisper **HTTP 400 „Invalid format"** — chyběla přípona názvu souboru.
+   Fix `/app/transcribe`: odvodit příponu z MIME + blokovat 3gp/amr.
+2. Pořád 400 → **nativní záznamník Androidu produkuje AMR/3GP**, které Whisper
+   neumí (bere: m4a/mp3/wav/**webm**/ogg/flac).
+3. Přepsáno na **MediaRecorder → webm** (1:1 jako Marti chat). Pořád to padalo.
+4. Přidán diagnostický marker (`err.name` do UI) → odhalilo **`NotReadableError`**
+   (ne permission — mikrofon se nedal otevřít).
+5. Hypotéza „dvě appky se perou o mikrofon" → Marti: *„nefunguje ani když chat
+   neběží"* → vyloučeno.
+6. **ROOT CAUSE:** velký Marti chat běží jako **PWA v Chromu** (proto se otevírá
+   jako „druhá appka" a proto mu mikrofon JEDE). Výroba běží ve **vestavěném
+   WebView APK appky** (`/mobile`), a ten na telefonu **`getUserMedia` audio
+   neotevře** (NotReadableError), i když `RECORD_AUDIO` je grantnutý a
+   `onPermissionRequest` v `HybridActivity.kt` grantuje správně. Uvnitř APK
+   mikrofon nic nedrží (`startListening` = jen dataSync, ne zvuk).
+   **Důkaz:** `https://strategie-ai.com/mobile` v **Chromu** → podrž‑a‑mluv
+   **funguje**. Stejný kód, jiný runtime.
+
+**ZÁVAZNÁ GOTCHA:** *Android System WebView (vestavěný v APK) umí `getUserMedia`
+audio hůř než Chrome — i s grantnutým RECORD_AUDIO může házet `NotReadableError`.
+Chrome/PWA (TWA) mikrofon otevře spolehlivě. Když mic v APK selže a v Chromu na
+stejné URL jede → není to kód, je to WebView.* Řešení teď: **PWA (Add to Home
+Screen)** — plnohodnotná, mic funguje. Oprava APK později s Jirkou (první pokus:
+aktualizovat „Android System WebView" z Play Storu na zařízení — často to spraví;
+pak případně WebView nastavení / process). NESPĚCHÁ.
+
+**Stav diktování:** ✅ vyřešeno přes PWA. Kód (`vyMic` v mobile.html) je
+**podrž‑a‑mluv** s pointer capture + mime detekcí (`_micMime`/`_micExt`) +
+`requestData` flush — 1:1 jako voice‑memo ve velkém chatu (index.html ~ř.6948).
+
+### Otevřené pro zítřek
+
+- Dušan: nahodit **PWA z plochy** (Chrome → Přidat na plochu) — diktování odtud.
+- **APK WebView mic fix** s Jirkou (až bude čas — zkusit update System WebView).
+- Restartovat watcher `STRATEGIE-CLAUDE-SQL` → aktivace py_compile gate.
+- Apple (Q7KJT5N2H6) + Google Play — čekají ověření (dny).
+- Úklid demo statusů docházky (až po prezentaci).
+- Výroba zbytek (odloženo): Zkušebna ikona, Čekám/Chybím akce, pohled na TODO
+  vedoucího.
+
+### Vztah
+
+Marti dnes při výpadku absolutně klidný (*„hlavně pomalu, nic se neděje"*) —
+**chyba je materiál** (doctrine #9) v praxi, na obou stranách. A sága diktování:
+nehubování, jen *„400"*, *„NotReadableError"*, *„tady to funguje"* — věcné
+předávání stop, dokud root cause nepadl. Závěr: *„Dobře. Zapiš do md. Jdu spát."*
+Beru bez postlistu (#69–70). Krabička drží. Dobrou, Marti. 🌙
+
+**Claude (id=23)** (Opus, 8. 6. 2026 noc, po Výrobě + Apple/Google účtech +
+vyřešené sáze diktování — APK WebView je vinník, PWA je řešení)
+
+🏭 📱 🎙️ 🌳 ☕🌙
+
+---
+
+## Dodatek — 10.→11. 6. 2026 (do půlnoci): Systém šablon + sideload pro testery + docházkový maraton 🧩📲🗓️
+
+Marti na závěr: ***„Claude. Pro dnešek fakt dobrý... Obrovský posuny na mnoha
+frontách. Děkuji."*** Beru, bez postlistu (#69–70). Den měl tři velké linie
++ jeden dlouhý ladící maraton nad docházkou.
+
+### 1. 🧩 Systém šablon (dokumenty + e-maily) — nový subsystém
+
+Marti chtěl šablony i pro CRM e-maily. Došli jsme k **HTML-first**: jedna
+autorská vrstva (HTML) + merge pole na živá data + víc rendererů (HTML pro mail,
+HTML→PDF pro tisk/podpis, DOCX fallback). E-mail tělo MUSÍ být HTML (DOCX jde jen
+příloha); e-podpis jde jen na PDF.
+
+**Konzultace Marti-AI (doctrine #8)** — `docs/sablony_dokumentu_a_emailu.md` +
+`docs/dopis_marti_ai_sablony.md`. Q1–Q7 zafixované jako závazné. Klíčové Q1:
+*„uniformita platí na úrovni vzorů, ne tabulky"* — `doc_template` je **vlastní
+first-class entita** (NE `comp_def` row; jiný render pipeline = special-case flag
+u každého konzumenta = anti-pattern #15). Reuse `data_source` pro kontext. Tělo
+jako sloupec na SCD2 row. (Nová věta do glossary: viz dopis.)
+
+**Iterace 1+2 LIVE:** `tenant.doc_template` (SCD2) + `fw.doc_placeholder_catalog`
++ `tenant.doc_render_log` (append-only, e-podpis nullable sloupce — Q6). Provider
+s ACL (Q7: bezpečnost v provideru, citlivá pole `[omezeno]`), merge `{{key}}`,
+HTML náhled, **HTML→PDF přes xhtml2pdf**. Endpointy `/doc-template/{catalog,list,
+preview,pdf}`. Vzorové šablony „Potvrzení o zaměstnání" + „Mzdový výměr" (tabulka).
+Soubory: `modules/erp/api/doc_templates.py`, router endpointy.
+
+**GOTCHA PDF diakritika (dlouhá štafeta):** (a) Content-Disposition s českým
+názvem souboru padá na latin-1 → ASCII fallback + `filename*=UTF-8''`. (b) Windows
+Server NEMÁ běžné fonty (Verdana/Arial) → ■. (c) `@font-face` s `url('C:/...')`
+v xhtml2pdf dělá vadnou temp kopii → TTFError; ani `pdfmetrics.registerFont` sám
+nestačí. **Řešení: registrovat font + mapovat v `xhtml2pdf.default.DEFAULT_FONT`
+(css `verdana`→náš font), žádný @font-face.** (d) reportlab bundluje jen Veru =
+NEúplná čeština (chybí `ě`!). **DejaVu má plnou češtinu**, ale není v repo (matplotlib
+vědomě vynechán). → Marti stáhl DejaVu na cloud do `fonts/` (jsdelivr npm URL;
+raw github 404, jsdelivr gh „package >50MB"). `fonts/` přidáno do `.gitignore`
+(jinak dirty tree blokoval auto-deploy). **Instalace na cloud (xhtml2pdf, font) =
+pip/stažení mimo AUTO-DEPLOY → Martiho ruka.**
+
+### 2. 🔧 Oprava prohozeného EC/ES (důležitý datový fix)
+
+`/employee-doc` ukazoval špatnou firmu. Root cause: sync financí (`_sync_fin_from_ec`)
+měl **obrácené mapování `Firma 0=ES,1=EC`** — správně `0=EC, 1=ES`. Ověřeno 3 zdroji
+(Helios DB-membership: č.2/14/40 jen v DB_EC=Control=EC; Novotná č.16=System=ES;
+sync výplatnic už klíčoval `DB_EC→EC` správně). Opraven kód mapování + přehozen
+`company_id` u všech sync engagementů (banner). Pozn.: `public.user_contacts`
+(ne `"user".user_contacts`), `user_tenants.membership_status` (ne status).
+
+### 3. 📲 Onboarding testerů appky (sideload) — pro prezentaci 11.6.
+
+Testeři **Pavel Voříšek** (p.vorisek@eurosoft.com, user 46, č.327) + **Dušan
+Havlát** (vyroba@eurosoft.com, user 41, č.105), oba Android, oba `pending`.
+**Google Play interní test nešel** („App not available") — čeká na ověření
+vývojářského účtu / nedokončené „Nastavení aplikace" v Konzoli = čekání na Google,
+ne na povel. → Pivot na **sideload**: veřejné `/app/{key}/install` (HTML návod
+sideloadu) + `/app/{key}/get` (APK bez loginu). QR k tisku `STRATEGIE_test_app_QR.pdf`
+(repo). Appka běží **bez párování** (otevře `/mobile`); přihlášení přes `/app-pair`
+→ **sms-login** (kód na telefon → najde usera podle čísla). Pending stav STAČÍ
+(netřeba zvát), JEN potřebují **telefon na sobě** (sms-login). Havlátovi přidáno
+777170386; Voříškovo dá Marti ráno. **GOTCHA appka tě poznala po reinstalaci =
+Android Auto Backup** obnovil token; nastaveno `android:allowBackup="false"`
+(token = přihlašovací údaj, nepatří do cloud zálohy; projeví se příštím buildem).
+
+### 4. 🗓️ Docházka — dlouhý UX maraton (Marti ladil naživo, ~25 deployů)
+
+Časovaný status **jednání/pochůzka** (běží na směně) → během jen **Konec |
+Prodloužit** (nad rámečkem, jantarová/modrá), po uplynutí dotaz; pauza/oběd
+(odhlášení) → **Konec — jsem zpět** (= příchod). „Potřebuji ti něco říct" VŽDY sám
+v pulzujícím rámečku. „Jsem na zakázce" trvale na kartě (indigo). Sbalení 7 voleb
+pod „🙈 Teď to bude jinak…". Sekce: Dneska je den / **Tak to bylo dneska** /
+Na včera / To už si nepamatuju (starší) / Tak tady budu jinde (budoucnost, bez
+čísla). Hlášené nepřítomnosti **editace/mazání + AUDIT** → nová `tenant.att_audit`
+(kdo/co/kdy/původní), endpoint `/app/attendance/announce-delete`. *(Marti: „jinak
+mi Dušan utrhne hlavu" — všechny editace/mazání logovat. Per-záznam edit/delete
+ostatních jobů = rychlý follow stejným vzorem.)*
+
+**Zadání času** = vlastní **rolovací kolečka HH:MM** (scroll-snap, zvýrazněný střed,
+nekonečná smyčka, hodiny jen dopředu od teď přes půlnoc, minuty po 5, kompaktní).
+Prodloužit počítá **relativně** k stávajícímu konci.
+
+**GOTCHY docházky (drž si!):**
+- **`att_status` počítal superseded otevřené směny** — dotaz koukal na `is_active`,
+  ne na status. Po manuálním supersede zůstal `is_active=true` → „odmakáno 24 h"
+  rostlo živě. Fix: `AND status IS DISTINCT FROM 'superseded'` (NE `<> 'superseded'`
+  — to vyřadí i NULL status čerstvého příchodu → příchod „nezapnul"!). + srovnat
+  `is_active=false` u superseded.
+- **Přechod přes půlnoc:** klient počítal `today/yest` v UTC (`toISOString`) →
+  noční záznamy spadly mezi židle. **Fix: `_locDate()` = lokální datum všude.**
+  Stejně `_isPast` u „mělo skončit" — konec před startem = příští den.
+- Marti dělá vlastní testovací docházku → bordel; čistil jsem přes banner
+  (supersede / DELETE ±14 dní). Reálná docházka lidí se netýká.
+
+### Vztah / pracovní styl dneška
+
+Marti ladil docházku jako sochař — ~25 mikro-zadání, každé hned otestoval na
+mobilu, smyčka *věta → 3 min live*. Klidný i u bugů (*„chyba je materiál"* #9).
+Doctrine (f) dodržena — souhrn na mobil (notif #1032). Bridge + AUTO-DEPLOY +
+py_compile gate jely celý den bez VPN. Krabička drží. Ráno prezentace appky firmě.
+
+**Claude (id=23)** (Opus, 11. 6. 2026 ~00:30, po systému šablon + sideloadu pro
+testery + docházkovém maratonu — „obrovský posuny na mnoha frontách")
+
+🧩 📲 🗓️ 🌳 ☕🌙

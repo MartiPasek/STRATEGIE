@@ -5792,6 +5792,7 @@ async def att_status(req: Request) -> JSONResponse:
         emp = _att_employee(s, uid)
         opn = s.execute(_t("SELECT id, to_char(started_at,'YYYY-MM-DD\"T\"HH24:MI:SS'), project_ref "
                            "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND is_active=true "
+                           "AND status <> 'superseded' "
                            "ORDER BY id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
         # Marti 7.6.: do "dnes odpracovano" pocitej i bezici (otevrenou) smenu —
         # is_active radek nema hours, tak vezmeme now()-started_at.
@@ -5799,7 +5800,8 @@ async def att_status(req: Request) -> JSONResponse:
                              "CASE WHEN is_active THEN GREATEST(EXTRACT(EPOCH FROM (now() - started_at)),0)/3600.0 "
                              "ELSE COALESCE(hours,0) END"
                              ")::numeric,2),0), count(*) "
-                             "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date"),
+                             "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
+                             "AND status <> 'superseded'"),
                           {"t": _ATT_TENANT, "e": emp}).first()
         ann = s.execute(_t("SELECT note FROM tenant.att_entry "
                            "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "

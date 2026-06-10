@@ -6865,6 +6865,76 @@ async def app_all_users(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/helios-recon")
+async def app_helios_recon(req: Request) -> JSONResponse:
+    """Marti 10.6.2026: pohled účetní — lidé z Heliosu (TabCisZam EC + ES) a kdo
+    je NESPÁROVANÝ s našimi zaměstnanci/uživateli. JEN PRO RODIČE. 'účetní v tom
+    má bordel' → ukáže díry. Stav: ok (zam+user) / no_user (zam bez usera) /
+    no_emp (vůbec nespárovaný). filter=unmatched → jen no_emp+no_user."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session as _gd_hr
+    sx = _gd_hr()
+    try:
+        isp = sx.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                         {"u": int(uid)}).scalar()
+        if not isp:
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        empmap = {}
+        for r in sx.execute(_t(
+            "SELECT cislo_zam, max(user_id) FROM tenant.att_employee "
+            "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():
+            empmap[str(r[0])] = r[1]
+    finally:
+        sx.close()
+    import json as _j_hr
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "mcp_unavailable"}, status_code=503)
+
+    def rows_of(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_hr.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    only_unmatched = req.query_params.get("filter") == "unmatched"
+    people = []
+    errors = []
+    for src, dbp in (("EC", ""), ("ES", "DB_IS.dbo.")):
+        try:
+            data = rows_of("SELECT Cislo c, LEFT(LTRIM(RTRIM(ISNULL(Prijmeni,'')+' '+ISNULL(Jmeno,''))),80) jm "
+                           "FROM %sTabCisZam ORDER BY Cislo" % dbp)
+        except Exception as exc:
+            errors.append("%s: %s" % (src, str(exc)[:120]))
+            continue
+        for d in data:
+            cs = str(d.get("c"))
+            if cs in empmap:
+                st = "ok" if empmap[cs] else "no_user"
+            else:
+                st = "no_emp"
+            if only_unmatched and st == "ok":
+                continue
+            people.append({"src": src, "cislo": d.get("c"), "jmeno": (d.get("jm") or "").strip(), "stav": st})
+    _ord = {"no_emp": 0, "no_user": 1, "ok": 2}
+    people.sort(key=lambda x: (_ord.get(x["stav"], 9), x["src"], x["cislo"] if isinstance(x["cislo"], int) else 0))
+    summary = {"celkem": len(people),
+               "no_emp": sum(1 for p in people if p["stav"] == "no_emp"),
+               "no_user": sum(1 for p in people if p["stav"] == "no_user"),
+               "ok": sum(1 for p in people if p["stav"] == "ok")}
+    return JSONResponse(jsonable_encoder({"ok": True, "people": people, "summary": summary, "errors": errors}))
+
+
 @api_router.get("/app/vyroba/zakazky-lide")
 async def app_vyroba_zakazky_lide(req: Request) -> JSONResponse:
     """Režim zakázek: zakázky (z plánu + ručních přiřazení) s lidmi na každé.

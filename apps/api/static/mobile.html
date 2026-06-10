@@ -2993,17 +2993,47 @@ setTimeout(function(){
   }
 
   // === Všichni uživatelé STRATEGIE napříč tenanty (JEN RODIČE). Marti 10.6.2026 ===
-  var _auTenant=0,_auData=null;
+  var _auTenant=0,_auData=null,_auMode="users",_auUnmatched=false;
   function alluser(){
     app.innerHTML=topbar("🌐 Uživatelé STRATEGIE", true, true);
     var wrap=el('<div style="height:calc(100vh - 150px);display:flex;flex-direction:column;padding:6px 8px 0;"></div>');
-    var sel=el('<select id="auTenant" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:10px;padding:10px;color:var(--tx);font-size:15px;margin-bottom:8px;"><option value="0">— Všechny tenanty —</option></select>');
-    sel.addEventListener("change",function(){ _auTenant=parseInt(sel.value||"0",10); auLoad(); });
+    var chips=el('<div style="display:flex;gap:6px;margin-bottom:8px;"></div>');
+    function chip(lbl,m){ var b=el('<button class="ghost" style="flex:1;'+(_auMode===m?"background:var(--blue);color:#fff;border-color:var(--blue);":"")+'">'+lbl+'</button>'); b.addEventListener("click",function(){ _auMode=m; alluser(); }); return b; }
+    chips.appendChild(chip("👥 Naši","users")); chips.appendChild(chip("📒 Helios (účetní)","helios"));
+    wrap.appendChild(chips);
+    if(_auMode==="users"){
+      var sel=el('<select id="auTenant" style="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:10px;padding:10px;color:var(--tx);font-size:15px;margin-bottom:8px;"><option value="0">— Všechny tenanty —</option></select>');
+      sel.addEventListener("change",function(){ _auTenant=parseInt(sel.value||"0",10); auLoad(); });
+      wrap.appendChild(sel);
+    } else {
+      var f=el('<label style="display:flex;align-items:center;gap:8px;color:var(--mut);font-size:13px;margin-bottom:8px;"><input type="checkbox" id="auUnm"'+(_auUnmatched?" checked":"")+'> Jen nespárované</label>');
+      f.querySelector("input").addEventListener("change",function(e){ _auUnmatched=e.target.checked; auLoadHelios(); });
+      wrap.appendChild(f);
+    }
     var lw=el('<div class="list" style="flex:1;overflow:auto;"><ul id="aulist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>');
-    wrap.appendChild(sel); wrap.appendChild(lw); app.appendChild(wrap);
-    auLoad();
+    wrap.appendChild(lw); app.appendChild(wrap);
+    if(_auMode==="users") auLoad(); else auLoadHelios();
   }
   function auLoad(){ api("GET","/api/v1/erp/app/all-users?tenant="+_auTenant,"").then(function(j){ _auData=j; auRender(); }); }
+  function auLoadHelios(){ api("GET","/api/v1/erp/app/helios-recon"+(_auUnmatched?"?filter=unmatched":""),"").then(function(j){ _auData=j; auRenderHelios(); }); }
+  function auRenderHelios(){
+    var ul=document.getElementById("aulist"); if(!ul)return;
+    var j=_auData;
+    if(!j||!j.ok){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+(((j&&j.error)==="forbidden")?"🔒 Jen pro rodiče.":(((j&&j.error)==="mcp_unavailable")?"Helios (MCP) momentálně nedostupný.":"Nepodařilo se načíst."))+'</li>'; return; }
+    var ppl=j.people||[], sm=j.summary||{};
+    ul.innerHTML="";
+    ul.appendChild(el('<li style="border:none;color:var(--mut);font-size:12.5px;padding:2px 4px 8px;">🔴 '+(sm.no_emp||0)+' nespárováno · 🟡 '+(sm.no_user||0)+' bez usera · 🟢 '+(sm.ok||0)+' OK</li>'));
+    if(!ppl.length){ ul.appendChild(el('<li style="color:var(--mut);border:none;">Nikdo.</li>')); return; }
+    var SM={no_emp:{e:"🔴",t:"nespárováno"},no_user:{e:"🟡",t:"bez usera"},ok:{e:"🟢",t:"OK"}};
+    ppl.forEach(function(p){
+      var st=SM[p.stav]||{e:"",t:""};
+      ul.appendChild(el('<li style="display:flex;align-items:center;gap:10px;">'
+        +'<span style="width:30px;height:30px;border-radius:50%;background:#1a2533;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none;">'+vyInitial(p.jmeno||"?")+'</span>'
+        +'<span style="min-width:0;flex:1;"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(p.jmeno||("#"+p.cislo))+'</b>'
+        +'<span style="color:var(--mut);font-size:12px;">Helios '+esc(p.src)+' · č. '+esc(String(p.cislo))+'</span></span>'
+        +'<span style="font-size:12px;white-space:nowrap;flex:none;">'+st.e+' '+st.t+'</span></li>'));
+    });
+  }
   function auRender(){
     var ul=document.getElementById("aulist"); if(!ul)return;
     var j=_auData;

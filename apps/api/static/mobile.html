@@ -1927,12 +1927,7 @@ setTimeout(function(){
           prev:  collSec(su,"To už si moc nepamatuju…", false),
           plan:  collSec(su,"Tak tady budu jinde…", false),
           list:  collSec(su,"Co se vlastně dělo…?", false),
-          paska: collSec(su,"Moje odmakané prašule… 💰", false, function(o){ paskaToggle(o); }),
-          dalsi: collSec(su,"Další věci…", false) };
-    // Marti 7.6. večer: při běžící směně schováme všechno kromě Dnes —
-    // místo toho jediná položka „Další věci…" s mrknutím (viz dochLoad).
-    _dS.dalsi.box.innerHTML='<div class="hint" style="padding:2px 0 4px;">💼 Teď jsi v práci… Další věci počkají. 😉</div>';
-    _dS.dalsi.box.parentElement.style.display="none";
+          paska: collSec(su,"Moje odmakané prašule… 💰", false, function(o){ paskaToggle(o); }) };
     _dS.today.box.innerHTML='<div id="dochSpanToday" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div id="dochCard" style="padding:2px 0 4px;">Načítám…</div>';
     _dS.yest.box.innerHTML='<div id="dochSpanYest" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><ul id="dochYest"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.prev.box.innerHTML='<ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
@@ -1980,7 +1975,6 @@ setTimeout(function(){
         ["yest","prev","plan","list","paska"].forEach(function(k){
           if(_dS[k]&&_dS[k].box.parentElement) _dS[k].box.parentElement.style.display=open?"none":"";
         });
-        if(_dS.dalsi&&_dS.dalsi.box.parentElement) _dS.dalsi.box.parentElement.style.display=open?"":"none";
       }
       // Marti 7.6. večer: žádný status text v kartě — puntík je v sekci Dnes,
       // karta je jen milý rámeček s „Potřebuji ti něco říct…".
@@ -2148,26 +2142,33 @@ setTimeout(function(){
         // Marti 10.6.: u časovaných/přerušených statusů → Konec (jantarově) NAHOŘE,
         // pod ním běžné „Potřebuji ti něco říct". On-shift (jednání/pochůzka) = zrušit
         // status; off-shift (pauza/oběd) = zpět do práce (příchod).
-        var _ann=(j.announced||""), tsLab=null, tsMode=null;
+        var _ann=(j.announced||""), tsKind=null, tsMode=null;
         if(open){
-          if(/jedn[aá]n[ií]/i.test(_ann)){ tsLab="Konec jednání"; tsMode="clear"; }
-          else if(/poch[uů]z/i.test(_ann)){ tsLab="Konec pochůzky"; tsMode="clear"; }
+          if(/jedn[aá]n[ií]/i.test(_ann)){ tsKind="jednání"; tsMode="clear"; }
+          else if(/poch[uů]z/i.test(_ann)){ tsKind="pochůzku"; tsMode="clear"; }
         } else {
-          if(/pauz/i.test(_ann)){ tsLab="Konec pauzy — jsem zpět"; tsMode="resume"; }
-          else if(/relaxuj|energii|naj[ií]st|ob[ěe]d/i.test(_ann)){ tsLab="Konec přestávky — jsem zpět"; tsMode="resume"; }
+          if(/pauz/i.test(_ann)){ tsKind="pauzu"; tsMode="resume"; }
+          else if(/relaxuj|energii|naj[ií]st|ob[ěe]d/i.test(_ann)){ tsKind="přestávku"; tsMode="resume"; }
         }
-        if(tsLab){
+        if(tsKind){
           var _et=_parseEndTime(_ann);
           if(_et && _isPast(_et)) bw.appendChild(el('<div style="color:var(--amber);background:#241c0a;border:1px solid var(--amber);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:14px;">⏰ Mělo skončit v '+_et+'. Skončilo už?</div>'));
-          var ke=el('<button class="green full" style="font-size:16px;font-weight:700;background:var(--amber);color:#241a02;">✅ '+tsLab+'</button>');
-          ke.addEventListener("click",function(){ ke.disabled=true;
-            if(tsMode==="resume"){ act("checkin",{kind:"work"},ke); }
-            else { api("POST","/api/v1/erp/app/attendance/clear-announce","").then(function(){ dochLoad(); }).catch(function(){ ke.disabled=false; }); }
-          });
-          bw.appendChild(ke);
+          if(tsMode==="clear"){
+            var rowB=el('<div style="display:flex;gap:8px;"></div>');
+            var ke=el('<button class="green full" style="flex:1;margin:0;font-weight:700;background:var(--amber);color:#241a02;">✅ Konec</button>');
+            ke.addEventListener("click",function(){ ke.disabled=true; api("POST","/api/v1/erp/app/attendance/clear-announce","").then(function(){ dochLoad(); }).catch(function(){ ke.disabled=false; }); });
+            var pp=el('<div style="display:none;margin-top:8px;"></div>'); buildProlong(pp, tsKind);
+            var pe=el('<button class="green full" style="flex:1;margin:0;font-weight:700;background:var(--blue);color:#fff;">⏱ Prodloužit</button>');
+            pe.addEventListener("click",function(){ pp.style.display=(pp.style.display==="none")?"block":"none"; });
+            rowB.appendChild(ke); rowB.appendChild(pe); bw.appendChild(rowB); bw.appendChild(pp);
+          } else {
+            var ke2=el('<button class="green full" style="margin:0;font-weight:700;background:var(--amber);color:#241a02;">✅ Konec '+tsKind+' — jsem zpět</button>');
+            ke2.addEventListener("click",function(){ ke2.disabled=true; act("checkin",{kind:"work"},ke2); });
+            bw.appendChild(ke2);
+          }
         }
         // Marti 7.6. večer: zelené v obou stavech, bublina vpravo.
-        var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;'+(tsLab?"margin-top:8px;":"")+'"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
+        var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;'+(tsKind?"margin-top:8px;":"")+'"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);
         bw.appendChild(btn);
       }
@@ -2550,27 +2551,14 @@ setTimeout(function(){
           ok.disabled=true; onPick(("0"+hv).slice(-2)+":"+("0"+mv).slice(-2),ok); });
         box.appendChild(ok);
       }
-      function buildTimedStatusMenu(kind, ann){
-        // Konec je nahoře v mainBtn; tady jen prodloužení.
+      function buildProlong(box, kind){
         var txt=(kind==="jednání")?"Mám jednání":"Na služební pochůzce";
-        var ex=el('<div class="panel" style="margin-top:8px;"></div>');
-        chipsIn(ex,"⏱ Prodloužit "+(kind==="jednání"?"jednání":"pochůzku")+" o:",function(m,b){ presence({text:txt,add_since:false,eta_min:m},b); },[["+30 min",30],["+60 min",60]]);
-        timeChips(ex,"…nebo do kolika:",function(t,b){ presence({text:txt,add_since:false,until_txt:"~"+t},b); });
-        bw.appendChild(ex);
+        chipsIn(box,"⏱ Prodloužit "+(kind==="jednání"?"jednání":"pochůzku")+" o:",function(m,b){ presence({text:txt,add_since:false,eta_min:m},b); },[["+30 min",30],["+60 min",60]]);
+        timeChips(box,"…nebo do kolika:",function(t,b){ presence({text:txt,add_since:false,until_txt:"~"+t},b); });
       }
       function showOpts(){
         window._dochMenuTs=Date.now();
         bw.innerHTML=""; bw._exps=null;
-        // Marti 10.6.: aktivní jednání/pochůzka → JEN Konec + Prodloužit
-        var _ann=(j.announced||"");
-        var _timedKind=/jedn[aá]n[ií]/i.test(_ann)?"jednání":(/poch[uů]z/i.test(_ann)?"pochůzku":null);
-        if(open && _timedKind){
-          buildTimedStatusMenu(_timedKind, _ann);
-          var z0=el('<button class="ghost full" style="margin-top:8px;text-align:center;">▲</button>');
-          z0.addEventListener("click",mainBtn); bw.appendChild(z0);
-          setTimeout(function(){ try{ bw.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
-          return;
-        }
         // Marti 7.6. večer: žádná červená — změna činnosti není poplach (ghost).
         // „Jsem na zakázce" (píchnutej ≠ pracuje), „nepočítej" až na konec.
         if(open){

@@ -256,7 +256,9 @@ _FONTS_READY = False
 
 
 def _ensure_fonts():
-    """Zaregistruje Verdanu z Windows fontů pro české glyfy (jednorázově)."""
+    """Zaregistruje sans-serif font s českými glyfy pod jménem 'Verdana'
+    (šablony mají font-family:Verdana). Windows Server často Verdanu nemá →
+    zkoušíme řadu běžných fontů a vezmeme první dostupný. Jednorázově."""
     global _FONTS_READY
     if _FONTS_READY:
         return
@@ -264,20 +266,30 @@ def _ensure_fonts():
     try:
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
+        if "Verdana" in set(pdfmetrics.getRegisteredFontNames()):
+            _FONTS_READY = True
+            return
         fdir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
-        reg = set(pdfmetrics.getRegisteredFontNames())
-        if "Verdana" not in reg and os.path.exists(os.path.join(fdir, "verdana.ttf")):
-            pdfmetrics.registerFont(TTFont("Verdana", os.path.join(fdir, "verdana.ttf")))
-            if os.path.exists(os.path.join(fdir, "verdanab.ttf")):
-                pdfmetrics.registerFont(TTFont("Verdana-Bold", os.path.join(fdir, "verdanab.ttf")))
-            if os.path.exists(os.path.join(fdir, "verdanai.ttf")):
-                pdfmetrics.registerFont(TTFont("Verdana-Italic", os.path.join(fdir, "verdanai.ttf")))
-            pdfmetrics.registerFontFamily(
-                "Verdana", normal="Verdana", bold="Verdana-Bold",
-                italic="Verdana-Italic" if "Verdana-Italic" in pdfmetrics.getRegisteredFontNames() else "Verdana")
+        # (normal, bold) kandidáti — Czech glyfy mají všechny
+        cands = [
+            ("verdana.ttf", "verdanab.ttf"),
+            ("segoeui.ttf", "segoeuib.ttf"),
+            ("arial.ttf", "arialbd.ttf"),
+            ("tahoma.ttf", "tahomabd.ttf"),
+            ("calibri.ttf", "calibrib.ttf"),
+        ]
+        for nf, bf in cands:
+            npath = os.path.join(fdir, nf)
+            if not os.path.exists(npath):
+                continue
+            pdfmetrics.registerFont(TTFont("Verdana", npath))
+            bpath = os.path.join(fdir, bf)
+            pdfmetrics.registerFont(TTFont("Verdana-Bold", bpath if os.path.exists(bpath) else npath))
+            pdfmetrics.registerFontFamily("Verdana", normal="Verdana", bold="Verdana-Bold")
+            _FONTS_READY = True
+            return
     except Exception:
         pass
-    _FONTS_READY = True
 
 
 def render_pdf(html_str):

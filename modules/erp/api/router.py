@@ -6663,6 +6663,136 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/skupiny/bar")
+async def app_skupiny_bar(req: Request) -> JSONResponse:
+    """Skupiny pro spodní lištu Firma, s mým vztahem (vedoucí/zástupce/člen/
+    ostatní) pro řazení zprava doleva. Marti 10.6.2026. Zatím vidí všichni vše."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT g.id, g.name, COALESCE(NULLIF(g.icon,''),'👥'), g.leader_user_id, g.deputy_user_id, "
+            " EXISTS(SELECT 1 FROM tenant.staff_group_member m WHERE m.group_id=g.id AND m.user_id=:u) je_clen "
+            "FROM tenant.staff_group g "
+            "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false "
+            "ORDER BY g.sort_order, g.name"), {"u": int(uid)}).fetchall()
+        out = []
+        for r in rows:
+            if r[3] == int(uid):
+                rel = "lead"
+            elif r[4] == int(uid):
+                rel = "deputy"
+            elif r[5]:
+                rel = "member"
+            else:
+                rel = "other"
+            out.append({"id": r[0], "name": r[1], "icon": r[2], "rel": rel})
+        s.commit()
+        return JSONResponse({"ok": True, "groups": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/skupina/lidi")
+async def app_skupina_lidi(req: Request) -> JSONResponse:
+    """Konzole skupiny: lidé řazení vedoucí (král) → zástupce → ostatní podle
+    skóre výkonnosti, s dnešním docházkovým stavem (stejná logika jako výroba).
+    gid=0 = všichni lidé. Marti 10.6.2026. Zatím vidí všichni vše."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        gid = int(req.query_params.get("gid", "0"))
+    except Exception:
+        gid = 0
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        stavinfo = {}
+        try:
+            srows = s.execute(_t(
+                "SELECT e.user_id, "
+                " bool_or(a.is_active AND et.category='presence' AND a.status NOT IN ('superseded','announced')) AS aktiv, "
+                " count(*) FILTER (WHERE a.status NOT IN ('superseded','announced')) AS zazn, "
+                " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note, "
+                " (array_agg(a.project_ref ORDER BY a.id DESC) FILTER (WHERE a.is_active AND a.project_ref IS NOT NULL))[1] AS proj "
+                "FROM tenant.att_entry a "
+                "JOIN tenant.att_employee e ON e.id=a.employee_id AND e.tenant_id=2 "
+                "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+                "WHERE a.tenant_id=2 AND a.entry_date=CURRENT_DATE AND e.user_id IS NOT NULL "
+                "GROUP BY e.user_id")).fetchall()
+            for r in srows:
+                nl = (r[3] or "").lower()
+                if ("jedu" in nl) or ("cest" in nl):
+                    st = "jedu"
+                elif r[1]:
+                    st = "makam"
+                elif any(k in nl for k in ("pauz", "obed", "relax", "provetr", "jidl", "najist", "provětr", "jídl", "oběd", "najíst")):
+                    st = "pauza"
+                elif any(k in nl for k in ("nepocitej", "nepočítej", "nedoraz", "dovolen", "nemoc", "doktor", "lekar", "lékař")):
+                    st = "pryc"
+                elif (r[2] or 0) > 0:
+                    st = "byl"
+                else:
+                    st = ""
+                stavinfo[r[0]] = {"st": st, "note": (r[3] or ""), "proj": (r[4] or "")}
+        except Exception:
+            stavinfo = {}
+
+        ordered = []
+        if gid > 0:
+            g = s.execute(_t("SELECT id, name, COALESCE(NULLIF(icon,''),'👥'), leader_user_id, deputy_user_id "
+                             "FROM tenant.staff_group WHERE tenant_id=2 AND id=:g"), {"g": gid}).first()
+            if not g:
+                return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+            group = {"id": g[0], "name": g[1], "icon": g[2]}
+            seen = set()
+            if g[3]:
+                ordered.append((g[3], "lead", None))
+                seen.add(g[3])
+            if g[4] and g[4] not in seen:
+                ordered.append((g[4], "deputy", None))
+                seen.add(g[4])
+            for m in s.execute(_t("SELECT user_id, score FROM tenant.staff_group_member "
+                                  "WHERE tenant_id=2 AND group_id=:g AND user_id IS NOT NULL "
+                                  "ORDER BY COALESCE(score,0) DESC, user_id"), {"g": gid}).fetchall():
+                if m[0] in seen:
+                    continue
+                ordered.append((m[0], "member", m[1]))
+                seen.add(m[0])
+        else:
+            group = {"id": 0, "name": "Všichni", "icon": "🌐"}
+            for r in s.execute(_t("SELECT DISTINCT user_id FROM tenant.att_employee "
+                                  "WHERE tenant_id=2 AND user_id IS NOT NULL")).fetchall():
+                ordered.append((r[0], "member", None))
+
+        uids = [u for (u, _, _) in ordered]
+        names = {}
+        if uids:
+            for r in s.execute(_t(
+                "SELECT id, NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
+                "FROM public.users WHERE id = ANY(:ids)"), {"ids": uids}).fetchall():
+                names[r[0]] = r[1]
+        lidi = []
+        for (u, role, score) in ordered:
+            si = stavinfo.get(u, {})
+            lidi.append({"user_id": u, "jmeno": names.get(u) or ("#" + str(u)),
+                         "role": role, "score": score, "stav": si.get("st", ""),
+                         "stav_pozn": si.get("note", ""), "stav_zak": si.get("proj", "")})
+        if gid == 0:
+            lidi.sort(key=lambda x: (x["jmeno"] or "").lower())
+        s.commit()
+        return JSONResponse(jsonable_encoder({"ok": True, "group": group, "lidi": lidi}))
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/vyroba/zakazky-lide")
 async def app_vyroba_zakazky_lide(req: Request) -> JSONResponse:
     """Režim zakázek: zakázky (z plánu + ručních přiřazení) s lidmi na každé.

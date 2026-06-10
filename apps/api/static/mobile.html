@@ -2903,7 +2903,74 @@ setTimeout(function(){
     });
     box.appendChild(b);
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
+  // === Konzole skupiny (Marti 10.6.2026): král → zástupci → ostatní dle výkonnosti, s docházkovým stavem ===
+  var _skupGid=0,_skupName="",_skupIcon="👥",_skupData=null,_skupBarCache=null;
+  var SKUP_ST={makam:{e:"👷",t:"Maká",c:"var(--green)"},pauza:{e:"☕",t:"Pauza",c:"#caa14a"},jedu:{e:"🚗",t:"Na cestě",c:"#4f8ef7"},chybi:{e:"🫥",t:"Chybí",c:"#d66"},pryc:{e:"🌙",t:"Pryč",c:"var(--mut)"},byl:{e:"✓",t:"Byl",c:"var(--mut)"}};
+  function openSkup(gid,name,icon){ _skupGid=gid; _skupName=name||""; _skupIcon=icon||"👥"; _skupData=null; go("skupinaKon"); }
+  function skupinaKon(){
+    app.innerHTML=topbar((_skupIcon||"👥")+" "+(_skupName||"Skupina"), true, true);
+    var wrap=el('<div style="height:calc(100vh - 150px);display:flex;flex-direction:column;padding:4px 2px 0;"></div>');
+    var lw=el('<div class="list" style="flex:1;overflow:auto;padding:0 6px;"><ul id="skuplist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>');
+    wrap.appendChild(lw); app.appendChild(wrap);
+    skupLoad();
+  }
+  function skupLoad(){
+    api("GET","/api/v1/erp/app/skupina/lidi?gid="+_skupGid,"").then(function(j){ _skupData=j; skupRender(); });
+  }
+  function skupPersonLi(p){
+    var st=SKUP_ST[p.stav]||{e:"",t:"",c:"var(--mut)"};
+    var sub=p.stav_pozn||p.stav_zak||"";
+    var sc=(p.score!=null&&p.role==="member")?('<span style="margin-left:6px;color:var(--mut);font-size:12px;flex:none;">'+p.score+'</span>'):'';
+    return el('<li style="display:flex;align-items:center;gap:10px;">'
+      +'<span style="width:30px;height:30px;border-radius:50%;background:#1a2533;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none;">'+vyInitial(p.jmeno)+'</span>'
+      +'<span style="min-width:0;flex:1;"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(p.jmeno)+'</b>'
+      +(sub?'<span style="color:var(--mut);font-size:12px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(sub)+'</span>':'')+'</span>'
+      +(st.e?'<span style="font-size:12px;color:'+st.c+';white-space:nowrap;flex:none;">'+st.e+' '+st.t+'</span>':'')
+      +sc+'</li>');
+  }
+  function skupRender(){
+    var ul=document.getElementById("skuplist"); if(!ul)return;
+    var j=_skupData;
+    if(!j||!j.ok){ ul.innerHTML='<li style="color:var(--mut);border:none;">'+(((j&&j.error)==="not_found")?"Skupina neexistuje.":"Nepodařilo se načíst.")+'</li>'; return; }
+    var lidi=j.lidi||[];
+    if(!lidi.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Tady zatím nikdo není.</li>'; return; }
+    ul.innerHTML="";
+    var cnt={makam:0,pauza:0,jedu:0,chybi:0};
+    lidi.forEach(function(p){ if(cnt[p.stav]!=null)cnt[p.stav]++; });
+    ul.appendChild(el('<li style="border:none;color:var(--mut);font-size:12.5px;padding:2px 4px 8px;">👷 '+cnt.makam+' · ☕ '+cnt.pauza+' · 🚗 '+cnt.jedu+' · 🫥 '+cnt.chybi+' &nbsp;·&nbsp; '+lidi.length+' lidí</li>'));
+    var curRole=null;
+    lidi.forEach(function(p){
+      if(_skupGid>0 && p.role!==curRole){
+        curRole=p.role;
+        var hd={lead:"👑 Vedoucí",deputy:"🤝 Zástupce",member:"Tým (podle výkonnosti)"}[p.role]||"";
+        if(hd) ul.appendChild(el('<li style="border:none;color:var(--blue);font-weight:700;font-size:11px;letter-spacing:.05em;text-transform:uppercase;padding:12px 4px 4px;">'+hd+'</li>'));
+      }
+      ul.appendChild(skupPersonLi(p));
+    });
+  }
+  function skupBtn(ic,lbl,fn,rel){
+    var hi=(rel==="lead"||rel==="deputy");
+    var b=el('<button class="tabbtn" style="flex:0 0 auto;min-width:60px;'+(hi?"color:var(--blue);":"")+'"><span class="i">'+ic+'</span>'+esc(lbl)+'</button>');
+    b.addEventListener("click",fn); return b;
+  }
+  function skupBar(){
+    var bar=bnavx2;
+    function paint(){
+      bar.innerHTML="";
+      var gs=(_skupBarCache&&_skupBarCache.groups)||[];
+      bar.appendChild(skupBtn("🌐","Všichni",function(){ openSkup(0,"Všichni","🌐"); }));
+      var rank={other:0,member:1,deputy:2,lead:3};
+      gs.slice().sort(function(a,b){ return (rank[a.rel]||0)-(rank[b.rel]||0); }).forEach(function(g){
+        bar.appendChild(skupBtn(g.icon,g.name,function(){ openSkup(g.id,g.name,g.icon); },g.rel));
+      });
+      bar.appendChild(skupBtn("🤝","Spolupráce",function(){ go("dochazka"); }));
+      setTimeout(function(){ try{ bar.scrollLeft=bar.scrollWidth; }catch(e){} },0);
+    }
+    paint();
+    if(!_skupBarCache){ api("GET","/api/v1/erp/app/skupiny/bar","").then(function(j){ if(j&&j.ok){ _skupBarCache=j; if(curTab==="firma") paint(); } }); }
+  }
+
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,skupinaKon:skupinaKon,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){
@@ -2929,17 +2996,16 @@ setTimeout(function(){
       setBtn.style.gridColumn="5";
       bnavx2.appendChild(setBtn);
     } else if(curTab==="firma" && stack[stack.length-1]==="firma"){
-      // Marti 7.6. večer: stejné extra lišty jako v Aplikacích — místo Nastavení
-      // hlavní pracovní nástroj (docházka + komunikace). Název/ikona dle Marti.
+      // Marti 10.6.2026: spodní lišta = vodorovně scrollovatelné skupiny.
+      // Zprava: 🤝 Spolupráce (moje docházka) → skupiny kde jsem vedoucí/zástupce
+      // → skupiny kde jsem člen → ostatní → 🌐 Všichni vlevo. Výroba je v Aplikacích.
       bnavx1.style.display="flex";
-      bnavx2.style.display="grid"; bnavx2.style.gridTemplateColumns="repeat(5,1fr)"; bnavx2.style.justifyContent="";
-      var vyBtn=navBtn("🏭","Výroba",false,function(){ go("vyroba"); },0);
-      vyBtn.style.gridColumn="4";
-      bnavx2.appendChild(vyBtn);
-      var dnBtn=navBtn("🤝","Spolupráce",false,function(){ go("dochazka"); },0);
-      dnBtn.style.gridColumn="5";
-      bnavx2.appendChild(dnBtn);
-    } else { bnavx1.style.display="none"; bnavx2.style.display="none"; }
+      bnavx2.style.display="flex"; bnavx2.style.gridTemplateColumns="";
+      bnavx2.style.overflowX="auto"; bnavx2.style.overflowY="hidden";
+      bnavx2.style.flexWrap="nowrap"; bnavx2.style.justifyContent="flex-start";
+      bnavx2.style.scrollbarWidth="none";
+      skupBar();
+    } else { bnavx1.style.display="none"; bnavx2.style.display="none"; bnavx2.style.overflowX=""; }
   }
   function render(){
     try{ (SCREENS[stack[stack.length-1]]||home)(); }

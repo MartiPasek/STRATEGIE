@@ -248,3 +248,50 @@ def render(template_row, context):
     parts.append(body)
     parts.append("</body></html>")
     return "".join(parts)
+
+
+# ---------------------------------------------------------------- PDF render
+
+_FONTS_READY = False
+
+
+def _ensure_fonts():
+    """Zaregistruje Verdanu z Windows fontů pro české glyfy (jednorázově)."""
+    global _FONTS_READY
+    if _FONTS_READY:
+        return
+    import os
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        fdir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+        reg = set(pdfmetrics.getRegisteredFontNames())
+        if "Verdana" not in reg and os.path.exists(os.path.join(fdir, "verdana.ttf")):
+            pdfmetrics.registerFont(TTFont("Verdana", os.path.join(fdir, "verdana.ttf")))
+            if os.path.exists(os.path.join(fdir, "verdanab.ttf")):
+                pdfmetrics.registerFont(TTFont("Verdana-Bold", os.path.join(fdir, "verdanab.ttf")))
+            if os.path.exists(os.path.join(fdir, "verdanai.ttf")):
+                pdfmetrics.registerFont(TTFont("Verdana-Italic", os.path.join(fdir, "verdanai.ttf")))
+            pdfmetrics.registerFontFamily(
+                "Verdana", normal="Verdana", bold="Verdana-Bold",
+                italic="Verdana-Italic" if "Verdana-Italic" in pdfmetrics.getRegisteredFontNames() else "Verdana")
+    except Exception:
+        pass
+    _FONTS_READY = True
+
+
+def render_pdf(html_str):
+    """HTML → PDF (xhtml2pdf, pure Python). Vrací bytes. Vyhodí RuntimeError,
+    pokud engine není nainstalován (chybí xhtml2pdf) nebo render selže."""
+    import io
+    try:
+        from xhtml2pdf import pisa
+    except Exception:
+        raise RuntimeError("xhtml2pdf není nainstalován "
+                           "(python -m poetry run pip install xhtml2pdf + restart API)")
+    _ensure_fonts()
+    buf = io.BytesIO()
+    res = pisa.CreatePDF(src=html_str, dest=buf, encoding="utf-8")
+    if getattr(res, "err", 0):
+        raise RuntimeError("xhtml2pdf: chyba při generování PDF")
+    return buf.getvalue()

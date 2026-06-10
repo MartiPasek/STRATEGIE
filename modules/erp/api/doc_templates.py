@@ -277,32 +277,30 @@ def _font_files():
 def render_pdf(html_str):
     """HTML → PDF (xhtml2pdf, pure Python). Vrací bytes. Vyhodí RuntimeError,
     pokud engine není nainstalován (chybí xhtml2pdf) nebo render selže.
-    Češtinu řeší @font-face (jen pdfmetrics.registerFont xhtml2pdf nestačí)."""
+    Čeština: registrace fontu v reportlabu + mapování css názvů v DEFAULT_FONT
+    xhtml2pdf (bez @font-face — ten dělá vadnou temp kopii a TTFError)."""
     import io
     try:
         from xhtml2pdf import pisa
+        from xhtml2pdf.default import DEFAULT_FONT
     except Exception:
         raise RuntimeError("xhtml2pdf není nainstalován "
                            "(python -m poetry run pip install xhtml2pdf + restart API)")
     n, b = _font_files()
-    link_cb = None
     if n:
-        face = ("@font-face{font-family:'Verdana';src:url('vera_n.ttf')}"
-                "@font-face{font-family:'Verdana';font-weight:bold;src:url('vera_b.ttf')}")
-        if "</head>" in html_str:
-            html_str = html_str.replace("</head>", "<style>%s</style></head>" % face, 1)
-        else:
-            html_str = "<style>%s</style>" % face + html_str
-
-        def link_cb(uri, rel=None):
-            if uri == "vera_n.ttf":
-                return n
-            if uri == "vera_b.ttf":
-                return b
-            return uri
-
+        try:
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            if "DocSans" not in set(pdfmetrics.getRegisteredFontNames()):
+                pdfmetrics.registerFont(TTFont("DocSans", n))
+                pdfmetrics.registerFont(TTFont("DocSans-Bold", b))
+                pdfmetrics.registerFontFamily("DocSans", normal="DocSans", bold="DocSans-Bold")
+            for css_name in ("verdana", "arial", "helvetica", "sans-serif", "dejavusans"):
+                DEFAULT_FONT[css_name] = "DocSans"
+        except Exception:
+            pass
     buf = io.BytesIO()
-    res = pisa.CreatePDF(src=html_str, dest=buf, encoding="utf-8", link_callback=link_cb)
+    res = pisa.CreatePDF(src=html_str, dest=buf, encoding="utf-8")
     if getattr(res, "err", 0):
         raise RuntimeError("xhtml2pdf: chyba při generování PDF")
     return buf.getvalue()

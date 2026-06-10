@@ -2487,40 +2487,47 @@ setTimeout(function(){
       // kruhové hodiny), během statusu jen Konec+Prodloužit, po uplynutí dotaz.
       function _parseEndTime(s){ var m=(s||"").match(/do\s*(?:cca\s*|~)?(\d{1,2}:\d{2})/i); return m?m[1]:null; }
       function _isPast(hhmm){ var p=(hhmm||"").split(":"); if(p.length<2) return false; var e=new Date(); e.setHours(parseInt(p[0],10),parseInt(p[1],10),0,0); return new Date()>e; }
-      // Marti 10.6.: zadání času přes rolovací KOLEČKA (HH : MM) jako v hodinách —
-      // CSS scroll-snap + zvýraznění středu. Digitální scroll, intuitivní.
+      // Marti 10.6.: čas „do kolika" přes kompaktní rolovací KOLEČKA (HH : MM).
+      // Hodiny jen DOPŘEDU od teď (minulý čas nejde), minuty po 5 ve smyčce.
+      // Potvrzení hlídá, že čas je po aktuálním.
       function timeChips(box,label,onPick){
-        if(label) box.appendChild(el('<div class="hint" style="margin-top:8px;">'+label+'</div>'));
-        var ITEM=42, VIS=5, PAD=2*ITEM, H=ITEM*VIS;
-        function wheel(values, def){
-          // Looping: hodnoty se opakují (REP×), na okraji se scroll neviditelně
-          // recentruje na střední kopii → točí se pořád dokola (23→0, 55→00).
-          var len=values.length, REP=7, MID=3;
+        if(label) box.appendChild(el('<div class="hint" style="margin-top:6px;">'+label+'</div>'));
+        var ITEM=22, VIS=5, PAD=2*ITEM, H=ITEM*VIS;
+        function wheel(values, def, loop){
+          var len=values.length, REP=loop?7:1, MID=loop?3:0;
           var w=el('<div style="position:relative;flex:1;height:'+H+'px;overflow-y:scroll;scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;"></div>');
           var inner=el('<div></div>');
           inner.appendChild(el('<div style="height:'+PAD+'px;"></div>'));
           var rr,vv;
-          for(rr=0;rr<REP;rr++){ for(vv=0;vv<len;vv++){ inner.appendChild(el('<div class="twi" style="height:'+ITEM+'px;line-height:'+ITEM+'px;text-align:center;scroll-snap-align:center;color:var(--mut);font-size:20px;transition:color .1s,font-size .1s,font-weight .1s;">'+("0"+values[vv]).slice(-2)+'</div>')); } }
+          for(rr=0;rr<REP;rr++){ for(vv=0;vv<len;vv++){ inner.appendChild(el('<div class="twi" style="height:'+ITEM+'px;line-height:'+ITEM+'px;text-align:center;scroll-snap-align:center;color:var(--mut);font-size:13px;transition:color .1s,font-size .1s,font-weight .1s;">'+("0"+values[vv]).slice(-2)+'</div>')); } }
           inner.appendChild(el('<div style="height:'+PAD+'px;"></div>'));
           w.appendChild(inner);
           w._values=values; w._idx=def;
           var its=inner.querySelectorAll('.twi');
-          function hl(cur){ for(var k=0;k<its.length;k++){ var on=(k===cur); its[k].style.color=on?'var(--tx)':'var(--mut)'; its[k].style.fontWeight=on?'700':'400'; its[k].style.fontSize=on?'27px':'20px'; } }
+          function hl(cur){ for(var k=0;k<its.length;k++){ var on=(k===cur); its[k].style.color=on?'var(--tx)':'var(--mut)'; its[k].style.fontWeight=on?'700':'400'; its[k].style.fontSize=on?'17px':'13px'; } }
           function upd(){ var cur=Math.round(w.scrollTop/ITEM);
-            if(cur<len || cur>=(REP-1)*len){ cur=((cur%len)+len)%len + MID*len; w.scrollTop=cur*ITEM; }
-            w._idx=((cur%len)+len)%len; hl(cur); }
+            if(loop && (cur<len || cur>=(REP-1)*len)){ cur=((cur%len)+len)%len + MID*len; w.scrollTop=cur*ITEM; }
+            if(!loop){ cur=Math.max(0,Math.min(len-1,cur)); }
+            w._idx=loop?(((cur%len)+len)%len):cur; hl(cur); }
           w.addEventListener('scroll',function(){ clearTimeout(w._t); w._t=setTimeout(upd,60); });
-          setTimeout(function(){ var s=MID*len+def; w.scrollTop=s*ITEM; hl(s); },20);
+          setTimeout(function(){ var s=loop?(MID*len+def):def; w.scrollTop=s*ITEM; hl(s); },20);
           return w;
         }
-        var hours=[],mins=[],h,m; for(h=0;h<24;h++)hours.push(h); for(m=0;m<60;m+=5)mins.push(m);
-        var row=el('<div style="display:flex;gap:4px;align-items:center;margin-top:6px;position:relative;"></div>');
-        row.appendChild(el('<div style="position:absolute;left:0;right:0;top:'+PAD+'px;height:'+ITEM+'px;background:rgba(120,150,200,0.10);border-top:1px solid var(--bord);border-bottom:1px solid var(--bord);pointer-events:none;border-radius:8px;"></div>'));
-        var wh=wheel(hours,(new Date().getHours()+1)%24), wm=wheel(mins,0);
-        row.appendChild(wh); row.appendChild(el('<div style="font-size:24px;font-weight:700;color:var(--tx);">:</div>')); row.appendChild(wm);
+        var now=new Date(), nowH=now.getHours(), nowM=now.getMinutes();
+        var hours=[],mins=[],h,m; for(h=nowH;h<24;h++)hours.push(h); for(m=0;m<60;m+=5)mins.push(m);
+        var dMin=Math.ceil((nowM+1)/5)*5, dHi=0; if(dMin>=60){ dMin=0; dHi=Math.min(1,hours.length-1); }
+        var dMi=mins.indexOf(dMin); if(dMi<0)dMi=0;
+        var row=el('<div style="display:flex;gap:2px;align-items:center;margin-top:6px;position:relative;max-width:200px;"></div>');
+        row.appendChild(el('<div style="position:absolute;left:0;right:0;top:'+PAD+'px;height:'+ITEM+'px;background:rgba(120,150,200,0.10);border-top:1px solid var(--bord);border-bottom:1px solid var(--bord);pointer-events:none;border-radius:6px;"></div>'));
+        var wh=wheel(hours,dHi,false), wm=wheel(mins,dMi,true);
+        row.appendChild(wh); row.appendChild(el('<div style="font-size:16px;font-weight:700;color:var(--tx);padding:0 1px;">:</div>')); row.appendChild(wm);
         box.appendChild(row);
-        var ok=el('<button class="green full" style="margin-top:10px;">Potvrdit čas</button>');
-        ok.addEventListener("click",function(){ ok.disabled=true; var t=("0"+wh._values[wh._idx]).slice(-2)+":"+("0"+wm._values[wm._idx]).slice(-2); onPick(t,ok); });
+        var warn=el('<div class="hint" style="color:var(--amber);margin-top:2px;"></div>'); box.appendChild(warn);
+        var ok=el('<button class="green full" style="margin-top:6px;">Potvrdit čas</button>');
+        ok.addEventListener("click",function(){ var hv=wh._values[wh._idx], mv=wm._values[wm._idx];
+          var sel=new Date(); sel.setHours(hv,mv,0,0);
+          if(sel<=new Date()){ warn.textContent="Vyber čas po aktuálním 🙂"; return; }
+          ok.disabled=true; onPick(("0"+hv).slice(-2)+":"+("0"+mv).slice(-2),ok); });
         box.appendChild(ok);
       }
       function buildTimedStatusMenu(kind, ann){

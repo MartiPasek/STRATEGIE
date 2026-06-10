@@ -1417,7 +1417,7 @@ setTimeout(function(){
     {k:"nakup",     ic:"🛒", l:"Nákup"},
     {k:"priprava",  ic:"🔧", l:"Příprava"}
   ];
-  var VY_READY={makam:1,relaxuji:1,potrebuji:1,informuji:1,finisuji:1,cekam:1,chybi:1,jedu:1,zakazky:1,odvozy:1};
+  var VY_READY={tym:1,makam:1,relaxuji:1,potrebuji:1,informuji:1,finisuji:1,cekam:1,chybi:1,jedu:1,zakazky:1,odvozy:1};
   function vyBtn(v){
     var b=el('<button data-k="'+v.k+'" style="position:relative;margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--bord);background:transparent;color:var(--mut);border-radius:9px;cursor:pointer;"><span style="font-size:18px;">'+v.ic+'</span>'+esc(v.l)+'<span class="vybadge" data-badge style="display:none;">0</span></button>');
     if(v.onlyIf) b.style.display="none";
@@ -1439,6 +1439,7 @@ setTimeout(function(){
     var lw=el('<div class="list vy-list" style="flex:1;overflow:auto;padding:0 6px;"><ul id="vylist"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>');
     left.appendChild(s); left.appendChild(lw);
     var rail=el('<div id="vyrail" style="width:64px;flex:none;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding:1px;"></div>');
+    if(_vyIsGroup()){ rail.appendChild(vyBtn({k:"tym",ic:"👥",l:"Tým"})); }
     VY_TOP.forEach(function(v){ rail.appendChild(vyBtn(v)); });
     rail.appendChild(el('<div style="flex:1 1 auto;min-height:10px;"></div>'));
     if(!_vyIsGroup()){ VY_BOT.forEach(function(v){ rail.appendChild(vyBtn(v)); }); }
@@ -1465,6 +1466,7 @@ setTimeout(function(){
       vySetBadge("chybi", _vyPeople.filter(function(p){return p.stav==="chybi";}).length);
       vySetBadge("jedu", _vyPeople.filter(function(p){return p.stav==="jedu";}).length);
       vySetBadge("cekam", (_vyIsGroup()?_vyPeople.filter(function(p){return !p.stav;}):vyBezPrace(_vyPeople)).length);
+      vySetBadge("tym", _vyPeople.length);
     }
     if(_vyIsGroup()){
       if(_vyPeople.length){ fromLidi(); }
@@ -2949,7 +2951,7 @@ setTimeout(function(){
   }
   // === Lišta skupin (Marti 10.6.2026): skupiny sdílí konzoli Výroby (_vyCtx mode=group) ===
   var _skupBarCache=null,_skupBarOn=false;
-  function openSkup(gid,name,icon){ _vyCtx={mode:"group",gid:gid,name:name||"Skupina",icon:icon||"👥"}; _vyView="makam"; _vyPeople=[]; _vyData=null; _vyLidiSig=""; go("vyroba"); }
+  function openSkup(gid,name,icon){ _vyCtx={mode:"group",gid:gid,name:name||"Skupina",icon:icon||"👥"}; _vyView="tym"; _vyPeople=[]; _vyData=null; _vyLidiSig=""; go("vyroba"); }
   function skupBtn(ic,lbl,fn,rel){
     var hi=(rel==="lead"||rel==="deputy");
     var fr=(ic||"").split("|");

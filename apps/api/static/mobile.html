@@ -2495,7 +2495,7 @@ setTimeout(function(){
         var ITEM=22, VIS=5, PAD=2*ITEM, H=ITEM*VIS;
         function wheel(values, def, loop){
           var len=values.length, REP=loop?7:1, MID=loop?3:0;
-          var w=el('<div style="position:relative;flex:1;height:'+H+'px;overflow-y:scroll;scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;"></div>');
+          var w=el('<div style="position:relative;flex:0 0 46px;height:'+H+'px;overflow-y:scroll;scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;"></div>');
           var inner=el('<div></div>');
           inner.appendChild(el('<div style="height:'+PAD+'px;"></div>'));
           var rr,vv;
@@ -2517,7 +2517,7 @@ setTimeout(function(){
         var hours=[],mins=[],h,m; for(h=0;h<24;h++)hours.push((nowH+h)%24); for(m=0;m<60;m+=5)mins.push(m);
         var dMin=Math.ceil((nowM+1)/5)*5, dHi=0; if(dMin>=60){ dMin=0; dHi=Math.min(1,hours.length-1); }
         var dMi=mins.indexOf(dMin); if(dMi<0)dMi=0;
-        var row=el('<div style="display:flex;gap:2px;align-items:center;margin-top:6px;position:relative;max-width:200px;"></div>');
+        var row=el('<div style="display:flex;gap:0;align-items:center;justify-content:center;margin:6px auto 0;width:max-content;position:relative;"></div>');
         row.appendChild(el('<div style="position:absolute;left:0;right:0;top:'+PAD+'px;height:'+ITEM+'px;background:rgba(120,150,200,0.10);border-top:1px solid var(--bord);border-bottom:1px solid var(--bord);pointer-events:none;border-radius:6px;"></div>'));
         var wh=wheel(hours,dHi,false), wm=wheel(mins,dMi,true);
         row.appendChild(wh); row.appendChild(el('<div style="font-size:16px;font-weight:700;color:var(--tx);padding:0 1px;">:</div>')); row.appendChild(wm);

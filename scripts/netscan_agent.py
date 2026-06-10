@@ -213,13 +213,47 @@ def _collect_api():
                 d["seen_ago_s"] = 0
         except Exception:
             pass
-        # Marti 9.6.: vzorek /ip/accounting (per-host byty, jen pokud zapnuto) — pro byte-delta
+        # Marti 9.6.: vzorek /ip/accounting (nastavení) — pro kontrolu enabled
         try:
             for ac in api.path("ip", "accounting"):
                 _API_SAMPLE["accounting"] = {k: ac[k] for k in ac}
                 break
         except Exception as _eacc:
             _API_SAMPLE["accounting_err"] = str(_eacc)[:120]
+        # Marti 10.6.: accounting SNAPSHOT (per-IP byty za interval) → byte-delta presence.
+        # Take resetuje počitadla a vytvoří nový snímek → byty = provoz od minulého take.
+        # RouterOS v6 librouteros: zkusíme více syntaxí 'take', pak čteme snapshot.
+        try:
+            took = None
+            for _mk in (lambda: tuple(api.path("ip", "accounting", "snapshot")("take")),
+                        lambda: tuple(api("/ip/accounting/snapshot/take")),
+                        lambda: tuple(api("/ip/accounting/take-snapshot"))):
+                try:
+                    _mk(); took = True; break
+                except Exception as _et:
+                    took = str(_et)[:80]
+            _API_SAMPLE["acct_take"] = took
+            traffic = {}
+            nrows = 0
+            for sn in api.path("ip", "accounting", "snapshot"):
+                nrows += 1
+                try:
+                    b = int(sn.get("bytes") or 0)
+                except Exception:
+                    b = 0
+                for _kk in ("src-address", "dst-address"):
+                    ipx = (sn.get(_kk) or "").strip()
+                    if ipx[:8] == "192.168." or ipx[:3] == "10." or ipx[:4] == "172.":
+                        traffic[ipx] = traffic.get(ipx, 0) + b
+                if nrows <= 3:
+                    _API_SAMPLE.setdefault("acct_snap", []).append(
+                        {k: sn.get(k) for k in ("src-address", "dst-address", "bytes", "packets") if k in sn})
+            _API_SAMPLE["acct_snap_rows"] = nrows
+            _API_SAMPLE["acct_traffic_ips"] = len(traffic)
+            _API_TRAFFIC.clear()
+            _API_TRAFFIC.update(traffic)
+        except Exception as _esn:
+            _API_SAMPLE["acct_snap_err"] = str(_esn)[:150]
     finally:
         try:
             api.close()
@@ -229,6 +263,7 @@ def _collect_api():
 
 
 _API_SAMPLE = {}  # syrový vzorek z API módu (lease/reg/accounting) — diagnostika bytů
+_API_TRAFFIC = {}  # {ip: bytes} z accounting snapshotu za poslední interval (byte-delta)
 
 
 def collect():
@@ -256,7 +291,8 @@ def _sample_raw():
 
 
 def push(devices):
-    payload = json.dumps({"devices": devices, "_sample": _sample_raw()}).encode("utf-8")
+    payload = json.dumps({"devices": devices, "_sample": _sample_raw(),
+                          "traffic": dict(_API_TRAFFIC)}).encode("utf-8")
     req = urllib.request.Request(
         f"{STRATEGIE_URL}/api/v1/erp/app/netscan/ingest",
         data=payload, method="POST",

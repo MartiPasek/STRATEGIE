@@ -10267,6 +10267,30 @@ async def netscan_ingest(req: Request) -> JSONResponse:
             n += 1
         except Exception:
             pass
+    # Marti 10.6.: byte-delta presence — accounting snapshot dává byty per IP za
+    # interval. IP s byty > 0 = živé (provoz v posledních ~5 min). Uložíme k zařízení.
+    try:
+        traffic = body.get("traffic") or {}
+        if isinstance(traffic, dict) and traffic:
+            from core.database_data import get_data_session as _gd_ns
+            from sqlalchemy import text as _tt_ns
+            sx = _gd_ns()
+            try:
+                for ipx, bx in traffic.items():
+                    try:
+                        bi = int(bx)
+                    except Exception:
+                        continue
+                    if bi <= 0 or not ipx:
+                        continue
+                    sx.execute(_tt_ns(
+                        "UPDATE fw.hr_device SET last_bytes=:b, last_traffic_at=now() "
+                        "WHERE last_ip=:ip"), {"b": bi, "ip": str(ipx)})
+                sx.commit()
+            finally:
+                sx.close()
+    except Exception:
+        logger.exception("[netscan] traffic ingest failed")
     # Marti 7.6.: zařízení zaměstnance v síti → automatický příchod do docházky
     auto = 0
     try:

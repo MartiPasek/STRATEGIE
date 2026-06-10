@@ -11731,7 +11731,9 @@ def _sync_fin_from_ec() -> dict:
     """Marti 7.6.2026 (Finance v2 Fáze A, dle konzultace Marti-AI): migrace
     EC_FinZamPodminky (932 verzí) → tenant.engagement (SCD2 + changed_by)
     + wage_component (složky jako data, plán/real/hodinová) + entitlements.
-    Idempotentní dle ec_id. Firma: 0=ES, 1=EC (Marti potvrdil — sedí na uzávěrku)."""
+    Idempotentní dle ec_id. Firma: 0=EC, 1=ES (DB-membership pravda 10.6. —
+    Veverka/Zeman/Pasek c.2 jsou jen v DB_EC=Control=EC, Novotna c.16 = System=ES;
+    sync vyplatnic uz klicuje DB_EC->EC stejne). POZN: drivejsi 0=ES bylo obracene."""
     import json as _json_f
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     from modules.strategie_pg.application import service as _pg
@@ -11832,7 +11834,7 @@ def _sync_fin_from_ec() -> dict:
                 continue
             druh = (str(row.get("druh") or "").strip().lower() or None)
             etype = {"hpp": "hpp", "dpp": "dpp", "dpc": "dpc", "osvc": "osvc"}.get(druh, druh)
-            comp = co_ids.get("ES" if int(row.get("firma") or 0) == 0 else "EC")
+            comp = co_ids.get("EC" if int(row.get("firma") or 0) == 0 else "ES")
             eng = s.execute(_t(
                 "INSERT INTO tenant.engagement (tenant_id, ec_id, company_id, employee_id,"
                 " engagement_type, druh_text, smlouva_od, smlouva_do, zkusebni_do,"

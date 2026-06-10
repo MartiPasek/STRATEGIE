@@ -1927,14 +1927,12 @@ setTimeout(function(){
           yest:  collSec(su,"Na včera si vzpomínám…", false),
           prev:  collSec(su,"To už si moc nepamatuju… (starší)", false),
           plan:  collSec(su,"Tak tady budu jinde…", false),
-          list:  collSec(su,"Co se vlastně dělo…?", false),
           paska: collSec(su,"Moje odmakané prašule… 💰", false, function(o){ paskaToggle(o); }) };
     _dS.todayhist.box.innerHTML='<ul id="dochToday2"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.today.box.innerHTML='<div id="dochSpanToday" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div id="dochCard" style="padding:2px 0 4px;">Načítám…</div>';
     _dS.yest.box.innerHTML='<div id="dochSpanYest" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><ul id="dochYest"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.prev.box.innerHTML='<ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.plan.box.innerHTML='<ul id="dochPlan"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
-    _dS.list.box.innerHTML='<ul id="dochList"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     // Marti 7.6. večer: páska zamčená PINem + jen mimo směnu — souhrn v hlavičce
     // NIKDY neukazuje částku (🔒), obsah se načte až po odemčení při otevření.
     _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">🔒 Páska je zamčená.</div></div>';
@@ -1975,7 +1973,7 @@ setTimeout(function(){
       var open=j.open;
       // Marti 7.6. večer: při směně schovat vše kromě Dnes — „Další věci…" 😉
       if(_dS){
-        ["yest","prev","plan","list","paska"].forEach(function(k){
+        ["yest","prev","plan","paska"].forEach(function(k){
           if(_dS[k]&&_dS[k].box.parentElement) _dS[k].box.parentElement.style.display=open?"none":"";
         });
       }
@@ -2215,7 +2213,7 @@ setTimeout(function(){
       // Výběr data do boxu → fn("YYYY-MM-DD", btn)
       function datePickIn(box, label, fn){
         box.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
-        var d=el('<input type="date" value="'+new Date().toISOString().substr(0,10)+'" style="margin-top:6px;">');
+        var d=el('<input type="date" value="'+_locDate(0)+'" style="margin-top:6px;">');
         box.appendChild(d);
         var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
         ok.addEventListener("click",function(){ if(d.value){ ok.disabled=true; fn(d.value, ok); } });
@@ -2225,7 +2223,7 @@ setTimeout(function(){
       // Výběr rozsahu dat od–do do boxu → fn(od, do, btn)
       function dateRangePickIn(box, label, fn){
         box.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
-        var today=new Date().toISOString().substr(0,10);
+        var today=_locDate(0);
         var d1=el('<input type="date" value="'+today+'" style="margin-top:6px;">');
         var d2=el('<input type="date" value="'+today+'" style="margin-top:6px;">');
         box.appendChild(el('<label>Od</label>')); box.appendChild(d1);
@@ -2237,7 +2235,7 @@ setTimeout(function(){
       // Výběr dne + času „do kdy zhruba" do boxu → fn(datum, čas, btn) — lékař
       function dateTimePickIn(box, label, fn){
         box.appendChild(el('<div class="hint" style="margin:4px 0 2px;">'+label+'</div>'));
-        var today=new Date().toISOString().substr(0,10);
+        var today=_locDate(0);
         var d=el('<input type="date" value="'+today+'" style="margin-top:6px;">');
         var t=el('<input type="time" style="margin-top:6px;">');
         box.appendChild(el('<label>Den</label>')); box.appendChild(d);
@@ -2281,7 +2279,7 @@ setTimeout(function(){
       function osobniBuild(box){
         expOpt(box,"🏡 Potřebuju makat z domova…","ghost",function(bx){
           dateRangePickIn(bx,"Home office od – do:",function(od, dd, b){
-            var today=new Date().toISOString().substr(0,10);
+            var today=_locDate(0);
             absence({type_code:"homeoffice",date_from:od,date_to:dd,mode:"days",note:"home office (přes mobil)"},function(){
               if(od<=today && dd>=today){ presence({text:"Jsem na home office",add_since:false,until_txt:czDate(dd)},b); }
               else dochLoad();
@@ -2293,7 +2291,7 @@ setTimeout(function(){
         },_greenStyle);
         expOpt(box,"👨‍👧 Zase řeším rodinu… (OČR)","ghost",function(bx){
           dateRangePickIn(bx,"OČR od – do:",function(od, dd, b){
-            var today=new Date().toISOString().substr(0,10);
+            var today=_locDate(0);
             absence({type_code:"family_care",date_from:od,date_to:dd,mode:"days",note:"OČR (přes mobil)"},function(){
               if(od<=today && dd>=today){ presence({text:"Pečuji o rodinu (OČR)",add_since:false,until_txt:czDate(dd)},b); }
               else dochLoad();
@@ -2301,13 +2299,13 @@ setTimeout(function(){
           });
         },_amberStyle);
         dirBtn(box,"🤒 Je mi fakt blbě… Vidím to na sick day.","ghost",function(b){
-          b.disabled=true; var today=new Date().toISOString().substr(0,10);
+          b.disabled=true; var today=_locDate(0);
           absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
             presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); });
         },_amberStyle);
         expOpt(box,"🤧 Mám neschopenku do…","ghost",function(bx){
           datePickIn(bx,"Neschopenka do:",function(d,b){
-            var today=new Date().toISOString().substr(0,10);
+            var today=_locDate(0);
             absence({type_code:"sick",date_from:today,date_to:d,mode:"days",note:"neschopenka (přes mobil)"},function(){
               presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); }); });
         },_amberStyle);
@@ -2317,7 +2315,7 @@ setTimeout(function(){
           dirBtn(bx,"🩺 Nevidím to dnes dobře…","ghost",function(b){ presence({text:"U lékaře, dnes už nedorazím",add_since:false},b); },_amberStyle);
           bx.appendChild(el('<div class="hint" style="margin-top:8px;">…nebo hlásím dopředu:</div>'));
           dateTimePickIn(bx,"Den a do kdy zhruba nebudu:",function(d, t, b){
-            var today=new Date().toISOString().substr(0,10);
+            var today=_locDate(0);
             absence({type_code:"medical",date_from:d,date_to:d,mode:"days",note:"u lékaře"+(t?(" do ~"+t):"")},function(){
               if(d===today){ presence({text:"Jsem u lékaře",add_since:false,until_txt:(t?("~"+t):"")},b); }
               else dochLoad();
@@ -2326,7 +2324,7 @@ setTimeout(function(){
         },_amberStyle);
         expOpt(box,"🌴 Že by dovolená?… 😎","ghost",function(bx){
           dateRangePickIn(bx,"Dovolená od – do:",function(od, dd, b){
-            var today=new Date().toISOString().substr(0,10);
+            var today=_locDate(0);
             absence({type_code:"vacation",date_from:od,date_to:dd,mode:"days",note:"přes mobil"},function(){
               if(od<=today && dd>=today){ presence({text:"Mám dovolenou",add_since:false,until_txt:czDate(dd)},b); }
               else dochLoad();
@@ -2469,7 +2467,7 @@ setTimeout(function(){
       // Marti 7.6. večer: ohlášení dřívějšího konce / pozdějšího příchodu —
       // dnes i dopředu (den + čas), status se ukáže ten den.
       function _denCasBuild(bx, otazkaCas, textFn){
-        var today=new Date().toISOString().substr(0,10);
+        var today=_locDate(0);
         bx.appendChild(el('<div class="hint" style="margin-bottom:2px;">Který den?</div>'));
         var dI=el('<input type="date" value="'+today+'">');
         bx.appendChild(dI);
@@ -2728,6 +2726,8 @@ setTimeout(function(){
       dochLoad();
     },60000);
   }
+  // Marti 11.6.: lokální datum (ne UTC) — jinak se kolem půlnoci „dnes/včera" rozjede.
+  function _locDate(off){ var d=new Date(); if(off) d.setDate(d.getDate()+off); return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2); }
   function _dochDayRow(lbl, r){
     var w=Number(r.worked||0), a=Number(r.absence||0);
     var right='<b style="color:'+(w>0?'var(--green)':'var(--mut)')+';">'+fmtHM(w)+'</b>'+(a>0?(' <span style="color:var(--amber);">+ '+fmtHM(a)+' nepř.</span>'):'')+(r.active?' 🟢':'');
@@ -2736,8 +2736,8 @@ setTimeout(function(){
   function dochDailyLoad(){
     api("GET","/api/v1/erp/app/attendance/daily?days=14","").then(function(j){
       var allRows=(j&&j.days)||[];
-      var today=new Date().toISOString().substr(0,10);
-      var yest=new Date(Date.now()-86400000).toISOString().substr(0,10);
+      var today=_locDate(0);
+      var yest=_locDate(-1);
       // Včera — vlastní sekce
       var yu=document.getElementById("dochYest");
       if(yu){
@@ -2797,24 +2797,16 @@ setTimeout(function(){
   }
   function dochListLoad(){
     api("GET","/api/v1/erp/app/attendance/list?days=14","").then(function(j){
-      var ul=document.getElementById("dochList"); if(!ul)return;
       var rows=(j&&j.entries)||[];
       window._dochEntries=rows; _dochSpans();
-      // Marti 10.6.: „Co se vlastně dělo?" = JEN minulost (dnešek je v „Dneska je den").
-      var _td=new Date(), tdy=_td.getFullYear()+"-"+("0"+(_td.getMonth()+1)).slice(-2)+"-"+("0"+_td.getDate()).slice(-2);
+      var tdy=_locDate(0);
       function _entryLi(e){ var t=(e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':''));
         return el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+fmtHM(e.hours)):'')+' · '+esc(e.status||'')+'</div></li>'); }
-      // Tak to bylo dneska — dnešní záznamy
       var t2=document.getElementById("dochToday2");
       if(t2){ var todays=rows.filter(function(e){ return (e.d||"")===tdy; });
         if(_dS&&_dS.todayhist) _dS.todayhist.val.textContent="";
         if(!todays.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Dnes zatím nic.</li>'; }
         else { t2.innerHTML=""; todays.forEach(function(e){ t2.appendChild(_entryLi(e)); }); } }
-      // Co se vlastně dělo — jen minulost
-      var past=rows.filter(function(e){ return (e.d||"") < tdy; });
-      if(_dS&&_dS.list) _dS.list.val.textContent="";
-      if(!past.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím žádné záznamy.</li>'; }
-      else { ul.innerHTML=""; past.forEach(function(e){ ul.appendChild(_entryLi(e)); }); }
     });
   }
   // 💰 Výplatní páska (Marti 7.6.: „každej na ni má nárok") — jen vlastní data.
@@ -2989,7 +2981,7 @@ setTimeout(function(){
   // Rozsah práce „od prvního píchnutí do posledního odpíchnutí" (Marti 7.6.).
   function _dochSpans(){
     var es=window._dochEntries||[];
-    var today=new Date().toISOString().substr(0,10), yest=new Date(Date.now()-86400000).toISOString().substr(0,10);
+    var today=_locDate(0), yest=_locDate(-1);
     function mk(d,id){
       var e2=document.getElementById(id); if(!e2)return;
       var rows=es.filter(function(e){return e.d===d&&e.zac;});
@@ -3039,7 +3031,7 @@ setTimeout(function(){
     app.appendChild(p); refresh();
   }
   function buildAbsForm(box){
-    var today=new Date().toISOString().substr(0,10);
+    var today=_locDate(0);
     var ist="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;margin-bottom:4px;";
     box.innerHTML='<label>Typ nepřítomnosti</label>'
       +'<select id="absType" style="'+ist+'"><option value="vacation">Dovolená</option>'

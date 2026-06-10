@@ -2487,17 +2487,20 @@ setTimeout(function(){
       // kruhové hodiny), během statusu jen Konec+Prodloužit, po uplynutí dotaz.
       function _parseEndTime(s){ var m=(s||"").match(/do\s*(?:cca\s*|~)?(\d{1,2}:\d{2})/i); return m?m[1]:null; }
       function _isPast(hhmm){ var p=(hhmm||"").split(":"); if(p.length<2) return false; var e=new Date(); e.setHours(parseInt(p[0],10),parseInt(p[1],10),0,0); return new Date()>e; }
+      // Marti 10.6.: zadání času přes dvě pole (hodiny | minuty) — rolovací select.
       function timeChips(box,label,onPick){
         if(label) box.appendChild(el('<div class="hint" style="margin-top:8px;">'+label+'</div>'));
-        var row=el('<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;"></div>');
-        var d=new Date(); d.setSeconds(0,0); var mm=d.getMinutes();
-        if(mm===0){} else if(mm<=30){ d.setMinutes(30); } else { d.setMinutes(0); d.setHours(d.getHours()+1); }
-        for(var i=0;i<8;i++){
-          var t=("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2);
-          (function(tt){ var b=el('<button class="ghost" style="margin:0;padding:9px 13px;">'+tt+'</button>'); b.addEventListener("click",function(){ onPick(tt,b); }); row.appendChild(b); })(t);
-          d.setMinutes(d.getMinutes()+30);
-        }
+        var row=el('<div style="display:flex;gap:8px;align-items:center;margin-top:4px;"></div>');
+        var ss='flex:1;font-size:18px;padding:11px;background:#0f1620;border:1px solid var(--bord);border-radius:8px;color:var(--tx);';
+        var hh=el('<select style="'+ss+'"></select>'), mm=el('<select style="'+ss+'"></select>');
+        var defH=(new Date().getHours()+1)%24;
+        for(var h=0;h<24;h++){ var o=el('<option value="'+h+'">'+("0"+h).slice(-2)+'</option>'); if(h===defH)o.selected=true; hh.appendChild(o); }
+        [0,15,30,45].forEach(function(x){ mm.appendChild(el('<option value="'+x+'">'+("0"+x).slice(-2)+'</option>')); });
+        row.appendChild(hh); row.appendChild(el('<div style="font-size:20px;font-weight:700;color:var(--mut);">:</div>')); row.appendChild(mm);
         box.appendChild(row);
+        var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit čas</button>');
+        ok.addEventListener("click",function(){ ok.disabled=true; onPick(("0"+hh.value).slice(-2)+":"+("0"+mm.value).slice(-2),ok); });
+        box.appendChild(ok);
       }
       function buildTimedStatusMenu(kind, ann){
         var labGen=(kind==="jednání")?"jednání":"pochůzky";

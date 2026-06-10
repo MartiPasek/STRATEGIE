@@ -1181,7 +1181,7 @@ setTimeout(function(){
     cl.forEach(function(m){
       var li=el('<li class="ct" style="padding:0;border-bottom:none;"></li>');
       var bd=skBand(m.score||0);
-      var role=(m.is_leader?' 👑':(m.is_deputy?' 🎖':''));
+      var role=(m.is_leader?' ⭐':(m.is_deputy?' 🎖':''));
       var sc=(m.score>0?"+":"")+(m.score||0);
       var h2=el('<div class="cthead"><div class="cav" style="background:'+avColor(m.jmeno||"?")+'">'+vyInitial(m.jmeno||"?")+'</div>'
         +'<div style="flex:1;min-width:0;"><div class="ctname">'+esc(m.jmeno||"")+role+'</div>'
@@ -1213,7 +1213,7 @@ setTimeout(function(){
     rng.addEventListener("change",function(){ var v=parseInt(rng.value,10)||0; skScore(g.id,m.user_id,v); });
     sw.appendChild(val); sw.appendChild(rng); exp.appendChild(sw);
     var row=el('<div style="display:flex;gap:6px;flex-wrap:wrap;padding:8px 4px;"></div>');
-    var bL=el('<button class="ghost" style="margin:0;">👑 Vedoucí</button>'); bL.addEventListener("click",function(){ skUpdate(g.id,{leader_user_id:m.user_id}); });
+    var bL=el('<button class="ghost" style="margin:0;">⭐ Vedoucí</button>'); bL.addEventListener("click",function(){ skUpdate(g.id,{leader_user_id:m.user_id}); });
     var bD=el('<button class="ghost" style="margin:0;">🎖 Zástupce</button>'); bD.addEventListener("click",function(){ skUpdate(g.id,{deputy_user_id:m.user_id}); });
     var bR=el('<button class="warn" style="margin:0;">✕ Odebrat</button>'); bR.addEventListener("click",function(){ if(confirm("Odebrat "+(m.jmeno||"")+" ze skupiny?")) skMember(g.id,m.user_id,"remove"); });
     row.appendChild(bL); row.appendChild(bD); row.appendChild(bR); exp.appendChild(row);
@@ -1702,7 +1702,7 @@ setTimeout(function(){
     else if(_vyView==="jedu"){ sub='🚗 '+esc(pp.stav_pozn||'na cestě'); }
     else if(_vyView==="chybi"){ sub='🫥 '+(pp.stav_pozn?esc(pp.stav_pozn):'nepřihlášen'); }
     var nmDisp=esc(nm);
-    if(_vyIsGroup()){ if(pp.role==="lead") nmDisp="👑 "+nmDisp; else if(pp.role==="deputy") nmDisp="🥈 "+nmDisp; }
+    if(_vyIsGroup()){ if(pp.role==="lead") nmDisp="⭐ "+nmDisp; else if(pp.role==="deputy") nmDisp="🎖 "+nmDisp; }
     var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(nm)+'">'+vyInitial(nm)+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+nmDisp+'</div><div class="ctnum">'+sub+'</div></div></div>');
     var exp=el('<div class="ctexp" style="display:none;"></div>');
     head.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) vyFillPerson(exp,pp); });
@@ -2958,7 +2958,7 @@ setTimeout(function(){
     var hi=(rel==="lead"||rel==="deputy");
     var fr=(ic||"").split("|");
     var iconHtml=(fr.length>1)
-      ? '<span class="i anim-emoji" data-frames="'+fr.join("|")+'" data-fi="0" data-hold="3">'+fr[0]+'</span>'
+      ? '<span class="i anim-emoji" data-frames="'+fr.join("|")+'" data-fi="0" data-hold="3" style="display:inline-block;'+(fr[0]==="🚜"?"transform:scaleX(-1);":"")+'">'+fr[0]+'</span>'
       : '<span class="i">'+ic+'</span>';
     var b=el('<button class="tabbtn" style="flex:0 0 auto;min-width:60px;'+(hi?"color:var(--blue);":"")+'">'+iconHtml+esc(lbl)+'</button>');
     b.addEventListener("click",fn); return b;
@@ -2972,6 +2972,7 @@ setTimeout(function(){
       if(hold>1){ sp.setAttribute("data-hold",hold-1); return; }   // realita (1. snímek) drží dýl
       var i=(parseInt(sp.getAttribute("data-fi")||"0",10)+1)%fr.length;
       sp.setAttribute("data-fi",i); sp.textContent=fr[i];
+      sp.style.display="inline-block"; sp.style.transform=(fr[i]==="🚜")?"scaleX(-1)":"";  // traktor doprava
       sp.setAttribute("data-hold", i===0?3:1);                    // 1. snímek 3× tak dlouho jako vize
     });
   }

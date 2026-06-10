@@ -1455,7 +1455,7 @@ setTimeout(function(){
   function vySetBadge(k,n){ var r=document.getElementById("vyrail"); if(!r)return;
     var btn=r.querySelector('button[data-k="'+k+'"]'); if(!btn)return;
     var bg=btn.querySelector('[data-badge]'); if(bg){ bg.textContent=n; bg.style.display=n>0?"block":"none";
-      bg.classList.toggle("gr", k==="makam"||k==="relaxuji");
+      bg.classList.toggle("gr", k==="makam"||k==="relaxuji"||k==="tym");
       bg.classList.toggle("pulse", (k==="potrebuji"||k==="cekam") && n>0); }
     if(btn.getAttribute("data-onlyif")==="1"){ btn.style.display=n>0?"flex":"none"; }
   }

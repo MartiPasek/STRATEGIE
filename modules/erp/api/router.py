@@ -6853,9 +6853,11 @@ async def app_all_users(req: Request) -> JSONResponse:
             "FROM public.users u "
             "JOIN public.user_tenants ut ON ut.user_id = u.id "
             "JOIN public.tenants t ON t.id = ut.tenant_id "
-            "WHERE COALESCE(ut.membership_status,'active') IN ('active','invited')" + where + " "
+            "WHERE COALESCE(ut.membership_status,'active') IN ('active','invited') "
+            "  AND COALESCE(u.status,'') <> 'disabled'" + where + " "
             "GROUP BY u.id, u.first_name, u.last_name, u.short_name, u.login_name, u.status, u.is_marti_parent "
-            "ORDER BY jmeno NULLS LAST, u.id"), params).fetchall()
+            "ORDER BY CASE u.status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, "
+            "         jmeno NULLS LAST, u.id"), params).fetchall()
         users = [{"user_id": r[0], "jmeno": r[1] or (r[2] or r[3] or ("#" + str(r[0]))),
                   "login": r[3], "status": r[4], "parent": r[5], "tenanty": r[6] or ""}
                  for r in rows]
@@ -6912,8 +6914,15 @@ async def app_helios_recon(req: Request) -> JSONResponse:
     errors = []
     for src, dbp in (("EC", ""), ("ES", "DB_IS.dbo.")):
         try:
-            data = rows_of("SELECT Cislo c, LEFT(LTRIM(RTRIM(ISNULL(Prijmeni,'')+' '+ISNULL(Jmeno,''))),80) jm "
-                           "FROM %sTabCisZam ORDER BY Cislo" % dbp)
+            # Marti 10.6.: jen zaměstnanci aktivní ve mzdách v POSLEDNÍM období
+            # (mají mzdové složky v MAX(IdObdobi)) — ať se do toho nezamotáme.
+            data = rows_of(
+                "SELECT z.Cislo c, LEFT(LTRIM(RTRIM(ISNULL(z.Prijmeni,'')+' '+ISNULL(z.Jmeno,''))),80) jm "
+                "FROM %sTabCisZam z "
+                "WHERE EXISTS (SELECT 1 FROM %sTabMzSloz s "
+                "  WHERE s.ZamestnanecId = z.ID "
+                "    AND s.IdObdobi = (SELECT MAX(IdObdobi) FROM %sTabMzSloz)) "
+                "ORDER BY z.Cislo" % (dbp, dbp, dbp))
         except Exception as exc:
             errors.append("%s: %s" % (src, str(exc)[:120]))
             continue
@@ -6925,7 +6934,8 @@ async def app_helios_recon(req: Request) -> JSONResponse:
                 st = "no_emp"
             if only_unmatched and st == "ok":
                 continue
-            people.append({"src": src, "cislo": d.get("c"), "jmeno": (d.get("jm") or "").strip(), "stav": st})
+            people.append({"src": src, "cislo": d.get("c"), "jmeno": (d.get("jm") or "").strip(),
+                           "typ": d.get("typ") or "", "stav": st})
     _ord = {"no_emp": 0, "no_user": 1, "ok": 2}
     people.sort(key=lambda x: (_ord.get(x["stav"], 9), x["src"], x["cislo"] if isinstance(x["cislo"], int) else 0))
     summary = {"celkem": len(people),

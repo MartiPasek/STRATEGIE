@@ -3031,7 +3031,7 @@ setTimeout(function(){
       ul.appendChild(el('<li style="display:flex;align-items:center;gap:10px;">'
         +'<span style="width:30px;height:30px;border-radius:50%;background:#1a2533;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none;">'+vyInitial(p.jmeno||"?")+'</span>'
         +'<span style="min-width:0;flex:1;"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(p.jmeno||("#"+p.cislo))+'</b>'
-        +'<span style="color:var(--mut);font-size:12px;">Helios '+esc(p.src)+' · č. '+esc(String(p.cislo))+'</span></span>'
+        +'<span style="color:var(--mut);font-size:12px;">Helios '+esc(p.src)+' · č. '+esc(String(p.cislo))+(p.typ?(' · '+esc(p.typ)):'')+'</span></span>'
         +'<span style="font-size:12px;white-space:nowrap;flex:none;">'+st.e+' '+st.t+'</span></li>'));
     });
   }

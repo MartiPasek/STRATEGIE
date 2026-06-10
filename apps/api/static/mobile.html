@@ -2168,6 +2168,8 @@ setTimeout(function(){
             actC.appendChild(ke2);
           }
         }
+        // Marti 10.6.: na směně VŽDY vidět „Jsem na zakázce" (časté přepínání).
+        if(open){ expOpt(bw,"🧾 Jsem na zakázce…","green",zakBuild); }
         // Marti 7.6. večer: zelené v obou stavech, bublina vpravo.
         var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);
@@ -2576,9 +2578,9 @@ setTimeout(function(){
         // „Jsem na zakázce" (píchnutej ≠ pracuje), „nepočítej" až na konec.
         if(open){
           // zakázka patří sem — přepnutí BĚHEM směny (switch)
-          expOpt(bw,"🧾 Jsem na zakázce…","green",zakBuild);
           // Marti 10.6.: víc místa v „makám" — těchto 7 voleb sbalit pod jeden obal.
-          expOpt(bw,"🙈 Tak tady budu jinde…","ghost",function(bx){
+          // („Tak tady budu jinde" = budoucnost, sem nepatří → jiný název.)
+          expOpt(bw,"🙈 Teď to bude jinak…","ghost",function(bx){
             var bp=btnEl("☕ Potřebuju krátkou pauzu…","ghost"); bp.addEventListener("click",function(){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},bp); }); bx.appendChild(bp);
             expOpt(bx,"🍃 Jdu se provětrat / najíst…","ghost",function(b2){
               chipsIn(b2,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
@@ -2796,10 +2798,13 @@ setTimeout(function(){
       var ul=document.getElementById("dochList"); if(!ul)return;
       var rows=(j&&j.entries)||[];
       window._dochEntries=rows; _dochSpans();
+      // Marti 10.6.: „Co se vlastně dělo?" = JEN minulost (dnešek je v „Dneska je den").
+      var _td=new Date(), tdy=_td.getFullYear()+"-"+("0"+(_td.getMonth()+1)).slice(-2)+"-"+("0"+_td.getDate()).slice(-2);
+      var past=rows.filter(function(e){ return (e.d||"") < tdy; });
       if(_dS&&_dS.list) _dS.list.val.textContent="";
-      if(!rows.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím žádné záznamy.</li>'; return; }
+      if(!past.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím žádné záznamy.</li>'; return; }
       ul.innerHTML="";
-      rows.forEach(function(e){
+      past.forEach(function(e){
         var t=(e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':''));
         ul.appendChild(el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+fmtHM(e.hours)):'')+' · '+esc(e.status||'')+'</div></li>'));
       });

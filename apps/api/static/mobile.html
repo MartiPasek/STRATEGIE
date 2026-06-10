@@ -2636,10 +2636,11 @@ setTimeout(function(){
       function dochTitle(){
         var a=(j.announced||"").toLowerCase();
         function has(s){ return a.indexOf(s)>=0; }
+        var _et=_parseEndTime(j.announced), _es=_et?(" do "+_et):"";
         if(open){
-          if(has("jednání")) return "Mám jednání 🤝";
+          if(has("jednání")) return "Mám jednání"+_es+" 🤝";
           if(has("školení")) return "Jsem na školení 🎓";
-          if(has("pochůzce")||has("pochůzka")) return "Na pochůzce 📦";
+          if(has("pochůzce")||has("pochůzka")) return "Na pochůzce"+_es+" 📦";
           if(has("končím dříve")) return "Dnes končím dřív 🕔";
           return "Dnes makám 😉";
         }
@@ -2653,10 +2654,10 @@ setTimeout(function(){
           if(has("neschopenka")) return "Marodím… 🤧";
           if(has("dovolen")) return "Mám dovolenou 🌴";
           if(has("očr")||has("rodinu")) return "Pečuju o rodinu 👨‍👧";
-          if(has("pochůzce")||has("pochůzka")) return "Na pochůzce 📦";
+          if(has("pochůzce")||has("pochůzka")) return "Na pochůzce"+_es+" 📦";
           if(has("zařizuji")||has("zařizuju")) return "Něco si zařizuju 🕐";
           if(has("nepočítej")) return "Pro dnešek odmakáno 👋";
-          if(has("jednání")) return "Mám jednání 🤝";
+          if(has("jednání")) return "Mám jednání"+_es+" 🤝";
           if(has("pauz")) return "Dávám si pauzu ☕";
         }
         if(hrs>0) return "Teď zrovna nemakám 😌";

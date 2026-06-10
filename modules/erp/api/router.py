@@ -8861,6 +8861,30 @@ async def att_announce(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/attendance/clear-announce")
+async def att_clear_announce(req: Request) -> JSONResponse:
+    """Marti 10.6.: ukončení časovaného statusu (Konec jednání/pochůzky) —
+    supersedne aktuální announced řádek dne, uživatel se vrací k běžné směně."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        r = s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
+                         "WHERE tenant_id=:t AND employee_id=:e "
+                         "AND entry_date=current_date AND status='announced'"),
+                      {"t": _ATT_TENANT, "e": emp})
+        s.commit()
+        return JSONResponse({"ok": True, "cleared": r.rowcount})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Impersonace z mobilu (Marti 7.6.2026): „přihlásit jako" pro testování
 #    docházky. Funguje přes token (nativní appka) i cookie (PWA). Reuse
 #    fw.impersonation_log (audit drží), target dle user ID / login / z+ČísloZam.

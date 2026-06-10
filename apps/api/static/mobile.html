@@ -2483,9 +2483,50 @@ setTimeout(function(){
       }
       // Marti 7.6. večer: vše se rozbaluje NA MÍSTĚ (jako Kontakty), žádné
       // přepínání obrazovek. Ťuknutí na volbu znovu = zavření.
+      // Marti 10.6.: časovaný status (jednání/pochůzka) — čas přes ČIPY (žádné
+      // kruhové hodiny), během statusu jen Konec+Prodloužit, po uplynutí dotaz.
+      function _parseEndTime(s){ var m=(s||"").match(/do\s*(?:cca\s*|~)?(\d{1,2}:\d{2})/i); return m?m[1]:null; }
+      function _isPast(hhmm){ var p=(hhmm||"").split(":"); if(p.length<2) return false; var e=new Date(); e.setHours(parseInt(p[0],10),parseInt(p[1],10),0,0); return new Date()>e; }
+      function timeChips(box,label,onPick){
+        if(label) box.appendChild(el('<div class="hint" style="margin-top:8px;">'+label+'</div>'));
+        var row=el('<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;"></div>');
+        var d=new Date(); d.setSeconds(0,0); var mm=d.getMinutes();
+        if(mm===0){} else if(mm<=30){ d.setMinutes(30); } else { d.setMinutes(0); d.setHours(d.getHours()+1); }
+        for(var i=0;i<8;i++){
+          var t=("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2);
+          (function(tt){ var b=el('<button class="ghost" style="margin:0;padding:9px 13px;">'+tt+'</button>'); b.addEventListener("click",function(){ onPick(tt,b); }); row.appendChild(b); })(t);
+          d.setMinutes(d.getMinutes()+30);
+        }
+        box.appendChild(row);
+      }
+      function buildTimedStatusMenu(kind, ann){
+        var labGen=(kind==="jednání")?"jednání":"pochůzky";
+        var txt=(kind==="jednání")?"Mám jednání":"Na služební pochůzce";
+        var endT=_parseEndTime(ann);
+        if(endT && _isPast(endT)){
+          bw.appendChild(el('<div style="color:var(--amber);background:#241c0a;border:1px solid var(--amber);border-radius:10px;padding:11px 13px;margin-bottom:8px;font-size:14px;">⏰ '+(kind==="jednání"?"Jednání":"Pochůzka")+' mělo skončit v '+endT+'. Skončilo už?</div>'));
+        }
+        var end=btnEl("✅ Konec "+labGen,"green");
+        end.addEventListener("click",function(){ end.disabled=true; api("POST","/api/v1/erp/app/attendance/clear-announce","").then(function(){ dochLoad(); }).catch(function(){ end.disabled=false; }); });
+        bw.appendChild(end);
+        var ex=el('<div class="panel" style="margin-top:8px;"></div>');
+        chipsIn(ex,"⏱ Prodloužit o:",function(m,b){ presence({text:txt,add_since:false,eta_min:m},b); },[["+30 min",30],["+60 min",60]]);
+        timeChips(ex,"…nebo do kolika:",function(t,b){ presence({text:txt,add_since:false,until_txt:"~"+t},b); });
+        bw.appendChild(ex);
+      }
       function showOpts(){
         window._dochMenuTs=Date.now();
         bw.innerHTML=""; bw._exps=null;
+        // Marti 10.6.: aktivní jednání/pochůzka → JEN Konec + Prodloužit
+        var _ann=(j.announced||"");
+        var _timedKind=/jedn[aá]n[ií]/i.test(_ann)?"jednání":(/poch[uů]z/i.test(_ann)?"pochůzku":null);
+        if(open && _timedKind){
+          buildTimedStatusMenu(_timedKind, _ann);
+          var z0=el('<button class="ghost full" style="margin-top:8px;text-align:center;">▲</button>');
+          z0.addEventListener("click",mainBtn); bw.appendChild(z0);
+          setTimeout(function(){ try{ bw.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
+          return;
+        }
         // Marti 7.6. večer: žádná červená — změna činnosti není poplach (ghost).
         // „Jsem na zakázce" (píchnutej ≠ pracuje), „nepočítej" až na konec.
         if(open){
@@ -2501,16 +2542,16 @@ setTimeout(function(){
           expOpt(bw,"🌅 Potřebuji přijít později…","ghost",pozdejiBuild);
           expOpt(bw,"📅 Mám jednání…","ghost",function(bx){
             chipsIn(bx,"Jednání potrvá cca:",function(m,b){ presence({text:"Mám jednání",add_since:false,eta_min:m},b); });
-            // Marti 7.6. večer: nebo rovnou do kolika
-            bx.appendChild(el('<div class="hint" style="margin-top:8px;">…nebo do kolika:</div>'));
-            var t=el('<input type="time" style="margin-top:4px;">');
-            var ok=el('<button class="green full" style="margin-top:8px;">Potvrdit</button>');
-            ok.addEventListener("click",function(){ if(t.value){ ok.disabled=true; presence({text:"Mám jednání",add_since:false,until_txt:"~"+t.value},ok); } });
-            bx.appendChild(t); bx.appendChild(ok);
+            timeChips(bx,"…nebo do kolika:",function(t,b){ presence({text:"Mám jednání",add_since:false,until_txt:"~"+t},b); });
+          });
+          // Marti 10.6.: pochůzka je taky práce (směna běží) — teď s časem konce.
+          expOpt(bw,"🚗 Mám služební pochůzku…","ghost",function(bx){
+            chipsIn(bx,"Pochůzka potrvá cca:",function(m,b){ presence({text:"Na služební pochůzce",add_since:false,eta_min:m},b); });
+            timeChips(bx,"…nebo do kolika:",function(t,b){ presence({text:"Na služební pochůzce",add_since:false,until_txt:"~"+t},b); });
+            var nb=el('<button class="ghost full" style="margin-top:8px;">Zatím nevím — bez času</button>');
+            nb.addEventListener("click",function(){ nb.disabled=true; presence({text:"Na služební pochůzce",add_since:true},nb); }); bx.appendChild(nb);
           });
           addOpts([
-            // Marti 7.6. večer: pochůzka je taky práce — směna BĚŽÍ dál, jen status.
-            ["🚗 Mám služební pochůzku…", function(b){ presence({text:"Na služební pochůzce",add_since:true},b); }],
             ["🫡 Dnes už se mnou nepočítej ;)", function(b){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},b); }]
           ],"ghost");
           expOpt(bw,"🛠 Zpráva vedoucímu výroby…","ghost",vyrobaFbBuild,_blueStyle);

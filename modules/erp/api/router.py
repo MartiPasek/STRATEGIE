@@ -11379,6 +11379,10 @@ _OPS_ACTIONS = {
         "label": "Migrovat finance lidí (EC_FinZamPodminky → STRATEGIE, vč. historie)",
         "target": "cloud", "remote": False,
     },
+    "sync_priplatky": {
+        "label": "Synchronizovat příplatky/srážky (EC_FinPriplatkySrazky → STRATEGIE, idempotentní)",
+        "target": "cloud", "remote": False,
+    },
     "sync_pasky": {
         "label": "Synchronizovat výplatní pásky (Helios EC+ES → STRATEGIE)",
         "target": "cloud", "remote": False,
@@ -11491,6 +11495,125 @@ def _sync_pasky_from_helios() -> dict:
     finally:
         cm.__exit__(None, None, None)
     return {"items": total}
+
+
+def _sync_priplatky_from_ec() -> dict:
+    """Import příplatků/srážek EC_FinPriplatkySrazkyDefinice → tenant.wage_movement.
+    Idempotentní dle (import_src='EC_PRIPL', import_src_id=EC.ID) → re-sync živého
+    měsíce přepíše, nezduplikuje. Typ→movement_type přes kód, CisloZam→engagement.
+    Vrací {imported, skipped}. Marti 10.6.2026 — řádná UI sync akce, ne jednorázový skript."""
+    import json as _json_p
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    # EC typ příplatku/srážky → náš kód wage_component_type
+    TYP_MAP = {
+        37: "nahrada_obleceni", 40: "korekce_os_ohod", 38: "nahrada_home_office",
+        4: "srazka_telefon", 36: "odmeny_vp", 7: "jednorazova_odmena", 47: "cestovne",
+        44: "odmena_garant_ctvrt", 9: "proplaceni_vernostni", 13: "prispevek_novy_prac",
+        32: "odstupne", 5: "premie_proskoleni", 20: "fakturace_zaklad",
+    }
+
+    def rows_of(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _json_p.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    total = 0
+    skipped = 0
+    try:
+        type_id = {r2[0]: r2[1] for r2 in s.execute(_t(
+            "SELECT code, id FROM tenant.wage_component_type WHERE tenant_id = 2")).fetchall()}
+        eng_cache = {}
+
+        def eng_id(cislo):
+            key = str(cislo).strip()
+            if not key:
+                return None
+            if key in eng_cache:
+                return eng_cache[key]
+            r3 = s.execute(_t(
+                "SELECT en.id FROM tenant.att_employee e "
+                "JOIN tenant.engagement en ON en.employee_id = e.id AND en.is_current = true "
+                "WHERE e.tenant_id = 2 AND e.cislo_zam = :c ORDER BY en.id LIMIT 1"),
+                {"c": key}).first()
+            eng_cache[key] = r3[0] if r3 else None
+            return eng_cache[key]
+
+        last_id = 0
+        while True:
+            batch = rows_of(
+                "SELECT TOP 2000 d.ID, d.CisloZam, d.Typ, d.Castka, d.Hodiny, d.Sazba, "
+                "d.Mesicne, d.Mesic, d.Rok, d.Schvaleno, d.[Přeneseno] AS Preneseno, "
+                "CONVERT(varchar(10), d.PlatnostOd, 23) AS PlatOd, "
+                "CONVERT(varchar(10), d.PlatnostDo, 23) AS PlatDo, d.CisloZakazky "
+                "FROM EC_FinPriplatkySrazkyDefinice d "
+                "WHERE d.Rok = 2026 AND d.ID > %d ORDER BY d.ID" % last_id)
+            if not batch:
+                break
+            for b in batch:
+                last_id = int(b["ID"])
+                code = TYP_MAP.get(int(b.get("Typ") or 0))
+                mt = type_id.get(code) if code else None
+                eng = eng_id(b.get("CisloZam"))
+                if mt is None or eng is None:
+                    skipped += 1
+                    continue
+                castka = float(b.get("Castka") or 0)
+                hodiny = float(b.get("Hodiny") or 0)
+                sazba = float(b.get("Sazba") or 0)
+                if hodiny and not castka:
+                    amount, hours, rate = None, hodiny, (sazba or None)
+                else:
+                    amount, hours, rate = castka, None, None
+                if int(b.get("Preneseno") or 0) != 0:
+                    st = "exported"
+                elif int(b.get("Schvaleno") or 0) == 1:
+                    st = "approved"
+                else:
+                    st = "pending"
+                py = int(b.get("Rok"))
+                pm = int(b.get("Mesic") or 1)
+                vfrom = b.get("PlatOd") or ("%04d-%02d-01" % (py, pm))
+                vto = b.get("PlatDo") or None
+                s.execute(_t(
+                    "INSERT INTO tenant.wage_movement (tenant_id, engagement_id, movement_type_id,"
+                    " period_year, period_month, amount, hours, rate, is_recurring, valid_from,"
+                    " valid_to, status, exported_at, zakazka_ref, import_src, import_src_id, created_at)"
+                    " VALUES (2, :eng, :mt, :py, :pm, :amt, :hrs, :rate, :rec, :vf, :vt, :st,"
+                    " CASE WHEN :st = 'exported' THEN now() ELSE NULL END, :zak, 'EC_PRIPL', :sid, now())"
+                    " ON CONFLICT (tenant_id, import_src, import_src_id) DO UPDATE SET"
+                    " engagement_id = EXCLUDED.engagement_id, movement_type_id = EXCLUDED.movement_type_id,"
+                    " period_year = EXCLUDED.period_year, period_month = EXCLUDED.period_month,"
+                    " amount = EXCLUDED.amount, hours = EXCLUDED.hours, rate = EXCLUDED.rate,"
+                    " is_recurring = EXCLUDED.is_recurring, valid_from = EXCLUDED.valid_from,"
+                    " valid_to = EXCLUDED.valid_to, status = EXCLUDED.status,"
+                    " exported_at = EXCLUDED.exported_at, zakazka_ref = EXCLUDED.zakazka_ref"),
+                    {"eng": eng, "mt": mt, "py": py, "pm": pm, "amt": amount, "hrs": hours,
+                     "rate": rate, "rec": bool(int(b.get("Mesicne") or 0)), "vf": vfrom, "vt": vto,
+                     "st": st, "zak": (b.get("CisloZakazky") or None), "sid": int(b["ID"])})
+                total += 1
+            s.commit()
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"imported": total, "skipped": skipped}
 
 
 def _sync_fin_from_ec() -> dict:
@@ -12798,6 +12921,11 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("finance: %s verzí engagementů, %s složek"
                       % (out.get("engagements"), out.get("components")))
+        elif action_key == "sync_priplatky":
+            out = _sync_priplatky_from_ec()
+            status = "done"
+            result = ("příplatky/srážky: %s importováno, %s přeskočeno (bez mapování/engagementu)"
+                      % (out.get("imported"), out.get("skipped")))
         elif action_key == "sync_pasky":
             out = _sync_pasky_from_helios()
             status = "done"

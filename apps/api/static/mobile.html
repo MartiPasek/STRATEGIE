@@ -1944,7 +1944,7 @@ setTimeout(function(){
     _dS.today.box.innerHTML='<div id="dochSpanToday" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div id="dochCard" style="padding:2px 0 4px;">Načítám…</div>';
     _dS.yest.box.innerHTML='<div id="dochSpanYest" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div style="display:flex;gap:10px;height:42vh;align-items:stretch;"><div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="dochYest2" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div><div id="dochYestRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';
     _dS.prev.box.innerHTML='<div style="display:flex;gap:10px;height:42vh;align-items:stretch;"><div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="dochPrev2" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div><div id="dochPrevRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';
-    _dS.plan.box.innerHTML='<div style="border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 10px;max-height:42vh;overflow-y:auto;-webkit-overflow-scrolling:touch;"><ul id="dochPlan" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>';
+    _dS.plan.box.innerHTML='<div style="display:flex;gap:10px;height:42vh;align-items:stretch;"><div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="dochPlan2" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div><div id="dochPlanRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';
     // Marti 7.6. večer: páska zamčená PINem + jen mimo směnu — souhrn v hlavičce
     // NIKDY neukazuje částku (🔒), obsah se načte až po odemčení při otevření.
     _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">🔒 Páska je zamčená.</div></div>';
@@ -1957,7 +1957,7 @@ setTimeout(function(){
       if(window._dochMenuTs){ try{ if(window._dochCloseMenu) window._dochCloseMenu(); }catch(e){} window._dochMenuTs=0; return true; }
       // Marti 11.6.: rozkliknutý job „Tak to bylo dneska" → Zpět zavře detail jobu
       // a zase ukáže pravou lištu (teprve další Zpět zavírá sekci).
-      var _ojob=document.querySelector("#dochToday2 li.ct.open, #dochYest2 li.ct.open, #dochPrev2 li.ct.open");
+      var _ojob=document.querySelector("#dochToday2 li.ct.open, #dochYest2 li.ct.open, #dochPrev2 li.ct.open, #dochPlan2 li.ct.open");
       if(_ojob){ var _oul=_ojob.parentNode; _ojob.classList.remove("open"); var _ojx=_ojob.querySelector(".ctexp"); if(_ojx)_ojx.style.display="none"; try{ var _lid=(_oul&&_oul.id)||"dochToday2"; _railSync(_lid.replace(/2$/,"")+"Rail",_lid); }catch(e){} return true; }
       var any=false;
       (su._secs||[]).forEach(function(sx){ if(sx.box && sx.box.style.display==="block"){ sx.close(); any=true; } });
@@ -2773,41 +2773,19 @@ setTimeout(function(){
       if(ul){ if(!prev.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím nic.</li>'; }
         else { ul.innerHTML=""; prev.forEach(function(r){ ul.appendChild(_dochDayRow(r.d, r)); }); } }
       // Plánovaná nepřítomnost — budoucnost (absence + ohlášení dopředu)
-      var pu=document.getElementById("dochPlan");
+      var pu=document.getElementById("dochPlan2");
       if(pu){
-        // Marti 7.6. večer: nulové (jen ohlášené) řádky do počtu absencí nepatří —
-        // ale budoucí OHLÁŠENÍ (skončím dříve / přijdu později) se ukazují zvlášť.
+        // Marti 11.6.: PLAN template (levý panel + lišta Vše/Absence/Ohlášení).
         var fut=allRows.filter(function(r){return (r.d||"")>today && (Number(r.absence||0)>0 || Number(r.worked||0)>0);}).sort(function(a,b){return a.d<b.d?-1:1;});
         api("GET","/api/v1/erp/app/attendance/announced-future","").then(function(ja){
-          pu=document.getElementById("dochPlan"); if(!pu)return;
+          if(!document.getElementById("dochPlan2"))return;
           var ann=(ja&&ja.items)||[];
-          // Marti 10.6.: číslo (počet dnů) u „Tak tady budu jinde" zatím nechceme.
           if(_dS&&_dS.plan) _dS.plan.val.textContent="";
-          if(!fut.length && !ann.length){ pu.innerHTML='<li style="color:var(--mut);border:none;">Žádná nahlášená.</li>'; return; }
-          pu.innerHTML="";
+          var items=[];
           fut.forEach(function(r){ var a=Number(r.absence||0), w=Number(r.worked||0);
-            pu.appendChild(el('<li style="display:flex;justify-content:space-between;align-items:center;"><span class="nt">'+esc(r.d)+'</span><span class="nm" style="margin:0;color:var(--amber);">'+(a>0?(fmtHM(a)+' nepřítomnost'):fmtHM(w))+'</span></li>')); });
-          ann.forEach(function(r){
-            var li=el('<li style="padding:0;border-bottom:none;"></li>');
-            var head=el('<div style="cursor:pointer;"><div class="nt">'+esc(r.d)+'</div><div class="nm" style="margin-bottom:6px;color:var(--amber);">💬 '+esc(r.note||"")+'  ✎</div></div>');
-            var box=el('<div style="display:none;margin:0 0 10px;"></div>');
-            head.addEventListener("click",function(){
-              box.style.display=(box.style.display==="none")?"block":"none";
-              if(box.style.display==="block" && !box._b){ box._b=1;
-                var rw=el('<div style="display:flex;gap:8px;"></div>');
-                var be=el('<button class="green full" style="flex:1;margin:0;background:var(--blue);color:#fff;">✏️ Upravit</button>');
-                be.addEventListener("click",function(){ be.disabled=true;
-                  api("POST","/api/v1/erp/app/attendance/announce-delete",{id:r.id}).then(function(j){ if(j&&j.ok){
-                    box.innerHTML='<div class="hint" style="color:var(--green);">Smazáno ✓ Nahlas nově přes 💬 Potřebuji ti něco říct → 🧭 Tady budu asi jinde.</div>'; setTimeout(dochLoad,1500);
-                  } else { be.disabled=false; alert("Chyba: "+((j&&j.error)||"?")); } }); });
-                var bd=el('<button class="green full" style="flex:1;margin:0;background:var(--amber);color:#241a02;">🗑 Smazat</button>');
-                bd.addEventListener("click",function(){ if(!confirm("Smazat nahlášení „"+(r.note||"")+"\" ("+r.d+")?"))return; bd.disabled=true;
-                  api("POST","/api/v1/erp/app/attendance/announce-delete",{id:r.id}).then(function(j){ if(j&&j.ok){ dochLoad(); } else { bd.disabled=false; alert("Chyba: "+((j&&j.error)||"?")); } }); });
-                rw.appendChild(be); rw.appendChild(bd); box.appendChild(rw);
-              }
-            });
-            li.appendChild(head); li.appendChild(box); pu.appendChild(li);
-          });
+            items.push({kind:"absence", d:r.d, txt:(a>0?(fmtHM(a)+" nepřítomnost"):fmtHM(w))}); });
+          ann.forEach(function(r){ items.push({kind:"ohlaseni", d:r.d, note:r.note||"", txt:"💬 "+(r.note||""), id:r.id}); });
+          _renderPlanPanel("dochPlanRail","dochPlan2", items, _planSt);
         });
       }
     });
@@ -2919,6 +2897,49 @@ setTimeout(function(){
     t2.innerHTML=""; f.forEach(function(e){ t2.appendChild(_jobRow(e)); });
   }
   function _renderTodayPanel(todays){ _renderJobPanel("dochTodayRail","dochToday2",todays,_todaySt); }
+  // Marti 11.6.: PLAN template — stejný systém (levý panel + pravá lišta + schovávání),
+  // ale budoucí kategorie (Vše / 🏖 Absence / 💬 Ohlášení).
+  var _planSt={f:"vse"};
+  function _planRow(it){
+    var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
+    var ic=(it.kind==="absence")?"🏖":"💬", bg=(it.kind==="absence")?"#caa14a":"#4f8ef7";
+    var head=el('<div class="cthead"><div class="cav" style="background:'+bg+';font-size:26px;line-height:1;">'+ic+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(it.d||"")+'</div><div class="ctnum">'+esc(it.txt||it.note||"")+'</div></div></div>');
+    var exp=el('<div class="ctexp" style="display:none;"></div>');
+    if(it.kind==="ohlaseni" && it.id){
+      var rw=el('<div style="display:flex;gap:8px;margin-top:6px;"></div>');
+      var bd=el('<button class="green full" style="flex:1;margin:0;background:var(--amber);color:#241a02;">🗑 Smazat nahlášení</button>');
+      bd.addEventListener("click",function(ev){ ev.stopPropagation(); if(!confirm("Smazat nahlášení „"+(it.note||"")+"\" ("+it.d+")?"))return; bd.disabled=true;
+        api("POST","/api/v1/erp/app/attendance/announce-delete",{id:it.id}).then(function(j){ if(j&&j.ok){ dochLoad(); } else { bd.disabled=false; alert("Chyba: "+((j&&j.error)||"?")); } }); });
+      rw.appendChild(bd); exp.appendChild(rw);
+      exp.appendChild(el('<div class="hint" style="margin-top:8px;">Změnu nahlas nově přes 💬 Potřebuji ti něco říct → 🧭 Tady budu asi jinde.</div>'));
+    } else {
+      exp.appendChild(el('<div class="hint" style="margin-top:6px;">'+esc(it.txt||"")+'</div>'));
+    }
+    head.addEventListener("click",function(){
+      var ulx=li.parentNode, wasOpen=li.classList.contains("open");
+      if(ulx&&ulx.querySelectorAll) ulx.querySelectorAll("li.ct").forEach(function(o){ o.classList.remove("open"); var x=o.querySelector(".ctexp"); if(x)x.style.display="none"; });
+      if(!wasOpen){ exp.style.display="block"; li.classList.add("open"); li.scrollIntoView({block:"nearest",behavior:"smooth"}); }
+      var lid=(ulx&&ulx.id)||"dochPlan2"; _railSync(lid.replace(/2$/,"")+"Rail", lid);
+    });
+    li.appendChild(head); li.appendChild(exp); return li;
+  }
+  function _renderPlanPanel(railId,listId,items,st){
+    items=items||[];
+    var rail=document.getElementById(railId);
+    if(rail){ rail.innerHTML="";
+      [["📋","Vše","vse"],["🏖","Absence","abs"],["💬","Ohlášení","ohl"]].forEach(function(it){
+        var on=(st.f===it[2]);
+        var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:11px 2px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:27px;line-height:1;">'+it[0]+'</span>'+it[1]+'</button>');
+        b.addEventListener("click",function(){ st.f=it[2]; _renderPlanPanel(railId,listId,items,st); });
+        rail.appendChild(b);
+      });
+    }
+    _railSync(railId,listId);
+    var t2=document.getElementById(listId); if(!t2) return;
+    var f=items.filter(function(it){ if(st.f==="vse")return true; if(st.f==="abs")return it.kind==="absence"; if(st.f==="ohl")return it.kind==="ohlaseni"; return true; });
+    if(!f.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Nic nahlášeného.</li>'; return; }
+    t2.innerHTML=""; f.forEach(function(it){ t2.appendChild(_planRow(it)); });
+  }
   function dochListLoad(){
     api("GET","/api/v1/erp/app/attendance/list?days=14","").then(function(j){
       var rows=(j&&j.entries)||[];

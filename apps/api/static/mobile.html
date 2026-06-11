@@ -3271,8 +3271,17 @@ setTimeout(function(){
   function _shotSyncBtn(){
     var b=document.getElementById("shotFab"); var on=_shotBtnOn();
     if(on && !b){
-      b=el('<button id="shotFab" aria-label="Snímek obrazovky" style="position:fixed;right:14px;bottom:calc(86px + env(safe-area-inset-bottom,0px));z-index:900;width:48px;height:48px;border-radius:50%;border:1px solid var(--bord);background:rgba(18,22,30,.86);color:#fff;font-size:22px;line-height:48px;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.45);">📷</button>');
-      b.addEventListener("click",function(ev){ ev.preventDefault(); ev.stopPropagation(); try{_tapFeedback();}catch(e){} openShot(); });
+      b=el('<button id="shotFab" aria-label="Snímek obrazovky" style="position:fixed;right:12px;top:50vh;z-index:1200;width:46px;height:46px;border-radius:50%;border:1px solid var(--bord);background:rgba(18,22,30,.78);color:#fff;font-size:21px;line-height:46px;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.45);touch-action:none;opacity:.92;">📷</button>');
+      // Plovoucí = přetažitelné. Chytni a posuň kamkoliv; pozice se zapamatuje.
+      var pos=null; try{ pos=JSON.parse(localStorage.getItem("stg_shot_pos")||"null"); }catch(e){}
+      if(pos&&typeof pos.l==="number"){ b.style.left=pos.l+"px"; b.style.top=pos.t+"px"; b.style.right="auto"; }
+      var dragging=false, moved=false, sx=0, sy=0, ox=0, oy=0;
+      b.addEventListener("pointerdown",function(ev){ ev.preventDefault(); dragging=true; moved=false; var r=b.getBoundingClientRect(); sx=ev.clientX; sy=ev.clientY; ox=r.left; oy=r.top; try{b.setPointerCapture(ev.pointerId);}catch(e){} });
+      b.addEventListener("pointermove",function(ev){ if(!dragging)return; var dx=ev.clientX-sx, dy=ev.clientY-sy; if(Math.abs(dx)+Math.abs(dy)>6)moved=true; var nl=Math.max(4,Math.min(window.innerWidth-50, ox+dx)); var nt=Math.max(36,Math.min(window.innerHeight-50, oy+dy)); b.style.left=nl+"px"; b.style.top=nt+"px"; b.style.right="auto"; });
+      b.addEventListener("pointerup",function(ev){ if(!dragging)return; dragging=false; try{b.releasePointerCapture(ev.pointerId);}catch(e){}
+        if(moved){ var r=b.getBoundingClientRect(); try{localStorage.setItem("stg_shot_pos",JSON.stringify({l:Math.round(r.left),t:Math.round(r.top)}));}catch(e){} }
+        else { try{_tapFeedback();}catch(e){} openShot(); } });
+      b.addEventListener("pointercancel",function(){ dragging=false; });
       document.body.appendChild(b);
     } else if(!on && b){ b.remove(); }
   }

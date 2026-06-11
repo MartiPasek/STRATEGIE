@@ -6104,6 +6104,171 @@ async def app_self_secret_delete(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ---- HR sprava lidi (Marti 11.6.): prehled + karty pro HR skupinu/rodice -----
+def _hr_can_manage(s, uid: int) -> bool:
+    from sqlalchemy import text as _t
+    r = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                  {"u": uid}).first()
+    if r and r[0]:
+        return True
+    m = s.execute(_t(
+        "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
+        "WHERE g.tenant_id=2 AND NOT g.archived AND g.name='HR' AND m.user_id=:u"),
+        {"u": uid}).first()
+    return m is not None
+
+
+@api_router.get("/app/hr/people")
+async def app_hr_people(req: Request) -> JSONResponse:
+    """Seznam lidí pro HR (rodiče + HR skupina). Hledání přes ?q=."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT u.id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            "   (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1)) AS jmeno, "
+            " (SELECT d.perm_city FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS mesto, "
+            " EXISTS(SELECT 1 FROM tenant.user_self_data d WHERE d.user_id=u.id AND d.tenant_id=2) AS ma_kartu "
+            "FROM public.users u "
+            "WHERE EXISTS (SELECT 1 FROM public.user_tenants ut WHERE ut.user_id=u.id AND ut.tenant_id=2 "
+            "   AND ut.membership_status IN ('active','invited')) AND u.id NOT IN (2,3,23,24) "
+            "ORDER BY jmeno")).fetchall()
+        q = (req.query_params.get("q") or "").strip().lower()
+        out = []
+        for r in rows:
+            nm = (r[1] or ("#" + str(r[0])))
+            if q and q not in nm.lower():
+                continue
+            out.append({"user_id": r[0], "jmeno": nm, "mesto": r[2] or "", "ma_kartu": bool(r[3])})
+        return JSONResponse({"ok": True, "lide": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/person")
+async def app_hr_person(req: Request) -> JSONResponse:
+    """Karta člověka pro HR (úřední pole + děti). BEZ paměti a trezoru."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        tuid = int(req.query_params.get("uid") or 0)
+    except Exception:
+        tuid = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Marti 11.6.: citlivé (🔒) údaje zatím do HR přehledu NETAHAT (ISO později)
+        cols = [f[0] for f in _SELF_FIELDS if f[2] != "pamet" and not f[4]]
+        row = s.execute(_t("SELECT " + ", ".join(cols) + " FROM tenant.user_self_data "
+                           "WHERE tenant_id=2 AND user_id=:u"), {"u": tuid}).first()
+        vals = {}
+        if row:
+            fmap = {f[0]: f for f in _SELF_FIELDS}
+            for i, c in enumerate(cols):
+                v = row[i]
+                if fmap[c][3] == "date" and v is not None:
+                    v = v.isoformat()
+                vals[c] = ("" if v is None else str(v))
+        secs = []
+        for skey, slabel, swhy in _SELF_SECTIONS:
+            if skey in ("pamet", "citlive"):
+                continue
+            items = [{"key": f[0], "label": f[1], "type": f[3], "sensitive": f[4],
+                      "value": vals.get(f[0], "")} for f in _SELF_FIELDS
+                     if f[2] == skey and not f[4]]
+            if items:
+                secs.append({"key": skey, "label": slabel, "items": items})
+        # děti: bez rodných čísel (citlivé)
+        deti = [{"child_name": r[0] or "", "birth_date": (r[1].isoformat() if r[1] else ""),
+                 "relief_order": r[2], "relation": r[3] or "",
+                 "phone": r[4] or "", "email": r[5] or ""} for r in s.execute(_t(
+            "SELECT child_name, birth_date, relief_order, relation, phone, email "
+            "FROM tenant.user_self_child WHERE tenant_id=2 AND user_id=:u ORDER BY relief_order NULLS LAST, id"),
+            {"u": tuid}).fetchall()]
+        nm = _self_person_name(s, tuid)
+        return JSONResponse({"ok": True, "jmeno": nm, "sections": secs, "deti": deti})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/person/save")
+async def app_hr_person_save(req: Request) -> JSONResponse:
+    """HR úprava úředních polí člověka. Loguje + upozorní dotyčného. BEZ paměti."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    tuid = int((b or {}).get("uid") or 0)
+    vals_in = (b or {}).get("values") or {}
+    valid = {f[0]: f for f in _SELF_FIELDS if f[2] != "pamet" and not f[4]}
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        cols = list(valid.keys())
+        prev = s.execute(_t("SELECT " + ", ".join(cols) + " FROM tenant.user_self_data "
+                            "WHERE tenant_id=2 AND user_id=:u"), {"u": tuid}).first()
+        oldv = {}
+        if prev:
+            for i, c in enumerate(cols):
+                ov = prev[i]
+                if valid[c][3] == "date" and ov is not None:
+                    ov = ov.isoformat()
+                oldv[c] = ("" if ov is None else str(ov))
+        newv = {}
+        for c in cols:
+            raw = vals_in.get(c)
+            sv = ("" if raw is None else str(raw)).strip()
+            newv[c] = (sv if sv != "" else None)
+        changed = [(c, valid[c][1]) for c in cols
+                   if oldv.get(c, "") != ("" if newv[c] is None else str(newv[c]))]
+        if not changed:
+            return JSONResponse({"ok": True, "changed": 0})
+        set_cl = ", ".join(c + "=EXCLUDED." + c for c in cols)
+        params = {"u": tuid}
+        for c in cols:
+            params[c] = newv[c]
+        s.execute(_t(
+            "INSERT INTO tenant.user_self_data (tenant_id, user_id, " + ", ".join(cols) +
+            ", updated_at, updated_by) VALUES (2, :u, " + ", ".join(":" + c for c in cols) +
+            ", now(), :u) ON CONFLICT (tenant_id, user_id) DO UPDATE SET " + set_cl +
+            ", updated_at=now(), updated_by=:u"), params)
+        for c, lab in changed:
+            s.execute(_t("INSERT INTO tenant.user_self_data_log "
+                         "(tenant_id, user_id, field_name, old_value, new_value, changed_by, change_source) "
+                         "VALUES (2, :u, :fn, :ov, :nv, :by, 'hr')"),
+                      {"u": tuid, "fn": c, "ov": oldv.get(c, ""),
+                       "nv": ("" if newv[c] is None else str(newv[c])), "by": uid})
+        nm = _self_person_name(s, uid)
+        _self_notify_owner(s, tuid, "🪪 Úprava tvých údajů personalistikou",
+            "Personální oddělení (" + nm + ") upravilo tvé údaje: "
+            + ", ".join(x[1] for x in changed) + ". Pokud něco nesedí, ozvi se.")
+        s.commit()
+        return JSONResponse({"ok": True, "changed": len(changed)})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/{app_key}/latest")
 async def app_latest(app_key: str, req: Request) -> JSONResponse:
     """Nejnovější dostupná verze appky {app_key} (token NEBO cookie)."""

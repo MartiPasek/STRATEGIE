@@ -1140,7 +1140,8 @@ setTimeout(function(){
     app.innerHTML=topbar("🔒 HR", true);
     var l=el('<div class="list"></div>');
     l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (přes mobil)",function(){ go("hr_me"); }));
-    l.appendChild(row("👥","Skupina HR — přístupy","Kdo vidí personální složky (spravují rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
+    l.appendChild(row("👥","Personální složky","Přehled a správa lidí (HR / vedení)",function(){ go("hr_people"); }));
+    l.appendChild(row("🔑","Skupina HR — přístupy","Kdo vidí personální složky (spravují rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
     app.appendChild(l);
     app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personální data si od teď spravuje každý sám za sebe — STRATEGIE je primární zdroj. „Skupina HR" určuje, kdo smí vidět citlivé personální složky (rodné číslo, OP, …).</div>'));
   }
@@ -1277,6 +1278,68 @@ setTimeout(function(){
       var back=el('<button style="width:100%;margin-top:6px;padding:9px;border:0;border-radius:10px;background:#26304a;color:#cdd;">Zpět</button>'); back.onclick=load; f.appendChild(back);
     }
     function load(){ api("GET","/api/v1/erp/app/self-secret","").then(render); }
+    load();
+  }
+  // --- HR: prehled lidi + karta (jen HR/rodice; citlive se nezobrazuji) ---
+  function hr_people(){
+    app.innerHTML=topbar("👥 Personální složky", true);
+    var srch=el('<input type="text" placeholder="Hledat jméno…" style="width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;margin-bottom:10px;">');
+    app.appendChild(srch);
+    var list=el('<div></div>'); app.appendChild(list);
+    function load(q){
+      list.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/hr/people"+(q?("?q="+encodeURIComponent(q)):""),"").then(function(j){
+        list.innerHTML="";
+        if(!j||!j.ok){ list.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Nemáš přístup (jen HR / vedení).":"Nelze načíst.")+'</div>')); return; }
+        if(!j.lide.length){ list.appendChild(el('<div class="hint">Nikdo nenalezen.</div>')); return; }
+        list.appendChild(el('<div class="hint" style="margin-bottom:4px;">'+j.lide.length+' lidí</div>'));
+        j.lide.forEach(function(p){
+          var ini=((p.jmeno||"?").trim().charAt(0)||"?").toUpperCase();
+          var r=el('<div style="display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid #1b2742;"></div>');
+          r.appendChild(el('<div style="width:40px;height:40px;border-radius:50%;background:'+avColor(p.jmeno)+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;flex:0 0 auto;">'+esc(ini)+'</div>'));
+          r.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(p.jmeno)+'</div>'+(p.mesto?'<div class="hint">'+esc(p.mesto)+'</div>':'')+'</div>'));
+          r.appendChild(el('<div class="chev" style="color:#5a6;">&#8250;</div>'));
+          r.addEventListener("click",function(){ window._hrUid=p.user_id; window._hrName=p.jmeno; go("hr_person"); });
+          list.appendChild(r);
+        });
+      });
+    }
+    var _td=null; srch.addEventListener("input",function(){ clearTimeout(_td); _td=setTimeout(function(){ load(srch.value.trim()); },250); });
+    load("");
+  }
+  function hr_person(){
+    var uid=window._hrUid;
+    app.innerHTML=topbar(window._hrName||"Karta", true);
+    var box=el('<div></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
+    var edit=false, inputs={};
+    function render(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Nemáš přístup.":"Nelze načíst.")+'</div>')); return; }
+      var eb=el('<button style="width:100%;padding:10px;border:0;border-radius:10px;margin-bottom:10px;background:'+(edit?"#26304a":"#2563eb")+';color:#fff;font-weight:700;">'+(edit?"Zrušit úpravy":"✏️ Upravit")+'</button>');
+      eb.onclick=function(){ edit=!edit; render(j); }; box.appendChild(eb);
+      inputs={};
+      (j.sections||[]).forEach(function(sec){
+        var c=_card(sec.label,"");
+        sec.items.forEach(function(it){
+          if(edit){ var w=_fld(it.label,(it.type==="date"?_czDate(it.value):it.value),it.type==="date"?"DD.MM.RRRR":""); inputs[it.key]={inp:w._inp,date:(it.type==="date")}; c.appendChild(w); }
+          else { c.appendChild(el('<div style="padding:5px 0;"><span class="hint">'+esc(it.label)+': </span>'+(it.value?esc(it.type==="date"?_czDate(it.value):it.value):'<span class="hint">—</span>')+'</div>')); }
+        });
+        box.appendChild(c);
+      });
+      if(j.deti && j.deti.length){
+        var dc=_card("👨‍👩‍👧 Děti","");
+        j.deti.forEach(function(d){ dc.appendChild(el('<div style="padding:5px 0;">'+esc(d.child_name||"")+(d.relief_order?(" · "+d.relief_order+". dítě"):"")+(d.birth_date?(" · "+esc(_czDate(d.birth_date))):"")+'</div>')); });
+        box.appendChild(dc);
+      }
+      if(edit){
+        var sv=el('<button style="width:100%;padding:13px;border:0;border-radius:12px;background:#16a34a;color:#fff;font-weight:700;">💾 Uložit změny</button>');
+        sv.onclick=function(){ var vals={}; Object.keys(inputs).forEach(function(k){ var v=inputs[k].inp.value; if(inputs[k].date)v=_isoDate(v); vals[k]=v; });
+          api("POST","/api/v1/erp/app/hr/person/save",{uid:uid,values:vals}).then(function(r){ if(r&&r.ok){ edit=false; load(); } else alert("Chyba: "+((r&&r.error)||"?")); }); };
+        box.appendChild(sv);
+      }
+      box.appendChild(el('<div style="height:80px;"></div>'));
+    }
+    function load(){ api("GET","/api/v1/erp/app/hr/person?uid="+uid,"").then(render); }
     load();
   }
   function openSoon(label){ window._soonLabel=label||""; go("soon"); }
@@ -3704,7 +3767,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_person:hr_person};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

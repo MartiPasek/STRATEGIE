@@ -2910,7 +2910,8 @@ setTimeout(function(){
     {k:"nem",  ic:"🤒", l:"Neschopenka", rx:/neschop|nemoc|sick/i},
     {k:"ocr",  ic:"👶", l:"OČR",         rx:/o[čc][řr]\b|ošetřov|osetrov/i},
     {k:"jed",  ic:"🤝", l:"Jednání",     rx:/jedn[aá]n/i},
-    {k:"ohl",  ic:"💬", l:"Ohlášení",    rx:/dřív|driv|pozděj|pozdej|skonč|skonc|přijd|prijd/i}
+    {k:"ohl",  ic:"💬", l:"Ohlášení",    rx:/dřív|driv|pozděj|pozdej|skonč|skonc|přijd|prijd/i},
+    {k:"ost",  ic:"📌", l:"Ostatní",     rx:/.*/ }
   ];
   function _planCat(it){ var s=((it.note||"")+" "+(it.txt||"")).toLowerCase();
     for(var i=0;i<_PLAN_CATS.length;i++){ if(_PLAN_CATS[i].rx.test(s)) return _PLAN_CATS[i].k; }
@@ -2946,7 +2947,9 @@ setTimeout(function(){
     if(rail){ rail.innerHTML="";
       [["📋","Vše","vse"]].concat(_PLAN_CATS.map(function(c){return [c.ic,c.l,c.k];})).forEach(function(it){
         var on=(st.f===it[2]);
-        var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:11px 2px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:27px;line-height:1;">'+it[0]+'</span>'+it[1]+'</button>');
+        var cnt=(it[2]==="vse")?items.length:items.filter(function(x){return _planCat(x)===it[2];}).length;
+        var bdg=(cnt>0)?'<span style="position:absolute;top:4px;right:6px;min-width:17px;height:17px;line-height:17px;border-radius:9px;background:var(--amber);color:#241a02;font-size:10px;font-weight:700;padding:0 3px;box-sizing:border-box;text-align:center;">'+cnt+'</span>':'';
+        var b=el('<button style="position:relative;width:100%;box-sizing:border-box;margin:0;padding:11px 2px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:27px;line-height:1;">'+it[0]+'</span>'+it[1]+bdg+'</button>');
         b.addEventListener("click",function(){ st.f=it[2]; _renderPlanPanel(railId,listId,items,st); });
         rail.appendChild(b);
       });

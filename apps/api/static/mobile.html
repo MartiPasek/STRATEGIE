@@ -2833,7 +2833,7 @@ setTimeout(function(){
   function _jobRow(e){
     var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
     var ic=_jobIcon(e), timeR=((e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':'')))||(e.typ||'');
-    var sub=esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+(e.hours!=null?(' · '+fmtHM(e.hours)):'')+(e.status?(' · '+esc(e.status)):'');
+    var sub=esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+(e.hours!=null?(' · '+fmtHM(e.hours)):'');  // Marti 11.6.: stav (pending) zatim skryt
     var _wbg=_jobMimo(e)?"#caa14a":"var(--green)";  // Marti 11.6.: práce zelená, mimo jantarová
     var head=el('<div class="cthead"><div class="cav" style="background:'+_wbg+';font-size:30px;line-height:1;">'+ic+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(timeR)+'</div><div class="ctnum">'+sub+'</div></div></div>');
     var exp=el('<div class="ctexp" style="display:none;"><div class="ctacts"></div><div class="hint" style="margin-top:8px;min-height:16px;"></div></div>');

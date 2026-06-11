@@ -202,17 +202,36 @@ class AndroidGatewayProvider(SmsProvider):
         return True
 
 
+class NoOpPullProvider(SmsProvider):
+    """VLASTNI STRATEGIE brana (Marti 11.6.2026): telefon si pending SMS sam stahne
+    pres GET /api/v1/sms/gateway/outbox, posle pres SIM a potvrdi /sent | /failed.
+    send() je NO-OP -- nechava status='pending'. Tim 'sent' = telefon REALNE poslal
+    a nahlasil to (audit rika pravdu). NE sms-gate.app."""
+
+    def send(self, outbox_id: int, to_phone: str, body: str) -> bool:
+        logger.info(
+            f"SMS | pull | ceka na vlastni branu (/gateway/outbox) | "
+            f"outbox_id={outbox_id} | to={to_phone}"
+        )
+        return True
+
+
 _provider_instance: SmsProvider | None = None
 
 
 def get_provider() -> SmsProvider:
-    """Singleton factory -- vrati aktualni provider podle settings.sms_provider."""
+    """Singleton factory -- vrati aktualni provider podle settings.sms_provider.
+
+    Default 'android_gateway' = NASE vlastni brana (pull model, telefon polluje
+    outbox). sms-gate.app push je jen pod explicitnim 'sms_gate'."""
     global _provider_instance
     if _provider_instance is not None:
         return _provider_instance
 
     name = (settings.sms_provider or "android_gateway").lower()
-    if name == "android_gateway":
+    if name in ("android_gateway", "self", "pull", "own"):
+        _provider_instance = NoOpPullProvider()
+    elif name in ("sms_gate", "smsgate", "capcom6", "relay"):
         _provider_instance = AndroidGatewayProvider()
     else:
         raise SmsError(f"neznamy SMS provider: {name!r}")

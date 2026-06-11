@@ -6269,6 +6269,36 @@ async def app_hr_person_save(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/sms/recent")
+async def app_sms_recent(req: Request) -> JSONResponse:
+    """Stav nedávných SMS se SKUTEČNÝM stavem z sms-gate.app. Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    rec = {"ok": False}
+    try:
+        from modules.notifications.application.sms_service import reconcile_sms_states
+        rec = reconcile_sms_states(180)
+    except Exception as exc:
+        rec = {"ok": False, "error": str(exc)}
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, right(to_phone,4), purpose, status, COALESCE(gate_state,'?'), "
+            " to_char(created_at,'DD.MM. HH24:MI:SS'), "
+            " to_char(sent_at,'HH24:MI:SS'), left(COALESCE(last_error,''),60) "
+            "FROM public.sms_outbox ORDER BY id DESC LIMIT 20")).fetchall()
+        out = [{"id": r[0], "tel": "***" + (r[1] or ""), "purpose": r[2], "status": r[3],
+                "gate_state": r[4], "vznik": r[5], "odeslano": r[6] or "", "err": r[7] or ""}
+               for r in rows]
+        return JSONResponse({"ok": True, "reconcile": rec, "sms": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/{app_key}/latest")
 async def app_latest(app_key: str, req: Request) -> JSONResponse:
     """Nejnovější dostupná verze appky {app_key} (token NEBO cookie)."""

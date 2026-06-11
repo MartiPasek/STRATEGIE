@@ -1018,6 +1018,7 @@ setTimeout(function(){
     l.appendChild(row("🆘","Nutně někoho sehnat","Urgentní upozornění s reakcí",function(){go("urgent");}));
     l.appendChild(row("🎭","Přihlásit jako (test)","Docházka za jiného usera — jen rodiče",function(){go("set_imp");}));
     if(native && B && typeof B.isSmsGateway==="function") l.appendChild(row("📨","SMS brána","Tento telefon přeposílá ověřovací SMS",function(){go("set_smsgw");}));
+    l.appendChild(row("📨","Stav odeslaných SMS","Doručení + zda brána reálně poslala (jen rodiče)",function(){go("sms_stav");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
     l.appendChild(row("ℹ️","O aplikaci", _hasUpdate?"🆕 Nová verze k dispozici":(ver?("Verze "+ver):"Verze a stav"),function(){go("set_about");}, _hasUpdate?1:0));
     app.appendChild(l); }
@@ -1341,6 +1342,23 @@ setTimeout(function(){
     }
     function load(){ api("GET","/api/v1/erp/app/hr/person?uid="+uid,"").then(render); }
     load();
+  }
+  function sms_stav(){
+    app.innerHTML=topbar("📨 Stav SMS", true);
+    var box=el('<div></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám + ověřuji stav u brány…</div>';
+    api("GET","/api/v1/erp/app/sms/recent","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Jen pro rodiče.":"Nelze načíst.")+'</div>')); return; }
+      if(j.reconcile){ var rc=j.reconcile; box.appendChild(el('<div class="hint" style="margin-bottom:8px;">'+(rc.ok?("Ověřeno u brány: zkontrolováno "+(rc.checked||0)+", aktualizováno "+(rc.updated||0)+(rc.failed?(", ⚠ selhalo "+rc.failed):"")):("Bránu nešlo ověřit: "+esc(rc.error||"?")))+'</div>')); }
+      (j.sms||[]).forEach(function(m){
+        var col={Delivered:"#5ee0b7",Sent:"#9fd",Failed:"#f88",Accepted:"#fc8",Pending:"#fc8"}[m.gate_state]||"#9fb2d4";
+        var r=el('<div style="padding:9px 0;border-bottom:1px solid #1b2742;"></div>');
+        r.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;"><b>'+esc(m.purpose)+'</b> <span style="color:'+col+';font-weight:700;">'+esc(m.gate_state)+'</span></div><div class="hint">'+esc(m.tel)+' · '+esc(m.vznik)+' · DB:'+esc(m.status)+(m.err?(' · '+esc(m.err)):'')+'</div>';
+        box.appendChild(r);
+      });
+      if(!(j.sms||[]).length) box.appendChild(el('<div class="hint">Žádné nedávné SMS.</div>'));
+      var rb=el('<button style="width:100%;margin-top:12px;padding:11px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;">🔄 Obnovit</button>'); rb.onclick=function(){ sms_stav(); }; box.appendChild(rb);
+    });
   }
   function openSoon(label){ window._soonLabel=label||""; go("soon"); }
   function soon(){
@@ -3767,7 +3785,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_person:hr_person};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_person:hr_person,sms_stav:sms_stav};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

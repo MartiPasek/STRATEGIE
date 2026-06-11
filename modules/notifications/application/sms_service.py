@@ -192,6 +192,13 @@ class AndroidGatewayProvider(SmsProvider):
             f"gate_msg_id={gate_msg_id} | to={to_phone}"
         )
         mark_sent(outbox_id)
+        # Marti 11.6.: ulož id z relaye + označ realny stav 'Accepted'
+        # (= relay přijal, NE že telefon fyzicky odeslal). reconcile_sms_states()
+        # pak dotahuje skutečný stav (Sent/Delivered/Failed) → audit říká pravdu.
+        try:
+            _store_gate_id(outbox_id, gate_msg_id)
+        except Exception as _ge:
+            logger.warning(f"SMS | gate | store_id failed | {_ge}")
         return True
 
 
@@ -416,6 +423,86 @@ def mark_failed(outbox_id: int, error: str | None = None) -> bool:
             f"SMS | failed | id={outbox_id} | to={row.to_phone} | error={row.last_error!r}"
         )
         return True
+    finally:
+        ds.close()
+
+
+def _store_gate_id(outbox_id: int, gate_msg_id) -> None:
+    """Ulozi id zpravy z sms-gate.app relaye + gate_state='Accepted' (= prijato
+    relayem, NE odeslano telefonem). reconcile_sms_states() pak dotahne pravdu."""
+    if not gate_msg_id:
+        return
+    from sqlalchemy import text as _t
+    ds = get_data_session()
+    try:
+        ds.execute(_t("UPDATE public.sms_outbox SET gate_msg_id=:g, "
+                      "gate_state=COALESCE(gate_state,'Accepted') WHERE id=:i"),
+                   {"g": str(gate_msg_id)[:80], "i": outbox_id})
+        ds.commit()
+    finally:
+        ds.close()
+
+
+def _gate_get(path: str):
+    """GET na sms-gate.app 3rdparty API (basic auth). Vrati (status_code, json|None)."""
+    import requests
+    url = settings.sms_gate_api_url.rstrip("/") + path
+    r = requests.get(url, auth=(settings.sms_gate_username, settings.sms_gate_password),
+                     timeout=15)
+    try:
+        j = r.json()
+    except Exception:
+        j = None
+    return r.status_code, j
+
+
+def reconcile_sms_states(minutes: int = 180) -> dict:
+    """Dotahne SKUTECNY stav nedavnych SMS ze sms-gate.app (Pending/Sent/Delivered/
+    Failed) a promitne do sms_outbox.gate_state; Failed -> status='failed'.
+    Tim audit rika pravdu, zda telefon SMS realne odeslal."""
+    from sqlalchemy import text as _t
+    if not (settings.sms_gate_username and settings.sms_gate_password):
+        return {"ok": False, "error": "creds_missing"}
+    ds = get_data_session()
+    checked = 0
+    updated = 0
+    failed = 0
+    try:
+        rows = ds.execute(_t(
+            "SELECT id, gate_msg_id FROM public.sms_outbox "
+            "WHERE gate_msg_id IS NOT NULL "
+            "  AND COALESCE(gate_state,'') NOT IN ('Delivered','Failed') "
+            "  AND created_at > now() - (:m || ' minutes')::interval "
+            "ORDER BY id DESC LIMIT 50"), {"m": str(int(minutes))}).fetchall()
+        for rid, gid in rows:
+            checked += 1
+            try:
+                sc, j = _gate_get("/messages/" + str(gid))
+            except Exception:
+                continue
+            if sc >= 400 or not isinstance(j, dict):
+                continue
+            state = str(j.get("state") or "").strip()
+            err = ""
+            try:
+                recs = j.get("recipients") or []
+                if recs:
+                    err = str(recs[0].get("error") or "")
+            except Exception:
+                pass
+            if not state:
+                continue
+            if state == "Failed":
+                ds.execute(_t("UPDATE public.sms_outbox SET gate_state='Failed', "
+                              "status='failed', last_error=:e WHERE id=:i"),
+                           {"e": ("gate: " + (err or "Failed"))[:2000], "i": rid})
+                failed += 1
+            else:
+                ds.execute(_t("UPDATE public.sms_outbox SET gate_state=:s WHERE id=:i"),
+                           {"s": state[:30], "i": rid})
+            updated += 1
+        ds.commit()
+        return {"ok": True, "checked": checked, "updated": updated, "failed": failed}
     finally:
         ds.close()
 

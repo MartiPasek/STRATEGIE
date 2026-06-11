@@ -185,6 +185,22 @@ async def lifespan(app: FastAPI):
     # Pattern pro priste: kdyz Marti nema VPN, DDL na public.* jde pres
     # idempotentni lifespan hook (API bezi jako strategie = owner) + deploy.
 
+    # Marti 11.6.2026: SMS audit — sloupce pro realny stav z sms-gate.app relaye.
+    try:
+        from sqlalchemy import text as _t_sms
+        from core.database_data import get_data_session as _gs_sms
+        _ds_sms = _gs_sms()
+        try:
+            _ds_sms.execute(_t_sms(
+                "ALTER TABLE public.sms_outbox "
+                "ADD COLUMN IF NOT EXISTS gate_msg_id varchar(80), "
+                "ADD COLUMN IF NOT EXISTS gate_state varchar(30)"))
+            _ds_sms.commit()
+        finally:
+            _ds_sms.close()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] sms_outbox gate cols failed: {exc}")
+
     # Marti 9.6.2026: zivy 30s tik dochazky — mirror dnesku z Centraly.
     try:
         from modules.erp.api.router import _att_sync_start as _att_start

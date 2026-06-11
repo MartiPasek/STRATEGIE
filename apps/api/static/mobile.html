@@ -227,6 +227,9 @@ setTimeout(function(){
     // Marti 11.6.: ochrana proti dvojímu Zpět (< 200 ms) + zvukové ťuknutí jako ostatní volby.
     var _nb=Date.now(); if(window._lastBackTs && (_nb-window._lastBackTs)<200) return true; window._lastBackTs=_nb;
     try{ _tapFeedback(); }catch(e){}
+    // Snímek obrazovky přes celou plochu → Zpět zavře jen jeho.
+    var _sov=document.getElementById("shotOverlay");
+    if(_sov){ _sov.remove(); var _sfab=document.getElementById("shotFab"); if(_sfab)_sfab.style.display=""; return true; }
     // overlay odchodu už visí → druhý stisk Zpět = opravdu odejít
     // Marti 11.6.: detail jobu přes celou obrazovku → Zpět zavře jen jeho (o úroveň níž).
     var _jov=document.getElementById("jobOverlay");
@@ -1003,6 +1006,7 @@ setTimeout(function(){
     if(native) l.appendChild(row("📞","Telefonní číslo","Číslo tohoto telefonu (ze SIM)",function(){go("set_phone");}));
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
     l.appendChild(row("🔔","Přístup k oznámením","Počty WhatsApp / SMS",function(){go("set_notifaccess");}));
+    l.appendChild(row("📷","Snímek obrazovky","Zmrazit, nakreslit a odeslat",function(){go("set_shot");}));
     l.appendChild(row("🎭","Přihlásit jako (test)","Docházka za jiného usera — jen rodiče",function(){go("set_imp");}));
     if(native && B && typeof B.isSmsGateway==="function") l.appendChild(row("📨","SMS brána","Tento telefon přeposílá ověřovací SMS",function(){go("set_smsgw");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
@@ -3262,7 +3266,106 @@ setTimeout(function(){
     });
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw};
+  // ===== Snímek obrazovky: zmrazit + nakreslit + odeslat Claudovi (Marti 11.6.2026) =====
+  function _shotBtnOn(){ try{ return localStorage.getItem("stg_shot_btn")==="1"; }catch(e){ return false; } }
+  function _shotSyncBtn(){
+    var b=document.getElementById("shotFab"); var on=_shotBtnOn();
+    if(on && !b){
+      b=el('<button id="shotFab" aria-label="Snímek obrazovky" style="position:fixed;right:14px;bottom:calc(86px + env(safe-area-inset-bottom,0px));z-index:900;width:48px;height:48px;border-radius:50%;border:1px solid var(--bord);background:rgba(18,22,30,.86);color:#fff;font-size:22px;line-height:48px;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.45);">📷</button>');
+      b.addEventListener("click",function(ev){ ev.preventDefault(); ev.stopPropagation(); try{_tapFeedback();}catch(e){} openShot(); });
+      document.body.appendChild(b);
+    } else if(!on && b){ b.remove(); }
+  }
+  function _shotToast(msg){ var t=document.getElementById("shotToast"); if(!t){ t=el('<div id="shotToast" style="position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:1100;background:rgba(18,22,30,.96);border:1px solid var(--bord);color:#fff;padding:8px 14px;border-radius:20px;font-size:14px;box-shadow:0 4px 14px rgba(0,0,0,.45);"></div>'); document.body.appendChild(t); } t.textContent=msg; t.style.display="block"; }
+  function _shotToastHide(){ var t=document.getElementById("shotToast"); if(t)t.style.display="none"; }
+  var _h2cReady=null;
+  function _loadH2C(){
+    if(_h2cReady) return _h2cReady;
+    _h2cReady=new Promise(function(res,rej){
+      if(window.html2canvas){ res(window.html2canvas); return; }
+      var s=document.createElement("script");
+      s.src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      s.onload=function(){ window.html2canvas?res(window.html2canvas):rej(new Error("html2canvas se nenačetl")); };
+      s.onerror=function(){ rej(new Error("nelze stáhnout nástroj snímku (offline?)")); };
+      document.head.appendChild(s);
+    });
+    return _h2cReady;
+  }
+  function openShot(){
+    var fab=document.getElementById("shotFab"); if(fab)fab.style.display="none";
+    _shotToast("📸 Zmrazuji obrazovku…");
+    var sx=window.scrollX||0, sy=window.scrollY||0;
+    _loadH2C().then(function(h2c){
+      return h2c(document.body,{ x:sx, y:sy, width:document.documentElement.clientWidth, height:window.innerHeight,
+        backgroundColor:"#0e1117", scale:Math.min(2,window.devicePixelRatio||1), useCORS:true, logging:false });
+    }).then(function(canvas){ _shotToastHide(); _openAnnot(canvas); })
+    .catch(function(e){ _shotToastHide(); if(fab)fab.style.display=""; _shotToast("⚠️ "+((e&&e.message)||e)); setTimeout(_shotToastHide,2600); });
+  }
+  function _openAnnot(baseCanvas){
+    var W=baseCanvas.width, H=baseCanvas.height;
+    var cv=document.createElement("canvas"); cv.width=W; cv.height=H;
+    var ctx=cv.getContext("2d");
+    var strokes=[], cur=null, drawing=false;
+    var color="#ff3b30";
+    var thin=Math.max(2,Math.round(W/220)), thick=Math.max(5,Math.round(W/80)), lw=thick;
+    function redraw(){ ctx.clearRect(0,0,W,H); ctx.drawImage(baseCanvas,0,0); ctx.lineCap="round"; ctx.lineJoin="round";
+      for(var i=0;i<strokes.length;i++){ var s=strokes[i]; ctx.strokeStyle=s.color; ctx.lineWidth=s.width; ctx.beginPath();
+        for(var j=0;j<s.pts.length;j++){ var p=s.pts[j]; if(j===0)ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); }
+        if(s.pts.length===1)ctx.lineTo(s.pts[0].x+0.2,s.pts[0].y+0.2); ctx.stroke(); } }
+    redraw();
+    var ov=el('<div id="shotOverlay" style="position:fixed;inset:0;z-index:1000;background:#0a0c10;display:flex;flex-direction:column;"></div>');
+    var tb=el('<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#11151c;border-bottom:1px solid var(--bord);flex-wrap:wrap;"></div>');
+    var colors=["#ff3b30","#ffcc00","#34c759","#0a84ff","#ffffff","#111111"];
+    colors.forEach(function(c){ var sw=el('<button class="swt" style="width:30px;height:30px;border-radius:50%;border:2px solid '+(c===color?"#fff":"transparent")+';background:'+c+';padding:0;"></button>'); sw.dataset.c=c; sw.addEventListener("click",function(){ color=c; refreshSw(); }); tb.appendChild(sw); });
+    function refreshSw(){ Array.prototype.forEach.call(tb.querySelectorAll(".swt"),function(x){ x.style.borderColor=(x.dataset.c===color)?"#fff":"transparent"; }); }
+    var wbtn=el('<button class="ghost" style="padding:4px 10px;">✏️ silné</button>');
+    wbtn.addEventListener("click",function(){ lw=(lw===thick)?thin:thick; wbtn.textContent=(lw===thick)?"✏️ silné":"✏️ tenké"; });
+    var ub=el('<button class="ghost" style="padding:4px 10px;">↶ Zpět</button>'); ub.addEventListener("click",function(){ strokes.pop(); redraw(); });
+    var clb=el('<button class="ghost" style="padding:4px 10px;">🗑</button>'); clb.addEventListener("click",function(){ strokes=[]; redraw(); });
+    var xb=el('<button class="warn" style="padding:4px 12px;margin-left:auto;">✕</button>'); xb.addEventListener("click",closeOv);
+    tb.appendChild(wbtn); tb.appendChild(ub); tb.appendChild(clb); tb.appendChild(xb);
+    var wrap=el('<div style="flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;background:#000;"></div>');
+    cv.style.width="100%"; cv.style.height="auto"; cv.style.display="block"; cv.style.touchAction="none";
+    wrap.appendChild(cv);
+    var bb=el('<div style="padding:8px 10px calc(10px + env(safe-area-inset-bottom,0px));background:#11151c;border-top:1px solid var(--bord);display:flex;gap:8px;align-items:center;"></div>');
+    var note=el('<input placeholder="Popisek (nepovinné)…" style="flex:1;background:#0e1117;border:1px solid var(--bord);border-radius:10px;color:#fff;padding:9px 10px;font-size:14px;">');
+    var send=el('<button class="green" style="padding:10px 14px;white-space:nowrap;">📤 Claudovi</button>');
+    send.addEventListener("click",doSend);
+    bb.appendChild(note); bb.appendChild(send);
+    ov.appendChild(tb); ov.appendChild(wrap); ov.appendChild(bb); document.body.appendChild(ov);
+    function pt(ev){ var r=cv.getBoundingClientRect(); var kx=cv.width/r.width, ky=cv.height/r.height;
+      var cx=(ev.touches&&ev.touches[0])?ev.touches[0].clientX:ev.clientX, cy=(ev.touches&&ev.touches[0])?ev.touches[0].clientY:ev.clientY;
+      return {x:(cx-r.left)*kx, y:(cy-r.top)*ky}; }
+    cv.addEventListener("pointerdown",function(ev){ ev.preventDefault(); drawing=true; cur={color:color,width:lw,pts:[pt(ev)]}; strokes.push(cur); redraw(); try{cv.setPointerCapture(ev.pointerId);}catch(e){} });
+    cv.addEventListener("pointermove",function(ev){ if(!drawing)return; ev.preventDefault(); cur.pts.push(pt(ev)); redraw(); });
+    cv.addEventListener("pointerup",function(){ drawing=false; });
+    cv.addEventListener("pointercancel",function(){ drawing=false; });
+    function closeOv(){ ov.remove(); var fab=document.getElementById("shotFab"); if(fab)fab.style.display=""; }
+    function doSend(){
+      send.disabled=true; send.textContent="⏳ Posílám…";
+      var data; try{ data=cv.toDataURL("image/png"); }catch(e){ send.disabled=false; send.textContent="📤 Claudovi"; _shotToast("⚠️ Snímek nelze uložit (CORS)"); setTimeout(_shotToastHide,2200); return; }
+      api("POST","/api/v1/erp/app/screenshot",{img_b64:data, note:(note.value||"").trim(), target:"claude"}).then(function(j){
+        if(j&&j.ok){ closeOv(); _shotToast("✅ Odesláno Claudovi"); setTimeout(_shotToastHide,1800); }
+        else { send.disabled=false; send.textContent="📤 Claudovi"; _shotToast("⚠️ "+((j&&j.error)||"nepodařilo se odeslat")); setTimeout(_shotToastHide,2600); }
+      }).catch(function(){ send.disabled=false; send.textContent="📤 Claudovi"; _shotToast("⚠️ Nepodařilo se odeslat"); setTimeout(_shotToastHide,2600); });
+    }
+    refreshSw();
+  }
+  function set_shot(){ app.innerHTML=topbar("Snímek obrazovky", true); var p=el('<div class="panel"></div>');
+    var on=_shotBtnOn();
+    p.appendChild(el('<div class="hint" style="margin-bottom:8px;">Zmrazí aktuální obrazovku, můžeš do ní <b>nakreslit</b> (kroužky, šipky) a <b>odeslat Claudovi</b>. Hodí se, když chceš rychle ukázat, co je na obrazovce.</div>'));
+    var t=el('<button class="'+(on?"ghost":"green")+' full" style="font-size:16px;">'+(on?"✅ Plovoucí 📷 zapnuté — klepni pro vypnutí":"📷 Zapnout plovoucí tlačítko snímku")+'</button>');
+    t.addEventListener("click",function(){ on=!on; try{localStorage.setItem("stg_shot_btn",on?"1":"0");}catch(e){} _shotSyncBtn();
+      t.className=(on?"ghost":"green")+" full"; t.style.fontSize="16px";
+      t.textContent=on?"✅ Plovoucí 📷 zapnuté — klepni pro vypnutí":"📷 Zapnout plovoucí tlačítko snímku"; });
+    p.appendChild(t);
+    var tryb=el('<button class="ghost full" style="margin-top:10px;">📸 Vyzkoušet teď</button>');
+    tryb.addEventListener("click",function(){ openShot(); });
+    p.appendChild(tryb);
+    p.appendChild(el('<div class="hint" style="margin-top:10px;">Plovoucí 📷 se ukáže vpravo dole na každé obrazovce. Po stisku obrazovku zmrazí — pak kresli prstem, vyber barvu a klepni „Claudovi".</div>'));
+    app.appendChild(p); }
+
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){
@@ -3319,6 +3422,7 @@ setTimeout(function(){
   try{ history.pushState(null,""); }catch(e){}
   render();
   window.__stgBoot=true;  // appka úspěšně nastartovala → watchdog se nespustí
+  try{ _shotSyncBtn(); }catch(e){}
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
 
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).

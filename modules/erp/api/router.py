@@ -5468,6 +5468,100 @@ async def app_upload(
                          "version_name": version_name.strip(), "size": size})
 
 
+# ---- Snimky obrazovky (zmrazit + nakreslit + odeslat Claudovi) — Marti 11.6.2026 ----
+def _screenshot_dir() -> str:
+    """Slozka na cloud pro anotovane snimky z appky. Bridge je stahne k Claudovi."""
+    import os as _os_sh
+    base = _os_sh.environ.get("APP_SCREENSHOTS_DIR")
+    if not base:
+        from core.config import settings as _st_sh
+        media = getattr(_st_sh, "media_storage_root", "D:/Data/STRATEGIE/media")
+        base = _os_sh.path.join(_os_sh.path.dirname(media.rstrip("/\\")), "claude_screenshots")
+    _os_sh.makedirs(base, exist_ok=True)
+    return base
+
+
+def _screenshot_token_ok(req: Request) -> bool:
+    import os as _os_st
+    tok = req.headers.get("X-Deploy-Token")
+    env = _os_st.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    return bool(tok and env and tok == env)
+
+
+@api_router.post("/app/screenshot")
+async def app_screenshot_upload(req: Request) -> JSONResponse:
+    """Appka posle anotovany snimek obrazovky (zmrazit + nakreslit). Cil zatim
+    Claude (user 23) — ulozi se na cloud, bridge ho stahne. Token NEBO cookie."""
+    import os as _os_ss, base64 as _b64_ss, time as _t_ss, json as _j_ss
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    b64 = (body.get("img_b64") or "").strip()
+    if b64[:5].lower() == "data:" and "," in b64[:64]:
+        b64 = b64.split(",", 1)[1]
+    if not b64:
+        return JSONResponse({"ok": False, "error": "Chybí obrázek"}, status_code=400)
+    try:
+        raw = _b64_ss.b64decode(b64)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatný base64"}, status_code=400)
+    if len(raw) > 12 * 1024 * 1024:
+        return JSONResponse({"ok": False, "error": "Snímek > 12 MB"}, status_code=400)
+    note = (body.get("note") or "").strip()[:500]
+    target = (body.get("target") or "claude").strip()[:32]
+    d = _screenshot_dir()
+    ts = _t_ss.strftime("%Y%m%d_%H%M%S")
+    fname = "u%d_%s.png" % (uid, ts)
+    try:
+        with open(_os_ss.path.join(d, fname), "wb") as f:
+            f.write(raw)
+        with open(_os_ss.path.join(d, "latest_u%d.png" % uid), "wb") as f:
+            f.write(raw)
+        meta = {"ts": ts, "note": note, "target": target, "fname": fname,
+                "uid": uid, "epoch": int(_t_ss.time())}
+        with open(_os_ss.path.join(d, "latest_u%d.json" % uid), "w", encoding="utf-8") as f:
+            _j_ss.dump(meta, f)
+    except Exception as exc:
+        logger.exception("[app_screenshot] save failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    logger.info("[app_screenshot] uid=%d ts=%s %dB note=%r", uid, ts, len(raw), note[:60])
+    return JSONResponse({"ok": True, "ts": ts})
+
+
+@api_router.get("/app/screenshot/poll")
+async def app_screenshot_poll(req: Request, uid: int = 0) -> JSONResponse:
+    """Bridge zjisti, jestli je novy snimek od usera <uid>. X-Deploy-Token."""
+    import os as _os_sp, json as _j_sp
+    if not _screenshot_token_ok(req):
+        return JSONResponse({"ok": False, "error": "Neautorizováno"}, status_code=401)
+    p = _os_sp.path.join(_screenshot_dir(), "latest_u%d.json" % int(uid))
+    if not _os_sp.path.isfile(p):
+        return JSONResponse({"ok": True, "has": False})
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            meta = _j_sp.load(f)
+    except Exception:
+        return JSONResponse({"ok": True, "has": False})
+    return JSONResponse({"ok": True, "has": True, "ts": meta.get("ts"),
+                         "note": meta.get("note", ""), "epoch": meta.get("epoch", 0)})
+
+
+@api_router.get("/app/screenshot/latest")
+async def app_screenshot_latest(req: Request, uid: int = 0):
+    """Bridge stahne posledni snimek usera <uid> jako PNG. X-Deploy-Token."""
+    import os as _os_sl
+    if not _screenshot_token_ok(req):
+        return JSONResponse({"ok": False, "error": "Neautorizováno"}, status_code=401)
+    p = _os_sl.path.join(_screenshot_dir(), "latest_u%d.png" % int(uid))
+    if not _os_sl.path.isfile(p):
+        return JSONResponse({"ok": False, "error": "Žádný snímek"}, status_code=404)
+    return FileResponse(p, media_type="image/png", filename="screenshot.png")
+
+
 @api_router.post("/app/{app_key}/heartbeat")
 async def app_heartbeat(app_key: str, req: Request) -> JSONResponse:
     """Appka hlásí svůj stav (verze + nastavení) → fw.mobile_device. Token NEBO cookie."""

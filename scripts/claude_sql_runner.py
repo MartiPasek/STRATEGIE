@@ -152,6 +152,17 @@ HEARTBEAT_URL = CLOUD_URL.replace("/diag-sql", "/instance/heartbeat")
 INBOX_URL = CLOUD_URL.replace("/diag-sql", "/claude-inbox")
 TASKS_FILE = BRIDGE_DIR / "CLAUDE_TASKS.txt"
 
+# Snimky obrazovky (Marti 11.6.2026): Marti v appce zmrazi obrazovku, nakresli
+# a posle Claudovi. Cloud ji ulozi; watcher polluje a stahne k Claudovi do
+# screenshots/latest.png (gitignored), aby si ji Claude precetl Read toolem.
+SCREENSHOT_POLL_URL = CLOUD_URL.replace("/diag-sql", "/app/screenshot/poll")
+SCREENSHOT_GET_URL = CLOUD_URL.replace("/diag-sql", "/app/screenshot/latest")
+SCREENSHOTS_DIR = REPO_ROOT / "screenshots"
+SCREENSHOT_POLL_INTERVAL_SEC = 5
+# Ktery user posila k teto instanci (23=Marti uid 1, 24=Kristy uid 11).
+SCREENSHOT_UID = os.environ.get("CLAUDE_SCREENSHOT_UID") or ("11" if INSTANCE_ID == "24" else "1")
+_shot_last_epoch = 0
+
 
 def _log(msg: str) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -1158,6 +1169,49 @@ def _poll_claude_inbox() -> None:
         pass  # inbox je nice-to-have, nikdy neblokuj watcher
 
 
+def _poll_screenshot() -> None:
+    """Stáhni nový snímek obrazovky od usera (Marti zmrazil+nakreslil v appce)
+    do screenshots/latest.png, aby si ho Claude přečetl Read toolem. Best-effort,
+    NIKDY neblokuj watcher. Marti 11.6.2026."""
+    global _shot_last_epoch
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not token:
+        return
+    try:
+        url = SCREENSHOT_POLL_URL + ("?uid=%s" % SCREENSHOT_UID)
+        rq = urllib.request.Request(url, method="GET", headers={"X-Deploy-Token": token})
+        with urllib.request.urlopen(rq, timeout=10) as resp:
+            j = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if not (isinstance(j, dict) and j.get("ok") and j.get("has")):
+            return
+        epoch = int(j.get("epoch") or 0)
+        if epoch and epoch <= _shot_last_epoch:
+            return
+        gurl = SCREENSHOT_GET_URL + ("?uid=%s" % SCREENSHOT_UID)
+        rq2 = urllib.request.Request(gurl, method="GET", headers={"X-Deploy-Token": token})
+        with urllib.request.urlopen(rq2, timeout=30) as resp2:
+            data = resp2.read()
+        if not data:
+            return
+        SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+        ts = j.get("ts") or time.strftime("%Y%m%d_%H%M%S")
+        note = (j.get("note") or "").strip()
+        (SCREENSHOTS_DIR / ("shot_%s.png" % ts)).write_bytes(data)
+        (SCREENSHOTS_DIR / "latest.png").write_bytes(data)
+        (SCREENSHOTS_DIR / "latest.txt").write_text(
+            "ts=%s\nnote=%s\nfile=screenshots/shot_%s.png\n" % (ts, note, ts),
+            encoding="utf-8")
+        _shot_last_epoch = epoch
+        try:
+            (SCREENSHOTS_DIR / ".last_epoch").write_text(str(epoch), encoding="utf-8")
+        except Exception:
+            pass
+        _log("screenshot: novy snimek ts=%s (%d B)%s -> screenshots/latest.png"
+             % (ts, len(data), (" · " + note[:50]) if note else ""))
+    except Exception:
+        pass  # snimky jsou nice-to-have, nikdy neblokuj watcher
+
+
 def main() -> None:
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
     _log(f"STRATEGIE-CLAUDE-SQL forwarder started · {INSTANCE_LABEL} · host={HOSTNAME} · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
@@ -1169,6 +1223,12 @@ def main() -> None:
     _send_heartbeat("startup")   # hned po startu hlas presence
     _last_hb = time.time()
     _last_fresh = time.time()
+    _last_shot = 0.0             # snímky obrazovky — pollni hned po startu
+    global _shot_last_epoch
+    try:
+        _shot_last_epoch = int((SCREENSHOTS_DIR / ".last_epoch").read_text(encoding="utf-8").strip())
+    except Exception:
+        _shot_last_epoch = 0
     try:
         while True:
             try:
@@ -1191,6 +1251,10 @@ def main() -> None:
                     _send_heartbeat()
                     _poll_claude_inbox()
                     _last_hb = time.time()
+                # Snímky obrazovky (Marti 11.6.): pollni á ~5 s a stáhni nový.
+                if time.time() - _last_shot >= SCREENSHOT_POLL_INTERVAL_SEC:
+                    _poll_screenshot()
+                    _last_shot = time.time()
             except Exception as exc:
                 _log(f"scan loop crash: {type(exc).__name__}: {exc}")
                 try:

@@ -5985,9 +5985,49 @@ async def app_self_secret_save(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _vault_match_inbound(from_phone: str, body: str) -> bool:
+    """Marti 11.6.: caller-ID 2FA pro trezor. Když přijde SMS s tokenem
+    STG-VLT-… z telefonu vlastníka, označ reveal jako ověřený (number nelze
+    ošidit). Volá se z /app/sms-inbound PŘED standardním flow. Vrací True když
+    šlo o vault token (a má se skipnout dál)."""
+    import re as _re
+    m = _re.search(r"STG-VLT-[A-Z0-9]+", (body or "").upper())
+    if not m:
+        return False
+    token = m.group(0)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t(
+            "SELECT id, user_id FROM fw.phone_verify "
+            "WHERE token=:t AND verified_at IS NULL AND expires_at > now() "
+            "  AND device_label LIKE 'vault:%' LIMIT 1"), {"t": token}).first()
+        if not row:
+            return True  # byl to vault token, ale neznámý/expirovaný → skip dál
+        pid, ouid = row[0], row[1]
+        owner_phone = _self_owner_phone(s, ouid) or ""
+        def _digits(x):
+            return "".join(ch for ch in (x or "") if ch.isdigit())[-9:]
+        if _digits(from_phone) and _digits(owner_phone) and _digits(from_phone) == _digits(owner_phone):
+            s.execute(_t("UPDATE fw.phone_verify SET verified_at=now(), phone_number=:p WHERE id=:i"),
+                      {"p": from_phone[:40], "i": pid})
+            s.commit()
+        else:
+            # caller-ID nesedí → anti-spoof, neoznačíme (necháme expirovat)
+            logger.warning("[vault inbound] caller-id mismatch token=%s from=%s", token, from_phone)
+        return True
+    except Exception as exc:
+        s.rollback()
+        logger.warning("[vault inbound] %s", exc)
+        return True
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/self-secret/reveal-start")
 async def app_self_secret_reveal_start(req: Request) -> JSONResponse:
-    """1. fáze: ověř PIN → pošli SMS kód (2FA)."""
+    """1. fáze: ověř PIN → vrať token, který appka pošle SMS na Gateway (caller-ID
+    2FA). SMS jde Z mého telefonu NA Gateway SIM — žádné odchozí doručování."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -5997,33 +6037,29 @@ async def app_self_secret_reveal_start(req: Request) -> JSONResponse:
         b = {}
     from sqlalchemy import text as _t
     import secrets as _sec
-    from modules.notifications.application.sms_service import queue_sms
+    sid = int((b or {}).get("id") or 0)
     cm, s = _att_session()
     try:
         err = _pin_gate(s, uid, str((b or {}).get("pin") or "").strip())
         if err:
             return JSONResponse(err)
-        phone = _self_owner_phone(s, uid)
-        if not phone:
+        if not _self_owner_phone(s, uid):
             return JSONResponse({"ok": False, "error": "no_phone",
-                                 "note": "Nemáš ověřený mobil — ozvi se Marti."})
-        cnt = s.execute(_t("SELECT count(*) FROM fw.phone_verify_code "
-                           "WHERE user_id=:u AND created_at > now() - interval '15 minutes'"),
-                        {"u": uid}).scalar() or 0
-        if cnt >= 3:
-            return JSONResponse({"ok": False, "error": "rate_limited",
-                                 "note": "Příliš mnoho SMS. Zkus to za 15 minut."})
-        s.execute(_t("UPDATE fw.phone_verify_code SET used_at=now() WHERE user_id=:u AND used_at IS NULL"),
-                  {"u": uid})
-        code = f"{_sec.randbelow(1000000):06d}"
-        s.execute(_t("INSERT INTO fw.phone_verify_code (user_id, phone, code, expires_at) "
-                     "VALUES (:u, :p, :c, now() + interval '10 minutes')"),
-                  {"u": uid, "p": phone, "c": code})
+                                 "note": "Nemáš u nás ověřené číslo — ozvi se Marti."})
+        # ověř že heslo patří uživateli
+        own = s.execute(_t("SELECT 1 FROM tenant.user_secret WHERE id=:i AND tenant_id=2 AND user_id=:u"),
+                        {"i": sid, "u": uid}).first()
+        if not own:
+            return JSONResponse({"ok": False, "error": "not_found"})
+        token = "STG-VLT-" + _sec.token_hex(3).upper()
+        s.execute(_t("DELETE FROM fw.phone_verify WHERE expires_at < now()"))
+        s.execute(_t(
+            "INSERT INTO fw.phone_verify (token, user_id, device_label, expires_at) "
+            "VALUES (:t, :u, :dl, now() + interval '10 minutes')"),
+            {"t": token, "u": uid, "dl": "vault:" + str(sid)})
         s.commit()
-        queue_sms(to=phone, body=f"STRATEGIE trezor: overovaci kod {code}. Plati 10 minut.",
-                  purpose="vault_reveal", user_id=uid)
-        masked = ("*" * max(len(phone) - 3, 0)) + phone[-3:]
-        return JSONResponse({"ok": True, "sms_sent": True, "phone": masked})
+        return JSONResponse({"ok": True, "token": token, "send_to": _SMS_VERIFY_TO,
+                             "body": token})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -6031,9 +6067,29 @@ async def app_self_secret_reveal_start(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/self-secret/reveal-status")
+async def app_self_secret_reveal_status(req: Request, token: str = "") -> JSONResponse:
+    """Appka polluje: dorazila už identifikační SMS (caller-ID ověřeno)?"""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t("SELECT verified_at FROM fw.phone_verify "
+                           "WHERE token=:t AND user_id=:u AND device_label LIKE 'vault:%'"),
+                        {"t": (token or "").strip(), "u": uid}).first()
+        return JSONResponse({"ok": True, "verified": bool(row and row[0] is not None),
+                             "unknown": (row is None)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/self-secret/reveal")
 async def app_self_secret_reveal(req: Request) -> JSONResponse:
-    """2. fáze: ověř SMS kód → dešifruj → email vlastníkovi o otevření."""
+    """2. fáze: token ověřený příchozí SMS (caller-ID) → dešifruj + email vlastníkovi."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -6045,12 +6101,19 @@ async def app_self_secret_reveal(req: Request) -> JSONResponse:
     except Exception:
         b = {}
     from sqlalchemy import text as _t
-    sid = int((b or {}).get("id") or 0)
+    token = str((b or {}).get("token") or "").strip()
     cm, s = _att_session()
     try:
-        if not _pin_consume_sms_code(s, uid, str((b or {}).get("code") or "")):
-            return JSONResponse({"ok": False, "error": "code_wrong",
-                                 "note": "SMS kód nesedí nebo vypršel."})
+        pv = s.execute(_t("SELECT device_label, verified_at FROM fw.phone_verify "
+                          "WHERE token=:t AND user_id=:u AND device_label LIKE 'vault:%' "
+                          "  AND expires_at > now()"), {"t": token, "u": uid}).first()
+        if not pv or pv[1] is None:
+            return JSONResponse({"ok": False, "error": "not_verified",
+                                 "note": "Čekám na identifikační SMS z tvého telefonu."})
+        try:
+            sid = int((pv[0] or "vault:0").split(":", 1)[1])
+        except Exception:
+            sid = 0
         row = s.execute(_t("SELECT label, secret_enc FROM tenant.user_secret "
                            "WHERE id=:i AND tenant_id=2 AND user_id=:u"),
                         {"i": sid, "u": uid}).first()
@@ -6061,6 +6124,8 @@ async def app_self_secret_reveal(req: Request) -> JSONResponse:
         except Exception:
             return JSONResponse({"ok": False, "error": "decrypt_failed",
                                  "note": "Klíč na serveru neodpovídá. Ozvi se Marti."})
+        # spotřebuj token (jednorázový)
+        s.execute(_t("UPDATE fw.phone_verify SET expires_at=now() WHERE token=:t"), {"t": token})
         s.execute(_t("INSERT INTO tenant.user_secret_access (tenant_id, user_id, secret_id, action) "
                      "VALUES (2, :u, :i, 'reveal')"), {"u": uid, "i": sid})
         s.commit()
@@ -6654,8 +6719,14 @@ async def app_sms_inbound(req: Request) -> JSONResponse:
     to_phone = str((body or {}).get("to") or (body or {}).get("to_phone") or "").strip() or None
     if not (from_phone and text):
         return JSONResponse({"ok": False, "error": "from+body required"}, status_code=400)
+    from starlette.concurrency import run_in_threadpool
+    # Marti 11.6.: trezor 2FA přes caller-ID — token STG-VLT- z telefonu vlastníka
     try:
-        from starlette.concurrency import run_in_threadpool
+        if await run_in_threadpool(_vault_match_inbound, from_phone, text):
+            return JSONResponse({"ok": True, "vault": True})
+    except Exception as _ve:
+        logger.warning("[app sms-inbound vault] %s", _ve)
+    try:
         from modules.notifications.application.sms_service import store_inbound_sms
         result = await run_in_threadpool(store_inbound_sms, from_phone, text, to_phone)
         return JSONResponse({"ok": True, "id": result.get("id")})

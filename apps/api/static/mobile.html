@@ -1238,13 +1238,30 @@ setTimeout(function(){
   function _selfVault(box){
     function reveal(id,label){
       var pin=prompt("Zadej svůj PIN pro odemčení trezoru:"); if(!pin)return;
-      api("POST","/api/v1/erp/app/self-secret/reveal-start",{pin:pin}).then(function(r){
+      api("POST","/api/v1/erp/app/self-secret/reveal-start",{id:id,pin:pin}).then(function(r){
         if(!r||!r.ok){ alert("Chyba: "+((r&&(r.note||r.error))||"?")); return; }
-        var code=prompt("Poslali jsme SMS kód na "+(r.phone||"tvůj mobil")+". Zadej kód:"); if(!code)return;
-        api("POST","/api/v1/erp/app/self-secret/reveal",{id:id,code:code}).then(function(x){
-          if(x&&x.ok){ prompt("🔓 "+(x.label||label)+" (zkopíruj):", x.secret); }
-          else alert("Chyba: "+((x&&(x.note||x.error))||"?"));
-        });
+        var to=r.send_to, body=r.body, token=r.token, sent=false;
+        // identifikační SMS jde Z TOHOTO telefonu na Gateway (caller-ID = 2. faktor)
+        if(B && typeof B.sendSms==="function"){ try{ sent=(B.sendSms(to,body)==="1"); }catch(e){} }
+        if(!sent){ openApp("sms:"+to+"?body="+encodeURIComponent(body)); }
+        var ov=el('<div style="position:fixed;inset:0;background:rgba(8,12,24,.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;color:#e8eefc;"></div>');
+        ov.innerHTML='<div style="font-size:38px;">🔐</div><div style="font-weight:700;margin:10px 0;">Odemykám trezor…</div><div class="hint" style="max-width:300px;">'+(sent?"Odeslal jsem identifikační SMS z tvého telefonu na bránu.":("V appce Zprávy klikni Odeslat (text "+esc(body)+" na "+esc(to)+")."))+' Čekám na ověření čísla…</div>';
+        var cancel=el('<button style="margin-top:16px;padding:9px 16px;border:0;border-radius:10px;background:#26304a;color:#cdd;">Zrušit</button>');
+        ov.appendChild(cancel); document.body.appendChild(ov);
+        var done=false; cancel.onclick=function(){ done=true; ov.remove(); };
+        var tries=0;
+        var iv=setInterval(function(){
+          if(done){ clearInterval(iv); return; }
+          if(++tries>40){ clearInterval(iv); if(!done){ov.remove();} alert("Identifikační SMS zatím nedorazila. Zkus to znovu (ověř, že máš signál)."); return; }
+          api("GET","/api/v1/erp/app/self-secret/reveal-status?token="+encodeURIComponent(token),"").then(function(st){
+            if(done||!st||!st.verified) return;
+            clearInterval(iv); done=true; ov.remove();
+            api("POST","/api/v1/erp/app/self-secret/reveal",{token:token}).then(function(x){
+              if(x&&x.ok){ prompt("🔓 "+(x.label||label)+" (zkopíruj):", x.secret); }
+              else alert("Chyba: "+((x&&(x.note||x.error))||"?"));
+            });
+          });
+        },3000);
       });
     }
     function render(j){

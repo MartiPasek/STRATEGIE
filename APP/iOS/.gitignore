@@ -1,0 +1,19 @@
+# Xcode / Swift — necommitovat dočasné a uživatelské soubory
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+# Swift Package Manager
+.swiftpm/
+.build/
+# CocoaPods / Carthage (kdyby se přidaly)
+Pods/
+Carthage/Build/

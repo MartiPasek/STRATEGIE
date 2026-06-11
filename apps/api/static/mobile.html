@@ -310,6 +310,10 @@ setTimeout(function(){
   function avColor(s){ var h=0; for(var i=0;i<(s||"").length;i++) h=(h*31+s.charCodeAt(i))%360; return "hsl("+h+",42%,55%)"; }
   function fmtName(name,pfxCsv){ var pl=(pfxCsv||"").split(",").map(function(x){return x.trim();}); for(var i=0;i<pl.length;i++){ if(pl[i] && (name||"").indexOf(pl[i])===0){ return '<span style="color:#5ee0b7;font-weight:700;">'+esc(pl[i])+'</span>'+esc(name.slice(pl[i].length)); } } return esc(name); }
 
+  // datum: ISO (YYYY-MM-DD) <-> CZ (DD.MM.RRRR); RC modulo 11
+  function _czDate(iso){ if(!iso)return ""; var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso); return m?(m[3]+"."+m[2]+"."+m[1]):iso; }
+  function _isoDate(cz){ cz=(cz||"").trim(); if(!cz)return ""; if(/^\d{4}-\d{2}-\d{2}/.test(cz))return cz; var m=/^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{2,4})$/.exec(cz); if(!m)return cz; var y=m[3]; if(y.length===2)y=(parseInt(y,10)>30?"19":"20")+y; return y+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2); }
+  function _rcValid(rc){ rc=(rc||"").replace(/[\s\/]/g,""); if(!/^\d{9,10}$/.test(rc))return false; if(rc.length===9)return true; return (parseInt(rc.slice(0,10),10)%11===0); }
   function modeChip(){ var c=native?"native":"web", t=native?"appka":"prohlížeč"; if(DEV){c="dev";t="DEV";} return '<span class="mode '+c+'">'+t+'</span>'; }
   function topbar(title, withBack, noChip){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+(noChip?"":modeChip())+'</div>'; return b; }
   function row(ic, tt, sub, onclick, badge){ var bd=(badge&&badge>0)?'<div class="rbadge">'+(badge>99?"99+":badge)+'</div>':''; var r=el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>'+bd+'<div class="chev">&#8250;</div></div>'); r.addEventListener("click",onclick); return r; }
@@ -1162,10 +1166,12 @@ setTimeout(function(){
           var fld=el('<div style="margin-bottom:10px;"></div>');
           fld.innerHTML='<label style="display:block;font-size:13px;color:#9fb2d4;margin-bottom:3px;">'+esc(it.label)+(it.sensitive?' 🔒':'')+'</label>';
           var _sty='width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;';
-          var inp;
+          var inp, isDate=(it.type==="date");
           if(it.type==="textarea"){ inp=el('<textarea rows="5" style="'+_sty+'resize:vertical;"></textarea>'); }
-          else { var t=(it.type==="date")?"date":(it.type==="email"?"email":(it.type==="tel"?"tel":"text")); inp=el('<input type="'+t+'" style="'+_sty+'">'); }
-          inp.value=it.value||"";
+          else { inp=el('<input type="'+(it.type==="email"?"email":(it.type==="tel"?"tel":"text"))+'" style="'+_sty+'">'); if(isDate){ inp.placeholder="DD.MM.RRRR"; inp.inputMode="numeric"; } }
+          inp.value = isDate ? _czDate(it.value) : (it.value||"");
+          if(isDate) inp._isDate=true;
+          if(it.key==="birth_number") inp._isRc=true;
           inputs[it.key]=inp; fld.appendChild(inp); card.appendChild(fld);
         });
         wrap.appendChild(card);
@@ -1174,7 +1180,8 @@ setTimeout(function(){
       var st=el('<div class="hint" style="margin:4px 0 8px;min-height:18px;"></div>'); wrap.appendChild(st);
       var btn=el('<button style="width:100%;padding:14px;border:0;border-radius:12px;background:#2563eb;color:#fff;font-size:16px;font-weight:700;">💾 Uložit moje údaje</button>');
       btn.addEventListener("click",function(){
-        var vals={}; Object.keys(inputs).forEach(function(k){ vals[k]=inputs[k].value; });
+        var vals={}, rcBad=false; Object.keys(inputs).forEach(function(k){ var v=inputs[k].value; if(inputs[k]._isDate) v=_isoDate(v); if(inputs[k]._isRc && (v||"").trim() && !_rcValid(v)) rcBad=true; vals[k]=v; });
+        if(rcBad){ if(!confirm("Rodné číslo neprošlo kontrolou (modulo 11). Uložit přesto?"))return; }
         btn.disabled=true; st.style.color="#9fb2d4"; st.textContent="Ukládám…";
         api("POST","/api/v1/erp/app/self-data/save",{values:vals}).then(function(r){
           btn.disabled=false;
@@ -1189,39 +1196,44 @@ setTimeout(function(){
   function _card(title,hint){ var c=el('<div style="background:#0f1830;border:1px solid #22304f;border-radius:14px;padding:12px 14px;margin-bottom:12px;"></div>'); c.appendChild(el('<div style="font-weight:700;font-size:16px;margin-bottom:2px;">'+title+'</div>')); if(hint)c.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">'+esc(hint)+'</div>')); return c; }
   function _fld(label,val,ph){ var w=el('<div style="margin-bottom:8px;"></div>'); w.innerHTML='<label style="display:block;font-size:12px;color:#9fb2d4;margin-bottom:3px;">'+esc(label)+'</label>'; var i=el('<input type="text" style="width:100%;box-sizing:border-box;padding:9px 11px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;">'); i.value=val||""; if(ph)i.placeholder=ph; w.appendChild(i); w._inp=i; return w; }
   function _selfChildren(box){
-    box.innerHTML="";
-    var card=_card("👨‍👩‍👧 Děti a blízké osoby","Rodná čísla dětí pro slevu na dani a kontakty na blízké. Soukromé — vidíš jen ty (a HR pro daňové účely).");
-    box.appendChild(card);
-    var list=el('<div></div>'); card.appendChild(list);
-    function row(d){
-      var r=el('<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #1b2742;"></div>');
-      var t=(d.child_name||"(bez jména)")+(d.relation?(" · "+d.relation):"")+(d.relief_order?(" · "+d.relief_order+". dítě"):"");
-      var sub=[d.birth_date,d.birth_number].filter(Boolean).join(" · ");
-      r.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(t)+'</div>'+(sub?'<div class="hint">'+esc(sub)+'</div>':'')+'</div>'));
-      var e=el('<button style="background:#1d2a44;border:0;color:#cfe;border-radius:8px;padding:6px 9px;">✏️</button>'); e.onclick=function(){ form(d); }; r.appendChild(e);
-      var x=el('<button style="background:#3a1d28;border:0;color:#f9b;border-radius:8px;padding:6px 9px;">🗑</button>'); x.onclick=function(){ if(confirm("Smazat "+(d.child_name||"záznam")+"?")) api("POST","/api/v1/erp/app/self-child/delete",{id:d.id}).then(load); }; r.appendChild(x);
-      return r;
+    function render(j){
+      box.innerHTML="";
+      var card=_card("👨‍👩‍👧 Děti a blízké osoby","Rodná čísla dětí pro slevu na dani a kontakty na blízké. Soukromé — vidíš jen ty (a HR pro daňové).");
+      box.appendChild(card);
+      var deti=(j&&j.ok&&j.deti)?j.deti:[];
+      if(!deti.length){ card.appendChild(el('<div class="hint" style="padding:8px 0;">Zatím nikdo. Přidej dítě nebo blízkou osobu.</div>')); }
+      deti.forEach(function(d){
+        var r=el('<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #1b2742;"></div>');
+        var t=(d.child_name||"(bez jména)")+(d.relation?(" · "+d.relation):"")+(d.relief_order?(" · "+d.relief_order+". dítě"):"");
+        var sub=[_czDate(d.birth_date),d.birth_number].filter(Boolean).join(" · ");
+        r.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(t)+'</div>'+(sub?'<div class="hint">'+esc(sub)+'</div>':'')+'</div>'));
+        var e=el('<button style="background:#1d2a44;border:0;color:#cfe;border-radius:8px;padding:6px 9px;">✏️</button>'); e.onclick=function(){ form(d); }; r.appendChild(e);
+        var x=el('<button style="background:#3a1d28;border:0;color:#f9b;border-radius:8px;padding:6px 9px;">🗑</button>'); x.onclick=function(){ if(confirm("Smazat "+(d.child_name||"záznam")+"?")) api("POST","/api/v1/erp/app/self-child/delete",{id:d.id}).then(load); }; r.appendChild(x);
+        card.appendChild(r);
+      });
+      var add=el('<button style="width:100%;margin-top:8px;padding:10px;border:1px dashed #2b3a5c;border-radius:10px;background:transparent;color:#9fd;">➕ Přidat</button>'); add.onclick=function(){ form(null); }; card.appendChild(add);
     }
     function form(d){
-      d=d||{};
-      var f=_card(d.id?"Upravit":"➕ Přidat dítě / blízkou osobu","");
+      d=d||{}; box.innerHTML="";
+      var f=_card(d.id?"Upravit":"➕ Přidat dítě / blízkou osobu",""); box.appendChild(f);
       var fn=_fld("Jméno",d.child_name), rel=_fld("Vztah (dítě / manželka / …)",d.relation),
-          bd=_fld("Datum narození (RRRR-MM-DD)",d.birth_date,"2010-05-14"), rc=_fld("Rodné číslo",d.birth_number),
+          bd=_fld("Datum narození",_czDate(d.birth_date),"DD.MM.RRRR"), rc=_fld("Rodné číslo",d.birth_number),
           ord=_fld("Pořadí dítěte pro slevu (1/2/3)",d.relief_order), em=_fld("E-mail",d.email), ph=_fld("Telefon",d.phone);
       [fn,rel,bd,rc,ord,em,ph].forEach(function(w){f.appendChild(w);});
       var save=el('<button style="width:100%;padding:11px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;">💾 Uložit</button>');
-      save.onclick=function(){ api("POST","/api/v1/erp/app/self-child/save",{id:d.id,child_name:fn._inp.value,relation:rel._inp.value,birth_date:bd._inp.value,birth_number:rc._inp.value,relief_order:ord._inp.value,email:em._inp.value,phone:ph._inp.value}).then(function(r){ if(r&&r.ok)load(); else alert("Chyba: "+((r&&r.error)||"?")); }); };
-      f.appendChild(save); box.appendChild(f);
+      save.onclick=function(){
+        var rcv=(rc._inp.value||"").trim();
+        if(rcv && !_rcValid(rcv)){ if(!confirm("Rodné číslo neprošlo kontrolou (modulo 11). Uložit přesto?"))return; }
+        api("POST","/api/v1/erp/app/self-child/save",{id:d.id,child_name:fn._inp.value,relation:rel._inp.value,birth_date:_isoDate(bd._inp.value),birth_number:rcv,relief_order:ord._inp.value,email:em._inp.value,phone:ph._inp.value}).then(function(r){ if(r&&r.ok)load(); else alert("Chyba: "+((r&&r.error)||"?")); });
+      };
+      f.appendChild(save);
+      var back=el('<button style="width:100%;margin-top:6px;padding:9px;border:0;border-radius:10px;background:#26304a;color:#cdd;">Zpět</button>'); back.onclick=load; f.appendChild(back);
     }
-    function load(){ api("GET","/api/v1/erp/app/self-child","").then(function(j){ box.innerHTML=""; box.appendChild(card); list.innerHTML=""; if(j&&j.ok&&j.deti.length){ j.deti.forEach(function(d){ list.appendChild(row(d)); }); } else { list.appendChild(el('<div class="hint" style="padding:8px 0;">Zatím nikdo. Přidej dítě nebo blízkou osobu.</div>')); } var add=el('<button style="width:100%;margin-top:8px;padding:10px;border:1px dashed #2b3a5c;border-radius:10px;background:transparent;color:#9fd;">➕ Přidat</button>'); add.onclick=function(){ form(null); }; card.appendChild(add); }); }
+    function load(){ api("GET","/api/v1/erp/app/self-child","").then(render); }
     load();
   }
   // --- karta: trezor hesel ---
   function _selfVault(box){
-    box.innerHTML="";
-    var card=_card("🔐 Hesla a tokeny","Šifrované. Zobrazení jen po zadání PINu + SMS kódu. Nikdo jiný (ani HR, ani vedení) je nevidí. Každé otevření ti přijde e-mailem.");
-    box.appendChild(card);
-    var list=el('<div></div>'); card.appendChild(list);
     function reveal(id,label){
       var pin=prompt("Zadej svůj PIN pro odemčení trezoru:"); if(!pin)return;
       api("POST","/api/v1/erp/app/self-secret/reveal-start",{pin:pin}).then(function(r){
@@ -1233,33 +1245,38 @@ setTimeout(function(){
         });
       });
     }
-    function row(p){
-      var r=el('<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #1b2742;"></div>');
-      r.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(p.label)+'</div>'+(p.username?'<div class="hint">'+esc(p.username)+'</div>':'')+'</div>'));
-      var v=el('<button style="background:#1d3a2a;border:0;color:#9f9;border-radius:8px;padding:6px 9px;">👁</button>'); v.onclick=function(){ reveal(p.id,p.label); }; r.appendChild(v);
-      var e=el('<button style="background:#1d2a44;border:0;color:#cfe;border-radius:8px;padding:6px 9px;">✏️</button>'); e.onclick=function(){ form(p); }; r.appendChild(e);
-      var x=el('<button style="background:#3a1d28;border:0;color:#f9b;border-radius:8px;padding:6px 9px;">🗑</button>'); x.onclick=function(){ if(confirm("Smazat „"+p.label+"\"?")) api("POST","/api/v1/erp/app/self-secret/delete",{id:p.id}).then(load); }; r.appendChild(x);
-      return r;
+    function render(j){
+      box.innerHTML="";
+      var card=_card("🔐 Hesla a tokeny","Šifrované. Zobrazení jen po PINu + SMS kódu. Nikdo jiný (ani HR, ani vedení) je nevidí. Každé otevření ti přijde e-mailem.");
+      box.appendChild(card);
+      if(!j||!j.ok){ card.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
+      if(!j.vault_ready){ card.appendChild(el('<div class="hint" style="color:#fc8;">Trezor zatím není aktivní — čeká na bezpečnostní klíč na serveru.</div>')); return; }
+      if(!j.has_pin){ card.appendChild(el('<div class="hint" style="color:#fc8;">Nejdřív si nastav PIN (Nastavení → PIN), pak půjde trezor odemykat.</div>')); }
+      var pol=j.polozky||[];
+      if(!pol.length){ card.appendChild(el('<div class="hint" style="padding:8px 0;">Trezor je prázdný. Ulož si první heslo.</div>')); }
+      pol.forEach(function(p){
+        var r=el('<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #1b2742;"></div>');
+        r.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(p.label)+'</div>'+(p.username?'<div class="hint">'+esc(p.username)+'</div>':'')+'</div>'));
+        var v=el('<button style="background:#1d3a2a;border:0;color:#9f9;border-radius:8px;padding:6px 9px;">👁</button>'); v.onclick=function(){ reveal(p.id,p.label); }; r.appendChild(v);
+        var e=el('<button style="background:#1d2a44;border:0;color:#cfe;border-radius:8px;padding:6px 9px;">✏️</button>'); e.onclick=function(){ form(p); }; r.appendChild(e);
+        var x=el('<button style="background:#3a1d28;border:0;color:#f9b;border-radius:8px;padding:6px 9px;">🗑</button>'); x.onclick=function(){ if(confirm("Smazat „"+p.label+"\"?")) api("POST","/api/v1/erp/app/self-secret/delete",{id:p.id}).then(load); }; r.appendChild(x);
+        card.appendChild(r);
+      });
+      var add=el('<button style="width:100%;margin-top:8px;padding:10px;border:1px dashed #2b3a5c;border-radius:10px;background:transparent;color:#9fd;">➕ Přidat heslo / token</button>'); add.onclick=function(){ form(null); }; card.appendChild(add);
     }
     function form(p){
-      p=p||{};
-      var f=_card(p.id?"Upravit položku":"➕ Nové heslo / token","");
+      p=p||{}; box.innerHTML="";
+      var f=_card(p.id?"Upravit položku":"➕ Nové heslo / token",""); box.appendChild(f);
       var lb=_fld("Název (např. Email, VPN, banka)",p.label), un=_fld("Uživatel / login",p.username),
           se=_fld("Heslo / token",""), ur=_fld("Web / poznámka kam",p.url);
       if(p.id) se._inp.placeholder="(nech prázdné = ponechat stávající)";
       [lb,un,se,ur].forEach(function(w){f.appendChild(w);});
       var save=el('<button style="width:100%;padding:11px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;">💾 Uložit zašifrovaně</button>');
       save.onclick=function(){ api("POST","/api/v1/erp/app/self-secret/save",{id:p.id,label:lb._inp.value,username:un._inp.value,secret:se._inp.value,url:ur._inp.value}).then(function(r){ if(r&&r.ok)load(); else alert("Chyba: "+((r&&(r.note||r.error))||"?")); }); };
-      f.appendChild(save); box.appendChild(f);
+      f.appendChild(save);
+      var back=el('<button style="width:100%;margin-top:6px;padding:9px;border:0;border-radius:10px;background:#26304a;color:#cdd;">Zpět</button>'); back.onclick=load; f.appendChild(back);
     }
-    function load(){ api("GET","/api/v1/erp/app/self-secret","").then(function(j){ box.innerHTML=""; box.appendChild(card); list.innerHTML="";
-      if(!j||!j.ok){ list.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
-      if(!j.vault_ready){ list.appendChild(el('<div class="hint" style="color:#fc8;">Trezor zatím není aktivní — čeká na bezpečnostní klíč na serveru.</div>')); return; }
-      if(!j.has_pin){ list.appendChild(el('<div class="hint" style="color:#fc8;">Nejdřív si nastav PIN (Nastavení → PIN), pak půjde trezor odemykat.</div>')); }
-      if(j.polozky.length){ j.polozky.forEach(function(p){ list.appendChild(row(p)); }); }
-      else { list.appendChild(el('<div class="hint" style="padding:8px 0;">Trezor je prázdný. Ulož si první heslo.</div>')); }
-      var add=el('<button style="width:100%;margin-top:8px;padding:10px;border:1px dashed #2b3a5c;border-radius:10px;background:transparent;color:#9fd;">➕ Přidat heslo / token</button>'); add.onclick=function(){ form(null); }; card.appendChild(add);
-    }); }
+    function load(){ api("GET","/api/v1/erp/app/self-secret","").then(render); }
     load();
   }
   function openSoon(label){ window._soonLabel=label||""; go("soon"); }

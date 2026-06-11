@@ -2863,8 +2863,15 @@ setTimeout(function(){
       var ulx=document.getElementById("dochToday2");
       if(ulx) ulx.querySelectorAll("li.ct").forEach(function(o){ o.classList.remove("open"); var x=o.querySelector(".ctexp"); if(x)x.style.display="none"; });
       exp.style.display="block"; li.classList.add("open"); li.scrollIntoView({block:"nearest",behavior:"smooth"});
+      _dochRailSync();
     });
     li.appendChild(head); li.appendChild(exp); return li;
+  }
+  // Marti 11.6.: když je job rozkliknutý, schovej pravou lištu a nech seznam přes celou šířku.
+  function _dochRailSync(){
+    var rail=document.getElementById("dochTodayRail"); if(!rail) return;
+    var t2=document.getElementById("dochToday2");
+    rail.style.display=(t2&&t2.querySelector("li.ct.open"))?"none":"";
   }
   // Marti 11.6.: dvoupanel „Tak to bylo dneska" — vlevo joby, vpravo svislá lišta filtrů.
   var _todayFilter="vse", _todayCache=[];
@@ -2882,6 +2889,7 @@ setTimeout(function(){
         rail.appendChild(b);
       });
     }
+    _dochRailSync();
     var t2=document.getElementById("dochToday2"); if(!t2) return;
     if(!_todayCache.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Dnes zatím nic.</li>'; return; }
     if(_todayFilter==="souhrn"){

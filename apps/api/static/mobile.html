@@ -2191,7 +2191,13 @@ setTimeout(function(){
         }
         // Marti 10.6.: na směně VŽDY „Jsem na zakázce" (časté přepínání), NAD rámečkem
         // (dochAction), jinou barvou — „Potřebuji ti něco říct" zůstává v rámečku sám.
-        if(open && actC){ expOpt(actC,"🧾 Jsem na zakázce…","green",zakBuild,function(b){ b.style.background="#3b5bdb"; b.style.color="#fff"; b.style.borderColor="#3b5bdb"; }); }
+        if(open && actC){
+          var _zr=(open&&open.project_ref)||"";
+          var _zic=(open&&open.project_type==="REZIE")?"🧾":"👷";  // delník s helmou / režijní papír
+          expOpt(actC,_zic+" Jsem na zakázce…","green",zakBuild,function(b){ b.style.background="#3b5bdb"; b.style.color="#fff"; b.style.borderColor="#3b5bdb";
+            b.style.display="flex"; b.style.justifyContent="space-between"; b.style.alignItems="center"; b.style.textAlign="left";
+            b.innerHTML='<span>'+_zic+' Jsem na zakázce…</span>'+(_zr?('<span style="font-weight:700;white-space:nowrap;">'+esc(_zr)+'</span>'):''); });
+        }
         // Marti 7.6. večer: zelené v obou stavech, bublina vpravo.
         var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);

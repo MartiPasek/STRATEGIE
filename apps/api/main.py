@@ -195,6 +195,12 @@ async def lifespan(app: FastAPI):
                 "ALTER TABLE public.sms_outbox "
                 "ADD COLUMN IF NOT EXISTS gate_msg_id varchar(80), "
                 "ADD COLUMN IF NOT EXISTS gate_state varchar(30)"))
+            # Marti 11.6.: audit KAŽDÉHO pokusu brány doručit příchozí SMS na server
+            _ds_sms.execute(_t_sms(
+                "CREATE TABLE IF NOT EXISTS fw.sms_inbound_hit ("
+                " id bigserial PRIMARY KEY, hit_at timestamptz NOT NULL DEFAULT now(),"
+                " endpoint varchar(40), authed boolean, from_phone varchar(40),"
+                " body_preview varchar(120), client_ip varchar(60), note varchar(200))"))
             _ds_sms.commit()
         finally:
             _ds_sms.close()

@@ -5985,15 +5985,36 @@ async def app_self_secret_save(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
-def _vault_match_inbound(from_phone: str, body: str) -> bool:
-    """Marti 11.6.: caller-ID 2FA pro trezor. Když přijde SMS s tokenem
-    STG-VLT-… z telefonu vlastníka, označ reveal jako ověřený (number nelze
-    ošidit). Volá se z /app/sms-inbound PŘED standardním flow. Vrací True když
-    šlo o vault token (a má se skipnout dál)."""
+def _sms_inbound_hit(endpoint, authed, from_phone, body, client_ip, note):
+    """Audit KAŽDÉHO pokusu brány doručit příchozí SMS (i odmítnutého) — abychom
+    viděli, jestli brána na server klepe a kde to padá. Best-effort."""
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t(
+            "INSERT INTO fw.sms_inbound_hit (endpoint, authed, from_phone, body_preview, client_ip, note) "
+            "VALUES (:e,:a,:f,:b,:ip,:n)"),
+            {"e": (endpoint or "")[:40], "a": bool(authed),
+             "f": (from_phone or "")[:40], "b": (body or "")[:120],
+             "ip": (client_ip or "")[:60], "n": (note or "")[:200]})
+        s.commit()
+    except Exception:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _vault_match_inbound(from_phone: str, body: str) -> str:
+    """Marti 11.6.: caller-ID 2FA pro trezor. SMS s tokenem STG-VLT- z telefonu
+    vlastníka → ověř reveal (číslo nelze ošidit). Vrací status:
+    'not_vault' | 'verified' | 'caller_mismatch' | 'unknown_token' | 'error'."""
     import re as _re
     m = _re.search(r"STG-VLT-[A-Z0-9]+", (body or "").upper())
     if not m:
-        return False
+        return "not_vault"
     token = m.group(0)
     from sqlalchemy import text as _t
     cm, s = _att_session()
@@ -6003,7 +6024,7 @@ def _vault_match_inbound(from_phone: str, body: str) -> bool:
             "WHERE token=:t AND verified_at IS NULL AND expires_at > now() "
             "  AND device_label LIKE 'vault:%' LIMIT 1"), {"t": token}).first()
         if not row:
-            return True  # byl to vault token, ale neznámý/expirovaný → skip dál
+            return "unknown_token"
         pid, ouid = row[0], row[1]
         owner_phone = _self_owner_phone(s, ouid) or ""
         def _digits(x):
@@ -6012,14 +6033,15 @@ def _vault_match_inbound(from_phone: str, body: str) -> bool:
             s.execute(_t("UPDATE fw.phone_verify SET verified_at=now(), phone_number=:p WHERE id=:i"),
                       {"p": from_phone[:40], "i": pid})
             s.commit()
-        else:
-            # caller-ID nesedí → anti-spoof, neoznačíme (necháme expirovat)
-            logger.warning("[vault inbound] caller-id mismatch token=%s from=%s", token, from_phone)
-        return True
+            return "verified"
+        s.commit()
+        logger.warning("[vault inbound] caller-id mismatch token=%s from=%s owner=%s",
+                       token, from_phone, owner_phone)
+        return "caller_mismatch:" + (_digits(owner_phone) or "?")
     except Exception as exc:
         s.rollback()
         logger.warning("[vault inbound] %s", exc)
-        return True
+        return "error:" + str(exc)[:60]
     finally:
         cm.__exit__(None, None, None)
 
@@ -6743,9 +6765,8 @@ async def app_sms_inbound(req: Request) -> JSONResponse:
     receiver na gateway telefonu) sem POSTne příchozí SMS. Žádný cizí provider
     (capcom6/sms-gate.app). Uloží do sms_inbox + spustí PAIR preprocessor
     (ověření telefonu). Auth: carddav token appky (trusted zařízení)."""
+    from starlette.concurrency import run_in_threadpool
     uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     try:
         body = await req.json()
     except Exception:
@@ -6753,15 +6774,32 @@ async def app_sms_inbound(req: Request) -> JSONResponse:
     from_phone = str((body or {}).get("from") or (body or {}).get("from_phone") or "").strip()
     text = str((body or {}).get("body") or (body or {}).get("message") or "").strip()
     to_phone = str((body or {}).get("to") or (body or {}).get("to_phone") or "").strip() or None
+    _ip = (req.client.host if req.client else "") or ""
+    # Marti 11.6.: audit KAŽDÉHO pokusu (i bez auth) — vidíme, jestli brána klepe
+    if not uid:
+        try:
+            await run_in_threadpool(_sms_inbound_hit, "app", False, from_phone, text, _ip, "NO_AUTH 401")
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     if not (from_phone and text):
+        try:
+            await run_in_threadpool(_sms_inbound_hit, "app", True, from_phone, text, _ip, "missing from/body")
+        except Exception:
+            pass
         return JSONResponse({"ok": False, "error": "from+body required"}, status_code=400)
-    from starlette.concurrency import run_in_threadpool
-    # Marti 11.6.: trezor 2FA přes caller-ID — token STG-VLT- z telefonu vlastníka
+    # trezor 2FA caller-ID (token STG-VLT-)
+    vstatus = "not_vault"
     try:
-        if await run_in_threadpool(_vault_match_inbound, from_phone, text):
-            return JSONResponse({"ok": True, "vault": True})
+        vstatus = await run_in_threadpool(_vault_match_inbound, from_phone, text)
     except Exception as _ve:
-        logger.warning("[app sms-inbound vault] %s", _ve)
+        vstatus = "error:" + str(_ve)[:50]
+    try:
+        await run_in_threadpool(_sms_inbound_hit, "app", True, from_phone, text, _ip, "vault=" + vstatus)
+    except Exception:
+        pass
+    if vstatus != "not_vault":
+        return JSONResponse({"ok": True, "vault": vstatus})
     try:
         from modules.notifications.application.sms_service import store_inbound_sms
         result = await run_in_threadpool(store_inbound_sms, from_phone, text, to_phone)

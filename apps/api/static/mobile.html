@@ -3945,6 +3945,29 @@ setTimeout(function(){
     loadAndRender();
   })();
   try{ _shotSyncBtn(); }catch(e){}
+  // Marti 11.6.: SMS brána (naše strana) — když je telefon brána, čte příchozí
+  // SMS přes most (B.getSmsLog) a STG- tokeny POSTne na /app/sms-inbound.
+  // Nepotřebuje rebuild APK; běží dokud appka žije.
+  function _gwSmsForward(){
+    try{
+      if(!(B && typeof B.getSmsLog==="function")) return;
+      var on=false; try{ on=!!(B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
+      if(!on) return;
+      var j=null; try{ j=B.getSmsLog(""); j=j?JSON.parse(j):null; }catch(e){ return; }
+      var list=(j&&j.sms)||[];
+      list.forEach(function(s){
+        var body=s.body||""; if(!/STG-[A-Za-z]+-/.test(body)) return;
+        var num=s.number||s.address||"";
+        var key="stgfwd_"+num+"_"+(s.date||s.when||"")+"_"+body.replace(/\s/g,"").slice(0,16);
+        try{ if(localStorage.getItem(key)) return; }catch(e){}
+        api("POST","/api/v1/erp/app/sms-inbound",{from:num,body:body}).then(function(r){
+          if(r&&r.ok){ try{ localStorage.setItem(key,"1"); }catch(e){} }
+        });
+      });
+    }catch(e){}
+  }
+  try{ var _gwOn=false; try{ _gwOn=!!(native&&B&&B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
+       if(_gwOn){ _gwSmsForward(); setInterval(_gwSmsForward, 10000); } }catch(e){}
   try{ _urgentPoll(); setInterval(_urgentPoll, 20000); }catch(e){}  // urgentní notifikace
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
 

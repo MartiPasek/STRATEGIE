@@ -1006,6 +1006,7 @@ setTimeout(function(){
     l.appendChild(row("🟢","Párování s ERP","Stav spojení s ERP",function(){go("set_listen");}));
     l.appendChild(row("📌","Ikony na plochu","ERP a Chat zkratky",function(){go("set_icons");}));
     l.appendChild(row("📲","Nainstalovat na plochu","/mobile jako PWA",function(){go("set_install");}));
+    l.appendChild(row("👥","Sdílený telefon","Více lidí na jednom mobilu — přepínání + PIN",function(){go("sdileny");}));
     if(native) l.appendChild(row("📞","Telefonní číslo","Číslo tohoto telefonu (ze SIM)",function(){go("set_phone");}));
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
     l.appendChild(row("🔔","Přístup k oznámením","Počty WhatsApp / SMS",function(){go("set_notifaccess");}));

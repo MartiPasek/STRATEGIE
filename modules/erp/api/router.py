@@ -12309,14 +12309,7 @@ async def app_doc_render(req: Request) -> JSONResponse:
                           "WHERE id=:i AND tenant_id=2 AND is_current=true"), {"i": tid}).first()
         if not tr:
             return JSONResponse({"ok": False, "error": "template_not_found"})
-        # HR/rodič generuje úřední dokument → smí citlivá pole (RČ/nar./adresa)
-        allow_sensitive = True
-    except Exception as exc:
-        cm.__exit__(None, None, None)
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        pass
-    try:
+        allow_sensitive = True  # HR/rodič generuje úřední dokument → smí citlivá pole
         prov = _dt.get_provider(tr[0])
         context = prov.resolve(ref, uid, allow_sensitive) if (prov and ref) else {}
         html = _dt.render({"body_html": tr[1], "css": tr[2]}, context)
@@ -12327,15 +12320,20 @@ async def app_doc_render(req: Request) -> JSONResponse:
         import secrets as _sec
         nonce = _sec.token_urlsafe(18)
         fname = (tr[3] or "dokument") + ".pdf"
-        s.execute(_t("DELETE FROM fw.doc_pubfile WHERE created_at < now() - interval '30 minutes'"))
-        s.execute(_t("INSERT INTO fw.doc_pubfile (nonce, fname, mime, pdf, created_by) "
-                     "VALUES (:n, :f, 'application/pdf', :p, :u)"),
-                  {"n": nonce, "f": fname[:160], "p": pdf, "u": uid})
-        s.commit()
+        # fw.doc_pubfile vlastní role strategie → zapisuj přes její session
+        from core.database_data import get_data_session as _gds
+        ds = _gds()
+        try:
+            ds.execute(_t("DELETE FROM fw.doc_pubfile WHERE created_at < now() - interval '30 minutes'"))
+            ds.execute(_t("INSERT INTO fw.doc_pubfile (nonce, fname, mime, pdf, created_by) "
+                          "VALUES (:n, :f, 'application/pdf', :p, :u)"),
+                       {"n": nonce, "f": fname[:160], "p": pdf, "u": uid})
+            ds.commit()
+        finally:
+            ds.close()
         return JSONResponse({"ok": True, "url": "/api/v1/erp/doc-public/" + nonce,
                              "fname": fname, "nazev": tr[4]})
     except Exception as exc:
-        s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
@@ -12347,13 +12345,14 @@ async def doc_public(nonce: str, req: Request):
     je tajemství. Slouží appce (otevře odkaz) i ERP."""
     from fastapi.responses import Response
     from sqlalchemy import text as _t
-    cm, s = _att_session()
+    from core.database_data import get_data_session as _gds
+    s = _gds()
     try:
         row = s.execute(_t("SELECT fname, mime, pdf FROM fw.doc_pubfile "
                            "WHERE nonce=:n AND created_at > now() - interval '30 minutes'"),
                         {"n": (nonce or "").strip()}).first()
     finally:
-        cm.__exit__(None, None, None)
+        s.close()
     if not row:
         return Response(content="Odkaz vypršel nebo neexistuje.", status_code=404)
     import unicodedata as _ud

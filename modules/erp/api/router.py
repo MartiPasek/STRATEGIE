@@ -9526,6 +9526,7 @@ async def att_list(req: Request) -> JSONResponse:
             "e.status, e.is_active, to_char(e.started_at,'HH24:MI') zac, to_char(e.ended_at,'HH24:MI') kon "
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date >= current_date - :dd "
+            "AND e.status IS DISTINCT FROM 'superseded' AND e.status IS DISTINCT FROM 'announced' "
             "ORDER BY e.entry_date DESC, e.id DESC LIMIT 200"),
             {"t": _ATT_TENANT, "e2": emp, "dd": days}).mappings().all()
         s.commit()

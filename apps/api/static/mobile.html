@@ -2809,11 +2809,15 @@ setTimeout(function(){
   // Marti 11.6.: „Tak to bylo dneska" — joby ve stylu Kontaktů (avatar+ikona,
   // accordion zvětšení, 3 tlačítka; 2. klik = detail přes celou obrazovku).
   function _jobIcon(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
+    if(/home|domov/.test(s)) return '🏠';
+    if(/relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d/.test(s)) return '🍴';
+    if(/pauz/.test(s)) return '☕';
+    if(/jedn[aá]n/.test(s)) return '🤝';
+    if(/poch[uů]z/.test(s)) return '📦';
+    if(/lékař|lekar|doktor/.test(s)) return '🩺';
+    if(/školen|skolen/.test(s)) return '🎓';
     if(e.project_ref) return '🧾';
-    if(/home|domov/.test(s)) return '🏠'; if(/pauz/.test(s)) return '☕';
-    if(/relax|energ|jídl|jidl|ob[ěe]d/.test(s)) return '🍴'; if(/lékař|lekar|doktor/.test(s)) return '🩺';
-    if(/jedn[aá]n/.test(s)) return '🤝'; if(/poch[uů]z/.test(s)) return '📦';
-    if(/školen|skolen/.test(s)) return '🎓'; return '👷'; }
+    return '👷'; }
   function _jobBtns(acts, hint, sz, fs0){
     function mk(bg,col,ic,fs,msg){ var b=el('<div class="cact" style="'+(sz?('width:'+sz+'px;height:'+sz+'px;border-radius:16px;'):'')+'background:'+bg+';color:'+col+';font-size:'+fs+';">'+ic+'</div>');
       b.addEventListener("click",function(ev){ ev.stopPropagation(); if(hint) hint.textContent=msg; }); return b; }
@@ -2859,7 +2863,8 @@ setTimeout(function(){
   // Marti 11.6.: dvoupanel „Tak to bylo dneska" — vlevo joby, vpravo svislá lišta filtrů.
   var _todayFilter="vse", _todayCache=[];
   function _jobMimo(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
-    return /pauz|relax|energ|jídl|jidl|ob[ěe]d|jedn[aá]n|poch[uů]z|lékař|lekar|doktor/.test(s); }
+    if(/home|domov/.test(s)) return false;
+    return /pauz|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d|jedn[aá]n|poch[uů]z|lékař|lekar|doktor/.test(s); }
   function _renderTodayPanel(todays){
     _todayCache=todays||[];
     var rail=document.getElementById("dochTodayRail");

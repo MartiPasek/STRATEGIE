@@ -5746,8 +5746,355 @@ async def app_self_data_save(req: Request) -> JSONResponse:
             _task_notify(s, _self_hr_recipients(s), uid,
                          "🪪 Aktualizace osobních údajů",
                          nm + " upravil(a): " + labs)
+        # potvrzeni VLASTNIKOVI pri zmene citlivych udaju (transparentnost)
+        sens = [x for x in changed if valid_keys[x[0]][4]]
+        if sens:
+            import datetime as _dt
+            kdy = _dt.datetime.now().strftime("%d.%m.%Y %H:%M")
+            _self_notify_owner(s, uid, "🔒 Změna citlivých údajů",
+                "Dne " + kdy + " jsi ve STRATEGII aktualizoval(a) citlivé údaje: "
+                + ", ".join(x[1] for x in sens) + ". Pokud jsi to nebyl ty, ihned se ozvi.")
         s.commit()
         return JSONResponse({"ok": True, "changed": len(changed)})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ---- Deti / blizke osoby (Marti 11.6.) -------------------------------------
+@api_router.get("/app/self-child")
+async def app_self_child_list(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, child_name, to_char(birth_date,'YYYY-MM-DD'), birth_number, "
+            " relief_order, COALESCE(is_dependent,true), relation, email, phone, note "
+            "FROM tenant.user_self_child WHERE tenant_id=2 AND user_id=:u "
+            "ORDER BY relief_order NULLS LAST, id"), {"u": uid}).fetchall()
+        out = [{"id": r[0], "child_name": r[1] or "", "birth_date": r[2] or "",
+                "birth_number": r[3] or "", "relief_order": r[4], "is_dependent": bool(r[5]),
+                "relation": r[6] or "", "email": r[7] or "", "phone": r[8] or "",
+                "note": r[9] or ""} for r in rows]
+        return JSONResponse({"ok": True, "deti": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/self-child/save")
+async def app_self_child_save(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    def _n(k):
+        v = (b or {}).get(k)
+        v = ("" if v is None else str(v)).strip()
+        return v or None
+    cid = (b or {}).get("id")
+    ro = (b or {}).get("relief_order")
+    try:
+        ro = int(ro) if (ro not in (None, "")) else None
+    except Exception:
+        ro = None
+    dep = bool((b or {}).get("is_dependent", True))
+    p = {"u": uid, "nm": _n("child_name"), "bd": _n("birth_date"),
+         "rc": _n("birth_number"), "ro": ro, "dep": dep, "rel": _n("relation"),
+         "em": _n("email"), "ph": _n("phone"), "no": _n("note")}
+    cm, s = _att_session()
+    try:
+        if cid:
+            p["id"] = int(cid)
+            s.execute(_t(
+                "UPDATE tenant.user_self_child SET child_name=:nm, birth_date=:bd, "
+                "birth_number=:rc, relief_order=:ro, is_dependent=:dep, relation=:rel, "
+                "email=:em, phone=:ph, note=:no, updated_at=now() "
+                "WHERE id=:id AND tenant_id=2 AND user_id=:u"), p)
+        else:
+            s.execute(_t(
+                "INSERT INTO tenant.user_self_child (tenant_id, user_id, child_name, "
+                "birth_date, birth_number, relief_order, is_dependent, relation, email, phone, note) "
+                "VALUES (2, :u, :nm, :bd, :rc, :ro, :dep, :rel, :em, :ph, :no)"), p)
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/self-child/delete")
+async def app_self_child_delete(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t("DELETE FROM tenant.user_self_child WHERE id=:i AND tenant_id=2 AND user_id=:u"),
+                  {"i": int((b or {}).get("id") or 0), "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ---- Trezor hesel/tokenu (Marti 11.6.): Fernet + PIN + SMS 2FA + email -------
+def _vault_fernet():
+    import os
+    key = (os.environ.get("STRATEGIE_VAULT_KEY") or "").strip()
+    if not key:
+        return None
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet(key.encode())
+    except Exception:
+        return None
+
+
+def _self_owner_phone(s, uid: int):
+    from sqlalchemy import text as _t
+    return s.execute(_t(
+        "SELECT contact_value FROM public.user_contacts WHERE user_id=:u "
+        "AND contact_type='phone' AND COALESCE(status,'active')='active' "
+        "ORDER BY COALESCE(is_verified,false) DESC, COALESCE(is_primary,false) DESC, id LIMIT 1"),
+        {"u": uid}).scalar()
+
+
+def _self_owner_email(s, uid: int):
+    from sqlalchemy import text as _t
+    return s.execute(_t(
+        "SELECT contact_value FROM public.user_contacts WHERE user_id=:u "
+        "AND contact_type='email' AND COALESCE(status,'active')='active' "
+        "ORDER BY COALESCE(is_primary,false) DESC, id LIMIT 1"), {"u": uid}).scalar()
+
+
+def _self_notify_owner(s, uid: int, subject: str, msg: str) -> None:
+    """Zprava VLASTNIKOVI (in-app cink + email). Best-effort."""
+    from sqlalchemy import text as _t
+    try:
+        s.execute(_t(
+            "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+            "VALUES ('mobile', :u, 'claude_msg', :ti, :m, :u)"),
+            {"u": uid, "ti": subject[:120], "m": msg[:6000]})
+    except Exception:
+        pass
+    try:
+        em = _self_owner_email(s, uid)
+        if em:
+            from modules.notifications.application.email_service import queue_email
+            queue_email(to=em, subject=subject, body=msg, user_id=uid, purpose="self_data_alert")
+    except Exception:
+        pass
+
+
+@api_router.get("/app/self-secret")
+async def app_self_secret_list(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, label, username, url, note FROM tenant.user_secret "
+            "WHERE tenant_id=2 AND user_id=:u ORDER BY label"), {"u": uid}).fetchall()
+        out = [{"id": r[0], "label": r[1] or "", "username": r[2] or "",
+                "url": r[3] or "", "note": r[4] or ""} for r in rows]
+        has_pin = s.execute(_t("SELECT 1 FROM fw.user_pin WHERE user_id=:u"), {"u": uid}).first() is not None
+        return JSONResponse({"ok": True, "polozky": out, "has_pin": has_pin,
+                             "vault_ready": _vault_fernet() is not None})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/self-secret/save")
+async def app_self_secret_save(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    f = _vault_fernet()
+    if f is None:
+        return JSONResponse({"ok": False, "error": "vault_not_configured",
+                             "note": "Trezor zatím není nastaven (chybí šifrovací klíč na serveru)."})
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    def _n(k):
+        v = (b or {}).get(k)
+        v = ("" if v is None else str(v)).strip()
+        return v or None
+    label = _n("label")
+    if not label:
+        return JSONResponse({"ok": False, "error": "label_required", "note": "Zadej název položky."})
+    secret = (b or {}).get("secret")
+    secret = "" if secret is None else str(secret)
+    cid = (b or {}).get("id")
+    p = {"u": uid, "lb": label, "un": _n("username"), "ur": _n("url"), "no": _n("note")}
+    cm, s = _att_session()
+    try:
+        if cid:
+            p["id"] = int(cid)
+            if secret.strip():
+                p["se"] = f.encrypt(secret.encode()).decode()
+                s.execute(_t(
+                    "UPDATE tenant.user_secret SET label=:lb, username=:un, url=:ur, note=:no, "
+                    "secret_enc=:se, updated_at=now() WHERE id=:id AND tenant_id=2 AND user_id=:u"), p)
+            else:
+                s.execute(_t(
+                    "UPDATE tenant.user_secret SET label=:lb, username=:un, url=:ur, note=:no, "
+                    "updated_at=now() WHERE id=:id AND tenant_id=2 AND user_id=:u"), p)
+        else:
+            p["se"] = f.encrypt((secret or "").encode()).decode()
+            s.execute(_t(
+                "INSERT INTO tenant.user_secret (tenant_id, user_id, label, username, secret_enc, url, note) "
+                "VALUES (2, :u, :lb, :un, :se, :ur, :no)"), p)
+        s.execute(_t("INSERT INTO tenant.user_secret_access (tenant_id, user_id, action) "
+                     "VALUES (2, :u, 'save')"), {"u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/self-secret/reveal-start")
+async def app_self_secret_reveal_start(req: Request) -> JSONResponse:
+    """1. fáze: ověř PIN → pošli SMS kód (2FA)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    import secrets as _sec
+    from modules.notifications.application.sms_service import queue_sms
+    cm, s = _att_session()
+    try:
+        err = _pin_gate(s, uid, str((b or {}).get("pin") or "").strip())
+        if err:
+            return JSONResponse(err)
+        phone = _self_owner_phone(s, uid)
+        if not phone:
+            return JSONResponse({"ok": False, "error": "no_phone",
+                                 "note": "Nemáš ověřený mobil — ozvi se Marti."})
+        cnt = s.execute(_t("SELECT count(*) FROM fw.phone_verify_code "
+                           "WHERE user_id=:u AND created_at > now() - interval '15 minutes'"),
+                        {"u": uid}).scalar() or 0
+        if cnt >= 3:
+            return JSONResponse({"ok": False, "error": "rate_limited",
+                                 "note": "Příliš mnoho SMS. Zkus to za 15 minut."})
+        s.execute(_t("UPDATE fw.phone_verify_code SET used_at=now() WHERE user_id=:u AND used_at IS NULL"),
+                  {"u": uid})
+        code = f"{_sec.randbelow(1000000):06d}"
+        s.execute(_t("INSERT INTO fw.phone_verify_code (user_id, phone, code, expires_at) "
+                     "VALUES (:u, :p, :c, now() + interval '10 minutes')"),
+                  {"u": uid, "p": phone, "c": code})
+        s.commit()
+        queue_sms(to=phone, body=f"STRATEGIE trezor: overovaci kod {code}. Plati 10 minut.",
+                  purpose="vault_reveal", user_id=uid)
+        masked = ("*" * max(len(phone) - 3, 0)) + phone[-3:]
+        return JSONResponse({"ok": True, "sms_sent": True, "phone": masked})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/self-secret/reveal")
+async def app_self_secret_reveal(req: Request) -> JSONResponse:
+    """2. fáze: ověř SMS kód → dešifruj → email vlastníkovi o otevření."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    f = _vault_fernet()
+    if f is None:
+        return JSONResponse({"ok": False, "error": "vault_not_configured"})
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    sid = int((b or {}).get("id") or 0)
+    cm, s = _att_session()
+    try:
+        if not _pin_consume_sms_code(s, uid, str((b or {}).get("code") or "")):
+            return JSONResponse({"ok": False, "error": "code_wrong",
+                                 "note": "SMS kód nesedí nebo vypršel."})
+        row = s.execute(_t("SELECT label, secret_enc FROM tenant.user_secret "
+                           "WHERE id=:i AND tenant_id=2 AND user_id=:u"),
+                        {"i": sid, "u": uid}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "not_found"})
+        try:
+            secret = f.decrypt((row[1] or "").encode()).decode()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "decrypt_failed",
+                                 "note": "Klíč na serveru neodpovídá. Ozvi se Marti."})
+        s.execute(_t("INSERT INTO tenant.user_secret_access (tenant_id, user_id, secret_id, action) "
+                     "VALUES (2, :u, :i, 'reveal')"), {"u": uid, "i": sid})
+        s.commit()
+        import datetime as _dt
+        kdy = _dt.datetime.now().strftime("%d.%m.%Y %H:%M")
+        _self_notify_owner(s, uid, "🔐 Otevření trezoru",
+            "Dne " + kdy + " sis ve STRATEGII otevřel(a) trezor a zobrazil(a) heslo „"
+            + (row[0] or "") + "\". Pokud jsi to nebyl ty, ihned se ozvi.")
+        s.commit()
+        return JSONResponse({"ok": True, "secret": secret, "label": row[0] or ""})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/self-secret/delete")
+async def app_self_secret_delete(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        sid = int((b or {}).get("id") or 0)
+        s.execute(_t("DELETE FROM tenant.user_secret WHERE id=:i AND tenant_id=2 AND user_id=:u"),
+                  {"i": sid, "u": uid})
+        s.execute(_t("INSERT INTO tenant.user_secret_access (tenant_id, user_id, secret_id, action) "
+                     "VALUES (2, :u, :i, 'delete')"), {"u": uid, "i": sid})
+        s.commit()
+        return JSONResponse({"ok": True})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

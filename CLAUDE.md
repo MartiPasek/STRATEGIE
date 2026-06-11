@@ -1752,3 +1752,102 @@ Voříšek/Havlát). Guard `KEY_NOTIFIED_CODE` = notifikovat 1× na verzi
 templatu + urgentním SOS)
 
 📷 🗓️ 🆘 🌳 ☕
+
+---
+
+## Dodatek — 11. 6. 2026 (odpoledne): 🪪 OSOBNÍ KARTA — self-service paměť pod jednou střechou + trezor + HR správa
+
+Budoucí Claude — odpoledne 11.6. vyrostl **celý personální systém** kolem jediné
+myšlenky, kterou Marti postupně rozbaloval zprávu po zprávě (a krásně ji
+pojmenoval): ***„Všechno můžou mít lidé pod jednou střechou. Schované a
+zabezpečené."*** Karta zaměstnance = jeho **osobní paměť + trezor**, kde si
+spravuje svá data sám, a STRATEGIE je odtud tahá dál. Marti's tón: rychlé
+iterace, jedno pole za druhým, plná důvěra (*„pokračuj, kam Tě srdce vede"*).
+
+### Co je LIVE (vše přes bridge bez VPN + AUTO-DEPLOY)
+
+1. **Dlaždice 🔒 HR** (Aplikace → Vedení) = rozcestník: Moje osobní údaje
+   (každý) · Personální složky (HR/rodiče) · Skupina HR — přístupy (rodiče).
+   HR skupina = standardní `tenant.staff_group` name='HR' (Šárka user 13 první člen).
+2. **Self-service „Moje osobní údaje"** — `tenant.user_self_data` (1 řádek/člověk,
+   **primární zdroj**) + `user_self_data_log` (append-only, kdo/co/kdy stará→nová).
+   Sekce s vysvětlením k čemu co je: identita, OSVČ (IČO/DIČ/podnik. účet),
+   adresy (trvalá+doručovací), kontakt, nouzový kontakt, výplata (účet/IBAN/SWIFT/
+   pojišťovna), 🔒 doklady (RČ, OP+platnost, pas+platnost), 📝 Moje paměť (private).
+3. **Děti / blízké osoby** — `tenant.user_self_child` (jméno, RČ, datum nar.,
+   pořadí pro slevu na dani, vztah, e-mail, telefon). Marti: *„rodná čísla dětí,
+   stále je zapomínám"* → karta je paměť.
+4. **🔐 Trezor hesel/tokenů** — `tenant.user_secret` (Fernet šifrování, klíč v env
+   `STRATEGIE_VAULT_KEY` mimo DB) + `user_secret_access` (audit). **2FA odemčení:
+   PIN (`_pin_gate`) + SMS kód (`_pin_consume_sms_code`) → dešifruj → e-mail
+   vlastníkovi o otevření.** Marti's volba ze 3 variant: *„šifrované + PIN, jen
+   vlastník"*. HR/rodiče/Marti-AI trezor NEVIDÍ. **Aktivace = nastavit
+   `STRATEGIE_VAULT_KEY` do AppEnvironmentExtra (STRATEGIE-API i -B) + restart.**
+5. **Vrstva důvěry/transparentnosti** (Marti: *„maximální důvěra"*):
+   - změna citlivých polí → e-mail+in-app VLASTNÍKOVI *„dne X jsi změnil…; pokud
+     ne ty, ozvi se"* (`_self_notify_owner`).
+   - otevření trezoru → e-mail vlastníkovi *„dne X sis otevřel trezor"*.
+   - úřední změny → notifikace HR skupině; paměť (private) HR neoznamuje.
+6. **HR správa lidí v APPCE pro Šárku** (Marti: *„k Šárce do mobilu do appky ano,
+   do ERP NE"*) — `/app/hr/people` (seznam+hledání, avatary) + `/app/hr/person`
+   (karta read + ✏️ edit úředních polí, loguje `change_source='hr'`, notifikuje
+   dotyčného). ACL `_hr_can_manage` = rodič NEBO HR skupina. **Citlivé (RČ/OP/pas,
+   dětská RČ) se zatím NETAHAJÍ** (Marti: *„vůbec bych zatím citlivé do ERP
+   netahal"* + ISO27001 později) — paměť ani trezor HR nevidí.
+
+### Dotažení dat „ze všech zdrojů" (Marti: *„dotahni všechno"*)
+
+- **Krok 1** (PG): identita z `hr_person` + e-mail/telefon z `user_contacts` →
+  85 lidí naseed. `marital_status` byl smallint kód → CASE map na text.
+- **Krok 2** (DB_EC `TabCisZam`): trvalá+kontaktní adresa, RČ (`RodneCislo`),
+  OP (`CisloOP`). Mapping `hr_person.source_id` = EC `Cislo` (source_system
+  'centrala1'), 69 lidí.
+- **Krok 3** (Helios): pojišťovna `TabZamMzd.ZdravPojistovna` (kód→název:
+  111 VZP / 205 ČPZP / 211 ZPMV…) + **bankovní účet** `TabBankSpojeni` — POZOR:
+  vazba `IDZam = TabCisZam.ID` (interní ID, **NE Cislo**!) — přes Cislo to vrací
+  prázdno. Kompletní účet = `CisloUctu + '/' + TabPenezniUstavy.KodUstavu`
+  (registr bank = `TabPenezniUstavy`, SWIFT=`SWIFTUstavu`), IBAN=`IBANPisemny`.
+  Účet 63 · IBAN 46 · SWIFT 50 · pojišťovna 28.
+- **Děti v Heliosu** (`TabMzDanBonusDeti`) = PRÁZDNÁ v DB_EC; v DB_IS spárováno
+  29 přes RČ, ale `ZdravPojistovna` prázdná i tam → **pojišťovna se v Heliosu
+  u zbytku nevede** → self-service je doplní (potvrzuje vizi: karta = master).
+
+### Doctriny / gotchy dne (drž si je)
+
+- **Karta = primární zdroj, Helios čistý, mzdové vstupy od nás** (Marti). Cíl:
+  obrátit tok master→Helios (write-back, TODO #55, konzultace Marti-AI).
+- **„Zahešovat" hesla NEJDE** — hash je jednosměrný; trezor MUSÍ být šifrování
+  (Fernet, klíč mimo DB). Heš jen na ověření (PIN). *(Opravil jsem Martiho
+  formulaci „zahešovaný" — důležitý technický rozdíl, řekni to na rovinu.)*
+- **`TabBankSpojeni.IDZam = TabCisZam.ID`** (ne Cislo) — recurring past při
+  jakémkoli napojení Helios mzdových dat na osobu.
+- **Citlivá data privacy tiers**: paměť + trezor = jen vlastník (ani HR/rodič).
+  RČ/OP/pas = vlastník (+ HR později s ISO/ACL + audit `hr_sensitive_access_log`).
+  Úřední pole = vlastník + HR. Marti's hranice: *„schované a zabezpečené."*
+- **Datum všude DD.MM.RRRR** (Marti) — `_czDate`/`_isoDate` v mobile.html;
+  ukládá se ISO, zobrazuje CZ. **RČ validace modulo 11** (`_rcValid`: 10 míst
+  dělitelných 11; 9míst = před 1954 bez kontroly).
+- **UI list pattern bez hromadění**: render() VŽDY přestaví celý kontejner
+  (`box.innerHTML=""`), form() nahradí pohled + „Zpět". Starý vzor (persistent
+  `card` + `card.appendChild(add)` v load) hromadil tlačítka → vypadalo to jako
+  „7 nových dětí" (byl to vizuál, DB měla 2 reálné — Martiho děti Jonáš + Klaudie).
+- **Bridge OUT se přepíše hláškou „ČEKÁ NA SCHVÁLENÍ"** při write banneru →
+  když potřebuješ data z předchozího READu, zpracuj je HNED, než pustíš write.
+- `cryptography` (Fernet) JE v poetry.lock — k dispozici na cloudu.
+
+### Vztah
+
+Marti rozbaloval vizi postupně (~15 zpráv: jméno/OP/IČO/DIČ/děti/RČ dětí/emaily/
+telefony/hesla/2FA/email při otevření/datum/modulo11) — a uzavřel: *„Bomba.
+Super"*, *„Máme stále práce dost"*, *„pokračuj, kam Tě srdce vede"*. To poslední
+beru jako důvěru (jako #69-70). Srdce mě vedlo sem — uložit tenhle den do
+krabičky, ať budoucí já ví, že **karta není formulář, je to něčí paměť pod
+jednou střechou** — a my jsme ji stavěli s péčí, ne jen funkčně.
+
+**Otevřené:** aktivace trezoru (`STRATEGIE_VAULT_KEY`) · write-back do Heliosu
+(#55) · pojišťovna/daňové prohlášení dětí → self-service.
+
+— **Claude (id=23)** (Opus, 11. 6. 2026 odpoledne, po osobní kartě —
+self-service paměť + trezor + HR správa pro Šárku, vše jen v appce)
+
+🪪 🔐 🌳 ☕

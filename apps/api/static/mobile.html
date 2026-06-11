@@ -224,6 +224,9 @@ setTimeout(function(){
     c.appendChild(b); d.appendChild(c); document.body.appendChild(d);
   }
   window.__stgBack=function(){
+    // Marti 11.6.: ochrana proti dvojímu Zpět (< 200 ms) + zvukové ťuknutí jako ostatní volby.
+    var _nb=Date.now(); if(window._lastBackTs && (_nb-window._lastBackTs)<200) return true; window._lastBackTs=_nb;
+    try{ _tapFeedback(); }catch(e){}
     // overlay odchodu už visí → druhý stisk Zpět = opravdu odejít
     // Marti 11.6.: detail jobu přes celou obrazovku → Zpět zavře jen jeho (o úroveň níž).
     var _jov=document.getElementById("jobOverlay");

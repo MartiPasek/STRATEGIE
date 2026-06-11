@@ -253,9 +253,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Kameru používáme pro pořízení fotografií a skenování ve STRATEGII.";
-				INFOPLIST_KEY_NSContactsUsageDescription = "Přístup ke kontaktům umožní rychlé volání a vyhledání osob ve STRATEGII.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mikrofon používáme pro diktování a hlasové zadávání ve STRATEGII.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Aplikace může použít fotoaparát pro přílohy ve STRATEGII.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "Aplikace používá kontakty pro identifikaci volajících (caller-ID).";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Aplikace používá mikrofon pro hlasové zprávy a diktování ve STRATEGII.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -287,9 +287,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Kameru používáme pro pořízení fotografií a skenování ve STRATEGII.";
-				INFOPLIST_KEY_NSContactsUsageDescription = "Přístup ke kontaktům umožní rychlé volání a vyhledání osob ve STRATEGII.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Mikrofon používáme pro diktování a hlasové zadávání ve STRATEGII.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Aplikace může použít fotoaparát pro přílohy ve STRATEGII.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "Aplikace používá kontakty pro identifikaci volajících (caller-ID).";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Aplikace používá mikrofon pro hlasové zprávy a diktování ve STRATEGII.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

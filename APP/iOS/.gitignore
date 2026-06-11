@@ -1,35 +1,19 @@
-# .gitignore pro Xcode / Swift (iOS appka STRATEGIE)
-
-## Uživatelská nastavení a stav Xcode
-xcuserdata/
-*.xcuserstate
-*.xcuserdatad
-
-## Build výstupy
+# Xcode / Swift — necommitovat dočasné a uživatelské soubory
+.DS_Store
 build/
 DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
 *.moved-aside
-*.pbxuser
-!default.pbxuser
-*.mode1v3
-*.mode2v3
-*.perspectivev3
-
-## Objective-C / Swift
 *.hmap
 *.ipa
-*.dSYM.zip
 *.dSYM
-
-## Swift Package Manager
-.build/
+*.dSYM.zip
+# Swift Package Manager
 .swiftpm/
-
-## CocoaPods (kdyby se přidalo)
+.build/
+# CocoaPods / Carthage (kdyby se přidaly)
 Pods/
-
-## Carthage (kdyby se přidalo)
 Carthage/Build/
-
-## macOS
-.DS_Store

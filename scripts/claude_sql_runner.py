@@ -93,6 +93,11 @@ NOTIFY_MSG_FILE = BRIDGE_DIR / "CLAUDE_NOTIFY.txt"
 NOTIFY_GO_FILE = BRIDGE_DIR / "CLAUDE_NOTIFY_GO.txt"    # trigger (zapsat JAKO POSLEDNÍ)
 NOTIFY_OUT_FILE = BRIDGE_DIR / "CLAUDE_NOTIFY_OUT.txt"  # watcher zapíše výsledek
 
+# Git pull (Marti 11.6.2026): Claude si srovná lokál na origin/main PŘED editem
+# sdílených souborů (anti-stale, když druhá instance/Kristý pushla). Bez commitu.
+PULL_GO_FILE = BRIDGE_DIR / "CLAUDE_PULL_GO.txt"        # trigger (zapsat JAKO POSLEDNÍ)
+PULL_OUT_FILE = BRIDGE_DIR / "CLAUDE_PULL_OUT.txt"      # watcher zapíše výsledek
+
 # Sync Claudů (Marti 3.6.2026): freshness + work-lock
 WORK_LOCK_FILE = BRIDGE_DIR / "WORK_LOCK.txt"           # Claude píše: 1.ř popis, další ř soubory
 OTHER_WORK_FILE = BRIDGE_DIR / "OTHER_CLAUDE_WORK.txt"  # watcher píše: co staví ostatní
@@ -1212,6 +1217,31 @@ def _poll_screenshot() -> None:
         pass  # snimky jsou nice-to-have, nikdy neblokuj watcher
 
 
+def _process_pull() -> None:
+    """Git pull (fetch + rebase --autostash) lokálu na origin/main — bez commitu.
+    Srovná working tree, aby Claude editoval aktuální soubory (anti-stale)."""
+    try:
+        _, head0 = _run_git(["rev-parse", "--short", "HEAD"])
+        status, detail = _sync_with_remote()
+        _, head1 = _run_git(["rev-parse", "--short", "HEAD"])
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        if status == "ok":
+            body = "# PULL: OK\n# %s\n# HEAD %s -> %s\n\n%s\n" % (now, head0.strip(), head1.strip(), detail)
+        else:
+            body = "# PULL: %s\n# %s\n\n%s\n" % (status.upper(), now, detail)
+        try:
+            PULL_OUT_FILE.write_text(body, encoding="utf-8")
+        except OSError as exc:
+            _log(f"write PULL_OUT failed: {exc}")
+        _log("pull: %s (HEAD %s -> %s)" % (status, head0.strip(), head1.strip()))
+    finally:
+        try:
+            if PULL_GO_FILE.exists():
+                PULL_GO_FILE.unlink()
+        except OSError:
+            pass
+
+
 def main() -> None:
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
     _log(f"STRATEGIE-CLAUDE-SQL forwarder started · {INSTANCE_LABEL} · host={HOSTNAME} · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
@@ -1232,6 +1262,8 @@ def main() -> None:
     try:
         while True:
             try:
+                if PULL_GO_FILE.exists():
+                    _process_pull()
                 if DEPLOY_GO_FILE.exists():
                     _process_deploy()
                 if BUILD_GO_FILE.exists():

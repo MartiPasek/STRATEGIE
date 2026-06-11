@@ -9078,6 +9078,65 @@ async def app_shared_assign(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/shared/set-phone")
+async def app_shared_set_phone(req: Request) -> JSONResponse:
+    """Rodič zadá/aktualizuje telefonní číslo daného usera pro ověření PINu
+    sdíleného telefonu — zacelení mezery: appka jinak číslo do user_contacts
+    nezapisuje (phone-set/phone-verify míří do fw.mobile_device). Číslo se uloží
+    jako NEOVĚŘENÉ (is_verified=false); fakticky ho ověří teprve SMS kód z
+    'pin-send', který na něj přijde. Parent-only + audit. Claude-24 + Kristý 11.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+        target = int((body or {}).get("user_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí user_id"})
+    phone = (str((body or {}).get("phone_number") or "")).strip()[:32]
+    if len(phone.replace("+", "").replace(" ", "")) < 6:
+        return JSONResponse({"ok": False, "error": "invalid_phone", "note": "Zadej platné telefonní číslo."})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        existing = s.execute(_t(
+            "SELECT id FROM public.user_contacts "
+            "WHERE user_id=:u AND contact_type='phone' "
+            "ORDER BY COALESCE(is_primary,false) DESC, id LIMIT 1"),
+            {"u": target}).scalar()
+        if existing:
+            s.execute(_t(
+                "UPDATE public.user_contacts SET contact_value=:p, status='active', "
+                "is_verified=false, updated_at=now() WHERE id=:id"),
+                {"p": phone, "id": existing})
+        else:
+            s.execute(_t(
+                "INSERT INTO public.user_contacts "
+                "(user_id, contact_type, contact_value, label, is_primary, is_verified, status) "
+                "VALUES (:u,'phone',:p,'work', true, false, 'active')"),
+                {"u": target, "p": phone})
+        s.commit()
+        try:
+            from core.log_queue import log_event as _le
+            _le(level="info", source="py", module_id="app.shared.set_phone",
+                message="rodic %s nastavil telefon userovi %s (sdileny telefon PIN)" % (uid, target),
+                extra={"by_uid": uid, "target_user_id": target})
+        except Exception:
+            pass
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        try:
+            from core.log_queue import log_event as _le2
+            _le2(level="error", source="py", module_id="app.shared.set_phone",
+                 message="set_phone selhalo: " + type(exc).__name__, extra={"by_uid": uid})
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "ulozeni_selhalo"}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/shared/pin-send")
 async def app_shared_pin_send(req: Request) -> JSONResponse:
     """Rodič pošle SMS kód danému userovi na nastavení PINu sdíleného telefonu."""

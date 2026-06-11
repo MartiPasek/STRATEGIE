@@ -5465,6 +5465,61 @@ async def app_urgent_inbox(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.get("/app/urgent/sent")
+async def app_urgent_sent(req: Request) -> JSONResponse:
+    """Moje odeslane urgentni, ktere jeste BEZI (cekaji na reakci) — pro indikator
+    na hlavni obrazovce odesilatele."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    ds = _g()
+    try:
+        rows = ds.execute(_t(
+            "SELECT up.id, "
+            "to_char(up.created_at,'HH24')||':'||to_char(up.created_at,'MI') AS cas, "
+            "COALESCE(NULLIF(trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,'')),''), u.login_name, '#'||u.id::text) AS komu "
+            "FROM tenant.urgent_ping up LEFT JOIN public.users u ON u.id=up.to_user_id "
+            "WHERE up.from_user_id=:u AND up.status='open' ORDER BY up.id DESC LIMIT 5"), {"u": uid}).fetchall()
+        return JSONResponse({"ok": True, "items": [
+            {"id": r[0], "cas": r[1], "komu": r[2]} for r in rows]})
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/urgent/cancel")
+async def app_urgent_cancel(req: Request) -> JSONResponse:
+    """Odesilatel zrusi svuj bezici urgentni pozadavek (prestane prijemci tukat)."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        pid = int((body or {}).get("id") or 0)
+    except Exception:
+        pid = 0
+    if not pid:
+        return JSONResponse({"ok": False, "error": "Chybí id."})
+    ds = _g()
+    try:
+        ds.execute(_t(
+            "UPDATE tenant.urgent_ping SET status='cancelled', acked_at=now() "
+            "WHERE id=:i AND from_user_id=:u AND status='open'"), {"i": pid, "u": uid})
+        ds.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        ds.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.post("/app/urgent/ack")
 async def app_urgent_ack(req: Request) -> JSONResponse:
     from core.database_data import get_data_session as _g

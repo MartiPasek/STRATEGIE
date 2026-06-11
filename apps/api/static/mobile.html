@@ -2837,11 +2837,11 @@ setTimeout(function(){
     // Marti 11.6.: „Práce" i stav (pending) skryté (typ je nespolehlivý — pauza má
     // taky entry type „Práce"). Režie ukáže „Režie", u relaxu žádná zakázka.
     var _sp=[];
+    if(e.hours!=null) _sp.push(fmtHM(e.hours));  // Marti 11.6.: nejdřív čas
     if(!_jobMimo(e)){
       if(/rež|rez/i.test(e.typ||'')) _sp.push("Režie");
-      if(e.project_ref) _sp.push(esc(e.project_ref));
+      if(e.project_ref) _sp.push(esc(e.project_ref));  // …pak číslo zakázky
     }
-    if(e.hours!=null) _sp.push(fmtHM(e.hours));
     var sub=_sp.join(' · ');
     var _wbg=_jobMimo(e)?"#caa14a":"var(--green)";  // Marti 11.6.: práce zelená, mimo jantarová
     var head=el('<div class="cthead"><div class="cav" style="background:'+_wbg+';font-size:30px;line-height:1;">'+ic+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(timeR)+'</div><div class="ctnum">'+sub+'</div></div></div>');

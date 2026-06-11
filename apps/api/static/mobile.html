@@ -1955,6 +1955,10 @@ setTimeout(function(){
       var dbx=document.querySelector(".detbox");
       if(dbx){ dbx.remove(); return true; }
       if(window._dochMenuTs){ try{ if(window._dochCloseMenu) window._dochCloseMenu(); }catch(e){} window._dochMenuTs=0; return true; }
+      // Marti 11.6.: rozkliknutý job „Tak to bylo dneska" → Zpět zavře detail jobu
+      // a zase ukáže pravou lištu (teprve další Zpět zavírá sekci).
+      var _ojob=document.querySelector("#dochToday2 li.ct.open");
+      if(_ojob){ _ojob.classList.remove("open"); var _ojx=_ojob.querySelector(".ctexp"); if(_ojx)_ojx.style.display="none"; try{_dochRailSync();}catch(e){} return true; }
       var any=false;
       (su._secs||[]).forEach(function(sx){ if(sx.box && sx.box.style.display==="block"){ sx.close(); any=true; } });
       return any;

@@ -2360,6 +2360,7 @@ setTimeout(function(){
       }
       // Píchnutí na zakázku (Marti 7.6.): picker nad tenant.zakazka (⚙ sync_zakazky).
       function zakBuild(box){
+        try{ window.scrollTo({top:0,behavior:"smooth"}); }catch(e){ try{window.scrollTo(0,0);}catch(_){} }  // Marti 11.6.: odscrolovat nahoru
         box.appendChild(el('<div class="hint" style="margin:4px 0 2px;">Najdi zakázku (číslo / název):</div>'));
         var si=el('<input placeholder="🔍 např. VR106… nebo název" autocomplete="off" style="margin-top:6px;">');
         var res=el('<div style="margin-top:8px;"></div>');

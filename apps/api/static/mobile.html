@@ -1126,10 +1126,21 @@ setTimeout(function(){
     g.appendChild(appCell("🧾","Zakázky",0,function(){openVyroba("zakazky");}));
     g.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
     g.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
-    g.appendChild(appCell("👥","HR",0,function(){openSoon("HR");}));
+    g.appendChild(appCell("🔒","HR",0,function(){go("hr");}));
     app.appendChild(g);
     app.appendChild(el('<div style="height:80px;"></div>'));
   }
+  // Marti 11.6.: HR rozcestník — self-service osobních údajů (každý) + správa
+  // skupiny HR / přístupů k personálním složkám (rodiče).
+  function hr(){
+    app.innerHTML=topbar("🔒 HR", true);
+    var l=el('<div class="list"></div>');
+    l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (přes mobil)",function(){ go("hr_me"); }));
+    l.appendChild(row("👥","Skupina HR — přístupy","Kdo vidí personální složky (spravují rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
+    app.appendChild(l);
+    app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personální data si od teď spravuje každý sám za sebe — STRATEGIE je primární zdroj. „Skupina HR" určuje, kdo smí vidět citlivé personální složky (rodné číslo, OP, …).</div>'));
+  }
+  function hr_me(){ window._soonLabel="Moje osobní údaje"; go("soon"); }
   function openSoon(label){ window._soonLabel=label||""; go("soon"); }
   function soon(){
     var lab=window._soonLabel||"";
@@ -1168,6 +1179,7 @@ setTimeout(function(){
       var L=document.getElementById("skleft");
       if(!j||!j.ok){ if(L)L.innerHTML='<div class="hint" style="padding:14px;">'+((j&&j.error)==="forbidden"?"Skupiny spravují jen rodiče.":"Nepodařilo se načíst.")+'</div>'; return; }
       _skGroups=j.skupiny||[]; skPaintRail();
+      if(window._skFocusName){ var _fg=_skGroups.filter(function(g){return (g.name||'')===window._skFocusName;})[0]; if(_fg)_skView=_fg.id; window._skFocusName=null; }
       if(_skView && !_skGroups.some(function(g){return g.id===_skView;})) _skView=null;
       if(!_skView && _skGroups.length) _skView=_skGroups[0].id;
       if(_skView){ skPaintRail(); skLoadMembers(); } else skRenderEmpty();
@@ -3554,7 +3566,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

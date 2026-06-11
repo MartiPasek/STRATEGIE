@@ -554,7 +554,8 @@
     var box = document.createElement("div");
     box.style.cssText =
       "background:#141a20;border:1px solid #2a3340;border-radius:8px;max-width:360px;" +
-      "width:100%;padding:18px 20px;color:#e8eef5;box-shadow:0 8px 32px rgba(0,0,0,0.6);";
+      "width:100%;padding:18px 20px;color:#e8eef5;box-shadow:0 8px 32px rgba(0,0,0,0.6);" +
+      "max-height:85vh;overflow-y:auto;";
     var h = document.createElement("div");
     h.style.cssText = "font-size:15px;font-weight:600;margin-bottom:14px;";
     h.textContent = title;

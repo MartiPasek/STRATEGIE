@@ -5569,6 +5569,8 @@ async def app_urgent_ack(req: Request) -> JSONResponse:
 _SELF_SECTIONS = [
     ("identita", "🪪 Osobní identita",
      "Slouží pro pracovní smlouvy, mzdové výměry a evidenci u úřadů."),
+    ("podnikani", "💼 Podnikání (OSVČ)",
+     "Vyplň jen pokud jsi OSVČ — pro fakturaci a smlouvy."),
     ("adresa_trvala", "🏠 Trvalá adresa",
      "Povinný údaj pro smlouvu, mzdovou agendu a hlášení na úřady."),
     ("adresa_kontaktni", "✉️ Doručovací adresa",
@@ -5581,32 +5583,44 @@ _SELF_SECTIONS = [
      "Číslo účtu pro mzdu a zdravotní pojišťovna pro odvody."),
     ("citlive", "🔒 Citlivé údaje",
      "Vidíš jen ty a personální oddělení (HR). Nutné pro smlouvu a odvody."),
+    ("pamet", "📝 Moje paměť / poznámky",
+     "Jen pro tebe. Co si chceš zapamatovat — nikdo jiný to nevidí."),
 ]
+# 6. prvek = private (jen vlastnik, neupozornovat HR na zmenu)
 _SELF_FIELDS = [
-    ("title_before",   "Titul před jménem", "identita", "text",  False),
-    ("title_after",    "Titul za jménem",   "identita", "text",  False),
-    ("birth_date",     "Datum narození",    "identita", "date",  False),
-    ("birth_place",    "Místo narození",    "identita", "text",  False),
-    ("birth_country",  "Země narození",     "identita", "text",  False),
-    ("marital_status", "Rodinný stav",      "identita", "text",  False),
-    ("citizenship",    "Státní občanství",  "identita", "text",  False),
-    ("perm_street",    "Ulice a č.p.",      "adresa_trvala", "text", False),
-    ("perm_city",      "Obec",              "adresa_trvala", "text", False),
-    ("perm_zip",       "PSČ",               "adresa_trvala", "text", False),
-    ("perm_country",   "Země",              "adresa_trvala", "text", False),
-    ("contact_street", "Ulice a č.p.",      "adresa_kontaktni", "text", False),
-    ("contact_city",   "Obec",              "adresa_kontaktni", "text", False),
-    ("contact_zip",    "PSČ",               "adresa_kontaktni", "text", False),
-    ("contact_country","Země",              "adresa_kontaktni", "text", False),
-    ("personal_email", "Osobní e-mail",     "kontakt", "email", False),
-    ("personal_phone", "Telefon",           "kontakt", "tel",   False),
-    ("emergency_name", "Jméno blízké osoby","nouzovy", "text",  False),
-    ("emergency_phone","Telefon na ni",     "nouzovy", "tel",   False),
-    ("emergency_relation","Vztah (např. manželka)","nouzovy","text", False),
-    ("bank_account",   "Číslo účtu",        "vyplaty", "text",  False),
-    ("health_insurance","Zdravotní pojišťovna","vyplaty","text", False),
-    ("birth_number",   "Rodné číslo",       "citlive", "text",  True),
-    ("id_card_number", "Číslo OP / pasu",   "citlive", "text",  True),
+    ("first_name",     "Jméno",             "identita", "text",  False, False),
+    ("last_name",      "Příjmení",          "identita", "text",  False, False),
+    ("title_before",   "Titul před jménem", "identita", "text",  False, False),
+    ("title_after",    "Titul za jménem",   "identita", "text",  False, False),
+    ("birth_date",     "Datum narození",    "identita", "date",  False, False),
+    ("birth_place",    "Místo narození",    "identita", "text",  False, False),
+    ("birth_country",  "Země narození",     "identita", "text",  False, False),
+    ("marital_status", "Rodinný stav",      "identita", "text",  False, False),
+    ("citizenship",    "Státní občanství",  "identita", "text",  False, False),
+    ("ico",            "IČO",               "podnikani", "text", False, False),
+    ("dic",            "DIČ",               "podnikani", "text", False, False),
+    ("bank_account_business","Podnikatelský účet","podnikani","text", False, False),
+    ("perm_street",    "Ulice a č.p.",      "adresa_trvala", "text", False, False),
+    ("perm_city",      "Obec",              "adresa_trvala", "text", False, False),
+    ("perm_zip",       "PSČ",               "adresa_trvala", "text", False, False),
+    ("perm_country",   "Země",              "adresa_trvala", "text", False, False),
+    ("contact_street", "Ulice a č.p.",      "adresa_kontaktni", "text", False, False),
+    ("contact_city",   "Obec",              "adresa_kontaktni", "text", False, False),
+    ("contact_zip",    "PSČ",               "adresa_kontaktni", "text", False, False),
+    ("contact_country","Země",              "adresa_kontaktni", "text", False, False),
+    ("personal_email", "Osobní e-mail",     "kontakt", "email", False, False),
+    ("personal_phone", "Telefon",           "kontakt", "tel",   False, False),
+    ("emergency_name", "Jméno blízké osoby","nouzovy", "text",  False, False),
+    ("emergency_phone","Telefon na ni",     "nouzovy", "tel",   False, False),
+    ("emergency_relation","Vztah (např. manželka)","nouzovy","text", False, False),
+    ("bank_account",   "Číslo účtu",        "vyplaty", "text",  False, False),
+    ("health_insurance","Zdravotní pojišťovna","vyplaty","text", False, False),
+    ("birth_number",   "Rodné číslo",       "citlive", "text",  True,  False),
+    ("id_card_number", "Číslo OP",          "citlive", "text",  True,  False),
+    ("id_card_valid",  "Platnost OP do",    "citlive", "date",  True,  False),
+    ("passport_number","Číslo pasu",        "citlive", "text",  True,  False),
+    ("passport_valid", "Platnost pasu do",  "citlive", "date",  True,  False),
+    ("memory_note",    "Moje poznámky",     "pamet",   "textarea", False, True),
 ]
 
 
@@ -5724,10 +5738,11 @@ async def app_self_data_save(req: Request) -> JSONResponse:
                 "(tenant_id, user_id, field_name, old_value, new_value, changed_by, change_source) "
                 "VALUES (2, :u, :fn, :ov, :nv, :u, 'self')"),
                 {"u": uid, "fn": c, "ov": ov, "nv": nv})
-        # upozornění HR skupině + rodičům (bez citlivých hodnot)
-        if changed:
+        # upozornění HR jen u úředních polí (soukromá „paměť" se neoznamuje)
+        pub = [x for x in changed if not valid_keys[x[0]][5]]
+        if pub:
             nm = _self_person_name(s, uid)
-            labs = ", ".join(x[1] for x in changed)
+            labs = ", ".join(x[1] for x in pub)
             _task_notify(s, _self_hr_recipients(s), uid,
                          "🪪 Aktualizace osobních údajů",
                          nm + " upravil(a): " + labs)

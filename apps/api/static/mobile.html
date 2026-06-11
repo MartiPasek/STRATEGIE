@@ -1158,8 +1158,10 @@ setTimeout(function(){
         (sec.items||[]).forEach(function(it){
           var fld=el('<div style="margin-bottom:10px;"></div>');
           fld.innerHTML='<label style="display:block;font-size:13px;color:#9fb2d4;margin-bottom:3px;">'+esc(it.label)+(it.sensitive?' 🔒':'')+'</label>';
-          var t=(it.type==="date")?"date":(it.type==="email"?"email":(it.type==="tel"?"tel":"text"));
-          var inp=el('<input type="'+t+'" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;">');
+          var _sty='width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;';
+          var inp;
+          if(it.type==="textarea"){ inp=el('<textarea rows="5" style="'+_sty+'resize:vertical;"></textarea>'); }
+          else { var t=(it.type==="date")?"date":(it.type==="email"?"email":(it.type==="tel"?"tel":"text")); inp=el('<input type="'+t+'" style="'+_sty+'">'); }
           inp.value=it.value||"";
           inputs[it.key]=inp; fld.appendChild(inp); card.appendChild(fld);
         });

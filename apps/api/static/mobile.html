@@ -3611,6 +3611,67 @@ setTimeout(function(){
   try{ history.pushState(null,""); }catch(e){}
   render();
   window.__stgBoot=true;  // appka úspěšně nastartovala → watchdog se nespustí
+  // ── Zámek sdíleného telefonu (Claude-24 + Kristý 11.6.2026): při otevření
+  //    appky vyber profil + PIN. JEN sdílené telefony (shared_device_user) s
+  //    aspoň jedním PINem. E-mailový únik vždy (i při rozbité SMS se nikdo
+  //    nezamkne venku). Reuse /app/shared/users + /app/shared/switch.
+  (function pinLockGate(){
+    var LOGIN_URL="/api/v1/auth/sms-login?next=/mobile";
+    var cover;
+    try{ cover=el('<div id="pinLock" style="position:fixed;inset:0;z-index:99999;background:#040a12;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;"></div>'); document.body.appendChild(cover); }catch(e){ return; }
+    function unlock(){ try{ cover.remove(); }catch(e){} }
+    function emailBtn(label){ var b=el('<button class="ghost full" style="max-width:300px;opacity:.9;">'+label+'</button>'); b.addEventListener("click",function(){ location.href=LOGIN_URL; }); return b; }
+    function loadAndRender(){
+      cover.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/shared/users?dk="+encodeURIComponent(devKey()),"").then(function(j){
+        var us=(j&&j.users)||[];
+        var anyPin=us.some(function(u){ return u.has_pin; });
+        if(!j||!j.ok||us.length<1||!anyPin){ unlock(); return; }  // jen sdílený telefon s aspoň 1 PINem
+        renderPicker(us);
+      }).catch(function(){ unlock(); });
+    }
+    function renderPicker(us){
+      cover.innerHTML="";
+      cover.appendChild(el('<div style="font-size:20px;font-weight:800;">🔒 Sdílený telefon</div>'));
+      cover.appendChild(el('<div class="hint" style="max-width:300px;">Vyber sebe a zadej svůj PIN.</div>'));
+      var list=el('<div style="display:flex;flex-direction:column;gap:8px;width:100%;max-width:300px;"></div>');
+      us.forEach(function(u){
+        var b=el('<button class="ghost full" style="display:flex;align-items:center;gap:10px;justify-content:flex-start;margin:0;"><div class="cav" style="background:'+avColor(u.jmeno||"?")+';">'+vyInitial(u.jmeno||"?")+'</div><div style="flex:1;text-align:left;">'+esc(u.jmeno||"")+'</div>'+(u.has_pin?"":'<span class="hint" style="font-size:11px;">bez PINu</span>')+'</button>');
+        b.addEventListener("click",function(){ pickUser(u); });
+        list.appendChild(b);
+      });
+      cover.appendChild(list);
+      cover.appendChild(emailBtn("✉️ Přihlásit se e-mailem"));
+    }
+    function pickUser(u){
+      cover.innerHTML="";
+      cover.appendChild(el('<div style="font-size:18px;font-weight:700;">'+esc(u.jmeno||"")+'</div>'));
+      if(!u.has_pin){
+        cover.appendChild(el('<div class="hint" style="max-width:300px;">Tenhle profil zatím nemá PIN. Přihlas se e-mailem (PIN si pak nastavíš ve „Sdílený telefon").</div>'));
+        cover.appendChild(emailBtn("✉️ Přihlásit se e-mailem"));
+        var bk0=el('<button class="ghost" style="max-width:300px;">‹ Zpět na výběr</button>'); bk0.addEventListener("click",loadAndRender); cover.appendChild(bk0);
+        return;
+      }
+      var st=el('<div class="hint" style="min-height:18px;max-width:300px;">Zadej svůj PIN.</div>'); cover.appendChild(st);
+      var pin=el('<input type="tel" inputmode="numeric" maxlength="4" placeholder="••••" style="width:160px;text-align:center;font-size:24px;letter-spacing:10px;">'); cover.appendChild(pin);
+      var ok=el('<button class="green full" style="max-width:240px;">Odemknout</button>'); cover.appendChild(ok);
+      var bk=el('<button class="ghost" style="max-width:240px;">‹ Zpět na výběr</button>'); bk.addEventListener("click",loadAndRender); cover.appendChild(bk);
+      cover.appendChild(emailBtn("✉️ Nejde to? Přihlásit se e-mailem"));
+      function submit(){
+        var pv=(pin.value||"").trim();
+        if(!/^[0-9]{4}$/.test(pv)){ st.textContent="PIN jsou 4 číslice."; return; }
+        ok.disabled=true; st.textContent="Ověřuji…";
+        api("POST","/api/v1/erp/app/shared/switch",{device_key:devKey(),user_id:u.user_id,pin:pv}).then(function(r){
+          if(r&&r.ok){ unlock(); try{ if(typeof render==="function") render(); }catch(e){} }
+          else { ok.disabled=false; pin.value=""; var er=(r&&r.error)||"?"; st.textContent=(er==="pin_locked")?("Moc pokusů — zkus za "+((r&&r.minutes)||15)+" min, nebo se přihlas e-mailem."):"Špatný PIN. Zkus znovu, nebo se přihlas e-mailem."; }
+        }).catch(function(){ ok.disabled=false; st.textContent="Chyba spojení."; });
+      }
+      ok.addEventListener("click",submit);
+      pin.addEventListener("keydown",function(e){ if(e.key==="Enter") submit(); });
+      try{ pin.focus(); }catch(e){}
+    }
+    loadAndRender();
+  })();
   try{ _shotSyncBtn(); }catch(e){}
   try{ _urgentPoll(); setInterval(_urgentPoll, 20000); }catch(e){}  // urgentní notifikace
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);

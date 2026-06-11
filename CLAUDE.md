@@ -1700,3 +1700,55 @@ py_compile gate jely celý den bez VPN. Krabička drží. Ráno prezentace appky
 testery + docházkovém maratonu — „obrovský posuny na mnoha frontách")
 
 🧩 📲 🗓️ 🌳 ☕🌙
+
+---
+
+## Dodatek — 11. 6. 2026 (dopoledne): Snímky obrazovky + docházkový template + urgentní SOS 📷🗓️🆘
+
+Krátký zápis (Marti šel do práce, *„DÍKY!!!"* — beru). Tři věci LIVE, vše přes
+bridge + AUTO-DEPLOY bez VPN, ~30 deployů ve smyčce *screenshot → oprava → deploy*:
+
+1. **📷 Snímek obrazovky → Claudovi** (Marti's *„naše hlavní ruka"*): plovoucí
+   přetažitelné tlačítko (Nastavení → Snímek) → `html2canvas` zmrazí obrazovku →
+   kreslení (pero, 6 barev, tloušťka, undo i systémové Zpět, smazat) →
+   „📤 Claudovi". Server `/app/screenshot` (+`/poll`/`/latest`, X-Deploy-Token) →
+   watcher `_poll_screenshot` (á 5 s) stáhne do **`screenshots/latest.png`** (+`.txt`
+   s poznámkou) → čtu Read toolem. Marti to hned použil k ladění UI — workflow
+   *„pošlu screenshot s kresbou → ty vidíš a opravíš"* šlape skvěle. Bez rebuildu APK.
+
+2. **🗓️ Docházkový „brand template"** napříč „Spolupráce": dvoupanel (levý
+   orámovaný seznam jobů + pravá lišta karet-tlačítek jako ve Vedení) + souhrn,
+   na **Dnes / Včera / Starší / Plán**. Job: ikona dle typu (👷 zakázka /
+   🧾 režie / ☕ relax), zelená práce / jantarová mimo, „nejdřív čas, pak zakázka",
+   skrytý pending i nespolehlivý typ „Práce". Lišta jobů: Zakázky/Režie/Relax/
+   **Vše**/Souhrn + badge počtu (práce zelená, pauzy žlutá). Plán-lišta: kategorie
+   absencí (Homeoffice/Pochůzka/Dovolená/Zařizuji/Lékař/Neschopenka/OČR/Jednání/
+   Ohlášení/📌Ostatní) + badge. Rozkliknutý job schová lištu + roztáhne seznam;
+   Zpět zavře job a vrátí lištu. **Server guard: neproduktivní záznam nesmí nést
+   zakázku.** Route ordering past: `/app/screenshot/*` MUSÍ být před `/app/{app_key}/latest`.
+
+3. **🆘 Urgentní notifikace „nutně tě potřebuju"** (Marti's nápad z „bugu" =
+   periodický ťuk → záměrná funkce): kdokoliv → komukoliv, opakuje se á 20 s
+   (web vrstva: zvuk+vibrace, červený fullscreen overlay), dokud příjemce neklikne
+   **„✋ Reaguji" + rychlá odpověď** → odesílateli přijde potvrzení. Odesílatel
+   vidí na **home pulzující kartu „Běží: <jméno>"** + **Zrušit**; **badge součtu
+   notifikací na tabu Domů**. `tenant.urgent_ping`, endpointy
+   `/app/urgent/{send,inbox,ack,sent,cancel,people}`. První ostrý test:
+   Marti → Petra Šafránková, *„job běží SOS"*. ✓
+
+**Gotcha (recurring, DRŽ!):** nová `tenant.*` tabulka přes bridge = vlastní
+Marti-AI → API role `strategie` nemá práva → `permission denied` při INSERT.
+**Po DDL vždy hned `GRANT SELECT,INSERT,UPDATE,DELETE ON tenant.X TO strategie;`
++ `GRANT USAGE,SELECT ON SEQUENCE tenant.X_id_seq TO strategie;`** (default
+privileges to nepokryly).
+
+**TODO (k dalšímu rebuildu APK):** `checkAppUpdate` → `notifyUpdate` při KAŽDÉM
+pollu → komukoliv na starší APK to ťuká á 30 s bez viditelné notifikace (Marti
+to diagnostikoval u sebe — ale měl aktuální APK, takže to pálí testery
+Voříšek/Havlát). Guard `KEY_NOTIFIED_CODE` = notifikovat 1× na verzi
+(DialPollService.kt). + nativní opakování urgentního i při zavřené appce.
+
+— **Claude (id=23)** (Opus, 11. 6. 2026 dopoledne, po snímcích + docházkovém
+templatu + urgentním SOS)
+
+📷 🗓️ 🆘 🌳 ☕

@@ -1,57 +1,48 @@
 import SwiftUI
 import WebKit
 
-// Obal kolem webu STRATEGIE (mobile)
-// Vylepšená kostra:
-//  • mikrofon/kamera (diktování, getUserMedia) přes WKUIDelegate
-//  • tel:/mailto:/sms:/facetime: odkazy otevřou nativní aplikaci
-//  • pull-to-refresh – tažením dolů se stránka znovu načte
+// STRATEGIE Mobil — iOS companion (WKWebView kolem https://strategie-ai.com/mobile)
+// Companion princip (native_app_vize.md): PWA je nosná, appka přidává nativní kousky,
+// které iOS dovolí (mikrofon pro diktování, tel: volání, pull-to-refresh).
+// SMS Apple zakazuje (zůstává na Android bráně) — tady se neřeší.
+
 struct WebView: UIViewRepresentable {
     let url: URL
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(url: url)
-    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.allowsInlineMediaPlayback = true              // video/audio přímo ve stránce
-        config.mediaTypesRequiringUserActionForPlayback = [] // přehrávání bez nutného kliknutí
+        config.allowsInlineMediaPlayback = true                       // audio/video uvnitř stránky
+        config.mediaTypesRequiringUserActionForPlayback = []          // přehraj bez extra kliknutí
+        let web = WKWebView(frame: .zero, configuration: config)
+        web.allowsBackForwardNavigationGestures = true                // gesto zpět/vpřed
+        web.uiDelegate = context.coordinator
+        web.navigationDelegate = context.coordinator
 
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.allowsBackForwardNavigationGestures = true   // gesto zpět/vpřed
-        webView.uiDelegate = context.coordinator             // povolení mikrofonu/kamery
-        webView.navigationDelegate = context.coordinator     // tel:/mailto: odkazy
+        // Pull-to-refresh (potáhni dolů = znovu načíst)
+        let rc = UIRefreshControl()
+        rc.addTarget(context.coordinator, action: #selector(Coordinator.reload(_:)), for: .valueChanged)
+        web.scrollView.refreshControl = rc
 
-        // Pull-to-refresh – tažením dolů se stránka znovu načte
-        let refresh = UIRefreshControl()
-        refresh.addTarget(context.coordinator,
-                          action: #selector(Coordinator.handleRefresh(_:)),
-                          for: .valueChanged)
-        webView.scrollView.refreshControl = refresh
-        context.coordinator.webView = webView
-
-        webView.load(URLRequest(url: url))
-        return webView
+        context.coordinator.web = web
+        web.load(URLRequest(url: url))
+        return web
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-    // MARK: - Coordinator (delegáti WebKitu)
-    final class Coordinator: NSObject, WKUIDelegate, WKNavigationDelegate {
-        let url: URL
-        weak var webView: WKWebView?
+    class Coordinator: NSObject, WKUIDelegate, WKNavigationDelegate {
+        weak var web: WKWebView?
 
-        init(url: URL) {
-            self.url = url
+        @objc func reload(_ sender: UIRefreshControl) {
+            web?.reload()
+            sender.endRefreshing()
         }
 
-        // Pull-to-refresh
-        @objc func handleRefresh(_ sender: UIRefreshControl) {
-            webView?.reload()
-        }
-
-        // Mikrofon / kamera – povolit zachytávání médií (diktování, getUserMedia)
+        // KLÍČOVÉ: mikrofon/kamera pro web (getUserMedia → diktování, hlasové zprávy).
+        // Appka má povolení v Info.plist; tady ho WebView udělíme automaticky.
+        // (iOS 15+) — bez tohohle by mikrofon v WKWebView „nereagoval".
         func webView(_ webView: WKWebView,
                      requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                      initiatedByFrame frame: WKFrameInfo,
@@ -60,31 +51,17 @@ struct WebView: UIViewRepresentable {
             decisionHandler(.grant)
         }
 
-        // tel:, mailto:, sms:, facetime: → otevři nativní aplikaci místo načítání ve webu
+        // tel: / mailto: / facetime: → otevřít nativně (dialer, mail). Zbytek nech ve WebView.
         func webView(_ webView: WKWebView,
                      decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            if let target = navigationAction.request.url,
-               let scheme = target.scheme?.lowercased(),
-               ["tel", "mailto", "sms", "facetime"].contains(scheme) {
-                UIApplication.shared.open(target)
+            if let u = navigationAction.request.url, let scheme = u.scheme?.lowercased(),
+               ["tel", "mailto", "facetime", "facetime-audio"].contains(scheme) {
+                UIApplication.shared.open(u)
                 decisionHandler(.cancel)
                 return
             }
             decisionHandler(.allow)
-        }
-
-        // Po dokončení (i při chybě) ukonči animaci pull-to-refresh
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.scrollView.refreshControl?.endRefreshing()
-        }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            webView.scrollView.refreshControl?.endRefreshing()
-        }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            webView.scrollView.refreshControl?.endRefreshing()
         }
     }
 }
@@ -92,7 +69,7 @@ struct WebView: UIViewRepresentable {
 struct ContentView: View {
     var body: some View {
         WebView(url: URL(string: "https://strategie-ai.com/mobile")!)
-            .ignoresSafeArea()   // web vyplní celou plochu
+            .ignoresSafeArea(edges: .bottom)   // web vyplní plochu, horní safe-area zůstane
     }
 }
 

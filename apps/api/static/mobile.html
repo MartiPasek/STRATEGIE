@@ -1942,8 +1942,8 @@ setTimeout(function(){
           paska: collSec(su,"Moje odmakané prašule… 💰", false, function(o){ paskaToggle(o); }) };
     _dS.todayhist.box.innerHTML='<div style="display:flex;gap:10px;height:46vh;align-items:stretch;"><div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="dochToday2" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div><div id="dochTodayRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';
     _dS.today.box.innerHTML='<div id="dochSpanToday" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div id="dochCard" style="padding:2px 0 4px;">Načítám…</div>';
-    _dS.yest.box.innerHTML='<div id="dochSpanYest" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><ul id="dochYest"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
-    _dS.prev.box.innerHTML='<ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
+    _dS.yest.box.innerHTML='<div id="dochSpanYest" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div style="display:flex;gap:10px;height:42vh;align-items:stretch;"><div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="dochYest2" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div><div id="dochYestRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';
+    _dS.prev.box.innerHTML='<div style="display:flex;gap:10px;height:42vh;align-items:stretch;"><div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="dochPrev2" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div><div id="dochPrevRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';
     _dS.plan.box.innerHTML='<ul id="dochPlan"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     // Marti 7.6. večer: páska zamčená PINem + jen mimo směnu — souhrn v hlavičce
     // NIKDY neukazuje částku (🔒), obsah se načte až po odemčení při otevření.
@@ -1957,8 +1957,8 @@ setTimeout(function(){
       if(window._dochMenuTs){ try{ if(window._dochCloseMenu) window._dochCloseMenu(); }catch(e){} window._dochMenuTs=0; return true; }
       // Marti 11.6.: rozkliknutý job „Tak to bylo dneska" → Zpět zavře detail jobu
       // a zase ukáže pravou lištu (teprve další Zpět zavírá sekci).
-      var _ojob=document.querySelector("#dochToday2 li.ct.open");
-      if(_ojob){ _ojob.classList.remove("open"); var _ojx=_ojob.querySelector(".ctexp"); if(_ojx)_ojx.style.display="none"; try{_dochRailSync();}catch(e){} return true; }
+      var _ojob=document.querySelector("#dochToday2 li.ct.open, #dochYest2 li.ct.open, #dochPrev2 li.ct.open");
+      if(_ojob){ var _oul=_ojob.parentNode; _ojob.classList.remove("open"); var _ojx=_ojob.querySelector(".ctexp"); if(_ojx)_ojx.style.display="none"; try{ var _lid=(_oul&&_oul.id)||"dochToday2"; _railSync(_lid.replace(/2$/,"")+"Rail",_lid); }catch(e){} return true; }
       var any=false;
       (su._secs||[]).forEach(function(sx){ if(sx.box && sx.box.style.display==="block"){ sx.close(); any=true; } });
       return any;
@@ -2759,23 +2759,19 @@ setTimeout(function(){
       var allRows=(j&&j.days)||[];
       var today=_locDate(0);
       var yest=_locDate(-1);
-      // Včera — vlastní sekce
+      // Včera — hlavička sekce (počet hodin); tělo plní dochListLoad job-templatem.
+      var yrows=allRows.filter(function(r){return r.d===yest;});
+      var yw=0, ya=0; yrows.forEach(function(r){ yw+=Number(r.worked||0); ya+=Number(r.absence||0); });
+      if(_dS&&_dS.yest) _dS.yest.val.textContent=(yrows.length?fmtHM(yw)+(ya>0?(" + "+fmtHM(ya)+" nepř."):""):"—");
       var yu=document.getElementById("dochYest");
-      if(yu){
-        var yrows=allRows.filter(function(r){return r.d===yest;});
-        var yw=0, ya=0; yrows.forEach(function(r){ yw+=Number(r.worked||0); ya+=Number(r.absence||0); });
-        if(_dS&&_dS.yest) _dS.yest.val.textContent=(yrows.length?fmtHM(yw)+(ya>0?(" + "+fmtHM(ya)+" nepř."):""):"—");
-        if(!yrows.length){ yu.innerHTML='<li style="color:var(--mut);border:none;">Bez záznamu.</li>'; }
-        else { yu.innerHTML=""; yrows.forEach(function(r){ yu.appendChild(_dochDayRow(r.d, r)); }); }
-      }
-      // Dřívější — starší než včera
+      if(yu){ if(!yrows.length){ yu.innerHTML='<li style="color:var(--mut);border:none;">Bez záznamu.</li>'; }
+        else { yu.innerHTML=""; yrows.forEach(function(r){ yu.appendChild(_dochDayRow(r.d, r)); }); } }
+      // Dřívější — hlavička sekce; tělo plní dochListLoad job-templatem.
+      var prev=allRows.filter(function(r){return (r.d||"")<yest;});
+      if(_dS&&_dS.prev) _dS.prev.val.textContent=(prev.length?czDays(prev.length):"");
       var ul=document.getElementById("dochDaily");
-      if(ul){
-        var prev=allRows.filter(function(r){return (r.d||"")<yest;});
-        if(_dS&&_dS.prev) _dS.prev.val.textContent=(prev.length?czDays(prev.length):"");
-        if(!prev.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím nic.</li>'; }
-        else { ul.innerHTML=""; prev.forEach(function(r){ ul.appendChild(_dochDayRow(r.d, r)); }); }
-      }
+      if(ul){ if(!prev.length){ ul.innerHTML='<li style="color:var(--mut);border:none;">Zatím nic.</li>'; }
+        else { ul.innerHTML=""; prev.forEach(function(r){ ul.appendChild(_dochDayRow(r.d, r)); }); } }
       // Plánovaná nepřítomnost — budoucnost (absence + ohlášení dopředu)
       var pu=document.getElementById("dochPlan");
       if(pu){
@@ -2866,41 +2862,43 @@ setTimeout(function(){
     _jobBtns(exp.querySelector(".ctacts"), exp.querySelector(".hint"), 0, 0);
     head.addEventListener("click",function(){
       if(li.classList.contains("open")){ _jobOverlay(e); return; }
-      var ulx=document.getElementById("dochToday2");
-      if(ulx) ulx.querySelectorAll("li.ct").forEach(function(o){ o.classList.remove("open"); var x=o.querySelector(".ctexp"); if(x)x.style.display="none"; });
+      var ulx=li.parentNode;
+      if(ulx&&ulx.querySelectorAll) ulx.querySelectorAll("li.ct").forEach(function(o){ o.classList.remove("open"); var x=o.querySelector(".ctexp"); if(x)x.style.display="none"; });
       exp.style.display="block"; li.classList.add("open"); li.scrollIntoView({block:"nearest",behavior:"smooth"});
-      _dochRailSync();
+      var lid=(ulx&&ulx.id)||"dochToday2"; _railSync(lid.replace(/2$/,"")+"Rail", lid);
     });
     li.appendChild(head); li.appendChild(exp); return li;
   }
-  // Marti 11.6.: když je job rozkliknutý, schovej pravou lištu a nech seznam přes celou šířku.
-  function _dochRailSync(){
-    var rail=document.getElementById("dochTodayRail"); if(!rail) return;
-    var t2=document.getElementById("dochToday2");
+  // Marti 11.6.: rozkliknutý job schová pravou lištu daného panelu (seznam přes celou šířku).
+  function _railSync(railId,listId){
+    var rail=document.getElementById(railId); if(!rail) return;
+    var t2=document.getElementById(listId);
     rail.style.display=(t2&&t2.querySelector("li.ct.open"))?"none":"";
   }
-  // Marti 11.6.: dvoupanel „Tak to bylo dneska" — vlevo joby, vpravo svislá lišta filtrů.
-  var _todayFilter="vse", _todayCache=[];
+  function _dochRailSync(){ _railSync("dochTodayRail","dochToday2"); }
   function _jobMimo(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
     if(/home|domov/.test(s)) return false;
     return /pauz|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d|jedn[aá]n|poch[uů]z|lékař|lekar|doktor/.test(s); }
-  function _renderTodayPanel(todays){
-    _todayCache=todays||[];
-    var rail=document.getElementById("dochTodayRail");
+  // Marti 11.6.: TEMPLATE „brand" dvoupanelu — lišta filtrů + joby + souhrn. Sdílený
+  // pro „Tak to bylo dneska", „Na včera si vzpomínám", „To už si nepamatuju".
+  var _todaySt={f:"vse"}, _yestSt={f:"vse"}, _prevSt={f:"vse"};
+  function _renderJobPanel(railId,listId,data,st){
+    data=data||[];
+    var rail=document.getElementById(railId);
     if(rail){ rail.innerHTML="";
       [["📋","Vše","vse"],["👷","Zakázky","zak"],["🧾","Režie","rezie"],["☕","Relax","mimo"],["📊","Souhrn","souhrn"]].forEach(function(it){
-        var on=(_todayFilter===it[2]);
+        var on=(st.f===it[2]);
         var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:11px 2px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:27px;line-height:1;">'+it[0]+'</span>'+it[1]+'</button>');
-        b.addEventListener("click",function(){ _todayFilter=it[2]; _renderTodayPanel(_todayCache); });
+        b.addEventListener("click",function(){ st.f=it[2]; _renderJobPanel(railId,listId,data,st); });
         rail.appendChild(b);
       });
     }
-    _dochRailSync();
-    var t2=document.getElementById("dochToday2"); if(!t2) return;
-    if(!_todayCache.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Dnes zatím nic.</li>'; return; }
-    if(_todayFilter==="souhrn"){
+    _railSync(railId,listId);
+    var t2=document.getElementById(listId); if(!t2) return;
+    if(!data.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Nic tu není.</li>'; return; }
+    if(st.f==="souhrn"){
       var zsum=0, rsum=0, msum=0;
-      _todayCache.forEach(function(e){ var h=Number(e.hours||0);
+      data.forEach(function(e){ var h=Number(e.hours||0);
         if(_jobMimo(e)) msum+=h; else if(e.project_ref) zsum+=h; else rsum+=h; });
       function _srow(lbl,val,col,strong){ return '<div style="display:flex;justify-content:space-between;padding:7px 2px;'+(strong?"border-bottom:1px solid var(--bord);margin-bottom:3px;":"")+'"><span'+(strong?' style="font-weight:700;color:#e8eef5;"':' class="hint"')+'>'+lbl+'</span><b style="color:'+col+';">'+fmtHM(val)+'</b></div>'; }
       t2.innerHTML='<li style="border:none;padding:0;"><div class="panel" style="margin:0;">'
@@ -2911,26 +2909,30 @@ setTimeout(function(){
         +'</div></li>';
       return;
     }
-    var f=_todayCache.filter(function(e){
-      if(_todayFilter==="vse") return true;
-      if(_todayFilter==="zak") return !!e.project_ref;
-      if(_todayFilter==="rezie") return /rež|rez/i.test(e.typ||"") && !_jobMimo(e);
-      if(_todayFilter==="mimo") return _jobMimo(e);
+    var f=data.filter(function(e){
+      if(st.f==="vse") return true;
+      if(st.f==="zak") return !!e.project_ref;
+      if(st.f==="rezie") return /rež|rez/i.test(e.typ||"") && !_jobMimo(e);
+      if(st.f==="mimo") return _jobMimo(e);
       return true; });
     if(!f.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Nic v této kategorii.</li>'; return; }
     t2.innerHTML=""; f.forEach(function(e){ t2.appendChild(_jobRow(e)); });
   }
+  function _renderTodayPanel(todays){ _renderJobPanel("dochTodayRail","dochToday2",todays,_todaySt); }
   function dochListLoad(){
     api("GET","/api/v1/erp/app/attendance/list?days=14","").then(function(j){
       var rows=(j&&j.entries)||[];
       window._dochEntries=rows; _dochSpans();
-      var tdy=_locDate(0);
-      function _entryLi(e){ var t=(e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':''));
-        return el('<li><div class="nt">'+esc(e.d)+' · '+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div><div class="nm" style="margin-bottom:9px;">'+esc(t)+(e.hours!=null?(' · '+fmtHM(e.hours)):'')+' · '+esc(e.status||'')+'</div></li>'); }
+      var tdy=_locDate(0), yst=_locDate(-1);
       var t2=document.getElementById("dochToday2");
       if(t2){ var todays=rows.filter(function(e){ return (e.d||"")===tdy; });
         if(_dS&&_dS.todayhist) _dS.todayhist.val.textContent="";
         _renderTodayPanel(todays); }
+      // Marti 11.6.: stejný template i pro včera a starší.
+      if(document.getElementById("dochYest2")){
+        _renderJobPanel("dochYestRail","dochYest2",rows.filter(function(e){ return (e.d||"")===yst; }),_yestSt); }
+      if(document.getElementById("dochPrev2")){
+        _renderJobPanel("dochPrevRail","dochPrev2",rows.filter(function(e){ return (e.d||"") && (e.d||"")<yst; }),_prevSt); }
     });
   }
   // 💰 Výplatní páska (Marti 7.6.: „každej na ni má nárok") — jen vlastní data.

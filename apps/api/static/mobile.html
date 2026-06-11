@@ -1940,7 +1940,7 @@ setTimeout(function(){
           prev:  collSec(su,"To už si moc nepamatuju… (starší)", false),
           plan:  collSec(su,"Tak tady budu jinde…", false),
           paska: collSec(su,"Moje odmakané prašule… 💰", false, function(o){ paskaToggle(o); }) };
-    _dS.todayhist.box.innerHTML='<div style="display:flex;gap:8px;height:46vh;align-items:stretch;"><div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="dochToday2" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div><div id="dochTodayRail" style="width:64px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:5px;padding:1px;"></div></div>';
+    _dS.todayhist.box.innerHTML='<div style="display:flex;gap:10px;height:46vh;align-items:stretch;"><div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="dochToday2" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div><div id="dochTodayRail" style="width:62px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:5px;padding:5px 4px;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);"></div></div>';
     _dS.today.box.innerHTML='<div id="dochSpanToday" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><div id="dochCard" style="padding:2px 0 4px;">Načítám…</div>';
     _dS.yest.box.innerHTML='<div id="dochSpanYest" style="font-size:13px;color:var(--mut);margin:2px 0 6px;display:none;"></div><ul id="dochYest"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
     _dS.prev.box.innerHTML='<ul id="dochDaily"><li style="color:var(--mut);border:none;">Načítám…</li></ul>';
@@ -3308,7 +3308,8 @@ setTimeout(function(){
     var sx=window.scrollX||0, sy=window.scrollY||0;
     _loadH2C().then(function(h2c){
       return h2c(document.body,{ x:sx, y:sy, width:document.documentElement.clientWidth, height:window.innerHeight,
-        backgroundColor:"#0e1117", scale:Math.min(2,window.devicePixelRatio||1), useCORS:true, logging:false });
+        backgroundColor:"#0e1117", scale:Math.min(2,window.devicePixelRatio||1), useCORS:true, logging:false,
+        ignoreElements:function(node){ return !!(node&&(node.id==="shotToast"||node.id==="shotFab")); } });
     }).then(function(canvas){ _shotToastHide(); _openAnnot(canvas); })
     .catch(function(e){ _shotToastHide(); if(fab)fab.style.display=""; _shotToast("⚠️ "+((e&&e.message)||e)); setTimeout(_shotToastHide,2600); });
   }

@@ -26,6 +26,18 @@ def _set_auth_cookies(response: Response, user_id: int, tenant_id: int | None) -
         httponly=True, max_age=60*60*24*30,
         secure=settings.cookie_secure, samesite=settings.cookie_samesite,
     )
+    # Sdílený telefon (Claude-24 + Kristý 11.6.2026): krátkodobý JS-čitelný marker,
+    # že session byla PRÁVĚ ověřena (e-mail/SMS login). Zámek sdíleného telefonu
+    # (mobile.html pinLockGate) ho při startu přečte → 1× přeskočí zámek a smaže,
+    # takže e-mailový únik nezamkne uživatele hned znovu. Nastaví jen server po
+    # úspěšném loginu; krátká TTL (10 min); jednorázové. Pozn.: httponly=False
+    # (gate ho čte) → teoreticky padělatelné přes devtools — pro casual-grab
+    # threat model OK; pro tvrdší ochranu signovaný token + server verify (TODO).
+    response.set_cookie(
+        key="stg_pin_skip", value="1",
+        httponly=False, max_age=600,
+        secure=settings.cookie_secure, samesite=settings.cookie_samesite,
+    )
 from modules.auth.api.schemas import (
     LoginRequest, LoginResponse, SwitchTenantRequest,
     VerifyEmailRequestBody, VerifyEmailRequestResponse, VerifyEmailConfirmResponse,

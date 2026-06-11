@@ -12364,6 +12364,103 @@ async def doc_public(nonce: str, req: Request):
                     headers={"Content-Disposition": cd})
 
 
+# ── Přehled mezd: Helios (EC) × STRATEGIE × delta (Marti 11.6.) ──────────────
+_WAGE_EC_COLS = [
+    ("zaklad", "Zaklad"), ("os_ohodnoceni", "OsOhod"), ("premie", "MzdPremie"),
+    ("individualni", "IndividualOhod"), ("vedeni_lidi", "VedeniLidi"),
+    ("vedeni_obchod", "VedeniObch"), ("produkce", "Produkce"), ("kvalita", "Kvalita"),
+    ("firemni_kodex", "FKodexKultur"), ("jednatelska_odmena", "OdmenaJednatel"),
+    ("garant_odmena", "OdmenaGarant"), ("jednorazovy_poplatek", "JednorazovyPoplatek"),
+    ("sluzebni_auto", "BenefitSluzebAut"), ("prispevek_doprava", "PrispevekDoprava"),
+]
+
+
+def _wage_snapshot_refresh():
+    """Re-pull živé EC_FinZamPodminky (Aktualni=1) → tenant.helios_wage_snapshot."""
+    import json as _j
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    sel = ", ".join("CAST(ISNULL(%s,0) AS int) %s" % (c[1], c[0]) for c in _WAGE_EC_COLS)
+    sql = ("SELECT CisloZam, ISNULL(Firma,0) firma, " + sel +
+           " FROM EC_FinZamPodminky WHERE CAST(ISNULL(Aktualni,0) AS int)=1")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]; break
+    elif isinstance(r, list):
+        rows = r
+    FIRMA = {0: "EC", 1: "ES", "0": "EC", "1": "ES"}
+    cm, s = _att_session()
+    n = 0
+    try:
+        s.execute(_t("DELETE FROM tenant.helios_wage_snapshot WHERE tenant_id=2"))
+        for row in rows:
+            cislo = str(row.get("CisloZam") or row.get("cislo") or "").strip()
+            fir = FIRMA.get(row.get("firma"), str(row.get("firma") or ""))
+            if not cislo:
+                continue
+            for code, _col in _WAGE_EC_COLS:
+                try:
+                    v = int(float(row.get(code) or 0))
+                except (TypeError, ValueError):
+                    v = 0
+                if v:
+                    s.execute(_t("INSERT INTO tenant.helios_wage_snapshot (cislo, firma, slozka, castka) "
+                                 "VALUES (:c,:f,:s,:v)"), {"c": cislo[:20], "f": fir[:8], "s": code, "v": v})
+                    n += 1
+        s.commit()
+        return n
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/wage-compare")
+async def app_wage_compare(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not (is_marti_parent(uid) or _doc_can(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT cislo, firma, slozka, COALESCE(jmeno,'#'||cislo), zdroj_ec, cil_strategie, delta, stav "
+            "FROM tenant.v_wage_compare "
+            "ORDER BY (stav='OK'), COALESCE(jmeno,cislo), slozka")).fetchall()
+        asof = s.execute(_t("SELECT to_char(max(synced_at),'DD.MM. HH24:MI') FROM tenant.helios_wage_snapshot WHERE tenant_id=2")).scalar()
+        out = [{"cislo": r[0], "firma": r[1], "slozka": r[2], "jmeno": r[3],
+                "zdroj": int(r[4] or 0), "cil": int(r[5] or 0), "delta": int(r[6] or 0),
+                "stav": r[7]} for r in rows]
+        diffs = sum(1 for r in out if r["stav"] != "OK")
+        return JSONResponse({"ok": True, "asof": asof or "", "celkem": len(out),
+                             "rozdilu": diffs, "radky": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/wage-compare/sync")
+async def app_wage_compare_sync(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from starlette.concurrency import run_in_threadpool
+    try:
+        n = await run_in_threadpool(_wage_snapshot_refresh)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    return JSONResponse({"ok": True, "snap_rows": n})
+
+
 # ── Fáze (1.6.2026, Marti: "při každém nasazení request na Hard Reset") ──────
 # Verze = git HEAD sha (mění se KAŽDÝM deployem — i static-only, čteme z disku).
 # Klient (app_version_watch.js) polluje; při změně vs načtená verze → lišta

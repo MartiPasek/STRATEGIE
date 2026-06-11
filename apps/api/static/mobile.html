@@ -1144,6 +1144,7 @@ setTimeout(function(){
     l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (přes mobil)",function(){ go("hr_me"); }));
     l.appendChild(row("👥","Personální složky","Přehled a správa lidí (HR / vedení)",function(){ go("hr_people"); }));
     l.appendChild(row("📄","Generovat dokument","Smlouva a další → PDF z živých dat",function(){ go("doc_gen"); }));
+    l.appendChild(row("💰","Mzdy: Helios × STRATEGIE","Porovnání ZDROJ × CÍL × delta (vedení)",function(){ go("wage_cmp"); }));
     l.appendChild(row("🔑","Skupina HR — přístupy","Kdo vidí personální složky (spravují rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
     app.appendChild(l);
     app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personální data si od teď spravuje každý sám za sebe — STRATEGIE je primární zdroj. „Skupina HR" určuje, kdo smí vidět citlivé personální složky (rodné číslo, OP, …).</div>'));
@@ -1429,6 +1430,35 @@ setTimeout(function(){
         else alert("Chyba: "+((r&&(r.note||r.error))||"nepodařilo se vygenerovat"));
       });
     }
+  }
+  // --- mzdy: Helios (EC) × STRATEGIE × delta ---
+  function wage_cmp(){
+    app.innerHTML=topbar("💰 Mzdy: Helios × STRATEGIE", true);
+    var box=el('<div></div>'); app.appendChild(box);
+    function load(){
+      box.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/wage-compare","").then(function(j){
+        box.innerHTML="";
+        if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Jen HR / vedení.":"Nelze načíst.")+'</div>')); return; }
+        box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Snapshot EC: '+esc(j.asof||"—")+' · '+j.celkem+' složek · <b style="color:'+(j.rozdilu?"#f88":"#5ee0b7")+'">'+j.rozdilu+' rozdílů</b></div>'));
+        var sync=el('<button style="width:100%;margin-bottom:6px;padding:10px;border:0;border-radius:10px;background:#26304a;color:#cfe;">🔄 Aktualizovat z EUROSOFTu</button>');
+        sync.onclick=function(){ sync.disabled=true; sync.textContent="Stahuji z EC…"; api("POST","/api/v1/erp/app/wage-compare/sync",{}).then(function(r){ if(r&&r.ok){ load(); } else { sync.disabled=false; alert("Chyba: "+((r&&(r.error))||"?")); } }); };
+        box.appendChild(sync);
+        var hdr=el('<div style="display:flex;gap:8px;padding:4px 2px;font-size:11px;color:#88a;border-bottom:1px solid #2b3a5c;"><div style="flex:1;">složka</div><div style="width:66px;text-align:right;">ZDROJ EC</div><div style="width:66px;text-align:right;">CÍL STR</div><div style="width:60px;text-align:right;">Δ</div></div>');
+        box.appendChild(hdr);
+        var lastName=null;
+        (j.radky||[]).forEach(function(p){
+          if(p.jmeno!==lastName){ box.appendChild(el('<div style="margin-top:9px;font-weight:700;color:#cdd;font-size:13px;">'+esc(p.jmeno)+' <span class="hint">· '+esc(p.firma)+' · č.'+esc(p.cislo)+'</span></div>')); lastName=p.jmeno; }
+          var col={"OK":"#5ee0b7","ROZDIL":"#f88","jen EC":"#fc8","jen STRATEGIE":"#fc8"}[p.stav]||"#9fb2d4";
+          var r=el('<div style="display:flex;gap:8px;padding:4px 2px;border-bottom:1px solid #1b2742;font-size:12.5px;"></div>');
+          r.innerHTML='<div style="flex:1;">'+esc(p.slozka)+'</div><div style="width:66px;text-align:right;color:#9fb2d4;">'+(p.zdroj||0).toLocaleString("cs")+'</div><div style="width:66px;text-align:right;">'+(p.cil||0).toLocaleString("cs")+'</div><div style="width:60px;text-align:right;color:'+col+';font-weight:700;">'+(p.delta>0?"+":"")+(p.delta||0).toLocaleString("cs")+'</div>';
+          box.appendChild(r);
+        });
+        if(!(j.radky||[]).length) box.appendChild(el('<div class="hint">Žádná data — klikni Aktualizovat.</div>'));
+        box.appendChild(el('<div style="height:60px;"></div>'));
+      });
+    }
+    load();
   }
   function openSoon(label){ window._soonLabel=label||""; go("soon"); }
   function soon(){
@@ -3855,7 +3885,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

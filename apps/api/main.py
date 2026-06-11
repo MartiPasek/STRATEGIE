@@ -201,6 +201,11 @@ async def lifespan(app: FastAPI):
                 " id bigserial PRIMARY KEY, hit_at timestamptz NOT NULL DEFAULT now(),"
                 " endpoint varchar(40), authed boolean, from_phone varchar(40),"
                 " body_preview varchar(120), client_ip varchar(60), note varchar(200))"))
+            # Marti 11.6.: krátkodobý veřejný PDF (generátor dokumentů → odkaz pro appku)
+            _ds_sms.execute(_t_sms(
+                "CREATE TABLE IF NOT EXISTS fw.doc_pubfile ("
+                " nonce varchar(48) PRIMARY KEY, fname varchar(160), mime varchar(60),"
+                " pdf bytea, created_by int, created_at timestamptz NOT NULL DEFAULT now())"))
             _ds_sms.commit()
         finally:
             _ds_sms.close()

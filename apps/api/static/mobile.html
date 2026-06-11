@@ -1143,6 +1143,7 @@ setTimeout(function(){
     var l=el('<div class="list"></div>');
     l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (přes mobil)",function(){ go("hr_me"); }));
     l.appendChild(row("👥","Personální složky","Přehled a správa lidí (HR / vedení)",function(){ go("hr_people"); }));
+    l.appendChild(row("📄","Generovat dokument","Smlouva a další → PDF z živých dat",function(){ go("doc_gen"); }));
     l.appendChild(row("🔑","Skupina HR — přístupy","Kdo vidí personální složky (spravují rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
     app.appendChild(l);
     app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personální data si od teď spravuje každý sám za sebe — STRATEGIE je primární zdroj. „Skupina HR" určuje, kdo smí vidět citlivé personální složky (rodné číslo, OP, …).</div>'));
@@ -1376,6 +1377,58 @@ setTimeout(function(){
       if(!(j.zarizeni||[]).length) box.appendChild(el('<div class="hint">Žádná zařízení.</div>'));
       var rb=el('<button style="width:100%;margin-top:12px;padding:11px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:700;">🔄 Obnovit</button>'); rb.onclick=function(){ dev_stav(); }; box.appendChild(rb);
     });
+  }
+  // --- generátor dokumentů: vyber šablonu + osobu → PDF (živá data) ---
+  function doc_gen(){
+    app.innerHTML=topbar("📄 Generovat dokument", true);
+    var box=el('<div></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
+    var tpls=[], picked=null;
+    api("GET","/api/v1/erp/app/doc/templates","").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">'+esc((j&&j.error==="forbidden")?"Generování dokumentů je jen pro HR / vedení.":"Nelze načíst šablony.")+'</div>'; return; }
+      tpls=j.sablony||[]; paint();
+    });
+    function paint(){
+      box.innerHTML="";
+      var c1=_card("1) Vyber dokument","");
+      if(!tpls.length) c1.appendChild(el('<div class="hint">Zatím žádná šablona.</div>'));
+      tpls.forEach(function(t){
+        var sel=(picked&&picked.id===t.id);
+        var b=el('<button style="display:block;width:100%;text-align:left;margin:4px 0;padding:11px 12px;border-radius:10px;border:1px solid '+(sel?"#2563eb":"#2b3a5c")+';background:'+(sel?"#16223f":"#0f1830")+';color:#e8eefc;font-size:14px;">'+(sel?"✓ ":"")+esc(t.nazev)+(t.kategorie?(' <span style="color:#88a;">· '+esc(t.kategorie)+'</span>'):'')+'</button>');
+        b.onclick=function(){ picked=t; paint(); };
+        c1.appendChild(b);
+      });
+      box.appendChild(c1);
+      if(picked){
+        var c2=_card("2) Vyber osobu","Dokument se vyplní jejími živými daty.");
+        var srch=el('<input type="text" placeholder="Hledat jméno…" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;margin-bottom:8px;">');
+        c2.appendChild(srch);
+        var list=el('<div></div>'); c2.appendChild(list); box.appendChild(c2);
+        function loadP(q){
+          list.innerHTML='<div class="hint">Načítám…</div>';
+          api("GET","/api/v1/erp/app/doc/people"+(q?("?q="+encodeURIComponent(q)):""),"").then(function(j){
+            list.innerHTML="";
+            if(!j||!j.ok){ list.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
+            (j.lide||[]).slice(0,60).forEach(function(p){
+              var r=el('<div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid #1b2742;cursor:pointer;"></div>');
+              r.appendChild(el('<div style="flex:1;"><b>'+esc(p.jmeno)+'</b>'+(p.firma?' <span class="hint">'+esc(p.firma)+'</span>':'')+'</div><div style="color:#5ee0b7;">📄</div>'));
+              r.onclick=function(){ gen(picked, p, r); };
+              list.appendChild(r);
+            });
+            if(!(j.lide||[]).length) list.appendChild(el('<div class="hint">Nikdo nenalezen.</div>'));
+          });
+        }
+        var _t3=null; srch.addEventListener("input",function(){ clearTimeout(_t3); _t3=setTimeout(function(){ loadP(srch.value.trim()); },250); });
+        loadP("");
+      }
+    }
+    function gen(t, p, rowEl){
+      var orig=rowEl.innerHTML; rowEl.innerHTML='<div style="flex:1;">'+esc(p.jmeno)+'</div><div class="hint">generuji…</div>';
+      api("POST","/api/v1/erp/app/doc/render",{template_id:t.id, engagement_id:p.engagement_id}).then(function(r){
+        rowEl.innerHTML=orig;
+        if(r&&r.ok){ openApp(r.url); }
+        else alert("Chyba: "+((r&&(r.note||r.error))||"nepodařilo se vygenerovat"));
+      });
+    }
   }
   function openSoon(label){ window._soonLabel=label||""; go("soon"); }
   function soon(){
@@ -3802,7 +3855,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

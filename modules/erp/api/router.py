@@ -12220,6 +12220,151 @@ async def doc_template_pdf(req: Request):
     return _R(content=pdf, media_type="application/pdf", headers={"Content-Disposition": _cd})
 
 
+# ── Generátor dokumentů pro appku + ERP (Marti 11.6.) ────────────────────────
+def _doc_can(s, uid):
+    """Generovat dokumenty smí rodič nebo člen HR skupiny."""
+    from sqlalchemy import text as _t
+    if is_marti_parent(uid):
+        return True
+    return s.execute(_t(
+        "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
+        "WHERE g.tenant_id=2 AND NOT g.archived AND g.name='HR' AND m.user_id=:u"),
+        {"u": uid}).first() is not None
+
+
+@api_router.get("/app/doc/templates")
+async def app_doc_templates(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _doc_can(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, code, nazev, COALESCE(kategorie,'') FROM tenant.doc_template "
+            "WHERE tenant_id=2 AND is_current=true AND is_active=true AND entity_kind='employee' "
+            "ORDER BY nazev")).fetchall()
+        return JSONResponse({"ok": True, "sablony": [
+            {"id": r[0], "code": r[1], "nazev": r[2], "kategorie": r[3]} for r in rows]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/doc/people")
+async def app_doc_people(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _doc_can(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT en.id, e.full_name, COALESCE(c.code,'') FROM tenant.engagement en "
+            "JOIN tenant.att_employee e ON e.id=en.employee_id "
+            "LEFT JOIN tenant.company c ON c.id=en.company_id "
+            "WHERE en.tenant_id=2 AND en.is_current=true AND COALESCE(e.full_name,'')<>'' "
+            "ORDER BY e.full_name")).fetchall()
+        q = (req.query_params.get("q") or "").strip().lower()
+        out = []
+        for r in rows:
+            nm = r[1] or ""
+            if q and q not in nm.lower():
+                continue
+            out.append({"engagement_id": r[0], "jmeno": nm, "firma": r[2]})
+        return JSONResponse({"ok": True, "lide": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/doc/render")
+async def app_doc_render(req: Request) -> JSONResponse:
+    """Vyrenderuje šablonu na osobě → PDF → krátkodobý veřejný odkaz (pro appku)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        tid = int((b or {}).get("template_id") or 0)
+    except Exception:
+        tid = 0
+    ref = str((b or {}).get("engagement_id") or "").strip()
+    from sqlalchemy import text as _t
+    from modules.erp.api import doc_templates as _dt
+    cm, s = _att_session()
+    try:
+        if not _doc_can(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        tr = s.execute(_t("SELECT entity_kind, body_html, css, code, nazev FROM tenant.doc_template "
+                          "WHERE id=:i AND tenant_id=2 AND is_current=true"), {"i": tid}).first()
+        if not tr:
+            return JSONResponse({"ok": False, "error": "template_not_found"})
+        # HR/rodič generuje úřední dokument → smí citlivá pole (RČ/nar./adresa)
+        allow_sensitive = True
+    except Exception as exc:
+        cm.__exit__(None, None, None)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        pass
+    try:
+        prov = _dt.get_provider(tr[0])
+        context = prov.resolve(ref, uid, allow_sensitive) if (prov and ref) else {}
+        html = _dt.render({"body_html": tr[1], "css": tr[2]}, context)
+        try:
+            pdf = _dt.render_pdf(html)
+        except RuntimeError as e:
+            return JSONResponse({"ok": False, "error": "pdf_engine", "note": str(e)}, status_code=503)
+        import secrets as _sec
+        nonce = _sec.token_urlsafe(18)
+        fname = (tr[3] or "dokument") + ".pdf"
+        s.execute(_t("DELETE FROM fw.doc_pubfile WHERE created_at < now() - interval '30 minutes'"))
+        s.execute(_t("INSERT INTO fw.doc_pubfile (nonce, fname, mime, pdf, created_by) "
+                     "VALUES (:n, :f, 'application/pdf', :p, :u)"),
+                  {"n": nonce, "f": fname[:160], "p": pdf, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True, "url": "/api/v1/erp/doc-public/" + nonce,
+                             "fname": fname, "nazev": tr[4]})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/doc-public/{nonce}")
+async def doc_public(nonce: str, req: Request):
+    """Veřejné servírování krátkodobého PDF (nonce, TTL 30 min). Bez auth — nonce
+    je tajemství. Slouží appce (otevře odkaz) i ERP."""
+    from fastapi.responses import Response
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t("SELECT fname, mime, pdf FROM fw.doc_pubfile "
+                           "WHERE nonce=:n AND created_at > now() - interval '30 minutes'"),
+                        {"n": (nonce or "").strip()}).first()
+    finally:
+        cm.__exit__(None, None, None)
+    if not row:
+        return Response(content="Odkaz vypršel nebo neexistuje.", status_code=404)
+    import unicodedata as _ud
+    from urllib.parse import quote as _q
+    fname = row[0] or "dokument.pdf"
+    _ascii = _ud.normalize("NFKD", fname).encode("ascii", "ignore").decode("ascii") or "dokument.pdf"
+    cd = "inline; filename=\"%s\"; filename*=UTF-8''%s" % (_ascii, _q(fname))
+    return Response(content=bytes(row[2]), media_type=(row[1] or "application/pdf"),
+                    headers={"Content-Disposition": cd})
+
+
 # ── Fáze (1.6.2026, Marti: "při každém nasazení request na Hard Reset") ──────
 # Verze = git HEAD sha (mění se KAŽDÝM deployem — i static-only, čteme z disku).
 # Klient (app_version_watch.js) polluje; při změně vs načtená verze → lišta

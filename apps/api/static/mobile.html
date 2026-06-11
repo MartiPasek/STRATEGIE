@@ -227,9 +227,11 @@ setTimeout(function(){
     // Marti 11.6.: ochrana proti dvojímu Zpět (< 200 ms) + zvukové ťuknutí jako ostatní volby.
     var _nb=Date.now(); if(window._lastBackTs && (_nb-window._lastBackTs)<200) return true; window._lastBackTs=_nb;
     try{ _tapFeedback(); }catch(e){}
-    // Snímek obrazovky přes celou plochu → Zpět zavře jen jeho.
+    // Kreslení snímku: systémové Zpět = stejné jako horní „↶ Zpět" (vrátí poslední
+    // tah); když není co vracet, zavře overlay. Marti 11.6.
     var _sov=document.getElementById("shotOverlay");
-    if(_sov){ _sov.remove(); var _sfab=document.getElementById("shotFab"); if(_sfab)_sfab.style.display=""; return true; }
+    if(_sov){ if(typeof window._shotOverlayBack==="function") return window._shotOverlayBack();
+      _sov.remove(); var _sfab=document.getElementById("shotFab"); if(_sfab)_sfab.style.display=""; return true; }
     // overlay odchodu už visí → druhý stisk Zpět = opravdu odejít
     // Marti 11.6.: detail jobu přes celou obrazovku → Zpět zavře jen jeho (o úroveň níž).
     var _jov=document.getElementById("jobOverlay");
@@ -3349,7 +3351,9 @@ setTimeout(function(){
     cv.addEventListener("pointermove",function(ev){ if(!drawing)return; ev.preventDefault(); cur.pts.push(pt(ev)); redraw(); });
     cv.addEventListener("pointerup",function(){ drawing=false; });
     cv.addEventListener("pointercancel",function(){ drawing=false; });
-    function closeOv(){ ov.remove(); var fab=document.getElementById("shotFab"); if(fab)fab.style.display=""; }
+    function closeOv(){ ov.remove(); window._shotOverlayBack=null; var fab=document.getElementById("shotFab"); if(fab)fab.style.display=""; }
+    // Systémové Zpět = vrátit poslední tah (jako horní „↶ Zpět"); prázdné → zavřít.
+    window._shotOverlayBack=function(){ if(strokes.length){ strokes.pop(); redraw(); return true; } closeOv(); return true; };
     function doSend(){
       send.disabled=true; send.textContent="⏳ Posílám…";
       var data; try{ data=cv.toDataURL("image/png"); }catch(e){ send.disabled=false; send.textContent="📤 Claudovi"; _shotToast("⚠️ Snímek nelze uložit (CORS)"); setTimeout(_shotToastHide,2200); return; }

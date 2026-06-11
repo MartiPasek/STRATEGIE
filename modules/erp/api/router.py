@@ -6613,13 +6613,21 @@ async def att_entry_project(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         row = s.execute(_t(
-            "SELECT e.id, e.project_ref FROM tenant.att_entry e "
+            "SELECT e.id, e.project_ref, COALESCE(e.note,''), COALESCE(et.label,'') FROM tenant.att_entry e "
             "JOIN tenant.att_employee em ON em.id = e.employee_id "
+            "LEFT JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
             "WHERE e.id = :i AND em.tenant_id = :t AND em.user_id = :u"),
             {"i": eid, "t": _ATT_TENANT, "u": uid}).first()
         if not row:
             s.commit()
             return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
+        # Marti 11.6.: neproduktivní záznam (pauza/relax/oběd/jednání/pochůzka/lékař)
+        # nesmí nést číslo zakázky.
+        import re as _re_np
+        if _re_np.search(r"pauz|relax|energ|j[íi]dl|prov[ěe]tr|naj[íi]st|ob[ěe]d|jedn[aá]n|poch[uů]z|l[ée]ka[řr]|doktor",
+                         ((row[2] or "") + " " + (row[3] or "")).lower()):
+            s.commit()
+            return JSONResponse({"ok": False, "error": "Neproduktivní záznam (pauza/relax) nemůže nést zakázku."})
         zak = s.execute(_t(
             "SELECT typ FROM tenant.zakazka WHERE tenant_id = :t AND cislo = :c AND pichatelna = true"),
             {"t": _ATT_TENANT, "c": ref}).first()

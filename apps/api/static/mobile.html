@@ -2873,8 +2873,8 @@ setTimeout(function(){
       [["👷","Zakázky","zak"],["🧾","Režie","rezie"],["☕","Relax","mimo"],["📋","Vše","vse"],["📊","Souhrn","souhrn"]].forEach(function(it){
         var on=(st.f===it[2]);
         var cnt=(it[2]==="souhrn")?0:_jobCnt(it[2]);
-        var red=(it[2]==="mimo");  // Marti 11.6.: práce zeleně, pauzy červeně
-        var bdg=(cnt>0)?'<span style="position:absolute;top:4px;right:6px;min-width:17px;height:17px;line-height:15px;border-radius:9px;border:1px solid rgba(0,0,0,.25);background:'+(red?"#ff3b30":"var(--green)")+';color:'+(red?"#fff":"#04150e")+';font-size:10px;font-weight:700;padding:0 3px;box-sizing:border-box;text-align:center;">'+cnt+'</span>':'';
+        var amb=(it[2]==="mimo");  // Marti 11.6.: práce zeleně, pauzy žlutě
+        var bdg=(cnt>0)?'<span style="position:absolute;top:4px;right:6px;min-width:17px;height:17px;line-height:15px;border-radius:9px;border:1px solid rgba(0,0,0,.25);background:'+(amb?"var(--amber)":"var(--green)")+';color:#241a02;font-size:10px;font-weight:700;padding:0 3px;box-sizing:border-box;text-align:center;">'+cnt+'</span>':'';
         var b=el('<button style="position:relative;width:100%;box-sizing:border-box;margin:0;padding:11px 2px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:27px;line-height:1;">'+it[0]+'</span>'+it[1]+bdg+'</button>');
         b.addEventListener("click",function(){ st.f=it[2]; _renderJobPanel(railId,listId,data,st); });
         rail.appendChild(b);

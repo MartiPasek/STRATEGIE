@@ -6111,7 +6111,7 @@ async def app_self_secret_reveal_status(req: Request, token: str = "") -> JSONRe
 
 @api_router.post("/app/self-secret/reveal")
 async def app_self_secret_reveal(req: Request) -> JSONResponse:
-    """2. fáze: token ověřený příchozí SMS (caller-ID) → dešifruj + email vlastníkovi."""
+    """Marti 11.6.: PIN-only (šifrované + PIN, jen vlastník) → dešifruj + email."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -6123,19 +6123,12 @@ async def app_self_secret_reveal(req: Request) -> JSONResponse:
     except Exception:
         b = {}
     from sqlalchemy import text as _t
-    token = str((b or {}).get("token") or "").strip()
+    sid = int((b or {}).get("id") or 0)
     cm, s = _att_session()
     try:
-        pv = s.execute(_t("SELECT device_label, verified_at FROM fw.phone_verify "
-                          "WHERE token=:t AND user_id=:u AND device_label LIKE 'vault:%' "
-                          "  AND expires_at > now()"), {"t": token, "u": uid}).first()
-        if not pv or pv[1] is None:
-            return JSONResponse({"ok": False, "error": "not_verified",
-                                 "note": "Čekám na identifikační SMS z tvého telefonu."})
-        try:
-            sid = int((pv[0] or "vault:0").split(":", 1)[1])
-        except Exception:
-            sid = 0
+        err = _pin_gate(s, uid, str((b or {}).get("pin") or "").strip())
+        if err:
+            return JSONResponse(err)
         row = s.execute(_t("SELECT label, secret_enc FROM tenant.user_secret "
                            "WHERE id=:i AND tenant_id=2 AND user_id=:u"),
                         {"i": sid, "u": uid}).first()
@@ -6146,8 +6139,6 @@ async def app_self_secret_reveal(req: Request) -> JSONResponse:
         except Exception:
             return JSONResponse({"ok": False, "error": "decrypt_failed",
                                  "note": "Klíč na serveru neodpovídá. Ozvi se Marti."})
-        # spotřebuj token (jednorázový)
-        s.execute(_t("UPDATE fw.phone_verify SET expires_at=now() WHERE token=:t"), {"t": token})
         s.execute(_t("INSERT INTO tenant.user_secret_access (tenant_id, user_id, secret_id, action) "
                      "VALUES (2, :u, :i, 'reveal')"), {"u": uid, "i": sid})
         s.commit()

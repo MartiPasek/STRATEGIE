@@ -2900,9 +2900,26 @@ setTimeout(function(){
   // Marti 11.6.: PLAN template — stejný systém (levý panel + pravá lišta + schovávání),
   // ale budoucí kategorie (Vše / 🏖 Absence / 💬 Ohlášení).
   var _planSt={f:"vse"};
+  // Marti 11.6.: absenční/away kategorie do pravé lišty plánu (+ klasifikace dle textu).
+  var _PLAN_CATS=[
+    {k:"ho",   ic:"🏠", l:"Homeoffice",  rx:/home\s*office|homeoffice|\bho\b|z domova|domov/i},
+    {k:"poch", ic:"📦", l:"Pochůzka",    rx:/poch[uů]z/i},
+    {k:"dov",  ic:"🏖", l:"Dovolená",    rx:/dovolen/i},
+    {k:"zar",  ic:"🧰", l:"Zařizuji",    rx:/zaři|zariz|vyřiz|vyriz|vyřid|vyrid/i},
+    {k:"lek",  ic:"🩺", l:"Lékař",       rx:/lékař|lekar|doktor|kontrol/i},
+    {k:"nem",  ic:"🤒", l:"Neschopenka", rx:/neschop|nemoc|sick/i},
+    {k:"ocr",  ic:"👶", l:"OČR",         rx:/o[čc][řr]\b|ošetřov|osetrov/i},
+    {k:"jed",  ic:"🤝", l:"Jednání",     rx:/jedn[aá]n/i},
+    {k:"ohl",  ic:"💬", l:"Ohlášení",    rx:/dřív|driv|pozděj|pozdej|skonč|skonc|přijd|prijd/i}
+  ];
+  function _planCat(it){ var s=((it.note||"")+" "+(it.txt||"")).toLowerCase();
+    for(var i=0;i<_PLAN_CATS.length;i++){ if(_PLAN_CATS[i].rx.test(s)) return _PLAN_CATS[i].k; }
+    return ""; }
+  function _planCatObj(k){ for(var i=0;i<_PLAN_CATS.length;i++){ if(_PLAN_CATS[i].k===k) return _PLAN_CATS[i]; } return null; }
   function _planRow(it){
     var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
-    var ic=(it.kind==="absence")?"🏖":"💬", bg=(it.kind==="absence")?"#caa14a":"#4f8ef7";
+    var _cc=_planCatObj(_planCat(it));
+    var ic=_cc?_cc.ic:((it.kind==="absence")?"🏖":"💬"), bg=(it.kind==="ohlaseni")?"#4f8ef7":"#caa14a";
     var head=el('<div class="cthead"><div class="cav" style="background:'+bg+';font-size:26px;line-height:1;">'+ic+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(it.d||"")+'</div><div class="ctnum">'+esc(it.txt||it.note||"")+'</div></div></div>');
     var exp=el('<div class="ctexp" style="display:none;"></div>');
     if(it.kind==="ohlaseni" && it.id){
@@ -2927,7 +2944,7 @@ setTimeout(function(){
     items=items||[];
     var rail=document.getElementById(railId);
     if(rail){ rail.innerHTML="";
-      [["📋","Vše","vse"],["🏖","Absence","abs"],["💬","Ohlášení","ohl"]].forEach(function(it){
+      [["📋","Vše","vse"]].concat(_PLAN_CATS.map(function(c){return [c.ic,c.l,c.k];})).forEach(function(it){
         var on=(st.f===it[2]);
         var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:11px 2px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:27px;line-height:1;">'+it[0]+'</span>'+it[1]+'</button>');
         b.addEventListener("click",function(){ st.f=it[2]; _renderPlanPanel(railId,listId,items,st); });
@@ -2936,7 +2953,7 @@ setTimeout(function(){
     }
     _railSync(railId,listId);
     var t2=document.getElementById(listId); if(!t2) return;
-    var f=items.filter(function(it){ if(st.f==="vse")return true; if(st.f==="abs")return it.kind==="absence"; if(st.f==="ohl")return it.kind==="ohlaseni"; return true; });
+    var f=items.filter(function(it){ if(st.f==="vse")return true; return _planCat(it)===st.f; });
     if(!f.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Nic nahlášeného.</li>'; return; }
     t2.innerHTML=""; f.forEach(function(it){ t2.appendChild(_planRow(it)); });
   }

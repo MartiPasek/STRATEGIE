@@ -5375,6 +5375,137 @@ async def app_screenshot_latest(req: Request, uid: int = 0):
     return FileResponse(p, media_type="image/png", filename="screenshot.png")
 
 
+# ---- Urgentni notifikace s vyzadanou reakci (Marti 11.6.2026) ----
+# „Nutne te potrebuju" — opakuje se kazdych ~30 s, dokud prijemce nezareaguje
+# (✋ Reaguji + kratka odpoved). Pak ping pres → odesilateli prijde potvrzeni.
+# LITERALNI routy → MUSI byt PRED /app/{app_key}/latest (route ordering).
+def _urgent_name(ds, _sql, uid):
+    try:
+        r = ds.execute(_sql("SELECT COALESCE(NULLIF(trim(coalesce(first_name,'')||' '||coalesce(last_name,'')),''), login_name, '#'||id::text) FROM public.users WHERE id=:u"), {"u": uid}).scalar()
+        return r or ("#" + str(uid))
+    except Exception:
+        return "#" + str(uid)
+
+
+@api_router.get("/app/urgent/people")
+async def app_urgent_people(req: Request) -> JSONResponse:
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    ds = _g()
+    try:
+        rows = ds.execute(_t(
+            "SELECT u.id, COALESCE(NULLIF(trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,'')),''), u.login_name, '#'||u.id::text) AS jmeno "
+            "FROM public.users u "
+            "JOIN public.user_tenants ut ON ut.user_id=u.id AND ut.tenant_id=2 AND ut.membership_status IN ('active','invited') "
+            "WHERE u.id <> :u AND u.id <> 3 ORDER BY jmeno"), {"u": uid}).fetchall()
+        return JSONResponse({"ok": True, "lide": [{"user_id": r[0], "jmeno": r[1]} for r in rows]})
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/urgent/send")
+async def app_urgent_send(req: Request) -> JSONResponse:
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        to_uid = int((body or {}).get("to_user_id") or 0)
+    except Exception:
+        to_uid = 0
+    msg = str((body or {}).get("message") or "").strip()[:300]
+    if not to_uid:
+        return JSONResponse({"ok": False, "error": "Chybí příjemce."})
+    ds = _g()
+    try:
+        nm = _urgent_name(ds, _t, uid)
+        pid = ds.execute(_t(
+            "INSERT INTO tenant.urgent_ping (tenant_id, from_user_id, to_user_id, message, status) "
+            "VALUES (2, :f, :tu, :m, 'open') RETURNING id"), {"f": uid, "tu": to_uid, "m": msg or None}).scalar()
+        ds.execute(_t(
+            "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, status, created_by, created_at) "
+            "VALUES ('mobile', :tu, 'urgent', :ti, :m, 'pending', :f, now())"),
+            {"tu": to_uid, "ti": "🆘 " + nm + " tě nutně potřebuje", "m": (msg or "Otevři appku a reaguj."), "f": uid})
+        ds.commit()
+        return JSONResponse({"ok": True, "id": pid})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[urgent_send] %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.get("/app/urgent/inbox")
+async def app_urgent_inbox(req: Request) -> JSONResponse:
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    ds = _g()
+    try:
+        rows = ds.execute(_t(
+            "SELECT up.id, up.message, "
+            "to_char(up.created_at,'HH24')||':'||to_char(up.created_at,'MI') AS cas, "
+            "COALESCE(NULLIF(trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,'')),''), u.login_name, '#'||u.id::text) AS od "
+            "FROM tenant.urgent_ping up LEFT JOIN public.users u ON u.id=up.from_user_id "
+            "WHERE up.to_user_id=:u AND up.status='open' ORDER BY up.id DESC LIMIT 5"), {"u": uid}).fetchall()
+        return JSONResponse({"ok": True, "items": [
+            {"id": r[0], "message": (r[1] or ""), "cas": r[2], "od": r[3]} for r in rows]})
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/urgent/ack")
+async def app_urgent_ack(req: Request) -> JSONResponse:
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        pid = int((body or {}).get("id") or 0)
+    except Exception:
+        pid = 0
+    reply = str((body or {}).get("reply") or "").strip()[:300]
+    if not pid:
+        return JSONResponse({"ok": False, "error": "Chybí id."})
+    ds = _g()
+    try:
+        row = ds.execute(_t(
+            "UPDATE tenant.urgent_ping SET status='acked', reply=:r, acked_at=now() "
+            "WHERE id=:i AND to_user_id=:u AND status='open' RETURNING from_user_id"),
+            {"r": reply or None, "i": pid, "u": uid}).first()
+        if not row:
+            ds.commit()
+            return JSONResponse({"ok": False, "error": "Už vyřešeno."})
+        nm = _urgent_name(ds, _t, uid)
+        ds.execute(_t(
+            "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, status, created_by, created_at) "
+            "VALUES ('mobile', :tu, 'claude_msg', :ti, :m, 'pending', :f, now())"),
+            {"tu": row[0], "ti": "✋ " + nm + " reaguje", "m": (reply or "Vidím, řeším."), "f": uid})
+        ds.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        ds.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.get("/app/{app_key}/latest")
 async def app_latest(app_key: str, req: Request) -> JSONResponse:
     """Nejnovější dostupná verze appky {app_key} (token NEBO cookie)."""

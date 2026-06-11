@@ -1009,6 +1009,7 @@ setTimeout(function(){
     l.appendChild(row("🔤","Prefixy kontaktů a hovorů","Filtr (STR, EC)",function(){go("set_prefixes");}));
     l.appendChild(row("🔔","Přístup k oznámením","Počty WhatsApp / SMS",function(){go("set_notifaccess");}));
     l.appendChild(row("📷","Snímek obrazovky","Zmrazit, nakreslit a odeslat",function(){go("set_shot");}));
+    l.appendChild(row("🆘","Nutně někoho sehnat","Urgentní upozornění s reakcí",function(){go("urgent");}));
     l.appendChild(row("🎭","Přihlásit jako (test)","Docházka za jiného usera — jen rodiče",function(){go("set_imp");}));
     if(native && B && typeof B.isSmsGateway==="function") l.appendChild(row("📨","SMS brána","Tento telefon přeposílá ověřovací SMS",function(){go("set_smsgw");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
@@ -3465,7 +3466,69 @@ setTimeout(function(){
     p.appendChild(el('<div class="hint" style="margin-top:10px;">Plovoucí 📷 se ukáže vpravo dole na každé obrazovce. Po stisku obrazovku zmrazí — pak kresli prstem, vyber barvu a klepni „Claudovi".</div>'));
     app.appendChild(p); }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot};
+  // ===== Urgentní notifikace „nutně tě potřebuju" (Marti 11.6.2026) =====
+  var _urgentAC=null;
+  function _urgentRing(){
+    try{ if(navigator.vibrate) navigator.vibrate([220,120,220,120,320]); }catch(e){}
+    try{
+      _urgentAC=_urgentAC||new (window.AudioContext||window.webkitAudioContext)();
+      if(_urgentAC.state==="suspended") _urgentAC.resume();
+      var t0=_urgentAC.currentTime;
+      [0,0.26,0.52].forEach(function(off){
+        var o=_urgentAC.createOscillator(), g=_urgentAC.createGain();
+        o.type="square"; o.frequency.value=880;
+        g.gain.setValueAtTime(0.0001,t0+off);
+        g.gain.exponentialRampToValueAtTime(0.13,t0+off+0.03);
+        g.gain.exponentialRampToValueAtTime(0.0001,t0+off+0.19);
+        o.connect(g); g.connect(_urgentAC.destination);
+        o.start(t0+off); o.stop(t0+off+0.21);
+      });
+    }catch(e){}
+  }
+  function _urgentOverlay(it){
+    if(document.getElementById("urgentOverlay")) return;
+    var ov=el('<div id="urgentOverlay" style="position:fixed;inset:0;z-index:2000;background:rgba(120,12,12,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;color:#fff;"></div>');
+    ov.appendChild(el('<div style="font-size:54px;margin-bottom:4px;">🆘</div>'));
+    ov.appendChild(el('<div style="font-size:22px;font-weight:800;">'+esc(it.od||"Někdo")+' tě nutně potřebuje</div>'));
+    ov.appendChild(el('<div style="font-size:13px;opacity:.8;margin:2px 0 14px;">'+esc(it.cas||"")+'</div>'));
+    if(it.message) ov.appendChild(el('<div style="font-size:17px;background:rgba(255,255,255,.12);border-radius:14px;padding:14px 16px;max-width:480px;width:100%;box-sizing:border-box;margin-bottom:16px;">'+esc(it.message)+'</div>'));
+    var rin=el('<input placeholder="Rychlá odpověď (nepovinné)…" style="width:100%;max-width:480px;box-sizing:border-box;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.4);border-radius:12px;color:#fff;padding:12px 14px;font-size:15px;margin-bottom:14px;">');
+    ov.appendChild(rin);
+    var b=el('<button style="width:100%;max-width:480px;box-sizing:border-box;background:#fff;color:#7a0a0a;border:0;border-radius:14px;padding:16px;font-size:18px;font-weight:800;cursor:pointer;">✋ Reaguji</button>');
+    b.addEventListener("click",function(){ b.disabled=true; b.textContent="…";
+      api("POST","/api/v1/erp/app/urgent/ack",{id:it.id, reply:(rin.value||"").trim()}).then(function(j){
+        ov.remove(); if(!(j&&j.ok)){ try{_shotToast("⚠️ "+((j&&j.error)||"chyba"));setTimeout(_shotToastHide,2000);}catch(e){} } }); });
+    ov.appendChild(b); document.body.appendChild(ov);
+  }
+  function _urgentPoll(){
+    api("GET","/api/v1/erp/app/urgent/inbox","").then(function(j){
+      var items=(j&&j.items)||[];
+      if(items.length){ _urgentOverlay(items[0]); _urgentRing(); }
+    }).catch(function(){});
+  }
+  function urgent(){ app.innerHTML=topbar("🆘 Nutně sehnat", true); var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="hint" style="margin-bottom:8px;">Pošle urgentní upozornění, které se dotyčnému opakovaně připomíná (ťuká), dokud nezareaguje. Pak ti přijde potvrzení.</div>'));
+    p.appendChild(el('<label>Zpráva (nepovinné)</label>'));
+    var msg=el('<textarea placeholder="Co potřebuješ?" style="width:100%;box-sizing:border-box;min-height:64px;background:#0e1117;border:1px solid var(--bord);border-radius:12px;color:#fff;padding:10px;font-size:15px;"></textarea>');
+    p.appendChild(msg);
+    p.appendChild(el('<label style="margin-top:12px;display:block;">Komu (klepni)</label>'));
+    var list=el('<div class="list"></div>'); list.appendChild(el('<div class="hint">Načítám lidi…</div>')); p.appendChild(list);
+    api("GET","/api/v1/erp/app/urgent/people","").then(function(j){
+      list.innerHTML=""; var ppl=(j&&j.lide)||[];
+      if(!ppl.length){ list.appendChild(el('<div class="hint">Nikdo k dispozici.</div>')); return; }
+      ppl.forEach(function(u){
+        var b=el('<button class="ghost full" style="text-align:left;margin-bottom:6px;font-size:15px;">🆘 '+esc(u.jmeno)+'</button>');
+        b.addEventListener("click",function(){ b.disabled=true; b.textContent="Posílám…";
+          api("POST","/api/v1/erp/app/urgent/send",{to_user_id:u.user_id, message:(msg.value||"").trim()}).then(function(r){
+            if(r&&r.ok){ b.textContent="✅ Odesláno: "+u.jmeno; try{_shotToast("🆘 Odesláno — bude ťukat, dokud nezareaguje");setTimeout(_shotToastHide,2200);}catch(e){} setTimeout(function(){back();},1000); }
+            else { b.disabled=false; b.textContent="🆘 "+u.jmeno; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+        list.appendChild(b);
+      });
+    });
+    app.appendChild(p);
+  }
+
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){
@@ -3523,6 +3586,7 @@ setTimeout(function(){
   render();
   window.__stgBoot=true;  // appka úspěšně nastartovala → watchdog se nespustí
   try{ _shotSyncBtn(); }catch(e){}
+  try{ _urgentPoll(); setInterval(_urgentPoll, 20000); }catch(e){}  // urgentní notifikace
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
 
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).

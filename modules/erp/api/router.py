@@ -9522,7 +9522,7 @@ async def att_list(req: Request) -> JSONResponse:
     try:
         emp = _att_employee(s, uid)
         rows = s.execute(_t(
-            "SELECT e.id, to_char(e.entry_date,'YYYY-MM-DD') d, et.label typ, e.hours, e.project_ref, "
+            "SELECT e.id, e.note, to_char(e.entry_date,'YYYY-MM-DD') d, et.label typ, e.hours, e.project_ref, "
             "e.status, e.is_active, to_char(e.started_at,'HH24:MI') zac, to_char(e.ended_at,'HH24:MI') kon "
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date >= current_date - :dd "

@@ -1975,7 +1975,12 @@ setTimeout(function(){
       api("GET","/api/v1/erp/app/vyroba/can-manage","").then(function(j){ window._canManageVyroba=!!(j&&j.ok&&j.can_manage); }); }
     api("GET","/api/v1/erp/app/attendance/status","").then(function(j){
       var cn=document.getElementById("dochNow"), c=document.getElementById("dochCard"); if(!cn||!c)return;
-      if(!j||!j.ok){ cn.textContent="Nepodařilo se načíst."; c.textContent="—"; return; }
+      if(!j||!j.ok){
+        // Marti 11.6.: hláška je ťukací → nový pokus.
+        cn.innerHTML='<div id="dochRetry" style="cursor:pointer;color:var(--amber);text-align:center;padding:6px 0;">⚠️ Nepodařilo se načíst. <b>Ťukni a zkusím to znovu.</b></div>';
+        var _rt=document.getElementById("dochRetry"); if(_rt) _rt.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} cn.textContent="Načítám…"; dochLoad(); });
+        c.textContent="—"; return;
+      }
       var open=j.open;
       // Marti 7.6. večer: při směně schovat vše kromě Dnes — „Další věci…" 😉
       if(_dS){

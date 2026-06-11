@@ -5561,6 +5561,185 @@ async def app_urgent_ack(req: Request) -> JSONResponse:
         ds.close()
 
 
+# ---- Self-service osobni udaje (Marti 11.6.2026) ----------------------------
+# Separatni tabulka tenant.user_self_data = PRIMARNI zdroj personalnich dat.
+# Clovek si je sam zadava/aktualizuje (mobil). Kazda zmena -> log + upozorneni
+# HR skupine. STRATEGIE si je odtud tahne dal (projekce resime zvlast).
+# LITERALNI routy -> MUSI byt PRED /app/{app_key}/latest (route ordering).
+_SELF_SECTIONS = [
+    ("identita", "🪪 Osobní identita",
+     "Slouží pro pracovní smlouvy, mzdové výměry a evidenci u úřadů."),
+    ("adresa_trvala", "🏠 Trvalá adresa",
+     "Povinný údaj pro smlouvu, mzdovou agendu a hlášení na úřady."),
+    ("adresa_kontaktni", "✉️ Doručovací adresa",
+     "Kam ti posílat poštu, pokud je jiná než trvalá. Nepovinné."),
+    ("kontakt", "📞 Kontaktní údaje",
+     "Abychom tě zastihli — osobní e-mail a telefon."),
+    ("nouzovy", "🆘 Nouzový kontakt",
+     "Koho oslovit, kdyby se ti něco stalo v práci. Dobrovolné, ale doporučené."),
+    ("vyplaty", "💳 Pro výplatu",
+     "Číslo účtu pro mzdu a zdravotní pojišťovna pro odvody."),
+    ("citlive", "🔒 Citlivé údaje",
+     "Vidíš jen ty a personální oddělení (HR). Nutné pro smlouvu a odvody."),
+]
+_SELF_FIELDS = [
+    ("title_before",   "Titul před jménem", "identita", "text",  False),
+    ("title_after",    "Titul za jménem",   "identita", "text",  False),
+    ("birth_date",     "Datum narození",    "identita", "date",  False),
+    ("birth_place",    "Místo narození",    "identita", "text",  False),
+    ("birth_country",  "Země narození",     "identita", "text",  False),
+    ("marital_status", "Rodinný stav",      "identita", "text",  False),
+    ("citizenship",    "Státní občanství",  "identita", "text",  False),
+    ("perm_street",    "Ulice a č.p.",      "adresa_trvala", "text", False),
+    ("perm_city",      "Obec",              "adresa_trvala", "text", False),
+    ("perm_zip",       "PSČ",               "adresa_trvala", "text", False),
+    ("perm_country",   "Země",              "adresa_trvala", "text", False),
+    ("contact_street", "Ulice a č.p.",      "adresa_kontaktni", "text", False),
+    ("contact_city",   "Obec",              "adresa_kontaktni", "text", False),
+    ("contact_zip",    "PSČ",               "adresa_kontaktni", "text", False),
+    ("contact_country","Země",              "adresa_kontaktni", "text", False),
+    ("personal_email", "Osobní e-mail",     "kontakt", "email", False),
+    ("personal_phone", "Telefon",           "kontakt", "tel",   False),
+    ("emergency_name", "Jméno blízké osoby","nouzovy", "text",  False),
+    ("emergency_phone","Telefon na ni",     "nouzovy", "tel",   False),
+    ("emergency_relation","Vztah (např. manželka)","nouzovy","text", False),
+    ("bank_account",   "Číslo účtu",        "vyplaty", "text",  False),
+    ("health_insurance","Zdravotní pojišťovna","vyplaty","text", False),
+    ("birth_number",   "Rodné číslo",       "citlive", "text",  True),
+    ("id_card_number", "Číslo OP / pasu",   "citlive", "text",  True),
+]
+
+
+def _self_person_name(s, uid: int) -> str:
+    from sqlalchemy import text as _t
+    r = s.execute(_t(
+        "SELECT COALESCE(NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),''),"
+        " login_name, '#'||id::text) FROM public.users WHERE id=:u"), {"u": uid}).first()
+    return (r[0] if r else ("#" + str(uid))) or ("#" + str(uid))
+
+
+def _self_hr_recipients(s):
+    """Členové HR skupiny + rodiče (komu cinknout na změnu osobních údajů)."""
+    from sqlalchemy import text as _t
+    ids = set()
+    for x in s.execute(_t(
+        "SELECT m.user_id FROM tenant.staff_group_member m "
+        "JOIN tenant.staff_group g ON g.id=m.group_id "
+        "WHERE g.tenant_id=2 AND NOT g.archived AND g.name='HR'")).fetchall():
+        ids.add(int(x[0]))
+    for x in s.execute(_t("SELECT id FROM public.users WHERE is_marti_parent=true")).fetchall():
+        ids.add(int(x[0]))
+    return list(ids)
+
+
+@api_router.get("/app/self-data")
+async def app_self_data_get(req: Request) -> JSONResponse:
+    """Vlastní osobní údaje přihlášeného (self-service). Vrací sekce + pole."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        cols = ", ".join(f[0] for f in _SELF_FIELDS)
+        row = s.execute(_t(
+            "SELECT " + cols + ", updated_at FROM tenant.user_self_data "
+            "WHERE tenant_id=2 AND user_id=:u"), {"u": uid}).first()
+        vals = {}
+        if row:
+            for i, f in enumerate(_SELF_FIELDS):
+                v = row[i]
+                if f[3] == "date" and v is not None:
+                    v = v.isoformat()
+                vals[f[0]] = ("" if v is None else str(v))
+        secs = []
+        for skey, slabel, swhy in _SELF_SECTIONS:
+            items = [{"key": f[0], "label": f[1], "type": f[3],
+                      "sensitive": f[4], "value": vals.get(f[0], "")}
+                     for f in _SELF_FIELDS if f[2] == skey]
+            secs.append({"key": skey, "label": slabel, "why": swhy, "items": items})
+        upd = row[-1].isoformat() if (row and row[-1]) else None
+        return JSONResponse({"ok": True, "sections": secs, "updated_at": upd})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/self-data/save")
+async def app_self_data_save(req: Request) -> JSONResponse:
+    """Uložení vlastních údajů: diff -> log + upozornění HR skupině na změny."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    vals_in = (body or {}).get("values") or {}
+    from sqlalchemy import text as _t
+    valid_keys = {f[0]: f for f in _SELF_FIELDS}
+    # normalizace vstupu (jen povolená pole, prázdné -> None)
+    newv = {}
+    for k, f in valid_keys.items():
+        raw = vals_in.get(k)
+        sv = ("" if raw is None else str(raw)).strip()
+        newv[k] = (sv if sv != "" else None)
+    cm, s = _att_session()
+    try:
+        cols = [f[0] for f in _SELF_FIELDS]
+        prev = s.execute(_t(
+            "SELECT " + ", ".join(cols) + " FROM tenant.user_self_data "
+            "WHERE tenant_id=2 AND user_id=:u"), {"u": uid}).first()
+        oldv = {}
+        if prev:
+            for i, c in enumerate(cols):
+                ov = prev[i]
+                if valid_keys[c][3] == "date" and ov is not None:
+                    ov = ov.isoformat()
+                oldv[c] = ("" if ov is None else str(ov))
+        # diff
+        changed = []  # (key, label, sensitive, old, new)
+        for c in cols:
+            old_s = oldv.get(c, "")
+            new_s = ("" if newv[c] is None else str(newv[c]))
+            if old_s != new_s:
+                f = valid_keys[c]
+                changed.append((c, f[1], f[4], old_s, new_s))
+        # UPSERT
+        set_cl = ", ".join(c + "=EXCLUDED." + c for c in cols)
+        params = {"u": uid}
+        for c in cols:
+            params[c] = newv[c]
+        s.execute(_t(
+            "INSERT INTO tenant.user_self_data (tenant_id, user_id, " + ", ".join(cols) +
+            ", updated_at, updated_by) VALUES (2, :u, " +
+            ", ".join(":" + c for c in cols) + ", now(), :u) "
+            "ON CONFLICT (tenant_id, user_id) DO UPDATE SET " + set_cl +
+            ", updated_at=now(), updated_by=:u"), params)
+        # log každé změny (citlivé hodnoty do logu uložíme — log je chráněný)
+        for c, lab, sens, ov, nv in changed:
+            s.execute(_t(
+                "INSERT INTO tenant.user_self_data_log "
+                "(tenant_id, user_id, field_name, old_value, new_value, changed_by, change_source) "
+                "VALUES (2, :u, :fn, :ov, :nv, :u, 'self')"),
+                {"u": uid, "fn": c, "ov": ov, "nv": nv})
+        # upozornění HR skupině + rodičům (bez citlivých hodnot)
+        if changed:
+            nm = _self_person_name(s, uid)
+            labs = ", ".join(x[1] for x in changed)
+            _task_notify(s, _self_hr_recipients(s), uid,
+                         "🪪 Aktualizace osobních údajů",
+                         nm + " upravil(a): " + labs)
+        s.commit()
+        return JSONResponse({"ok": True, "changed": len(changed)})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/{app_key}/latest")
 async def app_latest(app_key: str, req: Request) -> JSONResponse:
     """Nejnovější dostupná verze appky {app_key} (token NEBO cookie)."""

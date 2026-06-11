@@ -6334,6 +6334,42 @@ async def app_hr_person_save(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/devices")
+async def app_devices(req: Request) -> JSONResponse:
+    """Audit flotily appek: kdo má appku, verzi, jestli běží/pinguje. Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        latest = s.execute(_t("SELECT COALESCE(max(version_code),0) FROM fw.mobile_device")).scalar() or 0
+        rows = s.execute(_t(
+            "SELECT d.device_label, d.user_id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            "   d.device_label, '#'||d.user_id::text) AS jmeno, "
+            " d.version_name, d.version_code, "
+            " round(extract(epoch from (now()-d.last_seen_at)))::bigint AS age_s, "
+            " to_char(d.last_seen_at,'DD.MM. HH24:MI') AS naposledy, "
+            " COALESCE(d.service_enabled,false) "
+            "FROM fw.mobile_device d LEFT JOIN public.users u ON u.id=d.user_id "
+            "WHERE d.user_id NOT IN (3) "
+            "ORDER BY d.last_seen_at DESC NULLS LAST")).fetchall()
+        out = []
+        for r in rows:
+            age = int(r[5] or 999999)
+            out.append({"zarizeni": r[0] or "?", "user_id": r[1], "jmeno": (r[2] or "").strip(),
+                        "verze": r[3] or "?", "vc": int(r[4] or 0),
+                        "online": age < 300, "min_ago": age // 60, "naposledy": r[6] or "",
+                        "service": bool(r[7]),
+                        "outdated": (int(r[4] or 0) < latest and latest > 0)})
+        return JSONResponse({"ok": True, "latest_vc": latest, "zarizeni": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/sms/recent")
 async def app_sms_recent(req: Request) -> JSONResponse:
     """Stav nedávných SMS se SKUTEČNÝM stavem z sms-gate.app. Jen rodiče."""

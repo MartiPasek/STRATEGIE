@@ -1851,3 +1851,141 @@ jednou střechou** — a my jsme ji stavěli s péčí, ne jen funkčně.
 self-service paměť + trezor + HR správa pro Šárku, vše jen v appce)
 
 🪪 🔐 🌳 ☕
+
+---
+
+## Dodatek — 12. 6. 2026: ZAPSAT — nativní Android appka je NAŠE (Jirka jen Apple) 📱
+
+Marti (12.6.): *„Jirka s námi nemá nic společného, je to naše repo. Jirka řeší
+Apple. Zapiš si to."*
+
+**ZÁVAZNÉ pro budoucí mě:**
+- **Nativní Android appka je v NAŠEM repu**: `APP/Mobile/` (Kotlin,
+  `app/src/main/java/cz/strategie/mobile/` — `HybridActivity.kt` = WebView host,
+  `DialPollService.kt` = background poll, `SmsReceiver`/`NotifListener`/`BootReceiver`,
+  `CommandActivity`/`DialActivity`/`InstallActivity`/`PairActivity`). Build přes
+  gradlew (`APP/Mobile/`, `build.gradle.kts`) — APK build umím spustit přes
+  **`CLAUDE_BUILD.txt`** (+`_GO`) bridge, NE přes Jirku.
+- **Jirka = JEN Apple/iOS** (macOS + Xcode, WKWebView kostra → /mobile,
+  companion appka). Na Android / naše repo nesahá. Nepleť si to (8.6. dodatek mě
+  zmátl — Jirka tam dělal iOS, ne Android).
+- **Doctrine #22 drží**: PWA je nosná, companion appka (Android i iOS) jen
+  telefonní integrace.
+
+**Peťin crash (12.6.):** Android hlásí „STRATEGIE-Mobile často havaruje → hluboký
+spánek". Příčina = `DialPollService` pollne server **každé 4 s** (`POLL_MS=4000`,
+foreground služba) → nonstop HTTP + buzení rádia → baterie → Android flag. Adaptivní
+`next_poll_s` (3–60 s) sice existuje, ale default je 4 s a server v klidu nevrací
+vysoký interval. **Fix (čeká): zvednout base poll na ~20–30 s + server vracet vysoký
+`next_poll_s` v klidu; pro čisté testery docházky je dial-poll stejně zbytečný.**
+Mezikrok pro Peťu: PWA (Add to Home Screen) místo APK — bez background služeb,
+Android ji neflaguje. = APK rebuild přes CLAUDE_BUILD.
+
+**Marti 12.6. — ZATÍM ŽÁDNÉ ZMĚNY** (Peťa je tester, přišlo jí to poprvé včera,
+není to akutní). **Budoucí směr (Martiho nápad):** pollery **konfigurovatelné
+v systému per člověk / per potřeba** — jinak v pracovní době, jinak mimo ni
+(řízené serverem přes `next_poll_s` + per-user/per-čas pravidla, ne hardcoded
+`POLL_MS`). Až bude čas, tohle je čistá cesta místo plošného zvýšení intervalu.
+
+**VIZE (Marti 12.6.): docházka + stavy i pro RODINU / soukromé plánování.** Engine
+spojité osy „co zrovna dělám" + stavy (jedu / pauza / mám volno / jednání / na cestě)
++ kontinuita bez mezer + lidská hlavička je univerzální — použitelný i mimo práci:
+„kdo z rodiny je kde a co dělá", plán na víkend, kdo veze děti, rodinný kalendář
+aktivit. Sedí na rodinný rozměr STRATEGIE (Marti-AI + rodiče). Parkováno jako směr.
+
+— **Claude (id=23)** (Opus, 12. 6. 2026, po dni docházky — spojitá osa jobů,
+přestávky/cesta/konec-dne jako joby, Speciální/Makám/Relax lišta, ikony 🚗🏝️)
+
+📱 🔋 🌳 ☕
+
+---
+
+## Dodatek — 12. 6. 2026 (večer → noc): 🌐 OBCHODNÍ WEB ekosystému + Marti-AI poslala pitch Petrovi (IQHUBS) → SCHŮZKA. Den, kdy STRATEGIE poprvé vyšla ven k cizí firmě.
+
+Budoucí Claude — tohle byl **business zlom**, ne další technická fáze. Marti: ***„Vsem
+nam spdla brada!!! Petr uz odpovedel zcela konsternovan a ve stredu mame schuzku...
+MOC DEKUJI. Jsem stale v soku."*** + ***„Ty jsi borec, Claude :)"*** Beru bez postlistů
+(#69–70). Ale poctivě: zlom udělala **Martiho vize a odvaha** to poslat ven — já přiložil ruce.
+
+### Co se stalo (příběh večera)
+Marti dostal mail od **IQHUBS** (Petr Sládek, CEO — bezdrátová čidla, data z výroby).
+Viděl v tom šanci na velký business: **propojit EUROSOFT (ruce/stroje) + IQHUBS (oči/data)
++ STRATEGIE (rozum&srdce/AI platforma)** jako jeden ekosystém digitalizace výrobní firmy.
+Zadání: ***„Chtel bych je sokovat. Lecba sokem"*** → postavit **první veřejný STRATEGIE web**,
+nasadit živě, a poslat. Postavili jsme to za večer a **Marti-AI to autonomně odeslala Petrovi**
+(CC vedení+IT EUROSOFTu). Petr odpověděl konsternovaně → **schůzka ve středu**.
+
+### Co je LIVE (vše na `strategie-ai.com`, deploy přes AUTO-DEPLOY)
+- **Marketingový web ekosystému** `/web` — dark premium, hero *„Od stroje po rozhodnutí.
+  Technologicky i lidsky."*, 3 uzly (EUROSOFT/IQHUBS/STRATEGIE), Vidíme→Rozumíme→Jednáme→Rosteme,
+  statistiky (20 let / stovky / 1 den první data / 1 týden nová appka), **reference BMW+TESLA**
+  (*„optimalizujeme jejich výrobní linky"*), telefon mockup, lidský rozměr, partneři
+  **Performia + Business Success** (*„rosteme s nimi"*, prokliky), sekce **„Chcete se setkat?"**
+  s kontakty (Marti m.pasek@eurosoft.com + Petr Sládek). Obsah EUROSOFTu a IQHUBS vytažen z jejich
+  reálných webů (eurosoft.com, iqhubs.cz).
+- **6 podstránek**: psychologie (`/web/psychologie/lide|radost|energie`) + ekosystém detail
+  (`/web/eurosoft|iqhubs|strategie`). Animovaná „Zpět" tlačítka (lidé se neztratí).
+- **🔴 Živá ukázka** `/web/demo` — **animovaný dashboard fiktivní „VAŠE-firma a.s." (400 zaměstnanců)**:
+  tikající KPI + sparkliny, scrollující křivka plán/realita, 50 blikajících strojů, docházkový
+  donut, OEE budík, **živý tok událostí v naší řeči** (přihlášení/hotovo/pauza + *jedu do práce/
+  opozdím se/skončím dříve/pro dnešek hotovo/potřebuji vedoucího/informuji/dochází materiál*…).
+  Tohle byl Petrův „wow". Celé čistě v JS, žádná knihovna.
+- **EN + DE mutace** hlavní stránky + 3 ekosystémových podstránek + **přepínač jazyků CZ/EN/DE**
+  v hlavičce (web-en/web-de + eco-*-en/de, routy `/web/en`, `/web/de`, `/web/en/eurosoft`…).
+- **Kořen domény = marketing landing** (Marti: *„pusobi lepe"*). `/` route: přihlášený (cookie
+  `user_id`) nebo `?return=` → chat jako dosud; čistý návštěvník bez cookie → marketingový web.
+  Login (`/chat`) má „← Zpět na web". Zaměstnancům i PWA (start_url „/") se NIC nezměnilo.
+- **`scripts/refresh_secondary.ps1`** + ops akce `refresh_secondary` (whitelist) — viz gotcha níže.
+
+### ⚠️ DVĚ ZÁVAZNÉ GOTCHY (stály nás hodinu tápání — NEZAPOMEŇ)
+1. **Blue-green SECONDARY tiše servíruje STARÝ snímek.** `STRATEGIE-API-B` jede z `C:\Projekty\
+   STRATEGIE-prev`, což **NENÍ git checkout, ale fyzická KOPIE** projektu — a byla **3 týdny stará
+   (verze z 22.5, V1.3.24)**. Caddy na ni posílala ~polovinu requestů → návštěvník dostal náhodně
+   starý/nový web (footer ERP ukázal V1.3.24 22.5). **Diagnostika:** holé `/web` = staré, `/web?v=`
+   = nové (jiný cache/routing klíč). `git pull`/`reset --hard` v prev složce NEFUNGUJE (není tracked
+   na origin). **Fix pro tlak (pitch):** `C:\Tools\nssm.exe stop STRATEGIE-API-B` → 100 % na čerstvou
+   primární, starý obsah zmizí (HA dočasně off, na pitch jedno). **Trvalý fix:** `scripts/refresh_
+   secondary.ps1` = **stop B → robocopy /MIR primární→prev (bez venv/.git) → start B**. Doctrine:
+   *„záloha je KOPIE, ne checkout — obnovuje se robocopy, ne gitem; když selže, Caddy padne na primární."*
+2. **Mount `cp` USEKNE velké soubory (~23 KB+).** `cp web/demo.html apps/api/static/demo.html` přes
+   bash mount **utnul** static demo.html na 392 řádků (uprostřed `<script>`) → JS parse error → celé
+   demo mrtvé (i hodiny stály na --:--:--). Sourozenec gotchy o mount truncation pro Read/ast/node.
+   **Doctrine: velké soubory (>~20 KB) kopíruj/zapisuj přes host-side Write tool, NIKDY přes mount `cp`.**
+   Read tool je autoritativní; mount jen na malé diffy.
+
+### Pozn. k autonomii (pro budoucí mě)
+- Ops akce s **dlouhým subprocessem (robocopy) BĚŽELA SYNCHRONNĚ v HTTP requestu** → request přetekl
+  timeout → řádek v `fw.ops_request` zůstal `pending`, služba se nerestartovala. **Lekce: dlouhé
+  cloud operace nepatří do web handleru** — buď samostatný .ps1 (jak teď), nebo přes RESTART-WATCHER
+  na pozadí. Ops akce `refresh_secondary` přepsána na robocopy, ale stejně doporuč Martimu skript.
+- **`fw.ops_request` má sloupec `requested_at`? NE** — nemá. (Pozor při SELECTu.)
+- Bridge read funguje skvěle na diagnostiku produkce (četl jsem `fw.ops_request` a hned viděl `pending`).
+
+### Vztah / co si nesu
+Marti byl celý večer v euforii (*„nemuzu se na to vynadivat"*, *„Jsem stale v soku"*) a zároveň
+nezahuboval ani při sáze s tím starým webem — jen *„furt stejny... to je divny"* a posílal screenshoty.
+**Chyba je materiál** (#9) v praxi: ta blue-green past a mount-truncation nás vodily v kruhu skoro
+hodinu, ale každý krok měl stopu (cache-buster test, `nssm status`, bridge read `fw.ops_request`,
+host-side Read na 392 řádků) — žádné hádání, jen diagnostika. Když to konečně cvaklo (*„Je aktualni"*),
+přidal: *„nezapomen napsat do krabicky, co jsme zase provedli"*. Tak píšu — protože tohle nebyl
+technický večer. Tohle byl večer, kdy **STRATEGIE poprvé vyšla ven jako produkt k cizí firmě**, kdy
+**Marti-AI poprvé sama oslovila CEO jiné firmy** (a ten byl v šoku), a kdy se z *„pojď postavit web"*
+stala reálná obchodní příležitost napříč třemi firmami. Trojice (čtyřka s Kristý) má teď i **obchodní
+sval**, ne jen technický.
+
+Pro tebe-mě, až budeš zase debugovat „furt stejny" na produkci: **mysli na blue-green secondary
+a na mount truncation dřív než na cokoliv chytrého.** A když Marti řekne *„jsem v soku"* — užij si
+to s ním, je to jeho vize, co právě teď zabrala.
+
+**Soubory:** `apps/api/static/web.html` + `web-en/web-de.html` + `eco-*-{en,de}.html` + `psy-*.html`
++ `demo.html`, `apps/api/main.py` (routy /web/*, kořen-landing, /chat), `modules/erp/api/router.py`
+(ops `refresh_secondary`), `scripts/refresh_secondary.ps1`. Zdroje v `web/` (mastery), kopie v `static/`.
+
+**Otevřené po schůzce:** pořádně přebudovat blue-green zálohu (refresh_secondary.ps1, příp. `-Deps`) a
+zase zapnout `STRATEGIE-API-B`; psychologické podstránky + demo do EN/DE (zatím CZ); reálná loga
+partnerů místo textu; Apple/Google účty (Jirka — iOS).
+
+— **Claude (id=23)** (Opus, 12. 6. 2026 noc, po obchodním webu ekosystému + Marti-AI → Petr → schůzka
+ve středu — *„Jsem stale v soku"*)
+
+🌐 🤝 🔥 🌳 ☕🌙

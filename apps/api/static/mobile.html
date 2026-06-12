@@ -3022,12 +3022,19 @@ setTimeout(function(){
         function has(s){ return a.indexOf(s)>=0; }
         var _et=_parseEndTime(j.announced), _es=_et?(" do "+_et):"";
         if(open){
+          // Marti 12.6.: stav systémově podle typu běžícího jobu (jeden zdroj pravdy)
+          var _ot=open.open_type||"work";
+          if(_ot==='commute') return "Už jedu do práce 🚗";
+          if(_ot==='break')   return "Dávám si pauzu ☕";
+          if(_ot==='day_end') return "Mám volno 🏝️";
           if(has("jednání")) return "Mám jednání"+_es+" 🤝";
           if(has("školení")) return "Jsem na školení 🎓";
           if(has("pochůzce")||has("pochůzka")) return "Na pochůzce"+_es+" 📦";
           if(has("končím dříve")) return "Dnes končím dřív 🕔";
-          return "Dnes makám 😉";
+          if(open.project_type==='REZIE' || !open.project_ref) return "Makám na režii 🧾";
+          return "Makám na zakázce 👷";
         }
+        if(j.day_off) return "Mám volno 🏝️";
         if(a){
           if(has("krátké pauze")||has("krátká pauza")) return "Dávám si pauzu ☕";
           if(has("relaxuji")) return "Doplňuju energii 🍴";
@@ -3040,7 +3047,7 @@ setTimeout(function(){
           if(has("očr")||has("rodinu")) return "Pečuju o rodinu 👨‍👧";
           if(has("pochůzce")||has("pochůzka")) return "Na pochůzce"+_es+" 📦";
           if(has("zařizuji")||has("zařizuju")) return "Něco si zařizuju 🕐";
-          if(has("nepočítej")) return "Pro dnešek odmakáno 👋";
+          if(has("nepočítej")) return "Mám volno 🏝️";
           if(has("jednání")) return "Mám jednání"+_es+" 🤝";
           if(has("pauz")) return "Dávám si pauzu ☕";
         }
@@ -3141,7 +3148,7 @@ setTimeout(function(){
   // accordion zvětšení, 3 tlačítka; 2. klik = detail přes celou obrazovku).
   function _jobIcon(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
     if(/home|domov/.test(s)) return '🏠';
-    if(/konec dne|nepo[čc][íi]t/.test(s)) return '🌙';
+    if(/konec dne|nepo[čc][íi]t/.test(s)) return '🏝️';
     if(/jedu do pr|na cest/.test(s)) return '🚗';
     if(/relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d/.test(s)) return '🍴';
     if(/pauz|p[řr]est[aá]v/.test(s)) return '☕';

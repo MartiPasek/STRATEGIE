@@ -6998,11 +6998,18 @@ async def att_status(req: Request) -> JSONResponse:
             "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
             "AND ended_at IS NOT NULL AND status NOT IN ('announced','superseded')"),
             {"t": _ATT_TENANT, "e": emp}).first()
+        # Marti 12.6.: „mám volno" — existuje dnes job 'Konec dne' (uzavřený do půlnoci)
+        day_off = s.execute(_t(
+            "SELECT 1 FROM tenant.att_entry a JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+            "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.entry_date=current_date "
+            "AND et.code='day_end' AND a.status IS DISTINCT FROM 'superseded' LIMIT 1"),
+            {"t": _ATT_TENANT, "e": emp}).first() is not None
         s.commit()
         return JSONResponse({"ok": True,
                              "open": ({"id": opn[0], "started_at": opn[1], "project_ref": opn[2],
                                        "project_name": pname, "project_type": ptyp,
                                        "open_type": opn[3]} if opn else None),
+                             "day_off": day_off,
                              "announced": (ann[0] if ann else None),
                              "morning_start": (first[0] if first else None),
                              "last_end": (lend[0] if lend else None),

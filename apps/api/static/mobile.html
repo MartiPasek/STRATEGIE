@@ -2944,9 +2944,9 @@ setTimeout(function(){
         bw.innerHTML=""; bw._exps=null;
         // Marti 7.6. večer: žádná červená — změna činnosti není poplach (ghost).
         // „Jsem na zakázce" (píchnutej ≠ pracuje), „nepočítej" až na konec.
-        if(open && open.open_type!=='commute'){
+        if(open && open.open_type!=='commute' && open.open_type!=='day_end'){
           // zakázka patří sem — přepnutí BĚHEM směny (switch)
-          // (na cestě do práce → arrival větev níže: „Jsem v práci" cestu uzavře)
+          // (na cestě / „mám volno" → arrival větev níže: „Jsem v práci" je uzavře)
           // Marti 10.6.: víc místa v „makám" — těchto 7 voleb sbalit pod jeden obal.
           // („Tak tady budu jinde" = budoucnost, sem nepatří → jiný název.)
           expOpt(bw,"🙈 Teď to bude jinak…","ghost",function(bx){

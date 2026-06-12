@@ -6941,6 +6941,24 @@ def _att_work_type(sess):
     return r[0] if r else None
 
 
+def _att_close_stale(sess, emp):
+    """Marti 12.6.: půlnoční uzávěrka — jakýkoli AKTIVNÍ job z minulého dne se uzavře
+    ke konci svého dne (23:59:59). Řeší 'konec dne' běžící přes půlnoc i zapomenuté
+    odchody, ať příští den začíná čistě."""
+    from sqlalchemy import text as _t
+    try:
+        sess.execute(_t(
+            "UPDATE tenant.att_entry "
+            "SET ended_at = entry_date + interval '1 day' - interval '1 second', is_active=false, "
+            "hours = round((EXTRACT(EPOCH FROM (entry_date + interval '1 day' - interval '1 second' - started_at))/3600.0)::numeric,2), "
+            "updated_at = now() "
+            "WHERE tenant_id=:t AND employee_id=:e AND is_active=true "
+            "AND entry_date < current_date AND started_at IS NOT NULL"),
+            {"t": _ATT_TENANT, "e": emp})
+    except Exception:
+        pass
+
+
 @api_router.get("/app/attendance/status")
 async def att_status(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
@@ -6950,6 +6968,7 @@ async def att_status(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
+        _att_close_stale(s, emp)
         opn = s.execute(_t("SELECT a.id, to_char(a.started_at,'YYYY-MM-DD\"T\"HH24:MI:SS'), a.project_ref, "
                            "COALESCE(et.code,'') "
                            "FROM tenant.att_entry a LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
@@ -10667,6 +10686,7 @@ async def att_checkin(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
+        _att_close_stale(s, emp)
         # Marti 12.6.: nová aktivita po „konci dne" → žádný job nesmí sahat do budoucna.
         # Zkrať jakýkoli dnešní záznam, který končí po teď (typicky day_end do půlnoci).
         s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
@@ -10767,23 +10787,13 @@ async def att_checkout(req: Request) -> JSONResponse:
         btype = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
                           {"t": _ATT_TENANT, "c": bcode}).scalar() or _att_work_type(s)
         bnote = (reason or presence or ("Konec dne" if is_dayend else "Přestávka"))[:160]
-        if is_dayend:
-            # 3a) job do konce dne (T → 23:59:59), rovnou uzavřený
-            s.execute(_t(
-                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,ended_at,"
-                "hours,status,source,is_active,note,created_by_id,created_at,updated_at) "
-                "VALUES (:t,:e,current_date,:ty,now(),"
-                "  date_trunc('day',now())+interval '1 day' - interval '1 second',"
-                "  round((EXTRACT(EPOCH FROM (date_trunc('day',now())+interval '1 day' - interval '1 second' - now()))/3600.0)::numeric,2),"
-                "  'pending','mobile_app',false,:n,:u,now(),now())"),
-                {"t": _ATT_TENANT, "e": emp, "ty": btype, "n": bnote, "u": uid})
-        else:
-            # 3b) běžící přestávka — zavře se při návratu / přepnutí (auto-switch v checkinu)
-            s.execute(_t(
-                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
-                "status,source,is_active,note,created_by_id,created_at,updated_at) "
-                "VALUES (:t,:e,current_date,:ty,now(),'pending','mobile_app',true,:n,:u,now(),now())"),
-                {"t": _ATT_TENANT, "e": emp, "ty": btype, "n": bnote, "u": uid})
+        # 3) Marti 12.6.: přestávka i „konec dne" běží jako ostatní joby — AKTIVNÍ, bez konce.
+        # Uzavře se při návratu (auto-switch v checkinu) nebo půlnočním sweepem.
+        s.execute(_t(
+            "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
+            "status,source,is_active,note,created_by_id,created_at,updated_at) "
+            "VALUES (:t,:e,current_date,:ty,now(),'pending','mobile_app',true,:n,:u,now(),now())"),
+            {"t": _ATT_TENANT, "e": emp, "ty": btype, "n": bnote, "u": uid})
         s.commit()
         r = s.execute(_t("SELECT hours FROM tenant.att_entry WHERE id=:id"), {"id": opn[0]}).first()
         return JSONResponse({"ok": True, "id": opn[0], "hours": float(r[0] or 0)})

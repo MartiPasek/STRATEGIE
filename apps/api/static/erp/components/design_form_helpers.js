@@ -1165,7 +1165,10 @@
     // s gapem od close button.
     const rightActions = document.createElement("div");
     rightActions.className = "erp-modal-header-actions";
-    rightActions.style.cssText = "display:flex;align-items:center;gap:12px;flex:0 0 auto;";
+    // Kristý 12.6.2026: rezerva vpravo, aby DESIGN toggle (nejpravější akce)
+    // na úzkém/maximalizovaném okně nesahal pod fixní raketku (deploy button
+    // top:8px;right:16px;width:40px → zabírá ~56px od pravého okraje).
+    rightActions.style.cssText = "display:flex;align-items:center;gap:12px;flex:0 0 auto;margin-right:48px;";
 
     const sysToggle = document.createElement("button");
     sysToggle.type = "button";

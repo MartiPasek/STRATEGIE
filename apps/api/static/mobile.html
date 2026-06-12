@@ -1401,37 +1401,63 @@ setTimeout(function(){
   }
   function kdekdo(){
     app.innerHTML=topbar("👀 Kdo kde", true);
+    // skupiny: key, label, barva, ikona
     var GRP=[["prace","V práci","#34d399","👷"],["homeoffice","Home office","#60a5fa","🏠"],
              ["vacation","Na dovolené","#fbbf24","🏝️"],["sick","Nemocní","#f87171","🤒"],
              ["medical","U lékaře","#f59e0b","🩺"],["family_care","OČR","#a78bfa","👶"],
-             ["unpaid","Neplacené volno","#9aa","🚫"],["nic","Nevím / nezadáno","#667","—"]];
-    var cur=new Date();
-    var bar=el('<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;"></div>');
+             ["unpaid","Volno","#9aa","🚫"],["nic","Nezadáno","#667","—"]];
+    var cur=new Date(); var _kk={f:"vse",data:[]};
+    var bar=el('<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"></div>');
     var prev=el('<button class="ghost" style="padding:8px 12px;">‹</button>');
     var lbl=el('<div style="flex:1;text-align:center;font-weight:700;"></div>');
     var next=el('<button class="ghost" style="padding:8px 12px;">›</button>');
     bar.appendChild(prev); bar.appendChild(lbl); bar.appendChild(next);
     app.appendChild(bar);
-    var list=el('<div></div>'); app.appendChild(list);
+    // STANDARD TEMPLATE: levý orámovaný přehled + pravá 72px lišta ikon
+    var pane=el('<div style="display:flex;gap:10px;height:64vh;align-items:stretch;">'
+      +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="kkList" style="padding:0;list-style:none;margin:0;"></ul></div>'
+      +'<div id="kkRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
+    app.appendChild(pane);
     function iso(d){ return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2); }
     function czlbl(d){ var dny=["neděle","pondělí","úterý","středa","čtvrtek","pátek","sobota"];
       var t=new Date(); t.setHours(0,0,0,0); var x=new Date(d); x.setHours(0,0,0,0);
       var diff=Math.round((x-t)/86400000); var suf=diff===0?" (dnes)":diff===-1?" (včera)":diff===1?" (zítra)":"";
       return dny[d.getDay()]+" "+d.getDate()+"."+(d.getMonth()+1)+"."+suf; }
+    function gMeta(k){ for(var i=0;i<GRP.length;i++) if(GRP[i][0]===k) return GRP[i]; return ["nic","—","#667","—"]; }
+    function cnt(k){ return k==="vse"?_kk.data.length:_kk.data.filter(function(p){return p.kind===k;}).length; }
+    function railBtn(icon,label,key,color){
+      var on=(_kk.f===key); var c=cnt(key);
+      var amb=(key!=="prace"&&key!=="vse");
+      var bdg=(c>0)?'<span style="position:absolute;top:4px;right:6px;min-width:17px;height:17px;line-height:15px;border-radius:9px;border:1px solid rgba(0,0,0,.25);background:'+(amb?"var(--amber)":"var(--green)")+';color:#241a02;font-size:10px;font-weight:700;padding:0 3px;box-sizing:border-box;text-align:center;">'+c+'</span>':'';
+      var b=el('<button style="position:relative;width:100%;box-sizing:border-box;margin:0;padding:11px 2px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:26px;line-height:1;">'+icon+'</span>'+label+bdg+'</button>');
+      b.addEventListener("click",function(){ _kk.f=key; render(); });
+      return b;
+    }
+    function render(){
+      var rail=document.getElementById("kkRail"); var ul=document.getElementById("kkList");
+      if(!rail||!ul) return;
+      rail.innerHTML=""; rail.appendChild(railBtn("📋","Vše","vse"));
+      GRP.forEach(function(g){ if(cnt(g[0])>0) rail.appendChild(railBtn(g[3],g[1],g[0],g[2])); });
+      ul.innerHTML="";
+      function liPerson(p){ var g=gMeta(p.kind);
+        return el('<li style="border:none;padding:7px 4px;border-bottom:1px solid #1b2742;display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">'+g[3]+'</span><span style="flex:1;">'+esc(p.jmeno)+'</span><span class="hint" style="color:'+g[2]+';">'+esc(p.label)+'</span></li>'); }
+      if(_kk.f==="vse"){
+        var any=false;
+        GRP.forEach(function(g){ var arr=_kk.data.filter(function(p){return p.kind===g[0];}); if(!arr.length) return; any=true;
+          ul.appendChild(el('<li style="border:none;padding:9px 2px 3px;font-weight:700;color:'+g[2]+';">'+g[3]+' '+esc(g[1])+' · '+arr.length+'</li>'));
+          arr.forEach(function(p){ ul.appendChild(liPerson(p)); }); });
+        if(!any) ul.appendChild(el('<li style="border:none;color:var(--mut);">Žádná data pro tento den.</li>'));
+      } else {
+        var arr=_kk.data.filter(function(p){return p.kind===_kk.f;});
+        if(!arr.length) ul.appendChild(el('<li style="border:none;color:var(--mut);">Nikdo.</li>'));
+        else arr.forEach(function(p){ ul.appendChild(liPerson(p)); });
+      }
+    }
     function load(){
       lbl.textContent=czlbl(cur);
-      list.innerHTML='<div class="hint">Načítám…</div>';
+      var ul=document.getElementById("kkList"); if(ul) ul.innerHTML='<li style="border:none;color:var(--mut);">Načítám…</li>';
       api("GET","/api/v1/erp/app/attendance/whereabouts?den="+iso(cur),"").then(function(j){
-        list.innerHTML="";
-        if(!j||!j.ok){ list.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
-        var by={}; j.lide.forEach(function(p){ (by[p.kind]=by[p.kind]||[]).push(p); });
-        GRP.forEach(function(g){
-          var arr=by[g[0]]; if(!arr||!arr.length) return;
-          var sec=el('<div style="margin-bottom:12px;"></div>');
-          sec.appendChild(el('<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;"><span style="font-size:17px;">'+g[3]+'</span><b style="color:'+g[2]+';">'+esc(g[1])+'</b><span class="hint">· '+arr.length+'</span></div>'));
-          arr.forEach(function(p){ sec.appendChild(el('<div style="padding:5px 4px 5px 28px;border-bottom:1px solid #1b2742;">'+esc(p.jmeno)+(p.kind!=='prace'&&p.kind!=='nic'&&p.label!==g[1]?(' <span class="hint">· '+esc(p.label)+'</span>'):'')+'</div>')); });
-          list.appendChild(sec);
-        });
+        _kk.data=(j&&j.ok&&j.lide)||[]; render();
       });
     }
     prev.addEventListener("click",function(){ cur.setDate(cur.getDate()-1); load(); });

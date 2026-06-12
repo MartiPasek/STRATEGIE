@@ -1411,10 +1411,22 @@ setTimeout(function(){
     function panel(box,p){
       var w=el('<div></div>');
       var s=(p.settlement||{});
-      var nabehlo=(s.nabehlo!=null?s.nabehlo:0);
+      var c=(p.comp||{});
+      var nabehlo=(p.settlement && s.nabehlo!=null)?s.nabehlo:(c.nabehlo!=null?c.nabehlo:0);
       var sazba=(s.do_premie_h>0?Math.round(s.premie_kc/s.do_premie_h):0);
       function numf(label,val,step){ return '<label class="hint" style="display:block;margin:6px 0 2px;">'+label+'</label><input type="number" step="'+(step||"0.5")+'" value="'+(val||0)+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">'; }
+      var breakdown='';
+      if(p.comp){
+        breakdown='<div style="margin:2px 0 8px;padding:10px;border-radius:10px;background:#0a1226;line-height:1.6;font-size:13px;">'
+          +'<div style="font-weight:700;margin-bottom:4px;">📊 Výpočet z docházky</div>'
+          +'Fond: <b>'+nf(c.fond)+' h</b> · Odpracováno: <b>'+nf(c.worked)+' h</b> · Placená absence: <b>'+nf(c.abs_paid)+' h</b><br>'
+          +'Přesčas nad polštář: <b style="color:#34d399;">+'+nf(c.prescas)+' h</b><br>'
+          +'Manko: '+nf(c.manko)+' h, po loajalitě ('+nf(c.loaj)+' h): <b style="color:#f59e0b;">−'+nf(c.manko_loaj)+' h</b><br>'
+          +'<span style="color:#9fb;">⇒ Naběhlo (návrh): <b>'+nf(c.nabehlo)+' h</b></span> <span class="hint">— můžeš přepsat níže</span>'
+          +'</div>';
+      }
       w.innerHTML='<div class="hint" style="margin:2px 0 6px;">Zůstatek z minula: <b style="color:#e8eefc;">'+nf(p.konto_pred)+' h</b> · příplatek '+nf(p.priplatek_pct)+' %</div>'
+        +breakdown
         +numf("Naběhlo za období (h)",nabehlo)
         +numf("Hodinová sazba (Kč/h, pro výpočet)",sazba,"1")
         +numf("Proplatit do prémie (h)",s.do_premie_h)

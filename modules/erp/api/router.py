@@ -6390,6 +6390,71 @@ def _obdobi_first(s_obd: str):
         return _dt.date(t.year, t.month, 1)
 
 
+def _konto_compute(s, obd):
+    """Marti 12.6.: automatický výpočet naběhlých přesčasů za období z píchané docházky,
+    s denním polštářem (rez_prescas_plus_h_den) a měsíční loajalitou (rez_loajalita_minus_h).
+
+    Per pracovní den: kredit = odpracováno (presence) + placená absence. Denní přesčas
+    nad normou se počítá jen nad polštář (malý denní přesčas je flexibilita, neproplácí se).
+    Denní manko se sčítá za měsíc a do výše loajality se odpouští. Naběhlo = přesčas − manko_po_loajalitě.
+    Vrací dict emp_id -> {fond, worked, abs_paid, prescas, manko, manko_loaj, nabehlo}."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    d1 = _dt.date(obd.year + (1 if obd.month == 12 else 0), 1 if obd.month == 12 else obd.month + 1, 1)
+    res = {}
+    # měsíční součty odpracováno / placená absence + fond tenantu
+    tot = s.execute(_t(
+        "SELECT e.id, "
+        " round(COALESCE(SUM(en.hours) FILTER (WHERE t.category='presence'),0),2), "
+        " round(COALESCE(SUM(en.hours) FILTER (WHERE t.category='absence' AND t.is_paid),0),2), "
+        " (SELECT fond_hours FROM tenant.att_calendar_month m "
+        "    WHERE m.tenant_id=e.tenant_id AND m.year=:y AND m.month=:mo) "
+        "FROM tenant.att_employee e "
+        "LEFT JOIN tenant.att_entry en ON en.employee_id=e.id AND en.is_active=true "
+        "     AND COALESCE(en.status,'')<>'superseded' AND en.entry_date>=:d0 AND en.entry_date<:d1 "
+        "LEFT JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
+        "WHERE e.tenant_id IN (2,14) AND COALESCE(e.rez_konto_aktivni,false)=true "
+        "GROUP BY e.id, e.tenant_id"),
+        {"y": obd.year, "mo": obd.month, "d0": obd, "d1": d1}).fetchall()
+    for r in tot:
+        res[r[0]] = {"worked": float(r[1] or 0), "abs_paid": float(r[2] or 0),
+                     "fond": float(r[3]) if r[3] is not None else 0.0,
+                     "prescas": 0.0, "manko": 0.0, "manko_loaj": 0.0, "nabehlo": 0.0,
+                     "loaj": 0.0}
+    # per-den přesčas/manko s polštářem
+    pd = s.execute(_t(
+        "WITH pd AS ("
+        " SELECT e.id emp, COALESCE(e.rez_prescas_plus_h_den,0) cush, "
+        "        COALESCE(e.rez_loajalita_minus_h,0) loaj, cd.hours norm, "
+        "        COALESCE((SELECT SUM(en.hours) FROM tenant.att_entry en "
+        "                  JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
+        "                  WHERE en.employee_id=e.id AND en.is_active=true "
+        "                    AND COALESCE(en.status,'')<>'superseded' AND en.entry_date=cd.day "
+        "                    AND (t.category='presence' OR (t.category='absence' AND t.is_paid))),0) credited "
+        " FROM tenant.att_employee e "
+        " JOIN tenant.att_calendar_day cd ON cd.tenant_id=e.tenant_id AND cd.is_workday=true "
+        "      AND cd.day>=:d0 AND cd.day<:d1 "
+        " WHERE e.tenant_id IN (2,14) AND COALESCE(e.rez_konto_aktivni,false)=true) "
+        "SELECT emp, round(SUM(GREATEST(0, GREATEST(0,credited-norm) - cush)),2) ot, "
+        "       round(SUM(GREATEST(0, norm-credited)),2) under, MAX(loaj) loaj "
+        "FROM pd GROUP BY emp"),
+        {"d0": obd, "d1": d1}).fetchall()
+    for r in pd:
+        e = res.get(r[0])
+        if not e:
+            continue
+        ot = float(r[1] or 0)
+        under = float(r[2] or 0)
+        loaj = float(r[3] or 0)
+        manko_loaj = max(0.0, under - loaj)
+        e["prescas"] = ot
+        e["manko"] = under
+        e["loaj"] = loaj
+        e["manko_loaj"] = round(manko_loaj, 2)
+        e["nabehlo"] = round(ot - manko_loaj, 2)
+    return res
+
+
 @api_router.get("/app/hr/konto")
 async def app_hr_konto(req: Request) -> JSONResponse:
     """Marti #2: uzávěrkový rozpad přesčasového konta za období. Lidé s aktivním
@@ -6411,6 +6476,10 @@ async def app_hr_konto(req: Request) -> JSONResponse:
             "WHERE e.tenant_id IN (2,14) AND COALESCE(e.rez_konto_aktivni,false)=true "
             "  AND COALESCE(e.is_active,true)=true "
             "ORDER BY COALESCE(e.full_name,e.cislo_zam)"), ).fetchall()
+        try:
+            comp = _konto_compute(s, obd)
+        except Exception:
+            comp = {}
         out = []
         for r in rows:
             emp_id = r[0]
@@ -6436,6 +6505,7 @@ async def app_hr_konto(req: Request) -> JSONResponse:
             out.append({"employee_id": emp_id, "user_id": r[1], "jmeno": r[2],
                         "tenant_id": r[3], "volba": r[4], "priplatek_pct": float(r[5]),
                         "konto_pred": float(pred) if pred is not None else 0.0,
+                        "comp": comp.get(emp_id),
                         "settlement": d})
         return JSONResponse({"ok": True, "obdobi": obd.isoformat(), "lide": out})
     except Exception as exc:

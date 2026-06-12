@@ -1447,6 +1447,17 @@ setTimeout(function(){
       }
       nums.forEach(function(n){ n.addEventListener("input",recalc); });
       note.addEventListener("focus",function(){});
+      var volLbl={premie:'do prémie',do_premie:'do prémie',prescas:'do přesčasu',prevest:'převést',na_vyber:'převést'}[p.volba]||'převést';
+      var qf=el('<button class="ghost full" style="margin-top:8px;border-color:#34d399;color:#9fb;">⚡ Dle režimu člověka ('+volLbl+')</button>');
+      qf.addEventListener("click",function(){
+        var avail=Math.round((p.konto_pred+(parseFloat(nums[0].value)||0))*100)/100;
+        if(avail<0) avail=0;
+        var v=p.volba||'';
+        if(v.indexOf('premie')>=0){ nums[2].value=avail; nums[3].value=0; }
+        else if(v.indexOf('prescas')>=0){ nums[2].value=0; nums[3].value=avail; }
+        else { nums[2].value=0; nums[3].value=0; }
+        recalc();
+      });
       var btn=el('<button class="green full" style="margin-top:10px;">💾 Uložit rozhodnutí</button>');
       var st=el('<div class="hint" style="margin-top:6px;"></div>');
       btn.addEventListener("click",function(){
@@ -1459,7 +1470,7 @@ setTimeout(function(){
             btn.disabled=false; st.textContent=(r&&r.ok)?"✅ Uloženo":("✗ "+((r&&r.error)||"chyba")); if(r&&r.ok) setTimeout(load,600);
           });
       });
-      w.appendChild(calc); w.appendChild(note); w.appendChild(btn); w.appendChild(st); box.appendChild(w); recalc();
+      w.appendChild(calc); w.appendChild(qf); w.appendChild(note); w.appendChild(btn); w.appendChild(st); box.appendChild(w); recalc();
     }
     function load(){
       list.innerHTML='<div class="hint">Načítám…</div>';
@@ -1467,7 +1478,11 @@ setTimeout(function(){
         list.innerHTML="";
         if(!j||!j.ok){ list.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Nemáš přístup (jen HR / vedení).":"Nelze načíst.")+'</div>')); return; }
         if(!j.lide.length){ list.appendChild(el('<div class="hint">Nikdo s aktivním kontem. Konto zapneš v „Režimy docházky".</div>')); return; }
-        list.appendChild(el('<div class="hint" style="margin-bottom:4px;">'+j.lide.length+' lidí s kontem</div>'));
+        var sZust=0,sNab=0,nDone=0;
+        j.lide.forEach(function(p){ sZust+=(p.konto_pred||0); sNab+=((p.comp&&p.comp.nabehlo)||0); if(p.settlement&&p.settlement.decided)nDone++; });
+        list.appendChild(el('<div style="margin-bottom:8px;padding:9px 11px;border-radius:10px;background:#0a1226;font-size:13px;line-height:1.6;">'
+          +'<b>'+j.lide.length+'</b> lidí s kontem · rozhodnuto <b>'+nDone+'</b>/'+j.lide.length+'<br>'
+          +'Σ zůstatek <b>'+nf(sZust)+' h</b> · Σ naběhlo (návrh) <b>'+nf(sNab)+' h</b></div>'));
         j.lide.forEach(function(p){
           var firmaLbl=(p.tenant_id===14?'INTERSOFT':'EUROSOFT');
           var done=(p.settlement&&p.settlement.decided);

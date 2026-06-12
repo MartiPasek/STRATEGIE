@@ -228,7 +228,7 @@
   var kpis=[
     {id:'k1',lab:'👷 V práci teď',v:342,min:330,max:356,suf:'/400',d:0},
     {id:'k2',lab:'⚙️ Stroje běží',v:38,min:33,max:44,suf:'/50',d:0,ext:true},
-    {id:'k3',lab:'📈 OEE',v:78,min:73,max:84,suf:'%',d:0},
+    {id:'k3',lab:'📈 OEE',v:78,min:73,max:84,suf:'%',d:0,ext:true},
     {id:'k4',lab:'🏭 Výkon',v:512,min:470,max:560,suf:' ks/h',d:0},
     {id:'k5',lab:'🧾 Aktivní zakázky',v:63,min:58,max:67,suf:'',d:0},
     {id:'k6',lab:'⏱️ Přesčasy dnes',v:138,min:110,max:165,suf:' h',d:0}
@@ -347,7 +347,7 @@
   var gLen=174; // approx arc length
   document.getElementById('gArc').setAttribute('stroke-dasharray',gLen);
   function oee(){
-    var a=Ri(86,96),p=Ri(82,94),q=Ri(96,99.5*10)/10;
+    var a=Ri(86,96),p=Ri(82,94),q=Ri(960,995)/10;
     var o=Math.round(a*p*q/10000);
     document.getElementById('gArc').setAttribute('stroke-dashoffset',(gLen*(1-o/100)).toFixed(1));
     var col=o>=80?'var(--grn)':o>=70?'var(--am)':'var(--rd)';
@@ -357,7 +357,10 @@
     document.getElementById('oA').textContent=a+' %';
     document.getElementById('oP').textContent=p+' %';
     document.getElementById('oQ').textContent=q.toFixed(1)+' %';
-    kpis[2].v=o;var el=document.getElementById('k3');if(el)el.innerHTML=o+'<small>%</small>';
+    var k=kpis[2];var old=k.v;k.v=o;var el=document.getElementById('k3');if(el)el.innerHTML=o+'<small>%</small>';
+    var dl=document.getElementById('k3d');if(dl){var dd=o-old;
+      if(dd===0){dl.textContent='● stabilní';dl.className='delta';dl.style.color='var(--mut)';}
+      else{dl.className='delta '+(dd>0?'up':'down');dl.textContent=(dd>0?'▲ +':'▼ ')+dd+' b.';}}
   }
   oee();setInterval(oee,3000);
 
@@ -387,11 +390,4 @@
     var tp=pick(tpls);var el=document.createElement('div');el.className='ev';
     el.innerHTML='<div class="ei">'+tp.i+'</div><div class="etx">'+tp.t()+'</div><div class="etm">'+nowt()+'</div>';
     feed.insertBefore(el,feed.firstChild);
-    while(feed.children.length>9)feed.removeChild(feed.lastChild);
-  }
-  for(var i=0;i<6;i++)addEv();
-  (function loop(){addEv();setTimeout(loop,R(1600,2800));})();
-})();
-</script>
-</body></html>
-                                                                                                   
+    wh

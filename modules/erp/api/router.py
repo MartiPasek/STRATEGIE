@@ -10052,6 +10052,33 @@ async def app_shared_set_phone(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/shared/get-phone")
+async def app_shared_get_phone(req: Request) -> JSONResponse:
+    """Rodič si zobrazí CELÉ uložené ověřovací číslo daného usera — pro kontrolu
+    a případnou změnu ve „Sdílený telefon → Nastavit PIN" (poslední 4 číslice
+    nestačí). Parent-only. Claude-24 + Kristý 11.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        target = int(req.query_params.get("user_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí user_id"})
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        phone = s.execute(_t(
+            "SELECT contact_value FROM public.user_contacts "
+            "WHERE user_id=:u AND contact_type='phone' AND COALESCE(status,'active')='active' "
+            "ORDER BY COALESCE(is_verified,false) DESC, COALESCE(is_primary,false) DESC, id LIMIT 1"),
+            {"u": target}).scalar()
+        return JSONResponse({"ok": True, "phone": phone or ""})
+    except Exception:
+        return JSONResponse({"ok": False, "error": "nacteni_selhalo"}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/shared/pin-send")
 async def app_shared_pin_send(req: Request) -> JSONResponse:
     """Rodič pošle SMS kód danému userovi na nastavení PINu sdíleného telefonu."""

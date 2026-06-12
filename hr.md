@@ -304,7 +304,19 @@ zatím nemapujeme (žádná data).
 **Doporučený postup**: pustit nejdřív 1 měsíc (např. 5/2026) → ověřit součty vs Helios (#60) →
 pak plný rozsah 1.1.–dnes. Verifikace = měsíční SUM(hours) per osoba/typ vs `EC_Dochazka_SumaDen`.
 
-### 11.6 Schvalování absencí vedoucím (Marti 12.6., TODO) — NESTAVĚNO
+### 11.6 Schvalování absencí vedoucím (Marti 12.6.) — ✅ LIVE
+HR → „🗓️ Absence". Zaměstnanec podá žádost (typ/od/do/h-den/poznámka) → routuje se na
+vedoucího (`resolve_role attendance_supervisor`, fallback Marti) → vedoucí rozhodne
+**statusem v lidské řeči** (tlačítka): „OK, beru na vědomí" / „Moc se to nehodí, ale budiž" /
+„Dobře, počítám s tím…" = **approved**; „To je na tobě, beru to jako info" / „Kontaktuj mě
+osobně…" = **info**; „Tady tě fakt potřebuji, domluv se s kolegy" = **rejected**.
+Approved → vznik placených `att_entry` (jen pracovní dny, is_active=false, rámec 06:00→,
+source_system='absence_req') → počítá se do fondu/konta. Změna pryč od approved → záznamy
+se smažou. Žadatel dostane notifikaci se status_textem. Tabulka `tenant.att_absence_request`
+(banner #264). Endpointy `/app/attendance/absence/{request,mine,inbox,decide}`.
+**TODO**: vstupní bod i pro řadové zaměstnance (teď přes HR menu = vedení); kalendářní kolize.
+
+### 11.6-old Schvalování absencí vedoucím (Marti 12.6., TODO) — NESTAVĚNO
 Marti: dovolenou/HO schvaluje **vedoucí** (přes `resolve_role`), NE účetní („účetní je od účtování").
 Schvalování má mít **statusy v lidské řeči**: „OK, beru na vědomí" · „Moc se to nehodí, ale budiž" ·
 „Tady tě fakt potřebuji, domluv se s kolegy" · „To je na tobě, beru to jako info" · „Kontaktuj mě

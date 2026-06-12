@@ -763,6 +763,15 @@ def web_landing():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/web/program")
+def web_program():
+    """Podstránka — STRATEGIE & Psychologie: růst firmy a lidé (partneři Performia, Business Success)."""
+    return FileResponse(os.path.join(static_dir, "program.html"),
+                        media_type="text/html",
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/googlef2bedb6d3ffdf33d.html")
 def google_site_verification():
     """Google Search Console / Play ověření vlastnictví webu. Marti 9.6.2026."""

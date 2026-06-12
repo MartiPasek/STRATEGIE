@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Růst firmy &amp; lidé — STRATEGIE &amp; Psychologie</title>
+<meta name="description" content="Know-how pro růst firmy a práci s lidmi: funkční řízení, jasné cíle a statistiky, výběr lidí podle reálné produktivity, rozvoj týmu, předání firmy a psychologie. A k tomu platforma, která to měří a řídí.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#05070f;--bg2:#0a1226;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;
+    --grn:#34d399;--tl:#2dd4bf;--bl:#60a5fa;--am:#fbbf24}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1160px;margin:0 auto;padding:0 24px}
+  .grad{background:linear-gradient(110deg,var(--grn),var(--tl) 45%,var(--bl));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:14px 26px;border-radius:14px;font-weight:700;font-size:15px;cursor:pointer;transition:.2s;border:0}
+  .btn-p{background:linear-gradient(110deg,var(--grn),var(--tl));color:#04150e;box-shadow:0 10px 30px rgba(45,212,191,.25)}
+  .btn-p:hover{transform:translateY(-2px);box-shadow:0 16px 40px rgba(45,212,191,.4)}
+  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}
+  .btn-g:hover{border-color:var(--tl);color:var(--tl)}
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:70px}
+  .logo{font-weight:900;font-size:19px;letter-spacing:.3px}
+  .logo .x{color:var(--mut);font-weight:400}
+  .navlinks{display:flex;gap:24px;font-size:14.5px;color:var(--mut);font-weight:500}
+  .navlinks a:hover{color:var(--tx)}
+  @media(max-width:900px){.navlinks{display:none}}
+  .hero{position:relative;padding:80px 0 50px;text-align:center;overflow:hidden}
+  .hero:before{content:"";position:absolute;top:-45%;left:50%;transform:translateX(-50%);width:1000px;height:1000px;
+    background:radial-gradient(circle, rgba(45,212,191,.13), rgba(96,165,250,.05) 40%, transparent 62%);z-index:0}
+  .hero .wrap{position:relative;z-index:1}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:30px;border:1px solid var(--bord);
+    background:rgba(45,212,191,.06);color:var(--tl);font-size:13px;font-weight:600;margin-bottom:24px}
+  h1{font-size:clamp(34px,5.5vw,58px);font-weight:900;line-height:1.07;letter-spacing:-1.4px;margin-bottom:20px}
+  .sub{font-size:clamp(17px,2.3vw,20px);color:var(--mut);max-width:720px;margin:0 auto 32px}
+  section{padding:74px 0}
+  .eyebrow{color:var(--tl);font-weight:700;font-size:14px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;text-align:center}
+  .h2{font-size:clamp(26px,3.8vw,40px);font-weight:900;letter-spacing:-1px;text-align:center;margin-bottom:14px}
+  .lead{color:var(--mut);text-align:center;max-width:700px;margin:0 auto 46px;font-size:17px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+  .card{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:18px;padding:26px;transition:.25s}
+  .card:hover{transform:translateY(-4px);border-color:rgba(45,212,191,.4)}
+  .card .ic{font-size:28px;margin-bottom:14px}
+  .card h3{font-size:19px;font-weight:800;margin-bottom:7px}
+  .card p{color:var(--mut);font-size:14.5px}
+  .band{background:linear-gradient(180deg,rgba(14,23,48,.4),transparent);border-top:1px solid var(--bord);border-bottom:1px solid var(--bord)}
+  .combo{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:stretch}
+  @media(max-width:760px){.combo{grid-template-columns:1fr}}
+  .combo .col{border:1px solid var(--bord);border-radius:20px;padding:30px;background:linear-gradient(180deg,var(--card),rgba(14,23,48,.4))}
+  .combo .col h3{font-size:22px;font-weight:900;margin-bottom:6px}
+  .combo .col .tg{font-size:12px;letter-spacing:1.2px;font-weight:700;text-transform:uppercase;color:var(--tl);margin-bottom:12px}
+  .combo ul{list-style:none;margin-top:8px}
+  .combo li{padding:7px 0;padding-left:26px;position:relative;color:var(--mut);font-size:15px;border-bottom:1px solid rgba(29,42,74,.5)}
+  .combo li:before{content:"✓";position:absolute;left:0;color:var(--grn);font-weight:800}
+  .ctabox{text-align:center;background:linear-gradient(110deg,rgba(45,212,191,.1),rgba(96,165,250,.08));border:1px solid var(--bord);border-radius:28px;padding:56px 40px}
+  footer{border-top:1px solid var(--bord);padding:40px 0 32px;color:var(--mut);font-size:14px;text-align:center}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a href="/web" class="logo">EUROSOFT <span class="x">×</span> STRATEGIE <span class="x">×</span> IQHUBS</a>
+  <div class="navlinks">
+    <a href="/web">← Ekosystém</a>
+    <a href="#rizeni">Řízení firmy</a>
+    <a href="#lide">Lidé</a>
+    <a href="#predani">Předání firmy</a>
+    <a href="#kontakt">Kontakt</a>
+  </div>
+  <a href="#kontakt" class="btn btn-p" style="padding:11px 20px;font-size:14px">Domluvit schůzku</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="pill">STRATEGIE &amp; Psychologie — lidský rozměr digitalizace</div>
+  <h1>Firma roste, když <span class="grad">rostou lidé</span><br>a vede ji <span class="grad">zdravý rozum</span>.</h1>
+  <p class="sub">Technologie ukáže, co se ve firmě děje. My pomáháme s tím, co s tím udělat —
+    s funkčním řízením, jasnými cíli, výběrem správných lidí a citlivým předáním firmy.
+    A na rozdíl od čistého poradenství vám k tomu dáme i nástroje, které to měří a řídí.</p>
+  <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
+    <a href="#kontakt" class="btn btn-p">Chci to probrat →</a>
+    <a href="/web" class="btn btn-g">Zpět na ekosystém</a>
+  </div>
+</div></header>
+
+<!-- RIZENI FIRMY -->
+<section id="rizeni"><div class="wrap">
+  <div class="eyebrow">Růst &amp; řízení firmy</div>
+  <div class="h2">Funkční firma stojí na jasných pravidlech</div>
+  <p class="lead">Většina problémů ve firmě nevzniká z nedostatku snahy, ale z mlhavých cílů, nejasných
+    pravidel a rozhodování od oka. Vracíme do řízení firmy <b>zdravý rozum</b> — a měřitelnost.</p>
+  <div class="grid">
+    <div class="card"><div class="ic">🎯</div><h3>Jasné cíle, ne přání</h3><p>„Chci, aby se firmě dařilo" není cíl. Učíme formulovat konkrétní, měřitelné cíle, ke kterým vede cesta.</p></div>
+    <div class="card"><div class="ic">📊</div><h3>Řízení podle čísel</h3><p>Co se neměří, neřídí. Statistiky výkonu místo dojmů — a platforma, která je sbírá automaticky.</p></div>
+    <div class="card"><div class="ic">🧭</div><h3>Funkční management</h3><p>Stabilní, předvídatelný šéf s jasnými prioritami. Samostatnost, zodpovědnost a iniciativa u lidí — ne mikromanagement.</p></div>
+    <div class="card"><div class="ic">💬</div><h3>Komunikace, co funguje</h3><p>Jasná komunikace dovnitř i k zákazníkům. Méně nedorozumění, víc hotových věcí.</p></div>
+    <div class="card"><div class="ic">📈</div><h3>Prodej &amp; marketing</h3><p>Zvyšování prodeje a účinný marketing jako řemeslo, které se dá naučit a opřít o data.</p></div>
+    <div class="card"><div class="ic">⚖️</div><h3>Etika = zdravý rozum</h3><p>Férovost a čestnost nejsou přežitek — jsou základ dlouhodobé prosperity i zdravého týmu.</p></div>
+  </div>
+</div></section>
+
+<!-- LIDE -->
+<section id="lide" class="band"><div class="wrap">
+  <div class="eyebrow">Lidé &amp; personalistika</div>
+  <div class="h2">Tým, na který jste pyšní</div>
+  <p class="lead">Skvělý tým není náhoda ani štěstí. Je to výsledek toho, že vybíráte lidi podle
+    <b>reálné produktivity</b>, ne jen podle životopisu — a pak s nimi umíte pracovat.</p>
+  <div class="grid">
+    <div class="card"><div class="ic">🎣</div><h3>Výběr podle produktivity</h3><p>Nejde o nejhezčí CV, ale o to, kdo reálně přináší výsledky. Učíme rozpoznat produktivní lidi ještě před nástupem.</p></div>
+    <div class="card"><div class="ic">🧱</div><h3>Kdo čím přispívá</h3><p>Srozumitelný model rozložení lidí v týmu podle jejich přínosu — víte, na koho se spolehnout a kdo tým brzdí.</p></div>
+    <div class="card"><div class="ic">🌟</div><h3>Rozvoj talentů</h3><p>Z dobrých lidí skvělí. Práce s potenciálem, růst kompetencí a udržení klíčových lidí ve firmě.</p></div>
+    <div class="card"><div class="ic">🔧</div><h3>Práce s týmem</h3><p>Jak vést, motivovat a držet tým pohromadě — i když je práce s lidmi to nejnáročnější.</p></div>
+    <div class="card"><div class="ic">🆘</div><h3>Krizová personalistika</h3><p>Co dělat, když to skřípe — neproduktivní lidé, vysoká fluktuace, napětí v týmu. S jasným návodem, ne naslepo.</p></div>
+    <div class="card"><div class="ic">📉</div><h3>Nižší fluktuace</h3><p>Jasná pravidla výběru a vedení = lidé, kteří zůstávají a pracují rádi. Méně utíkajících nákladů.</p></div>
+  </div>
+</div></section>
+
+<!-- PREDANI -->
+<section id="predani"><div class="wrap">
+  <div class="eyebrow">Předání firmy</div>
+  <div class="h2">Aby firma přežila i svého zakladatele</div>
+  <p class="lead">Generační a nástupnické předání je nejcitlivější moment ve firmě. Provedeme vás jím
+    tak, aby firma zůstala stabilní a lidé v ní klidní.</p>
+  <div class="combo">
+    <div class="col"><div class="tg">Pro odcházející generaci</div><h3>Předat s klidem</h3>
+      <ul><li>Srozumitelný plán předání krok za krokem</li><li>Zachování know-how a vztahů, ne jen majetku</li><li>Důstojný odchod bez pocitu ztráty díla</li><li>Jistota, že firma poběží dál</li></ul></div>
+    <div class="col"><div class="tg">Pro nástupce</div><h3>Převzít s jistotou</h3>
+      <ul><li>Připravené role, pravidla a statistiky</li><li>Podpora ve vedení lidí od prvního dne</li><li>Stabilní přechod bez výpadku výkonu</li><li>Respekt týmu, ne boj o autoritu</li></ul></div>
+  </div>
+</div></section>
+
+<!-- PSYCHOLOGIE -->
+<section class="band"><div class="wrap">
+  <div class="eyebrow">Psychologie &amp; rovnováha</div>
+  <div class="h2">Strategie s porozuměním lidské psychice</div>
+  <p class="lead">Tvrdá čísla a lidská psychika nejsou protiklady — patří k sobě. Když rozumíte lidem
+    (i sobě), rozhodujete se líp, komunikujete jasněji a práce zase baví.</p>
+  <div class="grid">
+    <div class="card"><div class="ic">🧠</div><h3>Porozumět lidem i sobě</h3><p>Proč lidé reagují, jak reagují. Praktická psychologie pro každodenní vedení, ne teorie z učebnice.</p></div>
+    <div class="card"><div class="ic">🌱</div><h3>Radost z práce</h3><p>Cíl, který bereme vážně: aby byla práce vnímaná jako pozitivní součást života. Spokojený tým = výkon.</p></div>
+    <div class="card"><div class="ic">⚡</div><h3>Energie v nejisté době</h3><p>Jak si jako šéf i tým udržet energii a stabilitu, když je trh nepředvídatelný.</p></div>
+  </div>
+</div></section>
+
+<!-- PARTNERI V ROZVOJI -->
+<section id="partneri"><div class="wrap">
+  <div class="eyebrow">Partneři v rozvoji</div>
+  <div class="h2">Rosteme společně s nejlepšími</div>
+  <p class="lead">Nestojíme na zelené louce. V rozvoji lidí a řízení firem <b>rosteme po boku partnerů</b>,
+    jejichž osvědčené metody dlouhodobě používáme a dál je propojujeme s naší platformou.</p>
+  <div class="combo">
+    <div class="col"><div class="tg">Lidé &amp; nábor</div><h3>Performia</h3>
+      <p style="color:var(--mut);font-size:15px;margin-bottom:6px">Špička v náboru a práci s lidmi podle reálné produktivity. Pomáhá šéfům a personalistům budovat týmy, na které jsou pyšní.</p>
+      <ul><li>Výběr lidí podle skutečného přínosu</li><li>Vzdělání pro šéfy i personalisty</li><li>Rozvoj talentů a krizová personalistika</li></ul></div>
+    <div class="col"><div class="tg">Řízení &amp; růst firmy</div><h3>Business Success</h3>
+      <p style="color:var(--mut);font-size:15px;margin-bottom:6px">Vzdělávací a konzultační partner ředitelů a manažerů. Funkční management, prodej, marketing a komunikace pro prosperitu firmy.</p>
+      <ul><li>Funkční řízení a jasné cíle</li><li>Vyšší prodej a účinný marketing</li><li>Semináře, kurzy a studijní programy</li></ul></div>
+  </div>
+</div></section>
+
+<!-- COMBO s platformou -->
+<section id="kontakt" class="band"><div class="wrap">
+  <div class="ctabox">
+    <div class="eyebrow">Co nás odlišuje</div>
+    <div class="h2" style="margin-bottom:14px">Nejen rady. I nástroje, co to <span class="grad">měří a řídí</span>.</div>
+    <p class="lead">Poradenství vám řekne, co dělat. My k němu přidáme <b>platformu STRATEGIE</b>, která to
+      rovnou měří, hlídá a řídí — docházka, výkon, produktivita, konto, podmínky lidí. Know-how a software v jednom.
+      To je spojení, které jinde nenajdete.</p>
+    <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
+      <a href="mailto:m.pasek@eurosoft.com" class="btn btn-p">m.pasek@eurosoft.com</a>
+      <a href="/web" class="btn btn-g">Zpět na ekosystém</a>
+    </div>
+    <div style="margin-top:22px;color:var(--mut);font-size:14px">Marti Pašek · jednatel · EUROSOFT - System s.r.o. · Plzeň</div>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  STRATEGIE &amp; Psychologie · součást ekosystému EUROSOFT × STRATEGIE × IQHUBS<br>
+  © 2026 EUROSOFT - System s.r.o. · Plzeň · <a href="/web" style="color:var(--tl)">zpět na hlavní web</a>
+</div></footer>
+
+</body>
+</html>

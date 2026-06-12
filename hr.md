@@ -286,6 +286,32 @@ Zůstatek příštího měsíce (`konto_pred`) = `konto_po` poslední dřívěj�
 · `GET /app/hr/konto?obdobi=YYYY-MM` (vrací comp = auto-výpočet + sazba) ·
 `POST /app/hr/konto/save`. ACL `_hr_can_manage` = rodič NEBO člen staff_group 'HR'.
 
+### 11.5 Import reálné docházky z EUROSOFTu (12.6.) — 1:1
+**Endpoint** `POST /app/hr/import-dochazka` (parent/HR) + obrazovka HR → „📥 Import docházky
+z EUROSOFTu". Čte `EC_Dochazka_SumaDen` přes EUROSOFT MCP (`_ec_mcp_rows`, DB_EC), mapuje:
+- `CasMontaz` → **work**, `CasRezie` → **overhead** (odpracováno; časy z CasZacatek/CasKonec),
+- `CasDovolena` → **vacation**, `CasNemoc` → **sick**, `CasLekar` → **medical**, `CasOCR` → **family_care**.
+- **CasPrescas se NEimportuje** (je podmnožina odpracovaného; konto si přesčas dopočítá z worked vs fond).
+
+Zápis do `tenant.att_entry` (status='imported', source_system='ec_sumaden'). **Idempotentní**
+(smaže předchozí 'ec_sumaden' za období, pak vloží). **Přeskočí (osoba,den) s živým píchnutím**
+(source≠ec_sumaden) → nepřepíše červnové reálné píchání. Mapování `att_employee.cislo_zam` ↔ EC `CisloZam`.
+
+**Rozsah dat 2026**: 6375 EC řádků, 62 lidí, 1.1.–21.6. (montáž 61 · režie 4025 · dovolená 245 ·
+nemoc 150 · lékař 74 · OČR 26; sickday/náhradní/absence za 2026 = 0). Sickday/náhradní volno
+zatím nemapujeme (žádná data).
+
+**Doporučený postup**: pustit nejdřív 1 měsíc (např. 5/2026) → ověřit součty vs Helios (#60) →
+pak plný rozsah 1.1.–dnes. Verifikace = měsíční SUM(hours) per osoba/typ vs `EC_Dochazka_SumaDen`.
+
+### 11.6 Schvalování absencí vedoucím (Marti 12.6., TODO) — NESTAVĚNO
+Marti: dovolenou/HO schvaluje **vedoucí** (přes `resolve_role`), NE účetní („účetní je od účtování").
+Schvalování má mít **statusy v lidské řeči**: „OK, beru na vědomí" · „Moc se to nehodí, ale budiž" ·
+„Tady tě fakt potřebuji, domluv se s kolegy" · „To je na tobě, beru to jako info" · „Kontaktuj mě
+osobně, musíme to probrat" · „Dobře, počítám s tím… Něco vymysli". Schválená absence → generuje
+placené `att_entry` (h/den) → počítá se do fondu/konta. Návrh: tabulka `tenant.att_absence_request`
+(žadatel, typ, od–do, stav, vedoucí, status_text) → po schválení materializace do att_entry.
+
 ### 11.4 Otevřené (pondělí+)
 - **Reálná data**: zatím jen běžící červnové joby (0 uzavřených h) → konto vrací 0.
   Naskočí, jak lidi píchají + mají zaplé konto.

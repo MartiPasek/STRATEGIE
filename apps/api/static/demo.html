@@ -75,7 +75,7 @@
   .dleg b{color:var(--tx);font-variant-numeric:tabular-nums;margin-left:auto}
   .donutc{font-size:26px;font-weight:900}
   /* feed */
-  .feed{max-height:330px;overflow:hidden;display:flex;flex-direction:column;gap:8px}
+  .feed{max-height:640px;overflow:hidden;display:flex;flex-direction:column;gap:8px}
   .ev{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;background:rgba(255,255,255,.025);border:1px solid var(--bord);border-radius:11px;
     animation:slidein .45s ease}
   @keyframes slidein{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
@@ -382,18 +382,11 @@
     {i:'🔧',t:function(){return 'Naplánována údržba <b>'+mname()+'</b>';}},
     {i:'🚪',t:function(){return '<b>'+pick(names)+'</b> dorazil/a do práce';}},
     {i:'⚠️',t:function(){return 'Stroj <b>'+mname()+'</b> hlásí poruchu — řeší se';}},
-    {i:'🧾',t:function(){return 'Nová zakázka přijata — <b>'+pick(orders)+'</b>';}}
-  ];
-  var feed=document.getElementById('feed');
-  function nowt(){var d=new Date();var p=function(n){return(n<10?'0':'')+n};return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
-  function addEv(){
-    var tp=pick(tpls);var el=document.createElement('div');el.className='ev';
-    el.innerHTML='<div class="ei">'+tp.i+'</div><div class="etx">'+tp.t()+'</div><div class="etm">'+nowt()+'</div>';
-    feed.insertBefore(el,feed.firstChild);
-    while(feed.children.length>9)feed.removeChild(feed.lastChild);
-  }
-  for(var i=0;i<6;i++)addEv();
-  (function loop(){addEv();setTimeout(loop,R(1600,2800));})();
-})();
-</script>
-</body></html>
+    {i:'🧾',t:function(){return 'Nová zakázka přijata — <b>'+pick(orders)+'</b>';}},
+    {i:'🚗',t:function(){return '<b>'+pick(names)+'</b> už jede do práce — ETA '+Ri(5,25)+' min';}},
+    {i:'⏰',t:function(){return '<b>'+pick(names)+'</b> se dnes trochu opozdí';}},
+    {i:'🕔',t:function(){return '<b>'+pick(names)+'</b> potřebuje dnes skončit dříve';}},
+    {i:'🌅',t:function(){return '<b>'+pick(names)+'</b> přijde dnes později';}},
+    {i:'🌙',t:function(){return '<b>'+pick(names)+'</b> — pro dnešek hotovo 😊';}},
+    {i:'🙋',t:function(){return '<b>'+pick(names)+'</b> potřebuje vedoucího';}},
+    {i:'💡',t:function(){return '<b>'+pick(names)+'</b> informuje vedení — <b>'+pick(orders)+

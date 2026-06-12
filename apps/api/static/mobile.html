@@ -3194,6 +3194,7 @@ setTimeout(function(){
     if(e.hours!=null) _sp.push(fmtHM(e.hours));  // Marti 11.6.: nejdřív čas
     if(_jobZak(e)) _sp.push(esc(e.project_ref));   // reálná zakázka = číslo
     else if(_jobRezie(e)) _sp.push("Režie");        // bez zakázky = Režie
+    else if(e.cat && e.cat!=='presence' && e.typ) _sp.push(esc(e.typ));  // Přestávka/Jedu do práce/Dovolená…
     var sub=_sp.join(' · ');
     var _wbg=_jobMimo(e)?"#caa14a":"var(--green)";  // Marti 11.6.: práce zelená, mimo jantarová
     var head=el('<div class="cthead"><div class="cav" style="background:'+_wbg+';font-size:30px;line-height:1;">'+ic+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(timeR)+'</div><div class="ctnum">'+sub+'</div></div></div>');
@@ -3223,6 +3224,13 @@ setTimeout(function(){
   function _isRezieRef(r){ r=(r||'').trim(); return !r || /^(rez|rež)ie$/i.test(r); }
   function _jobZak(e){ return !_jobMimo(e) && !_isRezieRef(e.project_ref); }
   function _jobRezie(e){ return !_jobMimo(e) && _isRezieRef(e.project_ref); }
+  // Marti 12.6.: tři skupiny pro lištu — Speciální / Makám / Relax (podle kategorie typu).
+  function _jobText(e){ return ((e.typ||'')+' '+(e.note||'')).toLowerCase(); }
+  function _jobSpecial(e){ if(e.cat==='travel'||e.cat==='absence'||e.code==='day_end') return true;
+    return /jedu do pr|na cest|lékař|lekar|doktor|dovolen|nemoc|neschopen|marod|sick|očr|ocr|mateřsk|matersk|otcovsk|konec dne|nepo[čc][íi]t|m[áa]m volno|jedn[aá]n|poch[uů]z/.test(_jobText(e)); }
+  function _jobRelax2(e){ if(_jobSpecial(e)) return false; if(e.cat==='break') return true;
+    return /pauz|p[řr]est[aá]v|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d/.test(_jobText(e)); }
+  function _jobMakam(e){ return !_jobSpecial(e) && !_jobRelax2(e); }
   // Marti 11.6.: TEMPLATE „brand" dvoupanelu — lišta filtrů + joby + souhrn. Sdílený
   // pro „Tak to bylo dneska", „Na včera si vzpomínám", „To už si nepamatuju".
   var _todaySt={f:"vse"}, _yestSt={f:"vse"}, _prevSt={f:"vse"};
@@ -3231,15 +3239,15 @@ setTimeout(function(){
     var rail=document.getElementById(railId);
     function _jobCnt(k){ if(k==="vse")return data.length;
       return data.filter(function(e){
-        if(k==="zak")return _jobZak(e);
-        if(k==="rezie")return _jobRezie(e);
-        if(k==="mimo")return _jobMimo(e);
+        if(k==="makam")return _jobMakam(e);
+        if(k==="spec")return _jobSpecial(e);
+        if(k==="relax")return _jobRelax2(e);
         return false; }).length; }
     if(rail){ rail.innerHTML="";
-      [["👷","Zakázky","zak"],["🧾","Režie","rezie"],["☕","Relax","mimo"],["📋","Vše","vse"],["📊","Souhrn","souhrn"]].forEach(function(it){
+      [["🌟","Speciální","spec"],["👷","Makám","makam"],["☕","Relax","relax"],["📋","Vše","vse"],["📊","Souhrn","souhrn"]].forEach(function(it){
         var on=(st.f===it[2]);
         var cnt=(it[2]==="souhrn")?0:_jobCnt(it[2]);
-        var amb=(it[2]==="mimo");  // Marti 11.6.: práce zeleně, pauzy žlutě
+        var amb=(it[2]==="relax"||it[2]==="spec");  // makám zeleně, ostatní žlutě
         var bdg=(cnt>0)?'<span style="position:absolute;top:4px;right:6px;min-width:17px;height:17px;line-height:15px;border-radius:9px;border:1px solid rgba(0,0,0,.25);background:'+(amb?"var(--amber)":"var(--green)")+';color:#241a02;font-size:10px;font-weight:700;padding:0 3px;box-sizing:border-box;text-align:center;">'+cnt+'</span>':'';
         var b=el('<button style="position:relative;width:100%;box-sizing:border-box;margin:0;padding:11px 2px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:27px;line-height:1;">'+it[0]+'</span>'+it[1]+bdg+'</button>');
         b.addEventListener("click",function(){ st.f=it[2]; _renderJobPanel(railId,listId,data,st); });
@@ -3250,20 +3258,23 @@ setTimeout(function(){
     var t2=document.getElementById(listId); if(!t2) return;
     if(!data.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Nic tu není.</li>'; return; }
     if(st.f==="souhrn"){
-      var zsum=0, rsum=0, msum=0;
+      var msum=0, ssum=0, rsum=0;
       data.forEach(function(e){ var h=Number(e.hours||0);
-        if(_jobMimo(e)) msum+=h; else if(_jobZak(e)) zsum+=h; else rsum+=h; });
+        if(_jobSpecial(e)) ssum+=h; else if(_jobRelax2(e)) rsum+=h; else msum+=h; });
       function _srow(lbl,val,col,strong){ return '<div style="display:flex;justify-content:space-between;padding:7px 2px;'+(strong?"border-bottom:1px solid var(--bord);margin-bottom:3px;":"")+'"><span'+(strong?' style="font-weight:700;color:#e8eef5;"':' class="hint"')+'>'+lbl+'</span><b style="color:'+col+';">'+fmtHM(val)+'</b></div>'; }
       t2.innerHTML='<li style="border:none;padding:0;"><div class="panel" style="margin:0;">'
-        +_srow("Odmakáno", zsum+rsum, "var(--green)", true)
-        +_srow("👷 Zakázky", zsum, "var(--green)", false)
-        +_srow("🧾 Režie", rsum, "var(--green)", false)
-        +_srow("☕ Relax", msum, "var(--amber)", false)
+        +_srow("Odmakáno", msum, "var(--green)", true)
+        +_srow("👷 Makám", msum, "var(--green)", false)
+        +_srow("🌟 Speciální", ssum, "var(--blue)", false)
+        +_srow("☕ Relax", rsum, "var(--amber)", false)
         +'</div></li>';
       return;
     }
     var f=data.filter(function(e){
       if(st.f==="vse") return true;
+      if(st.f==="makam") return _jobMakam(e);
+      if(st.f==="spec") return _jobSpecial(e);
+      if(st.f==="relax") return _jobRelax2(e);
       if(st.f==="zak") return _jobZak(e);
       if(st.f==="rezie") return _jobRezie(e);
       if(st.f==="mimo") return _jobMimo(e);

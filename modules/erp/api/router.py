@@ -7595,7 +7595,7 @@ async def att_day_detail(req: Request) -> JSONResponse:
         emp = _att_employee(s, uid)
         rows = s.execute(_t(
             "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
-            "       e.hours, e.project_ref, e.note, et.label "
+            "       e.hours, e.project_ref, e.note, et.label, et.code, et.category "
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
             "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = :d "
             "AND e.status NOT IN ('superseded','announced') "
@@ -7605,7 +7605,8 @@ async def att_day_detail(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "entries": [
             {"id": r[0], "zac": r[1], "kon": r[2],
              "hours": (float(r[3]) if r[3] is not None else None),
-             "project_ref": r[4], "note": r[5], "typ": r[6]} for r in rows]})
+             "project_ref": r[4], "note": r[5], "typ": r[6],
+             "code": r[7], "cat": r[8]} for r in rows]})
     finally:
         cm.__exit__(None, None, None)
 
@@ -10802,7 +10803,8 @@ async def att_list(req: Request) -> JSONResponse:
         emp = _att_employee(s, uid)
         rows = s.execute(_t(
             "SELECT e.id, e.note, to_char(e.entry_date,'YYYY-MM-DD') d, et.label typ, e.hours, e.project_ref, "
-            "e.status, e.is_active, to_char(e.started_at,'HH24:MI') zac, to_char(e.ended_at,'HH24:MI') kon "
+            "e.status, e.is_active, to_char(e.started_at,'HH24:MI') zac, to_char(e.ended_at,'HH24:MI') kon, "
+            "et.code, et.category cat "
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date >= current_date - :dd "
             "AND e.status IS DISTINCT FROM 'superseded' AND e.status IS DISTINCT FROM 'announced' "

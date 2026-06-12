@@ -11845,7 +11845,11 @@ def _netscan_auto_checkin() -> int:
     """Marti 7.6.2026: „Když se jeho mobil nebo notebook přihlásí do naší sítě,
     můžeme rovnou člověka přihlásit do docházky." Auto-příchod (source 'netscan')
     + notifikace na mobil. Pojistky: jen PRVNÍ píchnutí dne (návrat z pauzy řeší
-    člověk sám), ne při nahlášené absenci, jen zařízení s reports_presence."""
+    člověk sám), ne při nahlášené absenci, jen zařízení s reports_presence.
+
+    Marti 12.6.2026: přítomnost zařízení v budově NENÍ oficiální docházka (jiný
+    soudeček). Docházku vede STRATEGIE jako externí dodavatel personálních služeb.
+    → NEpícháme automaticky; jen pošleme přátelské upozornění (1×/den/člověk)."""
     from sqlalchemy import text as _t
     cm, s = _att_session()
     done = 0
@@ -11873,24 +11877,23 @@ def _netscan_auto_checkin() -> int:
         if not rows:
             s.commit()
             return 0
-        wt = _att_work_type(s)
+        _NS_TITLE = "👋 Jsi v práci?"
         for r in rows:
-            s.execute(_t(
-                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
-                "status,source,is_active,note,created_by_id,created_at,updated_at) "
-                "VALUES (:t,:e,current_date,:wt,now(),'pending','netscan',true,:n,:u,now(),now())"),
-                {"t": _ATT_TENANT, "e": r[0], "wt": wt,
-                 "n": "auto — zařízení ve firemní síti", "u": r[1]})
-            s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
-                         "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
-                         "AND status='announced'"),
-                      {"t": _ATT_TENANT, "e": r[0]})
+            # Marti 12.6.: NEpíchat automaticky — jen přátelské upozornění, 1×/den/člověk
+            # (dedup přes mobile_command, bez vazby na docházkový záznam).
+            already = s.execute(_t(
+                "SELECT 1 FROM fw.mobile_command WHERE target_user_id=:uid "
+                "AND command_type='claude_msg' AND title=:ti "
+                "AND created_at >= date_trunc('day', now()) LIMIT 1"),
+                {"uid": r[1], "ti": _NS_TITLE}).first()
+            if already:
+                continue
             s.execute(_t(
                 "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
                 "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
-                {"uid": r[1], "ti": "▶️ Příchod zapsán automaticky",
-                 "msg": "Vidím tvoje zařízení ve firemní síti — píchla jsem ti příchod. "
-                        "Kdyby to nesedělo, dej v Docházce Odchod, nebo mi napiš. — Tvoje Marti"})
+                {"uid": r[1], "ti": _NS_TITLE,
+                 "msg": "Vidím tvoje zařízení ve firemní síti. Až budeš chtít, dej si "
+                        "v Docházce Příchod — píchnutí necháváme na tobě. — Tvoje Marti"})
             done += 1
         s.commit()
         return done

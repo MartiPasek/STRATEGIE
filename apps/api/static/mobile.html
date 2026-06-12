@@ -1146,6 +1146,7 @@ setTimeout(function(){
     l.appendChild(row("🧩","Režimy docházky","Forma (HPP/DPP/OSVČ), režim, konto, loajalita",function(){ go("hr_rezimy"); }));
     l.appendChild(row("🏦","Uzávěrka konta","Rozpad přesčasů: do prémie / do přesčasu / převést",function(){ go("hr_konto"); }));
     l.appendChild(row("🗓️","Absence — žádosti a schvalování","Dovolená / HO / lékař → schválí vedoucí",function(){ go("absence"); }));
+    l.appendChild(row("👀","Kdo kde dnes","Přehled: kdo v práci / na dovolené / nemocný",function(){ go("kdekdo"); }));
     l.appendChild(row("📥","Import docházky z EUROSOFTu","Reálná data 1:1 (dovolené, nemoc, lékař, odprac.)",function(){ go("hr_import"); }));
     l.appendChild(row("📄","Generovat dokument","Smlouva a další → PDF z živých dat",function(){ go("doc_gen"); }));
     l.appendChild(row("💰","Mzdy: Helios × STRATEGIE","Porovnání ZDROJ × CÍL × delta (vedení)",function(){ go("wage_cmp"); }));
@@ -1397,6 +1398,45 @@ setTimeout(function(){
     }
     var _td=null; srch.addEventListener("input",function(){ clearTimeout(_td); _td=setTimeout(function(){ load(srch.value.trim()); },250); });
     load("");
+  }
+  function kdekdo(){
+    app.innerHTML=topbar("👀 Kdo kde", true);
+    var GRP=[["prace","V práci","#34d399","👷"],["homeoffice","Home office","#60a5fa","🏠"],
+             ["vacation","Na dovolené","#fbbf24","🏝️"],["sick","Nemocní","#f87171","🤒"],
+             ["medical","U lékaře","#f59e0b","🩺"],["family_care","OČR","#a78bfa","👶"],
+             ["unpaid","Neplacené volno","#9aa","🚫"],["nic","Nevím / nezadáno","#667","—"]];
+    var cur=new Date();
+    var bar=el('<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;"></div>');
+    var prev=el('<button class="ghost" style="padding:8px 12px;">‹</button>');
+    var lbl=el('<div style="flex:1;text-align:center;font-weight:700;"></div>');
+    var next=el('<button class="ghost" style="padding:8px 12px;">›</button>');
+    bar.appendChild(prev); bar.appendChild(lbl); bar.appendChild(next);
+    app.appendChild(bar);
+    var list=el('<div></div>'); app.appendChild(list);
+    function iso(d){ return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2); }
+    function czlbl(d){ var dny=["neděle","pondělí","úterý","středa","čtvrtek","pátek","sobota"];
+      var t=new Date(); t.setHours(0,0,0,0); var x=new Date(d); x.setHours(0,0,0,0);
+      var diff=Math.round((x-t)/86400000); var suf=diff===0?" (dnes)":diff===-1?" (včera)":diff===1?" (zítra)":"";
+      return dny[d.getDay()]+" "+d.getDate()+"."+(d.getMonth()+1)+"."+suf; }
+    function load(){
+      lbl.textContent=czlbl(cur);
+      list.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/attendance/whereabouts?den="+iso(cur),"").then(function(j){
+        list.innerHTML="";
+        if(!j||!j.ok){ list.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
+        var by={}; j.lide.forEach(function(p){ (by[p.kind]=by[p.kind]||[]).push(p); });
+        GRP.forEach(function(g){
+          var arr=by[g[0]]; if(!arr||!arr.length) return;
+          var sec=el('<div style="margin-bottom:12px;"></div>');
+          sec.appendChild(el('<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;"><span style="font-size:17px;">'+g[3]+'</span><b style="color:'+g[2]+';">'+esc(g[1])+'</b><span class="hint">· '+arr.length+'</span></div>'));
+          arr.forEach(function(p){ sec.appendChild(el('<div style="padding:5px 4px 5px 28px;border-bottom:1px solid #1b2742;">'+esc(p.jmeno)+(p.kind!=='prace'&&p.kind!=='nic'&&p.label!==g[1]?(' <span class="hint">· '+esc(p.label)+'</span>'):'')+'</div>')); });
+          list.appendChild(sec);
+        });
+      });
+    }
+    prev.addEventListener("click",function(){ cur.setDate(cur.getDate()-1); load(); });
+    next.addEventListener("click",function(){ cur.setDate(cur.getDate()+1); load(); });
+    load();
   }
   function absence(){
     app.innerHTML=topbar("🗓️ Absence", true);
@@ -2600,6 +2640,10 @@ setTimeout(function(){
       return any;
     };
     p.appendChild(lc);
+    // Marti 12.6.: vstupní bod pro žádost o absenci (dovolená/HO/lékař) — pro všechny
+    var _absBtn=el('<button class="ghost full" style="margin-top:12px;border-color:#3a5a8c;color:#9cf;">🗓️ Požádat o dovolenou / HO / lékaře</button>');
+    _absBtn.addEventListener("click",function(){ go("absence"); });
+    p.appendChild(_absBtn);
     // Marti 7.6. večer: okno odpovědi Marti-AI přímo v Docházce (nad rámečkem)
     // + karty dotazů pro nadřízeného (odpovídá rovnou z mobilu).
     p.appendChild(el('<div id="mmReply" style="display:none;margin-top:12px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:14px;padding:12px;"></div>'));
@@ -4210,7 +4254,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,absence:absence,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

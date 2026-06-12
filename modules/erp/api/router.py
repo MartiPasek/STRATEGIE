@@ -6956,6 +6956,67 @@ async def att_absence_decide(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/attendance/whereabouts")
+async def att_whereabouts(req: Request) -> JSONResponse:
+    """Marti 12.6.: Kdo kde dnes/týden — pro daný den status každého člověka:
+    v práci / na dovolené / nemoc / lékař / OČR / home office / —. Agreguje na osobu
+    (1 člověk může mít víc att_employee záznamů). Čte importované absence i živá píchnutí."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    den = (req.query_params.get("den") or "").strip()[:10]
+    try:
+        d = _dt.date.fromisoformat(den) if den else _dt.date.today()
+    except Exception:
+        d = _dt.date.today()
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t("""
+            WITH ppl AS (
+              SELECT e.user_id uid,
+                     COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),
+                              max(e.full_name)) nm
+              FROM tenant.att_employee e LEFT JOIN public.users u ON u.id=e.user_id
+              WHERE e.tenant_id=2 AND e.user_id IS NOT NULL AND COALESCE(e.is_active,true)=true
+              GROUP BY e.user_id, u.first_name, u.last_name
+            ),
+            den AS (
+              SELECT e.user_id uid,
+                bool_or(t.category='presence') worked,
+                bool_or(en.is_active AND t.category='presence') running,
+                (array_agg(t.code  ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,
+                (array_agg(t.label ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_label,
+                bool_or(t.code='homeoffice') ho
+              FROM tenant.att_entry en
+              JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2
+              JOIN tenant.att_entry_type t ON t.id=en.entry_type_id
+              WHERE en.entry_date=:d AND COALESCE(en.status,'') NOT IN ('superseded','announced')
+              GROUP BY e.user_id
+            )
+            SELECT p.uid, p.nm, COALESCE(d.worked,false), COALESCE(d.running,false),
+                   d.abs_code, d.abs_label, COALESCE(d.ho,false)
+            FROM ppl p LEFT JOIN den d ON d.uid=p.uid
+            ORDER BY p.nm
+        """), {"d": d}).fetchall()
+        out = []
+        for r in rows:
+            abs_code, abs_label, ho, worked, running = r[4], r[5], r[6], r[2], r[3]
+            if abs_code:
+                kind, label = abs_code, abs_label
+            elif ho:
+                kind, label = "homeoffice", "Home office"
+            elif worked:
+                kind, label = "prace", ("Právě v práci" if running else "V práci")
+            else:
+                kind, label = "nic", "—"
+            out.append({"uid": r[0], "jmeno": r[1], "kind": kind, "label": label})
+        return JSONResponse({"ok": True, "den": d.isoformat(), "lide": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person")
 async def app_hr_person(req: Request) -> JSONResponse:
     """Karta člověka pro HR (úřední pole + děti). BEZ paměti a trezoru."""

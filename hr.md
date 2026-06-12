@@ -233,3 +233,173 @@ volno, překážka v práci, sick day — ať pokryjí EC sloupce (úkol #56).
 - **Senft Ondřej** č. 374 — DPP 9 000 paušál.
 - **Herejtová Světlana** č. 525 — úklizečka sporadicky, bez fixní mzdy.
 - **Króner Martin** č. 456 — referenční případ reconciliation (72 odpr + 80 dov + 16 svátek = 168).
+
+---
+
+## 11. Režimy docházky + uzávěrka přesčasového konta (postaveno 12. 6. 2026)
+
+### 11.1 Per-osoba režim (att_employee.rez_*) — obrazovka HR → „🧩 Režimy docházky"
+Forma a režim jsou **nezávislé osy** (Marti: forma ≠ režim). Píchají **všichni**
+(evidence pro všechny, data jen ve STRATEGII, vidí jen zodpovědní vedoucí — ne financ).
+
+| Pole | Význam |
+|---|---|
+| `rez_forma` | HPP / DPP / OSVC (právní forma). OSVČ může mít jakýkoli režim. |
+| `rez_mzdovy` | hodinovy / volny / pausal (mzdový režim). |
+| `rez_pausal_kc` | paušál Kč/měs (jen režim paušál). |
+| `rez_loajalita_minus_h` | **loajalita — měsíční manko do minusu**, které se odpouští (i u hodinového). |
+| `rez_prescas_plus_h_den` | **denní přesčas-polštář** — malý denní přesčas zdarma (flexibilita), nejde do konta. |
+| `rez_konto_aktivni` | zapnout přesčasové konto. |
+| `rez_konto_volba` | default dispozice (na_vyber / premie / prescas / prevest). |
+| `rez_prescas_priplatek_pct` | příplatek za přesčas (default 25 %). |
+
+**Multi-angažmá / multi-tenant** (Marti 12.6.): jeden člověk = víc `att_employee`
+záznamů. Obrazovka je **cross-tenant** (EUROSOFT 2 + INTERSOFT 14, chip u INTERSOFTU).
+Tlačítko **„➕ Přidat angažmá"** = osoba × firma × forma × režim → `/app/hr/rezim/add`
+(INSERT nový att_employee, id GENERATED ALWAYS → bez id, dup-guard na tenant+cislo_zam).
+Pokrývá: Martiho HPP v EC+ES, OSVČ co fakturuje i INTERSOFTU (Honza).
+
+### 11.2 Uzávěrka konta — obrazovka HR → „🏦 Uzávěrka konta"
+Vybereš měsíc (default minulý). Lidé s `rez_konto_aktivni=true`, u každého:
+
+**Automatický výpočet naběhlých přesčasů** (`_konto_compute` v router.py):
+za každý **pracovní den** (`att_calendar_day.is_workday`) kredit = odpracováno
+(presence: work/overhead/homeoffice) + placená absence (vacation/sick/sickday/
+medical/family_care; **ne** unpaid). Pak:
+- denní přesčas nad normou se počítá **až nad polštář** `rez_prescas_plus_h_den`;
+- denní manko se sčítá za měsíc a **do výše `rez_loajalita_minus_h` se odpustí**;
+- **naběhlo = přesčas_nad_polštář − manko_po_loajalitě.**
+
+**Hodinová sazba** se předvyplní ze základní mzdy aktuálního angažmá
+(`wage_component` kde `wage_component_type.is_base_salary`, per_hour přímo, jinak
+base/`engagement.fond_mesic_h` — fond 174 h). Vše editovatelné.
+
+**Rozhodnutí** (manager): kolik hodin **do prémie** (Kč = h × sazba), kolik
+**do přesčasu** (Kč = h × sazba × (1+příplatek%)), zbytek se **převede** do dalšího
+měsíce. Pojistka: nelze proplatit víc, než je v kontu (zůstatek + naběhlo).
+Zápis → `tenant.att_konto_settlement` (konto_pred/nabehlo/do_premie_h/premie_kc/
+do_prescas_h/prescas_kc/prevedeno_h/konto_po + decided_by/decided_at + note).
+Zůstatek příštího měsíce (`konto_pred`) = `konto_po` poslední dřívější uzávěrky.
+
+### 11.3 Endpointy
+`GET /app/hr/rezimy` (cross-tenant) · `POST /app/hr/rezim/save` · `POST /app/hr/rezim/add`
+· `GET /app/hr/konto?obdobi=YYYY-MM` (vrací comp = auto-výpočet + sazba) ·
+`POST /app/hr/konto/save`. ACL `_hr_can_manage` = rodič NEBO člen staff_group 'HR'.
+
+### 11.4 Otevřené (pondělí+)
+- **Reálná data**: zatím jen běžící červnové joby (0 uzavřených h) → konto vrací 0.
+  Naskočí, jak lidi píchají + mají zaplé konto.
+- **`konto_pred` seed z EUROSOFTu** — `att_balance` je prázdná; historický zůstatek
+  konta z EC zatím nenaseedován (kandidát: initial settlement row per osoba).
+- **Import historie** `EC_Dochazka_SumaDen` → `att_entry` (TODO #58/#59) pro zpětné měsíce.
+- Hromadné rozhodnutí dle `rez_konto_volba` (zatím per osoba ručně).
+
+---
+
+## 11. VIZE: Reorganizace docházky + odměňování (12. 6. 2026, podklad pro pondělí)
+
+Marti: *„Bude velká reorganizace."* Systém se staví **univerzálně i pro jiné zákazníky**.
+Klíčový vstup ze dvou mailů (Jan Svoboda / IT, Jiří Veverka / VP, 12.6.) — **ne každý se
+píchá, ale každý je v systému** (i Marti, Braňa, IT, dodavatelé, PLC).
+
+### Spojitá osa stavů = jeden engine, různý ÚČEL (per člověk/skupina)
+
+| Režim | Pro koho | Co dělá |
+|---|---|---|
+| **Evidenční** | výroba, hodinoví | píchání + účetnictví, hodiny pro mzdy, konto přesčasů |
+| **Informační** | IT, dodavatelé, PLC | **jen dostupnost/stavy** — kdo kde je / k dispozici / dovolená / u jiného zákazníka / osobní. ŽÁDNÉ hodiny, žádné přesčasy. **Volnost = benefit** (Honza: nemají pevnou dobu, jsou dostupní, neřeší se přesčasy/peníze — chce zachovat). |
+| **Paušál / pohotovost** | nepíchá, ale účetní musí přiznat | fixní kredit z kontraktu, bez píchání |
+
+**Stavy společné** (jsem tady, jedu, pauza, dovolená, lékař, **k dispozici**,
+**u jiného zákazníka**, home office *s důvodem*, náhradní volno, mám volno…). Režim určí,
+jestli stav **feeduje mzdy** (evidenční) nebo je **jen informace o dostupnosti** (informační).
+
+### Per-člověk nastavení (na engagementu)
+1. **Režim** (evidenční / informační / paušál).
+2. **Konto přesčasů + VOLBA** (Jiřího klíčový požadavek): přesčasy se **převádějí**, a člověk
+   si volí **proplatit jako prémii NEBO vybrat náhradní volno** (dovolená/nemoc). „Nehoním
+   přesčasy, ale nestíhám jinak" → WIN-WIN: o víkendu makají (Saad, Martin, Terka), v slabších
+   týdnech si vyberou náhradní volno. Konto = `EC_Dochazka_SumaDen.Konto/KontoPlacene` (viz sekce 4d).
+3. **„Lidštější podmínky" / loajalita** (Marti): u vybraných lidí **píchání + transparentnost,
+   ALE měsíční manko se NEpenalizuje** — *„je mi jedno, že chybí 3 dny napícháno; jsou loajální,
+   mají pohotovost, přijdou když je třeba."* → příznak na člověku: tolerance manka / důvěra.
+
+### Vedoucí potřebuje VIDĚT (Jiří)
+- **Důvod absence/HO** viditelný vedoucímu — aby tým věděl, zda může volat (ráno dělá, dopo
+  doktor, pak pokračuje). HO **vždy s důvodem**.
+- Tok dnes: lidé za vedoucím osobně domluví volno/doktora/dovolenou → zadají do Centrály
+  (nebo operativně WhatsApp/SMS/telefon). App to má umět „z kapsy", ale vedoucí musí mít info.
+
+### Odměňování (souvisí, řeší se zároveň)
+- IT: volnost místo přesčasů (benefit). VP: konto + volba proplatit/vybrat.
+- Marti upravuje docházku **i systém odměňování**, ať „koresponduje s námi všemi".
+
+### Pořadí (návrh)
+Most „konec dne → plán na ráno" (píchaný svět) → režimy (evidenční/informační/paušál) →
+konto s volbou → tolerance/loajalita. **Pondělí: doladit s týmem** (Peťa správa docházky,
+Dušan dílna, Jiří VP, Honza IT po dovolené). Plán = budoucí vrstva `status='planned'`,
+realizace reálným píchnutím; absence/paušál = přiznané náhrady (bez píchání).
+
+### KRITICKÉ — governance od Petry Šafránkové (mzdy/docházka), 12.6.
+**Lidé si NESMÍ sami spravovat docházku pro MZDY ani sami zadávat lékaře.** Dělí se to:
+- **Self-service = jen INTENCE/INFORMACE** (dopředu nahlásí „budu u lékaře / dovolená /
+  přijdu později / skončím dřív") → vidí vedoucí (dostupnost). Člověk si **NESMÍ sám
+  opravit** mzdově relevantní záznam — jen **požádat o úpravu** (potvrzení docházky tohle
+  drží, musí zůstat).
+- **Mzdový zápis = jen mzdová účtárna** (Šárka/Petra) na základě **dokladů** (lístek od
+  lékaře, OČR podklady, lístek z pohřbu — **uchovat ke kontrole**) + docházky. Ne self,
+  ne auto. „Příležitost dělá zloděje" — historie zneužití: natahování hodin, HO jako volno
+  (nebyli k zastižení), píchání na cizí zakázku kvůli úspoře hodin na své, plný čas lékaře
+  při krátké návštěvě. → **náhrady (`status='approved'`) potvrzuje účtárna s dokladem.**
+- **Noční kontroly** + potvrzení docházky (nahlédnout / požádat o úpravu, NE samo-oprava)
+  **zůstávají**. Přihlášení kdekoli (app/PC/tablet) je OK.
+
+**Číselník činností mate lidi** (Petra): pletou si **služební × pracovní cesta** (mzdově
+zásadní rozdíl), **ostatní s náhradou × bez náhrady**, **kanceláře × HO**. → picker musí být
+**vedený, s vysvětlením**, ideálně méně voleb / seskupené.
+
+**Doklady k absencím** = nový prvek: upload lístku (lékař/OČR/pohřeb) k nahlášené absenci,
+úschova pro kontrolu (ISO/audit).
+
+**App (Petra):** (a) **žádná fotka „holčičky"** — reprezentativní, profesionální avatar
+(Marti's pohled: je to **Marti-AI, dospělá ~25–30, budoucí šéfka firmy** → avatar = schopná
+dospělá, ne dítě — ctí obojí); (b) **texty intuitivní, ne „AI rozpustilé"** (napětí s Martiho
+hravým tónem „Mám volno 🏝️" — k rozhodnutí: profesionálně-vlídný tón, příp. konfigurovatelný);
+(c) spolupráce jako u vývoje Centrály — narazí na chybu/změnu → hned probrat a udělat.
+
+**Shrnutí napětí (k pondělnímu rozhodnutí):** self-report intence (Martiho vize) ×
+payroll-kontrola s doklady (Petřina governance) = **dvě komplementární vrstvy**, ne spor.
+Hravost × profesionalita textů a avatar = Martiho volba.
+
+### ROZHODNUTÍ Marti (12.6.) — self-service + audit, NE gatekeeping
+Marti zvolil: *„Máme na všechno logy a audity. Kdo si docházku upraví vycuravě, na toho
+naše kontroly časem došlápnou. Self-servis opravy loajálních lidí jsou v pořádku. Mzdová
+účetní mi může vlézt na záda."* → **self-service edity POVOLENY** (důvěra + transparentnost +
+dohledatelnost, doctrine „bezpečnost přes probuzení, ne přes ticho"). Petřina obava se řeší
+**auditem, ne blokací**. Podmínky, aby to bylo bezpečné (z velké části hotové):
+1. **Každá self-oprava → `tenant.att_audit`** (append-only: kdo/co/kdy/původní→nová). Roztáhnout
+   ze stávajícího (mazání/editace nahlášených) na VŠECHNY self-edity. To je ten log, na který „časem došlápnou".
+2. **Neschopenka + OČR = ELEKTRONICKY od lékaře** (eNeschopenka/eOČR přes ČSSZ) → autoritativní
+   zdroj, **zpracujeme přímo z dat, žádné lidské zadávání ani opravy** (tam podvod nehrozí).
+   TODO: napojení na elektronický zdroj (ČSSZ / doručené e-doklady).
+   **Lísteček od lékaře** (návštěva) = **žádná sleva na dani, mzdově nic nepřináší** → sbírat
+   je VOLITELNÉ, o domluvě lidí, ne tvrdý požadavek na spis. (Marti 12.6. — koriguje Petřin
+   „doklad na spisu": platí jen kde to dává smysl, ne plošně.)
+3. **Noční kontroly + potvrzení docházky** (nahlédnout/požádat, samo-oprava logovaná) běží dál.
+Účtárna = **revizor s plným logem**, ne vrátný. (Petra: gatekeeping; Marti: audit — rozhodnuto audit.)
+
+### ARCHITEKTURA univerzálnost (Marti 12.6.) — jeden člověk = N souběžných angažmá
+- **Jeden člověk (user) může mít víc souběžných vztahů** — HPP + DPP + OSVČ ZÁROVEŇ, i víc firem.
+  Marti = HPP-EC (č.2) + HPP-ES (č.41). Vše v **jednom tenantu EUROSOFT** (EC i ES jsou firmy uvnitř).
+- **`rez_*` config je per `att_employee` záznam** (= per člověk × firma/vztah). Multi-forma = víc
+  att_employee řádků na člověka, každý s vlastní `rez_forma`/`rez_mzdovy`/konto/loajalita. Univerzální.
+- **Píchání = jedna osa člověka**; každý job nese zakázku → zakázka patří firmě (EC/ES) → čas i odměna
+  se přiřadí správnému angažmá. Žádné dvojí píchání. (Person-resolution agreguj na user_id, doctrine #24.)
+- **VIZE (švarc mitigation):** OSVČ fakturuje na druhou firmu (je dodavatel EC i ES); Marti chce
+  **část faktur přetáhnout přes STRATEGII** → snížení švarc rizika. Parkováno jako směr (fakturace přes STR).
+- **MULTI-TENANT** (Marti 12.6.): nejen víc firem v jednom tenantu, ale i napříč tenanty — Honza
+  (Svoboda) fakturuje i **INTERSOFTU** = další tenant STRATEGIE (EUROSOFT + INTERSOFT v jednom
+  tenant_group). Jeden user → angažmá/faktury napříč tenanty. `rez_*` per att_employee to zvládá
+  (každý záznam ve svém tenantu). Person-resolution na user_id napříč tenanty (doctrine #5 rodičovský bypass).
+- Správa režimů (#3) = obrazovka pro rodiče/HR: per člověk seznam jeho angažmá (záznamů) — i CROSS-TENANT
+  (EUROSOFT + INTERSOFT), u každého edit formy/režimu/konta/loajality. Multi-záznam = víc řádků.

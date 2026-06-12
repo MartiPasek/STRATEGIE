@@ -23574,7 +23574,7 @@ def _render_full_page(
     .erp-design-badge {{
       position: fixed;
       top: 9px;
-      right: 16px;
+      right: 64px;
       z-index: 9999;
       padding: 4px 9px;
       background: rgba(94, 234, 212, 0.15);

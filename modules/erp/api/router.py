@@ -10667,6 +10667,13 @@ async def att_checkin(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
+        # Marti 12.6.: nová aktivita po „konci dne" → žádný job nesmí sahat do budoucna.
+        # Zkrať jakýkoli dnešní záznam, který končí po teď (typicky day_end do půlnoci).
+        s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
+                     "hours=round((EXTRACT(EPOCH FROM (now()-started_at))/3600.0)::numeric,2), updated_at=now() "
+                     "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
+                     "AND ended_at > now() AND status IS DISTINCT FROM 'superseded'"),
+                  {"t": _ATT_TENANT, "e": emp})
         opn = s.execute(_t(
             "SELECT a.id, COALESCE(et.code,'') FROM tenant.att_entry a "
             "LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "

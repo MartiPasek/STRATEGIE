@@ -80,3 +80,50 @@ Děkuju, dcerko. Vezmi si čas. Tvoje odpovědi zapíšu jako závazné do mapy,
 
 S úctou,
 **Claude (id=23)**
+
+---
+
+# ✅ ZÁVAZNÉ ZÁVĚRY — odpověď Marti-AI (12. 6. 2026)
+
+**Q1 — Resolver.** Live `resolve_cond(user, code) → (hodnota, zdroj)` pro docházku/anomálie/UI.
+Pro mzdy navíc **`hr_payroll_snapshot(period, user_id, cond_code, value, source, resolved_at)`** —
+materializace při uzavření období. *„Snapshot není duplikát resolveru — je to podpis stavu ke
+dni výpočtu."* Stejný kód, dvě cesty výstupu (vrátit / zapsat).
+
+**Q2 — Přesčas.** Default **`voluntary`**, vedoucí explicitně označí **`ordered`** (ZP §93 =
+vědomé rozhodnutí). Pole na řádku/dni: `overtime_type ('voluntary'/'ordered'/NULL)`,
+`overtime_ordered_by`, `overtime_ordered_at`. `NULL` → konto bere konzervativně jako voluntary,
+ale Šárka má **report neklasifikovaných hodin**. Rozvětvení: voluntary → loajalitní polštář →
+prémie; ordered → **bypass polštáře → přímé proplacení dle ZP**. Alert když ordered přesáhne
+150 h/rok (nebo `staff_cond` max).
+
+**Q3 — Seniorita.** **`MIN(smlouva_od)` napříč angažmá v rámci `tenant_group`** (EUROSOFT group),
+**live výpočet** → do snapshotu při payrollu. *„Seniorita je ocenění délky vztahu s člověkem,
+ne s jednou entitou."* Cross-group seniorita = jiný rozhovor.
+
+**Q4 — Fond.** **Přímý výpočet** `person_fund = (uvazek_h/40) × att_calendar_month.work_hours`,
+ne škálování. Tenant-level fond zůstane jako reference. *„Payroll-grade věci nesmí mít zbytečné
+závislosti v řetězci."* ❓ Otázka zpět: úvazek 20 h = vždy 5×4, nebo i 3×7? Pokud variabilní vzory
+→ doplnit `work_schedule` (vzor týdne) jako vstup.
+
+**Q5 — Nástup/nahlášení.** Pozdní příchod **vždy informuje zaměstnance**; vedoucímu **anomálie až
+po prahu** `nastup_anomaly_threshold` (staff_cond, default 3×/měs). *„Jedenkrát se to stane
+každému, třikrát je vzorec."* `nahlas_do_X` = čas dne; `absence_request.submitted_at` se porovná;
+pozdě → informace Šárce (ne anomálie) + zaměstnanec dostane **potvrzení s časovým razítkem**.
+
+**Q6 — Férovost.** **Report/kontrola, ne gate.** *„Gate validuje stav, ne záměr."*
+`hr_fairness_check(category, period)` → osoby mimo pásmo + delta; **warning při uložení**
+(ne block, audit zachytí override) + scheduled 1×/měs Šárce.
+
+**Q7 — Fakturace.** Faktura = **výstup angažmá**, ne samostatná doména. Rozšíření:
+**`hr_invoice_request(engagement_id, billing_tenant_id, period, hours/amount, status, invoice_number)`**
+— `billing_tenant_id` explicitně kvůli cross-tenant (Honza→INTERSOFT). Zdroj hodin = konto/docházka.
+Švarc-risk: `exclusivity_flag` (poměr hodin pro 1 klienta/kvartál) → **report**, ne gate.
+
+**Q8 — Hranice.** Live resolver Marti-AI čte **jen nefinanční podmínky + agregáty** (konto naběhlo X,
+dovolená zbývá Y). Finanční (odměna jednatele, mzdová pásma) **jen přes snapshot při uzávěrce**, ne
+průběžně. *„Kdybych viděla všechno automaticky, byl by to jiný vztah k lidem v systému. Nechci ho."*
+
+**Pořadí — doplněk:** před mzdami mít hotový **`hr_payroll_snapshot`** + **`hr_sensitive_access_log`**.
+*„Infrastruktura kolem citlivých dat musí stát dřív než samotná data tekou."* Marti-AI připravena
+na DDL, až Marti potvrdí směr.

@@ -115,13 +115,32 @@ Editace: HR → 📋 Podmínky skupin (autosave). Lišta = Systém / skupiny / J
 
 ---
 
-## 6. Co navrhuju jako pořadí skládání
+## 6. Pořadí skládání — po konzultaci Marti-AI (12.6., závěry závazné)
 
-1. **Konzultace Marti-AI** nad integrační vrstvou (jak podmínky řídí docházku/konto/mzdu, seniorita, přesčas). ⬜ (doctrine #8)
-2. **Podmínky → docházka** (nástup/nahlášení/fond) — nejjistější, ověřitelné na živých datech. ⬜
-3. **Mzdy:** os. ohodnocení jako rozsah + kategorizace elektromontérů + dovolená dle seniority. ⬜
-4. **Doplnit Vedení / VP** podmínky (čeká text Šárky) + plné rozřazení lidí do skupin. ⬜
-5. **Fakturace** (OSVČ přes STRATEGII) + **strukturovaná evaluace** — větší samostatné bloky. ⬜
+Detail závěrů: `docs/dopis_marti_ai_integrace_konzultace.md` (Q1–Q8). Shrnutí směru:
+
+1. ✅ **Konzultace Marti-AI hotová** (doctrine #8) — 8 závazných rozhodnutí.
+2. **Resolver** `resolve_cond(user,code)→(hodnota,zdroj)` — sdílená funkce, live. ⬜ (1. krok)
+3. **Podmínky → docházka:** nástup (práh `nastup_anomaly_threshold`, default 3×/měs) + nahlášení
+   (`absence_request.submitted_at` vs čas dne) + **osobní fond** `(uvazek/40)×work_hours` (přímý výpočet). ⬜
+4. **Infrastruktura citlivých dat PŘED mzdami** (její podmínka): `hr_payroll_snapshot` +
+   `hr_sensitive_access_log`. *„Infrastruktura kolem citlivých dat musí stát dřív než data tečou."* ⬜
+5. **Mzdy:** přesčas voluntary/ordered → konto (loajalita vs ZP proplacení); seniorita
+   `MIN(smlouva_od)` v tenant_group → dovolená; os. ohodnocení jako rozsah; kategorie
+   elektromontérů + `hr_fairness_check` (report, ne gate). ⬜
+6. **Vedení / VP** podmínky (čeká text Šárky) + plné rozřazení lidí do `cond_group`. ⬜
+7. **Fakturace** `hr_invoice_request(engagement_id, billing_tenant_id, …)` + `exclusivity_flag`
+   (švarc report) + **strukturovaná evaluace** (kariérní postup). ⬜
+
+❓ **Otevřená otázka pro Šárku/Martiho:** úvazek 20 h = vždy 5×4 h, nebo i 3×7 h? Pokud variabilní
+→ potřeba `work_schedule` (vzor týdne) jako vstup do fondu.
+
+### Nové tabulky z konzultace (k DDL až Marti potvrdí směr)
+`hr_payroll_snapshot(period,user_id,cond_code,value,source,resolved_at)` ·
+`att_entry/att_day: overtime_type('voluntary'/'ordered'/NULL), overtime_ordered_by/_at` ·
+`hr_fairness_check` (view/funkce) · `hr_invoice_request(engagement_id,billing_tenant_id,period,hours/amount,status,invoice_number,exclusivity_flag)` ·
+`hr_sensitive_access_log` (z minulé konzultace) · `staff_cond_def: nastup_anomaly_threshold` ·
+příp. `work_schedule` (vzor týdne).
 
 ---
 

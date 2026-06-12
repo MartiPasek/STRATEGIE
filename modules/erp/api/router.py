@@ -14546,7 +14546,7 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                        || '–' || COALESCE(to_char(e.ended_at,'HH24') || ':' || to_char(e.ended_at,'MI'), '…') || ')' AS detail
               FROM tenant.att_entry e
               JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND et.category = 'presence'
+              WHERE e.tenant_id = 2 AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req') AND et.category = 'presence'
                 AND e.entry_date > current_date AND e.started_at IS NOT NULL
                 AND e.status NOT IN ('superseded','announced')
               UNION ALL
@@ -14556,7 +14556,7 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                        || '–' || COALESCE(to_char(e.ended_at,'HH24') || ':' || to_char(e.ended_at,'MI'), '?') || ')'
               FROM tenant.att_entry e
               JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND et.category = 'presence'
+              WHERE e.tenant_id = 2 AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req') AND et.category = 'presence'
                 AND e.hours > 12 AND e.status NOT IN ('superseded','announced')
               UNION ALL
               SELECT e.id, e.employee_id, 'zapomenuty_odchod',
@@ -14570,7 +14570,7 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                      to_char(e.entry_date, 'DD.MM.') || ' nepotvrzená docházka'
               FROM tenant.att_entry e
               JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND et.category = 'presence' AND e.started_at IS NOT NULL
+              WHERE e.tenant_id = 2 AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req') AND et.category = 'presence' AND e.started_at IS NOT NULL
                 AND e.status NOT IN ('superseded','announced')
                 AND e.entry_date < current_date
                 AND e.entry_date >= GREATEST(current_date - 14, DATE '2026-06-06')
@@ -14583,7 +14583,7 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                      to_char(e.entry_date, 'DD.MM.') || ' píchnutá práce v den nahlášené nepřítomnosti'
               FROM tenant.att_entry e
               JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
-              WHERE e.tenant_id = 2 AND et.category = 'presence' AND e.started_at IS NOT NULL
+              WHERE e.tenant_id = 2 AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req') AND et.category = 'presence' AND e.started_at IS NOT NULL
                 AND e.status NOT IN ('superseded','announced')
                 AND EXISTS (SELECT 1 FROM tenant.att_entry a2
                             JOIN tenant.att_entry_type t2 ON t2.id = a2.entry_type_id

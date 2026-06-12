@@ -816,6 +816,48 @@ def web_psy_energie():
     return _web_subpage("psy-energie.html")
 
 
+@app.get("/web/en")
+def web_en():
+    """EN mutace hlavní stránky."""
+    return _web_subpage("web-en.html")
+
+
+@app.get("/web/de")
+def web_de():
+    """DE mutace hlavní stránky."""
+    return _web_subpage("web-de.html")
+
+
+@app.get("/web/en/eurosoft")
+def web_en_eurosoft():
+    return _web_subpage("eco-eurosoft-en.html")
+
+
+@app.get("/web/en/iqhubs")
+def web_en_iqhubs():
+    return _web_subpage("eco-iqhubs-en.html")
+
+
+@app.get("/web/en/strategie")
+def web_en_strategie():
+    return _web_subpage("eco-strategie-en.html")
+
+
+@app.get("/web/de/eurosoft")
+def web_de_eurosoft():
+    return _web_subpage("eco-eurosoft-de.html")
+
+
+@app.get("/web/de/iqhubs")
+def web_de_iqhubs():
+    return _web_subpage("eco-iqhubs-de.html")
+
+
+@app.get("/web/de/strategie")
+def web_de_strategie():
+    return _web_subpage("eco-strategie-de.html")
+
+
 @app.get("/web/demo")
 def web_demo():
     """Živá ukázka — animovaný dashboard fiktivní výrobní firmy (400 zaměstnanců).

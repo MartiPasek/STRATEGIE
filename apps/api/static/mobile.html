@@ -3070,23 +3070,27 @@ setTimeout(function(){
       if(_dS&&_dS.today){
         var T=_dS.today;
         var hdr="font-size:14.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        // Marti 12.6.: info režim (IT/dodavatelé) = jen dostupnost, NEpočítáme hodiny.
+        var _info=(j.mode==='info');
+        function _setVal(txt,col,fs){
+          if(_info){ T.val.textContent = open ? "🟢 k dispozici" : "mimo";
+            T.val.style.color = open ? "var(--green)" : "var(--mut)"; T.val.style.fontSize="13px"; }
+          else { T.val.textContent=txt; T.val.style.color=col; T.val.style.fontSize=fs; }
+        }
         if(open){
           var ms=j.morning_start||open.started_at||"";
           T.ttl.innerHTML='Od: <b>'+(ms?esc(ms.substr(11,5)):"—")+'</b>'
             +(open.project_ref?(' &nbsp;—&nbsp; <b>'+esc(open.project_ref)+'</b>'):'');
           T.ttl.style.cssText=hdr;
-          T.val.textContent=fmtHM(hrs);
-          T.val.style.color="var(--green)"; T.val.style.fontSize="18px";
+          _setVal(fmtHM(hrs),"var(--green)","18px");
         } else if(hrs>0){
           T.ttl.innerHTML='Od: <b>'+(j.morning_start?esc(j.morning_start.substr(11,5)):"—")+'</b>'
             +(j.last_end?(' &nbsp;—&nbsp; do <b>'+esc(j.last_end.substr(11,5))+'</b>'):'');
           T.ttl.style.cssText=hdr;
-          T.val.textContent=fmtHM(hrs);
-          T.val.style.color="var(--green)"; T.val.style.fontSize="18px";
+          _setVal(fmtHM(hrs),"var(--green)","18px");
         } else {
           T.ttl.textContent="Dneska je den…"; T.ttl.style.cssText="font-size:15px;font-weight:600;";
-          T.val.textContent="—";
-          T.val.style.color="var(--mut)"; T.val.style.fontSize="";
+          _setVal("—","var(--mut)","");
         }
       }
       dochDailyLoad(); dochListLoad();

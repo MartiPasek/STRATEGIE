@@ -6950,10 +6950,12 @@ async def att_status(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        opn = s.execute(_t("SELECT id, to_char(started_at,'YYYY-MM-DD\"T\"HH24:MI:SS'), project_ref "
-                           "FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e AND is_active=true "
-                           "AND status IS DISTINCT FROM 'superseded' "
-                           "ORDER BY id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
+        opn = s.execute(_t("SELECT a.id, to_char(a.started_at,'YYYY-MM-DD\"T\"HH24:MI:SS'), a.project_ref, "
+                           "COALESCE(et.code,'') "
+                           "FROM tenant.att_entry a LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+                           "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.is_active=true "
+                           "AND a.status IS DISTINCT FROM 'superseded' "
+                           "ORDER BY a.id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
         # Marti 7.6.: do "dnes odpracovano" pocitej i bezici (otevrenou) smenu —
         # is_active radek nema hours, tak vezmeme now()-started_at.
         today = s.execute(_t("SELECT COALESCE(round(sum("
@@ -6975,12 +6977,17 @@ async def att_status(req: Request) -> JSONResponse:
             {"t": _ATT_TENANT, "e": emp}).first()
         pname = None
         ptyp = None
-        if opn and opn[2]:
+        # reálná zakázka (ne režijní marker) → načti název/typ z číselníku
+        _pref = (opn[2] or "").strip() if opn else ""
+        if _pref and _pref.lower() not in ("rezie", "režie"):
             prow = s.execute(_t("SELECT nazev, typ FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c"),
                              {"t": _ATT_TENANT, "c": opn[2]}).first()
             if prow:
                 pname = prow[0]
                 ptyp = prow[1]
+        # Marti 12.6.: bez píchnuté zakázky (nebo overhead typ) = skupina Režie
+        if ptyp is None and opn and (opn[3] == "overhead" or not _pref or _pref.lower() in ("rezie", "režie")):
+            ptyp = "REZIE"
         # Marti 7.6. večer: poslední odchod dne — pro přívětivý stav mimo směnu.
         lend = s.execute(_t(
             "SELECT to_char(MAX(ended_at),'YYYY-MM-DD\"T\"HH24:MI:SS') FROM tenant.att_entry "
@@ -7699,15 +7706,17 @@ async def att_entry_project(req: Request) -> JSONResponse:
             s.commit()
             return JSONResponse({"ok": False, "error": "Zakázka " + ref + " není píchatelná / neexistuje."})
         tcode = "overhead" if (zak[0] == "REZIE") else "work"
+        # Marti 12.6.: oprava na režii = skupina Režie, ale číslo zakázky do jobu necpat.
+        stored_ref = None if (zak[0] == "REZIE") else ref
         nn = ("zakázka změněna uživatelem (původně " + (row[1] or "žádná") + ")")
         s.execute(_t(
             "UPDATE tenant.att_entry SET project_ref = :c, "
             "entry_type_id = COALESCE((SELECT id FROM tenant.att_entry_type WHERE tenant_id = :t AND code = :tc), entry_type_id), "
             "note = CASE WHEN COALESCE(note,'') = '' THEN :nn ELSE note || ' / ' || :nn END, "
             "updated_at = now() WHERE id = :i"),
-            {"c": ref, "t": _ATT_TENANT, "tc": tcode, "nn": nn, "i": eid})
+            {"c": stored_ref, "t": _ATT_TENANT, "tc": tcode, "nn": nn, "i": eid})
         s.commit()
-        return JSONResponse({"ok": True, "id": eid, "project_ref": ref})
+        return JSONResponse({"ok": True, "id": eid, "project_ref": stored_ref})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -10638,6 +10647,10 @@ async def att_checkin(req: Request) -> JSONResponse:
         body = {}
     kind = str((body or {}).get("kind") or "work").strip().lower()
     project_ref = str((body or {}).get("project_ref") or "").strip()[:40] or None
+    # Marti 12.6.: režie = bez píchnuté zakázky. Číslo „Rezie/Režie" do jobu necpat —
+    # skupina Režie se pozná podle overhead typu / chybějícího project_ref.
+    if kind == "overhead" or (project_ref and project_ref.strip().lower() in ("rezie", "režie")):
+        project_ref = None
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)

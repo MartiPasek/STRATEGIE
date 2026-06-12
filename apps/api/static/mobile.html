@@ -3146,9 +3146,8 @@ setTimeout(function(){
     if(/poch[uů]z/.test(s)) return '📦';
     if(/lékař|lekar|doktor/.test(s)) return '🩺';
     if(/školen|skolen/.test(s)) return '🎓';
-    if(e.project_ref) return '👷';
-    if(/rež|rez/.test(s)) return '🧾';
-    return '👷'; }
+    if(_jobZak(e)) return '👷';   // reálná zakázka = dělník s helmou
+    return '🧾'; }               // produktivní bez zakázky = režie
   function _jobBtns(acts, hint, sz, fs0){
     function mk(bg,col,ic,fs,msg){ var b=el('<div class="cact" style="'+(sz?('width:'+sz+'px;height:'+sz+'px;border-radius:16px;'):'')+'background:'+bg+';color:'+col+';font-size:'+fs+';">'+ic+'</div>');
       b.addEventListener("click",function(ev){ ev.stopPropagation(); if(hint) hint.textContent=msg; }); return b; }
@@ -3163,7 +3162,7 @@ setTimeout(function(){
     var top=el('<div style="display:flex;justify-content:flex-end;"><button class="ghost" style="font-size:20px;width:44px;margin:0;">✕</button></div>');
     top.querySelector("button").addEventListener("click",function(){ ov.remove(); });
     ov.appendChild(top);
-    ov.appendChild(el('<div style="display:flex;align-items:center;gap:14px;text-align:left;margin:4px 2px 16px;"><div class="cav" style="width:72px;height:72px;border-radius:20px;font-size:34px;flex:none;background:'+avColor(e.note||e.typ||"?")+';">'+ic+'</div><div style="min-width:0;"><div style="font-size:22px;font-weight:800;">'+esc(timeR||(e.typ||""))+'</div><div class="hint" style="margin-top:4px;">'+esc(e.typ||'')+(e.project_ref?(' · '+esc(e.project_ref)):'')+'</div></div></div>'));
+    ov.appendChild(el('<div style="display:flex;align-items:center;gap:14px;text-align:left;margin:4px 2px 16px;"><div class="cav" style="width:72px;height:72px;border-radius:20px;font-size:34px;flex:none;background:'+avColor(e.note||e.typ||"?")+';">'+ic+'</div><div style="min-width:0;"><div style="font-size:22px;font-weight:800;">'+esc(timeR||(e.typ||""))+'</div><div class="hint" style="margin-top:4px;">'+esc(e.typ||'')+(_jobZak(e)?(' · '+esc(e.project_ref)):(_jobRezie(e)?' · Režie':''))+'</div></div></div>'));
     var info=el('<div class="panel"></div>');
     info.appendChild(el('<div style="display:flex;justify-content:space-between;padding:6px 0;"><span class="hint">Datum</span><span>'+esc(e.d||"")+'</span></div>'));
     info.appendChild(el('<div style="display:flex;justify-content:space-between;padding:6px 0;"><span class="hint">Odpracováno</span><span>'+(e.hours!=null?fmtHM(e.hours):"—")+'</span></div>'));
@@ -3183,10 +3182,8 @@ setTimeout(function(){
     // taky entry type „Práce"). Režie ukáže „Režie", u relaxu žádná zakázka.
     var _sp=[];
     if(e.hours!=null) _sp.push(fmtHM(e.hours));  // Marti 11.6.: nejdřív čas
-    if(!_jobMimo(e)){
-      if(/rež|rez/i.test(e.typ||'')) _sp.push("Režie");
-      if(e.project_ref) _sp.push(esc(e.project_ref));  // …pak číslo zakázky
-    }
+    if(_jobZak(e)) _sp.push(esc(e.project_ref));   // reálná zakázka = číslo
+    else if(_jobRezie(e)) _sp.push("Režie");        // bez zakázky = Režie
     var sub=_sp.join(' · ');
     var _wbg=_jobMimo(e)?"#caa14a":"var(--green)";  // Marti 11.6.: práce zelená, mimo jantarová
     var head=el('<div class="cthead"><div class="cav" style="background:'+_wbg+';font-size:30px;line-height:1;">'+ic+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(timeR)+'</div><div class="ctnum">'+sub+'</div></div></div>');
@@ -3211,6 +3208,11 @@ setTimeout(function(){
   function _jobMimo(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
     if(/home|domov/.test(s)) return false;
     return /pauz|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d|jedn[aá]n|poch[uů]z|lékař|lekar|doktor/.test(s); }
+  // Marti 12.6.: skupina Režie = produktivní práce BEZ píchnuté zakázky.
+  // 'Rezie'/'Režie' jako project_ref = stará auto-stampovaná hodnota → bereme jako bez zakázky.
+  function _isRezieRef(r){ r=(r||'').trim(); return !r || /^(rez|rež)ie$/i.test(r); }
+  function _jobZak(e){ return !_jobMimo(e) && !_isRezieRef(e.project_ref); }
+  function _jobRezie(e){ return !_jobMimo(e) && _isRezieRef(e.project_ref); }
   // Marti 11.6.: TEMPLATE „brand" dvoupanelu — lišta filtrů + joby + souhrn. Sdílený
   // pro „Tak to bylo dneska", „Na včera si vzpomínám", „To už si nepamatuju".
   var _todaySt={f:"vse"}, _yestSt={f:"vse"}, _prevSt={f:"vse"};
@@ -3219,8 +3221,8 @@ setTimeout(function(){
     var rail=document.getElementById(railId);
     function _jobCnt(k){ if(k==="vse")return data.length;
       return data.filter(function(e){
-        if(k==="zak")return !!e.project_ref && !_jobMimo(e);
-        if(k==="rezie")return /rež|rez/i.test(e.typ||"") && !_jobMimo(e);
+        if(k==="zak")return _jobZak(e);
+        if(k==="rezie")return _jobRezie(e);
         if(k==="mimo")return _jobMimo(e);
         return false; }).length; }
     if(rail){ rail.innerHTML="";
@@ -3240,7 +3242,7 @@ setTimeout(function(){
     if(st.f==="souhrn"){
       var zsum=0, rsum=0, msum=0;
       data.forEach(function(e){ var h=Number(e.hours||0);
-        if(_jobMimo(e)) msum+=h; else if(e.project_ref) zsum+=h; else rsum+=h; });
+        if(_jobMimo(e)) msum+=h; else if(_jobZak(e)) zsum+=h; else rsum+=h; });
       function _srow(lbl,val,col,strong){ return '<div style="display:flex;justify-content:space-between;padding:7px 2px;'+(strong?"border-bottom:1px solid var(--bord);margin-bottom:3px;":"")+'"><span'+(strong?' style="font-weight:700;color:#e8eef5;"':' class="hint"')+'>'+lbl+'</span><b style="color:'+col+';">'+fmtHM(val)+'</b></div>'; }
       t2.innerHTML='<li style="border:none;padding:0;"><div class="panel" style="margin:0;">'
         +_srow("Odmakáno", zsum+rsum, "var(--green)", true)
@@ -3252,8 +3254,8 @@ setTimeout(function(){
     }
     var f=data.filter(function(e){
       if(st.f==="vse") return true;
-      if(st.f==="zak") return !!e.project_ref;
-      if(st.f==="rezie") return /rež|rez/i.test(e.typ||"") && !_jobMimo(e);
+      if(st.f==="zak") return _jobZak(e);
+      if(st.f==="rezie") return _jobRezie(e);
       if(st.f==="mimo") return _jobMimo(e);
       return true; });
     if(!f.length){ t2.innerHTML='<li style="color:var(--mut);border:none;">Nic v této kategorii.</li>'; return; }

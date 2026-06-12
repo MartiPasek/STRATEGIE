@@ -6410,7 +6410,7 @@ def _konto_compute(s, obd):
         " (SELECT fond_hours FROM tenant.att_calendar_month m "
         "    WHERE m.tenant_id=e.tenant_id AND m.year=:y AND m.month=:mo) "
         "FROM tenant.att_employee e "
-        "LEFT JOIN tenant.att_entry en ON en.employee_id=e.id AND en.is_active=true "
+        "LEFT JOIN tenant.att_entry en ON en.employee_id=e.id "
         "     AND COALESCE(en.status,'')<>'superseded' AND en.entry_date>=:d0 AND en.entry_date<:d1 "
         "LEFT JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
         "WHERE e.tenant_id IN (2,14) AND COALESCE(e.rez_konto_aktivni,false)=true "
@@ -6428,7 +6428,7 @@ def _konto_compute(s, obd):
         "        COALESCE(e.rez_loajalita_minus_h,0) loaj, cd.hours norm, "
         "        COALESCE((SELECT SUM(en.hours) FROM tenant.att_entry en "
         "                  JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
-        "                  WHERE en.employee_id=e.id AND en.is_active=true "
+        "                  WHERE en.employee_id=e.id "
         "                    AND COALESCE(en.status,'')<>'superseded' AND en.entry_date=cd.day "
         "                    AND (t.category='presence' OR (t.category='absence' AND t.is_paid))),0) credited "
         " FROM tenant.att_employee e "
@@ -6671,11 +6671,19 @@ async def app_hr_import_dochazka(req: Request) -> JSONResponse:
         # idempotence: smaž dříve naimportované za období
         s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND source_system='ec_sumaden' "
                      "AND entry_date>=:od AND entry_date<:de"), {"od": od, "de": do_excl})
+        # historické záznamy = is_active=false (dokončené, hours uložené). is_active=true
+        # je jen pro PRÁVĚ běžící job (now()-started_at) → import nikdy aktivní!
         ins = _t(
             "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
             "started_at,ended_at,status,source,source_system,is_active,note,created_by_id,created_at,updated_at) "
             "VALUES (2,:e,CAST(:d AS date),:ti,:h,CAST(:st AS timestamp),CAST(:en AS timestamp),"
-            "'imported','ec_import','ec_sumaden',true,'import EC SumaDen',:u,now(),now())")
+            "'imported','ec_import','ec_sumaden',false,'import EC SumaDen',:u,now(),now())")
+
+        def _bracket(den_s, hh):
+            em = 360 + int(round(hh * 60))
+            if em > 1439:
+                em = 1439
+            return (den_s + "T06:00:00", den_s + ("T%02d:%02d:00" % (em // 60, em % 60)))
         params = []
         per_type = {}
         skipped_live = 0
@@ -6703,8 +6711,12 @@ async def app_hr_import_dochazka(req: Request) -> JSONResponse:
                 if not ti:
                     continue
                 worked = code in ("work", "overhead")
+                if worked and zac and kon:
+                    st_v, en_v = zac, kon
+                else:
+                    st_v, en_v = _bracket(den, h)
                 params.append({"e": emp, "d": den, "ti": ti, "h": round(h, 2),
-                               "st": (zac if worked else None), "en": (kon if worked else None), "u": uid})
+                               "st": st_v, "en": en_v, "u": uid})
                 per_type[code] = per_type.get(code, 0) + 1
         if params:
             s.execute(ins, params)
@@ -6712,6 +6724,231 @@ async def app_hr_import_dochazka(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "obdobi": od + " — " + do, "ec_radku": len(ec_rows),
                              "vlozeno": len(params), "preskoceno_zive": skipped_live,
                              "bez_napojeni": sorted(no_emp), "po_typech": per_type})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ── Marti 12.6.: schvalování absencí vedoucím (statusy v lidské řeči) ──────────
+_ABS_TYP = {"vacation": "Dovolená", "homeoffice": "Home office", "medical": "Lékař",
+            "family_care": "OČR", "sick": "Nemoc (PN)", "unpaid": "Neplacené volno"}
+# přednastavené statusy vedoucího → výsledek (stav)
+_ABS_STATUSY = {
+    "OK, beru na vědomí": "approved",
+    "Moc se to nehodí, ale budiž": "approved",
+    "Dobře, počítám s tím… Něco vymyslíme": "approved",
+    "To je na tobě, beru to jako info": "info",
+    "Kontaktuj mě osobně, musíme to probrat": "info",
+    "Tady tě fakt potřebuji, domluv se s kolegy": "rejected",
+}
+
+
+def _is_parent(s, uid: int) -> bool:
+    from sqlalchemy import text as _t
+    r = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                  {"u": uid}).scalar()
+    return bool(r)
+
+
+def _abs_notify(s, target_uid, title, msg):
+    from sqlalchemy import text as _t
+    if not target_uid:
+        return
+    s.execute(_t("INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                 "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
+              {"uid": int(target_uid), "ti": title[:120], "msg": (msg or "")[:600]})
+
+
+@api_router.post("/app/attendance/absence/request")
+async def att_absence_request(req: Request) -> JSONResponse:
+    """Zaměstnanec žádá o absenci (dovolená/HO/lékař/OČR…). Routuje se na vedoucího
+    (resolve_role attendance_supervisor). Vedoucí pak rozhodne statusem."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    typ = str((b or {}).get("typ") or "").strip().lower()
+    if typ not in _ABS_TYP:
+        return JSONResponse({"ok": False, "error": "Neznámý typ absence."})
+    try:
+        d_od = _dt.date.fromisoformat(str((b or {}).get("od") or "")[:10])
+        d_do = _dt.date.fromisoformat(str((b or {}).get("do") or str((b or {}).get("od") or ""))[:10])
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné datum."})
+    if d_do < d_od:
+        return JSONResponse({"ok": False, "error": "Datum do je před datem od."})
+    try:
+        hpd = float((b or {}).get("hours_per_day") or 8)
+    except Exception:
+        hpd = 8.0
+    note = str((b or {}).get("note") or "").strip()[:500] or None
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        if not emp:
+            return JSONResponse({"ok": False, "error": "Nejsi v evidenci docházky."})
+        mgr = None
+        try:
+            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                            {"e": emp}).scalar()
+        except Exception:
+            mgr = None
+        rid = s.execute(_t(
+            "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
+            "hours_per_day,note,stav,manager_user_id) "
+            "VALUES (2,:e,:u,:ty,:od,:do,:h,:n,'pending',:m) RETURNING id"),
+            {"e": emp, "u": uid, "ty": typ, "od": d_od, "do": d_do, "h": hpd, "n": note, "m": mgr}).scalar()
+        who = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
+            {"e": emp}).scalar() or "Zaměstnanec"
+        rng = (d_od.strftime("%-d.%-m.") if False else (str(d_od.day) + "." + str(d_od.month) + "."))
+        rng2 = str(d_do.day) + "." + str(d_do.month) + "."
+        msg = (who + " žádá o „" + _ABS_TYP[typ] + "“ " + (rng if d_od == d_do else (rng + "–" + rng2))
+               + ((" — " + note) if note else "") + ". Rozhodni v Docházce → Žádosti o absenci.")
+        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🗓️ Nová žádost o absenci", msg)
+        s.commit()
+        return JSONResponse({"ok": True, "id": rid, "manager": mgr})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/attendance/absence/mine")
+async def att_absence_mine(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, typ, datum_od, datum_do, hours_per_day, stav, status_text, note "
+            "FROM tenant.att_absence_request WHERE user_id=:u "
+            "ORDER BY created_at DESC LIMIT 60"), {"u": uid}).fetchall()
+        out = [{"id": r[0], "typ": r[1], "typ_label": _ABS_TYP.get(r[1], r[1]),
+                "od": r[2].isoformat(), "do": r[3].isoformat(), "hpd": float(r[4]),
+                "stav": r[5], "status_text": r[6], "note": r[7]} for r in rows]
+        return JSONResponse({"ok": True, "zadosti": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/attendance/absence/inbox")
+async def att_absence_inbox(req: Request) -> JSONResponse:
+    """Vedoucí: čekající žádosti, které mám rozhodnout (manager_user_id=já, nebo rodič vidí vše)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        parent = _is_parent(s, uid)
+        if parent:
+            cond = "r.stav='pending'"
+            par = {}
+        else:
+            cond = "r.stav='pending' AND r.manager_user_id=:u"
+            par = {"u": uid}
+        rows = s.execute(_t(
+            "SELECT r.id, r.typ, r.datum_od, r.datum_do, r.hours_per_day, r.note, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_absence_request r "
+            "JOIN tenant.att_employee em ON em.id=r.employee_id "
+            "LEFT JOIN public.users u ON u.id=em.user_id "
+            "WHERE " + cond + " ORDER BY r.datum_od LIMIT 100"), par).fetchall()
+        out = [{"id": r[0], "typ": r[1], "typ_label": _ABS_TYP.get(r[1], r[1]),
+                "od": r[2].isoformat(), "do": r[3].isoformat(), "hpd": float(r[4]),
+                "note": r[5], "zadatel": r[6]} for r in rows]
+        return JSONResponse({"ok": True, "zadosti": out, "statusy": list(_ABS_STATUSY.keys()),
+                             "je_vedouci": parent or len(out) > 0})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/absence/decide")
+async def att_absence_decide(req: Request) -> JSONResponse:
+    """Vedoucí rozhodne žádost statusem v lidské řeči. Schválení → vznik placených
+    att_entry (jen pracovní dny). Změna pryč od schválení → záznamy se smažou."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        rid = int((b or {}).get("req_id") or 0)
+    except Exception:
+        rid = 0
+    status_text = str((b or {}).get("status_text") or "").strip()[:300]
+    stav = str((b or {}).get("stav") or _ABS_STATUSY.get(status_text, "approved")).strip().lower()
+    if stav not in ("approved", "rejected", "info"):
+        stav = "approved"
+    if not rid:
+        return JSONResponse({"ok": False, "error": "req_id"})
+    cm, s = _att_session()
+    try:
+        r = s.execute(_t(
+            "SELECT employee_id,user_id,typ,datum_od,datum_do,hours_per_day,manager_user_id,materialized "
+            "FROM tenant.att_absence_request WHERE id=:i"), {"i": rid}).first()
+        if not r:
+            return JSONResponse({"ok": False, "error": "Žádost nenalezena."})
+        emp, zad_uid, typ, d_od, d_do, hpd, mgr, materialized = r
+        if not (_is_parent(s, uid) or (mgr and int(mgr) == uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("UPDATE tenant.att_absence_request SET stav=:st, status_text=:tx, "
+                     "decided_by_user_id=:u, decided_at=now() WHERE id=:i"),
+                  {"st": stav, "tx": status_text or None, "u": uid, "i": rid})
+        dni = 0
+        if stav == "approved":
+            ti = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code=:c"),
+                           {"c": typ}).scalar()
+            # idempotence: smaž dřívější materializaci této žádosti
+            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND source_system='absence_req' "
+                         "AND source_id=:i"), {"i": rid})
+            if ti:
+                workdays = s.execute(_t(
+                    "SELECT day FROM tenant.att_calendar_day WHERE tenant_id=2 AND is_workday=true "
+                    "AND day>=:od AND day<=:do ORDER BY day"), {"od": d_od, "do": d_do}).fetchall()
+                _em = 360 + int(round(float(hpd) * 60))
+                if _em > 1439:
+                    _em = 1439
+                _endt = "%02d:%02d:00" % (_em // 60, _em % 60)
+                params = [{"e": emp, "d": w[0], "ti": ti, "h": float(hpd), "u": uid, "i": rid,
+                           "et": _endt} for w in workdays]
+                if params:
+                    # is_active=false (dokončený plánovaný záznam, ne běžící job) + denní rámec 06:00→
+                    s.execute(_t(
+                        "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                        "started_at,ended_at,status,source,source_system,source_id,is_active,note,created_by_id,created_at,updated_at) "
+                        "VALUES (2,:e,:d,:ti,:h,:d + time '06:00',:d + CAST(:et AS time),"
+                        "'confirmed','absence','absence_req',:i,false,'schválená absence',:u,now(),now())"),
+                        params)
+                dni = len(params)
+            s.execute(_t("UPDATE tenant.att_absence_request SET materialized=true WHERE id=:i"), {"i": rid})
+        elif materialized:
+            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND source_system='absence_req' "
+                         "AND source_id=:i"), {"i": rid})
+            s.execute(_t("UPDATE tenant.att_absence_request SET materialized=false WHERE id=:i"), {"i": rid})
+        # notifikace žadateli statusem v lidské řeči
+        ikona = {"approved": "✅", "rejected": "🚫", "info": "💬"}.get(stav, "💬")
+        rng = str(d_od.day) + "." + str(d_od.month) + "." + ("" if d_od == d_do else ("–" + str(d_do.day) + "." + str(d_do.month) + "."))
+        body = (status_text or {"approved": "Schváleno", "rejected": "Zamítnuto", "info": "Vzato na vědomí"}[stav])
+        _abs_notify(s, zad_uid, ikona + " " + _ABS_TYP.get(typ, typ) + " " + rng,
+                    "Vedoucí: „" + body + "“" + ((" (" + str(dni) + " dní zapsáno)") if (stav == "approved" and dni) else ""))
+        s.commit()
+        return JSONResponse({"ok": True, "stav": stav, "dni": dni})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

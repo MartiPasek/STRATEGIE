@@ -7022,6 +7022,42 @@ _COND_GROUPS = [("elektromontri", "Elektromontéři"), ("kancelare", "Kancelář
                 ("vedeni", "Vedení"), ("vp", "VP — vedoucí projektu")]
 
 
+def _cond_group_of(s, user_id):
+    from sqlalchemy import text as _t
+    return s.execute(_t("SELECT cond_group FROM tenant.att_employee WHERE tenant_id=2 AND user_id=:u "
+                        "AND cond_group IS NOT NULL LIMIT 1"), {"u": user_id}).scalar()
+
+
+def _resolve_cond(s, user_id, code, grp=False):
+    """SDÍLENÝ resolver podmínky (Marti-AI Q1, live): osobní → skupina → systém.
+    Vrací (value, source). grp=False → dotáhne skupinu; jinak předaný group_code (i None)."""
+    from sqlalchemy import text as _t
+    v = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='user' "
+                     "AND user_id=:u AND cond_code=:c LIMIT 1"), {"u": user_id, "c": code}).scalar()
+    if v is not None:
+        return (v, "osobní")
+    g = _cond_group_of(s, user_id) if grp is False else grp
+    if g:
+        gv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='group' "
+                          "AND group_code=:g AND cond_code=:c LIMIT 1"), {"g": g, "c": code}).scalar()
+        if gv is not None:
+            return (gv, "skupina")
+    sv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='system' "
+                      "AND cond_code=:c LIMIT 1"), {"c": code}).scalar()
+    return (sv, "systém") if sv is not None else (None, "")
+
+
+def _resolve_cond_num(s, user_id, code, dflt=0.0):
+    """Resolved podmínka jako číslo (čárka i tečka). Pro výpočty (fond, prahy)."""
+    v, _ = _resolve_cond(s, user_id, code)
+    if v is None:
+        return dflt
+    try:
+        return float(str(v).replace(",", ".").strip())
+    except Exception:
+        return dflt
+
+
 @api_router.get("/app/hr/conditions")
 async def app_hr_conditions(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
@@ -7042,28 +7078,15 @@ async def app_hr_conditions(req: Request) -> JSONResponse:
             "SELECT code,label,kind,unit FROM tenant.staff_cond_def WHERE tenant_id=2 AND active=true "
             "ORDER BY sort_order, id")).fetchall()]
         if sk == "user" and tu:
-            grp = s.execute(_t("SELECT cond_group FROM tenant.att_employee WHERE tenant_id=2 AND user_id=:u "
-                               "AND cond_group IS NOT NULL LIMIT 1"), {"u": tu}).scalar()
+            grp = _cond_group_of(s, tu)
             own = {}
             for r in s.execute(_t("SELECT cond_code,value,note FROM tenant.staff_cond "
                                   "WHERE tenant_id=2 AND scope_kind='user' AND user_id=:u"), {"u": tu}).fetchall():
                 own[r[0]] = {"value": r[1], "note": r[2]}
             resolved = {}
             for d in defs:
-                c = d["code"]
-                if c in own:
-                    resolved[c] = {"value": own[c]["value"], "src": "osobní"}
-                    continue
-                gv = None
-                if grp:
-                    gv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='group' "
-                                      "AND group_code=:g AND cond_code=:c LIMIT 1"), {"g": grp, "c": c}).scalar()
-                if gv is not None:
-                    resolved[c] = {"value": gv, "src": "skupina"}
-                    continue
-                sv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='system' "
-                                  "AND cond_code=:c LIMIT 1"), {"c": c}).scalar()
-                resolved[c] = {"value": sv, "src": "systém"} if sv is not None else {"value": None, "src": ""}
+                val, src = _resolve_cond(s, tu, d["code"], grp)
+                resolved[d["code"]] = {"value": val, "src": src}
             return JSONResponse({"ok": True, "scope_kind": "user", "user_id": tu, "group_code": grp,
                                  "defs": defs, "own": own, "resolved": resolved})
         # system / group
@@ -7184,6 +7207,36 @@ async def app_hr_conditions_people(req: Request) -> JSONResponse:
         out = [{"user_id": r[0], "jmeno": r[1], "cond_group": r[2], "vyjimka": bool(r[3])} for r in rows]
         return JSONResponse({"ok": True, "lide": out,
                              "skupiny": [{"code": g[0], "label": g[1]} for g in _COND_GROUPS]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# Marti 12.6.: zaměstnanec vidí SVÉ resolvované podmínky (nefinanční — hranice Marti-AI Q8).
+_MY_COND_CODES = ["uvazek_h_tyden", "nastup_max", "absence_nahlasit_do", "neplaceny_prescas_h_den",
+                  "home_office_h", "sick_days_rok", "dovolena_dni", "stravenka_kc", "vikend_jen_schvaleni"]
+
+
+@api_router.get("/app/my-conditions")
+async def app_my_conditions(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        defrows = {r[0]: (r[1], r[2] or "") for r in s.execute(_t(
+            "SELECT code,label,unit FROM tenant.staff_cond_def WHERE tenant_id=2 AND active=true")).fetchall()}
+        grp = _cond_group_of(s, uid)
+        glab = dict(_COND_GROUPS).get(grp or "", "—")
+        out = []
+        for c in _MY_COND_CODES:
+            if c not in defrows:
+                continue
+            val, src = _resolve_cond(s, uid, c, grp)
+            if val is None:
+                continue
+            out.append({"label": defrows[c][0], "unit": defrows[c][1], "value": val, "src": src})
+        return JSONResponse({"ok": True, "skupina": glab, "podminky": out})
     finally:
         cm.__exit__(None, None, None)
 

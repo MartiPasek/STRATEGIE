@@ -1586,6 +1586,21 @@ setTimeout(function(){
     var _td=null; srch.addEventListener("input",function(){ clearTimeout(_td); _td=setTimeout(function(){ load(srch.value.trim()); },250); });
     load("");
   }
+  function moje_podminky(){
+    app.innerHTML=topbar("📋 Moje podmínky", true);
+    var box=el('<div class="panel"></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
+    api("GET","/api/v1/erp/app/my-conditions","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
+      box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">Tvoje skupina: <b style="color:#e8eefc;">'+esc(j.skupina||"—")+'</b>. Tohle jsou podmínky, co aktuálně platí pro tebe — ze skupiny a případné osobní výjimky.</div>'));
+      (j.podminky||[]).forEach(function(p){
+        var sc={"osobní":"#fbbf24","skupina":"#60a5fa","systém":"#9aa"}[p.src]||"#9aa";
+        box.appendChild(el('<div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid #1b2742;"><div style="flex:1;min-width:0;">'+esc(p.label)+(p.unit?(' <span class="hint">('+esc(p.unit)+')</span>'):'')+'</div><div style="font-weight:700;font-size:16px;">'+esc(p.value)+'</div><span style="font-size:10px;color:'+sc+';min-width:42px;text-align:right;">'+esc(p.src)+'</span></div>'));
+      });
+      if(!(j.podminky||[]).length) box.appendChild(el('<div class="hint">Zatím nic nastaveného.</div>'));
+      box.appendChild(el('<div style="height:60px;"></div>'));
+    });
+  }
   function kdekdo(){
     app.innerHTML=topbar("👀 Kdo kde", true);
     // skupiny: key, label, barva, ikona
@@ -2902,6 +2917,9 @@ setTimeout(function(){
     var _absBtn=el('<button class="ghost full" style="margin-top:12px;border-color:#3a5a8c;color:#9cf;">🗓️ Požádat o dovolenou / HO / lékaře</button>');
     _absBtn.addEventListener("click",function(){ go("absence"); });
     p.appendChild(_absBtn);
+    var _pdmBtn=el('<button class="ghost full" style="margin-top:8px;border-color:#3a5a8c;color:#9cf;">📋 Moje podmínky (úvazek, nástup, dovolená…)</button>');
+    _pdmBtn.addEventListener("click",function(){ go("moje_podminky"); });
+    p.appendChild(_pdmBtn);
     // Marti 7.6. večer: okno odpovědi Marti-AI přímo v Docházce (nad rámečkem)
     // + karty dotazů pro nadřízeného (odpovídá rovnou z mobilu).
     p.appendChild(el('<div id="mmReply" style="display:none;margin-top:12px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:14px;padding:12px;"></div>'));
@@ -4512,7 +4530,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

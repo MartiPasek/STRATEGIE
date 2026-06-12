@@ -816,6 +816,13 @@ def web_psy_energie():
     return _web_subpage("psy-energie.html")
 
 
+@app.get("/web/demo")
+def web_demo():
+    """Živá ukázka — animovaný dashboard fiktivní výrobní firmy (400 zaměstnanců).
+    Marti 12.6.2026 — cíl odkazu „Chci to vidět naživo"."""
+    return _web_subpage("demo.html")
+
+
 @app.get("/web/eurosoft")
 def web_eco_eurosoft():
     """Podstránka ekosystému — EUROSOFT (ruce: stroje & automatizace)."""

@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="cs"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Živá ukázka — Dashboard výrobní firmy · STRATEGIE</title>
+<meta name="description" content="Živá ukázka dashboardu výrobní firmy se 400 zaměstnanci. Stroje, docházka, výroba, OEE a tok událostí v reálném čase.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#05070f;--bg2:#0a1226;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;
+    --grn:#34d399;--tl:#2dd4bf;--bl:#60a5fa;--am:#fbbf24;--rd:#f87171;--gr:#64748b;--vio:#a78bfa}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Inter',system-ui,sans-serif;background:
+    radial-gradient(900px 600px at 80% -10%,rgba(45,212,191,.08),transparent 60%),
+    radial-gradient(800px 500px at 0% 10%,rgba(96,165,250,.06),transparent 55%),var(--bg);
+    color:var(--tx);line-height:1.5;min-height:100vh}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1280px;margin:0 auto;padding:0 18px}
+  /* top bar */
+  .top{position:sticky;top:0;z-index:40;backdrop-filter:blur(14px);background:rgba(5,7,15,.8);border-bottom:1px solid var(--bord)}
+  .top .wrap{display:flex;align-items:center;justify-content:space-between;height:60px;gap:14px;flex-wrap:wrap}
+  .brand{font-weight:900;font-size:16px;display:flex;align-items:center;gap:10px}
+  .live{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--grn);
+    border:1px solid rgba(52,211,153,.35);border-radius:30px;padding:5px 12px;background:rgba(52,211,153,.06)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--grn);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}70%{box-shadow:0 0 0 9px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+  .clock{font-variant-numeric:tabular-nums;font-weight:700;font-size:15px;color:var(--tx)}
+  .tlinks{display:flex;gap:9px;align-items:center}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border-radius:11px;font-weight:700;font-size:13px;border:0;cursor:pointer;transition:.2s}
+  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}.btn-g:hover{border-color:var(--tl);color:var(--tl)}
+  .btn-p{background:linear-gradient(110deg,var(--grn),var(--tl));color:#04150e}.btn-p:hover{transform:translateY(-1px)}
+  /* head */
+  .dhead{padding:22px 0 6px}
+  .dhead h1{font-size:clamp(20px,3vw,30px);font-weight:900;letter-spacing:-.6px}
+  .dhead p{color:var(--mut);font-size:14px;margin-top:3px}
+  .demo-flag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--am);border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.07);border-radius:6px;padding:2px 8px;margin-left:8px;vertical-align:middle}
+  /* kpi */
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:18px 0}
+  @media(max-width:1080px){.kpis{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:560px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.55));border:1px solid var(--bord);border-radius:16px;padding:15px 16px;position:relative;overflow:hidden}
+  .kpi .lab{font-size:12px;color:var(--mut);font-weight:600;display:flex;align-items:center;gap:6px}
+  .kpi .val{font-size:27px;font-weight:900;letter-spacing:-1px;margin-top:6px;font-variant-numeric:tabular-nums}
+  .kpi .val small{font-size:14px;color:var(--mut);font-weight:700}
+  .kpi .delta{font-size:11.5px;font-weight:700;margin-top:2px}
+  .up{color:var(--grn)} .down{color:var(--rd)}
+  .kpi .spark{position:absolute;right:0;bottom:0;width:100%;height:30px;opacity:.5}
+  /* grid */
+  .grid2{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;align-items:start}
+  @media(max-width:980px){.grid2{grid-template-columns:1fr}}
+  .panel{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:18px;padding:18px;margin-bottom:14px}
+  .panel h3{font-size:15px;font-weight:800;margin-bottom:2px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .panel .psub{font-size:12px;color:var(--mut);margin-bottom:14px}
+  .tagm{font-size:11px;font-weight:700;color:var(--tl)}
+  /* machines */
+  .mgrid{display:grid;grid-template-columns:repeat(10,1fr);gap:6px}
+  @media(max-width:560px){.mgrid{grid-template-columns:repeat(8,1fr)}}
+  .mcell{aspect-ratio:1;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;
+    color:#04150e;transition:background .5s, box-shadow .5s;cursor:default;position:relative}
+  .m-run{background:var(--grn)} .m-idle{background:var(--am)} .m-set{background:var(--bl);color:#03102e}
+  .m-err{background:var(--rd);animation:blink 1s infinite} .m-off{background:var(--gr);color:#0a1020}
+  @keyframes blink{50%{opacity:.45}}
+  .mlegend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:12px;color:var(--mut)}
+  .mlegend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  /* dept bars */
+  .bar{margin-bottom:11px}
+  .bar .bt{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px}
+  .bar .bt b{font-weight:700} .bar .bt span{color:var(--mut);font-variant-numeric:tabular-nums}
+  .track{height:9px;background:rgba(255,255,255,.05);border-radius:6px;overflow:hidden}
+  .fill{height:100%;border-radius:6px;transition:width .9s cubic-bezier(.4,0,.2,1);background:linear-gradient(90deg,var(--tl),var(--grn))}
+  /* donut */
+  .donutwrap{display:flex;align-items:center;gap:18px}
+  .dleg{font-size:13px}
+  .dleg div{display:flex;align-items:center;gap:8px;margin-bottom:7px;color:var(--mut)}
+  .dleg b{color:var(--tx);font-variant-numeric:tabular-nums;margin-left:auto}
+  .donutc{font-size:26px;font-weight:900}
+  /* feed */
+  .feed{max-height:330px;overflow:hidden;display:flex;flex-direction:column;gap:8px}
+  .ev{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;background:rgba(255,255,255,.025);border:1px solid var(--bord);border-radius:11px;
+    animation:slidein .45s ease}
+  @keyframes slidein{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+  .ev .ei{font-size:16px;line-height:1.3}
+  .ev .etx{font-size:13px;flex:1}
+  .ev .etm{font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ev b{font-weight:700}
+  /* misc */
+  .oee{display:flex;align-items:center;gap:16px}
+  .gauge{position:relative;width:130px;height:80px;flex:0 0 auto}
+  .gval{position:absolute;left:0;right:0;bottom:2px;text-align:center;font-size:24px;font-weight:900}
+  .footer{padding:26px 0 40px;text-align:center;color:var(--mut);font-size:12.5px}
+  .footer a{color:var(--tl)}
+  .chartwrap{width:100%}
+</style></head><body>
+
+<div class="top"><div class="wrap">
+  <div class="brand">⚙️ STRATEGIE <span class="live"><span class="dot"></span> ŽIVĚ</span></div>
+  <div class="clock" id="clock">--:--:--</div>
+  <div class="tlinks">
+    <a href="/web" class="btn btn-g">← Zpět na web</a>
+    <a href="/chat" class="btn btn-p">Vstup do systému</a>
+  </div>
+</div></div>
+
+<div class="wrap">
+  <div class="dhead">
+    <h1>DEMO Strojírna a.s. — řídicí přehled <span class="demo-flag">FIKTIVNÍ UKÁZKA · ŽIVÁ DATA</span></h1>
+    <p>Výrobní firma · 400 zaměstnanců · 50 strojů · 3 haly — vše, co se ve firmě právě teď děje, na jedné obrazovce.</p>
+  </div>
+
+  <!-- KPI -->
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid2">
+    <!-- LEFT -->
+    <div>
+      <div class="panel">
+        <h3>Výrobní výkon <span class="tagm" id="vykonNow">— ks/h</span></h3>
+        <div class="psub">Plán vs. realita · posledních 40 minut (živě z čidel IQHUBS)</div>
+        <div class="chartwrap">
+          <svg id="chart" viewBox="0 0 600 190" preserveAspectRatio="none" style="width:100%;height:190px">
+            <defs>
+              <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="rgba(52,211,153,.35)"/>
+                <stop offset="100%" stop-color="rgba(52,211,153,0)"/>
+              </linearGradient>
+            </defs>
+            <g id="grid"></g>
+            <path id="area" fill="url(#ag)"/>
+            <polyline id="plan" fill="none" stroke="#5b8cff" stroke-width="2" stroke-dasharray="5 5" opacity=".7"/>
+            <polyline id="real" fill="none" stroke="#34d399" stroke-width="2.5"/>
+          </svg>
+        </div>
+        <div style="display:flex;gap:18px;font-size:12px;color:var(--mut);margin-top:8px">
+          <span style="color:var(--grn)">▬ realita</span><span style="color:var(--bl)">┄ plán</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Stroje na hale <span class="tagm" id="mRun">— běží</span></h3>
+        <div class="psub">50 strojů · stav v reálném čase · klikni kdykoli — mění se samo</div>
+        <div class="mgrid" id="mgrid"></div>
+        <div class="mlegend">
+          <span><i class="sw" style="background:var(--grn)"></i> běží</span>
+          <span><i class="sw" style="background:var(--am)"></i> prostoj</span>
+          <span><i class="sw" style="background:var(--bl)"></i> seřizování</span>
+          <span><i class="sw" style="background:var(--rd)"></i> porucha</span>
+          <span><i class="sw" style="background:var(--gr)"></i> odstaveno</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Vytížení oddělení</h3>
+        <div class="psub">Podíl odpracovaného času vůči plánu · dnes</div>
+        <div id="depts"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div>
+      <div class="panel">
+        <h3>Docházka teď</h3>
+        <div class="psub">400 zaměstnanců · živý stav</div>
+        <div class="donutwrap">
+          <svg width="132" height="132" viewBox="0 0 132 132">
+            <circle cx="66" cy="66" r="54" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="16"/>
+            <circle id="dseg1" cx="66" cy="66" r="54" fill="none" stroke="var(--grn)" stroke-width="16" stroke-linecap="round" transform="rotate(-90 66 66)"/>
+            <circle id="dseg2" cx="66" cy="66" r="54" fill="none" stroke="var(--am)" stroke-width="16" transform="rotate(-90 66 66)"/>
+            <circle id="dseg3" cx="66" cy="66" r="54" fill="none" stroke="var(--bl)" stroke-width="16" transform="rotate(-90 66 66)"/>
+            <circle id="dseg4" cx="66" cy="66" r="54" fill="none" stroke="var(--gr)" stroke-width="16" transform="rotate(-90 66 66)"/>
+            <text x="66" y="62" text-anchor="middle" class="donutc" fill="#e8eefc" id="dCenter">—</text>
+            <text x="66" y="80" text-anchor="middle" font-size="11" fill="#8ea0c4">v práci</text>
+          </svg>
+          <div class="dleg" style="flex:1">
+            <div><i class="sw" style="background:var(--grn)"></i> V práci <b id="dV">—</b></div>
+            <div><i class="sw" style="background:var(--am)"></i> Na pauze <b id="dP">—</b></div>
+            <div><i class="sw" style="background:var(--bl)"></i> Dovolená <b id="dD">—</b></div>
+            <div><i class="sw" style="background:var(--gr)"></i> Nemoc/jiné <b id="dN">—</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Celková efektivita (OEE)</h3>
+        <div class="psub">Dostupnost × výkon × kvalita</div>
+        <div class="oee">
+          <div class="gauge">
+            <svg width="130" height="80" viewBox="0 0 130 80">
+              <path d="M10 75 A55 55 0 0 1 120 75" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="12" stroke-linecap="round"/>
+              <path id="gArc" d="M10 75 A55 55 0 0 1 120 75" fill="none" stroke="var(--grn)" stroke-width="12" stroke-linecap="round"/>
+            </svg>
+            <div class="gval" id="oeeVal">—%</div>
+          </div>
+          <div style="font-size:13px;color:var(--mut)">
+            <div style="margin-bottom:6px">Dostupnost <b id="oA" style="color:var(--tx);float:right">—</b></div>
+            <div style="margin-bottom:6px">Výkon <b id="oP" style="color:var(--tx);float:right">—</b></div>
+            <div>Kvalita <b id="oQ" style="color:var(--tx);float:right">—</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Živý tok událostí <span class="live"><span class="dot"></span> ŽIVĚ</span></h3>
+        <div class="psub">Co se právě teď děje napříč firmou</div>
+        <div class="feed" id="feed"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Toto je <b>fiktivní ukázka</b> s vygenerovanými daty pro demonstraci. Skutečná STRATEGIE běží nad živými daty vaší firmy.<br>
+    <a href="/web">← Zpět na web</a> &nbsp;·&nbsp; <a href="/chat">Vstup do systému</a> &nbsp;·&nbsp; <a href="/web/program">Růst firmy &amp; lidé →</a>
+  </div>
+</div>
+
+<script>
+(function(){
+  var R=function(a,b){return a+Math.random()*(b-a)};
+  var Ri=function(a,b){return Math.floor(R(a,b+1))};
+  var pick=function(a){return a[Ri(0,a.length-1)]};
+  var clamp=function(v,a,b){return v<a?a:v>b?b:v};
+
+  /* ---- clock ---- */
+  function tick(){var d=new Date();var p=function(n){return(n<10?'0':'')+n};
+    document.getElementById('clock').textContent=p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
+  tick();setInterval(tick,1000);
+
+  /* ---- KPI ---- */
+  var kpis=[
+    {id:'k1',lab:'👷 V práci teď',v:342,min:330,max:356,suf:'/400',d:0},
+    {id:'k2',lab:'⚙️ Stroje běží',v:38,min:33,max:44,suf:'/50',d:0,ext:true},
+    {id:'k3',lab:'📈 OEE',v:78,min:73,max:84,suf:'%',d:0},
+    {id:'k4',lab:'🏭 Výkon',v:512,min:470,max:560,suf:' ks/h',d:0},
+    {id:'k5',lab:'🧾 Aktivní zakázky',v:63,min:58,max:67,suf:'',d:0},
+    {id:'k6',lab:'⏱️ Přesčasy dnes',v:138,min:110,max:165,suf:' h',d:0}
+  ];
+  var kc=document.getElementById('kpis');
+  kpis.forEach(function(k){
+    var el=document.createElement('div');el.className='kpi';
+    el.innerHTML='<div class="lab">'+k.lab+'</div><div class="val" id="'+k.id+'">'+k.v+'<small>'+k.suf+'</small></div>'+
+      '<div class="delta" id="'+k.id+'d"></div>'+
+      '<svg class="spark" id="'+k.id+'s" viewBox="0 0 120 30" preserveAspectRatio="none"><polyline fill="none" stroke="#2dd4bf" stroke-width="2"/></svg>';
+    kc.appendChild(el);k.hist=[];for(var i=0;i<24;i++)k.hist.push(k.v);
+  });
+  function tween(el,from,to,fmt){var t0=performance.now();var dur=600;
+    function step(t){var p=clamp((t-t0)/dur,0,1);var v=from+(to-from)*(p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2);
+      el.textContent=fmt(v);if(p<1)requestAnimationFrame(step);}requestAnimationFrame(step);}
+  function updKpi(k){
+    var old=k.v;
+    if(!k.ext){k.v=clamp(Math.round(k.v+R(-1,1)*((k.max-k.min)/7)),k.min,k.max);}
+    var el=document.getElementById(k.id);
+    var suf=el.querySelector('small').outerHTML;
+    tween(el,old,k.v,function(v){return Math.round(v)+'';});
+    // re-append suffix
+    setTimeout(function(){el.innerHTML=Math.round(k.v)+suf;},0);
+    var dl=document.getElementById(k.id+'d');var dd=k.v-old;
+    dl.className='delta '+(dd>=0?'up':'down');dl.textContent=(dd>=0?'▲ +':'▼ ')+dd+' za chvíli';
+    if(dd===0){dl.textContent='● stabilní';dl.className='delta';dl.style.color='var(--mut)';}
+    k.hist.push(k.v);if(k.hist.length>24)k.hist.shift();
+    var mn=Math.min.apply(null,k.hist),mx=Math.max.apply(null,k.hist);var rg=(mx-mn)||1;
+    var pts=k.hist.map(function(h,i){return (i/23*120).toFixed(1)+','+(28-(h-mn)/rg*26).toFixed(1);}).join(' ');
+    document.getElementById(k.id+'s').querySelector('polyline').setAttribute('points',pts);
+  }
+  kpis.forEach(updKpi);
+  setInterval(function(){kpis.forEach(function(k){if(!k.ext&&Math.random()<.6)updKpi(k);});},2200);
+
+  /* ---- machines ---- */
+  var MN=50;var states=['m-run','m-idle','m-set','m-err','m-off'];
+  var wt=[70,12,10,4,4];
+  function wpick(){var s=wt.reduce(function(a,b){return a+b},0);var r=R(0,s);var c=0;
+    for(var i=0;i<wt.length;i++){c+=wt[i];if(r<=c)return i;}return 0;}
+  var mach=[];var mg=document.getElementById('mgrid');
+  var pre=['CNC','LIS','SVA','MON','FRE'];
+  for(var i=0;i<MN;i++){
+    var st=wpick();mach.push(st);
+    var c=document.createElement('div');c.className='mcell '+states[st];
+    c.textContent=pick(pre)+(i+1);c.id='m'+i;c.title='Stroj '+(i+1);
+    mg.appendChild(c);
+  }
+  function mRender(i){var c=document.getElementById('m'+i);c.className='mcell '+states[mach[i]];}
+  function mRunCount(){var n=0;for(var i=0;i<MN;i++)if(mach[i]===0)n++;return n;}
+  function syncMachineKpi(){var k=kpis[1];var old=k.v;k.v=mRunCount();
+    var el=document.getElementById('k2');el.innerHTML=k.v+'<small>/50</small>';
+    document.getElementById('mRun').textContent=k.v+' z 50 běží';
+    var dl=document.getElementById('k2d');var dd=k.v-old;
+    if(dd===0){dl.textContent='● stabilní';dl.className='delta';dl.style.color='var(--mut)';}
+    else{dl.className='delta '+(dd>0?'up':'down');dl.textContent=(dd>0?'▲ +':'▼ ')+dd+' stroj';}
+  }
+  syncMachineKpi();
+  setInterval(function(){var n=Ri(1,3);for(var j=0;j<n;j++){var idx=Ri(0,MN-1);mach[idx]=wpick();mRender(idx);}syncMachineKpi();},900);
+
+  /* ---- line chart ---- */
+  var N=40, real=[], plan=[];
+  for(var i=0;i<N;i++){var base=510+Math.sin(i/4)*22;plan.push(base);real.push(base+R(-30,18));}
+  var W=600,H=190,PAD=8;
+  (function(){var g=document.getElementById('grid');for(var y=0;y<=4;y++){var yy=PAD+(H-2*PAD)*y/4;
+    g.innerHTML+='<line x1="0" y1="'+yy.toFixed(0)+'" x2="600" y2="'+yy.toFixed(0)+'" stroke="rgba(255,255,255,.05)"/>'; }})();
+  function chartRender(){
+    var all=real.concat(plan);var mn=Math.min.apply(null,all)-15,mx=Math.max.apply(null,all)+15;var rg=(mx-mn)||1;
+    function map(arr){return arr.map(function(v,i){return (i/(N-1)*W).toFixed(1)+','+(PAD+(H-2*PAD)*(1-(v-mn)/rg)).toFixed(1);});}
+    var rp=map(real),pp=map(plan);
+    document.getElementById('real').setAttribute('points',rp.join(' '));
+    document.getElementById('plan').setAttribute('points',pp.join(' '));
+    document.getElementById('area').setAttribute('d','M0,'+H+' L'+rp.join(' L')+' L'+W+','+H+' Z');
+    document.getElementById('vykonNow').textContent=Math.round(real[N-1])+' ks/h';
+  }
+  chartRender();
+  setInterval(function(){
+    var base=510+Math.sin(performance.now()/9000)*22;
+    plan.push(base);plan.shift();
+    real.push(clamp(real[N-1]+R(-22,22),440,575));real.shift();
+    chartRender();
+  },1300);
+
+  /* ---- departments ---- */
+  var depts=[{n:'Obrábění',v:88},{n:'Montáž',v:81},{n:'Svařovna',v:74},{n:'Lakovna',v:69},{n:'Sklad & logistika',v:62},{n:'Zkušebna',v:57}];
+  var dc=document.getElementById('depts');
+  depts.forEach(function(d,i){
+    var el=document.createElement('div');el.className='bar';
+    el.innerHTML='<div class="bt"><b>'+d.n+'</b><span id="db'+i+'">'+d.v+' %</span></div>'+
+      '<div class="track"><div class="fill" id="df'+i+'" style="width:'+d.v+'%"></div></div>';
+    dc.appendChild(el);
+  });
+  setInterval(function(){depts.forEach(function(d,i){if(Math.random()<.5){d.v=clamp(Math.round(d.v+R(-4,4)),48,97);
+    document.getElementById('df'+i).style.width=d.v+'%';document.getElementById('db'+i).textContent=d.v+' %';}});},2600);
+
+  /* ---- attendance donut ---- */
+  var C=2*Math.PI*54;
+  function donut(){
+    var v=kpis[0].v;var tot=400;
+    var pa=Ri(14,26),dov=Ri(20,30),nem=Ri(8,16);var work=v;
+    var sum=work+pa+dov+nem;var rest=tot-sum;if(rest>0)work+=rest;
+    var segs=[work,pa,dov,nem];var off=0;
+    ['dseg1','dseg2','dseg3','dseg4'].forEach(function(id,i){
+      var frac=segs[i]/tot;var el=document.getElementById(id);
+      el.setAttribute('stroke-dasharray',(C*frac).toFixed(1)+' '+(C*(1-frac)).toFixed(1));
+      el.setAttribute('stroke-dashoffset',(-C*off).toFixed(1));
+      el.setAttribute('transform','rotate(-90 66 66)');
+      off+=frac;
+    });
+    document.getElementById('dCenter').textContent=Math.round(work/tot*100)+'%';
+    document.getElementById('dV').textContent=work;
+    document.getElementById('dP').textContent=pa;
+    document.getElementById('dD').textContent=dov;
+    document.getElementById('dN').textContent=nem;
+  }
+  donut();setInterval(donut,3400);
+
+  /* ---- OEE gauge ---- */
+  var gLen=174; // approx arc length
+  document.getElementById('gArc').setAttribute('stroke-dasharray',gLen);
+  function oee(){
+    var a=Ri(86,96),p=Ri(82,94),q=Ri(96,99.5*10)/10;
+    var o=Math.round(a*p*q/10000);
+    document.getElementById('gArc').setAttribute('stroke-dashoffset',(gLen*(1-o/100)).toFixed(1));
+    var col=o>=80?'var(--grn)':o>=70?'var(--am)':'var(--rd)';
+    document.getElementById('gArc').setAttribute('stroke',col);
+    document.getElementById('oeeVal').textContent=o+'%';
+    document.getElementById('oeeVal').style.color=col;
+    document.getElementById('oA').textContent=a+' %';
+    document.getElementById('oP').textContent=p+' %';
+    document.getElementById('oQ').textContent=q.toFixed(1)+' %';
+    kpis[2].v=o;var el=document.getElementById('k3');if(el)el.innerHTML=o+'<small>%</small>';
+  }
+  oee();setInterval(oee,3000);
+
+  /* ---- event feed ---- */
+  var names=['Jan Novák','Petr Svoboda','Eva Dvořáková','Tomáš Procházka','Lucie Krásná','Martin Veselý',
+    'Jana Horáková','Pavel Černý','Marek Kučera','Tereza Marková','Jiří Pospíšil','Hana Němcová',
+    'Ondřej Beneš','Kateřina Pokorná','Zdeněk Růžička','Veronika Fialová'];
+  var orders=['VR-4471','SW-2210','VR-4488','PR-1905','VR-4502','SW-2244','REZ-118','VR-4519'];
+  function mname(){return pick(pre)+Ri(1,50);}
+  var tpls=[
+    {i:'👷',t:function(){return '<b>'+pick(names)+'</b> se přihlásil/a na zakázku <b>'+pick(orders)+'</b>';}},
+    {i:'🏁',t:function(){return '<b>'+pick(names)+'</b> hlásí hotovo na <b>'+pick(orders)+'</b>';}},
+    {i:'⏸️',t:function(){return 'Stroj <b>'+mname()+'</b> prostoj — '+Ri(3,18)+' min';}},
+    {i:'▶️',t:function(){return 'Stroj <b>'+mname()+'</b> znovu běží';}},
+    {i:'📦',t:function(){return 'Dokončena dávka na <b>'+pick(orders)+'</b> — '+Ri(40,260)+' ks';}},
+    {i:'☕',t:function(){return '<b>'+pick(names)+'</b> si dal/a pauzu';}},
+    {i:'🌴',t:function(){return 'Dovolená schválena — <b>'+pick(names)+'</b>';}},
+    {i:'✅',t:function(){return 'Kontrola kvality OK — <b>'+pick(orders)+'</b>';}},
+    {i:'🔧',t:function(){return 'Naplánována údržba <b>'+mname()+'</b>';}},
+    {i:'🚪',t:function(){return '<b>'+pick(names)+'</b> dorazil/a do práce';}},
+    {i:'⚠️',t:function(){return 'Stroj <b>'+mname()+'</b> hlásí poruchu — řeší se';}},
+    {i:'🧾',t:function(){return 'Nová zakázka přijata — <b>'+pick(orders)+'</b>';}}
+  ];
+  var feed=document.getElementById('feed');
+  function nowt(){var d=new Date();var p=function(n){return(n<10?'0':'')+n};return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
+  function addEv(){
+    var tp=pick(tpls);var el=document.createElement('div');el.className='ev';
+    el.innerHTML='<div class="ei">'+tp.i+'</div><div class="etx">'+tp.t()+'</div><div class="etm">'+nowt()+'</div>';
+    feed.insertBefore(el,feed.firstChild);
+    while(feed.children.length>9)feed.removeChild(feed.lastChild);
+  }
+  for(var i=0;i<6;i++)addEv();
+  (function loop(){addEv();setTimeout(loop,R(1600,2800));})();
+})();
+</script>
+</body></html>

@@ -753,6 +753,16 @@ def privacy_page():
                         headers={"Cache-Control": "public, max-age=3600"})
 
 
+@app.get("/web")
+def web_landing():
+    """Veřejný marketingový web — ekosystém EUROSOFT × STRATEGIE × IQHUBS.
+    Bez přihlášení. Marti 12.6.2026 (pitch pro IQHUBS)."""
+    return FileResponse(os.path.join(static_dir, "web.html"),
+                        media_type="text/html",
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/googlef2bedb6d3ffdf33d.html")
 def google_site_verification():
     """Google Search Console / Play ověření vlastnictví webu. Marti 9.6.2026."""

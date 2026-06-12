@@ -1145,6 +1145,7 @@ setTimeout(function(){
     l.appendChild(row("👥","Personální složky","Přehled a správa lidí (HR / vedení)",function(){ go("hr_people"); }));
     l.appendChild(row("🧩","Režimy docházky","Forma (HPP/DPP/OSVČ), režim, konto, loajalita",function(){ go("hr_rezimy"); }));
     l.appendChild(row("🏦","Uzávěrka konta","Rozpad přesčasů: do prémie / do přesčasu / převést",function(){ go("hr_konto"); }));
+    l.appendChild(row("📥","Import docházky z EUROSOFTu","Reálná data 1:1 (dovolené, nemoc, lékař, odprac.)",function(){ go("hr_import"); }));
     l.appendChild(row("📄","Generovat dokument","Smlouva a další → PDF z živých dat",function(){ go("doc_gen"); }));
     l.appendChild(row("💰","Mzdy: Helios × STRATEGIE","Porovnání ZDROJ × CÍL × delta (vedení)",function(){ go("wage_cmp"); }));
     l.appendChild(row("🔑","Skupina HR — přístupy","Kdo vidí personální složky (spravují rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
@@ -1395,6 +1396,31 @@ setTimeout(function(){
     }
     var _td=null; srch.addEventListener("input",function(){ clearTimeout(_td); _td=setTimeout(function(){ load(srch.value.trim()); },250); });
     load("");
+  }
+  function hr_import(){
+    app.innerHTML=topbar("📥 Import docházky z EUROSOFTu", true);
+    app.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">Natáhne reálná data z EUROSOFTu (EC_Dochazka_SumaDen) 1:1 — odpracováno (montáž/režie), dovolená, nemoc, lékař, OČR. Přesčas se neimportuje zvlášť (konto si ho dopočítá). Idempotentní (lze pustit vícekrát). Dny s živým píchnutím ve STRATEGII se nepřepíšou.</div>'));
+    function dinp(lbl,val){ var w=el('<div style="margin-bottom:8px;"><label class="hint" style="display:block;margin-bottom:3px;">'+lbl+'</label><input type="date" value="'+val+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;"></div>'); return w; }
+    var t=new Date(); var today=t.getFullYear()+"-"+("0"+(t.getMonth()+1)).slice(-2)+"-"+("0"+t.getDate()).slice(-2);
+    var wOd=dinp("Od","2026-01-01"), wDo=dinp("Do",today);
+    app.appendChild(wOd); app.appendChild(wDo);
+    var btn=el('<button class="green full" style="margin-top:6px;">📥 Spustit import</button>');
+    var st=el('<div class="hint" style="margin-top:10px;line-height:1.7;"></div>');
+    btn.addEventListener("click",function(){
+      if(!confirm("Spustit import docházky z EUROSOFTu za zvolené období?")) return;
+      btn.disabled=true; st.innerHTML="Importuji… (může chvíli trvat)";
+      api("POST","/api/v1/erp/app/hr/import-dochazka",{od:wOd.querySelector('input').value, do:wDo.querySelector('input').value}).then(function(r){
+        btn.disabled=false;
+        if(!r||!r.ok){ st.innerHTML='<span style="color:#f87171;">✗ '+esc((r&&r.error)||"chyba")+'</span>'; return; }
+        var pt=r.po_typech||{}; var pts=Object.keys(pt).map(function(k){ return k+': '+pt[k]; }).join(' · ');
+        st.innerHTML='<span style="color:#34d399;">✅ Hotovo ('+esc(r.obdobi)+')</span><br>'
+          +'EC řádků: <b>'+r.ec_radku+'</b> · vloženo záznamů: <b>'+r.vlozeno+'</b><br>'
+          +'přeskočeno (živé píchnutí): '+r.preskoceno_zive+'<br>'
+          +(pts?('po typech: '+esc(pts)+'<br>'):'')
+          +((r.bez_napojeni&&r.bez_napojeni.length)?('<span style="color:#f59e0b;">bez napojení na osobu (CisloZam): '+esc(r.bez_napojeni.join(', '))+'</span>'):'');
+      });
+    });
+    app.appendChild(btn); app.appendChild(st);
   }
   function hr_konto(){
     app.innerHTML=topbar("🏦 Uzávěrka konta", true);
@@ -4109,7 +4135,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

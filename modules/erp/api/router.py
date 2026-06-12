@@ -6610,6 +6610,115 @@ async def app_hr_konto_save(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# Marti 12.6.: 1:1 import reálné docházky z EUROSOFTu (EC_Dochazka_SumaDen) — dovolené,
+# nemoc, lékař, OČR, odpracováno (montáž=work, režie=overhead). Přesčas NEimportujeme
+# zvlášť (je podmnožina odpracovaného, konto si ho dopočítá). Idempotentní (source_system
+# 'ec_sumaden'), přeskočí (osoba,den) s živým píchnutím (nepřepíše červen).
+_EC_DOCH_MAP = [("mont", "work"), ("rez", "overhead"), ("dov", "vacation"),
+                ("nem", "sick"), ("lek", "medical"), ("ocr", "family_care")]
+
+
+@api_router.post("/app/hr/import-dochazka")
+async def app_hr_import_dochazka(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    od = str((b or {}).get("od") or "2026-01-01").strip()[:10]
+    do = str((b or {}).get("do") or "").strip()[:10]
+    import datetime as _dt
+    if not do:
+        t = _dt.date.today()
+        do = t.isoformat()
+    # do_excl = den po 'do'
+    try:
+        ddo = _dt.date.fromisoformat(do)
+        do_excl = (ddo + _dt.timedelta(days=1)).isoformat()
+        _dt.date.fromisoformat(od)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_date"})
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # mapy: cislo_zam -> emp_id, code -> entry_type_id
+        emp_map = {}
+        for r in s.execute(_t("SELECT cislo_zam, id FROM tenant.att_employee "
+                              "WHERE tenant_id=2 AND cislo_zam IS NOT NULL")).fetchall():
+            emp_map[str(r[0])] = r[1]
+        type_map = {}
+        for r in s.execute(_t("SELECT code, id FROM tenant.att_entry_type WHERE tenant_id=2")).fetchall():
+            type_map[r[0]] = r[1]
+        # živé (osoba,den) klíče — ať nepřepíšeme reálné píchnutí
+        live = set()
+        for r in s.execute(_t(
+            "SELECT DISTINCT employee_id, entry_date FROM tenant.att_entry "
+            "WHERE tenant_id=2 AND COALESCE(source_system,'')<>'ec_sumaden' AND is_active=true "
+            "  AND entry_date>=:od AND entry_date<:de"), {"od": od, "de": do_excl}).fetchall():
+            live.add((r[0], r[1].isoformat()))
+        # načti EC data přes MCP
+        sql = ("SELECT CisloZam cz, CONVERT(varchar(10),DatumPripadu,23) den, "
+               "ISNULL(CasMontaz,0) mont, ISNULL(CasRezie,0) rez, ISNULL(CasDovolena,0) dov, "
+               "ISNULL(CasNemoc,0) nem, ISNULL(CasLekar,0) lek, ISNULL(CasOCR,0) ocr, "
+               "CONVERT(varchar(19),CasZacatek,126) zac, CONVERT(varchar(19),CasKonec,126) kon "
+               "FROM EC_Dochazka_SumaDen "
+               "WHERE DatumPripadu>='" + od + "' AND DatumPripadu<'" + do_excl + "'")
+        ec_rows = _ec_mcp_rows(sql)
+        # idempotence: smaž dříve naimportované za období
+        s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND source_system='ec_sumaden' "
+                     "AND entry_date>=:od AND entry_date<:de"), {"od": od, "de": do_excl})
+        ins = _t(
+            "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+            "started_at,ended_at,status,source,source_system,is_active,note,created_by_id,created_at,updated_at) "
+            "VALUES (2,:e,CAST(:d AS date),:ti,:h,CAST(:st AS timestamp),CAST(:en AS timestamp),"
+            "'imported','ec_import','ec_sumaden',true,'import EC SumaDen',:u,now(),now())")
+        params = []
+        per_type = {}
+        skipped_live = 0
+        no_emp = set()
+        for row in ec_rows:
+            cz = str(row.get("cz"))
+            den = row.get("den")
+            emp = emp_map.get(cz)
+            if not emp:
+                no_emp.add(cz)
+                continue
+            if (emp, den) in live:
+                skipped_live += 1
+                continue
+            zac = row.get("zac") or None
+            kon = row.get("kon") or None
+            for key, code in _EC_DOCH_MAP:
+                try:
+                    h = float(row.get(key) or 0)
+                except Exception:
+                    h = 0.0
+                if h <= 0:
+                    continue
+                ti = type_map.get(code)
+                if not ti:
+                    continue
+                worked = code in ("work", "overhead")
+                params.append({"e": emp, "d": den, "ti": ti, "h": round(h, 2),
+                               "st": (zac if worked else None), "en": (kon if worked else None), "u": uid})
+                per_type[code] = per_type.get(code, 0) + 1
+        if params:
+            s.execute(ins, params)
+        s.commit()
+        return JSONResponse({"ok": True, "obdobi": od + " — " + do, "ec_radku": len(ec_rows),
+                             "vlozeno": len(params), "preskoceno_zive": skipped_live,
+                             "bez_napojeni": sorted(no_emp), "po_typech": per_type})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person")
 async def app_hr_person(req: Request) -> JSONResponse:
     """Karta člověka pro HR (úřední pole + děti). BEZ paměti a trezoru."""

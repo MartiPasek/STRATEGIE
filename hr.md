@@ -290,7 +290,19 @@ Zůstatek příštího měsíce (`konto_pred`) = `konto_po` poslední dřívěj�
 - **Reálná data**: zatím jen běžící červnové joby (0 uzavřených h) → konto vrací 0.
   Naskočí, jak lidi píchají + mají zaplé konto.
 - **`konto_pred` seed z EUROSOFTu** — `att_balance` je prázdná; historický zůstatek
-  konta z EC zatím nenaseedován (kandidát: initial settlement row per osoba).
+  konta z EC zatím nenaseedován. **Zdroj nalezen (12.6.): `EC_Dochazka_SumaDen.Konto`**
+  (poslední řádek per `CisloZam` s `DatumPripadu <= dnes` = běžící zůstatek přesčasů v h;
+  `Uzavreno` je všude False, EC ten flag nepoužívá). **Zjištění: konto je malé** — jen
+  ~16 lidí má |zůstatek| ≥ 0,5 h, z toho aktuálních (6/2026) ~7: Hladíková 18,7 ·
+  Sedláčková 4,5 · Veverka 4,0 · M. Šafránková 2,6 · Diviš 1,9 · Marešová 1,5 ·
+  Š. Novotná 1,2. Zbytek staří/neaktivní (2018–2024). **Seed = initial settlement row
+  (obdobi 2026-05-01, konto_po = EC Konto, note „seed z EC") přes approval banner — ČEKÁ
+  na Martiho potvrzení** zdroje + rozsahu (jen aktivní? cutoff?). Mapování EC `CisloZam`
+  ↔ `att_employee.cislo_zam`. **✅ HOTOVO 12.6. (banner #263)**: naseedováno 7 aktivních
+  (Hladíková 18,74 · Sedláčková 4,50 · Veverka 3,97 · M. Šafránková 2,55 · Diviš 1,93 ·
+  Marešová 1,47 · Š. Novotná 1,23) jako initial settlement (obdobi 2026-05-01,
+  konto_po = EC Konto). Surfne se v Uzávěrce konta jako zůstatek, jakmile jim zapneš
+  `rez_konto_aktivni` v Režimy docházky.
 - **Import historie** `EC_Dochazka_SumaDen` → `att_entry` (TODO #58/#59) pro zpětné měsíce.
 - Hromadné rozhodnutí dle `rez_konto_volba` (zatím per osoba ručně).
 

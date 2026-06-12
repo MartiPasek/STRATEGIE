@@ -7431,22 +7431,31 @@
                   tStatus.textContent = ""; return;
                 }
                 const fam = _family(cur);
+                // Kompatibilní = stejný kind + stejná rodina (NEfiltrujeme podle
+                // status — 'future' typy jsou taky volba, jen renderer nemusí být
+                // hotový; jinak nešlo přepnout zpět napr. na lookup). Kristý 12.6.
                 const compat = items.filter((t) =>
-                  String(t.status) === "active" && t.kind === cur.kind &&
-                  _family(t) === fam && t.id !== cur.id);
+                  t.kind === cur.kind && _family(t) === fam && t.id !== cur.id);
                 if (!compat.length) {
                   const o = document.createElement("option");
                   o.textContent = "(žádné kompatibilní typy)"; sel.appendChild(o);
                   tStatus.textContent = "Pro tenhle typ není kam kompatibilně přepnout."; return;
                 }
-                compat.sort((a, b) => String(a.label || a.code).localeCompare(String(b.label || b.code)));
+                compat.sort((a, b) => {
+                  const aa = (String(a.status) === "active") ? 0 : 1;
+                  const bb = (String(b.status) === "active") ? 0 : 1;
+                  if (aa !== bb) return aa - bb;  // aktivní nahoru
+                  return String(a.label || a.code).localeCompare(String(b.label || b.code));
+                });
                 compat.forEach((t) => {
                   const o = document.createElement("option");
-                  o.value = String(t.id); o.textContent = (t.label || t.code) + " (" + t.code + ")";
+                  o.value = String(t.id);
+                  o.textContent = (t.label || t.code) + " (" + t.code + ")" +
+                    (String(t.status) === "active" ? "" : " — future");
                   sel.appendChild(o);
                 });
                 sel.disabled = false; changeBtn.disabled = false;
-                tStatus.textContent = "Nabízím jen kompatibilní (stejný druh + aktivní).";
+                tStatus.textContent = "Kompatibilní (stejný druh + rodina). 'future' = renderer ještě není hotový.";
               }).catch(() => { tStatus.style.color = "#e88"; tStatus.textContent = "Typy se nepodařilo načíst."; });
 
             changeBtn.addEventListener("click", async () => {

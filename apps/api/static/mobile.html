@@ -1312,10 +1312,35 @@ setTimeout(function(){
     app.innerHTML=topbar("🧩 Režimy docházky", true);
     var srch=el('<input type="text" placeholder="Hledat jméno…" style="width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;margin-bottom:10px;">');
     app.appendChild(srch);
-    app.appendChild(el('<div class="hint" style="margin-bottom:8px;line-height:1.5;">Forma a režim jsou nezávislé. Píchají všichni; režim řeší jen odměnu/řízení. Člověk může mít víc záznamů (firmy/formy).</div>'));
-    var list=el('<div></div>'); app.appendChild(list);
+    app.appendChild(el('<div class="hint" style="margin-bottom:8px;line-height:1.5;">Forma a režim jsou nezávislé. Píchají všichni; režim řeší jen odměnu/řízení. Člověk může mít víc záznamů (firmy/formy/tenanty).</div>'));
     var FORMY=[["HPP","HPP"],["DPP","DPP"],["OSVC","OSVČ"]];
     var REZIMY=[["hodinovy","Hodinový"],["volny","Volný"],["pausal","Paušál"]];
+    var addBtn=el('<button class="ghost full" style="margin-bottom:10px;border-color:var(--blue);color:var(--blue);">➕ Přidat angažmá (další firma / forma / tenant)</button>');
+    var addBox=el('<div style="display:none;border:1px solid var(--blue);border-radius:12px;padding:12px;margin-bottom:12px;"></div>');
+    addBtn.addEventListener("click",function(){ if(addBox.style.display==='none'){ addBox.style.display='block'; buildAdd(addBox); } else { addBox.style.display='none'; } });
+    app.appendChild(addBtn); app.appendChild(addBox);
+    var list=el('<div></div>'); app.appendChild(list);
+    function buildAdd(box){
+      box.innerHTML='<div class="hint">Načítám lidi…</div>';
+      api("GET","/api/v1/erp/app/hr/people","").then(function(j){
+        var ps=''; ((j&&j.lide)||[]).forEach(function(p){ ps+='<option value="'+p.user_id+'">'+esc(p.jmeno)+'</option>'; });
+        var w=el('<div></div>');
+        w.innerHTML='<label class="hint" style="display:block;margin:2px 0 2px;">Osoba</label>'
+          +'<select style="width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">'+ps+'</select>'
+          +sel("Firma / tenant",[["2","EUROSOFT"],["14","INTERSOFT"]],"2")
+          +sel("Právní forma",FORMY,"OSVC")+sel("Mzdový režim",REZIMY,"hodinovy");
+        var sa=w.querySelectorAll("select");
+        var b=el('<button class="green full" style="margin-top:10px;">Vytvořit angažmá</button>');
+        var st=el('<div class="hint" style="margin-top:6px;"></div>');
+        b.addEventListener("click",function(){ b.disabled=true; st.textContent="Vytvářím…";
+          api("POST","/api/v1/erp/app/hr/rezim/add",{user_id:parseInt(sa[0].value),tenant_id:parseInt(sa[1].value),
+            forma:sa[2].value,mzdovy:sa[3].value}).then(function(r){
+              b.disabled=false; st.textContent=(r&&r.ok)?"✅ Přidáno":("✗ "+((r&&r.error)||"chyba"));
+              if(r&&r.ok){ setTimeout(function(){ addBox.style.display='none'; load(srch.value.trim()); },700); }
+            }); });
+        w.appendChild(b); w.appendChild(st); box.innerHTML=""; box.appendChild(w);
+      });
+    }
     var VOLBY=[["na_vyber","Na výběr"],["premie","Do prémie"],["prescas","Do přesčasu"],["prevest","Převést"]];
     function chip(t,c){ return '<span style="background:'+c+';color:#04150e;border-radius:8px;padding:2px 7px;font-size:11px;font-weight:700;">'+esc(t)+'</span>'; }
     function sel(label,opts,val){ var s='<label class="hint" style="display:block;margin:6px 0 2px;">'+label+'</label><select style="width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">';
@@ -1358,7 +1383,8 @@ setTimeout(function(){
           var forma={HPP:'HPP',DPP:'DPP',OSVC:'OSVČ'}[p.forma]||p.forma;
           var row=el('<div style="border-bottom:1px solid #1b2742;padding:10px 4px;"></div>');
           var head=el('<div style="display:flex;align-items:center;gap:10px;cursor:pointer;"></div>');
-          head.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(p.jmeno)+(p.firma?(' <span class="hint">· '+esc(p.firma)+'</span>'):'')+'</div><div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap;">'+chip(forma,fc)+chip(rez,rc)+(p.konto_aktivni?chip('konto','#fbbf24'):'')+'</div></div>'));
+          var firmaLbl=p.firma||(p.tenant_id===14?'INTERSOFT':(p.tenant_id===2?'EUROSOFT':''));
+          head.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(p.jmeno)+(firmaLbl?(' <span class="hint">· '+esc(firmaLbl)+'</span>'):'')+'</div><div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap;">'+chip(forma,fc)+chip(rez,rc)+(p.tenant_id===14?chip('INTERSOFT','#60a5fa'):'')+(p.konto_aktivni?chip('konto','#fbbf24'):'')+'</div></div>'));
           head.appendChild(el('<div class="chev" style="color:#5a6;">&#8250;</div>'));
           var ed=el('<div style="display:none;margin-top:10px;"></div>');
           head.addEventListener("click",function(){ ed.style.display=(ed.style.display==='none')?'block':'none'; if(ed.dataset.built!=='1'){ buildEdit(ed,p); ed.dataset.built='1'; } });

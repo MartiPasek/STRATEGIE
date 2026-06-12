@@ -6243,16 +6243,18 @@ async def app_hr_rezimy(req: Request) -> JSONResponse:
     try:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Cross-tenant: EUROSOFT (2) + INTERSOFT (14). Jeden člověk může mít záznamy ve víc tenantech.
         rows = s.execute(_t(
             "SELECT e.id, e.cislo_zam, COALESCE(e.full_name,''), e.user_id, e.rez_forma, e.rez_mzdovy, "
             " COALESCE(e.rez_pausal_kc,0), e.rez_loajalita_minus_h, e.rez_prescas_plus_h_den, "
             " e.rez_konto_aktivni, e.rez_konto_volba, e.rez_prescas_priplatek_pct, "
-            " COALESCE(co.code,'') AS firma "
+            " COALESCE(co.code,'') AS firma, e.tenant_id, COALESCE(t.tenant_name,'') AS tenant_nazev "
             "FROM tenant.att_employee e "
-            "LEFT JOIN tenant.engagement en ON en.employee_id=e.id AND en.is_current AND en.tenant_id=2 "
+            "LEFT JOIN tenant.engagement en ON en.employee_id=e.id AND en.is_current AND en.tenant_id=e.tenant_id "
             "LEFT JOIN tenant.company co ON co.id=en.company_id "
-            "WHERE e.tenant_id=2 AND e.is_active=true "
-            "ORDER BY e.full_name, e.cislo_zam")).fetchall()
+            "LEFT JOIN public.tenants t ON t.id=e.tenant_id "
+            "WHERE e.tenant_id IN (2,14) AND e.is_active=true "
+            "ORDER BY e.full_name, e.tenant_id, e.cislo_zam")).fetchall()
         q = (req.query_params.get("q") or "").strip().lower()
         out = []
         for r in rows:
@@ -6263,7 +6265,8 @@ async def app_hr_rezimy(req: Request) -> JSONResponse:
                         "forma": r[4], "mzdovy": r[5], "pausal_kc": float(r[6] or 0),
                         "loajalita_minus_h": float(r[7] or 0), "prescas_plus_h_den": float(r[8] or 0),
                         "konto_aktivni": bool(r[9]), "konto_volba": r[10],
-                        "prescas_priplatek_pct": float(r[11] or 0), "firma": r[12]})
+                        "prescas_priplatek_pct": float(r[11] or 0), "firma": r[12],
+                        "tenant_id": r[13], "tenant": r[14]})
         return JSONResponse({"ok": True, "lide": out})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -6315,6 +6318,57 @@ async def app_hr_rezim_save(req: Request) -> JSONResponse:
              "lm": _num("loajalita_minus_h"), "pp": _num("prescas_plus_h_den"),
              "ka": bool((b or {}).get("konto_aktivni")), "kv": volba,
              "pct": _num("prescas_priplatek_pct", 25), "t": _ATT_TENANT, "i": emp_id})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/rezim/add")
+async def app_hr_rezim_add(req: Request) -> JSONResponse:
+    """Marti 12.6.: přidat nové angažmá (att_employee záznam) — multi-forma / multi-tenant
+    (EUROSOFT 2 / INTERSOFT 14). Rodiče/HR. id je GENERATED ALWAYS → bez id."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        user_id = int((b or {}).get("user_id") or 0)
+        tid = int((b or {}).get("tenant_id") or 0)
+    except Exception:
+        user_id, tid = 0, 0
+    if not user_id or tid not in (2, 14):
+        return JSONResponse({"ok": False, "error": "user_id + tenant (2/14)"})
+    forma = str((b or {}).get("forma") or "HPP").strip().upper()
+    if forma not in ("HPP", "DPP", "OSVC"):
+        forma = "HPP"
+    mzdovy = str((b or {}).get("mzdovy") or "hodinovy").strip().lower()
+    if mzdovy not in ("hodinovy", "volny", "pausal"):
+        mzdovy = "hodinovy"
+    cislo = str((b or {}).get("cislo_zam") or "").strip()[:40] or ("STR-" + str(user_id) + "-" + str(tid))
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        nm = s.execute(_t("SELECT TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')) "
+                          "FROM public.users WHERE id=:u"), {"u": user_id}).scalar() or ("#" + str(user_id))
+        dup = s.execute(_t("SELECT 1 FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:c"),
+                        {"t": tid, "c": cislo}).first()
+        if dup:
+            s.commit()
+            return JSONResponse({"ok": False, "error": "Záznam s tímto číslem už v tenantu existuje."})
+        s.execute(_t(
+            "INSERT INTO tenant.att_employee (tenant_id, cislo_zam, user_id, full_name, is_active, "
+            "rez_forma, rez_mzdovy, created_at, updated_at) "
+            "VALUES (:t,:c,:u,:n,true,:f,:m,now(),now())"),
+            {"t": tid, "c": cislo, "u": user_id, "n": nm, "f": forma, "m": mzdovy})
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:

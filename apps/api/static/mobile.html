@@ -1290,23 +1290,46 @@ setTimeout(function(){
     app.innerHTML=topbar("👥 Personální složky", true);
     var srch=el('<input type="text" placeholder="Hledat jméno…" style="width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;margin-bottom:10px;">');
     app.appendChild(srch);
-    var list=el('<div></div>'); app.appendChild(list);
+    var _hp={f:"vse",data:[]};
+    var pane=el('<div style="display:flex;gap:10px;height:62vh;align-items:stretch;">'
+      +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="hpList" style="padding:0;list-style:none;margin:0;"></ul></div>'
+      +'<div id="hpRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
+    app.appendChild(pane);
+    function _hpLetter(p){ var c=((p.jmeno||"").trim().charAt(0)||"#").toUpperCase();
+      return c.replace(/[ÁÄ]/,'A').replace(/[ČC]/,'C').replace(/[ĎD]/,'D').replace(/[ÉĚE]/,'E').replace(/Í/,'I').replace(/[ŇN]/,'N').replace(/[ÓÖ]/,'O').replace(/[ŘR]/,'R').replace(/[ŠS]/,'S').replace(/[ŤT]/,'T').replace(/[ÚŮÜU]/,'U').replace(/[ÝY]/,'Y').replace(/[ŽZ]/,'Z'); }
+    function _hpPass(p,k){ k=k||_hp.f; if(k==="vse")return true; return _hpLetter(p)===k;
+    }
+    function _hpRailBtn(letter,key){
+      var on=(_hp.f===key); var c=(key==="vse")?_hp.data.length:_hp.data.filter(function(p){return _hpPass(p,key);}).length;
+      var bdg=(c>0&&key!=="vse")?'<span style="position:absolute;top:4px;right:6px;min-width:16px;height:16px;line-height:14px;border-radius:8px;background:var(--green);color:#241a02;font-size:9.5px;font-weight:700;padding:0 2px;box-sizing:border-box;text-align:center;">'+c+'</span>':'';
+      var b=el('<button style="position:relative;width:100%;box-sizing:border-box;margin:0;padding:10px 2px;font-size:18px;font-weight:700;display:flex;align-items:center;justify-content:center;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:12px;cursor:pointer;">'+letter+bdg+'</button>');
+      b.addEventListener("click",function(){ _hp.f=key; render(); });
+      return b;
+    }
+    function render(){
+      var rail=document.getElementById("hpRail"), ul=document.getElementById("hpList");
+      if(!rail||!ul) return;
+      rail.innerHTML=""; rail.appendChild(_hpRailBtn("∗","vse"));
+      var letters={}; _hp.data.forEach(function(p){ letters[_hpLetter(p)]=1; });
+      Object.keys(letters).sort().forEach(function(L){ rail.appendChild(_hpRailBtn(L,L)); });
+      ul.innerHTML="";
+      var arr=_hp.data.filter(function(p){return _hpPass(p);});
+      if(!arr.length){ ul.appendChild(el('<li style="border:none;color:var(--mut);">Nikdo nenalezen.</li>')); return; }
+      arr.forEach(function(p){
+        var ini=((p.jmeno||"?").trim().charAt(0)||"?").toUpperCase();
+        var li=el('<li style="border:none;display:flex;align-items:center;gap:12px;padding:9px 4px;border-bottom:1px solid #1b2742;cursor:pointer;"></li>');
+        li.appendChild(el('<div style="width:38px;height:38px;border-radius:50%;background:'+avColor(p.jmeno)+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex:0 0 auto;">'+esc(ini)+'</div>'));
+        li.appendChild(el('<div style="flex:1;min-width:0;"><div style="font-weight:600;">'+esc(p.jmeno)+'</div>'+(p.mesto?'<div class="hint">'+esc(p.mesto)+'</div>':'')+'</div>'));
+        li.appendChild(el('<div class="chev" style="color:#5a6;">&#8250;</div>'));
+        li.addEventListener("click",function(){ window._hrUid=p.user_id; window._hrName=p.jmeno; go("hr_person"); });
+        ul.appendChild(li);
+      });
+    }
     function load(q){
-      list.innerHTML='<div class="hint">Načítám…</div>';
+      var ul=document.getElementById("hpList"); if(ul) ul.innerHTML='<li style="border:none;color:var(--mut);">Načítám…</li>';
       api("GET","/api/v1/erp/app/hr/people"+(q?("?q="+encodeURIComponent(q)):""),"").then(function(j){
-        list.innerHTML="";
-        if(!j||!j.ok){ list.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Nemáš přístup (jen HR / vedení).":"Nelze načíst.")+'</div>')); return; }
-        if(!j.lide.length){ list.appendChild(el('<div class="hint">Nikdo nenalezen.</div>')); return; }
-        list.appendChild(el('<div class="hint" style="margin-bottom:4px;">'+j.lide.length+' lidí</div>'));
-        j.lide.forEach(function(p){
-          var ini=((p.jmeno||"?").trim().charAt(0)||"?").toUpperCase();
-          var r=el('<div style="display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid #1b2742;"></div>');
-          r.appendChild(el('<div style="width:40px;height:40px;border-radius:50%;background:'+avColor(p.jmeno)+';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;flex:0 0 auto;">'+esc(ini)+'</div>'));
-          r.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(p.jmeno)+'</div>'+(p.mesto?'<div class="hint">'+esc(p.mesto)+'</div>':'')+'</div>'));
-          r.appendChild(el('<div class="chev" style="color:#5a6;">&#8250;</div>'));
-          r.addEventListener("click",function(){ window._hrUid=p.user_id; window._hrName=p.jmeno; go("hr_person"); });
-          list.appendChild(r);
-        });
+        if(!j||!j.ok){ if(ul) ul.innerHTML='<li style="border:none;color:var(--mut);">'+esc((j&&j.error==="forbidden")?"Nemáš přístup (jen HR / vedení).":"Nelze načíst.")+'</li>'; return; }
+        _hp.data=j.lide||[]; _hp.f="vse"; render();
       });
     }
     var _td=null; srch.addEventListener("input",function(){ clearTimeout(_td); _td=setTimeout(function(){ load(srch.value.trim()); },250); });
@@ -1850,28 +1873,47 @@ setTimeout(function(){
   // --- mzdy: Helios (EC) × STRATEGIE × delta ---
   function wage_cmp(){
     app.innerHTML=topbar("💰 Mzdy: Helios × STRATEGIE", true);
-    var box=el('<div></div>'); app.appendChild(box);
+    var _wc={f:"vse",radky:[]};
+    var info=el('<div style="margin-bottom:8px;"></div>'); app.appendChild(info);
+    var pane=el('<div style="display:flex;gap:10px;height:56vh;align-items:stretch;">'
+      +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><div id="wcList"></div></div>'
+      +'<div id="wcRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
+    app.appendChild(pane);
+    function _wcDiff(p){ return p.stav!=="OK"; }
+    function _wcRailBtn(icon,label,key){
+      var on=(_wc.f===key); var c=(key==="vse")?_wc.radky.length:_wc.radky.filter(_wcDiff).length;
+      var amb=(key==="diff");
+      var bdg=(c>0)?'<span style="position:absolute;top:4px;right:6px;min-width:17px;height:17px;line-height:15px;border-radius:9px;border:1px solid rgba(0,0,0,.25);background:'+(amb?"#f88":"var(--green)")+';color:#241a02;font-size:10px;font-weight:700;padding:0 3px;box-sizing:border-box;text-align:center;">'+c+'</span>':'';
+      var b=el('<button style="position:relative;width:100%;box-sizing:border-box;margin:0;padding:11px 2px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:24px;line-height:1;">'+icon+'</span>'+label+bdg+'</button>');
+      b.addEventListener("click",function(){ _wc.f=key; render(); });
+      return b;
+    }
+    function render(){
+      var rail=document.getElementById("wcRail"), lst=document.getElementById("wcList");
+      if(!rail||!lst) return;
+      rail.innerHTML=""; rail.appendChild(_wcRailBtn("📋","Vše","vse"));
+      if(_wc.radky.filter(_wcDiff).length) rail.appendChild(_wcRailBtn("⚠","Rozdíly","diff"));
+      lst.innerHTML='<div style="display:flex;gap:8px;padding:4px 2px;font-size:11px;color:#88a;border-bottom:1px solid #2b3a5c;position:sticky;top:0;background:#0b1020;"><div style="flex:1;">složka</div><div style="width:62px;text-align:right;">ZDROJ</div><div style="width:62px;text-align:right;">CÍL</div><div style="width:56px;text-align:right;">Δ</div></div>';
+      var arr=_wc.radky.filter(function(p){ return _wc.f==="vse"||_wcDiff(p); });
+      if(!arr.length){ lst.appendChild(el('<div class="hint" style="padding:8px 2px;">'+(_wc.radky.length?"Žádné rozdíly 🎉":"Žádná data — klikni Aktualizovat.")+'</div>')); return; }
+      var lastName=null;
+      arr.forEach(function(p){
+        if(p.jmeno!==lastName){ lst.appendChild(el('<div style="margin-top:9px;font-weight:700;color:#cdd;font-size:13px;">'+esc(p.jmeno)+' <span class="hint">· '+esc(p.firma)+' · č.'+esc(p.cislo)+'</span></div>')); lastName=p.jmeno; }
+        var col={"OK":"#5ee0b7","ROZDIL":"#f88","jen EC":"#fc8","jen STRATEGIE":"#fc8"}[p.stav]||"#9fb2d4";
+        lst.appendChild(el('<div style="display:flex;gap:8px;padding:4px 2px;border-bottom:1px solid #1b2742;font-size:12.5px;"><div style="flex:1;">'+esc(p.slozka)+'</div><div style="width:62px;text-align:right;color:#9fb2d4;">'+(p.zdroj||0).toLocaleString("cs")+'</div><div style="width:62px;text-align:right;">'+(p.cil||0).toLocaleString("cs")+'</div><div style="width:56px;text-align:right;color:'+col+';font-weight:700;">'+(p.delta>0?"+":"")+(p.delta||0).toLocaleString("cs")+'</div></div>'));
+      });
+    }
     function load(){
-      box.innerHTML='<div class="hint">Načítám…</div>';
+      info.innerHTML='<div class="hint">Načítám…</div>';
       api("GET","/api/v1/erp/app/wage-compare","").then(function(j){
-        box.innerHTML="";
-        if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Jen HR / vedení.":"Nelze načíst.")+'</div>')); return; }
-        box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Snapshot EC: '+esc(j.asof||"—")+' · '+j.celkem+' složek · <b style="color:'+(j.rozdilu?"#f88":"#5ee0b7")+'">'+j.rozdilu+' rozdílů</b></div>'));
-        var sync=el('<button style="width:100%;margin-bottom:6px;padding:10px;border:0;border-radius:10px;background:#26304a;color:#cfe;">🔄 Aktualizovat z EUROSOFTu</button>');
+        if(!j||!j.ok){ info.innerHTML='<div class="hint">'+esc((j&&j.error==="forbidden")?"Jen HR / vedení.":"Nelze načíst.")+'</div>'; return; }
+        _wc.radky=j.radky||[];
+        info.innerHTML="";
+        info.appendChild(el('<div class="hint" style="margin-bottom:6px;">Snapshot EC: '+esc(j.asof||"—")+' · '+j.celkem+' složek · <b style="color:'+(j.rozdilu?"#f88":"#5ee0b7")+'">'+j.rozdilu+' rozdílů</b></div>'));
+        var sync=el('<button style="width:100%;padding:10px;border:0;border-radius:10px;background:#26304a;color:#cfe;">🔄 Aktualizovat z EUROSOFTu</button>');
         sync.onclick=function(){ sync.disabled=true; sync.textContent="Stahuji z EC…"; api("POST","/api/v1/erp/app/wage-compare/sync",{}).then(function(r){ if(r&&r.ok){ load(); } else { sync.disabled=false; alert("Chyba: "+((r&&(r.error))||"?")); } }); };
-        box.appendChild(sync);
-        var hdr=el('<div style="display:flex;gap:8px;padding:4px 2px;font-size:11px;color:#88a;border-bottom:1px solid #2b3a5c;"><div style="flex:1;">složka</div><div style="width:66px;text-align:right;">ZDROJ EC</div><div style="width:66px;text-align:right;">CÍL STR</div><div style="width:60px;text-align:right;">Δ</div></div>');
-        box.appendChild(hdr);
-        var lastName=null;
-        (j.radky||[]).forEach(function(p){
-          if(p.jmeno!==lastName){ box.appendChild(el('<div style="margin-top:9px;font-weight:700;color:#cdd;font-size:13px;">'+esc(p.jmeno)+' <span class="hint">· '+esc(p.firma)+' · č.'+esc(p.cislo)+'</span></div>')); lastName=p.jmeno; }
-          var col={"OK":"#5ee0b7","ROZDIL":"#f88","jen EC":"#fc8","jen STRATEGIE":"#fc8"}[p.stav]||"#9fb2d4";
-          var r=el('<div style="display:flex;gap:8px;padding:4px 2px;border-bottom:1px solid #1b2742;font-size:12.5px;"></div>');
-          r.innerHTML='<div style="flex:1;">'+esc(p.slozka)+'</div><div style="width:66px;text-align:right;color:#9fb2d4;">'+(p.zdroj||0).toLocaleString("cs")+'</div><div style="width:66px;text-align:right;">'+(p.cil||0).toLocaleString("cs")+'</div><div style="width:60px;text-align:right;color:'+col+';font-weight:700;">'+(p.delta>0?"+":"")+(p.delta||0).toLocaleString("cs")+'</div>';
-          box.appendChild(r);
-        });
-        if(!(j.radky||[]).length) box.appendChild(el('<div class="hint">Žádná data — klikni Aktualizovat.</div>'));
-        box.appendChild(el('<div style="height:60px;"></div>'));
+        info.appendChild(sync);
+        render();
       });
     }
     load();

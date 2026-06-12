@@ -1145,6 +1145,7 @@ setTimeout(function(){
     l.appendChild(row("👥","Personální složky","Přehled a správa lidí (HR / vedení)",function(){ go("hr_people"); }));
     l.appendChild(row("🧩","Režimy docházky","Forma (HPP/DPP/OSVČ), režim, konto, loajalita",function(){ go("hr_rezimy"); }));
     l.appendChild(row("🏦","Uzávěrka konta","Rozpad přesčasů: do prémie / do přesčasu / převést",function(){ go("hr_konto"); }));
+    l.appendChild(row("🗓️","Absence — žádosti a schvalování","Dovolená / HO / lékař → schválí vedoucí",function(){ go("absence"); }));
     l.appendChild(row("📥","Import docházky z EUROSOFTu","Reálná data 1:1 (dovolené, nemoc, lékař, odprac.)",function(){ go("hr_import"); }));
     l.appendChild(row("📄","Generovat dokument","Smlouva a další → PDF z živých dat",function(){ go("doc_gen"); }));
     l.appendChild(row("💰","Mzdy: Helios × STRATEGIE","Porovnání ZDROJ × CÍL × delta (vedení)",function(){ go("wage_cmp"); }));
@@ -1396,6 +1397,80 @@ setTimeout(function(){
     }
     var _td=null; srch.addEventListener("input",function(){ clearTimeout(_td); _td=setTimeout(function(){ load(srch.value.trim()); },250); });
     load("");
+  }
+  function absence(){
+    app.innerHTML=topbar("🗓️ Absence", true);
+    var TYPY=[["vacation","Dovolená"],["homeoffice","Home office"],["medical","Lékař"],["family_care","OČR"],["sick","Nemoc (PN)"],["unpaid","Neplacené volno"]];
+    var TL={vacation:"Dovolená",homeoffice:"Home office",medical:"Lékař",family_care:"OČR",sick:"Nemoc (PN)",unpaid:"Neplacené volno"};
+    var stavChip={pending:["čeká","#60a5fa"],approved:["schváleno","#34d399"],rejected:["zamítnuto","#f87171"],info:["info","#fbbf24"]};
+    function chip(t,c){ return '<span style="background:'+c+';color:#04150e;border-radius:8px;padding:2px 7px;font-size:11px;font-weight:700;">'+esc(t)+'</span>'; }
+    function cz(d){ var p=(d||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):d; }
+    var t=new Date(); var today=t.getFullYear()+"-"+("0"+(t.getMonth()+1)).slice(-2)+"-"+("0"+t.getDate()).slice(-2);
+    // ── Nová žádost ──
+    var nf=el('<div style="border:1px solid #2b3a5c;border-radius:12px;padding:12px;margin-bottom:14px;"></div>');
+    var w=el('<div></div>');
+    function selOpts(opts){ return opts.map(function(o){ return '<option value="'+o[0]+'">'+esc(o[1])+'</option>'; }).join(''); }
+    w.innerHTML='<div style="font-weight:700;margin-bottom:6px;">Nová žádost</div>'
+      +'<label class="hint" style="display:block;margin:4px 0 2px;">Typ</label>'
+      +'<select id="abTyp" style="width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">'+selOpts(TYPY)+'</select>'
+      +'<div style="display:flex;gap:8px;"><div style="flex:1;"><label class="hint" style="display:block;margin:6px 0 2px;">Od</label><input id="abOd" type="date" value="'+today+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;"></div>'
+      +'<div style="flex:1;"><label class="hint" style="display:block;margin:6px 0 2px;">Do</label><input id="abDo" type="date" value="'+today+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;"></div></div>'
+      +'<label class="hint" style="display:block;margin:6px 0 2px;">Hodin/den</label><input id="abH" type="number" step="0.5" value="8" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">'
+      +'<input id="abNote" type="text" placeholder="Poznámka pro vedoucího (volitelné)" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin-top:8px;">';
+    nf.appendChild(w);
+    var sb=el('<button class="green full" style="margin-top:10px;">Odeslat vedoucímu</button>');
+    var sst=el('<div class="hint" style="margin-top:6px;"></div>');
+    sb.addEventListener("click",function(){
+      sb.disabled=true; sst.textContent="Odesílám…";
+      api("POST","/api/v1/erp/app/attendance/absence/request",{typ:w.querySelector('#abTyp').value,
+        od:w.querySelector('#abOd').value, do:w.querySelector('#abDo').value,
+        hours_per_day:parseFloat(w.querySelector('#abH').value)||8, note:w.querySelector('#abNote').value}).then(function(r){
+          sb.disabled=false; sst.textContent=(r&&r.ok)?"✅ Odesláno vedoucímu":("✗ "+((r&&r.error)||"chyba"));
+          if(r&&r.ok){ w.querySelector('#abNote').value=""; loadMine(); }
+        });
+    });
+    nf.appendChild(sb); nf.appendChild(sst);
+    app.appendChild(nf);
+    // ── Ke schválení (vedoucí) ──
+    var inbox=el('<div style="margin-bottom:14px;"></div>'); app.appendChild(inbox);
+    function loadInbox(){
+      api("GET","/api/v1/erp/app/attendance/absence/inbox","").then(function(j){
+        inbox.innerHTML="";
+        if(!j||!j.ok||!j.zadosti||!j.zadosti.length) return;
+        inbox.appendChild(el('<div style="font-weight:700;margin-bottom:6px;">📥 Ke schválení ('+j.zadosti.length+')</div>'));
+        j.zadosti.forEach(function(z){
+          var row=el('<div style="border:1px solid #2b3a5c;border-radius:12px;padding:11px;margin-bottom:9px;"></div>');
+          row.appendChild(el('<div><b>'+esc(z.zadatel)+'</b> — '+esc(z.typ_label)+' '+cz(z.od)+(z.od!==z.do?("–"+cz(z.do)):"")+' <span class="hint">('+z.hpd+' h/den)</span>'+(z.note?('<br><span class="hint">„'+esc(z.note)+'“</span>'):'')+'</div>'));
+          var btns=el('<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>');
+          (j.statusy||[]).forEach(function(stx){
+            var b=el('<button class="ghost" style="text-align:left;padding:8px 10px;font-size:13px;">„'+esc(stx)+'“</button>');
+            b.addEventListener("click",function(){
+              b.disabled=true;
+              api("POST","/api/v1/erp/app/attendance/absence/decide",{req_id:z.id,status_text:stx}).then(function(r){
+                if(r&&r.ok){ loadInbox(); loadMine(); } else { b.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); }
+              });
+            });
+            btns.appendChild(b);
+          });
+          row.appendChild(btns); inbox.appendChild(row);
+        });
+      });
+    }
+    // ── Moje žádosti ──
+    app.appendChild(el('<div style="font-weight:700;margin-bottom:6px;">Moje žádosti</div>'));
+    var mine=el('<div></div>'); app.appendChild(mine);
+    function loadMine(){
+      api("GET","/api/v1/erp/app/attendance/absence/mine","").then(function(j){
+        mine.innerHTML="";
+        if(!j||!j.ok){ mine.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
+        if(!j.zadosti.length){ mine.appendChild(el('<div class="hint">Zatím žádné žádosti.</div>')); return; }
+        j.zadosti.forEach(function(z){
+          var sc=stavChip[z.stav]||["?","#888"];
+          mine.appendChild(el('<div style="border-bottom:1px solid #1b2742;padding:9px 4px;"><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;">'+esc(z.typ_label)+' '+cz(z.od)+(z.od!==z.do?("–"+cz(z.do)):"")+'</div>'+chip(sc[0],sc[1])+'</div>'+(z.status_text?('<div class="hint" style="margin-top:3px;">Vedoucí: „'+esc(z.status_text)+'“</div>'):'')+'</div>'));
+        });
+      });
+    }
+    loadInbox(); loadMine();
   }
   function hr_import(){
     app.innerHTML=topbar("📥 Import docházky z EUROSOFTu", true);
@@ -4135,7 +4210,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,absence:absence,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

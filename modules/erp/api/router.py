@@ -7017,6 +7017,177 @@ async def att_whereabouts(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Marti 12.6.: Podmínky skupin zaměstnanců (3vrstvý resolver system/group/user) ──
+_COND_GROUPS = [("elektromontri", "Elektromontéři"), ("kancelare", "Kanceláře"),
+                ("vedeni", "Vedení"), ("vp", "VP — vedoucí projektu")]
+
+
+@api_router.get("/app/hr/conditions")
+async def app_hr_conditions(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    sk = (req.query_params.get("scope_kind") or "system").strip()
+    gc = (req.query_params.get("group_code") or "").strip()
+    try:
+        tu = int(req.query_params.get("user_id") or 0)
+    except Exception:
+        tu = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        defs = [{"code": r[0], "label": r[1], "kind": r[2], "unit": r[3] or ""} for r in s.execute(_t(
+            "SELECT code,label,kind,unit FROM tenant.staff_cond_def WHERE tenant_id=2 AND active=true "
+            "ORDER BY sort_order, id")).fetchall()]
+        if sk == "user" and tu:
+            grp = s.execute(_t("SELECT cond_group FROM tenant.att_employee WHERE tenant_id=2 AND user_id=:u "
+                               "AND cond_group IS NOT NULL LIMIT 1"), {"u": tu}).scalar()
+            own = {}
+            for r in s.execute(_t("SELECT cond_code,value,note FROM tenant.staff_cond "
+                                  "WHERE tenant_id=2 AND scope_kind='user' AND user_id=:u"), {"u": tu}).fetchall():
+                own[r[0]] = {"value": r[1], "note": r[2]}
+            resolved = {}
+            for d in defs:
+                c = d["code"]
+                if c in own:
+                    resolved[c] = {"value": own[c]["value"], "src": "osobní"}
+                    continue
+                gv = None
+                if grp:
+                    gv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='group' "
+                                      "AND group_code=:g AND cond_code=:c LIMIT 1"), {"g": grp, "c": c}).scalar()
+                if gv is not None:
+                    resolved[c] = {"value": gv, "src": "skupina"}
+                    continue
+                sv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='system' "
+                                  "AND cond_code=:c LIMIT 1"), {"c": c}).scalar()
+                resolved[c] = {"value": sv, "src": "systém"} if sv is not None else {"value": None, "src": ""}
+            return JSONResponse({"ok": True, "scope_kind": "user", "user_id": tu, "group_code": grp,
+                                 "defs": defs, "own": own, "resolved": resolved})
+        # system / group
+        if sk == "group":
+            rows = s.execute(_t("SELECT cond_code,value,note FROM tenant.staff_cond "
+                                "WHERE tenant_id=2 AND scope_kind='group' AND group_code=:g"), {"g": gc}).fetchall()
+        else:
+            sk = "system"
+            rows = s.execute(_t("SELECT cond_code,value,note FROM tenant.staff_cond "
+                                "WHERE tenant_id=2 AND scope_kind='system'")).fetchall()
+        vals = {r[0]: {"value": r[1], "note": r[2]} for r in rows}
+        return JSONResponse({"ok": True, "scope_kind": sk, "group_code": gc, "defs": defs, "values": vals})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/conditions/save")
+async def app_hr_conditions_save(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    sk = str((b or {}).get("scope_kind") or "").strip()
+    gc = str((b or {}).get("group_code") or "").strip() or None
+    cc = str((b or {}).get("cond_code") or "").strip()
+    val = (b or {}).get("value")
+    val = None if (val is None or str(val).strip() == "") else str(val).strip()
+    note = str((b or {}).get("note") or "").strip()[:300] or None
+    try:
+        tu = int((b or {}).get("user_id") or 0) or None
+    except Exception:
+        tu = None
+    if sk not in ("system", "group", "user") or not cc:
+        return JSONResponse({"ok": False, "error": "scope_kind + cond_code"})
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if sk == "group" and not gc:
+            return JSONResponse({"ok": False, "error": "group_code"})
+        if sk == "user" and not tu:
+            return JSONResponse({"ok": False, "error": "user_id"})
+        # smaž stávající řádek pro daný scope+code (idempotentní)
+        s.execute(_t("DELETE FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind=:sk AND cond_code=:c "
+                     "AND COALESCE(group_code,'')=COALESCE(:g,'') AND COALESCE(user_id,0)=COALESCE(:u,0)"),
+                  {"sk": sk, "c": cc, "g": gc, "u": tu})
+        # u system/group prázdná hodnota = smazat (fallback); u user prázdná = zrušit override
+        if val is not None or note is not None:
+            s.execute(_t("INSERT INTO tenant.staff_cond (tenant_id,scope_kind,group_code,user_id,cond_code,value,note,"
+                         "changed_by,changed_at) VALUES (2,:sk,:g,:u,:c,:v,:n,:by,now())"),
+                      {"sk": sk, "g": gc, "u": tu, "c": cc, "v": val, "n": note, "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/conditions/assign")
+async def app_hr_conditions_assign(req: Request) -> JSONResponse:
+    """Přiřadí člověka do podmínkové skupiny (att_employee.cond_group)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        tu = int((b or {}).get("user_id") or 0)
+    except Exception:
+        tu = 0
+    gc = str((b or {}).get("group_code") or "").strip() or None
+    if not tu:
+        return JSONResponse({"ok": False, "error": "user_id"})
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("UPDATE tenant.att_employee SET cond_group=:g, updated_at=now() "
+                     "WHERE tenant_id=2 AND user_id=:u"), {"g": gc, "u": tu})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/conditions/people")
+async def app_hr_conditions_people(req: Request) -> JSONResponse:
+    """Lidé pro záložku Jednotlivci: jméno, skupina, má vlastní výjimku?"""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT e.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),"
+            "                          max(e.full_name)) nm, "
+            "       max(e.cond_group), "
+            "       EXISTS(SELECT 1 FROM tenant.staff_cond c WHERE c.tenant_id=2 AND c.scope_kind='user' "
+            "              AND c.user_id=e.user_id) vyjimka "
+            "FROM tenant.att_employee e LEFT JOIN public.users u ON u.id=e.user_id "
+            "WHERE e.tenant_id=2 AND e.user_id IS NOT NULL AND COALESCE(e.is_active,true)=true "
+            "GROUP BY e.user_id, u.first_name, u.last_name ORDER BY nm")).fetchall()
+        out = [{"user_id": r[0], "jmeno": r[1], "cond_group": r[2], "vyjimka": bool(r[3])} for r in rows]
+        return JSONResponse({"ok": True, "lide": out,
+                             "skupiny": [{"code": g[0], "label": g[1]} for g in _COND_GROUPS]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person")
 async def app_hr_person(req: Request) -> JSONResponse:
     """Karta člověka pro HR (úřední pole + děti). BEZ paměti a trezoru."""

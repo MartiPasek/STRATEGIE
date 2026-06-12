@@ -1144,6 +1144,7 @@ setTimeout(function(){
     l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (přes mobil)",function(){ go("hr_me"); }));
     l.appendChild(row("👥","Personální složky","Přehled a správa lidí (HR / vedení)",function(){ go("hr_people"); }));
     l.appendChild(row("🧩","Režimy docházky","Forma (HPP/DPP/OSVČ), režim, konto, loajalita",function(){ go("hr_rezimy"); }));
+    l.appendChild(row("📋","Podmínky skupin","Úvazek, nástup, dovolená, sick days… po skupinách + výjimky",function(){ go("hr_podminky"); }));
     l.appendChild(row("🏦","Uzávěrka konta","Rozpad přesčasů: do prémie / do přesčasu / převést",function(){ go("hr_konto"); }));
     l.appendChild(row("🗓️","Absence — žádosti a schvalování","Dovolená / HO / lékař → schválí vedoucí",function(){ go("absence"); }));
     l.appendChild(row("👀","Kdo kde dnes","Přehled: kdo v práci / na dovolené / nemocný",function(){ go("kdekdo"); }));
@@ -1156,6 +1157,109 @@ setTimeout(function(){
   }
   // Marti 11.6.: self-service osobních údajů — primární zdroj, logovaný,
   // s upozorněním HR na změny. Každý si spravuje svá data sám přes mobil.
+  function hr_podminky(){
+    app.innerHTML=topbar("📋 Podmínky skupin", true);
+    var SCOPES=[["system","Systém","⚙️"],["elektromontri","Elektromontéři","🔧"],["kancelare","Kanceláře","🏢"],["vedeni","Vedení","👔"],["vp","VP","📐"],["lide","Jednotlivci","🧑"]];
+    var SLAB={system:"Systém (všichni HPP)",elektromontri:"Elektromontéři",kancelare:"Kanceláře",vedeni:"Vedení",vp:"VP — vedoucí projektu"};
+    var _pd={f:"system"};
+    var pane=el('<div style="display:flex;gap:10px;height:calc(64vh - 86px);align-items:stretch;">'
+      +'<div id="pdC" style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:6px 10px;"><div class="hint">Načítám…</div></div>'
+      +'<div id="pdRail" style="width:84px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:6px;padding:0 0 86px;"></div></div>');
+    app.appendChild(pane);
+    var C=pane.querySelector("#pdC"), R=pane.querySelector("#pdRail");
+    function railBtn(icon,label,key){
+      var on=(_pd.f===key);
+      var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:9px 4px;font-size:10.5px;line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:12px;cursor:pointer;"><span style="font-size:20px;line-height:1;">'+icon+'</span>'+esc(label)+'</button>');
+      b.addEventListener("click",function(){ _pd.f=key; render(); });
+      return b;
+    }
+    function fieldEl(d,value){
+      var v=(value==null?"":value);
+      if(d.kind==="bool"){
+        var s=el('<select style="width:120px;padding:7px;border-radius:8px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;"><option value="">— dědit —</option><option value="ANO">ANO</option><option value="NE">NE</option></select>');
+        s.value=(v==="ANO"||v==="NE")?v:""; return s;
+      }
+      var i=el('<input type="text" value="'+esc(v)+'" '+(d.kind==="num"?'inputmode="decimal"':'')+' placeholder="'+(d.kind==="time"?"HH:MM":"— dědit —")+'" style="width:120px;box-sizing:border-box;padding:7px 9px;border-radius:8px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;text-align:right;">');
+      return i;
+    }
+    function scopeView(key){
+      C.innerHTML='<div class="hint">Načítám…</div>';
+      var sk=(key==="system")?"system":"group", gc=(key==="system")?"":key;
+      api("GET","/api/v1/erp/app/hr/conditions?scope_kind="+sk+(gc?("&group_code="+gc):""),"").then(function(j){
+        C.innerHTML="";
+        if(!j||!j.ok){ C.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Jen HR / vedení.":"Nelze načíst.")+'</div>')); return; }
+        C.appendChild(el('<div style="font-size:18px;font-weight:800;margin:2px 0 2px;">'+esc(SLAB[key]||key)+'</div>'));
+        C.appendChild(el('<div class="hint" style="margin-bottom:10px;">'+(sk==="system"?"Výchozí pro všechny. Skupina nebo jednotlivec to může přepsat.":"Hodnoty skupiny. Prázdné = zdědí ze systému.")+'</div>'));
+        var st=el('<div class="hint" style="min-height:16px;margin-bottom:6px;"></div>'); C.appendChild(st);
+        (j.defs||[]).forEach(function(d){
+          var cur=(j.values&&j.values[d.code])?j.values[d.code].value:null;
+          var row=el('<div style="display:flex;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid #1b2742;"></div>');
+          row.appendChild(el('<div style="flex:1;min-width:0;">'+esc(d.label)+(d.unit?(' <span class="hint">('+esc(d.unit)+')</span>'):'')+'</div>'));
+          var f=fieldEl(d,cur); row.appendChild(f);
+          function save(){ st.style.color="#9fb2d4"; st.textContent="Ukládám…";
+            api("POST","/api/v1/erp/app/hr/conditions/save",{scope_kind:sk,group_code:gc,cond_code:d.code,value:f.value}).then(function(r){
+              st.style.color=(r&&r.ok)?"#5ee0b7":"#f88"; st.textContent=(r&&r.ok)?("Uloženo: "+d.label+" ✓"):("✗ "+((r&&r.error)||"chyba")); });
+          }
+          f.addEventListener("change",save);
+          C.appendChild(row);
+        });
+      });
+    }
+    function peopleView(){
+      C.innerHTML='<input id="pdSrch" type="text" placeholder="Hledat jméno…" style="width:100%;box-sizing:border-box;padding:9px 11px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin-bottom:8px;"><div id="pdPpl"><div class="hint">Načítám…</div></div>';
+      var srch=C.querySelector("#pdSrch"), box=C.querySelector("#pdPpl"), all=[], skupiny=[];
+      function draw(q){
+        box.innerHTML=""; var arr=all.filter(function(p){ return !q||(p.jmeno||"").toLowerCase().indexOf(q.toLowerCase())>=0; });
+        if(!arr.length){ box.appendChild(el('<div class="hint">Nikdo.</div>')); return; }
+        arr.forEach(function(p){
+          var gl=(skupiny.filter(function(g){return g.code===p.cond_group;})[0]||{}).label||"—";
+          var li=el('<div class="ct" style="border-bottom:1px solid #1b2742;"></div>');
+          var head=el('<div style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:9px 2px;"></div>');
+          head.appendChild(el('<div style="flex:1;min-width:0;"><div style="font-weight:600;">'+esc(p.jmeno)+'</div><div class="hint">'+esc(gl)+(p.vyjimka?' · <span style="color:#fbbf24;">vlastní výjimka</span>':'')+'</div></div>'));
+          head.appendChild(el('<div class="chev" style="color:#5a6;">&#8250;</div>'));
+          var ed=el('<div class="ctexp" style="display:none;padding:2px 2px 12px;"></div>');
+          head.addEventListener("click",function(){ var op=li.classList.toggle("open"); ed.style.display=op?"block":"none"; if(op&&ed.dataset.b!=="1"){ personDetail(ed,p,skupiny); ed.dataset.b="1"; } });
+          li.appendChild(head); li.appendChild(ed); box.appendChild(li);
+        });
+      }
+      api("GET","/api/v1/erp/app/hr/conditions/people","").then(function(j){
+        if(!j||!j.ok){ box.innerHTML='<div class="hint">'+esc((j&&j.error==="forbidden")?"Jen HR / vedení.":"Nelze načíst.")+'</div>'; return; }
+        all=j.lide||[]; skupiny=j.skupiny||[]; draw("");
+      });
+      var td=null; srch.addEventListener("input",function(){ clearTimeout(td); td=setTimeout(function(){ draw(srch.value.trim()); },200); });
+    }
+    function personDetail(ed,p,skupiny){
+      ed.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/hr/conditions?scope_kind=user&user_id="+p.user_id,"").then(function(j){
+        ed.innerHTML="";
+        if(!j||!j.ok){ ed.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
+        var gsel=el('<select style="width:100%;padding:8px;border-radius:8px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin-bottom:8px;"><option value="">— bez skupiny —</option>'+skupiny.map(function(g){return '<option value="'+g.code+'"'+(g.code===j.group_code?' selected':'')+'>'+esc(g.label)+'</option>';}).join("")+'</select>');
+        var gst=el('<span class="hint" style="margin-left:6px;"></span>');
+        gsel.addEventListener("change",function(){ gst.textContent="…"; api("POST","/api/v1/erp/app/hr/conditions/assign",{user_id:p.user_id,group_code:gsel.value}).then(function(r){ gst.textContent=(r&&r.ok)?"✓":"✗"; if(r&&r.ok) setTimeout(function(){ ed.dataset.b=""; personDetail(ed,p,skupiny); },400); }); });
+        ed.appendChild(el('<div class="hint" style="margin-bottom:2px;">Skupina:</div>')); ed.appendChild(gsel); ed.appendChild(gst);
+        var st=el('<div class="hint" style="min-height:16px;margin:6px 0;"></div>'); ed.appendChild(st);
+        (j.defs||[]).forEach(function(d){
+          var rs=(j.resolved&&j.resolved[d.code])||{}; var own=(j.own&&j.own[d.code])?j.own[d.code].value:null;
+          var row=el('<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid #1b2742;"></div>');
+          var srcCol={"osobní":"#fbbf24","skupina":"#60a5fa","systém":"#9aa"}[rs.src]||"#9aa";
+          row.appendChild(el('<div style="flex:1;min-width:0;font-size:13px;">'+esc(d.label)+'<br><span class="hint">teď: <b style="color:'+srcCol+';">'+esc(rs.value==null?"—":rs.value)+'</b> ('+esc(rs.src||"—")+')</span></div>'));
+          var f=fieldEl(d,own); row.appendChild(f);
+          f.addEventListener("change",function(){ st.style.color="#9fb2d4"; st.textContent="Ukládám…";
+            api("POST","/api/v1/erp/app/hr/conditions/save",{scope_kind:"user",user_id:p.user_id,cond_code:d.code,value:f.value}).then(function(r){
+              st.style.color=(r&&r.ok)?"#5ee0b7":"#f88"; st.textContent=(r&&r.ok)?(d.label+": výjimka uložena ✓"):("✗ "+((r&&r.error)||"chyba"));
+              if(r&&r.ok) setTimeout(function(){ ed.dataset.b=""; personDetail(ed,p,skupiny); },500);
+            }); });
+          ed.appendChild(row);
+        });
+        ed.appendChild(el('<div class="hint" style="margin-top:6px;">Prázdné pole = zdědí ze skupiny/systému. Vyplněné = osobní výjimka.</div>'));
+      });
+    }
+    function render(){
+      R.innerHTML=""; SCOPES.forEach(function(sc){ R.appendChild(railBtn(sc[2],sc[1],sc[0])); });
+      if(_pd.f==="lide") peopleView(); else scopeView(_pd.f);
+    }
+    render();
+  }
   function _meIcon(lbl){ var s=(lbl||"").toLowerCase();
     if(/identi|jmén|jmen|osob/.test(s))return"🪪"; if(/osvč|osvc|ičo|ico|dič|dic|podnik/.test(s))return"🧾";
     if(/adres|bydli/.test(s))return"🏠"; if(/kontakt|e-?mail|telefon|nouz/.test(s))return"✉️";
@@ -4408,7 +4512,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

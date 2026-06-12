@@ -1166,7 +1166,7 @@ setTimeout(function(){
     app.appendChild(el('<div class="hint" style="line-height:1.55;margin-bottom:8px;">Tvoje údaje spravuješ ty sám — jsou <b>primárním zdrojem</b> pro smlouvu, výplatu a evidenci. Vpravo skoč rovnou na sekci; ťukni do seznamu a lišta se schová pro plnou šířku.</div>'));
     var pane=el('<div style="position:relative;display:flex;gap:10px;height:64vh;align-items:stretch;">'
       +'<div id="meContent" style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;"><div class="hint">Načítám…</div></div>'
-      +'<div id="meRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
+      +'<div id="meRail" style="width:86px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:6px;padding:0;"></div></div>');
     app.appendChild(pane);
     var cont=pane.querySelector("#meContent"), rail=pane.querySelector("#meRail");
     var toggleBtn=el('<button style="position:absolute;top:6px;right:6px;z-index:5;display:none;padding:7px 11px;border-radius:10px;border:1px solid var(--bord);background:#1a2440;color:#cfe;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">📑 Sekce</button>');
@@ -1175,12 +1175,15 @@ setTimeout(function(){
     // ťuknutí do seznamu → schovej lištu, plná šířka
     cont.addEventListener("click",function(){ if(rail.style.display!=="none") showRail(false); });
     toggleBtn.addEventListener("click",function(e){ e.stopPropagation(); showRail(true); });
+    // Zpět: když je roztažené na celou šířku, nejdřív zúžit a vrátit lištu
+    window._dochAnyOpen=function(){ if(!document.body.contains(pane)) return false;
+      if(rail.style.display==="none"){ showRail(true); return true; } return false; };
     function scrollToId(id){ var t=document.getElementById(id); if(t) cont.scrollTop=Math.max(0, t.offsetTop - cont.offsetTop - 4); }
     var anchors=[], inputs={};
     function buildRail(){
       rail.innerHTML="";
       anchors.forEach(function(a){
-        var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:10px 2px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid var(--bord);background:rgba(255,255,255,0.02);color:var(--mut);border-radius:13px;cursor:pointer;"><span style="font-size:23px;line-height:1;">'+a.icon+'</span>'+esc(a.label)+'</button>');
+        var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:10px 6px;font-size:11.5px;line-height:1.2;text-align:center;word-break:break-word;border:1px solid var(--bord);background:rgba(255,255,255,0.02);color:#cdd;border-radius:11px;cursor:pointer;">'+esc(a.label)+'</button>');
         b.addEventListener("click",function(e){ e.stopPropagation(); scrollToId(a.id); });
         rail.appendChild(b);
       });
@@ -1189,7 +1192,7 @@ setTimeout(function(){
       cont.innerHTML="";
       if(!j||!j.ok){ cont.innerHTML='<div class="hint">Nepodařilo se načíst ('+esc((j&&j.error)||"chyba")+').</div>'; return; }
       (j.sections||[]).forEach(function(sec,i){
-        var sid="mesec_"+i; anchors.push({icon:_meIcon(sec.label),label:(sec.label||"").split(" ")[0],id:sid});
+        var sid="mesec_"+i; anchors.push({label:(sec.label||("Sekce "+(i+1))),id:sid});
         var card=el('<div id="'+sid+'" style="background:#0f1830;border:1px solid #22304f;border-radius:14px;padding:12px 14px;margin-bottom:12px;"></div>');
         card.appendChild(el('<div style="font-weight:700;font-size:16px;margin-bottom:2px;">'+esc(sec.label)+'</div>'));
         card.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">'+esc(sec.why)+'</div>'));

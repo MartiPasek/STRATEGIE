@@ -6231,6 +6231,99 @@ async def app_hr_people(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/rezimy")
+async def app_hr_rezimy(req: Request) -> JSONResponse:
+    """Marti 12.6.: správa docházkových režimů (rodiče + HR). Per att_employee záznam
+    (člověk může mít víc — multi-forma/multi-firma) jeho rez_* config."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT e.id, e.cislo_zam, COALESCE(e.full_name,''), e.user_id, e.rez_forma, e.rez_mzdovy, "
+            " COALESCE(e.rez_pausal_kc,0), e.rez_loajalita_minus_h, e.rez_prescas_plus_h_den, "
+            " e.rez_konto_aktivni, e.rez_konto_volba, e.rez_prescas_priplatek_pct, "
+            " COALESCE(co.code,'') AS firma "
+            "FROM tenant.att_employee e "
+            "LEFT JOIN tenant.engagement en ON en.employee_id=e.id AND en.is_current AND en.tenant_id=2 "
+            "LEFT JOIN tenant.company co ON co.id=en.company_id "
+            "WHERE e.tenant_id=2 AND e.is_active=true "
+            "ORDER BY e.full_name, e.cislo_zam")).fetchall()
+        q = (req.query_params.get("q") or "").strip().lower()
+        out = []
+        for r in rows:
+            nm = r[2] or ("#" + str(r[1]))
+            if q and q not in nm.lower():
+                continue
+            out.append({"emp_id": r[0], "cislo": r[1], "jmeno": nm, "user_id": r[3],
+                        "forma": r[4], "mzdovy": r[5], "pausal_kc": float(r[6] or 0),
+                        "loajalita_minus_h": float(r[7] or 0), "prescas_plus_h_den": float(r[8] or 0),
+                        "konto_aktivni": bool(r[9]), "konto_volba": r[10],
+                        "prescas_priplatek_pct": float(r[11] or 0), "firma": r[12]})
+        return JSONResponse({"ok": True, "lide": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/rezim/save")
+async def app_hr_rezim_save(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        emp_id = int((b or {}).get("emp_id") or 0)
+    except Exception:
+        emp_id = 0
+    if not emp_id:
+        return JSONResponse({"ok": False, "error": "emp_id"})
+    forma = str((b or {}).get("forma") or "HPP").strip().upper()
+    if forma not in ("HPP", "DPP", "OSVC"):
+        forma = "HPP"
+    mzdovy = str((b or {}).get("mzdovy") or "hodinovy").strip().lower()
+    if mzdovy not in ("hodinovy", "volny", "pausal"):
+        mzdovy = "hodinovy"
+    volba = str((b or {}).get("konto_volba") or "na_vyber").strip().lower()
+    if volba not in ("premie", "prescas", "prevest", "na_vyber"):
+        volba = "na_vyber"
+
+    def _num(k, d=0.0):
+        try:
+            return float((b or {}).get(k))
+        except Exception:
+            return d
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t(
+            "UPDATE tenant.att_employee SET rez_forma=:f, rez_mzdovy=:m, rez_pausal_kc=:pk, "
+            "rez_loajalita_minus_h=:lm, rez_prescas_plus_h_den=:pp, rez_konto_aktivni=:ka, "
+            "rez_konto_volba=:kv, rez_prescas_priplatek_pct=:pct "
+            "WHERE tenant_id=:t AND id=:i"),
+            {"f": forma, "m": mzdovy, "pk": (_num("pausal_kc") or None),
+             "lm": _num("loajalita_minus_h"), "pp": _num("prescas_plus_h_den"),
+             "ka": bool((b or {}).get("konto_aktivni")), "kv": volba,
+             "pct": _num("prescas_priplatek_pct", 25), "t": _ATT_TENANT, "i": emp_id})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person")
 async def app_hr_person(req: Request) -> JSONResponse:
     """Karta člověka pro HR (úřední pole + děti). BEZ paměti a trezoru."""

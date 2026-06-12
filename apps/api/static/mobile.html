@@ -1143,6 +1143,7 @@ setTimeout(function(){
     var l=el('<div class="list"></div>');
     l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (přes mobil)",function(){ go("hr_me"); }));
     l.appendChild(row("👥","Personální složky","Přehled a správa lidí (HR / vedení)",function(){ go("hr_people"); }));
+    l.appendChild(row("🧩","Režimy docházky","Forma (HPP/DPP/OSVČ), režim, konto, loajalita",function(){ go("hr_rezimy"); }));
     l.appendChild(row("📄","Generovat dokument","Smlouva a další → PDF z živých dat",function(){ go("doc_gen"); }));
     l.appendChild(row("💰","Mzdy: Helios × STRATEGIE","Porovnání ZDROJ × CÍL × delta (vedení)",function(){ go("wage_cmp"); }));
     l.appendChild(row("🔑","Skupina HR — přístupy","Kdo vidí personální složky (spravují rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
@@ -1301,6 +1302,67 @@ setTimeout(function(){
           r.appendChild(el('<div class="chev" style="color:#5a6;">&#8250;</div>'));
           r.addEventListener("click",function(){ window._hrUid=p.user_id; window._hrName=p.jmeno; go("hr_person"); });
           list.appendChild(r);
+        });
+      });
+    }
+    var _td=null; srch.addEventListener("input",function(){ clearTimeout(_td); _td=setTimeout(function(){ load(srch.value.trim()); },250); });
+    load("");
+  }
+  function hr_rezimy(){
+    app.innerHTML=topbar("🧩 Režimy docházky", true);
+    var srch=el('<input type="text" placeholder="Hledat jméno…" style="width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;margin-bottom:10px;">');
+    app.appendChild(srch);
+    app.appendChild(el('<div class="hint" style="margin-bottom:8px;line-height:1.5;">Forma a režim jsou nezávislé. Píchají všichni; režim řeší jen odměnu/řízení. Člověk může mít víc záznamů (firmy/formy).</div>'));
+    var list=el('<div></div>'); app.appendChild(list);
+    var FORMY=[["HPP","HPP"],["DPP","DPP"],["OSVC","OSVČ"]];
+    var REZIMY=[["hodinovy","Hodinový"],["volny","Volný"],["pausal","Paušál"]];
+    var VOLBY=[["na_vyber","Na výběr"],["premie","Do prémie"],["prescas","Do přesčasu"],["prevest","Převést"]];
+    function chip(t,c){ return '<span style="background:'+c+';color:#04150e;border-radius:8px;padding:2px 7px;font-size:11px;font-weight:700;">'+esc(t)+'</span>'; }
+    function sel(label,opts,val){ var s='<label class="hint" style="display:block;margin:6px 0 2px;">'+label+'</label><select style="width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">';
+      opts.forEach(function(o){ s+='<option value="'+o[0]+'"'+(o[0]===val?' selected':'')+'>'+esc(o[1])+'</option>'; }); return s+'</select>'; }
+    function numf(label,val){ return '<label class="hint" style="display:block;margin:6px 0 2px;">'+label+'</label><input type="number" step="0.5" value="'+(val||0)+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">'; }
+    function buildEdit(box,p){
+      var w=el('<div></div>');
+      w.innerHTML=sel("Právní forma",FORMY,p.forma)+sel("Mzdový režim",REZIMY,p.mzdovy)
+        +numf("Loajalita — manko do minusu (h/měs)",p.loajalita_minus_h)
+        +numf("Přesčas-polštář neproplácený (h/den)",p.prescas_plus_h_den)
+        +numf("Paušál (Kč/měs, jen režim paušál)",p.pausal_kc)
+        +'<label class="hint" style="display:flex;align-items:center;gap:8px;margin:10px 0 2px;"><input type="checkbox" '+(p.konto_aktivni?'checked':'')+'> Konto přesčasů aktivní</label>'
+        +sel("Default dispozice konta",VOLBY,p.konto_volba)
+        +numf("Příplatek za přesčas (%)",p.prescas_priplatek_pct);
+      var sels=w.querySelectorAll("select"), nums=w.querySelectorAll("input[type=number]"), chk=w.querySelector("input[type=checkbox]");
+      var btn=el('<button class="green full" style="margin-top:10px;">Uložit</button>');
+      var st=el('<div class="hint" style="margin-top:6px;"></div>');
+      btn.addEventListener("click",function(){ btn.disabled=true; st.textContent="Ukládám…";
+        api("POST","/api/v1/erp/app/hr/rezim/save",{emp_id:p.emp_id,
+          forma:sels[0].value, mzdovy:sels[1].value, konto_volba:sels[2].value,
+          loajalita_minus_h:parseFloat(nums[0].value)||0, prescas_plus_h_den:parseFloat(nums[1].value)||0,
+          pausal_kc:parseFloat(nums[2].value)||0, prescas_priplatek_pct:parseFloat(nums[3].value)||0,
+          konto_aktivni:chk.checked}).then(function(r){
+            btn.disabled=false; st.textContent=(r&&r.ok)?"✅ Uloženo":("✗ "+((r&&r.error)||"chyba")); if(r&&r.ok) setTimeout(function(){ load(srch.value.trim()); },600);
+          });
+      });
+      w.appendChild(btn); w.appendChild(st); box.appendChild(w);
+    }
+    function load(q){
+      list.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/hr/rezimy"+(q?("?q="+encodeURIComponent(q)):""),"").then(function(j){
+        list.innerHTML="";
+        if(!j||!j.ok){ list.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Nemáš přístup (jen HR / vedení).":"Nelze načíst.")+'</div>')); return; }
+        if(!j.lide.length){ list.appendChild(el('<div class="hint">Nikdo nenalezen.</div>')); return; }
+        list.appendChild(el('<div class="hint" style="margin-bottom:4px;">'+j.lide.length+' záznamů</div>'));
+        j.lide.forEach(function(p){
+          var fc=(p.forma==='OSVC')?'#f59e0b':(p.forma==='DPP'?'#a78bfa':'#34d399');
+          var rc=(p.mzdovy==='volny')?'#60a5fa':(p.mzdovy==='pausal'?'#a78bfa':'#34d399');
+          var rez={hodinovy:'Hodinový',volny:'Volný',pausal:'Paušál'}[p.mzdovy]||p.mzdovy;
+          var forma={HPP:'HPP',DPP:'DPP',OSVC:'OSVČ'}[p.forma]||p.forma;
+          var row=el('<div style="border-bottom:1px solid #1b2742;padding:10px 4px;"></div>');
+          var head=el('<div style="display:flex;align-items:center;gap:10px;cursor:pointer;"></div>');
+          head.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(p.jmeno)+(p.firma?(' <span class="hint">· '+esc(p.firma)+'</span>'):'')+'</div><div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap;">'+chip(forma,fc)+chip(rez,rc)+(p.konto_aktivni?chip('konto','#fbbf24'):'')+'</div></div>'));
+          head.appendChild(el('<div class="chev" style="color:#5a6;">&#8250;</div>'));
+          var ed=el('<div style="display:none;margin-top:10px;"></div>');
+          head.addEventListener("click",function(){ ed.style.display=(ed.style.display==='none')?'block':'none'; if(ed.dataset.built!=='1'){ buildEdit(ed,p); ed.dataset.built='1'; } });
+          row.appendChild(head); row.appendChild(ed); list.appendChild(row);
         });
       });
     }
@@ -3917,7 +3979,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

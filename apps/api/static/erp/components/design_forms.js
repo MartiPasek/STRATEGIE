@@ -7383,6 +7383,95 @@
       try {
         (function _buildPropsPane() {
           const L = (field.layout && typeof field.layout === "object") ? field.layout : {};
+
+          // ── Změna typu komponenty (Kristý 12.6.2026) — JEN kompatibilní typy.
+          //    Backend (comp-def/update) type_id umí (Marti 26.5.); kompatibilitu
+          //    řešíme tady: stejný kind + status active + stejná rodina
+          //    (jednoduchá vstupní pole ↔ vstupní pole; grid-sloupce ↔ grid-sloupce).
+          (function _buildTypeChange() {
+            const curCode = String(field.comp_type_code || "");
+            const curInfo = document.createElement("div");
+            curInfo.style.cssText = "font-size:12px;color:#a8b4c2;";
+            curInfo.textContent = "Aktuální: " + (curCode || "—");
+            const sel = document.createElement("select");
+            sel.style.cssText = _inputStyle; sel.disabled = true;
+            { const o = document.createElement("option"); o.textContent = "(načítám…)"; sel.appendChild(o); }
+            const changeBtn = document.createElement("button");
+            changeBtn.type = "button"; changeBtn.textContent = "Změnit typ"; changeBtn.disabled = true;
+            changeBtn.style.cssText = "padding:6px 12px;background:#3a4a5a;border:1px solid #5a6877;" +
+              "color:#e8eef5;border-radius:3px;cursor:pointer;font-size:12px;white-space:nowrap;";
+            const tStatus = document.createElement("div");
+            tStatus.style.cssText = "font-size:11px;color:#8a96a4;min-height:14px;";
+            const selWrap = document.createElement("div");
+            selWrap.style.cssText = "display:flex;gap:8px;align-items:center;";
+            selWrap.appendChild(sel); selWrap.appendChild(changeBtn);
+            propsPaneEl.appendChild(_row("Typ komponenty", curInfo));
+            propsPaneEl.appendChild(_row("Změnit na", selWrap));
+            propsPaneEl.appendChild(tStatus);
+            const _sep = document.createElement("div");
+            _sep.style.cssText = "border-top:1px solid #2a3340;margin:6px 0 2px;";
+            propsPaneEl.appendChild(_sep);
+
+            const _family = (t) => {
+              const code = String(t.code || ""); const hint = String(t.renderer_hint || "");
+              if (t.kind === "container") return "container";
+              if (code.indexOf("column_") === 0 || code === "grid_column") return "grid_col";
+              const SIMPLE = ["input", "input-number", "select", "multiselect", "textarea",
+                "checkbox", "datepicker", "datetimepicker", "timepicker", "label", "list_edit"];
+              if (SIMPLE.indexOf(hint) >= 0) return "simple_input";
+              return "other";
+            };
+            fetch("/api/v1/erp/design/comp-types", { credentials: "include" })
+              .then((r) => r.json()).then((d) => {
+                const items = (d && d.items) || [];
+                const cur = items.find((t) => String(t.code) === curCode);
+                sel.innerHTML = "";
+                if (!cur) {
+                  const o = document.createElement("option"); o.textContent = "(typ nenalezen)"; sel.appendChild(o);
+                  tStatus.textContent = ""; return;
+                }
+                const fam = _family(cur);
+                const compat = items.filter((t) =>
+                  String(t.status) === "active" && t.kind === cur.kind &&
+                  _family(t) === fam && t.id !== cur.id);
+                if (!compat.length) {
+                  const o = document.createElement("option");
+                  o.textContent = "(žádné kompatibilní typy)"; sel.appendChild(o);
+                  tStatus.textContent = "Pro tenhle typ není kam kompatibilně přepnout."; return;
+                }
+                compat.sort((a, b) => String(a.label || a.code).localeCompare(String(b.label || b.code)));
+                compat.forEach((t) => {
+                  const o = document.createElement("option");
+                  o.value = String(t.id); o.textContent = (t.label || t.code) + " (" + t.code + ")";
+                  sel.appendChild(o);
+                });
+                sel.disabled = false; changeBtn.disabled = false;
+                tStatus.textContent = "Nabízím jen kompatibilní (stejný druh + aktivní).";
+              }).catch(() => { tStatus.style.color = "#e88"; tStatus.textContent = "Typy se nepodařilo načíst."; });
+
+            changeBtn.addEventListener("click", async () => {
+              const tid = parseInt(sel.value, 10);
+              if (!tid) return;
+              const lbl = (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].textContent) || String(tid);
+              if (!window.confirm("Změnit typ komponenty na:\n" + lbl + "\n\nProjeví se po znovuotevření formuláře.")) return;
+              changeBtn.disabled = true; tStatus.style.color = "#8a96a4"; tStatus.textContent = "Měním typ…";
+              try {
+                const r = await fetch("/api/v1/erp/design/comp-def/update/" + encodeURIComponent(field.id), {
+                  method: "PATCH", credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ type_id: tid }),
+                });
+                if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error("HTTP " + r.status + ": " + (e.error || r.statusText)); }
+                tStatus.style.color = "#7ee0a8";
+                tStatus.textContent = "✓ Typ změněn. Zavři a znovu otevři formulář.";
+                curInfo.textContent = "Aktuální: " + lbl;
+              } catch (e) {
+                changeBtn.disabled = false; tStatus.style.color = "#e88";
+                tStatus.textContent = "Chyba: " + (e && e.message ? e.message : e);
+              }
+            });
+          })();
+
           const _txt = (val, ph) => {
             const i = document.createElement("input");
             i.type = "text"; i.style.cssText = _inputStyle;

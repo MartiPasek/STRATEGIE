@@ -14473,6 +14473,10 @@ _OPS_ACTIONS = {
         "label": "Restartovat cloud API (recovery)",
         "target": "cloud", "remote": False,
     },
+    "refresh_secondary": {
+        "label": "🔄 Obnovit záložní instanci (blue-green → aktuální verze)",
+        "target": "cloud", "remote": False,
+    },
     "publish_app_mobile": {
         "label": "Nahrát mobilní APK z buildu (NB → server)",
         "target": "instance:23", "remote": True, "op": "publish_app_mobile",
@@ -15994,6 +15998,49 @@ async def ops_request(req: Request) -> JSONResponse:
                          "message": "Příkaz zařazen — %s provede do ~30 s." % meta["target"]})
 
 
+def _ops_refresh_secondary() -> dict:
+    """Blue-green: obnoví záložní instanci (STRATEGIE-API-B z C:\\Projekty\\STRATEGIE-prev)
+    na aktuální origin/<branch> a restartuje ji. Řeší 'záložní servíruje starý snímek'.
+    Používá `git reset --hard` (ne pull) — záložní folder často není tracked na origin,
+    pak pull nic neudělá (proto manuální pull nepomohl). Cesty/service konfigurovatelné env."""
+    import subprocess as _sp, os as _os
+    prev = _os.environ.get("STRATEGIE_PREV_DIR") or r"C:\Projekty\STRATEGIE-prev"
+    svc = _os.environ.get("STRATEGIE_SECONDARY_SERVICE") or "STRATEGIE-API-B"
+    nssm = _os.environ.get("STRATEGIE_NSSM_EXE") or r"C:\Tools\nssm.exe"
+    branch = _os.environ.get("STRATEGIE_DEPLOY_BRANCH") or "main"
+    if not _os.path.isdir(prev):
+        return {"ok": False, "result": "záložní složka neexistuje: %s" % prev}
+    steps = []
+    ok = True
+
+    def _run(cmd, label, timeout=120):
+        nonlocal ok
+        try:
+            r = _sp.run(cmd, capture_output=True, text=True, timeout=timeout,
+                        encoding="utf-8", errors="replace")
+            out = ((r.stdout or "") + (r.stderr or "")).strip()
+            if r.returncode == 0:
+                steps.append("%s: OK %s" % (label, out[-140:]))
+            else:
+                steps.append("%s: FAIL(rc=%s) %s" % (label, r.returncode, out[-260:]))
+                ok = False
+        except Exception as exc:
+            steps.append("%s: ERR %s: %s" % (label, type(exc).__name__, exc))
+            ok = False
+
+    _run(["git", "-C", prev, "fetch", "origin", branch], "git fetch")
+    _run(["git", "-C", prev, "reset", "--hard", "origin/%s" % branch], "git reset --hard")
+    _run([nssm, "restart", svc], "restart %s" % svc, timeout=90)
+    head = ""
+    try:
+        h = _sp.run(["git", "-C", prev, "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, timeout=20, encoding="utf-8", errors="replace")
+        head = (h.stdout or "").strip()
+    except Exception:
+        pass
+    return {"ok": ok, "result": (("záložní @ %s · " % head) if head else "") + " | ".join(steps)}
+
+
 def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
     """Spustí cloud-lokální ops akci (běží na cloud APP). Zatím: restart_api
     přes RESTART-WATCHER marker. Aktualizuje fw.ops_request."""
@@ -16007,6 +16054,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             ok, info = _dep_ec._touch_restart_marker(0, "ops_restart_api_user_%s" % uid)
             status = "done" if ok else "error"
             result = "marker: %s" % info
+        elif action_key == "refresh_secondary":
+            out = _ops_refresh_secondary()
+            status = "done" if out.get("ok") else "error"
+            result = out.get("result") or ""
         elif action_key == "sync_zakazky":
             out = _sync_zakazky_from_helios()
             status = "done"

@@ -2944,8 +2944,9 @@ setTimeout(function(){
         bw.innerHTML=""; bw._exps=null;
         // Marti 7.6. večer: žádná červená — změna činnosti není poplach (ghost).
         // „Jsem na zakázce" (píchnutej ≠ pracuje), „nepočítej" až na konec.
-        if(open){
+        if(open && open.open_type!=='commute'){
           // zakázka patří sem — přepnutí BĚHEM směny (switch)
+          // (na cestě do práce → arrival větev níže: „Jsem v práci" cestu uzavře)
           // Marti 10.6.: víc místa v „makám" — těchto 7 voleb sbalit pod jeden obal.
           // („Tak tady budu jinde" = budoucnost, sem nepatří → jiný název.)
           expOpt(bw,"🙈 Teď to bude jinak…","ghost",function(bx){
@@ -2980,7 +2981,7 @@ setTimeout(function(){
           // „Už jedu" první · lékaři sem (Marti 7.6. večer) · „Jinde" před zprávou
           expOpt(bw,"🚗 Jedu do práce…","green",function(bx){
             // Marti 7.6. večer: + 5 minut = „už jsem skoro v práci"
-            chipsIn(bx,"Dorazím za cca:",function(m,b){ presence({eta_min:m},b); },
+            chipsIn(bx,"Dorazím za cca:",function(m,b){ act("checkin",{kind:"commute",eta_min:m},b); },
               [["5 min",5],["15 min",15],["30 min",30],["45 min",45],["1 h",60],["1,5 h",90],["2 h",120]]);
           });
           addOpts([
@@ -3141,6 +3142,7 @@ setTimeout(function(){
   function _jobIcon(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
     if(/home|domov/.test(s)) return '🏠';
     if(/konec dne|nepo[čc][íi]t/.test(s)) return '🌙';
+    if(/jedu do pr|na cest/.test(s)) return '🚗';
     if(/relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d/.test(s)) return '🍴';
     if(/pauz|p[řr]est[aá]v/.test(s)) return '☕';
     if(/jedn[aá]n/.test(s)) return '🤝';
@@ -3208,7 +3210,7 @@ setTimeout(function(){
   function _dochRailSync(){ _railSync("dochTodayRail","dochToday2"); }
   function _jobMimo(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
     if(/home|domov/.test(s)) return false;
-    return /pauz|p[řr]est[aá]v|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d|jedn[aá]n|poch[uů]z|lékař|lekar|doktor|konec dne|nepo[čc][íi]t/.test(s); }
+    return /pauz|p[řr]est[aá]v|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d|jedn[aá]n|poch[uů]z|lékař|lekar|doktor|konec dne|nepo[čc][íi]t|jedu do pr|na cest/.test(s); }
   // Marti 12.6.: skupina Režie = produktivní práce BEZ píchnuté zakázky.
   // 'Rezie'/'Režie' jako project_ref = stará auto-stampovaná hodnota → bereme jako bez zakázky.
   function _isRezieRef(r){ r=(r||'').trim(); return !r || /^(rez|rež)ie$/i.test(r); }

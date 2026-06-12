@@ -10666,8 +10666,8 @@ async def att_checkin(req: Request) -> JSONResponse:
             {"t": _ATT_TENANT, "e": emp}).first()
         switching = False
         if opn:
-            # Marti 12.6.: běží-li přestávka, návrat do práce ji vždy ukončí (auto-switch).
-            _on_break = opn[1] in ("break", "day_end")
+            # Marti 12.6.: běží-li přestávka / cesta do práce, návrat ji vždy ukončí (auto-switch).
+            _on_break = opn[1] in ("break", "day_end", "commute")
             if not _on_break and not bool((body or {}).get("switch")):
                 s.commit()
                 return JSONResponse({"ok": True, "already_open": True, "id": opn[0]})
@@ -10685,10 +10685,16 @@ async def att_checkin(req: Request) -> JSONResponse:
             s.commit()
             return JSONResponse({"ok": False, "need_confirm": nepotvrzene,
                                  "error": "Nejdřív si prosím potvrď předchozí docházku."})
-        tcode = "overhead" if kind == "overhead" else "work"
+        tcode = {"overhead": "overhead", "commute": "commute"}.get(kind, "work")
         wt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
                        {"t": _ATT_TENANT, "c": tcode}).scalar() or _att_work_type(s)
         note = {"homeoffice": "home office", "trip": "služební cesta"}.get(kind)
+        if kind == "commute":
+            # Marti 12.6.: 'Jedu do práce' = vlastní job (cesta) — oficiální potvrzení + pojistka
+            _eta = (body or {}).get("eta_min")
+            _until = str((body or {}).get("until_txt") or "").strip()
+            note = "Jedu do práce" + ((" — dorazím za %d min" % int(_eta)) if _eta
+                                      else ((" — dorazím ~%s" % _until) if _until else ""))
         # ohlášení „na cestě" je tímto naplněno → supersede
         s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
                      "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date AND status='announced'"),

@@ -389,4 +389,27 @@
     {i:'🌅',t:function(){return '<b>'+pick(names)+'</b> přijde dnes později';}},
     {i:'🌙',t:function(){return '<b>'+pick(names)+'</b> — pro dnešek hotovo 😊';}},
     {i:'🙋',t:function(){return '<b>'+pick(names)+'</b> potřebuje vedoucího';}},
-    {i:'💡',t:function(){return '<b>'+pick(names)+'</b> informuje vedení — <b>'+pick(orders)+
+    {i:'💡',t:function(){return '<b>'+pick(names)+'</b> informuje vedení — <b>'+pick(orders)+'</b>';}},
+    {i:'⏳',t:function(){return '<b>'+pick(names)+'</b> bude za chvíli hotov na <b>'+pick(orders)+'</b>';}},
+    {i:'🧰',t:function(){return '<b>'+pick(names)+'</b> hlásí volnou kapacitu — nemá co dělat';}},
+    {i:'🩺',t:function(){return '<b>'+pick(names)+'</b> odešel/a k lékaři';}},
+    {i:'🏠',t:function(){return '<b>'+pick(names)+'</b> dnes pracuje z domova';}},
+    {i:'🍽️',t:function(){return '<b>'+pick(names)+'</b> šel/šla na oběd';}},
+    {i:'🔙',t:function(){return '<b>'+pick(names)+'</b> je zpět z pauzy';}},
+    {i:'📥',t:function(){return '<b>'+pick(names)+'</b> hlásí: dochází materiál na <b>'+pick(orders)+'</b>';}},
+    {i:'🚚',t:function(){return 'Objednán materiál pro <b>'+pick(orders)+'</b>';}},
+    {i:'🧱',t:function(){return '<b>'+pick(names)+'</b> čeká na materiál — <b>'+pick(orders)+'</b>';}}
+  ];
+  var feed=document.getElementById('feed');
+  function nowt(){var d=new Date();var p=function(n){return(n<10?'0':'')+n};return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
+  function addEv(){
+    var tp=pick(tpls);var el=document.createElement('div');el.className='ev';
+    el.innerHTML='<div class="ei">'+tp.i+'</div><div class="etx">'+tp.t()+'</div><div class="etm">'+nowt()+'</div>';
+    feed.insertBefore(el,feed.firstChild);
+    while(feed.children.length>18)feed.removeChild(feed.lastChild);
+  }
+  for(var i=0;i<6;i++)addEv();
+  (function loop(){addEv();setTimeout(loop,R(1600,2800));})();
+})();
+</script>
+</body></html>

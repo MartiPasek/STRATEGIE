@@ -19,6 +19,14 @@
   .btn{display:inline-flex;align-items:center;gap:9px;padding:14px 26px;border-radius:14px;font-weight:700;font-size:15px;cursor:pointer;transition:.2s;border:0}
   .btn-p{background:linear-gradient(110deg,var(--grn),var(--tl));color:#04150e;box-shadow:0 10px 30px rgba(45,212,191,.25)}
   .btn-p:hover{transform:translateY(-2px);box-shadow:0 16px 40px rgba(45,212,191,.4)}
+  .cta-live{position:relative;font-size:17px!important;padding:16px 32px!important;animation:ctapulse 1.7s infinite}
+  .cta-live:hover{animation:none}
+  @keyframes ctapulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.6),0 10px 30px rgba(45,212,191,.35);transform:scale(1)}
+    50%{transform:scale(1.04)}
+    70%{box-shadow:0 0 0 18px rgba(52,211,153,0),0 10px 30px rgba(45,212,191,.35)}
+    100%{box-shadow:0 0 0 0 rgba(52,211,153,0),0 10px 30px rgba(45,212,191,.35);transform:scale(1)}}
+  .cta-live .ld{display:inline-block;width:9px;height:9px;border-radius:50%;background:#04150e;animation:blink2 1s infinite}
+  @keyframes blink2{50%{opacity:.25}}
   .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}
   .btn-g:hover{border-color:var(--tl);color:var(--tl)}
   nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
@@ -134,7 +142,7 @@
     postavenou za dny. Vaši výrobu provedeme celou cestou — od náčrtku přes data po chytré rozhodnutí.
     A nezapomeneme na lidi.</p>
   <div class="hero-cta">
-    <a href="/web/demo" class="btn btn-p">Chci to vidět naživo →</a>
+    <a href="/web/demo" class="btn btn-p cta-live"><span class="ld"></span> Chci to vidět naživo →</a>
     <a href="#ekosystem" class="btn btn-g">Jak to spolupracuje</a>
   </div>
   <div class="hero-note"><b>20 let</b> v automatizaci · <b>stovky projektů</b> po celém světě · <b>TISAX AL2</b> &amp; <b>ISO 27001</b> · servis <b>24/7</b></div>
@@ -207,7 +215,7 @@
       <div class="feat"><div class="ic">🏭</div><div><h4>Výroba v reálném čase</h4><p>Kdo je kde, co běží, co stojí. Data z IQHUBS čidel + lidská zpětná vazba z haly v jednom přehledu.</p></div></div>
       <div class="feat"><div class="ic">🧩</div><div><h4>Pravidla na míru bez programátora</h4><p>Každá skupina jinak, každý člověk se svou výjimkou. Systém → skupina → jednotlivec, konfigurovatelné na kliknutí.</p></div></div>
       <div class="feat"><div class="ic">🚀</div><div><h4>Nasazení rychlostí myšlenky</h4><p>Nápad ráno → funkční nástroj na telefonech do večera. To není slib, to je způsob, jak pracujeme.</p></div></div>
-      <a href="/web/demo" class="btn btn-p" style="margin-top:8px">Ukážeme vám to →</a>
+      <a href="/web/demo" class="btn btn-p cta-live" style="margin-top:8px"><span class="ld"></span> Ukážeme vám to naživo →</a>
     </div>
     <div class="phone"><div class="scr">
       <div class="top">Dnes makám 😉</div>
@@ -254,4 +262,6 @@
     </div>
     <div style="margin-top:34px;padding-top:26px;border-top:1px solid var(--bord)">
       <div style="font-size:13px;letter-spacing:1.2px;font-weight:700;text-transform:uppercase;color:var(--mut);margin-bottom:14px">A rosteme společně s partnery v rozvoji lidí a řízení firem</div>
-      <div class="plogos" styl
+      <div class="plogos" style="margin-top:0">
+        <a class="plogo" href="https://www.performia.cz" target="_blank" rel="noopener">Performia ↗<small>NÁBOR &amp; ROZVOJ LIDÍ</small></a>
+        <a class="plogo" href=

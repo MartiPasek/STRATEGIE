@@ -103,7 +103,7 @@
 
 <div class="wrap">
   <div class="dhead">
-    <h1>DEMO Strojírna a.s. — řídicí přehled <span class="demo-flag">FIKTIVNÍ UKÁZKA · ŽIVÁ DATA</span></h1>
+    <h1>VAŠE-firma a.s. — řídicí přehled <span class="demo-flag">FIKTIVNÍ UKÁZKA · ŽIVÁ DATA</span></h1>
     <p>Výrobní firma · 400 zaměstnanců · 50 strojů · 3 haly — vše, co se ve firmě právě teď děje, na jedné obrazovce.</p>
   </div>
 
@@ -390,4 +390,10 @@
     var tp=pick(tpls);var el=document.createElement('div');el.className='ev';
     el.innerHTML='<div class="ei">'+tp.i+'</div><div class="etx">'+tp.t()+'</div><div class="etm">'+nowt()+'</div>';
     feed.insertBefore(el,feed.firstChild);
-    wh
+    while(feed.children.length>9)feed.removeChild(feed.lastChild);
+  }
+  for(var i=0;i<6;i++)addEv();
+  (function loop(){addEv();setTimeout(loop,R(1600,2800));})();
+})();
+</script>
+</body></html>

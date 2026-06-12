@@ -6378,6 +6378,144 @@ async def app_hr_rezim_add(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _obdobi_first(s_obd: str):
+    """'2026-05' / '2026-05-01' -> date(2026,5,1)."""
+    import datetime as _dt
+    s_obd = (s_obd or "").strip()
+    try:
+        parts = s_obd.split("-")
+        return _dt.date(int(parts[0]), int(parts[1]), 1)
+    except Exception:
+        t = _dt.date.today()
+        return _dt.date(t.year, t.month, 1)
+
+
+@api_router.get("/app/hr/konto")
+async def app_hr_konto(req: Request) -> JSONResponse:
+    """Marti #2: uzávěrkový rozpad přesčasového konta za období. Lidé s aktivním
+    kontem (rez_konto_aktivni), zůstatek z minulé uzávěrky + případné rozhodnutí."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    obd = _obdobi_first(req.query_params.get("obdobi") or "")
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT e.id, e.user_id, COALESCE(e.full_name,e.cislo_zam), e.tenant_id, "
+            "       COALESCE(e.rez_konto_volba,'do_premie'), "
+            "       COALESCE(e.rez_prescas_priplatek_pct,25) "
+            "FROM tenant.att_employee e "
+            "WHERE e.tenant_id IN (2,14) AND COALESCE(e.rez_konto_aktivni,false)=true "
+            "  AND COALESCE(e.is_active,true)=true "
+            "ORDER BY COALESCE(e.full_name,e.cislo_zam)"), ).fetchall()
+        out = []
+        for r in rows:
+            emp_id = r[0]
+            # zůstatek = konto_po z poslední dřívější uzávěrky
+            pred = s.execute(_t(
+                "SELECT konto_po FROM tenant.att_konto_settlement "
+                "WHERE employee_id=:e AND obdobi < :o ORDER BY obdobi DESC LIMIT 1"),
+                {"e": emp_id, "o": obd}).scalar()
+            # existující rozhodnutí pro toto období
+            cur = s.execute(_t(
+                "SELECT konto_pred,nabehlo,do_premie_h,premie_kc,do_prescas_h,prescas_priplatek_pct,"
+                "       prescas_kc,prevedeno_h,konto_po,decided_by_user_id,decided_at,note "
+                "FROM tenant.att_konto_settlement WHERE employee_id=:e AND obdobi=:o"),
+                {"e": emp_id, "o": obd}).first()
+            d = None
+            if cur:
+                d = {"konto_pred": float(cur[0]), "nabehlo": float(cur[1]),
+                     "do_premie_h": float(cur[2]), "premie_kc": float(cur[3]),
+                     "do_prescas_h": float(cur[4]), "prescas_priplatek_pct": float(cur[5]),
+                     "prescas_kc": float(cur[6]), "prevedeno_h": float(cur[7]),
+                     "konto_po": float(cur[8]), "decided": cur[9] is not None,
+                     "decided_at": (cur[10].isoformat() if cur[10] else None), "note": cur[11]}
+            out.append({"employee_id": emp_id, "user_id": r[1], "jmeno": r[2],
+                        "tenant_id": r[3], "volba": r[4], "priplatek_pct": float(r[5]),
+                        "konto_pred": float(pred) if pred is not None else 0.0,
+                        "settlement": d})
+        return JSONResponse({"ok": True, "obdobi": obd.isoformat(), "lide": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/konto/save")
+async def app_hr_konto_save(req: Request) -> JSONResponse:
+    """Uloží rozpad konta: do_premie_h + do_prescas_h proplaceno (Kč ze sazby),
+    zbytek se převede (konto_po = převedeno). Idempotentní (delete+insert na období)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+
+    def _num(k, dflt=0.0):
+        try:
+            return float((b or {}).get(k) or 0)
+        except Exception:
+            return dflt
+    try:
+        emp_id = int((b or {}).get("employee_id") or 0)
+    except Exception:
+        emp_id = 0
+    if not emp_id:
+        return JSONResponse({"ok": False, "error": "employee_id"})
+    obd = _obdobi_first((b or {}).get("obdobi") or "")
+    nabehlo = _num("nabehlo")
+    sazba = _num("hodinova_sazba")
+    do_premie = _num("do_premie_h")
+    do_prescas = _num("do_prescas_h")
+    note = str((b or {}).get("note") or "").strip()[:500] or None
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        pct = s.execute(_t("SELECT COALESCE(rez_prescas_priplatek_pct,25) "
+                           "FROM tenant.att_employee WHERE id=:e"), {"e": emp_id}).scalar() or 25
+        pct = float(pct)
+        tid = s.execute(_t("SELECT tenant_id FROM tenant.att_employee WHERE id=:e"),
+                        {"e": emp_id}).scalar() or _ATT_TENANT
+        pred = s.execute(_t(
+            "SELECT konto_po FROM tenant.att_konto_settlement "
+            "WHERE employee_id=:e AND obdobi < :o ORDER BY obdobi DESC LIMIT 1"),
+            {"e": emp_id, "o": obd}).scalar()
+        konto_pred = float(pred) if pred is not None else 0.0
+        if do_premie < 0 or do_prescas < 0:
+            return JSONResponse({"ok": False, "error": "Hodiny nesmí být záporné."})
+        if do_premie + do_prescas > konto_pred + nabehlo + 0.001:
+            return JSONResponse({"ok": False, "error": "Proplácíš víc hodin, než je v kontu (zůstatek + naběhlo)."})
+        premie_kc = round(do_premie * sazba)
+        prescas_kc = round(do_prescas * sazba * (1.0 + pct / 100.0))
+        prevedeno = round(konto_pred + nabehlo - do_premie - do_prescas, 2)
+        konto_po = prevedeno
+        s.execute(_t("DELETE FROM tenant.att_konto_settlement WHERE employee_id=:e AND obdobi=:o"),
+                  {"e": emp_id, "o": obd})
+        s.execute(_t(
+            "INSERT INTO tenant.att_konto_settlement (tenant_id,employee_id,obdobi,konto_pred,nabehlo,"
+            "do_premie_h,premie_kc,do_prescas_h,prescas_priplatek_pct,prescas_kc,prevedeno_h,konto_po,"
+            "decided_by_user_id,decided_at,note) "
+            "VALUES (:t,:e,:o,:kp,:nb,:dp,:pk,:dpr,:pct,:prk,:prev,:kpo,:by,now(),:n)"),
+            {"t": tid, "e": emp_id, "o": obd, "kp": konto_pred, "nb": nabehlo,
+             "dp": do_premie, "pk": premie_kc, "dpr": do_prescas, "pct": pct,
+             "prk": prescas_kc, "prev": prevedeno, "kpo": konto_po, "by": uid, "n": note})
+        s.commit()
+        return JSONResponse({"ok": True, "premie_kc": premie_kc, "prescas_kc": prescas_kc,
+                             "prevedeno_h": prevedeno, "konto_po": konto_po})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person")
 async def app_hr_person(req: Request) -> JSONResponse:
     """Karta člověka pro HR (úřední pole + děti). BEZ paměti a trezoru."""

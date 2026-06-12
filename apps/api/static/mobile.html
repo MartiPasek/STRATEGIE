@@ -1144,6 +1144,7 @@ setTimeout(function(){
     l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (přes mobil)",function(){ go("hr_me"); }));
     l.appendChild(row("👥","Personální složky","Přehled a správa lidí (HR / vedení)",function(){ go("hr_people"); }));
     l.appendChild(row("🧩","Režimy docházky","Forma (HPP/DPP/OSVČ), režim, konto, loajalita",function(){ go("hr_rezimy"); }));
+    l.appendChild(row("🏦","Uzávěrka konta","Rozpad přesčasů: do prémie / do přesčasu / převést",function(){ go("hr_konto"); }));
     l.appendChild(row("📄","Generovat dokument","Smlouva a další → PDF z živých dat",function(){ go("doc_gen"); }));
     l.appendChild(row("💰","Mzdy: Helios × STRATEGIE","Porovnání ZDROJ × CÍL × delta (vedení)",function(){ go("wage_cmp"); }));
     l.appendChild(row("🔑","Skupina HR — přístupy","Kdo vidí personální složky (spravují rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
@@ -1394,6 +1395,82 @@ setTimeout(function(){
     }
     var _td=null; srch.addEventListener("input",function(){ clearTimeout(_td); _td=setTimeout(function(){ load(srch.value.trim()); },250); });
     load("");
+  }
+  function hr_konto(){
+    app.innerHTML=topbar("🏦 Uzávěrka konta", true);
+    function chip(t,c){ return '<span style="background:'+c+';color:#04150e;border-radius:8px;padding:2px 7px;font-size:11px;font-weight:700;">'+esc(t)+'</span>'; }
+    function nf(v){ return (Math.round((v||0)*100)/100).toString().replace('.',','); }
+    function kc(v){ return new Intl.NumberFormat('cs-CZ').format(Math.round(v||0))+' Kč'; }
+    // default = minulý měsíc (uzávěrka uzavřeného období)
+    var now=new Date(); var d=new Date(now.getFullYear(),now.getMonth()-1,1);
+    var curObd=d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2);
+    var mi=el('<input type="month" value="'+curObd+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;margin-bottom:8px;">');
+    app.appendChild(mi);
+    app.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">Jen lidé s aktivním kontem. Zůstatek = převod z minulé uzávěrky. Rozhodni, kolik hodin proplatit do prémie, kolik do přesčasu (s příplatkem), zbytek se převede do dalšího měsíce.</div>'));
+    var list=el('<div></div>'); app.appendChild(list);
+    function panel(box,p){
+      var w=el('<div></div>');
+      var s=(p.settlement||{});
+      var nabehlo=(s.nabehlo!=null?s.nabehlo:0);
+      var sazba=(s.do_premie_h>0?Math.round(s.premie_kc/s.do_premie_h):0);
+      function numf(label,val,step){ return '<label class="hint" style="display:block;margin:6px 0 2px;">'+label+'</label><input type="number" step="'+(step||"0.5")+'" value="'+(val||0)+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">'; }
+      w.innerHTML='<div class="hint" style="margin:2px 0 6px;">Zůstatek z minula: <b style="color:#e8eefc;">'+nf(p.konto_pred)+' h</b> · příplatek '+nf(p.priplatek_pct)+' %</div>'
+        +numf("Naběhlo za období (h)",nabehlo)
+        +numf("Hodinová sazba (Kč/h, pro výpočet)",sazba,"1")
+        +numf("Proplatit do prémie (h)",s.do_premie_h)
+        +numf("Proplatit do přesčasu (h)",s.do_prescas_h);
+      var nums=w.querySelectorAll("input[type=number]");
+      var calc=el('<div style="margin-top:10px;padding:10px;border-radius:10px;background:#0a1226;line-height:1.7;"></div>');
+      var note=el('<input type="text" placeholder="Poznámka (volitelné)" value="'+esc(s.note||"")+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin-top:8px;">');
+      function recalc(){
+        var nb=parseFloat(nums[0].value)||0, sz=parseFloat(nums[1].value)||0, dp=parseFloat(nums[2].value)||0, dpr=parseFloat(nums[3].value)||0;
+        var pk=Math.round(dp*sz), prk=Math.round(dpr*sz*(1+p.priplatek_pct/100));
+        var prev=Math.round((p.konto_pred+nb-dp-dpr)*100)/100;
+        var over=(dp+dpr> p.konto_pred+nb+0.001);
+        calc.innerHTML='Do prémie: <b>'+nf(dp)+' h</b> = '+kc(pk)+'<br>'
+          +'Do přesčasu: <b>'+nf(dpr)+' h</b> +'+nf(p.priplatek_pct)+'% = '+kc(prk)+'<br>'
+          +'<span style="'+(over?"color:#f87171;":"")+'">Převedeno do dalšího měsíce: <b>'+nf(prev)+' h</b></span>'
+          +(over?'<br><span style="color:#f87171;">⚠ Proplácíš víc, než je v kontu</span>':'');
+        return {over:over};
+      }
+      nums.forEach(function(n){ n.addEventListener("input",recalc); });
+      note.addEventListener("focus",function(){});
+      var btn=el('<button class="green full" style="margin-top:10px;">💾 Uložit rozhodnutí</button>');
+      var st=el('<div class="hint" style="margin-top:6px;"></div>');
+      btn.addEventListener("click",function(){
+        if(recalc().over){ st.textContent="✗ Proplácíš víc, než je v kontu."; return; }
+        btn.disabled=true; st.textContent="Ukládám…";
+        api("POST","/api/v1/erp/app/hr/konto/save",{employee_id:p.employee_id,obdobi:mi.value,
+          nabehlo:parseFloat(nums[0].value)||0, hodinova_sazba:parseFloat(nums[1].value)||0,
+          do_premie_h:parseFloat(nums[2].value)||0, do_prescas_h:parseFloat(nums[3].value)||0,
+          note:note.value}).then(function(r){
+            btn.disabled=false; st.textContent=(r&&r.ok)?"✅ Uloženo":("✗ "+((r&&r.error)||"chyba")); if(r&&r.ok) setTimeout(load,600);
+          });
+      });
+      w.appendChild(calc); w.appendChild(note); w.appendChild(btn); w.appendChild(st); box.appendChild(w); recalc();
+    }
+    function load(){
+      list.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/hr/konto?obdobi="+encodeURIComponent(mi.value),"").then(function(j){
+        list.innerHTML="";
+        if(!j||!j.ok){ list.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Nemáš přístup (jen HR / vedení).":"Nelze načíst.")+'</div>')); return; }
+        if(!j.lide.length){ list.appendChild(el('<div class="hint">Nikdo s aktivním kontem. Konto zapneš v „Režimy docházky".</div>')); return; }
+        list.appendChild(el('<div class="hint" style="margin-bottom:4px;">'+j.lide.length+' lidí s kontem</div>'));
+        j.lide.forEach(function(p){
+          var firmaLbl=(p.tenant_id===14?'INTERSOFT':'EUROSOFT');
+          var done=(p.settlement&&p.settlement.decided);
+          var row=el('<div style="border-bottom:1px solid #1b2742;padding:10px 4px;"></div>');
+          var head=el('<div style="display:flex;align-items:center;gap:10px;cursor:pointer;"></div>');
+          head.appendChild(el('<div style="flex:1;"><div style="font-weight:600;">'+esc(p.jmeno)+' <span class="hint">· '+firmaLbl+'</span></div><div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap;">'+chip('zůstatek '+nf(p.konto_pred)+' h','#fbbf24')+(done?chip('rozhodnuto','#34d399'):chip('čeká','#60a5fa'))+'</div></div>'));
+          head.appendChild(el('<div class="chev" style="color:#5a6;">&#8250;</div>'));
+          var ed=el('<div style="display:none;margin-top:10px;"></div>');
+          head.addEventListener("click",function(){ ed.style.display=(ed.style.display==='none')?'block':'none'; if(ed.dataset.built!=='1'){ panel(ed,p); ed.dataset.built='1'; } });
+          row.appendChild(head); row.appendChild(ed); list.appendChild(row);
+        });
+      });
+    }
+    mi.addEventListener("change",load);
+    load();
   }
   function hr_person(){
     var uid=window._hrUid;
@@ -4005,7 +4082,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

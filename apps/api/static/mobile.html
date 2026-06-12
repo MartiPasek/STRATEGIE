@@ -1163,37 +1163,34 @@ setTimeout(function(){
     if(/pamě|pamet|poznám|poznam/.test(s))return"📝"; return"📄"; }
   function hr_me(){
     app.innerHTML=topbar("🪪 Moje osobní údaje", true);
-    app.appendChild(el('<div class="hint" style="line-height:1.55;margin-bottom:8px;">Tvoje údaje spravuješ ty sám — jsou <b>primárním zdrojem</b> pro smlouvu, výplatu a evidenci. Vyber sekci vpravo. Změny vidí personální (HR).</div>'));
-    var _me={f:0, secs:[], inputs:{}, childBox:null, vaultBox:null};
-    var pane=el('<div style="display:flex;gap:10px;height:62vh;align-items:stretch;">'
+    app.appendChild(el('<div class="hint" style="line-height:1.55;margin-bottom:8px;">Tvoje údaje spravuješ ty sám — jsou <b>primárním zdrojem</b> pro smlouvu, výplatu a evidenci. Vpravo skoč rovnou na sekci; ťukni do seznamu a lišta se schová pro plnou šířku.</div>'));
+    var pane=el('<div style="position:relative;display:flex;gap:10px;height:64vh;align-items:stretch;">'
       +'<div id="meContent" style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;"><div class="hint">Načítám…</div></div>'
       +'<div id="meRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
     app.appendChild(pane);
-    _me.childBox=el('<div></div>'); _selfChildren(_me.childBox);
-    _me.vaultBox=el('<div></div>'); _selfVault(_me.vaultBox);
-    function _meRailBtn(icon,label,key){
-      var on=(String(_me.f)===String(key));
-      var b=el('<button style="position:relative;width:100%;box-sizing:border-box;margin:0;padding:10px 2px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(on?"#04150e":"var(--mut)")+';border-radius:13px;cursor:pointer;"><span style="font-size:23px;line-height:1;">'+icon+'</span>'+esc(label)+'</button>');
-      b.addEventListener("click",function(){ _me.f=key; render(); });
-      return b;
-    }
-    function render(){
-      var rail=document.getElementById("meRail"), cont=document.getElementById("meContent");
-      if(!rail||!cont) return;
+    var cont=pane.querySelector("#meContent"), rail=pane.querySelector("#meRail");
+    var toggleBtn=el('<button style="position:absolute;top:6px;right:6px;z-index:5;display:none;padding:7px 11px;border-radius:10px;border:1px solid var(--bord);background:#1a2440;color:#cfe;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.4);">📑 Sekce</button>');
+    pane.appendChild(toggleBtn);
+    function showRail(on){ rail.style.display=on?"":"none"; toggleBtn.style.display=on?"none":""; }
+    // ťuknutí do seznamu → schovej lištu, plná šířka
+    cont.addEventListener("click",function(){ if(rail.style.display!=="none") showRail(false); });
+    toggleBtn.addEventListener("click",function(e){ e.stopPropagation(); showRail(true); });
+    function scrollToId(id){ var t=document.getElementById(id); if(t) cont.scrollTop=Math.max(0, t.offsetTop - cont.offsetTop - 4); }
+    var anchors=[], inputs={};
+    function buildRail(){
       rail.innerHTML="";
-      _me.secs.forEach(function(sec,i){ rail.appendChild(_meRailBtn(_meIcon(sec.label),(sec.label||"").split(" ")[0],i)); });
-      rail.appendChild(_meRailBtn("👨‍👩‍👧","Děti","deti"));
-      rail.appendChild(_meRailBtn("🔐","Trezor","trezor"));
-      cont.innerHTML="";
-      if(_me.f==="deti"){ cont.appendChild(_me.childBox); return; }
-      if(_me.f==="trezor"){ cont.appendChild(_me.vaultBox); return; }
-      var sec=_me.secs[_me.f]; if(!sec){ cont.appendChild(el('<div class="hint">—</div>')); return; }
-      cont.appendChild(sec._node);
+      anchors.forEach(function(a){
+        var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:10px 2px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid var(--bord);background:rgba(255,255,255,0.02);color:var(--mut);border-radius:13px;cursor:pointer;"><span style="font-size:23px;line-height:1;">'+a.icon+'</span>'+esc(a.label)+'</button>');
+        b.addEventListener("click",function(e){ e.stopPropagation(); scrollToId(a.id); });
+        rail.appendChild(b);
+      });
     }
     api("GET","/api/v1/erp/app/self-data","").then(function(j){
-      if(!j||!j.ok){ var c=document.getElementById("meContent"); if(c)c.innerHTML='<div class="hint">Nepodařilo se načíst ('+esc((j&&j.error)||"chyba")+').</div>'; return; }
-      (j.sections||[]).forEach(function(sec){
-        var card=el('<div style="background:#0f1830;border:1px solid #22304f;border-radius:14px;padding:12px 14px;"></div>');
+      cont.innerHTML="";
+      if(!j||!j.ok){ cont.innerHTML='<div class="hint">Nepodařilo se načíst ('+esc((j&&j.error)||"chyba")+').</div>'; return; }
+      (j.sections||[]).forEach(function(sec,i){
+        var sid="mesec_"+i; anchors.push({icon:_meIcon(sec.label),label:(sec.label||"").split(" ")[0],id:sid});
+        var card=el('<div id="'+sid+'" style="background:#0f1830;border:1px solid #22304f;border-radius:14px;padding:12px 14px;margin-bottom:12px;"></div>');
         card.appendChild(el('<div style="font-weight:700;font-size:16px;margin-bottom:2px;">'+esc(sec.label)+'</div>'));
         card.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">'+esc(sec.why)+'</div>'));
         (sec.items||[]).forEach(function(it){
@@ -1206,24 +1203,28 @@ setTimeout(function(){
           inp.value = isDate ? _czDate(it.value) : (it.value||"");
           if(isDate) inp._isDate=true;
           if(it.key==="birth_number") inp._isRc=true;
-          _me.inputs[it.key]=inp; fld.appendChild(inp); card.appendChild(fld);
+          inputs[it.key]=inp; fld.appendChild(inp); card.appendChild(fld);
         });
-        var st=el('<div class="hint" style="margin:4px 0 8px;min-height:18px;"></div>');
-        var btn=el('<button style="width:100%;padding:13px;border:0;border-radius:12px;background:#2563eb;color:#fff;font-size:15px;font-weight:700;">💾 Uložit moje údaje</button>');
-        btn.addEventListener("click",function(){
-          var vals={}, rcBad=false; Object.keys(_me.inputs).forEach(function(k){ var v=_me.inputs[k].value; if(_me.inputs[k]._isDate) v=_isoDate(v); if(_me.inputs[k]._isRc && (v||"").trim() && !_rcValid(v)) rcBad=true; vals[k]=v; });
-          if(rcBad){ if(!confirm("Rodné číslo neprošlo kontrolou (modulo 11). Uložit přesto?"))return; }
-          btn.disabled=true; st.style.color="#9fb2d4"; st.textContent="Ukládám…";
-          api("POST","/api/v1/erp/app/self-data/save",{values:vals}).then(function(r){
-            btn.disabled=false;
-            if(r&&r.ok){ st.style.color="#5ee0b7"; st.textContent=(r.changed>0)?("Uloženo ✓ ("+r.changed+" změn)"):"Beze změn ✓"; }
-            else { st.style.color="#f88"; st.textContent="Chyba: "+esc((r&&r.error)||"nepodařilo se uložit"); }
-          });
-        });
-        card.appendChild(st); card.appendChild(btn);
-        sec._node=card; _me.secs.push(sec);
+        cont.appendChild(card);
       });
-      render();
+      if(j.updated_at){ cont.appendChild(el('<div class="hint" style="margin:-4px 0 8px;">Naposledy upraveno: '+esc(new Date(j.updated_at).toLocaleString("cs"))+'</div>')); }
+      var st=el('<div class="hint" style="margin:4px 0 8px;min-height:18px;"></div>'); cont.appendChild(st);
+      var btn=el('<button style="width:100%;padding:14px;border:0;border-radius:12px;background:#2563eb;color:#fff;font-size:16px;font-weight:700;margin-bottom:14px;">💾 Uložit moje údaje</button>');
+      btn.addEventListener("click",function(){
+        var vals={}, rcBad=false; Object.keys(inputs).forEach(function(k){ var v=inputs[k].value; if(inputs[k]._isDate) v=_isoDate(v); if(inputs[k]._isRc && (v||"").trim() && !_rcValid(v)) rcBad=true; vals[k]=v; });
+        if(rcBad){ if(!confirm("Rodné číslo neprošlo kontrolou (modulo 11). Uložit přesto?"))return; }
+        btn.disabled=true; st.style.color="#9fb2d4"; st.textContent="Ukládám…";
+        api("POST","/api/v1/erp/app/self-data/save",{values:vals}).then(function(r){
+          btn.disabled=false;
+          if(r&&r.ok){ st.style.color="#5ee0b7"; st.textContent=(r.changed>0)?("Uloženo ✓ ("+r.changed+" změn)"):"Beze změn ✓"; }
+          else { st.style.color="#f88"; st.textContent="Chyba: "+esc((r&&r.error)||"nepodařilo se uložit"); }
+        });
+      });
+      cont.appendChild(btn);
+      var cb=el('<div id="mesec_deti"></div>'); cont.appendChild(cb); _selfChildren(cb); anchors.push({icon:"👨‍👩‍👧",label:"Děti",id:"mesec_deti"});
+      var vb=el('<div id="mesec_trezor" style="margin-top:6px;"></div>'); cont.appendChild(vb); _selfVault(vb); anchors.push({icon:"🔐",label:"Trezor",id:"mesec_trezor"});
+      cont.appendChild(el('<div style="height:30px;"></div>'));
+      buildRail();
     });
   }
   // --- karta: deti/blizke osoby ---

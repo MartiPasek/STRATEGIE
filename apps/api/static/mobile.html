@@ -1162,9 +1162,8 @@ setTimeout(function(){
     if(/výplat|vyplat|účet|ucet|banka|iban|pojišť|pojist/.test(s))return"🏦"; if(/doklad|rodné|op |pas|průkaz/.test(s))return"🔒";
     if(/pamě|pamet|poznám|poznam/.test(s))return"📝"; return"📄"; }
   function hr_me(){
-    app.innerHTML=topbar("🪪 Moje osobní údaje", true);
-    app.appendChild(el('<div class="hint" style="line-height:1.55;margin-bottom:8px;">Tvoje údaje spravuješ ty sám — jsou <b>primárním zdrojem</b> pro smlouvu, výplatu a evidenci. Vpravo skoč rovnou na sekci; ťukni do seznamu a lišta se schová pro plnou šířku.</div>'));
-    var pane=el('<div style="position:relative;display:flex;gap:10px;height:calc(64vh - 86px);align-items:stretch;">'
+    app.innerHTML=topbar("", true);
+    var pane=el('<div style="position:relative;display:flex;gap:10px;height:calc(100vh - 168px);align-items:stretch;">'
       +'<div id="meContent" style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;"><div class="hint">Načítám…</div></div>'
       +'<div id="meRail" style="width:86px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:6px;padding:0;"></div></div>');
     app.appendChild(pane);
@@ -1191,6 +1190,8 @@ setTimeout(function(){
     api("GET","/api/v1/erp/app/self-data","").then(function(j){
       cont.innerHTML="";
       if(!j||!j.ok){ cont.innerHTML='<div class="hint">Nepodařilo se načíst ('+esc((j&&j.error)||"chyba")+').</div>'; return; }
+      cont.appendChild(el('<div style="font-size:22px;font-weight:800;margin:2px 0 4px;">🪪 Moje osobní údaje</div>'));
+      cont.appendChild(el('<div class="hint" style="line-height:1.55;margin-bottom:12px;">Tvoje údaje spravuješ ty sám — jsou <b>primárním zdrojem</b> pro smlouvu, výplatu a evidenci. Vpravo skoč rovnou na sekci; ťukni do seznamu a lišta se schová pro plnou šířku.</div>'));
       (j.sections||[]).forEach(function(sec,i){
         var sid="mesec_"+i; anchors.push({label:(sec.label||("Sekce "+(i+1))),id:sid});
         var card=el('<div id="'+sid+'" style="background:#0f1830;border:1px solid #22304f;border-radius:14px;padding:12px 14px;margin-bottom:12px;"></div>');

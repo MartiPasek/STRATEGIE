@@ -3140,8 +3140,9 @@ setTimeout(function(){
   // accordion zvětšení, 3 tlačítka; 2. klik = detail přes celou obrazovku).
   function _jobIcon(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
     if(/home|domov/.test(s)) return '🏠';
+    if(/konec dne|nepo[čc][íi]t/.test(s)) return '🌙';
     if(/relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d/.test(s)) return '🍴';
-    if(/pauz/.test(s)) return '☕';
+    if(/pauz|p[řr]est[aá]v/.test(s)) return '☕';
     if(/jedn[aá]n/.test(s)) return '🤝';
     if(/poch[uů]z/.test(s)) return '📦';
     if(/lékař|lekar|doktor/.test(s)) return '🩺';
@@ -3207,7 +3208,7 @@ setTimeout(function(){
   function _dochRailSync(){ _railSync("dochTodayRail","dochToday2"); }
   function _jobMimo(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
     if(/home|domov/.test(s)) return false;
-    return /pauz|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d|jedn[aá]n|poch[uů]z|lékař|lekar|doktor/.test(s); }
+    return /pauz|p[řr]est[aá]v|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d|jedn[aá]n|poch[uů]z|lékař|lekar|doktor|konec dne|nepo[čc][íi]t/.test(s); }
   // Marti 12.6.: skupina Režie = produktivní práce BEZ píchnuté zakázky.
   // 'Rezie'/'Režie' jako project_ref = stará auto-stampovaná hodnota → bereme jako bez zakázky.
   function _isRezieRef(r){ r=(r||'').trim(); return !r || /^(rez|rež)ie$/i.test(r); }

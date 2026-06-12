@@ -6452,6 +6452,30 @@ def _konto_compute(s, obd):
         e["loaj"] = loaj
         e["manko_loaj"] = round(manko_loaj, 2)
         e["nabehlo"] = round(ot - manko_loaj, 2)
+    # hodinová sazba ze základní mzdy aktuálního angažmá (per_hour přímo, jinak base/fond)
+    for v in res.values():
+        v["sazba"] = 0
+    try:
+        rr = s.execute(_t(
+            "SELECT e.id, wc.amount_planned, wc.per_hour, en.fond_mesic_h "
+            "FROM tenant.att_employee e "
+            "JOIN LATERAL (SELECT g.id, g.fond_mesic_h FROM tenant.engagement g "
+            "   WHERE g.employee_id=e.id AND COALESCE(g.is_current,false)=true "
+            "   ORDER BY g.valid_from DESC NULLS LAST LIMIT 1) en ON true "
+            "JOIN tenant.wage_component wc ON wc.engagement_id=en.id "
+            "JOIN tenant.wage_component_type ct ON ct.id=wc.component_type_id AND ct.is_base_salary=true "
+            "WHERE e.tenant_id IN (2,14) AND COALESCE(e.rez_konto_aktivni,false)=true")).fetchall()
+        seen = set()
+        for r in rr:
+            if r[0] in seen or r[0] not in res:
+                continue
+            seen.add(r[0])
+            amt = float(r[1] or 0)
+            per_hour = bool(r[2])
+            fond = float(r[3] or 0) or res[r[0]].get("fond", 0) or 160.0
+            res[r[0]]["sazba"] = round(amt if per_hour else (amt / fond if fond else 0))
+    except Exception:
+        pass
     return res
 
 

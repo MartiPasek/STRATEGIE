@@ -1413,7 +1413,7 @@ setTimeout(function(){
       var s=(p.settlement||{});
       var c=(p.comp||{});
       var nabehlo=(p.settlement && s.nabehlo!=null)?s.nabehlo:(c.nabehlo!=null?c.nabehlo:0);
-      var sazba=(s.do_premie_h>0?Math.round(s.premie_kc/s.do_premie_h):0);
+      var sazba=(s.do_premie_h>0?Math.round(s.premie_kc/s.do_premie_h):(c.sazba||0));
       function numf(label,val,step){ return '<label class="hint" style="display:block;margin:6px 0 2px;">'+label+'</label><input type="number" step="'+(step||"0.5")+'" value="'+(val||0)+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">'; }
       var breakdown='';
       if(p.comp){

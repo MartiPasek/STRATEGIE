@@ -1164,7 +1164,7 @@ setTimeout(function(){
   function hr_me(){
     app.innerHTML=topbar("🪪 Moje osobní údaje", true);
     app.appendChild(el('<div class="hint" style="line-height:1.55;margin-bottom:8px;">Tvoje údaje spravuješ ty sám — jsou <b>primárním zdrojem</b> pro smlouvu, výplatu a evidenci. Vpravo skoč rovnou na sekci; ťukni do seznamu a lišta se schová pro plnou šířku.</div>'));
-    var pane=el('<div style="position:relative;display:flex;gap:10px;height:64vh;align-items:stretch;">'
+    var pane=el('<div style="position:relative;display:flex;gap:10px;height:calc(64vh - 86px);align-items:stretch;">'
       +'<div id="meContent" style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;"><div class="hint">Načítám…</div></div>'
       +'<div id="meRail" style="width:86px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:6px;padding:0;"></div></div>');
     app.appendChild(pane);
@@ -1183,7 +1183,7 @@ setTimeout(function(){
     function buildRail(){
       rail.innerHTML="";
       anchors.forEach(function(a){
-        var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:10px 6px;font-size:11.5px;line-height:1.2;text-align:center;word-break:break-word;border:1px solid var(--bord);background:rgba(255,255,255,0.02);color:#cdd;border-radius:11px;cursor:pointer;">'+esc(a.label)+'</button>');
+        var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:10px 6px;font-size:11.5px;line-height:1.2;text-align:center;word-break:break-word;border:1px solid var(--bord);background:rgba(255,255,255,0.02);color:#cdd;border-radius:11px;cursor:pointer;">'+(a.icon?('<span style="font-size:20px;display:block;line-height:1.1;margin-bottom:2px;">'+a.icon+'</span>'):'')+esc(a.label)+'</button>');
         b.addEventListener("click",function(e){ e.stopPropagation(); scrollToId(a.id); });
         rail.appendChild(b);
       });
@@ -1319,7 +1319,7 @@ setTimeout(function(){
     var srch=el('<input type="text" placeholder="Hledat jméno…" style="width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-size:15px;margin-bottom:10px;">');
     app.appendChild(srch);
     var _hp={f:"vse",data:[]};
-    var pane=el('<div style="display:flex;gap:10px;height:62vh;align-items:stretch;">'
+    var pane=el('<div style="display:flex;gap:10px;height:calc(62vh - 86px);align-items:stretch;">'
       +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="hpList" style="padding:0;list-style:none;margin:0;"></ul></div>'
       +'<div id="hpRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
     app.appendChild(pane);
@@ -1375,7 +1375,7 @@ setTimeout(function(){
     addBtn.addEventListener("click",function(){ if(addBox.style.display==='none'){ addBox.style.display='block'; buildAdd(addBox); } else { addBox.style.display='none'; } });
     app.appendChild(addBtn); app.appendChild(addBox);
     var _rz={f:"vse",data:[]};
-    var pane=el('<div style="display:flex;gap:10px;height:58vh;align-items:stretch;">'
+    var pane=el('<div style="display:flex;gap:10px;height:calc(58vh - 86px);align-items:stretch;">'
       +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="rezList" style="padding:0;list-style:none;margin:0;"></ul></div>'
       +'<div id="rezRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
     app.appendChild(pane);
@@ -1496,7 +1496,7 @@ setTimeout(function(){
     bar.appendChild(prev); bar.appendChild(lbl); bar.appendChild(next);
     app.appendChild(bar);
     // STANDARD TEMPLATE: levý orámovaný přehled + pravá 72px lišta ikon
-    var pane=el('<div style="display:flex;gap:10px;height:64vh;align-items:stretch;">'
+    var pane=el('<div style="display:flex;gap:10px;height:calc(64vh - 86px);align-items:stretch;">'
       +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="kkList" style="padding:0;list-style:none;margin:0;"></ul></div>'
       +'<div id="kkRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
     app.appendChild(pane);
@@ -1658,7 +1658,7 @@ setTimeout(function(){
     app.appendChild(el('<div class="hint" style="margin-bottom:8px;line-height:1.5;">Jen lidé s aktivním kontem. Zůstatek = převod z minulé uzávěrky. Rozhodni do prémie / do přesčasu / převést.</div>'));
     var summ=el('<div style="margin-bottom:8px;"></div>'); app.appendChild(summ);
     var _kt={f:"vse",data:[]};
-    var pane=el('<div style="display:flex;gap:10px;height:54vh;align-items:stretch;">'
+    var pane=el('<div style="display:flex;gap:10px;height:calc(54vh - 86px);align-items:stretch;">'
       +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><ul id="ktList" style="padding:0;list-style:none;margin:0;"></ul></div>'
       +'<div id="ktRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
     app.appendChild(pane);
@@ -1903,7 +1903,7 @@ setTimeout(function(){
     app.innerHTML=topbar("💰 Mzdy: Helios × STRATEGIE", true);
     var _wc={f:"vse",radky:[]};
     var info=el('<div style="margin-bottom:8px;"></div>'); app.appendChild(info);
-    var pane=el('<div style="display:flex;gap:10px;height:56vh;align-items:stretch;">'
+    var pane=el('<div style="display:flex;gap:10px;height:calc(56vh - 86px);align-items:stretch;">'
       +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"><div id="wcList"></div></div>'
       +'<div id="wcRail" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>');
     app.appendChild(pane);

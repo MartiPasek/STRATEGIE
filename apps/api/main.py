@@ -719,8 +719,27 @@ INDEX = os.path.join(static_dir, "index.html")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
+WEB_LANDING = os.path.join(static_dir, "web.html")
+
+
 @app.get("/")
-def index():
+def index(request: Request):
+    """Marti 12.6.2026 — přistávací marketingový web na kořeni domény pro
+    návštěvníky (působí líp než holý login). Přihlášený uživatel (cookie
+    user_id) nebo příchod s ?return=... (např. z /erp login redirectu) dostane
+    chat/login jako dosud → zaměstnancům i PWA (start_url '/') se nic nemění."""
+    if request.cookies.get("user_id") or request.query_params:
+        return FileResponse(INDEX)
+    return FileResponse(WEB_LANDING,
+                        media_type="text/html",
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
+@app.get("/chat")
+def chat_entry():
+    """Vstup do systému (chat/login). Marketing web na / sem odkazuje tlačítkem
+    „Vstup do systému". Vždy servíruje chat appku."""
     return FileResponse(INDEX)
 
 

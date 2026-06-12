@@ -1252,6 +1252,36 @@ setTimeout(function(){
           ed.appendChild(row);
         });
         ed.appendChild(el('<div class="hint" style="margin-top:6px;">Prázdné pole = zdědí ze skupiny/systému. Vyplněné = osobní výjimka.</div>'));
+        // 📅 Vzor týdne
+        ed.appendChild(el('<div style="font-weight:700;margin:14px 0 2px;">📅 Vzor týdne</div>'));
+        var schBox=el('<div></div>'); ed.appendChild(schBox); schBox.innerHTML='<div class="hint">Načítám…</div>';
+        api("GET","/api/v1/erp/app/hr/schedule?user_id="+p.user_id,"").then(function(sj){
+          schBox.innerHTML="";
+          if(!sj||!sj.ok){ schBox.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
+          var info=el('<div class="hint" style="margin-bottom:4px;">Úvazek '+sj.uvazek+' h/týд · součet vzoru: <b id="schSum_'+p.user_id+'">'+sj.suma_h+'</b> h. Šedé dny = odvozeno z úvazku, dokud nenastavíš.</div>');
+          schBox.appendChild(info);
+          var sst=el('<div class="hint" style="min-height:14px;margin-bottom:4px;"></div>'); schBox.appendChild(sst);
+          var states=[];
+          function recalc(){ var sum=0; states.forEach(function(x){ if(x.chk.checked) sum+=(parseFloat(x.hin.value)||0); });
+            var e=document.getElementById("schSum_"+p.user_id); if(e) e.textContent=Math.round(sum*100)/100; }
+          sj.dny.forEach(function(d){
+            var rowS=el('<div style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid #1b2742;'+(d.explicit?'':'opacity:0.65;')+'"></div>');
+            var chk=el('<input type="checkbox" '+(d.works?'checked':'')+' style="width:18px;height:18px;">');
+            rowS.appendChild(chk);
+            rowS.appendChild(el('<div style="width:72px;font-size:13px;">'+esc(d.label)+'</div>'));
+            var hin=el('<input type="number" step="0.5" value="'+d.hours+'" style="width:56px;box-sizing:border-box;padding:6px;border-radius:8px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;text-align:right;">');
+            rowS.appendChild(hin); rowS.appendChild(el('<span class="hint">h</span>'));
+            var ein=el('<input type="text" placeholder="konec" value="'+(d.end_time||"")+'" inputmode="numeric" style="width:62px;box-sizing:border-box;padding:6px;border-radius:8px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;text-align:center;">');
+            rowS.appendChild(ein);
+            states.push({wd:d.weekday,chk:chk,hin:hin,ein:ein});
+            function save(){ rowS.style.opacity="1"; sst.style.color="#9fb2d4"; sst.textContent="Ukládám…"; recalc();
+              api("POST","/api/v1/erp/app/hr/schedule/save",{user_id:p.user_id,weekday:d.weekday,works:chk.checked,hours:parseFloat(hin.value)||0,end_time:ein.value.trim()}).then(function(r){
+                sst.style.color=(r&&r.ok)?"#5ee0b7":"#f88"; sst.textContent=(r&&r.ok)?(d.label+" uloženo ✓"):("✗ "+((r&&r.error)||"chyba")); }); }
+            chk.addEventListener("change",save); hin.addEventListener("change",save); ein.addEventListener("change",save);
+            schBox.appendChild(rowS);
+          });
+          schBox.appendChild(el('<div class="hint" style="margin-top:6px;">Příklad: středa „konec 12:00" → zaškrtni St, hodiny 4, konec 12:00. Čtvrtek nedělá → odškrtni Čt.</div>'));
+        });
       });
     }
     function render(){

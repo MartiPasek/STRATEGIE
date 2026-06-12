@@ -7241,6 +7241,90 @@ async def app_my_conditions(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+_WD = [(1, "Pondělí"), (2, "Úterý"), (3, "Středa"), (4, "Čtvrtek"), (5, "Pátek"),
+       (6, "Sobota"), (7, "Neděle")]
+
+
+@api_router.get("/app/hr/schedule")
+async def app_hr_schedule(req: Request) -> JSONResponse:
+    """Vzor týdne (Marti 12.6.): které dny člověk pracuje + kolik h + volitelně pevný konec.
+    Když nemá vlastní vzor, odvodí se z úvazku (Po–Pá rovnoměrně)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        tu = int(req.query_params.get("user_id") or 0)
+    except Exception:
+        tu = 0
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rowmap = {}
+        for r in s.execute(_t("SELECT weekday,works,hours,to_char(end_time,'HH24:MI') FROM tenant.work_schedule "
+                              "WHERE tenant_id=2 AND user_id=:u"), {"u": tu}).fetchall():
+            rowmap[r[0]] = {"works": r[1], "hours": float(r[2]), "end_time": r[3]}
+        uvazek = _resolve_cond_num(s, tu, "uvazek_h_tyden", 40.0)
+        per_day = round(uvazek / 5.0, 2) if uvazek else 8.0
+        dny = []
+        for wd, label in _WD:
+            if wd in rowmap:
+                r = rowmap[wd]
+                dny.append({"weekday": wd, "label": label, "works": bool(r["works"]),
+                            "hours": r["hours"], "end_time": r["end_time"], "explicit": True})
+            else:
+                w = wd <= 5
+                dny.append({"weekday": wd, "label": label, "works": w,
+                            "hours": (per_day if w else 0.0), "end_time": None, "explicit": False})
+        suma = round(sum(d["hours"] for d in dny if d["works"]), 2)
+        return JSONResponse({"ok": True, "user_id": tu, "uvazek": uvazek, "dny": dny, "suma_h": suma})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/schedule/save")
+async def app_hr_schedule_save(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        tu = int((b or {}).get("user_id") or 0)
+        wd = int((b or {}).get("weekday") or 0)
+    except Exception:
+        tu, wd = 0, 0
+    if not tu or wd not in (1, 2, 3, 4, 5, 6, 7):
+        return JSONResponse({"ok": False, "error": "user_id + weekday(1-7)"})
+    works = bool((b or {}).get("works"))
+    try:
+        hours = float((b or {}).get("hours") or 0)
+    except Exception:
+        hours = 0.0
+    et = str((b or {}).get("end_time") or "").strip() or None
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t(
+            "INSERT INTO tenant.work_schedule (tenant_id,user_id,weekday,works,hours,end_time,changed_by,changed_at) "
+            "VALUES (2,:u,:wd,:w,:h,CAST(:et AS time),:by,now()) "
+            "ON CONFLICT (tenant_id,user_id,weekday) DO UPDATE SET works=EXCLUDED.works, hours=EXCLUDED.hours, "
+            "end_time=EXCLUDED.end_time, changed_by=EXCLUDED.changed_by, changed_at=now()"),
+            {"u": tu, "wd": wd, "w": works, "h": hours, "et": et, "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/person")
 async def app_hr_person(req: Request) -> JSONResponse:
     """Karta člověka pro HR (úřední pole + děti). BEZ paměti a trezoru."""

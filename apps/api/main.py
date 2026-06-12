@@ -772,6 +772,49 @@ def web_program():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+def _web_subpage(fname):
+    return FileResponse(os.path.join(static_dir, fname),
+                        media_type="text/html",
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
+@app.get("/web/psychologie/lide")
+def web_psy_lide():
+    """Podstránka — Porozumět lidem i sobě (praktická psychologie pro vedení)."""
+    return _web_subpage("psy-lide.html")
+
+
+@app.get("/web/psychologie/radost")
+def web_psy_radost():
+    """Podstránka — Radost z práce (spokojený tým = výkon)."""
+    return _web_subpage("psy-radost.html")
+
+
+@app.get("/web/psychologie/energie")
+def web_psy_energie():
+    """Podstránka — Energie v nejisté době."""
+    return _web_subpage("psy-energie.html")
+
+
+@app.get("/web/eurosoft")
+def web_eco_eurosoft():
+    """Podstránka ekosystému — EUROSOFT (ruce: stroje & automatizace)."""
+    return _web_subpage("eco-eurosoft.html")
+
+
+@app.get("/web/iqhubs")
+def web_eco_iqhubs():
+    """Podstránka ekosystému — IQHUBS (oči: data ze strojů)."""
+    return _web_subpage("eco-iqhubs.html")
+
+
+@app.get("/web/strategie")
+def web_eco_strategie():
+    """Podstránka ekosystému — STRATEGIE (rozum & srdce: AI platforma & lidé)."""
+    return _web_subpage("eco-strategie.html")
+
+
 @app.get("/googlef2bedb6d3ffdf33d.html")
 def google_site_verification():
     """Google Search Console / Play ověření vlastnictví webu. Marti 9.6.2026."""

@@ -1159,9 +1159,9 @@ setTimeout(function(){
   // s upozorněním HR na změny. Každý si spravuje svá data sám přes mobil.
   function hr_podminky(){
     app.innerHTML=topbar("📋 Podmínky skupin", true);
-    var SCOPES=[["system","Systém","⚙️"],["elektromontri","Elektromontéři","🔧"],["kancelare","Kanceláře","🏢"],["vedeni","Vedení","👔"],["vp","VP","📐"],["lide","Jednotlivci","🧑"]];
-    var SLAB={system:"Systém (všichni HPP)",elektromontri:"Elektromontéři",kancelare:"Kanceláře",vedeni:"Vedení",vp:"VP — vedoucí projektu"};
-    var _pd={f:"system"};
+    var _pd={f:"system", groups:[]};
+    function gLabel(key){ if(key==="system")return "Systém (výchozí pro všechny)"; if(key==="lide")return "Jednotlivci";
+      var g=_pd.groups.filter(function(x){return String(x.code)===String(key);})[0]; return g?g.label:key; }
     var pane=el('<div style="display:flex;gap:10px;height:calc(64vh - 86px);align-items:stretch;">'
       +'<div id="pdC" style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:6px 10px;"><div class="hint">Načítám…</div></div>'
       +'<div id="pdRail" style="width:84px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:6px;padding:0 0 86px;"></div></div>');
@@ -1188,8 +1188,8 @@ setTimeout(function(){
       api("GET","/api/v1/erp/app/hr/conditions?scope_kind="+sk+(gc?("&group_code="+gc):""),"").then(function(j){
         C.innerHTML="";
         if(!j||!j.ok){ C.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Jen HR / vedení.":"Nelze načíst.")+'</div>')); return; }
-        C.appendChild(el('<div style="font-size:18px;font-weight:800;margin:2px 0 2px;">'+esc(SLAB[key]||key)+'</div>'));
-        C.appendChild(el('<div class="hint" style="margin-bottom:10px;">'+(sk==="system"?"Výchozí pro všechny. Skupina nebo jednotlivec to může přepsat.":"Hodnoty skupiny. Prázdné = zdědí ze systému.")+'</div>'));
+        C.appendChild(el('<div style="font-size:18px;font-weight:800;margin:2px 0 2px;">'+esc(gLabel(key))+'</div>'));
+        C.appendChild(el('<div class="hint" style="margin-bottom:10px;">'+(sk==="system"?"Výchozí pro všechny. Skupina nebo jednotlivec to může přepsat.":"Hodnoty skupiny. Prázdné = zdědí ze systému. Členství se spravuje ve Skupinách.")+'</div>'));
         var st=el('<div class="hint" style="min-height:16px;margin-bottom:6px;"></div>'); C.appendChild(st);
         (j.defs||[]).forEach(function(d){
           var cur=(j.values&&j.values[d.code])?j.values[d.code].value:null;
@@ -1212,7 +1212,7 @@ setTimeout(function(){
         box.innerHTML=""; var arr=all.filter(function(p){ return !q||(p.jmeno||"").toLowerCase().indexOf(q.toLowerCase())>=0; });
         if(!arr.length){ box.appendChild(el('<div class="hint">Nikdo.</div>')); return; }
         arr.forEach(function(p){
-          var gl=(skupiny.filter(function(g){return g.code===p.cond_group;})[0]||{}).label||"—";
+          var gl=p.cond_group||"— bez skupiny —";
           var li=el('<div class="ct" style="border-bottom:1px solid #1b2742;"></div>');
           var head=el('<div style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:9px 2px;"></div>');
           head.appendChild(el('<div style="flex:1;min-width:0;"><div style="font-weight:600;">'+esc(p.jmeno)+'</div><div class="hint">'+esc(gl)+(p.vyjimka?' · <span style="color:#fbbf24;">vlastní výjimka</span>':'')+'</div></div>'));
@@ -1233,10 +1233,8 @@ setTimeout(function(){
       api("GET","/api/v1/erp/app/hr/conditions?scope_kind=user&user_id="+p.user_id,"").then(function(j){
         ed.innerHTML="";
         if(!j||!j.ok){ ed.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
-        var gsel=el('<select style="width:100%;padding:8px;border-radius:8px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin-bottom:8px;"><option value="">— bez skupiny —</option>'+skupiny.map(function(g){return '<option value="'+g.code+'"'+(g.code===j.group_code?' selected':'')+'>'+esc(g.label)+'</option>';}).join("")+'</select>');
-        var gst=el('<span class="hint" style="margin-left:6px;"></span>');
-        gsel.addEventListener("change",function(){ gst.textContent="…"; api("POST","/api/v1/erp/app/hr/conditions/assign",{user_id:p.user_id,group_code:gsel.value}).then(function(r){ gst.textContent=(r&&r.ok)?"✓":"✗"; if(r&&r.ok) setTimeout(function(){ ed.dataset.b=""; personDetail(ed,p,skupiny); },400); }); });
-        ed.appendChild(el('<div class="hint" style="margin-bottom:2px;">Skupina:</div>')); ed.appendChild(gsel); ed.appendChild(gst);
+        var glab=(skupiny.filter(function(g){return String(g.code)===String(j.group_code);})[0]||{}).label||(j.group_code?j.group_code:"— bez skupiny —");
+        ed.appendChild(el('<div class="hint" style="margin-bottom:8px;">Podmínková skupina (dle členství): <b style="color:#9cf;">'+esc(glab)+'</b> <span class="hint">· mění se ve Skupinách</span></div>'));
         var st=el('<div class="hint" style="min-height:16px;margin:6px 0;"></div>'); ed.appendChild(st);
         (j.defs||[]).forEach(function(d){
           var rs=(j.resolved&&j.resolved[d.code])||{}; var own=(j.own&&j.own[d.code])?j.own[d.code].value:null;
@@ -1285,10 +1283,16 @@ setTimeout(function(){
       });
     }
     function render(){
-      R.innerHTML=""; SCOPES.forEach(function(sc){ R.appendChild(railBtn(sc[2],sc[1],sc[0])); });
+      R.innerHTML="";
+      R.appendChild(railBtn("⚙️","Systém","system"));
+      _pd.groups.forEach(function(g){ R.appendChild(railBtn(g.icon||"👥",g.label,String(g.code))); });
+      R.appendChild(railBtn("🧑","Jednotlivci","lide"));
       if(_pd.f==="lide") peopleView(); else scopeView(_pd.f);
     }
-    render();
+    C.innerHTML='<div class="hint">Načítám skupiny…</div>';
+    api("GET","/api/v1/erp/app/hr/conditions/groups","").then(function(j){
+      _pd.groups=(j&&j.ok&&j.skupiny)||[]; render();
+    });
   }
   function _meIcon(lbl){ var s=(lbl||"").toLowerCase();
     if(/identi|jmén|jmen|osob/.test(s))return"🪪"; if(/osvč|osvc|ičo|ico|dič|dic|podnik/.test(s))return"🧾";

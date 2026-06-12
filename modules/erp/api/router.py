@@ -7018,14 +7018,25 @@ async def att_whereabouts(req: Request) -> JSONResponse:
 
 
 # ── Marti 12.6.: Podmínky skupin zaměstnanců (3vrstvý resolver system/group/user) ──
-_COND_GROUPS = [("elektromontri", "Elektromontéři"), ("kancelare", "Kanceláře"),
-                ("vedeni", "Vedení"), ("vp", "VP — vedoucí projektu")]
+# Skupiny = DYNAMICKY z tenant.staff_group (Martiho živá konfigurace). group_code = str(staff_group.id).
+def _cond_groups(s):
+    from sqlalchemy import text as _t
+    return [{"code": str(r[0]), "label": r[1] or ("Skupina " + str(r[0])), "icon": (r[2] or "")}
+            for r in s.execute(_t(
+                "SELECT id, name, icon FROM tenant.staff_group WHERE tenant_id=2 "
+                "AND COALESCE(archived,false)=false ORDER BY sort_order, id")).fetchall()]
 
 
 def _cond_group_of(s, user_id):
+    """Podmínková skupina člověka = jeho členství ve staff_group, které má definované podmínky.
+    Při více členstvích vyhrává nejnižší sort_order. Vrací group_code (str id) nebo None."""
     from sqlalchemy import text as _t
-    return s.execute(_t("SELECT cond_group FROM tenant.att_employee WHERE tenant_id=2 AND user_id=:u "
-                        "AND cond_group IS NOT NULL LIMIT 1"), {"u": user_id}).scalar()
+    return s.execute(_t(
+        "SELECT g.id::text FROM tenant.staff_group_member m "
+        "JOIN tenant.staff_group g ON g.id=m.group_id AND g.tenant_id=2 AND COALESCE(g.archived,false)=false "
+        "WHERE m.user_id=:u AND EXISTS(SELECT 1 FROM tenant.staff_cond c WHERE c.tenant_id=2 "
+        "  AND c.scope_kind='group' AND c.group_code=g.id::text) "
+        "ORDER BY g.sort_order, g.id LIMIT 1"), {"u": user_id}).scalar()
 
 
 def _resolve_cond(s, user_id, code, grp=False):
@@ -7184,6 +7195,21 @@ async def app_hr_conditions_assign(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/conditions/groups")
+async def app_hr_conditions_groups(req: Request) -> JSONResponse:
+    """Dynamický seznam skupin (staff_group) pro lištu Podmínek."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        return JSONResponse({"ok": True, "skupiny": _cond_groups(s)})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/conditions/people")
 async def app_hr_conditions_people(req: Request) -> JSONResponse:
     """Lidé pro záložku Jednotlivci: jméno, skupina, má vlastní výjimku?"""
@@ -7198,15 +7224,17 @@ async def app_hr_conditions_people(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "SELECT e.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),"
             "                          max(e.full_name)) nm, "
-            "       max(e.cond_group), "
+            "       (SELECT g.name FROM tenant.staff_group_member m "
+            "          JOIN tenant.staff_group g ON g.id=m.group_id AND g.tenant_id=2 AND COALESCE(g.archived,false)=false "
+            "        WHERE m.user_id=e.user_id AND EXISTS(SELECT 1 FROM tenant.staff_cond c WHERE c.tenant_id=2 "
+            "          AND c.scope_kind='group' AND c.group_code=g.id::text) ORDER BY g.sort_order, g.id LIMIT 1) cond_grp, "
             "       EXISTS(SELECT 1 FROM tenant.staff_cond c WHERE c.tenant_id=2 AND c.scope_kind='user' "
             "              AND c.user_id=e.user_id) vyjimka "
             "FROM tenant.att_employee e LEFT JOIN public.users u ON u.id=e.user_id "
             "WHERE e.tenant_id=2 AND e.user_id IS NOT NULL AND COALESCE(e.is_active,true)=true "
             "GROUP BY e.user_id, u.first_name, u.last_name ORDER BY nm")).fetchall()
         out = [{"user_id": r[0], "jmeno": r[1], "cond_group": r[2], "vyjimka": bool(r[3])} for r in rows]
-        return JSONResponse({"ok": True, "lide": out,
-                             "skupiny": [{"code": g[0], "label": g[1]} for g in _COND_GROUPS]})
+        return JSONResponse({"ok": True, "lide": out, "skupiny": _cond_groups(s)})
     finally:
         cm.__exit__(None, None, None)
 
@@ -7227,7 +7255,10 @@ async def app_my_conditions(req: Request) -> JSONResponse:
         defrows = {r[0]: (r[1], r[2] or "") for r in s.execute(_t(
             "SELECT code,label,unit FROM tenant.staff_cond_def WHERE tenant_id=2 AND active=true")).fetchall()}
         grp = _cond_group_of(s, uid)
-        glab = dict(_COND_GROUPS).get(grp or "", "—")
+        glab = "—"
+        if grp:
+            glab = s.execute(_t("SELECT name FROM tenant.staff_group WHERE tenant_id=2 AND id=:g"),
+                             {"g": int(grp)}).scalar() or "—"
         out = []
         for c in _MY_COND_CODES:
             if c not in defrows:

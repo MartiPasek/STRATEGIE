@@ -7175,8 +7175,10 @@
 
       const userTabBtn = _mkTab("Pravidla", _defaultTab === "user");
       const componentTabBtn = _mkTab("Komponenta", _defaultTab !== "user");
+      const propsTabBtn = _mkTab("Vlastnosti", false);  // Kristý 12.6.2026: 3. tab — layout property
       tabBar.appendChild(userTabBtn);
       tabBar.appendChild(componentTabBtn);
+      tabBar.appendChild(propsTabBtn);
       body.appendChild(tabBar);
 
       // Inner content wrapper (padding inside)
@@ -7197,24 +7199,34 @@
         "flex-direction:column;gap:10px;";
       bodyInner.appendChild(basicPaneEl);
 
+      // Tab 3 "Vlastnosti" pane (Kristý 12.6.2026) — vizuální/layout property z comp_def.layout.
+      const propsPaneEl = document.createElement("div");
+      propsPaneEl.style.cssText = "display:none;flex-direction:column;gap:10px;";
+      bodyInner.appendChild(propsPaneEl);
+
       // FW State Rules #2-C: sekce tvorby pravidla (jen pokud form ma ridici pole)
       const _srSec = this._buildStateRuleSection(field);
       if (_srSec) userPaneEl.appendChild(_srSec);
 
       // Wire tab switching
-      const _switchTab = (toUser) => {
-        DesignFwForm._fsActiveTab = toUser ? "user" : "component";
-        userPaneEl.style.display = toUser ? "flex" : "none";
-        basicPaneEl.style.display = toUser ? "none" : "flex";
-        userTabBtn.style.borderBottomColor = toUser ? "#7ed4e8" : "transparent";
-        userTabBtn.style.color = toUser ? "#e8eef5" : "#8a96a4";
-        userTabBtn.style.fontWeight = toUser ? "600" : "400";
-        componentTabBtn.style.borderBottomColor = toUser ? "transparent" : "#7ed4e8";
-        componentTabBtn.style.color = toUser ? "#8a96a4" : "#e8eef5";
-        componentTabBtn.style.fontWeight = toUser ? "400" : "600";
+      const _switchTab = (tab) => {
+        if (tab === true) tab = "user"; else if (tab === false) tab = "component";  // zpětná kompatibilita
+        DesignFwForm._fsActiveTab = tab;
+        userPaneEl.style.display = (tab === "user") ? "flex" : "none";
+        basicPaneEl.style.display = (tab === "component") ? "flex" : "none";
+        propsPaneEl.style.display = (tab === "props") ? "flex" : "none";
+        const _tabStyle = (btn, on) => {
+          btn.style.borderBottomColor = on ? "#7ed4e8" : "transparent";
+          btn.style.color = on ? "#e8eef5" : "#8a96a4";
+          btn.style.fontWeight = on ? "600" : "400";
+        };
+        _tabStyle(userTabBtn, tab === "user");
+        _tabStyle(componentTabBtn, tab === "component");
+        _tabStyle(propsTabBtn, tab === "props");
       };
-      userTabBtn.addEventListener("click", () => _switchTab(true));
-      componentTabBtn.addEventListener("click", () => _switchTab(false));
+      userTabBtn.addEventListener("click", () => _switchTab("user"));
+      componentTabBtn.addEventListener("click", () => _switchTab("component"));
+      propsTabBtn.addEventListener("click", () => _switchTab("props"));
 
       // ════════════════════════════════════════════════════════════════
       // Tab 1 "Uživatel" content — port z _openFieldSettingsPopup
@@ -7364,6 +7376,101 @@
         "padding:6px 10px;background:#0f141a;border:1px solid #2a3340;" +
         "color:#e8eef5;border-radius:3px;font-size:13px;width:100%;" +
         "box-sizing:border-box;";
+
+      // ── Tab "Vlastnosti" (Kristý 12.6.2026): vizuální/layout property z
+      //    comp_def.layout JSONB. Uložení přes existující PATCH comp-def/update {layout}.
+      //    Defenzivně (try/catch) — chyba zde nesmí shodit celý dialog.
+      try {
+        (function _buildPropsPane() {
+          const L = (field.layout && typeof field.layout === "object") ? field.layout : {};
+          const _txt = (val, ph) => {
+            const i = document.createElement("input");
+            i.type = "text"; i.style.cssText = _inputStyle;
+            i.value = (val == null ? "" : String(val));
+            if (ph) i.placeholder = ph;
+            return i;
+          };
+          const widthIn = _txt(L.width, "napr. 200px / 100% (prázdné = auto)");
+          const heightIn = _txt(L.height, "napr. 32px (prázdné = auto)");
+          const minWIn = _txt(L.min_width, "min šířka");
+          const maxWIn = _txt(L.max_width, "max šířka (prázdné = bez limitu)");
+          const minHIn = _txt(L.min_height, "min výška");
+          const maxHIn = _txt(L.max_height, "max výška (prázdné = bez limitu)");
+          const alignSel = document.createElement("select");
+          alignSel.style.cssText = _inputStyle;
+          ["", "none", "top", "bottom", "left", "right", "client"].forEach((v) => {
+            const o = document.createElement("option");
+            o.value = v;
+            o.textContent = v === "" ? "(výchozí)" : v;
+            if (String(L.align || "") === v) o.selected = true;
+            alignSel.appendChild(o);
+          });
+          const borderIn = _txt(L.border_mode, "rámeček (panel/groupbox), napr. single");
+          const newRowChk = document.createElement("input");
+          newRowChk.type = "checkbox";
+          newRowChk.checked = !!L.always_new_row;
+          newRowChk.style.cssText = "width:18px;height:18px;cursor:pointer;";
+
+          propsPaneEl.appendChild(_row("Šířka", widthIn));
+          propsPaneEl.appendChild(_row("Výška", heightIn));
+          propsPaneEl.appendChild(_row("Min šířka", minWIn));
+          propsPaneEl.appendChild(_row("Max šířka", maxWIn));
+          propsPaneEl.appendChild(_row("Min výška", minHIn));
+          propsPaneEl.appendChild(_row("Max výška", maxHIn));
+          propsPaneEl.appendChild(_row("Zarovnání", alignSel));
+          propsPaneEl.appendChild(_row("Rámeček", borderIn));
+          propsPaneEl.appendChild(_row("Vždy nový řádek", newRowChk));
+
+          const status = document.createElement("div");
+          status.style.cssText = "font-size:12px;min-height:16px;color:#8a96a4;";
+          const saveBtn = document.createElement("button");
+          saveBtn.type = "button";
+          saveBtn.textContent = "💾 Uložit vlastnosti";
+          saveBtn.style.cssText =
+            "margin-top:4px;padding:8px 14px;background:#2563a8;border:none;color:#fff;" +
+            "border-radius:4px;cursor:pointer;font-size:13px;align-self:flex-start;";
+          saveBtn.addEventListener("click", async () => {
+            const merged = Object.assign({}, field.layout || {});
+            const _set = (k, v) => {
+              const s = (v == null ? "" : String(v)).trim();
+              if (s === "") delete merged[k]; else merged[k] = s;
+            };
+            _set("width", widthIn.value); _set("height", heightIn.value);
+            _set("min_width", minWIn.value); _set("max_width", maxWIn.value);
+            _set("min_height", minHIn.value); _set("max_height", maxHIn.value);
+            _set("align", alignSel.value); _set("border_mode", borderIn.value);
+            if (newRowChk.checked) merged.always_new_row = true; else delete merged.always_new_row;
+            saveBtn.disabled = true;
+            status.style.color = "#8a96a4"; status.textContent = "Ukládám…";
+            try {
+              const r = await fetch(
+                "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(field.id),
+                {
+                  method: "PATCH", credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ layout: merged }),
+                }
+              );
+              if (!r.ok) {
+                const e = await r.json().catch(() => ({}));
+                throw new Error("HTTP " + r.status + ": " + (e.error || r.statusText));
+              }
+              field.layout = merged;
+              status.style.color = "#7ee0a8";
+              status.textContent = "✓ Uloženo. (Projeví se po znovuotevření formuláře.)";
+            } catch (e) {
+              status.style.color = "#e88";
+              status.textContent = "Chyba: " + (e && e.message ? e.message : e);
+            } finally {
+              saveBtn.disabled = false;
+            }
+          });
+          propsPaneEl.appendChild(saveBtn);
+          propsPaneEl.appendChild(status);
+        })();
+      } catch (e) {
+        try { console.error("[DesignFwForm] props pane build failed:", e); } catch (_) { /* noop */ }
+      }
 
       // Info: DB column name (field) / container name + type (container)
       // Krok 5-B (29.5.2026): isContainer mode → DB sloupec irrelevant,

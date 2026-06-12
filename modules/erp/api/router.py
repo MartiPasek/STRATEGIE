@@ -7023,9 +7023,9 @@ async def att_status(req: Request) -> JSONResponse:
             "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.entry_date=current_date "
             "AND et.code='day_end' AND a.status IS DISTINCT FROM 'superseded' LIMIT 1"),
             {"t": _ATT_TENANT, "e": emp}).first() is not None
-        # Marti 12.6.: docházkový režim (evidence / info / pausal) — info = jen dostupnost, bez hodin
-        mode = s.execute(_t("SELECT COALESCE(dochazka_mode,'evidence') FROM tenant.att_employee WHERE id=:e"),
-                         {"e": emp}).scalar() or "evidence"
+        # Marti 12.6.: mzdový režim (hodinovy / volny / pausal) — píchají všichni, režim řeší odměnu/řízení
+        mode = s.execute(_t("SELECT COALESCE(rez_mzdovy,'hodinovy') FROM tenant.att_employee WHERE id=:e"),
+                         {"e": emp}).scalar() or "hodinovy"
         s.commit()
         return JSONResponse({"ok": True, "mode": mode,
                              "open": ({"id": opn[0], "started_at": opn[1], "project_ref": opn[2],

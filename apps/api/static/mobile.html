@@ -3070,8 +3070,9 @@ setTimeout(function(){
       if(_dS&&_dS.today){
         var T=_dS.today;
         var hdr="font-size:14.5px;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
-        // Marti 12.6.: info režim (IT/dodavatelé) = jen dostupnost, NEpočítáme hodiny.
-        var _info=(j.mode==='info');
+        // Marti 12.6.: píchají a vidí čas VŠICHNI (i volný/IT). Režim řeší odměnu/řízení
+        // na backendu/u vedoucího, ne píchací UX. (Dřívější skrývání hodin u 'info' zrušeno.)
+        var _info=false;
         function _setVal(txt,col,fs){
           if(_info){ T.val.textContent = open ? "🟢 k dispozici" : "mimo";
             T.val.style.color = open ? "var(--green)" : "var(--mut)"; T.val.style.fontSize="13px"; }

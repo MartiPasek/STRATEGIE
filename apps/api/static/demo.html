@@ -243,15 +243,13 @@
   });
   function tween(el,from,to,fmt){var t0=performance.now();var dur=600;
     function step(t){var p=clamp((t-t0)/dur,0,1);var v=from+(to-from)*(p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2);
-      el.textContent=fmt(v);if(p<1)requestAnimationFrame(step);}requestAnimationFrame(step);}
+      el.innerHTML=fmt(v);if(p<1)requestAnimationFrame(step);}requestAnimationFrame(step);}
   function updKpi(k){
     var old=k.v;
     if(!k.ext){k.v=clamp(Math.round(k.v+R(-1,1)*((k.max-k.min)/7)),k.min,k.max);}
     var el=document.getElementById(k.id);
-    var suf=el.querySelector('small').outerHTML;
-    tween(el,old,k.v,function(v){return Math.round(v)+'';});
-    // re-append suffix
-    setTimeout(function(){el.innerHTML=Math.round(k.v)+suf;},0);
+    var suf=k.suf;
+    tween(el,old,k.v,function(v){return Math.round(v)+'<small>'+suf+'</small>';});
     var dl=document.getElementById(k.id+'d');var dd=k.v-old;
     dl.className='delta '+(dd>=0?'up':'down');dl.textContent=(dd>=0?'▲ +':'▼ ')+dd+' za chvíli';
     if(dd===0){dl.textContent='● stabilní';dl.className='delta';dl.style.color='var(--mut)';}
@@ -396,3 +394,4 @@
 })();
 </script>
 </body></html>
+                                                                                                   

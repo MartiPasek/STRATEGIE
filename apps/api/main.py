@@ -895,6 +895,18 @@ def web_eco_success():
     return _web_subpage("eco-success.html")
 
 
+@app.get("/web/partner")
+def web_partner():
+    """Digitální pozvánka pro Business Success & Performii (Rasťo + Lucie)."""
+    return _web_subpage("partner.html")
+
+
+@app.get("/web/partner-demo")
+def web_partner_demo():
+    """Živá firma — personální systém & řízení (pohled pro partnery)."""
+    return _web_subpage("partner-demo.html")
+
+
 @app.get("/googlef2bedb6d3ffdf33d.html")
 def google_site_verification():
     """Google Search Console / Play ověření vlastnictví webu. Marti 9.6.2026."""

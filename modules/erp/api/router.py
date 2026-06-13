@@ -7827,22 +7827,42 @@ async def app_plan_mine(req: Request) -> JSONResponse:
             "FROM tenant.att_plan_day WHERE tenant_id=2 AND user_id=:u "
             "AND date_part('year', plan_date) = date_part('year', CURRENT_DATE) "
             "ORDER BY plan_date"), {"u": target}).fetchall()
-        # Vrstva 2 overlay (read-only, layer 1 se NEMĚNÍ)
-        try:
-            excmap = {r[0]: (float(r[1]), r[2]) for r in s.execute(_t(
+        # Overlay výjimek (read-only, vrstva 1 se NEMĚNÍ). Priorita: osobní > skupina > firma.
+        eff = {}
+        try:  # vrstva 2 — celá firma
+            for rr in s.execute(_t(
                 "SELECT ex_date, hours, reason FROM tenant.att_calendar_exception "
-                "WHERE tenant_id=2 AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)")).fetchall()}
+                "WHERE tenant_id=2 AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)")).fetchall():
+                eff[rr[0]] = (float(rr[1]), rr[2], "firma")
         except Exception:
-            excmap = {}
+            pass
+        try:  # vrstva 3 — skupina (přebije firmu) a osobní (přebije vše)
+            grp = set(g[0] for g in s.execute(_t(
+                "SELECT group_id FROM tenant.staff_group_member WHERE tenant_id=2 AND user_id=:u"),
+                {"u": target}).fetchall())
+            for rr in s.execute(_t(
+                "SELECT ex_date, hours, reason, scope_id FROM tenant.att_exception_scope "
+                "WHERE tenant_id=2 AND scope_type='group' "
+                "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE) ORDER BY ex_date, id")).fetchall():
+                if rr[3] in grp:
+                    eff[rr[0]] = (float(rr[1]), rr[2], "skupina")
+            for rr in s.execute(_t(
+                "SELECT ex_date, hours, reason FROM tenant.att_exception_scope "
+                "WHERE tenant_id=2 AND scope_type='user' AND scope_id=:u "
+                "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)"), {"u": target}).fetchall():
+                eff[rr[0]] = (float(rr[1]), rr[2], "osobní")
+        except Exception:
+            pass
         out = []
         for r in rows:
             d = r[0]
-            ex = excmap.get(d)
+            ex = eff.get(d)
             out.append({"date": d.isoformat(), "iso_week": d.isocalendar()[1],
                         "weekday": _PLAN_DAYLABEL.get(d.isoweekday() % 7 if d.isoweekday() == 7 else d.isoweekday(), "?"),
                         "hours": float(r[1]), "day_type": r[2], "start": r[3], "end": r[4],
                         "uvazek": float(r[5]) if r[5] is not None else None, "frozen": bool(r[6]),
-                        "exc_hours": (ex[0] if ex else None), "exc_reason": (ex[1] if ex else None)})
+                        "exc_hours": (ex[0] if ex else None), "exc_reason": (ex[1] if ex else None),
+                        "exc_scope": (ex[2] if ex else None)})
         total = round(sum(x["hours"] for x in out), 2)
         uvz = next((x["uvazek"] for x in out if x["uvazek"]), None)
         return JSONResponse({"ok": True, "plan": out, "total_hours": total,
@@ -7931,6 +7951,132 @@ async def app_plan_exception_delete(req: Request) -> JSONResponse:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         s.execute(_t("DELETE FROM tenant.att_calendar_exception WHERE tenant_id=2 AND ex_date=:d"), {"d": d})
+        s.commit()
+        return JSONResponse({"ok": True})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ── Vrstva 3: cílené výjimky (skupina / jednotlivec) ─────────────────────────
+@api_router.get("/app/plan/exception-targets")
+async def app_plan_exc_targets(req: Request) -> JSONResponse:
+    """Pro picker rozsahu: skupiny + lidé (HR/rodiče)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        groups = [{"id": r[0], "name": r[1]} for r in s.execute(_t(
+            "SELECT id, name FROM tenant.staff_group WHERE tenant_id=2 AND COALESCE(archived,false)=false "
+            "ORDER BY sort_order NULLS LAST, name")).fetchall()]
+        people = [{"user_id": r[0], "name": r[1]} for r in s.execute(_t(
+            "SELECT DISTINCT ON (em.user_id) em.user_id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) nm "
+            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id "
+            "WHERE em.tenant_id=2 AND em.is_active=true AND em.user_id IS NOT NULL "
+            "ORDER BY em.user_id")).fetchall()]
+        people.sort(key=lambda p: (p["name"] or "").lower())
+        return JSONResponse({"ok": True, "groups": groups, "people": people})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/plan/scope-exceptions")
+async def app_plan_scope_list(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, ex_date, hours, reason, scope_type, scope_id FROM tenant.att_exception_scope "
+            "WHERE tenant_id=2 ORDER BY ex_date, id")).fetchall()
+        gmap = {r[0]: r[1] for r in s.execute(_t("SELECT id, name FROM tenant.staff_group WHERE tenant_id=2")).fetchall()}
+        uids = [r[5] for r in rows if r[4] == "user"]
+        umap = {}
+        if uids:
+            for r in s.execute(_t(
+                "SELECT u.id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), u.login_name) "
+                "FROM public.users u WHERE u.id = ANY(:ids)"), {"ids": uids}).fetchall():
+                umap[r[0]] = r[1]
+        out = []
+        for r in rows:
+            nm = gmap.get(r[5], "skupina #" + str(r[5])) if r[4] == "group" else umap.get(r[5], "osoba #" + str(r[5]))
+            out.append({"id": r[0], "date": r[1].isoformat(), "hours": float(r[2]), "reason": r[3],
+                        "scope_type": r[4], "scope_id": r[5], "scope_name": nm})
+        return JSONResponse({"ok": True, "items": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/plan/scope-exceptions")
+async def app_plan_scope_save(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    st = str((b or {}).get("scope_type") or "").strip().lower()
+    if st not in ("group", "user"):
+        return JSONResponse({"ok": False, "error": "Neznámý rozsah."})
+    try:
+        sid = int((b or {}).get("scope_id") or 0)
+        d = _dt.date.fromisoformat(str((b or {}).get("date") or "")[:10])
+        hrs = round(float((b or {}).get("hours")), 2)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatný vstup."})
+    if not sid:
+        return JSONResponse({"ok": False, "error": "Vyber skupinu / osobu."})
+    if hrs < 0 or hrs > 12:
+        return JSONResponse({"ok": False, "error": "Hodiny 0–12."})
+    reason = str((b or {}).get("reason") or "").strip()[:200] or None
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t(
+            "INSERT INTO tenant.att_exception_scope (tenant_id, ex_date, scope_type, scope_id, hours, reason, created_by) "
+            "VALUES (2, :d, :st, :sid, :h, :r, :u) "
+            "ON CONFLICT (tenant_id, ex_date, scope_type, scope_id) DO UPDATE SET "
+            " hours=EXCLUDED.hours, reason=EXCLUDED.reason, updated_at=now()"),
+            {"d": d, "st": st, "sid": sid, "h": hrs, "r": reason, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/plan/scope-exceptions/delete")
+async def app_plan_scope_delete(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+        rid = int((b or {}).get("id") or 0)
+    except Exception:
+        rid = 0
+    if not rid:
+        return JSONResponse({"ok": False, "error": "id"})
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.att_exception_scope WHERE tenant_id=2 AND id=:i"), {"i": rid})
         s.commit()
         return JSONResponse({"ok": True})
     finally:

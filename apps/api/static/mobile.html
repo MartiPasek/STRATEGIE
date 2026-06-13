@@ -1332,7 +1332,30 @@ setTimeout(function(){
       });
     });
   }
-  // Kára naživo: žebříček lidí na škále −100…+100 → 4 pásma
+  // Overdrive popup: nad +100 % se dá přetáhnout do 500 % (✈️ Letadlo) a nad 500 % (🚀 Raketa)
+  function karaOverdrive(cur, cb){
+    var val=Math.max(100,Math.min(1000,cur||100));
+    function emo(v){ return v>500?"🚀":(v>100?"✈️":"🏆"); }
+    function lab(v){ return v>500?"Raketa — nad 500 %!":(v>100?"Letadlo — přes 100 %":"Špička (100 %)"); }
+    var ov=document.createElement("div");
+    ov.style.cssText="position:fixed;inset:0;z-index:200;background:rgba(2,4,10,.82);display:flex;align-items:center;justify-content:center;padding:18px;";
+    var card=document.createElement("div");
+    card.style.cssText="width:100%;max-width:380px;background:#0e1730;border:1px solid #2a55c8;border-radius:18px;padding:22px;text-align:center;";
+    card.innerHTML='<div style="font-size:12px;color:#8ea0c4;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Overdrive nad 100 %</div>'
+      +'<div id="ovEmo" style="font-size:64px;line-height:1.1;margin:8px 0;">'+emo(val)+'</div>'
+      +'<div id="ovLab" style="font-weight:800;font-size:18px;margin-bottom:4px;">'+lab(val)+'</div>'
+      +'<div id="ovNum" style="font-size:30px;font-weight:900;color:#7dd3fc;">'+val+' %</div>'
+      +'<input id="ovRange" type="range" min="100" max="1000" step="10" value="'+val+'" style="width:100%;margin:16px 0;accent-color:#7c5cff;">'
+      +'<div style="display:flex;justify-content:space-between;font-size:11px;color:#8ea0c4;"><span>100 %</span><span>500 %</span><span>1000 %</span></div>'
+      +'<div style="display:flex;gap:8px;margin-top:16px;"><button id="ovCancel" style="flex:1;padding:11px;border:1px solid #2a55c8;border-radius:11px;background:transparent;color:#e8eefc;cursor:pointer;">Zrušit</button>'
+      +'<button id="ovOk" style="flex:1;padding:11px;border:0;border-radius:11px;background:linear-gradient(110deg,#7dd3fc,#7c5cff);color:#0c0820;font-weight:800;cursor:pointer;">Nastavit</button></div>';
+    ov.appendChild(card); document.body.appendChild(ov);
+    var rng=card.querySelector("#ovRange");
+    rng.addEventListener("input",function(){ var v=parseInt(rng.value,10); card.querySelector("#ovEmo").textContent=emo(v); card.querySelector("#ovLab").textContent=lab(v); card.querySelector("#ovNum").textContent=v+" %"; });
+    card.querySelector("#ovCancel").addEventListener("click",function(){ document.body.removeChild(ov); });
+    card.querySelector("#ovOk").addEventListener("click",function(){ var v=parseInt(rng.value,10); document.body.removeChild(ov); if(cb)cb(v); });
+  }
+  // Kára naživo: žebříček lidí na škále −100…+100 → 4 pásma (+ overdrive nad 100 %)
   function kara_board(){
     app.innerHTML=topbar("📊 Žebříček — Kára", true);
     app.appendChild(el('<div class="hint" style="margin:6px;line-height:1.5;">Lidé na škále −100…+100 seskupení do pásem. Podklad pro rozvoj, ne ortel. Ťukni na člověka pro úpravu.</div>'));
@@ -1341,8 +1364,10 @@ setTimeout(function(){
       +'<input id="ksVal" type="number" min="-100" max="100" placeholder="−100…100" style="width:110px;padding:8px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);">'
       +'<button id="ksSave" style="padding:9px 14px;border:0;border-radius:10px;background:linear-gradient(110deg,#a78bfa,#7c5cff);color:#0c0820;font-weight:700;cursor:pointer;">Uložit</button>';
     app.appendChild(sb);
+    var ksv=document.getElementById("ksVal");
+    if(ksv) ksv.addEventListener("change",function(){ var v=parseInt(ksv.value,10); if(v>=100){ karaOverdrive(v,function(nv){ ksv.value=nv; }); } });
     var box=el('<div><div class="hint" style="margin:6px;">Načítám…</div></div>'); app.appendChild(box);
-    var BANDS=[["tahoun","💪 Tahouni","#34d399"],["efektivni","✅ Efektivní","#60a5fa"],["rozvoj","🌱 Rozvoj","#fbbf24"],["prostor","🧭 Prostor pro změnu","#f87171"]];
+    var BANDS=[["raketa","🚀 Raketa (>500 %)","#f0abfc"],["letadlo","✈️ Letadlo (100–500 %)","#7dd3fc"],["tahoun","💪 Tahouni","#34d399"],["efektivni","✅ Efektivní","#60a5fa"],["rozvoj","🌱 Rozvoj","#fbbf24"],["prostor","🧭 Prostor pro změnu","#f87171"]];
     function load(){
       api("GET","/api/v1/erp/app/kara/board","").then(function(j){
         box.innerHTML="";

@@ -6549,6 +6549,10 @@ async def app_kara_reference(req: Request) -> JSONResponse:
 def _kara_band(v):
     if v is None:
         return ("none", "Nezařazeno")
+    if v > 500:
+        return ("raketa", "Raketa")
+    if v > 100:
+        return ("letadlo", "Letadlo")
     if v >= 50:
         return ("tahoun", "Tahoun")
     if v >= 0:
@@ -6573,7 +6577,7 @@ async def app_kara_score(req: Request) -> JSONResponse:
         sid = int(data.get("subject_id") or 0)
         kind = data.get("subject_kind") or "user"
         val = int(data.get("value"))
-        if not sid or val < -100 or val > 100:
+        if not sid or val < -100 or val > 1000:
             return JSONResponse({"ok": False, "error": "bad_value"}, status_code=400)
         s.execute(_t(
             "INSERT INTO tenant.kara_score (tenant_id,subject_kind,subject_id,value,note,set_by) "

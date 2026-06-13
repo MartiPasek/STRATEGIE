@@ -5087,6 +5087,9 @@ setTimeout(function(){
     var bGrp=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a5a6b;color:#7fc8e0;font-weight:700;font-size:12px;line-height:1.25;">👥<br>Plán<br>skupiny</button>');
     bGrp.addEventListener("click",function(){ renderGroupPlan(); });
     right.appendChild(bGrp);
+    var bDay=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a6b3a;color:#8fe0a0;font-weight:700;font-size:12px;line-height:1.25;">📊<br>Koho<br>čekáme</button>');
+    bDay.addEventListener("click",function(){ renderDay(); });
+    right.appendChild(bDay);
     var bUv=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#6b4a2a;color:#e6b97a;font-weight:700;font-size:12px;line-height:1.25;">📐<br>Můj<br>úvazek</button>');
     bUv.addEventListener("click",function(){ renderUvazek(); });
     right.appendChild(bUv);
@@ -5176,6 +5179,48 @@ setTimeout(function(){
         }
         sel.addEventListener("change",load); load();
       });
+    }
+    function renderDay(){
+      left.innerHTML='';
+      var t=new Date(); var st={d:t.getFullYear()+"-"+("0"+(t.getMonth()+1)).slice(-2)+"-"+("0"+t.getDate()).slice(-2)};
+      var bar=el('<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;"></div>');
+      var prev=el('<button class="ghost" style="padding:6px 10px;flex:none;">◀</button>');
+      var din=el('<input type="date" value="'+st.d+'" style="flex:1;box-sizing:border-box;padding:8px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">');
+      var next=el('<button class="ghost" style="padding:6px 10px;flex:none;">▶</button>');
+      bar.appendChild(prev); bar.appendChild(din); bar.appendChild(next); left.appendChild(bar);
+      var regen=el('<button class="ghost full" style="margin-bottom:8px;border-color:#2a6b5a;color:#7fe0c8;">↻ Přegenerovat plán (dnes → +120 dní)</button>');
+      regen.addEventListener("click",function(){ if(!confirm("Vygenerovat složený plán pro všechny na 120 dní dopředu?")) return; regen.disabled=true; var ot=regen.textContent; regen.textContent="Generuji…"; api("POST","/api/v1/erp/app/plan/generate-effective",{}).then(function(r){ regen.disabled=false; regen.textContent=ot; if(r&&r.ok){ alert("Hotovo: "+r.rows+" řádků, "+r.people+" lidí, do "+(r.do||"?")); load(); } else alert("Chyba: "+((r&&r.error)||"?")); }); });
+      left.appendChild(regen);
+      var box=el('<div></div>'); left.appendChild(box);
+      function czdW(iso){ var p=(iso||"").split("-"); if(p.length!==3) return iso; var dd=new Date(iso); var wn=["Ne","Po","Út","St","Čt","Pá","So"][dd.getDay()]; return wn+" "+p[2]+"."+p[1]+"."; }
+      function shift(n){ var dd=new Date(st.d); dd.setDate(dd.getDate()+n); st.d=dd.getFullYear()+"-"+("0"+(dd.getMonth()+1)).slice(-2)+"-"+("0"+dd.getDate()).slice(-2); din.value=st.d; load(); }
+      prev.addEventListener("click",function(){ shift(-1); });
+      next.addEventListener("click",function(){ shift(1); });
+      din.addEventListener("change",function(){ st.d=din.value; load(); });
+      function load(){
+        box.innerHTML='<div class="hint">Načítám…</div>';
+        api("GET","/api/v1/erp/app/plan/day?date="+encodeURIComponent(st.d),"").then(function(j){
+          box.innerHTML='';
+          if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Nelze načíst")+'</div>')); return; }
+          box.appendChild(el('<div style="margin-bottom:8px;"><b>'+czdW(st.d)+'</b> <span class="hint">· čekáme '+j.total_people+' lidí · '+nf(j.total_hours)+' h</span></div>'));
+          if(!j.generated){ box.appendChild(el('<div class="hint" style="line-height:1.6;">Pro tento den není plán vygenerovaný.<br>Klikni nahoře <b>↻ Přegenerovat plán</b>.</div>')); return; }
+          j.groups.forEach(function(g){
+            var card=el('<div style="border:1px solid #2b3a5c;border-radius:12px;margin-bottom:8px;overflow:hidden;"></div>');
+            card.appendChild(el('<div style="display:flex;justify-content:space-between;padding:8px 12px;background:#0e1830;font-weight:700;"><span>'+esc(g.group_name)+'</span><span class="hint">'+g.count+' lidí · '+nf(g.sum_hours)+' h</span></div>'));
+            var body=el('<div style="padding:4px 12px 8px;"></div>');
+            g.people.forEach(function(p){
+              var work=(p.hours>0);
+              var col=work?"#34d399":"#5b6b88";
+              var sic=p.scope_src==='osobni'?' 👤':(p.scope_src==='skupina'?' 👥':(p.scope_src==='firma'?' 🏢':''));
+              var rt=work?((p.start?(p.start+' · '):'')+nf(p.hours)+' h'+sic):(p.day_type==='holiday'?'svátek':(p.day_type==='weekend'?'víkend':'volno'));
+              body.appendChild(el('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;"><span>'+esc(p.name)+'</span><span style="color:'+col+';font-weight:600;">'+rt+'</span></div>'));
+            });
+            card.appendChild(body); box.appendChild(card);
+          });
+          box.appendChild(el('<div style="text-align:right;font-weight:700;margin-top:6px;border-top:1px solid #2b3a5c;padding-top:8px;">Celkem: '+j.total_people+' lidí · '+nf(j.total_hours)+' h</div>'));
+        });
+      }
+      load();
     }
     function renderUvazek(){
       left.innerHTML='<div class="hint">Načítám…</div>';

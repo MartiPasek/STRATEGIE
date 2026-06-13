@@ -8133,6 +8133,161 @@ async def app_plan_group(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/plan/generate-effective")
+async def app_plan_generate_effective(req: Request) -> JSONResponse:
+    """Vygeneruje složený plán dopředu (dnes → +120 dní) pro všechny aktivní lidi.
+    Složí: ČR základ × úvazek/vzorec × výjimky (osobní>skupina>firma) × příchod. Respektuje frozen."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        cal = s.execute(_t(
+            "SELECT day, is_workday, is_holiday FROM tenant.att_calendar_day "
+            "WHERE tenant_id=2 AND day >= CURRENT_DATE AND day <= CURRENT_DATE + 120 ORDER BY day")).fetchall()
+        firma_exc = {}
+        for r in s.execute(_t("SELECT ex_date, hours FROM tenant.att_calendar_exception WHERE tenant_id=2")).fetchall():
+            firma_exc[r[0]] = float(r[1])
+        grp_exc = {}
+        for r in s.execute(_t("SELECT scope_id, ex_date, hours FROM tenant.att_exception_scope WHERE tenant_id=2 AND scope_type='group'")).fetchall():
+            grp_exc.setdefault(r[0], {})[r[1]] = float(r[2])
+        usr_exc = {}
+        for r in s.execute(_t("SELECT scope_id, ex_date, hours FROM tenant.att_exception_scope WHERE tenant_id=2 AND scope_type='user'")).fetchall():
+            usr_exc.setdefault(r[0], {})[r[1]] = float(r[2])
+        memb = {}
+        for r in s.execute(_t("SELECT m.user_id, m.group_id, COALESCE(g.sort_order,999) FROM tenant.staff_group_member m "
+                              "JOIN tenant.staff_group g ON g.id=m.group_id AND g.tenant_id=2 AND COALESCE(g.archived,false)=false "
+                              "WHERE m.tenant_id=2")).fetchall():
+            memb.setdefault(r[0], []).append((r[1], r[2]))
+        emps = s.execute(_t(
+            "SELECT DISTINCT ON (user_id) user_id, id FROM tenant.att_employee "
+            "WHERE tenant_id=2 AND is_active=true AND user_id IS NOT NULL ORDER BY user_id, id")).fetchall()
+        params = []
+        for user_id, emp_id in emps:
+            groups = sorted(memb.get(user_id, []), key=lambda x: x[1])
+            primary_gid = groups[0][0] if groups else None
+            gid_set = [g[0] for g in groups]
+            try:
+                uv = float(_resolve_cond_num(s, user_id, "uvazek_h_tyden", 40.0)) or 40.0
+            except Exception:
+                uv = 40.0
+            per_day = round(uv / 5.0, 2)
+            sched = {}
+            for r in s.execute(_t("SELECT weekday, works, hours, start_time::text FROM tenant.work_schedule "
+                                  "WHERE tenant_id=2 AND user_id=:u"), {"u": user_id}).fetchall():
+                sched[int(r[0])] = (bool(r[1]), float(r[2]) if r[2] is not None else None, (r[3] or "")[:5])
+            try:
+                gstart = _norm_hhmm(_resolve_cond(s, user_id, "nastup_max")[0])
+            except Exception:
+                gstart = ""
+            for day, is_wd, is_hol in cal:
+                wd = day.isoweekday()
+                st = ""
+                if is_hol:
+                    dt, h = "holiday", 0
+                elif wd in sched:
+                    if sched[wd][0]:
+                        dt, h = "work", (sched[wd][1] if sched[wd][1] is not None else per_day)
+                        st = sched[wd][2]
+                    else:
+                        dt, h = "off", 0
+                elif wd <= 5 and is_wd:
+                    dt, h = "work", per_day
+                else:
+                    dt, h = ("weekend" if wd >= 6 else "off"), 0
+                if dt == "work" and not st:
+                    st = gstart
+                scope = "zaklad"
+                exh = None
+                if user_id in usr_exc and day in usr_exc[user_id]:
+                    exh, scope = usr_exc[user_id][day], "osobni"
+                else:
+                    for g in gid_set:
+                        if g in grp_exc and day in grp_exc[g]:
+                            exh, scope = grp_exc[g][day], "skupina"
+                            break
+                    if exh is None and day in firma_exc:
+                        exh, scope = firma_exc[day], "firma"
+                if exh is not None:
+                    h = exh
+                    dt = "exception" if exh > 0 else "off"
+                    if exh == 0:
+                        st = ""
+                params.append({"u": user_id, "e": emp_id, "d": day, "h": h,
+                               "st": (st or None), "dt": dt, "sc": scope, "g": primary_gid})
+        if params:
+            s.execute(_t(
+                "INSERT INTO tenant.att_plan_effective (tenant_id,user_id,employee_id,plan_date,expected_hours,"
+                "start_time,day_type,scope_src,group_id,generated_at) "
+                "VALUES (2,:u,:e,:d,:h,CAST(:st AS time),:dt,:sc,:g,now()) "
+                "ON CONFLICT (tenant_id,user_id,plan_date) DO UPDATE SET expected_hours=EXCLUDED.expected_hours, "
+                "start_time=EXCLUDED.start_time, day_type=EXCLUDED.day_type, scope_src=EXCLUDED.scope_src, "
+                "group_id=EXCLUDED.group_id, generated_at=now() WHERE att_plan_effective.is_frozen=false"), params)
+        s.commit()
+        return JSONResponse({"ok": True, "rows": len(params), "people": len(emps),
+                             "do": (cal[-1][0].isoformat() if cal else None)})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/plan/day")
+async def app_plan_day(req: Request) -> JSONResponse:
+    """Denní přehled „koho čekáme" ze složeného plánu: lidé po skupinách + součty."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    d = req.query_params.get("date")
+    try:
+        day = _dt.date.fromisoformat(d[:10]) if d else _dt.date.today()
+    except Exception:
+        day = _dt.date.today()
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT COALESCE(g.sort_order,999) so, pe.group_id, COALESCE(g.name,'(bez skupiny)') gname, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), u.login_name) nm, "
+            " pe.expected_hours, to_char(pe.start_time,'HH24:MI'), pe.day_type, pe.scope_src "
+            "FROM tenant.att_plan_effective pe "
+            "LEFT JOIN public.users u ON u.id=pe.user_id "
+            "LEFT JOIN tenant.staff_group g ON g.id=pe.group_id AND g.tenant_id=2 "
+            "WHERE pe.tenant_id=2 AND pe.plan_date=:d "
+            "ORDER BY so, gname, nm"), {"d": day}).fetchall()
+        groups = []
+        cur = None
+        tot_h = 0.0
+        tot_p = 0
+        for r in rows:
+            gid = r[1]
+            if cur is None or cur["group_id"] != gid:
+                cur = {"group_id": gid, "group_name": r[2], "people": [], "sum_hours": 0.0, "count": 0}
+                groups.append(cur)
+            hrs = float(r[4])
+            cur["people"].append({"name": r[3] or "?", "hours": hrs, "start": r[5],
+                                  "day_type": r[6], "scope_src": r[7]})
+            cur["sum_hours"] += hrs
+            if hrs > 0:
+                cur["count"] += 1
+                tot_p += 1
+            tot_h += hrs
+        for gx in groups:
+            gx["sum_hours"] = round(gx["sum_hours"], 2)
+        return JSONResponse({"ok": True, "date": day.isoformat(), "groups": groups,
+                             "total_hours": round(tot_h, 2), "total_people": tot_p,
+                             "generated": len(rows) > 0})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Vrstva 2: firemní výjimky (samostatná tabulka, NEPŘEPISUJE vrstvu 1) ──────
 @api_router.get("/app/plan/exceptions")
 async def app_plan_exceptions(req: Request) -> JSONResponse:

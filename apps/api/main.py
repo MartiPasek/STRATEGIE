@@ -919,6 +919,12 @@ def web_utest():
     return _web_subpage("utest.html")
 
 
+@app.get("/web/runow")
+def web_runow():
+    """Mårten Runow — zakladatel Performia International, vzor Martiho ve vizích."""
+    return _web_subpage("runow.html")
+
+
 @app.get("/web/partner")
 def web_partner():
     """Digitální pozvánka pro Business Success & Performii (Rasťo + Lucie)."""

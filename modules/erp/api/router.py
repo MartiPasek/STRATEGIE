@@ -7894,9 +7894,9 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
         sched = {}
         try:
             for r in s.execute(_t(
-                "SELECT weekday, works, hours FROM tenant.work_schedule WHERE tenant_id=2 AND user_id=:u"),
+                "SELECT weekday, works, hours, start_time::text FROM tenant.work_schedule WHERE tenant_id=2 AND user_id=:u"),
                 {"u": target}).fetchall():
-                sched[int(r[0])] = (bool(r[1]), float(r[2]) if r[2] is not None else None)
+                sched[int(r[0])] = (bool(r[1]), float(r[2]) if r[2] is not None else None, (r[3] or "")[:5])
         except Exception:
             sched = {}
         try:
@@ -7908,11 +7908,13 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
         total = 0.0
         for day, is_wd, is_hol in cal:
             wd = day.isoweekday()  # 1=Po .. 7=Ne
+            st = ""
             if is_hol:
                 dt, h = "holiday", 0
             elif wd in sched:
                 if sched[wd][0]:
                     dt, h = "work", (sched[wd][1] if sched[wd][1] is not None else per_day)
+                    st = sched[wd][2]
                 else:
                     dt, h = "off", 0
             elif wd <= 5 and is_wd:
@@ -7922,7 +7924,7 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
             total += h
             out.append({"date": day.isoformat(), "iso_week": day.isocalendar()[1],
                         "weekday": _PLAN_DAYLABEL.get(0 if wd == 7 else wd, "?"),
-                        "hours": float(h), "day_type": dt})
+                        "hours": float(h), "day_type": dt, "start": st})
         return JSONResponse({"ok": True, "plan": out, "uvazek": uvazek,
                              "total_hours": round(total, 2), "has_plan": len(out) > 0})
     finally:
@@ -7952,9 +7954,9 @@ async def app_plan_my_uvazek(req: Request) -> JSONResponse:
         per_day = round(uvazek / 5.0, 2)
         rowmap = {}
         try:
-            for r in s.execute(_t("SELECT weekday, works, hours FROM tenant.work_schedule "
+            for r in s.execute(_t("SELECT weekday, works, hours, start_time::text FROM tenant.work_schedule "
                                   "WHERE tenant_id=2 AND user_id=:u"), {"u": target}).fetchall():
-                rowmap[int(r[0])] = (bool(r[1]), float(r[2]) if r[2] is not None else None)
+                rowmap[int(r[0])] = (bool(r[1]), float(r[2]) if r[2] is not None else None, (r[3] or "")[:5])
         except Exception:
             rowmap = {}
         _wn = {1: "Pondělí", 2: "Úterý", 3: "Středa", 4: "Čtvrtek", 5: "Pátek", 6: "Sobota", 7: "Neděle"}
@@ -7962,13 +7964,15 @@ async def app_plan_my_uvazek(req: Request) -> JSONResponse:
         for wd in range(1, 8):
             if wd in rowmap:
                 works, h = rowmap[wd][0], (rowmap[wd][1] if rowmap[wd][1] is not None else per_day)
+                st = rowmap[wd][2]
                 expl = True
             else:
                 works = wd <= 5
                 h = per_day if works else 0
+                st = ""
                 expl = False
             days.append({"weekday": wd, "label": _wn[wd], "works": works,
-                         "hours": float(h), "explicit": expl})
+                         "hours": float(h), "start": st, "explicit": expl})
         suma = round(sum(d["hours"] for d in days if d["works"]), 2)
         return JSONResponse({"ok": True, "user_id": target, "uvazek": uvazek,
                              "per_day": per_day, "days": days, "suma": suma, "can_edit": can})
@@ -8015,12 +8019,13 @@ async def app_plan_my_uvazek_save(req: Request) -> JSONResponse:
                 hrs = round(float(d.get("hours") or 0), 2)
             except Exception:
                 continue
+            st = str(d.get("start") or "").strip() or None
             s.execute(_t(
-                "INSERT INTO tenant.work_schedule (tenant_id,user_id,weekday,works,hours,changed_by,changed_at) "
-                "VALUES (2,:u,:wd,:w,:h,:by,now()) "
+                "INSERT INTO tenant.work_schedule (tenant_id,user_id,weekday,works,hours,start_time,changed_by,changed_at) "
+                "VALUES (2,:u,:wd,:w,:h,CAST(:st AS time),:by,now()) "
                 "ON CONFLICT (tenant_id,user_id,weekday) DO UPDATE SET works=EXCLUDED.works, "
-                "hours=EXCLUDED.hours, changed_by=EXCLUDED.changed_by, changed_at=now()"),
-                {"u": target, "wd": wd, "w": works, "h": hrs, "by": uid})
+                "hours=EXCLUDED.hours, start_time=EXCLUDED.start_time, changed_by=EXCLUDED.changed_by, changed_at=now()"),
+                {"u": target, "wd": wd, "w": works, "h": hrs, "st": st, "by": uid})
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:

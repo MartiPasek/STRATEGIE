@@ -5133,7 +5133,7 @@ setTimeout(function(){
             var tag;
             if(tp==="exception"){ var ic=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic+' '+nf(h)+' h'; }
             else if(tp==="exoff"){ var ic2=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic2+' volno'; }
-            else if(tp==="work"){ tag=nf(h)+" h"; }
+            else if(tp==="work"){ tag=nf(h)+" h"+(d.start?(' · od '+d.start):''); }
             else if(tp==="holiday"){ tag="svátek"; }
             else { tag=(d.day_type==="weekend"?"víkend":"volno"); }
             body.appendChild(el('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;"><span>'+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+tag+'</span></div>'));
@@ -5160,13 +5160,16 @@ setTimeout(function(){
         left.appendChild(el('<div class="hint" style="margin-bottom:2px;">Týdenní vzorec (které dny a kolik hodin)</div>'));
         var dayEls=[];
         j.days.forEach(function(d){
-          var row=el('<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid #1b2742;padding:7px 2px;"></div>');
-          var cb=el('<input type="checkbox" '+(d.works?'checked':'')+' '+(j.can_edit?'':'disabled')+' style="width:18px;height:18px;">');
+          var row=el('<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid #1b2742;padding:7px 2px;"></div>');
+          var cb=el('<input type="checkbox" '+(d.works?'checked':'')+' '+(j.can_edit?'':'disabled')+' style="width:18px;height:18px;flex:none;">');
           row.appendChild(cb);
-          row.appendChild(el('<div style="flex:1;">'+d.label+'</div>'));
-          var hin=el('<input type="number" min="0" max="24" step="0.5" value="'+d.hours+'" '+(j.can_edit?'':'disabled')+' style="width:78px;'+iS+'text-align:right;padding:7px;">');
-          row.appendChild(hin); row.appendChild(el('<span class="hint">h</span>'));
-          dayEls.push({weekday:d.weekday, cb:cb, hin:hin});
+          row.appendChild(el('<div style="flex:1;min-width:34px;">'+d.label.slice(0,2)+'</div>'));
+          var hin=el('<input type="number" min="0" max="24" step="0.5" value="'+d.hours+'" '+(j.can_edit?'':'disabled')+' style="width:56px;'+iS+'text-align:right;padding:7px 6px;">');
+          row.appendChild(hin); row.appendChild(el('<span class="hint" style="flex:none;">h</span>'));
+          row.appendChild(el('<span class="hint" style="flex:none;">od</span>'));
+          var tin=el('<input type="time" value="'+(d.start||"")+'" '+(j.can_edit?'':'disabled')+' style="width:96px;'+iS+'padding:7px 6px;flex:none;">');
+          row.appendChild(tin);
+          dayEls.push({weekday:d.weekday, cb:cb, hin:hin, tin:tin});
           left.appendChild(row);
         });
         if(j.can_edit){
@@ -5177,7 +5180,7 @@ setTimeout(function(){
           var sst=el('<div class="hint" style="margin-top:6px;"></div>');
           sb.addEventListener("click",function(){
             var uvz=parseFloat(uin.value)||0;
-            var days=dayEls.map(function(x){ return {weekday:x.weekday, works:x.cb.checked, hours:parseFloat(x.hin.value)||0}; });
+            var days=dayEls.map(function(x){ return {weekday:x.weekday, works:x.cb.checked, hours:parseFloat(x.hin.value)||0, start:(x.tin.value||"")}; });
             sb.disabled=true; sst.textContent="Ukládám…";
             api("POST","/api/v1/erp/app/plan/my-uvazek/save",{uvazek:uvz, days:days}).then(function(r){
               sb.disabled=false; sst.textContent=(r&&r.ok)?"✅ Uloženo — 👤 Můj plán se přepočítá":("✗ "+((r&&r.error)||"chyba"));

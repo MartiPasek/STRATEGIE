@@ -26,6 +26,10 @@
   /* scéna */
   .stage{margin:18px auto 6px;max-width:760px}
   .stage svg{width:100%;height:auto;display:block}
+  .vid{max-width:540px;margin:10px auto 0}
+  .vidwrap{position:relative;padding-bottom:56.25%;height:0;border:1px solid var(--bord);border-radius:16px;overflow:hidden;box-shadow:0 18px 44px rgba(0,0,0,.45)}
+  .vidwrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .vidcap{text-align:center;color:var(--mut);font-size:12.5px;margin-top:8px}
   @keyframes roll{to{transform:rotate(360deg)}}
   @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
   @keyframes pull{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-2px) rotate(-3deg)}}
@@ -133,12 +137,12 @@
   </svg>
 </div></div>
 
+<div class="wrap"><div class="vid">
+  <div class="vidwrap"><div id="ytk"></div></div>
+  <div class="vidcap">Ukázka spotu „Kára" (10.–20. s, ve smyčce) · video © Performia CZ</div>
+</div></div>
+
 <section style="padding-top:6px"><div class="wrap">
   <p class="lead">Tahle jednoduchá metafora od <b style="color:var(--tx)">Performia</b> shrnuje produktivitu líp než
     tabulky. A přesně k ní směřuje náš systém: poznat <span class="grad">motor</span> (co člověka pohání),
-    vyladit <span class="grad">lopatu</span> (osobnostní profil) a porovnat to s reálným výstupem — aby každý
-    zabíral na svém místě a nikdo se zbytečně nevezl.</p>
-  <div class="cards">
-    <div class="c"><div class="ic">💪</div><h3>Tahouni</h3><p>Zabírají ze všech sil a posouvají firmu dopředu. Jádro, na kterém se staví.</p></div>
-    <div class="c"><div class="ic">🛠️</div><h3>Vyladěná lopata</h3><p>Čím lepší nástroj (osobnost) se snoubí s motorem, tím se táhne snáz a s radostí.</p></div>
-    <div class="c"><div class="ic">📈</div><h3>Reálný
+    vyladit <span class="grad">l

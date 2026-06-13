@@ -8297,6 +8297,102 @@ async def app_plan_day(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Výroba: osobní seznam činností (overlay nad master číselníkem) ───────────
+@api_router.get("/app/vyroba/my-cinnosti")
+async def app_vyroba_my_cinnosti(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        target = uid
+        tu = req.query_params.get("user_id")
+        if tu and int(tu) != uid:
+            if not _hr_can_manage(s, uid):
+                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+            target = int(tu)
+        rows = s.execute(_t(
+            "SELECT c.id, c.name, COALESCE(uc.hidden,false) AS hid, COALESCE(uc.sort_order, c.sort_order) AS so "
+            "FROM tenant.vyroba_cinnost c "
+            "LEFT JOIN tenant.vyroba_cinnost_user uc ON uc.cinnost_id=c.id AND uc.tenant_id=2 AND uc.user_id=:u "
+            "WHERE c.tenant_id=2 AND c.active=true ORDER BY hid, so, c.name"), {"u": target}).fetchall()
+        out = [{"id": r[0], "name": r[1], "hidden": bool(r[2]), "so": int(r[3])} for r in rows]
+        return JSONResponse({"ok": True, "user_id": target, "cinnosti": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/my-cinnosti/toggle")
+async def app_vyroba_my_cinnosti_toggle(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+        cid = int((b or {}).get("cinnost_id") or 0)
+    except Exception:
+        cid = 0
+    in_list = bool((b or {}).get("in_list"))
+    if not cid:
+        return JSONResponse({"ok": False, "error": "cinnost_id"})
+    cm, s = _att_session()
+    try:
+        target = uid
+        tu = (b or {}).get("user_id")
+        if tu and int(tu) != uid:
+            if not _hr_can_manage(s, uid):
+                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+            target = int(tu)
+        s.execute(_t(
+            "INSERT INTO tenant.vyroba_cinnost_user (tenant_id,user_id,cinnost_id,hidden) "
+            "VALUES (2,:u,:c,:h) ON CONFLICT (tenant_id,user_id,cinnost_id) DO UPDATE SET "
+            "hidden=EXCLUDED.hidden, updated_at=now()"),
+            {"u": target, "c": cid, "h": (not in_list)})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/my-cinnosti/order")
+async def app_vyroba_my_cinnosti_order(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+        order = [int(x) for x in ((b or {}).get("order") or [])]
+    except Exception:
+        order = []
+    cm, s = _att_session()
+    try:
+        target = uid
+        tu = (b or {}).get("user_id")
+        if tu and int(tu) != uid:
+            if not _hr_can_manage(s, uid):
+                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+            target = int(tu)
+        for i, cid in enumerate(order):
+            s.execute(_t(
+                "INSERT INTO tenant.vyroba_cinnost_user (tenant_id,user_id,cinnost_id,sort_order,hidden) "
+                "VALUES (2,:u,:c,:so,false) ON CONFLICT (tenant_id,user_id,cinnost_id) DO UPDATE SET "
+                "sort_order=EXCLUDED.sort_order, updated_at=now()"),
+                {"u": target, "c": cid, "so": (i + 1) * 10})
+        s.commit()
+        return JSONResponse({"ok": True, "n": len(order)})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Vrstva 2: firemní výjimky (samostatná tabulka, NEPŘEPISUJE vrstvu 1) ──────
 @api_router.get("/app/plan/exceptions")
 async def app_plan_exceptions(req: Request) -> JSONResponse:

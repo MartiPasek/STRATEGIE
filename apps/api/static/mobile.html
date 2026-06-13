@@ -1168,6 +1168,7 @@ setTimeout(function(){
     g3.appendChild(appCell("🧾","Zakázky",0,function(){openVyroba("zakazky");}));
     g3.appendChild(appCell("🔧","Příprava",0,function(){openVyroba("priprava");}));
     g3.appendChild(appCell("🚚","Odvozy",0,function(){openVyroba("odvozy");}));
+    g3.appendChild(appCell("🧰","Moje činnosti",0,function(){go("moje_cinnosti");}));
     app.appendChild(g3);
     sec("ŘÍZENÍ & MZDY");
     var g4=el('<div class="appgrid"></div>');
@@ -5414,7 +5415,51 @@ setTimeout(function(){
     }
     load();
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky};
+  function moje_cinnosti(){
+    app.innerHTML=topbar("🧰 Moje činnosti", true);
+    app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">Vyber, které činnosti chceš mít ve svém seznamu a v jakém pořadí. Výchozí = všechny. ▲▼ pořadí · ✕ odebrat · + přidat zpět.</div>'));
+    var box=el('<div></div>'); app.appendChild(box);
+    var _mine=[];
+    function saveOrder(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/order",{order:_mine.map(function(c){return c.id;})}).then(function(){}); }
+    function renderMine(ml){
+      ml.innerHTML='';
+      if(!_mine.length){ ml.appendChild(el('<div class="hint">Prázdný seznam — přidej činnosti níže.</div>')); return; }
+      _mine.forEach(function(c,idx){
+        var row=el('<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid #1b2742;padding:8px 4px;"></div>');
+        var up=el('<button class="ghost" style="padding:4px 9px;flex:none;" '+(idx===0?'disabled':'')+'>▲</button>');
+        var dn=el('<button class="ghost" style="padding:4px 9px;flex:none;" '+(idx===_mine.length-1?'disabled':'')+'>▼</button>');
+        up.addEventListener("click",function(){ if(idx===0)return; var t=_mine[idx-1]; _mine[idx-1]=_mine[idx]; _mine[idx]=t; renderMine(ml); saveOrder(); });
+        dn.addEventListener("click",function(){ if(idx===_mine.length-1)return; var t=_mine[idx+1]; _mine[idx+1]=_mine[idx]; _mine[idx]=t; renderMine(ml); saveOrder(); });
+        row.appendChild(up); row.appendChild(dn);
+        row.appendChild(el('<div style="flex:1;font-weight:600;">'+esc(c.name)+'</div>'));
+        var rm=el('<button class="ghost" style="padding:6px 10px;flex:none;color:#f87171;border-color:#5a2b2b;">✕</button>');
+        rm.addEventListener("click",function(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/toggle",{cinnost_id:c.id,in_list:false}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
+        row.appendChild(rm); ml.appendChild(row);
+      });
+    }
+    function load(){
+      box.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/vyroba/my-cinnosti","").then(function(j){
+        box.innerHTML='';
+        if(!j||!j.ok){ box.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
+        _mine=(j.cinnosti||[]).filter(function(c){return !c.hidden;});
+        var avail=(j.cinnosti||[]).filter(function(c){return c.hidden;});
+        box.appendChild(el('<div style="font-weight:700;margin-bottom:6px;">Můj seznam ('+_mine.length+')</div>'));
+        var ml=el('<div></div>'); box.appendChild(ml); renderMine(ml);
+        box.appendChild(el('<div style="font-weight:700;margin:14px 0 6px;">Přidat ze seznamu</div>'));
+        if(!avail.length){ box.appendChild(el('<div class="hint">Máš všechny činnosti ve svém seznamu.</div>')); }
+        avail.forEach(function(c){
+          var row=el('<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid #1b2742;padding:9px 4px;"></div>');
+          row.appendChild(el('<div style="flex:1;color:#8696b8;">'+esc(c.name)+'</div>'));
+          var add=el('<button class="ghost" style="padding:6px 12px;flex:none;border-color:#3a7a4c;color:#7fe0a0;">+ Přidat</button>');
+          add.addEventListener("click",function(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/toggle",{cinnost_id:c.id,in_list:true}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
+          row.appendChild(add); box.appendChild(row);
+        });
+      });
+    }
+    load();
+  }
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

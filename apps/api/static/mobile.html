@@ -1500,13 +1500,59 @@ setTimeout(function(){
     l.appendChild(row("👤","Kandidáti","Všichni uchazeči — profil v kontextu",function(){ window._nbFilter={phase:"",title:"👤 Kandidáti"}; go("hr_nabor_list"); }));
     l.appendChild(row("💬","Pohovory — ve hře","Aktivní pipeline: Ve hře / 1. a 2. kolo",function(){ window._nbFilter={phase:"active",title:"💬 Pohovory — ve hře"}; go("hr_nabor_list"); }));
     l.appendChild(row("📨","Nástupy","Přijatí — fáze nástup (→ onboarding)",function(){ window._nbFilter={phase:"hired",title:"📨 Nástupy"}; go("hr_nabor_list"); }));
-    l.appendChild(row("📣","Inzeráty","Volné pozice a zveřejnění",function(){ hrSoon("Inzeráty","Tvorba a správa inzerátů na volné pozice — připravujeme. Náborová data uchazečů už jsou živá v Kandidátech."); }));
+    l.appendChild(row("📣","Inzeráty → Jobs.cz / Práce.cz","Tvorba a zveřejnění přes Teamio API",function(){ go("hr_inzeraty"); }));
     app.appendChild(l);
     api("GET","/api/v1/erp/app/recruit/pipeline","").then(function(j){
       if(!j||!j.ok){ dash.textContent=(j&&j.error==="forbidden")?"🔒 Nábor vidí jen rodiče a HR skupina.":"Pipeline se nepodařilo načíst."; return; }
       var bars=(j.phases||[]).map(function(p){ var col=p.hired?"#22c55e":"#4f8ef7"; return '<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13.5px;"><span style="flex:1;">'+esc(p.faze)+'</span><b style="color:'+col+';">'+p.pocet+'</b></div>'; }).join("");
       dash.innerHTML='<div style="background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:12px;">'+
         '<div style="font-weight:700;margin-bottom:6px;">📊 Pipeline · '+j.candidates+' kandidátů · '+j.total+' přihlášek</div>'+bars+'</div>';
+    });
+  }
+  // Inzeráty → Teamio (Jobs.cz/Práce.cz). Připraveno na API; publikace/stahování čeká na přístupy LMC (pondělí).
+  function hr_inzeraty(){
+    app.innerHTML=topbar("📣 Inzeráty → Jobs.cz / Práce.cz", true);
+    app.appendChild(el('<div class="hint" style="margin:6px;line-height:1.5;">Inzeráty se publikují přes <b>Teamio API</b> (Jobs.cz, Práce.cz, Práce za rohem). Uchazeči se stáhnou zpět do Náboru. Přístupy od LMC se doplní v pondělí — do té doby vše připravíš, jen se nezveřejní.</div>'));
+    var add=el('<button style="margin:6px;padding:11px 16px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;">+ Nový inzerát</button>');
+    add.addEventListener("click",function(){ window._inzId=null; go("hr_inzerat_edit"); });
+    app.appendChild(add);
+    var pull=el('<button style="margin:6px;padding:11px 16px;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,.04);color:var(--tx);cursor:pointer;">📥 Stáhnout uchazeče z Teamia</button>');
+    pull.addEventListener("click",function(){ api("POST","/api/v1/erp/app/recruit/pull-replies",{}).then(function(r){ alert(r&&r.ok?("Staženo: "+(r.imported||0)):("ℹ️ "+((r&&r.error)||"?"))); }); });
+    app.appendChild(pull);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/recruit/postings","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Vidí jen rodiče a HR.":"Nepodařilo se načíst.")+'</div>'; return; }
+      if(!j.items.length){ box.innerHTML='<div class="hint">Zatím žádný inzerát. Přidej první.</div>'; return; }
+      j.items.forEach(function(p){
+        var st=p.status==="published"?("✅ zveřejněno"+(p.published?(" "+p.published):"")):"📝 koncept";
+        box.appendChild(row("📣",p.title,(p.profession?p.profession+" · ":"")+(p.city?p.city+" · ":"")+st,function(){ window._inzId=p.id; go("hr_inzerat_edit"); }));
+      });
+    });
+  }
+  function _izV(id){ var e=document.getElementById(id); return e?e.value:""; }
+  function hr_inzerat_edit(){
+    app.innerHTML=topbar(window._inzId?"Úprava inzerátu":"Nový inzerát", true);
+    var c=el('<div style="margin:6px;"></div>'); app.appendChild(c);
+    function fld(lb,id,ph,t){ return '<div style="margin:6px 0;"><div style="font-size:12px;color:var(--mut);margin-bottom:2px;">'+lb+'</div><input id="'+id+'" type="'+(t||"text")+'" placeholder="'+(ph||"")+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);"></div>'; }
+    var h=fld("Název pozice","izTitle","Elektromontér / PLC programátor…")
+      +fld("Profese","izProf","")+fld("Město","izCity","Plzeň")+fld("Kraj","izReg","Plzeňský kraj")
+      +'<div style="margin:6px 0;"><div style="font-size:12px;color:var(--mut);margin-bottom:2px;">Úvazek</div><select id="izEt" style="width:100%;padding:9px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);"><option value="fulltime">Plný úvazek</option><option value="parttime">Částečný</option><option value="contract">IČO</option><option value="brigada">Brigáda</option></select></div>'
+      +fld("Plat od (Kč/měs)","izSmin","","number")+fld("Plat do (Kč/měs)","izSmax","","number")
+      +'<div style="margin:6px 0;"><div style="font-size:12px;color:var(--mut);margin-bottom:2px;">Popis (HTML — &lt;p&gt; &lt;strong&gt; &lt;ul&gt;&lt;li&gt;)</div><textarea id="izDesc" rows="7" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);"></textarea></div>'
+      +fld("Kontakt – jméno","izCn","Šárka Novotná")+fld("Kontakt – e-mail","izCe","s.novotna@eurosoft.com")
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;"><button id="izSave" style="padding:11px 16px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;">Uložit</button>'
+      +'<button id="izPub" style="padding:11px 16px;border:0;border-radius:12px;background:linear-gradient(110deg,#a78bfa,#7c5cff);color:#0c0820;font-weight:700;cursor:pointer;">📤 Publikovat na Jobs.cz/Práce.cz</button></div><div id="izMsg" class="hint" style="margin-top:8px;"></div>';
+    c.innerHTML=h;
+    function payload(){ return {id:window._inzId,title:_izV("izTitle"),profession:_izV("izProf"),city:_izV("izCity"),region:_izV("izReg"),employment_type:_izV("izEt"),salary_min:(_izV("izSmin")||null),salary_max:(_izV("izSmax")||null),description_html:_izV("izDesc"),contact_name:_izV("izCn"),contact_email:_izV("izCe")}; }
+    if(window._inzId){ api("GET","/api/v1/erp/app/recruit/postings","").then(function(j){ /* prefill minimal: list nemá detail, necháme prázdné pro úpravu */ }); }
+    document.getElementById("izSave").addEventListener("click",function(){
+      if(!_izV("izTitle")){ document.getElementById("izMsg").textContent="Zadej název pozice."; return; }
+      api("POST","/api/v1/erp/app/recruit/posting",payload()).then(function(r){ if(r&&r.ok){ window._inzId=r.id; document.getElementById("izMsg").textContent="Uloženo ✓"; } else document.getElementById("izMsg").textContent="Chyba: "+((r&&r.error)||"?"); });
+    });
+    document.getElementById("izPub").addEventListener("click",function(){
+      if(!window._inzId){ document.getElementById("izMsg").textContent="Nejdřív ulož."; return; }
+      api("POST","/api/v1/erp/app/recruit/posting/publish",{id:window._inzId}).then(function(r){ document.getElementById("izMsg").innerHTML=(r&&r.ok)?"✅ Odesláno do Teamia (draft).":("ℹ️ "+esc((r&&r.error)||"?")); });
     });
   }
   function hr_nabor_list(){
@@ -4971,7 +5017,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

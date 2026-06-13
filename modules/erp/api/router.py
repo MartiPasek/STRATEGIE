@@ -6715,6 +6715,191 @@ async def app_kara_board(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ─── Teamio (Jobs.cz / Práce.cz, Alma Career) — připraveno na API (Marti 13.6.) ───
+# Inzeráty: Vacancies Import API (POST form-urlencoded xmlString). Uchazeči: Replies
+# Export API (dotáhne se v pondělí s přístupy od LMC). Creds z env (AppEnvironmentExtra).
+def _teamio_creds(kind):
+    import os
+    if kind == "import":
+        return (os.environ.get("TEAMIO_IMPORT_URL"), os.environ.get("TEAMIO_IMPORT_USER"), os.environ.get("TEAMIO_IMPORT_PASS"))
+    return (os.environ.get("TEAMIO_REPLIES_URL"), os.environ.get("TEAMIO_REPLIES_USER"), os.environ.get("TEAMIO_REPLIES_PASS"))
+
+
+def _teamio_vacancy_xml(p):
+    from xml.sax.saxutils import escape
+
+    def e(v):
+        return escape(str(v)) if v is not None else ""
+    et = {"fulltime": "201300001", "parttime": "201300002", "contract": "201300003",
+          "brigada": "201300004"}.get((p.get("employment_type") or "fulltime"), "201300001")
+    sal = ""
+    if p.get("salary_min") or p.get("salary_max"):
+        sal = ('<remunerationPackage><salary hidden="%s">%s%s'
+               '<currencyCode id="201400001" svlId="2014000">%s</currencyCode>'
+               '<baseInterval id="209800002" svlId="2098000">month</baseInterval>'
+               '</salary></remunerationPackage>') % (
+            ("true" if p.get("salary_hidden", True) else "false"),
+            ("<minSalary>%d</minSalary>" % int(p["salary_min"]) if p.get("salary_min") else ""),
+            ("<maxSalary>%d</maxSalary>" % int(p["salary_max"]) if p.get("salary_max") else ""),
+            e(p.get("currency") or "CZK"))
+    loc = ""
+    if p.get("city") or p.get("region"):
+        loc = ('<jobLocalityList><jobLocality>'
+               '<territory id="1" svlId="1006000">Europe</territory>'
+               '<country id="56" svlId="1002000">Czech Republic</country>'
+               + (('<region svlId="1008000">%s</region>' % e(p["region"])) if p.get("region") else "")
+               + (('<city svlId="1010000">%s</city>' % e(p["city"])) if p.get("city") else "")
+               + '</jobLocality></jobLocalityList>')
+    nm = (p.get("contact_name") or "Šárka Novotná").split(" ")
+    fn = nm[0]
+    sn = " ".join(nm[1:]) or "Novotná"
+    return ('<?xml version="1.0" encoding="utf-8"?>'
+            '<positionList xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+            'xmlns="http://www.onrea.net/ei_std_jd/2006-10-19"><position>'
+            '<lang id="5" svlId="1000000"/>'
+            '<parameterList><parameter name="clientID_0">'
+            + e(p.get("teamio_client_ref") or ("STR-" + str(p.get("id")))) + '</parameter></parameterList>'
+            '<organization><organizationalUnit><contactInformation><name>'
+            '<firstName>' + e(fn) + '</firstName><surname>' + e(sn) + '</surname></name>'
+            '<email>' + e(p.get("contact_email") or "s.novotna@eurosoft.com") + '</email>'
+            '</contactInformation></organizationalUnit></organization>'
+            '<jobDescription><positionName>' + e(p.get("title")) + '</positionName>'
+            + (('<internalName>' + e(p["internal_name"]) + '</internalName>') if p.get("internal_name") else "")
+            + '<employmentTypeList><employmentType id="' + et + '" svlId="2013000">x</employmentType></employmentTypeList>'
+            + sal + loc + '</jobDescription>'
+            '<richtext><![CDATA[' + (p.get("description_html") or "") + ']]></richtext>'
+            '</position></positionList>')
+
+
+def _teamio_publish(p):
+    import urllib.request
+    import urllib.parse
+    url, user, pw = _teamio_creds("import")
+    if not (url and user and pw):
+        return {"ok": False, "error": "Teamio přístup zatím není nastaven (čeká na LMC — pondělí)."}
+    data = urllib.parse.urlencode({"username": user, "password": pw, "xmlString": _teamio_vacancy_xml(p)}).encode()
+    try:
+        req = urllib.request.Request(url, data=data, headers={"Content-type": "application/x-www-form-urlencoded"})
+        resp = urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "replace")
+        return {"ok": True, "response": resp[:2000]}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _teamio_pull_replies():
+    url, user, pw = _teamio_creds("replies")
+    if not (url and user and pw):
+        return {"ok": False, "error": "Teamio přístup k uchazečům zatím není nastaven (čeká na LMC — pondělí)."}
+    # TODO pondělí: GET replies-export XML → parse → upsert recruit_candidate/application
+    return {"ok": False, "error": "Klient připraven; stahování uchazečů se dotáhne v pondělí (request config + přístup)."}
+
+
+@api_router.get("/app/recruit/postings")
+async def app_recruit_postings(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id,title,profession,city,status,to_char(teamio_published_at,'DD.MM.YYYY') pub "
+            "FROM tenant.recruit_posting WHERE tenant_id=2 ORDER BY created_at DESC")).fetchall()
+        return JSONResponse({"ok": True, "items": [
+            {"id": r[0], "title": r[1], "profession": r[2] or "", "city": r[3] or "",
+             "status": r[4], "published": r[5] or ""} for r in rows]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/recruit/posting")
+async def app_recruit_posting_save(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    d = await req.json()
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        prm = {"t": d.get("title"), "pr": d.get("profession"), "ci": d.get("city"), "re": d.get("region"),
+               "et": d.get("employment_type") or "fulltime", "smin": d.get("salary_min") or None,
+               "smax": d.get("salary_max") or None, "dh": d.get("description_html"),
+               "ce": d.get("contact_email"), "cn": d.get("contact_name"), "u": uid}
+        pid = d.get("id")
+        if pid:
+            prm["id"] = int(pid)
+            s.execute(_t("UPDATE tenant.recruit_posting SET title=:t,profession=:pr,city=:ci,region=:re,"
+                         "employment_type=:et,salary_min=:smin,salary_max=:smax,description_html=:dh,"
+                         "contact_email=:ce,contact_name=:cn,updated_at=now() WHERE id=:id AND tenant_id=2"), prm)
+        else:
+            pid = s.execute(_t("INSERT INTO tenant.recruit_posting(tenant_id,title,profession,city,region,"
+                               "employment_type,salary_min,salary_max,description_html,contact_email,contact_name,created_by) "
+                               "VALUES(2,:t,:pr,:ci,:re,:et,:smin,:smax,:dh,:ce,:cn,:u) RETURNING id"), prm).scalar()
+        s.commit()
+        return JSONResponse({"ok": True, "id": pid})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/recruit/posting/publish")
+async def app_recruit_posting_publish(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    d = await req.json()
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        r = s.execute(_t("SELECT id,title,internal_name,profession,employment_type,city,region,salary_min,"
+                         "salary_max,currency,salary_hidden,description_html,contact_name,contact_email,teamio_client_ref "
+                         "FROM tenant.recruit_posting WHERE id=:i AND tenant_id=2"), {"i": int(d.get("id") or 0)}).first()
+        if not r:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        p = {"id": r[0], "title": r[1], "internal_name": r[2], "profession": r[3], "employment_type": r[4],
+             "city": r[5], "region": r[6], "salary_min": r[7], "salary_max": r[8], "currency": r[9],
+             "salary_hidden": r[10], "description_html": r[11], "contact_name": r[12], "contact_email": r[13],
+             "teamio_client_ref": r[14]}
+        res = _teamio_publish(p)
+        s.execute(_t("UPDATE tenant.recruit_posting SET teamio_last_result=:res, "
+                     "status=CASE WHEN :ok THEN 'published' ELSE status END, "
+                     "teamio_published_at=CASE WHEN :ok THEN now() ELSE teamio_published_at END "
+                     "WHERE id=:i AND tenant_id=2"),
+                  {"res": (res.get("response") or res.get("error") or "")[:500], "ok": bool(res.get("ok")), "i": r[0]})
+        s.commit()
+        return JSONResponse(res)
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/recruit/pull-replies")
+async def app_recruit_pull_replies(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        return JSONResponse(_teamio_pull_replies())
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/recruit/list")
 async def app_recruit_list(req: Request) -> JSONResponse:
     """Nábor — seznam přihlášek (?phase=label | 'active' | 'hired', ?q=). Rodiče + HR."""

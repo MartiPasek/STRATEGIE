@@ -5424,9 +5424,41 @@ setTimeout(function(){
     }
     load();
   }
+  function master_cinnosti(){
+    app.innerHTML=topbar("🛠 Master číselník", true);
+    app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">Výchozí seznam všech činností (pro celou firmu). Přidej, přejmenuj, změň pořadí, skryj. Pracovníci si z něj dělají vlastní seznam.</div>'));
+    var addb=el('<button class="green full" style="margin-bottom:10px;">+ Přidat činnost</button>');
+    addb.addEventListener("click",function(){ var n=prompt("Název nové činnosti:"); if(!n||!n.trim())return; api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{name:n.trim()}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
+    app.appendChild(addb);
+    var box=el('<div></div>'); app.appendChild(box);
+    var _all=[];
+    function saveOrder(){ api("POST","/api/v1/erp/app/vyroba/cinnost-master/order",{order:_all.map(function(c){return c.id;})}).then(function(){}); }
+    function render(){
+      box.innerHTML='';
+      _all.forEach(function(c,idx){
+        var row=el('<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid #1b2742;padding:8px 4px;'+(c.active?'':'opacity:.5;')+'"></div>');
+        var up=el('<button class="ghost" style="padding:4px 9px;flex:none;" '+(idx===0?'disabled':'')+'>▲</button>');
+        var dn=el('<button class="ghost" style="padding:4px 9px;flex:none;" '+(idx===_all.length-1?'disabled':'')+'>▼</button>');
+        up.addEventListener("click",function(){ if(idx===0)return; var t=_all[idx-1]; _all[idx-1]=_all[idx]; _all[idx]=t; render(); saveOrder(); });
+        dn.addEventListener("click",function(){ if(idx===_all.length-1)return; var t=_all[idx+1]; _all[idx+1]=_all[idx]; _all[idx]=t; render(); saveOrder(); });
+        row.appendChild(up); row.appendChild(dn);
+        var nm=el('<div style="flex:1;font-weight:600;cursor:pointer;">'+esc(c.name)+(c.active?'':' <span class="hint">(skryto)</span>')+'</div>');
+        nm.addEventListener("click",function(){ var n=prompt("Název činnosti:",c.name); if(!n||!n.trim()||n.trim()===c.name)return; api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{id:c.id,name:n.trim()}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba"); }); });
+        row.appendChild(nm);
+        var tg=el('<button class="ghost" style="padding:6px 10px;flex:none;">'+(c.active?'🚫':'👁')+'</button>');
+        tg.addEventListener("click",function(){ api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{id:c.id,active:!c.active}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba"); }); });
+        row.appendChild(tg); box.appendChild(row);
+      });
+    }
+    function load(){ box.innerHTML='<div class="hint">Načítám…</div>'; api("GET","/api/v1/erp/app/vyroba/cinnost-master","").then(function(j){ box.innerHTML=''; if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Jen pro vedoucí/HR.")+'</div>')); return; } _all=j.cinnosti||[]; render(); }); }
+    load();
+  }
   function moje_cinnosti(){
     app.innerHTML=topbar("🧰 Moje činnosti", true);
     app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">Vyber, které činnosti chceš mít ve svém seznamu a v jakém pořadí. Výchozí = všechny. ▲▼ pořadí · ✕ odebrat · + přidat zpět.</div>'));
+    var mb=el('<button class="ghost full" style="margin-bottom:10px;border-color:#6b4a2a;color:#e6b97a;">🛠 Master číselník (správa)</button>');
+    mb.addEventListener("click",function(){ go("master_cinnosti"); });
+    app.appendChild(mb);
     var box=el('<div></div>'); app.appendChild(box);
     var _mine=[];
     function saveOrder(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/order",{order:_mine.map(function(c){return c.id;})}).then(function(){}); }
@@ -5468,7 +5500,7 @@ setTimeout(function(){
     }
     load();
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

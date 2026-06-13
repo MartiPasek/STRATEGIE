@@ -8393,6 +8393,106 @@ async def app_vyroba_my_cinnosti_order(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Výroba: správa MASTER číselníku činností (rodiče/HR) ─────────────────────
+@api_router.get("/app/vyroba/cinnost-master")
+async def app_vyroba_cinnost_master(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, code, name, sort_order, active FROM tenant.vyroba_cinnost "
+            "WHERE tenant_id=2 ORDER BY sort_order, name")).fetchall()
+        return JSONResponse({"ok": True, "cinnosti": [
+            {"id": r[0], "code": r[1], "name": r[2], "so": int(r[3]), "active": bool(r[4])} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/cinnost-master/save")
+async def app_vyroba_cinnost_master_save(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import unicodedata as _ud
+    import re as _re
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    name = str((b or {}).get("name") or "").strip()[:120]
+    try:
+        cid = int((b or {}).get("id") or 0)
+    except Exception:
+        cid = 0
+    active = (b or {}).get("active")
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if cid:  # úprava
+            sets, par = [], {"i": cid}
+            if name:
+                sets.append("name=:n"); par["n"] = name
+            if active is not None:
+                sets.append("active=:a"); par["a"] = bool(active)
+            if sets:
+                s.execute(_t("UPDATE tenant.vyroba_cinnost SET " + ", ".join(sets) +
+                             " WHERE tenant_id=2 AND id=:i"), par)
+        else:  # nová
+            if not name:
+                return JSONResponse({"ok": False, "error": "Zadej název."})
+            base = _ud.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+            base = _re.sub(r"[^a-z0-9]+", "_", base).strip("_")[:30] or "cinnost"
+            code = base
+            n = 1
+            while s.execute(_t("SELECT 1 FROM tenant.vyroba_cinnost WHERE tenant_id=2 AND code=:c"), {"c": code}).first():
+                n += 1
+                code = (base[:27] + "_" + str(n))
+            mx = s.execute(_t("SELECT COALESCE(MAX(sort_order),0) FROM tenant.vyroba_cinnost WHERE tenant_id=2")).scalar() or 0
+            s.execute(_t("INSERT INTO tenant.vyroba_cinnost (tenant_id, code, name, sort_order, active) "
+                         "VALUES (2, :c, :n, :so, true)"), {"c": code, "n": name, "so": int(mx) + 10})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/vyroba/cinnost-master/order")
+async def app_vyroba_cinnost_master_order(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+        order = [int(x) for x in ((b or {}).get("order") or [])]
+    except Exception:
+        order = []
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        for i, cid in enumerate(order):
+            s.execute(_t("UPDATE tenant.vyroba_cinnost SET sort_order=:so WHERE tenant_id=2 AND id=:i"),
+                      {"so": (i + 1) * 10, "i": cid})
+        s.commit()
+        return JSONResponse({"ok": True, "n": len(order)})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Vrstva 2: firemní výjimky (samostatná tabulka, NEPŘEPISUJE vrstvu 1) ──────
 @api_router.get("/app/plan/exceptions")
 async def app_plan_exceptions(req: Request) -> JSONResponse:

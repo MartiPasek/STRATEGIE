@@ -15652,6 +15652,8 @@ def _sync_nabor_from_ec() -> dict:
             # Terminální fáze (nástup/mimo hru) zůstávají.
             if faze in ("Ve hře", "1. kolo", "2. kolo") and stav != "O":
                 ph_id = phase_ids.get("mimo hru")
+            elif (not faze) and stav == "O":
+                ph_id = phase_ids.get("Ve hře")
             s.execute(_t(
                 "INSERT INTO tenant.recruit_application(tenant_id,candidate_id,position_text,phase_id,"
                 "status,interview_at,test_days_at,start_at,expected_salary,source_id,reject_reason_id,"

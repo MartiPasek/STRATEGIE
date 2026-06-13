@@ -1108,6 +1108,7 @@ setTimeout(function(){
     // Marti 9.6.: vše ze složky Firma = aplikace. Výroba + její seznamy jako ikony,
     // řízení (Vedení) jako složka. Deep-link otevře Výrobu rovnou na daném seznamu.
     g.appendChild(appCell("🏭","Výroba",0,function(){openVyroba("makam");}));
+    g.appendChild(appCell("🧰","Moje činnosti",0,function(){go("moje_cinnosti");}));
     g.appendChild(appCell("🛒","Nákup",0,function(){openVyroba("nakup");}));
     g.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
     g.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
@@ -1168,7 +1169,6 @@ setTimeout(function(){
     g3.appendChild(appCell("🧾","Zakázky",0,function(){openVyroba("zakazky");}));
     g3.appendChild(appCell("🔧","Příprava",0,function(){openVyroba("priprava");}));
     g3.appendChild(appCell("🚚","Odvozy",0,function(){openVyroba("odvozy");}));
-    g3.appendChild(appCell("🧰","Moje činnosti",0,function(){go("moje_cinnosti");}));
     app.appendChild(g3);
     sec("ŘÍZENÍ & MZDY");
     var g4=el('<div class="appgrid"></div>');

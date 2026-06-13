@@ -7736,6 +7736,19 @@ def _plan_employee(s, uid: int):
         "AND is_active=true ORDER BY id LIMIT 1"), {"u": uid}).scalar()
 
 
+def _norm_hhmm(v):
+    """Normalizuje čas (9, 9:00, 9.00, 09:00) na HH:MM, jinak ''."""
+    import re
+    v = str(v or "").strip().replace(".", ":")
+    m = re.match(r"^(\d{1,2}):(\d{2})$", v)
+    if m:
+        return "%02d:%s" % (int(m.group(1)), m.group(2))
+    m = re.match(r"^(\d{1,2})$", v)
+    if m:
+        return "%02d:00" % int(m.group(1))
+    return ""
+
+
 @api_router.post("/app/plan/generate-base")
 async def app_plan_generate_base(req: Request) -> JSONResponse:
     """Vyrobí základní roční plán z kalendáře svátků × úvazek. Po–Pá per_day=úvazek/5,
@@ -7904,6 +7917,11 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
         except Exception:
             uvazek = 40.0
         per_day = round(uvazek / 5.0, 2)
+        # fallback příchodu: skupinový/systémový "Povinný nástup nejpozději" (null → firma/skupina)
+        try:
+            gstart = _norm_hhmm(_resolve_cond(s, target, "nastup_max")[0])
+        except Exception:
+            gstart = ""
         out = []
         total = 0.0
         for day, is_wd, is_hol in cal:
@@ -7921,6 +7939,8 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
                 dt, h = "work", per_day
             else:
                 dt, h = ("weekend" if wd >= 6 else "off"), 0
+            if dt == "work" and not st:
+                st = gstart
             total += h
             out.append({"date": day.isoformat(), "iso_week": day.isocalendar()[1],
                         "weekday": _PLAN_DAYLABEL.get(0 if wd == 7 else wd, "?"),
@@ -8061,6 +8081,13 @@ async def app_plan_group(req: Request) -> JSONResponse:
         except Exception:
             uvazek = 40.0
         per_day = round(uvazek / 5.0, 2)
+        # příchod skupiny: "Povinný nástup nejpozději" (skupina → systém)
+        nm = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='group' "
+                          "AND group_code=:g AND cond_code='nastup_max' LIMIT 1"), {"g": str(gid)}).scalar()
+        if not nm:
+            nm = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='system' "
+                              "AND cond_code='nastup_max' LIMIT 1")).scalar()
+        gstart = _norm_hhmm(nm)
         cal = s.execute(_t(
             "SELECT day, is_workday, is_holiday FROM tenant.att_calendar_day "
             "WHERE tenant_id=2 AND date_part('year', day)=date_part('year', CURRENT_DATE) ORDER BY day")).fetchall()
@@ -8097,7 +8124,7 @@ async def app_plan_group(req: Request) -> JSONResponse:
                 scope = "firma"
             out.append({"date": day.isoformat(), "iso_week": day.isocalendar()[1],
                         "weekday": _PLAN_DAYLABEL.get(0 if wd == 7 else wd, "?"),
-                        "hours": float(h), "day_type": dt,
+                        "hours": float(h), "day_type": dt, "start": (gstart if dt == "work" else ""),
                         "exc_hours": (ex[0] if ex else None), "exc_reason": (ex[1] if ex else None),
                         "exc_scope": (scope if ex else None)})
         return JSONResponse({"ok": True, "plan": out, "uvazek": uvazek, "group_name": gname,

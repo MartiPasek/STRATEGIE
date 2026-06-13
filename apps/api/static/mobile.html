@@ -5087,15 +5087,19 @@ setTimeout(function(){
         var nowM=(new Date()).getFullYear()+"-"+("0"+((new Date()).getMonth()+1)).slice(-2);
         var months={}, order=[];
         j.plan.forEach(function(d){ var m=d.date.slice(0,7); if(!months[m]){ months[m]=[]; order.push(m);} months[m].push(d); });
+        var entries=[];
+        function closeAll(){ entries.forEach(function(e){ e.body.style.display="none"; e.arr.innerHTML=e.summary+' ▸'; }); }
         order.forEach(function(m){
-          var days=months[m], sum=0, wd=0; days.forEach(function(d){ sum+=d.hours; if(d.day_type==="work") wd++; });
-          var mi=parseInt(m.slice(5,7),10)-1, my=m.slice(0,4), open0=(m===nowM);
+          var days=months[m], sum=0, wd=0, hol=0;
+          days.forEach(function(d){ sum+=d.hours; if(d.day_type==="work") wd++; else if(d.day_type==="holiday") hol++; });
+          var summary=wd+' prac. dní'+(hol>0?(' · '+hol+' svát.'):'')+' · '+nf(sum)+' h';
+          var mi=parseInt(m.slice(5,7),10)-1, my=m.slice(0,4);
           var card=el('<div style="border:1px solid #2b3a5c;border-radius:12px;margin-bottom:8px;overflow:hidden;"></div>');
           var head=el('<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;cursor:pointer;background:#0e1830;"></div>');
           head.appendChild(el('<span style="font-weight:700;">'+MN[mi]+' '+my+'</span>'));
-          var arr=el('<span class="hint" style="font-size:12px;">'+wd+' dní · '+nf(sum)+' h '+(open0?'▾':'▸')+'</span>');
+          var arr=el('<span class="hint" style="font-size:12px;">'+summary+' ▸</span>');
           head.appendChild(arr);
-          var body=el('<div style="padding:4px 12px 8px;'+(open0?'':'display:none;')+'"></div>');
+          var body=el('<div style="padding:4px 12px 8px;display:none;"></div>');
           var lastW=null;
           days.forEach(function(d){
             if(d.iso_week!==lastW){ lastW=d.iso_week; body.appendChild(el('<div class="hint" style="font-size:10px;margin:6px 0 1px;opacity:.65;">Týden '+d.iso_week+'</div>')); }
@@ -5103,9 +5107,13 @@ setTimeout(function(){
             var tag=d.day_type==="work"?(nf(d.hours)+" h"):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
             body.appendChild(el('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;"><span>'+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+tag+'</span></div>'));
           });
-          head.addEventListener("click",function(){ var o=(body.style.display==="none"); body.style.display=o?"block":"none"; arr.innerHTML=wd+' dní · '+nf(sum)+' h '+(o?'▾':'▸'); });
+          var entry={body:body, arr:arr, summary:summary, m:m};
+          head.addEventListener("click",function(){ var willOpen=(body.style.display==="none"); closeAll(); if(willOpen){ body.style.display="block"; arr.innerHTML=summary+' ▾'; } });
+          entries.push(entry);
           card.appendChild(head); card.appendChild(body); left.appendChild(card);
         });
+        var cur=entries.filter(function(e){return e.m===nowM;})[0]||entries[0];
+        if(cur){ cur.body.style.display="block"; cur.arr.innerHTML=cur.summary+' ▾'; }
       });
     }
     load();

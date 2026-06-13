@@ -14652,6 +14652,10 @@ _OPS_ACTIONS = {
         "label": "Migrovat nábor (ec_jednani Kat 901 → STRATEGIE recruit_*)",
         "target": "cloud", "remote": False,
     },
+    "recruit_anonymize": {
+        "label": "GDPR: anonymizovat staré uchazeče (lhůta 1 rok, ne smazání)",
+        "target": "cloud", "remote": False,
+    },
 }
 
 
@@ -15193,6 +15197,41 @@ def _sync_nabor_from_ec() -> dict:
     finally:
         cm.__exit__(None, None, None)
     return {"ok": True, "rows": len(rows), "applications": na, "candidates": nc}
+
+
+def _recruit_anonymize(days: int = 365) -> dict:
+    """Marti-AI Q4 (13.6.): GDPR — uchazeč po lhůtě (default 365 dní od poslední
+    přihlášky, bez aktivní přihlášky ve hře) → ANONYMIZACE, ne smazání. Jméno →
+    [anonymizováno], e-mail/telefon/plat → NULL; recruit_application zůstává jako
+    statistický řádek (fáze/zdroj/důvod zamítnutí). Idempotentní (anonymized IS NULL)."""
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        ids = [r[0] for r in s.execute(_t(
+            "SELECT c.id FROM tenant.recruit_candidate c "
+            "WHERE c.tenant_id=2 AND c.anonymized_at IS NULL "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.recruit_application a "
+            "       JOIN tenant.recruit_phase p ON p.id=a.phase_id "
+            "       WHERE a.candidate_id=c.id AND p.is_active_stage=true) "
+            "  AND COALESCE((SELECT max(COALESCE(a.changed_at,a.created_at)) "
+            "       FROM tenant.recruit_application a WHERE a.candidate_id=c.id), c.created_at) "
+            "      < now() - make_interval(days => :d)"), {"d": days}).fetchall()]
+        if ids:
+            s.execute(_t(
+                "UPDATE tenant.recruit_candidate SET full_name='[anonymizováno]', email=NULL, "
+                "phone=NULL, expected_salary=NULL, anonymized_at=now() "
+                "WHERE tenant_id=2 AND id = ANY(:ids)"), {"ids": ids})
+            s.execute(_t("UPDATE tenant.recruit_application SET expected_salary=NULL "
+                         "WHERE tenant_id=2 AND candidate_id = ANY(:ids)"), {"ids": ids})
+        s.commit()
+        return {"ok": True, "anonymized": len(ids)}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
 
 
 def _att_anomaly_scan(notify: bool = True) -> dict:
@@ -16391,6 +16430,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("nábor: %s přihlášek, %s kandidátů (z %s záznamů ec_jednani Kat 901)"
                       % (out.get("applications"), out.get("candidates"), out.get("rows")))
+        elif action_key == "recruit_anonymize":
+            out = _recruit_anonymize()
+            status = "done"
+            result = "GDPR nábor: anonymizováno %s uchazečů po lhůtě" % out.get("anonymized")
         elif action_key == "sync_priplatky":
             out = _sync_priplatky_from_ec()
             status = "done"

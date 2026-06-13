@@ -5112,9 +5112,7 @@ setTimeout(function(){
             if(d.iso_week!==lastW){ lastW=d.iso_week; body.appendChild(el('<div class="hint" style="font-size:10px;margin:6px 0 1px;opacity:.65;">Týden '+d.iso_week+'</div>')); }
             var col=d.day_type==="work"?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
             var tag=d.day_type==="work"?(nf(d.hours)+" h"):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
-            var exIc=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢'));
-            var exExtra=(d.exc_hours!==null&&d.exc_hours!==undefined)?(' <span style="color:#e6a93a;">· '+exIc+' '+(d.exc_hours===0?"volno":(nf(d.exc_hours)+" h"))+'</span>'):'';
-            body.appendChild(el('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;"><span>'+d.weekday+' '+czd(d.date)+'</span><span style="font-weight:600;"><span style="color:'+col+';">'+tag+'</span>'+exExtra+'</span></div>'));
+            body.appendChild(el('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;"><span>'+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+tag+'</span></div>'));
           });
           var entry={body:body, arr:arr, summary:summary, m:m};
           head.addEventListener("click",function(){ var willOpen=(body.style.display==="none"); closeAll(); if(willOpen){ body.style.display="block"; arr.innerHTML=summary+' ▾'; setTimeout(function(){ try{ head.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){} },10); } });

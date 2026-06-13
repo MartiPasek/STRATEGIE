@@ -1137,6 +1137,19 @@ setTimeout(function(){
     var d=new Date(), _isod=d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2);
     api("GET","/api/v1/erp/app/attendance/whereabouts?den="+_isod,"").then(function(j){ var L=(j&&j.ok&&j.lide)||[]; _t=L.length; _p=L.filter(function(x){return x.kind==="prace";}).length; drawKpi(); });
     api("GET","/api/v1/erp/app/recruit/pipeline","").then(function(j){ if(j&&j.ok){ _n=j.candidates; drawKpi(); } });
+    var aiP=el('<div style="margin:8px 2px 2px;background:linear-gradient(110deg,rgba(45,212,191,.1),rgba(96,165,250,.06));border:1px solid var(--bord);border-radius:14px;padding:12px;"></div>');
+    aiP.innerHTML='<div style="font-weight:800;display:flex;align-items:center;gap:7px;margin-bottom:4px;">🧠 Marti-AI hlídá <span style="font-size:11px;color:var(--mut);font-weight:600;">živě</span></div><div id="aiIns" style="font-size:13.5px;color:var(--mut);">Dívám se na to…</div>';
+    app.appendChild(aiP);
+    api("GET","/api/v1/erp/app/cockpit/insights","").then(function(j){
+      var b=document.getElementById("aiIns"); if(!b) return;
+      if(!j||!j.ok){ b.textContent=(j&&j.error==="forbidden")?"Přehled vidí jen rodiče.":"—"; return; }
+      b.innerHTML=""; (j.items||[]).forEach(function(it){
+        var col=it.sev==="warn"?"#fbbf24":(it.sev==="ok"?"#34d399":"var(--tx)");
+        var r=el('<div style="display:flex;gap:8px;align-items:center;padding:6px 0;'+(it.go?'cursor:pointer;':'')+'"><span style="font-size:17px;">'+it.icon+'</span><span style="flex:1;color:'+col+';line-height:1.3;">'+esc(it.text)+'</span>'+(it.go?'<span style="color:var(--mut);">›</span>':'')+'</div>');
+        if(it.go) r.addEventListener("click",function(){ go(it.go); });
+        b.appendChild(r);
+      });
+    });
     function sec(t){ app.appendChild(el('<div style="margin:14px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
     sec("LIDÉ & DOCHÁZKA");
     var g1=el('<div class="appgrid"></div>');

@@ -6593,6 +6593,39 @@ async def app_kara_score(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/cockpit/insights")
+async def app_cockpit_insights(req: Request) -> JSONResponse:
+    # Marti-AI „hlídá" — provozní signály pro cockpit. Jen rodiče. Bez psychometriky.
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        anom = s.execute(_t("SELECT count(*) FROM tenant.att_anomaly WHERE tenant_id=2 AND resolved_at IS NULL")).scalar() or 0
+        nepotv = s.execute(_t("SELECT count(*) FROM tenant.att_day_confirm WHERE tenant_id=2 AND confirmed_at IS NULL AND COALESCE(disputed,false)=false")).scalar() or 0
+        absc = s.execute(_t("SELECT count(*) FROM tenant.att_absence_request WHERE tenant_id=2 AND decided_at IS NULL")).scalar() or 0
+        nabor = s.execute(_t("SELECT count(*) FROM tenant.recruit_application a JOIN tenant.recruit_phase p ON p.id=a.phase_id WHERE a.tenant_id=2 AND p.is_active_stage=true")).scalar() or 0
+        items = []
+        if absc:
+            items.append({"icon": "🗓️", "text": str(absc) + " žádostí o absenci čeká na schválení.", "sev": "warn", "go": "absence"})
+        if anom:
+            items.append({"icon": "⚠️", "text": "Mám " + str(anom) + " nevyřešených anomálií v docházce — mrkneme na ně?", "sev": "warn", "go": "kdekdo"})
+        if nepotv:
+            items.append({"icon": "🖊", "text": str(nepotv) + " dní čeká na potvrzení od lidí.", "sev": "info", "go": "kdekdo"})
+        if nabor:
+            items.append({"icon": "🧲", "text": "V náboru je " + str(nabor) + " uchazečů aktivně ve hře.", "sev": "info", "go": "hr_nabor"})
+        if not items:
+            items.append({"icon": "✅", "text": "Vše v klidu — nic nehoří. 🌳", "sev": "ok", "go": ""})
+        return JSONResponse({"ok": True, "items": items})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/public/demo-stats")
 async def app_public_demo_stats(req: Request) -> JSONResponse:
     # VEŘEJNÉ (bez loginu) — jen anonymní agregáty pro živé demo. Žádná jména/PII.

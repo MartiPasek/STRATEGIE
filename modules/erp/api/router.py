@@ -6231,6 +6231,121 @@ async def app_hr_people(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/recruit/pipeline")
+async def app_recruit_pipeline(req: Request) -> JSONResponse:
+    """Nábor — dashboard pipeline (počty per fáze, bez PII). Rodiče + HR skupina."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT COALESCE(p.label,'(bez fáze)') f, COALESCE(p.priority_order,999) ord, "
+            " COALESCE(p.is_hired,false) hired, count(*) c "
+            "FROM tenant.recruit_application a LEFT JOIN tenant.recruit_phase p ON p.id=a.phase_id "
+            "WHERE a.tenant_id=2 GROUP BY p.label, p.priority_order, p.is_hired ORDER BY ord")).fetchall()
+        tot = s.execute(_t("SELECT count(*) FROM tenant.recruit_application WHERE tenant_id=2")).scalar()
+        cand = s.execute(_t("SELECT count(*) FROM tenant.recruit_candidate WHERE tenant_id=2 AND anonymized_at IS NULL")).scalar()
+        return JSONResponse({"ok": True, "total": int(tot or 0), "candidates": int(cand or 0),
+                             "phases": [{"faze": r[0], "hired": bool(r[2]), "pocet": int(r[3])} for r in rows]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/recruit/list")
+async def app_recruit_list(req: Request) -> JSONResponse:
+    """Nábor — seznam přihlášek (?phase=label | 'active' | 'hired', ?q=). Rodiče + HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        ph = (req.query_params.get("phase") or "").strip()
+        where = "a.tenant_id=2"
+        params = {}
+        if ph == "active":
+            where += " AND p.is_active_stage = true"
+        elif ph == "hired":
+            where += " AND p.is_hired = true"
+        elif ph:
+            where += " AND p.label = :ph"
+            params["ph"] = ph
+        rows = s.execute(_t(
+            "SELECT a.id, COALESCE(c.full_name,'(uchazeč)') jmeno, COALESCE(p.label,'') faze, "
+            " COALESCE(a.status,'') stav, COALESCE(src.label,'') zdroj, "
+            " to_char(a.interview_at,'DD.MM.YYYY') pohovor, to_char(a.start_at,'DD.MM.YYYY') nastup, "
+            " COALESCE(a.position_text,'') pozice "
+            "FROM tenant.recruit_application a "
+            " LEFT JOIN tenant.recruit_candidate c ON c.id=a.candidate_id "
+            " LEFT JOIN tenant.recruit_phase p ON p.id=a.phase_id "
+            " LEFT JOIN tenant.recruit_source src ON src.id=a.source_id "
+            "WHERE " + where + " ORDER BY a.interview_at DESC NULLS LAST, a.id DESC LIMIT 500"), params).fetchall()
+        q = (req.query_params.get("q") or "").strip().lower()
+        out = []
+        for r in rows:
+            nm = r[1] or "(uchazeč)"
+            if q and q not in nm.lower():
+                continue
+            out.append({"id": r[0], "jmeno": nm, "faze": r[2], "stav": r[3], "zdroj": r[4],
+                        "pohovor": r[5] or "", "nastup": r[6] or "", "pozice": r[7] or ""})
+        return JSONResponse({"ok": True, "items": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/recruit/detail")
+async def app_recruit_detail(req: Request) -> JSONResponse:
+    """Nábor — detail přihlášky + kandidáta (profil v kontextu, bez hodnocení). Rodiče + HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    aid = (req.query_params.get("id") or "").strip()
+    if not aid.isdigit():
+        return JSONResponse({"ok": False, "error": "bad_id"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        r = s.execute(_t(
+            "SELECT c.full_name, c.email, c.phone, c.education, c.langs_prog, c.langs_foreign, "
+            " c.last_employer, c.leave_reason, c.decree50, c.willing_travel, a.expected_salary, "
+            " COALESCE(p.label,'') faze, COALESCE(a.status,'') stav, COALESCE(src.label,'') zdroj, "
+            " COALESCE(rr.label,'') zamit, to_char(a.interview_at,'DD.MM.YYYY') pohovor, "
+            " to_char(a.test_days_at,'DD.MM.YYYY') testdny, to_char(a.start_at,'DD.MM.YYYY') nastup, "
+            " COALESCE(a.position_text,'') pozice, COALESCE(a.changed_by_text,'') autor "
+            "FROM tenant.recruit_application a "
+            " LEFT JOIN tenant.recruit_candidate c ON c.id=a.candidate_id "
+            " LEFT JOIN tenant.recruit_phase p ON p.id=a.phase_id "
+            " LEFT JOIN tenant.recruit_source src ON src.id=a.source_id "
+            " LEFT JOIN tenant.recruit_reject_reason rr ON rr.id=a.reject_reason_id "
+            "WHERE a.tenant_id=2 AND a.id=:i"), {"i": int(aid)}).first()
+        if not r:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        return JSONResponse({"ok": True, "d": {
+            "jmeno": r[0] or "(uchazeč)", "email": r[1] or "", "telefon": r[2] or "",
+            "vzdelani": r[3] or "", "jazyky_prog": r[4] or "", "jazyky_ciz": r[5] or "",
+            "posl_zam": r[6] or "", "duvod_odchodu": r[7] or "", "vyhl50": bool(r[8]),
+            "cestovat": r[9], "plat": (float(r[10]) if r[10] is not None else None),
+            "faze": r[11], "stav": r[12], "zdroj": r[13], "zamitnuti": r[14],
+            "pohovor": r[15] or "", "testdny": r[16] or "", "nastup": r[17] or "",
+            "pozice": r[18] or "", "autor": r[19] or ""}})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/hr/rezimy")
 async def app_hr_rezimy(req: Request) -> JSONResponse:
     """Marti 12.6.: správa docházkových režimů (rodiče + HR). Per att_employee záznam

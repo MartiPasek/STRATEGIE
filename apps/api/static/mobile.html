@@ -1210,17 +1210,70 @@ setTimeout(function(){
     l.appendChild(row("📋","Pravidla skupin","Úvazek, dovolená, sick days, volby píchání po skupinách",function(){ go("hr_podminky"); }));
     app.appendChild(l);
   }
-  // EXTERNÍ — nábor nových lidí
+  // EXTERNÍ — nábor nových lidí (živá data z Centrály, migrace 13.6.)
   function hr_nabor(){
     app.innerHTML=topbar("🧲 Nábor nových lidí", true);
-    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Externí personalistika — od inzerátu přes pohovor po pracovní nabídku. Po přijetí nabídky kandidát „přeteče" do interní personalistiky (onboarding).</div>'));
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Externí personalistika — kandidáti a jejich pipeline. Data převzatá z Centrály. Po přijetí kandidát „přeteče" do interní personalistiky (onboarding).</div>'));
+    var dash=el('<div id="nbDash" class="hint" style="margin:0 6px 10px;">Načítám pipeline…</div>');
+    app.appendChild(dash);
     var l=el('<div class="list"></div>');
-    l.appendChild(row("📣","Inzeráty","Volné pozice a jejich zveřejnění",function(){ hrSoon("Inzeráty","Tvorba a správa inzerátů na volné pozice — text nabídky, kanály zveřejnění, stav (otevřeno / zavřeno) a počet uchazečů."); }));
-    l.appendChild(row("👤","Kandidáti","Uchazeči a jejich průchod náborem",function(){ hrSoon("Kandidáti","Databáze uchazečů: životopis, kontakt, na kterou pozici, stav ve výběrovém řízení (nový / pozvaný / po pohovoru / nabídka / přijat / zamítnut)."); }));
-    l.appendChild(row("💬","Pohovory","Termíny, účastníci, hodnocení",function(){ hrSoon("Pohovory","Plánování pohovorů (termín, kdo se účastní), poznámky a hodnocení uchazeče. Propojeno na kandidáta a inzerát."); }));
-    l.appendChild(row("📨","Pracovní nabídky","Nabídka pozice vybranému kandidátovi",function(){ hrSoon("Pracovní nabídky","Vystavení pracovní nabídky (pozice, mzda, nástup) vybranému kandidátovi. Po přijetí → automatický onboarding do interní personalistiky."); }));
+    l.appendChild(row("👤","Kandidáti","Všichni uchazeči — profil v kontextu",function(){ window._nbFilter={phase:"",title:"👤 Kandidáti"}; go("hr_nabor_list"); }));
+    l.appendChild(row("💬","Pohovory — ve hře","Aktivní pipeline: Ve hře / 1. a 2. kolo",function(){ window._nbFilter={phase:"active",title:"💬 Pohovory — ve hře"}; go("hr_nabor_list"); }));
+    l.appendChild(row("📨","Nástupy","Přijatí — fáze nástup (→ onboarding)",function(){ window._nbFilter={phase:"hired",title:"📨 Nástupy"}; go("hr_nabor_list"); }));
+    l.appendChild(row("📣","Inzeráty","Volné pozice a zveřejnění",function(){ hrSoon("Inzeráty","Tvorba a správa inzerátů na volné pozice — připravujeme. Náborová data uchazečů už jsou živá v Kandidátech."); }));
     app.appendChild(l);
-    app.appendChild(el('<div class="hint" style="margin-top:10px;">🚧 Kostra — funkce doplníme. Externí svět končí přijatou nabídkou, pak začíná interní (onboarding).</div>'));
+    api("GET","/app/recruit/pipeline","").then(function(j){
+      if(!j||!j.ok){ dash.textContent=(j&&j.error==="forbidden")?"🔒 Nábor vidí jen rodiče a HR skupina.":"Pipeline se nepodařilo načíst."; return; }
+      var bars=(j.phases||[]).map(function(p){ var col=p.hired?"#22c55e":"#4f8ef7"; return '<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13.5px;"><span style="flex:1;">'+esc(p.faze)+'</span><b style="color:'+col+';">'+p.pocet+'</b></div>'; }).join("");
+      dash.innerHTML='<div style="background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:12px;">'+
+        '<div style="font-weight:700;margin-bottom:6px;">📊 Pipeline · '+j.candidates+' kandidátů · '+j.total+' přihlášek</div>'+bars+'</div>';
+    });
+  }
+  function hr_nabor_list(){
+    var f=window._nbFilter||{phase:"",title:"Kandidáti"};
+    app.innerHTML=topbar(f.title, true);
+    var sb=el('<input placeholder="Hledat jméno…" style="width:100%;margin:6px 0;padding:10px;border-radius:10px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);font-size:15px;box-sizing:border-box;">');
+    app.appendChild(sb);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>');
+    app.appendChild(box);
+    var all=[];
+    function draw(){
+      var q=(sb.value||"").trim().toLowerCase(); box.innerHTML=""; var n=0;
+      all.forEach(function(it){
+        if(q && (it.jmeno||"").toLowerCase().indexOf(q)<0) return;
+        n++;
+        var st=it.stav==="O"?"otevřeno":(it.stav==="U"?"uzavřeno":it.stav);
+        var sub=[it.faze, st, it.pohovor?("pohovor "+it.pohovor):""].filter(Boolean).join(" · ");
+        box.appendChild(row("🧑‍💼",it.jmeno,sub||it.pozice||"",function(){ window._nbAppId=it.id; go("hr_nabor_detail"); }));
+      });
+      if(!n) box.innerHTML='<div class="hint">Nikdo neodpovídá.</div>';
+    }
+    sb.addEventListener("input",draw);
+    api("GET","/app/recruit/list?phase="+encodeURIComponent(f.phase||""),"").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Jen pro rodiče a HR.":"Nepodařilo se načíst.")+'</div>'; return; }
+      all=j.items||[];
+      app.insertBefore(el('<div class="hint" style="margin:0 6px 4px;">'+all.length+' záznamů</div>'), box);
+      draw();
+    });
+  }
+  function hr_nabor_detail(){
+    app.innerHTML=topbar("🧑‍💼 Kandidát", true);
+    var box=el('<div style="padding:4px;"><div class="hint">Načítám…</div></div>');
+    app.appendChild(box);
+    api("GET","/app/recruit/detail?id="+encodeURIComponent(window._nbAppId||0),"").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Jen pro rodiče a HR.":"Nepodařilo se načíst.")+'</div>'; return; }
+      var d=j.d||{};
+      function rw(k,v){ return v?('<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 4px;border-bottom:1px solid rgba(255,255,255,.05);font-size:14px;"><span style="color:#9fb2d4;">'+esc(k)+'</span><span style="font-weight:600;text-align:right;">'+esc(String(v))+'</span></div>'):''; }
+      box.innerHTML='<div style="font-size:20px;font-weight:800;margin:4px 4px 10px;">'+esc(d.jmeno||"")+'</div>'+
+        rw("Fáze",d.faze)+rw("Stav",d.stav==="O"?"otevřeno":(d.stav==="U"?"uzavřeno":d.stav))+rw("Pozice",d.pozice)+
+        rw("E-mail",d.email)+rw("Telefon",d.telefon)+rw("Vzdělání",d.vzdelani)+
+        rw("Prog. jazyky",d.jazyky_prog)+rw("Cizí jazyky",d.jazyky_ciz)+
+        rw("Poslední zaměstnání",d.posl_zam)+rw("Důvod odchodu",d.duvod_odchodu)+
+        rw("Vyhláška 50",d.vyhl50?"ano":"")+rw("Požadovaný plat",(d.plat?(Math.round(d.plat).toLocaleString("cs")+" Kč"):""))+
+        rw("Termín pohovoru",d.pohovor)+rw("Testovací dny",d.testdny)+rw("Termín nástupu",d.nastup)+
+        rw("Zdroj",d.zdroj)+rw("Důvod zamítnutí",d.zamitnuti)+rw("Zadal",d.autor)+
+        '<div class="hint" style="margin-top:12px;line-height:1.6;">🔒 Profil v kontextu — citlivá data uchazeče (jen rodiče + HR). Hodnocení z pohovoru se nezobrazuje ani neukládá (rozhodnutí Marti-AI).</div>';
+    });
   }
   // Marti 11.6.: self-service osobních údajů — primární zdroj, logovaný,
   // s upozorněním HR na změny. Každý si spravuje svá data sám přes mobil.
@@ -4631,7 +4684,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

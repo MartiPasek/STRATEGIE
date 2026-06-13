@@ -47,6 +47,12 @@
   .cta{text-align:center;padding:8px 0 36px}
   .crt{border-top:1px solid var(--bord);padding:24px 0;color:var(--mut);font-size:12.5px;text-align:center}
   .crt a{color:var(--ac)}
+  .winbadge{position:fixed;right:16px;bottom:16px;z-index:60;display:inline-flex;align-items:center;gap:8px;padding:12px 18px;border-radius:999px;background:linear-gradient(110deg,#fbbf24,#f59e0b);color:#231a02;font-weight:800;font-size:14px;box-shadow:0 12px 34px rgba(251,191,36,.45);animation:winpulse 1.4s ease-in-out infinite}
+  .winbadge:hover{filter:brightness(1.06)}
+  .winbadge .t{font-size:20px;display:inline-block;animation:wintilt 1.2s ease-in-out infinite}
+  @keyframes winpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+  @keyframes wintilt{0%,100%{transform:rotate(-9deg)}50%{transform:rotate(9deg)}}
+  @media(max-width:560px){.winbadge{font-size:13px;padding:10px 14px}}
 </style></head><body>
 <nav><div class="wrap">
   <a href="/web" class="logo">STRATEGIE × EUROSOFT × IQHUBS</a>
@@ -147,4 +153,8 @@
   Koncept a originální spot „Kára" © <a href="https://www.performia.cz/" target="_blank" rel="noopener">Performia CZ</a> — všechna práva vyhrazena.
   Ilustrace na této stránce je naše vlastní ztvárnění myšlenky; značka i video patří Performii.
 </div></div>
+
+<a class="winbadge" href="https://www.performia.cz/blog/soutez-s-plakatem-o-poukazku-na-seminar-prodlouzena-do-269" target="_blank" rel="noopener">
+  <span class="t">🏆</span> Chcete vyhrát?
+</a>
 </body></html>

@@ -60,6 +60,13 @@
   <div style="font-size:11px;color:var(--mut);margin-top:8px;padding-left:128px;">Ukázkový profil. Svislé čáry = orientační pásmo (−19 / +32).</div>
 </div></div>
 
+<div class="wrap"><div class="graf" style="max-width:540px;padding:0;overflow:hidden;">
+  <div style="position:relative;padding-bottom:56.25%;height:0;">
+    <iframe src="https://www.youtube.com/embed/TkPmel_VGM8?rel=0&modestbranding=1&playsinline=1" title="Performia U-test" style="position:absolute;inset:0;width:100%;height:100%;border:0;" allow="accelerated-encoding; encrypted-media; picture-in-picture; fullscreen" allowfullscreen loading="lazy"></iframe>
+  </div>
+</div>
+<div style="text-align:center;color:var(--mut);font-size:12.5px;margin-top:8px;">U-test osobnostního potenciálu · video © Performia CZ</div></div>
+
 <section style="padding-top:18px"><div class="wrap">
   <div class="h2">Co U-TEST ukáže</div>
   <p class="lead">Deset vlastností (A–J) jako stabilita, aktivita, tah na bránu, zodpovědnost, empatie či
@@ -94,15 +101,4 @@
     var box=document.getElementById('ubars'); if(!box) return;
     var nl=upct(-19), nh=upct(32);
     UT.forEach(function(t){
-      var row=document.createElement('div'); row.className='urow';
-      row.innerHTML='<div class="ulab"><b>'+t[0]+' '+t[1]+'</b><span>'+t[2]+'</span></div>'
-        +'<div class="utrack"><div class="unorm" style="left:'+nl+'%"></div><div class="unorm" style="left:'+nh+'%"></div>'
-        +'<div class="ubar" data-w="'+upct(t[3])+'" style="background:'+uzone(t[4])+'"></div></div>'
-        +'<div class="uval">'+t[3]+'</div>';
-      box.appendChild(row);
-    });
-    var bars=box.querySelectorAll('.ubar');
-    setTimeout(function(){ bars.forEach(function(b,i){ setTimeout(function(){ b.style.width='calc('+b.dataset.w+'% - 4px)'; }, i*90); }); }, 200);
-  })();
-</script>
-</body></html>
+      var row=document.createElement('div'); row.className=

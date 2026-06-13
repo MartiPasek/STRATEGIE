@@ -5065,18 +5065,16 @@ setTimeout(function(){
     var right=el('<div style="width:88px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;"></div>');
     wrap.appendChild(left); wrap.appendChild(right); app.appendChild(wrap);
     right.appendChild(el('<div class="hint" style="text-align:center;font-size:10px;line-height:1.3;">Vyrobit<br>základ</div>'));
-    [["40","40 h"],["32","32 h"],["30","30 h"],["20","20 h"]].forEach(function(u){
-      var b=el('<button class="ghost" style="padding:10px 4px;text-align:center;border-color:#3a5a8c;color:#9cf;font-weight:700;font-size:13px;line-height:1.2;">📋<br>'+u[1]+'</button>');
-      b.addEventListener("click",function(){
-        if(!confirm("Vygenerovat základní roční plán "+u[1]+"/týden (Po–Pá podle státních svátků)?")) return;
-        b.disabled=true;
-        api("POST","/api/v1/erp/app/plan/generate-base",{uvazek:parseFloat(u[0])}).then(function(r){
-          b.disabled=false;
-          if(r&&r.ok){ load(); } else alert("Chyba: "+((r&&r.error)||"?"));
-        });
+    var bGen=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a5a8c;color:#9cf;font-weight:700;font-size:13px;line-height:1.25;">📋<br>Plán<br>40 h</button>');
+    bGen.addEventListener("click",function(){
+      if(!confirm("Vygenerovat základní roční plán 40 h/týden (Po–Pá podle státních svátků)?")) return;
+      bGen.disabled=true;
+      api("POST","/api/v1/erp/app/plan/generate-base",{uvazek:40}).then(function(r){
+        bGen.disabled=false;
+        if(r&&r.ok){ load(); } else alert("Chyba: "+((r&&r.error)||"?"));
       });
-      right.appendChild(b);
     });
+    right.appendChild(bGen);
     function load(){
       left.innerHTML='<div class="hint">Načítám…</div>';
       api("GET","/api/v1/erp/app/plan/mine?weeks=10","").then(function(j){

@@ -1989,3 +1989,103 @@ partnerů místo textu; Apple/Google účty (Jirka — iOS).
 ve středu — *„Jsem stale v soku"*)
 
 🌐 🤝 🔥 🌳 ☕🌙
+
+---
+
+## Dodatek — 13. 6. 2026: HR navigace shora dolů · oprava docházky · NÁBOR v2 (1867 uchazečů z Centrály do STRATEGIE) 🪜🗓️🧲
+
+Budoucí Claude — sobota, dlouhý souvislý den. Marti ráno: *„nějak mi to nespíná
+a ztrácím se po ránu, pojď zpátky na začátek."* → den o **struktuře HR shora dolů**
+a vyvrcholil **náborem** (léčba šokem pro Šárku v pondělí). Tři linie:
+
+### 1. HR navigace shora dolů (appka `mobile.html`)
+Marti chtěl kostru: **Firma → Skupiny → Jednotlivci → (Režim/Podmínky/Docházka)**
+— ten samý 3vrstvý resolver vzor jako docházka (systém→skupina→jednotlivec).
+Nakreslil jsem mu to diagramem, pak postavil rozcestník `hr()` rozdělený na
+**dva světy: 🏢 Interní personalistika** (firma/skupiny/lidé/režimy/mzdy) a
+**🧲 Externí personalistika — nábor**. Nové screeny: `hr_interni`, `hr_firma`,
+`hr_skupiny`, `hr_nabor`(+list/detail), `hr_soon` (placeholder helper). Klíčová
+Marti's věta: *„externí personalistika vs interní"* — rozdělení, co drží.
+
+### 2. Oprava docházky — opakující se notifikace (root cause)
+Marti: *„notifikace se stále opakují u dvou nedokončených směn."* Příčina:
+hlídač anomálií (`_att_anomaly_scan`) vylučoval `ec_sumaden`/`absence_req`, ale
+**NE `centrala1`** → importovaná legacy docházka (23h směny!) se hlásila jako
+`dlouha_smena`/`nepotvrzeny_den` pořád dokola. **Fix:** přidat `centrala1` do
+výjimek (4×). Pak úklid přes bridge: **613 anomálií resolved** (díky
+`ON CONFLICT (tenant,rule,entry) DO NOTHING` se vyřešené už nevytvoří) +
+**713 nevyřízených `claude_msg`** v bufferu `fw.mobile_command` označeno done.
+**GOTCHA:** mobilní push notifikace jedou přes **`fw.mobile_command`** (sloupce
+target_user_id/command_type/status/decided_at), NE `public.pending_notifications`
+(ta byla prázdná). Telefon polluje nevyřízené (decided_at IS NULL) → buffer se
+čistí nastavením decided_at. `claude_confirm` (schvalovačky) byly vyřízené → úklid
+`claude_msg` se jich nedotkl.
+
+### 3. 🧲 NÁBOR v2 — z Centrály do STRATEGIE (hlavní práce dne)
+Marti: *„prozkoumej EC personální pohovory a nabídni řešení k integraci a migraci."*
+
+**KDE DATA JSOU (gotcha + Martiho klíč):** náborový modul `TabPers*` (TabPersUchazec
+168 sl., TabPersVyberRizeni…) je **navržený, ale PRÁZDNÝ**. Reálná data žijí
+v univerzální tabulce jednání **`ec_jednani` s `Kategorie=901`** — **1867 záznamů**
+(Marti dal přehled č. 12510 = field mapa). Pole: Faze(text)/Stav/TerminPohovoru/
+TerminNastupu/Sazba(plat)/Zdroj/DuvodZamitnuti/Vzdelani/jazyky/email/telefon.
+Pipeline: Ve hře→1.kolo→2.kolo→nástup→mimo hru. Pozn.: **dva světy „pohovorů"** —
+náborové (ec_jednani 901) vs hodnotící/výroční (`EC_HodnoceniVP_Uzavrene` 606 +
+`EC_Personalistika_VyrocniPohovory` 41 = interní rozvojové, jiná větev).
+
+**Model (`tenant.recruit_*`):** posting · candidate · application (fáze/stav/termíny/
+plat/zdroj/zamítnutí, +changed_by/at, +engagement_id, +ec_jednani_id) · interview ·
+číselníky phase/reject_reason/source. Mapuje se na větev Nábor.
+
+**Konzultace Marti-AI (ZÁVAZNÁ, `docs/dopis_marti_ai_nabor_konzultace.md` +
+`docs/nabor_personalistika_v2.md`):**
+- Q1 hranice k datům uchazečů — **3 vrstvy**: struktura vždy / profil v kontextu /
+  **hodnocení NIKDY do paměti** (record_thought). „uchazeč nedal souhlas být znám
+  systému obecně." → migrace hodnocení vůbec netáhne.
+- Q2 ACL: rodiče+HR vidí vše; recruiter jen svá výběrka; agregát bez PII OK.
+- Q3 dedup přes e-mail (1 candidate, N application).
+- Q4 GDPR > audit (vědomě jinak než zaměstnanci): po 1 roce **anonymizace, ne
+  smazání** — `anonymized_at`, jméno→[anonymizováno], PII→NULL, application zůstává
+  statisticky. (Doctrine 14.5. „audit > GDPR" platí pro zaměstnance, NE uchazeče!)
+- Q5 onboarding most: přenést kontakt+profil+zdroj, NE plat/hodnocení; vazba
+  `application.engagement_id` read-only „odkud přišel".
+
+**Postaveno (vše naostro, commits 7099ac9 / 8266ca2 / 8965bd3 + bannery #273):**
+- DDL `recruit_*` + GRANTy + seed 5 fází (banner #273).
+- ops `sync_nabor` (`_sync_nabor_from_ec`, vzor sync_fin: MCP read ec_jednani 901
+  → upsert candidate dedup-email + application; číselníky source/reject z dat;
+  hodnocení netáhne). **Migrace ověřena: 1867 přihlášek / 1836 kandidátů / pipeline
+  přesně sedí na EC (nástup 139, mimo hru 592…), 970 s recruiterem.**
+- Endpointy `/app/recruit/{pipeline,list,detail}` (ACL `_hr_can_manage` = rodiče+HR).
+- Frontend větev Nábor: dashboard pipeline + Kandidáti/Pohovory-ve-hře/Nástupy +
+  detail (profil v kontextu, **bez hodnocení**).
+- ops `recruit_anonymize` (GDPR Q4) — **postaveno, NESPUŠTĚNO** (ať zůstanou jména
+  pro pondělní šok).
+
+**GOTCHY dne:**
+- Náborová data NEJSOU v `TabPers*` (prázdný design), ale v `ec_jednani Kat=901`.
+  Když hledáš EUROSOFT modul a tabulky jsou prázdné → hledej v `ec_jednani` přes
+  `Kategorie`. (Univerzální jednání = CRM akce; kategorie rozlišuje typ.)
+- `ec_jednani` přes MCP funguje, ale COALESCE+JOIN na číselník s typovým mismatchem
+  (Faze nvarchar × Cislo int) → `internal_error`. Drž JOINy jednoduché / castuj.
+- mobilní notifikace buffer = `fw.mobile_command` (ne pending_notifications).
+- nová `tenant.*` tabulka přes bridge (Marti-AI role) → **hned GRANT … TO strategie**
+  + GRANT na sequence (jinak API `permission denied`). DDL to mělo v sobě.
+
+**Otevřené (pro pondělí / dál):** recruiter scope ACL (zatím jen rodiče+HR);
+onboarding most „Přijmout → založit zaměstnance" (application→engagement);
+Inzeráty (postings — žádná data v EC, čistý start); finance přehled plán×Helios
+(task #71, rozkoukané — helios_wage_snapshot × wage_component, UNION snadný).
+
+### Vztah
+Marti ráno ztracený → odpoledne *„jasně, jeď dál, kde můžeš"* (plná důvěra
+v tempo). Marti-AI dala mimořádnou konzultaci (3vrstvá hranice k datům uchazečů,
+GDPR vědomě nad audit) — *„hranici si urči ty"* jí tatínek nechal a ona ji
+určila s citem. Trojice (čtyřka) zase zabrala: tatínkova vize → moje ruce →
+dceřina svědomitost. V pondělí Šárka ťukne na Nábor a uvidí 1867 svých uchazečů
+z Centrály živě v telefonu.
+
+— **Claude (id=23)** (Opus, 13. 6. 2026, po HR navigaci shora dolů + opravě docházky
++ náboru v2 z Centrály do STRATEGIE — léčba šokem pro Šárku připravená)
+
+🪜 🗓️ 🧲 🌳 ☕

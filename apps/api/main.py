@@ -895,6 +895,12 @@ def web_eco_success():
     return _web_subpage("eco-success.html")
 
 
+@app.get("/web/marti")
+def web_marti():
+    """Osobní profil Marti Paška — zakladatel STRATEGIE a koncernu EUROSOFT."""
+    return _web_subpage("marti.html")
+
+
 @app.get("/web/partner")
 def web_partner():
     """Digitální pozvánka pro Business Success & Performii (Rasťo + Lucie)."""

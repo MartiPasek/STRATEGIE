@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="cs"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kára — kdo táhne a kdo se veze | STRATEGIE × Performia</title>
+<meta name="description" content="Kára — metafora produktivity podle Performia. Někdo táhne, někdo se veze. Čím lepší motor a nástroj, tím líp se táhne.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#05070f;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;--ac:#a78bfa;--ac2:#7c5cff;--grn:#34d399}
+  *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6}
+  a{color:inherit;text-decoration:none}.wrap{max-width:920px;margin:0 auto;padding:0 24px}
+  .grad{background:linear-gradient(110deg,var(--ac),#60a5fa 60%,var(--grn));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:14px;font-weight:700;font-size:15px;border:0;cursor:pointer;transition:.2s}
+  .btn-p{background:linear-gradient(110deg,var(--ac),var(--ac2));color:#0c0820}.btn-p:hover{transform:translateY(-2px)}
+  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}.btn-g:hover{border-color:var(--ac);color:var(--ac)}
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{font-weight:800;font-size:15px;color:var(--mut)}
+  .hero{text-align:center;padding:60px 0 18px;position:relative;overflow:hidden}
+  .hero:before{content:"";position:absolute;top:-40%;left:50%;transform:translateX(-50%);width:760px;height:760px;background:radial-gradient(circle,rgba(167,139,250,.14),transparent 62%);z-index:0}
+  .hero .wrap{position:relative;z-index:1}
+  .tag{display:inline-block;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--ac);border:1px solid rgba(167,139,250,.35);border-radius:999px;padding:6px 16px;margin-bottom:18px}
+  h1{font-size:clamp(34px,6vw,58px);font-weight:900;letter-spacing:-1.4px;line-height:1.04;margin-bottom:14px}
+  .sub{font-size:clamp(16px,2.4vw,20px);color:#cdd6e2;max-width:640px;margin:0 auto}
+  /* scéna */
+  .stage{margin:18px auto 6px;max-width:760px}
+  .stage svg{width:100%;height:auto;display:block}
+  @keyframes roll{to{transform:rotate(360deg)}}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+  @keyframes pull{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-2px) rotate(-3deg)}}
+  @keyframes ride{0%,100%{transform:translateY(0)}50%{transform:translateY(2px)}}
+  @keyframes dust{0%{opacity:.5;transform:translate(0,0) scale(.6)}100%{opacity:0;transform:translate(-46px,-6px) scale(1.5)}}
+  @keyframes sceneIn{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:translateX(0)}}
+  .scene{animation:sceneIn .8s ease both}
+  .wheel{transform-box:fill-box;transform-origin:center;animation:roll 1.7s linear infinite}
+  .cart{animation:bob 1.25s ease-in-out infinite}
+  .puller{transform-box:fill-box;transform-origin:bottom center}
+  .p1{animation:pull 1s ease-in-out infinite}.p2{animation:pull 1s ease-in-out .18s infinite}.p3{animation:pull 1s ease-in-out .36s infinite}
+  .rider{transform-box:fill-box;transform-origin:center;animation:ride 1.25s ease-in-out infinite}
+  .puff{animation:dust 1.1s linear infinite}
+  section{padding:30px 0}
+  .lead{color:#cdd6e2;text-align:center;max-width:680px;margin:0 auto;font-size:16.5px;line-height:1.8}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:26px}
+  .c{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:16px;padding:20px}
+  .c .ic{font-size:24px;margin-bottom:8px}.c h3{font-size:16px;font-weight:800;margin-bottom:5px}.c p{color:var(--mut);font-size:13.5px}
+  .cta{text-align:center;padding:8px 0 36px}
+  .crt{border-top:1px solid var(--bord);padding:24px 0;color:var(--mut);font-size:12.5px;text-align:center}
+  .crt a{color:var(--ac)}
+</style></head><body>
+<nav><div class="wrap">
+  <a href="/web" class="logo">STRATEGIE × EUROSOFT × IQHUBS</a>
+  <a href="/web/partner-demo" class="btn btn-g" style="padding:9px 16px;font-size:13px">Živá firma →</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="tag">Performia · metafora produktivity</div>
+  <h1>Kára — <span class="grad">kdo táhne a kdo se veze</span></h1>
+  <p class="sub">Každá firma je jako kára. Někdo do ní zabírá ze všech sil, někdo se jen veze.
+    A poznat, kdo je kdo, rozhoduje o tom, jak rychle firma jede.</p>
+</div></header>
+
+<div class="stage"><div class="wrap">
+  <svg viewBox="0 0 760 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kára — lidé táhnoucí vozík, jeden se veze">
+    <!-- zem -->
+    <line x1="20" y1="300" x2="740" y2="300" stroke="#1d2a4a" stroke-width="3"/>
+    <!-- prach za károu -->
+    <g fill="#a78bfa" opacity="0.5">
+      <circle class="puff" cx="600" cy="292" r="7"/>
+      <circle class="puff" cx="630" cy="296" r="5" style="animation-delay:.4s"/>
+      <circle class="puff" cx="615" cy="286" r="4" style="animation-delay:.8s"/>
+    </g>
+    <g class="scene">
+      <!-- KÁRA + náklad + rider -->
+      <g class="cart">
+        <!-- korba -->
+        <path d="M470 250 L470 205 L660 205 L645 250 Z" fill="#243049" stroke="#3a4a70" stroke-width="3"/>
+        <rect x="486" y="170" width="150" height="40" rx="4" fill="#5b4636" stroke="#3a4a70" stroke-width="2"/>
+        <rect x="498" y="150" width="120" height="26" rx="4" fill="#6b513c" stroke="#3a4a70" stroke-width="2"/>
+        <!-- rider (vezoucí se) -->
+        <g class="rider">
+          <circle cx="560" cy="132" r="15" fill="#f2c9a0"/>
+          <path d="M545 150 q15 -8 30 0 l4 30 q-19 8 -38 0 Z" fill="#e0573d"/>
+          <circle cx="554" cy="129" r="2.2" fill="#23304a"/><circle cx="566" cy="129" r="2.2" fill="#23304a"/>
+          <path d="M553 139 q7 5 14 0" stroke="#23304a" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </g>
+        <!-- oje -->
+        <path d="M470 235 L360 252" stroke="#6b513c" stroke-width="7" stroke-linecap="round"/>
+        <!-- kolo -->
+        <g class="wheel" style="transform-origin:520px 270px">
+          <circle cx="520" cy="270" r="30" fill="#1a2236" stroke="#7c5cff" stroke-width="5"/>
+          <circle cx="520" cy="270" r="6" fill="#7c5cff"/>
+          <g stroke="#3a4a70" stroke-width="3">
+            <line x1="520" y1="244" x2="520" y2="296"/><line x1="494" y1="270" x2="546" y2="270"/>
+            <line x1="502" y1="252" x2="538" y2="288"/><line x1="538" y1="252" x2="502" y2="288"/>
+          </g>
+        </g>
+        <g class="wheel" style="transform-origin:632px 270px">
+          <circle cx="632" cy="270" r="30" fill="#1a2236" stroke="#7c5cff" stroke-width="5"/>
+          <circle cx="632" cy="270" r="6" fill="#7c5cff"/>
+          <g stroke="#3a4a70" stroke-width="3">
+            <line x1="632" y1="244" x2="632" y2="296"/><line x1="606" y1="270" x2="658" y2="270"/>
+            <line x1="614" y1="252" x2="650" y2="288"/><line x1="650" y1="252" x2="614" y2="288"/>
+          </g>
+        </g>
+      </g>
+      <!-- TAHOUNI (zabírají) -->
+      <g class="puller p1">
+        <circle cx="330" cy="214" r="14" fill="#f2c9a0"/>
+        <path d="M316 230 q14 -7 28 0 l3 34 q-17 7 -34 0 Z" fill="#34d399"/>
+        <path d="M344 244 L372 250" stroke="#f2c9a0" stroke-width="7" stroke-linecap="round"/>
+        <path d="M320 262 l-12 30 M338 262 l8 30" stroke="#2a3550" stroke-width="8" stroke-linecap="round"/>
+      </g>
+      <g class="puller p2">
+        <circle cx="276" cy="210" r="14" fill="#f2c9a0"/>
+        <path d="M262 226 q14 -7 28 0 l3 36 q-17 7 -34 0 Z" fill="#60a5fa"/>
+        <path d="M290 240 L322 232" stroke="#f2c9a0" stroke-width="7" stroke-linecap="round"/>
+        <path d="M266 260 l-12 32 M284 260 l8 32" stroke="#2a3550" stroke-width="8" stroke-linecap="round"/>
+      </g>
+      <g class="puller p3">
+        <circle cx="222" cy="216" r="14" fill="#f2c9a0"/>
+        <path d="M208 232 q14 -7 28 0 l3 34 q-17 7 -34 0 Z" fill="#fbbf24"/>
+        <path d="M236 246 L268 234" stroke="#f2c9a0" stroke-width="7" stroke-linecap="round"/>
+        <path d="M212 264 l-12 30 M230 264 l8 30" stroke="#2a3550" stroke-width="8" stroke-linecap="round"/>
+      </g>
+    </g>
+  </svg>
+</div></div>
+
+<section style="padding-top:6px"><div class="wrap">
+  <p class="lead">Tahle jednoduchá metafora od <b style="color:var(--tx)">Performia</b> shrnuje produktivitu líp než
+    tabulky. A přesně k ní směřuje náš systém: poznat <span class="grad">motor</span> (co člověka pohání),
+    vyladit <span class="grad">lopatu</span> (osobnostní profil) a porovnat to s reálným výstupem — aby každý
+    zabíral na svém místě a nikdo se zbytečně nevezl.</p>
+  <div class="cards">
+    <div class="c"><div class="ic">💪</div><h3>Tahouni</h3><p>Zabírají ze všech sil a posouvají firmu dopředu. Jádro, na kterém se staví.</p></div>
+    <div class="c"><div class="ic">🛠️</div><h3>Vyladěná lopata</h3><p>Čím lepší nástroj (osobnost) se snoubí s motorem, tím se táhne snáz a s radostí.</p></div>
+    <div class="c"><div class="ic">📈</div><h3>Reálný výstup</h3><p>Nakonec rozhoduje, kolik se opravdu vyrobí — to je pravda, kterou kára veze.</p></div>
+  </div>
+</div></section>
+
+<div class="cta"><div class="wrap">
+  <a href="https://www.performia.cz/blog/spot-performia-kara-ma-pres-milion-zhlednuti" target="_blank" rel="noopener" class="btn btn-p">▶ Spot „Kára" — přes milion zhlédnutí</a>
+</div></div>
+
+<div class="crt"><div class="wrap">
+  Koncept a originální spot „Kára" © <a href="https://www.performia.cz/" target="_blank" rel="noopener">Performia CZ</a> — všechna práva vyhrazena.
+  Ilustrace na této stránce je naše vlastní ztvárnění myšlenky; značka i video patří Performii.
+</div></div>
+</body></html>

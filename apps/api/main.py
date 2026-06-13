@@ -907,6 +907,12 @@ def web_sari():
     return _web_subpage("sari.html")
 
 
+@app.get("/web/kara")
+def web_kara():
+    """Kára — metafora produktivity (Performia). Animace + odkaz na spot + copyright."""
+    return _web_subpage("kara.html")
+
+
 @app.get("/web/partner")
 def web_partner():
     """Digitální pozvánka pro Business Success & Performii (Rasťo + Lucie)."""

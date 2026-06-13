@@ -1,105 +1,113 @@
 <!DOCTYPE html>
 <html lang="cs"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Marti Pašek — zakladatel STRATEGIE a koncernu EUROSOFT</title>
-<meta name="description" content="Marti Pašek — vizionář, SQL expert a stavitel. Zakladatel koncernu EUROSOFT a platformy STRATEGIE. Od stroje po rozhodnutí, technologicky i lidsky.">
+<title>Marti Pašek — vizionář, stratég, stavitel</title>
+<meta name="description" content="Marti Pašek — psycholog, stratég a vizionář. Zakladatel koncernu EUROSOFT a platformy STRATEGIE. Pomáhat a chránit lidi a předávat jim vize porozumění.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
   :root{--bg:#05070f;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;--ac:#34d399;--ac2:#2dd4bf;--bl:#60a5fa}
   *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
   body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6}
-  a{color:inherit;text-decoration:none}.wrap{max-width:1000px;margin:0 auto;padding:0 24px}
+  a{color:inherit;text-decoration:none}.wrap{max-width:1040px;margin:0 auto;padding:0 24px}
   .grad{background:linear-gradient(110deg,var(--ac),var(--ac2) 50%,var(--bl));-webkit-background-clip:text;background-clip:text;color:transparent}
   .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:14px;font-weight:700;font-size:15px;border:0;cursor:pointer;transition:.2s}
   .btn-p{background:linear-gradient(110deg,var(--ac),var(--ac2));color:#04150e}.btn-p:hover{transform:translateY(-2px)}
   .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}.btn-g:hover{border-color:var(--ac2);color:var(--ac2)}
   nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
-  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;max-width:1000px}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;max-width:1040px}
   .logo{font-weight:800;font-size:15px;color:var(--mut)}
-  .hero{position:relative;padding:74px 0 36px;text-align:center;overflow:hidden}
-  .hero:before{content:"";position:absolute;top:-50%;left:50%;transform:translateX(-50%);width:760px;height:760px;background:radial-gradient(circle,rgba(45,212,191,.14),transparent 62%);z-index:0}
-  .hero .wrap{position:relative;z-index:1}
+  /* HERO */
+  .hero{position:relative;padding:60px 0 30px;overflow:hidden}
+  .hero:before{content:"";position:absolute;top:-40%;right:-10%;width:760px;height:760px;background:radial-gradient(circle,rgba(45,212,191,.13),transparent 62%);z-index:0}
+  .hgrid{position:relative;z-index:1;display:grid;grid-template-columns:1.15fr .85fr;gap:40px;align-items:center}
   .tag{display:inline-block;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--ac2);border:1px solid rgba(52,211,153,.35);border-radius:999px;padding:6px 16px;margin-bottom:20px}
-  .avatar{width:128px;height:128px;border-radius:50%;margin:0 auto 18px;object-fit:cover;display:block;border:3px solid rgba(45,212,191,.5);box-shadow:0 14px 40px rgba(45,212,191,.3);background:linear-gradient(135deg,var(--ac),var(--ac2))}
-  h1{font-size:clamp(32px,5vw,52px);font-weight:900;letter-spacing:-1.3px;line-height:1.08;margin-bottom:14px}
-  .sub{font-size:clamp(16px,2.3vw,20px);color:var(--mut);max-width:660px;margin:0 auto}
-  .role{margin-top:14px;font-size:14px;color:var(--ac2);font-weight:700;letter-spacing:.3px}
+  h1{font-size:clamp(34px,5.4vw,56px);font-weight:900;letter-spacing:-1.4px;line-height:1.05;margin-bottom:16px}
+  .sub{font-size:clamp(16px,2.3vw,20px);color:#cdd6e2;max-width:520px;line-height:1.7}
+  .role{margin-top:16px;font-size:14px;color:var(--ac2);font-weight:700;letter-spacing:.3px}
+  .hbtns{margin-top:26px;display:flex;gap:11px;flex-wrap:wrap}
+  .photo{position:relative}
+  .photo img{width:100%;max-width:380px;border-radius:24px;display:block;margin-left:auto;border:1px solid var(--bord);box-shadow:0 30px 70px rgba(0,0,0,.5),0 0 0 6px rgba(45,212,191,.07)}
+  .photo:after{content:"";position:absolute;inset:auto -6px -14px 30%;height:40px;background:radial-gradient(ellipse,rgba(45,212,191,.25),transparent 70%);filter:blur(10px)}
   section{padding:44px 0}
   .h2{font-size:clamp(22px,3.4vw,32px);font-weight:900;letter-spacing:-.7px;text-align:center;margin-bottom:14px}
-  .lead{color:#cdd6e2;text-align:center;max-width:720px;margin:0 auto;font-size:16.5px;line-height:1.8}
+  .lead{color:#cdd6e2;text-align:center;max-width:760px;margin:0 auto;font-size:16.5px;line-height:1.85}
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:30px;align-items:center;background:linear-gradient(180deg,var(--card),rgba(14,23,48,.4));border:1px solid var(--bord);border-radius:24px;padding:34px}
+  .feat h3{font-size:clamp(20px,2.8vw,26px);font-weight:900;letter-spacing:-.5px;margin-bottom:12px}
+  .feat p{color:var(--mut);font-size:15.5px;line-height:1.8}
+  .qa{display:grid;gap:12px}
+  .qa div{background:rgba(5,7,15,.5);border:1px solid var(--bord);border-radius:14px;padding:13px 16px}
+  .qa b{color:var(--ac2);font-size:14px}.qa span{color:#cdd6e2;font-size:14.5px}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:34px}
   .card{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:18px;padding:24px}
   .card .ic{font-size:25px;margin-bottom:11px}.card h3{font-size:17px;font-weight:800;margin-bottom:6px}.card p{color:var(--mut);font-size:14px}
+  a.card{display:block}a.card:hover{border-color:var(--ac2);transform:translateY(-3px);transition:.2s}
   .quote{background:linear-gradient(110deg,rgba(45,212,191,.08),rgba(96,165,250,.06));border:1px solid var(--bord);border-radius:22px;padding:34px;text-align:center;margin-top:30px}
   .quote p{font-size:clamp(18px,2.6vw,24px);font-weight:800;letter-spacing:-.4px;max-width:720px;margin:0 auto}
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:18px;text-align:center;margin-top:14px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:18px;text-align:center;margin-top:30px}
   .stat .num{font-size:34px;font-weight:900;letter-spacing:-1px}.stat .lab{color:var(--mut);font-size:13px}
   .cta{text-align:center;padding:50px 0}
   .clist{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px}
   footer{border-top:1px solid var(--bord);padding:34px 0;color:var(--mut);font-size:13px;text-align:center}footer a{color:var(--ac2)}
+  @media(max-width:820px){.hgrid{grid-template-columns:1fr;gap:28px;text-align:center}.sub{margin:0 auto}.hbtns{justify-content:center}
+    .photo img{margin:0 auto}.feat{grid-template-columns:1fr;padding:26px}}
 </style></head><body>
 <nav><div class="wrap">
   <a href="/web" class="logo">STRATEGIE × EUROSOFT × IQHUBS</a>
   <a href="/web" class="btn btn-g" style="padding:9px 16px;font-size:13px">← Zpět na ekosystém</a>
 </div></nav>
 
-<header class="hero"><div class="wrap">
-  <div class="tag">Zakladatel &amp; vizionář</div>
-  <img class="avatar" src="https://www.eurosoft.com/photo-pg-210-437-563-.png" alt="Marti Pašek" loading="lazy">
+<header class="hero"><div class="wrap"><div class="hgrid">
+  <div>
+    <div class="tag">Vizionář · stratég · stavitel</div>
+    <h1>Marti Pašek</h1>
+    <p class="sub">Člověk s čistou hlavou i duší. Mým motivem je <span class="grad">pomáhat a chránit lidi</span>
+      a předávat jim vize porozumění. Z dílny, kde se rozhýbávají stroje, až po AI platformu, která firmu řídí
+      — a nikdy nezapomíná na lidi.</p>
+    <div class="role">Zakladatel koncernu EUROSOFT · tvůrce platformy STRATEGIE</div>
+    <div class="hbtns">
+      <a href="#pribeh" class="btn btn-p">Můj příběh ↓</a>
+      <a href="/web" class="btn btn-g">Celý ekosystém →</a>
+    </div>
+  </div>
+  <div class="photo">
+    <img src="https://www.eurosoft.com/photo-pg-210-437-563-.png" alt="Marti Pašek" loading="lazy">
+  </div>
+</div></div></header>
 
-  <h1>Marti Pašek</h1>
-  <p class="sub">Stavitel, který spojuje <span class="grad">tvrdá data s lidským rozměrem</span>. Z dílny, kde se
-    rozhýbávají stroje, až po AI platformu, která firmu řídí — a nezapomíná na lidi.</p>
-  <div class="role">Zakladatel koncernu EUROSOFT · tvůrce platformy STRATEGIE</div>
-</div></header>
-
-<section><div class="wrap">
-  <div class="h2">Kdo jsem</div>
-  <p class="lead">Posledních dvacet let stavím firmu, která dává průmyslu energii — rozvaděče, automatizaci
-    a software na klíč pro výrobce po celém světě. Jsem člověk čísel: databáze, procesy a architektura jsou
-    můj rodný jazyk. Ale nejvíc mě baví, když z dat vznikne <b style="color:var(--tx)">rozhodnutí</b> a z firmy
-    <b style="color:var(--tx)">místo, kam lidé chodí rádi</b>.<br><br>
-    Roky jsem se učil firmu řídit a vybírat lidi od těch nejlepších — a teď to vracím jinak: stavím
-    <b style="color:var(--tx)">STRATEGII</b>, platformu, která osvědčené know-how přetaví v živý nástroj
-    v kapse každého. Nápad ráno → funkční věc na telefonech do večera. To není slib, to je můj způsob práce.</p>
+<section id="pribeh"><div class="wrap">
+  <div class="feat">
+    <div>
+      <h3>Práce s lidmi mě naplňuje</h3>
+      <p>Na lidi a jejich situace se dívám shora — analyzuji, vnímám objektivně, jednám přímo a nestranně.
+        Věřím, že nejdůležitějším prvkem každé firmy jsou lidé, kteří v ní pracují. Když se daří jim,
+        daří se celé firmě.<br><br>
+        Posledních dvacet let stavím koncern EUROSOFT — chytrá řešení v průmyslové automatizaci pro výrobce
+        po celém světě. A teď to know-how přetavuji do <b style="color:var(--tx)">STRATEGIE</b>: platformy,
+        která dává firmě rozum i srdce a každému člověku nástroj přímo do kapsy.</p>
+    </div>
+    <div class="qa">
+      <div><b>Proč pomáháte lidem?</b><br><span>Protože můžu.</span></div>
+      <div><b>Co vám to přináší?</b><br><span>Radost a spoustu energie. 🙂</span></div>
+      <div><b>Na kom vám záleží?</b><br><span>Na slušných lidech.</span></div>
+      <div><b>Myslíte také někdy na sebe?</b><br><span>Často. Když člověk sám není v pohodě, nemůže pomáhat ani druhým.</span></div>
+    </div>
+  </div>
 </div></section>
 
 <section style="padding-top:0"><div class="wrap">
   <div class="h2">Čemu věřím</div>
   <div class="grid">
+    <div class="card"><div class="ic">🧭</div><h3>Vize porozumění</h3><p>Lidem nejvíc pomůže, když pochopí souvislosti. Předávat vize a smysl je pro mě důležitější než rozkazovat.</p></div>
     <div class="card"><div class="ic">📊</div><h3>Data, ne dojmy</h3><p>Co se neměří, neřídí. Rozhodnutí stojí na číslech — a SQL je můj nástroj, jak se k pravdě dostat rychle.</p></div>
-    <div class="card"><div class="ic">⚡</div><h3>Rychlost myšlenky</h3><p>Nečekat měsíce na dodavatele. Nápad → prototyp → produkce za dny. Iterovat, ne plánovat donekonečna.</p></div>
-    <div class="card"><div class="ic">🤝</div><h3>Lidský rozměr</h3><p>Nejlepší systém je k ničemu, když firma nedrží pohromadě. Volnost, férovost a dobrá parta jsou základ.</p></div>
+    <div class="card"><div class="ic">⚡</div><h3>Rychlost myšlenky</h3><p>Nečekat měsíce. Nápad → prototyp → produkce za dny. Iterovat, ne plánovat donekonečna.</p></div>
+    <div class="card"><div class="ic">🤝</div><h3>Lidský rozměr</h3><p>Nejlepší systém je k ničemu, když firma nedrží pohromadě. Férovost a dobrá parta jsou základ.</p></div>
     <div class="card"><div class="ic">🧩</div><h3>Jednoduchost vítězí</h3><p>Méně vrstev, méně chyb. Složité řešení, kterému nikdo nerozumí, není řešení.</p></div>
-    <div class="card"><div class="ic">🌱</div><h3>Růst přes lidi</h3><p>Firma roste, když rostou lidé. Proto k technologii vždy přidávám rozvoj a zdravé rozhodování.</p></div>
-    <div class="card"><div class="ic">🛡️</div><h3>Bezpečnost přes probuzení</h3><p>Audit a transparentnost nejsou brzda — paradoxně přidávají jistotu. Každý dohledá, co se kdy stalo.</p></div>
+    <div class="card"><div class="ic">🌱</div><h3>Růst přes lidi</h3><p>Firma roste, když rostou lidé. K technologii proto vždy přidávám rozvoj a zdravé rozhodování.</p></div>
   </div>
 </div></section>
 
 <section style="padding-top:0"><div class="wrap">
   <div class="h2">Co stavím</div>
   <div class="grid">
-    <a class="card" href="/web/eurosoft" style="display:block"><div class="ic">🦾</div><h3>EUROSOFT →</h3><p>Koncern průmyslové automatizace — rozvaděče, elektroprojekce a software na klíč. 20 let, stovky projektů po světě.</p></a>
-    <a class="card" href="/web/strategie" style="display:block"><div class="ic">🧠</div><h3>STRATEGIE →</h3><p>Next-gen AI platforma. Z dat živá operativa, aplikace na míru za dny — a vlastní AI, která firmě rozumí.</p></a>
-    <a class="card" href="/web" style="display:block"><div class="ic">🌐</div><h3>Ekosystém →</h3><p>Pět sil pod jednou střechou — stroje, data, platforma, řízení i lidé. Od stroje po rozhodnutí.</p></a>
-  </div>
-  <div class="stats">
-    <div class="stat"><div class="num grad">20 let</div><div class="lab">v průmyslové automatizaci</div></div>
-    <div class="stat"><div class="num grad">stovky</div><div class="lab">projektů po celém světě</div></div>
-    <div class="stat"><div class="num grad">1 den</div><div class="lab">od nápadu k nástroji</div></div>
-    <div class="stat"><div class="num grad">∞</div><div class="lab">chuti stavět dál</div></div>
-  </div>
-  <div class="quote"><p>„Od stroje po rozhodnutí. <span class="grad">Technologicky i lidsky.</span>"</p></div>
-</div></section>
-
-<div class="cta"><div class="wrap">
-  <div class="h2" style="margin-bottom:6px">Pojďme se potkat</div>
-  <p class="lead" style="margin-bottom:6px">Rád ukážu, co stavíme — osobně i naživo v platformě.</p>
-  <div class="clist">
-    <a href="mailto:m.pasek@eurosoft.com" class="btn btn-p">✉️ m.pasek@eurosoft.com</a>
-    <a href="/web" class="btn btn-g">Celý ekosystém →</a>
-  </div>
-</div></div>
-
-<footer><div class="wrap">Marti Pašek · zakladatel STRATEGIE a koncernu EUROSOFT · součást ekosystému <a href="/web">STRATEGIE × E
+    <a class="card" href="/web/eurosoft"><div class="ic">🦾</div><h3>EUROSOFT →</h

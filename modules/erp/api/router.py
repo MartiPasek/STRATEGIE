@@ -7765,7 +7765,8 @@ async def app_plan_generate_base(req: Request) -> JSONResponse:
         emp = _plan_employee(s, target)
         if not emp:
             return JSONResponse({"ok": False, "error": "Nemáš aktivní docházkový záznam."})
-        # Celý rok leden–prosinec (Marti 13.6.). Frozen řádky (is_frozen) se nepřepíšou.
+        # VRSTVA 1 (svatá — nikdo ji nepřepisuje). Čistý základ z kalendáře × úvazek.
+        # Firemní výjimky (vrstva 2) se NEzapisují sem — skládají se až při zobrazení.
         cal = s.execute(_t(
             "SELECT day, is_workday, is_holiday FROM tenant.att_calendar_day "
             "WHERE tenant_id=2 AND date_part('year', day) = date_part('year', CURRENT_DATE) "
@@ -7826,17 +7827,112 @@ async def app_plan_mine(req: Request) -> JSONResponse:
             "FROM tenant.att_plan_day WHERE tenant_id=2 AND user_id=:u "
             "AND date_part('year', plan_date) = date_part('year', CURRENT_DATE) "
             "ORDER BY plan_date"), {"u": target}).fetchall()
+        # Vrstva 2 overlay (read-only, layer 1 se NEMĚNÍ)
+        try:
+            excmap = {r[0]: (float(r[1]), r[2]) for r in s.execute(_t(
+                "SELECT ex_date, hours, reason FROM tenant.att_calendar_exception "
+                "WHERE tenant_id=2 AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)")).fetchall()}
+        except Exception:
+            excmap = {}
         out = []
         for r in rows:
             d = r[0]
+            ex = excmap.get(d)
             out.append({"date": d.isoformat(), "iso_week": d.isocalendar()[1],
                         "weekday": _PLAN_DAYLABEL.get(d.isoweekday() % 7 if d.isoweekday() == 7 else d.isoweekday(), "?"),
                         "hours": float(r[1]), "day_type": r[2], "start": r[3], "end": r[4],
-                        "uvazek": float(r[5]) if r[5] is not None else None, "frozen": bool(r[6])})
+                        "uvazek": float(r[5]) if r[5] is not None else None, "frozen": bool(r[6]),
+                        "exc_hours": (ex[0] if ex else None), "exc_reason": (ex[1] if ex else None)})
         total = round(sum(x["hours"] for x in out), 2)
         uvz = next((x["uvazek"] for x in out if x["uvazek"]), None)
         return JSONResponse({"ok": True, "plan": out, "total_hours": total,
                              "uvazek": uvz, "weeks": weeks, "has_plan": len(out) > 0})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ── Vrstva 2: firemní výjimky (samostatná tabulka, NEPŘEPISUJE vrstvu 1) ──────
+@api_router.get("/app/plan/exceptions")
+async def app_plan_exceptions(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT ex_date, hours, reason FROM tenant.att_calendar_exception "
+            "WHERE tenant_id=2 ORDER BY ex_date")).fetchall()
+        return JSONResponse({"ok": True, "exceptions": [
+            {"date": r[0].isoformat(), "hours": float(r[1]), "reason": r[2]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/plan/exceptions")
+async def app_plan_exception_save(req: Request) -> JSONResponse:
+    """Vloží/upraví globální firemní výjimku (datum + hodiny 0..8 + důvod).
+    NEZAPISUJE do att_plan_day — vrstva 1 zůstává nedotčená, skládá se až při čtení."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        d = _dt.date.fromisoformat(str((b or {}).get("date") or "")[:10])
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné datum."})
+    try:
+        hrs = round(float((b or {}).get("hours")), 2)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné hodiny."})
+    if hrs < 0 or hrs > 12:
+        return JSONResponse({"ok": False, "error": "Hodiny musí být 0–12."})
+    reason = str((b or {}).get("reason") or "").strip()[:200] or None
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t(
+            "INSERT INTO tenant.att_calendar_exception (tenant_id, ex_date, hours, reason, created_by) "
+            "VALUES (2, :d, :h, :r, :u) "
+            "ON CONFLICT (tenant_id, ex_date) DO UPDATE SET hours=EXCLUDED.hours, "
+            " reason=EXCLUDED.reason, updated_at=now()"),
+            {"d": d, "h": hrs, "r": reason, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/plan/exceptions/delete")
+async def app_plan_exception_delete(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        b = await req.json()
+        d = _dt.date.fromisoformat(str((b or {}).get("date") or "")[:10])
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné datum."})
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.att_calendar_exception WHERE tenant_id=2 AND ex_date=:d"), {"d": d})
+        s.commit()
+        return JSONResponse({"ok": True})
     finally:
         cm.__exit__(None, None, None)
 

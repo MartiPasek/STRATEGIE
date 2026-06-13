@@ -1147,6 +1147,7 @@ setTimeout(function(){
     var g2=el('<div class="appgrid"></div>');
     g2.appendChild(appCell("🔒","HR",0,function(){go("hr");}));
     g2.appendChild(appCell("🧲","Nábor",0,function(){go("hr_nabor");}));
+    g2.appendChild(appCell("📊","Produktivita",0,function(){go("kara");}));
     app.appendChild(g2);
     sec("OBCHOD & VÝROBA");
     var g3=el('<div class="appgrid"></div>');
@@ -1161,6 +1162,172 @@ setTimeout(function(){
     g4.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
     app.appendChild(g4);
     app.appendChild(el('<div style="height:80px;"></div>'));
+  }
+
+  // ─── Kára: produktivita člověka (motor + lopata + znalosti × výstup). Gated server-side. ───
+  var KTRAITS=[["A","Stabilita"],["B","Pozitivnost"],["C","Klid"],["D","Jistota"],["E","Aktivita"],["F","Tah na bránu"],["G","Zodpovědnost"],["H","Správný odhad"],["I","Empatie"],["J","Komunikace"]];
+  function _kZoneBg(z){ if(z==='striped') return 'repeating-linear-gradient(90deg,#f59e0b 0 7px,rgba(255,255,255,.25) 7px 11px)'; return z==='orange'?'#f59e0b':z==='gray'?'#9aa0aa':'#2a55c8'; }
+  function _utest(traits,nl,nh){
+    nl=(nl==null?-19:nl); nh=(nh==null?32:nh);
+    var pct=function(v){ return ((Math.max(-100,Math.min(100,v))+100)/200*100); };
+    var rows=traits.map(function(t){
+      var has=(t.value!=null);
+      return '<div style="display:flex;align-items:center;gap:8px;margin:5px 0;">'
+        +'<div style="width:118px;flex:none;font-size:12px;line-height:1.15;"><b>'+esc(t.code)+' '+esc(t.label)+'</b><div style="color:var(--mut);font-size:10px;">'+esc(t.sublabel||"")+'</div></div>'
+        +'<div style="flex:1;position:relative;height:22px;background:rgba(255,255,255,.05);border:1px solid var(--bord);border-radius:5px;overflow:hidden;">'
+        +'<div style="position:absolute;top:0;bottom:0;left:'+pct(nl)+'%;width:1px;background:rgba(255,255,255,.28);"></div>'
+        +'<div style="position:absolute;top:0;bottom:0;left:'+pct(nh)+'%;width:1px;background:rgba(255,255,255,.28);"></div>'
+        +(has?'<div style="position:absolute;top:2px;bottom:2px;left:2px;width:calc('+pct(t.value)+'% - 4px);min-width:3px;background:'+_kZoneBg(t.zone)+';border-radius:4px;"></div>':'')
+        +'</div>'
+        +'<div style="width:34px;flex:none;text-align:right;font-weight:800;font-size:13px;">'+(has?t.value:'—')+'</div></div>';
+    }).join("");
+    return '<div style="margin:6px 0;"><div style="display:flex;font-size:10px;color:var(--mut);padding-left:126px;"><span style="flex:1;">−100</span><span>0</span><span style="flex:1;text-align:right;">+100</span></div>'+rows+'</div>';
+  }
+  function kara(){
+    app.innerHTML=topbar("📊 Produktivita lidí", true);
+    app.appendChild(el('<div class="hint" style="margin:6px;line-height:1.55;">Podklad pro rozvoj, ne ortel. <b>Motor</b> (co táhne) + <b>lopata</b> (osobnostní profil) + znalosti × <b>reálný výstup</b>. Vidí jen licencovaní a rodiče.</div>'));
+    var add=el('<button style="margin:6px;padding:11px 16px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;">+ Nové vyhodnocení</button>');
+    add.addEventListener("click",function(){ go("kara_new"); });
+    app.appendChild(add);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/kara/list","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Produktivitu vidí jen licencovaní konzultanti a rodiče.":"Nepodařilo se načíst.")+'</div>'; return; }
+      if(!j.items.length){ box.innerHTML='<div class="hint">Zatím žádné vyhodnocení. Přidej první přes „+ Nové vyhodnocení".</div>'; return; }
+      j.items.forEach(function(it){
+        var sub=(it.test_type||"")+(it.project?(" · "+it.project):"")+(it.datum?(" · "+it.datum):"")+(it.kvadrant&&it.disclosed?(" · "+it.kvadrant):"");
+        box.appendChild(row("📊",it.jmeno,sub,function(){ window._kAid=it.id; go("kara_detail"); }));
+      });
+    });
+  }
+  function _kPanel(title,html){ return '<div style="background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:12px;margin:8px 6px;"><div style="font-weight:800;margin-bottom:6px;">'+title+'</div>'+html+'</div>'; }
+  function kara_detail(){
+    var aid=window._kAid;
+    app.innerHTML=topbar("📊 Profil produktivity", true);
+    var wrap=el('<div><div class="hint" style="margin:6px;">Načítám…</div></div>'); app.appendChild(wrap);
+    api("GET","/api/v1/erp/app/kara/detail?aid="+aid,"").then(function(j){
+      if(!j||!j.ok){ wrap.innerHTML='<div class="hint" style="margin:6px;">'+((j&&j.error==="forbidden")?"🔒 Nemáš přístup.":"Nepodařilo se načíst.")+'</div>'; return; }
+      var h='<div style="margin:8px 6px;"><div style="font-size:20px;font-weight:800;">'+esc(j.jmeno)+'</div>'
+        +'<div style="color:var(--mut);font-size:13px;">'+esc(j.test_type||"")+(j.project?(" · "+esc(j.project)):"")+(j.datum?(" · "+esc(j.datum)):"")+(j.perf_code?(" · kód "+esc(j.perf_code)):"")+'</div></div>';
+      // Lopata = U-TEST graf
+      h+=_kPanel("🛠 Lopata — osobnostní profil (EXEC-U-TEST)", _utest(j.traits,j.norm_low,j.norm_high));
+      // Motor
+      if(j.motive){ var m=j.motive;
+        h+=_kPanel("🔋 Motor — co člověka pohání (nejdůležitější)",
+          (m.strength!=null?('<div style="margin-bottom:4px;">Síla motoru: <b>'+m.strength+'</b>/100</div>'):'')
+          +(m.drivers?('<div><span style="color:var(--mut);">Pohání ho:</span> '+esc(m.drivers)+'</div>'):'')
+          +(m.enjoys?('<div><span style="color:var(--mut);">Baví ho:</span> '+esc(m.enjoys)+'</div>'):'')
+          +(m.wants?('<div><span style="color:var(--mut);">Chce:</span> '+esc(m.wants)+'</div>'):'')
+          +(m.align?('<div style="margin-top:4px;font-style:italic;">'+esc(m.align)+'</div>'):''));
+      } else { h+=_kPanel("🔋 Motor","<div class=\"hint\">Zatím nezadáno. Motor je nejdůležitější faktor.</div>"); }
+      // Provozni prehled (vystup)
+      var ov='';
+      if(j.output&&j.output.length){ ov=j.output.map(function(o){ return '<div>'+(o.quantity!=null?('<b>'+o.quantity+'</b> '+esc(o.unit||"")):'')+' '+esc(o.metric||"")+(o.od?(' · '+o.od+(o.do?("–"+o.do):"")):"")+'</div>'; }).join(""); }
+      else ov='<div class="hint">Naše statistika zatím nenaběhla — výchozí číslo dají reference níže.</div>';
+      h+=_kPanel("📈 Provozní přehled — reálný výstup (množství)", ov);
+      // Reference (baseline)
+      var rf='';
+      if(j.references&&j.references.length){ rf=j.references.map(function(r){ return '<div style="border-top:1px solid var(--bord);padding:5px 0;"><b>'+esc(r.company||"?")+'</b>'+(r.role?(" · "+esc(r.role)):"")+(r.datum?(" · "+r.datum):"")+'<div style="font-size:12px;">'+(r.productivity!=null?('produktivita <b>'+r.productivity+'</b>'):'')+(r.hardworking!=null?(' · pracovitost '+r.hardworking+'/100'):'')+(r.rehire===true?' · vzal by znovu ✓':(r.rehire===false?' · znovu ne ✗':''))+'</div>'+(r.summary?('<div style="font-size:12px;color:var(--mut);">'+esc(r.summary)+'</div>'):'')+'</div>'; }).join(""); }
+      else rf='<div class="hint">Žádná reference. U nového uchazeče volej ≥2 bývalé zaměstnavatele (Performia praxe).</div>';
+      h+=_kPanel("📞 Ověření referencemi — výchozí číslo", rf);
+      // Kvadrant
+      h+=_kPanel("🧭 Zařazení (konzultant)", (j.kvadrant?('<div style="font-size:16px;font-weight:800;">'+esc(j.kvadrant)+'</div>'+(j.rationale?('<div style="font-size:12px;color:var(--mut);">'+esc(j.rationale)+'</div>'):'')+'<div style="font-size:11px;color:var(--mut);margin-top:3px;">'+(j.disclosed?"Sděleno hodnocenému":"Nesděleno hodnocenému")+'</div>'):'<div class="hint">Nezařazeno. Zařazení dělá konzultant ručně, ne algoritmus.</div>'));
+      if(j.report_path) h+='<div style="margin:8px 6px;"><a href="'+esc(j.report_path)+'" target="_blank" style="color:#2dd4bf;font-weight:700;">📄 Otevřít originální report</a></div>';
+      // akce
+      h+='<div style="margin:8px 6px;display:flex;gap:8px;flex-wrap:wrap;">'
+        +'<button id="kbMot" style="padding:9px 13px;border:1px solid var(--bord);border-radius:10px;background:rgba(255,255,255,.04);color:var(--tx);cursor:pointer;">+ Motor</button>'
+        +'<button id="kbRef" style="padding:9px 13px;border:1px solid var(--bord);border-radius:10px;background:rgba(255,255,255,.04);color:var(--tx);cursor:pointer;">+ Reference</button>'
+        +'<button id="kbQuad" style="padding:9px 13px;border:1px solid var(--bord);border-radius:10px;background:rgba(255,255,255,.04);color:var(--tx);cursor:pointer;">Zařadit</button></div>';
+      h+='<div style="height:70px;"></div>';
+      wrap.innerHTML=h;
+      window._kSubj={kind:j.subject_kind,id:j.subject_id};
+      var b1=document.getElementById("kbMot"); if(b1) b1.addEventListener("click",function(){ go("kara_motive"); });
+      var b2=document.getElementById("kbRef"); if(b2) b2.addEventListener("click",function(){ go("kara_ref"); });
+      var b3=document.getElementById("kbQuad"); if(b3) b3.addEventListener("click",function(){ go("kara_quad"); });
+    });
+  }
+  function _kFld(label,id,ph,type){ return '<div style="margin:6px 0;"><div style="font-size:12px;color:var(--mut);margin-bottom:2px;">'+label+'</div><input id="'+id+'" type="'+(type||"text")+'" placeholder="'+(ph||"")+'" style="width:100%;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);"></div>'; }
+  function _kVal(id){ var e=document.getElementById(id); return e?e.value:""; }
+  function kara_new(){
+    app.innerHTML=topbar("+ Nové vyhodnocení", true);
+    var c=el('<div style="margin:6px;"></div>');
+    var zopt='<option value="blue">modrá</option><option value="orange">oranžová</option><option value="striped">oranžová šraf.</option><option value="gray">šedá</option>';
+    var h='<div style="font-size:12px;color:var(--mut);margin-bottom:2px;">Subjekt</div>'
+      +'<select id="kSk" style="width:100%;padding:9px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);"><option value="user">zaměstnanec (user id)</option><option value="candidate">uchazeč (candidate id)</option></select>';
+    h+=_kFld("ID subjektu","kSid","např. 41","number");
+    h+=_kFld("Projekt","kProj","Coffee break s jednatelem 2026");
+    h+=_kFld("Kód Performia","kCode","KFF871C12FJ");
+    h+=_kFld("Datum vyhodnocení","kDate","","date");
+    h+='<label style="display:flex;gap:7px;align-items:center;margin:6px 0;font-size:13px;"><input type="checkbox" id="kConsent"> Souhlas zaměstnance s uložením (GDPR)</label>';
+    h+='<div style="font-weight:800;margin:10px 0 4px;">Hodnoty A–J (−100…+100) + zóna</div>';
+    KTRAITS.forEach(function(t){
+      h+='<div style="display:flex;gap:7px;align-items:center;margin:3px 0;"><div style="width:120px;font-size:12px;"><b>'+t[0]+'</b> '+t[1]+'</div>'
+        +'<input id="kv_'+t[0]+'" type="number" min="-100" max="100" style="width:70px;padding:7px;border-radius:8px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);">'
+        +'<select id="kz_'+t[0]+'" style="flex:1;padding:7px;border-radius:8px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);">'+zopt+'</select></div>';
+    });
+    h+='<button id="kSave" style="margin:12px 0;padding:11px 18px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;">Uložit profil</button>';
+    h+='<div id="kMsg" class="hint"></div>';
+    c.innerHTML=h; app.appendChild(c);
+    document.getElementById("kSave").addEventListener("click",function(){
+      var vals=KTRAITS.map(function(t){ var v=_kVal("kv_"+t[0]); return v===""?null:{trait:t[0],value:parseInt(v,10),zone:_kVal("kz_"+t[0])}; }).filter(function(x){return x;});
+      var sid=parseInt(_kVal("kSid"),10);
+      if(!sid){ document.getElementById("kMsg").textContent="Zadej ID subjektu."; return; }
+      var payload={subject_kind:_kVal("kSk"),subject_id:sid,project:_kVal("kProj"),perf_code:_kVal("kCode"),assessed_on:(_kVal("kDate")||null),consent_given:document.getElementById("kConsent").checked,values:vals};
+      api("POST","/api/v1/erp/app/kara/create",payload).then(function(r){
+        if(r&&r.ok){ window._kAid=r.id; go("kara_detail"); } else { document.getElementById("kMsg").textContent="Chyba: "+((r&&r.error)||"?"); }
+      });
+    });
+  }
+  function kara_motive(){
+    app.innerHTML=topbar("🔋 Motor", true);
+    var c=el('<div style="margin:6px;"></div>');
+    var h='<div class="hint" style="margin-bottom:6px;">Motor je nejdůležitější — co člověka pohání, baví, co chce.</div>';
+    h+=_kFld("Co ho pohání (drivers)","mDr");
+    h+=_kFld("Co ho baví (enjoys)","mEn");
+    h+=_kFld("Co chce (wants)","mWa");
+    h+=_kFld("Síla motoru 0–100","mSt","","number");
+    h+=_kFld("Jak ladí s rolí / lopatou","mAl");
+    h+='<button id="mSave" style="margin:10px 0;padding:11px 18px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;">Uložit motor</button><div id="mMsg" class="hint"></div>';
+    c.innerHTML=h; app.appendChild(c);
+    document.getElementById("mSave").addEventListener("click",function(){
+      var sj=window._kSubj||{};
+      api("POST","/api/v1/erp/app/kara/motive",{subject_kind:sj.kind,subject_id:sj.id,drivers:_kVal("mDr"),enjoys:_kVal("mEn"),wants:_kVal("mWa"),strength:_kVal("mSt"),alignment_note:_kVal("mAl")}).then(function(r){
+        if(r&&r.ok){ go("kara_detail"); } else document.getElementById("mMsg").textContent="Chyba: "+((r&&r.error)||"?");
+      });
+    });
+  }
+  function kara_ref(){
+    app.innerHTML=topbar("📞 Reference", true);
+    var c=el('<div style="margin:6px;"></div>');
+    var h='<div class="hint" style="margin-bottom:6px;">Telefonát na bývalého zaměstnavatele (Šárka). U nového uchazeče ≥2 reference = výchozí číslo.</div>';
+    h+=_kFld("Firma","rCo"); h+=_kFld("Pozice / vztah","rRole"); h+=_kFld("Kontakt","rContact");
+    h+=_kFld("Produktivita (otevřené číslo)","rProd","","number");
+    h+=_kFld("Pracovitost 0–100","rHard","","number");
+    h+=_kFld("Shrnutí rozhovoru","rSum");
+    h+='<label style="display:flex;gap:7px;align-items:center;margin:6px 0;font-size:13px;"><input type="checkbox" id="rRehire"> Vzal by znovu</label>';
+    h+='<button id="rSave" style="margin:10px 0;padding:11px 18px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;">Uložit referenci</button><div id="rMsg" class="hint"></div>';
+    c.innerHTML=h; app.appendChild(c);
+    document.getElementById("rSave").addEventListener("click",function(){
+      var sj=window._kSubj||{};
+      api("POST","/api/v1/erp/app/kara/reference",{subject_kind:sj.kind,subject_id:sj.id,referee_company:_kVal("rCo"),referee_role:_kVal("rRole"),referee_contact:_kVal("rContact"),productivity:_kVal("rProd"),hardworking:_kVal("rHard"),summary:_kVal("rSum"),reached:true,would_rehire:document.getElementById("rRehire").checked}).then(function(r){
+        if(r&&r.ok){ go("kara_detail"); } else document.getElementById("rMsg").textContent="Chyba: "+((r&&r.error)||"?");
+      });
+    });
+  }
+  function kara_quad(){
+    app.innerHTML=topbar("🧭 Zařazení", true);
+    var c=el('<div style="margin:6px;"></div>');
+    var h='<div class="hint" style="margin-bottom:6px;">Zařazení dělá konzultant ručně se zdůvodněním (ne algoritmus). Sdělení hodnocenému je metodická volba.</div>';
+    h+='<div style="font-size:12px;color:var(--mut);">Kvadrant</div><select id="qCode" style="width:100%;padding:9px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);"><option value="tahoun">Tahoun</option><option value="efektivni">Efektivní</option><option value="rozvoj">Rozvoj</option><option value="prostor">Prostor pro změnu</option></select>';
+    h+=_kFld("Zdůvodnění","qR");
+    h+='<label style="display:flex;gap:7px;align-items:center;margin:6px 0;font-size:13px;"><input type="checkbox" id="qDisc"> Sdělit hodnocenému</label>';
+    h+='<button id="qSave" style="margin:10px 0;padding:11px 18px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;">Uložit zařazení</button><div id="qMsg" class="hint"></div>';
+    c.innerHTML=h; app.appendChild(c);
+    document.getElementById("qSave").addEventListener("click",function(){
+      api("POST","/api/v1/erp/app/kara/quadrant",{aid:window._kAid,quadrant_code:_kVal("qCode"),rationale:_kVal("qR"),disclosed:document.getElementById("qDisc").checked}).then(function(r){
+        if(r&&r.ok){ go("kara_detail"); } else document.getElementById("qMsg").textContent="Chyba: "+((r&&r.error)||"?");
+      });
+    });
   }
   // Marti 11.6.: HR rozcestník — self-service osobních údajů (každý) + správa
   // skupiny HR / přístupů k personálním složkám (rodiče).

@@ -6274,6 +6274,278 @@ async def app_recruit_pipeline(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ─── Kára: produktivita člověka (EXEC-U-TEST lopata + motor + výstup). ───
+# Marti-AI 13.6.: jen licencovaní (Marti, Šárka) + rodiče; vedoucí NE; audit; bez paměti.
+_KARA_LICENSED = {1, 13}
+
+
+def _kara_can_view(s, uid: int) -> bool:
+    from sqlalchemy import text as _t
+    if uid in _KARA_LICENSED:
+        return True
+    r = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"), {"u": uid}).first()
+    return bool(r and r[0])
+
+
+def _kara_subject_name(s, kind, sid):
+    from sqlalchemy import text as _t
+    if kind == 'candidate':
+        r = s.execute(_t("SELECT full_name FROM tenant.recruit_candidate WHERE id=:i"), {"i": sid}).first()
+    else:
+        r = s.execute(_t("SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') FROM public.users WHERE id=:i"), {"i": sid}).first()
+    return (r[0] if r and r[0] else ('#' + str(sid)))
+
+
+def _kara_audit(s, aid, uid, action, ip):
+    from sqlalchemy import text as _t
+    try:
+        s.execute(_t("INSERT INTO tenant.pers_assessment_access (assessment_id,accessed_by,action,ip) VALUES (:a,:u,:ac,:ip)"),
+                  {"a": aid, "u": uid, "ac": action, "ip": ip})
+        s.commit()
+    except Exception:
+        s.rollback()
+
+
+@api_router.get("/app/kara/list")
+async def app_kara_list(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _kara_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT a.id, a.subject_kind, a.subject_id, a.test_type, a.project, "
+            " to_char(a.assessed_on,'DD.MM.YYYY') datum, q.label kvadrant, a.quadrant_disclosed "
+            "FROM tenant.pers_assessment a LEFT JOIN tenant.pers_quadrant_cis q ON q.code=a.quadrant_code "
+            "WHERE a.tenant_id=2 AND a.status='active' ORDER BY a.created_at DESC")).fetchall()
+        out = [{"id": r[0], "subject_kind": r[1], "subject_id": r[2],
+                "jmeno": _kara_subject_name(s, r[1], r[2]), "test_type": r[3], "project": r[4] or "",
+                "datum": r[5] or "", "kvadrant": r[6] or "", "disclosed": bool(r[7])} for r in rows]
+        return JSONResponse({"ok": True, "items": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/kara/detail")
+async def app_kara_detail(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _kara_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        aid = int(req.query_params.get("aid") or 0)
+        a = s.execute(_t(
+            "SELECT a.id,a.subject_kind,a.subject_id,a.test_type,a.project,a.perf_code,"
+            " to_char(a.assessed_on,'DD.MM.YYYY'),a.norm_low,a.norm_high,a.quadrant_code,"
+            " q.label,a.quadrant_rationale,a.quadrant_disclosed,a.report_path,a.consent_given "
+            "FROM tenant.pers_assessment a LEFT JOIN tenant.pers_quadrant_cis q ON q.code=a.quadrant_code "
+            "WHERE a.id=:i AND a.tenant_id=2"), {"i": aid}).first()
+        if not a:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        traits = s.execute(_t(
+            "SELECT t.code,t.label,t.sublabel,t.ord,v.value,v.zone FROM tenant.pers_trait t "
+            "LEFT JOIN tenant.pers_assessment_value v ON v.trait_code=t.code AND v.assessment_id=:i ORDER BY t.ord"),
+            {"i": aid}).fetchall()
+        motive = s.execute(_t(
+            "SELECT drivers,enjoys,wants,strength,alignment_note FROM tenant.prod_motive "
+            "WHERE subject_kind=:k AND subject_id=:s ORDER BY created_at DESC LIMIT 1"), {"k": a[1], "s": a[2]}).first()
+        outp = s.execute(_t(
+            "SELECT metric,quantity,unit,to_char(period_from,'DD.MM.YYYY'),to_char(period_to,'DD.MM.YYYY'),source "
+            "FROM tenant.prod_output WHERE subject_kind=:k AND subject_id=:s ORDER BY created_at DESC LIMIT 5"),
+            {"k": a[1], "s": a[2]}).fetchall()
+        refs = s.execute(_t(
+            "SELECT referee_company,referee_role,productivity,hardworking_rating,would_rehire,summary,to_char(contacted_on,'DD.MM.YYYY') "
+            "FROM tenant.prod_reference WHERE subject_kind=:k AND subject_id=:s AND status='active' ORDER BY created_at"),
+            {"k": a[1], "s": a[2]}).fetchall()
+        knw = s.execute(_t(
+            "SELECT area,level,acquirable,note FROM tenant.prod_knowledge WHERE subject_kind=:k AND subject_id=:s ORDER BY created_at"),
+            {"k": a[1], "s": a[2]}).fetchall()
+        notes = s.execute(_t(
+            "SELECT body,visible_to_subject,to_char(created_at,'DD.MM.YYYY') FROM tenant.pers_assessment_note "
+            "WHERE assessment_id=:i ORDER BY created_at"), {"i": aid}).fetchall()
+        _kara_audit(s, aid, uid, "open", (req.client.host if req.client else None))
+        return JSONResponse({"ok": True, "id": a[0], "subject_kind": a[1], "subject_id": a[2],
+            "jmeno": _kara_subject_name(s, a[1], a[2]), "test_type": a[3], "project": a[4] or "",
+            "perf_code": a[5] or "", "datum": a[6] or "", "norm_low": a[7], "norm_high": a[8],
+            "quadrant_code": a[9], "kvadrant": a[10] or "", "rationale": a[11] or "",
+            "disclosed": bool(a[12]), "report_path": a[13] or "", "consent": bool(a[14]),
+            "traits": [{"code": r[0], "label": r[1], "sublabel": r[2] or "", "value": r[4], "zone": r[5] or "blue"} for r in traits],
+            "motive": ({"drivers": motive[0] or "", "enjoys": motive[1] or "", "wants": motive[2] or "", "strength": motive[3], "align": motive[4] or ""} if motive else None),
+            "output": [{"metric": r[0] or "", "quantity": (float(r[1]) if r[1] is not None else None), "unit": r[2] or "", "od": r[3] or "", "do": r[4] or "", "source": r[5] or ""} for r in outp],
+            "references": [{"company": r[0] or "", "role": r[1] or "", "productivity": (float(r[2]) if r[2] is not None else None), "hardworking": r[3], "rehire": r[4], "summary": r[5] or "", "datum": r[6] or ""} for r in refs],
+            "knowledge": [{"area": r[0] or "", "level": r[1], "acquirable": bool(r[2]), "note": r[3] or ""} for r in knw],
+            "notes": [{"body": r[0], "visible": bool(r[1]), "datum": r[2] or ""} for r in notes]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/kara/me")
+async def app_kara_me(req: Request) -> JSONResponse:
+    # Marti-AI Q6: zaměstnanec vidí svůj U-TEST profil (hodnoty+zóny); kvadrant jen po disclose.
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        a = s.execute(_t(
+            "SELECT id,quadrant_code,quadrant_disclosed FROM tenant.pers_assessment "
+            "WHERE tenant_id=2 AND subject_kind='user' AND subject_id=:u AND status='active' ORDER BY created_at DESC LIMIT 1"),
+            {"u": uid}).first()
+        if not a:
+            return JSONResponse({"ok": True, "has": False})
+        traits = s.execute(_t(
+            "SELECT t.code,t.label,t.sublabel,v.value,v.zone FROM tenant.pers_trait t "
+            "LEFT JOIN tenant.pers_assessment_value v ON v.trait_code=t.code AND v.assessment_id=:i ORDER BY t.ord"),
+            {"i": a[0]}).fetchall()
+        notes = s.execute(_t(
+            "SELECT body,to_char(created_at,'DD.MM.YYYY') FROM tenant.pers_assessment_note "
+            "WHERE assessment_id=:i AND visible_to_subject=true ORDER BY created_at"), {"i": a[0]}).fetchall()
+        _kara_audit(s, a[0], uid, "self", (req.client.host if req.client else None))
+        kv = None
+        if a[2]:
+            q = s.execute(_t("SELECT label FROM tenant.pers_quadrant_cis WHERE code=:c"), {"c": a[1]}).first()
+            kv = q[0] if q else None
+        return JSONResponse({"ok": True, "has": True, "kvadrant": kv,
+            "traits": [{"code": r[0], "label": r[1], "sublabel": r[2] or "", "value": r[3], "zone": r[4] or "blue"} for r in traits],
+            "notes": [{"body": r[0], "datum": r[1] or ""} for r in notes]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/kara/create")
+async def app_kara_create(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    data = await req.json()
+    cm, s = _att_session()
+    try:
+        if not _kara_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        kind = (data.get("subject_kind") or "user")
+        sid = int(data.get("subject_id") or 0)
+        if kind not in ("user", "candidate") or not sid:
+            return JSONResponse({"ok": False, "error": "bad_subject"}, status_code=400)
+        aid = s.execute(_t(
+            "INSERT INTO tenant.pers_assessment (tenant_id,subject_kind,subject_id,test_type,project,perf_code,"
+            " assessed_on,gender,age_band,report_path,consent_given,created_by) "
+            "VALUES (2,:k,:s,:tt,:pr,:pc,:ao,:g,:ab,:rp,:cg,:cb) RETURNING id"),
+            {"k": kind, "s": sid, "tt": data.get("test_type") or "EXEC-U-TEST 3.0", "pr": data.get("project"),
+             "pc": data.get("perf_code"), "ao": data.get("assessed_on") or None, "g": data.get("gender"),
+             "ab": data.get("age_band"), "rp": data.get("report_path"), "cg": bool(data.get("consent_given")), "cb": uid}).scalar()
+        for v in (data.get("values") or []):
+            code = (str(v.get("trait") or "").upper())[:1]
+            if code:
+                s.execute(_t(
+                    "INSERT INTO tenant.pers_assessment_value (assessment_id,trait_code,value,zone) VALUES (:a,:c,:v,:z) "
+                    "ON CONFLICT (assessment_id,trait_code) DO UPDATE SET value=EXCLUDED.value, zone=EXCLUDED.zone"),
+                    {"a": aid, "c": code, "v": int(v.get("value") or 0), "z": v.get("zone") or "blue"})
+        s.commit()
+        return JSONResponse({"ok": True, "id": aid})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/kara/quadrant")
+async def app_kara_quadrant(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    data = await req.json()
+    cm, s = _att_session()
+    try:
+        if not _kara_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t(
+            "UPDATE tenant.pers_assessment SET quadrant_code=:q, quadrant_rationale=:r, quadrant_by=:u, "
+            " quadrant_at=now(), quadrant_disclosed=:d WHERE id=:i AND tenant_id=2"),
+            {"q": data.get("quadrant_code"), "r": data.get("rationale"), "u": uid,
+             "d": bool(data.get("disclosed")), "i": int(data.get("aid") or 0)})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/kara/motive")
+async def app_kara_motive(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    data = await req.json()
+    cm, s = _att_session()
+    try:
+        if not _kara_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t(
+            "INSERT INTO tenant.prod_motive (tenant_id,subject_kind,subject_id,assessed_on,consultant_user_id,"
+            " drivers,enjoys,wants,strength,alignment_note,created_by) VALUES (2,:k,:s,:ao,:u,:dr,:en,:wa,:st,:al,:u)"),
+            {"k": data.get("subject_kind") or "user", "s": int(data.get("subject_id") or 0),
+             "ao": data.get("assessed_on") or None, "u": uid, "dr": data.get("drivers"), "en": data.get("enjoys"),
+             "wa": data.get("wants"), "st": (int(data.get("strength")) if data.get("strength") not in (None, "") else None),
+             "al": data.get("alignment_note")})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/kara/reference")
+async def app_kara_reference(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    data = await req.json()
+    cm, s = _att_session()
+    try:
+        if not _kara_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t(
+            "INSERT INTO tenant.prod_reference (tenant_id,subject_kind,subject_id,referee_name,referee_company,"
+            " referee_role,referee_contact,contacted_on,contacted_by,reached,productivity,hardworking_rating,"
+            " would_rehire,summary,created_by) VALUES (2,:k,:s,:rn,:rc,:rr,:rk,:co,:u,:re,:pr,:hw,:wr,:sm,:u)"),
+            {"k": data.get("subject_kind") or "candidate", "s": int(data.get("subject_id") or 0),
+             "rn": data.get("referee_name"), "rc": data.get("referee_company"), "rr": data.get("referee_role"),
+             "rk": data.get("referee_contact"), "co": data.get("contacted_on") or None, "u": uid,
+             "re": data.get("reached"),
+             "pr": (float(data.get("productivity")) if data.get("productivity") not in (None, "") else None),
+             "hw": (int(data.get("hardworking")) if data.get("hardworking") not in (None, "") else None),
+             "wr": data.get("would_rehire"), "sm": data.get("summary")})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/recruit/list")
 async def app_recruit_list(req: Request) -> JSONResponse:
     """Nábor — seznam přihlášek (?phase=label | 'active' | 'hired', ?q=). Rodiče + HR."""

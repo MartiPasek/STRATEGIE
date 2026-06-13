@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="cs"><head>
+<html lang="sk"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Živá firma — řízení &amp; lidé · STRATEGIE</title>
-<meta name="description" content="Živá ukázka řízení firmy a personálního systému: orgboard, statistiky podle čísel, Kára, nábor a produktivita v reálném čase.">
+<title>Živá firma — riadenie &amp; ľudia · STRATEGIE</title>
+<meta name="description" content="Živá ukážka riadenia firmy a personálneho systému: orgboard, štatistiky podľa čísel, Kára, nábor a produktivita v reálnom čase.">
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -74,23 +74,23 @@
 </style></head><body>
 
 <div class="top"><div class="wrap">
-  <div class="brand">🧭 STRATEGIE <span class="live"><span class="dot"></span> ŽIVĚ</span></div>
+  <div class="brand">🧭 STRATEGIE <span class="live"><span class="dot"></span> ŽIVO</span></div>
   <div class="clock" id="clock">--:--:--</div>
   <div style="display:flex;gap:9px;align-items:center">
-    <a href="/web/partner" class="btn btn-g">← Zpět na pozvánku</a>
+    <a href="/web/partner/sk" class="btn btn-g">← Späť na pozvánku</a>
     <a href="/web" class="btn btn-p">Celý ekosystém</a>
   </div>
 </div></div>
 
 <div class="wrap">
   <div class="dhead">
-    <h1>VAŠE-firma a.s. — řízení &amp; lidé <span class="flag">FIKTIVNÍ UKÁZKA · ŽIVÁ DATA</span></h1>
-    <p>Orgboard, statistiky podle čísel, Kára, nábor a produktivita — celá škola řízení a výběru lidí, živě a v kapse.</p>
+    <h1>VAŠA-firma a.s. — riadenie &amp; ľudia <span class="flag">FIKTÍVNA UKÁŽKA · ŽIVÉ DÁTA</span></h1>
+    <p>Orgboard, štatistiky podľa čísel, Kára, nábor a produktivita — celá škola riadenia a výberu ľudí, živo a vo vrecku.</p>
     <div style="display:flex;gap:8px;margin:12px 0 2px;flex-wrap:wrap">
-      <a href="/web/demo" class="btn btn-g">🏭 Výrobní pohled</a>
-      <a href="/web/partner-demo" class="btn btn-p">🧭 Personální &amp; řízení</a>
+      <a href="/web/demo" class="btn btn-g">🏭 Výrobný pohľad</a>
+      <a href="/web/partner-demo/sk" class="btn btn-p">🧭 Personálne &amp; riadenie</a>
     </div>
-    <p style="font-size:12.5px;color:var(--mut);margin-top:6px">Stejná firma, dva pohledy — výroba na hale i lidé a řízení nad ní. Jeden živý systém.</p>
+    <p style="font-size:12.5px;color:var(--mut);margin-top:6px">Rovnaká firma, dva pohľady — výroba na hale aj ľudia a riadenie nad ňou. Jeden živý systém.</p>
   </div>
 
   <div class="kpis" id="kpis"></div>
@@ -98,33 +98,33 @@
   <div class="grid2">
     <div>
       <div class="panel">
-        <h3>Statistiky oddělení <span class="tagm">řízení podle čísel</span></h3>
-        <div class="psub">Týdenní výkon vs. cíl · trend nahoru/dolů (jádro funkčního řízení)</div>
+        <h3>Štatistiky oddelení <span class="tagm">riadenie podľa čísel</span></h3>
+        <div class="psub">Týždenný výkon vs. cieľ · trend hore/dole (jadro funkčného riadenia)</div>
         <div id="stats"></div>
       </div>
       <div class="panel">
-        <h3>Orgboard — kdo je za co <span class="tagm" id="ogOk">— v normě</span></h3>
-        <div class="psub">Posty a stav jejich statistiky · mění se samo</div>
+        <h3>Orgboard — kto je za čo <span class="tagm" id="ogOk">— v norme</span></h3>
+        <div class="psub">Posty a stav ich štatistiky · mení sa samo</div>
         <div class="ogrid" id="ogrid"></div>
         <div class="mlegend">
-          <span><i class="sdot" style="background:var(--grn)"></i> roste</span>
-          <span><i class="sdot" style="background:var(--tl)"></i> stabilní</span>
+          <span><i class="sdot" style="background:var(--grn)"></i> rastie</span>
+          <span><i class="sdot" style="background:var(--tl)"></i> stabilné</span>
           <span><i class="sdot" style="background:var(--am)"></i> pozor</span>
           <span><i class="sdot" style="background:var(--rd)"></i> klesá</span>
-          <span><i class="sdot" style="background:var(--gr)"></i> neobsazeno</span>
+          <span><i class="sdot" style="background:var(--gr)"></i> neobsadené</span>
         </div>
       </div>
       <div class="panel">
-        <h3>Nábor — pipeline kandidátů</h3>
-        <div class="psub">Výběr podle produktivity · od inzerátu po nástup</div>
+        <h3>Nábor — pipeline kandidátov</h3>
+        <div class="psub">Výber podľa produktivity · od inzerátu po nástup</div>
         <div id="nabor"></div>
       </div>
     </div>
 
     <div>
       <div class="panel">
-        <h3>Kára — kdo přispívá</h3>
-        <div class="psub">Rozložení týmu podle reálného přínosu</div>
+        <h3>Kára — kto prispieva</h3>
+        <div class="psub">Rozloženie tímu podľa reálneho prínosu</div>
         <div class="donutwrap">
           <svg width="132" height="132" viewBox="0 0 132 132">
             <circle cx="66" cy="66" r="54" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="16"/>
@@ -133,19 +133,19 @@
             <circle id="kseg3" cx="66" cy="66" r="54" fill="none" stroke="var(--am)" stroke-width="16" transform="rotate(-90 66 66)"/>
             <circle id="kseg4" cx="66" cy="66" r="54" fill="none" stroke="var(--rd)" stroke-width="16" transform="rotate(-90 66 66)"/>
             <text x="66" y="62" text-anchor="middle" class="donutc" fill="#e8eefc" id="kCenter">—</text>
-            <text x="66" y="80" text-anchor="middle" font-size="11" fill="#8ea0c4">produktivní</text>
+            <text x="66" y="80" text-anchor="middle" font-size="11" fill="#8ea0c4">produktívni</text>
           </svg>
           <div class="dleg" style="flex:1">
-            <div><i class="sw" style="background:var(--grn)"></i> Tahouni <b id="kV">—</b></div>
-            <div><i class="sw" style="background:var(--tl)"></i> Spolehliví <b id="kP">—</b></div>
-            <div><i class="sw" style="background:var(--am)"></i> Průměr <b id="kD">—</b></div>
-            <div><i class="sw" style="background:var(--rd)"></i> Brzdí <b id="kN">—</b></div>
+            <div><i class="sw" style="background:var(--grn)"></i> Ťahúni <b id="kV">—</b></div>
+            <div><i class="sw" style="background:var(--tl)"></i> Spoľahliví <b id="kP">—</b></div>
+            <div><i class="sw" style="background:var(--am)"></i> Priemer <b id="kD">—</b></div>
+            <div><i class="sw" style="background:var(--rd)"></i> Brzdia <b id="kN">—</b></div>
           </div>
         </div>
       </div>
       <div class="panel">
-        <h3>Produktivita týmu</h3>
-        <div class="psub">Splněné cíle × výkon × kvalita</div>
+        <h3>Produktivita tímu</h3>
+        <div class="psub">Splnené ciele × výkon × kvalita</div>
         <div class="oee">
           <div class="gauge">
             <svg width="130" height="80" viewBox="0 0 130 80">
@@ -155,37 +155,36 @@
             <div class="gval" id="prodVal">—%</div>
           </div>
           <div style="font-size:13px;color:var(--mut)">
-            <div style="margin-bottom:6px">Cíle <b id="pA" style="color:var(--tx);float:right">—</b></div>
+            <div style="margin-bottom:6px">Ciele <b id="pA" style="color:var(--tx);float:right">—</b></div>
             <div style="margin-bottom:6px">Výkon <b id="pP" style="color:var(--tx);float:right">—</b></div>
             <div>Kvalita <b id="pQ" style="color:var(--tx);float:right">—</b></div>
           </div>
         </div>
       </div>
       <div class="panel">
-        <h3>Živý tok řízení &amp; lidí <span class="live"><span class="dot"></span> ŽIVĚ</span></h3>
-        <div class="psub">Co se právě teď ve firmě děje</div>
+        <h3>Živý tok riadenia &amp; ľudí <span class="live"><span class="dot"></span> ŽIVO</span></h3>
+        <div class="psub">Čo sa práve teraz vo firme deje</div>
         <div class="feed" id="feed"></div>
       </div>
     </div>
   </div>
 
   <div style="margin:30px 0 0;background:linear-gradient(110deg,rgba(167,139,250,.13),rgba(251,191,36,.08));border:1px solid var(--bord);border-radius:24px;padding:42px 36px;text-align:center">
-    <div style="font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--vio);margin-bottom:10px">A teď to hlavní</div>
-    <div style="font-size:clamp(26px,4.5vw,40px);font-weight:900;letter-spacing:-1px;margin-bottom:16px">Pojď, Lucko. Pojď, Rasťo.</div>
-    <p style="color:#cdd6e2;max-width:700px;margin:0 auto 10px;font-size:17.5px;line-height:1.75">Viděli jste to naživo. Tohle není jen software — je to <b style="color:var(--tx)">vaše škola, která konečně žije a drží</b> i po semináři. Pojďme z toho udělat společný produkt:
-      <b style="color:var(--tx)">vystřelíme vaše — a posléze i naše — klienty do nebeských výšin</b>, nastartujeme v Česku i na Slovensku prudký ekonomický růst a pomůžeme <b style="color:var(--tx)">postavit stát zpět na nohy</b>.</p>
-    <p style="color:var(--mut);max-width:700px;margin:0 auto 26px;font-size:15px">Vy škola, my nástroj. Rovní partneři. To je celé.</p>
-    <a href="mailto:m.pasek@eurosoft.com?subject=Jdeme%20do%20toho%20%E2%80%94%20STRATEGIE%20%C3%97%20Business%20Success%20%C3%97%20Performia" class="btn btn-p" style="font-size:16px;padding:14px 30px">✉️ Pojďme do toho — napiš Martimu</a>
+    <div style="font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--vio);margin-bottom:10px">A teraz to hlavné</div>
+    <div style="font-size:clamp(26px,4.5vw,40px);font-weight:900;letter-spacing:-1px;margin-bottom:16px">Poď, Lucka. Poď, Rasťo.</div>
+    <p style="color:#cdd6e2;max-width:700px;margin:0 auto 10px;font-size:17.5px;line-height:1.75">Videli ste to naživo. Toto nie je len softvér — je to <b style="color:var(--tx)">vaša škola, ktorá konečne žije a drží</b> aj po seminári. Poďme z toho urobiť spoločný produkt:
+      <b style="color:var(--tx)">vystrelíme vašich — a neskôr aj našich — klientov do nebeských výšin</b>, naštartujeme v Česku aj na Slovensku prudký ekonomický rast a pomôžeme <b style="color:var(--tx)">postaviť štát späť na nohy</b>.</p>
+    <p style="color:var(--mut);max-width:700px;margin:0 auto 26px;font-size:15px">Vy škola, my nástroj. Rovní partneri. To je celé.</p>
+    <a href="mailto:m.pasek@eurosoft.com?subject=Ideme%20do%20toho%20%E2%80%94%20STRATEGIE%20%C3%97%20Business%20Success%20%C3%97%20Performia" class="btn btn-p" style="font-size:16px;padding:14px 30px">✉️ Poďme do toho — napíš Martimu</a>
   </div>
 
   <div class="footer">
-    Toto je <b>fiktivní ukázka</b> pro Business Success &amp; Performia — vaše metodika živě v platformě.<br>
-    <a href="/web/partner">← Zpět na pozvánku</a> &nbsp;·&nbsp; <a href="/web">Celý ekosystém</a>
+    Toto je <b>fiktívna ukážka</b> pre Business Success &amp; Performiu — vaša metodika živo v platforme.<br>
+    <a href="/web/partner/sk">← Späť na pozvánku</a> &nbsp;·&nbsp; <a href="/web">Celý ekosystém</a>
   </div>
 </div>
 
 <script>
-/* Sdílené helpery — samostatný blok. Když spadne kterýkoli blok dál, tenhle už běží. */
 window.PD={};
 (function(){
   PD.R=function(a,b){return a+Math.random()*(b-a)};
@@ -198,23 +197,21 @@ window.PD={};
 })();
 </script>
 <script>
-/* Hodiny */
 PD.safe('clock',function(){
   function tick(){var el=document.getElementById('clock');if(el)el.textContent=PD.nowt();}
   tick();PD.every(1000,tick);
 });
 </script>
 <script>
-/* KPI */
 PD.safe('kpi',function(){
   var R=PD.R,clamp=PD.clamp;
   var kpis=[
-    {id:'k1',lab:'👥 Lidé v práci',v:118,min:108,max:126,suf:'/132'},
+    {id:'k1',lab:'👥 Ľudia v práci',v:118,min:108,max:126,suf:'/132'},
     {id:'k2',lab:'📈 Produktivita',v:84,min:78,max:92,suf:'%'},
-    {id:'k3',lab:'🧲 Kandidáti ve hře',v:14,min:8,max:22,suf:''},
-    {id:'k4',lab:'📊 Statistiky v normě',v:78,min:66,max:92,suf:'%'},
-    {id:'k5',lab:'🎯 Splněné cíle',v:71,min:60,max:88,suf:'%'},
-    {id:'k6',lab:'🏅 Bonus za produkci',v:62,min:40,max:80,suf:' tis. Kč'}
+    {id:'k3',lab:'🧲 Kandidáti v hre',v:14,min:8,max:22,suf:''},
+    {id:'k4',lab:'📊 Štatistiky v norme',v:78,min:66,max:92,suf:'%'},
+    {id:'k5',lab:'🎯 Splnené ciele',v:71,min:60,max:88,suf:'%'},
+    {id:'k6',lab:'🏅 Bonus za produkciu',v:62,min:40,max:80,suf:' tis. €'}
   ];
   var kc=document.getElementById('kpis');
   kpis.forEach(function(k){var el=document.createElement('div');el.className='kpi';
@@ -223,21 +220,20 @@ PD.safe('kpi',function(){
   function updKpi(k){var old=k.v;k.v=clamp(Math.round(k.v+R(-1,1)*((k.max-k.min)/6)),k.min,k.max);
     var v=document.getElementById(k.id);if(v)v.innerHTML=k.v+'<small>'+k.suf+'</small>';
     var dl=document.getElementById(k.id+'d');if(!dl)return;var dd=k.v-old;
-    if(dd===0){dl.textContent='● stabilní';dl.className='delta';dl.style.color='var(--mut)';}
-    else{dl.className='delta '+(dd>0?'up':'down');dl.textContent=(dd>0?'▲ +':'▼ ')+dd+' za chvíli';}}
+    if(dd===0){dl.textContent='● stabilné';dl.className='delta';dl.style.color='var(--mut)';}
+    else{dl.className='delta '+(dd>0?'up':'down');dl.textContent=(dd>0?'▲ +':'▼ ')+dd+' o chvíľu';}}
   kpis.forEach(function(k){updKpi(k);});
   PD.every(2300,function(){kpis.forEach(function(k){if(Math.random()<.6)updKpi(k);});});
 });
 </script>
 <script>
-/* Statistiky oddělení */
 PD.safe('statistiky',function(){
   var R=PD.R,clamp=PD.clamp;
   var depts=[{n:'Obchod',v:92},{n:'Výroba',v:85},{n:'Marketing',v:74},{n:'Personalistika',v:88},{n:'Kvalita',v:80},{n:'Servis',v:69}];
   var dc=document.getElementById('stats');if(!dc)return;
   function dcol(v){return v>=85?'linear-gradient(90deg,var(--tl),var(--grn))':v>=70?'linear-gradient(90deg,var(--am),var(--tl))':'linear-gradient(90deg,var(--rd),var(--am))';}
   depts.forEach(function(d,i){var el=document.createElement('div');el.className='bar';
-    el.innerHTML='<div class="bt"><b>'+d.n+'</b><span><span id="db'+i+'">'+d.v+'</span> % cíle <span id="dt'+i+'"></span></span></div><div class="track"><div class="fill" id="df'+i+'" style="width:'+d.v+'%;background:'+dcol(d.v)+'"></div></div>';
+    el.innerHTML='<div class="bt"><b>'+d.n+'</b><span><span id="db'+i+'">'+d.v+'</span> % cieľa <span id="dt'+i+'"></span></span></div><div class="track"><div class="fill" id="df'+i+'" style="width:'+d.v+'%;background:'+dcol(d.v)+'"></div></div>';
     dc.appendChild(el);});
   PD.every(2600,function(){depts.forEach(function(d,i){if(Math.random()<.5){var old=d.v;d.v=clamp(Math.round(d.v+R(-5,5)),52,99);
     var f=document.getElementById('df'+i);if(f){f.style.width=d.v+'%';f.style.background=dcol(d.v);}
@@ -246,39 +242,36 @@ PD.safe('statistiky',function(){
 });
 </script>
 <script>
-/* Orgboard */
 PD.safe('orgboard',function(){
   var R=PD.R,Ri=PD.Ri,pick=PD.pick;
-  var posts=['Ředitel','Obchodní ředitel','Vedoucí výroby','Marketing','Personalistika','Kvalita','Finance','Servis',
-    'Obchodník JZ','Obchodník SV','Mistr haly','Nákup','Účetní','Technik','Konstrukce','Sklad',
-    'Vedoucí montáží','Reklamace','IT správa','Asistentka','Expedice','Projektant','Mzdy','Recepce'];
-  var stc=['var(--grn)','var(--tl)','var(--am)','var(--rd)','var(--gr)'],stn=['roste','stabilní','pozor','klesá','neobsazeno'],wt=[34,38,14,8,6];
+  var posts=['Riaditeľ','Obchodný riaditeľ','Vedúci výroby','Marketing','Personalistika','Kvalita','Financie','Servis',
+    'Obchodník JZ','Obchodník SV','Majster haly','Nákup','Účtovník','Technik','Konštrukcia','Sklad',
+    'Vedúci montáží','Reklamácie','IT správa','Asistentka','Expedícia','Projektant','Mzdy','Recepcia'];
+  var stc=['var(--grn)','var(--tl)','var(--am)','var(--rd)','var(--gr)'],stn=['rastie','stabilné','pozor','klesá','neobsadené'],wt=[34,38,14,8,6];
   function wpick(){var s=wt.reduce(function(a,b){return a+b},0),r=R(0,s),c=0;for(var i=0;i<wt.length;i++){c+=wt[i];if(r<=c)return i;}return 0;}
   var og=[],mg=document.getElementById('ogrid');if(!mg)return;
-  var names=['Novák','Svoboda','Dvořák','Procházka','Krásná','Veselý','Horák','Černý','Kučera','Marek','Pospíšil','Němec','Beneš','Pokorná','Fiala'];
-  function html(idx,s){var who=s===4?'<span style="color:var(--gr)">volný post</span>':pick(names);
+  var names=['Novák','Svoboda','Horváth','Procházka','Krásna','Veselý','Kováč','Čierny','Kučera','Marek','Pospíšil','Németh','Beneš','Pokorná','Fiala'];
+  function html(idx,s){var who=s===4?'<span style="color:var(--gr)">voľný post</span>':pick(names);
     return '<div class="pn">'+posts[idx]+'</div><div class="ps">'+who+'</div><div class="pstat" style="color:'+stc[s]+'"><span class="sdot" style="background:'+stc[s]+'"></span>'+stn[s]+'</div>';}
   for(var i=0;i<posts.length;i++){var s=wpick();og.push(s);var c=document.createElement('div');c.className='opost';c.id='op'+i;c.innerHTML=html(i,s);mg.appendChild(c);}
-  function ogOk(){var n=0;for(var i=0;i<og.length;i++)if(og[i]<=1)n++;var e=document.getElementById('ogOk');if(e)e.textContent=n+' z '+posts.length+' v normě';}
+  function ogOk(){var n=0;for(var i=0;i<og.length;i++)if(og[i]<=1)n++;var e=document.getElementById('ogOk');if(e)e.textContent=n+' z '+posts.length+' v norme';}
   ogOk();
   PD.every(1100,function(){var n=Ri(1,3);for(var j=0;j<n;j++){var idx=Ri(0,posts.length-1),s=wpick();og[idx]=s;var c=document.getElementById('op'+idx);if(c)c.innerHTML=html(idx,s);}ogOk();});
 });
 </script>
 <script>
-/* Nábor pipeline */
 PD.safe('nabor',function(){
   var Ri=PD.Ri,clamp=PD.clamp;
-  var fz=[{n:'Ve hře',v:14,c:'var(--vio)'},{n:'1. kolo',v:9,c:'var(--bl)'},{n:'2. kolo',v:4,c:'var(--tl)'},{n:'Nástup',v:3,c:'var(--grn)'}];
+  var fz=[{n:'V hre',v:14,c:'var(--vio)'},{n:'1. kolo',v:9,c:'var(--bl)'},{n:'2. kolo',v:4,c:'var(--tl)'},{n:'Nástup',v:3,c:'var(--grn)'}];
   var nb=document.getElementById('nabor');if(!nb)return;
   fz.forEach(function(f,i){var el=document.createElement('div');el.className='bar';var w=Math.min(100,f.v*6+8);
-    el.innerHTML='<div class="bt"><b>'+f.n+'</b><span id="nb'+i+'">'+f.v+' kandidátů</span></div><div class="track"><div class="fill" id="nf'+i+'" style="width:'+w+'%;background:'+f.c+'"></div></div>';
+    el.innerHTML='<div class="bt"><b>'+f.n+'</b><span id="nb'+i+'">'+f.v+' kandidátov</span></div><div class="track"><div class="fill" id="nf'+i+'" style="width:'+w+'%;background:'+f.c+'"></div></div>';
     nb.appendChild(el);});
   PD.every(3000,function(){fz.forEach(function(f,i){if(Math.random()<.4){f.v=clamp(f.v+Ri(-1,1),0,24);
-    var b=document.getElementById('nb'+i);if(b)b.textContent=f.v+' kandidátů';var ff=document.getElementById('nf'+i);if(ff)ff.style.width=Math.min(100,f.v*6+8)+'%';}});});
+    var b=document.getElementById('nb'+i);if(b)b.textContent=f.v+' kandidátov';var ff=document.getElementById('nf'+i);if(ff)ff.style.width=Math.min(100,f.v*6+8)+'%';}});});
 });
 </script>
 <script>
-/* Kára donut */
 PD.safe('kara',function(){
   var Ri=PD.Ri,C=2*Math.PI*54;
   function kara(){var t=Ri(28,40),s=Ri(40,55),p=Ri(14,24),b=Ri(3,9),sum=t+s+p+b,off=0,segs=[t,s,p,b];
@@ -291,7 +284,6 @@ PD.safe('kara',function(){
 });
 </script>
 <script>
-/* Produktivita gauge */
 PD.safe('prod',function(){
   var Ri=PD.Ri,gLen=174,arc=document.getElementById('gArc');if(arc)arc.setAttribute('stroke-dasharray',gLen);
   function prod(){var a=Ri(66,92),p=Ri(74,94),q=Ri(86,99),o=Math.round((a+p+q)/3);
@@ -304,24 +296,23 @@ PD.safe('prod',function(){
 });
 </script>
 <script>
-/* Živý tok řízení & lidí */
 PD.safe('feed',function(){
   var pick=PD.pick,Ri=PD.Ri;
-  var nm=['Jan Novák','Petr Svoboda','Eva Dvořáková','Tomáš Procházka','Lucie Krásná','Martin Veselý','Jana Horáková','Pavel Černý','Marek Kučera','Tereza Marková'];
+  var nm=['Ján Novák','Peter Svoboda','Eva Horváthová','Tomáš Procházka','Lucia Krásna','Martin Veselý','Jana Kováčová','Pavol Čierny','Marek Kučera','Tereza Marková'];
   var dn=['Obchod','Výroba','Marketing','Personalistika','Kvalita','Servis'];
   var tpls=[
-    {i:'📊',t:function(){return 'Statistika <b>'+pick(dn)+'</b> roste — '+Ri(3,18)+' % nad cílem 📈';}},
-    {i:'📉',t:function(){return 'Statistika <b>'+pick(dn)+'</b> klesá — vedoucí řeší příčinu';}},
-    {i:'🎩',t:function(){return '<b>'+pick(nm)+'</b> převzal/a klobouk postu — ví, co je jeho produkt';}},
+    {i:'📊',t:function(){return 'Štatistika <b>'+pick(dn)+'</b> rastie — '+Ri(3,18)+' % nad cieľom 📈';}},
+    {i:'📉',t:function(){return 'Štatistika <b>'+pick(dn)+'</b> klesá — vedúci rieši príčinu';}},
+    {i:'🎩',t:function(){return '<b>'+pick(nm)+'</b> prevzal/a klobúk postu — vie, čo je jeho produkt';}},
     {i:'🧲',t:function(){return 'Nový kandidát na <b>'+pick(dn)+'</b> — U-test: '+Ri(62,96)+' % produktivita';}},
-    {i:'💬',t:function(){return 'Pohovor s <b>'+pick(nm)+'</b> — postoupil/a do 2. kola';}},
-    {i:'🏁',t:function(){return '<b>'+pick(nm)+'</b> nastupuje — onboarding spuštěn 🎉';}},
-    {i:'🏅',t:function(){return '<b>'+pick(nm)+'</b> dostal/a bonus za produkci — '+Ri(3,15)+' tis. Kč';}},
-    {i:'🎯',t:function(){return 'Oddělení <b>'+pick(dn)+'</b> splnilo týdenní cíl ✅';}},
-    {i:'🛻',t:function(){return 'Kára: <b>'+pick(nm)+'</b> se posunul/a mezi tahouny týmu';}},
-    {i:'⚠️',t:function(){return 'Post <b>'+pick(dn)+'</b> bez obsazení — otevřena nová pozice';}},
-    {i:'📈',t:function(){return 'Produktivita firmy tento týden +'+Ri(2,9)+' %';}},
-    {i:'🤝',t:function(){return '<b>'+pick(nm)+'</b> uzavřel/a obchod — statistika nahoru';}}
+    {i:'💬',t:function(){return 'Pohovor s <b>'+pick(nm)+'</b> — postúpil/a do 2. kola';}},
+    {i:'🏁',t:function(){return '<b>'+pick(nm)+'</b> nastupuje — onboarding spustený 🎉';}},
+    {i:'🏅',t:function(){return '<b>'+pick(nm)+'</b> dostal/a bonus za produkciu — '+Ri(3,15)+' tis. €';}},
+    {i:'🎯',t:function(){return 'Oddelenie <b>'+pick(dn)+'</b> splnilo týždenný cieľ ✅';}},
+    {i:'🛻',t:function(){return 'Kára: <b>'+pick(nm)+'</b> sa posunul/a medzi ťahúňov tímu';}},
+    {i:'⚠️',t:function(){return 'Post <b>'+pick(dn)+'</b> bez obsadenia — otvorená nová pozícia';}},
+    {i:'📈',t:function(){return 'Produktivita firmy tento týždeň +'+Ri(2,9)+' %';}},
+    {i:'🤝',t:function(){return '<b>'+pick(nm)+'</b> uzavrel/a obchod — štatistika hore';}}
   ];
   var feed=document.getElementById('feed');if(!feed)return;
   function addEv(){var tp=pick(tpls),el=document.createElement('div');el.className='ev';

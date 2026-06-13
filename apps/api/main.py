@@ -907,6 +907,18 @@ def web_partner_demo():
     return _web_subpage("partner-demo.html")
 
 
+@app.get("/web/partner/sk")
+def web_partner_sk():
+    """Digitálna pozvánka (SK) — Business Success & Performia."""
+    return _web_subpage("partner-sk.html")
+
+
+@app.get("/web/partner-demo/sk")
+def web_partner_demo_sk():
+    """Živá firma (SK) — riadenie & ľudia."""
+    return _web_subpage("partner-demo-sk.html")
+
+
 @app.get("/googlef2bedb6d3ffdf33d.html")
 def google_site_verification():
     """Google Search Console / Play ověření vlastnictví webu. Marti 9.6.2026."""

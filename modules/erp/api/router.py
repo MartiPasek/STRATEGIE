@@ -14533,6 +14533,10 @@ _OPS_ACTIONS = {
         "label": "Synchronizovat odvozy (ECv_Vytizeni_Odvozy → STRATEGIE)",
         "target": "cloud", "remote": False,
     },
+    "sync_nabor": {
+        "label": "Migrovat nábor (ec_jednani Kat 901 → STRATEGIE recruit_*)",
+        "target": "cloud", "remote": False,
+    },
 }
 
 
@@ -14926,6 +14930,154 @@ def _sync_fin_from_ec() -> dict:
     finally:
         cm.__exit__(None, None, None)
     return {"engagements": ne, "components": nc}
+
+
+def _sync_nabor_from_ec() -> dict:
+    """Marti 13.6.2026 (Nábor v2, dle konzultace Marti-AI): migrace náborových
+    pohovorů z ec_jednani (Kategorie=901) → tenant.recruit_candidate (dedup přes
+    e-mail) + recruit_application (fáze/stav/termíny/plat/zdroj/zamítnutí).
+    Číselníky recruit_source / recruit_reject_reason se plní z dat. Fáze se mapují
+    na recruit_phase (seed). Idempotentní — migrované řádky (anonymized IS NULL)
+    se přepíšou. Hodnocení z pohovoru se NEMIGRUJE (Marti-AI Q1 — nejcitlivější)."""
+    import json as _json_n
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    sql = ("SELECT ID, CisloZam, Predmet, email, telefon, Alias, Faze, Stav, "
+           "CONVERT(varchar(10),TerminPohovoru,23) pohovor, "
+           "CONVERT(varchar(10),TerminTestovacichDni,23) testdny, "
+           "CONVERT(varchar(10),TerminNastupu,23) nastup, "
+           "CONVERT(varchar(10),DatumJednaniOd,23) jed_od, "
+           "Sazba plat, Zdroj, DuvodZamitnuti, Vzdelani, "
+           "ProgramovaciJazyky, CiziJazyky, PosledniZamestnani, DuvodOdchodu, "
+           "CAST(ISNULL(Vyhlaska50,0) AS int) vyhl50, "
+           "CAST(OchotaCestovat AS nvarchar(40)) ochota, "
+           "Autor, CONVERT(varchar(19),DatPorizeni,120) datpor "
+           "FROM ec_jednani WHERE Kategorie = 901")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _json_n.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+
+    def s2(v):
+        v = (str(v).strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            f = float(v)
+            return f if f != 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def tri(v):
+        t = (s2(v) or "").lower()
+        if t[:1] in ("a", "1", "y"):
+            return True
+        if t[:1] in ("n", "0"):
+            return False
+        return None
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    na = nc = 0
+    src_cache = {}
+    rej_cache = {}
+    cand_cache = {}
+    emp_cache = {}
+    try:
+        phase_ids = {r2[0]: r2[1] for r2 in s.execute(_t(
+            "SELECT label, id FROM tenant.recruit_phase WHERE tenant_id = 2")).fetchall()}
+        s.execute(_t("DELETE FROM tenant.recruit_application WHERE tenant_id = 2 AND ec_jednani_id IS NOT NULL"))
+        s.execute(_t("DELETE FROM tenant.recruit_candidate WHERE tenant_id = 2 AND anonymized_at IS NULL"))
+
+        def src_id(label):
+            label = s2(label)
+            if not label:
+                return None
+            if label in src_cache:
+                return src_cache[label]
+            row = s.execute(_t("SELECT id FROM tenant.recruit_source WHERE tenant_id=2 AND label=:l"), {"l": label}).first()
+            if not row:
+                row = s.execute(_t("INSERT INTO tenant.recruit_source(tenant_id,label) VALUES(2,:l) RETURNING id"), {"l": label}).first()
+            src_cache[label] = row[0]
+            return row[0]
+
+        def rej_id(label):
+            label = s2(label)
+            if not label:
+                return None
+            if label in rej_cache:
+                return rej_cache[label]
+            row = s.execute(_t("SELECT id FROM tenant.recruit_reject_reason WHERE tenant_id=2 AND label=:l"), {"l": label}).first()
+            if not row:
+                row = s.execute(_t("INSERT INTO tenant.recruit_reject_reason(tenant_id,label) VALUES(2,:l) RETURNING id"), {"l": label}).first()
+            rej_cache[label] = row[0]
+            return row[0]
+
+        def emp_uid(cislo):
+            key = s2(cislo)
+            if not key:
+                return None
+            if key in emp_cache:
+                return emp_cache[key]
+            row = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE tenant_id=2 AND cislo_zam=:c"), {"c": key}).first()
+            emp_cache[key] = row[0] if row else None
+            return emp_cache[key]
+
+        for row in rows:
+            name = s2(row.get("Predmet")) or s2(row.get("Alias")) or "(uchazeč)"
+            em = s2(row.get("email"))
+            key = em.lower() if em else None
+            if key and key in cand_cache:
+                cid = cand_cache[key]
+            else:
+                cid = s.execute(_t(
+                    "INSERT INTO tenant.recruit_candidate(tenant_id,full_name,email,phone,education,"
+                    "langs_prog,langs_foreign,last_employer,leave_reason,decree50,willing_travel,"
+                    "expected_salary,source_id,gdpr_consent_at) "
+                    "VALUES(2,:fn,:em,:ph,:ed,:lp,:lf,:le,:lr,:d5,:wt,:sal,:src,:cons) RETURNING id"),
+                    {"fn": name, "em": em, "ph": s2(row.get("telefon")), "ed": s2(row.get("Vzdelani")),
+                     "lp": s2(row.get("ProgramovaciJazyky")), "lf": s2(row.get("CiziJazyky")),
+                     "le": s2(row.get("PosledniZamestnani")), "lr": s2(row.get("DuvodOdchodu")),
+                     "d5": (str(row.get("vyhl50")) == "1"), "wt": tri(row.get("ochota")),
+                     "sal": num(row.get("plat")), "src": src_id(row.get("Zdroj")),
+                     "cons": (s2(row.get("datpor")) or "")[:10] or None}).first()[0]
+                nc += 1
+                if key:
+                    cand_cache[key] = cid
+            faze = s2(row.get("Faze"))
+            s.execute(_t(
+                "INSERT INTO tenant.recruit_application(tenant_id,candidate_id,position_text,phase_id,"
+                "status,interview_at,test_days_at,start_at,expected_salary,source_id,reject_reason_id,"
+                "note,ec_jednani_id,recruiter_user_id,changed_by_text,changed_at) "
+                "VALUES(2,:cid,:pos,:ph,:st,:iv,:td,:sa,:sal,:src,:rj,:no,:ec,:rec,:cb,:ca)"),
+                {"cid": cid, "pos": name, "ph": phase_ids.get(faze), "st": s2(row.get("Stav")),
+                 "iv": s2(row.get("pohovor")), "td": s2(row.get("testdny")), "sa": s2(row.get("nastup")),
+                 "sal": num(row.get("plat")), "src": src_id(row.get("Zdroj")), "rj": rej_id(row.get("DuvodZamitnuti")),
+                 "no": s2(row.get("jed_od")), "ec": (int(row.get("ID")) if row.get("ID") not in (None, "") else None),
+                 "rec": emp_uid(row.get("CisloZam")), "cb": (s2(row.get("Autor")) or "")[:128] or None,
+                 "ca": s2(row.get("datpor"))})
+            na += 1
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"ok": True, "rows": len(rows), "applications": na, "candidates": nc}
 
 
 def _att_anomaly_scan(notify: bool = True) -> dict:
@@ -16119,6 +16271,11 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("finance: %s verzí engagementů, %s složek"
                       % (out.get("engagements"), out.get("components")))
+        elif action_key == "sync_nabor":
+            out = _sync_nabor_from_ec()
+            status = "done"
+            result = ("nábor: %s přihlášek, %s kandidátů (z %s záznamů ec_jednani Kat 901)"
+                      % (out.get("applications"), out.get("candidates"), out.get("rows")))
         elif action_key == "sync_priplatky":
             out = _sync_priplatky_from_ec()
             status = "done"

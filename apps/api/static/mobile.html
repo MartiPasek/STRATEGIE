@@ -1124,16 +1124,42 @@ setTimeout(function(){
   }
   // Marti 9.6.: složka „Vedení" v Aplikacích — řídicí agendy. Příprava/Odvozy/
   // Zakázky deep-link do Výroby; IT/PLC/HR zatím placeholder „Připravujeme".
+  // Marti 13.6.: cockpit „Vedení firmy" — sjednocující pohled, který spojuje živé
+  // moduly do jednoho celku (lidé, personalistika, obchod/výroba, řízení) + KPI strip.
   function vedeni(){
-    app.innerHTML=topbar("🗂️ Vedení", true);
-    var g=el('<div class="appgrid"></div>');
-    g.appendChild(appCell("🔧","Příprava",0,function(){openVyroba("priprava");}));
-    g.appendChild(appCell("🚚","Odvozy",0,function(){openVyroba("odvozy");}));
-    g.appendChild(appCell("🧾","Zakázky",0,function(){openVyroba("zakazky");}));
-    g.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
-    g.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
-    g.appendChild(appCell("🔒","HR",0,function(){go("hr");}));
-    app.appendChild(g);
+    app.innerHTML=topbar("🏛️ Vedení firmy", true);
+    var kpi=el('<div id="vfKpi" style="display:flex;gap:8px;margin:4px 2px 6px;"></div>');
+    app.appendChild(kpi);
+    var _p=null,_t=null,_n=null;
+    function kc(lbl,val,col){ return '<div style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:10px 6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:'+col+';">'+(val==null?"…":val)+'</div><div style="font-size:10.5px;color:var(--mut);line-height:1.2;margin-top:2px;">'+lbl+'</div></div>'; }
+    function drawKpi(){ kpi.innerHTML=kc("V práci dnes",_p,"var(--green)")+kc("Sledováno lidí",_t,"#60a5fa")+kc("Nábor — kandidáti",_n,"#a78bfa"); }
+    drawKpi();
+    var d=new Date(), _isod=d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2);
+    api("GET","/api/v1/erp/app/attendance/whereabouts?den="+_isod,"").then(function(j){ var L=(j&&j.ok&&j.lide)||[]; _t=L.length; _p=L.filter(function(x){return x.kind==="prace";}).length; drawKpi(); });
+    api("GET","/api/v1/erp/app/recruit/pipeline","").then(function(j){ if(j&&j.ok){ _n=j.candidates; drawKpi(); } });
+    function sec(t){ app.appendChild(el('<div style="margin:14px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
+    sec("LIDÉ & DOCHÁZKA");
+    var g1=el('<div class="appgrid"></div>');
+    g1.appendChild(appCell("👀","Kdo kde dnes",0,function(){go("kdekdo");}));
+    g1.appendChild(appCell("🗓️","Absence",0,function(){go("absence");}));
+    app.appendChild(g1);
+    sec("PERSONALISTIKA");
+    var g2=el('<div class="appgrid"></div>');
+    g2.appendChild(appCell("🔒","HR",0,function(){go("hr");}));
+    g2.appendChild(appCell("🧲","Nábor",0,function(){go("hr_nabor");}));
+    app.appendChild(g2);
+    sec("OBCHOD & VÝROBA");
+    var g3=el('<div class="appgrid"></div>');
+    g3.appendChild(appCell("🧾","Zakázky",0,function(){openVyroba("zakazky");}));
+    g3.appendChild(appCell("🔧","Příprava",0,function(){openVyroba("priprava");}));
+    g3.appendChild(appCell("🚚","Odvozy",0,function(){openVyroba("odvozy");}));
+    app.appendChild(g3);
+    sec("ŘÍZENÍ & MZDY");
+    var g4=el('<div class="appgrid"></div>');
+    g4.appendChild(appCell("💰","Mzdy: Helios × my",0,function(){go("wage_cmp");}));
+    g4.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
+    g4.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
+    app.appendChild(g4);
     app.appendChild(el('<div style="height:80px;"></div>'));
   }
   // Marti 11.6.: HR rozcestník — self-service osobních údajů (každý) + správa

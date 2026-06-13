@@ -1171,10 +1171,48 @@ setTimeout(function(){
     sec("ŘÍZENÍ & MZDY");
     var g4=el('<div class="appgrid"></div>');
     g4.appendChild(appCell("💰","Mzdy: Helios × my",0,function(){go("wage_cmp");}));
+    g4.appendChild(appCell("⚙️","Ops akce",0,function(){go("ops");}));
     g4.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
     g4.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
     app.appendChild(g4);
     app.appendChild(el('<div style="height:80px;"></div>'));
+  }
+  // Ops akce — provozní akce + historie spuštění s datumy (jen rodiče). Marti 13.6.
+  function ops(){
+    app.innerHTML=topbar("⚙️ Ops akce", true);
+    app.appendChild(el('<div class="hint" style="margin:6px;line-height:1.5;">Provozní akce systému — co se dá spustit a kdy se to naposledy spouštělo. Spouští jen rodiče, vše se loguje (audit).</div>'));
+    var lab={};
+    function fmt(iso){ if(!iso) return ""; var d=new Date(iso); if(isNaN(d.getTime())) return String(iso).slice(0,16).replace("T"," "); return ("0"+d.getDate()).slice(-2)+"."+("0"+(d.getMonth()+1)).slice(-2)+". "+("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2); }
+    function stMeta(st){ st=(st||"").toLowerCase(); if(st==="done"||st==="ok"||st==="finished") return {e:"✅",c:"#34d399"}; if(st==="error"||st==="failed"||st==="fail") return {e:"❌",c:"#f87171"}; if(st==="pending"||st==="ack") return {e:"⏳",c:"#fbbf24"}; return {e:"•",c:"var(--mut)"}; }
+    app.appendChild(el('<div style="margin:14px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">🕒 HISTORIE SPUŠTĚNÍ</div>'));
+    var hist=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(hist);
+    app.appendChild(el('<div style="margin:16px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">▶️ SPUSTIT AKCI</div>'));
+    var acts=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(acts);
+    function loadLog(){
+      api("GET","/api/v1/erp/ops/log","").then(function(j){
+        hist.innerHTML="";
+        if(!j||!j.ok){ hist.innerHTML='<div class="hint">'+((j&&j.error)?esc(j.error):"Vidí jen rodiče.")+'</div>'; return; }
+        if(!j.log.length){ hist.innerHTML='<div class="hint">Zatím nic nespuštěno.</div>'; return; }
+        j.log.forEach(function(r){
+          var m=stMeta(r.status); var nm=lab[r.action_key]||r.action_key;
+          var sub=fmt(r.created_at)+(r.requested_by_name?(" · "+r.requested_by_name):"")+(r.finished_at?(" · hotovo "+fmt(r.finished_at)):"")+(r.status?(" · "+r.status):"");
+          var resu=(r.result?('<div style="font-size:11px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(String(r.result).slice(0,140))+'</div>'):'');
+          hist.appendChild(el('<div style="display:flex;gap:9px;padding:9px 6px;border-bottom:1px solid var(--bord);"><span style="font-size:17px;">'+m.e+'</span><div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:600;">'+esc(nm)+'</div><div style="font-size:11.5px;color:'+m.c+';">'+esc(sub)+'</div>'+resu+'</div></div>'));
+        });
+      });
+    }
+    api("GET","/api/v1/erp/ops/actions","").then(function(j){
+      acts.innerHTML="";
+      if(!j||!j.ok){ acts.innerHTML='<div class="hint">Vidí jen rodiče.</div>'; loadLog(); return; }
+      (j.actions||[]).forEach(function(a){ lab[a.action_key]=a.label; });
+      (j.actions||[]).forEach(function(a){
+        acts.appendChild(row("⚙️",a.label,"cíl: "+a.target,function(){
+          if(!confirm("Spustit:\n"+a.label+"?")) return;
+          api("POST","/api/v1/erp/ops/request",{action_key:a.action_key}).then(function(r){ alert(r&&r.ok?"Spuštěno ✓ (sleduj historii)":("Chyba: "+((r&&r.error)||"?"))); loadLog(); });
+        }));
+      });
+      loadLog();
+    });
   }
 
   // ─── Kára: produktivita člověka (motor + lopata + znalosti × výstup). Gated server-side. ───
@@ -5017,7 +5055,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

@@ -7765,11 +7765,11 @@ async def app_plan_generate_base(req: Request) -> JSONResponse:
         emp = _plan_employee(s, target)
         if not emp:
             return JSONResponse({"ok": False, "error": "Nemáš aktivní docházkový záznam."})
-        frozen = s.execute(_t("SELECT frozen_until FROM tenant.att_plan_freeze WHERE tenant_id=2")).scalar()
+        # Celý rok leden–prosinec (Marti 13.6.). Frozen řádky (is_frozen) se nepřepíšou.
         cal = s.execute(_t(
             "SELECT day, is_workday, is_holiday FROM tenant.att_calendar_day "
-            "WHERE tenant_id=2 AND day > :f AND day >= CURRENT_DATE ORDER BY day"),
-            {"f": frozen}).fetchall()
+            "WHERE tenant_id=2 AND date_part('year', day) = date_part('year', CURRENT_DATE) "
+            "ORDER BY day")).fetchall()
         per_day = round(uvazek / 5.0, 2)
         params = []
         for day, is_wd, is_hol in cal:
@@ -7819,12 +7819,13 @@ async def app_plan_mine(req: Request) -> JSONResponse:
             if not _hr_can_manage(s, uid):
                 return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
             target = int(tu)
+        # Celý rok leden–prosinec (Marti 13.6.)
         rows = s.execute(_t(
             "SELECT plan_date, expected_hours, day_type, to_char(start_time,'HH24:MI'), "
             " to_char(end_time,'HH24:MI'), uvazek_h_tyden, is_frozen "
             "FROM tenant.att_plan_day WHERE tenant_id=2 AND user_id=:u "
-            "AND plan_date >= CURRENT_DATE ORDER BY plan_date LIMIT :lim"),
-            {"u": target, "lim": weeks * 7}).fetchall()
+            "AND date_part('year', plan_date) = date_part('year', CURRENT_DATE) "
+            "ORDER BY plan_date"), {"u": target}).fetchall()
         out = []
         for r in rows:
             d = r[0]

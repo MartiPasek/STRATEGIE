@@ -1189,7 +1189,7 @@ setTimeout(function(){
     app.appendChild(el('<div style="margin:16px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">▶️ SPUSTIT AKCI</div>'));
     var acts=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(acts);
     function loadLog(){
-      api("GET","/api/v1/erp/ops/log","").then(function(j){
+      api("GET","/api/v1/erp/app/ops/log","").then(function(j){
         hist.innerHTML="";
         if(!j||!j.ok){ hist.innerHTML='<div class="hint">'+((j&&j.error)?esc(j.error):"Vidí jen rodiče.")+'</div>'; return; }
         if(!j.log.length){ hist.innerHTML='<div class="hint">Zatím nic nespuštěno.</div>'; return; }
@@ -1201,14 +1201,14 @@ setTimeout(function(){
         });
       });
     }
-    api("GET","/api/v1/erp/ops/actions","").then(function(j){
+    api("GET","/api/v1/erp/app/ops/actions","").then(function(j){
       acts.innerHTML="";
       if(!j||!j.ok){ acts.innerHTML='<div class="hint">Vidí jen rodiče.</div>'; loadLog(); return; }
       (j.actions||[]).forEach(function(a){ lab[a.action_key]=a.label; });
       (j.actions||[]).forEach(function(a){
         acts.appendChild(row("⚙️",a.label,"cíl: "+a.target,function(){
           if(!confirm("Spustit:\n"+a.label+"?")) return;
-          api("POST","/api/v1/erp/ops/request",{action_key:a.action_key}).then(function(r){ alert(r&&r.ok?"Spuštěno ✓ (sleduj historii)":("Chyba: "+((r&&r.error)||"?"))); loadLog(); });
+          api("POST","/api/v1/erp/app/ops/run",{action_key:a.action_key}).then(function(r){ alert(r&&r.ok?"Spuštěno ✓ (sleduj historii)":("Chyba: "+((r&&r.error)||"?"))); loadLog(); });
         }));
       });
       loadLog();

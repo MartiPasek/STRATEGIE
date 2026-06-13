@@ -17187,6 +17187,85 @@ async def ops_log(req: Request) -> JSONResponse:
         s.close()
 
 
+# ─── App-native Ops (Bearer/cookie auth — funguje i v nativní appce). Marti 13.6. ───
+def _app_parent(s, uid):
+    from sqlalchemy import text as _t
+    r = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"), {"u": uid}).first()
+    return bool(r and r[0])
+
+
+@api_router.get("/app/ops/actions")
+async def app_ops_actions(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        if not _app_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        return JSONResponse({"ok": True, "actions": [
+            {"action_key": k, "label": v["label"], "target": v["target"]} for k, v in _OPS_ACTIONS.items()]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/ops/log")
+async def app_ops_log(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _app_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, action_key, target, status, requested_by_name, "
+            " created_at::text c, finished_at::text f, result "
+            "FROM fw.ops_request ORDER BY id DESC LIMIT 40")).fetchall()
+        return JSONResponse({"ok": True, "log": [
+            {"id": r[0], "action_key": r[1], "target": r[2], "status": r[3],
+             "requested_by_name": r[4], "created_at": r[5], "finished_at": r[6],
+             "result": r[7]} for r in rows]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/ops/run")
+async def app_ops_run(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    d = await req.json()
+    ak = str(d.get("action_key") or "").strip()
+    meta = _OPS_ACTIONS.get(ak)
+    if not meta:
+        return JSONResponse({"ok": False, "error": "neznámá akce (mimo whitelist)"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _app_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        nm = s.execute(_t("SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') FROM public.users WHERE id=:u"), {"u": uid}).scalar()
+        rid = s.execute(_t(
+            "INSERT INTO fw.ops_request (action_key, target, status, requested_by_user_id, requested_by_name) "
+            "VALUES (:ak,:tg,'pending',:uid,:nm) RETURNING id"),
+            {"ak": ak, "tg": meta["target"], "uid": uid, "nm": nm or ("#" + str(uid))}).scalar()
+        s.commit()
+    finally:
+        cm.__exit__(None, None, None)
+    if not meta.get("remote"):
+        try:
+            res = _ops_execute_cloud(ak, rid, uid)
+            return JSONResponse(jsonable_encoder({"ok": True, "request_id": rid, "remote": False, **res}))
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc), "request_id": rid}, status_code=500)
+    return JSONResponse({"ok": True, "request_id": rid, "remote": True,
+                         "message": "Příkaz zařazen — %s provede do ~30 s." % meta["target"]})
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.

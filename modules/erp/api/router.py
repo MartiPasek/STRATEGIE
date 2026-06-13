@@ -7723,6 +7723,123 @@ async def att_absence_decide(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ═══ PLÁN docházky (Fáze A) — statický roční plán per osoba/den ═══════════════
+# Vstup: att_calendar_day (svátky/fond od Kristý) × úvazek. Výjimky = další vrstva.
+_PLAN_DAYLABEL = {1: "Po", 2: "Út", 3: "St", 4: "Čt", 5: "Pá", 6: "So", 0: "Ne"}
+
+
+def _plan_employee(s, uid: int):
+    """Primární aktivní docházkový záznam osoby (1 člověk může mít víc att_employee)."""
+    from sqlalchemy import text as _t
+    return s.execute(_t(
+        "SELECT id FROM tenant.att_employee WHERE tenant_id=2 AND user_id=:u "
+        "AND is_active=true ORDER BY id LIMIT 1"), {"u": uid}).scalar()
+
+
+@api_router.post("/app/plan/generate-base")
+async def app_plan_generate_base(req: Request) -> JSONResponse:
+    """Vyrobí základní roční plán z kalendáře svátků × úvazek. Po–Pá per_day=úvazek/5,
+    víkend/svátek 0 h. Respektuje frozen_until i per-řádek is_frozen (Marti-AI Q1)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        uvazek = float(body.get("uvazek") or 40)
+    except Exception:
+        uvazek = 40.0
+    if uvazek <= 0 or uvazek > 80:
+        uvazek = 40.0
+    cm, s = _att_session()
+    try:
+        target = uid
+        tu = body.get("user_id")
+        if tu and int(tu) != uid:
+            if not _hr_can_manage(s, uid):
+                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+            target = int(tu)
+        emp = _plan_employee(s, target)
+        if not emp:
+            return JSONResponse({"ok": False, "error": "Nemáš aktivní docházkový záznam."})
+        frozen = s.execute(_t("SELECT frozen_until FROM tenant.att_plan_freeze WHERE tenant_id=2")).scalar()
+        cal = s.execute(_t(
+            "SELECT day, is_workday, is_holiday FROM tenant.att_calendar_day "
+            "WHERE tenant_id=2 AND day > :f AND day >= CURRENT_DATE ORDER BY day"),
+            {"f": frozen}).fetchall()
+        per_day = round(uvazek / 5.0, 2)
+        params = []
+        for day, is_wd, is_hol in cal:
+            if is_hol:
+                dt, hrs = "holiday", 0
+            elif not is_wd:
+                dt, hrs = "weekend", 0
+            else:
+                dt, hrs = "work", per_day
+            params.append({"e": emp, "u": target, "d": day, "h": hrs, "dt": dt, "uv": uvazek})
+        if params:
+            s.execute(_t(
+                "INSERT INTO tenant.att_plan_day "
+                "(tenant_id, employee_id, user_id, plan_date, expected_hours, day_type, source, uvazek_h_tyden) "
+                "VALUES (2, :e, :u, :d, :h, :dt, 'base', :uv) "
+                "ON CONFLICT (tenant_id, employee_id, plan_date) DO UPDATE SET "
+                " expected_hours = EXCLUDED.expected_hours, day_type = EXCLUDED.day_type, "
+                " source = 'base', uvazek_h_tyden = EXCLUDED.uvazek_h_tyden, updated_at = now() "
+                "WHERE att_plan_day.is_frozen = false"), params)
+        s.commit()
+        return JSONResponse({"ok": True, "generated": len(params), "uvazek": uvazek,
+                             "per_day": per_day, "do": (cal[-1][0].isoformat() if cal else None)})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/plan/mine")
+async def app_plan_mine(req: Request) -> JSONResponse:
+    """Můj plán na týdny dopředu (od dneška). HR/rodič může načíst cizí přes user_id."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        weeks = int(req.query_params.get("weeks") or 8)
+    except Exception:
+        weeks = 8
+    weeks = max(1, min(weeks, 53))
+    cm, s = _att_session()
+    try:
+        target = uid
+        tu = req.query_params.get("user_id")
+        if tu and int(tu) != uid:
+            if not _hr_can_manage(s, uid):
+                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+            target = int(tu)
+        rows = s.execute(_t(
+            "SELECT plan_date, expected_hours, day_type, to_char(start_time,'HH24:MI'), "
+            " to_char(end_time,'HH24:MI'), uvazek_h_tyden, is_frozen "
+            "FROM tenant.att_plan_day WHERE tenant_id=2 AND user_id=:u "
+            "AND plan_date >= CURRENT_DATE ORDER BY plan_date LIMIT :lim"),
+            {"u": target, "lim": weeks * 7}).fetchall()
+        out = []
+        for r in rows:
+            d = r[0]
+            out.append({"date": d.isoformat(), "iso_week": d.isocalendar()[1],
+                        "weekday": _PLAN_DAYLABEL.get(d.isoweekday() % 7 if d.isoweekday() == 7 else d.isoweekday(), "?"),
+                        "hours": float(r[1]), "day_type": r[2], "start": r[3], "end": r[4],
+                        "uvazek": float(r[5]) if r[5] is not None else None, "frozen": bool(r[6])})
+        total = round(sum(x["hours"] for x in out), 2)
+        uvz = next((x["uvazek"] for x in out if x["uvazek"]), None)
+        return JSONResponse({"ok": True, "plan": out, "total_hours": total,
+                             "uvazek": uvz, "weeks": weeks, "has_plan": len(out) > 0})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/whereabouts")
 async def att_whereabouts(req: Request) -> JSONResponse:
     """Marti 12.6.: Kdo kde dnes/týden — pro daný den status každého člověka:

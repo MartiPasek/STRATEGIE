@@ -1335,8 +1335,8 @@ setTimeout(function(){
   // Overdrive popup: nad +100 % se dá přetáhnout do 500 % (✈️ Letadlo) a nad 500 % (🚀 Raketa)
   function karaOverdrive(cur, cb){
     var val=Math.max(100,Math.min(1000,cur||100));
-    function emo(v){ return v>500?"🚀":(v>100?"✈️":"🏆"); }
-    function lab(v){ return v>500?"Raketa — nad 500 %!":(v>100?"Letadlo — přes 100 %":"Špička (100 %)"); }
+    function emo(v){ return v>500?"🚀":(v>200?"✈️":"🐎"); }
+    function lab(v){ return v>500?"Raketa — nad 500 %!":(v>200?"Letadlo (200–500 %)":"Zlatý tahoun (100–200 %)"); }
     var ov=document.createElement("div");
     ov.style.cssText="position:fixed;inset:0;z-index:200;background:rgba(2,4,10,.82);display:flex;align-items:center;justify-content:center;padding:18px;";
     var card=document.createElement("div");
@@ -2569,7 +2569,8 @@ setTimeout(function(){
   function skBand(sc){
     sc=sc||0;
     if(sc>500)  return {emoji:"🚀", label:"Raketa", color:"#f0abfc"};
-    if(sc>100)  return {emoji:"✈️", label:"Letadlo", color:"#7dd3fc"};
+    if(sc>200)  return {emoji:"✈️", label:"Letadlo", color:"#7dd3fc"};
+    if(sc>100)  return {emoji:"🐎", label:"Zlatý tahoun", color:"#FFD700"};
     if(sc>=51)  return {emoji:"🐎", label:"Tahoun", color:"#10b981"};
     if(sc>=1)   return {emoji:"✅", label:"Efektivní", color:"#4f8ef7"};
     if(sc>=-50) return {emoji:"🐢", label:"Méně efektivní", color:"#e0a44a"};

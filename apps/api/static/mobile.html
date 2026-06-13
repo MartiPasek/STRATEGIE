@@ -2889,6 +2889,7 @@ setTimeout(function(){
   var _vyLidiSig="";
   function _vySig(lidi){ return JSON.stringify((lidi||[]).map(function(p){ return [p.user_id,p.stav,p.stav_pozn||"",p.stav_zak||""]; })); }
   var VY_TOP=[
+    {k:"mimo_plan", ic:"🌴", l:""},
     {k:"chybi",     ic:"🫥", l:"Chybím"},
     {k:"makam",     ic:"👷", l:"Makám"},
     {k:"relaxuji",  ic:"☕", l:"Relaxuji"},
@@ -2906,7 +2907,7 @@ setTimeout(function(){
     {k:"nakup",     ic:"🛒", l:"Nákup"},
     {k:"priprava",  ic:"🔧", l:"Příprava"}
   ];
-  var VY_READY={tym:1,makam:1,relaxuji:1,potrebuji:1,informuji:1,finisuji:1,cekam:1,chybi:1,jedu:1,zakazky:1,odvozy:1};
+  var VY_READY={tym:1,makam:1,relaxuji:1,potrebuji:1,informuji:1,finisuji:1,cekam:1,chybi:1,jedu:1,zakazky:1,odvozy:1,mimo_plan:1};
   function vyBtn(v){
     var b=el('<button data-k="'+v.k+'" style="position:relative;margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--bord);background:transparent;color:var(--mut);border-radius:9px;cursor:pointer;"><span style="font-size:18px;">'+v.ic+'</span>'+esc(v.l)+'<span class="vybadge" data-badge style="display:none;">0</span></button>');
     if(v.onlyIf) b.style.display="none";

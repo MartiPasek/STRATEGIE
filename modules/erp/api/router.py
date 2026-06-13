@@ -10667,6 +10667,16 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                 stavinfo[r[0]] = {"st": st, "note": (r[3] or ""), "proj": (r[4] or "")}
         except Exception:
             stavinfo = {}
+        # Dnešní plán: kdo dle plánu vůbec nemá přijít (víkend/svátek/volno) → "mimo_plan"
+        planoff = set()
+        try:
+            for r in s.execute(_t(
+                "SELECT user_id, expected_hours, day_type FROM tenant.att_plan_effective "
+                "WHERE tenant_id=2 AND plan_date=CURRENT_DATE")).fetchall():
+                if float(r[1] or 0) <= 0 or (r[2] in ("weekend", "holiday", "off")):
+                    planoff.add(r[0])
+        except Exception:
+            planoff = set()
         lidi = []
         for p in people:
             _plan = planmap.get(p[0], [])
@@ -10674,8 +10684,11 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
             _haswork = bool(_pr) or any((not o.get("hidden")) for o in _plan)
             _si = stavinfo.get(p[0], {})
             _st = _si.get("st", "")
-            if _st == "" and _haswork:
-                _st = "chybi"
+            if _st == "":
+                if p[0] in planoff:
+                    _st = "mimo_plan"
+                elif _haswork:
+                    _st = "chybi"
             lidi.append({"user_id": p[0], "jmeno": p[1], "dnes": p[2] or "",
                          "plan": _plan, "prirazeni": _pr, "stav": _st,
                          "stav_pozn": _si.get("note", ""), "stav_zak": _si.get("proj", "")})

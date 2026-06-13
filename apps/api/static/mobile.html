@@ -1189,6 +1189,9 @@ setTimeout(function(){
     var add=el('<button style="margin:6px;padding:11px 16px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;">+ Nové vyhodnocení</button>');
     add.addEventListener("click",function(){ go("kara_new"); });
     app.appendChild(add);
+    var bd=el('<button style="margin:6px;padding:11px 16px;border:0;border-radius:12px;background:linear-gradient(110deg,#a78bfa,#7c5cff);color:#0c0820;font-weight:700;cursor:pointer;">📊 Žebříček (−100…+100)</button>');
+    bd.addEventListener("click",function(){ go("kara_board"); });
+    app.appendChild(bd);
     var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
     api("GET","/api/v1/erp/app/kara/list","").then(function(j){
       box.innerHTML="";
@@ -1328,6 +1331,44 @@ setTimeout(function(){
         if(r&&r.ok){ go("kara_detail"); } else document.getElementById("qMsg").textContent="Chyba: "+((r&&r.error)||"?");
       });
     });
+  }
+  // Kára naživo: žebříček lidí na škále −100…+100 → 4 pásma
+  function kara_board(){
+    app.innerHTML=topbar("📊 Žebříček — Kára", true);
+    app.appendChild(el('<div class="hint" style="margin:6px;line-height:1.5;">Lidé na škále −100…+100 seskupení do pásem. Podklad pro rozvoj, ne ortel. Ťukni na člověka pro úpravu.</div>'));
+    var sb=el('<div style="display:flex;gap:6px;margin:6px;flex-wrap:wrap;align-items:center;"></div>');
+    sb.innerHTML='<input id="ksUid" type="number" placeholder="ID člověka" style="width:110px;padding:8px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);">'
+      +'<input id="ksVal" type="number" min="-100" max="100" placeholder="−100…100" style="width:110px;padding:8px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);">'
+      +'<button id="ksSave" style="padding:9px 14px;border:0;border-radius:10px;background:linear-gradient(110deg,#a78bfa,#7c5cff);color:#0c0820;font-weight:700;cursor:pointer;">Uložit</button>';
+    app.appendChild(sb);
+    var box=el('<div><div class="hint" style="margin:6px;">Načítám…</div></div>'); app.appendChild(box);
+    var BANDS=[["tahoun","💪 Tahouni","#34d399"],["efektivni","✅ Efektivní","#60a5fa"],["rozvoj","🌱 Rozvoj","#fbbf24"],["prostor","🧭 Prostor pro změnu","#f87171"]];
+    function load(){
+      api("GET","/api/v1/erp/app/kara/board","").then(function(j){
+        box.innerHTML="";
+        if(!j||!j.ok){ box.innerHTML='<div class="hint" style="margin:6px;">'+((j&&j.error==="forbidden")?"🔒 Vidí jen licencovaní a rodiče.":"Nepodařilo se načíst.")+'</div>'; return; }
+        if(!j.items.length){ box.innerHTML='<div class="hint" style="margin:6px;">Zatím nikdo. Zadej ID člověka a hodnotu nahoře.</div>'; return; }
+        BANDS.forEach(function(b){
+          var ppl=j.items.filter(function(x){return x.band===b[0];});
+          if(!ppl.length) return;
+          box.appendChild(el('<div style="margin:14px 6px 4px;font-weight:800;color:'+b[2]+';">'+b[1]+' · '+ppl.length+'</div>'));
+          var ul=el('<div style="margin:0 6px;"></div>');
+          ppl.forEach(function(p){
+            var w=((Math.max(-100,Math.min(100,p.value))+100)/200*100);
+            var rowEl=el('<div style="display:flex;align-items:center;gap:8px;margin:4px 0;cursor:pointer;"><div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.jmeno)+'</div><div style="position:relative;height:8px;background:rgba(255,255,255,.06);border-radius:4px;margin-top:3px;"><div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.2);"></div><div style="position:absolute;left:2px;top:1px;bottom:1px;width:calc('+w+'% - 4px);background:'+b[2]+';border-radius:3px;"></div></div></div><div style="width:42px;text-align:right;font-weight:800;">'+p.value+'</div></div>');
+            rowEl.addEventListener("click",function(){ document.getElementById("ksUid").value=p.subject_id; document.getElementById("ksVal").value=p.value; window.scrollTo(0,0); });
+            ul.appendChild(rowEl);
+          });
+          box.appendChild(ul);
+        });
+      });
+    }
+    document.getElementById("ksSave").addEventListener("click",function(){
+      var u=parseInt(document.getElementById("ksUid").value,10), v=parseInt(document.getElementById("ksVal").value,10);
+      if(!u||isNaN(v)){ return; }
+      api("POST","/api/v1/erp/app/kara/score",{subject_kind:"user",subject_id:u,value:v}).then(function(r){ if(r&&r.ok){ document.getElementById("ksVal").value=""; document.getElementById("ksUid").value=""; load(); } });
+    });
+    load();
   }
   // Marti 11.6.: HR rozcestník — self-service osobních údajů (každý) + správa
   // skupiny HR / přístupů k personálním složkám (rodiče).

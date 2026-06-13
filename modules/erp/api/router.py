@@ -6546,6 +6546,76 @@ async def app_kara_reference(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _kara_band(v):
+    if v is None:
+        return ("none", "Nezařazeno")
+    if v >= 50:
+        return ("tahoun", "Tahoun")
+    if v >= 0:
+        return ("efektivni", "Efektivní")
+    if v >= -49:
+        return ("rozvoj", "Rozvoj")
+    return ("prostor", "Prostor pro změnu")
+
+
+@api_router.post("/app/kara/score")
+async def app_kara_score(req: Request) -> JSONResponse:
+    # Kára naživo (Marti 13.6.): hodnota -100..+100 per člověk -> pásmo.
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    data = await req.json()
+    cm, s = _att_session()
+    try:
+        if not _kara_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        sid = int(data.get("subject_id") or 0)
+        kind = data.get("subject_kind") or "user"
+        val = int(data.get("value"))
+        if not sid or val < -100 or val > 100:
+            return JSONResponse({"ok": False, "error": "bad_value"}, status_code=400)
+        s.execute(_t(
+            "INSERT INTO tenant.kara_score (tenant_id,subject_kind,subject_id,value,note,set_by) "
+            "VALUES (2,:k,:s,:v,:n,:u) ON CONFLICT (tenant_id,subject_kind,subject_id) "
+            "DO UPDATE SET value=EXCLUDED.value, note=EXCLUDED.note, set_by=EXCLUDED.set_by, set_at=now()"),
+            {"k": kind, "s": sid, "v": val, "n": data.get("note"), "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True, "band": _kara_band(val)[0]})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/kara/board")
+async def app_kara_board(req: Request) -> JSONResponse:
+    # Žebříček Kára: lidé seřazení dle hodnoty, seskupení do 4 pásem.
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _kara_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT subject_kind, subject_id, value, note FROM tenant.kara_score "
+            "WHERE tenant_id=2 ORDER BY value DESC, subject_id")).fetchall()
+        items = []
+        for r in rows:
+            band = _kara_band(r[2])
+            items.append({"subject_kind": r[0], "subject_id": r[1], "value": r[2],
+                          "note": r[3] or "", "jmeno": _kara_subject_name(s, r[0], r[1]),
+                          "band": band[0], "band_label": band[1]})
+        return JSONResponse({"ok": True, "items": items})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/recruit/list")
 async def app_recruit_list(req: Request) -> JSONResponse:
     """Nábor — seznam přihlášek (?phase=label | 'active' | 'hired', ?q=). Rodiče + HR."""

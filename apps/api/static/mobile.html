@@ -5160,16 +5160,22 @@ setTimeout(function(){
         left.appendChild(el('<div class="hint" style="margin-bottom:2px;">Týdenní vzorec (které dny a kolik hodin)</div>'));
         var dayEls=[];
         j.days.forEach(function(d){
-          var row=el('<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid #1b2742;padding:7px 2px;"></div>');
+          var row=el('<div style="border-bottom:1px solid #1b2742;padding:8px 2px;"></div>');
+          var top=el('<div style="display:flex;align-items:center;gap:8px;"></div>');
           var cb=el('<input type="checkbox" '+(d.works?'checked':'')+' '+(j.can_edit?'':'disabled')+' style="width:18px;height:18px;flex:none;">');
-          row.appendChild(cb);
-          row.appendChild(el('<div style="flex:1;min-width:34px;">'+d.label.slice(0,2)+'</div>'));
-          var hin=el('<input type="number" min="0" max="24" step="0.5" value="'+d.hours+'" '+(j.can_edit?'':'disabled')+' style="width:56px;'+iS+'text-align:right;padding:7px 6px;">');
-          row.appendChild(hin); row.appendChild(el('<span class="hint" style="flex:none;">h</span>'));
-          row.appendChild(el('<span class="hint" style="flex:none;">od</span>'));
-          var tin=el('<input type="time" value="'+(d.start||"")+'" '+(j.can_edit?'':'disabled')+' style="width:96px;'+iS+'padding:7px 6px;flex:none;">');
-          row.appendChild(tin);
+          top.appendChild(cb);
+          top.appendChild(el('<div style="flex:1;">'+d.label+'</div>'));
+          var hin=el('<input type="number" min="0" max="24" step="0.5" value="'+d.hours+'" '+(j.can_edit?'':'disabled')+' style="width:64px;'+iS+'text-align:right;padding:8px 6px;">');
+          top.appendChild(hin); top.appendChild(el('<span class="hint" style="flex:none;">h</span>'));
+          row.appendChild(top);
+          var sub=el('<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding-left:26px;"></div>');
+          sub.appendChild(el('<span class="hint" style="flex:none;">příchod od</span>'));
+          var tin=el('<input type="time" value="'+(d.start||"")+'" '+(j.can_edit?'':'disabled')+' style="flex:1;'+iS+'padding:8px 6px;">');
+          sub.appendChild(tin);
+          row.appendChild(sub);
           dayEls.push({weekday:d.weekday, cb:cb, hin:hin, tin:tin});
+          var sync=function(){ var on=cb.checked; sub.style.display=on?'flex':'none'; if(j.can_edit){ hin.disabled=!on; tin.disabled=!on; if(!on){ hin.value="0"; tin.value=""; } else if(parseFloat(hin.value)===0){ hin.value=String(j.per_day||8); } } };
+          cb.addEventListener("change",sync); sync();
           left.appendChild(row);
         });
         if(j.can_edit){

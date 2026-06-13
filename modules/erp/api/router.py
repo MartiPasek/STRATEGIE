@@ -6231,25 +6231,42 @@ async def app_hr_people(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _recruit_scope(s, uid: int):
+    """Marti-AI Q2 (13.6.): rodiče + HR skupina vidí vše ('all'); recruiter jen
+    svá výběrová řízení ('own'); ostatní nic (None)."""
+    if _hr_can_manage(s, uid):
+        return "all"
+    from sqlalchemy import text as _t
+    r = s.execute(_t("SELECT 1 FROM tenant.recruit_application WHERE tenant_id=2 AND recruiter_user_id=:u LIMIT 1"),
+                  {"u": uid}).first()
+    return "own" if r else None
+
+
 @api_router.get("/app/recruit/pipeline")
 async def app_recruit_pipeline(req: Request) -> JSONResponse:
-    """Nábor — dashboard pipeline (počty per fáze, bez PII). Rodiče + HR skupina."""
+    """Nábor — dashboard pipeline (počty per fáze, bez PII). Rodiče+HR vše, recruiter svá."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _hr_can_manage(s, uid):
+        scope = _recruit_scope(s, uid)
+        if not scope:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        pf = " AND a.recruiter_user_id = :u" if scope == "own" else ""
+        prm = {"u": uid} if scope == "own" else {}
         rows = s.execute(_t(
             "SELECT COALESCE(p.label,'(bez fáze)') f, COALESCE(p.priority_order,999) ord, "
             " COALESCE(p.is_hired,false) hired, count(*) c "
             "FROM tenant.recruit_application a LEFT JOIN tenant.recruit_phase p ON p.id=a.phase_id "
-            "WHERE a.tenant_id=2 GROUP BY p.label, p.priority_order, p.is_hired ORDER BY ord")).fetchall()
-        tot = s.execute(_t("SELECT count(*) FROM tenant.recruit_application WHERE tenant_id=2")).scalar()
-        cand = s.execute(_t("SELECT count(*) FROM tenant.recruit_candidate WHERE tenant_id=2 AND anonymized_at IS NULL")).scalar()
-        return JSONResponse({"ok": True, "total": int(tot or 0), "candidates": int(cand or 0),
+            "WHERE a.tenant_id=2" + pf + " GROUP BY p.label, p.priority_order, p.is_hired ORDER BY ord"), prm).fetchall()
+        tot = s.execute(_t("SELECT count(*) FROM tenant.recruit_application a WHERE a.tenant_id=2" + pf), prm).scalar()
+        cand = s.execute(_t(
+            "SELECT count(DISTINCT a.candidate_id) FROM tenant.recruit_application a "
+            "JOIN tenant.recruit_candidate c ON c.id=a.candidate_id "
+            "WHERE a.tenant_id=2 AND c.anonymized_at IS NULL" + pf), prm).scalar()
+        return JSONResponse({"ok": True, "total": int(tot or 0), "candidates": int(cand or 0), "scope": scope,
                              "phases": [{"faze": r[0], "hired": bool(r[2]), "pocet": int(r[3])} for r in rows]})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -6266,11 +6283,15 @@ async def app_recruit_list(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _hr_can_manage(s, uid):
+        scope = _recruit_scope(s, uid)
+        if not scope:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         ph = (req.query_params.get("phase") or "").strip()
         where = "a.tenant_id=2"
         params = {}
+        if scope == "own":
+            where += " AND a.recruiter_user_id = :ruid"
+            params["ruid"] = uid
         if ph == "active":
             where += " AND p.is_active_stage = true"
         elif ph == "hired":
@@ -6315,8 +6336,13 @@ async def app_recruit_detail(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "bad_id"}, status_code=400)
     cm, s = _att_session()
     try:
-        if not _hr_can_manage(s, uid):
+        scope = _recruit_scope(s, uid)
+        if not scope:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        own = " AND a.recruiter_user_id = :ruid" if scope == "own" else ""
+        prm = {"i": int(aid)}
+        if scope == "own":
+            prm["ruid"] = uid
         r = s.execute(_t(
             "SELECT c.full_name, c.email, c.phone, c.education, c.langs_prog, c.langs_foreign, "
             " c.last_employer, c.leave_reason, c.decree50, c.willing_travel, a.expected_salary, "
@@ -6329,7 +6355,7 @@ async def app_recruit_detail(req: Request) -> JSONResponse:
             " LEFT JOIN tenant.recruit_phase p ON p.id=a.phase_id "
             " LEFT JOIN tenant.recruit_source src ON src.id=a.source_id "
             " LEFT JOIN tenant.recruit_reject_reason rr ON rr.id=a.reject_reason_id "
-            "WHERE a.tenant_id=2 AND a.id=:i"), {"i": int(aid)}).first()
+            "WHERE a.tenant_id=2 AND a.id=:i" + own), prm).first()
         if not r:
             return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
         return JSONResponse({"ok": True, "d": {

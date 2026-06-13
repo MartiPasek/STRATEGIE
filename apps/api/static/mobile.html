@@ -5084,10 +5084,14 @@ setTimeout(function(){
     var bFirma=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a6b5a;color:#7fe0c8;font-weight:700;font-size:12px;line-height:1.25;">🏭<br>Firma<br>plán</button>');
     bFirma.addEventListener("click",function(){ renderPlan(true); });
     right.appendChild(bFirma);
+    var bMy=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a6b4c;color:#9ce0b0;font-weight:700;font-size:12px;line-height:1.25;">👤<br>Můj<br>plán</button>');
+    bMy.addEventListener("click",function(){ renderPlan(false,'mydefault'); });
+    right.appendChild(bMy);
     function czd2(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."+p[0]):iso; }
-    function renderPlan(eff){
+    function renderPlan(eff, src){
       left.innerHTML='<div class="hint">Načítám…</div>';
-      api("GET","/api/v1/erp/app/plan/mine?weeks=10","").then(function(j){
+      var _url=(src==='mydefault')?"/api/v1/erp/app/plan/my-default":"/api/v1/erp/app/plan/mine?weeks=10";
+      api("GET",_url,"").then(function(j){
         left.innerHTML="";
         if(!j||!j.ok){ left.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
         if(!j.has_plan){ left.appendChild(el('<div class="hint" style="line-height:1.7;">Zatím nemáš žádný plán.<br>Vpravo klikni <b>📋 40 h</b> a vyrobí se ti základní roční plán podle státních svátků (Po–Pá, víkendy a svátky volno).</div>')); return; }
@@ -5095,7 +5099,9 @@ setTimeout(function(){
         var effH=function(d){ return (eff&&d.exc_hours!==null&&d.exc_hours!==undefined)?d.exc_hours:d.hours; };
         var effT=function(d){ return (eff&&d.exc_hours!==null&&d.exc_hours!==undefined)?(d.exc_hours>0?'exception':'exoff'):d.day_type; };
         var gt=0; j.plan.forEach(function(d){ gt+=effH(d); });
-        left.appendChild(el('<div style="margin-bottom:8px;"><b>'+(eff?('🏭 Firma plán '+yr):('Roční plán '+yr))+'</b> <span class="hint">· '+(eff?'po výjimkách':('úvazek '+(j.uvazek||"?")+' h/týd.'))+' · '+nf(gt)+' h</span></div>'));
+        var _ttl=eff?('🏭 Firma plán '+yr):(src==='mydefault'?('👤 Můj výchozí plán '+yr):('ČR plán '+yr));
+        var _sub=eff?'po výjimkách':('úvazek '+(j.uvazek||"?")+' h/týd.');
+        left.appendChild(el('<div style="margin-bottom:8px;"><b>'+_ttl+'</b> <span class="hint">· '+_sub+' · '+nf(gt)+' h</span></div>'));
         var MN=["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
         var nowM=(new Date()).getFullYear()+"-"+("0"+((new Date()).getMonth()+1)).slice(-2);
         var months={}, order=[];

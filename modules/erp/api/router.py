@@ -7871,6 +7871,64 @@ async def app_plan_mine(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/plan/my-default")
+async def app_plan_my_default(req: Request) -> JSONResponse:
+    """Individuální výchozí plán — odvozený (NEukládá se): ČR kalendář × osobní
+    úvazek + týdenní vzorec (work_schedule, fallback úvazek/5 Po–Pá)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        target = uid
+        tu = req.query_params.get("user_id")
+        if tu and int(tu) != uid:
+            if not _hr_can_manage(s, uid):
+                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+            target = int(tu)
+        cal = s.execute(_t(
+            "SELECT day, is_workday, is_holiday FROM tenant.att_calendar_day "
+            "WHERE tenant_id=2 AND date_part('year', day)=date_part('year', CURRENT_DATE) "
+            "ORDER BY day")).fetchall()
+        sched = {}
+        try:
+            for r in s.execute(_t(
+                "SELECT weekday, works, hours FROM tenant.work_schedule WHERE tenant_id=2 AND user_id=:u"),
+                {"u": target}).fetchall():
+                sched[int(r[0])] = (bool(r[1]), float(r[2]) if r[2] is not None else None)
+        except Exception:
+            sched = {}
+        try:
+            uvazek = float(_resolve_cond_num(s, target, "uvazek_h_tyden", 40.0)) or 40.0
+        except Exception:
+            uvazek = 40.0
+        per_day = round(uvazek / 5.0, 2)
+        out = []
+        total = 0.0
+        for day, is_wd, is_hol in cal:
+            wd = day.isoweekday()  # 1=Po .. 7=Ne
+            if is_hol:
+                dt, h = "holiday", 0
+            elif wd in sched:
+                if sched[wd][0]:
+                    dt, h = "work", (sched[wd][1] if sched[wd][1] is not None else per_day)
+                else:
+                    dt, h = "off", 0
+            elif wd <= 5 and is_wd:
+                dt, h = "work", per_day
+            else:
+                dt, h = ("weekend" if wd >= 6 else "off"), 0
+            total += h
+            out.append({"date": day.isoformat(), "iso_week": day.isocalendar()[1],
+                        "weekday": _PLAN_DAYLABEL.get(0 if wd == 7 else wd, "?"),
+                        "hours": float(h), "day_type": dt})
+        return JSONResponse({"ok": True, "plan": out, "uvazek": uvazek,
+                             "total_hours": round(total, 2), "has_plan": len(out) > 0})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Vrstva 2: firemní výjimky (samostatná tabulka, NEPŘEPISUJE vrstvu 1) ──────
 @api_router.get("/app/plan/exceptions")
 async def app_plan_exceptions(req: Request) -> JSONResponse:

@@ -8253,17 +8253,21 @@ async def app_plan_day(req: Request) -> JSONResponse:
     try:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Join přes členství → osoba se ukáže pod KAŽDOU svojí skupinou (Zuzana ve 2 = 2×).
         rows = s.execute(_t(
-            "SELECT COALESCE(g.sort_order,999) so, pe.group_id, COALESCE(g.name,'(bez skupiny)') gname, "
+            "SELECT COALESCE(g.sort_order,999) so, COALESCE(g.id,0) gid, COALESCE(g.name,'(bez skupiny)') gname, "
+            " pe.user_id, "
             " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), u.login_name) nm, "
-            " pe.expected_hours, to_char(pe.start_time,'HH24:MI'), pe.day_type, pe.scope_src "
+            " pe.expected_hours, pe.start_time::text, pe.day_type, pe.scope_src "
             "FROM tenant.att_plan_effective pe "
             "LEFT JOIN public.users u ON u.id=pe.user_id "
-            "LEFT JOIN tenant.staff_group g ON g.id=pe.group_id AND g.tenant_id=2 "
+            "LEFT JOIN tenant.staff_group_member m ON m.tenant_id=2 AND m.user_id=pe.user_id "
+            "LEFT JOIN tenant.staff_group g ON g.id=m.group_id AND g.tenant_id=2 AND COALESCE(g.archived,false)=false "
             "WHERE pe.tenant_id=2 AND pe.plan_date=:d "
-            "ORDER BY so, gname, nm"), {"d": day}).fetchall()
+            "ORDER BY so, gid, nm"), {"d": day}).fetchall()
         groups = []
         cur = None
+        seen = set()
         tot_h = 0.0
         tot_p = 0
         for r in rows:
@@ -8271,14 +8275,19 @@ async def app_plan_day(req: Request) -> JSONResponse:
             if cur is None or cur["group_id"] != gid:
                 cur = {"group_id": gid, "group_name": r[2], "people": [], "sum_hours": 0.0, "count": 0}
                 groups.append(cur)
-            hrs = float(r[4])
-            cur["people"].append({"name": r[3] or "?", "hours": hrs, "start": r[5],
-                                  "day_type": r[6], "scope_src": r[7]})
+            user_id = r[3]
+            hrs = float(r[5])
+            st = (r[6] or "")[:5]
+            cur["people"].append({"name": r[4] or "?", "hours": hrs, "start": st,
+                                  "day_type": r[7], "scope_src": r[8]})
             cur["sum_hours"] += hrs
             if hrs > 0:
                 cur["count"] += 1
-                tot_p += 1
-            tot_h += hrs
+            if user_id not in seen:           # součet firmy: každý člověk jen 1×
+                seen.add(user_id)
+                tot_h += hrs
+                if hrs > 0:
+                    tot_p += 1
         for gx in groups:
             gx["sum_hours"] = round(gx["sum_hours"], 2)
         return JSONResponse({"ok": True, "date": day.isoformat(), "groups": groups,

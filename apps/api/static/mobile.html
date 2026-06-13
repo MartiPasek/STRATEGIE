@@ -1138,22 +1138,89 @@ setTimeout(function(){
   }
   // Marti 11.6.: HR rozcestník — self-service osobních údajů (každý) + správa
   // skupiny HR / přístupů k personálním složkám (rodiče).
+  // Marti 13.6.: HR shora dolů — dva světy personalistiky: INTERNÍ (naši lidé:
+  // firma → skupiny → jednotlivci → režim/podmínky/docházka) a EXTERNÍ (nábor).
+  function _hrSec(t){ return el('<div style="margin:15px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+esc(t)+'</div>'); }
+  function hrSoon(t,d){ window._soonT=t; window._soonD=d||""; go("hr_soon"); }
+  function hr_soon(){
+    app.innerHTML=topbar(window._soonT||"Připravujeme", true);
+    var p=el('<div class="panel" style="margin:10px;"></div>');
+    p.innerHTML='<div style="font-size:18px;font-weight:800;margin-bottom:6px;">🚧 '+esc(window._soonT||"")+'</div>'
+      +'<div class="hint" style="line-height:1.6;">'+esc(window._soonD||"Tato část je v přípravě — kostra hotová, obsah doplníme.")+'</div>';
+    app.appendChild(p);
+  }
   function hr(){
-    app.innerHTML=topbar("🔒 HR", true);
+    app.innerHTML=topbar("🔒 HR — personalistika", true);
     var l=el('<div class="list"></div>');
-    l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (přes mobil)",function(){ go("hr_me"); }));
-    l.appendChild(row("👥","Personální složky","Přehled a správa lidí (HR / vedení)",function(){ go("hr_people"); }));
-    l.appendChild(row("🧩","Režimy docházky","Forma (HPP/DPP/OSVČ), režim, konto, loajalita",function(){ go("hr_rezimy"); }));
-    l.appendChild(row("📋","Podmínky skupin","Úvazek, nástup, dovolená, sick days… po skupinách + výjimky",function(){ go("hr_podminky"); }));
-    l.appendChild(row("🏦","Uzávěrka konta","Rozpad přesčasů: do prémie / do přesčasu / převést",function(){ go("hr_konto"); }));
-    l.appendChild(row("🗓️","Absence — žádosti a schvalování","Dovolená / HO / lékař → schválí vedoucí",function(){ go("absence"); }));
-    l.appendChild(row("👀","Kdo kde dnes","Přehled: kdo v práci / na dovolené / nemocný",function(){ go("kdekdo"); }));
-    l.appendChild(row("📥","Import docházky z EUROSOFTu","Reálná data 1:1 (dovolené, nemoc, lékař, odprac.)",function(){ go("hr_import"); }));
-    l.appendChild(row("📄","Generovat dokument","Smlouva a další → PDF z živých dat",function(){ go("doc_gen"); }));
-    l.appendChild(row("💰","Mzdy: Helios × STRATEGIE","Porovnání ZDROJ × CÍL × delta (vedení)",function(){ go("wage_cmp"); }));
-    l.appendChild(row("🔑","Skupina HR — přístupy","Kdo vidí personální složky (spravují rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
+    l.appendChild(row("🏢","Interní personalistika","Naši lidé — firma, skupiny, jednotlivci, režimy, docházka",function(){ go("hr_interni"); }));
+    l.appendChild(row("🧲","Externí personalistika — nábor","Inzeráty, pohovory a pracovní nabídky pro nové lidi",function(){ go("hr_nabor"); }));
+    l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (pro každého)",function(){ go("hr_me"); }));
     app.appendChild(l);
-    app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personální data si od teď spravuje každý sám za sebe — STRATEGIE je primární zdroj. „Skupina HR" určuje, kdo smí vidět citlivé personální složky (rodné číslo, OP, …).</div>'));
+    app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personalistika má dva světy: <b>interní</b> (lidé, které už máme — od pravidel firmy přes skupiny po jednotlivce) a <b>externí</b> (nábor nových lidí). Citlivé personální složky vidí jen rodiče a „Skupina HR".</div>'));
+  }
+  // INTERNÍ — kostra shora dolů (firma → skupiny → jednotlivci → mzdy/dokumenty)
+  function hr_interni(){
+    app.innerHTML=topbar("🏢 Interní personalistika", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px 0;line-height:1.6;">Pravidla tečou shora dolů: firma dá rámec, skupina ho zpřesní, jednotlivec má své výjimky. Stejný vzor jako u docházky (systém → skupina → jednotlivec).</div>'));
+    app.appendChild(_hrSec("FIRMA"));
+    var l1=el('<div class="list"></div>');
+    l1.appendChild(row("🏛️","Firma","Základ, kultura a pravidla firmy (EC + System)",function(){ go("hr_firma"); }));
+    app.appendChild(l1);
+    app.appendChild(_hrSec("SKUPINY"));
+    var l2=el('<div class="list"></div>');
+    l2.appendChild(row("👥","Skupiny","Rozdělení lidí + pravidla skupin",function(){ go("hr_skupiny"); }));
+    l2.appendChild(row("📋","Podmínky skupin","Úvazek, nástup, dovolená, sick days… + výjimky",function(){ go("hr_podminky"); }));
+    app.appendChild(l2);
+    app.appendChild(_hrSec("JEDNOTLIVCI"));
+    var l3=el('<div class="list"></div>');
+    l3.appendChild(row("🪪","Lidé — personální složky","Karta člověka: režim · podmínky · docházka",function(){ go("hr_people"); }));
+    l3.appendChild(row("🧩","Režimy","Forma HPP/OSVČ/DPP, režim docházky, konto",function(){ go("hr_rezimy"); }));
+    l3.appendChild(row("🗓️","Absence — žádosti a schvalování","Dovolená / HO / lékař → schválí vedoucí",function(){ go("absence"); }));
+    l3.appendChild(row("👀","Kdo kde dnes","Kdo v práci / na dovolené / nemocný",function(){ go("kdekdo"); }));
+    app.appendChild(l3);
+    app.appendChild(_hrSec("MZDY & DOKUMENTY"));
+    var l4=el('<div class="list"></div>');
+    l4.appendChild(row("🏦","Uzávěrka konta","Rozpad přesčasů: prémie / přesčas / převést",function(){ go("hr_konto"); }));
+    l4.appendChild(row("📥","Import docházky z EUROSOFTu","Reálná data 1:1 (dovolené, nemoc, lékař)",function(){ go("hr_import"); }));
+    l4.appendChild(row("📄","Generovat dokument","Smlouva, výměr… → PDF z živých dat",function(){ go("doc_gen"); }));
+    l4.appendChild(row("💰","Mzdy: Helios × STRATEGIE","Porovnání ZDROJ × CÍL × delta (vedení)",function(){ go("wage_cmp"); }));
+    app.appendChild(l4);
+    app.appendChild(_hrSec("PŘÍSTUPY"));
+    var l5=el('<div class="list"></div>');
+    l5.appendChild(row("🔑","Skupina HR — přístupy","Kdo vidí citlivé personální složky (rodiče)",function(){ window._skFocusName='HR'; go("skupiny"); }));
+    app.appendChild(l5);
+  }
+  // FIRMA — nejvyšší patro (placeholder kostra)
+  function hr_firma(){
+    app.innerHTML=topbar("🏛️ Firma", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Nejvyšší patro: rámec platný pro všechny. Co se nastaví tady, dědí se na skupiny i jednotlivce (pokud nemají vlastní výjimku).</div>'));
+    var l=el('<div class="list"></div>');
+    l.appendChild(row("🏢","Základní údaje firmy","Firmy grupy: EUROSOFT-Control a -System (IČO, sídlo)",function(){ hrSoon("Základní údaje firmy","Firmy grupy EUROSOFT-Control a -System: IČO, sídlo, kontakty, bankovní spojení. Zdroj pro smlouvy a výměry."); }));
+    l.appendChild(row("🌱","Firemní kultura & hodnoty","Co u nás platí — férovost, volnost, dobrá parta",function(){ hrSoon("Firemní kultura & hodnoty","Hodnoty, na kterých EUROSOFT 20 let staví. Sdílené napříč firmou — onboarding novým lidem, připomínka stávajícím."); }));
+    l.appendChild(row("📜","Pravidla firmy","Celofiremní pravidla (pracovní doba, benefity, etika)",function(){ hrSoon("Pravidla firmy","Celofiremní pravidla, která se dědí na skupiny: pracovní doba, benefity, etika, bezpečnost. Skupina i jednotlivec je můžou zpřesnit."); }));
+    app.appendChild(l);
+    app.appendChild(el('<div class="hint" style="margin-top:10px;">🚧 Kostra — obsah doplníme. Klikni na položku pro náhled.</div>'));
+  }
+  // SKUPINY — prostřední patro
+  function hr_skupiny(){
+    app.innerHTML=topbar("👥 Skupiny", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Mezi firmou a jednotlivcem. Skupina zpřesní pravidla firmy (jiná pro výrobu, jiná pro kancelář) a jednotlivec si může nést výjimku.</div>'));
+    var l=el('<div class="list"></div>');
+    l.appendChild(row("👥","Správa skupin","Kdo do které skupiny patří",function(){ go("skupiny"); }));
+    l.appendChild(row("📋","Pravidla skupin","Úvazek, dovolená, sick days, volby píchání po skupinách",function(){ go("hr_podminky"); }));
+    app.appendChild(l);
+  }
+  // EXTERNÍ — nábor nových lidí
+  function hr_nabor(){
+    app.innerHTML=topbar("🧲 Nábor nových lidí", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Externí personalistika — od inzerátu přes pohovor po pracovní nabídku. Po přijetí nabídky kandidát „přeteče" do interní personalistiky (onboarding).</div>'));
+    var l=el('<div class="list"></div>');
+    l.appendChild(row("📣","Inzeráty","Volné pozice a jejich zveřejnění",function(){ hrSoon("Inzeráty","Tvorba a správa inzerátů na volné pozice — text nabídky, kanály zveřejnění, stav (otevřeno / zavřeno) a počet uchazečů."); }));
+    l.appendChild(row("👤","Kandidáti","Uchazeči a jejich průchod náborem",function(){ hrSoon("Kandidáti","Databáze uchazečů: životopis, kontakt, na kterou pozici, stav ve výběrovém řízení (nový / pozvaný / po pohovoru / nabídka / přijat / zamítnut)."); }));
+    l.appendChild(row("💬","Pohovory","Termíny, účastníci, hodnocení",function(){ hrSoon("Pohovory","Plánování pohovorů (termín, kdo se účastní), poznámky a hodnocení uchazeče. Propojeno na kandidáta a inzerát."); }));
+    l.appendChild(row("📨","Pracovní nabídky","Nabídka pozice vybranému kandidátovi",function(){ hrSoon("Pracovní nabídky","Vystavení pracovní nabídky (pozice, mzda, nástup) vybranému kandidátovi. Po přijetí → automatický onboarding do interní personalistiky."); }));
+    app.appendChild(l);
+    app.appendChild(el('<div class="hint" style="margin-top:10px;">🚧 Kostra — funkce doplníme. Externí svět končí přijatou nabídkou, pak začíná interní (onboarding).</div>'));
   }
   // Marti 11.6.: self-service osobních údajů — primární zdroj, logovaný,
   // s upozorněním HR na změny. Každý si spravuje svá data sám přes mobil.
@@ -4564,7 +4631,7 @@ setTimeout(function(){
     app.appendChild(p);
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

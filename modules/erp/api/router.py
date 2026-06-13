@@ -15645,12 +15645,19 @@ def _sync_nabor_from_ec() -> dict:
                 if key:
                     cand_cache[key] = cid
             faze = s2(row.get("Faze"))
+            stav = s2(row.get("Stav"))
+            ph_id = phase_ids.get(faze)
+            # Marti 13.6.: reálně „ve hře" je jen Stav='O'. Aktivní fáze bez otevřeného
+            # stavu (Stav=U nebo prázdný) = dávno neuzavřené staré → archiv (mimo hru).
+            # Terminální fáze (nástup/mimo hru) zůstávají.
+            if faze in ("Ve hře", "1. kolo", "2. kolo") and stav != "O":
+                ph_id = phase_ids.get("mimo hru")
             s.execute(_t(
                 "INSERT INTO tenant.recruit_application(tenant_id,candidate_id,position_text,phase_id,"
                 "status,interview_at,test_days_at,start_at,expected_salary,source_id,reject_reason_id,"
                 "note,ec_jednani_id,recruiter_user_id,changed_by_text,changed_at) "
                 "VALUES(2,:cid,:pos,:ph,:st,:iv,:td,:sa,:sal,:src,:rj,:no,:ec,:rec,:cb,:ca)"),
-                {"cid": cid, "pos": name, "ph": phase_ids.get(faze), "st": s2(row.get("Stav")),
+                {"cid": cid, "pos": name, "ph": ph_id, "st": s2(row.get("Stav")),
                  "iv": s2(row.get("pohovor")), "td": s2(row.get("testdny")), "sa": s2(row.get("nastup")),
                  "sal": num(row.get("plat")), "src": src_id(row.get("Zdroj")), "rj": rej_id(row.get("DuvodZamitnuti")),
                  "no": s2(row.get("jed_od")), "ec": (int(row.get("ID")) if row.get("ID") not in (None, "") else None),

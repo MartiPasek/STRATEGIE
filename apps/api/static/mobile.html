@@ -5146,7 +5146,7 @@ setTimeout(function(){
       var addB=el('<button class="ghost" style="padding:6px 12px;border-color:#3a7a4c;color:#7fe0a0;font-weight:700;">+ Přidat</button>');
       addB.addEventListener("click",function(){ excDialog(null, mode); });
       hd.appendChild(addB); left.appendChild(hd);
-      left.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:8px;">'+(mode==='scope'?'Volno / zkrácený den jen pro <b>skupinu</b> (např. Výroba) nebo <b>jednotlivce</b>. Přebíjí firemní výjimku.':'Volno / zkrácený den pro <b>celou firmu</b>. <b>0 h</b> = volno, <b>1–8 h</b> = zkráceno.')+' Plán (vrstva 1) zůstává nedotčený.</div>'));
+      left.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:8px;">'+(mode==='scope'?'Volno / zkrácený den jen pro <b>skupinu</b> (např. Výroba) nebo <b>jednotlivce</b>. Přebíjí firemní výjimku.':'Firemní den pro <b>celou firmu</b>. <b>0 h</b> = volno, jinak počet odpracovaných hodin (i pracovní víkend).')+' Plán (vrstva 1) zůstává nedotčený.</div>'));
       var box=el('<div></div>'); left.appendChild(box);
       box.innerHTML='<div class="hint">Načítám…</div>';
       Promise.all([api("GET","/api/v1/erp/app/plan/exceptions",""),api("GET","/api/v1/erp/app/plan/scope-exceptions","")]).then(function(res){
@@ -5200,8 +5200,8 @@ setTimeout(function(){
       }
       bx.appendChild(el('<label class="hint" style="display:block;margin:6px 0 2px;">Datum</label>'));
       var dI=el('<input type="date" value="'+(isEdit?ex.date:today)+'" '+(isEdit?'disabled':'')+' style="'+inS+(isEdit?'opacity:.6;':'')+'">'); bx.appendChild(dI);
-      bx.appendChild(el('<label class="hint" style="display:block;margin:8px 0 2px;">Hodiny (0 = volno, 1–8 zkráceno)</label>'));
-      var hI=el('<input type="number" min="0" max="8" step="0.5" value="'+(isEdit?ex.hours:0)+'" style="'+inS+'">'); bx.appendChild(hI);
+      bx.appendChild(el('<label class="hint" style="display:block;margin:8px 0 2px;">Hodiny (0 = volno · jinak počet odpracovaných hodin, i pracovní víkend)</label>'));
+      var hI=el('<input type="number" min="0" max="12" step="0.5" value="'+(isEdit?ex.hours:0)+'" style="'+inS+'">'); bx.appendChild(hI);
       var rI=el('<input type="text" placeholder="Důvod (volitelné)" style="'+inS+'margin-top:8px;">'); bx.appendChild(rI);
       if(isEdit) rI.value=ex.reason||"";
       var bs=el('<div style="display:flex;gap:8px;margin-top:12px;"></div>');

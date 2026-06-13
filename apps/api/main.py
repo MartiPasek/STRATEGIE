@@ -883,6 +883,18 @@ def web_eco_strategie():
     return _web_subpage("eco-strategie.html")
 
 
+@app.get("/web/performia")
+def web_eco_performia():
+    """Podstránka ekosystému — Performia (lidé: výběr podle produktivity)."""
+    return _web_subpage("eco-performia.html")
+
+
+@app.get("/web/success")
+def web_eco_success():
+    """Podstránka ekosystému — Business Success (řízení: funkční management)."""
+    return _web_subpage("eco-success.html")
+
+
 @app.get("/googlef2bedb6d3ffdf33d.html")
 def google_site_verification():
     """Google Search Console / Play ověření vlastnictví webu. Marti 9.6.2026."""

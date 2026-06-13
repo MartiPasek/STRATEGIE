@@ -5058,6 +5058,7 @@ setTimeout(function(){
 
   function plan(){
     app.innerHTML=topbar("🗓️ Plán", true);
+    function nf(v){ return (Math.round((v||0)*100)/100).toString().replace('.',','); }
     function czd(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):iso; }
     var wrap=el('<div style="display:flex;gap:10px;align-items:flex-start;"></div>');
     var left=el('<div style="flex:1;min-width:0;"></div>');

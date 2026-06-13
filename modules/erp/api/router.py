@@ -8035,6 +8035,77 @@ async def app_plan_my_uvazek_save(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/plan/group")
+async def app_plan_group(req: Request) -> JSONResponse:
+    """Plán skupiny (display): ČR základ × firemní výjimky × cílené výjimky té skupiny.
+    Overlay read-only, priorita skupina > firma. Jen HR/rodič."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        gid = int(req.query_params.get("group_id") or 0)
+    except Exception:
+        gid = 0
+    if not gid:
+        return JSONResponse({"ok": False, "error": "group_id"})
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        gname = s.execute(_t("SELECT name FROM tenant.staff_group WHERE tenant_id=2 AND id=:g"), {"g": gid}).scalar() or ("skupina #" + str(gid))
+        sysv = s.execute(_t("SELECT value FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='system' "
+                            "AND cond_code='uvazek_h_tyden' LIMIT 1")).scalar()
+        try:
+            uvazek = float(str(sysv).replace(",", ".")) if sysv else 40.0
+        except Exception:
+            uvazek = 40.0
+        per_day = round(uvazek / 5.0, 2)
+        cal = s.execute(_t(
+            "SELECT day, is_workday, is_holiday FROM tenant.att_calendar_day "
+            "WHERE tenant_id=2 AND date_part('year', day)=date_part('year', CURRENT_DATE) ORDER BY day")).fetchall()
+        firma = {}
+        try:
+            for r in s.execute(_t("SELECT ex_date, hours, reason FROM tenant.att_calendar_exception WHERE tenant_id=2 "
+                                  "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)")).fetchall():
+                firma[r[0]] = (float(r[1]), r[2])
+        except Exception:
+            pass
+        grp = {}
+        try:
+            for r in s.execute(_t("SELECT ex_date, hours, reason FROM tenant.att_exception_scope WHERE tenant_id=2 "
+                                  "AND scope_type='group' AND scope_id=:g "
+                                  "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)"), {"g": gid}).fetchall():
+                grp[r[0]] = (float(r[1]), r[2])
+        except Exception:
+            pass
+        out = []
+        total = 0.0
+        for day, is_wd, is_hol in cal:
+            wd = day.isoweekday()
+            if is_hol:
+                dt, h = "holiday", 0
+            elif wd <= 5 and is_wd:
+                dt, h = "work", per_day
+            else:
+                dt, h = ("weekend" if wd >= 6 else "off"), 0
+            total += h
+            ex = grp.get(day)
+            scope = "skupina"
+            if ex is None:
+                ex = firma.get(day)
+                scope = "firma"
+            out.append({"date": day.isoformat(), "iso_week": day.isocalendar()[1],
+                        "weekday": _PLAN_DAYLABEL.get(0 if wd == 7 else wd, "?"),
+                        "hours": float(h), "day_type": dt,
+                        "exc_hours": (ex[0] if ex else None), "exc_reason": (ex[1] if ex else None),
+                        "exc_scope": (scope if ex else None)})
+        return JSONResponse({"ok": True, "plan": out, "uvazek": uvazek, "group_name": gname,
+                             "total_hours": round(total, 2), "has_plan": len(out) > 0})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Vrstva 2: firemní výjimky (samostatná tabulka, NEPŘEPISUJE vrstvu 1) ──────
 @api_router.get("/app/plan/exceptions")
 async def app_plan_exceptions(req: Request) -> JSONResponse:

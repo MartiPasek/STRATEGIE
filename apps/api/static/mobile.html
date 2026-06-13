@@ -5084,6 +5084,9 @@ setTimeout(function(){
     var bFirma=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a6b5a;color:#7fe0c8;font-weight:700;font-size:12px;line-height:1.25;">🏭<br>Firma<br>plán</button>');
     bFirma.addEventListener("click",function(){ renderPlan(true); });
     right.appendChild(bFirma);
+    var bGrp=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a5a6b;color:#7fc8e0;font-weight:700;font-size:12px;line-height:1.25;">👥<br>Plán<br>skupiny</button>');
+    bGrp.addEventListener("click",function(){ renderGroupPlan(); });
+    right.appendChild(bGrp);
     var bUv=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#6b4a2a;color:#e6b97a;font-weight:700;font-size:12px;line-height:1.25;">📐<br>Můj<br>úvazek</button>');
     bUv.addEventListener("click",function(){ renderUvazek(); });
     right.appendChild(bUv);
@@ -5098,53 +5101,80 @@ setTimeout(function(){
         left.innerHTML="";
         if(!j||!j.ok){ left.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
         if(!j.has_plan){ left.appendChild(el('<div class="hint" style="line-height:1.7;">Zatím nemáš žádný plán.<br>Vpravo klikni <b>📋 40 h</b> a vyrobí se ti základní roční plán podle státních svátků (Po–Pá, víkendy a svátky volno).</div>')); return; }
-        var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
-        var effH=function(d){ return (eff&&d.exc_hours!==null&&d.exc_hours!==undefined)?d.exc_hours:d.hours; };
-        var effT=function(d){ return (eff&&d.exc_hours!==null&&d.exc_hours!==undefined)?(d.exc_hours>0?'exception':'exoff'):d.day_type; };
-        var gt=0; j.plan.forEach(function(d){ gt+=effH(d); });
-        var _ttl=eff?('🏭 Firma plán '+yr):(src==='mydefault'?('👤 Můj výchozí plán '+yr):('ČR plán '+yr));
-        var _sub=eff?'po výjimkách':('úvazek '+(j.uvazek||"?")+' h/týd.');
-        left.appendChild(el('<div style="margin-bottom:8px;"><b>'+_ttl+'</b> <span class="hint">· '+_sub+' · '+nf(gt)+' h</span></div>'));
-        var MN=["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
-        var nowM=(new Date()).getFullYear()+"-"+("0"+((new Date()).getMonth()+1)).slice(-2);
-        var months={}, order=[];
-        j.plan.forEach(function(d){ var m=d.date.slice(0,7); if(!months[m]){ months[m]=[]; order.push(m);} months[m].push(d); });
-        var entries=[];
-        function closeAll(){ entries.forEach(function(e){ e.body.style.display="none"; e.arr.innerHTML=e.summary+' ▸'; }); }
-        order.forEach(function(m){
-          var days=months[m], sum=0, wd=0, hol=0;
-          days.forEach(function(d){ var h=effH(d), tp=effT(d); sum+=h; if(tp==="work"||tp==="exception") wd++; else if(tp==="holiday") hol++; });
-          function svL(n){ return n+' '+(n===1?'svátek':(n>=2&&n<=4?'svátky':'svátků')); }
-          var summary=wd+' prac. dní · '+nf(sum)+' h';
-          var mi=parseInt(m.slice(5,7),10)-1, my=m.slice(0,4);
-          var card=el('<div style="border:1px solid #2b3a5c;border-radius:12px;margin-bottom:8px;overflow:hidden;"></div>');
-          var head=el('<div style="padding:10px 12px;cursor:pointer;background:#0e1830;scroll-margin-top:38px;"></div>');
-          var top=el('<div style="display:flex;justify-content:space-between;align-items:center;"></div>');
-          top.appendChild(el('<span style="font-weight:700;">'+MN[mi]+'</span>'));
-          var arr=el('<span class="hint" style="font-size:12px;">'+summary+' ▸</span>');
-          top.appendChild(arr); head.appendChild(top);
-          head.appendChild(el('<div class="hint" style="font-size:11px;margin-top:2px;opacity:.75;">'+(hol>0?svL(hol):'bez svátků')+'</div>'));
-          var body=el('<div style="padding:4px 12px 8px;display:none;"></div>');
-          var lastW=null;
-          days.forEach(function(d){
-            if(d.iso_week!==lastW){ lastW=d.iso_week; body.appendChild(el('<div class="hint" style="font-size:10px;margin:6px 0 1px;opacity:.65;">Týden '+d.iso_week+'</div>')); }
-            var h=effH(d), tp=effT(d);
-            var col=(tp==="work")?"#34d399":(tp==="holiday"?"#fbbf24":(tp==="exception"?"#e6a93a":(tp==="exoff"?"#e6a93a":"#5b6b88")));
-            var tag;
-            if(tp==="exception"){ var ic=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic+' '+nf(h)+' h'; }
-            else if(tp==="exoff"){ var ic2=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic2+' volno'; }
-            else if(tp==="work"){ tag=nf(h)+" h"+(d.start?(' · od '+d.start):''); }
-            else if(tp==="holiday"){ tag="svátek"; }
-            else { tag=(d.day_type==="weekend"?"víkend":"volno"); }
-            body.appendChild(el('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;"><span>'+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+tag+'</span></div>'));
-          });
-          var entry={body:body, arr:arr, summary:summary, m:m};
-          head.addEventListener("click",function(){ var willOpen=(body.style.display==="none"); closeAll(); if(willOpen){ body.style.display="block"; arr.innerHTML=summary+' ▾'; setTimeout(function(){ try{ head.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){} },10); } });
-          entries.push(entry);
-          card.appendChild(head); card.appendChild(body); left.appendChild(card);
+        renderMonths(left, j, eff, src, null);
+      });
+    }
+    function renderMonths(box, j, eff, src, titleOverride){
+      var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
+      var effH=function(d){ return (eff&&d.exc_hours!==null&&d.exc_hours!==undefined)?d.exc_hours:d.hours; };
+      var effT=function(d){ return (eff&&d.exc_hours!==null&&d.exc_hours!==undefined)?(d.exc_hours>0?'exception':'exoff'):d.day_type; };
+      var gt=0; j.plan.forEach(function(d){ gt+=effH(d); });
+      var _ttl=titleOverride||(eff?('🏭 Firma plán '+yr):(src==='mydefault'?('👤 Můj výchozí plán '+yr):('ČR plán '+yr)));
+      var _sub=eff?'po výjimkách':('úvazek '+(j.uvazek||"?")+' h/týd.');
+      box.appendChild(el('<div style="margin-bottom:8px;"><b>'+_ttl+'</b> <span class="hint">· '+_sub+' · '+nf(gt)+' h</span></div>'));
+      var MN=["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
+      var nowM=(new Date()).getFullYear()+"-"+("0"+((new Date()).getMonth()+1)).slice(-2);
+      var months={}, order=[];
+      j.plan.forEach(function(d){ var m=d.date.slice(0,7); if(!months[m]){ months[m]=[]; order.push(m);} months[m].push(d); });
+      var entries=[];
+      function closeAll(){ entries.forEach(function(e){ e.body.style.display="none"; e.arr.innerHTML=e.summary+' ▸'; }); }
+      order.forEach(function(m){
+        var days=months[m], sum=0, wd=0, hol=0;
+        days.forEach(function(d){ var h=effH(d), tp=effT(d); sum+=h; if(tp==="work"||tp==="exception") wd++; else if(tp==="holiday") hol++; });
+        function svL(n){ return n+' '+(n===1?'svátek':(n>=2&&n<=4?'svátky':'svátků')); }
+        var summary=wd+' prac. dní · '+nf(sum)+' h';
+        var mi=parseInt(m.slice(5,7),10)-1;
+        var card=el('<div style="border:1px solid #2b3a5c;border-radius:12px;margin-bottom:8px;overflow:hidden;"></div>');
+        var head=el('<div style="padding:10px 12px;cursor:pointer;background:#0e1830;scroll-margin-top:38px;"></div>');
+        var top=el('<div style="display:flex;justify-content:space-between;align-items:center;"></div>');
+        top.appendChild(el('<span style="font-weight:700;">'+MN[mi]+'</span>'));
+        var arr=el('<span class="hint" style="font-size:12px;">'+summary+' ▸</span>');
+        top.appendChild(arr); head.appendChild(top);
+        head.appendChild(el('<div class="hint" style="font-size:11px;margin-top:2px;opacity:.75;">'+(hol>0?svL(hol):'bez svátků')+'</div>'));
+        var body=el('<div style="padding:4px 12px 8px;display:none;"></div>');
+        var lastW=null;
+        days.forEach(function(d){
+          if(d.iso_week!==lastW){ lastW=d.iso_week; body.appendChild(el('<div class="hint" style="font-size:10px;margin:6px 0 1px;opacity:.65;">Týden '+d.iso_week+'</div>')); }
+          var h=effH(d), tp=effT(d);
+          var col=(tp==="work")?"#34d399":(tp==="holiday"?"#fbbf24":(tp==="exception"?"#e6a93a":(tp==="exoff"?"#e6a93a":"#5b6b88")));
+          var tag;
+          if(tp==="exception"){ var ic=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic+' '+nf(h)+' h'; }
+          else if(tp==="exoff"){ var ic2=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic2+' volno'; }
+          else if(tp==="work"){ tag=nf(h)+" h"+(d.start?(' · od '+d.start):''); }
+          else if(tp==="holiday"){ tag="svátek"; }
+          else { tag=(d.day_type==="weekend"?"víkend":"volno"); }
+          body.appendChild(el('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;"><span>'+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+tag+'</span></div>'));
         });
-        var cur=entries.filter(function(e){return e.m===nowM;})[0]||entries[0];
-        if(cur){ cur.body.style.display="block"; cur.arr.innerHTML=cur.summary+' ▾'; }
+        var entry={body:body, arr:arr, summary:summary, m:m};
+        head.addEventListener("click",function(){ var willOpen=(body.style.display==="none"); closeAll(); if(willOpen){ body.style.display="block"; arr.innerHTML=summary+' ▾'; setTimeout(function(){ try{ head.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){} },10); } });
+        entries.push(entry);
+        card.appendChild(head); card.appendChild(body); box.appendChild(card);
+      });
+      var cur=entries.filter(function(e){return e.m===nowM;})[0]||entries[0];
+      if(cur){ cur.body.style.display="block"; cur.arr.innerHTML=cur.summary+' ▾'; }
+    }
+    function renderGroupPlan(){
+      left.innerHTML='<div class="hint">Načítám skupiny…</div>';
+      api("GET","/api/v1/erp/app/plan/exception-targets","").then(function(t){
+        left.innerHTML='';
+        var groups=(t&&t.ok&&t.groups)||[];
+        if(!groups.length){ left.appendChild(el('<div class="hint">Nelze načíst skupiny (jen rodiče/HR).</div>')); return; }
+        var bar=el('<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"></div>');
+        bar.appendChild(el('<span class="hint" style="flex:none;">👥 Skupina:</span>'));
+        var sel=el('<select style="flex:1;box-sizing:border-box;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;font-weight:700;">'+groups.map(function(g){return '<option value="'+g.id+'">'+esc(g.name)+'</option>';}).join('')+'</select>');
+        bar.appendChild(sel); left.appendChild(bar);
+        var box=el('<div></div>'); left.appendChild(box);
+        function load(){
+          var gid=sel.value;
+          box.innerHTML='<div class="hint">Načítám…</div>';
+          api("GET","/api/v1/erp/app/plan/group?group_id="+encodeURIComponent(gid),"").then(function(j){
+            box.innerHTML='';
+            if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Nelze načíst")+'</div>')); return; }
+            var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
+            renderMonths(box, j, true, 'group', '👥 '+(j.group_name||'')+' '+yr);
+          });
+        }
+        sel.addEventListener("change",load); load();
       });
     }
     function renderUvazek(){

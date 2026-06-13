@@ -1177,6 +1177,15 @@ setTimeout(function(){
     g4.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
     g4.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
     app.appendChild(g4);
+    var apiInfo=el('<div style="margin:14px 6px 4px;font-size:11px;color:var(--mut);text-align:center;line-height:1.4;">API…</div>');
+    app.appendChild(apiInfo);
+    api("GET","/api/v1/api-info","").then(function(j){
+      if(!j||!j.ok){ apiInfo.textContent=""; return; }
+      if(j.stale){ apiInfo.style.color="#f87171"; apiInfo.style.fontWeight="700";
+        apiInfo.innerHTML="⚠ STARÝ SERVER — "+esc(j.instance||"?")+" / "+esc(j.dir||"")+" (build "+esc(j.commit||"?")+")<br>Obnov stránku nebo srovnej secondary."; }
+      else { apiInfo.style.color="var(--mut)"; apiInfo.style.fontWeight="400";
+        apiInfo.textContent="API: "+(j.instance||"?")+" · build "+(j.commit||"?")+" · port "+(j.port||"?"); }
+    });
     app.appendChild(el('<div style="height:80px;"></div>'));
   }
   // Ops akce — provozní akce + historie spuštění s datumy (jen rodiče). Marti 13.6.

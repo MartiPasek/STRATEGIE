@@ -289,6 +289,41 @@ def _resolve_uvicorn_port() -> int:
     return 8001  # uvicorn default
 
 
+_API_SHA_CACHE: dict = {}
+
+
+def _api_git_sha() -> str:
+    if "v" in _API_SHA_CACHE:
+        return _API_SHA_CACHE["v"]
+    import subprocess as _sp
+    v = "unknown"
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        v = _sp.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=root,
+                             stderr=_sp.DEVNULL, timeout=2).decode().strip()
+    except Exception:
+        v = "unknown"
+    _API_SHA_CACHE["v"] = v
+    return v
+
+
+@app.get("/api/v1/api-info")
+def api_info() -> dict:
+    """Na jakém API to běží — primary vs starý blue-green secondary. Bez auth."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    base = os.path.basename(root)
+    inst = os.environ.get("STRATEGIE_INSTANCE_NAME", "primary")
+    stale = ("prev" in base.lower()) or (inst.lower() != "primary")
+    return {
+        "ok": True,
+        "instance": inst,
+        "port": _resolve_uvicorn_port(),
+        "commit": _api_git_sha(),
+        "dir": base,
+        "stale": stale,
+    }
+
+
 @app.get("/api/v1/health")
 def api_health_liveness() -> dict:
     """Phase HA-1: raw liveness probe pro Caddy load balancer.

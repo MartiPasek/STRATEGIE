@@ -5060,9 +5060,9 @@ setTimeout(function(){
     app.innerHTML=topbar("🗓️ Plán", true);
     function nf(v){ return (Math.round((v||0)*100)/100).toString().replace('.',','); }
     function czd(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):iso; }
-    var wrap=el('<div style="display:flex;gap:10px;align-items:flex-start;"></div>');
-    var left=el('<div style="flex:1;min-width:0;"></div>');
-    var right=el('<div style="width:88px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;"></div>');
+    var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 132px);align-items:stretch;"></div>');
+    var left=el('<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;"></div>');
+    var right=el('<div style="width:88px;flex:none;display:flex;flex-direction:column;gap:8px;"></div>');
     wrap.appendChild(left); wrap.appendChild(right); app.appendChild(wrap);
     right.appendChild(el('<div class="hint" style="text-align:center;font-size:10px;line-height:1.3;">Vyrobit<br>základ</div>'));
     var bGen=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a5a8c;color:#9cf;font-weight:700;font-size:13px;line-height:1.25;">📋<br>Plán<br>40 h</button>');

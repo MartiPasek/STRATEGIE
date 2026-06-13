@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="cs"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>U-TEST — nástroj pro výběr a rozvoj lidí | STRATEGIE × Performia</title>
+<meta name="description" content="U-TEST (EXEC-U-TEST) od Performia — 10 vlastností osobnosti na škále −100…+100. Test pracovního potenciálu, produktivity a motivace.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#05070f;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;--ac:#60a5fa;--ac2:#7c5cff;--grn:#34d399;--amb:#f59e0b}
+  *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6}
+  a{color:inherit;text-decoration:none}.wrap{max-width:880px;margin:0 auto;padding:0 24px}
+  .grad{background:linear-gradient(110deg,var(--ac),var(--ac2) 55%,var(--grn));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:14px;font-weight:700;font-size:15px;border:0;cursor:pointer;transition:.2s}
+  .btn-p{background:linear-gradient(110deg,var(--ac),var(--ac2));color:#06122e}.btn-p:hover{transform:translateY(-2px)}
+  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}.btn-g:hover{border-color:var(--ac);color:var(--ac)}
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{font-weight:800;font-size:15px;color:var(--mut)}
+  .hero{text-align:center;padding:58px 0 14px;position:relative;overflow:hidden}
+  .hero:before{content:"";position:absolute;top:-40%;left:50%;transform:translateX(-50%);width:760px;height:760px;background:radial-gradient(circle,rgba(96,165,250,.14),transparent 62%);z-index:0}
+  .hero .wrap{position:relative;z-index:1}
+  .tag{display:inline-block;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--ac);border:1px solid rgba(96,165,250,.35);border-radius:999px;padding:6px 16px;margin-bottom:18px}
+  h1{font-size:clamp(32px,5.5vw,54px);font-weight:900;letter-spacing:-1.3px;line-height:1.05;margin-bottom:14px}
+  .sub{font-size:clamp(16px,2.3vw,20px);color:#cdd6e2;max-width:640px;margin:0 auto}
+  .graf{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.4));border:1px solid var(--bord);border-radius:18px;padding:18px 16px;margin:22px auto 0;max-width:720px}
+  .gtitle{display:flex;justify-content:space-between;font-size:11px;color:var(--mut);padding-left:128px;margin-bottom:4px}
+  .urow{display:flex;align-items:center;gap:8px;margin:5px 0}
+  .ulab{width:120px;flex:none;font-size:12px;line-height:1.12}.ulab b{font-weight:800}.ulab span{color:var(--mut);font-size:10px;display:block}
+  .utrack{flex:1;position:relative;height:22px;background:rgba(255,255,255,.05);border:1px solid var(--bord);border-radius:5px;overflow:hidden}
+  .unorm{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.28)}
+  .ubar{position:absolute;top:2px;bottom:2px;left:2px;width:0;border-radius:4px;transition:width .9s cubic-bezier(.2,.7,.2,1)}
+  .uval{width:34px;flex:none;text-align:right;font-weight:800;font-size:13px}
+  section{padding:30px 0}
+  .h2{font-size:clamp(20px,3.2vw,28px);font-weight:900;letter-spacing:-.6px;text-align:center;margin-bottom:12px}
+  .lead{color:#cdd6e2;text-align:center;max-width:680px;margin:0 auto;font-size:16px;line-height:1.8}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:24px}
+  .c{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:16px;padding:20px}
+  .c .ic{font-size:24px;margin-bottom:8px}.c h3{font-size:16px;font-weight:800;margin-bottom:5px}.c p{color:var(--mut);font-size:13.5px}
+  .quote{background:linear-gradient(110deg,rgba(96,165,250,.08),rgba(124,92,255,.06));border:1px solid var(--bord);border-radius:20px;padding:28px;text-align:center;margin-top:24px}
+  .quote p{font-size:clamp(17px,2.4vw,22px);font-weight:800;letter-spacing:-.3px;max-width:640px;margin:0 auto}
+  .cta{text-align:center;padding:6px 0 30px}
+  .crt{border-top:1px solid var(--bord);padding:24px 0;color:var(--mut);font-size:12.5px;text-align:center}.crt a{color:var(--ac)}
+</style></head><body>
+<nav><div class="wrap">
+  <a href="/web" class="logo">STRATEGIE × EUROSOFT × IQHUBS</a>
+  <a href="/web/kara" class="btn btn-g" style="padding:9px 16px;font-size:13px">🛒 Model Kára →</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="tag">Performia · EXEC-U-TEST 3.0</div>
+  <h1>U-TEST — <span class="grad">jak člověk funguje v práci</span></h1>
+  <p class="sub">Test pracovního potenciálu, produktivity a motivace. Deset vlastností osobnosti
+    na jednom grafu — a hlavně to, jak spolu souvisí.</p>
+</div></header>
+
+<div class="wrap"><div class="graf">
+  <div class="gtitle"><span>−100</span><span>0</span><span>+100</span></div>
+  <div id="ubars"></div>
+  <div style="font-size:11px;color:var(--mut);margin-top:8px;padding-left:128px;">Ukázkový profil. Svislé čáry = orientační pásmo (−19 / +32).</div>
+</div></div>
+
+<section style="padding-top:18px"><div class="wrap">
+  <div class="h2">Co U-TEST ukáže</div>
+  <p class="lead">Deset vlastností (A–J) jako stabilita, aktivita, tah na bránu, zodpovědnost, empatie či
+    komunikace. <b style="color:var(--tx)">Vztahy mezi nimi jsou důležitější než jednotlivé hodnoty</b> —
+    proto výsledek čte vyškolený konzultant a slouží jako podklad pro rozhovor, výběr i rozvoj.</p>
+  <div class="cards">
+    <div class="c"><div class="ic">🎯</div><h3>Výběr lidí</h3><p>Vidíte pracovní potenciál ještě před nástupem — ne jen hezké CV a dobrý dojem z pohovoru.</p></div>
+    <div class="c"><div class="ic">🌱</div><h3>Rozvoj</h3><p>Kde člověka podpořit, aby zabíral s radostí a na svém místě. Podklad, ne ortel.</p></div>
+    <div class="c"><div class="ic">🛒</div><h3>Spojení s Károu</h3><p>U-TEST je „lopata" — nástroj. Spolu s motorem (motivací) a reálným výstupem dává celý obraz produktivity.</p></div>
+  </div>
+  <div class="quote"><p>„Bez U-testu už k nám <span class="grad">nikdo nenastoupí.</span>" — říkají klienti Performia</p></div>
+</div></section>
+
+<div class="cta"><div class="wrap">
+  <a href="https://www.performia.cz/" target="_blank" rel="noopener" class="btn btn-p">Více o U-TESTu na Performia.cz →</a>
+</div></div>
+
+<div class="crt"><div class="wrap">
+  U-TEST / EXEC-U-TEST je nástroj a registrovaná metodika © <a href="https://www.performia.cz/" target="_blank" rel="noopener">Performia</a> — všechna práva vyhrazena.
+  Graf na této stránce je naše vlastní ztvárnění; metodika i vyhodnocení patří Performii a jejím licencovaným konzultantům.
+</div></div>
+
+<script>
+  var UT=[["A","Stabilita","Uspořádanost, stálost",74,"blue"],["B","Pozitivnost","Optimismus, nadhled",62,"blue"],
+    ["C","Klid","Klid, sebekontrola",55,"blue"],["D","Jistota","Stálost, předvídatelnost",48,"gray"],
+    ["E","Aktivita","Úroveň energie",88,"striped"],["F","Tah na bránu","Přesvědčení, přímost",70,"orange"],
+    ["G","Zodpovědnost","Iniciativní",84,"orange"],["H","Správný odhad","Tolerance, spravedlnost",66,"blue"],
+    ["I","Empatie","Vcítit se, přátelskost",80,"blue"],["J","Komunikace","Společenský, hovorný",91,"blue"]];
+  function uzone(z){ if(z==='striped') return 'repeating-linear-gradient(90deg,#f59e0b 0 7px,rgba(255,255,255,.25) 7px 11px)'; return z==='orange'?'#f59e0b':z==='gray'?'#9aa0aa':'#2a55c8'; }
+  function upct(v){ return ((Math.max(-100,Math.min(100,v))+100)/200*100); }
+  (function(){
+    var box=document.getElementById('ubars'); if(!box) return;
+    var nl=upct(-19), nh=upct(32);
+    UT.forEach(function(t){
+      var row=document.createElement('div'); row.className='urow';
+      row.innerHTML='<div class="ulab"><b>'+t[0]+' '+t[1]+'</b><span>'+t[2]+'</span></div>'
+        +'<div class="utrack"><div class="unorm" style="left:'+nl+'%"></div><div class="unorm" style="left:'+nh+'%"></div>'
+        +'<div class="ubar" data-w="'+upct(t[3])+'" style="background:'+uzone(t[4])+'"></div></div>'
+        +'<div class="uval">'+t[3]+'</div>';
+      box.appendChild(row);
+    });
+    var bars=box.querySelectorAll('.ubar');
+    setTimeout(function(){ bars.forEach(function(b,i){ setTimeout(function(){ b.style.width='calc('+b.dataset.w+'% - 4px)'; }, i*90); }); }, 200);
+  })();
+</script>
+</body></html>

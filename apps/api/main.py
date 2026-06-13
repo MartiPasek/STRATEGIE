@@ -913,6 +913,12 @@ def web_kara():
     return _web_subpage("kara.html")
 
 
+@app.get("/web/utest")
+def web_utest():
+    """U-TEST (EXEC-U-TEST, Performia) — animovaný graf 10 vlastností + výklad."""
+    return _web_subpage("utest.html")
+
+
 @app.get("/web/partner")
 def web_partner():
     """Digitální pozvánka pro Business Success & Performii (Rasťo + Lucie)."""

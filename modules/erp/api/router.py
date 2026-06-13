@@ -6593,6 +6593,31 @@ async def app_kara_score(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/public/demo-stats")
+async def app_public_demo_stats(req: Request) -> JSONResponse:
+    # VEŘEJNÉ (bez loginu) — jen anonymní agregáty pro živé demo. Žádná jména/PII.
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        hc = s.execute(_t("SELECT count(*) FROM public.user_tenants WHERE tenant_id=2 AND membership_status IN ('active','invited')")).scalar()
+        kara = s.execute(_t(
+            "SELECT CASE WHEN ms>500 THEN 'raketa' WHEN ms>200 THEN 'letadlo' WHEN ms>100 THEN 'zlaty' "
+            " WHEN ms>=51 THEN 'tahoun' WHEN ms>=1 THEN 'efekt' WHEN ms>=-50 THEN 'mene' ELSE 'ostat' END band, count(*) c "
+            "FROM (SELECT user_id, max(score) ms FROM tenant.staff_group_member WHERE tenant_id=2 GROUP BY user_id) z GROUP BY 1")).fetchall()
+        nab_t = s.execute(_t("SELECT count(*) FROM tenant.recruit_application WHERE tenant_id=2")).scalar()
+        nab_c = s.execute(_t("SELECT count(*) FROM tenant.recruit_candidate WHERE tenant_id=2")).scalar()
+        zak = s.execute(_t("SELECT count(*) FROM tenant.zakazka WHERE tenant_id=2 AND pichatelna=true")).scalar()
+        skup = s.execute(_t("SELECT count(*) FROM tenant.staff_group WHERE tenant_id=2 AND NOT archived")).scalar()
+        return JSONResponse({"ok": True, "headcount": int(hc or 0),
+                             "kara": {r[0]: int(r[1]) for r in kara},
+                             "nabor_total": int(nab_t or 0), "nabor_kandidatu": int(nab_c or 0),
+                             "zakazky_aktivni": int(zak or 0), "skupiny": int(skup or 0)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/kara/people")
 async def app_kara_people(req: Request) -> JSONResponse:
     # Lidé tenantu + jejich Kára hodnota (u jednotlivců). ?q= hledání.

@@ -1361,11 +1361,15 @@ setTimeout(function(){
     app.appendChild(el('<div class="hint" style="margin:6px;line-height:1.5;">Lidé na škále −100…+100 seskupení do pásem. Podklad pro rozvoj, ne ortel. Ťukni na člověka pro úpravu.</div>'));
     var sb=el('<div style="display:flex;gap:6px;margin:6px;flex-wrap:wrap;align-items:center;"></div>');
     sb.innerHTML='<input id="ksUid" type="number" placeholder="ID člověka" style="width:110px;padding:8px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);">'
-      +'<input id="ksVal" type="number" min="-100" max="100" placeholder="−100…100" style="width:110px;padding:8px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);">'
+      +'<input id="ksVal" type="number" min="-100" max="1000" placeholder="−100…1000" style="width:104px;padding:8px;border-radius:9px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);">'
+      +'<button id="ksOver" style="padding:9px 12px;border:1px solid #7dd3fc;border-radius:10px;background:rgba(125,211,252,.12);color:#7dd3fc;font-weight:700;cursor:pointer;">🚀 100 %+</button>'
       +'<button id="ksSave" style="padding:9px 14px;border:0;border-radius:10px;background:linear-gradient(110deg,#a78bfa,#7c5cff);color:#0c0820;font-weight:700;cursor:pointer;">Uložit</button>';
     app.appendChild(sb);
     var ksv=document.getElementById("ksVal");
-    if(ksv) ksv.addEventListener("change",function(){ var v=parseInt(ksv.value,10); if(v>=100){ karaOverdrive(v,function(nv){ ksv.value=nv; }); } });
+    var ovGuard=false;
+    if(ksv) ksv.addEventListener("input",function(){ var v=parseInt(ksv.value,10); if(v>=100 && !ovGuard){ ovGuard=true; karaOverdrive(v,function(nv){ ksv.value=nv; }); setTimeout(function(){ ovGuard=false; },1000); } });
+    var kso=document.getElementById("ksOver");
+    if(kso) kso.addEventListener("click",function(){ var v=parseInt(ksv.value,10); karaOverdrive((v>=100?v:100),function(nv){ ksv.value=nv; }); });
     var box=el('<div><div class="hint" style="margin:6px;">Načítám…</div></div>'); app.appendChild(box);
     var BANDS=[["raketa","🚀 Raketa (>500 %)","#f0abfc"],["letadlo","✈️ Letadlo (100–500 %)","#7dd3fc"],["tahoun","💪 Tahouni","#34d399"],["efektivni","✅ Efektivní","#60a5fa"],["rozvoj","🌱 Rozvoj","#fbbf24"],["prostor","🧭 Prostor pro změnu","#f87171"]];
     function load(){

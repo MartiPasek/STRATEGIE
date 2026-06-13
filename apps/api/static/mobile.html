@@ -5142,32 +5142,47 @@ setTimeout(function(){
           var row=el('<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid #1b2742;padding:9px 4px;"></div>');
           var lbl=(e.hours===0?"volno":(nf(e.hours)+" h"));
           row.appendChild(el('<div style="flex:1;"><b>'+czd2(e.date)+'</b> · <span style="color:#e6a93a;font-weight:600;">'+lbl+'</span>'+(e.reason?('<br><span class="hint">'+esc(e.reason)+'</span>'):'')+'</div>'));
-          var del=el('<button class="ghost" style="padding:6px 10px;color:#f87171;border-color:#5a2b2b;">Smazat</button>');
-          del.addEventListener("click",function(){ if(!confirm("Smazat výjimku "+czd2(e.date)+"?")) return; api("POST","/api/v1/erp/app/plan/exceptions/delete",{date:e.date}).then(function(r){ if(r&&r.ok) renderExc(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
-          row.appendChild(del); box.appendChild(row);
+          var edit=el('<button class="ghost" style="padding:6px 12px;border-color:#3a5a8c;color:#9cf;">Upravit</button>');
+          edit.addEventListener("click",function(){ excDialog(e); });
+          row.appendChild(edit); box.appendChild(row);
         });
       });
     }
-    function excDialog(){
+    function excDialog(ex){
+      var isEdit=!!ex;
       var t=new Date(); var today=t.getFullYear()+"-"+("0"+(t.getMonth()+1)).slice(-2)+"-"+("0"+t.getDate()).slice(-2);
+      var dVal=isEdit?ex.date:today, hVal=isEdit?ex.hours:0;
       var inS="width:100%;box-sizing:border-box;padding:10px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;";
       var ov=el('<div style="position:fixed;inset:0;z-index:300;background:rgba(2,6,14,.72);display:flex;align-items:center;justify-content:center;padding:20px;"></div>');
       var bx=el('<div style="background:#0e1830;border:1px solid #2b3a5c;border-radius:14px;padding:16px;width:100%;max-width:340px;"></div>');
-      bx.innerHTML='<div style="font-weight:700;margin-bottom:10px;">Nová firemní výjimka</div>'
-        +'<label class="hint" style="display:block;margin:2px 0;">Datum</label><input id="xD" type="date" value="'+today+'" style="'+inS+'">'
-        +'<label class="hint" style="display:block;margin:8px 0 2px;">Hodiny (0 = volno, 1–8 zkráceno)</label><input id="xH" type="number" min="0" max="8" step="0.5" value="0" style="'+inS+'">'
+      bx.innerHTML='<div style="font-weight:700;margin-bottom:10px;">'+(isEdit?'Upravit firemní výjimku':'Nová firemní výjimka')+'</div>'
+        +'<label class="hint" style="display:block;margin:2px 0;">Datum</label><input id="xD" type="date" value="'+dVal+'" '+(isEdit?'disabled':'')+' style="'+inS+(isEdit?'opacity:.6;':'')+'">'
+        +'<label class="hint" style="display:block;margin:8px 0 2px;">Hodiny (0 = volno, 1–8 zkráceno)</label><input id="xH" type="number" min="0" max="8" step="0.5" value="'+hVal+'" style="'+inS+'">'
         +'<input id="xR" type="text" placeholder="Důvod (např. celozávodní dovolená)" style="'+inS+'margin-top:8px;">';
+      if(isEdit){ bx.querySelector('#xR').value=ex.reason||""; }
       var bs=el('<div style="display:flex;gap:8px;margin-top:12px;"></div>');
-      var cancel=el('<button class="ghost" style="flex:1;">Zrušit</button>');
+      var cancel=el('<button class="ghost" style="flex:1;">Zavřít</button>');
       var save=el('<button class="green" style="flex:1;">Uložit</button>');
       cancel.addEventListener("click",function(){ ov.remove(); });
       save.addEventListener("click",function(){
         save.disabled=true;
-        api("POST","/api/v1/erp/app/plan/exceptions",{date:bx.querySelector('#xD').value, hours:parseFloat(bx.querySelector('#xH').value)||0, reason:bx.querySelector('#xR').value}).then(function(r){
+        api("POST","/api/v1/erp/app/plan/exceptions",{date:(isEdit?ex.date:bx.querySelector('#xD').value), hours:parseFloat(bx.querySelector('#xH').value)||0, reason:bx.querySelector('#xR').value}).then(function(r){
           if(r&&r.ok){ ov.remove(); renderExc(); } else { save.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); }
         });
       });
-      bs.appendChild(cancel); bs.appendChild(save); bx.appendChild(bs); ov.appendChild(bx); document.body.appendChild(ov);
+      bs.appendChild(cancel); bs.appendChild(save); bx.appendChild(bs);
+      if(isEdit){
+        var del=el('<button class="ghost full" style="margin-top:8px;color:#f87171;border-color:#5a2b2b;">🗑 Smazat výjimku</button>');
+        del.addEventListener("click",function(){
+          if(!confirm("Smazat výjimku "+czd2(ex.date)+"?")) return;
+          del.disabled=true;
+          api("POST","/api/v1/erp/app/plan/exceptions/delete",{date:ex.date}).then(function(r){
+            if(r&&r.ok){ ov.remove(); renderExc(); } else { del.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); }
+          });
+        });
+        bx.appendChild(del);
+      }
+      ov.appendChild(bx); document.body.appendChild(ov);
       ov.addEventListener("click",function(ev){ if(ev.target===ov) ov.remove(); });
     }
     renderPlan();

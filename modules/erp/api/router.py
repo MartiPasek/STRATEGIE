@@ -6593,6 +6593,43 @@ async def app_kara_score(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/kara/people")
+async def app_kara_people(req: Request) -> JSONResponse:
+    # Lidé tenantu + jejich Kára hodnota (u jednotlivců). ?q= hledání.
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _kara_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT u.id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            "   (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1), '#'||u.id) AS jmeno, "
+            " k.value "
+            "FROM public.users u "
+            "LEFT JOIN tenant.kara_score k ON k.tenant_id=2 AND k.subject_kind='user' AND k.subject_id=u.id "
+            "WHERE EXISTS (SELECT 1 FROM public.user_tenants ut WHERE ut.user_id=u.id AND ut.tenant_id=2 "
+            "   AND ut.membership_status IN ('active','invited')) AND u.id NOT IN (2,3,23,24) "
+            "ORDER BY (k.value IS NULL), k.value DESC, jmeno")).fetchall()
+        q = (req.query_params.get("q") or "").strip().lower()
+        out = []
+        for r in rows:
+            nm = r[1] or ("#" + str(r[0]))
+            if q and q not in nm.lower():
+                continue
+            band = _kara_band(r[2])
+            out.append({"user_id": r[0], "jmeno": nm, "value": r[2],
+                        "band": band[0], "band_label": band[1]})
+        return JSONResponse({"ok": True, "items": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/kara/board")
 async def app_kara_board(req: Request) -> JSONResponse:
     # Žebříček Kára: lidé seřazení dle hodnoty, seskupení do 4 pásem.

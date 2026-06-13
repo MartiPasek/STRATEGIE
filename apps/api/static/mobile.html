@@ -2955,7 +2955,8 @@ setTimeout(function(){
       vySetBadge("relaxuji", _vyPeople.filter(function(p){return p.stav==="pauza";}).length);
       vySetBadge("chybi", _vyPeople.filter(function(p){return p.stav==="chybi";}).length);
       vySetBadge("jedu", _vyPeople.filter(function(p){return p.stav==="jedu";}).length);
-      vySetBadge("cekam", (_vyIsGroup()?_vyPeople.filter(function(p){return !p.stav;}):vyBezPrace(_vyPeople)).length);
+      vySetBadge("cekam", _vyPeople.filter(function(p){return p.stav==="cekam";}).length);
+      vySetBadge("mimo_plan", _vyPeople.filter(function(p){return p.stav==="mimo_plan";}).length);
       vySetBadge("tym", _vyPeople.length);
     }
     if(_vyIsGroup()){
@@ -3026,12 +3027,12 @@ setTimeout(function(){
       zpr.forEach(function(m){ ul.appendChild(vyZpravaLi(m)); });
     } else {
       var lidi=(j.lidi||[]);
-      var STMAP={makam:"makam",relaxuji:"pauza",chybi:"chybi",jedu:"jedu"};
-      if(_vyView==="cekam"){ lidi=_vyIsGroup()?lidi.filter(function(pp){ return !pp.stav; }):vyBezPrace(lidi); }
+      var STMAP={makam:"makam",relaxuji:"pauza",chybi:"chybi",jedu:"jedu",mimo_plan:"mimo_plan"};
+      if(_vyView==="cekam"){ lidi=lidi.filter(function(pp){ return pp.stav==="cekam"; }); }
       else if(STMAP[_vyView]){ lidi=lidi.filter(function(pp){ return pp.stav===STMAP[_vyView]; }); }
       lidi=lidi.filter(function(x){ return !f||deacc(x.jmeno).indexOf(f)>=0; });
       if(!lidi.length){
-        var em={cekam:"Všichni mají práci. 👍",makam:"Nikdo zrovna nemaká.",relaxuji:"Nikdo není na pauze.",chybi:"Nikdo nechybí. 👍",jedu:"Nikdo není na cestě."};
+        var em={cekam:"Nikdo nečeká na práci. 👍",mimo_plan:"Dnes nikdo mimo plán.",makam:"Nikdo zrovna nemaká.",relaxuji:"Nikdo není na pauze.",chybi:"Nikdo nechybí. 👍",jedu:"Nikdo není na cestě."};
         ul.innerHTML='<li style="color:var(--mut);border:none;">'+(em[_vyView]||"Nikdo.")+'</li>'; return;
       }
       lidi.forEach(function(pp){ ul.appendChild(vyPersonLi(pp)); });
@@ -3180,7 +3181,7 @@ setTimeout(function(){
     var cnt=((pp.plan||[]).filter(function(o){return !o.hidden;}).length)+((pp.prirazeni||[]).length);
     var sub=cnt+' zakázek';
     if(_vyIsGroup()){
-      var GSM={makam:"🟢 maká",pauza:"☕ pauza",jedu:"🚗 na cestě",chybi:"🫥 nepřihlášen",pryc:"🌙 pryč",byl:"✓ byl"};
+      var GSM={makam:"🟢 maká",pauza:"☕ pauza",jedu:"🚗 na cestě",chybi:"🫥 nepřihlášen",pryc:"🌙 pryč",byl:"✓ byl",cekam:"🥱 bez zakázky",mimo_plan:"🌴 mimo plán"};
       sub=GSM[pp.stav]||"—";
       if(pp.stav==="makam"&&pp.stav_zak) sub='🧾 '+esc(pp.stav_zak);
       else if((pp.stav==="pauza"||pp.stav==="jedu")&&pp.stav_pozn) sub=(GSM[pp.stav]||"").split(" ")[0]+' '+esc(pp.stav_pozn);

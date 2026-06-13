@@ -10655,7 +10655,8 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                 if ("jedu" in nl) or ("cest" in nl):
                     st = "jedu"
                 elif r[1]:
-                    st = "makam"
+                    # Marti 13.6.: ve směně, ale bez aktivní zakázky (dokončil a nepíchnul jinam) = Čekám
+                    st = "makam" if (r[4] or "").strip() else "cekam"
                 elif any(k in nl for k in ("pauz", "obed", "relax", "provetr", "jidl", "najist", "provětr", "jídl", "oběd", "najíst")):
                     st = "pauza"
                 elif any(k in nl for k in ("nepocitej", "nepočítej", "nedoraz", "dovolen", "nemoc", "doktor", "lekar", "lékař")):
@@ -10767,7 +10768,8 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
                 if ("jedu" in nl) or ("cest" in nl):
                     st = "jedu"
                 elif r[1]:
-                    st = "makam"
+                    # Marti 13.6.: ve směně, ale bez aktivní zakázky (dokončil a nepíchnul jinam) = Čekám
+                    st = "makam" if (r[4] or "").strip() else "cekam"
                 elif any(k in nl for k in ("pauz", "obed", "relax", "provetr", "jidl", "najist", "provětr", "jídl", "oběd", "najíst")):
                     st = "pauza"
                 elif any(k in nl for k in ("nepocitej", "nepočítej", "nedoraz", "dovolen", "nemoc", "doktor", "lekar", "lékař")):
@@ -10837,11 +10839,23 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
                 "SELECT id, NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
                 "FROM public.users WHERE id = ANY(:ids)"), {"ids": uids}).fetchall():
                 names[r[0]] = r[1]
+        planoff = set()
+        try:
+            for r in s.execute(_t(
+                "SELECT user_id, expected_hours, day_type FROM tenant.att_plan_effective "
+                "WHERE tenant_id=2 AND plan_date=CURRENT_DATE")).fetchall():
+                if float(r[1] or 0) <= 0 or (r[2] in ("weekend", "holiday", "off")):
+                    planoff.add(r[0])
+        except Exception:
+            planoff = set()
         lidi = []
         for (u, role, score) in ordered:
             si = stavinfo.get(u, {})
+            _st = si.get("st", "")
+            if _st == "" and u in planoff:
+                _st = "mimo_plan"
             lidi.append({"user_id": u, "jmeno": names.get(u) or ("#" + str(u)),
-                         "role": role, "score": score, "stav": si.get("st", ""),
+                         "role": role, "score": score, "stav": _st,
                          "stav_pozn": si.get("note", ""), "stav_zak": si.get("proj", "")})
         if gid == 0:
             _rr = {"lead": 0, "deputy": 1, "member": 2}

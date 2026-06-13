@@ -5076,8 +5076,11 @@ setTimeout(function(){
     });
     right.appendChild(bGen);
     var bExc=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#6b5a2a;color:#e6c86a;font-weight:700;font-size:12px;line-height:1.25;">🏢<br>Firma<br>výjimky</button>');
-    bExc.addEventListener("click",function(){ renderExc(); });
+    bExc.addEventListener("click",function(){ renderExc('firma'); });
     right.appendChild(bExc);
+    var bScope=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#5a3a6b;color:#c9a6e6;font-weight:700;font-size:12px;line-height:1.25;">🎯<br>Cílené<br>výjimky</button>');
+    bScope.addEventListener("click",function(){ renderExc('scope'); });
+    right.appendChild(bScope);
     function czd2(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."+p[0]):iso; }
     function renderPlan(){
       left.innerHTML='<div class="hint">Načítám…</div>';
@@ -5123,22 +5126,23 @@ setTimeout(function(){
         if(cur){ cur.body.style.display="block"; cur.arr.innerHTML=cur.summary+' ▾'; }
       });
     }
-    function renderExc(){
+    function renderExc(mode){
+      mode=mode||'firma';
       left.innerHTML='';
       var hd=el('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"></div>');
-      hd.appendChild(el('<b>🏢 Firemní výjimky</b>'));
+      hd.appendChild(el('<b>'+(mode==='scope'?'🎯 Cílené výjimky':'🏢 Firemní výjimky')+'</b>'));
       var addB=el('<button class="ghost" style="padding:6px 12px;border-color:#3a7a4c;color:#7fe0a0;font-weight:700;">+ Přidat</button>');
-      addB.addEventListener("click",function(){ excDialog(); });
+      addB.addEventListener("click",function(){ excDialog(null, mode); });
       hd.appendChild(addB); left.appendChild(hd);
-      left.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:8px;">Firemní volno / zkrácený den. Rozsah: celá firma / skupina / jednotlivec. Priorita osobní > skupina > firma. Plán (vrstva 1) zůstává nedotčený.</div>'));
+      left.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:8px;">'+(mode==='scope'?'Volno / zkrácený den jen pro <b>skupinu</b> (např. Výroba) nebo <b>jednotlivce</b>. Přebíjí firemní výjimku.':'Volno / zkrácený den pro <b>celou firmu</b>. <b>0 h</b> = volno, <b>1–8 h</b> = zkráceno.')+' Plán (vrstva 1) zůstává nedotčený.</div>'));
       var box=el('<div></div>'); left.appendChild(box);
       box.innerHTML='<div class="hint">Načítám…</div>';
       Promise.all([api("GET","/api/v1/erp/app/plan/exceptions",""),api("GET","/api/v1/erp/app/plan/scope-exceptions","")]).then(function(res){
         var jc=res[0], js=res[1]; box.innerHTML='';
         if(jc&&jc.ok===false&&jc.error){ box.appendChild(el('<div class="hint">'+esc(jc.error)+'</div>')); return; }
         var items=[];
-        if(jc&&jc.ok&&jc.exceptions){ jc.exceptions.forEach(function(e){ items.push({kind:'firma',date:e.date,hours:e.hours,reason:e.reason,scope_name:'Celá firma',icon:'🏢'}); }); }
-        if(js&&js.ok&&js.items){ js.items.forEach(function(e){ items.push({kind:'scope',id:e.id,scope_type:e.scope_type,scope_id:e.scope_id,date:e.date,hours:e.hours,reason:e.reason,scope_name:e.scope_name,icon:(e.scope_type==='group'?'👥':'👤')}); }); }
+        if(mode!=='scope' && jc&&jc.ok&&jc.exceptions){ jc.exceptions.forEach(function(e){ items.push({kind:'firma',date:e.date,hours:e.hours,reason:e.reason,scope_name:'Celá firma',icon:'🏢'}); }); }
+        if(mode==='scope' && js&&js.ok&&js.items){ js.items.forEach(function(e){ items.push({kind:'scope',id:e.id,scope_type:e.scope_type,scope_id:e.scope_id,date:e.date,hours:e.hours,reason:e.reason,scope_name:e.scope_name,icon:(e.scope_type==='group'?'👥':'👤')}); }); }
         if(!items.length){ box.appendChild(el('<div class="hint">Zatím žádné výjimky.</div>')); return; }
         items.sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); });
         items.forEach(function(e){
@@ -5151,14 +5155,14 @@ setTimeout(function(){
         });
       });
     }
-    function excDialog(ex){
+    function excDialog(ex, mode){
       var isEdit=!!ex;
       var t=new Date(); var today=t.getFullYear()+"-"+("0"+(t.getMonth()+1)).slice(-2)+"-"+("0"+t.getDate()).slice(-2);
       var inS="width:100%;box-sizing:border-box;padding:10px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;";
       var ov=el('<div style="position:fixed;inset:0;z-index:300;background:rgba(2,6,14,.72);display:flex;align-items:center;justify-content:center;padding:20px;"></div>');
       var bx=el('<div style="background:#0e1830;border:1px solid #2b3a5c;border-radius:14px;padding:16px;width:100%;max-width:340px;"></div>');
       bx.appendChild(el('<div style="font-weight:700;margin-bottom:10px;">'+(isEdit?'Upravit výjimku':'Nová výjimka')+'</div>'));
-      var scopeType=isEdit?(ex.kind==='firma'?'firma':ex.scope_type):'firma';
+      var scopeType=isEdit?(ex.kind==='firma'?'firma':ex.scope_type):(mode==='scope'?'group':'firma');
       var targets=null, tgtSel=null;
       var scopeBox=el('<div style="margin-bottom:6px;"></div>'); bx.appendChild(scopeBox);
       var tgtBox=el('<div></div>'); bx.appendChild(tgtBox);
@@ -5173,11 +5177,14 @@ setTimeout(function(){
       function ensureTargets(cb){ if(targets){ cb(); return; } api("GET","/api/v1/erp/app/plan/exception-targets","").then(function(j){ targets=(j&&j.ok)?j:{groups:[],people:[]}; cb(); }); }
       if(isEdit){
         scopeBox.appendChild(el('<div class="hint">Rozsah: <b>'+(ex.kind==='firma'?'Celá firma':((ex.scope_type==='group'?'Skupina — ':'Jednotlivec — ')+esc(ex.scope_name)))+'</b></div>'));
-      } else {
+      } else if(mode==='scope'){
         scopeBox.appendChild(el('<label class="hint" style="display:block;margin:2px 0;">Rozsah</label>'));
-        var sSel=el('<select style="'+inS+'"><option value="firma">Celá firma</option><option value="group">Skupina</option><option value="user">Jednotlivec</option></select>');
-        sSel.addEventListener("change",function(){ scopeType=sSel.value; if(scopeType==='firma') buildTgt(); else ensureTargets(buildTgt); });
-        scopeBox.appendChild(sSel);
+        var sSel2=el('<select style="'+inS+'"><option value="group">Skupina</option><option value="user">Jednotlivec</option></select>');
+        sSel2.addEventListener("change",function(){ scopeType=sSel2.value; ensureTargets(buildTgt); });
+        scopeBox.appendChild(sSel2);
+        ensureTargets(buildTgt);
+      } else {
+        scopeBox.appendChild(el('<div class="hint">Rozsah: <b>Celá firma</b></div>'));
       }
       bx.appendChild(el('<label class="hint" style="display:block;margin:6px 0 2px;">Datum</label>'));
       var dI=el('<input type="date" value="'+(isEdit?ex.date:today)+'" '+(isEdit?'disabled':'')+' style="'+inS+(isEdit?'opacity:.6;':'')+'">'); bx.appendChild(dI);

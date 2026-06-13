@@ -38,6 +38,10 @@
   @media(max-width:900px){.navlinks{display:none}}
   .lang{font-size:12px;font-weight:700;display:flex;flex-direction:column;gap:1px;letter-spacing:.4px;line-height:1.25;text-align:center}
   .lang a{color:var(--mut)} .lang a.on{color:var(--tx)} .lang a:hover{color:var(--tl)}
+  .pflink{display:inline-flex;align-items:center;gap:7px;color:var(--tl);font-weight:700;font-size:15px;transition:filter .25s;animation:pfbreath 3.2s ease-in-out infinite}
+  .pflink .ar{display:inline-block;transition:transform .25s}
+  .pflink:hover{filter:brightness(1.2)}.pflink:hover .ar{transform:translateX(5px)}
+  @keyframes pfbreath{0%,100%{opacity:.82}50%{opacity:1}}
   /* HERO */
   .hero{position:relative;padding:84px 0 60px;text-align:center;overflow:hidden}
   .hero:before{content:"";position:absolute;top:-45%;left:50%;transform:translateX(-50%);width:1000px;height:1000px;
@@ -301,31 +305,31 @@
       <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--st);text-transform:uppercase;margin-bottom:8px">STRATEGIE · EUROSOFT</div>
       <h3 style="font-size:21px;font-weight:800">Marti Pašek</h3>
       <p style="color:var(--mut);font-size:14px;margin-bottom:14px">Zakladatel STRATEGIE a koncernu EUROSOFT</p>
-      <a href="/web/marti" style="display:inline-block;color:var(--tl);font-weight:700;font-size:15px">👤 Profil →</a>
+      <a href="/web/marti" class="pflink">👤 Profil <span class="ar">→</span></a>
     </div>
     <div class="card">
       <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--es);text-transform:uppercase;margin-bottom:8px">EUROSOFT</div>
       <h3 style="font-size:21px;font-weight:800">Šárka Novotná</h3>
       <p style="color:var(--mut);font-size:14px;margin-bottom:14px">Obchodně-personální ředitelka</p>
-      <a href="mailto:s.novotna@eurosoft.com" style="display:inline-block;color:var(--tl);font-weight:700;font-size:15px">✉️ s.novotna@eurosoft.com</a>
+      <a href="/web/sari" class="pflink">👤 Profil <span class="ar">→</span></a>
     </div>
     <div class="card">
       <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--iq);text-transform:uppercase;margin-bottom:8px">IQHUBS</div>
       <h3 style="font-size:21px;font-weight:800">Mgr. Petr Sládek</h3>
       <p style="color:var(--mut);font-size:14px;margin-bottom:10px">Ředitel, CEO</p>
-      <a href="https://iqhubs.cz/kontakty/" target="_blank" rel="noopener" style="display:inline-block;color:var(--tl);font-weight:700;font-size:15px">🌐 iqhubs.cz/kontakty</a>
+      <a href="https://iqhubs.cz/kontakty/" target="_blank" rel="noopener" class="pflink">👤 Profil <span class="ar">→</span></a>
     </div>
     <div class="card">
       <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:#fbbf24;text-transform:uppercase;margin-bottom:8px">BUSINESS SUCCESS</div>
       <h3 style="font-size:21px;font-weight:800">Rastislav Zachar</h3>
       <p style="color:var(--mut);font-size:14px;margin-bottom:10px">Majitel · funkční řízení firmy</p>
-      <a href="https://www.success.cz/o-nas/rastislav-zachar/" target="_blank" rel="noopener" style="display:block;color:var(--tl);font-weight:700;font-size:15px">🌐 profil Rastislava Zachara</a>
+      <a href="https://www.success.cz/o-nas/rastislav-zachar/" target="_blank" rel="noopener" class="pflink">👤 Profil <span class="ar">→</span></a>
     </div>
     <div class="card">
       <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:#a78bfa;text-transform:uppercase;margin-bottom:8px">PERFORMIA</div>
       <h3 style="font-size:21px;font-weight:800">Lucie Spáčilová</h3>
       <p style="color:var(--mut);font-size:14px;margin-bottom:10px">Výkonná ředitelka · výběr lidí podle produktivity</p>
-      <a href="https://www.performia.cz/kontakt#nas-tym" target="_blank" rel="noopener" style="display:inline-block;color:var(--tl);font-weight:700;font-size:15px">🌐 performia.cz · náš tým</a>
+      <a href="https://www.performia.cz/kontakt#nas-tym" target="_blank" rel="noopener" class="pflink">👤 Profil <span class="ar">→</span></a>
     </div>
   </div>
 </div></section>

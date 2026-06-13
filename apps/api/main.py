@@ -901,6 +901,12 @@ def web_marti():
     return _web_subpage("marti.html")
 
 
+@app.get("/web/sari")
+def web_sari():
+    """Osobní profil Šárky Novotné — obchodně-personální ředitelka EUROSOFT."""
+    return _web_subpage("sari.html")
+
+
 @app.get("/web/partner")
 def web_partner():
     """Digitální pozvánka pro Business Success & Performii (Rasťo + Lucie)."""

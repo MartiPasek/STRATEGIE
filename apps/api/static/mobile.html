@@ -2568,6 +2568,8 @@ setTimeout(function(){
   }
   function skBand(sc){
     sc=sc||0;
+    if(sc>500)  return {emoji:"🚀", label:"Raketa", color:"#f0abfc"};
+    if(sc>100)  return {emoji:"✈️", label:"Letadlo", color:"#7dd3fc"};
     if(sc>=51)  return {emoji:"🐎", label:"Tahoun", color:"#10b981"};
     if(sc>=1)   return {emoji:"✅", label:"Efektivní", color:"#4f8ef7"};
     if(sc>=-50) return {emoji:"🐢", label:"Méně efektivní", color:"#e0a44a"};
@@ -2579,12 +2581,16 @@ setTimeout(function(){
     // Performia „Kára" skóre −100..+100 (tahoun ⇄ ti ostatní)
     var bd0=skBand(m.score||0);
     var sw=el('<div style="padding:10px 6px 4px;"></div>');
-    sw.appendChild(el('<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-bottom:4px;"><span>🪨 −100</span><span>Kára</span><span>+100 🐎</span></div>'));
+    sw.appendChild(el('<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-bottom:4px;"><span>🪨 −100</span><span>Kára</span><span>+100 🐎 → ✈️🚀</span></div>'));
     var val=el('<div style="text-align:center;font-weight:800;font-size:21px;color:'+bd0.color+';margin-bottom:4px;">'+(m.score>0?"+":"")+(m.score||0)+' · '+bd0.emoji+' '+esc(bd0.label)+'</div>');
-    var rng=el('<input type="range" min="-100" max="100" step="1" value="'+(m.score||0)+'" style="width:100%;accent-color:'+bd0.color+';">');
+    var rng=el('<input type="range" min="-100" max="100" step="1" value="'+(Math.min(100,(m.score||0)))+'" style="width:100%;accent-color:'+bd0.color+';">');
+    function skSetVal(nv){ m.score=nv; var b=skBand(nv); val.innerHTML=(nv>0?"+":"")+nv+' · '+b.emoji+' '+esc(b.label); val.style.color=b.color; rng.style.accentColor=b.color; rng.value=Math.min(100,nv); }
     rng.addEventListener("input",function(){ var v=parseInt(rng.value,10)||0; var b=skBand(v); val.innerHTML=(v>0?"+":"")+v+' · '+b.emoji+' '+esc(b.label); val.style.color=b.color; rng.style.accentColor=b.color; });
-    rng.addEventListener("change",function(){ var v=parseInt(rng.value,10)||0; skScore(g.id,m.user_id,v); });
-    sw.appendChild(val); sw.appendChild(rng); exp.appendChild(sw);
+    rng.addEventListener("change",function(){ var v=parseInt(rng.value,10)||0; if(v>=100){ karaOverdrive((m.score&&m.score>100?m.score:100),function(nv){ skSetVal(nv); skScore(g.id,m.user_id,nv); }); } else { skSetVal(v); skScore(g.id,m.user_id,v); } });
+    sw.appendChild(val); sw.appendChild(rng);
+    var ovb=el('<button class="ghost" style="margin:6px 0 0;width:100%;color:#7dd3fc;border-color:#7dd3fc;">🚀 Přetáhnout přes 100 % (✈️ Letadlo / 🚀 Raketa)</button>');
+    ovb.addEventListener("click",function(){ karaOverdrive((m.score&&m.score>100?m.score:100),function(nv){ skSetVal(nv); skScore(g.id,m.user_id,nv); }); });
+    sw.appendChild(ovb); exp.appendChild(sw);
     var row=el('<div style="display:flex;gap:6px;flex-wrap:wrap;padding:8px 4px;"></div>');
     var bL=el('<button class="ghost" style="margin:0;">⭐ Vedoucí</button>'); bL.addEventListener("click",function(){ skUpdate(g.id,{leader_user_id:m.user_id}); });
     var bD=el('<button class="ghost" style="margin:0;">🎖 Zástupce</button>'); bD.addEventListener("click",function(){ skUpdate(g.id,{deputy_user_id:m.user_id}); });

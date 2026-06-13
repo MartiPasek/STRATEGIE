@@ -10794,7 +10794,7 @@ async def app_skupiny_skore(gid: int, req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "chybí user_id/score"})
     if not tu:
         return JSONResponse({"ok": False, "error": "chybí user_id"})
-    sc = max(-100, min(100, sc))
+    sc = max(-100, min(1000, sc))
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:

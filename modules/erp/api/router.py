@@ -10641,10 +10641,11 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
         try:
             srows = s.execute(_t(
                 "SELECT e.user_id, "
-                " bool_or(a.is_active AND et.category='presence' AND a.status NOT IN ('superseded','announced')) AS aktiv, "
+                " bool_or(a.is_active AND et.category IN ('presence','overhead') AND a.status NOT IN ('superseded','announced')) AS aktiv, "
                 " count(*) FILTER (WHERE a.status NOT IN ('superseded','announced')) AS zazn, "
                 " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note, "
-                " (array_agg(a.project_ref ORDER BY a.id DESC) FILTER (WHERE a.is_active AND a.project_ref IS NOT NULL))[1] AS proj "
+                " (array_agg(a.project_ref ORDER BY a.id DESC) FILTER (WHERE a.is_active AND a.project_ref IS NOT NULL))[1] AS proj, "
+                " bool_or(a.is_active AND a.status NOT IN ('superseded','announced') AND (a.project_ref IS NOT NULL OR et.category='overhead')) AS prace "
                 "FROM tenant.att_entry a "
                 "JOIN tenant.att_employee e ON e.id=a.employee_id AND e.tenant_id=2 "
                 "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
@@ -10655,8 +10656,8 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                 if ("jedu" in nl) or ("cest" in nl):
                     st = "jedu"
                 elif r[1]:
-                    # Marti 13.6.: ve směně, ale bez aktivní zakázky (dokončil a nepíchnul jinam) = Čekám
-                    st = "makam" if (r[4] or "").strip() else "cekam"
+                    # Marti 13.6.: ve směně + zakázka NEBO režie = Makám; ve směně bez práce = Čekám
+                    st = "makam" if r[5] else "cekam"
                 elif any(k in nl for k in ("pauz", "obed", "relax", "provetr", "jidl", "najist", "provětr", "jídl", "oběd", "najíst")):
                     st = "pauza"
                 elif any(k in nl for k in ("nepocitej", "nepočítej", "nedoraz", "dovolen", "nemoc", "doktor", "lekar", "lékař")):
@@ -10754,10 +10755,11 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
         try:
             srows = s.execute(_t(
                 "SELECT e.user_id, "
-                " bool_or(a.is_active AND et.category='presence' AND a.status NOT IN ('superseded','announced')) AS aktiv, "
+                " bool_or(a.is_active AND et.category IN ('presence','overhead') AND a.status NOT IN ('superseded','announced')) AS aktiv, "
                 " count(*) FILTER (WHERE a.status NOT IN ('superseded','announced')) AS zazn, "
                 " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note, "
-                " (array_agg(a.project_ref ORDER BY a.id DESC) FILTER (WHERE a.is_active AND a.project_ref IS NOT NULL))[1] AS proj "
+                " (array_agg(a.project_ref ORDER BY a.id DESC) FILTER (WHERE a.is_active AND a.project_ref IS NOT NULL))[1] AS proj, "
+                " bool_or(a.is_active AND a.status NOT IN ('superseded','announced') AND (a.project_ref IS NOT NULL OR et.category='overhead')) AS prace "
                 "FROM tenant.att_entry a "
                 "JOIN tenant.att_employee e ON e.id=a.employee_id AND e.tenant_id=2 "
                 "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
@@ -10768,8 +10770,8 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
                 if ("jedu" in nl) or ("cest" in nl):
                     st = "jedu"
                 elif r[1]:
-                    # Marti 13.6.: ve směně, ale bez aktivní zakázky (dokončil a nepíchnul jinam) = Čekám
-                    st = "makam" if (r[4] or "").strip() else "cekam"
+                    # Marti 13.6.: ve směně + zakázka NEBO režie = Makám; ve směně bez práce = Čekám
+                    st = "makam" if r[5] else "cekam"
                 elif any(k in nl for k in ("pauz", "obed", "relax", "provetr", "jidl", "najist", "provětr", "jídl", "oběd", "najíst")):
                     st = "pauza"
                 elif any(k in nl for k in ("nepocitej", "nepočítej", "nedoraz", "dovolen", "nemoc", "doktor", "lekar", "lékař")):

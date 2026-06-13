@@ -7929,6 +7929,107 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/plan/my-uvazek")
+async def app_plan_my_uvazek(req: Request) -> JSONResponse:
+    """Můj úvazek + týdenní vzorec. Self čte vlastní; HR/rodič může ?user_id=."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        can = _hr_can_manage(s, uid)
+        target = uid
+        tu = req.query_params.get("user_id")
+        if tu and int(tu) != uid:
+            if not can:
+                return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+            target = int(tu)
+        try:
+            uvazek = float(_resolve_cond_num(s, target, "uvazek_h_tyden", 40.0)) or 40.0
+        except Exception:
+            uvazek = 40.0
+        per_day = round(uvazek / 5.0, 2)
+        rowmap = {}
+        try:
+            for r in s.execute(_t("SELECT weekday, works, hours FROM tenant.work_schedule "
+                                  "WHERE tenant_id=2 AND user_id=:u"), {"u": target}).fetchall():
+                rowmap[int(r[0])] = (bool(r[1]), float(r[2]) if r[2] is not None else None)
+        except Exception:
+            rowmap = {}
+        _wn = {1: "Pondělí", 2: "Úterý", 3: "Středa", 4: "Čtvrtek", 5: "Pátek", 6: "Sobota", 7: "Neděle"}
+        days = []
+        for wd in range(1, 8):
+            if wd in rowmap:
+                works, h = rowmap[wd][0], (rowmap[wd][1] if rowmap[wd][1] is not None else per_day)
+                expl = True
+            else:
+                works = wd <= 5
+                h = per_day if works else 0
+                expl = False
+            days.append({"weekday": wd, "label": _wn[wd], "works": works,
+                         "hours": float(h), "explicit": expl})
+        suma = round(sum(d["hours"] for d in days if d["works"]), 2)
+        return JSONResponse({"ok": True, "user_id": target, "uvazek": uvazek,
+                             "per_day": per_day, "days": days, "suma": suma, "can_edit": can})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/plan/my-uvazek/save")
+async def app_plan_my_uvazek_save(req: Request) -> JSONResponse:
+    """Uloží úvazek (staff_cond user) + týdenní vzorec (work_schedule). Jen HR/rodič."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        target = int((b or {}).get("user_id") or 0) or uid
+        uvazek = round(float((b or {}).get("uvazek")), 2)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatný úvazek."})
+    if uvazek <= 0 or uvazek > 80:
+        return JSONResponse({"ok": False, "error": "Úvazek musí být 1–80 h."})
+    days = (b or {}).get("days") or []
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "Úvazek může měnit jen HR/rodič."}, status_code=403)
+        # úvazek → staff_cond user scope (idempotentní)
+        s.execute(_t("DELETE FROM tenant.staff_cond WHERE tenant_id=2 AND scope_kind='user' "
+                     "AND cond_code='uvazek_h_tyden' AND COALESCE(user_id,0)=:u"), {"u": target})
+        s.execute(_t("INSERT INTO tenant.staff_cond (tenant_id,scope_kind,group_code,user_id,cond_code,value,note,"
+                     "changed_by,changed_at) VALUES (2,'user',NULL,:u,'uvazek_h_tyden',:v,NULL,:by,now())"),
+                  {"u": target, "v": str(uvazek), "by": uid})
+        # týdenní vzorec → work_schedule (per den upsert)
+        for d in days:
+            try:
+                wd = int(d.get("weekday"))
+                if wd not in (1, 2, 3, 4, 5, 6, 7):
+                    continue
+                works = bool(d.get("works"))
+                hrs = round(float(d.get("hours") or 0), 2)
+            except Exception:
+                continue
+            s.execute(_t(
+                "INSERT INTO tenant.work_schedule (tenant_id,user_id,weekday,works,hours,changed_by,changed_at) "
+                "VALUES (2,:u,:wd,:w,:h,:by,now()) "
+                "ON CONFLICT (tenant_id,user_id,weekday) DO UPDATE SET works=EXCLUDED.works, "
+                "hours=EXCLUDED.hours, changed_by=EXCLUDED.changed_by, changed_at=now()"),
+                {"u": target, "wd": wd, "w": works, "h": hrs, "by": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Vrstva 2: firemní výjimky (samostatná tabulka, NEPŘEPISUJE vrstvu 1) ──────
 @api_router.get("/app/plan/exceptions")
 async def app_plan_exceptions(req: Request) -> JSONResponse:

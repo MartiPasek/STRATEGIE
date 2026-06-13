@@ -5084,6 +5084,9 @@ setTimeout(function(){
     var bFirma=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a6b5a;color:#7fe0c8;font-weight:700;font-size:12px;line-height:1.25;">🏭<br>Firma<br>plán</button>');
     bFirma.addEventListener("click",function(){ renderPlan(true); });
     right.appendChild(bFirma);
+    var bUv=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#6b4a2a;color:#e6b97a;font-weight:700;font-size:12px;line-height:1.25;">📐<br>Můj<br>úvazek</button>');
+    bUv.addEventListener("click",function(){ renderUvazek(); });
+    right.appendChild(bUv);
     var bMy=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a6b4c;color:#9ce0b0;font-weight:700;font-size:12px;line-height:1.25;">👤<br>Můj<br>plán</button>');
     bMy.addEventListener("click",function(){ renderPlan(false,'mydefault'); });
     right.appendChild(bMy);
@@ -5142,6 +5145,46 @@ setTimeout(function(){
         });
         var cur=entries.filter(function(e){return e.m===nowM;})[0]||entries[0];
         if(cur){ cur.body.style.display="block"; cur.arr.innerHTML=cur.summary+' ▾'; }
+      });
+    }
+    function renderUvazek(){
+      left.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/plan/my-uvazek","").then(function(j){
+        left.innerHTML='';
+        if(!j||!j.ok){ left.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Nelze načíst")+'</div>')); return; }
+        left.appendChild(el('<div style="margin-bottom:8px;"><b>📐 Můj úvazek</b> <span class="hint">· '+(j.can_edit?'lze upravit':'jen k náhledu')+'</span></div>'));
+        var iS="box-sizing:border-box;padding:10px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;";
+        left.appendChild(el('<label class="hint" style="display:block;margin:2px 0;">Týdenní úvazek (h)</label>'));
+        var uin=el('<input type="number" min="1" max="80" step="0.5" value="'+j.uvazek+'" '+(j.can_edit?'':'disabled')+' style="width:100%;'+iS+'margin-bottom:10px;">');
+        left.appendChild(uin);
+        left.appendChild(el('<div class="hint" style="margin-bottom:2px;">Týdenní vzorec (které dny a kolik hodin)</div>'));
+        var dayEls=[];
+        j.days.forEach(function(d){
+          var row=el('<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid #1b2742;padding:7px 2px;"></div>');
+          var cb=el('<input type="checkbox" '+(d.works?'checked':'')+' '+(j.can_edit?'':'disabled')+' style="width:18px;height:18px;">');
+          row.appendChild(cb);
+          row.appendChild(el('<div style="flex:1;">'+d.label+'</div>'));
+          var hin=el('<input type="number" min="0" max="24" step="0.5" value="'+d.hours+'" '+(j.can_edit?'':'disabled')+' style="width:78px;'+iS+'text-align:right;padding:7px;">');
+          row.appendChild(hin); row.appendChild(el('<span class="hint">h</span>'));
+          dayEls.push({weekday:d.weekday, cb:cb, hin:hin});
+          left.appendChild(row);
+        });
+        if(j.can_edit){
+          var rb=el('<button class="ghost full" style="margin-top:10px;">↻ Rozpočítat úvazek do zaškrtnutých dnů</button>');
+          rb.addEventListener("click",function(){ var uvz=parseFloat(uin.value)||0; var wc=dayEls.filter(function(x){return x.cb.checked;}).length||1; var pd=Math.round((uvz/wc)*100)/100; dayEls.forEach(function(x){ x.hin.value=x.cb.checked?pd:0; }); });
+          left.appendChild(rb);
+          var sb=el('<button class="green full" style="margin-top:8px;">Uložit úvazek</button>');
+          var sst=el('<div class="hint" style="margin-top:6px;"></div>');
+          sb.addEventListener("click",function(){
+            var uvz=parseFloat(uin.value)||0;
+            var days=dayEls.map(function(x){ return {weekday:x.weekday, works:x.cb.checked, hours:parseFloat(x.hin.value)||0}; });
+            sb.disabled=true; sst.textContent="Ukládám…";
+            api("POST","/api/v1/erp/app/plan/my-uvazek/save",{uvazek:uvz, days:days}).then(function(r){
+              sb.disabled=false; sst.textContent=(r&&r.ok)?"✅ Uloženo — 👤 Můj plán se přepočítá":("✗ "+((r&&r.error)||"chyba"));
+            });
+          });
+          left.appendChild(sb); left.appendChild(sst);
+        }
       });
     }
     function renderExc(mode){

@@ -5366,7 +5366,7 @@ setTimeout(function(){
         var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
         box.appendChild(el('<div style="margin-bottom:4px;"><b>👤 '+(AP?esc(AP.name):'Můj plán')+' '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
         box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">'+(AP?'Klepni na týden — uvidíš návrhy a můžeš je schválit/zamítnout.':'Klepni na týden — otevře se celý. Tam přidáš návrhy ke schválení.')+(ST.pend?(' <b style="color:var(--amber);">· '+ST.pend+' čeká</b>'):'')+'</div>'));
-        var curCard=null, todayEl=null, cardByKey={};
+        var curCard=null, todayEl=null, cardByKey={}, firstPendCard=null;
         ST.order.forEach(function(k){
           var ds=ST.weeks[k], sum=0, wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
           var lastD=ds[ds.length-1].date, isPast=(lastD<todayIso), isCur=(k===ST.nowKey);
@@ -5397,9 +5397,11 @@ setTimeout(function(){
           box.appendChild(card);
           cardByKey[k]=card;
           if(isCur) curCard=card;
+          if(pc>0 && !firstPendCard) firstPendCard=card;   // první týden s čekajícím návrhem
         });
         // Nascrolovat na DNEŠEK jen při PRVNÍM otevření (ne při návratu z týdne).
-        var target=todayEl||curCard;
+        // Schvalovatel: nascrolluj na první týden, kde něco čeká na schválení.
+        var target=(AP&&firstPendCard)?firstPendCard:(todayEl||curCard);
         if(doScroll && target){ setTimeout(function(){ try{ target.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} },40); }
         else if(ST.openWk && cardByKey[ST.openWk]){ setTimeout(function(){ try{ cardByKey[ST.openWk].scrollIntoView({block:"start"}); }catch(e){} },30); }
       }

@@ -3927,6 +3927,9 @@ setTimeout(function(){
           _sg.appendChild(appCell("🥱","Čekám",0,_fbQuick("Čekám na práci — mám volnou kapacitu 🥱","pozadavek","✅ Vedoucí ví, že čekáš.")));
           bw.appendChild(_sg);
         }
+        // Marti 14.6.: během práce snadná změna zakázky/činnosti — sekce „Moje
+        // zakázky a činnosti" rovnou v panelu, mezi statusem a „Potřebuji ti něco říct".
+        if(open && window._buildWorkSwitch){ window._buildWorkSwitch(bw); }
         // Marti 7.6. večer: zelené v obou stavech, bublina vpravo.
         var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);
@@ -6156,6 +6159,22 @@ setTimeout(function(){
     }
     load();
   }
+  // Marti 14.6.: kompaktní přepínač zakázky/činnosti během práce (do pracovního panelu).
+  window._buildWorkSwitch=function(host){
+    var ws=el('<div style="margin:8px 0;padding:10px;border:1px solid #2a3a4d;border-radius:12px;background:rgba(127,200,224,.05);"></div>');
+    ws.appendChild(el('<div class="hint" style="font-size:11px;letter-spacing:.5px;margin-bottom:6px;">CO PRÁVĚ DĚLÁM — můžeš změnit</div>'));
+    var wstat=el('<div style="font-size:13px;line-height:1.5;color:#cdd8ea;margin-bottom:8px;">…</div>'); ws.appendChild(wstat);
+    var grid=el('<div class="appgrid"></div>');
+    grid.appendChild(appCell("🧾","Zakázka",0,function(){ go("prace_zak"); }));
+    grid.appendChild(appCell("🔧","Činnost",0,function(){ go("prace_cin"); }));
+    ws.appendChild(grid); host.appendChild(ws);
+    api("GET","/api/v1/erp/app/work/state","").then(function(j){
+      var src=((j&&j.at_work&&j.working_alloc)||(j&&j.pref))||{};
+      var zt=src.is_rezie?"🧰 Režie (bez zakázky)":(src.project_ref?("🧾 "+esc(src.project_ref)+(src.project_nazev?(" — "+esc(src.project_nazev)):"")):'<span style="color:#8696b8;">— zakázka nevybrána —</span>');
+      var ct=src.cinnost_name?("🔧 "+esc(src.cinnost_name)):'<span style="color:#8696b8;">— činnost nevybrána —</span>';
+      wstat.innerHTML=zt+'<br>'+ct;
+    }).catch(function(){ wstat.textContent=""; });
+  };
   // Marti 14.6.: „Makat" — zapni docházku + zakázkový systém z předvýběru.
   window._praceStart=function(){
     api("POST","/api/v1/erp/app/attendance/checkin",{kind:"work",switch:true}).then(function(r){

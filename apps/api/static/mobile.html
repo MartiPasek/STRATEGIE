@@ -3607,24 +3607,6 @@ setTimeout(function(){
     var _jindeBox=el('<div id="dochJindeBox" style="display:none;margin:4px 4px 6px;padding:8px;border:1px solid #4a3a1a;border-radius:12px;background:rgba(251,191,36,.05);"></div>');
     _toolsWrap.appendChild(_jindeBox);
     _toolSec("🧰 MOJE ZAKÁZKY A ČINNOSTI");
-    // Marti 14.6.: vybrané činnosti z „Moje činnosti" jako rychlé přepínače činnosti
-    // v rámci práce — hned pod nadpisem. Klik = přepne běžící práci na tuto činnost.
-    var _tgcin=el('<div class="appgrid"></div>');
-    _toolsWrap.appendChild(_tgcin);
-    (function(){
-      api("GET","/api/v1/erp/app/vyroba/my-cinnosti","").then(function(j){
-        var cs=((j&&j.cinnosti)||[]).filter(function(c){ return c&&!c.hidden; });
-        _tgcin.innerHTML="";
-        cs.forEach(function(c){
-          _tgcin.appendChild(appCell("🔧",c.name,0,function(){
-            api("POST","/api/v1/erp/app/attendance/checkin",{kind:"work",switch:true,cinnost:c.name}).then(function(r){
-              if(r&&r.need_confirm&&r.need_confirm.length){ alert("Nejdřív si prosím potvrď předchozí docházku."); }
-              if(typeof dochLoad==="function") dochLoad();
-            }).catch(function(){});
-          }));
-        });
-      }).catch(function(){});
-    })();
     var _tgz=el('<div class="appgrid"></div>');
     _tgz.appendChild(appCell("🧾","Jsem na zakázce",0,function(){ if(typeof openSoon==="function") openSoon("Moje zakázky"); }));
     _tgz.appendChild(appCell("🧰","Moje činnosti",0,function(){ go("moje_cinnosti"); }));
@@ -6045,6 +6027,8 @@ setTimeout(function(){
   }
   function moje_cinnosti(){
     app.innerHTML=topbar("🧰 Moje činnosti", true);
+    // Marti 14.6.: vybrané činnosti složené jako ikony rovnou nahoře (náhled plochy).
+    var _topGrid=el('<div class="appgrid" style="margin-bottom:12px;"></div>'); app.appendChild(_topGrid);
     app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">Vyber, které činnosti chceš mít ve svém seznamu a v jakém pořadí. Výchozí = všechny. ▲▼ pořadí · ✕ odebrat · + přidat zpět.</div>'));
     var mb=el('<button class="ghost full" style="margin-bottom:10px;border-color:#6b4a2a;color:#e6b97a;">🛠 Master číselník (správa)</button>');
     mb.addEventListener("click",function(){ go("master_cinnosti"); });
@@ -6075,6 +6059,8 @@ setTimeout(function(){
         if(!j||!j.ok){ box.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
         _mine=(j.cinnosti||[]).filter(function(c){return !c.hidden;});
         var avail=(j.cinnosti||[]).filter(function(c){return c.hidden;});
+        // náhled plochy nahoře — vybrané činnosti jako ikony
+        if(_topGrid){ _topGrid.innerHTML=''; _mine.forEach(function(c){ _topGrid.appendChild(appCell("🔧",c.name,0,function(){})); }); }
         box.appendChild(el('<div style="font-weight:700;margin-bottom:6px;">Můj seznam ('+_mine.length+')</div>'));
         var ml=el('<div></div>'); box.appendChild(ml); renderMine(ml);
         box.appendChild(el('<div style="font-weight:700;margin:14px 0 6px;">Přidat ze seznamu</div>'));

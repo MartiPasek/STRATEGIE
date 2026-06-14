@@ -14050,6 +14050,198 @@ async def app_marti_message_last(req: Request) -> JSONResponse:
         ds.close()
 
 
+# =====================================================================
+# Marti 14.6.: Osa přiřazení práce (work_alloc) — overlay MIMO jádro docházky.
+# Úsek = zakázka + činnost dohromady. Změna kterékoli = nový úsek.
+# Životní cyklus vázán na směnu (otevře při práci, zavře při pauze/konci).
+# =====================================================================
+def _wa_close_running(s, uid: int) -> None:
+    from sqlalchemy import text as _t
+    s.execute(_t("UPDATE tenant.work_alloc SET ended_at=now(), updated_at=now() "
+                 "WHERE tenant_id=:t AND user_id=:u AND ended_at IS NULL"),
+              {"t": _ATT_TENANT, "u": uid})
+
+
+def _wa_latest_today(s, uid: int):
+    from sqlalchemy import text as _t
+    return s.execute(_t(
+        "SELECT project_ref, project_nazev, cinnost_id, cinnost_name, is_rezie "
+        "FROM tenant.work_alloc WHERE tenant_id=:t AND user_id=:u "
+        "AND started_at::date=current_date ORDER BY id DESC LIMIT 1"),
+        {"t": _ATT_TENANT, "u": uid}).mappings().first()
+
+
+def _wa_running(s, uid: int):
+    from sqlalchemy import text as _t
+    return s.execute(_t(
+        "SELECT id, project_ref, project_nazev, cinnost_id, cinnost_name, is_rezie, "
+        "to_char(started_at,'HH24:MI') AS since "
+        "FROM tenant.work_alloc WHERE tenant_id=:t AND user_id=:u AND ended_at IS NULL "
+        "ORDER BY id DESC LIMIT 1"),
+        {"t": _ATT_TENANT, "u": uid}).mappings().first()
+
+
+def _wa_open(s, uid: int, project_ref=None, project_nazev=None,
+             cinnost_id=None, cinnost_name=None, is_rezie=False, source="mobile") -> None:
+    from sqlalchemy import text as _t
+    _wa_close_running(s, uid)
+    s.execute(_t(
+        "INSERT INTO tenant.work_alloc (tenant_id,user_id,started_at,project_ref,project_nazev,"
+        "cinnost_id,cinnost_name,is_rezie,source,created_at,updated_at) "
+        "VALUES (:t,:u,now(),:pr,:pn,:ci,:cn,:rz,:src,now(),now())"),
+        {"t": _ATT_TENANT, "u": uid, "pr": project_ref, "pn": project_nazev,
+         "ci": cinnost_id, "cn": cinnost_name, "rz": bool(is_rezie), "src": source})
+
+
+def _att_is_working(s, emp: int) -> bool:
+    """True = běží pracovní/režijní směna (ne pauza / konec dne / cesta)."""
+    from sqlalchemy import text as _t
+    r = s.execute(_t(
+        "SELECT COALESCE(et.code,'') FROM tenant.att_entry a "
+        "LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+        "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.is_active=true ORDER BY a.id DESC LIMIT 1"),
+        {"t": _ATT_TENANT, "e": emp}).first()
+    return bool(r) and (r[0] in ("work", "overhead", ""))
+
+
+@api_router.get("/app/work/current")
+async def app_work_current(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        working = _att_is_working(s, emp)
+        cur = _wa_running(s, uid) if working else None
+        s.commit()
+        return JSONResponse(jsonable_encoder({
+            "ok": True, "at_work": working,
+            "alloc": (dict(cur) if cur else None)}))
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/work/today")
+async def app_work_today(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT to_char(started_at,'HH24:MI') AS od, to_char(ended_at,'HH24:MI') AS do_, "
+            "project_ref, project_nazev, cinnost_name, is_rezie, "
+            "round((EXTRACT(EPOCH FROM (COALESCE(ended_at,now())-started_at))/3600.0)::numeric,2) AS hod "
+            "FROM tenant.work_alloc WHERE tenant_id=:t AND user_id=:u "
+            "AND started_at::date=current_date ORDER BY id"),
+            {"t": _ATT_TENANT, "u": uid}).mappings().all()
+        s.commit()
+        return JSONResponse(jsonable_encoder({"ok": True, "segments": [dict(r) for r in rows]}))
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/work/set-zakazka")
+async def app_work_set_zakazka(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    pr = str((body or {}).get("project_ref") or "").strip()[:40]
+    pn = str((body or {}).get("project_nazev") or "").strip()[:200] or None
+    if not pr:
+        return JSONResponse({"ok": False, "error": "project_ref"})
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        if not _att_is_working(s, emp):
+            return JSONResponse({"ok": False, "error": "not_working",
+                                 "msg": "Nejsi přihlášený v práci."})
+        prev = _wa_running(s, uid)
+        _wa_open(s, uid, project_ref=pr, project_nazev=pn,
+                 cinnost_id=(prev["cinnost_id"] if prev else None),
+                 cinnost_name=(prev["cinnost_name"] if prev else None),
+                 is_rezie=False)
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/work/set-rezie")
+async def app_work_set_rezie(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        if not _att_is_working(s, emp):
+            return JSONResponse({"ok": False, "error": "not_working",
+                                 "msg": "Nejsi přihlášený v práci."})
+        prev = _wa_running(s, uid)
+        _wa_open(s, uid, project_ref=None, project_nazev=None,
+                 cinnost_id=(prev["cinnost_id"] if prev else None),
+                 cinnost_name=(prev["cinnost_name"] if prev else None),
+                 is_rezie=True)
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/work/set-cinnost")
+async def app_work_set_cinnost(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        ci = int((body or {}).get("cinnost_id") or 0)
+    except Exception:
+        ci = 0
+    if not ci:
+        return JSONResponse({"ok": False, "error": "cinnost_id"})
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        if not _att_is_working(s, emp):
+            return JSONResponse({"ok": False, "error": "not_working",
+                                 "msg": "Nejsi přihlášený v práci."})
+        cn = s.execute(_t("SELECT name FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND id=:c"),
+                       {"t": _ATT_TENANT, "c": ci}).scalar()
+        if not cn:
+            return JSONResponse({"ok": False, "error": "cinnost_not_found"})
+        prev = _wa_running(s, uid)
+        _wa_open(s, uid,
+                 project_ref=(prev["project_ref"] if prev else None),
+                 project_nazev=(prev["project_nazev"] if prev else None),
+                 cinnost_id=ci, cinnost_name=cn,
+                 is_rezie=(bool(prev["is_rezie"]) if prev else False))
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/checkin")
 async def att_checkin(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
@@ -14114,11 +14306,6 @@ async def att_checkin(req: Request) -> JSONResponse:
             _until = str((body or {}).get("until_txt") or "").strip()
             note = "Jedu do práce" + ((" — dorazím za %d min" % int(_eta)) if _eta
                                       else ((" — dorazím ~%s" % _until) if _until else ""))
-        # Marti 14.6.: rychlý přepínač činnosti v rámci práce — název činnosti = poznámka
-        # k pracovnímu segmentu (běžící práce se rozdělí, nový segment nese činnost).
-        _cin = str((body or {}).get("cinnost") or "").strip()[:60]
-        if _cin and kind == "work":
-            note = _cin
         # ohlášení „na cestě" je tímto naplněno → supersede
         s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
                      "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date AND status='announced'"),
@@ -14128,6 +14315,22 @@ async def att_checkin(req: Request) -> JSONResponse:
             "status,source,is_active,note,project_ref,created_by_id,created_at,updated_at) "
             "VALUES (:t,:e,current_date,:wt,now(),'pending','mobile_app',true,:n,:pr,:u,now(),now()) RETURNING id"),
             {"t": _ATT_TENANT, "e": emp, "wt": wt, "n": note, "pr": project_ref, "u": uid}).first()
+        # Marti 14.6.: overlay osa přiřazení práce (zakázka+činnost) — MIMO jádro docházky.
+        # Otevři/naváž běžící úsek při práci/režii; návrat z pauzy naváže na poslední dnešní.
+        if kind in ("work", "overhead"):
+            try:
+                _prev = _wa_latest_today(s, uid)
+                _pr = project_ref
+                _pn = None
+                _ci = _prev["cinnost_id"] if _prev else None
+                _cn = _prev["cinnost_name"] if _prev else None
+                _rz = (kind == "overhead")
+                if _pr is None and not _rz and _prev:
+                    _pr = _prev["project_ref"]; _pn = _prev["project_nazev"]; _rz = bool(_prev["is_rezie"])
+                _wa_open(s, uid, project_ref=_pr, project_nazev=_pn,
+                         cinnost_id=_ci, cinnost_name=_cn, is_rezie=_rz)
+            except Exception:
+                pass
         s.commit()
         return JSONResponse({"ok": True, "id": r[0]})
     except Exception as exc:
@@ -14183,6 +14386,11 @@ async def att_checkout(req: Request) -> JSONResponse:
             "status,source,is_active,note,created_by_id,created_at,updated_at) "
             "VALUES (:t,:e,current_date,:ty,now(),'pending','mobile_app',true,:n,:u,now(),now())"),
             {"t": _ATT_TENANT, "e": emp, "ty": btype, "n": bnote, "u": uid})
+        # Marti 14.6.: pauza / konec dne uzavírá běžící osu přiřazení práce (overlay).
+        try:
+            _wa_close_running(s, uid)
+        except Exception:
+            pass
         s.commit()
         r = s.execute(_t("SELECT hours FROM tenant.att_entry WHERE id=:id"), {"id": opn[0]}).first()
         return JSONResponse({"ok": True, "id": opn[0], "hours": float(r[0] or 0)})

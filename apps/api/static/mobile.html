@@ -3608,7 +3608,7 @@ setTimeout(function(){
     _toolsWrap.appendChild(_jindeBox);
     _toolSec("🧰 MOJE ZAKÁZKY A ČINNOSTI");
     var _tgz=el('<div class="appgrid"></div>');
-    _tgz.appendChild(appCell("🧾","Jsem na zakázce",0,function(){ if(typeof openSoon==="function") openSoon("Moje zakázky"); }));
+    _tgz.appendChild(appCell("🧾","Na čem dělám",0,function(){ go("prace"); }));
     _tgz.appendChild(appCell("🧰","Moje činnosti",0,function(){ go("moje_cinnosti"); }));
     _toolsWrap.appendChild(_tgz);
     _toolSec("PODMÍNKY & FINANCE");
@@ -6076,6 +6076,69 @@ setTimeout(function(){
     }
     load();
   }
+  // Marti 14.6.: „Na čem dělám" — osa přiřazení práce (zakázka+činnost) MIMO jádro docházky.
+  function prace(){
+    app.innerHTML=topbar("🧾 Na čem dělám", true);
+    var box=el('<div style="padding-bottom:100px;"></div>'); app.appendChild(box);
+    box.innerHTML='<div class="hint">Načítám…</div>';
+    var _cur=null,_atwork=false,_mine=[];
+    function _err(r){ alert((r&&(r.msg||r.error))||"Nepodařilo se."); }
+    function setCin(ci){ api("POST","/api/v1/erp/app/work/set-cinnost",{cinnost_id:ci}).then(function(r){ if(r&&r.ok) load(); else _err(r); }); }
+    function setZak(cislo,nazev){ api("POST","/api/v1/erp/app/work/set-zakazka",{project_ref:cislo,project_nazev:nazev}).then(function(r){ if(r&&r.ok) load(); else _err(r); }); }
+    function setRezie(){ api("POST","/api/v1/erp/app/work/set-rezie",{}).then(function(r){ if(r&&r.ok) load(); else _err(r); }); }
+    function zakPicker(host){
+      host.innerHTML="";
+      host.appendChild(el('<div class="hint" style="margin:4px 0 2px;">Najdi zakázku (číslo / název):</div>'));
+      var si=el('<input placeholder="🔍 číslo nebo název…" autocomplete="off">');
+      var res=el('<div style="margin-top:6px;"></div>'); var tmr=null;
+      function zl(){ var q=(si.value||"").trim(); api("GET","/api/v1/erp/app/zakazky"+(q?("?q="+encodeURIComponent(q)):""),"").then(function(j){ res.innerHTML=""; ((j&&j.zakazky)||[]).slice(0,12).forEach(function(z){ var zb=el('<button class="ghost full" style="margin-top:6px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;">'+((z.typ==="REZIE")?"🧰 ":"🧾 ")+esc(z.cislo)+' — '+esc(z.nazev||"")+'</button>'); zb.addEventListener("click",function(){ setZak(z.cislo,z.nazev||""); }); res.appendChild(zb); }); }); }
+      si.addEventListener("input",function(){ clearTimeout(tmr); tmr=setTimeout(zl,300); });
+      host.appendChild(si); host.appendChild(res); zl();
+    }
+    function render(){
+      box.innerHTML="";
+      if(!_atwork){
+        box.appendChild(el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:12px;padding:16px;text-align:center;line-height:1.6;"><div style="font-size:32px;">😴</div><div style="font-weight:700;margin-top:6px;">Nejsi přihlášený v práci</div><div class="hint" style="margin-top:4px;">Nejdřív se přihlas do práce v docházce — pak si tu vybereš zakázku a činnost.</div></div>'));
+        return;
+      }
+      var a=_cur||{};
+      var zText=a.is_rezie?"🧰 Režie (bez zakázky)":(a.project_ref?("🧾 "+esc(a.project_ref)+(a.project_nazev?(" — "+esc(a.project_nazev)):"")):"— žádná zakázka —");
+      var cText=a.cinnost_name?("🔧 "+esc(a.cinnost_name)):"— žádná činnost —";
+      var head=el('<div style="background:var(--bg);border:1px solid var(--green);border-radius:12px;padding:14px;margin-bottom:12px;"></div>');
+      head.appendChild(el('<div class="hint" style="font-size:11px;letter-spacing:.5px;">PRÁVĚ DĚLÁM'+(a.since?(' · od '+esc(a.since)):'')+'</div>'));
+      head.appendChild(el('<div style="font-size:16px;font-weight:700;margin-top:4px;">'+zText+'</div>'));
+      head.appendChild(el('<div style="font-size:15px;margin-top:2px;color:#cdd8ea;">'+cText+'</div>'));
+      box.appendChild(head);
+      box.appendChild(el('<div style="font-weight:700;margin:6px 2px 6px;">Zakázka</div>'));
+      var zwrap=el('<div></div>');
+      var zbtn=el('<button class="green full" style="margin-bottom:6px;">🧾 Změnit zakázku</button>');
+      zbtn.addEventListener("click",function(){ zakPicker(zwrap); });
+      var rbtn=el('<button class="ghost full" style="margin-bottom:10px;border-color:#6b5a2a;color:#e6c86a;">🧰 Režie (bez zakázky)</button>');
+      rbtn.addEventListener("click",setRezie);
+      box.appendChild(zbtn); box.appendChild(rbtn); box.appendChild(zwrap);
+      box.appendChild(el('<div style="font-weight:700;margin:6px 2px 6px;">Činnost</div>'));
+      if(!_mine.length){ box.appendChild(el('<div class="hint" style="margin-bottom:10px;">Nemáš vybrané činnosti. Přidej si je v <b>🧰 Moje činnosti</b>.</div>')); }
+      var cg=el('<div class="appgrid"></div>');
+      _mine.forEach(function(c){ var on=(_cur&&_cur.cinnost_id===c.id); var cell=appCell("🔧",c.name,0,function(){ setCin(c.id); }); if(on){ cell.style.outline="2px solid var(--green)"; cell.style.borderColor="var(--green)"; } cg.appendChild(cell); });
+      box.appendChild(cg);
+      box.appendChild(el('<div style="font-weight:700;margin:14px 2px 6px;">Dnešní úseky</div>'));
+      var tl=el('<div></div>'); box.appendChild(tl);
+      api("GET","/api/v1/erp/app/work/today","").then(function(j){ tl.innerHTML=""; var segs=(j&&j.segments)||[]; if(!segs.length){ tl.innerHTML='<div class="hint">Zatím žádné úseky.</div>'; return; } segs.forEach(function(sg){ var z=sg.is_rezie?"Režie":(sg.project_ref?(esc(sg.project_ref)+(sg.project_nazev?(" — "+esc(sg.project_nazev)):"")):"—"); var c=sg.cinnost_name?(" · 🔧 "+esc(sg.cinnost_name)):""; tl.appendChild(el('<div style="border-bottom:1px solid #1b2742;padding:7px 2px;font-size:13px;"><span style="color:#8fb4e8;">'+esc(sg.od)+'–'+esc(sg.do_||"…")+'</span> · '+z+c+' <span class="hint">('+fmtHM(sg.hod)+')</span></div>')); }); });
+    }
+    function load(){
+      box.innerHTML='<div class="hint">Načítám…</div>';
+      Promise.all([
+        api("GET","/api/v1/erp/app/work/current",""),
+        api("GET","/api/v1/erp/app/vyroba/my-cinnosti","")
+      ]).then(function(rs){
+        var w=rs[0]||{},m=rs[1]||{};
+        _atwork=!!w.at_work; _cur=w.alloc||null;
+        _mine=((m&&m.cinnosti)||[]).filter(function(c){return !c.hidden;});
+        render();
+      }).catch(function(){ box.innerHTML='<div class="hint">Nelze načíst.</div>'; });
+    }
+    load();
+  }
   function web_stats(){
     app.innerHTML=topbar("📈 Návštěvnost webu", true);
     var box=el('<div style="padding-bottom:100px;"></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
@@ -6098,7 +6161,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

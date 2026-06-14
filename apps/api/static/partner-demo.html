@@ -17,7 +17,8 @@
   a{color:inherit;text-decoration:none}
   .wrap{max-width:1280px;margin:0 auto;padding:0 18px}
   .top{position:sticky;top:0;z-index:40;backdrop-filter:blur(14px);background:rgba(5,7,15,.8);border-bottom:1px solid var(--bord)}
-  .top .wrap{display:flex;align-items:center;justify-content:space-between;height:60px;gap:14px;flex-wrap:wrap}
+  .top .wrap{display:flex;align-items:center;justify-content:space-between;min-height:60px;padding:8px 0;gap:10px 14px;flex-wrap:wrap}
+  .tlinks{display:flex;gap:9px;align-items:center}
   .brand{font-weight:900;font-size:16px;display:flex;align-items:center;gap:10px}
   .live{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--grn);border:1px solid rgba(52,211,153,.35);border-radius:30px;padding:5px 12px;background:rgba(52,211,153,.06)}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--grn);animation:pulse 1.6s infinite}
@@ -76,18 +77,19 @@
 <div class="top"><div class="wrap">
   <div class="brand">🧭 STRATEGIE <span class="live"><span class="dot"></span> ŽIVĚ</span></div>
   <div class="clock" id="clock">--:--:--</div>
-  <div style="display:flex;gap:9px;align-items:center">
-    <a href="/web/partner" class="btn btn-g">← Zpět na pozvánku</a>
-    <a href="/web" class="btn btn-p">Celý ekosystém</a>
+  <div class="tlinks">
+    <a href="/web" class="btn btn-g">← Zpět na web</a>
   </div>
 </div></div>
 
+<!-- DOČASNĚ SKRYTO (Marti 14.6.) — doladíme + postavíme vlastní EUROSOFT stránku
 <div class="wrap" style="margin-top:10px">
   <div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;background:linear-gradient(110deg,rgba(167,139,250,.12),rgba(96,165,250,.06));border:1px solid var(--bord);border-radius:14px;padding:10px 14px;font-size:13px;">
     <span style="font-weight:800;color:#a78bfa;display:inline-flex;align-items:center;gap:6px;"><span class="dot"></span> Živě z reálné instalace STRATEGIE</span>
     <span id="rbReal" style="color:var(--mut);">načítám reálná čísla…</span>
   </div>
 </div>
+-->
 <script>
   (function(){ try{ fetch("/api/v1/erp/public/demo-stats").then(function(r){return r.json();}).then(function(j){
     if(!j||!j.ok) return; var k=j.kara||{}; var tah=(k.tahoun||0)+(k.zlaty||0)+(k.letadlo||0)+(k.raketa||0);

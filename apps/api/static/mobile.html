@@ -3902,6 +3902,9 @@ setTimeout(function(){
             actC.appendChild(ke2);
           }
         }
+        // Marti 14.6.: během práce snadná změna zakázky/činnosti — ZVLÁŠŤ, nad pulzujícím
+        // rámečkem „Potřebuji ti něco říct" (ten patří jen svému poli).
+        if(open && actC && window._buildWorkSwitch){ window._buildWorkSwitch(actC); }
         // Marti 14.6.: on-shift volba „Jsem na zakázce" ÚPLNĚ SCHOVÁNA — patří do
         // sekce „Moje zakázky" (region). „Potřebuji ti něco říct" zůstává v rámečku sám.
         if(false && open && actC){
@@ -3927,9 +3930,6 @@ setTimeout(function(){
           _sg.appendChild(appCell("🥱","Čekám",0,_fbQuick("Čekám na práci — mám volnou kapacitu 🥱","pozadavek","✅ Vedoucí ví, že čekáš.")));
           bw.appendChild(_sg);
         }
-        // Marti 14.6.: během práce snadná změna zakázky/činnosti — sekce „Moje
-        // zakázky a činnosti" rovnou v panelu, mezi statusem a „Potřebuji ti něco říct".
-        if(open && window._buildWorkSwitch){ window._buildWorkSwitch(bw); }
         // Marti 7.6. večer: zelené v obou stavech, bublina vpravo.
         var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);

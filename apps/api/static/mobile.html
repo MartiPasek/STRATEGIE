@@ -5186,7 +5186,7 @@ setTimeout(function(){
     function czd(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):iso; }
     var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 132px);align-items:stretch;"></div>');
     var left=el('<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
-    var right=el('<div style="width:88px;flex:none;display:flex;flex-direction:column;gap:8px;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;"></div>');
+    var right=el('<div style="width:88px;flex:none;display:flex;flex-direction:column;gap:8px;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     wrap.appendChild(left); wrap.appendChild(right); app.appendChild(wrap);
     right.appendChild(el('<div class="hint" style="text-align:center;font-size:10px;line-height:1.3;">Vyrobit<br>základ</div>'));
     var bGen=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a5a8c;color:#9cf;font-weight:700;font-size:13px;line-height:1.25;">📋<br>ČR<br>40 h</button>');
@@ -5256,7 +5256,7 @@ setTimeout(function(){
         var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
         box.appendChild(el('<div style="margin-bottom:4px;"><b>👤 Můj plán '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
         box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">Klepni na týden — otevře se celý. Tam přidáš návrhy ke schválení.'+(ST.pend?(' <b style="color:var(--amber);">· '+ST.pend+' čeká</b>'):'')+'</div>'));
-        var curCard=null, todayEl=null;
+        var curCard=null, todayEl=null, cardByKey={};
         ST.order.forEach(function(k){
           var ds=ST.weeks[k], sum=0, wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
           var lastD=ds[ds.length-1].date, isPast=(lastD<todayIso), isCur=(k===ST.nowKey);
@@ -5280,11 +5280,13 @@ setTimeout(function(){
           card.appendChild(body);
           card.addEventListener("click",function(){ showWeek(k); });
           box.appendChild(card);
+          cardByKey[k]=card;
           if(isCur) curCard=card;
         });
         // Nascrolovat na DNEŠEK jen při PRVNÍM otevření (ne při návratu z týdne).
         var target=todayEl||curCard;
         if(doScroll && target){ setTimeout(function(){ try{ target.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} },40); }
+        else if(ST.openWk && cardByKey[ST.openWk]){ setTimeout(function(){ try{ cardByKey[ST.openWk].scrollIntoView({block:"start"}); }catch(e){} },30); }
       }
       function openForm(d, host){
         var ex=host.querySelector('.reqform'); if(ex){ ex.remove(); return; }
@@ -5331,7 +5333,7 @@ setTimeout(function(){
         try{ f.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
       }
       function showWeek(k){
-        ST.listScroll=(box?box.scrollTop:0)||0;   // zapamatuj scroll seznamu před otevřením
+        ST.openWk=k;   // zapamatuj otevřený týden → po návratu na něj odscrolujeme
         ST.view='week'; ST.wk=k; var ds=ST.weeks[k]; if(!ds){ showList(); return; }
         box.innerHTML="";
         if(right)right.style.display='none';  // #2: detail týdne na celou šířku

@@ -411,12 +411,14 @@
   function chk(){
     var l=document.querySelector('.logo .logoin'); if(!l) return;
     var p=l.parentElement; var ov=l.scrollWidth-p.clientWidth;
-    if(ov>6){ l.style.setProperty('--ov',(ov+10)+'px'); l.classList.add('mscroll'); }
+    if(ov>6){ l.style.setProperty('--ov',(ov+18)+'px'); l.classList.add('mscroll'); }
     else { l.classList.remove('mscroll'); l.style.removeProperty('--ov'); }
   }
   window.addEventListener('resize',chk);
+  window.addEventListener('load',chk);
+  try{ if(document.fonts&&document.fonts.ready){ document.fonts.ready.then(chk); } }catch(e){}
   if(document.readyState!=='loading') chk(); else document.addEventListener('DOMContentLoaded',chk);
-  setTimeout(chk,300);
+  [200,600,1200,2000].forEach(function(t){ setTimeout(chk,t); });
 })();
 </script>
 <script>try{fetch('/api/v1/erp/app/web-visit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:location.pathname,ref:document.referrer,lang:'cz'})}).catch(function(){});}catch(e){}</script>

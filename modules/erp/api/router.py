@@ -10494,6 +10494,98 @@ async def att_announced_future(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Návrhy plánu ke schválení (Marti 14.6.: plán → korekce → realita) ────────
+# Obecný model (i pro porady/jednání): návrh na den, jde vedoucímu ke schválení.
+@api_router.get("/app/plan/requests")
+async def app_plan_requests_list(req: Request) -> JSONResponse:
+    """Moje návrhy plánu (volitelně rozsah from/to). Pro overlay v týdenním plánu."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    d_from = req.query_params.get("from") or None
+    d_to = req.query_params.get("to") or None
+    cm, s = _att_session()
+    try:
+        sql = ("SELECT id, req_date::text, kind, start_time::text, end_time::text, "
+               "hours, title, note, status, decided_note "
+               "FROM tenant.att_plan_request WHERE tenant_id=:t AND user_id=:u")
+        par = {"t": _ATT_TENANT, "u": uid}
+        if d_from:
+            sql += " AND req_date >= :df"; par["df"] = d_from
+        if d_to:
+            sql += " AND req_date <= :dt"; par["dt"] = d_to
+        sql += " ORDER BY req_date, id"
+        rows = s.execute(_t(sql), par).fetchall()
+        s.commit()
+        def hm(x):
+            return x[:5] if x else None
+        return JSONResponse({"ok": True, "items": [
+            {"id": r[0], "d": r[1], "kind": r[2], "start": hm(r[3]), "end": hm(r[4]),
+             "hours": (float(r[5]) if r[5] is not None else None), "title": r[6],
+             "note": r[7], "status": r[8], "decided_note": r[9]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/plan/request")
+async def app_plan_request_create(req: Request) -> JSONResponse:
+    """Vlož návrh na den (změna hodin/času, volno, porada/jednání, akce). Stav 'pending'."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    d = str((b or {}).get("date") or "").strip()
+    if not d:
+        return JSONResponse({"ok": False, "error": "no_date"})
+    kind = str((b or {}).get("kind") or "plan").strip()[:20]
+    start = (str(b.get("start")).strip() or None) if b.get("start") else None
+    end = (str(b.get("end")).strip() or None) if b.get("end") else None
+    hours = b.get("hours")
+    try:
+        hours = float(hours) if hours is not None and hours != "" else None
+    except Exception:
+        hours = None
+    title = (str(b.get("title")).strip()[:200] or None) if b.get("title") else None
+    note = (str(b.get("note")).strip() or None) if b.get("note") else None
+    cm, s = _att_session()
+    try:
+        rid = s.execute(_t(
+            "INSERT INTO tenant.att_plan_request "
+            "(tenant_id,user_id,req_date,kind,start_time,end_time,hours,title,note,status,created_by) "
+            "VALUES (:t,:u,:d,:k,CAST(:st AS time),CAST(:en AS time),:h,:ti,:no,'pending',:cb) "
+            "RETURNING id"),
+            {"t": _ATT_TENANT, "u": uid, "d": d, "k": kind, "st": start, "en": end,
+             "h": hours, "ti": title, "no": note, "cb": uid}).scalar()
+        s.commit()
+        return JSONResponse({"ok": True, "id": rid})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/plan/request/{rid}/delete")
+async def app_plan_request_delete(rid: int, req: Request) -> JSONResponse:
+    """Smaž vlastní návrh (jen pending — schválený/zamítnutý zůstává historicky)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        n = s.execute(_t(
+            "DELETE FROM tenant.att_plan_request "
+            "WHERE id=:i AND tenant_id=:t AND user_id=:u AND status='pending'"),
+            {"i": rid, "t": _ATT_TENANT, "u": uid}).rowcount
+        s.commit()
+        return JSONResponse({"ok": n > 0})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/announce-delete")
 async def att_announce_delete(req: Request) -> JSONResponse:
     """Marti 10.6.: smazání hlášené (budoucí) nepřítomnosti — supersedne řádek

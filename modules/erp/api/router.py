@@ -15850,7 +15850,9 @@ async def app_doc_to_eurosoft(req: Request) -> JSONResponse:
         mcp = get_eurosoft_mcp_client()
         if mcp is None:
             return JSONResponse({"ok": False, "error": "EUROSOFT MCP není dostupné (offline)."}, status_code=503)
-        raw = mcp.call_tool_sync("eurosoft_file_write",
+        # call_tool_sync strhne JEDEN 'eurosoft_' prefix → bare musí být
+        # 'eurosoft_file_write' (klíč handleru), proto dvojitý prefix. Marti 14.6.
+        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
                                  {"user_namespace": "rw", "path": rel_path,
                                   "content": content_b64, "encoding": "base64", "mode": "overwrite"},
                                  conversation_id=None)

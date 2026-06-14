@@ -627,11 +627,10 @@ setTimeout(function(){
       if(!users.length){ lw.innerHTML='<div class="hint" style="padding:14px;line-height:1.6;">Nic nečeká na schválení. 👍</div>'; L.appendChild(lw); return; }
       var ul=el('<ul class="list" style="padding:0 6px;"></ul>');
       users.forEach(function(u){
-        var li=el('<li class="ct" style="padding:0;border-bottom:none;"></li>');
-        var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(u.name||"?")+';">'+esc((u.name||"?").trim().charAt(0).toUpperCase())+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(u.name||("#"+u.user_id))+'</div><div class="ctnum">'+u.cnt+' ke schválení</div></div><span style="flex:none;background:#f59e0b;color:#fff;border-radius:11px;min-width:22px;height:22px;line-height:22px;text-align:center;font-size:12px;font-weight:700;padding:0 6px;">'+u.cnt+'</span></div>');
-        var exp=el('<div class="ctexp" style="display:none;"></div>');
-        head.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) apFillUser(exp,u); });
-        li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
+        var li=el('<li class="ct" style="padding:0;border-bottom:none;cursor:pointer;"></li>');
+        var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(u.name||"?")+';">'+esc((u.name||"?").trim().charAt(0).toUpperCase())+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(u.name||("#"+u.user_id))+'</div><div class="ctnum">'+u.cnt+' ke schválení · klepni pro kalendář</div></div><span style="flex:none;background:#f59e0b;color:#fff;border-radius:11px;min-width:22px;height:22px;line-height:22px;text-align:center;font-size:12px;font-weight:700;padding:0 6px;">'+u.cnt+'</span></div>');
+        head.addEventListener("click",function(){ window._planApprove={user_id:u.user_id, name:(u.name||("#"+u.user_id))}; go("plan"); });
+        li.appendChild(head); ul.appendChild(li);
       });
       lw.appendChild(ul); L.appendChild(lw);
     }); }
@@ -658,7 +657,7 @@ setTimeout(function(){
     api("POST","/api/v1/erp/app/plan/decide",{id:id,decision:decision,note:note||""}).then(function(r){
       if(r&&r.ok){ apLoad(); } else alert("Chyba: "+((r&&r.error)||"?")); });
   }
-  function apRejectDialog(r){
+  function apRejectDialog(r, onReject){
     var ov=el('<div class="appmodal" style="position:fixed;inset:0;z-index:99999;background:rgba(3,7,16,.66);display:flex;align-items:center;justify-content:center;padding:24px;"></div>');
     var card=el('<div style="background:#161c2b;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px;max-width:340px;width:100%;box-shadow:0 16px 50px rgba(0,0,0,.55);"></div>');
     card.appendChild(el('<div style="font-size:16px;font-weight:600;color:#e8eefc;margin-bottom:6px;">Zamítnout návrh</div>'));
@@ -669,7 +668,7 @@ setTimeout(function(){
     var no=el('<button class="ghost" style="flex:1;margin:0;">Zrušit</button>');
     var yes=el('<button class="green" style="flex:1;margin:0;background:#b3402f;">🚫 Zamítnout</button>');
     no.addEventListener("click",function(){ ov.remove(); });
-    yes.addEventListener("click",function(){ ov.remove(); apDecide(r.id,"rejected",(ta.value||"").trim()); });
+    yes.addEventListener("click",function(){ ov.remove(); var nt=(ta.value||"").trim(); if(onReject){ onReject(nt); } else { apDecide(r.id,"rejected",nt); } });
     rowb.appendChild(no); rowb.appendChild(yes); card.appendChild(rowb);
     ov.appendChild(card); document.body.appendChild(ov);
   }
@@ -5283,7 +5282,8 @@ setTimeout(function(){
   }
 
   function plan(){
-    app.innerHTML=topbar("🗓️ Plán", true);
+    var AP=window._planApprove||null; window._planApprove=null;   // režim schvalovatele (cizí plán)
+    app.innerHTML=topbar(AP?("🗓️ "+esc(AP.name)):"🗓️ Plán", true);
     function nf(v){ return (Math.round((v||0)*100)/100).toString().replace('.',','); }
     function czd(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):iso; }
     var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 132px);align-items:stretch;"></div>');
@@ -5331,7 +5331,7 @@ setTimeout(function(){
     function czd2(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."+p[0]):iso; }
     function renderPlan(eff, src){
       left.innerHTML='<div class="hint">Načítám…</div>';
-      var _url=(src==='mydefault')?"/api/v1/erp/app/plan/my-default":"/api/v1/erp/app/plan/mine?weeks=10";
+      var _url=(src==='mydefault')?("/api/v1/erp/app/plan/my-default"+(AP?("?user_id="+AP.user_id):"")):"/api/v1/erp/app/plan/mine?weeks=10";
       api("GET",_url,"").then(function(j){
         left.innerHTML="";
         if(!j||!j.ok){ left.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
@@ -5361,11 +5361,11 @@ setTimeout(function(){
       // Bod 3: root = jen seznam týdnů (klik = celý týden). Editace dnů až v týdnu.
       function showList(doScroll){
         ST.view='list'; ST.wk=null; box.innerHTML="";
-        if(right)right.style.display='flex';  // pravá lišta zpět (flex, ne '' — jinak ztratí sloupec)
+        if(right)right.style.display=AP?'none':'flex';  // schvalovatel: bez admin lišty (flex, ne '' — jinak ztratí sloupec)
         var gt=0; j.plan.forEach(function(d){ gt+=d.hours; });
         var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
-        box.appendChild(el('<div style="margin-bottom:4px;"><b>👤 Můj plán '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
-        box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">Klepni na týden — otevře se celý. Tam přidáš návrhy ke schválení.'+(ST.pend?(' <b style="color:var(--amber);">· '+ST.pend+' čeká</b>'):'')+'</div>'));
+        box.appendChild(el('<div style="margin-bottom:4px;"><b>👤 '+(AP?esc(AP.name):'Můj plán')+' '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
+        box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">'+(AP?'Klepni na týden — uvidíš návrhy a můžeš je schválit/zamítnout.':'Klepni na týden — otevře se celý. Tam přidáš návrhy ke schválení.')+(ST.pend?(' <b style="color:var(--amber);">· '+ST.pend+' čeká</b>'):'')+'</div>'));
         var curCard=null, todayEl=null, cardByKey={};
         ST.order.forEach(function(k){
           var ds=ST.weeks[k], sum=0, wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
@@ -5457,7 +5457,7 @@ setTimeout(function(){
         var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">‹ Zpět na týdny</button>'); bk.addEventListener("click",function(){ planBackStep(); }); box.appendChild(bk);
         var sum=0,wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
         box.appendChild(el('<div style="margin-bottom:8px;"><b>Týden '+ds[0].iso_week+'</b> <span class="hint">· '+wd+' dní · '+nf(sum)+' h · '+czd(ds[0].date)+'–'+czd(ds[ds.length-1].date)+'</span></div>'));
-        box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Klepni na den a přidej návrh (jiné hodiny / volno / porada–jednání).</div>'));
+        box.appendChild(el('<div class="hint" style="margin-bottom:8px;">'+(AP?'Návrhy dne schválíš ✓ nebo zamítneš ✕ u příslušného řádku.':'Klepni na den a přidej návrh (jiné hodiny / volno / porada–jednání).')+'</div>'));
         ds.forEach(function(d){
           var work=(d.hours>0);
           var col=work?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
@@ -5468,20 +5468,37 @@ setTimeout(function(){
           var dayWrap=el('<div></div>');
           var rs="display:flex;justify-content:space-between;align-items:center;padding:9px 6px;font-size:14px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;"+(dToday?"background:rgba(79,142,247,.14);border-radius:8px;":"")+(dPast?"opacity:.5;":"");
           var tagSt="color:"+col+";font-weight:600;"+(hasRepl?"text-decoration:line-through;opacity:.55;":"");
-          var row=el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="display:flex;align-items:center;gap:8px;"><span style="'+tagSt+'">'+tag+'</span><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(79,142,247,.18);color:#4f8ef7;font-size:17px;font-weight:700;line-height:1;flex:none;">+</span></span></div>');
-          row.addEventListener("click",function(){ openForm(d, dayWrap); });
+          var plusHtml=AP?'':'<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(79,142,247,.18);color:#4f8ef7;font-size:17px;font-weight:700;line-height:1;flex:none;">+</span>';
+          var row=el('<div style="'+rs+(AP?'cursor:default;':'')+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="display:flex;align-items:center;gap:8px;"><span style="'+tagSt+'">'+tag+'</span>'+plusHtml+'</span></div>');
+          if(!AP){ row.addEventListener("click",function(){ openForm(d, dayWrap); }); }
           dayWrap.appendChild(row);
           (ST.byDate[d.date]||[]).forEach(function(r){
             var chip=el('<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:3px 6px 6px 14px;font-size:12.5px;"><span style="color:'+stCol(r.status)+';">'+stIc(r.status)+' '+esc(kLabel(r))+(r.note?(' — '+esc(r.note)):'')+(r.status==='rejected'&&r.decided_note?(' ('+esc(r.decided_note)+')'):'')+'</span></div>');
-            if(r.status==='pending'){ var db=el('<button style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(248,113,113,.16);color:#f87171;border:0;font-size:13px;line-height:1;cursor:pointer;flex:none;" title="Smazat">✕</button>'); db.addEventListener("click",function(e){ e.stopPropagation(); if(!confirm("Chceš tento záznam opravdu smazat?")) return; db.disabled=true; api("POST","/api/v1/erp/app/plan/request/"+r.id+"/delete","").then(function(){ load(); }); }); chip.appendChild(db); }
+            if(AP){
+              if(r.status==='pending'){
+                var bw=el('<div style="display:flex;gap:6px;flex:none;"></div>');
+                var ya=el('<button style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:rgba(52,211,153,.18);color:#34d399;border:0;font-size:14px;line-height:1;cursor:pointer;" title="Schválit">✓</button>');
+                var na=el('<button style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:rgba(248,113,113,.16);color:#f87171;border:0;font-size:13px;line-height:1;cursor:pointer;" title="Zamítnout">✕</button>');
+                ya.addEventListener("click",function(e){ e.stopPropagation(); ya.disabled=true; na.disabled=true; apDecideCal(r.id,"approved",null); });
+                na.addEventListener("click",function(e){ e.stopPropagation(); apRejectDialog(r, function(note){ apDecideCal(r.id,"rejected",note); }); });
+                bw.appendChild(ya); bw.appendChild(na); chip.appendChild(bw);
+              }
+            } else if(r.status==='pending'){
+              var db=el('<button style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(248,113,113,.16);color:#f87171;border:0;font-size:13px;line-height:1;cursor:pointer;flex:none;" title="Smazat">✕</button>'); db.addEventListener("click",function(e){ e.stopPropagation(); if(!confirm("Chceš tento záznam opravdu smazat?")) return; db.disabled=true; api("POST","/api/v1/erp/app/plan/request/"+r.id+"/delete","").then(function(){ load(); }); }); chip.appendChild(db);
+            }
             dayWrap.appendChild(chip);
           });
           box.appendChild(dayWrap);
         });
       }
+      function apDecideCal(id, decision, note){
+        api("POST","/api/v1/erp/app/plan/decide",{id:id,decision:decision,note:note||""}).then(function(x){
+          if(x&&x.ok){ load(); } else alert("Chyba: "+((x&&x.error)||"?")); });
+      }
       function load(){
         box.innerHTML='<div class="hint">Načítám…</div>';
-        api("GET","/api/v1/erp/app/plan/requests?from="+fromD+"&to="+toD,"").then(function(rq){
+        var _ru=AP?("/api/v1/erp/app/plan/approvals/user/"+AP.user_id+"?all=1"):("/api/v1/erp/app/plan/requests?from="+fromD+"&to="+toD);
+        api("GET",_ru,"").then(function(rq){
           var reqs=(rq&&rq.ok&&rq.items)||[];
           ST.byDate={}; reqs.forEach(function(r){ (ST.byDate[r.d]=ST.byDate[r.d]||[]).push(r); });
           ST.pend=reqs.filter(function(r){return r.status==='pending';}).length;
@@ -5783,7 +5800,8 @@ setTimeout(function(){
       ov.addEventListener("click",function(ev){ if(ev.target===ov) ov.remove(); });
     }
     // Marti 14.6.: vstupní pohled z regionu docházky (Můj úvazek / Můj plán).
-    if(window._planInit==="uvazek"){ window._planInit=null; renderUvazek(); }
+    if(AP){ renderPlan(false,'mydefault'); }
+    else if(window._planInit==="uvazek"){ window._planInit=null; renderUvazek(); }
     else if(window._planInit==="myplan"){ window._planInit=null; renderPlan(false,'mydefault'); try{ setTimeout(function(){ if(right&&bMy) right.scrollTop=Math.max(0, bMy.offsetTop-4); },80); }catch(e){} }
     else renderPlan();
   }

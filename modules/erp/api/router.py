@@ -10622,28 +10622,31 @@ async def app_plan_approvals_users(req: Request) -> JSONResponse:
 
 @api_router.get("/app/plan/approvals/user/{tuid}")
 async def app_plan_approvals_user(tuid: int, req: Request) -> JSONResponse:
-    """Pro schvalovatele: čekající návrhy konkrétního uživatele."""
+    """Pro schvalovatele: návrhy konkrétního uživatele. ?all=1 → všechny statusy
+    (pro týdenní kalendář), jinak jen pending."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
+    show_all = req.query_params.get("all") in ("1", "true", "yes")
     cm, s = _att_session()
     try:
         if not _can_approve_plans(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = s.execute(_t(
-            "SELECT id, req_date::text, kind, start_time::text, end_time::text, "
-            "hours, title, note, status, created_at::text "
-            "FROM tenant.att_plan_request WHERE tenant_id=:t AND user_id=:u AND status='pending' "
-            "ORDER BY req_date, id"),
-            {"t": _ATT_TENANT, "u": tuid}).fetchall()
+        sql = ("SELECT id, req_date::text, kind, start_time::text, end_time::text, "
+               "hours, title, note, status, decided_note "
+               "FROM tenant.att_plan_request WHERE tenant_id=:t AND user_id=:u")
+        if not show_all:
+            sql += " AND status='pending'"
+        sql += " ORDER BY req_date, id"
+        rows = s.execute(_t(sql), {"t": _ATT_TENANT, "u": tuid}).fetchall()
         s.commit()
         def hm(x):
             return x[:5] if x else None
         return JSONResponse({"ok": True, "items": [
             {"id": r[0], "d": r[1], "kind": r[2], "start": hm(r[3]), "end": hm(r[4]),
              "hours": (float(r[5]) if r[5] is not None else None), "title": r[6],
-             "note": r[7], "status": r[8], "created_at": r[9]} for r in rows]})
+             "note": r[7], "status": r[8], "decided_note": r[9]} for r in rows]})
     finally:
         cm.__exit__(None, None, None)
 

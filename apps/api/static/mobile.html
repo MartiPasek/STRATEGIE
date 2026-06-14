@@ -3474,6 +3474,8 @@ setTimeout(function(){
     _toolSec("PODMÍNKY & FINANCE");
     var _tg2=el('<div class="appgrid"></div>');
     _tg2.appendChild(appCell("📋","Moje podmínky",0,function(){ go("moje_podminky"); }));
+    _tg2.appendChild(appCell("📐","Můj úvazek",0,function(){ window._planInit="uvazek"; go("plan"); }));
+    _tg2.appendChild(appCell("👤","Můj plán",0,function(){ window._planInit="myplan"; go("plan"); }));
     _tg2.appendChild(appCell("💰","Moje finance",0,function(){ go("moje_finance"); }));
     _tg2.appendChild(appCell("🗓️","Nepřítomnosti",0,function(){ go("absence"); }));
     _toolsWrap.appendChild(_tg2);
@@ -5264,7 +5266,7 @@ setTimeout(function(){
           var tag;
           if(tp==="exception"){ var ic=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic+' '+nf(h)+' h'; }
           else if(tp==="exoff"){ var ic2=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic2+' volno'; }
-          else if(tp==="work"){ tag=nf(h)+" h"+(d.start?(' · od '+d.start):''); }
+          else if(tp==="work"){ tag=(d.start?('od '+d.start+' · '):'')+nf(h)+" h"; }
           else if(tp==="holiday"){ tag="svátek"; }
           else { tag=(d.day_type==="weekend"?"víkend":"volno"); }
           var _dPast=(d.date<_todayIso), _dToday=(d.date===_todayIso);
@@ -5491,7 +5493,10 @@ setTimeout(function(){
       ov.appendChild(bx); document.body.appendChild(ov);
       ov.addEventListener("click",function(ev){ if(ev.target===ov) ov.remove(); });
     }
-    renderPlan();
+    // Marti 14.6.: vstupní pohled z regionu docházky (Můj úvazek / Můj plán).
+    if(window._planInit==="uvazek"){ window._planInit=null; renderUvazek(); }
+    else if(window._planInit==="myplan"){ window._planInit=null; renderPlan(false,'mydefault'); }
+    else renderPlan();
   }
   function plan_vyjimky(){
     app.innerHTML=topbar("🏢 Firemní výjimky", true);

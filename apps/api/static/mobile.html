@@ -204,6 +204,8 @@ setTimeout(function(){
   function el(html){ var d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild; }
   function go(id){ stack.push(id); render(); }
   function back(){
+    // Marti 14.6.: v Plánu zpět o JEDEN krok — z otevřeného týdne zpět na seznam.
+    try{ if(typeof window._planAnyOpen==="function" && window._planAnyOpen()) return; }catch(e){}
     // Marti 8.6.: nejdřív zavřít otevřený accordion (Výroba/kontakty), teprve pak odejít.
     try{ var _op=document.querySelector('#vylist li.ct.open'); if(_op){ _op.classList.remove('open'); var _x=_op.querySelector('.ctexp'); if(_x)_x.style.display='none'; return; } }catch(e){}
     if(stack.length>1){ stack.pop(); render(); }
@@ -246,8 +248,9 @@ setTimeout(function(){
       if(_dialNum){ setDialNum(""); return true; }
       var sf=document.getElementById("ctsearch"); if(sf && sf.value && sf.value.length){ sf.value=""; try{renderContactsList();}catch(e){} return true; }
     }
-    // 1) zavřít otevřené věci (menu rozhovoru, rozbalené sekce docházky)
+    // 1) zavřít otevřené věci (menu rozhovoru, rozbalené sekce docházky, týden v plánu)
     try{ if(typeof window._dochAnyOpen==="function" && window._dochAnyOpen()) return true; }catch(e){}
+    try{ if(typeof window._planAnyOpen==="function" && window._planAnyOpen()) return true; }catch(e){}
     // 2) vyjet nahoru
     var st2=window.pageYOffset||document.documentElement.scrollTop||(document.body&&document.body.scrollTop)||0;
     if(st2>40){ try{window.scrollTo({top:0,behavior:"smooth"});}catch(e){window.scrollTo(0,0);} return true; }
@@ -5182,7 +5185,7 @@ setTimeout(function(){
     function nf(v){ return (Math.round((v||0)*100)/100).toString().replace('.',','); }
     function czd(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):iso; }
     var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 132px);align-items:stretch;"></div>');
-    var left=el('<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;"></div>');
+    var left=el('<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     var right=el('<div style="width:88px;flex:none;display:flex;flex-direction:column;gap:8px;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;"></div>');
     wrap.appendChild(left); wrap.appendChild(right); app.appendChild(wrap);
     right.appendChild(el('<div class="hint" style="text-align:center;font-size:10px;line-height:1.3;">Vyrobit<br>základ</div>'));
@@ -5234,100 +5237,122 @@ setTimeout(function(){
     function renderWeeks(box, j, src){
       var fromD=(j.plan[0]&&j.plan[0].date)||_locDate(0);
       var toD=(j.plan[j.plan.length-1]&&j.plan[j.plan.length-1].date)||_locDate(0);
-      box.innerHTML='<div class="hint">Načítám…</div>';
-      api("GET","/api/v1/erp/app/plan/requests?from="+fromD+"&to="+toD,"").then(function(rq){
-        var reqs=(rq&&rq.ok&&rq.items)||[];
-        var byDate={}; reqs.forEach(function(r){ (byDate[r.d]=byDate[r.d]||[]).push(r); });
-        var pend=reqs.filter(function(r){return r.status==='pending';}).length;
-        box.innerHTML="";
+      var todayIso=_locDate(0);
+      var iS="box-sizing:border-box;width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin:2px 0;font-size:14px;";
+      var ST={view:'list', wk:null, byDate:{}, weeks:{}, order:[], nowKey:null, pend:0};
+      function stCol(s){ return s==='approved'?'#34d399':(s==='rejected'?'#f87171':'#fbbf24'); }
+      function stIc(s){ return s==='approved'?'✓':(s==='rejected'?'✕':'⏳'); }
+      function kLabel(r){
+        var t=r.kind==='off'?'🏝️ volno':(r.kind==='meeting'?('🤝 '+(r.title||'porada/jednání')):(r.kind==='event'?('📌 '+(r.title||'akce')):('⏱ '+(r.hours!=null?nf(r.hours)+' h':'jiné hodiny'))));
+        if(r.start) t+=' · '+r.start+(r.end?('–'+r.end):'');
+        return t;
+      }
+      function wkPend(ds){ var n=0; ds.forEach(function(d){ (ST.byDate[d.date]||[]).forEach(function(r){ if(r.status==='pending')n++; }); }); return n; }
+      // Bod 3: root = jen seznam týdnů (klik = celý týden). Editace dnů až v týdnu.
+      function showList(){
+        ST.view='list'; ST.wk=null; box.innerHTML="";
         var gt=0; j.plan.forEach(function(d){ gt+=d.hours; });
         var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
         box.appendChild(el('<div style="margin-bottom:4px;"><b>👤 Můj plán '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
-        box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">Klepni na den a přidej <b>návrh</b> (jiné hodiny / volno / porada–jednání). Návrh jde vedoucímu ke schválení.'+(pend?(' <b style="color:var(--amber);">· '+pend+' čeká</b>'):'')+'</div>'));
-        var iS="box-sizing:border-box;width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin:2px 0;font-size:14px;";
-        function stCol(s){ return s==='approved'?'#34d399':(s==='rejected'?'#f87171':'#fbbf24'); }
-        function stIc(s){ return s==='approved'?'✓':(s==='rejected'?'✕':'⏳'); }
-        function kLabel(r){
-          var t=r.kind==='off'?'🏝️ volno':(r.kind==='meeting'?('🤝 '+(r.title||'porada/jednání')):(r.kind==='event'?('📌 '+(r.title||'akce')):('⏱ '+(r.hours!=null?nf(r.hours)+' h':'jiné hodiny'))));
-          if(r.start) t+=' · '+r.start+(r.end?('–'+r.end):'');
-          return t;
-        }
-        function openForm(d, host){
-          var ex=host.querySelector('.reqform'); if(ex){ ex.remove(); return; }
-          var f=el('<div class="reqform" style="margin:2px 0 8px 12px;padding:9px;border:1px solid #3a4d6b;border-radius:10px;background:rgba(79,142,247,.06);"></div>');
-          f.appendChild(el('<div class="hint" style="margin-bottom:7px;">Návrh na <b>'+d.weekday+' '+czd(d.date)+'</b>:</div>'));
-          var cur={kind:'hours'};
-          var kindRow=el('<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>');
-          var fields=el('<div></div>');
-          var elH,elS,elE,elT,elN;
-          function buildFields(){
-            fields.innerHTML="";
-            if(cur.kind==='hours'){
-              fields.appendChild(el('<label class="hint">Kolik hodin</label>'));
-              elH=el('<input type="number" min="0" max="24" step="0.5" value="'+(d.hours||8)+'" style="'+iS+'">'); fields.appendChild(elH);
-              fields.appendChild(el('<label class="hint">Příchod od (volitelně)</label>'));
-              elS=el('<input type="time" value="'+(d.start||"")+'" style="'+iS+'">'); fields.appendChild(elS);
-            } else if(cur.kind==='off'){
-              fields.appendChild(el('<div class="hint" style="padding:4px 0;">Navrhuješ na tento den volno.</div>'));
-            } else if(cur.kind==='meeting'){
-              fields.appendChild(el('<label class="hint">Název (porada / jednání)</label>'));
-              elT=el('<input placeholder="např. Porada výroby" style="'+iS+'">'); fields.appendChild(elT);
-              fields.appendChild(el('<label class="hint">Od – do</label>'));
-              var tr=el('<div style="display:flex;gap:6px;"></div>');
-              elS=el('<input type="time" style="'+iS+'flex:1;">'); elE=el('<input type="time" style="'+iS+'flex:1;">');
-              tr.appendChild(elS); tr.appendChild(elE); fields.appendChild(tr);
-            }
-            elN=el('<input placeholder="Poznámka (volitelně)" style="'+iS+'">'); fields.appendChild(elN);
-          }
-          function mkChip(lbl,kk){ var b=el('<button class="ghost" style="padding:6px 10px;font-size:12px;">'+lbl+'</button>');
-            b.addEventListener("click",function(){ cur.kind=kk; [].forEach.call(kindRow.children,function(c){c.style.borderColor='';c.style.color='';}); b.style.borderColor='var(--blue)'; b.style.color='var(--blue)'; buildFields(); }); return b; }
-          kindRow.appendChild(mkChip('⏱ Jiné hodiny','hours'));
-          kindRow.appendChild(mkChip('🏝️ Volno','off'));
-          kindRow.appendChild(mkChip('🤝 Porada/jednání','meeting'));
-          f.appendChild(kindRow);
-          kindRow.children[0].style.borderColor='var(--blue)'; kindRow.children[0].style.color='var(--blue)'; buildFields();
-          f.appendChild(fields);
-          var sb=el('<button class="green full" style="margin-top:8px;">Odeslat ke schválení →</button>');
-          sb.addEventListener("click",function(){ sb.disabled=true;
-            var pl={date:d.date, kind:cur.kind, note:(elN&&elN.value)||""};
-            if(cur.kind==='hours'){ pl.hours=(elH&&elH.value)||""; pl.start=(elS&&elS.value)||""; }
-            else if(cur.kind==='meeting'){ pl.title=(elT&&elT.value)||"Porada/jednání"; pl.start=(elS&&elS.value)||""; pl.end=(elE&&elE.value)||""; }
-            api("POST","/api/v1/erp/app/plan/request",pl).then(function(r){ if(r&&r.ok){ renderWeeks(box,j,src); } else { sb.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } });
-          });
-          f.appendChild(sb);
-          host.appendChild(f);
-          try{ f.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
-        }
-        var todayIso=_locDate(0), nowKey=null;
-        var weeks={}, order=[];
-        j.plan.forEach(function(d){ var k=d.date.slice(0,4)+"-W"+("0"+d.iso_week).slice(-2); if(!weeks[k]){weeks[k]=[];order.push(k);} weeks[k].push(d); });
-        order.forEach(function(k){ if(weeks[k].some(function(d){return d.date===todayIso;})) nowKey=k; });
-        order.forEach(function(k){
-          var ds=weeks[k], sum=0, wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
-          var lastD=ds[ds.length-1].date, isPast=(lastD<todayIso), isCur=(k===nowKey);
-          var card=el('<div style="border:1px solid '+(isCur?'#4f8ef7':'#2b3a5c')+';border-radius:12px;margin-bottom:10px;overflow:hidden;'+(isPast?'opacity:.5;':'')+'"></div>');
-          card.appendChild(el('<div style="padding:9px 12px;background:'+(isCur?'#11203a':(isPast?'#0c1018':'#0e1830'))+';display:flex;justify-content:space-between;align-items:center;'+(isCur?'border-left:3px solid #4f8ef7;':'')+'"><span style="font-weight:700;">Týden '+ds[0].iso_week+(isCur?' · tento týden':'')+'</span><span class="hint">'+wd+' dní · '+nf(sum)+' h</span></div>'));
-          var body=el('<div style="padding:4px 10px 8px;"></div>');
-          ds.forEach(function(d){
-            var work=(d.hours>0);
-            var col=work?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
-            var tag=work?((d.start?('od '+d.start+' · '):'')+nf(d.hours)+' h'):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
-            var dPast=(d.date<todayIso), dToday=(d.date===todayIso);
-            var dayWrap=el('<div></div>');
-            var rs="display:flex;justify-content:space-between;align-items:center;padding:6px 4px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;"+(dToday?"background:rgba(79,142,247,.14);border-radius:6px;":"")+(dPast?"opacity:.5;":"");
-            var row=el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="display:flex;align-items:center;gap:8px;"><span style="color:'+col+';font-weight:600;">'+tag+'</span><span style="color:var(--blue);font-size:16px;font-weight:700;">＋</span></span></div>');
-            row.addEventListener("click",function(){ openForm(d, dayWrap); });
-            dayWrap.appendChild(row);
-            (byDate[d.date]||[]).forEach(function(r){
-              var chip=el('<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:3px 0 5px 14px;font-size:12px;"><span style="color:'+stCol(r.status)+';">'+stIc(r.status)+' '+esc(kLabel(r))+(r.note?(' — '+esc(r.note)):'')+(r.status==='rejected'&&r.decided_note?(' ('+esc(r.decided_note)+')'):'')+'</span></div>');
-              if(r.status==='pending'){ var db=el('<button class="ghost" style="padding:1px 8px;font-size:11px;flex:none;">smazat</button>'); db.addEventListener("click",function(e){ e.stopPropagation(); db.disabled=true; api("POST","/api/v1/erp/app/plan/request/"+r.id+"/delete","").then(function(){ renderWeeks(box,j,src); }); }); chip.appendChild(db); }
-              dayWrap.appendChild(chip);
-            });
-            body.appendChild(dayWrap);
-          });
-          card.appendChild(body); box.appendChild(card);
+        box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">Klepni na týden — otevře se celý. Tam přidáš návrhy ke schválení.'+(ST.pend?(' <b style="color:var(--amber);">· '+ST.pend+' čeká</b>'):'')+'</div>'));
+        var curCard=null;
+        ST.order.forEach(function(k){
+          var ds=ST.weeks[k], sum=0, wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
+          var lastD=ds[ds.length-1].date, isPast=(lastD<todayIso), isCur=(k===ST.nowKey);
+          var pc=wkPend(ds);
+          var card=el('<div style="border:1px solid '+(isCur?'#4f8ef7':'#2b3a5c')+';border-radius:12px;margin-bottom:10px;overflow:hidden;cursor:pointer;'+(isPast?'opacity:.5;':'')+'"></div>');
+          card.appendChild(el('<div style="padding:11px 12px;background:'+(isCur?'#11203a':(isPast?'#0c1018':'#0e1830'))+';display:flex;justify-content:space-between;align-items:center;'+(isCur?'border-left:3px solid #4f8ef7;':'')+'"><span style="font-weight:700;">Týden '+ds[0].iso_week+(isCur?' · tento týden':'')+'</span><span style="display:flex;align-items:center;gap:8px;"><span class="hint">'+wd+' dní · '+nf(sum)+' h</span>'+(pc?('<span style="color:var(--amber);font-size:12px;font-weight:700;">'+pc+'⏳</span>'):'')+'<span style="color:var(--mut);">›</span></span></div>'));
+          card.addEventListener("click",function(){ showWeek(k); });
+          box.appendChild(card);
+          if(isCur) curCard=card;
         });
-      });
+        // Bod 2: odscrolovat na aktivní týden
+        if(curCard){ setTimeout(function(){ try{ curCard.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },40); }
+      }
+      function openForm(d, host){
+        var ex=host.querySelector('.reqform'); if(ex){ ex.remove(); return; }
+        var f=el('<div class="reqform" style="margin:2px 0 8px 12px;padding:9px;border:1px solid #3a4d6b;border-radius:10px;background:rgba(79,142,247,.06);"></div>');
+        f.appendChild(el('<div class="hint" style="margin-bottom:7px;">Návrh na <b>'+d.weekday+' '+czd(d.date)+'</b>:</div>'));
+        var cur={kind:'hours'};
+        var kindRow=el('<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>');
+        var fields=el('<div></div>'); var elH,elS,elE,elT,elN;
+        function buildFields(){
+          fields.innerHTML="";
+          if(cur.kind==='hours'){
+            fields.appendChild(el('<label class="hint">Kolik hodin</label>'));
+            elH=el('<input type="number" min="0" max="24" step="0.5" value="'+(d.hours||8)+'" style="'+iS+'">'); fields.appendChild(elH);
+            fields.appendChild(el('<label class="hint">Příchod od (volitelně)</label>'));
+            elS=el('<input type="time" value="'+(d.start||"")+'" style="'+iS+'">'); fields.appendChild(elS);
+          } else if(cur.kind==='off'){
+            fields.appendChild(el('<div class="hint" style="padding:4px 0;">Navrhuješ na tento den volno.</div>'));
+          } else if(cur.kind==='meeting'){
+            fields.appendChild(el('<label class="hint">Název (porada / jednání)</label>'));
+            elT=el('<input placeholder="např. Porada výroby" style="'+iS+'">'); fields.appendChild(elT);
+            fields.appendChild(el('<label class="hint">Od – do</label>'));
+            var tr=el('<div style="display:flex;gap:6px;"></div>');
+            elS=el('<input type="time" style="'+iS+'flex:1;">'); elE=el('<input type="time" style="'+iS+'flex:1;">');
+            tr.appendChild(elS); tr.appendChild(elE); fields.appendChild(tr);
+          }
+          elN=el('<input placeholder="Poznámka (volitelně)" style="'+iS+'">'); fields.appendChild(elN);
+        }
+        function mkChip(lbl,kk){ var b=el('<button class="ghost" style="padding:6px 10px;font-size:12px;">'+lbl+'</button>');
+          b.addEventListener("click",function(){ cur.kind=kk; [].forEach.call(kindRow.children,function(c){c.style.borderColor='';c.style.color='';}); b.style.borderColor='var(--blue)'; b.style.color='var(--blue)'; buildFields(); }); return b; }
+        kindRow.appendChild(mkChip('⏱ Jiné hodiny','hours'));
+        kindRow.appendChild(mkChip('🏝️ Volno','off'));
+        kindRow.appendChild(mkChip('🤝 Porada/jednání','meeting'));
+        f.appendChild(kindRow);
+        kindRow.children[0].style.borderColor='var(--blue)'; kindRow.children[0].style.color='var(--blue)'; buildFields();
+        f.appendChild(fields);
+        var sb=el('<button class="green full" style="margin-top:8px;">Odeslat ke schválení →</button>');
+        sb.addEventListener("click",function(){ sb.disabled=true;
+          var pl={date:d.date, kind:cur.kind, note:(elN&&elN.value)||""};
+          if(cur.kind==='hours'){ pl.hours=(elH&&elH.value)||""; pl.start=(elS&&elS.value)||""; }
+          else if(cur.kind==='meeting'){ pl.title=(elT&&elT.value)||"Porada/jednání"; pl.start=(elS&&elS.value)||""; pl.end=(elE&&elE.value)||""; }
+          api("POST","/api/v1/erp/app/plan/request",pl).then(function(r){ if(r&&r.ok){ load(); } else { sb.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } });
+        });
+        f.appendChild(sb); host.appendChild(f);
+        try{ f.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
+      }
+      function showWeek(k){
+        ST.view='week'; ST.wk=k; var ds=ST.weeks[k]; if(!ds){ showList(); return; }
+        box.innerHTML="";
+        var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">‹ Zpět na týdny</button>'); bk.addEventListener("click",showList); box.appendChild(bk);
+        var sum=0,wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
+        box.appendChild(el('<div style="margin-bottom:8px;"><b>Týden '+ds[0].iso_week+'</b> <span class="hint">· '+wd+' dní · '+nf(sum)+' h · '+czd(ds[0].date)+'–'+czd(ds[ds.length-1].date)+'</span></div>'));
+        box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Klepni na den a přidej návrh (jiné hodiny / volno / porada–jednání).</div>'));
+        ds.forEach(function(d){
+          var work=(d.hours>0);
+          var col=work?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
+          var tag=work?((d.start?('od '+d.start+' · '):'')+nf(d.hours)+' h'):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
+          var dPast=(d.date<todayIso), dToday=(d.date===todayIso);
+          var dayWrap=el('<div></div>');
+          var rs="display:flex;justify-content:space-between;align-items:center;padding:9px 6px;font-size:14px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;"+(dToday?"background:rgba(79,142,247,.14);border-radius:8px;":"")+(dPast?"opacity:.5;":"");
+          var row=el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="display:flex;align-items:center;gap:8px;"><span style="color:'+col+';font-weight:600;">'+tag+'</span><span style="color:var(--blue);font-size:18px;font-weight:700;">＋</span></span></div>');
+          row.addEventListener("click",function(){ openForm(d, dayWrap); });
+          dayWrap.appendChild(row);
+          (ST.byDate[d.date]||[]).forEach(function(r){
+            var chip=el('<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:3px 0 6px 14px;font-size:12.5px;"><span style="color:'+stCol(r.status)+';">'+stIc(r.status)+' '+esc(kLabel(r))+(r.note?(' — '+esc(r.note)):'')+(r.status==='rejected'&&r.decided_note?(' ('+esc(r.decided_note)+')'):'')+'</span></div>');
+            if(r.status==='pending'){ var db=el('<button class="ghost" style="padding:1px 8px;font-size:11px;flex:none;">smazat</button>'); db.addEventListener("click",function(e){ e.stopPropagation(); db.disabled=true; api("POST","/api/v1/erp/app/plan/request/"+r.id+"/delete","").then(function(){ load(); }); }); chip.appendChild(db); }
+            dayWrap.appendChild(chip);
+          });
+          box.appendChild(dayWrap);
+        });
+      }
+      function load(){
+        box.innerHTML='<div class="hint">Načítám…</div>';
+        api("GET","/api/v1/erp/app/plan/requests?from="+fromD+"&to="+toD,"").then(function(rq){
+          var reqs=(rq&&rq.ok&&rq.items)||[];
+          ST.byDate={}; reqs.forEach(function(r){ (ST.byDate[r.d]=ST.byDate[r.d]||[]).push(r); });
+          ST.pend=reqs.filter(function(r){return r.status==='pending';}).length;
+          ST.weeks={}; ST.order=[]; ST.nowKey=null;
+          j.plan.forEach(function(d){ var k=d.date.slice(0,4)+"-W"+("0"+d.iso_week).slice(-2); if(!ST.weeks[k]){ST.weeks[k]=[];ST.order.push(k);} ST.weeks[k].push(d); });
+          ST.order.forEach(function(k){ if(ST.weeks[k].some(function(d){return d.date===todayIso;})) ST.nowKey=k; });
+          if(ST.view==='week' && ST.weeks[ST.wk]) showWeek(ST.wk); else showList();
+        });
+      }
+      // Bod 4: Zpět o jeden krok — z týdne zpět na seznam (ne rovnou pryč).
+      window._planAnyOpen=function(){ if(document.getElementById('planWeekBack')){ showList(); return true; } return false; };
+      load();
     }
     function renderMonths(box, j, eff, src, titleOverride){
       var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);

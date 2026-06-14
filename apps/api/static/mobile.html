@@ -588,9 +588,13 @@ setTimeout(function(){
       if(!j||!j.ok){ _planApprovalCount=0; return; }
       ap.style.display="";
       var n=j.total||0;
-      _planApprovalCount=n; renderNav();
-      var sub=document.getElementById("apSub"); if(sub)sub.textContent=n?(n+" ke schválení"):"Nic nečeká";
-      var bd=document.getElementById("apBadge"); if(bd){ if(n>0){ bd.textContent=n>99?"99+":n; bd.style.display="block"; } else bd.style.display="none"; }
+      api("GET","/api/v1/erp/app/plan/approvals/unapplied","").then(function(u){
+        var un=(u&&u.ok)?(u.count||0):0; var tot=n+un;
+        _planApprovalCount=tot; renderNav();
+        var sub=document.getElementById("apSub");
+        if(sub)sub.textContent=tot?((n?n+" ke schválení":"")+(n&&un?" · ":"")+(un?un+" k promítnutí":"")):"Nic nečeká";
+        var bd=document.getElementById("apBadge"); if(bd){ if(tot>0){ bd.textContent=tot>99?"99+":tot; bd.style.display="block"; } else bd.style.display="none"; }
+      }).catch(function(){ _planApprovalCount=n; renderNav(); });
     }).catch(function(){});
     p.appendChild(grid); app.appendChild(p);
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; var s=document.getElementById("claudeSub"); if(s)s.textContent=notifCount?(notifCount+" ke schválení / nové"):"Žádné nové"; var bd=document.getElementById("claudeBadge"); if(bd){ if(notifCount>0){ bd.textContent=notifCount>99?"99+":notifCount; bd.style.display="block"; } else bd.style.display="none"; } renderNav(); });
@@ -6112,9 +6116,14 @@ setTimeout(function(){
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).
   function pollNotifs(){
     try{ vyRefreshLive(); }catch(e){}   // živý refresh statusů konzole přes události
-    // Marti 14.6.: počet plánů čekajících na MÉ schválení → do badge Úkoly (jen schvalovatelé, jinak 403→0).
+    // Marti 14.6.: badge Úkoly = plány ke schválení + schválené nepromítnuté korekce
+    // (jen schvalovatelé, jinak 403→0).
     api("GET","/api/v1/erp/app/plan/approvals/users","").then(function(j){
-      var n=(j&&j.ok)?(j.total||0):0; if(n!==_planApprovalCount){ _planApprovalCount=n; renderNav(); }
+      var n=(j&&j.ok)?(j.total||0):0;
+      api("GET","/api/v1/erp/app/plan/approvals/unapplied","").then(function(u){
+        var un=(u&&u.ok)?(u.count||0):0; var tot=n+un;
+        if(tot!==_planApprovalCount){ _planApprovalCount=tot; renderNav(); }
+      }).catch(function(){ if(n!==_planApprovalCount){ _planApprovalCount=n; renderNav(); } });
     }).catch(function(){});
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
       if(j)markOk();

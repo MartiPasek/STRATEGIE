@@ -3753,8 +3753,9 @@ setTimeout(function(){
         }
         // Marti 14.6.: NAD „Potřebuji ti něco říct" sekce rychlých stavů vedoucímu
         // výroby (Informuji/Makám/Potřebuji/Finišuji/Čekám) — dlaždice jako ve Vedení.
-        // Jen na směně (open) — je to produkční zpětná vazba.
-        if(open){
+        // PARKOVÁNO (Marti 14.6.: „na rychlé stavy ještě nejsme ready") — kód zůstává,
+        // jen se nezobrazuje. „Potřebuji ti něco říct" zůstává samo ve svém rámečku.
+        if(false && open){
           bw.appendChild(el('<div style="margin:2px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">RYCHLÝ STAV VEDOUCÍMU</div>'));
           var _sg=el('<div class="appgrid"></div>');
           var _fbPanel=function(build){ bw.innerHTML=""; var bk=el('<button class="ghost full" style="margin-bottom:8px;">‹ Zpět</button>'); bk.addEventListener("click",mainBtn); bw.appendChild(bk); var box=el('<div></div>'); bw.appendChild(box); build(box); try{ bw.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} };

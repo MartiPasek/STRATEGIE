@@ -4613,14 +4613,15 @@ setTimeout(function(){
       +'<ul id="'+listId+'" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'
       +'<div id="'+railId+'" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';
   }
-  function doch_dnesek(){ app.innerHTML=topbar("📅 Dnešek", true); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML=_dochRail("dochToday2","dochTodayRail"); dochListLoad(); }
-  function doch_historie(){ app.innerHTML=topbar("🕓 Historie docházky", true); var p=el('<div class="panel"></div>'); app.appendChild(p);
+  function _dochTopPad(){ var _tb=app.querySelector('.topbar'); if(_tb)_tb.style.paddingTop="12px"; }
+  function doch_dnesek(){ app.innerHTML=topbar("📅 Dnešek", true); _dochTopPad(); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML=_dochRail("dochToday2","dochTodayRail"); dochListLoad(); }
+  function doch_historie(){ app.innerHTML=topbar("🕓 Historie docházky", true); _dochTopPad(); var p=el('<div class="panel"></div>'); app.appendChild(p);
     p.innerHTML='<div class="hint" style="margin:2px 0 6px;font-weight:600;">Včera</div>'+_dochRail("dochYest2","dochYestRail","38vh")
       +'<div class="hint" style="margin:14px 0 6px;font-weight:600;">Starší</div>'+_dochRail("dochPrev2","dochPrevRail","38vh");
     dochListLoad(); }
-  function doch_zitrek(){ app.innerHTML=topbar("🌅 Tady budu jinde", true); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML=_dochRail("dochPlan2","dochPlanRail"); dochDailyLoad(); }
-  function moje_finance(){ app.innerHTML=topbar("💰 Moje finance", true); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML='<div id="paskaBox"><div class="hint">Načítám…</div></div>'; paskaToggle(true); }
-  function moje_zadosti(){ app.innerHTML=topbar("📋 Moje hlášené / neschválené žádosti", true); var p=el('<div class="panel"></div>'); app.appendChild(p);
+  function doch_zitrek(){ app.innerHTML=topbar("🌅 Tady budu jinde", true); _dochTopPad(); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML=_dochRail("dochPlan2","dochPlanRail"); dochDailyLoad(); }
+  function moje_finance(){ app.innerHTML=topbar("💰 Moje finance", true); _dochTopPad(); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML='<div id="paskaBox"><div class="hint">Načítám…</div></div>'; paskaToggle(true); }
+  function moje_zadosti(){ app.innerHTML=topbar("📋 Moje hlášené / neschválené žádosti", true); _dochTopPad(); var p=el('<div class="panel"></div>'); app.appendChild(p);
     var box=el('<div></div>'); p.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
     api("GET","/api/v1/erp/app/attendance/announced-future","").then(function(j){
       box.innerHTML=""; var it=(j&&j.items)||[];
@@ -5235,6 +5236,7 @@ setTimeout(function(){
       box.appendChild(el('<div style="margin-bottom:8px;"><b>'+_ttl+'</b> <span class="hint">· '+_sub+' · '+nf(gt)+' h</span></div>'));
       var MN=["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
       var nowM=(new Date()).getFullYear()+"-"+("0"+((new Date()).getMonth()+1)).slice(-2);
+      var _todayIso=_locDate(0);  // Marti 14.6.: odlišit minulost / současnost / budoucnost
       var months={}, order=[];
       j.plan.forEach(function(d){ var m=d.date.slice(0,7); if(!months[m]){ months[m]=[]; order.push(m);} months[m].push(d); });
       var entries=[];
@@ -5245,8 +5247,9 @@ setTimeout(function(){
         function svL(n){ return n+' '+(n===1?'svátek':(n>=2&&n<=4?'svátky':'svátků')); }
         var summary=wd+' prac. dní · '+nf(sum)+' h';
         var mi=parseInt(m.slice(5,7),10)-1;
-        var card=el('<div style="border:1px solid #2b3a5c;border-radius:12px;margin-bottom:8px;overflow:hidden;"></div>');
-        var head=el('<div style="padding:10px 12px;cursor:pointer;background:#0e1830;scroll-margin-top:38px;"></div>');
+        var _isPastM=(m<nowM), _isCurM=(m===nowM);
+        var card=el('<div style="border:1px solid '+(_isCurM?'#4f8ef7':'#2b3a5c')+';border-radius:12px;margin-bottom:8px;overflow:hidden;'+(_isPastM?'opacity:.5;':'')+'"></div>');
+        var head=el('<div style="padding:10px 12px;cursor:pointer;background:'+(_isCurM?'#11203a':(_isPastM?'#0c1018':'#0e1830'))+';scroll-margin-top:38px;'+(_isCurM?'border-left:3px solid #4f8ef7;':'')+'"></div>');
         var top=el('<div style="display:flex;justify-content:space-between;align-items:center;"></div>');
         top.appendChild(el('<span style="font-weight:700;">'+MN[mi]+'</span>'));
         var arr=el('<span class="hint" style="font-size:12px;">'+summary+' ▸</span>');
@@ -5264,7 +5267,9 @@ setTimeout(function(){
           else if(tp==="work"){ tag=nf(h)+" h"+(d.start?(' · od '+d.start):''); }
           else if(tp==="holiday"){ tag="svátek"; }
           else { tag=(d.day_type==="weekend"?"víkend":"volno"); }
-          body.appendChild(el('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;"><span>'+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+tag+'</span></div>'));
+          var _dPast=(d.date<_todayIso), _dToday=(d.date===_todayIso);
+          var _rs="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;"+(_dToday?"background:rgba(79,142,247,.14);border-radius:6px;padding:4px 6px;margin:2px -6px;":"")+(_dPast?"opacity:.4;":"");
+          body.appendChild(el('<div style="'+_rs+'"><span'+(_dToday?' style="font-weight:700;"':'')+'>'+(_dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+tag+'</span></div>'));
         });
         var entry={body:body, arr:arr, summary:summary, m:m};
         head.addEventListener("click",function(){ var willOpen=(body.style.display==="none"); closeAll(); if(willOpen){ body.style.display="block"; arr.innerHTML=summary+' ▾'; setTimeout(function(){ try{ head.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){} },10); } });

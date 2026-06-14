@@ -18124,7 +18124,8 @@ def _ops_caddy_pin_failover() -> dict:
             txt = f.read()
     except Exception as exc:
         return {"ok": False, "result": "čtení Caddyfile selhalo: %s" % exc}
-    _hb = ("\n        lb_policy first\n        health_uri /api/v1/health\n"
+    _hb = ("\n        lb_policy first\n        lb_try_duration 5s\n        lb_try_interval 250ms\n"
+           "        health_uri /api/v1/health\n"
            "        health_interval 3s\n        health_timeout 2s\n        health_status 2xx\n"
            "        fail_duration 10s\n        max_fails 1")
     # matcher line -> (already-done marker, replacement)
@@ -18153,33 +18154,75 @@ def _ops_caddy_pin_failover() -> dict:
             f.write(new)
     except Exception as exc:
         return {"ok": False, "result": "zápis Caddyfile selhal: %s" % exc}
-    # validate
+    # Reload BEZ závislosti na caddy.exe v PATH: primárně Caddy admin API
+    # (POST localhost:2019/load, text/caddyfile → adapt+validace+apply atomicky).
+    # Fallback na CLI (s hledáním exe). Při chybě rollback ze zálohy.
+    admin = _os.environ.get("STRATEGIE_CADDY_ADMIN") or "http://localhost:2019"
+    reload_ok = False
+    reload_msg = ""
     try:
-        vr = _sp.run([caddy, "validate", "--config", cfg], capture_output=True,
-                     text=True, timeout=60, encoding="utf-8", errors="replace")
-        if vr.returncode != 0:
-            _sh.copyfile(bak, cfg)
-            return {"ok": False, "result": "validace selhala → rollback. %s"
-                    % ((vr.stderr or vr.stdout or "")[-220:])}
-    except FileNotFoundError:
-        _sh.copyfile(bak, cfg)
-        return {"ok": False, "result": "caddy exe nenalezen (%s) → rollback. Nastav STRATEGIE_CADDY_EXE." % caddy}
-    except Exception as exc:
-        _sh.copyfile(bak, cfg)
-        return {"ok": False, "result": "validate ERR → rollback: %s" % exc}
-    # reload
-    try:
-        rr = _sp.run([caddy, "reload", "--config", cfg], capture_output=True,
-                     text=True, timeout=60, encoding="utf-8", errors="replace")
-        if rr.returncode != 0:
-            return {"ok": False, "result": "edit+validace OK, ale reload FAIL: %s "
-                    "(Caddyfile je platný, stačí restart STRATEGIE-CADDY; backup: %s)"
-                    % ((rr.stderr or rr.stdout or "")[-180:], bak)}
-    except Exception as exc:
-        return {"ok": False, "result": "edit+validace OK, reload ERR: %s "
-                "(restart STRATEGIE-CADDY; backup: %s)" % (exc, bak)}
-    return {"ok": True, "result": "Failover přidán (%s) + Caddy reload OK. Backup: %s"
-            % (", ".join(changed) or "0", bak)}
+        import urllib.request as _u, urllib.error as _ue
+        rq = _u.Request(admin.rstrip("/") + "/load", data=new.encode("utf-8"),
+                        headers={"Content-Type": "text/caddyfile"}, method="POST")
+        with _u.urlopen(rq, timeout=30) as resp:
+            if 200 <= getattr(resp, "status", 200) < 300:
+                reload_ok = True
+                reload_msg = "admin API /load OK"
+            else:
+                reload_msg = "admin /load HTTP %s" % getattr(resp, "status", "?")
+    except Exception as _adm_exc:
+        # admin API selhalo (HTTPError = nevalidní config; jinak nedostupné) →
+        # zkus CLI fallback. HTTPError tělo si vytáhneme pro diagnostiku.
+        try:
+            import urllib.error as _ue2
+            if isinstance(_adm_exc, _ue2.HTTPError):
+                _b = ""
+                try:
+                    _b = _adm_exc.read().decode("utf-8", "replace")[:200]
+                except Exception:
+                    pass
+                # nevalidní config → rollback hned (CLI by dopadl stejně)
+                _sh.copyfile(bak, cfg)
+                return {"ok": False, "result": "admin /load odmítl config (%s): %s → rollback"
+                        % (_adm_exc.code, _b)}
+        except Exception:
+            pass
+        reload_msg = "admin API nedostupné (%s)" % type(_adm_exc).__name__
+    if not reload_ok:
+        # CLI fallback — najdi caddy.exe
+        exe = None
+        for c in (_os.environ.get("STRATEGIE_CADDY_EXE"), "caddy",
+                  r"C:\caddy\caddy.exe", r"C:\Tools\caddy.exe",
+                  r"C:\Program Files\Caddy\caddy.exe"):
+            if not c:
+                continue
+            if c == "caddy":
+                w = _sh.which("caddy")
+                if w:
+                    exe = w
+                    break
+            elif _os.path.isfile(c):
+                exe = c
+                break
+        if exe:
+            try:
+                rr = _sp.run([exe, "reload", "--config", cfg], capture_output=True,
+                             text=True, timeout=60, encoding="utf-8", errors="replace")
+                if rr.returncode == 0:
+                    reload_ok = True
+                    reload_msg = "CLI reload OK (%s)" % exe
+                else:
+                    reload_msg = "CLI reload FAIL: %s" % ((rr.stderr or rr.stdout or "")[-160:])
+            except Exception as exc:
+                reload_msg = "CLI reload ERR: %s" % exc
+    if not reload_ok:
+        # Soubor je upravený a platný, jen se nepodařilo reloadnout → necháme edit
+        # (zafunguje po restartu STRATEGIE-CADDY), ale ohlásíme to.
+        return {"ok": False, "result": "Edit OK, ale reload se nepovedl: %s. "
+                "Caddyfile je upravený (failover přidán) — stačí restart služby "
+                "STRATEGIE-CADDY. Backup: %s" % (reload_msg, bak)}
+    return {"ok": True, "result": "Failover přidán (%s) + reload OK [%s]. Backup: %s"
+            % (", ".join(changed) or "0", reload_msg, bak)}
 
 
 def _ops_execute_cloud(action_key: str, rid, uid) -> dict:

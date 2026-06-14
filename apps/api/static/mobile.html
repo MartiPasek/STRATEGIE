@@ -191,6 +191,7 @@ setTimeout(function(){
   var curTab = "home";
   var stack = ["home"];
   var notifCount = null;
+  var _planApprovalCount = 0;   // Marti 14.6.: počet plánů čekajících na MÉ schválení (přičítá se do badge Úkoly)
   var _hasUpdate = false;
   var _lastOk = 0;            // čas poslední úspěšné odezvy serveru (liveness)
   function markOk(){ _lastOk = Date.now(); }
@@ -204,6 +205,8 @@ setTimeout(function(){
   function el(html){ var d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild; }
   function go(id){ stack.push(id); render(); }
   function back(){
+    // Marti 14.6.: otevřený dialog (.appmodal) zavři jako první.
+    try{ var _md=document.querySelectorAll('.appmodal'); if(_md.length){ _md[_md.length-1].remove(); return; } }catch(e){}
     // Marti 14.6.: v Plánu zpět o JEDEN krok — z otevřeného týdne zpět na seznam.
     try{ if(typeof window._planAnyOpen==="function" && window._planAnyOpen()) return; }catch(e){}
     // Marti 8.6.: nejdřív zavřít otevřený accordion (Výroba/kontakty), teprve pak odejít.
@@ -234,6 +237,8 @@ setTimeout(function(){
     var _sov=document.getElementById("shotOverlay");
     if(_sov){ if(typeof window._shotOverlayBack==="function") return window._shotOverlayBack();
       _sov.remove(); var _sfab=document.getElementById("shotFab"); if(_sfab)_sfab.style.display=""; return true; }
+    // Marti 14.6.: otevřený dialog (.appmodal) zavři jako první.
+    try{ var _md=document.querySelectorAll('.appmodal'); if(_md.length){ _md[_md.length-1].remove(); return true; } }catch(e){}
     // overlay odchodu už visí → druhý stisk Zpět = opravdu odejít
     // Marti 11.6.: detail jobu přes celou obrazovku → Zpět zavře jen jeho (o úroveň níž).
     var _jov=document.getElementById("jobOverlay");
@@ -580,9 +585,10 @@ setTimeout(function(){
     var ap=el('<div class="tile" style="position:relative;display:none;"><div class="tile-ic">🗓️</div><div class="tile-tt">Schvalování</div><div class="tile-sub" id="apSub">…</div><span id="apBadge" style="display:none;position:absolute;top:8px;right:8px;background:#f59e0b;color:#fff;border-radius:11px;min-width:22px;height:22px;line-height:22px;text-align:center;font-size:12px;font-weight:700;padding:0 6px;box-shadow:0 1px 4px rgba(0,0,0,.35);"></span></div>');
     ap.addEventListener("click",function(){go("planapprovals");}); grid.appendChild(ap);
     api("GET","/api/v1/erp/app/plan/approvals/users","").then(function(j){
-      if(!j||!j.ok)return;
+      if(!j||!j.ok){ _planApprovalCount=0; return; }
       ap.style.display="";
       var n=j.total||0;
+      _planApprovalCount=n; renderNav();
       var sub=document.getElementById("apSub"); if(sub)sub.textContent=n?(n+" ke schválení"):"Nic nečeká";
       var bd=document.getElementById("apBadge"); if(bd){ if(n>0){ bd.textContent=n>99?"99+":n; bd.style.display="block"; } else bd.style.display="none"; }
     }).catch(function(){});
@@ -653,7 +659,7 @@ setTimeout(function(){
       if(r&&r.ok){ apLoad(); } else alert("Chyba: "+((r&&r.error)||"?")); });
   }
   function apRejectDialog(r){
-    var ov=el('<div style="position:fixed;inset:0;z-index:99999;background:rgba(3,7,16,.66);display:flex;align-items:center;justify-content:center;padding:24px;"></div>');
+    var ov=el('<div class="appmodal" style="position:fixed;inset:0;z-index:99999;background:rgba(3,7,16,.66);display:flex;align-items:center;justify-content:center;padding:24px;"></div>');
     var card=el('<div style="background:#161c2b;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px;max-width:340px;width:100%;box-shadow:0 16px 50px rgba(0,0,0,.55);"></div>');
     card.appendChild(el('<div style="font-size:16px;font-weight:600;color:#e8eefc;margin-bottom:6px;">Zamítnout návrh</div>'));
     card.appendChild(el('<div class="hint" style="margin-bottom:10px;">'+esc(apCzd(r.d))+' · '+esc(apKLabel(r))+'</div>'));
@@ -5497,7 +5503,7 @@ setTimeout(function(){
         return false;
       }
       function planAskSave(f){
-        var ov=el('<div style="position:fixed;inset:0;z-index:99999;background:rgba(3,7,16,.66);display:flex;align-items:center;justify-content:center;padding:24px;"></div>');
+        var ov=el('<div class="appmodal" style="position:fixed;inset:0;z-index:99999;background:rgba(3,7,16,.66);display:flex;align-items:center;justify-content:center;padding:24px;"></div>');
         var card=el('<div style="background:#161c2b;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:22px 20px;max-width:320px;width:100%;box-shadow:0 16px 50px rgba(0,0,0,.55);"></div>');
         card.appendChild(el('<div style="font-size:16px;font-weight:600;color:#e8eefc;text-align:center;margin-bottom:18px;">Mám uložit změny?</div>'));
         var rowb=el('<div style="display:flex;gap:10px;"></div>');
@@ -5933,7 +5939,7 @@ setTimeout(function(){
     bnav.appendChild(navBtn("🏠","Domů",curTab==="home"&&!atApps,function(){selectTab("home");},_homeNotifSum()));
     // Badge Aplikace = notifikace (WA/SMS) + nová verze appky (Marti 7.6.: ať je update vidět z hlavního menu).
     bnav.appendChild(navBtn(APPS_SVG,"Aplikace",atApps,function(){ curTab="home"; stack=["home","apps"]; render(); },(((bd&&bd.total)||0)+(_hasUpdate?1:0))));
-    bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},notifCount||0));
+    bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},(notifCount||0)+(_planApprovalCount||0)));
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
     bnav.appendChild(navBtn("🏢","Firma",curTab==="firma",function(){selectTab("firma");},0));
     // Na obrazovce Aplikace: dvě extra lišty nad základní; Nastavení vpravo v DOLNÍ extra liště.
@@ -6072,6 +6078,10 @@ setTimeout(function(){
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).
   function pollNotifs(){
     try{ vyRefreshLive(); }catch(e){}   // živý refresh statusů konzole přes události
+    // Marti 14.6.: počet plánů čekajících na MÉ schválení → do badge Úkoly (jen schvalovatelé, jinak 403→0).
+    api("GET","/api/v1/erp/app/plan/approvals/users","").then(function(j){
+      var n=(j&&j.ok)?(j.total||0):0; if(n!==_planApprovalCount){ _planApprovalCount=n; renderNav(); }
+    }).catch(function(){});
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){
       if(j)markOk();
       var cmds=(j&&j.commands)||[]; var n=cmds.length; var changed=(n!==notifCount);

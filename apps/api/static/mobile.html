@@ -1174,6 +1174,7 @@ setTimeout(function(){
     sec("ŘÍZENÍ & MZDY");
     var g4=el('<div class="appgrid"></div>');
     g4.appendChild(appCell("💰","Mzdy: Helios × my",0,function(){go("wage_cmp");}));
+    g4.appendChild(appCell("📈","Návštěvnost webu",0,function(){go("web_stats");}));
     g4.appendChild(appCell("⚙️","Ops akce",0,function(){go("ops");}));
     g4.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
     g4.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
@@ -5516,7 +5517,28 @@ setTimeout(function(){
     }
     load();
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti};
+  function web_stats(){
+    app.innerHTML=topbar("📈 Návštěvnost webu", true);
+    var box=el('<div></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
+    api("GET","/api/v1/erp/app/web-stats?days=30","").then(function(j){
+      box.innerHTML='';
+      if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Jen rodiče/HR.")+'</div>')); return; }
+      function card(t,a,b){ return '<div style="flex:1;border:1px solid #2b3a5c;border-radius:12px;padding:10px;text-align:center;"><div style="font-size:22px;font-weight:800;">'+a+'</div><div class="hint" style="font-size:11px;">'+t+'</div>'+(b!=null?('<div class="hint" style="font-size:10px;">'+b+' unikátních</div>'):'')+'</div>'; }
+      var kpi=el('<div style="display:flex;gap:8px;margin-bottom:12px;"></div>'); kpi.innerHTML=card("Dnes",j.today,j.today_unique)+card("Za "+j.days+" dní",j.total,j.unique); box.appendChild(kpi);
+      if(j.by_day&&j.by_day.length){
+        var mx=Math.max.apply(null,j.by_day.map(function(d){return d.v;}))||1;
+        box.appendChild(el('<div class="hint" style="margin-bottom:4px;">Návštěvy po dnech</div>'));
+        var ch=el('<div style="display:flex;align-items:flex-end;gap:2px;height:90px;border-bottom:1px solid #2b3a5c;margin-bottom:12px;"></div>');
+        j.by_day.forEach(function(d){ var h=Math.round(d.v/mx*84)+2; ch.appendChild(el('<div title="'+d.d+': '+d.v+' ('+d.u+' uniq)" style="flex:1;min-width:3px;height:'+h+'px;background:linear-gradient(180deg,#7fc8e0,#2a6b8a);border-radius:2px 2px 0 0;"></div>')); });
+        box.appendChild(ch);
+      }
+      function sect(title,rows,key){ if(!rows||!rows.length)return; box.appendChild(el('<div style="font-weight:700;margin:10px 0 4px;">'+title+'</div>')); rows.forEach(function(r){ box.appendChild(el('<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #1b2742;padding:6px 2px;font-size:13px;"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(String(r[key]||"—"))+'</span><span style="font-weight:700;color:#7fc8e0;flex:none;">'+r.v+'</span></div>')); }); }
+      sect("Nejčtenější stránky",j.pages,"path");
+      sect("Jazyky",j.langs,"lang");
+      sect("Odkud přišli",j.refs,"ref");
+    });
+  }
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,web_stats:web_stats};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

@@ -8493,6 +8493,74 @@ async def app_vyroba_cinnost_master_order(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Návštěvnost webu (in-house, GDPR: IP jen hash) ───────────────────────────
+@api_router.post("/app/web-visit")
+async def app_web_visit(req: Request) -> JSONResponse:
+    """Veřejný beacon z /web stránek. Bez auth, nikdy nevrací chybu (ať neruší web)."""
+    import hashlib
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    path = str((b or {}).get("path") or "")[:200]
+    lang = str((b or {}).get("lang") or "")[:4]
+    ref = str((b or {}).get("ref") or "")[:300]
+    ua = (req.headers.get("user-agent") or "")[:300]
+    xff = (req.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    ip = xff or (req.client.host if req.client else "")
+    iph = hashlib.sha256(("stg_web_salt_2026|" + ip).encode()).hexdigest() if ip else ""
+    ul = ua.lower()
+    is_bot = any(k in ul for k in ("bot", "spider", "crawl", "headless", "slurp", "curl",
+                                   "wget", "python-", "facebookexternalhit", "preview", "monitor"))
+    cm, s = _att_session()
+    try:
+        s.execute(_t("INSERT INTO fw.web_visit (path,lang,referer,ua,ip_hash,is_bot) "
+                     "VALUES (:p,:l,:r,:u,:h,:bo)"),
+                  {"p": path, "l": lang, "r": ref, "u": ua, "h": iph, "bo": is_bot})
+        s.commit()
+    except Exception:
+        s.rollback()
+    finally:
+        cm.__exit__(None, None, None)
+    return JSONResponse({"ok": True})
+
+
+@api_router.get("/app/web-stats")
+async def app_web_stats(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        days = int(req.query_params.get("days") or 30)
+    except Exception:
+        days = 30
+    days = max(1, min(days, 365))
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        base = "FROM fw.web_visit WHERE is_bot=false AND ts >= now() - make_interval(days => :d)"
+        par = {"d": days}
+        tot = s.execute(_t("SELECT count(*), count(DISTINCT ip_hash) " + base), par).first()
+        by_day = [{"d": r[0].isoformat(), "v": int(r[1]), "u": int(r[2])} for r in s.execute(_t(
+            "SELECT ts::date, count(*), count(DISTINCT ip_hash) " + base + " GROUP BY 1 ORDER BY 1"), par).fetchall()]
+        pages = [{"path": r[0] or "/", "v": int(r[1])} for r in s.execute(_t(
+            "SELECT path, count(*) " + base + " GROUP BY path ORDER BY 2 DESC LIMIT 12"), par).fetchall()]
+        refs = [{"ref": r[0], "v": int(r[1])} for r in s.execute(_t(
+            "SELECT referer, count(*) " + base + " AND COALESCE(referer,'')<>'' GROUP BY referer ORDER BY 2 DESC LIMIT 10"), par).fetchall()]
+        langs = [{"lang": (r[0] or "?"), "v": int(r[1])} for r in s.execute(_t(
+            "SELECT lang, count(*) " + base + " GROUP BY lang ORDER BY 2 DESC"), par).fetchall()]
+        today = s.execute(_t("SELECT count(*), count(DISTINCT ip_hash) FROM fw.web_visit WHERE is_bot=false AND ts::date=CURRENT_DATE")).first()
+        return JSONResponse({"ok": True, "days": days,
+                             "total": int(tot[0] or 0), "unique": int(tot[1] or 0),
+                             "today": int(today[0] or 0), "today_unique": int(today[1] or 0),
+                             "by_day": by_day, "pages": pages, "refs": refs, "langs": langs})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── Vrstva 2: firemní výjimky (samostatná tabulka, NEPŘEPISUJE vrstvu 1) ──────
 @api_router.get("/app/plan/exceptions")
 async def app_plan_exceptions(req: Request) -> JSONResponse:

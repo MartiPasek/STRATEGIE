@@ -117,7 +117,7 @@
     <a href="/chat">Enter the system</a>
   </div>
   <div style="display:flex;align-items:center;gap:13px">
-    <span class="lang"><a href="/web">CZ</a><a href="/web/en" class="on">EN</a><a href="/web/de">DE</a></span>
+    <span class="lang"><a href="/web">CZ</a><a href="/web/de">DE</a></span>
     <a href="#kontakt" class="btn btn-p" style="padding:11px 20px;font-size:14px">Want to meet?</a>
   </div>
 </div></nav>
@@ -282,4 +282,5 @@
     <div style="margin-top:10px">© 2026 STRATEGIE</div>
   </div>
 </footer>
+<script>try{fetch('/api/v1/erp/app/web-visit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:location.pathname,ref:document.referrer,lang:'en'})}).catch(function(){});}catch(e){}</script>
 </body></html>

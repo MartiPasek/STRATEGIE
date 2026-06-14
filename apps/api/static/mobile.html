@@ -3606,28 +3606,8 @@ setTimeout(function(){
     // Marti 14.6.: „Tady budu jinde" přesunuto z „Potřebuji ti něco říct" SEM (do docházky).
     var _jindeBox=el('<div id="dochJindeBox" style="display:none;margin:4px 4px 6px;padding:8px;border:1px solid #4a3a1a;border-radius:12px;background:rgba(251,191,36,.05);"></div>');
     _toolsWrap.appendChild(_jindeBox);
-    _toolSec("🧰 MOJE ZAKÁZKY A ČINNOSTI");
-    // Marti 14.6.: předvýběr zakázky+činnosti funguje vždy (i mimo práci).
-    // Klik na Zakázka/Činnost → picker → výběr → zpět. „Makat" zapne docházku
-    // i zakázkový systém z předvýběru. Za běhu = změna úseku.
-    var _wstat=el('<div style="margin:0 6px 8px;font-size:13px;line-height:1.55;color:#cdd8ea;">Načítám…</div>');
-    _toolsWrap.appendChild(_wstat);
-    var _tgz=el('<div class="appgrid"></div>');
-    var _tZak=appCell("🧾","Zakázka",0,function(){ go("prace_zak"); });
-    var _tCin=appCell("🔧","Činnost",0,function(){ go("prace_cin"); });
-    var _tMak=appCell("▶️","Makat",0,function(){ if(window._praceStart) window._praceStart(); });
-    _tgz.appendChild(_tZak); _tgz.appendChild(_tCin); _tgz.appendChild(_tMak);
-    _toolsWrap.appendChild(_tgz);
-    (function(){
-      api("GET","/api/v1/erp/app/work/state","").then(function(j){
-        var aw=!!(j&&j.at_work), cur=(j&&j.working_alloc)||null, pref=(j&&j.pref)||{};
-        var src=aw?(cur||pref):pref;
-        var zt=src.is_rezie?"🧰 Režie (bez zakázky)":(src.project_ref?("🧾 "+esc(src.project_ref)+(src.project_nazev?(" — "+esc(src.project_nazev)):"")):'<span style="color:#8696b8;">— zakázka nevybrána —</span>');
-        var ct=src.cinnost_name?("🔧 "+esc(src.cinnost_name)):'<span style="color:#8696b8;">— činnost nevybrána —</span>';
-        _wstat.innerHTML=(aw?'<b style="color:var(--green);">🟢 Makáš</b><br>':'<span class="hint">Předvýběr (klikni a vyber):</span><br>')+zt+'<br>'+ct;
-        if(aw){ _tMak.style.display="none"; }
-      }).catch(function(){ _wstat.textContent=""; });
-    })();
+    // Marti 14.6.: sekce „Zakázky a činnosti" se renderuje NAHOŘE pod nadpisem
+    // (v dochAction přes window._buildWorkSwitch) — tady už není.
     _toolSec("PODMÍNKY & FINANCE");
     var _tg2=el('<div class="appgrid"></div>');
     _tg2.appendChild(appCell("📋","Moje podmínky",0,function(){ go("moje_podminky"); }));
@@ -3636,6 +3616,11 @@ setTimeout(function(){
     _tg2.appendChild(appCell("💰","Moje finance",0,function(){ go("moje_finance"); }));
     _tg2.appendChild(appCell("🗓️","Nepřítomnosti",0,function(){ go("absence"); }));
     _toolsWrap.appendChild(_tg2);
+    // Marti 14.6.: pořadí obrazovky — nadpis → sekce Zakázky a činnosti (dochAction)
+    // → „Potřebuji ti něco říct" (dochNow) → optická mezera → zbytek (region + sekce).
+    p.appendChild(el('<div id="dochAction" style="margin-top:12px;"></div>'));
+    p.appendChild(el('<div id="dochNow" class="doch-pulse" style="margin-top:12px;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:14px;padding:14px;">Načítám…</div>'));
+    p.appendChild(el('<div style="height:30px;"></div>'));  // optická mezera, ať to neruší
     p.appendChild(_toolsWrap);
     var lc=el('<div style="margin-top:4px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
     var su=lc.querySelector("#dochSecs");
@@ -3683,8 +3668,6 @@ setTimeout(function(){
     p.appendChild(el('<div id="bossAsk"></div>'));
     // Marti 7.6. večer: konec obrazovky = zvýrazněný milý rámeček s rozhovorem.
     // Marti 7.6. večer: rámeček pulzuje NAPOŘÁD (líbí se mu to 😄) — při práci i mimo.
-    p.appendChild(el('<div id="dochAction" style="margin-top:12px;"></div>'));
-    p.appendChild(el('<div id="dochNow" class="doch-pulse" style="margin-top:12px;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:14px;padding:14px;">Načítám…</div>'));
     p.appendChild(el('<div id="dochConfirm" style="margin-top:10px;"></div>'));
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod patičku
     app.appendChild(p);
@@ -3902,9 +3885,9 @@ setTimeout(function(){
             actC.appendChild(ke2);
           }
         }
-        // Marti 14.6.: během práce snadná změna zakázky/činnosti — ZVLÁŠŤ, nad pulzujícím
-        // rámečkem „Potřebuji ti něco říct" (ten patří jen svému poli).
-        if(open && actC && window._buildWorkSwitch){ window._buildWorkSwitch(actC); }
+        // Marti 14.6.: sekce „Zakázky a činnosti" pod nadpisem (vždy — i mimo práci),
+        // ZVLÁŠŤ nad pulzujícím rámečkem „Potřebuji ti něco říct" (ten patří jen svému poli).
+        if(actC && window._buildWorkSwitch){ window._buildWorkSwitch(actC); }
         // Marti 14.6.: on-shift volba „Jsem na zakázce" ÚPLNĚ SCHOVÁNA — patří do
         // sekce „Moje zakázky" (region). „Potřebuji ti něco říct" zůstává v rámečku sám.
         if(false && open && actC){
@@ -6034,6 +6017,9 @@ setTimeout(function(){
         up.addEventListener("click",function(){ if(idx===0)return; var t=_all[idx-1]; _all[idx-1]=_all[idx]; _all[idx]=t; render(); saveOrder(); });
         dn.addEventListener("click",function(){ if(idx===_all.length-1)return; var t=_all[idx+1]; _all[idx+1]=_all[idx]; _all[idx]=t; render(); saveOrder(); });
         row.appendChild(up); row.appendChild(dn);
+        var ib=el('<button class="ghost" style="padding:4px 8px;flex:none;font-size:18px;line-height:1;" title="Změnit ikonu">'+(c.icon||"🔧")+'</button>');
+        ib.addEventListener("click",function(){ var ic=prompt("Ikona (emoji) pro „"+c.name+"\":", c.icon||""); if(ic===null)return; ic=(ic||"").trim(); if(!ic||ic===c.icon)return; api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{id:c.id,icon:ic}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba"); }); });
+        row.appendChild(ib);
         var nm=el('<div style="flex:1;font-weight:600;cursor:pointer;">'+esc(c.name)+(c.active?'':' <span class="hint">(skryto)</span>')+'</div>');
         nm.addEventListener("click",function(){ var n=prompt("Název činnosti:",c.name); if(!n||!n.trim()||n.trim()===c.name)return; api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{id:c.id,name:n.trim()}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba"); }); });
         row.appendChild(nm);
@@ -6066,7 +6052,7 @@ setTimeout(function(){
         up.addEventListener("click",function(){ if(idx===0)return; var t=_mine[idx-1]; _mine[idx-1]=_mine[idx]; _mine[idx]=t; renderMine(ml); saveOrder(); });
         dn.addEventListener("click",function(){ if(idx===_mine.length-1)return; var t=_mine[idx+1]; _mine[idx+1]=_mine[idx]; _mine[idx]=t; renderMine(ml); saveOrder(); });
         row.appendChild(up); row.appendChild(dn);
-        row.appendChild(el('<div style="flex:1;font-weight:600;">'+esc(c.name)+'</div>'));
+        row.appendChild(el('<div style="flex:1;font-weight:600;"><span style="margin-right:6px;">'+(c.icon||"🔧")+'</span>'+esc(c.name)+'</div>'));
         var rm=el('<button class="ghost" style="padding:6px 10px;flex:none;color:#f87171;border-color:#5a2b2b;">✕</button>');
         rm.addEventListener("click",function(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/toggle",{cinnost_id:c.id,in_list:false}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
         row.appendChild(rm); ml.appendChild(row);
@@ -6080,14 +6066,14 @@ setTimeout(function(){
         _mine=(j.cinnosti||[]).filter(function(c){return !c.hidden;});
         var avail=(j.cinnosti||[]).filter(function(c){return c.hidden;});
         // náhled plochy nahoře — vybrané činnosti jako ikony
-        if(_topGrid){ _topGrid.innerHTML=''; _mine.forEach(function(c){ _topGrid.appendChild(appCell("🔧",c.name,0,function(){})); }); }
+        if(_topGrid){ _topGrid.innerHTML=''; _mine.forEach(function(c){ _topGrid.appendChild(appCell(c.icon||"🔧",c.name,0,function(){})); }); }
         box.appendChild(el('<div style="font-weight:700;margin-bottom:6px;">Můj seznam ('+_mine.length+')</div>'));
         var ml=el('<div></div>'); box.appendChild(ml); renderMine(ml);
         box.appendChild(el('<div style="font-weight:700;margin:14px 0 6px;">Přidat ze seznamu</div>'));
         if(!avail.length){ box.appendChild(el('<div class="hint">Máš všechny činnosti ve svém seznamu.</div>')); }
         avail.forEach(function(c){
           var row=el('<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid #1b2742;padding:9px 4px;"></div>');
-          row.appendChild(el('<div style="flex:1;color:#8696b8;">'+esc(c.name)+'</div>'));
+          row.appendChild(el('<div style="flex:1;color:#8696b8;"><span style="margin-right:6px;">'+(c.icon||"🔧")+'</span>'+esc(c.name)+'</div>'));
           var add=el('<button class="ghost" style="padding:6px 12px;flex:none;border-color:#3a7a4c;color:#7fe0a0;">+ Přidat</button>');
           add.addEventListener("click",function(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/toggle",{cinnost_id:c.id,in_list:true}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
           row.appendChild(add); box.appendChild(row);
@@ -6159,20 +6145,26 @@ setTimeout(function(){
     }
     load();
   }
-  // Marti 14.6.: kompaktní přepínač zakázky/činnosti během práce (do pracovního panelu).
+  // Marti 14.6.: sekce „Zakázky a činnosti" — pod nadpisem, nad „Potřebuji ti něco říct".
+  // Předvýběr funguje vždy; ▶️ Makat zapne docházku z předvýběru; za běhu = změna úseku.
   window._buildWorkSwitch=function(host){
-    var ws=el('<div style="margin:8px 0;padding:10px;border:1px solid #2a3a4d;border-radius:12px;background:rgba(127,200,224,.05);"></div>');
-    ws.appendChild(el('<div class="hint" style="font-size:11px;letter-spacing:.5px;margin-bottom:6px;">CO PRÁVĚ DĚLÁM — můžeš změnit</div>'));
+    var ws=el('<div style="margin:4px 0 0;padding:10px;border:1px solid #2a3a4d;border-radius:12px;background:rgba(127,200,224,.05);"></div>');
+    var lbl=el('<div class="hint" style="font-size:11px;letter-spacing:.5px;margin-bottom:6px;">ZAKÁZKY A ČINNOSTI</div>'); ws.appendChild(lbl);
     var wstat=el('<div style="font-size:13px;line-height:1.5;color:#cdd8ea;margin-bottom:8px;">…</div>'); ws.appendChild(wstat);
     var grid=el('<div class="appgrid"></div>');
     grid.appendChild(appCell("🧾","Zakázka",0,function(){ go("prace_zak"); }));
     grid.appendChild(appCell("🔧","Činnost",0,function(){ go("prace_cin"); }));
+    var tMak=appCell("▶️","Makat",0,function(){ if(window._praceStart) window._praceStart(); });
+    grid.appendChild(tMak);
     ws.appendChild(grid); host.appendChild(ws);
     api("GET","/api/v1/erp/app/work/state","").then(function(j){
-      var src=((j&&j.at_work&&j.working_alloc)||(j&&j.pref))||{};
+      var aw=!!(j&&j.at_work);
+      var src=(aw?(j&&j.working_alloc):(j&&j.pref))||(j&&j.pref)||{};
       var zt=src.is_rezie?"🧰 Režie (bez zakázky)":(src.project_ref?("🧾 "+esc(src.project_ref)+(src.project_nazev?(" — "+esc(src.project_nazev)):"")):'<span style="color:#8696b8;">— zakázka nevybrána —</span>');
-      var ct=src.cinnost_name?("🔧 "+esc(src.cinnost_name)):'<span style="color:#8696b8;">— činnost nevybrána —</span>';
-      wstat.innerHTML=zt+'<br>'+ct;
+      var ct=src.cinnost_name?((src.cinnost_icon||"🔧")+" "+esc(src.cinnost_name)):'<span style="color:#8696b8;">— činnost nevybrána —</span>';
+      lbl.innerHTML=aw?'<span style="color:var(--green);font-weight:700;">🟢 MAKÁŠ — můžeš změnit</span>':'ZAKÁZKY A ČINNOSTI — předvýběr, pak ▶️ Makat';
+      wstat.innerHTML=zt+' &nbsp;·&nbsp; '+ct;
+      tMak.style.display=aw?"none":"";
     }).catch(function(){ wstat.textContent=""; });
   };
   // Marti 14.6.: „Makat" — zapni docházku + zakázkový systém z předvýběru.
@@ -6213,10 +6205,10 @@ setTimeout(function(){
       var st=rs[0]||{}, m=rs[1]||{};
       var cur=((st.at_work&&st.working_alloc)||st.pref)||{};
       var mine=((m&&m.cinnosti)||[]).filter(function(c){return !c.hidden;});
-      box.appendChild(el('<div style="background:var(--bg);border:1px solid var(--green);border-radius:12px;padding:12px;margin-bottom:10px;"><div class="hint" style="font-size:11px;letter-spacing:.5px;">AKTUÁLNÍ</div><div style="font-weight:700;font-size:15px;margin-top:3px;">'+(cur.cinnost_name?("🔧 "+esc(cur.cinnost_name)):"— zatím nevybráno —")+'</div></div>'));
+      box.appendChild(el('<div style="background:var(--bg);border:1px solid var(--green);border-radius:12px;padding:12px;margin-bottom:10px;"><div class="hint" style="font-size:11px;letter-spacing:.5px;">AKTUÁLNÍ</div><div style="font-weight:700;font-size:15px;margin-top:3px;">'+(cur.cinnost_name?((cur.cinnost_icon||"🔧")+" "+esc(cur.cinnost_name)):"— zatím nevybráno —")+'</div></div>'));
       if(!mine.length){ box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Nemáš vybrané činnosti.</div>')); }
       var cg=el('<div class="appgrid"></div>');
-      mine.forEach(function(c){ var on=(cur.cinnost_id===c.id); var cell=appCell("🔧",c.name,0,function(){ pick(c.id); }); if(on){ cell.style.outline="2px solid var(--green)"; cell.style.borderColor="var(--green)"; } cg.appendChild(cell); });
+      mine.forEach(function(c){ var on=(cur.cinnost_id===c.id); var cell=appCell(c.icon||"🔧",c.name,0,function(){ pick(c.id); }); if(on){ cell.style.outline="2px solid var(--green)"; cell.style.borderColor="var(--green)"; } cg.appendChild(cell); });
       box.appendChild(cg);
       var mb=el('<button class="ghost full" style="margin-top:12px;border-color:#6b4a2a;color:#e6b97a;">🧰 Upravit seznam činností</button>'); mb.addEventListener("click",function(){ go("moje_cinnosti"); }); box.appendChild(mb);
     });

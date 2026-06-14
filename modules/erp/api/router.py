@@ -8386,11 +8386,11 @@ async def app_vyroba_my_cinnosti(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
             target = int(tu)
         rows = s.execute(_t(
-            "SELECT c.id, c.name, COALESCE(uc.hidden,false) AS hid, COALESCE(uc.sort_order, c.sort_order) AS so "
+            "SELECT c.id, c.name, COALESCE(uc.hidden,false) AS hid, COALESCE(uc.sort_order, c.sort_order) AS so, c.icon "
             "FROM tenant.vyroba_cinnost c "
             "LEFT JOIN tenant.vyroba_cinnost_user uc ON uc.cinnost_id=c.id AND uc.tenant_id=2 AND uc.user_id=:u "
             "WHERE c.tenant_id=2 AND c.active=true ORDER BY hid, so, c.name"), {"u": target}).fetchall()
-        out = [{"id": r[0], "name": r[1], "hidden": bool(r[2]), "so": int(r[3])} for r in rows]
+        out = [{"id": r[0], "name": r[1], "hidden": bool(r[2]), "so": int(r[3]), "icon": (r[4] or "🧩")} for r in rows]
         return JSONResponse({"ok": True, "user_id": target, "cinnosti": out})
     finally:
         cm.__exit__(None, None, None)
@@ -8478,10 +8478,11 @@ async def app_vyroba_cinnost_master(req: Request) -> JSONResponse:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
-            "SELECT id, code, name, sort_order, active FROM tenant.vyroba_cinnost "
+            "SELECT id, code, name, sort_order, active, icon FROM tenant.vyroba_cinnost "
             "WHERE tenant_id=2 ORDER BY sort_order, name")).fetchall()
         return JSONResponse({"ok": True, "cinnosti": [
-            {"id": r[0], "code": r[1], "name": r[2], "so": int(r[3]), "active": bool(r[4])} for r in rows]})
+            {"id": r[0], "code": r[1], "name": r[2], "so": int(r[3]), "active": bool(r[4]),
+             "icon": (r[5] or "🧩")} for r in rows]})
     finally:
         cm.__exit__(None, None, None)
 
@@ -8499,6 +8500,8 @@ async def app_vyroba_cinnost_master_save(req: Request) -> JSONResponse:
     except Exception:
         b = {}
     name = str((b or {}).get("name") or "").strip()[:120]
+    icon = str((b or {}).get("icon") or "").strip()[:8]
+    has_icon = "icon" in (b or {})
     try:
         cid = int((b or {}).get("id") or 0)
     except Exception:
@@ -8514,6 +8517,8 @@ async def app_vyroba_cinnost_master_save(req: Request) -> JSONResponse:
                 sets.append("name=:n"); par["n"] = name
             if active is not None:
                 sets.append("active=:a"); par["a"] = bool(active)
+            if has_icon and icon:
+                sets.append("icon=:ic"); par["ic"] = icon
             if sets:
                 s.execute(_t("UPDATE tenant.vyroba_cinnost SET " + ", ".join(sets) +
                              " WHERE tenant_id=2 AND id=:i"), par)
@@ -8528,8 +8533,9 @@ async def app_vyroba_cinnost_master_save(req: Request) -> JSONResponse:
                 n += 1
                 code = (base[:27] + "_" + str(n))
             mx = s.execute(_t("SELECT COALESCE(MAX(sort_order),0) FROM tenant.vyroba_cinnost WHERE tenant_id=2")).scalar() or 0
-            s.execute(_t("INSERT INTO tenant.vyroba_cinnost (tenant_id, code, name, sort_order, active) "
-                         "VALUES (2, :c, :n, :so, true)"), {"c": code, "n": name, "so": int(mx) + 10})
+            s.execute(_t("INSERT INTO tenant.vyroba_cinnost (tenant_id, code, name, sort_order, active, icon) "
+                         "VALUES (2, :c, :n, :so, true, :ic)"),
+                      {"c": code, "n": name, "so": int(mx) + 10, "ic": (icon or "🧩")})
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -14065,7 +14071,7 @@ def _wa_close_running(s, uid: int) -> None:
 def _wa_latest_today(s, uid: int):
     from sqlalchemy import text as _t
     return s.execute(_t(
-        "SELECT project_ref, project_nazev, cinnost_id, cinnost_name, is_rezie "
+        "SELECT project_ref, project_nazev, cinnost_id, cinnost_name, cinnost_icon, is_rezie "
         "FROM tenant.work_alloc WHERE tenant_id=:t AND user_id=:u "
         "AND started_at::date=current_date ORDER BY id DESC LIMIT 1"),
         {"t": _ATT_TENANT, "u": uid}).mappings().first()
@@ -14074,7 +14080,7 @@ def _wa_latest_today(s, uid: int):
 def _wa_running(s, uid: int):
     from sqlalchemy import text as _t
     return s.execute(_t(
-        "SELECT id, project_ref, project_nazev, cinnost_id, cinnost_name, is_rezie, "
+        "SELECT id, project_ref, project_nazev, cinnost_id, cinnost_name, cinnost_icon, is_rezie, "
         "to_char(started_at,'HH24:MI') AS since "
         "FROM tenant.work_alloc WHERE tenant_id=:t AND user_id=:u AND ended_at IS NULL "
         "ORDER BY id DESC LIMIT 1"),
@@ -14082,15 +14088,17 @@ def _wa_running(s, uid: int):
 
 
 def _wa_open(s, uid: int, project_ref=None, project_nazev=None,
-             cinnost_id=None, cinnost_name=None, is_rezie=False, source="mobile") -> None:
+             cinnost_id=None, cinnost_name=None, cinnost_icon=None,
+             is_rezie=False, source="mobile") -> None:
     from sqlalchemy import text as _t
     _wa_close_running(s, uid)
     s.execute(_t(
         "INSERT INTO tenant.work_alloc (tenant_id,user_id,started_at,project_ref,project_nazev,"
-        "cinnost_id,cinnost_name,is_rezie,source,created_at,updated_at) "
-        "VALUES (:t,:u,now(),:pr,:pn,:ci,:cn,:rz,:src,now(),now())"),
+        "cinnost_id,cinnost_name,cinnost_icon,is_rezie,source,created_at,updated_at) "
+        "VALUES (:t,:u,now(),:pr,:pn,:ci,:cn,:cic,:rz,:src,now(),now())"),
         {"t": _ATT_TENANT, "u": uid, "pr": project_ref, "pn": project_nazev,
-         "ci": cinnost_id, "cn": cinnost_name, "rz": bool(is_rezie), "src": source})
+         "ci": cinnost_id, "cn": cinnost_name, "cic": cinnost_icon,
+         "rz": bool(is_rezie), "src": source})
 
 
 def _att_is_working(s, emp: int) -> bool:
@@ -14107,22 +14115,22 @@ def _att_is_working(s, emp: int) -> bool:
 def _wp_get(s, uid: int):
     from sqlalchemy import text as _t
     return s.execute(_t(
-        "SELECT project_ref, project_nazev, cinnost_id, cinnost_name, is_rezie "
+        "SELECT project_ref, project_nazev, cinnost_id, cinnost_name, cinnost_icon, is_rezie "
         "FROM tenant.work_pref WHERE tenant_id=:t AND user_id=:u"),
         {"t": _ATT_TENANT, "u": uid}).mappings().first()
 
 
 def _wp_save(s, uid: int, project_ref=None, project_nazev=None,
-             cinnost_id=None, cinnost_name=None, is_rezie=False) -> None:
+             cinnost_id=None, cinnost_name=None, cinnost_icon=None, is_rezie=False) -> None:
     from sqlalchemy import text as _t
     s.execute(_t(
         "INSERT INTO tenant.work_pref (tenant_id,user_id,project_ref,project_nazev,"
-        "cinnost_id,cinnost_name,is_rezie,updated_at) "
-        "VALUES (:t,:u,:pr,:pn,:ci,:cn,:rz,now()) "
+        "cinnost_id,cinnost_name,cinnost_icon,is_rezie,updated_at) "
+        "VALUES (:t,:u,:pr,:pn,:ci,:cn,:cic,:rz,now()) "
         "ON CONFLICT (tenant_id,user_id) DO UPDATE SET project_ref=:pr,project_nazev=:pn,"
-        "cinnost_id=:ci,cinnost_name=:cn,is_rezie=:rz,updated_at=now()"),
+        "cinnost_id=:ci,cinnost_name=:cn,cinnost_icon=:cic,is_rezie=:rz,updated_at=now()"),
         {"t": _ATT_TENANT, "u": uid, "pr": project_ref, "pn": project_nazev,
-         "ci": cinnost_id, "cn": cinnost_name, "rz": bool(is_rezie)})
+         "ci": cinnost_id, "cn": cinnost_name, "cic": cinnost_icon, "rz": bool(is_rezie)})
 
 
 @api_router.get("/app/work/state")
@@ -14204,13 +14212,14 @@ async def app_work_set_zakazka(req: Request) -> JSONResponse:
         prev = _wp_get(s, uid)
         _ci = prev["cinnost_id"] if prev else None
         _cn = prev["cinnost_name"] if prev else None
+        _cic = prev["cinnost_icon"] if prev else None
         # Marti 14.6.: předvýběr funguje vždy (i mimo práci).
         _wp_save(s, uid, project_ref=pr, project_nazev=pn,
-                 cinnost_id=_ci, cinnost_name=_cn, is_rezie=False)
+                 cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=False)
         # Makáš → změna = nový úsek hned.
         if _att_is_working(s, emp):
             _wa_open(s, uid, project_ref=pr, project_nazev=pn,
-                     cinnost_id=_ci, cinnost_name=_cn, is_rezie=False)
+                     cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=False)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -14231,11 +14240,12 @@ async def app_work_set_rezie(req: Request) -> JSONResponse:
         prev = _wp_get(s, uid)
         _ci = prev["cinnost_id"] if prev else None
         _cn = prev["cinnost_name"] if prev else None
+        _cic = prev["cinnost_icon"] if prev else None
         _wp_save(s, uid, project_ref=None, project_nazev=None,
-                 cinnost_id=_ci, cinnost_name=_cn, is_rezie=True)
+                 cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=True)
         if _att_is_working(s, emp):
             _wa_open(s, uid, project_ref=None, project_nazev=None,
-                     cinnost_id=_ci, cinnost_name=_cn, is_rezie=True)
+                     cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=True)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -14264,19 +14274,20 @@ async def app_work_set_cinnost(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        cn = s.execute(_t("SELECT name FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND id=:c"),
-                       {"t": _ATT_TENANT, "c": ci}).scalar()
-        if not cn:
+        crow = s.execute(_t("SELECT name, icon FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND id=:c"),
+                         {"t": _ATT_TENANT, "c": ci}).first()
+        if not crow:
             return JSONResponse({"ok": False, "error": "cinnost_not_found"})
+        cn = crow[0]; cic = crow[1] or "🧩"
         prev = _wp_get(s, uid)
         _pr = prev["project_ref"] if prev else None
         _pn = prev["project_nazev"] if prev else None
         _rz = bool(prev["is_rezie"]) if prev else False
         _wp_save(s, uid, project_ref=_pr, project_nazev=_pn,
-                 cinnost_id=ci, cinnost_name=cn, is_rezie=_rz)
+                 cinnost_id=ci, cinnost_name=cn, cinnost_icon=cic, is_rezie=_rz)
         if _att_is_working(s, emp):
             _wa_open(s, uid, project_ref=_pr, project_nazev=_pn,
-                     cinnost_id=ci, cinnost_name=cn, is_rezie=_rz)
+                     cinnost_id=ci, cinnost_name=cn, cinnost_icon=cic, is_rezie=_rz)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -14370,9 +14381,10 @@ async def att_checkin(req: Request) -> JSONResponse:
                 _pn = (_pref["project_nazev"] if (_pref and not project_ref) else None)
                 _ci = _pref["cinnost_id"] if _pref else None
                 _cn = _pref["cinnost_name"] if _pref else None
+                _cic = _pref["cinnost_icon"] if _pref else None
                 _rz = (kind == "overhead") or (bool(_pref["is_rezie"]) if (_pref and not project_ref) else False)
                 _wa_open(s, uid, project_ref=_pr, project_nazev=_pn,
-                         cinnost_id=_ci, cinnost_name=_cn, is_rezie=_rz)
+                         cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=_rz)
             except Exception:
                 pass
         s.commit()

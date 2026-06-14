@@ -5239,7 +5239,7 @@ setTimeout(function(){
       var toD=(j.plan[j.plan.length-1]&&j.plan[j.plan.length-1].date)||_locDate(0);
       var todayIso=_locDate(0);
       var iS="box-sizing:border-box;width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin:2px 0;font-size:14px;";
-      var ST={view:'list', wk:null, byDate:{}, weeks:{}, order:[], nowKey:null, pend:0};
+      var ST={view:'list', wk:null, byDate:{}, weeks:{}, order:[], nowKey:null, pend:0, listScroll:0};
       function stCol(s){ return s==='approved'?'#34d399':(s==='rejected'?'#f87171':'#fbbf24'); }
       function stIc(s){ return s==='approved'?'✓':(s==='rejected'?'✕':'⏳'); }
       function kLabel(r){
@@ -5268,8 +5268,8 @@ setTimeout(function(){
             var dwork=(d.hours>0);
             var dcol=dwork?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
             var dtag=dwork?((d.start?('od '+d.start+' · '):'')+nf(d.hours)+' h'):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
-            var dToday=(d.date===todayIso);
-            var rs="display:flex;justify-content:space-between;align-items:center;padding:5px 4px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.05);"+(dToday?"background:rgba(79,142,247,.14);border-radius:6px;":"");
+            var dToday=(d.date===todayIso); var dPast=(d.date<todayIso);
+            var rs="display:flex;justify-content:space-between;align-items:center;padding:5px 4px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.05);"+(dToday?"background:rgba(79,142,247,.14);border-radius:6px;":"")+(dPast?"opacity:.45;":"");
             var row=el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="color:'+dcol+';font-weight:600;">'+dtag+'</span></div>');
             body.appendChild(row);
             if(dToday) todayEl=row;
@@ -5331,6 +5331,7 @@ setTimeout(function(){
         try{ f.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
       }
       function showWeek(k){
+        ST.listScroll=(box?box.scrollTop:0)||0;   // zapamatuj scroll seznamu před otevřením
         ST.view='week'; ST.wk=k; var ds=ST.weeks[k]; if(!ds){ showList(); return; }
         box.innerHTML="";
         if(right)right.style.display='none';  // #2: detail týdne na celou šířku

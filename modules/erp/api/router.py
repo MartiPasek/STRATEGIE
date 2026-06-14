@@ -148,7 +148,10 @@ def _uid_from_token_or_cookie(req: Request) -> int:
             th = hashlib.sha256(tok.encode("utf-8")).hexdigest()
             uid = None
             _ov = None
-            # 1) token → uid + shared_active (jedna session), pak commit a zavřít.
+            _tgt = None
+            # Vše READ-ONLY v jedné session: token → uid, shared_active, impersonace.
+            # UPDATE last_used až NAKONEC (best-effort) — dřív shazoval navazující
+            # čtení (abort transakce přes Marti-AI roli). Marti 14.6.
             try:
                 cm, s = _att_session()
                 try:
@@ -156,24 +159,33 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                         'SELECT user_id FROM "user".carddav_token '
                         'WHERE token_hash = :h AND revoked_at IS NULL'), {"h": th}).scalar()
                     if uid is not None:
-                        s.execute(_sql_tok(
-                            'UPDATE "user".carddav_token SET last_used_at = now() '
-                            'WHERE token_hash = :h'), {"h": th})
                         _ov = s.execute(_sql_tok(
                             "SELECT user_id FROM tenant.shared_active "
                             "WHERE token_hash = :h"), {"h": th}).scalar()
-                        s.commit()
+                        if _ov is None:
+                            _tgt = s.execute(_sql_tok(
+                                "SELECT target_user_id FROM fw.impersonation_log "
+                                "WHERE parent_user_id = :p AND ended_at IS NULL "
+                                "AND started_at > clock_timestamp() - interval '8 hours' "
+                                "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
                 finally:
                     cm.__exit__(None, None, None)
             except Exception:
                 pass
+            # last_used best-effort, vlastní session, na resolution nezáleží
+            if uid is not None:
+                try:
+                    cmu, su = _att_session()
+                    try:
+                        su.execute(_sql_tok('UPDATE "user".carddav_token SET last_used_at = now() WHERE token_hash = :h'), {"h": th}); su.commit()
+                    finally:
+                        cmu.__exit__(None, None, None)
+                except Exception:
+                    pass
             if _ov is not None:           # sdílený telefon (switch+PIN) má přednost
                 return int(_ov)
-            # 2) impersonace ve VLASTNÍ čisté session (stale snapshot fix).
-            if uid is not None:
-                _tgt = _active_imp_target(uid)
-                if _tgt is not None:
-                    return int(_tgt)
+            if _tgt is not None:          # aktivní impersonace vlastníka tokenu
+                return int(_tgt)
             if uid is not None:
                 return int(uid)
     # Cookie cesta (PWA / WebView appky). _get_uid ctí httponly imp_token cookie;

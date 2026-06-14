@@ -5379,7 +5379,7 @@ setTimeout(function(){
         if(r.kind==='meeting') return '🤝 '+(r.title||'porada/jednání')+(r.start?(' '+r.start+(r.end?('–'+r.end):'')):'');
         if(r.kind==='event') return '📌 '+(r.title||'akce')+(r.start?(' '+r.start):'');
         // hodiny: stejný formát jako plán — „od 10:00 · 8 h" (vlevo zůstane jen status ⏳)
-        return (r.start?('od '+r.start+' · '):'')+(r.hours!=null?nf(r.hours)+' h':'jiné hodiny');
+        return (r.start?('od '+r.start+' · '):'')+(r.hours!=null?_hhmm(r.hours):'jiné hodiny');
       }
       function wkPend(ds){ var n=0; ds.forEach(function(d){ (ST.byDate[d.date]||[]).forEach(function(r){ if(r.status==='pending')n++; }); }); return n; }
       // Bod 3: root = jen seznam týdnů (klik = celý týden). Editace dnů až v týdnu.
@@ -5396,12 +5396,12 @@ setTimeout(function(){
           var lastD=ds[ds.length-1].date, isPast=(lastD<todayIso), isCur=(k===ST.nowKey);
           var pc=wkPend(ds);
           var card=el('<div style="border:1px solid '+(isCur?'#4f8ef7':'#2b3a5c')+';border-radius:12px;margin-bottom:10px;overflow:hidden;cursor:pointer;'+(isPast?'opacity:.5;':'')+'"></div>');
-          card.appendChild(el('<div style="padding:11px 12px;background:'+(isCur?'#11203a':(isPast?'#0c1018':'#0e1830'))+';display:flex;justify-content:space-between;align-items:center;'+(isCur?'border-left:3px solid #4f8ef7;':'')+'"><span style="font-weight:700;">Týden '+ds[0].iso_week+(isCur?' · tento týden':'')+'</span><span style="display:flex;align-items:center;gap:8px;"><span class="hint">'+wd+' dní · '+nf(sum)+' h</span>'+(pc?('<span style="color:var(--amber);font-size:12px;font-weight:700;">'+pc+'⏳</span>'):'')+'<span style="color:var(--mut);">›</span></span></div>'));
+          card.appendChild(el('<div style="padding:11px 12px;background:'+(isCur?'#11203a':(isPast?'#0c1018':'#0e1830'))+';display:flex;justify-content:space-between;align-items:center;'+(isCur?'border-left:3px solid #4f8ef7;':'')+'"><span style="font-weight:700;">Týden '+ds[0].iso_week+(isCur?' · tento týden':'')+'</span><span style="display:flex;align-items:center;gap:8px;"><span class="hint">'+wd+' dní · '+_hhmm(sum)+'</span>'+(pc?('<span style="color:var(--amber);font-size:12px;font-weight:700;">'+pc+'⏳</span>'):'')+'<span style="color:var(--mut);">›</span></span></div>'));
           var body=el('<div style="padding:4px 10px 8px;"></div>');
           ds.forEach(function(d){
             var dwork=(d.hours>0);
             var dcol=dwork?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
-            var dtag=dwork?((d.start?('od '+d.start+' · '):'')+nf(d.hours)+' h'):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
+            var dtag=dwork?((d.start?('od '+d.start+' · '):'')+_hhmm(d.hours)):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
             var dToday=(d.date===todayIso); var dPast=(d.date<todayIso);
             var dReqs=ST.byDate[d.date]||[];
             // korekce typu hodiny/volno NAHRAZUJE plán → přeškrtnout původní hodnotu
@@ -5508,12 +5508,12 @@ setTimeout(function(){
         if(right)right.style.display='none';  // #2: detail týdne na celou šířku
         var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">'+(WEEKONLY?'‹ Zpět':'‹ Zpět na týdny')+'</button>'); bk.addEventListener("click",function(){ planBackStep(); }); box.appendChild(bk);
         var sum=0,wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
-        box.appendChild(el('<div style="margin-bottom:8px;"><b>Týden '+ds[0].iso_week+'</b> <span class="hint">· '+wd+' dní · '+nf(sum)+' h · '+czd(ds[0].date)+'–'+czd(ds[ds.length-1].date)+'</span></div>'));
+        box.appendChild(el('<div style="margin-bottom:8px;"><b>Týden '+ds[0].iso_week+'</b> <span class="hint">· '+wd+' dní · '+_hhmm(sum)+' · '+czd(ds[0].date)+'–'+czd(ds[ds.length-1].date)+'</span></div>'));
         box.appendChild(el('<div class="hint" style="margin-bottom:8px;">'+(AP?'Návrhy dne schválíš ✓ nebo zamítneš ✕ u příslušného řádku.':'Klepni na den a přidej návrh (jiné hodiny / volno / porada–jednání).')+'</div>'));
         ds.forEach(function(d){
           var work=(d.hours>0);
           var col=work?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
-          var tag=work?((d.start?('od '+d.start+' · '):'')+nf(d.hours)+' h'):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
+          var tag=work?((d.start?('od '+d.start+' · '):'')+_hhmm(d.hours)):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
           var dPast=(d.date<todayIso), dToday=(d.date===todayIso);
           var dReqs=ST.byDate[d.date]||[];
           var hasRepl=dReqs.some(function(r){ return (r.kind==='hours'||r.kind==='off') && r.status!=='rejected'; });

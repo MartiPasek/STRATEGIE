@@ -108,6 +108,7 @@ def _uid_from_token_or_cookie(req: Request) -> int:
             from sqlalchemy import text as _sql_tok
             th = hashlib.sha256(tok.encode("utf-8")).hexdigest()
             ds = _gds_tok()
+            uid = None
             try:
                 uid = ds.execute(_sql_tok(
                     'SELECT user_id FROM "user".carddav_token '
@@ -128,25 +129,33 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                         if _ov is not None:
                             return int(_ov)
                     except Exception:
-                        pass
-                    # Marti 7.6.: nativní appka respektuje aktivní impersonaci
-                    # vlastníka tokenu (testování docházky jako jiný user).
-                    # Max 8 h od startu — stejné okno jako IMP_MAX_AGE cookie.
+                        try:
+                            ds.rollback()   # nerozbít navazující dotaz aborted transakcí
+                        except Exception:
+                            pass
+            except Exception:
+                ds.rollback()
+            finally:
+                ds.close()
+            # Marti 7.6./14.6.: nativní appka respektuje aktivní impersonaci
+            # vlastníka tokenu (testování docházky jako jiný user). ČISTÁ session,
+            # nezávislá na stavu výše — max 8 h od startu jako IMP_MAX_AGE cookie.
+            if uid is not None:
+                try:
+                    ds2 = _gds_tok()
                     try:
-                        _tgt = ds.execute(_sql_tok(
+                        _tgt = ds2.execute(_sql_tok(
                             "SELECT target_user_id FROM fw.impersonation_log "
                             "WHERE parent_user_id = :p AND ended_at IS NULL "
                             "AND started_at > now() - interval '8 hours' "
                             "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
                         if _tgt is not None:
                             return int(_tgt)
-                    except Exception:
-                        pass
-                    return int(uid)
-            except Exception:
-                ds.rollback()
-            finally:
-                ds.close()
+                    finally:
+                        ds2.close()
+                except Exception:
+                    pass
+                return int(uid)
     # Cookie cesta (PWA / WebView appky). _get_uid ctí httponly imp_token cookie;
     # navíc respektujeme aktivní impersonaci podle user_id cookie — WebView appky
     # nemusí imp_token poslat, tak ji bereme z fw.impersonation_log (parent=user_id,
@@ -9938,6 +9947,24 @@ def _att_close_stale(sess, emp):
             {"t": _ATT_TENANT, "e": emp})
     except Exception:
         pass
+
+
+@api_router.get("/app/whoami")
+async def app_whoami(req: Request) -> JSONResponse:
+    """Diagnostika/indikátor: koho server pro tento request vidí (po impersonaci)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        nm = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            " (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1), "
+            " '#'||u.id) FROM public.users u WHERE u.id=:u"), {"u": uid}).scalar()
+        return JSONResponse({"ok": True, "uid": uid, "name": nm or ("#" + str(uid))})
+    finally:
+        cm.__exit__(None, None, None)
 
 
 @api_router.get("/app/attendance/status")

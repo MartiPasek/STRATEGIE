@@ -3456,7 +3456,7 @@ setTimeout(function(){
     var _tg1=el('<div class="appgrid"></div>');
     _tg1.appendChild(appCell("📅","Dnešek",0,function(){ go("doch_dnesek"); }));
     _tg1.appendChild(appCell("🌅","Zítřek",0,function(){ go("doch_zitrek"); }));
-    var _vyhledCell=appCell("🔭","Výhled",0,function(){ go("plan"); });
+    var _vyhledCell=appCell("🔭","Výhled",0,function(){ window._planInit="myplan"; go("plan"); });
     _tg1.appendChild(_vyhledCell);
     (function _planPendingBadge(){
       var f=_locDate(-365), t=_locDate(365);
@@ -5229,6 +5229,12 @@ setTimeout(function(){
     var bMy=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a6b4c;color:#9ce0b0;font-weight:700;font-size:12px;line-height:1.25;">👤<br>Můj<br>plán</button>');
     bMy.addEventListener("click",function(){ renderPlan(false,'mydefault'); });
     right.appendChild(bMy);
+    (function(){
+      api("GET","/api/v1/erp/app/plan/requests?from="+_locDate(-365)+"&to="+_locDate(365),"").then(function(rq){
+        var n=(((rq&&rq.items)||[]).filter(function(r){ return r&&r.status==='pending'; })).length;
+        if(n>0){ bMy.style.position="relative"; bMy.appendChild(el('<span style="position:absolute;top:-5px;right:-5px;background:#f59e0b;color:#fff;font-size:10px;min-width:16px;height:16px;line-height:16px;border-radius:8px;padding:0 4px;text-align:center;font-weight:700;">'+(n>99?"99+":n)+'</span>')); }
+      }).catch(function(){});
+    })();
     function czd2(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."+p[0]):iso; }
     function renderPlan(eff, src){
       left.innerHTML='<div class="hint">Načítám…</div>';

@@ -10654,6 +10654,32 @@ async def app_plan_approvals_user(tuid: int, req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _apply_plan_correction(s, user_id, req_date, kind, hours, start, approver_uid):
+    """Promítne schválenou korekci do plánu. Dvě vrstvy (obě v jedné transakci):
+    1) trvalý zdroj = osobní výjimka att_exception_scope (generátor plánu ji ctí
+       s nejvyšší prioritou → drží i po přegenerování),
+    2) okamžité promítnutí do materializovaného att_plan_effective (jen existující
+       řádek, ne frozen). Meeting/event nemění plánované hodiny → no-op. Marti 14.6."""
+    from sqlalchemy import text as _t
+    if kind not in ("hours", "off"):
+        return
+    h = float(hours) if (kind == "hours" and hours is not None) else 0.0
+    st = start if (kind == "hours" and start) else None
+    s.execute(_t(
+        "INSERT INTO tenant.att_exception_scope (tenant_id, ex_date, scope_type, scope_id, hours, reason, created_by) "
+        "VALUES (2, :d, 'user', :u, :h, 'Schválená korekce plánu', :by) "
+        "ON CONFLICT (tenant_id, ex_date, scope_type, scope_id) DO UPDATE SET "
+        "hours=EXCLUDED.hours, reason=EXCLUDED.reason, created_by=EXCLUDED.created_by"),
+        {"d": req_date, "u": user_id, "h": h, "by": approver_uid})
+    s.execute(_t(
+        "UPDATE tenant.att_plan_effective SET expected_hours=:h, "
+        "day_type=CASE WHEN :h>0 THEN 'exception' ELSE 'off' END, "
+        "start_time=CASE WHEN :h>0 THEN CAST(:st AS time) ELSE NULL END, "
+        "scope_src='osobni', generated_at=now() "
+        "WHERE tenant_id=2 AND user_id=:u AND plan_date=:d AND COALESCE(is_frozen,false)=false"),
+        {"h": h, "st": st, "u": user_id, "d": req_date})
+
+
 @api_router.post("/app/plan/decide")
 async def app_plan_decide(req: Request) -> JSONResponse:
     """Pro schvalovatele: schválit/zamítnout návrh plánu. body {id, decision:'approved'|'rejected', note}."""
@@ -10684,6 +10710,13 @@ async def app_plan_decide(req: Request) -> JSONResponse:
             "UPDATE tenant.att_plan_request SET status=:st, decided_by=:by, decided_at=now(), "
             "decided_note=:no WHERE id=:i AND tenant_id=:t AND status='pending'"),
             {"st": decision, "by": uid, "no": note, "i": rid, "t": _ATT_TENANT}).rowcount
+        # Schválení → PROMÍTNOUT do plánu ve STEJNÉ transakci (nesmí selhat částečně).
+        # Když promítnutí spadne, rollback vrátí i schválení → nezůstane „schváleno
+        # ale nepromítnuto" z normální cesty (applied_at je pojistka na staré/edge řádky).
+        if decision == "approved":
+            _apply_plan_correction(s, row[0], row[1], row[2], row[3], row[4], uid)
+            s.execute(_t("UPDATE tenant.att_plan_request SET applied_at=now() "
+                         "WHERE id=:i AND tenant_id=:t"), {"i": rid, "t": _ATT_TENANT})
         # notifikace žadateli
         def _czd(x):
             p = (x or "").split("-")
@@ -10697,6 +10730,79 @@ async def app_plan_decide(req: Request) -> JSONResponse:
         _abs_notify(s, row[0], ti, msg, quiet=True)   # tiché potvrzení — neruší práci
         s.commit()
         return JSONResponse({"ok": n > 0})
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/plan/approvals/unapplied")
+async def app_plan_approvals_unapplied(req: Request) -> JSONResponse:
+    """Pojistka: schválené korekce (hodiny/volno), které ještě NEJSOU promítnuté
+    do plánu (applied_at IS NULL). Pro indikátor/notifikaci schvalovateli."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _can_approve_plans(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT r.id, r.user_id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '#'||r.user_id) AS nm, "
+            " r.req_date::text, r.kind, r.hours "
+            "FROM tenant.att_plan_request r JOIN public.users u ON u.id=r.user_id "
+            "WHERE r.tenant_id=:t AND r.status='approved' AND r.applied_at IS NULL "
+            "  AND r.kind IN ('hours','off') ORDER BY r.req_date, r.id"),
+            {"t": _ATT_TENANT}).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "count": len(rows), "items": [
+            {"id": r[0], "user_id": r[1], "name": r[2], "d": r[3], "kind": r[4],
+             "hours": (float(r[5]) if r[5] is not None else None)} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/plan/approvals/reapply")
+async def app_plan_approvals_reapply(req: Request) -> JSONResponse:
+    """Promítne do plánu všechny schválené, dosud nepromítnuté korekce (hodiny/volno).
+    Idempotentní — co projde, dostane applied_at. Vrací počet + případné chyby."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _can_approve_plans(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, user_id, req_date::text, kind, hours, start_time::text "
+            "FROM tenant.att_plan_request WHERE tenant_id=:t AND status='approved' "
+            "  AND applied_at IS NULL AND kind IN ('hours','off') ORDER BY req_date, id"),
+            {"t": _ATT_TENANT}).fetchall()
+        done = 0
+        errs = []
+        for r in rows:
+            try:
+                _apply_plan_correction(s, r[1], r[2], r[3], r[4], r[5], uid)
+                s.execute(_t("UPDATE tenant.att_plan_request SET applied_at=now() WHERE id=:i AND tenant_id=:t"),
+                          {"i": r[0], "t": _ATT_TENANT})
+                done += 1
+            except Exception as e:
+                errs.append({"id": r[0], "error": str(e)[:200]})
+        s.commit()
+        return JSONResponse({"ok": True, "applied": done, "errors": errs})
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
 

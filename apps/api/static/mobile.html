@@ -623,6 +623,7 @@ setTimeout(function(){
       L.innerHTML="";
       if(!j||!j.ok){ L.innerHTML='<div class="hint" style="padding:14px;">'+esc((j&&j.error==='forbidden')?"Nemáš oprávnění schvalovat.":((j&&j.error)||"Nepodařilo se načíst."))+'</div>'; return; }
       var users=j.users||[];
+      _apUnappliedBar(L);   // pojistka: nepromítnuté schválené korekce
       var lw=el('<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:24px;"></div>');
       if(!users.length){ lw.innerHTML='<div class="hint" style="padding:14px;line-height:1.6;">Nic nečeká na schválení. 👍</div>'; L.appendChild(lw); return; }
       var ul=el('<ul class="list" style="padding:0 6px;"></ul>');
@@ -634,6 +635,19 @@ setTimeout(function(){
       });
       lw.appendChild(ul); L.appendChild(lw);
     }); }
+  function _apUnappliedBar(L){
+    api("GET","/api/v1/erp/app/plan/approvals/unapplied","").then(function(u){
+      var old=document.getElementById("apUnapBar"); if(old)old.remove();
+      if(!u||!u.ok) return; var c=u.count||0; if(c<=0) return;
+      var host=document.getElementById("apleft"); if(!host) return;
+      var bar=el('<div id="apUnapBar" style="background:rgba(245,158,11,.15);border:1px solid #b6791f;border-radius:12px;padding:10px 12px;margin:0 6px 10px;display:flex;align-items:center;gap:10px;"></div>');
+      bar.appendChild(el('<div style="flex:1;font-size:13px;color:#f3c969;line-height:1.4;">⚠ '+c+' schválených korekcí čeká na promítnutí do plánu.</div>'));
+      var b=el('<button class="green" style="margin:0;padding:8px 12px;font-size:13px;flex:none;">Promítnout</button>');
+      b.addEventListener("click",function(){ b.disabled=true; b.textContent="Promítám…"; api("POST","/api/v1/erp/app/plan/approvals/reapply",{}).then(function(r){ if(r&&r.ok){ apLoad(); } else { b.disabled=false; b.textContent="Promítnout"; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+      bar.appendChild(b);
+      host.insertBefore(bar, host.firstChild);
+    }).catch(function(){});
+  }
   function apFillUser(exp,u){
     exp.innerHTML='<div class="hint" style="padding:8px;">Načítám…</div>';
     api("GET","/api/v1/erp/app/plan/approvals/user/"+u.user_id,"").then(function(j){

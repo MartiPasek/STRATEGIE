@@ -151,6 +151,11 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                                 "AND started_at > now() - interval '8 hours' "
                                 "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
                         s.commit()
+                    try:
+                        s.execute(_sql_tok("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('bearer2',:u,:f)"),
+                                  {"u": (int(uid) if uid is not None else -1), "f": (_tgt is not None)}); s.commit()
+                    except Exception:
+                        pass
                 finally:
                     cm.__exit__(None, None, None)
             except Exception:

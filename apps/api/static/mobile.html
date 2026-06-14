@@ -5251,6 +5251,7 @@ setTimeout(function(){
       // Bod 3: root = jen seznam týdnů (klik = celý týden). Editace dnů až v týdnu.
       function showList(){
         ST.view='list'; ST.wk=null; box.innerHTML="";
+        if(right)right.style.display='';  // #2: zpět na náhled → pravá lišta zase vidět
         var gt=0; j.plan.forEach(function(d){ gt+=d.hours; });
         var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
         box.appendChild(el('<div style="margin-bottom:4px;"><b>👤 Můj plán '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
@@ -5332,6 +5333,7 @@ setTimeout(function(){
       function showWeek(k){
         ST.view='week'; ST.wk=k; var ds=ST.weeks[k]; if(!ds){ showList(); return; }
         box.innerHTML="";
+        if(right)right.style.display='none';  // #2: detail týdne na celou šířku
         var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">‹ Zpět na týdny</button>'); bk.addEventListener("click",showList); box.appendChild(bk);
         var sum=0,wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
         box.appendChild(el('<div style="margin-bottom:8px;"><b>Týden '+ds[0].iso_week+'</b> <span class="hint">· '+wd+' dní · '+nf(sum)+' h · '+czd(ds[0].date)+'–'+czd(ds[ds.length-1].date)+'</span></div>'));

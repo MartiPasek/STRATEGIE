@@ -7961,6 +7961,30 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
             gstart = _norm_hhmm(_resolve_cond(s, target, "nastup_max")[0])
         except Exception:
             gstart = ""
+        # Marti 14.6.: výjimkové vrstvy (firma → skupina → osobní) se MUSÍ propsat
+        # i do osobního plánu (Můj plán/Týden), ne jen do skupinového/efektivního.
+        eff = {}
+        try:
+            for rr in s.execute(_t(
+                "SELECT ex_date, hours FROM tenant.att_calendar_exception "
+                "WHERE tenant_id=2 AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)")).fetchall():
+                eff[rr[0]] = float(rr[1])
+            grp = set(g[0] for g in s.execute(_t(
+                "SELECT group_id FROM tenant.staff_group_member WHERE tenant_id=2 AND user_id=:u"),
+                {"u": target}).fetchall())
+            for rr in s.execute(_t(
+                "SELECT ex_date, hours, scope_id FROM tenant.att_exception_scope "
+                "WHERE tenant_id=2 AND scope_type='group' "
+                "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE) ORDER BY ex_date, id")).fetchall():
+                if rr[2] in grp:
+                    eff[rr[0]] = float(rr[1])
+            for rr in s.execute(_t(
+                "SELECT ex_date, hours FROM tenant.att_exception_scope "
+                "WHERE tenant_id=2 AND scope_type='user' AND scope_id=:u "
+                "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)"), {"u": target}).fetchall():
+                eff[rr[0]] = float(rr[1])
+        except Exception:
+            eff = {}
         out = []
         total = 0.0
         for day, is_wd, is_hol in cal:
@@ -7980,6 +8004,16 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
                 dt, h = ("weekend" if wd >= 6 else "off"), 0
             if dt == "work" and not st:
                 st = gstart
+            # přebití výjimkou (firma/skupina/osobní) — 0 h = volno, jinak počet hodin
+            exh = eff.get(day)
+            if exh is not None:
+                h = exh
+                if exh > 0:
+                    dt = "exception"
+                    if not st:
+                        st = gstart
+                else:
+                    dt, st = "off", ""
             total += h
             out.append({"date": day.isoformat(), "iso_week": day.isocalendar()[1],
                         "weekday": _PLAN_DAYLABEL.get(0 if wd == 7 else wd, "?"),

@@ -136,12 +136,14 @@
   </div>
 </div></div>
 
+<!-- DOČASNĚ SKRYTO (Marti 14.6.) — doladíme + postavíme vlastní EUROSOFT stránku
 <div class="wrap" style="margin-top:10px">
   <div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;background:linear-gradient(110deg,rgba(52,211,153,.1),rgba(96,165,250,.06));border:1px solid var(--bord);border-radius:14px;padding:10px 14px;font-size:13px;">
     <span style="font-weight:800;color:var(--grn);display:inline-flex;align-items:center;gap:6px;"><span class="dot"></span> Živě z reálné instalace STRATEGIE</span>
     <span id="rbReal" style="color:var(--mut);">načítám reálná čísla…</span>
   </div>
 </div>
+-->
 <script>
   (function(){ try{ fetch("/api/v1/erp/public/demo-stats").then(function(r){return r.json();}).then(function(j){
     if(!j||!j.ok) return; var k=j.kara||{}; var tah=(k.tahoun||0)+(k.zlaty||0)+(k.letadlo||0)+(k.raketa||0);

@@ -2762,7 +2762,19 @@ setTimeout(function(){
     var add=el('<button class="green full" style="margin-top:12px;">➕ Přidat sebe na tento telefon</button>'); add.addEventListener("click",sdJoin); p.appendChild(add);
     var adm=el('<button class="ghost full" style="margin-top:8px;">👨‍👩‍👧 Přidat lidi (rodič)</button>'); adm.addEventListener("click",sdAddPeople); p.appendChild(adm);
     var pinb=el('<button class="ghost full" style="margin-top:8px;">🔐 Nastavit / změnit můj PIN</button>'); pinb.addEventListener("click",sdSetPin); p.appendChild(pinb);
+    var unb=el('<button class="ghost full" style="margin-top:14px;color:#f87171;border-color:#5a2b2b;">🚫 Zrušit sdílení tohoto telefonu</button>'); unb.addEventListener("click",sdUnshare); p.appendChild(unb);
     app.appendChild(p); sdLoad();
+  }
+  function sdUnshare(){
+    if(!confirm("Zrušit sdílení tohoto telefonu? Odeberou se z něj všichni a telefon bude zase osobní (bez PIN zámku při otevření).")) return;
+    var dk=devKey();
+    api("GET","/api/v1/erp/app/shared/users?dk="+encodeURIComponent(dk),"").then(function(j){
+      var us=(j&&j.users)||[];
+      function fin(){ try{localStorage.removeItem("stg_device_key");}catch(e){} alert("✓ Sdílení zrušeno. Telefon je zase osobní."); try{location.reload();}catch(e){ go("apps"); } }
+      var i=0;
+      function next(){ if(i>=us.length){ fin(); return; } api("POST","/api/v1/erp/app/shared/remove",{device_key:dk,user_id:us[i].user_id}).then(function(){ i++; next(); }); }
+      if(!us.length){ fin(); } else next();
+    });
   }
   function sdAddPeople(){
     var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:210;display:flex;flex-direction:column;padding:14px;"></div>');
@@ -2816,6 +2828,9 @@ setTimeout(function(){
       us.forEach(function(u){
         var t=el('<div class="tile" style="position:relative;'+(u.current?"outline:2px solid var(--green);":"")+'"><div class="tile-ic"><div class="cav" style="width:46px;height:46px;line-height:46px;font-size:20px;margin:0 auto;background:'+avColor(u.jmeno||"?")+';">'+vyInitial(u.jmeno||"?")+'</div></div><div class="tile-tt">'+esc((u.jmeno||"").split(" ")[0])+'</div><div class="tile-sub">'+(u.current?"právě ty ✓":(u.has_pin?"klepni → PIN":"nemá PIN"))+'</div></div>');
         t.addEventListener("click",function(){ if(u.current) return; if(!u.has_pin){ sdPinSms(u); return; } sdSwitch(u); });
+        var rmx=el('<button class="ghost" style="position:absolute;top:2px;right:2px;padding:1px 7px;font-size:12px;color:#f87171;border-color:#5a2b2b;background:#1a0f12;z-index:2;">✕</button>');
+        rmx.addEventListener("click",function(ev){ ev.stopPropagation(); if(!confirm("Odebrat "+(u.jmeno||"")+" z tohoto telefonu?")) return; api("POST","/api/v1/erp/app/shared/remove",{device_key:devKey(),user_id:u.user_id}).then(function(r){ if(r&&r.ok) sdLoad(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
+        t.appendChild(rmx);
         g.appendChild(t);
       });
     });

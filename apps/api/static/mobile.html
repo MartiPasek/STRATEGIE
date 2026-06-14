@@ -3606,7 +3606,8 @@ setTimeout(function(){
     // Marti 14.6.: „Tady budu jinde" přesunuto z „Potřebuji ti něco říct" SEM (do docházky).
     var _jindeBox=el('<div id="dochJindeBox" style="display:none;margin:4px 4px 6px;padding:8px;border:1px solid #4a3a1a;border-radius:12px;background:rgba(251,191,36,.05);"></div>');
     _toolsWrap.appendChild(_jindeBox);
-    _toolSec("MOJE ZAKÁZKY");
+    _toolSec("🧰 MOJE ZAKÁZKY A ČINNOSTI");
+    _toolsWrap.appendChild(el('<div class="hint" style="margin:0 6px 6px;line-height:1.5;">Na čem zrovna dělám. Přepni se na zakázku nebo režii — co tu máš, si nastavíš v <b>🧰 Moje činnosti</b>.</div>'));
     var _tgz=el('<div class="appgrid"></div>');
     _tgz.appendChild(appCell("🧾","Jsem na zakázce",0,function(){ if(typeof openSoon==="function") openSoon("Moje zakázky"); }));
     _toolsWrap.appendChild(_tgz);

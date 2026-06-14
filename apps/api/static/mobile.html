@@ -3456,7 +3456,16 @@ setTimeout(function(){
     var _tg1=el('<div class="appgrid"></div>');
     _tg1.appendChild(appCell("📅","Dnešek",0,function(){ go("doch_dnesek"); }));
     _tg1.appendChild(appCell("🌅","Zítřek",0,function(){ go("doch_zitrek"); }));
-    _tg1.appendChild(appCell("🔭","Výhled",0,function(){ go("plan"); }));
+    var _vyhledCell=appCell("🔭","Výhled",0,function(){ go("plan"); });
+    _tg1.appendChild(_vyhledCell);
+    (function _planPendingBadge(){
+      var f=_locDate(-365), t=_locDate(365);
+      api("GET","/api/v1/erp/app/plan/requests?from="+f+"&to="+t,"").then(function(rq){
+        var n=(((rq&&rq.items)||[]).filter(function(r){ return r&&r.status==='pending'; })).length;
+        var old=_vyhledCell.querySelector('.appbadge'); if(old) old.remove();
+        if(n>0){ _vyhledCell.appendChild(el('<span class="appbadge" style="background:#f59e0b;">'+(n>99?"99+":n)+'</span>')); }
+      }).catch(function(){});
+    })();
     _tg1.appendChild(appCell("🕓","Historie",0,function(){ go("doch_historie"); }));
     _tg1.appendChild(appCell("📋","Moje žádosti",0,function(){ go("moje_zadosti"); }));
     _tg1.appendChild(appCell("🧭","Tady budu jinde",0,function(){

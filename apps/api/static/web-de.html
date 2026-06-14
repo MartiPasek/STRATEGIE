@@ -368,5 +368,5 @@
   [200,600,1200,2000].forEach(function(t){ setTimeout(chk,t); });
 })();
 </script>
-<script>try{fetch('/api/v1/erp/app/web-visit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:location.pathname,ref:document.referrer,lang:'de'})}).catch(function(){});}catch(e){}</script>
+<script>(function(){try{var u=new URLSearchParams(location.search);if(u.has('notrack')){try{localStorage.setItem('stg_notrack',u.get('notrack')==='0'?'':'1');}catch(e){}}var off='';try{off=localStorage.getItem('stg_notrack')||'';}catch(e){off='';}if(off)return;fetch('/api/v1/erp/app/web-visit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:location.pathname,ref:document.referrer,lang:'de'})}).catch(function(){});}catch(e){}})();</script>
 </body></html>

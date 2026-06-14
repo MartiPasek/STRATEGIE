@@ -3437,6 +3437,36 @@ setTimeout(function(){
     // Marti 7.6. večer: „Dnes" logicky nahoru — obrazovka KONČÍ kartou
     // „Potřebuji ti něco říct…". Nadpis „Dnes makám 😉" při běžící směně.
     p.appendChild(el('<div id="dochHead" style="display:none;font-size:24px;font-weight:800;margin:6px 0 12px;">Dnes makám 😉</div>'));
+    // Marti 14.6.: „Moje docházka pod jednou střechou" — rozbalovací region (šipička)
+    // pod hlavním statusem. Zobrazí se, KDYŽ ČLOVĚK NEMAKÁ. Sdružuje všechny nástroje
+    // a nastavení docházky dotyčného: Moje podmínky, Finance, Historie, Nepřítomnosti.
+    function _openSec(s){
+      if(s && s.box && s.box.style.display==="none"){ var h=s.ttl&&s.ttl.parentNode; if(h)h.click(); }
+      if(s && s.box){ try{ s.box.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} }
+    }
+    var _toolsWrap=el('<div id="dochTools" style="display:none;margin:0 0 12px;border:1px solid var(--bord);border-radius:14px;overflow:hidden;background:rgba(255,255,255,0.02);"></div>');
+    var _toolsHdr=el('<button type="button" style="width:100%;display:flex;align-items:center;gap:10px;background:transparent;border:0;color:var(--tx);font:inherit;font-size:15px;font-weight:600;padding:13px 14px;cursor:pointer;text-align:left;"><span style="font-size:18px;">🧰</span><span style="flex:1;">Moje docházka — vše pod jednou střechou</span><span id="dochToolsChev" style="font-size:13px;color:var(--mut);transition:transform .2s;">▾</span></button>');
+    var _toolsBody=el('<div id="dochToolsBody" style="display:none;padding:2px 12px 14px;"></div>');
+    var _toolsGrid=el('<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;"></div>');
+    function _toolCell(ic,lbl,fn){
+      var b=el('<button type="button" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:rgba(79,142,247,.06);border:1px solid #2a4d80;border-radius:12px;padding:14px 8px;color:var(--tx);font:inherit;cursor:pointer;"><span style="font-size:26px;">'+ic+'</span><span style="font-size:13px;text-align:center;line-height:1.2;">'+lbl+'</span></button>');
+      b.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} fn(); });
+      return b;
+    }
+    _toolsGrid.appendChild(_toolCell("📋","Moje podmínky",function(){ go("moje_podminky"); }));
+    _toolsGrid.appendChild(_toolCell("💰","Moje finance",function(){ _openSec(_dS&&_dS.paska); }));
+    _toolsGrid.appendChild(_toolCell("🕓","Historie docházky",function(){ _openSec(_dS&&_dS.todayhist); }));
+    _toolsGrid.appendChild(_toolCell("🗓️","Nepřítomnosti",function(){ go("absence"); }));
+    _toolsBody.appendChild(_toolsGrid);
+    _toolsHdr.addEventListener("click",function(){
+      var openNow=_toolsBody.style.display!=="none";
+      _toolsBody.style.display=openNow?"none":"block";
+      var ch=document.getElementById("dochToolsChev"); if(ch)ch.style.transform=openNow?"":"rotate(180deg)";
+      window._dochToolsOpen=!openNow;
+    });
+    if(window._dochToolsOpen){ _toolsBody.style.display="block"; var _ch0=_toolsHdr.querySelector("#dochToolsChev"); if(_ch0)_ch0.style.transform="rotate(180deg)"; }
+    _toolsWrap.appendChild(_toolsHdr); _toolsWrap.appendChild(_toolsBody);
+    p.appendChild(_toolsWrap);
     var lc=el('<div style="margin-top:4px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
     var su=lc.querySelector("#dochSecs");
     // Marti 7.6. večer: lidské názvy sekcí — docházka mluví jako kolega.
@@ -3470,13 +3500,8 @@ setTimeout(function(){
       return any;
     };
     p.appendChild(lc);
-    // Marti 12.6.: vstupní bod pro žádost o absenci (dovolená/HO/lékař) — pro všechny
-    var _absBtn=el('<button class="ghost full" style="margin-top:12px;border-color:#3a5a8c;color:#9cf;">🗓️ Požádat o dovolenou / HO / lékaře</button>');
-    _absBtn.addEventListener("click",function(){ go("absence"); });
-    p.appendChild(_absBtn);
-    var _pdmBtn=el('<button class="ghost full" style="margin-top:8px;border-color:#3a5a8c;color:#9cf;">📋 Moje podmínky (úvazek, nástup, dovolená…)</button>');
-    _pdmBtn.addEventListener("click",function(){ go("moje_podminky"); });
-    p.appendChild(_pdmBtn);
+    // Marti 14.6.: volná tlačítka „Požádat o absenci" + „Moje podmínky" přesunuta
+    // do regionu „Moje docházka pod jednou střechou" nahoře (vše pod jednou střechou).
     // Marti 7.6. večer: okno odpovědi Marti-AI přímo v Docházce (nad rámečkem)
     // + karty dotazů pro nadřízeného (odpovídá rovnou z mobilu).
     p.appendChild(el('<div id="mmReply" style="display:none;margin-top:12px;background:rgba(79,142,247,.08);border:1px solid #2a4d80;border-radius:14px;padding:12px;"></div>'));
@@ -4231,6 +4256,10 @@ setTimeout(function(){
       }
       var hd=document.getElementById("dochHead");
       if(hd){ hd.textContent=dochTitle(); hd.style.display=""; }
+      // Marti 14.6.: region nástrojů „pod jednou střechou" — JEN když člověk nemaká
+      // (žádný běžící pracovní job). Když maká, schovej (ať obrazovka neruší od práce).
+      var _tools=document.getElementById("dochTools");
+      if(_tools){ var _working=!!(open && (open.open_type==='work' || !open.open_type)); _tools.style.display=_working?"none":"block"; }
       var annHtml=(j.announced?('<div style="color:var(--amber);font-size:14px;margin-top:6px;">💬 '+esc(j.announced)+'</div>'):'');
       // Jedno číslo (odpracováno bez pauz) — v hlavičce; uvnitř jen detail/status.
       c.innerHTML=(open

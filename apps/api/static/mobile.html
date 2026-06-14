@@ -5394,7 +5394,6 @@ setTimeout(function(){
         var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
         box.appendChild(el('<div style="margin-bottom:4px;"><b>👤 '+(AP?esc(AP.name):'Můj plán')+' '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
         box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">'+(AP?'Klepni na týden — uvidíš návrhy a můžeš je schválit/zamítnout.':'Klepni na týden — otevře se celý. Tam přidáš návrhy ke schválení.')+(ST.pend?(' <b style="color:var(--amber);">· '+ST.pend+' čeká</b>'):'')+'</div>'));
-        if(WEEKONLY){ var _who=el('<div id="planWho" style="font-size:12px;color:#8fb4e8;margin:-4px 2px 8px;"></div>'); box.appendChild(_who); api("GET","/api/v1/erp/app/whoami","").then(function(w){ if(w&&w.ok&&_who.isConnected) _who.textContent="👁 zobrazuji jako: "+(w.name||("#"+w.uid))+" (id "+w.uid+")"; }).catch(function(){}); }
         var curCard=null, todayEl=null, cardByKey={}, firstPendCard=null;
         ST.order.forEach(function(k){
           var ds=ST.weeks[k], sum=0, wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });

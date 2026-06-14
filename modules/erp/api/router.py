@@ -9946,24 +9946,6 @@ def _att_close_stale(sess, emp):
         pass
 
 
-@api_router.get("/app/whoami")
-async def app_whoami(req: Request) -> JSONResponse:
-    """Diagnostika/indikátor: koho server pro tento request vidí (po impersonaci)."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        nm = s.execute(_t(
-            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
-            " (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=u.id AND em.tenant_id=2 LIMIT 1), "
-            " '#'||u.id) FROM public.users u WHERE u.id=:u"), {"u": uid}).scalar()
-        return JSONResponse({"ok": True, "uid": uid, "name": nm or ("#" + str(uid))})
-    finally:
-        cm.__exit__(None, None, None)
-
-
 @api_router.get("/app/attendance/status")
 async def att_status(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

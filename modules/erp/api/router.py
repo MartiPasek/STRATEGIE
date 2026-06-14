@@ -99,22 +99,28 @@ def _active_imp_target(parent_uid):
     strategie_pg engine (stejný jako docházka/bridge — vidí fw.impersonation_log).
     Marti 14.6.: get_data_session mířil na jinou DB, kde řádek nebyl."""
     from sqlalchemy import text as _t
-    try:
-        cm, s = _att_session()
+    # Některá poolovaná Marti-AI connection vrací při PRVNÍM použití v requestu
+    # prázdno (stale stav) — opakuj přes čerstvé sessions, dokud nedostaneme řádek.
+    for _attempt in range(3):
         try:
+            cm, s = _att_session()
             try:
-                s.rollback()   # čistá transakce — poolovaná connection může mít stale snapshot
-            except Exception:
-                pass
-            return s.execute(_t(
-                "SELECT target_user_id FROM fw.impersonation_log "
-                "WHERE parent_user_id = :p AND ended_at IS NULL "
-                "AND started_at > clock_timestamp() - interval '8 hours' "
-                "ORDER BY id DESC LIMIT 1"), {"p": int(parent_uid)}).scalar()
-        finally:
-            cm.__exit__(None, None, None)
-    except Exception:
-        return None
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+                r = s.execute(_t(
+                    "SELECT target_user_id FROM fw.impersonation_log "
+                    "WHERE parent_user_id = :p AND ended_at IS NULL "
+                    "AND started_at > clock_timestamp() - interval '8 hours' "
+                    "ORDER BY id DESC LIMIT 1"), {"p": int(parent_uid)}).scalar()
+            finally:
+                cm.__exit__(None, None, None)
+            if r is not None:
+                return int(r)
+        except Exception:
+            pass
+    return None
 
 
 def _uid_from_token_or_cookie(req: Request) -> int:

@@ -5428,6 +5428,32 @@ setTimeout(function(){
         var target=(AP&&firstPendCard)?firstPendCard:(todayEl||curCard);
         if(doScroll && target){ setTimeout(function(){ try{ target.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} },40); }
         else if(ST.openWk && cardByKey[ST.openWk]){ setTimeout(function(){ try{ cardByKey[ST.openWk].scrollIntoView({block:"start"}); }catch(e){} },30); }
+        if(WEEKONLY){ _realityCard(box, ST.weeks[ST.nowKey]||[]); }
+      }
+      function _hhmm(h){ h=Math.max(0, Math.round((h||0)*60)); return Math.floor(h/60)+":"+("0"+(h%60)).slice(-2); }
+      function _realityCard(box, days){
+        if(!days.length) return;
+        var fromD2=days[0].date, toD2=days[days.length-1].date;
+        var card=el('<div style="border:1px solid #2b3a5c;border-radius:12px;margin-bottom:10px;overflow:hidden;"></div>');
+        card.appendChild(el('<div style="padding:11px 12px;background:#0e1830;display:flex;justify-content:space-between;align-items:center;"><span style="font-weight:700;">⏱ Realita tento týden</span><span class="hint" id="realSum">…</span></div>'));
+        var body=el('<div style="padding:4px 10px 8px;"></div>');
+        body.appendChild(el('<div class="hint" style="padding:6px 2px;">Načítám…</div>'));
+        card.appendChild(body); box.appendChild(card);
+        api("GET","/api/v1/erp/app/attendance/real?from="+fromD2+"&to="+toD2,"").then(function(j){
+          body.innerHTML="";
+          var by={}; ((j&&j.days)||[]).forEach(function(r){ by[r.d]=r; });
+          var tot=0;
+          days.forEach(function(d){
+            var rr=by[d.date]; var w=(rr&&rr.worked)?parseFloat(rr.worked):0; tot+=w;
+            var dToday=(d.date===todayIso), dPast=(d.date<todayIso);
+            var rs="display:flex;justify-content:space-between;align-items:center;padding:5px 4px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.05);"+(dToday?"background:rgba(79,142,247,.14);border-radius:6px;":"")+((dPast&&!w)?"opacity:.45;":"");
+            var val, col;
+            if(w>0){ val=(rr&&rr.zac?('od '+rr.zac+' · '):'')+_hhmm(w); col="#34d399"; }
+            else { val="—"; col="#5b6b88"; }
+            body.appendChild(el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+val+'</span></div>'));
+          });
+          var sm=document.getElementById("realSum"); if(sm)sm.textContent="celkem "+_hhmm(tot);
+        }).catch(function(){ body.innerHTML='<div class="hint" style="padding:6px 2px;">Nepodařilo se načíst realitu.</div>'; });
       }
       function openForm(d, host){
         var ex=host.querySelector('.reqform'); if(ex){ ex.remove(); return; }

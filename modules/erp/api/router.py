@@ -14177,6 +14177,38 @@ async def att_daily(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/attendance/real")
+async def att_real(req: Request) -> JSONResponse:
+    """Reálná docházka po dnech v rozsahu from..to: reálný čas příchodu (první
+    presence start) + odpracované hodiny. Pro kartu 'Realita tento týden'. Marti 14.6."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    d_from = req.query_params.get("from") or None
+    d_to = req.query_params.get("to") or None
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        sql = ("SELECT to_char(e.entry_date,'YYYY-MM-DD') d, "
+               "to_char(min(CASE WHEN et.category='presence' THEN e.started_at END),'HH24:MI') zac, "
+               "COALESCE(round(sum(CASE WHEN et.category='presence' THEN e.hours ELSE 0 END)::numeric,2),0) worked "
+               "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+               "WHERE e.tenant_id=:t AND e.employee_id=:e2 "
+               "AND e.status IS DISTINCT FROM 'superseded' AND e.status IS DISTINCT FROM 'announced'")
+        par = {"t": _ATT_TENANT, "e2": emp}
+        if d_from:
+            sql += " AND e.entry_date >= :df"; par["df"] = d_from
+        if d_to:
+            sql += " AND e.entry_date <= :dt"; par["dt"] = d_to
+        sql += " GROUP BY e.entry_date ORDER BY e.entry_date"
+        rows = s.execute(_t(sql), par).mappings().all()
+        s.commit()
+        return JSONResponse(jsonable_encoder({"ok": True, "days": [dict(r) for r in rows]}))
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/absence")
 async def att_absence(req: Request) -> JSONResponse:
     """Nahlášení nepřítomnosti z appky (dovolená/nemoc/lékař/OČR/sickday/neplacené).

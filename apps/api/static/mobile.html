@@ -6149,23 +6149,31 @@ setTimeout(function(){
   // Předvýběr funguje vždy; ▶️ Makat zapne docházku z předvýběru; za běhu = změna úseku.
   window._buildWorkSwitch=function(host){
     var ws=el('<div style="margin:4px 0 0;padding:10px;border:1px solid #2a3a4d;border-radius:12px;background:rgba(127,200,224,.05);"></div>');
-    var lbl=el('<div class="hint" style="font-size:11px;letter-spacing:.5px;margin-bottom:6px;">ZAKÁZKY A ČINNOSTI</div>'); ws.appendChild(lbl);
-    var wstat=el('<div style="font-size:13px;line-height:1.5;color:#cdd8ea;margin-bottom:8px;">…</div>'); ws.appendChild(wstat);
-    var grid=el('<div class="appgrid"></div>');
-    grid.appendChild(appCell("🧾","Zakázka",0,function(){ go("prace_zak"); }));
-    grid.appendChild(appCell("🔧","Činnost",0,function(){ go("prace_cin"); }));
-    var tMak=appCell("▶️","Makat",0,function(){ if(window._praceStart) window._praceStart(); });
-    grid.appendChild(tMak);
-    ws.appendChild(grid); host.appendChild(ws);
+    var lbl=el('<div class="hint" style="font-size:11px;letter-spacing:.5px;margin-bottom:8px;">ZAKÁZKY A ČINNOSTI</div>'); ws.appendChild(lbl);
+    var row=el('<div style="display:flex;gap:8px;"></div>'); ws.appendChild(row);
+    var makWrap=el('<div></div>'); ws.appendChild(makWrap);
+    host.appendChild(ws);
+    function tile(icon,top,sub,onclick){
+      var t=el('<button class="ghost" style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:12px 8px;text-align:center;"></button>');
+      t.appendChild(el('<div style="font-size:26px;line-height:1;">'+icon+'</div>'));
+      t.appendChild(el('<div style="font-size:9.5px;letter-spacing:.5px;color:#8696b8;text-transform:uppercase;">'+esc(top)+'</div>'));
+      t.appendChild(el('<div style="font-size:13px;font-weight:700;line-height:1.25;word-break:break-word;">'+esc(sub)+'</div>'));
+      t.addEventListener("click",onclick); return t;
+    }
     api("GET","/api/v1/erp/app/work/state","").then(function(j){
       var aw=!!(j&&j.at_work);
       var src=(aw?(j&&j.working_alloc):(j&&j.pref))||(j&&j.pref)||{};
-      var zt=src.is_rezie?"🧰 Režie (bez zakázky)":(src.project_ref?("🧾 "+esc(src.project_ref)+(src.project_nazev?(" — "+esc(src.project_nazev)):"")):'<span style="color:#8696b8;">— zakázka nevybrána —</span>');
-      var ct=src.cinnost_name?((src.cinnost_icon||"🔧")+" "+esc(src.cinnost_name)):'<span style="color:#8696b8;">— činnost nevybrána —</span>';
-      lbl.innerHTML=aw?'<span style="color:var(--green);font-weight:700;">🟢 MAKÁŠ — můžeš změnit</span>':'ZAKÁZKY A ČINNOSTI — předvýběr, pak ▶️ Makat';
-      wstat.innerHTML=zt+' &nbsp;·&nbsp; '+ct;
-      tMak.style.display=aw?"none":"";
-    }).catch(function(){ wstat.textContent=""; });
+      var zIcon=src.is_rezie?"🧰":"🧾";
+      var zSub=src.is_rezie?"Režie":(src.project_ref?(src.project_ref+(src.project_nazev?(" — "+src.project_nazev):"")):"Vyber zakázku");
+      var cIcon=src.cinnost_name?(src.cinnost_icon||"🔧"):"🔧";
+      var cSub=src.cinnost_name||"Vyber činnost";
+      lbl.innerHTML=aw?'<span style="color:var(--green);font-weight:700;">🟢 MAKÁŠ — klikni a změň</span>':'ZAKÁZKY A ČINNOSTI — předvýběr, pak ▶️ Makat';
+      row.innerHTML="";
+      row.appendChild(tile(zIcon,"Zakázka",zSub,function(){ go("prace_zak"); }));
+      row.appendChild(tile(cIcon,"Činnost",cSub,function(){ go("prace_cin"); }));
+      makWrap.innerHTML="";
+      if(!aw){ var mb=el('<button class="green full" style="margin-top:8px;font-weight:700;">▶️ Makat</button>'); mb.addEventListener("click",function(){ if(window._praceStart) window._praceStart(); }); makWrap.appendChild(mb); }
+    }).catch(function(){});
   };
   // Marti 14.6.: „Makat" — zapni docházku + zakázkový systém z předvýběru.
   window._praceStart=function(){

@@ -147,6 +147,36 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                 ds.rollback()
             finally:
                 ds.close()
+    # Cookie cesta (PWA / WebView appky). _get_uid ctí httponly imp_token cookie;
+    # navíc respektujeme aktivní impersonaci podle user_id cookie — WebView appky
+    # nemusí imp_token poslat, tak ji bereme z fw.impersonation_log (parent=user_id,
+    # ended_at NULL, max 8 h) stejně jako Bearer cesta výše. Marti 14.6.
+    imp = _impersonation_target_uid(req)
+    if imp is not None:
+        return int(imp)
+    uid_c = req.cookies.get("user_id")
+    if uid_c:
+        try:
+            cuid = int(uid_c)
+        except ValueError:
+            return _get_uid(req)
+        try:
+            from core.database_data import get_data_session as _gds_i
+            from sqlalchemy import text as _sql_i
+            ds = _gds_i()
+            try:
+                t = ds.execute(_sql_i(
+                    "SELECT target_user_id FROM fw.impersonation_log "
+                    "WHERE parent_user_id=:p AND ended_at IS NULL "
+                    "AND started_at > now() - interval '8 hours' "
+                    "ORDER BY id DESC LIMIT 1"), {"p": cuid}).scalar()
+                if t is not None:
+                    return int(t)
+            finally:
+                ds.close()
+        except Exception:
+            pass
+        return cuid
     return _get_uid(req)
 
 

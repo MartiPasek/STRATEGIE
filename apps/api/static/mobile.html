@@ -5243,9 +5243,11 @@ setTimeout(function(){
       function stCol(s){ return s==='approved'?'#34d399':(s==='rejected'?'#f87171':'#fbbf24'); }
       function stIc(s){ return s==='approved'?'✓':(s==='rejected'?'✕':'⏳'); }
       function kLabel(r){
-        var t=r.kind==='off'?'🏝️ volno':(r.kind==='meeting'?('🤝 '+(r.title||'porada/jednání')):(r.kind==='event'?('📌 '+(r.title||'akce')):('⏱ '+(r.hours!=null?nf(r.hours)+' h':'jiné hodiny'))));
-        if(r.start) t+=' · '+r.start+(r.end?('–'+r.end):'');
-        return t;
+        if(r.kind==='off') return '🏝️ volno';
+        if(r.kind==='meeting') return '🤝 '+(r.title||'porada/jednání')+(r.start?(' '+r.start+(r.end?('–'+r.end):'')):'');
+        if(r.kind==='event') return '📌 '+(r.title||'akce')+(r.start?(' '+r.start):'');
+        // hodiny: stejný formát jako plán — „od 10:00 · 8 h" (vlevo zůstane jen status ⏳)
+        return (r.start?('od '+r.start+' · '):'')+(r.hours!=null?nf(r.hours)+' h':'jiné hodiny');
       }
       function wkPend(ds){ var n=0; ds.forEach(function(d){ (ST.byDate[d.date]||[]).forEach(function(r){ if(r.status==='pending')n++; }); }); return n; }
       // Bod 3: root = jen seznam týdnů (klik = celý týden). Editace dnů až v týdnu.
@@ -5315,7 +5317,7 @@ setTimeout(function(){
           elN=el('<input placeholder="Poznámka (volitelně)" style="'+iS+'">'); fields.appendChild(elN);
         }
         function mkChip(lbl,kk){ var b=el('<button class="ghost" style="padding:6px 10px;font-size:12px;">'+lbl+'</button>');
-          b.addEventListener("click",function(){ cur.kind=kk; [].forEach.call(kindRow.children,function(c){c.style.borderColor='';c.style.color='';}); b.style.borderColor='var(--blue)'; b.style.color='var(--blue)'; buildFields(); }); return b; }
+          b.addEventListener("click",function(){ f.dataset.dirty='1'; cur.kind=kk; [].forEach.call(kindRow.children,function(c){c.style.borderColor='';c.style.color='';}); b.style.borderColor='var(--blue)'; b.style.color='var(--blue)'; buildFields(); }); return b; }
         kindRow.appendChild(mkChip('⏱ Jiné hodiny','hours'));
         kindRow.appendChild(mkChip('🏝️ Volno','off'));
         kindRow.appendChild(mkChip('🤝 Porada/jednání','meeting'));
@@ -5329,7 +5331,9 @@ setTimeout(function(){
           else if(cur.kind==='meeting'){ pl.title=(elT&&elT.value)||"Porada/jednání"; pl.start=(elS&&elS.value)||""; pl.end=(elE&&elE.value)||""; }
           api("POST","/api/v1/erp/app/plan/request",pl).then(function(r){ if(r&&r.ok){ load(); } else { sb.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } });
         });
-        f.appendChild(sb); host.appendChild(f);
+        f.appendChild(sb);
+        f.addEventListener('input',function(){ f.dataset.dirty='1'; });
+        host.appendChild(f);
         try{ f.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
       }
       function showWeek(k){
@@ -5337,7 +5341,7 @@ setTimeout(function(){
         ST.view='week'; ST.wk=k; var ds=ST.weeks[k]; if(!ds){ showList(); return; }
         box.innerHTML="";
         if(right)right.style.display='none';  // #2: detail týdne na celou šířku
-        var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">‹ Zpět na týdny</button>'); bk.addEventListener("click",function(){ showList(false); }); box.appendChild(bk);
+        var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">‹ Zpět na týdny</button>'); bk.addEventListener("click",function(){ planBackStep(); }); box.appendChild(bk);
         var sum=0,wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
         box.appendChild(el('<div style="margin-bottom:8px;"><b>Týden '+ds[0].iso_week+'</b> <span class="hint">· '+wd+' dní · '+nf(sum)+' h · '+czd(ds[0].date)+'–'+czd(ds[ds.length-1].date)+'</span></div>'));
         box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Klepni na den a přidej návrh (jiné hodiny / volno / porada–jednání).</div>'));
@@ -5372,7 +5376,17 @@ setTimeout(function(){
         });
       }
       // Bod 4: Zpět o jeden krok — z týdne zpět na seznam (ne rovnou pryč).
-      window._planAnyOpen=function(){ if(document.getElementById('planWeekBack')){ showList(false); return true; } return false; };
+      function planBackStep(){
+        // #1: rozdělaný návrh? Zpět nejdřív zavře formulář — když je změněný, zeptá se na uložení.
+        var f=box.querySelector('.reqform');
+        if(f){
+          if(f.dataset.dirty==='1'){ if(confirm("Máš neuložený návrh. Uložit ke schválení?")){ var sb=f.querySelector('.green.full'); if(sb){ sb.click(); return true; } } }
+          f.remove(); return true;
+        }
+        if(document.getElementById('planWeekBack')){ showList(false); return true; }
+        return false;
+      }
+      window._planAnyOpen=planBackStep;
       load();
     }
     function renderMonths(box, j, eff, src, titleOverride){

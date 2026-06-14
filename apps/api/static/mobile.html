@@ -5249,9 +5249,9 @@ setTimeout(function(){
       }
       function wkPend(ds){ var n=0; ds.forEach(function(d){ (ST.byDate[d.date]||[]).forEach(function(r){ if(r.status==='pending')n++; }); }); return n; }
       // Bod 3: root = jen seznam týdnů (klik = celý týden). Editace dnů až v týdnu.
-      function showList(){
+      function showList(doScroll){
         ST.view='list'; ST.wk=null; box.innerHTML="";
-        if(right)right.style.display='';  // #2: zpět na náhled → pravá lišta zase vidět
+        if(right)right.style.display='flex';  // pravá lišta zpět (flex, ne '' — jinak ztratí sloupec)
         var gt=0; j.plan.forEach(function(d){ gt+=d.hours; });
         var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
         box.appendChild(el('<div style="margin-bottom:4px;"><b>👤 Můj plán '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
@@ -5282,9 +5282,9 @@ setTimeout(function(){
           box.appendChild(card);
           if(isCur) curCard=card;
         });
-        // Bod 2: nascrolovat na DNEŠEK (nebo aktuální týden)
+        // Nascrolovat na DNEŠEK jen při PRVNÍM otevření (ne při návratu z týdne).
         var target=todayEl||curCard;
-        if(target){ setTimeout(function(){ try{ target.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} },40); }
+        if(doScroll && target){ setTimeout(function(){ try{ target.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} },40); }
       }
       function openForm(d, host){
         var ex=host.querySelector('.reqform'); if(ex){ ex.remove(); return; }
@@ -5334,7 +5334,7 @@ setTimeout(function(){
         ST.view='week'; ST.wk=k; var ds=ST.weeks[k]; if(!ds){ showList(); return; }
         box.innerHTML="";
         if(right)right.style.display='none';  // #2: detail týdne na celou šířku
-        var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">‹ Zpět na týdny</button>'); bk.addEventListener("click",showList); box.appendChild(bk);
+        var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">‹ Zpět na týdny</button>'); bk.addEventListener("click",function(){ showList(false); }); box.appendChild(bk);
         var sum=0,wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
         box.appendChild(el('<div style="margin-bottom:8px;"><b>Týden '+ds[0].iso_week+'</b> <span class="hint">· '+wd+' dní · '+nf(sum)+' h · '+czd(ds[0].date)+'–'+czd(ds[ds.length-1].date)+'</span></div>'));
         box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Klepni na den a přidej návrh (jiné hodiny / volno / porada–jednání).</div>'));
@@ -5365,11 +5365,11 @@ setTimeout(function(){
           ST.weeks={}; ST.order=[]; ST.nowKey=null;
           j.plan.forEach(function(d){ var k=d.date.slice(0,4)+"-W"+("0"+d.iso_week).slice(-2); if(!ST.weeks[k]){ST.weeks[k]=[];ST.order.push(k);} ST.weeks[k].push(d); });
           ST.order.forEach(function(k){ if(ST.weeks[k].some(function(d){return d.date===todayIso;})) ST.nowKey=k; });
-          if(ST.view==='week' && ST.weeks[ST.wk]) showWeek(ST.wk); else showList();
+          if(ST.view==='week' && ST.weeks[ST.wk]) showWeek(ST.wk); else showList(true);
         });
       }
       // Bod 4: Zpět o jeden krok — z týdne zpět na seznam (ne rovnou pryč).
-      window._planAnyOpen=function(){ if(document.getElementById('planWeekBack')){ showList(); return true; } return false; };
+      window._planAnyOpen=function(){ if(document.getElementById('planWeekBack')){ showList(false); return true; } return false; };
       load();
     }
     function renderMonths(box, j, eff, src, titleOverride){

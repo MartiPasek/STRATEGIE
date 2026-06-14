@@ -3607,10 +3607,27 @@ setTimeout(function(){
     var _jindeBox=el('<div id="dochJindeBox" style="display:none;margin:4px 4px 6px;padding:8px;border:1px solid #4a3a1a;border-radius:12px;background:rgba(251,191,36,.05);"></div>');
     _toolsWrap.appendChild(_jindeBox);
     _toolSec("🧰 MOJE ZAKÁZKY A ČINNOSTI");
+    // Marti 14.6.: předvýběr zakázky+činnosti funguje vždy (i mimo práci).
+    // Klik na Zakázka/Činnost → picker → výběr → zpět. „Makat" zapne docházku
+    // i zakázkový systém z předvýběru. Za běhu = změna úseku.
+    var _wstat=el('<div style="margin:0 6px 8px;font-size:13px;line-height:1.55;color:#cdd8ea;">Načítám…</div>');
+    _toolsWrap.appendChild(_wstat);
     var _tgz=el('<div class="appgrid"></div>');
-    _tgz.appendChild(appCell("🧾","Na čem dělám",0,function(){ go("prace"); }));
-    _tgz.appendChild(appCell("🧰","Moje činnosti",0,function(){ go("moje_cinnosti"); }));
+    var _tZak=appCell("🧾","Zakázka",0,function(){ go("prace_zak"); });
+    var _tCin=appCell("🔧","Činnost",0,function(){ go("prace_cin"); });
+    var _tMak=appCell("▶️","Makat",0,function(){ if(window._praceStart) window._praceStart(); });
+    _tgz.appendChild(_tZak); _tgz.appendChild(_tCin); _tgz.appendChild(_tMak);
     _toolsWrap.appendChild(_tgz);
+    (function(){
+      api("GET","/api/v1/erp/app/work/state","").then(function(j){
+        var aw=!!(j&&j.at_work), cur=(j&&j.working_alloc)||null, pref=(j&&j.pref)||{};
+        var src=aw?(cur||pref):pref;
+        var zt=src.is_rezie?"🧰 Režie (bez zakázky)":(src.project_ref?("🧾 "+esc(src.project_ref)+(src.project_nazev?(" — "+esc(src.project_nazev)):"")):'<span style="color:#8696b8;">— zakázka nevybrána —</span>');
+        var ct=src.cinnost_name?("🔧 "+esc(src.cinnost_name)):'<span style="color:#8696b8;">— činnost nevybrána —</span>';
+        _wstat.innerHTML=(aw?'<b style="color:var(--green);">🟢 Makáš</b><br>':'<span class="hint">Předvýběr (klikni a vyber):</span><br>')+zt+'<br>'+ct;
+        if(aw){ _tMak.style.display="none"; }
+      }).catch(function(){ _wstat.textContent=""; });
+    })();
     _toolSec("PODMÍNKY & FINANCE");
     var _tg2=el('<div class="appgrid"></div>');
     _tg2.appendChild(appCell("📋","Moje podmínky",0,function(){ go("moje_podminky"); }));
@@ -6139,6 +6156,52 @@ setTimeout(function(){
     }
     load();
   }
+  // Marti 14.6.: „Makat" — zapni docházku + zakázkový systém z předvýběru.
+  window._praceStart=function(){
+    api("POST","/api/v1/erp/app/attendance/checkin",{kind:"work",switch:true}).then(function(r){
+      if(r&&r.need_confirm&&r.need_confirm.length){ alert("Nejdřív si prosím potvrď předchozí docházku (v sekci docházky)."); }
+      if(typeof dochLoad==="function") dochLoad();
+    }).catch(function(){});
+  };
+  // Picker zakázky — aktuální/předvybraná nahoře, ostatní (záloha) k výběru dole.
+  function prace_zak(){
+    app.innerHTML=topbar("🧾 Vyber zakázku", true);
+    var box=el('<div style="padding-bottom:100px;"></div>'); app.appendChild(box);
+    box.innerHTML='<div class="hint">Načítám…</div>';
+    function pick(cislo,nazev){ api("POST","/api/v1/erp/app/work/set-zakazka",{project_ref:cislo,project_nazev:nazev}).then(function(r){ if(r&&r.ok) back(); else alert((r&&(r.msg||r.error))||"Nepodařilo se."); }); }
+    function rezie(){ api("POST","/api/v1/erp/app/work/set-rezie",{}).then(function(r){ if(r&&r.ok) back(); else alert((r&&(r.msg||r.error))||"Nepodařilo se."); }); }
+    api("GET","/api/v1/erp/app/work/state","").then(function(j){
+      box.innerHTML="";
+      var cur=((j&&j.at_work&&j.working_alloc)||(j&&j.pref))||{};
+      var curTxt=cur.is_rezie?"🧰 Režie (bez zakázky)":(cur.project_ref?("🧾 "+esc(cur.project_ref)+(cur.project_nazev?(" — "+esc(cur.project_nazev)):"")):"— zatím nevybráno —");
+      box.appendChild(el('<div style="background:var(--bg);border:1px solid var(--green);border-radius:12px;padding:12px;margin-bottom:10px;"><div class="hint" style="font-size:11px;letter-spacing:.5px;">AKTUÁLNÍ</div><div style="font-weight:700;font-size:15px;margin-top:3px;">'+curTxt+'</div></div>'));
+      var rb=el('<button class="ghost full" style="margin-bottom:10px;border-color:#6b5a2a;color:#e6c86a;">🧰 Režie (bez zakázky)</button>'); rb.addEventListener("click",rezie); box.appendChild(rb);
+      box.appendChild(el('<div style="font-weight:700;margin:4px 2px 6px;">V záloze — vyber jinou</div>'));
+      var si=el('<input placeholder="🔍 číslo nebo název…" autocomplete="off">'); box.appendChild(si);
+      var res=el('<div style="margin-top:6px;"></div>'); box.appendChild(res); var tmr=null;
+      function zl(){ var q=(si.value||"").trim(); api("GET","/api/v1/erp/app/zakazky"+(q?("?q="+encodeURIComponent(q)):""),"").then(function(jz){ res.innerHTML=""; ((jz&&jz.zakazky)||[]).slice(0,20).forEach(function(z){ var zb=el('<button class="ghost full" style="margin-top:6px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;">'+((z.typ==="REZIE")?"🧰 ":"🧾 ")+esc(z.cislo)+' — '+esc(z.nazev||"")+'</button>'); zb.addEventListener("click",function(){ pick(z.cislo,z.nazev||""); }); res.appendChild(zb); }); }); }
+      si.addEventListener("input",function(){ clearTimeout(tmr); tmr=setTimeout(zl,300); }); zl();
+    });
+  }
+  // Picker činnosti — aktuální/předvybraná nahoře, dlaždice k výběru.
+  function prace_cin(){
+    app.innerHTML=topbar("🔧 Vyber činnost", true);
+    var box=el('<div style="padding-bottom:100px;"></div>'); app.appendChild(box);
+    box.innerHTML='<div class="hint">Načítám…</div>';
+    function pick(ci){ api("POST","/api/v1/erp/app/work/set-cinnost",{cinnost_id:ci}).then(function(r){ if(r&&r.ok) back(); else alert((r&&(r.msg||r.error))||"Nepodařilo se."); }); }
+    Promise.all([ api("GET","/api/v1/erp/app/work/state",""), api("GET","/api/v1/erp/app/vyroba/my-cinnosti","") ]).then(function(rs){
+      box.innerHTML="";
+      var st=rs[0]||{}, m=rs[1]||{};
+      var cur=((st.at_work&&st.working_alloc)||st.pref)||{};
+      var mine=((m&&m.cinnosti)||[]).filter(function(c){return !c.hidden;});
+      box.appendChild(el('<div style="background:var(--bg);border:1px solid var(--green);border-radius:12px;padding:12px;margin-bottom:10px;"><div class="hint" style="font-size:11px;letter-spacing:.5px;">AKTUÁLNÍ</div><div style="font-weight:700;font-size:15px;margin-top:3px;">'+(cur.cinnost_name?("🔧 "+esc(cur.cinnost_name)):"— zatím nevybráno —")+'</div></div>'));
+      if(!mine.length){ box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Nemáš vybrané činnosti.</div>')); }
+      var cg=el('<div class="appgrid"></div>');
+      mine.forEach(function(c){ var on=(cur.cinnost_id===c.id); var cell=appCell("🔧",c.name,0,function(){ pick(c.id); }); if(on){ cell.style.outline="2px solid var(--green)"; cell.style.borderColor="var(--green)"; } cg.appendChild(cell); });
+      box.appendChild(cg);
+      var mb=el('<button class="ghost full" style="margin-top:12px;border-color:#6b4a2a;color:#e6b97a;">🧰 Upravit seznam činností</button>'); mb.addEventListener("click",function(){ go("moje_cinnosti"); }); box.appendChild(mb);
+    });
+  }
   function web_stats(){
     app.innerHTML=topbar("📈 Návštěvnost webu", true);
     var box=el('<div style="padding-bottom:100px;"></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
@@ -6161,7 +6224,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

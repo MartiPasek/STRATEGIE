@@ -14104,6 +14104,48 @@ def _att_is_working(s, emp: int) -> bool:
     return bool(r) and (r[0] in ("work", "overhead", ""))
 
 
+def _wp_get(s, uid: int):
+    from sqlalchemy import text as _t
+    return s.execute(_t(
+        "SELECT project_ref, project_nazev, cinnost_id, cinnost_name, is_rezie "
+        "FROM tenant.work_pref WHERE tenant_id=:t AND user_id=:u"),
+        {"t": _ATT_TENANT, "u": uid}).mappings().first()
+
+
+def _wp_save(s, uid: int, project_ref=None, project_nazev=None,
+             cinnost_id=None, cinnost_name=None, is_rezie=False) -> None:
+    from sqlalchemy import text as _t
+    s.execute(_t(
+        "INSERT INTO tenant.work_pref (tenant_id,user_id,project_ref,project_nazev,"
+        "cinnost_id,cinnost_name,is_rezie,updated_at) "
+        "VALUES (:t,:u,:pr,:pn,:ci,:cn,:rz,now()) "
+        "ON CONFLICT (tenant_id,user_id) DO UPDATE SET project_ref=:pr,project_nazev=:pn,"
+        "cinnost_id=:ci,cinnost_name=:cn,is_rezie=:rz,updated_at=now()"),
+        {"t": _ATT_TENANT, "u": uid, "pr": project_ref, "pn": project_nazev,
+         "ci": cinnost_id, "cn": cinnost_name, "rz": bool(is_rezie)})
+
+
+@api_router.get("/app/work/state")
+async def app_work_state(req: Request) -> JSONResponse:
+    """Předvýběr (work_pref) + zda makám + běžící úsek. Funguje i mimo práci."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        working = _att_is_working(s, emp)
+        cur = _wa_running(s, uid) if working else None
+        pref = _wp_get(s, uid)
+        s.commit()
+        return JSONResponse(jsonable_encoder({
+            "ok": True, "at_work": working,
+            "working_alloc": (dict(cur) if cur else None),
+            "pref": (dict(pref) if pref else {})}))
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/work/current")
 async def app_work_current(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
@@ -14159,14 +14201,16 @@ async def app_work_set_zakazka(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        if not _att_is_working(s, emp):
-            return JSONResponse({"ok": False, "error": "not_working",
-                                 "msg": "Nejsi přihlášený v práci."})
-        prev = _wa_running(s, uid)
-        _wa_open(s, uid, project_ref=pr, project_nazev=pn,
-                 cinnost_id=(prev["cinnost_id"] if prev else None),
-                 cinnost_name=(prev["cinnost_name"] if prev else None),
-                 is_rezie=False)
+        prev = _wp_get(s, uid)
+        _ci = prev["cinnost_id"] if prev else None
+        _cn = prev["cinnost_name"] if prev else None
+        # Marti 14.6.: předvýběr funguje vždy (i mimo práci).
+        _wp_save(s, uid, project_ref=pr, project_nazev=pn,
+                 cinnost_id=_ci, cinnost_name=_cn, is_rezie=False)
+        # Makáš → změna = nový úsek hned.
+        if _att_is_working(s, emp):
+            _wa_open(s, uid, project_ref=pr, project_nazev=pn,
+                     cinnost_id=_ci, cinnost_name=_cn, is_rezie=False)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -14184,14 +14228,14 @@ async def app_work_set_rezie(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        if not _att_is_working(s, emp):
-            return JSONResponse({"ok": False, "error": "not_working",
-                                 "msg": "Nejsi přihlášený v práci."})
-        prev = _wa_running(s, uid)
-        _wa_open(s, uid, project_ref=None, project_nazev=None,
-                 cinnost_id=(prev["cinnost_id"] if prev else None),
-                 cinnost_name=(prev["cinnost_name"] if prev else None),
-                 is_rezie=True)
+        prev = _wp_get(s, uid)
+        _ci = prev["cinnost_id"] if prev else None
+        _cn = prev["cinnost_name"] if prev else None
+        _wp_save(s, uid, project_ref=None, project_nazev=None,
+                 cinnost_id=_ci, cinnost_name=_cn, is_rezie=True)
+        if _att_is_working(s, emp):
+            _wa_open(s, uid, project_ref=None, project_nazev=None,
+                     cinnost_id=_ci, cinnost_name=_cn, is_rezie=True)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -14220,19 +14264,19 @@ async def app_work_set_cinnost(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        if not _att_is_working(s, emp):
-            return JSONResponse({"ok": False, "error": "not_working",
-                                 "msg": "Nejsi přihlášený v práci."})
         cn = s.execute(_t("SELECT name FROM tenant.vyroba_cinnost WHERE tenant_id=:t AND id=:c"),
                        {"t": _ATT_TENANT, "c": ci}).scalar()
         if not cn:
             return JSONResponse({"ok": False, "error": "cinnost_not_found"})
-        prev = _wa_running(s, uid)
-        _wa_open(s, uid,
-                 project_ref=(prev["project_ref"] if prev else None),
-                 project_nazev=(prev["project_nazev"] if prev else None),
-                 cinnost_id=ci, cinnost_name=cn,
-                 is_rezie=(bool(prev["is_rezie"]) if prev else False))
+        prev = _wp_get(s, uid)
+        _pr = prev["project_ref"] if prev else None
+        _pn = prev["project_nazev"] if prev else None
+        _rz = bool(prev["is_rezie"]) if prev else False
+        _wp_save(s, uid, project_ref=_pr, project_nazev=_pn,
+                 cinnost_id=ci, cinnost_name=cn, is_rezie=_rz)
+        if _att_is_working(s, emp):
+            _wa_open(s, uid, project_ref=_pr, project_nazev=_pn,
+                     cinnost_id=ci, cinnost_name=cn, is_rezie=_rz)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -14319,14 +14363,14 @@ async def att_checkin(req: Request) -> JSONResponse:
         # Otevři/naváž běžící úsek při práci/režii; návrat z pauzy naváže na poslední dnešní.
         if kind in ("work", "overhead"):
             try:
-                _prev = _wa_latest_today(s, uid)
-                _pr = project_ref
-                _pn = None
-                _ci = _prev["cinnost_id"] if _prev else None
-                _cn = _prev["cinnost_name"] if _prev else None
-                _rz = (kind == "overhead")
-                if _pr is None and not _rz and _prev:
-                    _pr = _prev["project_ref"]; _pn = _prev["project_nazev"]; _rz = bool(_prev["is_rezie"])
+                # Marti 14.6.: úsek se otevře z PŘEDVÝBĚRU (work_pref) — „Makat" = příchod
+                # do práce + zapnutí zakázkového systému z toho, co máš předvybráno.
+                _pref = _wp_get(s, uid)
+                _pr = project_ref or (_pref["project_ref"] if _pref else None)
+                _pn = (_pref["project_nazev"] if (_pref and not project_ref) else None)
+                _ci = _pref["cinnost_id"] if _pref else None
+                _cn = _pref["cinnost_name"] if _pref else None
+                _rz = (kind == "overhead") or (bool(_pref["is_rezie"]) if (_pref and not project_ref) else False)
                 _wa_open(s, uid, project_ref=_pr, project_nazev=_pn,
                          cinnost_id=_ci, cinnost_name=_cn, is_rezie=_rz)
             except Exception:

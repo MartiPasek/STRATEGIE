@@ -15858,7 +15858,7 @@ async def app_doc_to_eurosoft(req: Request) -> JSONResponse:
     except Exception as exc:
         return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]}, status_code=502)
     if isinstance(r, dict) and r.get("ok"):
-        unc = "\\\\192.168.30.11\\Data\\ZZ_Marti-AI RW\\" + rel_path.replace("/", "\\")
+        unc = "\\\\EC-SERVER2\\Data\\ZZ_Marti-AI RW\\" + rel_path.replace("/", "\\")
         return JSONResponse({"ok": True, "path": rel_path, "fname": fname,
                              "bytes": len(pdf), "unc": unc})
     return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "Zápis na EUROSOFT selhal.")})

@@ -5357,12 +5357,12 @@ setTimeout(function(){
           var dPast=(d.date<todayIso), dToday=(d.date===todayIso);
           var dayWrap=el('<div></div>');
           var rs="display:flex;justify-content:space-between;align-items:center;padding:9px 6px;font-size:14px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;"+(dToday?"background:rgba(79,142,247,.14);border-radius:8px;":"")+(dPast?"opacity:.5;":"");
-          var row=el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="display:flex;align-items:center;gap:8px;"><span style="color:'+col+';font-weight:600;">'+tag+'</span><span style="color:var(--blue);font-size:18px;font-weight:700;">＋</span></span></div>');
+          var row=el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="display:flex;align-items:center;gap:8px;"><span style="color:'+col+';font-weight:600;">'+tag+'</span><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(79,142,247,.18);color:#4f8ef7;font-size:17px;font-weight:700;line-height:1;flex:none;">+</span></span></div>');
           row.addEventListener("click",function(){ openForm(d, dayWrap); });
           dayWrap.appendChild(row);
           (ST.byDate[d.date]||[]).forEach(function(r){
             var chip=el('<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:3px 0 6px 14px;font-size:12.5px;"><span style="color:'+stCol(r.status)+';">'+stIc(r.status)+' '+esc(kLabel(r))+(r.note?(' — '+esc(r.note)):'')+(r.status==='rejected'&&r.decided_note?(' ('+esc(r.decided_note)+')'):'')+'</span></div>');
-            if(r.status==='pending'){ var db=el('<button class="ghost" style="padding:2px 10px;font-size:15px;line-height:1;flex:none;" title="Smazat">✕</button>'); db.addEventListener("click",function(e){ e.stopPropagation(); if(!confirm("Chceš tento záznam opravdu smazat?")) return; db.disabled=true; api("POST","/api/v1/erp/app/plan/request/"+r.id+"/delete","").then(function(){ load(); }); }); chip.appendChild(db); }
+            if(r.status==='pending'){ var db=el('<button style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(248,113,113,.16);color:#f87171;border:0;font-size:13px;line-height:1;cursor:pointer;flex:none;" title="Smazat">✕</button>'); db.addEventListener("click",function(e){ e.stopPropagation(); if(!confirm("Chceš tento záznam opravdu smazat?")) return; db.disabled=true; api("POST","/api/v1/erp/app/plan/request/"+r.id+"/delete","").then(function(){ load(); }); }); chip.appendChild(db); }
             dayWrap.appendChild(chip);
           });
           box.appendChild(dayWrap);

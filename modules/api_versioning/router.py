@@ -372,6 +372,19 @@ async def unpin_version(
     return UnpinResponse(ok=True, reverted_to="current")
 
 
+@_router.get("/unpin-now", include_in_schema=False)
+async def unpin_now_redirect():
+    """Marti 14.6.2026: rychlý GET odpin pro zaseknutý prohlížeč. Smaže pin cookie
+    a přesměruje na /mobile. Běží VŽDY na primární (Caddy @apiVersions bypass cookie),
+    takže funguje i když je uživatel připnutý na ZASTAVENOU zálohu (jinak by se ani
+    nenačetla stránka s tlačítkem odepnout). Bez auth — jen maže routing cookie,
+    žádná citlivá akce, žádný DB zápis. Stačí otevřít URL v prohlížeči."""
+    from fastapi.responses import RedirectResponse
+    r = RedirectResponse(url="/mobile", status_code=303)
+    r.delete_cookie(key=COOKIE_NAME, path=COOKIE_PATH)
+    return r
+
+
 @_router.get("/diff", response_model=DiffResponse)
 async def diff_versions(
     from_code: str,

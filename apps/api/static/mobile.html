@@ -3451,10 +3451,11 @@ setTimeout(function(){
     function _toolSec(t){ _toolsWrap.appendChild(el('<div style="margin:10px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
     _toolSec("MOJE DOCHÁZKA");
     var _tg1=el('<div class="appgrid"></div>');
-    _tg1.appendChild(appCell("📅","Dnešek",0,function(){ _openSec(_dS&&_dS.today); }));
-    _tg1.appendChild(appCell("🌅","Zítřek",0,function(){ _openSec(_dS&&_dS.plan); }));
+    _tg1.appendChild(appCell("📅","Dnešek",0,function(){ go("doch_dnesek"); }));
+    _tg1.appendChild(appCell("🌅","Zítřek",0,function(){ go("doch_zitrek"); }));
     _tg1.appendChild(appCell("🔭","Výhled",0,function(){ go("plan"); }));
-    _tg1.appendChild(appCell("🕓","Historie",0,function(){ if(_dS){ if(_dS.yest&&_dS.yest.box&&_dS.yest.box.parentNode)_dS.yest.box.parentNode.style.display=""; _openSec(_dS.prev); } }));
+    _tg1.appendChild(appCell("🕓","Historie",0,function(){ go("doch_historie"); }));
+    _tg1.appendChild(appCell("📋","Moje žádosti",0,function(){ go("moje_zadosti"); }));
     _tg1.appendChild(appCell("🧭","Tady budu jinde",0,function(){
       var jb=document.getElementById("dochJindeBox"); if(!jb) return;
       if(jb.style.display!=="none"){ jb.style.display="none"; return; }
@@ -3473,7 +3474,7 @@ setTimeout(function(){
     _toolSec("PODMÍNKY & FINANCE");
     var _tg2=el('<div class="appgrid"></div>');
     _tg2.appendChild(appCell("📋","Moje podmínky",0,function(){ go("moje_podminky"); }));
-    _tg2.appendChild(appCell("💰","Moje finance",0,function(){ _openSec(_dS&&_dS.paska); }));
+    _tg2.appendChild(appCell("💰","Moje finance",0,function(){ go("moje_finance"); }));
     _tg2.appendChild(appCell("🗓️","Nepřítomnosti",0,function(){ go("absence"); }));
     _toolsWrap.appendChild(_tg2);
     p.appendChild(_toolsWrap);
@@ -4603,6 +4604,30 @@ setTimeout(function(){
         _renderJobPanel("dochPrevRail","dochPrev2",rows.filter(function(e){ return (e.d||"") && (e.d||"")<yst; }),_prevSt); }
     });
   }
+  // Marti 14.6.: celoobrazovkové verze sekcí docházky (jako „Výhled"). Volají
+  // stejné modulové loadery (dochListLoad/dochDailyLoad/paskaToggle), jen do
+  // vlastního kontejneru s topbarem + Zpět.
+  function _dochRail(listId,railId,h){
+    return '<div style="display:flex;gap:10px;height:'+(h||"calc(100vh - 150px)")+';align-items:stretch;">'
+      +'<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;">'
+      +'<ul id="'+listId+'" style="padding:0;list-style:none;margin:0;"><li style="color:var(--mut);border:none;">Načítám…</li></ul></div>'
+      +'<div id="'+railId+'" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';
+  }
+  function doch_dnesek(){ app.innerHTML=topbar("📅 Dnešek", true); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML=_dochRail("dochToday2","dochTodayRail"); dochListLoad(); }
+  function doch_historie(){ app.innerHTML=topbar("🕓 Historie docházky", true); var p=el('<div class="panel"></div>'); app.appendChild(p);
+    p.innerHTML='<div class="hint" style="margin:2px 0 6px;font-weight:600;">Včera</div>'+_dochRail("dochYest2","dochYestRail","38vh")
+      +'<div class="hint" style="margin:14px 0 6px;font-weight:600;">Starší</div>'+_dochRail("dochPrev2","dochPrevRail","38vh");
+    dochListLoad(); }
+  function doch_zitrek(){ app.innerHTML=topbar("🌅 Tady budu jinde", true); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML=_dochRail("dochPlan2","dochPlanRail"); dochDailyLoad(); }
+  function moje_finance(){ app.innerHTML=topbar("💰 Moje finance", true); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML='<div id="paskaBox"><div class="hint">Načítám…</div></div>'; paskaToggle(true); }
+  function moje_zadosti(){ app.innerHTML=topbar("📋 Moje hlášené / neschválené žádosti", true); var p=el('<div class="panel"></div>'); app.appendChild(p);
+    var box=el('<div></div>'); p.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
+    api("GET","/api/v1/erp/app/attendance/announced-future","").then(function(j){
+      box.innerHTML=""; var it=(j&&j.items)||[];
+      if(!it.length){ box.appendChild(el('<div class="hint">Žádné nevyřízené žádosti. 👍</div>')); return; }
+      it.forEach(function(r){ box.appendChild(el('<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid var(--bord);padding:10px 2px;font-size:14px;"><span><b>'+esc(r.d||"")+'</b> — '+esc(r.note||"")+'</span></div>')); });
+    });
+  }
   // 💰 Výplatní páska (Marti 7.6.: „každej na ni má nárok") — jen vlastní data.
   // Marti 7.6. večer: ochrana — PIN + jen mimo směnu (aby si lidé v pracovní
   // době neukazovali, kolik kdo bere). PIN žije jen v paměti otevřené sekce.
@@ -5603,7 +5628,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,web_stats:web_stats};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

@@ -99,28 +99,39 @@ def _active_imp_target(parent_uid):
     strategie_pg engine (stejný jako docházka/bridge — vidí fw.impersonation_log).
     Marti 14.6.: get_data_session mířil na jinou DB, kde řádek nebyl."""
     from sqlalchemy import text as _t
-    # Některá poolovaná Marti-AI connection vrací při PRVNÍM použití v requestu
-    # prázdno (stale stav) — opakuj přes čerstvé sessions, dokud nedostaneme řádek.
-    for _attempt in range(3):
+    _dbgmsg = None
+    try:
+        cm, s = _att_session()
         try:
-            cm, s = _att_session()
             try:
-                try:
-                    s.rollback()
-                except Exception:
-                    pass
-                r = s.execute(_t(
-                    "SELECT target_user_id FROM fw.impersonation_log "
-                    "WHERE parent_user_id = :p AND ended_at IS NULL "
-                    "AND started_at > clock_timestamp() - interval '8 hours' "
-                    "ORDER BY id DESC LIMIT 1"), {"p": int(parent_uid)}).scalar()
+                s.rollback()
+            except Exception:
+                pass
+            r = s.execute(_t(
+                "SELECT target_user_id FROM fw.impersonation_log "
+                "WHERE parent_user_id = :p AND ended_at IS NULL "
+                "AND started_at > clock_timestamp() - interval '8 hours' "
+                "ORDER BY id DESC LIMIT 1"), {"p": int(parent_uid)}).scalar()
+            try:
+                s.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('ait',:u,:f)"),
+                          {"u": int(parent_uid), "f": (r is not None)}); s.commit()
+            except Exception:
+                pass
+            return (int(r) if r is not None else None)
+        finally:
+            cm.__exit__(None, None, None)
+    except Exception as _e:
+        _dbgmsg = str(_e)[:120]
+        try:
+            cm2, s2 = _att_session()
+            try:
+                s2.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('ait_err',:u,false)"),
+                           {"u": int(parent_uid)}); s2.commit()
             finally:
-                cm.__exit__(None, None, None)
-            if r is not None:
-                return int(r)
+                cm2.__exit__(None, None, None)
         except Exception:
             pass
-    return None
+        return None
 
 
 def _uid_from_token_or_cookie(req: Request) -> int:

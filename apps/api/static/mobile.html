@@ -4409,8 +4409,8 @@ setTimeout(function(){
           if(has("školení")) return "Jsem na školení 🎓";
           if(has("pochůzce")||has("pochůzka")) return "Na pochůzce"+_es+" 📦";
           if(has("končím dříve")) return "Dnes končím dřív 🕔";
-          if(open.project_type==='REZIE' || !open.project_ref) return "Makám na režii 🧾";
-          return "Makám na zakázce 👷";
+          // Marti 14.6.: nadpis je jen „Makám" — zakázka/činnost se řeší zvlášť v sekci.
+          return "Makám 👷";
         }
         if(j.day_off) return "Mám volno 🏝️";
         if(a){

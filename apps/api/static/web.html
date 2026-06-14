@@ -30,8 +30,9 @@
   .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}
   .btn-g:hover{border-color:var(--tl);color:var(--tl)}
   nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
-  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:70px}
-  .logo{font-weight:900;font-size:20px;letter-spacing:.3px;display:flex;align-items:center;gap:9px;overflow:hidden;min-width:0}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;height:70px}
+  @media(max-width:600px){nav .wrap{padding:0 12px;gap:12px}}
+  .logo{font-weight:900;font-size:20px;letter-spacing:.3px;display:flex;align-items:center;gap:9px;overflow:hidden;min-width:0;flex:1 1 auto}
   .logo .x{color:var(--mut);font-weight:400}
   .logoin{display:inline-block;white-space:nowrap}
   @keyframes logoSlide{0%,12%{transform:translateX(0)}50%,62%{transform:translateX(calc(-1*var(--ov,0px)))}100%{transform:translateX(0)}}

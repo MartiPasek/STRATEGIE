@@ -1183,10 +1183,12 @@ setTimeout(function(){
     app.appendChild(apiInfo);
     api("GET","/api/v1/api-info","").then(function(j){
       if(!j||!j.ok){ apiInfo.textContent=""; return; }
+      var inst=j.instance||"?";
+      var tag=inst==="secondary"?"B (záloha)":inst==="primary"?"A (primární)":("?"+" ("+esc(inst)+")");
       if(j.stale){ apiInfo.style.color="#f87171"; apiInfo.style.fontWeight="700";
-        apiInfo.innerHTML="⚠ STARÝ SERVER — "+esc(j.instance||"?")+" / "+esc(j.dir||"")+" (build "+esc(j.commit||"?")+")<br>Obnov stránku nebo srovnej secondary."; }
+        apiInfo.innerHTML="⚠ STARÝ SERVER — běžíš na "+tag+" / "+esc(j.dir||"")+" (build "+esc(j.commit||"?")+")<br>Obnov stránku nebo srovnej zálohu."; }
       else { apiInfo.style.color="var(--mut)"; apiInfo.style.fontWeight="400";
-        apiInfo.textContent="API: "+(j.instance||"?")+" · build "+(j.commit||"?")+" · port "+(j.port||"?"); }
+        apiInfo.innerHTML="Běžíš na: <b style='color:var(--tx)'>"+tag+"</b> · build "+(j.commit||"?")+" · port "+(j.port||"?"); }
     });
     app.appendChild(el('<div style="height:80px;"></div>'));
   }

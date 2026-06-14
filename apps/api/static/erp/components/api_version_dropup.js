@@ -89,6 +89,19 @@
     }
   }
 
+  // Skutečná instance, která request reálně obsloužila. Jde stejnou cookie
+  // routing cestou jako ostatní volání → při failoveru (pin na vypnutou B)
+  // poctivě vrátí "primary". Marti 14.6.: ať pill nekecá B, když běží A.
+  async function _fetchApiInfo() {
+    try {
+      const res = await fetch("/api/v1/api-info", { credentials: "include", cache: "no-store" });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function _pinVersion(versionCode, reason) {
     const body = { version_code: versionCode };
     if (reason && reason.trim()) body.reason = reason.trim();
@@ -155,29 +168,51 @@
 
     const versions = _state.versions || [];
     const pin = _state.currentPin;
+    const info = _state.apiInfo;
 
-    // Find which version is "active" (pin overrides current)
-    let activeVersion;
-    if (pin) {
-      activeVersion = versions.find((v) => v.version_code === pin.pinned_version_code);
-    }
-    if (!activeVersion) {
-      activeVersion = versions.find((v) => v.severity === "current");
-    }
-    if (!activeVersion) {
+    const currentV = versions.find((v) => v.severity === "current");
+    const pinnedV = pin ? versions.find((v) => v.version_code === pin.pinned_version_code) : null;
+
+    // SKUTEČNÁ instance, co request obsloužila (z api-info).
+    const realInst = info && info.instance ? info.instance : null; // "primary" | "secondary"
+    const instTag = realInst === "secondary" ? "B" : realInst === "primary" ? "A" : "?";
+
+    // Verze kódu, který REÁLNĚ běží: primary = current; secondary = pinnutá (starší).
+    const runningV = realInst === "secondary" ? (pinnedV || currentV) : (currentV || pinnedV);
+    let vStr = runningV ? runningV.version_string : "";
+    if (!vStr && info && info.commit) vStr = "#" + info.commit;
+
+    if (!runningV && !info) {
       host.innerHTML = "";
       return;
     }
 
-    const severity = activeVersion.severity;
-    const severityClass = `api-version-pill-${severity}`;
-    const olderFlash = activeVersion.sort_order >= 3 ? " api-version-pill-flashed" : "";
+    // Nesoulad: připnuto na starší verzi, ale fakticky běží primární (= záloha
+    // neběží a failover tě obsloužil z A). Ať to pill řekne na rovinu.
+    const pinnedNonCurrent = !!(pinnedV && pinnedV.severity !== "current");
+    const mismatch = pinnedNonCurrent && realInst === "primary";
+
+    let cls = "api-version-pill-current";
+    let warn = "";
+    let hint = "Běží primární A — aktuální verze (klik pro přepnutí)";
+    if (realInst === "secondary") {
+      cls = pinnedV ? `api-version-pill-${pinnedV.severity}` : "api-version-pill-previous";
+      hint = "Běží záloha B — " + (pinnedV ? pinnedV.version_label : "previous") + " (klik pro změnu)";
+    } else if (mismatch) {
+      cls = "api-version-pill-previous";
+      warn = " ⚠";
+      hint = "Připnuto na " + pinnedV.version_label + ", ale ZÁLOHA B NEBĚŽÍ → fakticky běží primární A. Klik → vrátit na aktuální.";
+    } else if (!info) {
+      hint = "Verze API (skutečná instance se nenačetla)";
+    }
+
+    const label = `běží ${instTag}${warn} · ${vStr}`;
 
     host.innerHTML = `
-      <button type="button" class="api-version-pill ${severityClass}${olderFlash}"
+      <button type="button" class="api-version-pill ${cls}"
               id="erpFooterApiVersionBtn"
-              data-hint="${pin ? "Připnuto na " + activeVersion.version_label + " (klik pro změnu)" : "Aktuální verze (klik pro přepnutí)"}">
-        <span class="api-version-pill-label">${_fmtVersionForPill(activeVersion)}</span>
+              data-hint="${_escapeHtml(hint)}">
+        <span class="api-version-pill-label">${_escapeHtml(label)}</span>
         <span class="api-version-pill-caret">▴</span>
       </button>
     `;
@@ -253,11 +288,17 @@
       ? `<div class="api-version-pin-reason">Důvod: <em>${_escapeHtml(pin.reason)}</em></div>`
       : "";
 
+    const _info = _state.apiInfo;
+    const _realInst = _info && _info.instance ? _info.instance : null;
+    const _instTag = _realInst === "secondary" ? "B (záloha)" : _realInst === "primary" ? "A (primární)" : "?";
+    const _running = `<div class="api-version-pin-reason" style="border-top:1px solid rgba(255,255,255,.08);margin-top:2px">Fakticky běžíš na: <b>${_instTag}</b>${_info && _info.commit ? " · #" + _escapeHtml(_info.commit) : ""}</div>`;
+
     drop.innerHTML = `
       <div class="api-version-dropup-header">
         Verze API
         ${pin ? '<span class="api-version-dropup-pin-badge">PŘIPNUTO</span>' : ""}
       </div>
+      ${_running}
       <div class="api-version-dropup-body">
         ${rowsHtml}
       </div>
@@ -452,8 +493,9 @@
     if (data) {
       _state.versions = data.versions || [];
       _state.currentPin = data.current_pin || null;
-      _renderPill();
     }
+    _state.apiInfo = await _fetchApiInfo();
+    _renderPill();
   }
 
   function _startPolling() {

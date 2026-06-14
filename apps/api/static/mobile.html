@@ -5327,6 +5327,15 @@ setTimeout(function(){
     var left=el('<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     var right=el('<div style="width:88px;flex:none;display:flex;flex-direction:column;gap:8px;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     wrap.appendChild(left); wrap.appendChild(right); app.appendChild(wrap);
+    // Marti 14.6. večer: v Týdnu navigace týdnů ↑ (předchozí) / ↓ (další) na vrchu lišty.
+    if(WEEKONLY){
+      var bUp=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a5a8c;color:#9cf;font-weight:700;font-size:13px;line-height:1.25;">⬆️<br>Předch.<br>týden</button>');
+      bUp.addEventListener("click",function(){ try{ window._planWeekShift && window._planWeekShift(-1); }catch(e){} });
+      right.appendChild(bUp);
+      var bDn=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a5a8c;color:#9cf;font-weight:700;font-size:13px;line-height:1.25;">⬇️<br>Další<br>týden</button>');
+      bDn.addEventListener("click",function(){ try{ window._planWeekShift && window._planWeekShift(1); }catch(e){} });
+      right.appendChild(bDn);
+    }
     // Marti 14.6.: pořadí lišty — Můj plán, Plán skupiny, Koho čekáme, Moje podmínky; admin až dole.
     var bMy=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a6b4c;color:#9ce0b0;font-weight:700;font-size:12px;line-height:1.25;">👤<br>Můj<br>plán</button>');
     bMy.addEventListener("click",function(){ renderPlan(false,'mydefault'); });
@@ -5387,7 +5396,7 @@ setTimeout(function(){
       var toD=(j.plan[j.plan.length-1]&&j.plan[j.plan.length-1].date)||_locDate(0);
       var todayIso=_locDate(0);
       var iS="box-sizing:border-box;width:100%;padding:9px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;margin:2px 0;font-size:14px;";
-      var ST={view:'list', wk:null, byDate:{}, weeks:{}, order:[], nowKey:null, pend:0, listScroll:0};
+      var ST={view:'list', wk:null, byDate:{}, weeks:{}, order:[], nowKey:null, weekKey:null, pend:0, listScroll:0};
       function stCol(s){ return s==='approved'?'#34d399':(s==='rejected'?'#f87171':'#fbbf24'); }
       function stIc(s){ return s==='approved'?'✓':(s==='rejected'?'✕':'⏳'); }
       function kLabel(r){
@@ -5407,13 +5416,14 @@ setTimeout(function(){
         box.appendChild(el('<div style="margin-bottom:4px;"><b>👤 '+(AP?esc(AP.name):'Můj plán')+' '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
         box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">'+(AP?'Klepni na týden — uvidíš návrhy a můžeš je schválit/zamítnout.':'Klepni na týden — otevře se celý. Tam přidáš návrhy ke schválení.')+(ST.pend?(' <b style="color:var(--amber);">· '+ST.pend+' čeká</b>'):'')+'</div>'));
         var curCard=null, todayEl=null, cardByKey={}, firstPendCard=null;
-        ST.order.forEach(function(k){
+        var _keys = WEEKONLY ? (ST.weekKey ? [ST.weekKey] : ST.order.slice(0,1)) : ST.order;
+        _keys.forEach(function(k){
           var ds=ST.weeks[k], sum=0, wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
           var lastD=ds[ds.length-1].date, isPast=(lastD<todayIso), isCur=(k===ST.nowKey);
           var pc=wkPend(ds);
           var card=el('<div style="border:1px solid '+(isCur?'#4f8ef7':'#2b3a5c')+';border-radius:12px;margin-bottom:10px;overflow:hidden;cursor:pointer;'+(isPast?'opacity:.5;':'')+'"></div>');
           var _hl,_hr;
-          if(WEEKONLY){ _hl='Plán'; _hr='<b style="font-size:16px;color:#cfe0ff;">'+_hhmm(sum)+'</b>'; }
+          if(WEEKONLY){ _hl='Plán · '+ds[0].iso_week+'. týden'; _hr='<b style="font-size:16px;color:#cfe0ff;">'+_hhmm(sum)+'</b>'; }
           else { _hl='Týden '+ds[0].iso_week+(isCur?' · tento týden':''); _hr='<span class="hint">'+wd+' dní · '+_hhmm(sum)+'</span>'; }
           card.appendChild(el('<div style="padding:11px 12px;background:'+(isCur?'#11203a':(isPast?'#0c1018':'#0e1830'))+';display:flex;justify-content:space-between;align-items:center;'+(isCur?'border-left:3px solid #4f8ef7;':'')+'"><span style="font-weight:700;">'+_hl+'</span><span style="display:flex;align-items:center;gap:8px;">'+_hr+(pc?('<span style="color:var(--amber);font-size:12px;font-weight:700;">'+pc+'⏳</span>'):'')+'<span style="color:var(--mut);">›</span></span></div>'));
           var body=el('<div style="padding:4px 10px 8px;"></div>');
@@ -5452,7 +5462,7 @@ setTimeout(function(){
         var target=(AP&&firstPendCard)?firstPendCard:(todayEl||curCard);
         if(doScroll && target){ setTimeout(function(){ try{ target.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} },40); }
         else if(ST.openWk && cardByKey[ST.openWk]){ setTimeout(function(){ try{ cardByKey[ST.openWk].scrollIntoView({block:"start"}); }catch(e){} },30); }
-        if(WEEKONLY){ _realityCard(box, ST.weeks[ST.nowKey]||[]); }
+        if(WEEKONLY){ _realityCard(box, ST.weeks[ST.weekKey]||ST.weeks[ST.nowKey]||[]); }
       }
       function _hhmm(h){ h=Math.max(0, Math.round((h||0)*60)); return Math.floor(h/60)+":"+("0"+(h%60)).slice(-2); }
       function _realityCard(box, days){
@@ -5583,8 +5593,8 @@ setTimeout(function(){
           j.plan.forEach(function(d){ var k=d.date.slice(0,4)+"-W"+("0"+d.iso_week).slice(-2); if(!ST.weeks[k]){ST.weeks[k]=[];ST.order.push(k);} ST.weeks[k].push(d); });
           ST.order.forEach(function(k){ if(ST.weeks[k].some(function(d){return d.date===todayIso;})) ST.nowKey=k; });
           if(WEEKONLY){
-            var wk=ST.nowKey||ST.order[0];
-            if(wk){ var _w=ST.weeks[wk]; ST.order=[wk]; ST.weeks={}; ST.weeks[wk]=_w; ST.nowKey=wk; }
+            // plnou sadu týdnů NECHÁVÁME (kvůli navigaci ↑/↓), zobrazíme jen weekKey
+            if(!ST.weekKey || ST.order.indexOf(ST.weekKey)<0) ST.weekKey = ST.nowKey || ST.order[0];
             showList(true);
           }
           else if(ST.view==='week' && ST.weeks[ST.wk]) showWeek(ST.wk); else showList(true);
@@ -5614,6 +5624,16 @@ setTimeout(function(){
         ov.appendChild(card); document.body.appendChild(ov);
       }
       window._planAnyOpen=planBackStep;
+      // Marti 14.6. večer: navigace týdnů v Týdnu (↑/↓ z pravé lišty). -1 = předchozí, +1 = další.
+      window._planWeekShift=function(delta){
+        if(!ST.order.length) return;
+        var i=ST.order.indexOf(ST.weekKey); if(i<0)i=0;
+        var ni=Math.min(ST.order.length-1, Math.max(0, i+delta));
+        if(ni===i) return;
+        ST.weekKey=ST.order[ni];
+        showList(false);
+        try{ left.scrollTop=0; }catch(e){}
+      };
       load();
     }
     function renderMonths(box, j, eff, src, titleOverride){

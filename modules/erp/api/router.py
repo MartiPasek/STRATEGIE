@@ -102,10 +102,14 @@ def _active_imp_target(parent_uid):
     try:
         cm, s = _att_session()
         try:
+            try:
+                s.rollback()   # čistá transakce — poolovaná connection může mít stale snapshot
+            except Exception:
+                pass
             return s.execute(_t(
                 "SELECT target_user_id FROM fw.impersonation_log "
                 "WHERE parent_user_id = :p AND ended_at IS NULL "
-                "AND started_at > now() - interval '8 hours' "
+                "AND started_at > clock_timestamp() - interval '8 hours' "
                 "ORDER BY id DESC LIMIT 1"), {"p": int(parent_uid)}).scalar()
         finally:
             cm.__exit__(None, None, None)
@@ -127,10 +131,7 @@ def _uid_from_token_or_cookie(req: Request) -> int:
             th = hashlib.sha256(tok.encode("utf-8")).hexdigest()
             uid = None
             _ov = None
-            _tgt = None
-            # Vše v JEDNÉ strategie_pg session (token + shared_active + impersonace).
-            # Marti 14.6.: get_data_session mířil na jinou DB; a druhá session po
-            # zavření první vracela None → proto vše v jednom sezení.
+            # 1) token → uid + shared_active (jedna session), pak commit a zavřít.
             try:
                 cm, s = _att_session()
                 try:
@@ -144,26 +145,18 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                         _ov = s.execute(_sql_tok(
                             "SELECT user_id FROM tenant.shared_active "
                             "WHERE token_hash = :h"), {"h": th}).scalar()
-                        if _ov is None:
-                            _tgt = s.execute(_sql_tok(
-                                "SELECT target_user_id FROM fw.impersonation_log "
-                                "WHERE parent_user_id = :p AND ended_at IS NULL "
-                                "AND started_at > now() - interval '8 hours' "
-                                "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
                         s.commit()
-                    try:
-                        s.execute(_sql_tok("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('bearer2',:u,:f)"),
-                                  {"u": (int(uid) if uid is not None else -1), "f": (_tgt is not None)}); s.commit()
-                    except Exception:
-                        pass
                 finally:
                     cm.__exit__(None, None, None)
             except Exception:
                 pass
             if _ov is not None:           # sdílený telefon (switch+PIN) má přednost
                 return int(_ov)
-            if _tgt is not None:          # aktivní impersonace vlastníka tokenu
-                return int(_tgt)
+            # 2) impersonace ve VLASTNÍ čisté session (stale snapshot fix).
+            if uid is not None:
+                _tgt = _active_imp_target(uid)
+                if _tgt is not None:
+                    return int(_tgt)
             if uid is not None:
                 return int(uid)
     # Cookie cesta (PWA / WebView appky). _get_uid ctí httponly imp_token cookie;

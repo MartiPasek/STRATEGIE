@@ -900,6 +900,18 @@ def web_demo():
     return _web_subpage("demo.html")
 
 
+@app.get("/web/en/demo")
+def web_demo_en():
+    """Live demo dashboard — EN mutace (Marti 14.6.2026)."""
+    return _web_subpage("demo-en.html")
+
+
+@app.get("/web/de/demo")
+def web_demo_de():
+    """Live-Demo Dashboard — DE Mutation (Marti 14.6.2026)."""
+    return _web_subpage("demo-de.html")
+
+
 @app.get("/web/eurosoft")
 def web_eco_eurosoft():
     """Podstránka ekosystému — EUROSOFT (ruce: stroje & automatizace)."""

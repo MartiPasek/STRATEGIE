@@ -149,6 +149,11 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                             "WHERE parent_user_id = :p AND ended_at IS NULL "
                             "AND started_at > now() - interval '8 hours' "
                             "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
+                        try:
+                            ds2.execute(_sql_tok("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('bearer_imp',:p,:f)"),
+                                        {"p": int(uid), "f": (_tgt is not None)}); ds2.commit()
+                        except Exception:
+                            pass
                         if _tgt is not None:
                             return int(_tgt)
                     finally:

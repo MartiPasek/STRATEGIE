@@ -5225,7 +5225,36 @@ setTimeout(function(){
         left.innerHTML="";
         if(!j||!j.ok){ left.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
         if(!j.has_plan){ left.appendChild(el('<div class="hint" style="line-height:1.7;">Zatím nemáš žádný plán.<br>Vpravo klikni <b>📋 40 h</b> a vyrobí se ti základní roční plán podle státních svátků (Po–Pá, víkendy a svátky volno).</div>')); return; }
-        renderMonths(left, j, eff, src, null);
+        if(src==='mydefault'){ renderWeeks(left, j, src); }
+        else { renderMonths(left, j, eff, src, null); }
+      });
+    }
+    // Marti 14.6.: Můj plán = TÝDENNÍ pohled — týdny aktivně oddělené, baseline plánu.
+    // (Základ pro budoucí „Můj plán ke schválení" — kalendářní vkládání návrhů.)
+    function renderWeeks(box, j, src){
+      var gt=0; j.plan.forEach(function(d){ gt+=d.hours; });
+      var yr=(j.plan[0]&&j.plan[0].date||"").slice(0,4);
+      box.appendChild(el('<div style="margin-bottom:6px;"><b>👤 Můj plán '+yr+'</b> <span class="hint">· úvazek '+(j.uvazek||"?")+' h/týd. · '+nf(gt)+' h</span></div>'));
+      box.appendChild(el('<div class="hint" style="margin-bottom:10px;line-height:1.5;">Plán po týdnech. Brzy sem půjde vkládat vlastní návrhy (kalendářně) a poslat ke schválení.</div>'));
+      var todayIso=_locDate(0), nowKey=null;
+      var weeks={}, order=[];
+      j.plan.forEach(function(d){ var k=d.date.slice(0,4)+"-W"+("0"+d.iso_week).slice(-2); if(!weeks[k]){weeks[k]=[];order.push(k);} weeks[k].push(d); });
+      order.forEach(function(k){ if(weeks[k].some(function(d){return d.date===todayIso;})) nowKey=k; });
+      order.forEach(function(k){
+        var ds=weeks[k], sum=0, wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
+        var lastD=ds[ds.length-1].date, isPast=(lastD<todayIso), isCur=(k===nowKey);
+        var card=el('<div style="border:1px solid '+(isCur?'#4f8ef7':'#2b3a5c')+';border-radius:12px;margin-bottom:10px;overflow:hidden;'+(isPast?'opacity:.5;':'')+'"></div>');
+        card.appendChild(el('<div style="padding:9px 12px;background:'+(isCur?'#11203a':(isPast?'#0c1018':'#0e1830'))+';display:flex;justify-content:space-between;align-items:center;'+(isCur?'border-left:3px solid #4f8ef7;':'')+'"><span style="font-weight:700;">Týden '+ds[0].iso_week+(isCur?' · tento týden':'')+'</span><span class="hint">'+wd+' dní · '+nf(sum)+' h</span></div>'));
+        var body=el('<div style="padding:4px 10px 8px;"></div>');
+        ds.forEach(function(d){
+          var work=(d.hours>0);
+          var col=work?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
+          var tag=work?((d.start?('od '+d.start+' · '):'')+nf(d.hours)+' h'):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
+          var dPast=(d.date<todayIso), dToday=(d.date===todayIso);
+          var rs="display:flex;justify-content:space-between;align-items:center;padding:5px 4px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.05);"+(dToday?"background:rgba(79,142,247,.14);border-radius:6px;":"")+(dPast?"opacity:.5;":"");
+          body.appendChild(el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+tag+'</span></div>'));
+        });
+        card.appendChild(body); box.appendChild(card);
       });
     }
     function renderMonths(box, j, eff, src, titleOverride){

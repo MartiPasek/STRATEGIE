@@ -10586,6 +10586,115 @@ async def app_plan_request_delete(rid: int, req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _can_approve_plans(s, uid: int) -> bool:
+    """ACL schvalovatele návrhů plánu. v1: rodiče + HR skupina.
+    (Per-nadřízený resolver doladíme v dalším kroku — Marti 14.6. 'dál se domluvíme'.)"""
+    return _hr_can_manage(s, uid)
+
+
+@api_router.get("/app/plan/approvals/users")
+async def app_plan_approvals_users(req: Request) -> JSONResponse:
+    """Pro schvalovatele: seznam uživatelů s počtem návrhů plánu čekajících na schválení."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _can_approve_plans(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT r.user_id, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), "
+            "   (SELECT em.full_name FROM tenant.att_employee em WHERE em.user_id=r.user_id AND em.tenant_id=:t LIMIT 1), "
+            "   '#'||r.user_id) AS jmeno, "
+            " COUNT(*) AS cnt "
+            "FROM tenant.att_plan_request r JOIN public.users u ON u.id=r.user_id "
+            "WHERE r.tenant_id=:t AND r.status='pending' "
+            "GROUP BY r.user_id, u.first_name, u.last_name ORDER BY jmeno"),
+            {"t": _ATT_TENANT}).fetchall()
+        s.commit()
+        users = [{"user_id": r[0], "name": r[1], "cnt": int(r[2])} for r in rows]
+        return JSONResponse({"ok": True, "total": sum(x["cnt"] for x in users), "users": users})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/plan/approvals/user/{tuid}")
+async def app_plan_approvals_user(tuid: int, req: Request) -> JSONResponse:
+    """Pro schvalovatele: čekající návrhy konkrétního uživatele."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _can_approve_plans(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, req_date::text, kind, start_time::text, end_time::text, "
+            "hours, title, note, status, created_at::text "
+            "FROM tenant.att_plan_request WHERE tenant_id=:t AND user_id=:u AND status='pending' "
+            "ORDER BY req_date, id"),
+            {"t": _ATT_TENANT, "u": tuid}).fetchall()
+        s.commit()
+        def hm(x):
+            return x[:5] if x else None
+        return JSONResponse({"ok": True, "items": [
+            {"id": r[0], "d": r[1], "kind": r[2], "start": hm(r[3]), "end": hm(r[4]),
+             "hours": (float(r[5]) if r[5] is not None else None), "title": r[6],
+             "note": r[7], "status": r[8], "created_at": r[9]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/plan/decide")
+async def app_plan_decide(req: Request) -> JSONResponse:
+    """Pro schvalovatele: schválit/zamítnout návrh plánu. body {id, decision:'approved'|'rejected', note}."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    rid = (b or {}).get("id")
+    decision = str((b or {}).get("decision") or "").strip()
+    note = (str(b.get("note")).strip()[:600] or None) if b.get("note") else None
+    if decision not in ("approved", "rejected") or not rid:
+        return JSONResponse({"ok": False, "error": "bad_request"})
+    cm, s = _att_session()
+    try:
+        if not _can_approve_plans(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        row = s.execute(_t(
+            "SELECT user_id, req_date::text, kind, hours, start_time::text, title "
+            "FROM tenant.att_plan_request WHERE id=:i AND tenant_id=:t AND status='pending'"),
+            {"i": rid, "t": _ATT_TENANT}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "not_found_or_decided"})
+        n = s.execute(_t(
+            "UPDATE tenant.att_plan_request SET status=:st, decided_by=:by, decided_at=now(), "
+            "decided_note=:no WHERE id=:i AND tenant_id=:t AND status='pending'"),
+            {"st": decision, "by": uid, "no": note, "i": rid, "t": _ATT_TENANT}).rowcount
+        # notifikace žadateli
+        def _czd(x):
+            p = (x or "").split("-")
+            return (p[2] + "." + p[1] + "." + p[0]) if len(p) == 3 else x
+        ic = "✅" if decision == "approved" else "🚫"
+        verb = "schválen" if decision == "approved" else "zamítnut"
+        ti = ic + " Návrh plánu " + verb
+        msg = "Tvůj návrh na " + _czd(row[1]) + " byl " + verb + "."
+        if note:
+            msg += " Poznámka: " + note
+        _abs_notify(s, row[0], ti, msg)
+        s.commit()
+        return JSONResponse({"ok": n > 0})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/attendance/announce-delete")
 async def att_announce_delete(req: Request) -> JSONResponse:
     """Marti 10.6.: smazání hlášené (budoucí) nepřítomnosti — supersedne řádek

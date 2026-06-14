@@ -576,10 +576,97 @@ setTimeout(function(){
     tt.addEventListener("click",function(){go("strtask");}); grid.appendChild(tt);
     var ut=el('<div class="tile"><div class="tile-ic">📋</div><div class="tile-tt">Úkoly</div><div class="tile-sub">Z Centrály</div></div>');
     ut.addEventListener("click",function(){go("ecukoly");}); grid.appendChild(ut);
+    // Schvalování návrhů plánu — viditelné jen pro schvalovatele (jinak 403 → skryto).
+    var ap=el('<div class="tile" style="position:relative;display:none;"><div class="tile-ic">🗓️</div><div class="tile-tt">Schvalování</div><div class="tile-sub" id="apSub">…</div><span id="apBadge" style="display:none;position:absolute;top:8px;right:8px;background:#f59e0b;color:#fff;border-radius:11px;min-width:22px;height:22px;line-height:22px;text-align:center;font-size:12px;font-weight:700;padding:0 6px;box-shadow:0 1px 4px rgba(0,0,0,.35);"></span></div>');
+    ap.addEventListener("click",function(){go("planapprovals");}); grid.appendChild(ap);
+    api("GET","/api/v1/erp/app/plan/approvals/users","").then(function(j){
+      if(!j||!j.ok)return;
+      ap.style.display="";
+      var n=j.total||0;
+      var sub=document.getElementById("apSub"); if(sub)sub.textContent=n?(n+" ke schválení"):"Nic nečeká";
+      var bd=document.getElementById("apBadge"); if(bd){ if(n>0){ bd.textContent=n>99?"99+":n; bd.style.display="block"; } else bd.style.display="none"; }
+    }).catch(function(){});
     p.appendChild(grid); app.appendChild(p);
     api("GET","/api/v1/erp/app/mobile/commands/pending","").then(function(j){ notifCount=j&&j.commands?j.commands.length:0; var s=document.getElementById("claudeSub"); if(s)s.textContent=notifCount?(notifCount+" ke schválení / nové"):"Žádné nové"; var bd=document.getElementById("claudeBadge"); if(bd){ if(notifCount>0){ bd.textContent=notifCount>99?"99+":notifCount; bd.style.display="block"; } else bd.style.display="none"; } renderNav(); });
     (function(){ var s0=document.getElementById("todoSub"); var dr=false; try{dr=!!localStorage.getItem("stg_task_draft");}catch(e){} if(s0&&dr)s0.textContent="✏️ rozpracované…"; })();
     api("GET","/api/v1/erp/app/task?view=moje","").then(function(j){ var n=((j&&j.ukoly)||[]).length; var s=document.getElementById("todoSub"); var dr=false; try{dr=!!localStorage.getItem("stg_task_draft");}catch(e){} if(s)s.textContent=(dr?"✏️ rozpracované · ":"")+(n?(n+" k vyřízení"):"nic nového"); }); }
+  // ───── Schvalování návrhů plánu (pro schvalovatele). Marti 14.6. ─────
+  function apCzd(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."+p[0]):iso; }
+  function apKLabel(r){
+    if(r.kind==='off') return '🏝️ volno';
+    if(r.kind==='meeting') return '🤝 '+(r.title||'Porada/jednání')+(r.start?(' '+r.start):'')+(r.end?('–'+r.end):'');
+    return (r.start?('od '+r.start+' · '):'')+((r.hours!=null)?(r.hours+' h'):'změna');
+  }
+  function planapprovals(){
+    app.innerHTML=topbar("🗓️ Schvalování plánu", true, true);
+    var _tb=app.querySelector('.topbar'); if(_tb)_tb.style.paddingTop="12px";
+    var wrap=el('<div style="display:flex;gap:8px;height:calc(100vh - 165px);padding:4px 2px 0;"></div>');
+    var left=el('<div id="apleft" style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;"></div>');
+    var rail=el('<div id="aprail" style="width:64px;flex:none;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding:1px;"></div>');
+    rail.appendChild(el('<button style="margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--blue);background:var(--blue);color:#fff;border-radius:9px;cursor:default;"><span style="font-size:17px;">👥</span>Lidé</button>'));
+    var rr=el('<button style="margin:0;padding:6px 1px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--bord);background:transparent;color:var(--mut);border-radius:9px;cursor:pointer;"><span style="font-size:17px;">🔄</span>Obnovit</button>');
+    rr.addEventListener("click",function(){ apLoad(); });
+    rail.appendChild(rr);
+    wrap.appendChild(left); wrap.appendChild(rail); app.appendChild(wrap);
+    apLoad();
+  }
+  function apLoad(){
+    var L=document.getElementById("apleft"); if(!L)return;
+    L.innerHTML='<div class="hint" style="padding:12px;">Načítám…</div>';
+    api("GET","/api/v1/erp/app/plan/approvals/users","").then(function(j){
+      L.innerHTML="";
+      if(!j||!j.ok){ L.innerHTML='<div class="hint" style="padding:14px;">'+esc((j&&j.error==='forbidden')?"Nemáš oprávnění schvalovat.":((j&&j.error)||"Nepodařilo se načíst."))+'</div>'; return; }
+      var users=j.users||[];
+      var lw=el('<div style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:24px;"></div>');
+      if(!users.length){ lw.innerHTML='<div class="hint" style="padding:14px;line-height:1.6;">Nic nečeká na schválení. 👍</div>'; L.appendChild(lw); return; }
+      var ul=el('<ul class="list" style="padding:0 6px;"></ul>');
+      users.forEach(function(u){
+        var li=el('<li class="ct" style="padding:0;border-bottom:none;"></li>');
+        var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(u.name||"?")+';">'+esc((u.name||"?").trim().charAt(0).toUpperCase())+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(u.name||("#"+u.user_id))+'</div><div class="ctnum">'+u.cnt+' ke schválení</div></div><span style="flex:none;background:#f59e0b;color:#fff;border-radius:11px;min-width:22px;height:22px;line-height:22px;text-align:center;font-size:12px;font-weight:700;padding:0 6px;">'+u.cnt+'</span></div>');
+        var exp=el('<div class="ctexp" style="display:none;"></div>');
+        head.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) apFillUser(exp,u); });
+        li.appendChild(head); li.appendChild(exp); ul.appendChild(li);
+      });
+      lw.appendChild(ul); L.appendChild(lw);
+    }); }
+  function apFillUser(exp,u){
+    exp.innerHTML='<div class="hint" style="padding:8px;">Načítám…</div>';
+    api("GET","/api/v1/erp/app/plan/approvals/user/"+u.user_id,"").then(function(j){
+      exp.innerHTML="";
+      if(!j||!j.ok){ exp.innerHTML='<div class="hint" style="padding:8px;">Nepodařilo se načíst.</div>'; return; }
+      var items=j.items||[];
+      if(!items.length){ exp.innerHTML='<div class="hint" style="padding:8px;">Nic nečeká.</div>'; return; }
+      items.forEach(function(r){
+        var row=el('<div style="padding:9px 6px;border-top:1px solid var(--bord);"></div>');
+        row.appendChild(el('<div style="font-size:14px;margin-bottom:6px;"><b>'+esc(apCzd(r.d))+'</b> · '+esc(apKLabel(r))+(r.note?(' <span class="hint">— '+esc(r.note)+'</span>'):'')+'</div>'));
+        var br=el('<div style="display:flex;gap:8px;"></div>');
+        var ya=el('<button class="green" style="flex:1;margin:0;padding:8px;">✅ Schválit</button>');
+        var na=el('<button class="ghost" style="flex:1;margin:0;padding:8px;color:#f87171;border-color:#5a2b2b;">🚫 Zamítnout</button>');
+        ya.addEventListener("click",function(){ ya.disabled=true; na.disabled=true; apDecide(r.id,"approved",null); });
+        na.addEventListener("click",function(){ apRejectDialog(r); });
+        br.appendChild(ya); br.appendChild(na); row.appendChild(br);
+        exp.appendChild(row);
+      });
+    }); }
+  function apDecide(id,decision,note){
+    api("POST","/api/v1/erp/app/plan/decide",{id:id,decision:decision,note:note||""}).then(function(r){
+      if(r&&r.ok){ apLoad(); } else alert("Chyba: "+((r&&r.error)||"?")); });
+  }
+  function apRejectDialog(r){
+    var ov=el('<div style="position:fixed;inset:0;z-index:99999;background:rgba(3,7,16,.66);display:flex;align-items:center;justify-content:center;padding:24px;"></div>');
+    var card=el('<div style="background:#161c2b;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px;max-width:340px;width:100%;box-shadow:0 16px 50px rgba(0,0,0,.55);"></div>');
+    card.appendChild(el('<div style="font-size:16px;font-weight:600;color:#e8eefc;margin-bottom:6px;">Zamítnout návrh</div>'));
+    card.appendChild(el('<div class="hint" style="margin-bottom:10px;">'+esc(apCzd(r.d))+' · '+esc(apKLabel(r))+'</div>'));
+    var ta=el('<textarea placeholder="Důvod (nepovinné)…" style="width:100%;min-height:64px;margin-bottom:14px;box-sizing:border-box;"></textarea>');
+    card.appendChild(ta);
+    var rowb=el('<div style="display:flex;gap:10px;"></div>');
+    var no=el('<button class="ghost" style="flex:1;margin:0;">Zrušit</button>');
+    var yes=el('<button class="green" style="flex:1;margin:0;background:#b3402f;">🚫 Zamítnout</button>');
+    no.addEventListener("click",function(){ ov.remove(); });
+    yes.addEventListener("click",function(){ ov.remove(); apDecide(r.id,"rejected",(ta.value||"").trim()); });
+    rowb.appendChild(no); rowb.appendChild(yes); card.appendChild(rowb);
+    ov.appendChild(card); document.body.appendChild(ov);
+  }
   function mytodo(){
     app.innerHTML=topbar("📝 Moje TODO", true);
     var p=el('<div class="panel"></div>');
@@ -5691,7 +5778,7 @@ setTimeout(function(){
     }
     // Marti 14.6.: vstupní pohled z regionu docházky (Můj úvazek / Můj plán).
     if(window._planInit==="uvazek"){ window._planInit=null; renderUvazek(); }
-    else if(window._planInit==="myplan"){ window._planInit=null; renderPlan(false,'mydefault'); }
+    else if(window._planInit==="myplan"){ window._planInit=null; renderPlan(false,'mydefault'); try{ setTimeout(function(){ if(right&&bMy) right.scrollTop=Math.max(0, bMy.offsetTop-4); },80); }catch(e){} }
     else renderPlan();
   }
   function plan_vyjimky(){
@@ -5834,7 +5921,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

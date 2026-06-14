@@ -14114,6 +14114,11 @@ async def att_checkin(req: Request) -> JSONResponse:
             _until = str((body or {}).get("until_txt") or "").strip()
             note = "Jedu do práce" + ((" — dorazím za %d min" % int(_eta)) if _eta
                                       else ((" — dorazím ~%s" % _until) if _until else ""))
+        # Marti 14.6.: rychlý přepínač činnosti v rámci práce — název činnosti = poznámka
+        # k pracovnímu segmentu (běžící práce se rozdělí, nový segment nese činnost).
+        _cin = str((body or {}).get("cinnost") or "").strip()[:60]
+        if _cin and kind == "work":
+            note = _cin
         # ohlášení „na cestě" je tímto naplněno → supersede
         s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
                      "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date AND status='announced'"),

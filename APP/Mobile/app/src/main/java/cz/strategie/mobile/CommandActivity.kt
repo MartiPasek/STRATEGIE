@@ -39,6 +39,16 @@ class CommandActivity : Activity() {
                     }
                     .show()
             }
+            "claude_ok" -> {
+                // Marti 14.6.: tiché potvrzení (schváleno/hotovo) — klidné OK, neruší.
+                AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(msg)
+                    .setCancelable(true)
+                    .setPositiveButton("OK") { _, _ -> report(id, "done"); cancelNotif(id); finish() }
+                    .setOnCancelListener { report(id, "done"); cancelNotif(id); finish() }
+                    .show()
+            }
             "claude_msg" -> {
                 // Zpráva od Clauda (hotovo/výsledek) — jen informace + otevřít chat
                 AlertDialog.Builder(this)

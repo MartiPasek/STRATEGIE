@@ -7519,13 +7519,16 @@ def _is_parent(s, uid: int) -> bool:
     return bool(r)
 
 
-def _abs_notify(s, target_uid, title, msg):
+def _abs_notify(s, target_uid, title, msg, quiet=False):
+    """quiet=True → tiché potvrzovací 'claude_ok' (bez zvuku/vibrace na mobilu),
+    pro souhlasné/hotovo signály, které nemají rušit práci. Marti 14.6."""
     from sqlalchemy import text as _t
     if not target_uid:
         return
+    ctype = "claude_ok" if quiet else "claude_msg"
     s.execute(_t("INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                 "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
-              {"uid": int(target_uid), "ti": title[:120], "msg": (msg or "")[:600]})
+                 "VALUES ('mobile', :uid, :ct, :ti, :msg, NULL)"),
+              {"uid": int(target_uid), "ct": ctype, "ti": title[:120], "msg": (msg or "")[:600]})
 
 
 @api_router.post("/app/attendance/absence/request")
@@ -10691,7 +10694,7 @@ async def app_plan_decide(req: Request) -> JSONResponse:
         msg = "Tvůj návrh na " + _czd(row[1]) + " byl " + verb + "."
         if note:
             msg += " Poznámka: " + note
-        _abs_notify(s, row[0], ti, msg)
+        _abs_notify(s, row[0], ti, msg, quiet=True)   # tiché potvrzení — neruší práci
         s.commit()
         return JSONResponse({"ok": n > 0})
     finally:

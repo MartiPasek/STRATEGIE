@@ -291,6 +291,17 @@ class DialPollService : Service() {
                     enableVibration(true)
                 }
             )
+            // Marti 14.6.: tiché potvrzení („OK" — schváleno/hotovo). IMPORTANCE_LOW =
+            // bez zvuku i vibrace, jen klidně přistane v liště. Neruší práci.
+            nm().createNotificationChannel(
+                NotificationChannel(
+                    CH_OK, "Potvrzení (tiché)", NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Klidná potvrzení — schváleno / hotovo, bez zvuku a vibrace"
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+            )
         }
     }
 
@@ -506,13 +517,18 @@ class DialPollService : Service() {
             this, (NOTIF_COMMAND_BASE + id).toInt(), i,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val ch = if (type == "claude_confirm" || type == "claude_msg") CH_CLAUDE else CH_COMMAND
+        val quiet = (type == "claude_ok")
+        val ch = when {
+            quiet -> CH_OK
+            type == "claude_confirm" || type == "claude_msg" -> CH_CLAUDE
+            else -> CH_COMMAND
+        }
         val n = NotificationCompat.Builder(this, ch)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(if (msg.isNotBlank()) msg else "Klepni pro zobrazení")
             .setStyle(NotificationCompat.BigTextStyle().bigText(msg))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(if (quiet) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(pi)
@@ -647,6 +663,7 @@ class DialPollService : Service() {
         const val CH_UPDATE = "app_update"
         const val CH_COMMAND = "app_command_v2"   // v2 (7.6.): zvuk se zasekl na starém kanálu
         const val CH_CLAUDE = "claude_v2"         // v2 (7.6.): potvrzení + zprávy — hlasité (sticky kanál fix)
+        const val CH_OK = "claude_ok_v1"          // Marti 14.6.: tiché potvrzovací „OK" (bez zvuku/vibrace, neruší práci)
         const val NOTIF_ONGOING = 1001
         const val NOTIF_UPDATE = 1002
         const val NOTIF_AUTH_LOST = 1003

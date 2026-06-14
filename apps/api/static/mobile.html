@@ -5308,12 +5308,14 @@ setTimeout(function(){
     var AP=window._planApprove||null; window._planApprove=null;   // režim schvalovatele (cizí plán)
     var WEEKONLY=(window._planInit==="thisweek");                 // jen tento týden (z dlaždice Týden)
     app.innerHTML=topbar(AP?("🗓️ "+esc(AP.name)):(WEEKONLY?("📅 Týden "+_isoWeek(new Date())):"🗓️ Plán"), true);
+    var _ptb=app.querySelector('.topbar'); if(_ptb)_ptb.style.paddingTop="12px";
     function nf(v){ return (Math.round((v||0)*100)/100).toString().replace('.',','); }
     function czd(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):iso; }
     var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 132px);align-items:stretch;"></div>');
     var left=el('<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     var right=el('<div style="width:88px;flex:none;display:flex;flex-direction:column;gap:8px;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     wrap.appendChild(left); wrap.appendChild(right); app.appendChild(wrap);
+    if(!WEEKONLY){
     right.appendChild(el('<div class="hint" style="text-align:center;font-size:10px;line-height:1.3;">Vyrobit<br>základ</div>'));
     var bGen=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a5a8c;color:#9cf;font-weight:700;font-size:13px;line-height:1.25;">📋<br>ČR<br>40 h</button>');
     bGen.addEventListener("click",function(){
@@ -5334,6 +5336,7 @@ setTimeout(function(){
     var bFirma=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a6b5a;color:#7fe0c8;font-weight:700;font-size:12px;line-height:1.25;">🏭<br>Firma<br>plán</button>');
     bFirma.addEventListener("click",function(){ renderPlan(true); });
     right.appendChild(bFirma);
+    }
     var bGrp=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a5a6b;color:#7fc8e0;font-weight:700;font-size:12px;line-height:1.25;">👥<br>Plán<br>skupiny</button>');
     bGrp.addEventListener("click",function(){ renderGroupPlan(); });
     right.appendChild(bGrp);
@@ -5396,19 +5399,27 @@ setTimeout(function(){
           var lastD=ds[ds.length-1].date, isPast=(lastD<todayIso), isCur=(k===ST.nowKey);
           var pc=wkPend(ds);
           var card=el('<div style="border:1px solid '+(isCur?'#4f8ef7':'#2b3a5c')+';border-radius:12px;margin-bottom:10px;overflow:hidden;cursor:pointer;'+(isPast?'opacity:.5;':'')+'"></div>');
-          card.appendChild(el('<div style="padding:11px 12px;background:'+(isCur?'#11203a':(isPast?'#0c1018':'#0e1830'))+';display:flex;justify-content:space-between;align-items:center;'+(isCur?'border-left:3px solid #4f8ef7;':'')+'"><span style="font-weight:700;">Týden '+ds[0].iso_week+(isCur?' · tento týden':'')+'</span><span style="display:flex;align-items:center;gap:8px;"><span class="hint">'+wd+' dní · '+_hhmm(sum)+'</span>'+(pc?('<span style="color:var(--amber);font-size:12px;font-weight:700;">'+pc+'⏳</span>'):'')+'<span style="color:var(--mut);">›</span></span></div>'));
+          var _hl,_hr;
+          if(WEEKONLY){ _hl='Plán'; _hr='<b style="font-size:16px;color:#cfe0ff;">'+_hhmm(sum)+'</b>'; }
+          else { _hl='Týden '+ds[0].iso_week+(isCur?' · tento týden':''); _hr='<span class="hint">'+wd+' dní · '+_hhmm(sum)+'</span>'; }
+          card.appendChild(el('<div style="padding:11px 12px;background:'+(isCur?'#11203a':(isPast?'#0c1018':'#0e1830'))+';display:flex;justify-content:space-between;align-items:center;'+(isCur?'border-left:3px solid #4f8ef7;':'')+'"><span style="font-weight:700;">'+_hl+'</span><span style="display:flex;align-items:center;gap:8px;">'+_hr+(pc?('<span style="color:var(--amber);font-size:12px;font-weight:700;">'+pc+'⏳</span>'):'')+'<span style="color:var(--mut);">›</span></span></div>'));
           var body=el('<div style="padding:4px 10px 8px;"></div>');
           ds.forEach(function(d){
             var dwork=(d.hours>0);
             var dcol=dwork?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
-            var dtag=dwork?((d.start?('od '+d.start+' · '):'')+_hhmm(d.hours)):(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"));
             var dToday=(d.date===todayIso); var dPast=(d.date<todayIso);
             var dReqs=ST.byDate[d.date]||[];
             // korekce typu hodiny/volno NAHRAZUJE plán → přeškrtnout původní hodnotu
             var hasRepl=dReqs.some(function(r){ return (r.kind==='hours'||r.kind==='off') && r.status!=='rejected'; });
             var rs="display:flex;justify-content:space-between;align-items:center;padding:5px 4px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.05);"+(dToday?"background:rgba(79,142,247,.14);border-radius:6px;":"")+(dPast?"opacity:.45;":"");
-            var ptSt="color:"+dcol+";font-weight:600;"+(hasRepl?"text-decoration:line-through;opacity:.55;":"");
-            var row=el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="'+ptSt+'">'+dtag+'</span></div>');
+            var rightCell;
+            if(dwork){
+              var _strk=hasRepl?'text-decoration:line-through;opacity:.55;':'';
+              rightCell='<span style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;'+_strk+'">'+(d.start?'<span style="color:#8fb4e8;font-size:11px;">od '+d.start+'</span>':'')+'<span style="color:#34d399;font-weight:700;font-size:14px;">'+_hhmm(d.hours)+'</span></span>';
+            } else {
+              rightCell='<span style="color:'+dcol+';font-weight:600;'+(hasRepl?'text-decoration:line-through;opacity:.55;':'')+'">'+(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"))+'</span>';
+            }
+            var row=el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span>'+rightCell+'</div>');
             body.appendChild(row);
             if(dToday) todayEl=row;
             dReqs.forEach(function(r){
@@ -5435,7 +5446,7 @@ setTimeout(function(){
         if(!days.length) return;
         var fromD2=days[0].date, toD2=days[days.length-1].date;
         var card=el('<div style="border:1px solid #2b3a5c;border-radius:12px;margin-bottom:10px;overflow:hidden;"></div>');
-        card.appendChild(el('<div style="padding:11px 12px;background:#0e1830;display:flex;justify-content:space-between;align-items:center;"><span style="font-weight:700;">⏱ Realita tento týden</span><span class="hint" id="realSum">…</span></div>'));
+        card.appendChild(el('<div style="padding:11px 12px;background:#0e1830;display:flex;justify-content:space-between;align-items:center;"><span style="font-weight:700;">Realita</span><b id="realSum" style="font-size:16px;color:#cfe0ff;">…</b></div>'));
         var body=el('<div style="padding:4px 10px 8px;"></div>');
         body.appendChild(el('<div class="hint" style="padding:6px 2px;">Načítám…</div>'));
         card.appendChild(body); box.appendChild(card);
@@ -5447,12 +5458,13 @@ setTimeout(function(){
             var rr=by[d.date]; var w=(rr&&rr.worked)?parseFloat(rr.worked):0; tot+=w;
             var dToday=(d.date===todayIso), dPast=(d.date<todayIso);
             var rs="display:flex;justify-content:space-between;align-items:center;padding:5px 4px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.05);"+(dToday?"background:rgba(79,142,247,.14);border-radius:6px;":"")+((dPast&&!w)?"opacity:.45;":"");
-            var val, col;
-            if(w>0){ val=(rr&&rr.zac?('od '+rr.zac+' · '):'')+_hhmm(w); col="#34d399"; }
-            else { val="—"; col="#5b6b88"; }
-            body.appendChild(el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span><span style="color:'+col+';font-weight:600;">'+val+'</span></div>'));
+            var rightCell;
+            if(w>0){
+              rightCell='<span style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;">'+(rr&&rr.zac?'<span style="color:#8fb4e8;font-size:11px;">od '+rr.zac+'</span>':'')+'<span style="color:#34d399;font-weight:700;font-size:14px;">'+_hhmm(w)+'</span></span>';
+            } else { rightCell='<span style="color:#5b6b88;font-weight:600;">—</span>'; }
+            body.appendChild(el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span>'+rightCell+'</div>'));
           });
-          var sm=document.getElementById("realSum"); if(sm)sm.textContent="celkem "+_hhmm(tot);
+          var sm=document.getElementById("realSum"); if(sm)sm.textContent=_hhmm(tot);
         }).catch(function(){ body.innerHTML='<div class="hint" style="padding:6px 2px;">Nepodařilo se načíst realitu.</div>'; });
       }
       function openForm(d, host){

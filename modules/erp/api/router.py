@@ -99,38 +99,17 @@ def _active_imp_target(parent_uid):
     strategie_pg engine (stejný jako docházka/bridge — vidí fw.impersonation_log).
     Marti 14.6.: get_data_session mířil na jinou DB, kde řádek nebyl."""
     from sqlalchemy import text as _t
-    _dbgmsg = None
     try:
         cm, s = _att_session()
         try:
-            try:
-                s.rollback()
-            except Exception:
-                pass
             r = s.execute(_t(
                 "SELECT target_user_id FROM fw.impersonation_log "
                 "WHERE parent_user_id = :p AND ended_at IS NULL "
-                "AND started_at > clock_timestamp() - interval '8 hours' "
                 "ORDER BY id DESC LIMIT 1"), {"p": int(parent_uid)}).scalar()
-            try:
-                s.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('ait',:u,:f)"),
-                          {"u": int(parent_uid), "f": (r is not None)}); s.commit()
-            except Exception:
-                pass
             return (int(r) if r is not None else None)
         finally:
             cm.__exit__(None, None, None)
-    except Exception as _e:
-        _dbgmsg = str(_e)[:120]
-        try:
-            cm2, s2 = _att_session()
-            try:
-                s2.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('ait_err',:u,false)"),
-                           {"u": int(parent_uid)}); s2.commit()
-            finally:
-                cm2.__exit__(None, None, None)
-        except Exception:
-            pass
+    except Exception:
         return None
 
 
@@ -166,16 +145,7 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                             _tgt = s.execute(_sql_tok(
                                 "SELECT target_user_id FROM fw.impersonation_log "
                                 "WHERE parent_user_id = :p AND ended_at IS NULL "
-                                "AND started_at > clock_timestamp() - interval '8 hours' "
                                 "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
-                        try:
-                            _cnt = s.execute(_sql_tok("SELECT count(*) FROM fw.impersonation_log WHERE parent_user_id=:p AND ended_at IS NULL"), {"p": int(uid)}).scalar()
-                            s.execute(_sql_tok("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('binl',:u,:f)"),
-                                      {"u": (int(uid) if uid is not None else -1), "f": (_tgt is not None)});
-                            s.execute(_sql_tok("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('binl_cnt',:c,false)"),
-                                      {"c": int(_cnt or 0)}); s.commit()
-                        except Exception:
-                            pass
                 finally:
                     cm.__exit__(None, None, None)
             except Exception:
@@ -10002,19 +9972,6 @@ async def att_status(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        try:
-            _hb = (req.headers.get("authorization") or "").lower().startswith("bearer ")
-            s.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('att_status',:u,:b)"),
-                      {"u": uid, "b": _hb}); s.commit()
-            try:
-                _ic = _active_imp_target(uid)
-                s.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('imp_chk',:u,:b)"),
-                          {"u": (int(_ic) if _ic is not None else -1), "b": True}); s.commit()
-            except Exception as _e:
-                s.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('imp_err',:u,:b)"),
-                          {"u": -2, "b": False}); s.commit()
-        except Exception:
-            pass
         emp = _att_employee(s, uid)
         _att_close_stale(s, emp)
         opn = s.execute(_t("SELECT a.id, to_char(a.started_at,'YYYY-MM-DD\"T\"HH24:MI:SS'), a.project_ref, "

@@ -15791,6 +15791,79 @@ async def app_doc_render(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/doc/to-eurosoft")
+async def app_doc_to_eurosoft(req: Request) -> JSONResponse:
+    """Vyrenderuje šablonu na osobě → PDF → uloží na EUROSOFT server (RW share)
+    přes EUROSOFT MCP `eurosoft_file_write`. Pro Šárku — smlouva rovnou do složky
+    na EC-SERVER2 (\\\\192.168.30.11\\Data\\ZZ_Marti-AI RW\\<dest_dir>). Marti 14.6."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        tid = int((b or {}).get("template_id") or 0)
+    except Exception:
+        tid = 0
+    ref = str((b or {}).get("engagement_id") or "").strip()
+    dest_dir = (str((b or {}).get("dest_dir") or "Smlouvy").strip().strip("/\\")) or "Smlouvy"
+    from sqlalchemy import text as _t
+    from modules.erp.api import doc_templates as _dt
+    import base64 as _b64, json as _json, datetime as _dtm, re as _re, unicodedata as _ud
+    pdf = None
+    context = {}
+    t_code = t_nazev = "dokument"
+    cm, s = _att_session()
+    try:
+        if not _doc_can(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        tr = s.execute(_t("SELECT entity_kind, body_html, css, code, nazev FROM tenant.doc_template "
+                          "WHERE id=:i AND tenant_id=2 AND is_current=true"), {"i": tid}).first()
+        if not tr:
+            return JSONResponse({"ok": False, "error": "template_not_found"})
+        t_code = tr[3] or "dokument"
+        t_nazev = tr[4] or t_code
+        prov = _dt.get_provider(tr[0])
+        context = prov.resolve(ref, uid, True) if (prov and ref) else {}
+        html = _dt.render({"body_html": tr[1], "css": tr[2]}, context)
+        try:
+            pdf = _dt.render_pdf(html)
+        except RuntimeError as e:
+            return JSONResponse({"ok": False, "error": "pdf_engine", "note": str(e)}, status_code=503)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+    if not pdf:
+        return JSONResponse({"ok": False, "error": "render_failed"}, status_code=500)
+    # název souboru: <šablona>_<osoba>_<datum>.pdf (ASCII-safe pro filesystem)
+    person = (context.get("jmeno") if isinstance(context, dict) else None) or ("ref" + ref)
+    ascii_name = _ud.normalize("NFKD", (t_nazev + "_" + str(person))).encode("ascii", "ignore").decode("ascii")
+    safe = _re.sub(r"[^A-Za-z0-9]+", "_", ascii_name).strip("_") or "dokument"
+    fname = safe + "_" + _dtm.date.today().isoformat() + ".pdf"
+    rel_path = dest_dir + "/" + fname
+    content_b64 = _b64.b64encode(pdf).decode("ascii")
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        mcp = get_eurosoft_mcp_client()
+        if mcp is None:
+            return JSONResponse({"ok": False, "error": "EUROSOFT MCP není dostupné (offline)."}, status_code=503)
+        raw = mcp.call_tool_sync("eurosoft_file_write",
+                                 {"user_namespace": "rw", "path": rel_path,
+                                  "content": content_b64, "encoding": "base64", "mode": "overwrite"},
+                                 conversation_id=None)
+        r = _json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]}, status_code=502)
+    if isinstance(r, dict) and r.get("ok"):
+        unc = "\\\\192.168.30.11\\Data\\ZZ_Marti-AI RW\\" + rel_path.replace("/", "\\")
+        return JSONResponse({"ok": True, "path": rel_path, "fname": fname,
+                             "bytes": len(pdf), "unc": unc})
+    return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "Zápis na EUROSOFT selhal.")})
+
+
 @api_router.get("/doc-public/{nonce}")
 async def doc_public(nonce: str, req: Request):
     """Veřejné servírování krátkodobého PDF (nonce, TTL 30 min). Bez auth — nonce

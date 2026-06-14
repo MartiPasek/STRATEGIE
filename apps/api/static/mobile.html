@@ -2644,9 +2644,13 @@ setTimeout(function(){
             list.innerHTML="";
             if(!j||!j.ok){ list.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
             (j.lide||[]).slice(0,60).forEach(function(p){
-              var r=el('<div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid #1b2742;cursor:pointer;"></div>');
-              r.appendChild(el('<div style="flex:1;"><b>'+esc(p.jmeno)+'</b>'+(p.firma?' <span class="hint">'+esc(p.firma)+'</span>':'')+'</div><div style="color:#5ee0b7;">📄</div>'));
-              r.onclick=function(){ gen(picked, p, r); };
+              var r=el('<div style="display:flex;align-items:center;gap:8px;padding:9px 2px;border-bottom:1px solid #1b2742;"></div>');
+              r.appendChild(el('<div style="flex:1;min-width:0;"><b>'+esc(p.jmeno)+'</b>'+(p.firma?' <span class="hint">'+esc(p.firma)+'</span>':'')+'</div>'));
+              var bOpen=el('<button class="ghost" style="margin:0;padding:7px 11px;font-size:16px;" title="Otevřít PDF">📄</button>');
+              bOpen.onclick=function(){ gen(picked, p, r); };
+              var bEC=el('<button class="ghost" style="margin:0;padding:7px 11px;font-size:16px;color:#5ee0b7;border-color:#2a6b5a;" title="Uložit na EUROSOFT server">📤</button>');
+              bEC.onclick=function(){ genEC(picked, p, bEC); };
+              r.appendChild(bOpen); r.appendChild(bEC);
               list.appendChild(r);
             });
             if(!(j.lide||[]).length) list.appendChild(el('<div class="hint">Nikdo nenalezen.</div>'));
@@ -2662,6 +2666,14 @@ setTimeout(function(){
         rowEl.innerHTML=orig;
         if(r&&r.ok){ openApp(r.url); }
         else alert("Chyba: "+((r&&(r.note||r.error))||"nepodařilo se vygenerovat"));
+      });
+    }
+    function genEC(t, p, btn){
+      btn.disabled=true; var o=btn.textContent; btn.textContent="⏳";
+      api("POST","/api/v1/erp/app/doc/to-eurosoft",{template_id:t.id, engagement_id:p.engagement_id}).then(function(r){
+        btn.disabled=false; btn.textContent=o;
+        if(r&&r.ok){ alert("✅ Uloženo na EUROSOFT server:\n"+(r.fname||r.path||"")); }
+        else alert("Chyba: "+((r&&(r.note||r.error))||"nepodařilo se uložit na EUROSOFT"));
       });
     }
   }

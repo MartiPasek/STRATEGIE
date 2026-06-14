@@ -3449,15 +3449,23 @@ setTimeout(function(){
     // Marti 14.6.: styl PŘESNĚ jako sekce „Vedení" — sekční nadpisy + appgrid/appCell.
     var _toolsBody=el('<div id="dochToolsBody" style="display:none;padding:2px 2px 10px;"></div>');
     function _toolSec(t){ _toolsBody.appendChild(el('<div style="margin:10px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
+    function _scrollTo(id){ var e=document.getElementById(id); if(e){ try{ e.scrollIntoView({behavior:"smooth",block:"center"}); }catch(_){} } }
     _toolSec("MOJE DOCHÁZKA");
     var _tg1=el('<div class="appgrid"></div>');
-    _tg1.appendChild(appCell("🕓","Historie",0,function(){ _openSec(_dS&&_dS.todayhist); }));
-    _tg1.appendChild(appCell("🗓️","Nepřítomnosti",0,function(){ go("absence"); }));
+    _tg1.appendChild(appCell("📅","Dnešek",0,function(){ _openSec(_dS&&_dS.todayhist); }));
+    _tg1.appendChild(appCell("🌅","Zítřek",0,function(){ _openSec(_dS&&_dS.plan); }));
+    _tg1.appendChild(appCell("🔭","Výhled",0,function(){ go("plan"); }));
+    _tg1.appendChild(appCell("🕓","Historie",0,function(){ _openSec(_dS&&_dS.prev); }));
     _toolsBody.appendChild(_tg1);
+    _toolSec("MOJE ZAKÁZKY");
+    var _tgz=el('<div class="appgrid"></div>');
+    _tgz.appendChild(appCell("🧾","Jsem na zakázce",0,function(){ _scrollTo("dochAction"); }));
+    _toolsBody.appendChild(_tgz);
     _toolSec("PODMÍNKY & FINANCE");
     var _tg2=el('<div class="appgrid"></div>');
     _tg2.appendChild(appCell("📋","Moje podmínky",0,function(){ go("moje_podminky"); }));
     _tg2.appendChild(appCell("💰","Moje finance",0,function(){ _openSec(_dS&&_dS.paska); }));
+    _tg2.appendChild(appCell("🗓️","Nepřítomnosti",0,function(){ go("absence"); }));
     _toolsBody.appendChild(_tg2);
     _toolsHdr.addEventListener("click",function(){
       var openNow=_toolsBody.style.display!=="none";

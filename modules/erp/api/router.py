@@ -168,6 +168,14 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                                 "WHERE parent_user_id = :p AND ended_at IS NULL "
                                 "AND started_at > clock_timestamp() - interval '8 hours' "
                                 "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
+                        try:
+                            _cnt = s.execute(_sql_tok("SELECT count(*) FROM fw.impersonation_log WHERE parent_user_id=:p AND ended_at IS NULL"), {"p": int(uid)}).scalar()
+                            s.execute(_sql_tok("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('binl',:u,:f)"),
+                                      {"u": (int(uid) if uid is not None else -1), "f": (_tgt is not None)});
+                            s.execute(_sql_tok("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('binl_cnt',:c,false)"),
+                                      {"c": int(_cnt or 0)}); s.commit()
+                        except Exception:
+                            pass
                 finally:
                     cm.__exit__(None, None, None)
             except Exception:

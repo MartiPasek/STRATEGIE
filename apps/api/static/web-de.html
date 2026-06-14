@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>STRATEGIE × EUROSOFT × IQHUBS × Performia — Komplette Digitalisierung von Produktionsunternehmen</title>
+<title>STRATEGIE × EUROSOFT × IQHUBS — Komplette Digitalisierung von Produktionsunternehmen</title>
 <meta name="description" content="Von der Maschine zur Entscheidung. Technologisch und menschlich. 20 Jahre Industrieautomation (EUROSOFT), Maschinendaten in Echtzeit (IQHUBS) und eine in Tagen gebaute KI-Plattform (STRATEGIE) in einem Ökosystem.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -30,14 +30,29 @@
   .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}
   .btn-g:hover{border-color:var(--tl);color:var(--tl)}
   nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
-  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:70px}
-  .logo{font-weight:900;font-size:20px;letter-spacing:.3px;display:flex;align-items:center;gap:9px}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;height:70px}
+  @media(max-width:600px){nav .wrap{padding:0 12px;gap:12px}}
+  .logo{font-weight:900;font-size:20px;letter-spacing:.3px;display:flex;align-items:center;gap:9px;overflow:hidden;min-width:0;flex:1 1 auto}
   .logo .x{color:var(--mut);font-weight:400}
-  .navlinks{display:flex;gap:24px;font-size:14.5px;color:var(--mut);font-weight:500}
+  .logoin{display:inline-block;white-space:nowrap}
+  @keyframes logoSlide{0%,12%{transform:translateX(0)}50%,62%{transform:translateX(calc(-1*var(--ov,0px)))}100%{transform:translateX(0)}}
+  .logoin.mscroll{animation:logoSlide 9s ease-in-out infinite}
+  .btn-meet{display:inline-flex;align-items:center;gap:6px;padding:7px 16px;font-size:13.5px;font-weight:800;letter-spacing:.2px;border-radius:9px;text-decoration:none;color:#241a06;white-space:nowrap;border:1px solid rgba(244,230,176,.65);box-shadow:0 2px 14px rgba(216,184,92,.22);background:linear-gradient(100deg,#cda94f 0%,#f4e6b0 25%,#cda94f 50%,#f4e6b0 75%,#cda94f 100%);background-size:220% 100%;animation:meetShine 5.5s linear infinite;transition:transform .15s ease,box-shadow .2s ease}
+  .btn-meet:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(216,184,92,.4)}
+  @keyframes meetShine{0%{background-position:0 0}100%{background-position:220% 0}}
+  .navlinks{display:flex;gap:26px;font-size:14.5px;color:var(--mut);font-weight:500}
   .navlinks a:hover{color:var(--tx)}
-  @media(max-width:960px){.navlinks{display:none}}
+  @media(max-width:900px){.navlinks{display:none}}
   .lang{font-size:12px;font-weight:700;display:flex;flex-direction:column;gap:1px;letter-spacing:.4px;line-height:1.25;text-align:center}
   .lang a{color:var(--mut)} .lang a.on{color:var(--tx)} .lang a:hover{color:var(--tl)}
+  .pflink{display:inline-flex;align-items:center;gap:7px;color:var(--tl);font-weight:700;font-size:15px;transition:filter .25s;animation:pfbreath 3.2s ease-in-out infinite}
+  .pflink .ar{display:inline-block;transition:transform .25s}
+  .pflink:hover{filter:brightness(1.2)}.pflink:hover .ar{transform:translateX(5px)}
+  @keyframes pfbreath{0%,100%{opacity:.82}50%{opacity:1}}
+  .ccard{display:block;cursor:pointer;text-decoration:none;color:inherit;transition:transform .2s,border-color .2s,box-shadow .2s}
+  .ccard:hover{transform:translateY(-5px);border-color:var(--ac2);box-shadow:0 20px 44px rgba(0,0,0,.45)}
+  .ccard:hover .pflink{filter:brightness(1.25)}.ccard:hover .pflink .ar{transform:translateX(6px)}
+  /* HERO */
   .hero{position:relative;padding:84px 0 60px;text-align:center;overflow:hidden}
   .hero:before{content:"";position:absolute;top:-45%;left:50%;transform:translateX(-50%);width:1000px;height:1000px;
     background:radial-gradient(circle, rgba(45,212,191,.14), rgba(96,165,250,.06) 40%, transparent 62%);z-index:0}
@@ -46,21 +61,25 @@
     background:rgba(45,212,191,.06);color:var(--tl);font-size:13px;font-weight:600;margin-bottom:26px}
   .pill .pulse{width:8px;height:8px;border-radius:50%;background:var(--grn);animation:pulse 2s infinite}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(52,211,153,.5)}70%{box-shadow:0 0 0 10px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
-  h1{font-size:clamp(34px,5.6vw,62px);font-weight:900;line-height:1.06;letter-spacing:-1.5px;margin-bottom:22px}
-  .sub{font-size:clamp(17px,2.4vw,21px);color:var(--mut);max-width:740px;margin:0 auto 34px}
+  h1{font-size:clamp(36px,6vw,66px);font-weight:900;line-height:1.06;letter-spacing:-1.5px;margin-bottom:22px}
+  .sub{font-size:clamp(17px,2.4vw,21px);color:var(--mut);max-width:720px;margin:0 auto 34px}
   .hero-cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
   .hero-note{margin-top:22px;font-size:13px;color:var(--mut)}
   .hero-note b{color:var(--tx)}
+  /* ECOSYSTEM badge */
   .eco{display:flex;align-items:stretch;justify-content:center;gap:0;margin:56px auto 0;max-width:880px;flex-wrap:wrap}
   .eco .node{flex:1;min-width:230px;border:1px solid var(--bord);border-radius:18px;padding:22px 20px;background:linear-gradient(180deg,var(--card),rgba(14,23,48,.4));text-align:center;margin:6px}
   .eco .node .tag{font-size:11px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;margin-bottom:8px}
   .eco .node h3{font-size:20px;font-weight:900;margin-bottom:4px}
   .eco .node p{font-size:13.5px;color:var(--mut)}
   .eco .es .tag{color:var(--es)} .eco .iq .tag{color:var(--iq)} .eco .st .tag{color:var(--st)}
+  /* SECTIONS */
   section{padding:84px 0}
   .eyebrow{color:var(--tl);font-weight:700;font-size:14px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;text-align:center}
-  .h2{font-size:clamp(26px,3.8vw,42px);font-weight:900;letter-spacing:-1px;text-align:center;margin-bottom:14px}
-  .lead{color:var(--mut);text-align:center;max-width:700px;margin:0 auto 50px;font-size:17px}
+  .h2{font-size:clamp(28px,4vw,42px);font-weight:900;letter-spacing:-1px;text-align:center;margin-bottom:14px}
+  .ecoh2{background:linear-gradient(90deg,#ff8a3d,#5b8cff,#2dd4bf,#fbbf24,#a78bfa,#ff8a3d);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ecoshine 9s linear infinite}
+  @keyframes ecoshine{to{background-position:300% 0}}
+  .lead{color:var(--mut);text-align:center;max-width:680px;margin:0 auto 50px;font-size:17px}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:20px}
   .card{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:20px;padding:28px;transition:.25s}
   .card:hover{transform:translateY(-4px);border-color:rgba(45,212,191,.4)}
@@ -69,6 +88,7 @@
   .card p{color:var(--mut);font-size:15px}
   .card .who{display:inline-block;margin-top:14px;font-size:11px;font-weight:700;letter-spacing:.8px;padding:4px 10px;border-radius:20px;border:1px solid var(--bord);color:var(--mut)}
   .band{background:linear-gradient(180deg,rgba(14,23,48,.4),transparent);border-top:1px solid var(--bord);border-bottom:1px solid var(--bord)}
+  /* FLOW */
   .flow{display:flex;justify-content:center;gap:0;margin:0 auto;max-width:900px;flex-wrap:wrap}
   .flow .step{flex:1;min-width:170px;text-align:center;padding:0 14px}
   .flow .ic{font-size:34px;margin-bottom:10px}
@@ -76,9 +96,11 @@
   .flow p{color:var(--mut);font-size:14px}
   .flow .arr{align-self:center;color:var(--bord);font-size:26px}
   @media(max-width:760px){.flow .arr{display:none}}
+  /* STATS */
   .statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:28px;text-align:center}
-  .stat .num{font-size:clamp(30px,4.6vw,48px);font-weight:900;letter-spacing:-1px}
+  .stat .num{font-size:clamp(32px,5vw,50px);font-weight:900;letter-spacing:-1px}
   .stat .lab{color:var(--mut);font-size:14px;margin-top:4px}
+  /* DEMO */
   .demo{display:grid;grid-template-columns:1fr 320px;gap:50px;align-items:center}
   @media(max-width:880px){.demo{grid-template-columns:1fr;gap:36px}.phone{margin:0 auto}}
   .demo .feat{display:flex;gap:14px;margin-bottom:22px}
@@ -96,19 +118,23 @@
   .scr .tile.bl{background:rgba(96,165,250,.08);border-color:rgba(96,165,250,.22)}
   .scr .tile .e{font-size:19px}
   .scr .tile b{font-size:13.5px;display:block} .scr .tile span{font-size:11px;color:var(--mut)}
+  /* PARTNERS */
   .partner-band{background:linear-gradient(110deg,rgba(45,212,191,.08),rgba(96,165,250,.06));border:1px solid var(--bord);border-radius:26px;padding:48px 40px;text-align:center}
   .plogos{display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-top:32px}
   .plogo{padding:16px 24px;border:1px solid var(--bord);border-radius:14px;background:rgba(5,7,15,.5);font-weight:800;font-size:19px;letter-spacing:.4px}
   .plogo small{display:block;font-weight:500;font-size:11px;color:var(--mut);letter-spacing:.8px;margin-top:3px}
   .plus{font-size:26px;color:var(--tl);font-weight:300}
+  /* HUMAN */
   .human{display:grid;grid-template-columns:1fr 1fr;gap:24px}
   @media(max-width:760px){.human{grid-template-columns:1fr}}
+  .ctabox{text-align:center;background:linear-gradient(110deg,rgba(45,212,191,.1),rgba(96,165,250,.08));border:1px solid var(--bord);border-radius:28px;padding:60px 40px}
+  footer{border-top:1px solid var(--bord);padding:46px 0 36px;color:var(--mut);font-size:14px}
 </style>
 </head>
 <body>
 
 <nav><div class="wrap">
-  <div class="logo">STRATEGIE <span class="x">×</span> EUROSOFT <span class="x">×</span> IQHUBS <span class="x">×</span> Performia</div>
+  <a href="#ekosystem" class="logo" style="text-decoration:none;color:inherit;cursor:pointer"><span class="logoin">STRATEGIE <span class="x">×</span> EUROSOFT <span class="x">×</span> IQHUBS <span class="x">×</span> Performia <span class="x">×</span> Business Success</span></a>
   <div class="navlinks">
     <a href="#ekosystem">Ökosystem</a>
     <a href="#jak">Wie es funktioniert</a>
@@ -118,12 +144,13 @@
   </div>
   <div style="display:flex;align-items:center;gap:13px">
     <span class="lang"><a href="/web">CZ</a><a href="/web/en">EN</a></span>
-    <a href="#kontakt" class="btn btn-p" style="padding:11px 20px;font-size:14px">Treffen wir uns?</a>
+    <a href="#kontakt" class="btn-meet">Treffen wir uns?</a>
   </div>
 </div></nav>
 
+<!-- HERO -->
 <header class="hero"><div class="wrap">
-  <div class="pill"><span class="pulse"></span> STRATEGIE · EUROSOFT · IQHUBS — ein Ökosystem</div>
+  <div class="pill"><span class="pulse"></span> Fünf Kräfte, ein Ökosystem — Technologie und Menschen</div>
   <h1>Von der Maschine zur Entscheidung.<br><span class="grad">Technologisch und menschlich.</span></h1>
   <p class="sub">Wir haben 20 Jahre Industrieautomation, Daten direkt aus den Maschinen und eine in Tagen gebaute
     KI-Plattform verbunden. Wir begleiten Ihre Produktion den ganzen Weg — von der Skizze über die Daten bis zur
@@ -141,18 +168,27 @@
   </div>
 </div></header>
 
+<!-- ÖKOSYSTEM -->
 <section id="ekosystem"><div class="wrap">
   <div class="eyebrow">Ein Ökosystem</div>
-  <div class="h2">Drei Kräfte, die sich ergänzen</div>
-  <p class="lead">Jeder ist Spitze in seinem Fach. Zusammen decken wir die gesamte Digitalisierung eines
-    Produktionsunternehmens ab — vom Eisen in der Halle bis zu Entscheidungen in der Führung und zufriedenen Menschen dazwischen.</p>
+  <div class="h2 ecoh2">Fünf Kräfte, die sich ergänzen</div>
+  <p class="lead">Jeder ist Spitze in seinem Fach. Zusammen decken wir den ganzen Weg des Unternehmens ab —
+    vom Eisen in der Halle bis zu Entscheidungen in der Führung, und von den richtigen Menschen bis zu ihrer funktionierenden Führung.
+    <b style="color:var(--tx)">Technologisch und menschlich.</b></p>
+  <div style="font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--mut);text-align:center;margin:6px 0 14px">Technologie</div>
   <div class="grid">
     <a class="card" href="/web/de/eurosoft" style="display:block"><div class="ic">⚙️</div><h3>Wir bauen &amp; bewegen Ihre Maschinen →</h3><p>Schaltschränke mit Qualitätsgarantie, Elektroprojektierung und schlüsselfertige Automatisierungssoftware. Know-how, bewährt durch hunderte Projekte weltweit.</p><span class="who" style="color:var(--es);border-color:rgba(255,138,61,.4)">EUROSOFT</span></a>
     <a class="card" href="/web/de/iqhubs" style="display:block"><div class="ic">📡</div><h3>Wir messen, was wirklich passiert →</h3><p>Nicht-invasive Sensoren an CNC, Pressen, Spritzguss und Handarbeit. Stillstände, Auslastung, Leistung — live, ohne IT-Barrieren und Produktionsstopps.</p><span class="who" style="color:var(--iq);border-color:rgba(91,140,255,.4)">IQHUBS</span></a>
-    <a class="card" href="/web/de/strategie" style="display:block"><div class="ic">🧠</div><h3>Wir verwandeln Daten in Entscheidungen →</h3><p>KI auf Ihren Daten + maßgeschneiderte Apps in Tagen gebaut. Planung, Wartung, Kosten, Menschen — ein lebendiges System in der Tasche.</p><span class="who" style="color:var(--st);border-color:rgba(52,211,153,.4)">STRATEGIE</span></a>
+    <a class="card" href="/web/de/strategie" style="display:block"><div class="ic">🧠</div><h3>Wir verwandeln Ihre Daten in Entscheidungen →</h3><p>Wir digitalisieren das ganze Unternehmen — von der Maschine bis zur Entscheidung. KI, die Ihre Daten versteht, und eine App, die genau auf Sie zugeschnitten ist. <b style="color:var(--tx)">Schnell.</b></p><span class="who" style="color:var(--st);border-color:rgba(52,211,153,.4)">STRATEGIE</span></a>
+  </div>
+  <div style="font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--mut);text-align:center;margin:30px 0 14px">Wachstum &amp; Menschen</div>
+  <div class="grid" style="max-width:760px;margin:0 auto">
+    <a class="card" href="https://www.performia.cz" target="_blank" rel="noopener" style="display:block"><div class="ic">🧑‍🤝‍🧑</div><h3>Wir bauen ein Team, auf das Sie stolz sind →</h3><p>Auswahl von Menschen nach echter Produktivität, U-Test, Modell Kára, Talententwicklung. Seit 2004, Dutzende Niederlassungen weltweit.</p><span class="who" style="color:#a78bfa;border-color:rgba(167,139,250,.4)">PERFORMIA</span></a>
+    <a class="card" href="https://www.success.cz" target="_blank" rel="noopener" style="display:block"><div class="ic">🧭</div><h3>Wir geben dem Unternehmen funktionierende Führung →</h3><p>Orgboard, Hüte, Führung nach Statistiken, Vergütung nach Produktion, Vertrieb und Marketing. Seit 2000, Tausende geschulte Unternehmen.</p><span class="who" style="color:#fbbf24;border-color:rgba(251,191,36,.4)">BUSINESS SUCCESS</span></a>
   </div>
 </div></section>
 
+<!-- WIE -->
 <section id="jak" class="band"><div class="wrap">
   <div class="eyebrow">Wie es funktioniert</div>
   <div class="h2">Wir sehen → Wir verstehen → Wir handeln</div>
@@ -169,6 +205,7 @@
   </div>
 </div></section>
 
+<!-- STATS -->
 <section><div class="wrap"><div class="statgrid">
   <div class="stat"><div class="num grad">20 Jahre</div><div class="lab">in der Industrieautomation</div></div>
   <div class="stat"><div class="num grad">hunderte</div><div class="lab">Projekte weltweit</div></div>
@@ -176,6 +213,7 @@
   <div class="stat"><div class="num grad">1 Woche</div><div class="lab">für eine neue maßgeschneiderte App, statt Monate</div></div>
 </div></div></section>
 
+<!-- REFERENZEN -->
 <section><div class="wrap">
   <div class="eyebrow">Referenzen</div>
   <div class="h2">Wir bewegen die Produktion von Weltmarken</div>
@@ -188,6 +226,7 @@
   <p style="text-align:center;color:var(--mut);font-size:14px;margin-top:22px">…und Dutzende weitere Produktionsunternehmen weltweit.</p>
 </div></section>
 
+<!-- PLATTFORM -->
 <section id="platforma" class="band"><div class="wrap">
   <div class="eyebrow">Plattform live</div>
   <div class="h2" style="margin-bottom:40px">Es funktioniert. Heute. In der Tasche.</div>
@@ -211,6 +250,7 @@
   </div>
 </div></section>
 
+<!-- MENSCHLICHE SEITE -->
 <section id="lidsky"><div class="wrap">
   <div class="eyebrow">Menschliche Seite</div>
   <div class="h2">Technologie ist die Hälfte. Menschen sind die andere.</div>
@@ -222,14 +262,16 @@
     <div class="card"><div class="ic">🌱</div><h3>Psychologie &amp; Balance</h3><p>Verbindung harter Strategie mit dem Verständnis der menschlichen Psyche. Ein gesünderes Team, bessere Kommunikation, mehr Sicherheit.</p></div>
     <div class="card"><div class="ic">🏅</div><h3>Faire Kultur</h3><p>Freiheit, Fairness und ein gutes Team sind keine Floskeln — sie sind das Fundament, auf dem EUROSOFT seit 20 Jahren baut.</p></div>
   </div>
+  <div style="text-align:center;margin-top:34px"><a href="#kontakt" class="btn btn-p">Mehr über Menschen &amp; Wachstum →</a></div>
 </div></section>
 
+<!-- PARTNER -->
 <section class="band"><div class="wrap">
   <div class="partner-band">
     <div class="eyebrow">Ökosystem der Zusammenarbeit</div>
     <div class="h2" style="margin-bottom:10px">Gemeinsam decken wir den ganzen Weg ab</div>
-    <p class="lead" style="margin-bottom:0">Drei Partner, ein Unternehmen auf ein neues Level gehoben. Vom Sensor an der Maschine
-      über eine intelligente Plattform bis zu den Menschen, die das Unternehmen voranbringen.</p>
+    <p class="lead" style="margin-bottom:0">Fünf Partner, ein Unternehmen auf ein neues Level gehoben. Vom Sensor an der Maschine
+      über eine intelligente Plattform bis zu den richtigen Menschen und funktionierender Führung.</p>
     <div class="plogos">
       <a class="plogo" href="https://www.eurosoft.com" target="_blank" rel="noopener" style="border-color:rgba(255,138,61,.45)">EUROSOFT ↗<small>MASCHINEN &amp; AUTOMATION</small></a>
       <div class="plus">+</div>
@@ -240,47 +282,91 @@
       <div class="plogo" style="border-color:rgba(45,212,191,.6)">IHR UNTERNEHMEN<small style="color:var(--tl)">DIGITALISIERT</small></div>
     </div>
     <div style="margin-top:34px;padding-top:26px;border-top:1px solid var(--bord)">
-      <div style="font-size:13px;letter-spacing:1.2px;font-weight:700;text-transform:uppercase;color:var(--mut);margin-bottom:14px">Und wir wachsen gemeinsam mit Partnern in der Menschenentwicklung und Unternehmensführung</div>
+      <div style="font-size:13px;letter-spacing:1.2px;font-weight:700;text-transform:uppercase;color:var(--mut);margin-bottom:14px">Die menschliche und Wachstumsebene des Ökosystems — eine Schule der Führung und der Arbeit mit Menschen, nun auch live in der Plattform</div>
       <div class="plogos" style="margin-top:0">
-        <a class="plogo" href="https://www.performia.cz" target="_blank" rel="noopener">Performia ↗<small>PERSONALGEWINNUNG &amp; ENTWICKLUNG</small></a>
-        <a class="plogo" href="https://www.success.cz" target="_blank" rel="noopener">Business Success ↗<small>UNTERNEHMENSFÜHRUNG &amp; SEMINARE</small></a>
+        <a class="plogo" href="https://www.performia.cz" target="_blank" rel="noopener" style="border-color:rgba(167,139,250,.45)">Performia ↗<small>DIE RICHTIGEN MENSCHEN NACH PRODUKTIVITÄT</small></a>
+        <a class="plogo" href="https://www.success.cz" target="_blank" rel="noopener" style="border-color:rgba(251,191,36,.45)">Business Success ↗<small>FUNKTIONIERENDE UNTERNEHMENSFÜHRUNG</small></a>
       </div>
     </div>
   </div>
 </div></section>
 
+<!-- WARUM WIR / KONTAKT -->
 <section id="kontakt"><div class="wrap">
+  <div class="eyebrow">Warum wir</div>
+  <div class="h2">Was uns unterscheidet</div>
+  <p class="lead">Wir sind nicht noch ein Softwareanbieter. Wir sind ein ganzes Ökosystem unter einem Dach — und wir bauen in einer Geschwindigkeit, die Sie nicht gewohnt sind.</p>
+  <div class="grid" style="margin-bottom:56px">
+    <div class="card"><div class="ic">🧩</div><h3>Das ganze Ökosystem unter einem Dach</h3><p>Maschinen, Daten und KI-Plattform von einem einzigen Partner. Keine Integration von drei Anbietern, die mit dem Finger aufeinander zeigen.</p></div>
+    <div class="card"><div class="ic">🚀</div><h3>Einsatz in Tagen, nicht Monaten</h3><p>Idee am Morgen → funktionierendes Werkzeug auf den Handys am Abend. Maßgeschneiderte Apps in Gedankengeschwindigkeit.</p></div>
+    <div class="card"><div class="ic">📡</div><h3>Maschinendaten in Echtzeit</h3><p>Nicht-invasive Sensoren ohne Eingriff in die SPS. Erste Daten in 15 Minuten — ohne Ihre IT und ohne Produktionsstopp.</p></div>
+    <div class="card"><div class="ic">🌱</div><h3>Die menschliche Seite</h3><p>Zur Technologie fügen wir die Entwicklung der Menschen hinzu, die das Unternehmen tragen. Von der Maschine zur Entscheidung — technologisch und menschlich.</p></div>
+  </div>
   <div class="eyebrow">Kontakt</div>
-  <div class="h2">Treffen wir uns?</div>
+  <div class="h2" style="margin-bottom:14px">Treffen wir uns?</div>
   <p class="lead">Wir zeigen Ihnen das ganze Ökosystem gerne live — persönlich oder als Online-Demo. Melden Sie sich bei einem von uns.</p>
-  <div class="grid" style="max-width:860px;margin:0 auto">
-    <div class="card">
+  <div class="grid" style="max-width:1080px;margin:0 auto">
+    <a class="card ccard" href="mailto:m.pasek@eurosoft.com">
       <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--st);text-transform:uppercase;margin-bottom:8px">STRATEGIE · EUROSOFT</div>
       <h3 style="font-size:21px;font-weight:800">Marti Pašek</h3>
       <p style="color:var(--mut);font-size:14px;margin-bottom:14px">Gründer von STRATEGIE und des EUROSOFT-Konzerns</p>
-      <a href="mailto:m.pasek@eurosoft.com" style="display:inline-block;color:var(--tl);font-weight:700;font-size:15px">✉️ m.pasek@eurosoft.com</a>
-    </div>
+      <span class="pflink">✉️ m.pasek@eurosoft.com <span class="ar">→</span></span>
+    </a>
     <div class="card">
-      <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--iq);text-transform:uppercase;margin-bottom:8px">IQHUBS</div>
-      <h3 style="font-size:21px;font-weight:800">Mgr. Petr Sládek</h3>
-      <p style="color:var(--mut);font-size:14px;margin-bottom:10px">Direktor, CEO</p>
-      <a href="tel:+420603329227" style="display:block;color:var(--tl);font-weight:700;font-size:15px;margin-bottom:4px">📞 +420 603 329 227</a>
-      <a href="mailto:petr@iqhubs.cz" style="display:block;color:var(--tl);font-weight:700;font-size:15px">✉️ petr@iqhubs.cz</a>
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--es);text-transform:uppercase;margin-bottom:8px">EUROSOFT</div>
+      <h3 style="font-size:21px;font-weight:800">Šárka Novotná</h3>
+      <p style="color:var(--mut);font-size:14px;margin-bottom:14px">Vertriebs- &amp; Personaldirektorin</p>
     </div>
+    <a class="card ccard" href="https://iqhubs.cz/kontakty/" target="_blank" rel="noopener">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--iq);text-transform:uppercase;margin-bottom:8px">IQHUBS</div>
+      <h3 style="font-size:21px;font-weight:800">Petr Sládek</h3>
+      <p style="color:var(--mut);font-size:14px;margin-bottom:10px">Direktor, CEO</p>
+      <span class="pflink">👤 Profil <span class="ar">→</span></span>
+    </a>
+    <a class="card ccard" href="https://www.performia.cz/blog/lucie-spacilova" target="_blank" rel="noopener">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:#a78bfa;text-transform:uppercase;margin-bottom:8px">PERFORMIA</div>
+      <h3 style="font-size:21px;font-weight:800">Lucie Spáčilová</h3>
+      <p style="color:var(--mut);font-size:14px;margin-bottom:10px">Geschäftsführerin · Auswahl von Menschen nach Produktivität</p>
+      <span class="pflink">👤 Profil <span class="ar">→</span></span>
+    </a>
+    <a class="card ccard" href="https://rastislav-zachar.cz/" target="_blank" rel="noopener">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:#fbbf24;text-transform:uppercase;margin-bottom:8px">BUSINESS SUCCESS</div>
+      <h3 style="font-size:21px;font-weight:800">Rastislav Zachar</h3>
+      <p style="color:var(--mut);font-size:14px;margin-bottom:10px">Inhaber · funktionierende Unternehmensführung</p>
+      <span class="pflink">👤 Profil <span class="ar">→</span></span>
+    </a>
   </div>
 </div></section>
 
 <footer style="border-top:1px solid var(--bord);padding:36px 0 40px;text-align:center;color:var(--mut);font-size:13.5px">
   <div class="wrap">
-    <div style="font-weight:700;color:var(--tx)">STRATEGIE × EUROSOFT × IQHUBS × Performia</div>
+    <div style="font-weight:700;color:var(--tx)">STRATEGIE × EUROSOFT × IQHUBS × Performia × Business Success</div>
     <div style="margin-top:8px">
       <a href="https://strategie-ai.com/web/de" style="color:var(--tl)">strategie-ai.com</a> ·
       <a href="https://www.eurosoft.com" target="_blank" rel="noopener" style="color:var(--tl)">eurosoft.com</a> ·
       <a href="https://iqhubs.cz" target="_blank" rel="noopener" style="color:var(--tl)">iqhubs.cz</a> ·
+      <a href="https://www.performia.cz" target="_blank" rel="noopener" style="color:var(--tl)">performia.cz</a> ·
+      <a href="https://www.success.cz" target="_blank" rel="noopener" style="color:var(--tl)">success.cz</a> ·
       <a href="/chat" style="color:var(--tl)">Zum System</a>
     </div>
     <div style="margin-top:10px">© 2026 STRATEGIE</div>
   </div>
 </footer>
+
+<script>
+(function(){
+  function chk(){
+    var l=document.querySelector('.logo .logoin'); if(!l) return;
+    var p=l.parentElement; var ov=l.scrollWidth-p.clientWidth;
+    if(ov>6){ l.style.setProperty('--ov',(ov+18)+'px'); l.classList.add('mscroll'); }
+    else { l.classList.remove('mscroll'); l.style.removeProperty('--ov'); }
+  }
+  window.addEventListener('resize',chk);
+  window.addEventListener('load',chk);
+  try{ if(document.fonts&&document.fonts.ready){ document.fonts.ready.then(chk); } }catch(e){}
+  if(document.readyState!=='loading') chk(); else document.addEventListener('DOMContentLoaded',chk);
+  [200,600,1200,2000].forEach(function(t){ setTimeout(chk,t); });
+})();
+</script>
 <script>try{fetch('/api/v1/erp/app/web-visit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:location.pathname,ref:document.referrer,lang:'de'})}).catch(function(){});}catch(e){}</script>
 </body></html>

@@ -5361,7 +5361,7 @@ setTimeout(function(){
           row.addEventListener("click",function(){ openForm(d, dayWrap); });
           dayWrap.appendChild(row);
           (ST.byDate[d.date]||[]).forEach(function(r){
-            var chip=el('<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:3px 0 6px 14px;font-size:12.5px;"><span style="color:'+stCol(r.status)+';">'+stIc(r.status)+' '+esc(kLabel(r))+(r.note?(' — '+esc(r.note)):'')+(r.status==='rejected'&&r.decided_note?(' ('+esc(r.decided_note)+')'):'')+'</span></div>');
+            var chip=el('<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:3px 6px 6px 14px;font-size:12.5px;"><span style="color:'+stCol(r.status)+';">'+stIc(r.status)+' '+esc(kLabel(r))+(r.note?(' — '+esc(r.note)):'')+(r.status==='rejected'&&r.decided_note?(' ('+esc(r.decided_note)+')'):'')+'</span></div>');
             if(r.status==='pending'){ var db=el('<button style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(248,113,113,.16);color:#f87171;border:0;font-size:13px;line-height:1;cursor:pointer;flex:none;" title="Smazat">✕</button>'); db.addEventListener("click",function(e){ e.stopPropagation(); if(!confirm("Chceš tento záznam opravdu smazat?")) return; db.disabled=true; api("POST","/api/v1/erp/app/plan/request/"+r.id+"/delete","").then(function(){ load(); }); }); chip.appendChild(db); }
             dayWrap.appendChild(chip);
           });
@@ -5385,11 +5385,23 @@ setTimeout(function(){
         // #1: rozdělaný návrh? Zpět nejdřív zavře formulář — když je změněný, zeptá se na uložení.
         var f=box.querySelector('.reqform');
         if(f){
-          if(f.dataset.dirty==='1'){ if(confirm("Máš neuložený návrh. Uložit ke schválení?")){ var sb=f.querySelector('.green.full'); if(sb){ sb.click(); return true; } } }
+          if(f.dataset.dirty==='1'){ planAskSave(f); return true; }
           f.remove(); return true;
         }
         if(document.getElementById('planWeekBack')){ showList(false); return true; }
         return false;
+      }
+      function planAskSave(f){
+        var ov=el('<div style="position:fixed;inset:0;z-index:99999;background:rgba(3,7,16,.66);display:flex;align-items:center;justify-content:center;padding:24px;"></div>');
+        var card=el('<div style="background:#161c2b;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:22px 20px;max-width:320px;width:100%;box-shadow:0 16px 50px rgba(0,0,0,.55);"></div>');
+        card.appendChild(el('<div style="font-size:16px;font-weight:600;color:#e8eefc;text-align:center;margin-bottom:18px;">Mám uložit změny?</div>'));
+        var rowb=el('<div style="display:flex;gap:10px;"></div>');
+        var yes=el('<button class="green" style="flex:1;margin:0;">Ano</button>');
+        var no=el('<button class="ghost" style="flex:1;margin:0;">Ne</button>');
+        yes.addEventListener("click",function(){ ov.remove(); var sb=f.querySelector('.green.full'); if(sb){ sb.click(); } });
+        no.addEventListener("click",function(){ ov.remove(); f.remove(); });
+        rowb.appendChild(yes); rowb.appendChild(no); card.appendChild(rowb);
+        ov.appendChild(card); document.body.appendChild(ov);
       }
       window._planAnyOpen=planBackStep;
       load();

@@ -1209,6 +1209,7 @@ setTimeout(function(){
   // ───── APLIKACE (launcher) ─────
   function openApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url; if(B&&typeof B.openExternal==="function")B.openExternal(u); else { try{window.open(u,"_blank");}catch(e){ location.href=u; } } }
   function appCell(iconHtml,label,badge,fn){ var c=el('<div class="appcell"><div class="appicon">'+iconHtml+'</div><div class="applabel">'+esc(label)+'</div>'+(badge?'<span class="appbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</div>'); c.addEventListener("click",fn); return c; }
+  function _isoWeek(d){ var t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); var dn=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-dn+3); var f=new Date(Date.UTC(t.getUTCFullYear(),0,4)); return 1+Math.round(((t-f)/86400000 - 3 + ((f.getUTCDay()+6)%7))/7); }
   function apps(){
     app.innerHTML=topbar("", false, true);
     var bd=getBadges()||{whatsapp:0,sms:0,access:true};
@@ -3565,7 +3566,11 @@ setTimeout(function(){
     _toolSec("MOJE DOCHÁZKA");
     var _tg1=el('<div class="appgrid"></div>');
     _tg1.appendChild(appCell("📅","Dnešek",0,function(){ go("doch_dnesek"); }));
-    _tg1.appendChild(appCell("🌅","Zítřek",0,function(){ go("doch_zitrek"); }));
+    var _wkNum=_isoWeek(new Date());
+    var _tydCell=appCell("📅","Týden",0,function(){ window._planInit="thisweek"; go("plan"); });
+    _tydCell.style.position="relative";
+    _tydCell.appendChild(el('<span style="position:absolute;top:-4px;right:8px;background:#3a4d6b;color:#cfe0ff;border-radius:8px;min-width:18px;height:16px;line-height:16px;text-align:center;font-size:10px;font-weight:700;padding:0 4px;">'+_wkNum+'</span>'));
+    _tg1.appendChild(_tydCell);
     var _vyhledCell=appCell("🔭","Výhled",0,function(){ window._planInit="myplan"; go("plan"); });
     _tg1.appendChild(_vyhledCell);
     (function _planPendingBadge(){
@@ -5301,7 +5306,8 @@ setTimeout(function(){
 
   function plan(){
     var AP=window._planApprove||null; window._planApprove=null;   // režim schvalovatele (cizí plán)
-    app.innerHTML=topbar(AP?("🗓️ "+esc(AP.name)):"🗓️ Plán", true);
+    var WEEKONLY=(window._planInit==="thisweek");                 // jen tento týden (z dlaždice Týden)
+    app.innerHTML=topbar(AP?("🗓️ "+esc(AP.name)):(WEEKONLY?("📅 Týden "+_isoWeek(new Date())):"🗓️ Plán"), true);
     function nf(v){ return (Math.round((v||0)*100)/100).toString().replace('.',','); }
     function czd(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):iso; }
     var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 132px);align-items:stretch;"></div>');
@@ -5474,7 +5480,7 @@ setTimeout(function(){
         ST.view='week'; ST.wk=k; var ds=ST.weeks[k]; if(!ds){ showList(); return; }
         box.innerHTML="";
         if(right)right.style.display='none';  // #2: detail týdne na celou šířku
-        var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">‹ Zpět na týdny</button>'); bk.addEventListener("click",function(){ planBackStep(); }); box.appendChild(bk);
+        var bk=el('<button id="planWeekBack" class="ghost full" style="margin-bottom:10px;">'+(WEEKONLY?'‹ Zpět':'‹ Zpět na týdny')+'</button>'); bk.addEventListener("click",function(){ if(WEEKONLY){ back(); } else planBackStep(); }); box.appendChild(bk);
         var sum=0,wd=0; ds.forEach(function(d){ sum+=d.hours; if(d.hours>0)wd++; });
         box.appendChild(el('<div style="margin-bottom:8px;"><b>Týden '+ds[0].iso_week+'</b> <span class="hint">· '+wd+' dní · '+nf(sum)+' h · '+czd(ds[0].date)+'–'+czd(ds[ds.length-1].date)+'</span></div>'));
         box.appendChild(el('<div class="hint" style="margin-bottom:8px;">'+(AP?'Návrhy dne schválíš ✓ nebo zamítneš ✕ u příslušného řádku.':'Klepni na den a přidej návrh (jiné hodiny / volno / porada–jednání).')+'</div>'));
@@ -5525,7 +5531,8 @@ setTimeout(function(){
           ST.weeks={}; ST.order=[]; ST.nowKey=null;
           j.plan.forEach(function(d){ var k=d.date.slice(0,4)+"-W"+("0"+d.iso_week).slice(-2); if(!ST.weeks[k]){ST.weeks[k]=[];ST.order.push(k);} ST.weeks[k].push(d); });
           ST.order.forEach(function(k){ if(ST.weeks[k].some(function(d){return d.date===todayIso;})) ST.nowKey=k; });
-          if(ST.view==='week' && ST.weeks[ST.wk]) showWeek(ST.wk); else showList(true);
+          if(WEEKONLY){ var wk=ST.nowKey||ST.order[0]; if(wk) showWeek(wk); else showList(true); }
+          else if(ST.view==='week' && ST.weeks[ST.wk]) showWeek(ST.wk); else showList(true);
         });
       }
       // Bod 4: Zpět o jeden krok — z týdne zpět na seznam (ne rovnou pryč).
@@ -5536,6 +5543,7 @@ setTimeout(function(){
           if(f.dataset.dirty==='1'){ planAskSave(f); return true; }
           f.remove(); return true;
         }
+        if(WEEKONLY) return false;   // jen tento týden → Zpět rovnou opustí obrazovku
         if(document.getElementById('planWeekBack')){ showList(false); return true; }
         return false;
       }
@@ -5821,6 +5829,7 @@ setTimeout(function(){
     }
     // Marti 14.6.: vstupní pohled z regionu docházky (Můj úvazek / Můj plán).
     if(AP){ renderPlan(false,'mydefault'); }
+    else if(WEEKONLY){ window._planInit=null; renderPlan(false,'mydefault'); }
     else if(window._planInit==="uvazek"){ window._planInit=null; renderUvazek(); }
     else if(window._planInit==="myplan"){ window._planInit=null; renderPlan(false,'mydefault'); try{ setTimeout(function(){ if(right&&bMy) right.scrollTop=Math.max(0, bMy.offsetTop-4); },80); }catch(e){} }
     else renderPlan();

@@ -16329,6 +16329,10 @@ _OPS_ACTIONS = {
         "label": "🔄 Obnovit záložní instanci (blue-green → aktuální verze)",
         "target": "cloud", "remote": False,
     },
+    "caddy_pin_failover": {
+        "label": "🛡️ Caddy: failover připnuté verze na primární (když záloha neběží)",
+        "target": "cloud", "remote": False,
+    },
     "publish_app_mobile": {
         "label": "Nahrát mobilní APK z buildu (NB → server)",
         "target": "instance:23", "remote": True, "op": "publish_app_mobile",
@@ -18104,6 +18108,80 @@ def _ops_refresh_secondary() -> dict:
     return {"ok": ok, "result": " | ".join(steps)}
 
 
+def _ops_caddy_pin_failover() -> dict:
+    """Přidá failover na primární (8002) k version-pinned routám v ŽIVÉM Caddyfile
+    (C:\\caddy\\Caddyfile). Důvod: pin na 'previous' při zastavené B = mrtvá instance
+    (past 14.6.2026). Cílený string-replace (zachová lokální timeouty/keepalive/lb_try —
+    NEPŘEPISUJEME celý soubor!). Idempotentní. Backup + caddy validate + reload; při
+    chybě validace rollback. Cesty/exe konfigurovatelné env."""
+    import subprocess as _sp, os as _os, shutil as _sh, time as _tm
+    cfg = _os.environ.get("STRATEGIE_CADDYFILE") or r"C:\caddy\Caddyfile"
+    caddy = _os.environ.get("STRATEGIE_CADDY_EXE") or "caddy"
+    if not _os.path.isfile(cfg):
+        return {"ok": False, "result": "Caddyfile nenalezen: %s" % cfg}
+    try:
+        with open(cfg, "r", encoding="utf-8") as f:
+            txt = f.read()
+    except Exception as exc:
+        return {"ok": False, "result": "čtení Caddyfile selhalo: %s" % exc}
+    _hb = ("\n        lb_policy first\n        health_uri /api/v1/health\n"
+           "        health_interval 3s\n        health_timeout 2s\n        health_status 2xx\n"
+           "        fail_duration 10s\n        max_fails 1")
+    # matcher line -> (already-done marker, replacement)
+    targets = [
+        ("@versionPrevious localhost:8003 {", "@versionPrevious localhost:8003 localhost:8002 {",
+         "@versionPrevious localhost:8003 localhost:8002 {" + _hb),
+        ("@versionOlder1 localhost:8004 {", "@versionOlder1 localhost:8004 localhost:8002 {",
+         "@versionOlder1 localhost:8004 localhost:8002 {" + _hb),
+        ("@versionOlder2 localhost:8005 {", "@versionOlder2 localhost:8005 localhost:8002 {",
+         "@versionOlder2 localhost:8005 localhost:8002 {" + _hb),
+    ]
+    new = txt
+    changed = []
+    for old_line, done_marker, repl in targets:
+        if done_marker in new:
+            continue  # idempotence — failover už tam je
+        if old_line in new:
+            new = new.replace(old_line, repl, 1)
+            changed.append(old_line.split()[0])
+    if new == txt:
+        return {"ok": True, "result": "Failover už je nastaven (žádná změna)."}
+    bak = cfg + ".bak_failover_" + _tm.strftime("%Y%m%d_%H%M%S")
+    try:
+        _sh.copyfile(cfg, bak)
+        with open(cfg, "w", encoding="utf-8") as f:
+            f.write(new)
+    except Exception as exc:
+        return {"ok": False, "result": "zápis Caddyfile selhal: %s" % exc}
+    # validate
+    try:
+        vr = _sp.run([caddy, "validate", "--config", cfg], capture_output=True,
+                     text=True, timeout=60, encoding="utf-8", errors="replace")
+        if vr.returncode != 0:
+            _sh.copyfile(bak, cfg)
+            return {"ok": False, "result": "validace selhala → rollback. %s"
+                    % ((vr.stderr or vr.stdout or "")[-220:])}
+    except FileNotFoundError:
+        _sh.copyfile(bak, cfg)
+        return {"ok": False, "result": "caddy exe nenalezen (%s) → rollback. Nastav STRATEGIE_CADDY_EXE." % caddy}
+    except Exception as exc:
+        _sh.copyfile(bak, cfg)
+        return {"ok": False, "result": "validate ERR → rollback: %s" % exc}
+    # reload
+    try:
+        rr = _sp.run([caddy, "reload", "--config", cfg], capture_output=True,
+                     text=True, timeout=60, encoding="utf-8", errors="replace")
+        if rr.returncode != 0:
+            return {"ok": False, "result": "edit+validace OK, ale reload FAIL: %s "
+                    "(Caddyfile je platný, stačí restart STRATEGIE-CADDY; backup: %s)"
+                    % ((rr.stderr or rr.stdout or "")[-180:], bak)}
+    except Exception as exc:
+        return {"ok": False, "result": "edit+validace OK, reload ERR: %s "
+                "(restart STRATEGIE-CADDY; backup: %s)" % (exc, bak)}
+    return {"ok": True, "result": "Failover přidán (%s) + Caddy reload OK. Backup: %s"
+            % (", ".join(changed) or "0", bak)}
+
+
 def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
     """Spustí cloud-lokální ops akci (běží na cloud APP). Zatím: restart_api
     přes RESTART-WATCHER marker. Aktualizuje fw.ops_request."""
@@ -18119,6 +18197,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             result = "marker: %s" % info
         elif action_key == "refresh_secondary":
             out = _ops_refresh_secondary()
+            status = "done" if out.get("ok") else "error"
+            result = out.get("result") or ""
+        elif action_key == "caddy_pin_failover":
+            out = _ops_caddy_pin_failover()
             status = "done" if out.get("ok") else "error"
             result = out.get("result") or ""
         elif action_key == "sync_zakazky":

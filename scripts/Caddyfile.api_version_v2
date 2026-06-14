@@ -21,20 +21,44 @@ strategie-ai.com, www.strategie-ai.com, app.strategie-ai.com, api.strategie-ai.c
     }
 
     # 2. Cookie-pinned routes (user explicit volil starsi kod)
+    # FAILOVER (Marti 14.6.2026): pinned upstream + primary 8002 jako zaloha.
+    # lb_policy first = pouzij pinnutou verzi pokud je ZDRAVA (health_uri), jinak
+    # spadni na primarni. Drive: pin na zastavenou B = mrtva instance (past).
     @versionPrevious header_regexp Cookie strategie_api_version=previous
-    reverse_proxy @versionPrevious localhost:8003 {
+    reverse_proxy @versionPrevious localhost:8003 localhost:8002 {
+        lb_policy first
+        health_uri /api/v1/health
+        health_interval 3s
+        health_timeout 2s
+        health_status 2xx
+        fail_duration 10s
+        max_fails 1
         header_up Host {host}
         header_up X-Real-IP {remote_host}
     }
 
     @versionOlder1 header_regexp Cookie strategie_api_version=older_1
-    reverse_proxy @versionOlder1 localhost:8004 {
+    reverse_proxy @versionOlder1 localhost:8004 localhost:8002 {
+        lb_policy first
+        health_uri /api/v1/health
+        health_interval 3s
+        health_timeout 2s
+        health_status 2xx
+        fail_duration 10s
+        max_fails 1
         header_up Host {host}
         header_up X-Real-IP {remote_host}
     }
 
     @versionOlder2 header_regexp Cookie strategie_api_version=older_2
-    reverse_proxy @versionOlder2 localhost:8005 {
+    reverse_proxy @versionOlder2 localhost:8005 localhost:8002 {
+        lb_policy first
+        health_uri /api/v1/health
+        health_interval 3s
+        health_timeout 2s
+        health_status 2xx
+        fail_duration 10s
+        max_fails 1
         header_up Host {host}
         header_up X-Real-IP {remote_host}
     }

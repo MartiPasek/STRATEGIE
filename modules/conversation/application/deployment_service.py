@@ -141,6 +141,29 @@ def _git_pull_origin_main() -> tuple[bool, str]:
     return True, stdout + ("\n--stderr--\n" + stderr if stderr.strip() else "")
 
 
+def _git_changed_files(from_sha: str, to_sha: str) -> list[str]:
+    """Seznam změněných souborů mezi 2 SHA (git diff --name-only)."""
+    rc, stdout, stderr = _run_git(["diff", "--name-only", from_sha, to_sha])
+    if rc != 0:
+        return []
+    return [ln.strip() for ln in stdout.splitlines() if ln.strip()]
+
+
+def _is_static_only(files: list[str]) -> bool:
+    """Marti 14.6.: True pokud VŠECHNY změněné soubory jsou statické (servírují se
+    z disku přes FileResponse) → NENÍ potřeba restart API (rychlé iterace UI).
+    Static = apps/api/static/** a NE .py. Prázdný seznam = nic se nezměnilo → True."""
+    if not files:
+        return True
+    for f in files:
+        fl = f.replace("\\", "/").lower()
+        if not fl.startswith("apps/api/static/"):
+            return False
+        if fl.endswith(".py"):
+            return False
+    return True
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Marker file (NSSM watchdog trigger)
 # ──────────────────────────────────────────────────────────────────────
@@ -347,6 +370,9 @@ def _execute_deployment(proposal_id: int) -> dict:
     finally:
         ds.close()
 
+    # Marti 14.6.: HEAD před pull → detekce static-only změn (přeskočit restart).
+    _before_sha = _git_current_head_sha()
+
     # Execute git pull
     pull_ok, pull_output = _git_pull_origin_main()
     if not pull_ok:
@@ -379,24 +405,40 @@ def _execute_deployment(proposal_id: int) -> dict:
         {"proposal_id": proposal_id, "target_sha": target_sha[:12] if target_sha else ""},
     )
 
-    # Touch marker (NSSM watchdog will restart STRATEGIE-API)
+    # Marti 14.6.: static-only deploy (jen apps/api/static/**, žádné .py) se servíruje
+    # z disku → NETŘEBA restart API. Přeskočíme marker → rychlé iterace UI (bez ~5s
+    # restartu a odpojení appky). Při .py / jiných změnách restart normálně.
+    _after_sha = _git_current_head_sha()
+    _changed = _git_changed_files(_before_sha, _after_sha) if (_before_sha and _after_sha) else []
+    _static_only = _is_static_only(_changed)
+
     proposer_label = f"user_{proposer}" if proposer else "unknown"
-    marker_ok, marker_info = _touch_restart_marker(proposal_id, proposer_label)
-    if not marker_ok:
-        # git pull succeeded but marker failed -- ne fatal, jen warning
-        logger.warning(f"deployment #{proposal_id}: marker file failed: {marker_info}")
+    if _static_only:
+        marker_ok, marker_info = True, "skipped (static-only — bez restartu)"
         _emit(
-            f"⚠ marker file failed: {marker_info[:200]} · restart manualne",
-            "deploy.failed",
-            {"proposal_id": proposal_id, "marker_error": marker_info[:500]},
+            "⚡ Static-only deploy — bez restartu API (rychlé). Stačí obnovit stránku.",
+            "deploy.executed",
+            {"proposal_id": proposal_id, "static_only": True,
+             "changed": _changed[:20]},
         )
     else:
-        _emit(
-            f"marker file touched · STRATEGIE-RESTART-WATCHER detekuje · "
-            f"STRATEGIE-API restart pending (~2-5s)",
-            "deploy.executed",
-            {"proposal_id": proposal_id, "marker_file": marker_info},
-        )
+        # Touch marker (NSSM watchdog will restart STRATEGIE-API)
+        marker_ok, marker_info = _touch_restart_marker(proposal_id, proposer_label)
+        if not marker_ok:
+            # git pull succeeded but marker failed -- ne fatal, jen warning
+            logger.warning(f"deployment #{proposal_id}: marker file failed: {marker_info}")
+            _emit(
+                f"⚠ marker file failed: {marker_info[:200]} · restart manualne",
+                "deploy.failed",
+                {"proposal_id": proposal_id, "marker_error": marker_info[:500]},
+            )
+        else:
+            _emit(
+                f"marker file touched · STRATEGIE-RESTART-WATCHER detekuje · "
+                f"STRATEGIE-API restart pending (~2-5s)",
+                "deploy.executed",
+                {"proposal_id": proposal_id, "marker_file": marker_info},
+            )
 
     # Mark as deployed (marker triggered restart -- service restart pending)
     ds = get_data_session()

@@ -5315,8 +5315,27 @@ setTimeout(function(){
     var left=el('<div style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     var right=el('<div style="width:88px;flex:none;display:flex;flex-direction:column;gap:8px;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:100px;"></div>');
     wrap.appendChild(left); wrap.appendChild(right); app.appendChild(wrap);
+    // Marti 14.6.: pořadí lišty — Můj plán, Plán skupiny, Koho čekáme, Moje podmínky; admin až dole.
+    var bMy=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a6b4c;color:#9ce0b0;font-weight:700;font-size:12px;line-height:1.25;">👤<br>Můj<br>plán</button>');
+    bMy.addEventListener("click",function(){ renderPlan(false,'mydefault'); });
+    right.appendChild(bMy);
+    (function(){
+      api("GET","/api/v1/erp/app/plan/requests?from="+_locDate(-365)+"&to="+_locDate(365),"").then(function(rq){
+        var n=(((rq&&rq.items)||[]).filter(function(r){ return r&&r.status==='pending'; })).length;
+        if(n>0){ bMy.style.position="relative"; bMy.appendChild(el('<span style="position:absolute;top:-5px;right:-5px;background:#f59e0b;color:#fff;font-size:10px;min-width:16px;height:16px;line-height:16px;border-radius:8px;padding:0 4px;text-align:center;font-weight:700;">'+(n>99?"99+":n)+'</span>')); }
+      }).catch(function(){});
+    })();
+    var bGrp=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a5a6b;color:#7fc8e0;font-weight:700;font-size:12px;line-height:1.25;">👥<br>Plán<br>skupiny</button>');
+    bGrp.addEventListener("click",function(){ renderGroupPlan(); });
+    right.appendChild(bGrp);
+    var bDay=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a6b3a;color:#8fe0a0;font-weight:700;font-size:12px;line-height:1.25;">📊<br>Koho<br>čekáme</button>');
+    bDay.addEventListener("click",function(){ renderDay(); });
+    right.appendChild(bDay);
+    var bUv=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#6b4a2a;color:#e6b97a;font-weight:700;font-size:12px;line-height:1.25;">📋<br>Moje<br>podmínky</button>');
+    bUv.addEventListener("click",function(){ renderPodminky(); });
+    right.appendChild(bUv);
     if(!WEEKONLY){
-    right.appendChild(el('<div class="hint" style="text-align:center;font-size:10px;line-height:1.3;">Vyrobit<br>základ</div>'));
+    right.appendChild(el('<div class="hint" style="text-align:center;font-size:10px;line-height:1.3;margin-top:4px;">Vyrobit<br>základ</div>'));
     var bGen=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a5a8c;color:#9cf;font-weight:700;font-size:13px;line-height:1.25;">📋<br>ČR<br>40 h</button>');
     bGen.addEventListener("click",function(){
       if(!confirm("Vygenerovat základní roční plán 40 h/týden (Po–Pá podle státních svátků)?")) return;
@@ -5337,24 +5356,6 @@ setTimeout(function(){
     bFirma.addEventListener("click",function(){ renderPlan(true); });
     right.appendChild(bFirma);
     }
-    var bGrp=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a5a6b;color:#7fc8e0;font-weight:700;font-size:12px;line-height:1.25;">👥<br>Plán<br>skupiny</button>');
-    bGrp.addEventListener("click",function(){ renderGroupPlan(); });
-    right.appendChild(bGrp);
-    var bDay=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a6b3a;color:#8fe0a0;font-weight:700;font-size:12px;line-height:1.25;">📊<br>Koho<br>čekáme</button>');
-    bDay.addEventListener("click",function(){ renderDay(); });
-    right.appendChild(bDay);
-    var bUv=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#6b4a2a;color:#e6b97a;font-weight:700;font-size:12px;line-height:1.25;">📐<br>Můj<br>úvazek</button>');
-    bUv.addEventListener("click",function(){ renderUvazek(); });
-    right.appendChild(bUv);
-    var bMy=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a6b4c;color:#9ce0b0;font-weight:700;font-size:12px;line-height:1.25;">👤<br>Můj<br>plán</button>');
-    bMy.addEventListener("click",function(){ renderPlan(false,'mydefault'); });
-    right.appendChild(bMy);
-    (function(){
-      api("GET","/api/v1/erp/app/plan/requests?from="+_locDate(-365)+"&to="+_locDate(365),"").then(function(rq){
-        var n=(((rq&&rq.items)||[]).filter(function(r){ return r&&r.status==='pending'; })).length;
-        if(n>0){ bMy.style.position="relative"; bMy.appendChild(el('<span style="position:absolute;top:-5px;right:-5px;background:#f59e0b;color:#fff;font-size:10px;min-width:16px;height:16px;line-height:16px;border-radius:8px;padding:0 4px;text-align:center;font-weight:700;">'+(n>99?"99+":n)+'</span>')); }
-      }).catch(function(){});
-    })();
     function czd2(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."+p[0]):iso; }
     function renderPlan(eff, src){
       left.innerHTML='<div class="hint">Načítám…</div>';
@@ -5769,6 +5770,33 @@ setTimeout(function(){
           });
           left.appendChild(sb); left.appendChild(sst);
         }
+      });
+    }
+    // Marti 14.6.: „Moje podmínky" — RO, celoobrazovkový hezký přehled (pravá lišta se schová).
+    function renderPodminky(){
+      function hhmm(h){ h=Math.max(0,Math.round((h||0)*60)); return Math.floor(h/60)+":"+("0"+(h%60)).slice(-2); }
+      if(right)right.style.display='none';
+      function exitPod(){ if(right)right.style.display=AP?'none':'flex'; window._planAnyOpen=null; renderPlan(false,'mydefault'); }
+      window._planAnyOpen=function(){ exitPod(); return true; };
+      left.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/plan/my-uvazek","").then(function(j){
+        left.innerHTML='';
+        var bk=el('<button id="podBack" class="ghost full" style="margin-bottom:10px;">‹ Zpět</button>'); bk.addEventListener("click",exitPod); left.appendChild(bk);
+        if(!j||!j.ok){ left.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Nelze načíst")+'</div>')); return; }
+        left.appendChild(el('<div style="margin-bottom:10px;"><b style="font-size:17px;">📋 Moje podmínky</b></div>'));
+        var card=el('<div style="border:1px solid #2b3a5c;border-radius:12px;margin-bottom:10px;overflow:hidden;"></div>');
+        card.appendChild(el('<div style="padding:11px 12px;background:#0e1830;display:flex;justify-content:space-between;align-items:center;"><span style="font-weight:700;">Týdenní úvazek</span><b style="font-size:16px;color:#cfe0ff;">'+(j.uvazek||"?")+' h</b></div>'));
+        var body=el('<div style="padding:4px 10px 8px;"></div>');
+        (j.days||[]).forEach(function(d){
+          var work=d.works && d.hours>0;
+          var rs="display:flex;justify-content:space-between;align-items:center;padding:7px 4px;font-size:14px;border-bottom:1px solid rgba(255,255,255,.05);";
+          var rightCell;
+          if(work){ rightCell='<span style="display:inline-flex;align-items:baseline;gap:10px;"><span style="color:#8fb4e8;font-size:12px;min-width:56px;text-align:right;">'+(d.start?'od '+d.start:'')+'</span><span style="color:#34d399;font-weight:700;min-width:46px;text-align:right;">'+hhmm(d.hours)+'</span></span>'; }
+          else { rightCell='<span style="color:#5b6b88;font-weight:600;">volno</span>'; }
+          body.appendChild(el('<div style="'+rs+'"><span>'+esc(d.label||"")+'</span>'+rightCell+'</div>'));
+        });
+        card.appendChild(body); left.appendChild(card);
+        left.appendChild(el('<div class="hint" style="line-height:1.5;padding:2px 4px;">Tvůj sjednaný týdenní úvazek a rozvrh (které dny, kolik hodin, čas příchodu). Jen k náhledu — změnu řeší nadřízený / HR.</div>'));
       });
     }
     function renderExc(mode){

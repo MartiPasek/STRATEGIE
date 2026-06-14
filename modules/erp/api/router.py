@@ -9975,6 +9975,12 @@ async def att_status(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
+        try:
+            _hb = (req.headers.get("authorization") or "").lower().startswith("bearer ")
+            s.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('att_status',:u,:b)"),
+                      {"u": uid, "b": _hb}); s.commit()
+        except Exception:
+            pass
         emp = _att_employee(s, uid)
         _att_close_stale(s, emp)
         opn = s.execute(_t("SELECT a.id, to_char(a.started_at,'YYYY-MM-DD\"T\"HH24:MI:SS'), a.project_ref, "

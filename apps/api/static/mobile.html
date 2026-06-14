@@ -5523,8 +5523,9 @@ setTimeout(function(){
     api("GET","/api/v1/erp/app/web-stats?days=30","").then(function(j){
       box.innerHTML='';
       if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Jen rodiče/HR.")+'</div>')); return; }
-      function card(t,a,b){ return '<div style="flex:1;border:1px solid #2b3a5c;border-radius:12px;padding:10px;text-align:center;"><div style="font-size:22px;font-weight:800;">'+a+'</div><div class="hint" style="font-size:11px;">'+t+'</div>'+(b!=null?('<div class="hint" style="font-size:10px;">'+b+' unikátních</div>'):'')+'</div>'; }
-      var kpi=el('<div style="display:flex;gap:8px;margin-bottom:12px;"></div>'); kpi.innerHTML=card("Dnes",j.today,j.today_unique)+card("Za "+j.days+" dní",j.total,j.unique); box.appendChild(kpi);
+      function card(t,vis,ppl){ return '<div style="flex:1;min-width:70px;border:1px solid #2b3a5c;border-radius:12px;padding:10px 6px;text-align:center;"><div class="hint" style="font-size:11px;margin-bottom:2px;">'+t+'</div><div style="font-size:22px;font-weight:800;">'+vis+'</div><div class="hint" style="font-size:10px;">návštěv</div><div style="font-size:14px;font-weight:700;color:#7fc8e0;margin-top:4px;">'+ppl+'</div><div class="hint" style="font-size:10px;">lidí</div></div>'; }
+      box.appendChild(el('<div class="hint" style="font-size:11px;margin-bottom:6px;">Návštěva = otevření stránky · Lidí = různé otisky (přibližně, nepřesné u mobilních sítí)</div>'));
+      var kpi=el('<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;"></div>'); kpi.innerHTML=card("Dnes",j.today,j.today_unique)+card("Včera",j.yday,j.yday_unique)+card("7 dní",j.d7,j.d7_unique)+card("30 dní",j.d30,j.d30_unique); box.appendChild(kpi);
       if(j.by_day&&j.by_day.length){
         var mx=Math.max.apply(null,j.by_day.map(function(d){return d.v;}))||1;
         box.appendChild(el('<div class="hint" style="margin-bottom:4px;">Návštěvy po dnech</div>'));

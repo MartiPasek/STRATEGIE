@@ -8553,9 +8553,15 @@ async def app_web_stats(req: Request) -> JSONResponse:
         langs = [{"lang": (r[0] or "?"), "v": int(r[1])} for r in s.execute(_t(
             "SELECT lang, count(*) " + base + " GROUP BY lang ORDER BY 2 DESC"), par).fetchall()]
         today = s.execute(_t("SELECT count(*), count(DISTINCT ip_hash) FROM fw.web_visit WHERE is_bot=false AND ts::date=CURRENT_DATE")).first()
+        yday = s.execute(_t("SELECT count(*), count(DISTINCT ip_hash) FROM fw.web_visit WHERE is_bot=false AND ts::date=CURRENT_DATE-1")).first()
+        d7 = s.execute(_t("SELECT count(*), count(DISTINCT ip_hash) FROM fw.web_visit WHERE is_bot=false AND ts >= CURRENT_DATE-6")).first()
+        d30 = s.execute(_t("SELECT count(*), count(DISTINCT ip_hash) FROM fw.web_visit WHERE is_bot=false AND ts >= CURRENT_DATE-29")).first()
         return JSONResponse({"ok": True, "days": days,
                              "total": int(tot[0] or 0), "unique": int(tot[1] or 0),
                              "today": int(today[0] or 0), "today_unique": int(today[1] or 0),
+                             "yday": int(yday[0] or 0), "yday_unique": int(yday[1] or 0),
+                             "d7": int(d7[0] or 0), "d7_unique": int(d7[1] or 0),
+                             "d30": int(d30[0] or 0), "d30_unique": int(d30[1] or 0),
                              "by_day": by_day, "pages": pages, "refs": refs, "langs": langs})
     finally:
         cm.__exit__(None, None, None)

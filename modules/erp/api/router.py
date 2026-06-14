@@ -10335,15 +10335,9 @@ async def app_payslip(req: Request) -> JSONResponse:
         if not emps:
             s.commit()
             return JSONResponse({"ok": True, "periods": [], "items": [], "note": "Žádné mzdové záznamy."})
-        # Gate 1 — běžící směna (pauza i odchod entry zavírají → is_active stačí).
-        on_shift = s.execute(_t(
-            "SELECT 1 FROM tenant.att_entry WHERE tenant_id = 2 "
-            "AND employee_id = ANY(:e) AND is_active = true LIMIT 1"),
-            {"e": emps}).first() is not None
-        if on_shift:
-            s.commit()
-            return JSONResponse({"ok": False, "error": "on_shift"})
-        # Gate 2 — PIN.
+        # Marti 14.6.: Gate „běžící směna" ZRUŠEN — páska se otevírá rovnou přes PIN
+        # (PIN je dostatečná ochrana; bránit otevření během směny jen otravovalo).
+        # Gate — PIN.
         err = _pin_gate(s, uid, str((body or {}).get("pin") or "").strip())
         if err:
             s.commit()

@@ -3455,7 +3455,17 @@ setTimeout(function(){
     _tg1.appendChild(appCell("🌅","Zítřek",0,function(){ _openSec(_dS&&_dS.plan); }));
     _tg1.appendChild(appCell("🔭","Výhled",0,function(){ go("plan"); }));
     _tg1.appendChild(appCell("🕓","Historie",0,function(){ if(_dS){ if(_dS.yest&&_dS.yest.box&&_dS.yest.box.parentNode)_dS.yest.box.parentNode.style.display=""; _openSec(_dS.prev); } }));
+    _tg1.appendChild(appCell("🧭","Tady budu jinde",0,function(){
+      var jb=document.getElementById("dochJindeBox"); if(!jb) return;
+      if(jb.style.display!=="none"){ jb.style.display="none"; return; }
+      jb.style.display="block";
+      if(!jb._built && typeof window._dochJinde==="function"){ window._dochJinde(jb); jb._built=true; }
+      try{ jb.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
+    }));
     _toolsWrap.appendChild(_tg1);
+    // Marti 14.6.: „Tady budu jinde" přesunuto z „Potřebuji ti něco říct" SEM (do docházky).
+    var _jindeBox=el('<div id="dochJindeBox" style="display:none;margin:4px 4px 6px;padding:8px;border:1px solid #4a3a1a;border-radius:12px;background:rgba(251,191,36,.05);"></div>');
+    _toolsWrap.appendChild(_jindeBox);
     _toolSec("MOJE ZAKÁZKY");
     var _tgz=el('<div class="appgrid"></div>');
     _tgz.appendChild(appCell("🧾","Jsem na zakázce",0,function(){ if(typeof openSoon==="function") openSoon("Moje zakázky"); }));
@@ -3907,6 +3917,8 @@ setTimeout(function(){
         expOpt(box,"🏠 Osobní důvody…","ghost",osobniBuild,_amberStyle);
         expOpt(box,"💼 Služební důvody…","ghost",sluzebniBuild,_blueStyle);
       }
+      // Marti 14.6.: zpřístupnit „Tady budu jinde" regionu docházky (dlaždice volá).
+      window._dochJinde=jindeBuild;
       // Píchnutí na zakázku (Marti 7.6.): picker nad tenant.zakazka (⚙ sync_zakazky).
       function zakBuild(box){
         try{ window.scrollTo({top:0,behavior:"smooth"}); }catch(e){ try{window.scrollTo(0,0);}catch(_){} }  // Marti 11.6.: odscrolovat nahoru
@@ -4194,7 +4206,7 @@ setTimeout(function(){
           ],"green");
           expOpt(bw,"🌅 Potřebuji přijít později…","ghost",pozdejiBuild);
           expOpt(bw,"🕔 Potřebuji skončit dříve…","ghost",driveBuild);
-          expOpt(bw,"🧭 Tady budu asi jinde…","ghost",jindeBuild,_amberStyle);
+          // Marti 14.6.: „Tady budu asi jinde" přesunuto do regionu docházky (dlaždice).
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
           expOpt(bw,"🙋 Mám dotaz na nadřízeného…","ghost",bossAskBuild,_blueStyle);
         }

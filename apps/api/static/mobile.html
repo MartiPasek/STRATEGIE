@@ -5796,7 +5796,23 @@ setTimeout(function(){
           body.appendChild(el('<div style="'+rs+'"><span>'+esc(d.label||"")+'</span>'+rightCell+'</div>'));
         });
         card.appendChild(body); left.appendChild(card);
-        left.appendChild(el('<div class="hint" style="line-height:1.5;padding:2px 4px;">Tvůj sjednaný týdenní úvazek a rozvrh (které dny, kolik hodin, čas příchodu). Jen k náhledu — změnu řeší nadřízený / HR.</div>'));
+        // Samostatná sekce: další sjednané podmínky (staff_cond, resolved) — pod základními.
+        var ch=el('<div style="border:1px solid #2b3a5c;border-radius:12px;margin-bottom:10px;overflow:hidden;"></div>');
+        ch.appendChild(el('<div style="padding:11px 12px;background:#0e1830;font-weight:700;">Sjednané podmínky</div>'));
+        var cb=el('<div style="padding:4px 10px 8px;"></div>');
+        cb.appendChild(el('<div class="hint" style="padding:6px 2px;">Načítám…</div>'));
+        ch.appendChild(cb); left.appendChild(ch);
+        api("GET","/api/v1/erp/app/my-conditions","").then(function(c){
+          cb.innerHTML='';
+          var items=((c&&c.ok&&c.podminky)||[]).filter(function(p){ return p.code!=='uvazek_h_tyden'; });
+          if(!items.length){ cb.appendChild(el('<div class="hint" style="padding:6px 2px;">Žádné další sjednané podmínky.</div>')); return; }
+          var srcMap={user:'osobní',group:'skupina',system:'firma'};
+          items.forEach(function(p){
+            var rs="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 4px;font-size:14px;border-bottom:1px solid rgba(255,255,255,.05);";
+            cb.appendChild(el('<div style="'+rs+'"><span style="flex:1;min-width:0;">'+esc(p.label)+'</span><span style="display:inline-flex;align-items:baseline;gap:8px;flex:none;"><b style="color:#cfe0ff;">'+esc(String(p.value))+(p.unit?(' '+esc(p.unit)):'')+'</b><span class="hint" style="font-size:11px;">'+(srcMap[p.src]||p.src||'')+'</span></span></div>'));
+          });
+        }).catch(function(){ cb.innerHTML='<div class="hint" style="padding:6px 2px;">Nepodařilo se načíst.</div>'; });
+        left.appendChild(el('<div class="hint" style="line-height:1.5;padding:2px 4px;">Tvé sjednané podmínky (úvazek, rozvrh a další). Jen k náhledu — změnu řeší nadřízený / HR.</div>'));
       });
     }
     function renderExc(mode){

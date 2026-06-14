@@ -9092,7 +9092,7 @@ async def app_my_conditions(req: Request) -> JSONResponse:
             val, src = _resolve_cond(s, uid, c, grp)
             if val is None:
                 continue
-            out.append({"label": defrows[c][0], "unit": defrows[c][1], "value": val, "src": src})
+            out.append({"code": c, "label": defrows[c][0], "unit": defrows[c][1], "value": val, "src": src})
         return JSONResponse({"ok": True, "skupina": glab, "podminky": out})
     finally:
         cm.__exit__(None, None, None)

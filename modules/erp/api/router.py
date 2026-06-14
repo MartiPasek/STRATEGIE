@@ -9974,6 +9974,13 @@ async def att_status(req: Request) -> JSONResponse:
             _hb = (req.headers.get("authorization") or "").lower().startswith("bearer ")
             s.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('att_status',:u,:b)"),
                       {"u": uid, "b": _hb}); s.commit()
+            try:
+                _ic = _active_imp_target(uid)
+                s.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('imp_chk',:u,:b)"),
+                          {"u": (int(_ic) if _ic is not None else -1), "b": True}); s.commit()
+            except Exception as _e:
+                s.execute(_t("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('imp_err',:u,:b)"),
+                          {"u": -2, "b": False}); s.commit()
         except Exception:
             pass
         emp = _att_employee(s, uid)

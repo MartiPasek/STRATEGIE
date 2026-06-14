@@ -5519,7 +5519,7 @@ setTimeout(function(){
   }
   function web_stats(){
     app.innerHTML=topbar("📈 Návštěvnost webu", true);
-    var box=el('<div></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
+    var box=el('<div style="padding-bottom:100px;"></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
     api("GET","/api/v1/erp/app/web-stats?days=30","").then(function(j){
       box.innerHTML='';
       if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Jen rodiče/HR.")+'</div>')); return; }

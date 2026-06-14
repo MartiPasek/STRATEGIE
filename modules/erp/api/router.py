@@ -123,44 +123,34 @@ def _uid_from_token_or_cookie(req: Request) -> int:
         tok = auth[7:].strip()
         if tok:
             import hashlib
-            from core.database_data import get_data_session as _gds_tok
             from sqlalchemy import text as _sql_tok
             th = hashlib.sha256(tok.encode("utf-8")).hexdigest()
-            ds = _gds_tok()
             uid = None
+            _ov = None
+            # Vše přes strategie_pg engine (stejný jako docházka/impersonace/bridge).
+            # Marti 14.6.: get_data_session mířil na jinou DB → impersonace se nechytala.
             try:
-                uid = ds.execute(_sql_tok(
-                    'SELECT user_id FROM "user".carddav_token '
-                    'WHERE token_hash = :h AND revoked_at IS NULL'
-                ), {"h": th}).scalar()
-                if uid is not None:
-                    ds.execute(_sql_tok(
-                        'UPDATE "user".carddav_token SET last_used_at = now() '
-                        'WHERE token_hash = :h'
-                    ), {"h": th})
-                    ds.commit()
-                    # Marti 9.6.: sdílený telefon — override aktivního usera
-                    # (switch+PIN). Token se tváří jako přepnutý user.
-                    try:
-                        _ov = ds.execute(_sql_tok(
+                cm, s = _att_session()
+                try:
+                    uid = s.execute(_sql_tok(
+                        'SELECT user_id FROM "user".carddav_token '
+                        'WHERE token_hash = :h AND revoked_at IS NULL'), {"h": th}).scalar()
+                    if uid is not None:
+                        s.execute(_sql_tok(
+                            'UPDATE "user".carddav_token SET last_used_at = now() '
+                            'WHERE token_hash = :h'), {"h": th})
+                        _ov = s.execute(_sql_tok(
                             "SELECT user_id FROM tenant.shared_active "
                             "WHERE token_hash = :h"), {"h": th}).scalar()
-                        if _ov is not None:
-                            return int(_ov)
-                    except Exception:
-                        try:
-                            ds.rollback()   # nerozbít navazující dotaz aborted transakcí
-                        except Exception:
-                            pass
+                        s.commit()
+                finally:
+                    cm.__exit__(None, None, None)
             except Exception:
-                ds.rollback()
-            finally:
-                ds.close()
-            # Marti 7.6./14.6.: nativní appka respektuje aktivní impersonaci
-            # vlastníka tokenu (testování docházky jako jiný user). ČISTÁ session,
-            # nezávislá na stavu výše — max 8 h od startu jako IMP_MAX_AGE cookie.
+                pass
+            if _ov is not None:           # sdílený telefon (switch+PIN) má přednost
+                return int(_ov)
             if uid is not None:
-                _tgt = _active_imp_target(uid)
+                _tgt = _active_imp_target(uid)   # aktivní impersonace vlastníka tokenu
                 if _tgt is not None:
                     return int(_tgt)
                 return int(uid)

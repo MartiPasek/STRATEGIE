@@ -94,6 +94,25 @@ def _get_uid(req: Request) -> int:
         raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
 
 
+def _active_imp_target(parent_uid):
+    """Cílový user aktivní impersonace daného rodiče (max 8 h). Čte přes
+    strategie_pg engine (stejný jako docházka/bridge — vidí fw.impersonation_log).
+    Marti 14.6.: get_data_session mířil na jinou DB, kde řádek nebyl."""
+    from sqlalchemy import text as _t
+    try:
+        cm, s = _att_session()
+        try:
+            return s.execute(_t(
+                "SELECT target_user_id FROM fw.impersonation_log "
+                "WHERE parent_user_id = :p AND ended_at IS NULL "
+                "AND started_at > now() - interval '8 hours' "
+                "ORDER BY id DESC LIMIT 1"), {"p": int(parent_uid)}).scalar()
+        finally:
+            cm.__exit__(None, None, None)
+    except Exception:
+        return None
+
+
 def _uid_from_token_or_cookie(req: Request) -> int:
     """user_id z Bearer tokenu (nativní mobilní appka — sdílí CardDAV device
     token z "user".carddav_token) NEBO z cookie (PWA). Marti 4.6.2026 —
@@ -141,25 +160,9 @@ def _uid_from_token_or_cookie(req: Request) -> int:
             # vlastníka tokenu (testování docházky jako jiný user). ČISTÁ session,
             # nezávislá na stavu výše — max 8 h od startu jako IMP_MAX_AGE cookie.
             if uid is not None:
-                try:
-                    ds2 = _gds_tok()
-                    try:
-                        _tgt = ds2.execute(_sql_tok(
-                            "SELECT target_user_id FROM fw.impersonation_log "
-                            "WHERE parent_user_id = :p AND ended_at IS NULL "
-                            "AND started_at > now() - interval '8 hours' "
-                            "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
-                        try:
-                            ds2.execute(_sql_tok("INSERT INTO fw.dbg_req(endpoint,uid,has_bearer) VALUES('bearer_imp',:p,:f)"),
-                                        {"p": int(uid), "f": (_tgt is not None)}); ds2.commit()
-                        except Exception:
-                            pass
-                        if _tgt is not None:
-                            return int(_tgt)
-                    finally:
-                        ds2.close()
-                except Exception:
-                    pass
+                _tgt = _active_imp_target(uid)
+                if _tgt is not None:
+                    return int(_tgt)
                 return int(uid)
     # Cookie cesta (PWA / WebView appky). _get_uid ctí httponly imp_token cookie;
     # navíc respektujeme aktivní impersonaci podle user_id cookie — WebView appky
@@ -174,22 +177,9 @@ def _uid_from_token_or_cookie(req: Request) -> int:
             cuid = int(uid_c)
         except ValueError:
             return _get_uid(req)
-        try:
-            from core.database_data import get_data_session as _gds_i
-            from sqlalchemy import text as _sql_i
-            ds = _gds_i()
-            try:
-                t = ds.execute(_sql_i(
-                    "SELECT target_user_id FROM fw.impersonation_log "
-                    "WHERE parent_user_id=:p AND ended_at IS NULL "
-                    "AND started_at > now() - interval '8 hours' "
-                    "ORDER BY id DESC LIMIT 1"), {"p": cuid}).scalar()
-                if t is not None:
-                    return int(t)
-            finally:
-                ds.close()
-        except Exception:
-            pass
+        t = _active_imp_target(cuid)
+        if t is not None:
+            return int(t)
         return cuid
     return _get_uid(req)
 

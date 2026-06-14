@@ -127,8 +127,10 @@ def _uid_from_token_or_cookie(req: Request) -> int:
             th = hashlib.sha256(tok.encode("utf-8")).hexdigest()
             uid = None
             _ov = None
-            # Vše přes strategie_pg engine (stejný jako docházka/impersonace/bridge).
-            # Marti 14.6.: get_data_session mířil na jinou DB → impersonace se nechytala.
+            _tgt = None
+            # Vše v JEDNÉ strategie_pg session (token + shared_active + impersonace).
+            # Marti 14.6.: get_data_session mířil na jinou DB; a druhá session po
+            # zavření první vracela None → proto vše v jednom sezení.
             try:
                 cm, s = _att_session()
                 try:
@@ -142,6 +144,12 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                         _ov = s.execute(_sql_tok(
                             "SELECT user_id FROM tenant.shared_active "
                             "WHERE token_hash = :h"), {"h": th}).scalar()
+                        if _ov is None:
+                            _tgt = s.execute(_sql_tok(
+                                "SELECT target_user_id FROM fw.impersonation_log "
+                                "WHERE parent_user_id = :p AND ended_at IS NULL "
+                                "AND started_at > now() - interval '8 hours' "
+                                "ORDER BY id DESC LIMIT 1"), {"p": int(uid)}).scalar()
                         s.commit()
                 finally:
                     cm.__exit__(None, None, None)
@@ -149,10 +157,9 @@ def _uid_from_token_or_cookie(req: Request) -> int:
                 pass
             if _ov is not None:           # sdílený telefon (switch+PIN) má přednost
                 return int(_ov)
+            if _tgt is not None:          # aktivní impersonace vlastníka tokenu
+                return int(_tgt)
             if uid is not None:
-                _tgt = _active_imp_target(uid)   # aktivní impersonace vlastníka tokenu
-                if _tgt is not None:
-                    return int(_tgt)
                 return int(uid)
     # Cookie cesta (PWA / WebView appky). _get_uid ctí httponly imp_token cookie;
     # navíc respektujeme aktivní impersonaci podle user_id cookie — WebView appky

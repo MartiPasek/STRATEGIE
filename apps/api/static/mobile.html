@@ -3437,44 +3437,35 @@ setTimeout(function(){
     // Marti 7.6. večer: „Dnes" logicky nahoru — obrazovka KONČÍ kartou
     // „Potřebuji ti něco říct…". Nadpis „Dnes makám 😉" při běžící směně.
     p.appendChild(el('<div id="dochHead" style="display:none;font-size:24px;font-weight:800;margin:6px 0 12px;">Dnes makám 😉</div>'));
-    // Marti 14.6.: „Moje docházka pod jednou střechou" — rozbalovací region (šipička)
-    // pod hlavním statusem. Zobrazí se, KDYŽ ČLOVĚK NEMAKÁ. Sdružuje všechny nástroje
-    // a nastavení docházky dotyčného: Moje podmínky, Finance, Historie, Nepřítomnosti.
+    // Marti 14.6.: region nástrojů ve stylu sekce „Vedení" — JEN ikony v grupách
+    // (BEZ rozbalovací hlavičky). Zobrazí se, KDYŽ ČLOVĚK NEMAKÁ. Časové sekce jsou
+    // defaultně schované a odkrývají se až přes ikonu → pod ikonami zůstane jen
+    // „Potřebuji ti něco říct".
     function _openSec(s){
-      if(s && s.box && s.box.style.display==="none"){ var h=s.ttl&&s.ttl.parentNode; if(h)h.click(); }
-      if(s && s.box){ try{ s.box.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} }
+      if(!s||!s.box) return;
+      var li=s.box.parentNode; if(li) li.style.display="";   // řádek mohl být schovaný → odkrýt
+      if(s.box.style.display==="none"){ var h=s.ttl&&s.ttl.parentNode; if(h)h.click(); }
+      try{ s.box.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
     }
-    var _toolsWrap=el('<div id="dochTools" style="display:none;margin:0 0 12px;border:1px solid var(--bord);border-radius:14px;overflow:hidden;background:rgba(255,255,255,0.02);"></div>');
-    var _toolsHdr=el('<button type="button" style="width:100%;display:flex;align-items:center;gap:10px;background:transparent;border:0;color:var(--tx);font:inherit;font-size:15px;font-weight:600;padding:13px 14px;cursor:pointer;text-align:left;"><span style="font-size:18px;">🧰</span><span style="flex:1;">Moje docházka — vše pod jednou střechou</span><span id="dochToolsChev" style="font-size:13px;color:var(--mut);transition:transform .2s;">▾</span></button>');
-    // Marti 14.6.: styl PŘESNĚ jako sekce „Vedení" — sekční nadpisy + appgrid/appCell.
-    var _toolsBody=el('<div id="dochToolsBody" style="display:none;padding:2px 2px 10px;"></div>');
-    function _toolSec(t){ _toolsBody.appendChild(el('<div style="margin:10px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
-    function _scrollTo(id){ var e=document.getElementById(id); if(e){ try{ e.scrollIntoView({behavior:"smooth",block:"center"}); }catch(_){} } }
+    var _toolsWrap=el('<div id="dochTools" style="display:none;margin:0 0 6px;"></div>');
+    function _toolSec(t){ _toolsWrap.appendChild(el('<div style="margin:10px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
     _toolSec("MOJE DOCHÁZKA");
     var _tg1=el('<div class="appgrid"></div>');
-    _tg1.appendChild(appCell("📅","Dnešek",0,function(){ _openSec(_dS&&_dS.todayhist); }));
+    _tg1.appendChild(appCell("📅","Dnešek",0,function(){ _openSec(_dS&&_dS.today); }));
     _tg1.appendChild(appCell("🌅","Zítřek",0,function(){ _openSec(_dS&&_dS.plan); }));
     _tg1.appendChild(appCell("🔭","Výhled",0,function(){ go("plan"); }));
-    _tg1.appendChild(appCell("🕓","Historie",0,function(){ _openSec(_dS&&_dS.prev); }));
-    _toolsBody.appendChild(_tg1);
+    _tg1.appendChild(appCell("🕓","Historie",0,function(){ if(_dS){ if(_dS.yest&&_dS.yest.box&&_dS.yest.box.parentNode)_dS.yest.box.parentNode.style.display=""; _openSec(_dS.prev); } }));
+    _toolsWrap.appendChild(_tg1);
     _toolSec("MOJE ZAKÁZKY");
     var _tgz=el('<div class="appgrid"></div>');
-    _tgz.appendChild(appCell("🧾","Jsem na zakázce",0,function(){ _scrollTo("dochAction"); }));
-    _toolsBody.appendChild(_tgz);
+    _tgz.appendChild(appCell("🧾","Jsem na zakázce",0,function(){ if(typeof openSoon==="function") openSoon("Moje zakázky"); }));
+    _toolsWrap.appendChild(_tgz);
     _toolSec("PODMÍNKY & FINANCE");
     var _tg2=el('<div class="appgrid"></div>');
     _tg2.appendChild(appCell("📋","Moje podmínky",0,function(){ go("moje_podminky"); }));
     _tg2.appendChild(appCell("💰","Moje finance",0,function(){ _openSec(_dS&&_dS.paska); }));
     _tg2.appendChild(appCell("🗓️","Nepřítomnosti",0,function(){ go("absence"); }));
-    _toolsBody.appendChild(_tg2);
-    _toolsHdr.addEventListener("click",function(){
-      var openNow=_toolsBody.style.display!=="none";
-      _toolsBody.style.display=openNow?"none":"block";
-      var ch=document.getElementById("dochToolsChev"); if(ch)ch.style.transform=openNow?"":"rotate(180deg)";
-      window._dochToolsOpen=!openNow;
-    });
-    if(window._dochToolsOpen){ _toolsBody.style.display="block"; var _ch0=_toolsHdr.querySelector("#dochToolsChev"); if(_ch0)_ch0.style.transform="rotate(180deg)"; }
-    _toolsWrap.appendChild(_toolsHdr); _toolsWrap.appendChild(_toolsBody);
+    _toolsWrap.appendChild(_tg2);
     p.appendChild(_toolsWrap);
     var lc=el('<div style="margin-top:4px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
     var su=lc.querySelector("#dochSecs");
@@ -3493,6 +3484,11 @@ setTimeout(function(){
     // Marti 7.6. večer: páska zamčená PINem + jen mimo směnu — souhrn v hlavičce
     // NIKDY neukazuje částku (🔒), obsah se načte až po odemčení při otevření.
     _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">🔒 Páska je zamčená.</div></div>';
+    // Marti 14.6.: časové sekce defaultně SCHOVANÉ — pod ikonami zůstane jen
+    // „Potřebuji ti něco říct". Odkryjí se přes ikonu v regionu (Dnešek/Historie/…).
+    // „Tak to bylo dneska" (todayhist) skryté natrvalo (Marti: úplně schovat).
+    try{ ["today","todayhist","yest","prev","plan","paska"].forEach(function(k){
+      if(_dS[k]&&_dS[k].box&&_dS[k].box.parentNode) _dS[k].box.parentNode.style.display="none"; }); }catch(e){}
     // Marti 7.6. večer: pro tlačítko Zpět — zavření otevřeného menu/sekcí.
     window._dochAnyOpen=function(){
       if(!document.body.contains(su)){ window._dochMenuTs=0; return false; }  // jiná obrazovka
@@ -3736,9 +3732,9 @@ setTimeout(function(){
             actC.appendChild(ke2);
           }
         }
-        // Marti 10.6.: na směně VŽDY „Jsem na zakázce" (časté přepínání), NAD rámečkem
-        // (dochAction), jinou barvou — „Potřebuji ti něco říct" zůstává v rámečku sám.
-        if(open && actC){
+        // Marti 14.6.: on-shift volba „Jsem na zakázce" ÚPLNĚ SCHOVÁNA — patří do
+        // sekce „Moje zakázky" (region). „Potřebuji ti něco říct" zůstává v rámečku sám.
+        if(false && open && actC){
           var _zr=(open&&open.project_ref)||"";
           var _zic=(open&&open.project_type==="REZIE")?"🧾":"👷";  // delník s helmou / režijní papír
           expOpt(actC,_zic+" Jsem na zakázce…","green",zakBuild,function(b){ b.style.background="#3b5bdb"; b.style.color="#fff"; b.style.borderColor="#3b5bdb";

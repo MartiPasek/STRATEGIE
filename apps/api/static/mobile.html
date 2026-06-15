@@ -1220,7 +1220,7 @@ setTimeout(function(){
     var g=el('<div class="appgrid"></div>');
     // Marti 7.6.: S ERP ikona = „STRATEGIE" → spouští ERP; S CHAT ikona = „Tvoje Marti" → spouští chat.
     // /erp/ S LOMÍTKEM — jinak URL nespadá do scope ERP PWA a Android otevře chat PWA (S CHAT splash).
-    g.appendChild(appCell("🌐","Web",0,function(){ location.href="/web"; }));
+    g.appendChild(appCell("🌐","Web",0,function(){ go("webview"); }));
     g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"STRATEGIE",0,function(){openApp("/erp/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Tvoje Marti",0,function(){openApp("/");}));
     g.appendChild(appCell("🤝","Spolupráce",0,function(){go("dochazka");}));
@@ -6225,6 +6225,12 @@ setTimeout(function(){
       var mb=el('<button class="ghost full" style="margin-top:12px;border-color:#6b4a2a;color:#e6b97a;">🧰 Upravit seznam činností</button>'); mb.addEventListener("click",function(){ go("moje_cinnosti"); }); box.appendChild(mb);
     });
   }
+  // Marti 15.6.: Web jako obrazovka UVNITŘ appky (iframe), ať hardwarové Zpět
+  // vrátí do Aplikací a neukončuje celou appku.
+  function webview(){
+    app.innerHTML=topbar("🌐 Web ekosystému", true);
+    app.appendChild(el('<iframe src="/web" style="display:block;width:100%;height:calc(100vh - 56px);border:0;background:var(--bg);"></iframe>'));
+  }
   function web_stats(){
     app.innerHTML=topbar("📈 Návštěvnost webu", true);
     var box=el('<div style="padding-bottom:100px;"></div>'); app.appendChild(box); box.innerHTML='<div class="hint">Načítám…</div>';
@@ -6247,7 +6253,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

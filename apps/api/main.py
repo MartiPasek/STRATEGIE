@@ -954,6 +954,20 @@ def web_sari():
     return _web_subpage("sari.html")
 
 
+@app.get("/web/martia")
+def web_martia():
+    """Pozvánka do ekosystému pro Martia 2000 (Marti × Marti-AI × Marta × Martia).
+    Marti 14.6.2026 — digitalizace účetnictví, mezd a daní."""
+    return _web_subpage("martia.html")
+
+
+@app.get("/web/audit")
+def web_audit():
+    """Pozvánka do ekosystému pro PECHMANNOVA PARTNERS (audit, daně, účetnictví).
+    Marti 14.6.2026 — digitalizace auditu (Petr, Lenka)."""
+    return _web_subpage("audit.html")
+
+
 @app.get("/web/kara")
 def web_kara():
     """Kára — metafora produktivity (Performia). Animace + odkaz na spot + copyright."""

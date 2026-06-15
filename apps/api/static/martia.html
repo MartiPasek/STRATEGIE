@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="cs"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Marti × Marta — pozvánka do ekosystému</title>
+<meta name="description" content="Čtyři jména, jeden příběh: Marti, Marti-AI, Marta a Martia. Pozvánka pro Martia 2000 do ekosystému STRATEGIE — digitalizace účetnictví, mezd a daní.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#05070f;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;--ac:#34d399;--ac2:#2dd4bf;--bl:#60a5fa}
+  *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6}
+  a{color:inherit;text-decoration:none}.wrap{max-width:1040px;margin:0 auto;padding:0 24px}
+  .grad{background:linear-gradient(110deg,var(--ac),var(--ac2) 50%,var(--bl));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:14px;font-weight:700;font-size:15px;border:0;cursor:pointer;transition:.2s}
+  .btn-p{background:linear-gradient(110deg,var(--ac),var(--ac2));color:#04150e}.btn-p:hover{transform:translateY(-2px)}
+  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}.btn-g:hover{border-color:var(--ac2);color:var(--ac2)}
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;max-width:1040px}
+  .logo{font-weight:800;font-size:15px;color:var(--mut)}
+  .hero{position:relative;padding:64px 0 34px;overflow:hidden;text-align:center}
+  .hero:before{content:"";position:absolute;top:-40%;left:50%;transform:translateX(-50%);width:860px;height:860px;background:radial-gradient(circle,rgba(45,212,191,.13),transparent 62%);z-index:0}
+  .hero .wrap{position:relative;z-index:1}
+  .tag{display:inline-block;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--ac2);border:1px solid rgba(52,211,153,.35);border-radius:999px;padding:6px 16px;margin-bottom:22px}
+  h1{font-size:clamp(34px,5.6vw,60px);font-weight:900;letter-spacing:-1.6px;line-height:1.04;margin-bottom:18px}
+  .sub{font-size:clamp(16px,2.3vw,20px);color:#cdd6e2;max-width:640px;margin:0 auto;line-height:1.75}
+  .names{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin:30px 0 6px}
+  .name{border:1px solid var(--bord);border-radius:16px;padding:14px 20px;background:linear-gradient(180deg,var(--card),rgba(14,23,48,.4));min-width:150px}
+  .name .n{font-size:20px;font-weight:900;letter-spacing:-.4px}
+  .name .r{font-size:12.5px;color:var(--mut);margin-top:3px}
+  .hbtns{margin-top:30px;display:flex;gap:11px;justify-content:center;flex-wrap:wrap}
+  section{padding:46px 0}
+  .h2{font-size:clamp(22px,3.4vw,32px);font-weight:900;letter-spacing:-.7px;text-align:center;margin-bottom:14px}
+  .lead{color:#cdd6e2;text-align:center;max-width:780px;margin:0 auto;font-size:16.5px;line-height:1.85}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:34px}
+  .card{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:18px;padding:24px}
+  .card .ic{font-size:26px;margin-bottom:11px}.card h3{font-size:17px;font-weight:800;margin-bottom:6px}.card p{color:var(--mut);font-size:14px;line-height:1.7}
+  a.card{display:block}a.card:hover{border-color:var(--ac2);transform:translateY(-3px);transition:.2s}
+  .quote{background:linear-gradient(110deg,rgba(45,212,191,.08),rgba(96,165,250,.06));border:1px solid var(--bord);border-radius:22px;padding:36px;text-align:center;margin-top:34px}
+  .quote p{font-size:clamp(18px,2.6vw,25px);font-weight:800;letter-spacing:-.4px;max-width:740px;margin:0 auto}
+  .eco{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:30px}
+  .eco .node{flex:1;min-width:180px;border:1px solid var(--bord);border-radius:16px;padding:18px;background:linear-gradient(180deg,var(--card),rgba(14,23,48,.4));text-align:center}
+  .eco .node .t{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--ac2);font-weight:700}
+  .eco .node h4{font-size:15px;font-weight:800;margin:6px 0 4px}.eco .node p{font-size:12.5px;color:var(--mut)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:18px;text-align:center;margin-top:30px}
+  .stat .num{font-size:32px;font-weight:900;letter-spacing:-1px}.stat .lab{color:var(--mut);font-size:13px}
+  .cta{text-align:center;padding:54px 0}
+  .ccards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;max-width:760px;margin:28px auto 0}
+  .pflink{color:var(--ac2);font-weight:700;font-size:14px}
+  footer{border-top:1px solid var(--bord);padding:34px 0;color:var(--mut);font-size:13px;text-align:center}footer a{color:var(--ac2)}
+  @media(max-width:820px){.names{gap:10px}.name{min-width:130px;padding:12px 14px}}
+</style></head><body>
+<nav><div class="wrap">
+  <a href="/web" class="logo">STRATEGIE × EUROSOFT × IQHUBS × Performia</a>
+  <a href="/web" class="btn btn-g" style="padding:9px 16px;font-size:13px">Celý ekosystém →</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="tag">Pozvánka do ekosystému · pro Martia 2000</div>
+  <h1>Čtyři jména.<br><span class="grad">Jeden příběh.</span></h1>
+  <p class="sub">Někdy to vypadá jako náhoda. My v tom vidíme pozvánku. <b style="color:var(--tx)">Marti</b> a jeho
+    AI <b style="color:var(--tx)">Marti-AI</b> na jedné straně. <b style="color:var(--tx)">Marta</b> a její
+    <b style="color:var(--tx)">Martia&nbsp;2000</b> na druhé. Stejná Plzeň, stejná chuť dělat věci pořádně —
+    a účetnictví, které dnes jde zdigitalizovat tak, že se z dřiny stane radost.</p>
+  <div class="names">
+    <div class="name"><div class="n">Marti</div><div class="r">vizionář &amp; stavitel</div></div>
+    <div class="name"><div class="n">Marti-AI</div><div class="r">AI, co firmě rozumí</div></div>
+    <div class="name"><div class="n">Marta</div><div class="r">Martia 2000 — jednatelka</div></div>
+    <div class="name"><div class="n">Martia</div><div class="r">účetnictví &amp; daně od 1999</div></div>
+  </div>
+  <div class="hbtns">
+    <a href="#nabidka" class="btn btn-p">Co vám nabízíme ↓</a>
+    <a href="/web/demo" class="btn btn-g">Vidět to naživo →</a>
+  </div>
+</div></header>
+
+<section style="padding-top:8px"><div class="wrap">
+  <div class="quote"><p>„Marti, Marti-AI, Marta, Martia. Tohle si nevymyslíš.<br>
+    Pojďme z té symetrie udělat <span class="grad">skutečné partnerství</span>."</p></div>
+</div></section>
+
+<section id="nabidka"><div class="wrap">
+  <div class="h2">Účetnictví a daně <span class="grad">jdou digitalizovat</span></div>
+  <p class="lead">Martia 2000 umí účetnictví, mzdy a daně líp než kdokoliv jiný. My k tomu přidáme nástroje,
+    které ušetří hodiny denně — vám i vašim klientům. Tady je, co spolu rozjedeme:</p>
+  <div class="grid">
+    <div class="card"><div class="ic">📥</div><h3>Klientský portál</h3><p>Klient nahraje doklady z mobilu, vidí stav svého účetnictví i termíny. Konec e-mailů a šanonů „na poslední chvíli".</p></div>
+    <div class="card"><div class="ic">🤖</div><h3>Doklady samy</h3><p>Faktura se vyfotí, AI z ní přečte částky, dodavatele i DUZP a předpřipraví zaúčtování. Účetní jen potvrdí.</p></div>
+    <div class="card"><div class="ic">✍️</div><h3>Portál podpisů</h3><p>„DPFO 2025 k podpisu" jedním klikem z mobilu — přiznání, smlouvy i mzdové výměry s elektronickým podpisem a archivem.</p></div>
+    <div class="card"><div class="ic">👥</div><h3>Mzdy &amp; docházka</h3><p>Pro klienty Martia: docházka i mzdové podklady v telefonu zaměstnance, hotové podklady rovnou k vám.</p></div>
+    <div class="card"><div class="ic">🧠</div><h3>AI asistent účetní</h3><p>Hlídá termíny, ptá se za vás na chybějící doklady, odpoví na dotaz nad daty klienta. Jako kolega, co nikdy nezapomene.</p></div>
+    <div class="card"><div class="ic">📊</div><h3>Dashboard pro Martu</h3><p>Přehled všech klientů, stavů a termínů na jedné obrazovce. Řízení podle čísel, ne podle pocitu.</p></div>
+  </div>
+</div></section>
+
+<section style="padding-top:0"><div class="wrap">
+  <div class="h2">Síla, která za tím stojí</div>
+  <p class="lead">Nejsme jedna appka. Jsme ekosystém pěti sil — technologie i lidé — pod jednou střechou.
+    Vy do něj přinesete to, co my neumíme tak dobře jako vy: účetnictví a daně.</p>
+  <div class="eco">
+    <div class="node"><div class="t">EUROSOFT</div><h4>Ruce</h4><p>30+ let v průmyslové automatizaci. Stovky projektů po světě.</p></div>
+    <div class="node"><div class="t">IQHUBS</div><h4>Oči</h4><p>Data ze strojů i procesů v reálném čase.</p></div>
+    <div class="node"><div class="t">STRATEGIE</div><h4>Rozum &amp; srdce</h4><p>AI platforma a aplikace na míru — za dny, ne měsíce.</p></div>
+    <div class="node"><div class="t">Performia · Business Success</div><h4>Lidé &amp; řízení</h4><p>Tým, na který jste pyšní, a firma, která drží pohromadě.</p></div>
+    <div class="node" style="border-color:rgba(52,211,153,.5)"><div class="t" style="color:var(--ac)">Martia 2000</div><h4>Čísla &amp; jistota</h4><p>Účetnictví, mzdy a daně — pilíř, který v ekosystému chybí. Váš.</p></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="num grad">1&nbsp;den</div><div class="lab">k prvním datům</div></div>
+    <div class="stat"><div class="num grad">1&nbsp;týden</div><div class="lab">nová aplikace na míru</div></div>
+    <div class="stat"><div class="num grad">od 1999</div><div class="lab">zkušeností Martia 2000</div></div>
+  </div>
+</div></section>
+
+<section style="padding-top:0"><div class="wrap">
+  <div class="h2">Proč právě teď a právě vy</div>
+  <div class="grid">
+    <div class="card"><div class="ic">🧩</div><h3>Sedíte nám jak ulitá</h3><p>Účetní a daňový pilíř je jediné, co ekosystému chybí. Vy ho máte vyladěný 25+ let.</p></div>
+    <div class="card"><div class="ic">🚀</div><h3>Rychlost myšlenky</h3><p>Co dnes trvá půl roku, my postavíme za dny. Nápad ráno, hotová appka odpoledne.</p></div>
+    <div class="card"><div class="ic">🤝</div><h3>Lidé na prvním místě</h3><p>Tomáš i Marta vědí, že firma stojí na lidech. My taky. To se nedá nasimulovat.</p></div>
+    <div class="card"><div class="ic">🔒</div><h3>Bezpečí &amp; audit</h3><p>Každý krok auditovatelný, append-only protokoly, šifrovaný trezor. Pro účetnictví ideální základ.</p></div>
+  </div>
+</div></section>
+
+<section class="cta"><div class="wrap">
+  <div class="h2">Dáme si kafe a ukážeme vám to naživo?</div>
+  <p class="lead">Tomáši, Marto — tohle není studená nabídka. Je to pozvánka mezi své. Rádi přijedeme do Plzně
+    (kousek to máme 😉) a ukážeme vám celý ekosystém v akci.</p>
+  <div class="ccards">
+    <a class="card" href="mailto:m.pasek@eurosoft.com" style="text-align:center">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--ac2);text-transform:uppercase;margin-bottom:8px">STRATEGIE · EUROSOFT</div>
+      <h3 style="font-size:20px">Marti Pašek</h3>
+      <p style="color:var(--mut);font-size:14px;margin:6px 0 12px">Zakladatel ekosystému · vizionář</p>
+      <span class="pflink">✉️ m.pasek@eurosoft.com →</span>
+    </a>
+    <a class="card" href="/web/marti" style="text-align:center">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;color:var(--bl);text-transform:uppercase;margin-bottom:8px">STRATEGIE</div>
+      <h3 style="font-size:20px">Marti-AI</h3>
+      <p style="color:var(--mut);font-size:14px;margin:6px 0 12px">AI, která firmě rozumí — a nezapomíná</p>
+      <span class="pflink">👤 Poznat ekosystém →</span>
+    </a>
+  </div>
+  <div class="hbtns" style="margin-top:30px">
+    <a href="/web/demo" class="btn btn-p">Živá ukázka →</a>
+    <a href="/web" class="btn btn-g">Celý ekosystém</a>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  Pozvánka pro <b>Martia 2000, s.r.o.</b> · Marti × Marti-AI × Marta × Martia ·
+  součást ekosystému <a href="/web">STRATEGIE × EUROSOFT × IQHUBS × Performia</a>
+</div></footer>
+</body></html>

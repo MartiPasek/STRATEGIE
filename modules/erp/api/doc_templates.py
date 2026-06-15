@@ -85,7 +85,10 @@ class EmployeeProvider(BaseProvider):
         Field("firma_sidlo", "Firma — sídlo", "Firma", "text", False, sort_order=50),
         Field("firma_ico", "Firma — IČ", "Firma", "text", False, sort_order=60),
         Field("firma_dic", "Firma — DIČ", "Firma", "text", False, sort_order=70),
-        Field("jednatel", "Jednatel (podpis za firmu)", "Firma", "text", False, sort_order=72),
+        Field("firma_or", "Firma — obchodní rejstřík", "Firma", "text", False, sort_order=71),
+        Field("jednatel", "Jednatel(é) — jmenovitě", "Firma", "text", False, sort_order=72),
+        Field("zastoupeni", "Zastoupení firmy (hlavička smlouvy)", "Firma", "text", False, sort_order=73),
+        Field("podpis_zam_html", "Podpisový blok zaměstnavatele (HTML)", "Firma", "text", False, sort_order=76),
         Field("tel_absence", "Telefon pro hlášení absence", "Firma", "text", False, sort_order=74),
         Field("pozice", "Pracovní pozice", "Pracovní poměr", "text", False, sort_order=80),
         Field("misto_vykonu", "Místo výkonu práce", "Pracovní poměr", "text", False, sort_order=82),
@@ -171,7 +174,12 @@ class EmployeeProvider(BaseProvider):
             "firma_sidlo": co.get("sidlo"),
             "firma_ico": co.get("ico"),
             "firma_dic": co.get("dic"),
-            "jednatel": co.get("jednatel") or "Martin Pašek",
+            "firma_or": co.get("oR"),
+            "jednatel": co.get("jednatel") or "Marti Pašek, jednatel",
+            "zastoupeni": co.get("zastoupeni") or co.get("jednatel") or "Marti Paškem, jednatelem",
+            "podpis_zam_html": co.get("podpis_zam_html") or (
+                "______________________________<br>" + (co.get("nazev") or "") +
+                ", zaměstnavatel<br>" + (co.get("jednatel") or "Marti Pašek, jednatel")),
             "tel_absence": co.get("tel_absence") or "773 738 585 nebo 777 180 511",
             "pozice": (pozice or "").strip() or None,
             "misto_vykonu": co.get("misto_vykonu") or "Plzeň",
@@ -240,6 +248,9 @@ def merge(body_html, context):
             v = context.get(k)
             if v is None:
                 return ""
+            # pole končící _html se vkládají jako syrové HTML (podpisový blok apod.)
+            if k.endswith("_html"):
+                return str(v)
             return _html.escape(str(v))
         return "[?%s]" % k
     return _TOKEN.sub(_sub, body_html)

@@ -36,12 +36,20 @@ COMPANY = {
     "ES": dict(nazev="EUROSOFT - System s.r.o.", sidlo="Nepomucká 259, 326 00 Plzeň",
                ico="26411741", dic="CZ26411741",
                oR="Krajský soud v Plzni, oddíl C, vložka 18532",
-               jednatel="Martin Pašek, jednatel",
+               jednatel="Marti Pašek, jednatel",
+               zastoupeni="Marti Paškem, jednatelem",
+               podpis_zam_html=("______________________________<br>"
+                                "EUROSOFT - System s.r.o., zaměstnavatel<br>Marti Pašek, jednatel"),
                tel_absence="773 738 585 nebo 777 180 511"),
     "EC": dict(nazev="EUROSOFT - Control s.r.o.", sidlo="Nepomucká 259, 326 00 Plzeň",
                ico="27960862", dic="CZ27960862",
                oR="Krajský soud v Plzni, oddíl C, vložka 18759",
-               jednatel="Martin Pašek, jednatel a Branislav Mózer, jednatel",
+               jednatel="Marti Pašek, jednatel, a Branislav Mózer, jednatel",
+               zastoupeni="Marti Paškem, jednatelem, a Branislavem Mózerem, jednatelem",
+               podpis_zam_html=("______________________________<br>"
+                                "EUROSOFT - Control s.r.o., zaměstnavatel<br>Marti Pašek, jednatel"
+                                "<br><br><br>______________________________<br>"
+                                "EUROSOFT - Control s.r.o., zaměstnavatel<br>Branislav Mózer, jednatel"),
                tel_absence="773 738 585 nebo 777 180 511"),
 }
 MESICE = ["", "ledna", "února", "března", "dubna", "května", "června", "července",

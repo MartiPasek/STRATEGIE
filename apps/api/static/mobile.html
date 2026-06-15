@@ -1668,6 +1668,10 @@ setTimeout(function(){
     app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Externí personalistika — kandidáti a jejich pipeline. Data převzatá z Centrály. Po přijetí kandidát „přeteče" do interní personalistiky (onboarding).</div>'));
     var dash=el('<div id="nbDash" class="hint" style="margin:0 6px 10px;">Načítám pipeline…</div>');
     app.appendChild(dash);
+    // 📥 Import CV — Šárka nahraje životopis, systém ho přečte a předvyplní kartu uchazeče
+    var imp=el('<button style="margin:6px;padding:11px 16px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;width:calc(100% - 12px);">📥 Importovat CV (PDF) — předvyplní kandidáta</button>');
+    imp.addEventListener("click",function(){ cvImport(); });
+    app.appendChild(imp);
     var l=el('<div class="list"></div>');
     l.appendChild(row("👤","Kandidáti","Všichni uchazeči — profil v kontextu",function(){ window._nbFilter={phase:"",title:"👤 Kandidáti"}; go("hr_nabor_list"); }));
     l.appendChild(row("💬","Pohovory — ve hře","Aktivní pipeline: Ve hře / 1. a 2. kolo",function(){ window._nbFilter={phase:"active",title:"💬 Pohovory — ve hře"}; go("hr_nabor_list"); }));
@@ -1680,6 +1684,56 @@ setTimeout(function(){
       dash.innerHTML='<div style="background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:12px;">'+
         '<div style="font-weight:700;margin-bottom:6px;">📊 Pipeline · '+j.candidates+' kandidátů · '+j.total+' přihlášek</div>'+bars+'</div>';
     });
+  }
+  // Import CV: vyber PDF → base64 → server přečte + LLM strukturuje → karta uchazeče
+  function cvImport(){
+    var fi=el('<input type="file" accept=".pdf,.doc,.docx,.rtf,.txt,image/*" style="display:none;">');
+    fi.addEventListener("change",function(){
+      var f=fi.files&&fi.files[0]; if(!f)return;
+      if(f.size>25*1024*1024){ alert("Soubor je moc velký (max 25 MB)."); return; }
+      go("hr_cv_result"); // přepni na obrazovku s průběhem
+      var box=document.getElementById("cvResBox");
+      if(box) box.innerHTML='<div class="hint">⏳ Čtu životopis a vytahuji údaje… (pár vteřin)</div>';
+      var fr=new FileReader();
+      fr.onload=function(){
+        var b64=String(fr.result).split(",")[1]||"";
+        api("POST","/api/v1/erp/app/recruit/cv-import",{file_b64:b64,filename:f.name||"cv.pdf",position:""}).then(function(r){
+          renderCvResult(r);
+        }).catch(function(){ renderCvResult({ok:false,error:"Nepodařilo se odeslat."}); });
+      };
+      fr.readAsDataURL(f);
+    });
+    document.body.appendChild(fi); fi.click();
+    setTimeout(function(){ try{document.body.removeChild(fi);}catch(e){} },60000);
+  }
+  function hr_cv_result(){
+    app.innerHTML=topbar("📥 Import CV", true);
+    app.appendChild(el('<div id="cvResBox" class="list"><div class="hint">⏳ Zpracovávám…</div></div>'));
+  }
+  function renderCvResult(r){
+    var box=document.getElementById("cvResBox"); if(!box)return;
+    if(!r||!r.ok){
+      box.innerHTML='<div class="hint" style="color:#f87171;">✗ '+esc((r&&r.error)||"Nepodařilo se zpracovat.")+'</div>';
+      return;
+    }
+    var c=r.card||{};
+    function fld(lbl,val){ if(!val&&val!==0)return ""; return '<div style="display:flex;gap:8px;margin:4px 0;font-size:14px;"><span style="min-width:120px;color:var(--mut);">'+lbl+'</span><b style="flex:1;">'+esc(String(val))+'</b></div>'; }
+    var warn = r.scanned ? '<div class="hint" style="color:#fbbf24;margin:6px 0;">⚠ Naskenované PDF bez textové vrstvy — údaje doplň ručně v detailu.</div>' : '';
+    box.innerHTML=
+      '<div style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.4);border-radius:12px;padding:12px;margin:6px;">'+
+        '<div style="font-weight:700;font-size:16px;margin-bottom:6px;">✅ Uchazeč založen</div>'+ warn +
+        fld("Jméno", c.jmeno)+ fld("E-mail", c.email)+ fld("Telefon", c.telefon)+
+        fld("Narození", c.narozeni)+ fld("Vzdělání", c.vzdelani)+
+        fld("Poslední zam.", c.posl_zam)+ fld("Jazyky", c.jazyky)+
+        fld("Praxe", c.praxe)+ fld("Oček. plat", (c.plat!=null?(c.plat+" Kč"):""))+
+        (c.shrnuti?('<div style="margin-top:6px;font-style:italic;color:var(--tx);">"'+esc(c.shrnuti)+'"</div>'):'')+
+      '</div>';
+    var det=el('<button style="margin:6px;padding:11px 16px;border:0;border-radius:12px;background:#4f8ef7;color:#fff;font-weight:700;cursor:pointer;width:calc(100% - 12px);">Otevřít v náboru →</button>');
+    det.addEventListener("click",function(){ window._nbAppId=r.application_id; go("hr_nabor_detail"); });
+    box.appendChild(det);
+    var another=el('<button style="margin:6px;padding:11px 16px;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,.04);color:var(--tx);cursor:pointer;width:calc(100% - 12px);">📥 Importovat další CV</button>');
+    another.addEventListener("click",function(){ cvImport(); });
+    box.appendChild(another);
   }
   // Inzeráty → Teamio (Jobs.cz/Práce.cz). Připraveno na API; publikace/stahování čeká na přístupy LMC (pondělí).
   function hr_inzeraty(){
@@ -6256,7 +6310,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

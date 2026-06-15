@@ -6936,6 +6936,218 @@ async def app_recruit_pull_replies(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _recruit_cv_dir() -> str:
+    """Složka pro archiv životopisů uchazečů (mimo veřejné static)."""
+    import os as _os_cv
+    base = _os_cv.environ.get("RECRUIT_CV_DIR")
+    if not base:
+        from core.config import settings as _st_cv
+        media = getattr(_st_cv, "media_storage_root", "D:/Data/STRATEGIE/media")
+        base = _os_cv.path.join(_os_cv.path.dirname(media.rstrip("/\\")), "recruit_cv")
+    _os_cv.makedirs(base, exist_ok=True)
+    return base
+
+
+_CV_LLM_SYSTEM = (
+    "Jsi pečlivý HR asistent. Z textu životopisu (CV) vytáhneš strukturovaná data "
+    "a vrátíš VÝHRADNĚ jeden JSON objekt, nic víc, bez markdownu a bez komentářů. "
+    "Když údaj v CV není, dej null (u textů prázdný řetězec). Neodhaduj, neměň fakta. "
+    "Klíče: jmeno (string), email (string), telefon (string), narozeni (string, datum "
+    "jak je v CV), vzdelani (string, nejvyšší dosažené + obor), posledni_zamestnavatel "
+    "(string), praxe (string, krátké shrnutí praxe 1-3 věty), jazyky (string, cizí jazyky "
+    "a úroveň), ocekavany_plat (number nebo null), shrnuti (string, 1-2 věty kdo to je "
+    "a na co se hodí)."
+)
+
+
+def _cv_llm_extract(cv_text: str) -> dict:
+    """CV text → strukturovaný dict přes Haiku. Při chybě vrací {} (importer
+    pak uloží aspoň surový text do poznámky)."""
+    import json as _json
+    import re as _re
+    try:
+        import anthropic as _anthropic
+        from core.config import settings as _st_llm
+        if not getattr(_st_llm, "anthropic_api_key", None):
+            return {}
+        client = _anthropic.Anthropic(api_key=_st_llm.anthropic_api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            system=_CV_LLM_SYSTEM,
+            messages=[{"role": "user", "content": cv_text[:18000]}],
+        )
+        raw = "\n".join(b.text for b in msg.content if hasattr(b, "text") and b.text).strip()
+        raw = _re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = _re.sub(r"\s*```$", "", raw).strip()
+        # vytáhni první {...} blok pro jistotu
+        m = _re.search(r"\{.*\}", raw, _re.DOTALL)
+        if m:
+            raw = m.group(0)
+        d = _json.loads(raw)
+        return d if isinstance(d, dict) else {}
+    except Exception as exc:
+        logger.warning("[cv-import] LLM extract failed: %s", exc)
+        return {}
+
+
+@api_router.post("/app/recruit/cv-import")
+async def app_recruit_cv_import(req: Request) -> JSONResponse:
+    """Šárka nahraje PDF životopis (base64 v JSON — funguje v APK i PWA) → extrakce
+    textu → LLM strukturuje → založí (nebo doplní podle e-mailu) uchazeče + přihlášku
+    ve fázi 'Ve hře' → notifikace. PR cíl: okamžitě předvyplněná karta. Rodiče + HR."""
+    import base64 as _b64_ci
+    import os as _os_ci
+    import tempfile as _tmp_ci
+    import time as _time_ci
+    from sqlalchemy import text as _t
+
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    fname = (str(body.get("filename") or "cv")).strip()
+    position = (str(body.get("position") or "")).strip()
+    b64 = body.get("file_b64") or ""
+    ext = (_os_ci.path.splitext(fname)[1] or ".pdf").lower()
+    if ext not in (".pdf", ".doc", ".docx", ".rtf", ".txt", ".png", ".jpg", ".jpeg"):
+        return JSONResponse({"ok": False, "error": "Podporované: PDF, DOC(X), RTF, TXT, obrázek."}, status_code=400)
+
+    try:
+        data = _b64_ci.b64decode(b64) if b64 else b""
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Soubor se nepodařilo načíst."}, status_code=400)
+    if not data:
+        return JSONResponse({"ok": False, "error": "Prázdný soubor."}, status_code=400)
+    if len(data) > 25 * 1024 * 1024:
+        return JSONResponse({"ok": False, "error": "Soubor je příliš velký (>25 MB)."}, status_code=400)
+
+    # extrakce textu
+    tmp = _os_ci.path.join(_tmp_ci.gettempdir(), "cv_%d%s" % (int(_time_ci.time() * 1000), ext))
+    cv_text = ""
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        from modules.rag.application.extraction import extract_text as _extract_text
+        cv_text = (_extract_text(tmp) or "").strip()
+    except Exception as exc:
+        logger.warning("[cv-import] extract_text failed: %s", exc)
+    finally:
+        try:
+            _os_ci.remove(tmp)
+        except Exception:
+            pass
+
+    scanned = len(cv_text) < 40  # naskenované PDF bez textové vrstvy
+    ex = {} if scanned else _cv_llm_extract(cv_text)
+
+    jmeno = (ex.get("jmeno") or "").strip() or "(uchazeč z CV)"
+    email = (ex.get("email") or "").strip() or None
+    telefon = (ex.get("telefon") or "").strip() or None
+    vzdelani = (ex.get("vzdelani") or "").strip() or None
+    posl_zam = (ex.get("posledni_zamestnavatel") or "").strip() or None
+    jazyky = (ex.get("jazyky") or "").strip() or None
+    narozeni = (ex.get("narozeni") or "").strip()
+    praxe = (ex.get("praxe") or "").strip()
+    shrnuti = (ex.get("shrnuti") or "").strip()
+    try:
+        plat = float(ex.get("ocekavany_plat")) if ex.get("ocekavany_plat") not in (None, "") else None
+    except Exception:
+        plat = None
+    note_parts = []
+    if narozeni:
+        note_parts.append("Narození: " + narozeni)
+    if praxe:
+        note_parts.append("Praxe: " + praxe)
+    if shrnuti:
+        note_parts.append(shrnuti)
+    note_parts.append("Import z CV (appka) " + _time_ci.strftime("%d.%m.%Y"))
+    note = "\n".join(note_parts)[:4000]
+
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+        # autor importu
+        au = s.execute(_t("SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
+                          "FROM public.users WHERE id=:u"), {"u": uid}).scalar()
+        autor = au or "HR"
+
+        # archiv CV souboru
+        cv_rel = None
+        try:
+            slug = "".join(ch for ch in (email or jmeno) if ch.isalnum() or ch in "._-")[:40] or "cv"
+            cv_name = "%s_%d%s" % (slug, int(_time_ci.time()), ext)
+            with open(_os_ci.path.join(_recruit_cv_dir(), cv_name), "wb") as fh:
+                fh.write(data)
+            cv_rel = cv_name
+        except Exception as exc:
+            logger.warning("[cv-import] CV save failed: %s", exc)
+
+        # dedup podle e-mailu
+        cand_id = None
+        if email:
+            cand_id = s.execute(_t("SELECT id FROM tenant.recruit_candidate "
+                                   "WHERE tenant_id=2 AND lower(email)=lower(:e) "
+                                   "ORDER BY id LIMIT 1"), {"e": email}).scalar()
+        if cand_id:
+            s.execute(_t(
+                "UPDATE tenant.recruit_candidate SET "
+                " full_name=COALESCE(NULLIF(:nm,''),full_name), "
+                " phone=COALESCE(:ph,phone), education=COALESCE(:ed,education), "
+                " langs_foreign=COALESCE(:lf,langs_foreign), last_employer=COALESCE(:le,last_employer), "
+                " expected_salary=COALESCE(:sal,expected_salary), "
+                " note=COALESCE(note||E'\\n','')||:nt "
+                "WHERE id=:i"),
+                {"nm": jmeno if jmeno != "(uchazeč z CV)" else "", "ph": telefon, "ed": vzdelani,
+                 "lf": jazyky, "le": posl_zam, "sal": plat, "nt": note, "i": cand_id})
+        else:
+            cand_id = s.execute(_t(
+                "INSERT INTO tenant.recruit_candidate "
+                " (tenant_id, full_name, email, phone, education, langs_foreign, last_employer, "
+                "  expected_salary, note, created_at) "
+                "VALUES (2, :nm, :em, :ph, :ed, :lf, :le, :sal, :nt, now()) RETURNING id"),
+                {"nm": jmeno, "em": email, "ph": telefon, "ed": vzdelani, "lf": jazyky,
+                 "le": posl_zam, "sal": plat, "nt": note}).scalar()
+
+        # přihláška ve fázi 'Ve hře' (phase_id=1)
+        app_id = s.execute(_t(
+            "INSERT INTO tenant.recruit_application "
+            " (tenant_id, candidate_id, position_text, phase_id, status, expected_salary, "
+            "  note, recruiter_user_id, changed_by_text, changed_at, created_at) "
+            "VALUES (2, :cid, :pos, 1, 'nový', :sal, :nt, :ruid, :au, now(), now()) RETURNING id"),
+            {"cid": cand_id, "pos": (position or "").strip() or None, "sal": plat,
+             "nt": ("CV: " + cv_rel) if cv_rel else "Import z CV", "ruid": uid, "au": autor}).scalar()
+
+        # notifikace importérovi (potvrzení) — PR: hned víme, koho máme
+        title = "🧲 Nový uchazeč z CV"
+        body = jmeno + (" — " + position.strip() if position.strip() else "")
+        if scanned:
+            body += " (naskenované PDF bez textu — doplň ručně)"
+        _abs_notify(s, uid, title, body)
+        s.commit()
+
+        return JSONResponse({"ok": True, "candidate_id": cand_id, "application_id": app_id,
+                             "scanned": scanned, "extracted": bool(ex),
+                             "card": {
+                                 "jmeno": jmeno, "email": email or "", "telefon": telefon or "",
+                                 "narozeni": narozeni, "vzdelani": vzdelani or "",
+                                 "posl_zam": posl_zam or "", "praxe": praxe, "jazyky": jazyky or "",
+                                 "plat": plat, "shrnuti": shrnuti, "pozice": (position or "").strip(),
+                                 "cv_soubor": cv_rel or ""}})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[cv-import] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/recruit/list")
 async def app_recruit_list(req: Request) -> JSONResponse:
     """Nábor — seznam přihlášek (?phase=label | 'active' | 'hired', ?q=). Rodiče + HR."""

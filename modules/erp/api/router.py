@@ -16903,9 +16903,9 @@ async def diag_sql(req: Request) -> JSONResponse:
     _s_chk = _re_ds.sub(r"/\*.*?\*/", " ", _s_chk, flags=_re_ds.S).strip()
     _is_read = bool(_re_ds.match(r"\s*(SELECT|WITH|EXPLAIN|SHOW)\b", _s_chk, _re_ds.I))
     if not _is_read:
-        if db != "pg":
+        if db not in ("pg", "mssql"):
             return JSONResponse({"ok": False,
-                                 "error": "Write přes bridge zatím jen pro PG (Krok 2)."})
+                                 "error": "Write přes bridge jen pro PG nebo MSSQL."})
         from core.database_data import get_data_session as _gw_ds
         from sqlalchemy import text as _tw_ds
         _wds = _gw_ds()
@@ -17121,19 +17121,40 @@ def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
             return {"ok": True, "status": "rejected"}
 
         sql = row["sql_text"]
+        _dbt = (row["db_target"] or "pg")
         err = None
         rc = None
-        try:
-            from modules.strategie_pg.application.service import get_session as _pgs
-            with _pgs() as s:
-                r = s.execute(_td(sql))
-                try:
-                    rc = r.rowcount
-                except Exception:
-                    rc = None
-                s.commit()
-        except Exception as exc:
-            err = "%s: %s" % (type(exc).__name__, exc)
+        if _dbt == "mssql":
+            # Marti 15.6.: MSSQL write přes EUROSOFT MCP (raw) — schválený banner → DB_EC.
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                import json as _jx
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    err = "EUROSOFT MCP nedostupný"
+                else:
+                    rj = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                            {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                    res = _jx.loads(rj) if isinstance(rj, str) else (rj or {})
+                    if isinstance(res, dict) and res.get("ok"):
+                        rc = res.get("count") if res.get("count") is not None else res.get("rowcount")
+                    else:
+                        err = (str(res.get("error") or res.get("message") or res)
+                               if isinstance(res, dict) else str(res))
+            except Exception as exc:
+                err = "%s: %s" % (type(exc).__name__, exc)
+        else:
+            try:
+                from modules.strategie_pg.application.service import get_session as _pgs
+                with _pgs() as s:
+                    r = s.execute(_td(sql))
+                    try:
+                        rc = r.rowcount
+                    except Exception:
+                        rc = None
+                    s.commit()
+            except Exception as exc:
+                err = "%s: %s" % (type(exc).__name__, exc)
 
         if err:
             ds.execute(_td("UPDATE fw.claude_write_request SET status='error', error=:e, "

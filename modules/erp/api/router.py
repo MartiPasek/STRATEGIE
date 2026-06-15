@@ -14257,6 +14257,32 @@ def _att_is_working(s, emp: int) -> bool:
     return bool(r) and (r[0] in ("work", "overhead", ""))
 
 
+def _att_apply_work_selection(s, emp: int, project_ref, is_rezie) -> None:
+    """Marti 15.6.: promítne výběr zakázka/režie do BĚŽÍCÍHO pracovního att_entry,
+    aby přehledy klasifikovaly správně. Režie => typ 'overhead' (= maká, ne 'čekám').
+    Mění typ a project_ref IN-PLACE (žádné dělení záznamu). Nesahá na pauzu/cestu/konec dne."""
+    from sqlalchemy import text as _t
+    cur = s.execute(_t(
+        "SELECT a.id, COALESCE(et.code,'') FROM tenant.att_entry a "
+        "LEFT JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+        "WHERE a.tenant_id=:t AND a.employee_id=:e AND a.is_active=true ORDER BY a.id DESC LIMIT 1"),
+        {"t": _ATT_TENANT, "e": emp}).first()
+    if not cur or cur[1] in ("break", "day_end", "commute"):
+        return
+    if is_rezie:
+        ot = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='overhead'"),
+                       {"t": _ATT_TENANT}).scalar()
+        if ot:
+            s.execute(_t("UPDATE tenant.att_entry SET entry_type_id=:ty, project_ref=NULL, updated_at=now() WHERE id=:id"),
+                      {"ty": ot, "id": cur[0]})
+    else:
+        wt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='work'"),
+                       {"t": _ATT_TENANT}).scalar()
+        s.execute(_t("UPDATE tenant.att_entry SET entry_type_id=COALESCE(:ty,entry_type_id), "
+                     "project_ref=:pr, updated_at=now() WHERE id=:id"),
+                  {"ty": wt, "pr": project_ref, "id": cur[0]})
+
+
 def _wp_get(s, uid: int):
     from sqlalchemy import text as _t
     return s.execute(_t(
@@ -14365,6 +14391,7 @@ async def app_work_set_zakazka(req: Request) -> JSONResponse:
         if _att_is_working(s, emp):
             _wa_open(s, uid, project_ref=pr, project_nazev=pn,
                      cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=False)
+            _att_apply_work_selection(s, emp, pr, False)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -14391,6 +14418,7 @@ async def app_work_set_rezie(req: Request) -> JSONResponse:
         if _att_is_working(s, emp):
             _wa_open(s, uid, project_ref=None, project_nazev=None,
                      cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=True)
+            _att_apply_work_selection(s, emp, None, True)
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -14530,6 +14558,7 @@ async def att_checkin(req: Request) -> JSONResponse:
                 _rz = (kind == "overhead") or (bool(_pref["is_rezie"]) if (_pref and not project_ref) else False)
                 _wa_open(s, uid, project_ref=_pr, project_nazev=_pn,
                          cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=_rz)
+                _att_apply_work_selection(s, emp, _pr, _rz)
             except Exception:
                 pass
         s.commit()

@@ -1669,9 +1669,12 @@ setTimeout(function(){
     var dash=el('<div id="nbDash" class="hint" style="margin:0 6px 10px;">Načítám pipeline…</div>');
     app.appendChild(dash);
     // 📥 Import CV — Šárka nahraje životopis, systém ho přečte a předvyplní kartu uchazeče
-    var imp=el('<button style="margin:6px;padding:11px 16px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;width:calc(100% - 12px);">📥 Importovat CV (PDF) — předvyplní kandidáta</button>');
-    imp.addEventListener("click",function(){ cvImport(); });
+    var imp=el('<button style="margin:6px;padding:11px 16px;border:0;border-radius:12px;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;width:calc(100% - 12px);">📥 Importovat CV (PDF/soubor) — předvyplní kandidáta</button>');
+    imp.addEventListener("click",function(){ cvImport(false); });
     app.appendChild(imp);
+    var cam=el('<button style="margin:0 6px 6px;padding:11px 16px;border:1px solid rgba(52,211,153,.5);border-radius:12px;background:rgba(52,211,153,.08);color:#5ee0b7;font-weight:700;cursor:pointer;width:calc(100% - 12px);">📷 Vyfotit CV fotoaparátem</button>');
+    cam.addEventListener("click",function(){ cvImport(true); });
+    app.appendChild(cam);
     var l=el('<div class="list"></div>');
     l.appendChild(row("👤","Kandidáti","Všichni uchazeči — profil v kontextu",function(){ window._nbFilter={phase:"",title:"👤 Kandidáti"}; go("hr_nabor_list"); }));
     l.appendChild(row("💬","Pohovory — ve hře","Aktivní pipeline: Ve hře / 1. a 2. kolo",function(){ window._nbFilter={phase:"active",title:"💬 Pohovory — ve hře"}; go("hr_nabor_list"); }));
@@ -1685,9 +1688,14 @@ setTimeout(function(){
         '<div style="font-weight:700;margin-bottom:6px;">📊 Pipeline · '+j.candidates+' kandidátů · '+j.total+' přihlášek</div>'+bars+'</div>';
     });
   }
-  // Import CV: vyber PDF → base64 → server přečte + LLM strukturuje → karta uchazeče
-  function cvImport(){
-    var fi=el('<input type="file" accept=".pdf,.doc,.docx,.rtf,.txt,image/*" style="display:none;">');
+  // Import CV: vyber PDF nebo vyfoť → base64 → server přečte + LLM strukturuje → karta uchazeče
+  function cvImport(camera){
+    var fi;
+    if(camera){
+      fi=el('<input type="file" accept="image/*" capture="environment" style="display:none;">');
+    } else {
+      fi=el('<input type="file" accept=".pdf,.doc,.docx,.rtf,.txt,image/*" style="display:none;">');
+    }
     fi.addEventListener("change",function(){
       var f=fi.files&&fi.files[0]; if(!f)return;
       if(f.size>25*1024*1024){ alert("Soubor je moc velký (max 25 MB)."); return; }
@@ -1697,7 +1705,9 @@ setTimeout(function(){
       var fr=new FileReader();
       fr.onload=function(){
         var b64=String(fr.result).split(",")[1]||"";
-        api("POST","/api/v1/erp/app/recruit/cv-import",{file_b64:b64,filename:f.name||"cv.pdf",position:""}).then(function(r){
+        var fn=f.name||"";
+        if(!fn){ var mt=(f.type||""); fn = mt.indexOf("png")>=0?"cv.png" : (mt.indexOf("image")>=0?"cv.jpg":"cv.pdf"); }
+        api("POST","/api/v1/erp/app/recruit/cv-import",{file_b64:b64,filename:fn,position:""}).then(function(r){
           renderCvResult(r);
         }).catch(function(){ renderCvResult({ok:false,error:"Nepodařilo se odeslat."}); });
       };

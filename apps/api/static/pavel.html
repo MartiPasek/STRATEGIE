@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="cs"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pavel Zeman — obchod pro německý trh · EUROSOFT</title>
+<meta name="description" content="Pavel Zeman — vrchní obchodník EUROSOFTU pro německý trh s rozvaděči. Jeho silou jsou lidé, vztahy a zápal pro obchod.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#05070f;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;--ac:#ff8a3d;--ac2:#fbbf24;--bl:#60a5fa}
+  *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6}
+  a{color:inherit;text-decoration:none}.wrap{max-width:1040px;margin:0 auto;padding:0 24px}
+  .grad{background:linear-gradient(110deg,var(--ac),var(--ac2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:14px;font-weight:700;font-size:15px;border:0;cursor:pointer;transition:.2s}
+  .btn-p{background:linear-gradient(110deg,var(--ac),var(--ac2));color:#1a1004}.btn-p:hover{transform:translateY(-2px)}
+  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}.btn-g:hover{border-color:var(--ac);color:var(--ac)}
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;max-width:1040px}
+  .logo{font-weight:800;font-size:15px;color:var(--mut)}
+  .hero{position:relative;padding:60px 0 30px;overflow:hidden}
+  .hero:before{content:"";position:absolute;top:-40%;right:-10%;width:760px;height:760px;background:radial-gradient(circle,rgba(255,138,61,.13),transparent 62%);z-index:0}
+  .hgrid{position:relative;z-index:1;display:grid;grid-template-columns:1.15fr .85fr;gap:40px;align-items:center}
+  .tag{display:inline-block;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--ac2);border:1px solid rgba(251,191,36,.35);border-radius:999px;padding:6px 16px;margin-bottom:20px}
+  h1{font-size:clamp(34px,5.4vw,56px);font-weight:900;letter-spacing:-1.4px;line-height:1.05;margin-bottom:16px}
+  .sub{font-size:clamp(16px,2.3vw,20px);color:#cdd6e2;max-width:520px;line-height:1.7}
+  .role{margin-top:16px;font-size:14px;color:var(--ac2);font-weight:700;letter-spacing:.3px}
+  .hbtns{margin-top:26px;display:flex;gap:11px;flex-wrap:wrap}
+  .photo{position:relative}
+  .photo img{width:100%;max-width:380px;border-radius:24px;display:block;margin-left:auto;border:1px solid var(--bord);box-shadow:0 30px 70px rgba(0,0,0,.5),0 0 0 6px rgba(255,138,61,.08)}
+  section{padding:44px 0}
+  .h2{font-size:clamp(22px,3.4vw,32px);font-weight:900;letter-spacing:-.7px;text-align:center;margin-bottom:14px}
+  .lead{color:#cdd6e2;text-align:center;max-width:760px;margin:0 auto;font-size:16.5px;line-height:1.85}
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:30px;align-items:center;background:linear-gradient(180deg,var(--card),rgba(14,23,48,.4));border:1px solid var(--bord);border-radius:24px;padding:34px}
+  .feat h3{font-size:clamp(20px,2.8vw,26px);font-weight:900;letter-spacing:-.5px;margin-bottom:12px}
+  .feat p{color:var(--mut);font-size:15.5px;line-height:1.8}
+  .qa{display:grid;gap:12px}
+  .qa div{background:rgba(5,7,15,.5);border:1px solid var(--bord);border-radius:14px;padding:13px 16px}
+  .qa b{color:var(--ac2);font-size:14px}.qa span{color:#cdd6e2;font-size:14.5px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:34px}
+  .card{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:18px;padding:24px}
+  .card .ic{font-size:25px;margin-bottom:11px}.card h3{font-size:17px;font-weight:800;margin-bottom:6px}.card p{color:var(--mut);font-size:14px}
+  .quote{background:linear-gradient(110deg,rgba(255,138,61,.08),rgba(96,165,250,.06));border:1px solid var(--bord);border-radius:22px;padding:34px;text-align:center;margin-top:30px}
+  .quote p{font-size:clamp(18px,2.6vw,24px);font-weight:800;letter-spacing:-.4px;max-width:720px;margin:0 auto}
+  .quote .who{display:block;margin-top:14px;font-size:14px;font-weight:700;color:var(--ac2)}
+  .cta{text-align:center;padding:50px 0}
+  .clist{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+  footer{border-top:1px solid var(--bord);padding:34px 0;color:var(--mut);font-size:13px;text-align:center}footer a{color:var(--ac2)}
+  @media(max-width:820px){.hgrid{grid-template-columns:1fr;gap:28px;text-align:center}.sub{margin:0 auto}.hbtns{justify-content:center}
+    .photo img{margin:0 auto}.feat{grid-template-columns:1fr;padding:26px}}
+</style></head><body>
+<nav><div class="wrap">
+  <a href="/web" class="logo">STRATEGIE × EUROSOFT × IQHUBS × Performia</a>
+  <a href="/web" class="btn btn-g" style="padding:9px 16px;font-size:13px">← Zpět na ekosystém</a>
+</div></nav>
+
+<header class="hero"><div class="wrap"><div class="hgrid">
+  <div>
+    <div class="tag">EUROSOFT · obchod · německý trh</div>
+    <h1>Pavel Zeman</h1>
+    <p class="sub">Vrchní obchodník pro <span class="grad">německý trh s rozvaděči</span>. Jeho silou jsou
+      lidé a vztahy — zapálený do obchodu a odhodlaný dokázat, že na to má.</p>
+    <div class="role">Vrchní obchodník — německý trh (rozvaděče)</div>
+    <div class="hbtns">
+      <a href="#pribeh" class="btn btn-p">Co dělám ↓</a>
+      <a href="/web" class="btn btn-g">Celý ekosystém →</a>
+    </div>
+  </div>
+  <div class="photo">
+    <img src="/static/img/pavel.jpg" alt="Pavel Zeman" loading="lazy">
+  </div>
+</div></div></header>
+
+<section id="pribeh"><div class="wrap">
+  <div class="feat">
+    <div>
+      <h3>Obchod je o lidech</h3>
+      <p>Pavel se stará o <b style="color:var(--tx)">německý trh s rozvaděči</b> — od prvního kontaktu
+        po uzavřený obchod. Tabulky a počítače přenechává kolegům; jeho nástroj je telefon, stisk ruky
+        a dobrý vztah se zákazníkem.<br><br>
+        Lidi má rád, obchod ho baví a jde si za výsledkem se zápalem, který je nakažlivý. Chce dokázat,
+        že to dokáže — a to je přesně ten typ tahu na branku, který německý trh ocení.</p>
+    </div>
+    <div class="qa">
+      <div><b>🇩🇪 Německý trh</b><br><span>Obchod s rozvaděči pro německé zákazníky.</span></div>
+      <div><b>🤝 Vztahy</b><br><span>Od prvního kontaktu po dlouhodobé partnerství.</span></div>
+      <div><b>⚡ Zápal</b><br><span>Do obchodu jde naplno a s odhodláním.</span></div>
+      <div><b>🔌 Rozvaděče</b><br><span>Spojka mezi zákazníkem a výrobou EUROSOFTU.</span></div>
+    </div>
+  </div>
+</div></section>
+
+<section style="padding-top:0"><div class="wrap">
+  <div class="h2">Čím je</div>
+  <div class="grid">
+    <div class="card"><div class="ic">🤝</div><h3>Lidskost</h3><p>Obchod staví na vztahu a důvěře, ne na formuláři.</p></div>
+    <div class="card"><div class="ic">🎯</div><h3>Tah na branku</h3><p>Jde si za výsledkem a dotahuje obchod do konce.</p></div>
+    <div class="card"><div class="ic">🔥</div><h3>Zápal</h3><p>Do práce jde naplno — a je to znát.</p></div>
+    <div class="card"><div class="ic">🇩🇪</div><h3>Německý trh</h3><p>Doménou je obchod s rozvaděči pro Německo.</p></div>
+  </div>
+  <div class="quote"><p>„Lidi má rád a obchod ho baví — a chce dokázat, že to dokáže."</p>
+    <span class="who">— Marti Pašek, zakladatel ekosystému</span></div>
+</div></section>
+
+<div class="cta"><div class="wrap">
+  <div class="h2" style="margin-bottom:6px">Ozvěte se</div>
+  <p class="lead" style="margin-bottom:6px">Rozvaděče pro německý trh — Pavel vám rád pomůže s poptávkou i nabídkou.</p>
+  <div class="clist">
+    <a href="mailto:p.zeman@eurosoft.com" class="btn btn-p">✉️ p.zeman@eurosoft.com</a>
+    <a href="/web/kontakty" class="btn btn-g">Všechny kontakty →</a>
+  </div>
+</div></div>
+
+<footer><div class="wrap">Pavel Zeman · obchod pro německý trh · součást ekosystému <a href="/web">STRATEGIE × EUROSOFT × IQHUBS × Performia</a></div></footer>
+</body></html>

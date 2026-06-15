@@ -1011,6 +1011,12 @@ def web_audit():
     return _web_subpage("audit.html")
 
 
+@app.get("/web/pavel")
+def web_pavel():
+    """Profil Pavla Zemana — vrchní obchodník pro německý trh (rozvaděče). Marti 15.6.2026."""
+    return _web_subpage("pavel.html")
+
+
 @app.get("/web/kristyna")
 def web_kristyna():
     """Profil Kristýny Marešové — provoz, procesy & IT (STRATEGIE × EUROSOFT). Marti 15.6.2026."""

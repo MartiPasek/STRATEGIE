@@ -13488,6 +13488,73 @@ async def app_shared_pin_send(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/shared/pin-send-email")
+async def app_shared_pin_send_email(req: Request) -> JSONResponse:
+    """Rodič pošle ověřovací kód pro nastavení PINu na E-MAIL daného usera —
+    alternativa k SMS (když SMS brána zlobí). Kód jde do STEJNÉ fw.phone_verify_code,
+    takže /pin-set ho ověří beze změny. Parent-only. Kristý 15.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+        target = int((body or {}).get("user_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "chybí user_id"})
+    from sqlalchemy import text as _t
+    import secrets as _sec
+    cm, s = _att_session()
+    code = None
+    email = None
+    try:
+        email = s.execute(_t(
+            "SELECT contact_value FROM public.user_contacts "
+            "WHERE user_id=:u AND contact_type='email' AND COALESCE(status,'active')='active' "
+            "ORDER BY COALESCE(is_verified,false) DESC, COALESCE(is_primary,false) DESC, id LIMIT 1"),
+            {"u": target}).scalar()
+        if not email:
+            return JSONResponse({"ok": False, "error": "no_email", "note": "Tento uživatel nemá e-mail."})
+        cnt = s.execute(_t("SELECT count(*) FROM fw.phone_verify_code "
+                           "WHERE user_id=:u AND created_at > now() - interval '15 minutes'"),
+                        {"u": target}).scalar() or 0
+        if cnt >= 5:
+            return JSONResponse({"ok": False, "error": "rate_limited", "note": "Moc kódů, zkus za 15 min."})
+        s.execute(_t("UPDATE fw.phone_verify_code SET used_at=now() WHERE user_id=:u AND used_at IS NULL"),
+                  {"u": target})
+        code = "%06d" % _sec.randbelow(1000000)
+        s.execute(_t("INSERT INTO fw.phone_verify_code (user_id, phone, code, expires_at) "
+                     "VALUES (:u,:p,:c, now() + interval '10 minutes')"),
+                  {"u": target, "p": email, "c": code})
+        s.commit()
+    except Exception:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+    # E-mail posíláme MIMO DB session.
+    try:
+        from modules.notifications.application.email_service import send_email, _get_default_persona_id
+        sent = send_email(
+            to=email,
+            subject="STRATEGIE: kód pro nastavení PIN",
+            body=("Tvůj ověřovací kód pro nastavení PINu ve STRATEGII je: " + code +
+                  "\n\nKód platí 10 minut. Zadej ho v aplikaci u 'Nastavit PIN'."
+                  "\n\nPokud jsi o to nežádal(a), tento e-mail ignoruj."),
+            persona_id=_get_default_persona_id(),
+        )
+    except Exception:
+        sent = False
+    if not sent:
+        return JSONResponse({"ok": False, "error": "email_failed", "note": "E-mail se nepodařilo odeslat."})
+    # maskovaný e-mail pro UI (a***@domena)
+    try:
+        _loc, _, _dom = (email or "").partition("@")
+        masked = ((_loc[0] + "***") if _loc else "***") + "@" + _dom
+    except Exception:
+        masked = "e-mail"
+    return JSONResponse({"ok": True, "email": masked})
+
+
 @api_router.post("/app/shared/pin-set")
 async def app_shared_pin_set(req: Request) -> JSONResponse:
     """Nastaví PIN danému userovi po ověření SMS kódem (kód = autorizace)."""

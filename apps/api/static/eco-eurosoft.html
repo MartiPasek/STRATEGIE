@@ -1,91 +1,141 @@
 <!DOCTYPE html>
 <html lang="cs"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EUROSOFT — ruce ekosystému · Stroje &amp; automatizace</title>
-<meta name="description" content="Rozvaděče, elektroprojekce a software na klíč. 30+ let zkušeností v automatizaci, stovky projektů pro evropské výrobce, kteří dodávají stroje do celého světa. Servis 24/7, TISAX AL2.">
+<title>EUROSOFT — rozvaděče, elektroprojekce, automatizace · ekosystém STRATEGIE</title>
+<meta name="description" content="EUROSOFT-Control: rozvaděče, elektroprojekce (EPLAN) a průmyslová automatizace na klíč. 30+ let zkušeností, stovky projektů (BMW, VW, Audi, Porsche, Tesla). ISO 9001, TISAX AL2, servis 24/7. Plzeň.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#05070f;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;--ac:#ff8a3d;--ac2:#ffb066}
+  :root{--bg:#05070f;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;--ac:#ff8a3d;--ac2:#ffb066;--tl:#2dd4bf;--bl:#60a5fa}
   *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
   body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6}
-  a{color:inherit;text-decoration:none}.wrap{max-width:1000px;margin:0 auto;padding:0 24px}
+  a{color:inherit;text-decoration:none}.wrap{max-width:1040px;margin:0 auto;padding:0 24px}
   .grad{background:linear-gradient(110deg,var(--ac),var(--ac2));-webkit-background-clip:text;background-clip:text;color:transparent}
   .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:14px;font-weight:700;font-size:15px;border:0;cursor:pointer;transition:.2s}
   .btn-p{background:linear-gradient(110deg,var(--ac),var(--ac2));color:#190a02}.btn-p:hover{transform:translateY(-2px)}
-  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx);font-weight:800;animation:bkglow 1.7s infinite}@keyframes bkglow{0%{box-shadow:0 0 0 0 rgba(45,212,191,.6)}70%{box-shadow:0 0 0 13px rgba(45,212,191,0)}100%{box-shadow:0 0 0 0 rgba(45,212,191,0)}}.btn-g:hover{border-color:var(--ac);color:var(--ac)}
+  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}.btn-g:hover{border-color:var(--ac);color:var(--ac)}
   nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
-  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;max-width:1000px}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
   .logo{font-weight:800;font-size:15px;color:var(--mut)}
-  .hero{position:relative;padding:74px 0 40px;text-align:center;overflow:hidden}
-  .hero:before{content:"";position:absolute;top:-50%;left:50%;transform:translateX(-50%);width:760px;height:760px;background:radial-gradient(circle,rgba(255,138,61,.13),transparent 62%);z-index:0}
+  .hero{position:relative;padding:70px 0 36px;text-align:center;overflow:hidden}
+  .hero:before{content:"";position:absolute;top:-50%;left:50%;transform:translateX(-50%);width:820px;height:820px;background:radial-gradient(circle,rgba(255,138,61,.14),transparent 62%);z-index:0}
   .hero .wrap{position:relative;z-index:1}
   .tag{display:inline-block;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--ac);border:1px solid rgba(255,138,61,.35);border-radius:999px;padding:6px 16px;margin-bottom:18px}
-  .bigic{font-size:54px;margin-bottom:10px}
-  h1{font-size:clamp(32px,5vw,52px);font-weight:900;letter-spacing:-1.3px;line-height:1.08;margin-bottom:18px}
-  .sub{font-size:clamp(16px,2.3vw,20px);color:var(--mut);max-width:660px;margin:0 auto}
-  section{padding:48px 0}
-  .h2{font-size:clamp(24px,3.6vw,34px);font-weight:900;letter-spacing:-.8px;text-align:center;margin-bottom:14px}
-  .lead{color:var(--mut);text-align:center;max-width:680px;margin:0 auto 36px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}
-  .card{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:18px;padding:26px}
-  .card .ic{font-size:26px;margin-bottom:12px}.card h3{font-size:18px;font-weight:800;margin-bottom:7px}.card p{color:var(--mut);font-size:14.5px}
+  .bigic{font-size:52px;margin-bottom:10px}
+  h1{font-size:clamp(32px,5vw,52px);font-weight:900;letter-spacing:-1.3px;line-height:1.08;margin-bottom:16px}
+  .sub{font-size:clamp(16px,2.3vw,20px);color:#cdd6e2;max-width:680px;margin:0 auto}
+  .hbtns{margin-top:26px;display:flex;gap:11px;justify-content:center;flex-wrap:wrap}
+  section{padding:46px 0}
+  .h2{font-size:clamp(23px,3.4vw,33px);font-weight:900;letter-spacing:-.8px;text-align:center;margin-bottom:12px}
+  .lead{color:#cdd6e2;text-align:center;max-width:720px;margin:0 auto 32px;line-height:1.8}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
+  .card{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:18px;padding:24px;transition:.2s}
+  a.card:hover{border-color:var(--ac);transform:translateY(-3px)}
+  .card .ic{font-size:26px;margin-bottom:11px}.card h3{font-size:18px;font-weight:800;margin-bottom:7px}.card p{color:var(--mut);font-size:14.5px;line-height:1.7}
+  .card .more{display:inline-block;margin-top:12px;color:var(--ac);font-weight:700;font-size:13.5px}
+  .logos{display:flex;flex-wrap:wrap;gap:10px 12px;justify-content:center;margin-top:8px}
+  .lg{border:1px solid var(--bord);border-radius:10px;padding:9px 16px;font-weight:800;letter-spacing:1px;color:#cdd6e2;font-size:14px;background:rgba(255,255,255,.02)}
+  .quote{background:linear-gradient(110deg,rgba(255,138,61,.07),rgba(96,165,250,.05));border:1px solid var(--bord);border-radius:18px;padding:24px;font-size:15px;color:#cdd6e2;line-height:1.75}
+  .quote .who{display:block;margin-top:10px;font-weight:700;color:var(--ac);font-size:13.5px}
   .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:18px;text-align:center}
-  .stat .num{font-size:38px;font-weight:900;letter-spacing:-1px}.stat .lab{color:var(--mut);font-size:13.5px}
-  .note{background:linear-gradient(110deg,rgba(255,138,61,.08),rgba(96,165,250,.05));border:1px solid var(--bord);border-radius:22px;padding:34px;text-align:center;margin-top:14px}
-  .note p{color:var(--mut);max-width:700px;margin:8px auto 0}
-  .cta{text-align:center;padding:56px 0}
-  footer{border-top:1px solid var(--bord);padding:34px 0;color:var(--mut);font-size:13px;text-align:center}
-  footer a{color:var(--ac)}
+  .stat .num{font-size:36px;font-weight:900;letter-spacing:-1px}.stat .lab{color:var(--mut);font-size:13px}
+  .note{background:linear-gradient(110deg,rgba(255,138,61,.08),rgba(96,165,250,.05));border:1px solid var(--bord);border-radius:22px;padding:32px;text-align:center;margin-top:14px}
+  .note p{color:#cdd6e2;max-width:720px;margin:8px auto 0}
+  .kont{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:18px}
+  .kc{background:var(--card);border:1px solid var(--bord);border-radius:16px;padding:20px}
+  .kc .l{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--ac);font-weight:700;margin-bottom:6px}
+  .kc b{font-size:15px}.kc div{color:var(--mut);font-size:14px}
+  .cta{text-align:center;padding:52px 0}
+  footer{border-top:1px solid var(--bord);padding:34px 0;color:var(--mut);font-size:13px;text-align:center}footer a{color:var(--ac)}
 </style></head><body>
 <nav><div class="wrap">
   <a href="/web" class="logo">STRATEGIE × EUROSOFT × IQHUBS × Performia</a>
   <div style="display:flex;align-items:center;gap:12px">
     <span style="font-size:13px;font-weight:700;display:flex;gap:7px"><a href="/web/eurosoft" style="color:#e8eefc">CZ</a><a href="/web/en/eurosoft" style="color:#8ea0c4">EN</a><a href="/web/de/eurosoft" style="color:#8ea0c4">DE</a></span>
-    <a href="/web" class="btn btn-g" style="padding:9px 16px;font-size:13px">← Zpět na ekosystém</a>
+    <a href="/web" class="btn btn-g" style="padding:9px 16px;font-size:13px">← Ekosystém</a>
   </div>
 </div></nav>
 
 <header class="hero"><div class="wrap">
-  <div class="tag">Ruce ekosystému</div>
+  <div class="tag">Ruce ekosystému · od 2006</div>
   <div class="bigic">🦾</div>
   <h1>EUROSOFT — <span class="grad">stroje &amp; automatizace</span></h1>
   <p class="sub">Rozvaděče, elektroprojekce a software na klíč. Energie pro vaše stroje od náčrtku
-    přes instalaci až po servis. 30+ let zkušeností v automatizaci a stovky projektů po celém světě.</p>
+    přes instalaci až po servis. <b style="color:var(--tx)">30+ let zkušeností</b> v automatizaci a
+    stovky projektů po celém světě — pro BMW, VW, Audi, Porsche i Teslu.</p>
+  <div class="hbtns">
+    <a href="#sluzby" class="btn btn-p">Co umíme ↓</a>
+    <a href="/web/eurosoft/reference" class="btn btn-g">Reference →</a>
+  </div>
 </div></header>
 
-<section><div class="wrap">
+<section id="sluzby"><div class="wrap">
   <div class="h2">Co EUROSOFT umí</div>
   <p class="lead">Tvoříme chytrá a efektivní řešení v průmyslové automatizaci. Naše know-how využívají
     významní evropští výrobci z různých odvětví, kteří své stroje a technologie dodávají do celého světa.</p>
   <div class="grid">
-    <div class="card"><div class="ic">⚡</div><h3>Rozvaděče</h3><p>Výroba rozvaděčů se zárukou kvality a dodržení platných předpisů. Energie pro vaše stroje od prvního náčrtku po hotovou instalaci.</p></div>
-    <div class="card"><div class="ic">📐</div><h3>Elektroprojekce</h3><p>Připravíme kompletní podklady pro výrobu rozvaděče přesně podle vašich představ — projekt na míru.</p></div>
-    <div class="card"><div class="ic">🤖</div><h3>Automatizace</h3><p>Vytvoříme nebo upravíme software na klíč. Zvyšujeme spolehlivost a posouváme vaše stroje a technologie dál.</p></div>
-    <div class="card"><div class="ic">🛠️</div><h3>Servis 24/7</h3><p>Nepřetržitá podpora pro vaši výrobu. Když stroj stojí, jdou peníze — proto jsme k dispozici v každou hodinu.</p></div>
-    <div class="card"><div class="ic">🔒</div><h3>TISAX AL2</h3><p>Držitel mezinárodního standardu informační bezpečnosti automobilového průmyslu (VDA ISA, ENX). Vaše data jsou v bezpečí.</p></div>
-    <div class="card"><div class="ic">🌍</div><h3>Po celém světě</h3><p>Stovky úspěšných projektů. Naše rozvaděče a automatizace běží ve strojích, které míří z Evropy na všechny kontinenty.</p></div>
+    <a class="card" href="/web/eurosoft/rozvadece"><div class="ic">⚡</div><h3>Rozvaděče</h3><p>Spolehlivé řídicí a výkonové rozvaděče NN se zárukou kvality a dodržením předpisů. Dodáváme zpravidla do 5 týdnů, testujeme dle EN 61439.</p><span class="more">Více →</span></a>
+    <a class="card" href="/web/eurosoft/elektroprojekce"><div class="ic">📐</div><h3>Elektroprojekce</h3><p>Kompletní zakázková projekce a konstrukce rozvaděčů v EPLAN Electric P8 — přehledná dokumentace přesně podle vašich norem.</p><span class="more">Více →</span></a>
+    <a class="card" href="/web/eurosoft/automatizace"><div class="ic">🤖</div><h3>Automatizace</h3><p>Řídicí software na klíč (Siemens TIA, Step 7, WinCC, Zenon, roboti KUKA). Oživíme technologie, optimalizujeme linky, převezmeme rozjetý projekt.</p><span class="more">Více →</span></a>
+    <a class="card" href="/web/eurosoft/servis"><div class="ic">🛠️</div><h3>Servis 24/7</h3><p>Nepřetržitá podpora pro vaši výrobu. Když stroj stojí, jdou peníze — jsme k dispozici v každou hodinu.</p><span class="more">Více →</span></a>
+    <a class="card" href="/web/eurosoft/reference"><div class="ic">🏆</div><h3>Reference</h3><p>Siemens, Tesla, Borgers, Grohmann, Dücker, Simpson, ČVUT… Z řadového subdodavatele přímým dodavatelem.</p><span class="more">Více →</span></a>
+    <div class="card"><div class="ic">🔒</div><h3>Bezpečnost &amp; normy</h3><p>ISO 9001:2015 (akreditace Dakks), TISAX AL2 (ENX), EN 61439, na vyžádání IEC/UL. Vaše data i procesy v bezpečí.</p></div>
   </div>
 </div></section>
 
 <section style="padding-top:0"><div class="wrap">
-  <div class="stats">
-    <div class="stat"><div class="num grad">30+ let</div><div class="lab">zkušeností v průmyslové automatizaci</div></div>
-    <div class="stat"><div class="num grad">stovky</div><div class="lab">úspěšných projektů</div></div>
-    <div class="stat"><div class="num grad">24/7</div><div class="lab">servis pro vaši výrobu</div></div>
-    <div class="stat"><div class="num grad">TISAX</div><div class="lab">AL2 informační bezpečnost</div></div>
+  <div class="h2">Důvěřují nám</div>
+  <p class="lead">Rozvaděče a software od EUROSOFTU běží v závodech předních evropských i světových výrobců.</p>
+  <div class="logos">
+    <span class="lg">BMW</span><span class="lg">VW</span><span class="lg">AUDI</span><span class="lg">PORSCHE</span><span class="lg">HONDA</span>
+    <span class="lg">TESLA</span><span class="lg">SIEMENS</span><span class="lg">ZF</span><span class="lg">FORD</span><span class="lg">OERLIKON</span>
+    <span class="lg">ISIMAT</span><span class="lg">JUNKER</span><span class="lg">HOLLANDIA</span>
   </div>
+  <div class="grid" style="margin-top:28px">
+    <div class="quote"><p>„Rád bych zdůraznil, že jsme s dosavadní spoluprací se společností EUROSOFT-Control celkově velmi spokojeni. Komunikace je vždy profesionální a spolehlivá…"</p><span class="who">— Siemens AG</span></div>
+    <div class="quote"><p>„Jsme velmi spokojeni s výsledkem spolupráce a oceňujeme jak kvalitu dodaných produktů, tak vaše nasazení. Spolupráce s vaším týmem byla pro nás potěšením…"</p><span class="who">— Tesla Manufacturing Brandenburg SE</span></div>
+  </div>
+</div></section>
+
+<section style="padding-top:0"><div class="wrap">
+  <div class="h2">Náš příběh</div>
+  <p class="lead">Účel koncernu EUROSOFT: <b style="color:var(--tx)">být spolehlivým partnerem hodnotným zákazníkům</b>
+    a dodávat jim produkty vysoké kvality v oblasti průmyslové automatizace.</p>
+  <div class="grid">
+    <div class="card"><div class="ic">📅</div><h3>1996</h3><p>Marti, budoucí zakladatel, začíná v průmyslové automatizaci jako živnostník (INTERSOFT-Automation).</p></div>
+    <div class="card"><div class="ic">🏭</div><h3>2006</h3><p>Marti zakládá EUROSOFT-System a EUROSOFT-Control. O rok později rozjezd výroby rozvaděčů.</p></div>
+    <div class="card"><div class="ic">🚀</div><h3>2017 → dnes</h3><p>Nové výrobní prostory v Plzni-Černicích, hned u dálnice. Z subdodavatele přímým dodavatelem SW pro BMW.</p></div>
+  </div>
+  <div class="stats" style="margin-top:28px">
+    <div class="stat"><div class="num grad">30+ let</div><div class="lab">zkušeností v automatizaci</div></div>
+    <div class="stat"><div class="num grad">stovky</div><div class="lab">úspěšných projektů</div></div>
+    <div class="stat"><div class="num grad">24/7</div><div class="lab">servis pro výrobu</div></div>
+    <div class="stat"><div class="num grad">5 týdnů</div><div class="lab">obvyklá dodávka rozvaděče</div></div>
+  </div>
+</div></section>
+
+<section style="padding-top:0"><div class="wrap">
   <div class="note">
     <h3 style="font-size:19px;font-weight:800">Role v ekosystému: <span class="grad">ruce</span></h3>
-    <p>EUROSOFT staví fyzickou základnu — stroje rozhýbe a dodá jim energii. <b>IQHUBS</b> jim pak dá oči
-    (data z provozu) a <b>STRATEGIE</b> rozum a srdce (živou operativu, AI a rozvoj lidí). Od stroje po rozhodnutí, technologicky i lidsky.</p>
+    <p>EUROSOFT staví fyzickou základnu — stroje rozhýbe a dodá jim energii. <b style="color:var(--tx)">IQHUBS</b> jim pak dá oči
+    (data z provozu), <b style="color:var(--tx)">STRATEGIE</b> rozum a srdce (živou operativu, AI a rozvoj lidí). Od stroje po rozhodnutí — technologicky i lidsky.</p>
+  </div>
+</div></section>
+
+<section style="padding-top:0"><div class="wrap">
+  <div class="h2">Kontakt</div>
+  <div class="kont">
+    <div class="kc"><div class="l">Sídlo</div><b>EUROSOFT-Control / System s.r.o.</b><div>Nepomucká 259<br>326 00 Plzeň-Černice</div></div>
+    <div class="kc"><div class="l">Telefon</div><b><a href="tel:+420773738583" style="color:var(--tx)">+420 773 738 583</a></b><div>Po–Pá, servis 24/7</div></div>
+    <div class="kc"><div class="l">E-mail</div><b><a href="mailto:info@eurosoft.com" style="color:var(--tx)">info@eurosoft.com</a></b><div>Ozvěte se s poptávkou</div></div>
   </div>
 </div></section>
 
 <div class="cta"><div class="wrap">
-  <a href="https://www.eurosoft.com" target="_blank" rel="noopener" class="btn btn-p">Otevřít eurosoft.com ↗</a>
+  <a href="mailto:info@eurosoft.com" class="btn btn-p">Poptat řešení →</a>
+  <a href="https://www.eurosoft.com" target="_blank" rel="noopener" class="btn btn-g" style="margin-left:10px">eurosoft.com ↗</a>
   <a href="/web" class="btn btn-g" style="margin-left:10px">Zpět na ekosystém</a>
 </div></div>
 
-<footer><div class="wrap">EUROSOFT - Control s.r.o. · Plzeň-Černice · součást ekosystému <a href="/web">STRATEGIE × EUROSOFT × IQHUBS × Performia</a></div></footer>
+<footer><div class="wrap">EUROSOFT-Control s.r.o. · Nepomucká 259, Plzeň-Černice · ISO 9001 · TISAX AL2 · součást ekosystému <a href="/web">STRATEGIE × EUROSOFT × IQHUBS × Performia</a></div></footer>
 </body></html>

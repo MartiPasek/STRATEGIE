@@ -918,6 +918,36 @@ def web_eco_eurosoft():
     return _web_subpage("eco-eurosoft.html")
 
 
+@app.get("/web/eurosoft/rozvadece")
+def web_eco_eurosoft_rozvadece():
+    """EUROSOFT — výroba elektrorozvaděčů."""
+    return _web_subpage("eco-eurosoft-rozvadece.html")
+
+
+@app.get("/web/eurosoft/elektroprojekce")
+def web_eco_eurosoft_elektroprojekce():
+    """EUROSOFT — elektroprojekce rozvaděčů (EPLAN)."""
+    return _web_subpage("eco-eurosoft-elektroprojekce.html")
+
+
+@app.get("/web/eurosoft/automatizace")
+def web_eco_eurosoft_automatizace():
+    """EUROSOFT — průmyslová automatizace (řídicí software)."""
+    return _web_subpage("eco-eurosoft-automatizace.html")
+
+
+@app.get("/web/eurosoft/servis")
+def web_eco_eurosoft_servis():
+    """EUROSOFT — servis 24/7, instalace a uvedení do provozu."""
+    return _web_subpage("eco-eurosoft-servis.html")
+
+
+@app.get("/web/eurosoft/reference")
+def web_eco_eurosoft_reference():
+    """EUROSOFT — reference (BMW, VW, Audi, Porsche, Tesla, Siemens…)."""
+    return _web_subpage("eco-eurosoft-reference.html")
+
+
 @app.get("/web/iqhubs")
 def web_eco_iqhubs():
     """Podstránka ekosystému — IQHUBS (oči: data ze strojů)."""

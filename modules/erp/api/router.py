@@ -13286,6 +13286,64 @@ async def app_shared_switch(req: Request, response: Response) -> dict:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/shared/sync-active")
+async def app_shared_sync_active(req: Request) -> dict:
+    """Po přihlášení e-mailem/SMS (stg_pin_skip) propíše ČERSTVOU identitu z
+    cookie do tenant.shared_active pro Bearer token zařízení. Bez toho zůstane
+    nativní appka (Bearer) u předchozího uživatele přihlášeného PINem — protože
+    shared_active má v resolveru _uid_from_token_or_cookie přednost. PWA (bez
+    Bearer) = no-op, ta jede čistě po cookie. Kristý 15.6."""
+    # Identita VÝHRADNĚ z cookie (čerstvé sms-login). NE z resolveru — ten by
+    # vrátil starý shared_active a fix by nic neudělal.
+    uid_c = req.cookies.get("user_id")
+    try:
+        cuid = int(uid_c) if uid_c else 0
+    except (TypeError, ValueError):
+        cuid = 0
+    if not cuid:
+        return {"ok": True, "skipped": "no_cookie"}
+    auth = req.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        return {"ok": True, "skipped": "no_bearer"}   # PWA: cookie cesta funguje sama
+    tok = auth[7:].strip()
+    if not tok:
+        return {"ok": True, "skipped": "no_bearer"}
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    dk = str((body or {}).get("device_key") or "").strip()[:80] or None
+    import hashlib as _hsa
+    from sqlalchemy import text as _t
+    th = _hsa.sha256(tok.encode("utf-8")).hexdigest()
+    cm, s = _att_session()
+    try:
+        # Bearer token musí patřit reálnému (živému) zařízení.
+        owner = s.execute(_t('SELECT user_id FROM "user".carddav_token '
+                             'WHERE token_hash=:h AND revoked_at IS NULL'),
+                          {"h": th}).scalar()
+        if owner is None:
+            return {"ok": True, "skipped": "no_device"}
+        # Cookie uid musí být reálný uživatel.
+        if not s.execute(_t("SELECT 1 FROM public.users WHERE id=:u"),
+                         {"u": cuid}).first():
+            return {"ok": True, "skipped": "no_user"}
+        s.execute(_t("INSERT INTO tenant.shared_active (token_hash,user_id,device_key) "
+                     "VALUES (:h,:u,:d) ON CONFLICT (token_hash) DO UPDATE SET "
+                     "user_id=EXCLUDED.user_id, device_key=COALESCE(EXCLUDED.device_key,tenant.shared_active.device_key), set_at=now()"),
+                  {"h": th, "u": cuid, "d": dk})
+        s.commit()
+        return {"ok": True, "user_id": cuid}
+    except Exception:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": "db_error"}
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/shared/remove")
 async def app_shared_remove(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

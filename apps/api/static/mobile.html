@@ -6320,7 +6320,15 @@ setTimeout(function(){
     var LOGIN_URL="/api/v1/auth/sms-login?next=/mobile";
     // Právě ověřeno e-mailem/SMS? Server nastavil krátkodobý marker stg_pin_skip
     // → tenhle jeden start přeskoč zámek a marker smaž (další otevření zase zamkne).
-    try{ if(/(?:^|;\s*)stg_pin_skip=1\b/.test(document.cookie||"")){ document.cookie="stg_pin_skip=; max-age=0; path=/"; return; } }catch(e){}
+    try{ if(/(?:^|;\s*)stg_pin_skip=1\b/.test(document.cookie||"")){
+        document.cookie="stg_pin_skip=; max-age=0; path=/";
+        // Nativní appka (Bearer) drží aktivního uživatele v shared_active → po
+        // přihlášení e-mailem ho musíme přepsat na čerstvou identitu z cookie,
+        // jinak appka zůstane u předchozího PIN uživatele. Pak překreslíme.
+        // PWA (bez Bearer) = no-op, render jen obnoví. Kristý 15.6.
+        try{ api("POST","/api/v1/erp/app/shared/sync-active",{device_key:devKey()}).then(function(){ try{ render(); }catch(e){} }).catch(function(){}); }catch(e){}
+        return;
+    } }catch(e){}
     var cover;
     try{ cover=el('<div id="pinLock" style="position:fixed;inset:0;z-index:99999;background:#040a12;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;"></div>'); document.body.appendChild(cover); }catch(e){ return; }
     function unlock(){ try{ cover.remove(); }catch(e){} }

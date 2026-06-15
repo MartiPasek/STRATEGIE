@@ -1216,7 +1216,7 @@ setTimeout(function(){
     var g=el('<div class="appgrid"></div>');
     // Marti 7.6.: S ERP ikona = „STRATEGIE" → spouští ERP; S CHAT ikona = „Tvoje Marti" → spouští chat.
     // /erp/ S LOMÍTKEM — jinak URL nespadá do scope ERP PWA a Android otevře chat PWA (S CHAT splash).
-    g.appendChild(appCell("🌐","Web",0,function(){openApp("/web");}));
+    g.appendChild(appCell("🌐","Web",0,function(){ location.href="/web"; }));
     g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"STRATEGIE",0,function(){openApp("/erp/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Tvoje Marti",0,function(){openApp("/");}));
     g.appendChild(appCell("🤝","Spolupráce",0,function(){go("dochazka");}));

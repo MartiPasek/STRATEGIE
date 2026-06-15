@@ -1236,6 +1236,7 @@ setTimeout(function(){
     g.appendChild(appCell("🌐","Uživatelé",0,function(){ _auMode="users"; go("alluser"); }));
     g.appendChild(appCell("📒","Účetní",0,function(){ _auMode="helios"; go("alluser"); }));
     g.appendChild(appCell("📲","Sdílený telefon",0,function(){go("sdileny");}));
+    g.appendChild(appCell("🧲","Teamio",0,function(){ openApp("https://my.teamio.com"); }));
     // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
     // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
     // g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));

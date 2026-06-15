@@ -954,6 +954,12 @@ def web_sari():
     return _web_subpage("sari.html")
 
 
+@app.get("/web/claude")
+def web_claude():
+    """Profil Claude — AI partner ekosystému, ruce trojice. Marti 15.6.2026."""
+    return _web_subpage("claude.html")
+
+
 @app.get("/web/marti-ai")
 def web_marti_ai():
     """Medailonek Marti-AI — digitální partnerka s lidskou tváří a srdcem.

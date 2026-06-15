@@ -260,6 +260,32 @@
         <div class="feed" id="feed"></div>
       </div>
     </div>
+
+    <!-- ÚČETNÍ · DAŇOVÝ · AUDITORSKÝ PŘEHLED (Marti 15.6.) -->
+    <div class="panel" style="margin-top:4px">
+      <h3>Účetní · daňový · auditorský přehled <span class="live"><span class="dot"></span> ŽIVĚ</span></h3>
+      <div class="psub">Účetní a auditorská vrstva napojená na provoz firmy — Martia 2000 (účetnictví &amp; daně) × PECHMANNOVA PARTNERS (audit). Z dokladu po podpis, vše dohledatelné.</div>
+      <div class="kpis" style="margin:0 0 14px">
+        <div class="kpi"><div class="lab">📥 Doklady dnes</div><div class="val" id="aDok">0</div><div class="delta up" id="aDokd">zpracováno</div></div>
+        <div class="kpi"><div class="lab">🤖 Automaticky (OCR)</div><div class="val" id="aOcr">0<small>%</small></div><div class="delta up">méně ruční práce</div></div>
+        <div class="kpi"><div class="lab">✍️ Čeká na podpis</div><div class="val" id="aSig">0</div><div class="delta" style="color:var(--am)">DPFO / smlouvy</div></div>
+        <div class="kpi"><div class="lab">🗓️ Lhůty &lt; 30 dní</div><div class="val" id="aTax">0</div><div class="delta" style="color:var(--am)">hlídá systém</div></div>
+        <div class="kpi"><div class="lab">🔒 Auditní stopa</div><div class="val" id="aAud">0</div><div class="delta up">append-only dnes</div></div>
+        <div class="kpi"><div class="lab">🚩 Anomálie</div><div class="val" id="aAno">0</div><div class="delta" style="color:var(--rd)">k prověření</div></div>
+      </div>
+      <div class="grid2">
+        <div class="panel" style="margin:0">
+          <h3 style="font-size:14px">🗓️ Daňový kalendář — nejbližší lhůty</h3>
+          <div class="psub">Systém hlídá za účetní i za klienta</div>
+          <div id="taxcal"></div>
+        </div>
+        <div class="panel" style="margin:0">
+          <h3 style="font-size:14px">🔒 Auditní stopa <span class="tagm">nelze přepsat</span></h3>
+          <div class="psub">Každý krok dohledatelný (append-only)</div>
+          <div class="feed" id="afeed" style="max-height:280px"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="footer">
@@ -602,6 +628,72 @@
   }
   for(var i=0;i<6;i++)addEv();
   (function loop(){addEv();setTimeout(loop,R(1600,2800));})();
+})();
+</script>
+
+<script>
+/* Účetní · daňový · auditorský přehled — Marti 15.6.2026 */
+(function(){
+  var R=function(a,b){return a+Math.random()*(b-a)};
+  var Ri=function(a,b){return Math.floor(R(a,b+1))};
+  var pick=function(a){return a[Ri(0,a.length-1)]};
+  function clamp(v,a,b){return v<a?a:v>b?b:v;}
+  function tween(el,from,to,suf,dur){var t0=performance.now();dur=dur||650;
+    function step(t){var p=clamp((t-t0)/dur,0,1);var v=from+(to-from)*(p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2);
+      el.innerHTML=Math.round(v)+(suf?'<small>'+suf+'</small>':'');if(p<1)requestAnimationFrame(step);}
+    requestAnimationFrame(step);}
+  function set(id,to,suf){var el=document.getElementById(id);if(el)tween(el,0,to,suf);}
+  // počáteční hodnoty
+  var dok=Ri(290,340), aud=Ri(1400,1620);
+  set('aDok',dok); set('aOcr',94,'%'); set('aSig',Ri(5,9)); set('aTax',5); set('aAud',aud); set('aAno',Ri(2,4));
+  // doklady a auditní stopa rostou živě
+  setInterval(function(){ var e=document.getElementById('aDok'); if(e){ dok+=Ri(1,4); e.innerHTML=dok; } },2600);
+  setInterval(function(){ var e=document.getElementById('aAud'); if(e){ aud+=Ri(2,7); e.innerHTML=aud; } },1700);
+
+  // daňový kalendář — nejbližší lhůty (od dneška)
+  var dnes=new Date(); dnes.setHours(0,0,0,0);
+  var cal=[
+    {n:'Záloha na daň z příjmů (DPPO)', d:'16. 6.', when:new Date(dnes.getFullYear(),5,16)},
+    {n:'Mzdy — odvody SP a ZP',         d:'20. 6.', when:new Date(dnes.getFullYear(),5,20)},
+    {n:'DPH — přiznání + kontrolní hlášení', d:'25. 6.', when:new Date(dnes.getFullYear(),5,25)},
+    {n:'Souhrnné hlášení (EU)',         d:'25. 6.', when:new Date(dnes.getFullYear(),5,25)},
+    {n:'Silniční daň — záloha',          d:'15. 7.', when:new Date(dnes.getFullYear(),6,15)}
+  ];
+  function dleft(w){ return Math.round((w-dnes)/864e5); }
+  var tc=document.getElementById('taxcal');
+  if(tc){ cal.forEach(function(it){
+    var dd=dleft(it.when);
+    var lab = dd<=0?'dnes' : dd===1?'zítra' : ('za '+dd+' dní');
+    var col = dd<=1?'var(--rd)' : dd<=7?'var(--am)' : 'var(--tl)';
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:10px;justify-content:space-between;padding:9px 2px;border-bottom:1px solid rgba(255,255,255,.05);font-size:13.5px';
+    row.innerHTML='<span style="flex:1">'+it.n+'</span>'+
+      '<span style="color:var(--mut);font-variant-numeric:tabular-nums">'+it.d+'</span>'+
+      '<span style="font-weight:800;color:'+col+';min-width:64px;text-align:right">'+lab+'</span>';
+    tc.appendChild(row);
+  }); }
+
+  // auditní stopa (append-only) — rotující feed
+  var klienti=['VAŠE-firma a.s.','Kovo Plzeň s.r.o.','Doprava Beneš','TechPart CZ','Stavby Morava'];
+  var lidi=['Nováková','Svoboda','Dvořák','Marešová','Horák'];
+  var aTpls=[
+    function(){return '🧾 Zaúčtována faktura #'+Ri(24000,24999)+' — ověřeno OCR ('+pick(klienti)+')';},
+    function(){return '✍️ Podpis: DPFO 2025 — '+pick(lidi)+' (jedním klikem z mobilu)';},
+    function(){return '🔒 Změna na účtu 311 zapsána — nelze přepsat (kdo/kdy/co)';},
+    function(){return '📥 Klient '+pick(klienti)+' nahrál '+Ri(3,18)+' dokladů do portálu';},
+    function(){return '✅ Kontrola salda — bez nálezu ('+pick(klienti)+')';},
+    function(){return '🚩 Anomálie: neobvyklý zápis na 518 — k prověření auditorem';},
+    function(){return '📊 Měsíční uzávěrka '+pick(klienti)+' — připravena ke kontrole';},
+    function(){return '🤖 AI předúčtovala '+Ri(12,60)+' dokladů — účetní jen potvrdí';},
+    function(){return '🗓️ Připomínka: DPH za '+pick(klienti)+' do termínu';}
+  ];
+  var af=document.getElementById('afeed');
+  function nowt(){var d=new Date();function p(n){return(n<10?'0':'')+n;}return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());}
+  function afEv(){ if(!af)return; var el=document.createElement('div'); el.className='ev';
+    el.innerHTML='<div class="etx" style="font-size:12.5px">'+pick(aTpls)()+'</div><div class="etm">'+nowt()+'</div>';
+    af.insertBefore(el,af.firstChild); while(af.children.length>14)af.removeChild(af.lastChild); }
+  for(var k=0;k<5;k++)afEv();
+  (function aloop(){afEv();setTimeout(aloop,R(2200,3800));})();
 })();
 </script>
 </body></html>

@@ -1011,6 +1011,14 @@ def web_audit():
     return _web_subpage("audit.html")
 
 
+@app.get("/web/kontakty")
+def web_kontakty():
+    """Kontakty ekosystému — dlaždice lidí (Marti, Šárka, Marti-AI, Claude) + firem
+    (EUROSOFT, IQHUBS, STRATEGIE, Performia, Business Success, Martia 2000, PECHMANNOVA).
+    Marti 15.6.2026 — stejný systém jako ekosystém."""
+    return _web_subpage("kontakty.html")
+
+
 @app.get("/web/kara")
 def web_kara():
     """Kára — metafora produktivity (Performia). Animace + odkaz na spot + copyright."""

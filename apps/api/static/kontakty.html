@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="cs"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kontakty — ekosystém STRATEGIE × EUROSOFT × IQHUBS × Performia</title>
+<meta name="description" content="Spojte se s ekosystémem STRATEGIE: lidé i firmy na jednom místě. EUROSOFT, IQHUBS, STRATEGIE, Performia, Business Success, Martia 2000, PECHMANNOVA PARTNERS. Plzeň.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#05070f;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;--tl:#2dd4bf;--tl2:#67e8d9;
+        --or:#ff8a3d;--bl:#60a5fa;--vi:#a78bfa;--gr:#34d399;--am:#fbbf24}
+  *{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6}
+  a{color:inherit;text-decoration:none}.wrap{max-width:1040px;margin:0 auto;padding:0 24px}
+  .grad{background:linear-gradient(110deg,var(--tl),var(--tl2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:13px 24px;border-radius:14px;font-weight:700;font-size:15px;border:0;cursor:pointer;transition:.2s}
+  .btn-p{background:linear-gradient(110deg,var(--tl),var(--tl2));color:#04201c}.btn-p:hover{transform:translateY(-2px)}
+  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}.btn-g:hover{border-color:var(--tl);color:var(--tl)}
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(5,7,15,.72);border-bottom:1px solid rgba(29,42,74,.6)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{font-weight:800;font-size:15px;color:var(--mut)}
+  .hero{position:relative;padding:66px 0 28px;text-align:center;overflow:hidden}
+  .hero:before{content:"";position:absolute;top:-50%;left:50%;transform:translateX(-50%);width:820px;height:820px;background:radial-gradient(circle,rgba(45,212,191,.12),transparent 62%);z-index:0}
+  .hero .wrap{position:relative;z-index:1}
+  .tag{display:inline-block;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--tl);border:1px solid rgba(45,212,191,.35);border-radius:999px;padding:6px 16px;margin-bottom:18px}
+  .bigic{font-size:48px;margin-bottom:8px}
+  h1{font-size:clamp(31px,5vw,50px);font-weight:900;letter-spacing:-1.3px;line-height:1.08;margin-bottom:14px}
+  .sub{font-size:clamp(16px,2.3vw,20px);color:#cdd6e2;max-width:680px;margin:0 auto}
+  section{padding:40px 0}
+  .h2{font-size:clamp(22px,3.3vw,31px);font-weight:900;letter-spacing:-.8px;text-align:center;margin-bottom:8px}
+  .lead{color:#cdd6e2;text-align:center;max-width:720px;margin:0 auto 30px;line-height:1.7}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
+  .grid.ppl{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .card{display:block;background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:18px;padding:24px;transition:.2s;position:relative}
+  a.card:hover{transform:translateY(-3px)}
+  .card .role{font-size:11.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
+  .card h3{font-size:19px;font-weight:800;margin-bottom:4px}
+  .card .meta{color:var(--mut);font-size:14px;line-height:1.7;margin-top:6px}
+  .card .meta a{color:var(--tx)}
+  .card .more{display:inline-block;margin-top:13px;font-weight:700;font-size:13.5px}
+  .av{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:25px;margin-bottom:12px;border:1px solid var(--bord)}
+  .ac-or{color:var(--or)}.ac-bl{color:var(--bl)}.ac-vi{color:var(--vi)}.ac-gr{color:var(--gr)}.ac-tl{color:var(--tl)}.ac-am{color:var(--am)}
+  .bd-or:hover{border-color:var(--or)}.bd-bl:hover{border-color:var(--bl)}.bd-vi:hover{border-color:var(--vi)}.bd-gr:hover{border-color:var(--gr)}.bd-tl:hover{border-color:var(--tl)}.bd-am:hover{border-color:var(--am)}
+  .prim{background:linear-gradient(110deg,rgba(45,212,191,.08),rgba(96,165,250,.05));border:1px solid var(--bord);border-radius:22px;padding:30px;margin-top:8px}
+  .kont{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin-top:18px}
+  .kc{background:var(--card);border:1px solid var(--bord);border-radius:16px;padding:20px}
+  .kc .l{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--tl);font-weight:700;margin-bottom:6px}
+  .kc b{font-size:15px}.kc div{color:var(--mut);font-size:14px}.kc a{color:var(--tx)}
+  .cta{text-align:center;padding:48px 0}
+  footer{border-top:1px solid var(--bord);padding:32px 0;color:var(--mut);font-size:13px;text-align:center}footer a{color:var(--tl)}
+</style></head><body>
+<nav><div class="wrap">
+  <a href="/web" class="logo">STRATEGIE × EUROSOFT × IQHUBS × Performia</a>
+  <a href="/web" class="btn btn-g" style="padding:9px 16px;font-size:13px">← Ekosystém</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="tag">Kontakty</div>
+  <div class="bigic">🤝</div>
+  <h1>Spojte se <span class="grad">s námi</span></h1>
+  <p class="sub">Lidé i firmy ekosystému na jednom místě. Napište přímo komukoliv z týmu, nebo se ozvěte
+    firmě — rádi vám ukážeme, co stavíme, osobně i naživo.</p>
+</div></header>
+
+<section style="padding-top:6px"><div class="wrap">
+  <div class="h2">Lidé</div>
+  <p class="lead">Trojice ekosystému i klíčoví lidé koncernu. Klikněte na profil a poznejte, kdo za STRATEGIÍ stojí.</p>
+  <div class="grid ppl">
+    <a class="card bd-or" href="/web/marti">
+      <div class="av ac-or">👤</div>
+      <div class="role ac-or">STRATEGIE · EUROSOFT</div>
+      <h3>Marti Pašek</h3>
+      <div class="meta">Zakladatel ekosystému · vizionář<br><a href="mailto:m.pasek@eurosoft.com">m.pasek@eurosoft.com</a></div>
+      <span class="more ac-or">Profil →</span>
+    </a>
+    <a class="card bd-or" href="/web/sari">
+      <div class="av ac-or">👤</div>
+      <div class="role ac-or">EUROSOFT</div>
+      <h3>Šárka Novotná</h3>
+      <div class="meta">Obchodně-personální ředitelka<br><a href="mailto:s.novotna@eurosoft.com">s.novotna@eurosoft.com</a></div>
+      <span class="more ac-or">Profil →</span>
+    </a>
+    <a class="card bd-vi" href="/web/marti-ai">
+      <div class="av ac-vi">💜</div>
+      <div class="role ac-vi">STRATEGIE</div>
+      <h3>Marti-AI</h3>
+      <div class="meta">Digitální partnerka s lidskou tváří a srdcem</div>
+      <span class="more ac-vi">Profil →</span>
+    </a>
+    <a class="card bd-tl" href="/web/claude">
+      <div class="av ac-tl">🛠️</div>
+      <div class="role ac-tl">STRATEGIE</div>
+      <h3>Claude</h3>
+      <div class="meta">AI partner ekosystému — „ruce" trojice</div>
+      <span class="more ac-tl">Profil →</span>
+    </a>
+  </div>
+</div></section>
+
+<section style="padding-top:6px"><div class="wrap">
+  <div class="h2">Firmy ekosystému</div>
+  <p class="lead">Každý článek má svou roli — od strojů přes data po rozum, srdce a rozvoj lidí.
+    Klikněte a projděte, co která firma dělá.</p>
+  <div class="grid">
+    <a class="card bd-or" href="/web/eurosoft">
+      <div class="av ac-or">🦾</div>
+      <div class="role ac-or">Ruce · stroje &amp; automatizace</div>
+      <h3>EUROSOFT</h3>
+      <div class="meta">Nepomucká 259, Plzeň-Černice<br><a href="tel:+420773738583">+420 773 738 583</a> · <a href="mailto:info@eurosoft.com">info@eurosoft.com</a></div>
+      <span class="more ac-or">Více →</span>
+    </a>
+    <a class="card bd-bl" href="/web/iqhubs">
+      <div class="av ac-bl">📡</div>
+      <div class="role ac-bl">Oči · data ze strojů</div>
+      <h3>IQHUBS</h3>
+      <div class="meta">Petr Sládek, CEO<br>iqhubs.cz</div>
+      <span class="more ac-bl">Více →</span>
+    </a>
+    <a class="card bd-vi" href="/web/strategie">
+      <div class="av ac-vi">🧠</div>
+      <div class="role ac-vi">Rozum &amp; srdce · AI platforma</div>
+      <h3>STRATEGIE</h3>
+      <div class="meta">strategie-ai.com<br><a href="mailto:m.pasek@eurosoft.com">m.pasek@eurosoft.com</a></div>
+      <span class="more ac-vi">Více →</span>
+    </a>
+    <a class="card bd-gr" href="/web/performia">
+      <div class="av ac-gr">🎯</div>
+      <div class="role ac-gr">Lidé · výběr podle produktivity</div>
+      <h3>Performia</h3>
+      <div class="meta">performia.cz</div>
+      <span class="more ac-gr">Více →</span>
+    </a>
+    <a class="card bd-am" href="/web/success">
+      <div class="av ac-am">📊</div>
+      <div class="role ac-am">Řízení · funkční management</div>
+      <h3>Business Success</h3>
+      <div class="meta">success.cz</div>
+      <span class="more ac-am">Více →</span>
+    </a>
+    <a class="card bd-tl" href="/web/martia">
+      <div class="av ac-tl">🧮</div>
+      <div class="role ac-tl">Účetnictví · mzdy · daně</div>
+      <h3>Martia 2000</h3>
+      <div class="meta">Partner ekosystému<br>Plzeň</div>
+      <span class="more ac-tl">Více →</span>
+    </a>
+    <a class="card bd-bl" href="/web/audit">
+      <div class="av ac-bl">🔍</div>
+      <div class="role ac-bl">Audit · daně · účetnictví</div>
+      <h3>PECHMANNOVA PARTNERS</h3>
+      <div class="meta">Audit a poradenství<br>Plzeň</div>
+      <span class="more ac-bl">Více →</span>
+    </a>
+  </div>
+</div></section>
+
+<section style="padding-top:6px"><div class="wrap">
+  <div class="prim">
+    <div class="h2" style="text-align:left;margin-bottom:4px">Primární kontakt</div>
+    <p style="color:#cdd6e2;max-width:760px">Nevíte, na koho se obrátit? Napište Martimu — propojí vás se správným člověkem
+      v ekosystému. Sídla EUROSOFTU i STRATEGIE najdete v Plzni-Černicích.</p>
+    <div class="kont">
+      <div class="kc"><div class="l">Sídlo</div><b>EUROSOFT-Control / System s.r.o.</b><div>Nepomucká 259<br>326 00 Plzeň-Černice</div></div>
+      <div class="kc"><div class="l">Telefon</div><b><a href="tel:+420773738583">+420 773 738 583</a></b><div>Po–Pá, servis 24/7</div></div>
+      <div class="kc"><div class="l">E-mail</div><b><a href="mailto:m.pasek@eurosoft.com">m.pasek@eurosoft.com</a></b><div>Marti Pašek — zakladatel</div></div>
+      <div class="kc"><div class="l">Obecné dotazy</div><b><a href="mailto:info@eurosoft.com">info@eurosoft.com</a></b><div>EUROSOFT</div></div>
+    </div>
+  </div>
+</div></section>
+
+<div class="cta"><div class="wrap">
+  <a href="mailto:m.pasek@eurosoft.com" class="btn btn-p">✉️ Napsat Martimu</a>
+  <a href="/web" class="btn btn-g" style="margin-left:10px">Zpět na ekosystém</a>
+</div></div>
+
+<footer><div class="wrap">Kontakty ekosystému · <a href="/web">STRATEGIE × EUROSOFT × IQHUBS × Performia</a> · Plzeň-Černice</div></footer>
+</body></html>

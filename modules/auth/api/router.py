@@ -9,6 +9,24 @@ from core.database_core import get_core_session
 from core.logging import get_logger
 
 
+def _sign_active_handoff(user_id: int, ttl_s: int = 600) -> str:
+    """Podepsaný krátkodobý handoff: `uid.exp.sig` (HMAC-SHA256, secret =
+    SMS_GATEWAY_KEY). JS ho po e-mail/SMS loginu přečte z cookie a pošle
+    Bearer-cestou do /app/shared/sync-active — tím se aktivní uživatel na
+    sdíleném telefonu (tenant.shared_active, klíčovaný Bearer tokenem) přepne
+    na PRÁVĚ ověřenou identitu. Nativní appka jinak posílá jen Bearer (bez
+    cookie), takže server identitu z loginu nevidí. Podpis brání padělání
+    (klient cookie čte i mění). Kristý 15.6."""
+    import hmac as _hm, hashlib as _hl, time as _tm
+    secret = (settings.sms_gateway_key or "").encode("utf-8")
+    if len(secret) < 16:
+        return ""   # secret nenastaven → handoff se prostě nepoužije
+    exp = int(_tm.time()) + int(ttl_s)
+    msg = f"{int(user_id)}.{exp}"
+    sig = _hm.new(secret, msg.encode("utf-8"), _hl.sha256).hexdigest()[:32]
+    return f"{msg}.{sig}"
+
+
 def _set_auth_cookies(response: Response, user_id: int, tenant_id: int | None) -> None:
     """
     Helper pro nastaveni auth cookies (user_id + tenant_id) s production-safe
@@ -38,6 +56,19 @@ def _set_auth_cookies(response: Response, user_id: int, tenant_id: int | None) -
         httponly=False, max_age=600,
         secure=settings.cookie_secure, samesite=settings.cookie_samesite,
     )
+    # Sdílený telefon: PODEPSANÝ handoff s ověřenou identitou (JS-čitelný).
+    # Nativní appka pošle jen Bearer (bez cookie), tak identitu z loginu předáme
+    # přes tenhle podepsaný cookie → /app/shared/sync-active přepne shared_active.
+    try:
+        _h = _sign_active_handoff(user_id)
+        if _h:
+            response.set_cookie(
+                key="stg_active", value=_h,
+                httponly=False, max_age=600,
+                secure=settings.cookie_secure, samesite=settings.cookie_samesite,
+            )
+    except Exception:
+        pass
 from modules.auth.api.schemas import (
     LoginRequest, LoginResponse, SwitchTenantRequest,
     VerifyEmailRequestBody, VerifyEmailRequestResponse, VerifyEmailConfirmResponse,

@@ -6322,11 +6322,18 @@ setTimeout(function(){
     // → tenhle jeden start přeskoč zámek a marker smaž (další otevření zase zamkne).
     try{ if(/(?:^|;\s*)stg_pin_skip=1\b/.test(document.cookie||"")){
         document.cookie="stg_pin_skip=; max-age=0; path=/";
-        // Nativní appka (Bearer) drží aktivního uživatele v shared_active → po
-        // přihlášení e-mailem ho musíme přepsat na čerstvou identitu z cookie,
-        // jinak appka zůstane u předchozího PIN uživatele. Pak překreslíme.
-        // PWA (bez Bearer) = no-op, render jen obnoví. Kristý 15.6.
-        try{ api("POST","/api/v1/erp/app/shared/sync-active",{device_key:devKey()}).then(function(){ try{ render(); }catch(e){} }).catch(function(){}); }catch(e){}
+        // Nativní appka (Bearer) drží aktivního uživatele v tenant.shared_active
+        // (klíč = token zařízení) a má v resolveru přednost. authedFetch ale
+        // posílá JEN Bearer (bez cookie), takže server identitu z e-mail loginu
+        // nevidí. Server proto po loginu nastavil PODEPSANÝ cookie stg_active —
+        // přečteme ho a Bearer-cestou pošleme do sync-active, ta přepne
+        // shared_active na ověřenou identitu. Pak překreslíme. PWA = no-op.
+        // Kristý 15.6.
+        var _ha=""; try{ var m=(document.cookie||"").match(/(?:^|;\s*)stg_active=([^;]+)/); if(m) _ha=decodeURIComponent(m[1]); }catch(e){}
+        try{ document.cookie="stg_active=; max-age=0; path=/"; }catch(e){}
+        if(_ha){
+          try{ api("POST","/api/v1/erp/app/shared/sync-active",{handoff:_ha,device_key:devKey()}).then(function(){ try{ render(); }catch(e){} }).catch(function(){}); }catch(e){}
+        }
         return;
     } }catch(e){}
     var cover;

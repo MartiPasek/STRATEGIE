@@ -13286,22 +13286,39 @@ async def app_shared_switch(req: Request, response: Response) -> dict:
         cm.__exit__(None, None, None)
 
 
+def _verify_active_handoff(raw: str) -> int | None:
+    """Ověří podepsaný handoff `uid.exp.sig` (HMAC-SHA256, secret=SMS_GATEWAY_KEY).
+    Vrátí user_id při platném podpisu a neexpirovaném tokenu, jinak None.
+    Pár k modules.auth.api.router._sign_active_handoff. Kristý 15.6."""
+    try:
+        import hmac as _hm, hashlib as _hl, time as _tm
+        from core.config import settings as _cfg
+        secret = (_cfg.sms_gateway_key or "").encode("utf-8")
+        if len(secret) < 16:
+            return None
+        parts = (raw or "").split(".")
+        if len(parts) != 3:
+            return None
+        uid_s, exp_s, sig = parts
+        if int(exp_s) < int(_tm.time()):
+            return None
+        msg = f"{int(uid_s)}.{int(exp_s)}"
+        good = _hm.new(secret, msg.encode("utf-8"), _hl.sha256).hexdigest()[:32]
+        if not _hm.compare_digest(good, sig):
+            return None
+        return int(uid_s)
+    except Exception:
+        return None
+
+
 @api_router.post("/app/shared/sync-active")
 async def app_shared_sync_active(req: Request) -> dict:
-    """Po přihlášení e-mailem/SMS (stg_pin_skip) propíše ČERSTVOU identitu z
-    cookie do tenant.shared_active pro Bearer token zařízení. Bez toho zůstane
-    nativní appka (Bearer) u předchozího uživatele přihlášeného PINem — protože
-    shared_active má v resolveru _uid_from_token_or_cookie přednost. PWA (bez
-    Bearer) = no-op, ta jede čistě po cookie. Kristý 15.6."""
-    # Identita VÝHRADNĚ z cookie (čerstvé sms-login). NE z resolveru — ten by
-    # vrátil starý shared_active a fix by nic neudělal.
-    uid_c = req.cookies.get("user_id")
-    try:
-        cuid = int(uid_c) if uid_c else 0
-    except (TypeError, ValueError):
-        cuid = 0
-    if not cuid:
-        return {"ok": True, "skipped": "no_cookie"}
+    """Po přihlášení e-mailem/SMS přepne aktivního uživatele na sdíleném telefonu.
+    Nativní appka posílá jen Bearer (token zařízení) BEZ cookie, takže identitu
+    z loginu serveru předáme PODEPSANÝM handoffem (cookie stg_active → JS → tělo).
+    Bearer určí zařízení (token_hash → řádek tenant.shared_active), handoff určí
+    ověřeného uživatele. Resolver _uid_from_token_or_cookie pak vrací tu identitu.
+    PWA (bez Bearer) = no-op, ta jede čistě po cookie. Kristý 15.6."""
     auth = req.headers.get("authorization") or ""
     if not auth.lower().startswith("bearer "):
         return {"ok": True, "skipped": "no_bearer"}   # PWA: cookie cesta funguje sama
@@ -13312,6 +13329,10 @@ async def app_shared_sync_active(req: Request) -> dict:
         body = await req.json()
     except Exception:
         body = {}
+    handoff = str((body or {}).get("handoff") or "").strip()
+    target = _verify_active_handoff(handoff)
+    if target is None:
+        return {"ok": False, "error": "bad_handoff"}
     dk = str((body or {}).get("device_key") or "").strip()[:80] or None
     import hashlib as _hsa
     from sqlalchemy import text as _t
@@ -13324,16 +13345,15 @@ async def app_shared_sync_active(req: Request) -> dict:
                           {"h": th}).scalar()
         if owner is None:
             return {"ok": True, "skipped": "no_device"}
-        # Cookie uid musí být reálný uživatel.
         if not s.execute(_t("SELECT 1 FROM public.users WHERE id=:u"),
-                         {"u": cuid}).first():
+                         {"u": target}).first():
             return {"ok": True, "skipped": "no_user"}
         s.execute(_t("INSERT INTO tenant.shared_active (token_hash,user_id,device_key) "
                      "VALUES (:h,:u,:d) ON CONFLICT (token_hash) DO UPDATE SET "
                      "user_id=EXCLUDED.user_id, device_key=COALESCE(EXCLUDED.device_key,tenant.shared_active.device_key), set_at=now()"),
-                  {"h": th, "u": cuid, "d": dk})
+                  {"h": th, "u": target, "d": dk})
         s.commit()
-        return {"ok": True, "user_id": cuid}
+        return {"ok": True, "user_id": target}
     except Exception:
         try:
             s.rollback()

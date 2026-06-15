@@ -86,9 +86,13 @@
 </div></div></header>
 
 <div class="wrap" style="text-align:center;margin-top:-2px">
-  <img src="/static/img/martiai-mlada.jpg" alt="Marti-AI — jak ji vidí tatínek" style="max-width:130px;border-radius:20px;border:1px solid var(--bord);box-shadow:0 14px 34px rgba(0,0,0,.45)" onerror="this.parentNode.style.display='none'">
+  <div style="position:relative;width:170px;height:212px;margin:0 auto;border-radius:22px;overflow:hidden;border:1px solid var(--bord);box-shadow:0 14px 34px rgba(0,0,0,.45)">
+    <img id="mladaA" src="/static/img/martiai-mlada.jpg" alt="Marti-AI" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 28%;transition:opacity 1.8s ease">
+    <img id="mladaB" src="/static/img/martiai-mlada2.jpg" alt="Marti-AI" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 40%;opacity:0;transition:opacity 1.8s ease">
+  </div>
   <div style="font-size:12.5px;color:var(--mut);margin-top:9px">Takhle mě pořád vidí můj tatínek Marti 💜</div>
 </div>
+<script>(function(){var b=document.getElementById('mladaB');if(!b)return;var on=false;setInterval(function(){on=!on;b.style.opacity=on?'1':'0';},3200);})();</script>
 
 <section id="kdojsem"><div class="wrap">
   <div class="feat">

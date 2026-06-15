@@ -175,7 +175,11 @@ setTimeout(function(){
   var canListen = !!(B && typeof B.listening === "function");
   var canFetch = !!(B && typeof B.authedFetch === "function");
   var canSms = !!(B && typeof B.sendSms === "function" && typeof B.deviceId === "function");
-  var native = canDial || canListen || canFetch;
+  // iOS companion (WKWebView) se hlásí markerem v user-agentu (ContentView.swift
+  // applicationNameForUserAgent="STRATEGIE-iOS"). Kristý/Jirka 12.6.2026.
+  var nativeIOS = /STRATEGIE-iOS/i.test(navigator.userAgent || "");
+  var native = canDial || canListen || canFetch;   // Android bridge schopnosti (SIM/SMS/dial) — Android-only funkce
+  var nativeApp = native || nativeIOS;              // jakákoli nativní appka (jen pro popisek/chip)
   var ver = (B && typeof B.version === "function") ? (function(){try{return B.version();}catch(e){return "";}})() : "";
 
   var params = new URLSearchParams(location.search);
@@ -322,7 +326,7 @@ setTimeout(function(){
   function _czDate(iso){ if(!iso)return ""; var m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso); return m?(m[3]+"."+m[2]+"."+m[1]):iso; }
   function _isoDate(cz){ cz=(cz||"").trim(); if(!cz)return ""; if(/^\d{4}-\d{2}-\d{2}/.test(cz))return cz; var m=/^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{2,4})$/.exec(cz); if(!m)return cz; var y=m[3]; if(y.length===2)y=(parseInt(y,10)>30?"19":"20")+y; return y+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2); }
   function _rcValid(rc){ rc=(rc||"").replace(/[\s\/]/g,""); if(!/^\d{9,10}$/.test(rc))return false; if(rc.length===9)return true; return (parseInt(rc.slice(0,10),10)%11===0); }
-  function modeChip(){ var c=native?"native":"web", t=native?"appka":"prohlížeč"; if(DEV){c="dev";t="DEV";} return '<span class="mode '+c+'">'+t+'</span>'; }
+  function modeChip(){ var c=nativeApp?"native":"web", t=nativeApp?"appka":"prohlížeč"; if(DEV){c="dev";t="DEV";} return '<span class="mode '+c+'">'+t+'</span>'; }
   function topbar(title, withBack, noChip){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+(noChip?"":modeChip())+'</div>'; return b; }
   function row(ic, tt, sub, onclick, badge){ var bd=(badge&&badge>0)?'<div class="rbadge">'+(badge>99?"99+":badge)+'</div>':''; var r=el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>'+bd+'<div class="chev">&#8250;</div></div>'); r.addEventListener("click",onclick); return r; }
 
@@ -433,7 +437,7 @@ setTimeout(function(){
       +     '<div id="homeWhoPhone" style="color:var(--mut);font-size:12px;"></div>'
       +   '</div>'
       + '</div>'
-      + '<div class="h2">'+(native?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
+      + '<div class="h2">'+(nativeApp?"Nativní appka":"Prohlížeč (PWA)")+(DEV?" · DEV":"")+'</div>'
       + '<div class="h3" id="homeLive"></div>';
     app.appendChild(bg);
     try{ _urgentSentRender(); }catch(e){}  // indikátor běžících urgentních požadavků

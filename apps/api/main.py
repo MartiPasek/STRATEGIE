@@ -960,6 +960,42 @@ def web_eco_strategie():
     return _web_subpage("eco-strategie.html")
 
 
+@app.get("/web/strategie/dochazka")
+def web_eco_strategie_dochazka():
+    """STRATEGIE modul — Docházka v lidské řeči."""
+    return _web_subpage("eco-strategie-dochazka.html")
+
+
+@app.get("/web/strategie/crm")
+def web_eco_strategie_crm():
+    """STRATEGIE modul — CRM & zakázky."""
+    return _web_subpage("eco-strategie-crm.html")
+
+
+@app.get("/web/strategie/vyroba")
+def web_eco_strategie_vyroba():
+    """STRATEGIE modul — Výroba & tým."""
+    return _web_subpage("eco-strategie-vyroba.html")
+
+
+@app.get("/web/strategie/finance")
+def web_eco_strategie_finance():
+    """STRATEGIE modul — Finance & HR."""
+    return _web_subpage("eco-strategie-finance.html")
+
+
+@app.get("/web/strategie/ai")
+def web_eco_strategie_ai():
+    """STRATEGIE modul — AI asistent."""
+    return _web_subpage("eco-strategie-ai.html")
+
+
+@app.get("/web/strategie/mobil")
+def web_eco_strategie_mobil():
+    """STRATEGIE modul — Mobil & PWA."""
+    return _web_subpage("eco-strategie-mobil.html")
+
+
 @app.get("/web/performia")
 def web_eco_performia():
     """Podstránka ekosystému — Performia (lidé: výběr podle produktivity)."""

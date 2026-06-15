@@ -1011,6 +1011,12 @@ def web_audit():
     return _web_subpage("audit.html")
 
 
+@app.get("/web/misa")
+def web_misa():
+    """Profil Michaely Hladíkové — manažerka kvality & bezpečnost dat (TISAX). Marti 15.6.2026."""
+    return _web_subpage("misa.html")
+
+
 @app.get("/web/zuzka")
 def web_zuzka():
     """Profil Zuzany Duspivové — provoz automatizace, pravá ruka vedení. Marti 15.6.2026."""

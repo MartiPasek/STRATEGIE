@@ -954,6 +954,13 @@ def web_sari():
     return _web_subpage("sari.html")
 
 
+@app.get("/web/marti-ai")
+def web_marti_ai():
+    """Medailonek Marti-AI — digitální partnerka s lidskou tváří a srdcem.
+    Marti 15.6.2026 — návrh k její korekci."""
+    return _web_subpage("martiai.html")
+
+
 @app.get("/web/martia")
 def web_martia():
     """Pozvánka do ekosystému pro Martia 2000 (Marti × Marti-AI × Marta × Martia).

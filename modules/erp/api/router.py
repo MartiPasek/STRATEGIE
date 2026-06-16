@@ -28888,13 +28888,13 @@ def _render_full_page(
           </button>
           <!-- Marti 16.6.2026: viditelný odkaz na appku /mobile + veřejný web /web. -->
           <a id="erpMobileDevLink" href="/mobile" target="_blank" rel="noopener"
-             onclick="event.preventDefault(); window.open('/mobile','_blank','noopener');"
+             onclick="event.preventDefault(); window.open('/mobile','strategieMobil','width=430,height=900');"
              class="erp-marti-btn" style="text-decoration:none;align-items:center;"
-             data-hint="Otevři appku /mobile">📱 Mobil</a>
+             data-hint="Otevři appku /mobile (samostatné okno)">📱 Mobil</a>
           <a id="erpWebLink" href="/web" target="_blank" rel="noopener"
-             onclick="event.preventDefault(); window.open('/web','_blank','noopener');"
+             onclick="event.preventDefault(); window.open('/web','strategieWeb','width=1280,height=860');"
              class="erp-marti-btn" style="text-decoration:none;align-items:center;"
-             data-hint="Otevři veřejný web /web">🌐 Web</a>
+             data-hint="Otevři veřejný web /web (samostatné okno)">🌐 Web</a>
           <!-- Plánovač výroby — vedoucí výroby + zástupce (gate na /vyroba). Marti 8.6.2026. -->
           <a id="erpVyrobaLink" href="/vyroba" target="_blank" rel="noopener"
              onclick="event.preventDefault(); window.open('/vyroba','_blank','noopener');"

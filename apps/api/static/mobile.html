@@ -1364,12 +1364,15 @@ setTimeout(function(){
     var l=el('<div class="list"></div>');
     l.appendChild(row("🏫","Třídy","Rozvrh po třídách — mřížka celého týdne",function(){ go("bk_tridy"); }));
     l.appendChild(row("👩‍🏫","Učitelé","Osobní rozvrh každého učitele",function(){ go("bk_ucitele"); }));
+    l.appendChild(row("🚪","Obsazení učeben","Co se kdy učí v které učebně (Nerudovka / Aťásy)",function(){ go("bk_ucebny"); }));
+    l.appendChild(row("📋","Úvazky","Co který učitel učí — předměty, třídy, hodiny",function(){ go("bk_uvazky"); }));
     app.appendChild(l);
     api("GET","/api/v1/erp/app/bakalari/overview","").then(function(j){
       if(!j||!j.ok){ dash.textContent=(j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Nepodařilo se načíst."; return; }
       if(j.empty){ dash.textContent="Zrcadlo se právě plní daty…"; return; }
       function kc(v,lb){ return '<div style="flex:1;min-width:64px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:9px 4px;text-align:center;"><div style="font-size:20px;font-weight:800;">'+v+'</div><div style="font-size:10px;color:var(--mut);">'+lb+'</div></div>'; }
-      dash.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;">'+kc(j.trid,"tříd")+kc(j.ucitelu,"učitelů")+kc(j.predmetu,"předmětů")+kc(j.mistnosti,"místností")+'</div>';
+      var bud=(j.budovy||[]).map(function(b){ return '🏫 '+esc(b.nazev)+' · '+b.mistnosti+' učeben'; }).join(' &nbsp;·&nbsp; ');
+      dash.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;">'+kc(j.trid,"tříd")+kc(j.ucitelu,"učitelů")+kc(j.predmetu,"předmětů")+kc(j.mistnosti,"místností")+'</div>'+(bud?'<div style="margin-top:6px;font-size:11.5px;color:var(--mut);">'+bud+'</div>':'');
     });
   }
   function bk_tridy(){
@@ -1412,8 +1415,10 @@ setTimeout(function(){
       dny.forEach(function(d){
         var arr=map[d+"_"+hod]||[];
         var inner=arr.map(function(c){
-          var top=mode==='class'?(c.pred||""):(c.trid||c.pred||"");
-          var bot=mode==='class'?((c.ucit||"")+(c.mist?(" · "+c.mist):"")):((c.pred||"")+(c.mist?(" · "+c.mist):""));
+          var top, bot;
+          if(mode==='class'){ top=c.pred||""; bot=(c.ucit||"")+(c.mist?(" · "+c.mist):""); }
+          else if(mode==='room'){ top=c.trid||""; bot=(c.pred||"")+(c.ucit?(" · "+c.ucit):""); }
+          else { top=c.trid||c.pred||""; bot=(c.pred||"")+(c.mist?(" · "+c.mist):""); }
           var col=colOf(c.pred||top);
           var sk=(mode==='class'&&c.skup)?(' <span style="opacity:.7;">'+esc(c.skup)+'</span>'):'';
           return '<div style="background:'+col+'22;border-left:3px solid '+col+';border-radius:4px;padding:2px 3px;margin:1px 0;line-height:1.25;"><b>'+esc(top)+'</b>'+sk+'<br><span style="opacity:.8;font-size:9.5px;">'+esc(bot)+'</span></div>';
@@ -1439,6 +1444,44 @@ setTimeout(function(){
     api("GET","/api/v1/erp/app/bakalari/teacher-grid?ucit="+encodeURIComponent(window._bkUcit||""),"").then(function(j){
       if(!j||!j.ok){ box.innerHTML='<div class="hint" style="margin:6px;">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
       box.innerHTML='<div class="hint" style="margin:6px;">'+esc(j.jmeno||"")+' · verze rozvrhu '+esc(j.plat_od||"")+'</div>'+_bkGridHtml(j,'teacher');
+    });
+  }
+  function bk_ucebny(){
+    app.innerHTML=topbar("🚪 Obsazení učeben", true);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/bakalari/rooms","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">Žádné učebny.</div>')); return; }
+      var curB=null;
+      j.items.forEach(function(m){
+        if(m.budova!==curB){ curB=m.budova; box.appendChild(el('<div style="margin:12px 8px 4px;font-size:12px;font-weight:700;color:#7c8cdb;">🏫 '+esc(curB||"—")+'</div>')); }
+        var sub=(m.nazev||"")+(m.kapacita?(" · "+m.kapacita+" míst"):"")+(m.hodin?(" · "+m.hodin+" h/týd"):"");
+        box.appendChild(row("🚪",(m.zkratka||m.kod),sub,function(){ window._bkMist=m.kod; window._bkMistLbl=(m.zkratka||m.kod)+(m.budova?(" · "+m.budova):""); go("bk_room"); }));
+      });
+    });
+  }
+  function bk_room(){
+    app.innerHTML=topbar("🚪 "+(window._bkMistLbl||"Učebna"), true);
+    var box=el('<div><div class="hint" style="margin:6px;">Načítám obsazení…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/bakalari/room-grid?mist="+encodeURIComponent(window._bkMist||""),"").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="hint" style="margin:6px;">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
+      box.innerHTML='<div class="hint" style="margin:6px;">'+esc(j.nazev||"")+' · '+esc(j.budova||"")+' · verze '+esc(j.plat_od||"")+'</div>'+_bkGridHtml(j,'room');
+    });
+  }
+  function bk_uvazky(){
+    app.innerHTML=topbar("📋 Úvazky", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.5;">Co který učitel učí — předměty, třídy a počet hodin týdně.</div>'));
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/bakalari/loads","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Žádné úvazky.")+'</div>')); return; }
+      j.items.forEach(function(t){
+        var card=el('<div style="background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;margin:6px;"></div>');
+        var head='<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:4px;"><b style="font-size:15px;">'+esc(t.jmeno)+'</b><span style="color:var(--green);font-weight:800;">'+t.total+' h/týd</span></div>';
+        var lines=(t.items||[]).map(function(it){ return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;border-top:1px solid #1b2742;"><span style="flex:1;">'+esc(it.pred_nazev||it.pred)+(it.tridy?(' <span style="color:var(--mut);">'+esc(it.tridy)+'</span>'):'')+'</span><b>'+it.hodin+'</b></div>'; }).join("");
+        card.innerHTML=head+lines;
+        box.appendChild(card);
+      });
     });
   }
   // Ops akce — provozní akce + historie spuštění s datumy (jen rodiče). Marti 13.6.
@@ -6797,7 +6840,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

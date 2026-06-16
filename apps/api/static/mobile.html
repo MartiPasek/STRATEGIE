@@ -3630,7 +3630,7 @@ setTimeout(function(){
   function dochazka(){
     app.innerHTML=topbar("", false, true);  // Marti 7.6.: bez nadpisu a šipky; prázdná lišta drží odsazení
     var p=el('<div class="panel"></div>');
-    if(!(B&&typeof B.authedFetch==="function")){ p.appendChild(el('<div class="hint">Docházka funguje v appce STRATEGIE.</div>')); app.appendChild(p); return; }
+    // Marti 16.6.: docházka běží i v PWA (web) přes cookie auth — gate na nativní appku zrušen.
     // Marti 7.6. večer: „Dnes" logicky nahoru — obrazovka KONČÍ kartou
     // „Potřebuji ti něco říct…". Nadpis „Dnes makám 😉" při běžící směně.
     p.appendChild(el('<div id="dochHead" style="display:none;font-size:24px;font-weight:800;margin:6px 0 12px;">Dnes makám 😉</div>'));

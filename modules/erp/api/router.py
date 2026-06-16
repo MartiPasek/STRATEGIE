@@ -6310,6 +6310,169 @@ async def app_recruit_pipeline(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ─── Bakaláři Nerudovka (tenant 13) — rozvrhové přehledy ze zrcadla. ───
+_BK_TENANT = 13
+_BK_DNY = {1: "Po", 2: "Út", 3: "St", 4: "Čt", 5: "Pá"}
+
+
+def _bk_can_view(s, uid: int) -> bool:
+    from sqlalchemy import text as _t
+    r = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"), {"u": uid}).first()
+    return bool(r and r[0])
+
+
+def _bk_plat_od(s) -> str:
+    from sqlalchemy import text as _t
+    r = s.execute(_t("SELECT MAX(plat_od) FROM tenant.bakalari_uvaz WHERE tenant_id=:t"), {"t": _BK_TENANT}).scalar()
+    return r or ""
+
+
+@api_router.get("/app/bakalari/overview")
+async def app_bakalari_overview(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        po = _bk_plat_od(s)
+        if not po:
+            return JSONResponse({"ok": True, "plat_od": "", "empty": True})
+        def _c(tbl):
+            return int(s.execute(_t("SELECT count(*) FROM tenant.%s WHERE tenant_id=:t AND plat_od=:p" % tbl),
+                                 {"t": _BK_TENANT, "p": po}).scalar() or 0)
+        return JSONResponse({"ok": True, "plat_od": po,
+                             "trid": _c("bakalari_trid"), "ucitelu": _c("bakalari_ucit"),
+                             "predmetu": _c("bakalari_pred"), "mistnosti": _c("bakalari_mist"),
+                             "hodin": int(s.execute(_t("SELECT count(*) FROM tenant.bakalari_uvaz WHERE tenant_id=:t AND plat_od=:p AND den BETWEEN 1 AND 5"), {"t": _BK_TENANT, "p": po}).scalar() or 0)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/bakalari/classes")
+async def app_bakalari_classes(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        po = _bk_plat_od(s)
+        rows = s.execute(_t(
+            "SELECT TRIM(t.kod_trid), TRIM(COALESCE(t.zkratka,'')), TRIM(COALESCE(t.nazev,'')), t.pocet_zaku, "
+            " TRIM(COALESCE(uc.prijmeni,'')) "
+            "FROM tenant.bakalari_trid t "
+            "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=t.tenant_id AND uc.plat_od=t.plat_od AND TRIM(uc.intern_kod)=TRIM(t.tridnictvi) "
+            "WHERE t.tenant_id=:t AND t.plat_od=:p ORDER BY t.zkratka"), {"t": _BK_TENANT, "p": po}).fetchall()
+        out = [{"kod": r[0], "zkratka": r[1], "nazev": r[2], "zaku": r[3], "tridni": r[4]} for r in rows]
+        return JSONResponse({"ok": True, "plat_od": po, "items": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/bakalari/teachers")
+async def app_bakalari_teachers(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        po = _bk_plat_od(s)
+        rows = s.execute(_t(
+            "SELECT TRIM(uc.intern_kod), TRIM(COALESCE(uc.zkratka,'')), TRIM(COALESCE(uc.prijmeni,'')), "
+            " TRIM(COALESCE(uc.jmeno,'')), TRIM(COALESCE(uc.aprobace,'')), "
+            " (SELECT count(*) FROM tenant.bakalari_uvaz u WHERE u.tenant_id=uc.tenant_id AND u.plat_od=uc.plat_od AND TRIM(u.kod_ucit)=TRIM(uc.intern_kod) AND u.den BETWEEN 1 AND 5) "
+            "FROM tenant.bakalari_ucit uc WHERE uc.tenant_id=:t AND uc.plat_od=:p ORDER BY uc.prijmeni"),
+            {"t": _BK_TENANT, "p": po}).fetchall()
+        out = [{"kod": r[0], "zkratka": r[1], "prijmeni": r[2], "jmeno": r[3], "aprobace": r[4], "hodin": int(r[5] or 0)} for r in rows]
+        return JSONResponse({"ok": True, "plat_od": po, "items": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _bk_grid_rows(s, po, where_sql, prm):
+    from sqlalchemy import text as _t
+    prm = dict(prm); prm.update({"t": _BK_TENANT, "p": po})
+    rows = s.execute(_t(
+        "SELECT u.den, u.hod, TRIM(COALESCE(u.kod_skup,'')), "
+        " TRIM(COALESCE(p.zkratka, u.kod_pred)), TRIM(COALESCE(p.nazev,'')), "
+        " TRIM(COALESCE(uc.zkratka, u.kod_ucit)), TRIM(COALESCE(uc.prijmeni,'')), "
+        " TRIM(COALESCE(m.zkratka, u.kod_mist)), TRIM(COALESCE(m.nazev,'')), "
+        " TRIM(COALESCE(u.kod_trid,'')) "
+        "FROM tenant.bakalari_uvaz u "
+        "LEFT JOIN tenant.bakalari_pred p ON p.tenant_id=u.tenant_id AND p.plat_od=u.plat_od AND TRIM(p.kod_pred)=TRIM(u.kod_pred) "
+        "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=u.tenant_id AND uc.plat_od=u.plat_od AND TRIM(uc.intern_kod)=TRIM(u.kod_ucit) "
+        "LEFT JOIN tenant.bakalari_mist m ON m.tenant_id=u.tenant_id AND m.plat_od=u.plat_od AND TRIM(m.kod_mist)=TRIM(u.kod_mist) "
+        "WHERE u.tenant_id=:t AND u.plat_od=:p AND u.den BETWEEN 1 AND 5 AND " + where_sql +
+        " ORDER BY u.den, u.hod"), prm).fetchall()
+    return [{"den": r[0], "hod": r[1], "skup": r[2], "pred": r[3], "pred_nazev": r[4],
+             "ucit": r[5], "ucit_prijmeni": r[6], "mist": r[7], "mist_nazev": r[8], "trid": r[9]} for r in rows]
+
+
+@api_router.get("/app/bakalari/class-grid")
+async def app_bakalari_class_grid(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        po = _bk_plat_od(s)
+        trid = (req.query_params.get("trid") or "").strip()
+        nazev = s.execute(_t("SELECT TRIM(COALESCE(zkratka,'')), TRIM(COALESCE(nazev,'')) FROM tenant.bakalari_trid WHERE tenant_id=:t AND plat_od=:p AND TRIM(kod_trid)=:k"),
+                          {"t": _BK_TENANT, "p": po, "k": trid}).first()
+        cells = _bk_grid_rows(s, po, "TRIM(u.kod_trid)=:k", {"k": trid})
+        mh = max([c["hod"] for c in cells], default=0)
+        return JSONResponse({"ok": True, "plat_od": po, "trid": trid,
+                             "zkratka": (nazev[0] if nazev else trid), "nazev": (nazev[1] if nazev else ""),
+                             "max_hod": mh, "dny": _BK_DNY, "cells": cells})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/bakalari/teacher-grid")
+async def app_bakalari_teacher_grid(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        po = _bk_plat_od(s)
+        ucit = (req.query_params.get("ucit") or "").strip()
+        info = s.execute(_t("SELECT TRIM(COALESCE(zkratka,'')), TRIM(COALESCE(prijmeni,'')), TRIM(COALESCE(jmeno,'')) FROM tenant.bakalari_ucit WHERE tenant_id=:t AND plat_od=:p AND TRIM(intern_kod)=:k"),
+                         {"t": _BK_TENANT, "p": po, "k": ucit}).first()
+        cells = _bk_grid_rows(s, po, "TRIM(u.kod_ucit)=:k", {"k": ucit})
+        mh = max([c["hod"] for c in cells], default=0)
+        return JSONResponse({"ok": True, "plat_od": po, "ucit": ucit,
+                             "zkratka": (info[0] if info else ucit),
+                             "jmeno": ((info[1] + " " + info[2]).strip() if info else ucit),
+                             "max_hod": mh, "dny": _BK_DNY, "cells": cells})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ─── Kára: produktivita člověka (EXEC-U-TEST lopata + motor + výstup). ───
 # Marti-AI 13.6.: jen licencovaní (Marti, Šárka) + rodiče; vedoucí NE; audit; bez paměti.
 _KARA_LICENSED = {1, 13}

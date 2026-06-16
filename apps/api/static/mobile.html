@@ -1338,6 +1338,10 @@ setTimeout(function(){
     g4.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
     g4.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
     app.appendChild(g4);
+    sec("ŠKOLA — NERUDOVKA");
+    var g5=el('<div class="appgrid"></div>');
+    g5.appendChild(appCell("🗓️","Rozvrh",0,function(){go("bk_rozvrh");}));
+    app.appendChild(g5);
     var apiInfo=el('<div style="margin:14px 6px 4px;font-size:11px;color:var(--mut);text-align:center;line-height:1.4;">API…</div>');
     app.appendChild(apiInfo);
     api("GET","/api/v1/api-info","").then(function(j){
@@ -1350,6 +1354,92 @@ setTimeout(function(){
         apiInfo.innerHTML="Běžíš na: <b style='color:var(--tx)'>"+tag+"</b> · build "+(j.commit||"?")+" · port "+(j.port||"?"); }
     });
     app.appendChild(el('<div style="height:80px;"></div>'));
+  }
+  // ── Bakaláři Nerudovka — rozvrhové přehledy (čte ze zrcadla tenant 13). ──
+  function bk_rozvrh(){
+    app.innerHTML=topbar("🗓️ Rozvrh Nerudovka", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Živá data ze školního systému Bakaláři — budovy Nerudovka i Aťásy. Náhled rozvrhu po třídách a učitelích.</div>'));
+    var dash=el('<div id="bkDash" class="hint" style="margin:0 6px 10px;">Načítám…</div>');
+    app.appendChild(dash);
+    var l=el('<div class="list"></div>');
+    l.appendChild(row("🏫","Třídy","Rozvrh po třídách — mřížka celého týdne",function(){ go("bk_tridy"); }));
+    l.appendChild(row("👩‍🏫","Učitelé","Osobní rozvrh každého učitele",function(){ go("bk_ucitele"); }));
+    app.appendChild(l);
+    api("GET","/api/v1/erp/app/bakalari/overview","").then(function(j){
+      if(!j||!j.ok){ dash.textContent=(j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Nepodařilo se načíst."; return; }
+      if(j.empty){ dash.textContent="Zrcadlo se právě plní daty…"; return; }
+      function kc(v,lb){ return '<div style="flex:1;min-width:64px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:9px 4px;text-align:center;"><div style="font-size:20px;font-weight:800;">'+v+'</div><div style="font-size:10px;color:var(--mut);">'+lb+'</div></div>'; }
+      dash.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;">'+kc(j.trid,"tříd")+kc(j.ucitelu,"učitelů")+kc(j.predmetu,"předmětů")+kc(j.mistnosti,"místností")+'</div>';
+    });
+  }
+  function bk_tridy(){
+    app.innerHTML=topbar("🏫 Třídy", true);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/bakalari/classes","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">Žádné třídy.</div>')); return; }
+      j.items.forEach(function(c){
+        var sub=(c.zaku?(c.zaku+" žáků"):"")+(c.tridni?((c.zaku?" · ":"")+"tř. uč. "+c.tridni):"");
+        box.appendChild(row("🏫",(c.zkratka||c.nazev||c.kod),sub,function(){ window._bkTrid=c.kod; window._bkTridLbl=(c.zkratka||c.nazev||c.kod); go("bk_class"); }));
+      });
+    });
+  }
+  function bk_ucitele(){
+    app.innerHTML=topbar("👩‍🏫 Učitelé", true);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/bakalari/teachers","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">Žádní učitelé.</div>')); return; }
+      j.items.forEach(function(u){
+        var nm=((u.prijmeni||"")+" "+(u.jmeno||"")).trim()||u.zkratka||u.kod;
+        var sub=(u.zkratka?u.zkratka:"")+(u.hodin?((u.zkratka?" · ":"")+u.hodin+" h/týd"):"")+(u.aprobace?(" · "+u.aprobace):"");
+        box.appendChild(row("👩‍🏫",nm,sub,function(){ window._bkUcit=u.kod; window._bkUcitLbl=nm; go("bk_teacher"); }));
+      });
+    });
+  }
+  function _bkGridHtml(j, mode){
+    var mh=j.max_hod||0; if(mh<1) return '<div class="hint" style="margin:6px;">Pro tuto verzi nejsou hodiny umístěné.</div>';
+    var dny=[1,2,3,4,5], dn={1:"Po",2:"Út",3:"St",4:"Čt",5:"Pá"};
+    var map={}; (j.cells||[]).forEach(function(c){ var k=c.den+"_"+c.hod; (map[k]=map[k]||[]).push(c); });
+    var pal=["#4f8ef7","#34d399","#a78bfa","#f59e0b","#ef4444","#06b6d4","#ec4899","#84cc16","#f97316","#14b8a6"];
+    function colOf(s){ var h=0; s=s||""; for(var i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))%pal.length; return pal[h]; }
+    var h='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;padding:0 6px 20px;"><table style="border-collapse:collapse;width:100%;min-width:340px;font-size:11px;">';
+    h+='<tr><th style="width:20px;"></th>';
+    dny.forEach(function(d){ h+='<th style="padding:4px;color:var(--mut);font-weight:700;">'+dn[d]+'</th>'; });
+    h+='</tr>';
+    for(var hod=1;hod<=mh;hod++){
+      h+='<tr><td style="text-align:center;color:var(--mut);font-weight:700;border-top:1px solid var(--bord);">'+hod+'</td>';
+      dny.forEach(function(d){
+        var arr=map[d+"_"+hod]||[];
+        var inner=arr.map(function(c){
+          var top=mode==='class'?(c.pred||""):(c.trid||c.pred||"");
+          var bot=mode==='class'?((c.ucit||"")+(c.mist?(" · "+c.mist):"")):((c.pred||"")+(c.mist?(" · "+c.mist):""));
+          var col=colOf(c.pred||top);
+          var sk=(mode==='class'&&c.skup)?(' <span style="opacity:.7;">'+esc(c.skup)+'</span>'):'';
+          return '<div style="background:'+col+'22;border-left:3px solid '+col+';border-radius:4px;padding:2px 3px;margin:1px 0;line-height:1.25;"><b>'+esc(top)+'</b>'+sk+'<br><span style="opacity:.8;font-size:9.5px;">'+esc(bot)+'</span></div>';
+        }).join("");
+        h+='<td style="vertical-align:top;border-top:1px solid var(--bord);padding:1px;min-width:58px;">'+inner+'</td>';
+      });
+      h+='</tr>';
+    }
+    h+='</table></div>';
+    return h;
+  }
+  function bk_class(){
+    app.innerHTML=topbar("🏫 "+(window._bkTridLbl||"Třída"), true);
+    var box=el('<div><div class="hint" style="margin:6px;">Načítám rozvrh…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/bakalari/class-grid?trid="+encodeURIComponent(window._bkTrid||""),"").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="hint" style="margin:6px;">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
+      box.innerHTML='<div class="hint" style="margin:6px;">'+esc(j.nazev||"")+' · verze rozvrhu '+esc(j.plat_od||"")+'</div>'+_bkGridHtml(j,'class');
+    });
+  }
+  function bk_teacher(){
+    app.innerHTML=topbar("👩‍🏫 "+(window._bkUcitLbl||"Učitel"), true);
+    var box=el('<div><div class="hint" style="margin:6px;">Načítám rozvrh…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/bakalari/teacher-grid?ucit="+encodeURIComponent(window._bkUcit||""),"").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="hint" style="margin:6px;">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
+      box.innerHTML='<div class="hint" style="margin:6px;">'+esc(j.jmeno||"")+' · verze rozvrhu '+esc(j.plat_od||"")+'</div>'+_bkGridHtml(j,'teacher');
+    });
   }
   // Ops akce — provozní akce + historie spuštění s datumy (jen rodiče). Marti 13.6.
   function ops(){
@@ -6707,7 +6797,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

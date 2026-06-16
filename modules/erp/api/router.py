@@ -6427,7 +6427,9 @@ async def app_bakalari_classes(req: Request) -> JSONResponse:
             " TRIM(COALESCE(uc.prijmeni,'')) "
             "FROM tenant.bakalari_trid t "
             "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=t.tenant_id AND uc.plat_od=t.plat_od AND TRIM(uc.intern_kod)=TRIM(t.tridnictvi) "
-            "WHERE t.tenant_id=:t AND t.plat_od=:p ORDER BY t.zkratka"), {"t": _BK_TENANT, "p": po}).fetchall()
+            "WHERE t.tenant_id=:t AND t.plat_od=:p "
+            " AND EXISTS (SELECT 1 FROM tenant.bakalari_uvaz u WHERE u.tenant_id=t.tenant_id AND u.plat_od=t.plat_od AND TRIM(u.kod_trid)=TRIM(t.kod_trid) AND u.den BETWEEN 1 AND 5) "
+            "ORDER BY t.zkratka"), {"t": _BK_TENANT, "p": po}).fetchall()
         out = [{"kod": r[0], "zkratka": r[1], "nazev": r[2], "zaku": r[3], "tridni": r[4]} for r in rows]
         return JSONResponse({"ok": True, "plat_od": po, "items": out})
     except Exception as exc:
@@ -6451,7 +6453,9 @@ async def app_bakalari_teachers(req: Request) -> JSONResponse:
             "SELECT TRIM(uc.intern_kod), TRIM(COALESCE(uc.zkratka,'')), TRIM(COALESCE(uc.prijmeni,'')), "
             " TRIM(COALESCE(uc.jmeno,'')), TRIM(COALESCE(uc.aprobace,'')), "
             " (SELECT count(DISTINCT (u.den||'_'||u.hod)) FROM tenant.bakalari_uvaz u WHERE u.tenant_id=uc.tenant_id AND u.plat_od=uc.plat_od AND TRIM(u.kod_ucit)=TRIM(uc.intern_kod) AND u.den BETWEEN 1 AND 5) "
-            "FROM tenant.bakalari_ucit uc WHERE uc.tenant_id=:t AND uc.plat_od=:p ORDER BY uc.prijmeni"),
+            "FROM tenant.bakalari_ucit uc WHERE uc.tenant_id=:t AND uc.plat_od=:p "
+            " AND EXISTS (SELECT 1 FROM tenant.bakalari_uvaz u WHERE u.tenant_id=uc.tenant_id AND u.plat_od=uc.plat_od AND TRIM(u.kod_ucit)=TRIM(uc.intern_kod) AND u.den BETWEEN 1 AND 5) "
+            "ORDER BY uc.prijmeni"),
             {"t": _BK_TENANT, "p": po}).fetchall()
         out = [{"kod": r[0], "zkratka": r[1], "prijmeni": r[2], "jmeno": r[3], "aprobace": r[4], "hodin": int(r[5] or 0)} for r in rows]
         return JSONResponse({"ok": True, "plat_od": po, "items": out})

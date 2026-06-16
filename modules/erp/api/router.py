@@ -10881,16 +10881,12 @@ async def app_hr_att_source_set(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
-def _apid_backup_dir() -> str:
-    import os as _os_ab
-    return _os_ab.environ.get("BACKUP_DIR") or "C:\\Backup"
-
-
 @api_router.get("/app/admin/apid/backups")
 async def app_apid_backups(req: Request) -> JSONResponse:
-    """Marti 16.6.: seznam dostupných záloh data_db v C:\\Backup (jen rodiče) +
-    stav poslední obnovy do API D. Klik v appce → tenhle seznam."""
-    import os as _os_ab, json as _json_ab
+    """Marti 16.6.: seznam dostupných záloh data_db (jen rodiče) + stav poslední
+    obnovy do API D. Zálohy jsou na DATOVÉM serveru (.12), proto se NEčtou z disku
+    API, ale z tabulky fw.apid_backup, kterou plní watcher na .12."""
+    from sqlalchemy import text as _t
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -10898,41 +10894,39 @@ async def app_apid_backups(req: Request) -> JSONResponse:
         _require_parent(uid)
     except Exception:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    d = _apid_backup_dir()
-    items = []
+    cm, s = _att_session()
     try:
-        for n in _os_ab.listdir(d):
-            if n.lower().endswith((".dump", ".backup", ".sql")):
-                p = _os_ab.path.join(d, n)
-                try:
-                    stt = _os_ab.stat(p)
-                    import datetime as _dt_ab
-                    items.append({"name": n, "size_mb": round(stt.st_size / 1048576.0, 1),
-                                  "mtime": _dt_ab.datetime.fromtimestamp(stt.st_mtime).strftime("%d.%m.%Y %H:%M")})
-                except Exception:
-                    pass
-        items.sort(key=lambda x: x["mtime"], reverse=True)
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": "Složku se zálohami se nepodařilo načíst (%s): %s" % (d, exc)}, status_code=500)
-    # stav poslední obnovy (zapsaný watcherem do _apid_restore.out)
-    status = None
-    try:
-        op = _os_ab.path.join(d, "_apid_restore.out")
-        if _os_ab.path.isfile(op):
-            with open(op, "r", encoding="utf-8", errors="replace") as fh:
-                status = _json_ab.loads(fh.read() or "{}")
-    except Exception:
+        rows = s.execute(_t(
+            "SELECT name, COALESCE(dir,''), size_mb, to_char(mtime,'DD.MM.YYYY HH24:MI') "
+            "FROM fw.apid_backup ORDER BY mtime DESC NULLS LAST, name")).fetchall()
+        items = [{"name": r[0], "dir": r[1], "size_mb": (float(r[2]) if r[2] is not None else None),
+                  "mtime": r[3] or ""} for r in rows]
+        last = s.execute(_t(
+            "SELECT file, status, result, to_char(finished_at,'DD.MM HH24:MI') "
+            "FROM fw.apid_restore_req WHERE finished_at IS NOT NULL "
+            "ORDER BY finished_at DESC LIMIT 1")).first()
         status = None
-    pending = _os_ab.path.isfile(_os_ab.path.join(d, "_apid_restore.req"))
-    return JSONResponse({"ok": True, "dir": d, "items": items, "status": status, "pending": pending})
+        if last:
+            status = {"ok": (last[1] == "done"), "file": last[0], "finished": last[3] or "",
+                      "result": last[2] or ""}
+        pending = bool(s.execute(_t(
+            "SELECT 1 FROM fw.apid_restore_req WHERE status IN ('pending','running') LIMIT 1")).first())
+        listed = s.execute(_t("SELECT to_char(max(listed_at),'DD.MM HH24:MI') FROM fw.apid_backup")).scalar()
+        return JSONResponse({"ok": True, "items": items, "status": status,
+                             "pending": pending, "listed_at": listed or ""})
+    except Exception as exc:
+        # tabulka ještě neexistuje / watcher nepublikoval
+        return JSONResponse({"ok": True, "items": [], "status": None, "pending": False,
+                             "listed_at": "", "note": str(exc)})
+    finally:
+        cm.__exit__(None, None, None)
 
 
 @api_router.post("/app/admin/apid/restore")
 async def app_apid_restore(req: Request) -> JSONResponse:
-    """Zařadí obnovu vybrané zálohy do API D (zapíše marker pro watcher). Jen rodiče.
-    Watcher (restore_to_apid.ps1 -Watch) marker spotřebuje, obnoví do data_db_test a
-    restartuje API D. Produkce se NEDOTKNE."""
-    import os as _os_ar, json as _json_ar, datetime as _dt_ar
+    """Zařadí obnovu vybrané zálohy do API D (řádek do fw.apid_restore_req). Jen rodiče.
+    Watcher na datovém serveru (.12) ji vezme, obnoví do data_db_test. Produkce se NEDOTKNE."""
+    from sqlalchemy import text as _t
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -10945,25 +10939,21 @@ async def app_apid_restore(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     fname = (str(body.get("file") or "")).strip()
-    d = _apid_backup_dir()
-    # anti path-traversal: soubor musí reálně existovat ve složce záloh
-    if not fname or fname not in set(_os_ar.listdir(d)) or not fname.lower().endswith((".dump", ".backup", ".sql")):
-        return JSONResponse({"ok": False, "error": "Neplatný soubor zálohy."}, status_code=400)
+    cm, s = _att_session()
     try:
-        marker = {"file": fname, "requested_by": uid, "ts": _dt_ar.datetime.now().isoformat()}
-        with open(_os_ar.path.join(d, "_apid_restore.req"), "w", encoding="utf-8") as fh:
-            fh.write(_json_ar.dumps(marker, ensure_ascii=False))
-        # vyčisti starý výsledek, ať UI nečte stav z minula
-        op = _os_ar.path.join(d, "_apid_restore.out")
-        if _os_ar.path.isfile(op):
-            try:
-                _os_ar.remove(op)
-            except Exception:
-                pass
+        if not fname or not s.execute(_t("SELECT 1 FROM fw.apid_backup WHERE name=:n"),
+                                      {"n": fname}).first():
+            return JSONResponse({"ok": False, "error": "Neplatný soubor zálohy."}, status_code=400)
+        s.execute(_t("INSERT INTO fw.apid_restore_req (file, requested_by, status) "
+                     "VALUES (:f, :u, 'pending')"), {"f": fname, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True, "queued": fname,
+                             "info": "Obnova zařazena. Watcher na datovém serveru ji zpracuje (~1-3 min). Stav se objeví v seznamu."})
     except Exception as exc:
+        s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    return JSONResponse({"ok": True, "queued": fname,
-                         "info": "Obnova zařazena. Watcher API D ji zpracuje (~1-3 min). Stav se objeví v seznamu."})
+    finally:
+        cm.__exit__(None, None, None)
 
 
 @api_router.get("/app/attendance/announced-future")

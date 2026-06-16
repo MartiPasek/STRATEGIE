@@ -26931,6 +26931,19 @@ def _render_full_page(
     .erp-marti-btn:active {{
       opacity: 0.7;
     }}
+    /* Marti 16.6.2026: kompaktní hlavičkové ikonky (emoji nahoře + popisek dole),
+       užší než textová tlačítka — ať se vejdou vedle CRUD a hlavička je vzdušná. */
+    .erp-navico {{
+      display: inline-flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 1px; min-width: 40px; padding: 3px 7px;
+      border-radius: 8px; cursor: pointer; text-decoration: none;
+      color: var(--text); transition: background 0.12s, opacity 0.12s;
+      flex-shrink: 0; line-height: 1;
+    }}
+    .erp-navico:hover {{ background: var(--surface2); opacity: 0.95; }}
+    .erp-navico:active {{ opacity: 0.7; }}
+    .erp-navico .erp-navico-ico {{ font-size: 17px; line-height: 1; }}
+    .erp-navico .erp-navico-cap {{ font-size: 9px; line-height: 1; opacity: 0.75; letter-spacing: 0.2px; }}
     .erp-marti-btn-avatar {{
       width: 36px;
       height: 36px;
@@ -28886,24 +28899,25 @@ def _render_full_page(
             </span>
             <span class="erp-marti-btn-label">Tvoje Marti</span>
           </button>
-          <!-- Marti 16.6.2026: viditelný odkaz na appku /mobile + veřejný web /web. -->
+          <!-- Marti 16.6.2026: kompaktní hlavičkové ikonky (emoji + popisek dole),
+               užší, ať nekolidují s CRUD. /mobile + /web + EUROSOFT + Výroba. -->
           <a id="erpMobileDevLink" href="/mobile" target="_blank" rel="noopener"
              onclick="event.preventDefault(); window.open('/mobile','strategieMobil','width=430,height=900');"
-             class="erp-marti-btn" style="text-decoration:none;align-items:center;"
-             data-hint="Otevři appku /mobile (samostatné okno)">📱 Mobil</a>
+             class="erp-navico" data-hint="Otevři appku /mobile (samostatné okno)">
+             <span class="erp-navico-ico">📱</span><span class="erp-navico-cap">Mobil</span></a>
           <a id="erpWebLink" href="/web" target="_blank" rel="noopener"
              onclick="event.preventDefault(); window.open('/web','strategieWeb','width=1280,height=860');"
-             class="erp-marti-btn" style="text-decoration:none;align-items:center;"
-             data-hint="Otevři veřejný web /web (samostatné okno)">🌐 Web</a>
+             class="erp-navico" data-hint="Otevři veřejný web /web (samostatné okno)">
+             <span class="erp-navico-ico">🌐</span><span class="erp-navico-cap">Web</span></a>
           <a id="erpWebEcLink" href="/web/eurosoft" target="_blank" rel="noopener"
              onclick="event.preventDefault(); window.open('/web/eurosoft','strategieWebEC','width=1280,height=860');"
-             class="erp-marti-btn" style="text-decoration:none;align-items:center;"
-             data-hint="Otevři web EUROSOFT (samostatné okno)">🏢 EUROSOFT</a>
+             class="erp-navico" data-hint="Otevři web EUROSOFT (samostatné okno)">
+             <span class="erp-navico-ico">🏢</span><span class="erp-navico-cap">EUROSOFT</span></a>
           <!-- Plánovač výroby — vedoucí výroby + zástupce (gate na /vyroba). Marti 8.6.2026. -->
           <a id="erpVyrobaLink" href="/vyroba" target="_blank" rel="noopener"
              onclick="event.preventDefault(); window.open('/vyroba','_blank','noopener');"
-             class="erp-marti-btn" style="text-decoration:none;align-items:center;"
-             data-hint="Plánovač výroby — přiřazení zakázek lidem">🏭 Výroba</a>
+             class="erp-navico" data-hint="Plánovač výroby — přiřazení zakázek lidem">
+             <span class="erp-navico-ico">🏭</span><span class="erp-navico-cap">Výroba</span></a>
           <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled
                smazány z headeru — duplikát s browser title barem. Zachováno jako
                skryté kotvy pro JS update document.title (žádný visual). -->

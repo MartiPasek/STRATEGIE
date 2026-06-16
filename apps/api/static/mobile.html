@@ -1356,9 +1356,23 @@ setTimeout(function(){
     app.appendChild(el('<div style="height:80px;"></div>'));
   }
   // ── Bakaláři Nerudovka — rozvrhové přehledy (čte ze zrcadla tenant 13). ──
+  function _bkUrl(p){ var q=window._bkPO?("po="+encodeURIComponent(window._bkPO)):""; return q?(p+(p.indexOf("?")>=0?"&":"?")+q):p; }
   function bk_rozvrh(){
     app.innerHTML=topbar("🗓️ Rozvrh Nerudovka", true);
     app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Živá data ze školního systému Bakaláři — budovy Nerudovka i Aťásy. Náhled rozvrhu po třídách a učitelích.</div>'));
+    var yr=el('<div id="bkYr" style="margin:0 6px 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>');
+    app.appendChild(yr);
+    api("GET","/api/v1/erp/app/bakalari/versions","").then(function(j){
+      if(!j||!j.ok||!(j.items&&j.items.length)){ return; }
+      if(!window._bkPO){ window._bkPO=j.aktualni_po; }
+      yr.innerHTML='<span style="font-size:12px;color:var(--mut);">Školní rok:</span>';
+      j.items.forEach(function(v){
+        var on=(v.po===window._bkPO);
+        var b=el('<button style="padding:6px 12px;border-radius:999px;border:1px solid '+(on?'#4f8ef7':'var(--bord)')+';background:'+(on?'rgba(79,142,247,.18)':'rgba(255,255,255,.03)')+';color:var(--tx);font-weight:'+(on?'700':'500')+';cursor:pointer;font-size:13px;">'+esc(v.skolrok)+'</button>');
+        b.addEventListener("click",function(){ window._bkPO=v.po; go("bk_rozvrh"); });
+        yr.appendChild(b);
+      });
+    });
     var dash=el('<div id="bkDash" class="hint" style="margin:0 6px 10px;">Načítám…</div>');
     app.appendChild(dash);
     var l=el('<div class="list"></div>');
@@ -1367,7 +1381,7 @@ setTimeout(function(){
     l.appendChild(row("🚪","Obsazení učeben","Co se kdy učí v které učebně (Nerudovka / Aťásy)",function(){ go("bk_ucebny"); }));
     l.appendChild(row("📋","Úvazky","Co který učitel učí — předměty, třídy, hodiny",function(){ go("bk_uvazky"); }));
     app.appendChild(l);
-    api("GET","/api/v1/erp/app/bakalari/overview","").then(function(j){
+    api("GET",_bkUrl("/api/v1/erp/app/bakalari/overview"),"").then(function(j){
       if(!j||!j.ok){ dash.textContent=(j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Nepodařilo se načíst."; return; }
       if(j.empty){ dash.textContent="Zrcadlo se právě plní daty…"; return; }
       function kc(v,lb){ return '<div style="flex:1;min-width:64px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:9px 4px;text-align:center;"><div style="font-size:20px;font-weight:800;">'+v+'</div><div style="font-size:10px;color:var(--mut);">'+lb+'</div></div>'; }
@@ -1378,7 +1392,7 @@ setTimeout(function(){
   function bk_tridy(){
     app.innerHTML=topbar("🏫 Třídy", true);
     var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
-    api("GET","/api/v1/erp/app/bakalari/classes","").then(function(j){
+    api("GET",_bkUrl("/api/v1/erp/app/bakalari/classes"),"").then(function(j){
       box.innerHTML="";
       if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">Žádné třídy.</div>')); return; }
       j.items.forEach(function(c){
@@ -1390,7 +1404,7 @@ setTimeout(function(){
   function bk_ucitele(){
     app.innerHTML=topbar("👩‍🏫 Učitelé", true);
     var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
-    api("GET","/api/v1/erp/app/bakalari/teachers","").then(function(j){
+    api("GET",_bkUrl("/api/v1/erp/app/bakalari/teachers"),"").then(function(j){
       box.innerHTML="";
       if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">Žádní učitelé.</div>')); return; }
       j.items.forEach(function(u){
@@ -1436,7 +1450,7 @@ setTimeout(function(){
   function bk_class(){
     app.innerHTML=topbar("🏫 "+(window._bkTridLbl||"Třída"), true);
     var box=el('<div><div class="hint" style="margin:6px;">Načítám rozvrh…</div></div>'); app.appendChild(box);
-    api("GET","/api/v1/erp/app/bakalari/class-grid?trid="+encodeURIComponent(window._bkTrid||""),"").then(function(j){
+    api("GET",_bkUrl("/api/v1/erp/app/bakalari/class-grid?trid="+encodeURIComponent(window._bkTrid||"")),"").then(function(j){
       if(!j||!j.ok){ box.innerHTML='<div class="hint" style="margin:6px;">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
       box.innerHTML='<div class="hint" style="margin:6px;">'+esc(j.nazev||"")+' · verze rozvrhu '+esc(j.plat_od||"")+'</div>'+_bkGridHtml(j,'class');
     });
@@ -1444,7 +1458,7 @@ setTimeout(function(){
   function bk_teacher(){
     app.innerHTML=topbar("👩‍🏫 "+(window._bkUcitLbl||"Učitel"), true);
     var box=el('<div><div class="hint" style="margin:6px;">Načítám rozvrh…</div></div>'); app.appendChild(box);
-    api("GET","/api/v1/erp/app/bakalari/teacher-grid?ucit="+encodeURIComponent(window._bkUcit||""),"").then(function(j){
+    api("GET",_bkUrl("/api/v1/erp/app/bakalari/teacher-grid?ucit="+encodeURIComponent(window._bkUcit||"")),"").then(function(j){
       if(!j||!j.ok){ box.innerHTML='<div class="hint" style="margin:6px;">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
       box.innerHTML='<div class="hint" style="margin:6px;">'+esc(j.jmeno||"")+' · verze rozvrhu '+esc(j.plat_od||"")+'</div>'+_bkGridHtml(j,'teacher');
     });
@@ -1452,7 +1466,7 @@ setTimeout(function(){
   function bk_ucebny(){
     app.innerHTML=topbar("🚪 Obsazení učeben", true);
     var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
-    api("GET","/api/v1/erp/app/bakalari/rooms","").then(function(j){
+    api("GET",_bkUrl("/api/v1/erp/app/bakalari/rooms"),"").then(function(j){
       box.innerHTML="";
       if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">Žádné učebny.</div>')); return; }
       var curB=null;
@@ -1466,7 +1480,7 @@ setTimeout(function(){
   function bk_room(){
     app.innerHTML=topbar("🚪 "+(window._bkMistLbl||"Učebna"), true);
     var box=el('<div><div class="hint" style="margin:6px;">Načítám obsazení…</div></div>'); app.appendChild(box);
-    api("GET","/api/v1/erp/app/bakalari/room-grid?mist="+encodeURIComponent(window._bkMist||""),"").then(function(j){
+    api("GET",_bkUrl("/api/v1/erp/app/bakalari/room-grid?mist="+encodeURIComponent(window._bkMist||"")),"").then(function(j){
       if(!j||!j.ok){ box.innerHTML='<div class="hint" style="margin:6px;">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
       box.innerHTML='<div class="hint" style="margin:6px;">'+esc(j.nazev||"")+' · '+esc(j.budova||"")+' · verze '+esc(j.plat_od||"")+'</div>'+_bkGridHtml(j,'room');
     });
@@ -1475,7 +1489,7 @@ setTimeout(function(){
     app.innerHTML=topbar("📋 Úvazky", true);
     app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.5;">Co který učitel učí — předměty, třídy a počet hodin týdně.</div>'));
     var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
-    api("GET","/api/v1/erp/app/bakalari/loads","").then(function(j){
+    api("GET",_bkUrl("/api/v1/erp/app/bakalari/loads"),"").then(function(j){
       box.innerHTML="";
       if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Žádné úvazky.")+'</div>')); return; }
       j.items.forEach(function(t){

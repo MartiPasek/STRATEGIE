@@ -6327,6 +6327,59 @@ def _bk_plat_od(s) -> str:
     return r or ""
 
 
+def _bk_skolrok(po: str) -> str:
+    if not po or len(po) < 6:
+        return po or ""
+    try:
+        y = int(po[:4]); m = int(po[4:6])
+    except Exception:
+        return po
+    return ("%d/%d" % (y, y + 1)) if m >= 8 else ("%d/%d" % (y - 1, y))
+
+
+def _bk_po(req, s) -> str:
+    """Vybraná verze rozvrhu (PLAT_OD) z ?po=, jinak nejnovější v zrcadle."""
+    p = (req.query_params.get("po") or "").strip()
+    if p:
+        from sqlalchemy import text as _t
+        ok = s.execute(_t("SELECT 1 FROM tenant.bakalari_uvaz WHERE tenant_id=:t AND plat_od=:p LIMIT 1"),
+                       {"t": _BK_TENANT, "p": p}).first()
+        if ok:
+            return p
+    return _bk_plat_od(s)
+
+
+@api_router.get("/app/bakalari/versions")
+async def app_bakalari_versions(req: Request) -> JSONResponse:
+    """Dostupné školní roky/verze rozvrhu v zrcadle (pro přepínač)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t("SELECT DISTINCT plat_od FROM tenant.bakalari_uvaz WHERE tenant_id=:t ORDER BY plat_od DESC"),
+                         {"t": _BK_TENANT}).fetchall()
+        # jeden záznam na školní rok (nejnovější verze v roce)
+        seen = {}
+        order = []
+        for r in rows:
+            po = r[0]
+            sr = _bk_skolrok(po)
+            if sr not in seen:
+                seen[sr] = po
+                order.append(sr)
+        cur = _bk_plat_od(s)
+        items = [{"po": seen[sr], "skolrok": sr, "aktualni": (seen[sr] == cur)} for sr in order]
+        return JSONResponse({"ok": True, "items": items, "aktualni_po": cur})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/bakalari/overview")
 async def app_bakalari_overview(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
@@ -6337,7 +6390,7 @@ async def app_bakalari_overview(req: Request) -> JSONResponse:
     try:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        po = _bk_plat_od(s)
+        po = _bk_po(req, s)
         if not po:
             return JSONResponse({"ok": True, "plat_od": "", "empty": True})
         def _c(tbl):
@@ -6368,7 +6421,7 @@ async def app_bakalari_classes(req: Request) -> JSONResponse:
     try:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        po = _bk_plat_od(s)
+        po = _bk_po(req, s)
         rows = s.execute(_t(
             "SELECT TRIM(t.kod_trid), REPLACE(TRIM(COALESCE(t.zkratka,'')),'.',''), TRIM(COALESCE(t.nazev,'')), t.pocet_zaku, "
             " TRIM(COALESCE(uc.prijmeni,'')) "
@@ -6393,7 +6446,7 @@ async def app_bakalari_teachers(req: Request) -> JSONResponse:
     try:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        po = _bk_plat_od(s)
+        po = _bk_po(req, s)
         rows = s.execute(_t(
             "SELECT TRIM(uc.intern_kod), TRIM(COALESCE(uc.zkratka,'')), TRIM(COALESCE(uc.prijmeni,'')), "
             " TRIM(COALESCE(uc.jmeno,'')), TRIM(COALESCE(uc.aprobace,'')), "
@@ -6438,7 +6491,7 @@ async def app_bakalari_class_grid(req: Request) -> JSONResponse:
     try:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        po = _bk_plat_od(s)
+        po = _bk_po(req, s)
         trid = (req.query_params.get("trid") or "").strip()
         nazev = s.execute(_t("SELECT REPLACE(TRIM(COALESCE(zkratka,'')),'.',''), TRIM(COALESCE(nazev,'')) FROM tenant.bakalari_trid WHERE tenant_id=:t AND plat_od=:p AND TRIM(kod_trid)=:k"),
                           {"t": _BK_TENANT, "p": po, "k": trid}).first()
@@ -6463,7 +6516,7 @@ async def app_bakalari_teacher_grid(req: Request) -> JSONResponse:
     try:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        po = _bk_plat_od(s)
+        po = _bk_po(req, s)
         ucit = (req.query_params.get("ucit") or "").strip()
         info = s.execute(_t("SELECT TRIM(COALESCE(zkratka,'')), TRIM(COALESCE(prijmeni,'')), TRIM(COALESCE(jmeno,'')) FROM tenant.bakalari_ucit WHERE tenant_id=:t AND plat_od=:p AND TRIM(intern_kod)=:k"),
                          {"t": _BK_TENANT, "p": po, "k": ucit}).first()
@@ -6497,7 +6550,7 @@ async def app_bakalari_rooms(req: Request) -> JSONResponse:
     try:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        po = _bk_plat_od(s)
+        po = _bk_po(req, s)
         rows = s.execute(_t(
             "SELECT TRIM(m.kod_mist), TRIM(COALESCE(m.zkratka,'')), TRIM(COALESCE(m.nazev,'')), "
             " TRIM(COALESCE(m.kod_budo,'')), m.pocet_zaku, "
@@ -6524,7 +6577,7 @@ async def app_bakalari_room_grid(req: Request) -> JSONResponse:
     try:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        po = _bk_plat_od(s)
+        po = _bk_po(req, s)
         mist = (req.query_params.get("mist") or "").strip()
         info = s.execute(_t("SELECT TRIM(COALESCE(zkratka,'')), TRIM(COALESCE(nazev,'')), TRIM(COALESCE(kod_budo,'')) FROM tenant.bakalari_mist WHERE tenant_id=:t AND plat_od=:p AND TRIM(kod_mist)=:k"),
                          {"t": _BK_TENANT, "p": po, "k": mist}).first()
@@ -6551,7 +6604,7 @@ async def app_bakalari_loads(req: Request) -> JSONResponse:
     try:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        po = _bk_plat_od(s)
+        po = _bk_po(req, s)
         rows = s.execute(_t(
             "SELECT TRIM(u.kod_ucit) uc, TRIM(COALESCE(ucr.prijmeni,'')) prij, TRIM(COALESCE(ucr.jmeno,'')) jm, "
             " TRIM(COALESCE(ucr.zkratka, u.kod_ucit)) zk, "

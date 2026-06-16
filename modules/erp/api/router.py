@@ -6450,7 +6450,7 @@ async def app_bakalari_teachers(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "SELECT TRIM(uc.intern_kod), TRIM(COALESCE(uc.zkratka,'')), TRIM(COALESCE(uc.prijmeni,'')), "
             " TRIM(COALESCE(uc.jmeno,'')), TRIM(COALESCE(uc.aprobace,'')), "
-            " (SELECT count(*) FROM tenant.bakalari_uvaz u WHERE u.tenant_id=uc.tenant_id AND u.plat_od=uc.plat_od AND TRIM(u.kod_ucit)=TRIM(uc.intern_kod) AND u.den BETWEEN 1 AND 5) "
+            " (SELECT count(DISTINCT (u.den||'_'||u.hod)) FROM tenant.bakalari_uvaz u WHERE u.tenant_id=uc.tenant_id AND u.plat_od=uc.plat_od AND TRIM(u.kod_ucit)=TRIM(uc.intern_kod) AND u.den BETWEEN 1 AND 5) "
             "FROM tenant.bakalari_ucit uc WHERE uc.tenant_id=:t AND uc.plat_od=:p ORDER BY uc.prijmeni"),
             {"t": _BK_TENANT, "p": po}).fetchall()
         out = [{"kod": r[0], "zkratka": r[1], "prijmeni": r[2], "jmeno": r[3], "aprobace": r[4], "hodin": int(r[5] or 0)} for r in rows]
@@ -6554,7 +6554,7 @@ async def app_bakalari_rooms(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "SELECT TRIM(m.kod_mist), TRIM(COALESCE(m.zkratka,'')), TRIM(COALESCE(m.nazev,'')), "
             " TRIM(COALESCE(m.kod_budo,'')), m.pocet_zaku, "
-            " (SELECT count(DISTINCT (u.den||'_'||u.hod||'_'||COALESCE(u.kod_skup,''))) FROM tenant.bakalari_uvaz u "
+            " (SELECT count(DISTINCT (u.den||'_'||u.hod)) FROM tenant.bakalari_uvaz u "
             "   WHERE u.tenant_id=m.tenant_id AND u.plat_od=m.plat_od AND TRIM(u.kod_mist)=TRIM(m.kod_mist) AND u.den BETWEEN 1 AND 5) "
             "FROM tenant.bakalari_mist m WHERE m.tenant_id=:t AND m.plat_od=:p ORDER BY m.kod_budo, m.zkratka"),
             {"t": _BK_TENANT, "p": po}).fetchall()
@@ -6609,7 +6609,7 @@ async def app_bakalari_loads(req: Request) -> JSONResponse:
             "SELECT TRIM(u.kod_ucit) uc, TRIM(COALESCE(ucr.prijmeni,'')) prij, TRIM(COALESCE(ucr.jmeno,'')) jm, "
             " TRIM(COALESCE(ucr.zkratka, u.kod_ucit)) zk, "
             " TRIM(COALESCE(p.zkratka, u.kod_pred)) pred, TRIM(COALESCE(p.nazev,'')) pnaz, "
-            " count(DISTINCT (u.den||'_'||u.hod||'_'||COALESCE(u.kod_trid,'')||'_'||COALESCE(u.kod_skup,''))) hod, "
+            " count(DISTINCT (u.den||'_'||u.hod)) hod, "
             " string_agg(DISTINCT REPLACE(TRIM(COALESCE(tr.zkratka, u.kod_trid)),'.',''), ', ') tridy "
             "FROM tenant.bakalari_uvaz u "
             "LEFT JOIN tenant.bakalari_ucit ucr ON ucr.tenant_id=u.tenant_id AND ucr.plat_od=u.plat_od AND TRIM(ucr.intern_kod)=TRIM(u.kod_ucit) "

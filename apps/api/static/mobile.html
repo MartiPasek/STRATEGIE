@@ -1153,11 +1153,32 @@ setTimeout(function(){
   }
   function apid_restore(){
     app.innerHTML=topbar("🗄️ Obnova databáze do API D", true);
-    var p=el('<div class="panel"></div>');
-    p.appendChild(el('<div class="hint" style="line-height:1.65;"><b>API D</b> je oddělené prostředí na <b>neživých datech</b>. Sem se obnoví vybraná záloha produkční databáze — slouží pro <b>obnovu</b> (vytáhnout, co se rozbilo, a chirurgicky vrátit do produkce) i pro <b>bezpečné testování</b> bez rizika pro ostrý provoz.</div>'));
-    p.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Cílový postup: 1) vyber zálohu → 2) STRATEGIE ji obnoví do API D → 3) otevřeš API D a projdeš/vytáhneš data → 4) případně chirurgicky vrátíš do produkce přes schvalovací banner.</div>'));
-    p.appendChild(el('<div class="hint" style="margin-top:12px;color:#fbbf24;">⏳ Engine obnovy se zapojuje — čeká na nastavení prostředí API D (samostatná instance + testovací DB) a na zdroj záloh. Rozcestník je připravený.</div>'));
-    app.appendChild(p);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;"><b>API D</b> = oddělené prostředí na <b>neživých datech</b>. Vyber zálohu a rozbal ji do API D — <b>produkce se nedotkne</b>. Pro obnovu (vytáhnout, co se rozbilo) i bezpečné testování.</div>'));
+    var box=el('<div class="list"><div class="hint">Načítám zálohy…</div></div>'); app.appendChild(box);
+    function load(){
+      api("GET","/api/v1/erp/app/admin/apid/backups","").then(function(j){
+        box.innerHTML="";
+        if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Jen rodiče.":esc((j&&j.error)||"Nepodařilo se načíst."))+'</div>'; return; }
+        if(j.pending){ box.appendChild(el('<div class="hint" style="color:#fbbf24;margin:4px 6px;">⏳ Obnova právě probíhá… (obnov za chvíli)</div>')); }
+        if(j.status){ var ok=j.status.ok; box.appendChild(el('<div style="margin:4px 6px 8px;font-size:13px;color:'+(ok?"#34d399":"#f87171")+';">'+(ok?"✅ Naposledy obnoveno: ":"✗ Poslední obnova selhala: ")+esc(j.status.file||"")+(j.status.finished?(" · "+esc(j.status.finished)):"")+(ok?'  ·  <a href="/apid/" target="_blank" style="color:#5ee0b7;">Otevřít API D →</a>':"")+'</div>')); }
+        if(!j.items||!j.items.length){ box.appendChild(el('<div class="hint">Ve složce '+esc(j.dir||"")+' nejsou žádné zálohy (.dump/.backup/.sql).</div>')); return; }
+        j.items.forEach(function(f){
+          var rw=el('<div style="display:flex;align-items:center;gap:10px;padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
+          rw.appendChild(el('<div style="flex:1;min-width:0;"><div style="font-weight:600;word-break:break-all;">'+esc(f.name)+'</div><div class="hint">'+esc(f.mtime)+' · '+f.size_mb+' MB</div></div>'));
+          var b=el('<button style="padding:8px 12px;border-radius:10px;border:0;background:linear-gradient(110deg,#34d399,#2dd4bf);color:#04150e;font-weight:700;cursor:pointer;white-space:nowrap;">Rozbalit do API D</button>');
+          b.addEventListener("click",function(){
+            if(!confirm("Rozbalit zálohu „"+f.name+"\" do API D?\n(Produkce se nedotkne — jen testovací DB.)")) return;
+            b.disabled=true; b.textContent="Zařazuji…";
+            api("POST","/api/v1/erp/app/admin/apid/restore",{file:f.name}).then(function(r){
+              if(r&&r.ok){ alert(r.info||"Obnova zařazena."); load(); }
+              else { b.disabled=false; b.textContent="Rozbalit do API D"; alert("Chyba: "+((r&&r.error)||"?")); }
+            });
+          });
+          rw.appendChild(b); box.appendChild(rw);
+        });
+      });
+    }
+    load();
   }
   // Marti 8.6.: SMS brána — JEN Marti-AI mobil přeposílá ověřovací SMS (vlastní
   // gateway, bez cizího provideru). Ostatní telefony nech vypnuté.

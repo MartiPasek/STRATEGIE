@@ -10881,6 +10881,91 @@ async def app_hr_att_source_set(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _apid_backup_dir() -> str:
+    import os as _os_ab
+    return _os_ab.environ.get("BACKUP_DIR") or "C:\\Backup"
+
+
+@api_router.get("/app/admin/apid/backups")
+async def app_apid_backups(req: Request) -> JSONResponse:
+    """Marti 16.6.: seznam dostupných záloh data_db v C:\\Backup (jen rodiče) +
+    stav poslední obnovy do API D. Klik v appce → tenhle seznam."""
+    import os as _os_ab, json as _json_ab
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        _require_parent(uid)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    d = _apid_backup_dir()
+    items = []
+    try:
+        for n in _os_ab.listdir(d):
+            if n.lower().endswith((".dump", ".backup", ".sql")):
+                p = _os_ab.path.join(d, n)
+                try:
+                    stt = _os_ab.stat(p)
+                    import datetime as _dt_ab
+                    items.append({"name": n, "size_mb": round(stt.st_size / 1048576.0, 1),
+                                  "mtime": _dt_ab.datetime.fromtimestamp(stt.st_mtime).strftime("%d.%m.%Y %H:%M")})
+                except Exception:
+                    pass
+        items.sort(key=lambda x: x["mtime"], reverse=True)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Složku se zálohami se nepodařilo načíst (%s): %s" % (d, exc)}, status_code=500)
+    # stav poslední obnovy (zapsaný watcherem do _apid_restore.out)
+    status = None
+    try:
+        op = _os_ab.path.join(d, "_apid_restore.out")
+        if _os_ab.path.isfile(op):
+            with open(op, "r", encoding="utf-8", errors="replace") as fh:
+                status = _json_ab.loads(fh.read() or "{}")
+    except Exception:
+        status = None
+    pending = _os_ab.path.isfile(_os_ab.path.join(d, "_apid_restore.req"))
+    return JSONResponse({"ok": True, "dir": d, "items": items, "status": status, "pending": pending})
+
+
+@api_router.post("/app/admin/apid/restore")
+async def app_apid_restore(req: Request) -> JSONResponse:
+    """Zařadí obnovu vybrané zálohy do API D (zapíše marker pro watcher). Jen rodiče.
+    Watcher (restore_to_apid.ps1 -Watch) marker spotřebuje, obnoví do data_db_test a
+    restartuje API D. Produkce se NEDOTKNE."""
+    import os as _os_ar, json as _json_ar, datetime as _dt_ar
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        _require_parent(uid)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    fname = (str(body.get("file") or "")).strip()
+    d = _apid_backup_dir()
+    # anti path-traversal: soubor musí reálně existovat ve složce záloh
+    if not fname or fname not in set(_os_ar.listdir(d)) or not fname.lower().endswith((".dump", ".backup", ".sql")):
+        return JSONResponse({"ok": False, "error": "Neplatný soubor zálohy."}, status_code=400)
+    try:
+        marker = {"file": fname, "requested_by": uid, "ts": _dt_ar.datetime.now().isoformat()}
+        with open(_os_ar.path.join(d, "_apid_restore.req"), "w", encoding="utf-8") as fh:
+            fh.write(_json_ar.dumps(marker, ensure_ascii=False))
+        # vyčisti starý výsledek, ať UI nečte stav z minula
+        op = _os_ar.path.join(d, "_apid_restore.out")
+        if _os_ar.path.isfile(op):
+            try:
+                _os_ar.remove(op)
+            except Exception:
+                pass
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    return JSONResponse({"ok": True, "queued": fname,
+                         "info": "Obnova zařazena. Watcher API D ji zpracuje (~1-3 min). Stav se objeví v seznamu."})
+
+
 @api_router.get("/app/attendance/announced-future")
 async def att_announced_future(req: Request) -> JSONResponse:
     """Marti 7.6. večer: budoucí ohlášení (skončím dříve / přijdu později /

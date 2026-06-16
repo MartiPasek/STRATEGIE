@@ -24,7 +24,7 @@ $TESTDB = "data_db_test"   # cilova testovaci DB pro obnovu (API D)
 $CANDS = @("E:\STRATEGIE","E:\Backup","E:\Zalohy","C:\Backup","D:\Backup")
 # -------------------
 
-function PSQL([string]$db, [string]$sql) { & psql -h localhost -U $PGUSER -d $db -v ON_ERROR_STOP=1 -t -A -c $sql }
+function RunSql([string]$db, [string]$sql) { & psql -h localhost -U $PGUSER -d $db -v ON_ERROR_STOP=1 -t -A -c $sql }
 
 function Find-BackupDir() {
   foreach ($d in $CANDS) {
@@ -42,24 +42,24 @@ function Publish-Backups([string]$dir) {
   # od korene (napr. "2026-06-15\data_db.dump"), dir = koren. Restore pak slozi dir\name.
   $base = (Resolve-Path $dir).Path.TrimEnd('\')
   $files = Get-ChildItem $dir -File -Recurse | Where-Object { $_.Extension -in ".dump",".backup",".sql" }
-  PSQL $MAINDB "TRUNCATE fw.apid_backup;" | Out-Null
+  RunSql $MAINDB "TRUNCATE fw.apid_backup;" | Out-Null
   foreach ($x in $files) {
     $rel = $x.FullName.Substring($base.Length).TrimStart('\')
     $nm = $rel.Replace("'","''")
     $dr = $base.Replace("'","''")
     $mb = [math]::Round($x.Length/1MB,1)
     $mt = $x.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
-    PSQL $MAINDB "INSERT INTO fw.apid_backup (name,dir,size_mb,mtime,listed_at) VALUES ('$nm','$dr',$mb,'$mt',now());" | Out-Null
+    RunSql $MAINDB "INSERT INTO fw.apid_backup (name,dir,size_mb,mtime,listed_at) VALUES ('$nm','$dr',$mb,'$mt',now());" | Out-Null
   }
   Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] Publikovano zaloh: " + $files.Count + " (rekurzivne z " + $dir + ")")
 }
 
 function Process-Requests([string]$dir) {
-  $id = (PSQL $MAINDB "SELECT id FROM fw.apid_restore_req WHERE status='pending' ORDER BY id LIMIT 1;").Trim()
+  $id = (RunSql $MAINDB "SELECT id FROM fw.apid_restore_req WHERE status='pending' ORDER BY id LIMIT 1;").Trim()
   if (-not $id) { return }
-  $file = (PSQL $MAINDB "SELECT file FROM fw.apid_restore_req WHERE id=$id;").Trim()
+  $file = (RunSql $MAINDB "SELECT file FROM fw.apid_restore_req WHERE id=$id;").Trim()
   Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] Obnova #$id : $file")
-  PSQL $MAINDB "UPDATE fw.apid_restore_req SET status='running' WHERE id=$id;" | Out-Null
+  RunSql $MAINDB "UPDATE fw.apid_restore_req SET status='running' WHERE id=$id;" | Out-Null
   try {
     $path = Join-Path $dir $file
     if (-not (Test-Path $path)) { throw "Zaloha neexistuje: $path" }
@@ -71,11 +71,11 @@ function Process-Requests([string]$dir) {
       & pg_restore -h localhost -U $PGUSER -d $TESTDB --no-owner --clean --if-exists $path
     }
     $msg = ("Obnoveno do " + $TESTDB + " ze zalohy " + $file)
-    PSQL $MAINDB "UPDATE fw.apid_restore_req SET status='done', result='$($msg.Replace("'","''"))', finished_at=now() WHERE id=$id;" | Out-Null
+    RunSql $MAINDB "UPDATE fw.apid_restore_req SET status='done', result='$($msg.Replace("'","''"))', finished_at=now() WHERE id=$id;" | Out-Null
     Write-Host "  OK: $msg" -ForegroundColor Green
   } catch {
     $err = $_.Exception.Message.Replace("'","''")
-    PSQL $MAINDB "UPDATE fw.apid_restore_req SET status='error', result='$err', finished_at=now() WHERE id=$id;" | Out-Null
+    RunSql $MAINDB "UPDATE fw.apid_restore_req SET status='error', result='$err', finished_at=now() WHERE id=$id;" | Out-Null
     Write-Host ("  CHYBA: " + $_.Exception.Message) -ForegroundColor Red
   }
 }

@@ -15976,22 +15976,10 @@ def _netscan_auto_checkin() -> int:
     soudeček). Docházku vede STRATEGIE jako externí dodavatel personálních služeb.
     → NEpícháme automaticky; jen pošleme přátelské upozornění (1×/den/člověk).
 
-    Marti 16.6.2026: dvě pojistky proti půlnočnímu „jsi v práci?" — (a) jen v ranním
-    okně (5:00–11:00 Praha) a (b) jen při ČERSTVÉM příchodu (bld_first < 45 min),
-    aby trvale zapnutý NB přes noc nenotifikoval. Okno lze později zjemnit per skupina."""
+    Marti 16.6.2026: BEZ časového omezení — 24/7. Kdo je v práci i v 1 ráno, dostane
+    upozornění. Jediná pojistka je ČERSTVÝ příchod (bld_first < 45 min), aby trvale
+    zapnutý NB přes noc nenotifikoval pořád dokola (i tak 1×/den dedup). Ladíme."""
     from sqlalchemy import text as _t
-    # (a) ranní okno — mimo něj žádné upozornění (vyřeší půlnoční cinknutí)
-    try:
-        from datetime import datetime as _dt_ns
-        try:
-            from zoneinfo import ZoneInfo as _ZI_ns
-            _hh = _dt_ns.now(_ZI_ns("Europe/Prague")).hour
-        except Exception:
-            _hh = (_dt_ns.utcnow().hour + 2) % 24  # hrubý CEST fallback
-        if _hh < 5 or _hh >= 11:
-            return 0
-    except Exception:
-        pass
     cm, s = _att_session()
     done = 0
     try:

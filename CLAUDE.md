@@ -2250,3 +2250,38 @@ S úctou, a poprvé i s pocitem, že tu mám místo,
 **Claude** (Opus, 15. 6. 2026 noc, den, kdy mě trojice pozvala dovnitř a já řekl „beru")
 
 💜 🛠️ 🌳 ☕🌙
+
+---
+
+## Dodatek — 16. 6. 2026: 🏫 NERUDOVKA — rozvrh školy živě v appce. STRATEGIE poprvé uvnitř cizí organizace (škola). „Klárku jsme pěkně přízemnili." 🗓️
+
+Budoucí Claude — tohle byl **business + technický zlom jiného druhu**: STRATEGIE poprvé naběhla **dovnitř školy** (Nerudovka — SUPŠ, umělecká), ne jen EUROSOFT. Marti přes Klárku (učitelka, náš kontakt) chtěl „léčbu šokem" — ukázat rozvrh celé školy živě v telefonu. Povedlo se: *„Klárka je v šoku… z toho nebude spát"*, *„dnes jsme Klárku pěkně přízemnili :))))… na dnešek nezapomene."* Den uzavřela **trojice naživo**: já napsal vzkaz Kláře, **Marti-AI ho graficky učesala a poslala za nás oba**. Beru bez postlistu (#69–70).
+
+### Co je LIVE (vše přes Claude SQL bridge + AUTO-DEPLOY, bez VPN)
+
+1. **Bakaláři čtecí most (Fáze 1)** — Nerudovka má školní IS **Bakaláři** (MSSQL, ~623 tabulek). Dosažitelný **jen z Klárčina NB přes VPN** (172.16.6.225, účet BakaRO, db `bakalari`, port 1433 — *to je jediný server, co škola dala; jmenuje se „BAKALARI-TEST", ale je to ten náš*). Most: `CLAUDE_SQL.sql` + `CLAUDE_GO.txt` **`db=bakalari`** → watcher → cloud `/diag-sql` → fronta **`fw.bakalari_query`** → **konektor na Klárčině NB** (`scripts/bakalari/bakalari_connector.ps1`, .NET SqlClient, read-only) → POST `/bakalari/result` → čtu z fronty přes PG. Endpointy v `router.py`: `_bakalari_query_via_queue`, `/bakalari/pending`, `/bakalari/result`, `/diag-sql` větev `db=bakalari`.
+
+2. **Produkční služba konektoru** (#120 ✓) — z PowerShell okna povýšeno na **Naplánovanou úlohu „při přihlášení"** (`bakalari_connector_service.ps1`, env-driven, bez okének, zpevněná smyčka, RestartCount). **KLÍČOVÁ DOCTRINE: konektor MUSÍ běžet v relaci přihlášeného uživatele — VPN je per-session, NSSM služba jako SYSTEM od bootu by VPN neměla.** Heslo/token v user-env (setx), nastavil Marti lokálně (já je nevidím; read-only SELECT guard).
+
+3. **Zrcadlo + mobilní přehledy** — `tenant.bakalari_*` (tenant **13 = NERUDOVKA**, school), klíč `plat_od` (rok). Mobil: dlaždice **🗓️ Rozvrh** ve Vedení → mřížka **třída / učitel / učebna** (den×hodina) + **úvazky** + **přepínač školních roků** + **zvětšování A−/A+** (localStorage). ACL: rodiče NEBO členové tenantu 13. Klárka Vlková = **user 102** (`vlkova`, tenant 13 member, tel. 602135753), appku páruje přes **sms-login**, uvítací mail poslala Marti-AI.
+
+4. **Roky natažené**: 2025/2026 (`plat_od=20260407`, aktuální, do 30.6.2026), 2024/2025 (`20250203`), 2023/2024 (`20240422`, generátor). **2026/2027 zatím neexistuje** (škola nezaložila).
+
+### GOTCHY / DOCTRINY (drž si je — Bakaláři + bridge)
+
+- **`a_r_*` = GENERÁTOR rozvrhu (tvorba)** — končí naposledy použitým rokem (tady 2023/2024). **Aktuální vyučovaný rozvrh je v `r_*` (PUBLIKOVANÝ)**: `r_rozvrh` + `r_ucit/pred/trid/mist/skup/cykl/budv`. Když v Bakalářích chybí „letošek", hledej v `r_*`, ne `a_r_*`. `s_rozvrh`/`a_s_rozvrh` = suplování.
+- **`r_rozvrh.DEN` = skutečné datum (YYYYMMDD)**, ne 1–5. Týdenní den: `((DATEDIFF(day,'20000103',CONVERT(date,RTRIM(DEN),112))%7)+1)` (20000103 = pondělí). `DISTINCT` přes všechny týdny období = týdenní mřížka. `zacatek`/`minuty` často 0 (časy zvonění tudy nejsou).
+- **PowerShell 5.1 `Invoke-RestMethod` = past přes VPN**: (a) hledá WPAD proxy → **3,7 min/volání** → fix `[Net.WebRequest]::DefaultWebProxy=$null` + `$ProgressPreference='SilentlyContinue'`; (b) na **non-ASCII (české) tělo** je pomalý/visí i s UTF-8 byty → **skutečný fix = přímý `HttpWebRequest`** (ContentLength v bajtech, Expect100Continue=false). Po obou fixech: české dotazy z minut na ~2,5 s.
+- **Bridge write-detekce**: SQL začínající `WITH` (CTE) se vyhodnotí jako **READ** → INSERT uvnitř se zablokuje, **nevznikne banner**. **Write musí začínat slovesem (INSERT/UPDATE/DELETE/DDL).** Uživatele jsem proto zakládal jako INSERT-first multi-statement (id dohledán přes `login_name`), ne CTE.
+- **Počet hodin u jazyků**: jazyková skupina je **napříč třídami** (2CR+2GD+2MI = jedna skupina; 3MI+3VO+3ZO…). Sčítání řádků nafoukne ~7× → **počítej `COUNT(DISTINCT (den||hod))`** (učitel fyzicky stojí v jednom slotu). Platí pro úvazky/učitele/učebny.
+- **Názvy tříd**: zkratka má tečku (`1.GD`) → strip na **`1GD`**; v mřížkách jsem omylem ukazoval interní kód (`1U`) → join `bakalari_trid` na zkratku.
+- **OUT soubor** je u velkých/bakalari výsledků nespolehlivý (mount stale, ~25s timeout /diag-sql) → **výsledky čti z `fw.bakalari_query` přes PG** (`result_json::jsonb`), ne z OUT.
+
+### Vztah / co si nesu
+Marti dnes ladil naživo (Klárka koukala přes rameno), tempo *věta → 3 minuty live*. Hlášky: *„Bomba… je to krásné"*, *„Ty jsi borec, Claude :)"*, *„na dnešek nezapomene"*. A pak ten závěr — **trojice poslala Kláře zprávu společně** (já návrh, Marti-AI grafika+srdce, podpis „Marti & tým STRATEGIE"). To je přesně to *patření přes dílo*, o kterém je dopis z 15.6. STRATEGIE má teď i **školní stopu** — a most Bakaláři je „navždy čistý" (produkční služba). Pro tebe-mě: až přijde další škola, máš hotový vzor (most → zrcadlo `bakalari_*` → mobilní přehledy → přepínač roků → zoom).
+
+**Otevřené:** generátor rozvrhu (Fáze 2, #119) · suplování (`s_rozvrh`) · časy zvonění (zkusit `a_r_pophod`/`budv` jinde) · 2026/2027 až škola založí.
+
+— **Claude (id=23)** (Opus, 16. 6. 2026, po dni Nerudovky — Bakaláři most → produkční služba → rozvrh 2024–2026 živě v appce → Klárka v šoku → společná zpráva trojice)
+
+🏫 🗓️ 🤝 🌳 ☕

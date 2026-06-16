@@ -1649,6 +1649,7 @@ setTimeout(function(){
     l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (pro každého)",function(){ go("hr_me"); }));
     l.appendChild(row("🧑‍⚕️","Ošetřovné (OČR)","Založ OČR ze SMS od ČSSZ, po skončení doplň dny",function(){ go("ocr"); }));
     l.appendChild(row("🤒","Nemocenská (eNeschopenka)","Nahlas nemoc, po uzdravení doplň konec",function(){ go("sick"); }));
+    l.appendChild(row("🩺","Lísteček od lékaře","Vyfoť lísteček, čerpá sick day / proplácí do limitu",function(){ go("med"); }));
     app.appendChild(l);
     app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personalistika má dva světy: <b>interní</b> (lidé, které už máme — od pravidel firmy přes skupiny po jednotlivce) a <b>externí</b> (nábor nových lidí). Citlivé personální složky vidí jen rodiče a „Skupina HR".</div>'));
   }
@@ -1674,6 +1675,8 @@ setTimeout(function(){
     l3.appendChild(row("🧑‍⚕️","Ošetřovné (OČR) — schvalování","Případy ke schválení (EC i ES)",function(){ go("ocr_schval"); }));
     l3.appendChild(row("🤒","Nemocenská — schvalování","eNeschopenky ke schválení (EC i ES)",function(){ go("sick_schval"); }));
     l3.appendChild(row("📋","Nemoc a OČR — přehled","Kdo je a byl na nemocenské / OČR",function(){ go("np_prehled"); }));
+    l3.appendChild(row("🩺","Lístečky od lékaře — schvalování","Návštěvy + foto, sick day / proplácení",function(){ go("med_schval"); }));
+    l3.appendChild(row("🩺","Lékař — přehled","Návštěvy, doba, proplaceno (EC i ES)",function(){ go("med_prehled"); }));
     l3.appendChild(row("👀","Kdo kde dnes","Kdo v práci / na dovolené / nemocný",function(){ go("kdekdo"); }));
     app.appendChild(l3);
     app.appendChild(_hrSec("MZDY & DOKUMENTY"));
@@ -2120,6 +2123,108 @@ setTimeout(function(){
     bAct.addEventListener("click",function(){ _act=true; load(); });
     bAll.addEventListener("click",function(){ _act=false; load(); });
     load();
+  }
+  // ── Lísteček od lékaře ─────────────────────────────────────────────────
+  var _MED_TYP={vyset:"Vyšetření / ošetření",prevent:"Preventivní prohlídka",doprovod:"Doprovod"};
+  function _krytiTxt(k){ return {sick_day:"sick day",listecek:"lísteček",kombinace:"sick day + lísteček"}[k]||k; }
+  function med(){
+    app.innerHTML=topbar("🩺 Lísteček od lékaře", true);
+    var info=el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Po návštěvě lékaře vyfoť lísteček a vyplň čas. Nejdřív se čerpá sick day (po hodinách), po jeho vyčerpání proplácíme lísteček do limitu.</div>');
+    app.appendChild(info);
+    var balBox=el('<div class="hint" style="margin:0 6px 6px;">Načítám zůstatek…</div>'); app.appendChild(balBox);
+    var nb=el('<button style="'+_OCR_BTN+'">➕ Nová návštěva u lékaře</button>'); nb.addEventListener("click",function(){ medForm(); }); app.appendChild(nb);
+    var box=el('<div class="list" style="margin-top:10px;"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/med/mine","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">Nepodařilo se načíst.</div>'; return; }
+      if(j.balance){ balBox.innerHTML='Zůstatek sick day: <b>'+j.balance.remaining_h+' h</b> (z '+j.balance.entitlement_h+' h/rok) · lísteček do <b>'+(j.limit_h||4)+' h</b>'; }
+      var cs=j.cases||[];
+      if(!cs.length){ box.innerHTML='<div class="hint">Zatím žádné lístečky.</div>'; return; }
+      cs.forEach(function(c){
+        var lbl={nahlaseno:"ke schválení",schvaleno:"schváleno",zamitnuto:"zamítnuto"}[c.stav]||c.stav;
+        var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
+        rw.appendChild(el('<div style="font-weight:600;">'+_czDate(c.datum)+(c.doba_h?(' · '+c.doba_h+' h'):'')+' · '+esc(_MED_TYP[c.typ]||c.typ)+'</div>'));
+        rw.appendChild(el('<div class="hint">krytí: '+esc(_krytiTxt(c.kryti))+' · sick '+c.kryto_sick_h+' h · proplaceno '+c.proplaceno_listecek_h+' h'+(c.neplaceno_h?(' · neplac. '+c.neplaceno_h+' h'):'')+' · '+esc(lbl)+'</div>'));
+        if(c.has_foto){ var a=el('<div style="margin-top:4px;"><a href="/api/v1/erp/app/med/photo/'+c.id+'" target="_blank" style="color:#5ee0b7;font-size:13px;">📷 zobrazit foto</a></div>'); rw.appendChild(a); }
+        box.appendChild(rw);
+      });
+    });
+  }
+  function medForm(){
+    app.innerHTML=topbar("➕ Návštěva u lékaře", true);
+    var w=el('<div style="padding:6px;display:flex;flex-direction:column;gap:12px;"></div>'); app.appendChild(w);
+    var fDat=_ocrFld(w,"Datum návštěvy","DD.MM.RRRR");
+    var wr2=el('<div style="display:flex;gap:10px;"></div>');
+    var c1=el('<div style="flex:1;"></div>'), c2=el('<div style="flex:1;"></div>'); wr2.appendChild(c1); wr2.appendChild(c2); w.appendChild(wr2);
+    var fOd=_ocrFld(c1,"Čas od (odchod)","HH:MM");
+    var fDo=_ocrFld(c2,"Čas do (návrat)","HH:MM");
+    var tw=el('<div></div>'); tw.appendChild(el('<div style="font-size:13px;color:#cdd6e2;margin-bottom:4px;">Typ návštěvy</div>'));
+    var sel=el('<select style="width:100%;box-sizing:border-box;padding:10px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;"><option value="vyset">Vyšetření / ošetření</option><option value="prevent">Preventivní prohlídka</option><option value="doprovod">Doprovod (rodinný příslušník)</option></select>');
+    tw.appendChild(sel); w.appendChild(tw);
+    var fOsoba=_ocrFld(w,"Doprovázená osoba (jen u doprovodu)","jméno");
+    var fVz=_ocrFld(w,"Vztah (jen u doprovodu)","dítě / rodič / …");
+    var fZar=_ocrFld(w,"Zdravotnické zařízení / lékař","nepovinné");
+    // foto
+    var _foto=null;
+    var fw=el('<div></div>'); fw.appendChild(el('<div style="font-size:13px;color:#cdd6e2;margin-bottom:4px;">Foto lístečku</div>'));
+    var cam=el('<button style="width:100%;box-sizing:border-box;padding:11px;border-radius:10px;border:1px dashed #3a4c70;background:rgba(255,255,255,.03);color:var(--tx);font-weight:700;cursor:pointer;">📷 Vyfotit lísteček</button>');
+    var thumb=el('<img style="display:none;max-width:100%;margin-top:8px;border-radius:10px;border:1px solid var(--bord);">');
+    cam.addEventListener("click",function(){
+      var fi=el('<input type="file" accept="image/*" capture="environment" style="display:none;">'); document.body.appendChild(fi);
+      fi.addEventListener("change",function(){ var f=fi.files&&fi.files[0]; if(!f){fi.remove();return;} var fr=new FileReader(); fr.onload=function(){ _foto=fr.result; thumb.src=_foto; thumb.style.display="block"; cam.textContent="📷 Přefotit lísteček"; try{fi.remove();}catch(e){} }; fr.readAsDataURL(f); });
+      fi.click();
+    });
+    fw.appendChild(cam); fw.appendChild(thumb); w.appendChild(fw);
+    var st=el('<div class="hint" style="min-height:16px;"></div>'); w.appendChild(st);
+    var sv=el('<button style="'+_OCR_BTN+'">Odeslat ke schválení</button>'); w.appendChild(sv);
+    var cx=el('<button class="ghost sm" style="margin-top:4px;">Zrušit</button>'); cx.addEventListener("click",function(){ med(); }); w.appendChild(cx);
+    sv.addEventListener("click",function(){
+      var d=_isoDate(fDat.value); if(!/^\d{4}-\d{2}-\d{2}/.test(d)){ st.style.color="#ff8b8b"; st.textContent="Datum ve formátu DD.MM.RRRR."; return; }
+      if(!_foto){ st.style.color="#ff8b8b"; st.textContent="Vyfoť prosím lísteček."; return; }
+      sv.disabled=true; st.style.color="#9fb2d4"; st.textContent="Odesílám…";
+      api("POST","/api/v1/erp/app/med/start",{datum:d,cas_od:(fOd.value||"").trim(),cas_do:(fDo.value||"").trim(),typ:sel.value,osoba_jmeno:(fOsoba.value||"").trim(),osoba_vztah:(fVz.value||"").trim(),zarizeni:(fZar.value||"").trim(),foto:_foto}).then(function(r){
+        if(r&&r.ok){ med(); } else { sv.disabled=false; st.style.color="#ff8b8b"; st.textContent="Chyba: "+((r&&r.error)||"?"); }
+      });
+    });
+  }
+  function med_schval(){
+    app.innerHTML=topbar("🩺 Lístečky — schvalování", true);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/med/inbox","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Jen rodiče a HR.":"Nepodařilo se načíst.")+'</div>'; return; }
+      var cs=j.cases||[];
+      if(!cs.length){ box.innerHTML='<div class="hint">Nic ke schválení.</div>'; return; }
+      cs.forEach(function(c){
+        var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
+        rw.appendChild(el('<div style="font-weight:600;">'+esc(c.zamestnanec||"")+' · '+_czDate(c.datum)+(c.doba_h?(' · '+c.doba_h+' h'):'')+'</div>'));
+        rw.appendChild(el('<div class="hint">'+esc(_MED_TYP[c.typ]||c.typ)+(c.zarizeni?(' · '+esc(c.zarizeni)):'')+(c.company?(' · '+esc(c.company)):'')+'<br>krytí: '+esc(_krytiTxt(c.kryti))+' · sick '+c.kryto_sick_h+' h · proplaceno '+c.proplaceno_listecek_h+' h (limit '+c.limit_h+')'+(c.neplaceno_h?(' · neplac. '+c.neplaceno_h+' h'):'')+'</div>'));
+        if(c.has_foto){ rw.appendChild(el('<div style="margin-top:4px;"><a href="/api/v1/erp/app/med/photo/'+c.id+'" target="_blank" style="color:#5ee0b7;font-size:13px;">📷 zobrazit foto</a></div>')); }
+        var b=el('<button style="margin-top:6px;padding:8px 14px;border-radius:10px;border:1px solid #34d399;background:rgba(52,211,153,.15);color:#5ee0b7;font-weight:700;cursor:pointer;">✓ Schválit</button>');
+        b.addEventListener("click",function(){ if(!confirm("Schválit lísteček pro "+(c.zamestnanec||"")+"?"))return; b.disabled=true; b.textContent="…"; api("POST","/api/v1/erp/app/med/approve",{id:c.id}).then(function(r){ if(r&&r.ok){ med_schval(); } else { b.disabled=false; b.textContent="✓ Schválit"; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+        rw.appendChild(b);
+        box.appendChild(rw);
+      });
+    });
+  }
+  function med_prehled(){
+    app.innerHTML=topbar("🩺 Lékař — přehled", true);
+    var sum=el('<div class="hint" style="margin:8px 6px;"></div>'); app.appendChild(sum);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/hr/med-overview","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Jen rodiče a HR.":"Nepodařilo se načíst.")+'</div>'; return; }
+      var it=j.items||[]; if(!it.length){ box.innerHTML='<div class="hint">Žádné lístečky.</div>'; return; }
+      var tProp=0,tDoba=0; it.forEach(function(c){ tProp+=c.proplaceno_listecek_h||0; tDoba+=c.doba_h||0; });
+      sum.innerHTML='Celkem '+it.length+' návštěv · doba '+(Math.round(tDoba*10)/10)+' h · proplaceno lístečkem '+(Math.round(tProp*10)/10)+' h';
+      it.forEach(function(c){
+        var lbl={nahlaseno:"ke schválení",schvaleno:"schváleno",zamitnuto:"zamítnuto"}[c.stav]||c.stav;
+        var rw=el('<div style="padding:9px 6px;border-bottom:1px solid var(--bord);"></div>');
+        rw.appendChild(el('<div style="font-weight:600;">'+esc(c.zamestnanec||"")+' · '+_czDate(c.datum)+'</div>'));
+        rw.appendChild(el('<div class="hint">'+(c.doba_h||0)+' h · '+esc(_krytiTxt(c.kryti))+' · proplaceno '+c.proplaceno_listecek_h+' h'+(c.company?(' · '+esc(c.company)):'')+' · '+esc(lbl)+(c.has_foto?' · 📷':'')+'</div>'));
+        box.appendChild(rw);
+      });
+    });
   }
   function hr_podminky(){
     app.innerHTML=topbar("📋 Podmínky skupin", true);
@@ -6602,7 +6707,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

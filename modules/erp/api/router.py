@@ -10903,7 +10903,7 @@ async def app_apid_backups(req: Request) -> JSONResponse:
                   "mtime": r[3] or ""} for r in rows]
         last = s.execute(_t(
             "SELECT file, status, result, to_char(finished_at,'DD.MM HH24:MI') "
-            "FROM fw.apid_restore_req WHERE finished_at IS NOT NULL "
+            "FROM fw.apid_restore_req WHERE status IN ('done','error') "
             "ORDER BY finished_at DESC LIMIT 1")).first()
         status = None
         if last:
@@ -10944,6 +10944,9 @@ async def app_apid_restore(req: Request) -> JSONResponse:
         if not fname or not s.execute(_t("SELECT 1 FROM fw.apid_backup WHERE name=:n"),
                                       {"n": fname}).first():
             return JSONResponse({"ok": False, "error": "Neplatný soubor zálohy."}, status_code=400)
+        # pojistka: neřaď duplicitní obnovu, když už jedna běží/čeká (anti-backlog z opakovaných kliků)
+        if s.execute(_t("SELECT 1 FROM fw.apid_restore_req WHERE status IN ('pending','running') LIMIT 1")).first():
+            return JSONResponse({"ok": False, "error": "Obnova už probíhá — počkej, než dojede (~1 min), pak klikni znovu."}, status_code=409)
         s.execute(_t("INSERT INTO fw.apid_restore_req (file, requested_by, status) "
                      "VALUES (:f, :u, 'pending')"), {"f": fname, "u": uid})
         s.commit()

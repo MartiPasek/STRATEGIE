@@ -6370,7 +6370,7 @@ async def app_bakalari_classes(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         po = _bk_plat_od(s)
         rows = s.execute(_t(
-            "SELECT TRIM(t.kod_trid), TRIM(COALESCE(t.zkratka,'')), TRIM(COALESCE(t.nazev,'')), t.pocet_zaku, "
+            "SELECT TRIM(t.kod_trid), REPLACE(TRIM(COALESCE(t.zkratka,'')),'.',''), TRIM(COALESCE(t.nazev,'')), t.pocet_zaku, "
             " TRIM(COALESCE(uc.prijmeni,'')) "
             "FROM tenant.bakalari_trid t "
             "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=t.tenant_id AND uc.plat_od=t.plat_od AND TRIM(uc.intern_kod)=TRIM(t.tridnictvi) "
@@ -6416,11 +6416,12 @@ def _bk_grid_rows(s, po, where_sql, prm):
         " TRIM(COALESCE(p.zkratka, u.kod_pred)), TRIM(COALESCE(p.nazev,'')), "
         " TRIM(COALESCE(uc.zkratka, u.kod_ucit)), TRIM(COALESCE(uc.prijmeni,'')), "
         " TRIM(COALESCE(m.zkratka, u.kod_mist)), TRIM(COALESCE(m.nazev,'')), "
-        " TRIM(COALESCE(u.kod_trid,'')) "
+        " REPLACE(TRIM(COALESCE(tr.zkratka, u.kod_trid)),'.','') "
         "FROM tenant.bakalari_uvaz u "
         "LEFT JOIN tenant.bakalari_pred p ON p.tenant_id=u.tenant_id AND p.plat_od=u.plat_od AND TRIM(p.kod_pred)=TRIM(u.kod_pred) "
         "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=u.tenant_id AND uc.plat_od=u.plat_od AND TRIM(uc.intern_kod)=TRIM(u.kod_ucit) "
         "LEFT JOIN tenant.bakalari_mist m ON m.tenant_id=u.tenant_id AND m.plat_od=u.plat_od AND TRIM(m.kod_mist)=TRIM(u.kod_mist) "
+        "LEFT JOIN tenant.bakalari_trid tr ON tr.tenant_id=u.tenant_id AND tr.plat_od=u.plat_od AND TRIM(tr.kod_trid)=TRIM(u.kod_trid) "
         "WHERE u.tenant_id=:t AND u.plat_od=:p AND u.den BETWEEN 1 AND 5 AND " + where_sql +
         " ORDER BY u.den, u.hod"), prm).fetchall()
     return [{"den": r[0], "hod": r[1], "skup": r[2], "pred": r[3], "pred_nazev": r[4],
@@ -6439,7 +6440,7 @@ async def app_bakalari_class_grid(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         po = _bk_plat_od(s)
         trid = (req.query_params.get("trid") or "").strip()
-        nazev = s.execute(_t("SELECT TRIM(COALESCE(zkratka,'')), TRIM(COALESCE(nazev,'')) FROM tenant.bakalari_trid WHERE tenant_id=:t AND plat_od=:p AND TRIM(kod_trid)=:k"),
+        nazev = s.execute(_t("SELECT REPLACE(TRIM(COALESCE(zkratka,'')),'.',''), TRIM(COALESCE(nazev,'')) FROM tenant.bakalari_trid WHERE tenant_id=:t AND plat_od=:p AND TRIM(kod_trid)=:k"),
                           {"t": _BK_TENANT, "p": po, "k": trid}).first()
         cells = _bk_grid_rows(s, po, "TRIM(u.kod_trid)=:k", {"k": trid})
         mh = max([c["hod"] for c in cells], default=0)
@@ -6556,10 +6557,11 @@ async def app_bakalari_loads(req: Request) -> JSONResponse:
             " TRIM(COALESCE(ucr.zkratka, u.kod_ucit)) zk, "
             " TRIM(COALESCE(p.zkratka, u.kod_pred)) pred, TRIM(COALESCE(p.nazev,'')) pnaz, "
             " count(DISTINCT (u.den||'_'||u.hod||'_'||COALESCE(u.kod_trid,'')||'_'||COALESCE(u.kod_skup,''))) hod, "
-            " string_agg(DISTINCT TRIM(u.kod_trid), ', ') tridy "
+            " string_agg(DISTINCT REPLACE(TRIM(COALESCE(tr.zkratka, u.kod_trid)),'.',''), ', ') tridy "
             "FROM tenant.bakalari_uvaz u "
             "LEFT JOIN tenant.bakalari_ucit ucr ON ucr.tenant_id=u.tenant_id AND ucr.plat_od=u.plat_od AND TRIM(ucr.intern_kod)=TRIM(u.kod_ucit) "
             "LEFT JOIN tenant.bakalari_pred p ON p.tenant_id=u.tenant_id AND p.plat_od=u.plat_od AND TRIM(p.kod_pred)=TRIM(u.kod_pred) "
+            "LEFT JOIN tenant.bakalari_trid tr ON tr.tenant_id=u.tenant_id AND tr.plat_od=u.plat_od AND TRIM(tr.kod_trid)=TRIM(u.kod_trid) "
             "WHERE u.tenant_id=:t AND u.plat_od=:p AND u.den BETWEEN 1 AND 5 "
             "GROUP BY u.kod_ucit, ucr.prijmeni, ucr.jmeno, ucr.zkratka, u.kod_pred, p.zkratka, p.nazev "
             "ORDER BY prij, pred"), {"t": _BK_TENANT, "p": po}).fetchall()

@@ -18120,7 +18120,13 @@ async def diag_sql(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "pending": True, "request_id": rid,
                              "message": "Write čeká na schválení Marti (request #%s)." % rid})
 
-    if db == "mssql":
+    if db == "bakalari":
+        # Bakalari (Nerudovka) bezi na vnitrni siti skoly - cloud na nej nedosahne.
+        # Read-only SELECT zaradime do fronty fw.bakalari_query; konektor na NB s VPN
+        # ji pollne, spusti a vrati vysledek. Blokujici cekani v threadpoolu (neblokuje loop).
+        from starlette.concurrency import run_in_threadpool
+        res = await run_in_threadpool(_bakalari_query_via_queue, sql, actor)
+    elif db == "mssql":
         try:
             from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
             import json as _j_ds
@@ -18165,6 +18171,111 @@ async def diag_sql(req: Request) -> JSONResponse:
         pass
 
     return JSONResponse(res if isinstance(res, dict) else {"ok": False, "error": "neznámý výstup"})
+
+
+# ── Bakaláři čtecí most (Faze 1) — fronta plnena konektorem na NB s VPN ──────
+
+def _bakalari_query_via_queue(sql, actor=None, timeout_s=25, poll_s=0.5):
+    """Zaradi read-only SELECT do fw.bakalari_query a blokujici ceka na vysledek
+    od konektoru (Klarcin NB). Vola se v threadpoolu (neblokuje event loop)."""
+    import time as _tm
+    import json as _jq
+    from core.database_data import get_data_session as _gq
+    from sqlalchemy import text as _tq
+    ds = _gq()
+    try:
+        rid = ds.execute(_tq(
+            "INSERT INTO fw.bakalari_query (sql_text, requested_by) VALUES (:s,:by) RETURNING id"
+        ), {"s": sql, "by": actor}).scalar()
+        ds.commit()
+    finally:
+        ds.close()
+    deadline = _tm.time() + timeout_s
+    while _tm.time() < deadline:
+        _tm.sleep(poll_s)
+        ds = _gq()
+        try:
+            row = ds.execute(_tq("SELECT status, result_json, error FROM fw.bakalari_query WHERE id=:i"),
+                             {"i": rid}).first()
+        finally:
+            ds.close()
+        if not row:
+            return {"ok": False, "error": "fronta: zaznam zmizel"}
+        if row[0] == "done":
+            try:
+                return _jq.loads(row[1]) if row[1] else {"ok": True, "rows": [], "count": 0}
+            except Exception:
+                return {"ok": False, "error": "nelze precist vysledek z fronty"}
+        if row[0] == "error":
+            return {"ok": False, "error": row[2] or "konektor Bakalari: chyba"}
+    return {"ok": False, "error": ("Konektor Bakalari neodpovedel (~%ss). "
+                                   "Bezi na Klarcine NB konektor + VPN?" % timeout_s)}
+
+
+def _bakalari_token_ok(req: Request) -> bool:
+    import os as _o
+    tok = req.headers.get("X-Deploy-Token")
+    env = _o.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    return bool(tok and env and tok == env)
+
+
+@api_router.get("/bakalari/pending")
+async def bakalari_pending(req: Request) -> JSONResponse:
+    """Konektor (NB s VPN) si vyzvedne nejstarsi pending dotaz a oznaci ho running.
+    Token auth (X-Deploy-Token)."""
+    if not _bakalari_token_ok(req):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from core.database_data import get_data_session as _gq
+    from sqlalchemy import text as _tq
+    ds = _gq()
+    try:
+        row = ds.execute(_tq(
+            "UPDATE fw.bakalari_query SET status='running', claimed_at=now() "
+            "WHERE id = (SELECT id FROM fw.bakalari_query WHERE status='pending' "
+            "            ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) "
+            "RETURNING id, sql_text"
+        )).first()
+        ds.commit()
+        if not row:
+            return JSONResponse({"ok": True, "query": None})
+        return JSONResponse({"ok": True, "query": {"id": row[0], "sql": row[1]}})
+    finally:
+        ds.close()
+
+
+@api_router.post("/bakalari/result")
+async def bakalari_result(req: Request) -> JSONResponse:
+    """Konektor vrati vysledek dotazu. Body: {id, ok, result|error}. Token auth."""
+    if not _bakalari_token_ok(req):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    import json as _jq
+    from core.database_data import get_data_session as _gq
+    from sqlalchemy import text as _tq
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        qid = int(b.get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "id chybí"}, status_code=400)
+    ok = bool(b.get("ok"))
+    ds = _gq()
+    try:
+        if ok:
+            result = b.get("result") or {"ok": True, "rows": [], "count": 0}
+            rc = result.get("count") if isinstance(result, dict) else None
+            ds.execute(_tq("UPDATE fw.bakalari_query SET status='done', result_json=:r, "
+                           "row_count=:rc, finished_at=now() WHERE id=:i"),
+                       {"r": _jq.dumps(result, ensure_ascii=False), "rc": rc, "i": qid})
+        else:
+            ds.execute(_tq("UPDATE fw.bakalari_query SET status='error', error=:e, "
+                           "finished_at=now() WHERE id=:i"),
+                       {"e": str(b.get("error") or "chyba")[:4000], "i": qid})
+        ds.commit()
+        return JSONResponse({"ok": True})
+    finally:
+        ds.close()
 
 
 @api_router.get("/diag-write/pending")

@@ -10762,6 +10762,125 @@ async def app_whoami(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _ec_set_block_dochazka(cislo, block: bool):
+    """Marti 16.6.: zapne/vypne _BlokovatDochazku v Centrále (DB_EC) pro osobu dle
+    Cisla zaměstnance. Reverzibilní (block=False → zase povolí píchat). Vrací
+    (ok: bool, error: str|None). Používá nativní EC mechanismus (TabCisZam_EXT)."""
+    import json as _j_eb
+    from datetime import datetime as _dt_eb
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        mcp = get_eurosoft_mcp_client()
+        if mcp is None:
+            return (False, "mcp_unavailable")
+        cz = str(cislo).strip().replace("'", "''")
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": "SELECT ID FROM TabCisZam WHERE Cislo='" + cz + "'",
+                                  "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_eb.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]; break
+        elif isinstance(r, list):
+            rows = r
+        if not rows:
+            return (False, "zam_not_found")
+        zid = rows[0].get("ID")
+        data = {"_BlokovatDochazku": 1 if block else 0}
+        if block:
+            data["_DatBlokaceDochazkyOD"] = _dt_eb.now().strftime("%Y-%m-%d %H:%M:%S")
+        upd = mcp.call_tool_sync("eurosoft_strategie_update_row",
+                                 {"schema": "dbo", "table": "TabCisZam_EXT",
+                                  "data": data, "where": {"ID": zid}, "db_name": "DB_EC"},
+                                 conversation_id=None)
+        u = _j_eb.loads(upd) if isinstance(upd, str) else upd
+        if isinstance(u, dict) and u.get("ok"):
+            return (True, None)
+        return (False, str((u or {}).get("error") if isinstance(u, dict) else u))
+    except Exception as exc:
+        return (False, str(exc))
+
+
+@api_router.get("/app/hr/att-source")
+async def app_hr_att_source_list(req: Request) -> JSONResponse:
+    """Marti 16.6.: seznam lidí + příznak docházkového zdroje (jen STRATEGIE vs
+    Centrála). Rodiče + HR. app_only=true → EC sync ho přeskočí + píchání v Centrále zablokované."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT e.user_id, "
+            " COALESCE((SELECT TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')) "
+            "           FROM public.users u WHERE u.id=e.user_id),'') AS jmeno, "
+            " MIN(e.cislo_zam) AS cislo, "
+            " COALESCE(bool_or(p.app_only), false) AS app_only, "
+            " COALESCE(bool_or(p.ec_blocked), false) AS ec_blocked "
+            "FROM tenant.att_employee e "
+            "LEFT JOIN tenant.att_source_pref p ON p.user_id = e.user_id "
+            "WHERE e.tenant_id=2 AND e.is_active=true AND e.user_id IS NOT NULL "
+            "GROUP BY e.user_id ORDER BY jmeno"), {}).fetchall()
+        out = [{"user_id": r[0], "jmeno": r[1] or ("#" + str(r[0])), "cislo": r[2] or "",
+                "app_only": bool(r[3]), "ec_blocked": bool(r[4])} for r in rows]
+        return JSONResponse({"ok": True, "items": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/att-source")
+async def app_hr_att_source_set(req: Request) -> JSONResponse:
+    """Přepínač docházkového zdroje pro člověka (rodiče + HR). app_only=true →
+    (A) EC sync ho přeskočí + (B) zablokuje píchání v Centrále. false = zase povolí."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    tgt = int(body.get("user_id") or 0)
+    app_only = bool(body.get("app_only"))
+    if not tgt:
+        return JSONResponse({"ok": False, "error": "bad_user_id"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        autor = s.execute(_t("SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
+                             "FROM public.users WHERE id=:u"), {"u": uid}).scalar() or "HR"
+        s.execute(_t(
+            "INSERT INTO tenant.att_source_pref (user_id, app_only, changed_by, changed_at) "
+            "VALUES (:u, :a, :by, now()) "
+            "ON CONFLICT (user_id) DO UPDATE SET app_only=:a, changed_by=:by, changed_at=now()"),
+            {"u": tgt, "a": app_only, "by": autor})
+        cislo = s.execute(_t("SELECT cislo_zam FROM tenant.att_employee "
+                             "WHERE tenant_id=2 AND user_id=:u AND cislo_zam IS NOT NULL LIMIT 1"),
+                          {"u": tgt}).scalar()
+        ec_ok, ec_err = (None, None)
+        if cislo:
+            ec_ok, ec_err = _ec_set_block_dochazka(cislo, app_only)
+            s.execute(_t("UPDATE tenant.att_source_pref SET ec_blocked=:b WHERE user_id=:u"),
+                      {"b": bool(ec_ok), "u": tgt})
+        s.commit()
+        return JSONResponse({"ok": True, "app_only": app_only,
+                             "ec_blocked": bool(ec_ok), "ec_error": ec_err})
+    except Exception as exc:
+        s.rollback()
+        logger.exception("[att-source] failed: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/announced-future")
 async def att_announced_future(req: Request) -> JSONResponse:
     """Marti 7.6. večer: budoucí ohlášení (skončím dříve / přijdu později /
@@ -15088,6 +15207,15 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
         if not (tw and toh):
             return {"ok": False, "error": "missing_types"}
         type_work, type_oh = tw[0], toh[0]
+        # Marti 16.6.: lidé „jen STRATEGIE" (att_source_pref.app_only) — NEimportovat
+        # jejich EC píchnutí (jinak duplicita app × Centrála). Best-effort.
+        try:
+            app_only_cisla = {str(x[0]).strip() for x in sess.execute(_t(
+                "SELECT e.cislo_zam FROM tenant.att_employee e "
+                "JOIN tenant.att_source_pref p ON p.user_id = e.user_id AND p.app_only = true "
+                "WHERE e.tenant_id = :t AND e.cislo_zam IS NOT NULL"), {"t": tenant}).fetchall()}
+        except Exception:
+            app_only_cisla = set()
         emp_cache = {}
 
         def emp_id(cislo):
@@ -15125,6 +15253,8 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
         for r in _rows(sql):
             rid = int(r["ID"])
             total += 1
+            if str(r.get("CisloZam") or "").strip() in app_only_cisla:
+                continue  # „jen STRATEGIE" — EC píchnutí neimportujeme
             zak = (r.get("CisloZakazky") or "").strip()
             rezie = zak.lower() == "rezie"
             lf = (r.get("LoginFrom") or "").strip().upper()

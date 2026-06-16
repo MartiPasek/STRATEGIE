@@ -1627,6 +1627,7 @@ setTimeout(function(){
     var l3=el('<div class="list"></div>');
     l3.appendChild(row("🪪","Lidé — personální složky","Karta člověka: režim · podmínky · docházka",function(){ go("hr_people"); }));
     l3.appendChild(row("🧩","Režimy","Forma HPP/OSVČ/DPP, režim docházky, konto",function(){ go("hr_rezimy"); }));
+    l3.appendChild(row("🗓️","Zdroj docházky","Kdo píchá jen ve STRATEGII (a má vypnutou starou docházku)",function(){ go("hr_att_source"); }));
     l3.appendChild(row("🗓️","Absence — žádosti a schvalování","Dovolená / HO / lékař → schválí vedoucí",function(){ go("absence"); }));
     l3.appendChild(row("👀","Kdo kde dnes","Kdo v práci / na dovolené / nemocný",function(){ go("kdekdo"); }));
     app.appendChild(l3);
@@ -1839,6 +1840,36 @@ setTimeout(function(){
   }
   // Marti 11.6.: self-service osobních údajů — primární zdroj, logovaný,
   // s upozorněním HR na změny. Každý si spravuje svá data sám přes mobil.
+  function hr_att_source(){
+    app.innerHTML=topbar("🗓️ Zdroj docházky", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">„Jen STRATEGIE" = člověk píchá výhradně v naší appce. Vypneme mu píchání ve staré docházce (Centrála) a nebereme odtud jeho záznamy. Kdykoli lze vrátit zpět (kdyby náš systém zlobil).</div>'));
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    function load(){
+      api("GET","/api/v1/erp/app/hr/att-source","").then(function(j){
+        box.innerHTML="";
+        if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Jen rodiče a HR.":"Nepodařilo se načíst.")+'</div>'; return; }
+        var items=j.items||[];
+        if(!items.length){ box.innerHTML='<div class="hint">Žádní lidé.</div>'; return; }
+        items.forEach(function(p){
+          var on=!!p.app_only;
+          var rw=el('<div style="display:flex;align-items:center;gap:10px;padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
+          rw.appendChild(el('<div style="flex:1;min-width:0;"><div style="font-weight:600;">'+esc(p.jmeno)+'</div><div class="hint">'+(on?("jen STRATEGIE"+(p.ec_blocked?" · Centrála vypnutá":" · ⚠ Centrála nešla vypnout")):"Centrála (stará docházka)")+'</div></div>'));
+          var b=el('<button style="padding:8px 12px;border-radius:10px;border:1px solid '+(on?"#34d399":"var(--bord)")+';background:'+(on?"rgba(52,211,153,.15)":"rgba(255,255,255,.04)")+';color:'+(on?"#5ee0b7":"var(--tx)")+';font-weight:700;cursor:pointer;white-space:nowrap;">'+(on?"✓ Jen STRATEGIE":"Přepnout")+'</button>');
+          b.addEventListener("click",function(){
+            var msg=on?("Vrátit "+p.jmeno+" zpět na starou docházku (Centrála)?"):("Přepnout "+p.jmeno+" na JEN STRATEGIE? Vypne se mu píchání v Centrále.");
+            if(!confirm(msg)) return;
+            b.disabled=true; b.textContent="…";
+            api("POST","/api/v1/erp/app/hr/att-source",{user_id:p.user_id,app_only:!on}).then(function(r){
+              if(r&&r.ok){ if(!on && r.ec_blocked===false){ alert("Přepnuto na naší straně, ale Centrálu se nepodařilo vypnout: "+(r.ec_error||"?")); } load(); }
+              else { b.disabled=false; b.textContent=on?"✓ Jen STRATEGIE":"Přepnout"; alert("Chyba: "+((r&&r.error)||"?")); }
+            });
+          });
+          rw.appendChild(b); box.appendChild(rw);
+        });
+      });
+    }
+    load();
+  }
   function hr_podminky(){
     app.innerHTML=topbar("📋 Podmínky skupin", true);
     var _pd={f:"system", groups:[]};
@@ -6320,7 +6351,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

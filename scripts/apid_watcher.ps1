@@ -73,7 +73,12 @@ function Process-Requests([string]$dir) {
     } else {
       & pg_restore -h localhost -U $PGUSER -d $TESTDB --no-owner --clean --if-exists $path
     }
-    $msg = ("Obnoveno do " + $TESTDB + " ze zalohy " + $file)
+    # KONTROLA, ze obnova realne probehla - spocti data v obnovene DB
+    $cRaw = RunSql $TESTDB "SELECT count(*) FROM fw.core;"
+    $cCore = if ($cRaw) { ($cRaw | Out-String).Trim() } else { "?" }
+    $tRaw = RunSql $TESTDB "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('public','fw','tenant','master','user');"
+    $cTab = if ($tRaw) { ($tRaw | Out-String).Trim() } else { "?" }
+    $msg = ("Obnoveno do " + $TESTDB + " ze zalohy " + $file + " | kontrola: fw.core=" + $cCore + " radku, tabulek=" + $cTab)
     RunSql $MAINDB "UPDATE fw.apid_restore_req SET status='done', result='$($msg.Replace("'","''"))', finished_at=now() WHERE id=$id;" | Out-Null
     Write-Host "  OK: $msg" -ForegroundColor Green
   } catch {

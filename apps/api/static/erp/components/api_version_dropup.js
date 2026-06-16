@@ -306,6 +306,7 @@
       <div class="api-version-dropup-footer">
         ${pin ? '<button type="button" class="api-version-unpin-btn" id="erpFooterApiVersionUnpinBtn">↩ Vrátit na aktuální</button>' : ""}
         <button type="button" class="api-version-diff-btn" id="erpFooterApiVersionDiffBtn">🔍 Co je nového? (diff)</button>
+        ${_state.isParent ? `<button type="button" class="api-version-diff-btn" id="erpFooterApidBtn" style="margin-top:4px;${_isApidMode() ? 'background:#7a5;border-color:#7a5;color:#fff;' : ''}">${_isApidMode() ? '↩ Zpět na ostrý systém' : '🧪 Testovací API D (kopie dat)'}</button>` : ""}
       </div>
     `;
 
@@ -349,6 +350,16 @@
       diffBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         await _onDiffClicked();
+      });
+    }
+
+    // API D switch (jen rodice)
+    const apidBtn = document.getElementById("erpFooterApidBtn");
+    if (apidBtn) {
+      apidBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        _closeDropup();
+        if (_isApidMode()) { _exitApid(); } else { _enterApid(); }
       });
     }
 
@@ -485,6 +496,61 @@
   }
 
   // ---------------------------------------------------------------------
+  // API D (testovaci instance na data_db_test, port 8004) - jen rodice.
+  // Prepnuti pres cookie strategie_env=apid (Caddy routuje VESKERY provoz
+  // - statiku i /api - na 8004 = plna izolace od ostrych dat). Zpet = smazat.
+  // ---------------------------------------------------------------------
+
+  function _isApidMode() {
+    return /(?:^|;\s*)strategie_env=apid(?:;|$)/.test(document.cookie || "");
+  }
+
+  async function _probeParent() {
+    // deploy/preview vraci 200 jen rodicum (stejny gate jako raketa)
+    try {
+      const r = await fetch("/api/v1/erp/deploy/preview", { credentials: "same-origin" });
+      return r.ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function _enterApid() {
+    const ok = confirm(
+      "Prepnout na TESTOVACI prostredi API D?\n\n" +
+      "- uvidis OBNOVENA testovaci data (ne ostra)\n" +
+      "- zadne akce neodchazeji ven (mail / SMS / zapis do Centraly jsou vypnute)\n" +
+      "- zpet na ostry system se vratis stejnym tlacitkem (nebo kliknutim na zluty pruh nahore)"
+    );
+    if (!ok) return;
+    document.cookie = "strategie_env=apid; path=/; max-age=86400; samesite=lax";
+    window.location.reload();
+  }
+
+  function _exitApid() {
+    document.cookie = "strategie_env=apid; path=/; max-age=0; samesite=lax";
+    window.location.reload();
+  }
+
+  function _renderApidBanner() {
+    const on = _isApidMode();
+    let b = document.getElementById("apidEnvBanner");
+    if (!on) { if (b) b.remove(); return; }
+    if (b) return;
+    b = document.createElement("div");
+    b.id = "apidEnvBanner";
+    b.style.cssText =
+      "position:fixed;top:0;left:0;right:0;z-index:2147483646;cursor:pointer;" +
+      "background:repeating-linear-gradient(45deg,#b8860b,#b8860b 14px,#9c7209 14px,#9c7209 28px);" +
+      "color:#fff;text-align:center;font:600 12px/1.9 system-ui,Segoe UI,sans-serif;" +
+      "letter-spacing:.3px;box-shadow:0 2px 6px rgba(0,0,0,.35);";
+    b.textContent = "🧪 TESTOVACÍ PROSTŘEDÍ API D — data nejsou ostrá · klikni pro návrat na ostrý systém";
+    b.addEventListener("click", _exitApid);
+    document.body.appendChild(b);
+    document.body.style.paddingTop = "24px"; // ať banner nepřekryje obsah
+  }
+
+  // ---------------------------------------------------------------------
   // Init + polling
   // ---------------------------------------------------------------------
 
@@ -496,6 +562,7 @@
     }
     _state.apiInfo = await _fetchApiInfo();
     _renderPill();
+    _renderApidBanner();
   }
 
   function _startPolling() {
@@ -504,6 +571,7 @@
   }
 
   async function _init() {
+    _state.isParent = await _probeParent();
     await _refresh();
     _startPolling();
   }

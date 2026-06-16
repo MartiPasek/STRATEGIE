@@ -4625,7 +4625,7 @@ setTimeout(function(){
     acts.appendChild(mk('#ef4444','#fff','🗑',(18+d)+'px','Návrh: Smazat — odebrat tento záznam (s logem do att_audit).'));
   }
   function _jobOverlay(e){
-    var ic=_jobIcon(e), timeR=(e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':''));
+    var ic=_jobIcon(e), timeR=(e.code==='day_end')?('Konec '+(e.zac||'')):((e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':'')));
     var ov=el('<div id="jobOverlay" style="position:fixed;inset:0;z-index:9000;background:#0c1118;overflow-y:auto;padding:16px 16px 48px;"></div>');
     var top=el('<div style="display:flex;justify-content:flex-end;"><button class="ghost" style="font-size:20px;width:44px;margin:0;">✕</button></div>');
     top.querySelector("button").addEventListener("click",function(){ ov.remove(); });
@@ -4645,7 +4645,7 @@ setTimeout(function(){
   }
   function _jobRow(e){
     var li=document.createElement("li"); li.className="ct"; li.style.padding="0"; li.style.borderBottom="none";
-    var ic=_jobIcon(e), timeR=((e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':'')))||(e.typ||'');
+    var ic=_jobIcon(e), timeR=(e.code==='day_end')?('Konec '+(e.zac||'')):(((e.zac||'')+(e.kon?(' – '+e.kon):(e.is_active?' – …':'')))||(e.typ||''));
     // Marti 11.6.: „Práce" i stav (pending) skryté (typ je nespolehlivý — pauza má
     // taky entry type „Práce"). Režie ukáže „Režie", u relaxu žádná zakázka.
     var _sp=[];

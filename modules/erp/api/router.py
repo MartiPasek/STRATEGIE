@@ -6407,7 +6407,7 @@ def _bk_grid_rows(s, po, where_sql, prm):
     from sqlalchemy import text as _t
     prm = dict(prm); prm.update({"t": _BK_TENANT, "p": po})
     rows = s.execute(_t(
-        "SELECT u.den, u.hod, TRIM(COALESCE(u.kod_skup,'')), "
+        "SELECT DISTINCT u.den, u.hod, TRIM(COALESCE(u.kod_skup,'')), "
         " TRIM(COALESCE(p.zkratka, u.kod_pred)), TRIM(COALESCE(p.nazev,'')), "
         " TRIM(COALESCE(uc.zkratka, u.kod_ucit)), TRIM(COALESCE(uc.prijmeni,'')), "
         " TRIM(COALESCE(m.zkratka, u.kod_mist)), TRIM(COALESCE(m.nazev,'')), "

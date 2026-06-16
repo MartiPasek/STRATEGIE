@@ -363,7 +363,7 @@ def _process() -> None:
     try:
         go_raw = GO_FILE.read_text(encoding="utf-8", errors="replace").strip().lower()
         import re
-        m = re.search(r"db\s*=\s*(pg|mssql)", go_raw)
+        m = re.search(r"db\s*=\s*(pg|mssql|bakalari)", go_raw)
         if m:
             db = m.group(1)
     except Exception:

@@ -24,6 +24,12 @@ $TESTDB = "data_db_test"   # cilova testovaci DB pro obnovu (API D)
 $CANDS = @("E:\STRATEGIE","E:\Backup","E:\Zalohy","C:\Backup","D:\Backup")
 # -------------------
 
+# Jako NSSM sluzba nema proces uzivatelsky PATH -> zajisti psql/pg_restore/dropdb/createdb.
+$pgbin = @("C:\Program Files\PostgreSQL\16\bin","C:\Program Files\PostgreSQL\15\bin",
+           "C:\Program Files\PostgreSQL\17\bin","C:\Program Files\PostgreSQL\14\bin") |
+         Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($pgbin -and ($env:Path -notlike "*$pgbin*")) { $env:Path = $pgbin + ";" + $env:Path }
+
 function RunSql([string]$db, [string]$sql) { & psql -h localhost -U $PGUSER -d $db -v ON_ERROR_STOP=1 -t -A -c $sql }
 
 function Find-BackupDir() {

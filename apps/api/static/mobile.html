@@ -1137,9 +1137,28 @@ setTimeout(function(){
     if(native && B && typeof B.isSmsGateway==="function") l.appendChild(row("📨","SMS brána","Tento telefon přeposílá ověřovací SMS",function(){go("set_smsgw");}));
     l.appendChild(row("📱","Stav aplikací","Kdo má appku, verzi, jestli běží/pinguje (jen rodiče)",function(){go("dev_stav");}));
     l.appendChild(row("📨","Stav odeslaných SMS","Doručení + zda brána reálně poslala (jen rodiče)",function(){go("sms_stav");}));
+    l.appendChild(row("🛠️","STRATEGIE — nástroje","Správa systému: obnova DB, testovací prostředí (jen rodiče)",function(){go("strategie_nastroje");}));
     l.appendChild(row("🧪","Vývojářské","DEV mód, most",function(){go("set_dev");}));
     l.appendChild(row("ℹ️","O aplikaci", _hasUpdate?"🆕 Nová verze k dispozici":(ver?("Verze "+ver):"Verze a stav"),function(){go("set_about");}, _hasUpdate?1:0));
     app.appendChild(l); }
+  // Marti 16.6.: admin prostor pro rodiče — správa STRATEGIE (stejný template jako Vedení).
+  function strategie_nastroje(){
+    app.innerHTML=topbar("🛠️ STRATEGIE — nástroje", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Správa STRATEGIE pro rodiče — provoz, obnova a testování systému. Domácí zázemí pro správu samotné platformy.</div>'));
+    function sec(t){ app.appendChild(el('<div style="margin:14px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
+    sec("DATA & OBNOVA");
+    var g1=el('<div class="appgrid"></div>');
+    g1.appendChild(appCell("🗄️","Obnova DB do API D",0,function(){ go("apid_restore"); }));
+    app.appendChild(g1);
+  }
+  function apid_restore(){
+    app.innerHTML=topbar("🗄️ Obnova databáze do API D", true);
+    var p=el('<div class="panel"></div>');
+    p.appendChild(el('<div class="hint" style="line-height:1.65;"><b>API D</b> je oddělené prostředí na <b>neživých datech</b>. Sem se obnoví vybraná záloha produkční databáze — slouží pro <b>obnovu</b> (vytáhnout, co se rozbilo, a chirurgicky vrátit do produkce) i pro <b>bezpečné testování</b> bez rizika pro ostrý provoz.</div>'));
+    p.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Cílový postup: 1) vyber zálohu → 2) STRATEGIE ji obnoví do API D → 3) otevřeš API D a projdeš/vytáhneš data → 4) případně chirurgicky vrátíš do produkce přes schvalovací banner.</div>'));
+    p.appendChild(el('<div class="hint" style="margin-top:12px;color:#fbbf24;">⏳ Engine obnovy se zapojuje — čeká na nastavení prostředí API D (samostatná instance + testovací DB) a na zdroj záloh. Rozcestník je připravený.</div>'));
+    app.appendChild(p);
+  }
   // Marti 8.6.: SMS brána — JEN Marti-AI mobil přeposílá ověřovací SMS (vlastní
   // gateway, bez cizího provideru). Ostatní telefony nech vypnuté.
   function set_smsgw(){
@@ -6351,7 +6370,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

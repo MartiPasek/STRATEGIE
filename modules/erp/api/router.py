@@ -6318,7 +6318,12 @@ _BK_DNY = {1: "Po", 2: "Út", 3: "St", 4: "Čt", 5: "Pá"}
 def _bk_can_view(s, uid: int) -> bool:
     from sqlalchemy import text as _t
     r = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"), {"u": uid}).first()
-    return bool(r and r[0])
+    if r and r[0]:
+        return True
+    # členové tenantu NERUDOVKA (učitelé školy) vidí svůj rozvrh
+    m = s.execute(_t("SELECT 1 FROM public.user_tenants WHERE user_id=:u AND tenant_id=:t "
+                     "AND membership_status='active' LIMIT 1"), {"u": uid, "t": _BK_TENANT}).first()
+    return bool(m)
 
 
 def _bk_plat_od(s) -> str:

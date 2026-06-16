@@ -15974,8 +15974,24 @@ def _netscan_auto_checkin() -> int:
 
     Marti 12.6.2026: přítomnost zařízení v budově NENÍ oficiální docházka (jiný
     soudeček). Docházku vede STRATEGIE jako externí dodavatel personálních služeb.
-    → NEpícháme automaticky; jen pošleme přátelské upozornění (1×/den/člověk)."""
+    → NEpícháme automaticky; jen pošleme přátelské upozornění (1×/den/člověk).
+
+    Marti 16.6.2026: dvě pojistky proti půlnočnímu „jsi v práci?" — (a) jen v ranním
+    okně (5:00–11:00 Praha) a (b) jen při ČERSTVÉM příchodu (bld_first < 45 min),
+    aby trvale zapnutý NB přes noc nenotifikoval. Okno lze později zjemnit per skupina."""
     from sqlalchemy import text as _t
+    # (a) ranní okno — mimo něj žádné upozornění (vyřeší půlnoční cinknutí)
+    try:
+        from datetime import datetime as _dt_ns
+        try:
+            from zoneinfo import ZoneInfo as _ZI_ns
+            _hh = _dt_ns.now(_ZI_ns("Europe/Prague")).hour
+        except Exception:
+            _hh = (_dt_ns.utcnow().hour + 2) % 24  # hrubý CEST fallback
+        if _hh < 5 or _hh >= 11:
+            return 0
+    except Exception:
+        pass
     cm, s = _att_session()
     done = 0
     try:
@@ -15989,6 +16005,7 @@ def _netscan_auto_checkin() -> int:
             "  AND COALESCE(cat.reports_presence, true) = true "
             "  AND d.last_place = 'building' "
             "  AND d.last_seen_at > now() - interval '12 minutes' "
+            "  AND d.bld_first > now() - interval '45 minutes' "  # Marti 16.6.: jen čerstvý příchod (ne always-on NB)
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry x "
             "       WHERE x.tenant_id = :tn AND x.employee_id = em.id "
             "         AND x.entry_date = current_date AND x.started_at IS NOT NULL "

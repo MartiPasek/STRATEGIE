@@ -1648,6 +1648,7 @@ setTimeout(function(){
     l.appendChild(row("🧲","Externí personalistika — nábor","Inzeráty, pohovory a pracovní nabídky pro nové lidi",function(){ go("hr_nabor"); }));
     l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (pro každého)",function(){ go("hr_me"); }));
     l.appendChild(row("🧑‍⚕️","Ošetřovné (OČR)","Založ OČR ze SMS od ČSSZ, po skončení doplň dny",function(){ go("ocr"); }));
+    l.appendChild(row("🤒","Nemocenská (eNeschopenka)","Nahlas nemoc, po uzdravení doplň konec",function(){ go("sick"); }));
     app.appendChild(l);
     app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personalistika má dva světy: <b>interní</b> (lidé, které už máme — od pravidel firmy přes skupiny po jednotlivce) a <b>externí</b> (nábor nových lidí). Citlivé personální složky vidí jen rodiče a „Skupina HR".</div>'));
   }
@@ -1671,6 +1672,8 @@ setTimeout(function(){
     l3.appendChild(row("🗓️","Zdroj docházky","Kdo píchá jen ve STRATEGII (a má vypnutou starou docházku)",function(){ go("hr_att_source"); }));
     l3.appendChild(row("🗓️","Absence — žádosti a schvalování","Dovolená / HO / lékař → schválí vedoucí",function(){ go("absence"); }));
     l3.appendChild(row("🧑‍⚕️","Ošetřovné (OČR) — schvalování","Případy ke schválení (EC i ES)",function(){ go("ocr_schval"); }));
+    l3.appendChild(row("🤒","Nemocenská — schvalování","eNeschopenky ke schválení (EC i ES)",function(){ go("sick_schval"); }));
+    l3.appendChild(row("📋","Nemoc a OČR — přehled","Kdo je a byl na nemocenské / OČR",function(){ go("np_prehled"); }));
     l3.appendChild(row("👀","Kdo kde dnes","Kdo v práci / na dovolené / nemocný",function(){ go("kdekdo"); }));
     app.appendChild(l3);
     app.appendChild(_hrSec("MZDY & DOKUMENTY"));
@@ -2002,6 +2005,121 @@ setTimeout(function(){
         box.appendChild(rw);
       });
     });
+  }
+  // ── eNeschopenka (nemocenská) — Fáze 1 (mirror OČR) ────────────────────
+  function sick(){
+    app.innerHTML=topbar("🤒 Nemocenská", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Nahlas nemoc (eNeschopenku). Pokud máš číslo rozhodnutí o DPN, zadej ho — jinak stačí datum od. Po uzdravení doplníš konec, vedoucí/HR schválí. (Brzy budeme údaje z ČSSZ tahat automaticky.)</div>'));
+    var nb=el('<button style="'+_OCR_BTN+'">➕ Nahlásit nemoc</button>'); nb.addEventListener("click",function(){ sickForm(); }); app.appendChild(nb);
+    var box=el('<div class="list" style="margin-top:10px;"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/sick/mine","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">Nepodařilo se načíst.</div>'; return; }
+      var cs=j.cases||[];
+      if(!cs.length){ box.innerHTML='<div class="hint">Zatím žádná nemocenská.</div>'; return; }
+      cs.forEach(function(c){
+        var lbl={novy:"probíhá",trva:"probíhá",ukonceno:"ke schválení",schvaleno:"schváleno"}[c.stav]||c.stav;
+        var konec=c.do?(" – "+_czDate(c.do)):(c.predpoklad_do?(" – předpoklad "+_czDate(c.predpoklad_do)):"");
+        var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
+        rw.appendChild(el('<div style="font-weight:600;">Nemocenská'+(c.cislo_dpn?(' · DPN '+esc(c.cislo_dpn)):'')+'</div>'));
+        rw.appendChild(el('<div class="hint">'+_czDate(c.od)+konec+' · '+esc(lbl)+(c.company?(' · '+esc(c.company)):'')+'</div>'));
+        if(c.stav==="novy"||c.stav==="trva"){
+          var eb=el('<button style="margin-top:6px;padding:8px 12px;border-radius:10px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);font-weight:700;cursor:pointer;">Ukončit a poslat ke schválení</button>');
+          eb.addEventListener("click",function(){ sickEndForm(c); }); rw.appendChild(eb);
+        }
+        box.appendChild(rw);
+      });
+    });
+  }
+  function sickForm(){
+    app.innerHTML=topbar("➕ Nahlásit nemoc", true);
+    var w=el('<div style="padding:6px;display:flex;flex-direction:column;gap:12px;"></div>'); app.appendChild(w);
+    var fC=_ocrFld(w,"Číslo rozhodnutí o DPN (pokud máš)","nepovinné","Z eNeschopenky / od ČSSZ. Nemáš-li, nech prázdné.");
+    var fOd=_ocrFld(w,"Nemocný od","DD.MM.RRRR");
+    var fPd=_ocrFld(w,"Předpokládaný konec (pokud víš)","DD.MM.RRRR — nepovinné");
+    var st=el('<div class="hint" style="min-height:16px;"></div>'); w.appendChild(st);
+    var sv=el('<button style="'+_OCR_BTN+'">Nahlásit</button>'); w.appendChild(sv);
+    var cx=el('<button class="ghost sm" style="margin-top:4px;">Zrušit</button>'); cx.addEventListener("click",function(){ sick(); }); w.appendChild(cx);
+    sv.addEventListener("click",function(){
+      var od=_isoDate(fOd.value); if(!/^\d{4}-\d{2}-\d{2}/.test(od)){ st.style.color="#ff8b8b"; st.textContent="Datum od ve formátu DD.MM.RRRR."; return; }
+      var pd=(fPd.value||"").trim()?_isoDate(fPd.value):""; if(pd && !/^\d{4}-\d{2}-\d{2}/.test(pd)){ st.style.color="#ff8b8b"; st.textContent="Předpokládaný konec ve formátu DD.MM.RRRR."; return; }
+      sv.disabled=true; st.style.color="#9fb2d4"; st.textContent="Odesílám…";
+      api("POST","/api/v1/erp/app/sick/start",{cislo_dpn:(fC.value||"").trim(),od:od,predpoklad_do:pd}).then(function(r){
+        if(r&&r.ok){ sick(); } else { sv.disabled=false; st.style.color="#ff8b8b"; st.textContent="Chyba: "+((r&&r.error)||"?"); }
+      });
+    });
+  }
+  function sickEndForm(c){
+    app.innerHTML=topbar("Ukončit nemocenskou", true);
+    var w=el('<div style="padding:6px;display:flex;flex-direction:column;gap:12px;"></div>'); app.appendChild(w);
+    w.appendChild(el('<div class="hint" style="line-height:1.6;">Nemocný od '+_czDate(c.od)+'. Doplň datum konce nemocenské.</div>'));
+    var fDo=_ocrFld(w,"Datum do","DD.MM.RRRR");
+    var st=el('<div class="hint" style="min-height:16px;"></div>'); w.appendChild(st);
+    var sv=el('<button style="'+_OCR_BTN+'">Poslat ke schválení</button>'); w.appendChild(sv);
+    var cx=el('<button class="ghost sm" style="margin-top:4px;">Zrušit</button>'); cx.addEventListener("click",function(){ sick(); }); w.appendChild(cx);
+    sv.addEventListener("click",function(){
+      var dd=_isoDate(fDo.value); if(!/^\d{4}-\d{2}-\d{2}/.test(dd)){ st.style.color="#ff8b8b"; st.textContent="Datum do ve formátu DD.MM.RRRR."; return; }
+      sv.disabled=true; st.style.color="#9fb2d4"; st.textContent="Odesílám…";
+      api("POST","/api/v1/erp/app/sick/end",{id:c.id,"do":dd}).then(function(r){
+        if(r&&r.ok){ sick(); } else { sv.disabled=false; st.style.color="#ff8b8b"; st.textContent="Chyba: "+((r&&r.error)||"?"); }
+      });
+    });
+  }
+  function sick_schval(){
+    app.innerHTML=topbar("🤒 Nemocenská — schvalování", true);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/sick/inbox","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Jen rodiče a HR.":"Nepodařilo se načíst.")+'</div>'; return; }
+      var cs=j.cases||[];
+      if(!cs.length){ box.innerHTML='<div class="hint">Nic ke schválení.</div>'; return; }
+      cs.forEach(function(c){
+        var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
+        rw.appendChild(el('<div style="font-weight:600;">'+esc(c.zamestnanec||"")+'</div>'));
+        var konec=c.do?(" – "+_czDate(c.do)):(c.predpoklad_do?(" – předpoklad "+_czDate(c.predpoklad_do)):"");
+        rw.appendChild(el('<div class="hint">nemoc '+_czDate(c.od)+konec+(c.company?(' · '+esc(c.company)):'')+(c.cislo_dpn?(' · DPN '+esc(c.cislo_dpn)):'')+'</div>'));
+        if(c.stav==="ukonceno"){
+          var b=el('<button style="margin-top:6px;padding:8px 14px;border-radius:10px;border:1px solid #34d399;background:rgba(52,211,153,.15);color:#5ee0b7;font-weight:700;cursor:pointer;">✓ Schválit</button>');
+          b.addEventListener("click",function(){ if(!confirm("Schválit nemocenskou pro "+(c.zamestnanec||"")+"?"))return; b.disabled=true; b.textContent="…"; api("POST","/api/v1/erp/app/sick/approve",{id:c.id}).then(function(r){ if(r&&r.ok){ sick_schval(); } else { b.disabled=false; b.textContent="✓ Schválit"; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+          rw.appendChild(b);
+        } else { rw.appendChild(el('<div class="hint" style="margin-top:4px;">probíhá (čeká na ukončení)</div>')); }
+        box.appendChild(rw);
+      });
+    });
+  }
+  function np_prehled(){
+    app.innerHTML=topbar("📋 Nemoc a OČR — přehled", true);
+    var bar=el('<div style="display:flex;gap:8px;margin:8px 6px;"></div>');
+    var _act=true;
+    var bAll=el('<button style="flex:1;padding:8px;border-radius:10px;cursor:pointer;"></button>');
+    var bAct=el('<button style="flex:1;padding:8px;border-radius:10px;cursor:pointer;"></button>');
+    bar.appendChild(bAct); bar.appendChild(bAll); app.appendChild(bar);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    function paint(){
+      bAct.style.cssText="flex:1;padding:8px;border-radius:10px;cursor:pointer;border:1px solid "+(_act?"var(--green)":"var(--bord)")+";background:"+(_act?"var(--green)":"rgba(255,255,255,.03)")+";color:"+(_act?"#04150e":"var(--mut)")+";font-weight:700;";
+      bAll.style.cssText="flex:1;padding:8px;border-radius:10px;cursor:pointer;border:1px solid "+(!_act?"var(--green)":"var(--bord)")+";background:"+(!_act?"var(--green)":"rgba(255,255,255,.03)")+";color:"+(!_act?"#04150e":"var(--mut)")+";font-weight:700;";
+      bAct.textContent="Probíhající"; bAll.textContent="Vše (i historie)";
+    }
+    function load(){
+      paint(); box.innerHTML='<div class="hint">Načítám…</div>';
+      api("GET","/api/v1/erp/app/hr/np-overview"+(_act?"?active=1":""),"").then(function(j){
+        box.innerHTML="";
+        if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Jen rodiče a HR.":"Nepodařilo se načíst.")+'</div>'; return; }
+        var it=j.items||[];
+        if(!it.length){ box.innerHTML='<div class="hint">'+(_act?"Nikdo právě teď.":"Žádné záznamy.")+'</div>'; return; }
+        var lblS={novy:"probíhá",trva:"probíhá",ukonceno:"ke schválení",schvaleno:"schváleno"};
+        it.forEach(function(c){
+          var ic=(c.kind==="ocr")?"🧑‍⚕️":"🤒"; var kindTxt=(c.kind==="ocr")?("OČR"+(c.osoba?(" · "+c.osoba):"")):"Nemocenská";
+          var rw=el('<div style="display:flex;gap:10px;padding:9px 6px;border-bottom:1px solid var(--bord);"></div>');
+          rw.appendChild(el('<div style="font-size:20px;">'+ic+'</div>'));
+          rw.appendChild(el('<div style="flex:1;min-width:0;"><div style="font-weight:600;">'+esc(c.zamestnanec||"")+'</div><div class="hint">'+esc(kindTxt)+' · '+_czDate(c.od)+(c.do?(" – "+_czDate(c.do)):"")+(c.company?(" · "+esc(c.company)):"")+' · '+esc(lblS[c.stav]||c.stav)+'</div></div>'));
+          box.appendChild(rw);
+        });
+      });
+    }
+    bAct.addEventListener("click",function(){ _act=true; load(); });
+    bAll.addEventListener("click",function(){ _act=false; load(); });
+    load();
   }
   function hr_podminky(){
     app.innerHTML=topbar("📋 Podmínky skupin", true);
@@ -6484,7 +6602,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

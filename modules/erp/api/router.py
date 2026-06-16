@@ -7919,7 +7919,7 @@ async def ocr_start(req: Request) -> JSONResponse:
         arid = s.execute(_t(
             "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
             "hours_per_day,note,stav,manager_user_id) "
-            "VALUES (2,:e,:u,'ocr',:od,:od,8,:n,'pending',:m) RETURNING id"),
+            "VALUES (2,:e,:u,'family_care',:od,:od,8,:n,'pending',:m) RETURNING id"),
             {"e": emp, "u": uid, "od": d_od, "n": ("OČR: " + osoba), "m": mgr}).scalar()
         cid = s.execute(_t(
             "INSERT INTO tenant.att_ocr_case (tenant_id,employee_id,user_id,company,identifikator,"
@@ -8084,6 +8084,251 @@ async def ocr_approve(req: Request) -> JSONResponse:
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ── eNeschopenka (DPN / nemocenská) — Fáze 1 (mirror OČR) ──────────────────
+
+@api_router.post("/app/sick/start")
+async def sick_start(req: Request) -> JSONResponse:
+    """Zaměstnanec nahlásí nemoc (eNeschopenku): číslo DPN (pokud má) + datum od.
+    Vznikne případ + navázaná absence (typ sick) routovaná na vedoucího."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    cislo = str((b or {}).get("cislo_dpn") or "").strip()[:60] or None
+    try:
+        d_od = _dt.date.fromisoformat(str((b or {}).get("od") or "")[:10])
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné datum od."})
+    pdo = None
+    try:
+        if (b or {}).get("predpoklad_do"):
+            pdo = _dt.date.fromisoformat(str((b or {}).get("predpoklad_do"))[:10])
+    except Exception:
+        pdo = None
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        if not emp:
+            return JSONResponse({"ok": False, "error": "Nejsi v evidenci docházky."})
+        company = _ocr_company(s, emp)
+        mgr = None
+        try:
+            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                            {"e": emp}).scalar()
+        except Exception:
+            mgr = None
+        arid = s.execute(_t(
+            "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
+            "hours_per_day,note,stav,manager_user_id) "
+            "VALUES (2,:e,:u,'sick',:od,:dd,8,'Nemocenská (DPN)','pending',:m) RETURNING id"),
+            {"e": emp, "u": uid, "od": d_od, "dd": (pdo or d_od), "m": mgr}).scalar()
+        cid = s.execute(_t(
+            "INSERT INTO tenant.att_sick_case (tenant_id,employee_id,user_id,company,cislo_dpn,"
+            "datum_od,predpoklad_do,stav,absence_request_id,created_by_id) "
+            "VALUES (2,:e,:u,:co,:cd,:od,:pd,'novy',:ar,:u) RETURNING id"),
+            {"e": emp, "u": uid, "co": company, "cd": cislo, "od": d_od, "pd": pdo, "ar": arid}).scalar()
+        who = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
+            {"e": emp}).scalar() or "Zaměstnanec"
+        msg = (who + " hlásí nemocenskou od " + str(d_od.day) + "." + str(d_od.month) + "."
+               + ((" (předpoklad do " + str(pdo.day) + "." + str(pdo.month) + ".)") if pdo else "")
+               + ". Po ukončení doplní konec ke schválení.")
+        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🤒 Nemocenská (eNeschopenka)", msg)
+        s.commit()
+        return JSONResponse({"ok": True, "id": cid, "company": company})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/sick/end")
+async def sick_end(req: Request) -> JSONResponse:
+    """Ukončení nemocenské: datum do → ke schválení."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        cid = int((b or {}).get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí id případu."})
+    try:
+        d_do = _dt.date.fromisoformat(str((b or {}).get("do") or "")[:10])
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné datum do."})
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t("SELECT employee_id, user_id, datum_od, absence_request_id "
+                           "FROM tenant.att_sick_case WHERE id=:i AND tenant_id=2"), {"i": cid}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Případ nenalezen."})
+        if int(row[1] or 0) != uid and not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "Není tvůj případ."}, status_code=403)
+        if d_do < row[2]:
+            return JSONResponse({"ok": False, "error": "Datum do je před datem od."})
+        s.execute(_t("UPDATE tenant.att_sick_case SET datum_do=:dd, stav='ukonceno', updated_at=now() "
+                     "WHERE id=:i"), {"dd": d_do, "i": cid})
+        if row[3]:
+            s.execute(_t("UPDATE tenant.att_absence_request SET datum_do=:dd WHERE id=:a"),
+                      {"dd": d_do, "a": row[3]})
+        mgr = None
+        try:
+            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                            {"e": row[0]}).scalar()
+        except Exception:
+            mgr = None
+        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🤒 Nemocenská ke schválení",
+                    "Nemocenská ukončena k " + str(d_do.day) + "." + str(d_do.month)
+                    + ". — ke schválení v Docházce → Nemoc/OČR.")
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/sick/mine")
+async def sick_mine(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, company, cislo_dpn, datum_od, predpoklad_do, datum_do, stav "
+            "FROM tenant.att_sick_case WHERE user_id=:u AND tenant_id=2 "
+            "ORDER BY created_at DESC LIMIT 60"), {"u": uid}).fetchall()
+        out = [{"id": r[0], "company": r[1], "cislo_dpn": r[2],
+                "od": r[3].isoformat() if r[3] else None,
+                "predpoklad_do": r[4].isoformat() if r[4] else None,
+                "do": r[5].isoformat() if r[5] else None, "stav": r[6]} for r in rows]
+        return JSONResponse({"ok": True, "cases": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/sick/inbox")
+async def sick_inbox(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT sc.id, sc.company, sc.cislo_dpn, sc.datum_od, sc.predpoklad_do, sc.datum_do, sc.stav, "
+            "COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_sick_case sc "
+            "LEFT JOIN tenant.att_employee em ON em.id=sc.employee_id "
+            "LEFT JOIN public.users u ON u.id=sc.user_id "
+            "WHERE sc.tenant_id=2 AND sc.stav IN ('ukonceno','novy','trva') "
+            "ORDER BY sc.stav DESC, sc.datum_od DESC LIMIT 100")).fetchall()
+        out = [{"id": r[0], "company": r[1], "cislo_dpn": r[2],
+                "od": r[3].isoformat() if r[3] else None,
+                "predpoklad_do": r[4].isoformat() if r[4] else None,
+                "do": r[5].isoformat() if r[5] else None, "stav": r[6], "zamestnanec": r[7]} for r in rows]
+        return JSONResponse({"ok": True, "cases": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/sick/approve")
+async def sick_approve(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        cid = int((b or {}).get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí id."})
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        row = s.execute(_t("SELECT user_id, absence_request_id FROM tenant.att_sick_case "
+                           "WHERE id=:i AND tenant_id=2"), {"i": cid}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Případ nenalezen."})
+        s.execute(_t("UPDATE tenant.att_sick_case SET stav='schvaleno', decided_by_user_id=:by, "
+                     "decided_at=now(), updated_at=now() WHERE id=:i"), {"by": uid, "i": cid})
+        if row[1]:
+            s.execute(_t("UPDATE tenant.att_absence_request SET stav='approved', "
+                         "status_text='Nemocenská schválena', decided_by_user_id=:by, decided_at=now(), "
+                         "materialized=true WHERE id=:a"), {"by": uid, "a": row[1]})
+        _abs_notify(s, row[0], "🤒 Nemocenská schválena",
+                    "Tvoje nemocenská byla schválena. Brzké uzdravení!", quiet=True)
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/np-overview")
+async def hr_np_overview(req: Request) -> JSONResponse:
+    """HR přehled: kdo je a byl na OČR a nemocenské (UNION obou typů).
+    ?active=1 → jen probíhající/ke schválení; jinak vše."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    active = str(req.query_params.get("active") or "") in ("1", "true", "yes")
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        flt = "AND c.stav IN ('novy','trva','ukonceno')" if active else ""
+        sql = (
+            "SELECT kind, id, zamestnanec, osoba, company, datum_od, datum_do, stav, ref FROM ("
+            "  SELECT 'ocr' AS kind, o.id, "
+            "    COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) AS zamestnanec, "
+            "    o.osoba_jmeno AS osoba, o.company, o.datum_od, o.datum_do, o.stav, o.identifikator AS ref "
+            "  FROM tenant.att_ocr_case o "
+            "  LEFT JOIN tenant.att_employee em ON em.id=o.employee_id "
+            "  LEFT JOIN public.users u ON u.id=o.user_id WHERE o.tenant_id=2 "
+            "  UNION ALL "
+            "  SELECT 'sick' AS kind, sc.id, "
+            "    COALESCE(NULLIF(TRIM(COALESCE(u2.first_name,'')||' '||COALESCE(u2.last_name,'')),''), em2.full_name) AS zamestnanec, "
+            "    NULL AS osoba, sc.company, sc.datum_od, sc.datum_do, sc.stav, sc.cislo_dpn AS ref "
+            "  FROM tenant.att_sick_case sc "
+            "  LEFT JOIN tenant.att_employee em2 ON em2.id=sc.employee_id "
+            "  LEFT JOIN public.users u2 ON u2.id=sc.user_id WHERE sc.tenant_id=2 "
+            ") c WHERE 1=1 " + flt + " ORDER BY datum_od DESC NULLS LAST LIMIT 200"
+        )
+        rows = s.execute(_t(sql)).fetchall()
+        out = [{"kind": r[0], "id": r[1], "zamestnanec": r[2], "osoba": r[3], "company": r[4],
+                "od": r[5].isoformat() if r[5] else None, "do": r[6].isoformat() if r[6] else None,
+                "stav": r[7], "ref": r[8]} for r in rows]
+        return JSONResponse({"ok": True, "items": out})
     finally:
         cm.__exit__(None, None, None)
 

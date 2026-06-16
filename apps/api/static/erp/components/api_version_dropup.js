@@ -206,7 +206,13 @@
       hint = "Verze API (skutečná instance se nenačetla)";
     }
 
-    const label = `běží ${instTag}${warn} · ${vStr}`;
+    let label = `běží ${instTag}${warn} · ${vStr}`;
+    // API D = nejvyrazeneji: pill rekne, ze bezime na testovaci DB.
+    if (info && info.apid) {
+      label = "🧪 TEST · " + (info.db || "test DB");
+      cls = "api-version-pill-older";
+      hint = "Bezis na TESTOVACI databazi (API D) — data nejsou ostra. Klik → navrat na ostry system.";
+    }
 
     host.innerHTML = `
       <button type="button" class="api-version-pill ${cls}"
@@ -533,10 +539,19 @@
   }
 
   function _renderApidBanner() {
-    const on = _isApidMode();
+    // Zdroj pravdy = SERVER (api-info.apid). Cookie je jen fallback, kdyby
+    // se api-info nenacetlo. Diky tomu je banner pravdivy i na starem frontendu.
+    const info = _state.apiInfo;
+    const on = (info && info.apid) || _isApidMode();
     let b = document.getElementById("apidEnvBanner");
-    if (!on) { if (b) b.remove(); return; }
-    if (b) return;
+    if (!on) {
+      if (b) { b.remove(); document.body.style.paddingTop = ""; }
+      return;
+    }
+    const dbName = (info && info.db) ? info.db : "test DB";
+    const txt = "🧪 TESTOVACÍ PROSTŘEDÍ (API D) — běžíš na " + dbName +
+      ", data NEJSOU ostrá · klikni pro návrat na ostrý systém";
+    if (b) { b.textContent = txt; return; }
     b = document.createElement("div");
     b.id = "apidEnvBanner";
     b.style.cssText =
@@ -544,7 +559,7 @@
       "background:repeating-linear-gradient(45deg,#b8860b,#b8860b 14px,#9c7209 14px,#9c7209 28px);" +
       "color:#fff;text-align:center;font:600 12px/1.9 system-ui,Segoe UI,sans-serif;" +
       "letter-spacing:.3px;box-shadow:0 2px 6px rgba(0,0,0,.35);";
-    b.textContent = "🧪 TESTOVACÍ PROSTŘEDÍ API D — data nejsou ostrá · klikni pro návrat na ostrý systém";
+    b.textContent = txt;
     b.addEventListener("click", _exitApid);
     document.body.appendChild(b);
     document.body.style.paddingTop = "24px"; // ať banner nepřekryje obsah

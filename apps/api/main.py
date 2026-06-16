@@ -314,6 +314,11 @@ def api_info() -> dict:
     base = os.path.basename(root)
     inst = os.environ.get("STRATEGIE_INSTANCE_NAME", "primary")
     stale = ("prev" in base.lower()) or (inst.lower() != "primary")
+    # Prostredi + databaze = zdroj pravdy pro UI indikator (na jake DB bezime).
+    env = (os.environ.get("STRATEGIE_ENV", "") or "prod").lower()
+    db_url = os.environ.get("DATABASE_DATA_URL", "") or ""
+    db_name = db_url.rsplit("/", 1)[-1].split("?")[0] if "/" in db_url else ""
+    is_apid = (env == "apid") or (os.environ.get("STRATEGIE_READONLY_OUTBOUND") == "1")
     return {
         "ok": True,
         "instance": inst,
@@ -321,6 +326,9 @@ def api_info() -> dict:
         "commit": _api_git_sha(),
         "dir": base,
         "stale": stale,
+        "env": env,
+        "db": db_name,
+        "apid": is_apid,
     }
 
 

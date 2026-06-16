@@ -1647,6 +1647,7 @@ setTimeout(function(){
     l.appendChild(row("🏢","Interní personalistika","Naši lidé — firma, skupiny, jednotlivci, režimy, docházka",function(){ go("hr_interni"); }));
     l.appendChild(row("🧲","Externí personalistika — nábor","Inzeráty, pohovory a pracovní nabídky pro nové lidi",function(){ go("hr_nabor"); }));
     l.appendChild(row("🪪","Moje osobní údaje","Zadej a aktualizuj svá data (pro každého)",function(){ go("hr_me"); }));
+    l.appendChild(row("🧑‍⚕️","Ošetřovné (OČR)","Založ OČR ze SMS od ČSSZ, po skončení doplň dny",function(){ go("ocr"); }));
     app.appendChild(l);
     app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personalistika má dva světy: <b>interní</b> (lidé, které už máme — od pravidel firmy přes skupiny po jednotlivce) a <b>externí</b> (nábor nových lidí). Citlivé personální složky vidí jen rodiče a „Skupina HR".</div>'));
   }
@@ -1669,6 +1670,7 @@ setTimeout(function(){
     l3.appendChild(row("🧩","Režimy","Forma HPP/OSVČ/DPP, režim docházky, konto",function(){ go("hr_rezimy"); }));
     l3.appendChild(row("🗓️","Zdroj docházky","Kdo píchá jen ve STRATEGII (a má vypnutou starou docházku)",function(){ go("hr_att_source"); }));
     l3.appendChild(row("🗓️","Absence — žádosti a schvalování","Dovolená / HO / lékař → schválí vedoucí",function(){ go("absence"); }));
+    l3.appendChild(row("🧑‍⚕️","Ošetřovné (OČR) — schvalování","Případy ke schválení (EC i ES)",function(){ go("ocr_schval"); }));
     l3.appendChild(row("👀","Kdo kde dnes","Kdo v práci / na dovolené / nemocný",function(){ go("kdekdo"); }));
     app.appendChild(l3);
     app.appendChild(_hrSec("MZDY & DOKUMENTY"));
@@ -1909,6 +1911,97 @@ setTimeout(function(){
       });
     }
     load();
+  }
+
+  // ── OČR (ošetřovné) — Fáze 1 (bez ČSSZ API) ─────────────────────────────
+  var _OCR_BTN="width:100%;box-sizing:border-box;margin-top:8px;padding:12px;border-radius:12px;border:none;background:var(--green);color:#04150e;font-weight:800;font-size:15px;cursor:pointer;";
+  function ocr(){
+    app.innerHTML=topbar("🧑‍⚕️ Ošetřovné (OČR)", true);
+    app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Když ti přijde SMS od ČSSZ s identifikátorem ošetřování, založ tu OČR. Po skončení doplníš datum do a počet dní — vedoucí/HR to schválí. (Brzy se dokumenty z ČSSZ potáhnou samy.)</div>'));
+    var nb=el('<button style="'+_OCR_BTN+'">➕ Nové ošetřovné</button>'); nb.addEventListener("click",function(){ ocrForm(); }); app.appendChild(nb);
+    var box=el('<div class="list" style="margin-top:10px;"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/ocr/mine","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">Nepodařilo se načíst.</div>'; return; }
+      var cs=j.cases||[];
+      if(!cs.length){ box.innerHTML='<div class="hint">Zatím žádné OČR.</div>'; return; }
+      cs.forEach(function(c){
+        var lbl={novy:"probíhá",ukonceno:"ke schválení",schvaleno:"schváleno"}[c.stav]||c.stav;
+        var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
+        rw.appendChild(el('<div style="font-weight:600;">'+esc(c.osoba||"")+(c.vztah?(' · '+esc(c.vztah)):'')+'</div>'));
+        rw.appendChild(el('<div class="hint">'+_czDate(c.od)+(c.do?(' – '+_czDate(c.do)):'')+(c.dny?(' · '+c.dny+' dní'):'')+' · '+esc(lbl)+(c.company?(' · '+esc(c.company)):'')+'</div>'));
+        if(c.stav==="novy"){
+          var eb=el('<button style="margin-top:6px;padding:8px 12px;border-radius:10px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);font-weight:700;cursor:pointer;">Ukončit a poslat ke schválení</button>');
+          eb.addEventListener("click",function(){ ocrEndForm(c); }); rw.appendChild(eb);
+        }
+        box.appendChild(rw);
+      });
+    });
+  }
+  function _ocrFld(parent,label,ph,hintTxt){
+    var wr=el('<div></div>'); wr.appendChild(el('<div style="font-size:13px;color:#cdd6e2;margin-bottom:4px;">'+esc(label)+'</div>'));
+    var i=el('<input type="text" placeholder="'+esc(ph||"")+'" style="width:100%;box-sizing:border-box;padding:10px;border-radius:10px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;">');
+    wr.appendChild(i); if(hintTxt) wr.appendChild(el('<div class="hint" style="margin-top:3px;">'+esc(hintTxt)+'</div>')); parent.appendChild(wr); return i;
+  }
+  function ocrForm(){
+    app.innerHTML=topbar("➕ Nové ošetřovné", true);
+    var w=el('<div style="padding:6px;display:flex;flex-direction:column;gap:12px;"></div>'); app.appendChild(w);
+    var fId=_ocrFld(w,"Identifikátor ČSSZ (ze SMS)","např. 10251643250619001N","Najdeš ve zprávě od ČSSZ s odkazem na eportal.cssz.cz.");
+    var fOs=_ocrFld(w,"Ošetřovaná osoba (jméno)","Jméno a příjmení");
+    var fRc=_ocrFld(w,"Rodné číslo ošetřované osoby","RRMMDD/XXXX");
+    var fVz=_ocrFld(w,"Vztah","dítě / rodič / …");
+    var fOd=_ocrFld(w,"Datum od","DD.MM.RRRR");
+    var st=el('<div class="hint" style="min-height:16px;"></div>'); w.appendChild(st);
+    var sv=el('<button style="'+_OCR_BTN+'">Založit OČR</button>'); w.appendChild(sv);
+    var cx=el('<button class="ghost sm" style="margin-top:4px;">Zrušit</button>'); cx.addEventListener("click",function(){ ocr(); }); w.appendChild(cx);
+    sv.addEventListener("click",function(){
+      var osoba=(fOs.value||"").trim(); if(!osoba){ st.style.color="#ff8b8b"; st.textContent="Vyplň ošetřovanou osobu."; return; }
+      var od=_isoDate(fOd.value); if(!/^\d{4}-\d{2}-\d{2}/.test(od)){ st.style.color="#ff8b8b"; st.textContent="Datum od ve formátu DD.MM.RRRR."; return; }
+      var rc=(fRc.value||"").trim(); if(rc && !_rcValid(rc)){ st.style.color="#ff8b8b"; st.textContent="RČ nevypadá platně."; return; }
+      sv.disabled=true; st.style.color="#9fb2d4"; st.textContent="Ukládám…";
+      api("POST","/api/v1/erp/app/ocr/start",{identifikator:(fId.value||"").trim(),osoba_jmeno:osoba,osoba_rc:rc,osoba_vztah:(fVz.value||"").trim(),od:od}).then(function(r){
+        if(r&&r.ok){ ocr(); } else { sv.disabled=false; st.style.color="#ff8b8b"; st.textContent="Chyba: "+((r&&r.error)||"?"); }
+      });
+    });
+  }
+  function ocrEndForm(c){
+    app.innerHTML=topbar("Ukončit OČR", true);
+    var w=el('<div style="padding:6px;display:flex;flex-direction:column;gap:12px;"></div>'); app.appendChild(w);
+    w.appendChild(el('<div class="hint" style="line-height:1.6;">Péče o: <b>'+esc(c.osoba||"")+'</b>, od '+_czDate(c.od)+'. Doplň datum konce a počet dní, kdy ses staral(a).</div>'));
+    var fDo=_ocrFld(w,"Datum do","DD.MM.RRRR");
+    var fDny=_ocrFld(w,"Počet dní ošetřování","např. 6");
+    var st=el('<div class="hint" style="min-height:16px;"></div>'); w.appendChild(st);
+    var sv=el('<button style="'+_OCR_BTN+'">Poslat ke schválení</button>'); w.appendChild(sv);
+    var cx=el('<button class="ghost sm" style="margin-top:4px;">Zrušit</button>'); cx.addEventListener("click",function(){ ocr(); }); w.appendChild(cx);
+    sv.addEventListener("click",function(){
+      var dd=_isoDate(fDo.value); if(!/^\d{4}-\d{2}-\d{2}/.test(dd)){ st.style.color="#ff8b8b"; st.textContent="Datum do ve formátu DD.MM.RRRR."; return; }
+      var dny=parseInt((fDny.value||"0").replace(/\D/g,""),10)||0;
+      sv.disabled=true; st.style.color="#9fb2d4"; st.textContent="Odesílám…";
+      api("POST","/api/v1/erp/app/ocr/end",{id:c.id,"do":dd,dny:dny}).then(function(r){
+        if(r&&r.ok){ ocr(); } else { sv.disabled=false; st.style.color="#ff8b8b"; st.textContent="Chyba: "+((r&&r.error)||"?"); }
+      });
+    });
+  }
+  function ocr_schval(){
+    app.innerHTML=topbar("🧑‍⚕️ OČR — schvalování", true);
+    var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
+    api("GET","/api/v1/erp/app/ocr/inbox","").then(function(j){
+      box.innerHTML="";
+      if(!j||!j.ok){ box.innerHTML='<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Jen rodiče a HR.":"Nepodařilo se načíst.")+'</div>'; return; }
+      var cs=j.cases||[];
+      if(!cs.length){ box.innerHTML='<div class="hint">Nic ke schválení.</div>'; return; }
+      cs.forEach(function(c){
+        var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
+        rw.appendChild(el('<div style="font-weight:600;">'+esc(c.zamestnanec||"")+'</div>'));
+        rw.appendChild(el('<div class="hint">péče o: '+esc(c.osoba||"")+(c.vztah?(' ('+esc(c.vztah)+')'):'')+' · '+_czDate(c.od)+(c.do?(' – '+_czDate(c.do)):'')+(c.dny?(' · '+c.dny+' dní'):'')+(c.company?(' · '+esc(c.company)):'')+(c.identifikator?(' · id '+esc(c.identifikator)):'')+'</div>'));
+        if(c.stav==="ukonceno"){
+          var b=el('<button style="margin-top:6px;padding:8px 14px;border-radius:10px;border:1px solid #34d399;background:rgba(52,211,153,.15);color:#5ee0b7;font-weight:700;cursor:pointer;">✓ Schválit</button>');
+          b.addEventListener("click",function(){ if(!confirm("Schválit OČR pro "+(c.zamestnanec||"")+"?"))return; b.disabled=true; b.textContent="…"; api("POST","/api/v1/erp/app/ocr/approve",{id:c.id}).then(function(r){ if(r&&r.ok){ ocr_schval(); } else { b.disabled=false; b.textContent="✓ Schválit"; alert("Chyba: "+((r&&r.error)||"?")); } }); });
+          rw.appendChild(b);
+        } else { rw.appendChild(el('<div class="hint" style="margin-top:4px;">probíhá (čeká na ukončení zaměstnancem)</div>')); }
+        box.appendChild(rw);
+      });
+    });
   }
   function hr_podminky(){
     app.innerHTML=topbar("📋 Podmínky skupin", true);
@@ -6391,7 +6484,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

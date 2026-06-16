@@ -12273,7 +12273,7 @@
     // inbox (new nebo processed nebo personal+direction=in)
     const actionsBtn = tab === "new"
       ? `<button class="sms-card-btn" data-action="reply" data-sms-id="${item.id}">Odpovědět</button>
-         <button class="sms-card-btn" data-action="mark-processed" data-sms-id="${item.id}">Označit zpracované</button>`
+         <button class="sms-card-btn" data-action="mark-processed" data-sms-id="${item.id}">✓ Vyřízeno</button>`
       : "";
     return `
       <div class="sms-card" data-sms-id="${item.id}">
@@ -12310,12 +12310,12 @@
             refreshSmsUnreadBadges();
           } else {
             btn.disabled = false;
-            btn.textContent = "Označit zpracované";
+            btn.textContent = "✓ Vyřízeno";
             alert(`Chyba: HTTP ${r.status}`);
           }
         } catch (e) {
           btn.disabled = false;
-          btn.textContent = "Označit zpracované";
+          btn.textContent = "✓ Vyřízeno";
           alert(`Chyba: ${e.message}`);
         }
       });
@@ -12572,7 +12572,7 @@
     const actionsBtn = tab === "new"
       ? `<button class="sms-card-btn" data-action="suggest-reply" data-email-id="${item.id}">Navrhni odpověď</button>
          <button class="sms-card-btn" data-action="reply" data-email-id="${item.id}">Odpovědět</button>
-         <button class="sms-card-btn" data-action="mark-processed" data-email-id="${item.id}">Označit zpracované</button>`
+         <button class="sms-card-btn" data-action="mark-processed" data-email-id="${item.id}">✓ Vyřízeno</button>`
       : "";
     const archiveBadge = item.archived_personal
       ? `<span class="email-archive-badge" title="Archivováno v Personal složce na Exchange">📁 Personal</span>`
@@ -12615,12 +12615,12 @@
             if (typeof refreshGlobalUnreadBadge === "function") refreshGlobalUnreadBadge();
           } else {
             btn.disabled = false;
-            btn.textContent = "Označit zpracované";
+            btn.textContent = "✓ Vyřízeno";
             alert(`Chyba: HTTP ${r.status}`);
           }
         } catch (e) {
           btn.disabled = false;
-          btn.textContent = "Označit zpracované";
+          btn.textContent = "✓ Vyřízeno";
           alert(`Chyba: ${e.message}`);
         }
       });

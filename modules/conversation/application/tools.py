@@ -6312,6 +6312,7 @@ def format_email_preview(
     to: str, subject: str, body: str,
     from_identity: str = "persona", sender_display: str | None = None,
     attachment_document_ids: list[int] | None = None,
+    cc: str | None = None, bcc: str | None = None,
 ) -> str:
     # Varování pokud AI vygenerovala příjemce, který nikde v systému není —
     # typická známka halucinace nebo překlepu.
@@ -6334,6 +6335,11 @@ def format_email_preview(
     if from_line:
         lines.append(from_line)
     lines.append(to_line)
+    # CC / BCC viditelne v preview, at user vidi, komu vsemu to jde (i kopie).
+    if cc and str(cc).strip():
+        lines.append(f"Kopie (CC): {str(cc).strip()}")
+    if bcc and str(bcc).strip():
+        lines.append(f"Skrytá kopie (BCC): {str(bcc).strip()}")
     lines.append(f"Předmět: {subject}")
     # Phase 27b: zobrazi prilohy v preview pro user awareness pred confirm
     if attachment_document_ids:

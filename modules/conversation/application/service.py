@@ -1638,6 +1638,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             to=to, subject=subject, body=body,
             from_identity=from_identity, sender_display=sender_display,
             attachment_document_ids=attachment_document_ids_se,
+            cc=cc, bcc=bcc,
         )
 
     if tool_name == "send_sms":

@@ -28895,6 +28895,10 @@ def _render_full_page(
              onclick="event.preventDefault(); window.open('/web','strategieWeb','width=1280,height=860');"
              class="erp-marti-btn" style="text-decoration:none;align-items:center;"
              data-hint="Otevři veřejný web /web (samostatné okno)">🌐 Web</a>
+          <a id="erpWebEcLink" href="/web/eurosoft" target="_blank" rel="noopener"
+             onclick="event.preventDefault(); window.open('/web/eurosoft','strategieWebEC','width=1280,height=860');"
+             class="erp-marti-btn" style="text-decoration:none;align-items:center;"
+             data-hint="Otevři web EUROSOFT (samostatné okno)">🏢 EUROSOFT</a>
           <!-- Plánovač výroby — vedoucí výroby + zástupce (gate na /vyroba). Marti 8.6.2026. -->
           <a id="erpVyrobaLink" href="/vyroba" target="_blank" rel="noopener"
              onclick="event.preventDefault(); window.open('/vyroba','_blank','noopener');"

@@ -19,10 +19,9 @@ $ErrorActionPreference = "Stop"
 $PGUSER = "postgres"
 $MAINDB = "data_db"        # kde jsou fw.* tabulky (kanal)
 $TESTDB = "data_db_test"   # cilova testovaci DB pro obnovu (API D)
-# Kandidati slozky se zalohami - projde v tomto poradi, vezme prvni s nejakou zalohou.
-# Marti: zalohy nejspis na E:. Pridej/uprav cesty dle reality.
-$CANDS = @("E:\Backup","E:\Zalohy","E:\backup","E:\PostgreSQL\Backup","E:\",
-           "C:\Backup","D:\Backup")
+# Korenova slozka se zalohami. Marti 16.6.: E:\STRATEGIE, uvnitr denni podslozky
+# 2026-06-DD\ s vlastnimi soubory zalohy. Prohledava se REKURZIVNE.
+$CANDS = @("E:\STRATEGIE","E:\Backup","E:\Zalohy","C:\Backup","D:\Backup")
 # -------------------
 
 function PSQL([string]$db, [string]$sql) { & psql -h localhost -U $PGUSER -d $db -v ON_ERROR_STOP=1 -t -A -c $sql }
@@ -30,8 +29,8 @@ function PSQL([string]$db, [string]$sql) { & psql -h localhost -U $PGUSER -d $db
 function Find-BackupDir() {
   foreach ($d in $CANDS) {
     if (Test-Path $d) {
-      $f = Get-ChildItem $d -File -ErrorAction SilentlyContinue |
-           Where-Object { $_.Extension -in ".dump",".backup",".sql" }
+      $f = Get-ChildItem $d -File -Recurse -ErrorAction SilentlyContinue |
+           Where-Object { $_.Extension -in ".dump",".backup",".sql" } | Select-Object -First 1
       if ($f) { return $d }
     }
   }
@@ -39,16 +38,20 @@ function Find-BackupDir() {
 }
 
 function Publish-Backups([string]$dir) {
-  $files = Get-ChildItem $dir -File | Where-Object { $_.Extension -in ".dump",".backup",".sql" }
+  # REKURZIVNE (denni podslozky E:\STRATEGIE\2026-06-DD\...). name = relativni cesta
+  # od korene (napr. "2026-06-15\data_db.dump"), dir = koren. Restore pak slozi dir\name.
+  $base = (Resolve-Path $dir).Path.TrimEnd('\')
+  $files = Get-ChildItem $dir -File -Recurse | Where-Object { $_.Extension -in ".dump",".backup",".sql" }
   PSQL $MAINDB "TRUNCATE fw.apid_backup;" | Out-Null
   foreach ($x in $files) {
-    $nm = $x.Name.Replace("'","''")
-    $dr = $dir.Replace("'","''")
+    $rel = $x.FullName.Substring($base.Length).TrimStart('\')
+    $nm = $rel.Replace("'","''")
+    $dr = $base.Replace("'","''")
     $mb = [math]::Round($x.Length/1MB,1)
     $mt = $x.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
     PSQL $MAINDB "INSERT INTO fw.apid_backup (name,dir,size_mb,mtime,listed_at) VALUES ('$nm','$dr',$mb,'$mt',now());" | Out-Null
   }
-  Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] Publikovano zaloh: " + $files.Count + " z " + $dir)
+  Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] Publikovano zaloh: " + $files.Count + " (rekurzivne z " + $dir + ")")
 }
 
 function Process-Requests([string]$dir) {

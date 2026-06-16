@@ -338,6 +338,26 @@ class EurosoftMCPClient:
                 ensure_ascii=False,
             )
 
+        # API D (nezive testovaci prostredi): cteni z Centraly OK, ale ZADNY
+        # zapis (insert/update/delete/file_write...) - test data nesmi psat do EUROSOFTu.
+        import os as _os_apid
+        if (
+            _os_apid.environ.get("STRATEGIE_ENV", "").lower() == "apid"
+            or _os_apid.environ.get("STRATEGIE_READONLY_OUTBOUND") == "1"
+        ):
+            _ln = full_name.lower()
+            _wr = ("insert", "update", "delete", "write", "create", "exec", "upsert", "set_row")
+            if any(w in _ln for w in _wr):
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "error": "apid_readonly",
+                        "message": "API D je testovaci prostredi (neziva data) - zapis do Centraly je vypnuty.",
+                        "tool": full_name,
+                    },
+                    ensure_ascii=False,
+                )
+
         if self.circuit_breaker.is_open(conversation_id):
             return json.dumps(
                 {

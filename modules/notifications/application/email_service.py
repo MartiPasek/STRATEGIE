@@ -1157,6 +1157,19 @@ def send_email_or_raise(
         cc_list = _parse_recipients(cc)
         bcc_list = _parse_recipients(bcc)
 
+        # API D (nezive testovaci prostredi): zadny realny e-mail odchozi ven.
+        import os as _os_apid
+        if (
+            _os_apid.environ.get("STRATEGIE_ENV", "").lower() == "apid"
+            or _os_apid.environ.get("STRATEGIE_READONLY_OUTBOUND") == "1"
+        ):
+            logger.warning(
+                "[send_email_or_raise] APID readonly - e-mail NEodeslan (to=%s, subj=%s)",
+                to,
+                subject,
+            )
+            return
+
         # Vyber credentialy podle from_identity
         if from_identity == "user":
             creds = _resolve_user_email_creds(user_id)

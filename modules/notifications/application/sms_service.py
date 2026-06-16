@@ -273,6 +273,15 @@ def queue_sms(
         SmsValidationError -- neplatny vstup
         SmsRateLimitError  -- user prekrocil rate limit
     """
+    # API D (nezive testovaci prostredi): zadna realna SMS do outboxu.
+    import os as _os_apid
+    if (
+        _os_apid.environ.get("STRATEGIE_ENV", "").lower() == "apid"
+        or _os_apid.environ.get("STRATEGIE_READONLY_OUTBOUND") == "1"
+    ):
+        logger.warning("SMS | apid_readonly | queue_sms skip | to=%s", to)
+        return {"id": None, "to_phone": to, "status": "disabled", "message": "apid_readonly"}
+
     if not settings.sms_enabled:
         logger.warning(
             f"SMS | disabled | queue_sms called but SMS_ENABLED=false "

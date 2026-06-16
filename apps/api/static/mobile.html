@@ -1410,8 +1410,11 @@ setTimeout(function(){
     h+='<tr><th style="width:20px;"></th>';
     dny.forEach(function(d){ h+='<th style="padding:4px;color:var(--mut);font-weight:700;">'+dn[d]+'</th>'; });
     h+='</tr>';
-    for(var hod=1;hod<=mh;hod++){
-      h+='<tr><td style="text-align:center;color:var(--mut);font-weight:700;border-top:1px solid var(--bord);">'+hod+'</td>';
+    var OFF=4, minH=99;
+    (j.cells||[]).forEach(function(c){ if(c.hod<minH)minH=c.hod; });
+    if(minH>mh) minH=1;
+    for(var hod=minH;hod<=mh;hod++){
+      h+='<tr><td style="text-align:center;color:var(--mut);font-weight:700;border-top:1px solid var(--bord);">'+(hod-OFF)+'</td>';
       dny.forEach(function(d){
         var arr=map[d+"_"+hod]||[];
         var inner=arr.map(function(c){

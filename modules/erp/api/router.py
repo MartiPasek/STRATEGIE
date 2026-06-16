@@ -7861,6 +7861,233 @@ async def att_absence_mine(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── OČR (ošetřovné) — Fáze 1: strukturovaný případ (bez ČSSZ API) ──────────
+# Zaměstnanec zadá identifikátor ze SMS + ošetřovanou osobu + datum od;
+# na konci doplní datum do + dny; HR/vedoucí schválí. Firma EC/ES z engagementu.
+# Fáze 2 (až bude certifikát): ověření identifikátoru + stažení dokumentů +
+# podání NEMPRI přes VREP. Složka + podklad pro účetní = Fáze 1b.
+
+def _ocr_company(s, emp) -> str | None:
+    """Kód firmy (EC/ES) z aktivního engagementu zaměstnance. Best-effort."""
+    from sqlalchemy import text as _t
+    try:
+        return s.execute(_t(
+            "SELECT c.code FROM tenant.engagement e "
+            "JOIN tenant.company c ON c.id = e.company_id "
+            "WHERE e.employee_id=:e AND (e.smlouva_do IS NULL OR e.smlouva_do >= CURRENT_DATE) "
+            "ORDER BY e.smlouva_od DESC NULLS LAST LIMIT 1"), {"e": emp}).scalar()
+    except Exception:
+        return None
+
+
+@api_router.post("/app/ocr/start")
+async def ocr_start(req: Request) -> JSONResponse:
+    """Zaměstnanec zakládá OČR: identifikátor (ze SMS) + ošetřovaná osoba + datum od.
+    Vznikne OČR případ + navázaná absence (typ ocr) routovaná na vedoucího."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    ident = str((b or {}).get("identifikator") or "").strip()[:120] or None
+    osoba = str((b or {}).get("osoba_jmeno") or "").strip()[:160] or None
+    rc = str((b or {}).get("osoba_rc") or "").strip()[:20] or None
+    vztah = str((b or {}).get("osoba_vztah") or "").strip()[:60] or None
+    try:
+        d_od = _dt.date.fromisoformat(str((b or {}).get("od") or "")[:10])
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné datum od."})
+    if not osoba:
+        return JSONResponse({"ok": False, "error": "Vyplň ošetřovanou osobu."})
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        if not emp:
+            return JSONResponse({"ok": False, "error": "Nejsi v evidenci docházky."})
+        company = _ocr_company(s, emp)
+        mgr = None
+        try:
+            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                            {"e": emp}).scalar()
+        except Exception:
+            mgr = None
+        # navázaná absence (datum_do zatím = od; doplní se na konci)
+        arid = s.execute(_t(
+            "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
+            "hours_per_day,note,stav,manager_user_id) "
+            "VALUES (2,:e,:u,'ocr',:od,:od,8,:n,'pending',:m) RETURNING id"),
+            {"e": emp, "u": uid, "od": d_od, "n": ("OČR: " + osoba), "m": mgr}).scalar()
+        cid = s.execute(_t(
+            "INSERT INTO tenant.att_ocr_case (tenant_id,employee_id,user_id,company,identifikator,"
+            "osoba_jmeno,osoba_rc,osoba_vztah,datum_od,stav,absence_request_id,created_by_id) "
+            "VALUES (2,:e,:u,:co,:id,:oj,:rc,:vz,:od,'novy',:ar,:u) RETURNING id"),
+            {"e": emp, "u": uid, "co": company, "id": ident, "oj": osoba, "rc": rc, "vz": vztah,
+             "od": d_od, "ar": arid}).scalar()
+        who = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
+            {"e": emp}).scalar() or "Zaměstnanec"
+        msg = (who + " zahájil OČR (péče o: " + osoba + ") od "
+               + str(d_od.day) + "." + str(d_od.month) + ". Po skončení doplní dny ke schválení.")
+        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🧑‍⚕️ Nové ošetřovné (OČR)", msg)
+        s.commit()
+        return JSONResponse({"ok": True, "id": cid, "company": company})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/ocr/end")
+async def ocr_end(req: Request) -> JSONResponse:
+    """Zaměstnanec ukončuje OČR: datum do + počet dní ošetřování → ke schválení."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        cid = int((b or {}).get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí id případu."})
+    try:
+        d_do = _dt.date.fromisoformat(str((b or {}).get("do") or "")[:10])
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné datum do."})
+    try:
+        dny = int((b or {}).get("dny") or 0)
+    except Exception:
+        dny = 0
+    cm, s = _att_session()
+    try:
+        row = s.execute(_t("SELECT employee_id, user_id, datum_od, absence_request_id, osoba_jmeno "
+                           "FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"), {"i": cid}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Případ nenalezen."})
+        if int(row[1] or 0) != uid and not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "Není tvůj případ."}, status_code=403)
+        if d_do < row[2]:
+            return JSONResponse({"ok": False, "error": "Datum do je před datem od."})
+        s.execute(_t("UPDATE tenant.att_ocr_case SET datum_do=:dd, dny_count=:dn, stav='ukonceno', "
+                     "updated_at=now() WHERE id=:i"), {"dd": d_do, "dn": dny, "i": cid})
+        if row[3]:
+            s.execute(_t("UPDATE tenant.att_absence_request SET datum_do=:dd WHERE id=:a"),
+                      {"dd": d_do, "a": row[3]})
+        mgr = None
+        try:
+            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                            {"e": row[0]}).scalar()
+        except Exception:
+            mgr = None
+        msg = ("OČR (péče o: " + (row[4] or "") + ") ukončeno k " + str(d_do.day) + "." + str(d_do.month)
+               + ". (" + str(dny) + " dní) — ke schválení v Docházce → OČR.")
+        _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🧑‍⚕️ OČR ke schválení", msg)
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/ocr/mine")
+async def ocr_mine(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, company, identifikator, osoba_jmeno, osoba_vztah, datum_od, datum_do, "
+            "dny_count, stav FROM tenant.att_ocr_case WHERE user_id=:u AND tenant_id=2 "
+            "ORDER BY created_at DESC LIMIT 60"), {"u": uid}).fetchall()
+        out = [{"id": r[0], "company": r[1], "identifikator": r[2], "osoba": r[3], "vztah": r[4],
+                "od": r[5].isoformat() if r[5] else None, "do": r[6].isoformat() if r[6] else None,
+                "dny": r[7], "stav": r[8]} for r in rows]
+        return JSONResponse({"ok": True, "cases": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/ocr/inbox")
+async def ocr_inbox(req: Request) -> JSONResponse:
+    """HR/vedoucí: OČR případy ke schválení (stav ukonceno)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT o.id, o.company, o.identifikator, o.osoba_jmeno, o.osoba_vztah, o.datum_od, "
+            "o.datum_do, o.dny_count, o.stav, "
+            "COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_ocr_case o "
+            "LEFT JOIN tenant.att_employee em ON em.id=o.employee_id "
+            "LEFT JOIN public.users u ON u.id=o.user_id "
+            "WHERE o.tenant_id=2 AND o.stav IN ('ukonceno','novy') "
+            "ORDER BY o.stav DESC, o.datum_od DESC LIMIT 100"), ).fetchall()
+        out = [{"id": r[0], "company": r[1], "identifikator": r[2], "osoba": r[3], "vztah": r[4],
+                "od": r[5].isoformat() if r[5] else None, "do": r[6].isoformat() if r[6] else None,
+                "dny": r[7], "stav": r[8], "zamestnanec": r[9]} for r in rows]
+        return JSONResponse({"ok": True, "cases": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/ocr/approve")
+async def ocr_approve(req: Request) -> JSONResponse:
+    """HR/vedoucí schvaluje OČR případ → schvaleno + navázaná absence approved."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        cid = int((b or {}).get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí id."})
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        row = s.execute(_t("SELECT user_id, absence_request_id, osoba_jmeno FROM tenant.att_ocr_case "
+                           "WHERE id=:i AND tenant_id=2"), {"i": cid}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Případ nenalezen."})
+        s.execute(_t("UPDATE tenant.att_ocr_case SET stav='schvaleno', decided_by_user_id=:by, "
+                     "decided_at=now(), updated_at=now() WHERE id=:i"), {"by": uid, "i": cid})
+        if row[1]:
+            s.execute(_t("UPDATE tenant.att_absence_request SET stav='approved', "
+                         "status_text='OČR schváleno', decided_by_user_id=:by, decided_at=now(), "
+                         "materialized=true WHERE id=:a"), {"by": uid, "a": row[1]})
+        _abs_notify(s, row[0], "🧑‍⚕️ OČR schváleno",
+                    "Tvoje ošetřovné (péče o: " + (row[2] or "") + ") bylo schváleno.", quiet=True)
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/absence/inbox")
 async def att_absence_inbox(req: Request) -> JSONResponse:
     """Vedoucí: čekající žádosti, které mám rozhodnout (manager_user_id=já, nebo rodič vidí vše)."""

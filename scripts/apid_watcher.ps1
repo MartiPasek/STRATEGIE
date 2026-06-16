@@ -55,9 +55,12 @@ function Publish-Backups([string]$dir) {
 }
 
 function Process-Requests([string]$dir) {
-  $id = (RunSql $MAINDB "SELECT id FROM fw.apid_restore_req WHERE status='pending' ORDER BY id LIMIT 1;").Trim()
+  $idRaw = RunSql $MAINDB "SELECT id FROM fw.apid_restore_req WHERE status='pending' ORDER BY id LIMIT 1;"
+  $id = if ($idRaw) { ($idRaw | Out-String).Trim() } else { "" }
   if (-not $id) { return }
-  $file = (RunSql $MAINDB "SELECT file FROM fw.apid_restore_req WHERE id=$id;").Trim()
+  $fRaw = RunSql $MAINDB "SELECT file FROM fw.apid_restore_req WHERE id=$id;"
+  $file = if ($fRaw) { ($fRaw | Out-String).Trim() } else { "" }
+  if (-not $file) { return }
   Write-Host ("[" + (Get-Date).ToString("HH:mm:ss") + "] Obnova #$id : $file")
   RunSql $MAINDB "UPDATE fw.apid_restore_req SET status='running' WHERE id=$id;" | Out-Null
   try {

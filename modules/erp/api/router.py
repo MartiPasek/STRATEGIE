@@ -28886,11 +28886,15 @@ def _render_full_page(
             </span>
             <span class="erp-marti-btn-label">Tvoje Marti</span>
           </button>
-          <!-- DEV/DESIGN-only proklik na hybrid /mobile (napravo od Tvoje Marti). Marti 6.6.2026. -->
+          <!-- Marti 16.6.2026: viditelný odkaz na appku /mobile + veřejný web /web. -->
           <a id="erpMobileDevLink" href="/mobile" target="_blank" rel="noopener"
              onclick="event.preventDefault(); window.open('/mobile','_blank','noopener');"
-             class="erp-marti-btn" style="display:none;text-decoration:none;align-items:center;"
-             data-hint="Otevři /mobile (hybrid) — jen DEV/DESIGN režim">📱 /mobile</a>
+             class="erp-marti-btn" style="text-decoration:none;align-items:center;"
+             data-hint="Otevři appku /mobile">📱 Mobil</a>
+          <a id="erpWebLink" href="/web" target="_blank" rel="noopener"
+             onclick="event.preventDefault(); window.open('/web','_blank','noopener');"
+             class="erp-marti-btn" style="text-decoration:none;align-items:center;"
+             data-hint="Otevři veřejný web /web">🌐 Web</a>
           <!-- Plánovač výroby — vedoucí výroby + zástupce (gate na /vyroba). Marti 8.6.2026. -->
           <a id="erpVyrobaLink" href="/vyroba" target="_blank" rel="noopener"
              onclick="event.preventDefault(); window.open('/vyroba','_blank','noopener');"
@@ -32152,7 +32156,7 @@ def _render_workspace_page(user_id: int) -> str:
       }
       function renderErpDesignBadge() {
         const on = getErpDesignMode();
-        try { var _ml = document.getElementById('erpMobileDevLink'); if (_ml) _ml.style.display = on ? 'inline-flex' : 'none'; } catch (e) {}
+        /* Marti 16.6.: odkaz /mobile je viditelný vždy (ne jen DEV) — toggle zrušen. */
         let badge = document.getElementById('erpDesignBadge');
         if (on) {
           if (!badge) {

@@ -10756,7 +10756,7 @@ def _learn_term_of(cap):
 
 
 @api_router.get("/app/flow")
-def app_flow(req: Request, section: str = "") -> JSONResponse:
+def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
     """Read-only 'Stav zakazek' board nad DB_EC (Centrala) - Marti 17.6.2026.
     Faze odvozena z existence ZL / vyroby / zkusebny / faktury (vse pres CisloZakazky).
     Typ VR/SW/PR z prefixu cisla zakazky. Zaseknute: po zkusebne nefakturovano; fakturovano neuzavreno.
@@ -10949,21 +10949,38 @@ def app_flow(req: Request, section: str = "") -> JSONResponse:
         " WHERE z.Ukonceno=0"
         " ORDER BY zl.TerminDoruceniKZak ASC"
     )
+    # Casova osa: okno vyroby = MIN/MAX planovaneho dne monteru (EC_Vytizeni_PlanMonteri, ZIVE),
+    # kalkulovane hodiny ze ZL + planovane hodiny + pocet lidi + terminy material/k zakaznikovi + zkusebna/odvoz.
     timeline_sql = (
-        "SELECT TOP 250"
+        "SELECT TOP 300"
         " CASE WHEN z.CisloZakazky LIKE 'VR%' THEN 'VR' WHEN z.CisloZakazky LIKE 'SW%' THEN 'SW'"
         "   WHEN z.CisloZakazky LIKE 'PR%' THEN 'PR' ELSE 'OST' END AS typ,"
         " z.CisloZakazky AS cz, ISNULL(z.Nazev,'') AS nazev,"
-        " CONVERT(varchar(10),vyr.od,23) AS vyr_od, CONVERT(varchar(10),vyr.dodatum,23) AS vyr_do,"
+        " CONVERT(varchar(10),pm.od,23) AS vyr_od, CONVERT(varchar(10),pm.do2,23) AS vyr_do,"
+        " ISNULL(pm.lidi,0) AS lidi, ISNULL(pm.planhod,0) AS planhod, ISNULL(zl.hod,0) AS kalkhod,"
         " CONVERT(varchar(10),zl.term_mat,23) AS term_mat, CONVERT(varchar(10),zl.term_zak,23) AS term_zak,"
         " CONVERT(varchar(10),zk.dat,23) AS zkusebna, CONVERT(varchar(10),od.dat,23) AS odvoz"
         " FROM DB_EC.dbo.TabZakazka z WITH(NOLOCK)"
-        " OUTER APPLY (SELECT MIN(DatumOd) od, MAX(DatumDo) dodatum FROM DB_EC.dbo.EC_PlanovaniVyroby WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) vyr"
-        " OUTER APPLY (SELECT MIN(TerminDodaniMaterialu) term_mat, MAX(TerminDoruceniKZak) term_zak FROM DB_EC.dbo.EC_ZakListy WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) zl"
+        " OUTER APPLY (SELECT MIN(Datum) od, MAX(Datum) do2, COUNT(DISTINCT CisloZam) lidi, SUM(PocetHodin) planhod FROM DB_EC.dbo.EC_Vytizeni_PlanMonteri WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) pm"
+        " OUTER APPLY (SELECT PocetHodin hod, TerminDodaniMaterialu term_mat, TerminDoruceniKZak term_zak FROM DB_EC.dbo.EC_ZakListy WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) zl"
         " OUTER APPLY (SELECT MAX(DatumVyroby) dat FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) zk"
         " OUTER APPLY (SELECT MAX(ISNULL(DatumOdvezeni,DatumOdvozu)) dat FROM DB_EC.dbo.EC_DopravaZakaznikovi WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) od"
-        " WHERE z.Ukonceno=0 AND (vyr.od IS NOT NULL OR zl.term_zak IS NOT NULL OR zk.dat IS NOT NULL)"
-        " ORDER BY ISNULL(zl.term_zak, ISNULL(vyr.dodatum, zk.dat)) ASC"
+        " WHERE z.Ukonceno=0 AND (pm.od IS NOT NULL OR zl.term_zak IS NOT NULL OR zk.dat IS NOT NULL)"
+        " ORDER BY ISNULL(pm.od, ISNULL(zl.term_zak, zk.dat)) ASC"
+    )
+    # Detail jedne zakazky: kdo je naplanovany, jeho usek a hodiny (planovani lidi do useku vyroby).
+    czf = (cz or "").strip().replace("'", "")[:40]
+    timeline_det_sql = (
+        "SELECT pm.CisloZam AS cislo,"
+        " RTRIM(ISNULL(za.Jmeno,''))+' '+RTRIM(ISNULL(za.Prijmeni,'')) AS jmeno,"
+        " CONVERT(varchar(10),MIN(pm.Datum),23) AS od,"
+        " CONVERT(varchar(10),MAX(pm.Datum),23) AS do2,"
+        " SUM(pm.PocetHodin) AS hod, COUNT(*) AS dnu"
+        " FROM DB_EC.dbo.EC_Vytizeni_PlanMonteri pm WITH(NOLOCK)"
+        " LEFT JOIN DB_EC.dbo.TabCisZam za WITH(NOLOCK) ON za.Cislo=pm.CisloZam"
+        " WHERE pm.CisloZakazky=N'" + czf + "'"
+        " GROUP BY pm.CisloZam, za.Jmeno, za.Prijmeni"
+        " ORDER BY MIN(pm.Datum) ASC, hod DESC"
     )
     import datetime as _dt
     out = {"ok": True, "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")}
@@ -10995,7 +11012,10 @@ def app_flow(req: Request, section: str = "") -> JSONResponse:
         elif sec == "zl":
             out["zl"] = _q(zl_sql)
         elif sec == "timeline":
-            out["timeline"] = _q(timeline_sql)
+            if czf:
+                out["lide"] = _q(timeline_det_sql)
+            else:
+                out["timeline"] = _q(timeline_sql)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
     return JSONResponse(out)

@@ -267,6 +267,18 @@ function renderTimeline(c,j){
     if(wd===1){ var wl=document.createElement('div'); wl.style.position='absolute'; wl.style.left=x(dd0)+'px'; wl.style.top='26px'; wl.style.bottom='0'; wl.style.width='1px'; wl.style.background='rgba(255,255,255,.10)'; wl.style.zIndex='0'; wl.style.pointerEvents='none'; inner.appendChild(wl); }
   }
   var tl=document.createElement('div'); tl.style.position='absolute'; tl.style.left=x(today)+'px'; tl.style.top='0'; tl.style.bottom='0'; tl.style.width='2px'; tl.style.background='#ef4444'; tl.style.opacity='.6'; tl.style.zIndex='3'; inner.appendChild(tl);
+  // posuvná svislá osa s datem (uchopit a táhnout)
+  var guide=document.createElement('div'); guide.style.cssText='position:absolute;top:0;bottom:0;width:0;border-left:2px dashed #f59e0b;z-index:4;cursor:ew-resize';
+  var glab=document.createElement('div'); glab.style.cssText='position:absolute;top:1px;transform:translateX(-50%);background:#f59e0b;color:#1a1200;font-size:11px;font-weight:700;padding:2px 7px;border-radius:7px;white-space:nowrap;z-index:5;cursor:ew-resize;box-shadow:0 1px 5px rgba(0,0,0,.45);user-select:none';
+  function dCz(d){ return d.getDate()+'.'+(d.getMonth()+1)+'.'+d.getFullYear(); }
+  function setGuide(px){ px=Math.max(0,Math.min(W,px)); guide.style.left=px+'px'; glab.style.left=px+'px'; var gd=new Date(min.getTime()+Math.round(px/PX)*864e5); glab.textContent='📍 '+dCz(gd); }
+  setGuide(x(today)+PX*3);
+  inner.appendChild(guide); inner.appendChild(glab);
+  var gdrag=false,gx0=0,gl0=0;
+  function gStart(e){ gdrag=true; gx0=e.clientX; gl0=parseFloat(guide.style.left)||0; e.preventDefault(); e.stopPropagation(); }
+  guide.addEventListener('mousedown',gStart); glab.addEventListener('mousedown',gStart);
+  window.addEventListener('mousemove',function(e){ if(!gdrag) return; setGuide(gl0+(e.clientX-gx0)); });
+  window.addEventListener('mouseup',function(){ gdrag=false; });
   var lh=document.createElement('div'); lh.style.height='26px'; lh.style.borderBottom='1px solid var(--bord)'; left.appendChild(lh);
   rows.forEach(function(r){
     var ll=document.createElement('div'); ll.style.height=ROWH+'px'; ll.style.boxSizing='border-box'; ll.style.padding='4px 8px'; ll.style.borderBottom='1px solid rgba(255,255,255,.05)'; ll.style.fontSize='12px'; ll.style.cursor='pointer'; ll.style.overflow='hidden'; ll.title=esc(r.cz)+' — '+esc(r.nazev);
@@ -327,13 +339,15 @@ function closeZakModal(){ var m=document.getElementById('zakmodal'); if(m) m.rem
 function openZakModal(r){
   closeZakModal();
   var ov=document.createElement('div'); ov.id='zakmodal';
-  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px';
-  ov.onclick=function(e){ if(e.target===ov) closeZakModal(); };
+  ov.style.cssText='position:fixed;inset:0;z-index:1000;pointer-events:none';
+  var bw=Math.min(720, window.innerWidth-40);
   var box=document.createElement('div');
-  box.style.cssText='background:var(--bg,#0e1726);border:1px solid var(--bord,#243044);border-radius:14px;max-width:720px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)';
+  box.style.cssText='position:absolute;width:'+bw+'px;max-height:88vh;overflow:auto;pointer-events:auto;background:var(--bg,#0e1726);border:1px solid var(--bord,#243044);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.55)';
+  box.style.left=Math.max(10,(window.innerWidth-bw)/2)+'px';
+  box.style.top='70px';
   var TC={VR:'#10b981',SW:'#4f8ef7',PR:'#a78bfa',OST:'#64748b'};
   function row(lbl,val){ return val?('<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span class="muted" style="font-size:13px">'+lbl+'</span><span style="font-size:13px;font-weight:600">'+val+'</span></div>'):''; }
-  var head='<div style="display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--bord,#243044);position:sticky;top:0;background:var(--bg,#0e1726)">'
+  var head='<div id="zm-head" style="display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--bord,#243044);position:sticky;top:0;background:var(--bg,#0e1726);cursor:move">'
     +'<span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span>'
     +'<div style="flex:1"><div style="font-size:17px;font-weight:700">'+esc(r.cz)+'</div><div class="muted" style="font-size:12px">'+esc(r.nazev||'')+'</div></div>'
     +'<button onclick="closeZakModal()" style="background:none;border:0;color:var(--dim,#8aa);font-size:22px;cursor:pointer;line-height:1">×</button></div>';
@@ -350,6 +364,12 @@ function openZakModal(r){
   var ppl='<div style="padding:0 18px 18px"><div style="font-size:14px;font-weight:600;margin:6px 0 8px">👷 Lidé na zakázce</div><div id="zm-ppl" class="muted" style="font-size:13px">načítám…</div></div>';
   box.innerHTML=head+info+ppl;
   ov.appendChild(box); document.body.appendChild(ov);
+  // přetahování okna za hlavičku
+  (function(){ var hd=box.querySelector('#zm-head'); if(!hd) return; var md=false,sx=0,sy=0,bl=0,bt=0;
+    hd.addEventListener('mousedown',function(e){ if(e.target.tagName==='BUTTON') return; md=true; sx=e.clientX; sy=e.clientY; bl=parseFloat(box.style.left)||0; bt=parseFloat(box.style.top)||0; e.preventDefault(); });
+    window.addEventListener('mousemove',function(e){ if(!md) return; box.style.left=Math.max(0,Math.min(window.innerWidth-60,bl+(e.clientX-sx)))+'px'; box.style.top=Math.max(0,Math.min(window.innerHeight-40,bt+(e.clientY-sy)))+'px'; });
+    window.addEventListener('mouseup',function(){ md=false; });
+  })();
   function drawPpl(lide){
     var el=document.getElementById('zm-ppl'); if(!el) return;
     if(!lide.length){ el.textContent='Nikdo naplánovaný.'; return; }

@@ -10756,7 +10756,7 @@ def _learn_term_of(cap):
 
 
 @api_router.get("/app/flow")
-def app_flow(req: Request) -> JSONResponse:
+def app_flow(req: Request, section: str = "") -> JSONResponse:
     """Read-only 'Stav zakazek' board nad DB_EC (Centrala) - Marti 17.6.2026.
     Faze odvozena z existence ZL / vyroby / zkusebny / faktury (vse pres CisloZakazky).
     Typ VR/SW/PR z prefixu cisla zakazky. Zaseknute: po zkusebne nefakturovano; fakturovano neuzavreno.
@@ -10882,23 +10882,66 @@ def app_flow(req: Request) -> JSONResponse:
         " WHERE a.DatumAkce >= DATEADD(month,-3,GETDATE())"
         " ORDER BY a.DatumAkce DESC"
     )
+    vyroba_sql = (
+        "SELECT TOP 150 CisloZakazky AS cz, CONVERT(varchar,MIN(DatumOd),104) AS od,"
+        " CONVERT(varchar,MAX(DatumDo),104) AS dodatum,"
+        " CASE WHEN MIN(DatumOd)>GETDATE() THEN 'naplanovano' WHEN MAX(DatumDo)<GETDATE() THEN 'po terminu' ELSE 'probiha' END AS stav"
+        " FROM DB_EC.dbo.EC_PlanovaniVyroby WITH(NOLOCK)"
+        " WHERE DatumDo >= DATEADD(day,-30,GETDATE())"
+        " GROUP BY CisloZakazky ORDER BY MIN(DatumOd) ASC"
+    )
+    zkusebna_sql = (
+        "SELECT TOP 150 CisloZakazky AS cz, CONVERT(varchar,DatumVyroby,104) AS dat,"
+        " DATEDIFF(day,DatumVyroby,GETDATE()) AS dni"
+        " FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK)"
+        " WHERE DatumVyroby >= DATEADD(month,-3,GETDATE())"
+        " ORDER BY DatumVyroby DESC"
+    )
+    odvozy_sql = (
+        "SELECT TOP 150 CisloZakazky AS cz, ISNULL(NazevZakazkyTisk,'') AS nazev,"
+        " CONVERT(varchar,DatumOdvozu,104) AS odvoz, CONVERT(varchar,DatumOdvezeni,104) AS odvezeno,"
+        " ISNULL(DopravceKontakt,'') AS dopravce"
+        " FROM DB_EC.dbo.EC_DopravaZakaznikovi WITH(NOLOCK)"
+        " WHERE ISNULL(DatumOdvozu,DatumOdvezeni) >= DATEADD(month,-3,GETDATE())"
+        " ORDER BY ISNULL(DatumOdvozu,DatumOdvezeni) DESC"
+    )
+    faktstav_sql = (
+        "SELECT ISNULL(NULLIF(LTRIM(RTRIM(StavFakturace)),''),'(bez stavu)') AS stav, COUNT(*) AS pocet"
+        " FROM DB_EC.dbo.EC_Zakazky_KontrolaFakturace WITH(NOLOCK) GROUP BY StavFakturace"
+    )
+    faktchybi_sql = (
+        "SELECT TOP 200 CisloZakazky AS cz, ISNULL(NazevZakazky,'') AS nazev, ISNULL(Zakaznik,'') AS zakaznik,"
+        " CONVERT(varchar,DatumPorizeni,104) AS dat"
+        " FROM DB_EC.dbo.EC_Zakazky_KontrolaFakturace WITH(NOLOCK)"
+        " WHERE LTRIM(RTRIM(StavFakturace))='Chybi faktury' OR LTRIM(RTRIM(StavFakturace))=N'Chybí faktury'"
+        " ORDER BY DatumPorizeni DESC"
+    )
+    import datetime as _dt
+    out = {"ok": True, "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")}
+    sec = (section or "").strip().lower()
     try:
-        stages = _q(stages_sql)
-        funnel = _q(funnel_sql)
-        nefakt = _q(nefakt_sql)
-        neuzavr = _q(neuzavr_sql)
-        material = _q(material_sql)
-        souhrn_rows = _q(souhrn_sql)
-        jednani = _q(jednani_sql)
+        if sec in ("", "core", "analyza", "vp", "nakup"):
+            out["stages"] = _q(stages_sql)
+            out["funnel"] = _q(funnel_sql)
+            out["nefakturovano"] = _q(nefakt_sql)
+            out["neuzavreno"] = _q(neuzavr_sql)
+            out["material_po_terminu"] = _q(material_sql)
+            sr = _q(souhrn_sql)
+            out["souhrn"] = sr[0] if sr else {}
+        elif sec == "obchod":
+            out["jednani"] = _q(jednani_sql)
+        elif sec == "vyroba":
+            out["vyroba"] = _q(vyroba_sql)
+        elif sec == "zkusebna":
+            out["zkusebna"] = _q(zkusebna_sql)
+        elif sec == "odvozy":
+            out["odvozy"] = _q(odvozy_sql)
+        elif sec == "fakturace":
+            out["fakt_stav"] = _q(faktstav_sql)
+            out["fakt_chybi"] = _q(faktchybi_sql)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
-    souhrn = souhrn_rows[0] if souhrn_rows else {}
-    import datetime as _dt
-    return JSONResponse({"ok": True, "stages": stages, "funnel": funnel,
-                         "nefakturovano": nefakt, "neuzavreno": neuzavr,
-                         "material_po_terminu": material, "souhrn": souhrn,
-                         "jednani": jednani,
-                         "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
+    return JSONResponse(out)
 
 
 @api_router.get("/app/learn/sync")

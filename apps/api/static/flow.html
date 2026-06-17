@@ -57,30 +57,33 @@
 </div>
 <script>
 'use strict';
-var DATA=null, FILTER='ALL';
+var DATA=null, SEC={}, FILTER='ALL';
 // poradi dle Marti: Obchod - VP - Nakup - Priprava - Vyroba - Zkusebna - Vyroba vyhodnoceni - Odvozy - Fakturace - Analyza
 var TILES=[
   {id:'obchod',  ic:'🤝', lb:'Obchod',     sm:'obchodní jednání (CRM)', ready:true},
   {id:'vp',      ic:'📋', lb:'VP',          sm:'poptávky · kalkulace · nabídky · objednávky · zakázka', ready:true},
   {id:'nakup',   ic:'🛒', lb:'Nákup',       sm:'objednávky materiálu', ready:true},
   {id:'priprava',ic:'🧰', lb:'Příprava',    sm:'příprava výroby a materiálu', ready:false},
-  {id:'vyroba',  ic:'🏭', lb:'Výroba',      sm:'plán a průběh výroby', ready:false},
-  {id:'zkusebna',ic:'🔬', lb:'Zkušebna',    sm:'zkušební protokoly', ready:false},
+  {id:'vyroba',  ic:'🏭', lb:'Výroba',      sm:'plán a průběh výroby', ready:true},
+  {id:'zkusebna',ic:'🔬', lb:'Zkušebna',    sm:'zkušební protokoly', ready:true},
   {id:'vyhod',   ic:'📈', lb:'Výroba — vyhodnocení', sm:'efektivita', ready:false},
-  {id:'odvozy',  ic:'🚚', lb:'Odvozy',      sm:'doprava zákazníkovi', ready:false},
-  {id:'faktur',  ic:'🧾', lb:'Fakturace',   sm:'stav fakturace', ready:false},
+  {id:'odvozy',  ic:'🚚', lb:'Odvozy',      sm:'doprava zákazníkovi', ready:true},
+  {id:'fakturace',ic:'🧾', lb:'Fakturace',  sm:'stav fakturace', ready:true},
   {id:'analyza', ic:'📊', lb:'Analýza',     sm:'kde co vázne (celý flow)', ready:true}
 ];
 function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
 function num(n){return (n||0).toLocaleString('cs-CZ');}
 function go(v){ location.hash=v; route(); }
 
-function load(){
-  fetch('/api/v1/erp/app/flow',{credentials:'same-origin'})
+function api(section){
+  var u='/api/v1/erp/app/flow'+(section?('?section='+section):'');
+  return fetch(u,{credentials:'same-origin'})
     .then(function(r){ if(r.status===401||r.status===403){throw new Error('Tato sekce je jen pro vedení (přihlas se jako rodič).');} return r.json(); })
-    .then(function(j){ if(!j.ok){ throw new Error(j.error||'chyba'); } DATA=j; route(); })
-    .catch(function(e){ document.getElementById('sub').textContent=''; document.getElementById('content').innerHTML='<div class="err">'+esc(e.message)+'</div>'; });
+    .then(function(j){ if(!j.ok){ throw new Error(j.error||'chyba'); } return j; });
 }
+function showErr(e){ document.getElementById('sub').textContent=''; document.getElementById('content').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
+function load(){ api('').then(function(j){ DATA=j; route(); }).catch(showErr); }
+var SECVIEW={obchod:renderObchod, vyroba:renderVyroba, zkusebna:renderZkusebna, odvozy:renderOdvozy, fakturace:renderFakturace};
 function route(){
   var v=(location.hash||'').replace('#','')||'hub';
   var c=document.getElementById('content'); c.innerHTML='';
@@ -89,11 +92,16 @@ function route(){
   var tile=TILES.filter(function(t){return t.id===v;})[0];
   document.getElementById('ttl').textContent='FLOW · '+(tile?tile.lb:v);
   var back=document.createElement('a'); back.className='back'; back.textContent='← Zpět na FLOW'; back.onclick=function(){go('hub');}; c.appendChild(back);
-  if(v==='analyza') renderAnalyza(c);
-  else if(v==='vp') renderVP(c);
-  else if(v==='nakup') renderNakup(c);
-  else if(v==='obchod') renderObchod(c);
-  else renderSoon(c, tile);
+  if(v==='analyza'){ renderAnalyza(c); return; }
+  if(v==='vp'){ renderVP(c); return; }
+  if(v==='nakup'){ renderNakup(c); return; }
+  if(SECVIEW[v]){
+    if(SEC[v]){ SECVIEW[v](c, SEC[v]); }
+    else { var ld=document.createElement('div'); ld.className='muted'; ld.textContent='Načítám…'; c.appendChild(ld);
+      api(v).then(function(j){ SEC[v]=j; route(); }).catch(showErr); }
+    return;
+  }
+  renderSoon(c, tile);
 }
 
 function renderHub(c){
@@ -146,8 +154,8 @@ function renderVP(c){
   c.appendChild(tot);
 }
 
-function renderObchod(c){
-  var rows=DATA.jednani||[];
+function renderObchod(c,j){
+  var rows=(j&&j.jednani)||[];
   var open=rows.filter(function(r){return !r.splneno;}).length;
   var row=document.createElement('div'); row.className='row';
   row.innerHTML='<div class="card hl"><div class="n">'+num(rows.length)+'</div><div class="t">Obchodní jednání za 3 měsíce</div></div>'
@@ -162,6 +170,58 @@ function renderObchod(c){
       return '<tr><td>'+esc(r.dat||'—')+'</td><td>'+esc(r.akce)+'</td><td>'+who+'</td><td>'+esc(r.popis)+'</td><td>'+esc(r.autor)+'</td><td>'+(r.splneno?'✅':'⏳')+'</td></tr>';
     }).join('');
   c.appendChild(t);
+}
+function muted(txt){var m=document.createElement('div');m.className='muted';m.textContent=txt;return m;}
+function renderVyroba(c,j){
+  var rows=(j&&j.vyroba)||[];
+  function cnt(s){return rows.filter(function(r){return r.stav===s;}).length;}
+  var row=document.createElement('div'); row.className='row';
+  row.innerHTML='<div class="card hl"><div class="n">'+num(cnt('probiha'))+'</div><div class="t">Probíhá</div></div>'
+    +'<div class="card hl"><div class="n">'+num(cnt('naplanovano'))+'</div><div class="t">Naplánováno</div></div>'
+    +'<div class="card hl amber"><div class="n">'+num(cnt('po terminu'))+'</div><div class="t">Po plánovaném termínu</div></div>';
+  c.appendChild(row);
+  var h=document.createElement('h2'); h.textContent='Zakázky ve výrobě ('+rows.length+')'; c.appendChild(h);
+  if(!rows.length){c.appendChild(muted('Nic v plánu výroby.'));return;}
+  var t=document.createElement('table');
+  t.innerHTML='<tr><th>Zakázka</th><th>Od</th><th>Do</th><th>Stav</th></tr>'+rows.map(function(r){
+    var col=r.stav==='po terminu'?'color:#f59e0b;font-weight:700':(r.stav==='probiha'?'color:#10b981':'');
+    return '<tr><td>'+esc(r.cz)+'</td><td>'+esc(r.od||'—')+'</td><td>'+esc(r.dodatum||'—')+'</td><td><span style="'+col+'">'+esc(r.stav)+'</span></td></tr>';
+  }).join(''); c.appendChild(t);
+}
+function renderZkusebna(c,j){
+  var rows=(j&&j.zkusebna)||[];
+  var h=document.createElement('h2'); h.textContent='Zkušební protokoly za 3 měsíce ('+rows.length+')'; c.appendChild(h);
+  if(!rows.length){c.appendChild(muted('Žádné protokoly.'));return;}
+  var t=document.createElement('table');
+  t.innerHTML='<tr><th>Zakázka</th><th>Datum výroby</th><th>Stáří</th></tr>'+rows.map(function(r){
+    return '<tr><td>'+esc(r.cz)+'</td><td>'+esc(r.dat||'—')+'</td><td>'+dniBadge(r.dni)+'</td></tr>';}).join(''); c.appendChild(t);
+}
+function renderOdvozy(c,j){
+  var rows=(j&&j.odvozy)||[];
+  var plan=rows.filter(function(r){return !r.odvezeno;}).length, done=rows.filter(function(r){return r.odvezeno;}).length;
+  var row=document.createElement('div'); row.className='row';
+  row.innerHTML='<div class="card hl"><div class="n">'+num(plan)+'</div><div class="t">Plánované (neodvezeno)</div></div>'
+    +'<div class="card hl"><div class="n">'+num(done)+'</div><div class="t">Odvezeno (3 měsíce)</div></div>';
+  c.appendChild(row);
+  var h=document.createElement('h2'); h.textContent='Odvozy ('+rows.length+')'; c.appendChild(h);
+  if(!rows.length){c.appendChild(muted('Žádné odvozy.'));return;}
+  var t=document.createElement('table');
+  t.innerHTML='<tr><th>Zakázka</th><th>Název</th><th>Plán odvozu</th><th>Odvezeno</th><th>Dopravce</th></tr>'+rows.map(function(r){
+    return '<tr><td>'+esc(r.cz)+'</td><td>'+esc(r.nazev)+'</td><td>'+esc(r.odvoz||'—')+'</td><td>'+(r.odvezeno?('✅ '+esc(r.odvezeno)):'⏳')+'</td><td>'+esc(r.dopravce)+'</td></tr>';}).join(''); c.appendChild(t);
+}
+function renderFakturace(c,j){
+  var stav=(j&&j.fakt_stav)||[], chybi=(j&&j.fakt_chybi)||[];
+  var row=document.createElement('div'); row.className='row';
+  stav.forEach(function(s){
+    var amber=(String(s.stav).indexOf('Chyb')>=0);
+    row.innerHTML+='<div class="card hl'+(amber?' amber':'')+'"><div class="n">'+num(s.pocet)+'</div><div class="t">'+esc(s.stav)+'</div></div>';
+  });
+  c.appendChild(row);
+  var h=document.createElement('h2'); h.textContent='Zakázky kde chybí faktury ('+chybi.length+')'; c.appendChild(h);
+  if(!chybi.length){c.appendChild(muted('Nic nechybí 🎉'));return;}
+  var t=document.createElement('table');
+  t.innerHTML='<tr><th>Zakázka</th><th>Název</th><th>Zákazník</th><th>Pořízeno</th></tr>'+chybi.map(function(r){
+    return '<tr><td>'+esc(r.cz)+'</td><td>'+esc(r.nazev)+'</td><td>'+esc(r.zakaznik)+'</td><td>'+esc(r.dat||'—')+'</td></tr>';}).join(''); c.appendChild(t);
 }
 function renderNakup(c){
   var rows=DATA.material_po_terminu||[];

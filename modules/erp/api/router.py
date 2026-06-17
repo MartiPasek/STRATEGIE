@@ -10572,6 +10572,44 @@ async def app_hr_schedule(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/learn/frames")
+async def app_learn_frames(req: Request) -> JSONResponse:
+    """Výukové framy Ano/Možná/Ne + glosář (zdroj MP_STRAG_Komun + elektro rozváděče).
+    Neinvazivní výuka po vzoru Hubbarda (3 bariéry). Marti 17.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    src = (req.query_params.get("source") or "").strip()
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        q = ("SELECT id, source, source_id, tema, typ, poradi, parent_source_id, "
+             "caption, description_html, question "
+             "FROM tenant.learn_frame WHERE tenant_id=2 AND aktivni=true")
+        params = {}
+        if src:
+            q += " AND source=:src"
+            params["src"] = src
+        q += " ORDER BY source, tema, typ, poradi, source_id"
+        frames = []
+        for r in s.execute(_t(q), params).fetchall():
+            frames.append({"id": r[0], "source": r[1], "source_id": r[2], "tema": r[3],
+                           "typ": r[4], "poradi": r[5], "parent": r[6],
+                           "caption": r[7] or "", "description_html": r[8] or "",
+                           "question": r[9] or "", "media": []})
+        fmap = {f["id"]: f for f in frames}
+        for r in s.execute(_t("SELECT frame_id, kind, url, caption FROM tenant.learn_media "
+                              "WHERE tenant_id=2 ORDER BY frame_id, poradi")).fetchall():
+            if r[0] in fmap:
+                fmap[r[0]]["media"].append({"kind": r[1], "url": r[2], "caption": r[3] or ""})
+        glos = [{"term": r[0], "definition_html": r[1] or ""}
+                for r in s.execute(_t("SELECT term, definition_html FROM tenant.learn_glossary "
+                                      "WHERE tenant_id=2 ORDER BY term")).fetchall()]
+        return JSONResponse({"ok": True, "frames": frames, "glossary": glos})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/hr/schedule/save")
 async def app_hr_schedule_save(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

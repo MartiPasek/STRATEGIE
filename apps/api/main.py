@@ -915,6 +915,13 @@ def web_kraj():
     return _web_subpage("kraj.html")
 
 
+@app.get("/uceni")
+def app_uceni():
+    """Živý výukový frame Ano/Možná/Ne (neinvazivní výuka po vzoru Hubbarda).
+    Čte tenant.learn_frame přes /app/learn/frames. Marti 17.6.2026."""
+    return _web_subpage("uceni.html")
+
+
 @app.get("/web/en/demo")
 def web_demo_en():
     """Live demo dashboard — EN mutace (Marti 14.6.2026)."""

@@ -6646,6 +6646,44 @@ async def app_bakalari_loads(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/bakalari/skola")
+async def app_bakalari_skola(req: Request) -> JSONResponse:
+    """Provozní přehled školy (efektivita) — žáci, naplněnost, využití učeben, úvazky."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        po = _bk_po(req, s)
+        prm = {"t": _BK_TENANT, "p": po}
+        tr = s.execute(_t("SELECT count(*), SUM(NULLIF(pocet_zaku,0)), ROUND(AVG(NULLIF(pocet_zaku,0)),1), "
+                          "MIN(NULLIF(pocet_zaku,0)), MAX(pocet_zaku) "
+                          "FROM tenant.bakalari_trid WHERE tenant_id=:t AND plat_od=:p"), prm).first()
+        mi = s.execute(_t("SELECT count(*), SUM(NULLIF(pocet_zaku,0)) FROM tenant.bakalari_mist WHERE tenant_id=:t AND plat_od=:p"), prm).first()
+        oc = s.execute(_t(
+            "WITH occ AS (SELECT TRIM(kod_mist) m, count(DISTINCT (den||'_'||hod)) hod "
+            " FROM tenant.bakalari_uvaz WHERE tenant_id=:t AND plat_od=:p AND den BETWEEN 1 AND 5 AND COALESCE(TRIM(kod_mist),'')<>'' GROUP BY kod_mist) "
+            "SELECT count(*), COALESCE(round(100.0*sum(hod)/NULLIF(count(*)*45,0),0),0) FROM occ"), prm).first()
+        uc = s.execute(_t("SELECT count(DISTINCT TRIM(kod_ucit)) FROM tenant.bakalari_uvaz WHERE tenant_id=:t AND plat_od=:p AND den BETWEEN 1 AND 5 AND COALESCE(TRIM(kod_ucit),'')<>''"), prm).scalar()
+        hod = s.execute(_t("SELECT count(DISTINCT (den||'_'||hod||'_'||COALESCE(kod_trid,'')||'_'||COALESCE(kod_skup,''))) FROM tenant.bakalari_uvaz WHERE tenant_id=:t AND plat_od=:p AND den BETWEEN 1 AND 5"), prm).scalar()
+        cls = s.execute(_t("SELECT REPLACE(TRIM(COALESCE(zkratka,kod_trid)),'.',''), COALESCE(pocet_zaku,0) "
+                           "FROM tenant.bakalari_trid WHERE tenant_id=:t AND plat_od=:p AND COALESCE(pocet_zaku,0)>0 ORDER BY zkratka"), prm).fetchall()
+        return JSONResponse({"ok": True, "plat_od": po, "skolrok": _bk_skolrok(po),
+            "zaku": int(tr[1] or 0), "trid": int(tr[0] or 0),
+            "naplnenost_prum": float(tr[2] or 0), "naplnenost_min": int(tr[3] or 0), "naplnenost_max": int(tr[4] or 0),
+            "uceben": int(mi[0] or 0), "kapacita": int(mi[1] or 0),
+            "uceben_vyuk": int(oc[0] or 0), "vyuziti_pct": int(oc[1] or 0),
+            "ucitelu": int(uc or 0), "hodin_tydne": int(hod or 0),
+            "tridy": [{"zkratka": r[0], "zaku": int(r[1] or 0)} for r in cls]})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ─── Kára: produktivita člověka (EXEC-U-TEST lopata + motor + výstup). ───
 # Marti-AI 13.6.: jen licencovaní (Marti, Šárka) + rodiče; vedoucí NE; audit; bez paměti.
 _KARA_LICENSED = {1, 13}

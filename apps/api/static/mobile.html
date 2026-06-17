@@ -1380,6 +1380,7 @@ setTimeout(function(){
     l.appendChild(row("👩‍🏫","Učitelé","Osobní rozvrh každého učitele",function(){ go("bk_ucitele"); }));
     l.appendChild(row("🚪","Obsazení učeben","Co se kdy učí v které učebně (Nerudovka / Aťásy)",function(){ go("bk_ucebny"); }));
     l.appendChild(row("📋","Úvazky","Co který učitel učí — předměty, třídy, hodiny",function(){ go("bk_uvazky"); }));
+    l.appendChild(row("📊","Přehled školy","Žáci, naplněnost tříd, využití učeben — efektivita provozu",function(){ go("bk_skola"); }));
     app.appendChild(l);
     api("GET",_bkUrl("/api/v1/erp/app/bakalari/overview"),"").then(function(j){
       if(!j||!j.ok){ dash.textContent=(j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Nepodařilo se načíst."; return; }
@@ -1513,6 +1514,25 @@ setTimeout(function(){
         card.innerHTML=head+lines;
         box.appendChild(card);
       });
+    });
+  }
+  function bk_skola(){
+    app.innerHTML=topbar("📊 Přehled školy", true);
+    var box=el('<div style="padding-bottom:80px;"><div class="hint" style="margin:6px;">Načítám…</div></div>'); app.appendChild(box);
+    api("GET",_bkUrl("/api/v1/erp/app/bakalari/skola"),"").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="hint" style="margin:6px;">'+esc((j&&j.error==="forbidden")?"🔒 Vidí jen vedení.":((j&&j.error)||"Chyba"))+'</div>'; return; }
+      function kc(v,lb,col){ return '<div style="flex:1;min-width:92px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:14px;padding:12px 8px;text-align:center;"><div style="font-size:25px;font-weight:800;color:'+(col||'var(--tx)')+';">'+v+'</div><div style="font-size:11px;color:var(--mut);margin-top:2px;">'+lb+'</div></div>'; }
+      var html='<div class="hint" style="margin:6px;">Školní rok '+esc(j.skolrok||"")+' · provozní efektivita (živá data školy)</div>';
+      html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 6px;">'+kc(j.zaku,"žáků","#60a5fa")+kc(j.trid,"tříd")+kc(j.naplnenost_prum,"prům. ve třídě","var(--green)")+'</div>';
+      html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 6px;">'+kc(j.ucitelu,"učitelů")+kc(j.uceben_vyuk+"/"+j.uceben,"vyučov. učeben")+kc(j.vyuziti_pct+"%","využití učeben","#a78bfa")+'</div>';
+      html+='<div class="hint" style="margin:12px 6px 4px;font-weight:700;color:var(--tx);">Naplněnost tříd <span style="color:var(--mut);font-weight:400;">(min '+j.naplnenost_min+' · max '+j.naplnenost_max+')</span></div>';
+      var mx=j.naplnenost_max||34;
+      html+='<div style="margin:0 6px;">'+(j.tridy||[]).map(function(t){
+        var w=Math.round(100*t.zaku/mx);
+        return '<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13px;"><span style="width:46px;font-weight:700;">'+esc(t.zkratka)+'</span><span style="flex:1;background:rgba(255,255,255,.05);border-radius:6px;height:16px;position:relative;overflow:hidden;"><span style="position:absolute;left:0;top:0;bottom:0;width:'+w+'%;background:linear-gradient(90deg,#4f8ef7,#34d399);"></span></span><b style="width:26px;text-align:right;">'+t.zaku+'</b></div>';
+      }).join("")+'</div>';
+      html+='<div class="hint" style="margin:14px 6px;line-height:1.5;font-size:11.5px;">Kapacita učeben celkem '+j.kapacita+' míst · '+j.hodin_tydne+' vyučovacích hodin týdně. Plné třídy a vysoké využití učeben = škola hospodaří s lidmi i prostorem efektivně. Brzy přibude ekonomika (rozpočet × čerpání × normativ na žáka).</div>';
+      box.innerHTML=html;
     });
   }
   // Ops akce — provozní akce + historie spuštění s datumy (jen rodiče). Marti 13.6.
@@ -6871,7 +6891,7 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola};
 
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){

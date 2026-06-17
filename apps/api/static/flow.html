@@ -60,8 +60,8 @@
 var DATA=null, FILTER='ALL';
 // poradi dle Marti: Obchod - VP - Nakup - Priprava - Vyroba - Zkusebna - Vyroba vyhodnoceni - Odvozy - Fakturace - Analyza
 var TILES=[
-  {id:'obchod',  ic:'🤝', lb:'Obchod',     sm:'poptávky · nabídky · objednávky', ready:true},
-  {id:'vp',      ic:'📋', lb:'VP',          sm:'výrobní plán', ready:false},
+  {id:'obchod',  ic:'🤝', lb:'Obchod',     sm:'obchodní jednání (CRM)', ready:false},
+  {id:'vp',      ic:'📋', lb:'VP',          sm:'poptávky · kalkulace · nabídky · objednávky · zakázka', ready:true},
   {id:'nakup',   ic:'🛒', lb:'Nákup',       sm:'objednávky materiálu', ready:true},
   {id:'priprava',ic:'🧰', lb:'Příprava',    sm:'příprava výroby a materiálu', ready:false},
   {id:'vyroba',  ic:'🏭', lb:'Výroba',      sm:'plán a průběh výroby', ready:false},
@@ -90,7 +90,7 @@ function route(){
   document.getElementById('ttl').textContent='FLOW · '+(tile?tile.lb:v);
   var back=document.createElement('a'); back.className='back'; back.textContent='← Zpět na FLOW'; back.onclick=function(){go('hub');}; c.appendChild(back);
   if(v==='analyza') renderAnalyza(c);
-  else if(v==='obchod') renderObchod(c);
+  else if(v==='vp') renderVP(c);
   else if(v==='nakup') renderNakup(c);
   else renderSoon(c, tile);
 }
@@ -117,19 +117,32 @@ function renderSoon(c, tile){
   c.appendChild(b);
 }
 
-function renderObchod(c){
+function renderVP(c){
   var f={}; (DATA.funnel||[]).forEach(function(r){f[String(r.rada).trim()]=r;});
   function ff(k){var x=f[k];return x?num(x.pocet):'0';}
   function fs(k){var x=f[k];return x?num(x.splneno):'0';}
   var row=document.createElement('div'); row.className='row';
   row.innerHTML=
     '<div class="card hl"><div class="n">'+ff('900')+'</div><div class="t">Poptávky (900) · splněno '+fs('900')+'</div></div>'
-    +'<div class="card hl"><div class="n">'+ff('910')+'</div><div class="t">Nabídky + kalkulace (910) · splněno '+fs('910')+'</div></div>'
+    +'<div class="card hl"><div class="n">'+ff('910')+'</div><div class="t">Kalkulace + nabídky (910) · splněno '+fs('910')+'</div></div>'
     +'<div class="card hl"><div class="n">'+ff('920')+'</div><div class="t">Přijaté objednávky (920) · splněno '+fs('920')+'</div></div>';
   c.appendChild(row);
-  var p=document.createElement('div'); p.className='funnel'; p.style.marginTop='12px';
-  p.textContent='Obchodní trychtýř od 1. 1. 2024. Detailní seznamy otevřených poptávek/nabídek doplníme jako další krok.';
-  c.appendChild(p);
+  var note=document.createElement('div'); note.className='funnel'; note.style.margin='12px 0 6px';
+  note.textContent='Trychtýř od 1. 1. 2024. Níže řízení vzniklých zakázek — otevřené podle fáze.';
+  c.appendChild(note);
+  var chips=document.createElement('div'); chips.className='chips';
+  [['ALL','Vše'],['VR','VR'],['SW','SW'],['PR','PR'],['OST','Ost.']].forEach(function(t){
+    var b=document.createElement('button'); b.className='chip'+(FILTER===t[0]?' on':''); b.textContent=t[1]; b.onclick=function(){FILTER=t[0];route();}; chips.appendChild(b);
+  });
+  c.appendChild(chips);
+  var m=stageCounts(FILTER);
+  var STAGES=[['2_bezzl','Bez ZL'],['3_zl','Zakázkový list'],['4_vyr','Ve výrobě'],['5_zkus','Zkušebna'],['6_fakt','Fakturováno']];
+  var pipe=document.createElement('div'); pipe.className='pipe';
+  STAGES.forEach(function(s){ var d=document.createElement('div'); d.className='st'; d.innerHTML='<div class="n">'+num(m[s[0]])+'</div><div class="l">'+s[1]+'</div>'; pipe.appendChild(d); });
+  c.appendChild(pipe);
+  var tot=document.createElement('div'); tot.className='muted'; tot.style.fontSize='13px'; tot.style.marginTop='4px';
+  tot.textContent='Otevřených zakázek '+(FILTER==='ALL'?'celkem':FILTER)+': '+num(m['2_bezzl']+m['3_zl']+m['4_vyr']+m['5_zkus']+m['6_fakt']);
+  c.appendChild(tot);
 }
 
 function renderNakup(c){

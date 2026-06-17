@@ -70,15 +70,36 @@ function currentSVG(){
     '<rect x="276" y="28" width="10" height="24" rx="2" fill="none" stroke="#8a98b5" stroke-width="2"/>'+
     '<text x="150" y="70" text-anchor="middle" style="font-size:11px;fill:#8a98b5">napětí tlačí proud, odpor (klikatá část) ho brzdí</text>'+e+'</svg>';
 }
+var _ivals=[];
 function mediaHTML(f){
-  if(f.media && f.media.length){
-    return f.media.map(function(m){
-      if(m.kind==="video") return '<div class="media"><video src="'+m.url+'" controls playsinline style="width:100%;border-radius:8px"></video>'+(m.caption?'<div class="muted">'+m.caption+'</div>':'')+'</div>';
-      return '<div class="media"><img src="'+m.url+'" alt="'+(m.caption||'')+'" style="width:100%;border-radius:8px">'+(m.caption?'<div class="muted">'+m.caption+'</div>':'')+'</div>';
-    }).join("");
+  var html="";
+  var med=f.media||[];
+  var imgs=med.filter(function(m){return m.kind!=="video";});
+  var vids=med.filter(function(m){return m.kind==="video";});
+  if(imgs.length>=2){
+    html+='<div class="media"><div class="xfade" style="position:relative;height:210px;border-radius:8px;overflow:hidden">';
+    imgs.forEach(function(m,k){
+      html+='<img src="'+m.url+'" alt="'+(m.caption||'')+'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:'+(k===0?1:0)+';transition:opacity 0.9s ease">';
+    });
+    html+='</div></div>';
+  } else if(imgs.length===1){
+    html+='<div class="media"><img src="'+imgs[0].url+'" alt="'+(imgs[0].caption||'')+'" style="width:100%;border-radius:8px">'+(imgs[0].caption?'<div class="muted">'+imgs[0].caption+'</div>':'')+'</div>';
   }
-  if(barrierOf(f)==="mass") return '<div class="media">'+currentSVG()+'</div>';
-  return "";
+  vids.forEach(function(m){
+    html+='<div class="media"><video src="'+m.url+'" controls playsinline style="width:100%;border-radius:8px"></video>'+(m.caption?'<div class="muted">'+m.caption+'</div>':'')+'</div>';
+  });
+  if(!html && barrierOf(f)==="mass") html='<div class="media">'+currentSVG()+'</div>';
+  return html;
+}
+function startSlideshows(){
+  _ivals.forEach(clearInterval); _ivals=[];
+  Array.prototype.forEach.call(document.querySelectorAll('.xfade'),function(x){
+    var imgs=x.querySelectorAll('img'); if(imgs.length<2) return;
+    var idx=0;
+    _ivals.push(setInterval(function(){
+      imgs[idx].style.opacity=0; idx=(idx+1)%imgs.length; imgs[idx].style.opacity=1;
+    },2600));
+  });
 }
 function renderDots(){
   document.getElementById('dots').innerHTML=FR.map(function(_,k){
@@ -107,6 +128,7 @@ function render(){
      '<button class="b-ne" data-a="ne">Ne</button></div>'+
      '<div class="fb" id="fb"></div>';
   card.innerHTML=h;
+  startSlideshows();
   Array.prototype.forEach.call(card.querySelectorAll('button[data-a]'),function(b){
     b.onclick=function(){answer(b.getAttribute('data-a'),f);};
   });

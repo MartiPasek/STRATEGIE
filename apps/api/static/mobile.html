@@ -1338,9 +1338,14 @@ setTimeout(function(){
     g4.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
     g4.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
     app.appendChild(g4);
-    sec("ŠKOLA — NERUDOVKA");
+    sec("VÝUKA & ŠKOLENÍ");
+    var g6=el('<div class="appgrid"></div>');
+    g6.appendChild(appCell("⚡","Výuka — elektro & metoda",0,function(){go("uceni");}));
+    app.appendChild(g6);
+    sec("ŠKOLY & KRAJ");
     var g5=el('<div class="appgrid"></div>');
-    g5.appendChild(appCell("🗓️","Rozvrh",0,function(){go("bk_rozvrh");}));
+    g5.appendChild(appCell("🗓️","Rozvrh Nerudovka",0,function(){go("bk_rozvrh");}));
+    g5.appendChild(appCell("🏫","Kraj — digitalizace škol",0,function(){openApp("/web/kraj");}));
     app.appendChild(g5);
     var apiInfo=el('<div style="margin:14px 6px 4px;font-size:11px;color:var(--mut);text-align:center;line-height:1.4;">API…</div>');
     app.appendChild(apiInfo);
@@ -6891,8 +6896,62 @@ setTimeout(function(){
       sect("Odkud přišli",j.refs,"ref");
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni};
 
+  function uceni(){
+    app.innerHTML=topbar("⚡ Výuka",true);
+    var W=window._uc=window._uc||{src:"electro_intro",i:0,FR:[]};
+    var tabs=el('<div style="display:flex;gap:6px;margin:6px 2px 10px;"></div>');
+    [["electro_intro","Co je elektřina"],["mp_strag_komun","Jak se učit"],["electro_rozvadec","Rozváděče"]].forEach(function(t){
+      var b=el('<button style="flex:1;padding:9px 4px;border-radius:11px;font-size:12.5px;font-weight:600;line-height:1.2;border:1px solid '+(W.src===t[0]?"#4f8ef7":"var(--bord)")+';background:'+(W.src===t[0]?"rgba(79,142,247,.14)":"rgba(255,255,255,.03)")+';color:'+(W.src===t[0]?"var(--tx)":"var(--mut)")+';">'+t[1]+'</button>');
+      b.addEventListener("click",function(){ W.src=t[0]; W.i=0; W.FR=[]; ucLoad(); });
+      tabs.appendChild(b);
+    });
+    app.appendChild(tabs);
+    app.appendChild(el('<div id="ucBox"></div>'));
+    app.appendChild(el('<div class="hint" style="text-align:center;margin:12px 4px;">Neinvazivní výuka — vše jen na třech tlačítkách. Tvoje tempo.</div>'));
+    if(W.FR.length){ ucRender(); } else { ucLoad(); }
+  }
+  function ucBarrier(f){ var c=(f.caption||"").toLowerCase(); if(c.indexOf("slovo")>=0)return"word"; if(c.indexOf("masy")>=0)return"mass"; if(c.indexOf("gradient")>=0)return"gradient"; if(f.source&&f.source.indexOf("electro")===0)return"mass"; return"none"; }
+  function ucLoad(){
+    var box=document.getElementById("ucBox"); if(box) box.innerHTML='<div class="hint" style="padding:20px;text-align:center;">Načítám…</div>';
+    api("GET","/api/v1/erp/app/learn/frames?source="+encodeURIComponent(window._uc.src),"").then(function(j){
+      var b=document.getElementById("ucBox"); if(!b) return;
+      if(!j||!j.ok){ b.innerHTML='<div class="hint" style="padding:20px;text-align:center;">Nepodařilo se načíst obsah.</div>'; return; }
+      window._uc.FR=j.frames||[]; window._uc.i=0; ucRender();
+    });
+  }
+  function ucRender(){
+    var W=window._uc, box=document.getElementById("ucBox"); if(!box) return;
+    var FR=W.FR;
+    if(W.i>=FR.length){
+      box.innerHTML='<div style="text-align:center;padding:28px 10px;"><div style="font-size:38px;color:var(--green);">✓</div><div style="font-size:17px;font-weight:700;margin:8px 0 4px;">Hotovo</div><div class="hint">Tři tlačítka, tvoje tempo — žádná bariéra nezůstala stát.</div></div>';
+      var rb=el('<button class="green full" style="margin-top:6px;">Znovu od začátku</button>'); rb.addEventListener("click",function(){W.i=0;ucRender();}); box.appendChild(rb); return;
+    }
+    var f=FR[W.i];
+    var dots=FR.map(function(_,k){return '<span style="width:7px;height:7px;border-radius:50%;display:inline-block;margin:0 3px;background:'+(k===W.i?"var(--blue,#4f8ef7)":(k<W.i?"var(--mut)":"var(--bord)"))+';"></span>';}).join("");
+    var h='<div style="text-align:center;margin-bottom:10px;">'+dots+'</div>';
+    h+='<div style="background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:16px;padding:16px;">';
+    if(f.caption) h+='<div style="font-size:13px;font-weight:600;color:var(--mut);margin-bottom:8px;">'+esc(f.caption)+'</div>';
+    if(f.description_html) h+='<div style="font-size:15px;line-height:1.6;">'+f.description_html+'</div>';
+    if(f.question) h+='<div style="font-size:17px;font-weight:700;margin:10px 0 14px;">'+f.question+'</div>';
+    h+='<div style="display:flex;gap:8px;"><button id="ucA" style="flex:1;padding:14px 4px;border-radius:12px;font-weight:700;color:#34d399;border:1px solid rgba(52,211,153,.5);background:rgba(255,255,255,.03);">Ano</button><button id="ucM" style="flex:1;padding:14px 4px;border-radius:12px;font-weight:700;color:#fbbf24;border:1px solid rgba(251,191,36,.5);background:rgba(255,255,255,.03);">Možná</button><button id="ucN" style="flex:1;padding:14px 4px;border-radius:12px;font-weight:700;color:#f87171;border:1px solid rgba(248,113,113,.5);background:rgba(255,255,255,.03);">Ne</button></div>';
+    h+='<div id="ucFb" style="margin-top:12px;"></div></div>';
+    box.innerHTML=h;
+    document.getElementById("ucA").addEventListener("click",function(){W.i++;ucRender();});
+    document.getElementById("ucM").addEventListener("click",function(){ucFb(f,"mozna");});
+    document.getElementById("ucN").addEventListener("click",function(){ucFb(f,"ne");});
+  }
+  function ucFb(f,a){
+    var b=ucBarrier(f), fb=document.getElementById("ucFb"); if(!fb)return;
+    var msg;
+    if(b==="word") msg="Žádný problém — vyjasníme slovo a jedeme dál.";
+    else if(b==="mass") msg="Podívej se na obrázek/animaci nad otázkou — co nevidíš, to si těžko představíš.";
+    else if(b==="gradient") msg="Díky, že jsi to řekl. Zpomalíme a vrátíme se o krok.";
+    else msg="Nic se neděje — vrátíme se, až budeš chtít.";
+    fb.innerHTML='<div class="hint" style="background:rgba(255,255,255,.05);border-radius:12px;padding:11px;">'+((a==="mozna")?"V pohodě, nejistota je v pořádku. ":"")+msg+'</div>';
+    var nb=el('<button class="green full" style="margin-top:10px;">Rozumím, pokračovat →</button>'); nb.addEventListener("click",function(){window._uc.i++;ucRender();}); fb.appendChild(nb);
+  }
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){
     bnav.innerHTML="";

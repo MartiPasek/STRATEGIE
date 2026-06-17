@@ -262,10 +262,10 @@ function renderTimeline(c,j){
   var tl=document.createElement('div'); tl.style.position='absolute'; tl.style.left=x(today)+'px'; tl.style.top='0'; tl.style.bottom='0'; tl.style.width='2px'; tl.style.background='#ef4444'; tl.style.opacity='.6'; tl.style.zIndex='3'; inner.appendChild(tl);
   var lh=document.createElement('div'); lh.style.height='26px'; lh.style.borderBottom='1px solid var(--bord)'; left.appendChild(lh);
   rows.forEach(function(r){
-    var ll=document.createElement('div'); ll.style.minHeight=ROWH+'px'; ll.style.padding='4px 8px'; ll.style.borderBottom='1px solid rgba(255,255,255,.05)'; ll.style.fontSize='12px'; ll.style.cursor='pointer'; ll.style.overflow='hidden'; ll.title=esc(r.cz)+' — '+esc(r.nazev);
+    var ll=document.createElement('div'); ll.style.height=ROWH+'px'; ll.style.boxSizing='border-box'; ll.style.padding='4px 8px'; ll.style.borderBottom='1px solid rgba(255,255,255,.05)'; ll.style.fontSize='12px'; ll.style.cursor='pointer'; ll.style.overflow='hidden'; ll.title=esc(r.cz)+' — '+esc(r.nazev);
     ll.innerHTML='<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span> '+esc(r.cz)+'</div>'
       +'<div class="muted" style="font-size:10px">'+(r.lidi?num(r.lidi)+' lidí':'')+(r.kalkhod?' · '+num(r.kalkhod)+'h kalk':'')+'</div>';
-    var rr=document.createElement('div'); rr.style.minHeight=ROWH+'px'; rr.style.position='relative'; rr.style.borderBottom='1px solid rgba(255,255,255,.05)';
+    var rr=document.createElement('div'); rr.style.height=ROWH+'px'; rr.style.boxSizing='border-box'; rr.style.position='relative'; rr.style.borderBottom='1px solid rgba(255,255,255,.05)';
     var od=pd(r.vyr_od), dd=pd(r.term_zak)||pd(r.vyr_do), vd=pd(r.vyr_do);
     var slip=(pd(r.term_zak)&&!pd(r.odvoz)&&pd(r.term_zak)<today);
     if(od){ var end=dd&&dd>=od?dd:(vd&&vd>=od?vd:od); var bw=Math.max(PX*2,(x(end)-x(od)));
@@ -279,22 +279,34 @@ function renderTimeline(c,j){
     left.appendChild(ll); left.appendChild(dl); inner.appendChild(rr); inner.appendChild(dr);
   });
   right.appendChild(inner); wrap.appendChild(left); wrap.appendChild(right); c.appendChild(wrap);
+  // tažení myší = posun časové osy
+  var drag={on:false,x0:0,sl:0,moved:0};
+  right.style.cursor='grab';
+  right.addEventListener('mousedown',function(e){ drag.on=true; drag.moved=0; drag.x0=e.clientX; drag.sl=right.scrollLeft; right.style.cursor='grabbing'; e.preventDefault(); });
+  window.addEventListener('mousemove',function(e){ if(!drag.on) return; var dx=e.clientX-drag.x0; drag.moved+=Math.abs(dx); right.scrollLeft=drag.sl-dx; });
+  window.addEventListener('mouseup',function(){ if(drag.on){ drag.on=false; right.style.cursor='grab'; } });
   setTimeout(function(){ try{ right.scrollLeft=Math.max(0, x(today)-180); }catch(e){} },50);
 }
 function toggleTLdet(cz, dl, dr, x, PX, col, ll, rr){
   if(dl.style.display!=='none'){ dl.style.display='none'; dr.style.display='none'; dl.innerHTML=''; dr.innerHTML='';
     if(ll){ll.style.background='';} if(rr){rr.style.background='';} return; }
   if(ll){ll.style.background='rgba(79,142,247,.13)';} if(rr){rr.style.background='rgba(79,142,247,.07)';}
-  dl.style.display='block'; dr.style.display='block'; dl.innerHTML='<span class="muted" style="font-size:10px">načítám lidi…</span>';
+  var PH=18, PADV=14;
+  dl.style.display='block'; dr.style.display='block';
+  dl.style.boxSizing='border-box'; dr.style.boxSizing='border-box';
+  dl.style.height=(PH+PADV)+'px'; dr.style.height=(PH+PADV)+'px';
+  dl.innerHTML='<span class="muted" style="font-size:10px">načítám lidi…</span>';
   function draw(lide){
     dl.innerHTML=''; dr.innerHTML='';
+    var h=(lide.length?lide.length*PH:PH)+PADV;
+    dl.style.height=h+'px'; dr.style.height=h+'px';
     if(!lide.length){ dl.innerHTML='<span class="muted" style="font-size:10px">nikdo naplánovaný</span>'; return; }
     lide.forEach(function(p){
-      var nm=document.createElement('div'); nm.style.fontSize='10px'; nm.style.height='16px'; nm.style.lineHeight='16px'; nm.style.whiteSpace='nowrap'; nm.style.overflow='hidden'; nm.style.textOverflow='ellipsis'; nm.style.color='var(--dim)';
+      var nm=document.createElement('div'); nm.style.fontSize='10px'; nm.style.height=PH+'px'; nm.style.lineHeight=PH+'px'; nm.style.whiteSpace='nowrap'; nm.style.overflow='hidden'; nm.style.textOverflow='ellipsis'; nm.style.color='var(--dim)';
       nm.textContent=(p.jmeno||('#'+p.cislo))+(p.hod?' · '+num(p.hod)+'h':''); dl.appendChild(nm);
-      var pr=document.createElement('div'); pr.style.height='16px'; pr.style.position='relative';
+      var pr=document.createElement('div'); pr.style.height=PH+'px'; pr.style.position='relative';
       var od=pd(p.od), dd=pd(p.do2);
-      if(od&&dd){ var b=document.createElement('div'); b.style.position='absolute'; b.style.left=x(od)+'px'; b.style.top='3px'; b.style.height='9px'; b.style.width=Math.max(PX*2,(x(dd)-x(od)))+'px'; b.style.background=col; b.style.opacity='.55'; b.style.borderRadius='3px'; b.title=(p.jmeno||'')+' '+fdmy(p.od)+'–'+fdmy(p.do2); pr.appendChild(b); }
+      if(od&&dd){ var b=document.createElement('div'); b.style.position='absolute'; b.style.left=x(od)+'px'; b.style.top='4px'; b.style.height='10px'; b.style.width=Math.max(PX*2,(x(dd)-x(od)))+'px'; b.style.background=col; b.style.opacity='.6'; b.style.borderRadius='3px'; b.title=(p.jmeno||'')+' '+fdmy(p.od)+'–'+fdmy(p.do2); pr.appendChild(b); }
       dr.appendChild(pr);
     });
   }

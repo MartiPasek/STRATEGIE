@@ -496,11 +496,13 @@ setTimeout(function(){
     card.appendChild(el('<div style="font-weight:800;font-size:16px;margin-bottom:4px;">Vítej v STRATEGII 👋</div>'));
     card.appendChild(el('<div style="color:#cdd8e6;font-size:13.5px;line-height:1.55;margin-bottom:10px;">Tohle je ukázka — klidně se proklikej, prohlédni si menu a co appka umí. Tvoje data se objeví, až se spáruješ s firmou. Až budeš chtít. 🌳</div>'));
     var btns=el('<div style="display:flex;flex-direction:column;gap:8px;"></div>');
-    var bPair=el('<button class="green full" style="margin:0;">🔗 Spárovat / Přihlásit se</button>');
+    var bDemo=el('<button class="green full" style="margin:0;">▶️ Vyzkoušet ukázku</button>');
+    bDemo.addEventListener("click",function(){ location.href="/api/v1/auth/demo-login?next=/mobile"; });
+    var bPair=el('<button class="ghost full" style="margin:0;">🔗 Spárovat / Přihlásit se</button>');
     bPair.addEventListener("click",function(){ location.href="/api/v1/auth/sms-login?next=/mobile"; });
     var bLead=el('<button class="ghost full" style="margin:0;">💬 Mám zájem — ozvěte se mi</button>');
     bLead.addEventListener("click",openLeadForm);
-    btns.appendChild(bPair); btns.appendChild(bLead); card.appendChild(btns);
+    btns.appendChild(bDemo); btns.appendChild(bPair); btns.appendChild(bLead); card.appendChild(btns);
     box.appendChild(card);
   }
   function openLeadForm(){

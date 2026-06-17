@@ -914,6 +914,37 @@ def verify_email_confirm(
         ds.close()
 
 
+@router.get("/demo-login", include_in_schema=False)
+def demo_login(req: Request, next: str = "/mobile"):
+    """Verejny demo/prohlidkovy rezim (Marti 17.6.2026): jeden klik -> docasna
+    session jako 'demo' uzivatel v izolovanem demo tenantu (UKAZKA s.r.o.) se
+    syntetickymi daty. ZADNA realna data lidi. Slouzi pro Apple/Google review
+    (Guideline 2.1a 'demo rezim s plnou funkcnosti') i pro verejnou prohlidku
+    appky (iOS i Android - stejny web). Nastavi jen auth cookies + redirect na
+    /mobile; zadny consume_invite (zadny spam notifikaci rodicum)."""
+    from fastapi.responses import RedirectResponse
+    from modules.core.infrastructure.models_core import User
+    cs = get_core_session()
+    try:
+        u = (
+            cs.query(User)
+            .filter_by(login_name="demo", status="active")
+            .first()
+        )
+        if u is None:
+            raise HTTPException(status_code=503, detail="Demo rezim neni pripraveny.")
+        uid = u.id
+        tenant_id = u.last_active_tenant_id
+    finally:
+        cs.close()
+    # Sanitize next: jen interni relativni cesta "/..." (anti open-redirect)
+    dest = next if (isinstance(next, str) and next.startswith("/") and not next.startswith("//")) else "/mobile"
+    resp = RedirectResponse(url=dest, status_code=303)
+    _set_auth_cookies(resp, uid, tenant_id)
+    logger.info(f"DEMO_LOGIN demo session granted user_id={uid} tenant_id={tenant_id} dest={dest}")
+    return resp
+
+
 # ── Mobile SMS login page (Phase 38 Session 2) ─────────────────────────
 
 

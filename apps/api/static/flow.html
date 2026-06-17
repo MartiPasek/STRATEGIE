@@ -63,10 +63,10 @@ var TILES=[
   {id:'obchod',  ic:'🤝', lb:'Obchod',     sm:'obchodní jednání (CRM)', ready:true},
   {id:'vp',      ic:'📋', lb:'VP',          sm:'poptávky · kalkulace · nabídky · objednávky · zakázka', ready:true},
   {id:'nakup',   ic:'🛒', lb:'Nákup',       sm:'objednávky materiálu', ready:true},
-  {id:'priprava',ic:'🧰', lb:'Příprava',    sm:'příprava výroby a materiálu', ready:false},
+  {id:'priprava',ic:'🧰', lb:'Příprava',    sm:'má ZL, ještě ne ve výrobě', ready:true},
   {id:'vyroba',  ic:'🏭', lb:'Výroba',      sm:'plán a průběh výroby', ready:true},
   {id:'zkusebna',ic:'🔬', lb:'Zkušebna',    sm:'zkušební protokoly', ready:true},
-  {id:'vyhod',   ic:'📈', lb:'Výroba — vyhodnocení', sm:'efektivita', ready:false},
+  {id:'vyhodnoceni',ic:'📈', lb:'Výroba — vyhodnocení', sm:'efektivita montérů', ready:true},
   {id:'odvozy',  ic:'🚚', lb:'Odvozy',      sm:'doprava zákazníkovi', ready:true},
   {id:'fakturace',ic:'🧾', lb:'Fakturace',  sm:'stav fakturace', ready:true},
   {id:'analyza', ic:'📊', lb:'Analýza',     sm:'kde co vázne (celý flow)', ready:true}
@@ -83,7 +83,7 @@ function api(section){
 }
 function showErr(e){ document.getElementById('sub').textContent=''; document.getElementById('content').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
 function load(){ api('').then(function(j){ DATA=j; route(); }).catch(showErr); }
-var SECVIEW={obchod:renderObchod, vyroba:renderVyroba, zkusebna:renderZkusebna, odvozy:renderOdvozy, fakturace:renderFakturace};
+var SECVIEW={obchod:renderObchod, vyroba:renderVyroba, zkusebna:renderZkusebna, odvozy:renderOdvozy, fakturace:renderFakturace, priprava:renderPriprava, vyhodnoceni:renderVyhod};
 function route(){
   var v=(location.hash||'').replace('#','')||'hub';
   var c=document.getElementById('content'); c.innerHTML='';
@@ -222,6 +222,28 @@ function renderFakturace(c,j){
   var t=document.createElement('table');
   t.innerHTML='<tr><th>Zakázka</th><th>Název</th><th>Zákazník</th><th>Pořízeno</th></tr>'+chybi.map(function(r){
     return '<tr><td>'+esc(r.cz)+'</td><td>'+esc(r.nazev)+'</td><td>'+esc(r.zakaznik)+'</td><td>'+esc(r.dat||'—')+'</td></tr>';}).join(''); c.appendChild(t);
+}
+function renderPriprava(c,j){
+  var rows=(j&&j.priprava)||[];
+  var h=document.createElement('h2'); h.textContent='Zakázky v přípravě — mají ZL, ještě ne ve výrobě ('+rows.length+')'; c.appendChild(h);
+  if(!rows.length){c.appendChild(muted('Nic v přípravě.'));return;}
+  var t=document.createElement('table');
+  t.innerHTML='<tr><th>Typ</th><th>Zakázka</th><th>Název</th></tr>'+rows.map(function(r){
+    return '<tr><td><span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span></td><td>'+esc(r.cz)+'</td><td>'+esc(r.nazev)+'</td></tr>';}).join(''); c.appendChild(t);
+}
+function renderVyhod(c,j){
+  var rows=(j&&j.vyhodnoceni)||[];
+  var avg=0; if(rows.length){ avg=Math.round(rows.reduce(function(a,r){return a+(parseInt(r.efektivita,10)||0);},0)/rows.length); }
+  var row=document.createElement('div'); row.className='row';
+  row.innerHTML='<div class="card hl"><div class="n">'+num(rows.length)+'</div><div class="t">Montéři</div></div>'
+    +'<div class="card hl"><div class="n">'+avg+' %</div><div class="t">Průměrná efektivita</div></div>';
+  c.appendChild(row);
+  var h=document.createElement('h2'); h.textContent='Efektivita montérů'; c.appendChild(h);
+  if(!rows.length){c.appendChild(muted('Žádná data.'));return;}
+  var t=document.createElement('table');
+  t.innerHTML='<tr><th>Montér</th><th>Efektivita</th><th>Projekty</th><th>Hodin/zak.</th></tr>'+rows.map(function(r){
+    var e=parseInt(r.efektivita,10)||0; var col=e>=90?'color:#10b981':(e<70?'color:#ef4444':'');
+    return '<tr><td>'+esc(r.osoba)+'</td><td><span style="'+col+';font-weight:700">'+e+' %</span></td><td>'+num(r.projekty)+'</td><td>'+esc(r.hodiny)+'</td></tr>';}).join(''); c.appendChild(t);
 }
 function renderNakup(c){
   var rows=DATA.material_po_terminu||[];

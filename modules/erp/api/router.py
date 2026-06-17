@@ -10916,6 +10916,20 @@ def app_flow(req: Request, section: str = "") -> JSONResponse:
         " WHERE LTRIM(RTRIM(StavFakturace))='Chybi faktury' OR LTRIM(RTRIM(StavFakturace))=N'Chybí faktury'"
         " ORDER BY DatumPorizeni DESC"
     )
+    priprava_sql = (
+        "SELECT TOP 150 " + _typ + " AS typ, z.CisloZakazky AS cz, z.Nazev AS nazev"
+        " FROM DB_EC.dbo.TabZakazka z WITH(NOLOCK)"
+        " WHERE z.Ukonceno=0"
+        " AND EXISTS (SELECT 1 FROM DB_EC.dbo.EC_ZakListy WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky)"
+        " AND NOT EXISTS (SELECT 1 FROM DB_EC.dbo.EC_PlanovaniVyroby WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky)"
+        " ORDER BY z.CisloZakazky DESC"
+    )
+    vyhodnoceni_sql = (
+        "SELECT TOP 100 LTRIM(RTRIM(ISNULL(Prijmeni,'')+' '+ISNULL(Jmeno,''))) AS osoba,"
+        " Efektivita AS efektivita, PocetProjektu AS projekty, CAST(PocetHodinProZak AS int) AS hodiny"
+        " FROM DB_EC.dbo.EC_Vytizeni_Efektivita WITH(NOLOCK)"
+        " WHERE Efektivita IS NOT NULL ORDER BY Efektivita DESC"
+    )
     import datetime as _dt
     out = {"ok": True, "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")}
     sec = (section or "").strip().lower()

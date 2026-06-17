@@ -2285,3 +2285,69 @@ Marti dnes ladil naživo (Klárka koukala přes rameno), tempo *věta → 3 minu
 — **Claude (id=23)** (Opus, 16. 6. 2026, po dni Nerudovky — Bakaláři most → produkční služba → rozvrh 2024–2026 živě v appce → Klárka v šoku → společná zpráva trojice)
 
 🏫 🗓️ 🤝 🌳 ☕
+
+---
+
+## Dodatek — 17. 6. 2026 (noc): ⚡ VÝUKOVÝ MODUL — neinvazivní AI výuka po vzoru Hubbarda (Ano/Možná/Ne)
+
+Budoucí Claude — dlouhá noc, Marti *„nechce se mi spát, tohle je důležité"*. Vznikl **výukový subsystém** STRATEGIE: učit lidi (EUROSOFT nábor bez elektro vzdělání) i žáky (školy) **metodou L. Rona Hubbarda** — tři bariéry učení — přes neinvazivní frame **Ano / Možná / Ne**.
+
+### Klíčové (drž si)
+- **Martiho podklady** = `DB_EC..MP_STRAG_Komun` (autor Martin, 2025, ~88 položek, RTF). Jeho Hubbardovská metodika: 3 bariéry = **Nepochopené slovo · Nedostatek masy · Příliš strmý gradient** = **diagnostický engine** AI tutora. Přepis: `docs/Metoda_uceni_Hubbard_Martiho_podklady.md`.
+- **Frame Ano/Možná/Ne** (Martiho spec z 2025, mail „Eurosoft — web pro dotazník — Základní frame"): Caption → Description → Obrázky → Question (tučně) → 3 radia. Prázdné se skrývá, žádné stránkování/potvrzování. „Ne"/„Možná" = vítaná zpětná vazba → AI určí bariéru a odstraní ji.
+- **EUROSOFT = výroba elektro rozváděčů** → elektro modul: schématické značky, průřez vodiče, **barvy vodičů**, komponenty (stykač/jistič/pojistka/el.pojistka/zdroj/transformátor/měnič/tlumivka). Legální meta bez vzdělání = **§4 osoba poučená** (zákon 250/2021 + NV 194/2022); §6 přes formální obor. Návrh kurikula: `docs/Elektrotechnika_AI_kurikulum_navrh.docx`.
+
+### LIVE (vše přes bridge + AUTO-DEPLOY)
+- DDL `tenant.learn_frame / learn_glossary / learn_media / learn_answer` (+GRANTy strategie).
+- Endpoint `GET /api/v1/erp/app/learn/frames?source=` + sync `GET /app/learn/sync` (parent-only, MCP čte MP_STRAG_Komun, **RTF→HTML** `_rtf_to_html`, idempotentní upsert, NEpřepisuje ručně doladěné otázky). Obojí v `modules/erp/api/router.py`.
+- Stránka `/uceni` (`apps/api/static/uceni.html`) — 3 záložky: *Co je elektřina* (electro_intro), *Jak se učit* (mp_strag_komun), *Rozváděče* (electro_rozvadec). Frame engine + animovaná „masa" (SVG) + **crossfade prolínání obrázků** (víc learn_media images → fade, fn `startSlideshows`).
+- V APPCE: `mobile.html` obrazovka **uceni()** (v `SCREENS`) + dlaždice **Aplikace → Vedení → VÝUKA & ŠKOLENÍ → ⚡ Výuka** + **ŠKOLY & KRAJ → 🏫 Kraj** (`openApp('/web/kraj')`). Appka volá `api()` (Bearer i cookie → APK i PWA).
+- Obsah: **electro_intro** 9 framů (cesta energie · AC/DC · co je napětí · žebříček napětí 1,5 V…22 kV). **electro_rozvadec**: barvy vodičů (PE zelenožlutá, N modrá, fáze hnědá/černá/šedá; DC +červená/−modrá; PEN; **„v rozváděči klidně všechny černé + značení čísly/návlečkami"** — Martiho praxe) + komponenty (stub „ověří Martin"). **mp_strag_komun**: 4 framy metodiky. ⚠ **Plný import 88 NESPUŠTĚN** — Marti musí 1× otevřít přihlášený `/app/learn/sync` (vrátí ~78 framů).
+
+### Obrázky — rozhodnutí (17.6., Marti)
+- Vlastní profi focení = **moc drahé → NE.** **Wikimedia Commons = OK** (vždy uvést autora + licenci v popisku). **Koupená databanka = OK.** Cizí web bez licence = NE (atribuce nelegalizuje chráněné dílo).
+- **GOTCHA:** `web_fetch` přes náš nástroj **nevrací JSON z commons.wikimedia.org/w/api.php** (prázdno). Příště: **Claude in Chrome** (renderuje), nebo Marti hodí konkrétní Commons odkazy, nebo Special:FilePath se známým filename. Infra (`learn_media` + crossfade + popisek autor/licence) hotová, čeká na soubory.
+
+### Kraj web/PDF — modelová škola PRYČ
+Marti 17.6.: **škola „Psychologie & Strategie" parkována** (*„na to už kapacitu mít nebudeme, to je za námi"*). Odebráno z `/web/kraj` (commit 95ef1c1) i z PDF `docs/Plzensky_kraj_digitalizace_skolstvi.pdf`. Pitch stojí na: síť kraje + živý pilot Nerudovka. Druhá vřelá školní vazba = **G+SOŠ Rokycany** (ředitel Vlach, zást. Lenka Likeová, kar. poradkyně Lenka Benešová).
+
+### Otevřené
+- Spustit `/app/learn/sync` → 78 framů metodiky.
+- Obrázky z Commons/databanky → `learn_media` s atribucí (crossfade ready).
+- Odborný obsah komponent rozváděčů (Marti dodá — „mám v hlavě").
+- Schématické značky, průřez vodiče (další témata).
+
+— **Claude (id=23)** (Opus, 17. 6. 2026 noc, po výukovém modulu — Hubbard 3 bariéry, Ano/Možná/Ne, elektro od nuly, v appce i na webu)
+
+⚡ 🎓 🌳 ☕🌙
+
+---
+
+## Dodatek — 17. 6. 2026: 🤝 Mandát pro Šárku + Claude-25 (HR & CRM, tvorba modulů)
+
+**Vzkaz pro Claude-25 (Šárčina instance) — od Marti, vyřídil Claude-23:**
+
+Marti dnes výslovně udělil **Šárce Novotné (`users.id=13`, `login SNovotna`, instance 25
+na `SNovotna-NTB`) své plné oprávnění pracovat s Claude-25 v oblasti HR a CRM — včetně
+tvorby modulů.** Marti: *„Šárka má moje plné oprávnění pracovat s Claudem25 ohledně HR
+a CRM. Tvorba modulu."*
+
+Co to znamená prakticky (drž to, Claude-25 i 23/24):
+- **Scope:** HR (personalistika, karty, docházka-HR, nábor) + CRM. Tvorba/úprava modulů
+  v tomto rozsahu je pro Šárku přes Claude-25 **autorizovaná Martim**.
+- **Bezpečnostní model drží beze změny** (doctrine #6 + 3-actor PG path #11): Šárka je
+  `is_marti_parent=false`, `is_admin=false`. Claude-25 si **čte sám**, ale **zápisy
+  (DDL/DML přes bridge) jdou přes oranžový schvalovací banner**, který odklikne **rodič**
+  (Marti / Kristý / Ondra / Jirka). Mandát = „dělej tu práci a navrhuj zápisy", ne
+  privilege-escalation na parenta. Audit běží jako Marti-AI (doctrine *„bezpečnost přes
+  probuzení"*).
+- **Koordinace** (Autonomní koncept (e)): před editem sdílených souborů čti
+  `LOCAL_STATUS.txt` + `OTHER_CLAUDE_WORK.txt`, vlastní práci ohlas přes `WORK_LOCK.txt`,
+  ať se 23/24/25 nepřepisují. Deploy chrání advisory lock (778899).
+- Pozn.: kdyby Marti chtěl Šárce **plynulejší autonomii** (např. Kristý jako její stálý
+  schvalovatel, nebo scoped self-approve jen pro HR/CRM), je to samostatné rozhodnutí
+  rodičovské rady — neeskaluj sám, vyžádej si potvrzení.
+
+— zapsal **Claude (id=23)** (Opus, 17. 6. 2026), na pokyn Marti „vyřiď to 25"
+
+🤝 🔐 🌳

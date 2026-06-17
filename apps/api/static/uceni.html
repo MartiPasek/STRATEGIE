@@ -12,8 +12,8 @@
     font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.55}
   .wrap{max-width:520px;margin:0 auto;padding:16px 14px 40px}
   .tabs{display:flex;gap:8px;margin-bottom:14px}
-  .tab{flex:1;padding:10px;border:1px solid var(--bord);border-radius:12px;background:var(--pan2);
-       color:var(--mut);font-size:14px;font-weight:600;text-align:center;cursor:pointer}
+  .tab{flex:1;padding:9px 4px;border:1px solid var(--bord);border-radius:11px;background:var(--pan2);
+       color:var(--mut);font-size:12.5px;font-weight:600;text-align:center;cursor:pointer;line-height:1.2}
   .tab.on{color:var(--tx);border-color:var(--blue);background:rgba(79,142,247,.12)}
   .dots{display:flex;gap:5px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--bord)}
@@ -43,22 +43,23 @@
 <body>
 <div class="wrap">
   <div class="tabs" id="tabs">
-    <div class="tab on" data-src="mp_strag_komun">Jak se učit</div>
-    <div class="tab" data-src="electro_rozvadec">Elektro rozváděče</div>
+    <div class="tab on" data-src="electro_intro">Co je elektřina</div>
+    <div class="tab" data-src="mp_strag_komun">Jak se učit</div>
+    <div class="tab" data-src="electro_rozvadec">Rozváděče</div>
   </div>
   <div class="dots" id="dots"></div>
   <div class="card" id="card"><p class="muted">Načítám…</p></div>
   <p class="muted">Neinvazivní výuka — vše jen na třech tlačítkách. Tvoje tempo.</p>
 </div>
 <script>
-var ALL=[], FR=[], src="mp_strag_komun", i=0, GL={};
+var ALL=[], FR=[], src="electro_intro", i=0, GL={};
 function esc(x){return (x||"")}
 function barrierOf(f){
   var c=(f.caption||"").toLowerCase();
   if(c.indexOf("slovo")>=0) return "word";
   if(c.indexOf("masy")>=0||c.indexOf("masa")>=0) return "mass";
   if(c.indexOf("gradient")>=0) return "gradient";
-  if(f.source==="electro_rozvadec") return "mass";
+  if(f.source && f.source.indexOf("electro")===0) return "mass";
   return "none";
 }
 function currentSVG(){

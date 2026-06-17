@@ -498,33 +498,10 @@ setTimeout(function(){
     var btns=el('<div style="display:flex;flex-direction:column;gap:8px;"></div>');
     var bPair=el('<button class="green full" style="margin:0;">🔗 Spárovat / Přihlásit se</button>');
     bPair.addEventListener("click",function(){ location.href="/api/v1/auth/sms-login?next=/mobile"; });
-    var bAct=el('<button class="ghost full" style="margin:0;">✉️ Aktivovat účet e-mailem</button>');
-    bAct.addEventListener("click",openActivateForm);
     var bLead=el('<button class="ghost full" style="margin:0;">💬 Mám zájem — ozvěte se mi</button>');
     bLead.addEventListener("click",openLeadForm);
-    btns.appendChild(bPair); btns.appendChild(bAct); btns.appendChild(bLead); card.appendChild(btns);
+    btns.appendChild(bPair); btns.appendChild(bLead); card.appendChild(btns);
     box.appendChild(card);
-  }
-  function openActivateForm(){
-    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:300;display:flex;flex-direction:column;justify-content:center;padding:24px;gap:10px;"></div>');
-    ov.appendChild(el('<div style="font-weight:800;font-size:19px;">Aktivace účtu ✉️</div>'));
-    ov.appendChild(el('<div class="hint" style="line-height:1.55;">Zadej firemní e-mail, který máš u nás registrovaný. Pošleme na něj odkaz pro nastavení hesla a aktivaci účtu.</div>'));
-    var em=el('<input placeholder="tvuj@email.cz" autocomplete="email" inputmode="email" style="margin:0;">');
-    var st=el('<div class="hint" style="min-height:16px;"></div>');
-    var send=el('<button class="green full" style="margin:0;">Poslat aktivační e-mail</button>');
-    var cl=el('<button class="ghost full" style="margin:0;">Zavřít</button>');
-    cl.addEventListener("click",function(){ ov.remove(); });
-    send.addEventListener("click",function(){
-      var e=(em.value||"").trim();
-      if(!e || e.indexOf("@")<1){ st.textContent="Zadej platný e-mail."; return; }
-      send.disabled=true; st.textContent="Odesílám…";
-      fetch("/api/v1/auth/forgot-password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:e})})
-        .then(function(r){ return r.json().catch(function(){return {};}); })
-        .then(function(){ st.textContent="Hotovo ✓ Pokud je e-mail u nás registrovaný, odkaz pro aktivaci dorazil do schránky."; send.disabled=false; })
-        .catch(function(){ st.textContent="Chyba odeslání, zkus to prosím znovu."; send.disabled=false; });
-    });
-    ov.appendChild(em); ov.appendChild(send); ov.appendChild(st); ov.appendChild(cl);
-    document.body.appendChild(ov);
   }
   function openLeadForm(){
     var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:300;display:flex;flex-direction:column;justify-content:center;padding:24px;gap:10px;"></div>');

@@ -60,6 +60,7 @@
 var DATA=null, SEC={}, FILTER='ALL';
 // poradi dle Marti: Obchod - VP - Nakup - Priprava - Vyroba - Zkusebna - Vyroba vyhodnoceni - Odvozy - Fakturace - Analyza
 var TILES=[
+  {id:'timeline',ic:'🗓️', lb:'Časová osa', sm:'běh všech zakázek na časové ose', ready:true},
   {id:'obchod',  ic:'🤝', lb:'Obchod',     sm:'obchodní jednání (CRM)', ready:true},
   {id:'vp',      ic:'📋', lb:'VP',          sm:'poptávky · kalkulace · nabídky · objednávky · zakázka', ready:true},
   {id:'zl',      ic:'📑', lb:'Zakázkové listy', sm:'výrobní listy — termíny · materiál · hodiny', ready:true},
@@ -84,7 +85,7 @@ function api(section){
 }
 function showErr(e){ document.getElementById('sub').textContent=''; document.getElementById('content').innerHTML='<div class="err">'+esc(e.message)+'</div>'; }
 function load(){ api('').then(function(j){ DATA=j; route(); }).catch(showErr); }
-var SECVIEW={obchod:renderObchod, vyroba:renderVyroba, zkusebna:renderZkusebna, odvozy:renderOdvozy, fakturace:renderFakturace, priprava:renderPriprava, vyhodnoceni:renderVyhod, zl:renderZl};
+var SECVIEW={timeline:renderTimeline, obchod:renderObchod, vyroba:renderVyroba, zkusebna:renderZkusebna, odvozy:renderOdvozy, fakturace:renderFakturace, priprava:renderPriprava, vyhodnoceni:renderVyhod, zl:renderZl};
 function route(){
   var v=(location.hash||'').replace('#','')||'hub';
   var c=document.getElementById('content'); c.innerHTML='';
@@ -223,6 +224,44 @@ function renderFakturace(c,j){
   var t=document.createElement('table');
   t.innerHTML='<tr><th>Zakázka</th><th>Název</th><th>Zákazník</th><th>Pořízeno</th></tr>'+chybi.map(function(r){
     return '<tr><td>'+esc(r.cz)+'</td><td>'+esc(r.nazev)+'</td><td>'+esc(r.zakaznik)+'</td><td>'+esc(r.dat||'—')+'</td></tr>';}).join(''); c.appendChild(t);
+}
+function pd(s){ if(!s) return null; var p=String(s).split('-'); if(p.length<3) return null; var d=new Date(+p[0],+p[1]-1,+p[2]); return isNaN(d)?null:d; }
+function renderTimeline(c,j){
+  var rows=(j&&j.timeline)||[];
+  if(!rows.length){ c.appendChild(muted('Žádné zakázky s naplánovaným během (výroba/termíny).')); return; }
+  var leg=document.createElement('div'); leg.className='muted'; leg.style.fontSize='12px'; leg.style.margin='2px 2px 10px';
+  leg.innerHTML='Pruh = výroba (barva dle typu) · 🔧 termín materiálu · 🔬 zkušebna · 🚚 odvoz · 🎯 termín k zákazníkovi · červená čára = dnes. Posuň vodorovně.';
+  c.appendChild(leg);
+  var today=new Date(); today.setHours(0,0,0,0);
+  var min=today, max=today, KEYS=['vyr_od','vyr_do','term_mat','term_zak','zkusebna','odvoz'];
+  rows.forEach(function(r){ KEYS.forEach(function(k){ var d=pd(r[k]); if(d){ if(d<min)min=d; if(d>max)max=d; } }); });
+  min=new Date(min.getTime()-7*864e5); max=new Date(max.getTime()+7*864e5);
+  var PX=8, totalDays=Math.round((max-min)/864e5)+1, W=totalDays*PX;
+  function x(d){ return Math.round((d-min)/864e5)*PX; }
+  var TC={VR:'#10b981',SW:'#4f8ef7',PR:'#a78bfa',OST:'#64748b'};
+  var wrap=document.createElement('div'); wrap.style.display='flex'; wrap.style.border='1px solid var(--bord)'; wrap.style.borderRadius='12px'; wrap.style.overflow='hidden';
+  var left=document.createElement('div'); left.style.flex='none'; left.style.width='150px'; left.style.background='var(--card)'; left.style.borderRight='1px solid var(--bord)';
+  var right=document.createElement('div'); right.style.flex='1'; right.style.overflowX='auto';
+  var inner=document.createElement('div'); inner.style.width=W+'px'; inner.style.position='relative';
+  var ax=document.createElement('div'); ax.style.height='26px'; ax.style.position='relative'; ax.style.borderBottom='1px solid var(--bord)'; ax.style.fontSize='10px'; ax.style.color='var(--dim)';
+  var cur=new Date(min.getFullYear(),min.getMonth(),1);
+  while(cur<max){ var lx=x(cur); if(lx>=0){ var tk=document.createElement('div'); tk.style.position='absolute'; tk.style.left=lx+'px'; tk.style.top='4px'; tk.style.borderLeft='1px solid var(--bord)'; tk.style.paddingLeft='3px'; tk.style.height='20px'; tk.textContent=('0'+(cur.getMonth()+1)).slice(-2)+'/'+cur.getFullYear(); ax.appendChild(tk); } cur=new Date(cur.getFullYear(),cur.getMonth()+1,1); }
+  inner.appendChild(ax);
+  var tl=document.createElement('div'); tl.style.position='absolute'; tl.style.left=x(today)+'px'; tl.style.top='0'; tl.style.bottom='0'; tl.style.width='2px'; tl.style.background='#ef4444'; tl.style.opacity='.6'; tl.style.zIndex='2'; inner.appendChild(tl);
+  var lh=document.createElement('div'); lh.style.height='26px'; lh.style.borderBottom='1px solid var(--bord)'; left.appendChild(lh);
+  rows.forEach(function(r){
+    var ll=document.createElement('div'); ll.style.height='30px'; ll.style.lineHeight='30px'; ll.style.padding='0 8px'; ll.style.borderBottom='1px solid rgba(255,255,255,.05)'; ll.style.fontSize='12px'; ll.style.whiteSpace='nowrap'; ll.style.overflow='hidden'; ll.style.textOverflow='ellipsis'; ll.title=esc(r.cz)+' — '+esc(r.nazev);
+    ll.innerHTML='<span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span> '+esc(r.cz); left.appendChild(ll);
+    var rr=document.createElement('div'); rr.style.height='30px'; rr.style.position='relative'; rr.style.borderBottom='1px solid rgba(255,255,255,.05)';
+    var od=pd(r.vyr_od), dd=pd(r.vyr_do);
+    if(od&&dd&&dd>=od){ var bar=document.createElement('div'); bar.style.position='absolute'; bar.style.left=x(od)+'px'; bar.style.top='8px'; bar.style.height='14px'; bar.style.width=Math.max(PX,(x(dd)-x(od)))+'px'; bar.style.background=TC[r.typ]||TC.OST; bar.style.borderRadius='4px'; bar.style.opacity='.85'; bar.title='Výroba '+r.vyr_od+' – '+r.vyr_do; rr.appendChild(bar); }
+    function dot(dstr,sym,lbl){ var d=pd(dstr); if(!d) return; var m=document.createElement('div'); m.style.position='absolute'; m.style.left=(x(d)-7)+'px'; m.style.top='5px'; m.style.fontSize='13px'; m.style.zIndex='1'; m.textContent=sym; m.title=lbl+' '+dstr; rr.appendChild(m); }
+    dot(r.term_mat,'🔧','Termín materiálu'); dot(r.zkusebna,'🔬','Zkušebna'); dot(r.odvoz,'🚚','Odvoz'); dot(r.term_zak,'🎯','Termín k zákazníkovi');
+    inner.appendChild(rr);
+  });
+  right.appendChild(inner); wrap.appendChild(left); wrap.appendChild(right); c.appendChild(wrap);
+  // skok na dnes
+  setTimeout(function(){ try{ right.scrollLeft=Math.max(0, x(today)-200); }catch(e){} },50);
 }
 function renderZl(c,j){
   var rows=(j&&j.zl)||[];

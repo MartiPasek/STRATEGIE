@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stav zakázek — EUROSOFT</title>
+<style>
+  :root{ --bg:#0e1622; --card:#16202e; --bord:#243347; --tx:#e6edf5; --dim:#9fb0c2; --navy:#4f8ef7;
+         --green:#10b981; --amber:#f59e0b; --red:#ef4444; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:18px}
+  h1{font-size:22px;margin:0 0 2px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:16px}
+  .row{display:flex;flex-wrap:wrap;gap:12px}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:14px;padding:14px 16px}
+  .hl{flex:1;min-width:240px;cursor:pointer;transition:transform .1s}
+  .hl:active{transform:scale(.99)}
+  .hl .n{font-size:34px;font-weight:800;line-height:1}
+  .hl .t{font-size:13.5px;color:var(--dim);margin-top:6px}
+  .hl.amber{border-color:#7a5a13}.hl.amber .n{color:var(--amber)}
+  .hl.blue{border-color:#27406b}.hl.blue .n{color:var(--navy)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 10px}
+  .chip{padding:7px 14px;border-radius:999px;border:1px solid var(--bord);background:transparent;color:var(--dim);cursor:pointer;font-size:14px}
+  .chip.on{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:600}
+  .pipe{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .st{flex:1;min-width:120px;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:12px;text-align:center}
+  .st .n{font-size:26px;font-weight:700}
+  .st .l{font-size:12.5px;color:var(--dim);margin-top:4px}
+  .st.zkus{border-color:#7a5a13}.st.zkus .n{color:var(--amber)}
+  .st.fakt{border-color:#27406b}.st.fakt .n{color:var(--navy)}
+  h2{font-size:16px;margin:26px 0 8px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bord)}
+  th{color:var(--dim);font-weight:600}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;background:#1f2d40;color:var(--dim)}
+  .badge.VR{background:#13361f;color:#5fd08a}.badge.SW{background:#27406b;color:#9cc1ff}.badge.PR{background:#3a2a55;color:#c9a9f5}
+  button.rf{background:var(--card);border:1px solid var(--bord);color:var(--tx);border-radius:10px;padding:8px 14px;cursor:pointer;font-size:14px}
+  .funnel{color:var(--dim);font-size:13px;margin-top:6px}
+  .muted{color:var(--dim)}
+  .err{background:#3a1414;border:1px solid #7a2020;color:#f3b4b4;padding:12px;border-radius:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Stav zakázek — EUROSOFT</h1>
+  <div class="sub" id="sub">Načítám živá data z Centrály…</div>
+  <div id="content"></div>
+</div>
+<script>
+'use strict';
+var DATA=null, FILTER='ALL';
+var STAGES=[['2_bezzl','Bez ZL',''],['3_zl','Zakázkový list',''],['4_vyr','Ve výrobě',''],
+            ['5_zkus','Zkušebna → fakturovat','zkus'],['6_fakt','Fakturováno → zavřít','fakt']];
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+function num(n){return (n||0).toLocaleString('cs-CZ');}
+
+function load(){
+  fetch('/api/v1/erp/app/flow',{credentials:'same-origin'})
+    .then(function(r){ if(r.status===401||r.status===403){throw new Error('Tento přehled je jen pro vedení (přihlas se jako rodič).');} return r.json(); })
+    .then(function(j){ if(!j.ok){ throw new Error(j.error||'chyba'); } DATA=j; render(); })
+    .catch(function(e){ document.getElementById('sub').textContent=''; document.getElementById('content').innerHTML='<div class="err">'+esc(e.message)+'</div>'; });
+}
+
+function stageCounts(typ){
+  var m={'2_bezzl':0,'3_zl':0,'4_vyr':0,'5_zkus':0,'6_fakt':0};
+  (DATA.stages||[]).forEach(function(r){
+    if(typ==='ALL'||r.typ===typ){ m[r.faza]=(m[r.faza]||0)+(r.pocet||0); }
+  });
+  return m;
+}
+function listFor(arr,typ){ return (arr||[]).filter(function(r){return typ==='ALL'||r.typ===typ;}); }
+
+function render(){
+  document.getElementById('sub').textContent='Živá data z Centrály · '+esc(DATA.generated||'')+' · jen čtení, nic se nemění';
+  var nef=DATA.nefakturovano||[], neu=DATA.neuzavreno||[];
+  var c=document.getElementById('content'); c.innerHTML='';
+
+  // highlight cards
+  var hl=document.createElement('div'); hl.className='row';
+  hl.innerHTML=
+    '<div class="card hl amber" onclick="document.getElementById(\'t-nef\').scrollIntoView({behavior:\'smooth\'})">'
+    +'<div class="n">'+num(nef.length)+'</div><div class="t">💰 Po zkušebně, NEfakturováno — peníze čekají na fakturu</div></div>'
+    +'<div class="card hl blue" onclick="document.getElementById(\'t-neu\').scrollIntoView({behavior:\'smooth\'})">'
+    +'<div class="n">'+num(neu.length)+'</div><div class="t">📁 Fakturováno, NEuzavřeno — k uzavření / úklidu</div></div>';
+  c.appendChild(hl);
+
+  // funnel
+  var f={}; (DATA.funnel||[]).forEach(function(r){f[String(r.rada).trim()]=r;});
+  var fl=document.createElement('div'); fl.className='funnel';
+  function ff(k){var x=f[k];return x?num(x.pocet):'0';}
+  fl.innerHTML='Obchodní trychtýř (2024+): poptávky <b>'+ff('900')+'</b> → nabídky <b>'+ff('910')+'</b> → přijaté objednávky <b>'+ff('920')+'</b>';
+  c.appendChild(fl);
+
+  // type chips
+  var chips=document.createElement('div'); chips.className='chips';
+  [['ALL','Vše'],['VR','VR · výroba (001)'],['SW','SW · software (002)'],['PR','PR (001)'],['OST','Ostatní']].forEach(function(t){
+    var b=document.createElement('button'); b.className='chip'+(FILTER===t[0]?' on':''); b.textContent=t[1];
+    b.onclick=function(){FILTER=t[0];render();}; chips.appendChild(b);
+  });
+  c.appendChild(chips);
+
+  // pipeline
+  var m=stageCounts(FILTER);
+  var pipe=document.createElement('div'); pipe.className='pipe';
+  STAGES.forEach(function(s){
+    var d=document.createElement('div'); d.className='st'+(s[2]?(' '+s[2]):'');
+    d.innerHTML='<div class="n">'+num(m[s[0]])+'</div><div class="l">'+s[1]+'</div>';
+    pipe.appendChild(d);
+  });
+  c.appendChild(pipe);
+  var tot=document.createElement('div'); tot.className='muted'; tot.style.fontSize='13px'; tot.style.margin='2px 0 6px';
+  tot.textContent='Otevřených zakázek '+(FILTER==='ALL'?'celkem':FILTER)+': '+num(m['2_bezzl']+m['3_zl']+m['4_vyr']+m['5_zkus']+m['6_fakt']);
+  c.appendChild(tot);
+
+  // tables
+  c.appendChild(mkTable('t-nef','💰 Po zkušebně, nefakturováno','Datum zkušebny',listFor(nef,FILTER)));
+  c.appendChild(mkTable('t-neu','📁 Fakturováno, neuzavřeno','Datum faktury',listFor(neu,FILTER)));
+
+  var rf=document.createElement('button'); rf.className='rf'; rf.textContent='🔄 Obnovit'; rf.style.marginTop='18px';
+  rf.onclick=function(){document.getElementById('sub').textContent='Načítám…';load();}; c.appendChild(rf);
+}
+
+function mkTable(id,title,datLabel,rows){
+  var w=document.createElement('div');
+  var h=document.createElement('h2'); h.id=id; h.textContent=title+' ('+rows.length+')'; w.appendChild(h);
+  if(!rows.length){ var p=document.createElement('div'); p.className='muted'; p.textContent='Nic tu není 🎉'; w.appendChild(p); return w; }
+  var t=document.createElement('table');
+  t.innerHTML='<tr><th>Typ</th><th>Zakázka</th><th>Název</th><th>'+datLabel+'</th></tr>'+
+    rows.map(function(r){return '<tr><td><span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span></td><td>'+esc(r.cz)+'</td><td>'+esc(r.nazev)+'</td><td>'+esc(r.dat||'—')+'</td></tr>';}).join('');
+  w.appendChild(t); return w;
+}
+load();
+</script>
+</body>
+</html>

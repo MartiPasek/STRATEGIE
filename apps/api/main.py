@@ -815,6 +815,16 @@ def privacy_page():
                         headers={"Cache-Control": "public, max-age=3600"})
 
 
+@app.get("/flow")
+def flow_page():
+    """Stav zakázek — read-only board nad Centrálou (flow zakázek). Data z /app/flow,
+    gate parent-only v API. Funguje desktop i mobil. SAMEORIGIN pro embed v ERP. Marti 17.6.2026."""
+    return FileResponse(os.path.join(static_dir, "flow.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/web")
 def web_landing():
     """Veřejný marketingový web — ekosystém EUROSOFT × STRATEGIE × IQHUBS.

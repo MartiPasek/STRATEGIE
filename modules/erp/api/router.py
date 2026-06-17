@@ -10755,6 +10755,107 @@ def _learn_term_of(cap):
     return t.rstrip("? ").strip()
 
 
+@api_router.get("/app/flow")
+def app_flow(req: Request) -> JSONResponse:
+    """Read-only 'Stav zakazek' board nad DB_EC (Centrala) - Marti 17.6.2026.
+    Faze odvozena z existence ZL / vyroby / zkusebny / faktury (vse pres CisloZakazky).
+    Typ VR/SW/PR z prefixu cisla zakazky. Zaseknute: po zkusebne nefakturovano; fakturovano neuzavreno.
+    NIC nezapisuje do Centraly (jen cte pres eurosoft_strategie_query_raw)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import json as _j
+    cm, s = _att_session()
+    try:
+        isp = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                        {"u": int(uid)}).scalar()
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+    if not isp:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "mcp_unavailable"}, status_code=503)
+
+    def _q(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error"))[:200])
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]
+                    break
+        elif isinstance(r, list):
+            rows = r
+        return [{(k or "").lower(): v for k, v in d.items()} for d in rows]
+
+    _typ = ("CASE WHEN z.CisloZakazky LIKE 'VR%' THEN 'VR' WHEN z.CisloZakazky LIKE 'SW%' THEN 'SW' "
+            "WHEN z.CisloZakazky LIKE 'PR%' THEN 'PR' ELSE 'OST' END")
+    stages_sql = (
+        "SELECT typ, faza, COUNT(*) AS pocet FROM ("
+        " SELECT " + _typ + " AS typ,"
+        " CASE WHEN f.c>0 THEN '6_fakt' WHEN zk.c>0 THEN '5_zkus' WHEN v.c>0 THEN '4_vyr'"
+        " WHEN zl.c>0 THEN '3_zl' ELSE '2_bezzl' END AS faza"
+        " FROM DB_EC.dbo.TabZakazka z WITH(NOLOCK)"
+        " OUTER APPLY (SELECT COUNT(*) c FROM DB_EC.dbo.EC_ZakListy WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) zl"
+        " OUTER APPLY (SELECT COUNT(*) c FROM DB_EC.dbo.EC_PlanovaniVyroby WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) v"
+        " OUTER APPLY (SELECT COUNT(*) c FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) zk"
+        " OUTER APPLY (SELECT COUNT(*) c FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL) f"
+        " WHERE z.Ukonceno=0"
+        ") q GROUP BY typ, faza"
+    )
+    funnel_sql = (
+        "SELECT RadaDokladu AS rada, COUNT(*) AS pocet,"
+        " SUM(CASE WHEN Splneno=1 THEN 1 ELSE 0 END) AS splneno"
+        " FROM DB_EC.dbo.TabDokladyZbozi WITH(NOLOCK)"
+        " WHERE RadaDokladu IN ('900','910','920') AND DatPorizeni >= '2024-01-01'"
+        " GROUP BY RadaDokladu"
+    )
+    nefakt_sql = (
+        "SELECT TOP 100 " + _typ + " AS typ, z.CisloZakazky AS cz, z.Nazev AS nazev,"
+        " CONVERT(varchar,(SELECT MAX(DatumVyroby) FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK)"
+        "   WHERE CisloZakazky=z.CisloZakazky),104) AS dat"
+        " FROM DB_EC.dbo.TabZakazka z WITH(NOLOCK)"
+        " WHERE z.Ukonceno=0"
+        " AND EXISTS (SELECT 1 FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky)"
+        " AND NOT EXISTS (SELECT 1 FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL)"
+        " ORDER BY (SELECT MAX(DatumVyroby) FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) DESC"
+    )
+    neuzavr_sql = (
+        "SELECT TOP 100 " + _typ + " AS typ, z.CisloZakazky AS cz, z.Nazev AS nazev,"
+        " CONVERT(varchar,(SELECT MAX(DatPorizeni) FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL),104) AS dat"
+        " FROM DB_EC.dbo.TabZakazka z WITH(NOLOCK)"
+        " WHERE z.Ukonceno=0"
+        " AND EXISTS (SELECT 1 FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL)"
+        " ORDER BY (SELECT MAX(DatPorizeni) FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL) DESC"
+    )
+    try:
+        stages = _q(stages_sql)
+        funnel = _q(funnel_sql)
+        nefakt = _q(nefakt_sql)
+        neuzavr = _q(neuzavr_sql)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
+    import datetime as _dt
+    return JSONResponse({"ok": True, "stages": stages, "funnel": funnel,
+                         "nefakturovano": nefakt, "neuzavreno": neuzavr,
+                         "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
+
+
 @api_router.get("/app/learn/sync")
 async def app_learn_sync(req: Request) -> JSONResponse:
     """Plný import Martiho báze MP_STRAG_Komun (DB_EC) -> tenant.learn_frame (RTF->HTML).

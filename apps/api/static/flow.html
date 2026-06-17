@@ -282,7 +282,7 @@ function renderTimeline(c,j){
     // detail kontejnery (lide)
     var dl=document.createElement('div'); dl.style.display='none'; dl.style.padding='6px 8px 8px 12px'; dl.style.background='rgba(79,142,247,.13)'; dl.style.borderLeft='3px solid #4f8ef7';
     var dr=document.createElement('div'); dr.style.display='none'; dr.style.position='relative'; dr.style.padding='6px 0 8px'; dr.style.background='rgba(79,142,247,.07)';
-    ll.onclick=function(){ toggleTLdet(r.cz, dl, dr, x, PX, TC[r.typ]||TC.OST, ll, rr); };
+    ll.onclick=function(){ openZakModal(r); };
     left.appendChild(ll); left.appendChild(dl); inner.appendChild(rr); inner.appendChild(dr);
   });
   right.appendChild(inner); wrap.appendChild(left); wrap.appendChild(right); c.appendChild(wrap);
@@ -323,6 +323,50 @@ function toggleTLdet(cz, dl, dr, x, PX, col, ll, rr){
     .then(function(j){ var l=(j&&j.lide)||[]; TLDET[cz]=l; draw(l); })
     .catch(function(){ dl.innerHTML='<span class="muted" style="font-size:10px">chyba</span>'; });
 }
+function closeZakModal(){ var m=document.getElementById('zakmodal'); if(m) m.remove(); }
+function openZakModal(r){
+  closeZakModal();
+  var ov=document.createElement('div'); ov.id='zakmodal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.onclick=function(e){ if(e.target===ov) closeZakModal(); };
+  var box=document.createElement('div');
+  box.style.cssText='background:var(--bg,#0e1726);border:1px solid var(--bord,#243044);border-radius:14px;max-width:720px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)';
+  var TC={VR:'#10b981',SW:'#4f8ef7',PR:'#a78bfa',OST:'#64748b'};
+  function row(lbl,val){ return val?('<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span class="muted" style="font-size:13px">'+lbl+'</span><span style="font-size:13px;font-weight:600">'+val+'</span></div>'):''; }
+  var head='<div style="display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--bord,#243044);position:sticky;top:0;background:var(--bg,#0e1726)">'
+    +'<span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span>'
+    +'<div style="flex:1"><div style="font-size:17px;font-weight:700">'+esc(r.cz)+'</div><div class="muted" style="font-size:12px">'+esc(r.nazev||'')+'</div></div>'
+    +'<button onclick="closeZakModal()" style="background:none;border:0;color:var(--dim,#8aa);font-size:22px;cursor:pointer;line-height:1">×</button></div>';
+  var info='<div style="padding:14px 18px">'
+    + row('Okno výroby', (r.vyr_od?fdmy(r.vyr_od):'?')+' – '+(r.vyr_do?fdmy(r.vyr_do):'?'))
+    + row('Naplánováno lidí', r.lidi?num(r.lidi):'0')
+    + row('Plán hodin (montéři)', r.planhod?num(r.planhod)+' h':'')
+    + row('Kalkulováno (zak. list)', r.kalkhod?num(r.kalkhod)+' h':'')
+    + row('Termín materiálu 🔧', r.term_mat?fdmy(r.term_mat):'')
+    + row('Termín k zákazníkovi 🎯', r.term_zak?fdmy(r.term_zak):'')
+    + row('Zkušebna 🔬', r.zkusebna?fdmy(r.zkusebna):'')
+    + row('Odvoz 🚚', r.odvoz?fdmy(r.odvoz):'')
+    +'</div>';
+  var ppl='<div style="padding:0 18px 18px"><div style="font-size:14px;font-weight:600;margin:6px 0 8px">👷 Lidé na zakázce</div><div id="zm-ppl" class="muted" style="font-size:13px">načítám…</div></div>';
+  box.innerHTML=head+info+ppl;
+  ov.appendChild(box); document.body.appendChild(ov);
+  function drawPpl(lide){
+    var el=document.getElementById('zm-ppl'); if(!el) return;
+    if(!lide.length){ el.textContent='Nikdo naplánovaný.'; return; }
+    var t='<table style="width:100%;border-collapse:collapse;font-size:13px">'
+      +'<tr style="text-align:left;color:var(--dim,#8aa)"><th style="padding:4px 6px">Jméno</th><th style="padding:4px 6px">Hodin</th><th style="padding:4px 6px">Od</th><th style="padding:4px 6px">Do</th><th style="padding:4px 6px">Akce</th></tr>'
+      +lide.map(function(p){ return '<tr style="border-top:1px solid rgba(255,255,255,.06)"><td style="padding:6px">'+esc(p.jmeno||('#'+p.cislo))+'</td><td style="padding:6px">'+(p.hod?num(p.hod)+' h':'—')+'</td><td style="padding:6px">'+(p.od?fdmy(p.od):'—')+'</td><td style="padding:6px">'+(p.do2?fdmy(p.do2):'—')+'</td><td style="padding:6px"><button disabled style="background:rgba(255,255,255,.06);border:1px solid var(--bord,#243044);color:var(--dim,#8aa);border-radius:6px;padding:3px 8px;font-size:12px;cursor:not-allowed" title="Řízení přesunu připravujeme">⇄ Přesun</button></td></tr>'; }).join('')
+      +'</table>'
+      +'<div class="muted" style="font-size:11px;margin-top:10px">Řízení přesunu lidí připravuji — čeká na rozhodnutí, kam se přesun ukládá (vlastní vrstva STRATEGIE vs. zápis do Centrály).</div>';
+    el.innerHTML=t;
+  }
+  if(TLDET[r.cz]){ drawPpl(TLDET[r.cz]); }
+  else fetch('/api/v1/erp/app/flow?section=timeline&cz='+encodeURIComponent(r.cz),{credentials:'same-origin'})
+    .then(function(rs){return rs.json();})
+    .then(function(j){ var l=(j&&j.lide)||[]; TLDET[r.cz]=l; drawPpl(l); })
+    .catch(function(){ var el=document.getElementById('zm-ppl'); if(el) el.textContent='Chyba načítání.'; });
+}
+document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeZakModal(); });
 function renderZl(c,j){
   var rows=(j&&j.zl)||[];
   var noord=rows.filter(function(r){return !r.objednano;}).length;

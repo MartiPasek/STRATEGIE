@@ -10610,6 +10610,186 @@ async def app_learn_frames(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _rtf_to_html(rtf):
+    """Jednoduchý RTF -> HTML (pro MP_STRAG_Komun). Decoduje \\uN a \\'XX (cp1250),
+    \\par -> odstavec, ignoruje font/color/list tabulky. Marti 17.6.2026."""
+    import re as _re
+    if not rtf:
+        return ""
+    if "\\rtf" not in rtf[:20]:
+        t = rtf.strip()
+        esc = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return "".join("<p>" + p.strip() + "</p>" for p in esc.split("\n") if p.strip())
+    ign = {"fonttbl", "colortbl", "stylesheet", "listtable", "listoverridetable", "info",
+           "generator", "pict", "object", "themedata", "colorschememapping", "latentstyles",
+           "datastore", "pntext", "pntxta", "pntxtb", "listtext", "xmlnstbl", "filetbl", "revtbl"}
+    buf = []
+    stack = [{"ig": False}]
+    i = 0
+    n = len(rtf)
+    while i < n:
+        c = rtf[i]
+        if c == "{":
+            stack.append(dict(stack[-1]))
+            i += 1
+            continue
+        if c == "}":
+            if len(stack) > 1:
+                stack.pop()
+            i += 1
+            continue
+        if c == "\\":
+            m = _re.match(r"\\([a-zA-Z]+)(-?\d+)? ?", rtf[i:])
+            if m:
+                w = m.group(1)
+                a = m.group(2)
+                i += m.end()
+                if w == "u":
+                    if not stack[-1]["ig"]:
+                        try:
+                            buf.append(chr(int(a)))
+                        except Exception:
+                            pass
+                    if rtf[i:i + 2] == "\\'":
+                        i += 4
+                    elif i < n and rtf[i] not in "\\{}":
+                        i += 1
+                elif w in ("par", "line"):
+                    if not stack[-1]["ig"]:
+                        buf.append("\n")
+                elif w == "tab":
+                    if not stack[-1]["ig"]:
+                        buf.append(" ")
+                elif w in ign:
+                    stack[-1]["ig"] = True
+                continue
+            two = rtf[i:i + 2]
+            if two == "\\'":
+                hx = rtf[i + 2:i + 4]
+                i += 4
+                if not stack[-1]["ig"]:
+                    try:
+                        buf.append(bytes([int(hx, 16)]).decode("cp1250"))
+                    except Exception:
+                        pass
+                continue
+            if two in ("\\\\", "\\{", "\\}"):
+                if not stack[-1]["ig"]:
+                    buf.append(two[1])
+                i += 2
+                continue
+            if two == "\\*":
+                stack[-1]["ig"] = True
+                i += 2
+                continue
+            i += 1
+            continue
+        if not stack[-1]["ig"]:
+            buf.append(c)
+        i += 1
+    txt = "".join(buf)
+    paras = [p.strip() for p in txt.split("\n") if p.strip()]
+    esc = lambda x: x.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return "".join("<p>" + esc(p) + "</p>" for p in paras)
+
+
+def _learn_term_of(cap):
+    t = (cap or "").strip()
+    for pref in ("Co to jsou ", "Co to je ", "Kdo to je ", "Kdo je ", "Kdo byl "):
+        if t.lower().startswith(pref.lower()):
+            t = t[len(pref):]
+            break
+    return t.rstrip("? ").strip()
+
+
+@api_router.get("/app/learn/sync")
+async def app_learn_sync(req: Request) -> JSONResponse:
+    """Plný import Martiho báze MP_STRAG_Komun (DB_EC) -> tenant.learn_frame (RTF->HTML).
+    Parent-only, idempotentní upsert. Zachovává ručně doladěné otázky. Marti 17.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import json as _j
+    cm, s = _att_session()
+    try:
+        isp = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                        {"u": int(uid)}).scalar()
+        if not isp:
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        mcp = get_eurosoft_mcp_client()
+        if mcp is None:
+            return JSONResponse({"ok": False, "error": "mcp_unavailable"}, status_code=503)
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": "SELECT ID, ID_Nadrazene, Poradi, Tema, Typ, Predmet, Text, Autor "
+                                         "FROM MP_STRAG_Komun WHERE Aktivni=1", "db_name": "DB_EC"},
+                                 conversation_id=None)
+        r = _j.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                return JSONResponse({"ok": False, "error": str(r.get("error"))[:200]}, status_code=502)
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]
+                    break
+        elif isinstance(r, list):
+            rows = r
+        nf = 0
+        ng = 0
+        for d in rows:
+            row = {(k or "").lower(): v for k, v in d.items()}
+            sid = row.get("id")
+            if sid is None:
+                continue
+            sid = int(sid)
+            cap = (row.get("predmet") or "").strip()
+            html = _rtf_to_html(row.get("text") or "")
+
+            def _int(v):
+                try:
+                    return int(v) if v not in (None, "") else None
+                except Exception:
+                    return None
+            typ = _int(row.get("typ"))
+            tema = _int(row.get("tema"))
+            por = _int(row.get("poradi"))
+            par = _int(row.get("id_nadrazene"))
+            q = "Rozumíš tomuhle pojmu?" if typ == 10 else "Dává ti to smysl?"
+            s.execute(_t(
+                "INSERT INTO tenant.learn_frame "
+                "(tenant_id,source,source_id,tema,typ,poradi,parent_source_id,caption,description_html,question,aktivni,author) "
+                "VALUES (2,'mp_strag_komun',:sid,:tema,:typ,:por,:par,:cap,:html,:q,true,:au) "
+                "ON CONFLICT (tenant_id,source,source_id) DO UPDATE SET "
+                "tema=EXCLUDED.tema,typ=EXCLUDED.typ,poradi=EXCLUDED.poradi,"
+                "parent_source_id=EXCLUDED.parent_source_id,caption=EXCLUDED.caption,"
+                "description_html=EXCLUDED.description_html,synced_at=now()"),
+                {"sid": sid, "tema": tema, "typ": typ, "por": por, "par": par,
+                 "cap": cap, "html": html, "q": q, "au": (row.get("autor") or "Martin")})
+            nf += 1
+            if typ == 10 and cap:
+                term = _learn_term_of(cap)
+                if term:
+                    s.execute(_t(
+                        "INSERT INTO tenant.learn_glossary (tenant_id,source_id,term,definition_html) "
+                        "VALUES (2,:sid,:term,:html) "
+                        "ON CONFLICT (tenant_id,source_id) DO UPDATE SET "
+                        "term=EXCLUDED.term,definition_html=EXCLUDED.definition_html,synced_at=now()"),
+                        {"sid": sid, "term": term, "html": html})
+                    ng += 1
+        s.commit()
+        return JSONResponse({"ok": True, "frames": nf, "glossary": ng})
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/hr/schedule/save")
 async def app_hr_schedule_save(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

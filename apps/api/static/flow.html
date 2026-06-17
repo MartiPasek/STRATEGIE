@@ -20,6 +20,7 @@
   .hl .t{font-size:13.5px;color:var(--dim);margin-top:6px}
   .hl.amber{border-color:#7a5a13}.hl.amber .n{color:var(--amber)}
   .hl.blue{border-color:#27406b}.hl.blue .n{color:var(--navy)}
+  .hl.red{border-color:#7a2020}.hl.red .n{color:var(--red)}
   .chips{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 10px}
   .chip{padding:7px 14px;border-radius:999px;border:1px solid var(--bord);background:transparent;color:var(--dim);cursor:pointer;font-size:14px}
   .chip.on{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:600}
@@ -77,12 +78,16 @@ function render(){
   var c=document.getElementById('content'); c.innerHTML='';
 
   // highlight cards
+  var kc=(DATA.souhrn&&DATA.souhrn.kc_neuzavr)||0;
+  var matN=(DATA.material_po_terminu||[]).length;
   var hl=document.createElement('div'); hl.className='row';
   hl.innerHTML=
     '<div class="card hl amber" onclick="document.getElementById(\'t-nef\').scrollIntoView({behavior:\'smooth\'})">'
     +'<div class="n">'+num(nef.length)+'</div><div class="t">💰 Po zkušebně, NEfakturováno — peníze čekají na fakturu</div></div>'
     +'<div class="card hl blue" onclick="document.getElementById(\'t-neu\').scrollIntoView({behavior:\'smooth\'})">'
-    +'<div class="n">'+num(neu.length)+'</div><div class="t">📁 Fakturováno, NEuzavřeno — k uzavření / úklidu</div></div>';
+    +'<div class="n">'+num(neu.length)+'</div><div class="t">📁 Fakturováno, NEuzavřeno · '+num(kc)+' Kč bez DPH na nich visí</div></div>'
+    +'<div class="card hl red" onclick="document.getElementById(\'t-mat\').scrollIntoView({behavior:\'smooth\'})">'
+    +'<div class="n">'+num(matN)+'</div><div class="t">🚚 Materiál po termínu u dodavatelů</div></div>';
   c.appendChild(hl);
 
   // funnel
@@ -114,20 +119,37 @@ function render(){
   c.appendChild(tot);
 
   // tables
-  c.appendChild(mkTable('t-nef','💰 Po zkušebně, nefakturováno','Datum zkušebny',listFor(nef,FILTER)));
-  c.appendChild(mkTable('t-neu','📁 Fakturováno, neuzavřeno','Datum faktury',listFor(neu,FILTER)));
+  c.appendChild(mkTable('t-nef','💰 Po zkušebně, nefakturováno','Zkušebna',listFor(nef,FILTER),{}));
+  c.appendChild(mkTable('t-neu','📁 Fakturováno, neuzavřeno','Faktura',listFor(neu,FILTER),{kc:true}));
+  c.appendChild(mkMaterial(DATA.material_po_terminu||[]));
 
   var rf=document.createElement('button'); rf.className='rf'; rf.textContent='🔄 Obnovit'; rf.style.marginTop='18px';
   rf.onclick=function(){document.getElementById('sub').textContent='Načítám…';load();}; c.appendChild(rf);
 }
 
-function mkTable(id,title,datLabel,rows){
+function dniBadge(d){
+  var n=parseInt(d,10); if(isNaN(n)) return '—';
+  var st=''; if(n>30) st='color:#ef4444;font-weight:700'; else if(n>14) st='color:#f59e0b';
+  return '<span style="'+st+'">'+n+' dní</span>';
+}
+function mkTable(id,title,datLabel,rows,opts){
+  opts=opts||{};
   var w=document.createElement('div');
   var h=document.createElement('h2'); h.id=id; h.textContent=title+' ('+rows.length+')'; w.appendChild(h);
   if(!rows.length){ var p=document.createElement('div'); p.className='muted'; p.textContent='Nic tu není 🎉'; w.appendChild(p); return w; }
+  var head='<tr><th>Typ</th><th>Zakázka</th><th>Název</th><th>'+datLabel+'</th><th>Stáří</th>'+(opts.kc?'<th>Kč bez DPH</th>':'')+'</tr>';
+  var body=rows.map(function(r){
+    return '<tr><td><span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span></td><td>'+esc(r.cz)+'</td><td>'+esc(r.nazev)+'</td><td>'+esc(r.dat||'—')+'</td><td>'+dniBadge(r.dni)+'</td>'+(opts.kc?('<td>'+(r.kc!=null?num(r.kc):'—')+'</td>'):'')+'</tr>';
+  }).join('');
+  var t=document.createElement('table'); t.innerHTML=head+body; w.appendChild(t); return w;
+}
+function mkMaterial(rows){
+  var w=document.createElement('div');
+  var h=document.createElement('h2'); h.id='t-mat'; h.textContent='🚚 Materiál po termínu (vydané objednávky u dodavatelů) ('+rows.length+')'; w.appendChild(h);
+  if(!rows.length){ var p=document.createElement('div'); p.className='muted'; p.textContent='Nic po termínu 🎉'; w.appendChild(p); return w; }
   var t=document.createElement('table');
-  t.innerHTML='<tr><th>Typ</th><th>Zakázka</th><th>Název</th><th>'+datLabel+'</th></tr>'+
-    rows.map(function(r){return '<tr><td><span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span></td><td>'+esc(r.cz)+'</td><td>'+esc(r.nazev)+'</td><td>'+esc(r.dat||'—')+'</td></tr>';}).join('');
+  t.innerHTML='<tr><th>Dodavatel</th><th>Zakázka</th><th>Doklad</th><th>Termín</th><th>Po termínu</th></tr>'+
+    rows.map(function(r){return '<tr><td>'+esc(r.dodavatel)+'</td><td>'+esc(r.cz)+'</td><td>'+esc(r.doklad)+'</td><td>'+esc(r.termin||'—')+'</td><td>'+dniBadge(r.dni)+'</td></tr>';}).join('');
   w.appendChild(t); return w;
 }
 load();

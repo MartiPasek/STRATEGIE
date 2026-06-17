@@ -10822,37 +10822,67 @@ def app_flow(req: Request) -> JSONResponse:
         " GROUP BY RadaDokladu"
     )
     nefakt_sql = (
-        "SELECT TOP 100 " + _typ + " AS typ, z.CisloZakazky AS cz, z.Nazev AS nazev,"
+        "SELECT TOP 150 " + _typ + " AS typ, z.CisloZakazky AS cz, z.Nazev AS nazev,"
         " CONVERT(varchar,(SELECT MAX(DatumVyroby) FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK)"
-        "   WHERE CisloZakazky=z.CisloZakazky),104) AS dat"
+        "   WHERE CisloZakazky=z.CisloZakazky),104) AS dat,"
+        " DATEDIFF(day,(SELECT MAX(DatumVyroby) FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK)"
+        "   WHERE CisloZakazky=z.CisloZakazky),GETDATE()) AS dni"
         " FROM DB_EC.dbo.TabZakazka z WITH(NOLOCK)"
         " WHERE z.Ukonceno=0"
         " AND EXISTS (SELECT 1 FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky)"
         " AND NOT EXISTS (SELECT 1 FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
         "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL)"
-        " ORDER BY (SELECT MAX(DatumVyroby) FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) DESC"
+        " ORDER BY (SELECT MAX(DatumVyroby) FROM DB_EC.dbo.EC_ZkusebniProtokoly WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky) ASC"
     )
     neuzavr_sql = (
-        "SELECT TOP 100 " + _typ + " AS typ, z.CisloZakazky AS cz, z.Nazev AS nazev,"
+        "SELECT TOP 150 " + _typ + " AS typ, z.CisloZakazky AS cz, z.Nazev AS nazev,"
         " CONVERT(varchar,(SELECT MAX(DatPorizeni) FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
-        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL),104) AS dat"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL),104) AS dat,"
+        " DATEDIFF(day,(SELECT MAX(DatPorizeni) FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL),GETDATE()) AS dni,"
+        " CAST((SELECT SUM(fa.SumaKcBezDPH) FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL) AS bigint) AS kc"
         " FROM DB_EC.dbo.TabZakazka z WITH(NOLOCK)"
         " WHERE z.Ukonceno=0"
         " AND EXISTS (SELECT 1 FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
         "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL)"
         " ORDER BY (SELECT MAX(DatPorizeni) FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
-        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL) DESC"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL) ASC"
+    )
+    material_sql = (
+        "SELECT TOP 150 d.CisloZakazky AS cz, ISNULL(o.Nazev,'') AS dodavatel,"
+        " CONVERT(varchar,d.TerminDodavkyDat,104) AS termin,"
+        " DATEDIFF(day,d.TerminDodavkyDat,GETDATE()) AS dni,"
+        " CONVERT(varchar,d.PoradoveCislo) AS doklad"
+        " FROM DB_EC.dbo.TabDokladyZbozi d WITH(NOLOCK)"
+        " LEFT OUTER JOIN DB_EC.dbo.TabCisOrg o WITH(NOLOCK) ON d.CisloOrg=o.CisloOrg"
+        " WHERE d.RadaDokladu='800' AND d.IDSklad='001'"
+        " AND ISNULL(d.Splneno,0)=0 AND d.TerminDodavkyDat IS NOT NULL AND d.TerminDodavkyDat < GETDATE()"
+        " ORDER BY d.TerminDodavkyDat ASC"
+    )
+    souhrn_sql = (
+        "SELECT CAST(ISNULL(SUM(t.kc),0) AS bigint) AS kc_neuzavr, COUNT(*) AS pocet_neuzavr FROM ("
+        " SELECT (SELECT SUM(fa.SumaKcBezDPH) FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL) AS kc"
+        " FROM DB_EC.dbo.TabZakazka z WITH(NOLOCK)"
+        " WHERE z.Ukonceno=0 AND EXISTS (SELECT 1 FROM DB_EC.dbo.TabDokladyZbozi fa WITH(NOLOCK)"
+        "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL)"
+        ") t"
     )
     try:
         stages = _q(stages_sql)
         funnel = _q(funnel_sql)
         nefakt = _q(nefakt_sql)
         neuzavr = _q(neuzavr_sql)
+        material = _q(material_sql)
+        souhrn_rows = _q(souhrn_sql)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
+    souhrn = souhrn_rows[0] if souhrn_rows else {}
     import datetime as _dt
     return JSONResponse({"ok": True, "stages": stages, "funnel": funnel,
                          "nefakturovano": nefakt, "neuzavreno": neuzavr,
+                         "material_po_terminu": material, "souhrn": souhrn,
                          "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
 
 

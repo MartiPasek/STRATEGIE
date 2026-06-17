@@ -266,33 +266,39 @@ function renderTimeline(c,j){
     if(wd===0||wd===6){ var wk=document.createElement('div'); wk.style.position='absolute'; wk.style.left=x(dd0)+'px'; wk.style.top='26px'; wk.style.bottom='0'; wk.style.width=PX+'px'; wk.style.background='rgba(255,255,255,.045)'; wk.style.zIndex='0'; wk.style.pointerEvents='none'; inner.appendChild(wk); }
     if(wd===1){ var wl=document.createElement('div'); wl.style.position='absolute'; wl.style.left=x(dd0)+'px'; wl.style.top='26px'; wl.style.bottom='0'; wl.style.width='1px'; wl.style.background='rgba(255,255,255,.10)'; wl.style.zIndex='0'; wl.style.pointerEvents='none'; inner.appendChild(wl); }
   }
-  var tl=document.createElement('div'); tl.style.position='absolute'; tl.style.left=x(today)+'px'; tl.style.top='0'; tl.style.bottom='0'; tl.style.width='2px'; tl.style.background='#ef4444'; tl.style.opacity='.6'; tl.style.zIndex='3'; inner.appendChild(tl);
+  var tl=document.createElement('div'); tl.style.position='absolute'; tl.style.left=x(today)+'px'; tl.style.top='0'; tl.style.bottom='0'; tl.style.width='2px'; tl.style.background='#ef4444'; tl.style.opacity='.7'; tl.style.zIndex='4'; tl.style.cursor='ew-resize'; inner.appendChild(tl);
   // dvě posuvné svislé osy: začátek + konec (min. týden od sebe), datumy ukotvené nahoře
   var MINGAP=7*PX;
   function mkLine(col){ var g=document.createElement('div'); g.style.cssText='position:absolute;top:0;bottom:0;width:0;border-left:2px dashed '+col+';z-index:4;cursor:ew-resize'; inner.appendChild(g); return g; }
   var gS=mkLine('#f59e0b'), gE=mkLine('#38bdf8');
   function mkLab(col){ var l=document.createElement('div'); l.style.cssText='position:fixed;transform:translateX(-50%);background:'+col+';color:#0a0a0a;font-size:11px;font-weight:700;padding:2px 7px;border-radius:7px;white-space:nowrap;z-index:900;cursor:ew-resize;box-shadow:0 1px 5px rgba(0,0,0,.45);user-select:none'; c.appendChild(l); return l; }
-  var labS=mkLab('#f59e0b'), labE=mkLab('#38bdf8');
+  var labS=mkLab('#f59e0b'), labE=mkLab('#38bdf8'), labT=mkLab('#ef4444'); labT.style.color='#fff';
   function dCz(d){ return d.getDate()+'.'+(d.getMonth()+1)+'.'+d.getFullYear(); }
   function dateAt(px){ return new Date(min.getTime()+Math.round(px/PX)*864e5); }
   var pxS=x(today), pxE=Math.min(W, x(today)+30*PX); if(pxE-pxS<MINGAP) pxS=Math.max(0,pxE-MINGAP);
+  var pxT=x(today);
   function positionLabs(){
     if(!document.body.contains(gS)) return;
     var rb=right.getBoundingClientRect();
     function place(lab,px,rowoff){ var sx=rb.left+(px-right.scrollLeft); var vis=sx>=rb.left-2&&sx<=rb.right+2; lab.style.display=vis?'block':'none'; lab.style.left=Math.max(rb.left+10,Math.min(rb.right-10,sx))+'px'; lab.style.top=Math.max(6,rb.top+2)+rowoff+'px'; }
-    place(labS,pxS,0); place(labE,pxE,22);
+    place(labS,pxS,0); place(labE,pxE,22); place(labT,pxT,44);
   }
-  function renderGuides(){ gS.style.left=pxS+'px'; gE.style.left=pxE+'px';
+  function renderGuides(){ gS.style.left=pxS+'px'; gE.style.left=pxE+'px'; tl.style.left=pxT+'px';
     var dni=Math.round((pxE-pxS)/PX);
-    labS.textContent='▶ '+dCz(dateAt(pxS)); labE.textContent=dCz(dateAt(pxE))+' ◀ ('+dni+' dní)'; positionLabs(); }
+    labS.textContent='▶ '+dCz(dateAt(pxS)); labE.textContent=dCz(dateAt(pxE))+' ◀ ('+dni+' dní)';
+    labT.textContent='● '+dCz(dateAt(pxT)); positionLabs(); }
   renderGuides();
   var drg=null,dx0=0,p0=0;
   function sDrag(e){drg='S';dx0=e.clientX;p0=pxS;e.preventDefault();e.stopPropagation();}
   function eDrag(e){drg='E';dx0=e.clientX;p0=pxE;e.preventDefault();e.stopPropagation();}
+  function tDrag(e){drg='T';dx0=e.clientX;p0=pxT;e.preventDefault();e.stopPropagation();}
   gS.addEventListener('mousedown',sDrag); labS.addEventListener('mousedown',sDrag);
   gE.addEventListener('mousedown',eDrag); labE.addEventListener('mousedown',eDrag);
+  tl.addEventListener('mousedown',tDrag); labT.addEventListener('mousedown',tDrag);
   window.addEventListener('mousemove',function(e){ if(!drg)return; var np=p0+(e.clientX-dx0);
-    if(drg==='S'){ pxS=Math.max(0,Math.min(np,pxE-MINGAP)); } else { pxE=Math.min(W,Math.max(np,pxS+MINGAP)); } renderGuides(); });
+    if(drg==='S'){ pxS=Math.max(0,Math.min(np,pxE-MINGAP)); }
+    else if(drg==='E'){ pxE=Math.min(W,Math.max(np,pxS+MINGAP)); }
+    else { pxT=Math.max(0,Math.min(W,np)); } renderGuides(); });
   window.addEventListener('mouseup',function(){ drg=null; });
   right.addEventListener('scroll',positionLabs);
   window.addEventListener('scroll',positionLabs,true);

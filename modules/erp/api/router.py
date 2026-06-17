@@ -10935,6 +10935,20 @@ def app_flow(req: Request, section: str = "") -> JSONResponse:
         " FROM DB_EC.dbo.EC_Vytizeni_Efektivita WITH(NOLOCK)"
         " WHERE Efektivita IS NOT NULL ORDER BY Efektivita DESC"
     )
+    zl_sql = (
+        "SELECT TOP 200"
+        " CASE WHEN zl.CisloZakazky LIKE 'VR%' THEN 'VR' WHEN zl.CisloZakazky LIKE 'SW%' THEN 'SW'"
+        "   WHEN zl.CisloZakazky LIKE 'PR%' THEN 'PR' ELSE 'OST' END AS typ,"
+        " zl.CisloZakazky AS cz, ISNULL(z.Nazev,'') AS nazev, zl.PocetHodin AS hodiny,"
+        " CONVERT(int,ISNULL(zl.KompletniObjednani,0)) AS objednano,"
+        " CONVERT(varchar,zl.TerminDodaniMaterialu,104) AS termat,"
+        " CONVERT(varchar,zl.TerminDoruceniKZak,104) AS termzak,"
+        " DATEDIFF(day,GETDATE(),zl.TerminDoruceniKZak) AS dnydozak"
+        " FROM DB_EC.dbo.EC_ZakListy zl WITH(NOLOCK)"
+        " JOIN DB_EC.dbo.TabZakazka z WITH(NOLOCK) ON z.CisloZakazky=zl.CisloZakazky"
+        " WHERE z.Ukonceno=0"
+        " ORDER BY zl.TerminDoruceniKZak ASC"
+    )
     import datetime as _dt
     out = {"ok": True, "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")}
     sec = (section or "").strip().lower()
@@ -10958,6 +10972,12 @@ def app_flow(req: Request, section: str = "") -> JSONResponse:
         elif sec == "fakturace":
             out["fakt_stav"] = _q(faktstav_sql)
             out["fakt_chybi"] = _q(faktchybi_sql)
+        elif sec == "priprava":
+            out["priprava"] = _q(priprava_sql)
+        elif sec == "vyhodnoceni":
+            out["vyhodnoceni"] = _q(vyhodnoceni_sql)
+        elif sec == "zl":
+            out["zl"] = _q(zl_sql)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
     return JSONResponse(out)

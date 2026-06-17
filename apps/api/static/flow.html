@@ -230,7 +230,10 @@ function renderFakturace(c,j){
 function pd(s){ if(!s) return null; var p=String(s).split('-'); if(p.length<3) return null; var d=new Date(+p[0],+p[1]-1,+p[2]); return isNaN(d)?null:d; }
 function fdmy(s){ var d=pd(s); if(!d) return ''; return d.getDate()+'.'+(d.getMonth()+1)+'.'; }
 var TLF='ALL', TLDET={}, TLPX=7;
-function tlZoom(d){ TLPX=Math.max(3,Math.min(28,TLPX+d)); route(); }
+function lsG(k){ try{return localStorage.getItem(k);}catch(e){return null;} }
+function lsS(k,v){ try{localStorage.setItem(k,v);}catch(e){} }
+(function(){ var z=parseInt(lsG('flow_tl_px'),10); if(z>=3&&z<=28) TLPX=z; })();
+function tlZoom(d){ TLPX=Math.max(3,Math.min(28,TLPX+d)); lsS('flow_tl_px',TLPX); route(); }
 function renderTimeline(c,j){
   var all=(j&&j.timeline)||[];
   if(!all.length){ c.appendChild(muted('Žádné zakázky s naplánovaným během (plán montérů / termíny).')); return; }
@@ -280,7 +283,12 @@ function renderTimeline(c,j){
   var labS=mkLab('#f59e0b'), labE=mkLab('#38bdf8'), labT=mkLab('#ef4444'); labT.style.color='#fff';
   function dCz(d){ return d.getDate()+'.'+(d.getMonth()+1)+'.'+d.getFullYear(); }
   function dateAt(px){ return new Date(min.getTime()+Math.round(px/PX)*864e5); }
-  var pxS=x(today), pxE=Math.min(W, x(today)+30*PX); if(pxE-pxS<MINGAP) pxS=Math.max(0,pxE-MINGAP);
+  function clampPx(p){ return Math.max(0,Math.min(W,p)); }
+  var pxS=x(today), pxE=Math.min(W, x(today)+30*PX);
+  var sgS=lsG('flow_gS'), sgE=lsG('flow_gE');
+  if(sgS){ var ds=new Date(sgS); if(!isNaN(ds)) pxS=clampPx(x(ds)); }
+  if(sgE){ var de=new Date(sgE); if(!isNaN(de)) pxE=clampPx(x(de)); }
+  if(pxE-pxS<MINGAP) pxE=Math.min(W,pxS+MINGAP);
   var pxT=x(today);
   function positionLabs(){
     if(!document.body.contains(gS)) return;
@@ -306,7 +314,7 @@ function renderTimeline(c,j){
     var np=p0+(e.clientX-dx0);
     if(drg==='S'){ pxS=Math.max(0,Math.min(np,pxE-MINGAP)); }
     else { pxE=Math.min(W,Math.max(np,pxS+MINGAP)); } renderGuides(); });
-  window.addEventListener('mouseup',function(){ drg=null; });
+  window.addEventListener('mouseup',function(){ if(drg==='S'||drg==='E'){ lsS('flow_gS',dateAt(pxS).toISOString()); lsS('flow_gE',dateAt(pxE).toISOString()); } drg=null; });
   right.addEventListener('scroll',positionLabs);
   window.addEventListener('scroll',positionLabs,true);
   window.addEventListener('resize',positionLabs);
@@ -325,7 +333,7 @@ function renderTimeline(c,j){
     // detail kontejnery (lide)
     var dl=document.createElement('div'); dl.style.display='none'; dl.style.padding='6px 8px 8px 12px'; dl.style.background='rgba(79,142,247,.13)'; dl.style.borderLeft='3px solid #4f8ef7';
     var dr=document.createElement('div'); dr.style.display='none'; dr.style.position='relative'; dr.style.padding='6px 0 8px'; dr.style.background='rgba(79,142,247,.07)';
-    ll.onclick=function(){ openZakModal(r); };
+    ll.onclick=function(){ if(dl.style.display==='none'||!dl.style.display){ toggleTLdet(r.cz, dl, dr, x, PX, TC[r.typ]||TC.OST, ll, rr); } setTimeout(function(){ openZakModal(r); },120); };
     left.appendChild(ll); left.appendChild(dl); inner.appendChild(rr); inner.appendChild(dr);
   });
   right.appendChild(inner); wrap.appendChild(left); wrap.appendChild(right); c.appendChild(wrap);
@@ -366,16 +374,17 @@ function toggleTLdet(cz, dl, dr, x, PX, col, ll, rr){
     .then(function(j){ var l=(j&&j.lide)||[]; TLDET[cz]=l; draw(l); })
     .catch(function(){ dl.innerHTML='<span class="muted" style="font-size:10px">chyba</span>'; });
 }
-function closeZakModal(){ var m=document.getElementById('zakmodal'); if(m) m.remove(); }
+function closeZakModal(){ var m=document.getElementById('zakmodal'); if(m){ var b=document.getElementById('zm-box'); if(b){ lsS('flow_modal_left',parseFloat(b.style.left)||0); lsS('flow_modal_top',parseFloat(b.style.top)||0); } m.remove(); } }
 function openZakModal(r){
   closeZakModal();
   var ov=document.createElement('div'); ov.id='zakmodal';
   ov.style.cssText='position:fixed;inset:0;z-index:1000;pointer-events:none';
   var bw=Math.min(720, window.innerWidth-40);
-  var box=document.createElement('div');
+  var box=document.createElement('div'); box.id='zm-box';
   box.style.cssText='position:absolute;width:'+bw+'px;max-height:88vh;overflow:auto;pointer-events:auto;background:var(--bg,#0e1726);border:1px solid var(--bord,#243044);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.55)';
-  box.style.left=Math.max(10,(window.innerWidth-bw)/2)+'px';
-  box.style.top='70px';
+  var sl=parseFloat(lsG('flow_modal_left')), st=parseFloat(lsG('flow_modal_top'));
+  box.style.left=(!isNaN(sl)?Math.max(0,Math.min(window.innerWidth-60,sl)):Math.max(10,(window.innerWidth-bw)/2))+'px';
+  box.style.top=(!isNaN(st)?Math.max(0,Math.min(window.innerHeight-40,st)):70)+'px';
   var TC={VR:'#10b981',SW:'#4f8ef7',PR:'#a78bfa',OST:'#64748b'};
   function row(lbl,val){ return val?('<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span class="muted" style="font-size:13px">'+lbl+'</span><span style="font-size:13px;font-weight:600">'+val+'</span></div>'):''; }
   var head='<div id="zm-head" style="display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--bord,#243044);position:sticky;top:0;background:var(--bg,#0e1726);cursor:move">'
@@ -399,7 +408,7 @@ function openZakModal(r){
   (function(){ var hd=box.querySelector('#zm-head'); if(!hd) return; var md=false,sx=0,sy=0,bl=0,bt=0;
     hd.addEventListener('mousedown',function(e){ if(e.target.tagName==='BUTTON') return; md=true; sx=e.clientX; sy=e.clientY; bl=parseFloat(box.style.left)||0; bt=parseFloat(box.style.top)||0; e.preventDefault(); });
     window.addEventListener('mousemove',function(e){ if(!md) return; box.style.left=Math.max(0,Math.min(window.innerWidth-60,bl+(e.clientX-sx)))+'px'; box.style.top=Math.max(0,Math.min(window.innerHeight-40,bt+(e.clientY-sy)))+'px'; });
-    window.addEventListener('mouseup',function(){ md=false; });
+    window.addEventListener('mouseup',function(){ if(md){ md=false; lsS('flow_modal_left',parseFloat(box.style.left)||0); lsS('flow_modal_top',parseFloat(box.style.top)||0); } });
   })();
   function drawPpl(lide){
     var el=document.getElementById('zm-ppl'); if(!el) return;

@@ -345,9 +345,12 @@ function renderTimeline(c,j){
   window.addEventListener('mouseup',function(){ if(drag.on){ drag.on=false; right.style.cursor='grab'; } });
   setTimeout(function(){ try{ inner.style.width=(W+right.clientWidth)+'px'; right.scrollLeft=Math.max(0, x(today)-180); }catch(e){} },50);
 }
+var TLcur=null;
+function tlCloseCur(){ if(TLcur){ var c=TLcur; TLcur=null; c.dl.style.display='none'; c.dr.style.display='none'; c.dl.innerHTML=''; c.dr.innerHTML=''; if(c.ll)c.ll.style.background=''; if(c.rr)c.rr.style.background=''; } }
 function toggleTLdet(cz, dl, dr, x, PX, col, ll, rr){
-  if(dl.style.display!=='none'){ dl.style.display='none'; dr.style.display='none'; dl.innerHTML=''; dr.innerHTML='';
-    if(ll){ll.style.background='';} if(rr){rr.style.background='';} return; }
+  if(dl.style.display!=='none'){ tlCloseCur(); return; }
+  tlCloseCur(); // vždy jen jeden detail
+  TLcur={dl:dl,dr:dr,ll:ll,rr:rr};
   if(ll){ll.style.background='rgba(79,142,247,.13)';} if(rr){rr.style.background='rgba(79,142,247,.07)';}
   var PH=18, PADV=14;
   dl.style.display='block'; dr.style.display='block';

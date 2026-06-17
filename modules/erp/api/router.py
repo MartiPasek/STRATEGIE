@@ -10970,17 +10970,17 @@ def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
     )
     # Detail jedne zakazky: kdo je naplanovany, jeho usek a hodiny (planovani lidi do useku vyroby).
     czf = (cz or "").strip().replace("'", "")[:40]
+    # detail po jednotlivych dnech (segmenty dle realne naplanovane dochazky)
     timeline_det_sql = (
         "SELECT pm.CisloZam AS cislo,"
         " RTRIM(ISNULL(za.Jmeno,''))+' '+RTRIM(ISNULL(za.Prijmeni,'')) AS jmeno,"
-        " CONVERT(varchar(10),MIN(pm.Datum),23) AS od,"
-        " CONVERT(varchar(10),MAX(pm.Datum),23) AS do2,"
-        " SUM(pm.PocetHodin) AS hod, COUNT(*) AS dnu"
+        " CONVERT(varchar(10),pm.Datum,23) AS den,"
+        " SUM(pm.PocetHodin) AS hod"
         " FROM DB_EC.dbo.EC_Vytizeni_PlanMonteri pm WITH(NOLOCK)"
         " LEFT JOIN DB_EC.dbo.TabCisZam za WITH(NOLOCK) ON za.Cislo=pm.CisloZam"
         " WHERE pm.CisloZakazky=N'" + czf + "'"
-        " GROUP BY pm.CisloZam, za.Jmeno, za.Prijmeni"
-        " ORDER BY MIN(pm.Datum) ASC, hod DESC"
+        " GROUP BY pm.CisloZam, za.Jmeno, za.Prijmeni, pm.Datum"
+        " ORDER BY pm.CisloZam, pm.Datum ASC"
     )
     import datetime as _dt
     out = {"ok": True, "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")}

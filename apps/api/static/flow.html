@@ -60,7 +60,7 @@
 var DATA=null, FILTER='ALL';
 // poradi dle Marti: Obchod - VP - Nakup - Priprava - Vyroba - Zkusebna - Vyroba vyhodnoceni - Odvozy - Fakturace - Analyza
 var TILES=[
-  {id:'obchod',  ic:'🤝', lb:'Obchod',     sm:'obchodní jednání (CRM)', ready:false},
+  {id:'obchod',  ic:'🤝', lb:'Obchod',     sm:'obchodní jednání (CRM)', ready:true},
   {id:'vp',      ic:'📋', lb:'VP',          sm:'poptávky · kalkulace · nabídky · objednávky · zakázka', ready:true},
   {id:'nakup',   ic:'🛒', lb:'Nákup',       sm:'objednávky materiálu', ready:true},
   {id:'priprava',ic:'🧰', lb:'Příprava',    sm:'příprava výroby a materiálu', ready:false},
@@ -92,6 +92,7 @@ function route(){
   if(v==='analyza') renderAnalyza(c);
   else if(v==='vp') renderVP(c);
   else if(v==='nakup') renderNakup(c);
+  else if(v==='obchod') renderObchod(c);
   else renderSoon(c, tile);
 }
 
@@ -145,6 +146,23 @@ function renderVP(c){
   c.appendChild(tot);
 }
 
+function renderObchod(c){
+  var rows=DATA.jednani||[];
+  var open=rows.filter(function(r){return !r.splneno;}).length;
+  var row=document.createElement('div'); row.className='row';
+  row.innerHTML='<div class="card hl"><div class="n">'+num(rows.length)+'</div><div class="t">Obchodní jednání za 3 měsíce</div></div>'
+    +'<div class="card hl amber"><div class="n">'+num(open)+'</div><div class="t">Nesplněná (otevřená)</div></div>';
+  c.appendChild(row);
+  var h=document.createElement('h2'); h.textContent='Poslední obchodní jednání'; c.appendChild(h);
+  if(!rows.length){ var m=document.createElement('div'); m.className='muted'; m.textContent='Žádná jednání za poslední 3 měsíce.'; c.appendChild(m); return; }
+  var t=document.createElement('table');
+  t.innerHTML='<tr><th>Datum</th><th>Typ</th><th>Firma / osoba</th><th>Popis</th><th>Řešitel</th><th>✓</th></tr>'+
+    rows.map(function(r){
+      var who=esc(r.firma)+(r.osoba?(' · '+esc(r.osoba)):'');
+      return '<tr><td>'+esc(r.dat||'—')+'</td><td>'+esc(r.akce)+'</td><td>'+who+'</td><td>'+esc(r.popis)+'</td><td>'+esc(r.autor)+'</td><td>'+(r.splneno?'✅':'⏳')+'</td></tr>';
+    }).join('');
+  c.appendChild(t);
+}
 function renderNakup(c){
   var rows=DATA.material_po_terminu||[];
   var h=document.createElement('h2'); h.textContent='🚚 Materiál po termínu u dodavatelů ('+rows.length+')'; c.appendChild(h);

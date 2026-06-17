@@ -10869,6 +10869,19 @@ def app_flow(req: Request) -> JSONResponse:
         "   WHERE fa.CisloZakazky=z.CisloZakazky AND fa.DruhPohybuZbo BETWEEN 13 AND 14 AND fa.IDSklad IS NULL)"
         ") t"
     )
+    jednani_sql = (
+        "SELECT TOP 120 CONVERT(varchar,a.DatumAkce,104) AS dat,"
+        " ISNULL(cis.Nazev,'') AS akce,"
+        " ISNULL(a.FirmaText,'') AS firma,"
+        " LTRIM(RTRIM(ISNULL(a.Prijmeni,'')+' '+ISNULL(a.Jmeno,''))) AS osoba,"
+        " LEFT(REPLACE(REPLACE(ISNULL(a.Popis,a.Prubeh),CHAR(13),' '),CHAR(10),' '),140) AS popis,"
+        " ISNULL(a.Autor,'') AS autor,"
+        " CONVERT(int,ISNULL(a.Splneno,0)) AS splneno"
+        " FROM DB_EC.dbo.CRM_Kontakt_Akce a WITH(NOLOCK)"
+        " LEFT OUTER JOIN DB_EC.dbo.CRM_Kontakt_AkceCis cis WITH(NOLOCK) ON cis.ID=a.IDAkce"
+        " WHERE a.DatumAkce >= DATEADD(month,-3,GETDATE())"
+        " ORDER BY a.DatumAkce DESC"
+    )
     try:
         stages = _q(stages_sql)
         funnel = _q(funnel_sql)
@@ -10876,6 +10889,7 @@ def app_flow(req: Request) -> JSONResponse:
         neuzavr = _q(neuzavr_sql)
         material = _q(material_sql)
         souhrn_rows = _q(souhrn_sql)
+        jednani = _q(jednani_sql)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
     souhrn = souhrn_rows[0] if souhrn_rows else {}
@@ -10883,6 +10897,7 @@ def app_flow(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "stages": stages, "funnel": funnel,
                          "nefakturovano": nefakt, "neuzavreno": neuzavr,
                          "material_po_terminu": material, "souhrn": souhrn,
+                         "jednani": jednani,
                          "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
 
 

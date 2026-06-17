@@ -330,7 +330,7 @@ function renderTimeline(c,j){
   right.addEventListener('mousedown',function(e){ drag.on=true; drag.moved=0; drag.x0=e.clientX; drag.sl=right.scrollLeft; right.style.cursor='grabbing'; e.preventDefault(); });
   window.addEventListener('mousemove',function(e){ if(!drag.on) return; var dx=e.clientX-drag.x0; drag.moved+=Math.abs(dx); right.scrollLeft=drag.sl-dx; });
   window.addEventListener('mouseup',function(){ if(drag.on){ drag.on=false; right.style.cursor='grab'; } });
-  setTimeout(function(){ try{ right.scrollLeft=Math.max(0, x(today)-180); }catch(e){} },50);
+  setTimeout(function(){ try{ inner.style.width=(W+right.clientWidth)+'px'; right.scrollLeft=Math.max(0, x(today)-180); }catch(e){} },50);
 }
 function toggleTLdet(cz, dl, dr, x, PX, col, ll, rr){
   if(dl.style.display!=='none'){ dl.style.display='none'; dr.style.display='none'; dl.innerHTML=''; dr.innerHTML='';

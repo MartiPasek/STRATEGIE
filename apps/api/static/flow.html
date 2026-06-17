@@ -283,22 +283,24 @@ function renderTimeline(c,j){
     function place(lab,px,rowoff){ var sx=rb.left+(px-right.scrollLeft); var vis=sx>=rb.left-2&&sx<=rb.right+2; lab.style.display=vis?'block':'none'; lab.style.left=Math.max(rb.left+10,Math.min(rb.right-10,sx))+'px'; lab.style.top=Math.max(6,rb.top+2)+rowoff+'px'; }
     place(labS,pxS,0); place(labE,pxE,22); place(labT,pxT,44);
   }
+  pxT=x(today); // dnes drží skutečné datum
   function renderGuides(){ gS.style.left=pxS+'px'; gE.style.left=pxE+'px'; tl.style.left=pxT+'px';
     var dni=Math.round((pxE-pxS)/PX);
     labS.textContent='▶ '+dCz(dateAt(pxS)); labE.textContent=dCz(dateAt(pxE))+' ◀ ('+dni+' dní)';
-    labT.textContent='● '+dCz(dateAt(pxT)); positionLabs(); }
+    labT.textContent='● dnes '+dCz(today); positionLabs(); }
   renderGuides();
-  var drg=null,dx0=0,p0=0;
+  var drg=null,dx0=0,p0=0,sl0=0;
   function sDrag(e){drg='S';dx0=e.clientX;p0=pxS;e.preventDefault();e.stopPropagation();}
   function eDrag(e){drg='E';dx0=e.clientX;p0=pxE;e.preventDefault();e.stopPropagation();}
-  function tDrag(e){drg='T';dx0=e.clientX;p0=pxT;e.preventDefault();e.stopPropagation();}
+  function tDrag(e){drg='T';dx0=e.clientX;sl0=right.scrollLeft;e.preventDefault();e.stopPropagation();}
   gS.addEventListener('mousedown',sDrag); labS.addEventListener('mousedown',sDrag);
   gE.addEventListener('mousedown',eDrag); labE.addEventListener('mousedown',eDrag);
   tl.addEventListener('mousedown',tDrag); labT.addEventListener('mousedown',tDrag);
-  window.addEventListener('mousemove',function(e){ if(!drg)return; var np=p0+(e.clientX-dx0);
+  window.addEventListener('mousemove',function(e){ if(!drg)return;
+    if(drg==='T'){ right.scrollLeft=sl0-(e.clientX-dx0); positionLabs(); return; }
+    var np=p0+(e.clientX-dx0);
     if(drg==='S'){ pxS=Math.max(0,Math.min(np,pxE-MINGAP)); }
-    else if(drg==='E'){ pxE=Math.min(W,Math.max(np,pxS+MINGAP)); }
-    else { pxT=Math.max(0,Math.min(W,np)); } renderGuides(); });
+    else { pxE=Math.min(W,Math.max(np,pxS+MINGAP)); } renderGuides(); });
   window.addEventListener('mouseup',function(){ drg=null; });
   right.addEventListener('scroll',positionLabs);
   window.addEventListener('scroll',positionLabs,true);

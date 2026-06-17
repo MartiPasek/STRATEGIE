@@ -3214,6 +3214,16 @@ setTimeout(function(){
       if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error==="forbidden")?"Nemáš přístup.":"Nelze načíst.")+'</div>')); return; }
       var eb=el('<button style="width:100%;padding:10px;border:0;border-radius:10px;margin-bottom:10px;background:'+(edit?"#26304a":"#2563eb")+';color:#fff;font-weight:700;">'+(edit?"Zrušit úpravy":"✏️ Upravit")+'</button>');
       eb.onclick=function(){ edit=!edit; render(j); }; box.appendChild(eb);
+      var ab=el('<button style="width:100%;padding:10px;border:0;border-radius:10px;margin-bottom:10px;background:#0e7490;color:#fff;font-weight:700;">✉️ Poslat aktivační e-mail (pozvánku)</button>');
+      ab.onclick=function(){
+        ab.disabled=true; var orig=ab.textContent; ab.textContent="Posílám…";
+        api("POST","/api/v1/erp/app/hr/send-activation",{user_id:uid}).then(function(r){
+          if(r&&r.ok){ alert("Hotovo — aktivační e-mail odeslán na: "+(r.to_email||"?")); }
+          else { alert("Nepodařilo se odeslat: "+((r&&(r.message||r.error))||"?")); }
+          ab.disabled=false; ab.textContent=orig;
+        });
+      };
+      box.appendChild(ab);
       inputs={};
       (j.sections||[]).forEach(function(sec){
         var c=_card(sec.label,"");

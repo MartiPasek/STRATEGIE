@@ -1445,7 +1445,10 @@ def forgot_password(body: ForgotPasswordRequest, req: Request) -> dict:
         )
     record_forgot_password_request(ip)
 
-    result = create_reset_token(email)
+    # allow_pending=True: i HR-importovany pending user (jeste bez hesla) dostane
+    # link na prvni nastaveni hesla. Bez toho by "Zapomenute heslo" pending userum
+    # mlcky nic neposlalo (link na /reset/{token} je pro oba pripady stejny).
+    result = create_reset_token(email, allow_pending=True)
     if result is None:
         logger.info(f"AUTH | forgot-password (no user) | email={email}")
         log_event(action="forgot_password_no_user", status="success",

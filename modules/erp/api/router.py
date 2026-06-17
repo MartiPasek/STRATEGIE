@@ -10610,6 +10610,59 @@ async def app_learn_frames(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/hr/send-activation")
+async def app_hr_send_activation(req: Request) -> JSONResponse:
+    """Pošle aktivační (pozvánkový) e-mail pending uživateli — onboarding z HR/appky.
+    Parent/HR only. Nezávislé na e-mailovém loginu (appka jede přes sms-login).
+    Vytvoří reset token (allow_pending) + zařadí mail do outboxu. Marti 17.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    target = body.get("user_id")
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if not target:
+            return JSONResponse({"ok": False, "error": "missing_user_id"}, status_code=400)
+        row = s.execute(_t(
+            "SELECT u.first_name, u.gender, u.status, "
+            "(SELECT c.contact_value FROM public.user_contacts c "
+            " WHERE c.user_id=u.id AND c.contact_type='email' AND c.status='active' "
+            " ORDER BY c.is_primary DESC, c.id LIMIT 1) AS email "
+            "FROM public.users u WHERE u.id=:u"), {"u": int(target)}).first()
+    finally:
+        cm.__exit__(None, None, None)
+    if not row:
+        return JSONResponse({"ok": False, "error": "user_not_found"}, status_code=404)
+    first_name, gender, status, email = row[0], row[1], row[2], row[3]
+    if not email:
+        return JSONResponse({"ok": False, "error": "no_email",
+                             "message": "Uživatel nemá aktivní e-mailový kontakt — doplň ho a zkus znovu."},
+                            status_code=400)
+    from modules.auth.application.password_reset_service import create_reset_token
+    from modules.notifications.application.email_service import send_activation_email, send_password_reset_email
+    res = create_reset_token(email, allow_pending=True)
+    if not res:
+        return JSONResponse({"ok": False, "error": "no_token",
+                             "message": "Token se nepodařilo vytvořit (uživatel není pending ani active?)."},
+                            status_code=400)
+    tok, t_uid, t_fname = res
+    try:
+        if status == "pending":
+            sent = bool(send_activation_email(to=email, token=tok, first_name=t_fname, gender=gender))
+        else:
+            sent = bool(send_password_reset_email(to=email, token=tok, first_name=t_fname, gender=gender))
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "send_failed", "message": str(exc)[:160]}, status_code=500)
+    return JSONResponse({"ok": True, "to_email": email, "sent": sent, "status": status})
+
+
 def _rtf_to_html(rtf):
     """Jednoduchý RTF -> HTML (pro MP_STRAG_Komun). Decoduje \\uN a \\'XX (cp1250),
     \\par -> odstavec, ignoruje font/color/list tabulky. Marti 17.6.2026."""

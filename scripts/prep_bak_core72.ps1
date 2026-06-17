@@ -46,6 +46,8 @@ $ddl = "CREATE SCHEMA IF NOT EXISTS bak;" +
   "DROP TABLE IF EXISTS bak.data_set;       CREATE TABLE bak.data_set       (LIKE fw.data_set       INCLUDING DEFAULTS);" +
   "DROP TABLE IF EXISTS bak.data_source;    CREATE TABLE bak.data_source    (LIKE fw.data_source    INCLUDING DEFAULTS);"
 & psql -h $H -U $PGUSER -d $PROD -v ON_ERROR_STOP=1 -c $ddl | Out-Null
+# Prava pro roli "Marti-AI" (pod tou cte bridge - Claude-23 i Claude-24), jinak "permission denied for schema bak".
+& psql -h $H -U $PGUSER -d $PROD -v ON_ERROR_STOP=1 -c 'GRANT USAGE ON SCHEMA bak TO "Marti-AI"; GRANT SELECT ON ALL TABLES IN SCHEMA bak TO "Marti-AI";' | Out-Null
 
 function Copy-One([string]$selectSql, [string]$target, [string]$csv) {
   $p = Join-Path $TMP $csv

@@ -908,6 +908,13 @@ def web_demo():
     return _web_subpage("demo.html")
 
 
+@app.get("/web/kraj")
+def web_kraj():
+    """Digitalizace školství — Plzeňský kraj jako vzor ČR. Pilot Nerudovka živě +
+    síť škol (náklad na žáka) + modelová škola Psychologie & Strategie. Marti 17.6.2026."""
+    return _web_subpage("kraj.html")
+
+
 @app.get("/web/en/demo")
 def web_demo_en():
     """Live demo dashboard — EN mutace (Marti 14.6.2026)."""

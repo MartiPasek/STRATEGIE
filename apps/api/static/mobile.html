@@ -163,10 +163,10 @@ setTimeout(function(){
 </script>
 <div id="app"></div>
 <div id="navwrap">
-  <nav class="bottomnav bnavstatic" id="bnavback" style="display:none;"></nav>
   <nav class="bottomnav bnavstatic" id="bnavx1" style="display:none;"></nav>
   <nav class="bottomnav bnavstatic" id="bnavx2" style="display:none;"></nav>
   <nav class="bottomnav bnavstatic" id="bnav"></nav>
+  <nav class="bottomnav bnavstatic" id="bnavback" style="display:none;"></nav>
 </div>
 <script>
 (function () {
@@ -6990,14 +6990,25 @@ setTimeout(function(){
   function navBtn(ic,lbl,active,fn,badge){ var b=el('<button class="tabbtn'+(active?" active":"")+'"><span class="i">'+ic+'</span>'+lbl+(badge?'<span class="nbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</button>'); b.addEventListener("click",fn); return b; }
   function renderNav(){
     bnav.innerHTML="";
-    // Marti 17.6.: tlacitko Zpet je DOLE (jednotne s Androidem, lip se klika palcem).
+    // Marti 17.6.: tlacitko Zpet je UPLNE DOLE (pod tab listou). Na Androidu
+    // skryte (ma systemove Zpet), na iOS/desktopu zobrazene. Konfigurovatelne
+    // pres localStorage 'stg_backbar' = 'always' / 'never' / '' (auto).
     bnavback.innerHTML="";
-    if(stack.length>1){
+    var _isAndroid = /Android/i.test(navigator.userAgent||"");
+    var _bbCfg=""; try{ _bbCfg=localStorage.getItem("stg_backbar")||""; }catch(e){}
+    var _showBack = (stack.length>1) && _bbCfg!=="never" && (_bbCfg==="always" || !_isAndroid);
+    if(_showBack){
       bnavback.style.display="flex";
       var _bb=el('<button class="navbackbtn">&#8592;&nbsp;Zpět</button>');
       _bb.addEventListener("click",back);
       bnavback.appendChild(_bb);
-    } else { bnavback.style.display="none"; }
+      bnav.style.paddingBottom="0";
+    } else {
+      bnavback.style.display="none";
+      // kdyz je zpetna lista skryta, safe-area patri tab liste (jinak by byla
+      // flush s home indikatorem na iOS).
+      bnav.style.paddingBottom="env(safe-area-inset-bottom,0)";
+    }
     var bd=getBadges();
     var atApps=(stack[stack.length-1]==="apps");
     var APPS_SVG='<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>';

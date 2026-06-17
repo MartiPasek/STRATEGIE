@@ -137,7 +137,7 @@ def _resolve_instance_id() -> str:
 
 
 INSTANCE_ID = _resolve_instance_id()
-_INSTANCE_NAMES = {"23": "Marti", "24": "Kristy"}
+_INSTANCE_NAMES = {"23": "Marti", "24": "Kristy", "25": "Sarka"}
 INSTANCE_NAME = (os.environ.get("CLAUDE_INSTANCE_NAME")
                  or _INSTANCE_NAMES.get(INSTANCE_ID, "?"))
 INSTANCE_LABEL = f"Claude-{INSTANCE_ID} ({INSTANCE_NAME})"

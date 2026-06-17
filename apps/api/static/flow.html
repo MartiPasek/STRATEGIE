@@ -10,6 +10,7 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
   .wrap{max-width:1100px;margin:0 auto;padding:18px}
+  .wrap.wide{max-width:none}
   h1{font-size:22px;margin:0 0 2px}
   .sub{color:var(--dim);font-size:13px;margin-bottom:16px}
   a.back{display:inline-block;color:var(--navy);text-decoration:none;font-size:14px;margin-bottom:12px;cursor:pointer}
@@ -89,6 +90,7 @@ var SECVIEW={timeline:renderTimeline, obchod:renderObchod, vyroba:renderVyroba, 
 function route(){
   var v=(location.hash||'').replace('#','')||'hub';
   var c=document.getElementById('content'); c.innerHTML='';
+  var wEl=document.querySelector('.wrap'); if(wEl){ if(v==='timeline') wEl.classList.add('wide'); else wEl.classList.remove('wide'); }
   document.getElementById('sub').textContent = DATA?('Živá data z Centrály · '+esc(DATA.generated||'')+' · jen čtení, nic se nemění'):'';
   if(v==='hub'){ document.getElementById('ttl').textContent='FLOW — Stav zakázek'; renderHub(c); return; }
   var tile=TILES.filter(function(t){return t.id===v;})[0];
@@ -245,7 +247,7 @@ function renderTimeline(c,j){
   var min=today, max=today, KEYS=['vyr_od','vyr_do','term_mat','term_zak','zkusebna','odvoz'];
   rows.forEach(function(r){ KEYS.forEach(function(k){ var d=pd(r[k]); if(d){ if(d<min)min=d; if(d>max)max=d; } }); });
   min=new Date(min.getTime()-7*864e5); max=new Date(max.getTime()+10*864e5);
-  var PX=7, ROWH=32, totalDays=Math.round((max-min)/864e5)+1, W=totalDays*PX;
+  var PX=7, ROWH=42, totalDays=Math.round((max-min)/864e5)+1, W=totalDays*PX;
   function x(d){ return Math.round((d-min)/864e5)*PX; }
   var TC={VR:'#10b981',SW:'#4f8ef7',PR:'#a78bfa',OST:'#64748b'};
   var wrap=document.createElement('div'); wrap.style.display='flex'; wrap.style.border='1px solid var(--bord)'; wrap.style.borderRadius='12px'; wrap.style.overflow='hidden';
@@ -267,20 +269,22 @@ function renderTimeline(c,j){
     var od=pd(r.vyr_od), dd=pd(r.term_zak)||pd(r.vyr_do), vd=pd(r.vyr_do);
     var slip=(pd(r.term_zak)&&!pd(r.odvoz)&&pd(r.term_zak)<today);
     if(od){ var end=dd&&dd>=od?dd:(vd&&vd>=od?vd:od); var bw=Math.max(PX*2,(x(end)-x(od)));
-      var bar=document.createElement('div'); bar.style.position='absolute'; bar.style.left=x(od)+'px'; bar.style.top='9px'; bar.style.height='14px'; bar.style.width=bw+'px'; bar.style.background=slip?'#ef4444':(TC[r.typ]||TC.OST); bar.style.borderRadius='4px'; bar.style.opacity='.88'; bar.style.color='#fff'; bar.style.fontSize='9px'; bar.style.lineHeight='14px'; bar.style.textAlign='center'; bar.style.overflow='hidden'; bar.style.whiteSpace='nowrap'; bar.title='Výroba '+fdmy(r.vyr_od)+' – '+(dd?fdmy(r.term_zak||r.vyr_do):'?')+' · plán '+num(r.planhod||0)+'h'; if(bw>=24&&r.planhod) bar.textContent=num(r.planhod)+'h'; rr.appendChild(bar); }
-    function dot(dstr,sym,lbl){ var d=pd(dstr); if(!d) return; var m=document.createElement('div'); m.style.position='absolute'; m.style.left=(x(d)-7)+'px'; m.style.top='6px'; m.style.fontSize='13px'; m.style.zIndex='2'; m.textContent=sym; m.title=lbl+' '+fdmy(dstr); rr.appendChild(m); }
+      var bar=document.createElement('div'); bar.style.position='absolute'; bar.style.left=x(od)+'px'; bar.style.top='10px'; bar.style.height='22px'; bar.style.width=bw+'px'; bar.style.background=slip?'#ef4444':(TC[r.typ]||TC.OST); bar.style.borderRadius='5px'; bar.style.opacity='.9'; bar.style.color='#fff'; bar.style.fontSize='11px'; bar.style.fontWeight='600'; bar.style.lineHeight='22px'; bar.style.textAlign='center'; bar.style.overflow='hidden'; bar.style.whiteSpace='nowrap'; bar.style.boxShadow='0 1px 3px rgba(0,0,0,.25)'; bar.title='Výroba '+fdmy(r.vyr_od)+' – '+(dd?fdmy(r.term_zak||r.vyr_do):'?')+' · plán '+num(r.planhod||0)+'h'; if(bw>=24&&r.planhod) bar.textContent=num(r.planhod)+'h'; rr.appendChild(bar); }
+    function dot(dstr,sym,lbl){ var d=pd(dstr); if(!d) return; var m=document.createElement('div'); m.style.position='absolute'; m.style.left=(x(d)-8)+'px'; m.style.top='9px'; m.style.fontSize='15px'; m.style.zIndex='2'; m.textContent=sym; m.title=lbl+' '+fdmy(dstr); rr.appendChild(m); }
     dot(r.term_mat,'🔧','Materiál'); dot(r.zkusebna,'🔬','Zkušebna'); dot(r.odvoz,'🚚','Odvoz'); dot(r.term_zak,'🎯','K zákazníkovi');
     // detail kontejnery (lide)
-    var dl=document.createElement('div'); dl.style.display='none'; dl.style.padding='0 8px 6px'; dl.style.background='rgba(255,255,255,.02)';
-    var dr=document.createElement('div'); dr.style.display='none'; dr.style.position='relative'; dr.style.background='rgba(255,255,255,.02)';
-    ll.onclick=function(){ toggleTLdet(r.cz, dl, dr, x, PX, TC[r.typ]||TC.OST); };
+    var dl=document.createElement('div'); dl.style.display='none'; dl.style.padding='6px 8px 8px 12px'; dl.style.background='rgba(79,142,247,.13)'; dl.style.borderLeft='3px solid #4f8ef7';
+    var dr=document.createElement('div'); dr.style.display='none'; dr.style.position='relative'; dr.style.padding='6px 0 8px'; dr.style.background='rgba(79,142,247,.07)';
+    ll.onclick=function(){ toggleTLdet(r.cz, dl, dr, x, PX, TC[r.typ]||TC.OST, ll, rr); };
     left.appendChild(ll); left.appendChild(dl); inner.appendChild(rr); inner.appendChild(dr);
   });
   right.appendChild(inner); wrap.appendChild(left); wrap.appendChild(right); c.appendChild(wrap);
   setTimeout(function(){ try{ right.scrollLeft=Math.max(0, x(today)-180); }catch(e){} },50);
 }
-function toggleTLdet(cz, dl, dr, x, PX, col){
-  if(dl.style.display!=='none'){ dl.style.display='none'; dr.style.display='none'; dl.innerHTML=''; dr.innerHTML=''; return; }
+function toggleTLdet(cz, dl, dr, x, PX, col, ll, rr){
+  if(dl.style.display!=='none'){ dl.style.display='none'; dr.style.display='none'; dl.innerHTML=''; dr.innerHTML='';
+    if(ll){ll.style.background='';} if(rr){rr.style.background='';} return; }
+  if(ll){ll.style.background='rgba(79,142,247,.13)';} if(rr){rr.style.background='rgba(79,142,247,.07)';}
   dl.style.display='block'; dr.style.display='block'; dl.innerHTML='<span class="muted" style="font-size:10px">načítám lidi…</span>';
   function draw(lide){
     dl.innerHTML=''; dr.innerHTML='';

@@ -63,7 +63,7 @@ var TILES=[
   {id:'obchod',  ic:'🤝', lb:'Obchod',     sm:'obchodní jednání (CRM)', ready:true},
   {id:'vp',      ic:'📋', lb:'VP',          sm:'poptávky · kalkulace · nabídky · objednávky · zakázka', ready:true},
   {id:'nakup',   ic:'🛒', lb:'Nákup',       sm:'objednávky materiálu', ready:true},
-  {id:'priprava',ic:'🧰', lb:'Příprava',    sm:'má ZL, ještě ne ve výrobě', ready:true},
+  {id:'priprava',ic:'🧰', lb:'Příprava',    sm:'příjem materiálu — přebírání', ready:true},
   {id:'vyroba',  ic:'🏭', lb:'Výroba',      sm:'plán a průběh výroby', ready:true},
   {id:'zkusebna',ic:'🔬', lb:'Zkušebna',    sm:'zkušební protokoly', ready:true},
   {id:'vyhodnoceni',ic:'📈', lb:'Výroba — vyhodnocení', sm:'efektivita montérů', ready:true},
@@ -225,11 +225,12 @@ function renderFakturace(c,j){
 }
 function renderPriprava(c,j){
   var rows=(j&&j.priprava)||[];
-  var h=document.createElement('h2'); h.textContent='Zakázky v přípravě — mají ZL, ještě ne ve výrobě ('+rows.length+')'; c.appendChild(h);
-  if(!rows.length){c.appendChild(muted('Nic v přípravě.'));return;}
+  var h=document.createElement('h2'); h.textContent='Příchozí materiál k přebrání / roztřídění ('+rows.length+')'; c.appendChild(h);
+  c.appendChild(muted('Dodávky materiálu doručené za posledních 45 dní — k přebrání, roztřídění po zakázkách a označení.'));
+  if(!rows.length){c.appendChild(muted('Nic nedorazilo.'));return;}
   var t=document.createElement('table');
-  t.innerHTML='<tr><th>Typ</th><th>Zakázka</th><th>Název</th></tr>'+rows.map(function(r){
-    return '<tr><td><span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span></td><td>'+esc(r.cz)+'</td><td>'+esc(r.nazev)+'</td></tr>';}).join(''); c.appendChild(t);
+  t.innerHTML='<tr><th>Doručeno</th><th>Dodavatel</th><th>Doklad</th><th>Zakázky</th></tr>'+rows.map(function(r){
+    return '<tr><td>'+esc(r.dat||'—')+'</td><td>'+esc(r.dodavatel)+'</td><td>'+esc(r.doklad)+'</td><td>'+esc(r.zakazky||'—')+'</td></tr>';}).join(''); c.appendChild(t);
 }
 function renderVyhod(c,j){
   var rows=(j&&j.vyhodnoceni)||[];

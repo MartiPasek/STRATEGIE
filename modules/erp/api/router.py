@@ -10917,12 +10917,17 @@ def app_flow(req: Request, section: str = "") -> JSONResponse:
         " ORDER BY DatumPorizeni DESC"
     )
     priprava_sql = (
-        "SELECT TOP 150 " + _typ + " AS typ, z.CisloZakazky AS cz, z.Nazev AS nazev"
-        " FROM DB_EC.dbo.TabZakazka z WITH(NOLOCK)"
-        " WHERE z.Ukonceno=0"
-        " AND EXISTS (SELECT 1 FROM DB_EC.dbo.EC_ZakListy WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky)"
-        " AND NOT EXISTS (SELECT 1 FROM DB_EC.dbo.EC_PlanovaniVyroby WITH(NOLOCK) WHERE CisloZakazky=z.CisloZakazky)"
-        " ORDER BY z.CisloZakazky DESC"
+        "SELECT TOP 150 CONVERT(varchar,ISNULL(d.DatSplneni,d.DatRealizace),104) AS dat,"
+        " ISNULL(o.Nazev,'') AS dodavatel,"
+        " CONVERT(varchar,d.PoradoveCislo) AS doklad,"
+        " ISNULL(STUFF((SELECT DISTINCT ', '+CAST(PP.CisloZakazky AS varchar(max))"
+        "   FROM DB_EC.dbo.TabPohybyZbozi PP WITH(NOLOCK)"
+        "   WHERE PP.IDDoklad=d.ID AND PP.CisloZakazky IS NOT NULL AND PP.CisloZakazky<>'' FOR XML PATH('')),1,2,''),'') AS zakazky"
+        " FROM DB_EC.dbo.TabDokladyZbozi d WITH(NOLOCK)"
+        " LEFT OUTER JOIN DB_EC.dbo.TabCisOrg o WITH(NOLOCK) ON d.CisloOrg=o.CisloOrg"
+        " WHERE d.RadaDokladu='800' AND d.IDSklad='001' AND ISNULL(d.Splneno,0)=1"
+        " AND ISNULL(d.DatSplneni,d.DatRealizace) >= DATEADD(day,-45,GETDATE())"
+        " ORDER BY ISNULL(d.DatSplneni,d.DatRealizace) DESC"
     )
     vyhodnoceni_sql = (
         "SELECT TOP 100 LTRIM(RTRIM(ISNULL(Prijmeni,'')+' '+ISNULL(Jmeno,''))) AS osoba,"

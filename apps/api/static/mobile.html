@@ -217,6 +217,23 @@ setTimeout(function(){
     try{ var _op=document.querySelector('#vylist li.ct.open'); if(_op){ _op.classList.remove('open'); var _x=_op.querySelector('.ctexp'); if(_x)_x.style.display='none'; return; } }catch(e){}
     if(stack.length>1){ stack.pop(); render(); }
   }
+  // iPhone nemá systémové tlačítko Zpět → swipe od levého okraje = Zpět.
+  // Funguje v PWA (Přidat na plochu) i ve WKWebView. Na Androidu jako bonus gesto.
+  (function(){
+    var sx=0, sy=0, st=0, tracking=false;
+    document.addEventListener("touchstart", function(e){
+      if(!e.touches || e.touches.length!==1){ tracking=false; return; }
+      var t=e.touches[0];
+      if(t.clientX<=26){ tracking=true; sx=t.clientX; sy=t.clientY; st=Date.now(); }
+      else tracking=false;
+    }, {passive:true});
+    document.addEventListener("touchend", function(e){
+      if(!tracking) return; tracking=false;
+      var t=e.changedTouches && e.changedTouches[0]; if(!t) return;
+      var dx=t.clientX-sx, dy=Math.abs(t.clientY-sy), dt=Date.now()-st;
+      if(dx>60 && dy<48 && dt<700){ try{ _tapFeedback(); }catch(_){ } back(); }
+    }, {passive:true});
+  })();
   function selectTab(t){ curTab=t; stack=[t]; render(); }
   // hardwarové zpět (nativní HybridActivity volá): vrať true když jsme šli o úroveň výš, false na home
   // Marti 7.6. večer: 1) zavřít otevřené věci · 2) vyjet nahoru · 3) o úroveň

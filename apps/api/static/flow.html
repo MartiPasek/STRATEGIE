@@ -229,17 +229,22 @@ function renderFakturace(c,j){
 }
 function pd(s){ if(!s) return null; var p=String(s).split('-'); if(p.length<3) return null; var d=new Date(+p[0],+p[1]-1,+p[2]); return isNaN(d)?null:d; }
 function fdmy(s){ var d=pd(s); if(!d) return ''; return d.getDate()+'.'+(d.getMonth()+1)+'.'; }
-var TLF='ALL', TLDET={};
+var TLF='ALL', TLDET={}, TLPX=7;
+function tlZoom(d){ TLPX=Math.max(3,Math.min(28,TLPX+d)); route(); }
 function renderTimeline(c,j){
   var all=(j&&j.timeline)||[];
   if(!all.length){ c.appendChild(muted('Žádné zakázky s naplánovaným během (plán montérů / termíny).')); return; }
   var leg=document.createElement('div'); leg.className='muted'; leg.style.fontSize='12px'; leg.style.margin='2px 2px 8px';
   leg.innerHTML='Pruh = naplánovaná výroba (od 1. dne montérů po termín k zákazníkovi) · číslo v pruhu = plán hodin · 🔧 materiál · 🔬 zkušebna · 🚚 odvoz · 🎯 k zákazníkovi · červená čára = dnes. Klikni na zakázku = kdo je naplánovaný. Posuň vodorovně.';
   c.appendChild(leg);
-  var chips=document.createElement('div'); chips.className='chips'; chips.style.margin='0 0 8px';
+  var chips=document.createElement('div'); chips.className='chips'; chips.style.margin='0 0 8px'; chips.style.display='flex'; chips.style.alignItems='center'; chips.style.gap='6px'; chips.style.flexWrap='wrap';
   [['ALL','Vše'],['VR','VR'],['SW','SW'],['PR','PR'],['OST','Ost.']].forEach(function(t){
     var b=document.createElement('button'); b.className='chip'+(TLF===t[0]?' on':''); b.textContent=t[1]; b.onclick=function(){TLF=t[0]; route();}; chips.appendChild(b);
   });
+  var sp=document.createElement('span'); sp.style.flex='1'; chips.appendChild(sp);
+  var zlbl=document.createElement('span'); zlbl.className='muted'; zlbl.style.fontSize='12px'; zlbl.textContent='Šířka:'; chips.appendChild(zlbl);
+  var bMinus=document.createElement('button'); bMinus.className='chip'; bMinus.textContent='− zúžit'; bMinus.title='Zúžit graf'; bMinus.onclick=function(){tlZoom(-2);}; chips.appendChild(bMinus);
+  var bPlus=document.createElement('button'); bPlus.className='chip'; bPlus.textContent='+ roztáhnout'; bPlus.title='Roztáhnout graf'; bPlus.onclick=function(){tlZoom(2);}; chips.appendChild(bPlus);
   c.appendChild(chips);
   var rows=all.filter(function(r){ return TLF==='ALL'||String(r.typ)===TLF; });
   if(!rows.length){ c.appendChild(muted('Žádné zakázky typu '+TLF+'.')); return; }
@@ -247,7 +252,7 @@ function renderTimeline(c,j){
   var min=today, max=today, KEYS=['vyr_od','vyr_do','term_mat','term_zak','zkusebna','odvoz'];
   rows.forEach(function(r){ KEYS.forEach(function(k){ var d=pd(r[k]); if(d){ if(d<min)min=d; if(d>max)max=d; } }); });
   min=new Date(min.getTime()-7*864e5); max=new Date(max.getTime()+10*864e5);
-  var PX=7, ROWH=42, totalDays=Math.round((max-min)/864e5)+1, W=totalDays*PX;
+  var PX=TLPX, ROWH=42, totalDays=Math.round((max-min)/864e5)+1, W=totalDays*PX;
   function x(d){ return Math.round((d-min)/864e5)*PX; }
   var TC={VR:'#10b981',SW:'#4f8ef7',PR:'#a78bfa',OST:'#64748b'};
   var wrap=document.createElement('div'); wrap.style.display='flex'; wrap.style.border='1px solid var(--bord)'; wrap.style.borderRadius='12px'; wrap.style.overflow='hidden';

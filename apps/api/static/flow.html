@@ -383,8 +383,8 @@ function openZakModal(r){
   var box=document.createElement('div'); box.id='zm-box';
   box.style.cssText='position:absolute;width:'+bw+'px;max-height:88vh;overflow:auto;pointer-events:auto;background:var(--bg,#0e1726);border:1px solid var(--bord,#243044);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.55)';
   var sl=parseFloat(lsG('flow_modal_left')), st=parseFloat(lsG('flow_modal_top'));
-  box.style.left=(!isNaN(sl)?Math.max(0,Math.min(window.innerWidth-60,sl)):Math.max(10,(window.innerWidth-bw)/2))+'px';
-  box.style.top=(!isNaN(st)?Math.max(0,Math.min(window.innerHeight-40,st)):70)+'px';
+  box.style.left=(!isNaN(sl)?Math.max(0,Math.min(window.innerWidth-60,sl)):Math.max(10,window.innerWidth-bw-16))+'px';
+  box.style.top=(!isNaN(st)?Math.max(0,Math.min(window.innerHeight-40,st)):48)+'px';
   var TC={VR:'#10b981',SW:'#4f8ef7',PR:'#a78bfa',OST:'#64748b'};
   function row(lbl,val){ return val?('<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span class="muted" style="font-size:13px">'+lbl+'</span><span style="font-size:13px;font-weight:600">'+val+'</span></div>'):''; }
   var head='<div id="zm-head" style="display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--bord,#243044);position:sticky;top:0;background:var(--bg,#0e1726);cursor:move">'

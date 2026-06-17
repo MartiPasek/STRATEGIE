@@ -271,7 +271,7 @@ function renderTimeline(c,j){
   var d0=new Date(min.getTime());
   for(var di=0; di<totalDays; di++){
     var dd0=new Date(min.getTime()+di*864e5); var wd=dd0.getDay(); // 0=ne,6=so
-    if(wd===0||wd===6){ var wk=document.createElement('div'); wk.style.position='absolute'; wk.style.left=x(dd0)+'px'; wk.style.top='26px'; wk.style.bottom='0'; wk.style.width=PX+'px'; wk.style.background='rgba(255,255,255,.045)'; wk.style.zIndex='0'; wk.style.pointerEvents='none'; inner.appendChild(wk); }
+    if(wd===0||wd===6){ var wk=document.createElement('div'); wk.style.position='absolute'; wk.style.left=x(dd0)+'px'; wk.style.top='26px'; wk.style.bottom='0'; wk.style.width=PX+'px'; wk.style.background='rgba(8,12,20,.55)'; wk.style.zIndex='3'; wk.style.pointerEvents='none'; inner.appendChild(wk); }
     if(wd===1){ var wl=document.createElement('div'); wl.style.position='absolute'; wl.style.left=x(dd0)+'px'; wl.style.top='26px'; wl.style.bottom='0'; wl.style.width='1px'; wl.style.background='rgba(255,255,255,.10)'; wl.style.zIndex='0'; wl.style.pointerEvents='none'; inner.appendChild(wl); }
   }
   var tl=document.createElement('div'); tl.style.position='absolute'; tl.style.left=x(today)+'px'; tl.style.top='0'; tl.style.bottom='0'; tl.style.width='2px'; tl.style.background='#ef4444'; tl.style.opacity='.7'; tl.style.zIndex='4'; tl.style.cursor='ew-resize'; inner.appendChild(tl);

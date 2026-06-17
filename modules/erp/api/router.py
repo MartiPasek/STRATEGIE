@@ -11016,6 +11016,38 @@ def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
                 out["lide"] = _q(timeline_det_sql)
             else:
                 out["timeline"] = _q(timeline_sql)
+                # Dve krivky: kapacita (naplanovana dochazka monteru) vs pozadavek (plan zakazek)
+                try:
+                    out["dem"] = _q("SELECT CONVERT(varchar(10),Datum,23) AS d, SUM(PocetHodin) AS h"
+                                    " FROM DB_EC.dbo.EC_Vytizeni_PlanMonteri WITH(NOLOCK)"
+                                    " WHERE Datum>='2026-01-01' GROUP BY Datum ORDER BY Datum")
+                    cis = _q("SELECT DISTINCT CisloZam AS c FROM DB_EC.dbo.EC_Vytizeni_PlanMonteri WITH(NOLOCK) WHERE CisloZam IS NOT NULL")
+                    nums = []
+                    for rr in cis:
+                        try:
+                            nums.append(str(int(rr.get("c"))))
+                        except Exception:
+                            pass
+                    cap = []
+                    if nums:
+                        inlist = ",".join("'" + n + "'" for n in nums)
+                        cm2, s2 = _att_session()
+                        try:
+                            rs = s2.execute(_t(
+                                "SELECT pe.plan_date::text AS d, SUM(pe.expected_hours) AS h"
+                                " FROM tenant.att_plan_effective pe"
+                                " JOIN tenant.att_employee e ON e.id=pe.employee_id AND e.tenant_id=2"
+                                " WHERE e.cislo_zam IN (" + inlist + ")"
+                                " GROUP BY pe.plan_date ORDER BY pe.plan_date")).fetchall()
+                            cap = [{"d": row[0], "h": float(row[1] or 0)} for row in rs]
+                        finally:
+                            try:
+                                cm2.__exit__(None, None, None)
+                            except Exception:
+                                pass
+                    out["cap"] = cap
+                except Exception as _e:
+                    out["cap"] = []; out["dem"] = []
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
     return JSONResponse(out)

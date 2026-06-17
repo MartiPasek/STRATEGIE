@@ -267,6 +267,18 @@ function renderTimeline(c,j){
   var MON=['led','úno','bře','dub','kvě','čvn','čvc','srp','zář','říj','lis','pro'];
   while(cur<max){ var lx=x(cur); if(lx>=0){ var tk=document.createElement('div'); tk.style.position='absolute'; tk.style.left=lx+'px'; tk.style.top='4px'; tk.style.borderLeft='1px solid var(--bord)'; tk.style.paddingLeft='3px'; tk.style.height='20px'; tk.textContent=MON[cur.getMonth()]+' '+String(cur.getFullYear()).slice(2); ax.appendChild(tk); } cur=new Date(cur.getFullYear(),cur.getMonth()+1,1); }
   inner.appendChild(ax);
+  // graf dvou krivek: kapacita lidi (naplanovana dochazka) vs pozadavek zakazek
+  var capArr=(j&&j.cap)||[], demArr=(j&&j.dem)||[], CHARTH=0, maxH=1;
+  if(capArr.length||demArr.length){
+    CHARTH=92; capArr.concat(demArr).forEach(function(p){ var h=+p.h||0; if(h>maxH)maxH=h; });
+    function ptsFor(arr){ return arr.filter(function(p){return pd(p.d);}).map(function(p){ var px=x(pd(p.d))+Math.round(PX/2); var py=(4+(CHARTH-10)*(1-(+p.h||0)/maxH)); return px+','+py.toFixed(1); }).join(' '); }
+    var ch=document.createElement('div'); ch.style.position='relative'; ch.style.height=CHARTH+'px'; ch.style.width=W+'px'; ch.style.borderBottom='1px solid var(--bord)';
+    ch.innerHTML='<svg width="'+W+'" height="'+CHARTH+'" style="display:block">'
+      +'<line x1="0" y1="'+(CHARTH-1)+'" x2="'+W+'" y2="'+(CHARTH-1)+'" stroke="rgba(255,255,255,.08)"/>'
+      +'<polyline points="'+ptsFor(demArr)+'" fill="none" stroke="#f59e0b" stroke-width="2"/>'
+      +'<polyline points="'+ptsFor(capArr)+'" fill="none" stroke="#10b981" stroke-width="2"/></svg>';
+    inner.appendChild(ch);
+  }
   // víkendové pruhy + čáry oddělující týdny (pondělí)
   var d0=new Date(min.getTime());
   for(var di=0; di<totalDays; di++){
@@ -319,6 +331,8 @@ function renderTimeline(c,j){
   window.addEventListener('scroll',positionLabs,true);
   window.addEventListener('resize',positionLabs);
   var lh=document.createElement('div'); lh.style.height='26px'; lh.style.borderBottom='1px solid var(--bord)'; left.appendChild(lh);
+  if(CHARTH){ var lsp=document.createElement('div'); lsp.style.height=CHARTH+'px'; lsp.style.boxSizing='border-box'; lsp.style.borderBottom='1px solid var(--bord)'; lsp.style.padding='8px'; lsp.style.fontSize='10px'; lsp.style.lineHeight='1.5';
+    lsp.innerHTML='<div style="color:#10b981;font-weight:700">━ Kapacita lidí</div><div style="color:#f59e0b;font-weight:700">━ Požadavek zakázek</div><div class="muted" style="margin-top:2px">max '+num(maxH)+' h/den</div>'; left.appendChild(lsp); }
   rows.forEach(function(r){
     var ll=document.createElement('div'); ll.style.height=ROWH+'px'; ll.style.boxSizing='border-box'; ll.style.padding='4px 8px'; ll.style.borderBottom='1px solid rgba(255,255,255,.05)'; ll.style.fontSize='12px'; ll.style.cursor='pointer'; ll.style.overflow='hidden'; ll.title=esc(r.cz)+' — '+esc(r.nazev);
     ll.innerHTML='<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span> '+esc(r.cz)+'</div>'

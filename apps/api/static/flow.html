@@ -259,6 +259,13 @@ function renderTimeline(c,j){
   var MON=['led','úno','bře','dub','kvě','čvn','čvc','srp','zář','říj','lis','pro'];
   while(cur<max){ var lx=x(cur); if(lx>=0){ var tk=document.createElement('div'); tk.style.position='absolute'; tk.style.left=lx+'px'; tk.style.top='4px'; tk.style.borderLeft='1px solid var(--bord)'; tk.style.paddingLeft='3px'; tk.style.height='20px'; tk.textContent=MON[cur.getMonth()]+' '+String(cur.getFullYear()).slice(2); ax.appendChild(tk); } cur=new Date(cur.getFullYear(),cur.getMonth()+1,1); }
   inner.appendChild(ax);
+  // víkendové pruhy + čáry oddělující týdny (pondělí)
+  var d0=new Date(min.getTime());
+  for(var di=0; di<totalDays; di++){
+    var dd0=new Date(min.getTime()+di*864e5); var wd=dd0.getDay(); // 0=ne,6=so
+    if(wd===0||wd===6){ var wk=document.createElement('div'); wk.style.position='absolute'; wk.style.left=x(dd0)+'px'; wk.style.top='26px'; wk.style.bottom='0'; wk.style.width=PX+'px'; wk.style.background='rgba(255,255,255,.045)'; wk.style.zIndex='0'; wk.style.pointerEvents='none'; inner.appendChild(wk); }
+    if(wd===1){ var wl=document.createElement('div'); wl.style.position='absolute'; wl.style.left=x(dd0)+'px'; wl.style.top='26px'; wl.style.bottom='0'; wl.style.width='1px'; wl.style.background='rgba(255,255,255,.10)'; wl.style.zIndex='0'; wl.style.pointerEvents='none'; inner.appendChild(wl); }
+  }
   var tl=document.createElement('div'); tl.style.position='absolute'; tl.style.left=x(today)+'px'; tl.style.top='0'; tl.style.bottom='0'; tl.style.width='2px'; tl.style.background='#ef4444'; tl.style.opacity='.6'; tl.style.zIndex='3'; inner.appendChild(tl);
   var lh=document.createElement('div'); lh.style.height='26px'; lh.style.borderBottom='1px solid var(--bord)'; left.appendChild(lh);
   rows.forEach(function(r){

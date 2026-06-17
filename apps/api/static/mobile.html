@@ -22,7 +22,8 @@
   body { margin:0; background:var(--bg); color:var(--tx); font-family:system-ui,sans-serif;
          padding:14px 14px 96px; -webkit-tap-highlight-color:transparent; }
   .topbar { display:flex; align-items:center; gap:10px; margin-bottom:6px; min-height:40px; }
-  .back { font-size:22px; cursor:pointer; color:var(--tx); background:none; border:none; padding:6px 8px 6px 0; }
+  .back { font-size:15px; font-weight:600; cursor:pointer; color:var(--tx); background:rgba(255,255,255,.06); border:1px solid var(--bord); border-radius:10px; padding:7px 12px; margin-right:10px; display:inline-flex; align-items:center; line-height:1; -webkit-tap-highlight-color:transparent; }
+  .back:active { transform:scale(0.96); }
   .title { font-size:21px; font-weight:700; }
   .mode { font-size:11px; padding:3px 9px; border-radius:20px; margin-left:auto; }
   .mode.native { background:rgba(16,185,129,.15); color:#5ee0b7; border:1px solid #1f6b53; }
@@ -344,7 +345,7 @@ setTimeout(function(){
   function _isoDate(cz){ cz=(cz||"").trim(); if(!cz)return ""; if(/^\d{4}-\d{2}-\d{2}/.test(cz))return cz; var m=/^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{2,4})$/.exec(cz); if(!m)return cz; var y=m[3]; if(y.length===2)y=(parseInt(y,10)>30?"19":"20")+y; return y+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2); }
   function _rcValid(rc){ rc=(rc||"").replace(/[\s\/]/g,""); if(!/^\d{9,10}$/.test(rc))return false; if(rc.length===9)return true; return (parseInt(rc.slice(0,10),10)%11===0); }
   function modeChip(){ var c=nativeApp?"native":"web", t=nativeApp?"appka":"prohlížeč"; if(DEV){c="dev";t="DEV";} return '<span class="mode '+c+'">'+t+'</span>'; }
-  function topbar(title, withBack, noChip){ var b='<div class="topbar">'; if(withBack)b+='<button class="back" data-back>&#8592;</button>'; b+='<span class="title">'+esc(title)+'</span>'+(noChip?"":modeChip())+'</div>'; return b; }
+  function topbar(title, withBack, noChip){ var b='<div class="topbar">'; var showBack = withBack || (typeof stack!=="undefined" && stack && stack.length>1); if(showBack)b+='<button class="back" data-back>&#8592;&nbsp;Zpět</button>'; b+='<span class="title">'+esc(title)+'</span>'+(noChip?"":modeChip())+'</div>'; return b; }
   function row(ic, tt, sub, onclick, badge){ var bd=(badge&&badge>0)?'<div class="rbadge">'+(badge>99?"99+":badge)+'</div>':''; var r=el('<div class="row"><div class="ic">'+ic+'</div><div class="tx"><div class="tt">'+esc(tt)+'</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div>'+bd+'<div class="chev">&#8250;</div></div>'); r.addEventListener("click",onclick); return r; }
 
   // Znovupoužitelný potvrzovací dialog (využije i docházka). Marti 6.6.2026.

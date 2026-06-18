@@ -260,10 +260,23 @@ function renderTimeline(c,j){
   var PX=TLPX, ROWH=42, totalDays=Math.round((max-min)/864e5)+1, W=totalDays*PX;
   function x(d){ return Math.round((d-min)/864e5)*PX; }
   var TC={VR:'#10b981',SW:'#4f8ef7',PR:'#a78bfa',OST:'#64748b'};
-  var wrap=document.createElement('div'); wrap.style.display='flex'; wrap.style.border='1px solid var(--bord)'; wrap.style.borderRadius='12px'; wrap.style.overflow='hidden';
-  var left=document.createElement('div'); left.style.flex='none'; left.style.width='150px'; left.style.background='var(--card)'; left.style.borderRight='1px solid var(--bord)';
-  var right=document.createElement('div'); right.style.flex='1'; right.style.overflowX='auto';
-  var inner=document.createElement('div'); inner.style.width=W+'px'; inner.style.position='relative';
+  var LW=150;
+  // ROOT: sloupec hlava (statická) + tělo (svislý scroll jen zakázky)
+  var root=document.createElement('div'); root.style.cssText='border:1px solid var(--bord);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 150px)';
+  var headRow=document.createElement('div'); headRow.style.cssText='flex:none;display:flex;border-bottom:1px solid var(--bord)';
+  var leftHead=document.createElement('div'); leftHead.style.cssText='flex:none;width:'+LW+'px;background:var(--card);border-right:1px solid var(--bord)';
+  var headView=document.createElement('div'); headView.style.cssText='flex:1;overflow:hidden;position:relative;cursor:grab';
+  var headInner=document.createElement('div'); headInner.style.cssText='position:relative;will-change:transform';
+  headView.appendChild(headInner); headRow.appendChild(leftHead); headRow.appendChild(headView);
+  var bodyRow=document.createElement('div'); bodyRow.style.cssText='flex:1;display:flex;overflow:hidden';
+  var leftBodyView=document.createElement('div'); leftBodyView.style.cssText='flex:none;width:'+LW+'px;background:var(--card);border-right:1px solid var(--bord);overflow:hidden';
+  var leftBodyInner=document.createElement('div'); leftBodyInner.style.cssText='will-change:transform';
+  var bodyView=document.createElement('div'); bodyView.style.cssText='flex:1;overflow:hidden;position:relative;cursor:grab';
+  var bodyInner=document.createElement('div'); bodyInner.style.cssText='position:relative;will-change:transform';
+  leftBodyView.appendChild(leftBodyInner); bodyView.appendChild(bodyInner); bodyRow.appendChild(leftBodyView); bodyRow.appendChild(bodyView);
+  root.appendChild(headRow); root.appendChild(bodyRow);
+  // aliasy pro stávající kód: charty/osa do hlavy, řádky do těla
+  var inner=headInner, left=leftHead;
   var ax=document.createElement('div'); ax.style.height='26px'; ax.style.position='relative'; ax.style.borderBottom='1px solid var(--bord)'; ax.style.fontSize='10px'; ax.style.color='var(--dim)';
   var cur=new Date(min.getFullYear(),min.getMonth(),1);
   var MON=['led','úno','bře','dub','kvě','čvn','čvc','srp','zář','říj','lis','pro'];
@@ -316,18 +329,21 @@ function renderTimeline(c,j){
     utilPts=util.map(function(u){ return {t:pd(u.d).getTime(), pct:u.pct}; }).sort(function(a,b){return a.t-b.t;});
     demPts=demArr.filter(function(p){return pd(p.d);}).map(function(p){ return {t:pd(p.d).getTime(), h:+p.h||0}; }).sort(function(a,b){return a.t-b.t;});
   }
-  // víkendové pruhy + čáry oddělující týdny (pondělí)
-  var d0=new Date(min.getTime());
+  // víkendové pruhy + čáry oddělující týdny (pondělí) — jen v těle (přes řádky)
   for(var di=0; di<totalDays; di++){
     var dd0=new Date(min.getTime()+di*864e5); var wd=dd0.getDay(); // 0=ne,6=so
-    if(wd===0||wd===6){ var wk=document.createElement('div'); wk.style.position='absolute'; wk.style.left=x(dd0)+'px'; wk.style.top='26px'; wk.style.bottom='0'; wk.style.width=PX+'px'; wk.style.background='rgba(255,255,255,.04)'; wk.style.zIndex='0'; wk.style.pointerEvents='none'; inner.appendChild(wk); }
-    if(wd===1){ var wl=document.createElement('div'); wl.style.position='absolute'; wl.style.left=x(dd0)+'px'; wl.style.top='26px'; wl.style.bottom='0'; wl.style.width='1px'; wl.style.background='rgba(255,255,255,.10)'; wl.style.zIndex='0'; wl.style.pointerEvents='none'; inner.appendChild(wl); }
+    if(wd===0||wd===6){ var wk=document.createElement('div'); wk.style.position='absolute'; wk.style.left=x(dd0)+'px'; wk.style.top='0'; wk.style.bottom='0'; wk.style.width=PX+'px'; wk.style.background='rgba(255,255,255,.04)'; wk.style.zIndex='0'; wk.style.pointerEvents='none'; bodyInner.appendChild(wk); }
+    if(wd===1){ var wl=document.createElement('div'); wl.style.position='absolute'; wl.style.left=x(dd0)+'px'; wl.style.top='0'; wl.style.bottom='0'; wl.style.width='1px'; wl.style.background='rgba(255,255,255,.10)'; wl.style.zIndex='0'; wl.style.pointerEvents='none'; bodyInner.appendChild(wl); }
   }
-  var tl=document.createElement('div'); tl.style.position='absolute'; tl.style.left=x(today)+'px'; tl.style.top='0'; tl.style.bottom='0'; tl.style.width='2px'; tl.style.background='#ef4444'; tl.style.opacity='.7'; tl.style.zIndex='4'; tl.style.cursor='ew-resize'; inner.appendChild(tl);
-  // dvě posuvné svislé osy: začátek + konec (min. týden od sebe), datumy ukotvené nahoře
+  // svislé čáry: každá má segment v hlavě (přes grafy) i v těle (přes řádky)
+  function mkSeg(col,dash,wpx,cur){ var g=document.createElement('div'); g.style.cssText='position:absolute;top:0;bottom:0;width:0;border-left:'+wpx+'px '+(dash?'dashed':'solid')+' '+col+';z-index:4'+(cur?(';cursor:'+cur):''); return g; }
+  var tlH=mkSeg('#ef4444',false,2,'ew-resize'); tlH.style.opacity='.7'; headInner.appendChild(tlH);
+  var tlB=mkSeg('#ef4444',false,2,'ew-resize'); tlB.style.opacity='.7'; bodyInner.appendChild(tlB);
   var MINGAP=7*PX;
-  function mkLine(col){ var g=document.createElement('div'); g.style.cssText='position:absolute;top:0;bottom:0;width:0;border-left:2px dashed '+col+';z-index:4;cursor:ew-resize'; inner.appendChild(g); return g; }
-  var gS=mkLine('#f59e0b'), gE=mkLine('#38bdf8');
+  var gSH=mkSeg('#f59e0b',true,2,'ew-resize'); headInner.appendChild(gSH);
+  var gSB=mkSeg('#f59e0b',true,2,'ew-resize'); bodyInner.appendChild(gSB);
+  var gEH=mkSeg('#38bdf8',true,2,'ew-resize'); headInner.appendChild(gEH);
+  var gEB=mkSeg('#38bdf8',true,2,'ew-resize'); bodyInner.appendChild(gEB);
   function mkLab(col){ var l=document.createElement('div'); l.style.cssText='position:fixed;transform:translateX(-50%);background:'+col+';color:#0a0a0a;font-size:11px;font-weight:700;padding:2px 7px;border-radius:7px;white-space:nowrap;z-index:900;cursor:ew-resize;box-shadow:0 1px 5px rgba(0,0,0,.45);user-select:none'; c.appendChild(l); return l; }
   var labS=mkLab('#f59e0b'), labE=mkLab('#38bdf8'), labT=mkLab('#ef4444'); labT.style.color='#fff';
   // šipkové markery vytížení v % do průsečíku s modrou křivkou
@@ -346,36 +362,44 @@ function renderTimeline(c,j){
   if(sgE){ var de=new Date(sgE); if(!isNaN(de)) pxE=clampPx(x(de)); }
   if(pxE-pxS<MINGAP) pxE=Math.min(W,pxS+MINGAP);
   var pxT=x(today);
+  var scrollX=0, scrollY=0;
   function positionLabs(){
-    if(!document.body.contains(gS)) return;
-    var rb=right.getBoundingClientRect();
-    function place(lab,px,rowoff){ var sx=rb.left+(px-right.scrollLeft); var vis=sx>=rb.left-2&&sx<=rb.right+2; lab.style.display=vis?'block':'none'; lab.style.left=Math.max(rb.left+10,Math.min(rb.right-10,sx))+'px'; lab.style.top=Math.max(6,rb.top+2)+rowoff+'px'; }
+    if(!document.body.contains(gSH)) return;
+    var rb=headView.getBoundingClientRect();
+    function place(lab,px,rowoff){ var sx=rb.left+(px-scrollX); var vis=sx>=rb.left-2&&sx<=rb.right+2; lab.style.display=vis?'block':'none'; lab.style.left=Math.max(rb.left+10,Math.min(rb.right-10,sx))+'px'; lab.style.top=Math.max(6,rb.top+2)+rowoff+'px'; }
     place(labS,pxS,0); place(labE,pxE,22); place(labT,pxT,44);
   }
   pxT=x(today); // dnes drží skutečné datum
-  function renderGuides(){ gS.style.left=pxS+'px'; gE.style.left=pxE+'px'; tl.style.left=pxT+'px';
+  function renderGuides(){ gSH.style.left=pxS+'px'; gSB.style.left=pxS+'px'; gEH.style.left=pxE+'px'; gEB.style.left=pxE+'px'; tlH.style.left=pxT+'px'; tlB.style.left=pxT+'px';
     var dni=Math.round((pxE-pxS)/PX);
     labS.textContent='▶ '+dCz(dateAt(pxS)); labE.textContent=dCz(dateAt(pxE))+' ◀ ('+dni+' dní)';
     labT.textContent='● dnes '+dCz(today);
     setMark(mkS,pxS); setMark(mkE,pxE); setMark(mkT,pxT);
     setMarkH(mhS,pxS); setMarkH(mhE,pxE); setMarkH(mhT,pxT); positionLabs(); }
+  // pan: scrollX sdílený hlava+tělo, scrollY jen tělo
+  function maxX(){ return Math.max(0, (parseFloat(headInner.style.width)||W) - headView.clientWidth); }
+  function maxY(){ return Math.max(0, bodyInner.scrollHeight - bodyView.clientHeight); }
+  function applyPan(){ scrollX=Math.max(0,Math.min(maxX(),scrollX)); scrollY=Math.max(0,Math.min(maxY(),scrollY));
+    headInner.style.transform='translateX('+(-scrollX)+'px)';
+    bodyInner.style.transform='translate('+(-scrollX)+'px,'+(-scrollY)+'px)';
+    leftBodyInner.style.transform='translateY('+(-scrollY)+'px)';
+    positionLabs(); }
   renderGuides();
-  var drg=null,dx0=0,p0=0,sl0=0;
+  var drg=null,dx0=0,p0=0;
   function sDrag(e){drg='S';dx0=e.clientX;p0=pxS;e.preventDefault();e.stopPropagation();}
   function eDrag(e){drg='E';dx0=e.clientX;p0=pxE;e.preventDefault();e.stopPropagation();}
-  function tDrag(e){drg='T';dx0=e.clientX;sl0=right.scrollLeft;e.preventDefault();e.stopPropagation();}
-  gS.addEventListener('mousedown',sDrag); labS.addEventListener('mousedown',sDrag);
-  gE.addEventListener('mousedown',eDrag); labE.addEventListener('mousedown',eDrag);
-  tl.addEventListener('mousedown',tDrag); labT.addEventListener('mousedown',tDrag);
+  function tDrag(e){drg='T';dx0=e.clientX;p0=scrollX;e.preventDefault();e.stopPropagation();}
+  gSH.addEventListener('mousedown',sDrag); gSB.addEventListener('mousedown',sDrag); labS.addEventListener('mousedown',sDrag);
+  gEH.addEventListener('mousedown',eDrag); gEB.addEventListener('mousedown',eDrag); labE.addEventListener('mousedown',eDrag);
+  tlH.addEventListener('mousedown',tDrag); tlB.addEventListener('mousedown',tDrag); labT.addEventListener('mousedown',tDrag);
   window.addEventListener('mousemove',function(e){ if(!drg)return;
-    if(drg==='T'){ right.scrollLeft=sl0-(e.clientX-dx0); positionLabs(); return; }
+    if(drg==='T'){ scrollX=p0-(e.clientX-dx0); applyPan(); return; }
     var np=p0+(e.clientX-dx0);
     if(drg==='S'){ pxS=Math.max(0,Math.min(np,pxE-MINGAP)); }
     else { pxE=Math.min(W,Math.max(np,pxS+MINGAP)); } renderGuides(); });
   window.addEventListener('mouseup',function(){ if(drg==='S'||drg==='E'){ lsS('flow_gS',dateAt(pxS).toISOString()); lsS('flow_gE',dateAt(pxE).toISOString()); } drg=null; });
-  right.addEventListener('scroll',positionLabs);
-  window.addEventListener('scroll',positionLabs,true);
   window.addEventListener('resize',positionLabs);
+  window.addEventListener('scroll',positionLabs,true);
   var lh=document.createElement('div'); lh.style.height='26px'; lh.style.borderBottom='1px solid var(--bord)'; left.appendChild(lh);
   if(CHARTH){
     function cbx(on,which){ return '<label style="float:right;cursor:pointer;display:inline-flex;align-items:center;gap:3px;font-size:9px" class="muted"><input type="checkbox" '+(on?'checked':'')+' onchange="tlBand(\''+which+'\',this.checked)" style="cursor:pointer"></label>'; }
@@ -400,16 +424,19 @@ function renderTimeline(c,j){
     var dl=document.createElement('div'); dl.style.display='none'; dl.style.padding='6px 8px 8px 12px'; dl.style.background='rgba(79,142,247,.13)'; dl.style.borderLeft='3px solid #4f8ef7';
     var dr=document.createElement('div'); dr.style.display='none'; dr.style.position='relative'; dr.style.padding='6px 0 8px'; dr.style.background='rgba(79,142,247,.07)';
     ll.onclick=function(){ if(dl.style.display==='none'||!dl.style.display){ toggleTLdet(r.cz, dl, dr, x, PX, TC[r.typ]||TC.OST, ll, rr); } setTimeout(function(){ openZakModal(r); },120); };
-    left.appendChild(ll); left.appendChild(dl); inner.appendChild(rr); inner.appendChild(dr);
+    leftBodyInner.appendChild(ll); leftBodyInner.appendChild(dl); bodyInner.appendChild(rr); bodyInner.appendChild(dr);
   });
-  right.appendChild(inner); wrap.appendChild(left); wrap.appendChild(right); c.appendChild(wrap);
-  // tažení myší = posun časové osy
-  var drag={on:false,x0:0,sl:0,moved:0};
-  right.style.cursor='grab';
-  right.addEventListener('mousedown',function(e){ drag.on=true; drag.moved=0; drag.x0=e.clientX; drag.sl=right.scrollLeft; right.style.cursor='grabbing'; e.preventDefault(); });
-  window.addEventListener('mousemove',function(e){ if(!drag.on) return; var dx=e.clientX-drag.x0; drag.moved+=Math.abs(dx); right.scrollLeft=drag.sl-dx; });
-  window.addEventListener('mouseup',function(){ if(drag.on){ drag.on=false; right.style.cursor='grab'; } });
-  setTimeout(function(){ try{ inner.style.width=(W+right.clientWidth)+'px'; right.scrollLeft=Math.max(0, x(today)-180); }catch(e){} },50);
+  c.appendChild(root);
+  // tažení myší: tělo = X i Y, hlava = jen X
+  var pan={on:false,x:0,y:0,sx:0,sy:0,vert:false};
+  function panStart(e,vert){ pan.on=true; pan.vert=vert; pan.x=e.clientX; pan.y=e.clientY; pan.sx=scrollX; pan.sy=scrollY; (vert?bodyView:headView).style.cursor='grabbing'; e.preventDefault(); }
+  bodyView.addEventListener('mousedown',function(e){ panStart(e,true); });
+  headView.addEventListener('mousedown',function(e){ panStart(e,false); });
+  leftBodyView.style.cursor='grab'; leftBodyView.addEventListener('mousedown',function(e){ panStart(e,true); });
+  window.addEventListener('mousemove',function(e){ if(!pan.on)return; scrollX=pan.sx-(e.clientX-pan.x); if(pan.vert) scrollY=pan.sy-(e.clientY-pan.y); applyPan(); });
+  window.addEventListener('mouseup',function(){ if(pan.on){ pan.on=false; bodyView.style.cursor='grab'; headView.style.cursor='grab'; } });
+  bodyView.addEventListener('wheel',function(e){ scrollY+=e.deltaY; if(e.shiftKey){scrollX+=e.deltaY;} applyPan(); e.preventDefault(); }, {passive:false});
+  setTimeout(function(){ try{ var slack=headView.clientWidth; headInner.style.width=(W+slack)+'px'; bodyInner.style.width=(W+slack)+'px'; scrollX=Math.max(0, x(today)-180); applyPan(); }catch(e){} },60);
 }
 var TLcur=null;
 function tlCloseCur(){ if(TLcur){ var c=TLcur; TLcur=null; c.dl.style.display='none'; c.dr.style.display='none'; c.dl.innerHTML=''; c.dr.innerHTML=''; if(c.ll)c.ll.style.background=''; if(c.rr)c.rr.style.background=''; } }

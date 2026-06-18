@@ -22651,13 +22651,15 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
             return float(v) if v is not None else None
         out = []
         for r in rows:
+            # Validní shoda = ABSENCE (obě strany měří tytéž reálné události).
+            # Helios "Základní mzda" je nominální fond, ne měřená práce → odprac jen informativně.
             diff = None
-            if r[8] and r[9] and r[2] is not None and r[5] is not None:
-                diff = round((fl(r[2]) - fl(r[5])), 1)  # naše odprac - Helios odprac
+            if r[8] and r[9] and r[3] is not None and r[6] is not None:
+                diff = round((fl(r[3]) - fl(r[6])), 1)  # naše absence - Helios absence
             out.append({"jmeno": r[1], "odprac": fl(r[2]), "absence": fl(r[3]), "fond": fl(r[4]),
                         "hel_odprac": fl(r[5]), "hel_absence": fl(r[6]), "hel_hruba": fl(r[7]),
                         "v_nas": bool(r[8]), "v_helios": bool(r[9]),
-                        "rozdil_h": diff})
+                        "rozdil_abs": diff})
         return JSONResponse({"ok": True, "rok": y, "mesic": m, "rows": out})
     finally:
         cm.__exit__(None, None, None)

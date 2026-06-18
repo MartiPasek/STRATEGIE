@@ -21028,6 +21028,13 @@ def _refresh_employee_active() -> dict:
             "     WHERE e.tenant_id=2 AND e.is_active=false AND e.user_id IS NOT NULL) "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.work_relation wr WHERE wr.tenant_id=2 "
             "       AND wr.user_id=ut.user_id AND wr.relation IN ('osvc','dohoda','jednatel'))"))
+        # a vyřadit je ze skupin lidí (jinak straší ve výpisech + nafukují kapacitu skupin)
+        s.execute(_t(
+            "DELETE FROM tenant.staff_group_member m "
+            "WHERE m.tenant_id=2 AND m.user_id IN (SELECT e.user_id FROM tenant.att_employee e "
+            "     WHERE e.tenant_id=2 AND e.is_active=false AND e.user_id IS NOT NULL) "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.work_relation wr WHERE wr.tenant_id=2 "
+            "       AND wr.user_id=m.user_id AND wr.relation IN ('osvc','dohoda','jednatel'))"))
         s.commit()
         return {"ok": True, "deactivated": n}
     except Exception:

@@ -2354,6 +2354,85 @@ Co to znamená prakticky (drž to, Claude-25 i 23/24):
 
 ---
 
+## Dodatek — 18. 6. 2026: 🎩 AMBASADOR — role pro privátního bankéře (appka „jako nám", read-only) + druhý PIN k trezoru
+
+Budoucí Claude — strategická věc. Marti domluvil s **privátním bankéřem Raiffeisenbank
+Zbyňkem Zajíčkem** (zbynekzajicek@icloud.com), že bude **na svém iPhonu ukazovat živou
+STRATEGII VIP klientům** jako důkaz, co umíme. Postavili jsme pro něj **roli ambasador**.
+Marti na konci: *„Super. Chodí to."* Beru (#69–70).
+
+### Co je LIVE (vše přes bridge + AUTO-DEPLOY, commity 1ec1ed3 → f2acd46 → 2f343c8 → 5d1aa8c)
+
+1. **Zbyněk = user 105**, `active`, `user_tenants.role='ambassador'` v EUROSOFT tenantu (2).
+   Žádný DDL sloupec — roli poznáme přes `user_tenants.role`. (`_is_ambassador(uid)`.)
+2. **Appka naběhne „jako nám"** (Martiho přání): ambasador otevře normální `/mobile` a vidí
+   **celou appku jako Marti** (uid 1) — fotka, dlaždice, docházka, FLOW, zakázky, vše provozní.
+   Mechanismus: **efektivní uid remap** v `_uid_from_token_or_cookie` (přejmenován původní na
+   `_resolve_uid_raw`, nový tenký wrapper) — ambasador (nebo rodič s cookie `amb_demo=1`)
+   → vrací `_AMBASSADOR_PERSONAL_UID=1` + nastaví `req.state.amb_session=True` (memo na req.state).
+3. **READ-ONLY pojistka** (`main.py` request middleware): `amb_session` + non-GET na `/api`
+   → 403 (`ambassador_readonly`). Výjimky (POST-čtení): `/app/payslip`, `/app/self-secret/reveal`,
+   `/app/ambassador/*`, `/api/v1/auth/*`. Navíc ambasador NEMÁ žádný write role → neprojde
+   ani business/parent/HR write gaty. Dvojitá pojistka.
+4. **Cizí mzdy/karty SKRYTÉ** (Marti 18.6.: *„moje výplatní pásky ano, cizí ne"*):
+   `_amb_block_others(req)` → 403 na `/app/hr/people`, `/app/hr/person`, `/employee-doc`,
+   `/app/wage-compare`. `/app/payslip` je striktně self (uid→att_employee) → jako Marti ukáže
+   jen JEHO pásky. ✅
+5. **Druhý (demo) PIN k Martiho trezoru** — tabulka `fw.ambassador_pin` (user_id, pin_hash, set_at;
+   banner #364). Helper `_amb_or_pin_gate(s,uid,pin,req)`: v amb režimu ověří demo PIN (bez SMS),
+   jinak normální `_pin_gate`. Aplikováno na `/app/payslip` + `/app/self-secret/reveal` → bankéř
+   otevře Martiho pásky i trezor demo PINem. Audit + e-mail Martimu při otevření drží.
+6. **Stránka `/ambassador`** (`apps/api/static/ambassador.html`, dvojrežim přes `/app/ambassador/whoami`):
+   - **rodič** = admin panel: nastavit demo PIN (`/app/ambassador/set-demo-pin`, parent-only),
+     poslat aktivační e-mail Zbyňkovi (`/api/v1/auth/forgot-password`), **přepínač profilu**:
+     „Spustit appku jako ambasador (demo)" → set cookie `amb_demo=1` + go `/mobile`; „Vypnout demo".
+   - **ambasador** = showcase rozcestník (FLOW, demo dashboard, karta, trezor) — ale hlavní je
+     plná `/mobile`.
+7. **Ambasador endpointy** (`/app/ambassador/marti-card|trezor-list|trezor-reveal|set-demo-pin|whoami`)
+   — povolené ambasadorovi NEBO rodiči (náhled).
+8. **Login Zbyňka**: e-mail aktivace (`forgot-password` allow_pending) → nastaví heslo → e-mail+heslo
+   → `/mobile`. (Marti měl kliknout „Poslat aktivační e-mail" na `/ambassador`.) Demo PIN Marti uložil ✅.
+9. **NDA** pro Zbyňka jako **FO** (ne zaměstnance RB), prázdné kolonky adresa/datum narození k ruční
+   doplnění, podpis „Marti Pašek, jednatel" — `docs/NDA/NDA_Zbynek_Zajicek.docx`.
+
+### GOTCHY / DOCTRINY (drž!)
+- **Rozhodnutí o rozsahu (Marti 18.6.):** ambasador = plná appka jako Marti, read-only;
+  **vlastní pásky ano, cizí ne**. Pokud přidáš endpoint ukazující CIZÍ citlivá data, dej na začátek
+  `_ab=_amb_block_others(req); if _ab: return _ab`.
+- **Read-only přes method-guard má slepou skvrnu: POST-čtení.** Když nějaká obrazovka v demo režimu
+  hodí `ambassador_readonly` i když má jen číst → přidej její path do `_amb_read_post` allowlistu
+  v `main.py`. (Zatím povolené: payslip, self-secret/reveal, ambassador/*.)
+- **Efektivní uid remap je v hot-path resolveru** — memoizováno na `req.state._amb_eff`, ať se
+  `_is_ambassador`/`is_marti_parent` neptá DB víckrát za request. Pro normální usery (ne amb, bez
+  cookie) je dopad jen 1–2 malé SELECTy 1× za request.
+- **Rodič v demo režimu je taky read-only** dokud cookie `amb_demo` nevypne (na `/ambassador`).
+  Kdyby uvízl, `/ambassador` je GET (projde) → „Vypnout demo".
+- **`amb_demo` cookie eskaluje JEN rodiče** (wrapper: `_amb_demo_cookie AND is_marti_parent`) —
+  náhodný zaměstnanec si cookie nenastaví do view-as-Marti.
+- **Marti-AI role neumí ALTER `public.users`** (není owner) → `is_ambassador` sloupec jsme NEDĚLALI,
+  roli držíme v `user_tenants.role` (Marti-AI tenant.* + public INSERT/UPDATE umí, ALTER public ne).
+- **Mount truncation znovu**: `ast.parse`/`node --check` přes mount hlásí false-positive i na main.py
+  (~1380 ř.) a malé HTML — **Read tool + deploy py_compile gate jsou autoritativní** (oba prošly).
+
+### Soubory
+`modules/erp/api/router.py` (_is_ambassador, _amb_demo_cookie, _is_amb_session, _amb_block_others,
+_amb_or_pin_gate, _resolve_uid_raw+wrapper, ambasador endpointy, bloky na hr/people|person|employee-doc|wage-compare,
+demo PIN na payslip+self-secret/reveal), `apps/api/main.py` (read-only guard + route `/ambassador`),
+`apps/api/static/ambassador.html`, `fw.ambassador_pin` (#364), user 105 (#362), `docs/NDA/NDA_Zbynek_Zajicek.docx`.
+
+### Otevřené
+- Marti pošle aktivační e-mail Zbyňkovi (tlačítko na `/ambassador`).
+- Live test demo profilu (Marti potvrdil „chodí to"); kdyby POST-read 403 → allowlist.
+- Pozn.: dřív padlo „úplně vše včetně mezd", pak Marti upřesnil na „cizí pásky ne" — finální stav je
+  **cizí finance/karty skryté**.
+
+— **Claude (id=23)** (Opus, 18. 6. 2026, po roli ambasador — plná appka jako Marti read-only +
+druhý PIN k trezoru + přepínač demo profilu)
+
+🎩 🔐 🌳 ☕
+
+---
+
 ## Dodatek — 17.→18. 6. 2026: 📊 FLOW „srdce firmy" (Gantt + kapacita/vytížení) · ISO 19 dokumentů · čistá účetní osnova · oprava demo pro Apple
 
 Budoucí Claude — dlouhý souvislý blok napříč dvěma dny. Marti na závěr: ***„SUPER

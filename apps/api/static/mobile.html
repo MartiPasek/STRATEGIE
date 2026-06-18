@@ -1299,6 +1299,11 @@ setTimeout(function(){
 
   // ───── APLIKACE (launcher) ─────
   function openApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url; if(B&&typeof B.openExternal==="function")B.openExternal(u); else { try{window.open(u,"_blank");}catch(e){ location.href=u; } } }
+  // Interní STRATEGIE přehledy (/flow, /absence-plan…) — otevřít UVNITŘ appky (stejné WebView),
+  // ne přes Android bridge ven (jinak Android nabízí externí prohlížeč Edge). Zpět = hardware back / „← Zpět" na stránce.
+  function openInApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url;
+    if(native){ try{ location.href=u; return; }catch(e){} }
+    try{ window.open(u,"_blank"); }catch(e){ location.href=u; } }
   function appCell(iconHtml,label,badge,fn){ var c=el('<div class="appcell"><div class="appicon">'+iconHtml+'</div><div class="applabel">'+esc(label)+'</div>'+(badge?'<span class="appbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</div>'); c.addEventListener("click",fn); return c; }
   function _isoWeek(d){ var t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); var dn=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-dn+3); var f=new Date(Date.UTC(t.getUTCFullYear(),0,4)); return 1+Math.round(((t-f)/86400000 - 3 + ((f.getUTCDay()+6)%7))/7); }
   function apps(){
@@ -1319,9 +1324,9 @@ setTimeout(function(){
     g.appendChild(appCell("🛒","Nákup",0,function(){openVyroba("nakup");}));
     g.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
     g.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
-    g.appendChild(appCell("📊","FLOW",0,function(){openApp("/flow");}));
-    g.appendChild(appCell("📈","Vytížení",0,function(){openApp("/vytizeni");}));
-    g.appendChild(appCell("🏖️","Plán absencí",0,function(){openApp("/absence-plan");}));
+    g.appendChild(appCell("📊","FLOW",0,function(){openInApp("/flow");}));
+    g.appendChild(appCell("📈","Vytížení",0,function(){openInApp("/vytizeni");}));
+    g.appendChild(appCell("🏖️","Plán absencí",0,function(){openInApp("/absence-plan");}));
     g.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
     g.appendChild(appCell("🔀","Migrace",0,function(){go("migrace");}));
     g.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
@@ -1381,7 +1386,7 @@ setTimeout(function(){
     g3.appendChild(appCell("🧾","Zakázky",0,function(){openVyroba("zakazky");}));
     g3.appendChild(appCell("🔧","Příprava",0,function(){openVyroba("priprava");}));
     g3.appendChild(appCell("🚚","Odvozy",0,function(){openVyroba("odvozy");}));
-    g3.appendChild(appCell("📈","Vytížení montérů",0,function(){openApp("/vytizeni");}));
+    g3.appendChild(appCell("📈","Vytížení montérů",0,function(){openInApp("/vytizeni");}));
     app.appendChild(g3);
     sec("ŘÍZENÍ & MZDY");
     var g4=el('<div class="appgrid"></div>');
@@ -1393,8 +1398,8 @@ setTimeout(function(){
     app.appendChild(g4);
     sec("DOKUMENTY & ADRESÁŘE");
     var gDoc=el('<div class="appgrid"></div>');
-    gDoc.appendChild(appCell("🗂️","Adresáře (správa)",0,function(){openApp("/dir-admin");}));
-    gDoc.appendChild(appCell("📁","Dokumenty",0,function(){openApp("/files");}));
+    gDoc.appendChild(appCell("🗂️","Adresáře (správa)",0,function(){openInApp("/dir-admin");}));
+    gDoc.appendChild(appCell("📁","Dokumenty",0,function(){openInApp("/files");}));
     app.appendChild(gDoc);
     sec("VÝUKA & ŠKOLENÍ");
     var g6=el('<div class="appgrid"></div>');
@@ -7028,7 +7033,7 @@ setTimeout(function(){
     app.innerHTML=topbar(title, true);
     if(domain==="mzdy"){
       var pb=el('<button style="margin:8px 6px;background:linear-gradient(135deg,#5b8def,#7c5cff);color:#fff;border:0;border-radius:11px;padding:12px 16px;font-size:14px;font-weight:700;width:calc(100% - 12px)">📊 Přehled mzdových podkladů (osoba × měsíc)</button>');
-      pb.onclick=function(){ openApp("/payroll"); };
+      pb.onclick=function(){ openInApp("/payroll"); };
       app.appendChild(pb);
     }
     var wrap=el('<div id="migWrap" class="muted" style="padding:8px 6px">Načítám…</div>');

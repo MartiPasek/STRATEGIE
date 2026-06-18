@@ -5529,6 +5529,46 @@ async def crm_optout_check(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/crm/optout/make-tokens")
+async def crm_optout_make_tokens(req: Request) -> JSONResponse:
+    """Vrati hotove odhlasovaci tokeny + URL pro dane (email, firma_id) pary, aby
+    odesilaci rutina (Marti-AI) NEMUSELA znat podpisovy secret — podpis zustava na serveru.
+    Soucasne vrati priznak opted_out (suppression), takze staci jedno volani.
+    Auth: X-Deploy-Token. E-maily v TELE (ne v query — osobni udaj).
+    Telo:  {"items": [{"email":"a@x.cz","firma_id":11431}, ...]}
+    Vrati: {"ok":true,"items":[{"email","firma_id","opted_out","token","url"}, ...]}"""
+    if not _screenshot_token_ok(req):
+        return JSONResponse({"ok": False, "error": "Neautorizováno"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    items = body.get("items") or []
+    base = (body.get("base_url") or "https://strategie-ai.com").rstrip("/")
+    norm_map = {}
+    for it in items:
+        e = (it.get("email") or "").strip().lower()
+        if e and "@" in e:
+            norm_map.setdefault(e, it.get("firma_id"))
+    if not norm_map:
+        return JSONResponse({"ok": True, "items": []})
+    from core.database_data import get_data_session as _gds_mt
+    from sqlalchemy import text as _sql_mt
+    ds = _gds_mt()
+    try:
+        opted = set(ds.execute(_sql_mt(
+            "SELECT DISTINCT email_norm FROM mod.crm_email_optout WHERE email_norm = ANY(:list)"
+        ), {"list": sorted(norm_map.keys())}).scalars().all())
+    finally:
+        ds.close()
+    out = []
+    for e, fid in norm_map.items():
+        tok = crm_optout_make_token(e, fid)
+        out.append({"email": e, "firma_id": fid, "opted_out": (e in opted),
+                    "token": tok, "url": base + "/crm/odhlasit/" + tok})
+    return JSONResponse({"ok": True, "items": out})
+
+
 def crm_optout_record(email_norm: str, firma_id=None, source: str = "unsubscribe_link",
                       note: str = None) -> bool:
     """Zapise odhlaseni do mod.crm_email_optout (idempotentne). Vola odhlasovaci stranka."""

@@ -1161,7 +1161,16 @@ setTimeout(function(){
     paint(); }
 
   // ───── NASTAVENÍ ─────
+  function clearAndReload(){
+    (async function(){
+      try{var rs=await navigator.serviceWorker.getRegistrations();for(var i=0;i<rs.length;i++){await rs[i].unregister();}}catch(e){}
+      try{var ks=await caches.keys();for(var j=0;j<ks.length;j++){await caches.delete(ks[j]);}}catch(e){}
+      try{sessionStorage.removeItem("stgAutoHeal");}catch(e){}
+      try{location.replace(location.pathname+"?fresh="+Date.now());}catch(e){location.reload();}
+    })();
+  }
   function settings(){ app.innerHTML=topbar("Nastavení", false); var l=el('<div class="list"></div>');
+    l.appendChild(row("🧹","Vyčistit a načíst","Načíst čerstvá data (když něco svítí staré)",function(){ clearAndReload(); }));
     l.appendChild(row("🟢","Párování s ERP","Stav spojení s ERP",function(){go("set_listen");}));
     l.appendChild(row("📌","Ikony na plochu","ERP a Chat zkratky",function(){go("set_icons");}));
     l.appendChild(row("📲","Nainstalovat na plochu","/mobile jako PWA",function(){go("set_install");}));

@@ -910,6 +910,15 @@ def payroll_page():
                                  "X-Frame-Options": "SAMEORIGIN"})
 
 
+@app.get("/absence-plan")
+def absence_plan_page():
+    """Plán nepřítomností dopředu (dovolená/náhr.volno/lékař…) z Centrály.
+    Lidé abecedně, období od–do. Rodič/HR. Marti 18.6.2026."""
+    return FileResponse(os.path.join(static_dir, "absence-plan.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN"})
+
+
 @app.get("/vytizeni")
 def vytizeni_page():
     """Vytížení montérů (Dušan) — denní požadavek vs kapacita (z docházky Výroby)

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plán nepřítomností</title>
+<style>
+  :root{ --bg:#0b1020; --card:#16203c; --line:#26314f; --tx:#e8eef9; --mut:#9fb0d0; --acc:#5b8def; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,#0b1020,#0e1430 60%,#0b1020);color:var(--tx);min-height:100vh}
+  .wrap{max-width:1000px;margin:0 auto;padding:14px 12px 60px}
+  .hd{display:flex;align-items:center;gap:10px;margin:2px 2px 8px;flex-wrap:wrap}
+  .hd .ic{font-size:22px}.hd h1{font-size:17px;margin:0;font-weight:700}
+  .hd .sp{flex:1}
+  select{padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:#0e1530;color:var(--tx);font-size:14px}
+  .muted{color:var(--mut);font-size:13px;margin:4px 2px}
+  .person{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:8px 0;overflow:hidden}
+  .phead{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#101a33;cursor:pointer}
+  .phead .nm{font-weight:700;font-size:14.5px;flex:1}
+  .phead .cnt{font-size:12px;color:var(--mut)}
+  .chev{color:var(--mut);font-size:12px;transition:transform .15s}
+  .open .chev{transform:rotate(90deg)}
+  .items{display:none;padding:4px 12px 10px}
+  .open .items{display:block}
+  .it{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:13.5px}
+  .it:first-child{border-top:0}
+  .it .dr{flex:1}
+  .it .dt{color:#cfe0ff}
+  .it .dni{color:var(--mut);font-size:12px;min-width:54px;text-align:right}
+  .tag{font-size:10.5px;padding:1px 7px;border-radius:7px;white-space:nowrap}
+  .ok{background:rgba(109,223,155,.16);color:#6ddf9b}
+  .wait{background:rgba(255,207,107,.16);color:#ffcf6b}
+  .emoji{width:22px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><div class="ic">🏖️</div><h1>Plán nepřítomností</h1><div class="sp"></div>
+    <select id="rng">
+      <option value="60">60 dní dopředu</option>
+      <option value="180" selected>půl roku</option>
+      <option value="366">rok</option>
+    </select>
+  </div>
+  <div class="muted" id="sub">Naplánované dovolené, náhradní volna, lékař… z Centrály. Lidé podle abecedy, klepnutím rozbalíš termíny.</div>
+  <div id="root"><div class="muted">Načítám…</div></div>
+</div>
+<script>
+const API="/api/v1/erp/app/absence-plan";
+const MON=["led","úno","bře","dub","kvě","čvn","čvc","srp","zář","říj","lis","pro"];
+const root=document.getElementById("root"), rng=document.getElementById("rng"), sub=document.getElementById("sub");
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function dCZ(iso){const p=(iso||"").split("-");if(p.length<3)return iso;return (+p[2])+". "+MON[(+p[1])-1];}
+function emo(d){d=(d||"").toLowerCase();
+  if(d.indexOf("dovol")>=0)return "🏖️"; if(d.indexOf("nemoc")>=0||d.indexOf("neschop")>=0)return "🤒";
+  if(d.indexOf("lékař")>=0||d.indexOf("lekar")>=0)return "🩺"; if(d.indexOf("náhr")>=0||d.indexOf("nahr")>=0)return "🔁";
+  if(d.indexOf("očr")>=0||d.indexOf("ocr")>=0)return "👶"; if(d.indexOf("mateř")>=0||d.indexOf("rodič")>=0)return "🍼";
+  if(d.indexOf("home")>=0||d.indexOf("doma")>=0)return "🏠"; if(d.indexOf("škol")>=0||d.indexOf("skol")>=0)return "🎓";
+  return "📅";}
+async function load(){
+  root.innerHTML='<div class="muted">Načítám…</div>';
+  const r=await fetch(API+"?dnu="+rng.value,{credentials:"include"}).then(x=>x.json()).catch(()=>null);
+  if(!r||!r.ok){root.innerHTML='<div class="muted" style="color:#ff8a8a">'+((r&&r.error==="forbidden")?"Přehled je pro vedení a HR.":"Chyba načtení.")+'</div>';return;}
+  const lide=r.lide||[];
+  if(!lide.length){root.innerHTML='<div class="muted">V tomto období nemá nikdo naplánovanou nepřítomnost.</div>';return;}
+  let totDni=0; lide.forEach(p=>totDni+=p.dni_celkem||0);
+  sub.textContent=lide.length+" lidí má naplánováno celkem "+totDni+" dní nepřítomnosti. Lidé podle abecedy.";
+  let html="";
+  lide.forEach((p,idx)=>{
+    let items="";
+    (p.polozky||[]).forEach(it=>{
+      const span=(it.od===it.do)?dCZ(it.od):(dCZ(it.od)+" – "+dCZ(it.do));
+      items+='<div class="it"><span class="emoji">'+emo(it.druh)+'</span>'+
+        '<span class="dr"><span class="dt">'+esc(span)+'</span> · '+esc(it.druh)+
+        ' <span class="tag '+(it.schvaleno?"ok":"wait")+'">'+(it.schvaleno?"schváleno":"čeká")+'</span></span>'+
+        '<span class="dni">'+it.dni+' dní</span></div>';
+    });
+    html+='<div class="person" id="p'+idx+'"><div class="phead" onclick="document.getElementById(\'p'+idx+'\').classList.toggle(\'open\')">'+
+      '<span class="chev">▶</span><span class="nm">'+esc(p.jmeno)+'</span>'+
+      '<span class="cnt">'+p.dni_celkem+' dní · '+(p.polozky||[]).length+'×</span></div>'+
+      '<div class="items">'+items+'</div></div>';
+  });
+  root.innerHTML=html;
+}
+rng.onchange=load;
+load();
+</script>
+</body>
+</html>

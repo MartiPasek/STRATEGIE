@@ -20390,6 +20390,10 @@ _OPS_ACTIONS = {
         "label": "Samooprava rosteru: zneaktivnit odešlé (mimo aktuální mzdové období)",
         "target": "cloud", "remote": False,
     },
+    "sync_plan_nepritomnost": {
+        "label": "Synchronizovat plán nepřítomností (EC_Dochazka_PlanNepritomnost → STRATEGIE)",
+        "target": "cloud", "remote": False,
+    },
     "sync_vyroba_plan": {
         "label": "Synchronizovat plán výroby (EC_Vytizeni_PlanMonteri → STRATEGIE)",
         "target": "cloud", "remote": False,
@@ -21039,6 +21043,87 @@ def _refresh_employee_active() -> dict:
                 "       AND wr.user_id=x.user_id AND wr.relation IN ('osvc','dohoda','jednatel'))"))
         s.commit()
         return {"ok": True, "deactivated": n}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_plan_nepritomnost(days_back: int = 30) -> dict:
+    """Plánované nepřítomnosti z Centrály (EC_Dochazka_PlanNepritomnost) →
+    tenant.att_planned_absence. Per den: kdo/datum/druh/hodiny/schváleno, od
+    (dnes - days_back). Název druhu z editovatelného číselníku
+    att_planned_absence_type (kód→název). Zrušené plány v okně zmizí (DELETE+INSERT)."""
+    import json as _j
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    sql = ("SELECT ID src, CisloZam cz, CONVERT(varchar(10),DatumPripadu,23) d, "
+           "DruhCinnosti druh, PocetHodin hod, CAST(ISNULL(Schvaleno,0) AS int) schv "
+           "FROM EC_Dochazka_PlanNepritomnost "
+           "WHERE DatumPripadu >= DATEADD(day,-" + str(int(days_back)) + ",CONVERT(date,GETDATE())) "
+           "AND CisloZam IS NOT NULL")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    n = 0
+    try:
+        umap = {}
+        for er in s.execute(_t("SELECT cislo_zam, max(user_id) FROM tenant.att_employee "
+                               "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():
+            umap[str(er[0]).strip()] = er[1]
+        names = {}
+        for nr in s.execute(_t("SELECT kod, nazev FROM tenant.att_planned_absence_type WHERE tenant_id=2")).fetchall():
+            names[int(nr[0])] = nr[1]
+        s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 "
+                     "AND datum >= CURRENT_DATE - make_interval(days => :db)"), {"db": int(days_back)})
+        for row in rows:
+            try:
+                src = int(row.get("src"))
+            except (TypeError, ValueError):
+                continue
+            d = row.get("d")
+            if not d:
+                continue
+            cz = str(row.get("cz")).strip()
+            try:
+                druh = int(row.get("druh"))
+            except (TypeError, ValueError):
+                druh = None
+            try:
+                hod = round(float(row.get("hod") or 0), 2)
+            except (TypeError, ValueError):
+                hod = 0.0
+            nz = names.get(druh) if druh is not None else None
+            if not nz:
+                nz = ("Druh " + str(druh)) if druh is not None else "—"
+            s.execute(_t(
+                "INSERT INTO tenant.att_planned_absence "
+                "(tenant_id,src_id,cislo_zam,user_id,datum,druh_kod,druh_nazev,hodiny,schvaleno,synced_at) "
+                "VALUES (2,:src,:cz,:uid,:d,:druh,:nz,:hod,:schv,now()) "
+                "ON CONFLICT (tenant_id,src_id) DO UPDATE SET cislo_zam=:cz,user_id=:uid,datum=:d,"
+                "druh_kod=:druh,druh_nazev=:nz,hodiny=:hod,schvaleno=:schv,synced_at=now()"),
+                {"src": src, "cz": cz, "uid": umap.get(cz), "d": d, "druh": druh,
+                 "nz": nz, "hod": hod, "schv": bool(int(row.get("schv") or 0))})
+            n += 1
+        s.commit()
+        return {"ok": True, "rows": len(rows), "upserted": n}
     except Exception:
         s.rollback()
         raise
@@ -22480,6 +22565,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             heal = _refresh_employee_active()
             status = "done"
             result = "samooprava rosteru: %s odešlých zneaktivněno (mimo aktuální mzdové období)" % heal.get("deactivated")
+        elif action_key == "sync_plan_nepritomnost":
+            out = _sync_plan_nepritomnost()
+            status = "done"
+            result = "plán nepřítomností: %s naplánovaných dní (z %s v Centrále)" % (out.get("upserted"), out.get("rows"))
         elif action_key == "sync_vyroba_plan":
             out = _sync_vyroba_plan_from_ec()
             status = "done"
@@ -22652,6 +22741,8 @@ _MIGRACE_STEPS = {
          "when": "Po měsíční uzávěrce v Centrále (případně průběžně). Natáhne DENNÍ SOUHRN docházky (mzdový podklad: odpracováno/dovolená/nemoc/OČR/… + fond) z EC_Dochazka_SumaDen za 2026."},
         {"key": "sync_vyroba_plan",
          "when": "Dle potřeby — když se v Centrále mění plán montérů (vstup pro vytížení dílny)."},
+        {"key": "sync_plan_nepritomnost",
+         "when": "Dle potřeby — natáhne PLÁN NEPŘÍTOMNOSTÍ dopředu (dovolená/náhr.volno/lékař…) z EC_Dochazka_PlanNepritomnost. Vstup pro přehled 'Plán nepřítomností'."},
     ],
     "mzdy": [
         {"key": "sync_dochazka_sumaden",
@@ -22796,6 +22887,76 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
                         "v_nas": bool(r[8]), "v_helios": bool(r[9]), "relation": r[10],
                         "davka": davka, "rozdil_abs": diff})
         return JSONResponse({"ok": True, "rok": y, "mesic": m, "rows": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/absence-plan")
+async def app_absence_plan(req: Request) -> JSONResponse:
+    """Přehled plánovaných nepřítomností dopředu (dovolená/náhr.volno/lékař…) z Centrály.
+    Lidé řazení ABECEDNĚ, po sobě jdoucí dny stejného druhu sloučené do období.
+    Rodiče + HR. ?dnu=180 (okno dopředu, default 180)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    try:
+        dnu = max(1, min(366, int(req.query_params.get("dnu") or 180)))
+    except Exception:
+        dnu = 180
+    cm, s = _att_session()
+    try:
+        if not (_app_parent(s, uid) or _hr_can_manage(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT a.user_id, "
+            "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'#'||a.cislo_zam) jmeno, "
+            "  a.datum, a.druh_nazev, a.druh_kod, a.hodiny, a.schvaleno "
+            "FROM tenant.att_planned_absence a LEFT JOIN public.users u ON u.id=a.user_id "
+            "WHERE a.tenant_id=2 AND a.datum >= CURRENT_DATE AND a.datum < CURRENT_DATE + make_interval(days => :d) "
+            "ORDER BY jmeno, a.datum"), {"d": dnu}).fetchall()
+        # seskup po osobách, slouč po sobě jdoucí dny stejného druhu do období
+        people = []
+        cur_name = None
+        cur = None
+        polozky = []
+        prev = None  # (od, do, druh, kod, dni, hodiny, schvaleno)
+
+        def flush_item():
+            if prev:
+                polozky.append({"od": prev[0].isoformat(), "do": prev[1].isoformat(),
+                                "druh": prev[2], "kod": prev[3], "dni": prev[4],
+                                "hodiny": round(prev[5], 1), "schvaleno": prev[6]})
+
+        def flush_person():
+            flush_item()
+            if cur_name is not None:
+                dni = sum(p["dni"] for p in polozky)
+                people.append({"user_id": cur, "jmeno": cur_name, "polozky": list(polozky), "dni_celkem": dni})
+
+        for r in rows:
+            nm = r[1]
+            dat = r[2]
+            druh = r[3] or "—"
+            kod = r[4]
+            hod = float(r[5] or 0)
+            schv = bool(r[6])
+            if nm != cur_name:
+                flush_person()
+                cur_name = nm
+                cur = r[0]
+                polozky = []
+                prev = None
+            if prev and prev[2] == druh and (dat - prev[1]).days == 1 and prev[6] == schv:
+                prev = (prev[0], dat, druh, kod, prev[4] + 1, prev[5] + hod, schv)
+            else:
+                flush_item()
+                prev = (dat, dat, druh, kod, 1, hod, schv)
+        flush_person()
+        return JSONResponse({"ok": True, "dnu": dnu, "lide": people, "pocet_osob": len(people)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
 

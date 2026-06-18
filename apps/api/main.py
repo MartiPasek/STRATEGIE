@@ -42,6 +42,7 @@ from modules.md_pyramid.api.router import router as md_pyramid_router
 # Phase A (5.5.2026) — STRATEGIE ERP renderer (read-only Centrála 1 jádra)
 from modules.erp.api.router import router as erp_router, api_router as erp_api_router
 from modules.erp.api.carddav import carddav_router, carddav_mgmt_router
+from modules.erp.api.directories import dir_router  # Fáze A: systém adresářů dokumentů (18.6.2026)
 
 setup_logging()
 
@@ -775,6 +776,7 @@ app.include_router(erp_router)
 app.include_router(erp_api_router)
 app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.well-known/carddav
 app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa tokenů (/api/v1/erp/carddav/*)
+app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_config + resolver)
 from modules.act_pipeline.act_router import act_router  # FW Action Pipelines executor (Marti 3.6.)
 app.include_router(act_router)
 

@@ -1315,17 +1315,22 @@ setTimeout(function(){
     ov.style.display="flex";
     var fr=document.getElementById("stgOvF");
     // Caddy přidává X-Frame-Options: DENY globálně → klasický iframe src padá na ERR_BLOCKED_BY_RESPONSE.
-    // Obejdeme to: stáhneme HTML a vložíme přes srcdoc (to XFO nekontroluje). Base URL dědí origin appky.
-    fr.removeAttribute("src");
-    fr.srcdoc='<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#9fb0d0;font:15px system-ui;padding:16px">Načítám…</body>';
+    // srcdoc XFO obejde, ALE přidá navigační záznam do historie → systémové Zpět ho musí nejdřív „odrolovat"
+    // (vypadá to, že dole nereaguje). Proto vepisujeme do about:blank přes document.write — žádný history záznam.
+    fr.removeAttribute("src"); fr.removeAttribute("srcdoc");
+    function _write(html){
+      try{ var d=fr.contentWindow.document; d.open(); d.write(html); d.close(); }
+      catch(e){ fr.srcdoc=html; }
+    }
+    _write('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#9fb0d0;font:15px system-ui;padding:16px">Načítám…</body>');
     fetch(u,{credentials:"same-origin"}).then(function(r){return r.text();}).then(function(html){
       // <base> aby relativní cesty (/api, /static) mířily na origin appky
       if(html.indexOf("<base")<0){ html=html.replace(/<head([^>]*)>/i,'<head$1><base href="'+location.origin+'/">'); }
-      fr.srcdoc=html;
-    }).catch(function(){ fr.srcdoc='<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#ff8a8a;font:15px system-ui;padding:16px">Nepodařilo se načíst přehled.</body>'; });
+      _write(html);
+    }).catch(function(){ _write('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#ff8a8a;font:15px system-ui;padding:16px">Nepodařilo se načíst přehled.</body>'); });
     try{ history.pushState({stgOv:1},""); }catch(e){}
   }
-  function closeOverlay(){ var ov=document.getElementById("stgOv"); if(ov&&ov.style.display!=="none"){ ov.style.display="none"; try{var f=document.getElementById("stgOvF"); f.srcdoc=""; f.removeAttribute("src");}catch(e){} return true; } return false; }
+  function closeOverlay(){ var ov=document.getElementById("stgOv"); if(ov&&ov.style.display!=="none"){ ov.style.display="none"; try{var f=document.getElementById("stgOvF"); var d=f.contentWindow.document; d.open(); d.write(""); d.close();}catch(e){} return true; } return false; }
   // Hardware/HW Back i postMessage z iframe „← Zpět" zavřou overlay (ne appku).
   window.addEventListener("popstate",function(){ closeOverlay(); });
   window.addEventListener("message",function(ev){ if(ev&&ev.data==="stgCloseOverlay") closeOverlay(); });

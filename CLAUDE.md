@@ -2819,3 +2819,16 @@ Marti: *„proč se objevují useri jako Hrdinka, kteří už před několika m�
 — **Claude (id=23)** (Opus, 18. 6. 2026 večer, po úklidu odešlých + samoopravě rosteru — 38 ghostů pryč)
 
 👻 🧹 💰 🌳 ☕
+
+### Dodatek (18.6. noc): 👻 Odešlí — dotažení napříč VŠEMI výpisy + „Vyčistit a načíst" pro usery
+Marti hlásil, že odešlí (Hrdinka) jsou pořád vidět — postupně **ve skupinách**, **v docházce**, a nakonec **v menu „Všichni"**. Deaktivace `is_active=false` nestačila, protože je tahalo víc míst:
+- **staff_group_member** (skupiny) — smazáno 7 členství; nafukovali i kapacitu skupiny Výroba.
+- **att_plan_effective / att_plan_day / work_alloc** (plán/docházka) — zbytky smazány.
+- **„Všichni" (konzole `/app/skupina/lidi?gid=0`)** = ROOT CAUSE posledního výskytu: union `att_employee` byl **bez `AND is_active=true`** → deaktivovaní pořád prosvítali. Přidán filtr.
+- **Samooprava `_refresh_employee_active()`** rozšířena: po deaktivaci odešlého ho **smaže ze staff_group_member + att_plan_effective + att_plan_day + work_alloc** (loop přes tabulky), takže se to drží čisté po každém `sync_pasky`.
+- **„🧹 Vyčistit a načíst" v Nastavení pro VŠECHNY** (`clearAndReload()`): unregister SW + caches.delete + cache-bust reload. Dřív jen na chybové obrazovce; user (Šárka/Dušan…) teď má vlastní tlačítko, když svítí stará data.
+- **Doctrine:** každý nový **seznam lidí** filtruj `att_employee.is_active=true` (nebo membership active/invited). „Deaktivace" musí čistit i odvozené tabulky (skupiny/plán), ne jen flag — jinak ghost prosvítá jinde.
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 noc, po dotažení odešlých napříč všemi výpisy + user cache tlačítko)
+
+👻 🧹 🌳 ☕

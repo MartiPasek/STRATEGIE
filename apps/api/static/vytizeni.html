@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vytížení montérů</title>
+<style>
+  :root{ --bg:#0b1020; --card:#16203c; --line:#26314f; --tx:#e8eef9; --mut:#9fb0d0;
+         --grn:#3ecf8e; --org:#f0a93b; --blu:#5b8def; --red:#ff6b6b; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,#0b1020,#0e1430 60%,#0b1020);color:var(--tx);min-height:100vh}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px 14px 50px}
+  .hd{display:flex;align-items:center;gap:10px;margin:2px 2px 10px;flex-wrap:wrap}
+  .hd .ic{font-size:24px}.hd h1{font-size:18px;margin:0;font-weight:700}
+  .hd .sp{flex:1}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{background:#121a33;color:var(--mut);border:none;padding:7px 13px;font-size:13px;cursor:pointer}
+  .seg button.on{background:linear-gradient(135deg,var(--blu),#7c5cff);color:#fff;font-weight:700}
+  .kpis{display:flex;gap:8px;margin:8px 0;flex-wrap:wrap}
+  .kpi{flex:1;min-width:130px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .kpi .v{font-size:22px;font-weight:800}.kpi .l{font-size:11px;color:var(--mut);margin-top:2px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin:10px 0}
+  .muted{color:var(--mut);font-size:13px}
+  .lg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:6px}
+  .lg span{display:inline-flex;align-items:center;gap:5px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  canvas{max-width:100%}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><div class="ic">📈</div><h1>Vytížení montérů</h1><div class="sp"></div>
+    <div class="seg"><button id="bD" class="on">Dny</button><button id="bW">Týdny</button></div>
+  </div>
+  <div class="muted" style="margin:0 2px 6px">Požadavek zakázek vs. kapacita lidí (z naplánované docházky Výroby). 100 % = plán lidí sedí na požadavek.</div>
+  <div class="kpis" id="kpis"></div>
+  <div class="card"><canvas id="ch" height="150"></canvas>
+    <div class="lg">
+      <span><span class="dot" style="background:var(--grn)"></span>Kapacita (h)</span>
+      <span><span class="dot" style="background:var(--org)"></span>Požadavek (h)</span>
+      <span><span class="dot" style="background:var(--blu)"></span>Vytížení %</span>
+    </div>
+  </div>
+  <div id="msg" class="muted" style="margin:6px 2px"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const API="/api/v1/erp/app/flow?section=vytizeni";
+let RAW=null, MODE="D", chart=null;
+async function j(u){const r=await fetch(u,{credentials:"include"});try{return await r.json()}catch(e){return{ok:false}}}
+function isoWeek(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const day=(t.getUTCDay()+6)%7;t.setUTCDate(t.getUTCDate()-day+3);const f=new Date(Date.UTC(t.getUTCFullYear(),0,4));return t.getUTCFullYear()+"-T"+String(1+Math.round(((t-f)/86400000-3+((f.getUTCDay()+6)%7))/7)).padStart(2,"0");}
+
+function merge(){
+  const m={};
+  ((RAW.cap)||[]).forEach(x=>{m[x.d]=m[x.d]||{cap:0,dem:0};m[x.d].cap=x.h;});
+  ((RAW.dem)||[]).forEach(x=>{m[x.d]=m[x.d]||{cap:0,dem:0};m[x.d].dem=x.h;});
+  let rows=Object.keys(m).sort().map(d=>({d,cap:m[d].cap,dem:m[d].dem}));
+  // okno: od dneška -7 dní dál (přehled dopředu)
+  const today=new Date();today.setDate(today.getDate()-7);const lo=today.toISOString().slice(0,10);
+  rows=rows.filter(r=>r.d>=lo && (r.cap>0||r.dem>0));
+  return rows;
+}
+function aggWeek(rows){
+  const w={};rows.forEach(r=>{const k=isoWeek(new Date(r.d));w[k]=w[k]||{cap:0,dem:0};w[k].cap+=r.cap;w[k].dem+=r.dem;});
+  return Object.keys(w).sort().map(k=>({d:k.replace("-T"," týd. "),cap:w[k].cap,dem:w[k].dem}));
+}
+function fmt(d){const x=new Date(d);if(isNaN(x))return d;return x.getDate()+"."+(x.getMonth()+1)+".";}
+
+function render(){
+  if(!RAW){return;}
+  let rows=merge();if(MODE==="W")rows=aggWeek(rows);
+  const labels=rows.map(r=>MODE==="W"?r.d:fmt(r.d));
+  const cap=rows.map(r=>Math.round(r.cap));
+  const dem=rows.map(r=>Math.round(r.dem));
+  const util=rows.map(r=>r.cap>0?Math.round(r.dem/r.cap*100):null);
+  // KPI: prům. vytížení příštích 30 dní (denní režim)
+  const fut=merge().filter(r=>r.d>=new Date().toISOString().slice(0,10)).slice(0,30);
+  let sc=0,sd=0;fut.forEach(r=>{sc+=r.cap;sd+=r.dem;});
+  const avg=sc>0?Math.round(sd/sc*100):0;
+  let peak=null;fut.forEach(r=>{if(r.cap>0){const u=r.dem/r.cap*100;if(peak===null||u>peak.u)peak={u:Math.round(u),d:r.d};}});
+  document.getElementById("kpis").innerHTML=
+    '<div class="kpi"><div class="v" style="color:'+(avg>120?'var(--red)':avg>100?'var(--org)':'var(--grn)')+'">'+avg+' %</div><div class="l">Ø vytížení (30 dní)</div></div>'+
+    '<div class="kpi"><div class="v">'+(peak?peak.u+' %':'—')+'</div><div class="l">Špička'+(peak?' ('+fmt(peak.d)+')':'')+'</div></div>'+
+    '<div class="kpi"><div class="v">'+Math.round(fut.reduce((a,r)=>a+r.dem,0))+' h</div><div class="l">Požadavek (30 dní)</div></div>'+
+    '<div class="kpi"><div class="v">'+Math.round(fut.reduce((a,r)=>a+r.cap,0))+' h</div><div class="l">Kapacita (30 dní)</div></div>';
+  const ctx=document.getElementById("ch");
+  if(chart)chart.destroy();
+  const barCol=util.map(u=>u==null?'rgba(91,141,239,.5)':(u>120?'rgba(255,107,107,.85)':u>100?'rgba(240,169,59,.85)':'rgba(62,207,142,.8)'));
+  chart=new Chart(ctx,{data:{labels,datasets:[
+    {type:'bar',label:'Kapacita (h)',data:cap,backgroundColor:'rgba(62,207,142,.35)',yAxisID:'y',order:3},
+    {type:'bar',label:'Požadavek (h)',data:dem,backgroundColor:'rgba(240,169,59,.55)',yAxisID:'y',order:2},
+    {type:'line',label:'Vytížení %',data:util,borderColor:'#5b8def',backgroundColor:'#5b8def',pointBackgroundColor:barCol,pointRadius:3,borderWidth:2,tension:.25,yAxisID:'y1',order:1},
+  ]},options:{responsive:true,interaction:{mode:'index',intersect:false},
+    plugins:{legend:{display:false},tooltip:{callbacks:{afterBody:(it)=>{const i=it[0].dataIndex;return util[i]==null?'':('Vytížení: '+util[i]+' %');}}}},
+    scales:{
+      x:{ticks:{color:'#9fb0d0',maxRotation:0,autoSkip:true,maxTicksLimit:14},grid:{color:'rgba(255,255,255,.04)'}},
+      y:{position:'left',title:{display:true,text:'hodiny',color:'#9fb0d0'},ticks:{color:'#9fb0d0'},grid:{color:'rgba(255,255,255,.05)'}},
+      y1:{position:'right',title:{display:true,text:'%',color:'#5b8def'},min:0,suggestedMax:160,ticks:{color:'#5b8def',callback:v=>v+'%'},grid:{drawOnChartArea:false}},
+    }}});
+  document.getElementById("msg").textContent="Načteno "+rows.length+(MODE==="W"?" týdnů.":" dní.");
+}
+
+async function boot(){
+  const r=await j(API);
+  if(!r||r.ok===false){document.getElementById("msg").innerHTML='<span style="color:#ff8a8a">Nepodařilo se načíst data (přístup má rodič nebo vedoucí výroby).</span>';return;}
+  RAW=r;render();
+}
+document.getElementById("bD").onclick=()=>{MODE="D";document.getElementById("bD").classList.add("on");document.getElementById("bW").classList.remove("on");render();};
+document.getElementById("bW").onclick=()=>{MODE="W";document.getElementById("bW").classList.add("on");document.getElementById("bD").classList.remove("on");render();};
+boot();
+</script>
+</body>
+</html>

@@ -901,6 +901,15 @@ def crm_odhlasit_post(token: str):
         "Další obchodní sdělení už vám posílat nebudeme. Děkujeme.</p>", show_form=False)
 
 
+@app.get("/vytizeni")
+def vytizeni_page():
+    """Vytížení montérů (Dušan) — denní požadavek vs kapacita (z docházky Výroby)
+    → vytížení %. Data z /app/flow?section=vytizeni. Marti 18.6.2026."""
+    return FileResponse(os.path.join(static_dir, "vytizeni.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN"})
+
+
 @app.get("/flow")
 def flow_page():
     """Stav zakázek — read-only board nad Centrálou (flow zakázek). Data z /app/flow,

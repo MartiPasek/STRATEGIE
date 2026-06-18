@@ -11389,7 +11389,8 @@ def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
             cm.__exit__(None, None, None)
         except Exception:
             pass
-    if not isp and not _is_ambassador(uid):
+    # rodič / ambasador / vedoucí výroby (Dušan 41, Marek 85)
+    if not isp and not _is_ambassador(uid) and int(uid) not in (41, 85):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     mcp = get_eurosoft_mcp_client()
@@ -11625,6 +11626,33 @@ def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
             out["vyhodnoceni"] = _q(vyhodnoceni_sql)
         elif sec == "zl":
             out["zl"] = _q(zl_sql)
+        elif sec == "vytizeni":
+            # Vytížení montérů (Dušan): požadavek (plán zakázek) vs kapacita
+            # (naplánovaná docházka Výroby) — Marti 18.6. „z naší docházky".
+            try:
+                out["dem"] = _q("SELECT CONVERT(varchar(10),Datum,23) AS d, SUM(PocetHodin) AS h"
+                                " FROM DB_EC.dbo.EC_Vytizeni_PlanMonteri WITH(NOLOCK)"
+                                " WHERE Datum>='2026-01-01' GROUP BY Datum ORDER BY Datum")
+                cap = []
+                cm2, s2 = _att_session()
+                try:
+                    rs = s2.execute(_t(
+                        "SELECT pe.plan_date::text AS d, SUM(pe.expected_hours) AS h"
+                        " FROM tenant.att_plan_effective pe"
+                        " WHERE pe.tenant_id=2 AND pe.user_id IN ("
+                        "   SELECT m.user_id FROM tenant.staff_group_member m"
+                        "   WHERE m.tenant_id=2 AND m.group_id=3"
+                        "   AND m.user_id NOT IN (SELECT user_id FROM tenant.vyroba_plan_excl WHERE tenant_id=2))"
+                        " GROUP BY pe.plan_date ORDER BY pe.plan_date")).fetchall()
+                    cap = [{"d": row[0], "h": float(row[1] or 0)} for row in rs]
+                finally:
+                    try:
+                        cm2.__exit__(None, None, None)
+                    except Exception:
+                        pass
+                out["cap"] = cap
+            except Exception:
+                out["cap"] = []; out["dem"] = []
         elif sec == "timeline":
             if czf:
                 out["lide"] = _q(timeline_det_sql)

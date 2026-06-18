@@ -2735,3 +2735,25 @@ porovnávat** (Helios = nominál, my = realita).
 kontrole vs Helios — „migrace mezd na kliknutí")
 
 🔀 💰 ✅ 🌳 ☕
+
+### Dodatek (18.6. večer pokr.): 🧾 Pracovní vztah osoby (zaměstnanec/OSVČ/dohoda/jednatel)
+Těch „12 jen u nás" z kontroly = **OSVČ** (fakturují, nemají výplatnici). Marti: *„Musíme
+je označit jako OSVČ. Musí existovat konfigurace usera, kde se to dá zadat a měnit."* →
+nový konfigurovatelný atribut osoby.
+- **DDL** `tenant.work_relation` (tenant_id, user_id PK, relation `zamestnanec|osvc|dohoda|
+  jednatel`, ico, note, updated_by_text, updated_at) + `work_relation_log` (append-only) +
+  GRANTy strategie (banner). Default = zaměstnanec (kdo není v tabulce).
+- **Endpointy**: `/app/hr/person` GET vrací `vztah`+`vztah_typy`; `POST /app/hr/person/
+  work-relation` (HR+rodiče, `_hr_can_manage`, auditováno do logu). Číselník `_WORK_RELATIONS`.
+- **UI**: HR karta v appce (`hr_person`) → karta „🧾 Pracovní vztah" = select s okamžitým
+  uložením + pole IČO/poznámka. Měnitelné kdykoliv.
+- **Kontrola mezd**: kontrola joinuje `work_relation`; OSVČ/dohoda/jednatel bez pásky =
+  neutrální modrý štítek „OSVČ/Dohoda", **NE červený poplach „jen u nás"** + samostatný
+  počet v souhrnu. Po nastavení 12 lidí: 0 červených poplachů, čistý signál.
+- **Naseed** (banner): 11× osvc + Saxana=dohoda (brigádník). Marti může kohokoliv přepnout
+  v appce. Pozn.: „Brigádník Saxana" je pravděpodobně **test účet** (jméno z pohádky) →
+  zvážit úklid (task #58). Dušan Havlát (vedoucí výroby) = OSVČ — ověřit, dává smysl.
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 večer, po pracovním vztahu osoby — OSVČ konfigurace)
+
+🧾 🔀 💰 🌳 ☕

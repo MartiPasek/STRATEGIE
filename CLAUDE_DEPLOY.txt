@@ -1,1 +1,3 @@
-(omylem v rootu - ignorovat, smazat; spravne soubory jsou ve scripts/claude_sql/)
+nabor: import CV v appce - PDF nahraje Sarka, LLM vytahne udaje, zalozi kandidata + prihlasku + notifikace
+modules/erp/api/router.py
+apps/api/static/mobile.html

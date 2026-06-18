@@ -471,6 +471,31 @@ async def request_id_middleware(request: Request, call_next):
     except Exception:
         pass
 
+    # AMBASADOR read-only guard (17.6.2026): role 'ambassador' (externí
+    # showcase, Zbynek Zajicek) nesmi NIC zapsat. Blokuj kazdy non-GET na
+    # /api (krome /api/v1/erp/app/ambassador/* = demo trezor unlock atd.).
+    # Defense-in-depth nad tim, ze ambasador nema zadny write role.
+    try:
+        _amb_m = (request.method or "GET").upper()
+        _amb_p = request.url.path or ""
+        if (_amb_m not in ("GET", "HEAD", "OPTIONS")
+                and _amb_p.startswith("/api/")
+                and "/app/ambassador/" not in _amb_p
+                and not _amb_p.startswith("/api/v1/auth/")):
+            from modules.erp.api.router import (
+                _uid_from_token_or_cookie as _amb_uid_fn,
+                _is_ambassador as _amb_is_fn,
+            )
+            _amb_uid = _amb_uid_fn(request)
+            if _amb_uid and _amb_is_fn(_amb_uid):
+                from starlette.responses import JSONResponse as _AmbJSON
+                return _AmbJSON(
+                    {"ok": False, "error": "ambassador_readonly",
+                     "detail": "Role ambasador je jen pro čtení (prezentace)."},
+                    status_code=403)
+    except Exception:
+        pass  # nikdy neshazuj middleware kvuli guardu
+
     # EMERGENCY (20.5. vecer, Marti's HTTP/2 protocol error po Fix J deploy):
     # Drop Fix E+ request body capture — request._receive override pattern
     # je nestabilni s Starlette BaseHTTPMiddleware (raises "Unexpected

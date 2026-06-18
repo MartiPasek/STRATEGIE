@@ -253,6 +253,47 @@ def _require_erp_member(user_id: int) -> None:
     )
 
 
+# ── Ambasador (17.6.2026, Marti's strategická role) ─────────────────
+# Read-only "showcase" role pro externí prezentaci živé STRATEGIE
+# (Zbyněk Zajíček, privátní bankéř RB → ukazuje appku VIP klientům).
+# Vidí VŠECHNA provozní/operační data (FLOW, docházka přehledy, zakázky),
+# ale OSOBNÍ data jen Martiho (user 1) přes druhý "demo" PIN k trezoru.
+# Bezpečnost: (a) NEMÁ žádný write role → neprojde business/parent/HR
+# gaty pro zápis; (b) blanket read-only guard v main.py blokuje jakýkoli
+# non-GET na /api (kromě /app/ambassador/*). Identifikace = user_tenants
+# role='ambassador' v EUROSOFT tenantu (id=2). Žádný DDL sloupec netřeba.
+_AMBASSADOR_PERSONAL_UID = 1  # jediná osoba, jejíž osobní data ambasador vidí (Marti)
+
+
+def _is_ambassador(uid: int | None) -> bool:
+    """True pokud user má roli 'ambassador' v EUROSOFT tenantu (read-only showcase)."""
+    if not uid:
+        return False
+    from sqlalchemy import text as _t
+    try:
+        cm, s = _att_session()
+        try:
+            r = s.execute(_t(
+                "SELECT 1 FROM public.user_tenants WHERE user_id=:u AND tenant_id=2 "
+                "AND role='ambassador' AND membership_status IN ('active','invited') LIMIT 1"),
+                {"u": int(uid)}).first()
+            return r is not None
+        finally:
+            try:
+                cm.__exit__(None, None, None)
+            except Exception:
+                pass
+    except Exception:
+        return False
+
+
+def _can_showcase_view(uid: int | None) -> bool:
+    """Read gate pro provozní přehledy: rodič NEBO ambasador (read-only)."""
+    if not uid:
+        return False
+    return is_marti_parent(uid) or _is_ambassador(uid)
+
+
 # Design/system string entity types — blokované pro non-parent v data CRUD
 # (design_patch/insert/delete_entity). Člen smí editovat jen business data
 # (numeric core_id resolved na datovou tabulku), ne framework metadata
@@ -6218,6 +6259,167 @@ async def app_self_secret_delete(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ---- Ambasador: Martiho osobní karta + trezor přes DRUHÝ (demo) PIN -----------
+# Marti 17.6.: ambasador (externí showcase) smí ukázat JEN Martiho (user 1)
+# osobní data + trezor, přes samostatný demo PIN (fw.ambassador_pin), bez SMS
+# 2FA (ať prezentace nezadrhne) — ale s auditem + e-mailem Martimu při otevření.
+@api_router.get("/app/ambassador/marti-card")
+async def app_ambassador_marti_card(req: Request) -> JSONResponse:
+    """Osobní karta Martiho (user 1) pro prezentaci. Jen role ambasador."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _is_ambassador(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    tgt = _AMBASSADOR_PERSONAL_UID
+    cm, s = _att_session()
+    try:
+        cols = ", ".join(f[0] for f in _SELF_FIELDS)
+        row = s.execute(_t(
+            "SELECT " + cols + ", updated_at FROM tenant.user_self_data "
+            "WHERE tenant_id=2 AND user_id=:u"), {"u": tgt}).first()
+        vals = {}
+        if row:
+            for i, f in enumerate(_SELF_FIELDS):
+                v = row[i]
+                if f[3] == "date" and v is not None:
+                    v = v.isoformat()
+                vals[f[0]] = ("" if v is None else str(v))
+        secs = []
+        for skey, slabel, swhy in _SELF_SECTIONS:
+            items = [{"key": f[0], "label": f[1], "type": f[3],
+                      "sensitive": f[4], "value": vals.get(f[0], "")}
+                     for f in _SELF_FIELDS if f[2] == skey]
+            secs.append({"key": skey, "label": slabel, "why": swhy, "items": items})
+        upd = row[-1].isoformat() if (row and row[-1]) else None
+        # audit pristupu (best-effort)
+        try:
+            s.execute(_t("INSERT INTO tenant.user_secret_access (tenant_id, user_id, action) "
+                         "VALUES (2, :u, 'ambassador_card_view')"), {"u": tgt})
+            s.commit()
+        except Exception:
+            s.rollback()
+        return JSONResponse({"ok": True, "owner": "Marti Pašek", "sections": secs, "updated_at": upd})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/ambassador/trezor-list")
+async def app_ambassador_trezor_list(req: Request) -> JSONResponse:
+    """Seznam položek Martiho trezoru (jen popisky, bez hesel). Jen ambasador."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _is_ambassador(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    tgt = _AMBASSADOR_PERSONAL_UID
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, label, username, url, note FROM tenant.user_secret "
+            "WHERE tenant_id=2 AND user_id=:u ORDER BY label"), {"u": tgt}).fetchall()
+        out = [{"id": r[0], "label": r[1] or "", "username": r[2] or "",
+                "url": r[3] or "", "note": r[4] or ""} for r in rows]
+        has_pin = s.execute(_t("SELECT 1 FROM fw.ambassador_pin WHERE user_id=:u"),
+                            {"u": tgt}).first() is not None
+        return JSONResponse({"ok": True, "polozky": out, "has_demo_pin": has_pin,
+                             "vault_ready": _vault_fernet() is not None})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/ambassador/trezor-reveal")
+async def app_ambassador_trezor_reveal(req: Request) -> JSONResponse:
+    """Odhalení hesla z Martiho trezoru přes DEMO PIN (bez SMS). Jen ambasador.
+    Cesta /app/ambassador/* je výjimka z read-only guardu (jediný povolený POST)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _is_ambassador(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    f = _vault_fernet()
+    if f is None:
+        return JSONResponse({"ok": False, "error": "vault_not_configured"})
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    tgt = _AMBASSADOR_PERSONAL_UID
+    sid = int((b or {}).get("id") or 0)
+    pin = str((b or {}).get("pin") or "").strip()
+    cm, s = _att_session()
+    try:
+        prow = s.execute(_t("SELECT pin_hash FROM fw.ambassador_pin WHERE user_id=:u"),
+                         {"u": tgt}).first()
+        if not prow:
+            return JSONResponse({"ok": False, "error": "demo_pin_not_set",
+                                 "note": "Marti zatím nenastavil demo PIN k trezoru."})
+        if not pin:
+            return JSONResponse({"ok": False, "error": "pin_required"})
+        salt, _, hsh = (prow[0] or "").partition("$")
+        if not (pin.isdigit() and _pin_hash(pin, salt) == hsh):
+            return JSONResponse({"ok": False, "error": "pin_wrong"})
+        row = s.execute(_t("SELECT label, secret_enc FROM tenant.user_secret "
+                           "WHERE id=:i AND tenant_id=2 AND user_id=:u"),
+                        {"i": sid, "u": tgt}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "not_found"})
+        try:
+            secret = f.decrypt((row[1] or "").encode()).decode()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "decrypt_failed"})
+        s.execute(_t("INSERT INTO tenant.user_secret_access (tenant_id, user_id, secret_id, action) "
+                     "VALUES (2, :u, :i, 'ambassador_reveal')"), {"u": tgt, "i": sid})
+        s.commit()
+        import datetime as _dt
+        kdy = _dt.datetime.now().strftime("%d.%m.%Y %H:%M")
+        _self_notify_owner(s, tgt, "🔐 Trezor otevřen v prezentaci (ambasador)",
+            "Dne " + kdy + " byl při prezentaci (role ambasador) otevřen tvůj trezor "
+            "a zobrazeno heslo „" + (row[0] or "") + "\". Pokud to nebylo plánované, ozvi se.")
+        s.commit()
+        return JSONResponse({"ok": True, "secret": secret, "label": row[0] or ""})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/ambassador/set-demo-pin")
+async def app_ambassador_set_demo_pin(req: Request) -> JSONResponse:
+    """Marti (rodič) nastaví/změní DEMO PIN ke svému trezoru pro ambasadora.
+    Volá jen Marti — parent, takže read-only guard se ho netýká."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    pin = str((b or {}).get("pin") or "").strip()
+    if not (pin.isdigit() and len(pin) == 4):
+        return JSONResponse({"ok": False, "error": "pin_invalid", "note": "Demo PIN jsou 4 číslice."})
+    import secrets as _sec
+    from sqlalchemy import text as _t
+    tgt = _AMBASSADOR_PERSONAL_UID
+    salt = _sec.token_hex(8)
+    ph = salt + "$" + _pin_hash(pin, salt)
+    cm, s = _att_session()
+    try:
+        s.execute(_t(
+            "INSERT INTO fw.ambassador_pin (user_id, pin_hash, set_at) VALUES (:u, :p, now()) "
+            "ON CONFLICT (user_id) DO UPDATE SET pin_hash=EXCLUDED.pin_hash, set_at=now()"),
+            {"u": tgt, "p": ph})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ---- HR sprava lidi (Marti 11.6.): prehled + karty pro HR skupinu/rodice -----
 def _hr_can_manage(s, uid: int) -> bool:
     from sqlalchemy import text as _t
@@ -10784,7 +10986,7 @@ def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
             cm.__exit__(None, None, None)
         except Exception:
             pass
-    if not isp:
+    if not isp and not _is_ambassador(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     mcp = get_eurosoft_mcp_client()
@@ -11071,7 +11273,7 @@ def _flow_people_gate(req: Request):
             cm.__exit__(None, None, None)
         except Exception:
             pass
-    if isp or int(uid) in (41, 85):
+    if isp or int(uid) in (41, 85) or _is_ambassador(uid):
         return int(uid)
     return None
 

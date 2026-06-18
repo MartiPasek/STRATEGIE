@@ -1364,6 +1364,11 @@ setTimeout(function(){
     g4.appendChild(appCell("💻","IT",0,function(){openSoon("IT");}));
     g4.appendChild(appCell("🎛️","PLC",0,function(){openSoon("PLC");}));
     app.appendChild(g4);
+    sec("DOKUMENTY & ADRESÁŘE");
+    var gDoc=el('<div class="appgrid"></div>');
+    gDoc.appendChild(appCell("🗂️","Adresáře (správa)",0,function(){openApp("/dir-admin");}));
+    gDoc.appendChild(appCell("📁","Dokumenty",0,function(){openApp("/files");}));
+    app.appendChild(gDoc);
     sec("VÝUKA & ŠKOLENÍ");
     var g6=el('<div class="appgrid"></div>');
     g6.appendChild(appCell("⚡","Výuka — elektro & metoda",0,function(){go("uceni");}));

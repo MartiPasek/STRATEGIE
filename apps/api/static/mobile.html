@@ -1301,6 +1301,7 @@ setTimeout(function(){
   function openApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url; if(B&&typeof B.openExternal==="function")B.openExternal(u); else { try{window.open(u,"_blank");}catch(e){ location.href=u; } } }
   // Interní STRATEGIE přehledy (/flow, /absence-plan…) — otevřít jako OVERLAY (iframe) UVNITŘ appky.
   // Appka se neopustí → Android Back nezavře aplikaci, jen zavře overlay. Žádný externí prohlížeč.
+  var _ovOpen=false;
   function openInApp(url){
     var u=(url.charAt(0)==="/")?(location.origin+url):url;
     var ov=document.getElementById("stgOv");
@@ -1310,30 +1311,33 @@ setTimeout(function(){
         '<button id="stgOvX" style="background:#2563eb;color:#fff;border:0;border-radius:9px;padding:7px 14px;font-weight:700;font-size:14px;">← Zavřít</button></div>');
       var fr=el('<iframe id="stgOvF" style="flex:1;border:0;width:100%;background:#0b1020;"></iframe>');
       ov.appendChild(bar); ov.appendChild(fr); document.body.appendChild(ov);
-      bar.querySelector("#stgOvX").onclick=closeOverlay;
+      bar.querySelector("#stgOvX").onclick=function(){ dismissOverlay(); };
     }
-    ov.style.display="flex";
+    ov.style.display="flex"; _ovOpen=true;
     var fr=document.getElementById("stgOvF");
     // Caddy přidává X-Frame-Options: DENY globálně → klasický iframe src padá na ERR_BLOCKED_BY_RESPONSE.
-    // srcdoc XFO obejde, ALE přidá navigační záznam do historie → systémové Zpět ho musí nejdřív „odrolovat"
-    // (vypadá to, že dole nereaguje). Proto vepisujeme do about:blank přes document.write — žádný history záznam.
+    // Obejdeme to: stáhneme HTML a vepíšeme do about:blank přes document.write (žádný history záznam).
+    // + neutralizujeme history uvnitř iframu, aby vnitřní stránka nepřidávala záznamy (jinak je systémové
+    //   Android Zpět musí napřed projít → „2× nic, pak zavře appku").
     fr.removeAttribute("src"); fr.removeAttribute("srcdoc");
     function _write(html){
       try{ var d=fr.contentWindow.document; d.open(); d.write(html); d.close(); }
       catch(e){ fr.srcdoc=html; }
     }
+    var _neuter='<script>history.pushState=function(){};history.replaceState=function(){};<\/script>';
     _write('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#9fb0d0;font:15px system-ui;padding:16px">Načítám…</body>');
     fetch(u,{credentials:"same-origin"}).then(function(r){return r.text();}).then(function(html){
       // <base> aby relativní cesty (/api, /static) mířily na origin appky
-      if(html.indexOf("<base")<0){ html=html.replace(/<head([^>]*)>/i,'<head$1><base href="'+location.origin+'/">'); }
+      if(html.indexOf("<base")<0){ html=html.replace(/<head([^>]*)>/i,'<head$1><base href="'+location.origin+'/">'+_neuter); }
+      else { html=html.replace(/<head([^>]*)>/i,'<head$1>'+_neuter); }
       _write(html);
     }).catch(function(){ _write('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#ff8a8a;font:15px system-ui;padding:16px">Nepodařilo se načíst přehled.</body>'); });
     try{ history.pushState({stgOv:1},""); }catch(e){}
   }
-  function closeOverlay(){ var ov=document.getElementById("stgOv"); if(ov&&ov.style.display!=="none"){ ov.style.display="none"; try{var f=document.getElementById("stgOvF"); var d=f.contentWindow.document; d.open(); d.write(""); d.close();}catch(e){} return true; } return false; }
-  // Hardware/HW Back i postMessage z iframe „← Zpět" zavřou overlay (ne appku).
-  window.addEventListener("popstate",function(){ closeOverlay(); });
-  window.addEventListener("message",function(ev){ if(ev&&ev.data==="stgCloseOverlay") closeOverlay(); });
+  function closeOverlay(){ var ov=document.getElementById("stgOv"); _ovOpen=false; if(ov&&ov.style.display!=="none"){ ov.style.display="none"; try{var f=document.getElementById("stgOvF"); var d=f.contentWindow.document; d.open(); d.write(""); d.close();}catch(e){} return true; } return false; }
+  // Zavření přes tlačítko / „← Zpět" v přehledu jde přes history.back() → popstate → closeOverlay (jeden zdroj pravdy).
+  function dismissOverlay(){ if(_ovOpen){ try{history.back();}catch(e){ closeOverlay(); } } }
+  window.addEventListener("message",function(ev){ if(ev&&ev.data==="stgCloseOverlay") dismissOverlay(); });
   function appCell(iconHtml,label,badge,fn){ var c=el('<div class="appcell"><div class="appicon">'+iconHtml+'</div><div class="applabel">'+esc(label)+'</div>'+(badge?'<span class="appbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</div>'); c.addEventListener("click",fn); return c; }
   function _isoWeek(d){ var t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); var dn=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-dn+3); var f=new Date(Date.UTC(t.getUTCFullYear(),0,4)); return 1+Math.round(((t-f)/86400000 - 3 + ((f.getUTCDay()+6)%7))/7); }
   function apps(){
@@ -7223,7 +7227,7 @@ setTimeout(function(){
     try{ renderNav(); }catch(_){}
   }
 
-  window.addEventListener("popstate", function(){ if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });
+  window.addEventListener("popstate", function(){ if(typeof _ovOpen!=="undefined" && _ovOpen){ closeOverlay(); return; } if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });
   try{ history.pushState(null,""); }catch(e){}
   render();
   window.__stgBoot=true;  // appka úspěšně nastartovala → watchdog se nespustí

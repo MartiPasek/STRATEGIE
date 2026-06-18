@@ -2680,3 +2680,58 @@ podskupina Výroba + ISO 19 dokumentů + čistá účetní osnova + oprava demo 
 Martiho *„obrovská pochvala"*)
 
 📊 🛡️ 💰 🍏 🌳 ☕
+
+---
+
+## Dodatek — 18. 6. 2026 (večer): 🔀 MIGRACE hub + 💰 mzdové podklady + kontrola vs Helios „na kliknutí"
+
+Marti: *„Ohledně docházky a mezd a hybridní fáze potřebujeme přehledný systém přímo
+v appce pro rodiče a Jirku"* → *„Dělej co můžeš ať připravíme migraci mezd na kliknutí."*
+Hybridní fáze (starý+nový systém paralelně červen→~půlka července) potřebuje, aby šel
+mzdový podklad odbavit klikem a hlavně **aby se mu dalo věřit**.
+
+### Co je LIVE (vše přes bridge + AUTO-DEPLOY)
+- **🔀 MIGRACE hub** (Aplikace) → ikony **Docházka** a **Mzdy**; uvnitř seřazený seznam
+  kroků (co kdy spustit + kdy naposledy běžel, z `fw.ops_request`). Endpoint
+  `/app/migrace/steps?domain=`, `_MIGRACE_STEPS` (dochazka: sync_dochazka_sumaden +
+  sync_vyroba_plan; mzdy: sync_dochazka_sumaden + sync_pasky + sync_fin + sync_priplatky).
+  Kroky se spouští klikem (ops `/app/ops/run`). Pro rodiče + Jirku.
+- **Import denního souhrnu** `_sync_dochazka_sumaden` (ops `sync_dochazka_sumaden`):
+  MCP čte `EC_Dochazka_SumaDen` → upsert `tenant.att_day_summary` (cislo_zam→user přes
+  att_employee). Ověřeno: **6602 řádků / 62 lidí / 2026** (odprac 26340 h, dovolená 1763,
+  nemoc 1190 — sedí na zdroj). Pásky: `sync_pasky` = 55154 položek (EC+ES).
+- **`/payroll`** — 2 záložky: **Podklady** (osoba × typ hodin: fond/odprac/přesčas/
+  dovolená/nemoc/sick/OČR/lékař/náhr./nař./absence + dní, přepínač měsíců) +
+  **Kontrola vs Helios**. Endpointy `/app/payroll/summary` + `/app/payroll/kontrola`.
+
+### Kontrola vs Helios — DŮLEŽITÁ LEKCE o porovnávání (drž!)
+Naivní „součet hodin z výplatnice" NEFUNGUJE — `payslip_item.hodiny` se trojnásobí
+(„Osobní ohodnocení" = bonus nesoucí TYTÉŽ hodiny jako „Základní mzda"). A `Základní
+mzda` hodiny = **nominální měsíční fond (168 h)**, ne měřená práce → systematicky se
+liší od naší píchačky. **Závěr: odpracované hodiny mezi naší docházkou a Heliosem NELZE
+porovnávat** (Helios = nominál, my = realita).
+- **Validní ekvivalence = ABSENCE** (dovolená/nemoc/lékař…) — obě strany měří tytéž
+  reálné události. Flag `rozdil_abs > 2 h`. Helios absence = sum(hodiny) KROMĚ
+  ('Základní mzda','Dohoda o provedení práce') a KROMĚ 'Osobní ohodnocení%'.
+- Výsledek květen 2026: absence sedí u skoro všech (rozdíl 0); 3 reálné případy
+  (Egermaier −104, Šafránková −88 mateřská, Jirkovský −24 = dávky placené Heliosem mimo
+  píchačku); **12 lidí má docházku bez květnové pásky** (k ověření Jirkou); 1 jen Helios
+  (Marti = jednatelská odměna, bez píchání — správně).
+- Odpracováno zobrazeno jen informativně (naše měřené), bez flagu.
+
+### Gotchy
+- `payslip_item` hodiny: bonus „Osobní ohodnocení" duplikuje hodiny základní mzdy →
+  při sčítání hodin VŽDY vyloučit bonusy; „Základní mzda" = nominální fond, ne realita.
+- `att_day_summary.user_id` mapuje přes att_employee; 1 cislo_zam zůstalo nenapojené (z 62).
+- Bridge OUT trunkuje buňky ~170 znaků + jen ~5 řádků → dlouhé výsledky čti host-side
+  / přes `string_agg`, nebo ověř živý endpoint přes Claude in Chrome (GET JSON).
+
+### Otevřené
+- Dohledat 1 nenapojené cislo_zam v att_day_summary.
+- 12 „jen u nás" — proč nemají květnovou pásku (ES klíčování? nevyplaceni?).
+- #71 plán×Helios UNION (širší finance přehled) zůstává.
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 večer, po MIGRACE hubu + mzdových podkladech +
+kontrole vs Helios — „migrace mezd na kliknutí")
+
+🔀 💰 ✅ 🌳 ☕

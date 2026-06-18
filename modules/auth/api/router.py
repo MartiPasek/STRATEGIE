@@ -944,14 +944,16 @@ def demo_login(req: Request, next: str = "/mobile"):
         _set_auth_cookies(resp, uid, tenant_id)
         logger.info(f"DEMO_LOGIN demo session granted user_id={uid} tenant_id={tenant_id} dest={dest}")
         if req.query_params.get("diag") == "1":
-            return PlainTextResponse("DEMO_OK uid=%s tenant=%s dest=%s" % (uid, tenant_id, dest), status_code=200)
+            from fastapi.responses import JSONResponse as _JR
+            return _JR({"demo_ok": True, "uid": uid, "tenant": tenant_id, "dest": dest})
         return resp
     except HTTPException:
         raise
     except Exception as _e:
         import traceback as _tb
+        from fastapi.responses import JSONResponse as _JR
         logger.exception("DEMO_LOGIN failed")
-        return PlainTextResponse("DEMO_ERR: " + repr(_e) + "\n" + _tb.format_exc()[:1800], status_code=500)
+        return _JR({"demo_ok": False, "err": repr(_e), "tb": _tb.format_exc()[:1800]}, status_code=200)
 
 
 # ── Mobile SMS login page (Phase 38 Session 2) ─────────────────────────

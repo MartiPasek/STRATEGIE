@@ -229,7 +229,9 @@ function renderFakturace(c,j){
 }
 function pd(s){ if(!s) return null; var p=String(s).split('-'); if(p.length<3) return null; var d=new Date(+p[0],+p[1]-1,+p[2]); return isNaN(d)?null:d; }
 function fdmy(s){ var d=pd(s); if(!d) return ''; return d.getDate()+'.'+(d.getMonth()+1)+'.'; }
-var TLF='ALL', TLDET={}, TLPX=7;
+var TLF='ALL', TLDET={}, TLPX=7, TLSHOWH=true, TLSHOWU=true;
+(function(){ if(lsG('flow_showh')==='0')TLSHOWH=false; if(lsG('flow_showu')==='0')TLSHOWU=false; })();
+function tlBand(which,on){ if(which==='h'){TLSHOWH=on; lsS('flow_showh',on?'1':'0');} else {TLSHOWU=on; lsS('flow_showu',on?'1':'0');} route(); }
 function lsG(k){ try{return localStorage.getItem(k);}catch(e){return null;} }
 function lsS(k,v){ try{localStorage.setItem(k,v);}catch(e){} }
 (function(){ var z=parseInt(lsG('flow_tl_px'),10); if(z>=3&&z<=28) TLPX=z; })();
@@ -269,46 +271,50 @@ function renderTimeline(c,j){
   inner.appendChild(ax);
   // graf dvou krivek: kapacita lidi (naplanovana dochazka) vs pozadavek zakazek
   var capArr=(j&&j.cap)||[], demArr=(j&&j.dem)||[], CHARTH=0, maxH=1, UTILH=0, UMAX=160, FULLCAP=0;
-  var UTILTOP=0, UTILYFN=null, utilPts=[];
-  function pctAt(t){ if(!utilPts.length) return null; var best=null,bd=1e18; for(var i=0;i<utilPts.length;i++){ var df=Math.abs(utilPts[i].t-t); if(df<bd){bd=df;best=utilPts[i];} } return bd<=4*864e5?best.pct:null; }
+  var UTILTOP=0, HBANDTOP=26, UTILYFN=null, utilPts=[], demPts=[];
+  function nearest(arr,t){ if(!arr.length) return null; var best=null,bd=1e18; for(var i=0;i<arr.length;i++){ var df=Math.abs(arr[i].t-t); if(df<bd){bd=df;best=arr[i];} } return bd<=4*864e5?best:null; }
+  function pctAt(t){ var n=nearest(utilPts,t); return n?n.pct:null; }
+  function demAt(t){ var n=nearest(demPts,t); return n?n.h:null; }
+  var STRIP=24;
   if(capArr.length||demArr.length){
-    CHARTH=110; capArr.concat(demArr).forEach(function(p){ var h=+p.h||0; if(h>maxH)maxH=h; });
+    capArr.concat(demArr).forEach(function(p){ var h=+p.h||0; if(h>maxH)maxH=h; });
     capArr.forEach(function(p){ var h=+p.h||0; if(h>FULLCAP)FULLCAP=h; }); // plná kapacita = nejvíc lidí v plném úvazku
     if(FULLCAP<=0) FULLCAP=maxH||1;
-    var PCT=[80,100,120,160];
-    var topMax=Math.max(maxH, 1.6*FULLCAP, 1); // aby se vešla i 160% čára
+    CHARTH=TLSHOWH?110:STRIP;
+    var topMax=Math.max(maxH, 1.1*FULLCAP, 1);
     function yH(h){ return 6+(CHARTH-12)*(1-h/topMax); }
     function ptsFor(arr){ return arr.filter(function(p){return pd(p.d);}).map(function(p){ var px=x(pd(p.d))+Math.round(PX/2); return px+','+yH(+p.h||0).toFixed(1); }).join(' '); }
-    // referenční % čáry napasované na kapacitu (100% = plný úvazek)
-    var refTop='';
-    PCT.forEach(function(v){ var hh=v/100*FULLCAP; if(hh>topMax) return; var yy=yH(hh).toFixed(1);
-      var col=v===100?'rgba(255,255,255,.5)':(v>=120?'rgba(239,68,68,.35)':'rgba(245,158,11,.3)');
-      refTop+='<line x1="0" y1="'+yy+'" x2="'+W+'" y2="'+yy+'" stroke="'+col+'" stroke-dasharray="'+(v===100?'':'4 4')+'" stroke-width="1"/>'
-        +'<text x="3" y="'+(yH(hh)-2).toFixed(1)+'" fill="'+col+'" font-size="9">'+v+'%</text>'; });
     var ch=document.createElement('div'); ch.style.position='relative'; ch.style.height=CHARTH+'px'; ch.style.width=W+'px'; ch.style.borderBottom='1px solid var(--bord)';
-    ch.innerHTML='<svg width="'+W+'" height="'+CHARTH+'" style="display:block">'+refTop
-      +'<polyline points="'+ptsFor(demArr)+'" fill="none" stroke="#f59e0b" stroke-width="2"/>'
-      +'<polyline points="'+ptsFor(capArr)+'" fill="none" stroke="#10b981" stroke-width="2"/></svg>';
+    if(TLSHOWH){
+      var ln100=yH(FULLCAP).toFixed(1);
+      ch.innerHTML='<svg width="'+W+'" height="'+CHARTH+'" style="display:block">'
+        +'<line x1="0" y1="'+ln100+'" x2="'+W+'" y2="'+ln100+'" stroke="rgba(255,255,255,.5)" stroke-width="1"/>'
+        +'<text x="3" y="'+(yH(FULLCAP)-2).toFixed(1)+'" fill="rgba(255,255,255,.5)" font-size="9">100% '+num(Math.round(FULLCAP))+' h</text>'
+        +'<polyline points="'+ptsFor(demArr)+'" fill="none" stroke="#f59e0b" stroke-width="2"/>'
+        +'<polyline points="'+ptsFor(capArr)+'" fill="none" stroke="#10b981" stroke-width="2"/></svg>';
+    }
     inner.appendChild(ch);
-    // pruh REÁLNÉ vytížení dílny v % = pozadavek / skutečně naplánovaní lidé ten den (100 % = plán lidí sedí na požadavek)
+    // REÁLNÉ vytížení dílny v % = pozadavek / skutečně naplánovaní lidé ten den
     var capM={}; capArr.forEach(function(p){ capM[p.d]=+p.h||0; });
     var util=demArr.filter(function(p){ return pd(p.d) && (capM[p.d]||0)>0; }).map(function(p){ return {d:p.d, pct:(+p.h||0)/capM[p.d]*100}; });
     var maxPct=0; util.forEach(function(u){ if(u.pct>maxPct)maxPct=u.pct; });
     UMAX=Math.max(160, Math.ceil(maxPct/20)*20);
-    UTILH=82;
+    UTILH=TLSHOWU?82:STRIP;
     function yU(v){ return (UTILH-2)-(UTILH-6)*Math.min(v,UMAX)/UMAX; }
-    var refsvg='';
-    PCT.forEach(function(v){ if(v>UMAX) return; var yy=yU(v).toFixed(1); var col=v===100?'rgba(255,255,255,.5)':(v>=120?'rgba(239,68,68,.35)':'rgba(245,158,11,.3)');
-      refsvg+='<line x1="0" y1="'+yy+'" x2="'+W+'" y2="'+yy+'" stroke="'+col+'" stroke-dasharray="'+(v===100?'':'4 4')+'" stroke-width="1"/>'
-        +'<text x="3" y="'+(yU(v)-2).toFixed(1)+'" fill="'+col+'" font-size="9">'+v+'%</text>'; });
-    var upts=util.map(function(u){ return (x(pd(u.d))+Math.round(PX/2))+','+yU(u.pct).toFixed(1); }).join(' ');
     var ch2=document.createElement('div'); ch2.style.position='relative'; ch2.style.height=UTILH+'px'; ch2.style.width=W+'px'; ch2.style.borderBottom='1px solid var(--bord)';
-    ch2.innerHTML='<svg width="'+W+'" height="'+UTILH+'" style="display:block">'+refsvg
-      +'<polyline points="'+upts+'" fill="none" stroke="#38bdf8" stroke-width="2"/></svg>';
+    if(TLSHOWU){
+      var refsvg='', PCT=[80,100,120,160];
+      PCT.forEach(function(v){ if(v>UMAX) return; var yy=yU(v).toFixed(1); var col=v===100?'rgba(255,255,255,.5)':(v>=120?'rgba(239,68,68,.35)':'rgba(245,158,11,.3)');
+        refsvg+='<line x1="0" y1="'+yy+'" x2="'+W+'" y2="'+yy+'" stroke="'+col+'" stroke-dasharray="'+(v===100?'':'4 4')+'" stroke-width="1"/>'
+          +'<text x="3" y="'+(yU(v)-2).toFixed(1)+'" fill="'+col+'" font-size="9">'+v+'%</text>'; });
+      var upts=util.map(function(u){ return (x(pd(u.d))+Math.round(PX/2))+','+yU(u.pct).toFixed(1); }).join(' ');
+      ch2.innerHTML='<svg width="'+W+'" height="'+UTILH+'" style="display:block">'+refsvg
+        +'<polyline points="'+upts+'" fill="none" stroke="#38bdf8" stroke-width="2"/></svg>';
+    }
     inner.appendChild(ch2);
-    // geometrie pro šipky os do křivky vytížení
     UTILTOP=26+CHARTH; UTILYFN=yU;
     utilPts=util.map(function(u){ return {t:pd(u.d).getTime(), pct:u.pct}; }).sort(function(a,b){return a.t-b.t;});
+    demPts=demArr.filter(function(p){return pd(p.d);}).map(function(p){ return {t:pd(p.d).getTime(), h:+p.h||0}; }).sort(function(a,b){return a.t-b.t;});
   }
   // víkendové pruhy + čáry oddělující týdny (pondělí)
   var d0=new Date(min.getTime());
@@ -326,8 +332,11 @@ function renderTimeline(c,j){
   var labS=mkLab('#f59e0b'), labE=mkLab('#38bdf8'), labT=mkLab('#ef4444'); labT.style.color='#fff';
   // šipkové markery vytížení v % do průsečíku s modrou křivkou
   function mkMark(col){ var m=document.createElement('div'); m.style.cssText='position:absolute;z-index:6;pointer-events:none;transform:translate(-50%,-100%);background:'+col+';color:#0a0a0a;font-size:10px;font-weight:700;padding:1px 6px 6px;border-radius:5px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.45);display:none'; m.innerHTML='<span class="v"></span><span style="position:absolute;left:50%;bottom:-5px;transform:translateX(-50%);border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid '+col+'"></span>'; inner.appendChild(m); return m; }
-  var mkS=UTILTOP?mkMark('#f59e0b'):null, mkE=UTILTOP?mkMark('#38bdf8'):null, mkT=UTILTOP?mkMark('#ef4444'):null;
-  function setMark(mk,px){ if(!mk) return; var p=pctAt(dateAt(px).getTime()); if(p==null||!UTILYFN){ mk.style.display='none'; return; } mk.style.display='block'; mk.style.left=px+'px'; mk.style.top=(UTILTOP+UTILYFN(p)-2)+'px'; mk.querySelector('.v').textContent=Math.round(p)+' %'; }
+  var hasChart=!!UTILTOP;
+  var mkS=hasChart?mkMark('#f59e0b'):null, mkE=hasChart?mkMark('#38bdf8'):null, mkT=hasChart?mkMark('#ef4444'):null;
+  var mhS=hasChart?mkMark('#f59e0b'):null, mhE=hasChart?mkMark('#38bdf8'):null, mhT=hasChart?mkMark('#ef4444'):null;
+  function setMark(mk,px){ if(!mk) return; var p=pctAt(dateAt(px).getTime()); if(p==null||!UTILYFN){ mk.style.display='none'; return; } mk.style.display='block'; mk.style.left=px+'px'; mk.style.top=((TLSHOWU?UTILTOP+UTILYFN(p):UTILTOP+12)-2)+'px'; mk.querySelector('.v').textContent=Math.round(p)+' %'; }
+  function setMarkH(mk,px){ if(!mk) return; if(TLSHOWH){ mk.style.display='none'; return; } var h=demAt(dateAt(px).getTime()); if(h==null){ mk.style.display='none'; return; } mk.style.display='block'; mk.style.left=px+'px'; mk.style.top=(HBANDTOP+12-2)+'px'; mk.querySelector('.v').textContent=num(Math.round(h))+' h'; }
   function dCz(d){ return d.getDate()+'.'+(d.getMonth()+1)+'.'+d.getFullYear(); }
   function dateAt(px){ return new Date(min.getTime()+Math.round(px/PX)*864e5); }
   function clampPx(p){ return Math.max(0,Math.min(W,p)); }
@@ -348,7 +357,8 @@ function renderTimeline(c,j){
     var dni=Math.round((pxE-pxS)/PX);
     labS.textContent='▶ '+dCz(dateAt(pxS)); labE.textContent=dCz(dateAt(pxE))+' ◀ ('+dni+' dní)';
     labT.textContent='● dnes '+dCz(today);
-    setMark(mkS,pxS); setMark(mkE,pxE); setMark(mkT,pxT); positionLabs(); }
+    setMark(mkS,pxS); setMark(mkE,pxE); setMark(mkT,pxT);
+    setMarkH(mhS,pxS); setMarkH(mhE,pxE); setMarkH(mhT,pxT); positionLabs(); }
   renderGuides();
   var drg=null,dx0=0,p0=0,sl0=0;
   function sDrag(e){drg='S';dx0=e.clientX;p0=pxS;e.preventDefault();e.stopPropagation();}
@@ -367,10 +377,14 @@ function renderTimeline(c,j){
   window.addEventListener('scroll',positionLabs,true);
   window.addEventListener('resize',positionLabs);
   var lh=document.createElement('div'); lh.style.height='26px'; lh.style.borderBottom='1px solid var(--bord)'; left.appendChild(lh);
-  if(CHARTH){ var lsp=document.createElement('div'); lsp.style.height=CHARTH+'px'; lsp.style.boxSizing='border-box'; lsp.style.borderBottom='1px solid var(--bord)'; lsp.style.padding='8px'; lsp.style.fontSize='10px'; lsp.style.lineHeight='1.5';
-    lsp.innerHTML='<div style="color:#10b981;font-weight:700">━ Kapacita lidí</div><div style="color:#f59e0b;font-weight:700">━ Požadavek zakázek</div><div class="muted" style="margin-top:2px">100 % = '+num(Math.round(FULLCAP))+' h/den (plný úvazek)</div>'; left.appendChild(lsp);
-    var lsp2=document.createElement('div'); lsp2.style.height=UTILH+'px'; lsp2.style.boxSizing='border-box'; lsp2.style.borderBottom='1px solid var(--bord)'; lsp2.style.padding='8px'; lsp2.style.fontSize='10px'; lsp2.style.lineHeight='1.5';
-    lsp2.innerHTML='<div style="color:#38bdf8;font-weight:700">━ Vytížení dílny %</div><div class="muted" style="margin-top:2px">100 % = práce dle plánu<br>běžně 80–120 %, špička ~160 %</div>'; left.appendChild(lsp2); }
+  if(CHARTH){
+    function cbx(on,which){ return '<label style="float:right;cursor:pointer;display:inline-flex;align-items:center;gap:3px;font-size:9px" class="muted"><input type="checkbox" '+(on?'checked':'')+' onchange="tlBand(\''+which+'\',this.checked)" style="cursor:pointer"></label>'; }
+    var lsp=document.createElement('div'); lsp.style.height=CHARTH+'px'; lsp.style.boxSizing='border-box'; lsp.style.borderBottom='1px solid var(--bord)'; lsp.style.padding='6px 8px'; lsp.style.fontSize='10px'; lsp.style.lineHeight='1.45'; lsp.style.overflow='hidden';
+    lsp.innerHTML=cbx(TLSHOWH,'h')+'<div style="color:#10b981;font-weight:700">━ Kapacita lidí</div>'
+      +(TLSHOWH?'<div style="color:#f59e0b;font-weight:700">━ Požadavek zakázek</div><div class="muted" style="margin-top:2px">100 % = '+num(Math.round(FULLCAP))+' h/den (plný úvazek)</div>':'<div class="muted">hodiny u os</div>'); left.appendChild(lsp);
+    var lsp2=document.createElement('div'); lsp2.style.height=UTILH+'px'; lsp2.style.boxSizing='border-box'; lsp2.style.borderBottom='1px solid var(--bord)'; lsp2.style.padding='6px 8px'; lsp2.style.fontSize='10px'; lsp2.style.lineHeight='1.45'; lsp2.style.overflow='hidden';
+    lsp2.innerHTML=cbx(TLSHOWU,'u')+'<div style="color:#38bdf8;font-weight:700">━ Vytížení dílny %</div>'
+      +(TLSHOWU?'<div class="muted" style="margin-top:2px">100 % = práce dle plánu<br>běžně 80–120 %, špička ~160 %</div>':'<div class="muted">% u os</div>'); left.appendChild(lsp2); }
   rows.forEach(function(r){
     var ll=document.createElement('div'); ll.style.height=ROWH+'px'; ll.style.boxSizing='border-box'; ll.style.padding='4px 8px'; ll.style.borderBottom='1px solid rgba(255,255,255,.05)'; ll.style.fontSize='12px'; ll.style.cursor='pointer'; ll.style.overflow='hidden'; ll.title=esc(r.cz)+' — '+esc(r.nazev);
     ll.innerHTML='<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="badge '+esc(r.typ)+'">'+esc(r.typ)+'</span> '+esc(r.cz)+'</div>'

@@ -509,16 +509,19 @@ function openPeopleModal(){
     window.addEventListener('mousemove',function(e){ if(!md)return; box.style.left=Math.max(0,Math.min(window.innerWidth-60,bl+(e.clientX-sx)))+'px'; box.style.top=Math.max(0,Math.min(window.innerHeight-40,bt+(e.clientY-sy)))+'px'; });
     window.addEventListener('mouseup',function(){ md=false; });
   })();
+  function recount(el){ var cbs=el.querySelectorAll('input[type=checkbox]'); var on=0; cbs.forEach(function(c){ if(c.checked)on++; }); var cnt=document.getElementById('pm-cnt'); if(cnt) cnt.textContent=on; }
   function draw(ppl){
     var el=document.getElementById('pm-list'); if(!el) return;
     if(!ppl.length){ el.textContent='Skupina Výroba je prázdná.'; return; }
     var inc=ppl.filter(function(p){return p.included;}).length;
-    el.innerHTML='<div class="muted" style="font-size:11px;margin-bottom:6px">V plánování: <b style="color:#10b981">'+inc+'</b> z '+ppl.length+'</div>'
+    el.innerHTML='<div class="muted" style="font-size:11px;margin-bottom:6px">V plánování: <b id="pm-cnt" style="color:#10b981">'+inc+'</b> z '+ppl.length+'</div>'
       +ppl.map(function(p){ return '<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-top:1px solid rgba(255,255,255,.06);cursor:pointer"><input type="checkbox" data-uid="'+p.uid+'" '+(p.included?'checked':'')+' style="cursor:pointer;width:16px;height:16px"><span style="'+(p.included?'':'opacity:.5;text-decoration:line-through')+'">'+esc(p.jmeno)+'</span></label>'; }).join('');
     el.querySelectorAll('input[type=checkbox]').forEach(function(cb){ cb.onchange=function(){
       var uid=+cb.getAttribute('data-uid'), on=cb.checked;
-      fetch('/api/v1/erp/app/flow/people/toggle',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,included:on})})
-        .then(function(r){return r.json();}).then(function(){ SEC['timeline']=null; load(); load2people(); });
+      var span=cb.nextElementSibling; if(span){ span.style.opacity=on?'':'.5'; span.style.textDecoration=on?'':'line-through'; }
+      recount(el);
+      fetch('/api/v1/erp/app/flow/people/toggle',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,included:on})}).catch(function(){});
+      clearTimeout(window._flowPplT); window._flowPplT=setTimeout(function(){ SEC['timeline']=null; load(); },1300);
     }; });
   }
   function load2people(){ fetch('/api/v1/erp/app/flow/people',{credentials:'same-origin'}).then(function(r){ if(r.status===403){throw 0;} return r.json(); }).then(function(j){ draw((j&&j.people)||[]); }).catch(function(){ var el=document.getElementById('pm-list'); if(el) el.textContent='Jen pro vedení / vedoucího výroby.'; }); }

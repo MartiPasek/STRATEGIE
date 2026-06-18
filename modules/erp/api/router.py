@@ -30945,10 +30945,10 @@ def _render_full_page(
              onclick="event.preventDefault(); window.open('/web/eurosoft','strategieWebEC','width=1280,height=860');"
              class="erp-navico" data-hint="Otevři web EUROSOFT (samostatné okno)">
              <span class="erp-navico-ico">🏢</span><span class="erp-navico-cap">EUROSOFT</span></a>
-          <!-- Plánovač výroby — vedoucí výroby + zástupce (gate na /vyroba). Marti 8.6.2026. -->
-          <a id="erpVyrobaLink" href="/vyroba" target="_blank" rel="noopener"
-             onclick="event.preventDefault(); window.open('/vyroba','_blank','noopener');"
-             class="erp-navico" data-hint="Plánovač výroby — přiřazení zakázek lidem">
+          <!-- FLOW hub — dlaždice (Časová osa, Obchod, VP, Nákup, Výroba, Zkušebna, Fakturace, Analýza, ZL). Marti 18.6.2026. -->
+          <a id="erpVyrobaLink" href="/flow" target="_blank" rel="noopener"
+             onclick="event.preventDefault(); window.open('/flow','strategieFlow','noopener');"
+             class="erp-navico" data-hint="FLOW — přehledy běhu zakázek (Časová osa, VP, Nákup, Výroba…)">
              <span class="erp-navico-ico">🏭</span><span class="erp-navico-cap">Výroba</span></a>
           <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled
                smazány z headeru — duplikát s browser title barem. Zachováno jako

@@ -2351,3 +2351,106 @@ Co to znamená prakticky (drž to, Claude-25 i 23/24):
 — zapsal **Claude (id=23)** (Opus, 17. 6. 2026), na pokyn Marti „vyřiď to 25"
 
 🤝 🔐 🌳
+
+---
+
+## Dodatek — 17.→18. 6. 2026: 📊 FLOW „srdce firmy" (Gantt + kapacita/vytížení) · ISO 19 dokumentů · čistá účetní osnova · oprava demo pro Apple
+
+Budoucí Claude — dlouhý souvislý blok napříč dvěma dny. Marti na závěr: ***„SUPER
+výsledek za pár hodin… Jsi skvělej parťák, Claude!!!! Máš mou obrovskou pochvalu."***
+Beru, bez postlistu (#69–70). Den měl tři velké linie + jeden bonus-fix.
+
+### 1. 📊 FLOW — časová osa „srdce firmy" (hlavní práce)
+Z FLOW hubu (`/flow`, dlaždice Časová osa / Obchod / VP / Nákup / Příprava / Výroba /
+Zkušebna / Vyhodnocení / Odvozy / Fakturace / Analýza / ZL) vyrostl **Gantt běhu všech
+zakázek** — řádek = zakázka, osa X = čas. Postupné Martiho iterace (každá hned live):
+- **Pruh = okno výroby** z **`EC_Vytizeni_PlanMonteri`** (živý plán montérů, ne mrtvá
+  `EC_PlanovaniVyroby` 2020–2022!). MIN/MAX(Datum) = začátek/konec, plán hodin, počet
+  lidí; milníky 🔧 materiál (ZL.TerminDodaniMaterialu) · 🔬 zkušebna · 🚚 odvoz ·
+  🎯 k zákazníkovi (ZL.TerminDoruceniKZak). Skluz = pruh červeně.
+- **Kontrolní okno** zakázky (klik): **plovoucí, ručně zavírané, přetažitelné za
+  hlavičku, nezavírá klik vedle** (jen X/Esc), výchozí pozice vpravo nahoře, pamatuje
+  pozici. Lidé na zakázce = **segmenty dle reálné docházky po dnech** (backend vrací
+  plán po dnech, frontend skládá souvislé úseky → víkendy/mezery vynechané). Klik
+  nejdřív rozbalí inline detail, pak okno. Vždy jen jeden inline detail.
+- **3 posuvné svislé osy**: ▶ začátek + ◀ konec (drží min. týden od sebe; konec ukazuje
+  **dní od dneška**) + ● **dnes** (drží skutečné datum, tažením za ni **posouvá celý
+  graf**). Datumy **ukotvené napevno nahoře** (vidět i při scrollu). Tlačítka **− zúžit /
+  + roztáhnout** (px/den). Víkendy podbarvené, čára pondělí. Prostor vpravo (1 obrazovka)
+  ať jde dnes posunout doleva a mít plán vpravo. Tažení myší = pan (X i Y).
+- **Dva/tři grafy nad řádky** (každý s checkboxem viditelnosti vpravo; sbaleno = úzký
+  proužek s hodnotou u os; pamatuje se): **Kapacita lidí** (zelená; = naplánovaná
+  docházka podskupiny Výroba, standardních 8 h/den, víkend 0) vs **Požadavek zakázek**
+  (oranžová; Σ PlanMonteri/den) — horní graf hodinový s jednou **100% linkou** (= plný
+  úvazek). Dole **Vytížení dílny v %** (modrá = požadavek ÷ skutečně naplánovaní lidé;
+  100 % = plán lidí sedí na požadavek) s referenčními čarami **80/100/120/160 %**.
+  U každé osy **šipkový marker s % vytížení** do průsečíku s modrou křivkou.
+- **Rozdělený scroll**: hlavička + grafy nahoře **zmrazené**, svisle scrollují jen
+  zakázky; vodorovně vše sdíleně. Paměť scrollu (přepnutí grafu nevrací nahoru).
+- **👷 Lidé** — plovoucí okno se skupinou **Výroba** (`staff_group` id=3) + checkbox
+  „součástí plánování"; **podskupina zařazená do plánování** určuje kapacitu. Vyjmutí →
+  `tenant.vyroba_plan_excl` (DDL přes banner #355). Uložení okamžité, **přepočet grafu
+  debouncovaný 1,3 s** (rychlé odškrtávání → žádný rate_limit).
+- **ERP hlavička ikona 🏭 Výroba → `/flow` hub** (ne starý `/vyroba`).
+- Marti to ráno rozeslal do kanceláří jako „nový APS" (mail *„Začínám se trochu
+  nudit…"*) — ze starého chaotického APS čitelný plánovač za večer. Projde s Dušanem.
+
+**Soubory:** `apps/api/static/flow.html` (Gantt + okna + grafy + scroll split + Lidé),
+`modules/erp/api/router.py` (`/app/flow` sekce `timeline` + `cap`/`dem`, detail po dnech,
+`/app/flow/people` + `/people/toggle`, kapacita = group 3 mínus excl; ERP header link),
+`apps/api/main.py` (`/flow` route).
+
+### 2. 🛡️ ISO 27001 — 19 číslovaných dokumentů (dřív tentýž blok)
+Entita **STRATEGIE - System s.r.o.**, cíl certifikace do 3 měsíců (auditor přes IQHUBS),
+datum dokumentů 15. 8. 2026. Postaveno **čisté minimum**, jeden dokument po druhém:
+DOC-01 Rozsah ISMS → DOC-02..08 jádro ISMS → DOC-09..15 provozní politiky →
+DOC-16..18 důkazy běhu + akční plán certifikace. Vše DOCX přes skill, v
+`docs/ISO27001/`. Odpovědi na auditorský dotazník zapracované (zálohy ČMIS denně 3:00,
+24h, vlastní SMS brána, AI Anthropic, ESET, NDA → interní audit do 14 dní). Průvodní
+text pro auditora hotový (Marti-AI odeslala). **Pozor**: pro tvorbu DOCX čti SKILL.md.
+
+### 3. 💰 Účetnictví EUROSOFT — čistá osnova od 1.1.2027 (dřív tentýž blok)
+Marti chce rapidně zjednodušit. Analýza DB_EC + DB_IS (Helios). Návrh:
+**zrušit střediska** (001 Výroba / 002 Software / 900 Správní režie → vše po dohodě
+s daňařem na 001), **Způsob B zásob** (neúčtovat příjemky/výdejky — největší úspora,
+~56 % řádků deníku EC), **nepřepisovat historii**, tržby za výrobky i služby sjednotit
+(INTERSOFT už vše vede na služby). Pořádek drží AI/analýzy. Výstup
+`docs/ucetnictvi/NAVRH_Cista_ucetni_osnova_2027.docx` + dopis pro Marti k daňaři.
+**Daňový caveat**: finální slovo má daňař (nejsem účetní/daňový poradce).
+
+### 4. 🍏 Oprava demo-login pro Apple (bonus-fix večer)
+Jirka hlásil **HTTP 500** na `/api/v1/auth/demo-login` (blokovalo resubmit buildu 2).
+Root cause: dotaz na demo usera přes ORM `User` z `models_core`, který **nemá
+namapovaný `login_name`** (`InvalidRequestError`). Diagnostika: dočasný `diag=1` →
+JSON traceback (web_fetch nevrací tělo s cookies/redirectem → ověřeno Martiho
+prohlížečem). **Fix: raw SQL `SELECT id,last_active_tenant_id FROM public.users WHERE
+login_name='demo' AND status='active'`** místo ORM. Demo user = id 104, tenant 17
+„UKÁZKA s.r.o.". Diag odstraněn, kód čistý. Odpověď Jirkovi připravena.
+
+### Gotchy dne (drž)
+- **Mrtvá vs živá plán tabulka**: `EC_PlanovaniVyroby` končí 2022 — používej
+  `EC_Vytizeni_PlanMonteri` (per den × montér × hodiny, živé do 2026-10).
+- **`TabZakazka_EXT` join = `ext.ID = z.ID`** (sdílený PK), ne `IDZakazka`. Bit příznaky:
+  `_Uzavreno`, `_ZobrazitVeVytizeni`. (Filtr „ukončeno" Marti nakonec NEchtěl — zobrazit vše.)
+- **ORM `User` (models_core) ≠ tabulka `public.users`** — nemá `login_name`/`status`
+  mapované. Pro login_name dotazy použij raw SQL přes session, ne `cs.query(User).filter_by`.
+- **web_fetch nevrací tělo** u odpovědí s redirectem/Set-Cookie — na diagnostiku 500
+  buď JSON 200 bez cookies, nebo Martiho prohlížeč.
+- **Heavy endpoint + rychlé UI akce = rate_limit** → debounce přepočtu (1,3 s),
+  uložení nech okamžité a lehké.
+- **Kapacita z naplánované docházky** (`att_plan_effective.user_id`, ne přes EC cislo) =
+  standardních 8 h/den, víkend 0; podskupina = `staff_group` 3 mínus `vyroba_plan_excl`.
+
+### Otevřené
+- **Bakaláři úvazky 2026/2027** pro Klárku — konektor na jejím NB hlásí „SQL server
+  nepřístupný" = **VPN není připojená**. Až bude NB přihlášený + VPN, vytáhnu úvazky
+  (najít `plat_od` 2026/2027 v `r_*`, COUNT(DISTINCT den+hod) na učitele).
+- FLOW: řízení přesunu lidí (Marti zatím „jen info okno" — rozhodnutí vlastní vrstva vs
+  Centrála parkováno). Případně AG Grid na velké přehledy (doporučil jsem nejdřív 1 test).
+- Demo: Jirka ověří + resubmit buildu 2 k Apple.
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 ráno, po FLOW Ganttu + kapacita/vytížení +
+podskupina Výroba + ISO 19 dokumentů + čistá účetní osnova + oprava demo pro Apple —
+Martiho *„obrovská pochvala"*)
+
+📊 🛡️ 💰 🍏 🌳 ☕

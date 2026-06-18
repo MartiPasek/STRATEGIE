@@ -22961,6 +22961,43 @@ async def app_absence_plan(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/absence-plan/by-group")
+async def app_absence_plan_by_group(req: Request) -> JSONResponse:
+    """Plán nepřítomností — pohled PO SKUPINÁCH × TÝDNECH. Vrací ploché řádky
+    (osoba + primární skupina + datum + druh), frontend pivotuje na skupina×týden.
+    Rodiče + HR. ?dnu=120 (default 120)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        dnu = max(7, min(366, int(req.query_params.get("dnu") or 120)))
+    except Exception:
+        dnu = 120
+    cm, s = _att_session()
+    try:
+        if not (_app_parent(s, uid) or _hr_can_manage(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT a.user_id, "
+            "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'#'||a.cislo_zam) jmeno, "
+            "  a.datum, a.druh_nazev, "
+            "  (SELECT g.name FROM tenant.staff_group_member m JOIN tenant.staff_group g "
+            "      ON g.id=m.group_id AND g.tenant_id=2 AND COALESCE(g.archived,false)=false "
+            "    WHERE m.tenant_id=2 AND m.user_id=a.user_id "
+            "    ORDER BY COALESCE(m.score,0) DESC, g.id LIMIT 1) skupina "
+            "FROM tenant.att_planned_absence a LEFT JOIN public.users u ON u.id=a.user_id "
+            "WHERE a.tenant_id=2 AND a.datum >= CURRENT_DATE AND a.datum < CURRENT_DATE + make_interval(days => :d) "
+            "ORDER BY skupina NULLS LAST, jmeno, a.datum"), {"d": dnu}).fetchall()
+        out = [{"jmeno": r[1], "datum": r[2].isoformat(), "druh": r[3] or "—",
+                "skupina": (r[4] or "Bez skupiny")} for r in rows]
+        return JSONResponse({"ok": True, "dnu": dnu, "radky": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/migrace/steps")
 async def app_migrace_steps(req: Request) -> JSONResponse:
     """Kroky migrace pro daný okruh (dochazka|mzdy) + kdy naposledy běžely. Rodič/Jirka."""

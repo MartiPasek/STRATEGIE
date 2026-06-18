@@ -6702,6 +6702,7 @@ setTimeout(function(){
     addb.addEventListener("click",function(){ var n=prompt("Název nové činnosti:"); if(!n||!n.trim())return; api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{name:n.trim(),kind:K}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
     app.appendChild(addb);
     var box=el('<div></div>'); app.appendChild(box);
+    app.appendChild(el('<div style="height:120px;"></div>'));
     var _all=[];
     function saveOrder(){ api("POST","/api/v1/erp/app/vyroba/cinnost-master/order",{order:_all.map(function(c){return c.id;})}).then(function(){}); }
     function render(){
@@ -6744,6 +6745,7 @@ setTimeout(function(){
     mb.addEventListener("click",function(){ go("master_cinnosti"); });
     var box=el('<div></div>'); app.appendChild(box);
     app.appendChild(mb);
+    app.appendChild(el('<div style="height:120px;"></div>'));
     var _mine=[];
     function saveOrder(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/order",{order:_mine.map(function(c){return c.id;})}).then(function(){}); }
     function renderMine(ml){

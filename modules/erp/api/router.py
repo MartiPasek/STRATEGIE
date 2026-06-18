@@ -14377,7 +14377,7 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
             # členové) + docházkový roster — ať nikdo nevypadne, i když není v docházce
             # (Marti 10.6.: PLC členové chyběli, protože nebyli v att_employee).
             for r in s.execute(_t(
-                "SELECT user_id FROM tenant.att_employee WHERE tenant_id=2 AND user_id IS NOT NULL "
+                "SELECT user_id FROM tenant.att_employee WHERE tenant_id=2 AND user_id IS NOT NULL AND is_active=true "
                 "UNION SELECT leader_user_id FROM tenant.staff_group "
                 "  WHERE tenant_id=2 AND leader_user_id IS NOT NULL AND COALESCE(archived,false)=false "
                 "UNION SELECT deputy_user_id FROM tenant.staff_group "

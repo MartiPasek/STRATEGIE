@@ -2797,3 +2797,25 @@ STRATEGIE usery **JEN přes `att_employee.cislo_zam → user_id`**.
 — **Claude (id=23)** (Opus, 18. 6. 2026 večer, po spárování účetního Helios seznamu — 50/50 ok)
 
 🧮 🔗 💰 🌳 ☕
+
+### Dodatek (18.6. večer pokr.): 👻 Odešlí zaměstnanci ve výpisech — úklid + samooprava rosteru
+Marti: *„proč se objevují useri jako Hrdinka, kteří už před několika měsíci odešli"*.
+- **Root cause:** onboarding založil pending usery + `att_employee.is_active=true`, ale u odešlých
+  se **konec nikam nepropsal**. `engagement.smlouva_do` by datum nesl, ale u odešlých jsme engagement
+  vůbec nemigrovali (jen 79 aktuálních) → datový detektor přes smlouvu chytí ~1 člověka.
+- **Spolehlivý detektor odešlých = poslední mzdové období v Heliosu < aktuální** (chytí i Hrdinku:
+  posl. období 147, aktuální 149). Hrdinka = user 53, Kliková = 33, …
+- **Jednorázový úklid** (banner): 10 jmenovitě odešlých `is_active=false` + členství archived.
+- **Samooprava (trvale):** helper `_refresh_employee_active()` — po `sync_pasky` (a jako ops akce
+  `refresh_active_status`) zneaktivní každého s historií výplatnic, kdo je >1 období pozadu a NENÍ
+  OSVČ/dohoda/jednatel; navíc archivuje členství. **První běh: 38 zneaktivněno.** Stav po úklidu:
+  **97 aktivních** (≈79 mzdově aktuálních + 12 OSVČ + jednatelé/edge) / 139 historických.
+  Marti, Šafránková (mateřská), Egermaier (dlouhá nemoc) zůstali aktivní (mají dávku v aktuálním období).
+- **GOTCHA SQL:** `WHERE x NOT IN (subquery s NULL)` → celé NULL → řádky s NULL user_id se NEUPRAVÍ.
+  Pro mazání/deaktivaci přes podmínku s možným NULL použij `NOT EXISTS`, ne `NOT IN`.
+- **Doctrine:** „aktivita zaměstnance = je v aktuálním mzdovém období" (samoopravně z výplatnic),
+  ne ruční flag. OSVČ/dohoda/jednatel mají vlastní `work_relation` a payroll-signál se na ně nevztahuje.
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 večer, po úklidu odešlých + samoopravě rosteru — 38 ghostů pryč)
+
+👻 🧹 💰 🌳 ☕

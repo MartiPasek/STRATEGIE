@@ -922,36 +922,25 @@ def demo_login(req: Request, next: str = "/mobile"):
     (Guideline 2.1a 'demo rezim s plnou funkcnosti') i pro verejnou prohlidku
     appky (iOS i Android - stejny web). Nastavi jen auth cookies + redirect na
     /mobile; zadny consume_invite (zadny spam notifikaci rodicum)."""
-    from fastapi.responses import RedirectResponse, PlainTextResponse
+    from fastapi.responses import RedirectResponse
     from sqlalchemy import text as _t
+    cs = get_core_session()
     try:
-        cs = get_core_session()
-        try:
-            row = cs.execute(_t(
-                "SELECT id, last_active_tenant_id FROM public.users"
-                " WHERE login_name='demo' AND status='active' LIMIT 1")).first()
-            if row is None:
-                raise HTTPException(status_code=503, detail="Demo rezim neni pripraveny.")
-            uid = row[0]
-            tenant_id = row[1]
-        finally:
-            cs.close()
-        # Sanitize next: jen interni relativni cesta "/..." (anti open-redirect)
-        dest = next if (isinstance(next, str) and next.startswith("/") and not next.startswith("//")) else "/mobile"
-        resp = RedirectResponse(url=dest, status_code=303)
-        _set_auth_cookies(resp, uid, tenant_id)
-        logger.info(f"DEMO_LOGIN demo session granted user_id={uid} tenant_id={tenant_id} dest={dest}")
-        if req.query_params.get("diag") == "1":
-            from fastapi.responses import JSONResponse as _JR
-            return _JR({"demo_ok": True, "uid": uid, "tenant": tenant_id, "dest": dest})
-        return resp
-    except HTTPException:
-        raise
-    except Exception as _e:
-        import traceback as _tb
-        from fastapi.responses import JSONResponse as _JR
-        logger.exception("DEMO_LOGIN failed")
-        return _JR({"demo_ok": False, "err": repr(_e), "tb": _tb.format_exc()[:1800]}, status_code=200)
+        row = cs.execute(_t(
+            "SELECT id, last_active_tenant_id FROM public.users"
+            " WHERE login_name='demo' AND status='active' LIMIT 1")).first()
+        if row is None:
+            raise HTTPException(status_code=503, detail="Demo rezim neni pripraveny.")
+        uid = row[0]
+        tenant_id = row[1]
+    finally:
+        cs.close()
+    # Sanitize next: jen interni relativni cesta "/..." (anti open-redirect)
+    dest = next if (isinstance(next, str) and next.startswith("/") and not next.startswith("//")) else "/mobile"
+    resp = RedirectResponse(url=dest, status_code=303)
+    _set_auth_cookies(resp, uid, tenant_id)
+    logger.info(f"DEMO_LOGIN demo session granted user_id={uid} tenant_id={tenant_id} dest={dest}")
+    return resp
 
 
 # ── Mobile SMS login page (Phase 38 Session 2) ─────────────────────────

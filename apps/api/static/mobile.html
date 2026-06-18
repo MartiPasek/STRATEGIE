@@ -1301,43 +1301,30 @@ setTimeout(function(){
   function openApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url; if(B&&typeof B.openExternal==="function")B.openExternal(u); else { try{window.open(u,"_blank");}catch(e){ location.href=u; } } }
   // Interní STRATEGIE přehledy (/flow, /absence-plan…) — otevřít jako OVERLAY (iframe) UVNITŘ appky.
   // Appka se neopustí → Android Back nezavře aplikaci, jen zavře overlay. Žádný externí prohlížeč.
-  var _ovOpen=false;
-  function openInApp(url){
-    var u=(url.charAt(0)==="/")?(location.origin+url):url;
-    var ov=document.getElementById("stgOv");
-    if(!ov){
-      ov=el('<div id="stgOv" style="position:fixed;inset:0;z-index:99998;background:#0b1020;display:flex;flex-direction:column;"></div>');
-      var bar=el('<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#101a33;border-bottom:1px solid #26314f;flex:0 0 auto;">'+
-        '<button id="stgOvX" style="background:#2563eb;color:#fff;border:0;border-radius:9px;padding:7px 14px;font-weight:700;font-size:14px;">← Zavřít</button></div>');
-      var fr=el('<iframe id="stgOvF" style="flex:1;border:0;width:100%;background:#0b1020;"></iframe>');
-      ov.appendChild(bar); ov.appendChild(fr); document.body.appendChild(ov);
-      bar.querySelector("#stgOvX").onclick=function(){ dismissOverlay(); };
-    }
-    ov.style.display="flex"; _ovOpen=true;
-    var fr=document.getElementById("stgOvF");
-    // Caddy přidává X-Frame-Options: DENY globálně → klasický iframe src padá na ERR_BLOCKED_BY_RESPONSE.
-    // Obejdeme to: stáhneme HTML a vepíšeme do about:blank přes document.write (žádný history záznam).
-    // + neutralizujeme history uvnitř iframu, aby vnitřní stránka nepřidávala záznamy (jinak je systémové
-    //   Android Zpět musí napřed projít → „2× nic, pak zavře appku").
-    fr.removeAttribute("src"); fr.removeAttribute("srcdoc");
-    function _write(html){
-      try{ var d=fr.contentWindow.document; d.open(); d.write(html); d.close(); }
-      catch(e){ fr.srcdoc=html; }
-    }
-    var _neuter='<script>history.pushState=function(){};history.replaceState=function(){};<\/script>';
-    _write('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#9fb0d0;font:15px system-ui;padding:16px">Načítám…</body>');
+  // Přehledy se otevírají jako NATIVNÍ obrazovka v zásobníku (stejné schéma jako Skupiny) →
+  // Zpět řídí výhradně back() appky (topbar i systémové Zpět). Žádný vlastní overlay/history hack.
+  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady"};
+  var _xvUrl="", _xvTitle="";
+  function openInApp(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; go("extview"); }
+  function extview(){
+    app.innerHTML=topbar(_xvTitle||"Přehled", true);
+    var fr=el('<iframe id="stgXvF" style="display:block;width:100%;height:calc(100vh - 56px);border:0;background:var(--bg);"></iframe>');
+    app.appendChild(fr);
+    var u=(_xvUrl.charAt(0)==="/")?(location.origin+_xvUrl):_xvUrl;
+    function _w(html){ try{ var d=fr.contentWindow.document; d.open(); d.write(html); d.close(); } catch(e){ fr.srcdoc=html; } }
+    // Caddy dává X-Frame-Options: DENY globálně → iframe src padá; vepíšeme obsah přes document.write.
+    // + skryjeme vnitřní „← Zpět" stránky (máme topbar appky) a neutralizujeme history uvnitř iframu.
+    var _inj='<base href="'+location.origin+'/"><style>[onclick*="goBackApp"]{display:none!important}</style>'+
+             '<script>history.pushState=function(){};history.replaceState=function(){};<\/script>';
+    _w('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#9fb0d0;font:15px system-ui;padding:16px">Načítám…</body>');
     fetch(u,{credentials:"same-origin"}).then(function(r){return r.text();}).then(function(html){
-      // <base> aby relativní cesty (/api, /static) mířily na origin appky
-      if(html.indexOf("<base")<0){ html=html.replace(/<head([^>]*)>/i,'<head$1><base href="'+location.origin+'/">'+_neuter); }
-      else { html=html.replace(/<head([^>]*)>/i,'<head$1>'+_neuter); }
-      _write(html);
-    }).catch(function(){ _write('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#ff8a8a;font:15px system-ui;padding:16px">Nepodařilo se načíst přehled.</body>'); });
-    try{ history.pushState({stgOv:1},""); }catch(e){}
+      if(html.indexOf("<base")<0){ html=html.replace(/<head([^>]*)>/i,'<head$1>'+_inj); }
+      else { html=html.replace(/<head([^>]*)>/i,'<head$1><style>[onclick*="goBackApp"]{display:none!important}</style><script>history.pushState=function(){};history.replaceState=function(){};<\/script>'); }
+      _w(html);
+    }).catch(function(){ _w('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#ff8a8a;font:15px system-ui;padding:16px">Nepodařilo se načíst přehled.</body>'); });
   }
-  function closeOverlay(){ var ov=document.getElementById("stgOv"); _ovOpen=false; if(ov&&ov.style.display!=="none"){ ov.style.display="none"; try{var f=document.getElementById("stgOvF"); var d=f.contentWindow.document; d.open(); d.write(""); d.close();}catch(e){} return true; } return false; }
-  // Zavření přes tlačítko / „← Zpět" v přehledu jde přes history.back() → popstate → closeOverlay (jeden zdroj pravdy).
-  function dismissOverlay(){ if(_ovOpen){ try{history.back();}catch(e){ closeOverlay(); } } }
-  window.addEventListener("message",function(ev){ if(ev&&ev.data==="stgCloseOverlay") dismissOverlay(); });
+  // Vnitřní „← Zpět" v přehledu (pokud zůstane) → nativní back() appky.
+  window.addEventListener("message",function(ev){ if(ev&&ev.data==="stgCloseOverlay"){ try{back();}catch(e){} } });
   function appCell(iconHtml,label,badge,fn){ var c=el('<div class="appcell"><div class="appicon">'+iconHtml+'</div><div class="applabel">'+esc(label)+'</div>'+(badge?'<span class="appbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</div>'); c.addEventListener("click",fn); return c; }
   function _isoWeek(d){ var t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); var dn=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-dn+3); var f=new Date(Date.UTC(t.getUTCFullYear(),0,4)); return 1+Math.round(((t-f)/86400000 - 3 + ((f.getUTCDay()+6)%7))/7); }
   function apps(){
@@ -7101,7 +7088,7 @@ setTimeout(function(){
       });
     });
   }
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,extview:extview};
 
   function uceni(){
     app.innerHTML=topbar("⚡ Výuka",true);
@@ -7227,7 +7214,7 @@ setTimeout(function(){
     try{ renderNav(); }catch(_){}
   }
 
-  window.addEventListener("popstate", function(){ if(typeof _ovOpen!=="undefined" && _ovOpen){ closeOverlay(); return; } if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });
+  window.addEventListener("popstate", function(){ if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });
   try{ history.pushState(null,""); }catch(e){}
   render();
   window.__stgBoot=true;  // appka úspěšně nastartovala → watchdog se nespustí

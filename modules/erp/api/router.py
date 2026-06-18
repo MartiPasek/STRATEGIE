@@ -16573,6 +16573,7 @@ async def app_work_set_zakazka(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
     try:
         body = await req.json()
     except Exception:
@@ -16584,10 +16585,16 @@ async def app_work_set_zakazka(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        prev = _wp_get(s, uid)
-        _ci = prev["cinnost_id"] if prev else None
-        _cn = prev["cinnost_name"] if prev else None
-        _cic = prev["cinnost_icon"] if prev else None
+        # Marti 18.6.: pamatuj poslední STANDARDNÍ činnost pro tuto zakázku (ctx=project_ref).
+        rc = s.execute(_t(
+            "SELECT c.id, c.name, c.icon FROM tenant.work_last_cinnost w"
+            " JOIN tenant.vyroba_cinnost c ON c.tenant_id=w.tenant_id AND c.id=w.cinnost_id"
+            "  AND c.active=true AND c.kind='standard'"
+            " WHERE w.tenant_id=:t AND w.user_id=:u AND w.ctx=:x"),
+            {"t": _ATT_TENANT, "u": uid, "x": pr}).first()
+        _ci = rc[0] if rc else None
+        _cn = rc[1] if rc else None
+        _cic = (rc[2] if (rc and rc[2]) else None)
         # Marti 14.6.: předvýběr funguje vždy (i mimo práci).
         _wp_save(s, uid, project_ref=pr, project_nazev=pn,
                  cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=False)
@@ -16610,13 +16617,20 @@ async def app_work_set_rezie(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
-        prev = _wp_get(s, uid)
-        _ci = prev["cinnost_id"] if prev else None
-        _cn = prev["cinnost_name"] if prev else None
-        _cic = prev["cinnost_icon"] if prev else None
+        # Marti 18.6.: pamatuj poslední REŽIJNÍ činnost (ctx='REZIE').
+        rc = s.execute(_t(
+            "SELECT c.id, c.name, c.icon FROM tenant.work_last_cinnost w"
+            " JOIN tenant.vyroba_cinnost c ON c.tenant_id=w.tenant_id AND c.id=w.cinnost_id"
+            "  AND c.active=true AND c.kind='rezie'"
+            " WHERE w.tenant_id=:t AND w.user_id=:u AND w.ctx='REZIE'"),
+            {"t": _ATT_TENANT, "u": uid}).first()
+        _ci = rc[0] if rc else None
+        _cn = rc[1] if rc else None
+        _cic = (rc[2] if (rc and rc[2]) else None)
         _wp_save(s, uid, project_ref=None, project_nazev=None,
                  cinnost_id=_ci, cinnost_name=_cn, cinnost_icon=_cic, is_rezie=True)
         if _att_is_working(s, emp):
@@ -16665,6 +16679,14 @@ async def app_work_set_cinnost(req: Request) -> JSONResponse:
         if _att_is_working(s, emp):
             _wa_open(s, uid, project_ref=_pr, project_nazev=_pn,
                      cinnost_id=ci, cinnost_name=cn, cinnost_icon=cic, is_rezie=_rz)
+        # Marti 18.6.: zapamatuj poslední činnost pro kontext (Režie / konkrétní zakázka)
+        _ctx = "REZIE" if _rz else (_pr or None)
+        if _ctx:
+            s.execute(_t(
+                "INSERT INTO tenant.work_last_cinnost (tenant_id,user_id,ctx,cinnost_id) "
+                "VALUES (:t,:u,:x,:c) ON CONFLICT (tenant_id,user_id,ctx) "
+                "DO UPDATE SET cinnost_id=EXCLUDED.cinnost_id, updated_at=now()"),
+                {"t": _ATT_TENANT, "u": uid, "x": _ctx, "c": ci})
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:

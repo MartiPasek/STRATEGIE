@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text as _t
 
 dir_router = APIRouter(prefix="/api/v1/erp", tags=["directories"])
+# Fáze C aktivace 18.6.2026 — base_override živé (reconnect MCP po restartu serveru).
 
 _TENANT = 2
 _CLOUD_ROOT = os.environ.get("STRATEGIE_DOCS_ROOT", "").strip() or r"C:\StrategieDocs"

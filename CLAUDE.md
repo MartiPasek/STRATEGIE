@@ -2776,3 +2776,24 @@ dov/nem/sick/OCR/lékař/náhr/nař/absence **+ mateřská + překážka** (8 ty
 — **Claude (id=23)** (Opus, 18. 6. 2026 večer, po dotažení absencí z Centrály — mateřská + překážka)
 
 🤰 🔀 💰 🌳 ☕
+
+### Dodatek (18.6. večer pokr.): 🧮 Účetní/Helios seznam — spárování nespárovaných (Mózer/Vlková/Senft)
+Marti: *„proč je v Aplikacích Účetní/Helios bez usera Mózer, Vlková a Senft"*. Dlaždice
+**📒 Účetní** = `/app/helios-recon` (lidé s mzdou v posledním období Heliosu) + párování na
+STRATEGIE usery **JEN přes `att_employee.cislo_zam → user_id`**.
+- **Root cause:** řádky `att_employee` pro EC 47/361/374 **existovaly s prázdným user_id**
+  → recon je hlásil „no_user". Oprava = **UPDATE** (ne INSERT — řádky byly).
+- Napojeno: **Mózer Branislav** EC 47 (jednatel, mzda ~22k) → user 96 BMozer · **Vlková Klára**
+  EC 361 → user 102 (prokuristka EUROSOFT + učitelka Nerudovka, **jedna osoba, 2 tenanty**) ·
+  **Senft Ondřej** EC 374 → user 97. Duplicitní účet **15 KVlkova** (pending) archivován (správný 102).
+- Po opravě: helios-recon **celkem 50, no_emp 0, no_user 0, ok 50** (spárovalo se i zbylé).
+- **GOTCHA jméno:** v EC je **„Mózer" s ó** (ne „Mozer") → `LIKE 'Mozer%'` ho minul; hledej `'M_zer%'`.
+  Staré/prázdné EC záznamy bez mezd: Mózerová 1002, Mózer Branislav 5501, Mózer Anton 9026 (možná úklid).
+- **GOTCHA bridge:** multi-statement write hlásí rowcount jen POSLEDNÍHO statementu (INSERT…WHERE NOT
+  EXISTS udělal 0, protože řádky byly → vypadalo to že „1 řádek" = jen UPDATE archivace). Vždy ověř čtením.
+- **Pattern do budoucna:** „bez usera" v účetním seznamu = `att_employee` řádek s NULL user_id;
+  napoj UPDATE. Jednatelé/prokuristé/účetní bez píchání tam patří taky (jako Marti EC 41).
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 večer, po spárování účetního Helios seznamu — 50/50 ok)
+
+🧮 🔗 💰 🌳 ☕

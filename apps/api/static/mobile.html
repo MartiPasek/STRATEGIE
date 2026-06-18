@@ -6740,10 +6740,10 @@ setTimeout(function(){
     // Marti 14.6.: vybrané činnosti složené jako ikony rovnou nahoře (náhled plochy).
     var _topGrid=el('<div class="appgrid" style="margin-bottom:12px;"></div>'); app.appendChild(_topGrid);
     app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">Vyber, které činnosti chceš mít ve svém seznamu a v jakém pořadí. Výchozí = všechny. ▲▼ pořadí · ✕ odebrat · + přidat zpět.</div>'));
-    var mb=el('<button class="ghost full" style="margin-bottom:10px;border-color:#6b4a2a;color:#e6b97a;">🛠 Master číselník (správa)</button>');
+    var mb=el('<button class="ghost full" style="margin-top:16px;border-color:#6b4a2a;color:#e6b97a;">🛠 Master číselník (správa)</button>');
     mb.addEventListener("click",function(){ go("master_cinnosti"); });
-    app.appendChild(mb);
     var box=el('<div></div>'); app.appendChild(box);
+    app.appendChild(mb);
     var _mine=[];
     function saveOrder(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/order",{order:_mine.map(function(c){return c.id;})}).then(function(){}); }
     function renderMine(ml){

@@ -11021,36 +11021,109 @@ def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
                     out["dem"] = _q("SELECT CONVERT(varchar(10),Datum,23) AS d, SUM(PocetHodin) AS h"
                                     " FROM DB_EC.dbo.EC_Vytizeni_PlanMonteri WITH(NOLOCK)"
                                     " WHERE Datum>='2026-01-01' GROUP BY Datum ORDER BY Datum")
-                    cis = _q("SELECT DISTINCT CisloZam AS c FROM DB_EC.dbo.EC_Vytizeni_PlanMonteri WITH(NOLOCK) WHERE CisloZam IS NOT NULL")
-                    nums = []
-                    for rr in cis:
+                    # kapacita = naplanovana dochazka podskupiny "Vyroba" zarazene do planovani (mimo vyjmute)
+                    cap = []
+                    cm2, s2 = _att_session()
+                    try:
+                        rs = s2.execute(_t(
+                            "SELECT pe.plan_date::text AS d, SUM(pe.expected_hours) AS h"
+                            " FROM tenant.att_plan_effective pe"
+                            " WHERE pe.tenant_id=2 AND pe.user_id IN ("
+                            "   SELECT m.user_id FROM tenant.staff_group_member m"
+                            "   WHERE m.tenant_id=2 AND m.group_id=3"
+                            "   AND m.user_id NOT IN (SELECT user_id FROM tenant.vyroba_plan_excl WHERE tenant_id=2))"
+                            " GROUP BY pe.plan_date ORDER BY pe.plan_date")).fetchall()
+                        cap = [{"d": row[0], "h": float(row[1] or 0)} for row in rs]
+                    finally:
                         try:
-                            nums.append(str(int(rr.get("c"))))
+                            cm2.__exit__(None, None, None)
                         except Exception:
                             pass
-                    cap = []
-                    if nums:
-                        inlist = ",".join("'" + n + "'" for n in nums)
-                        cm2, s2 = _att_session()
-                        try:
-                            rs = s2.execute(_t(
-                                "SELECT pe.plan_date::text AS d, SUM(pe.expected_hours) AS h"
-                                " FROM tenant.att_plan_effective pe"
-                                " JOIN tenant.att_employee e ON e.id=pe.employee_id AND e.tenant_id=2"
-                                " WHERE e.cislo_zam IN (" + inlist + ")"
-                                " GROUP BY pe.plan_date ORDER BY pe.plan_date")).fetchall()
-                            cap = [{"d": row[0], "h": float(row[1] or 0)} for row in rs]
-                        finally:
-                            try:
-                                cm2.__exit__(None, None, None)
-                            except Exception:
-                                pass
                     out["cap"] = cap
                 except Exception as _e:
                     out["cap"] = []; out["dem"] = []
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
     return JSONResponse(out)
+
+
+def _flow_people_gate(req: Request):
+    """Parent NEBO vedoucí výroby (41/85). Vrací uid nebo None."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return None
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        isp = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                        {"u": int(uid)}).scalar()
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+    if isp or int(uid) in (41, 85):
+        return int(uid)
+    return None
+
+
+@api_router.get("/app/flow/people")
+def app_flow_people(req: Request) -> JSONResponse:
+    """Lidé skupiny Výroba (group_id=3) + příznak, zda jsou v podskupině plánování."""
+    uid = _flow_people_gate(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT m.user_id AS uid,"
+            " RTRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) AS jmeno,"
+            " (x.user_id IS NULL) AS included"
+            " FROM tenant.staff_group_member m"
+            " LEFT JOIN public.users u ON u.id=m.user_id"
+            " LEFT JOIN tenant.vyroba_plan_excl x ON x.tenant_id=2 AND x.user_id=m.user_id"
+            " WHERE m.tenant_id=2 AND m.group_id=3"
+            " ORDER BY jmeno")).fetchall()
+        ppl = [{"uid": r[0], "jmeno": (r[1] or ("#" + str(r[0]))).strip(), "included": bool(r[2])} for r in rows]
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+    return JSONResponse({"ok": True, "people": ppl})
+
+
+@api_router.post("/app/flow/people/toggle")
+async def app_flow_people_toggle(req: Request) -> JSONResponse:
+    """Zařadit/vyjmout člověka z podskupiny plánování výroby."""
+    uid = _flow_people_gate(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        tgt = int(body.get("user_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad user_id"}, status_code=400)
+    included = bool(body.get("included"))
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if included:
+            s.execute(_t("DELETE FROM tenant.vyroba_plan_excl WHERE tenant_id=2 AND user_id=:u"), {"u": tgt})
+        else:
+            s.execute(_t("INSERT INTO tenant.vyroba_plan_excl(tenant_id,user_id,excluded_by) VALUES(2,:u,:by)"
+                         " ON CONFLICT (tenant_id,user_id) DO NOTHING"), {"u": tgt, "by": uid})
+        s.commit()
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+    return JSONResponse({"ok": True})
 
 
 @api_router.get("/app/learn/sync")

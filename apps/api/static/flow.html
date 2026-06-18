@@ -250,6 +250,7 @@ function renderTimeline(c,j){
   var zlbl=document.createElement('span'); zlbl.className='muted'; zlbl.style.fontSize='12px'; zlbl.textContent='Šířka:'; chips.appendChild(zlbl);
   var bMinus=document.createElement('button'); bMinus.className='chip'; bMinus.textContent='− zúžit'; bMinus.title='Zúžit graf'; bMinus.onclick=function(){tlZoom(-2);}; chips.appendChild(bMinus);
   var bPlus=document.createElement('button'); bPlus.className='chip'; bPlus.textContent='+ roztáhnout'; bPlus.title='Roztáhnout graf'; bPlus.onclick=function(){tlZoom(2);}; chips.appendChild(bPlus);
+  var bPpl=document.createElement('button'); bPpl.className='chip'; bPpl.textContent='👷 Lidé'; bPpl.title='Lidé výroby v plánování'; bPpl.style.marginLeft='6px'; bPpl.onclick=openPeopleModal; chips.appendChild(bPpl);
   c.appendChild(chips);
   var rows=all.filter(function(r){ return TLF==='ALL'||String(r.typ)===TLF; });
   if(!rows.length){ c.appendChild(muted('Žádné zakázky typu '+TLF+'.')); return; }
@@ -490,6 +491,40 @@ function tlGroup(daily){
   out.sort(function(a,b){ return (a.od||'')<(b.od||'')?-1:((a.od||'')>(b.od||'')?1:0); });
   return out;
 }
+function closePeopleModal(){ var m=document.getElementById('peoplemodal'); if(m) m.remove(); }
+function openPeopleModal(){
+  closePeopleModal();
+  var ov=document.createElement('div'); ov.id='peoplemodal'; ov.style.cssText='position:fixed;inset:0;z-index:1000;pointer-events:none';
+  var bw=Math.min(420, window.innerWidth-40);
+  var box=document.createElement('div'); box.id='pm-box';
+  box.style.cssText='position:absolute;width:'+bw+'px;max-height:84vh;overflow:auto;pointer-events:auto;background:var(--bg,#0e1726);border:1px solid var(--bord,#243044);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.55);left:'+Math.max(10,window.innerWidth-bw-16)+'px;top:90px';
+  box.innerHTML='<div id="pm-head" style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--bord,#243044);position:sticky;top:0;background:var(--bg,#0e1726);cursor:move">'
+    +'<div style="flex:1;font-size:16px;font-weight:700">👷 Lidé výroby</div>'
+    +'<button onclick="closePeopleModal()" style="background:none;border:0;color:var(--dim,#8aa);font-size:22px;cursor:pointer;line-height:1">×</button></div>'
+    +'<div class="muted" style="font-size:11px;padding:8px 16px 4px">Zaškrtnutí = člověk je v podskupině plánování (počítá se do kapacity). Odškrtnutí = vyjmut.</div>'
+    +'<div id="pm-list" class="muted" style="padding:6px 16px 16px;font-size:13px">načítám…</div>';
+  ov.appendChild(box); document.body.appendChild(ov);
+  (function(){ var hd=box.querySelector('#pm-head'); var md=false,sx,sy,bl,bt;
+    hd.addEventListener('mousedown',function(e){ if(e.target.tagName==='BUTTON')return; md=true; sx=e.clientX; sy=e.clientY; bl=parseFloat(box.style.left)||0; bt=parseFloat(box.style.top)||0; e.preventDefault(); });
+    window.addEventListener('mousemove',function(e){ if(!md)return; box.style.left=Math.max(0,Math.min(window.innerWidth-60,bl+(e.clientX-sx)))+'px'; box.style.top=Math.max(0,Math.min(window.innerHeight-40,bt+(e.clientY-sy)))+'px'; });
+    window.addEventListener('mouseup',function(){ md=false; });
+  })();
+  function draw(ppl){
+    var el=document.getElementById('pm-list'); if(!el) return;
+    if(!ppl.length){ el.textContent='Skupina Výroba je prázdná.'; return; }
+    var inc=ppl.filter(function(p){return p.included;}).length;
+    el.innerHTML='<div class="muted" style="font-size:11px;margin-bottom:6px">V plánování: <b style="color:#10b981">'+inc+'</b> z '+ppl.length+'</div>'
+      +ppl.map(function(p){ return '<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-top:1px solid rgba(255,255,255,.06);cursor:pointer"><input type="checkbox" data-uid="'+p.uid+'" '+(p.included?'checked':'')+' style="cursor:pointer;width:16px;height:16px"><span style="'+(p.included?'':'opacity:.5;text-decoration:line-through')+'">'+esc(p.jmeno)+'</span></label>'; }).join('');
+    el.querySelectorAll('input[type=checkbox]').forEach(function(cb){ cb.onchange=function(){
+      var uid=+cb.getAttribute('data-uid'), on=cb.checked;
+      fetch('/api/v1/erp/app/flow/people/toggle',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,included:on})})
+        .then(function(r){return r.json();}).then(function(){ SEC['timeline']=null; load(); load2people(); });
+    }; });
+  }
+  function load2people(){ fetch('/api/v1/erp/app/flow/people',{credentials:'same-origin'}).then(function(r){ if(r.status===403){throw 0;} return r.json(); }).then(function(j){ draw((j&&j.people)||[]); }).catch(function(){ var el=document.getElementById('pm-list'); if(el) el.textContent='Jen pro vedení / vedoucího výroby.'; }); }
+  load2people();
+}
+document.addEventListener('keydown',function(e){ if(e.key==='Escape') closePeopleModal(); });
 function closeZakModal(){ var m=document.getElementById('zakmodal'); if(m){ var b=document.getElementById('zm-box'); if(b){ lsS('flow_modal_left',parseFloat(b.style.left)||0); lsS('flow_modal_top',parseFloat(b.style.top)||0); } m.remove(); } }
 function openZakModal(r){
   closeZakModal();

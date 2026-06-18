@@ -5529,6 +5529,65 @@ async def crm_optout_check(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/crm/osloveni/enqueue")
+async def crm_osloveni_enqueue(req: Request) -> JSONResponse:
+    """Pavel z UI zaradi vybrane firmy (IDHlav) do fronty mod.crm_outreach (status pending).
+    NEPOSILA — odeslani je krok odesilaci rutiny (Marti-AI), zatim za test_mode / pravnim OK.
+    Auth: aktivni clen EUROSOFT ERP (Pavel) NEBO rodic.
+    Telo:  {"idhlav_list":[11431, ...], "template_id":9}
+    Vrati: {"ok":true,"queued":N,"skipped":M}  (skipped = uz ve fronte pending)"""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    ids = []
+    for x in (body.get("idhlav_list") or []):
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+    ids = sorted(set(ids))
+    if not ids:
+        return JSONResponse({"ok": False, "error": "Nevybral jsi žádné firmy"}, status_code=400)
+    if len(ids) > 100:
+        return JSONResponse({"ok": False, "error": "Najednou max 100 firem"}, status_code=400)
+    template_code = str(body.get("template_id") or body.get("template_code") or "9")[:32]
+    from core.database_data import get_data_session as _gds_oe
+    from sqlalchemy import text as _sql_oe
+    ds = _gds_oe()
+    try:
+        existing = set(ds.execute(_sql_oe(
+            "SELECT firma_id FROM mod.crm_outreach WHERE status='pending' AND firma_id = ANY(:ids)"
+        ), {"ids": ids}).scalars().all())
+        to_add = [i for i in ids if i not in existing]
+        for fid in to_add:
+            ds.execute(_sql_oe(
+                "INSERT INTO mod.crm_outreach (firma_id, template_code, requested_by, status) "
+                "VALUES (:f, :t, :by, 'pending')"
+            ), {"f": fid, "t": template_code, "by": "uid:%d" % uid})
+        ds.commit()
+        logger.info("[crm_osloveni_enqueue] uid=%d queued=%d skipped=%d tmpl=%s",
+                    uid, len(to_add), len(ids) - len(to_add), template_code)
+        return JSONResponse({"ok": True, "queued": len(to_add),
+                             "skipped": len(ids) - len(to_add)})
+    except Exception as exc:
+        logger.exception("[crm_osloveni_enqueue] %s", exc)
+        try:
+            ds.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "Zápis do fronty selhal"}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.post("/crm/optout/make-tokens")
 async def crm_optout_make_tokens(req: Request) -> JSONResponse:
     """Vrati hotove odhlasovaci tokeny + URL pro dane (email, firma_id) pary, aby

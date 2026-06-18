@@ -199,6 +199,93 @@
       return Promise.reject(new Error("no_refresh_fn"));
     }
 
+    // ── Hromadne osloveni (Claude-24/Kristy 18.6.2026) ──────────────────
+    // Maly toast (styly z erp_batch_action nejsou exportovane -> vlastni lehky).
+    function _osloveniToast(variant, msg) {
+      var c = ({ success: ["#1e501e", "#a3e4a3", "#4a8a4a"],
+                 error:   ["#781e1e", "#ff8a8a", "#a04040"] })[variant]
+              || ["#1e3a50", "#aac8ec", "#3a5a7a"];
+      var t = document.createElement("div");
+      t.style.cssText = "position:fixed;top:50px;right:8px;background:" + c[0] +
+        ";color:" + c[1] + ";border:1px solid " + c[2] +
+        ";padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;" +
+        "z-index:100002;box-shadow:0 4px 16px rgba(0,0,0,.4);max-width:420px;" +
+        "font-family:system-ui,-apple-system,sans-serif;";
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); },
+                 variant === "error" ? 6000 : 3500);
+    }
+
+    // Dialog: vyber sablony + zarazeni vybranych firem do fronty mod.crm_outreach.
+    // NEPOSILA — odeslani je krok odesilaci rutiny (Marti-AI) za pravnim OK.
+    function _osloveniDialog(idhlavList, refreshFn) {
+      return new Promise(function (resolve) {
+        var N = idhlavList.length, done = false;
+        var bd = document.createElement("div");
+        bd.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100001;" +
+          "display:flex;align-items:center;justify-content:center;";
+        var dlg = document.createElement("div");
+        dlg.style.cssText = "background:#1a1a1a;border:2px solid #3a4a5a;border-radius:12px;" +
+          "padding:22px 26px;max-width:480px;width:90%;color:#e0e0e0;" +
+          "font-family:system-ui,-apple-system,sans-serif;box-shadow:0 12px 48px rgba(0,0,0,.6);";
+        var h = document.createElement("div");
+        h.style.cssText = "font-size:17px;font-weight:700;color:#aac8ec;margin-bottom:12px;";
+        h.textContent = "✉️ Oslovit vybrané firmy (" + N + ")";
+        var body = document.createElement("div");
+        body.style.cssText = "font-size:14px;line-height:1.6;margin-bottom:16px;color:#cfd6dc;";
+        body.innerHTML =
+          "<div style='margin-bottom:10px'>Vybrané firmy se <b>zařadí do fronty</b> hromadného " +
+          "oslovení (nabídka spolupráce). Samotné odeslání proběhne řízeně až po právním schválení " +
+          "&mdash; tímto se <b>nic neodešle</b>.</div>" +
+          "<label style='display:block;margin-bottom:6px;color:#9fb6cc'>Šablona e-mailu:</label>";
+        var sel = document.createElement("select");
+        sel.style.cssText = "width:100%;padding:8px;border-radius:6px;background:#0d0d0d;" +
+          "color:#e0e0e0;border:1px solid #3a4a5a;font-size:14px;";
+        [["9", "OTEVÍRÁK – první oslovení"], ["10", "PŘIPOMÍNAČ – druhá vlna"]].forEach(function (o) {
+          var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1];
+          sel.appendChild(op);
+        });
+        body.appendChild(sel);
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;margin-top:18px;";
+        function mk(t, bg, fn) {
+          var b = document.createElement("button"); b.type = "button"; b.textContent = t;
+          b.style.cssText = "background:" + bg + ";color:#fff;border:0;padding:8px 18px;" +
+            "border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;min-width:90px;";
+          b.onclick = fn; return b;
+        }
+        function close(v) { if (done) return; done = true; if (bd.parentNode) bd.parentNode.removeChild(bd); resolve(v); }
+        var btnOk = mk("Zařadit do fronty", "#2563eb", function () {
+          btnOk.disabled = true; btnOk.textContent = "Zařazuji…";
+          fetch("/api/v1/erp/crm/osloveni/enqueue", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idhlav_list: idhlavList, template_id: sel.value }),
+          }).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (j) { return { r: r, j: j }; });
+          }).then(function (x) {
+            if (x.r.ok && x.j.ok) {
+              _osloveniToast("success", "✓ Zařazeno do fronty: " + x.j.queued +
+                (x.j.skipped ? (" (přeskočeno " + x.j.skipped + ", už ve frontě)") : ""));
+              if (typeof refreshFn === "function") { try { refreshFn(); } catch (e) {} }
+              close(true);
+            } else {
+              _osloveniToast("error", "✗ " + ((x.j && x.j.error) || ("HTTP " + x.r.status)));
+              btnOk.disabled = false; btnOk.textContent = "Zařadit do fronty";
+            }
+          }).catch(function (e) {
+            _osloveniToast("error", "✗ Síť: " + (e && e.message || e));
+            btnOk.disabled = false; btnOk.textContent = "Zařadit do fronty";
+          });
+        });
+        var btnNo = mk("Zrušit", "#3a3a3a", function () { close(false); });
+        row.appendChild(btnOk); row.appendChild(btnNo);
+        dlg.appendChild(h); dlg.appendChild(body); dlg.appendChild(row);
+        bd.appendChild(dlg); document.body.appendChild(bd);
+      });
+    }
+
     // ════════════════════════════════════════════════════════════════════
     // ACTION REGISTRY — single truth source
     // ════════════════════════════════════════════════════════════════════
@@ -304,6 +391,29 @@
         requiresRow: false,
         handler: function (ctx) {
           return _refreshGrid(ctx.gridCode, ctx.refreshFn);
+        },
+      },
+      // Hromadne osloveni firem (Claude-24/Kristy 18.6.2026): vyber firem v gridu
+      // Kontakty -> zarazeni do fronty mod.crm_outreach. Gate v page_render.js
+      // (jen crm_kontakty). Multi-row pres ctx.rowIds (getSelectedRows), fallback single.
+      osloveni: {
+        key: "osloveni",
+        icon: "✉️",
+        label: "Oslovit vybrané",
+        hint: "Zařadit vybrané firmy do fronty hromadného oslovení (nabídka spolupráce)",
+        cssClass: "erp-action-osloveni",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) {
+          var ids = (Array.isArray(ctx.rowIds) && ctx.rowIds.length > 0)
+            ? ctx.rowIds.slice()
+            : (ctx.rowData ? [ctx.rowData.id != null ? ctx.rowData.id : ctx.rowData.ID] : []);
+          ids = ids.filter(function (x) { return x != null && x !== ""; });
+          if (ids.length === 0) {
+            alert("⚠ Oslovit: nejprve vyber firmy (lze i více — Ctrl/Shift + klik).");
+            return Promise.reject(new Error("no_rows"));
+          }
+          return _osloveniDialog(ids, ctx.refreshFn);
         },
       },
       // Personální dokumenty na klik (Marti 10.6.2026). Jen na Finance lidí

@@ -387,6 +387,13 @@
               /hr_finance_lidi/i.test(String(_gridCodeForActions))) {
             _ctxMenuActions.push("doc");
           }
+          // Hromadne osloveni firem (Claude-24/Kristy 18.6.2026): akce "osloveni"
+          // jen na prehledu Kontakty (crm_kontakty). Vyber firem (multi) -> fronta
+          // mod.crm_outreach (NEPOSILA — odeslani je krok rutiny Marti-AI za pravnim OK).
+          if (/crm_kontakty/i.test(_coreCodeForGraph) ||
+              /crm_kontakty/i.test(String(_gridCodeForActions))) {
+            _ctxMenuActions.push("osloveni");
+          }
           // Register edit form coreId pro gridCode (drz Marti "fw self
           // edited" doctrine 11.5. — DesignFwForm vola registry lookup).
           if (_gridActionsForCtx && _gridActionsForCtx.edit_core_id

@@ -217,7 +217,20 @@
                  variant === "error" ? 6000 : 3500);
     }
 
-    // Dialog: vyber sablony + zarazeni vybranych firem do fronty mod.crm_outreach.
+    function _oslEsc(s) {
+      return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    // Odznak podle druhu prijemce (osobni / info@ / bez e-mailu / odhlaseno).
+    function _oslBadge(it) {
+      if (it.opted_out) return "<span style='background:#5a1e1e;color:#ff9a9a;padding:1px 7px;border-radius:10px;font-size:11px'>odhlášeno</span>";
+      if (it.kind === "osobni") return "<span style='background:#1e4a1e;color:#a3e4a3;padding:1px 7px;border-radius:10px;font-size:11px'>osobní</span>";
+      if (it.kind === "info") return "<span style='background:#1e3a55;color:#9fc4ec;padding:1px 7px;border-radius:10px;font-size:11px'>info@</span>";
+      return "<span style='background:#3a3a3a;color:#bbb;padding:1px 7px;border-radius:10px;font-size:11px'>bez e-mailu</span>";
+    }
+
+    // Dialog: nahled prijemcu (osobni/info@/zadny/odhlaseno) + vyber sablony +
+    // zarazeni vybranych firem do fronty mod.crm_outreach.
     // NEPOSILA — odeslani je krok odesilaci rutiny (Marti-AI) za pravnim OK.
     function _osloveniDialog(idhlavList, refreshFn) {
       return new Promise(function (resolve) {
@@ -227,18 +240,20 @@
           "display:flex;align-items:center;justify-content:center;";
         var dlg = document.createElement("div");
         dlg.style.cssText = "background:#1a1a1a;border:2px solid #3a4a5a;border-radius:12px;" +
-          "padding:22px 26px;max-width:480px;width:90%;color:#e0e0e0;" +
+          "padding:22px 26px;max-width:560px;width:92%;color:#e0e0e0;" +
           "font-family:system-ui,-apple-system,sans-serif;box-shadow:0 12px 48px rgba(0,0,0,.6);";
         var h = document.createElement("div");
         h.style.cssText = "font-size:17px;font-weight:700;color:#aac8ec;margin-bottom:12px;";
         h.textContent = "✉️ Oslovit vybrané firmy (" + N + ")";
-        var body = document.createElement("div");
-        body.style.cssText = "font-size:14px;line-height:1.6;margin-bottom:16px;color:#cfd6dc;";
-        body.innerHTML =
-          "<div style='margin-bottom:10px'>Vybrané firmy se <b>zařadí do fronty</b> hromadného " +
-          "oslovení (nabídka spolupráce). Samotné odeslání proběhne řízeně až po právním schválení " +
-          "&mdash; tímto se <b>nic neodešle</b>.</div>" +
-          "<label style='display:block;margin-bottom:6px;color:#9fb6cc'>Šablona e-mailu:</label>";
+        var listBox = document.createElement("div");
+        listBox.style.cssText = "max-height:240px;overflow:auto;margin-bottom:12px;border:1px solid #2a3a4a;" +
+          "border-radius:8px;padding:8px 10px;background:#0d0d0d;font-size:13px;";
+        listBox.innerHTML = "<div style='color:#9fb6cc;padding:6px'>Načítám náhled příjemců…</div>";
+        var sumLine = document.createElement("div");
+        sumLine.style.cssText = "font-size:12px;color:#9fb6cc;margin-bottom:12px;";
+        var lab = document.createElement("label");
+        lab.style.cssText = "display:block;margin-bottom:6px;color:#9fb6cc;font-size:13px;";
+        lab.textContent = "Šablona e-mailu:";
         var sel = document.createElement("select");
         sel.style.cssText = "width:100%;padding:8px;border-radius:6px;background:#0d0d0d;" +
           "color:#e0e0e0;border:1px solid #3a4a5a;font-size:14px;";
@@ -246,7 +261,10 @@
           var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1];
           sel.appendChild(op);
         });
-        body.appendChild(sel);
+        var note = document.createElement("div");
+        note.style.cssText = "font-size:12px;color:#8aa;margin-top:10px;";
+        note.innerHTML = "Firmy se jen <b>zařadí do fronty</b> — odeslání proběhne řízeně až po " +
+          "právním schválení. Tímto se <b>nic neodešle</b>.";
         var row = document.createElement("div");
         row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;margin-top:18px;";
         function mk(t, bg, fn) {
@@ -281,8 +299,46 @@
         });
         var btnNo = mk("Zrušit", "#3a3a3a", function () { close(false); });
         row.appendChild(btnOk); row.appendChild(btnNo);
-        dlg.appendChild(h); dlg.appendChild(body); dlg.appendChild(row);
+        dlg.appendChild(h); dlg.appendChild(listBox); dlg.appendChild(sumLine);
+        dlg.appendChild(lab); dlg.appendChild(sel); dlg.appendChild(note); dlg.appendChild(row);
         bd.appendChild(dlg); document.body.appendChild(bd);
+
+        // Nacti nahled prijemcu
+        fetch("/api/v1/erp/crm/osloveni/preview", {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idhlav_list: idhlavList }),
+        }).then(function (r) {
+          return r.json().catch(function () { return {}; });
+        }).then(function (j) {
+          if (!j || !j.ok || !Array.isArray(j.items)) {
+            listBox.innerHTML = "<div style='color:#ffb38a;padding:6px'>Náhled se nepodařilo načíst (" +
+              _oslEsc((j && j.error) || "chyba") + "). Zařadit lze i tak.</div>";
+            return;
+          }
+          var nOsob = 0, nInfo = 0, nNic = 0, nOdhl = 0, html = "";
+          j.items.forEach(function (it) {
+            if (it.opted_out) nOdhl++;
+            else if (it.kind === "osobni") nOsob++;
+            else if (it.kind === "info") nInfo++;
+            else nNic++;
+            html += "<div style='display:flex;justify-content:space-between;gap:8px;align-items:center;" +
+              "padding:4px 2px;border-bottom:1px solid #1c1c1c'>" +
+              "<span style='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px'>" +
+              _oslEsc(it.firma) + (it.recipient ? "<br><span style='color:#7d93a8;font-size:11px'>" +
+              _oslEsc(it.recipient) + "</span>" : "") + "</span>" +
+              "<span style='white-space:nowrap'>" + _oslBadge(it) +
+              (it.osloven_kdy ? " <span style='color:#888;font-size:11px'>" + _oslEsc(it.osloven_kdy) + "</span>" : "") +
+              "</span></div>";
+          });
+          listBox.innerHTML = html || "<div style='padding:6px;color:#9fb6cc'>Žádná data.</div>";
+          sumLine.innerHTML = "Osobní: <b style='color:#a3e4a3'>" + nOsob + "</b> · info@: <b style='color:#9fc4ec'>" +
+            nInfo + "</b> · bez e-mailu: <b style='color:#bbb'>" + nNic + "</b>" +
+            (nOdhl ? " · odhlášeno: <b style='color:#ff9a9a'>" + nOdhl + "</b>" : "");
+        }).catch(function (e) {
+          listBox.innerHTML = "<div style='color:#ffb38a;padding:6px'>Náhled selhal: " +
+            _oslEsc(e && e.message || e) + " — zařadit lze i tak.</div>";
+        });
       });
     }
 

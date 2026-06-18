@@ -5529,6 +5529,105 @@ async def crm_optout_check(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/crm/osloveni/preview")
+async def crm_osloveni_preview(req: Request) -> JSONResponse:
+    """Nahled pred zarazenim: u vybranych firem (IDHlav) vrati prijemce (osobni
+    z akce 17, jinak firemni z akce 16), prijmeni, kdy naposled osloveno (akce 22)
+    a priznak odhlaseni. Read-only z CRM pres MCP. Auth: clen ERP NEBO rodic."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    ids = []
+    for x in (body.get("idhlav_list") or []):
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+    ids = sorted(set(ids))
+    if not ids:
+        return JSONResponse({"ok": False, "error": "Nevybral jsi žádné firmy"}, status_code=400)
+    ids = ids[:200]
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _j_op
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
+    id_list = ",".join(str(i) for i in ids)
+    sql = (
+        "SELECT a.IDHlav AS firma_id,"
+        " MAX(CASE WHEN a.IDAkce=16 THEN a.FirmaText END) AS firma,"
+        " MAX(CASE WHEN a.IDAkce=16 THEN a.Email END) AS firma_email,"
+        " MAX(CASE WHEN a.IDAkce=17 AND a.Email LIKE '%@%' THEN a.Email END) AS osobni_email,"
+        " MAX(CASE WHEN a.IDAkce=17 AND a.Email LIKE '%@%' THEN a.Prijmeni END) AS prijmeni,"
+        " CONVERT(varchar, MAX(CASE WHEN a.IDAkce=22 THEN a.DatPorizeni END), 104) AS osloven_kdy"
+        " FROM dbo.EC_KontaktAkce a WITH(NOLOCK)"
+        " WHERE a.IDHlav IN (" + id_list + ") GROUP BY a.IDHlav"
+    )
+    try:
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_op.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error"))[:200])
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]
+                    break
+        elif isinstance(r, list):
+            rows = r
+    except Exception as exc:
+        logger.exception("[crm_osloveni_preview] %s", exc)
+        return JSONResponse({"ok": False, "error": "CRM dotaz selhal"}, status_code=502)
+    by_id = {}
+    for d in rows:
+        dd = {(k or "").lower(): v for k, v in d.items()}
+        try:
+            by_id[int(dd.get("firma_id"))] = dd
+        except Exception:
+            pass
+    out, recips = [], []
+    for fid in ids:
+        dd = by_id.get(fid, {})
+        osobni = (dd.get("osobni_email") or "").strip()
+        firemni = (dd.get("firma_email") or "").strip()
+        if osobni:
+            recipient, kind = osobni, "osobni"
+        elif firemni:
+            recipient, kind = firemni, "info"
+        else:
+            recipient, kind = "", "zadny"
+        if recipient:
+            recips.append(recipient.lower())
+        out.append({"firma_id": fid, "firma": dd.get("firma") or ("#" + str(fid)),
+                    "recipient": recipient, "kind": kind,
+                    "prijmeni": dd.get("prijmeni") or "",
+                    "osloven_kdy": dd.get("osloven_kdy") or ""})
+    opted = set()
+    if recips:
+        from core.database_data import get_data_session as _gds_pp
+        from sqlalchemy import text as _sql_pp
+        ds = _gds_pp()
+        try:
+            opted = set(ds.execute(_sql_pp(
+                "SELECT DISTINCT email_norm FROM mod.crm_email_optout WHERE email_norm = ANY(:l)"
+            ), {"l": sorted(set(recips))}).scalars().all())
+        finally:
+            ds.close()
+    for it in out:
+        it["opted_out"] = (it["recipient"].lower() in opted) if it["recipient"] else False
+    return JSONResponse({"ok": True, "items": out})
+
+
 @api_router.post("/crm/osloveni/enqueue")
 async def crm_osloveni_enqueue(req: Request) -> JSONResponse:
     """Pavel z UI zaradi vybrane firmy (IDHlav) do fronty mod.crm_outreach (status pending).

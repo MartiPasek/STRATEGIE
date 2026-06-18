@@ -22597,6 +22597,70 @@ async def app_payroll_summary(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/payroll/kontrola")
+async def app_payroll_kontrola(req: Request) -> JSONResponse:
+    """Kontrola podkladů vs Helios (hybridní fáze): per osoba/měsíc naše hodiny
+    (att_day_summary) vs Helios výplatnice (payslip_item) — hodiny + hrubá mzda,
+    + příznak kdo je jen v jednom zdroji. Rodič/Jirka. ?rok=&mesic=."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _app_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            y = int(req.query_params.get("rok") or 0)
+            m = int(req.query_params.get("mesic") or 0)
+        except Exception:
+            y = m = 0
+        if not (y and m):
+            p = s.execute(_t("SELECT rok, mesic FROM tenant.att_day_summary WHERE tenant_id=2 AND rok IS NOT NULL "
+                             "ORDER BY rok DESC, mesic DESC LIMIT 1")).first()
+            if p:
+                y, m = int(p[0]), int(p[1])
+        rows = s.execute(_t(
+            "WITH ours AS ("
+            "  SELECT d.user_id, "
+            "    round(sum(d.cas_montaz+d.cas_rezie)::numeric,1) odprac, "
+            "    round(sum(d.cas_dovolena+d.cas_nemoc+d.cas_sickday+d.cas_ocr+d.cas_lekar"
+            "       +d.cas_nahr_volno+d.cas_nariz_volno+d.cas_absence)::numeric,1) absence, "
+            "    round(sum(d.fpd)::numeric,1) fond "
+            "  FROM tenant.att_day_summary d WHERE d.tenant_id=2 AND d.rok=:y AND d.mesic=:m AND d.user_id IS NOT NULL "
+            "  GROUP BY d.user_id), "
+            "hel AS ("
+            "  SELECT e.user_id, round(sum(p.hodiny)::numeric,1) hodiny, "
+            "    round(sum(CASE WHEN p.je_hruba THEN p.koruny ELSE 0 END)::numeric,0) hruba "
+            "  FROM tenant.payslip_item p JOIN tenant.att_employee e ON e.id=p.employee_id "
+            "  WHERE p.tenant_id=2 AND p.rok=:y AND p.mesic=:m AND e.user_id IS NOT NULL "
+            "  GROUP BY e.user_id) "
+            "SELECT COALESCE(o.user_id,h.user_id) uid, "
+            "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'#'||COALESCE(o.user_id,h.user_id)) jmeno, "
+            "  o.odprac, o.absence, o.fond, h.hodiny, h.hruba, "
+            "  (o.user_id IS NOT NULL) v_nas, (h.user_id IS NOT NULL) v_helios "
+            "FROM ours o FULL OUTER JOIN hel h ON h.user_id=o.user_id "
+            "LEFT JOIN public.users u ON u.id=COALESCE(o.user_id,h.user_id) "
+            "ORDER BY jmeno"), {"y": y, "m": m}).fetchall()
+
+        def fl(v):
+            return float(v) if v is not None else None
+        out = []
+        for r in rows:
+            ours_h = (fl(r[2]) or 0) + (fl(r[3]) or 0)  # naše odpracováno+absence
+            hel_h = fl(r[5])
+            diff = None
+            if r[7] and r[8] and hel_h is not None:
+                diff = round((ours_h - hel_h), 1)
+            out.append({"jmeno": r[1], "odprac": fl(r[2]), "absence": fl(r[3]), "fond": fl(r[4]),
+                        "hel_hodiny": hel_h, "hel_hruba": fl(r[6]),
+                        "v_nas": bool(r[7]), "v_helios": bool(r[8]),
+                        "rozdil_h": diff})
+        return JSONResponse({"ok": True, "rok": y, "mesic": m, "rows": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/migrace/steps")
 async def app_migrace_steps(req: Request) -> JSONResponse:
     """Kroky migrace pro daný okruh (dochazka|mzdy) + kdy naposledy běžely. Rodič/Jirka."""

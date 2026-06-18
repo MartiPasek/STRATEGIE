@@ -25,32 +25,84 @@
   .tot td{font-weight:800;border-top:2px solid var(--acc);background:rgba(91,141,239,.08)}
   .scroll{overflow:auto;border:1px solid var(--line);border-radius:12px}
   .pill{font-size:11px;color:var(--mut)}
+  .tab{padding:5px 11px;border-radius:8px;border:1px solid var(--line);background:#0e1530;color:var(--mut);
+       font-size:12.5px;cursor:pointer;user-select:none}
+  .tab.on{background:rgba(91,141,239,.16);color:#cfe0ff;border-color:var(--acc)}
+  .ok{color:#6ddf9b}.warn{color:#ffcf6b}.bad{color:#ff8a8a}
+  .badge{font-size:10.5px;padding:1px 6px;border-radius:6px}
+  .badge.n{background:rgba(255,138,138,.16);color:#ff8a8a}
+  .badge.h{background:rgba(255,207,107,.16);color:#ffcf6b}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="hd"><div class="ic">💰</div><h1>Mzdové podklady</h1><div class="sp"></div>
+  <div class="hd"><div class="ic">💰</div><h1>Mzdové podklady</h1>
+    <span class="tab on" id="tab_p" onclick="setTab('p')">Podklady</span>
+    <span class="tab" id="tab_k" onclick="setTab('k')">Kontrola vs Helios</span>
+    <div class="sp"></div>
     <select id="per"></select>
   </div>
-  <div class="muted">Měsíční souhrn z docházky Centrály (hybridní fáze). Hodiny: odpracováno = montáž+režie. Kontrola proti Heliosu probíhá samostatně.</div>
+  <div class="muted" id="sub">Měsíční souhrn z docházky Centrály (hybridní fáze). Hodiny: odpracováno = montáž+režie.</div>
   <div id="root"><div class="muted">Načítám…</div></div>
 </div>
 <script>
 const API="/api/v1/erp/app/payroll/summary";
+const APIK="/api/v1/erp/app/payroll/kontrola";
 const MN=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
-const root=document.getElementById("root"), per=document.getElementById("per");
+const root=document.getElementById("root"), per=document.getElementById("per"), sub=document.getElementById("sub");
 async function j(u){const r=await fetch(u,{credentials:"include"});try{return await r.json()}catch(e){return{ok:false}}}
 function esc(s){return(s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-function n(v){if(!v)return '<span class="z">·</span>';return (Math.round(v*10)/10).toString().replace(".",",");}
-let LOADED=false;
+function n(v){if(v==null||v===0)return '<span class="z">·</span>';return (Math.round(v*10)/10).toString().replace(".",",");}
+function nk(v){if(v==null)return '<span class="z">·</span>';return Math.round(v).toLocaleString("cs-CZ");}
+let LOADED=false, TAB='p', CY=0, CM=0;
+function setTab(t){
+  TAB=t;
+  document.getElementById("tab_p").classList.toggle("on",t==='p');
+  document.getElementById("tab_k").classList.toggle("on",t==='k');
+  if(t==='k'){ sub.textContent="Naše podklady (docházka) × Helios výplatnice. Hodiny = odpracováno+absence vs. Helios; ⚠ = chybí v jednom zdroji nebo rozdíl > 4 h."; loadK(CY,CM); }
+  else { sub.textContent="Měsíční souhrn z docházky Centrály (hybridní fáze). Hodiny: odpracováno = montáž+režie."; load(CY,CM); }
+}
+async function loadK(y,m){
+  root.innerHTML='<div class="muted">Načítám kontrolu…</div>';
+  const q=(y&&m)?("?rok="+y+"&mesic="+m):"";
+  const r=await j(APIK+q);
+  if(!r||!r.ok){root.innerHTML='<div class="muted bad">'+((r&&r.error==="forbidden")?"Kontrola je pro rodiče a Jirku.":"Chyba načtení.")+'</div>';return;}
+  CY=r.rok;CM=r.mesic;
+  if(!(r.rows||[]).length){root.innerHTML='<div class="muted">Za '+MN[r.mesic]+' '+r.rok+' žádná data.</div>';return;}
+  let onlyN=0,onlyH=0,diffN=0;
+  let body="";
+  r.rows.forEach(row=>{
+    const oursH=(row.odprac||0)+(row.absence||0);
+    let flag="", cls="";
+    if(!row.v_helios){flag='<span class="badge n">jen u nás</span>';onlyN++;cls="bad";}
+    else if(!row.v_nas){flag='<span class="badge h">jen Helios</span>';onlyH++;cls="warn";}
+    else if(row.rozdil_h!=null && Math.abs(row.rozdil_h)>4){flag='<span class="badge h">Δ '+(row.rozdil_h>0?"+":"")+n(row.rozdil_h)+' h</span>';diffN++;cls="warn";}
+    else flag='<span class="ok">✓</span>';
+    body+='<tr><td class="nm">'+esc(row.jmeno)+'</td>'+
+      '<td>'+n(row.odprac)+'</td><td>'+n(row.absence)+'</td>'+
+      '<td class="'+cls+'">'+(row.v_nas?n(oursH):'<span class="z">·</span>')+'</td>'+
+      '<td class="'+cls+'">'+(row.v_helios?n(row.hel_hodiny):'<span class="z">·</span>')+'</td>'+
+      '<td>'+nk(row.hel_hruba)+'</td><td style="text-align:center">'+flag+'</td></tr>';
+  });
+  const head='<tr><th class="nm">Jméno</th><th>Odprac.</th><th>Absence</th><th>Naše Σh</th><th>Helios Σh</th><th>Hrubá Kč</th><th style="text-align:center">Stav</th></tr>';
+  const summary='<div class="muted" style="margin:6px 2px">'+
+    'Osob: <b>'+r.rows.length+'</b> · '+
+    '<span class="ok">✓ sedí: '+(r.rows.length-onlyN-onlyH-diffN)+'</span> · '+
+    '<span class="warn">Δ rozdíl: '+diffN+'</span> · '+
+    '<span class="warn">jen Helios: '+onlyH+'</span> · '+
+    '<span class="bad">jen u nás: '+onlyN+'</span></div>';
+  root.innerHTML=summary+'<div class="scroll"><table class="tbl"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
+    '<div class="muted" style="margin-top:8px">Naše Σh = odpracováno + absence (z docházky). Helios Σh = součet hodin z výplatnice. Rozdíl &gt; 4 h nebo chybějící osoba = ke kontrole před uzávěrkou.</div>';
+}
 async function load(y,m){
   root.innerHTML='<div class="muted">Načítám…</div>';
   const q=(y&&m)?("?rok="+y+"&mesic="+m):"";
   const r=await j(API+q);
   if(!r||!r.ok){root.innerHTML='<div class="muted" style="color:#ff8a8a">'+((r&&r.error==="forbidden")?"Přehled je pro rodiče a Jirku.":"Chyba načtení.")+'</div>';return;}
+  CY=r.rok;CM=r.mesic;
   if(!LOADED){
     per.innerHTML=(r.periods||[]).map(p=>'<option value="'+p.rok+'-'+p.mesic+'"'+((p.rok===r.rok&&p.mesic===r.mesic)?' selected':'')+'>'+MN[p.mesic]+' '+p.rok+'</option>').join('');
-    per.onchange=function(){const a=per.value.split("-");load(+a[0],+a[1]);};
+    per.onchange=function(){const a=per.value.split("-");CY=+a[0];CM=+a[1];(TAB==='k'?loadK:load)(CY,CM);};
     LOADED=true;
   }
   if(!(r.rows||[]).length){root.innerHTML='<div class="muted">Za '+MN[r.mesic]+' '+r.rok+' žádná data.</div>';return;}

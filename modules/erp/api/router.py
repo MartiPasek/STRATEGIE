@@ -22630,14 +22630,18 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
             "  FROM tenant.att_day_summary d WHERE d.tenant_id=2 AND d.rok=:y AND d.mesic=:m AND d.user_id IS NOT NULL "
             "  GROUP BY d.user_id), "
             "hel AS ("
-            "  SELECT e.user_id, round(sum(p.hodiny)::numeric,1) hodiny, "
+            "  SELECT e.user_id, "
+            "    round(sum(CASE WHEN p.nazev_ms IN ('Základní mzda','Dohoda o provedení práce') "
+            "         THEN p.hodiny ELSE 0 END)::numeric,1) h_odprac, "
+            "    round(sum(CASE WHEN p.hodiny<>0 AND p.nazev_ms NOT IN ('Základní mzda','Dohoda o provedení práce') "
+            "         AND p.nazev_ms NOT ILIKE 'Osobní ohodnocení%' THEN p.hodiny ELSE 0 END)::numeric,1) h_absence, "
             "    round(sum(CASE WHEN p.je_hruba THEN p.koruny ELSE 0 END)::numeric,0) hruba "
             "  FROM tenant.payslip_item p JOIN tenant.att_employee e ON e.id=p.employee_id "
             "  WHERE p.tenant_id=2 AND p.rok=:y AND p.mesic=:m AND e.user_id IS NOT NULL "
             "  GROUP BY e.user_id) "
             "SELECT COALESCE(o.user_id,h.user_id) uid, "
             "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'#'||COALESCE(o.user_id,h.user_id)) jmeno, "
-            "  o.odprac, o.absence, o.fond, h.hodiny, h.hruba, "
+            "  o.odprac, o.absence, o.fond, h.h_odprac, h.h_absence, h.hruba, "
             "  (o.user_id IS NOT NULL) v_nas, (h.user_id IS NOT NULL) v_helios "
             "FROM ours o FULL OUTER JOIN hel h ON h.user_id=o.user_id "
             "LEFT JOIN public.users u ON u.id=COALESCE(o.user_id,h.user_id) "
@@ -22647,14 +22651,12 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
             return float(v) if v is not None else None
         out = []
         for r in rows:
-            ours_h = (fl(r[2]) or 0) + (fl(r[3]) or 0)  # naše odpracováno+absence
-            hel_h = fl(r[5])
             diff = None
-            if r[7] and r[8] and hel_h is not None:
-                diff = round((ours_h - hel_h), 1)
+            if r[8] and r[9] and r[2] is not None and r[5] is not None:
+                diff = round((fl(r[2]) - fl(r[5])), 1)  # naše odprac - Helios odprac
             out.append({"jmeno": r[1], "odprac": fl(r[2]), "absence": fl(r[3]), "fond": fl(r[4]),
-                        "hel_hodiny": hel_h, "hel_hruba": fl(r[6]),
-                        "v_nas": bool(r[7]), "v_helios": bool(r[8]),
+                        "hel_odprac": fl(r[5]), "hel_absence": fl(r[6]), "hel_hruba": fl(r[7]),
+                        "v_nas": bool(r[8]), "v_helios": bool(r[9]),
                         "rozdil_h": diff})
         return JSONResponse({"ok": True, "rok": y, "mesic": m, "rows": out})
     finally:

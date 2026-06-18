@@ -72,27 +72,30 @@ async function loadK(y,m){
   let onlyN=0,onlyH=0,diffN=0;
   let body="";
   r.rows.forEach(row=>{
-    const oursH=(row.odprac||0)+(row.absence||0);
     let flag="", cls="";
     if(!row.v_helios){flag='<span class="badge n">jen u nás</span>';onlyN++;cls="bad";}
     else if(!row.v_nas){flag='<span class="badge h">jen Helios</span>';onlyH++;cls="warn";}
     else if(row.rozdil_h!=null && Math.abs(row.rozdil_h)>4){flag='<span class="badge h">Δ '+(row.rozdil_h>0?"+":"")+n(row.rozdil_h)+' h</span>';diffN++;cls="warn";}
     else flag='<span class="ok">✓</span>';
     body+='<tr><td class="nm">'+esc(row.jmeno)+'</td>'+
-      '<td>'+n(row.odprac)+'</td><td>'+n(row.absence)+'</td>'+
-      '<td class="'+cls+'">'+(row.v_nas?n(oursH):'<span class="z">·</span>')+'</td>'+
-      '<td class="'+cls+'">'+(row.v_helios?n(row.hel_hodiny):'<span class="z">·</span>')+'</td>'+
+      '<td class="'+cls+'">'+(row.v_nas?n(row.odprac):'<span class="z">·</span>')+'</td>'+
+      '<td class="'+cls+'">'+(row.v_helios?n(row.hel_odprac):'<span class="z">·</span>')+'</td>'+
+      '<td>'+(row.v_nas?n(row.absence):'<span class="z">·</span>')+'</td>'+
+      '<td>'+(row.v_helios?n(row.hel_absence):'<span class="z">·</span>')+'</td>'+
       '<td>'+nk(row.hel_hruba)+'</td><td style="text-align:center">'+flag+'</td></tr>';
   });
-  const head='<tr><th class="nm">Jméno</th><th>Odprac.</th><th>Absence</th><th>Naše Σh</th><th>Helios Σh</th><th>Hrubá Kč</th><th style="text-align:center">Stav</th></tr>';
+  const head='<tr><th class="nm">Jméno</th>'+
+    '<th>Odprac.<br><span class="pill">naše</span></th><th>Odprac.<br><span class="pill">Helios</span></th>'+
+    '<th>Absence<br><span class="pill">naše</span></th><th>Absence<br><span class="pill">Helios</span></th>'+
+    '<th>Hrubá Kč</th><th style="text-align:center">Stav</th></tr>';
   const summary='<div class="muted" style="margin:6px 2px">'+
     'Osob: <b>'+r.rows.length+'</b> · '+
     '<span class="ok">✓ sedí: '+(r.rows.length-onlyN-onlyH-diffN)+'</span> · '+
-    '<span class="warn">Δ rozdíl: '+diffN+'</span> · '+
+    '<span class="warn">Δ rozdíl odprac.: '+diffN+'</span> · '+
     '<span class="warn">jen Helios: '+onlyH+'</span> · '+
     '<span class="bad">jen u nás: '+onlyN+'</span></div>';
   root.innerHTML=summary+'<div class="scroll"><table class="tbl"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
-    '<div class="muted" style="margin-top:8px">Naše Σh = odpracováno + absence (z docházky). Helios Σh = součet hodin z výplatnice. Rozdíl &gt; 4 h nebo chybějící osoba = ke kontrole před uzávěrkou.</div>';
+    '<div class="muted" style="margin-top:8px">Odprac. = montáž+režie (naše) vs. „Základní mzda"+DPP (Helios). Absence = dovolená/nemoc/lékař… „Osobní ohodnocení" je bonus na tytéž hodiny, nepočítá se. Rozdíl odprac. &gt; 4 h nebo chybějící osoba = ke kontrole před uzávěrkou.</div>';
 }
 async function load(y,m){
   root.innerHTML='<div class="muted">Načítám…</div>';

@@ -11674,6 +11674,9 @@ def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
                             "   SELECT m.user_id FROM tenant.staff_group_member m"
                             "   WHERE m.tenant_id=2 AND m.group_id=3"
                             "   AND m.user_id NOT IN (SELECT user_id FROM tenant.vyroba_plan_excl WHERE tenant_id=2))"
+                            # odečíst plánované volno: kdo má ten den naplánovanou nepřítomnost, nepočítá se do kapacity
+                            "   AND NOT EXISTS (SELECT 1 FROM tenant.att_planned_absence pa"
+                            "     WHERE pa.tenant_id=2 AND pa.user_id=pe.user_id AND pa.datum=pe.plan_date)"
                             " GROUP BY pe.plan_date ORDER BY pe.plan_date")).fetchall()
                         cap = [{"d": row[0], "h": float(row[1] or 0)} for row in rs]
                     finally:

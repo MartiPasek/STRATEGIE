@@ -38,7 +38,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="hd"><span onclick="(history.length>1?history.back():location.href='/mobile')" style="cursor:pointer;font-size:15px;color:#9fc0ff;padding:2px 8px 2px 0;">← Zpět</span><div class="ic">💰</div><h1>Mzdové podklady</h1>
+  <div class="hd"><span onclick="goBackApp()" style="cursor:pointer;font-size:15px;color:#9fc0ff;padding:2px 8px 2px 0;">← Zpět</span><div class="ic">💰</div><h1>Mzdové podklady</h1>
     <span class="tab on" id="tab_p" onclick="setTab('p')">Podklady</span>
     <span class="tab" id="tab_k" onclick="setTab('k')">Kontrola vs Helios</span>
     <div class="sp"></div>
@@ -48,6 +48,8 @@
   <div id="root"><div class="muted">Načítám…</div></div>
 </div>
 <script>
+function goBackApp(){ location.href="/mobile"; }
+try{ history.pushState({stg:1},""); window.addEventListener("popstate",function(){ location.href="/mobile"; }); }catch(e){}
 const API="/api/v1/erp/app/payroll/summary";
 const APIK="/api/v1/erp/app/payroll/kontrola";
 const MN=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];

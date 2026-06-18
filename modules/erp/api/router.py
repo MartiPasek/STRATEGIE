@@ -20386,6 +20386,10 @@ _OPS_ACTIONS = {
         "label": "Synchronizovat výplatní pásky (Helios EC+ES → STRATEGIE)",
         "target": "cloud", "remote": False,
     },
+    "refresh_active_status": {
+        "label": "Samooprava rosteru: zneaktivnit odešlé (mimo aktuální mzdové období)",
+        "target": "cloud", "remote": False,
+    },
     "sync_vyroba_plan": {
         "label": "Synchronizovat plán výroby (EC_Vytizeni_PlanMonteri → STRATEGIE)",
         "target": "cloud", "remote": False,
@@ -20986,6 +20990,46 @@ def _recruit_anonymize(days: int = 365) -> dict:
                          "WHERE tenant_id=2 AND candidate_id = ANY(:ids)"), {"ids": ids})
         s.commit()
         return {"ok": True, "anonymized": len(ids)}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _refresh_employee_active() -> dict:
+    """Samooprava docházkového rosteru: kdo zmizel z aktuálního mzdového období v Heliosu
+    (odešel), zneaktivní se (att_employee.is_active=false), aby nestrašil ve výpisech.
+    Jen lidé S historií výplatnic, >1 období pozadu, NE OSVČ/dohoda/jednatel.
+    Konzervativní (pouze deaktivace; reaktivaci/obnovu členství řeší člověk)."""
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        n = s.execute(_t(
+            "WITH per AS ("
+            "  SELECT e.id emp_id, max(p.rok*12+p.mesic) last_per "
+            "  FROM tenant.att_employee e JOIN tenant.payslip_item p ON p.employee_id=e.id "
+            "  WHERE e.tenant_id=2 GROUP BY e.id), "
+            "mx AS (SELECT max(rok*12+mesic) g FROM tenant.payslip_item WHERE tenant_id=2) "
+            "UPDATE tenant.att_employee e SET is_active=false "
+            "FROM per, mx "
+            "WHERE e.id=per.emp_id AND e.tenant_id=2 AND e.is_active=true "
+            "  AND per.last_per < mx.g - 1 "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.work_relation wr WHERE wr.tenant_id=2 "
+            "       AND wr.user_id=e.user_id AND wr.relation IN ('osvc','dohoda','jednatel'))"
+        )).rowcount
+        # u zneaktivněných archivovat i členství v tenantu (ať zmizí ze seznamů lidí)
+        s.execute(_t(
+            "UPDATE public.user_tenants ut SET membership_status='archived' "
+            "WHERE ut.tenant_id=2 AND ut.membership_status IN ('invited','active') "
+            "  AND ut.user_id IN (SELECT e.user_id FROM tenant.att_employee e "
+            "     WHERE e.tenant_id=2 AND e.is_active=false AND e.user_id IS NOT NULL) "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.work_relation wr WHERE wr.tenant_id=2 "
+            "       AND wr.user_id=ut.user_id AND wr.relation IN ('osvc','dohoda','jednatel'))"))
+        s.commit()
+        return {"ok": True, "deactivated": n}
     except Exception:
         s.rollback()
         raise
@@ -22419,8 +22463,14 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
                       % (out.get("imported"), out.get("skipped")))
         elif action_key == "sync_pasky":
             out = _sync_pasky_from_helios()
+            heal = _refresh_employee_active()
             status = "done"
-            result = "pásky: %s položek (EC+ES)" % out.get("items")
+            result = ("pásky: %s položek (EC+ES); samooprava: %s odešlých zneaktivněno"
+                      % (out.get("items"), heal.get("deactivated")))
+        elif action_key == "refresh_active_status":
+            heal = _refresh_employee_active()
+            status = "done"
+            result = "samooprava rosteru: %s odešlých zneaktivněno (mimo aktuální mzdové období)" % heal.get("deactivated")
         elif action_key == "sync_vyroba_plan":
             out = _sync_vyroba_plan_from_ec()
             status = "done"

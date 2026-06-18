@@ -923,19 +923,17 @@ def demo_login(req: Request, next: str = "/mobile"):
     appky (iOS i Android - stejny web). Nastavi jen auth cookies + redirect na
     /mobile; zadny consume_invite (zadny spam notifikaci rodicum)."""
     from fastapi.responses import RedirectResponse, PlainTextResponse
-    from modules.core.infrastructure.models_core import User
+    from sqlalchemy import text as _t
     try:
         cs = get_core_session()
         try:
-            u = (
-                cs.query(User)
-                .filter_by(login_name="demo", status="active")
-                .first()
-            )
-            if u is None:
+            row = cs.execute(_t(
+                "SELECT id, last_active_tenant_id FROM public.users"
+                " WHERE login_name='demo' AND status='active' LIMIT 1")).first()
+            if row is None:
                 raise HTTPException(status_code=503, detail="Demo rezim neni pripraveny.")
-            uid = u.id
-            tenant_id = u.last_active_tenant_id
+            uid = row[0]
+            tenant_id = row[1]
         finally:
             cs.close()
         # Sanitize next: jen interni relativni cesta "/..." (anti open-redirect)

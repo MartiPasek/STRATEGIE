@@ -114,6 +114,39 @@ def _active_imp_target(parent_uid):
 
 
 def _uid_from_token_or_cookie(req: Request) -> int:
+    """Efektivní user_id pro endpointy. Nad surovým resolverem přidává
+    AMBASADORSKÝ režim (Marti 18.6.): pokud je přihlášený ambasador (role
+    ambassador) NEBO rodič se zapnutým náhledem (cookie amb_demo=1), appka
+    běží 'jako Marti' (uid 1) v REŽIMU JEN PRO ČTENÍ — req.state.amb_session=True.
+    Zápisy blokuje read-only guard v main.py; cizí mzdy/pásky blokuje
+    _amb_block_others. Memo na req.state, ať se neptáme DB víckrát za request."""
+    raw = _resolve_uid_raw(req)
+    if not raw:
+        return raw
+    st = getattr(req, "state", None)
+    memo = getattr(st, "_amb_eff", None) if st is not None else None
+    if memo is not None:
+        return _AMBASSADOR_PERSONAL_UID if memo else raw
+    amb = False
+    try:
+        if int(raw) != _AMBASSADOR_PERSONAL_UID:
+            if _is_ambassador(raw):
+                amb = True
+            elif _amb_demo_cookie(req) and is_marti_parent(raw):
+                amb = True
+    except Exception:
+        amb = False
+    try:
+        if st is not None:
+            st._amb_eff = amb
+            if amb:
+                st.amb_session = True
+    except Exception:
+        pass
+    return _AMBASSADOR_PERSONAL_UID if amb else raw
+
+
+def _resolve_uid_raw(req: Request) -> int:
     """user_id z Bearer tokenu (nativní mobilní appka — sdílí CardDAV device
     token z "user".carddav_token) NEBO z cookie (PWA). Marti 4.6.2026 —
     background služba nemá cookie, autentizuje se tokenem (jeden token pro
@@ -292,6 +325,53 @@ def _can_showcase_view(uid: int | None) -> bool:
     if not uid:
         return False
     return is_marti_parent(uid) or _is_ambassador(uid)
+
+
+def _amb_demo_cookie(req) -> bool:
+    """Rodič si může zapnout náhled 'jako ambasador' přes cookie amb_demo=1."""
+    try:
+        return (req.cookies.get("amb_demo") or "") == "1"
+    except Exception:
+        return False
+
+
+def _is_amb_session(req) -> bool:
+    """True, pokud aktuální request běží v ambasadorském (read-only) režimu.
+    Nastavuje _uid_from_token_or_cookie do req.state.amb_session."""
+    try:
+        return bool(getattr(req.state, "amb_session", False))
+    except Exception:
+        return False
+
+
+def _amb_block_others(req) -> JSONResponse | None:
+    """Vrať 403, pokud běží ambasadorský režim — pro endpointy, které ukazují
+    CIZÍ citlivá data (mzdy/výplatnice/karty jiných lidí). Marti 18.6.: 'moje
+    výplatní pásky ano, cizí ne'."""
+    if _is_amb_session(req):
+        return JSONResponse({"ok": False, "error": "ambassador_hidden",
+                             "detail": "V prezentačním režimu nejsou data jiných osob dostupná."},
+                            status_code=403)
+    return None
+
+
+def _amb_or_pin_gate(s, uid: int, pin: str, req):
+    """PIN brána, která v ambasadorském režimu akceptuje DEMO PIN (fw.ambassador_pin
+    pro Martiho), jinak normální _pin_gate. Bez SMS. Pro Martiho pásky + trezor."""
+    if _is_amb_session(req):
+        from sqlalchemy import text as _t
+        prow = s.execute(_t("SELECT pin_hash FROM fw.ambassador_pin WHERE user_id=:u"),
+                         {"u": _AMBASSADOR_PERSONAL_UID}).first()
+        if not prow:
+            return {"ok": False, "error": "demo_pin_not_set",
+                    "note": "Marti zatím nenastavil demo PIN."}
+        if not (pin or "").strip():
+            return {"ok": False, "error": "pin_required"}
+        salt, _, hsh = (prow[0] or "").partition("$")
+        if not (pin.strip().isdigit() and _pin_hash(pin.strip(), salt) == hsh):
+            return {"ok": False, "error": "pin_wrong"}
+        return None
+    return _pin_gate(s, uid, (pin or "").strip())
 
 
 # Design/system string entity types — blokované pro non-parent v data CRUD
@@ -6203,7 +6283,7 @@ async def app_self_secret_reveal(req: Request) -> JSONResponse:
     sid = int((b or {}).get("id") or 0)
     cm, s = _att_session()
     try:
-        err = _pin_gate(s, uid, str((b or {}).get("pin") or "").strip())
+        err = _amb_or_pin_gate(s, uid, str((b or {}).get("pin") or ""), req)
         if err:
             return JSONResponse(err)
         row = s.execute(_t("SELECT label, secret_enc FROM tenant.user_secret "
@@ -6466,6 +6546,9 @@ async def app_hr_people(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
@@ -11499,6 +11582,9 @@ async def app_hr_person(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
     from sqlalchemy import text as _t
     try:
         tuid = int(req.query_params.get("uid") or 0)
@@ -12651,8 +12737,8 @@ async def app_payslip(req: Request) -> JSONResponse:
             return JSONResponse({"ok": True, "periods": [], "items": [], "note": "Žádné mzdové záznamy."})
         # Marti 14.6.: Gate „běžící směna" ZRUŠEN — páska se otevírá rovnou přes PIN
         # (PIN je dostatečná ochrana; bránit otevření během směny jen otravovalo).
-        # Gate — PIN.
-        err = _pin_gate(s, uid, str((body or {}).get("pin") or "").strip())
+        # Gate — PIN (v ambasadorském režimu DEMO PIN bez SMS).
+        err = _amb_or_pin_gate(s, uid, str((body or {}).get("pin") or ""), req)
         if err:
             s.commit()
             return JSONResponse(err)
@@ -18344,6 +18430,9 @@ async def employee_doc(req: Request):
     ?engagement_id=&typ=smlouva|vymer|popis|dpp → branded docx ze živých dat
     (PG engagement/složky + Helios TabCisZam osobní údaje + číslo účtu).
     ACL: rodič NEBO payroll_officer (Šárka)."""
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
     from fastapi.responses import Response as _R
     from fastapi import HTTPException as _HX
     import json as _jdoc
@@ -18900,6 +18989,9 @@ async def app_wage_compare(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:

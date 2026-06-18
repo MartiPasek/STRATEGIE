@@ -478,20 +478,21 @@ async def request_id_middleware(request: Request, call_next):
     try:
         _amb_m = (request.method or "GET").upper()
         _amb_p = request.url.path or ""
+        # POST cesty, které jsou ve skutečnosti ČTENÍ (PIN/data v těle) — povolené
+        # i v ambasadorském režimu: výplatní páska (Martiho), trezor reveal, demo.
+        _amb_read_post = ("/app/payslip" in _amb_p or "/app/self-secret/reveal" in _amb_p
+                          or "/app/ambassador/" in _amb_p)
         if (_amb_m not in ("GET", "HEAD", "OPTIONS")
                 and _amb_p.startswith("/api/")
-                and "/app/ambassador/" not in _amb_p
+                and not _amb_read_post
                 and not _amb_p.startswith("/api/v1/auth/")):
-            from modules.erp.api.router import (
-                _uid_from_token_or_cookie as _amb_uid_fn,
-                _is_ambassador as _amb_is_fn,
-            )
-            _amb_uid = _amb_uid_fn(request)
-            if _amb_uid and _amb_is_fn(_amb_uid):
+            from modules.erp.api.router import _uid_from_token_or_cookie as _amb_uid_fn
+            _amb_uid_fn(request)  # nastaví request.state.amb_session při amb/demo režimu
+            if bool(getattr(request.state, "amb_session", False)):
                 from starlette.responses import JSONResponse as _AmbJSON
                 return _AmbJSON(
                     {"ok": False, "error": "ambassador_readonly",
-                     "detail": "Role ambasador je jen pro čtení (prezentace)."},
+                     "detail": "Prezentační režim je jen pro čtení."},
                     status_code=403)
     except Exception:
         pass  # nikdy neshazuj middleware kvuli guardu

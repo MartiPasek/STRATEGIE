@@ -92,13 +92,24 @@ function renderLogin(){
 /* ---------- ADMIN (Marti / rodič) ---------- */
 function renderAdmin(who){
   root.innerHTML="";
-  root.appendChild(el(`<div class="card" style="border-color:var(--acc)">
-    <div style="font-weight:700;margin-bottom:8px">🔁 Profil zobrazení</div>
-    <div class="muted" style="margin-bottom:10px">Přepni se do <b>demo profilu</b> a uvidíš přesně to,
-      co a kam smí ambasador (Zbyněk). Zpět se vrátíš jedním klikem.</div>
-    <button class="act" id="toPreview">👁 Přepnout na demo profil (náhled jako ambasador)</button>
+  const demoOn=(document.cookie.split(";").some(c=>c.trim().startsWith("amb_demo=1")));
+  root.appendChild(el(`<div class="card" style="border-color:${demoOn?'var(--warn)':'var(--acc)'}">
+    <div style="font-weight:700;margin-bottom:8px">🔁 Profil zobrazení ${demoOn?'<span class="pill w">DEMO běží</span>':'<span class="pill">standardní</span>'}</div>
+    <div class="muted" style="margin-bottom:10px">${demoOn
+      ? 'Jsi v <b>demo profilu</b> (jen pro čtení) — appka tě bere jako ambasadora. Vypni ho, až budeš chtít zase normálně pracovat.'
+      : 'Přepni se do <b>demo profilu</b> a spustí se ti <b>celá appka jako ambasador</b> (Tvůj profil, docházka, dlaždice) v režimu jen pro čtení. Uvidíš přesně to, co a kam smí Zbyněk.'}</div>
+    ${demoOn
+      ? '<button class="act" id="demoOff">🔧 Vypnout demo a vrátit se do standardního profilu</button>'
+      : '<button class="act" id="demoOn">👁 Spustit appku jako ambasador (demo, read-only)</button>'
+        +'<button class="act ghost" id="toPreview" style="margin-top:8px">Jen rychlý náhled tady na stránce</button>'}
   </div>`));
-  document.getElementById("toPreview").onclick=()=>renderShow(who,true);
+  const setCk=(v)=>{document.cookie="amb_demo="+v+";path=/;max-age="+(v==="1"?86400:0);};
+  const bOn=document.getElementById("demoOn");
+  if(bOn)bOn.onclick=()=>{setCk("1");location.href="/mobile";};
+  const bOff=document.getElementById("demoOff");
+  if(bOff)bOff.onclick=()=>{setCk("0");location.reload();};
+  const bPrev=document.getElementById("toPreview");
+  if(bPrev)bPrev.onclick=()=>renderShow(who,true);
 
   root.appendChild(el(`<div class="card">
     <div style="font-weight:700">Admin prezentace <span class="pill">rodič</span></div>

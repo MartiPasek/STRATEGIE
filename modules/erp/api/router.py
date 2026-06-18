@@ -6265,9 +6265,9 @@ async def app_self_secret_delete(req: Request) -> JSONResponse:
 # 2FA (ať prezentace nezadrhne) — ale s auditem + e-mailem Martimu při otevření.
 @api_router.get("/app/ambassador/marti-card")
 async def app_ambassador_marti_card(req: Request) -> JSONResponse:
-    """Osobní karta Martiho (user 1) pro prezentaci. Jen role ambasador."""
+    """Osobní karta Martiho (user 1) pro prezentaci. Ambasador NEBO rodič (náhled)."""
     uid = _uid_from_token_or_cookie(req)
-    if not _is_ambassador(uid):
+    if not (_is_ambassador(uid) or is_marti_parent(uid)):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from sqlalchemy import text as _t
     tgt = _AMBASSADOR_PERSONAL_UID
@@ -6307,9 +6307,9 @@ async def app_ambassador_marti_card(req: Request) -> JSONResponse:
 
 @api_router.get("/app/ambassador/trezor-list")
 async def app_ambassador_trezor_list(req: Request) -> JSONResponse:
-    """Seznam položek Martiho trezoru (jen popisky, bez hesel). Jen ambasador."""
+    """Seznam položek Martiho trezoru (jen popisky, bez hesel). Ambasador NEBO rodič."""
     uid = _uid_from_token_or_cookie(req)
-    if not _is_ambassador(uid):
+    if not (_is_ambassador(uid) or is_marti_parent(uid)):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from sqlalchemy import text as _t
     tgt = _AMBASSADOR_PERSONAL_UID
@@ -6335,7 +6335,7 @@ async def app_ambassador_trezor_reveal(req: Request) -> JSONResponse:
     """Odhalení hesla z Martiho trezoru přes DEMO PIN (bez SMS). Jen ambasador.
     Cesta /app/ambassador/* je výjimka z read-only guardu (jediný povolený POST)."""
     uid = _uid_from_token_or_cookie(req)
-    if not _is_ambassador(uid):
+    if not (_is_ambassador(uid) or is_marti_parent(uid)):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     f = _vault_fernet()
     if f is None:

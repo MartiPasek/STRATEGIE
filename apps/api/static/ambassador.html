@@ -92,6 +92,14 @@ function renderLogin(){
 /* ---------- ADMIN (Marti / rodič) ---------- */
 function renderAdmin(who){
   root.innerHTML="";
+  root.appendChild(el(`<div class="card" style="border-color:var(--acc)">
+    <div style="font-weight:700;margin-bottom:8px">🔁 Profil zobrazení</div>
+    <div class="muted" style="margin-bottom:10px">Přepni se do <b>demo profilu</b> a uvidíš přesně to,
+      co a kam smí ambasador (Zbyněk). Zpět se vrátíš jedním klikem.</div>
+    <button class="act" id="toPreview">👁 Přepnout na demo profil (náhled jako ambasador)</button>
+  </div>`));
+  document.getElementById("toPreview").onclick=()=>renderShow(who,true);
+
   root.appendChild(el(`<div class="card">
     <div style="font-weight:700">Admin prezentace <span class="pill">rodič</span></div>
     <div class="muted" style="margin-top:6px">Nastav <b>demo PIN</b> ke svému trezoru (jiný než tvůj osobní)
@@ -140,8 +148,15 @@ function renderAdmin(who){
 }
 
 /* ---------- SHOWCASE (ambasador) ---------- */
-function renderShow(who){
+function renderShow(who,preview){
   root.innerHTML="";
+  if(preview){
+    root.appendChild(el(`<div class="card" style="border-color:var(--warn);background:rgba(240,169,59,.08)">
+      <div style="font-weight:700"><span class="pill w">NÁHLED</span> &nbsp;Toto vidí ambasador (Zbyněk)</div>
+      <div class="muted" style="margin-top:6px">Jsi v demo profilu jen pro náhled. Ambasador nemůže nic zapsat.</div>
+      <button class="act ghost" id="backAdmin" style="margin-top:10px">← Zpět na admin profil</button>
+    </div>`));
+  }
   root.appendChild(el(`<div class="card">
     <div style="font-weight:700;font-size:16px">Vítejte${who.name?(", "+who.name):""} 👋</div>
     <div class="muted" style="margin-top:6px">Živá ukázka platformy STRATEGIE nad reálnými provozními daty.
@@ -163,6 +178,8 @@ function renderShow(who){
 
   document.getElementById("cardBtn").onclick=showCard;
   document.getElementById("vaultBtn").onclick=showVault;
+  const ba=document.getElementById("backAdmin");
+  if(ba)ba.onclick=()=>renderAdmin(who);
 }
 
 async function showCard(){

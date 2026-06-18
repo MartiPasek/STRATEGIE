@@ -251,6 +251,7 @@ function renderTimeline(c,j){
   var bMinus=document.createElement('button'); bMinus.className='chip'; bMinus.textContent='− zúžit'; bMinus.title='Zúžit graf'; bMinus.onclick=function(){tlZoom(-2);}; chips.appendChild(bMinus);
   var bPlus=document.createElement('button'); bPlus.className='chip'; bPlus.textContent='+ roztáhnout'; bPlus.title='Roztáhnout graf'; bPlus.onclick=function(){tlZoom(2);}; chips.appendChild(bPlus);
   var bPpl=document.createElement('button'); bPpl.className='chip'; bPpl.textContent='👷 Lidé'; bPpl.title='Lidé výroby v plánování'; bPpl.style.marginLeft='6px'; bPpl.onclick=openPeopleModal; chips.appendChild(bPpl);
+  var bVyt=document.createElement('button'); bVyt.className='chip'; bVyt.textContent='📈 Vytížení'; bVyt.title='Vytížení montérů (denní přehled)'; bVyt.style.marginLeft='6px'; bVyt.onclick=function(){window.open('/vytizeni','strategieVyt');}; chips.appendChild(bVyt);
   c.appendChild(chips);
   var rows=all.filter(function(r){ return TLF==='ALL'||String(r.typ)===TLF; });
   if(!rows.length){ c.appendChild(muted('Žádné zakázky typu '+TLF+'.')); return; }

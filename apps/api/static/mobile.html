@@ -1299,11 +1299,26 @@ setTimeout(function(){
 
   // ───── APLIKACE (launcher) ─────
   function openApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url; if(B&&typeof B.openExternal==="function")B.openExternal(u); else { try{window.open(u,"_blank");}catch(e){ location.href=u; } } }
-  // Interní STRATEGIE přehledy (/flow, /absence-plan…) — otevřít UVNITŘ appky (stejné WebView),
-  // ne přes Android bridge ven (jinak Android nabízí externí prohlížeč Edge). Zpět = hardware back / „← Zpět" na stránce.
-  function openInApp(url){ var u=(url.charAt(0)==="/")?(location.origin+url):url;
-    if(native){ try{ location.href=u; return; }catch(e){} }
-    try{ window.open(u,"_blank"); }catch(e){ location.href=u; } }
+  // Interní STRATEGIE přehledy (/flow, /absence-plan…) — otevřít jako OVERLAY (iframe) UVNITŘ appky.
+  // Appka se neopustí → Android Back nezavře aplikaci, jen zavře overlay. Žádný externí prohlížeč.
+  function openInApp(url){
+    var u=(url.charAt(0)==="/")?(location.origin+url):url;
+    var ov=document.getElementById("stgOv");
+    if(!ov){
+      ov=el('<div id="stgOv" style="position:fixed;inset:0;z-index:99998;background:#0b1020;display:flex;flex-direction:column;"></div>');
+      var bar=el('<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#101a33;border-bottom:1px solid #26314f;flex:0 0 auto;">'+
+        '<button id="stgOvX" style="background:#2563eb;color:#fff;border:0;border-radius:9px;padding:7px 14px;font-weight:700;font-size:14px;">← Zavřít</button></div>');
+      var fr=el('<iframe id="stgOvF" style="flex:1;border:0;width:100%;background:#0b1020;"></iframe>');
+      ov.appendChild(bar); ov.appendChild(fr); document.body.appendChild(ov);
+      bar.querySelector("#stgOvX").onclick=closeOverlay;
+    }
+    document.getElementById("stgOvF").src=u; ov.style.display="flex";
+    try{ history.pushState({stgOv:1},""); }catch(e){}
+  }
+  function closeOverlay(){ var ov=document.getElementById("stgOv"); if(ov&&ov.style.display!=="none"){ ov.style.display="none"; try{document.getElementById("stgOvF").src="about:blank";}catch(e){} return true; } return false; }
+  // Hardware/HW Back i postMessage z iframe „← Zpět" zavřou overlay (ne appku).
+  window.addEventListener("popstate",function(){ closeOverlay(); });
+  window.addEventListener("message",function(ev){ if(ev&&ev.data==="stgCloseOverlay") closeOverlay(); });
   function appCell(iconHtml,label,badge,fn){ var c=el('<div class="appcell"><div class="appicon">'+iconHtml+'</div><div class="applabel">'+esc(label)+'</div>'+(badge?'<span class="appbadge">'+(badge>99?"99+":badge)+'</span>':'')+'</div>'); c.addEventListener("click",fn); return c; }
   function _isoWeek(d){ var t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); var dn=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-dn+3); var f=new Date(Date.UTC(t.getUTCFullYear(),0,4)); return 1+Math.round(((t-f)/86400000 - 3 + ((f.getUTCDay()+6)%7))/7); }
   function apps(){

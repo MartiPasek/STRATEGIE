@@ -87,9 +87,8 @@
   </div>
 </div>
 <script>
-// Návrat do appky — tlačítko i HW Back vrátí na /mobile (ne zavření appky).
-function goBackApp(){ location.href="/mobile"; }
-try{ history.pushState({stg:1},""); window.addEventListener("popstate",function(){ location.href="/mobile"; }); }catch(e){}
+// Návrat do appky: v overlay (iframe) zavři overlay přes rodiče, jinak na /mobile.
+function goBackApp(){ if(window.parent&&window.parent!==window){ try{window.parent.postMessage("stgCloseOverlay","*");return;}catch(e){} } location.href="/mobile"; }
 const MON=["led","úno","bře","dub","kvě","čvn","čvc","srp","zář","říj","lis","pro"];
 const root=document.getElementById("root"), rng=document.getElementById("rng"), sub=document.getElementById("sub");
 let VIEW="lide";

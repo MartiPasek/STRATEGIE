@@ -48,8 +48,7 @@
   <div id="root"><div class="muted">Načítám…</div></div>
 </div>
 <script>
-function goBackApp(){ location.href="/mobile"; }
-try{ history.pushState({stg:1},""); window.addEventListener("popstate",function(){ location.href="/mobile"; }); }catch(e){}
+function goBackApp(){ if(window.parent&&window.parent!==window){ try{window.parent.postMessage("stgCloseOverlay","*");return;}catch(e){} } location.href="/mobile"; }
 const API="/api/v1/erp/app/payroll/summary";
 const APIK="/api/v1/erp/app/payroll/kontrola";
 const MN=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];

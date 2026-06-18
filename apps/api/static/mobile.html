@@ -6857,11 +6857,13 @@ setTimeout(function(){
     var row=el('<div style="display:flex;gap:8px;"></div>'); ws.appendChild(row);
     var makWrap=el('<div></div>'); ws.appendChild(makWrap);
     host.appendChild(ws);
-    function tile(icon,top,sub,onclick){
+    function ensureCinPulseCss(){ if(document.getElementById("cinPulseCss"))return; var st=document.createElement("style"); st.id="cinPulseCss"; st.textContent="@keyframes cinpulse{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.7);transform:scale(1)}50%{box-shadow:0 0 0 8px rgba(245,158,11,0);transform:scale(1.05)}} .cin-pulse{animation:cinpulse 1.05s ease-in-out infinite;border-color:#f59e0b!important;background:rgba(245,158,11,.14)!important;color:#f4c97a!important;}"; document.head.appendChild(st); }
+    function tile(icon,top,sub,onclick,pulse){
       var t=el('<button class="ghost" style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:12px 8px;text-align:center;"></button>');
       t.appendChild(el('<div style="font-size:26px;line-height:1;">'+icon+'</div>'));
       t.appendChild(el('<div style="font-size:9.5px;letter-spacing:.5px;color:#8696b8;text-transform:uppercase;">'+esc(top)+'</div>'));
       t.appendChild(el('<div style="font-size:13px;font-weight:700;line-height:1.25;word-break:break-word;">'+esc(sub)+'</div>'));
+      if(pulse){ ensureCinPulseCss(); t.classList.add("cin-pulse"); }
       t.addEventListener("click",onclick); return t;
     }
     api("GET","/api/v1/erp/app/work/state","").then(function(j){
@@ -6873,8 +6875,8 @@ setTimeout(function(){
       var cSub=src.cinnost_name||"Vyber činnost";
       lbl.innerHTML=aw?'<span style="color:var(--green);font-weight:700;">🟢 MAKÁŠ — klikni a změň</span>':'ZAKÁZKY A ČINNOSTI — předvýběr, pak ▶️ Makat';
       row.innerHTML="";
-      row.appendChild(tile(zIcon,"Zakázka",zSub,function(){ go("prace_zak"); }));
-      row.appendChild(tile(cIcon,"Činnost",cSub,function(){ go("prace_cin"); }));
+      row.appendChild(tile(zIcon,"Zakázka",zSub,function(){ go("prace_zak"); }, !src.is_rezie && !src.project_ref));
+      row.appendChild(tile(cIcon,"Činnost",cSub,function(){ go("prace_cin"); }, !src.cinnost_name));
       makWrap.innerHTML="";
       if(!aw){ var mb=el('<button class="green full" style="margin-top:8px;font-weight:700;">▶️ Makat</button>'); mb.addEventListener("click",function(){ if(window._praceStart) window._praceStart(); }); makWrap.appendChild(mb); }
     }).catch(function(){});

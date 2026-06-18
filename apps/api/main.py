@@ -906,8 +906,7 @@ def payroll_page():
     """Mzdové podklady — měsíční souhrn osoba × typ (z att_day_summary). Rodič/Jirka.
     Marti 18.6.2026 — hybridní fáze."""
     return FileResponse(os.path.join(static_dir, "payroll.html"),
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                 "X-Frame-Options": "SAMEORIGIN"})
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/absence-plan")
@@ -915,8 +914,7 @@ def absence_plan_page():
     """Plán nepřítomností dopředu (dovolená/náhr.volno/lékař…) z Centrály.
     Lidé abecedně, období od–do. Rodič/HR. Marti 18.6.2026."""
     return FileResponse(os.path.join(static_dir, "absence-plan.html"),
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                 "X-Frame-Options": "SAMEORIGIN"})
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/vytizeni")
@@ -924,8 +922,7 @@ def vytizeni_page():
     """Vytížení montérů (Dušan) — denní požadavek vs kapacita (z docházky Výroby)
     → vytížení %. Data z /app/flow?section=vytizeni. Marti 18.6.2026."""
     return FileResponse(os.path.join(static_dir, "vytizeni.html"),
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                 "X-Frame-Options": "SAMEORIGIN"})
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/flow")
@@ -933,9 +930,7 @@ def flow_page():
     """Stav zakázek — read-only board nad Centrálou (flow zakázek). Data z /app/flow,
     gate parent-only v API. Funguje desktop i mobil. SAMEORIGIN pro embed v ERP. Marti 17.6.2026."""
     return FileResponse(os.path.join(static_dir, "flow.html"),
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                 "X-Frame-Options": "SAMEORIGIN",
-                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/dir-admin")

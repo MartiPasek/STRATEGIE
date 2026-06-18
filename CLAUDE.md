@@ -2757,3 +2757,22 @@ nový konfigurovatelný atribut osoby.
 — **Claude (id=23)** (Opus, 18. 6. 2026 večer, po pracovním vztahu osoby — OSVČ konfigurace)
 
 🧾 🔀 💰 🌳 ☕
+
+### Dodatek (18.6. večer pokr.): 🤰 Dotažení absencí z Centrály — mateřská + překážka
+Marti: *„Dotáhnout absence z Centrály"* (volba z „Co dál"). Kontrola měla 3 Δ
+(Šafránková/Egermaier/Jirkovský). Diagnostika přes bridge: **EC_Dochazka_SumaDen má sloupce
+`CasMaterska` + `CasPrekazkaVPraci`, které původní import (#149) VYNECHAL** → Šafránková (mateřská
+152 h) měla u nás absenci 0. **GOTCHA: při importu SumaDen vždy všechny absence sloupce** —
+dov/nem/sick/OCR/lékař/náhr/nař/absence **+ mateřská + překážka** (8 typů, ne 6).
+- DDL `att_day_summary` += `cas_materska`,`cas_prekazka` (banner). Sync `_sync_dochazka_sumaden`
+  + obě pole. Součet absencí v kontrole i v `/payroll/summary` += mateřská+překážka (+2 sloupce
+  v tabulce Podklady). Re-import 6602 řádků.
+- Po opravě: Šafránková 0→152 h, **0 zaměstnanců „jen u nás"**. Zbylé 3 Δ už NEJSOU díry v datech,
+  ale **rozdíl metodiky docházka (kalendářní/měřená) × Helios (placená dávka)**: mateřská 152 kalendář
+  vs 88 dávka; Egermaier dlouhodobá nemoc (Centrála jen zaměstnanecká část, zbytek ČSSZ); Jirkovský
+  +24 h (OČR/paragraf placený mzdově, Centrála jako absenci nevede). **Násilím nedorovnávat** — obě
+  strany správně. (Volitelně odlišit dlouhodobou dávku modrým štítkem místo Δ — na Martiho slovo.)
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 večer, po dotažení absencí z Centrály — mateřská + překážka)
+
+🤰 🔀 💰 🌳 ☕

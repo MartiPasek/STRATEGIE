@@ -393,6 +393,9 @@
           if (/crm_kontakty/i.test(_coreCodeForGraph) ||
               /crm_kontakty/i.test(String(_gridCodeForActions))) {
             _ctxMenuActions.push("osloveni");
+            // Složka dokumentů kontaktu (Marti 18.6.2026 — pro Pavla/Kristý):
+            // pravý klik na kontakt → 📁 Dokumenty → /files?type=kontakt&id=.
+            _ctxMenuActions.push("docfiles");
           }
           // Register edit form coreId pro gridCode (drz Marti "fw self
           // edited" doctrine 11.5. — DesignFwForm vola registry lookup).

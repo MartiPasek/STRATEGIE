@@ -472,6 +472,31 @@
           return _osloveniDialog(ids, ctx.refreshFn);
         },
       },
+      // Složka dokumentů záznamu (Marti 18.6.2026) — systém adresářů (dir_config).
+      // Otevře /files panel (list/upload/download) pro typ+ID řádku. Na CRM
+      // Kontakty: type=kontakt, id=row.id. ACL+audit řeší backend.
+      docfiles: {
+        key: "docfiles",
+        icon: "📁",
+        label: "Dokumenty (složka)",
+        hint: "Otevřít složku dokumentů tohoto záznamu — nahrát/stáhnout soubory",
+        cssClass: "erp-action-docfiles",
+        destructive: false,
+        requiresRow: true,
+        dirType: "kontakt",
+        handler: function (ctx) {
+          var rid = ctx.rowData ? (ctx.rowData.id != null ? ctx.rowData.id : ctx.rowData.ID) : null;
+          if (rid == null) {
+            alert("⚠ Dokumenty: nejprve vyber záznam v přehledu.");
+            return Promise.reject(new Error("no_row_selected"));
+          }
+          var dtype = (ctx.dirType || "kontakt");
+          var url = "/files?type=" + encodeURIComponent(dtype) + "&id=" + encodeURIComponent(rid) +
+                    "&name=" + encodeURIComponent("Dokumenty — " + rid);
+          window.open(url, "strategieFiles", "width=860,height=920");
+          return Promise.resolve();
+        },
+      },
       // Personální dokumenty na klik (Marti 10.6.2026). Jen na Finance lidí
       // gridu (page_render gate hr_finance_lidi). Řádek = engagement → id.
       // Malý chooser → /api/v1/erp/employee-doc?engagement_id=&typ=.

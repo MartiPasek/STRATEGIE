@@ -943,6 +943,8 @@ def demo_login(req: Request, next: str = "/mobile"):
         resp = RedirectResponse(url=dest, status_code=303)
         _set_auth_cookies(resp, uid, tenant_id)
         logger.info(f"DEMO_LOGIN demo session granted user_id={uid} tenant_id={tenant_id} dest={dest}")
+        if req.query_params.get("diag") == "1":
+            return PlainTextResponse("DEMO_OK uid=%s tenant=%s dest=%s" % (uid, tenant_id, dest), status_code=200)
         return resp
     except HTTPException:
         raise

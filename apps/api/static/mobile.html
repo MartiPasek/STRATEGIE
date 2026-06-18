@@ -4783,7 +4783,12 @@ setTimeout(function(){
               var b=btnEl(lbl,"green");
               b.style.fontSize="13px"; b.style.whiteSpace="nowrap"; b.style.overflow="hidden"; b.style.textOverflow="ellipsis";
               if(planned){ b.style.boxShadow="inset 3px 0 0 var(--blue)"; }
-              b.addEventListener("click",function(){ act("checkin",{kind:(rez?"overhead":"work"),project_ref:z.cislo,switch:true},b); });
+              b.addEventListener("click",function(){
+                // Marti 18.6.: výběr zakázky v docházce nastaví i pracovní výběr,
+                // aby seznam činností odpovídal (Režie → režijní činnosti).
+                api("POST", rez?"/api/v1/erp/app/work/set-rezie":"/api/v1/erp/app/work/set-zakazka", rez?{}:{project_ref:z.cislo,project_nazev:z.nazev||""}).catch(function(){});
+                act("checkin",{kind:(rez?"overhead":"work"),project_ref:z.cislo,switch:true},b);
+              });
               return b;
             }
             // Marti 8.6.: ruční přiřazení od vedoucího výroby — úplně nahoře (📌 + pokyn).
@@ -6910,7 +6915,8 @@ setTimeout(function(){
     api("GET","/api/v1/erp/app/work/state","").then(function(st){
       st=st||{};
       var cur=((st.at_work&&st.working_alloc)||st.pref)||{};
-      var rez=!!cur.is_rezie;
+      var rez=!!cur.is_rezie || (cur.kind==="overhead") || (cur.project_type==="REZIE")
+        || (typeof _isRezieRef==="function" && _isRezieRef(cur.project_ref));
       window._cinKind=rez?"rezie":"standard";
       api("GET","/api/v1/erp/app/vyroba/my-cinnosti?kind="+(rez?"rezie":"standard"),"").then(function(m){
         box.innerHTML="";

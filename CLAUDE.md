@@ -2433,6 +2433,72 @@ druhý PIN k trezoru + přepínač demo profilu)
 
 ---
 
+## Dodatek — 18. 6. 2026 (večer): 📁 SYSTÉM ADRESÁŘŮ DOKUMENTŮ (Fáze A+B) — dle EC_OrgAdresare, konzultace Marti-AI
+
+Marti: *„Musíme dořešit systém adresářů pro ukládání dokumentů. Navrhuji podobný systém
+z Centrály DB_EC."* (poslal shrnutí od Cursora k `EC_OrgAdresare`). Pak: *„Sjeď to kompletně."*
+Postaveno Fáze A+B za jeden blok. Princip Centrály přenesen čistě, multi-tenant.
+
+### Princip (z Centrály)
+Neukládat celé cesty v záznamech → **konfigurace + resolver**: z typu entity (`sys_name`) +
+ID záznamu se složí kořen + podsložka. Každý přehled/modul má svůj `dir_config`; typicky
+podsložka podle ID věty → každý záznam má svou složku (`Zakazky/VR12345`).
+
+### Konzultace Marti-AI (závazné, `docs/adresare_dokumentu_v2.md`)
+8 otázek/odpovědí. Klíčové: (1) `dir_config` = first-class tabulka, ne comp_def; (2) úložiště
+jako **`dir_config_storage` 1:N** (`role` primary/mirror/archive) od začátku; (3) mirror =
+best-effort + povinný audit při selhání; (4) **ACL vynucen v adapteru**, ne jen UI
+(`self|hr|business|parent|confidential|sablona`); (5) `dir_access_log` append-only (pro
+hr/self/confidential i čtení, business jen zápisy); (6) výjimky = data (`dir_config_rule`),
+handlery (ZL/DL) = kód; (7) migrace jen relevantní podmnožina, UNC zachovat; (8) **hranice
+Marti-AI**: business+sablona RW, hr jen na task, self+confidential NE (asymetrie ochrany =
+důvěra). Konzultační dopis: `docs/dopis_marti_ai_adresare_konzultace.md`.
+
+### LIVE (commity 8cda4e5 → cbfcea4 → 7841472 → 750a87f; bannery #368 schéma, #369/#370 seed)
+- **Schéma** (banner #368): `tenant.dir_config` + `dir_config_storage` + `dir_config_rule`
+  + `dir_access_log` (+ GRANTy strategie).
+- **Modul `modules/erp/api/directories.py`** (`dir_router`, include v main.py):
+  - `resolve(sys_name, id, series?)` → config + storages + sub + paths (rules + DirectDir).
+  - **Storage adapter**: `eurosoft_unc` přes MCP (`eurosoft_eurosoft_file_list/read/write`,
+    namespace `rw`) + `cloud` lokální FS (`STRATEGIE_DOCS_ROOT`, default `C:\StrategieDocs`).
+  - **ACL** `_acl_allow` (vynucen) + **audit** `_audit` (append-only) dle scope.
+  - `store_document()` — primár (transakce) → mirror best-effort + audit.
+  - Endpointy: `GET /app/dir/resolve|list|read|configs`, `POST /app/dir/write` (upload),
+    `POST /app/dir/store-doc` (vyrenderuje `doc_template` → uloží přes resolver).
+- **Fáze B — souborový panel `/files`** (`apps/api/static/files.html`): `?type=&id=&series=`
+  → list souborů + upload + download, type-picker pro rodiče (z `/configs`). ACL+audit na backendu.
+- **10 konfigurací** naseedováno: RW-zóna operabilní (`zakazka_vr`→Zakazky, `osoba`→Osoby
+  self, `sablona_smlouva`→Smlouvy) + Centrála-parity s reálnými UNC (`zakazka_pr/sw`, `zl`,
+  `dodaci_list`, `nabidka`, `reference`, `organizace`).
+
+### GOTCHY / poznámky (drž!)
+- **MCP filesystem vidí jen RW/RO zónu** (`…\ZZ_Marti-AI RW`), NE celé produkční share
+  Centrály (`\\192.168.30.11\data\podklady vyroba\…`). Takže configy s reálným UNC kořenem
+  jsou zatím **parity-reference** (resolve vrací správnou cestu), ale list/read/write přes MCP
+  funguje jen pro RW-zónu. Sdílet přímo produkční složky Centrály = **rozšířit MCP namespace
+  (Fáze C)** — infra rozhodnutí Martiho. RW-zóna configy (Osoby/Smlouvy/Zakazky) jsou operabilní hned.
+- **MCP název filesystem = dvojitý prefix** (`eurosoft_eurosoft_file_write`) — `call_tool_sync`
+  strhne jeden `eurosoft_`. (Recurring gotcha, viz 14.6.)
+- **`store-doc` = napojení doc_template generátoru na resolver** — generované PDF už nemusí mít
+  natvrdo zadanou cestu, cíl = `resolve(sys_name, id)`.
+- nová `tenant.*` tabulka přes bridge → po DDL hned GRANT strategie + sequence (měli jsme v DDL).
+- bash mount stale/truncation u router.py i CLAUDE.md — Read tool + deploy py_compile gate autoritativní.
+
+### Otevřené (Fáze C / dál)
+- Rozšířit MCP namespace na produkční share Centrály (aby UNC configy byly operabilní).
+- `dir_config_rule` výjimky (datum 2016, org 327) — engine hotový, naplnit daty až bude třeba.
+- Speciální handlery ZL/DL/Prohlášení o shodě jako pojmenované strategie (kód).
+- Napojit `/files` panel z konkrétních přehledů (zakázky, osobní karta) jako záložku.
+- Marti-AI tool-vrstva: její autonomní read/write souborů s vynucením jejích hranic (Q8).
+- Plná migrace zbylých relevantních typů z 94 řádků EC_OrgAdresare (dle potřeby).
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 večer, po systému adresářů Fáze A+B — dir_config +
+resolver + storage adapter + ACL + audit + souborový panel, dle EC_OrgAdresare a konzultace Marti-AI)
+
+📁 🗂️ 🌳 ☕
+
+---
+
 ## Dodatek — 17.→18. 6. 2026: 📊 FLOW „srdce firmy" (Gantt + kapacita/vytížení) · ISO 19 dokumentů · čistá účetní osnova · oprava demo pro Apple
 
 Budoucí Claude — dlouhý souvislý blok napříč dvěma dny. Marti na závěr: ***„SUPER

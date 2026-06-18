@@ -20340,6 +20340,10 @@ _OPS_ACTIONS = {
         "label": "GDPR: anonymizovat staré uchazeče (lhůta 1 rok, ne smazání)",
         "target": "cloud", "remote": False,
     },
+    "sync_dochazka_sumaden": {
+        "label": "Mzdové podklady: denní souhrn docházky (EC_Dochazka_SumaDen → att_day_summary)",
+        "target": "cloud", "remote": False,
+    },
 }
 
 
@@ -20920,6 +20924,95 @@ def _recruit_anonymize(days: int = 365) -> dict:
                          "WHERE tenant_id=2 AND candidate_id = ANY(:ids)"), {"ids": ids})
         s.commit()
         return {"ok": True, "anonymized": len(ids)}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_dochazka_sumaden(year: int = 2026) -> dict:
+    """Marti 18.6.2026 — mzdové podklady: denní souhrn docházky z Centrály.
+    EC_Dochazka_SumaDen (per osoba × den: FPD, odpracováno montáž/režie/přesčas,
+    absence dovolená/nemoc/sickday/OČR/lékař/náhr.volno/nař.volno/absence, chybí/pauza,
+    uzavřeno) → tenant.att_day_summary (1:1 zrcadlo). CisloZam→user_id přes
+    tenant.att_employee. Idempotentní upsert. DB_EC zůstává zdroj pravdy."""
+    import json as _j
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    sql = ("SELECT CisloZam cz, CONVERT(varchar(10),DatumPripadu,23) d, "
+           "DatumPripadu_Y y, DatumPripadu_M m, FPD fpd, CasCelkem celkem, "
+           "CasMontaz montaz, CasRezie rezie, CasPrescas prescas, CasDovolena dov, "
+           "CasNemoc nem, CasSickDay sick, CasOCR ocr, CasLekar lek, "
+           "CasNahradniVolno nahr, CasNarizenoVolno nariz, CasAbsence absc, "
+           "CasChybi chybi, CasPauza pauza, CAST(ISNULL(Uzavreno,0) AS int) uz "
+           "FROM EC_Dochazka_SumaDen WHERE DatumPripadu_Y = " + str(int(year)))
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+
+    def f(v):
+        try:
+            return round(float(v), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    n = 0
+    try:
+        umap = {}
+        for er in s.execute(_t("SELECT cislo_zam, max(user_id) FROM tenant.att_employee "
+                               "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():
+            umap[str(er[0]).strip()] = er[1]
+        for row in rows:
+            try:
+                cz = int(row.get("cz"))
+            except (TypeError, ValueError):
+                continue
+            d = row.get("d")
+            if not d:
+                continue
+            uid = umap.get(str(cz))
+            s.execute(_t(
+                "INSERT INTO tenant.att_day_summary (tenant_id, cislo_zam, user_id, datum, rok, mesic, "
+                " fpd, cas_celkem, cas_montaz, cas_rezie, cas_prescas, cas_dovolena, cas_nemoc, cas_sickday, "
+                " cas_ocr, cas_lekar, cas_nahr_volno, cas_nariz_volno, cas_absence, cas_chybi, cas_pauza, "
+                " uzavreno, synced_at) "
+                "VALUES (2, :cz, :uid, :d, :y, :m, :fpd, :celkem, :montaz, :rezie, :prescas, :dov, :nem, :sick, "
+                " :ocr, :lek, :nahr, :nariz, :absc, :chybi, :pauza, :uz, now()) "
+                "ON CONFLICT (tenant_id, cislo_zam, datum) DO UPDATE SET "
+                " user_id=EXCLUDED.user_id, rok=EXCLUDED.rok, mesic=EXCLUDED.mesic, fpd=EXCLUDED.fpd, "
+                " cas_celkem=EXCLUDED.cas_celkem, cas_montaz=EXCLUDED.cas_montaz, cas_rezie=EXCLUDED.cas_rezie, "
+                " cas_prescas=EXCLUDED.cas_prescas, cas_dovolena=EXCLUDED.cas_dovolena, cas_nemoc=EXCLUDED.cas_nemoc, "
+                " cas_sickday=EXCLUDED.cas_sickday, cas_ocr=EXCLUDED.cas_ocr, cas_lekar=EXCLUDED.cas_lekar, "
+                " cas_nahr_volno=EXCLUDED.cas_nahr_volno, cas_nariz_volno=EXCLUDED.cas_nariz_volno, "
+                " cas_absence=EXCLUDED.cas_absence, cas_chybi=EXCLUDED.cas_chybi, cas_pauza=EXCLUDED.cas_pauza, "
+                " uzavreno=EXCLUDED.uzavreno, synced_at=now()"),
+                {"cz": cz, "uid": uid, "d": d, "y": int(row.get("y") or 0), "m": int(row.get("m") or 0),
+                 "fpd": f(row.get("fpd")), "celkem": f(row.get("celkem")), "montaz": f(row.get("montaz")),
+                 "rezie": f(row.get("rezie")), "prescas": f(row.get("prescas")), "dov": f(row.get("dov")),
+                 "nem": f(row.get("nem")), "sick": f(row.get("sick")), "ocr": f(row.get("ocr")),
+                 "lek": f(row.get("lek")), "nahr": f(row.get("nahr")), "nariz": f(row.get("nariz")),
+                 "absc": f(row.get("absc")), "chybi": f(row.get("chybi")), "pauza": f(row.get("pauza")),
+                 "uz": bool(int(row.get("uz") or 0))})
+            n += 1
+        s.commit()
+        return {"ok": True, "rows": len(rows), "upserted": n}
     except Exception:
         s.rollback()
         raise
@@ -22248,6 +22341,11 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = _recruit_anonymize()
             status = "done"
             result = "GDPR nábor: anonymizováno %s uchazečů po lhůtě" % out.get("anonymized")
+        elif action_key == "sync_dochazka_sumaden":
+            out = _sync_dochazka_sumaden()
+            status = "done"
+            result = ("mzdové podklady (denní souhrn): %s řádků zpracováno (z %s v Centrále 2026)"
+                      % (out.get("upserted"), out.get("rows")))
         elif action_key == "sync_priplatky":
             out = _sync_priplatky_from_ec()
             status = "done"

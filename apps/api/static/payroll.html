@@ -72,15 +72,17 @@ async function loadK(y,m){
   CY=r.rok;CM=r.mesic;
   if(!(r.rows||[]).length){root.innerHTML='<div class="muted">Za '+MN[r.mesic]+' '+r.rok+' žádná data.</div>';return;}
   const RELL={osvc:"OSVČ",dohoda:"Dohoda",jednatel:"Jednatel"};
-  let onlyN=0,onlyH=0,diffN=0,osvcN=0;
+  let onlyN=0,onlyH=0,diffN=0,osvcN=0,davkaN=0;
   let body="";
   r.rows.forEach(row=>{
     let flag="", cls="";
     const rl=row.relation&&row.relation!=="zamestnanec"?RELL[row.relation]:null;
+    const bigDiff=row.rozdil_abs!=null && Math.abs(row.rozdil_abs)>2;
     if(!row.v_helios && rl){flag='<span class="badge rel">'+rl+'</span>';osvcN++;}
     else if(!row.v_helios){flag='<span class="badge n">jen u nás</span>';onlyN++;}
     else if(!row.v_nas){flag='<span class="badge h">jen Helios</span>';onlyH++;}
-    else if(row.rozdil_abs!=null && Math.abs(row.rozdil_abs)>2){flag='<span class="badge h">absence Δ '+(row.rozdil_abs>0?"+":"")+n(row.rozdil_abs)+' h</span>';diffN++;cls="warn";}
+    else if(bigDiff && row.davka){flag='<span class="badge rel">dlouhodobá dávka</span>';davkaN++;}
+    else if(bigDiff){flag='<span class="badge h">absence Δ '+(row.rozdil_abs>0?"+":"")+n(row.rozdil_abs)+' h</span>';diffN++;cls="warn";}
     else flag='<span class="ok">✓</span>'+(rl?' <span class="badge rel">'+rl+'</span>':'');
     body+='<tr><td class="nm">'+esc(row.jmeno)+'</td>'+
       '<td>'+(row.v_nas?n(row.odprac):'<span class="z">·</span>')+'</td>'+
@@ -94,8 +96,9 @@ async function loadK(y,m){
     '<th>Hrubá Kč</th><th style="text-align:center">Stav</th></tr>';
   const summary='<div class="muted" style="margin:6px 2px">'+
     'Osob: <b>'+r.rows.length+'</b> · '+
-    '<span class="ok">✓ absence sedí: '+(r.rows.length-onlyN-onlyH-diffN-osvcN)+'</span> · '+
+    '<span class="ok">✓ absence sedí: '+(r.rows.length-onlyN-onlyH-diffN-osvcN-davkaN)+'</span> · '+
     '<span class="warn">absence Δ: '+diffN+'</span> · '+
+    '<span class="rel2">dlouhodobá dávka: '+davkaN+'</span> · '+
     '<span class="warn">jen Helios: '+onlyH+'</span> · '+
     '<span class="rel2">OSVČ/dohoda (bez pásky): '+osvcN+'</span> · '+
     '<span class="bad">jen u nás: '+onlyN+'</span></div>';

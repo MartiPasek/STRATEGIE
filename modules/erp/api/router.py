@@ -22694,7 +22694,8 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
             "    round(sum(d.cas_montaz+d.cas_rezie)::numeric,1) odprac, "
             "    round(sum(d.cas_dovolena+d.cas_nemoc+d.cas_sickday+d.cas_ocr+d.cas_lekar"
             "       +d.cas_nahr_volno+d.cas_nariz_volno+d.cas_absence+d.cas_materska+d.cas_prekazka)::numeric,1) absence, "
-            "    round(sum(d.fpd)::numeric,1) fond "
+            "    round(sum(d.fpd)::numeric,1) fond, "
+            "    round(sum(d.cas_materska)::numeric,1) mat, round(sum(d.cas_nemoc)::numeric,1) nem "
             "  FROM tenant.att_day_summary d WHERE d.tenant_id=2 AND d.rok=:y AND d.mesic=:m AND d.user_id IS NOT NULL "
             "  GROUP BY d.user_id), "
             "hel AS ("
@@ -22711,7 +22712,7 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
             "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'#'||COALESCE(o.user_id,h.user_id)) jmeno, "
             "  o.odprac, o.absence, o.fond, h.h_odprac, h.h_absence, h.hruba, "
             "  (o.user_id IS NOT NULL) v_nas, (h.user_id IS NOT NULL) v_helios, "
-            "  COALESCE(wr.relation,'zamestnanec') relation "
+            "  COALESCE(wr.relation,'zamestnanec') relation, o.mat, o.nem "
             "FROM ours o FULL OUTER JOIN hel h ON h.user_id=o.user_id "
             "LEFT JOIN public.users u ON u.id=COALESCE(o.user_id,h.user_id) "
             "LEFT JOIN tenant.work_relation wr ON wr.tenant_id=2 AND wr.user_id=COALESCE(o.user_id,h.user_id) "
@@ -22726,10 +22727,15 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
             diff = None
             if r[8] and r[9] and r[3] is not None and r[6] is not None:
                 diff = round((fl(r[3]) - fl(r[6])), 1)  # naše absence - Helios absence
+            # Dlouhodobá dávka: mateřská>0 nebo dlouhodobá nemoc (>=40 h ~ 2 týdny) →
+            # rozdíl docházka×Helios je metodický (kalendář vs ČSSZ dávka), ne chyba.
+            mat = fl(r[11]) or 0
+            nem = fl(r[12]) or 0
+            davka = (mat > 0) or (nem >= 40)
             out.append({"jmeno": r[1], "odprac": fl(r[2]), "absence": fl(r[3]), "fond": fl(r[4]),
                         "hel_odprac": fl(r[5]), "hel_absence": fl(r[6]), "hel_hruba": fl(r[7]),
                         "v_nas": bool(r[8]), "v_helios": bool(r[9]), "relation": r[10],
-                        "rozdil_abs": diff})
+                        "davka": davka, "rozdil_abs": diff})
         return JSONResponse({"ok": True, "rok": y, "mesic": m, "rows": out})
     finally:
         cm.__exit__(None, None, None)

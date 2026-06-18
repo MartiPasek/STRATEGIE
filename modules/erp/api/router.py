@@ -21011,6 +21011,7 @@ def _sync_dochazka_sumaden(year: int = 2026) -> dict:
            "CasMontaz montaz, CasRezie rezie, CasPrescas prescas, CasDovolena dov, "
            "CasNemoc nem, CasSickDay sick, CasOCR ocr, CasLekar lek, "
            "CasNahradniVolno nahr, CasNarizenoVolno nariz, CasAbsence absc, "
+           "CasMaterska mat, CasPrekazkaVPraci prek, "
            "CasChybi chybi, CasPauza pauza, CAST(ISNULL(Uzavreno,0) AS int) uz "
            "FROM EC_Dochazka_SumaDen WHERE DatumPripadu_Y = " + str(int(year)))
     raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
@@ -21053,24 +21054,27 @@ def _sync_dochazka_sumaden(year: int = 2026) -> dict:
             s.execute(_t(
                 "INSERT INTO tenant.att_day_summary (tenant_id, cislo_zam, user_id, datum, rok, mesic, "
                 " fpd, cas_celkem, cas_montaz, cas_rezie, cas_prescas, cas_dovolena, cas_nemoc, cas_sickday, "
-                " cas_ocr, cas_lekar, cas_nahr_volno, cas_nariz_volno, cas_absence, cas_chybi, cas_pauza, "
+                " cas_ocr, cas_lekar, cas_nahr_volno, cas_nariz_volno, cas_absence, cas_materska, cas_prekazka, "
+                " cas_chybi, cas_pauza, "
                 " uzavreno, synced_at) "
                 "VALUES (2, :cz, :uid, :d, :y, :m, :fpd, :celkem, :montaz, :rezie, :prescas, :dov, :nem, :sick, "
-                " :ocr, :lek, :nahr, :nariz, :absc, :chybi, :pauza, :uz, now()) "
+                " :ocr, :lek, :nahr, :nariz, :absc, :mat, :prek, :chybi, :pauza, :uz, now()) "
                 "ON CONFLICT (tenant_id, cislo_zam, datum) DO UPDATE SET "
                 " user_id=EXCLUDED.user_id, rok=EXCLUDED.rok, mesic=EXCLUDED.mesic, fpd=EXCLUDED.fpd, "
                 " cas_celkem=EXCLUDED.cas_celkem, cas_montaz=EXCLUDED.cas_montaz, cas_rezie=EXCLUDED.cas_rezie, "
                 " cas_prescas=EXCLUDED.cas_prescas, cas_dovolena=EXCLUDED.cas_dovolena, cas_nemoc=EXCLUDED.cas_nemoc, "
                 " cas_sickday=EXCLUDED.cas_sickday, cas_ocr=EXCLUDED.cas_ocr, cas_lekar=EXCLUDED.cas_lekar, "
                 " cas_nahr_volno=EXCLUDED.cas_nahr_volno, cas_nariz_volno=EXCLUDED.cas_nariz_volno, "
-                " cas_absence=EXCLUDED.cas_absence, cas_chybi=EXCLUDED.cas_chybi, cas_pauza=EXCLUDED.cas_pauza, "
+                " cas_absence=EXCLUDED.cas_absence, cas_materska=EXCLUDED.cas_materska, cas_prekazka=EXCLUDED.cas_prekazka, "
+                " cas_chybi=EXCLUDED.cas_chybi, cas_pauza=EXCLUDED.cas_pauza, "
                 " uzavreno=EXCLUDED.uzavreno, synced_at=now()"),
                 {"cz": cz, "uid": uid, "d": d, "y": int(row.get("y") or 0), "m": int(row.get("m") or 0),
                  "fpd": f(row.get("fpd")), "celkem": f(row.get("celkem")), "montaz": f(row.get("montaz")),
                  "rezie": f(row.get("rezie")), "prescas": f(row.get("prescas")), "dov": f(row.get("dov")),
                  "nem": f(row.get("nem")), "sick": f(row.get("sick")), "ocr": f(row.get("ocr")),
                  "lek": f(row.get("lek")), "nahr": f(row.get("nahr")), "nariz": f(row.get("nariz")),
-                 "absc": f(row.get("absc")), "chybi": f(row.get("chybi")), "pauza": f(row.get("pauza")),
+                 "absc": f(row.get("absc")), "mat": f(row.get("mat")), "prek": f(row.get("prek")),
+                 "chybi": f(row.get("chybi")), "pauza": f(row.get("pauza")),
                  "uz": bool(int(row.get("uz") or 0))})
             n += 1
         s.commit()
@@ -22641,6 +22645,8 @@ async def app_payroll_summary(req: Request) -> JSONResponse:
             " round(sum(d.cas_nahr_volno)::numeric,1) nahr, "
             " round(sum(d.cas_nariz_volno)::numeric,1) nariz, "
             " round(sum(d.cas_absence)::numeric,1) absc, "
+            " round(sum(d.cas_materska)::numeric,1) mat, "
+            " round(sum(d.cas_prekazka)::numeric,1) prek, "
             " count(*) dni "
             "FROM tenant.att_day_summary d "
             "LEFT JOIN public.users u ON u.id=d.user_id "
@@ -22651,7 +22657,7 @@ async def app_payroll_summary(req: Request) -> JSONResponse:
         out = [{"cislo": r[0], "jmeno": r[1], "fond": fl(r[2]), "odprac": fl(r[3]),
                 "prescas": fl(r[4]), "dovolena": fl(r[5]), "nemoc": fl(r[6]), "sickday": fl(r[7]),
                 "ocr": fl(r[8]), "lekar": fl(r[9]), "nahr_volno": fl(r[10]), "nariz_volno": fl(r[11]),
-                "absence": fl(r[12]), "dni": r[13]} for r in rows]
+                "absence": fl(r[12]), "materska": fl(r[13]), "prekazka": fl(r[14]), "dni": r[15]} for r in rows]
         return JSONResponse({"ok": True, "rok": y, "mesic": m,
                              "periods": [{"rok": p[0], "mesic": p[1]} for p in periods],
                              "rows": out})
@@ -22687,7 +22693,7 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
             "  SELECT d.user_id, "
             "    round(sum(d.cas_montaz+d.cas_rezie)::numeric,1) odprac, "
             "    round(sum(d.cas_dovolena+d.cas_nemoc+d.cas_sickday+d.cas_ocr+d.cas_lekar"
-            "       +d.cas_nahr_volno+d.cas_nariz_volno+d.cas_absence)::numeric,1) absence, "
+            "       +d.cas_nahr_volno+d.cas_nariz_volno+d.cas_absence+d.cas_materska+d.cas_prekazka)::numeric,1) absence, "
             "    round(sum(d.fpd)::numeric,1) fond "
             "  FROM tenant.att_day_summary d WHERE d.tenant_id=2 AND d.rok=:y AND d.mesic=:m AND d.user_id IS NOT NULL "
             "  GROUP BY d.user_id), "

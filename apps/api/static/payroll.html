@@ -114,7 +114,7 @@ async function load(y,m){
     LOADED=true;
   }
   if(!(r.rows||[]).length){root.innerHTML='<div class="muted">Za '+MN[r.mesic]+' '+r.rok+' žádná data.</div>';return;}
-  const cols=[["fond","Fond"],["odprac","Odprac."],["prescas","Přesčas"],["dovolena","Dovolená"],["nemoc","Nemoc"],["sickday","Sick"],["ocr","OČR"],["lekar","Lékař"],["nahr_volno","Náhr.v."],["nariz_volno","Nař.v."],["absence","Absence"]];
+  const cols=[["fond","Fond"],["odprac","Odprac."],["prescas","Přesčas"],["dovolena","Dovolená"],["nemoc","Nemoc"],["sickday","Sick"],["ocr","OČR"],["lekar","Lékař"],["materska","Mateřská"],["nahr_volno","Náhr.v."],["nariz_volno","Nař.v."],["prekazka","Překážka"],["absence","Absence"]];
   const tot={}; cols.forEach(c=>tot[c[0]]=0);
   let body="";
   r.rows.forEach(row=>{

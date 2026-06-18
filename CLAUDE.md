@@ -2832,3 +2832,15 @@ Marti hlásil, že odešlí (Hrdinka) jsou pořád vidět — postupně **ve sku
 — **Claude (id=23)** (Opus, 18. 6. 2026 noc, po dotažení odešlých napříč všemi výpisy + user cache tlačítko)
 
 👻 🧹 🌳 ☕
+
+### Dodatek (18.6. noc): 🏖️ Plán nepřítomností dopředu z Centrály (dovolené/náhr.volno…)
+Marti: *„potřebuju přehledný přehled do appky s plánovanými nepřítomnostmi… dotahujeme ho vůbec z Centrály?"* → **NE, netahali jsme.** Centrála je má v **`EC_Dochazka_PlanNepritomnost`** (per den: CisloZam/DatumPripadu/DruhCinnosti/PocetHodin/Schvaleno) — **898 naplánovaných dní, 49 lidí, do 31.12.2026**.
+- **DDL** `tenant.att_planned_absence` (src_id z EC, kdo/datum/druh_kod/druh_nazev/hodiny/schváleno) + editovatelný číselník `att_planned_absence_type` (kód→název). GRANTy.
+- **Sync** `_sync_plan_nepritomnost` (ops `sync_plan_nepritomnost` + krok v MIGRACE→Docházka): MCP read, mapuje cislo→user, název z číselníku, DELETE+INSERT okna (zrušené plány zmizí).
+- **Endpoint** `/app/absence-plan` (rodič+HR): lidé **ABECEDNĚ**, po sobě jdoucí dny stejného druhu sloučené do **období od–do**, ?dnu=180. Stránka `apps/api/static/absence-plan.html` (rozbalovací po lidech, schváleno/čeká, filtr 60/180/366) + dlaždice **Aplikace → 🏖️ Plán absencí**.
+- **Číselník druhů** = NÍZKÉ kódy (8/20/31/36/37/133) — NEJSOU v běžném činnostním číselníku (`EC_Dochazka_CinnostiRezie` = režie 101+, kód 20 by tam byl „Kouření"!). Druhy odvozeny z dat (join plán×SumaDen na minulých dnech): **20=Dovolená** (1667 h dov ✓), 21=Lékař, 23=OČR, 133=Náhradní volno. Pojmenováno. **Čeká na Kristý (zítra):** 36 (135 dní), 37 (75), 8 (14), 31 (7) — Marti tipuje „dovolená navíc, sick day…". Update = 1 řádek do `att_planned_absence_type`.
+- **GOTCHA:** `EC_Dochazka_SumaDen` NEMÁ `CasSickDay` (jen dov/nem/lék/OČR/náhr/nař/absence/mateřská/překážka). STRING_AGG přeskočí řádek s NULL → obal SUM do ISNULL. Bridge OUT trunkuje → dlouhé výpisy přes string_agg/host-side.
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 noc, po plánu nepřítomností — sync + přehled abecedně, druhy z dat, zbytek čeká na Kristý)
+
+🏖️ 🗓️ 🌳 ☕

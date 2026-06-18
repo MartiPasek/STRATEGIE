@@ -11945,8 +11945,70 @@ async def app_hr_person(req: Request) -> JSONResponse:
             "FROM tenant.user_self_child WHERE tenant_id=2 AND user_id=:u ORDER BY relief_order NULLS LAST, id"),
             {"u": tuid}).fetchall()]
         nm = _self_person_name(s, tuid)
-        return JSONResponse({"ok": True, "jmeno": nm, "sections": secs, "deti": deti})
+        wr = s.execute(_t("SELECT relation, ico, note FROM tenant.work_relation "
+                          "WHERE tenant_id=2 AND user_id=:u"), {"u": tuid}).first()
+        vztah = {"relation": (wr[0] if wr else "zamestnanec"),
+                 "ico": (wr[1] if wr and wr[1] else ""),
+                 "note": (wr[2] if wr and wr[2] else "")}
+        return JSONResponse({"ok": True, "jmeno": nm, "sections": secs, "deti": deti,
+                             "vztah": vztah, "vztah_typy": _WORK_RELATIONS})
     except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# Pracovní vztah osoby (číselník) — konfigurovatelné z HR karty, měnitelné, auditované.
+_WORK_RELATIONS = [
+    {"key": "zamestnanec", "label": "Zaměstnanec"},
+    {"key": "osvc", "label": "OSVČ (faktura)"},
+    {"key": "dohoda", "label": "Dohoda (DPP/DPČ)"},
+    {"key": "jednatel", "label": "Jednatel"},
+]
+_WORK_RELATION_KEYS = {r["key"] for r in _WORK_RELATIONS}
+
+
+@api_router.post("/app/hr/person/work-relation")
+async def app_hr_person_work_relation(req: Request) -> JSONResponse:
+    """Nastavení/změna pracovního vztahu osoby (zaměstnanec/OSVČ/dohoda/jednatel).
+    HR + rodiče, auditováno do work_relation_log."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from sqlalchemy import text as _t
+    tuid = int((b or {}).get("uid") or 0)
+    rel = str((b or {}).get("relation") or "").strip()
+    ico = (str((b or {}).get("ico") or "").strip() or None)
+    note = (str((b or {}).get("note") or "").strip() or None)
+    if rel not in _WORK_RELATION_KEYS:
+        return JSONResponse({"ok": False, "error": "bad_relation"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        old = s.execute(_t("SELECT relation FROM tenant.work_relation WHERE tenant_id=2 AND user_id=:u"),
+                        {"u": tuid}).first()
+        old_rel = old[0] if old else None
+        nm = _self_person_name(s, uid)
+        s.execute(_t(
+            "INSERT INTO tenant.work_relation (tenant_id, user_id, relation, ico, note, updated_by_text, updated_at) "
+            "VALUES (2, :u, :r, :i, :n, :by, now()) "
+            "ON CONFLICT (tenant_id, user_id) DO UPDATE SET relation=:r, ico=:i, note=:n, "
+            "updated_by_text=:by, updated_at=now()"),
+            {"u": tuid, "r": rel, "i": ico, "n": note, "by": nm})
+        if old_rel != rel:
+            s.execute(_t("INSERT INTO tenant.work_relation_log "
+                         "(tenant_id, user_id, old_relation, new_relation, changed_by_text) "
+                         "VALUES (2, :u, :o, :r, :by)"),
+                      {"u": tuid, "o": old_rel, "r": rel, "by": nm})
+        s.commit()
+        return JSONResponse({"ok": True, "relation": rel})
+    except Exception as exc:
+        s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
@@ -22642,9 +22704,11 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
             "SELECT COALESCE(o.user_id,h.user_id) uid, "
             "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'#'||COALESCE(o.user_id,h.user_id)) jmeno, "
             "  o.odprac, o.absence, o.fond, h.h_odprac, h.h_absence, h.hruba, "
-            "  (o.user_id IS NOT NULL) v_nas, (h.user_id IS NOT NULL) v_helios "
+            "  (o.user_id IS NOT NULL) v_nas, (h.user_id IS NOT NULL) v_helios, "
+            "  COALESCE(wr.relation,'zamestnanec') relation "
             "FROM ours o FULL OUTER JOIN hel h ON h.user_id=o.user_id "
             "LEFT JOIN public.users u ON u.id=COALESCE(o.user_id,h.user_id) "
+            "LEFT JOIN tenant.work_relation wr ON wr.tenant_id=2 AND wr.user_id=COALESCE(o.user_id,h.user_id) "
             "ORDER BY jmeno"), {"y": y, "m": m}).fetchall()
 
         def fl(v):
@@ -22658,7 +22722,7 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
                 diff = round((fl(r[3]) - fl(r[6])), 1)  # naše absence - Helios absence
             out.append({"jmeno": r[1], "odprac": fl(r[2]), "absence": fl(r[3]), "fond": fl(r[4]),
                         "hel_odprac": fl(r[5]), "hel_absence": fl(r[6]), "hel_hruba": fl(r[7]),
-                        "v_nas": bool(r[8]), "v_helios": bool(r[9]),
+                        "v_nas": bool(r[8]), "v_helios": bool(r[9]), "relation": r[10],
                         "rozdil_abs": diff})
         return JSONResponse({"ok": True, "rok": y, "mesic": m, "rows": out})
     finally:

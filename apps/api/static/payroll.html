@@ -32,6 +32,8 @@
   .badge{font-size:10.5px;padding:1px 6px;border-radius:6px}
   .badge.n{background:rgba(255,138,138,.16);color:#ff8a8a}
   .badge.h{background:rgba(255,207,107,.16);color:#ffcf6b}
+  .badge.rel{background:rgba(120,170,255,.16);color:#9fc0ff}
+  .rel2{color:#9fc0ff}
 </style>
 </head>
 <body>
@@ -69,14 +71,17 @@ async function loadK(y,m){
   if(!r||!r.ok){root.innerHTML='<div class="muted bad">'+((r&&r.error==="forbidden")?"Kontrola je pro rodiče a Jirku.":"Chyba načtení.")+'</div>';return;}
   CY=r.rok;CM=r.mesic;
   if(!(r.rows||[]).length){root.innerHTML='<div class="muted">Za '+MN[r.mesic]+' '+r.rok+' žádná data.</div>';return;}
-  let onlyN=0,onlyH=0,diffN=0;
+  const RELL={osvc:"OSVČ",dohoda:"Dohoda",jednatel:"Jednatel"};
+  let onlyN=0,onlyH=0,diffN=0,osvcN=0;
   let body="";
   r.rows.forEach(row=>{
     let flag="", cls="";
-    if(!row.v_helios){flag='<span class="badge n">jen u nás</span>';onlyN++;}
+    const rl=row.relation&&row.relation!=="zamestnanec"?RELL[row.relation]:null;
+    if(!row.v_helios && rl){flag='<span class="badge rel">'+rl+'</span>';osvcN++;}
+    else if(!row.v_helios){flag='<span class="badge n">jen u nás</span>';onlyN++;}
     else if(!row.v_nas){flag='<span class="badge h">jen Helios</span>';onlyH++;}
     else if(row.rozdil_abs!=null && Math.abs(row.rozdil_abs)>2){flag='<span class="badge h">absence Δ '+(row.rozdil_abs>0?"+":"")+n(row.rozdil_abs)+' h</span>';diffN++;cls="warn";}
-    else flag='<span class="ok">✓</span>';
+    else flag='<span class="ok">✓</span>'+(rl?' <span class="badge rel">'+rl+'</span>':'');
     body+='<tr><td class="nm">'+esc(row.jmeno)+'</td>'+
       '<td>'+(row.v_nas?n(row.odprac):'<span class="z">·</span>')+'</td>'+
       '<td class="'+cls+'">'+(row.v_nas?n(row.absence):'<span class="z">·</span>')+'</td>'+
@@ -89,9 +94,10 @@ async function loadK(y,m){
     '<th>Hrubá Kč</th><th style="text-align:center">Stav</th></tr>';
   const summary='<div class="muted" style="margin:6px 2px">'+
     'Osob: <b>'+r.rows.length+'</b> · '+
-    '<span class="ok">✓ absence sedí: '+(r.rows.length-onlyN-onlyH-diffN)+'</span> · '+
+    '<span class="ok">✓ absence sedí: '+(r.rows.length-onlyN-onlyH-diffN-osvcN)+'</span> · '+
     '<span class="warn">absence Δ: '+diffN+'</span> · '+
     '<span class="warn">jen Helios: '+onlyH+'</span> · '+
+    '<span class="rel2">OSVČ/dohoda (bez pásky): '+osvcN+'</span> · '+
     '<span class="bad">jen u nás: '+onlyN+'</span></div>';
   root.innerHTML=summary+'<div class="scroll"><table class="tbl"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
     '<div class="muted" style="margin-top:8px">Kontrola míří na <b>absence</b> (dovolená/nemoc/lékař…) — obě strany měří tytéž reálné události, takže se mají shodovat. „Odprac." je naše měřená práce (Helios „Základní mzda" je nominální fond, neporovnáváme). Rozdíl absencí &gt; 2 h nebo chybějící osoba = ke kontrole před uzávěrkou (typicky mateřská/dlouhá nemoc, kterou platí Helios mimo píchačku).</div>';

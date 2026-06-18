@@ -3254,6 +3254,24 @@ setTimeout(function(){
         });
       };
       box.appendChild(ab);
+      // Pracovní vztah (konfigurovatelné, měnitelné, auditované)
+      if(j.vztah && j.vztah_typy){
+        var vc=_card("🧾 Pracovní vztah","");
+        var cur=j.vztah.relation||"zamestnanec";
+        var sel=el('<select style="width:100%;padding:10px;border-radius:10px;border:1px solid #2a3550;background:#0e1530;color:#e8eef9;font-size:15px;"></select>');
+        j.vztah_typy.forEach(function(t){ var o=el('<option value="'+t.key+'"'+(t.key===cur?' selected':'')+'>'+esc(t.label)+'</option>'); sel.appendChild(o); });
+        vc.appendChild(sel);
+        var note=el('<input placeholder="IČO / poznámka (volitelné)" value="'+esc(j.vztah.ico||j.vztah.note||"")+'" style="width:100%;margin-top:8px;padding:9px;border-radius:10px;border:1px solid #2a3550;background:#0e1530;color:#e8eef9;font-size:14px;">');
+        vc.appendChild(note);
+        var st=el('<div class="hint" style="margin-top:6px;">OSVČ/Dohoda = bez výplatnice (kontrola mezd je nehlásí jako chybějící).</div>'); vc.appendChild(st);
+        sel.onchange=function(){
+          st.textContent="Ukládám…";
+          api("POST","/api/v1/erp/app/hr/person/work-relation",{uid:uid,relation:sel.value,ico:note.value}).then(function(r){
+            st.textContent=(r&&r.ok)?"✓ Uloženo":("Chyba: "+((r&&r.error)||"?")); });
+        };
+        note.onblur=function(){ if(sel.value!=="zamestnanec"){ sel.onchange(); } };
+        box.appendChild(vc);
+      }
       inputs={};
       (j.sections||[]).forEach(function(sec){
         var c=_card(sec.label,"");

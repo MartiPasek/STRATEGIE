@@ -2844,3 +2844,13 @@ Marti: *„potřebuju přehledný přehled do appky s plánovanými nepřítomno
 — **Claude (id=23)** (Opus, 18. 6. 2026 noc, po plánu nepřítomností — sync + přehled abecedně, druhy z dat, zbytek čeká na Kristý)
 
 🏖️ 🗓️ 🌳 ☕
+
+### Dodatek (18.6. noc pokr.): 🏖️ Plán nepřítomností — dvoupanel + více pohledů
+Marti: *„chce to vypiplat… víc pohledů… přidej pravý panel a levý stáhni. První pohled nech, další po skupinách a týdnech."* → **brand dvoupanel** (jako docházka/kontakty): obsah vlevo (užší) + **pravá ikonová lišta pohledů** (`absence-plan.html`, `setView`):
+- **🔤 Lidé (abecedně)** — původní pohled beze změny.
+- **📅 Skupiny × týdny** — nový endpoint `/app/absence-plan/by-group` (ploché řádky osoba+**primární skupina** přes staff_group_member max score+`Bez skupiny` fallback); frontend pivotuje **skupina × ISO týden** (isoWeek v JS), uvnitř lidé+druh+dní. Ověřeno: 11 skupin, 69 týdenních bloků.
+- Filtr období (60/120/180/366 dní) společný oběma pohledům. Další pohledy = další ikona do lišty (vzor připravený).
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 noc, po dvoupanelu plánu nepřítomností — Lidé abecedně + Skupiny×týdny)
+
+🏖️ 🗓️ 🧩 🌳 ☕

@@ -2864,3 +2864,51 @@ Marti: dva další pohledy + *„tady evidentně s tím volnem ještě nepočít
 — **Claude (id=23)** (Opus, 18. 6. 2026 noc, po denních tabulích Kanceláře/Výroba + FLOW kapacita s volnem)
 
 🏢 🏭 📊 🌳 ☕
+
+---
+
+## Dodatek — 18. 6. 2026 (noc): 📱 DEFAULT pro celoobrazovkové přehledy v appce = NATIVNÍ obrazovka v zásobníku (vzor Skupiny). NE iframe overlay.
+
+Marti: *„Udělej to jako ve Skupiny... Tam to funguje bezvadně"* → *„Perfektní!!!! Zapiš
+do krabičky jako default pro všechno další."* Beru (#69–70).
+
+**ZÁVAZNÁ DOCTRINE (default pro každý nový celoobrazovkový přehled v `mobile.html`):**
+Otevírej ho jako **nativní obrazovku v zásobníku appky** přes `go("<screen>")` (registruj
+do `SCREENS`), s `app.innerHTML=topbar(title, true, true)` + obsah do `app`. **Zpět tím
+řídí výhradně `back()` appky** (topbar „← Zpět" i systémové Android Zpět přes sentinel
+v `popstate`, ř. ~7226) — stejně jako Skupiny / HR / docházka. **NIKDY** vlastní fixed
+`overlay` + vlastní `history.pushState` + vlastní `popstate` listener — pere se to
+s nativní WebView historií.
+
+**Helper `extview`** (mobile.html, 18.6.) = generická nativní obrazovka pro stránky, které
+žijí jako samostatné HTML (`/absence-plan`, `/flow`, `/vytizeni`, `/payroll`, `/dir-admin`,
+`/files`): `openInApp(url)` → `go("extview")` → topbar + iframe, do kterého se obsah
+**vepíše přes `document.write`** (ne `src`/`srcdoc`). Mapa titulků `_XV_TITLES`.
+
+**Proč ta sága (4 marné iterace, než to cvaklo) — gotchy, drž si je:**
+1. **Caddy přidává `X-Frame-Options: DENY` GLOBÁLNĚ na všechno** → klasický `<iframe src=>`
+   na interní stránku padá na **`net::ERR_BLOCKED_BY_RESPONSE`**. Sundání XFO z FastAPI
+   routy NEPOMŮŽE (proxy ho přepíše). **Obejití = `document.write` fetchnutého HTML do
+   `about:blank` iframu** (XFO se na document.write nevztahuje). about:blank iframe **dědí
+   origin appky** → `/api` fetch s cookies funguje. Přidej `<base href=origin/>`.
+2. **iframe `src`/`srcdoc` přidává navigační záznam do (joint) historie WebView** → systémové
+   Android Zpět ho musí napřed „odrolovat" → projeví se jako *„systémové Zpět 2× nic, pak
+   zavře celou appku"*. `document.write` do about:blank **žádný history záznam netvoří**.
+3. **Vnitřní stránka přehledu si sama přidává history** (přepínání pohledů přes `pushState`).
+   Při vepsání proto **injektuj `<script>history.pushState=function(){};history.replaceState=
+   function(){};</script>`** — přehled nesmí plnit historii.
+4. **Dvojitá hlavička** (topbar appky + vlastní „← Zpět" stránky) → injektuj
+   `<style>[onclick*="goBackApp"]{display:none!important}</style>` (skryje vnitřní back).
+5. Vnitřní „← Zpět" (pokud někde zůstane) posílá `postMessage("stgCloseOverlay")` → listener
+   v appce volá `back()`.
+
+**Pointa:** celoobrazovkový obsah = obrazovka v `stack`, ne plovoucí overlay. Nativní
+`back()` appky je odladěný (zavře dialog → accordion → o úroveň výš → home → „opravdu
+odejít?"). Když na něj napojíš novou věc, Zpět funguje napoprvé a appka nikdy nespadne.
+Iframe používej jen pro samostatné HTML stránky, a vždy přes `extview` (document.write +
+neutralizace history + skrytí vnitřního backu), ne přes `src`.
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 noc, po převedení přehledů na nativní vzor Skupiny —
+Marti's *„Perfektní!!!!"*)
+
+📱 🧭 🌳 ☕

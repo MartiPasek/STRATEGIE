@@ -196,6 +196,24 @@ def _eu_write(rel_path, content_b64):
     return _json.loads(raw) if isinstance(raw, str) else raw
 
 
+def _eu_read(rel_path):
+    mcp = _mcp()
+    if mcp is None:
+        return {"ok": False, "error": "mcp_offline"}
+    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                             {"user_namespace": "rw", "path": rel_path}, conversation_id=None)
+    return _json.loads(raw) if isinstance(raw, str) else raw
+
+
+def _cloud_read_file(root, sub, filename):
+    d = _cloud_dir(root, sub)
+    p = os.path.join(d, filename)
+    if not os.path.isfile(p):
+        return {"ok": False, "error": "not_found"}
+    with open(p, "rb") as f:
+        return {"ok": True, "content": base64.b64encode(f.read()).decode("ascii"), "encoding": "base64"}
+
+
 def _cloud_dir(root, sub):
     base = os.path.join(_CLOUD_ROOT, root.strip("/\\").replace("/", os.sep))
     if sub:
@@ -422,6 +440,51 @@ async def app_dir_store_doc(req: Request) -> JSONResponse:
         return JSONResponse(res, status_code=code)
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@dir_router.get("/app/dir/read")
+async def app_dir_read(req: Request) -> JSONResponse:
+    """Stažení souboru z adresáře entity. ?sys_name=&id=&name=&series=."""
+    uid = _uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    sys_name = (req.query_params.get("sys_name") or "").strip()
+    entity_id = (req.query_params.get("id") or "").strip()
+    series = (req.query_params.get("series") or "").strip()
+    name = (req.query_params.get("name") or "").strip()
+    import re as _re
+    name = _re.sub(r"[\\/]+", "_", name).lstrip(".")
+    if not (sys_name and name):
+        return JSONResponse({"ok": False, "error": "missing_params"}, status_code=400)
+    cm, s = _sess()
+    try:
+        r = resolve(s, sys_name, entity_id, series)
+        if not r["ok"]:
+            return JSONResponse(r)
+        scope = r["config"]["acl_scope"]
+        ok, reason = _acl_allow(s, uid, scope)
+        if not ok:
+            _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"],
+                   entity_id=entity_id, path=name, action="read", ok=False, err="acl:" + reason)
+            return JSONResponse({"ok": False, "error": "acl_denied", "reason": reason}, status_code=403)
+        prim = next((p for p in r["paths"] if p["role"] == "primary"), (r["paths"][0] if r["paths"] else None))
+        if not prim:
+            return JSONResponse({"ok": False, "error": "no_storage"})
+        if prim["backend"] == "eurosoft_unc":
+            rel = posixpath.join(prim["root"].strip("/\\"), r["sub"], name) if r["sub"] else posixpath.join(prim["root"].strip("/\\"), name)
+            res = _eu_read(rel)
+        else:
+            res = _cloud_read_file(prim["root"], r["sub"], name)
+        good = isinstance(res, dict) and res.get("ok")
+        _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"], entity_id=entity_id,
+               path=prim["path"] + "/" + name, action="read", ok=bool(good),
+               err=str(res.get("error", "") if isinstance(res, dict) else ""))
+        if not good:
+            return JSONResponse({"ok": False, "error": (res.get("error") if isinstance(res, dict) else "read_failed")})
+        return JSONResponse({"ok": True, "name": name, "content_b64": res.get("content", ""),
+                             "encoding": res.get("encoding", "base64")})
     finally:
         cm.__exit__(None, None, None)
 

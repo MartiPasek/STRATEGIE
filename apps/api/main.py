@@ -911,6 +911,15 @@ def flow_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/files")
+def files_page():
+    """Souborový panel (Fáze B): ?type=&id=&series= → soubory z resolveru +
+    upload/download přes /app/dir/*. ACL řeší backend. Marti 18.6.2026."""
+    return FileResponse(os.path.join(static_dir, "files.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/ambassador")
 def ambassador_page():
     """Prezentační stránka pro roli ambasador (read-only showcase, Marti 17.6.2026).

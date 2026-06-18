@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dokumenty</title>
+<style>
+  :root{ --bg:#0b1020; --card:#16203c; --line:#26314f; --tx:#e8eef9; --mut:#9fb0d0;
+         --acc:#5b8def; --acc2:#7c5cff; --ok:#3ecf8e; --warn:#f0a93b; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,#0b1020,#0e1430 60%,#0b1020);color:var(--tx);min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto;padding:18px 14px 50px}
+  .hd{display:flex;align-items:center;gap:10px;margin:4px 2px 14px}
+  .hd .ic{font-size:24px}
+  .hd h1{font-size:17px;margin:0;font-weight:700}
+  .hd .p{font-size:12px;color:var(--mut);margin-top:2px;word-break:break-all}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin:10px 0}
+  .row{display:flex;align-items:center;gap:10px;padding:10px 8px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .row .ic{font-size:20px;width:26px;text-align:center}
+  .row .nm{flex:1;font-size:14px;word-break:break-all}
+  .row .sz{font-size:11px;color:var(--mut)}
+  .row button{background:#1a2340;border:1px solid var(--line);color:var(--tx);border-radius:8px;
+       padding:6px 10px;font-size:13px;cursor:pointer}
+  .muted{color:var(--mut);font-size:13px;line-height:1.5}
+  .up{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  .btn{padding:10px 14px;border:none;border-radius:10px;font-size:14px;font-weight:700;color:#fff;
+       background:linear-gradient(135deg,var(--acc),var(--acc2));cursor:pointer}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;
+       background:rgba(91,141,239,.15);color:var(--acc);border:1px solid rgba(91,141,239,.35)}
+  .msg{font-size:13px;margin-top:8px;min-height:16px}
+  .msg.ok{color:var(--ok)} .msg.err{color:#ff8a8a}
+  select,input[type=text]{padding:9px;border-radius:8px;border:1px solid var(--line);background:#0e1530;color:var(--tx);font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><div class="ic">📁</div>
+    <div><h1 id="title">Dokumenty</h1><div class="p" id="path"></div></div></div>
+  <div id="root"><div class="card muted">Načítám…</div></div>
+</div>
+<script>
+const API="/api/v1/erp/app/dir";
+const qs=new URLSearchParams(location.search);
+let TYPE=(qs.get("type")||"").trim();
+let ID=(qs.get("id")||"").trim();
+let SERIES=(qs.get("series")||"").trim();
+const TITLE=(qs.get("name")||"").trim();
+const root=document.getElementById("root");
+function el(h){const d=document.createElement("div");d.innerHTML=h;return d.firstElementChild;}
+async function j(url,opt){const r=await fetch(url,Object.assign({credentials:"include",
+  headers:{"Content-Type":"application/json"}},opt||{}));try{return await r.json();}catch(e){return {ok:false,error:"net"};}}
+function esc(s){return (s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function fmtSize(n){if(n==null)return"";if(n<1024)return n+" B";if(n<1048576)return (n/1024).toFixed(0)+" kB";return (n/1048576).toFixed(1)+" MB";}
+
+async function boot(){
+  if(TITLE)document.getElementById("title").textContent=TITLE;
+  if(!TYPE){return pickType();}
+  load();
+}
+
+async function pickType(){
+  const r=await j(API+"/configs");
+  if(!r.ok){root.innerHTML='<div class="card muted">Zadej typ adresáře v odkazu: <code>?type=zakazka_vr&id=VR12345</code></div>';return;}
+  let h='<div class="card"><div style="font-weight:700;margin-bottom:6px">Vyber typ adresáře</div>'+
+        '<select id="selType">'+r.configs.map(c=>'<option value="'+esc(c.sys_name)+'">'+esc(c.name||c.sys_name)+' ('+esc(c.acl_scope)+')</option>').join('')+'</select>'+
+        '<div class="up"><input type="text" id="selId" placeholder="ID záznamu (např. VR12345)"><button class="btn" id="goBtn">Otevřít</button></div></div>';
+  root.innerHTML=h;
+  document.getElementById("goBtn").onclick=()=>{TYPE=document.getElementById("selType").value;ID=document.getElementById("selId").value.trim();load();};
+}
+
+async function load(){
+  root.innerHTML='<div class="card muted">Načítám soubory…</div>';
+  const r=await j(API+"/list?sys_name="+encodeURIComponent(TYPE)+"&id="+encodeURIComponent(ID)+"&series="+encodeURIComponent(SERIES));
+  if(!r.ok){
+    const m=(r.error==="acl_denied")?"Na tuto složku nemáš přístup.":(r.error==="config_not_found"?"Neznámý typ adresáře.":("Chyba: "+(r.error||"?")));
+    root.innerHTML='<div class="card msg err">'+esc(m)+'</div>'+uploadCard();
+    wireUpload();return;
+  }
+  document.getElementById("path").textContent=r.path||"";
+  const items=((r.result&&r.result.items)||[]);
+  let h='<div class="card"><div style="font-weight:700;margin-bottom:4px">Soubory <span class="pill">'+esc(r.backend)+'</span></div>';
+  if(!items.length)h+='<div class="muted">Složka je prázdná (nebo zatím neexistuje).</div>';
+  items.forEach(it=>{
+    const isDir=it.is_dir||it.dir;
+    h+='<div class="row"><div class="ic">'+(isDir?'📂':'📄')+'</div>'+
+       '<div class="nm">'+esc(it.name)+'</div>'+
+       (isDir?'':'<div class="sz">'+fmtSize(it.size)+'</div><button onclick="dl(\''+esc(it.name).replace(/'/g,"\\'")+'\')">Stáhnout</button>')+
+       '</div>';
+  });
+  h+='</div>';
+  root.innerHTML=h+uploadCard();
+  wireUpload();
+}
+
+function uploadCard(){
+  return '<div class="card"><div style="font-weight:700;margin-bottom:6px">Nahrát soubor</div>'+
+    '<div class="up"><input type="file" id="upFile"><button class="btn" id="upBtn">Nahrát</button></div>'+
+    '<div class="msg" id="upMsg"></div></div>';
+}
+function wireUpload(){
+  const b=document.getElementById("upBtn");if(!b)return;
+  b.onclick=async()=>{
+    const f=document.getElementById("upFile").files[0];const m=document.getElementById("upMsg");
+    if(!f){m.className="msg err";m.textContent="Vyber soubor.";return;}
+    m.className="msg";m.textContent="Nahrávám…";
+    const buf=await f.arrayBuffer();
+    let bin="";const by=new Uint8Array(buf);for(let i=0;i<by.length;i++)bin+=String.fromCharCode(by[i]);
+    const b64=btoa(bin);
+    const r=await j(API+"/write",{method:"POST",body:JSON.stringify({sys_name:TYPE,id:ID,series:SERIES,filename:f.name,content_b64:b64})});
+    if(r.ok){m.className="msg ok";m.textContent="Nahráno: "+(r.filename||f.name);load();}
+    else{m.className="msg err";m.textContent=(r.error==="acl_denied")?"Sem nesmíš zapisovat.":("Chyba: "+(r.error||r.detail||"?"));}
+  };
+}
+
+async function dl(name){
+  const r=await j(API+"/read?sys_name="+encodeURIComponent(TYPE)+"&id="+encodeURIComponent(ID)+"&series="+encodeURIComponent(SERIES)+"&name="+encodeURIComponent(name));
+  if(!r.ok){alert("Stažení selhalo: "+(r.error||"?"));return;}
+  const bin=atob(r.content_b64||"");const by=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)by[i]=bin.charCodeAt(i);
+  const blob=new Blob([by]);const u=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);
+}
+window.dl=dl;
+boot();
+</script>
+</body>
+</html>

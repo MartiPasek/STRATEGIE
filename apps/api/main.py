@@ -841,6 +841,64 @@ def privacy_page():
                         headers={"Cache-Control": "public, max-age=3600"})
 
 
+def _optout_page(msg_html: str, show_form: bool, token: str = "") -> "object":
+    from fastapi.responses import HTMLResponse
+    form = ""
+    if show_form:
+        form = (
+            '<form method="post" action="/crm/odhlasit/' + token + '" style="margin-top:18px">'
+            '<button type="submit" style="background:#c0392b;color:#fff;border:0;'
+            'padding:12px 22px;border-radius:8px;font-size:15px;cursor:pointer">'
+            'Potvrdit odhlášení</button></form>'
+        )
+    html = (
+        '<!doctype html><html lang="cs"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<meta name="robots" content="noindex,nofollow">'
+        '<title>Odhlášení z obchodních sdělení</title></head>'
+        '<body style="font-family:system-ui,Segoe UI,Arial,sans-serif;background:#f4f6f8;'
+        'margin:0;padding:40px 16px;color:#1f2d3d">'
+        '<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;'
+        'padding:32px;box-shadow:0 2px 12px rgba(0,0,0,.08)">'
+        '<h1 style="font-size:20px;margin:0 0 12px">Odhlášení z obchodních sdělení</h1>'
+        + msg_html + form +
+        '</div></body></html>'
+    )
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/crm/odhlasit/{token}")
+def crm_odhlasit_get(token: str):
+    """Verejna odhlasovaci stranka (z patičky obchodniho mailu). GET jen potvrzovaci
+    tlacitko (POST teprve odhlasi) — aby nahledove roboty mailu neodhlasily omylem.
+    Marti & Claude-24, 18.6.2026."""
+    from modules.erp.api.router import crm_optout_parse_token
+    parsed = crm_optout_parse_token(token)
+    if not parsed:
+        return _optout_page("<p>Tento odhlašovací odkaz je neplatný nebo poškozený. "
+                            "Pokud si přejete odhlásit, odpovězte prosím na náš e-mail.</p>",
+                            show_form=False)
+    email_norm, _firma = parsed
+    return _optout_page(
+        "<p>Chystáte se odhlásit adresu <b>" + email_norm + "</b> z dalších obchodních "
+        "sdělení. Pro potvrzení klikněte níže.</p>", show_form=True, token=token)
+
+
+@app.post("/crm/odhlasit/{token}")
+def crm_odhlasit_post(token: str):
+    """Potvrzeni odhlaseni -> zapis do mod.crm_email_optout (idempotentne)."""
+    from modules.erp.api.router import crm_optout_parse_token, crm_optout_record
+    parsed = crm_optout_parse_token(token)
+    if not parsed:
+        return _optout_page("<p>Tento odhlašovací odkaz je neplatný nebo poškozený.</p>",
+                            show_form=False)
+    email_norm, firma_id = parsed
+    crm_optout_record(email_norm, firma_id=firma_id, source="unsubscribe_link")
+    return _optout_page(
+        "<p>Hotovo — adresa <b>" + email_norm + "</b> byla odhlášena. "
+        "Další obchodní sdělení už vám posílat nebudeme. Děkujeme.</p>", show_form=False)
+
+
 @app.get("/flow")
 def flow_page():
     """Stav zakázek — read-only board nad Centrálou (flow zakázek). Data z /app/flow,

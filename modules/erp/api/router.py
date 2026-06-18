@@ -5458,6 +5458,102 @@ def _screenshot_token_ok(req: Request) -> bool:
     return bool(tok and env and tok == env)
 
 
+# ---- CRM hromadne osloveni: suppression (odhlaseni) + odhlasovaci token ----
+# Klic na podpis odhlasovaciho odkazu = STRATEGIE_DEPLOY_TOKEN (sdileny secret).
+# Token round-trip: rutina Marti-AI vola crm_optout_make_token() pri sestaveni mailu,
+# verejna odhlasovaci stranka (main.py) vola crm_optout_parse_token().
+def _optout_secret() -> str:
+    import os as _os_ou
+    return _os_ou.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
+
+
+def crm_optout_make_token(email: str, firma_id=None) -> str:
+    """Vytvori podepsany odhlasovaci token pro dany e-mail (+volitelne firma_id/IDHlav).
+    Pouziva ji odesilaci rutina (Marti-AI) pri sestaveni odhlasovaciho odkazu:
+      https://strategie-ai.com/crm/odhlasit/<token>
+    """
+    import hmac as _hm, hashlib as _hl, base64 as _b64
+    email_norm = (email or "").strip().lower()
+    payload = email_norm + "|" + (str(firma_id) if firma_id not in (None, "") else "")
+    b = _b64.urlsafe_b64encode(payload.encode("utf-8")).rstrip(b"=").decode("ascii")
+    sig = _b64.urlsafe_b64encode(
+        _hm.new(_optout_secret().encode("utf-8"), b.encode("ascii"), _hl.sha256).digest()
+    ).rstrip(b"=").decode("ascii")[:22]
+    return b + "." + sig
+
+
+def crm_optout_parse_token(token: str):
+    """Overi podpis a vrati (email_norm, firma_id|None), nebo None pri nevalidnim tokenu."""
+    import hmac as _hm, hashlib as _hl, base64 as _b64
+    try:
+        b, sig = (token or "").split(".", 1)
+        exp = _b64.urlsafe_b64encode(
+            _hm.new(_optout_secret().encode("utf-8"), b.encode("ascii"), _hl.sha256).digest()
+        ).rstrip(b"=").decode("ascii")[:22]
+        if not _hm.compare_digest(sig, exp):
+            return None
+        pad = "=" * (-len(b) % 4)
+        payload = _b64.urlsafe_b64decode(b + pad).decode("utf-8")
+        email_norm, _, firma = payload.partition("|")
+        if "@" not in email_norm:
+            return None
+        return (email_norm, int(firma) if firma.strip().isdigit() else None)
+    except Exception:
+        return None
+
+
+@api_router.post("/crm/optout/check")
+async def crm_optout_check(req: Request) -> JSONResponse:
+    """Suppression check pro hromadne osloveni. Vstup {"emails":[...]} -> vrati
+    {"opted_out":[...]} = podmnozina adres, ktere jsou odhlasene (mod.crm_email_optout).
+    Auth: X-Deploy-Token (server-to-server, vola odesilaci rutina Marti-AI)."""
+    if not _screenshot_token_ok(req):
+        return JSONResponse({"ok": False, "error": "Neautorizováno"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    emails = body.get("emails") or []
+    norm = sorted({(e or "").strip().lower() for e in emails if e and "@" in e})
+    if not norm:
+        return JSONResponse({"ok": True, "opted_out": []})
+    from core.database_data import get_data_session as _gds_oc
+    from sqlalchemy import text as _sql_oc
+    ds = _gds_oc()
+    try:
+        rows = ds.execute(_sql_oc(
+            "SELECT DISTINCT email_norm FROM mod.crm_email_optout WHERE email_norm = ANY(:list)"
+        ), {"list": norm}).scalars().all()
+        return JSONResponse({"ok": True, "opted_out": list(rows)})
+    finally:
+        ds.close()
+
+
+def crm_optout_record(email_norm: str, firma_id=None, source: str = "unsubscribe_link",
+                      note: str = None) -> bool:
+    """Zapise odhlaseni do mod.crm_email_optout (idempotentne). Vola odhlasovaci stranka."""
+    from core.database_data import get_data_session as _gds_or
+    from sqlalchemy import text as _sql_or
+    ds = _gds_or()
+    try:
+        ds.execute(_sql_or("""
+            INSERT INTO mod.crm_email_optout (email_norm, firma_id, source, note, created_by)
+            VALUES (:e, :f, :s, :n, 'odhlasovaci_odkaz')
+            ON CONFLICT (email_norm) DO NOTHING
+        """), {"e": (email_norm or "").strip().lower(), "f": firma_id, "s": source, "n": note})
+        ds.commit()
+        return True
+    except Exception as exc:
+        logger.exception("[crm_optout_record] %s", exc)
+        try:
+            ds.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        ds.close()
+
+
 @api_router.post("/app/screenshot")
 async def app_screenshot_upload(req: Request) -> JSONResponse:
     """Appka posle anotovany snimek obrazovky (zmrazit + nakreslit). Cil zatim

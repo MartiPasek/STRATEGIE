@@ -286,6 +286,146 @@ async def app_dir_list(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _write_to(storage, sub, filename, content_b64):
+    """Zapíše do jednoho úložiště. Vrací (ok, detail)."""
+    if storage["backend"] == "eurosoft_unc":
+        root = storage["root"].strip("/\\")
+        rel = posixpath.join(root, sub, filename) if sub else posixpath.join(root, filename)
+        res = _eu_write(rel, content_b64)
+    else:
+        res = _cloud_write(storage["root"], sub, filename, content_b64)
+    ok = (res is True) or (isinstance(res, dict) and bool(res.get("ok", False)))
+    detail = (res.get("error", "") if isinstance(res, dict) else "")
+    return ok, str(detail or "")
+
+
+def store_document(s, sys_name, entity_id, filename, content_b64, *, uid,
+                   parent_override=False, series="", ctx=None):
+    """Resolve → ACL(write) → primár (povinný) → mirror(y) best-effort + audit.
+    Marti-AI Q3: primár transakce; mirror best-effort + povinný audit při selhání;
+    jen-mirror (bez primáru) → selhání = chyba."""
+    r = resolve(s, sys_name, entity_id, series, ctx)
+    if not r["ok"]:
+        return r
+    scope = r["config"]["acl_scope"]
+    cfgid = r["config"]["id"]
+    ok, reason = _acl_allow(s, uid, scope, write=True, parent_override=parent_override)
+    if not ok:
+        _audit(s, uid=uid, scope=scope, dir_config_id=cfgid, entity_id=entity_id,
+               path="", action="write", ok=False, err="acl:" + reason)
+        return {"ok": False, "error": "acl_denied", "reason": reason}
+    paths = r["paths"]
+    if not paths:
+        return {"ok": False, "error": "no_storage"}
+    sub = r["sub"]
+    has_primary = any(p["role"] == "primary" for p in paths)
+    results = []
+    final_path = None
+    for p in paths:
+        good, detail = _write_to(p, sub, filename, content_b64)
+        full = p["path"] + "/" + filename
+        required = (p["role"] == "primary") or (not has_primary and p is paths[0])
+        if required:
+            _audit(s, uid=uid, scope=scope, dir_config_id=cfgid, entity_id=entity_id,
+                   path=full, action="write", ok=good, err=detail)
+            if not good:
+                return {"ok": False, "error": "write_failed", "detail": detail, "path": full}
+            final_path = full
+        else:
+            _audit(s, uid=uid, scope=scope, dir_config_id=cfgid, entity_id=entity_id,
+                   path=full, action=("write" if good else "write_mirror_failed"),
+                   ok=good, err=detail)
+        results.append({"role": p["role"], "backend": p["backend"], "ok": good})
+    return {"ok": True, "path": final_path or (paths[0]["path"] + "/" + filename),
+            "filename": filename, "results": results}
+
+
+@dir_router.post("/app/dir/write")
+async def app_dir_write(req: Request) -> JSONResponse:
+    """Upload souboru do adresáře entity. Body: sys_name, id, filename, content_b64, series?."""
+    uid = _uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    sys_name = str((b or {}).get("sys_name") or "").strip()
+    entity_id = str((b or {}).get("id") or "").strip()
+    series = str((b or {}).get("series") or "").strip()
+    filename = str((b or {}).get("filename") or "").strip()
+    content_b64 = str((b or {}).get("content_b64") or "")
+    if not (sys_name and filename and content_b64):
+        return JSONResponse({"ok": False, "error": "missing_params"}, status_code=400)
+    # bezpečný název souboru
+    import re as _re
+    filename = _re.sub(r"[\\/]+", "_", filename).lstrip(".") or "soubor"
+    cm, s = _sess()
+    try:
+        res = store_document(s, sys_name, entity_id, filename, content_b64, uid=uid)
+        code = 200 if res.get("ok") else (403 if res.get("error") == "acl_denied" else 200)
+        return JSONResponse(res, status_code=code)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@dir_router.post("/app/dir/store-doc")
+async def app_dir_store_doc(req: Request) -> JSONResponse:
+    """Vyrenderuje šablonu (doc_template) a uloží PDF přes resolver do adresáře entity.
+    Body: template_id, entity_id (ref pro provider), sys_name (cíl), series?, parent_override?."""
+    uid = _uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        tid = int((b or {}).get("template_id") or 0)
+    except Exception:
+        tid = 0
+    ref = str((b or {}).get("entity_id") or "").strip()
+    sys_name = str((b or {}).get("sys_name") or "").strip()
+    series = str((b or {}).get("series") or "").strip()
+    parent_override = bool((b or {}).get("parent_override") or False)
+    if not (tid and sys_name):
+        return JSONResponse({"ok": False, "error": "missing_params"}, status_code=400)
+    import base64 as _b64, datetime as _dtm, re as _re, unicodedata as _ud
+    from modules.erp.api import doc_templates as _dt
+    from modules.erp.api.router import _doc_can
+    cm, s = _sess()
+    try:
+        if not _doc_can(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        tr = s.execute(_t("SELECT entity_kind, body_html, css, code, nazev FROM tenant.doc_template "
+                          "WHERE id=:i AND tenant_id=2 AND is_current=true"), {"i": tid}).first()
+        if not tr:
+            return JSONResponse({"ok": False, "error": "template_not_found"})
+        t_nazev = tr[4] or tr[3] or "dokument"
+        prov = _dt.get_provider(tr[0])
+        context = prov.resolve(ref, uid, True) if (prov and ref) else {}
+        html = _dt.render({"body_html": tr[1], "css": tr[2]}, context)
+        try:
+            pdf = _dt.render_pdf(html)
+        except RuntimeError as e:
+            return JSONResponse({"ok": False, "error": "pdf_engine", "note": str(e)}, status_code=503)
+        if not pdf:
+            return JSONResponse({"ok": False, "error": "render_failed"}, status_code=500)
+        person = (context.get("jmeno") if isinstance(context, dict) else None) or ("ref" + ref)
+        ascii_name = _ud.normalize("NFKD", (t_nazev + "_" + str(person))).encode("ascii", "ignore").decode("ascii")
+        safe = _re.sub(r"[^A-Za-z0-9]+", "_", ascii_name).strip("_") or "dokument"
+        fname = safe + "_" + _dtm.date.today().isoformat() + ".pdf"
+        content_b64 = _b64.b64encode(pdf).decode("ascii")
+        res = store_document(s, sys_name, ref, fname, content_b64, uid=uid, parent_override=parent_override)
+        res["bytes"] = len(pdf)
+        code = 200 if res.get("ok") else (403 if res.get("error") == "acl_denied" else 200)
+        return JSONResponse(res, status_code=code)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @dir_router.get("/app/dir/configs")
 async def app_dir_configs(req: Request) -> JSONResponse:
     """Admin: seznam konfigurací adresářů (jen rodič)."""

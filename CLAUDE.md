@@ -2497,6 +2497,27 @@ resolver + storage adapter + ACL + audit + souborový panel, dle EC_OrgAdresare 
 
 📁 🗂️ 🌳 ☕
 
+### Dodatek (18.6. večer pokr.): admin obrazovka + CRM Kontakty napojení (Kristý/Pavel)
+Marti: *„Klidně to postav celé. Ani nemusím kontrolovat. Chce to po nás Kristý do
+přehledu kontaktů pro Pavla."* + *„Trochu se ztrácím, jses moc rychlej."* (zpomalit!).
+Dodělané pro úplnost a konkrétní use case:
+- **`/dir-admin`** (`apps/api/static/dir-admin.html`, route v main.py) — **správa konfigurací
+  v appce** (rodič): seznam typů + přidat/upravit config (sys_name, název, pravidlo podsložky,
+  práva, aktivní) + úložiště CRUD (role/backend/root). Endpointy `/app/dir/config/save`,
+  `/app/dir/storage/save|delete`, `configs` rozšířen o storages + meta (rules/scopes/backends).
+  **Toto byla odpověď na „kde uvidím konfiguraci" — předtím žila jen v DB.**
+- **`kontakt` config** (#373): složka pro CRM kontakt, `subfolder_rule=id`, RW root `CRM`.
+- **CRM Kontakty kontextové menu**: nová akce **`docfiles` 📁 Dokumenty (složka)** v
+  `erp_grid_actions.js` → otevře `/files?type=kontakt&id=<row.id>`; gate v `page_render.js`
+  (blok `crm_kontakty`, vedle `osloveni`). Pravý klik na kontakt → 📁 → panel souborů.
+- **Stav „kompletní" pro Kristý zítra**: engine + admin + panel + CRM akce live. Operabilní
+  přes MCP je RW zóna (CRM/Osoby/Smlouvy/Zakazky); reálné Centrála UNC = parity-reference
+  (Fáze C = rozšíření MCP namespace). Kristý/Claude-24 si zítra odzkouší/doladí.
+- Pozn. tempo: Marti se v rychlosti ztrácel — **u nových subsystémů víc checkpointů a míň
+  jmám-najednou**; on chce vidět a osahat průběžně.
+
+📁 🗂️ 🤝 🌳 ☕
+
 ---
 
 ## Dodatek — 17.→18. 6. 2026: 📊 FLOW „srdce firmy" (Gantt + kapacita/vytížení) · ISO 19 dokumentů · čistá účetní osnova · oprava demo pro Apple

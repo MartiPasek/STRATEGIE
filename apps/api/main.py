@@ -1321,7 +1321,7 @@ def mobile_service_worker():
     (Zkusit znovu / Vyčistit a načíst) — místo bílé obrazovky."""
     from fastapi import Response
     sw = r"""
-var CACHE='stg-mobile-v3';
+var CACHE='stg-mobile-v4';
 var SHELL='/mobile';
 var RECOVERY='<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">'
  +'<body style="margin:0;background:#0e1622;color:#e6edf5;font:16px/1.5 system-ui;display:flex;min-height:100vh;align-items:center;justify-content:center">'
@@ -1344,7 +1344,10 @@ self.addEventListener('fetch', function(e){
   if(isNav){
     e.respondWith((async function(){
       try{
-        var net=await fetch(req);
+        // cache:'reload' = vždy ze sítě, obejde WebView HTTP cache (APK držela starou verzi i přes no-store)
+        var net;
+        try{ net=await fetch(new Request(req.url,{cache:'reload',credentials:'same-origin',redirect:'follow'})); }
+        catch(_e){ net=await fetch(req); }
         if(net && net.ok){
           if(req.url.indexOf('/mobile')>=0 && net.url.indexOf('/app-pair')<0){
             try{ var c=await caches.open(CACHE); c.put(SHELL, net.clone()); }catch(e){}

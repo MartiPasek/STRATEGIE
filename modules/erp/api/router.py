@@ -6420,6 +6420,32 @@ async def app_ambassador_set_demo_pin(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/ambassador/whoami")
+async def app_ambassador_whoami(req: Request) -> JSONResponse:
+    """Režim showcase stránky: parent (admin panel) / ambassador (prezentace)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    parent = bool(is_marti_parent(uid))
+    amb = bool(_is_ambassador(uid))
+    nm = ""
+    has_demo_pin = False
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        r = s.execute(_t("SELECT RTRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')) "
+                         "FROM public.users WHERE id=:u"), {"u": uid}).scalar()
+        nm = (r or "").strip()
+        has_demo_pin = s.execute(_t("SELECT 1 FROM fw.ambassador_pin WHERE user_id=:u"),
+                                 {"u": _AMBASSADOR_PERSONAL_UID}).first() is not None
+    except Exception:
+        pass
+    finally:
+        cm.__exit__(None, None, None)
+    return JSONResponse({"ok": True, "parent": parent, "ambassador": amb,
+                         "name": nm, "has_demo_pin": has_demo_pin})
+
+
 # ---- HR sprava lidi (Marti 11.6.): prehled + karty pro HR skupinu/rodice -----
 def _hr_can_manage(s, uid: int) -> bool:
     from sqlalchemy import text as _t

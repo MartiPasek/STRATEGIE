@@ -850,6 +850,16 @@ def flow_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/ambassador")
+def ambassador_page():
+    """Prezentační stránka pro roli ambasador (read-only showcase, Marti 17.6.2026).
+    Dvojrežim: rodič = admin panel (demo PIN + aktivace), ambasador = prezentace
+    (FLOW, Martiho karta, trezor přes demo PIN). Auth + role řeší /app/ambassador/*."""
+    return FileResponse(os.path.join(static_dir, "ambassador.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/web")
 def web_landing():
     """Veřejný marketingový web — ekosystém EUROSOFT × STRATEGIE × IQHUBS.

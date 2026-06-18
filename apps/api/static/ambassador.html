@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>STRATEGIE — Prezentace</title>
+<style>
+  :root{ --bg:#0b1020; --bg2:#121a33; --card:#16203c; --line:#26314f; --tx:#e8eef9;
+         --mut:#9fb0d0; --acc:#5b8def; --acc2:#7c5cff; --ok:#3ecf8e; --warn:#f0a93b; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,#0b1020,#0e1430 60%,#0b1020);color:var(--tx);
+       min-height:100vh;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:22px 16px 60px}
+  .brand{display:flex;align-items:center;gap:12px;margin:6px 2px 18px}
+  .logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--acc),var(--acc2));
+        display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;color:#fff;
+        box-shadow:0 6px 18px rgba(91,141,239,.35)}
+  .brand h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.2px}
+  .brand .sub{font-size:12px;color:var(--mut);margin-top:2px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;
+        box-shadow:0 8px 24px rgba(0,0,0,.25)}
+  .big{display:flex;align-items:center;gap:14px;width:100%;text-align:left;cursor:pointer;
+       background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;
+       color:var(--tx);font-size:16px;transition:transform .12s,border-color .12s}
+  .big:hover{transform:translateY(-2px);border-color:var(--acc)}
+  .big .ic{font-size:26px;width:40px;text-align:center}
+  .big .t{font-weight:700}
+  .big .d{font-size:12.5px;color:var(--mut);margin-top:2px}
+  h2{font-size:14px;color:var(--mut);text-transform:uppercase;letter-spacing:.8px;margin:22px 4px 6px;font-weight:700}
+  .sec{margin:10px 0}
+  .sec .sh{font-weight:700;font-size:14px;color:var(--acc);margin:14px 0 6px}
+  .sec .why{font-size:12px;color:var(--mut);margin:-2px 0 8px}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .kv:last-child{border-bottom:none}
+  .kv .k{color:var(--mut);font-size:13px}
+  .kv .v{font-weight:600;font-size:14px;text-align:right;word-break:break-word}
+  .kv.s .v{color:var(--warn)}
+  input{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:#0e1530;
+        color:var(--tx);font-size:16px;margin:6px 0}
+  button.act{width:100%;padding:13px;border:none;border-radius:10px;font-size:15px;font-weight:700;
+        color:#fff;background:linear-gradient(135deg,var(--acc),var(--acc2));cursor:pointer;margin-top:6px}
+  button.ghost{background:#1a2340;border:1px solid var(--line);color:var(--tx)}
+  .muted{color:var(--mut);font-size:13px;line-height:1.5}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;
+        background:rgba(62,207,142,.15);color:var(--ok);border:1px solid rgba(62,207,142,.35)}
+  .pill.w{background:rgba(240,169,59,.15);color:var(--warn);border-color:rgba(240,169,59,.35)}
+  .msg{font-size:13px;margin-top:8px;min-height:18px}
+  .msg.ok{color:var(--ok)} .msg.err{color:#ff8a8a}
+  .reveal{font-family:ui-monospace,Menlo,Consolas,monospace;background:#0e1530;border:1px solid var(--line);
+          border-radius:8px;padding:10px;margin-top:6px;word-break:break-all}
+  a.link{color:var(--acc);text-decoration:none}
+  .center{text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="logo">S</div>
+    <div><h1>STRATEGIE</h1><div class="sub">Živá prezentace ekosystému</div></div>
+  </div>
+  <div id="root"><div class="card center muted">Načítám…</div></div>
+</div>
+
+<script>
+const API="/api/v1/erp/app/ambassador";
+const root=document.getElementById("root");
+const MARTI_EMAIL="zbynekzajicek@icloud.com"; // adresát aktivace (Zbyněk)
+function el(h){const d=document.createElement("div");d.innerHTML=h;return d.firstElementChild;}
+async function j(url,opt){const r=await fetch(url,Object.assign({credentials:"include",
+  headers:{"Content-Type":"application/json"}},opt||{}));try{return await r.json();}catch(e){return {ok:false,error:"net"};}}
+
+async function boot(){
+  const who=await j(API+"/whoami");
+  if(who && who.error==="unauthorized"){return renderLogin();}
+  if(who && who.parent){return renderAdmin(who);}
+  if(who && who.ambassador){return renderShow(who);}
+  return renderLogin();
+}
+
+function renderLogin(){
+  root.innerHTML="";
+  root.appendChild(el(`<div class="card">
+    <div style="font-weight:700;font-size:16px;margin-bottom:6px">Přihlášení potřebné</div>
+    <div class="muted">Tato prezentační stránka je dostupná po přihlášení.
+    Přihlas se svým e-mailem a heslem.</div>
+    <a class="act" style="display:block;text-align:center;text-decoration:none;margin-top:12px"
+       href="/chat?return=/ambassador">Přihlásit se</a>
+  </div>`));
+}
+
+/* ---------- ADMIN (Marti / rodič) ---------- */
+function renderAdmin(who){
+  root.innerHTML="";
+  root.appendChild(el(`<div class="card">
+    <div style="font-weight:700">Admin prezentace <span class="pill">rodič</span></div>
+    <div class="muted" style="margin-top:6px">Nastav <b>demo PIN</b> ke svému trezoru (jiný než tvůj osobní)
+      a pošli ambasadorovi aktivaci. Otevření trezoru přes demo PIN ti vždy přijde e-mailem.</div>
+  </div>`));
+
+  root.appendChild(el(`<div class="card">
+    <div style="font-weight:700;margin-bottom:6px">🔐 Demo PIN k trezoru ${who.has_demo_pin?'<span class="pill">nastaven</span>':'<span class="pill w">nenastaven</span>'}</div>
+    <input id="dp" type="tel" inputmode="numeric" maxlength="4" placeholder="4 číslice (např. 0000)">
+    <button class="act" id="dpBtn">Uložit demo PIN</button>
+    <div class="msg" id="dpMsg"></div>
+  </div>`));
+
+  root.appendChild(el(`<div class="card">
+    <div style="font-weight:700;margin-bottom:6px">📧 Aktivace pro ambasadora</div>
+    <div class="muted">Pošle aktivační e-mail na <b>${MARTI_EMAIL}</b> (nastavení hesla).
+      Pak se přihlásí e-mailem a uvidí prezentaci.</div>
+    <button class="act ghost" id="invBtn" style="margin-top:10px">Poslat aktivační e-mail</button>
+    <div class="msg" id="invMsg"></div>
+  </div>`));
+
+  root.appendChild(el(`<div class="card">
+    <div class="muted">Náhled prezentace (jak ji uvidí ambasador) — FLOW funguje, karta/trezor jen pro ambasadorskou roli.</div>
+    <a class="big" href="/flow" target="_blank" style="margin-top:10px;text-decoration:none">
+      <div class="ic">📊</div><div><div class="t">FLOW — živé plánování výroby</div>
+      <div class="d">Ganttův přehled běhu zakázek</div></div></a>
+  </div>`));
+
+  document.getElementById("dpBtn").onclick=async()=>{
+    const pin=document.getElementById("dp").value.trim();
+    const m=document.getElementById("dpMsg");
+    if(!/^\d{4}$/.test(pin)){m.className="msg err";m.textContent="PIN jsou 4 číslice.";return;}
+    m.className="msg";m.textContent="Ukládám…";
+    const r=await j(API+"/set-demo-pin",{method:"POST",body:JSON.stringify({pin})});
+    if(r.ok){m.className="msg ok";m.textContent="Demo PIN uložen.";}
+    else{m.className="msg err";m.textContent="Chyba: "+(r.error||r.note||"?");}
+  };
+  document.getElementById("invBtn").onclick=async()=>{
+    const m=document.getElementById("invMsg");
+    m.className="msg";m.textContent="Odesílám…";
+    const r=await j("/api/v1/auth/forgot-password",{method:"POST",body:JSON.stringify({email:MARTI_EMAIL})});
+    if(r && (r.ok||r.message||r.status||r===Object(r))){m.className="msg ok";
+      m.textContent="Aktivační e-mail odeslán na "+MARTI_EMAIL+" (pokud účet existuje).";}
+    else{m.className="msg err";m.textContent="Nepodařilo se odeslat.";}
+  };
+}
+
+/* ---------- SHOWCASE (ambasador) ---------- */
+function renderShow(who){
+  root.innerHTML="";
+  root.appendChild(el(`<div class="card">
+    <div style="font-weight:700;font-size:16px">Vítejte${who.name?(", "+who.name):""} 👋</div>
+    <div class="muted" style="margin-top:6px">Živá ukázka platformy STRATEGIE nad reálnými provozními daty.
+      Vyberte, co chcete ukázat.</div>
+  </div>`));
+  root.appendChild(el(`<a class="big" href="/flow" target="_blank" style="text-decoration:none">
+    <div class="ic">📊</div><div><div class="t">Plánování výroby (FLOW)</div>
+    <div class="d">Živý Ganttův přehled běhu zakázek, kapacita a vytížení dílny</div></div></a>`));
+  root.appendChild(el(`<a class="big" href="/web/demo" target="_blank" style="text-decoration:none">
+    <div class="ic">🔴</div><div><div class="t">Živý dashboard firmy</div>
+    <div class="d">Animovaný přehled provozu modelové firmy</div></div></a>`));
+  root.appendChild(el(`<div class="big" id="cardBtn">
+    <div class="ic">🪪</div><div><div class="t">Osobní karta zaměstnance</div>
+    <div class="d">Ukázka osobní karty (vzorový profil)</div></div></div>`));
+  root.appendChild(el(`<div class="big" id="vaultBtn">
+    <div class="ic">🔐</div><div><div class="t">Zabezpečený trezor</div>
+    <div class="d">Šifrovaný trezor hesel s PIN ochranou</div></div></div>`));
+  root.appendChild(el(`<div id="panel"></div>`));
+
+  document.getElementById("cardBtn").onclick=showCard;
+  document.getElementById("vaultBtn").onclick=showVault;
+}
+
+async function showCard(){
+  const p=document.getElementById("panel");
+  p.innerHTML='<div class="card center muted">Načítám kartu…</div>';
+  const r=await j(API+"/marti-card");
+  if(!r.ok){p.innerHTML='<div class="card msg err">Nepodařilo se načíst kartu.</div>';return;}
+  let h='<div class="card"><div style="font-weight:700;font-size:16px;margin-bottom:4px">🪪 Osobní karta — '+
+        (r.owner||'')+'</div><div class="muted" style="margin-bottom:6px">Vše pod jednou střechou, zabezpečené.</div>';
+  (r.sections||[]).forEach(sec=>{
+    const items=(sec.items||[]).filter(it=>it.value && it.value.trim()!=="");
+    if(!items.length)return;
+    h+='<div class="sec"><div class="sh">'+sec.label+'</div>';
+    if(sec.why)h+='<div class="why">'+sec.why+'</div>';
+    items.forEach(it=>{h+='<div class="kv'+(it.sensitive?' s':'')+'"><div class="k">'+it.label+
+                         '</div><div class="v">'+escapeHtml(it.value)+'</div></div>';});
+    h+='</div>';
+  });
+  h+='</div>';
+  p.innerHTML=h;
+  p.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+async function showVault(){
+  const p=document.getElementById("panel");
+  p.innerHTML='<div class="card center muted">Načítám trezor…</div>';
+  const r=await j(API+"/trezor-list");
+  if(!r.ok){p.innerHTML='<div class="card msg err">Nepodařilo se načíst trezor.</div>';return;}
+  if(!r.has_demo_pin){p.innerHTML='<div class="card msg err">Demo PIN trezoru zatím není nastaven.</div>';return;}
+  let h='<div class="card"><div style="font-weight:700;font-size:16px;margin-bottom:6px">🔐 Zabezpečený trezor</div>'+
+        '<div class="muted" style="margin-bottom:6px">Hesla jsou šifrovaná. Pro zobrazení zadejte PIN.</div>';
+  if(!(r.polozky||[]).length){h+='<div class="muted">Trezor je prázdný.</div>';}
+  (r.polozky||[]).forEach(it=>{
+    h+='<div class="card" style="background:#0e1530;margin:8px 0"><div style="font-weight:700">'+escapeHtml(it.label||'')+'</div>'+
+       (it.username?'<div class="muted">'+escapeHtml(it.username)+'</div>':'')+
+       (it.url?'<div class="muted">'+escapeHtml(it.url)+'</div>':'')+
+       '<input type="tel" inputmode="numeric" maxlength="4" placeholder="PIN" id="pin'+it.id+'">'+
+       '<button class="act" onclick="reveal('+it.id+')">Zobrazit heslo</button>'+
+       '<div class="msg" id="rm'+it.id+'"></div><div id="rv'+it.id+'"></div></div>';
+  });
+  h+='</div>';
+  p.innerHTML=h;
+  p.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+async function reveal(id){
+  const pin=(document.getElementById("pin"+id).value||"").trim();
+  const m=document.getElementById("rm"+id);const rv=document.getElementById("rv"+id);
+  if(!/^\d{4}$/.test(pin)){m.className="msg err";m.textContent="PIN jsou 4 číslice.";return;}
+  m.className="msg";m.textContent="Ověřuji…";rv.innerHTML="";
+  const r=await j(API+"/trezor-reveal",{method:"POST",body:JSON.stringify({id,pin})});
+  if(r.ok){m.className="msg ok";m.textContent="Odemčeno.";rv.innerHTML='<div class="reveal">'+escapeHtml(r.secret)+'</div>';}
+  else{m.className="msg err";m.textContent=(r.error==="pin_wrong")?"Nesprávný PIN.":("Chyba: "+(r.error||"?"));}
+}
+
+function escapeHtml(s){return (s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+window.reveal=reveal;
+boot();
+</script>
+</body>
+</html>

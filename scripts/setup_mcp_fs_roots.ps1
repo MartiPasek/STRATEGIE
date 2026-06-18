@@ -1,81 +1,61 @@
 # setup_mcp_fs_roots.ps1 - Faze C (18.6.2026)
-# Nastavi povolene koreny pro MCP filesystem (base_override) na EUROSOFT-MCP
-# a restartuje sluzbu. Spustit na EC-SERVER2 (30.11) jako administrator.
+# Nastavi povolene koreny pro MCP filesystem (base_override) sluzbe EUROSOFT-MCP
+# a restartuje ji. Spustit na EC-SERVER2 (30.11) jako administrator.
+#
+# Env se zapisuje PRIMO do registru NSSM (AppEnvironmentExtra = REG_MULTI_SZ),
+# protoze nssm.exe set rozbiji hodnoty s mezerami (D:\Data\ZZ_Marti-AI RW).
 #
 # Pouziti:
-#   powershell -ExecutionPolicy Bypass -File setup_mcp_fs_roots.ps1
-# Volitelne vlastni koreny:
+#   powershell -ExecutionPolicy Bypass -File scripts\setup_mcp_fs_roots.ps1
+# Volitelne:
 #   ... -RwRoots "D:\data;D:\Data\ZZ_Marti-AI RW" -RoRoots "D:\Data\ZZ_Marti-AI RO"
-#
-# RW = koreny se ZAPISEM (uzivatele pisi i ctou). RO = jen cteni (ma prednost).
-# Jemna konfigurace (ktere podslozky, kdo) je v STRATEGII (/dir-admin).
 
 param(
   [string]$Service = "EUROSOFT-MCP",
-  [string]$NssmPath = "",
   [string]$RwRoots = "D:\data;\\192.168.30.11\data;\\192.168.30.10\Data;D:\Data\ZZ_Marti-AI RW",
   [string]$RoRoots = "D:\Data\ZZ_Marti-AI RO"
 )
-
 $ErrorActionPreference = "Stop"
 
-# najdi nssm - 0) parametr, 1) z definice sluzby (PathName), 2) znama mista, 3) PATH
-$nssm = $null
-if ($NssmPath -and (Test-Path $NssmPath)) { $nssm = $NssmPath }
-if (-not $nssm) {
-  try {
-    $svc = Get-CimInstance Win32_Service -Filter "Name='$Service'" -ErrorAction SilentlyContinue
-    if ($svc -and $svc.PathName) {
-      Write-Host ("binPath sluzby: " + $svc.PathName)
-      if ($svc.PathName -match '([A-Za-z]:\\[^"]*nssm\.exe)') { $nssm = $Matches[1] }
-    }
-  } catch { }
-}
-if (-not $nssm) {
-  foreach ($p in @("C:\Tools\nssm.exe","C:\nssm\nssm.exe","C:\Windows\nssm.exe","D:\Tools\nssm.exe")) {
-    if (Test-Path $p) { $nssm = $p; break }
-  }
-}
-if (-not $nssm) {
-  $cmd = Get-Command nssm.exe -ErrorAction SilentlyContinue
-  if ($cmd) { $nssm = $cmd.Source }
-}
-if (-not $nssm) {
-  Write-Host "CHYBA: nssm.exe nenalezen."
-  Write-Host "Zjisti cestu k sluzbe rucne:"
+$reg = "HKLM:\SYSTEM\CurrentControlSet\Services\$Service\Parameters"
+if (-not (Test-Path $reg)) {
+  Write-Host "CHYBA: registrovy klic neexistuje: $reg"
+  Write-Host "Sluzba '$Service' bud neni NSSM, nebo ma jine jmeno. Posli mi:"
   Write-Host "  (Get-CimInstance Win32_Service -Filter `"Name='$Service'`").PathName"
-  Write-Host "a spust skript znovu s parametrem -NssmPath <cesta\nssm.exe>, nebo mi tu cestu posli."
   exit 1
 }
-Write-Host "nssm: $nssm"
-Write-Host "sluzba: $Service"
 
-# stavajici AppEnvironmentExtra (zachovat ostatni promenne!)
-$cur = & $nssm get $Service AppEnvironmentExtra 2>$null
+# stavajici AppEnvironmentExtra (REG_MULTI_SZ = string[])
+$cur = @()
+try {
+  $v = (Get-ItemProperty -Path $reg -Name AppEnvironmentExtra -ErrorAction SilentlyContinue).AppEnvironmentExtra
+  if ($v) { $cur = @($v) }
+} catch { }
+
+# zachovej ostatni promenne, nahrad jen nase dve
 $entries = @()
-if ($cur) {
-  foreach ($line in ($cur -split "`r?`n")) {
-    $t = $line.Trim()
-    if ($t -eq "") { continue }
-    if ($t -like "MCP_FS_RW_ROOTS=*") { continue }   # nahradime
-    if ($t -like "MCP_FS_RO_ROOTS=*") { continue }
-    $entries += $t
-  }
+foreach ($line in $cur) {
+  $t = "$line".Trim()
+  if ($t -eq "") { continue }
+  if ($t -like "MCP_FS_RW_ROOTS=*") { continue }
+  if ($t -like "MCP_FS_RO_ROOTS=*") { continue }
+  $entries += $t
 }
 $entries += ("MCP_FS_RW_ROOTS=" + $RwRoots)
 $entries += ("MCP_FS_RO_ROOTS=" + $RoRoots)
 
-Write-Host ""
-Write-Host "Nastavuji AppEnvironmentExtra na:"
+Write-Host "Zapisuji do $reg\AppEnvironmentExtra:"
 foreach ($e in $entries) { Write-Host ("  " + $e) }
 
-& $nssm set $Service AppEnvironmentExtra @entries | Out-Null
+# REG_MULTI_SZ zapis (mezery zvladne spravne)
+Set-ItemProperty -Path $reg -Name AppEnvironmentExtra -Value ([string[]]$entries) -Type MultiString
 
 Write-Host ""
 Write-Host "Restartuji sluzbu $Service ..."
-& $nssm restart $Service | Out-Null
+Restart-Service -Name $Service -Force
 Start-Sleep -Seconds 3
-$st = & $nssm status $Service
+$st = (Get-Service -Name $Service).Status
 Write-Host ("Stav sluzby: " + $st)
 Write-Host ""
-Write-Host "HOTOVO. Over v appce: /dir-admin -> 'MCP server - co realne povoluje' -> Nacist."
+Write-Host "HOTOVO. Over: /dir-admin -> 'MCP server - co realne povoluje' -> Nacist."
+Write-Host "(rw_roots by uz mely byt videt)."

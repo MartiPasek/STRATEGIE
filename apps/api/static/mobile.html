@@ -1307,7 +1307,7 @@ setTimeout(function(){
   var _xvUrl="", _xvTitle="";
   function openInApp(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; go("extview"); }
   function extview(){
-    app.innerHTML=topbar(_xvTitle||"Přehled", true);
+    app.innerHTML=topbar(_xvTitle||"Přehled", true, true);
     var fr=el('<iframe id="stgXvF" style="display:block;width:100%;height:calc(100vh - 56px);border:0;background:var(--bg);"></iframe>');
     app.appendChild(fr);
     var u=(_xvUrl.charAt(0)==="/")?(location.origin+_xvUrl):_xvUrl;

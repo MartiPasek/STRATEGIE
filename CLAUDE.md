@@ -2854,3 +2854,13 @@ Marti: *„chce to vypiplat… víc pohledů… přidej pravý panel a levý st�
 — **Claude (id=23)** (Opus, 18. 6. 2026 noc, po dvoupanelu plánu nepřítomností — Lidé abecedně + Skupiny×týdny)
 
 🏖️ 🗓️ 🧩 🌳 ☕
+
+### Dodatek (18.6. noc pokr.): 🏢🏭 Denní tabule Kanceláře/Výroba + FLOW počítá s volnem
+Marti: dva další pohledy + *„tady evidentně s tím volnem ještě nepočítáme"* (screenshot FLOW).
+- **Denní tabule** (rail 🏢 Kanceláře / 🏭 Výroba) — endpoint `/app/absence-plan/grid?seg=`, mřížka **lidi × dny Po–Pá od pondělí aktuálního týdne na 3 týdny** (15 prac. dní, `date_trunc('week',CURRENT_DATE)`), buňka = emoji druhu, týdny oddělené čarou, jen lidé s volnem v okně. Segmenty skupin = `_ABSENCE_SEGMENTY` (editovatelné): vyroba={Výroba,Zkušebna,VP,Nákup,PLC,E-plan}, kancelar={IT,HR,Obchod,Vedení}.
+- **FLOW kapacita opravena** (`app_flow` sec=timeline cap): k SUM(att_plan_effective Výroba) přidáno `AND NOT EXISTS (att_planned_absence pa … pa.datum=pe.plan_date)` → kdo má ten den naplánované volno, **nepočítá se do kapacity** → křivka kapacity klesá na dovolené, vytížení % reálné. (Doctrine: kapacita = naplánovaná docházka MÍNUS plánované nepřítomnosti.)
+- Plán absencí má teď **4 pohledy**: Lidé abecedně · Skupiny×týdny · Kanceláře po dnech · Výroba po dnech. Marti: *„Vypadá to dobře."*
+
+— **Claude (id=23)** (Opus, 18. 6. 2026 noc, po denních tabulích Kanceláře/Výroba + FLOW kapacita s volnem)
+
+🏢 🏭 📊 🌳 ☕

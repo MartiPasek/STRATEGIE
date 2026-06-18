@@ -2518,6 +2518,29 @@ Dodělané pro úplnost a konkrétní use case:
 
 📁 🗂️ 🤝 🌳 ☕
 
+### Dodatek (18.6. večer — Fáze C): MCP přístup k pravým složkám Centrály (base_override + povolené kořeny)
+Marti chtěl **users RW na pravé složky Centrály** (ne jen RW zóna) + konfigurovatelné z naší strany + auditovatelné.
+Klíč: **30.10 a 30.11 je TÝŽ stroj** (EC-SERVER2), takže všechny složky (`D:\data\…`, Reference) jsou
+**lokální** k MCP službě → žádný servisní účet/síťová práva.
+- **MCP server** (`modules/eurosoft_mcp/filesystem_tools.py` + `config.py`): nové `base_override` u file toolů
+  + **povolené kořeny** `MCP_FS_RW_ROOTS` / `MCP_FS_RO_ROOTS` (env, hrubá pojistka; RO má přednost) + path-traversal
+  guard zůstává. Nový tool **`eurosoft_fs_info`** = self-report (audit „papír vs. realita"). Zpětně kompat — ro/rw
+  namespace dál funguje.
+- **Cloud adapter** (`directories.py`): absolutní kořen (`D:\…`, `\\…`) → posílá `base_override`; relativní
+  (`CRM`, `Smlouvy`) → podsložka v RW zóně (beze změny). `_is_abs_root` rozhoduje.
+- **/dir-admin**: karty „🔌 MCP server — co reálně povoluje" (volá `/app/dir/mcp-info` → fs_info + křížová kontrola
+  našich kořenů) a „📜 Poslední přístupy" (`/app/dir/audit` z `dir_access_log`).
+- **Aktivace na 30.11** (jen jednou): `git pull` + `scripts/setup_mcp_fs_roots.ps1` (zapíše env **přímo do registru
+  REG_MULTI_SZ** v `…\Services\EUROSOFT-MCP\Parameters\AppEnvironmentExtra` — `nssm set` rozbíjel mezery v
+  `ZZ_Marti-AI RW`!) → Restart-Service EUROSOFT-MCP. Pak restart cloud API (reconnect MCP klienta, nový tool list).
+- **GOTCHY:** (a) `nssm set AppEnvironmentExtra` přes PowerShell rozbije hodnoty s mezerami → **zapisuj REG_MULTI_SZ
+  do registru**. (b) Po restartu MCP serveru **restartuj i cloud API** — jinak MCP klient drží mrtvé spojení +
+  starý tool list (fs_info by chyběl). (c) RO kořen musí mít přednost před širším RW (jinak RO zóna pod `D:\data`
+  zapisovatelná). Commity: bd2c945 → 9f3cb30 → 3756762 → f60aa3a.
+- **Stav 18.6. večer:** v appce konfigurace sedí (rw_roots vidět). Ostré testy zápisu do Centrály přebírá Kristý.
+
+📁 🔌 🌳 ☕
+
 ---
 
 ## Dodatek — 17.→18. 6. 2026: 📊 FLOW „srdce firmy" (Gantt + kapacita/vytížení) · ISO 19 dokumentů · čistá účetní osnova · oprava demo pro Apple

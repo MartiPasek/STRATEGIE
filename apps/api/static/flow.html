@@ -371,8 +371,8 @@ function renderTimeline(c,j){
   }
   pxT=x(today); // dnes drží skutečné datum
   function renderGuides(){ gSH.style.left=pxS+'px'; gSB.style.left=pxS+'px'; gEH.style.left=pxE+'px'; gEB.style.left=pxE+'px'; tlH.style.left=pxT+'px'; tlB.style.left=pxT+'px';
-    var dni=Math.round((pxE-pxS)/PX);
-    labS.textContent='▶ '+dCz(dateAt(pxS)); labE.textContent=dCz(dateAt(pxE))+' ◀ ('+dni+' dní)';
+    var dniT=Math.round((pxE-pxT)/PX); // počet dní od dneška do konce (budoucnost)
+    labS.textContent='▶ '+dCz(dateAt(pxS)); labE.textContent=dCz(dateAt(pxE))+' ◀ ('+(dniT>=0?'za '+dniT+' dní':Math.abs(dniT)+' dní zpět')+')';
     labT.textContent='● dnes '+dCz(today);
     setMark(mkS,pxS); setMark(mkE,pxE); setMark(mkT,pxT);
     setMarkH(mhS,pxS); setMarkH(mhE,pxE); setMarkH(mhT,pxT); positionLabs(); }
@@ -383,6 +383,7 @@ function renderTimeline(c,j){
     headInner.style.transform='translateX('+(-scrollX)+'px)';
     bodyInner.style.transform='translate('+(-scrollX)+'px,'+(-scrollY)+'px)';
     leftBodyInner.style.transform='translateY('+(-scrollY)+'px)';
+    lsS('flow_scrollx',Math.round(scrollX)); lsS('flow_scrolly',Math.round(scrollY));
     positionLabs(); }
   renderGuides();
   var drg=null,dx0=0,p0=0;
@@ -436,7 +437,9 @@ function renderTimeline(c,j){
   window.addEventListener('mousemove',function(e){ if(!pan.on)return; scrollX=pan.sx-(e.clientX-pan.x); if(pan.vert) scrollY=pan.sy-(e.clientY-pan.y); applyPan(); });
   window.addEventListener('mouseup',function(){ if(pan.on){ pan.on=false; bodyView.style.cursor='grab'; headView.style.cursor='grab'; } });
   bodyView.addEventListener('wheel',function(e){ scrollY+=e.deltaY; if(e.shiftKey){scrollX+=e.deltaY;} applyPan(); e.preventDefault(); }, {passive:false});
-  setTimeout(function(){ try{ var slack=headView.clientWidth; headInner.style.width=(W+slack)+'px'; bodyInner.style.width=(W+slack)+'px'; scrollX=Math.max(0, x(today)-180); applyPan(); }catch(e){} },60);
+  setTimeout(function(){ try{ var slack=headView.clientWidth; headInner.style.width=(W+slack)+'px'; bodyInner.style.width=(W+slack)+'px';
+    var sx=parseFloat(lsG('flow_scrollx')), sy=parseFloat(lsG('flow_scrolly'));
+    scrollX=!isNaN(sx)?sx:Math.max(0, x(today)-180); scrollY=!isNaN(sy)?sy:0; applyPan(); }catch(e){} },60);
 }
 var TLcur=null;
 function tlCloseCur(){ if(TLcur){ var c=TLcur; TLcur=null; c.dl.style.display='none'; c.dr.style.display='none'; c.dl.innerHTML=''; c.dr.innerHTML=''; if(c.ll)c.ll.style.background=''; if(c.rr)c.rr.style.background=''; } }

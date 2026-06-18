@@ -22541,6 +22541,62 @@ _MIGRACE_STEPS = {
 }
 
 
+@api_router.get("/app/payroll/summary")
+async def app_payroll_summary(req: Request) -> JSONResponse:
+    """Mzdové podklady: měsíční souhrn osoba × typ (z tenant.att_day_summary).
+    Rodič/Jirka. ?rok=&mesic= (default poslední dostupný měsíc)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _app_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        periods = s.execute(_t(
+            "SELECT DISTINCT rok, mesic FROM tenant.att_day_summary WHERE tenant_id=2 AND rok IS NOT NULL "
+            "ORDER BY rok DESC, mesic DESC")).fetchall()
+        if not periods:
+            return JSONResponse({"ok": True, "periods": [], "rows": [], "note": "Zatím žádná data — spusť import v Migrace → Docházka."})
+        try:
+            y = int(req.query_params.get("rok") or 0)
+            m = int(req.query_params.get("mesic") or 0)
+        except Exception:
+            y = m = 0
+        if not (y and m):
+            y, m = int(periods[0][0]), int(periods[0][1])
+        rows = s.execute(_t(
+            "SELECT d.cislo_zam, "
+            " COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), '#'||d.cislo_zam) AS jmeno, "
+            " round(sum(d.fpd)::numeric,1) fond, "
+            " round(sum(d.cas_montaz+d.cas_rezie)::numeric,1) odprac, "
+            " round(sum(d.cas_prescas)::numeric,1) prescas, "
+            " round(sum(d.cas_dovolena)::numeric,1) dov, "
+            " round(sum(d.cas_nemoc)::numeric,1) nem, "
+            " round(sum(d.cas_sickday)::numeric,1) sick, "
+            " round(sum(d.cas_ocr)::numeric,1) ocr, "
+            " round(sum(d.cas_lekar)::numeric,1) lek, "
+            " round(sum(d.cas_nahr_volno)::numeric,1) nahr, "
+            " round(sum(d.cas_nariz_volno)::numeric,1) nariz, "
+            " round(sum(d.cas_absence)::numeric,1) absc, "
+            " count(*) dni "
+            "FROM tenant.att_day_summary d "
+            "LEFT JOIN public.users u ON u.id=d.user_id "
+            "WHERE d.tenant_id=2 AND d.rok=:y AND d.mesic=:m "
+            "GROUP BY d.cislo_zam, jmeno ORDER BY jmeno"), {"y": y, "m": m}).fetchall()
+        def fl(v):
+            return float(v) if v is not None else 0.0
+        out = [{"cislo": r[0], "jmeno": r[1], "fond": fl(r[2]), "odprac": fl(r[3]),
+                "prescas": fl(r[4]), "dovolena": fl(r[5]), "nemoc": fl(r[6]), "sickday": fl(r[7]),
+                "ocr": fl(r[8]), "lekar": fl(r[9]), "nahr_volno": fl(r[10]), "nariz_volno": fl(r[11]),
+                "absence": fl(r[12]), "dni": r[13]} for r in rows]
+        return JSONResponse({"ok": True, "rok": y, "mesic": m,
+                             "periods": [{"rok": p[0], "mesic": p[1]} for p in periods],
+                             "rows": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/migrace/steps")
 async def app_migrace_steps(req: Request) -> JSONResponse:
     """Kroky migrace pro daný okruh (dochazka|mzdy) + kdy naposledy běžely. Rodič/Jirka."""

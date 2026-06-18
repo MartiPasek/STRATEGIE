@@ -6998,6 +6998,11 @@ setTimeout(function(){
   function migrace_mzdy(){ migraceDomain("mzdy","💰 Migrace — Mzdy"); }
   function migraceDomain(domain,title){
     app.innerHTML=topbar(title, true);
+    if(domain==="mzdy"){
+      var pb=el('<button style="margin:8px 6px;background:linear-gradient(135deg,#5b8def,#7c5cff);color:#fff;border:0;border-radius:11px;padding:12px 16px;font-size:14px;font-weight:700;width:calc(100% - 12px)">📊 Přehled mzdových podkladů (osoba × měsíc)</button>');
+      pb.onclick=function(){ openApp("/payroll"); };
+      app.appendChild(pb);
+    }
     var wrap=el('<div id="migWrap" class="muted" style="padding:8px 6px">Načítám…</div>');
     app.appendChild(wrap);
     api("GET","/api/v1/erp/app/migrace/steps?domain="+domain,"").then(function(j){

@@ -901,6 +901,15 @@ def crm_odhlasit_post(token: str):
         "Další obchodní sdělení už vám posílat nebudeme. Děkujeme.</p>", show_form=False)
 
 
+@app.get("/payroll")
+def payroll_page():
+    """Mzdové podklady — měsíční souhrn osoba × typ (z att_day_summary). Rodič/Jirka.
+    Marti 18.6.2026 — hybridní fáze."""
+    return FileResponse(os.path.join(static_dir, "payroll.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN"})
+
+
 @app.get("/vytizeni")
 def vytizeni_page():
     """Vytížení montérů (Dušan) — denní požadavek vs kapacita (z docházky Výroby)

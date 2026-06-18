@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mzdové podklady</title>
+<style>
+  :root{ --bg:#0b1020; --card:#16203c; --line:#26314f; --tx:#e8eef9; --mut:#9fb0d0; --acc:#5b8def; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,#0b1020,#0e1430 60%,#0b1020);color:var(--tx);min-height:100vh}
+  .wrap{max-width:1200px;margin:0 auto;padding:14px 12px 50px}
+  .hd{display:flex;align-items:center;gap:10px;margin:2px 2px 10px;flex-wrap:wrap}
+  .hd .ic{font-size:22px}.hd h1{font-size:17px;margin:0;font-weight:700}
+  .hd .sp{flex:1}
+  select{padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:#0e1530;color:var(--tx);font-size:14px}
+  .muted{color:var(--mut);font-size:13px;margin:4px 2px}
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  .tbl th,.tbl td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  .tbl th{position:sticky;top:0;background:#101a33;color:#bcd0f5;font-weight:700;font-size:11.5px}
+  .tbl td.nm,.tbl th.nm{text-align:left;position:sticky;left:0;background:#16203c}
+  .tbl th.nm{background:#101a33;z-index:2}
+  .tbl tr:hover td{background:rgba(255,255,255,.03)}
+  .z{color:#41506e}
+  .tot td{font-weight:800;border-top:2px solid var(--acc);background:rgba(91,141,239,.08)}
+  .scroll{overflow:auto;border:1px solid var(--line);border-radius:12px}
+  .pill{font-size:11px;color:var(--mut)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><div class="ic">💰</div><h1>Mzdové podklady</h1><div class="sp"></div>
+    <select id="per"></select>
+  </div>
+  <div class="muted">Měsíční souhrn z docházky Centrály (hybridní fáze). Hodiny: odpracováno = montáž+režie. Kontrola proti Heliosu probíhá samostatně.</div>
+  <div id="root"><div class="muted">Načítám…</div></div>
+</div>
+<script>
+const API="/api/v1/erp/app/payroll/summary";
+const MN=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
+const root=document.getElementById("root"), per=document.getElementById("per");
+async function j(u){const r=await fetch(u,{credentials:"include"});try{return await r.json()}catch(e){return{ok:false}}}
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function n(v){if(!v)return '<span class="z">·</span>';return (Math.round(v*10)/10).toString().replace(".",",");}
+let LOADED=false;
+async function load(y,m){
+  root.innerHTML='<div class="muted">Načítám…</div>';
+  const q=(y&&m)?("?rok="+y+"&mesic="+m):"";
+  const r=await j(API+q);
+  if(!r||!r.ok){root.innerHTML='<div class="muted" style="color:#ff8a8a">'+((r&&r.error==="forbidden")?"Přehled je pro rodiče a Jirku.":"Chyba načtení.")+'</div>';return;}
+  if(!LOADED){
+    per.innerHTML=(r.periods||[]).map(p=>'<option value="'+p.rok+'-'+p.mesic+'"'+((p.rok===r.rok&&p.mesic===r.mesic)?' selected':'')+'>'+MN[p.mesic]+' '+p.rok+'</option>').join('');
+    per.onchange=function(){const a=per.value.split("-");load(+a[0],+a[1]);};
+    LOADED=true;
+  }
+  if(!(r.rows||[]).length){root.innerHTML='<div class="muted">Za '+MN[r.mesic]+' '+r.rok+' žádná data.</div>';return;}
+  const cols=[["fond","Fond"],["odprac","Odprac."],["prescas","Přesčas"],["dovolena","Dovolená"],["nemoc","Nemoc"],["sickday","Sick"],["ocr","OČR"],["lekar","Lékař"],["nahr_volno","Náhr.v."],["nariz_volno","Nař.v."],["absence","Absence"]];
+  const tot={}; cols.forEach(c=>tot[c[0]]=0);
+  let body="";
+  r.rows.forEach(row=>{
+    body+='<tr><td class="nm">'+esc(row.jmeno)+'</td>';
+    cols.forEach(c=>{ tot[c[0]]+=(row[c[0]]||0); body+='<td>'+n(row[c[0]])+'</td>'; });
+    body+='<td>'+row.dni+'</td></tr>';
+  });
+  let totr='<tr class="tot"><td class="nm">CELKEM ('+r.rows.length+' osob)</td>';
+  cols.forEach(c=>totr+='<td>'+n(tot[c[0]])+'</td>'); totr+='<td></td></tr>';
+  let head='<tr><th class="nm">Jméno</th>'+cols.map(c=>'<th>'+c[1]+'</th>').join('')+'<th>Dní</th></tr>';
+  root.innerHTML='<div class="scroll"><table class="tbl"><thead>'+head+'</thead><tbody>'+body+totr+'</tbody></table></div>'+
+    '<div class="muted" style="margin-top:8px">Hodnoty v hodinách. „Odprac." = montáž + režie. „Fond" = fond pracovní doby.</div>';
+}
+load();
+</script>
+</body>
+</html>

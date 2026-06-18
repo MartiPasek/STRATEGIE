@@ -108,15 +108,88 @@ def _resolve_path(user_namespace: str, subpath: str = "") -> tuple[Path | None, 
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Fáze C (18.6.2026): base_override — přístup k pravým složkám Centrály
+# (lokální D:\data\... na EC-SERVER2). Hrubá pojistka = povolené kořeny.
+# ─────────────────────────────────────────────────────────────────────
+
+def _parse_roots(raw: str) -> list[Path]:
+    out = []
+    for part in (raw or "").replace("\n", ";").split(";"):
+        p = part.strip().strip('"')
+        if not p:
+            continue
+        try:
+            out.append(Path(p).resolve())
+        except Exception:
+            pass
+    return out
+
+
+def _allow_roots() -> tuple[list[Path], list[Path]]:
+    """(rw_roots, ro_roots) z env (MCP_FS_RW_ROOTS / MCP_FS_RO_ROOTS)."""
+    return _parse_roots(settings.fs_rw_roots), _parse_roots(settings.fs_ro_roots)
+
+
+def _under(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_path_override(base_override: str, subpath: str, require_write: bool) -> tuple[Path | None, str | None]:
+    """Resolve cesty pod base_override s vynucením povolených kořenů.
+
+    - base_override MUSÍ ležet pod některým RW nebo RO kořenem.
+    - require_write → base NESMÍ být pod RO kořenem a MUSÍ být pod RW kořenem.
+    - subpath traversal guard relativně k base.
+    """
+    rw_roots, ro_roots = _allow_roots()
+    if not rw_roots and not ro_roots:
+        return None, ("Přímé cesty (base_override) jsou vypnuté — na MCP nejsou "
+                      "nastavené MCP_FS_RW_ROOTS / MCP_FS_RO_ROOTS.")
+    try:
+        base = Path(base_override).resolve()
+    except Exception as exc:
+        return None, f"Neplatná cesta base_override: {exc}"
+    in_ro = any(_under(base, r) or base == r for r in ro_roots)
+    in_rw = any(_under(base, r) or base == r for r in rw_roots)
+    if not (in_ro or in_rw):
+        return None, (f"Cesta '{base_override}' není pod žádným povoleným kořenem "
+                      f"(RW: {[str(r) for r in rw_roots]}, RO: {[str(r) for r in ro_roots]}).")
+    if require_write:
+        # RO má přednost: cokoli pod RO kořenem je read-only, i kdyby leželo
+        # i pod (širším) RW kořenem.
+        if in_ro:
+            return None, f"Cesta '{base_override}' je jen pro čtení (pod RO kořenem)."
+        if not in_rw:
+            return None, f"Cesta '{base_override}' není pod RW kořenem (zápis zakázán)."
+    cleaned = (subpath or "").replace("\\", "/").lstrip("/").strip()
+    target = base if cleaned in ("", ".") else (base / cleaned).resolve()
+    if not (_under(target, base) or target == base):
+        return None, f"Path traversal blokován: '{subpath}' mimo base."
+    return target, None
+
+
+def _resolve(user_namespace: str, subpath: str, base_override: str = "", require_write: bool = False):
+    """Jednotný resolver: base_override (Fáze C) má přednost, jinak ns ro/rw."""
+    if base_override:
+        return _resolve_path_override(base_override, subpath, require_write)
+    return _resolve_path(user_namespace, subpath)
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Tool 1: list folder contents
 # ─────────────────────────────────────────────────────────────────────
 
 async def eurosoft_file_list(
     user_namespace: str = "",
     subpath: str = "",
+    base_override: str = "",
     **_extra: Any,
 ) -> dict[str, Any]:
-    target, err = _resolve_path(user_namespace, subpath)
+    target, err = _resolve(user_namespace, subpath, base_override, False)
     if err:
         return {"ok": False, "error": err}
     try:
@@ -162,12 +235,13 @@ async def eurosoft_file_read(
     user_namespace: str = "",
     path: str = "",
     encoding: str | None = None,
+    base_override: str = "",
     **_extra: Any,
 ) -> dict[str, Any]:
     encoding = (encoding or "utf-8").lower()
     if not path:
         return {"ok": False, "error": "Parametr 'path' chybi."}
-    target, err = _resolve_path(user_namespace, path)
+    target, err = _resolve(user_namespace, path, base_override, False)
     if err:
         return {"ok": False, "error": err}
     try:
@@ -227,6 +301,7 @@ async def eurosoft_file_write(
     content: str = "",
     encoding: str | None = None,
     mode: str | None = None,
+    base_override: str = "",
     **_extra: Any,
 ) -> dict[str, Any]:
     encoding = (encoding or "utf-8").lower()
@@ -238,7 +313,7 @@ async def eurosoft_file_write(
             "ok": False,
             "error": f"Neznamy mode '{mode}'. Povolene: overwrite, fail_if_exists, append.",
         }
-    target, err = _resolve_path(user_namespace, path)
+    target, err = _resolve(user_namespace, path, base_override, True)
     if err:
         return {"ok": False, "error": err}
     try:
@@ -293,11 +368,12 @@ async def eurosoft_file_write(
 async def eurosoft_file_delete(
     user_namespace: str = "",
     path: str = "",
+    base_override: str = "",
     **_extra: Any,
 ) -> dict[str, Any]:
     if not path:
         return {"ok": False, "error": "Parametr 'path' chybi."}
-    target, err = _resolve_path(user_namespace, path)
+    target, err = _resolve(user_namespace, path, base_override, True)
     if err:
         return {"ok": False, "error": err}
     try:
@@ -321,6 +397,24 @@ async def eurosoft_file_delete(
     except Exception as exc:
         logger.exception("eurosoft_file_delete failed")
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Tool 5: fs_info — self-report co server reálně povoluje (audit, Fáze C)
+# ─────────────────────────────────────────────────────────────────────
+
+async def eurosoft_fs_info(**_extra: Any) -> dict[str, Any]:
+    """Vrátí, co MCP filesystem reálně povoluje — pro audit/kontrolu z appky."""
+    rw_roots, ro_roots = _allow_roots()
+    return {
+        "ok": True,
+        "ns_ro_base": settings.filesystem_ro_base or None,
+        "ns_rw_base": settings.filesystem_rw_base or None,
+        "rw_roots": [str(r) for r in rw_roots],
+        "ro_roots": [str(r) for r in ro_roots],
+        "max_size_bytes": settings.filesystem_max_size,
+        "override_enabled": bool(rw_roots or ro_roots),
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -443,9 +537,33 @@ FILESYSTEM_TOOL_SPECS = [
 ]
 
 
+_BASE_OVERRIDE_DESC = (
+    "Fáze C (volitelně): absolutní cesta-kořen (např. 'D:\\\\data\\\\podklady vyroba'). "
+    "Když je zadán, ignoruje se user_namespace a použije se přímá cesta — MUSÍ ležet "
+    "pod povoleným kořenem (MCP_FS_RW_ROOTS / MCP_FS_RO_ROOTS). Pro pravé složky Centrály."
+)
+
+# base_override do properties všech file toolů (akceptace + dokumentace)
+for _spec in FILESYSTEM_TOOL_SPECS:
+    _spec["inputSchema"]["properties"]["base_override"] = {
+        "type": "string", "description": _BASE_OVERRIDE_DESC,
+    }
+
+FILESYSTEM_TOOL_SPECS.append({
+    "name": "eurosoft_fs_info",
+    "description": (
+        "Self-report MCP filesystem: jaké zóny (ro/rw) a povolené kořeny "
+        "(MCP_FS_RW_ROOTS / MCP_FS_RO_ROOTS) server reálně vynucuje. Pro audit "
+        "z appky — kontrola 'co je nakonfigurováno vs. co server vidí'."
+    ),
+    "inputSchema": {"type": "object", "properties": {}},
+})
+
+
 FILESYSTEM_TOOL_HANDLERS = {
     "eurosoft_file_list": eurosoft_file_list,
     "eurosoft_file_read": eurosoft_file_read,
     "eurosoft_file_write": eurosoft_file_write,
     "eurosoft_file_delete": eurosoft_file_delete,
+    "eurosoft_fs_info": eurosoft_fs_info,
 }

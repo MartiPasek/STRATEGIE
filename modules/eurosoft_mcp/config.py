@@ -87,6 +87,20 @@ class Settings:
     # Max file size pro read/write (bytes). Default 50 MB.
     filesystem_max_size: int = int(os.getenv("MCP_FILESYSTEM_MAX_SIZE", "52428800"))
 
+    # ────────────────────────────────────────────────────────────────────
+    # Fáze C (18.6.2026): povolené kořeny pro base_override (přístup k pravým
+    # složkám Centrály — D:\data\... lokální na EC-SERVER2). Hrubá bezpečnostní
+    # pojistka: base_override MUSÍ ležet pod některým z těchto kořenů.
+    # Jemná konfigurace (které podsložky, kdo) je v STRATEGII (tenant.dir_config).
+    #
+    #   MCP_FS_RW_ROOTS — středníkem oddělené absolutní kořeny se ZÁPISEM
+    #   MCP_FS_RO_ROOTS — středníkem oddělené kořeny jen pro ČTENÍ (mají přednost)
+    #
+    # Příklad: MCP_FS_RW_ROOTS=D:\data;D:\Data\ZZ_Marti-AI RW
+    #          MCP_FS_RO_ROOTS=D:\Data\ZZ_Marti-AI RO
+    fs_rw_roots: str = os.getenv("MCP_FS_RW_ROOTS", "")
+    fs_ro_roots: str = os.getenv("MCP_FS_RO_ROOTS", "")
+
 
 settings = Settings()
 

@@ -175,33 +175,44 @@ def _mcp():
     return get_eurosoft_mcp_client()
 
 
-def _eu_list(rel_subpath):
+def _is_abs_root(root):
+    """Absolutní kořen (D:\\..., \\\\server\\...) → posíláme base_override (Fáze C).
+    Relativní (Smlouvy, CRM) → podsložka v RW zóně (zpětně kompatibilní)."""
+    r = (root or "").strip()
+    return r.startswith("\\\\") or r.startswith("//") or (len(r) >= 2 and r[1] == ":")
+
+
+def _eu_args(root, subpath, path_key):
+    if _is_abs_root(root):
+        return {"user_namespace": "rw", "base_override": root, path_key: (subpath or "")}
+    full = posixpath.join(root.strip("/\\"), subpath) if subpath else root.strip("/\\")
+    return {"user_namespace": "rw", path_key: full}
+
+
+def _eu_list(root, sub):
     mcp = _mcp()
     if mcp is None:
         return {"ok": False, "error": "mcp_offline"}
-    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
-                             {"user_namespace": "rw", "subpath": rel_subpath}, conversation_id=None)
+    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_list", _eu_args(root, sub, "subpath"), conversation_id=None)
     r = _json.loads(raw) if isinstance(raw, str) else raw
     return r if isinstance(r, dict) else {"ok": True, "items": r}
 
 
-def _eu_write(rel_path, content_b64):
+def _eu_write(root, relpath, content_b64):
     mcp = _mcp()
     if mcp is None:
         return {"ok": False, "error": "mcp_offline"}
-    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
-                             {"user_namespace": "rw", "path": rel_path,
-                              "content": content_b64, "encoding": "base64", "mode": "overwrite"},
-                             conversation_id=None)
+    args = _eu_args(root, relpath, "path")
+    args.update({"content": content_b64, "encoding": "base64", "mode": "overwrite"})
+    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_write", args, conversation_id=None)
     return _json.loads(raw) if isinstance(raw, str) else raw
 
 
-def _eu_read(rel_path):
+def _eu_read(root, relpath):
     mcp = _mcp()
     if mcp is None:
         return {"ok": False, "error": "mcp_offline"}
-    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
-                             {"user_namespace": "rw", "path": rel_path}, conversation_id=None)
+    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read", _eu_args(root, relpath, "path"), conversation_id=None)
     return _json.loads(raw) if isinstance(raw, str) else raw
 
 
@@ -291,8 +302,7 @@ async def app_dir_list(req: Request) -> JSONResponse:
         if not prim:
             return JSONResponse({"ok": False, "error": "no_storage"})
         if prim["backend"] == "eurosoft_unc":
-            sub = posixpath.join(prim["root"].strip("/\\"), r["sub"]) if r["sub"] else prim["root"].strip("/\\")
-            res = _eu_list(sub)
+            res = _eu_list(prim["root"], r["sub"])
         else:
             res = _cloud_list(prim["root"], r["sub"])
         _audit(s, uid=uid, scope=scope, dir_config_id=r["config"]["id"],
@@ -307,9 +317,8 @@ async def app_dir_list(req: Request) -> JSONResponse:
 def _write_to(storage, sub, filename, content_b64):
     """Zapíše do jednoho úložiště. Vrací (ok, detail)."""
     if storage["backend"] == "eurosoft_unc":
-        root = storage["root"].strip("/\\")
-        rel = posixpath.join(root, sub, filename) if sub else posixpath.join(root, filename)
-        res = _eu_write(rel, content_b64)
+        relpath = posixpath.join(sub, filename) if sub else filename
+        res = _eu_write(storage["root"], relpath, content_b64)
     else:
         res = _cloud_write(storage["root"], sub, filename, content_b64)
     ok = (res is True) or (isinstance(res, dict) and bool(res.get("ok", False)))
@@ -473,8 +482,8 @@ async def app_dir_read(req: Request) -> JSONResponse:
         if not prim:
             return JSONResponse({"ok": False, "error": "no_storage"})
         if prim["backend"] == "eurosoft_unc":
-            rel = posixpath.join(prim["root"].strip("/\\"), r["sub"], name) if r["sub"] else posixpath.join(prim["root"].strip("/\\"), name)
-            res = _eu_read(rel)
+            relpath = posixpath.join(r["sub"], name) if r["sub"] else name
+            res = _eu_read(prim["root"], relpath)
         else:
             res = _cloud_read_file(prim["root"], r["sub"], name)
         good = isinstance(res, dict) and res.get("ok")
@@ -614,5 +623,67 @@ async def app_dir_storage_delete(req: Request) -> JSONResponse:
         s.execute(_t("DELETE FROM tenant.dir_config_storage WHERE id=:id"), {"id": int((b or {}).get("id") or 0)})
         s.commit()
         return JSONResponse({"ok": True})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@dir_router.get("/app/dir/mcp-info")
+async def app_dir_mcp_info(req: Request) -> JSONResponse:
+    """Audit: co MCP filesystem reálně povoluje (self-report) + křížová kontrola
+    s našimi nakonfigurovanými kořeny. Jen rodič."""
+    uid = _uid(req)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    mcp = _mcp()
+    info = None
+    if mcp is not None:
+        try:
+            raw = mcp.call_tool_sync("eurosoft_eurosoft_fs_info", {}, conversation_id=None)
+            info = _json.loads(raw) if isinstance(raw, str) else raw
+        except Exception as exc:
+            info = {"ok": False, "error": str(exc)[:200]}
+    else:
+        info = {"ok": False, "error": "mcp_offline"}
+    # naše nakonfigurované eurosoft_unc kořeny
+    cm, s = _sess()
+    try:
+        rows = s.execute(_t(
+            "SELECT DISTINCT root_path FROM tenant.dir_config_storage "
+            "WHERE tenant_id=:t AND backend='eurosoft_unc' AND active=true ORDER BY root_path"),
+            {"t": _TENANT}).fetchall()
+        our_roots = [r[0] for r in rows]
+    finally:
+        cm.__exit__(None, None, None)
+    # křížová kontrola: leží náš (absolutní) kořen pod některým povoleným?
+    rw = [str(x) for x in (info.get("rw_roots", []) if isinstance(info, dict) else [])]
+    ro = [str(x) for x in (info.get("ro_roots", []) if isinstance(info, dict) else [])]
+    def _norm(p):
+        return (p or "").replace("/", "\\").rstrip("\\").lower()
+    allow = [_norm(x) for x in (rw + ro)]
+    checks = []
+    for rp in our_roots:
+        is_abs = rp.startswith("\\\\") or (len(rp) >= 2 and rp[1] == ":")
+        nrp = _norm(rp)
+        ok = (not is_abs) or any(nrp == a or nrp.startswith(a + "\\") for a in allow)
+        checks.append({"root": rp, "absolute": is_abs, "covered": ok})
+    return JSONResponse({"ok": True, "mcp": info, "our_roots": our_roots, "checks": checks})
+
+
+@dir_router.get("/app/dir/audit")
+async def app_dir_audit(req: Request) -> JSONResponse:
+    """Posledních N přístupů k souborům (dir_access_log). Jen rodič."""
+    uid = _uid(req)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    cm, s = _sess()
+    try:
+        rows = s.execute(_t(
+            "SELECT to_char(ts,'DD.MM. HH24:MI'), actor_type, actor_id, action, acl_scope, "
+            "resolved_path, ok, COALESCE(error_message,'') "
+            "FROM tenant.dir_access_log WHERE tenant_id=:t ORDER BY id DESC LIMIT 60"),
+            {"t": _TENANT}).fetchall()
+        out = [{"ts": r[0], "actor_type": r[1], "actor_id": r[2], "action": r[3],
+                "scope": r[4], "path": r[5], "ok": r[6], "err": r[7]} for r in rows]
+        return JSONResponse({"ok": True, "rows": out})
     finally:
         cm.__exit__(None, None, None)

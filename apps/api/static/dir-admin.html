@@ -50,6 +50,37 @@ async function j(u,o){const r=await fetch(u,Object.assign({credentials:"include"
 function esc(s){return(s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function opts(arr,sel){return arr.map(v=>'<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>').join('')}
 
+async function loadMcp(){
+  const box=document.getElementById("mcpBody");box.innerHTML="Načítám…";
+  const r=await j(API+"/mcp-info");
+  if(!r.ok){box.innerHTML='<span style="color:#ff8a8a">Chyba: '+esc(r.error||"?")+'</span>';return;}
+  const m=r.mcp||{};
+  let h='';
+  if(!m.ok){h+='<div style="color:#fbbf24">MCP: '+esc(m.error||"nedostupné")+'</div>';}
+  h+='<div><b>Povolené kořeny pro zápis (RW):</b><br>'+((m.rw_roots||[]).map(esc).join('<br>')||'<i>žádné — base_override vypnutý</i>')+'</div>';
+  h+='<div style="margin-top:6px"><b>Jen pro čtení (RO):</b><br>'+((m.ro_roots||[]).map(esc).join('<br>')||'<i>—</i>')+'</div>';
+  h+='<div style="margin-top:8px"><b>Naše nakonfigurované kořeny vs. server:</b></div>';
+  (r.checks||[]).forEach(c=>{
+    const col=c.covered?'#34d399':(c.absolute?'#ff8a8a':'#9fb0d0');
+    const tag=c.absolute?(c.covered?'✅ pokryto':'⛔ MIMO povolené kořeny'):'• RW zóna (zón ro/rw)';
+    h+='<div style="color:'+col+';padding:2px 0">'+esc(c.root)+' — '+tag+'</div>';
+  });
+  box.innerHTML=h;
+}
+async function loadAudit(){
+  const box=document.getElementById("audBody");box.innerHTML="Načítám…";
+  const r=await j(API+"/audit");
+  if(!r.ok){box.innerHTML='<span style="color:#ff8a8a">Chyba: '+esc(r.error||"?")+'</span>';return;}
+  if(!(r.rows||[]).length){box.innerHTML='<i>Zatím žádné záznamy.</i>';return;}
+  let h='<table style="width:100%;border-collapse:collapse;font-size:12px">';
+  r.rows.forEach(x=>{
+    h+='<tr style="border-bottom:1px solid var(--line)"><td style="padding:3px 4px;color:var(--mut)">'+esc(x.ts)+'</td>'+
+       '<td style="padding:3px 4px">'+esc(x.action)+'</td><td style="padding:3px 4px;color:var(--mut)">'+esc(x.scope)+'</td>'+
+       '<td style="padding:3px 4px">'+esc(x.path||'')+'</td><td style="padding:3px 4px">'+(x.ok?'✓':'<span style="color:#ff8a8a">✗ '+esc(x.err||'')+'</span>')+'</td></tr>';
+  });
+  h+='</table>';box.innerHTML=h;
+}
+
 async function load(){
   const r=await j(API+"/configs");
   if(!r.ok){root.innerHTML='<div class="card msg err">'+(r.error==="forbidden"?"Tato stránka je jen pro rodiče (admin).":("Chyba: "+esc(r.error)))+'</div>';return;}
@@ -59,6 +90,12 @@ async function load(){
   document.getElementById("addNew").onclick=()=>openEdit(null);
   (r.configs||[]).forEach(c=>root.appendChild(cardFor(c)));
   if(!(r.configs||[]).length)root.appendChild(el('<div class="card muted">Zatím žádné konfigurace.</div>'));
+  var mcpBox=el('<div class="card"><div class="crow" style="cursor:default"><div class="t">🔌 MCP server — co reálně povoluje</div><button class="btn g sm" id="mcpBtn">Načíst</button></div><div id="mcpBody" class="muted" style="margin-top:8px">Klikni „Načíst" pro kontrolu serveru.</div></div>');
+  root.appendChild(mcpBox);
+  document.getElementById("mcpBtn").onclick=loadMcp;
+  var audBox=el('<div class="card"><div class="crow" style="cursor:default"><div class="t">📜 Poslední přístupy k souborům</div><button class="btn g sm" id="audBtn">Načíst</button></div><div id="audBody" class="muted" style="margin-top:8px">Klikni „Načíst" pro log.</div></div>');
+  root.appendChild(audBox);
+  document.getElementById("audBtn").onclick=loadAudit;
 }
 
 function cardFor(c){

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Adresáře — konfigurace</title>
+<style>
+  :root{ --bg:#0b1020; --card:#16203c; --line:#26314f; --tx:#e8eef9; --mut:#9fb0d0;
+         --acc:#5b8def; --acc2:#7c5cff; --ok:#3ecf8e; --warn:#f0a93b; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,#0b1020,#0e1430 60%,#0b1020);color:var(--tx);min-height:100vh}
+  .wrap{max-width:820px;margin:0 auto;padding:18px 14px 60px}
+  .hd{display:flex;align-items:center;gap:10px;margin:4px 2px 12px}
+  .hd .ic{font-size:24px}.hd h1{font-size:17px;margin:0;font-weight:700}
+  .hd .p{font-size:12px;color:var(--mut)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:10px 0}
+  .crow{display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer}
+  .crow .t{font-weight:700}.crow .m{font-size:12px;color:var(--mut);margin-top:2px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;
+        background:rgba(91,141,239,.15);color:var(--acc);border:1px solid rgba(91,141,239,.35);margin-left:6px}
+  .pill.s{background:rgba(240,169,59,.15);color:var(--warn);border-color:rgba(240,169,59,.35)}
+  label{display:block;font-size:12px;color:var(--mut);margin:8px 0 3px}
+  input,select{width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:#0e1530;color:var(--tx);font-size:14px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .btn{padding:10px 14px;border:none;border-radius:9px;font-size:14px;font-weight:700;color:#fff;
+       background:linear-gradient(135deg,var(--acc),var(--acc2));cursor:pointer;margin-top:8px}
+  .btn.g{background:#1a2340;border:1px solid var(--line)}
+  .btn.sm{padding:6px 10px;font-size:12px;margin:0}
+  .stor{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid var(--line);border-radius:8px;margin:6px 0}
+  .stor input{width:auto;flex:1;min-width:160px}.stor select{width:auto}
+  .muted{color:var(--mut);font-size:13px}
+  .msg{font-size:13px;min-height:16px;margin-top:6px}.msg.ok{color:var(--ok)}.msg.err{color:#ff8a8a}
+  a.lnk{color:var(--acc);text-decoration:none;font-size:13px}
+  .edit{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><div class="ic">🗂️</div><div><h1>Adresáře — konfigurace modulů</h1>
+    <div class="p">Kde a jak se ukládají dokumenty jednotlivých přehledů</div></div></div>
+  <div id="root"><div class="card muted">Načítám…</div></div>
+</div>
+<script>
+const API="/api/v1/erp/app/dir";
+let META={rules:[],scopes:[],backends:[]};
+const root=document.getElementById("root");
+function el(h){const d=document.createElement("div");d.innerHTML=h;return d.firstElementChild;}
+async function j(u,o){const r=await fetch(u,Object.assign({credentials:"include",headers:{"Content-Type":"application/json"}},o||{}));try{return await r.json()}catch(e){return{ok:false,error:"net"}}}
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function opts(arr,sel){return arr.map(v=>'<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>').join('')}
+
+async function load(){
+  const r=await j(API+"/configs");
+  if(!r.ok){root.innerHTML='<div class="card msg err">'+(r.error==="forbidden"?"Tato stránka je jen pro rodiče (admin).":("Chyba: "+esc(r.error)))+'</div>';return;}
+  META={rules:r.rules,scopes:r.scopes,backends:r.backends};
+  root.innerHTML="";
+  root.appendChild(el('<button class="btn" id="addNew">➕ Nová konfigurace adresáře</button>'));
+  document.getElementById("addNew").onclick=()=>openEdit(null);
+  (r.configs||[]).forEach(c=>root.appendChild(cardFor(c)));
+  if(!(r.configs||[]).length)root.appendChild(el('<div class="card muted">Zatím žádné konfigurace.</div>'));
+}
+
+function cardFor(c){
+  const card=el('<div class="card"></div>');
+  const stor=(c.storages||[]).map(s=>esc(s.role)+': '+esc(s.backend)+' '+esc(s.root_path)).join(' · ')||'(bez úložiště)';
+  card.appendChild(el('<div class="crow"><div><div class="t">'+esc(c.name||c.sys_name)+
+    '<span class="pill">'+esc(c.sys_name)+'</span><span class="pill s">'+esc(c.acl_scope)+'</span>'+(c.active?'':' <span class="pill s">vypnuto</span>')+'</div>'+
+    '<div class="m">podsložka: '+esc(c.subfolder_rule)+' · '+stor+'</div></div>'+
+    '<div><a class="lnk" href="/files?type='+encodeURIComponent(c.sys_name)+'&name='+encodeURIComponent(c.name||c.sys_name)+'" target="_blank">📁 Soubory</a></div></div>'));
+  const ed=el('<div class="edit"></div>');
+  const btn=el('<button class="btn g sm" style="margin-top:8px">✏️ Upravit</button>');
+  btn.onclick=()=>{ed.style.display=ed.style.display==="block"?"none":"block";if(ed.style.display==="block")fillEdit(ed,c);};
+  card.appendChild(btn);card.appendChild(ed);
+  return card;
+}
+
+function openEdit(c){
+  const card=el('<div class="card"></div>');
+  const ed=el('<div class="edit" style="display:block;border-top:none;padding-top:0"></div>');
+  card.appendChild(ed);fillEdit(ed,c||{});root.insertBefore(card,root.children[1]);
+}
+
+function fillEdit(ed,c){
+  ed.innerHTML=
+    '<div class="grid2">'+
+    '<div><label>Systémový název (sys_name)</label><input id="f_sys" value="'+esc(c.sys_name||'')+'" placeholder="napr. kontakt"></div>'+
+    '<div><label>Lidský název</label><input id="f_name" value="'+esc(c.name||'')+'"></div>'+
+    '<div><label>Pravidlo podsložky</label><select id="f_rule">'+opts(META.rules,c.subfolder_rule||'id')+'</select></div>'+
+    '<div><label>Práva (kdo vidí)</label><select id="f_scope">'+opts(META.scopes,c.acl_scope||'business')+'</select></div>'+
+    '<div><label>Zkratka (volitelně)</label><input id="f_code" value="'+esc(c.short_code||'')+'"></div>'+
+    '<div><label>Řada (volitelně)</label><input id="f_series" value="'+esc(c.series||'')+'"></div>'+
+    '</div>'+
+    '<label><input type="checkbox" id="f_active" '+(c.active===false?'':'checked')+' style="width:auto"> aktivní</label>'+
+    '<button class="btn" id="saveCfg">💾 Uložit konfiguraci</button><div class="msg" id="cfgMsg"></div>'+
+    '<div id="storWrap" style="margin-top:10px"></div>';
+  if(c.id)renderStor(ed,c);
+  else ed.querySelector("#storWrap").innerHTML='<div class="muted">Úložiště přidáš po uložení konfigurace.</div>';
+  ed.querySelector("#saveCfg").onclick=async()=>{
+    const m=ed.querySelector("#cfgMsg");m.className="msg";m.textContent="Ukládám…";
+    const body={id:c.id,sys_name:ed.querySelector("#f_sys").value.trim(),name:ed.querySelector("#f_name").value.trim(),
+      subfolder_rule:ed.querySelector("#f_rule").value,acl_scope:ed.querySelector("#f_scope").value,
+      short_code:ed.querySelector("#f_code").value.trim(),series:ed.querySelector("#f_series").value.trim(),
+      active:ed.querySelector("#f_active").checked};
+    const r=await j(API+"/config/save",{method:"POST",body:JSON.stringify(body)});
+    if(r.ok){m.className="msg ok";m.textContent="Uloženo.";setTimeout(load,500);}
+    else{m.className="msg err";m.textContent="Chyba: "+esc(r.error||"?");}
+  };
+}
+
+function renderStor(ed,c){
+  const w=ed.querySelector("#storWrap");
+  let h='<div style="font-weight:700;font-size:13px;margin-bottom:4px">Úložiště</div>';
+  (c.storages||[]).forEach(s=>{
+    h+='<div class="stor"><select data-k="role">'+opts(["primary","mirror","archive"],s.role)+'</select>'+
+       '<select data-k="backend">'+opts(META.backends,s.backend)+'</select>'+
+       '<input data-k="root" value="'+esc(s.root_path)+'">'+
+       '<button class="btn sm" data-act="save" data-id="'+s.id+'">💾</button>'+
+       '<button class="btn g sm" data-act="del" data-id="'+s.id+'">🗑</button></div>';
+  });
+  h+='<div class="stor"><select id="ns_role">'+opts(["primary","mirror","archive"],"primary")+'</select>'+
+     '<select id="ns_backend">'+opts(META.backends,"eurosoft_unc")+'</select>'+
+     '<input id="ns_root" placeholder="kořen (napr. CRM nebo \\\\server\\share\\)">'+
+     '<button class="btn sm" id="ns_add">➕ přidat</button></div><div class="msg" id="storMsg"></div>';
+  w.innerHTML=h;
+  w.querySelectorAll('[data-act]').forEach(b=>{
+    b.onclick=async()=>{
+      const row=b.closest(".stor");const id=b.getAttribute("data-id");const m=w.querySelector("#storMsg");
+      if(b.getAttribute("data-act")==="del"){await j(API+"/storage/delete",{method:"POST",body:JSON.stringify({id:+id})});setTimeout(load,400);return;}
+      const body={id:+id,dir_config_id:c.id,role:row.querySelector('[data-k=role]').value,
+        backend:row.querySelector('[data-k=backend]').value,root_path:row.querySelector('[data-k=root]').value.trim()};
+      const r=await j(API+"/storage/save",{method:"POST",body:JSON.stringify(body)});
+      m.className="msg "+(r.ok?"ok":"err");m.textContent=r.ok?"Uloženo.":("Chyba: "+esc(r.error||"?"));
+    };
+  });
+  w.querySelector("#ns_add").onclick=async()=>{
+    const m=w.querySelector("#storMsg");
+    const body={dir_config_id:c.id,role:w.querySelector("#ns_role").value,backend:w.querySelector("#ns_backend").value,
+      root_path:w.querySelector("#ns_root").value.trim()};
+    if(!body.root_path){m.className="msg err";m.textContent="Zadej kořen.";return;}
+    const r=await j(API+"/storage/save",{method:"POST",body:JSON.stringify(body)});
+    if(r.ok){setTimeout(load,400);}else{m.className="msg err";m.textContent="Chyba: "+esc(r.error||"?");}
+  };
+}
+load();
+</script>
+</body>
+</html>

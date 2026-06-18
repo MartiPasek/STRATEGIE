@@ -491,19 +491,128 @@ async def app_dir_read(req: Request) -> JSONResponse:
 
 @dir_router.get("/app/dir/configs")
 async def app_dir_configs(req: Request) -> JSONResponse:
-    """Admin: seznam konfigurací adresářů (jen rodič)."""
+    """Admin: seznam konfigurací adresářů + jejich úložiště (jen rodič)."""
     uid = _uid(req)
     if not uid or not _is_parent(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     cm, s = _sess()
     try:
         rows = s.execute(_t(
-            "SELECT c.id, c.sys_name, c.short_code, c.series, c.name, c.subfolder_rule, c.acl_scope, c.active, "
-            "(SELECT count(*) FROM tenant.dir_config_storage st WHERE st.dir_config_id=c.id) "
+            "SELECT c.id, c.sys_name, c.short_code, c.series, c.name, c.subfolder_rule, c.acl_scope, c.active "
             "FROM tenant.dir_config c WHERE c.tenant_id=:t ORDER BY c.sys_name, c.series"),
             {"t": _TENANT}).fetchall()
-        out = [{"id": r[0], "sys_name": r[1], "short_code": r[2], "series": r[3], "name": r[4],
-                "subfolder_rule": r[5], "acl_scope": r[6], "active": r[7], "storages": r[8]} for r in rows]
-        return JSONResponse({"ok": True, "configs": out})
+        out = []
+        for r in rows:
+            st = s.execute(_t(
+                "SELECT id, role, backend, root_path, active FROM tenant.dir_config_storage "
+                "WHERE dir_config_id=:c ORDER BY id"), {"c": r[0]}).fetchall()
+            out.append({"id": r[0], "sys_name": r[1], "short_code": r[2], "series": r[3], "name": r[4],
+                        "subfolder_rule": r[5], "acl_scope": r[6], "active": r[7],
+                        "storages": [{"id": x[0], "role": x[1], "backend": x[2], "root_path": x[3], "active": x[4]} for x in st]})
+        return JSONResponse({"ok": True, "configs": out,
+                             "rules": ["id", "cislo_zakazky", "poradove_cislo", "cislo_org", "user_id", "none"],
+                             "scopes": ["business", "sablona", "hr", "self", "parent", "confidential"],
+                             "backends": ["eurosoft_unc", "cloud"]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@dir_router.post("/app/dir/config/save")
+async def app_dir_config_save(req: Request) -> JSONResponse:
+    """Vytvoří/upraví konfiguraci adresáře (jen rodič)."""
+    uid = _uid(req)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    sys_name = str((b or {}).get("sys_name") or "").strip()
+    if not sys_name:
+        return JSONResponse({"ok": False, "error": "sys_name_required"}, status_code=400)
+    rule = str((b or {}).get("subfolder_rule") or "id").strip()
+    if rule not in _SUBFOLDER_RULES:
+        rule = "id"
+    scope = str((b or {}).get("acl_scope") or "business").strip()
+    fields = {"sys_name": sys_name, "short_code": str((b or {}).get("short_code") or "").strip(),
+              "series": str((b or {}).get("series") or "").strip(), "name": str((b or {}).get("name") or "").strip(),
+              "subfolder_rule": rule, "acl_scope": scope,
+              "active": bool((b or {}).get("active", True))}
+    cid = (b or {}).get("id")
+    cm, s = _sess()
+    try:
+        if cid:
+            s.execute(_t("UPDATE tenant.dir_config SET sys_name=:sys_name, short_code=:short_code, "
+                         "series=:series, name=:name, subfolder_rule=:subfolder_rule, acl_scope=:acl_scope, "
+                         "active=:active, updated_at=now() WHERE id=:id AND tenant_id=:t"),
+                      dict(fields, id=int(cid), t=_TENANT))
+            new_id = int(cid)
+        else:
+            new_id = s.execute(_t(
+                "INSERT INTO tenant.dir_config (tenant_id, sys_name, short_code, series, name, subfolder_rule, acl_scope, active) "
+                "VALUES (:t,:sys_name,:short_code,:series,:name,:subfolder_rule,:acl_scope,:active) RETURNING id"),
+                dict(fields, t=_TENANT)).scalar()
+        s.commit()
+        return JSONResponse({"ok": True, "id": new_id})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=200)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@dir_router.post("/app/dir/storage/save")
+async def app_dir_storage_save(req: Request) -> JSONResponse:
+    """Přidá/upraví úložiště ke konfiguraci (jen rodič)."""
+    uid = _uid(req)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        cfg = int((b or {}).get("dir_config_id") or 0)
+    except Exception:
+        cfg = 0
+    root = str((b or {}).get("root_path") or "").strip()
+    if not (cfg and root):
+        return JSONResponse({"ok": False, "error": "missing_params"}, status_code=400)
+    role = str((b or {}).get("role") or "primary").strip()
+    backend = str((b or {}).get("backend") or "eurosoft_unc").strip()
+    sid = (b or {}).get("id")
+    cm, s = _sess()
+    try:
+        if sid:
+            s.execute(_t("UPDATE tenant.dir_config_storage SET role=:r, backend=:b, root_path=:p, "
+                         "active=:a WHERE id=:id"),
+                      {"r": role, "b": backend, "p": root, "a": bool((b or {}).get("active", True)), "id": int(sid)})
+        else:
+            s.execute(_t("INSERT INTO tenant.dir_config_storage (tenant_id, dir_config_id, role, backend, root_path) "
+                         "VALUES (:t,:c,:r,:b,:p) ON CONFLICT (dir_config_id, backend, root_path) DO NOTHING"),
+                      {"t": _TENANT, "c": cfg, "r": role, "b": backend, "p": root})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=200)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@dir_router.post("/app/dir/storage/delete")
+async def app_dir_storage_delete(req: Request) -> JSONResponse:
+    uid = _uid(req)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    cm, s = _sess()
+    try:
+        s.execute(_t("DELETE FROM tenant.dir_config_storage WHERE id=:id"), {"id": int((b or {}).get("id") or 0)})
+        s.commit()
+        return JSONResponse({"ok": True})
     finally:
         cm.__exit__(None, None, None)

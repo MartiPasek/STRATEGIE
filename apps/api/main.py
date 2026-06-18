@@ -911,6 +911,15 @@ def flow_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/dir-admin")
+def dir_admin_page():
+    """Správa konfigurací adresářů (rodič): typ modulu, kde leží, pravidlo podsložky,
+    práva, úložiště. Marti 18.6.2026 — 'kde uvidím konfiguraci modulů'."""
+    return FileResponse(os.path.join(static_dir, "dir-admin.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/files")
 def files_page():
     """Souborový panel (Fáze B): ?type=&id=&series= → soubory z resolveru +

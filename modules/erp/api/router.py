@@ -22961,6 +22961,54 @@ async def app_absence_plan(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# Segmenty skupin pro denní tabuli (editovatelné). „Bez skupiny" se nezobrazí.
+_ABSENCE_SEGMENTY = {
+    "vyroba": {"Výroba", "Zkušebna", "VP", "Nákup", "PLC", "E-plan"},
+    "kancelar": {"IT", "HR", "Obchod", "Vedení"},
+}
+
+
+@api_router.get("/app/absence-plan/grid")
+async def app_absence_plan_grid(req: Request) -> JSONResponse:
+    """Denní tabule plánu nepřítomností pro SEGMENT (vyroba|kancelar): lidé × dny
+    (Po–Pá), od pondělí aktuálního týdne na 3 týdny (15 prac. dní). Jen lidé,
+    co mají v okně aspoň jednu naplánovanou nepřítomnost. Rodiče + HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    seg = (req.query_params.get("seg") or "vyroba").strip()
+    grp_set = _ABSENCE_SEGMENTY.get(seg)
+    if not grp_set:
+        return JSONResponse({"ok": False, "error": "bad_segment"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not (_app_parent(s, uid) or _hr_can_manage(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "WITH base AS ("
+            "  SELECT a.user_id, "
+            "    COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'#'||a.cislo_zam) jmeno, "
+            "    a.datum, a.druh_nazev, a.schvaleno, "
+            "    (SELECT g.name FROM tenant.staff_group_member m JOIN tenant.staff_group g "
+            "        ON g.id=m.group_id AND g.tenant_id=2 AND COALESCE(g.archived,false)=false "
+            "      WHERE m.tenant_id=2 AND m.user_id=a.user_id "
+            "      ORDER BY COALESCE(m.score,0) DESC, g.id LIMIT 1) skupina "
+            "  FROM tenant.att_planned_absence a LEFT JOIN public.users u ON u.id=a.user_id "
+            "  WHERE a.tenant_id=2 AND a.datum >= date_trunc('week', CURRENT_DATE)::date "
+            "    AND a.datum < (date_trunc('week', CURRENT_DATE)::date + 21)) "
+            "SELECT jmeno, datum, druh_nazev, schvaleno, skupina FROM base "
+            "WHERE skupina = ANY(:gs) ORDER BY jmeno, datum"),
+            {"gs": list(grp_set)}).fetchall()
+        out = [{"jmeno": r[0], "datum": r[1].isoformat(), "druh": r[2] or "—",
+                "schvaleno": bool(r[3]), "skupina": r[4]} for r in rows]
+        return JSONResponse({"ok": True, "seg": seg, "radky": out})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/absence-plan/by-group")
 async def app_absence_plan_by_group(req: Request) -> JSONResponse:
     """Plán nepřítomností — pohled PO SKUPINÁCH × TÝDNECH. Vrací ploché řádky

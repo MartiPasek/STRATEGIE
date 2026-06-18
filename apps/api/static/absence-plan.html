@@ -50,6 +50,19 @@
   .pr{display:flex;gap:8px;font-size:12.5px;padding:2px 0}
   .pr .pn{flex:1;min-width:0}
   .pr .pd{color:var(--mut);font-size:11px;white-space:nowrap}
+  /* denní mřížka */
+  .gscroll{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+  table.gd{border-collapse:collapse;font-size:11.5px;white-space:nowrap}
+  table.gd th,table.gd td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:5px 6px;text-align:center}
+  table.gd th.nm,table.gd td.nm{position:sticky;left:0;background:#101a33;text-align:left;min-width:120px;max-width:140px;
+       overflow:hidden;text-overflow:ellipsis;z-index:2;font-weight:600}
+  table.gd thead th{position:sticky;top:0;background:#101a33;color:#bcd0f5;font-weight:700;font-size:10.5px;line-height:1.15;z-index:1}
+  table.gd thead th.nm{z-index:3}
+  table.gd td.cell{min-width:30px;color:#cfe0ff}
+  table.gd .wksep{border-left:2px solid var(--acc)}
+  table.gd .we{background:#0e1530;color:#41506e}
+  table.gd tr:hover td{background:rgba(255,255,255,.03)}
+  table.gd tr:hover td.nm{background:#16203c}
 </style>
 </head>
 <body>
@@ -68,6 +81,8 @@
     <div class="rail">
       <div class="vbtn on" id="v_lide" onclick="setView('lide')"><span class="e">🔤</span>Lidé<br>(abecedně)</div>
       <div class="vbtn" id="v_skup" onclick="setView('skup')"><span class="e">📅</span>Skupiny<br>× týdny</div>
+      <div class="vbtn" id="v_kancelar" onclick="setView('kancelar')"><span class="e">🏢</span>Kanceláře<br>po dnech</div>
+      <div class="vbtn" id="v_vyroba" onclick="setView('vyroba')"><span class="e">🏭</span>Výroba<br>po dnech</div>
     </div>
   </div>
 </div>
@@ -85,12 +100,12 @@ function emo(d){d=(d||"").toLowerCase();
   if(d.indexOf("sick")>=0)return "🤧"; return "📅";}
 function setView(v){
   VIEW=v;
-  document.getElementById("v_lide").classList.toggle("on",v==="lide");
-  document.getElementById("v_skup").classList.toggle("on",v==="skup");
+  ["lide","skup","kancelar","vyroba"].forEach(k=>document.getElementById("v_"+k).classList.toggle("on",v===k));
+  document.getElementById("rng").style.visibility=(v==="kancelar"||v==="vyroba")?"hidden":"visible";
   load();
 }
 rng.onchange=load;
-function load(){ if(VIEW==="lide") loadLide(); else loadSkup(); }
+function load(){ if(VIEW==="lide") loadLide(); else if(VIEW==="skup") loadSkup(); else loadGrid(VIEW); }
 
 /* ---- Pohled 1: Lidé (abecedně) ---- */
 async function loadLide(){
@@ -163,6 +178,38 @@ async function loadSkup(){
     html+='<div class="grp"><div class="ghead"><span class="gc">'+esc(g)+'</span><span class="gn">'+G[g].dni+' dní</span></div>'+wkHtml+'</div>';
   });
   root.innerHTML=html;
+}
+
+/* ---- Pohledy 3+4: Denní tabule (Kanceláře / Výroba) ---- */
+const DOW=["Po","Út","St","Čt","Pá","So","Ne"];
+async function loadGrid(seg){
+  document.getElementById("ttl").textContent=(seg==="vyroba"?"Výroba":"Kanceláře")+" — po dnech (3 týdny)";
+  root.innerHTML='<div class="muted">Načítám…</div>';
+  const r=await fetch("/api/v1/erp/app/absence-plan/grid?seg="+seg,{credentials:"include"}).then(x=>x.json()).catch(()=>null);
+  if(!r||!r.ok){root.innerHTML='<div class="muted" style="color:#ff8a8a">'+((r&&r.error==="forbidden")?"Pro vedení a HR.":"Chyba načtení.")+'</div>';return;}
+  // dny: pondělí aktuálního týdne, 15 prac. dní (Po–Pá × 3 týdny)
+  const mon=weekMon(new Date()); mon.setHours(0,0,0,0);
+  const days=[];
+  for(let i=0;i<21;i++){const d=new Date(mon);d.setDate(mon.getDate()+i);const dw=(d.getDay()+6)%7;if(dw<5)days.push({d:d,dw:dw,
+    iso:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")});}
+  // osoby -> den -> druh
+  const P={};
+  (r.radky||[]).forEach(x=>{P[x.jmeno]=P[x.jmeno]||{};P[x.jmeno][x.datum]={druh:x.druh,schvaleno:x.schvaleno};});
+  const jmena=Object.keys(P).sort((a,b)=>a.localeCompare(b,"cs"));
+  if(!jmena.length){root.innerHTML='<div class="muted">V nejbližších 3 týdnech nikdo z této oblasti naplánovanou nepřítomnost nemá. 👍</div>';return;}
+  sub.textContent=jmena.length+" lidí má v nejbližších 3 týdnech nepřítomnost · Po–Pá od "+days[0].d.getDate()+". "+MON[days[0].d.getMonth()];
+  let head='<tr><th class="nm">Jméno</th>';
+  days.forEach((dy,i)=>{ const sep=(i>0&&dy.dw===0)?" wksep":""; head+='<th class="'+sep+'">'+DOW[dy.dw]+'<br>'+dy.d.getDate()+". "+MON[dy.d.getMonth()]+'</th>'; });
+  head+='</tr>';
+  let body="";
+  jmena.forEach(jm=>{
+    let tds="";
+    days.forEach((dy,i)=>{ const sep=(i>0&&dy.dw===0)?" wksep":""; const a=P[jm][dy.iso];
+      tds+='<td class="cell'+sep+'"'+(a?(' title="'+esc(a.druh)+(a.schvaleno?"":" (čeká)")+'"'):'')+'>'+(a?emo(a.druh):'')+'</td>'; });
+    body+='<tr><td class="nm" title="'+esc(jm)+'">'+esc(jm)+'</td>'+tds+'</tr>';
+  });
+  root.innerHTML='<div class="gscroll"><table class="gd"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
+    '<div class="muted" style="margin-top:8px">Emoji = naplánovaná nepřítomnost (najetím/podržením zobrazí druh). Týdny oddělené modrou čarou. Začíná aktuálním týdnem.</div>';
 }
 load();
 </script>

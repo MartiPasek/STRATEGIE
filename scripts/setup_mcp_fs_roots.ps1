@@ -12,18 +12,41 @@
 
 param(
   [string]$Service = "EUROSOFT-MCP",
+  [string]$NssmPath = "",
   [string]$RwRoots = "D:\data;\\192.168.30.11\data;\\192.168.30.10\Data;D:\Data\ZZ_Marti-AI RW",
   [string]$RoRoots = "D:\Data\ZZ_Marti-AI RO"
 )
 
 $ErrorActionPreference = "Stop"
 
-# najdi nssm
+# najdi nssm - 0) parametr, 1) z definice sluzby (PathName), 2) znama mista, 3) PATH
 $nssm = $null
-foreach ($p in @("C:\Tools\nssm.exe","C:\nssm\nssm.exe","nssm.exe")) {
-  try { & $p version *> $null; $nssm = $p; break } catch { }
+if ($NssmPath -and (Test-Path $NssmPath)) { $nssm = $NssmPath }
+if (-not $nssm) {
+  try {
+    $svc = Get-CimInstance Win32_Service -Filter "Name='$Service'" -ErrorAction SilentlyContinue
+    if ($svc -and $svc.PathName) {
+      Write-Host ("binPath sluzby: " + $svc.PathName)
+      if ($svc.PathName -match '([A-Za-z]:\\[^"]*nssm\.exe)') { $nssm = $Matches[1] }
+    }
+  } catch { }
 }
-if (-not $nssm) { Write-Host "CHYBA: nssm.exe nenalezen (zkus C:\Tools\nssm.exe)"; exit 1 }
+if (-not $nssm) {
+  foreach ($p in @("C:\Tools\nssm.exe","C:\nssm\nssm.exe","C:\Windows\nssm.exe","D:\Tools\nssm.exe")) {
+    if (Test-Path $p) { $nssm = $p; break }
+  }
+}
+if (-not $nssm) {
+  $cmd = Get-Command nssm.exe -ErrorAction SilentlyContinue
+  if ($cmd) { $nssm = $cmd.Source }
+}
+if (-not $nssm) {
+  Write-Host "CHYBA: nssm.exe nenalezen."
+  Write-Host "Zjisti cestu k sluzbe rucne:"
+  Write-Host "  (Get-CimInstance Win32_Service -Filter `"Name='$Service'`").PathName"
+  Write-Host "a spust skript znovu s parametrem -NssmPath <cesta\nssm.exe>, nebo mi tu cestu posli."
+  exit 1
+}
 Write-Host "nssm: $nssm"
 Write-Host "sluzba: $Service"
 

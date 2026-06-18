@@ -22517,6 +22517,60 @@ async def app_ops_run(req: Request) -> JSONResponse:
                          "message": "Příkaz zařazen — %s provede do ~30 s." % meta["target"]})
 
 
+# ─── MIGRACE hub (Marti 18.6.2026): řídicí panel hybridní fáze (starý+nový
+#     systém souběžně, červen→~půlka července). Kurátorované kroky synců +
+#     kdy spouštět + kdy naposledy běžely (z fw.ops_request). Pro rodiče + Jirku
+#     (zodpovědný za migraci docházky a podkladů pro mzdy). ───
+_MIGRACE_STEPS = {
+    "dochazka": [
+        {"key": "sync_dochazka_sumaden",
+         "when": "Po měsíční uzávěrce v Centrále (případně průběžně). Natáhne DENNÍ SOUHRN docházky (mzdový podklad: odpracováno/dovolená/nemoc/OČR/… + fond) z EC_Dochazka_SumaDen za 2026."},
+        {"key": "sync_vyroba_plan",
+         "when": "Dle potřeby — když se v Centrále mění plán montérů (vstup pro vytížení dílny)."},
+    ],
+    "mzdy": [
+        {"key": "sync_dochazka_sumaden",
+         "when": "1) NEJDŘÍV — podklad odpracováno/absence za období (z docházky Centrály)."},
+        {"key": "sync_pasky",
+         "when": "2) Po zpracování mezd v Heliosu (měsíčně) — zrcadlo výplatních pásek EC+ES."},
+        {"key": "sync_fin",
+         "when": "3) Při změně smluv / mzdových složek (jinak stačí 1× za období)."},
+        {"key": "sync_priplatky",
+         "when": "4) Měsíčně k aktuálnímu období — příplatky a srážky."},
+    ],
+}
+
+
+@api_router.get("/app/migrace/steps")
+async def app_migrace_steps(req: Request) -> JSONResponse:
+    """Kroky migrace pro daný okruh (dochazka|mzdy) + kdy naposledy běžely. Rodič/Jirka."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    domain = (req.query_params.get("domain") or "").strip()
+    steps_def = _MIGRACE_STEPS.get(domain) or []
+    cm, s = _att_session()
+    try:
+        if not _app_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        out = []
+        for st in steps_def:
+            meta = _OPS_ACTIONS.get(st["key"]) or {}
+            lr = s.execute(_t(
+                "SELECT status, result, requested_by_name, "
+                " to_char(COALESCE(finished_at,created_at),'DD.MM.YYYY HH24:MI') "
+                "FROM fw.ops_request WHERE action_key=:k ORDER BY id DESC LIMIT 1"),
+                {"k": st["key"]}).first()
+            out.append({
+                "key": st["key"], "label": meta.get("label") or st["key"], "when": st["when"],
+                "last": ({"status": lr[0], "result": lr[1], "by": lr[2], "ts": lr[3]} if lr else None),
+            })
+        return JSONResponse({"ok": True, "domain": domain, "steps": out})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.

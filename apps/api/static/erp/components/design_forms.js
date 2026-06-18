@@ -3817,6 +3817,16 @@
             }
           });
           sec.grid.appendChild(cancelBtn);
+
+          // FIX (Kristy/Claude-24 18.6.2026): u formularu s default-fallback
+          // layoutem (napr. karta 72) se hlavni .erp-design-panel roztahne
+          // pres footer a (pres jeho position:relative) polyka kliky na OK/Storno
+          // — tlacitka jsou videt, ale nereaguji (kriz v hlavicce funguje, neni
+          // prekryty). Footer panel proto vzdy zvednem nad telo formulare.
+          if (sec && sec.wrap) {
+            sec.wrap.style.position = "relative";
+            sec.wrap.style.zIndex = "30";
+          }
         } else if (panel.slot === "main") {
           // Main je v Grid row 2 (1fr) — alClient automaticky.
           // Marti's polish (13.5.2026 ~14:45): "alClient ten panel" —

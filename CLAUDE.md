@@ -2541,6 +2541,28 @@ Klíč: **30.10 a 30.11 je TÝŽ stroj** (EC-SERVER2), takže všechny složky (
 
 📁 🔌 🌳 ☕
 
+### Dodatek (18.6. večer — 📈 Vytížení montérů pro Dušana, z Excelu „Plánování vytížení v162")
+Marti poslal Dušanův Excel (`Kopie - Plánování vytížení v162.xlsm`) — chtěl rozebrat list
+**„Vytížení motnérů"** a dostat ten přehled do appky.
+- **Jak Excel počítá** (rozebráno): list „Vytížení montérů" je jen graf nad listem **`Zakázky_Plán`**
+  (579 odkazů). `Zakázky_Plán` = mřížka řádky=zakázky × sloupce=dny. Souhrnný pás dole:
+  **Požadavek** = `SUM(zakázky 15:162)`/den (ruční plán hodin v sešitu) ÷ **Kapacita** =
+  „Kapacita dílny" (ř.165) − Σ absencí (ř.167:205). **Vytížení %** = ř.207. Varianty:
+  s výpomocí (ř.212), bez nabídek (ř.214, vynechá nabídky dle AD/AE), + „Ostatní stat. z DB" (ř.217/218).
+- **Martiho rozhodnutí:** kapacitu brát **z naší docházky** (naplánovaná docházka Výroby), ne z Excelu/Centrály
+  — jeden živý zdroj pravdy. To už FLOW počítá.
+- **LIVE** (commity 81a8c2c → 10adc2b): stránka **`/vytizeni`** (`apps/api/static/vytizeni.html`, Chart.js
+  z cdnjs) — denní graf: Kapacita (h, zelená) + Požadavek (h, oranžová) + **Vytížení %** (modrá křivka,
+  body zelená/oranžová/červená dle pásma) + KPI (Ø 30 dní, špička, h) + přepínač Dny/Týdny.
+  Data z nového `app_flow` section **`vytizeni`** (dem = `EC_Vytizeni_PlanMonteri`/den, cap =
+  `att_plan_effective` podskupiny Výroba mimo `vyroba_plan_excl`). Route `/vytizeni` v main.py.
+- **Přístup**: `app_flow` gate rozšířen o **vedoucí výroby 41 (Dušan) / 85 (Marek)** vedle rodiče+ambasadora.
+- **Dlaždice**: 📈 Vytížení v hlavní mřížce (vedle FLOW) + ve Vedení→Obchod&výroba + **tlačítko 📈 Vytížení
+  v liště FLOW · Časová osa** (vedle „👷 Lidé").
+- **Otevřené (až Dušan řekne):** doplnit **výpomoc** a přepínač **„bez nabídek"**, aby to sedělo na Excel 1:1.
+
+📈 🏭 🌳 ☕
+
 ---
 
 ## Dodatek — 17.→18. 6. 2026: 📊 FLOW „srdce firmy" (Gantt + kapacita/vytížení) · ISO 19 dokumentů · čistá účetní osnova · oprava demo pro Apple

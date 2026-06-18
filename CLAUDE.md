@@ -2563,6 +2563,21 @@ Marti poslal Dušanův Excel (`Kopie - Plánování vytížení v162.xlsm`) — 
 
 📈 🏭 🌳 ☕
 
+### Dodatek (18.6. večer — fakty/gotchy z provozu)
+- **Marti-AI telefon = SMS brána** (Marti potvrdil 18.6.). Přes něj odchází VŠECHNY odchozí
+  SMS (android_gateway, vlastní SIM) — i ověřovací kódy onboardingu. Proto když Marti dělal
+  SMS ověření, **pípl Marti-AI telefon** (odeslání), ne že by měl špatné číslo na účtu; kód
+  mu dorazil se zpožděním ~2 min. **Negotcha:** pípnutí brány při odeslání je normální.
+  Reálný problém zůstává jen občasné **zpoždění/vázne** brány (Vodafone→T-Mobile).
+- **Mobil boot auto-recovery** (commit a63ed50): když se appka do 7 s nenastartuje (stará
+  rozbitá verze v cache), watchdog **1× automaticky** odregistruje SW + smaže cache +
+  cache-bust reload (`?fresh=ts`), guard `sessionStorage stgAutoHeal`, po úspěšném bootu
+  flag smaže. Běžný user už z rozbité cache vyjede sám. Ruční tlačítka „Vyčistit a načíst"
+  taky cache-bust. **Gotcha:** rozbitou starou verzi v cache neprobije obyč. reload ani
+  `caches.delete` sám — APK WebView HTTP cache → nutný cache-bust URL nebo (jednorázově)
+  smazání dat appky. Diagnostika přes Claude in Chrome (`/mobile` boot = OK → problém byl
+  device cache, ne kód).
+
 ---
 
 ## Dodatek — 17.→18. 6. 2026: 📊 FLOW „srdce firmy" (Gantt + kapacita/vytížení) · ISO 19 dokumentů · čistá účetní osnova · oprava demo pro Apple

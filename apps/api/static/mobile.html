@@ -142,6 +142,20 @@ window.addEventListener("unhandledrejection", function(ev){
 window.__stgBoot=false;
 setTimeout(function(){
   if(window.__stgBoot) return;
+  /* Auto-recovery (Marti 18.6.): běžný user z rozbité staré cache nevyjede.
+     1× automaticky odregistruj SW + smaž cache + tvrdě (cache-bust) načti znovu.
+     Guard přes sessionStorage, ať není smyčka. Po úspěšném bootu se flag maže. */
+  try{
+    if(!sessionStorage.getItem("stgAutoHeal")){
+      sessionStorage.setItem("stgAutoHeal","1");
+      (async function(){
+        try{var rs=await navigator.serviceWorker.getRegistrations();for(var i=0;i<rs.length;i++){await rs[i].unregister();}}catch(e){}
+        try{var ks=await caches.keys();for(var j=0;j<ks.length;j++){await caches.delete(ks[j]);}}catch(e){}
+        try{location.replace(location.pathname+"?fresh="+Date.now());}catch(e){location.reload();}
+      })();
+      return;
+    }
+  }catch(e){}
   try{
     if(document.getElementById("bootErr")) return;
     var o=document.createElement("div");
@@ -150,7 +164,7 @@ setTimeout(function(){
     var b=document.createElement("button");
     b.textContent="🧹 Vyčistit a načíst";
     b.style.cssText="background:#10b981;color:#04150e;border:0;border-radius:12px;padding:14px 22px;font-size:16px;font-weight:700;";
-    b.onclick=function(){ (async function(){ try{var rs=await navigator.serviceWorker.getRegistrations();for(var i=0;i<rs.length;i++){await rs[i].unregister();}}catch(e){} try{var ks=await caches.keys();for(var j=0;j<ks.length;j++){await caches.delete(ks[j]);}}catch(e){} location.reload();})(); };
+    b.onclick=function(){ (async function(){ try{var rs=await navigator.serviceWorker.getRegistrations();for(var i=0;i<rs.length;i++){await rs[i].unregister();}}catch(e){} try{var ks=await caches.keys();for(var j=0;j<ks.length;j++){await caches.delete(ks[j]);}}catch(e){} try{sessionStorage.removeItem("stgAutoHeal");}catch(e){} try{location.replace(location.pathname+"?fresh="+Date.now());}catch(e){location.reload();} })(); };
     o.appendChild(b);
     var b2=document.createElement("button");
     b2.textContent="🔄 Jen zkusit znovu";
@@ -7099,6 +7113,7 @@ setTimeout(function(){
   try{ history.pushState(null,""); }catch(e){}
   render();
   window.__stgBoot=true;  // appka úspěšně nastartovala → watchdog se nespustí
+  try{sessionStorage.removeItem("stgAutoHeal");}catch(e){}  // reset auto-recovery pro příště
   // ── Zámek sdíleného telefonu (Claude-24 + Kristý 11.6.2026): při otevření
   //    appky vyber profil + PIN. JEN sdílené telefony (shared_device_user) s
   //    aspoň jedním PINem. E-mailový únik vždy (i při rozbité SMS se nikdo

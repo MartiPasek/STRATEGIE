@@ -6684,9 +6684,17 @@ setTimeout(function(){
   }
   function master_cinnosti(){
     app.innerHTML=topbar("🛠 Master číselník", true);
-    app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">Výchozí seznam všech činností (pro celou firmu). Přidej, přejmenuj, změň pořadí, skryj. Pracovníci si z něj dělají vlastní seznam.</div>'));
+    var K=window._cinKind||"standard";
+    var tg2=el('<div style="display:flex;gap:6px;margin:2px 0 10px;"></div>');
+    [["standard","🧾 Běžné zakázky"],["rezie","🧰 Režie"]].forEach(function(t){
+      var b=el('<button style="flex:1;padding:9px 4px;border-radius:11px;font-size:13px;font-weight:600;border:1px solid '+(K===t[0]?"#4f8ef7":"var(--bord)")+';background:'+(K===t[0]?"rgba(79,142,247,.14)":"rgba(255,255,255,.03)")+';color:'+(K===t[0]?"var(--tx)":"var(--mut)")+';">'+t[1]+'</button>');
+      b.addEventListener("click",function(){ window._cinKind=t[0]; master_cinnosti(); });
+      tg2.appendChild(b);
+    });
+    app.appendChild(tg2);
+    app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">'+(K==="rezie"?"Seznam <b>režijních</b> činností (zakázka Režie).":"Výchozí seznam činností (pro běžné zakázky).")+' Přidej, přejmenuj, změň pořadí, skryj. Pracovníci si z něj dělají vlastní seznam.</div>'));
     var addb=el('<button class="green full" style="margin-bottom:10px;">+ Přidat činnost</button>');
-    addb.addEventListener("click",function(){ var n=prompt("Název nové činnosti:"); if(!n||!n.trim())return; api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{name:n.trim()}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
+    addb.addEventListener("click",function(){ var n=prompt("Název nové činnosti:"); if(!n||!n.trim())return; api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{name:n.trim(),kind:K}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
     app.appendChild(addb);
     var box=el('<div></div>'); app.appendChild(box);
     var _all=[];
@@ -6711,11 +6719,19 @@ setTimeout(function(){
         row.appendChild(tg); box.appendChild(row);
       });
     }
-    function load(){ box.innerHTML='<div class="hint">Načítám…</div>'; api("GET","/api/v1/erp/app/vyroba/cinnost-master","").then(function(j){ box.innerHTML=''; if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Jen pro vedoucí/HR.")+'</div>')); return; } _all=j.cinnosti||[]; render(); }); }
+    function load(){ box.innerHTML='<div class="hint">Načítám…</div>'; api("GET","/api/v1/erp/app/vyroba/cinnost-master?kind="+K,"").then(function(j){ box.innerHTML=''; if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Jen pro vedoucí/HR.")+'</div>')); return; } _all=j.cinnosti||[]; render(); }); }
     load();
   }
   function moje_cinnosti(){
     app.innerHTML=topbar("🧰 Moje činnosti", true);
+    var K=window._cinKind||"standard";
+    var tg3=el('<div style="display:flex;gap:6px;margin:2px 0 10px;"></div>');
+    [["standard","🧾 Běžné zakázky"],["rezie","🧰 Režie"]].forEach(function(t){
+      var b=el('<button style="flex:1;padding:9px 4px;border-radius:11px;font-size:13px;font-weight:600;border:1px solid '+(K===t[0]?"#4f8ef7":"var(--bord)")+';background:'+(K===t[0]?"rgba(79,142,247,.14)":"rgba(255,255,255,.03)")+';color:'+(K===t[0]?"var(--tx)":"var(--mut)")+';">'+t[1]+'</button>');
+      b.addEventListener("click",function(){ window._cinKind=t[0]; moje_cinnosti(); });
+      tg3.appendChild(b);
+    });
+    app.appendChild(tg3);
     // Marti 14.6.: vybrané činnosti složené jako ikony rovnou nahoře (náhled plochy).
     var _topGrid=el('<div class="appgrid" style="margin-bottom:12px;"></div>'); app.appendChild(_topGrid);
     app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">Vyber, které činnosti chceš mít ve svém seznamu a v jakém pořadí. Výchozí = všechny. ▲▼ pořadí · ✕ odebrat · + přidat zpět.</div>'));
@@ -6743,7 +6759,7 @@ setTimeout(function(){
     }
     function load(){
       box.innerHTML='<div class="hint">Načítám…</div>';
-      api("GET","/api/v1/erp/app/vyroba/my-cinnosti","").then(function(j){
+      api("GET","/api/v1/erp/app/vyroba/my-cinnosti?kind="+K,"").then(function(j){
         box.innerHTML='';
         if(!j||!j.ok){ box.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
         _mine=(j.cinnosti||[]).filter(function(c){return !c.hidden;});
@@ -6891,17 +6907,21 @@ setTimeout(function(){
     var box=el('<div style="padding-bottom:100px;"></div>'); app.appendChild(box);
     box.innerHTML='<div class="hint">Načítám…</div>';
     function pick(ci){ api("POST","/api/v1/erp/app/work/set-cinnost",{cinnost_id:ci}).then(function(r){ if(r&&r.ok) back(); else alert((r&&(r.msg||r.error))||"Nepodařilo se."); }); }
-    Promise.all([ api("GET","/api/v1/erp/app/work/state",""), api("GET","/api/v1/erp/app/vyroba/my-cinnosti","") ]).then(function(rs){
-      box.innerHTML="";
-      var st=rs[0]||{}, m=rs[1]||{};
+    api("GET","/api/v1/erp/app/work/state","").then(function(st){
+      st=st||{};
       var cur=((st.at_work&&st.working_alloc)||st.pref)||{};
-      var mine=((m&&m.cinnosti)||[]).filter(function(c){return !c.hidden;});
-      box.appendChild(el('<div style="background:var(--bg);border:1px solid var(--green);border-radius:12px;padding:12px;margin-bottom:10px;"><div class="hint" style="font-size:11px;letter-spacing:.5px;">AKTUÁLNÍ</div><div style="font-weight:700;font-size:15px;margin-top:3px;">'+(cur.cinnost_name?((cur.cinnost_icon||"🔧")+" "+esc(cur.cinnost_name)):"— zatím nevybráno —")+'</div></div>'));
-      if(!mine.length){ box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Nemáš vybrané činnosti.</div>')); }
-      var cg=el('<div class="appgrid"></div>');
-      mine.forEach(function(c){ var on=(cur.cinnost_id===c.id); var cell=appCell(c.icon||"🔧",c.name,0,function(){ pick(c.id); }); if(on){ cell.style.outline="2px solid var(--green)"; cell.style.borderColor="var(--green)"; } cg.appendChild(cell); });
-      box.appendChild(cg);
-      var mb=el('<button class="ghost full" style="margin-top:12px;border-color:#6b4a2a;color:#e6b97a;">🧰 Upravit seznam činností</button>'); mb.addEventListener("click",function(){ go("moje_cinnosti"); }); box.appendChild(mb);
+      var rez=!!cur.is_rezie;
+      window._cinKind=rez?"rezie":"standard";
+      api("GET","/api/v1/erp/app/vyroba/my-cinnosti?kind="+(rez?"rezie":"standard"),"").then(function(m){
+        box.innerHTML="";
+        var mine=((m&&m.cinnosti)||[]).filter(function(c){return !c.hidden;});
+        box.appendChild(el('<div style="background:var(--bg);border:1px solid '+(rez?"#e6c86a":"var(--green)")+';border-radius:12px;padding:12px;margin-bottom:10px;"><div class="hint" style="font-size:11px;letter-spacing:.5px;">'+(rez?"ČINNOST NA REŽII":"AKTUÁLNÍ ČINNOST")+'</div><div style="font-weight:700;font-size:15px;margin-top:3px;">'+(cur.cinnost_name?((cur.cinnost_icon||"🔧")+" "+esc(cur.cinnost_name)):"— zatím nevybráno —")+'</div></div>'));
+        if(!mine.length){ box.appendChild(el('<div class="hint" style="margin-bottom:8px;">Nemáš vybrané '+(rez?"režijní ":"")+'činnosti — přidej je tlačítkem níže.</div>')); }
+        var cg=el('<div class="appgrid"></div>');
+        mine.forEach(function(c){ var on=(cur.cinnost_id===c.id); var cell=appCell(c.icon||"🔧",c.name,0,function(){ pick(c.id); }); if(on){ cell.style.outline="2px solid var(--green)"; cell.style.borderColor="var(--green)"; } cg.appendChild(cell); });
+        box.appendChild(cg);
+        var mb=el('<button class="ghost full" style="margin-top:12px;border-color:#6b4a2a;color:#e6b97a;">🧰 Upravit seznam '+(rez?"režijních ":"")+'činností</button>'); mb.addEventListener("click",function(){ go("moje_cinnosti"); }); box.appendChild(mb);
+      });
     });
   }
   // Marti 15.6.: Web jako obrazovka UVNITŘ appky (iframe), ať hardwarové Zpět

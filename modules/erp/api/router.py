@@ -9741,11 +9741,14 @@ async def app_vyroba_my_cinnosti(req: Request) -> JSONResponse:
             if not _hr_can_manage(s, uid):
                 return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
             target = int(tu)
+        kind = (req.query_params.get("kind") or "standard").strip().lower()
+        if kind not in ("standard", "rezie"):
+            kind = "standard"
         rows = s.execute(_t(
             "SELECT c.id, c.name, COALESCE(uc.hidden,false) AS hid, COALESCE(uc.sort_order, c.sort_order) AS so, c.icon "
             "FROM tenant.vyroba_cinnost c "
             "LEFT JOIN tenant.vyroba_cinnost_user uc ON uc.cinnost_id=c.id AND uc.tenant_id=2 AND uc.user_id=:u "
-            "WHERE c.tenant_id=2 AND c.active=true ORDER BY hid, so, c.name"), {"u": target}).fetchall()
+            "WHERE c.tenant_id=2 AND c.active=true AND c.kind=:k ORDER BY hid, so, c.name"), {"u": target, "k": kind}).fetchall()
         out = [{"id": r[0], "name": r[1], "hidden": bool(r[2]), "so": int(r[3]), "icon": (r[4] or "🧩")} for r in rows]
         return JSONResponse({"ok": True, "user_id": target, "cinnosti": out})
     finally:
@@ -9833,9 +9836,12 @@ async def app_vyroba_cinnost_master(req: Request) -> JSONResponse:
     try:
         if not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        kind = (req.query_params.get("kind") or "standard").strip().lower()
+        if kind not in ("standard", "rezie"):
+            kind = "standard"
         rows = s.execute(_t(
             "SELECT id, code, name, sort_order, active, icon FROM tenant.vyroba_cinnost "
-            "WHERE tenant_id=2 ORDER BY sort_order, name")).fetchall()
+            "WHERE tenant_id=2 AND kind=:k ORDER BY sort_order, name"), {"k": kind}).fetchall()
         return JSONResponse({"ok": True, "cinnosti": [
             {"id": r[0], "code": r[1], "name": r[2], "so": int(r[3]), "active": bool(r[4]),
              "icon": (r[5] or "🧩")} for r in rows]})
@@ -9858,6 +9864,9 @@ async def app_vyroba_cinnost_master_save(req: Request) -> JSONResponse:
     name = str((b or {}).get("name") or "").strip()[:120]
     icon = str((b or {}).get("icon") or "").strip()[:8]
     has_icon = "icon" in (b or {})
+    kind = str((b or {}).get("kind") or "standard").strip().lower()
+    if kind not in ("standard", "rezie"):
+        kind = "standard"
     try:
         cid = int((b or {}).get("id") or 0)
     except Exception:
@@ -9889,9 +9898,9 @@ async def app_vyroba_cinnost_master_save(req: Request) -> JSONResponse:
                 n += 1
                 code = (base[:27] + "_" + str(n))
             mx = s.execute(_t("SELECT COALESCE(MAX(sort_order),0) FROM tenant.vyroba_cinnost WHERE tenant_id=2")).scalar() or 0
-            s.execute(_t("INSERT INTO tenant.vyroba_cinnost (tenant_id, code, name, sort_order, active, icon) "
-                         "VALUES (2, :c, :n, :so, true, :ic)"),
-                      {"c": code, "n": name, "so": int(mx) + 10, "ic": (icon or "🧩")})
+            s.execute(_t("INSERT INTO tenant.vyroba_cinnost (tenant_id, code, name, sort_order, active, icon, kind) "
+                         "VALUES (2, :c, :n, :so, true, :ic, :k)"),
+                      {"c": code, "n": name, "so": int(mx) + 10, "ic": (icon or "🧩"), "k": kind})
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:

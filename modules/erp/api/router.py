@@ -13266,10 +13266,11 @@ async def app_whoami(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
-def _ec_set_block_dochazka(cislo, block: bool):
+def _ec_set_block_dochazka(cislo, block: bool, actor_uid=None, actor_name=None):
     """Marti 16.6.: zapne/vypne _BlokovatDochazku v Centrále (DB_EC) pro osobu dle
     Cisla zaměstnance. Reverzibilní (block=False → zase povolí píchat). Vrací
-    (ok: bool, error: str|None). Používá nativní EC mechanismus (TabCisZam_EXT)."""
+    (ok: bool, error: str|None). Používá nativní EC mechanismus (TabCisZam_EXT).
+    Zapisuje se do fw.ec_dml_log (Marti 19.6.)."""
     import json as _j_eb
     from datetime import datetime as _dt_eb
     try:
@@ -13300,17 +13301,47 @@ def _ec_set_block_dochazka(cislo, block: bool):
                                   "data": data, "where": {"ID": zid}, "db_name": "DB_EC"},
                                  conversation_id=None)
         u = _j_eb.loads(upd) if isinstance(upd, str) else upd
-        if isinstance(u, dict) and u.get("ok"):
-            return (True, None)
-        return (False, str((u or {}).get("error") if isinstance(u, dict) else u))
+        _ok = bool(isinstance(u, dict) and u.get("ok"))
+        _err = None if _ok else str((u or {}).get("error") if isinstance(u, dict) else u)
+        _ec_dml_log("TabCisZam_EXT", "update", where={"ID": zid}, data=data, rows=(1 if _ok else 0),
+                    ok=_ok, error=_err, actor_uid=actor_uid, actor_name=actor_name, via="att_source")
+        return (True, None) if _ok else (False, _err)
     except Exception as exc:
+        _ec_dml_log("TabCisZam_EXT", "update", ok=False, error=str(exc),
+                    actor_uid=actor_uid, actor_name=actor_name, via="att_source")
         return (False, str(exc))
 
 
-def _ec_close_open_shift(cislo):
+def _ec_dml_log(table, op, where=None, data=None, rows=0, ok=True, error=None,
+                actor_uid=None, actor_name=None, approver_uid=None, approver_name=None,
+                via=None, schema="dbo", db_name="DB_EC"):
+    """Append-only audit našich DML zápisů do DB_EC (Marti 19.6.). Nikdy nevyhazuje."""
+    try:
+        from sqlalchemy import text as _t_l
+        import json as _j_l
+        cm, s = _att_session()
+        try:
+            s.execute(_t_l(
+                "INSERT INTO fw.ec_dml_log (db_name,schema_name,table_name,op,pk_where,data,"
+                "actor_user_id,actor_name,approver_user_id,approver_name,via,rows_affected,ok,error) "
+                "VALUES (:db,:sch,:tbl,:op,CAST(:w AS jsonb),CAST(:d AS jsonb),:au,:an,:pu,:pn,:via,:r,:ok,:err)"),
+                {"db": db_name, "sch": schema, "tbl": table, "op": op,
+                 "w": (_j_l.dumps(where, default=str) if where is not None else None),
+                 "d": (_j_l.dumps(data, default=str) if data is not None else None),
+                 "au": actor_uid, "an": actor_name, "pu": approver_uid, "pn": approver_name,
+                 "via": via, "r": int(rows or 0), "ok": bool(ok), "err": error})
+            s.commit()
+        finally:
+            cm.__exit__(None, None, None)
+    except Exception:
+        logger.exception("[ec_dml_log] zápis auditu selhal")
+
+
+def _ec_close_open_shift(cislo, actor_uid=None, actor_name=None, via="app_checkin"):
     """Marti 19.6.: kdo se píchne v NAŠÍ appce → silově ukončit jeho OTEVŘENOU směnu
     ve staré Centrále (EC_Dochazka): PraceAktivni=0 + CasKonec=teď. Hybrid fáze, bez
-    kompromisu — appka je zdroj pravdy. Vrací (closed:int, error:str|None)."""
+    kompromisu — appka je zdroj pravdy. Každý zápis se loguje do fw.ec_dml_log.
+    Vrací (closed:int, error:str|None)."""
     import json as _j_cs
     from datetime import datetime as _dt_cs
     try:
@@ -13338,17 +13369,55 @@ def _ec_close_open_shift(cislo):
             rid = row.get("ID")
             if rid is None:
                 continue
+            _data = {"PraceAktivni": 0, "CasKonec": now}
+            _where = {"ID": rid}
             upd = mcp.call_tool_sync("eurosoft_strategie_update_row",
                                      {"schema": "dbo", "table": "EC_Dochazka",
-                                      "data": {"PraceAktivni": 0, "CasKonec": now},
-                                      "where": {"ID": rid}, "db_name": "DB_EC"},
+                                      "data": _data, "where": _where, "db_name": "DB_EC"},
                                      conversation_id=None)
             u = _j_cs.loads(upd) if isinstance(upd, str) else upd
-            if isinstance(u, dict) and u.get("ok"):
+            _ok = bool(isinstance(u, dict) and u.get("ok"))
+            _err = None if _ok else str((u or {}).get("error") if isinstance(u, dict) else u)
+            if _ok:
                 n += 1
+            _ec_dml_log("EC_Dochazka", "update", where=_where, data=_data, rows=(1 if _ok else 0),
+                        ok=_ok, error=_err, actor_uid=actor_uid, actor_name=actor_name,
+                        via=via)
         return (n, None)
     except Exception as exc:
+        _ec_dml_log("EC_Dochazka", "update", ok=False, error=str(exc),
+                    actor_uid=actor_uid, actor_name=actor_name, via=via)
         return (0, str(exc))
+
+
+@api_router.get("/app/ec-dml-log")
+async def app_ec_dml_log_list(req: Request) -> JSONResponse:
+    """Marti 19.6.: audit našich DML zápisů do DB_EC (kdo/co/kdy/kdo schválil). Jen rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        isp = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                        {"u": uid}).scalar()
+        if not isp:
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            lim = max(1, min(500, int(req.query_params.get("limit", "100"))))
+        except Exception:
+            lim = 100
+        rows = s.execute(_t(
+            "SELECT id, to_char(ts,'YYYY-MM-DD HH24:MI:SS'), db_name, table_name, op, "
+            "pk_where, data, actor_name, approver_name, via, rows_affected, ok, error "
+            "FROM fw.ec_dml_log ORDER BY id DESC LIMIT :l"), {"l": lim}).fetchall()
+        out = [{"id": r[0], "ts": r[1], "db": r[2], "table": r[3], "op": r[4],
+                "where": r[5], "data": r[6], "actor": r[7], "approver": r[8], "via": r[9],
+                "rows": r[10], "ok": r[11], "error": r[12]} for r in rows]
+        s.commit()
+        return JSONResponse(jsonable_encoder({"ok": True, "log": out}))
+    finally:
+        cm.__exit__(None, None, None)
 
 
 @api_router.get("/app/hr/att-source")
@@ -13415,7 +13484,7 @@ async def app_hr_att_source_set(req: Request) -> JSONResponse:
                           {"u": tgt}).scalar()
         ec_ok, ec_err = (None, None)
         if cislo:
-            ec_ok, ec_err = _ec_set_block_dochazka(cislo, app_only)
+            ec_ok, ec_err = _ec_set_block_dochazka(cislo, app_only, actor_uid=uid, actor_name=autor)
             s.execute(_t("UPDATE tenant.att_source_pref SET ec_blocked=:b WHERE user_id=:u"),
                       {"b": bool(ec_ok), "u": tgt})
         s.commit()
@@ -17563,7 +17632,9 @@ async def att_checkin(req: Request) -> JSONResponse:
         try:
             _cz = s.execute(_t("SELECT cislo_zam FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
             if _cz:
-                ec_closed, _ = _ec_close_open_shift(_cz)
+                _an = s.execute(_t("SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
+                                   "FROM public.users WHERE id=:u"), {"u": uid}).scalar()
+                ec_closed, _ = _ec_close_open_shift(_cz, actor_uid=uid, actor_name=_an, via="app_checkin")
         except Exception:
             ec_closed = 0
         return JSONResponse({"ok": True, "id": r[0], "ec_closed": ec_closed})
@@ -17979,7 +18050,7 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
         ec_closed = 0
         for _row in app_active:
             try:
-                _n, _ = _ec_close_open_shift(_row[0])
+                _n, _ = _ec_close_open_shift(_row[0], via="sync")
                 ec_closed += int(_n or 0)
             except Exception:
                 pass

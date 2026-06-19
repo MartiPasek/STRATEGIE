@@ -20028,7 +20028,7 @@ async def restart_api(req: Request) -> JSONResponse:
 # Zuzku + Mirka. Přehled SW zakázek (zákazník, řešitel, hodiny, dílčí faktury,
 # zbývá hodin / zaplatit, stav). Zuzka = doménový vlastník, dolaďuje vzhled.
 # ════════════════════════════════════════════════════════════════════════
-_SW_MANAGERS = {50}   # Zuzka Duspivová (user 50); Mirka doplníme dle jeho user_id
+_SW_MANAGERS = {50, 22}   # Zuzka Duspivová (50) + Mirek Mareš (22)
 _SW_STAVY = ["poptavka", "nabidka", "objednavka", "realizace", "fakturovano", "zaplaceno"]
 
 def _sw_can_manage(uid: int) -> bool:
@@ -20064,7 +20064,7 @@ def sw_list(req: Request):
     s = _g()
     try:
         rows = s.execute(_t(
-            "SELECT z.id, z.cislo_sw, z.zakaznik, z.zakaznik_po, z.nazev, z.resitel_user_id, "
+            "SELECT z.id, z.cislo_sw, z.typ, z.zakaznik, z.zakaznik_po, z.nazev, z.resitel_user_id, "
             "  btrim(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) AS resitel, "
             "  z.objednano_hodin, z.hodinovka_zakaznik, z.hodinovka_sw, z.celkova_suma, z.stav, z.rok, "
             "  COALESCE((SELECT SUM(hodiny) FROM tenant.sw_faktura f WHERE f.zakazka_id=z.id),0) AS odpracovano_h, "
@@ -20137,6 +20137,7 @@ async def sw_save(req: Request):
          "hs": _num(b.get("hodinovka_sw")),
          "su": _num(b.get("celkova_suma")) or 0,
          "st": (b.get("stav") or "poptavka").strip(),
+         "ty": (b.get("typ") or "SW").strip() or "SW",
          "rok": _int(b.get("rok")),
          "pz": (b.get("poznamka") or "").strip() or None}
     if p["st"] not in _SW_STAVY:
@@ -20150,12 +20151,12 @@ async def sw_save(req: Request):
             p["id"] = int(rid)
             s.execute(_t("UPDATE tenant.sw_zakazka SET cislo_sw=:cs, zakaznik=:zk, zakaznik_po=:po, "
                          "nazev=:nz, resitel_user_id=:ru, objednano_hodin=:oh, hodinovka_zakaznik=:hz, "
-                         "hodinovka_sw=:hs, celkova_suma=:su, stav=:st, rok=:rok, poznamka=:pz, updated_at=now() "
+                         "hodinovka_sw=:hs, celkova_suma=:su, stav=:st, typ=:ty, rok=:rok, poznamka=:pz, updated_at=now() "
                          "WHERE id=:id"), p)
         else:
             rid = s.execute(_t("INSERT INTO tenant.sw_zakazka (cislo_sw, zakaznik, zakaznik_po, nazev, "
                          "resitel_user_id, objednano_hodin, hodinovka_zakaznik, hodinovka_sw, celkova_suma, "
-                         "stav, rok, poznamka) VALUES (:cs,:zk,:po,:nz,:ru,:oh,:hz,:hs,:su,:st,:rok,:pz) "
+                         "stav, typ, rok, poznamka) VALUES (:cs,:zk,:po,:nz,:ru,:oh,:hz,:hs,:su,:st,:ty,:rok,:pz) "
                          "RETURNING id"), p).scalar()
         s.commit()
     finally:

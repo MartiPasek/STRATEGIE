@@ -7259,7 +7259,7 @@ setTimeout(function(){
       shown.forEach(function(z){
         var col=_SW_STAVCOL[z.stav]||"#9fb0c2", lbl=_SW_STAVLBL[z.stav]||z.stav;
         h+='<div class="sw-card" data-id="'+z.id+'" style="margin:7px 0;padding:11px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;cursor:pointer">'
-          +'<div style="display:flex;justify-content:space-between;gap:8px"><div style="font-weight:700">'+esc(z.cislo_sw||"(bez čísla)")+' · '+esc(z.zakaznik||"")+'</div>'
+          +'<div style="display:flex;justify-content:space-between;gap:8px"><div style="font-weight:700"><span style="font-size:10.5px;color:#7c5cff;border:1px solid #7c5cff55;border-radius:6px;padding:0 5px;margin-right:5px">'+esc(z.typ||"SW")+'</span>'+esc(z.cislo_sw||"(bez čísla)")+' · '+esc(z.zakaznik||"")+'</div>'
           +'<span style="flex:none;font-size:11.5px;padding:2px 8px;border-radius:10px;background:'+col+'22;color:'+col+';border:1px solid '+col+'">'+esc(lbl)+'</span></div>'
           +'<div style="font-size:12.5px;color:#9fb0c2;margin-top:3px">'+esc(z.resitel||"—")+(z.nazev?(' · '+esc(z.nazev)):'')+'</div>'
           +'<div style="font-size:12.5px;margin-top:5px;display:flex;gap:12px;flex-wrap:wrap">'
@@ -7282,7 +7282,8 @@ setTimeout(function(){
     ov.appendChild(el('<div style="font-weight:800;font-size:18px">'+(z.id?'Upravit zakázku':'Nová SW zakázka')+' 🤖</div>'));
     function fld(lbl,inner){ var w=el('<label style="font-size:12px;color:#9fb0c2">'+lbl+'</label>'); w.appendChild(el('<div style="margin-top:2px">'+inner+'</div>')); return w; }
     function inp(id,val,ph,type){ return '<input id="'+id+'" '+(type?('type="'+type+'" '):'')+'placeholder="'+(ph||"")+'" value="'+esc(val==null?"":String(val))+'" style="margin:0">'; }
-    ov.appendChild(fld("Číslo SW", inp("swCislo",z.cislo_sw,"SW8041")));
+    ov.appendChild(fld("Typ zakázky", '<select id="swTyp" style="margin:0"><option value="SW"'+((z.typ||"SW")==="SW"?" selected":"")+'>SW (automatizace)</option><option value="VR"'+(z.typ==="VR"?" selected":"")+'>VR (výroba rozvaděčů)</option></select>'));
+    ov.appendChild(fld("Číslo zakázky", inp("swCislo",z.cislo_sw,"SW8041 / VR…")));
     ov.appendChild(fld("Zákazník", inp("swZak",z.zakaznik,"Tesla / BMW…")));
     ov.appendChild(fld("PO zákazníka", inp("swPo",z.zakaznik_po,"5101270890")));
     ov.appendChild(fld("Název / popis", inp("swNazev",z.nazev,"")));
@@ -7299,7 +7300,7 @@ setTimeout(function(){
     cl.addEventListener("click",function(){ ov.remove(); });
     function V(id){ var e=document.getElementById(id); return e?e.value:""; }
     save.addEventListener("click",function(){
-      var body={id:z.id||null, cislo_sw:V("swCislo"), zakaznik:V("swZak"), zakaznik_po:V("swPo"),
+      var body={id:z.id||null, typ:V("swTyp"), cislo_sw:V("swCislo"), zakaznik:V("swZak"), zakaznik_po:V("swPo"),
         nazev:V("swNazev"), resitel_user_id:V("swResitel"), objednano_hodin:V("swObjH"),
         hodinovka_zakaznik:V("swHodZak"), hodinovka_sw:V("swHodSw"), celkova_suma:V("swSuma"),
         stav:V("swStav"), rok:V("swRok"), poznamka:V("swPozn")};

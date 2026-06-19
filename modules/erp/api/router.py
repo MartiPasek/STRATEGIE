@@ -20200,13 +20200,20 @@ async def prefakturace_vystavit(req: Request):
         return JSONResponse({"ok": False, "duplicate": True, "jiz_existuje": existuje,
                              "error": "Za %d/%d už existuje faktura č. %s." %
                                       (m, r, existuje.get("cislo"))}, status_code=409)
-    # Pozn.: batch BEZ "SET NOCOUNT ON" — přesně tvar ověřený ručně (#403 4/2026).
-    # NOCOUNT rozhodil generátor přes zápisovou MCP cestu (internal_error).
+    # Generátor na úplném konci volá EC_MenuStrom_SetSoudecek (jen přepnutí stromu
+    # v Heliosu UI). Přes MCP není interaktivní uživatel → INSERT do
+    # EC_MenuStrom_PrepniNaSoudecek (sloupec User = NULL) spadne a vrátí celou
+    # transakci → faktura nevznikne. TRY/CATCH spolkne JEN tuhle UI chybu;
+    # jiné chyby (skutečné problémy faktury) propustí dál (THROW).
     _mz = ("%d" % int(marze)) if float(marze).is_integer() else ("%s" % marze)
-    batch = ("EXEC dbo.EC_GenVFESzFaaDeniku_Priprava @Mesic = %d, @Rok = %d, @ProcentMarze = %s, @NajemneOsMes = 0;\n"
-             "DECLARE @ID INT, @Msg nvarchar(255);\n"
-             "EXEC dbo.EC_GenVFESzFaaDeniku @IDENT = @ID OUTPUT, @Message = @Msg OUTPUT;" %
-             (m, r, _mz))
+    batch = ("BEGIN TRY\n"
+             "  EXEC dbo.EC_GenVFESzFaaDeniku_Priprava @Mesic = %d, @Rok = %d, @ProcentMarze = %s, @NajemneOsMes = 0;\n"
+             "  DECLARE @ID INT, @Msg nvarchar(255);\n"
+             "  EXEC dbo.EC_GenVFESzFaaDeniku @IDENT = @ID OUTPUT, @Message = @Msg OUTPUT;\n"
+             "END TRY\n"
+             "BEGIN CATCH\n"
+             "  IF ERROR_MESSAGE() NOT LIKE '%%MenuStrom%%' AND ERROR_MESSAGE() NOT LIKE '%%PrepniNaSoudecek%%' THROW;\n"
+             "END CATCH;" % (m, r, _mz))
     actor = "Přefakturace ES %d/%d (user %s)" % (m, r, uid)
     from core.database_data import get_data_session as _gw
     from sqlalchemy import text as _tw

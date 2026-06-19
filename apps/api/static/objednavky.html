@@ -56,24 +56,50 @@ var _data=[], _items={};
 function kc(n){ n=Math.round(+n||0); return n.toLocaleString("cs-CZ")+" Kč"; }
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
 function api(u){ return fetch(u,{credentials:"include"}).then(function(r){return r.json();}); }
-function _toast(t){
-  var d=document.createElement("div");
-  d.textContent=t;
-  d.style.cssText="position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:9999;"
-    +"background:#1c2530;color:#e8eef5;border:1px solid #3a4a5e;border-radius:10px;padding:10px 16px;"
-    +"font-size:13.5px;box-shadow:0 10px 30px rgba(0,0,0,.5)";
-  document.body.appendChild(d); setTimeout(function(){ try{d.remove();}catch(e){} },2600);
+// Potvrzovací kartička při ťuku (styl jako přepnutí v menu) — hned viditelná
+// odezva, pak ✓/✗ podle výsledku odeslání. Marti 19.6.2026.
+function _ensureConfirmStyle(){
+  if(document.getElementById("opcConfStyle"))return;
+  var s=document.createElement("style"); s.id="opcConfStyle";
+  s.textContent="@keyframes opcPop{from{opacity:0;transform:scale(.86) translateY(10px)}to{opacity:1;transform:none}}"
+    +"@keyframes opcSpin{to{transform:rotate(360deg)}}";
+  document.head.appendChild(s);
 }
-// Handoff: ťuk → otevři detail na POČÍTAČI (přes pollera v otevřené STRATEGII).
-// Na širokém displeji (PC) otevřu rovnou i lokálně; na mobilu jen pošlu na PC.
+function _confirm(label){
+  _ensureConfirmStyle();
+  var old=document.getElementById("opcConfirm"); if(old)old.remove();
+  var d=document.createElement("div"); d.id="opcConfirm";
+  d.style.cssText="position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;"
+    +"background:rgba(6,10,16,.5);backdrop-filter:blur(1px)";
+  d.innerHTML='<div style="background:#16202c;border:1px solid #2f3e50;border-radius:18px;padding:24px 28px;'
+    +'text-align:center;min-width:230px;animation:opcPop .26s cubic-bezier(.2,.9,.2,1);box-shadow:0 18px 50px rgba(0,0,0,.5)">'
+    +'<div id="opcIcon" style="width:62px;height:62px;margin:0 auto 12px;border-radius:50%;'
+    +'background:rgba(79,142,247,.16);border:3px solid #4f8ef7;border-top-color:transparent;animation:opcSpin .8s linear infinite"></div>'
+    +'<div id="opcTitle" style="font-weight:800;font-size:16px;color:#e8eef5">📲 → 💻 Posílám na počítač…</div>'
+    +'<div style="color:#9fb0c4;font-size:13px;margin-top:4px">'+esc(label||"")+'</div></div>';
+  document.body.appendChild(d);
+  return d;
+}
+function _confirmDone(d,ok){
+  if(!d)return;
+  var ic=d.querySelector("#opcIcon"), tt=d.querySelector("#opcTitle");
+  if(ic){ ic.style.animation="none"; ic.style.borderTopColor=ok?"#34d399":"#ff8a8a";
+    ic.style.borderColor=ok?"#34d399":"#ff8a8a"; ic.style.background=(ok?"rgba(52,211,153,.16)":"rgba(255,138,138,.16)");
+    ic.style.display="flex"; ic.style.alignItems="center"; ic.style.justifyContent="center";
+    ic.style.fontSize="32px"; ic.textContent=ok?"✓":"✕"; }
+  if(tt) tt.textContent=ok?"📲 → 💻 Otevřeno na počítači":"Nepodařilo se odeslat";
+  setTimeout(function(){ try{d.remove();}catch(e){} }, ok?1500:2400);
+}
+// Handoff: ťuk → potvrzení + otevři detail na POČÍTAČI (poller v otevřené STRATEGII).
 function openOnPc(url,lbl){
   if(window._opcLast && (Date.now()-window._opcLast)<1500) return false;  // debounce
   window._opcLast=Date.now();
+  var card=_confirm(lbl);
   fetch("/api/v1/erp/app/open-on-pc",{method:"POST",credentials:"include",
     headers:{"Content-Type":"application/json"},body:JSON.stringify({url:url,label:lbl})})
-    .then(function(r){return r.json();})
-    .then(function(j){ _toast(j&&j.ok ? "📲→💻 Otevírám na počítači…" : "Nepovedlo se"); })
-    .catch(function(){ _toast("Chyba spojení"); });
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(j){ _confirmDone(card, !!(j&&j.ok)); })
+    .catch(function(){ _confirmDone(card,false); });
   if(window.innerWidth>=900){ try{ window.open(url,"stgDoklad"); }catch(e){} }
   return false;
 }
@@ -112,7 +138,7 @@ function toggle(rowEl,co){
     var t='<table><thead><tr><th class="l">Doklad / zakázka</th><th class="l">Díl</th>'
       +'<th>Obj.</th><th>Dodáno</th><th>Otevřeno</th><th>JC</th><th>Termín</th></tr></thead><tbody>';
     (j.polozky||[]).forEach(function(p){
-      t+='<tr><td class="l muted"><a href="/doklad?id='+p.doklad_id+'" onclick="return openOnPc(\'/doklad?id='+p.doklad_id+'\',\'Objednávka '+esc(p.doklad||"")+'\')" style="color:#7fb0ff;text-decoration:none;font-weight:600">'+esc(p.doklad||"")+' 💻</a>'+(p.zakazka?(' · '+esc(p.zakazka)):'')+'</td>'
+      t+='<tr style="cursor:pointer" onclick="openOnPc(\'/doklad?id='+p.doklad_id+'\',\'Objednávka '+esc(p.doklad||"")+'\')"><td class="l muted"><span style="color:#7fb0ff;font-weight:600">'+esc(p.doklad||"")+' 💻 na PC</span>'+(p.zakazka?(' · '+esc(p.zakazka)):'')+'</td>'
         +'<td class="l dil">'+esc(p.dil||"")+'</td>'
         +'<td>'+(+p.objednano)+'</td><td>'+(+p.dodano)+'</td>'
         +'<td class="o">'+(+p.otevreno)+'</td>'

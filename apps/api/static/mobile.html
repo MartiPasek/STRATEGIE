@@ -511,17 +511,56 @@ setTimeout(function(){
   function renderGuestWelcome(box){
     box.innerHTML="";
     var card=el('<div style="background:linear-gradient(135deg,rgba(79,142,247,.14),rgba(124,92,252,.14));border:1px solid #2a4d80;border-radius:14px;padding:14px;margin-bottom:12px;"></div>');
-    card.appendChild(el('<div style="font-weight:800;font-size:16px;margin-bottom:4px;">Vítej v STRATEGII 👋</div>'));
-    card.appendChild(el('<div style="color:#cdd8e6;font-size:13.5px;line-height:1.55;margin-bottom:10px;">Tohle je ukázka — klidně se proklikej, prohlédni si menu a co appka umí. Tvoje data se objeví, až se spáruješ s firmou. Až budeš chtít. 🌳</div>'));
+    card.appendChild(el('<div style="font-weight:800;font-size:17px;margin-bottom:4px;">STRATEGIE 🌳</div>'));
+    card.appendChild(el('<div style="color:#cdd8e6;font-size:13.5px;line-height:1.55;margin-bottom:10px;">Podnikový systém pro firmy — docházka, lidé, výroba a dokumenty na jednom místě. Vyzkoušej si ukázku, nebo se přihlas, pokud STRATEGII tvoje firma používá.</div>'));
     var btns=el('<div style="display:flex;flex-direction:column;gap:8px;"></div>');
     var bDemo=el('<button class="green full" style="margin:0;">▶️ Vyzkoušet ukázku</button>');
     bDemo.addEventListener("click",function(){ location.href="/api/v1/auth/demo-login?next=/mobile"; });
-    var bPair=el('<button class="ghost full" style="margin:0;">🔗 Spárovat / Přihlásit se</button>');
+    var bPwd=el('<button class="ghost full" style="margin:0;">🔑 Přihlásit heslem</button>');
+    bPwd.addEventListener("click",openPasswordLogin);
+    var bPair=el('<button class="ghost full" style="margin:0;">🔗 Přihlásit odkazem / spárovat telefon</button>');
     bPair.addEventListener("click",function(){ location.href="/api/v1/auth/sms-login?next=/mobile"; });
     var bLead=el('<button class="ghost full" style="margin:0;">💬 Mám zájem — ozvěte se mi</button>');
     bLead.addEventListener("click",openLeadForm);
-    btns.appendChild(bDemo); btns.appendChild(bPair); btns.appendChild(bLead); card.appendChild(btns);
+    btns.appendChild(bDemo); btns.appendChild(bPwd); btns.appendChild(bPair); btns.appendChild(bLead); card.appendChild(btns);
     box.appendChild(card);
+  }
+  // Přihlášení e-mailem + heslem (záloha k magic-linku; iOS magic-link otevře
+  // Safari, recenzent i běžný uživatel tak uvízne mimo appku). POST /auth/login
+  // nastaví cookie session → reload do appky. Demo zůstává jako bezloginová cesta.
+  function openPasswordLogin(){
+    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:300;display:flex;flex-direction:column;justify-content:center;padding:24px;gap:10px;"></div>');
+    ov.appendChild(el('<div style="font-weight:800;font-size:19px;">Přihlášení heslem 🔑</div>'));
+    ov.appendChild(el('<div class="hint" style="line-height:1.55;">Zadej e-mail a heslo svého účtu STRATEGIE.</div>'));
+    var em=el('<input type="email" inputmode="email" autocapitalize="off" autocomplete="username" placeholder="E-mail" style="margin:0;">');
+    var pw=el('<input type="password" autocomplete="current-password" placeholder="Heslo" style="margin:0;">');
+    var st=el('<div class="hint" style="min-height:16px;"></div>');
+    var send=el('<button class="green full" style="margin:0;">Přihlásit se</button>');
+    var cl=el('<button class="ghost full" style="margin:0;">Zavřít</button>');
+    cl.addEventListener("click",function(){ ov.remove(); });
+    function doLogin(){
+      var e=(em.value||"").trim(), p=(pw.value||"");
+      if(!e||!p){ st.textContent="Doplň prosím e-mail i heslo."; return; }
+      send.disabled=true; st.textContent="Přihlašuji…";
+      fetch("/api/v1/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({email:e,password:p})})
+        .then(function(r){ return r.json().then(function(b){ return {ok:r.ok,status:r.status,body:b}; }); })
+        .then(function(r){
+          if(r.ok){ st.textContent="Hotovo ✅"; location.href="/mobile"; return; }
+          send.disabled=false;
+          var d=r.body&&r.body.detail;
+          var msg = (d&&typeof d==="object"&&d.message) ? d.message
+                  : (typeof d==="string"?d:"Přihlášení se nezdařilo.");
+          if(r.status===401) msg="Neplatný e-mail nebo heslo.";
+          if(r.status===429) msg=(typeof d==="string"?d:"Příliš mnoho pokusů. Zkus to prosím za chvíli.");
+          st.textContent=msg;
+        })
+        .catch(function(){ send.disabled=false; st.textContent="Nepovedlo se. Zkus to prosím znovu."; });
+    }
+    send.addEventListener("click",doLogin);
+    pw.addEventListener("keydown",function(ev){ if(ev.key==="Enter") doLogin(); });
+    ov.appendChild(em); ov.appendChild(pw); ov.appendChild(st); ov.appendChild(send); ov.appendChild(cl);
+    app.appendChild(ov);
   }
   function openLeadForm(){
     var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:300;display:flex;flex-direction:column;justify-content:center;padding:24px;gap:10px;"></div>');

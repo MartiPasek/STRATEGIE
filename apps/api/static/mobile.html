@@ -1390,6 +1390,7 @@ setTimeout(function(){
     g.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
     g.appendChild(appCell("🔀","Migrace",0,function(){go("migrace");}));
     g.appendChild(appCell("🧾","Přefakturace",0,function(){go("prefakturace");}));
+    g.appendChild(appCell("📨","Datovky / ČSSZ",0,function(){go("isds");}));
     g.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
     g.appendChild(appCell("🌐","Uživatelé",0,function(){ _auMode="users"; go("alluser"); }));
     g.appendChild(appCell("📒","Účetní",0,function(){ _auMode="helios"; go("alluser"); }));
@@ -7224,6 +7225,92 @@ setTimeout(function(){
       });
     });
   }
+  // ── DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026) ─────
+  function isds(){
+    app.innerHTML=topbar("📨 Datové schránky (ISDS)", true);
+    app.appendChild(el('<div class="muted" style="margin:8px 6px;line-height:1.5">Neschopenky a OČR z datových schránek firem — taženo automaticky. Jeden tenant může mít víc datovek (EC, ES, INTERSOFT…). Heslo se ukládá šifrovaně.</div>'));
+    app.appendChild(el('<div id="isdsBox" style="margin:4px 6px"></div>'));
+    isdsLoad();
+  }
+  function isdsLoad(){
+    var box=document.getElementById("isdsBox"); if(!box)return;
+    box.innerHTML='<div class="hint" style="padding:12px">Načítám…</div>';
+    api("GET","/api/v1/erp/app/isds/accounts","").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="hint" style="color:#ff8a8a;padding:10px">'+esc((j&&(j.error||j.detail))||"Chyba")+'</div>'; return; }
+      var h='';
+      if(!j.vault_ready){ h+='<div style="margin:6px 0;padding:10px;border-radius:10px;background:rgba(251,191,36,.12);border:1px solid #fbbf24;color:#fde68a;font-size:13px">⚠️ Trezor není aktivní (STRATEGIE_VAULT_KEY). Hesla teď nepůjde uložit — doplň klíč do AppEnvironmentExtra a restartuj API.</div>'; }
+      (j.accounts||[]).forEach(function(a){
+        h+='<div style="margin:8px 0;padding:12px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px">'
+          +'<div style="font-weight:700">'+esc(a.company_label)+(a.active?'':' <span style="color:#ff8a8a;font-size:12px">(neaktivní)</span>')+'</div>'
+          +'<div style="font-size:12.5px;color:#9fb0c2;margin-top:3px">📮 '+esc(a.box_id||"—")+' · login: '+esc(a.login_name||"—")+' · '+(a.has_pwd?'🔑 heslo uloženo':'<span style="color:#ff8a8a">bez hesla</span>')+(a.cssz_vs?(' · VS '+esc(a.cssz_vs)):'')+' · tenant '+esc(String(a.tenant_id))+'</div>'
+          +(a.last_sync?('<div style="font-size:12px;color:#9fb0c2;margin-top:3px">Sync: '+esc(a.last_sync)+' · '+esc(a.last_sync_note||"")+'</div>'):'')
+          +'<div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">'
+          +'<button class="ghost isds-edit" data-id="'+a.id+'" style="margin:0;padding:7px 12px;font-size:13px">✏️ Upravit</button>'
+          +'<button class="green isds-sync" data-id="'+a.id+'" style="margin:0;padding:7px 12px;font-size:13px">📥 Synchronizovat</button>'
+          +'<button class="ghost isds-del" data-id="'+a.id+'" data-nm="'+esc(a.company_label)+'" style="margin:0;padding:7px 12px;font-size:13px;color:#ff8a8a">🗑</button>'
+          +'</div></div>';
+      });
+      h+='<button id="isdsAdd" class="green full" style="margin:10px 0;width:100%">➕ Přidat datovku</button>';
+      h+='<div id="isdsMsgs" style="margin-top:10px"></div>';
+      box.innerHTML=h;
+      box.querySelector("#isdsAdd").addEventListener("click",function(){ isdsForm(null); });
+      box.querySelectorAll(".isds-edit").forEach(function(b){ b.addEventListener("click",function(){ var a=(j.accounts||[]).filter(function(x){return String(x.id)===b.getAttribute("data-id");})[0]; isdsForm(a); }); });
+      box.querySelectorAll(".isds-sync").forEach(function(b){ b.addEventListener("click",function(){ isdsSync(b.getAttribute("data-id")); }); });
+      box.querySelectorAll(".isds-del").forEach(function(b){ b.addEventListener("click",function(){ confirmDialog("Smazat datovku","Smazat "+b.getAttribute("data-nm")+" včetně stažených zpráv?","🗑 Smazat",function(){ api("POST","/api/v1/erp/app/isds/account/delete",{id:parseInt(b.getAttribute("data-id"),10)}).then(isdsLoad); }); }); });
+      isdsLoadMsgs();
+    });
+  }
+  function isdsLoadMsgs(){
+    var box=document.getElementById("isdsMsgs"); if(!box)return;
+    api("GET","/api/v1/erp/app/isds/messages","").then(function(j){
+      if(!j||!j.ok||!(j.messages||[]).length){ box.innerHTML='<div class="hint" style="padding:6px 2px">Zatím žádné stažené zprávy.</div>'; return; }
+      var h='<div style="font-weight:700;margin:8px 2px 4px">Stažené zprávy</div>';
+      j.messages.forEach(function(m){
+        var ic=(m.msg_type&&m.msg_type.indexOf("neschop")>=0)?'🤒':(m.msg_type==='ocr'?'👶':'✉️');
+        h+='<div style="display:flex;gap:8px;border-bottom:1px solid #1b2742;padding:7px 2px;font-size:13px"><span>'+ic+'</span><span style="flex:1">'+esc(m.subject||"(bez předmětu)")+'<br><span style="color:#9fb0c2;font-size:11.5px">'+esc(m.company_label||"")+' · '+esc(m.delivered||"")+' · '+esc(m.status||"")+'</span></span></div>';
+      });
+      box.innerHTML=h;
+    });
+  }
+  function isdsForm(a){
+    a=a||{};
+    var ov=el('<div style="position:fixed;inset:0;z-index:300;background:rgba(4,10,18,.97);display:flex;flex-direction:column;justify-content:center;padding:22px;gap:9px;overflow:auto"></div>');
+    ov.appendChild(el('<div style="font-weight:800;font-size:18px">'+(a.id?'Upravit datovku':'Nová datovka')+' 📮</div>'));
+    function inp(ph,val,type){ return el('<input '+(type?('type="'+type+'" '):'')+'placeholder="'+ph+'" value="'+esc(val||"")+'" style="margin:0">'); }
+    var co=inp("Firma (např. EUROSOFT-Control)",a.company_label);
+    var bx=inp("ID datové schránky",a.box_id);
+    var ln=inp("Přihlašovací jméno",a.login_name);
+    var pw=inp(a.has_pwd?"Heslo (nech prázdné = beze změny)":"Heslo",null,"password");
+    var vs=inp("VS u ČSSZ (nepovinné)",a.cssz_vs);
+    var tn=inp("Tenant ID (default 2 = EUROSOFT)",a.tenant_id!=null?String(a.tenant_id):"2");
+    var st=el('<div class="hint" style="min-height:15px"></div>');
+    var save=el('<button class="green full" style="margin:0">Uložit</button>');
+    var cl=el('<button class="ghost full" style="margin:0">Zavřít</button>');
+    cl.addEventListener("click",function(){ ov.remove(); });
+    save.addEventListener("click",function(){
+      var body={id:a.id||null, company_label:co.value.trim(), box_id:bx.value.trim(),
+        login_name:ln.value.trim(), cssz_vs:vs.value.trim(),
+        tenant_id:parseInt(tn.value,10)||2, active:true};
+      if(pw.value) body.password=pw.value;
+      if(!body.company_label||!body.box_id){ st.textContent="Vyplň firmu i ID schránky."; return; }
+      save.disabled=true; st.textContent="Ukládám…";
+      api("POST","/api/v1/erp/app/isds/account/save",body).then(function(r){
+        if(r&&r.ok){ ov.remove(); isdsLoad(); }
+        else { save.disabled=false; st.textContent=((r&&(r.error||r.detail))||"Nepovedlo se."); }
+      });
+    });
+    ov.appendChild(el('<div class="hint" style="line-height:1.5">Heslo se uloží šifrovaně. Jeden tenant může mít víc datovek — přidej je jako samostatné záznamy.</div>'));
+    [co,bx,ln,pw,vs,tn,st,save,cl].forEach(function(e){ ov.appendChild(e); });
+    app.appendChild(ov);
+  }
+  function isdsSync(id){
+    _shotToast&&_shotToast("Synchronizuji datovku…");
+    api("POST","/api/v1/erp/app/isds/sync",{account_id:parseInt(id,10)}).then(function(r){
+      if(r&&r.ok){ try{_shotToast("Hotovo: "+r["new"]+" nových"+((r.errors&&r.errors.length)?(" · chyba: "+r.errors[0]):""));}catch(e){} isdsLoad(); }
+      else { try{_shotToast("Chyba: "+((r&&(r.error||r.detail))||"?"));}catch(e){} }
+    }).catch(function(){ try{_shotToast("Chyba spojení.");}catch(e){} });
+  }
+
   // ── PŘEFAKTURACE ES → Control (Marti 19.6.2026) ──────────────────────
   function prefKc(n){ try{ return (Math.round((+n||0)*100)/100).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2})+' Kč'; }catch(e){ return (n||0)+' Kč'; } }
   function prefV(id){ var e=document.getElementById(id); return e?e.value:""; }
@@ -7297,7 +7384,7 @@ setTimeout(function(){
     }).catch(function(){ setTimeout(function(){ prefPoll(m,r,prev,n+1); },6000); });
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,extview:extview,persDnesek:persDnesek};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,extview:extview,persDnesek:persDnesek};
 
   function uceni(){
     app.innerHTML=topbar("⚡ Výuka",true);

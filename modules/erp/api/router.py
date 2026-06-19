@@ -20024,6 +20024,271 @@ async def restart_api(req: Request) -> JSONResponse:
 
 
 # ════════════════════════════════════════════════════════════════════════
+# DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
+# Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).
+# Heslo šifrované Fernetem (_vault_fernet). Čtení přes ISDS webovou službu
+# (basic auth jméno+heslo). Pozn.: přesné cesty služby ověřujeme při živém
+# testu (dmInfo ~ /DS/df, dmOperations ~ /DS/dz).
+# ════════════════════════════════════════════════════════════════════════
+_ISDS_BASE = "https://www.mojedatovaschranka.cz/DS"
+_ISDS_NS = "http://isds.czechpoint.cz/v20"
+
+def _isds_enc(plain: str):
+    f = _vault_fernet()
+    if not f or not plain:
+        return None
+    return f.encrypt(plain.encode("utf-8")).decode("ascii")
+
+def _isds_dec(enc: str):
+    f = _vault_fernet()
+    if not f or not enc:
+        return None
+    try:
+        return f.decrypt(enc.encode("ascii")).decode("utf-8")
+    except Exception:
+        return None
+
+def _isds_soap(account: dict, path: str, body_inner: str, timeout=40):
+    """Pošle SOAP request na ISDS webovou službu (basic auth). Vrací (ok, root_or_err)."""
+    import requests
+    from xml.etree import ElementTree as ET
+    login = account.get("login_name") or ""
+    pwd = _isds_dec(account.get("password_enc")) or ""
+    if not login or not pwd:
+        return False, "Chybí přihlašovací údaje / vault klíč."
+    envelope = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" '
+        'xmlns:p="%s"><soapenv:Header/><soapenv:Body>%s</soapenv:Body></soapenv:Envelope>'
+        % (_ISDS_NS, body_inner))
+    try:
+        r = requests.post(_ISDS_BASE + path, data=envelope.encode("utf-8"),
+                          headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
+                          auth=(login, pwd), timeout=timeout)
+        if r.status_code in (401, 403):
+            return False, "ISDS odmítl přihlášení (401/403) — zkontroluj jméno/heslo (a 90denní expiraci)."
+        root = ET.fromstring(r.content)
+        return True, root
+    except Exception as exc:
+        return False, "%s: %s" % (type(exc).__name__, str(exc)[:200])
+
+def _isds_q(el, tag):
+    """Najde potomka bez ohledu na namespace."""
+    for ch in el.iter():
+        if ch.tag.rsplit("}", 1)[-1] == tag:
+            return ch
+    return None
+
+def _isds_list_received(account: dict, days_back: int = 60):
+    """GetListOfReceivedMessages → list dict {dm_id, subject, sender, delivered}."""
+    import datetime as _dt
+    frm = (_dt.datetime.now() - _dt.timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00")
+    body = ('<p:GetListOfReceivedMessages><p:dmFromTime>%s</p:dmFromTime>'
+            '<p:dmToTime></p:dmToTime><p:dmOrgUnitNum></p:dmOrgUnitNum>'
+            '<p:dmStatusFilter>-1</p:dmStatusFilter><p:dmOffset>1</p:dmOffset>'
+            '<p:dmLimit>1000</p:dmLimit></p:GetListOfReceivedMessages>' % frm)
+    ok, root = _isds_soap(account, "/df", body)
+    if not ok:
+        raise RuntimeError(root)
+    out = []
+    for rec in root.iter():
+        if rec.tag.rsplit("}", 1)[-1] != "dmRecord":
+            continue
+        def g(t):
+            e = None
+            for ch in rec.iter():
+                if ch.tag.rsplit("}", 1)[-1] == t:
+                    e = ch; break
+            return (e.text or "").strip() if e is not None and e.text else ""
+        out.append({"dm_id": g("dmID"), "subject": g("dmAnnotation"),
+                    "sender": g("dmSender"), "delivered": g("dmDeliveryTime")})
+    return [x for x in out if x["dm_id"]]
+
+def _isds_classify(subject: str) -> str:
+    s = (subject or "").lower()
+    if "neschop" in s and "oznam" in s:
+        return "eneschopenka_oznam"
+    if "neschop" in s or "dpn" in s:
+        return "eneschopenka"
+    if "ošetřov" in s or "osetrov" in s or "očr" in s or "ocr" in s:
+        return "ocr"
+    return "other"
+
+
+@api_router.get("/app/isds/accounts")
+def isds_accounts(req: Request):
+    """Seznam ISDS účtů (datovek) — parent. Bez hesla."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, tenant_id, company_label, box_id, login_name, cssz_vs, active, "
+            "(password_enc IS NOT NULL) AS has_pwd, "
+            "to_char(last_sync_at,'DD.MM.YYYY HH24:MI') AS last_sync, last_sync_note "
+            "FROM fw.isds_account ORDER BY tenant_id, company_label")).mappings().all()
+    finally:
+        s.close()
+    return {"ok": True, "vault_ready": _vault_fernet() is not None,
+            "accounts": [dict(r) for r in rows]}
+
+
+@api_router.post("/app/isds/account/save")
+async def isds_account_save(req: Request):
+    """Vytvoř/uprav ISDS účet (parent). Heslo (pokud zadané) šifrované Fernetem."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    box_id = (str(b.get("box_id") or "").strip())
+    company = (str(b.get("company_label") or "").strip())
+    if not box_id or not company:
+        return JSONResponse({"ok": False, "error": "Vyplň firmu i ID datové schránky."}, status_code=400)
+    try:
+        tenant_id = int(b.get("tenant_id") or 2)
+    except Exception:
+        tenant_id = 2
+    login_name = (str(b.get("login_name") or "").strip()) or None
+    cssz_vs = (str(b.get("cssz_vs") or "").strip()) or None
+    active = bool(b.get("active", True))
+    pwd = b.get("password")
+    pwd_enc = None
+    if pwd:
+        if _vault_fernet() is None:
+            return JSONResponse({"ok": False, "error": "vault_not_configured — nastav STRATEGIE_VAULT_KEY."},
+                                status_code=400)
+        pwd_enc = _isds_enc(str(pwd))
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rid = b.get("id")
+        if rid:
+            if pwd_enc is not None:
+                s.execute(_t("UPDATE fw.isds_account SET tenant_id=:tn, company_label=:cl, box_id=:bx, "
+                             "login_name=:ln, cssz_vs=:vs, active=:ac, password_enc=:pe, updated_at=now() "
+                             "WHERE id=:id"),
+                          {"tn": tenant_id, "cl": company, "bx": box_id, "ln": login_name,
+                           "vs": cssz_vs, "ac": active, "pe": pwd_enc, "id": int(rid)})
+            else:
+                s.execute(_t("UPDATE fw.isds_account SET tenant_id=:tn, company_label=:cl, box_id=:bx, "
+                             "login_name=:ln, cssz_vs=:vs, active=:ac, updated_at=now() WHERE id=:id"),
+                          {"tn": tenant_id, "cl": company, "bx": box_id, "ln": login_name,
+                           "vs": cssz_vs, "ac": active, "id": int(rid)})
+        else:
+            s.execute(_t("INSERT INTO fw.isds_account (tenant_id, company_label, box_id, login_name, "
+                         "cssz_vs, active, password_enc) VALUES (:tn,:cl,:bx,:ln,:vs,:ac,:pe) "
+                         "ON CONFLICT (tenant_id, box_id) DO UPDATE SET company_label=EXCLUDED.company_label, "
+                         "login_name=EXCLUDED.login_name, cssz_vs=EXCLUDED.cssz_vs, active=EXCLUDED.active, "
+                         "password_enc=COALESCE(EXCLUDED.password_enc, fw.isds_account.password_enc), updated_at=now()"),
+                      {"tn": tenant_id, "cl": company, "bx": box_id, "ln": login_name,
+                       "vs": cssz_vs, "ac": active, "pe": pwd_enc})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+
+@api_router.post("/app/isds/account/delete")
+async def isds_account_delete(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        s.execute(_t("DELETE FROM fw.isds_message WHERE account_id=:i"), {"i": int(b.get("id"))})
+        s.execute(_t("DELETE FROM fw.isds_account WHERE id=:i"), {"i": int(b.get("id"))})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+
+@api_router.get("/app/isds/messages")
+def isds_messages(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT m.id, a.company_label, m.subject, m.sender, m.msg_type, m.status, "
+            "to_char(m.delivered_at,'DD.MM.YYYY HH24:MI') AS delivered "
+            "FROM fw.isds_message m JOIN fw.isds_account a ON a.id=m.account_id "
+            "ORDER BY m.delivered_at DESC NULLS LAST, m.id DESC LIMIT 200")).mappings().all()
+    finally:
+        s.close()
+    return {"ok": True, "messages": [dict(r) for r in rows]}
+
+
+@api_router.post("/app/isds/sync")
+async def isds_sync(req: Request):
+    """Stáhne seznam přijatých zpráv z datovky a uloží nové do fw.isds_message.
+    Plný parser eNeschopenky/OČR → absence se dolaďuje při živém testu (večer)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        where = "active=true"
+        params = {}
+        if b.get("account_id"):
+            where = "id=:aid"; params = {"aid": int(b.get("account_id"))}
+        accs = s.execute(_t("SELECT id, tenant_id, company_label, box_id, login_name, "
+                            "password_enc FROM fw.isds_account WHERE " + where), params).mappings().all()
+        total_new = 0; errors = []
+        for a in accs:
+            acc = dict(a)
+            try:
+                lst = _isds_list_received(acc)
+            except Exception as exc:
+                errors.append("%s: %s" % (acc["company_label"], str(exc)[:160]))
+                s.execute(_t("UPDATE fw.isds_account SET last_sync_at=now(), last_sync_note=:n WHERE id=:i"),
+                          {"n": "CHYBA: " + str(exc)[:200], "i": acc["id"]})
+                continue
+            new_c = 0
+            for msg in lst:
+                ins = s.execute(_t(
+                    "INSERT INTO fw.isds_message (account_id, dm_id, subject, sender, msg_type, status) "
+                    "VALUES (:aid,:dm,:su,:se,:mt,'new') ON CONFLICT (account_id, dm_id) DO NOTHING RETURNING id"),
+                    {"aid": acc["id"], "dm": msg["dm_id"], "su": msg["subject"],
+                     "se": msg["sender"], "mt": _isds_classify(msg["subject"])})
+                if ins.first():
+                    new_c += 1
+            total_new += new_c
+            s.execute(_t("UPDATE fw.isds_account SET last_sync_at=now(), last_sync_note=:n WHERE id=:i"),
+                      {"n": "OK · %d nových / %d celkem" % (new_c, len(lst)), "i": acc["id"]})
+        s.commit()
+        return {"ok": True, "new": total_new, "errors": errors}
+    finally:
+        s.close()
+
+
+# ════════════════════════════════════════════════════════════════════════
 # PŘEFAKTURACE ES → Control (Marti 19.6.2026): tlačítko v appce.
 # Výpočet i vystavení faktury dělají existující procedury v DB_EC:
 #   EC_GenVFESzFaaDeniku_Priprava  = výpočet (deník + doklady + marže + skupiny→popisy)

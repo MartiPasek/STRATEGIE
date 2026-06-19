@@ -22456,24 +22456,28 @@ def _sync_ec_org_kontakt(_unused=None) -> dict:
         wm = (row[0] if row and row[0] else "0000000000000000")
         norg = 0
         while True:
-            sql = ("SELECT TOP %d ID, Nazev, ICO, DIC, IdZeme, CAST(JeDodavatel AS int) JeDod, "
-                   "CAST(JeOdberatel AS int) JeOdb, Ulice, UliceSCisly, PSC, "
-                   "CAST(Poznamka AS nvarchar(2000)) Pozn, SystemRowVersionText rv "
-                   "FROM TabCisOrg WHERE SystemRowVersionText > '%s' "
-                   "ORDER BY SystemRowVersionText" % (BLOCK, wm))
+            sql = ("SELECT TOP %d o.ID, o.Nazev, o.Firma, e._Zkratka_nazvu AS Zkratka, o.CisloOrg, "
+                   "o.ICO, o.DIC, o.IdZeme, CAST(o.JeDodavatel AS int) JeDod, "
+                   "CAST(o.JeOdberatel AS int) JeOdb, o.Ulice, o.UliceSCisly, o.PSC, "
+                   "CAST(o.Poznamka AS nvarchar(2000)) Pozn, o.SystemRowVersionText rv "
+                   "FROM TabCisOrg o LEFT JOIN TabCisOrg_EXT e ON e.ID=o.ID "
+                   "WHERE o.SystemRowVersionText > '%s' "
+                   "ORDER BY o.SystemRowVersionText" % (BLOCK, wm))
             batch = rows_of(sql)
             if not batch:
                 break
             for r2 in batch:
                 s.execute(_t(
-                    "INSERT INTO tenant.ec_organizace (src_id,src_rowversion,nazev,ico,dic,id_zeme,"
+                    "INSERT INTO tenant.ec_organizace (src_id,src_rowversion,nazev,firma,zkratka,cislo_org,ico,dic,id_zeme,"
                     "je_dodavatel,je_odberatel,ulice,ulice_s_cisly,psc,poznamka,synced_at) VALUES "
-                    "(:sid,:rv,:nz,:ico,:dic,:zem,:jd,:jo,:ul,:uls,:psc,:po,now()) "
+                    "(:sid,:rv,:nz,:fi,:zk,:co,:ico,:dic,:zem,:jd,:jo,:ul,:uls,:psc,:po,now()) "
                     "ON CONFLICT (src_id) DO UPDATE SET src_rowversion=excluded.src_rowversion,nazev=excluded.nazev,"
+                    "firma=excluded.firma,zkratka=excluded.zkratka,cislo_org=excluded.cislo_org,"
                     "ico=excluded.ico,dic=excluded.dic,id_zeme=excluded.id_zeme,je_dodavatel=excluded.je_dodavatel,"
                     "je_odberatel=excluded.je_odberatel,ulice=excluded.ulice,ulice_s_cisly=excluded.ulice_s_cisly,"
                     "psc=excluded.psc,poznamka=excluded.poznamka,synced_at=now()"),
                     {"sid": i2(r2.get("ID")), "rv": s2(r2.get("rv")), "nz": s2(r2.get("Nazev")),
+                     "fi": s2(r2.get("Firma")), "zk": s2(r2.get("Zkratka")), "co": i2(r2.get("CisloOrg")),
                      "ico": s2(r2.get("ICO")), "dic": s2(r2.get("DIC")), "zem": s2(r2.get("IdZeme")),
                      "jd": b2(r2.get("JeDod")), "jo": b2(r2.get("JeOdb")), "ul": s2(r2.get("Ulice")),
                      "uls": s2(r2.get("UliceSCisly")), "psc": s2(r2.get("PSC")), "po": s2(r2.get("Pozn"))})

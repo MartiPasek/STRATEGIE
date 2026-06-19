@@ -3850,6 +3850,8 @@ setTimeout(function(){
     api("GET","/api/v1/erp/app/attendance/list?days=14"+(_dochViewUid?("&user_id="+encodeURIComponent(_dochViewUid)):""),"").then(function(j){
       var rows=(j&&j.entries)||[]; var tdy=_locDate(0);
       _dnesTodays=rows.filter(function(e){ return (e.d||"")===tdy; });
+      // Marti 19.6.: chronologicky — ranní příchod nahoře, další joby dolů.
+      _dnesTodays.sort(function(a,b){ var az=a.zac||"99:99", bz=b.zac||"99:99"; if(az!==bz) return az<bz?-1:1; return (a.id||0)-(b.id||0); });
       _dnesPaint();
     }).catch(function(){ var l=document.getElementById("dnesLeft"); if(l)l.innerHTML='<div class="hint" style="padding:12px;">Nepodařilo se načíst.</div>'; });
   }

@@ -21470,6 +21470,10 @@ _OPS_ACTIONS = {
         "label": "Zrcadlo Centrály: doklady+pohyby zboží (rowversion watermark, idempotentní)",
         "target": "cloud", "remote": False,
     },
+    "sync_ec_kalkulace": {
+        "label": "Zrcadlo Centrály: kalkulace+položky (2 roky, plný refresh, idempotentní)",
+        "target": "cloud", "remote": False,
+    },
 }
 
 
@@ -22226,6 +22230,158 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
             if len(batch) < BLOCK:
                 break
         res["pohyby"] = pulled
+
+        s.commit()
+        return {"ok": True, **res}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_kalkulace(_unused=None) -> dict:
+    """Marti 19.6.2026: zrcadlo kalkulací (EC_KalkulaceHlav + EC_KalkulacePolozky),
+    2leté okno (hlav.DatPorizeni >= 2024-01-01). EC_* nemají rowversion → plný
+    idempotentní refresh, stránkování po ID, upsert dle src_id (=Helios ID).
+    Z položek (Objednej>0, dle dodavatele) se generují vydané objednávky dílů."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    FROM = "2024-01-01"
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def b2(v):
+        t = (s2(v) or "").lower()
+        if t[:1] in ("1", "t", "a", "y"):
+            return True
+        if t[:1] in ("0", "f", "n"):
+            return False
+        return None
+
+    BLOCK = 1000
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    res = {}
+    try:
+        # ── HLAVIČKY ──
+        lastid = 0
+        nh = 0
+        while True:
+            sql = ("SELECT TOP %d ID, CisloKalkulace, RadaDokladu, IDDoklad, CisloZam, CisloZamObj, "
+                   "CAST(Objednat AS int) Objednat, CAST(Objednavam AS int) Objednavam, "
+                   "CONVERT(varchar(10),DatObjednaniOd,23) doo, CONVERT(varchar(10),DatObjednaniDo,23) dod, "
+                   "MarzeProcent, CelkemCena, CelkemHod, SkutecNaklady, Nakupci, "
+                   "CAST(AutomatickyDoobjednavat AS int) AutoDoobj, Autor, "
+                   "CONVERT(varchar(10),DatPorizeni,23) dp, Zmenil, CONVERT(varchar(19),DatZmeny,120) dz "
+                   "FROM EC_KalkulaceHlav WHERE DatPorizeni >= '%s' AND ID > %d ORDER BY ID" % (BLOCK, FROM, lastid))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for row in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_kalkulace_hlav (src_id,cislo,rada,id_doklad,cislo_zam,cislo_zam_obj,"
+                    "objednat,objednavam,dat_obj_od,dat_obj_do,marze_proc,celkem_cena,celkem_hod,skutec_naklady,"
+                    "nakupci,autom_doobj,autor,dat_porizeni,zmenil,dat_zmeny,synced_at) VALUES "
+                    "(:sid,:ci,:ra,:idd,:cz,:czo,:ob,:obm,:doo,:dod,:mp,:cc,:ch,:sn,:nk,:ad,:au,:dp,:zm,:dz,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET cislo=excluded.cislo,rada=excluded.rada,id_doklad=excluded.id_doklad,"
+                    "cislo_zam=excluded.cislo_zam,cislo_zam_obj=excluded.cislo_zam_obj,objednat=excluded.objednat,"
+                    "objednavam=excluded.objednavam,dat_obj_od=excluded.dat_obj_od,dat_obj_do=excluded.dat_obj_do,"
+                    "marze_proc=excluded.marze_proc,celkem_cena=excluded.celkem_cena,celkem_hod=excluded.celkem_hod,"
+                    "skutec_naklady=excluded.skutec_naklady,nakupci=excluded.nakupci,autom_doobj=excluded.autom_doobj,"
+                    "autor=excluded.autor,dat_porizeni=excluded.dat_porizeni,zmenil=excluded.zmenil,"
+                    "dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                    {"sid": i2(row.get("ID")), "ci": s2(row.get("CisloKalkulace")), "ra": s2(row.get("RadaDokladu")),
+                     "idd": i2(row.get("IDDoklad")), "cz": i2(row.get("CisloZam")), "czo": i2(row.get("CisloZamObj")),
+                     "ob": b2(row.get("Objednat")), "obm": b2(row.get("Objednavam")), "doo": s2(row.get("doo")),
+                     "dod": s2(row.get("dod")), "mp": num(row.get("MarzeProcent")), "cc": num(row.get("CelkemCena")),
+                     "ch": num(row.get("CelkemHod")), "sn": num(row.get("SkutecNaklady")), "nk": i2(row.get("Nakupci")),
+                     "ad": b2(row.get("AutoDoobj")), "au": s2(row.get("Autor")), "dp": s2(row.get("dp")),
+                     "zm": s2(row.get("Zmenil")), "dz": s2(row.get("dz"))})
+                lastid = i2(row.get("ID")) or lastid
+            nh += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        res["hlav"] = nh
+
+        # ── POLOŽKY (jen pro 2leté kalkulace) ──
+        lastid = 0
+        npol = 0
+        while True:
+            sql = ("SELECT TOP %d p.ID, p.IDHlav, RTRIM(p.CisloZakazky) CisloZakazky, p.IDKmenZbozi, p.Dodavatel, "
+                   "p.Objednano, p.Objednej, p.ObjNaSklad, p.SkladDispozice, p.SkutecMnozstvi, "
+                   "CONVERT(varchar(10),p.ObjednatDo,23) odo, p.StavSkladDispozice, p.KCen_Cena, p.JCenaEUR, "
+                   "p.IDPrefObj, p.ID_Skupina "
+                   "FROM EC_KalkulacePolozky p WHERE p.ID > %d "
+                   "AND EXISTS (SELECT 1 FROM EC_KalkulaceHlav h WHERE h.ID=p.IDHlav AND h.DatPorizeni >= '%s') "
+                   "ORDER BY p.ID" % (BLOCK, lastid, FROM))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for row in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_kalkulace_polozka (src_id,id_hlav,cislo_zakazky,id_kmen_zbozi,dodavatel,"
+                    "objednano,objednej,obj_na_sklad,sklad_dispozice,skutec_mnozstvi,objednat_do,stav_sklad,"
+                    "kcen_cena,jcena_eur,id_pref_obj,id_skupina,synced_at) VALUES "
+                    "(:sid,:idh,:cz,:kz,:dod,:obn,:obj,:ons,:sd,:sm,:odo,:ss,:kc,:je,:ipo,:isk,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET id_hlav=excluded.id_hlav,cislo_zakazky=excluded.cislo_zakazky,"
+                    "id_kmen_zbozi=excluded.id_kmen_zbozi,dodavatel=excluded.dodavatel,objednano=excluded.objednano,"
+                    "objednej=excluded.objednej,obj_na_sklad=excluded.obj_na_sklad,sklad_dispozice=excluded.sklad_dispozice,"
+                    "skutec_mnozstvi=excluded.skutec_mnozstvi,objednat_do=excluded.objednat_do,stav_sklad=excluded.stav_sklad,"
+                    "kcen_cena=excluded.kcen_cena,jcena_eur=excluded.jcena_eur,id_pref_obj=excluded.id_pref_obj,"
+                    "id_skupina=excluded.id_skupina,synced_at=now()"),
+                    {"sid": i2(row.get("ID")), "idh": i2(row.get("IDHlav")), "cz": s2(row.get("CisloZakazky")),
+                     "kz": i2(row.get("IDKmenZbozi")), "dod": i2(row.get("Dodavatel")), "obn": num(row.get("Objednano")),
+                     "obj": num(row.get("Objednej")), "ons": num(row.get("ObjNaSklad")), "sd": num(row.get("SkladDispozice")),
+                     "sm": num(row.get("SkutecMnozstvi")), "odo": s2(row.get("odo")), "ss": s2(row.get("StavSkladDispozice")),
+                     "kc": num(row.get("KCen_Cena")), "je": num(row.get("JCenaEUR")), "ipo": i2(row.get("IDPrefObj")),
+                     "isk": i2(row.get("ID_Skupina"))})
+                lastid = i2(row.get("ID")) or lastid
+            npol += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        res["polozky"] = npol
 
         s.commit()
         return {"ok": True, **res}
@@ -23793,6 +23949,12 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             status = "done"
             result = ("zrcadlo Centrály: backfill 2 let spuštěn na pozadí (doklady+pohyby, "
                       "rowversion watermark; progres se ukládá průběžně)")
+        elif action_key == "sync_ec_kalkulace":
+            import threading as _thr
+            _thr.Thread(target=_sync_ec_kalkulace, daemon=True).start()
+            out = {"ok": True}
+            status = "done"
+            result = ("zrcadlo Centrály: refresh kalkulací+položek (2 roky) spuštěn na pozadí")
         elif action_key == "sync_priplatky":
             out = _sync_priplatky_from_ec()
             status = "done"

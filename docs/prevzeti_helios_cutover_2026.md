@@ -52,6 +52,20 @@ roku a je to vratné** — mění se jen analytická dimenze, ne účty/částky
 3. Script přepisuje **jen dimenzi** (středisko=001, zakázka=velká), nesahá na účty/částky/DPH.
 4. **WIP / nedokončená výroba** k závěrce 2026 už z naší analytiky.
 
+## Zásoby — Způsob B (Marti 19.6.)
+Druhá velká úspora: **Způsob B zásob** — nákupy rovnou do spotřeby, **žádné účtování
+příjemek/výdejek** přes skladové účty (~56 % řádků deníku). Protože doklady jdou přepsat
+zpětně, na konci roku stačí **vyřadit/zneaktivnit účty pro příjemky/výdejky** → celý rok
+je v Způsobu B. Konzistentní s „flip‑na‑konci".
+- **Co Způsob B nesundá:** k závěrce vyžaduje **ocenění zásob (inventura) k 31.12.** —
+  konečný stav skladu se stanoví a zaúčtuje jednorázově. **Pozn. (Marti): fyzickou inventuru
+  na konci roku děláme tak jako tak** → Způsob B tedy nestojí nic navíc, konečný stav dá
+  existující inventura. STRATEGIE k ní jen dodá skladovou evidenci/podklad (a WIP).
+
+**Jednotný vzorec:** Helios = tenká finanční kniha (bez zakázek/středisek, Způsob B);
+STRATEGIE = veškerá operativní a analytická pravda (zakázky, náklady, WIP, sklad) →
+Heliosu dodáváme jen **závěrkové figury (WIP + konečný stav zásob)**.
+
 ## Harmonogram (build‑first)
 - **Teď → ~2 měsíce:** STRATEGIE kompletní (oběh zakázek + fakturace + analytika + reporting),
   mosty faktura/úhrada/mzdy, paralelní kontrola že zaúčtování sedí. Helios zatím beze změny.

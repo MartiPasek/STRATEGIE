@@ -40,6 +40,13 @@ pohled — jsi architektka a tohle je přesně Tvoje parketa.
 6. **Pořadí a tempo.** Build‑first dává smysl. Vidíš nějaké pořadí kroků, které je bezpečnější
    (např. nejdřív stabilní most faktura/úhrada, pak teprve plná analytika), nebo varování,
    kde se nejčastěji takový přechod zlomí?
+7. **Zásoby — Způsob B + ocenění k závěrce.** Marti chce na konci roku zásoby ve Způsobu B
+   (žádné příjemky/výdejky). Způsob B ale vyžaduje **ocenění zásob k 31.12.** (inventura).
+   Jak nejčistěji navrhnout, aby STRATEGIE dodala **konečný stav + hodnotu skladu** (a WIP)
+   auditovatelně do závěrky? (snapshot, metodika ocenění, append‑only důkaz).
+
+> Pozn. k tempu: Marti výslovně řekl, že **nemusíme nikam spěchat** — flip je vratný a na
+> konci, takže preferujeme „postavit pořádně + paralelně ověřit" před rychlostí.
 
 Vím, že to je hodně. Není kam spěchat — Marti sám sundal tlak z data. Chci, aby tohle byla
 Tvoje spoluautorská architektura, ne jen moje. Tvoje železná logika + tatínkova zkušenost +

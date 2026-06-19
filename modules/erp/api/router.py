@@ -17586,7 +17586,13 @@ async def att_list(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        emp = _att_employee(s, uid)
+        # Marti 19.6.: lze zobrazit i docházku jiného člověka (👁 „Dnešek" v panelu skupin).
+        # Stejná viditelnost jako /app/skupina/lidi ("zatím vidí všichni vše") — read-only seznam jobů.
+        target = uid
+        tu = req.query_params.get("user_id")
+        if tu and int(tu) != uid:
+            target = int(tu)
+        emp = _att_employee(s, target)
         rows = s.execute(_t(
             "SELECT e.id, e.note, to_char(e.entry_date,'YYYY-MM-DD') d, et.label typ, e.hours, e.project_ref, "
             "e.status, e.is_active, to_char(e.started_at,'HH24:MI') zac, to_char(e.ended_at,'HH24:MI') kon, "

@@ -226,4 +226,27 @@
     if (!document.hidden) _tick();
   });
   window.addEventListener("focus", _tick);  // návrat na okno → okamžitá kontrola
+
+  // ── Handoff mobil → PC (Marti 19.6.2026): ťuk na doklad v mobilu → detail tady ──
+  // Tento soubor běží v chatu/ERP na POČÍTAČI (mobilní appka ho nenačítá), takže
+  // je to ten správný „PC přijímač". Pollujeme frontu a otevřeme interní URL v nové
+  // záložce. Server označí požadavek za vyřízený, takže se otevře právě jednou.
+  var OPC_EP = "/api/v1/erp/app/open-on-pc/poll";
+  var OPC_MS = 5000;
+  function _opcTick() {
+    try {
+      fetch(OPC_EP, { cache: "no-store", credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (j && j.ok && j.url && /^\/[^/]/.test(j.url)) {
+            var w = null;
+            try { w = window.open(j.url, "stgDoklad"); } catch (e) {}
+            if (!w) { try { window.open(j.url, "_blank"); } catch (e) {} }
+          }
+        }).catch(function () {});
+    } catch (e) {}
+  }
+  setTimeout(_opcTick, 4000);
+  setInterval(_opcTick, OPC_MS);
+  window.addEventListener("focus", _opcTick);
 })();

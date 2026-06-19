@@ -56,6 +56,25 @@ var _data=[], _items={};
 function kc(n){ n=Math.round(+n||0); return n.toLocaleString("cs-CZ")+" Kč"; }
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
 function api(u){ return fetch(u,{credentials:"include"}).then(function(r){return r.json();}); }
+function _toast(t){
+  var d=document.createElement("div");
+  d.textContent=t;
+  d.style.cssText="position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:9999;"
+    +"background:#1c2530;color:#e8eef5;border:1px solid #3a4a5e;border-radius:10px;padding:10px 16px;"
+    +"font-size:13.5px;box-shadow:0 10px 30px rgba(0,0,0,.5)";
+  document.body.appendChild(d); setTimeout(function(){ try{d.remove();}catch(e){} },2600);
+}
+// Handoff: ťuk → otevři detail na POČÍTAČI (přes pollera v otevřené STRATEGII).
+// Na širokém displeji (PC) otevřu rovnou i lokálně; na mobilu jen pošlu na PC.
+function openOnPc(url,lbl){
+  fetch("/api/v1/erp/app/open-on-pc",{method:"POST",credentials:"include",
+    headers:{"Content-Type":"application/json"},body:JSON.stringify({url:url,label:lbl})})
+    .then(function(r){return r.json();})
+    .then(function(j){ _toast(j&&j.ok ? "📲→💻 Otevírám na počítači…" : "Nepovedlo se"); })
+    .catch(function(){ _toast("Chyba spojení"); });
+  if(window.innerWidth>=900){ try{ window.open(url,"stgDoklad"); }catch(e){} }
+  return false;
+}
 
 function renderKpis(s){
   document.getElementById("kpis").innerHTML=
@@ -91,7 +110,7 @@ function toggle(rowEl,co){
     var t='<table><thead><tr><th class="l">Doklad / zakázka</th><th class="l">Díl</th>'
       +'<th>Obj.</th><th>Dodáno</th><th>Otevřeno</th><th>JC</th><th>Termín</th></tr></thead><tbody>';
     (j.polozky||[]).forEach(function(p){
-      t+='<tr><td class="l muted"><a href="/doklad?id='+p.doklad_id+'" target="_blank" style="color:#7fb0ff;text-decoration:none;font-weight:600">'+esc(p.doklad||"")+' ↗</a>'+(p.zakazka?(' · '+esc(p.zakazka)):'')+'</td>'
+      t+='<tr><td class="l muted"><a href="/doklad?id='+p.doklad_id+'" onclick="return openOnPc(\'/doklad?id='+p.doklad_id+'\',\'Objednávka '+esc(p.doklad||"")+'\')" style="color:#7fb0ff;text-decoration:none;font-weight:600">'+esc(p.doklad||"")+' 💻</a>'+(p.zakazka?(' · '+esc(p.zakazka)):'')+'</td>'
         +'<td class="l dil">'+esc(p.dil||"")+'</td>'
         +'<td>'+(+p.objednano)+'</td><td>'+(+p.dodano)+'</td>'
         +'<td class="o">'+(+p.otevreno)+'</td>'

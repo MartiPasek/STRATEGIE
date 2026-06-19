@@ -20468,6 +20468,53 @@ def doklad_detail(req: Request):
     return {"ok": True, "doklad": dict(d), "polozky": [dict(r) for r in pol]}
 
 
+# ── Handoff mobil → PC (Marti 19.6.2026): mobil řídí, detail naskočí na počítači ──
+# Mobil zapíše „otevři tuto interní URL" pro daného uživatele; otevřená STRATEGIE
+# na PC (chat/ERP) to vyzvedne pollerem a otevře. Bezpečně jen interní cesty.
+@api_router.post("/app/open-on-pc")
+async def open_on_pc(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nejsi přihlášen"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    url = (b.get("url") or "").strip()
+    if not url.startswith("/") or url.startswith("//"):
+        return JSONResponse({"ok": False, "error": "Jen interní cesta"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        s.execute(_t("INSERT INTO fw.open_on_pc(user_id,url,label) VALUES(:u,:url,:l)"),
+                  {"u": int(uid), "url": url[:500], "l": (b.get("label") or "").strip()[:120] or None})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+@api_router.get("/app/open-on-pc/poll")
+def open_on_pc_poll(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return {"ok": False, "url": None}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        row = s.execute(_t(
+            "SELECT id, url, label FROM fw.open_on_pc "
+            "WHERE user_id=:u AND consumed_at IS NULL ORDER BY id LIMIT 1"), {"u": int(uid)}).first()
+        if not row:
+            return {"ok": True, "url": None}
+        s.execute(_t("UPDATE fw.open_on_pc SET consumed_at=now() WHERE id=:i"), {"i": row[0]})
+        s.commit()
+        return {"ok": True, "url": row[1], "label": row[2]}
+    finally:
+        s.close()
+
+
 # ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).

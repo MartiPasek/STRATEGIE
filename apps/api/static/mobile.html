@@ -3835,27 +3835,44 @@ setTimeout(function(){
   // ───── „Dnešek" — dva pohledy: 🗓 Docházkový (HR) + 🧾 Zakázkový (vedoucí výroby). Marti 19.6. ─────
   // Sdílené pro vlastní Dnešek i pro 👁 osoby z panelu skupin (přes _dochViewUid).
   function openPersDnesek(uid, jmeno){ window._persDnesek={uid:uid, jmeno:jmeno||""}; go("persDnesek"); }
-  var _dnesView="doch";  // 'doch' | 'zak'
+  var _dnesView="doch", _dnesFilter="vse", _dnesTodays=[];   // pravý panel: Docházka (filtry) + Výroba (zakázky)
   function _dnesScreen(title){
     app.innerHTML=topbar(title, true, true); _dochTopPad();
-    // výchozí pohled dle role: vedoucí výroby/manager → Zakázky, HR/ostatní → Docházka (dokud uživatel sám nepřepne)
-    if(!window._dnesViewSet){ _dnesView = (window._canManageVyroba ? "zak" : "doch"); }
-    app.appendChild(el('<div id="dnesTg" style="display:flex;gap:8px;margin:2px 2px 10px;"></div>'));
-    app.appendChild(el('<div id="dnesBody"></div>'));
-    _dnesPaint();
+    if(!window._dnesViewSet){ _dnesView=(window._canManageVyroba?"zak":"doch"); }
+    var wrap=el('<div style="display:flex;gap:10px;height:calc(100vh - 150px);align-items:stretch;"></div>');
+    wrap.appendChild(el('<div id="dnesLeft" style="flex:1;min-width:0;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border:1px solid var(--bord);border-radius:12px;background:rgba(255,255,255,0.02);padding:2px 8px;"></div>'));
+    wrap.appendChild(el('<div id="dnesRail" style="width:78px;flex:none;overflow-y:auto;scrollbar-width:none;display:flex;flex-direction:column;gap:4px;padding:1px;"></div>'));
+    app.appendChild(wrap);
+    _dnesLoad();
+  }
+  function _dnesLoad(){
+    var left=document.getElementById("dnesLeft"); if(left) left.innerHTML='<div class="hint" style="padding:12px;">Načítám…</div>';
+    api("GET","/api/v1/erp/app/attendance/list?days=14"+(_dochViewUid?("&user_id="+encodeURIComponent(_dochViewUid)):""),"").then(function(j){
+      var rows=(j&&j.entries)||[]; var tdy=_locDate(0);
+      _dnesTodays=rows.filter(function(e){ return (e.d||"")===tdy; });
+      _dnesPaint();
+    }).catch(function(){ var l=document.getElementById("dnesLeft"); if(l)l.innerHTML='<div class="hint" style="padding:12px;">Nepodařilo se načíst.</div>'; });
+  }
+  function _dnesRailHdr(t){ return el('<div style="font-size:9.5px;font-weight:800;color:#8aa0c4;text-transform:uppercase;letter-spacing:.04em;text-align:center;margin:7px 0 1px;">'+esc(t)+'</div>'); }
+  function _dnesRailBtn(icon,label,active,fn){
+    var b=el('<button style="width:100%;box-sizing:border-box;margin:0;padding:9px 2px;font-size:10px;line-height:1.1;display:flex;flex-direction:column;align-items:center;gap:3px;border:1px solid '+(active?"var(--green)":"var(--bord)")+';background:'+(active?"var(--green)":"rgba(255,255,255,0.02)")+';color:'+(active?"#04150e":"var(--mut)")+';border-radius:12px;cursor:pointer;"><span style="font-size:21px;line-height:1;">'+icon+'</span>'+esc(label)+'</button>');
+    b.addEventListener("click",fn); return b;
   }
   function _dnesPaint(){
-    var tg=document.getElementById("dnesTg"); if(tg){ tg.innerHTML="";
-      [["doch","🗓 Docházka"],["zak","🧾 Zakázky"]].forEach(function(it){
-        var on=(_dnesView===it[0]);
-        var b=el('<button style="flex:1;padding:10px 6px;border-radius:11px;font-size:13.5px;font-weight:700;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,.03)")+';color:'+(on?"#04150e":"var(--mut)")+';">'+it[1]+'</button>');
-        b.addEventListener("click",function(){ _dnesView=it[0]; window._dnesViewSet=true; _dnesPaint(); });
-        tg.appendChild(b);
+    var rail=document.getElementById("dnesRail"), left=document.getElementById("dnesLeft");
+    if(rail){ rail.innerHTML="";
+      rail.appendChild(_dnesRailHdr("Docházka"));
+      [["📋","Vše","vse"],["🌟","Speciální","spec"],["👷","Makám","makam"],["☕","Relax","relax"],["📊","Souhrn","souhrn"]].forEach(function(it){
+        rail.appendChild(_dnesRailBtn(it[0],it[1],(_dnesView==="doch"&&_dnesFilter===it[2]),function(){ _dnesView="doch"; _dnesFilter=it[2]; window._dnesViewSet=true; _dnesPaint(); }));
       });
+      rail.appendChild(_dnesRailHdr("Výroba"));
+      rail.appendChild(_dnesRailBtn("🧾","Zakázky",(_dnesView==="zak"),function(){ _dnesView="zak"; window._dnesViewSet=true; _dnesPaint(); }));
     }
-    var body=document.getElementById("dnesBody"); if(!body) return; body.innerHTML="";
-    if(_dnesView==="zak"){ _zakRender(body); }
-    else { var p=el('<div class="panel" style="margin:0;"></div>'); body.appendChild(p); p.innerHTML=_dochRail("dochToday2","dochTodayRail"); dochListLoad(); }
+    if(!left) return;
+    if(_dnesView==="zak"){ _zakRender(left); return; }
+    // Docházkový pohled: jen seznam (lištu staví naše skupinová lišta vpravo, ne _renderJobPanel)
+    left.innerHTML='<ul id="dochToday2" style="padding:0;list-style:none;margin:0;"></ul>';
+    _renderJobPanel("dnesNoRail","dochToday2",_dnesTodays,{f:_dnesFilter});
   }
   function _zakRender(box){
     box.innerHTML='<div class="hint" style="padding:12px;">Načítám…</div>';

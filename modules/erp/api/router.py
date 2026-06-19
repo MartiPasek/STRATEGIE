@@ -21478,6 +21478,10 @@ _OPS_ACTIONS = {
         "label": "Zrcadlo Centrály: organizace (rowversion) + CRM kontakty (plné)",
         "target": "cloud", "remote": False,
     },
+    "sync_ec_sklad_kmen": {
+        "label": "Zrcadlo Centrály: sklad (TabStavSkladu) + díly (TabKmenZbozi)",
+        "target": "cloud", "remote": False,
+    },
 }
 
 
@@ -22139,14 +22143,18 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
         pulled = 0
         while pulled < cap_per_table:
             sql = (
-                "SELECT TOP %d ID, Cislo, RadaDokladu, DruhPohybuZbo, DruhPohybuZboPZO, "
-                "CisloOrg, RTRIM(CisloZakazky) CisloZakazky, CisloZam, Nazev, PopisDodavky, Mena, "
-                "Stav, StavFakturace, SumaKcBezDPHDruh, SumaValBezDPHDruh, NavaznyDoklad, StornoDoklad, "
-                "CONVERT(varchar(10),DatPorizeni,23) dp, CONVERT(varchar(10),DatRealizace,23) dr, "
-                "SystemRowVersionText rv "
-                "FROM TabDokladyZbozi WHERE SystemRowVersionText > '%s' "
-                "AND DatPorizeni >= '2024-01-01' "
-                "ORDER BY SystemRowVersionText" % (BLOCK, wm)
+                "SELECT TOP %d d.ID, d.Cislo, d.RadaDokladu, d.DruhPohybuZbo, d.DruhPohybuZboPZO, "
+                "d.CisloOrg, RTRIM(d.CisloZakazky) CisloZakazky, d.CisloZam, d.Nazev, d.PopisDodavky, d.Mena, "
+                "d.Stav, d.StavFakturace, d.SumaKcBezDPHDruh, d.SumaValBezDPHDruh, d.NavaznyDoklad, d.StornoDoklad, "
+                "CAST(d.Realizovano AS int) Realizovano, CAST(d.Splneno AS int) Splneno, d.PoradoveCislo, "
+                "d.NavaznaObjednavka, CONVERT(varchar(10),d.TerminDodavkyDat,23) td, "
+                "CAST(d.SumaKcBezDPH AS numeric(19,2)) SumaKcBezDPH, "
+                "CAST(e._Odeslano AS int) Odeslano, CAST(e._Oznaceno AS int) Oznaceno, e._CisloNabidkyDodavatele CisloNabidkyDod, "
+                "CONVERT(varchar(10),d.DatPorizeni,23) dp, CONVERT(varchar(10),d.DatRealizace,23) dr, "
+                "d.SystemRowVersionText rv "
+                "FROM TabDokladyZbozi d LEFT JOIN TabDokladyZbozi_EXT e ON e.ID=d.ID "
+                "WHERE d.SystemRowVersionText > '%s' AND d.DatPorizeni >= '2024-01-01' "
+                "ORDER BY d.SystemRowVersionText" % (BLOCK, wm)
             )
             batch = rows_of(sql)
             if not batch:
@@ -22156,16 +22164,21 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
                     "INSERT INTO tenant.ec_doklad_zbozi (src_id, src_rowversion, cislo, rada, druh_pohybu, "
                     "druh_pohybu_pzo, cislo_org, cislo_zakazky, cislo_zam, nazev, popis_dodavky, mena, stav, "
                     "stav_fakturace, suma_bez_dph, suma_val_bez_dph, navazny_doklad, storno_doklad, "
-                    "dat_porizeni, dat_realizace, synced_at) VALUES "
-                    "(:sid,:rv,:cislo,:rada,:dp1,:dp2,:co,:cz,:czam,:nz,:pd,:mn,:st,:sf,:s1,:s2v,:nd,:sd,:datp,:datr,now()) "
+                    "realizovano, splneno, odeslano, oznaceno, poradove_cislo, navazna_objednavka, termin_dodavky, "
+                    "suma_kc_bez_dph, cislo_nabidky_dod, dat_porizeni, dat_realizace, synced_at) VALUES "
+                    "(:sid,:rv,:cislo,:rada,:dp1,:dp2,:co,:cz,:czam,:nz,:pd,:mn,:st,:sf,:s1,:s2v,:nd,:sd,"
+                    ":rz,:sp,:od,:oz,:pcis,:noj,:tdod,:skd,:cnd,:datp,:datr,now()) "
                     "ON CONFLICT (src_id) DO UPDATE SET src_rowversion=excluded.src_rowversion, cislo=excluded.cislo, "
                     "rada=excluded.rada, druh_pohybu=excluded.druh_pohybu, druh_pohybu_pzo=excluded.druh_pohybu_pzo, "
                     "cislo_org=excluded.cislo_org, cislo_zakazky=excluded.cislo_zakazky, cislo_zam=excluded.cislo_zam, "
                     "nazev=excluded.nazev, popis_dodavky=excluded.popis_dodavky, mena=excluded.mena, stav=excluded.stav, "
                     "stav_fakturace=excluded.stav_fakturace, suma_bez_dph=excluded.suma_bez_dph, "
                     "suma_val_bez_dph=excluded.suma_val_bez_dph, navazny_doklad=excluded.navazny_doklad, "
-                    "storno_doklad=excluded.storno_doklad, dat_porizeni=excluded.dat_porizeni, "
-                    "dat_realizace=excluded.dat_realizace, synced_at=now()"),
+                    "storno_doklad=excluded.storno_doklad, realizovano=excluded.realizovano, splneno=excluded.splneno, "
+                    "odeslano=excluded.odeslano, oznaceno=excluded.oznaceno, poradove_cislo=excluded.poradove_cislo, "
+                    "navazna_objednavka=excluded.navazna_objednavka, termin_dodavky=excluded.termin_dodavky, "
+                    "suma_kc_bez_dph=excluded.suma_kc_bez_dph, cislo_nabidky_dod=excluded.cislo_nabidky_dod, "
+                    "dat_porizeni=excluded.dat_porizeni, dat_realizace=excluded.dat_realizace, synced_at=now()"),
                     {"sid": i2(row.get("ID")), "rv": s2(row.get("rv")), "cislo": s2(row.get("Cislo")),
                      "rada": s2(row.get("RadaDokladu")), "dp1": i2(row.get("DruhPohybuZbo")),
                      "dp2": i2(row.get("DruhPohybuZboPZO")), "co": i2(row.get("CisloOrg")),
@@ -22174,6 +22187,10 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
                      "st": i2(row.get("Stav")), "sf": s2(row.get("StavFakturace")),
                      "s1": num(row.get("SumaKcBezDPHDruh")), "s2v": num(row.get("SumaValBezDPHDruh")),
                      "nd": i2(row.get("NavaznyDoklad")), "sd": i2(row.get("StornoDoklad")),
+                     "rz": (i2(row.get("Realizovano")) == 1), "sp": (i2(row.get("Splneno")) == 1),
+                     "od": (i2(row.get("Odeslano")) == 1), "oz": (i2(row.get("Oznaceno")) == 1),
+                     "pcis": i2(row.get("PoradoveCislo")), "noj": s2(row.get("NavaznaObjednavka")),
+                     "tdod": s2(row.get("td")), "skd": num(row.get("SumaKcBezDPH")), "cnd": s2(row.get("CisloNabidkyDod")),
                      "datp": s2(row.get("dp")), "datr": s2(row.get("dr"))})
                 if row.get("rv"):
                     wm = str(row.get("rv"))
@@ -22191,7 +22208,7 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
             sql = (
                 "SELECT TOP %d ID, IDDoklad, IDZboSklad, CisloKarty, CisloOrg, "
                 "RTRIM(CisloZakazky) CisloZakazky, CisloZam, DruhPohybuZbo, Nazev1, Nazev2, Popis4, "
-                "Mnozstvi, MnozstviReal, MnozstviStorno, VraceneMnozstvi, EvMnozstvi, Mena, "
+                "Mnozstvi, MnozstviReal, MnozstviStorno, VraceneMnozstvi, EvMnozstvi, MnOdebrane, Mena, "
                 "PrimarniCena, JCbezDaniKcPoSDruhova, CCbezDaniKcPoSDruhova, SystemRowVersionText rv "
                 "FROM TabPohybyZbozi WHERE SystemRowVersionText > '%s' "
                 "AND DatPorizeni >= '2024-01-01' "
@@ -22204,9 +22221,9 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
                 s.execute(_t(
                     "INSERT INTO tenant.ec_pohyb_zbozi (src_id, src_rowversion, src_doklad_id, id_zbo_sklad, "
                     "cislo_karty, cislo_org, cislo_zakazky, cislo_zam, druh_pohybu, nazev, nazev2, popis, "
-                    "mnozstvi, mnozstvi_real, mnozstvi_storno, vracene_mnozstvi, ev_mnozstvi, mena, "
+                    "mnozstvi, mnozstvi_real, mnozstvi_storno, vracene_mnozstvi, ev_mnozstvi, mn_odebrane, mena, "
                     "primarni_cena, jc_bez_dani_kc, cc_bez_dani_kc, synced_at) VALUES "
-                    "(:sid,:rv,:dok,:zbo,:ck,:co,:cz,:czam,:dp,:n1,:n2,:po,:m,:mr,:ms,:vm,:em,:mn,:pc,:jc,:cc,now()) "
+                    "(:sid,:rv,:dok,:zbo,:ck,:co,:cz,:czam,:dp,:n1,:n2,:po,:m,:mr,:ms,:vm,:em,:mo,:mn,:pc,:jc,:cc,now()) "
                     "ON CONFLICT (src_id) DO UPDATE SET src_rowversion=excluded.src_rowversion, "
                     "src_doklad_id=excluded.src_doklad_id, id_zbo_sklad=excluded.id_zbo_sklad, "
                     "cislo_karty=excluded.cislo_karty, cislo_org=excluded.cislo_org, "
@@ -22214,7 +22231,8 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
                     "druh_pohybu=excluded.druh_pohybu, nazev=excluded.nazev, nazev2=excluded.nazev2, "
                     "popis=excluded.popis, mnozstvi=excluded.mnozstvi, mnozstvi_real=excluded.mnozstvi_real, "
                     "mnozstvi_storno=excluded.mnozstvi_storno, vracene_mnozstvi=excluded.vracene_mnozstvi, "
-                    "ev_mnozstvi=excluded.ev_mnozstvi, mena=excluded.mena, primarni_cena=excluded.primarni_cena, "
+                    "ev_mnozstvi=excluded.ev_mnozstvi, mn_odebrane=excluded.mn_odebrane, mena=excluded.mena, "
+                    "primarni_cena=excluded.primarni_cena, "
                     "jc_bez_dani_kc=excluded.jc_bez_dani_kc, cc_bez_dani_kc=excluded.cc_bez_dani_kc, synced_at=now()"),
                     {"sid": i2(row.get("ID")), "rv": s2(row.get("rv")), "dok": i2(row.get("IDDoklad")),
                      "zbo": i2(row.get("IDZboSklad")), "ck": s2(row.get("CisloKarty")),
@@ -22223,7 +22241,7 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
                      "n1": s2(row.get("Nazev1")), "n2": s2(row.get("Nazev2")), "po": s2(row.get("Popis4")),
                      "m": num(row.get("Mnozstvi")), "mr": num(row.get("MnozstviReal")),
                      "ms": num(row.get("MnozstviStorno")), "vm": num(row.get("VraceneMnozstvi")),
-                     "em": num(row.get("EvMnozstvi")), "mn": s2(row.get("Mena")),
+                     "em": num(row.get("EvMnozstvi")), "mo": num(row.get("MnOdebrane")), "mn": s2(row.get("Mena")),
                      "pc": num(row.get("PrimarniCena")), "jc": num(row.get("JCbezDaniKcPoSDruhova")),
                      "cc": num(row.get("CCbezDaniKcPoSDruhova"))})
                 if row.get("rv"):
@@ -22531,6 +22549,135 @@ def _sync_ec_org_kontakt(_unused=None) -> dict:
             if len(batch) < BLOCK:
                 break
         res["kontakty"] = nk
+
+        s.commit()
+        return {"ok": True, **res}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_sklad_kmen(_unused=None) -> dict:
+    """Marti 19.6.2026: zrcadlo skladu (TabStavSkladu — plný refresh dle ID, nemá
+    rowversion) + kmene zboží/dílů (TabKmenZbozi — rowversion watermark). src_id =
+    Helios ID. Projektovaný sklad = MnozSPrijBezVyd. Díl.Aktualni_Dodavatel → org.cislo_org."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    BLOCK = 1000
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    res = {}
+    try:
+        # ── KMEN ZBOŽÍ / díly (rowversion watermark) ──
+        row = s.execute(_t("SELECT last_rowversion FROM tenant.ec_mirror_state WHERE src_table='TabKmenZbozi'")).first()
+        wm = (row[0] if row and row[0] else "0000000000000000")
+        nk = 0
+        while True:
+            sql = ("SELECT TOP %d ID, RegCis, Nazev1, Nazev2, Nazev3, Aktualni_Dodavatel, MJEvidence, SkupZbo, "
+                   "CAST(Blokovano AS int) Blokovano, CAST(Dilec AS int) Dilec, CAST(Montaz AS int) Montaz, "
+                   "CAST(Material AS int) Material, Hmotnost, CNKod2, SystemRowVersionText rv "
+                   "FROM TabKmenZbozi WHERE SystemRowVersionText > '%s' "
+                   "ORDER BY SystemRowVersionText" % (BLOCK, wm))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for r2 in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_kmen_zbozi (src_id,src_rowversion,reg_cis,nazev1,nazev2,nazev3,dodavatel,"
+                    "mj,skup_zbo,blokovano,dilec,montaz,material,hmotnost,cnkod2,synced_at) VALUES "
+                    "(:sid,:rv,:rc,:n1,:n2,:n3,:dod,:mj,:sk,:bl,:di,:mo,:ma,:hm,:cn,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET src_rowversion=excluded.src_rowversion,reg_cis=excluded.reg_cis,"
+                    "nazev1=excluded.nazev1,nazev2=excluded.nazev2,nazev3=excluded.nazev3,dodavatel=excluded.dodavatel,"
+                    "mj=excluded.mj,skup_zbo=excluded.skup_zbo,blokovano=excluded.blokovano,dilec=excluded.dilec,"
+                    "montaz=excluded.montaz,material=excluded.material,hmotnost=excluded.hmotnost,cnkod2=excluded.cnkod2,"
+                    "synced_at=now()"),
+                    {"sid": i2(r2.get("ID")), "rv": s2(r2.get("rv")), "rc": s2(r2.get("RegCis")),
+                     "n1": s2(r2.get("Nazev1")), "n2": s2(r2.get("Nazev2")), "n3": s2(r2.get("Nazev3")),
+                     "dod": i2(r2.get("Aktualni_Dodavatel")), "mj": s2(r2.get("MJEvidence")), "sk": s2(r2.get("SkupZbo")),
+                     "bl": i2(r2.get("Blokovano")), "di": (i2(r2.get("Dilec")) == 1), "mo": (i2(r2.get("Montaz")) == 1),
+                     "ma": (i2(r2.get("Material")) == 1), "hm": num(r2.get("Hmotnost")), "cn": s2(r2.get("CNKod2"))})
+                if r2.get("rv"):
+                    wm = str(r2.get("rv"))
+            nk += len(batch)
+            s.execute(_t(
+                "INSERT INTO tenant.ec_mirror_state(src_table,last_rowversion,last_sync_at,rows_total,last_note) "
+                "VALUES('TabKmenZbozi',:w,now(),:n,'kmen') ON CONFLICT (src_table) DO UPDATE SET "
+                "last_rowversion=:w,last_sync_at=now(),rows_total=:n,last_note='kmen'"), {"w": wm, "n": nk})
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        res["kmen"] = nk
+
+        # ── STAV SKLADU (plný refresh dle ID) ──
+        lastid = 0
+        ns = 0
+        while True:
+            sql = ("SELECT TOP %d ID, IDKmenZbozi, IDSklad, Mnozstvi, MnozSPrijBezVyd, StavSkladu, "
+                   "Objednano, Minimum, Maximum FROM TabStavSkladu WHERE ID > %d ORDER BY ID" % (BLOCK, lastid))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for r2 in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_stav_skladu (src_id,id_kmen_zbozi,id_sklad,mnozstvi,mnoz_s_prij_bez_vyd,"
+                    "stav_skladu,objednano,minimum,maximum,synced_at) VALUES "
+                    "(:sid,:kz,:skl,:m,:mp,:ss,:ob,:mi,:mx,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET id_kmen_zbozi=excluded.id_kmen_zbozi,id_sklad=excluded.id_sklad,"
+                    "mnozstvi=excluded.mnozstvi,mnoz_s_prij_bez_vyd=excluded.mnoz_s_prij_bez_vyd,stav_skladu=excluded.stav_skladu,"
+                    "objednano=excluded.objednano,minimum=excluded.minimum,maximum=excluded.maximum,synced_at=now()"),
+                    {"sid": i2(r2.get("ID")), "kz": i2(r2.get("IDKmenZbozi")), "skl": s2(r2.get("IDSklad")),
+                     "m": num(r2.get("Mnozstvi")), "mp": num(r2.get("MnozSPrijBezVyd")), "ss": num(r2.get("StavSkladu")),
+                     "ob": num(r2.get("Objednano")), "mi": num(r2.get("Minimum")), "mx": num(r2.get("Maximum"))})
+                lastid = i2(r2.get("ID")) or lastid
+            ns += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        res["sklad"] = ns
 
         s.commit()
         return {"ok": True, **res}
@@ -24110,6 +24257,12 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = {"ok": True}
             status = "done"
             result = ("zrcadlo Centrály: organizace + CRM kontakty spuštěno na pozadí")
+        elif action_key == "sync_ec_sklad_kmen":
+            import threading as _thr
+            _thr.Thread(target=_sync_ec_sklad_kmen, daemon=True).start()
+            out = {"ok": True}
+            status = "done"
+            result = ("zrcadlo Centrály: sklad + díly spuštěno na pozadí")
         elif action_key == "sync_priplatky":
             out = _sync_priplatky_from_ec()
             status = "done"

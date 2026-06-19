@@ -20024,6 +20024,224 @@ async def restart_api(req: Request) -> JSONResponse:
 
 
 # ════════════════════════════════════════════════════════════════════════
+# SW ZAKÁZKY — divize automatizace/PLC (Marti 19.6.2026): základ na klíč pro
+# Zuzku + Mirka. Přehled SW zakázek (zákazník, řešitel, hodiny, dílčí faktury,
+# zbývá hodin / zaplatit, stav). Zuzka = doménový vlastník, dolaďuje vzhled.
+# ════════════════════════════════════════════════════════════════════════
+_SW_MANAGERS = {50}   # Zuzka Duspivová (user 50); Mirka doplníme dle jeho user_id
+_SW_STAVY = ["poptavka", "nabidka", "objednavka", "realizace", "fakturovano", "zaplaceno"]
+
+def _sw_can_manage(uid: int) -> bool:
+    try:
+        return is_marti_parent(uid) or int(uid) in _SW_MANAGERS
+    except Exception:
+        return False
+
+@api_router.get("/app/sw/resitele")
+def sw_resitele(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, btrim(COALESCE(first_name,'')||' '||COALESCE(last_name,'')) AS jmeno "
+            "FROM public.users WHERE status='active' "
+            "ORDER BY last_name NULLS LAST, first_name NULLS LAST")).mappings().all()
+    finally:
+        s.close()
+    return {"ok": True, "resitele": [dict(r) for r in rows]}
+
+@api_router.get("/app/sw/list")
+def sw_list(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT z.id, z.cislo_sw, z.zakaznik, z.zakaznik_po, z.nazev, z.resitel_user_id, "
+            "  btrim(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) AS resitel, "
+            "  z.objednano_hodin, z.hodinovka_zakaznik, z.hodinovka_sw, z.celkova_suma, z.stav, z.rok, "
+            "  COALESCE((SELECT SUM(hodiny) FROM tenant.sw_faktura f WHERE f.zakazka_id=z.id),0) AS odpracovano_h, "
+            "  COALESCE((SELECT SUM(suma) FROM tenant.sw_faktura f WHERE f.zakazka_id=z.id),0) AS fakturovano, "
+            "  COALESCE((SELECT SUM(suma) FROM tenant.sw_faktura f WHERE f.zakazka_id=z.id AND zaplaceno_at IS NOT NULL),0) AS zaplaceno "
+            "FROM tenant.sw_zakazka z LEFT JOIN public.users u ON u.id=z.resitel_user_id "
+            "WHERE z.active ORDER BY z.cislo_sw NULLS LAST, z.id DESC")).mappings().all()
+    finally:
+        s.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        oh = float(d.get("objednano_hodin") or 0); od = float(d.get("odpracovano_h") or 0)
+        cs = float(d.get("celkova_suma") or 0); zp = float(d.get("zaplaceno") or 0)
+        d["zbyva_hodin"] = round(oh - od, 2)
+        d["zbyva_zaplatit"] = round(cs - zp, 2)
+        out.append(d)
+    return {"ok": True, "stavy": _SW_STAVY, "zakazky": out}
+
+@api_router.get("/app/sw/detail")
+def sw_detail(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        zid = int(req.query_params.get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí id"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        z = s.execute(_t(
+            "SELECT z.*, btrim(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) AS resitel "
+            "FROM tenant.sw_zakazka z LEFT JOIN public.users u ON u.id=z.resitel_user_id WHERE z.id=:i"),
+            {"i": zid}).mappings().first()
+        if not z:
+            return JSONResponse({"ok": False, "error": "Nenalezeno"}, status_code=404)
+        fa = s.execute(_t(
+            "SELECT id, poradi, hodiny, cislo_faktury, suma, "
+            "to_char(zaplaceno_at,'DD.MM.YYYY') AS zaplaceno, poznamka "
+            "FROM tenant.sw_faktura WHERE zakazka_id=:i ORDER BY poradi NULLS LAST, id"),
+            {"i": zid}).mappings().all()
+    finally:
+        s.close()
+    return {"ok": True, "zakazka": dict(z), "faktury": [dict(x) for x in fa]}
+
+@api_router.post("/app/sw/save")
+async def sw_save(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    def _num(x):
+        try: return float(x) if x not in (None, "") else None
+        except Exception: return None
+    def _int(x):
+        try: return int(x) if x not in (None, "") else None
+        except Exception: return None
+    p = {"cs": (b.get("cislo_sw") or "").strip() or None,
+         "zk": (b.get("zakaznik") or "").strip() or None,
+         "po": (b.get("zakaznik_po") or "").strip() or None,
+         "nz": (b.get("nazev") or "").strip() or None,
+         "ru": _int(b.get("resitel_user_id")),
+         "oh": _num(b.get("objednano_hodin")) or 0,
+         "hz": _num(b.get("hodinovka_zakaznik")),
+         "hs": _num(b.get("hodinovka_sw")),
+         "su": _num(b.get("celkova_suma")) or 0,
+         "st": (b.get("stav") or "poptavka").strip(),
+         "rok": _int(b.get("rok")),
+         "pz": (b.get("poznamka") or "").strip() or None}
+    if p["st"] not in _SW_STAVY:
+        p["st"] = "poptavka"
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rid = b.get("id")
+        if rid:
+            p["id"] = int(rid)
+            s.execute(_t("UPDATE tenant.sw_zakazka SET cislo_sw=:cs, zakaznik=:zk, zakaznik_po=:po, "
+                         "nazev=:nz, resitel_user_id=:ru, objednano_hodin=:oh, hodinovka_zakaznik=:hz, "
+                         "hodinovka_sw=:hs, celkova_suma=:su, stav=:st, rok=:rok, poznamka=:pz, updated_at=now() "
+                         "WHERE id=:id"), p)
+        else:
+            rid = s.execute(_t("INSERT INTO tenant.sw_zakazka (cislo_sw, zakaznik, zakaznik_po, nazev, "
+                         "resitel_user_id, objednano_hodin, hodinovka_zakaznik, hodinovka_sw, celkova_suma, "
+                         "stav, rok, poznamka) VALUES (:cs,:zk,:po,:nz,:ru,:oh,:hz,:hs,:su,:st,:rok,:pz) "
+                         "RETURNING id"), p).scalar()
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True, "id": rid}
+
+@api_router.post("/app/sw/delete")
+async def sw_delete(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        s.execute(_t("UPDATE tenant.sw_zakazka SET active=false, updated_at=now() WHERE id=:i"),
+                  {"i": int(b.get("id"))})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+@api_router.post("/app/sw/faktura/save")
+async def sw_faktura_save(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    def _num(x):
+        try: return float(x) if x not in (None, "") else None
+        except Exception: return None
+    zap = (b.get("zaplaceno_at") or "").strip() or None   # ISO YYYY-MM-DD nebo DD.MM.RRRR
+    if zap and "." in zap:
+        try:
+            d, m, y = zap.split("."); zap = "%s-%s-%s" % (y.strip(), m.strip().zfill(2), d.strip().zfill(2))
+        except Exception:
+            zap = None
+    p = {"zk": int(b.get("zakazka_id")),
+         "po": (lambda x: int(x) if str(x).strip() not in ("", "None") else None)(b.get("poradi")),
+         "ho": _num(b.get("hodiny")), "cf": (b.get("cislo_faktury") or "").strip() or None,
+         "su": _num(b.get("suma")), "za": zap, "pz": (b.get("poznamka") or "").strip() or None}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rid = b.get("id")
+        if rid:
+            p["id"] = int(rid)
+            s.execute(_t("UPDATE tenant.sw_faktura SET poradi=:po, hodiny=:ho, cislo_faktury=:cf, "
+                         "suma=:su, zaplaceno_at=:za, poznamka=:pz WHERE id=:id"), p)
+        else:
+            s.execute(_t("INSERT INTO tenant.sw_faktura (zakazka_id, poradi, hodiny, cislo_faktury, suma, "
+                         "zaplaceno_at, poznamka) VALUES (:zk,:po,:ho,:cf,:su,:za,:pz)"), p)
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+@api_router.post("/app/sw/faktura/delete")
+async def sw_faktura_delete(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        s.execute(_t("DELETE FROM tenant.sw_faktura WHERE id=:i"), {"i": int(b.get("id"))})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+
+# ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).
 # Heslo šifrované Fernetem (_vault_fernet). Čtení přes ISDS webovou službu

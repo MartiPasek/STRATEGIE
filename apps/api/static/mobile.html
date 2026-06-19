@@ -1391,6 +1391,7 @@ setTimeout(function(){
     g.appendChild(appCell("🔀","Migrace",0,function(){go("migrace");}));
     g.appendChild(appCell("🧾","Přefakturace",0,function(){go("prefakturace");}));
     g.appendChild(appCell("📨","Datovky / ČSSZ",0,function(){go("isds");}));
+    g.appendChild(appCell("🤖","SW zakázky",0,function(){go("sw_zakazky");}));
     g.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
     g.appendChild(appCell("🌐","Uživatelé",0,function(){ _auMode="users"; go("alluser"); }));
     g.appendChild(appCell("📒","Účetní",0,function(){ _auMode="helios"; go("alluser"); }));
@@ -7225,6 +7226,155 @@ setTimeout(function(){
       });
     });
   }
+  // ── SW ZAKÁZKY — divize automatizace/PLC (Marti 19.6.2026, pro Zuzku) ──
+  var _SW_STAVLBL={poptavka:"Poptávka",nabidka:"Nabídka",objednavka:"Objednávka",realizace:"Realizace",fakturovano:"Fakturováno",zaplaceno:"Zaplaceno"};
+  var _SW_STAVCOL={poptavka:"#9fb0c2",nabidka:"#5b8def",objednavka:"#7c5cff",realizace:"#fbbf24",fakturovano:"#34d399",zaplaceno:"#10b981"};
+  function swH(n){ try{ return (Math.round((+n||0)*10)/10).toLocaleString('cs-CZ')+" h"; }catch(e){ return (n||0)+" h"; } }
+  function sw_zakazky(){
+    app.innerHTML=topbar("🤖 SW zakázky — automatizace", true);
+    app.appendChild(el('<div class="muted" style="margin:8px 6px;line-height:1.5">Přehled SW zakázek divize automatizace — zákazník, řešitel, hodiny, dílčí faktury, kolik zbývá odpracovat a zaplatit. Klikni na zakázku pro detail a faktury.</div>'));
+    app.appendChild(el('<div id="swBox" style="margin:4px 6px"></div>'));
+    if(window._swRes){ swLoad(); }
+    else { api("GET","/api/v1/erp/app/sw/resitele","").then(function(j){ window._swRes=(j&&j.resitele)||[]; swLoad(); }); }
+  }
+  function swLoad(){
+    var box=document.getElementById("swBox"); if(!box)return;
+    box.innerHTML='<div class="hint" style="padding:12px">Načítám…</div>';
+    api("GET","/api/v1/erp/app/sw/list","").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="hint" style="color:#ff8a8a;padding:10px">'+esc((j&&(j.error||j.detail))||"Chyba")+'</div>'; return; }
+      window._swStavy=j.stavy||Object.keys(_SW_STAVLBL);
+      var zk=j.zakazky||[];
+      var f=window._swFilter||"";
+      var zbH=0, zbZ=0;
+      zk.forEach(function(z){ zbH+=(+z.zbyva_hodin||0); zbZ+=(+z.zbyva_zaplatit||0); });
+      var h='<div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 8px">'
+        +'<div style="flex:1;min-width:120px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:10px;padding:8px"><div class="hint">Zakázek</div><div style="font-weight:800;font-size:17px">'+zk.length+'</div></div>'
+        +'<div style="flex:1;min-width:120px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:10px;padding:8px"><div class="hint">Zbývá odpracovat</div><div style="font-weight:800;font-size:17px;color:#fbbf24">'+swH(zbH)+'</div></div>'
+        +'<div style="flex:1;min-width:120px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:10px;padding:8px"><div class="hint">Zbývá zaplatit</div><div style="font-weight:800;font-size:15px;color:#34d399">'+prefKc(zbZ)+'</div></div>'
+        +'</div>';
+      h+='<input id="swSearch" placeholder="Hledat (číslo, zákazník, řešitel)…" value="'+esc(f)+'" style="margin:0 0 8px">';
+      h+='<button id="swAdd" class="green full" style="margin:0 0 10px;width:100%">➕ Nová zakázka</button>';
+      var fl=f.toLowerCase();
+      var shown=zk.filter(function(z){ if(!fl)return true; return ((z.cislo_sw||"")+" "+(z.zakaznik||"")+" "+(z.resitel||"")+" "+(z.nazev||"")).toLowerCase().indexOf(fl)>=0; });
+      shown.forEach(function(z){
+        var col=_SW_STAVCOL[z.stav]||"#9fb0c2", lbl=_SW_STAVLBL[z.stav]||z.stav;
+        h+='<div class="sw-card" data-id="'+z.id+'" style="margin:7px 0;padding:11px;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;cursor:pointer">'
+          +'<div style="display:flex;justify-content:space-between;gap:8px"><div style="font-weight:700">'+esc(z.cislo_sw||"(bez čísla)")+' · '+esc(z.zakaznik||"")+'</div>'
+          +'<span style="flex:none;font-size:11.5px;padding:2px 8px;border-radius:10px;background:'+col+'22;color:'+col+';border:1px solid '+col+'">'+esc(lbl)+'</span></div>'
+          +'<div style="font-size:12.5px;color:#9fb0c2;margin-top:3px">'+esc(z.resitel||"—")+(z.nazev?(' · '+esc(z.nazev)):'')+'</div>'
+          +'<div style="font-size:12.5px;margin-top:5px;display:flex;gap:12px;flex-wrap:wrap">'
+          +'<span>obj. '+swH(z.objednano_hodin)+'</span><span style="color:#fbbf24">zbývá '+swH(z.zbyva_hodin)+'</span>'
+          +'<span>'+prefKc(z.celkova_suma)+'</span><span style="color:#34d399">zbývá zaplatit '+prefKc(z.zbyva_zaplatit)+'</span></div></div>';
+      });
+      if(!shown.length) h+='<div class="hint" style="padding:10px">Žádná zakázka. Přidej první přes ➕.</div>';
+      box.innerHTML=h;
+      var si=document.getElementById("swSearch");
+      si.addEventListener("input",function(){ window._swFilter=si.value; var p=si.selectionStart; swLoad(); setTimeout(function(){ var n=document.getElementById("swSearch"); if(n){n.focus(); try{n.setSelectionRange(p,p);}catch(e){}} },0); });
+      document.getElementById("swAdd").addEventListener("click",function(){ swForm(null); });
+      box.querySelectorAll(".sw-card").forEach(function(c){ c.addEventListener("click",function(){ swDetail(c.getAttribute("data-id")); }); });
+    });
+  }
+  function _swSel(id,val){ var o='<option value="">— řešitel —</option>'; (window._swRes||[]).forEach(function(r){ o+='<option value="'+r.id+'"'+(String(r.id)===String(val)?' selected':'')+'>'+esc(r.jmeno||("#"+r.id))+'</option>'; }); return '<select id="'+id+'" style="margin:0">'+o+'</select>'; }
+  function _swStavSel(id,val){ var o=''; (window._swStavy||Object.keys(_SW_STAVLBL)).forEach(function(s){ o+='<option value="'+s+'"'+(s===val?' selected':'')+'>'+(_SW_STAVLBL[s]||s)+'</option>'; }); return '<select id="'+id+'" style="margin:0">'+o+'</select>'; }
+  function swForm(z){
+    z=z||{};
+    var ov=el('<div style="position:fixed;inset:0;z-index:300;background:rgba(4,10,18,.98);overflow:auto;padding:20px;display:flex;flex-direction:column;gap:8px"></div>');
+    ov.appendChild(el('<div style="font-weight:800;font-size:18px">'+(z.id?'Upravit zakázku':'Nová SW zakázka')+' 🤖</div>'));
+    function fld(lbl,inner){ var w=el('<label style="font-size:12px;color:#9fb0c2">'+lbl+'</label>'); w.appendChild(el('<div style="margin-top:2px">'+inner+'</div>')); return w; }
+    function inp(id,val,ph,type){ return '<input id="'+id+'" '+(type?('type="'+type+'" '):'')+'placeholder="'+(ph||"")+'" value="'+esc(val==null?"":String(val))+'" style="margin:0">'; }
+    ov.appendChild(fld("Číslo SW", inp("swCislo",z.cislo_sw,"SW8041")));
+    ov.appendChild(fld("Zákazník", inp("swZak",z.zakaznik,"Tesla / BMW…")));
+    ov.appendChild(fld("PO zákazníka", inp("swPo",z.zakaznik_po,"5101270890")));
+    ov.appendChild(fld("Název / popis", inp("swNazev",z.nazev,"")));
+    ov.appendChild(fld("Řešitel", _swSel("swResitel",z.resitel_user_id)));
+    ov.appendChild(fld("Objednáno hodin", inp("swObjH",z.objednano_hodin,"0","number")));
+    ov.appendChild(fld("Hodinovka zákazník / SW", '<div style="display:flex;gap:8px">'+inp("swHodZak",z.hodinovka_zakaznik,"zákazník","number")+inp("swHodSw",z.hodinovka_sw,"sw","number")+'</div>'));
+    ov.appendChild(fld("Celková suma (Kč)", inp("swSuma",z.celkova_suma,"0","number")));
+    ov.appendChild(fld("Stav", _swStavSel("swStav",z.stav||"poptavka")));
+    ov.appendChild(fld("Rok", inp("swRok",z.rok||2026,"2026","number")));
+    ov.appendChild(fld("Poznámka", inp("swPozn",z.poznamka,"")));
+    var st=el('<div class="hint" style="min-height:15px"></div>'); ov.appendChild(st);
+    var save=el('<button class="green full" style="margin:0">Uložit</button>');
+    var cl=el('<button class="ghost full" style="margin:0">Zavřít</button>');
+    cl.addEventListener("click",function(){ ov.remove(); });
+    function V(id){ var e=document.getElementById(id); return e?e.value:""; }
+    save.addEventListener("click",function(){
+      var body={id:z.id||null, cislo_sw:V("swCislo"), zakaznik:V("swZak"), zakaznik_po:V("swPo"),
+        nazev:V("swNazev"), resitel_user_id:V("swResitel"), objednano_hodin:V("swObjH"),
+        hodinovka_zakaznik:V("swHodZak"), hodinovka_sw:V("swHodSw"), celkova_suma:V("swSuma"),
+        stav:V("swStav"), rok:V("swRok"), poznamka:V("swPozn")};
+      save.disabled=true; st.textContent="Ukládám…";
+      api("POST","/api/v1/erp/app/sw/save",body).then(function(r){
+        if(r&&r.ok){ ov.remove(); swLoad(); } else { save.disabled=false; st.textContent=((r&&(r.error||r.detail))||"Nepovedlo se."); }
+      });
+    });
+    ov.appendChild(save); ov.appendChild(cl);
+    app.appendChild(ov);
+  }
+  function swDetail(id){
+    api("GET","/api/v1/erp/app/sw/detail?id="+id,"").then(function(j){
+      if(!j||!j.ok){ try{_shotToast("Chyba detailu");}catch(e){} return; }
+      var z=j.zakazka, fa=j.faktury||[];
+      var ov=el('<div style="position:fixed;inset:0;z-index:300;background:rgba(4,10,18,.98);overflow:auto;padding:20px;display:flex;flex-direction:column;gap:8px"></div>');
+      var col=_SW_STAVCOL[z.stav]||"#9fb0c2", lbl=_SW_STAVLBL[z.stav]||z.stav;
+      ov.appendChild(el('<div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><div style="font-weight:800;font-size:18px">'+esc(z.cislo_sw||"")+' · '+esc(z.zakaznik||"")+'</div><span style="flex:none;font-size:12px;padding:3px 9px;border-radius:10px;background:'+col+'22;color:'+col+';border:1px solid '+col+'">'+esc(lbl)+'</span></div>'));
+      if(z.nazev) ov.appendChild(el('<div class="hint">'+esc(z.nazev)+'</div>'));
+      var od=0,zp=0; fa.forEach(function(x){ od+=(+x.hodiny||0); if(x.zaplaceno) zp+=(+x.suma||0); });
+      var oh=+z.objednano_hodin||0, cs=+z.celkova_suma||0;
+      ov.appendChild(el('<div style="font-size:13px;margin-top:4px;line-height:1.7">Řešitel: <b>'+esc(z.resitel||"—")+'</b> · PO: '+esc(z.zakaznik_po||"—")
+        +'<br>Hodiny: objednáno <b>'+swH(oh)+'</b> · odpracováno '+swH(od)+' · <span style="color:#fbbf24">zbývá '+swH(oh-od)+'</span>'
+        +'<br>Suma: <b>'+prefKc(cs)+'</b> · zaplaceno '+prefKc(zp)+' · <span style="color:#34d399">zbývá '+prefKc(cs-zp)+'</span></div>'));
+      var btns=el('<div style="display:flex;gap:7px;margin-top:8px"></div>');
+      var bE=el('<button class="ghost" style="margin:0;padding:8px 12px">✏️ Upravit</button>');
+      bE.addEventListener("click",function(){ ov.remove(); swForm(z); });
+      var bD=el('<button class="ghost" style="margin:0;padding:8px 12px;color:#ff8a8a">🗑 Smazat</button>');
+      bD.addEventListener("click",function(){ confirmDialog("Smazat zakázku",esc(z.cislo_sw||"")+" — opravdu?","🗑 Smazat",function(){ api("POST","/api/v1/erp/app/sw/delete",{id:z.id}).then(function(){ ov.remove(); swLoad(); }); }); });
+      btns.appendChild(bE); btns.appendChild(bD); ov.appendChild(btns);
+      ov.appendChild(el('<div style="font-weight:700;margin-top:12px">Faktury</div>'));
+      var fl=el('<div></div>');
+      fa.forEach(function(x){
+        var row=el('<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #1b2742;padding:7px 2px;font-size:13px;cursor:pointer"><span>#'+(x.poradi||"")+' '+esc(x.cislo_faktury||"")+'<br><span class="hint">'+swH(x.hodiny)+' · '+(x.zaplaceno?('zaplaceno '+esc(x.zaplaceno)):'<span style="color:#fbbf24">nezaplaceno</span>')+'</span></span><b style="white-space:nowrap">'+prefKc(x.suma)+'</b></div>');
+        row.addEventListener("click",function(){ swFaktForm(z.id,x,ov); }); fl.appendChild(row);
+      });
+      if(!fa.length) fl.appendChild(el('<div class="hint" style="padding:6px 2px">Zatím žádná faktura.</div>'));
+      ov.appendChild(fl);
+      var bF=el('<button class="green full" style="margin:8px 0 0">➕ Přidat fakturu</button>');
+      bF.addEventListener("click",function(){ swFaktForm(z.id,null,ov); });
+      ov.appendChild(bF);
+      var cl=el('<button class="ghost full" style="margin:6px 0 0">Zavřít</button>'); cl.addEventListener("click",function(){ ov.remove(); });
+      ov.appendChild(cl);
+      app.appendChild(ov);
+    });
+  }
+  function swFaktForm(zakId,x,parentOv){
+    x=x||{};
+    var ov=el('<div style="position:fixed;inset:0;z-index:320;background:rgba(4,10,18,.98);overflow:auto;padding:20px;display:flex;flex-direction:column;gap:8px"></div>');
+    ov.appendChild(el('<div style="font-weight:800;font-size:17px">'+(x.id?'Upravit fakturu':'Nová faktura')+'</div>'));
+    function inp(id,val,ph,type){ return '<input id="'+id+'" '+(type?('type="'+type+'" '):'')+'placeholder="'+(ph||"")+'" value="'+esc(val==null?"":String(val))+'" style="margin:0">'; }
+    function fld(l,i){ var w=el('<label style="font-size:12px;color:#9fb0c2">'+l+'</label>'); w.appendChild(el('<div style="margin-top:2px">'+i+'</div>')); return w; }
+    ov.appendChild(fld("Pořadí (1,2,3…)", inp("fkPor",x.poradi,"1","number")));
+    ov.appendChild(fld("Hodiny", inp("fkHod",x.hodiny,"0","number")));
+    ov.appendChild(fld("Číslo faktury", inp("fkCis",x.cislo_faktury,"626179")));
+    ov.appendChild(fld("Suma (Kč)", inp("fkSum",x.suma,"0","number")));
+    ov.appendChild(fld("Zaplaceno dne (prázdné = nezaplaceno)", inp("fkZap",x.zaplaceno,"DD.MM.RRRR")));
+    var st=el('<div class="hint" style="min-height:15px"></div>'); ov.appendChild(st);
+    var save=el('<button class="green full" style="margin:0">Uložit</button>');
+    var del=x.id?el('<button class="ghost full" style="margin:0;color:#ff8a8a">🗑 Smazat fakturu</button>'):null;
+    var cl=el('<button class="ghost full" style="margin:0">Zpět</button>');
+    cl.addEventListener("click",function(){ ov.remove(); });
+    function V(id){ var e=document.getElementById(id); return e?e.value:""; }
+    function reopen(){ ov.remove(); if(parentOv)parentOv.remove(); swDetail(zakId); }
+    save.addEventListener("click",function(){
+      var body={id:x.id||null, zakazka_id:zakId, poradi:V("fkPor"), hodiny:V("fkHod"),
+        cislo_faktury:V("fkCis"), suma:V("fkSum"), zaplaceno_at:V("fkZap")};
+      save.disabled=true; st.textContent="Ukládám…";
+      api("POST","/api/v1/erp/app/sw/faktura/save",body).then(function(r){ if(r&&r.ok){ reopen(); } else { save.disabled=false; st.textContent=((r&&(r.error||r.detail))||"Nepovedlo se."); } });
+    });
+    if(del) del.addEventListener("click",function(){ confirmDialog("Smazat fakturu","Opravdu smazat?","🗑 Smazat",function(){ api("POST","/api/v1/erp/app/sw/faktura/delete",{id:x.id}).then(reopen); }); });
+    ov.appendChild(save); if(del)ov.appendChild(del); ov.appendChild(cl);
+    app.appendChild(ov);
+  }
+
   // ── DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026) ─────
   function isds(){
     app.innerHTML=topbar("📨 Datové schránky (ISDS)", true);
@@ -7384,7 +7534,7 @@ setTimeout(function(){
     }).catch(function(){ setTimeout(function(){ prefPoll(m,r,prev,n+1); },6000); });
   }
 
-  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,extview:extview,persDnesek:persDnesek};
+  var SCREENS={home:home,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek};
 
   function uceni(){
     app.innerHTML=topbar("⚡ Výuka",true);

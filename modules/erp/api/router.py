@@ -20200,11 +20200,13 @@ async def prefakturace_vystavit(req: Request):
         return JSONResponse({"ok": False, "duplicate": True, "jiz_existuje": existuje,
                              "error": "Za %d/%d už existuje faktura č. %s." %
                                       (m, r, existuje.get("cislo"))}, status_code=409)
-    batch = ("SET NOCOUNT ON;\n"
-             "EXEC dbo.EC_GenVFESzFaaDeniku_Priprava @Mesic=%d, @Rok=%d, @ProcentMarze=%s, @NajemneOsMes=0;\n"
+    # Pozn.: batch BEZ "SET NOCOUNT ON" — přesně tvar ověřený ručně (#403 4/2026).
+    # NOCOUNT rozhodil generátor přes zápisovou MCP cestu (internal_error).
+    _mz = ("%d" % int(marze)) if float(marze).is_integer() else ("%s" % marze)
+    batch = ("EXEC dbo.EC_GenVFESzFaaDeniku_Priprava @Mesic = %d, @Rok = %d, @ProcentMarze = %s, @NajemneOsMes = 0;\n"
              "DECLARE @ID INT, @Msg nvarchar(255);\n"
-             "EXEC dbo.EC_GenVFESzFaaDeniku @IDENT=@ID OUTPUT, @Message=@Msg OUTPUT;" %
-             (m, r, repr(marze)))
+             "EXEC dbo.EC_GenVFESzFaaDeniku @IDENT = @ID OUTPUT, @Message = @Msg OUTPUT;" %
+             (m, r, _mz))
     actor = "Přefakturace ES %d/%d (user %s)" % (m, r, uid)
     from core.database_data import get_data_session as _gw
     from sqlalchemy import text as _tw
@@ -20631,7 +20633,8 @@ def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
                     if isinstance(res, dict) and res.get("ok"):
                         rc = res.get("count") if res.get("count") is not None else res.get("rowcount")
                     else:
-                        err = (str(res.get("error") or res.get("message") or res)
+                        err = (str(res.get("message") or res.get("exception_repr")
+                                    or res.get("error") or res)[:1500]
                                if isinstance(res, dict) else str(res))
             except Exception as exc:
                 err = "%s: %s" % (type(exc).__name__, exc)

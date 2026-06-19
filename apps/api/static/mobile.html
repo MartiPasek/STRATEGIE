@@ -5116,7 +5116,7 @@ setTimeout(function(){
           expOpt(bw,"🙋 Mám dotaz na nadřízeného…","ghost",bossAskBuild,_blueStyle);
           if(window._canManageVyroba){
             var _vb=btnEl("🏭 Plánovač výroby (vedoucí)","green");
-            _vb.addEventListener("click",function(){ location.href="/vyroba"; });
+            _vb.addEventListener("click",function(){ go("vyroba"); });
             bw.appendChild(_vb);
           }
         } else {

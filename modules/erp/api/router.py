@@ -22458,9 +22458,9 @@ def _sync_ec_org_kontakt(_unused=None) -> dict:
         while True:
             sql = ("SELECT TOP %d ID, Nazev, ICO, DIC, IdZeme, CAST(JeDodavatel AS int) JeDod, "
                    "CAST(JeOdberatel AS int) JeOdb, Ulice, UliceSCisly, PSC, "
-                   "CAST(Poznamka AS nvarchar(2000)) Pozn, CONVERT(varchar(16),SystemRowVersion,2) rv "
-                   "FROM TabCisOrg WHERE CONVERT(varchar(16),SystemRowVersion,2) > '%s' "
-                   "ORDER BY CONVERT(varchar(16),SystemRowVersion,2)" % (BLOCK, wm))
+                   "CAST(Poznamka AS nvarchar(2000)) Pozn, SystemRowVersionText rv "
+                   "FROM TabCisOrg WHERE SystemRowVersionText > '%s' "
+                   "ORDER BY SystemRowVersionText" % (BLOCK, wm))
             batch = rows_of(sql)
             if not batch:
                 break

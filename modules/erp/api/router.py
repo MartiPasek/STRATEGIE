@@ -19426,6 +19426,70 @@ async def app_doc_render(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _doc_render_load(req):
+    """Společné jádro pro render-html / render-pdf (Marti 19.6.2026, handoff smlouvy
+    k tisku na PC). Vrátí (html, t_code, t_nazev) nebo (None, status_code, error_str).
+    HR brána (_doc_can) + allow_sensitive=True — stejný obsah jako mobilní generátor."""
+    from sqlalchemy import text as _t
+    from modules.erp.api import doc_templates as _dt
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return None, 401, "unauthorized"
+    q = req.query_params
+    try:
+        tid = int(q.get("template_id") or 0)
+    except Exception:
+        tid = 0
+    ref = str(q.get("engagement_ref") or q.get("engagement_id") or q.get("entity_ref") or "").strip()
+    cm, s = _att_session()
+    try:
+        if not _doc_can(s, uid):
+            return None, 403, "forbidden"
+        tr = s.execute(_t("SELECT entity_kind, body_html, css, code, nazev FROM tenant.doc_template "
+                          "WHERE id=:i AND tenant_id=2 AND is_current=true"), {"i": tid}).first()
+        if not tr:
+            return None, 404, "template_not_found"
+        prov = _dt.get_provider(tr[0])
+        context = prov.resolve(ref, uid, True) if (prov and ref) else {}
+        html = _dt.render({"body_html": tr[1], "css": tr[2]}, context)
+        return html, (tr[3] or "dokument"), (tr[4] or tr[3] or "dokument")
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/doc/render-html")
+async def app_doc_render_html(req: Request):
+    """Render šablony na osobě → HTML (pro handoff overlay /doc-print na PC).
+    PDF se do overlay nevepíše, proto HTML. HR brána, citlivá pole povolená."""
+    from fastapi.responses import HTMLResponse as _H
+    html, a, b = _doc_render_load(req)
+    if html is None:
+        return JSONResponse({"ok": False, "error": b}, status_code=a)
+    return _H(content=html, headers={"Cache-Control": "no-store"})
+
+
+@api_router.get("/app/doc/render-pdf")
+async def app_doc_render_pdf(req: Request):
+    """Render šablony na osobě → PDF (xhtml2pdf, věrná sazba) pro tlačítko
+    'Otevřít PDF' na /doc-print. Stejná HR brána jako render-html."""
+    from fastapi.responses import Response as _R
+    from modules.erp.api import doc_templates as _dt
+    html, a, b = _doc_render_load(req)
+    if html is None:
+        return JSONResponse({"ok": False, "error": b}, status_code=a)
+    try:
+        pdf = _dt.render_pdf(html)
+    except RuntimeError as e:
+        return JSONResponse({"ok": False, "error": "pdf_engine", "note": str(e)}, status_code=503)
+    import unicodedata as _ud
+    from urllib.parse import quote as _q
+    fname = (a or "dokument") + ".pdf"
+    _ascii = _ud.normalize("NFKD", fname).encode("ascii", "ignore").decode("ascii") or "dokument.pdf"
+    cd = "inline; filename=\"%s\"; filename*=UTF-8''%s" % (_ascii, _q(fname))
+    return _R(content=pdf, media_type="application/pdf",
+              headers={"Content-Disposition": cd, "Cache-Control": "no-store"})
+
+
 @api_router.post("/app/doc/to-eurosoft")
 async def app_doc_to_eurosoft(req: Request) -> JSONResponse:
     """Vyrenderuje šablonu na osobě → PDF → uloží na EUROSOFT server (RW share)

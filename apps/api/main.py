@@ -949,6 +949,15 @@ def doklad_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/doc-print")
+def doc_print_page():
+    """Smlouva/dokument k tisku na PC přes handoff mobil→PC (Marti 19.6.2026).
+    Šárka na mobilu ťukne 💻 Tisk na PC → tady naskočí HTML smlouva s tlačítkem
+    Vytisknout + Otevřít PDF. Data z /app/doc/render-html?template_id=&engagement_id=."""
+    return FileResponse(os.path.join(static_dir, "doc-print.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/dir-admin")
 def dir_admin_page():
     """Správa konfigurací adresářů (rodič): typ modulu, kde leží, pravidlo podsložky,

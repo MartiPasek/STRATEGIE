@@ -380,6 +380,48 @@ setTimeout(function(){
     document.body.appendChild(ov);
   }
 
+  // Handoff mobil→PC: ťuk → potvrzovací kartička + zápis do fronty open-on-pc;
+  // otevřená STRATEGIE na PC to vyzvedne pollerem a otevře v overlay. Marti 19.6.2026.
+  function _opcCard(label){
+    if(!document.getElementById("opcConfStyle")){
+      var s=document.createElement("style"); s.id="opcConfStyle";
+      s.textContent="@keyframes opcPop{from{opacity:0;transform:scale(.86) translateY(10px)}to{opacity:1;transform:none}}"
+        +"@keyframes opcSpin{to{transform:rotate(360deg)}}";
+      document.head.appendChild(s);
+    }
+    var old=document.getElementById("opcConfirm"); if(old)old.remove();
+    var d=document.createElement("div"); d.id="opcConfirm";
+    d.style.cssText="position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;"
+      +"background:rgba(6,10,16,.5);backdrop-filter:blur(1px)";
+    d.innerHTML='<div style="background:#16202c;border:1px solid #2f3e50;border-radius:18px;padding:24px 28px;'
+      +'text-align:center;min-width:230px;animation:opcPop .26s cubic-bezier(.2,.9,.2,1);box-shadow:0 18px 50px rgba(0,0,0,.5)">'
+      +'<div id="opcIcon" style="width:62px;height:62px;margin:0 auto 12px;border-radius:50%;'
+      +'background:rgba(79,142,247,.16);border:3px solid #4f8ef7;border-top-color:transparent;animation:opcSpin .8s linear infinite"></div>'
+      +'<div id="opcTitle" style="font-weight:800;font-size:16px;color:#e8eef5">📲 → 💻 Posílám na počítač…</div>'
+      +'<div style="color:#9fb0c4;font-size:13px;margin-top:4px">'+esc(label||"")+'</div></div>';
+    document.body.appendChild(d);
+    return d;
+  }
+  function _opcDone(d,ok){
+    if(!d)return;
+    var ic=d.querySelector("#opcIcon"), tt=d.querySelector("#opcTitle");
+    if(ic){ ic.style.animation="none"; ic.style.borderColor=ok?"#34d399":"#ff8a8a";
+      ic.style.background=(ok?"rgba(52,211,153,.16)":"rgba(255,138,138,.16)");
+      ic.style.display="flex"; ic.style.alignItems="center"; ic.style.justifyContent="center";
+      ic.style.fontSize="32px"; ic.textContent=ok?"✓":"✕"; }
+    if(tt) tt.textContent=ok?"📲 → 💻 Otevřeno na počítači":"Nepodařilo se odeslat";
+    setTimeout(function(){ try{d.remove();}catch(e){} }, ok?1600:2400);
+  }
+  function openOnPc(url,label){
+    if(window._opcLast && (Date.now()-window._opcLast)<1500) return;  // debounce dvojklik
+    window._opcLast=Date.now();
+    var card=_opcCard(label);
+    api("POST","/api/v1/erp/app/open-on-pc",{url:url,label:label}).then(function(j){
+      _opcDone(card, !!(j&&j.ok));
+      if(!(j&&j.ok)){ setTimeout(function(){ alert((j&&j.error)||"Otevři na PC STRATEGII a zkus znovu."); },300); }
+    });
+  }
+
   // Živý indikátor spojení s ERP (tep) — ukazuje, že párování žije a telefon odpovídá.
   function updateLive(){
     var e=document.getElementById("homeLive"); if(!e) return;
@@ -3449,9 +3491,11 @@ setTimeout(function(){
               r.appendChild(el('<div style="flex:1;min-width:0;"><b>'+esc(p.jmeno)+'</b>'+(p.firma?' <span class="hint">'+esc(p.firma)+'</span>':'')+'</div>'));
               var bOpen=el('<button class="ghost" style="margin:0;padding:7px 11px;font-size:16px;" title="Otevřít PDF">📄</button>');
               bOpen.onclick=function(){ gen(picked, p, r); };
+              var bPc=el('<button class="ghost" style="margin:0;padding:7px 11px;font-size:16px;color:#7fb0ff;border-color:#2b4a7a;" title="Tisk na počítači">💻</button>');
+              bPc.onclick=function(){ openOnPc("/doc-print?template_id="+picked.id+"&engagement_id="+encodeURIComponent(p.engagement_id)+"&label="+encodeURIComponent(picked.nazev+" · "+p.jmeno), picked.nazev+" · "+p.jmeno); };
               var bEC=el('<button class="ghost" style="margin:0;padding:7px 11px;font-size:16px;color:#5ee0b7;border-color:#2a6b5a;" title="Uložit na EUROSOFT server">📤</button>');
               bEC.onclick=function(){ genEC(picked, p, bEC); };
-              r.appendChild(bOpen); r.appendChild(bEC);
+              r.appendChild(bOpen); r.appendChild(bPc); r.appendChild(bEC);
               list.appendChild(r);
             });
             if(!(j.lide||[]).length) list.appendChild(el('<div class="hint">Nikdo nenalezen.</div>'));

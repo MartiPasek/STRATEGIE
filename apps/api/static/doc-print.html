@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dokument k tisku</title>
+<style>
+  :root{--bg:#0a1018;--bar:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;
+        --accent:#4f8ef7;--green:#34d399;--red:#ff8a8a;}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--tx);
+       font:14.5px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  /* Lišta nad dokumentem — v tisku se skryje */
+  .bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
+       flex-wrap:wrap;padding:11px 16px;background:var(--bar);
+       border-bottom:1px solid var(--bord)}
+  .bar .ttl{font-weight:700;font-size:14px;color:var(--tx);margin-right:auto;
+       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+  .btn{border:1px solid var(--bord);background:#0f1830;color:var(--tx);
+       border-radius:9px;padding:9px 15px;font-size:14px;font-weight:600;cursor:pointer}
+  .btn:hover{border-color:var(--accent)}
+  .btn.prim{background:var(--accent);border-color:var(--accent);color:#06101f;font-weight:700}
+  .btn.ec{color:var(--green);border-color:#2a6b5a}
+  .btn[disabled]{opacity:.55;cursor:default}
+  /* Plátno dokumentu — bílý A4 list na tmavém pozadí */
+  .sheetwrap{padding:22px;display:flex;justify-content:center}
+  .sheet{background:#fff;color:#111;width:210mm;max-width:100%;min-height:60vh;
+       padding:18mm 20mm;border-radius:4px;box-shadow:0 10px 40px rgba(0,0,0,.45)}
+  .sheet *{max-width:100%}
+  .state{padding:40px;text-align:center;color:var(--mut)}
+  .state.err{color:var(--red)}
+  @media print{
+    html,body{background:#fff}
+    .bar{display:none !important}
+    .sheetwrap{padding:0}
+    .sheet{box-shadow:none;border-radius:0;width:auto;max-width:none;padding:0;min-height:0}
+  }
+  @page{size:A4;margin:16mm}
+</style>
+</head>
+<body>
+<div class="bar" id="bar">
+  <span class="ttl" id="ttl">Dokument</span>
+  <button class="btn prim" id="btnPrint" disabled>🖨 Vytisknout</button>
+  <button class="btn" id="btnPdf" disabled>📄 Otevřít PDF</button>
+  <button class="btn ec" id="btnEc" disabled>📤 Uložit na EUROSOFT</button>
+</div>
+<div class="sheetwrap"><div class="sheet" id="sheet"><div class="state">Načítám dokument…</div></div></div>
+<script>
+// about:blank overlay (handoff) NEMÁ location.search → čteme i z window.__opcUrl.
+// (Stejný vzor jako doklad.html — bez něj „Chybí id".)
+function qs(k){
+  var v=new URLSearchParams(location.search).get(k);
+  if(v) return v;
+  try{ if(window.__opcUrl){ return new URL(window.__opcUrl, location.origin).searchParams.get(k); } }catch(e){}
+  return null;
+}
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
+
+var tid=qs("template_id");
+var ref=qs("engagement_id")||qs("engagement_ref")||qs("entity_ref");
+var lbl=qs("label");
+var qp="template_id="+encodeURIComponent(tid||"")+"&engagement_id="+encodeURIComponent(ref||"");
+
+var sheet=document.getElementById("sheet");
+var bPrint=document.getElementById("btnPrint");
+var bPdf=document.getElementById("btnPdf");
+var bEc=document.getElementById("btnEc");
+if(lbl){ document.getElementById("ttl").textContent=lbl; document.title=lbl; }
+
+if(!tid){
+  sheet.innerHTML='<div class="state err">Chybí šablona (template_id).</div>';
+}else{
+  fetch("/api/v1/erp/app/doc/render-html?"+qp,{credentials:"include",cache:"no-store"})
+    .then(function(r){
+      if(r.ok) return r.text();
+      return r.json().then(function(j){ throw new Error((j&&(j.note||j.error))||("HTTP "+r.status)); });
+    })
+    .then(function(html){
+      // Vyjmeme jen <body> obsah šablony do našeho A4 listu (vlastní <style> šablony
+      // necháme projít — je scoped do dokumentu).
+      var m=/<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+      var body=m?m[1]:html;
+      var sm=/<style[^>]*>[\s\S]*?<\/style>/gi, css="", x;
+      while((x=sm.exec(html))){ css+=x[0]; }
+      sheet.innerHTML=css+body;
+      bPrint.disabled=false; bPdf.disabled=false; bEc.disabled=false;
+    })
+    .catch(function(e){
+      sheet.innerHTML='<div class="state err">Nepodařilo se načíst dokument:<br>'+esc(e.message||e)+'</div>';
+    });
+}
+
+bPrint.addEventListener("click",function(){ try{ window.focus(); }catch(e){} window.print(); });
+bPdf.addEventListener("click",function(){
+  var u=location.origin+"/api/v1/erp/app/doc/render-pdf?"+qp;
+  try{ window.open(u,"_blank"); }catch(e){ location.href=u; }
+});
+bEc.addEventListener("click",function(){
+  bEc.disabled=true; var o=bEc.textContent; bEc.textContent="⏳ Ukládám…";
+  fetch("/api/v1/erp/app/doc/to-eurosoft",{method:"POST",credentials:"include",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({template_id:+tid, engagement_id:ref})})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      bEc.disabled=false; bEc.textContent=o;
+      if(j&&j.ok) alert("✅ Uloženo na EUROSOFT server:\n"+(j.fname||j.path||""));
+      else alert("Chyba: "+((j&&(j.note||j.error))||"nepodařilo se uložit"));
+    })
+    .catch(function(e){ bEc.disabled=false; bEc.textContent=o; alert("Chyba: "+e); });
+});
+</script>
+</body>
+</html>

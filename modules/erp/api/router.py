@@ -13857,6 +13857,7 @@ async def att_day_detail(req: Request) -> JSONResponse:
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
             "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = :d "
             "AND e.status NOT IN ('superseded','announced') "
+            "AND et.code <> 'day_end' "  # day_end = interní marker do 23:59, nezobrazovat lidem (Marti 19.6.)
             "ORDER BY e.started_at NULLS LAST, e.id"),
             {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
         s.commit()
@@ -17579,6 +17580,7 @@ async def att_list(req: Request) -> JSONResponse:
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "WHERE e.tenant_id=:t AND e.employee_id=:e2 AND e.entry_date >= current_date - :dd "
             "AND e.status IS DISTINCT FROM 'superseded' AND e.status IS DISTINCT FROM 'announced' "
+            "AND et.code <> 'day_end' "  # day_end = interní 'konec dne do 23:59', nezobrazovat lidem jako job (Marti 19.6.)
             "ORDER BY e.entry_date DESC, e.id DESC LIMIT 200"),
             {"t": _ATT_TENANT, "e2": emp, "dd": days}).mappings().all()
         s.commit()

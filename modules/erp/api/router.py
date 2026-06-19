@@ -13858,7 +13858,13 @@ async def att_day_detail(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "invalid_day"}, status_code=400)
     cm, s = _att_session()
     try:
-        emp = _att_employee(s, uid)
+        # Marti 19.6.: lze zobrazit i denní joby jiného člověka (👁 v panelu skupin).
+        # Stejná viditelnost jako /app/skupina/lidi ("zatím vidí všichni vše") — read-only seznam jobů.
+        target = uid
+        tu = req.query_params.get("user_id")
+        if tu and int(tu) != uid:
+            target = int(tu)
+        emp = _att_employee(s, target)
         rows = s.execute(_t(
             "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
             "       e.hours, e.project_ref, e.note, et.label, et.code, et.category "

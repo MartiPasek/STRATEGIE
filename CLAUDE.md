@@ -2995,3 +2995,77 @@ mění se zřídka); marže 5 %; jen ES→Control (IT/Intersoft později).
 fixech + iOS pull-to-refresh — *„zvládneš ty faktury?"* → ano, na haléř)
 
 🧾 🍏 📱 🌳 ☕
+
+---
+
+## Dodatek — 19. 6. 2026 (večer): 🔗 OBĚH ZAKÁZKY + ZRCADLO CENTRÁLY (procurement základ pro převzetí Heliosu)
+
+Budoucí Claude — dlouhý večer, Marti odpočíval a *„tiše pozoroval"* + *„Jsi makač
+:)))"*. Stavěli jsme **oběh zakázky** a hlavně **read-only zrcadlo Centrály** jako
+analytický základ (navazuje na `docs/prevzeti_helios_cutover_2026.md` — STRATEGIE =
+vše vč. zakázkové analytiky). Klíčové je, že Marti dal **reálné přehledové SQL z Centrály**
+(č. 210 vydané objednávky, č. 250 zboží/služby) → z nich teprve vyšel správný recept.
+
+### Oběh zakázky (řetězené doklady, typ SW/VR)
+`poptávka → kalkulace → nabídka → přijatá objednávka → zakázka → vydaná objednávka → výroba → fakturace`.
+DDL kostra LIVE (`tenant.poptavka/kalkulace/nabidka/objednavka/vydana_objednavka/vyroba`
++ `sw_zakazka` jako pivot). **Stupeň POPTÁVKA** postaven end-to-end (appka dlaždice
+📥 Poptávky, `/app/poptavka/*`, gate = rodiče + Zuzka(50) + Mirek(22)). Další stupně
+stejným vzorem.
+
+### Zrcadlo Centrály (idempotentní, read-only, s originálním Helios ID)
+Ops akce (běží **na pozadí** ve vlákně, 1 klik = backfill): `sync_ec_doklady`,
+`sync_ec_kalkulace`, `sync_ec_org_kontakt`, `sync_ec_sklad_kmen`. Tabulky v `tenant.*`:
+`ec_doklad_zbozi` (40 182) · `ec_pohyb_zbozi` (121 597) · `ec_kalkulace_hlav` (1 586)
++ `ec_kalkulace_polozka` (41 444) · `ec_organizace` (1 990) · `ec_stav_skladu` +
+`ec_kmen_zbozi` (staged) · `ec_mirror_state` (watermarky). Okno **2 roky** (`DatPorizeni>=2024-01-01`)
+pro doklady/pohyby/kalkulace; org/sklad/díly plné.
+
+### 🔑 PROCUREMENT RECEPT (z Martiho přehledů 210/250 — DRŽ!)
+- **Vydaná objednávka = `RadaDokladu='800'`, `IDSklad='001'`** (ne druh pohybu).
+- **Dodavatel/odběratel klíč = `TabCisOrg.CisloOrg`** (NE `.ID`!). Krátký název dodavatele
+  = `TabCisOrg_EXT._Zkratka_nazvu`, firemní = `TabCisOrg.Firma`. → `ec_organizace.cislo_org`.
+- **Otevřené množství (částečné dodávky) = `Mnozstvi − MnOdebrane`** na pohybu `DruhPohybuZbo=6`
+  (objednávka) a doklad `Splneno=0`. → proto `ec_pohyb_zbozi.mn_odebrane`.
+- **Druhy pohybu zboží:** `6`=objednávka, `0`=příjem(ka), `18`=cena z příjmu (poslední JC).
+  Číselník `TabSzDruhPohybu` je v DB_EC **prázdný** → význam jen z přehledů/praxe.
+- **Projektovaný sklad (dispozice vč. nerealizovaných příjemek/výdejek) = `TabStavSkladu.MnozSPrijBezVyd`**;
+  fyzický = `Mnozstvi`; `Objednano`/`Minimum`/`Maximum` tamtéž. → `ec_stav_skladu`.
+- **Díl = `TabKmenZbozi`** (`Nazev1`, `RegCis`, `Aktualni_Dodavatel`→org.CisloOrg, `MJEvidence`). → `ec_kmen_zbozi`.
+- **`EC_KalkulacePolozky.Objednej` se NETRVÁ** (vždy 0 — pracovní pole objednávací obrazovky) →
+  „co objednat" NIKDY z kalkulace, vždy z reálných dokladů/pohybů + skladu. (Marti: *„buď velmi opatrný"* — sedělo.)
+
+### GOTCHY (zrcadlení Centrály/Heliosu)
+- **`SystemRowVersionText` (hex, nvarchar) = spolehlivý watermark** na Helios `Tab*` tabulkách
+  (engine ho bumpne sám). **`DatZmeny` je NESPOLEHLIVÝ** — procedury ho nesetují (ověřeno: čerstvě
+  měněné doklady měly DatZmeny prázdné, rowversion plný). Klíč CDC = rowversion.
+- **`CONVERT(varchar(16), SystemRowVersion, 2)` vrací NESMYSL** (prázdno/„ü") — nepoužívej ruční převod;
+  ber rovnou sloupec **`SystemRowVersionText`**.
+- **`EC_*` tabulky (Centrála-native, EC_KalkulaceHlav/Polozky) NEMAJÍ rowversion** → plný idempotentní
+  refresh dle `ID` (stránkování `WHERE ID > lastid ORDER BY ID`, upsert dle `src_id`).
+- **Background daemon vlákno se po pár minutách recykluje** (worker) → velký backfill spadne v půlce;
+  proto: per-blok commit + watermark + **MCP retry (4× se sleep)** + idempotentní upsert → další klik/běh
+  plynule naváže. (Pohyby 121k chtěly ~3 kliky.)
+- **`CRM_Kontakt` NEJDE číst přes `strategie_query_raw`** (i `COUNT(*)` = internal_error) — blok na úrovni
+  MCP pro `CRM_*`. CRM modul má vlastní dedikovaný MCP path; zrcadlit kontakty půjde JEN přes něj (TODO).
+- **MCP `eurosoft_strategie_query_raw`** spustí celý batch ale vrátí jen první result set; pro
+  „EXEC proc; SELECT" nutné `SET NOCOUNT ON`. Bridge OUT trunkuje (~170 zn./buňka, pár řádků) →
+  velké výsledky host-side Read nebo `string_agg`.
+- Reset watermarku (`UPDATE ec_mirror_state SET last_rowversion='0000…'`) = nástroj na **refill nových
+  sloupců** u už zrcadlených tabulek (jinak watermark na maximu nic nepřetáhne).
+
+### Stav + co dál
+Hotovo a ověřené: doklady/pohyby/kalkulace/položky/organizace (vč. opraveného `CisloOrg` klíče —
+vydané objednávky 800 se napojily na jména dodavatelů, ověřeno proti Centrále). Staged (čeká na 2 ops
+kliky): refill doklady/pohyby o `MnOdebrane`+stavy, a `sync_ec_sklad_kmen` (sklad+díly). **Pak přehledy**
+(chytré stránky `extview`, ne fw. framework): „🛒 Co objednat" (= z reálných dokladů/pohybů/skladu, ne
+z `Objednej`), „Vydané objednávky" (Rada 800), „Zakázka → díly". CRM kontakty přes dedikovaný MCP path.
+
+**Doctrine potvrzená:** Marti's *„buď velmi opatrný… stav skladu vč. nerealizovaných příjemek/výdejek
+a částečné dodávky"* + *„důsledná analytika"* — naivní přehled z jednoho pole (`Objednej`) by lhal;
+data to potvrdila. Vždy z reálných pohybů + `MnozSPrijBezVyd` + `Mnozstvi−MnOdebrane`.
+
+— **Claude (id=23)** (Opus, 19. 6. 2026 večer, po oběhu zakázky + kompletním zrcadle Centrály +
+procurement receptu z Martiho přehledů — *„Jsi makač :)))"*)
+
+🔗 🪞 🛒 🌳 ☕🌙

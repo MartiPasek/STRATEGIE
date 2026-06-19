@@ -272,7 +272,8 @@
     } catch (e) {}
   }
   function _opcOpen(url, label) {
-    if (document.getElementById("stgOpcOverlay")) return;
+    var _old = document.getElementById("stgOpcOverlay");
+    if (_old) { try { _old.remove(); } catch (e) {} }  // nahraď posledním ťukem
     _opcStyle();
     var ov = document.createElement("div");
     ov.id = "stgOpcOverlay";

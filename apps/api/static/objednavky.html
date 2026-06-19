@@ -67,6 +67,8 @@ function _toast(t){
 // Handoff: ťuk → otevři detail na POČÍTAČI (přes pollera v otevřené STRATEGII).
 // Na širokém displeji (PC) otevřu rovnou i lokálně; na mobilu jen pošlu na PC.
 function openOnPc(url,lbl){
+  if(window._opcLast && (Date.now()-window._opcLast)<1500) return false;  // debounce
+  window._opcLast=Date.now();
   fetch("/api/v1/erp/app/open-on-pc",{method:"POST",credentials:"include",
     headers:{"Content-Type":"application/json"},body:JSON.stringify({url:url,label:lbl})})
     .then(function(r){return r.json();})

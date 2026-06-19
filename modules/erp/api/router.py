@@ -20503,12 +20503,15 @@ def open_on_pc_poll(req: Request):
     from sqlalchemy import text as _t
     s = _g()
     try:
+        # Nejnovější ťuk vyhrává; starší nevyřízené smeteme (žádné hromadění overlayů
+        # při rychlém/opakovaném ťukání). Marti 19.6.2026.
         row = s.execute(_t(
             "SELECT id, url, label FROM fw.open_on_pc "
-            "WHERE user_id=:u AND consumed_at IS NULL ORDER BY id LIMIT 1"), {"u": int(uid)}).first()
+            "WHERE user_id=:u AND consumed_at IS NULL ORDER BY id DESC LIMIT 1"), {"u": int(uid)}).first()
         if not row:
             return {"ok": True, "url": None}
-        s.execute(_t("UPDATE fw.open_on_pc SET consumed_at=now() WHERE id=:i"), {"i": row[0]})
+        s.execute(_t("UPDATE fw.open_on_pc SET consumed_at=now() WHERE user_id=:u AND consumed_at IS NULL"),
+                  {"u": int(uid)})
         s.commit()
         return {"ok": True, "url": row[1], "label": row[2]}
     finally:

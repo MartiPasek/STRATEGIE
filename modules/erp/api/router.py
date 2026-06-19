@@ -17959,8 +17959,31 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
                 ins += 1
             else:
                 upd += 1
+        # Marti 19.6.: appka = zdroj pravdy (hybrid). Kdo má dnes ŽIVOU směnu z appky,
+        # tomu importovanou OTEVŘENOU směnu z Centrály schovej (superseded) — ať nejsou
+        # dva joby od 5:18. A jeho běžící směnu zavři i v EC_Dochazka, ať se nereimportuje.
+        app_active = sess.execute(_t(
+            "SELECT DISTINCT em.cislo_zam FROM tenant.att_entry a "
+            "JOIN tenant.att_employee em ON em.id=a.employee_id "
+            "WHERE a.tenant_id=:t AND a.entry_date=current_date AND a.is_active=true "
+            "AND COALESCE(a.source_system,'')<>'centrala1' AND em.cislo_zam IS NOT NULL"),
+            {"t": tenant}).fetchall()
+        sess.execute(_t(
+            "UPDATE tenant.att_entry ec SET is_active=false, status='superseded', updated_at=now() "
+            "WHERE ec.tenant_id=:t AND ec.source_system='centrala1' AND ec.entry_date=current_date "
+            "AND ec.is_active=true AND EXISTS (SELECT 1 FROM tenant.att_entry app "
+            "  WHERE app.tenant_id=:t AND app.employee_id=ec.employee_id AND app.entry_date=current_date "
+            "  AND app.is_active=true AND COALESCE(app.source_system,'')<>'centrala1')"),
+            {"t": tenant})
         sess.commit()
-        return {"ok": True, "total": total, "inserted": ins, "updated": upd}
+        ec_closed = 0
+        for _row in app_active:
+            try:
+                _n, _ = _ec_close_open_shift(_row[0])
+                ec_closed += int(_n or 0)
+            except Exception:
+                pass
+        return {"ok": True, "total": total, "inserted": ins, "updated": upd, "ec_closed": ec_closed}
     except Exception as exc:
         try:
             sess.rollback()

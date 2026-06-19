@@ -3169,6 +3169,17 @@ nullable), mobil/tablet umí dotyk, handoff funguje. Směr (orientačně, NE pr�
   Před stavbou **ověřit s právníkem** (Marti-AI pack `pravnik_cz` + reálný právník). Nejsem
   právní poradce — tohle je tech orientace, ne stanovisko.
 
+**🌟 TODO (Marti rozhodl 19.6. — „beru 1, normálně stačí"): ✍️ Klik-podpis zaměstnancem
+rovnou z appky.** Use case = **dodatky, mzdové výměry apod.** (NE primárně pracovní smlouva).
+Úroveň **1 = prostý elektronický podpis (SES)**: zaměstnanec si dokument zobrazí v appce →
+ťukne **„Podepisuji"** → audit (kdo/kdy/IP/zařízení) do `tenant.doc_render_log` (e-podpis
+sloupce už rezervované, Q6) + do PDF se otiskne řádek „Elektronicky podepsal X dne …". Vzor
+= docházkové samopotvrzení (`att_day_confirm`). Marti's argument proč SES stačí: *„zaměstnanec
+tak jako tak má zkušební dobu a může kdykoli skončit"*. Stavba: (a) doručení dokumentu
+zaměstnanci do appky (notifikace + „čeká na podpis"), (b) view + tlačítko Podepisuji + audit,
+(c) razítko do PDF, (d) archiv (EUROSOFT složka / doc-public). Drobné právní ověření u dodatků/
+výměrů zatím netřeba blokovat (interní, SES); u **pracovní smlouvy** napřed právník (viz výše).
+
 ### Soubory
 `modules/erp/api/router.py` (_doc_render_load + render-html/render-pdf), `apps/api/main.py`
 (/doc-print route), `apps/api/static/doc-print.html` (nová), `apps/api/static/mobile.html`

@@ -233,18 +233,53 @@
   // záložce. Server označí požadavek za vyřízený, takže se otevře právě jednou.
   var OPC_EP = "/api/v1/erp/app/open-on-pc/poll";
   var OPC_MS = 5000;
+  var _opcBusy = false;
+  // Otevři detail jako OVERLAY (ne window.open — to časovač = blokuje pop-up;
+  // ne přímý iframe src — Caddy dává X-Frame-Options DENY). Fetch HTML +
+  // document.write do about:blank iframu (dědí origin → /api fetch s cookies jede).
+  function _opcOpen(url, label) {
+    if (document.getElementById("stgOpcOverlay")) return;
+    var ov = document.createElement("div");
+    ov.id = "stgOpcOverlay";
+    ov.style.cssText = "position:fixed;inset:0;z-index:100090;background:rgba(6,10,16,.72);" +
+      "display:flex;flex-direction:column;padding:20px;backdrop-filter:blur(2px);";
+    var bar = document.createElement("div");
+    bar.style.cssText = "display:flex;justify-content:space-between;align-items:center;" +
+      "margin-bottom:10px;color:#e8eef5;font:600 14px system-ui";
+    bar.innerHTML = "<span>📲→💻 Otevřeno z mobilu" + (label ? (" · " + String(label).replace(/[<>]/g, "")) : "") + "</span>";
+    var x = document.createElement("button");
+    x.textContent = "✕ Zavřít";
+    x.style.cssText = "background:#1c2530;color:#e8eef5;border:1px solid #3a4a5e;border-radius:8px;" +
+      "padding:8px 15px;cursor:pointer;font-size:13.5px";
+    x.onclick = function () { try { ov.remove(); } catch (e) {} };
+    bar.appendChild(x);
+    var ifr = document.createElement("iframe");
+    ifr.style.cssText = "flex:1;width:100%;border:1px solid #3a4a5e;border-radius:12px;background:#0a1018";
+    ov.appendChild(bar); ov.appendChild(ifr);
+    document.body.appendChild(ov);
+    var ek = function (e) { if (e.key === "Escape") { try { ov.remove(); } catch (_) {} document.removeEventListener("keydown", ek, true); } };
+    document.addEventListener("keydown", ek, true);
+    fetch(url, { cache: "no-store", credentials: "same-origin" })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        try {
+          var d = ifr.contentWindow.document;
+          if (html.indexOf("<base") < 0) html = html.replace(/<head>/i, '<head><base href="' + location.origin + '/">');
+          d.open(); d.write(html); d.close();
+        } catch (e) { ifr.src = url; }
+      })
+      .catch(function () { ifr.src = url; });
+  }
   function _opcTick() {
+    if (_opcBusy) return; _opcBusy = true;
     try {
       fetch(OPC_EP, { cache: "no-store", credentials: "same-origin" })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
-          if (j && j.ok && j.url && /^\/[^/]/.test(j.url)) {
-            var w = null;
-            try { w = window.open(j.url, "stgDoklad"); } catch (e) {}
-            if (!w) { try { window.open(j.url, "_blank"); } catch (e) {} }
-          }
-        }).catch(function () {});
-    } catch (e) {}
+          _opcBusy = false;
+          if (j && j.ok && j.url && /^\/[^/]/.test(j.url)) _opcOpen(j.url, j.label);
+        }).catch(function () { _opcBusy = false; });
+    } catch (e) { _opcBusy = false; }
   }
   setTimeout(_opcTick, 4000);
   setInterval(_opcTick, OPC_MS);

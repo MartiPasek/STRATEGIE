@@ -10349,11 +10349,19 @@ async def app_vyroba_my_cinnosti(req: Request) -> JSONResponse:
         kind = (req.query_params.get("kind") or "standard").strip().lower()
         if kind not in ("standard", "rezie"):
             kind = "standard"
+        # Marti 19.6.: "Bez rozlišení činnosti" v režii = 1. místo všem KROMĚ skupiny Výroba (id 3),
+        # u Výroby na konec (oni používají konkrétní činnosti). Skupina 3 = Výroba.
+        is_vyr = bool(s.execute(_t(
+            "SELECT EXISTS(SELECT 1 FROM tenant.staff_group_member m "
+            "WHERE m.tenant_id=2 AND m.group_id=3 AND m.user_id=:u)"), {"u": target}).scalar())
         rows = s.execute(_t(
-            "SELECT c.id, c.name, COALESCE(uc.hidden,false) AS hid, COALESCE(uc.sort_order, c.sort_order) AS so, c.icon "
+            "SELECT c.id, c.name, COALESCE(uc.hidden,false) AS hid, "
+            "  CASE WHEN c.code='bez_rozliseni' THEN (CASE WHEN :vyr THEN 100000 ELSE -1000 END) "
+            "       ELSE COALESCE(uc.sort_order, c.sort_order) END AS so, c.icon "
             "FROM tenant.vyroba_cinnost c "
             "LEFT JOIN tenant.vyroba_cinnost_user uc ON uc.cinnost_id=c.id AND uc.tenant_id=2 AND uc.user_id=:u "
-            "WHERE c.tenant_id=2 AND c.active=true AND c.kind=:k ORDER BY hid, so, c.name"), {"u": target, "k": kind}).fetchall()
+            "WHERE c.tenant_id=2 AND c.active=true AND c.kind=:k ORDER BY hid, so, c.name"),
+            {"u": target, "k": kind, "vyr": is_vyr}).fetchall()
         out = [{"id": r[0], "name": r[1], "hidden": bool(r[2]), "so": int(r[3]), "icon": (r[4] or "🧩")} for r in rows]
         return JSONResponse({"ok": True, "user_id": target, "cinnosti": out})
     finally:

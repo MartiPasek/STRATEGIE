@@ -22128,6 +22128,7 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
                 "CONVERT(varchar(10),DatPorizeni,23) dp, CONVERT(varchar(10),DatRealizace,23) dr, "
                 "SystemRowVersionText rv "
                 "FROM TabDokladyZbozi WHERE SystemRowVersionText > '%s' "
+                "AND DatPorizeni >= '2024-01-01' "
                 "ORDER BY SystemRowVersionText" % (BLOCK, wm)
             )
             batch = rows_of(sql)
@@ -22176,6 +22177,7 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
                 "Mnozstvi, MnozstviReal, MnozstviStorno, VraceneMnozstvi, EvMnozstvi, Mena, "
                 "PrimarniCena, JCbezDaniKcPoSDruhova, CCbezDaniKcPoSDruhova, SystemRowVersionText rv "
                 "FROM TabPohybyZbozi WHERE SystemRowVersionText > '%s' "
+                "AND DatPorizeni >= '2024-01-01' "
                 "ORDER BY SystemRowVersionText" % (BLOCK, wm)
             )
             batch = rows_of(sql)

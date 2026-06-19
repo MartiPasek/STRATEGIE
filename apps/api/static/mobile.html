@@ -3850,6 +3850,8 @@ setTimeout(function(){
     api("GET","/api/v1/erp/app/attendance/list?days=14"+(_dochViewUid?("&user_id="+encodeURIComponent(_dochViewUid)):""),"").then(function(j){
       var rows=(j&&j.entries)||[]; var tdy=_locDate(0);
       _dnesTodays=rows.filter(function(e){ return (e.d||"")===tdy; });
+      // Marti 19.6.: skrýt nulové zbytky (trimnutá importovaná směna, např. 05:18–05:18, 0 h).
+      _dnesTodays=_dnesTodays.filter(function(e){ return !(!e.is_active && (Number(e.hours||0)===0) && e.zac && e.kon && e.zac===e.kon); });
       // Marti 19.6.: chronologicky — ranní příchod nahoře, další joby dolů.
       _dnesTodays.sort(function(a,b){ var az=a.zac||"99:99", bz=b.zac||"99:99"; if(az!==bz) return az<bz?-1:1; return (a.id||0)-(b.id||0); });
       _dnesPaint();
@@ -5425,9 +5427,8 @@ setTimeout(function(){
     // taky entry type „Práce"). Režie ukáže „Režie", u relaxu žádná zakázka.
     var _sp=[];
     if(e.hours!=null) _sp.push(fmtHM(e.hours));  // Marti 11.6.: nejdřív čas
-    if(_jobZak(e)) _sp.push(esc(e.project_ref));   // reálná zakázka = číslo
-    else if(_jobRezie(e)) _sp.push("Režie");        // bez zakázky = Režie
-    else if(e.cat && e.cat!=='presence' && e.typ) _sp.push(esc(e.typ));  // Přestávka/Jedu do práce/Dovolená…
+    // Marti 19.6.: DOCHÁZKA = jen přítomnost, BEZ zakázky/Režie (zakázka+činnost jsou v Zakázkovém pohledu).
+    if(e.cat && e.cat!=='presence' && e.typ) _sp.push(esc(e.typ));  // Přestávka/Jedu do práce/Dovolená/Lékař…
     var sub=_sp.join(' · ');
     var _wbg=_jobMimo(e)?"#caa14a":"var(--green)";  // Marti 11.6.: práce zelená, mimo jantarová
     var head=el('<div class="cthead"><div class="cav" style="background:'+_wbg+';font-size:30px;line-height:1;">'+ic+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+esc(timeR)+'</div><div class="ctnum">'+sub+'</div></div></div>');

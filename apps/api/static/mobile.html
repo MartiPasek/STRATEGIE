@@ -7347,6 +7347,16 @@ setTimeout(function(){
     }
     var b=app.querySelector("[data-back]"); if(b)b.addEventListener("click",back);
     try{ renderNav(); }catch(_){}
+    // Marti 19.6.: nativní iOS „pull-to-refresh" gesto necháváme JEN na hlavní
+    // obrazovce (home). Na ostatních obrazovkách ho vypneme, ať si recenzent
+    // (a uživatelé) omylem nereloadnou rozdělanou práci. overscroll-behavior je
+    // bezpečné — neblokuje běžný scroll ani vnitřní scrollovací panely.
+    try{
+      var _top=stack[stack.length-1];
+      var _ob=(_top==="home")?"":"none";
+      document.documentElement.style.overscrollBehaviorY=_ob;
+      document.body.style.overscrollBehaviorY=_ob;
+    }catch(_){}
   }
 
   window.addEventListener("popstate", function(){ if(stack.length>1){ back(); try{history.pushState(null,"");}catch(e){} } });

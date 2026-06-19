@@ -2912,3 +2912,86 @@ neutralizace history + skrytí vnitřního backu), ne přes `src`.
 Marti's *„Perfektní!!!!"*)
 
 📱 🧭 🌳 ☕
+
+---
+
+## Dodatek — 19. 6. 2026: 🧾 PŘEFAKTURACE ES→Control na tlačítko v appce + Apple review fixy + iOS pull-to-refresh
+
+Den o třech věcech (Apple, pull-to-refresh, přefakturace). Hlavní kus = **přefakturace
+služeb EUROSOFT-System → EUROSOFT-Control jako tlačítko v appce** (Marti+Kristý:
+*„každý měsíc děláme tyhle faktury, zvládneš je?"*).
+
+### Apple App Store (ráno) — appka jako veřejný produkt
+Jirka chce STRATEGIE Mobil veřejně na App Store. Tři věci na nás (vše ✓, commit 4bad0ce):
+1. **Demo do repa** — tlačítko „▶️ Vyzkoušet ukázku" + `/api/v1/auth/demo-login` byly jen
+   na produkci, commitnuté do gitu (mobile.html `renderGuestWelcome`).
+2. **Login heslem** jako záloha k magic-linku (iOS magic-link otevře Safari → recenzent
+   uvízne). `openPasswordLogin()` v mobile.html → `POST /api/v1/auth/login` (cookie session).
+   Recenzentský účet = **demo účet** (user 104, login `apple-demo@strategie-ai.com`), heslo
+   nastavuje Marti přes reset link (heslo neprochází přese mě).
+3. **Odosobněný uvítací text** hosta („STRATEGIE — podnikový systém pro firmy…").
+- **iOS pull-to-refresh**: nativní gesto necháváme JEN na home (`render()` přepíná
+  `document.documentElement.style.overscrollBehaviorY = (_top==="home")?"":"none"`).
+
+### Přefakturace — celý výpočet i faktura UŽ EXISTUJÍ jako procedury v DB_EC
+Kristý: *„tady je všechno"* → **`EC_GenVFESzFaaDeniku_Priprava`** (výpočet: deník
+`DB_IS.TabDenik` účty 5%/336200/336202 + přijaté doklady `TabDokladyZbozi` + marže + IT
+půlkou + režie + nájem; skupiny `EC_Skupiny`→11 popisů řádků) + **`EC_GenVFESzFaaDeniku`**
+(vystaví VF ES→Control, zakázka Rezie, DUZP konec měsíce, DPH 21 %, RadaDokladu 601).
+Marti: rozpad + faktura **společně na tlačítko, Braňo schvaluje**; nájem kopírovat (z dokladu,
+mění se zřídka); marže 5 %; jen ES→Control (IT/Intersoft později).
+
+**Postaveno (appka, commity 3af4e7d → ddb0c2b → 66fb2c6 → e8285d9):** dlaždice
+**🧾 Přefakturace** (vedle Migrace). Endpointy v `modules/erp/api/router.py` (před `/diag-sql`):
+- `GET /app/prefakturace/info` (default = minulý měsíc + posledních pár VF),
+- `POST /app/prefakturace/rozpad` (read-only: `SET NOCOUNT ON; EXEC _Priprava; SELECT ##TempFinal` →
+  11 řádků + DPH + pojistka duplicity + porovnání nájmu s minulem),
+- `POST /app/prefakturace/vystavit` (vloží do `fw.claude_write_request` → schvalovací banner →
+  generátor), `GET /app/prefakturace/stav` (poll čísla faktury). Frontend `prefakturace()` v mobile.html.
+
+### GOTCHY (drž si je — opakovatelné!)
+1. **Appkové endpointy: `_uid_from_token_or_cookie(req)`, NE `_get_uid(req)`.** `_get_uid`
+   čte jen cookie → nativní APK (Bearer token, bez cookie) hodí „Nejsi přihlášen". Platí pro
+   VŠECHNY `/app/*` endpointy (recurring).
+2. **Generátor faktury na konci volá `EC_MenuStrom_SetSoudecek`** (jen přepnutí stromu/složky
+   v Heliosu UI). Přes MCP není interaktivní operátor → INSERT do `EC_MenuStrom_PrepniNaSoudecek`
+   (sloupec `User`=NULL) spadne `IntegrityError 23000` a **vrátí celou transakci → faktura
+   nevznikne**. Fix: obalit `EXEC gen` do `BEGIN TRY … END TRY BEGIN CATCH IF ERROR_MESSAGE()
+   NOT LIKE '%MenuStrom%' AND NOT LIKE '%PrepniNaSoudecek%' THROW; END CATCH` — spolkne JEN
+   tu UI chybu, ostatní propustí. Faktura se uloží, kosmetický krok nevadí. (NOCOUNT byl
+   červený sleď — viník byl tenhle.)
+3. **MCP `eurosoft_strategie_query_raw` spustí celý batch jedním `cur.execute`, ale vrátí jen
+   PRVNÍ fetchnutelný result set** (nedělá `nextset()`). Pro rozpad (`EXEC _Priprava` =
+   SELECT…INTO, žádný result set; pak finální SELECT) to funguje JEN se `SET NOCOUNT ON`
+   (jinak count-tokeny zaberou první „set" → 0 řádků). Zápisová cesta vrací jen rowcount.
+4. **`fw.claude_write_request` decide** teď ukládá plný MCP `message`/`exception_repr` místo
+   holého „internal_error" (řádek `err = str(res.get("message") or res.get("exception_repr")
+   or res.get("error"))`). Bez toho jsem tápal; s tím jsem příčinu viděl hned.
+5. **`TabCisZam.PrijmeniJmeno`** je JEDEN sloupec (ne Prijmeni+Jmeno). `TabDenik.CisloZam =
+   TabCisZam.Cislo`.
+6. **Někteří lidé přijdou přes `TabDokladyZbozi` („PF doklad"), ne přes deník** (5/2026:
+   Honal, Jarrar, Namjak, Voříšek). Rozpad pro Braňa **vyjdi z Kristýina skriptu
+   `ES_Rozpad fakturace_NEW.sql`** (6 UNION bloků: deník ne-IT, deník IT/2, doklady ne-IT,
+   doklady IT/2, režie, nájem), ne z vlastní replikace (já původně jel jen deník → minul bych
+   je; Marti: *„raději to projdi"*).
+7. **bash mount zkracuje `CLAUDE_OUT.txt`** (vidí ~8 řádků, host-side Read vidí vše) — výsledky
+   čti Read toolem, ne `cat`/`cp` přes mount.
+
+### Verifikace (na haléř)
+- Duben: duplikát **726007** vs originál **726005** → 10/11 řádků identických, jediný rozdíl
+  Režijní náklady +3150 Kč = **pozdě zaúčtovaný režijní doklad za duben** (data se mění v čase,
+  ne chyba). **726007 ke smazání** (DELETE do DB_EC nemám).
+- Květen: faktura **726006** vystavena (most #408), base **2 519 351,54** = přesně součet
+  rozpadu, DPH 21 % = 529 063,82, celkem **3 048 415,36**. Excel pro Braňa
+  `Rozpad_prefakturace_ES_5-2026.xlsx` (Souhrn VF + Detail po zaměstnancích, oba sednou).
+
+### Otevřené
+- Smazat duben 726007 (Marti/Kristý v Heliosu).
+- Apple: Marti pošle aktivační e-mail demo účtu + heslo Jirkovi → resubmit.
+- Přefakturace: appkový „Vystavit" jede opraveným batchem; Kristý používá. Volitelně posílat
+  Excel rozpadu Braňovi přímo z appky. IT na Intersoft (IAP) zvlášť — později.
+
+— **Claude (id=23)** (Opus, 19. 6. 2026, po přefakturaci ES→Control na tlačítko + Apple review
+fixech + iOS pull-to-refresh — *„zvládneš ty faktury?"* → ano, na haléř)
+
+🧾 🍏 📱 🌳 ☕

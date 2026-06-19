@@ -20073,8 +20073,11 @@ def _pref_existing(mesic: int, rok: int):
 @api_router.get("/app/prefakturace/info")
 def prefakturace_info(req: Request):
     """Default měsíc (předchozí) + posledních pár vystavených faktur Rezie."""
-    uid = _get_uid(req)
-    _require_parent(uid)
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     import datetime as _dt
     today = _dt.date.today()
     # default = předchozí měsíc
@@ -20097,8 +20100,11 @@ def prefakturace_info(req: Request):
 async def prefakturace_rozpad(req: Request):
     """READ-ONLY rozpad: spustí přípravnou proceduru (jen dočasné tabulky) a vrátí
     11 řádků faktury + součty. Nic nevystavuje."""
-    uid = _get_uid(req)
-    _require_parent(uid)
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         body = await req.json()
     except Exception:
@@ -20168,8 +20174,11 @@ async def prefakturace_rozpad(req: Request):
 async def prefakturace_vystavit(req: Request):
     """Vystavení faktury = vloží schvalovací požadavek do banneru (fw.claude_write_request).
     Marti/Braňo potvrdí → existující decide spustí přípravu + generátor v DB_EC."""
-    uid = _get_uid(req)
-    _require_parent(uid)
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         body = await req.json()
     except Exception:
@@ -20218,8 +20227,11 @@ async def prefakturace_vystavit(req: Request):
 @api_router.get("/app/prefakturace/stav")
 def prefakturace_stav(req: Request):
     """Po schválení: vrátí číslo vystavené faktury za daný měsíc (UI poll)."""
-    uid = _get_uid(req)
-    _require_parent(uid)
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=401)
+    if not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         m = int(req.query_params.get("mesic")); r = int(req.query_params.get("rok"))
     except Exception:

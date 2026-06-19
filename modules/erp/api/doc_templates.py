@@ -256,11 +256,29 @@ def merge(body_html, context):
     return _TOKEN.sub(_sub, body_html)
 
 
+# Výchozí řízení zalomení stran (Marti 19.6.2026) — platí pro tisk (window.print)
+# i PDF (xhtml2pdf). Vkládá se PŘED css šablony, takže si je šablona může přebít.
+# xhtml2pdf rozumí page-break-* i vlastnímu -pdf-keep-with-next.
+#   • nadpisy se neutrhnou od následujícího textu na konci strany
+#   • řádky tabulek a body seznamů se nedělí přes stranu
+#   • podpisový blok (.sign/.podpis/.podpisy) drží pohromadě a lepí se k „místo+datum"
+#   • opt-in třídy: .zlom-pred / .zlom-po (vynuť novou stranu), .nezlom (drž celé)
+PAGEBREAK_CSS = (
+    "h1,h2,h3,h4{page-break-after:avoid;-pdf-keep-with-next:true;}"
+    "tr,li{page-break-inside:avoid;}"
+    ".sign,.podpis,.podpisy,.signatures,.nezlom{page-break-inside:avoid;-pdf-keep-together:true;}"
+    ".placedate{page-break-after:avoid;-pdf-keep-with-next:true;page-break-inside:avoid;}"
+    ".zlom-pred{page-break-before:always;}"
+    ".zlom-po{page-break-after:always;}"
+)
+
+
 def render(template_row, context):
     """Sestaví finální HTML dokument (css + tělo po merge)."""
     css = template_row.get("css") or ""
     body = merge(template_row.get("body_html") or "", context)
     parts = ["<!DOCTYPE html><html><head><meta charset='utf-8'>"]
+    parts.append("<style>%s</style>" % PAGEBREAK_CSS)
     if css:
         parts.append("<style>%s</style>" % css)
     parts.append("</head><body>")

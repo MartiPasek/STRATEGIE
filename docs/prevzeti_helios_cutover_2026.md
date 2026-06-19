@@ -36,25 +36,27 @@ WIP + reporting**. Velká část už běží.
 4. **Jednorázově: náklady po zakázce do 30. 6. ← Helios.** Aby zakázková analytika byla
    spojitá celý rok 2026 (1. půlrok z Heliosu, 2. půlrok náš).
 
-## Cutover 1. 7. 2026 — co MUSÍ být živé
-- **Od 1.7. STRATEGIE zachytává náklady/hodiny/výnosy po zakázce dopředu** (docházka +
-  work_alloc + zakázky + faktury → každý náklad má zakázku u nás). To je jediná „tvrdá"
-  podmínka k 1.7. — nic se nesmí ztratit, když Helios přestane dělit.
-- V Heliosu založit „velkou zakázku" a od 1.7. na ni účtovat vše.
-- Most faktura→Helios + úhrada←Helios funkční (i kdyby zpočátku poloautomaticky).
+## Sloučení v Heliosu = finální reverzibilní script (Marti 19.6., zkušenost s účetnictvím)
+Klíčová Martiho korekce: **přepsat na dokladech středisko i zakázku jde snadno i v průběhu
+roku a je to vratné** — mění se jen analytická dimenze, ne účty/částky/DPH. → Proto
+**netlačíme tvrdý cutover k 1.7.** Postup je „build‑first, flip‑na‑konci":
+- Helios běží **beze změny** (kóduje po zakázce/středisku jako dnes), dokud nejsme hotovi.
+- STRATEGIE stavíme naplno (oběh zakázek, fakturace, analytika) **bez časového tlaku**.
+- Až je STRATEGIE hotová a paralelně ověřená, spustíme **jeden script**, který v Heliosu
+  přepíše všechny doklady → **středisko 001 + jedna velká zakázka**. Hotovo, v řádu minut.
 
-## Tři pojistky (aby to nebyl skok do prázdna)
-1. Zakázková analytika u nás **stojí a je důvěryhodná** dřív/současně s 1.7.
-2. **Import historie nákladů do 30.6.** (spojitost roku).
-3. **WIP / nedokončená výroba k závěrce 2026** doložitelná z naší analytiky (čas do konce roku).
+### Pořadí + pojistky u flipu (důležité)
+1. **Nejdřív import plné historie po zakázce/středisku k nám, pak teprve sloučení** v Heliosu
+   (po sloučení už Helios detail nemá — musí být u nás).
+2. **Záloha Heliosu před scriptem** → vratnost reálná (kdykoliv recode zpět / obnova).
+3. Script přepisuje **jen dimenzi** (středisko=001, zakázka=velká), nesahá na účty/částky/DPH.
+4. **WIP / nedokončená výroba** k závěrce 2026 už z naší analytiky.
 
-## Harmonogram
-- **do 1. 7. 2026 (11 dní):** cutover‑ready — capture nákladů po zakázce u nás + velká
-  zakázka v Heliosu + most faktur/úhrad.
-- **červenec–srpen (2 měsíce):** operativa + fakturace + reporting plně u nás; dozrávání
-  dashboardů; paralelní kontrola, že zaúčtování sedí.
-- **průběžně do závěrky 2026:** WIP/nedokončená výroba z naší analytiky.
-- **1. 1. 2027:** úklid účetní osnovy/středisek v Heliosu (samostatná, administrativní dohra).
+## Harmonogram (build‑first)
+- **Teď → ~2 měsíce:** STRATEGIE kompletní (oběh zakázek + fakturace + analytika + reporting),
+  mosty faktura/úhrada/mzdy, paralelní kontrola že zaúčtování sedí. Helios zatím beze změny.
+- **Až hotovo a ověřeno:** import historie → **flip script** (středisko 001 + velká zakázka).
+- **1. 1. 2027:** případný úklid osnovy (samostatná, administrativní dohra).
 
 ## Rizika / otevřené
 - Náležitosti daňového dokladu + archivace u faktur vystavovaných ze STRATEGIE (zkontrolovat

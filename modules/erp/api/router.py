@@ -13337,10 +13337,12 @@ def _ec_dml_log(table, op, where=None, data=None, rows=0, ok=True, error=None,
         logger.exception("[ec_dml_log] zápis auditu selhal")
 
 
-def _ec_close_open_shift(cislo, actor_uid=None, actor_name=None, via="app_checkin"):
+def _ec_close_open_shift(cislo, end_ts=None, actor_uid=None, actor_name=None, via="app_checkin"):
     """Marti 19.6.: kdo se píchne v NAŠÍ appce → silově ukončit jeho OTEVŘENOU směnu
-    ve staré Centrále (EC_Dochazka): PraceAktivni=0 + CasKonec=teď. Hybrid fáze, bez
-    kompromisu — appka je zdroj pravdy. Každý zápis se loguje do fw.ec_dml_log.
+    ve staré Centrále (EC_Dochazka): PraceAktivni=0 + CasKonec.
+    `end_ts` ('YYYY-MM-DD HH24:MI:SS') = ZAČÁTEK naší app směny → starý job skončí
+    přesně tam, kde náš začíná (žádný překryv). Není-li zadán, použije se teď.
+    Nikdy nenastaví konec před začátek staré směny. Loguje do fw.ec_dml_log.
     Vrací (closed:int, error:str|None)."""
     import json as _j_cs
     from datetime import datetime as _dt_cs
@@ -13350,10 +13352,19 @@ def _ec_close_open_shift(cislo, actor_uid=None, actor_name=None, via="app_checki
         if mcp is None:
             return (0, "mcp_unavailable")
         cz = str(cislo).strip().replace("'", "''")
+        # Otevřené směny (zavřít) + když známe start naší směny, i UŽ UZAVŘENÉ, které
+        # překrývají náš začátek (trim konce na náš start — žádný překryv). Marti 19.6.
+        _es = (end_ts or "").replace("'", "")
+        _overlap = ""
+        if _es:
+            _overlap = (" OR (CasKonec IS NOT NULL "
+                        "AND CONVERT(varchar(19),CasKonec,120) > '" + _es + "' "
+                        "AND CONVERT(varchar(19),CasZacatek,120) < '" + _es + "')")
         raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                 {"sql": "SELECT ID FROM EC_Dochazka WHERE CisloZam='" + cz + "' "
-                                         "AND ISNULL(PraceAktivni,0)=1 AND CasKonec IS NULL "
-                                         "AND CONVERT(date,DatumPripadu)=CONVERT(date,GETDATE())",
+                                 {"sql": "SELECT ID, CONVERT(varchar(19),CasZacatek,120) AS z "
+                                         "FROM EC_Dochazka WHERE CisloZam='" + cz + "' "
+                                         "AND CONVERT(date,DatumPripadu)=CONVERT(date,GETDATE()) "
+                                         "AND ( (ISNULL(PraceAktivni,0)=1 AND CasKonec IS NULL)" + _overlap + " )",
                                   "db_name": "DB_EC"}, conversation_id=None)
         r = _j_cs.loads(raw) if isinstance(raw, str) else raw
         rows = []
@@ -13369,7 +13380,11 @@ def _ec_close_open_shift(cislo, actor_uid=None, actor_name=None, via="app_checki
             rid = row.get("ID")
             if rid is None:
                 continue
-            _data = {"PraceAktivni": 0, "CasKonec": now}
+            zac = (row.get("z") or "")
+            _kon = (end_ts or now)
+            if zac and _kon < zac:   # konec nikdy před začátek staré směny
+                _kon = zac
+            _data = {"PraceAktivni": 0, "CasKonec": _kon}
             _where = {"ID": rid}
             upd = mcp.call_tool_sync("eurosoft_strategie_update_row",
                                      {"schema": "dbo", "table": "EC_Dochazka",
@@ -18034,10 +18049,12 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
         # tomu importovanou OTEVŘENOU směnu z Centrály schovej (superseded) — ať nejsou
         # dva joby od 5:18. A jeho běžící směnu zavři i v EC_Dochazka, ať se nereimportuje.
         app_active = sess.execute(_t(
-            "SELECT DISTINCT em.cislo_zam FROM tenant.att_entry a "
+            "SELECT em.cislo_zam, to_char(min(a.started_at),'YYYY-MM-DD HH24:MI:SS') AS app_start "
+            "FROM tenant.att_entry a "
             "JOIN tenant.att_employee em ON em.id=a.employee_id "
             "WHERE a.tenant_id=:t AND a.entry_date=current_date AND a.is_active=true "
-            "AND COALESCE(a.source_system,'')<>'centrala1' AND em.cislo_zam IS NOT NULL"),
+            "AND COALESCE(a.source_system,'')<>'centrala1' AND em.cislo_zam IS NOT NULL "
+            "GROUP BY em.cislo_zam"),
             {"t": tenant}).fetchall()
         sess.execute(_t(
             "UPDATE tenant.att_entry ec SET is_active=false, status='superseded', updated_at=now() "
@@ -18050,7 +18067,7 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
         ec_closed = 0
         for _row in app_active:
             try:
-                _n, _ = _ec_close_open_shift(_row[0], via="sync")
+                _n, _ = _ec_close_open_shift(_row[0], end_ts=_row[1], via="sync")
                 ec_closed += int(_n or 0)
             except Exception:
                 pass

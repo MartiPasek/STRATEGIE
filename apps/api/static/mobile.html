@@ -1342,7 +1342,7 @@ setTimeout(function(){
   // Appka se neopustí → Android Back nezavře aplikaci, jen zavře overlay. Žádný externí prohlížeč.
   // Přehledy se otevírají jako NATIVNÍ obrazovka v zásobníku (stejné schéma jako Skupiny) →
   // Zpět řídí výhradně back() appky (topbar i systémové Zpět). Žádný vlastní overlay/history hack.
-  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady"};
+  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat"};
   var _xvUrl="", _xvTitle="";
   function openInApp(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; go("extview"); }
   function extview(){
@@ -1392,6 +1392,7 @@ setTimeout(function(){
     g.appendChild(appCell("🧾","Přefakturace",0,function(){go("prefakturace");}));
     g.appendChild(appCell("📨","Datovky / ČSSZ",0,function(){go("isds");}));
     g.appendChild(appCell("📥","Poptávky",0,function(){go("poptavka");}));
+    g.appendChild(appCell("🛒","Co objednat",0,function(){openInApp("/objednavky");}));
     g.appendChild(appCell("🤖","SW zakázky",0,function(){go("sw_zakazky");}));
     g.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
     g.appendChild(appCell("🌐","Uživatelé",0,function(){ _auMode="users"; go("alluser"); }));

@@ -20365,6 +20365,72 @@ async def poptavka_delete(req: Request):
     return {"ok": True}
 
 
+# ── CO OBJEDNAT / otevřené vydané objednávky (řada 800) — ze zrcadla Centrály ──
+# Otevřené množství = Mnozstvi − MnOdebrane (druh pohybu 6, doklad nesplněn) → respektuje
+# částečné dodávky. Dodavatel přes CisloOrg. (Marti 19.6. — důsledná analytika.)
+_OBJ_OPEN_WHERE = ("p.druh_pohybu=6 AND d.splneno IS NOT TRUE "
+                   "AND (COALESCE(p.mnozstvi,0)-COALESCE(p.mn_odebrane,0)) > 0")
+
+@api_router.get("/app/objednavky/dodavatele")
+def objednavky_dodavatele(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT d.cislo_org, COALESCE(o.firma,o.nazev,'(org '||d.cislo_org||')') AS dodavatel, "
+            "COALESCE(o.zkratka,'') AS zkratka, count(*) AS polozek, "
+            "count(DISTINCT p.cislo_zakazky) AS zakazek, "
+            "round(sum((COALESCE(p.mnozstvi,0)-COALESCE(p.mn_odebrane,0))*COALESCE(p.primarni_cena,0))::numeric,0) AS hodnota, "
+            "to_char(min(d.termin_dodavky),'DD.MM.YYYY') AS termin "
+            "FROM tenant.ec_pohyb_zbozi p "
+            "JOIN tenant.ec_doklad_zbozi d ON d.src_id=p.src_doklad_id AND d.rada='800' "
+            "LEFT JOIN tenant.ec_organizace o ON o.cislo_org=d.cislo_org "
+            "WHERE " + _OBJ_OPEN_WHERE + " "
+            "GROUP BY d.cislo_org, COALESCE(o.firma,o.nazev,'(org '||d.cislo_org||')'), COALESCE(o.zkratka,'') "
+            "ORDER BY hodnota DESC NULLS LAST")).mappings().all()
+    finally:
+        s.close()
+    out = [dict(r) for r in rows]
+    tot_pol = sum(int(r["polozek"]) for r in out)
+    tot_hod = sum(float(r["hodnota"] or 0) for r in out)
+    return {"ok": True, "dodavatele": out, "souhrn": {"dodavatelu": len(out),
+            "polozek": tot_pol, "hodnota": round(tot_hod)}}
+
+@api_router.get("/app/objednavky/polozky")
+def objednavky_polozky(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        co = int(req.query_params.get("dodavatel"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí dodavatel"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT d.poradove_cislo AS doklad, p.cislo_zakazky AS zakazka, "
+            "COALESCE(p.nazev, p.cislo_karty) AS dil, p.cislo_karty, "
+            "COALESCE(p.mnozstvi,0) AS objednano, COALESCE(p.mn_odebrane,0) AS dodano, "
+            "(COALESCE(p.mnozstvi,0)-COALESCE(p.mn_odebrane,0)) AS otevreno, "
+            "p.primarni_cena, p.mena, to_char(d.termin_dodavky,'DD.MM.YYYY') AS termin, "
+            "to_char(d.dat_porizeni,'DD.MM.YYYY') AS objednano_dne "
+            "FROM tenant.ec_pohyb_zbozi p "
+            "JOIN tenant.ec_doklad_zbozi d ON d.src_id=p.src_doklad_id AND d.rada='800' "
+            "WHERE " + _OBJ_OPEN_WHERE + " AND d.cislo_org=:co "
+            "ORDER BY d.termin_dodavky NULLS LAST, d.poradove_cislo"), {"co": co}).mappings().all()
+        org = s.execute(_t("SELECT COALESCE(firma,nazev) AS n FROM tenant.ec_organizace WHERE cislo_org=:co LIMIT 1"),
+                        {"co": co}).first()
+    finally:
+        s.close()
+    return {"ok": True, "dodavatel": (org[0] if org else None), "polozky": [dict(r) for r in rows]}
+
+
 # ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).

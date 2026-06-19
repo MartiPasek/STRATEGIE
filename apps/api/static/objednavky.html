@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Co objednat</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;
+        --accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#ff8a8a;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:14px}
+  h1{font-size:19px;margin:4px 0 2px;font-weight:800}
+  .sub{color:var(--mut);font-size:12.5px;margin-bottom:12px;line-height:1.5}
+  .kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .kpi{flex:1;min-width:130px;background:var(--card);border:1px solid var(--bord);border-radius:13px;padding:11px 13px}
+  .kpi .l{color:var(--mut);font-size:11.5px}
+  .kpi .v{font-weight:800;font-size:20px;margin-top:2px}
+  input{width:100%;background:var(--card);border:1px solid var(--bord);border-radius:10px;
+        color:var(--tx);padding:10px 12px;font-size:14px;margin-bottom:12px}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:13px;margin:8px 0;overflow:hidden}
+  .row{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer}
+  .row:hover{background:rgba(255,255,255,.02)}
+  .nm{font-weight:700;flex:1;min-width:0}
+  .nm .zk{color:var(--mut);font-weight:500;font-size:12px;margin-top:1px}
+  .pill{flex:none;font-size:11.5px;padding:2px 9px;border-radius:11px;background:rgba(79,142,247,.13);
+        color:#9cc0ff;border:1px solid #4f8ef733}
+  .val{flex:none;font-weight:800;font-size:15px;text-align:right;min-width:96px}
+  .chev{flex:none;color:var(--mut);transition:transform .15s}
+  .open .chev{transform:rotate(90deg)}
+  .items{display:none;border-top:1px solid var(--bord);padding:4px 0}
+  .open .items{display:block}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{color:var(--mut);font-weight:600;text-align:right;padding:6px 14px;border-bottom:1px solid var(--bord);white-space:nowrap}
+  th.l,td.l{text-align:left}
+  td{padding:7px 14px;text-align:right;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:top}
+  td.dil{max-width:340px;white-space:normal}
+  .o{color:var(--amber);font-weight:700}
+  .muted{color:var(--mut)}
+  .hint{color:var(--mut);padding:14px;text-align:center}
+  .err{color:var(--red);padding:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛒 Co objednat — otevřené objednávky</h1>
+  <div class="sub">Vydané objednávky dílů (řada 800), které <b>ještě nedorazily celé</b>. Otevřené množství =
+    objednáno − dodáno (respektuje částečné dodávky). Zdroj: zrcadlo Centrály, seskupeno dle dodavatele.</div>
+  <div class="kpis" id="kpis"></div>
+  <input id="q" placeholder="Hledat dodavatele…" autocomplete="off">
+  <div id="list"><div class="hint">Načítám…</div></div>
+</div>
+<script>
+var API="/api/v1/erp/app/objednavky";
+var _data=[], _items={};
+function kc(n){ n=Math.round(+n||0); return n.toLocaleString("cs-CZ")+" Kč"; }
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
+function api(u){ return fetch(u,{credentials:"include"}).then(function(r){return r.json();}); }
+
+function renderKpis(s){
+  document.getElementById("kpis").innerHTML=
+    '<div class="kpi"><div class="l">Dodavatelů k objednání</div><div class="v">'+(s.dodavatelu||0)+'</div></div>'+
+    '<div class="kpi"><div class="l">Otevřených položek</div><div class="v" style="color:var(--amber)">'+(s.polozek||0)+'</div></div>'+
+    '<div class="kpi"><div class="l">Hodnota nedodaného</div><div class="v" style="color:var(--green)">'+kc(s.hodnota)+'</div></div>';
+}
+function render(){
+  var q=(document.getElementById("q").value||"").toLowerCase();
+  var box=document.getElementById("list"), h="";
+  var shown=_data.filter(function(d){ return !q || ((d.dodavatel||"")+" "+(d.zkratka||"")).toLowerCase().indexOf(q)>=0; });
+  if(!shown.length){ box.innerHTML='<div class="hint">Nic k objednání 🎉</div>'; return; }
+  shown.forEach(function(d){
+    h+='<div class="card" data-co="'+d.cislo_org+'">'
+      +'<div class="row" onclick="toggle(this,'+d.cislo_org+')">'
+      +'<span class="chev">▶</span>'
+      +'<div class="nm">'+esc(d.dodavatel)+'<div class="zk">'+(d.polozek)+' pol. · '+(d.zakazek)+' zak.'
+      +(d.termin?(' · nejbližší termín '+esc(d.termin)):'')+'</div></div>'
+      +'<span class="val">'+kc(d.hodnota)+'</span></div>'
+      +'<div class="items"><div class="hint">…</div></div></div>';
+  });
+  box.innerHTML=h;
+}
+function toggle(rowEl,co){
+  var card=rowEl.parentElement, open=card.classList.contains("open");
+  document.querySelectorAll(".card.open").forEach(function(c){ c.classList.remove("open"); });
+  if(open) return;
+  card.classList.add("open");
+  var box=card.querySelector(".items");
+  if(_items[co]){ box.innerHTML=_items[co]; return; }
+  api(API+"/polozky?dodavatel="+co).then(function(j){
+    if(!j||!j.ok){ box.innerHTML='<div class="err">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
+    var t='<table><thead><tr><th class="l">Doklad / zakázka</th><th class="l">Díl</th>'
+      +'<th>Obj.</th><th>Dodáno</th><th>Otevřeno</th><th>JC</th><th>Termín</th></tr></thead><tbody>';
+    (j.polozky||[]).forEach(function(p){
+      t+='<tr><td class="l muted">'+esc(p.doklad||"")+(p.zakazka?(' · '+esc(p.zakazka)):'')+'</td>'
+        +'<td class="l dil">'+esc(p.dil||"")+'</td>'
+        +'<td>'+(+p.objednano)+'</td><td>'+(+p.dodano)+'</td>'
+        +'<td class="o">'+(+p.otevreno)+'</td>'
+        +'<td>'+(p.primarni_cena?(+p.primarni_cena).toLocaleString("cs-CZ"):"")+'</td>'
+        +'<td>'+esc(p.termin||"—")+'</td></tr>';
+    });
+    t+='</tbody></table>';
+    _items[co]=t; box.innerHTML=t;
+  });
+}
+document.getElementById("q").addEventListener("input",render);
+api(API+"/dodavatele").then(function(j){
+  if(!j||!j.ok){ document.getElementById("list").innerHTML='<div class="err">'+esc((j&&j.error)||"Chyba načtení")+'</div>'; return; }
+  _data=j.dodavatele||[]; renderKpis(j.souhrn||{}); render();
+});
+</script>
+</body>
+</html>

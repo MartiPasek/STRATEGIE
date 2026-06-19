@@ -933,6 +933,14 @@ def flow_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/objednavky")
+def objednavky_page():
+    """Co objednat — otevřené vydané objednávky (řada 800) dle dodavatele, otevřené
+    množství = objednáno − dodáno (částečné dodávky). Zrcadlo Centrály. Marti 19.6.2026."""
+    return FileResponse(os.path.join(static_dir, "objednavky.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/dir-admin")
 def dir_admin_page():
     """Správa konfigurací adresářů (rodič): typ modulu, kde leží, pravidlo podsložky,

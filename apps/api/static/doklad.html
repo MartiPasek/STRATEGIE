@@ -36,7 +36,12 @@
 <body>
 <div class="wrap" id="root"><div class="hint">Načítám…</div></div>
 <script>
-function qs(k){ return new URLSearchParams(location.search).get(k); }
+function qs(k){
+  var v=new URLSearchParams(location.search).get(k);
+  if(v) return v;
+  try{ if(window.__opcUrl){ return new URL(window.__opcUrl, location.origin).searchParams.get(k); } }catch(e){}
+  return null;
+}
 function kc(n,m){ if(n==null||n==="")return""; return (+n).toLocaleString("cs-CZ")+" "+(m||"Kč"); }
 function num(n){ return n==null?"":(+n).toLocaleString("cs-CZ"); }
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }

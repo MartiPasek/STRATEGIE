@@ -307,7 +307,11 @@
       .then(function (html) {
         try {
           var d = ifr.contentWindow.document;
-          if (html.indexOf("<base") < 0) html = html.replace(/<head>/i, '<head><base href="' + location.origin + '/">');
+          // about:blank nemá ?query → vstříkni URL (replaceState + globál), ať si
+          // stránka detailu přečte ?id= i tady. + <base> pro relativní /api fetch.
+          var inj = '<base href="' + location.origin + '/">' +
+            '<script>try{history.replaceState(null,"","' + url + '")}catch(e){}window.__opcUrl="' + url + '";<\/script>';
+          html = html.replace(/<head>/i, '<head>' + inj);
           d.open(); d.write(html); d.close();
         } catch (e) { ifr.src = url; }
       })

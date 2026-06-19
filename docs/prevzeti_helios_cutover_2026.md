@@ -99,8 +99,14 @@ mezi objednávku a zakázku bez zásahu do zbytku.
 
 **WIP — auditovatelně (TISAX/ISO):**
 - `wip_snapshot` **append-only**, immutable po uzavření závěrky (žádný UPDATE/DELETE).
-- Metoda: **přímé náklady × % dokončení**, % schvaluje vedoucí (`approved_by/at`) — žádná
-  černá skříňka. *(Marti potvrdí: náklady vs % dokončení × smluvní cena.)*
+- **Metoda (rozhodnuto Marti 19.6.): NV = přímé náklady + poměrné rozpuštění režie na
+  rozpracované zakázky.** Každá rozpracovaná zakázka = přímé náklady (materiál + práce +
+  přímé subdodávky) + alikvotní podíl režie období.
+  - **Klíč rozpuštění režie:** poměrem přímých nákladů zakázky (default/doporučeno):
+    `režie_na_zakázku = režie_období × (přímé_náklady_zakázky ÷ Σ přímých nákladů rozprac.)`.
+    Alternativa = poměrem hodin. **Klíč fixní + zdokumentovaný** (auditovatelnost, ne ad‑hoc).
+  - Stav rozpracovanosti (která zakázka je k datu „rozpracovaná") schvaluje vedoucí
+    (`approved_by/at`).
 - Helios dostane **jedno číslo** (WIP celkem k 31.12.); detail po zakázkách žije u nás, auditor
   čte přímo ze STRATEGIE. Metodika = knowledge_entry. Čtyři oči před zaúčtováním.
 

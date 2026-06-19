@@ -17289,11 +17289,23 @@ def _wa_open(s, uid: int, project_ref=None, project_nazev=None,
              is_rezie=False, source="mobile") -> None:
     from sqlalchemy import text as _t
     _wa_close_running(s, uid)
+    # Marti 19.6.: přepnutí zakázky → výběr činnosti vytvářelo PARAZITNÍ úsek (skoro nula).
+    # Smaž právě zavřený parazit (< 60 s) a nový úsek převezme jeho začátek (spojitě, bez mezery).
+    st_override = None
+    prev = s.execute(_t(
+        "SELECT id, started_at, EXTRACT(EPOCH FROM (ended_at - started_at)) AS sec "
+        "FROM tenant.work_alloc WHERE tenant_id=:t AND user_id=:u AND ended_at IS NOT NULL "
+        "AND started_at::date=current_date ORDER BY id DESC LIMIT 1"),
+        {"t": _ATT_TENANT, "u": uid}).mappings().first()
+    if prev and prev["sec"] is not None and float(prev["sec"]) < 60:
+        st_override = prev["started_at"]
+        s.execute(_t("DELETE FROM tenant.work_alloc WHERE tenant_id=:t AND id=:id"),
+                  {"t": _ATT_TENANT, "id": prev["id"]})
     s.execute(_t(
         "INSERT INTO tenant.work_alloc (tenant_id,user_id,started_at,project_ref,project_nazev,"
         "cinnost_id,cinnost_name,cinnost_icon,is_rezie,source,created_at,updated_at) "
-        "VALUES (:t,:u,now(),:pr,:pn,:ci,:cn,:cic,:rz,:src,now(),now())"),
-        {"t": _ATT_TENANT, "u": uid, "pr": project_ref, "pn": project_nazev,
+        "VALUES (:t,:u,COALESCE(CAST(:st AS timestamptz),now()),:pr,:pn,:ci,:cn,:cic,:rz,:src,now(),now())"),
+        {"t": _ATT_TENANT, "u": uid, "st": st_override, "pr": project_ref, "pn": project_nazev,
          "ci": cinnost_id, "cn": cinnost_name, "cic": cinnost_icon,
          "rz": bool(is_rezie), "src": source})
 

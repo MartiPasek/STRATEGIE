@@ -3884,6 +3884,8 @@ setTimeout(function(){
     api("GET",q,"").then(function(j){
       box.innerHTML="";
       var segs=(j&&j.segments)||[];
+      // Marti 19.6.: skrýt parazitní úseky (uzavřené, skoro nulové < ~1 min) — vznikaly při přepnutí zakázky→činnost.
+      segs=segs.filter(function(s){ return !(s.do_ && Number(s.hod||0)<0.02); });
       if(!segs.length){ box.appendChild(el('<div class="hint" style="padding:14px;">Dnes žádná práce na zakázce.</div>')); return; }
       var groups={}, order=[], total=0;
       segs.forEach(function(s){

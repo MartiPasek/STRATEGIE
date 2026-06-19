@@ -224,6 +224,16 @@ DDL_SCHEMA_ALLOWLIST: dict[str, set[str]] = {
     # DB_ST není v dict = libovolné schema povoleno (master/tenant_group/...)
 }
 
+# Marti 19.6.2026: DML (INSERT/UPDATE/DELETE) na DB_EC povolen i na dbo.* —
+# rychlé ladění produkce + silové ukončení směn. DDL (CREATE/ALTER/DROP) ZŮSTÁVÁ
+# přísné na {'st'} (doctrine „customer's dbo nezasahovat" platí jen pro SCHÉMA).
+# Vše auditováno (fw.ec_dml_log na straně STRATEGIE + MCP audit). SQL login musí
+# mít odpovídající GRANT (viz docs/ec_grants_dml.sql).
+DML_SCHEMA_ALLOWLIST: dict[str, set[str]] = {
+    "DB_EC": {"st", "dbo"},
+    # DB_ST není v dict = libovolné schema povoleno (Marti-AI db_owner)
+}
+
 
 def resolve_db_name(db_name: str | None = None) -> str:
     """
@@ -264,7 +274,13 @@ def check_schema_allowed(db_name: str, schema: str, op: str = "DDL") -> None:
     Raises:
       ValueError: schema není v allowlist pro daný DB.
     """
-    allowlist = DDL_SCHEMA_ALLOWLIST.get(db_name)
+    # Marti 19.6.: DML (INSERT/UPDATE/DELETE) má vlastní, širší allowlist než DDL.
+    # DDL na DB_EC zůstává {'st'} (schéma zákazníka nezasahovat); DML smí i dbo.
+    _op = (op or "").strip().upper()
+    if _op in ("INSERT", "UPDATE", "DELETE", "DML"):
+        allowlist = DML_SCHEMA_ALLOWLIST.get(db_name, DDL_SCHEMA_ALLOWLIST.get(db_name))
+    else:
+        allowlist = DDL_SCHEMA_ALLOWLIST.get(db_name)
     if allowlist is None:
         return  # No restriction (DB_ST scenario)
     if schema not in allowlist:

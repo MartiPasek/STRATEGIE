@@ -20023,6 +20023,214 @@ async def restart_api(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "marker": info, "message": "Restart spuštěn"})
 
 
+# ════════════════════════════════════════════════════════════════════════
+# PŘEFAKTURACE ES → Control (Marti 19.6.2026): tlačítko v appce.
+# Výpočet i vystavení faktury dělají existující procedury v DB_EC:
+#   EC_GenVFESzFaaDeniku_Priprava  = výpočet (deník + doklady + marže + skupiny→popisy)
+#   EC_GenVFESzFaaDeniku           = vystaví vydanou fakturu ES→Control (zakázka Rezie)
+# Rozpad = read-only (EXEC příprava + SELECT ##TempFinal). Vystavení = přes
+# schvalovací banner (fw.claude_write_request) — Marti/Braňo potvrdí. Marže 5 %,
+# nájem se bere z dokladu (jako originál), pojistka proti duplicitě.
+# ════════════════════════════════════════════════════════════════════════
+_PREF_RADA = "601"          # řada vydané faktury (dle 726005/726007)
+_PREF_ZAKAZKA = "Rezie"
+_PREF_DPH = 21
+
+def _pref_ec_rows(sql: str):
+    """Spustí SQL proti DB_EC přes EUROSOFT MCP a vrátí list dict řádků."""
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _jp
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupný")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _jp.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error") or r.get("message") or r)[:300])
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                return r[k]
+        return []
+    if isinstance(r, list):
+        return r
+    return []
+
+def _pref_clean(rows):
+    return [{(k or "").lower(): v for k, v in d.items()} for d in (rows or [])]
+
+def _pref_existing(mesic: int, rok: int):
+    """Vrátí již vystavenou fakturu za daný měsíc (nebo None) — pojistka proti duplicitě."""
+    sql = ("SELECT TOP 1 PoradoveCislo AS cislo, CONVERT(varchar(10),DatPorizeni,104) AS dat "
+           "FROM TabDokladyZbozi WHERE CisloZakazky='%s' AND RadaDokladu='%s' "
+           "AND YEAR(DUZP)=%d AND MONTH(DUZP)=%d ORDER BY ID DESC" %
+           (_PREF_ZAKAZKA, _PREF_RADA, rok, mesic))
+    rows = _pref_clean(_pref_ec_rows(sql))
+    return rows[0] if rows else None
+
+
+@api_router.get("/app/prefakturace/info")
+def prefakturace_info(req: Request):
+    """Default měsíc (předchozí) + posledních pár vystavených faktur Rezie."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    import datetime as _dt
+    today = _dt.date.today()
+    # default = předchozí měsíc
+    m = today.month - 1 or 12
+    r = today.year if today.month > 1 else today.year - 1
+    posledni = []
+    try:
+        rows = _pref_clean(_pref_ec_rows(
+            "SELECT TOP 6 PoradoveCislo AS cislo, MONTH(DUZP) AS mesic, YEAR(DUZP) AS rok, "
+            "CONVERT(varchar(10),DatPorizeni,104) AS dat "
+            "FROM TabDokladyZbozi WHERE CisloZakazky='%s' AND RadaDokladu='%s' "
+            "ORDER BY ID DESC" % (_PREF_ZAKAZKA, _PREF_RADA)))
+        posledni = rows
+    except Exception as exc:
+        logger.warning("[prefakturace_info] %s", exc)
+    return {"ok": True, "mesic": m, "rok": r, "marze": 5, "posledni": posledni}
+
+
+@api_router.post("/app/prefakturace/rozpad")
+async def prefakturace_rozpad(req: Request):
+    """READ-ONLY rozpad: spustí přípravnou proceduru (jen dočasné tabulky) a vrátí
+    11 řádků faktury + součty. Nic nevystavuje."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        m = int(body.get("mesic")); r = int(body.get("rok"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí měsíc/rok"}, status_code=400)
+    if m < 1 or m > 12 or r < 2020 or r > 2100:
+        return JSONResponse({"ok": False, "error": "Neplatný měsíc/rok"}, status_code=400)
+    try:
+        marze = float(body.get("marze", 5))
+    except Exception:
+        marze = 5.0
+    if marze < 0 or marze > 100:
+        marze = 5.0
+    sql = ("SET NOCOUNT ON;\n"
+           "EXEC dbo.EC_GenVFESzFaaDeniku_Priprava @Mesic=%d, @Rok=%d, @ProcentMarze=%s, @NajemneOsMes=0;\n"
+           "SELECT Popis AS popis, CAST(SUM(Castka) AS numeric(18,2)) AS castka "
+           "FROM ##TempFinal GROUP BY Popis ORDER BY Popis;" % (m, r, repr(marze)))
+    try:
+        rows = _pref_clean(_pref_ec_rows(sql))
+    except Exception as exc:
+        logger.exception("[prefakturace_rozpad] %s", exc)
+        return JSONResponse({"ok": False, "error": "Výpočet selhal: %s" % str(exc)[:200]},
+                            status_code=502)
+    lines = []
+    base = 0.0
+    najem = None
+    for d in rows:
+        try:
+            castka = float(d.get("castka") or 0)
+        except Exception:
+            castka = 0.0
+        popis = (d.get("popis") or "").strip()
+        lines.append({"popis": popis, "castka": round(castka, 2)})
+        base += castka
+        if "jemn" in popis.lower():
+            najem = round(castka, 2)
+    base = round(base, 2)
+    dph = round(base * _PREF_DPH / 100.0, 2)
+    # pojistka proti duplicitě + porovnání nájmu s minulým měsícem
+    try:
+        existuje = _pref_existing(m, r)
+    except Exception:
+        existuje = None
+    najem_minule = None
+    try:
+        pm = m - 1 or 12
+        pr = r if m > 1 else r - 1
+        prow = _pref_clean(_pref_ec_rows(
+            "SELECT CAST(P.CCbezDaniKC AS numeric(18,2)) AS c FROM TabPohybyZbozi P "
+            "JOIN TabDokladyZbozi D ON D.ID=P.IDDoklad WHERE D.CisloZakazky='%s' AND D.RadaDokladu='%s' "
+            "AND YEAR(D.DUZP)=%d AND MONTH(D.DUZP)=%d AND P.Poznamka LIKE '%%jemn%%'" %
+            (_PREF_ZAKAZKA, _PREF_RADA, pr, pm)))
+        if prow:
+            najem_minule = float(prow[0].get("c") or 0)
+    except Exception:
+        pass
+    return {"ok": True, "mesic": m, "rok": r, "marze": marze,
+            "lines": lines, "zaklad": base, "dph": dph, "celkem": round(base + dph, 2),
+            "najem": najem, "najem_minule": najem_minule,
+            "jiz_existuje": existuje}
+
+
+@api_router.post("/app/prefakturace/vystavit")
+async def prefakturace_vystavit(req: Request):
+    """Vystavení faktury = vloží schvalovací požadavek do banneru (fw.claude_write_request).
+    Marti/Braňo potvrdí → existující decide spustí přípravu + generátor v DB_EC."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        m = int(body.get("mesic")); r = int(body.get("rok"))
+        marze = float(body.get("marze", 5))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí měsíc/rok"}, status_code=400)
+    if marze < 0 or marze > 100:
+        marze = 5.0
+    force = bool(body.get("force"))
+    # pojistka proti duplicitě
+    try:
+        existuje = _pref_existing(m, r)
+    except Exception:
+        existuje = None
+    if existuje and not force:
+        return JSONResponse({"ok": False, "duplicate": True, "jiz_existuje": existuje,
+                             "error": "Za %d/%d už existuje faktura č. %s." %
+                                      (m, r, existuje.get("cislo"))}, status_code=409)
+    batch = ("SET NOCOUNT ON;\n"
+             "EXEC dbo.EC_GenVFESzFaaDeniku_Priprava @Mesic=%d, @Rok=%d, @ProcentMarze=%s, @NajemneOsMes=0;\n"
+             "DECLARE @ID INT, @Msg nvarchar(255);\n"
+             "EXEC dbo.EC_GenVFESzFaaDeniku @IDENT=@ID OUTPUT, @Message=@Msg OUTPUT;" %
+             (m, r, repr(marze)))
+    actor = "Přefakturace ES %d/%d (user %s)" % (m, r, uid)
+    from core.database_data import get_data_session as _gw
+    from sqlalchemy import text as _tw
+    _wds = _gw()
+    try:
+        rid = _wds.execute(_tw(
+            "INSERT INTO fw.claude_write_request (db_target, sql_text, requested_by) "
+            "VALUES ('mssql', :sql, :by) RETURNING id"), {"sql": batch, "by": actor}).scalar()
+        _wds.commit()
+    finally:
+        _wds.close()
+    try:
+        _push_confirm_to_phone(rid, "mssql", batch, actor)
+    except Exception as _pexc:
+        logger.warning("[prefakturace_vystavit push] %s", _pexc)
+    return {"ok": True, "write_request_id": rid,
+            "message": "Vystavení čeká na schválení v banneru (Marti/Braňo)."}
+
+
+@api_router.get("/app/prefakturace/stav")
+def prefakturace_stav(req: Request):
+    """Po schválení: vrátí číslo vystavené faktury za daný měsíc (UI poll)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        m = int(req.query_params.get("mesic")); r = int(req.query_params.get("rok"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí měsíc/rok"}, status_code=400)
+    try:
+        fa = _pref_existing(m, r)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:200]}, status_code=502)
+    return {"ok": True, "faktura": fa}
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):

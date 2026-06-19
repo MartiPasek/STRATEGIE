@@ -237,12 +237,50 @@
   // Otevři detail jako OVERLAY (ne window.open — to časovač = blokuje pop-up;
   // ne přímý iframe src — Caddy dává X-Frame-Options DENY). Fetch HTML +
   // document.write do about:blank iframu (dědí origin → /api fetch s cookies jede).
+  function _opcStyle() {
+    if (document.getElementById("stg-opc-style")) return;
+    var st = document.createElement("style");
+    st.id = "stg-opc-style";
+    st.textContent =
+      "@keyframes stgOpcFade{from{opacity:0}to{opacity:1}}" +
+      "@keyframes stgOpcPanel{from{opacity:0;transform:translateY(30px) scale(.95)}to{opacity:1;transform:none}}" +
+      "@keyframes stgOpcRing{0%{box-shadow:0 0 0 0 rgba(79,142,247,.6),0 0 30px rgba(79,142,247,0)}" +
+      "40%{box-shadow:0 0 0 5px rgba(79,142,247,.4),0 0 44px rgba(79,142,247,.5)}" +
+      "100%{box-shadow:0 0 0 0 rgba(79,142,247,0),0 0 0 rgba(79,142,247,0)}}" +
+      "#stgOpcOverlay{animation:stgOpcFade .18s ease-out}" +
+      "#stgOpcOverlay .stgOpcPanel{animation:stgOpcPanel .36s cubic-bezier(.2,.85,.2,1)}" +
+      "#stgOpcOverlay .stgOpcRing{animation:stgOpcRing 1.15s ease-out}";
+    document.head.appendChild(st);
+  }
+  function _opcChime() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      var ctx = new AC();
+      if (ctx.state === "suspended") { try { ctx.resume(); } catch (e) {} }
+      var t = ctx.currentTime;
+      [[784, 0], [1175, 0.10]].forEach(function (p) {  // jemný dvojtón g→d
+        var o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "sine"; o.frequency.value = p[0];
+        g.gain.setValueAtTime(0.0001, t + p[1]);
+        g.gain.exponentialRampToValueAtTime(0.07, t + p[1] + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + p[1] + 0.34);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(t + p[1]); o.stop(t + p[1] + 0.36);
+      });
+      setTimeout(function () { try { ctx.close(); } catch (e) {} }, 900);
+    } catch (e) {}
+  }
   function _opcOpen(url, label) {
     if (document.getElementById("stgOpcOverlay")) return;
+    _opcStyle();
     var ov = document.createElement("div");
     ov.id = "stgOpcOverlay";
     ov.style.cssText = "position:fixed;inset:0;z-index:100090;background:rgba(6,10,16,.72);" +
       "display:flex;flex-direction:column;padding:20px;backdrop-filter:blur(2px);";
+    var panel = document.createElement("div");
+    panel.className = "stgOpcPanel";
+    panel.style.cssText = "flex:1;display:flex;flex-direction:column;min-height:0;";
     var bar = document.createElement("div");
     bar.style.cssText = "display:flex;justify-content:space-between;align-items:center;" +
       "margin-bottom:10px;color:#e8eef5;font:600 14px system-ui";
@@ -254,9 +292,13 @@
     x.onclick = function () { try { ov.remove(); } catch (e) {} };
     bar.appendChild(x);
     var ifr = document.createElement("iframe");
-    ifr.style.cssText = "flex:1;width:100%;border:1px solid #3a4a5e;border-radius:12px;background:#0a1018";
-    ov.appendChild(bar); ov.appendChild(ifr);
+    ifr.className = "stgOpcRing";
+    ifr.style.cssText = "flex:1;width:100%;border:1px solid #4f8ef7;border-radius:12px;background:#0a1018";
+    panel.appendChild(bar); panel.appendChild(ifr);
+    ov.appendChild(panel);
     document.body.appendChild(ov);
+    setTimeout(function () { try { ifr.classList.remove("stgOpcRing"); } catch (e) {} }, 1300);
+    _opcChime();
     var ek = function (e) { if (e.key === "Escape") { try { ov.remove(); } catch (_) {} document.removeEventListener("keydown", ek, true); } };
     document.addEventListener("keydown", ek, true);
     fetch(url, { cache: "no-store", credentials: "same-origin" })

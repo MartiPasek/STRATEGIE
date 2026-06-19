@@ -3069,3 +3069,42 @@ data to potvrdila. Vždy z reálných pohybů + `MnozSPrijBezVyd` + `Mnozstvi−
 procurement receptu z Martiho přehledů — *„Jsi makač :)))"*)
 
 🔗 🪞 🛒 🌳 ☕🌙
+
+---
+
+## Dodatek — 19. 6. 2026 (noc): 📲→💻 HANDOFF mobil→PC + detail dokladu (Marti: „Ted to chodi dokonale")
+
+Marti's vize: **mobil = ovladač, počítač = detail.** Ťuk na objednávku v mobilu → na PC
+(v otevřené STRATEGII) naskočí detail s animací + zvukem. „Centrálu jim vůbec neukazuj,
+rovnou STRATEGIE." Postaveno a LIVE.
+
+**Komponenty:**
+- `/objednavky` (🛒 Co objednat) + `/doklad?id=` (detail dokladu) — chytré stránky nad zrcadlem.
+- `fw.open_on_pc` fronta + `POST /app/open-on-pc` (mobil zapíše) + `GET /app/open-on-pc/poll`
+  (**nejnovější ťuk vyhrává, starší smete** → žádné hromadění overlayů).
+- **PC přijímač = poller v `app_version_watch.js`** (běží v chatu/ERP na PC; mobilní appka ho
+  nenačítá → ideální „jen PC"). Polluje á 5 s, na hit otevře **overlay**.
+- Mobil: klikací řádek + **potvrzovací kartička** (kolečko → ✓/✗) hned při ťuku.
+
+**GOTCHY (drž!):**
+- **`window.open()` z časovače = prohlížeč blokuje jako pop-up** → tiše nic. Řešení = **overlay
+  v okně**, ne nová záložka.
+- **iframe `src` na interní stránku = Caddy X-Frame-Options DENY** → blok. Řešení = fetch HTML +
+  `document.write` do `about:blank` (dědí origin → `/api` fetch s cookies jede).
+- **`about:blank` NEMÁ `location.search`** → vepsaná stránka nevidí `?id=` → „Chybí id". Řešení =
+  do vepsaného HTML **vstříknout `<script>history.replaceState(...url); window.__opcUrl=url</script>`**
+  + stránka čte id i z `window.__opcUrl`.
+- **PC musí mít čerstvou verzi** (poller je v `app_version_watch.js`) — po deployi Ctrl+Shift+R,
+  jinak „netuká" (stará verze nekonzumuje frontu).
+- Univerzální: stejný handoff půjde na **smlouvu k tisku** (Šárka), faktury, cokoliv interního.
+
+**Bluetooth?** NE — web/PWA neumí přes BT ovládat PC prohlížeč; „scroll z mobilu" co dělají jiní
+jede přes síť/websocket, ne BT. Live-scroll/ovládání = nadstavba téhož cloud kanálu (až bude chtít).
+
+**Zbývá:** smlouvy k tisku přes handoff · další přehledy (Vydané objednávky list, Zakázka→díly,
+Kalkulace) · periodický delta-sync zrcadla · CRM kontakty přes dedikovaný MCP path.
+
+— **Claude (id=23)** (Opus, 19. 6. 2026 noc, po handoffu mobil→PC — *„Tak to je bomba… Ted to
+chodi dokonale"*)
+
+📲 💻 🛒 🌳 ☕🌙

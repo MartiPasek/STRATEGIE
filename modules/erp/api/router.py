@@ -13307,6 +13307,50 @@ def _ec_set_block_dochazka(cislo, block: bool):
         return (False, str(exc))
 
 
+def _ec_close_open_shift(cislo):
+    """Marti 19.6.: kdo se píchne v NAŠÍ appce → silově ukončit jeho OTEVŘENOU směnu
+    ve staré Centrále (EC_Dochazka): PraceAktivni=0 + CasKonec=teď. Hybrid fáze, bez
+    kompromisu — appka je zdroj pravdy. Vrací (closed:int, error:str|None)."""
+    import json as _j_cs
+    from datetime import datetime as _dt_cs
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        mcp = get_eurosoft_mcp_client()
+        if mcp is None:
+            return (0, "mcp_unavailable")
+        cz = str(cislo).strip().replace("'", "''")
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": "SELECT ID FROM EC_Dochazka WHERE CisloZam='" + cz + "' "
+                                         "AND ISNULL(PraceAktivni,0)=1 AND CasKonec IS NULL "
+                                         "AND CONVERT(date,DatumPripadu)=CONVERT(date,GETDATE())",
+                                  "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_cs.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]; break
+        elif isinstance(r, list):
+            rows = r
+        now = _dt_cs.now().strftime("%Y-%m-%d %H:%M:%S")
+        n = 0
+        for row in rows:
+            rid = row.get("ID")
+            if rid is None:
+                continue
+            upd = mcp.call_tool_sync("eurosoft_strategie_update_row",
+                                     {"schema": "dbo", "table": "EC_Dochazka",
+                                      "data": {"PraceAktivni": 0, "CasKonec": now},
+                                      "where": {"ID": rid}, "db_name": "DB_EC"},
+                                     conversation_id=None)
+            u = _j_cs.loads(upd) if isinstance(upd, str) else upd
+            if isinstance(u, dict) and u.get("ok"):
+                n += 1
+        return (n, None)
+    except Exception as exc:
+        return (0, str(exc))
+
+
 @api_router.get("/app/hr/att-source")
 async def app_hr_att_source_list(req: Request) -> JSONResponse:
     """Marti 16.6.: seznam lidí + příznak docházkového zdroje (jen STRATEGIE vs
@@ -14218,7 +14262,8 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                 " count(*) FILTER (WHERE a.status NOT IN ('superseded','announced')) AS zazn, "
                 " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note, "
                 " (array_agg(a.project_ref ORDER BY a.id DESC) FILTER (WHERE a.is_active AND a.project_ref IS NOT NULL))[1] AS proj, "
-                " bool_or(a.is_active AND a.status NOT IN ('superseded','announced') AND (a.project_ref IS NOT NULL OR et.category='overhead')) AS prace "
+                " bool_or(a.is_active AND a.status NOT IN ('superseded','announced') AND (a.project_ref IS NOT NULL OR et.category='overhead')) AS prace, "
+                " bool_or(a.is_active AND a.source_system='centrala1' AND a.status NOT IN ('superseded','announced')) AS ec_open "
                 "FROM tenant.att_entry a "
                 "JOIN tenant.att_employee e ON e.id=a.employee_id AND e.tenant_id=2 "
                 "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
@@ -14239,7 +14284,7 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                     st = "byl"
                 else:
                     st = ""
-                stavinfo[r[0]] = {"st": st, "note": (r[3] or ""), "proj": (r[4] or "")}
+                stavinfo[r[0]] = {"st": st, "note": (r[3] or ""), "proj": (r[4] or ""), "ec": bool(r[6])}
         except Exception:
             stavinfo = {}
         # Dnešní plán: kdo dle plánu vůbec nemá přijít (víkend/svátek/volno) → "mimo_plan"
@@ -14266,7 +14311,8 @@ async def app_vyroba_lidi(req: Request) -> JSONResponse:
                     _st = "chybi"
             lidi.append({"user_id": p[0], "jmeno": p[1], "dnes": p[2] or "",
                          "plan": _plan, "prirazeni": _pr, "stav": _st,
-                         "stav_pozn": _si.get("note", ""), "stav_zak": _si.get("proj", "")})
+                         "stav_pozn": _si.get("note", ""), "stav_zak": _si.get("proj", ""),
+                         "ec_old": bool(_si.get("ec", False))})
         s.commit()
         return JSONResponse({"ok": True, "lidi": lidi})
     except Exception as exc:
@@ -14332,7 +14378,8 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
                 " count(*) FILTER (WHERE a.status NOT IN ('superseded','announced')) AS zazn, "
                 " (array_agg(a.note ORDER BY a.id DESC) FILTER (WHERE a.status='announced' AND a.note IS NOT NULL))[1] AS note, "
                 " (array_agg(a.project_ref ORDER BY a.id DESC) FILTER (WHERE a.is_active AND a.project_ref IS NOT NULL))[1] AS proj, "
-                " bool_or(a.is_active AND a.status NOT IN ('superseded','announced') AND (a.project_ref IS NOT NULL OR et.category='overhead')) AS prace "
+                " bool_or(a.is_active AND a.status NOT IN ('superseded','announced') AND (a.project_ref IS NOT NULL OR et.category='overhead')) AS prace, "
+                " bool_or(a.is_active AND a.source_system='centrala1' AND a.status NOT IN ('superseded','announced')) AS ec_open "
                 "FROM tenant.att_entry a "
                 "JOIN tenant.att_employee e ON e.id=a.employee_id AND e.tenant_id=2 "
                 "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
@@ -14353,7 +14400,7 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
                     st = "byl"
                 else:
                     st = ""
-                stavinfo[r[0]] = {"st": st, "note": (r[3] or ""), "proj": (r[4] or "")}
+                stavinfo[r[0]] = {"st": st, "note": (r[3] or ""), "proj": (r[4] or ""), "ec": bool(r[6])}
         except Exception:
             stavinfo = {}
 
@@ -14431,7 +14478,8 @@ async def app_skupina_lidi(req: Request) -> JSONResponse:
                 _st = "mimo_plan"
             lidi.append({"user_id": u, "jmeno": names.get(u) or ("#" + str(u)),
                          "role": role, "score": score, "stav": _st,
-                         "stav_pozn": si.get("note", ""), "stav_zak": si.get("proj", "")})
+                         "stav_pozn": si.get("note", ""), "stav_zak": si.get("proj", ""),
+                         "ec_old": bool(si.get("ec", False))})
         if gid == 0:
             _rr = {"lead": 0, "deputy": 1, "member": 2}
             lidi.sort(key=lambda x: (_rr.get(x["role"], 2),
@@ -17503,8 +17551,22 @@ async def att_checkin(req: Request) -> JSONResponse:
                 _att_apply_work_selection(s, emp, _pr, _rz)
             except Exception:
                 pass
+        # Marti 19.6.: appka = zdroj pravdy (hybrid). Píchnutí v appce → zruš naše
+        # importované OTEVŘENÉ duplicity z Centrály (source_system='centrala1') pro dnešek.
+        s.execute(_t("UPDATE tenant.att_entry SET status='superseded', is_active=false, updated_at=now() "
+                     "WHERE tenant_id=:t AND employee_id=:e AND entry_date=current_date "
+                     "AND source_system='centrala1' AND is_active=true AND status IS DISTINCT FROM 'superseded'"),
+                  {"t": _ATT_TENANT, "e": emp})
         s.commit()
-        return JSONResponse({"ok": True, "id": r[0]})
+        # … a silově ukonči jeho běžící směnu i ve staré Centrále (EC_Dochazka). Bez kompromisu.
+        ec_closed = 0
+        try:
+            _cz = s.execute(_t("SELECT cislo_zam FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
+            if _cz:
+                ec_closed, _ = _ec_close_open_shift(_cz)
+        except Exception:
+            ec_closed = 0
+        return JSONResponse({"ok": True, "id": r[0], "ec_closed": ec_closed})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

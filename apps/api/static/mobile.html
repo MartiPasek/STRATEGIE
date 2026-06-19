@@ -4117,6 +4117,7 @@ setTimeout(function(){
     else if(_vyView==="chybi"){ sub='🫥 '+(pp.stav_pozn?esc(pp.stav_pozn):'nepřihlášen'); }
     var nmDisp=esc(nm);
     if(_vyIsGroup()){ if(pp.role==="lead") nmDisp="⭐ "+nmDisp; else if(pp.role==="deputy") nmDisp="🎖 "+nmDisp; }
+    if(pp.ec_old) nmDisp+=' <span title="Píchnutý ve starém systému (Centrála)" style="color:#f0a93b;">🕰️</span>';  // Marti 19.6.
     var head=el('<div class="cthead"><div class="cav" style="background:'+avColor(nm)+'">'+vyInitial(nm)+'</div><div style="flex:1;min-width:0;"><div class="ctname">'+nmDisp+'</div><div class="ctnum">'+sub+'</div></div></div>');
     var exp=el('<div class="ctexp" style="display:none;"></div>');
     head.addEventListener("click",function(){ vyAcc(ul,li,exp); if(li.classList.contains("open")) vyFillPerson(exp,pp); });
@@ -4625,6 +4626,7 @@ setTimeout(function(){
             setTimeout(function(){ try{ bw.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
             return;
           }
+          if(j&&j.ec_closed>0){ try{ alert("✅ Píchnuto v appce.\n\n⚠️ Ve starém systému (Centrála / tablet) jsme ti běžící píchnutí teď ukončili.\nOd teď se píchej JEN v této appce — ve starém systému už se nepřihlašuj."); }catch(e){} }
           if(after) after(); else dochLoad();
         }).catch(function(){ b.disabled=false; });
       }

@@ -22071,18 +22071,27 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
     if mcp is None:
         raise RuntimeError("EUROSOFT MCP nedostupné")
 
-    def rows_of(sql):
-        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-        r = _j.loads(raw) if isinstance(raw, str) else raw
-        if isinstance(r, dict):
-            if r.get("ok") is False:
-                raise RuntimeError(str(r.get("error")))
-            for k in ("rows", "data", "result", "records"):
-                if isinstance(r.get(k), list):
-                    return r[k]
-            return []
-        return r if isinstance(r, list) else []
+    import time as _time
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:  # přečkat transientní výpadek MCP/spojení
+                last = e
+                _time.sleep(3)
+        raise last
 
     def s2(v):
         v = (str(v).strip() if v is not None else "")

@@ -3832,16 +3832,61 @@ setTimeout(function(){
   }
   // Marti 9.6.: otevři Výrobu rovnou na konkrétním seznamu (z ikon v Aplikacích).
   function openVyroba(view){ _vyCtx={mode:"vyroba",gid:0,name:"",icon:"🏭"}; window._vyInitView=view||"makam"; go("vyroba"); }
-  // ───── „Dnešek" osoby — STEJNÝ template jako ikona Dnešek v docházce (read-only). Marti 19.6. ─────
-  // Otevírá se 👁 z detailu v panelu skupin. Reuse doch_dnesek (rail + dochListLoad), jen pro cílového user_id.
+  // ───── „Dnešek" — dva pohledy: 🗓 Docházkový (HR) + 🧾 Zakázkový (vedoucí výroby). Marti 19.6. ─────
+  // Sdílené pro vlastní Dnešek i pro 👁 osoby z panelu skupin (přes _dochViewUid).
   function openPersDnesek(uid, jmeno){ window._persDnesek={uid:uid, jmeno:jmeno||""}; go("persDnesek"); }
+  var _dnesView="doch";  // 'doch' | 'zak'
+  function _dnesScreen(title){
+    app.innerHTML=topbar(title, true, true); _dochTopPad();
+    // výchozí pohled dle role: vedoucí výroby/manager → Zakázky, HR/ostatní → Docházka (dokud uživatel sám nepřepne)
+    if(!window._dnesViewSet){ _dnesView = (window._canManageVyroba ? "zak" : "doch"); }
+    app.appendChild(el('<div id="dnesTg" style="display:flex;gap:8px;margin:2px 2px 10px;"></div>'));
+    app.appendChild(el('<div id="dnesBody"></div>'));
+    _dnesPaint();
+  }
+  function _dnesPaint(){
+    var tg=document.getElementById("dnesTg"); if(tg){ tg.innerHTML="";
+      [["doch","🗓 Docházka"],["zak","🧾 Zakázky"]].forEach(function(it){
+        var on=(_dnesView===it[0]);
+        var b=el('<button style="flex:1;padding:10px 6px;border-radius:11px;font-size:13.5px;font-weight:700;border:1px solid '+(on?"var(--green)":"var(--bord)")+';background:'+(on?"var(--green)":"rgba(255,255,255,.03)")+';color:'+(on?"#04150e":"var(--mut)")+';">'+it[1]+'</button>');
+        b.addEventListener("click",function(){ _dnesView=it[0]; window._dnesViewSet=true; _dnesPaint(); });
+        tg.appendChild(b);
+      });
+    }
+    var body=document.getElementById("dnesBody"); if(!body) return; body.innerHTML="";
+    if(_dnesView==="zak"){ _zakRender(body); }
+    else { var p=el('<div class="panel" style="margin:0;"></div>'); body.appendChild(p); p.innerHTML=_dochRail("dochToday2","dochTodayRail"); dochListLoad(); }
+  }
+  function _zakRender(box){
+    box.innerHTML='<div class="hint" style="padding:12px;">Načítám…</div>';
+    var q="/api/v1/erp/app/work/today"+(_dochViewUid?("?user_id="+encodeURIComponent(_dochViewUid)):"");
+    api("GET",q,"").then(function(j){
+      box.innerHTML="";
+      var segs=(j&&j.segments)||[];
+      if(!segs.length){ box.appendChild(el('<div class="hint" style="padding:14px;">Dnes žádná práce na zakázce.</div>')); return; }
+      var groups={}, order=[], total=0;
+      segs.forEach(function(s){
+        var key=s.is_rezie?"Režie":(s.project_ref||"—");
+        if(!groups[key]){ groups[key]={nazev:(s.is_rezie?"":(s.project_nazev||"")), rows:[], h:0}; order.push(key); }
+        groups[key].rows.push(s); groups[key].h+=Number(s.hod||0); total+=Number(s.hod||0);
+      });
+      box.appendChild(el('<div style="font-weight:800;font-size:16px;margin:2px 2px 12px;">⏱ Dnes na zakázkách: <span style="color:#3ecf8e;">'+fmtHM(total)+'</span></div>'));
+      order.forEach(function(key){
+        var g=groups[key];
+        var card=el('<div style="border:1px solid var(--bord);border-radius:13px;margin-bottom:10px;overflow:hidden;"></div>');
+        card.appendChild(el('<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(91,141,239,.08);"><div style="font-weight:700;min-width:0;">'+(key==="Režie"?"🧰 Režie":"🧾 "+esc(key))+(g.nazev?(' <span class="hint" style="font-weight:400;">'+esc(g.nazev)+'</span>'):'')+'</div><b style="color:#3ecf8e;white-space:nowrap;margin-left:8px;">'+fmtHM(g.h)+'</b></div>'));
+        g.rows.forEach(function(s){
+          var rng=(s.od||"?")+(s.do_?(" – "+s.do_):" – …");
+          card.appendChild(el('<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 12px;border-top:1px solid var(--bord);font-size:13px;"><div style="min-width:0;">'+(s.cinnost_name?("⚙ "+esc(s.cinnost_name)):'<span class="hint">bez rozlišení činnosti</span>')+' <span class="hint">· '+esc(rng)+'</span></div><span class="hint" style="white-space:nowrap;">'+(s.hod!=null?fmtHM(s.hod):"")+'</span></div>'));
+        });
+        box.appendChild(card);
+      });
+    }).catch(function(){ box.innerHTML='<div class="hint" style="padding:14px;">Nepodařilo se načíst.</div>'; });
+  }
   function persDnesek(){
     var P=window._persDnesek||{};
     _dochViewUid=P.uid; _dochViewName=P.jmeno||"";
-    app.innerHTML=topbar("📅 Dnešek — "+(P.jmeno||""), true, true); _dochTopPad();
-    var p=el('<div class="panel"></div>'); app.appendChild(p);
-    p.innerHTML=_dochRail("dochToday2","dochTodayRail");
-    dochListLoad();
+    _dnesScreen("📅 Dnešek — "+(P.jmeno||""));
   }
   function vyroba(){
     if(window._vyInitView){ _vyView=window._vyInitView; window._vyInitView=null; }
@@ -5544,7 +5589,7 @@ setTimeout(function(){
       +'<div id="'+railId+'" style="width:72px;flex:none;overflow-y:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;display:flex;flex-direction:column;gap:7px;padding:0;"></div></div>';
   }
   function _dochTopPad(){ var _tb=app.querySelector('.topbar'); if(_tb)_tb.style.paddingTop="12px"; }
-  function doch_dnesek(){ _dochViewUid=null; app.innerHTML=topbar("📅 Dnešek", true); _dochTopPad(); var p=el('<div class="panel"></div>'); app.appendChild(p); p.innerHTML=_dochRail("dochToday2","dochTodayRail"); dochListLoad(); }
+  function doch_dnesek(){ _dochViewUid=null; _dnesScreen("📅 Dnešek"); }
   function doch_historie(){ _dochViewUid=null; app.innerHTML=topbar("🕓 Historie docházky", true); _dochTopPad(); var p=el('<div class="panel"></div>'); app.appendChild(p);
     p.innerHTML='<div class="hint" style="margin:2px 0 6px;font-weight:600;">Včera</div>'+_dochRail("dochYest2","dochYestRail","38vh")
       +'<div class="hint" style="margin:14px 0 6px;font-weight:600;">Starší</div>'+_dochRail("dochPrev2","dochPrevRail","38vh");

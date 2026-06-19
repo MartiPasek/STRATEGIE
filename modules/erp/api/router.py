@@ -17401,6 +17401,11 @@ async def app_work_today(req: Request) -> JSONResponse:
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
+    # Marti 19.6.: zakázkový pohled lze zobrazit i pro jiného člověka (Dnešek → 🧾 Zakázky).
+    target = uid
+    tu = req.query_params.get("user_id")
+    if tu and int(tu) != uid:
+        target = int(tu)
     cm, s = _att_session()
     try:
         rows = s.execute(_t(
@@ -17409,7 +17414,7 @@ async def app_work_today(req: Request) -> JSONResponse:
             "round((EXTRACT(EPOCH FROM (COALESCE(ended_at,now())-started_at))/3600.0)::numeric,2) AS hod "
             "FROM tenant.work_alloc WHERE tenant_id=:t AND user_id=:u "
             "AND started_at::date=current_date ORDER BY id"),
-            {"t": _ATT_TENANT, "u": uid}).mappings().all()
+            {"t": _ATT_TENANT, "u": target}).mappings().all()
         s.commit()
         return JSONResponse(jsonable_encoder({"ok": True, "segments": [dict(r) for r in rows]}))
     finally:

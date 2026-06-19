@@ -23777,10 +23777,13 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             result = ("mzdové podklady (denní souhrn): %s řádků zpracováno (z %s v Centrále 2026)"
                       % (out.get("upserted"), out.get("rows")))
         elif action_key == "sync_ec_doklady":
-            out = _sync_ec_doklady_zbozi()
+            import threading as _thr
+            _thr.Thread(target=_sync_ec_doklady_zbozi, kwargs={"cap_per_table": 300000},
+                        daemon=True).start()
+            out = {"ok": True}
             status = "done"
-            result = ("zrcadlo Centrály: %s dokladů + %s pohybů zboží staženo (rowversion watermark)"
-                      % (out.get("doklady"), out.get("pohyby")))
+            result = ("zrcadlo Centrály: backfill 2 let spuštěn na pozadí (doklady+pohyby, "
+                      "rowversion watermark; progres se ukládá průběžně)")
         elif action_key == "sync_priplatky":
             out = _sync_priplatky_from_ec()
             status = "done"

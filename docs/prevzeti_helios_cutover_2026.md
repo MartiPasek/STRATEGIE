@@ -78,7 +78,60 @@ Heliosu dodáváme jen **závěrkové figury (WIP + konečný stav zásob)**.
 - Mapování „faktura ze STRATEGIE → účetní zápis v Heliosu" (účet, DPH kód, středisko=jedna).
 - Šárka/Kristý + Martia odsouhlasí postup; jeden paralelní měsíc.
 
-## Konzultace Marti‑AI (doctrine #8) — otázky
+## ZÁVĚRY KONZULTACE MARTI‑AI (19. 6. 2026) — ZÁVAZNÉ
+Marti‑AI přijala architekturu spoluautorsky. Závazné body:
+
+**Faktura → Helios (systém vzniku vs záznamu):**
+- Faktura má `helios_status ∈ {pending, mirrored, rejected}` + `helios_doc_id`. Dokud
+  není `mirrored`, je neuzavřená — **neposílat zákazníkovi**.
+- **Push, ne sync** (jednosměrný tok; zpět čteme JEN stav úhrady → dvojí pravda nevzniká).
+- Číslo řady přiděluje **výhradně STRATEGIE**, Helios přebírá jako string/cizí klíč, nesahá
+  na vlastní řadu. **Ověřit s Martií, že Helios neodmítne formát čísla.**
+- **Denní cross-check** Σ vydaných faktur STRATEGIE vs Helios → diff ≠ 0 = alert (levná pojistka).
+- **Přímá editace faktury v Heliosu** = procesní riziko → blokovat / označit „jen Helios oprava"
+  + zpětně synchronizovat. Probrat s Martií jako pravidlo.
+
+**Datový model = řetězené doklady, ne monolit:**
+`poptávka → nabídka → objednávka → ZAKÁZKA (pivot) → faktura → úhrada(←Helios)`. Každý doklad
+vlastní tabulka + `parent_id`/`zakazka_id`, vlastní lifecycle/ACL/archivace. **Zakázka =
+jedna tabulka `sw_zakazka` s `typ IN('SW','VR')`** (už máme). VR si přidá `production_order`
+mezi objednávku a zakázku bez zásahu do zbytku.
+
+**WIP — auditovatelně (TISAX/ISO):**
+- `wip_snapshot` **append-only**, immutable po uzavření závěrky (žádný UPDATE/DELETE).
+- Metoda: **přímé náklady × % dokončení**, % schvaluje vedoucí (`approved_by/at`) — žádná
+  černá skříňka. *(Marti potvrdí: náklady vs % dokončení × smluvní cena.)*
+- Helios dostane **jedno číslo** (WIP celkem k 31.12.); detail po zakázkách žije u nás, auditor
+  čte přímo ze STRATEGIE. Metodika = knowledge_entry. Čtyři oči před zaúčtováním.
+
+**Flip — definition of done (nepodkročitelné):**
+1. Import plné historie (zakázka+středisko+částky+typ) → **křížový součet STRATEGIE = Helios**.
+2. Záloha Heliosu **+ doložená RESTORE na test prostředí** (ne jen backup!).
+3. Script proběhl **na kopii (staging)** + Martia zkontrolovala DPH sestavy a saldokonto.
+4. **Paralelní měsíc** — korunová shoda zaúčtování × faktury STRATEGIE.
+5. **Zdokumentovaný rollback** (kdo/jak/do kdy + co s fakturami, co přišly mezitím) — nejčastěji
+   se přeskočí → flip je pak nevratný de facto.
+
+**Mzdová data (ACL/retence):** `visibility_scope='payroll_only'`, samostatné, composer
+neinjektuje. Podklady → Helios **strukturovaným importem (CSV/XML), ne přímé API** (Martia
+kontroluje). Pásky vidí jen zaměstnanec + Martia + jednatel. Retence 10 let, append-only.
+
+**Pořadí (závazné):** 1) most faktura→Helios (PRVNÍ, ruční test 1 faktury celou cestou až po
+DPH s Martií) → 2) most úhrada←Helios → 3) oběh zakázky → 4) analytika/WIP → 5) import historie
++ flip script (ÚPLNĚ POSLEDNÍ). Kde se to láme: podcenění mostu faktura/Helios (jiné požadavky
+na strukturu DPH dokladu) → proto první ruční test, ne rovnou automatizace.
+
+**Zásoby (Způsob B):** skladová evidence operativně u nás (kdo/co/na jakou zakázku), ne účetně.
+31.12. inventura + ocenění **FIFO/průměr (zvolit jednu, zdokumentovat)** → hodnota → Helios
+jednorázově (MD 112/DAL 501). `closing_snapshot` (WIP+zásoby) schválený jednatelem+účetní, PDF archiv.
+
+**Největší rizika dle Marti‑AI:** (1) přímá editace faktur v Heliosu, (2) vynechaný restore-test
+před flipem, (3) **náležitosti daňového dokladu + DPH mapování** — Martia musí dát **písemné „ano"
+před prvním ostrým odesláním faktury zákazníkovi**.
+
+---
+
+## Konzultace Marti‑AI (doctrine #8) — otázky (zodpovězeno výše)
 1. Hranice „systém vzniku vs systém záznamu": je číslování faktur u nás + zrcadlo do Heliosu
    správné, nebo vidí riziko dvojí pravdy?
 2. Jak nejčistěji řešit **WIP** z naší zakázkové analytiky, aby obstál u auditu (TISAX/ISO)?

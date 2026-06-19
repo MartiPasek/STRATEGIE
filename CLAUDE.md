@@ -3101,10 +3101,80 @@ rovnou STRATEGIE." Postaveno a LIVE.
 **Bluetooth?** NE — web/PWA neumí přes BT ovládat PC prohlížeč; „scroll z mobilu" co dělají jiní
 jede přes síť/websocket, ne BT. Live-scroll/ovládání = nadstavba téhož cloud kanálu (až bude chtít).
 
-**Zbývá:** smlouvy k tisku přes handoff · další přehledy (Vydané objednávky list, Zakázka→díly,
+**Zbývá:** další přehledy (Vydané objednávky list, Zakázka→díly,
 Kalkulace) · periodický delta-sync zrcadla · CRM kontakty přes dedikovaný MCP path.
+(✓ smlouvy k tisku přes handoff — hotovo 19.6. noc, viz dodatek níže.)
 
 — **Claude (id=23)** (Opus, 19. 6. 2026 noc, po handoffu mobil→PC — *„Tak to je bomba… Ted to
 chodi dokonale"*)
 
 📲 💻 🛒 🌳 ☕🌙
+
+---
+
+## Dodatek — 19. 6. 2026 (pozdě v noci): 📄→💻 SMLOUVA K TISKU přes handoff + řízení zalomení stran (Marti: „To je neskutečný, jak to funguje :)))")
+
+Budoucí Claude — dotáhli jsme poslední střípek z handoffu mobil→PC: **dokument
+(smlouva/výměr) k tisku na PC**. Šárka na mobilu vybere šablonu + osobu → ťukne
+**💻 Tisk na PC** → na jejím počítači naskočí smlouva v overlay s lištou
+**🖨 Vytisknout** + **📄 Otevřít PDF** (věrná xhtml2pdf sazba) + **📤 EUROSOFT**.
+Marti: *„Funguje to bombasticky!!!!"* a po zalomení *„To je neskutečný, jak to funguje :)))"*. Beru (#69–70).
+
+### Co je LIVE (commity 1ebe76a + cdeec4c, AUTO-DEPLOY bez VPN)
+- **PC přijímač je UNIVERZÁLNÍ** — `app_version_watch.js` poller otevře v overlay
+  jakoukoli interní URL z fronty `fw.open_on_pc`. Takže handoff na nový typ dokumentu
+  = jen zapsat jinou URL na mobilu. (Stejně půjde faktura, ZL, cokoliv interního.)
+- **`GET /app/doc/render-html`** + **`GET /app/doc/render-pdf`** (router.py, společné
+  jádro `_doc_render_load`, HR brána `_doc_can`, allow_sensitive=True). Overlay umí
+  jen HTML (PDF se do `about:blank` nevepíše — to byl ten zádrhel z minula), proto
+  render-html; PDF je zvlášť tlačítkem (nová záložka, `window.open` je user-gesture → projde).
+- **`/doc-print`** stránka (`apps/api/static/doc-print.html`, route v main.py) — načte
+  render-html, zobrazí v A4 listu, lišta se v `@media print` skryje. **Replikuje `qs()`
+  z doklad.html** (čte `?id=` i z `window.__opcUrl`, protože about:blank nemá location.search).
+- **mobile.html**: helper `openOnPc` (potvrzovací kartička 📲→💻 jako objednavky.html,
+  jede přes `api()` = Bearer i cookie → APK i PWA) + tlačítko 💻 v `doc_gen` u osoby.
+
+### Řízení zalomení stran (page-break) — doctrine „oprav nástroj, ne symptom" (#20)
+Podpisový blok smlouvy (`.sign` tabulka + `.placedate`, ~28 mm horních mezer) se
+nevešel na stranu → skočil sám na další s velkým prázdnem nad sebou. Fix v **render
+pipeline** (`doc_templates.PAGEBREAK_CSS`, vkládá se PŘED css šablony → šablona si může
+přebít), platí pro tisk i PDF, **univerzálně pro všechny dokumenty**:
+- nadpisy `page-break-after:avoid` + `-pdf-keep-with-next:true` (neutrhnou se od textu),
+- `tr,li{page-break-inside:avoid}` (řádky/odrážky se nedělí),
+- `.sign/.podpis/.podpisy/.nezlom{page-break-inside:avoid;-pdf-keep-together:true}`,
+- `.placedate` se lepí k podpisům (keep-with-next),
+- **opt-in třídy do šablon**: `zlom-pred` / `zlom-po` (vynuť novou stranu) · `nezlom` (drž blok).
+xhtml2pdf rozumí `page-break-*` i vlastním `-pdf-keep-with-next` / `-pdf-keep-together`.
+
+### Gotchy (drž!)
+- **PC přijímač = poller v `app_version_watch.js`** → po deployi na PC **Ctrl+Shift+R**,
+  jinak stará verze frontu nekonzumuje („netuká"). (Recurring, jako u objednávek.)
+- **about:blank overlay nemá `location.search`** → každá detail/print stránka musí číst
+  parametry i z `window.__opcUrl` (vzor `qs()`). Bez toho „Chybí id".
+- **Appkové endpointy: `_uid_from_token_or_cookie`, NE `_get_uid`** (APK = Bearer, bez cookie).
+- **mount truncation false-positive na py_compile** — `doc_templates.py` (~358 ř.) viděl mount
+  jako 336 ř. (stará/usekaná kopie) → falešný „SyntaxError: expected except" na ř. 337.
+  **Read tool + Windows py_compile gate ve watcheru jsou autoritativní** (oba prošly). Recurring.
+
+### PARKOVÁNO na příště (Marti 19.6.): ✍️ Podepisování dokumentů (bez kvalifikovaného dig. podpisu)
+Marti se ptal *„jak je to s podepisováním… alespoň bez dig. podpisu"* → **dáme příště.**
+Stavební kameny už máme: `tenant.doc_render_log` má **rezervované e-podpis sloupce** (Q6,
+nullable), mobil/tablet umí dotyk, handoff funguje. Směr (orientačně, NE právní rada):
+- **Prostý elektronický podpis (SES, eIDAS)** = nakreslit podpis prstem na mobilu/tabletu →
+  vložit obrázek do PDF + audit (kdo/kdy/IP/zařízení) do `doc_render_log`. Pro interní
+  dokumenty obvykle stačí. (Alternativa light: in-app „Podepisuji" potvrzení + audit, vzor
+  jako docházkové samopotvrzení.)
+- **POZOR právní rámec u pracovních smluv** — zákoník práce má specifická pravidla pro
+  elektronické uzavírání PP dokumentů (doručování, právo zaměstnance odstoupit do několika dnů).
+  Před stavbou **ověřit s právníkem** (Marti-AI pack `pravnik_cz` + reálný právník). Nejsem
+  právní poradce — tohle je tech orientace, ne stanovisko.
+
+### Soubory
+`modules/erp/api/router.py` (_doc_render_load + render-html/render-pdf), `apps/api/main.py`
+(/doc-print route), `apps/api/static/doc-print.html` (nová), `apps/api/static/mobile.html`
+(openOnPc + 💻 tlačítko), `modules/erp/api/doc_templates.py` (PAGEBREAK_CSS + opt-in třídy).
+
+— **Claude (id=23)** (Opus, 19. 6. 2026 pozdě v noci, po smlouvě k tisku přes handoff +
+řízení zalomení stran — *„To je neskutečný, jak to funguje :)))"*; podpisy parkovány na příště)
+
+📄 ✍️ 💻 🌳 ☕🌙

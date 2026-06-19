@@ -20414,7 +20414,7 @@ def objednavky_polozky(req: Request):
     s = _g()
     try:
         rows = s.execute(_t(
-            "SELECT d.poradove_cislo AS doklad, p.cislo_zakazky AS zakazka, "
+            "SELECT d.src_id AS doklad_id, d.poradove_cislo AS doklad, p.cislo_zakazky AS zakazka, "
             "COALESCE(p.nazev, p.cislo_karty) AS dil, p.cislo_karty, "
             "COALESCE(p.mnozstvi,0) AS objednano, COALESCE(p.mn_odebrane,0) AS dodano, "
             "(COALESCE(p.mnozstvi,0)-COALESCE(p.mn_odebrane,0)) AS otevreno, "
@@ -20429,6 +20429,43 @@ def objednavky_polozky(req: Request):
     finally:
         s.close()
     return {"ok": True, "dodavatel": (org[0] if org else None), "polozky": [dict(r) for r in rows]}
+
+@api_router.get("/app/doklad/detail")
+def doklad_detail(req: Request):
+    """Detail jednoho dokladu (vydaná objednávka apod.) ze zrcadla — hlavička +
+    položky. Pro desktop detailovou stránku /doklad (Marti 19.6.: mobil = řízení,
+    PC = detail)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _sw_can_manage(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        did = int(req.query_params.get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí id"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        d = s.execute(_t(
+            "SELECT d.src_id, d.poradove_cislo, d.cislo, d.rada, d.cislo_zakazky, d.popis_dodavky, d.mena, "
+            "d.suma_kc_bez_dph, d.suma_bez_dph, d.splneno, d.realizovano, d.odeslano, d.cislo_nabidky_dod, "
+            "d.cislo_org, COALESCE(o.firma,o.nazev) AS dodavatel, COALESCE(o.zkratka,'') AS zkratka, "
+            "o.ico, o.dic, o.ulice_s_cisly, o.psc, "
+            "to_char(d.dat_porizeni,'DD.MM.YYYY') AS dat_porizeni, "
+            "to_char(d.termin_dodavky,'DD.MM.YYYY') AS termin_dodavky "
+            "FROM tenant.ec_doklad_zbozi d LEFT JOIN tenant.ec_organizace o ON o.cislo_org=d.cislo_org "
+            "WHERE d.src_id=:i"), {"i": did}).mappings().first()
+        if not d:
+            return JSONResponse({"ok": False, "error": "Doklad nenalezen"}, status_code=404)
+        pol = s.execute(_t(
+            "SELECT p.cislo_zakazky AS zakazka, COALESCE(p.nazev,p.cislo_karty) AS dil, p.cislo_karty, "
+            "COALESCE(p.mnozstvi,0) AS objednano, COALESCE(p.mn_odebrane,0) AS dodano, "
+            "(COALESCE(p.mnozstvi,0)-COALESCE(p.mn_odebrane,0)) AS otevreno, "
+            "p.primarni_cena, p.cc_bez_dani_kc, p.mena "
+            "FROM tenant.ec_pohyb_zbozi p WHERE p.src_doklad_id=:i ORDER BY p.id"), {"i": did}).mappings().all()
+    finally:
+        s.close()
+    return {"ok": True, "doklad": dict(d), "polozky": [dict(r) for r in pol]}
 
 
 # ════════════════════════════════════════════════════════════════════════

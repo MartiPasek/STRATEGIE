@@ -941,6 +941,14 @@ def objednavky_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/doklad")
+def doklad_page():
+    """Detail dokladu (vydaná objednávka) ve STRATEGII — desktop. Mobil = řízení,
+    PC = detail (Marti 19.6.2026). Data z /app/doklad/detail?id=."""
+    return FileResponse(os.path.join(static_dir, "doklad.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/dir-admin")
 def dir_admin_page():
     """Správa konfigurací adresářů (rodič): typ modulu, kde leží, pravidlo podsložky,

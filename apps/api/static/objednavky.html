@@ -91,7 +91,7 @@ function toggle(rowEl,co){
     var t='<table><thead><tr><th class="l">Doklad / zakázka</th><th class="l">Díl</th>'
       +'<th>Obj.</th><th>Dodáno</th><th>Otevřeno</th><th>JC</th><th>Termín</th></tr></thead><tbody>';
     (j.polozky||[]).forEach(function(p){
-      t+='<tr><td class="l muted">'+esc(p.doklad||"")+(p.zakazka?(' · '+esc(p.zakazka)):'')+'</td>'
+      t+='<tr><td class="l muted"><a href="/doklad?id='+p.doklad_id+'" target="_blank" style="color:#7fb0ff;text-decoration:none;font-weight:600">'+esc(p.doklad||"")+' ↗</a>'+(p.zakazka?(' · '+esc(p.zakazka)):'')+'</td>'
         +'<td class="l dil">'+esc(p.dil||"")+'</td>'
         +'<td>'+(+p.objednano)+'</td><td>'+(+p.dodano)+'</td>'
         +'<td class="o">'+(+p.otevreno)+'</td>'

@@ -21474,6 +21474,10 @@ _OPS_ACTIONS = {
         "label": "Zrcadlo Centrály: kalkulace+položky (2 roky, plný refresh, idempotentní)",
         "target": "cloud", "remote": False,
     },
+    "sync_ec_org_kontakt": {
+        "label": "Zrcadlo Centrály: organizace (rowversion) + CRM kontakty (plné)",
+        "target": "cloud", "remote": False,
+    },
 }
 
 
@@ -22382,6 +22386,147 @@ def _sync_ec_kalkulace(_unused=None) -> dict:
             if len(batch) < BLOCK:
                 break
         res["polozky"] = npol
+
+        s.commit()
+        return {"ok": True, **res}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_org_kontakt(_unused=None) -> dict:
+    """Marti 19.6.2026: zrcadlo organizací (TabCisOrg — rowversion watermark, plné)
+    + CRM kontaktů (CRM_Kontakt — plný refresh dle ID, nemá rowversion). src_id =
+    Helios ID. Dodavatel/CisloOrg v dokladech/kalkulacích → ec_organizace.src_id."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).strip() if v is not None else "")
+        return v or None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def b2(v):
+        t = (s2(v) or "").lower()
+        if t[:1] in ("1", "t", "a", "y"):
+            return True
+        if t[:1] in ("0", "f", "n"):
+            return False
+        return None
+
+    BLOCK = 1000
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    res = {}
+    try:
+        # ── ORGANIZACE (TabCisOrg, rowversion watermark) ──
+        row = s.execute(_t("SELECT last_rowversion FROM tenant.ec_mirror_state WHERE src_table='TabCisOrg'")).first()
+        wm = (row[0] if row and row[0] else "0000000000000000")
+        norg = 0
+        while True:
+            sql = ("SELECT TOP %d ID, Nazev, ICO, DIC, IdZeme, CAST(JeDodavatel AS int) JeDod, "
+                   "CAST(JeOdberatel AS int) JeOdb, Ulice, UliceSCisly, PSC, "
+                   "CAST(Poznamka AS nvarchar(2000)) Pozn, CONVERT(varchar(16),SystemRowVersion,2) rv "
+                   "FROM TabCisOrg WHERE CONVERT(varchar(16),SystemRowVersion,2) > '%s' "
+                   "ORDER BY CONVERT(varchar(16),SystemRowVersion,2)" % (BLOCK, wm))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for r2 in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_organizace (src_id,src_rowversion,nazev,ico,dic,id_zeme,"
+                    "je_dodavatel,je_odberatel,ulice,ulice_s_cisly,psc,poznamka,synced_at) VALUES "
+                    "(:sid,:rv,:nz,:ico,:dic,:zem,:jd,:jo,:ul,:uls,:psc,:po,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET src_rowversion=excluded.src_rowversion,nazev=excluded.nazev,"
+                    "ico=excluded.ico,dic=excluded.dic,id_zeme=excluded.id_zeme,je_dodavatel=excluded.je_dodavatel,"
+                    "je_odberatel=excluded.je_odberatel,ulice=excluded.ulice,ulice_s_cisly=excluded.ulice_s_cisly,"
+                    "psc=excluded.psc,poznamka=excluded.poznamka,synced_at=now()"),
+                    {"sid": i2(r2.get("ID")), "rv": s2(r2.get("rv")), "nz": s2(r2.get("Nazev")),
+                     "ico": s2(r2.get("ICO")), "dic": s2(r2.get("DIC")), "zem": s2(r2.get("IdZeme")),
+                     "jd": b2(r2.get("JeDod")), "jo": b2(r2.get("JeOdb")), "ul": s2(r2.get("Ulice")),
+                     "uls": s2(r2.get("UliceSCisly")), "psc": s2(r2.get("PSC")), "po": s2(r2.get("Pozn"))})
+                if r2.get("rv"):
+                    wm = str(r2.get("rv"))
+            norg += len(batch)
+            s.execute(_t(
+                "INSERT INTO tenant.ec_mirror_state(src_table,last_rowversion,last_sync_at,rows_total,last_note) "
+                "VALUES('TabCisOrg',:w,now(),:n,'org') ON CONFLICT (src_table) DO UPDATE SET "
+                "last_rowversion=:w,last_sync_at=now(),rows_total=:n,last_note='org'"), {"w": wm, "n": norg})
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        res["organizace"] = norg
+
+        # ── CRM KONTAKTY (CRM_Kontakt, plný refresh dle ID) ──
+        lastid = 0
+        nk = 0
+        while True:
+            sql = ("SELECT TOP %d ID, FirmaText, FirmaIDOrg, FirmaTelefon, FirmaEmail, FirmaWeb, "
+                   "Kategorie, TypZakazky, Atraktivita, Dulezitost, Potencial, KontaktText, KontaktID, "
+                   "Zeme, StavVztahuID, ZdrojKontaktu, CAST(KontaktOveren AS int) KOver, "
+                   "CONVERT(varchar(10),DatPorizeni,23) dp, CONVERT(varchar(19),DatZmeny,120) dz "
+                   "FROM CRM_Kontakt WHERE ID > %d ORDER BY ID" % (BLOCK, lastid))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for r2 in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.crm_kontakt (src_id,firma_text,firma_id_org,firma_telefon,firma_email,"
+                    "firma_web,kategorie,typ_zakazky,atraktivita,dulezitost,potencial,kontakt_text,kontakt_id,"
+                    "zeme,stav_vztahu_id,zdroj,kontakt_overen,dat_porizeni,dat_zmeny,synced_at) VALUES "
+                    "(:sid,:ft,:fio,:tel,:em,:web,:kat,:tz,:atr,:dul,:pot,:kt,:kid,:ze,:svid,:zd,:ko,:dp,:dz,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET firma_text=excluded.firma_text,firma_id_org=excluded.firma_id_org,"
+                    "firma_telefon=excluded.firma_telefon,firma_email=excluded.firma_email,firma_web=excluded.firma_web,"
+                    "kategorie=excluded.kategorie,typ_zakazky=excluded.typ_zakazky,atraktivita=excluded.atraktivita,"
+                    "dulezitost=excluded.dulezitost,potencial=excluded.potencial,kontakt_text=excluded.kontakt_text,"
+                    "kontakt_id=excluded.kontakt_id,zeme=excluded.zeme,stav_vztahu_id=excluded.stav_vztahu_id,"
+                    "zdroj=excluded.zdroj,kontakt_overen=excluded.kontakt_overen,dat_porizeni=excluded.dat_porizeni,"
+                    "dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                    {"sid": i2(r2.get("ID")), "ft": s2(r2.get("FirmaText")), "fio": i2(r2.get("FirmaIDOrg")),
+                     "tel": s2(r2.get("FirmaTelefon")), "em": s2(r2.get("FirmaEmail")), "web": s2(r2.get("FirmaWeb")),
+                     "kat": i2(r2.get("Kategorie")), "tz": i2(r2.get("TypZakazky")), "atr": i2(r2.get("Atraktivita")),
+                     "dul": i2(r2.get("Dulezitost")), "pot": i2(r2.get("Potencial")), "kt": s2(r2.get("KontaktText")),
+                     "kid": i2(r2.get("KontaktID")), "ze": s2(r2.get("Zeme")), "svid": i2(r2.get("StavVztahuID")),
+                     "zd": s2(r2.get("ZdrojKontaktu")), "ko": b2(r2.get("KOver")), "dp": s2(r2.get("dp")),
+                     "dz": s2(r2.get("dz"))})
+                lastid = i2(r2.get("ID")) or lastid
+            nk += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        res["kontakty"] = nk
 
         s.commit()
         return {"ok": True, **res}
@@ -23955,6 +24100,12 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = {"ok": True}
             status = "done"
             result = ("zrcadlo Centrály: refresh kalkulací+položek (2 roky) spuštěn na pozadí")
+        elif action_key == "sync_ec_org_kontakt":
+            import threading as _thr
+            _thr.Thread(target=_sync_ec_org_kontakt, daemon=True).start()
+            out = {"ok": True}
+            status = "done"
+            result = ("zrcadlo Centrály: organizace + CRM kontakty spuštěno na pozadí")
         elif action_key == "sync_priplatky":
             out = _sync_priplatky_from_ec()
             status = "done"

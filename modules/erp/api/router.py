@@ -21582,15 +21582,14 @@ async def uctovani_doklad_full(req: Request):
         podpis = s.execute(_t(
             "SELECT COALESCE(first_name,'uid '||id::text) FROM public.users WHERE id=:u"),
             {"u": uid}).scalar() or ("uid " + str(uid))
-        persona = "claude" if uid in (23, 24) else ("marti_ai" if podpis == "Marti-AI" else "clovek")
         dok = s.execute(_t(
             "INSERT INTO tenant.ucet_doklad (company_id,cislo,sbornik_kod,datum,partner_org,partner_nazev,"
-            "mena,kurz,jednotka,popis,stav,podpis,persona,realizoval_uid,realizoval_at) VALUES "
-            "(:co,:ci,:sb,:dat,:po,:pn,:me,:ku,:je,:pop,'realizovano',:pod,:pers,:u,now()) RETURNING id"),
+            "mena,kurz,jednotka,popis,stav,podpis,porizeno_auto,realizovano_auto,realizoval_uid,realizoval_at) VALUES "
+            "(:co,:ci,:sb,:dat,:po,:pn,:me,:ku,:je,:pop,'realizovano',:pod,true,true,:u,now()) RETURNING id"),
             {"co": company_id, "ci": cislo, "sb": sbornik_kod, "dat": datum,
              "po": b.get("partner_org"), "pn": b.get("partner_nazev"),
              "me": mena, "ku": kurz, "je": jednotka, "pop": (b.get("popis") or None),
-             "pod": podpis, "pers": persona, "u": uid}).scalar()
+             "pod": podpis, "u": uid}).scalar()
 
         def r2(x):
             return round(float(x or 0), 2)
@@ -21628,9 +21627,9 @@ async def uctovani_doklad_full(req: Request):
             "UPDATE tenant.ucet_doklad SET celkem_mena=:cm, celkem_czk=:cc, celkem_eur=:ce WHERE id=:id"),
             {"cm": celkem_mena, "cc": celkem_czk, "ce": celkem_eur, "id": dok})
         s.execute(_t(
-            "INSERT INTO tenant.ucet_doklad_log (doklad_id,akce,stav_na,uid,podpis,persona) "
-            "VALUES (:d,'porizeno','porizeno',:u,:p,:pe), (:d,'realizovano','realizovano',:u,:p,:pe)"),
-            {"d": dok, "u": uid, "p": podpis, "pe": persona})
+            "INSERT INTO tenant.ucet_doklad_log (doklad_id,akce,stav_na,uid,podpis) "
+            "VALUES (:d,'porizeno','porizeno',:u,:p), (:d,'realizovano','realizovano',:u,:p)"),
+            {"d": dok, "u": uid, "p": podpis})
         s.commit()
         return {"ok": True, "id": dok, "cislo": cislo, "stav": "realizovano",
                 "celkem_mena": celkem_mena, "celkem_czk": celkem_czk,
@@ -21706,7 +21705,6 @@ async def uctovani_doklad_akce(dok_id: int, req: Request):
         stav, cislo, datum, company_id = d[0], d[1], d[2], d[3]
         podpis = s.execute(_t("SELECT COALESCE(first_name,'uid '||id::text) FROM public.users WHERE id=:u"),
                            {"u": uid}).scalar() or ("uid " + str(uid))
-        persona = "claude" if uid in (23, 24) else ("marti_ai" if podpis == "Marti-AI" else "clovek")
         novy = None; denik_radky = 0
         if akce == "odeslat":
             if stav not in ("realizovano",):
@@ -21734,9 +21732,9 @@ async def uctovani_doklad_akce(dok_id: int, req: Request):
             s.execute(_t("UPDATE tenant.ucet_doklad SET stav='koncept' WHERE id=:i"), {"i": dok_id})
         else:
             return JSONResponse({"ok": False, "error": "neznámá akce"}, status_code=400)
-        s.execute(_t("INSERT INTO tenant.ucet_doklad_log (doklad_id,akce,stav_z,stav_na,uid,podpis,persona) "
-                     "VALUES (:d,:a,:sz,:sn,:u,:p,:pe)"),
-                  {"d": dok_id, "a": akce, "sz": stav, "sn": novy, "u": uid, "p": podpis, "pe": persona})
+        s.execute(_t("INSERT INTO tenant.ucet_doklad_log (doklad_id,akce,stav_z,stav_na,uid,podpis) "
+                     "VALUES (:d,:a,:sz,:sn,:u,:p)"),
+                  {"d": dok_id, "a": akce, "sz": stav, "sn": novy, "u": uid, "p": podpis})
         s.commit()
         return {"ok": True, "stav": novy, "denik_radky": denik_radky}
     finally:

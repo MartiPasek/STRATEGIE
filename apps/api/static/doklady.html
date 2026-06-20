@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Účetní doklady</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#ff8a8a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:16px}
+  h1{font-size:19px;margin:0 0 10px;font-weight:800}
+  a.btn,button.btn{display:inline-block;background:#13315c;color:#9dc1ff;border:1px solid #4f8ef766;border-radius:8px;padding:7px 13px;text-decoration:none;font-weight:700;font-size:13px;cursor:pointer}
+  .btn.g{background:#1d3a2a;color:#7ee0a8;border-color:#34d39955}
+  .btn.r{background:#3a1d1d;color:#ff9d9d;border-color:#ff8a8a44}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--bord);border-radius:11px;overflow:hidden}
+  th{font-size:11px;color:var(--mut);text-align:left;padding:8px 11px;border-bottom:1px solid var(--bord)}
+  td{padding:7px 11px;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
+  tr.dr{cursor:pointer} tr.dr:hover td{background:#0f1830}
+  .num{text-align:right;font-family:ui-monospace,monospace}
+  .badge{font-size:11px;padding:1px 8px;border-radius:8px;font-weight:700}
+  .s-koncept{background:#2a2a1d;color:#d9d088} .s-realizovano{background:rgba(79,142,247,.16);color:#9dc1ff}
+  .s-odeslano{background:rgba(251,191,36,.16);color:var(--amber)} .s-uctovano{background:rgba(52,211,153,.16);color:var(--green)}
+  .pers{font-size:10px;padding:1px 6px;border-radius:7px;background:#0f1830;color:var(--mut)}
+  .det{background:var(--card);border:1px solid var(--bord);border-radius:11px;padding:14px;margin-top:12px}
+  .hint{color:var(--mut)} .err{color:var(--red)}
+  h3{font-size:12px;color:var(--mut);text-transform:uppercase;margin:12px 0 5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📄 Účetní doklady</h1>
+  <div style="margin-bottom:10px">
+    <a class="btn g" href="/doklad-novy" onclick="return nav(event)">+ Nový doklad</a>
+    <a class="btn" href="/uctovani" onclick="return nav(event)">📒 Účetní modul</a>
+  </div>
+  <div id="list"><div class="hint">Načítám…</div></div>
+  <div id="det"></div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();});}
+function nf(n){return (n==null||n==="")?"":(+n).toLocaleString("cs-CZ",{minimumFractionDigits:2,maximumFractionDigits:2});}
+function nav(e){return true;}
+function sbadge(s){return '<span class="badge s-'+esc(s)+'">'+({koncept:"koncept",realizovano:"realizováno",odeslano:"odesláno",uctovano:"účtováno"}[s]||esc(s))+'</span>';}
+function persLbl(p){return ({clovek:"👤 člověk",marti_ai:"🤖 Marti-AI",claude:"🛠️ Claude",strategie:"⚙️ STRATEGIE"}[p]||esc(p||""));}
+function load(){
+  api("/api/v1/erp/app/uctovani/doklady").then(function(j){
+    if(!j||!j.ok){document.getElementById("list").innerHTML='<div class="err">'+esc((j&&(j.error||j.detail))||"Nelze načíst")+'</div>';return;}
+    var h='<table><thead><tr><th>Číslo</th><th>Datum</th><th>Sborník</th><th>Partner / popis</th><th class="num">Celkem</th><th>Měna</th><th>Stav</th></tr></thead><tbody>';
+    (j.doklady||[]).forEach(function(d){
+      h+='<tr class="dr" data-id="'+d.id+'"><td><b>'+esc(d.cislo||"")+'</b></td><td>'+esc(d.dat||"")+'</td>'
+        +'<td>'+esc(d.sbornik_kod||"")+'</td><td>'+esc(d.partner_nazev||d.popis||"")+'</td>'
+        +'<td class="num">'+nf(d.celkem_czk)+' Kč</td><td>'+esc(d.mena||"")+(d.mena!=="CZK"?' <span class=hint>'+nf(d.celkem_mena)+'</span>':'')+'</td>'
+        +'<td>'+sbadge(d.stav)+'</td></tr>';
+    });
+    if(!(j.doklady||[]).length) h+='<tr><td colspan="7" class="hint" style="padding:14px">Zatím žádné doklady. Vytvoř první.</td></tr>';
+    h+='</tbody></table>';
+    document.getElementById("list").innerHTML=h;
+    document.querySelectorAll("tr.dr").forEach(function(tr){tr.onclick=function(){detail(tr.getAttribute("data-id"));};});
+  });
+}
+function detail(id){
+  document.getElementById("det").innerHTML='<div class="det hint">Načítám detail…</div>';
+  api("/api/v1/erp/app/uctovani/doklad/"+id).then(function(j){
+    if(!j||!j.ok){document.getElementById("det").innerHTML='<div class="det err">'+esc((j&&j.error)||"chyba")+'</div>';return;}
+    var d=j.doklad||{};
+    var h='<div class="det"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">'
+      +'<div><b style="font-size:16px">'+esc(d.cislo)+'</b> '+sbadge(d.stav)+'<br><span class="hint">'+esc(d.dat)+' · '+esc(d.sbornik_kod)+' · '+esc(d.partner_nazev||d.popis||"")+'</span></div>'
+      +'<div style="text-align:right"><b>'+nf(d.celkem_czk)+' Kč</b>'+(d.mena!=="CZK"?'<br><span class="hint">'+nf(d.celkem_mena)+' '+esc(d.mena)+' (kurz '+esc(d.kurz)+')</span>':'')+(d.celkem_eur!=null&&d.mena==="CZK"?'<br><span class="hint">≈ '+nf(d.celkem_eur)+' EUR</span>':'')+'</div></div>';
+    // akce dle stavu
+    var act='';
+    if(d.stav==="realizovano") act='<button class="btn g" data-a="zauctovat">📒 Zaúčtovat</button> <button class="btn" data-a="odeslat">📤 Odeslat</button> <button class="btn" data-a="odrealizovat">✏️ Zpět do editace</button>';
+    else if(d.stav==="odeslano") act='<button class="btn g" data-a="zauctovat">📒 Zaúčtovat</button> <button class="btn" data-a="odrealizovat">✏️ Zpět do editace</button>';
+    else if(d.stav==="uctovano") act='<button class="btn r" data-a="oductovat">↩️ Odúčtovat</button>';
+    else if(d.stav==="koncept") act='<span class="hint">koncept — uprav na /doklad-novy</span>';
+    h+='<div style="margin:10px 0">'+act+' <span id="amsg" class="hint"></span></div>';
+    h+='<h3>Položky</h3><table><thead><tr><th>#</th><th>Popis</th><th>Předkontace</th><th>Sazba</th><th class="num">Základ</th><th class="num">DPH</th><th class="num">Celkem</th></tr></thead><tbody>';
+    (j.polozky||[]).forEach(function(p){h+='<tr><td>'+p.poradi+'</td><td>'+esc(p.popis||"")+'</td><td>'+esc(p.predkontace_kod||"")+'</td><td>'+esc(p.sazba_dph)+' %</td><td class="num">'+nf(p.zaklad_czk)+'</td><td class="num">'+nf(p.dph_czk)+'</td><td class="num">'+nf(p.celkem_czk)+'</td></tr>';});
+    h+='</tbody></table>';
+    if((j.denik||[]).length){
+      h+='<h3>Řádky deníku (CZK)</h3><table><thead><tr><th>MD</th><th>DAL</th><th class="num">Částka</th><th>Popis</th></tr></thead><tbody>';
+      (j.denik||[]).forEach(function(r){h+='<tr><td>'+esc(r.ucet_md||"")+'</td><td>'+esc(r.ucet_dal||"")+'</td><td class="num">'+nf(r.castka)+'</td><td>'+esc(r.popis||"")+'</td></tr>';});
+      h+='</tbody></table>';
+    }
+    h+='<h3>Audit</h3><div class="hint" style="font-size:12px">';
+    (j.log||[]).forEach(function(l){h+='• '+esc(l.kdy)+' — <b>'+esc(l.akce)+'</b> · '+esc(l.podpis||"")+'<br>';});
+    h+='</div></div>';
+    var box=document.getElementById("det");box.innerHTML=h;
+    box.querySelectorAll("button[data-a]").forEach(function(btn){btn.onclick=function(){
+      var a=btn.getAttribute("data-a");
+      if(a==="oductovat"&&!confirm("Odúčtovat doklad? Smaže zápisy z deníku."))return;
+      btn.disabled=true;document.getElementById("amsg").textContent="…";
+      fetch("/api/v1/erp/app/uctovani/doklad/"+id+"/akce",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({akce:a})})
+        .then(function(r){return r.json();}).then(function(x){
+          if(x&&x.ok){detail(id);load();}
+          else{btn.disabled=false;document.getElementById("amsg").innerHTML='<span class="err">'+esc((x&&(x.error||x.detail))||"chyba")+'</span>';}
+        });
+    };});
+  });
+}
+load();
+</script>
+</body>
+</html>

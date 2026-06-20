@@ -968,6 +968,13 @@ def doklad_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/doklady")
+def doklady_page():
+    """Přehled účetních dokladů + workflow (stavy, akce, audit). Marti 20.6.2026. Parent-only data."""
+    return FileResponse(os.path.join(static_dir, "doklady.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/doklad-novy")
 def doklad_novy_page():
     """Nový účetní doklad s položkami (per-položka DPH + předkontace, dvojí měna,

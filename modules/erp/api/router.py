@@ -23152,6 +23152,83 @@ def isds_neschopenky(req: Request):
         s.close()
 
 
+@api_router.get("/app/davka/list")
+def davka_list(req: Request):
+    """Seznam podání dávek NP (NEMPRI25) — rodič/HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, typ_davky, emp_jmeno, emp_prijmeni, identifikator, "
+            "to_char(datum_od,'DD.MM.YYYY') od, to_char(datum_do,'DD.MM.YYYY') do, "
+            "stav, prostredi, osetrovana_jmeno, osetrovana_prijmeni "
+            "FROM tenant.davka_podani ORDER BY created_at DESC LIMIT 200")).mappings().all()
+        return {"ok": True, "polozky": [dict(r) for r in rows], "count": len(rows)}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/davka/detail")
+def davka_detail(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    did = req.query_params.get("id")
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        r = s.execute(_t("SELECT * FROM tenant.davka_podani WHERE id=:i"), {"i": int(did)}).mappings().first()
+        return {"ok": True, "davka": (dict(r) if r else None)}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/davka/save")
+async def davka_save(req: Request):
+    """Vytvoří/uloží podání dávky (záchyt dat — nahrazuje Excel účetní). Rodič/HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        cols = dict(typ_davky=b.get("typ_davky", "OSE"), user_id=b.get("user_id"),
+                    emp_jmeno=b.get("emp_jmeno"), emp_prijmeni=b.get("emp_prijmeni"), emp_rc=b.get("emp_rc"),
+                    identifikator=b.get("identifikator"),
+                    osetrovana_jmeno=b.get("osetrovana_jmeno"), osetrovana_prijmeni=b.get("osetrovana_prijmeni"),
+                    osetrovana_rc=b.get("osetrovana_rc"), osetrovana_vztah=b.get("osetrovana_vztah"),
+                    datum_od=(b.get("datum_od") or None), datum_do=(b.get("datum_do") or None),
+                    dny_pece=b.get("dny_pece"), spolecna_domacnost=b.get("spolecna_domacnost"),
+                    soubeh_davek=b.get("soubeh_davek"), zarizeni_uzavreni=b.get("zarizeni_uzavreni"),
+                    vystridani=bool(b.get("vystridani")), cislo_uctu=b.get("cislo_uctu"),
+                    stav=b.get("stav", "rozpracovano"), eneschopenka_id=b.get("eneschopenka_id"))
+        did = b.get("id")
+        if did:
+            sets = ", ".join("%s=:%s" % (k, k) for k in cols)
+            cols["i"] = int(did)
+            s.execute(_t("UPDATE tenant.davka_podani SET " + sets + ", updated_at=now() WHERE id=:i"), cols)
+        else:
+            cols["cb"] = uid
+            keys = list(cols.keys())
+            did = s.execute(_t(
+                "INSERT INTO tenant.davka_podani (" + ",".join(k for k in keys if k != "cb") + ",created_by) "
+                "VALUES (" + ",".join(":" + k for k in keys if k != "cb") + ",:cb) RETURNING id"), cols).scalar()
+        s.commit()
+        return {"ok": True, "id": did}
+    finally:
+        s.close()
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):

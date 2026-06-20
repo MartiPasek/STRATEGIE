@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podání dávek NP (ČSSZ)</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#f87171;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:920px;margin:0 auto;padding:18px}
+  h1{font-size:21px;margin:0 0 2px;font-weight:800}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:12px}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:14px;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;color:var(--mut);text-align:left;padding:6px 8px}
+  td{padding:7px 8px;border-top:1px solid rgba(255,255,255,.05);font-size:13px}
+  label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}
+  input,select{width:100%;padding:8px 10px;background:#0f1830;border:1px solid var(--bord);border-radius:8px;color:var(--tx);font-size:13px}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>div{flex:1;min-width:140px}
+  .btn{background:var(--accent);color:#06101f;border:0;border-radius:9px;padding:10px 16px;font-weight:700;cursor:pointer;margin-top:12px}
+  .btn.sec{background:#1f2a38;color:var(--tx)}
+  .pill{font-size:11px;padding:1px 8px;border-radius:8px;font-weight:700}
+  .s-rozpracovano{background:rgba(143,160,180,.18);color:var(--mut)}
+  .s-k_odeslani{background:rgba(251,191,36,.18);color:var(--amber)}
+  .s-odeslano{background:rgba(79,142,247,.18);color:var(--accent)}
+  .s-potvrzeno{background:rgba(52,211,153,.18);color:var(--green)}
+  .hint{color:var(--mut)} .err{color:#ff8a8a}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📤 Podání dávek NP — ČSSZ (NEMPRI25)</h1>
+  <div class="sub">Ošetřovné / nemoc / PPM / otcovská. Záchyt dat od zaměstnance → automatické podání na ČSSZ. <b>Žádný Excel.</b></div>
+  <div id="msg"></div>
+  <button class="btn" onclick="novy()">+ Nové podání</button>
+  <div id="form"></div>
+  <div id="list"></div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(p,m,b){return fetch(p,{method:m||"GET",credentials:"include",headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):undefined}).then(function(r){return r.json();});}
+function stav(s){var m={rozpracovano:"rozpracováno",k_odeslani:"k odeslání",odeslano:"odesláno",potvrzeno:"potvrzeno"};return '<span class="pill s-'+esc(s)+'">'+esc(m[s]||s)+'</span>';}
+function novy(){
+  document.getElementById("form").innerHTML='<div class="card">'
+    +'<div class="row"><div><label>Typ dávky</label><select id="f_typ"><option value="OSE">Ošetřovné (OČR)</option><option value="NEM">Nemocenské</option><option value="PPM">PPM (mateřská)</option><option value="OTC">Otcovská</option><option value="DLO">Dlouhodobé ošetřovné</option></select></div>'
+    +'<div><label>Identifikátor rozhodnutí</label><input id="f_id" placeholder="napr. 10251643250619001N"></div></div>'
+    +'<div class="row"><div><label>Zaměstnanec — jméno</label><input id="f_jm"></div><div><label>Příjmení</label><input id="f_pr"></div><div><label>RČ zaměstnance</label><input id="f_rc"></div></div>'
+    +'<div class="row"><div><label>Ošetřovaná osoba — jméno</label><input id="f_ojm"></div><div><label>Příjmení</label><input id="f_opr"></div><div><label>RČ / nar.</label><input id="f_orc"></div><div><label>Vztah</label><input id="f_ovz" placeholder="dítě, manžel/ka…"></div></div>'
+    +'<div class="row"><div><label>Datum od</label><input id="f_od" type="date"></div><div><label>Datum do</label><input id="f_do" type="date"></div><div><label>Společná domácnost</label><select id="f_dom"><option value="true">ano</option><option value="false">ne</option></select></div></div>'
+    +'<div class="row"><div><label>Souběh dávek (mateřská…)</label><input id="f_sou"></div><div><label>Uzavření zařízení (škola)</label><input id="f_zar"></div></div>'
+    +'<button class="btn" onclick="uloz()">💾 Uložit</button> <button class="btn sec" onclick="document.getElementById(\'form\').innerHTML=\'\'">Zrušit</button>'
+    +'</div>';
+}
+function uloz(){
+  function v(i){return (document.getElementById(i)||{}).value||"";}
+  var d={typ_davky:v("f_typ"),identifikator:v("f_id"),emp_jmeno:v("f_jm"),emp_prijmeni:v("f_pr"),emp_rc:v("f_rc"),
+    osetrovana_jmeno:v("f_ojm"),osetrovana_prijmeni:v("f_opr"),osetrovana_rc:v("f_orc"),osetrovana_vztah:v("f_ovz"),
+    datum_od:v("f_od"),datum_do:v("f_do"),spolecna_domacnost:(v("f_dom")==="true"),soubeh_davek:v("f_sou"),
+    zarizeni_uzavreni:v("f_zar"),stav:"k_odeslani"};
+  api("/api/v1/erp/app/davka/save","POST",d).then(function(r){
+    var m=document.getElementById("msg");
+    if(r&&r.ok){m.innerHTML='<div class="card" style="border-color:#34d39955;color:var(--green)">✓ Uloženo (#'+r.id+'). Připraveno k podání na ČSSZ.</div>';document.getElementById("form").innerHTML="";load();}
+    else m.innerHTML='<div class="err">'+esc((r&&r.error)||"chyba")+'</div>';
+  });
+}
+function load(){
+  api("/api/v1/erp/app/davka/list").then(function(j){
+    var L=document.getElementById("list");
+    if(!j||!j.ok){L.innerHTML='<div class="err">'+esc((j&&j.error)||"chyba")+'</div>';return;}
+    var r=j.polozky||[];
+    if(!r.length){L.innerHTML='<div class="hint" style="margin-top:10px">Zatím žádná podání.</div>';return;}
+    var h='<div class="card" style="margin-top:8px"><table><thead><tr><th>Typ</th><th>Zaměstnanec</th><th>Ošetřovaná</th><th>Od</th><th>Do</th><th>Stav</th><th>Prostředí</th></tr></thead><tbody>';
+    r.forEach(function(e){
+      var os=((e.osetrovana_jmeno||"")+" "+(e.osetrovana_prijmeni||"")).trim();
+      h+='<tr><td>'+esc(e.typ_davky)+'</td><td>'+esc((e.emp_jmeno||"")+" "+(e.emp_prijmeni||""))+'</td><td>'+esc(os||"—")+'</td><td>'+esc(e.od||"")+'</td><td>'+esc(e.do||"—")+'</td><td>'+stav(e.stav)+'</td><td class="hint">'+esc(e.prostredi||"")+'</td></tr>';
+    });
+    h+='</tbody></table></div>';L.innerHTML=h;
+  });
+}
+load();
+</script>
+</body>
+</html>

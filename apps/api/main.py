@@ -982,6 +982,13 @@ def edi_definice_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/neschopenky")
+def neschopenky_page():
+    """Registr neschopenek z datovky ČSSZ (sloučeno dle případu). Marti 20.6.2026."""
+    return FileResponse(os.path.join(static_dir, "neschopenky.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/doklady")
 def doklady_page():
     """Přehled účetních dokladů + workflow (stavy, akce, audit). Marti 20.6.2026. Parent-only data."""

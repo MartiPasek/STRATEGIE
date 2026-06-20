@@ -21995,26 +21995,34 @@ def _isds_process_eneschopenka(sp, acc, dm_id):
     if not xmlf:
         return {"ok": False, "error": "bez XML přílohy"}
     d = _isds_parse_eneschopenka(xmlf["bytes"])
-    if not d["id_pripadu"]:
-        return {"ok": False, "error": "bez IdPripadu (jiný typ XML?)"}
+    # CisloRozhodnuti je univerzální klíč (i Oznam, který nemá IdPripadu). Fallback IdPripadu.
+    cr = d["cislo_rozhodnuti"] or (("IDP:" + d["id_pripadu"]) if d["id_pripadu"] else "")
+    if not cr:
+        return {"ok": False, "error": "bez CisloRozhodnuti i IdPripadu"}
     sp.execute(_tp(
         "INSERT INTO tenant.eneschopenka (tenant_id,id_pripadu,company_vs,company_ico,emp_jmeno,"
         "emp_prijmeni,emp_rc,emp_datum_nar,datum_od,datum_do,druh_nemoci,prac_uraz,profese,"
         "lekar_nazev,lekar_jmeno,adresa,stav,cislo_rozhodnuti,last_id_notifikace,last_typ,updated_at) "
         "VALUES (2,:idp,:vs,:ico,:jm,:pr,:rc,:dn,:od,:do,:nem,:uraz,:prof,:ln,:lj,:adr,:stav,:cr,:idn,:typ,now()) "
-        "ON CONFLICT (tenant_id,id_pripadu) DO UPDATE SET "
+        "ON CONFLICT (tenant_id,cislo_rozhodnuti) DO UPDATE SET "
+        "id_pripadu=COALESCE(NULLIF(EXCLUDED.id_pripadu,''), tenant.eneschopenka.id_pripadu), "
+        "emp_rc=COALESCE(NULLIF(EXCLUDED.emp_rc,''), tenant.eneschopenka.emp_rc), "
+        "emp_datum_nar=COALESCE(EXCLUDED.emp_datum_nar, tenant.eneschopenka.emp_datum_nar), "
+        "profese=COALESCE(NULLIF(EXCLUDED.profese,''), tenant.eneschopenka.profese), "
+        "adresa=COALESCE(NULLIF(EXCLUDED.adresa,''), tenant.eneschopenka.adresa), "
         "datum_do=COALESCE(EXCLUDED.datum_do, tenant.eneschopenka.datum_do), "
         "datum_od=COALESCE(tenant.eneschopenka.datum_od, EXCLUDED.datum_od), "
         "stav=CASE WHEN EXCLUDED.stav='ukonceno' OR tenant.eneschopenka.stav='ukonceno' THEN 'ukonceno' "
-        "ELSE EXCLUDED.stav END, "
+        "WHEN EXCLUDED.stav='trva' OR tenant.eneschopenka.stav='trva' THEN 'trva' ELSE EXCLUDED.stav END, "
         "druh_nemoci=COALESCE(NULLIF(EXCLUDED.druh_nemoci,''),tenant.eneschopenka.druh_nemoci), "
         "lekar_nazev=COALESCE(NULLIF(EXCLUDED.lekar_nazev,''),tenant.eneschopenka.lekar_nazev), "
+        "lekar_jmeno=COALESCE(NULLIF(EXCLUDED.lekar_jmeno,''),tenant.eneschopenka.lekar_jmeno), "
         "last_id_notifikace=EXCLUDED.last_id_notifikace, last_typ=EXCLUDED.last_typ, updated_at=now()"),
         {"idp": d["id_pripadu"], "vs": d["company_vs"], "ico": d["company_ico"],
          "jm": d["emp_jmeno"], "pr": d["emp_prijmeni"], "rc": d["emp_rc"], "dn": d["emp_datum_nar"],
          "od": d["datum_od"], "do": d["datum_do"], "nem": d["druh_nemoci"], "uraz": d["prac_uraz"],
          "prof": d["profese"], "ln": d["lekar_nazev"], "lj": d["lekar_jmeno"], "adr": d["adresa"],
-         "stav": d["stav"], "cr": d["cislo_rozhodnuti"], "idn": d["id_notifikace"], "typ": d["typ"]})
+         "stav": d["stav"], "cr": cr, "idn": d["id_notifikace"], "typ": d["typ"]})
     sp.commit()
     return {"ok": True, **d}
 
@@ -23064,6 +23072,27 @@ def edi_preview_ep(req: Request):
             s.close()
     except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
+
+@api_router.get("/app/isds/neschopenky")
+def isds_neschopenky(req: Request):
+    """Registr neschopenek (sloučený dle CisloRozhodnuti) — jeden řádek na případ."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT id_pripadu, emp_jmeno, emp_prijmeni, emp_rc, "
+            "to_char(datum_od,'DD.MM.YYYY') od, to_char(datum_do,'DD.MM.YYYY') do, "
+            "stav, druh_nemoci, lekar_nazev, profese, company_vs, user_id, "
+            "(datum_do - datum_od + 1) dni "
+            "FROM tenant.eneschopenka ORDER BY datum_od DESC NULLS LAST")).mappings().all()
+        return {"ok": True, "polozky": [dict(r) for r in rows], "count": len(rows)}
+    finally:
+        s.close()
 
 
 @api_router.post("/diag-sql")

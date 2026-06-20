@@ -23157,6 +23157,20 @@ async def diag_sql(req: Request) -> JSONResponse:
                     t = _isds_extract_text(files[0]["bytes"], files[0]["filename"])
                     rows.append(["TEXT[0]", (t or "(prázdné / binární)")[:400]])
                 return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
+            if op == "XML":
+                dm_id = parts[3]
+                subj, files = _isds_download(acc, dm_id)
+                xmlf = next((f for f in files if (f["filename"] or "").lower().endswith(".xml")), None)
+                if not xmlf:
+                    return JSONResponse({"ok": False, "error": "žádná XML příloha"})
+                try:
+                    xt = xmlf["bytes"].decode("utf-8")
+                except Exception:
+                    xt = xmlf["bytes"].decode("latin-1", "replace")
+                rows = [["file", xmlf["filename"]]]
+                for i in range(0, min(len(xt), 6000), 165):
+                    rows.append(["xml", xt[i:i + 165]])
+                return JSONResponse({"ok": True, "columns": ["k", "v"], "rows": rows, "count": len(rows)})
             if op == "RAW":
                 import requests as _rq
                 login = acc.get("login_name") or ""

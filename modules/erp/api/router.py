@@ -23996,6 +23996,7 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   @@DOCS READ <doc_id>       → extrahovaný text (z document_chunks) → uloží do files/
     if sql.upper().startswith("@@DOCS"):
         from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
         parts = sql.split(None, 2)
         op = (parts[1].upper() if len(parts) > 1 else "")
         arg = (parts[2].strip() if len(parts) > 2 else "")
@@ -24004,23 +24005,23 @@ async def diag_sql(req: Request) -> JSONResponse:
         _sd = _gds()
         try:
             if op == "LIST":
-                rows = _sd.execute(text(
+                rows = _sd.execute(_t(
                     "SELECT id, name, file_type, COALESCE(extracted_text_length,0) "
                     "FROM public.documents WHERE project_id=:p ORDER BY id"), {"p": int(arg)}).all()
                 return JSONResponse({"ok": True, "columns": ["id", "nazev", "typ", "txt_len"],
                                      "rows": [[r[0], r[1], r[2], r[3]] for r in rows], "count": len(rows)})
             if op == "TREE":
-                rows = _sd.execute(text(
+                rows = _sd.execute(_t(
                     "SELECT split_part(name,'/',2) AS slozka, count(*) AS n FROM public.documents "
                     "WHERE project_id=:p GROUP BY 1 ORDER BY n DESC"), {"p": int(arg)}).all()
                 return JSONResponse({"ok": True, "columns": ["slozka", "pocet"],
                                      "rows": [[r[0], r[1]] for r in rows], "count": len(rows)})
             # READ
             did = int(arg)
-            meta = _sd.execute(text("SELECT name, file_type FROM public.documents WHERE id=:i"), {"i": did}).first()
+            meta = _sd.execute(_t("SELECT name, file_type FROM public.documents WHERE id=:i"), {"i": did}).first()
             if not meta:
                 return JSONResponse({"ok": False, "error": "doc %s nenalezen" % did})
-            txt = _sd.execute(text(
+            txt = _sd.execute(_t(
                 "SELECT string_agg(content, E'\\n' ORDER BY chunk_index) FROM public.document_chunks WHERE document_id=:i"),
                 {"i": did}).scalar() or ""
             head = "# %s (doc id %s, %s)\n\n" % (meta.name, did, meta.file_type)

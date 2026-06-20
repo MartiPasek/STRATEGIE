@@ -22318,6 +22318,74 @@ def prefakturace_stav(req: Request):
     return {"ok": True, "faktura": fa}
 
 
+def _edi_parse_tier0(text, rules):
+    """Tier 0 deterministický parser (Martiho model 2014): sekvenční kurzor.
+    Pro každé pravidlo (dle poradi): marker_od posune kurzor ZA marker;
+    field_name vytáhne hodnotu (do marker_do / délkou max_len, datum dle vzoru);
+    je_polozka=True se opakuje pro řádky. Vrací {hlavicka:{}, polozky:[]}."""
+    import re as _re
+    text = text or ""
+    n = len(text)
+    DATE_RE = _re.compile(r"\d{1,2}[.\-/]\s?\d{1,2}[.\-/]\s?\d{2,4}")
+
+    def _skip_ws(c):
+        while c < n and text[c] in " \t\r\n":
+            c += 1
+        return c
+
+    def _extract(rules_subset, start):
+        cur = start
+        vals = {}
+        for r in rules_subset:
+            mo = (r.get("marker_od") or "").strip()
+            md = (r.get("marker_do") or "").strip()
+            fn = (r.get("field_name") or "").strip()
+            maxl = r.get("max_len") or 60
+            if mo:
+                i = text.find(mo, cur)
+                if i < 0:
+                    continue
+                cur = i + len(mo)
+            if not fn:
+                continue
+            c0 = _skip_ws(cur)
+            if r.get("je_datum"):
+                m = DATE_RE.search(text, c0, min(n, c0 + 40))
+                if m:
+                    vals[fn] = m.group(0).replace(" ", "")
+                    cur = m.end()
+                continue
+            if md:
+                j = text.find(md, c0)
+                val = (text[c0:j] if j >= 0 else text[c0:c0 + maxl])
+                cur = (j if j >= 0 else c0 + len(val))
+            else:
+                # další token: do konce řádku, oříznuté na max_len
+                eol = text.find("\n", c0)
+                seg = text[c0:(eol if eol >= 0 else n)]
+                val = seg[:maxl]
+                cur = c0 + len(val)
+            vals[fn] = val.strip()
+        return vals, cur
+
+    header_rules = [r for r in rules if not r.get("je_polozka")]
+    item_rules = [r for r in rules if r.get("je_polozka")]
+    hdr, pos = _extract(header_rules, 0)
+    items = []
+    guard = 0
+    while item_rules and pos < n and guard < 300:
+        guard += 1
+        before = pos
+        iv, pos = _extract(item_rules, pos)
+        if pos <= before:
+            break
+        if any((v or "").strip() for v in iv.values()):
+            items.append(iv)
+        else:
+            break
+    return {"hlavicka": hdr, "polozky": items}
+
+
 @api_router.get("/app/edi/statistika")
 def edi_statistika(req: Request):
     """Statistika samoučícího se EDI workflow (Tier 0/1/2, učící křivka, náklad)
@@ -22478,6 +22546,75 @@ async def diag_sql(req: Request) -> JSONResponse:
                     txt = rawbytes.decode("latin-1", "replace")
                 return JSONResponse({"ok": True, "file_read": True, "path": path,
                                      "length": len(txt), "content": txt})
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
+    # EDI Tier 0 parser test (Marti 20.6.2026): @@PARSE <cesta_k_fakture>
+    #   → přečte soubor (PDF→text), najde definici dle dodavatele, aplikuje pravidla,
+    #     vrátí extrahovanou hlavičku + položky (deterministicky, žádná AI).
+    if sql.upper().startswith("@@PARSE"):
+        import json as _jp, os.path as _opp, base64 as _b64p
+        parts = sql.split(None, 1)
+        path = (parts[1].strip() if len(parts) > 1 else "")
+        if not path:
+            return JSONResponse({"ok": False, "error": "@@PARSE <cesta_k_souboru>"})
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+            base = _opp.dirname(path); fn = _opp.basename(path)
+            raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                     {"user_namespace": "ro", "base_override": base, "path": fn,
+                                      "encoding": "base64"}, conversation_id=None)
+            r = _jp.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(r, dict) and r.get("ok") is False:
+                return JSONResponse({"ok": False, "error": str(r.get("error") or r)})
+            b64 = (r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r)
+            rb = _b64p.b64decode(b64) if b64 else b""
+            txt = ""
+            if fn.lower().endswith(".pdf"):
+                try:
+                    import io as _iop, pdfplumber as _ppp
+                    with _ppp.open(_iop.BytesIO(rb)) as pdf:
+                        txt = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+                except Exception:
+                    txt = ""
+            else:
+                try:
+                    txt = rb.decode("utf-8")
+                except Exception:
+                    txt = rb.decode("latin-1", "replace")
+            if not txt:
+                return JSONResponse({"ok": False, "error": "nepodařilo se získat text (PDF skenovaný → OCR)"})
+            from core.database_data import get_data_session as _gp
+            from sqlalchemy import text as _tp
+            sp = _gp()
+            try:
+                defs = sp.execute(_tp(
+                    "SELECT src_id, partner_nazev, druh_nazev FROM tenant.edi_definice "
+                    "WHERE druh_nazev='faktura' AND aktivni ORDER BY src_id")).mappings().all()
+                match = None
+                for d in defs:
+                    token = (d["partner_nazev"] or "").split()[0] if d["partner_nazev"] else ""
+                    if token and len(token) >= 3 and token.lower() in txt.lower():
+                        match = d; break
+                if not match:
+                    return JSONResponse({"ok": True, "columns": ["info"], "count": 1,
+                                         "rows": [["Definice nenalezena podle dodavatele v textu. Délka textu: %d" % len(txt)]]})
+                rules = sp.execute(_tp(
+                    "SELECT poradi, je_polozka, field_name, marker_od, marker_do, min_len, max_len, je_datum "
+                    "FROM tenant.edi_pole WHERE definice_src_id=:d ORDER BY poradi"), {"d": match["src_id"]}).mappings().all()
+                parsed = _edi_parse_tier0(txt, [dict(x) for x in rules])
+                rows = [["DEFINICE", match["partner_nazev"]]]
+                for k, v in parsed["hlavicka"].items():
+                    rows.append([k, (v or "")[:180]])
+                rows.append(["—POLOŽEK—", str(len(parsed["polozky"]))])
+                for idx, it in enumerate(parsed["polozky"][:5], 1):
+                    rows.append(["pol.%d" % idx, " | ".join("%s=%s" % (kk, (vv or "")[:30]) for kk, vv in it.items() if vv)[:180]])
+                return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
+            finally:
+                sp.close()
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
 

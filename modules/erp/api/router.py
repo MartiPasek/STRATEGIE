@@ -21115,6 +21115,63 @@ def mig_map(req: Request):
         s.close()
 
 
+@api_router.get("/app/parovani/prehled")
+def parovani_prehled(req: Request):
+    """Přehled párování bank výpisů ↔ úhrad (Marti 20.6.2026). Nad zrcadlenými daty
+    (ec_bank_vypis_radek + ec_bank_vypis_uhrada + ec_uhrada). Stav spárováno/ne,
+    VS, protistrana, měna, na co napojeno (úhrada/faktura/zakázka). Základ pro
+    vlastní párovací engine (VS + protistrana + EUR/SEPA)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    q = req.query_params
+    stav = (q.get("stav") or "vse").strip()       # vse | spar | ne
+    mena = (q.get("mena") or "").strip().upper()  # CZK | EUR | ''
+    hledej = (q.get("q") or "").strip()
+    try:
+        limit = min(500, max(10, int(q.get("limit") or 150)))
+    except Exception:
+        limit = 150
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        # souhrn
+        su = s.execute(_t(
+            "SELECT COUNT(*), "
+            "SUM(CASE WHEN COALESCE(pocet_uhrad,0)>0 THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN COALESCE(pocet_uhrad,0)=0 THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN mena='EUR' THEN 1 ELSE 0 END), "
+            "COALESCE(SUM(CASE WHEN COALESCE(pocet_uhrad,0)=0 THEN castka ELSE 0 END),0) "
+            "FROM tenant.ec_bank_vypis_radek")).first()
+        summary = {"radky": int(su[0] or 0), "sparovano": int(su[1] or 0),
+                   "nesparovano": int(su[2] or 0), "eur": int(su[3] or 0),
+                   "nesparovano_castka": float(su[4] or 0)}
+        where = ["1=1"]
+        params = {"lim": limit}
+        if stav == "spar":
+            where.append("COALESCE(r.pocet_uhrad,0)>0")
+        elif stav == "ne":
+            where.append("COALESCE(r.pocet_uhrad,0)=0")
+        if mena in ("CZK", "EUR"):
+            where.append("r.mena=:me"); params["me"] = mena
+        if hledej:
+            where.append("(r.nazev_org ILIKE :q OR r.variabilni_symbol ILIKE :q OR r.cislo_zakazky ILIKE :q)")
+            params["q"] = "%" + hledej + "%"
+        rows = s.execute(_t(
+            "SELECT r.src_id, to_char(r.datum_splatnosti,'DD.MM.YYYY') dat, r.mena, r.castka, "
+            "r.nazev_org, r.variabilni_symbol, COALESCE(r.pocet_uhrad,0) pu, r.cislo_zakazky, "
+            "r.specificky_symbol, "
+            "(SELECT COALESCE(SUM(u.castka_faktura),0) FROM tenant.ec_bank_vypis_uhrada u WHERE u.id_radek=r.src_id) spar_castka, "
+            "(SELECT string_agg(DISTINCT u.cislo_zakazky,', ') FROM tenant.ec_bank_vypis_uhrada u "
+            "  WHERE u.id_radek=r.src_id AND COALESCE(u.cislo_zakazky,'')<>'') zakazky "
+            "FROM tenant.ec_bank_vypis_radek r WHERE " + " AND ".join(where) +
+            " ORDER BY r.datum_splatnosti DESC NULLS LAST, r.src_id DESC LIMIT :lim"), params).mappings().all()
+        return {"ok": True, "summary": summary, "radky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
 # ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).

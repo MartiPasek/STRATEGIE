@@ -968,6 +968,14 @@ def doklad_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/parovani")
+def parovani_page():
+    """Přehled párování bank výpisů ↔ úhrad (Marti 20.6.2026). Nad zrcadlenými daty.
+    Data z /app/parovani/*. Parent-only. Základ pro vlastní párovací engine."""
+    return FileResponse(os.path.join(static_dir, "parovani.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/zrcadla")
 def zrcadla_page():
     """Řídící centrum zrcadel — živý stav + automatický život (Marti 20.6.2026).

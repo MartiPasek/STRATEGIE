@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Párování plateb a výpisů</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;
+        --accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#ff8a8a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14.5px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:18px}
+  h1{font-size:21px;margin:0 0 3px;font-weight:800}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:14px}
+  .stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .st{background:var(--card);border:1px solid var(--bord);border-radius:11px;padding:8px 13px;min-width:96px}
+  .st .k{color:var(--mut);font-size:11px}.st .v{font-weight:800;font-size:18px;margin-top:1px}
+  .bar{height:8px;border-radius:5px;background:#1d2737;overflow:hidden;margin-top:6px}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,#34d399,#4f8ef7)}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  .seg{display:inline-flex;border:1px solid var(--bord);border-radius:9px;overflow:hidden}
+  .seg button{background:#0f1830;color:var(--mut);border:0;padding:7px 13px;font-size:13px;cursor:pointer}
+  .seg button.on{background:var(--accent);color:#06101f;font-weight:700}
+  input,select{background:#0a1226;color:var(--tx);border:1px solid #2b3a5c;border-radius:8px;padding:7px 10px;font-size:14px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--bord);border-radius:12px;overflow:hidden}
+  th{color:var(--mut);font-weight:600;text-align:right;padding:9px 12px;border-bottom:1px solid var(--bord);font-size:12px;white-space:nowrap}
+  th.l,td.l{text-align:left}
+  td{padding:8px 12px;text-align:right;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
+  tr:last-child td{border-bottom:none}
+  .badge{font-size:11px;padding:1px 8px;border-radius:8px;font-weight:700}
+  .b-ok{background:rgba(52,211,153,.16);color:var(--green);border:1px solid #34d39955}
+  .b-ne{background:rgba(251,191,36,.14);color:var(--amber);border:1px solid #fbbf2455}
+  .eur{color:#c4b5fd;font-weight:700}
+  .hint{color:var(--mut)} .err{color:var(--red);padding:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏦 Párování plateb a výpisů</h1>
+  <div class="sub">Bankovní výpisy ↔ úhrady (zrcadlo Centrály). Stav párování, VS, protistrana, měna, napojení na fakturu/zakázku. Základ pro vlastní párovací engine.</div>
+  <div class="stats" id="stats"><span class="hint">Načítám…</span></div>
+  <div class="toolbar">
+    <span class="seg" id="seg">
+      <button data-s="vse" class="on">Vše</button>
+      <button data-s="ne">Nespárované</button>
+      <button data-s="spar">Spárované</button>
+    </span>
+    <select id="mena"><option value="">Měna: vše</option><option value="CZK">CZK</option><option value="EUR">EUR</option></select>
+    <input id="q" placeholder="Hledat protistranu / VS / zakázku…" style="flex:1;min-width:180px">
+  </div>
+  <div id="list"><div class="hint">Načítám…</div></div>
+</div>
+<script>
+function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;
+  try{if(window.__opcUrl)return new URL(window.__opcUrl,location.origin).searchParams.get(k);}catch(e){}return null;}
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function kc(n,m){if(n==null||n==="")return"";return (+n).toLocaleString("cs-CZ",{maximumFractionDigits:2})+" "+(m||"");}
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();}).catch(function(){return{ok:false};});}
+var _stav="vse",_t=null;
+function load(){
+  var mena=document.getElementById("mena").value, q=document.getElementById("q").value.trim();
+  document.getElementById("list").innerHTML='<div class="hint">Načítám…</div>';
+  api("/api/v1/erp/app/parovani/prehled?stav="+_stav+"&mena="+encodeURIComponent(mena)+"&q="+encodeURIComponent(q)).then(function(j){
+    if(!j||!j.ok){document.getElementById("list").innerHTML='<div class="err">'+esc((j&&(j.error||j.detail))||"Nelze načíst (rodič only / zrcadlo banky ještě neběželo?)")+'</div>';return;}
+    var s=j.summary||{}, pct=s.radky?Math.round(100*s.sparovano/s.radky):0;
+    document.getElementById("stats").innerHTML=
+      '<div class="st"><div class="k">Řádků výpisů</div><div class="v">'+(s.radky||0).toLocaleString("cs-CZ")+'</div></div>'
+      +'<div class="st" style="min-width:150px"><div class="k">Spárováno</div><div class="v">'+pct+' %</div><div class="bar"><i style="width:'+pct+'%"></i></div></div>'
+      +'<div class="st"><div class="k">Nespárováno</div><div class="v" style="color:var(--amber)">'+(s.nesparovano||0).toLocaleString("cs-CZ")+'</div></div>'
+      +'<div class="st"><div class="k">Nesp. částka</div><div class="v" style="font-size:15px">'+kc(s.nesparovano_castka,"")+'</div></div>'
+      +'<div class="st"><div class="k">EUR řádků</div><div class="v eur">'+(s.eur||0).toLocaleString("cs-CZ")+'</div></div>';
+    var rows=j.radky||[];
+    var h='<table><thead><tr><th class="l">Datum</th><th class="l">Protistrana</th><th class="l">VS</th><th>Částka</th><th>Měna</th><th class="l">Stav</th><th>Spárováno</th><th class="l">Zakázka</th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      var ok=(+r.pu>0);
+      h+='<tr><td class="l">'+esc(r.dat||"")+'</td>'
+        +'<td class="l">'+esc(r.nazev_org||"—")+'</td>'
+        +'<td class="l">'+esc(r.variabilni_symbol||"")+(r.specificky_symbol?(' <span class="hint">SS '+esc(r.specificky_symbol)+'</span>'):'')+'</td>'
+        +'<td>'+kc(r.castka,"")+'</td>'
+        +'<td'+(r.mena==="EUR"?' class="eur"':'')+'>'+esc(r.mena||"")+'</td>'
+        +'<td class="l"><span class="badge '+(ok?"b-ok":"b-ne")+'">'+(ok?("✓ "+r.pu+"×"):"○ ne")+'</span></td>'
+        +'<td>'+(ok?kc(r.spar_castka,""):"")+'</td>'
+        +'<td class="l">'+esc(r.zakazky||"")+'</td></tr>';
+    });
+    if(!rows.length) h+='<tr><td colspan="8" class="hint" style="padding:16px">Žádné řádky pro tento filtr.</td></tr>';
+    h+='</tbody></table>';
+    if(rows.length>=150) h+='<div class="hint" style="margin-top:8px">Zobrazeno prvních '+rows.length+' — zužte filtrem.</div>';
+    document.getElementById("list").innerHTML=h;
+  });
+}
+Array.prototype.forEach.call(document.querySelectorAll("#seg button"),function(b){b.onclick=function(){
+  _stav=b.getAttribute("data-s");
+  Array.prototype.forEach.call(document.querySelectorAll("#seg button"),function(x){x.classList.toggle("on",x===b);});
+  load();};});
+document.getElementById("mena").onchange=load;
+document.getElementById("q").addEventListener("input",function(){clearTimeout(_t);_t=setTimeout(load,300);});
+load();
+</script>
+</body>
+</html>

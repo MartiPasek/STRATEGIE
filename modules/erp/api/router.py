@@ -21821,7 +21821,7 @@ def uctovani_kurz(req: Request):
 # (basic auth jméno+heslo). Pozn.: přesné cesty služby ověřujeme při živém
 # testu (dmInfo ~ /DS/df, dmOperations ~ /DS/dz).
 # ════════════════════════════════════════════════════════════════════════
-_ISDS_BASE = "https://www.mojedatovaschranka.cz/DS"
+_ISDS_BASE = "https://ws1.mojedatovaschranka.cz/DS"
 _ISDS_NS = "http://isds.czechpoint.cz/v20"
 
 def _isds_enc(plain: str):
@@ -21858,7 +21858,13 @@ def _isds_soap(account: dict, path: str, body_inner: str, timeout=40):
                           auth=(login, pwd), timeout=timeout)
         if r.status_code in (401, 403):
             return False, "ISDS odmítl přihlášení (401/403) — zkontroluj jméno/heslo (a 90denní expiraci)."
-        root = ET.fromstring(r.content)
+        try:
+            root = ET.fromstring(r.content)
+        except Exception as _pe:
+            snip = (r.text or "")[:200].replace("\n", " ")
+            ctype = r.headers.get("Content-Type", "?")
+            return False, ("Odpověď není XML (HTTP %s, %s): %s … [%s]"
+                           % (r.status_code, ctype, snip, type(_pe).__name__))
         return True, root
     except Exception as exc:
         return False, "%s: %s" % (type(exc).__name__, str(exc)[:200])
@@ -21878,7 +21884,7 @@ def _isds_list_received(account: dict, days_back: int = 60):
             '<p:dmToTime></p:dmToTime><p:dmOrgUnitNum></p:dmOrgUnitNum>'
             '<p:dmStatusFilter>-1</p:dmStatusFilter><p:dmOffset>1</p:dmOffset>'
             '<p:dmLimit>1000</p:dmLimit></p:GetListOfReceivedMessages>' % frm)
-    ok, root = _isds_soap(account, "/df", body)
+    ok, root = _isds_soap(account, "/dz", body)
     if not ok:
         raise RuntimeError(root)
     out = []

@@ -26,8 +26,8 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🤒 Neschopenky zaměstnanců</h1>
-  <div class="sub">Z datovek ČSSZ (eNeschopenka), sloučeno do jednoho záznamu na případ (Vznik → Trvání → Ukončení).</div>
+  <h1>🤒 Neschopenky a OČR</h1>
+  <div class="sub">Z datovek ČSSZ (eNeschopenka / ošetřování člena rodiny), sloučeno do jednoho záznamu na případ (Vznik → Trvání → Ukončení).</div>
   <div id="body"><div class="hint">Načítám…</div></div>
 </div>
 <script>
@@ -38,12 +38,14 @@ api("/api/v1/erp/app/isds/neschopenky").then(function(j){
   if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="err">'+esc((j&&j.error)||"chyba (rodič only)")+'</div>';return;}
   var r=j.polozky||[];
   if(!r.length){document.getElementById("body").innerHTML='<div class="card" style="padding:14px">Žádné neschopenky. Spusť sync datovek + zpracování.</div>';return;}
-  var h='<div class="sub">'+r.length+' neschopenek</div><div class="card"><table><thead><tr><th>Zaměstnanec</th><th>Od</th><th>Do</th><th>Dní</th><th>Stav</th><th>Nemoc</th><th>Lékař</th></tr></thead><tbody>';
+  var h='<div class="sub">'+r.length+' případů</div><div class="card"><table><thead><tr><th>Typ</th><th>Zaměstnanec</th><th>Od</th><th>Do</th><th>Dní</th><th>Stav</th><th>Detail</th><th>Lékař</th></tr></thead><tbody>';
   r.forEach(function(e){
     var jm=((e.emp_jmeno||"")+" "+(e.emp_prijmeni||"")).trim();
-    h+='<tr><td><b>'+esc(jm)+'</b>'+(e.user_id?'':' <span class="nolink">⚠ nenapojen</span>')+(e.profese?'<div class="hint" style="font-size:11px">'+esc(e.profese)+'</div>':'')+'</td>'
+    var typPill=(e.typ==="ocr")?'<span class="pill" style="background:rgba(79,142,247,.18);color:var(--accent)">OČR</span>':'<span class="pill" style="background:rgba(248,113,113,.18);color:var(--red)">nemoc</span>';
+    var detail=(e.typ==="ocr"&&e.osetrovana_osoba)?('ošetřuje: '+esc(e.osetrovana_osoba)):esc(e.druh_nemoci||"");
+    h+='<tr><td>'+typPill+'</td><td><b>'+esc(jm)+'</b>'+(e.user_id?'':' <span class="nolink">⚠ nenapojen</span>')+(e.profese?'<div class="hint" style="font-size:11px">'+esc(e.profese)+'</div>':'')+'</td>'
       +'<td>'+esc(e.od||"")+'</td><td>'+esc(e.do||"—")+'</td><td>'+(e.dni!=null?e.dni:"")+'</td>'
-      +'<td>'+stavPill(e.stav)+'</td><td>'+esc(e.druh_nemoci||"")+'</td><td class="hint">'+esc(e.lekar_nazev||"")+'</td></tr>';
+      +'<td>'+stavPill(e.stav)+'</td><td>'+detail+'</td><td class="hint">'+esc(e.lekar_nazev||"")+'</td></tr>';
   });
   h+='</tbody></table></div>';
   document.getElementById("body").innerHTML=h;

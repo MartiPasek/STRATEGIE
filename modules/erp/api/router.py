@@ -22007,18 +22007,34 @@ def _isds_parse_eneschopenka(xmlb):
             if ch.tag.rsplit("}", 1)[-1] == tag:
                 return (ch.text or "").strip() if ch.text else ""
         return ""
+
+    def gm(tags):
+        for tg in tags:
+            v = g(tg)
+            if v:
+                return v
+        return ""
     adr = " ".join([x for x in [g("Ulice"), g("CisloPopisne"), g("NazevObce"),
                                  g("PostovniSmerovaciCislo")] if x]).strip()
     t = typ.lower()
     stav = "ukonceno" if "ukonceni" in t else ("trva" if "trvani" in t else "vznik")
+    # typ absence: OČR (ošetřování) vs nemoc (DPN) — dle root tagu
+    typ_abs = "ocr" if any(k in t for k in ("osetr", "ošetř", "potreb", "potřeb", "ocr", "pos")) else "nemoc"
+    # ošetřovaná osoba (u OČR) — tolerantně
+    osetr = gm(["JmenoOsetrovane", "OsetrovanaOsoba", "JmenoOsetrovaneOsoby", "JmenoDitete"])
+    op = gm(["PrijmeniOsetrovane", "PrijmeniOsetrovaneOsoby", "PrijmeniDitete"])
+    osetr_full = (osetr + " " + op).strip()
     return {
-        "typ": typ, "stav": stav,
+        "typ": typ, "stav": stav, "typ_abs": typ_abs, "osetrovana_osoba": osetr_full or None,
         "id_pripadu": g("IdPripadu"), "id_notifikace": g("IdNotifikace"),
         "cislo_rozhodnuti": g("CisloRozhodnuti"), "profese": g("Poznamka"),
         "emp_jmeno": g("Jmeno"), "emp_prijmeni": g("Prijmeni"),
         "emp_rc": g("RodneCislo"), "emp_datum_nar": g("DatumNarozeni") or None,
         "company_vs": g("VariabilniSymbol"), "company_ico": g("IdentifikacniCisloOrganizace"),
-        "datum_od": g("DatumNeschopenOd") or None, "datum_do": g("DatumNeschopenDo") or None,
+        "datum_od": gm(["DatumNeschopenOd", "DatumVznikuPotrebyOsetrovani", "DatumVznikuPotreby",
+                        "DatumPotrebyOd", "DatumOd", "DatumPlatnostiOd"]) or None,
+        "datum_do": gm(["DatumNeschopenDo", "DatumUkonceniPotrebyOsetrovani", "DatumUkonceniPotreby",
+                        "DatumPotrebyDo", "DatumDo", "DatumPlatnostiDo"]) or None,
         "druh_nemoci": g("KodDruhuNemoci"), "prac_uraz": (g("PracovniUraz") == "A"),
         "lekar_nazev": g("NazevPzs"), "lekar_jmeno": g("JmenoLekare"), "adresa": adr,
     }
@@ -22039,9 +22055,11 @@ def _isds_process_eneschopenka(sp, acc, dm_id):
     sp.execute(_tp(
         "INSERT INTO tenant.eneschopenka (tenant_id,id_pripadu,company_vs,company_ico,emp_jmeno,"
         "emp_prijmeni,emp_rc,emp_datum_nar,datum_od,datum_do,druh_nemoci,prac_uraz,profese,"
-        "lekar_nazev,lekar_jmeno,adresa,stav,cislo_rozhodnuti,last_id_notifikace,last_typ,updated_at) "
-        "VALUES (2,:idp,:vs,:ico,:jm,:pr,:rc,:dn,:od,:do,:nem,:uraz,:prof,:ln,:lj,:adr,:stav,:cr,:idn,:typ,now()) "
+        "lekar_nazev,lekar_jmeno,adresa,stav,cislo_rozhodnuti,last_id_notifikace,last_typ,typ,osetrovana_osoba,updated_at) "
+        "VALUES (2,:idp,:vs,:ico,:jm,:pr,:rc,:dn,:od,:do,:nem,:uraz,:prof,:ln,:lj,:adr,:stav,:cr,:idn,:typ,:tabs,:osetr,now()) "
         "ON CONFLICT (tenant_id,cislo_rozhodnuti) DO UPDATE SET "
+        "typ=EXCLUDED.typ, "
+        "osetrovana_osoba=COALESCE(NULLIF(EXCLUDED.osetrovana_osoba,''), tenant.eneschopenka.osetrovana_osoba), "
         "id_pripadu=COALESCE(NULLIF(EXCLUDED.id_pripadu,''), tenant.eneschopenka.id_pripadu), "
         "emp_rc=COALESCE(NULLIF(EXCLUDED.emp_rc,''), tenant.eneschopenka.emp_rc), "
         "emp_datum_nar=COALESCE(EXCLUDED.emp_datum_nar, tenant.eneschopenka.emp_datum_nar), "
@@ -22059,7 +22077,8 @@ def _isds_process_eneschopenka(sp, acc, dm_id):
          "jm": d["emp_jmeno"], "pr": d["emp_prijmeni"], "rc": d["emp_rc"], "dn": d["emp_datum_nar"],
          "od": d["datum_od"], "do": d["datum_do"], "nem": d["druh_nemoci"], "uraz": d["prac_uraz"],
          "prof": d["profese"], "ln": d["lekar_nazev"], "lj": d["lekar_jmeno"], "adr": d["adresa"],
-         "stav": d["stav"], "cr": cr, "idn": d["id_notifikace"], "typ": d["typ"]})
+         "stav": d["stav"], "cr": cr, "idn": d["id_notifikace"], "typ": d["typ"],
+         "tabs": d.get("typ_abs", "nemoc"), "osetr": d.get("osetrovana_osoba")})
     sp.commit()
     return {"ok": True, **d}
 
@@ -23122,7 +23141,8 @@ def isds_neschopenky(req: Request):
     s = _g()
     try:
         rows = s.execute(_t(
-            "SELECT id_pripadu, emp_jmeno, emp_prijmeni, emp_rc, "
+            "SELECT id_pripadu, COALESCE(typ,'nemoc') typ, osetrovana_osoba, "
+            "emp_jmeno, emp_prijmeni, emp_rc, "
             "to_char(datum_od,'DD.MM.YYYY') od, to_char(datum_do,'DD.MM.YYYY') do, "
             "stav, druh_nemoci, lekar_nazev, profese, company_vs, user_id, "
             "(datum_do - datum_od + 1) dni "
@@ -23338,8 +23358,9 @@ async def diag_sql(req: Request) -> JSONResponse:
                 ok = 0; err = 0; errs = []
                 try:
                     msgs = sn.execute(_tn(
-                        "SELECT dm_id FROM fw.isds_message WHERE account_id=:a AND msg_type LIKE 'eneschopenka%' "
-                        "ORDER BY dm_id"), {"a": acct_id}).mappings().all()
+                        "SELECT dm_id FROM fw.isds_message WHERE account_id=:a "
+                        "AND (msg_type LIKE 'eneschopenka%' OR msg_type='ocr') ORDER BY dm_id"),
+                        {"a": acct_id}).mappings().all()
                     for m in msgs:
                         try:
                             r = _isds_process_eneschopenka(sn, acc, m["dm_id"])

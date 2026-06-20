@@ -23952,7 +23952,7 @@ def _sync_ec_org_kontakt(_unused=None) -> dict:
                    "Kategorie, TypZakazky, Atraktivita, Dulezitost, Potencial, KontaktText, KontaktID, "
                    "Zeme, StavVztahuID, ZdrojKontaktu, CAST(KontaktOveren AS int) KOver, "
                    "CONVERT(varchar(10),DatPorizeni,23) dp, CONVERT(varchar(19),DatZmeny,120) dz "
-                   "FROM CRM_Kontakt WHERE ID > %d ORDER BY ID" % (BLOCK, lastid))
+                   "FROM st.CRM_Kontakt WHERE ID > %d ORDER BY ID" % (BLOCK, lastid))
             try:
                 batch = rows_of(sql)
             except Exception as _ce:

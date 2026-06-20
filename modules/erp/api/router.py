@@ -22953,10 +22953,29 @@ def _sync_ec_ukoly(_unused=None) -> dict:
     s = cm.__enter__()
     res = {}
     try:
-        # ── ÚKOLY ──
-        lastid = 0
+        BLOCK = 3000  # větší dávka = míň round-tripů, doběhne na míň běhů
+
+        def get_wm(tbl):
+            row = s.execute(_t("SELECT last_rowversion, last_note FROM tenant.ec_mirror_state WHERE src_table=:t"),
+                            {"t": tbl}).first()
+            lid = 0
+            if row and row[0]:
+                try:
+                    lid = int(row[0])
+                except (TypeError, ValueError):
+                    lid = 0
+            return lid, (row[1] if row else None)
+
+        def set_wm(tbl, lid, note):
+            s.execute(_t("INSERT INTO tenant.ec_mirror_state(src_table,last_rowversion,last_sync_at,last_note) "
+                         "VALUES(:t,:w,now(),:no) ON CONFLICT (src_table) DO UPDATE SET "
+                         "last_rowversion=:w, last_sync_at=now(), last_note=:no"),
+                        {"t": tbl, "w": str(lid), "no": note})
+
+        # ── ÚKOLY (watermark resume; vlákno se může recyklovat → další běh naváže) ──
+        lastid, _u_phase = get_wm("EC_Ukoly")
         nu = 0
-        while True:
+        while _u_phase != "done":
             sql = ("SELECT TOP %d u.ID, u.IDNadrazene, u.Stav, u.StavText, u.Zadavatel, u.Predmet, "
                    "CAST(u.Popis AS nvarchar(max)) Popis, CONVERT(varchar(19),u.TerminZahajeni,120) tz, "
                    "CONVERT(varchar(19),u.TerminSplneni,120) ts, u.OdhadHod, u.RealHod, u.HotovoProcent, "
@@ -23003,15 +23022,20 @@ def _sync_ec_ukoly(_unused=None) -> dict:
                      "dp": s2(row.get("dp")), "zm": s2(row.get("Zmenil")), "dz": s2(row.get("dz"))})
                 lastid = i2(row.get("ID")) or lastid
             nu += len(batch)
+            set_wm("EC_Ukoly", lastid, "run")
             s.commit()
             if len(batch) < BLOCK:
+                set_wm("EC_Ukoly", lastid, "done")
+                s.commit()
+                _u_phase = "done"
                 break
         res["ukoly"] = nu
 
-        # ── ŘEŠITELÉ (vazba úkol↔řešitel, jen pro úkoly v okně) ──
-        lastid = 0
+        # ── ŘEŠITELÉ (jen po dokončení úkolů; watermark resume) ──
+        _u_lid, _u_ph2 = get_wm("EC_Ukoly")
+        lastid, _r_phase = get_wm("EC_UkolyResitelVazba")
         nr = 0
-        while True:
+        while _u_ph2 == "done" and _r_phase != "done":
             sql = ("SELECT TOP %d v.ID, v.IDUkol, v.Resitel, v.Typ, v.TypText, CAST(v.Aktivni AS int) Aktivni, "
                    "v.Stav, v.StavText, v.OdhadHod, v.RealHod, v.Priorita, v.Dulezitost, "
                    "CONVERT(varchar(19),v.DatPrevzeti,120) dprev, CONVERT(varchar(19),v.DatZahajeni,120) dzah, "
@@ -23045,8 +23069,12 @@ def _sync_ec_ukoly(_unused=None) -> dict:
                      "dz": s2(row.get("dz"))})
                 lastid = i2(row.get("ID")) or lastid
             nr += len(batch)
+            set_wm("EC_UkolyResitelVazba", lastid, "run")
             s.commit()
             if len(batch) < BLOCK:
+                set_wm("EC_UkolyResitelVazba", lastid, "done")
+                s.commit()
+                _r_phase = "done"
                 break
         res["resitele"] = nr
 

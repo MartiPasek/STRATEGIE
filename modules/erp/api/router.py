@@ -22496,13 +22496,22 @@ def _edi_process_text(sp, fn, txt):
     Tier 1 (Haiku patch markerů + verzování) → log. Vrací dict s výsledkem."""
     from sqlalchemy import text as _tp
     defs = sp.execute(_tp(
-        "SELECT src_id, partner_nazev, druh_nazev, COALESCE(verze,1) AS verze "
+        "SELECT src_id, partner_nazev, druh_nazev, COALESCE(verze,1) AS verze, klic "
         "FROM tenant.edi_definice WHERE druh_nazev='faktura' AND aktivni ORDER BY src_id")).mappings().all()
     match = None
+    low = txt.lower()
     for d in defs:
+        klic = (d.get("klic") or "").strip()
+        if klic:
+            # explicitní matchovací klíč (Tier 2 / ruční) — autoritativní pro tuto definici
+            if klic.lower() in low:
+                match = d
+                break
+            continue
         token = (d["partner_nazev"] or "").split()[0] if d["partner_nazev"] else ""
-        if token and len(token) >= 3 and token.lower() in txt.lower():
-            match = d; break
+        if token and len(token) >= 3 and token.lower() in low:
+            match = d
+            break
     if not match:
         try:
             sp.execute(_tp(

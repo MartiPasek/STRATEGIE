@@ -21958,6 +21958,67 @@ def _isds_extract_text(rb, fname):
     return ""
 
 
+def _isds_parse_eneschopenka(xmlb):
+    """Rozparsuje ČSSZ eNeschopenka XML (Vznik/Trvani/Ukonceni). Klíč = IdPripadu
+    (stejný pro celý životní cyklus). Vrací dict s údaji o zaměstnanci a DPN."""
+    from xml.etree import ElementTree as ET
+    root = ET.fromstring(xmlb)
+    typ = root.tag.rsplit("}", 1)[-1]
+
+    def g(tag):
+        for ch in root.iter():
+            if ch.tag.rsplit("}", 1)[-1] == tag:
+                return (ch.text or "").strip() if ch.text else ""
+        return ""
+    adr = " ".join([x for x in [g("Ulice"), g("CisloPopisne"), g("NazevObce"),
+                                 g("PostovniSmerovaciCislo")] if x]).strip()
+    t = typ.lower()
+    stav = "ukonceno" if "ukonceni" in t else ("trva" if "trvani" in t else "vznik")
+    return {
+        "typ": typ, "stav": stav,
+        "id_pripadu": g("IdPripadu"), "id_notifikace": g("IdNotifikace"),
+        "cislo_rozhodnuti": g("CisloRozhodnuti"), "profese": g("Poznamka"),
+        "emp_jmeno": g("Jmeno"), "emp_prijmeni": g("Prijmeni"),
+        "emp_rc": g("RodneCislo"), "emp_datum_nar": g("DatumNarozeni") or None,
+        "company_vs": g("VariabilniSymbol"), "company_ico": g("IdentifikacniCisloOrganizace"),
+        "datum_od": g("DatumNeschopenOd") or None, "datum_do": g("DatumNeschopenDo") or None,
+        "druh_nemoci": g("KodDruhuNemoci"), "prac_uraz": (g("PracovniUraz") == "A"),
+        "lekar_nazev": g("NazevPzs"), "lekar_jmeno": g("JmenoLekare"), "adresa": adr,
+    }
+
+
+def _isds_process_eneschopenka(sp, acc, dm_id):
+    """Stáhne eNeschopenku, rozparsuje a UPSERTuje podle IdPripadu (sloučí cyklus)."""
+    from sqlalchemy import text as _tp
+    subj, files = _isds_download(acc, dm_id)
+    xmlf = next((f for f in files if (f["filename"] or "").lower().endswith(".xml")), None)
+    if not xmlf:
+        return {"ok": False, "error": "bez XML přílohy"}
+    d = _isds_parse_eneschopenka(xmlf["bytes"])
+    if not d["id_pripadu"]:
+        return {"ok": False, "error": "bez IdPripadu (jiný typ XML?)"}
+    sp.execute(_tp(
+        "INSERT INTO tenant.eneschopenka (tenant_id,id_pripadu,company_vs,company_ico,emp_jmeno,"
+        "emp_prijmeni,emp_rc,emp_datum_nar,datum_od,datum_do,druh_nemoci,prac_uraz,profese,"
+        "lekar_nazev,lekar_jmeno,adresa,stav,cislo_rozhodnuti,last_id_notifikace,last_typ,updated_at) "
+        "VALUES (2,:idp,:vs,:ico,:jm,:pr,:rc,:dn,:od,:do,:nem,:uraz,:prof,:ln,:lj,:adr,:stav,:cr,:idn,:typ,now()) "
+        "ON CONFLICT (tenant_id,id_pripadu) DO UPDATE SET "
+        "datum_do=COALESCE(EXCLUDED.datum_do, tenant.eneschopenka.datum_do), "
+        "datum_od=COALESCE(tenant.eneschopenka.datum_od, EXCLUDED.datum_od), "
+        "stav=CASE WHEN EXCLUDED.stav='ukonceno' OR tenant.eneschopenka.stav='ukonceno' THEN 'ukonceno' "
+        "ELSE EXCLUDED.stav END, "
+        "druh_nemoci=COALESCE(NULLIF(EXCLUDED.druh_nemoci,''),tenant.eneschopenka.druh_nemoci), "
+        "lekar_nazev=COALESCE(NULLIF(EXCLUDED.lekar_nazev,''),tenant.eneschopenka.lekar_nazev), "
+        "last_id_notifikace=EXCLUDED.last_id_notifikace, last_typ=EXCLUDED.last_typ, updated_at=now()"),
+        {"idp": d["id_pripadu"], "vs": d["company_vs"], "ico": d["company_ico"],
+         "jm": d["emp_jmeno"], "pr": d["emp_prijmeni"], "rc": d["emp_rc"], "dn": d["emp_datum_nar"],
+         "od": d["datum_od"], "do": d["datum_do"], "nem": d["druh_nemoci"], "uraz": d["prac_uraz"],
+         "prof": d["profese"], "ln": d["lekar_nazev"], "lj": d["lekar_jmeno"], "adr": d["adresa"],
+         "stav": d["stav"], "cr": d["cislo_rozhodnuti"], "idn": d["id_notifikace"], "typ": d["typ"]})
+    sp.commit()
+    return {"ok": True, **d}
+
+
 def _isds_classify(subject: str) -> str:
     s = (subject or "").lower()
     if "neschop" in s and "oznam" in s:
@@ -23157,6 +23218,45 @@ async def diag_sql(req: Request) -> JSONResponse:
                     t = _isds_extract_text(files[0]["bytes"], files[0]["filename"])
                     rows.append(["TEXT[0]", (t or "(prázdné / binární)")[:400]])
                 return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
+            if op == "NESCH":
+                dm_id = parts[3]
+                from core.database_data import get_data_session as _gn
+                sn = _gn()
+                try:
+                    r = _isds_process_eneschopenka(sn, acc, dm_id)
+                finally:
+                    sn.close()
+                if not r.get("ok"):
+                    return JSONResponse({"ok": False, "error": r.get("error")})
+                rows = [["IdPripadu", r["id_pripadu"]], ["typ", r["typ"]], ["stav", r["stav"]],
+                        ["zaměstnanec", (r["emp_jmeno"] + " " + r["emp_prijmeni"]).strip()],
+                        ["RČ", r["emp_rc"]], ["od", str(r["datum_od"])], ["do", str(r["datum_do"])],
+                        ["nemoc", r["druh_nemoci"]], ["lékař", r["lekar_nazev"]]]
+                return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
+            if op == "NESCHALL":
+                from core.database_data import get_data_session as _gn
+                from sqlalchemy import text as _tn
+                sn = _gn()
+                ok = 0; err = 0; errs = []
+                try:
+                    msgs = sn.execute(_tn(
+                        "SELECT dm_id FROM fw.isds_message WHERE account_id=:a AND msg_type LIKE 'eneschopenka%' "
+                        "ORDER BY dm_id"), {"a": acct_id}).mappings().all()
+                    for m in msgs:
+                        try:
+                            r = _isds_process_eneschopenka(sn, acc, m["dm_id"])
+                            if r.get("ok"):
+                                ok += 1
+                            else:
+                                err += 1; errs.append(r.get("error", "?"))
+                        except Exception as _e:
+                            err += 1; errs.append(str(_e)[:60])
+                finally:
+                    sn.close()
+                rows = [["zpracováno OK", str(ok)], ["chyby", str(err)]]
+                for e in errs[:5]:
+                    rows.append(["chyba", e])
+                return JSONResponse({"ok": True, "columns": ["k", "v"], "rows": rows, "count": len(rows)})
             if op == "XML":
                 dm_id = parts[3]
                 subj, files = _isds_download(acc, dm_id)

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nový doklad s položkami</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  h1{font-size:19px;margin:0 0 12px;font-weight:800}
+  label{font-size:12px;color:var(--mut)}
+  input,select{background:#0a1226;color:var(--tx);border:1px solid #2b3a5c;border-radius:7px;padding:6px 8px;font-size:13px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:11px;padding:12px;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;color:var(--mut);text-align:left;padding:5px 6px;font-weight:600}
+  td{padding:3px 6px}
+  .num{text-align:right;font-family:ui-monospace,monospace}
+  .btn{background:#13315c;color:#9dc1ff;border:1px solid #4f8ef766;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:700;font-size:13px}
+  .btn.g{background:#1d3a2a;color:#7ee0a8;border-color:#34d39955}
+  .rekap{display:flex;gap:8px;flex-wrap:wrap}
+  .rk{background:#0f1830;border:1px solid var(--bord);border-radius:9px;padding:6px 11px;font-size:12px}
+  .tot{font-size:16px;font-weight:800}
+  .hint{color:var(--mut)} .err{color:#ff8a8a}
+  .del{color:#ff8a8a;cursor:pointer;border:0;background:none;font-size:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📄 Nový doklad s položkami</h1>
+  <div class="card">
+    <div class="row">
+      <div><label>Sborník (řada)</label><br><select id="sbornik" style="min-width:210px"></select></div>
+      <div><label>Datum</label><br><input id="datum" type="date"></div>
+      <div><label>Měna</label><br><select id="mena"><option>CZK</option><option>EUR</option></select></div>
+      <div><label>Kurz</label><br><input id="kurz" readonly style="width:90px" class="num"></div>
+      <div style="flex:1;min-width:160px"><label>Partner / popis</label><br><input id="popis" style="width:100%" placeholder="popis dokladu"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <table id="ptab"><thead><tr>
+      <th style="width:30%">Popis položky</th><th style="width:24%">Předkontace</th>
+      <th>Sazba DPH</th><th class="num">Částka</th><th>= celkem s DPH?</th>
+      <th class="num">Základ</th><th class="num">DPH</th><th class="num">Celkem</th><th></th>
+    </tr></thead><tbody id="pbody"></tbody></table>
+    <button class="btn" id="addP" style="margin-top:8px">+ Položka</button>
+  </div>
+
+  <div class="card">
+    <div style="font-size:12px;color:var(--mut);margin-bottom:6px">Rekapitulace DPH (v měně dokladu)</div>
+    <div class="rekap" id="rekap"></div>
+    <div style="margin-top:10px;display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">
+      <div>Celkem <span class="tot" id="totMena">0</span> <span id="menaLbl">CZK</span></div>
+      <div class="hint">v CZK: <b id="totCzk">0</b> · v EUR: <b id="totEur">0</b></div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;align-items:center">
+    <button class="btn g" id="post">📒 Zaúčtovat doklad</button>
+    <span id="msg" class="hint"></span>
+  </div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();});}
+function nf(n){return (+n||0).toLocaleString("cs-CZ",{minimumFractionDigits:2,maximumFractionDigits:2});}
+var SB=[],PK=[],EURK=null;
+function sbDruh(){var o=document.getElementById("sbornik").selectedOptions[0];return o?o.getAttribute("data-druh"):"";}
+function predOptions(){var d=sbDruh();var m=PK.filter(function(x){return (x.sbornik_druh||"")===d;});
+  return '<option value="">—</option>'+m.map(function(x){return '<option value="'+esc(x.kod)+'">'+esc(x.nazev)+'</option>';}).join("");}
+function addRow(){
+  var tb=document.getElementById("pbody");var tr=document.createElement("tr");
+  tr.innerHTML='<td><input class="pPopis" style="width:100%"></td>'
+    +'<td><select class="pPred" style="width:100%">'+predOptions()+'</select></td>'
+    +'<td><select class="pSazba"><option value="21">21 %</option><option value="12">12 %</option><option value="0">0 %</option></select></td>'
+    +'<td><input class="pCastka num" style="width:100px" type="number" step="0.01"></td>'
+    +'<td style="text-align:center"><input class="pCelkem" type="checkbox" checked></td>'
+    +'<td class="num pZaklad">0</td><td class="num pDph">0</td><td class="num pCelk">0</td>'
+    +'<td><button class="del">×</button></td>';
+  tb.appendChild(tr);
+  tr.querySelector(".del").onclick=function(){tr.remove();recalc();};
+  tr.querySelectorAll("input,select").forEach(function(el){el.addEventListener("input",recalc);});
+  recalc();
+}
+function recalc(){
+  var kurz=parseFloat(document.getElementById("kurz").value)||1;
+  var mena=document.getElementById("mena").value;
+  var rek={},tm=0,tc=0;
+  document.querySelectorAll("#pbody tr").forEach(function(tr){
+    var ca=parseFloat(tr.querySelector(".pCastka").value)||0;
+    var sz=parseFloat(tr.querySelector(".pSazba").value)||0;
+    var celkemMode=tr.querySelector(".pCelkem").checked;
+    var zaklad,dph,celk;
+    if(celkemMode&&sz>0){celk=ca;zaklad=Math.round(ca/(1+sz/100)*100)/100;dph=Math.round((celk-zaklad)*100)/100;}
+    else{zaklad=ca;dph=Math.round(ca*sz/100*100)/100;celk=Math.round((zaklad+dph)*100)/100;}
+    tr.querySelector(".pZaklad").textContent=nf(zaklad);
+    tr.querySelector(".pDph").textContent=nf(dph);
+    tr.querySelector(".pCelk").textContent=nf(celk);
+    tm+=celk; var k=String(sz); rek[k]=rek[k]||{z:0,d:0}; rek[k].z+=zaklad; rek[k].d+=dph;
+  });
+  tc=(mena==="EUR")?tm*kurz:tm;
+  document.getElementById("totMena").textContent=nf(tm);
+  document.getElementById("totCzk").textContent=nf(tc);
+  document.getElementById("totEur").textContent=EURK?nf((mena==="EUR")?tm:(tc/EURK)):"—";
+  document.getElementById("menaLbl").textContent=mena;
+  document.getElementById("rekap").innerHTML=Object.keys(rek).sort().map(function(k){
+    return '<div class="rk">Sazba '+esc(k)+' % · základ <b>'+nf(rek[k].z)+'</b> · DPH <b>'+nf(rek[k].d)+'</b></div>';
+  }).join("")||'<span class="hint">—</span>';
+}
+function loadKurz(){
+  var mena=document.getElementById("mena").value, dat=document.getElementById("datum").value;
+  if(mena==="CZK"){document.getElementById("kurz").value="1";recalc();return;}
+  api("/api/v1/erp/app/uctovani/kurz?mena="+mena+"&datum="+dat).then(function(j){
+    document.getElementById("kurz").value=(j&&j.ok&&j.kurz)?j.kurz:"";
+    if(!(j&&j.ok&&j.kurz))document.getElementById("msg").innerHTML='<span class="err">Chybí kurz '+esc(mena)+' pro tento měsíc — nastav v Kurzech.</span>';
+    recalc();});
+}
+api("/api/v1/erp/app/uctovani/prehled").then(function(j){
+  if(!j||!j.ok){document.getElementById("msg").innerHTML='<span class="err">Nelze načíst (rodič only).</span>';return;}
+  SB=j.sborniky||[];PK=j.predkontace||[];
+  document.getElementById("sbornik").innerHTML=SB.map(function(s){return '<option value="'+esc(s.kod)+'" data-druh="'+esc(s.druh||"")+'">'+esc(s.kod)+' — '+esc(s.nazev)+'</option>';}).join("");
+  document.getElementById("datum").value=new Date().toISOString().slice(0,10);
+  document.getElementById("sbornik").onchange=function(){document.querySelectorAll(".pPred").forEach(function(sel){sel.innerHTML=predOptions();});recalc();};
+  document.getElementById("mena").onchange=loadKurz;
+  document.getElementById("datum").onchange=loadKurz;
+  addRow();loadKurz();
+});
+document.getElementById("addP").onclick=addRow;
+document.getElementById("post").onclick=function(){
+  var polozky=[];
+  document.querySelectorAll("#pbody tr").forEach(function(tr){
+    var ca=parseFloat(tr.querySelector(".pCastka").value)||0; if(!ca)return;
+    polozky.push({popis:tr.querySelector(".pPopis").value,predkontace_kod:tr.querySelector(".pPred").value,
+      sazba_dph:parseFloat(tr.querySelector(".pSazba").value)||0,castka:ca,je_celkem:tr.querySelector(".pCelkem").checked});
+  });
+  if(!polozky.length){document.getElementById("msg").innerHTML='<span class="err">Přidej aspoň jednu položku s částkou.</span>';return;}
+  var body={sbornik_kod:document.getElementById("sbornik").value,datum:document.getElementById("datum").value,
+    mena:document.getElementById("mena").value,popis:document.getElementById("popis").value,polozky:polozky};
+  var btn=this;btn.disabled=true;document.getElementById("msg").textContent="Účtuji…";
+  fetch("/api/v1/erp/app/uctovani/doklad-full",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+    .then(function(r){return r.json();}).then(function(x){
+      btn.disabled=false;
+      if(x&&x.ok){
+        var rk=(x.rekapitulace||[]).map(function(r){return r.sazba+'%: zákl '+nf(r.zaklad)+' DPH '+nf(r.dph);}).join(" · ");
+        document.getElementById("msg").innerHTML='<span style="color:var(--green)">✓ Doklad <b>'+esc(x.cislo)+'</b> zaúčtován · celkem CZK '+nf(x.celkem_czk)+' (EUR '+(x.celkem_eur!=null?nf(x.celkem_eur):"—")+') · '+x.denik_radky+' řádků deníku · '+esc(rk)+'</span>';
+        document.getElementById("pbody").innerHTML="";addRow();
+      } else document.getElementById("msg").innerHTML='<span class="err">'+esc((x&&(x.error||x.detail))||"chyba")+'</span>';
+    });
+};
+</script>
+</body>
+</html>

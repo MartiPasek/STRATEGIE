@@ -968,6 +968,14 @@ def doklad_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/doklad-novy")
+def doklad_novy_page():
+    """Nový účetní doklad s položkami (per-položka DPH + předkontace, dvojí měna,
+    pevný kurz, DPH rekapitulace). Marti 20.6.2026 vícеměnový engine. Parent-only data."""
+    return FileResponse(os.path.join(static_dir, "doklad-novy.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/uctovani")
 def uctovani_page():
     """Účetní modul STRATEGIE — sborníky + předkontace + deník (Marti 20.6.2026,

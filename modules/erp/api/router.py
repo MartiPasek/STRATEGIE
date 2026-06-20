@@ -21523,6 +21523,150 @@ async def uctovani_doklad(req: Request):
         s.close()
 
 
+def _kurz_lookup(s, mena, rok, mesic, company_id=None):
+    """Pevný měsíční kurz z tenant.ucet_kurz (per organizace, fallback default).
+    Vrací (kurz, jednotka). CZK = 1/1."""
+    from sqlalchemy import text as _t
+    if (mena or "CZK") == "CZK":
+        return (1.0, 1)
+    row = s.execute(_t(
+        "SELECT kurz, jednotka FROM tenant.ucet_kurz "
+        "WHERE tenant_id=2 AND mena=:m AND rok=:r AND mesic=:me "
+        "  AND (company_id=:c OR company_id IS NULL) "
+        "ORDER BY company_id NULLS LAST LIMIT 1"),
+        {"m": mena, "r": rok, "me": mesic, "c": company_id}).first()
+    if not row:
+        return (None, 1)
+    return (float(row[0]), int(row[1] or 1))
+
+
+@api_router.post("/app/uctovani/doklad-full")
+async def uctovani_doklad_full(req: Request):
+    """Plný účetní engine — doklad s položkami (per-položka DPH + předkontace),
+    pevný měsíční kurz, dvojí měna (CZK+EUR), DPH rekapitulace, zápis do deníku v CZK.
+    Marti 20.6.2026 (vícеměnový účetní engine; deník CZK, doklad oba pohledy)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    sbornik_kod = (b.get("sbornik_kod") or "").strip()
+    datum = (b.get("datum") or "").strip()
+    mena = (b.get("mena") or "CZK").strip().upper()
+    polozky = b.get("polozky") or []
+    if not sbornik_kod or not datum or not polozky:
+        return JSONResponse({"ok": False, "error": "sbornik_kod + datum + položky povinné"}, status_code=400)
+    company_id = b.get("company_id")
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        try:
+            rok = int(datum[:4]); mesic = int(datum[5:7])
+        except (ValueError, IndexError):
+            return JSONResponse({"ok": False, "error": "datum"}, status_code=400)
+        kurz, jednotka = _kurz_lookup(s, mena, rok, mesic, company_id)
+        if kurz is None:
+            return JSONResponse({"ok": False, "error": "chybí kurz pro " + mena + " " + str(mesic) + "/" + str(rok) + " (nastav v kurzech)"}, status_code=400)
+        eur_kurz, eur_jed = _kurz_lookup(s, "EUR", rok, mesic, company_id)
+        cislo = _next_doklad_cislo(s, sbornik_kod, rok)
+        if not cislo:
+            return JSONResponse({"ok": False, "error": "číselná řada pro sborník/rok neexistuje"}, status_code=400)
+        podpis = s.execute(_t(
+            "SELECT COALESCE(first_name,'uid '||id::text) FROM public.users WHERE id=:u"),
+            {"u": uid}).scalar() or ("uid " + str(uid))
+        dok = s.execute(_t(
+            "INSERT INTO tenant.ucet_doklad (company_id,cislo,sbornik_kod,datum,partner_org,partner_nazev,"
+            "mena,kurz,jednotka,popis,stav,podpis) VALUES "
+            "(:co,:ci,:sb,:dat,:po,:pn,:me,:ku,:je,:pop,'zauctovano',:pod) RETURNING id"),
+            {"co": company_id, "ci": cislo, "sb": sbornik_kod, "dat": datum,
+             "po": b.get("partner_org"), "pn": b.get("partner_nazev"),
+             "me": mena, "ku": kurz, "je": jednotka, "pop": (b.get("popis") or None), "pod": podpis}).scalar()
+
+        def r2(x):
+            return round(float(x or 0), 2)
+
+        celkem_mena = 0.0; celkem_czk = 0.0
+        rekap = {}
+        denik_radky = 0
+        for i, p in enumerate(polozky, 1):
+            try:
+                castka = float(p.get("castka") or 0)
+            except (TypeError, ValueError):
+                castka = 0.0
+            sazba = float(p.get("sazba_dph") or 0)
+            je_celkem = bool(p.get("je_celkem"))
+            if je_celkem and sazba > 0:
+                celkem_m = r2(castka); zaklad_m = r2(castka / (1 + sazba / 100.0)); dph_m = r2(celkem_m - zaklad_m)
+            else:
+                zaklad_m = r2(castka); dph_m = r2(castka * sazba / 100.0); celkem_m = r2(zaklad_m + dph_m)
+            f = kurz / (jednotka or 1)
+            zaklad_czk = r2(zaklad_m * f); dph_czk = r2(dph_m * f); celkem_czk_p = r2(zaklad_czk + dph_czk)
+            predk = p.get("predkontace_kod")
+            s.execute(_t(
+                "INSERT INTO tenant.ucet_doklad_polozka (doklad_id,poradi,popis,predkontace_kod,sazba_dph,"
+                "zaklad_mena,dph_mena,celkem_mena,zaklad_czk,dph_czk,celkem_czk) VALUES "
+                "(:d,:po,:pop,:pk,:sz,:zm,:dm,:cm,:zc,:dc,:cc)"),
+                {"d": dok, "po": i, "pop": p.get("popis"), "pk": predk, "sz": sazba,
+                 "zm": zaklad_m, "dm": dph_m, "cm": celkem_m, "zc": zaklad_czk, "dc": dph_czk, "cc": celkem_czk_p})
+            celkem_mena = r2(celkem_mena + celkem_m); celkem_czk = r2(celkem_czk + celkem_czk_p)
+            k = str(int(sazba)) if sazba == int(sazba) else str(sazba)
+            rk = rekap.setdefault(k, {"zaklad": 0.0, "dph": 0.0})
+            rk["zaklad"] = r2(rk["zaklad"] + zaklad_czk); rk["dph"] = r2(rk["dph"] + dph_czk)
+            # zápis do deníku v CZK přes legy předkontace
+            legs = []
+            if predk:
+                legs = s.execute(_t(
+                    "SELECT ucet_md, ucet_dal, castka_typ FROM tenant.ucet_predkontace_radek "
+                    "WHERE tenant_id=2 AND predkontace_kod=:k ORDER BY poradi"), {"k": predk}).mappings().all()
+            if not legs:
+                legs = [{"ucet_md": None, "ucet_dal": None, "castka_typ": "celkem"}]
+            for lg in legs:
+                amt = zaklad_czk if lg["castka_typ"] == "zaklad" else (dph_czk if lg["castka_typ"] == "dph" else celkem_czk_p)
+                if not amt:
+                    continue
+                s.execute(_t(
+                    "INSERT INTO tenant.ucetni_denik (datum,doklad,ucet_md,ucet_dal,castka,mena,popis,"
+                    "kategorie,zdroj,sbornik_kod,podpis) VALUES "
+                    "(:dat,:dok,:md,:dal,:ca,'CZK',:po,:kat,'doklad',:sb,:pod)"),
+                    {"dat": datum, "dok": cislo, "md": lg["ucet_md"], "dal": lg["ucet_dal"], "ca": amt,
+                     "po": (p.get("popis") or b.get("popis")), "kat": predk, "sb": sbornik_kod, "pod": podpis})
+                denik_radky += 1
+        celkem_eur = r2(celkem_mena) if mena == "EUR" else (r2(celkem_czk / (eur_kurz / (eur_jed or 1))) if eur_kurz else None)
+        s.execute(_t(
+            "UPDATE tenant.ucet_doklad SET celkem_mena=:cm, celkem_czk=:cc, celkem_eur=:ce WHERE id=:id"),
+            {"cm": celkem_mena, "cc": celkem_czk, "ce": celkem_eur, "id": dok})
+        s.commit()
+        return {"ok": True, "cislo": cislo, "celkem_mena": celkem_mena, "celkem_czk": celkem_czk,
+                "celkem_eur": celkem_eur, "mena": mena, "kurz": kurz,
+                "rekapitulace": [{"sazba": k, "zaklad": v["zaklad"], "dph": v["dph"]} for k, v in sorted(rekap.items())],
+                "denik_radky": denik_radky, "podpis": podpis}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/uctovani/kurz")
+def uctovani_kurz(req: Request):
+    """Pevný měsíční kurz pro měnu+datum (z tenant.ucet_kurz). Marti 20.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    q = req.query_params
+    mena = (q.get("mena") or "CZK").strip().upper()
+    datum = (q.get("datum") or "").strip()
+    try:
+        rok = int(datum[:4]); mesic = int(datum[5:7])
+    except (ValueError, IndexError):
+        import datetime as _dt
+        rok = _dt.date.today().year; mesic = _dt.date.today().month
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        kurz, jednotka = _kurz_lookup(s, mena, rok, mesic)
+        return {"ok": True, "mena": mena, "kurz": kurz, "jednotka": jednotka, "rok": rok, "mesic": mesic}
+    finally:
+        s.close()
+
+
 # ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).

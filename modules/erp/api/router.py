@@ -22582,7 +22582,7 @@ def _edi_read_doc(mcp, path):
         if not words and not (txt or "").strip():
             # skenovaný PDF → OCR fallback (poziční dekódování pak funguje i na skenu)
             words = _edi_ocr_words_from_pdf(rb)
-            if words and not txt:
+            if words and not (txt or "").strip():
                 txt = " ".join(w["t"] for w in words)
         return (txt, words, "" if (txt or words) else "PDF bez textu; OCR nevrátil slova (chybí tesseract?)")
     try:

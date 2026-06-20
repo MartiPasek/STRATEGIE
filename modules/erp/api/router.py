@@ -22476,6 +22476,34 @@ def _edi_words_from_pdf(rb):
     return out
 
 
+def _edi_ocr_words_from_pdf(rb, dpi=220, lang="ces+eng"):
+    """OCR slova s NORMALIZOVANÝMI rámečky ze SKENOVANÉHO PDF (PyMuPDF rasterizace
+    + Tesseract). Stejný tvar jako _edi_words_from_pdf → poziční dekódování funguje
+    i na skenech. Vyžaduje na cloudu: pymupdf, pytesseract, tesseract-ocr(+ces), Pillow."""
+    out = []
+    try:
+        import io as _io, fitz as _fitz, pytesseract as _ts
+        from PIL import Image as _Img
+        doc = _fitz.open(stream=rb, filetype="pdf")
+        for pi in range(len(doc)):
+            pix = doc[pi].get_pixmap(dpi=dpi)
+            img = _Img.open(_io.BytesIO(pix.tobytes("png")))
+            W, H = img.size
+            W = W or 1; H = H or 1
+            data = _ts.image_to_data(img, lang=lang, output_type=_ts.Output.DICT)
+            for i, t in enumerate(data["text"]):
+                t = (t or "").strip()
+                if not t:
+                    continue
+                x = data["left"][i]; y = data["top"][i]; w = data["width"][i]; h = data["height"][i]
+                x0 = x / W; x1 = (x + w) / W; y0 = y / H; y1 = (y + h) / H
+                out.append({"t": t, "x0": x0, "x1": x1, "y0": y0, "y1": y1,
+                            "cx": (x0 + x1) / 2, "cy": (y0 + y1) / 2, "page": pi + 1})
+    except Exception:
+        pass
+    return out
+
+
 def _edi_parse_pozicni(words, rules):
     """Poziční dekódování (Martiho vize 20.6.2026): místo hledání markeru čteme,
     co leží v ZÓNĚ (x,y,š,v relativně 0..1). Volitelná kotva (anchor_text) → zóna
@@ -22534,7 +22562,12 @@ def _edi_read_doc(mcp, path):
         except Exception:
             txt = ""
         words = _edi_words_from_pdf(rb)
-        return (txt, words, "" if (txt or words) else "PDF bez textu (skenovaný → OCR)")
+        if not words and not (txt or "").strip():
+            # skenovaný PDF → OCR fallback (poziční dekódování pak funguje i na skenu)
+            words = _edi_ocr_words_from_pdf(rb)
+            if words and not txt:
+                txt = " ".join(w["t"] for w in words)
+        return (txt, words, "" if (txt or words) else "PDF bez textu; OCR nevrátil slova (chybí tesseract?)")
     try:
         return rb.decode("utf-8"), [], ""
     except Exception:
@@ -23011,6 +23044,27 @@ async def diag_sql(req: Request) -> JSONResponse:
                                      "length": len(txt), "content": txt})
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
+    # @@OCRINFO → zjistí dostupnost OCR stacku na cloudu (pro produkční instalaci)
+    if sql.upper().startswith("@@OCRINFO"):
+        rows = []
+        for mod in ("fitz", "pytesseract", "PIL"):
+            try:
+                m = __import__(mod)
+                rows.append([mod, "OK", str(getattr(m, "__version__", getattr(m, "version", "?")))[:30]])
+            except Exception as e:
+                rows.append([mod, "CHYBÍ", str(e)[:40]])
+        try:
+            import pytesseract as _ts
+            rows.append(["tesseract-bin", "OK", str(_ts.get_tesseract_version())[:30]])
+            try:
+                rows.append(["jazyky", "OK", ", ".join(_ts.get_languages(config=""))[:60]])
+            except Exception as le:
+                rows.append(["jazyky", "?", str(le)[:40]])
+        except Exception as e:
+            rows.append(["tesseract-bin", "CHYBÍ", str(e)[:40]])
+        return JSONResponse({"ok": True, "columns": ["komponenta", "stav", "detail"],
+                             "rows": rows, "count": len(rows)})
 
     # @@WORDS <cesta> → slova faktury s normalizovanými rámečky (návrh pozičních zón, Tier 2)
     if sql.upper().startswith("@@WORDS"):

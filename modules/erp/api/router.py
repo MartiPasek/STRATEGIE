@@ -22502,8 +22502,9 @@ def _edi_parse_pozicni(words, rules):
         inside.sort(key=lambda w: (round(w["cy"], 3), w["cx"]))
         val = " ".join((w["t"] or "") for w in inside).strip()
         if r.get("je_datum"):
-            m = _re.search(r"\d{1,2}[.\-/]\s?\d{1,2}[.\-/]\s?\d{2,4}", val)
-            val = m.group(0).replace(" ", "") if m else val
+            # datum bývá rozsekané na znaky (sloupcový PDF) → před regexem vymaž mezery
+            m = _re.search(r"\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}", val.replace(" ", ""))
+            val = m.group(0) if m else val
         hdr[fn] = val
     return {"hlavicka": hdr, "polozky": []}
 

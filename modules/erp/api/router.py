@@ -21164,10 +21164,91 @@ def parovani_prehled(req: Request):
             "r.specificky_symbol, "
             "(SELECT COALESCE(SUM(u.castka_faktura),0) FROM tenant.ec_bank_vypis_uhrada u WHERE u.id_radek=r.src_id) spar_castka, "
             "(SELECT string_agg(DISTINCT u.cislo_zakazky,', ') FROM tenant.ec_bank_vypis_uhrada u "
-            "  WHERE u.id_radek=r.src_id AND COALESCE(u.cislo_zakazky,'')<>'') zakazky "
-            "FROM tenant.ec_bank_vypis_radek r WHERE " + " AND ".join(where) +
+            "  WHERE u.id_radek=r.src_id AND COALESCE(u.cislo_zakazky,'')<>'') zakazky, "
+            "pr.nazev AS predpis, pr.kategorie AS kategorie, pr.ucet_md, pr.ucet_dal "
+            "FROM tenant.ec_bank_vypis_radek r "
+            "LEFT JOIN LATERAL (SELECT p.nazev,p.kategorie,p.ucet_md,p.ucet_dal FROM tenant.bank_predpis p "
+            "  WHERE p.aktivni AND COALESCE(r.pocet_uhrad,0)=0 "
+            "   AND (p.match_ucet IS NULL OR r.cislo_uctu LIKE p.match_ucet) "
+            "   AND (p.match_kod_banky IS NULL OR r.kod_banky=p.match_kod_banky) "
+            "   AND (p.match_ks IS NULL OR r.konstantni_symbol=p.match_ks) "
+            "   AND (p.match_text IS NULL OR (COALESCE(r.nazev_org,'')||' '||COALESCE(r.popis_platby,'')||' '||COALESCE(r.popis,'')) ILIKE '%'||p.match_text||'%') "
+            "  ORDER BY p.priorita LIMIT 1) pr ON true "
+            "WHERE " + " AND ".join(where) +
             " ORDER BY r.datum_splatnosti DESC NULLS LAST, r.src_id DESC LIMIT :lim"), params).mappings().all()
         return {"ok": True, "summary": summary, "radky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+# Rozpoznávací podmínka template (řádek ↔ bank_predpis) — sdílená napříč endpointy
+_PREDPIS_MATCH = (
+    " p.aktivni AND COALESCE(r.pocet_uhrad,0)=0 "
+    " AND (p.match_ucet IS NULL OR r.cislo_uctu LIKE p.match_ucet) "
+    " AND (p.match_kod_banky IS NULL OR r.kod_banky=p.match_kod_banky) "
+    " AND (p.match_ks IS NULL OR r.konstantni_symbol=p.match_ks) "
+    " AND (p.match_vs IS NULL OR r.variabilni_symbol=p.match_vs) "
+    " AND (p.match_text IS NULL OR (COALESCE(r.nazev_org,'')||' '||COALESCE(r.popis_platby,'')||' '||COALESCE(r.popis,'')) ILIKE '%'||p.match_text||'%') ")
+
+
+@api_router.get("/app/parovani/predpisy")
+def parovani_predpisy(req: Request):
+    """Template daní/poplatků: seznam pravidel + pokrytí (kolik nespárovaných řádků
+    každé pravidlo rozpozná). Marti 20.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        pr = s.execute(_t(
+            "SELECT id,nazev,kategorie,smer,match_ucet,match_kod_banky,match_ks,match_vs,match_text,"
+            "ucet_md,ucet_dal,stredisko,vyzaduje_schvaleni,priorita,aktivni,poznamka "
+            "FROM tenant.bank_predpis ORDER BY priorita, id")).mappings().all()
+        cov = s.execute(_t(
+            "WITH m AS (SELECT r.castka, (SELECT p.id FROM tenant.bank_predpis p WHERE " + _PREDPIS_MATCH +
+            " ORDER BY p.priorita LIMIT 1) pid FROM tenant.ec_bank_vypis_radek r "
+            " WHERE COALESCE(r.pocet_uhrad,0)=0) "
+            "SELECT pid, COUNT(*) c, ROUND(SUM(castka)) suma FROM m GROUP BY pid")).all()
+        covmap = {int(c[0]): {"pocet": int(c[1] or 0), "suma": float(c[2] or 0)} for c in cov if c[0] is not None}
+        nerozp = next(({"pocet": int(c[1] or 0), "suma": float(c[2] or 0)} for c in cov if c[0] is None),
+                      {"pocet": 0, "suma": 0})
+        out = []
+        for p in pr:
+            d = dict(p); d["coverage"] = covmap.get(int(p["id"]), {"pocet": 0, "suma": 0})
+            out.append(d)
+        return {"ok": True, "pravidla": out, "nerozpoznano": nerozp}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/parovani/predpis/save")
+async def parovani_predpis_save(req: Request):
+    """Uložit/upravit pravidlo template (parent only)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        cols = ["nazev", "kategorie", "smer", "match_ucet", "match_kod_banky", "match_ks",
+                "match_vs", "match_text", "ucet_md", "ucet_dal", "stredisko",
+                "vyzaduje_schvaleni", "priorita", "aktivni", "poznamka"]
+        vals = {c: b.get(c) for c in cols}
+        vals["who"] = "uid:" + str(uid)
+        if b.get("id"):
+            vals["id"] = b["id"]
+            s.execute(_t("UPDATE tenant.bank_predpis SET " +
+                         ", ".join(c + "=:" + c for c in cols) +
+                         ", updated_by_text=:who, updated_at=now() WHERE id=:id"), vals)
+        else:
+            s.execute(_t("INSERT INTO tenant.bank_predpis (" + ",".join(cols) + ",updated_by_text) VALUES (" +
+                         ",".join(":" + c for c in cols) + ",:who)"), vals)
+        s.commit()
+        return {"ok": True}
     finally:
         s.close()
 

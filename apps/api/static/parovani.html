@@ -30,6 +30,7 @@
   .badge{font-size:11px;padding:1px 8px;border-radius:8px;font-weight:700}
   .b-ok{background:rgba(52,211,153,.16);color:var(--green);border:1px solid #34d39955}
   .b-ne{background:rgba(251,191,36,.14);color:var(--amber);border:1px solid #fbbf2455}
+  .b-kat{background:rgba(79,142,247,.16);color:#9dc1ff;border:1px solid #4f8ef766}
   .eur{color:#c4b5fd;font-weight:700}
   .hint{color:var(--mut)} .err{color:var(--red);padding:18px}
 </style>
@@ -37,18 +38,30 @@
 <body>
 <div class="wrap">
   <h1>🏦 Párování plateb a výpisů</h1>
-  <div class="sub">Bankovní výpisy ↔ úhrady (zrcadlo Centrály). Stav párování, VS, protistrana, měna, napojení na fakturu/zakázku. Základ pro vlastní párovací engine.</div>
-  <div class="stats" id="stats"><span class="hint">Načítám…</span></div>
-  <div class="toolbar">
-    <span class="seg" id="seg">
-      <button data-s="vse" class="on">Vše</button>
-      <button data-s="ne">Nespárované</button>
-      <button data-s="spar">Spárované</button>
-    </span>
-    <select id="mena"><option value="">Měna: vše</option><option value="CZK">CZK</option><option value="EUR">EUR</option></select>
-    <input id="q" placeholder="Hledat protistranu / VS / zakázku…" style="flex:1;min-width:180px">
+  <div class="sub">Bankovní výpisy ↔ úhrady (zrcadlo Centrály). Faktury se párují přes VS+částku; daně/poplatky/mzdy přes template → kategorie + účet MD/DAL → schválit → zaúčtovat.</div>
+  <span class="seg" id="tab" style="margin-bottom:12px">
+    <button data-t="vypisy" class="on">📋 Výpisy</button>
+    <button data-t="template">🧾 Daně &amp; poplatky</button>
+  </span>
+
+  <div id="view-vypisy">
+    <div class="stats" id="stats"><span class="hint">Načítám…</span></div>
+    <div class="toolbar">
+      <span class="seg" id="seg">
+        <button data-s="vse" class="on">Vše</button>
+        <button data-s="ne">Nespárované</button>
+        <button data-s="spar">Spárované</button>
+      </span>
+      <select id="mena"><option value="">Měna: vše</option><option value="CZK">CZK</option><option value="EUR">EUR</option></select>
+      <input id="q" placeholder="Hledat protistranu / VS / zakázku…" style="flex:1;min-width:180px">
+    </div>
+    <div id="list"><div class="hint">Načítám…</div></div>
   </div>
-  <div id="list"><div class="hint">Načítám…</div></div>
+
+  <div id="view-template" style="display:none">
+    <div class="sub">Pravidla rozpoznávají nefaktůrové platby podle účtu protistrany + KS + textu a přiřadí kategorii + účetní předpis. Pokrytí = kolik nespárovaných řádků pravidlo zachytí.</div>
+    <div id="tlist"><div class="hint">Načítám…</div></div>
+  </div>
 </div>
 <script>
 function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;
@@ -70,24 +83,55 @@ function load(){
       +'<div class="st"><div class="k">Nesp. částka</div><div class="v" style="font-size:15px">'+kc(s.nesparovano_castka,"")+'</div></div>'
       +'<div class="st"><div class="k">EUR řádků</div><div class="v eur">'+(s.eur||0).toLocaleString("cs-CZ")+'</div></div>';
     var rows=j.radky||[];
-    var h='<table><thead><tr><th class="l">Datum</th><th class="l">Protistrana</th><th class="l">VS</th><th>Částka</th><th>Měna</th><th class="l">Stav</th><th>Spárováno</th><th class="l">Zakázka</th></tr></thead><tbody>';
+    var h='<table><thead><tr><th class="l">Datum</th><th class="l">Protistrana</th><th class="l">VS</th><th>Částka</th><th>Měna</th><th class="l">Stav</th><th class="l">Napojení / kategorie</th></tr></thead><tbody>';
     rows.forEach(function(r){
-      var ok=(+r.pu>0);
+      var ok=(+r.pu>0), napoj="";
+      if(ok){ napoj=kc(r.spar_castka,"")+(r.zakazky?(' <span class="hint">· '+esc(r.zakazky)+'</span>'):''); }
+      else if(r.kategorie){ napoj='<span class="badge b-kat">'+esc(r.predpis||r.kategorie)+'</span>'
+              +(r.ucet_md?(' <span class="hint">'+esc(r.ucet_md)+'/'+esc(r.ucet_dal||"")+'</span>'):''); }
       h+='<tr><td class="l">'+esc(r.dat||"")+'</td>'
         +'<td class="l">'+esc(r.nazev_org||"—")+'</td>'
         +'<td class="l">'+esc(r.variabilni_symbol||"")+(r.specificky_symbol?(' <span class="hint">SS '+esc(r.specificky_symbol)+'</span>'):'')+'</td>'
         +'<td>'+kc(r.castka,"")+'</td>'
         +'<td'+(r.mena==="EUR"?' class="eur"':'')+'>'+esc(r.mena||"")+'</td>'
-        +'<td class="l"><span class="badge '+(ok?"b-ok":"b-ne")+'">'+(ok?("✓ "+r.pu+"×"):"○ ne")+'</span></td>'
-        +'<td>'+(ok?kc(r.spar_castka,""):"")+'</td>'
-        +'<td class="l">'+esc(r.zakazky||"")+'</td></tr>';
+        +'<td class="l"><span class="badge '+(ok?"b-ok":(r.kategorie?"b-kat":"b-ne"))+'">'+(ok?("✓ "+r.pu+"×"):(r.kategorie?"≈ template":"○ ne"))+'</span></td>'
+        +'<td class="l">'+napoj+'</td></tr>';
     });
-    if(!rows.length) h+='<tr><td colspan="8" class="hint" style="padding:16px">Žádné řádky pro tento filtr.</td></tr>';
+    if(!rows.length) h+='<tr><td colspan="7" class="hint" style="padding:16px">Žádné řádky pro tento filtr.</td></tr>';
     h+='</tbody></table>';
     if(rows.length>=150) h+='<div class="hint" style="margin-top:8px">Zobrazeno prvních '+rows.length+' — zužte filtrem.</div>';
     document.getElementById("list").innerHTML=h;
   });
 }
+function loadTemplate(){
+  document.getElementById("tlist").innerHTML='<div class="hint">Načítám…</div>';
+  api("/api/v1/erp/app/parovani/predpisy").then(function(j){
+    if(!j||!j.ok){document.getElementById("tlist").innerHTML='<div class="err">'+esc((j&&(j.error||j.detail))||"Nelze načíst")+'</div>';return;}
+    var nr=j.nerozpoznano||{pocet:0,suma:0};
+    var h='<table><thead><tr><th class="l">Pravidlo</th><th class="l">Kategorie</th><th class="l">Klíč</th><th class="l">Účet MD/DAL</th><th>Pokrytí</th><th>Částka</th><th class="l">Schvál.</th></tr></thead><tbody>';
+    (j.pravidla||[]).forEach(function(p){
+      var c=p.coverage||{pocet:0,suma:0};
+      var key=[p.match_ucet&&("úč "+p.match_ucet),p.match_ks&&("KS "+p.match_ks),p.match_text&&('"'+p.match_text+'"')].filter(Boolean).join(" · ");
+      h+='<tr><td class="l">'+esc(p.nazev)+(p.aktivni?"":" <span class=hint>(vyp.)</span>")+'</td>'
+        +'<td class="l"><span class="badge b-kat">'+esc(p.kategorie)+'</span></td>'
+        +'<td class="l hint" style="font-size:12px">'+esc(key||"—")+'</td>'
+        +'<td class="l">'+esc(p.ucet_md||"?")+' / '+esc(p.ucet_dal||"?")+'</td>'
+        +'<td><b>'+(c.pocet||0)+'</b></td>'
+        +'<td>'+kc(c.suma,"")+'</td>'
+        +'<td class="l">'+(p.vyzaduje_schvaleni?"ano":"<span style=color:var(--green)>auto</span>")+'</td></tr>';
+    });
+    h+='<tr><td class="l" style="color:var(--amber)">(nerozpoznáno)</td><td></td><td class="l hint">faktury → zrcadlo faktur, karty, ostatní</td><td></td><td><b>'+(nr.pocet||0)+'</b></td><td>'+kc(nr.suma,"")+'</td><td></td></tr>';
+    h+='</tbody></table><div class="hint" style="margin-top:8px">Účty MD/DAL jsou návrh „k potvrzení účetní". Workflow návrh→schválit→zaúčtovat do deníku = další krok.</div>';
+    document.getElementById("tlist").innerHTML=h;
+  });
+}
+Array.prototype.forEach.call(document.querySelectorAll("#tab button"),function(b){b.onclick=function(){
+  var t=b.getAttribute("data-t");
+  Array.prototype.forEach.call(document.querySelectorAll("#tab button"),function(x){x.classList.toggle("on",x===b);});
+  document.getElementById("view-vypisy").style.display=(t==="vypisy")?"":"none";
+  document.getElementById("view-template").style.display=(t==="template")?"":"none";
+  if(t==="template") loadTemplate();
+};});
 Array.prototype.forEach.call(document.querySelectorAll("#seg button"),function(b){b.onclick=function(){
   _stav=b.getAttribute("data-s");
   Array.prototype.forEach.call(document.querySelectorAll("#seg button"),function(x){x.classList.toggle("on",x===b);});

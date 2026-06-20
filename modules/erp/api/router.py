@@ -21958,6 +21958,43 @@ def _isds_extract_text(rb, fname):
     return ""
 
 
+def _isds_attach_kind(fn, txt, subject):
+    """Klasifikace přílohy datovky pro archiv/routing."""
+    s = ((fn or "") + " " + (subject or "") + " " + ((txt or "")[:500])).lower()
+    if "neschop" in s or "dpn" in s:
+        return "neschopenka"
+    if "faktura" in s or "daňový doklad" in s or "danovy doklad" in s or "zálohová" in s:
+        return "faktura"
+    if (fn or "").lower().endswith(".xml"):
+        return "xml"
+    return "jine"
+
+
+def _isds_process_attachments(sp, acc, dm_id, subject=""):
+    """Stáhne přílohy zprávy, pro-OCR-uje text (i skeny) a uloží do fw.isds_attachment."""
+    from sqlalchemy import text as _tp
+    import os.path as _op
+    subj, files = _isds_download(acc, dm_id)
+    subject = subject or subj
+    n = 0; kinds = {}
+    for f in files:
+        fn = f["filename"] or "priloha.bin"
+        ext = (_op.splitext(fn)[1] or "").lstrip(".").lower()
+        txt = _isds_extract_text(f["bytes"], fn) or ""
+        kind = _isds_attach_kind(fn, txt, subject)
+        kinds[kind] = kinds.get(kind, 0) + 1
+        sp.execute(_tp(
+            "INSERT INTO fw.isds_attachment (account_id,dm_id,filename,ext,size_b,kind,text_obsah,ocr) "
+            "VALUES (:a,:d,:fn,:ex,:sz,:k,:tx,:ocr) "
+            "ON CONFLICT (account_id,dm_id,filename) DO UPDATE SET "
+            "text_obsah=EXCLUDED.text_obsah, kind=EXCLUDED.kind, size_b=EXCLUDED.size_b, ocr=EXCLUDED.ocr"),
+            {"a": acc["id"], "d": dm_id, "fn": fn, "ex": ext, "sz": len(f["bytes"]),
+             "k": kind, "tx": txt[:200000], "ocr": (ext == "pdf" and bool(txt))})
+        n += 1
+    sp.commit()
+    return {"ok": True, "count": n, "kinds": kinds, "subject": subject}
+
+
 def _isds_parse_eneschopenka(xmlb):
     """Rozparsuje ČSSZ eNeschopenka XML (Vznik/Trvani/Ukonceni). Klíč = IdPripadu
     (stejný pro celý životní cyklus). Vrací dict s údaji o zaměstnanci a DPN."""
@@ -23247,6 +23284,38 @@ async def diag_sql(req: Request) -> JSONResponse:
                     t = _isds_extract_text(files[0]["bytes"], files[0]["filename"])
                     rows.append(["TEXT[0]", (t or "(prázdné / binární)")[:400]])
                 return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
+            if op == "DOC":
+                dm_id = parts[3]
+                from core.database_data import get_data_session as _gd
+                sd = _gd()
+                try:
+                    r = _isds_process_attachments(sd, acc, dm_id)
+                finally:
+                    sd.close()
+                rows = [["soubory", str(r["count"])], ["druhy", str(r.get("kinds"))],
+                        ["předmět", (r.get("subject") or "")[:80]]]
+                return JSONResponse({"ok": True, "columns": ["k", "v"], "rows": rows, "count": len(rows)})
+            if op == "DOCALL":
+                from core.database_data import get_data_session as _gd
+                from sqlalchemy import text as _td
+                sd = _gd()
+                done = 0; fil = 0; errs = []
+                try:
+                    msgs = sd.execute(_td(
+                        "SELECT dm_id, subject FROM fw.isds_message WHERE account_id=:a ORDER BY dm_id"),
+                        {"a": acct_id}).mappings().all()
+                    for m in msgs:
+                        try:
+                            r = _isds_process_attachments(sd, acc, m["dm_id"], m["subject"] or "")
+                            done += 1; fil += r["count"]
+                        except Exception as _e:
+                            errs.append(str(_e)[:50])
+                finally:
+                    sd.close()
+                rows = [["zpráv zpracováno", str(done)], ["příloh uloženo", str(fil)], ["chyby", str(len(errs))]]
+                for e in errs[:4]:
+                    rows.append(["chyba", e])
+                return JSONResponse({"ok": True, "columns": ["k", "v"], "rows": rows, "count": len(rows)})
             if op == "NESCH":
                 dm_id = parts[3]
                 from core.database_data import get_data_session as _gn

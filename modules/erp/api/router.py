@@ -23170,8 +23170,11 @@ async def diag_sql(req: Request) -> JSONResponse:
                 r = _rq.post(_ISDS_BASE + "/dz", data=env.encode("utf-8"),
                              headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
                              auth=(login, pwd), timeout=40)
-                return JSONResponse({"ok": True, "columns": ["http", "raw"],
-                                     "rows": [[str(r.status_code), (r.text or "")[:1800]]], "count": 1})
+                txt = r.text or ""
+                rows = [["http", str(r.status_code)]]
+                for i in range(0, min(len(txt), 4000), 170):
+                    rows.append(["raw", txt[i:i + 170]])
+                return JSONResponse({"ok": True, "columns": ["k", "v"], "rows": rows, "count": len(rows)})
             return JSONResponse({"ok": False, "error": "@@ISDS LIST|MSG|RAW <acct_id> ..."})
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})

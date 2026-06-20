@@ -968,6 +968,14 @@ def doklad_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/uctovani")
+def uctovani_page():
+    """Účetní modul STRATEGIE — sborníky + předkontace + deník (Marti 20.6.2026,
+    replikace Heliosího účtovacího modelu k nám). Parent-only data."""
+    return FileResponse(os.path.join(static_dir, "uctovani.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/parovani")
 def parovani_page():
     """Přehled párování bank výpisů ↔ úhrad (Marti 20.6.2026). Nad zrcadlenými daty.

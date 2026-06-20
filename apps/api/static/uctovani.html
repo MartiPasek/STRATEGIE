@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Účetní modul STRATEGIE</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;
+        --accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14.5px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:18px}
+  h1{font-size:21px;margin:0 0 3px;font-weight:800}
+  h2{font-size:14px;color:var(--mut);margin:16px 0 7px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:14px}
+  .stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .st{background:var(--card);border:1px solid var(--bord);border-radius:11px;padding:9px 14px;min-width:110px}
+  .st .k{color:var(--mut);font-size:11px}.st .v{font-weight:800;font-size:19px;margin-top:1px}
+  .grp{margin-bottom:14px}
+  .gh{font-size:12px;color:var(--accent);font-weight:700;margin-bottom:5px;text-transform:uppercase}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{background:var(--card);border:1px solid var(--bord);border-radius:9px;padding:5px 10px;font-size:12.5px}
+  .chip b{color:var(--tx)} .chip .kod{color:var(--mut);font-family:ui-monospace,monospace;margin-right:5px}
+  .chip.off{opacity:.45}
+  a.btn{display:inline-block;background:#13315c;color:#9dc1ff;border:1px solid #4f8ef766;border-radius:9px;
+        padding:8px 14px;text-decoration:none;font-weight:700;margin-right:8px;font-size:13px}
+  .hint{color:var(--mut)} .err{color:#ff8a8a;padding:18px}
+  .note{background:rgba(79,142,247,.08);border:1px solid #4f8ef733;border-radius:10px;padding:10px 13px;font-size:12.5px;color:var(--mut);margin:14px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📒 Účetní modul STRATEGIE</h1>
+  <div class="sub">Replikovaný účtovací systém: <b>sborníky</b> (knihy deníku) + <b>předkontace</b> (účtovací pravidla) + <b>deník</b>. Clean break — STRATEGIE účtuje přes vlastní předkontace; z Heliosu zbude soustava účtů + mzdy.</div>
+
+  <div class="stats" id="stats"><span class="hint">Načítám…</span></div>
+
+  <div style="margin:12px 0">
+    <a class="btn" href="/parovani" onclick="return nav(event,'/parovani')">🏦 Párování & deník</a>
+    <a class="btn" href="/parovani" onclick="return nav(event,'/parovani')">🧾 Předkontace (daně/poplatky)</a>
+  </div>
+
+  <h2>Sborníky — knihy deníku</h2>
+  <div id="sborniky"><div class="hint">Načítám…</div></div>
+
+  <div class="note">📌 Hranice mezd: legislativa mezd (výpočet, ČSSZ, pojišťovny, daň, ELDP) zůstává v Heliosu; po měsíční uzávěrce se odvody a analytika dotahují k nám. Platební stranu odvodů už účtuje náš bankovní template do deníku.</div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();}).catch(function(){return{ok:false};});}
+function nav(e,u){ if(window.parent&&window.parent!==window){return true;} return true; }
+var DRUH={banka:"🏦 Banky",pokladna:"💵 Pokladny",karta:"💳 Karty",mzdy:"👥 Mzdy",
+  fp:"📥 Faktury přijaté",fv:"📤 Faktury vydané",interni:"🔁 Interní",zapocet:"⚖️ Zápočty",
+  skonto:"% Skonta",rezie:"🧮 Režie",majetek:"🏗️ Majetek",sklad:"📦 Sklad",
+  stav:"📊 Stavy",vnitronaklad:"🏷️ Vnitronáklady",dobropis:"↩️ Dobropisy"};
+var ORDER=["banka","pokladna","karta","fp","fv","mzdy","interni","zapocet","rezie","skonto","majetek","sklad","vnitronaklad","dobropis","stav"];
+api("/api/v1/erp/app/uctovani/prehled").then(function(j){
+  if(!j||!j.ok){document.getElementById("sborniky").innerHTML='<div class="err">'+esc((j&&(j.error||j.detail))||"Nelze načíst")+'</div>';return;}
+  var d=j.denik||{}, p=j.predkontace||{};
+  document.getElementById("stats").innerHTML=
+    '<div class="st"><div class="k">Sborníků</div><div class="v">'+(j.sborniky||[]).length+'</div></div>'
+    +'<div class="st"><div class="k">Předkontace</div><div class="v">'+(p.pocet||0)+' <span style="font-size:12px;color:var(--green)">('+(p.auto||0)+' auto)</span></div></div>'
+    +'<div class="st"><div class="k">Zápisů v deníku</div><div class="v">'+(d.pocet||0).toLocaleString("cs-CZ")+'</div></div>'
+    +'<div class="st"><div class="k">Obrat deníku</div><div class="v" style="font-size:15px">'+(d.obrat||0).toLocaleString("cs-CZ",{maximumFractionDigits:0})+' Kč</div></div>'
+    +'<div class="st"><div class="k">Podpis Marti-AI</div><div class="v" style="font-size:15px;color:#9dc1ff">'+(d.marti_ai||0).toLocaleString("cs-CZ")+'</div></div>';
+  var by={}; (j.sborniky||[]).forEach(function(s){(by[s.druh||"jine"]=by[s.druh||"jine"]||[]).push(s);});
+  var keys=ORDER.filter(function(k){return by[k];}).concat(Object.keys(by).filter(function(k){return ORDER.indexOf(k)<0;}));
+  var h="";
+  keys.forEach(function(k){
+    h+='<div class="grp"><div class="gh">'+esc(DRUH[k]||k)+' ('+by[k].length+')</div><div class="chips">';
+    by[k].forEach(function(s){
+      h+='<span class="chip'+(s.aktivni?"":" off")+'"><span class="kod">'+esc(s.kod)+'</span><b>'+esc(s.nazev)+'</b></span>';
+    });
+    h+='</div></div>';
+  });
+  document.getElementById("sborniky").innerHTML=h;
+});
+</script>
+</body>
+</html>

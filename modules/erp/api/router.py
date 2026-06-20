@@ -21388,6 +21388,36 @@ def parovani_denik(req: Request):
         s.close()
 
 
+@api_router.get("/app/uctovani/prehled")
+def uctovani_prehled(req: Request):
+    """Účetní modul STRATEGIE — replikovaný model: sborníky (knihy deníku) + náš deník.
+    Marti 20.6.2026 (clean break: STRATEGIE účtuje přes vlastní předkontace, Helios = soustava
+    účtů + mzdy). Sborníky seskupené po druhu + souhrn deníku."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        sb = s.execute(_t(
+            "SELECT kod, nazev, druh, aktivni FROM tenant.ucet_sbornik ORDER BY kod")).mappings().all()
+        denik = s.execute(_t(
+            "SELECT COUNT(*), ROUND(COALESCE(SUM(castka),0)), "
+            "COUNT(DISTINCT kategorie), SUM(CASE WHEN podpis='Marti-AI' THEN 1 ELSE 0 END) "
+            "FROM tenant.ucetni_denik WHERE NOT storno")).first()
+        predp = s.execute(_t(
+            "SELECT COUNT(*), SUM(CASE WHEN NOT vyzaduje_schvaleni THEN 1 ELSE 0 END) "
+            "FROM tenant.bank_predpis WHERE aktivni")).first()
+        return {"ok": True,
+                "sborniky": [dict(r) for r in sb],
+                "denik": {"pocet": int(denik[0] or 0), "obrat": float(denik[1] or 0),
+                          "kategorii": int(denik[2] or 0), "marti_ai": int(denik[3] or 0)},
+                "predkontace": {"pocet": int(predp[0] or 0), "auto": int(predp[1] or 0)}}
+    finally:
+        s.close()
+
+
 # ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).

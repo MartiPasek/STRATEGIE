@@ -949,6 +949,15 @@ def doklad_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/digitalizace")
+def digitalizace_page():
+    """Digitalizace a migrace EUROSOFTU — migracni registr EC_ tabulek (Marti 20.6.2026).
+    Domeny + tabulky, trideni dle priority a % pripravenosti, odpovedni, poznamky.
+    Data z /app/mig/*. Parent-only. Funguje desktop i mobil."""
+    return FileResponse(os.path.join(static_dir, "migrace.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/doc-print")
 def doc_print_page():
     """Smlouva/dokument k tisku na PC přes handoff mobil→PC (Marti 19.6.2026).

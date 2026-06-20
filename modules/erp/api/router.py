@@ -20583,6 +20583,251 @@ def open_on_pc_poll(req: Request):
 
 
 # ════════════════════════════════════════════════════════════════════════
+# DIGITALIZACE A MIGRACE EUROSOFTU — migrační registr (Marti 20.6.2026).
+# tenant.mig_domain (domény/oddělení) + tenant.mig_item (654 EC_ tabulek) +
+# tenant.mig_note (poznámky). Třídění dle priority a % připravenosti, odpovědný
+# člověk za oddělení, poznámky. Parent-only (v1). Data v tenantu 2 (EUROSOFT).
+# ════════════════════════════════════════════════════════════════════════
+_MIG_STATUSY = ["nove", "v_analyze", "rozhodnuto", "migruje", "hotovo", "vyrazeno"]
+
+
+def _mig_uname(s, uid):
+    """Jméno aktéra pro audit (updated_by_text)."""
+    from sqlalchemy import text as _t
+    try:
+        r = s.execute(_t("SELECT COALESCE(NULLIF(trim(coalesce(first_name,'')||' '||"
+                         "coalesce(last_name,'')),''), login_name, '#'||id::text) "
+                         "FROM public.users WHERE id=:u"), {"u": uid}).scalar()
+        return r or ("#" + str(uid))
+    except Exception:
+        return "#" + str(uid)
+
+
+@api_router.get("/app/mig/overview")
+def mig_overview(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        # agregace položek po doménách
+        ag = {r[0]: r for r in s.execute(_t(
+            "SELECT domain_code, COUNT(*) n, COALESCE(SUM(ec_rows),0) rows, "
+            "SUM(CASE WHEN is_cleanup THEN 1 ELSE 0 END) cleanup, "
+            "ROUND(AVG(readiness_pct)) avg_ready, "
+            "SUM(CASE WHEN status='hotovo' THEN 1 ELSE 0 END) done "
+            "FROM tenant.mig_item WHERE tenant_id=2 GROUP BY domain_code")).fetchall()}
+        doms = s.execute(_t(
+            "SELECT d.code, d.domain_name, d.department, d.responsible_user_id, d.priority, "
+            "d.disposition, d.stav_strategie, d.readiness_pct, d.note, "
+            "(SELECT full_name FROM tenant.att_employee e WHERE e.tenant_id=2 AND e.user_id=d.responsible_user_id LIMIT 1) resp "
+            "FROM tenant.mig_domain d WHERE d.tenant_id=2 ORDER BY d.priority, d.sort_order")).mappings().all()
+        out = []
+        tot_n = tot_done = 0
+        for d in doms:
+            a = ag.get(d["code"])
+            n = int(a[1]) if a else 0
+            out.append({"code": d["code"], "name": d["domain_name"], "department": d["department"],
+                        "responsible_user_id": d["responsible_user_id"], "responsible": d["resp"],
+                        "priority": d["priority"], "disposition": d["disposition"],
+                        "stav": d["stav_strategie"], "readiness": d["readiness_pct"],
+                        "note": d["note"], "items": n, "rows": int(a[2]) if a else 0,
+                        "cleanup": int(a[3]) if a else 0,
+                        "avg_ready": int(a[4]) if a and a[4] is not None else 0,
+                        "done": int(a[5]) if a else 0})
+            tot_n += n; tot_done += (int(a[5]) if a else 0)
+        # celkové statistiky
+        st = s.execute(_t("SELECT COUNT(*), SUM(CASE WHEN is_cleanup THEN 1 ELSE 0 END), "
+                          "ROUND(AVG(readiness_pct)), "
+                          "SUM(CASE WHEN priority=1 THEN 1 ELSE 0 END), "
+                          "SUM(CASE WHEN priority=2 THEN 1 ELSE 0 END), "
+                          "SUM(CASE WHEN priority=3 THEN 1 ELSE 0 END) "
+                          "FROM tenant.mig_item WHERE tenant_id=2")).first()
+        return {"ok": True, "domains": out, "stats": {
+            "total": int(st[0] or 0), "cleanup": int(st[1] or 0),
+            "avg_ready": int(st[2] or 0), "p1": int(st[3] or 0),
+            "p2": int(st[4] or 0), "p3": int(st[5] or 0), "done": tot_done}}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/mig/items")
+def mig_items(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    q = req.query_params
+    code = (q.get("code") or "").strip()
+    hide_cleanup = (q.get("cleanup") or "1") != "1"
+    sort = (q.get("sort") or "priority")
+    order = {"priority": "priority, readiness_pct, ec_rows DESC NULLS LAST",
+             "readiness": "readiness_pct, priority, ec_rows DESC NULLS LAST",
+             "rows": "ec_rows DESC NULLS LAST", "name": "ec_name"}.get(sort,
+             "priority, ec_rows DESC NULLS LAST")
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        where = "WHERE i.tenant_id=2"
+        params = {}
+        if code:
+            where += " AND i.domain_code=:c"; params["c"] = code
+        if hide_cleanup:
+            where += " AND i.is_cleanup=false"
+        rows = s.execute(_t(
+            "SELECT i.id, i.ec_name, i.ec_type, i.ec_cols, i.ec_rows, i.domain_code, "
+            "i.priority, i.readiness_pct, i.disposition, i.status, i.is_cleanup, "
+            "i.responsible_user_id, i.decision, i.note, "
+            "(SELECT full_name FROM tenant.att_employee e WHERE e.tenant_id=2 AND e.user_id=i.responsible_user_id LIMIT 1) resp "
+            "FROM tenant.mig_item i " + where + " ORDER BY " + order + " LIMIT 800"),
+            params).mappings().all()
+        return {"ok": True, "items": [dict(r) for r in rows], "statusy": _MIG_STATUSY}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/mig/people")
+def mig_people(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT DISTINCT e.user_id, e.full_name FROM tenant.att_employee e "
+            "WHERE e.tenant_id=2 AND e.is_active=true AND COALESCE(e.full_name,'')<>'' "
+            "AND e.user_id IS NOT NULL ORDER BY e.full_name")).fetchall()
+        return {"ok": True, "lide": [{"user_id": r[0], "jmeno": r[1]} for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/mig/domain/save")
+async def mig_domain_save(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    code = (str(b.get("code") or "").strip())
+    if not code:
+        return JSONResponse({"ok": False, "error": "chybí code"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        nm = _mig_uname(s, uid)
+        s.execute(_t(
+            "UPDATE tenant.mig_domain SET department=:dep, responsible_user_id=:ru, "
+            "priority=:pr, readiness_pct=:rd, disposition=:dp, note=:nt, "
+            "updated_by_text=:ub, updated_at=now() WHERE tenant_id=2 AND code=:c"),
+            {"dep": (b.get("department") or None), "ru": (b.get("responsible_user_id") or None),
+             "pr": int(b.get("priority") or 3), "rd": max(0, min(100, int(b.get("readiness_pct") or 0))),
+             "dp": (b.get("disposition") or None), "nt": (b.get("note") or None),
+             "ub": nm, "c": code})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+
+@api_router.post("/app/mig/item/save")
+async def mig_item_save(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        iid = int(b.get("id") or 0)
+    except Exception:
+        iid = 0
+    if not iid:
+        return JSONResponse({"ok": False, "error": "chybí id"}, status_code=400)
+    status = (str(b.get("status") or "nove").strip())
+    if status not in _MIG_STATUSY:
+        status = "nove"
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        nm = _mig_uname(s, uid)
+        s.execute(_t(
+            "UPDATE tenant.mig_item SET priority=:pr, readiness_pct=:rd, status=:st, "
+            "disposition=:dp, responsible_user_id=:ru, decision=:dc, note=:nt, "
+            "updated_by_text=:ub, updated_at=now() WHERE tenant_id=2 AND id=:id"),
+            {"pr": int(b.get("priority") or 3), "rd": max(0, min(100, int(b.get("readiness_pct") or 0))),
+             "st": status, "dp": (b.get("disposition") or None),
+             "ru": (b.get("responsible_user_id") or None), "dc": (b.get("decision") or None),
+             "nt": (b.get("note") or None), "ub": nm, "id": iid})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+
+@api_router.get("/app/mig/notes")
+def mig_notes(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    q = req.query_params
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        where = "WHERE tenant_id=2"
+        params = {}
+        if q.get("item_id"):
+            where += " AND item_id=:i"; params["i"] = int(q.get("item_id"))
+        elif q.get("code"):
+            where += " AND domain_code=:c"; params["c"] = q.get("code")
+        rows = s.execute(_t(
+            "SELECT id, item_id, domain_code, note, created_by_text, "
+            "to_char(created_at,'DD.MM.YYYY HH24:MI') ts FROM tenant.mig_note " +
+            where + " ORDER BY id DESC LIMIT 100"), params).mappings().all()
+        return {"ok": True, "notes": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/mig/note/add")
+async def mig_note_add(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    note = (str(b.get("note") or "").strip())
+    if not note:
+        return JSONResponse({"ok": False, "error": "prázdná poznámka"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        nm = _mig_uname(s, uid)
+        s.execute(_t(
+            "INSERT INTO tenant.mig_note (tenant_id, item_id, domain_code, note, created_by_text) "
+            "VALUES (2, :i, :c, :n, :u)"),
+            {"i": (int(b.get("item_id")) if b.get("item_id") else None),
+             "c": (b.get("code") or None), "n": note[:2000], "u": nm})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+
+# ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).
 # Heslo šifrované Fernetem (_vault_fernet). Čtení přes ISDS webovou službu

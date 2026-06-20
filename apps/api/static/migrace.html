@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Digitalizace a migrace EUROSOFTU</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;
+        --accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#ff8a8a;--p1:#34d399;--p2:#fbbf24;--p3:#64748b;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14.5px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:18px}
+  h1{font-size:21px;margin:0 0 3px;font-weight:800}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:14px}
+  .stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .st{background:var(--card);border:1px solid var(--bord);border-radius:11px;padding:8px 13px;min-width:84px}
+  .st .k{color:var(--mut);font-size:11px}
+  .st .v{font-weight:800;font-size:18px;margin-top:1px}
+  .bar{height:7px;border-radius:5px;background:#1d2737;overflow:hidden;margin-top:5px}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,#4f8ef7,#34d399)}
+  .dom{background:var(--card);border:1px solid var(--bord);border-radius:13px;padding:13px 15px;margin-bottom:10px;cursor:pointer;transition:border-color .15s}
+  .dom:hover{border-color:var(--accent)}
+  .row1{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .chip{font-size:11px;font-weight:800;padding:2px 9px;border-radius:9px;color:#06101f}
+  .c1{background:var(--p1)}.c2{background:var(--p2)}.c3{background:var(--p3);color:#dde}
+  .dname{font-weight:700;font-size:15.5px;flex:1;min-width:160px}
+  .meta{color:var(--mut);font-size:12.5px;margin-top:5px}
+  .pill{display:inline-block;background:#16223a;border:1px solid #2a3a55;border-radius:8px;padding:1px 8px;font-size:12px;margin-right:5px}
+  .disp{color:#bcd0e6;font-size:12.5px;margin-top:4px}
+  .btn{border:1px solid var(--bord);background:#0f1830;color:var(--tx);border-radius:8px;padding:7px 13px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .btn:hover{border-color:var(--accent)} .btn.prim{background:var(--accent);border-color:var(--accent);color:#06101f}
+  .topbar{display:flex;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap}
+  .itm{background:var(--card);border:1px solid var(--bord);border-radius:10px;padding:10px 12px;margin-bottom:7px;cursor:pointer}
+  .itm:hover{border-color:var(--accent)}
+  .it-h{display:flex;align-items:center;gap:8px}
+  .it-n{font-weight:600;flex:1;min-width:0;word-break:break-word}
+  .badge{font-size:10.5px;padding:1px 7px;border-radius:8px;border:1px solid #33435c;color:#bcd0e6;white-space:nowrap}
+  .b-hotovo{background:rgba(52,211,153,.16);color:var(--green);border-color:#34d39955}
+  .b-migruje{background:rgba(79,142,247,.16);color:var(--accent);border-color:#4f8ef755}
+  .b-vyrazeno{background:rgba(255,138,138,.12);color:var(--red);border-color:#ff8a8a44}
+  .it-m{color:var(--mut);font-size:12px;margin-top:3px}
+  select,input,textarea{background:#0a1226;color:var(--tx);border:1px solid #2b3a5c;border-radius:8px;padding:8px 10px;font-size:14px;width:100%;box-sizing:border-box}
+  label{display:block;font-size:12px;color:#9fb2d4;margin:9px 0 3px}
+  .modal{position:fixed;inset:0;background:rgba(4,9,16,.72);display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow:auto;z-index:50}
+  .sheet{background:#141d29;border:1px solid var(--bord);border-radius:14px;padding:18px;max-width:560px;width:100%;margin-top:24px}
+  .hint{color:var(--mut)} .err{color:var(--red)}
+  .note{background:#0f1830;border:1px solid #22304f;border-radius:9px;padding:8px 10px;margin:6px 0;font-size:13px}
+  .note .who{color:var(--mut);font-size:11px;margin-top:3px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  @media(max-width:560px){.wrap{padding:12px}}
+</style>
+</head>
+<body>
+<div class="wrap" id="root"><div class="hint" style="padding:30px">Načítám…</div></div>
+<script>
+function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;
+  try{if(window.__opcUrl)return new URL(window.__opcUrl,location.origin).searchParams.get(k);}catch(e){}return null;}
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function fnum(n){return n==null?"":(+n).toLocaleString("cs-CZ");}
+function api(m,p,b){var o={method:m,credentials:"include",headers:{}};if(b){o.headers["Content-Type"]="application/json";o.body=JSON.stringify(b);}
+  return fetch(p,o).then(function(r){return r.json();}).catch(function(){return{ok:false,error:"spojení"};});}
+function pchip(p){return '<span class="chip c'+(p||3)+'">P'+(p||3)+'</span>';}
+function sbadge(st){var m={hotovo:"b-hotovo",migruje:"b-migruje",vyrazeno:"b-vyrazeno"};
+  var t={nove:"nové",v_analyze:"v analýze",rozhodnuto:"rozhodnuto",migruje:"migruje se",hotovo:"hotovo",vyrazeno:"vyřazeno"};
+  return '<span class="badge '+(m[st]||"")+'">'+esc(t[st]||st||"nové")+'</span>';}
+var PEOPLE=[];
+function peopleOpts(sel){var h='<option value="">— nepřiřazeno —</option>';
+  PEOPLE.forEach(function(p){h+='<option value="'+p.user_id+'"'+(String(sel)===String(p.user_id)?' selected':'')+'>'+esc(p.jmeno)+'</option>';});return h;}
+
+var R=document.getElementById("root");
+function load(){
+  api("GET","/api/v1/erp/app/mig/overview").then(function(j){
+    if(!j||!j.ok){R.innerHTML='<div class="err" style="padding:30px">'+esc((j&&(j.error||j.detail))||"Nelze načíst. (Schválil jsi banner se založením registru?)")+'</div>';return;}
+    if(!PEOPLE.length) api("GET","/api/v1/erp/app/mig/people").then(function(p){if(p&&p.ok)PEOPLE=p.lide||[];});
+    renderDomains(j);
+  });
+}
+function renderDomains(j){
+  var s=j.stats||{};
+  var h='<h1>🗂️ Digitalizace a migrace EUROSOFTU</h1>'
+    +'<div class="sub">Migrační registr Centrály — '+fnum(s.total)+' tabulek ve '+(j.domains||[]).length+' doménách. Třiďte podle priority a % připravenosti, přiřaďte odpovědné, pište poznámky.</div>'
+    +'<div class="stats">'
+    +'<div class="st"><div class="k">Tabulek</div><div class="v">'+fnum(s.total)+'</div></div>'
+    +'<div class="st"><div class="k">P1 / P2 / P3</div><div class="v" style="font-size:15px">'+s.p1+' / '+s.p2+' / '+s.p3+'</div></div>'
+    +'<div class="st"><div class="k">Ø připravenost</div><div class="v">'+s.avg_ready+' %</div></div>'
+    +'<div class="st"><div class="k">Hotovo</div><div class="v">'+s.done+'</div></div>'
+    +'<div class="st"><div class="k">K úklidu</div><div class="v">'+s.cleanup+'</div></div>'
+    +'</div>';
+  (j.domains||[]).forEach(function(d){
+    h+='<div class="dom" data-code="'+d.code+'">'
+      +'<div class="row1">'+pchip(d.priority)+'<span class="dname">'+esc(d.name)+'</span>'
+      +'<span class="hint" style="font-size:12px">'+d.items+' tab.'+(d.cleanup?(' · '+d.cleanup+' úklid'):'')+'</span></div>'
+      +'<div class="meta"><span class="pill">🏢 '+esc(d.department||"—")+'</span>'
+      +'<span class="pill">👤 '+esc(d.responsible||"nepřiřazeno")+'</span>'
+      +'<span class="pill">'+esc(d.stav||"")+'</span></div>'
+      +'<div class="bar"><i style="width:'+(d.readiness||0)+'%"></i></div>'
+      +'<div class="disp">→ '+esc(d.disposition||"")+' · připravenost '+(d.readiness||0)+' %'+(d.note?(' · 📝 '+esc(d.note)):'')+'</div>'
+      +'</div>';
+  });
+  R.innerHTML=h;
+  Array.prototype.forEach.call(document.querySelectorAll(".dom"),function(el){
+    el.addEventListener("click",function(){
+      var d=(j.domains||[]).filter(function(x){return x.code===el.getAttribute("data-code");})[0];
+      openDomain(d);
+    });
+  });
+}
+function openDomain(d){
+  R.innerHTML='<div class="hint" style="padding:30px">Načítám tabulky…</div>';
+  var sort="priority", cleanup=false;
+  function go(){
+    api("GET","/api/v1/erp/app/mig/items?code="+d.code+"&sort="+sort+"&cleanup="+(cleanup?"1":"0")).then(function(j){
+      if(!j||!j.ok){R.innerHTML='<div class="err" style="padding:30px">'+esc((j&&j.error)||"Chyba")+'</div>';return;}
+      var h='<div class="topbar"><button class="btn" id="back">← Domény</button>'
+        +pchip(d.priority)+'<h1 style="font-size:18px;margin:0">'+esc(d.name)+'</h1></div>'
+        +'<div class="toolbar">'
+        +'<button class="btn prim" id="editDom">✏️ Upravit doménu / odpovědného</button>'
+        +'<label style="display:inline;margin:0">Řadit: </label>'
+        +'<select id="sort" style="width:auto;display:inline-block">'
+        +['priority|priorita','readiness|připravenost','rows|řádky','name|název'].map(function(o){var v=o.split("|");return '<option value="'+v[0]+'"'+(sort===v[0]?' selected':'')+'>'+v[1]+'</option>';}).join('')
+        +'</select>'
+        +'<label style="display:inline;margin:0"><input type="checkbox" id="ck" style="width:auto"'+(cleanup?' checked':'')+'> zobrazit úklid</label>'
+        +'<span class="hint" style="font-size:12px">'+(j.items||[]).length+' tabulek</span></div>'
+        +'<div id="list"></div>';
+      R.innerHTML=h;
+      var lst=document.getElementById("list");
+      (j.items||[]).forEach(function(it){
+        var el=document.createElement("div");el.className="itm";
+        el.innerHTML='<div class="it-h">'+pchip(it.priority)
+          +'<span class="it-n">'+esc(it.ec_name)+(it.is_cleanup?' 🧹':'')+'</span>'+sbadge(it.status)+'</div>'
+          +'<div class="it-m">'+(it.ec_type==='view'?'view':fnum(it.ec_rows)+' řádků')+' · '+it.ec_cols+' sl. · připravenost '+(it.readiness_pct||0)+' %'
+          +(it.resp?(' · 👤 '+esc(it.resp)):'')+(it.note?(' · 📝 '+esc(it.note)):'')+'</div>';
+        el.addEventListener("click",function(){ openItem(it, go); });
+        lst.appendChild(el);
+      });
+      document.getElementById("back").onclick=load;
+      document.getElementById("editDom").onclick=function(){ editDomain(d, function(){ load(); }); };
+      document.getElementById("sort").onchange=function(){ sort=this.value; go(); };
+      document.getElementById("ck").onchange=function(){ cleanup=this.checked; go(); };
+    });
+  }
+  go();
+}
+function field(label,html){return '<label>'+label+'</label>'+html;}
+function editDomain(d,after){
+  var m=document.createElement("div");m.className="modal";
+  m.innerHTML='<div class="sheet"><div style="font-weight:800;font-size:17px;margin-bottom:6px">Doména: '+esc(d.name)+'</div>'
+    +field('Oddělení','<input id="dep" value="'+esc(d.department||"")+'">')
+    +field('Odpovědný člověk','<select id="resp">'+peopleOpts(d.responsible_user_id)+'</select>')
+    +field('Priorita','<select id="pr"><option value="1"'+(d.priority==1?' selected':'')+'>P1 — hned</option><option value="2"'+(d.priority==2?' selected':'')+'>P2 — středně</option><option value="3"'+(d.priority==3?' selected':'')+'>P3 — později</option></select>')
+    +field('Připravenost: <b id="rdv">'+(d.readiness||0)+'</b> %','<input type="range" id="rd" min="0" max="100" step="5" value="'+(d.readiness||0)+'">')
+    +field('Dispozice','<input id="dp" value="'+esc(d.disposition||"")+'">')
+    +field('Poznámka','<textarea id="nt" rows="2">'+esc(d.note||"")+'</textarea>')
+    +'<div class="toolbar" style="margin-top:14px"><button class="btn prim" id="sv">Uložit</button><button class="btn" id="cl">Zavřít</button><span class="err" id="er"></span></div></div>';
+  document.body.appendChild(m);
+  m.querySelector("#rd").oninput=function(){ m.querySelector("#rdv").textContent=this.value; };
+  m.querySelector("#cl").onclick=function(){ m.remove(); };
+  m.onclick=function(e){ if(e.target===m) m.remove(); };
+  m.querySelector("#sv").onclick=function(){
+    api("POST","/api/v1/erp/app/mig/domain/save",{code:d.code,department:m.querySelector("#dep").value.trim(),
+      responsible_user_id:(m.querySelector("#resp").value||null),priority:+m.querySelector("#pr").value,
+      readiness_pct:+m.querySelector("#rd").value,disposition:m.querySelector("#dp").value.trim(),
+      note:m.querySelector("#nt").value.trim()}).then(function(r){
+      if(r&&r.ok){ m.remove(); after&&after(); } else m.querySelector("#er").textContent=(r&&r.error)||"chyba";
+    });
+  };
+}
+function openItem(it, after){
+  var m=document.createElement("div");m.className="modal";
+  var stOpts=["nove","v_analyze","rozhodnuto","migruje","hotovo","vyrazeno"];
+  var stTx={nove:"nové",v_analyze:"v analýze",rozhodnuto:"rozhodnuto",migruje:"migruje se",hotovo:"hotovo",vyrazeno:"vyřazeno"};
+  m.innerHTML='<div class="sheet"><div style="font-weight:800;font-size:16px;margin-bottom:2px">'+esc(it.ec_name)+'</div>'
+    +'<div class="hint" style="font-size:12.5px;margin-bottom:6px">'+(it.ec_type==='view'?'view':fnum(it.ec_rows)+' řádků')+' · '+it.ec_cols+' sloupců · doména '+esc(it.domain_code)+'</div>'
+    +field('Priorita','<select id="pr"><option value="1"'+(it.priority==1?' selected':'')+'>P1</option><option value="2"'+(it.priority==2?' selected':'')+'>P2</option><option value="3"'+(it.priority==3?' selected':'')+'>P3</option></select>')
+    +field('Stav','<select id="st">'+stOpts.map(function(s){return '<option value="'+s+'"'+(it.status===s?' selected':'')+'>'+stTx[s]+'</option>';}).join('')+'</select>')
+    +field('Připravenost: <b id="rdv">'+(it.readiness_pct||0)+'</b> %','<input type="range" id="rd" min="0" max="100" step="5" value="'+(it.readiness_pct||0)+'">')
+    +field('Odpovědný','<select id="resp">'+peopleOpts(it.responsible_user_id)+'</select>')
+    +field('Dispozice','<input id="dp" value="'+esc(it.disposition||"")+'">')
+    +field('Rozhodnutí / jak naložit','<textarea id="dc" rows="2">'+esc(it.decision||"")+'</textarea>')
+    +field('Poznámka','<textarea id="nt" rows="2">'+esc(it.note||"")+'</textarea>')
+    +'<div class="toolbar" style="margin-top:14px"><button class="btn prim" id="sv">Uložit</button><button class="btn" id="cl">Zavřít</button><span class="err" id="er"></span></div>'
+    +'<div id="notes" style="margin-top:14px"></div></div>';
+  document.body.appendChild(m);
+  m.querySelector("#rd").oninput=function(){ m.querySelector("#rdv").textContent=this.value; };
+  m.querySelector("#cl").onclick=function(){ m.remove(); };
+  m.onclick=function(e){ if(e.target===m) m.remove(); };
+  m.querySelector("#sv").onclick=function(){
+    api("POST","/api/v1/erp/app/mig/item/save",{id:it.id,priority:+m.querySelector("#pr").value,
+      status:m.querySelector("#st").value,readiness_pct:+m.querySelector("#rd").value,
+      responsible_user_id:(m.querySelector("#resp").value||null),disposition:m.querySelector("#dp").value.trim(),
+      decision:m.querySelector("#dc").value.trim(),note:m.querySelector("#nt").value.trim()}).then(function(r){
+      if(r&&r.ok){ m.remove(); after&&after(); } else m.querySelector("#er").textContent=(r&&r.error)||"chyba";
+    });
+  };
+  // poznámky (append-only)
+  var nb=m.querySelector("#notes");
+  function loadNotes(){
+    api("GET","/api/v1/erp/app/mig/notes?item_id="+it.id).then(function(j){
+      var h='<div style="font-weight:700;margin-bottom:5px">📝 Poznámky</div>'
+        +'<div class="toolbar"><input id="nn" placeholder="Přidat poznámku…" style="flex:1"><button class="btn" id="addn">Přidat</button></div>';
+      (j&&j.notes||[]).forEach(function(n){h+='<div class="note">'+esc(n.note)+'<div class="who">'+esc(n.created_by_text||"")+' · '+esc(n.ts||"")+'</div></div>';});
+      nb.innerHTML=h;
+      nb.querySelector("#addn").onclick=function(){
+        var v=nb.querySelector("#nn").value.trim();if(!v)return;
+        api("POST","/api/v1/erp/app/mig/note/add",{item_id:it.id,note:v}).then(function(){ loadNotes(); });
+      };
+    });
+  }
+  loadNotes();
+}
+load();
+</script>
+</body>
+</html>

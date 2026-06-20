@@ -1384,7 +1384,7 @@ setTimeout(function(){
   // Appka se neopustí → Android Back nezavře aplikaci, jen zavře overlay. Žádný externí prohlížeč.
   // Přehledy se otevírají jako NATIVNÍ obrazovka v zásobníku (stejné schéma jako Skupiny) →
   // Zpět řídí výhradně back() appky (topbar i systémové Zpět). Žádný vlastní overlay/history hack.
-  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat"};
+  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace"};
   var _xvUrl="", _xvTitle="";
   function openInApp(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; go("extview"); }
   function extview(){
@@ -1431,6 +1431,7 @@ setTimeout(function(){
     g.appendChild(appCell("🏖️","Plán absencí",0,function(){openInApp("/absence-plan");}));
     g.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
     g.appendChild(appCell("🔀","Migrace",0,function(){go("migrace");}));
+    g.appendChild(appCell("🗂️","Digitalizace",0,function(){openInApp("/digitalizace");}));
     g.appendChild(appCell("🧾","Přefakturace",0,function(){go("prefakturace");}));
     g.appendChild(appCell("📨","Datovky / ČSSZ",0,function(){go("isds");}));
     g.appendChild(appCell("📥","Poptávky",0,function(){go("poptavka");}));

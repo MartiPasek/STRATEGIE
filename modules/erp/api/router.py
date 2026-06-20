@@ -21901,6 +21901,61 @@ def _isds_list_received(account: dict, days_back: int = 60):
                     "sender": g("dmSender"), "delivered": g("dmDeliveryTime")})
     return [x for x in out if x["dm_id"]]
 
+def _isds_download(account: dict, dm_id: str):
+    """MessageDownload → stáhne celou zprávu vč. příloh. Vrací (envelope_subject, [{filename, bytes}])."""
+    import base64 as _b64
+    body = '<p:MessageDownload><p:dmID>%s</p:dmID></p:MessageDownload>' % dm_id
+    ok, root = _isds_soap(account, "/dz", body)
+    if not ok:
+        raise RuntimeError(root)
+    subj = ""
+    se = _isds_q(root, "dmAnnotation")
+    if se is not None and se.text:
+        subj = se.text.strip()
+    files = []
+    for fe in root.iter():
+        if fe.tag.rsplit("}", 1)[-1] != "dmFile":
+            continue
+        # název: atribut dmFileDescr (může mít namespace prefix)
+        fname = ""
+        for k, v in fe.attrib.items():
+            if k.rsplit("}", 1)[-1] == "dmFileDescr":
+                fname = v; break
+        enc = None
+        for ch in fe.iter():
+            if ch.tag.rsplit("}", 1)[-1] == "dmEncodedContent":
+                enc = (ch.text or "").strip(); break
+        if enc:
+            try:
+                files.append({"filename": fname or "priloha.bin", "bytes": _b64.b64decode(enc)})
+            except Exception:
+                pass
+    return subj, files
+
+
+def _isds_extract_text(rb, fname):
+    """Z příloh datovky vytáhne text: digitální PDF (pdfplumber) → jinak OCR → jinak decode."""
+    low = (fname or "").lower()
+    if low.endswith(".pdf"):
+        txt = ""
+        try:
+            import io as _io, pdfplumber as _pp
+            with _pp.open(_io.BytesIO(rb)) as pdf:
+                txt = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+        except Exception:
+            txt = ""
+        if not (txt or "").strip():
+            ws = _edi_ocr_words_from_pdf(rb)
+            txt = " ".join(w["t"] for w in ws)
+        return txt
+    if low.endswith((".xml", ".txt", ".csv", ".html")):
+        try:
+            return rb.decode("utf-8")
+        except Exception:
+            return rb.decode("latin-1", "replace")
+    return ""
+
+
 def _isds_classify(subject: str) -> str:
     s = (subject or "").lower()
     if "neschop" in s and "oznam" in s:
@@ -23059,6 +23114,48 @@ async def diag_sql(req: Request) -> JSONResponse:
                     txt = rawbytes.decode("latin-1", "replace")
                 return JSONResponse({"ok": True, "file_read": True, "path": path,
                                      "length": len(txt), "content": txt})
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
+    # @@ISDS LIST <acct_id> [dny] / @@ISDS MSG <acct_id> <dm_id> → test datovek z bridge
+    if sql.upper().startswith("@@ISDS"):
+        parts = sql.split()
+        op = (parts[1].upper() if len(parts) > 1 else "")
+        try:
+            acct_id = int(parts[2])
+        except Exception:
+            return JSONResponse({"ok": False, "error": "@@ISDS LIST|MSG <acct_id> [...]"})
+        from core.database_data import get_data_session as _gi
+        from sqlalchemy import text as _ti
+        si = _gi()
+        try:
+            acc = si.execute(_ti(
+                "SELECT id, company_label, box_id, login_name, password_enc "
+                "FROM fw.isds_account WHERE id=:i"), {"i": acct_id}).mappings().first()
+        finally:
+            si.close()
+        if not acc:
+            return JSONResponse({"ok": False, "error": "účet nenalezen"})
+        acc = dict(acc)
+        try:
+            if op == "LIST":
+                days = int(parts[3]) if len(parts) > 3 else 90
+                lst = _isds_list_received(acc, days_back=days)
+                rows = [[m["dm_id"], (m["subject"] or "")[:50], (m["sender"] or "")[:30],
+                         (m["delivered"] or "")[:16]] for m in lst]
+                return JSONResponse({"ok": True, "columns": ["dm_id", "předmět", "odesílatel", "doručeno"],
+                                     "rows": rows, "count": len(rows)})
+            if op == "MSG":
+                dm_id = parts[3]
+                subj, files = _isds_download(acc, dm_id)
+                rows = [["PŘEDMĚT", (subj or "")[:120]]]
+                for f in files:
+                    rows.append(["📎 " + (f["filename"] or "")[:50], "%d B" % len(f["bytes"])])
+                if files:
+                    t = _isds_extract_text(files[0]["bytes"], files[0]["filename"])
+                    rows.append(["TEXT[0]", (t or "(prázdné / binární)")[:400]])
+                return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
+            return JSONResponse({"ok": False, "error": "@@ISDS LIST|MSG <acct_id> ..."})
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
 

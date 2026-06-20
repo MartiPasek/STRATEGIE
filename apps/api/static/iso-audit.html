@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ISO 27001 — auditorský přístup</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:920px;margin:0 auto;padding:18px}
+  h1{font-size:20px;margin:0 0 2px;font-weight:800}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:12px}
+  .c{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:12px}
+  .row{display:flex;gap:10px;align-items:flex-start;border-bottom:1px solid var(--bord);padding:10px 0}
+  .row:last-child{border-bottom:0}
+  .grow{flex:1;min-width:0}.nm{font-weight:600}
+  .meta{color:var(--mut);font-size:12px;margin-top:2px}
+  .pill{font-size:11px;padding:1px 8px;border-radius:8px;font-weight:700}
+  .p-schvaleno{background:rgba(52,211,153,.18);color:var(--green)}
+  .p-navrh{background:rgba(251,191,36,.16);color:var(--amber)}
+  .sig{color:var(--green);font-size:11px;margin-top:2px}
+  a.lnk{color:var(--accent);text-decoration:none;font-size:12px}
+  .err{color:#ff8a8a}
+  .badge{display:inline-block;background:rgba(79,142,247,.16);color:var(--accent);font-size:11px;font-weight:700;padding:2px 9px;border-radius:8px;margin-bottom:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="badge">AUDITORSKÝ PŘÍSTUP · READ-ONLY</div>
+  <h1>🛡️ ISO 27001 — elektronické dokumenty ISMS</h1>
+  <div class="sub" id="head">Načítám…</div>
+  <div id="body"></div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
+var TOKEN=decodeURIComponent((location.pathname.split("/iso-audit/")[1]||"").replace(/\/.*$/,""));
+function load(){
+  if(!TOKEN){document.getElementById("body").innerHTML='<div class="c err">Chybí přístupový token.</div>';return;}
+  fetch("/api/v1/erp/app/iso/audit/"+encodeURIComponent(TOKEN)+"/data",{credentials:"omit"}).then(r=>r.json()).then(j=>{
+    if(!j||!j.ok){document.getElementById("head").textContent="";document.getElementById("body").innerHTML='<div class="c err">'+esc(j&&j.error==="invalid_or_expired"?"Odkaz je neplatný nebo vypršel. Požádejte správce ISMS o nový.":(j&&j.error)||"chyba")+'</div>';return;}
+    document.getElementById("head").innerHTML='Subjekt: <b>'+esc(j.tenant_name)+'</b> · níže jsou elektronické dokumenty ISMS a stav jejich schválení.';
+    var h='<div class="c">';
+    (j.docs||[]).forEach(d=>{
+      var sg=(d.podpisy||[]);
+      h+='<div class="row"><div class="grow">'
+        +'<div class="nm">'+esc(d.kod)+' — '+esc(d.nazev)+' <span class="pill p-'+esc(d.stav)+'">'+(d.stav==="schvaleno"?"schváleno":"návrh")+'</span></div>'
+        +'<div class="meta">'+esc(d.kategorie||"")+' · verze '+esc(d.verze)+'</div>'
+        +sg.map(x=>'<div class="sig">✍️ '+esc(x.jmeno)+(x.role?(" ("+esc(x.role)+")"):"")+' · '+esc(x.kdy)+'</div>').join('')
+        +'</div><div style="margin-left:auto"><a class="lnk" href="/api/v1/erp/app/iso/audit/'+encodeURIComponent(TOKEN)+'/doc/'+encodeURIComponent(d.kod)+'" target="_blank">otevřít ↗</a></div></div>';
+    });
+    h+='</div><div class="sub" style="margin-top:10px">Přístup je auditovaný (každé otevření se zaznamenává). Pro otázky kontaktujte správce ISMS.</div>';
+    document.getElementById("body").innerHTML=h;
+  }).catch(()=>{document.getElementById("body").innerHTML='<div class="c err">Chyba načtení.</div>';});
+}
+load();
+</script>
+</body>
+</html>

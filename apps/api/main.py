@@ -43,6 +43,7 @@ from modules.md_pyramid.api.router import router as md_pyramid_router
 from modules.erp.api.router import router as erp_router, api_router as erp_api_router
 from modules.erp.api.carddav import carddav_router, carddav_mgmt_router
 from modules.erp.api.directories import dir_router  # Fáze A: systém adresářů dokumentů (18.6.2026)
+from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elektronické vedení ISMS (21.6.2026)
 
 setup_logging()
 
@@ -796,6 +797,7 @@ app.include_router(erp_api_router)
 app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.well-known/carddav
 app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa tokenů (/api/v1/erp/carddav/*)
 app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_config + resolver)
+app.include_router(iso_router)  # ISO 27001 cockpit (elektronické ISMS + e-podpis + auditor portál)
 from modules.act_pipeline.act_router import act_router  # FW Action Pipelines executor (Marti 3.6.)
 app.include_router(act_router)
 
@@ -941,6 +943,22 @@ def vytizeni_page():
     """Vytížení montérů (Dušan) — denní požadavek vs kapacita (z docházky Výroby)
     → vytížení %. Data z /app/flow?section=vytizeni. Marti 18.6.2026."""
     return FileResponse(os.path.join(static_dir, "vytizeni.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/iso")
+def iso_page():
+    """ISO 27001 cockpit — elektronické vedení ISMS (parent/Kristý). Kroky + dokumenty
+    + e-podpis klikem (SES) + správa auditorského přístupu. Marti 21.6.2026."""
+    return FileResponse(os.path.join(static_dir, "iso.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/iso-audit/{token}")
+def iso_audit_page(token: str):
+    """Auditorský read-only portál k elektronickým ISMS dokumentům (tokenovaný odkaz,
+    bez loginu). Data z /app/iso/audit/{token}/data. Marti 21.6.2026."""
+    return FileResponse(os.path.join(static_dir, "iso-audit.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 

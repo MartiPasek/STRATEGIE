@@ -22662,8 +22662,8 @@ async def diag_sql(req: Request) -> JSONResponse:
             sp = _gp()
             try:
                 defs = sp.execute(_tp(
-                    "SELECT src_id, partner_nazev, druh_nazev FROM tenant.edi_definice "
-                    "WHERE druh_nazev='faktura' AND aktivni ORDER BY src_id")).mappings().all()
+                    "SELECT src_id, partner_nazev, druh_nazev, COALESCE(verze,1) AS verze "
+                    "FROM tenant.edi_definice WHERE druh_nazev='faktura' AND aktivni ORDER BY src_id")).mappings().all()
                 match = None
                 for d in defs:
                     token = (d["partner_nazev"] or "").split()[0] if d["partner_nazev"] else ""
@@ -22676,6 +22676,7 @@ async def diag_sql(req: Request) -> JSONResponse:
                     "SELECT poradi, je_polozka, field_name, marker_od, marker_do, min_len, max_len, je_datum "
                     "FROM tenant.edi_pole WHERE definice_src_id=:d ORDER BY poradi"), {"d": match["src_id"]}).mappings().all()
                 rl = [dict(x) for x in rules]
+                def_verze = int(match["verze"] or 1)
                 t0 = _edi_parse_tier0(txt, rl)
                 ok0, prob0 = _edi_validate(t0)
                 tier = 0; tokens = 0; final = t0; problems = prob0; patch_info = ""
@@ -22687,6 +22688,39 @@ async def diag_sql(req: Request) -> JSONResponse:
                             ok1, prob1 = _edi_validate(t1)
                             tier = 1; final = t1; problems = prob1
                             patch_info = "Haiku opravil markery: " + ", ".join(list(patch.keys())[:8])
+                            if ok1:
+                                # naučeno → nová verze definice + historie + uložení patche
+                                # (re-run prošel validací = pojistka; verzování pro audit)
+                                nova_verze = def_verze + 1
+                                for _fn, _pp in patch.items():
+                                    if not isinstance(_pp, dict):
+                                        continue
+                                    old = sp.execute(_tp(
+                                        "SELECT marker_od, marker_do FROM tenant.edi_pole "
+                                        "WHERE definice_src_id=:d AND field_name=:fn AND NOT je_polozka LIMIT 1"),
+                                        {"d": match["src_id"], "fn": _fn}).first()
+                                    sp.execute(_tp(
+                                        "INSERT INTO tenant.edi_definice_verze (definice_src_id,verze,field_name,"
+                                        "marker_od_old,marker_do_old,marker_od_new,marker_do_new,zdroj,poznamka) "
+                                        "VALUES (:d,:v,:fn,:oo,:od,:no,:nd,'ai_haiku',:pz)"),
+                                        {"d": match["src_id"], "v": nova_verze, "fn": _fn,
+                                         "oo": (old[0] if old else None), "od": (old[1] if old else None),
+                                         "no": _pp.get("marker_od"), "nd": _pp.get("marker_do"),
+                                         "pz": "Haiku oprava markeru (validováno re-runem)"})
+                                    sp.execute(_tp(
+                                        "UPDATE tenant.edi_pole SET marker_od_old=COALESCE(marker_od_old,marker_od), "
+                                        "marker_do_old=COALESCE(marker_do_old,marker_do), "
+                                        "marker_od=COALESCE(:mo,marker_od), marker_do=COALESCE(:md,marker_do), "
+                                        "ai_learned=true, ai_learned_at=now() "
+                                        "WHERE definice_src_id=:d AND field_name=:fn AND NOT je_polozka"),
+                                        {"mo": _pp.get("marker_od"), "md": _pp.get("marker_do"),
+                                         "d": match["src_id"], "fn": _fn})
+                                sp.execute(_tp(
+                                    "UPDATE tenant.edi_definice SET verze=:v, verze_at=now() WHERE src_id=:d"),
+                                    {"v": nova_verze, "d": match["src_id"]})
+                                sp.commit()
+                                def_verze = nova_verze
+                                patch_info += " → ULOŽENO jako verze %d (příště Tier 0 zdarma)" % nova_verze
                         else:
                             patch_info = "Haiku nevrátil patch"
                     except Exception as _he:
@@ -22694,15 +22728,15 @@ async def diag_sql(req: Request) -> JSONResponse:
                 try:
                     sp.execute(_tp(
                         "INSERT INTO tenant.edi_zpracovani_log (partner, druh, zdroj_soubor, tier, vysledek, "
-                        "ai_model, tokens, doklad_cislo) VALUES (:p,'faktura',:zf,:ti,:vy,:am,:tk,:dc)"),
+                        "ai_model, tokens, definice_verze, doklad_cislo) VALUES (:p,'faktura',:zf,:ti,:vy,:am,:tk,:dv,:dc)"),
                         {"p": match["partner_nazev"], "zf": fn, "ti": tier,
                          "vy": ("ok" if not problems else "eskalovano"),
                          "am": ("claude-haiku-4-5" if tier == 1 else None), "tk": tokens,
-                         "dc": (final["hlavicka"].get("CisloDokladu") or "")[:60]})
+                         "dv": def_verze, "dc": (final["hlavicka"].get("CisloDokladu") or "")[:60]})
                     sp.commit()
                 except Exception:
                     pass
-                rows = [["DEFINICE", match["partner_nazev"]],
+                rows = [["DEFINICE", "%s (verze %d)" % (match["partner_nazev"], def_verze)],
                         ["TIER", "0 (deterministika, zdarma)" if tier == 0 else "1 (Haiku patch, %d tokenů)" % tokens],
                         ["VALIDACE", "✓ OK" if not problems else "⚠ " + "; ".join(problems)]]
                 if patch_info:

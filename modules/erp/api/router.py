@@ -21555,6 +21555,14 @@ async def uctovani_doklad_full(req: Request):
     polozky = b.get("polozky") or []
     if not sbornik_kod or not datum or not polozky:
         return JSONResponse({"ok": False, "error": "sbornik_kod + datum + položky povinné"}, status_code=400)
+    # každá položka s částkou musí mít předkontaci (jinak vznikne neúčtovaný řádek)
+    for _i, _p in enumerate(polozky, 1):
+        try:
+            _ca = float(_p.get("castka") or 0)
+        except (TypeError, ValueError):
+            _ca = 0
+        if _ca and not (_p.get("predkontace_kod") or (_p.get("ucet_md") and _p.get("ucet_dal"))):
+            return JSONResponse({"ok": False, "error": "položka " + str(_i) + " nemá předkontaci"}, status_code=400)
     company_id = b.get("company_id")
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t

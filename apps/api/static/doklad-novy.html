@@ -70,7 +70,8 @@ function nf(n){return (+n||0).toLocaleString("cs-CZ",{minimumFractionDigits:2,ma
 var SB=[],PK=[],EURK=null;
 function sbDruh(){var o=document.getElementById("sbornik").selectedOptions[0];return o?o.getAttribute("data-druh"):"";}
 function predOptions(){var d=sbDruh();var m=PK.filter(function(x){return (x.sbornik_druh||"")===d;});
-  return '<option value="">—</option>'+m.map(function(x){return '<option value="'+esc(x.kod)+'">'+esc(x.nazev)+'</option>';}).join("");}
+  if(!m.length) return '<option value="">(žádná předkontace pro tento sborník)</option>';
+  return m.map(function(x){return '<option value="'+esc(x.kod)+'">'+esc(x.nazev)+'</option>';}).join("");}
 function addRow(){
   var tb=document.getElementById("pbody");var tr=document.createElement("tr");
   tr.innerHTML='<td><input class="pPopis" style="width:100%"></td>'

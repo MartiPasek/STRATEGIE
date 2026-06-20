@@ -381,6 +381,68 @@ async def iso_tisax_update(req: Request):
         s.close()
 
 
+_DOC_STORE_ROOT = os.environ.get("STRATEGIE_DOC_STORE") or r"D:\Data\STRATEGIE\Dokumenty"
+
+
+def _serve_storage(storage_path):
+    """Servíruje soubor z úložiště dokumentů STRATEGIE (jen pod Dokumenty root)."""
+    if not storage_path:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+    full = os.path.normpath(storage_path)
+    root = os.path.normpath(_DOC_STORE_ROOT)
+    if not full.startswith(root) or not os.path.isfile(full):
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+    return FileResponse(full, filename=os.path.basename(full))
+
+
+def _evidence_payload(s, tenant_id):
+    """Nahrané dokumenty STRATEGIE pro tenant (jen ISO/TISAX/bezpečnostní projekty)."""
+    rows = s.execute(_t("""SELECT d.id, d.name, d.file_type, COALESCE(p.name,'') AS projekt
+        FROM public.documents d LEFT JOIN public.projects p ON p.id=d.project_id
+        WHERE d.tenant_id=:t AND (p.name ILIKE '%tisax%' OR p.name ILIKE '%iso%' OR p.name ILIKE '%bezpe%')
+        ORDER BY p.name, d.name"""), {"t": tenant_id}).mappings().all()
+    out = []
+    for r in rows:
+        nm = r["name"] or ""
+        parts = nm.split("/")
+        out.append({"id": r["id"], "nazev": parts[-1], "folder": "/".join(parts[1:-1]),
+                    "projekt": r["projekt"], "typ": r["file_type"]})
+    return out
+
+
+@iso_router.get("/app/iso/evidence")
+def iso_evidence(req: Request):
+    """Nahrané dokumenty (evidence) ze STRATEGIE pro tenant (parent)."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        return {"ok": True, "evidence": _evidence_payload(s, tid)}
+    finally:
+        s.close()
+
+
+@iso_router.get("/app/iso/evidence-doc/{doc_id}")
+def iso_evidence_doc(doc_id: int, req: Request):
+    """Otevřít nahraný dokument (parent), jen z vlastního tenantu."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        r = s.execute(_t("SELECT storage_path FROM public.documents WHERE id=:i AND tenant_id=:t"),
+                      {"i": int(doc_id), "t": tid}).first()
+        if not r:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        _log(s, tid, _user_name(s, uid), "view_evidence", str(doc_id), _client_ip(req))
+        return _serve_storage(r.storage_path)
+    finally:
+        s.close()
+
+
 # ════════════════════════ AUDITORSKÝ PŘÍSTUP (parent správa) ════════════════════════
 
 @iso_router.post("/app/iso/auditor/create")
@@ -462,7 +524,8 @@ def iso_audit_data(token: str, req: Request):
         _log(s, tid, "auditor", "portal_view", None, _client_ip(req))
         tn = s.execute(_t("SELECT tenant_name AS name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
         return {"ok": True, "tenant_name": (tn.name if tn else str(tid)),
-                "docs": _docs_payload(s, tid), "controls": _controls_payload(s, tid)}
+                "docs": _docs_payload(s, tid), "controls": _controls_payload(s, tid),
+                "evidence": _evidence_payload(s, tid)}
     finally:
         s.close()
 
@@ -481,6 +544,24 @@ def iso_audit_doc(token: str, kod: str, req: Request):
             return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
         _log(s, tid, "auditor", "view_doc", kod, _client_ip(req))
         return _serve_doc(r.soubor_path)
+    finally:
+        s.close()
+
+
+@iso_router.get("/app/iso/audit/{token}/evidence-doc/{doc_id}")
+def iso_audit_evidence_doc(token: str, doc_id: int, req: Request):
+    """Read-only nahraný dokument pro auditora (platný token, jen z daného tenantu)."""
+    s = _sess()
+    try:
+        tid = _auditor_tenant(s, token)
+        if not tid:
+            return JSONResponse({"ok": False, "error": "invalid_or_expired"}, status_code=403)
+        r = s.execute(_t("SELECT storage_path FROM public.documents WHERE id=:i AND tenant_id=:t"),
+                      {"i": int(doc_id), "t": tid}).first()
+        if not r:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        _log(s, tid, "auditor", "view_evidence", str(doc_id), _client_ip(req))
+        return _serve_storage(r.storage_path)
     finally:
         s.close()
 

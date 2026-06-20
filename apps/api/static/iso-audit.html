@@ -61,6 +61,18 @@ function load(){
       });
       h+='</div>';
     }
+    var ev=(j.evidence||[]);
+    if(ev.length){
+      h+='<h1 style="font-size:16px;margin:18px 0 6px">📎 Evidence — nahrané dokumenty ('+ev.length+')</h1><div class="c">';
+      var cg="";
+      ev.forEach(d=>{
+        var grp=(d.projekt||"")+(d.folder?(" / "+d.folder):"");
+        if(grp!==cg){cg=grp;h+='<div style="margin:10px 0 2px;font-weight:700;color:#9fb4d4">'+esc(grp)+'</div>';}
+        h+='<div class="row"><div class="grow"><div class="nm">'+esc(d.nazev)+' <span class="meta">·'+esc(d.typ)+'</span></div></div>'
+          +'<div style="margin-left:auto"><a class="lnk" href="/api/v1/erp/app/iso/audit/'+encodeURIComponent(TOKEN)+'/evidence-doc/'+d.id+'" target="_blank">otevřít ↗</a></div></div>';
+      });
+      h+='</div>';
+    }
     h+='<div class="sub" style="margin-top:10px">Přístup je auditovaný (každé otevření se zaznamenává). Pro otázky kontaktujte správce ISMS.</div>';
     document.getElementById("body").innerHTML=h;
   }).catch(()=>{document.getElementById("body").innerHTML='<div class="c err">Chyba načtení.</div>';});

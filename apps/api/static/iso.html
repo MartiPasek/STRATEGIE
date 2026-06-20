@@ -107,6 +107,12 @@ function render(){
     +'<div class="meta">Cíl: Assessment Level AL2. IS modul je mapovaný z ISO 27001 (jedna investice, dva výsledky). Přesné otázky lze importovat z oficiálního VDA ISA 6.0.3 (enx.com).</div></div>'
     +'<div class="right"><button class="btn sm ghost" id="txBtn" onclick="loadTisax()">Zobrazit moduly</button></div></div>'
     +'<div id="tisx"></div></div>';
+  // EVIDENCE (nahrané dokumenty STRATEGIE)
+  h+='<h2>📎 Nahrané dokumenty (evidence ze STRATEGIE)</h2><div class="c">'
+    +'<div class="row"><div class="grow"><div class="nm">Dokumenty nahrané v projektu (TISAX/ISO) — napojené do modulu</div>'
+    +'<div class="meta">Servírují se přímo z úložiště STRATEGIE; auditor je vidí read-only.</div></div>'
+    +'<div class="right"><button class="btn sm ghost" id="evBtn" onclick="loadEvidence()">Zobrazit dokumenty</button></div></div>'
+    +'<div id="evid"></div></div>';
   // AUDITOR
   h+='<h2>👁️ Přístup pro auditora (web, read-only)</h2><div class="c" id="aud"><div class="hint">Načítám…</div></div>';
   document.getElementById("body").innerHTML=h;
@@ -158,6 +164,24 @@ function loadTisax(){
   });
 }
 function txUpd(id,field,val){var b={id:id};b[field]=val;api("/api/v1/erp/app/iso/tisax-update","POST",b);}
+function loadEvidence(){
+  var box=document.getElementById("evid");var b=document.getElementById("evBtn");
+  if(box.dataset.open==="1"){box.innerHTML="";box.dataset.open="0";if(b)b.textContent="Zobrazit dokumenty";return;}
+  box.innerHTML='<div class="hint" style="padding:8px 0">Načítám…</div>';
+  api("/api/v1/erp/app/iso/evidence").then(j=>{
+    if(!j||!j.ok){box.innerHTML='<div class="hint">chyba</div>';return;}
+    box.dataset.open="1";if(b)b.textContent="Skrýt dokumenty";
+    if(!j.evidence.length){box.innerHTML='<div class="hint" style="padding:8px 0">Žádné nahrané dokumenty v ISO/TISAX projektu pro tento subjekt.</div>';return;}
+    var cur="",h='<div class="hint" style="margin:6px 0">Celkem '+j.evidence.length+' dokumentů</div>';
+    j.evidence.forEach(d=>{
+      var grp=(d.projekt||"")+(d.folder?(" / "+d.folder):"");
+      if(grp!==cur){cur=grp;h+='<div style="margin:10px 0 2px;font-weight:700;color:#9fb4d4">'+esc(grp)+'</div>';}
+      h+='<div class="row"><div class="grow"><div class="nm">'+esc(d.nazev)+' <span class="hint">·'+esc(d.typ)+'</span></div></div>'
+        +'<div class="right"><a class="lnk" href="/api/v1/erp/app/iso/evidence-doc/'+d.id+'" target="_blank">otevřít ↗</a></div></div>';
+    });
+    box.innerHTML=h;
+  });
+}
 function taskDone(id,done){api("/api/v1/erp/app/iso/task-done","POST",{task_id:id,done:done}).then(()=>load());}
 function sign(kod){
   if(!confirm("Elektronicky podepsat / schválit "+kod+"?\nPodpis (SES) se zaznamená s vaším jménem, časem a zařízením."))return;

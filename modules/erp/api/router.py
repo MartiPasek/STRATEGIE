@@ -22341,6 +22341,59 @@ async def diag_sql(req: Request) -> JSONResponse:
     if not sql:
         return JSONResponse({"ok": False, "error": "sql chybí"}, status_code=400)
 
+    # Souborový most (Marti 20.6.2026): čtení reálných faktur pro EDI/auto-pořizování.
+    #   @@FILES LIST <abs_cesta>            → výpis adresáře (soubor + velikost)
+    #   @@FILES READ <abs_cesta_k_souboru>  → obsah souboru (text/base64)
+    # Přes EUROSOFT MCP filesystem (RO namespace, base_override). Cesta musí být
+    # v MCP_FS_RO_ROOTS na EC-SERVER2 (D:\data\FakturyP apod.).
+    if sql.upper().startswith("@@FILES"):
+        import json as _jf, os.path as _op
+        parts = sql.split(None, 2)
+        op = (parts[1].upper() if len(parts) > 1 else "")
+        path = (parts[2].strip() if len(parts) > 2 else "")
+        if op not in ("LIST", "READ") or not path:
+            return JSONResponse({"ok": False, "error": "@@FILES LIST|READ <cesta>"})
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+            if op == "LIST":
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                                         {"user_namespace": "ro", "base_override": path, "subpath": ""},
+                                         conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict) and r.get("ok") is False:
+                    return JSONResponse({"ok": False, "error": str(r.get("error") or r)})
+                items = (r.get("items") or r.get("files") or r.get("entries") or []) if isinstance(r, dict) else (r or [])
+                rows = []
+                for it in items:
+                    if isinstance(it, dict):
+                        rows.append([it.get("name") or it.get("filename") or it.get("path"),
+                                     it.get("type") or ("dir" if it.get("is_dir") else "file"),
+                                     it.get("size")])
+                    else:
+                        rows.append([it, "", ""])
+                return JSONResponse({"ok": True, "columns": ["nazev", "typ", "velikost"],
+                                     "rows": rows, "count": len(rows)})
+            else:
+                base = _op.dirname(path); fn = _op.basename(path)
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                         {"user_namespace": "ro", "base_override": base, "path": fn},
+                                         conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict) and r.get("ok") is False:
+                    return JSONResponse({"ok": False, "error": str(r.get("error") or r)})
+                content = ""
+                if isinstance(r, dict):
+                    content = r.get("content") or r.get("text") or r.get("data") or ""
+                else:
+                    content = str(r)
+                return JSONResponse({"ok": True, "file_read": True, "path": path,
+                                     "length": len(content), "content": content})
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
     # Krok 2 (1.6.2026): WRITE (ne SELECT/WITH/EXPLAIN/SHOW) → nespouštět,
     # vytvořit pending request → Marti schválí v chatu/ERP banneru.
     import re as _re_ds

@@ -411,6 +411,31 @@ def _process() -> None:
         _consume()
         return
 
+    # Souborový most READ (Marti 20.6.2026): obsah souboru ulož lokálně, ať ho
+    # Claude přečte Read toolem (obejde ořez buněk md tabulky na 200 znaků).
+    if isinstance(res, dict) and res.get("file_read"):
+        import os as _osfr
+        fn = _osfr.path.basename((res.get("path") or "soubor").replace("\\", "/")) or "soubor"
+        files_dir = BRIDGE_DIR / "files"
+        try:
+            files_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        content = res.get("content") or ""
+        target = files_dir / fn
+        try:
+            target.write_text(content, encoding="utf-8", errors="replace")
+        except Exception as _wexc:
+            _log(f"file write failed: {_wexc}")
+        _write_out(
+            f"# STATUS: FILE OK · {res.get('length')} znaků → scripts/claude_sql/files/{fn}\n"
+            f"# {ts}\n\nObsah souboru uložen lokálně. Claude si ho přečte Read toolem:\n"
+            f"  scripts/claude_sql/files/{fn}\n"
+        )
+        _log(f"FILE READ ok: {fn} ({res.get('length')} znaků)")
+        _consume()
+        return
+
     if not isinstance(res, dict) or not res.get("ok"):
         err = (res.get("error") if isinstance(res, dict) else str(res)) or "neznámá chyba"
         _write_out(

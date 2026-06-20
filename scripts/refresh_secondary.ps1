@@ -42,10 +42,11 @@ Log "1/4 Zastavuji $Service ..."
 & $Nssm stop $Service | Out-Null
 Start-Sleep -Seconds 2
 
-# 2) Zrcadli kod + static z primarni do zalohy. Vynech venv/.git/cache/node_modules/logs,
-#    aby se nezbouralo vlastni prostredi zalohy. /MIR = presna kopie (vc. mazani odstranenych).
-Log "2/4 Kopiruji slozku (robocopy /MIR, bez venv/.git/cache) ..."
-$excl = @(".git",".venv","venv","node_modules","__pycache__",".idea",".pytest_cache","logs")
+# 2) Zrcadli kod + static + .git z primarni do zalohy. Vynech jen venv/cache/node_modules.
+#    .git ZAHRNUTO ZAMERNE (20.6.) - jinak zaloha hlasi zmrazeny stary git sha => spatny
+#    stitek verze (vypadalo to jako stara verze, i kdyz kod byl novy). /MIR = presna kopie.
+Log "2/4 Kopiruji slozku (robocopy /MIR vc. .git, bez venv/cache) ..."
+$excl = @(".venv","venv","node_modules","__pycache__",".idea",".pytest_cache","logs")
 robocopy $Src $Dst /MIR /XD $excl /XF *.pyc /R:1 /W:1 /NFL /NDL /NP /NJH /NJS | Out-Null
 $rc = $LASTEXITCODE
 # robocopy navratove kody: 0-7 = uspech, 8+ = chyba.

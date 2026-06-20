@@ -43,6 +43,7 @@
     <button data-t="vypisy" class="on">📋 Výpisy</button>
     <button data-t="template">🧾 Daně &amp; poplatky</button>
     <button data-t="zauctovani">💰 Zaúčtování</button>
+    <button data-t="denik">📒 Deník</button>
   </span>
 
   <div id="view-vypisy">
@@ -77,6 +78,15 @@
     </div>
     <div id="zsum" class="stats"></div>
     <div id="zlist"><div class="hint">Načítám…</div></div>
+  </div>
+
+  <div id="view-denik" style="display:none">
+    <div class="sub">STRATEGIE účetní deník — reálné zápisy z auto-účtování plateb (dvojitý zápis MD/DAL, podpis Marti-AI). Náš deník = zdroj pravdy; zrcadlení do Helios = další krok.</div>
+    <div id="dsum" class="stats"></div>
+    <h3 style="font-size:14px;color:var(--mut);margin:6px 0 4px">Souhrn po účtech (souvztažnost MD/DAL)</h3>
+    <div id="dagg"></div>
+    <h3 style="font-size:14px;color:var(--mut);margin:14px 0 4px">Zápisy</h3>
+    <div id="dlist"><div class="hint">Načítám…</div></div>
   </div>
 </div>
 <script>
@@ -192,14 +202,51 @@ document.getElementById("zgen").onclick=function(){
     if(x&&x.ok) alert("Vytvořeno "+(x.vytvoreno||0)+" nových návrhů.");
     loadZauctovani();});
 };
+function loadDenik(){
+  document.getElementById("dlist").innerHTML='<div class="hint">Načítám…</div>';
+  api("/api/v1/erp/app/parovani/denik").then(function(j){
+    if(!j||!j.ok){document.getElementById("dlist").innerHTML='<div class="err">'+esc((j&&(j.error||j.detail))||"Nelze načíst")+'</div>';return;}
+    var c=j.celkem||{};
+    document.getElementById("dsum").innerHTML=
+      '<div class="st"><div class="k">Zápisů</div><div class="v">'+(c.pocet||0).toLocaleString("cs-CZ")+'</div></div>'
+      +'<div class="st"><div class="k">Obrat</div><div class="v" style="font-size:15px">'+kc(c.suma,"")+'</div></div>'
+      +'<div class="st"><div class="k">Zrcadleno v Heliosu</div><div class="v" style="font-size:15px;color:var(--mut)">'+(c.helios||0)+' / '+(c.pocet||0)+'</div></div>';
+    var ah='<table><thead><tr><th class="l">MD</th><th class="l">DAL</th><th class="l">Kategorie</th><th>Zápisů</th><th>Částka</th></tr></thead><tbody>';
+    (j.souhrn||[]).forEach(function(g){
+      ah+='<tr><td class="l"><b>'+esc(g.ucet_md||"?")+'</b></td><td class="l"><b>'+esc(g.ucet_dal||"?")+'</b></td>'
+        +'<td class="l"><span class="badge b-kat">'+esc(g.kategorie||"")+'</span></td>'
+        +'<td>'+(g.pocet||0)+'</td><td>'+kc(g.suma,"")+'</td></tr>';
+    });
+    ah+='</tbody></table>';
+    document.getElementById("dagg").innerHTML=ah;
+    var items=j.polozky||[];
+    var h='<table><thead><tr><th class="l">Datum</th><th class="l">Doklad</th><th class="l">Popis</th><th class="l">MD</th><th class="l">DAL</th><th>Částka</th><th>Měna</th><th class="l">Podpis</th></tr></thead><tbody>';
+    items.forEach(function(d){
+      h+='<tr><td class="l">'+esc(d.dat||"")+'</td>'
+        +'<td class="l">'+esc(d.doklad||"")+'</td>'
+        +'<td class="l">'+esc(d.popis||"")+'</td>'
+        +'<td class="l">'+esc(d.ucet_md||"")+'</td>'
+        +'<td class="l">'+esc(d.ucet_dal||"")+'</td>'
+        +'<td>'+kc(d.castka,"")+'</td>'
+        +'<td'+(d.mena==="EUR"?' class="eur"':'')+'>'+esc(d.mena||"")+'</td>'
+        +'<td class="l">'+(d.podpis?('<span class="badge '+(d.podpis==="Marti-AI"?"b-kat":"b-ok")+'">'+esc(d.podpis)+'</span>'):'')+'</td></tr>';
+    });
+    if(!items.length) h+='<tr><td colspan="8" class="hint" style="padding:16px">Deník je prázdný.</td></tr>';
+    h+='</tbody></table>';
+    if(items.length>=200) h+='<div class="hint" style="margin-top:8px">Zobrazeno prvních 200.</div>';
+    document.getElementById("dlist").innerHTML=h;
+  });
+}
 Array.prototype.forEach.call(document.querySelectorAll("#tab button"),function(b){b.onclick=function(){
   var t=b.getAttribute("data-t");
   Array.prototype.forEach.call(document.querySelectorAll("#tab button"),function(x){x.classList.toggle("on",x===b);});
   document.getElementById("view-vypisy").style.display=(t==="vypisy")?"":"none";
   document.getElementById("view-template").style.display=(t==="template")?"":"none";
   document.getElementById("view-zauctovani").style.display=(t==="zauctovani")?"":"none";
+  document.getElementById("view-denik").style.display=(t==="denik")?"":"none";
   if(t==="template") loadTemplate();
   if(t==="zauctovani") loadZauctovani();
+  if(t==="denik") loadDenik();
 };});
 Array.prototype.forEach.call(document.querySelectorAll("#seg button"),function(b){b.onclick=function(){
   _stav=b.getAttribute("data-s");

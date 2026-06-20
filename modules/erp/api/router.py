@@ -21348,6 +21348,46 @@ async def parovani_zauctovani_rozhodni(req: Request):
         s.close()
 
 
+@api_router.get("/app/parovani/denik")
+def parovani_denik(req: Request):
+    """STRATEGIE účetní deník — reálné zápisy z auto-účtování (zdroj=bank_zauctovani).
+    Dvojitý zápis MD/DAL, podpis. Souhrn po účtech MD + výpis. Marti 20.6.2026
+    (volba „obojí — zrcadlit": náš deník = zdroj pravdy, Helios mirror = další krok)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    q = req.query_params
+    kat = (q.get("kategorie") or "").strip()
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        summ = s.execute(_t(
+            "SELECT ucet_md, ucet_dal, kategorie, COUNT(*), ROUND(SUM(castka)) "
+            "FROM tenant.ucetni_denik WHERE NOT storno GROUP BY ucet_md, ucet_dal, kategorie "
+            "ORDER BY SUM(castka) DESC")).all()
+        souhrn = [{"ucet_md": r[0], "ucet_dal": r[1], "kategorie": r[2],
+                   "pocet": int(r[3] or 0), "suma": float(r[4] or 0)} for r in summ]
+        celk = s.execute(_t(
+            "SELECT COUNT(*), ROUND(SUM(castka)), SUM(CASE WHEN helios_synced THEN 1 ELSE 0 END) "
+            "FROM tenant.ucetni_denik WHERE NOT storno")).first()
+        where = ["NOT storno"]
+        params = {}
+        if kat:
+            where.append("kategorie=:k"); params["k"] = kat
+        rows = s.execute(_t(
+            "SELECT id, to_char(datum,'DD.MM.YYYY') dat, doklad, ucet_md, ucet_dal, castka, mena, "
+            "popis, kategorie, podpis, helios_synced "
+            "FROM tenant.ucetni_denik WHERE " + " AND ".join(where) +
+            " ORDER BY datum DESC NULLS LAST, id DESC LIMIT 200"), params).mappings().all()
+        return {"ok": True,
+                "celkem": {"pocet": int(celk[0] or 0), "suma": float(celk[1] or 0),
+                           "helios": int(celk[2] or 0)},
+                "souhrn": souhrn, "polozky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
 # ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).

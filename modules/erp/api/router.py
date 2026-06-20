@@ -23869,7 +23869,14 @@ def _sync_ec_org_kontakt(_unused=None) -> dict:
                    "Zeme, StavVztahuID, ZdrojKontaktu, CAST(KontaktOveren AS int) KOver, "
                    "CONVERT(varchar(10),DatPorizeni,23) dp, CONVERT(varchar(19),DatZmeny,120) dz "
                    "FROM CRM_Kontakt WHERE ID > %d ORDER BY ID" % (BLOCK, lastid))
-            batch = rows_of(sql)
+            try:
+                batch = rows_of(sql)
+            except Exception as _ce:
+                # CRM_Kontakt přes MCP občas internal_error (potřebuje dedikovaný
+                # MCP path) → přeskoč, ať organizace nepadnou s ním. Marti 20.6.2026.
+                res["kontakty_skip"] = ("CRM přeskočeno: " + str(_ce))[:140]
+                s.rollback()
+                batch = []
             if not batch:
                 break
             for r2 in batch:

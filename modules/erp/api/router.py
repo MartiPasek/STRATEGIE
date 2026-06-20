@@ -21031,6 +21031,55 @@ async def mig_note_add(req: Request):
     return {"ok": True}
 
 
+@api_router.get("/app/mig/map")
+def mig_map(req: Request):
+    """Mapa vazeb pro doménu (Marti 20.6.2026): kam její procedury sahají (ven),
+    co sahá do ní (dovnitř), vnitřní hustota + klíčové procedury. Z mig_domain_edge
+    + mig_procedure (analýza 6475 procedur / 90338 vazeb)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    code = (req.query_params.get("code") or "").strip()
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        names = {r[0]: r[1] for r in s.execute(_t(
+            "SELECT code, domain_name FROM tenant.mig_domain WHERE tenant_id=2")).fetchall()}
+        if not code:
+            # globální přehled: nejsilnější křížové hrany
+            rows = s.execute(_t(
+                "SELECT from_code, to_code, edges, procs, tabs FROM tenant.mig_domain_edge "
+                "WHERE tenant_id=2 AND from_code<>to_code ORDER BY edges DESC LIMIT 40")).fetchall()
+            return {"ok": True, "names": names, "edges": [
+                {"from": r[0], "from_name": names.get(r[0], r[0]), "to": r[1],
+                 "to_name": names.get(r[1], r[1]), "edges": r[2], "procs": r[3], "tabs": r[4]}
+                for r in rows]}
+        ven = [{"code": r[0], "name": names.get(r[0], r[0]), "edges": r[1], "procs": r[2], "tabs": r[3]}
+               for r in s.execute(_t(
+                   "SELECT to_code, edges, procs, tabs FROM tenant.mig_domain_edge "
+                   "WHERE tenant_id=2 AND from_code=:c AND to_code<>:c ORDER BY edges DESC"),
+                   {"c": code}).fetchall()]
+        dovnitr = [{"code": r[0], "name": names.get(r[0], r[0]), "edges": r[1], "procs": r[2], "tabs": r[3]}
+                   for r in s.execute(_t(
+                       "SELECT from_code, edges, procs, tabs FROM tenant.mig_domain_edge "
+                       "WHERE tenant_id=2 AND to_code=:c AND from_code<>:c ORDER BY edges DESC"),
+                       {"c": code}).fetchall()]
+        vnitr = s.execute(_t(
+            "SELECT edges, procs, tabs FROM tenant.mig_domain_edge "
+            "WHERE tenant_id=2 AND from_code=:c AND to_code=:c"), {"c": code}).first()
+        procs = [{"name": r[0], "tabs": r[1], "len": r[2]}
+                 for r in s.execute(_t(
+                     "SELECT proc_name, ec_tables_touched, def_len FROM tenant.mig_procedure "
+                     "WHERE tenant_id=2 AND domain_code=:c ORDER BY ec_tables_touched DESC, def_len DESC LIMIT 25"),
+                     {"c": code}).fetchall()]
+        return {"ok": True, "code": code, "name": names.get(code, code), "names": names,
+                "ven": ven, "dovnitr": dovnitr, "procedury": procs,
+                "vnitrni": ({"edges": vnitr[0], "procs": vnitr[1], "tabs": vnitr[2]} if vnitr else None)}
+    finally:
+        s.close()
+
+
 # ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).

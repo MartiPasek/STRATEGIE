@@ -22583,7 +22583,7 @@ def _sync_nabor_from_ec() -> dict:
         rows = r
 
     def s2(v):
-        v = (str(v).strip() if v is not None else "")
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
         return v or None
 
     def num(v):
@@ -22772,7 +22772,7 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
         raise last
 
     def s2(v):
-        v = (str(v).strip() if v is not None else "")
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
         return v or None
 
     def num(v):
@@ -22963,7 +22963,7 @@ def _sync_ec_kalkulace(_unused=None) -> dict:
         raise last
 
     def s2(v):
-        v = (str(v).strip() if v is not None else "")
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
         return v or None
 
     def num(v):
@@ -23117,7 +23117,7 @@ def _sync_ec_ukoly(_unused=None) -> dict:
         raise last
 
     def s2(v):
-        v = (str(v).strip() if v is not None else "")
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
         return v or None
 
     def num(v):
@@ -23348,7 +23348,7 @@ def _sync_ec_ceniky(_unused=None) -> dict:
         raise last
 
     def s2(v):
-        v = (str(v).strip() if v is not None else "")
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
         return v or None
 
     def i2(v):
@@ -23502,7 +23502,7 @@ def _sync_ec_zakazka_prehled(_unused=None) -> dict:
         raise last
 
     def s2(v):
-        v = (str(v).strip() if v is not None else "")
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
         return v or None
 
     def num(v):
@@ -23637,7 +23637,7 @@ def _sync_ec_banka(_unused=None) -> dict:
         raise last
 
     def s2(v):
-        v = (str(v).strip() if v is not None else "")
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
         return v or None
 
     def num(v):
@@ -23860,7 +23860,7 @@ def _sync_ec_org_kontakt(_unused=None) -> dict:
         raise last
 
     def s2(v):
-        v = (str(v).strip() if v is not None else "")
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
         return v or None
 
     def i2(v):
@@ -24005,7 +24005,7 @@ def _sync_ec_sklad_kmen(_unused=None) -> dict:
         raise last
 
     def s2(v):
-        v = (str(v).strip() if v is not None else "")
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
         return v or None
 
     def num(v):

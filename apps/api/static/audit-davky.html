@@ -34,8 +34,8 @@
   <h1>🛡️ Audit dávek ČSSZ — měsíční kontrola</h1>
   <div class="sub">Jistota, že jsme na nic nezapomněli: každá událost (nemoc/OČR) napříč datovkou, Heliosem a našimi podáními.</div>
   <div class="ctl">
-    <select id="mesic"></select><select id="rok"></select>
-    <button onclick="load()">Načíst</button>
+    <select id="mesic" onchange="load()"></select><select id="rok" onchange="load()"></select>
+    <button onclick="load()">↻ Obnovit</button>
   </div>
   <div id="body"><div class="hint">Načítám…</div></div>
 </div>

@@ -22307,6 +22307,55 @@ def prefakturace_stav(req: Request):
     return {"ok": True, "faktura": fa}
 
 
+@api_router.get("/app/edi/statistika")
+def edi_statistika(req: Request):
+    """Statistika samoučícího se EDI workflow (Tier 0/1/2, učící křivka, náklad)
+    + náš trvalý audit (bridge/zápisy/ops od prvního pokusu k produkci). Marti 20.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        out = {"ok": True}
+        # EDI workflow
+        c = s.execute(_t(
+            "SELECT COUNT(*), SUM(CASE WHEN tier=0 THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN tier=1 THEN 1 ELSE 0 END), SUM(CASE WHEN tier=2 THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN vysledek='ok' THEN 1 ELSE 0 END), COALESCE(SUM(tokens),0), "
+            "SUM(CASE WHEN je_demo THEN 1 ELSE 0 END) "
+            "FROM tenant.edi_zpracovani_log")).first()
+        out["edi"] = {"celkem": int(c[0] or 0), "tier0": int(c[1] or 0), "tier1": int(c[2] or 0),
+                      "tier2": int(c[3] or 0), "ok": int(c[4] or 0), "tokens": int(c[5] or 0),
+                      "demo": int(c[6] or 0)}
+        krivka = s.execute(_t(
+            "SELECT to_char(created_at::date,'DD.MM') d, COUNT(*) celkem, "
+            "SUM(CASE WHEN tier=0 THEN 1 ELSE 0 END) t0, SUM(CASE WHEN tier>0 THEN 1 ELSE 0 END) ai "
+            "FROM tenant.edi_zpracovani_log GROUP BY created_at::date ORDER BY created_at::date")).mappings().all()
+        out["krivka"] = [dict(r) for r in krivka]
+        part = s.execute(_t(
+            "SELECT partner, COUNT(*) celkem, SUM(CASE WHEN tier=0 THEN 1 ELSE 0 END) t0 "
+            "FROM tenant.edi_zpracovani_log GROUP BY partner ORDER BY COUNT(*) DESC")).mappings().all()
+        out["partneri"] = [dict(r) for r in part]
+        # náš trvalý audit (fw.claude_*)
+        try:
+            a = s.execute(_t(
+                "SELECT (SELECT COUNT(*) FROM fw.claude_sql_log), "
+                "(SELECT COUNT(*) FROM fw.claude_write_request), "
+                "(SELECT COUNT(*) FROM fw.claude_write_request WHERE status='done'), "
+                "(SELECT COUNT(*) FROM fw.ops_request), "
+                "(SELECT to_char(MIN(created_at),'DD.MM.YYYY') FROM fw.claude_sql_log), "
+                "(SELECT COUNT(DISTINCT created_at::date) FROM fw.claude_sql_log)")).first()
+            out["nase"] = {"dotazy": int(a[0] or 0), "zapisy": int(a[1] or 0), "zapisy_ok": int(a[2] or 0),
+                           "ops": int(a[3] or 0), "od": a[4], "dni": int(a[5] or 0)}
+        except Exception:
+            out["nase"] = {}
+        return out
+    finally:
+        s.close()
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):

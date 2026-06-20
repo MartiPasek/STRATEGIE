@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statistika — samoučící EDI + naše práce</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--violet:#c4b5fd;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:18px}
+  h1{font-size:21px;margin:0 0 2px;font-weight:800}
+  h2{font-size:15px;margin:22px 0 8px;font-weight:800}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:10px}
+  .stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .st{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:11px 15px;min-width:120px;flex:1}
+  .st .k{color:var(--mut);font-size:11px}.st .v{font-weight:800;font-size:22px;margin-top:2px}
+  .big{font-size:30px}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:14px;margin-bottom:12px}
+  .bar{height:26px;border-radius:6px;background:#0f1830;overflow:hidden;display:flex}
+  .bar>i{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#06101f}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;color:var(--mut);text-align:left;padding:5px 8px}
+  td{padding:5px 8px;border-top:1px solid rgba(255,255,255,.05);font-size:13px}
+  .num{text-align:right;font-family:ui-monospace,monospace}
+  .demo{background:rgba(251,191,36,.12);border:1px solid #fbbf2455;border-radius:9px;padding:8px 12px;font-size:12px;color:var(--amber);margin-bottom:10px}
+  .hint{color:var(--mut)} .err{color:#ff8a8a}
+  .pill{font-size:11px;padding:1px 8px;border-radius:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📊 Statistika — samoučící EDI workflow + naše práce</h1>
+  <div class="sub">Trvalý audit od prvního pokusu k produkci. „Na zápis do Guinessovy knihy rekordů" 😄</div>
+  <div id="body"><div class="hint">Načítám…</div></div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();});}
+function nf(n){return (+n||0).toLocaleString("cs-CZ");}
+function pct(a,b){return b?Math.round(100*a/b):0;}
+api("/api/v1/erp/app/edi/statistika").then(function(j){
+  if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="err">'+esc((j&&(j.error||j.detail))||"Nelze načíst (rodič only)")+'</div>';return;}
+  var e=j.edi||{}, n=j.nase||{}, kr=j.krivka||[], pa=j.partneri||[];
+  var aut=pct(e.tier0,e.celkem);
+  var h='';
+  // EDI sekce
+  h+='<h2>🤖 Samoučící se EDI workflow — automatické pořizování dokladů</h2>';
+  if(e.demo&&e.demo===e.celkem) h+='<div class="demo">⚠ Ukázková data — naplní se ostře, až EDI engine pojede. Graf ukazuje vizi: jak se definice učí, AI klesá, deterministika roste.</div>';
+  h+='<div class="stats">'
+    +'<div class="st"><div class="k">Zpracováno dokladů</div><div class="v">'+nf(e.celkem)+'</div></div>'
+    +'<div class="st" style="border-color:#34d39955"><div class="k">Plně automaticky (Tier 0, zdarma)</div><div class="v big" style="color:var(--green)">'+aut+' %</div></div>'
+    +'<div class="st"><div class="k">Úspěšnost</div><div class="v">'+pct(e.ok,e.celkem)+' %</div></div>'
+    +'<div class="st"><div class="k">AI tokenů spotřebováno</div><div class="v" style="font-size:17px">'+nf(e.tokens)+'</div></div>'
+    +'</div>';
+  // tier bar
+  var t0=e.tier0||0,t1=e.tier1||0,t2=e.tier2||0,tc=e.celkem||1;
+  h+='<div class="card"><div class="hint" style="margin-bottom:6px">Rozdělení dle úrovně zpracování</div><div class="bar">'
+    +'<i style="width:'+pct(t0,tc)+'%;background:#34d399" title="Tier 0">'+(pct(t0,tc)>7?'Tier 0 · '+pct(t0,tc)+'%':'')+'</i>'
+    +'<i style="width:'+pct(t1,tc)+'%;background:#4f8ef7" title="Tier 1">'+(pct(t1,tc)>7?'Tier 1 · '+pct(t1,tc)+'%':'')+'</i>'
+    +'<i style="width:'+pct(t2,tc)+'%;background:#c4b5fd" title="Tier 2">'+(pct(t2,tc)>7?'Tier 2 · '+pct(t2,tc)+'%':'')+'</i></div>'
+    +'<div class="hint" style="font-size:11px;margin-top:6px">🟢 Tier 0 deterministika (žádná AI, zadarmo) '+nf(t0)+' · 🔵 Tier 1 OCR+Haiku (učí definici) '+nf(t1)+' · 🟣 Tier 2 Marti-AI '+nf(t2)+'</div></div>';
+  // graf učící křivky
+  h+='<div class="card"><div class="hint" style="margin-bottom:6px">Učící křivka — % plně automaticky (Tier 0) v čase ↗</div><canvas id="kr" height="90"></canvas></div>';
+  // partneři
+  if(pa.length){
+    h+='<div class="card"><div class="hint" style="margin-bottom:6px">Dle dodavatele</div><table><thead><tr><th>Dodavatel</th><th class="num">Dokladů</th><th class="num">Automaticky</th></tr></thead><tbody>';
+    pa.forEach(function(p){h+='<tr><td>'+esc(p.partner||"")+'</td><td class="num">'+nf(p.celkem)+'</td><td class="num">'+pct(p.t0,p.celkem)+' %</td></tr>';});
+    h+='</tbody></table></div>';
+  }
+  // naše práce
+  h+='<h2>🛠️ Náš trvalý audit — co Claude postavil (od prvního pokusu k produkci)</h2>';
+  h+='<div class="stats">'
+    +'<div class="st"><div class="k">Bridge dotazů do produkce</div><div class="v">'+nf(n.dotazy)+'</div></div>'
+    +'<div class="st"><div class="k">Schválených zápisů</div><div class="v">'+nf(n.zapisy_ok||n.zapisy)+'</div></div>'
+    +'<div class="st"><div class="k">Ops akcí</div><div class="v">'+nf(n.ops)+'</div></div>'
+    +'<div class="st"><div class="k">Dní práce</div><div class="v">'+nf(n.dni)+'</div></div>'
+    +'</div>';
+  h+='<div class="hint" style="font-size:12px">Od '+esc(n.od||"")+'. Každý dotaz, zápis i ops akce je trvale auditovaný (fw.claude_sql_log / claude_write_request / ops_request) — AI navrhuje, člověk schvaluje, vše dohledatelné.</div>';
+  document.getElementById("body").innerHTML=h;
+  // chart
+  if(kr.length&&window.Chart){
+    new Chart(document.getElementById("kr"),{type:"line",
+      data:{labels:kr.map(function(r){return r.d;}),
+        datasets:[{label:"% Tier 0 (zdarma)",data:kr.map(function(r){return pct(r.t0,r.celkem);}),
+          borderColor:"#34d399",backgroundColor:"rgba(52,211,153,.15)",fill:true,tension:.3,pointRadius:0},
+        {label:"AI volání/den",data:kr.map(function(r){return r.ai;}),
+          borderColor:"#c4b5fd",backgroundColor:"transparent",tension:.3,pointRadius:0,yAxisID:"y2"}]},
+      options:{plugins:{legend:{labels:{color:"#8fa0b4",boxWidth:12,font:{size:11}}}},
+        scales:{x:{ticks:{color:"#8fa0b4",maxTicksLimit:8,font:{size:10}},grid:{color:"#1f2a38"}},
+          y:{min:0,max:100,ticks:{color:"#34d399",font:{size:10},callback:function(v){return v+"%";}},grid:{color:"#1f2a38"}},
+          y2:{position:"right",min:0,ticks:{color:"#c4b5fd",font:{size:10}},grid:{display:false}}}}});
+  }
+});
+</script>
+</body>
+</html>

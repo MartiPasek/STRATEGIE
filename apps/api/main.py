@@ -968,6 +968,13 @@ def doklad_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/edi-stat")
+def edi_stat_page():
+    """Statistika samoučícího EDI workflow + náš trvalý audit. Marti 20.6.2026. Parent-only data."""
+    return FileResponse(os.path.join(static_dir, "edi-stat.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/doklady")
 def doklady_page():
     """Přehled účetních dokladů + workflow (stavy, akce, audit). Marti 20.6.2026. Parent-only data."""

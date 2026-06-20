@@ -23209,7 +23209,8 @@ def _sync_ec_ceniky(_unused=None) -> dict:
                            "CAST(P06 AS nvarchar(max)) P06, CAST(P07 AS nvarchar(max)) P07, CAST(P08 AS nvarchar(max)) P08, "
                            "CAST(P09 AS nvarchar(max)) P09, CAST(P10 AS nvarchar(max)) P10, CAST(P11 AS nvarchar(max)) P11, "
                            "CAST(P12 AS nvarchar(max)) P12, Poznamka, Autor, CONVERT(varchar(19),DatPorizeni,120) dp, "
-                           "Zmenil, CONVERT(varchar(19),DatZmeny,120) dz FROM [DB-Ceniky].dbo.EC_CenikyVzorcePar"):
+                           "Zmenil, CONVERT(varchar(19),DatZmeny,120) dz FROM [DB-Ceniky].dbo.EC_CenikyVzorcePar "
+                           "WHERE IDCenik IS NOT NULL"):
             s.execute(_t(
                 "INSERT INTO tenant.ec_cenik_vzorec_par (id_cenik,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,"
                 "poznamka,autor,dat_porizeni,zmenil,dat_zmeny,synced_at) VALUES "

@@ -7449,6 +7449,7 @@ setTimeout(function(){
           +'<div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">'
           +'<button class="ghost isds-edit" data-id="'+a.id+'" style="margin:0;padding:7px 12px;font-size:13px">✏️ Upravit</button>'
           +'<button class="green isds-sync" data-id="'+a.id+'" style="margin:0;padding:7px 12px;font-size:13px">📥 Synchronizovat</button>'
+          +'<button class="ghost isds-hist" data-id="'+a.id+'" style="margin:0;padding:7px 12px;font-size:13px">📜 Historie (rok)</button>'
           +'<button class="ghost isds-del" data-id="'+a.id+'" data-nm="'+esc(a.company_label)+'" style="margin:0;padding:7px 12px;font-size:13px;color:#ff8a8a">🗑</button>'
           +'</div></div>';
       });
@@ -7458,6 +7459,7 @@ setTimeout(function(){
       box.querySelector("#isdsAdd").addEventListener("click",function(){ isdsForm(null); });
       box.querySelectorAll(".isds-edit").forEach(function(b){ b.addEventListener("click",function(){ var a=(j.accounts||[]).filter(function(x){return String(x.id)===b.getAttribute("data-id");})[0]; isdsForm(a); }); });
       box.querySelectorAll(".isds-sync").forEach(function(b){ b.addEventListener("click",function(){ isdsSync(b.getAttribute("data-id")); }); });
+      box.querySelectorAll(".isds-hist").forEach(function(b){ b.addEventListener("click",function(){ isdsSync(b.getAttribute("data-id"),365); }); });
       box.querySelectorAll(".isds-del").forEach(function(b){ b.addEventListener("click",function(){ confirmDialog("Smazat datovku","Smazat "+b.getAttribute("data-nm")+" včetně stažených zpráv?","🗑 Smazat",function(){ api("POST","/api/v1/erp/app/isds/account/delete",{id:parseInt(b.getAttribute("data-id"),10)}).then(isdsLoad); }); }); });
       isdsLoadMsgs();
     });
@@ -7505,9 +7507,10 @@ setTimeout(function(){
     [co,bx,ln,pw,vs,tn,st,save,cl].forEach(function(e){ ov.appendChild(e); });
     app.appendChild(ov);
   }
-  function isdsSync(id){
-    _shotToast&&_shotToast("Synchronizuji datovku…");
-    api("POST","/api/v1/erp/app/isds/sync",{account_id:parseInt(id,10)}).then(function(r){
+  function isdsSync(id,days){
+    _shotToast&&_shotToast(days?("Stahuji historii "+days+" dní…"):"Synchronizuji datovku…");
+    var pl={account_id:parseInt(id,10)}; if(days){pl.days_back=days;}
+    api("POST","/api/v1/erp/app/isds/sync",pl).then(function(r){
       if(r&&r.ok){ try{_shotToast("Hotovo: "+r["new"]+" nových"+((r.errors&&r.errors.length)?(" · chyba: "+r.errors[0]):""));}catch(e){} isdsLoad(); }
       else { try{_shotToast("Chyba: "+((r&&(r.error||r.detail))||"?"));}catch(e){} }
     }).catch(function(){ try{_shotToast("Chyba spojení.");}catch(e){} });

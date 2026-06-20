@@ -22055,13 +22055,17 @@ async def isds_sync(req: Request):
         params = {}
         if b.get("account_id"):
             where = "id=:aid"; params = {"aid": int(b.get("account_id"))}
+        try:
+            days_back = max(1, min(1100, int(b.get("days_back") or 60)))
+        except (TypeError, ValueError):
+            days_back = 60
         accs = s.execute(_t("SELECT id, tenant_id, company_label, box_id, login_name, "
                             "password_enc FROM fw.isds_account WHERE " + where), params).mappings().all()
         total_new = 0; errors = []
         for a in accs:
             acc = dict(a)
             try:
-                lst = _isds_list_received(acc)
+                lst = _isds_list_received(acc, days_back=days_back)
             except Exception as exc:
                 errors.append("%s: %s" % (acc["company_label"], str(exc)[:160]))
                 s.execute(_t("UPDATE fw.isds_account SET last_sync_at=now(), last_sync_note=:n WHERE id=:i"),

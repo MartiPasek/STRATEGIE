@@ -68,7 +68,7 @@ _TASK_TPL = [
     (6, "Hodnocení", "Provést interní audit", "Projít checklist kap. 4-10, zapsat zjištění; podpis auditora → DOC-16", "Kristý (ISMS)", "DOC-16", True),
     (7, "Hodnocení", "Přezkoumání vedením", "Management review — vstupy/výstupy, zápis; podpis → DOC-17", "Vedení (Marti)", "DOC-17", True),
     (8, "Zlepšování", "Nápravná opatření", "Neshody z auditu → opatření + termín → DOC-18", "Kristý (ISMS)", "DOC-18", False),
-    (9, "Technika", "Restore drill záloh", "Otestovat obnovu zálohy, zaznamenat RTO/RPO → DOC-11", "Claude+Marti", "DOC-11", False),
+    (9, "Obnova (DR)", "Plán obnovy — vyzkoušet a rozjet (restore drill)", "Michal dle iso27001_plan_obnovy_michal.md: restore drill, RTO/RPO, záznam → DOC-11", "Michal (obnova)", "DOC-11", False),
     (10, "Technika", "CVE sken závislostí", "Spustit pip-audit, vyřešit nálezy dle SLA", "Claude+Marti", None, False),
     (11, "Dodavatelé", "DPA s dodavateli", "Uzavřít zpracovatelské smlouvy se sub-processory → DOC-12", "Kristý (ISMS)", "DOC-12", False),
     (12, "Fyzická", "Attestace fyzické bezpečnosti", "Doložit od EUROSOFT / DC ČMIS", "Marti", None, False),

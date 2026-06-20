@@ -21582,13 +21582,15 @@ async def uctovani_doklad_full(req: Request):
         podpis = s.execute(_t(
             "SELECT COALESCE(first_name,'uid '||id::text) FROM public.users WHERE id=:u"),
             {"u": uid}).scalar() or ("uid " + str(uid))
+        persona = "claude" if uid in (23, 24) else ("marti_ai" if podpis == "Marti-AI" else "clovek")
         dok = s.execute(_t(
             "INSERT INTO tenant.ucet_doklad (company_id,cislo,sbornik_kod,datum,partner_org,partner_nazev,"
-            "mena,kurz,jednotka,popis,stav,podpis) VALUES "
-            "(:co,:ci,:sb,:dat,:po,:pn,:me,:ku,:je,:pop,'zauctovano',:pod) RETURNING id"),
+            "mena,kurz,jednotka,popis,stav,podpis,persona,realizoval_uid,realizoval_at) VALUES "
+            "(:co,:ci,:sb,:dat,:po,:pn,:me,:ku,:je,:pop,'realizovano',:pod,:pers,:u,now()) RETURNING id"),
             {"co": company_id, "ci": cislo, "sb": sbornik_kod, "dat": datum,
              "po": b.get("partner_org"), "pn": b.get("partner_nazev"),
-             "me": mena, "ku": kurz, "je": jednotka, "pop": (b.get("popis") or None), "pod": podpis}).scalar()
+             "me": mena, "ku": kurz, "je": jednotka, "pop": (b.get("popis") or None),
+             "pod": podpis, "pers": persona, "u": uid}).scalar()
 
         def r2(x):
             return round(float(x or 0), 2)
@@ -21620,34 +21622,172 @@ async def uctovani_doklad_full(req: Request):
             k = str(int(sazba)) if sazba == int(sazba) else str(sazba)
             rk = rekap.setdefault(k, {"zaklad": 0.0, "dph": 0.0})
             rk["zaklad"] = r2(rk["zaklad"] + zaklad_czk); rk["dph"] = r2(rk["dph"] + dph_czk)
-            # zápis do deníku v CZK přes legy předkontace
-            legs = []
-            if predk:
-                legs = s.execute(_t(
-                    "SELECT ucet_md, ucet_dal, castka_typ FROM tenant.ucet_predkontace_radek "
-                    "WHERE tenant_id=2 AND predkontace_kod=:k ORDER BY poradi"), {"k": predk}).mappings().all()
-            if not legs:
-                legs = [{"ucet_md": None, "ucet_dal": None, "castka_typ": "celkem"}]
-            for lg in legs:
-                amt = zaklad_czk if lg["castka_typ"] == "zaklad" else (dph_czk if lg["castka_typ"] == "dph" else celkem_czk_p)
-                if not amt:
-                    continue
-                s.execute(_t(
-                    "INSERT INTO tenant.ucetni_denik (datum,doklad,ucet_md,ucet_dal,castka,mena,popis,"
-                    "kategorie,zdroj,sbornik_kod,podpis) VALUES "
-                    "(:dat,:dok,:md,:dal,:ca,'CZK',:po,:kat,'doklad',:sb,:pod)"),
-                    {"dat": datum, "dok": cislo, "md": lg["ucet_md"], "dal": lg["ucet_dal"], "ca": amt,
-                     "po": (p.get("popis") or b.get("popis")), "kat": predk, "sb": sbornik_kod, "pod": podpis})
-                denik_radky += 1
+            # POZN.: doklad vzniká jako KONCEPT — do deníku se zapíše až akcí „zaúčtovat" (_doklad_post_denik)
         celkem_eur = r2(celkem_mena) if mena == "EUR" else (r2(celkem_czk / (eur_kurz / (eur_jed or 1))) if eur_kurz else None)
         s.execute(_t(
             "UPDATE tenant.ucet_doklad SET celkem_mena=:cm, celkem_czk=:cc, celkem_eur=:ce WHERE id=:id"),
             {"cm": celkem_mena, "cc": celkem_czk, "ce": celkem_eur, "id": dok})
+        s.execute(_t(
+            "INSERT INTO tenant.ucet_doklad_log (doklad_id,akce,stav_na,uid,podpis,persona) "
+            "VALUES (:d,'porizeno','porizeno',:u,:p,:pe), (:d,'realizovano','realizovano',:u,:p,:pe)"),
+            {"d": dok, "u": uid, "p": podpis, "pe": persona})
         s.commit()
-        return {"ok": True, "cislo": cislo, "celkem_mena": celkem_mena, "celkem_czk": celkem_czk,
+        return {"ok": True, "id": dok, "cislo": cislo, "stav": "realizovano",
+                "celkem_mena": celkem_mena, "celkem_czk": celkem_czk,
                 "celkem_eur": celkem_eur, "mena": mena, "kurz": kurz,
                 "rekapitulace": [{"sazba": k, "zaklad": v["zaklad"], "dph": v["dph"]} for k, v in sorted(rekap.items())],
-                "denik_radky": denik_radky, "podpis": podpis}
+                "podpis": podpis}
+    finally:
+        s.close()
+
+
+def _doklad_post_denik(s, dok_id, podpis):
+    """Zaúčtuje položky dokladu do deníku (CZK, přes legy předkontace). Vrací počet řádků."""
+    from sqlalchemy import text as _t
+    d = s.execute(_t("SELECT cislo, sbornik_kod, datum FROM tenant.ucet_doklad WHERE id=:i"), {"i": dok_id}).first()
+    if not d:
+        return 0
+    cislo, sbornik_kod, datum = d[0], d[1], d[2]
+    pol = s.execute(_t(
+        "SELECT predkontace_kod, zaklad_czk, dph_czk, celkem_czk, popis "
+        "FROM tenant.ucet_doklad_polozka WHERE doklad_id=:i ORDER BY poradi"), {"i": dok_id}).mappings().all()
+    n = 0
+    for p in pol:
+        legs = []
+        if p["predkontace_kod"]:
+            legs = s.execute(_t(
+                "SELECT ucet_md, ucet_dal, castka_typ FROM tenant.ucet_predkontace_radek "
+                "WHERE tenant_id=2 AND predkontace_kod=:k ORDER BY poradi"), {"k": p["predkontace_kod"]}).mappings().all()
+        if not legs:
+            legs = [{"ucet_md": None, "ucet_dal": None, "castka_typ": "celkem"}]
+        for lg in legs:
+            amt = p["zaklad_czk"] if lg["castka_typ"] == "zaklad" else (p["dph_czk"] if lg["castka_typ"] == "dph" else p["celkem_czk"])
+            if not amt:
+                continue
+            s.execute(_t(
+                "INSERT INTO tenant.ucetni_denik (datum,doklad,ucet_md,ucet_dal,castka,mena,popis,"
+                "kategorie,zdroj,sbornik_kod,podpis) VALUES "
+                "(:dat,:dok,:md,:dal,:ca,'CZK',:po,:kat,'doklad',:sb,:pod)"),
+                {"dat": datum, "dok": cislo, "md": lg["ucet_md"], "dal": lg["ucet_dal"], "ca": float(amt),
+                 "po": p["popis"], "kat": p["predkontace_kod"], "sb": sbornik_kod, "pod": podpis})
+            n += 1
+    return n
+
+
+def _je_uzavreno(s, datum, company_id=None):
+    """True, pokud je období dokladu uzavřené (uzávěrka měsíce/čtvrtletí/roku)."""
+    from sqlalchemy import text as _t
+    try:
+        rok = int(str(datum)[:4]); mesic = int(str(datum)[5:7])
+    except (ValueError, TypeError):
+        return False
+    r = s.execute(_t(
+        "SELECT 1 FROM tenant.ucet_uzaverka WHERE tenant_id=2 AND uzavreno AND rok=:r "
+        "  AND (mesic=:m OR mesic IS NULL) AND (company_id=:c OR company_id IS NULL) LIMIT 1"),
+        {"r": rok, "m": mesic, "c": company_id}).first()
+    return bool(r)
+
+
+@api_router.post("/app/uctovani/doklad/{dok_id}/akce")
+async def uctovani_doklad_akce(dok_id: int, req: Request):
+    """Workflow dokladu: odeslat / zauctovat / oductovat / odrealizovat. Audit + pojistka uzávěrky."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    akce = (b.get("akce") or "").strip()
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        d = s.execute(_t("SELECT stav, cislo, datum, company_id FROM tenant.ucet_doklad WHERE id=:i"), {"i": dok_id}).first()
+        if not d:
+            return JSONResponse({"ok": False, "error": "doklad nenalezen"}, status_code=404)
+        stav, cislo, datum, company_id = d[0], d[1], d[2], d[3]
+        podpis = s.execute(_t("SELECT COALESCE(first_name,'uid '||id::text) FROM public.users WHERE id=:u"),
+                           {"u": uid}).scalar() or ("uid " + str(uid))
+        persona = "claude" if uid in (23, 24) else ("marti_ai" if podpis == "Marti-AI" else "clovek")
+        novy = None; denik_radky = 0
+        if akce == "odeslat":
+            if stav not in ("realizovano",):
+                return JSONResponse({"ok": False, "error": "odeslat lze jen z realizováno"}, status_code=400)
+            novy = "odeslano"
+            s.execute(_t("UPDATE tenant.ucet_doklad SET stav='odeslano', odeslal_uid=:u, odeslal_at=now() WHERE id=:i"), {"u": uid, "i": dok_id})
+        elif akce == "zauctovat":
+            if stav not in ("realizovano", "odeslano"):
+                return JSONResponse({"ok": False, "error": "zaúčtovat lze z realizováno/odesláno"}, status_code=400)
+            denik_radky = _doklad_post_denik(s, dok_id, podpis)
+            novy = "uctovano"
+            s.execute(_t("UPDATE tenant.ucet_doklad SET stav='uctovano', zauctoval_uid=:u, zauctoval_at=now() WHERE id=:i"), {"u": uid, "i": dok_id})
+        elif akce == "oductovat":
+            if stav != "uctovano":
+                return JSONResponse({"ok": False, "error": "odúčtovat lze jen z účtováno"}, status_code=400)
+            if _je_uzavreno(s, datum, company_id):
+                return JSONResponse({"ok": False, "error": "období je uzavřené (uzávěrka) — nelze odúčtovat"}, status_code=400)
+            s.execute(_t("DELETE FROM tenant.ucetni_denik WHERE doklad=:c AND zdroj='doklad'"), {"c": cislo})
+            novy = "realizovano"
+            s.execute(_t("UPDATE tenant.ucet_doklad SET stav='realizovano', zauctoval_uid=NULL, zauctoval_at=NULL WHERE id=:i"), {"i": dok_id})
+        elif akce == "odrealizovat":
+            if stav == "uctovano":
+                return JSONResponse({"ok": False, "error": "nejdřív odúčtuj"}, status_code=400)
+            novy = "koncept"
+            s.execute(_t("UPDATE tenant.ucet_doklad SET stav='koncept' WHERE id=:i"), {"i": dok_id})
+        else:
+            return JSONResponse({"ok": False, "error": "neznámá akce"}, status_code=400)
+        s.execute(_t("INSERT INTO tenant.ucet_doklad_log (doklad_id,akce,stav_z,stav_na,uid,podpis,persona) "
+                     "VALUES (:d,:a,:sz,:sn,:u,:p,:pe)"),
+                  {"d": dok_id, "a": akce, "sz": stav, "sn": novy, "u": uid, "p": podpis, "pe": persona})
+        s.commit()
+        return {"ok": True, "stav": novy, "denik_radky": denik_radky}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/uctovani/doklady")
+def uctovani_doklady(req: Request):
+    """Přehled účetních dokladů (hlavičky + stav). Marti 20.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, cislo, sbornik_kod, to_char(datum,'DD.MM.YYYY') dat, partner_nazev, mena, "
+            "celkem_mena, celkem_czk, celkem_eur, stav, popis "
+            "FROM tenant.ucet_doklad ORDER BY id DESC LIMIT 200")).mappings().all()
+        return {"ok": True, "doklady": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/uctovani/doklad/{dok_id}")
+def uctovani_doklad_detail(dok_id: int, req: Request):
+    """Detail dokladu — hlavička + položky + řádky deníku + audit log. Marti 20.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        h = s.execute(_t(
+            "SELECT id, cislo, sbornik_kod, to_char(datum,'DD.MM.YYYY') dat, partner_nazev, mena, kurz, "
+            "celkem_mena, celkem_czk, celkem_eur, stav, popis FROM tenant.ucet_doklad WHERE id=:i"), {"i": dok_id}).mappings().first()
+        if not h:
+            return JSONResponse({"ok": False, "error": "nenalezeno"}, status_code=404)
+        pol = s.execute(_t(
+            "SELECT poradi, popis, predkontace_kod, sazba_dph, zaklad_mena, dph_mena, celkem_mena, "
+            "zaklad_czk, dph_czk, celkem_czk FROM tenant.ucet_doklad_polozka WHERE doklad_id=:i ORDER BY poradi"), {"i": dok_id}).mappings().all()
+        den = s.execute(_t(
+            "SELECT ucet_md, ucet_dal, castka, popis FROM tenant.ucetni_denik WHERE doklad=:c AND zdroj='doklad' ORDER BY id"),
+            {"c": h["cislo"]}).mappings().all()
+        log = s.execute(_t(
+            "SELECT akce, stav_na, podpis, to_char(created_at,'DD.MM.YYYY HH24:MI') kdy "
+            "FROM tenant.ucet_doklad_log WHERE doklad_id=:i ORDER BY id"), {"i": dok_id}).mappings().all()
+        return {"ok": True, "doklad": dict(h), "polozky": [dict(r) for r in pol],
+                "denik": [dict(r) for r in den], "log": [dict(r) for r in log]}
     finally:
         s.close()
 

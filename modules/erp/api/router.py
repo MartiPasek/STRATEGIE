@@ -21940,6 +21940,10 @@ _OPS_ACTIONS = {
         "label": "Zrcadlo Centrály: úkoly + řešitelé (okno aktivní/2023+, idempotentní)",
         "target": "cloud", "remote": False,
     },
+    "sync_ec_zakazky": {
+        "label": "Zrcadlo Centrály: finanční přehled zakázek (EC_ZakazkaPrehled, plné)",
+        "target": "cloud", "remote": False,
+    },
     "sync_ec_org_kontakt": {
         "label": "Zrcadlo Centrály: organizace (rowversion) + CRM kontakty (plné)",
         "target": "cloud", "remote": False,
@@ -23075,6 +23079,139 @@ def _sync_ec_ukoly(_unused=None) -> dict:
         res["cis_resitelu"] = nc
 
         return {"ok": True, **res}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_zakazka_prehled(_unused=None) -> dict:
+    """Marti 20.6.2026: zrcadlo finančního přehledu zakázek (EC_ZakazkaPrehled,
+    ~2700 řádků, plné). Per zakázka: hodiny real/kalk, náklady, výnosy, režie, HV,
+    zisk/hod, ukončeno. Vazba na zakázku přes cislo_zakazky. Idempotentní upsert src_id."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def b2(v):
+        t = (s2(v) or "").lower()
+        if t[:1] in ("1", "t", "a", "y"):
+            return True
+        if t[:1] in ("0", "f", "n"):
+            return False
+        return None
+
+    BLOCK = 1000
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        lastid = 0
+        nz = 0
+        while True:
+            sql = ("SELECT TOP %d ID, Utvar, RTRIM(CisloZakazky) CisloZakazky, Rok, Poradi, Resitel, "
+                   "HodinyRealRok, HodinyReal, HodinyKalk, SumaKalkVkmMesic, HodinyRozpRezieA, HodinyRozpRezieM, "
+                   "PrimeNakladyA, PrimeNakladyM, VynosyA, VynosyM, VynosyC, CelkemNakladyVcNV_A, CelkemNakladyA, "
+                   "CelkemNakladyM, CelkemNakladyC, RezieVKM, RezieVyroba, RezieSprava, "
+                   "CAST(UkoncenoVyroba AS int) UkoncenoVyroba, CAST(Ukonceno AS int) Ukonceno, "
+                   "CAST(NepocitatNV AS int) NepocitatNV, HV_BezNV, HV_A, HV_M, HV_C, HV_Rezie, OstatniVynosy, "
+                   "ZiskNaKalkHodinu, ZiskNaRealHodinu, NV_Naklady, NV_Vynosy, NakladyRezie, VynosyRezie, NV, "
+                   "NV_DenikV, NV_DenikN, KalkVKM_Koef, KalkVKM_Celkem, CONVERT(varchar(19),DatPoslAkt,120) dpa "
+                   "FROM EC_ZakazkaPrehled WHERE ID > %d ORDER BY ID" % (BLOCK, lastid))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for row in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_zakazka_prehled (src_id,utvar,cislo_zakazky,rok,poradi,resitel,"
+                    "hodiny_real_rok,hodiny_real,hodiny_kalk,suma_kalk_vkm_mesic,hodiny_rozp_rezie_a,hodiny_rozp_rezie_m,"
+                    "prime_naklady_a,prime_naklady_m,vynosy_a,vynosy_m,vynosy_c,celkem_naklady_vc_nv_a,celkem_naklady_a,"
+                    "celkem_naklady_m,celkem_naklady_c,rezie_vkm,rezie_vyroba,rezie_sprava,ukonceno_vyroba,ukonceno,"
+                    "nepocitat_nv,hv_bez_nv,hv_a,hv_m,hv_c,hv_rezie,ostatni_vynosy,zisk_na_kalk_hodinu,zisk_na_real_hodinu,"
+                    "nv_naklady,nv_vynosy,naklady_rezie,vynosy_rezie,nv,nv_denik_v,nv_denik_n,kalk_vkm_koef,kalk_vkm_celkem,"
+                    "dat_posl_akt,synced_at) VALUES "
+                    "(:sid,:ut,:cz,:rok,:po,:re,:hrr,:hr,:hk,:skvm,:hra,:hrm,:pna,:pnm,:va,:vm,:vc,:cnva,:cna,:cnm,:cnc,"
+                    ":rvkm,:rvy,:rsp,:uv,:uk,:nnv,:hbn,:hva,:hvm,:hvc,:hvr,:ov,:zkh,:zrh,:nvn,:nvv,:nar,:vyr,:nv,:ndv,:ndn,"
+                    ":kvk,:kvc,:dpa,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET utvar=excluded.utvar,cislo_zakazky=excluded.cislo_zakazky,"
+                    "rok=excluded.rok,poradi=excluded.poradi,resitel=excluded.resitel,hodiny_real_rok=excluded.hodiny_real_rok,"
+                    "hodiny_real=excluded.hodiny_real,hodiny_kalk=excluded.hodiny_kalk,suma_kalk_vkm_mesic=excluded.suma_kalk_vkm_mesic,"
+                    "hodiny_rozp_rezie_a=excluded.hodiny_rozp_rezie_a,hodiny_rozp_rezie_m=excluded.hodiny_rozp_rezie_m,"
+                    "prime_naklady_a=excluded.prime_naklady_a,prime_naklady_m=excluded.prime_naklady_m,vynosy_a=excluded.vynosy_a,"
+                    "vynosy_m=excluded.vynosy_m,vynosy_c=excluded.vynosy_c,celkem_naklady_vc_nv_a=excluded.celkem_naklady_vc_nv_a,"
+                    "celkem_naklady_a=excluded.celkem_naklady_a,celkem_naklady_m=excluded.celkem_naklady_m,"
+                    "celkem_naklady_c=excluded.celkem_naklady_c,rezie_vkm=excluded.rezie_vkm,rezie_vyroba=excluded.rezie_vyroba,"
+                    "rezie_sprava=excluded.rezie_sprava,ukonceno_vyroba=excluded.ukonceno_vyroba,ukonceno=excluded.ukonceno,"
+                    "nepocitat_nv=excluded.nepocitat_nv,hv_bez_nv=excluded.hv_bez_nv,hv_a=excluded.hv_a,hv_m=excluded.hv_m,"
+                    "hv_c=excluded.hv_c,hv_rezie=excluded.hv_rezie,ostatni_vynosy=excluded.ostatni_vynosy,"
+                    "zisk_na_kalk_hodinu=excluded.zisk_na_kalk_hodinu,zisk_na_real_hodinu=excluded.zisk_na_real_hodinu,"
+                    "nv_naklady=excluded.nv_naklady,nv_vynosy=excluded.nv_vynosy,naklady_rezie=excluded.naklady_rezie,"
+                    "vynosy_rezie=excluded.vynosy_rezie,nv=excluded.nv,nv_denik_v=excluded.nv_denik_v,nv_denik_n=excluded.nv_denik_n,"
+                    "kalk_vkm_koef=excluded.kalk_vkm_koef,kalk_vkm_celkem=excluded.kalk_vkm_celkem,dat_posl_akt=excluded.dat_posl_akt,"
+                    "synced_at=now()"),
+                    {"sid": i2(row.get("ID")), "ut": s2(row.get("Utvar")), "cz": s2(row.get("CisloZakazky")),
+                     "rok": i2(row.get("Rok")), "po": i2(row.get("Poradi")), "re": s2(row.get("Resitel")),
+                     "hrr": num(row.get("HodinyRealRok")), "hr": num(row.get("HodinyReal")), "hk": num(row.get("HodinyKalk")),
+                     "skvm": num(row.get("SumaKalkVkmMesic")), "hra": num(row.get("HodinyRozpRezieA")),
+                     "hrm": num(row.get("HodinyRozpRezieM")), "pna": num(row.get("PrimeNakladyA")),
+                     "pnm": num(row.get("PrimeNakladyM")), "va": num(row.get("VynosyA")), "vm": num(row.get("VynosyM")),
+                     "vc": num(row.get("VynosyC")), "cnva": num(row.get("CelkemNakladyVcNV_A")),
+                     "cna": num(row.get("CelkemNakladyA")), "cnm": num(row.get("CelkemNakladyM")),
+                     "cnc": num(row.get("CelkemNakladyC")), "rvkm": num(row.get("RezieVKM")), "rvy": num(row.get("RezieVyroba")),
+                     "rsp": num(row.get("RezieSprava")), "uv": b2(row.get("UkoncenoVyroba")), "uk": b2(row.get("Ukonceno")),
+                     "nnv": b2(row.get("NepocitatNV")), "hbn": num(row.get("HV_BezNV")), "hva": num(row.get("HV_A")),
+                     "hvm": num(row.get("HV_M")), "hvc": num(row.get("HV_C")), "hvr": num(row.get("HV_Rezie")),
+                     "ov": num(row.get("OstatniVynosy")), "zkh": num(row.get("ZiskNaKalkHodinu")),
+                     "zrh": num(row.get("ZiskNaRealHodinu")), "nvn": num(row.get("NV_Naklady")), "nvv": num(row.get("NV_Vynosy")),
+                     "nar": num(row.get("NakladyRezie")), "vyr": num(row.get("VynosyRezie")), "nv": num(row.get("NV")),
+                     "ndv": num(row.get("NV_DenikV")), "ndn": num(row.get("NV_DenikN")), "kvk": num(row.get("KalkVKM_Koef")),
+                     "kvc": num(row.get("KalkVKM_Celkem")), "dpa": s2(row.get("dpa"))})
+                lastid = i2(row.get("ID")) or lastid
+            nz += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        return {"ok": True, "zakazky": nz}
     except Exception:
         s.rollback()
         raise
@@ -24925,6 +25062,12 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = {"ok": True}
             status = "done"
             result = ("zrcadlo Centrály: úkoly + řešitelé (okno aktivní/2023+) spuštěno na pozadí")
+        elif action_key == "sync_ec_zakazky":
+            import threading as _thr
+            _thr.Thread(target=_sync_ec_zakazka_prehled, daemon=True).start()
+            out = {"ok": True}
+            status = "done"
+            result = ("zrcadlo Centrály: finanční přehled zakázek spuštěn na pozadí")
         elif action_key == "sync_ec_org_kontakt":
             import threading as _thr
             _thr.Thread(target=_sync_ec_org_kontakt, daemon=True).start()

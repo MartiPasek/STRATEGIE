@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stav zálohy API B (blue-green)</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#f87171;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:920px;margin:0 auto;padding:18px}
+  h1{font-size:21px;margin:0 0 2px;font-weight:800}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:12px}
+  .cards{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .c{flex:1;min-width:260px;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:12px}
+  .c h3{margin:0 0 6px;font-size:14px}
+  .k{color:var(--mut);font-size:12px}.v{font-family:ui-monospace,monospace;font-size:12px}
+  .run{color:var(--green);font-weight:700}.down{color:var(--red);font-weight:700}
+  .match{color:var(--green);font-weight:700}.diff{color:var(--amber);font-weight:700}
+  .btn{background:var(--accent);color:#06101f;border:0;border-radius:9px;padding:10px 16px;font-weight:700;cursor:pointer}
+  .btn:disabled{opacity:.5;cursor:default}
+  pre{white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:11px;color:#bfe3c8;background:#0f1830;border:1px solid var(--bord);border-radius:8px;padding:10px;max-height:300px;overflow:auto;margin:8px 0 0}
+  .badge{font-size:11px;padding:1px 8px;border-radius:8px;font-weight:700}
+  .b-run{background:rgba(251,191,36,.18);color:var(--amber)}
+  .hint{color:var(--mut)} .err{color:#ff8a8a}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🟦🟩 Stav zálohy API B (blue-green)</h1>
+  <div class="sub">Záloha = stabilní verze, na kterou Caddy přeroutuje usery, když spadne API‑A. „Zkopírovat do zálohy" povýší aktuální verzi na zálohu.</div>
+  <div id="ctl" style="margin-bottom:10px">
+    <button class="btn" id="btnRefresh" onclick="spustit()">📦 Zkopírovat aktuální verzi do zálohy (API B)</button>
+    <span id="status" class="hint" style="margin-left:10px"></span>
+  </div>
+  <div id="body"><div class="hint">Načítám…</div></div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(p,m,b){return fetch(p,{method:m||"GET",credentials:"include",headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):undefined}).then(function(r){return r.json();});}
+var polling=false;
+function inst(j){
+  if(!j||j.ok===false)return '<span class="down">NEDOSTUPNÉ ('+esc((j&&j.error)||"?")+')</span>';
+  return '<span class="run">BĚŽÍ</span> · <span class="v">'+esc(j.dir||"?")+'</span> · commit '+esc(j.commit||"?");
+}
+function render(d){
+  var a=d.a||{},b=d.b||{};
+  var same=(d.code_primary && d.code_prev && d.code_primary===d.code_prev);
+  var h='<div class="cards">'
+    +'<div class="c"><h3>🟦 API‑A (primární, 8002)</h3><div>'+inst(a)+'</div><div class="k" style="margin-top:6px">kód router.py: <span class="v">'+esc(d.code_primary||"?")+'</span></div></div>'
+    +'<div class="c"><h3>🟩 API‑B (záloha, 8003)</h3><div>'+inst(b)+'</div><div class="k" style="margin-top:6px">kód router.py: <span class="v">'+esc(d.code_prev||"?")+'</span></div></div>'
+    +'</div>';
+  h+='<div class="c" style="margin-bottom:10px">Kód v záloze vs primár: '
+    +(same?'<span class="match">✓ SHODNÝ (kopie proběhla)</span>':'<span class="diff">⚠ ROZDÍLNÝ — záloha má jiný/starší kód</span>')
+    +(d.pending?'  <span class="badge b-run">⏳ čeká marker — watcher zpracuje</span>':'')+'</div>';
+  h+='<div class="c"><div class="k">Log refreshe'+(d.log_at?(' ('+esc(d.log_at)+')'):'')+':</div><pre>'+esc(d.log||"(zatím nic — refresh ještě neproběhl)")+'</pre></div>';
+  document.getElementById("body").innerHTML=h;
+}
+function load(){return api("/api/v1/erp/app/ops/secondary-info").then(function(j){
+  if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="err">'+esc((j&&j.error)||"chyba (rodič only)")+'</div>';return j;}
+  render(j);return j;
+});}
+function spustit(){
+  var btn=document.getElementById("btnRefresh");btn.disabled=true;
+  document.getElementById("status").textContent="Spouštím… (stop B → kopie → start B)";
+  api("/api/v1/erp/app/ops/secondary-refresh","POST",{deps:false}).then(function(r){
+    if(!r||!r.ok){document.getElementById("status").innerHTML='<span class="err">'+esc((r&&r.error)||"chyba")+'</span>';btn.disabled=false;return;}
+    document.getElementById("status").textContent="Marker zapsán ("+esc(r.marker)+"). Sleduji progress…";
+    polling=true;var n=0;
+    var iv=setInterval(function(){n++;load();if(n>40||!polling){clearInterval(iv);btn.disabled=false;document.getElementById("status").textContent="";}},3000);
+  });
+}
+load();
+setInterval(function(){if(!polling)load();},8000);
+</script>
+</body>
+</html>

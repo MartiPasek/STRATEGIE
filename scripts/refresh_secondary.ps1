@@ -18,7 +18,16 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-function Log($m){ Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
+# Status log (mimo repo, aby ho /MIR neprepisoval) - cte ho UI pro zivy progress.
+$LogDir = if($env:STRATEGIE_RESTART_MARKER_DIR){ $env:STRATEGIE_RESTART_MARKER_DIR } else { "C:\Data\STRATEGIE\restart_markers" }
+$LogFile = Join-Path $LogDir "refresh_secondary_last.log"
+try { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null } catch {}
+try { Set-Content -Path $LogFile -Value ("[{0}] START refresh" -f (Get-Date -Format "HH:mm:ss")) -Encoding UTF8 } catch {}
+function Log($m){
+  $line = ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m)
+  Write-Host $line
+  try { Add-Content -Path $LogFile -Value $line -Encoding UTF8 } catch {}
+}
 
 Log "=== Refresh zalozni instance ==="
 Log ("Zdroj (primarni): {0}" -f $Src)

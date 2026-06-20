@@ -23418,6 +23418,78 @@ async def davka_generuj_xml(req: Request):
         s.close()
 
 
+@api_router.get("/app/ops/secondary-info")
+def secondary_info(req: Request):
+    """Živý stav blue-green zálohy: verze A vs B (z běžících instancí), mtime kódu
+    v obou složkách (důkaz, že se kopie propsala — git sha zálohy je zmrazený),
+    log kroků refreshe + čekající marker. Pro stránku /zaloha-status (progress)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    import os as _os, requests as _rq, glob as _glob, datetime as _dt
+    out = {"ok": True}
+    for key, port in (("a", _os.environ.get("STRATEGIE_PRIMARY_PORT") or "8002"),
+                      ("b", _os.environ.get("STRATEGIE_SECONDARY_PORT") or "8003")):
+        try:
+            out[key] = _rq.get("http://127.0.0.1:%s/api/v1/api-info" % port, timeout=3).json()
+        except Exception as e:
+            out[key] = {"ok": False, "error": type(e).__name__}
+    # mtime klíčového souboru kódu v obou složkách = skutečný důkaz kopie
+    src = _os.environ.get("STRATEGIE_PRIMARY_DIR") or r"C:\Projekty\STRATEGIE"
+    dst = _os.environ.get("STRATEGIE_PREV_DIR") or r"C:\Projekty\STRATEGIE-prev"
+    rel = r"modules\erp\api\router.py"
+
+    def mt(base):
+        p = _os.path.join(base, rel)
+        try:
+            return _dt.datetime.fromtimestamp(_os.path.getmtime(p)).strftime("%d.%m. %H:%M:%S")
+        except Exception:
+            return None
+    out["code_primary"] = mt(src)
+    out["code_prev"] = mt(dst)
+    # log refreshe (mimo repo, píše ho .ps1 živě)
+    mdir = _os.environ.get("STRATEGIE_RESTART_MARKER_DIR") or r"C:\Data\STRATEGIE\restart_markers"
+    logp = _os.path.join(mdir, "refresh_secondary_last.log")
+    out["log"] = ""
+    out["log_at"] = None
+    if _os.path.isfile(logp):
+        try:
+            with open(logp, encoding="utf-8", errors="replace") as f:
+                out["log"] = f.read()[-2500:]
+            out["log_at"] = _dt.datetime.fromtimestamp(_os.path.getmtime(logp)).strftime("%d.%m. %H:%M:%S")
+        except Exception:
+            pass
+    try:
+        out["pending"] = bool(_glob.glob(_os.path.join(mdir, "*.refreshsec")))
+    except Exception:
+        out["pending"] = False
+    return out
+
+
+@api_router.post("/app/ops/secondary-refresh")
+async def secondary_refresh(req: Request):
+    """Spustí refresh zálohy (zapíše .refreshsec marker → RESTART-WATCHER). Pro tlačítko na stránce."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    import json as _json, os as _os, datetime as _dt
+    mdir = _os.environ.get("STRATEGIE_RESTART_MARKER_DIR") or r"C:\Data\STRATEGIE\restart_markers"
+    try:
+        from pathlib import Path as _P
+        _P(mdir).mkdir(parents=True, exist_ok=True)
+        ts = _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        mp = _os.path.join(mdir, "%s_refreshsec.refreshsec" % ts)
+        with open(mp, "w", encoding="utf-8") as f:
+            f.write(_json.dumps({"deps": bool(b.get("deps")), "by": "user_%s" % uid}))
+        return {"ok": True, "marker": _os.path.basename(mp)}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
+
 @api_router.get("/app/davka/list")
 def davka_list(req: Request):
     """Seznam podání dávek NP (NEMPRI25) — rodič/HR."""

@@ -1003,6 +1003,13 @@ def audit_davky_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/zaloha-status")
+def zaloha_status_page():
+    """Živý stav blue-green zálohy (API B) + progress kopírování. Marti 20.6.2026."""
+    return FileResponse(os.path.join(static_dir, "zaloha-status.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/doklady")
 def doklady_page():
     """Přehled účetních dokladů + workflow (stavy, akce, audit). Marti 20.6.2026. Parent-only data."""

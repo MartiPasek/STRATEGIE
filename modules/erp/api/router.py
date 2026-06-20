@@ -21944,6 +21944,10 @@ _OPS_ACTIONS = {
         "label": "Zrcadlo Centrály: finanční přehled zakázek (EC_ZakazkaPrehled, plné)",
         "target": "cloud", "remote": False,
     },
+    "sync_ec_ceniky": {
+        "label": "Zrcadlo Ceníků (DB-Ceniky): vzorce + hlavičky + nastavení (kalkulace/cena)",
+        "target": "cloud", "remote": False,
+    },
     "sync_ec_org_kontakt": {
         "label": "Zrcadlo Centrály: organizace (rowversion) + CRM kontakty (plné)",
         "target": "cloud", "remote": False,
@@ -23077,6 +23081,162 @@ def _sync_ec_ukoly(_unused=None) -> dict:
             if len(batch) < BLOCK:
                 break
         res["cis_resitelu"] = nc
+
+        return {"ok": True, **res}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_ceniky(_unused=None) -> dict:
+    """Marti 20.6.2026: zrcadlo ceníkových vzorců + hlaviček z DB-Ceniky (cross-db
+    přes DB_EC spojení, [DB-Ceniky].dbo.*). Malé statické tabulky (hlav/vzorce/par/
+    nastaveni). Ceny samotné (EC_ImportXLS ~5 mil) = read-window, NEzrcadlí se.
+    Cenový řetězec: karta zboží (TabKmenZbozi: Aktualni_Dodavatel+RegCis) → cenik
+    (EC_ImportXLSHlav dle CisloOrg+Vyrobce, platné dle PlatnostDo) → vzorce přepočtou
+    cenu → EC_KalkulacePolozky → kontrola ceny v objednávce."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).strip() if v is not None else "")
+        return v or None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def b2(v):
+        t = (s2(v) or "").lower()
+        if t[:1] in ("1", "t", "a", "y"):
+            return True
+        if t[:1] in ("0", "f", "n"):
+            return False
+        return None
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    res = {}
+    try:
+        # ── HLAVIČKY CENÍKŮ (EC_ImportXLSHlav core) ──
+        n = 0
+        for row in rows_of("SELECT ID, CisloOrg, CisloOrgZakaznik, Vyrobce, CAST(CenyCZK AS int) CenyCZK, "
+                           "CONVERT(varchar(19),PlatnostDo,120) pd, Poznamka FROM [DB-Ceniky].dbo.EC_ImportXLSHlav"):
+            s.execute(_t(
+                "INSERT INTO tenant.ec_cenik_hlav (src_id,cislo_org,cislo_org_zakaznik,vyrobce,ceny_czk,platnost_do,poznamka,synced_at) "
+                "VALUES (:sid,:co,:coz,:vy,:cc,:pd,:po,now()) ON CONFLICT (src_id) DO UPDATE SET cislo_org=excluded.cislo_org,"
+                "cislo_org_zakaznik=excluded.cislo_org_zakaznik,vyrobce=excluded.vyrobce,ceny_czk=excluded.ceny_czk,"
+                "platnost_do=excluded.platnost_do,poznamka=excluded.poznamka,synced_at=now()"),
+                {"sid": i2(row.get("ID")), "co": i2(row.get("CisloOrg")), "coz": i2(row.get("CisloOrgZakaznik")),
+                 "vy": s2(row.get("Vyrobce")), "cc": b2(row.get("CenyCZK")), "pd": s2(row.get("pd")),
+                 "po": s2(row.get("Poznamka"))})
+            n += 1
+        s.commit(); res["hlav"] = n
+
+        # ── VZORCE ──
+        n = 0
+        for row in rows_of("SELECT ID, IDCenik, Poradi, NazevCilSloupce, CAST(Vzorec AS nvarchar(max)) Vzorec, "
+                           "Poznamka, Opce, CAST(Blokovano AS int) Blokovano, Autor, CONVERT(varchar(19),DatPorizeni,120) dp, "
+                           "Zmenil, CONVERT(varchar(19),DatZmeny,120) dz FROM [DB-Ceniky].dbo.EC_CenikyVzorce"):
+            s.execute(_t(
+                "INSERT INTO tenant.ec_cenik_vzorec (src_id,id_cenik,poradi,nazev_cil_sloupce,vzorec,poznamka,opce,"
+                "blokovano,autor,dat_porizeni,zmenil,dat_zmeny,synced_at) VALUES "
+                "(:sid,:ic,:po,:nc,:vz,:pz,:op,:bl,:au,:dp,:zm,:dz,now()) ON CONFLICT (src_id) DO UPDATE SET "
+                "id_cenik=excluded.id_cenik,poradi=excluded.poradi,nazev_cil_sloupce=excluded.nazev_cil_sloupce,"
+                "vzorec=excluded.vzorec,poznamka=excluded.poznamka,opce=excluded.opce,blokovano=excluded.blokovano,"
+                "autor=excluded.autor,dat_porizeni=excluded.dat_porizeni,zmenil=excluded.zmenil,dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                {"sid": i2(row.get("ID")), "ic": i2(row.get("IDCenik")), "po": i2(row.get("Poradi")),
+                 "nc": s2(row.get("NazevCilSloupce")), "vz": s2(row.get("Vzorec")), "pz": s2(row.get("Poznamka")),
+                 "op": s2(row.get("Opce")), "bl": b2(row.get("Blokovano")), "au": s2(row.get("Autor")),
+                 "dp": s2(row.get("dp")), "zm": s2(row.get("Zmenil")), "dz": s2(row.get("dz"))})
+            n += 1
+        s.commit(); res["vzorce"] = n
+
+        # ── DEFAULT VZORCE ──
+        n = 0
+        for row in rows_of("SELECT ID, CisloOrg, Poradi, NazevCilSloupce, CAST(Vzorec AS nvarchar(max)) Vzorec, "
+                           "Poznamka, Opce, CAST(Blokovano AS int) Blokovano, IDHlav_Par, Autor, "
+                           "CONVERT(varchar(19),DatPorizeni,120) dp, Zmenil, CONVERT(varchar(19),DatZmeny,120) dz "
+                           "FROM [DB-Ceniky].dbo.EC_CenikyDefaultVzorce"):
+            s.execute(_t(
+                "INSERT INTO tenant.ec_cenik_vzorec_default (src_id,cislo_org,poradi,nazev_cil_sloupce,vzorec,poznamka,"
+                "opce,blokovano,id_hlav_par,autor,dat_porizeni,zmenil,dat_zmeny,synced_at) VALUES "
+                "(:sid,:co,:po,:nc,:vz,:pz,:op,:bl,:ihp,:au,:dp,:zm,:dz,now()) ON CONFLICT (src_id) DO UPDATE SET "
+                "cislo_org=excluded.cislo_org,poradi=excluded.poradi,nazev_cil_sloupce=excluded.nazev_cil_sloupce,"
+                "vzorec=excluded.vzorec,poznamka=excluded.poznamka,opce=excluded.opce,blokovano=excluded.blokovano,"
+                "id_hlav_par=excluded.id_hlav_par,autor=excluded.autor,dat_porizeni=excluded.dat_porizeni,"
+                "zmenil=excluded.zmenil,dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                {"sid": i2(row.get("ID")), "co": i2(row.get("CisloOrg")), "po": i2(row.get("Poradi")),
+                 "nc": s2(row.get("NazevCilSloupce")), "vz": s2(row.get("Vzorec")), "pz": s2(row.get("Poznamka")),
+                 "op": s2(row.get("Opce")), "bl": b2(row.get("Blokovano")), "ihp": i2(row.get("IDHlav_Par")),
+                 "au": s2(row.get("Autor")), "dp": s2(row.get("dp")), "zm": s2(row.get("Zmenil")), "dz": s2(row.get("dz"))})
+            n += 1
+        s.commit(); res["default_vzorce"] = n
+
+        # ── PARAMETRY VZORCŮ ──
+        n = 0
+        for row in rows_of("SELECT IDCenik, CAST(P01 AS nvarchar(max)) P01, CAST(P02 AS nvarchar(max)) P02, "
+                           "CAST(P03 AS nvarchar(max)) P03, CAST(P04 AS nvarchar(max)) P04, CAST(P05 AS nvarchar(max)) P05, "
+                           "CAST(P06 AS nvarchar(max)) P06, CAST(P07 AS nvarchar(max)) P07, CAST(P08 AS nvarchar(max)) P08, "
+                           "CAST(P09 AS nvarchar(max)) P09, CAST(P10 AS nvarchar(max)) P10, CAST(P11 AS nvarchar(max)) P11, "
+                           "CAST(P12 AS nvarchar(max)) P12, Poznamka, Autor, CONVERT(varchar(19),DatPorizeni,120) dp, "
+                           "Zmenil, CONVERT(varchar(19),DatZmeny,120) dz FROM [DB-Ceniky].dbo.EC_CenikyVzorcePar"):
+            s.execute(_t(
+                "INSERT INTO tenant.ec_cenik_vzorec_par (id_cenik,p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,"
+                "poznamka,autor,dat_porizeni,zmenil,dat_zmeny,synced_at) VALUES "
+                "(:ic,:p1,:p2,:p3,:p4,:p5,:p6,:p7,:p8,:p9,:p10,:p11,:p12,:pz,:au,:dp,:zm,:dz,now()) "
+                "ON CONFLICT (id_cenik) DO UPDATE SET p01=excluded.p01,p02=excluded.p02,p03=excluded.p03,p04=excluded.p04,"
+                "p05=excluded.p05,p06=excluded.p06,p07=excluded.p07,p08=excluded.p08,p09=excluded.p09,p10=excluded.p10,"
+                "p11=excluded.p11,p12=excluded.p12,poznamka=excluded.poznamka,autor=excluded.autor,"
+                "dat_porizeni=excluded.dat_porizeni,zmenil=excluded.zmenil,dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                {"ic": i2(row.get("IDCenik")), "p1": s2(row.get("P01")), "p2": s2(row.get("P02")), "p3": s2(row.get("P03")),
+                 "p4": s2(row.get("P04")), "p5": s2(row.get("P05")), "p6": s2(row.get("P06")), "p7": s2(row.get("P07")),
+                 "p8": s2(row.get("P08")), "p9": s2(row.get("P09")), "p10": s2(row.get("P10")), "p11": s2(row.get("P11")),
+                 "p12": s2(row.get("P12")), "pz": s2(row.get("Poznamka")), "au": s2(row.get("Autor")),
+                 "dp": s2(row.get("dp")), "zm": s2(row.get("Zmenil")), "dz": s2(row.get("dz"))})
+            n += 1
+        s.commit(); res["vzorce_par"] = n
+
+        # ── NASTAVENÍ ──
+        n = 0
+        for row in rows_of("SELECT ID, CisloOrg, CAST(CenyCZK AS int) CenyCZK, Poznamka FROM [DB-Ceniky].dbo.EC_CenikyNastaveni"):
+            s.execute(_t(
+                "INSERT INTO tenant.ec_cenik_nastaveni (src_id,cislo_org,ceny_czk,poznamka,synced_at) "
+                "VALUES (:sid,:co,:cc,:po,now()) ON CONFLICT (src_id) DO UPDATE SET cislo_org=excluded.cislo_org,"
+                "ceny_czk=excluded.ceny_czk,poznamka=excluded.poznamka,synced_at=now()"),
+                {"sid": i2(row.get("ID")), "co": i2(row.get("CisloOrg")), "cc": b2(row.get("CenyCZK")),
+                 "po": s2(row.get("Poznamka"))})
+            n += 1
+        s.commit(); res["nastaveni"] = n
 
         return {"ok": True, **res}
     except Exception:
@@ -25068,6 +25228,12 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = {"ok": True}
             status = "done"
             result = ("zrcadlo Centrály: finanční přehled zakázek spuštěn na pozadí")
+        elif action_key == "sync_ec_ceniky":
+            import threading as _thr
+            _thr.Thread(target=_sync_ec_ceniky, daemon=True).start()
+            out = {"ok": True}
+            status = "done"
+            result = ("zrcadlo Ceníků (DB-Ceniky): vzorce + hlavičky + nastavení spuštěno na pozadí")
         elif action_key == "sync_ec_org_kontakt":
             import threading as _thr
             _thr.Thread(target=_sync_ec_org_kontakt, daemon=True).start()

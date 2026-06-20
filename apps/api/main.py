@@ -996,6 +996,13 @@ def davky_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/audit-davky")
+def audit_davky_page():
+    """Měsíční audit dávek ČSSZ (datovka + Helios + naše podání). Marti 20.6.2026."""
+    return FileResponse(os.path.join(static_dir, "audit-davky.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/doklady")
 def doklady_page():
     """Přehled účetních dokladů + workflow (stavy, akce, audit). Marti 20.6.2026. Parent-only data."""

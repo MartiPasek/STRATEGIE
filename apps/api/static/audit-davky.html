@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit dávek ČSSZ — měsíční kontrola</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#f87171;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:18px}
+  h1{font-size:21px;margin:0 0 2px;font-weight:800}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:12px}
+  .ctl{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  select,button{padding:8px 12px;background:#0f1830;border:1px solid var(--bord);border-radius:8px;color:var(--tx);font-size:13px;cursor:pointer}
+  .stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .st{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:10px 15px;flex:1;min-width:120px}
+  .st .k{color:var(--mut);font-size:11px}.st .v{font-weight:800;font-size:24px;margin-top:2px}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:6px 10px}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;color:var(--mut);text-align:left;padding:7px 6px}
+  td{padding:8px 6px;border-top:1px solid rgba(255,255,255,.05);font-size:13px}
+  .ok{color:var(--green);font-weight:700}.no{color:#3a4759}
+  .warn{color:var(--red);font-weight:700}
+  .badge{font-size:11px;padding:1px 8px;border-radius:8px;font-weight:700}
+  .b-ok{background:rgba(52,211,153,.18);color:var(--green)}
+  .b-warn{background:rgba(248,113,113,.18);color:var(--red)}
+  .hint{color:var(--mut)} .err{color:#ff8a8a}
+  .mono{font-family:ui-monospace,monospace;font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛡️ Audit dávek ČSSZ — měsíční kontrola</h1>
+  <div class="sub">Jistota, že jsme na nic nezapomněli: každá událost (nemoc/OČR) napříč datovkou, Heliosem a našimi podáními.</div>
+  <div class="ctl">
+    <select id="mesic"></select><select id="rok"></select>
+    <button onclick="load()">Načíst</button>
+  </div>
+  <div id="body"><div class="hint">Načítám…</div></div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();});}
+var MES=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
+(function(){var now=new Date();var m=document.getElementById("mesic"),y=document.getElementById("rok");
+  for(var i=1;i<=12;i++){var o=document.createElement("option");o.value=i;o.textContent=MES[i];if(i===now.getMonth()+1)o.selected=true;m.appendChild(o);}
+  for(var r=now.getFullYear();r>=now.getFullYear()-2;r--){var o2=document.createElement("option");o2.value=r;o2.textContent=r;y.appendChild(o2);}
+})();
+function chk(b){return b?'<span class="ok">✓</span>':'<span class="no">—</span>';}
+function load(){
+  var m=document.getElementById("mesic").value,r=document.getElementById("rok").value;
+  document.getElementById("body").innerHTML='<div class="hint">Načítám (čtu i Helios)…</div>';
+  api("/api/v1/erp/app/davka/audit?mesic="+m+"&rok="+r).then(function(j){
+    if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="err">'+esc((j&&j.error)||"chyba (rodič only)")+'</div>';return;}
+    var rows=j.polozky||[];
+    var done=rows.filter(function(x){return x.kompletni;}).length, chyba=rows.length-done;
+    var h='<div class="stats">'
+      +'<div class="st"><div class="k">Událostí v měsíci</div><div class="v">'+rows.length+'</div></div>'
+      +'<div class="st" style="border-color:#34d39955"><div class="k">Kompletní (odesláno)</div><div class="v" style="color:var(--green)">'+done+'</div></div>'
+      +'<div class="st" style="border-color:'+(chyba?'#f8717155':'#1f2a38')+'"><div class="k">⚠ K dořešení</div><div class="v" style="color:'+(chyba?'var(--red)':'var(--mut)')+'">'+chyba+'</div></div>'
+      +'</div>';
+    if(!rows.length){h+='<div class="card" style="padding:14px">Žádné události v tomto měsíci.</div>';document.getElementById("body").innerHTML=h;return;}
+    h+='<div class="card"><table><thead><tr><th>Osoba</th><th>Typ</th><th>Období</th><th>Datovka</th><th>Helios</th><th>Naše podání</th><th>Odesláno ČSSZ</th><th>Stav</th></tr></thead><tbody>';
+    rows.forEach(function(e){
+      h+='<tr><td><b>'+esc(e.osoba||"?")+'</b><div class="hint mono">'+esc(e.cislo)+'</div></td>'
+        +'<td>'+esc(e.typ||"")+'</td><td>'+esc((e.od||"")+(e.do?("–"+e.do):""))+'</td>'
+        +'<td>'+chk(e.datovka)+'</td><td>'+chk(e.helios)+'</td><td>'+chk(e.podani)+'</td><td>'+chk(e.odeslano)+'</td>'
+        +'<td>'+(e.kompletni?'<span class="badge b-ok">OK</span>':'<span class="badge b-warn">dořešit</span>')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+    document.getElementById("body").innerHTML=h;
+  });
+}
+load();
+</script>
+</body>
+</html>

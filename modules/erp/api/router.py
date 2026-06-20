@@ -23297,6 +23297,98 @@ def _nempri25_ose_xml(d):
     return "\n".join(L)
 
 
+_NEMPRI_DRUH = {0: "NEM", 1: "OSE", 2: "OPP", 3: "PPM", 4: "DLO", 5: "VPM"}
+
+
+@api_router.get("/app/davka/audit")
+def davka_audit(req: Request):
+    """Měsíční audit dávek: spojí datovku (neschopenky), Helios přílohy a naše podání
+    přes číslo rozhodnutí → u každé události kompletnost (nic nezapomenout). Rodič/HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    import datetime as _dt
+    q = req.query_params
+    rok = int(q.get("rok") or _dt.date.today().year)
+    mesic = int(q.get("mesic") or _dt.date.today().month)
+    zac = "%04d-%02d-01" % (rok, mesic)
+    if mesic == 12:
+        kon = "%04d-01-01" % (rok + 1)
+    else:
+        kon = "%04d-%02d-01" % (rok, mesic + 1)
+    ev = {}  # klíč = číslo rozhodnutí
+
+    def slot(cr):
+        cr = (cr or "").strip()
+        if not cr:
+            return None
+        if cr not in ev:
+            ev[cr] = {"cislo": cr, "osoba": "", "typ": "", "od": "", "do": "",
+                      "datovka": False, "helios": False, "podani": False, "odeslano": False}
+        return ev[cr]
+
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        # 1) datovka neschopenky (náš registr) — dle data od v měsíci
+        for r in s.execute(_t(
+            "SELECT cislo_rozhodnuti, emp_jmeno, emp_prijmeni, typ, "
+            "to_char(datum_od,'DD.MM') od, to_char(datum_do,'DD.MM') do FROM tenant.eneschopenka "
+            "WHERE datum_od >= :z AND datum_od < :k"), {"z": zac, "k": kon}).mappings():
+            sl = slot(r["cislo_rozhodnuti"])
+            if sl:
+                sl["datovka"] = True
+                sl["osoba"] = sl["osoba"] or ((r["emp_jmeno"] or "") + " " + (r["emp_prijmeni"] or "")).strip()
+                sl["typ"] = sl["typ"] or ("OSE" if r["typ"] == "ocr" else "NEM")
+                sl["od"] = sl["od"] or (r["od"] or ""); sl["do"] = sl["do"] or (r["do"] or "")
+        # 2) naše podání
+        for r in s.execute(_t(
+            "SELECT identifikator, emp_jmeno, emp_prijmeni, typ_davky, stav, "
+            "to_char(datum_od,'DD.MM') od, to_char(datum_do,'DD.MM') do FROM tenant.davka_podani "
+            "WHERE datum_od >= :z AND datum_od < :k"), {"z": zac, "k": kon}).mappings():
+            sl = slot(r["identifikator"])
+            if sl:
+                sl["podani"] = True
+                sl["odeslano"] = sl["odeslano"] or (r["stav"] in ("odeslano", "potvrzeno"))
+                sl["osoba"] = sl["osoba"] or ((r["emp_jmeno"] or "") + " " + (r["emp_prijmeni"] or "")).strip()
+                sl["typ"] = sl["typ"] or (r["typ_davky"] or "")
+                sl["od"] = sl["od"] or (r["od"] or ""); sl["do"] = sl["do"] or (r["do"] or "")
+    finally:
+        s.close()
+    # 3) Helios přílohy (MCP) — dle počátku/žádosti v měsíci
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        import json as _j
+        mcp = get_eurosoft_mcp_client()
+        if mcp is not None:
+            sql = (
+                "SELECT CisloRozhodnuti, DruhDavky, Zadost_Jmeno, Zadost_Prijmeni, Stav, "
+                "CONVERT(varchar(10),COALESCE(PocatekNemoci,Zadost_DatumOd),104) ud "
+                "FROM DB_IS.dbo.TabMzPrilohaDnp "
+                "WHERE COALESCE(PocatekNemoci,Zadost_DatumOd) >= '%s' "
+                "AND COALESCE(PocatekNemoci,Zadost_DatumOd) < '%s'" % (zac, kon))
+            rj = mcp.call_tool_sync("eurosoft_strategie_query_raw", {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+            res = _j.loads(rj) if isinstance(rj, str) else rj
+            for r in (res.get("rows") or []):
+                d = dict(zip(res.get("columns") or [], r)) if isinstance(r, list) else r
+                sl = slot(d.get("CisloRozhodnuti"))
+                if sl:
+                    sl["helios"] = True
+                    sl["odeslano"] = sl["odeslano"] or (str(d.get("Stav")) in ("2", "3"))
+                    try:
+                        sl["typ"] = sl["typ"] or _NEMPRI_DRUH.get(int(d.get("DruhDavky")), "")
+                    except Exception:
+                        pass
+    except Exception as _he:
+        pass
+    rows = list(ev.values())
+    for r in rows:
+        r["kompletni"] = r["helios"] and r["odeslano"]
+    rows.sort(key=lambda x: (x["kompletni"], x["osoba"]))
+    return {"ok": True, "mesic": mesic, "rok": rok, "polozky": rows, "count": len(rows)}
+
+
 @api_router.post("/app/davka/generuj-xml")
 async def davka_generuj_xml(req: Request):
     """Vygeneruje NEMPRI25 XML z uloženého podání (zatím OSE) a uloží na záznam."""

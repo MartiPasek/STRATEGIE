@@ -48,10 +48,24 @@ if($rc -ge 8){
 Log "robocopy OK (exit=$rc; 1=zkopirovano, 0=nic noveho, oboje OK)"
 
 # 3) Volitelne dorovnani zavislosti (kdyz pribyl novy pip balicek).
+# POZOR: poetry pise normalni hlasky ("Creating virtualenv...") do stderr -> s
+# ErrorActionPreference=Stop by to PowerShell vzal jako fatal a skript spadl PRED
+# startem B (B by zustal zastaveny). Proto Continue + catch + start vzdy probehne.
 if($Deps){
   Log "3/4 poetry install v zaloze ..."
   Push-Location $Dst
-  try { python -m poetry install 2>&1 | Out-Host } finally { Pop-Location }
+  $eap = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    & python -m poetry install 2>&1 | ForEach-Object { Log ("  poetry: {0}" -f $_) }
+    if($LASTEXITCODE -ne 0){ Log ("poetry install exit={0} (pokracuji, B zkusim nastartovat)" -f $LASTEXITCODE) }
+    else { Log "poetry install OK" }
+  } catch {
+    Log ("poetry install vyjimka: {0} (pokracuji)" -f $_.Exception.Message)
+  } finally {
+    $ErrorActionPreference = $eap
+    Pop-Location
+  }
 } else {
   Log "3/4 poetry install preskocen (kdyby zaloha nenabehla, spust znovu s -Deps)"
 }

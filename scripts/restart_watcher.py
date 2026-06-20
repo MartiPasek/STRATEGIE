@@ -131,12 +131,55 @@ def _process_marker(marker_path: Path) -> None:
         _log(f"FAIL {TARGET_SERVICE} restart: {output[:500]}")
 
 
+REPO_DIR = Path(os.environ.get("STRATEGIE_PRIMARY_DIR") or r"C:\Projekty\STRATEGIE")
+
+
+def _run_refresh_secondary(deps: bool) -> tuple[bool, str]:
+    """Spusti scripts/refresh_secondary.ps1 (stop API-B -> robocopy primar->prev -> start API-B).
+    Watcher ma prava (jako u nssm restart). Synchronni, robocopy celeho repa muze trvat."""
+    ps1 = REPO_DIR / "scripts" / "refresh_secondary.ps1"
+    if not ps1.exists():
+        return False, f"script not found: {ps1}"
+    cmd = ["powershell", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", str(ps1)]
+    if deps:
+        cmd.append("-Deps")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1200,
+                                encoding="utf-8", errors="replace")
+        return result.returncode == 0, (result.stdout or "") + (result.stderr or "")
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def _process_refresh_marker(marker_path: Path) -> None:
+    """Marker *.refreshsec -> spusti refresh_secondary.ps1 (kopie aktualni verze do zalohy API-B)."""
+    deps = False
+    try:
+        raw = marker_path.read_text(encoding="utf-8")
+        info = json.loads(raw) if raw.strip() else {}
+        deps = bool(info.get("deps"))
+    except Exception as exc:
+        _log(f"refreshsec marker parse failed: {marker_path.name}: {exc}")
+    _log(f"detected refreshsec marker: {marker_path.name} (deps={deps})")
+    try:
+        PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        marker_path.rename(PROCESSED_DIR / f"{ts}_{marker_path.name}")
+    except OSError as exc:
+        _log(f"WARNING: refreshsec marker move failed (retry next scan): {exc}")
+        return
+    _log("running refresh_secondary.ps1 (stop API-B -> robocopy -> start API-B)...")
+    ok, output = _run_refresh_secondary(deps)
+    _log(("refresh_secondary OK: " if ok else "FAIL refresh_secondary: ") + (output or "")[-400:])
+
+
 def _scan_once() -> int:
-    """Single pass: scan MARKER_DIR pro *.touch files, process each. Returns count."""
+    """Single pass: scan MARKER_DIR pro *.touch (restart API) a *.refreshsec (kopie do zalohy)."""
     if not MARKER_DIR.exists():
         return 0
     try:
         touch_files = sorted(MARKER_DIR.glob("*.touch"))
+        refresh_files = sorted(MARKER_DIR.glob("*.refreshsec"))
     except OSError as exc:
         _log(f"scan glob failed: {exc}")
         return 0
@@ -145,7 +188,12 @@ def _scan_once() -> int:
             _process_marker(mp)
         except Exception as exc:
             _log(f"_process_marker crashed on {mp.name}: {exc}")
-    return len(touch_files)
+    for mp in refresh_files:
+        try:
+            _process_refresh_marker(mp)
+        except Exception as exc:
+            _log(f"_process_refresh_marker crashed on {mp.name}: {exc}")
+    return len(touch_files) + len(refresh_files)
 
 
 def main() -> None:

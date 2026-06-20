@@ -27954,22 +27954,25 @@ def _ops_refresh_secondary() -> dict:
     src = _os.environ.get("STRATEGIE_PRIMARY_DIR") or r"C:\Projekty\STRATEGIE"
     if not _os.path.isdir(src):
         return {"ok": False, "result": "zdrojová (primární) složka neexistuje: %s" % src}
-    ps1 = _os.path.join(src, "scripts", "refresh_secondary.ps1")
-    if not _os.path.isfile(ps1):
-        return {"ok": False, "result": "skript nenalezen: %s" % ps1}
-    log = _os.path.join(src, "scripts", "refresh_secondary_last.log")
+    # API jako služba NEMÁ z web handleru práva spustit nssm/detached proces (12.6. doctrine).
+    # Proto zapíšeme MARKER → STRATEGIE-RESTART-WATCHER (privilegovaný) spustí refresh_secondary.ps1.
+    import json as _json, datetime as _dt
     try:
-        # DETACHED_PROCESS(0x8) + CREATE_NEW_PROCESS_GROUP(0x200) → běží dál i po návratu HTTP.
-        flags = 0x00000008 | 0x00000200
-        lf = open(log, "w", encoding="utf-8", errors="replace")
-        _sp.Popen(["powershell", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", ps1],
-                  stdout=lf, stderr=_sp.STDOUT, stdin=_sp.DEVNULL,
-                  creationflags=flags, cwd=src)
-        return {"ok": True, "result": "Spuštěno na pozadí: stop API-B → kopie celého repa "
-                "(robocopy /MIR bez venv/.git) → start API-B. Trvá ~30-90 s. "
-                "Log: scripts/refresh_secondary_last.log"}
+        from modules.conversation.application import deployment_service as _dep
+        mdir = _dep.MARKER_DIR
+    except Exception:
+        from pathlib import Path as _Path
+        mdir = _Path(_os.environ.get("STRATEGIE_RESTART_MARKER_DIR") or r"C:\Data\STRATEGIE\restart_markers")
+    try:
+        mdir.mkdir(parents=True, exist_ok=True)
+        ts = _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        mp = mdir / ("%s_refreshsec.refreshsec" % ts)
+        mp.write_text(_json.dumps({"deps": False, "by": "ops"}), encoding="utf-8")
+        return {"ok": True, "result": "Marker zapsán (%s) → RESTART-WATCHER spustí stop API-B → "
+                "kopie repa → start API-B (~30-90 s). Pak klikni Kontrola zálohy."
+                % mp.name}
     except Exception as exc:
-        return {"ok": False, "result": "Nepodařilo se spustit skript: %s: %s"
+        return {"ok": False, "result": "Marker se nepodařilo zapsat: %s: %s"
                 % (type(exc).__name__, exc)}
 
 

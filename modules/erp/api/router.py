@@ -23447,22 +23447,42 @@ def secondary_info(req: Request):
             return None
     out["code_primary"] = mt(src)
     out["code_prev"] = mt(dst)
-    # log refreshe (mimo repo, píše ho .ps1 živě)
-    mdir = _os.environ.get("STRATEGIE_RESTART_MARKER_DIR") or r"C:\Data\STRATEGIE\restart_markers"
-    logp = _os.path.join(mdir, "refresh_secondary_last.log")
-    out["log"] = ""
-    out["log_at"] = None
-    if _os.path.isfile(logp):
+    # logy: zkus env marker dir i default, vrať soubor s nejnovějším obsahem.
+    cand = []
+    for d in (_os.environ.get("STRATEGIE_RESTART_MARKER_DIR"), r"C:\Data\STRATEGIE\restart_markers",
+              _os.path.join(src, "scripts")):
+        if d and d not in cand:
+            cand.append(d)
+
+    def read_tail(fname):
+        best = ("", None)
+        for d in cand:
+            p = _os.path.join(d, fname)
+            if _os.path.isfile(p):
+                try:
+                    mt = _os.path.getmtime(p)
+                    if best[1] is None or mt > best[1]:
+                        with open(p, encoding="utf-8", errors="replace") as f:
+                            best = (f.read()[-2500:], mt)
+                except Exception:
+                    pass
+        at = _dt.datetime.fromtimestamp(best[1]).strftime("%d.%m. %H:%M:%S") if best[1] else None
+        return best[0], at
+    out["log"], out["log_at"] = read_tail("refresh_secondary_last.log")
+    out["watcher"], out["watcher_at"] = read_tail("watcher.log")
+    # zkráť watcher.log jen na řádky o refreshi (jinak je tam i restart API spam)
+    if out["watcher"]:
+        wl = [ln for ln in out["watcher"].splitlines() if ("refresh" in ln.lower() or "refreshsec" in ln.lower())]
+        out["watcher"] = "\n".join(wl[-25:])
+    pend = False
+    for d in cand:
         try:
-            with open(logp, encoding="utf-8", errors="replace") as f:
-                out["log"] = f.read()[-2500:]
-            out["log_at"] = _dt.datetime.fromtimestamp(_os.path.getmtime(logp)).strftime("%d.%m. %H:%M:%S")
+            if _glob.glob(_os.path.join(d, "*.refreshsec")):
+                pend = True
+                break
         except Exception:
             pass
-    try:
-        out["pending"] = bool(_glob.glob(_os.path.join(mdir, "*.refreshsec")))
-    except Exception:
-        out["pending"] = False
+    out["pending"] = pend
     return out
 
 

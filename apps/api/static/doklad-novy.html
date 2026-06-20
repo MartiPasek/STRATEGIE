@@ -146,7 +146,7 @@ document.getElementById("post").onclick=function(){
       btn.disabled=false;
       if(x&&x.ok){
         var rk=(x.rekapitulace||[]).map(function(r){return r.sazba+'%: zákl '+nf(r.zaklad)+' DPH '+nf(r.dph);}).join(" · ");
-        document.getElementById("msg").innerHTML='<span style="color:var(--green)">✓ Doklad <b>'+esc(x.cislo)+'</b> zaúčtován · celkem CZK '+nf(x.celkem_czk)+' (EUR '+(x.celkem_eur!=null?nf(x.celkem_eur):"—")+') · '+x.denik_radky+' řádků deníku · '+esc(rk)+'</span>';
+        document.getElementById("msg").innerHTML='<span style="color:var(--green)">✓ Doklad <b>'+esc(x.cislo)+'</b> vytvořen (realizováno) · celkem CZK '+nf(x.celkem_czk)+' (EUR '+(x.celkem_eur!=null?nf(x.celkem_eur):"—")+') · '+esc(rk)+' — zaúčtuj v <a href="/doklady" style="color:#9dc1ff">Přehledu dokladů</a></span>';
         document.getElementById("pbody").innerHTML="";addRow();
       } else document.getElementById("msg").innerHTML='<span class="err">'+esc((x&&(x.error||x.detail))||"chyba")+'</span>';
     });

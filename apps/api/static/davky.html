@@ -73,9 +73,18 @@ function load(){
     var h='<div class="card" style="margin-top:8px"><table><thead><tr><th>Typ</th><th>Zaměstnanec</th><th>Ošetřovaná</th><th>Od</th><th>Do</th><th>Stav</th><th>Prostředí</th></tr></thead><tbody>';
     r.forEach(function(e){
       var os=((e.osetrovana_jmeno||"")+" "+(e.osetrovana_prijmeni||"")).trim();
-      h+='<tr><td>'+esc(e.typ_davky)+'</td><td>'+esc((e.emp_jmeno||"")+" "+(e.emp_prijmeni||""))+'</td><td>'+esc(os||"—")+'</td><td>'+esc(e.od||"")+'</td><td>'+esc(e.do||"—")+'</td><td>'+stav(e.stav)+'</td><td class="hint">'+esc(e.prostredi||"")+'</td></tr>';
+      h+='<tr><td>'+esc(e.typ_davky)+'</td><td>'+esc((e.emp_jmeno||"")+" "+(e.emp_prijmeni||""))+'</td><td>'+esc(os||"—")+'</td><td>'+esc(e.od||"")+'</td><td>'+esc(e.do||"—")+'</td><td>'+stav(e.stav)+'</td><td><button class="btn sec" style="margin:0;padding:5px 10px" onclick="gen('+e.id+')">📄 NEMPRI XML</button></td></tr>';
     });
-    h+='</tbody></table></div>';L.innerHTML=h;
+    h+='</tbody></table></div><div id="xmlview"></div>';L.innerHTML=h;
+  });
+}
+function gen(id){
+  api("/api/v1/erp/app/davka/generuj-xml","POST",{id:id}).then(function(r){
+    var v=document.getElementById("xmlview");
+    if(!r||!r.ok){v.innerHTML='<div class="err">'+esc((r&&r.error)||"chyba")+'</div>';return;}
+    v.innerHTML='<div class="card"><div class="hint" style="margin-bottom:6px">NEMPRI25 XML (náhled) — uloženo k podání #'+id+'</div>'
+      +'<pre style="white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:11px;color:#bfe3c8;max-height:420px;overflow:auto;margin:0">'+esc(r.xml)+'</pre></div>';
+    v.scrollIntoView({behavior:"smooth"});
   });
 }
 load();

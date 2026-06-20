@@ -23152,6 +23152,138 @@ def isds_neschopenky(req: Request):
         s.close()
 
 
+def _nempri_esc(s):
+    s = "" if s is None else str(s)
+    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
+
+
+# VS/IČ/název zaměstnavatele dle datovky (firmy)
+_NEMPRI_EMPLOYER = {
+    1: {"vs": "4445158191", "ico": "27960862", "nazev": "EUROSOFT - Control s.r.o.", "kodOSSZ": "342"},
+    2: {"vs": "4442058998", "ico": "26411741", "nazev": "EUROSOFT - System s.r.o.", "kodOSSZ": "342"},
+}
+
+
+def _nempri25_ose_xml(d):
+    """Sestaví NEMPRI25 datovou větu pro OSE (ošetřovné) z uloženého podání.
+    d = dict řádku tenant.davka_podani. Akce dle dat: vznik (je od) + ukončení (je do)."""
+    e = _nempri_esc
+    emp = _NEMPRI_EMPLOYER.get(d.get("account_id") or 1, _NEMPRI_EMPLOYER[1])
+    je_vznik = bool(d.get("datum_od"))
+    je_ukonceni = bool(d.get("datum_do"))
+    vztah = (d.get("osetrovana_vztah") or "")
+    L = []
+    L.append('<?xml version="1.0" encoding="UTF-8"?>')
+    L.append('<NEMPRI xmlns="http://schemas.cssz.cz/nem/NEMPRI25" version="1.0" partialAccept="A">')
+    L.append('<VENDOR productName="STRATEGIE" productVersion="1.0"/>')
+    L.append('<datovaVeta poradoveCislo="1">')
+    L.append('<dokument>')
+    L.append('<kodOSSZ>%s</kodOSSZ>' % e(emp["kodOSSZ"]))
+    L.append('<druhDavky>OSE</druhDavky>')
+    L.append('<cisloRozhodnuti>%s</cisloRozhodnuti>' % e(d.get("identifikator")))
+    L.append('</dokument>')
+    L.append('<pojistenec>')
+    L.append('<jmeno>%s</jmeno>' % e(d.get("emp_jmeno")))
+    L.append('<prijmeni>%s</prijmeni>' % e(d.get("emp_prijmeni")))
+    L.append('<rodneCislo>%s</rodneCislo>' % e((d.get("emp_rc") or "").replace("/", "")))
+    L.append('</pojistenec>')
+    L.append('<zamestnani>')
+    L.append('<VSZamestnavatel>%s</VSZamestnavatel>' % e(emp["vs"]))
+    L.append('<ICZamestnavatel>%s</ICZamestnavatel>' % e(emp["ico"]))
+    L.append('<nazevZamestnavatel>%s</nazevZamestnavatel>' % e(emp["nazev"]))
+    L.append('<zamestnanOd>%s</zamestnanOd>' % e(d.get("zamestnan_od") or "2020-01-01"))
+    L.append('<druhCinnosti>%s</druhCinnosti>' % e(d.get("druh_cinnosti") or "1"))
+    L.append('</zamestnani>')
+    L.append('<davka><ose>')
+    L.append('<oseVznik>%s</oseVznik>' % ("true" if je_vznik else "false"))
+    L.append('<oseTrvani>false</oseTrvani>')
+    L.append('<oseUkonceni>%s</oseUkonceni>' % ("true" if je_ukonceni else "false"))
+    if je_vznik:
+        L.append('<potvrzeniZamestnavatele>')
+        L.append('<pracoval>false</pracoval>')
+        L.append('<jeStudentem>false</jeStudentem>')
+        L.append('<prevedenaNaJinouPraci>false</prevedenaNaJinouPraci>')
+        L.append('<volnoBezNahrady>false</volnoBezNahrady>')
+        L.append('</potvrzeniZamestnavatele>')
+    L.append('<zadostODavku>')
+    if je_vznik:
+        L.append('<odeDne>%s</odeDne>' % e(d.get("datum_od")))
+    if je_ukonceni:
+        L.append('<doDne>%s</doDne>' % e(d.get("datum_do")))
+    if je_vznik:
+        L.append('<osetrovanaOsoba>')
+        L.append('<jmeno>%s</jmeno>' % e(d.get("osetrovana_jmeno")))
+        L.append('<prijmeni>%s</prijmeni>' % e(d.get("osetrovana_prijmeni")))
+        orc = (d.get("osetrovana_rc") or "").replace("/", "")
+        if orc:
+            L.append('<rodneCislo>%s</rodneCislo>' % e(orc))
+        L.append('<onemocnela>true</onemocnela>')
+        L.append('<spolecnaDomacnost>%s</spolecnaDomacnost>'
+                 % ("true" if d.get("spolecna_domacnost") else "false"))
+        L.append('<jeOsamely>false</jeOsamely>')
+        L.append('<vPeciDiteDo16Let>false</vPeciDiteDo16Let>')
+        L.append('<narokNaPPMjinouOsobou>false</narokNaPPMjinouOsobou>')
+        if vztah:
+            L.append('<kodRodVztah>%s</kodRodVztah>' % e(vztah))
+        L.append('</osetrovanaOsoba>')
+    L.append('</zadostODavku>')
+    if je_ukonceni:
+        L.append('<podkladyProVyplatDavky>')
+        L.append('<pracovalPoslDenPD>false</pracovalPoslDenPD>')
+        L.append('<planovaneSmeny>false</planovaneSmeny>')
+        L.append('<pecovalOsobne>true</pecovalOsobne>')
+        L.append('<pecovalVeDnech><obdobi><od>%s</od><do>%s</do></obdobi></pecovalVeDnech>'
+                 % (e(d.get("datum_od")), e(d.get("datum_do"))))
+        L.append('</podkladyProVyplatDavky>')
+    L.append('</ose></davka>')
+    if je_vznik:
+        L.append('<platebniSpojeni>')
+        L.append('<vyplatitUcetCR>true</vyplatitUcetCR>')
+        L.append('<vyplatitUcetCizina>false</vyplatitUcetCizina>')
+        L.append('<vyplatitAdresa>false</vyplatitAdresa>')
+        L.append('<vyplatitHotovost>false</vyplatitHotovost>')
+        ucet = (d.get("cislo_uctu") or "")
+        cislo, kod = ("", "")
+        if "/" in ucet:
+            cislo, kod = ucet.split("/", 1)
+        L.append('<ucetCZ><ucetCislo>%s</ucetCislo><bankaKod>%s</bankaKod></ucetCZ>'
+                 % (e(cislo.strip()), e(kod.strip())))
+        L.append('</platebniSpojeni>')
+    L.append('</datovaVeta>')
+    L.append('</NEMPRI>')
+    return "\n".join(L)
+
+
+@api_router.post("/app/davka/generuj-xml")
+async def davka_generuj_xml(req: Request):
+    """Vygeneruje NEMPRI25 XML z uloženého podání (zatím OSE) a uloží na záznam."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        d = s.execute(_t("SELECT * FROM tenant.davka_podani WHERE id=:i"), {"i": int(b.get("id"))}).mappings().first()
+        if not d:
+            return JSONResponse({"ok": False, "error": "podání nenalezeno"})
+        d = dict(d)
+        if (d.get("typ_davky") or "OSE") != "OSE":
+            return JSONResponse({"ok": False, "error": "zatím podporováno jen OSE (ošetřovné)"})
+        xml = _nempri25_ose_xml(d)
+        s.execute(_t("UPDATE tenant.davka_podani SET xml_data=:x, updated_at=now() WHERE id=:i"),
+                  {"x": xml, "i": d["id"]})
+        s.commit()
+        return {"ok": True, "xml": xml}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/davka/list")
 def davka_list(req: Request):
     """Seznam podání dávek NP (NEMPRI25) — rodič/HR."""
@@ -23491,6 +23623,26 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "@@ISDS LIST|MSG|RAW <acct_id> ..."})
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
+    # @@NEMPRI <davka_id> → vygeneruje NEMPRI25 XML pro podání (test generátoru)
+    if sql.upper().startswith("@@NEMPRI"):
+        parts = sql.split()
+        try:
+            did = int(parts[1])
+        except Exception:
+            return JSONResponse({"ok": False, "error": "@@NEMPRI <davka_id>"})
+        from core.database_data import get_data_session as _gn
+        from sqlalchemy import text as _tn
+        sn = _gn()
+        try:
+            d = sn.execute(_tn("SELECT * FROM tenant.davka_podani WHERE id=:i"), {"i": did}).mappings().first()
+            if not d:
+                return JSONResponse({"ok": False, "error": "podání nenalezeno"})
+            xml = _nempri25_ose_xml(dict(d))
+        finally:
+            sn.close()
+        rows = [[ln] for ln in xml.split("\n")]
+        return JSONResponse({"ok": True, "columns": ["NEMPRI25 XML"], "rows": rows, "count": len(rows)})
 
     # @@OCRINFO → zjistí dostupnost OCR stacku na cloudu (pro produkční instalaci)
     if sql.upper().startswith("@@OCRINFO"):

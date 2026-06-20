@@ -21936,6 +21936,10 @@ _OPS_ACTIONS = {
         "label": "Zrcadlo Centrály: kalkulace+položky (2 roky, plný refresh, idempotentní)",
         "target": "cloud", "remote": False,
     },
+    "sync_ec_ukoly": {
+        "label": "Zrcadlo Centrály: úkoly + řešitelé (okno aktivní/2023+, idempotentní)",
+        "target": "cloud", "remote": False,
+    },
     "sync_ec_org_kontakt": {
         "label": "Zrcadlo Centrály: organizace (rowversion) + CRM kontakty (plné)",
         "target": "cloud", "remote": False,
@@ -22868,6 +22872,208 @@ def _sync_ec_kalkulace(_unused=None) -> dict:
         res["polozky"] = npol
 
         s.commit()
+        return {"ok": True, **res}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_ukoly(_unused=None) -> dict:
+    """Marti 20.6.2026: zrcadlo úkolů (EC_Ukoly + EC_UkolyResitelVazba +
+    EC_Ukoly_SeznamResitelu). Okno = aktivní NEBO DatPorizeni >= 2023-01-01
+    (ne celá 232k historie). Plný idempotentní refresh, stránkování po ID,
+    upsert dle src_id. Vazba úkol→zakázka přes cislo_zakazky, úkol→řešitel přes
+    ec_ukol_resitel.id_ukol. Model pro nativní task systém (lidi + AI)."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    FROM = "2023-01-01"
+    WIN = "(u.Aktivni=1 OR u.DatPorizeni >= '%s')" % FROM
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def b2(v):
+        t = (s2(v) or "").lower()
+        if t[:1] in ("1", "t", "a", "y"):
+            return True
+        if t[:1] in ("0", "f", "n"):
+            return False
+        return None
+
+    BLOCK = 1000
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    res = {}
+    try:
+        # ── ÚKOLY ──
+        lastid = 0
+        nu = 0
+        while True:
+            sql = ("SELECT TOP %d u.ID, u.IDNadrazene, u.Stav, u.StavText, u.Zadavatel, u.Predmet, "
+                   "CAST(u.Popis AS nvarchar(max)) Popis, CONVERT(varchar(19),u.TerminZahajeni,120) tz, "
+                   "CONVERT(varchar(19),u.TerminSplneni,120) ts, u.OdhadHod, u.RealHod, u.HotovoProcent, "
+                   "CAST(u.Neverejny AS int) Neverejny, CAST(u.Aktivni AS int) Aktivni, CAST(u.Informacni AS int) Informacni, "
+                   "CONVERT(varchar(19),u.DatPrevzeti,120) dprev, CONVERT(varchar(19),u.DatZahajeni,120) dzah, "
+                   "CONVERT(varchar(19),u.DatDokonceni,120) ddok, CONVERT(varchar(19),u.DatKontroly,120) dkon, "
+                   "RTRIM(u.CisloZakazky) CisloZakazky, u.IDOpakUkol, u.IDCinnost, u.IDSmernice, u.IDKvalif, u.IDDoklad, "
+                   "u.DruhPozadavku, u.PrioritaPlanIT, u.PrinosKC_Mes, CONVERT(varchar(19),u.DatPoslPoznamka,120) dpp, "
+                   "u.Autor, CONVERT(varchar(19),u.DatPorizeni,120) dp, u.Zmenil, CONVERT(varchar(19),u.DatZmeny,120) dz "
+                   "FROM EC_Ukoly u WHERE u.ID > %d AND %s ORDER BY u.ID" % (BLOCK, lastid, WIN))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for row in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_ukol (src_id,id_nadrazene,stav,stav_text,zadavatel,predmet,popis,"
+                    "termin_zahajeni,termin_splneni,odhad_hod,real_hod,hotovo_procent,neverejny,aktivni,informacni,"
+                    "dat_prevzeti,dat_zahajeni,dat_dokonceni,dat_kontroly,cislo_zakazky,id_opak_ukol,id_cinnost,"
+                    "id_smernice,id_kvalif,id_doklad,druh_pozadavku,priorita_plan_it,prinos_kc_mes,dat_posl_poznamka,"
+                    "autor,dat_porizeni,zmenil,dat_zmeny,synced_at) VALUES "
+                    "(:sid,:idn,:st,:stt,:za,:pr,:po,:tz,:ts,:oh,:rh,:hp,:nv,:ak,:inf,:dpv,:dza,:ddo,:dko,:cz,:iop,"
+                    ":ici,:ism,:ikv,:idd,:drp,:ppi,:pkc,:dpp,:au,:dp,:zm,:dz,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET id_nadrazene=excluded.id_nadrazene,stav=excluded.stav,"
+                    "stav_text=excluded.stav_text,zadavatel=excluded.zadavatel,predmet=excluded.predmet,popis=excluded.popis,"
+                    "termin_zahajeni=excluded.termin_zahajeni,termin_splneni=excluded.termin_splneni,odhad_hod=excluded.odhad_hod,"
+                    "real_hod=excluded.real_hod,hotovo_procent=excluded.hotovo_procent,neverejny=excluded.neverejny,"
+                    "aktivni=excluded.aktivni,informacni=excluded.informacni,dat_prevzeti=excluded.dat_prevzeti,"
+                    "dat_zahajeni=excluded.dat_zahajeni,dat_dokonceni=excluded.dat_dokonceni,dat_kontroly=excluded.dat_kontroly,"
+                    "cislo_zakazky=excluded.cislo_zakazky,id_opak_ukol=excluded.id_opak_ukol,id_cinnost=excluded.id_cinnost,"
+                    "id_smernice=excluded.id_smernice,id_kvalif=excluded.id_kvalif,id_doklad=excluded.id_doklad,"
+                    "druh_pozadavku=excluded.druh_pozadavku,priorita_plan_it=excluded.priorita_plan_it,"
+                    "prinos_kc_mes=excluded.prinos_kc_mes,dat_posl_poznamka=excluded.dat_posl_poznamka,autor=excluded.autor,"
+                    "dat_porizeni=excluded.dat_porizeni,zmenil=excluded.zmenil,dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                    {"sid": i2(row.get("ID")), "idn": i2(row.get("IDNadrazene")), "st": i2(row.get("Stav")),
+                     "stt": s2(row.get("StavText")), "za": i2(row.get("Zadavatel")), "pr": s2(row.get("Predmet")),
+                     "po": s2(row.get("Popis")), "tz": s2(row.get("tz")), "ts": s2(row.get("ts")),
+                     "oh": num(row.get("OdhadHod")), "rh": num(row.get("RealHod")), "hp": i2(row.get("HotovoProcent")),
+                     "nv": b2(row.get("Neverejny")), "ak": b2(row.get("Aktivni")), "inf": b2(row.get("Informacni")),
+                     "dpv": s2(row.get("dprev")), "dza": s2(row.get("dzah")), "ddo": s2(row.get("ddok")),
+                     "dko": s2(row.get("dkon")), "cz": s2(row.get("CisloZakazky")), "iop": i2(row.get("IDOpakUkol")),
+                     "ici": i2(row.get("IDCinnost")), "ism": i2(row.get("IDSmernice")), "ikv": i2(row.get("IDKvalif")),
+                     "idd": i2(row.get("IDDoklad")), "drp": i2(row.get("DruhPozadavku")), "ppi": i2(row.get("PrioritaPlanIT")),
+                     "pkc": num(row.get("PrinosKC_Mes")), "dpp": s2(row.get("dpp")), "au": s2(row.get("Autor")),
+                     "dp": s2(row.get("dp")), "zm": s2(row.get("Zmenil")), "dz": s2(row.get("dz"))})
+                lastid = i2(row.get("ID")) or lastid
+            nu += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        res["ukoly"] = nu
+
+        # ── ŘEŠITELÉ (vazba úkol↔řešitel, jen pro úkoly v okně) ──
+        lastid = 0
+        nr = 0
+        while True:
+            sql = ("SELECT TOP %d v.ID, v.IDUkol, v.Resitel, v.Typ, v.TypText, CAST(v.Aktivni AS int) Aktivni, "
+                   "v.Stav, v.StavText, v.OdhadHod, v.RealHod, v.Priorita, v.Dulezitost, "
+                   "CONVERT(varchar(19),v.DatPrevzeti,120) dprev, CONVERT(varchar(19),v.DatZahajeni,120) dzah, "
+                   "CONVERT(varchar(19),v.DatDokonceni,120) ddok, CONVERT(varchar(19),v.DatKontroly,120) dkon, "
+                   "CONVERT(varchar(19),v.TerminOsobni,120) tos, v.PoznamkaResitel, v.Autor, "
+                   "CONVERT(varchar(19),v.DatPorizeni,120) dp, v.Zmenil, CONVERT(varchar(19),v.DatZmeny,120) dz "
+                   "FROM EC_UkolyResitelVazba v WHERE v.ID > %d AND EXISTS "
+                   "(SELECT 1 FROM EC_Ukoly u WHERE u.ID=v.IDUkol AND %s) ORDER BY v.ID" % (BLOCK, lastid, WIN))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for row in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_ukol_resitel (src_id,id_ukol,resitel,typ,typ_text,aktivni,stav,stav_text,"
+                    "odhad_hod,real_hod,priorita,dulezitost,dat_prevzeti,dat_zahajeni,dat_dokonceni,dat_kontroly,"
+                    "termin_osobni,poznamka_resitel,autor,dat_porizeni,zmenil,dat_zmeny,synced_at) VALUES "
+                    "(:sid,:iu,:re,:ty,:tyt,:ak,:st,:stt,:oh,:rh,:pri,:dul,:dpv,:dza,:ddo,:dko,:tos,:pzn,:au,:dp,:zm,:dz,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET id_ukol=excluded.id_ukol,resitel=excluded.resitel,typ=excluded.typ,"
+                    "typ_text=excluded.typ_text,aktivni=excluded.aktivni,stav=excluded.stav,stav_text=excluded.stav_text,"
+                    "odhad_hod=excluded.odhad_hod,real_hod=excluded.real_hod,priorita=excluded.priorita,dulezitost=excluded.dulezitost,"
+                    "dat_prevzeti=excluded.dat_prevzeti,dat_zahajeni=excluded.dat_zahajeni,dat_dokonceni=excluded.dat_dokonceni,"
+                    "dat_kontroly=excluded.dat_kontroly,termin_osobni=excluded.termin_osobni,poznamka_resitel=excluded.poznamka_resitel,"
+                    "autor=excluded.autor,dat_porizeni=excluded.dat_porizeni,zmenil=excluded.zmenil,dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                    {"sid": i2(row.get("ID")), "iu": i2(row.get("IDUkol")), "re": i2(row.get("Resitel")),
+                     "ty": i2(row.get("Typ")), "tyt": s2(row.get("TypText")), "ak": b2(row.get("Aktivni")),
+                     "st": i2(row.get("Stav")), "stt": s2(row.get("StavText")), "oh": num(row.get("OdhadHod")),
+                     "rh": num(row.get("RealHod")), "pri": i2(row.get("Priorita")), "dul": i2(row.get("Dulezitost")),
+                     "dpv": s2(row.get("dprev")), "dza": s2(row.get("dzah")), "ddo": s2(row.get("ddok")),
+                     "dko": s2(row.get("dkon")), "tos": s2(row.get("tos")), "pzn": s2(row.get("PoznamkaResitel")),
+                     "au": s2(row.get("Autor")), "dp": s2(row.get("dp")), "zm": s2(row.get("Zmenil")),
+                     "dz": s2(row.get("dz"))})
+                lastid = i2(row.get("ID")) or lastid
+            nr += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        res["resitele"] = nr
+
+        # ── ČÍSELNÍK ŘEŠITELŮ (EC_Ukoly_SeznamResitelu, malé, plné) ──
+        lastid = 0
+        nc = 0
+        while True:
+            sql = ("SELECT TOP %d ID, IDKontroly, IDDefUkolu, IDOpakUkolu, CisloZam, Poznamka, "
+                   "CAST(Kopie AS int) Kopie, CAST(Neaktivni AS int) Neaktivni, "
+                   "CONVERT(varchar(19),NeaktivniOD,120) nod, CONVERT(varchar(19),NeaktivniDO,120) ndo, "
+                   "Autor, CONVERT(varchar(19),DatPorizeni,120) dp "
+                   "FROM EC_Ukoly_SeznamResitelu WHERE ID > %d ORDER BY ID" % (BLOCK, lastid))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for row in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_ukol_resitel_cis (src_id,id_kontroly,id_def_ukolu,id_opak_ukolu,cislo_zam,"
+                    "poznamka,kopie,neaktivni,neaktivni_od,neaktivni_do,autor,dat_porizeni,synced_at) VALUES "
+                    "(:sid,:ik,:idu,:iou,:cz,:po,:ko,:ne,:nod,:ndo,:au,:dp,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET id_kontroly=excluded.id_kontroly,id_def_ukolu=excluded.id_def_ukolu,"
+                    "id_opak_ukolu=excluded.id_opak_ukolu,cislo_zam=excluded.cislo_zam,poznamka=excluded.poznamka,"
+                    "kopie=excluded.kopie,neaktivni=excluded.neaktivni,neaktivni_od=excluded.neaktivni_od,"
+                    "neaktivni_do=excluded.neaktivni_do,autor=excluded.autor,dat_porizeni=excluded.dat_porizeni,synced_at=now()"),
+                    {"sid": i2(row.get("ID")), "ik": i2(row.get("IDKontroly")), "idu": i2(row.get("IDDefUkolu")),
+                     "iou": i2(row.get("IDOpakUkolu")), "cz": i2(row.get("CisloZam")), "po": s2(row.get("Poznamka")),
+                     "ko": b2(row.get("Kopie")), "ne": b2(row.get("Neaktivni")), "nod": s2(row.get("nod")),
+                     "ndo": s2(row.get("ndo")), "au": s2(row.get("Autor")), "dp": s2(row.get("dp"))})
+                lastid = i2(row.get("ID")) or lastid
+            nc += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        res["cis_resitelu"] = nc
+
         return {"ok": True, **res}
     except Exception:
         s.rollback()
@@ -24713,6 +24919,12 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = {"ok": True}
             status = "done"
             result = ("zrcadlo Centrály: refresh kalkulací+položek (2 roky) spuštěn na pozadí")
+        elif action_key == "sync_ec_ukoly":
+            import threading as _thr
+            _thr.Thread(target=_sync_ec_ukoly, daemon=True).start()
+            out = {"ok": True}
+            status = "done"
+            result = ("zrcadlo Centrály: úkoly + řešitelé (okno aktivní/2023+) spuštěno na pozadí")
         elif action_key == "sync_ec_org_kontakt":
             import threading as _thr
             _thr.Thread(target=_sync_ec_org_kontakt, daemon=True).start()

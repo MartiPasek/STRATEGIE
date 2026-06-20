@@ -23155,7 +23155,24 @@ async def diag_sql(req: Request) -> JSONResponse:
                     t = _isds_extract_text(files[0]["bytes"], files[0]["filename"])
                     rows.append(["TEXT[0]", (t or "(prázdné / binární)")[:400]])
                 return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
-            return JSONResponse({"ok": False, "error": "@@ISDS LIST|MSG <acct_id> ..."})
+            if op == "RAW":
+                import requests as _rq
+                login = acc.get("login_name") or ""
+                pwd = _isds_dec(acc.get("password_enc")) or ""
+                body = ('<p:GetListOfReceivedMessages><p:dmFromTime>2026-01-01T00:00:00</p:dmFromTime>'
+                        '<p:dmToTime></p:dmToTime><p:dmOrgUnitNum></p:dmOrgUnitNum>'
+                        '<p:dmStatusFilter>-1</p:dmStatusFilter><p:dmOffset>1</p:dmOffset>'
+                        '<p:dmLimit>1000</p:dmLimit></p:GetListOfReceivedMessages>')
+                env = ('<?xml version="1.0" encoding="utf-8"?>'
+                       '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" '
+                       'xmlns:p="%s"><soapenv:Header/><soapenv:Body>%s</soapenv:Body></soapenv:Envelope>'
+                       % (_ISDS_NS, body))
+                r = _rq.post(_ISDS_BASE + "/dz", data=env.encode("utf-8"),
+                             headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
+                             auth=(login, pwd), timeout=40)
+                return JSONResponse({"ok": True, "columns": ["http", "raw"],
+                                     "rows": [[str(r.status_code), (r.text or "")[:1800]]], "count": 1})
+            return JSONResponse({"ok": False, "error": "@@ISDS LIST|MSG|RAW <acct_id> ..."})
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
 

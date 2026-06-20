@@ -18416,6 +18416,7 @@ def _mirror_run_job(job_key):
         "sync_ec_ceniky": lambda: _sync_ec_ceniky(),
         "sync_ec_org_kontakt": lambda: _sync_ec_org_kontakt(),
         "sync_ec_banka": lambda: _sync_ec_banka(),
+        "sync_ec_saldo": lambda: _sync_ec_saldo(),
         # přesunuto z ⚙ Ops akcí do řídícího centra (Marti 20.6.2026)
         "sync_zakazky": lambda: _sync_zakazky_from_helios(),
         "sync_org": lambda: _sync_org_from_ec(),
@@ -23753,6 +23754,101 @@ def _sync_ec_zakazka_prehled(_unused=None) -> dict:
             if len(batch) < BLOCK:
                 break
         return {"ok": True, "zakazky": nz}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_saldo(_unused=None) -> dict:
+    """Marti 20.6.2026: zrcadlo OTEVŘENÝCH faktur (saldokonto TabSaldoFA WHERE Saldo<>0,
+    ~20.5k položek). ParovaciZnak = VS, Saldo = otevřený zůstatek, CisloOrg = partner,
+    Castka_MD/Dal = pohledávka/závazek. Proti tomuto se párují nespárované bank řádky
+    (VS + částka). Upsert + cleanup zavřených (synced_at < run_start = už není otevřená)."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    BLOCK = 2000
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        run_start = s.execute(_t("SELECT now()")).scalar()
+        lastid = 0
+        nz = 0
+        while True:
+            sql = ("SELECT TOP %d IdFASaldo, ParovaciZnak, CisloOrg, Mena, Saldo, Castka_Splatno, "
+                   "Castka_Uhrazeno, Castka_MD, Castka_Dal, CONVERT(varchar(19),DatumSplatno,120) ds, "
+                   "CONVERT(varchar(19),DatumUhrazeno,120) du, RTRIM(CisloZakazky) CisloZakazky, ICO, DIC "
+                   "FROM TabSaldoFA WHERE Saldo <> 0 AND IdFASaldo > %d ORDER BY IdFASaldo" % (BLOCK, lastid))
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for row in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_saldo_fa (src_id,parovaci_znak,cislo_org,mena,saldo,castka_splatno,"
+                    "castka_uhrazeno,castka_md,castka_dal,datum_splatno,datum_uhrazeno,cislo_zakazky,ico,dic,synced_at) "
+                    "VALUES (:sid,:pz,:co,:me,:sa,:cs,:cu,:cmd,:cdal,:ds,:du,:cz,:ico,:dic,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET parovaci_znak=excluded.parovaci_znak,cislo_org=excluded.cislo_org,"
+                    "mena=excluded.mena,saldo=excluded.saldo,castka_splatno=excluded.castka_splatno,"
+                    "castka_uhrazeno=excluded.castka_uhrazeno,castka_md=excluded.castka_md,castka_dal=excluded.castka_dal,"
+                    "datum_splatno=excluded.datum_splatno,datum_uhrazeno=excluded.datum_uhrazeno,"
+                    "cislo_zakazky=excluded.cislo_zakazky,ico=excluded.ico,dic=excluded.dic,synced_at=now()"),
+                    {"sid": i2(row.get("IdFASaldo")), "pz": s2(row.get("ParovaciZnak")), "co": i2(row.get("CisloOrg")),
+                     "me": s2(row.get("Mena")), "sa": num(row.get("Saldo")), "cs": num(row.get("Castka_Splatno")),
+                     "cu": num(row.get("Castka_Uhrazeno")), "cmd": num(row.get("Castka_MD")),
+                     "cdal": num(row.get("Castka_Dal")), "ds": s2(row.get("ds")), "du": s2(row.get("du")),
+                     "cz": s2(row.get("CisloZakazky")), "ico": s2(row.get("ICO")), "dic": s2(row.get("DIC"))})
+                lastid = i2(row.get("IdFASaldo")) or lastid
+            nz += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        # cleanup zavřených (už nejsou v otevřeném saldu) — jen po úplném průchodu
+        s.execute(_t("DELETE FROM tenant.ec_saldo_fa WHERE synced_at < :rs"), {"rs": run_start})
+        s.commit()
+        return {"ok": True, "saldo": nz}
     except Exception:
         s.rollback()
         raise

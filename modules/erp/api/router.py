@@ -21884,7 +21884,8 @@ def _isds_list_received(account: dict, days_back: int = 60):
             '<p:dmToTime></p:dmToTime><p:dmOrgUnitNum></p:dmOrgUnitNum>'
             '<p:dmStatusFilter>-1</p:dmStatusFilter><p:dmOffset>1</p:dmOffset>'
             '<p:dmLimit>1000</p:dmLimit></p:GetListOfReceivedMessages>' % frm)
-    ok, root = _isds_soap(account, "/dz", body)
+    # GetListOfReceivedMessages = služba dmInfo → /dx (ne /dz = dmOperations).
+    ok, root = _isds_soap(account, "/dx", body)
     if not ok:
         raise RuntimeError(root)
     out = []
@@ -23167,7 +23168,7 @@ async def diag_sql(req: Request) -> JSONResponse:
                        '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" '
                        'xmlns:p="%s"><soapenv:Header/><soapenv:Body>%s</soapenv:Body></soapenv:Envelope>'
                        % (_ISDS_NS, body))
-                r = _rq.post(_ISDS_BASE + "/dz", data=env.encode("utf-8"),
+                r = _rq.post(_ISDS_BASE + "/dx", data=env.encode("utf-8"),
                              headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
                              auth=(login, pwd), timeout=40)
                 txt = r.text or ""

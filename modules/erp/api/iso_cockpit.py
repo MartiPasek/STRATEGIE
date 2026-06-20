@@ -24,6 +24,10 @@ try:
     from modules.erp.api.iso_controls_catalog import CONTROLS as _CONTROLS
 except Exception:
     _CONTROLS = []
+try:
+    from modules.erp.api.iso_tisax_catalog import TISAX as _TISAX
+except Exception:
+    _TISAX = []
 
 iso_router = APIRouter(prefix="/api/v1/erp", tags=["iso-cockpit"])
 
@@ -137,6 +141,13 @@ def _ensure_seeded(s, tenant_id):
             s.execute(_t("""INSERT INTO tenant.iso_control(tenant_id,kod,oblast,nazev,apl,stav,zduvodneni,dukaz,poradi)
                 VALUES(:t,:k,:o,:n,:a,:s,:z,:d,:p) ON CONFLICT (tenant_id,kod) DO NOTHING"""),
                 {"t": tenant_id, "k": kod, "o": oblast, "n": nazev, "a": apl, "s": stav, "z": zduv, "d": dukaz, "p": i})
+    tx = s.execute(_t("SELECT count(*) c FROM tenant.tisax_item WHERE tenant_id=:t"), {"t": tenant_id}).first().c
+    if tx == 0 and _TISAX:
+        for i, (modul, kod, nazev, appl, isomap) in enumerate(_TISAX):
+            stav = "probiha" if modul == "Information Security" else "ceka"
+            s.execute(_t("""INSERT INTO tenant.tisax_item(tenant_id,modul,kod,nazev,applicable,stav,iso_map,poradi)
+                VALUES(:t,:m,:k,:n,:a,:s,:im,:p) ON CONFLICT (tenant_id,kod) DO NOTHING"""),
+                {"t": tenant_id, "m": modul, "k": kod, "n": nazev, "a": appl, "s": stav, "im": isomap, "p": i})
     s.commit()
 
 
@@ -185,9 +196,17 @@ def iso_overview(req: Request):
             count(*) FILTER (WHERE NOT apl) AS apl_ne, count(*) AS total
             FROM tenant.iso_control WHERE tenant_id=:t"""), {"t": tid}).mappings().first()
         doc06 = next((d["stav"] for d in docs if d["kod"] == "DOC-06"), "navrh")
+        tx = s.execute(_t("""SELECT count(*) FILTER (WHERE applicable) AS appl,
+            count(*) FILTER (WHERE applicable AND stav='hotovo') AS hot,
+            count(DISTINCT modul) FILTER (WHERE applicable) AS moduly
+            FROM tenant.tisax_item WHERE tenant_id=:t"""), {"t": tid}).mappings().first()
+        is_cov = cs["apl_ano"] and round(100.0 * (s.execute(_t(
+            "SELECT count(*) c FROM tenant.iso_control WHERE tenant_id=:t AND apl AND stav IN ('HOTOVO','ROZPRACOVÁNO')"),
+            {"t": tid}).first().c) / cs["apl_ano"]) or 0
         return {"ok": True, "tenant_id": tid, "tenant_name": (tn.name if tn else str(tid)),
                 "tasks": [dict(x) for x in tasks], "docs": docs,
                 "soa": {"apl_ano": cs["apl_ano"], "apl_ne": cs["apl_ne"], "total": cs["total"], "stav": doc06},
+                "tisax": {"appl": tx["appl"], "hotovo": tx["hot"], "moduly": tx["moduly"], "is_coverage": is_cov, "verze": "VDA ISA 6.0.3"},
                 "progress": {"hotovo": done, "celkem": len(tasks)}}
     finally:
         s.close()
@@ -314,6 +333,49 @@ async def iso_control_update(req: Request):
             s.execute(_t("UPDATE tenant.iso_control SET %s, updated_at=now() WHERE id=:id AND tenant_id=:t" % ",".join(fields)), params)
             s.commit()
             _log(s, tid, _user_name(s, uid), "control_update", b.get("kod"), _client_ip(req))
+        return {"ok": True}
+    finally:
+        s.close()
+
+
+def _tisax_payload(s, tenant_id):
+    rows = s.execute(_t("""SELECT id,modul,kod,nazev,applicable,stav,iso_map,poznamka
+        FROM tenant.tisax_item WHERE tenant_id=:t ORDER BY poradi"""), {"t": tenant_id}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@iso_router.get("/app/iso/tisax")
+def iso_tisax(req: Request):
+    """TISAX (VDA ISA 6.0.3) položky pro tenant (parent)."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        _ensure_seeded(s, tid)
+        return {"ok": True, "verze": "VDA ISA 6.0.3", "tisax": _tisax_payload(s, tid)}
+    finally:
+        s.close()
+
+
+@iso_router.post("/app/iso/tisax-update")
+async def iso_tisax_update(req: Request):
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        fields, params = [], {"id": int(b["id"]), "t": tid}
+        for k in ("applicable", "stav", "poznamka"):
+            if k in b:
+                fields.append("%s=:%s" % (k, k)); params[k] = b[k]
+        if fields:
+            s.execute(_t("UPDATE tenant.tisax_item SET %s, updated_at=now() WHERE id=:id AND tenant_id=:t" % ",".join(fields)), params)
+            s.commit()
+            _log(s, tid, _user_name(s, uid), "tisax_update", b.get("kod"), _client_ip(req))
         return {"ok": True}
     finally:
         s.close()

@@ -100,6 +100,13 @@ function render(){
     +(so.stav!=="schvaleno"?'<button class="btn sm" onclick="sign(\'DOC-06\')">✍️ Schválit SoA</button>':'')
     +'<button class="btn sm ghost" id="cBtn" onclick="loadControls()">Zobrazit 93 kontrol</button></div></div>'
     +'<div id="ctrls"></div></div>';
+  // TISAX
+  var tx=j.tisax||{};
+  h+='<h2>🚗 TISAX — VDA ISA '+esc((tx.verze||"6.0.3").replace("VDA ISA ",""))+' (automotive)</h2><div class="c">'
+    +'<div class="row"><div class="grow"><div class="nm">Information Security: pokrytí z ISO <b>'+(tx.is_coverage||0)+' %</b> · aplikovatelné položky '+(tx.appl||0)+' · hotovo '+(tx.hotovo||0)+'</div>'
+    +'<div class="meta">Cíl: Assessment Level AL2. IS modul je mapovaný z ISO 27001 (jedna investice, dva výsledky). Přesné otázky lze importovat z oficiálního VDA ISA 6.0.3 (enx.com).</div></div>'
+    +'<div class="right"><button class="btn sm ghost" id="txBtn" onclick="loadTisax()">Zobrazit moduly</button></div></div>'
+    +'<div id="tisx"></div></div>';
   // AUDITOR
   h+='<h2>👁️ Přístup pro auditora (web, read-only)</h2><div class="c" id="aud"><div class="hint">Načítám…</div></div>';
   document.getElementById("body").innerHTML=h;
@@ -128,6 +135,29 @@ function loadControls(){
   });
 }
 function ctlUpd(id,field,val){var b={id:id};b[field]=val;api("/api/v1/erp/app/iso/control-update","POST",b);}
+var TXSTAV=["ceka","probiha","hotovo","neaplikovatelne"];
+function loadTisax(){
+  var box=document.getElementById("tisx");var b=document.getElementById("txBtn");
+  if(box.dataset.open==="1"){box.innerHTML="";box.dataset.open="0";if(b)b.textContent="Zobrazit moduly";return;}
+  box.innerHTML='<div class="hint" style="padding:8px 0">Načítám…</div>';
+  api("/api/v1/erp/app/iso/tisax").then(j=>{
+    if(!j||!j.ok){box.innerHTML='<div class="hint">chyba</div>';return;}
+    box.dataset.open="1";if(b)b.textContent="Skrýt moduly";
+    var cur="",h="";
+    j.tisax.forEach(t=>{
+      if(t.modul!==cur){cur=t.modul;h+='<div style="margin:10px 0 2px;font-weight:700;color:#9fb4d4">'+esc(cur)+'</div>';}
+      var opts=TXSTAV.map(s=>'<option'+(s===t.stav?' selected':'')+'>'+s+'</option>').join('');
+      h+='<div class="row"><div class="grow"><div class="nm">'+esc(t.kod)+' — '+esc(t.nazev)+'</div>'
+        +'<div class="meta">'+(t.iso_map?('↔ '+esc(t.iso_map)):'TISAX-specifické (mimo ISO)')+'</div></div>'
+        +'<div class="right" style="display:flex;gap:8px;align-items:center">'
+        +'<label class="hint" style="display:flex;gap:4px;align-items:center"><input type="checkbox" '+(t.applicable?'checked':'')+' onchange="txUpd('+t.id+",'applicable',this.checked)\">v rozsahu</label>"
+        +'<select onchange="txUpd('+t.id+",'stav',this.value)\">"+opts+'</select>'
+        +'</div></div>';
+    });
+    box.innerHTML=h;
+  });
+}
+function txUpd(id,field,val){var b={id:id};b[field]=val;api("/api/v1/erp/app/iso/tisax-update","POST",b);}
 function taskDone(id,done){api("/api/v1/erp/app/iso/task-done","POST",{task_id:id,done:done}).then(()=>load());}
 function sign(kod){
   if(!confirm("Elektronicky podepsat / schválit "+kod+"?\nPodpis (SES) se zaznamená s vaším jménem, časem a zařízením."))return;

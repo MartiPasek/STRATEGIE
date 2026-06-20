@@ -22386,6 +22386,76 @@ def _edi_parse_tier0(text, rules):
     return {"hlavicka": hdr, "polozky": items}
 
 
+def _edi_validate(parsed):
+    """Validační brána Tier 0 — vrací (ok, problemy[]). Spouštěč eskalace na AI."""
+    import re as _re
+    h = parsed.get("hlavicka", {}) or {}
+    pr = []
+    for f, lbl in (("CisloDokladu", "číslo dokladu"), ("DatVystaveni", "datum vystavení"),
+                   ("CelkemSDPH", "celkem s DPH")):
+        if not (h.get(f) or "").strip():
+            pr.append("chybí %s" % lbl)
+    if h.get("CisloDokladu") and not _re.search(r"\d{4}", h["CisloDokladu"]):
+        pr.append("číslo dokladu nevypadá jako faktura")
+    if h.get("CelkemSDPH") and not _re.search(r"\d", h["CelkemSDPH"]):
+        pr.append("celkem s DPH není číslo")
+    if h.get("IBAN") and not _re.search(r"[A-Z]{2}\s?\d{2}", h["IBAN"]):
+        pr.append("IBAN vypadá rozbitě")
+    return (len(pr) == 0, pr)
+
+
+def _edi_haiku_patch(text, rules, parsed, problems):
+    """Tier 1: Haiku navrhne OPRAVU MARKERŮ (ne dat) → JSON patch. Vrací (patch, tokens, model).
+    Haiku nikdy nesahá na hodnoty — jen markery, které se pak deterministicky přehrají."""
+    import anthropic as _an, json as _j, re as _re
+    from core.config import settings
+    flds = [{"field": r["field_name"], "marker_od": r.get("marker_od"), "marker_do": r.get("marker_do")}
+            for r in rules if not r.get("je_polozka") and r.get("field_name")]
+    prompt = (
+        "Jsi extrakční asistent pro fakturu. Deterministický parser bere hodnotu MEZI marker_od "
+        "(text TĚSNĚ PŘED hodnotou) a marker_do (text TĚSNĚ ZA hodnotou). Některá pole vyšla špatně. "
+        "Oprav POUZE markery tak, aby extrakce vrátila správnou hodnotu. NEVYMÝŠLEJ hodnoty — markery "
+        "musí být doslovné řetězce z TEXTU. Vrať POUZE JSON tvaru "
+        "{\"NazevPole\": {\"marker_od\": \"...\", \"marker_do\": \"...\"}} jen pro špatná pole.\n\n"
+        "PROBLÉMY: " + "; ".join(problems) + "\n\n"
+        "PRAVIDLA: " + _j.dumps(flds, ensure_ascii=False) + "\n\n"
+        "ŠPATNĚ VYTAŽENO: " + _j.dumps(parsed.get("hlavicka", {}), ensure_ascii=False) + "\n\n"
+        "TEXT FAKTURY:\n" + (text or "")[:6000]
+    )
+    client = _an.Anthropic(api_key=settings.anthropic_api_key)
+    resp = client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=1500,
+                                  messages=[{"role": "user", "content": prompt}])
+    raw = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+    tokens = 0
+    try:
+        tokens = (resp.usage.input_tokens or 0) + (resp.usage.output_tokens or 0)
+    except Exception:
+        pass
+    patch = {}
+    m = _re.search(r"\{.*\}", raw, _re.S)
+    if m:
+        try:
+            patch = _j.loads(m.group(0))
+        except Exception:
+            patch = {}
+    return patch, tokens, "claude-haiku-4-5"
+
+
+def _edi_apply_patch(rules, patch):
+    """Aplikuje Haiku patch markerů na pravidla (jen hlavičková pole). Vrací nová pravidla."""
+    out = []
+    for r in rules:
+        r2 = dict(r)
+        p = patch.get(r.get("field_name")) if not r.get("je_polozka") else None
+        if isinstance(p, dict):
+            if p.get("marker_od") is not None:
+                r2["marker_od"] = p["marker_od"]
+            if p.get("marker_do") is not None:
+                r2["marker_do"] = p["marker_do"]
+        out.append(r2)
+    return out
+
+
 @api_router.get("/app/edi/statistika")
 def edi_statistika(req: Request):
     """Statistika samoučícího se EDI workflow (Tier 0/1/2, učící křivka, náklad)
@@ -22605,13 +22675,41 @@ async def diag_sql(req: Request) -> JSONResponse:
                 rules = sp.execute(_tp(
                     "SELECT poradi, je_polozka, field_name, marker_od, marker_do, min_len, max_len, je_datum "
                     "FROM tenant.edi_pole WHERE definice_src_id=:d ORDER BY poradi"), {"d": match["src_id"]}).mappings().all()
-                parsed = _edi_parse_tier0(txt, [dict(x) for x in rules])
-                rows = [["DEFINICE", match["partner_nazev"]]]
-                for k, v in parsed["hlavicka"].items():
+                rl = [dict(x) for x in rules]
+                t0 = _edi_parse_tier0(txt, rl)
+                ok0, prob0 = _edi_validate(t0)
+                tier = 0; tokens = 0; final = t0; problems = prob0; patch_info = ""
+                if not ok0:
+                    try:
+                        patch, tokens, _model = _edi_haiku_patch(txt, rl, t0, prob0)
+                        if patch:
+                            t1 = _edi_parse_tier0(txt, _edi_apply_patch(rl, patch))
+                            ok1, prob1 = _edi_validate(t1)
+                            tier = 1; final = t1; problems = prob1
+                            patch_info = "Haiku opravil markery: " + ", ".join(list(patch.keys())[:8])
+                        else:
+                            patch_info = "Haiku nevrátil patch"
+                    except Exception as _he:
+                        patch_info = "Haiku chyba: " + str(_he)[:120]
+                try:
+                    sp.execute(_tp(
+                        "INSERT INTO tenant.edi_zpracovani_log (partner, druh, zdroj_soubor, tier, vysledek, "
+                        "ai_model, tokens, doklad_cislo) VALUES (:p,'faktura',:zf,:ti,:vy,:am,:tk,:dc)"),
+                        {"p": match["partner_nazev"], "zf": fn, "ti": tier,
+                         "vy": ("ok" if not problems else "eskalovano"),
+                         "am": ("claude-haiku-4-5" if tier == 1 else None), "tk": tokens,
+                         "dc": (final["hlavicka"].get("CisloDokladu") or "")[:60]})
+                    sp.commit()
+                except Exception:
+                    pass
+                rows = [["DEFINICE", match["partner_nazev"]],
+                        ["TIER", "0 (deterministika, zdarma)" if tier == 0 else "1 (Haiku patch, %d tokenů)" % tokens],
+                        ["VALIDACE", "✓ OK" if not problems else "⚠ " + "; ".join(problems)]]
+                if patch_info:
+                    rows.append(["HAIKU", patch_info])
+                for k, v in final["hlavicka"].items():
                     rows.append([k, (v or "")[:180]])
-                rows.append(["—POLOŽEK—", str(len(parsed["polozky"]))])
-                for idx, it in enumerate(parsed["polozky"][:5], 1):
-                    rows.append(["pol.%d" % idx, " | ".join("%s=%s" % (kk, (vv or "")[:30]) for kk, vv in it.items() if vv)[:180]])
+                rows.append(["—POLOŽEK—", str(len(final["polozky"]))])
                 return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
             finally:
                 sp.close()

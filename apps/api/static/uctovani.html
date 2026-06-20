@@ -37,7 +37,20 @@
 
   <div style="margin:12px 0">
     <a class="btn" href="/parovani" onclick="return nav(event,'/parovani')">🏦 Párování & deník</a>
-    <a class="btn" href="/parovani" onclick="return nav(event,'/parovani')">🧾 Předkontace (daně/poplatky)</a>
+    <button class="btn" id="btnNew" style="border:0;cursor:pointer">➕ Nový doklad</button>
+  </div>
+
+  <div id="newDoklad" style="display:none;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:14px;margin-bottom:14px">
+    <div style="font-weight:700;margin-bottom:10px">➕ Zaúčtovat nový doklad</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <label style="font-size:12px;color:var(--mut)">Sborník<br><select id="fSbornik" style="min-width:200px"></select></label>
+      <label style="font-size:12px;color:var(--mut)">Předkontace<br><select id="fPred" style="min-width:220px"></select></label>
+      <label style="font-size:12px;color:var(--mut)">Datum<br><input id="fDatum" type="date"></label>
+      <label style="font-size:12px;color:var(--mut)">Částka<br><input id="fCastka" type="number" step="0.01" style="width:120px"></label>
+      <label style="font-size:12px;color:var(--mut)">Měna<br><select id="fMena"><option>CZK</option><option>EUR</option></select></label>
+    </div>
+    <div style="margin-top:8px"><label style="font-size:12px;color:var(--mut)">Popis<br><input id="fPopis" style="width:100%;max-width:560px" placeholder="popis dokladu"></label></div>
+    <div style="margin-top:10px"><button id="fOk" class="btn" style="border:0;cursor:pointer;background:#1d3a2a;color:#7ee0a8;border:1px solid #34d39955">📒 Zaúčtovat</button> <span id="fMsg" class="hint"></span></div>
   </div>
 
   <h2>Sborníky — knihy deníku</h2>
@@ -90,7 +103,34 @@ api("/api/v1/erp/app/uctovani/prehled").then(function(j){
     h+='</div></div>';
   });
   document.getElementById("sborniky").innerHTML=h;
+  // formulář nového dokladu
+  var fs=document.getElementById("fSbornik");
+  fs.innerHTML=(j.sborniky||[]).map(function(s){return '<option value="'+esc(s.kod)+'">'+esc(s.kod)+' — '+esc(s.nazev)+'</option>';}).join("");
+  var fp=document.getElementById("fPred");
+  fp.innerHTML='<option value="">— účty zadám ručně —</option>'+pk.map(function(x){return '<option value="'+esc(x.kod)+'">'+esc(x.nazev)+' ('+esc(x.ucet_md||"?")+'/'+esc(x.ucet_dal||"—")+')</option>';}).join("");
+  document.getElementById("fDatum").value=new Date().toISOString().slice(0,10);
 });
+document.getElementById("btnNew").onclick=function(){
+  var n=document.getElementById("newDoklad");
+  n.style.display=(n.style.display==="none")?"":"none";
+};
+document.getElementById("fOk").onclick=function(){
+  var sb=document.getElementById("fSbornik").value, pred=document.getElementById("fPred").value;
+  var dat=document.getElementById("fDatum").value, ca=document.getElementById("fCastka").value;
+  var me=document.getElementById("fMena").value, po=document.getElementById("fPopis").value;
+  var msg=document.getElementById("fMsg");
+  if(!sb||!dat||!ca){msg.textContent="Vyplň sborník, datum a částku.";return;}
+  var body={sbornik_kod:sb,datum:dat,castka:ca,mena:me,popis:po,predkontace_kod:pred};
+  if(!pred){body.ucet_md=prompt("Účet MD:")||"";body.ucet_dal=prompt("Účet DAL:")||"";}
+  msg.textContent="Účtuji…";var btn=this;btn.disabled=true;
+  fetch("/api/v1/erp/app/uctovani/doklad",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+    .then(function(r){return r.json();}).then(function(x){
+      btn.disabled=false;
+      if(x&&x.ok){msg.innerHTML='<span style="color:var(--green)">✓ Zaúčtováno — doklad <b>'+esc(x.cislo)+'</b> ('+esc(x.ucet_md||"")+'/'+esc(x.ucet_dal||"")+'), podpis '+esc(x.podpis||"")+'</span>';
+        document.getElementById("fCastka").value="";document.getElementById("fPopis").value="";}
+      else{msg.innerHTML='<span style="color:#ff8a8a">'+esc((x&&(x.error||x.detail))||"chyba")+'</span>';}
+    });
+};
 </script>
 </body>
 </html>

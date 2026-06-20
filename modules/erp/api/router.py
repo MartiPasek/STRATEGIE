@@ -21421,6 +21421,75 @@ def uctovani_prehled(req: Request):
         s.close()
 
 
+def _next_doklad_cislo(s, sbornik_kod, rok):
+    """Atomicky vezme další číslo dokladu z číselné řady (posledni_cislo+1).
+    Vrací formátované číslo (prefix-NNNNNN). Marti 20.6.2026 posting engine."""
+    from sqlalchemy import text as _t
+    row = s.execute(_t(
+        "UPDATE tenant.ucet_cislena_rada SET posledni_cislo = posledni_cislo + 1 "
+        "WHERE tenant_id=2 AND sbornik_kod=:k AND rok=:r AND aktivni "
+        "RETURNING posledni_cislo, prefix, delka"), {"k": sbornik_kod, "r": rok}).first()
+    if not row:
+        return None
+    num, prefix, delka = row[0], row[1], row[2]
+    return (prefix or sbornik_kod) + "-" + str(num).zfill(int(delka or 6))
+
+
+@api_router.post("/app/uctovani/doklad")
+async def uctovani_doklad(req: Request):
+    """Posting engine — zaúčtuje doklad přes sborník + řadu + předkontaci do deníku.
+    Vezme číslo z řady, účty z předkontace (nebo explicitně), zapíše do ucetni_denik
+    s podpisem autora. Marti 20.6.2026 (plný účtovací oběh u nás)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    sbornik_kod = (b.get("sbornik_kod") or "").strip()
+    datum = (b.get("datum") or "").strip()
+    if not sbornik_kod or not datum:
+        return JSONResponse({"ok": False, "error": "sbornik_kod + datum povinné"}, status_code=400)
+    try:
+        castka = float(b.get("castka") or 0)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "castka"}, status_code=400)
+    mena = (b.get("mena") or "CZK").strip()
+    popis = (b.get("popis") or "").strip() or None
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        ucet_md = b.get("ucet_md"); ucet_dal = b.get("ucet_dal"); kategorie = b.get("kategorie")
+        if b.get("predkontace_kod"):
+            pk = s.execute(_t(
+                "SELECT ucet_md, ucet_dal, kod, nazev FROM tenant.ucet_predkontace "
+                "WHERE tenant_id=2 AND kod=:k AND aktivni"), {"k": b["predkontace_kod"]}).first()
+            if pk:
+                ucet_md = ucet_md or pk[0]; ucet_dal = ucet_dal or pk[1]
+                kategorie = kategorie or pk[2]
+                if not popis:
+                    popis = pk[3]
+        try:
+            rok = int(datum[:4])
+        except ValueError:
+            rok = 2026
+        cislo = _next_doklad_cislo(s, sbornik_kod, rok)
+        if not cislo:
+            return JSONResponse({"ok": False, "error": "číselná řada pro sborník/rok neexistuje"}, status_code=400)
+        podpis = s.execute(_t(
+            "SELECT COALESCE(first_name,'uid '||id::text) FROM public.users WHERE id=:u"),
+            {"u": uid}).scalar() or ("uid " + str(uid))
+        s.execute(_t(
+            "INSERT INTO tenant.ucetni_denik (datum, doklad, ucet_md, ucet_dal, castka, mena, popis, "
+            "kategorie, zdroj, sbornik_kod, podpis) VALUES "
+            "(:dat, :dok, :md, :dal, :ca, :me, :po, :kat, 'rucni', :sb, :pod)"),
+            {"dat": datum, "dok": cislo, "md": ucet_md, "dal": ucet_dal, "ca": castka, "me": mena,
+             "po": popis, "kat": kategorie, "sb": sbornik_kod, "pod": podpis})
+        s.commit()
+        return {"ok": True, "cislo": cislo, "ucet_md": ucet_md, "ucet_dal": ucet_dal, "podpis": podpis}
+    finally:
+        s.close()
+
+
 # ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).

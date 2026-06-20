@@ -18417,6 +18417,7 @@ def _mirror_run_job(job_key):
         "sync_ec_org_kontakt": lambda: _sync_ec_org_kontakt(),
         "sync_ec_banka": lambda: _sync_ec_banka(),
         "sync_ec_saldo": lambda: _sync_ec_saldo(),
+        "sync_edi_definice": lambda: _sync_edi_definice(),
         # přesunuto z ⚙ Ops akcí do řídícího centra (Marti 20.6.2026)
         "sync_zakazky": lambda: _sync_zakazky_from_helios(),
         "sync_org": lambda: _sync_org_from_ec(),
@@ -24415,6 +24416,104 @@ def _sync_ec_zakazka_prehled(_unused=None) -> dict:
             if len(batch) < BLOCK:
                 break
         return {"ok": True, "zakazky": nz}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_edi_definice(_unused=None) -> dict:
+    """Marti 20.6.2026: zrcadlo EDI/auto-pořizovacích definic (Martiho know-how 2014)
+    z EC_AutZprDefHlav (36 def) + EC_AutZprDefPol (1917 pravidel) → tenant.edi_definice
+    + tenant.edi_pole. Základ deterministického Tier 0 parseru u nás."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def b2(v):
+        t = (str(v).strip().lower() if v is not None else "")
+        return t[:1] in ("1", "t", "a", "y")
+
+    _DRUH = {1: "faktura", 5: "dodaci_list", 7: "export_objednavky", 9: "potvrzeni_objednavky",
+             10: "dodaci_list", 20: "bank_vypis_xml", 21: "bank_vypis_pdf"}
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        # hlavičky
+        hl = rows_of(
+            "SELECT h.ID, h.Poradi, h.DruhDokladu, h.CisloOrg, h.TypDekodovani, h.Mode, h.Poznamka, "
+            "o.Firma AS partner FROM EC_AutZprDefHlav h LEFT JOIN TabCisOrg o ON o.CisloOrg=h.CisloOrg")
+        for r in hl:
+            dd = i2(r.get("DruhDokladu"))
+            s.execute(_t(
+                "INSERT INTO tenant.edi_definice (src_id,poradi,partner_org,partner_nazev,druh_dokladu,"
+                "druh_nazev,typ_dekodovani,mode,zdroj_typ,poznamka,synced_at) VALUES "
+                "(:sid,:po,:co,:pn,:dd,:dn,:td,:mo,:zt,:pz,now()) "
+                "ON CONFLICT (tenant_id,src_id) DO UPDATE SET poradi=excluded.poradi,partner_org=excluded.partner_org,"
+                "partner_nazev=excluded.partner_nazev,druh_dokladu=excluded.druh_dokladu,druh_nazev=excluded.druh_nazev,"
+                "typ_dekodovani=excluded.typ_dekodovani,mode=excluded.mode,poznamka=excluded.poznamka,synced_at=now()"),
+                {"sid": i2(r.get("ID")), "po": i2(r.get("Poradi")), "co": i2(r.get("CisloOrg")),
+                 "pn": s2(r.get("partner")), "dd": dd, "dn": _DRUH.get(dd, "jine"),
+                 "td": i2(r.get("TypDekodovani")), "mo": i2(r.get("Mode")),
+                 "zt": ("xml" if i2(r.get("TypDekodovani")) == 1 else "text"), "pz": s2(r.get("Poznamka"))})
+        s.commit()
+        # pole (pravidla)
+        pl = rows_of(
+            "SELECT ID, IDHlav, Poradi, Polozka, ZaPolozkami, FieldName, CMD_HledejP, CMD_HledejZ, "
+            "CMD_MinLEN, CMD_MaxLEN, CMD_JeDatum, DefaultText FROM EC_AutZprDefPol")
+        npole = 0
+        for r in pl:
+            s.execute(_t(
+                "INSERT INTO tenant.edi_pole (definice_src_id,src_id,poradi,je_polozka,za_polozkami,field_name,"
+                "marker_od,marker_do,min_len,max_len,je_datum,default_text,synced_at) VALUES "
+                "(:dh,:sid,:po,:jp,:zp,:fn,:mo,:md,:mn,:mx,:jd,:dt,now()) "
+                "ON CONFLICT (tenant_id,src_id) DO UPDATE SET definice_src_id=excluded.definice_src_id,"
+                "poradi=excluded.poradi,je_polozka=excluded.je_polozka,za_polozkami=excluded.za_polozkami,"
+                "field_name=excluded.field_name,marker_od=excluded.marker_od,marker_do=excluded.marker_do,"
+                "min_len=excluded.min_len,max_len=excluded.max_len,je_datum=excluded.je_datum,"
+                "default_text=excluded.default_text,synced_at=now()"),
+                {"dh": i2(r.get("IDHlav")), "sid": i2(r.get("ID")), "po": i2(r.get("Poradi")),
+                 "jp": b2(r.get("Polozka")), "zp": b2(r.get("ZaPolozkami")), "fn": s2(r.get("FieldName")),
+                 "mo": s2(r.get("CMD_HledejP")), "md": s2(r.get("CMD_HledejZ")), "mn": i2(r.get("CMD_MinLEN")),
+                 "mx": i2(r.get("CMD_MaxLEN")), "jd": b2(r.get("CMD_JeDatum")), "dt": s2(r.get("DefaultText"))})
+            npole += 1
+        s.commit()
+        return {"ok": True, "definice": len(hl), "pole": npole}
     except Exception:
         s.rollback()
         raise

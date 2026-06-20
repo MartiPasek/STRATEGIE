@@ -49,7 +49,19 @@ function load(){
         +sg.map(x=>'<div class="sig">✍️ '+esc(x.jmeno)+(x.role?(" ("+esc(x.role)+")"):"")+' · '+esc(x.kdy)+'</div>').join('')
         +'</div><div style="margin-left:auto"><a class="lnk" href="/api/v1/erp/app/iso/audit/'+encodeURIComponent(TOKEN)+'/doc/'+encodeURIComponent(d.kod)+'" target="_blank">otevřít ↗</a></div></div>';
     });
-    h+='</div><div class="sub" style="margin-top:10px">Přístup je auditovaný (každé otevření se zaznamenává). Pro otázky kontaktujte správce ISMS.</div>';
+    h+='</div>';
+    var ct=(j.controls||[]);
+    if(ct.length){
+      h+='<h1 style="font-size:16px;margin:18px 0 6px">📑 SoA — Prohlášení o aplikovatelnosti ('+ct.length+' kontrol)</h1><div class="c">';
+      var cur="";
+      ct.forEach(c=>{
+        if(c.oblast!==cur){cur=c.oblast;h+='<div style="margin:10px 0 2px;font-weight:700;color:#9fb4d4">'+esc(cur)+'</div>';}
+        h+='<div class="row"><div class="grow"><div class="nm">'+esc(c.kod)+' — '+esc(c.nazev)+' <span class="pill '+(c.apl?'p-schvaleno':'p-navrh')+'">'+(c.apl?"aplikovatelné":"neaplikovatelné")+'</span></div>'
+          +'<div class="meta">'+esc(c.stav||"")+(c.zduvodneni?(' · '+esc(c.zduvodneni)):'')+'</div></div></div>';
+      });
+      h+='</div>';
+    }
+    h+='<div class="sub" style="margin-top:10px">Přístup je auditovaný (každé otevření se zaznamenává). Pro otázky kontaktujte správce ISMS.</div>';
     document.getElementById("body").innerHTML=h;
   }).catch(()=>{document.getElementById("body").innerHTML='<div class="c err">Chyba načtení.</div>';});
 }

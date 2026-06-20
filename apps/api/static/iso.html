@@ -90,11 +90,44 @@ function render(){
       +'</div></div>';
   });
   h+='</div>';
+  // SoA
+  var so=j.soa||{};
+  h+='<h2>📑 SoA — Prohlášení o aplikovatelnosti (93 kontrol)</h2><div class="c">'
+    +'<div class="row"><div class="grow"><div class="nm">Aplikovatelných: <b>'+(so.apl_ano||0)+'</b> · neaplikovatelných: '+(so.apl_ne||0)+' · celkem '+(so.total||0)
+    +' <span class="pill p-'+esc(so.stav||"navrh")+'">'+(so.stav==="schvaleno"?"SoA schváleno":"SoA návrh")+'</span></div>'
+    +'<div class="meta">Elektronické Prohlášení o aplikovatelnosti — uprav aplikovatelnost/stav, pak schval podpisem.</div></div>'
+    +'<div class="right" style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'
+    +(so.stav!=="schvaleno"?'<button class="btn sm" onclick="sign(\'DOC-06\')">✍️ Schválit SoA</button>':'')
+    +'<button class="btn sm ghost" id="cBtn" onclick="loadControls()">Zobrazit 93 kontrol</button></div></div>'
+    +'<div id="ctrls"></div></div>';
   // AUDITOR
   h+='<h2>👁️ Přístup pro auditora (web, read-only)</h2><div class="c" id="aud"><div class="hint">Načítám…</div></div>';
   document.getElementById("body").innerHTML=h;
   loadAud();
 }
+var STAVY=["HOTOVO","ROZPRACOVÁNO","ZBÝVÁ","PROCES-ISMS","EUROSOFT-INFRA","NEAPLIKOVATELNÉ"];
+function loadControls(){
+  var box=document.getElementById("ctrls");var b=document.getElementById("cBtn");
+  if(box.dataset.open==="1"){box.innerHTML="";box.dataset.open="0";if(b)b.textContent="Zobrazit 93 kontrol";return;}
+  box.innerHTML='<div class="hint" style="padding:8px 0">Načítám…</div>';
+  api("/api/v1/erp/app/iso/controls").then(j=>{
+    if(!j||!j.ok){box.innerHTML='<div class="hint">chyba</div>';return;}
+    box.dataset.open="1";if(b)b.textContent="Skrýt kontroly";
+    var cur="",h="";
+    j.controls.forEach(c=>{
+      if(c.oblast!==cur){cur=c.oblast;h+='<div style="margin:10px 0 2px;font-weight:700;color:#9fb4d4">'+esc(cur)+'</div>';}
+      var opts=STAVY.map(s=>'<option'+(s===c.stav?' selected':'')+'>'+s+'</option>').join('');
+      h+='<div class="row"><div class="grow"><div class="nm">'+esc(c.kod)+' — '+esc(c.nazev)+'</div>'
+        +'<div class="meta">'+esc(c.zduvodneni||"")+(c.dukaz?(' · <i>'+esc(c.dukaz)+'</i>'):'')+'</div></div>'
+        +'<div class="right" style="display:flex;gap:8px;align-items:center">'
+        +'<label class="hint" style="display:flex;gap:4px;align-items:center"><input type="checkbox" '+(c.apl?'checked':'')+' onchange="ctlUpd('+c.id+",'apl',this.checked)\">apl.</label>"
+        +'<select onchange="ctlUpd('+c.id+",'stav',this.value)\">"+opts+'</select>'
+        +'</div></div>';
+    });
+    box.innerHTML=h;
+  });
+}
+function ctlUpd(id,field,val){var b={id:id};b[field]=val;api("/api/v1/erp/app/iso/control-update","POST",b);}
 function taskDone(id,done){api("/api/v1/erp/app/iso/task-done","POST",{task_id:id,done:done}).then(()=>load());}
 function sign(kod){
   if(!confirm("Elektronicky podepsat / schválit "+kod+"?\nPodpis (SES) se zaznamená s vaším jménem, časem a zařízením."))return;

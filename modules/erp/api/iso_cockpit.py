@@ -20,6 +20,11 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy import text as _t
 
+try:
+    from modules.erp.api.iso_controls_catalog import CONTROLS as _CONTROLS
+except Exception:
+    _CONTROLS = []
+
 iso_router = APIRouter(prefix="/api/v1/erp", tags=["iso-cockpit"])
 
 _REPO = os.environ.get("STRATEGIE_REPO_ROOT", r"C:\Projekty\STRATEGIE")
@@ -126,6 +131,12 @@ def _ensure_seeded(s, tenant_id):
             s.execute(_t("""INSERT INTO tenant.iso_task(tenant_id,poradi,faze,nazev,popis,vlastnik,doc_kod,vyzaduje_podpis)
                 VALUES(:t,:p,:f,:n,:po,:vl,:dk,:sig)"""),
                 {"t": tenant_id, "p": por, "f": faze, "n": nazev, "po": popis, "vl": vl, "dk": dk, "sig": sig})
+    c = s.execute(_t("SELECT count(*) c FROM tenant.iso_control WHERE tenant_id=:t"), {"t": tenant_id}).first().c
+    if c == 0 and _CONTROLS:
+        for i, (kod, oblast, nazev, apl, stav, zduv, dukaz) in enumerate(_CONTROLS):
+            s.execute(_t("""INSERT INTO tenant.iso_control(tenant_id,kod,oblast,nazev,apl,stav,zduvodneni,dukaz,poradi)
+                VALUES(:t,:k,:o,:n,:a,:s,:z,:d,:p) ON CONFLICT (tenant_id,kod) DO NOTHING"""),
+                {"t": tenant_id, "k": kod, "o": oblast, "n": nazev, "a": apl, "s": stav, "z": zduv, "d": dukaz, "p": i})
     s.commit()
 
 
@@ -170,8 +181,13 @@ def iso_overview(req: Request):
         docs = _docs_payload(s, tid)
         tn = s.execute(_t("SELECT tenant_name AS name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
         done = sum(1 for x in tasks if x["stav"] == "hotovo")
+        cs = s.execute(_t("""SELECT count(*) FILTER (WHERE apl) AS apl_ano,
+            count(*) FILTER (WHERE NOT apl) AS apl_ne, count(*) AS total
+            FROM tenant.iso_control WHERE tenant_id=:t"""), {"t": tid}).mappings().first()
+        doc06 = next((d["stav"] for d in docs if d["kod"] == "DOC-06"), "navrh")
         return {"ok": True, "tenant_id": tid, "tenant_name": (tn.name if tn else str(tid)),
                 "tasks": [dict(x) for x in tasks], "docs": docs,
+                "soa": {"apl_ano": cs["apl_ano"], "apl_ne": cs["apl_ne"], "total": cs["total"], "stav": doc06},
                 "progress": {"hotovo": done, "celkem": len(tasks)}}
     finally:
         s.close()
@@ -260,6 +276,49 @@ def _serve_doc(soubor_path):
     return FileResponse(full, filename=fn)
 
 
+def _controls_payload(s, tenant_id):
+    rows = s.execute(_t("""SELECT id,kod,oblast,nazev,apl,stav,zduvodneni,dukaz
+        FROM tenant.iso_control WHERE tenant_id=:t ORDER BY poradi"""), {"t": tenant_id}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@iso_router.get("/app/iso/controls")
+def iso_controls(req: Request):
+    """SoA — 93 kontrol Annex A pro tenant (parent)."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        _ensure_seeded(s, tid)
+        return {"ok": True, "controls": _controls_payload(s, tid)}
+    finally:
+        s.close()
+
+
+@iso_router.post("/app/iso/control-update")
+async def iso_control_update(req: Request):
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        fields, params = [], {"id": int(b["id"]), "t": tid}
+        for k in ("apl", "stav", "zduvodneni", "dukaz"):
+            if k in b:
+                fields.append("%s=:%s" % (k, k)); params[k] = b[k]
+        if fields:
+            s.execute(_t("UPDATE tenant.iso_control SET %s, updated_at=now() WHERE id=:id AND tenant_id=:t" % ",".join(fields)), params)
+            s.commit()
+            _log(s, tid, _user_name(s, uid), "control_update", b.get("kod"), _client_ip(req))
+        return {"ok": True}
+    finally:
+        s.close()
+
+
 # ════════════════════════ AUDITORSKÝ PŘÍSTUP (parent správa) ════════════════════════
 
 @iso_router.post("/app/iso/auditor/create")
@@ -340,7 +399,8 @@ def iso_audit_data(token: str, req: Request):
             return JSONResponse({"ok": False, "error": "invalid_or_expired"}, status_code=403)
         _log(s, tid, "auditor", "portal_view", None, _client_ip(req))
         tn = s.execute(_t("SELECT tenant_name AS name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
-        return {"ok": True, "tenant_name": (tn.name if tn else str(tid)), "docs": _docs_payload(s, tid)}
+        return {"ok": True, "tenant_name": (tn.name if tn else str(tid)),
+                "docs": _docs_payload(s, tid), "controls": _controls_payload(s, tid)}
     finally:
         s.close()
 

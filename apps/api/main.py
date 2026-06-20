@@ -227,6 +227,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logging.getLogger(__name__).warning(f"[lifespan] mirror_sched start failed: {exc}")
 
+    # Marti 20.6.2026: vault klic samobootstrap uz pri startu (nesmi cekat na klik).
+    try:
+        from modules.erp.api.router import _vault_fernet as _vf_boot
+        _vf_boot()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] vault bootstrap failed: {exc}")
+
     yield
 
     # Phase HA-1: SHUTDOWN audit (before background drain stop)

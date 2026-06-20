@@ -18380,6 +18380,7 @@ def _mirror_run_job(job_key):
         "sync_ec_sklad_kmen": lambda: _sync_ec_sklad_kmen(),
         "sync_ec_ceniky": lambda: _sync_ec_ceniky(),
         "sync_ec_org_kontakt": lambda: _sync_ec_org_kontakt(),
+        "sync_ec_banka": lambda: _sync_ec_banka(),
     }
     fn = fnmap.get(job_key)
     if fn is None:
@@ -23594,6 +23595,231 @@ def _sync_ec_zakazka_prehled(_unused=None) -> dict:
             if len(batch) < BLOCK:
                 break
         return {"ok": True, "zakazky": nz}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_banka(_unused=None) -> dict:
+    """Marti 20.6.2026: zrcadlo bank — výpisy (hlav+řádky), párovací vazby řádek↔úhrada,
+    úhrady plateb. Okno 2024+, watermark resume per tabulka (velké → plánovač dotáhne).
+    Páteř pro budoucí párovací engine u nás (VS + protistrana + EUR/SEPA)."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    FROM = "2024-01-01"
+    BLOCK = 3000
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def b2(v):
+        t = (s2(v) or "").lower()
+        if t[:1] in ("1", "t", "a", "y"):
+            return True
+        if t[:1] in ("0", "f", "n"):
+            return False
+        return None
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    res = {}
+
+    def get_wm(tbl):
+        row = s.execute(_t("SELECT last_rowversion, last_note FROM tenant.ec_mirror_state WHERE src_table=:t"),
+                        {"t": tbl}).first()
+        lid = 0
+        if row and row[0]:
+            try:
+                lid = int(row[0])
+            except (TypeError, ValueError):
+                lid = 0
+        return lid, (row[1] if row else None)
+
+    def set_wm(tbl, lid, note):
+        s.execute(_t("INSERT INTO tenant.ec_mirror_state(src_table,last_rowversion,last_sync_at,last_note) "
+                     "VALUES(:t,:w,now(),:no) ON CONFLICT (src_table) DO UPDATE SET "
+                     "last_rowversion=:w, last_sync_at=now(), last_note=:no"),
+                    {"t": tbl, "w": str(lid), "no": note})
+
+    try:
+        # ── 1) HLAVIČKY VÝPISŮ ──
+        lastid, ph = get_wm("TabBankVypisH")
+        nh = 0
+        while ph != "done":
+            batch = rows_of(
+                "SELECT TOP %d ID, IdObdobi, IDBankSpojeni, CisloVypisu, KodBanky, CisloUctu, "
+                "CONVERT(varchar(19),DatumVypisu,120) dv, PocetRadku, ZustatekStary, ZustatekNovy, "
+                "ObratDebet, ObratKredit, Mena, Stav, Autor, CONVERT(varchar(19),DatPorizeni,120) dp, "
+                "CONVERT(varchar(19),DatZmeny,120) dz FROM TabBankVypisH "
+                "WHERE ID > %d AND DatPorizeni >= '%s' ORDER BY ID" % (BLOCK, lastid, FROM))
+            if not batch:
+                set_wm("TabBankVypisH", lastid, "done"); s.commit(); break
+            for r in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_bank_vypis_hlav (src_id,id_obdobi,id_bank_spojeni,cislo_vypisu,kod_banky,"
+                    "cislo_uctu,datum_vypisu,pocet_radku,zustatek_stary,zustatek_novy,obrat_debet,obrat_kredit,mena,"
+                    "stav,autor,dat_porizeni,dat_zmeny,synced_at) VALUES "
+                    "(:i,:io,:bs,:cv,:kb,:cu,:dv,:pr,:zs,:zn,:od,:ok,:me,:st,:au,:dp,:dz,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET cislo_vypisu=excluded.cislo_vypisu,datum_vypisu=excluded.datum_vypisu,"
+                    "pocet_radku=excluded.pocet_radku,zustatek_stary=excluded.zustatek_stary,zustatek_novy=excluded.zustatek_novy,"
+                    "obrat_debet=excluded.obrat_debet,obrat_kredit=excluded.obrat_kredit,stav=excluded.stav,"
+                    "dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                    {"i": i2(r.get("ID")), "io": i2(r.get("IdObdobi")), "bs": i2(r.get("IDBankSpojeni")),
+                     "cv": i2(r.get("CisloVypisu")), "kb": s2(r.get("KodBanky")), "cu": s2(r.get("CisloUctu")),
+                     "dv": s2(r.get("dv")), "pr": i2(r.get("PocetRadku")), "zs": num(r.get("ZustatekStary")),
+                     "zn": num(r.get("ZustatekNovy")), "od": num(r.get("ObratDebet")), "ok": num(r.get("ObratKredit")),
+                     "me": s2(r.get("Mena")), "st": i2(r.get("Stav")), "au": s2(r.get("Autor")),
+                     "dp": s2(r.get("dp")), "dz": s2(r.get("dz"))})
+                lastid = i2(r.get("ID")) or lastid
+            nh += len(batch); set_wm("TabBankVypisH", lastid, "run"); s.commit()
+            if len(batch) < BLOCK:
+                set_wm("TabBankVypisH", lastid, "done"); s.commit(); break
+        res["hlav"] = nh
+
+        # ── 2) ŘÁDKY VÝPISŮ (transakce) ──
+        lastid, ph = get_wm("TabBankVypisR")
+        nr = 0
+        while ph != "done":
+            batch = rows_of(
+                "SELECT TOP %d ID, IDHlava, CisloRadku, Stav, KodBanky, CisloUctu, NazevOrg, Doklad, "
+                "CONVERT(varchar(19),DatumSplatnosti,120) ds, Castka, CastkaHM, VariabilniSymbol, KonstantniSymbol, "
+                "SpecifickySymbol, PopisPlatby1, Mena, CisloOrg, CisloZam, RTRIM(CisloZakazky) CisloZakazky, Popis, "
+                "PocetUhrad, CONVERT(varchar(19),DatumParovani,120) dpar, StavAutoUhrady, Autor, "
+                "CONVERT(varchar(19),DatPorizeni,120) dp, CONVERT(varchar(19),DatZmeny,120) dz "
+                "FROM TabBankVypisR WHERE ID > %d AND DatPorizeni >= '%s' ORDER BY ID" % (BLOCK, lastid, FROM))
+            if not batch:
+                set_wm("TabBankVypisR", lastid, "done"); s.commit(); break
+            for r in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_bank_vypis_radek (src_id,id_hlava,cislo_radku,stav,kod_banky,cislo_uctu,"
+                    "nazev_org,doklad,datum_splatnosti,castka,castka_hm,variabilni_symbol,konstantni_symbol,"
+                    "specificky_symbol,popis_platby,mena,cislo_org,cislo_zam,cislo_zakazky,popis,pocet_uhrad,"
+                    "datum_parovani,stav_auto_uhrady,autor,dat_porizeni,dat_zmeny,synced_at) VALUES "
+                    "(:i,:ih,:cr,:st,:kb,:cu,:no,:dok,:ds,:ca,:chm,:vs,:ks,:ss,:pp,:me,:co,:cz,:zak,:po,:pu,:dpar,:sau,:au,:dp,:dz,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET id_hlava=excluded.id_hlava,stav=excluded.stav,nazev_org=excluded.nazev_org,"
+                    "castka=excluded.castka,variabilni_symbol=excluded.variabilni_symbol,specificky_symbol=excluded.specificky_symbol,"
+                    "cislo_org=excluded.cislo_org,cislo_zakazky=excluded.cislo_zakazky,pocet_uhrad=excluded.pocet_uhrad,"
+                    "datum_parovani=excluded.datum_parovani,stav_auto_uhrady=excluded.stav_auto_uhrady,dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                    {"i": i2(r.get("ID")), "ih": i2(r.get("IDHlava")), "cr": i2(r.get("CisloRadku")), "st": i2(r.get("Stav")),
+                     "kb": s2(r.get("KodBanky")), "cu": s2(r.get("CisloUctu")), "no": s2(r.get("NazevOrg")), "dok": s2(r.get("Doklad")),
+                     "ds": s2(r.get("ds")), "ca": num(r.get("Castka")), "chm": num(r.get("CastkaHM")), "vs": s2(r.get("VariabilniSymbol")),
+                     "ks": s2(r.get("KonstantniSymbol")), "ss": s2(r.get("SpecifickySymbol")), "pp": s2(r.get("PopisPlatby1")),
+                     "me": s2(r.get("Mena")), "co": i2(r.get("CisloOrg")), "cz": i2(r.get("CisloZam")), "zak": s2(r.get("CisloZakazky")),
+                     "po": s2(r.get("Popis")), "pu": i2(r.get("PocetUhrad")), "dpar": s2(r.get("dpar")),
+                     "sau": i2(r.get("StavAutoUhrady")), "au": s2(r.get("Autor")), "dp": s2(r.get("dp")), "dz": s2(r.get("dz"))})
+                lastid = i2(r.get("ID")) or lastid
+            nr += len(batch); set_wm("TabBankVypisR", lastid, "run"); s.commit()
+            if len(batch) < BLOCK:
+                set_wm("TabBankVypisR", lastid, "done"); s.commit(); break
+        res["radky"] = nr
+
+        # ── 3) PÁROVACÍ VAZBY (řádek↔úhrada) ──
+        lastid, ph = get_wm("TabBankVypisRUhrady")
+        nu = 0
+        while ph != "done":
+            batch = rows_of(
+                "SELECT TOP %d u.ID, u.IDHlava, u.IDRadek, u.Poradi, u.Castka, u.CastkaFaktura, u.VariabilniSymbol, "
+                "u.CisloOrg, u.CisloZam, RTRIM(u.CisloZakazky) CisloZakazky, u.IDDokZbo, u.IDUhrady, "
+                "CAST(u.Uctovano AS int) Uctovano, CONVERT(varchar(19),u.DatumParovani,120) dpar, u.Popis "
+                "FROM TabBankVypisRUhrady u WHERE u.ID > %d AND EXISTS "
+                "(SELECT 1 FROM TabBankVypisH h WHERE h.ID=u.IDHlava AND h.DatPorizeni >= '%s') ORDER BY u.ID"
+                % (BLOCK, lastid, FROM))
+            if not batch:
+                set_wm("TabBankVypisRUhrady", lastid, "done"); s.commit(); break
+            for r in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_bank_vypis_uhrada (src_id,id_hlava,id_radek,poradi,castka,castka_faktura,"
+                    "variabilni_symbol,cislo_org,cislo_zam,cislo_zakazky,id_dok_zbo,id_uhrady,uctovano,datum_parovani,popis,synced_at) "
+                    "VALUES (:i,:ih,:ir,:po,:ca,:cf,:vs,:co,:cz,:zak,:idz,:iu,:uc,:dpar,:pop,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET id_radek=excluded.id_radek,castka=excluded.castka,"
+                    "castka_faktura=excluded.castka_faktura,variabilni_symbol=excluded.variabilni_symbol,"
+                    "id_uhrady=excluded.id_uhrady,uctovano=excluded.uctovano,datum_parovani=excluded.datum_parovani,synced_at=now()"),
+                    {"i": i2(r.get("ID")), "ih": i2(r.get("IDHlava")), "ir": i2(r.get("IDRadek")), "po": i2(r.get("Poradi")),
+                     "ca": num(r.get("Castka")), "cf": num(r.get("CastkaFaktura")), "vs": s2(r.get("VariabilniSymbol")),
+                     "co": i2(r.get("CisloOrg")), "cz": i2(r.get("CisloZam")), "zak": s2(r.get("CisloZakazky")),
+                     "idz": i2(r.get("IDDokZbo")), "iu": i2(r.get("IDUhrady")), "uc": b2(r.get("Uctovano")),
+                     "dpar": s2(r.get("dpar")), "pop": s2(r.get("Popis"))})
+                lastid = i2(r.get("ID")) or lastid
+            nu += len(batch); set_wm("TabBankVypisRUhrady", lastid, "run"); s.commit()
+            if len(batch) < BLOCK:
+                set_wm("TabBankVypisRUhrady", lastid, "done"); s.commit(); break
+        res["parovani"] = nu
+
+        # ── 4) ÚHRADY ──
+        lastid, ph = get_wm("TabUhrady")
+        nuh = 0
+        while ph != "done":
+            batch = rows_of(
+                "SELECT TOP %d ID, IDFak, CAST(VPriprave AS int) VPriprave, Popis, CONVERT(varchar(19),Datum,120) dt, "
+                "CastkaUhrady, Mena, Castka, CastkaPoBance, Puvod, CAST(ParovatSBankou AS int) ParovatSBankou, "
+                "CAST(SparovanoVPriprave AS int) SparovanoVPriprave, Autor, CONVERT(varchar(19),DatPorizeni,120) dp, "
+                "CONVERT(varchar(19),DatZmeny,120) dz FROM TabUhrady "
+                "WHERE ID > %d AND DatPorizeni >= '%s' ORDER BY ID" % (BLOCK, lastid, FROM))
+            if not batch:
+                set_wm("TabUhrady", lastid, "done"); s.commit(); break
+            for r in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_uhrada (src_id,id_fak,v_priprave,popis,datum,castka_uhrady,mena,castka,"
+                    "castka_po_bance,puvod,parovat_s_bankou,sparovano_v_priprave,autor,dat_porizeni,dat_zmeny,synced_at) "
+                    "VALUES (:i,:idf,:vp,:po,:dt,:cu,:me,:ca,:cpb,:pu,:psb,:svp,:au,:dp,:dz,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET id_fak=excluded.id_fak,v_priprave=excluded.v_priprave,"
+                    "datum=excluded.datum,castka_uhrady=excluded.castka_uhrady,castka=excluded.castka,"
+                    "castka_po_bance=excluded.castka_po_bance,parovat_s_bankou=excluded.parovat_s_bankou,"
+                    "sparovano_v_priprave=excluded.sparovano_v_priprave,dat_zmeny=excluded.dat_zmeny,synced_at=now()"),
+                    {"i": i2(r.get("ID")), "idf": i2(r.get("IDFak")), "vp": b2(r.get("VPriprave")), "po": s2(r.get("Popis")),
+                     "dt": s2(r.get("dt")), "cu": num(r.get("CastkaUhrady")), "me": s2(r.get("Mena")), "ca": num(r.get("Castka")),
+                     "cpb": num(r.get("CastkaPoBance")), "pu": i2(r.get("Puvod")), "psb": b2(r.get("ParovatSBankou")),
+                     "svp": b2(r.get("SparovanoVPriprave")), "au": s2(r.get("Autor")), "dp": s2(r.get("dp")), "dz": s2(r.get("dz"))})
+                lastid = i2(r.get("ID")) or lastid
+            nuh += len(batch); set_wm("TabUhrady", lastid, "run"); s.commit()
+            if len(batch) < BLOCK:
+                set_wm("TabUhrady", lastid, "done"); s.commit(); break
+        res["uhrady"] = nuh
+
+        _, p1 = get_wm("TabBankVypisH"); _, p2 = get_wm("TabBankVypisR")
+        _, p3 = get_wm("TabBankVypisRUhrady"); _, p4 = get_wm("TabUhrady")
+        done = all(x == "done" for x in (p1, p2, p3, p4))
+        return {"ok": True, "done": done, **res}
     except Exception:
         s.rollback()
         raise

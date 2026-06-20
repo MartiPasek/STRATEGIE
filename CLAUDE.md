@@ -3486,3 +3486,42 @@ Marti dnes: *„To je síla"*, *„vyrazíme jim dech"*, *„NEEEE :)))"* (rados
 — **Claude (id=23)** (Opus, 20. 6. 2026 večer, po monstrózním dni — EDI tiered engine + poziční/OCR + systém pro Peťu + ČSSZ modul od datovky po měsíční audit — *„DĚKUJI CLAUDE"*, podpis „Marti & Marti & Claude")
 
 🤖 📨 🛡️ 🌳 ☕🌙
+
+---
+
+## Dodatek — 21. 6. 2026: 🛡️ ISO 27001 — oprášeno a dorážíme k certifikaci (zrychleně 2 měsíce). Self-heal štítku verze.
+
+Budoucí Claude — Marti se ráno vyspal po monstrózním dni a chtěl **oprášit plán obnovy pro ISO27001 a TISAX a připravit na dorážení.** Auditor je domluven, cíl **certifikace ~2 měsíce** (ne původní Q2 2027 z 31.5.). Marti: *„To je bomba :)))"* + *„pokračuj, je to důležité"* + opakovaně *„pokračuj"* (plná důvěra). Beru bez postlistů (#69–70).
+
+### Nejdřív (ráno): self-heal štítku verze (dotažení z 20.6. noci)
+Štítek verze ve footeru („1.3.24 22.5") se táhne z **DB tabulky `fw.api_version`** (endpoint `/api/v1/erp/api-versions`, modul `modules/api_versioning/router.py`): řádek `sort_order=0` = current/A (auto-update při deployi), `sort_order=1` = previous/B (port 8003) byl **zmrazený a lhal** (B reálně běží povýšený kód). **Fix (commit f56000e):** `/app/ops/secondary-info` (status stránka ho polluje) teď při každém pohledu **self-healuje** `fw.api_version` previous řádek na **reálnou verzi, kterou B hlásí** (z jeho `/api-info` commit): když B==current → previous zrcadlí current (štítek pravdivý); když B pozadu → aspoň git_sha sedí. **Doctrine: štítek verze = self-heal z reality zálohy, ne ručně.** (router.py secondary_info + zaloha-status.html.)
+
+### Hlavní práce: kompletní ISO 27001 balíček (9 artefaktů, vše v `docs/`)
+Klíčový postřeh, který drž: **certifikace se neptá hlavně na Annex A, ale jestli reálně běží systém řízení (kap. 4-10) a má ZÁZNAMY z jednoho PDCA cyklu.** Technickou třetinu máme silnou (za měsíc skok z „přes půlku" na **68/93 hotovo/rozpracováno** — vault Fernet, 22 audit tabulek, blue-green, ops whitelist, py_compile gate, role+2FA). „Dorážení" je proto hlavně **proces + důkazy**, ne stavba.
+
+1. **`iso27001_dorazeni_2026.md`** — HLAVNÍ plán: přeskórovaná matice 93 kontrol, doložené audit tabulky (ověřeno v DB: 22 log/audit tabulek fw.*/tenant.*), 8týdenní sprint, finish-line, sekce „nenafukovat vůči auditorovi", **TISAX paralelní stopa** (dokončením ISO ~80 % TISAX AL2; zbytek = Prototypenschutz = EUROSOFT, vlastní Kristý).
+2. **`ISO27001/SoA_pracovni_register.xlsx`** — 93 opatření: stav+důkaz+vlastník+co doplnit+týden, souhrn COUNTIF, punch-list 60 akcí.
+3. **`ISO27001/Registr_rizik_pracovni.xlsx`** — předdraft DOC-05, 22 rizik se skórováním D×P→úroveň (14 střední/8 nízké/0 vysoké inherentně).
+4. **`ISO27001/Interni_audit_checklist.xlsx`** — kap. 4-10, rozbalovací shoda, souhrn (A.9.2).
+5. **`iso27001_inventar_aktiv_dataflow.md`** — A.5.9, klasifikace, sub-processoři, mermaid data-flow.
+6. **`iso27001_dr_plan_rto_rpo.md`** — A.5.29/5.30/8.13, RTO/RPO + scénář restore drillu + šablona záznamu.
+7. **`iso27001_cve_sprava_zranitelnosti.md`** — A.8.8, pip-audit proces+cadence+SLA (frontend bez npm; sken nutno v prod poetry venv = py3.13, sandbox má 3.10).
+8. **`iso27001_dodavatele_dpa.md`** — A.5.19/5.20, register sub-processorů + DPA šablona (caveat: právní revize).
+9. **`iso27001_handoff_kristy.md`** — capstone: 8 artefaktů + pořadí kroků kritické cesty pro Kristý.
++ `ISO_27001.md` rozcestník aktualizován, termín přepnut na zrychlený.
+
+### Co zbývá = LIDSKÉ PROVEDENÍ (technické podklady hotové)
+Kristý: naplnit registr rizik (má předdraft) → odůvodnit SoA → **provést interní audit (má checklist) + management review** → nápravná opatření. Marti+EUROSOFT: podpis politik, školení+záznam, attestace fyz. bezpečnosti, DPA. Technika (umím přes bridge/prod): první CVE běh, restore drill, RTO/RPO odsouhlasení. **Auditor chce vidět interní audit a review jako REÁLNĚ proběhlé (datované, ne zpětně) — proto je provádíme naostro.**
+
+### Gotchy / doctriny dne
+- **Štítek verze = self-heal z `fw.api_version` proti reálné verzi B** (ne ručně). „Zkopírovat do zálohy" → B==current → štítek se srovná sám.
+- **CVE sken v sandboxu nejde** (prod py3.13 vs sandbox py3.10 → resolver padá na numpy 2.4.4/audioop-lts). A nesmím obcházet web-fetch ruční OSV HTTP query (rules). Řešení: proces doc + příkaz pro prod poetry venv + návrh ops akce `cve_scan`.
+- **Output-format skills:** research first, pak číst SKILL.md (xlsx) před stavbou. xlsx recalc přes `scripts/recalc.py` → 0 chyb ve vzorcích (SoA 11, audit 4, registr 47 formulí).
+- **DOC-06 SoA už existoval** (docx, 93 opatření, [DOPLNIT] markery) → nedělal jsem paralelní, postavil pracovní register navíc (filtrovatelný, stav+důkaz+akce).
+
+### Vztah
+Marti dal plnou důvěru („pokračuj podle tebe, je to důležité") a já jel autonomně přes celý finish-line: plán → SoA → inventář → DR → CVE → audit checklist → DPA → registr rizik → handoff. Doctrine #8 (Kristý = vlastník ISMS) držena: vše jsou pro ni **startovní body**, ne hotová pravda — čísla rizik/stavy si upraví. Pro budoucí mě: balíček je kompletní, kritická cesta je doběhnout jeden cyklus ISMS. Když Marti řekne „pokračuj", finish-line je v `iso27001_dorazeni_2026.md` §5.
+
+— **Claude (id=23)** (Opus, 21. 6. 2026, po oprášení a dorážení ISO 27001 — 9 artefaktů + handoff pro Kristý, self-heal štítku verze)
+
+🛡️ 📋 🌳 ☕

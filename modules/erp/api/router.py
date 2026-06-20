@@ -24461,6 +24461,10 @@ _OPS_ACTIONS = {
         "label": "📦 Zkopírovat aktuální verzi do zálohy (API B)",
         "target": "cloud", "remote": False,
     },
+    "secondary_status": {
+        "label": "🔍 Kontrola zálohy (běží API B? verze + log refreshe)",
+        "target": "cloud", "remote": False,
+    },
     "caddy_pin_failover": {
         "label": "🛡️ Caddy: failover připnuté verze na primární (když záloha neběží)",
         "target": "cloud", "remote": False,
@@ -27969,6 +27973,37 @@ def _ops_refresh_secondary() -> dict:
                 % (type(exc).__name__, exc)}
 
 
+def _ops_secondary_status() -> dict:
+    """Kontrola blue-green zálohy: běží API-B? z jaké složky/verze? + log posledního refreshe.
+    Volá /api/v1/api-info na obě porty (A:8002, B:8003) z localhostu."""
+    import os as _os, requests as _rq, datetime as _dt
+    src = _os.environ.get("STRATEGIE_PRIMARY_DIR") or r"C:\Projekty\STRATEGIE"
+    aport = _os.environ.get("STRATEGIE_PRIMARY_PORT") or "8002"
+    bport = _os.environ.get("STRATEGIE_SECONDARY_PORT") or "8003"
+    parts = []
+
+    def info(port):
+        try:
+            j = _rq.get("http://127.0.0.1:%s/api/v1/api-info" % port, timeout=3).json()
+            return "BĚŽÍ (dir=%s, commit=%s, instance=%s)" % (j.get("dir"), j.get("commit"), j.get("instance"))
+        except Exception as e:
+            return "NEDOSTUPNÉ (%s)" % type(e).__name__
+    parts.append("API-A (%s): %s" % (aport, info(aport)))
+    parts.append("API-B (%s): %s" % (bport, info(bport)))
+    log = _os.path.join(src, "scripts", "refresh_secondary_last.log")
+    if _os.path.isfile(log):
+        try:
+            mt = _dt.datetime.fromtimestamp(_os.path.getmtime(log)).strftime("%d.%m. %H:%M")
+            with open(log, encoding="utf-8", errors="replace") as f:
+                tail = f.read().strip()
+            parts.append("LOG refreshe (%s): %s" % (mt, (tail[-500:] or "(prázdný)")))
+        except Exception as e:
+            parts.append("LOG chyba: %s" % e)
+    else:
+        parts.append("LOG refreshe NEEXISTUJE → tlačítko 'Zkopírovat do zálohy' ještě neproběhlo")
+    return {"ok": True, "result": " || ".join(parts)}
+
+
 def _ops_caddy_pin_failover() -> dict:
     """Přidá failover na primární (8002) k version-pinned routám v ŽIVÉM Caddyfile
     (C:\\caddy\\Caddyfile). Důvod: pin na 'previous' při zastavené B = mrtvá instance
@@ -28101,6 +28136,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             result = "marker: %s" % info
         elif action_key == "refresh_secondary":
             out = _ops_refresh_secondary()
+            status = "done" if out.get("ok") else "error"
+            result = out.get("result") or ""
+        elif action_key == "secondary_status":
+            out = _ops_secondary_status()
             status = "done" if out.get("ok") else "error"
             result = out.get("result") or ""
         elif action_key == "caddy_pin_failover":

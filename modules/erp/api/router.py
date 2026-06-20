@@ -24458,7 +24458,7 @@ _OPS_ACTIONS = {
         "target": "cloud", "remote": False,
     },
     "refresh_secondary": {
-        "label": "🔄 Obnovit záložní instanci (blue-green → aktuální verze)",
+        "label": "📦 Zkopírovat aktuální verzi do zálohy (API B)",
         "target": "cloud", "remote": False,
     },
     "caddy_pin_failover": {
@@ -27940,57 +27940,33 @@ async def ops_request(req: Request) -> JSONResponse:
 
 
 def _ops_refresh_secondary() -> dict:
-    """Blue-green: obnoví záložní instanci (STRATEGIE-API-B z C:\\Projekty\\STRATEGIE-prev).
-    Záložní složka NENÍ git checkout (je to fyzická KOPIE projektu) — proto git pull/reset
-    nepomohl. Tady robocopy zkopíruje kód + static z primární složky do záložní (bez venv,
-    .git, cache, node_modules) a restartuje záložní službu. Cesty/service konfigurovatelné env.
-    Pozn.: kdyby záložní po restartu nenaběhla (např. chybí nová závislost ve vlastním venv),
-    Caddy stejně padne na čerstvou primární — takže výsledek je vždy 'žádný starý obsah'."""
+    """Blue-green: zkopíruje AKTUÁLNÍ (ověřenou) verzi produkce do zálohy a restartuje API-B.
+    Záloha (STRATEGIE-prev) = zmrazená stabilní verze, na kterou Caddy přeroutuje usery, když
+    deploy odstřelí API-A. Tlačítkem ji povýšíme na současný stav. Spouští skript
+    scripts/refresh_secondary.ps1 NA POZADÍ (detached) — robocopy celého repa trvá dlouho,
+    nesmí blokovat HTTP handler (12.6. timeout). Výstup do scripts/refresh_secondary_last.log.
+    Záloha NENÍ git checkout (fyzická kopie) → proto kopie, ne git pull."""
     import subprocess as _sp, os as _os
     src = _os.environ.get("STRATEGIE_PRIMARY_DIR") or r"C:\Projekty\STRATEGIE"
-    dst = _os.environ.get("STRATEGIE_PREV_DIR") or r"C:\Projekty\STRATEGIE-prev"
-    svc = _os.environ.get("STRATEGIE_SECONDARY_SERVICE") or "STRATEGIE-API-B"
-    nssm = _os.environ.get("STRATEGIE_NSSM_EXE") or r"C:\Tools\nssm.exe"
     if not _os.path.isdir(src):
         return {"ok": False, "result": "zdrojová (primární) složka neexistuje: %s" % src}
-    if not _os.path.isdir(dst):
-        return {"ok": False, "result": "cílová (záložní) složka neexistuje: %s" % dst}
-    steps = []
-    ok = True
-    # robocopy /E = vč. podsložek (bez /MIR — nemažeme dst-only, ať nezničíme venv).
-    # /XD vynechá venv/.git/cache/node_modules (název kdekoli ve stromu). /XF *.pyc.
-    # robocopy návratové kódy 0-7 = úspěch (8+ = chyba).
+    ps1 = _os.path.join(src, "scripts", "refresh_secondary.ps1")
+    if not _os.path.isfile(ps1):
+        return {"ok": False, "result": "skript nenalezen: %s" % ps1}
+    log = _os.path.join(src, "scripts", "refresh_secondary_last.log")
     try:
-        r = _sp.run([
-            "robocopy", src, dst, "/E",
-            "/XD", ".git", ".venv", "venv", "node_modules", "__pycache__", ".idea", ".pytest_cache",
-            "/XF", "*.pyc",
-            "/R:1", "/W:1", "/NFL", "/NDL", "/NP", "/NJH", "/NJS",
-        ], capture_output=True, text=True, timeout=900, encoding="utf-8", errors="replace")
-        rc = r.returncode
-        tail = ((r.stdout or "") + (r.stderr or "")).strip()[-200:]
-        if rc is not None and rc < 8:
-            steps.append("kopie kódu (robocopy rc=%s): OK %s" % (rc, tail))
-        else:
-            steps.append("kopie kódu (robocopy rc=%s): FAIL %s" % (rc, tail))
-            ok = False
+        # DETACHED_PROCESS(0x8) + CREATE_NEW_PROCESS_GROUP(0x200) → běží dál i po návratu HTTP.
+        flags = 0x00000008 | 0x00000200
+        lf = open(log, "w", encoding="utf-8", errors="replace")
+        _sp.Popen(["powershell", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", ps1],
+                  stdout=lf, stderr=_sp.STDOUT, stdin=_sp.DEVNULL,
+                  creationflags=flags, cwd=src)
+        return {"ok": True, "result": "Spuštěno na pozadí: stop API-B → kopie celého repa "
+                "(robocopy /MIR bez venv/.git) → start API-B. Trvá ~30-90 s. "
+                "Log: scripts/refresh_secondary_last.log"}
     except Exception as exc:
-        steps.append("kopie kódu: ERR %s: %s" % (type(exc).__name__, exc))
-        ok = False
-    # restart záložní služby (jiná služba než API → bez self-restart problému)
-    try:
-        r2 = _sp.run([nssm, "restart", svc], capture_output=True, text=True,
-                     timeout=90, encoding="utf-8", errors="replace")
-        o2 = ((r2.stdout or "") + (r2.stderr or "")).strip()
-        if r2.returncode == 0:
-            steps.append("restart %s: OK %s" % (svc, o2[-120:]))
-        else:
-            steps.append("restart %s: FAIL(rc=%s) %s" % (svc, r2.returncode, o2[-200:]))
-            ok = False
-    except Exception as exc:
-        steps.append("restart %s: ERR %s: %s" % (svc, type(exc).__name__, exc))
-        ok = False
-    return {"ok": ok, "result": " | ".join(steps)}
+        return {"ok": False, "result": "Nepodařilo se spustit skript: %s: %s"
+                % (type(exc).__name__, exc)}
 
 
 def _ops_caddy_pin_failover() -> dict:

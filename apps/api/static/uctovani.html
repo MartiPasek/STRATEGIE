@@ -43,6 +43,9 @@
   <h2>Sborníky — knihy deníku</h2>
   <div id="sborniky"><div class="hint">Načítám…</div></div>
 
+  <h2>Předkontace — účtovací vzory (MD / DAL)</h2>
+  <div id="predkontace"><div class="hint">Načítám…</div></div>
+
   <div class="note">📌 Hranice mezd: legislativa mezd (výpočet, ČSSZ, pojišťovny, daň, ELDP) zůstává v Heliosu; po měsíční uzávěrce se odvody a analytika dotahují k nám. Platební stranu odvodů už účtuje náš bankovní template do deníku.</div>
 </div>
 <script>
@@ -56,13 +59,26 @@ var DRUH={banka:"🏦 Banky",pokladna:"💵 Pokladny",karta:"💳 Karty",mzdy:"�
 var ORDER=["banka","pokladna","karta","fp","fv","mzdy","interni","zapocet","rezie","skonto","majetek","sklad","vnitronaklad","dobropis","stav"];
 api("/api/v1/erp/app/uctovani/prehled").then(function(j){
   if(!j||!j.ok){document.getElementById("sborniky").innerHTML='<div class="err">'+esc((j&&(j.error||j.detail))||"Nelze načíst")+'</div>';return;}
-  var d=j.denik||{}, p=j.predkontace||{};
+  var d=j.denik||{}, pk=j.predkontace||[], rd=j.rady||{};
   document.getElementById("stats").innerHTML=
     '<div class="st"><div class="k">Sborníků</div><div class="v">'+(j.sborniky||[]).length+'</div></div>'
-    +'<div class="st"><div class="k">Předkontace</div><div class="v">'+(p.pocet||0)+' <span style="font-size:12px;color:var(--green)">('+(p.auto||0)+' auto)</span></div></div>'
+    +'<div class="st"><div class="k">Předkontace</div><div class="v">'+pk.length+'</div></div>'
+    +'<div class="st"><div class="k">Číselné řady</div><div class="v">'+(rd.pocet||0)+' <span style="font-size:12px;color:var(--mut)">/'+(rd.rok||"")+'</span></div></div>'
     +'<div class="st"><div class="k">Zápisů v deníku</div><div class="v">'+(d.pocet||0).toLocaleString("cs-CZ")+'</div></div>'
     +'<div class="st"><div class="k">Obrat deníku</div><div class="v" style="font-size:15px">'+(d.obrat||0).toLocaleString("cs-CZ",{maximumFractionDigits:0})+' Kč</div></div>'
     +'<div class="st"><div class="k">Podpis Marti-AI</div><div class="v" style="font-size:15px;color:#9dc1ff">'+(d.marti_ai||0).toLocaleString("cs-CZ")+'</div></div>';
+  var pby={}; pk.forEach(function(x){(pby[x.sbornik_druh||"jine"]=pby[x.sbornik_druh||"jine"]||[]).push(x);});
+  var ph="";
+  Object.keys(pby).forEach(function(k){
+    ph+='<div class="grp"><div class="gh">'+esc(DRUH[k]||k)+'</div><table style="width:100%;border-collapse:collapse">';
+    pby[k].forEach(function(x){
+      ph+='<tr><td style="padding:4px 8px;font-size:13px"><b>'+esc(x.nazev)+'</b></td>'
+        +'<td style="padding:4px 8px;text-align:right;font-family:ui-monospace,monospace;font-size:13px">'+esc(x.ucet_md||"?")+' / '+esc(x.ucet_dal||"—")+'</td>'
+        +'<td style="padding:4px 8px;font-size:11.5px;color:var(--mut)">'+esc(x.popis||"")+'</td></tr>';
+    });
+    ph+='</table></div>';
+  });
+  document.getElementById("predkontace").innerHTML=ph||'<div class="hint">Žádné předkontace.</div>';
   var by={}; (j.sborniky||[]).forEach(function(s){(by[s.druh||"jine"]=by[s.druh||"jine"]||[]).push(s);});
   var keys=ORDER.filter(function(k){return by[k];}).concat(Object.keys(by).filter(function(k){return ORDER.indexOf(k)<0;}));
   var h="";

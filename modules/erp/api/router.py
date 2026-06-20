@@ -21406,14 +21406,17 @@ def uctovani_prehled(req: Request):
             "SELECT COUNT(*), ROUND(COALESCE(SUM(castka),0)), "
             "COUNT(DISTINCT kategorie), SUM(CASE WHEN podpis='Marti-AI' THEN 1 ELSE 0 END) "
             "FROM tenant.ucetni_denik WHERE NOT storno")).first()
-        predp = s.execute(_t(
-            "SELECT COUNT(*), SUM(CASE WHEN NOT vyzaduje_schvaleni THEN 1 ELSE 0 END) "
-            "FROM tenant.bank_predpis WHERE aktivni")).first()
+        pk = s.execute(_t(
+            "SELECT sbornik_druh, kod, nazev, ucet_md, ucet_dal, popis, aktivni "
+            "FROM tenant.ucet_predkontace ORDER BY sbornik_druh, kod")).mappings().all()
+        rad = s.execute(_t(
+            "SELECT COUNT(*), MAX(rok) FROM tenant.ucet_cislena_rada WHERE aktivni")).first()
         return {"ok": True,
                 "sborniky": [dict(r) for r in sb],
                 "denik": {"pocet": int(denik[0] or 0), "obrat": float(denik[1] or 0),
                           "kategorii": int(denik[2] or 0), "marti_ai": int(denik[3] or 0)},
-                "predkontace": {"pocet": int(predp[0] or 0), "auto": int(predp[1] or 0)}}
+                "predkontace": [dict(r) for r in pk],
+                "rady": {"pocet": int(rad[0] or 0), "rok": int(rad[1] or 0)}}
     finally:
         s.close()
 

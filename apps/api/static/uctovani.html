@@ -44,7 +44,7 @@
     <div style="font-weight:700;margin-bottom:10px">➕ Zaúčtovat nový doklad</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <label style="font-size:12px;color:var(--mut)">Sborník<br><select id="fSbornik" style="min-width:200px"></select></label>
-      <label style="font-size:12px;color:var(--mut)">Předkontace<br><select id="fPred" style="min-width:220px"></select></label>
+      <label style="font-size:12px;color:var(--mut)"><span id="fPredLbl">Předkontace</span><br><select id="fPred" style="min-width:220px"></select></label>
       <label style="font-size:12px;color:var(--mut)">Datum<br><input id="fDatum" type="date"></label>
       <label style="font-size:12px;color:var(--mut)">Částka<br><input id="fCastka" type="number" step="0.01" style="width:120px"></label>
       <label style="font-size:12px;color:var(--mut)">Měna<br><select id="fMena"><option>CZK</option><option>EUR</option></select></label>
@@ -103,13 +103,24 @@ api("/api/v1/erp/app/uctovani/prehled").then(function(j){
     h+='</div></div>';
   });
   document.getElementById("sborniky").innerHTML=h;
-  // formulář nového dokladu
+  // formulář nového dokladu — předkontace se dotáhne k vybranému sborníku (řadě) dle druhu
+  window._PK=pk; window._SB=(j.sborniky||[]);
   var fs=document.getElementById("fSbornik");
-  fs.innerHTML=(j.sborniky||[]).map(function(s){return '<option value="'+esc(s.kod)+'">'+esc(s.kod)+' — '+esc(s.nazev)+'</option>';}).join("");
-  var fp=document.getElementById("fPred");
-  fp.innerHTML='<option value="">— účty zadám ručně —</option>'+pk.map(function(x){return '<option value="'+esc(x.kod)+'">'+esc(x.nazev)+' ('+esc(x.ucet_md||"?")+'/'+esc(x.ucet_dal||"—")+')</option>';}).join("");
+  fs.innerHTML=window._SB.map(function(s){return '<option value="'+esc(s.kod)+'" data-druh="'+esc(s.druh||"")+'">'+esc(s.kod)+' — '+esc(s.nazev)+'</option>';}).join("");
+  fs.onchange=fillPred;
+  fillPred();
   document.getElementById("fDatum").value=new Date().toISOString().slice(0,10);
 });
+function fillPred(){
+  var opt=document.getElementById("fSbornik").selectedOptions[0];
+  var druh=opt?(opt.getAttribute("data-druh")||""):"";
+  var match=(window._PK||[]).filter(function(x){return (x.sbornik_druh||"")===druh;});
+  var fp=document.getElementById("fPred");
+  var label=document.getElementById("fPredLbl");
+  if(label) label.textContent="Předkontace"+(match.length?" ("+match.length+" k řadě)":" — řada nemá předkontace");
+  fp.innerHTML=match.map(function(x){return '<option value="'+esc(x.kod)+'">'+esc(x.nazev)+' ('+esc(x.ucet_md||"?")+'/'+esc(x.ucet_dal||"—")+')</option>';}).join("")
+    +'<option value="">— účty zadám ručně —</option>';
+}
 document.getElementById("btnNew").onclick=function(){
   var n=document.getElementById("newDoklad");
   n.style.display=(n.style.display==="none")?"":"none";

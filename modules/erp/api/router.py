@@ -21254,6 +21254,100 @@ async def parovani_predpis_save(req: Request):
         s.close()
 
 
+@api_router.post("/app/parovani/zauctovani/generovat")
+def parovani_zauctovani_generovat(req: Request):
+    """Vygeneruje návrhy zaúčtování pro rozpoznané nefaktůrové řádky (template).
+    Auto pravidla (mzdy) → rovnou 'schvaleno', ostatní → 'navrh'. Idempotentní
+    (neduplikuje řádky, co už návrh mají). Marti 20.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        # jistá pravidla (vyzaduje_schvaleni=false) → rovnou ZAÚČTOVÁNO s podpisem Marti-AI
+        # (kustod autonomně podepisuje jisté zápisy, doctrine #11); nejistá → návrh ke schválení
+        n = s.execute(_t(
+            "INSERT INTO tenant.bank_zauctovani (id_radek,predpis_id,kategorie,castka,mena,ucet_md,ucet_dal,stredisko,stav,podpis,zauctovano_at) "
+            "SELECT r.src_id, pr.id, pr.kategorie, r.castka, r.mena, pr.ucet_md, pr.ucet_dal, pr.stredisko, "
+            "  CASE WHEN pr.vyzaduje_schvaleni THEN 'navrh' ELSE 'zauctovano' END, "
+            "  CASE WHEN pr.vyzaduje_schvaleni THEN NULL ELSE 'Marti-AI' END, "
+            "  CASE WHEN pr.vyzaduje_schvaleni THEN NULL ELSE now() END "
+            "FROM tenant.ec_bank_vypis_radek r "
+            "JOIN LATERAL (SELECT p.id,p.kategorie,p.ucet_md,p.ucet_dal,p.stredisko,p.vyzaduje_schvaleni "
+            "  FROM tenant.bank_predpis p WHERE " + _PREDPIS_MATCH + " ORDER BY p.priorita LIMIT 1) pr ON true "
+            "WHERE COALESCE(r.pocet_uhrad,0)=0 "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.bank_zauctovani z WHERE z.id_radek=r.src_id) "
+            "ON CONFLICT (id_radek) DO NOTHING"))
+        s.commit()
+        return {"ok": True, "vytvoreno": n.rowcount}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/parovani/zauctovani")
+def parovani_zauctovani_list(req: Request):
+    """Seznam návrhů zaúčtování + souhrn po stavech. Marti 20.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    q = req.query_params
+    stav = (q.get("stav") or "navrh").strip()
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        summ = s.execute(_t(
+            "SELECT stav, COUNT(*), ROUND(SUM(castka)) FROM tenant.bank_zauctovani GROUP BY stav")).all()
+        souhrn = {r[0]: {"pocet": int(r[1] or 0), "suma": float(r[2] or 0)} for r in summ}
+        rows = s.execute(_t(
+            "SELECT z.id, z.id_radek, z.kategorie, z.castka, z.mena, z.ucet_md, z.ucet_dal, z.stav, z.podpis, "
+            "to_char(z.created_at,'DD.MM.YYYY') dat, r.nazev_org, r.variabilni_symbol, "
+            "to_char(r.datum_splatnosti,'DD.MM.YYYY') dat_platby "
+            "FROM tenant.bank_zauctovani z "
+            "LEFT JOIN tenant.ec_bank_vypis_radek r ON r.src_id=z.id_radek "
+            "WHERE z.stav=:st ORDER BY z.castka DESC NULLS LAST LIMIT 300"), {"st": stav}).mappings().all()
+        return {"ok": True, "souhrn": souhrn, "polozky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/parovani/zauctovani/rozhodni")
+async def parovani_zauctovani_rozhodni(req: Request):
+    """Schválit / zamítnout / zaúčtovat návrhy (parent only). akce: schvalit|zamitnout|zauctovat.
+    'zauctovat' zatím nastaví zauctovano_at (příprava na zápis do deníku — vlastní zápis
+    do Helios deníku = další krok po potvrzení účtů účetní + Braňo)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    ids = b.get("ids") or []
+    akce = (b.get("akce") or "").strip()
+    if not ids or akce not in ("schvalit", "zamitnout", "zauctovat"):
+        return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        ids = [int(x) for x in ids]
+        if akce == "schvalit":
+            sql = ("UPDATE tenant.bank_zauctovani SET stav='schvaleno', schvalil_uid=:u, schvaleno_at=now() "
+                   "WHERE id = ANY(:ids) AND stav='navrh'")
+        elif akce == "zamitnout":
+            sql = ("UPDATE tenant.bank_zauctovani SET stav='zamitnuto', schvalil_uid=:u, schvaleno_at=now() "
+                   "WHERE id = ANY(:ids) AND stav IN ('navrh','schvaleno')")
+        else:
+            sql = ("UPDATE tenant.bank_zauctovani SET stav='zauctovano', zauctovano_at=now(), "
+                   "podpis=(SELECT COALESCE(first_name,'uid '||id::text) FROM public.users WHERE id=:u) "
+                   "WHERE id = ANY(:ids) AND stav='schvaleno'")
+        r = s.execute(_t(sql), {"u": uid, "ids": ids})
+        s.commit()
+        return {"ok": True, "dotceno": r.rowcount}
+    finally:
+        s.close()
+
+
 # ════════════════════════════════════════════════════════════════════════
 # DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026), UNIVERZÁLNĚ.
 # Multi-tenant + multi-box: jeden tenant unese N datovek (EC, ES, INTERSOFT…).

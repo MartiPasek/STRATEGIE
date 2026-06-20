@@ -42,6 +42,7 @@
   <span class="seg" id="tab" style="margin-bottom:12px">
     <button data-t="vypisy" class="on">📋 Výpisy</button>
     <button data-t="template">🧾 Daně &amp; poplatky</button>
+    <button data-t="zauctovani">💰 Zaúčtování</button>
   </span>
 
   <div id="view-vypisy">
@@ -61,6 +62,21 @@
   <div id="view-template" style="display:none">
     <div class="sub">Pravidla rozpoznávají nefaktůrové platby podle účtu protistrany + KS + textu a přiřadí kategorii + účetní předpis. Pokrytí = kolik nespárovaných řádků pravidlo zachytí.</div>
     <div id="tlist"><div class="hint">Načítám…</div></div>
+  </div>
+
+  <div id="view-zauctovani" style="display:none">
+    <div class="sub">Rozpoznané platby → návrh zápisu (kategorie + účet MD/DAL) → schválit → připravit k zaúčtování do deníku. Mzdy (auto) jdou rovnou ke schválení.</div>
+    <div class="toolbar">
+      <span class="seg" id="zseg">
+        <button data-z="navrh" class="on">Návrhy</button>
+        <button data-z="schvaleno">Schválené</button>
+        <button data-z="zauctovano">Zaúčtované</button>
+        <button data-z="zamitnuto">Zamítnuté</button>
+      </span>
+      <button id="zgen" style="background:#1d3a2a;color:#7ee0a8;border:1px solid #34d39955;border-radius:8px;padding:7px 13px;cursor:pointer;font-weight:700">⚙ Vygenerovat návrhy</button>
+    </div>
+    <div id="zsum" class="stats"></div>
+    <div id="zlist"><div class="hint">Načítám…</div></div>
   </div>
 </div>
 <script>
@@ -125,12 +141,65 @@ function loadTemplate(){
     document.getElementById("tlist").innerHTML=h;
   });
 }
+var _zstav="navrh";
+function loadZauctovani(){
+  document.getElementById("zlist").innerHTML='<div class="hint">Načítám…</div>';
+  api("/api/v1/erp/app/parovani/zauctovani?stav="+_zstav).then(function(j){
+    if(!j||!j.ok){document.getElementById("zlist").innerHTML='<div class="err">'+esc((j&&(j.error||j.detail))||"Nelze načíst")+'</div>';return;}
+    var sh=j.souhrn||{};
+    function box(k,lbl,col){var d=sh[k]||{pocet:0,suma:0};return '<div class="st"><div class="k">'+lbl+'</div><div class="v" style="font-size:16px;'+(col?'color:'+col:'')+'">'+(d.pocet||0)+'</div><div class="hint" style="font-size:11px">'+kc(d.suma,"")+'</div></div>';}
+    document.getElementById("zsum").innerHTML=box("navrh","Návrhy","var(--amber)")+box("schvaleno","Schválené","#9dc1ff")+box("zauctovano","Zaúčtované","var(--green)")+box("zamitnuto","Zamítnuté","var(--mut)");
+    var items=j.polozky||[];
+    var canSel=(_zstav==="navrh"||_zstav==="schvaleno");
+    var h='';
+    if(canSel&&items.length) h+='<div class="toolbar"><label class="hint"><input type="checkbox" id="zall"> vše</label>'
+      +(_zstav==="navrh"?'<button class="zact" data-a="schvalit" style="background:#1d3a2a;color:#7ee0a8;border:1px solid #34d39955;border-radius:8px;padding:6px 12px;cursor:pointer">✓ Schválit</button>':'')
+      +(_zstav==="schvaleno"?'<button class="zact" data-a="zauctovat" style="background:#13315c;color:#9dc1ff;border:1px solid #4f8ef766;border-radius:8px;padding:6px 12px;cursor:pointer">📒 Zaúčtovat</button>':'')
+      +'<button class="zact" data-a="zamitnout" style="background:#3a1d1d;color:#ff9d9d;border:1px solid #ff8a8a44;border-radius:8px;padding:6px 12px;cursor:pointer">✕ Zamítnout</button></div>';
+    h+='<table><thead><tr>'+(canSel?'<th></th>':'')+'<th class="l">Datum platby</th><th class="l">Protistrana</th><th class="l">Kategorie</th><th>Částka</th><th>Měna</th><th class="l">Účet MD/DAL</th><th class="l">Podpis</th></tr></thead><tbody>';
+    items.forEach(function(z){
+      var pod=z.podpis?('<span class="badge '+(z.podpis==="Marti-AI"?"b-kat":"b-ok")+'">'+esc(z.podpis)+'</span>'):'';
+      h+='<tr>'+(canSel?'<td><input type="checkbox" class="zck" value="'+z.id+'"></td>':'')
+        +'<td class="l">'+esc(z.dat_platby||z.dat||"")+'</td>'
+        +'<td class="l">'+esc(z.nazev_org||"—")+(z.variabilni_symbol?(' <span class=hint>VS '+esc(z.variabilni_symbol)+'</span>'):'')+'</td>'
+        +'<td class="l"><span class="badge b-kat">'+esc(z.kategorie||"")+'</span></td>'
+        +'<td>'+kc(z.castka,"")+'</td>'
+        +'<td'+(z.mena==="EUR"?' class="eur"':'')+'>'+esc(z.mena||"")+'</td>'
+        +'<td class="l">'+esc(z.ucet_md||"?")+' / '+esc(z.ucet_dal||"?")+'</td>'
+        +'<td class="l">'+pod+'</td></tr>';
+    });
+    if(!items.length) h+='<tr><td colspan="8" class="hint" style="padding:16px">Žádné položky. Klikni „Vygenerovat návrhy".</td></tr>';
+    h+='</tbody></table>';
+    document.getElementById("zlist").innerHTML=h;
+    var all=document.getElementById("zall");
+    if(all) all.onchange=function(){Array.prototype.forEach.call(document.querySelectorAll(".zck"),function(c){c.checked=all.checked;});};
+    Array.prototype.forEach.call(document.querySelectorAll(".zact"),function(btn){btn.onclick=function(){
+      var ids=Array.prototype.filter.call(document.querySelectorAll(".zck"),function(c){return c.checked;}).map(function(c){return +c.value;});
+      if(!ids.length){alert("Vyber aspoň jeden řádek.");return;}
+      btn.disabled=true;
+      fetch("/api/v1/erp/app/parovani/zauctovani/rozhodni",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids:ids,akce:btn.getAttribute("data-a")})}).then(function(r){return r.json();}).then(function(x){loadZauctovani();});
+    };});
+  });
+}
+Array.prototype.forEach.call(document.querySelectorAll("#zseg button"),function(b){b.onclick=function(){
+  _zstav=b.getAttribute("data-z");
+  Array.prototype.forEach.call(document.querySelectorAll("#zseg button"),function(x){x.classList.toggle("on",x===b);});
+  loadZauctovani();};});
+document.getElementById("zgen").onclick=function(){
+  this.disabled=true;this.textContent="Generuji…";var btn=this;
+  fetch("/api/v1/erp/app/parovani/zauctovani/generovat",{method:"POST",credentials:"include"}).then(function(r){return r.json();}).then(function(x){
+    btn.disabled=false;btn.textContent="⚙ Vygenerovat návrhy";
+    if(x&&x.ok) alert("Vytvořeno "+(x.vytvoreno||0)+" nových návrhů.");
+    loadZauctovani();});
+};
 Array.prototype.forEach.call(document.querySelectorAll("#tab button"),function(b){b.onclick=function(){
   var t=b.getAttribute("data-t");
   Array.prototype.forEach.call(document.querySelectorAll("#tab button"),function(x){x.classList.toggle("on",x===b);});
   document.getElementById("view-vypisy").style.display=(t==="vypisy")?"":"none";
   document.getElementById("view-template").style.display=(t==="template")?"":"none";
+  document.getElementById("view-zauctovani").style.display=(t==="zauctovani")?"":"none";
   if(t==="template") loadTemplate();
+  if(t==="zauctovani") loadZauctovani();
 };});
 Array.prototype.forEach.call(document.querySelectorAll("#seg button"),function(b){b.onclick=function(){
   _stav=b.getAttribute("data-s");

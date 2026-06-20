@@ -23483,6 +23483,55 @@ def secondary_info(req: Request):
         except Exception:
             pass
     out["pending"] = pend
+    # --- Self-heal štítku verze (jednou pro vždy, 20.6.) ---------------------
+    # fw.api_version "previous" řádek (port 8003 = B) se historicky neaktualizoval
+    # → štítek verze ve footeru lhal (B reálně běží povýšený kód, tabulka tvrdila
+    # starou verzi). Tady při každém pohledu srovnáme previous řádek s tím, co B
+    # SKUTEČNĚ hlásí (z jeho /api-info commit). Když je B v sync s current
+    # (= po povýšení do zálohy), previous = current; když je B pozadu (čerstvě po
+    # deployi A, před povýšením), nech štítek, jen srovnej git_sha na pravdu.
+    try:
+        bcommit = (out.get("b") or {}).get("commit") if isinstance(out.get("b"), dict) else None
+        if bcommit:
+            from core.database_data import get_data_session as _gs
+            from sqlalchemy import text as _tx
+            _s = _gs()
+            try:
+                cur = _s.execute(_tx(
+                    "SELECT version_string, version_label, git_sha FROM fw.api_version "
+                    "WHERE sort_order=0 AND is_active=true LIMIT 1")).mappings().first()
+                prev = _s.execute(_tx(
+                    "SELECT id, version_string, git_sha FROM fw.api_version "
+                    "WHERE sort_order=1 LIMIT 1")).mappings().first()
+                if cur and prev:
+                    cur_sha = (cur["git_sha"] or "")
+                    b_in_sync = bool(cur_sha) and cur_sha.startswith(str(bcommit))
+                    if b_in_sync:
+                        # B = current → previous řádek zrcadlí current (pravdivý štítek)
+                        if (prev["version_string"] != cur["version_string"]
+                                or (prev["git_sha"] or "") != cur_sha):
+                            _s.execute(_tx(
+                                "UPDATE fw.api_version SET version_string=:vs, "
+                                "version_label=:vl, git_sha=:sha, released_at=NOW() "
+                                "WHERE id=:id"),
+                                {"vs": cur["version_string"], "vl": cur["version_label"],
+                                 "sha": cur_sha, "id": prev["id"]})
+                            _s.commit()
+                            out["version_sync"] = "B v sync → štítek srovnán na %s" % cur["version_string"]
+                        else:
+                            out["version_sync"] = "OK (%s)" % cur["version_string"]
+                    else:
+                        # B pozadu (před povýšením) → aspoň git_sha ať sedí realitě B
+                        if not (prev["git_sha"] or "").startswith(str(bcommit)):
+                            _s.execute(_tx(
+                                "UPDATE fw.api_version SET git_sha=:sha WHERE id=:id"),
+                                {"sha": str(bcommit), "id": prev["id"]})
+                            _s.commit()
+                        out["version_sync"] = "B pozadu (commit %s) — čeká na povýšení" % bcommit
+            finally:
+                _s.close()
+    except Exception as _e:
+        out["version_sync"] = "sync skip: %s" % type(_e).__name__
     return out
 
 

@@ -53,6 +53,7 @@ function render(d){
   h+='<div class="c" style="margin-bottom:10px">Kód v záloze vs primár: '
     +(same?'<span class="match">✓ SHODNÝ (kopie proběhla)</span>':'<span class="diff">⚠ ROZDÍLNÝ — záloha má jiný/starší kód</span>')
     +(d.pending?'  <span class="badge b-run">⏳ čeká marker — watcher zpracuje</span>':'')+'</div>';
+  if(d.version_sync){h+='<div class="c" style="margin-bottom:10px">🏷️ Štítek verze (footer): <span class="v">'+esc(d.version_sync)+'</span> <span class="hint">— synchronizováno automaticky z reálné verze zálohy</span></div>';}
   h+='<div class="c"><div class="k">Log refreshe (.ps1)'+(d.log_at?(' ('+esc(d.log_at)+')'):'')+':</div><pre>'+esc(d.log||"(zatím nic — .ps1 ještě nepsal)")+'</pre></div>';
   h+='<div class="c"><div class="k">Watcher log (zpracování markeru)'+(d.watcher_at?(' ('+esc(d.watcher_at)+')'):'')+':</div><pre>'+esc(d.watcher||"(watcher zatím nic o refreshi nepíše)")+'</pre></div>';
   document.getElementById("body").innerHTML=h;

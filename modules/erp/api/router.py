@@ -22482,12 +22482,29 @@ def _edi_ocr_words_from_pdf(rb, dpi=220, lang="ces+eng"):
     i na skenech. Vyžaduje na cloudu: pymupdf, pytesseract, tesseract-ocr(+ces), Pillow."""
     out = []
     try:
-        import io as _io, fitz as _fitz, pytesseract as _ts
+        import io as _io, pytesseract as _ts
         from PIL import Image as _Img
-        doc = _fitz.open(stream=rb, filetype="pdf")
-        for pi in range(len(doc)):
-            pix = doc[pi].get_pixmap(dpi=dpi)
-            img = _Img.open(_io.BytesIO(pix.tobytes("png")))
+        pages = []
+        # rasterizér 1: PyMuPDF (fitz)
+        try:
+            import fitz as _fitz
+            doc = _fitz.open(stream=rb, filetype="pdf")
+            for pi in range(len(doc)):
+                pix = doc[pi].get_pixmap(dpi=dpi)
+                pages.append(_Img.open(_io.BytesIO(pix.tobytes("png"))))
+        except Exception:
+            pages = []
+        # rasterizér 2: pypdfium2 (čistý wheel, bez systémových závislostí)
+        if not pages:
+            try:
+                import pypdfium2 as _pdfium
+                pdf = _pdfium.PdfDocument(rb)
+                scale = dpi / 72.0
+                for pi in range(len(pdf)):
+                    pages.append(pdf[pi].render(scale=scale).to_pil())
+            except Exception:
+                pages = []
+        for pi, img in enumerate(pages):
             W, H = img.size
             W = W or 1; H = H or 1
             data = _ts.image_to_data(img, lang=lang, output_type=_ts.Output.DICT)

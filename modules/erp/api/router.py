@@ -18381,6 +18381,18 @@ def _mirror_run_job(job_key):
         "sync_ec_ceniky": lambda: _sync_ec_ceniky(),
         "sync_ec_org_kontakt": lambda: _sync_ec_org_kontakt(),
         "sync_ec_banka": lambda: _sync_ec_banka(),
+        # přesunuto z ⚙ Ops akcí do řídícího centra (Marti 20.6.2026)
+        "sync_zakazky": lambda: _sync_zakazky_from_helios(),
+        "sync_org": lambda: _sync_org_from_ec(),
+        "sync_ec_org": lambda: (_sync_ec_org_from_centrala(), _sync_ec_kontakty_from_centrala())[1],
+        "sync_fin": lambda: _sync_fin_from_ec(),
+        "sync_priplatky": lambda: _sync_priplatky_from_ec(),
+        "sync_pasky": lambda: (_sync_pasky_from_helios(), _refresh_employee_active())[1],
+        "refresh_active_status": lambda: _refresh_employee_active(),
+        "sync_plan_nepritomnost": lambda: _sync_plan_nepritomnost(),
+        "sync_vyroba_plan": lambda: _sync_vyroba_plan_from_ec(),
+        "sync_odvozy": lambda: _sync_odvozy_from_ec(),
+        "sync_nabor": lambda: _sync_nabor_from_ec(),
     }
     fn = fnmap.get(job_key)
     if fn is None:
@@ -22052,18 +22064,6 @@ _OPS_ACTIONS = {
         "label": "Postavit APK (gradlew) + nahrát (NB → server, verze +1)",
         "target": "instance:23", "remote": True, "op": "build_publish_app_mobile",
     },
-    "sync_zakazky": {
-        "label": "Synchronizovat zakázky z Centrály (Helios → STRATEGIE)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_org": {
-        "label": "Synchronizovat org strukturu (EC_Org* → STRATEGIE)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_ec_org": {
-        "label": "Synchronizovat organizace z Centrály (TabCisOrg EC+IS → STRATEGIE)",
-        "target": "cloud", "remote": False,
-    },
     "derive_kontakty": {
         "label": "Derivovat kontakty do univerzální vrstvy (subjekt/kanál + matching)",
         "target": "cloud", "remote": False,
@@ -22080,72 +22080,8 @@ _OPS_ACTIONS = {
         "label": "Re-sync docházky z Centrály (od ledna, čistý import)",
         "target": "cloud", "remote": False,
     },
-    "sync_fin": {
-        "label": "Migrovat finance lidí (EC_FinZamPodminky → STRATEGIE, vč. historie)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_priplatky": {
-        "label": "Synchronizovat příplatky/srážky (EC_FinPriplatkySrazky → STRATEGIE, idempotentní)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_pasky": {
-        "label": "Synchronizovat výplatní pásky (Helios EC+ES → STRATEGIE)",
-        "target": "cloud", "remote": False,
-    },
-    "refresh_active_status": {
-        "label": "Samooprava rosteru: zneaktivnit odešlé (mimo aktuální mzdové období)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_plan_nepritomnost": {
-        "label": "Synchronizovat plán nepřítomností (EC_Dochazka_PlanNepritomnost → STRATEGIE)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_vyroba_plan": {
-        "label": "Synchronizovat plán výroby (EC_Vytizeni_PlanMonteri → STRATEGIE)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_odvozy": {
-        "label": "Synchronizovat odvozy (ECv_Vytizeni_Odvozy → STRATEGIE)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_nabor": {
-        "label": "Migrovat nábor (ec_jednani Kat 901 → STRATEGIE recruit_*)",
-        "target": "cloud", "remote": False,
-    },
     "recruit_anonymize": {
         "label": "GDPR: anonymizovat staré uchazeče (lhůta 1 rok, ne smazání)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_dochazka_sumaden": {
-        "label": "Mzdové podklady: denní souhrn docházky (EC_Dochazka_SumaDen → att_day_summary)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_ec_doklady": {
-        "label": "Zrcadlo Centrály: doklady+pohyby zboží (rowversion watermark, idempotentní)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_ec_kalkulace": {
-        "label": "Zrcadlo Centrály: kalkulace+položky (2 roky, plný refresh, idempotentní)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_ec_ukoly": {
-        "label": "Zrcadlo Centrály: úkoly + řešitelé (okno aktivní/2023+, idempotentní)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_ec_zakazky": {
-        "label": "Zrcadlo Centrály: finanční přehled zakázek (EC_ZakazkaPrehled, plné)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_ec_ceniky": {
-        "label": "Zrcadlo Ceníků (DB-Ceniky): vzorce + hlavičky + nastavení (kalkulace/cena)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_ec_org_kontakt": {
-        "label": "Zrcadlo Centrály: organizace (rowversion) + CRM kontakty (plné)",
-        "target": "cloud", "remote": False,
-    },
-    "sync_ec_sklad_kmen": {
-        "label": "Zrcadlo Centrály: sklad (TabStavSkladu) + díly (TabKmenZbozi)",
         "target": "cloud", "remote": False,
     },
 }

@@ -137,7 +137,9 @@ document.getElementById("fOk").onclick=function(){
   fetch("/api/v1/erp/app/uctovani/doklad",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
     .then(function(r){return r.json();}).then(function(x){
       btn.disabled=false;
-      if(x&&x.ok){msg.innerHTML='<span style="color:var(--green)">✓ Zaúčtováno — doklad <b>'+esc(x.cislo)+'</b> ('+esc(x.ucet_md||"")+'/'+esc(x.ucet_dal||"")+'), podpis '+esc(x.podpis||"")+'</span>';
+      if(x&&x.ok){
+        var rk=(x.radky||[]).map(function(r){return esc(r.ucet_md||"")+'/'+esc(r.ucet_dal||"")+' '+(r.castka!=null?(+r.castka).toLocaleString("cs-CZ"):"");}).join(" · ");
+        msg.innerHTML='<span style="color:var(--green)">✓ Zaúčtováno — doklad <b>'+esc(x.cislo)+'</b> ['+rk+'], podpis '+esc(x.podpis||"")+'</span>';
         document.getElementById("fCastka").value="";document.getElementById("fPopis").value="";}
       else{msg.innerHTML='<span style="color:#ff8a8a">'+esc((x&&(x.error||x.detail))||"chyba")+'</span>';}
     });

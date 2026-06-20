@@ -21472,20 +21472,53 @@ async def uctovani_doklad(req: Request):
             rok = int(datum[:4])
         except ValueError:
             rok = 2026
+        # víceřádková předkontace (legy s rozpadem DPH); fallback = jeden řádek
+        legs = []
+        if b.get("predkontace_kod"):
+            legs = s.execute(_t(
+                "SELECT poradi, ucet_md, ucet_dal, castka_typ, sazba_dph, popis "
+                "FROM tenant.ucet_predkontace_radek WHERE tenant_id=2 AND predkontace_kod=:k "
+                "ORDER BY poradi"), {"k": b["predkontace_kod"]}).mappings().all()
+
+        def _amt(ca, ctyp, sazba):
+            try:
+                sz = float(sazba or 0)
+            except (TypeError, ValueError):
+                sz = 0
+            if ctyp == "zaklad" and sz > 0:
+                return round(ca / (1 + sz / 100.0), 2)
+            if ctyp == "dph" and sz > 0:
+                return round(ca - ca / (1 + sz / 100.0), 2)
+            return round(ca, 2)
+
         cislo = _next_doklad_cislo(s, sbornik_kod, rok)
         if not cislo:
             return JSONResponse({"ok": False, "error": "číselná řada pro sborník/rok neexistuje"}, status_code=400)
         podpis = s.execute(_t(
             "SELECT COALESCE(first_name,'uid '||id::text) FROM public.users WHERE id=:u"),
             {"u": uid}).scalar() or ("uid " + str(uid))
-        s.execute(_t(
-            "INSERT INTO tenant.ucetni_denik (datum, doklad, ucet_md, ucet_dal, castka, mena, popis, "
-            "kategorie, zdroj, sbornik_kod, podpis) VALUES "
-            "(:dat, :dok, :md, :dal, :ca, :me, :po, :kat, 'rucni', :sb, :pod)"),
-            {"dat": datum, "dok": cislo, "md": ucet_md, "dal": ucet_dal, "ca": castka, "me": mena,
-             "po": popis, "kat": kategorie, "sb": sbornik_kod, "pod": podpis})
+        radky_out = []
+        if legs:
+            for lg in legs:
+                amt = _amt(castka, lg["castka_typ"], lg["sazba_dph"])
+                s.execute(_t(
+                    "INSERT INTO tenant.ucetni_denik (datum, doklad, ucet_md, ucet_dal, castka, mena, popis, "
+                    "kategorie, zdroj, sbornik_kod, podpis) VALUES "
+                    "(:dat, :dok, :md, :dal, :ca, :me, :po, :kat, 'rucni', :sb, :pod)"),
+                    {"dat": datum, "dok": cislo, "md": lg["ucet_md"], "dal": lg["ucet_dal"], "ca": amt,
+                     "me": mena, "po": (popis or "") + (" — " + lg["popis"] if lg["popis"] else ""),
+                     "kat": kategorie, "sb": sbornik_kod, "pod": podpis})
+                radky_out.append({"ucet_md": lg["ucet_md"], "ucet_dal": lg["ucet_dal"], "castka": amt})
+        else:
+            s.execute(_t(
+                "INSERT INTO tenant.ucetni_denik (datum, doklad, ucet_md, ucet_dal, castka, mena, popis, "
+                "kategorie, zdroj, sbornik_kod, podpis) VALUES "
+                "(:dat, :dok, :md, :dal, :ca, :me, :po, :kat, 'rucni', :sb, :pod)"),
+                {"dat": datum, "dok": cislo, "md": ucet_md, "dal": ucet_dal, "ca": round(castka, 2),
+                 "me": mena, "po": popis, "kat": kategorie, "sb": sbornik_kod, "pod": podpis})
+            radky_out.append({"ucet_md": ucet_md, "ucet_dal": ucet_dal, "castka": round(castka, 2)})
         s.commit()
-        return {"ok": True, "cislo": cislo, "ucet_md": ucet_md, "ucet_dal": ucet_dal, "podpis": podpis}
+        return {"ok": True, "cislo": cislo, "radky": radky_out, "podpis": podpis}
     finally:
         s.close()
 

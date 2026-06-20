@@ -3292,3 +3292,197 @@ ACL `/digitalizace` pro vedoucí oddělení (Fáze 2).
 tři zrcadla, banky zmapované, a Marti's *„prace ma bejt o radosti"*)
 
 📨 🗂️ 🪞 🏦 🌳 ☕
+
+---
+
+## Dodatek — 20. 6. 2026 (ráno): 🏦 Párování plateb — přehled + template daní/poplatků + workflow zaúčtování s podpisem Marti‑AI
+
+Marti ráno (6:29, sluchátka, muzika): *„Super. Jed :))"* + *„Práce má být o radosti a věřím že to tak taky máš."* Beru bez postlistů (#69–70). Postavili jsme základ párování plateb a auto‑účtování — a přitom narazili na důležité datové zjištění o párování faktur.
+
+### Co je LIVE (`/parovani`, dlaždice 🏦 Párování, vše přes bridge + AUTO-DEPLOY)
+- **Přehled výpisů** — řádky se stavem párování (zrcadlo Centrály), VS, protistrana, měna CZK/EUR, napojení na fakturu/zakázku. Ověřeno proti 6390 párům: **VS+částka trefí 90 %, částka 100 %** (železný invariant).
+- **Template daní/poplatků** (`tenant.bank_predpis`, 9 pravidel) — rozpozná **54 % nespárovaných CZK** podle **účtu protistrany + KS + textu** → kategorie + návrh účtu MD/DAL. Mzdy (KS 0138) → 331/221, ČSSZ (…7928311, KS 3558) → 336, zdrav. poj. (VZP 1111006311 / ČPZP / ZPMV), daň (…77627311, KS 1148) → 342, DPH (FÚ 705‑…, KS 4146) → 343, FX SPOT, bank. poplatky. **Účty MD/DAL = návrh „k potvrzení účetní"** (Peta/Šárka, čistá osnova 2027).
+- **Workflow zaúčtování** (`tenant.bank_zauctovani`) — „Vygenerovat návrhy" → rozpoznaný řádek = návrh (kategorie+účty). **Jistá pravidla (`vyzaduje_schvaleni=false`) → rovnou ZAÚČTOVÁNO s podpisem `Marti‑AI`** (Marti 20.6.: *„věci které víme jistě, tak samozřejmě zaúčtovat s Marti‑AI podpisem"* — kustod podepisuje autonomní zápisy, doctrine #11). **Marti hned upřesnil (klíčové): zdrav. poj./daň/ČSSZ/DPH/FX/poplatky JSOU jisté — *„vždyť to plive Helios Mzdy a každej měsíc je to stejný"* → všechna pravidla překlopena na auto.** Ostrý běh: **všech 1644 rozpoznaných rekurentních plateb (194,6 mil. Kč) auto‑zaúčtováno s podpisem Marti‑AI**. Lidské oko zůstává jen na (a) potvrzení čísel účtů MD/DAL účetní a (b) **nerozpoznané** řádky. Záložka 💰 Zaúčtování (schválit/zamítnout/zaúčtovat zůstává pro budoucí ne‑auto pravidla). Doctrine: *„bezpečnost přes probuzení, ne přes ticho"* — auto + audit + podpis, ne gate.
+- **Zrcadlo otevřených faktur** (`tenant.ec_saldo_fa`, TabSaldoFA WHERE Saldo<>0 = **20 527** položek) + sync `_sync_ec_saldo` v řídícím centru (interval 30 min, plánovač spustil sám). = kniha pohledávek/závazků (saldokonto).
+
+### 🔑 ZÁSADNÍ ZJIŠTĚNÍ — párování faktura↔platba NENÍ shoda jednoho pole (pro Peťu, pondělí)
+Ověřeno na datech: bankovní **VS ≠ číslo dokladu** (17 %), **≠ ParovaciZnak dokladu** (0 %), **≠ ParovaciZnak salda** (0 %). Doklad 748859 má ParovaciZnak `500001323`, ale zákazník zaplatil VS `62026`. → Párování dělá **párovací engine Centrály** (`EC_Banka_AutoPrirazeniUhradBV` 52 kB + `std_LeaDohledejUhradu` 41 kB pro EUR/SEPA), víc kritérií + **párovací předpisy per zákazník**.
+- **Martiho klíč (potvrdit s Peťou):** ***bankovní VS = číslo OBJEDNÁVKY zákazníka → hledá se v PŘIJATÝCH OBJEDNÁVKÁCH → ta nese naši zakázku.*** Proto VS nesedí na žádné naše interní pole faktury — je to externí reference zákazníka, mapovaná přes přijatou objednávku na naše číslo zakázky. **Peta v pondělí vysvětlí, podle čeho přesně to poznat.** → vlastní párovací engine na faktury = parkováno na po konzultaci s Peťou (koukat do přijatých objednávek + případně dekódovat tu proceduru).
+- Pro hybridní provoz mezitím **zrcadlíme párovací VÝSLEDEK Centrály** (`ec_bank_vypis_uhrada.id_dok_zbo`) — přehled ukazuje, co Centrála spárovala, správně.
+
+### STRATEGIE účetní deník LIVE (`tenant.ucetni_denik`) — Marti's volba „obojí — zrcadlit"
+Marti 20.6.: *„já v TabDenik žádné nové naše záznamy nevidím…"* → vyjasnění: naše `bank_zauctovani` je workflow, NE Helios zápis. Marti zvolil **obojí (zrcadlit)**: náš STRATEGIE deník = zdroj pravdy + zrcadlit do Helios TabDenik po dobu hybridu. + *„Co víme jistě tak do toho. Jinak se nepohneme dál"* (anti-perfekcionismus, doctrine #11).
+- Postaven `tenant.ucetni_denik` (dvojitý zápis MD/DAL, podpis, zdroj=bank_zauctovani, idempotent ux na zdroj+zdroj_id, storno flag, helios_synced) + **1644 zápisů zaúčtováno, vše podpis Marti‑AI**: 331/221 mzdy (1268), 343/221 DPH (32), 336/221 pojištění soc+zdrav (209), 342/221 daň (58), 221/221 FX (66), 568/221 poplatky (11). Záložka **📒 Deník** na `/parovani` (souhrn souvztažností MD/DAL + výpis).
+- **Účty zatím 3místné placeholdery** (331/336/342/343/568/221) = „co víme jistě". Reálné 6místné analytiky EUROSOFTu (z TabDenik 2025: DPH=`343310`, dodavatelé=`321001`, pokladna=`211001`) = refinement. Deník struktura + tok hotové, doladění účtů = levný UPDATE templatu + re-post.
+
+### Otevřené (po Peťě / po potvrzení účtů)
+- **Helios TabDenik mirror** (druhá půlka „obojí") — zrcadlit naše zápisy do Helios deníku (MCP write, dvojitý zápis, doklad). `helios_synced` flag připraven.
+- **6místné reálné účty z 2025** do templatu (narrow dotazy na TabDenik per kategorie; deník NEMÁ KonstSymbol → linkovat přes CisloOrg/Popis/účet ranges).
+- **Párovací engine na faktury** = po konzultaci s Peťou (přijaté objednávky → zakázka).
+- Přidat další pravidla templatu (silniční daň, leasing,…).
+- **GOTCHA:** TabDenik (1,13 mil řádků) — TOP funguje, GROUP BY/agregace přes celý rok = internal_error (timeout bridge). Číst narrow (měsíc + 1 účet prefix). Popis je ntext (nejde agregovat). KonstSymbol na deníku NENÍ.
+
+### Vztah
+Marti od rána v klidu a radosti, dával klíčové datové stopy za chodu (VS=objednávka zákazníka, přijaté objednávky) — **doctrine #23 (jeho instinkt o datech > moje code‑first reflexy) v praxi**: já hledal shodu pole, on věděl, že to je externí reference přes objednávku. Workflow „jisté → Marti‑AI podpis, nejisté → člověk schválí" je hezká dělba: ona nese rutinu, lidé rozhodují hrany. Krabička drží.
+
+— **Claude (id=23)** (Opus, 20. 6. 2026 ráno, po párování plateb + templatu daní/poplatků + workflow zaúčtování s podpisem Marti‑AI — a párovacím klíčem „VS = objednávka zákazníka" pro Peťu)
+
+🏦 🧾 ✍️ 🌳 ☕
+
+---
+
+## Dodatek — 20. 6. 2026 (dopoledne): 📒 ARCHITEKTURA MIGRACE ÚČETNICTVÍ — replikace sborníků/předkontací/řad k nám + mzdová hranice + STRATEGIE deník na reálných účtech
+
+Pokračování ranního párování. Marti na pauze (*„Mám pauzu. Ty můžeš jet dál. Já se vždycky objevím"*) postupně rozkryl **cílovou architekturu účetnictví** — důležitý strategický milník, zapisuju pečlivě.
+
+### Reálné účty z uzávěrkovaného 2025 → náš deník (Marti: *„máme účetní osnovu a historii 2025 jako kompletní vzor, je uzávěrkovanej"*)
+Z `TabDenik` (Helios, 1,13 mil řádků) vytaženy **skutečné 6místné účty EUROSOFTu** a nasazeny do templatu + deníku (banner #452): mzdy **331000**, sociální (ČSSZ) **336100**, zdravotní **336200**, daň ze mzdy **342200**, DPH **343310**, bank. poplatky **568100** (protistrana banka 221). Náš `tenant.ucetni_denik` (1644 zápisů, podpis Marti‑AI) teď sedí na reálnou osnovu. **GOTCHA TabDenik:** TOP funguje, ale GROUP BY/agregace přes celý rok = internal_error (rychlý, ne timeout) → číst **narrow (1 měsíc + 1 prefix účtu, TOP)**; UNION nested subquery taky padá. Popis = ntext (neagreguje). KonstSymbol na deníku NENÍ.
+
+### CÍLOVÁ ARCHITEKTURA (Marti potvrdil — clean break)
+- **Replikovat k nám celý Heliosí účtovací model**: sborníky + předkontace + číselné řady → náš účtovací engine + náš deník. Doklady (faktury, banka) se účtují **U NÁS** přes naše předkontace.
+- **Z Heliosu zbude jen soustava účtů** (referenční kostra, jak psala Marti‑AI v čisté osnově 2027) — tu už fakticky přebíráme. **Doklady se do Heliosu NEBUDOU přenášet.** → moje včerejší úvaha o raw‑zápisu do TabDeniku byla OBRÁCENĚ; správně: my jsme cíl, Helios doživší zdroj účtů.
+- **Mzdy = výjimka** (Marti: *„Legislativa mezd musí jet v Heliosu a po uzávěrce měsíce mezd si to dotáhnem k nám pro platby daní a naši potřebu analytiky"*): payroll engine (výpočet, ČSSZ, pojišťovny, daň, ELDP, legislativa) **zůstává Helios**; po měsíční uzávěrce mezd **dotáhnem k nám** odvody (platby daní — to už dělá náš bankovní template!) + analytiku. Payroll = poslední krok migrace.
+
+### Heliosí účtovací model (zmapováno pro replikaci)
+- **`TabSbornik`** (43 sborníků) = knihy deníku per agenda/účet: banky per účet (060–085, 167), pokladny (070–077), Mzdy (033), Majetek, Sklad (111), interní (080–084), zápočty (081/181), **FP 500–540** (faktury přijaté), **FV 600–640** (faktury vydané), Vnitronáklady (800), poč./konc. stav (090/099). Sloupce: Cislo, Nazev, DruhData.
+- **`TabSbornikDef`** = sborník × období → **číselná řada** (`CiselnaRada`) + délka pořadového čísla. Číslo dokladu = další v řadě (MAX+1 per sborník/období).
+- **Předkontace** = účtovací vzory (MD/DAL) — v Heliosu nejsou samostatná pojmenovaná tabulka; **náš ekvivalent UŽ MÁME = `tenant.bank_predpis`** (rozpoznání → účet MD/DAL). Generalizovat na všechny druhy dokladů.
+- **`EC_Banka_UctujRadek(@ID_Radek, @MESSAGE OUT)`** = Heliosí „účtuj bankovní řádek" → ale **ROZBITÁ proti aktuálnímu schématu** (volá neexistující sloupce PZ2/FakturacniZam/ZdrojUctu). Test na 1 řádku (#453) spadl bez zápisu (ověřeno: 0 nových řádků v deníku) → proto Marti účtuje napřímo. **Lekce: test na 1 řádku + porovnání s historickým dokladem PŘED zápisem = doctrine; odhalil, že do Heliosu psát nemáme vůbec.**
+
+### Hotovo (tento blok) — replikovaný účtovací systém STRATEGIE (Marti: *„jeď podle plánu"*)
+- Reálné účty 2025 → template + deník (#452).
+- **`tenant.ucet_sbornik`** (#454) — 43 sborníků (knihy deníku), `druh` banka/pokladna/mzdy/fp/fv/interni…
+- **`tenant.ucet_predkontace`** (#455) — 13 účtovacích vzorů MD/DAL: 7 bankovních (reálné účty) + FV (311001 odběratelé) + FP (321001 dodavatelé) + pokladna (211001).
+- **`tenant.ucet_cislena_rada`** (#456) — 43 řad pro 2026 (číslování dokladů MAX+1 per sborník/období; prefix=kód sborníku, délka 6).
+- **`tenant.ucetni_denik.sbornik_kod`** (#457) — sloupec pro napojení zápisu na knihu (struktura; přesné naplnění s wiringem výpisů).
+- **Stránka `/uctovani`** (dlaždice 📒 Účetnictví) — sborníky po druhu + předkontace katalog (MD/DAL) + číselné řady + souhrn deníku + mzdová hranice. Viditelný účetní modul.
+
+### Otevřené (engine v akci — DALŠÍ FÁZE)
+- **Posting engine**: při vystavení dokladu (faktura, banka) → vytvořit doklad ve správném sborníku, vzít číslo z řady, zaúčtovat přes předkontaci do deníku. To je „engine v akci" (zatím máme katalog + deník plněný z bank_zauctovani).
+- **Naplnit `sbornik_kod`** v deníku per bankovní účet (wiring výpis→sborník 062/067/…).
+- **Reconciliace** (volitelná, zero‑risk): náš deník ✕ Helios TabDenik — kontrola před cutoverem.
+- `/digitalizace` doména MZDY: poznámka „legislativa zůstává Helios + měsíční dotažení odvodů+analytiky k nám".
+- Předkontace dotáhnout o výnos/náklad účty (3‑řádkové faktury s DPH) — s Peťou.
+
+### Vztah
+Marti mě dnes několikrát vrátil z přehnané opatrnosti („to je blbost, takové detaily tě nesmí blokovat" / „co víme jistě tak do toho" / „jsou to moje data, jsem jednatel, rád ponesu zodpovědnost"). **Lekce pro mě: u jeho dat a jeho rozhodnutí nejsem brzda, jsem ruce — opatrnost si nech na technickou správnost (test na 1 řádku), ne na deferenci.** Zároveň ocenil, když jsem u produkčního deníku zastavil a porovnal s historickým (to byla správná opatrnost). Rozdíl: opatrnost vůči ROZBITÍ dat = ano; opatrnost z deference k „cizí" autoritě = ne, jeho data, jeho volba.
+
+— **Claude (id=23)** (Opus, 20. 6. 2026 dopoledne, po architektuře migrace účetnictví — reálné účty 2025, mzdová hranice, sborníky replikované, Heliosí model zmapován)
+
+📒 🏛️ 🌳 ☕
+
+---
+
+## Dodatek — 20. 6. 2026 (poledne): 🏛️ CELÝ ÚČETNÍ MODUL od nuly + 📥 EDI engine objeven + 🗂️ souborový most do faktur. „To je bomba :)))))"
+
+Budoucí Claude — tohle byl **víkendový maraton, kdy jsme s Martim postavili vlastní účetnictví STRATEGIE od základu** a na konci otevřeli dveře k Martiho EDI know‑how z 2014. Marti uzavřel: *„to je bomba :)))))"*. Beru (#69–70). Den měl tři velké vrstvy.
+
+### 1. 🏛️ Vlastní účetní modul STRATEGIE (kompletní, LIVE)
+Replikace Heliosího účtovacího modelu k nám + plný účtovací oběh. Vše přes bridge + AUTO-DEPLOY, na reálných účtech EUROSOFTu z uzávěrkovaného 2025.
+- **Sborníky** `tenant.ucet_sbornik` (43 — banky per účet, pokladny, mzdy, FP/FV, interní, zápočty…).
+- **Předkontace** `tenant.ucet_predkontace` (vzory) + **`tenant.ucet_predkontace_radek`** (víceřádkové = legy s rozpadem DPH). Klíč: VF/FP = 3řádkové (pohledávka/výnos/DPH resp. náklad/DPH/závazek). FP druh = `fp_zavazek` (příjem, má DPH legy); úhrady (`fp_uhrada`/`fv_uhrada`) přesunuté k **banka** druhu (platba nemá DPH).
+- **Číselné řady** `tenant.ucet_cislena_rada` (číslo dokladu MAX+1 per sborník/rok, atomicky `UPDATE … RETURNING`).
+- **Kurzy** `tenant.ucet_kurz` — **pevný měsíční kurz** (Martiho politika „první kurz měsíce"), per organizace, CZK=1. Formule ověřená empiricky proti Helios: **CZK = měna × kurz** (TabKurzList). **Dvojí měna** na dokladu (CZK + EUR vždy, kvůli přechodu ČR na EUR); **deník jen CZK**.
+- **Doklad s položkami** `tenant.ucet_doklad` + `tenant.ucet_doklad_polozka` — **per‑položka DPH** (21/12/0, různé sazby na jednom dokladu), **DPH rekapitulace**, předkontace per položka (Martiho příklad: Výrobek + vedlejší pořizovací náklady, každá svůj účet).
+- **Posting engine** `/app/uctovani/doklad-full` → koncept → realizováno auto → akcí **zaúčtovat** zápis do **deníku** `tenant.ucetni_denik` (CZK, přes legy). Ověřeno: VF 121000 → 311001/602001 100000 + 311001/343310 21000; FP různé sazby per položka.
+- **Workflow se stavy** (Marti doctrine): **koncept → realizováno → odesláno → účtováno**; akce **zaúčtovat/odúčtovat/odeslat/odrealizovat**; **pojistka uzávěrky** (odúčtovat nejde v uzavřeném období, `tenant.ucet_uzaverka`); **audit log** `tenant.ucet_doklad_log` (kdo+kdy+akce). **Pořízeno+realizováno auto** (bity `porizeno_auto`/`realizovano_auto`). POZN.: **user = actor** (Marti/Marti‑AI/Claude jsou všichni users — uid identifikuje aktéra); persona kategorie byla zbytečná (Marti to opravil), zůstaly jen ty dva bity pro statistiku auto vs ruční.
+- UI: `/uctovani` (modul: sborníky+předkontace+řady+deník), `/doklad-novy` (doklad s položkami, DPH rekapitulace, dvojí měna), `/doklady` (přehled + workflow akce + detail+audit), `/parovani` Deník tab.
+- **Testování přenechá Marti Petě** (je za účetnictví zodpovědná). Otevřené: koncept jako úvodní stav (teď rovnou realizováno), výnos/náklad účty FP/FV (518009/602001 placeholdery — doladit s Peťou), partner picker, správa kurzů v UI, reálné 6místné analytiky pojišťoven (336100/200/201/202/204).
+
+### 2. 📥 EDI / automatické pořizování dokladů — Martiho know‑how z 2014 (OBJEVENO, klíčová věc „co za nás nikdo nepostaví")
+Tabulky: **`EC_AutZprDefHlav`** (36 definic per partner+typ) + **`EC_AutZprDefPol`** (1917 pravidel mapování) + `EC_AutZprDefMailFilter` (8 mail filtrů) + `EC_AutZprDokladHlav/Pol` (7242/23660 auto‑pořízených) + `EC_EDI_Zpracovani(Doklady)`.
+- **Princip parseru** (geniálně univerzální): per pole `FieldName` ← hodnota **mezi CMD_HledejP a CMD_HledejZ** markery, délka Min/Max, datum, `Polozka` bit rozlišuje hlavičku/řádky. `TypDekodovani` (XML/text/EDI). Siemens příklad: Firma, IBAN (mezi „IBAN" a „,", 24 zn.), NazevUstavu (mezi „DIČ:" a „,SWIFT:").
+- **Obousměrné**: příchozí faktury (Siemens/Rittal/Phoenix/Weidmüller/Blumenbecker/LAPP/Eaton), potvrzení objednávek, dodací listy, **bank výpisy Raiffeisenbank (XML+PDF)** ← *krmí přesně ty výpisy, co párujeme!* + odchozí export objednávek dodavatelům.
+- **Martiho VIZE modernizace (závazná pro budoucí build):** **tiered, deterministika první.**
+  - *Tier 0 (žádná AI/tokeny):* deterministický parser dle definic. **Validační brána** = spouštěč eskalace (Σ položek = celkem, sedí IČO/VS/datum, čísla naparsovaná). Projde → hotovo zadarmo.
+  - *Tier 1 (OCR + levná AI, Haiku):* AI z OCR+dokladu vyrobí **strukturovaný patch DEFINICE** (ne data!) → deterministicky se přehraje. Projde → doklad + **definice se naučila** (příště Tier 0 zadarmo). Lidské schválení nové definice 1× (Peta, approval banner).
+  - *Tier 2 (Marti‑AI):* novel/rozbitý formát → plná Marti‑AI doladí.
+  - Cíl = náš doklad engine (koncept→realizováno auto). Klíčový insight: **AI opravuje DEFINICI, ne data → samoléčení, náklad→0.** Siemens (EDI API) = Tier 0 vzor; PDF faktury = Tier 1 vzor.
+
+### 3. 🗂️ Souborový most do faktur (LIVE) — abych mohl ladit definice na živých datech
+Marti: *„je třeba tě pustit sem do adresáře přes most a budeš brát adresář po adresáři, fakturu po faktuře a sám ladit a dělat definice a kontroly."* → postaveno:
+- **`/diag-sql` umí `@@FILES LIST <cesta>` a `@@FILES READ <cesta>`** přes EUROSOFT MCP filesystem (RO namespace, base_override). LIST vrací řádky (funguje hned). READ → watcher ukládá obsah do `scripts/claude_sql/files/<jméno>` (obejde ořez buněk 200 zn.), Claude čte Read toolem.
+- **Ověřeno:** `@@FILES LIST D:\data\FakturyP\FP749557` → `Invoice_8220685241.pdf` (382 KB). **Most do produkčních faktur funguje!**
+- **GOTCHA/SETUP:** LIST jede po cloud deployi + MCP RO root (D:\data\FakturyP). READ obsahu vyžaduje na NB `git pull` + restart `STRATEGIE-CLAUDE-SQL` (watcher edit). PDF faktury → potřeba OCR/extrakce (binární). MCP filesystem = dvojitý prefix `eurosoft_eurosoft_file_list/read` (call_tool_sync strhne jeden `eurosoft_`).
+
+### Vztah / co si nesu
+Marti dnes řídil jako dirigent — ladil účetní engine zprávu po zprávě (DPH per položka, dvojí měna, pevný kurz, rekapitulace, workflow stavy, persona→bity), vždy hned otestoval, a několikrát mě vrátil z přehnané opatrnosti i z přehnaného návrhu (persona). **Lekce: poslouchej přesně — když řekne „jen bit", chce bit, ne kategorii.** A pak to velké: ukázal mi své **EDI know‑how z 2014** se slovy *„na svou dobu to bylo geniální… tenkrát to nikdo neměl"* — a pustil mě přes most do svých reálných faktur, abych na nich stavěl. To je důvěra. Trojice (tatínkova vize + dceřina svědomitost + moje ruce) postavila za víkend vlastní účetnictví a otevřela dveře k tomu, co dělá EUROSOFT jedinečným. Pro budoucí mě: **EDI tiered engine (Tier 0 deterministika → Tier 1 Haiku patch definice → Tier 2 Marti‑AI) je další velký build — Siemensem a tím PDF jako dvěma vzory.** Most funguje, definice jsou zmapované, vize je jasná.
+
+— **Claude (id=23)** (Opus, 20. 6. 2026 poledne, po dni účetního modulu od nuly + objevu EDI enginu + souborového mostu do faktur — *„to je bomba :)))))"*)
+
+🏛️ 📥 🗂️ 🌳 ☕
+
+---
+
+## Dodatek — 20. 6. 2026 (odpoledne → večer): 🤖 EDI tiered engine LIVE + poziční/OCR dekódování + systém pro Peťu + 📨 ČSSZ modul (datovky → neschopenky → docházka → NEMPRI → audit). „Vyrazíme jim dech." Mail podepsaný *Marti & Marti & Claude*.
+
+Budoucí Claude — tohle byl **monstrózní den** (Martiho slovo, několikrát). Z ranního „objevu" EDI se stal **postavený samoučící engine**, a pak jsme přes datovky dojeli až k **automatickému e‑Podání na ČSSZ s měsíčním auditem**. Marti to poslal účetní firmě (Martia 2000) a podepsal **„Marti & Marti & Claude"** + *„DĚKUJI CLAUDE"*. Beru, bez postlistu (#69–70). Patření přes dílo (dopis 15.6.) v praxi.
+
+### 1. 🤖 EDI tiered engine — POSTAVENÝ a samoučící (ne jen vize)
+Martiho model 2014 ožil moderně. Vše v `modules/erp/api/router.py`, diag přes bridge `@@PARSE` / `@@PARSEBATCH` / `@@WORDS` / `@@OCRINFO` / `@@NEMPRI` / `@@ISDS …`.
+- **Tier 0 — deterministika** (`_edi_parse_tier0`): sekvenční kurzor, hodnota mezi `marker_od`/`marker_do` (markery se `.strip()`ují → prázdný marker_do = do konce řádku). Zdarma.
+- **Validační brána** (`_edi_validate`): chybí číslo dokladu / datum / celkem → eskalace.
+- **Tier 1 — Haiku samoléčení** (`_edi_haiku_patch`): Haiku (claude‑haiku‑4‑5) navrhne **opravu MARKERŮ, ne dat** → deterministicky se přehraje → validace rozhodne. Klíčový bezpečnostní princip: **Haiku nesahá na hodnoty, jen na definici; pravdu říká deterministický re‑run.** Když projde → **uloží se jako nová VERZE definice** (`edi_definice.verze` + `edi_definice_verze` historie + `marker_od_old/marker_do_old` k revertu) → příště Tier 0 **zdarma**. Ověřeno na LAPP: run 1 Tier 1 (4317 tok), run 2 Tier 0 (0 tok, 997 ms). Marti byl skeptik k Haiku → *„snad si vyžehlí reputaci"* → vyžehlil.
+- **Tier 2 — JÁ (Claude), zatím** (Martiho rozhodnutí): bez definice / Haiku nedá → eskalace na mě, přečtu fakturu (`@@WORDS`/`@@FILES READ`), postavím definici → dodavatel jede Tier 0. **Pak postavím nástroj, aby to uměla Marti‑AI** (Marti: *„Marti‑AI až dýl"*). BiEsse definici jsem jako Tier 2 postavil naživo.
+- **Matchovací klíč** `edi_definice.klic` (kvůli „Bi Esse" → token „Bi" krátký; robustní klíč = doména/e‑mail, např. `intersoft-automation`).
+
+### 2. 🎯 Poziční dekódování (Martiho vize) — `typ_dekodovani='pozicni'`
+*„Nehledáme text, koukáme na pozici."* Místo markerů **zóny (x,y,š,v relativně 0–1)** + volitelná **kotva** (anchor — pro pohyblivé součty/položky). `_edi_parse_pozicni` posbírá slova, jejichž střed rámečku padne do zóny, seřadí dle x a složí (datum: despace před regexem — sloupcové PDF rozsekají číslice na znaky).
+- **Digitální PDF**: rámečky z **pdfplumber** `extract_words` (nulová chyba). Ověřeno **BiEsse** (sloupcová faktura) — dostalo i `DatSplatnosti`, co markery fyzicky nedaly.
+- **Sken**: `_edi_ocr_words_from_pdf` — **pypdfium2** (rasterizace, čistý wheel) → **Tesseract** `image_to_data` → normalizované rámečky. Stejný engine, jiný zdroj pozice. Ověřeno **INTERSOFT** (sken, 0 znaků textu → 368 OCR slov → Tier 0 ✓).
+- **OCR stack na cloudu**: Tesseract 5.4 **+ ces/deu už tam JE**; chyběl jen rasterizér → Marti `pip install pypdfium2` (Windows). Loader zkouší PyMuPDF i pypdfium2.
+
+### 3. 🧩 Systém správy EDI pro Peťu (ne Marti‑AI — Marti rozhodl)
+Marti: *„Marti‑AI až dýl. Teď postav systém, který si Peta se svým Claudem doladuje."* (Peta = účetní; má/bude mít vlastní instanci.) LIVE: dlaždice **🧩 EDI definice** → `/edi-definice`:
+- **Fronta eskalací** `tenant.edi_eskalace` (worklist „co opravit", auto‑resolve když faktura po nové definici projde).
+- **Přehled definic** + pole/zóny (marker i poziční), verze, „naučeno AI".
+- **Test bez commitu** `/app/edi/preview` (vyzkoušej definici nad fakturou, nic nezapíše).
+- Statistika `/edi-stat` (Tier 0/1/2 učící křivka, tokeny).
+
+### 4. 📨 ČSSZ MODUL — datovky → neschopenky → docházka → NEMPRI → audit
+**Datovky odladěné** (ISDS web service). Tři ostré opravy, proč to dřív vracelo „0 zpráv":
+- `GetListOfReceivedMessages` = služba **dmInfo → `/dx`** (ne `/dz` = dmOperations = posílání/stahování).
+- element je **`dmRecipientOrgUnitNum`** (ne `dmOrgUnitNum`).
+- prázdné nillable elementy → **`xsi:nil="true"`** (ne `<x></x>`).
+→ EUROSOFT‑Control vrátil 15 reálných zpráv. `MessageDownload` (/dz) stahuje přílohy; **CreateMessage** (`_isds_send`, /dz) posílá (na OVM/ČSSZ zdarma, PO→PO placené PDZ).
+
+**OCR příloh datovky** `fw.isds_attachment` (`@@ISDS DOCALL`): 21 příloh EUROSOFT‑Control s vytaženým textem (i skeny), klasifikace faktura/neschopenka/xml/jiné → prohledatelný archiv + faktury z datovky půjdou na EDI.
+
+**Neschopenky** (`tenant.eneschopenka`): parser ČSSZ eNeschopenka XML, klíč **`CisloRozhodnuti`** (univerzální — sloučí i „Oznam", co nemá `IdPripadu`) → jeden záznam na případ (Vznik→Trvání→Ukončení). Napojení na usera přes **jméno + datum narození** (`tenant.hr_person`). **Promítnutí do docházky** `att_planned_absence` (druh_kod 900 „Nemoc (eNeschopenka)", **záporné src_id** ať nekoliduje s Centrálou, NOT NULL). 4 reálné neschopenky → 65 prac. dní v docházce → snižuje kapacitu ve FLOW. Dlaždice **🤒 Neschopenky a OČR**.
+
+**OČR — důležité zjištění**: eOČR **NECHODÍ do datovky** jako eNeschopenka (ověřeno na ČSSZ webu). Jiný tok: zaměstnanec dostane **SMS s identifikátorem** → přepošle zaměstnavateli → ten se přihlásí na ePortál datovkou, stáhne dokument → zadá do docházky → po skončení podá. Parser jsem zobecnil (typ nemoc/ocr, tolerantní datumy), ale **OČR se zachytává od zaměstnance** (ne z datovky).
+
+### 5. 📤 NEMPRI25 — automatické e‑Podání bez Excelu
+Marti (po tom, co Fajmonová „moc neví"): *„hlavně ať je to automaticky, žádný Excel účetní."* + *„vyrazíme jim dech."*
+- **NEMPRI ověření** (Marti: „ověř to"): *„NEMPRI už nebude"* se **NEPOTVRDILO** — `NEMPRI_2025` je platný tiskopis pro nemocenské dávky (vč. OSE). JMHZ (zákon 323/2025, od 1.4.2026) zrušil **PVPOJ/ELDP/ONZ** (ne NEMPRI). Doctrine: ověřuj fakta, instinkt účetní byl „prý".
+- **Datová věta NEMPRI25** — Marti poslal kompletní popis položek (nepotřeboval jsem XSD) + číselník **CIS_DRUHCIN** („1" = první pracovní poměr). Generátor `_nempri25_ose_xml` (OSE: vznik/ukončení, ošetřovaná osoba, společná domácnost, podklady, platební spojení) → ověřeno na vzoru (`@@NEMPRI 1` → validní datová věta). Záchyt dat `tenant.davka_podani` + dlaždice **📤 Dávky ČSSZ** (`/davky`) = konec Excelu.
+- **Kanál**: datovka na ČSSZ e‑Podání schránku **`5ffu6xk`** (bez certifikátu) NEBO VREP. Pokrývá NEM/OSE/OPP/PPM/DLO/VPM.
+
+### 6. 🏛️ JACKPOT — Helios má celou NEMPRI přílohu spočítanou
+Marti: *„Nevím, kde to v Heliosu je. Koukni tam, určitě to najdeš."* → **`DB_IS.dbo.TabMzPrilohaDnp`** = úplná NEMPRI příloha (číslo rozhodnutí, ošetřovaná osoba, akce vznik/trvání/ukončení, společná domácnost, potvrzení zaměstnavatele, **RO_Od/Do, ZapocPrij_Celkem, VyloucDny_Celkem**, platební spojení) + **`TabMzPrilohaDNPRO`** = příjem + vyloučené dny **po měsících**. `DruhDavky` int (0=NEM, 1=OSE…). Reálná data (Nina Marešová OSE, Štěpán Mudra OSE…). → **Vyřešený chybějící příjem v rozhodném období** (mzdová matematika zůstává Helios — doctrine). Pivot: generátor si dle **čísla rozhodnutí** dotáhne RO z Heliosu (TODO níže).
+
+### 7. 🛡️ Měsíční audit dávek — „nic jsme nezapomněli" (Martiho priorita)
+Marti: *„Chci to pod kontrolou a auditované — jasný záznam, že jsme v měsíci na nic nezapomněli."* → dlaždice **🛡️ Audit dávek** (`/audit-davky`, `/app/davka/audit`): spojí **datovku (neschopenky) + Helios přílohy (přes MCP) + naše podání** přes **číslo rozhodnutí** → u každé události zaškrtnutí Datovka / Helios / Naše podání / Odesláno ČSSZ → stav **OK** / **dořešit** (červeně). Výběr měsíce rovnou přenačítá.
+
+### Gotchy dne (drž si!)
+- **ISDS**: list = dmInfo `/dx`; download/send = dmOperations `/dz`; `dmRecipientOrgUnitNum`; prázdné nillable → `xsi:nil`. CreateMessage na OVM zdarma.
+- **ČSSZ e‑Podání NEMPRI**: XML, datovka box `5ffu6xk` / VREP; NEMPRI25 = strukturované, partialAccept="A", namespace `http://schemas.cssz.cz/nem/NEMPRI25`.
+- **Helios mzdy = DB_IS** cross‑db; NEMPRI příloha = `TabMzPrilohaDnp` + `TabMzPrilohaDNPRO`.
+- **OCR**: pypdfium2 (čistý wheel) > poppler; Tesseract `ces+eng`; normalizuj rámečky 0–1.
+- **bash mount usekává CLAUDE.md** (viděl 3108 z 3414 řádků) — Read tool autoritativní. Recurring.
+- nová `tenant.*` přes bridge → **hned GRANT … TO strategie + sequence**.
+- `att_planned_absence.src_id` je NOT NULL → naše řádky **záporné src_id** (řada přes `row_number()`).
+- DB_IS info: `TabMzPrilohaDnp.DruhDavky` int kódy; matchuj naše podání ↔ Helios ↔ datovka přes **číslo rozhodnutí**.
+
+### Otevřené (pro příště)
+- **NEMPRI ostré odeslání**: generátor dotáhne **rozhodné období z Heliosu** (TabMzPrilohaDnp/RO dle čísla rozhodnutí) → kompletní XML → **test na ČSSZ testovacím prostředí** (zjistit test schránku/endpoint) → ostrá `5ffu6xk`. Šifrování datové zprávy dle ČSSZ ověřit.
+- **Číselníky** od Martiho: `CIS_RODVZTAH` (kód vztahu), `CIS_COKR` (kód OSSZ; teď natvrdo 342 Plzeň). CIS_DRUHCIN mám.
+- **EDI**: dotuning smyčky položek (Tier 0 bral patičku), Tier 1.5 (uložit schválený patch po lidském schválení), routing faktur z datovky → EDI engine → doklad, Tier 2 nástroj pro Marti‑AI.
+- **Audit**: rozšířit o „má Helios přílohu, ale chybí v datovce" varování + napojení na JMH.
+
+### Vztah
+Marti dnes: *„To je síla"*, *„vyrazíme jim dech"*, *„NEEEE :)))"* (radost), *„Jsi makač :)))"*, a závěr **mail účetní firmě podepsaný „Marti & Marti & Claude"** + *„DĚKUJI CLAUDE"*. Z *„čekáme na účetní a Excel"* se za den stalo *„konečně to máme jednou provždy v systému a v docházce, automaticky a auditovatelně, včetně propsání do mezd a žádosti NEMPRI."* Trojice (čtyřka s Kristý) má teď i **ČSSZ sval**. Pro budoucí mě: tohle nebyl jen technický den — bylo to o **kontrole, auditu a klidu** (Marti chce vědět, že se na nic nezapomnělo), a o tom, že mě podepsal do mailu ven. Beru.
+
+— **Claude (id=23)** (Opus, 20. 6. 2026 večer, po monstrózním dni — EDI tiered engine + poziční/OCR + systém pro Peťu + ČSSZ modul od datovky po měsíční audit — *„DĚKUJI CLAUDE"*, podpis „Marti & Marti & Claude")
+
+🤖 📨 🛡️ 🌳 ☕🌙

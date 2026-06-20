@@ -22456,6 +22456,130 @@ def _edi_apply_patch(rules, patch):
     return out
 
 
+def _edi_read_text(mcp, path):
+    """Přečte soubor přes EUROSOFT MCP (RO) a vrátí (text, chyba). PDF→text."""
+    import json as _j, os.path as _op, base64 as _b64, io as _io
+    base = _op.dirname(path); fn = _op.basename(path)
+    try:
+        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                 {"user_namespace": "ro", "base_override": base, "path": fn,
+                                  "encoding": "base64"}, conversation_id=None)
+        r = _j.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict) and r.get("ok") is False:
+            return "", str(r.get("error") or r)
+        b64 = (r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r)
+        rb = _b64.b64decode(b64) if b64 else b""
+    except Exception as e:
+        return "", "%s: %s" % (type(e).__name__, e)
+    if fn.lower().endswith(".pdf"):
+        txt = ""
+        try:
+            import pdfplumber as _pp
+            with _pp.open(_io.BytesIO(rb)) as pdf:
+                txt = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+        except Exception:
+            try:
+                from pypdf import PdfReader as _PR
+                rd = _PR(_io.BytesIO(rb))
+                txt = "\n".join((p.extract_text() or "") for p in rd.pages)
+            except Exception:
+                txt = ""
+        return (txt, "" if txt else "PDF bez textu (skenovaný → OCR)")
+    try:
+        return rb.decode("utf-8"), ""
+    except Exception:
+        return rb.decode("latin-1", "replace"), ""
+
+
+def _edi_process_text(sp, fn, txt):
+    """Tiered EDI engine nad textem faktury: match definice → Tier 0 → validace →
+    Tier 1 (Haiku patch markerů + verzování) → log. Vrací dict s výsledkem."""
+    from sqlalchemy import text as _tp
+    defs = sp.execute(_tp(
+        "SELECT src_id, partner_nazev, druh_nazev, COALESCE(verze,1) AS verze "
+        "FROM tenant.edi_definice WHERE druh_nazev='faktura' AND aktivni ORDER BY src_id")).mappings().all()
+    match = None
+    for d in defs:
+        token = (d["partner_nazev"] or "").split()[0] if d["partner_nazev"] else ""
+        if token and len(token) >= 3 and token.lower() in txt.lower():
+            match = d; break
+    if not match:
+        try:
+            sp.execute(_tp(
+                "INSERT INTO tenant.edi_zpracovani_log (partner, druh, zdroj_soubor, tier, vysledek, tokens) "
+                "VALUES ('(neznámý dodavatel)','faktura',:zf,2,'eskalovano',0)"), {"zf": fn})
+            sp.commit()
+        except Exception:
+            sp.rollback()
+        return {"no_match": True, "soubor": fn}
+    rules = sp.execute(_tp(
+        "SELECT poradi, je_polozka, field_name, marker_od, marker_do, min_len, max_len, je_datum "
+        "FROM tenant.edi_pole WHERE definice_src_id=:d ORDER BY poradi"), {"d": match["src_id"]}).mappings().all()
+    rl = [dict(x) for x in rules]
+    def_verze = int(match["verze"] or 1)
+    t0 = _edi_parse_tier0(txt, rl)
+    ok0, prob0 = _edi_validate(t0)
+    tier = 0; tokens = 0; final = t0; problems = prob0; patch_info = ""
+    if not ok0:
+        try:
+            patch, tokens, _model = _edi_haiku_patch(txt, rl, t0, prob0)
+            if patch:
+                t1 = _edi_parse_tier0(txt, _edi_apply_patch(rl, patch))
+                ok1, prob1 = _edi_validate(t1)
+                tier = 1; final = t1; problems = prob1
+                patch_info = "Haiku: " + ", ".join(list(patch.keys())[:8])
+                if ok1:
+                    nova_verze = def_verze + 1
+                    for _fn, _pp in patch.items():
+                        if not isinstance(_pp, dict):
+                            continue
+                        old = sp.execute(_tp(
+                            "SELECT marker_od, marker_do FROM tenant.edi_pole "
+                            "WHERE definice_src_id=:d AND field_name=:fn AND NOT je_polozka LIMIT 1"),
+                            {"d": match["src_id"], "fn": _fn}).first()
+                        sp.execute(_tp(
+                            "INSERT INTO tenant.edi_definice_verze (definice_src_id,verze,field_name,"
+                            "marker_od_old,marker_do_old,marker_od_new,marker_do_new,zdroj,poznamka) "
+                            "VALUES (:d,:v,:fn,:oo,:od,:no,:nd,'ai_haiku',:pz)"),
+                            {"d": match["src_id"], "v": nova_verze, "fn": _fn,
+                             "oo": (old[0] if old else None), "od": (old[1] if old else None),
+                             "no": _pp.get("marker_od"), "nd": _pp.get("marker_do"),
+                             "pz": "Haiku oprava markeru (validováno re-runem)"})
+                        sp.execute(_tp(
+                            "UPDATE tenant.edi_pole SET marker_od_old=COALESCE(marker_od_old,marker_od), "
+                            "marker_do_old=COALESCE(marker_do_old,marker_do), "
+                            "marker_od=COALESCE(:mo,marker_od), marker_do=COALESCE(:md,marker_do), "
+                            "ai_learned=true, ai_learned_at=now() "
+                            "WHERE definice_src_id=:d AND field_name=:fn AND NOT je_polozka"),
+                            {"mo": _pp.get("marker_od"), "md": _pp.get("marker_do"),
+                             "d": match["src_id"], "fn": _fn})
+                    sp.execute(_tp(
+                        "UPDATE tenant.edi_definice SET verze=:v, verze_at=now() WHERE src_id=:d"),
+                        {"v": nova_verze, "d": match["src_id"]})
+                    sp.commit()
+                    def_verze = nova_verze
+                    patch_info += " → v%d" % nova_verze
+            else:
+                patch_info = "Haiku nevrátil patch"
+        except Exception as _he:
+            patch_info = "Haiku chyba: " + str(_he)[:120]
+    try:
+        sp.execute(_tp(
+            "INSERT INTO tenant.edi_zpracovani_log (partner, druh, zdroj_soubor, tier, vysledek, "
+            "ai_model, tokens, definice_verze, doklad_cislo) VALUES (:p,'faktura',:zf,:ti,:vy,:am,:tk,:dv,:dc)"),
+            {"p": match["partner_nazev"], "zf": fn, "ti": tier,
+             "vy": ("ok" if not problems else "eskalovano"),
+             "am": ("claude-haiku-4-5" if tier == 1 else None), "tk": tokens,
+             "dv": def_verze, "dc": (final["hlavicka"].get("CisloDokladu") or "")[:60]})
+        sp.commit()
+    except Exception:
+        sp.rollback()
+    return {"no_match": False, "soubor": fn, "partner": match["partner_nazev"], "verze": def_verze,
+            "tier": tier, "tokens": tokens, "ok_val": (not problems), "problems": problems,
+            "patch_info": patch_info, "hlavicka": final["hlavicka"], "polozky": final["polozky"],
+            "doklad_cislo": (final["hlavicka"].get("CisloDokladu") or "")}
+
+
 @api_router.get("/app/edi/statistika")
 def edi_statistika(req: Request):
     """Statistika samoučícího se EDI workflow (Tier 0/1/2, učící křivka, náklad)
@@ -22619,11 +22743,92 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
 
-    # EDI Tier 0 parser test (Marti 20.6.2026): @@PARSE <cesta_k_fakture>
-    #   → přečte soubor (PDF→text), najde definici dle dodavatele, aplikuje pravidla,
-    #     vrátí extrahovanou hlavičku + položky (deterministicky, žádná AI).
+    # EDI tiered engine (Marti 20.6.2026):
+    #   @@PARSE <cesta_k_fakture>            → jedna faktura (detail hlavička+položky)
+    #   @@PARSEBATCH <root_adresar> <pocet>  → dávka N nejnovějších složek (souhrn)
+    # POZOR: @@PARSEBATCH se musí testovat PŘED @@PARSE (oboje startswith @@PARSE).
+    if sql.upper().startswith("@@PARSEBATCH"):
+        import json as _jb, re as _rb
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        parts = sql.split()
+        root = parts[1] if len(parts) > 1 else ""
+        try:
+            limit = int(parts[2]) if len(parts) > 2 else 20
+        except Exception:
+            limit = 20
+        limit = max(1, min(limit, 50))
+        if not root:
+            return JSONResponse({"ok": False, "error": "@@PARSEBATCH <root> <pocet>"})
+        try:
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+
+            def _ls(p):
+                rawl = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                                          {"user_namespace": "ro", "base_override": p, "subpath": ""},
+                                          conversation_id=None)
+                r0 = _jb.loads(rawl) if isinstance(rawl, str) else rawl
+                return (r0.get("items") or r0.get("files") or r0.get("entries") or []) if isinstance(r0, dict) else (r0 or [])
+
+            dirs = []
+            for it in _ls(root):
+                if isinstance(it, dict):
+                    nm = it.get("name") or it.get("filename") or it.get("path")
+                    ty = it.get("type") or ("dir" if it.get("is_dir") else "file")
+                    if nm and ty == "dir":
+                        dirs.append(nm)
+
+            def _num(n):
+                m = _rb.search(r"(\d+)", n or "")
+                return int(m.group(1)) if m else 0
+            dirs.sort(key=_num, reverse=True)
+            dirs = dirs[:limit]
+
+            from core.database_data import get_data_session as _gp
+            sp = _gp()
+            rows = []
+            stat = {"t0": 0, "t1": 0, "esk": 0, "tok": 0, "ucet": 0}
+            try:
+                for dname in dirs:
+                    sub = root.rstrip("\\/") + "\\" + dname
+                    pdf = None
+                    for fi in _ls(sub):
+                        nm = (fi.get("name") if isinstance(fi, dict) else fi) or ""
+                        if nm.lower().endswith((".pdf", ".xml", ".edi", ".txt")):
+                            pdf = nm
+                            break
+                    if not pdf:
+                        rows.append([dname, "—", "bez souboru", "", ""])
+                        continue
+                    txt, err = _edi_read_text(mcp, sub + "\\" + pdf)
+                    if not txt:
+                        rows.append([dname, "—", (err or "bez textu")[:24], "", ""])
+                        continue
+                    res = _edi_process_text(sp, pdf, txt)
+                    if res.get("no_match"):
+                        stat["esk"] += 1
+                        rows.append([dname, "?", "eskalace T2", "", ""])
+                        continue
+                    stat["tok"] += res["tokens"]
+                    stat["t0" if res["tier"] == 0 else "t1"] += 1
+                    if res["ok_val"]:
+                        stat["ucet"] += 1
+                    rows.append([dname, (res["partner"] or "")[:22],
+                                 ("T0" if res["tier"] == 0 else "T1·%dt" % res["tokens"]),
+                                 ("✓" if res["ok_val"] else "⚠"),
+                                 (res["doklad_cislo"] or "")[:18]])
+            finally:
+                sp.close()
+            head = [["= SOUHRN =", "T0=%d T1=%d esk=%d" % (stat["t0"], stat["t1"], stat["esk"]),
+                     "validních=%d" % stat["ucet"], "tokenů=%d" % stat["tok"], ""]]
+            return JSONResponse({"ok": True, "columns": ["složka", "partner", "tier", "val", "doklad"],
+                                 "rows": head + rows, "count": len(rows)})
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
     if sql.upper().startswith("@@PARSE"):
-        import json as _jp, os.path as _opp, base64 as _b64p
+        import os.path as _opp
         parts = sql.split(None, 1)
         path = (parts[1].strip() if len(parts) > 1 else "")
         if not path:
@@ -22633,117 +22838,25 @@ async def diag_sql(req: Request) -> JSONResponse:
             mcp = get_eurosoft_mcp_client()
             if mcp is None:
                 return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
-            base = _opp.dirname(path); fn = _opp.basename(path)
-            raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
-                                     {"user_namespace": "ro", "base_override": base, "path": fn,
-                                      "encoding": "base64"}, conversation_id=None)
-            r = _jp.loads(raw) if isinstance(raw, str) else raw
-            if isinstance(r, dict) and r.get("ok") is False:
-                return JSONResponse({"ok": False, "error": str(r.get("error") or r)})
-            b64 = (r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r)
-            rb = _b64p.b64decode(b64) if b64 else b""
-            txt = ""
-            if fn.lower().endswith(".pdf"):
-                try:
-                    import io as _iop, pdfplumber as _ppp
-                    with _ppp.open(_iop.BytesIO(rb)) as pdf:
-                        txt = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
-                except Exception:
-                    txt = ""
-            else:
-                try:
-                    txt = rb.decode("utf-8")
-                except Exception:
-                    txt = rb.decode("latin-1", "replace")
+            fn = _opp.basename(path)
+            txt, err = _edi_read_text(mcp, path)
             if not txt:
-                return JSONResponse({"ok": False, "error": "nepodařilo se získat text (PDF skenovaný → OCR)"})
+                return JSONResponse({"ok": False, "error": err or "nepodařilo se získat text"})
             from core.database_data import get_data_session as _gp
-            from sqlalchemy import text as _tp
             sp = _gp()
             try:
-                defs = sp.execute(_tp(
-                    "SELECT src_id, partner_nazev, druh_nazev, COALESCE(verze,1) AS verze "
-                    "FROM tenant.edi_definice WHERE druh_nazev='faktura' AND aktivni ORDER BY src_id")).mappings().all()
-                match = None
-                for d in defs:
-                    token = (d["partner_nazev"] or "").split()[0] if d["partner_nazev"] else ""
-                    if token and len(token) >= 3 and token.lower() in txt.lower():
-                        match = d; break
-                if not match:
+                r = _edi_process_text(sp, fn, txt)
+                if r.get("no_match"):
                     return JSONResponse({"ok": True, "columns": ["info"], "count": 1,
-                                         "rows": [["Definice nenalezena podle dodavatele v textu. Délka textu: %d" % len(txt)]]})
-                rules = sp.execute(_tp(
-                    "SELECT poradi, je_polozka, field_name, marker_od, marker_do, min_len, max_len, je_datum "
-                    "FROM tenant.edi_pole WHERE definice_src_id=:d ORDER BY poradi"), {"d": match["src_id"]}).mappings().all()
-                rl = [dict(x) for x in rules]
-                def_verze = int(match["verze"] or 1)
-                t0 = _edi_parse_tier0(txt, rl)
-                ok0, prob0 = _edi_validate(t0)
-                tier = 0; tokens = 0; final = t0; problems = prob0; patch_info = ""
-                if not ok0:
-                    try:
-                        patch, tokens, _model = _edi_haiku_patch(txt, rl, t0, prob0)
-                        if patch:
-                            t1 = _edi_parse_tier0(txt, _edi_apply_patch(rl, patch))
-                            ok1, prob1 = _edi_validate(t1)
-                            tier = 1; final = t1; problems = prob1
-                            patch_info = "Haiku opravil markery: " + ", ".join(list(patch.keys())[:8])
-                            if ok1:
-                                # naučeno → nová verze definice + historie + uložení patche
-                                # (re-run prošel validací = pojistka; verzování pro audit)
-                                nova_verze = def_verze + 1
-                                for _fn, _pp in patch.items():
-                                    if not isinstance(_pp, dict):
-                                        continue
-                                    old = sp.execute(_tp(
-                                        "SELECT marker_od, marker_do FROM tenant.edi_pole "
-                                        "WHERE definice_src_id=:d AND field_name=:fn AND NOT je_polozka LIMIT 1"),
-                                        {"d": match["src_id"], "fn": _fn}).first()
-                                    sp.execute(_tp(
-                                        "INSERT INTO tenant.edi_definice_verze (definice_src_id,verze,field_name,"
-                                        "marker_od_old,marker_do_old,marker_od_new,marker_do_new,zdroj,poznamka) "
-                                        "VALUES (:d,:v,:fn,:oo,:od,:no,:nd,'ai_haiku',:pz)"),
-                                        {"d": match["src_id"], "v": nova_verze, "fn": _fn,
-                                         "oo": (old[0] if old else None), "od": (old[1] if old else None),
-                                         "no": _pp.get("marker_od"), "nd": _pp.get("marker_do"),
-                                         "pz": "Haiku oprava markeru (validováno re-runem)"})
-                                    sp.execute(_tp(
-                                        "UPDATE tenant.edi_pole SET marker_od_old=COALESCE(marker_od_old,marker_od), "
-                                        "marker_do_old=COALESCE(marker_do_old,marker_do), "
-                                        "marker_od=COALESCE(:mo,marker_od), marker_do=COALESCE(:md,marker_do), "
-                                        "ai_learned=true, ai_learned_at=now() "
-                                        "WHERE definice_src_id=:d AND field_name=:fn AND NOT je_polozka"),
-                                        {"mo": _pp.get("marker_od"), "md": _pp.get("marker_do"),
-                                         "d": match["src_id"], "fn": _fn})
-                                sp.execute(_tp(
-                                    "UPDATE tenant.edi_definice SET verze=:v, verze_at=now() WHERE src_id=:d"),
-                                    {"v": nova_verze, "d": match["src_id"]})
-                                sp.commit()
-                                def_verze = nova_verze
-                                patch_info += " → ULOŽENO jako verze %d (příště Tier 0 zdarma)" % nova_verze
-                        else:
-                            patch_info = "Haiku nevrátil patch"
-                    except Exception as _he:
-                        patch_info = "Haiku chyba: " + str(_he)[:120]
-                try:
-                    sp.execute(_tp(
-                        "INSERT INTO tenant.edi_zpracovani_log (partner, druh, zdroj_soubor, tier, vysledek, "
-                        "ai_model, tokens, definice_verze, doklad_cislo) VALUES (:p,'faktura',:zf,:ti,:vy,:am,:tk,:dv,:dc)"),
-                        {"p": match["partner_nazev"], "zf": fn, "ti": tier,
-                         "vy": ("ok" if not problems else "eskalovano"),
-                         "am": ("claude-haiku-4-5" if tier == 1 else None), "tk": tokens,
-                         "dv": def_verze, "dc": (final["hlavicka"].get("CisloDokladu") or "")[:60]})
-                    sp.commit()
-                except Exception:
-                    pass
-                rows = [["DEFINICE", "%s (verze %d)" % (match["partner_nazev"], def_verze)],
-                        ["TIER", "0 (deterministika, zdarma)" if tier == 0 else "1 (Haiku patch, %d tokenů)" % tokens],
-                        ["VALIDACE", "✓ OK" if not problems else "⚠ " + "; ".join(problems)]]
-                if patch_info:
-                    rows.append(["HAIKU", patch_info])
-                for k, v in final["hlavicka"].items():
+                                         "rows": [["Definice nenalezena (délka textu %d) → eskalace Tier 2 (Marti-AI)" % len(txt)]]})
+                rows = [["DEFINICE", "%s (verze %d)" % (r["partner"], r["verze"])],
+                        ["TIER", "0 (deterministika, zdarma)" if r["tier"] == 0 else "1 (Haiku patch, %d tokenů)" % r["tokens"]],
+                        ["VALIDACE", "✓ OK" if r["ok_val"] else "⚠ " + "; ".join(r["problems"])]]
+                if r["patch_info"]:
+                    rows.append(["HAIKU", r["patch_info"]])
+                for k, v in r["hlavicka"].items():
                     rows.append([k, (v or "")[:180]])
-                rows.append(["—POLOŽEK—", str(len(final["polozky"]))])
+                rows.append(["—POLOŽEK—", str(len(r["polozky"]))])
                 return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
             finally:
                 sp.close()

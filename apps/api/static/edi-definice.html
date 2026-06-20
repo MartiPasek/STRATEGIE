@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDI definice — správa parseru faktur</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--violet:#c4b5fd;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:18px}
+  h1{font-size:21px;margin:0 0 2px;font-weight:800}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:12px}
+  .tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .tab{background:var(--card);border:1px solid var(--bord);border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:700;font-size:13px}
+  .tab.on{background:var(--accent);border-color:var(--accent);color:#06101f}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:14px;margin-bottom:10px}
+  table{width:100%;border-collapse:collapse}
+  th{font-size:11px;color:var(--mut);text-align:left;padding:6px 8px}
+  td{padding:6px 8px;border-top:1px solid rgba(255,255,255,.05);font-size:13px;vertical-align:top}
+  tr.click{cursor:pointer} tr.click:hover{background:rgba(79,142,247,.08)}
+  .pill{font-size:11px;padding:1px 8px;border-radius:8px;font-weight:700}
+  .p-poz{background:rgba(196,181,253,.18);color:var(--violet)}
+  .p-mar{background:rgba(79,142,247,.18);color:var(--accent)}
+  .p-off{background:rgba(143,160,180,.18);color:var(--mut)}
+  .mono{font-family:ui-monospace,monospace;font-size:12px}
+  .hint{color:var(--mut)} .err{color:#ff8a8a}
+  .duvod{color:var(--amber);font-size:12px}
+  .back{color:var(--accent);cursor:pointer;font-size:13px}
+  .zone{color:var(--violet)} .mk{color:var(--green)}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧩 EDI definice — správa parseru faktur</h1>
+  <div class="sub">Systém pro Peťu + jejího Claude: co opravit (eskalace), jak parser čte (definice). <a href="/edi-stat">📊 Statistika</a></div>
+  <div class="tabs">
+    <div class="tab on" id="t-esk" onclick="show('esk')">📥 Eskalace</div>
+    <div class="tab" id="t-def" onclick="show('def')">📚 Definice</div>
+  </div>
+  <div id="body"><div class="hint">Načítám…</div></div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();});}
+var tab="esk";
+function show(t){tab=t;document.getElementById("t-esk").className="tab"+(t==="esk"?" on":"");document.getElementById("t-def").className="tab"+(t==="def"?" on":"");(t==="esk"?loadEsk:loadDef)();}
+function loadEsk(){
+  document.getElementById("body").innerHTML='<div class="hint">Načítám…</div>';
+  api("/api/v1/erp/app/edi/eskalace").then(function(j){
+    if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="err">'+esc((j&&j.error)||"chyba (rodič only)")+'</div>';return;}
+    var r=j.polozky||[];
+    if(!r.length){document.getElementById("body").innerHTML='<div class="card">✅ Žádné otevřené eskalace. Vše, co engine potkal, má definici a prošlo validací.</div>';return;}
+    var h='<div class="sub">'+r.length+' faktur čeká na definici/opravu. Worklist pro Peťu + Claude (přečíst <span class="mono">@@WORDS</span>, postavit/opravit definici, otestovat <span class="mono">@@PARSE</span>).</div>';
+    h+='<div class="card"><table><thead><tr><th>Dodavatel (odhad)</th><th>Důvod</th><th>Soubor</th><th>Kdy</th></tr></thead><tbody>';
+    r.forEach(function(e){h+='<tr><td>'+esc(e.partner_guess||"?")+'</td><td class="duvod">'+esc(e.duvod||"")+'</td><td class="mono">'+esc(e.soubor||"")+'</td><td class="hint">'+esc(e.kdy||"")+'</td></tr>';});
+    h+='</tbody></table></div>';
+    document.getElementById("body").innerHTML=h;
+  });
+}
+function loadDef(){
+  document.getElementById("body").innerHTML='<div class="hint">Načítám…</div>';
+  api("/api/v1/erp/app/edi/definice").then(function(j){
+    if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="err">'+esc((j&&j.error)||"chyba")+'</div>';return;}
+    var r=j.polozky||[];
+    var h='<div class="sub">'+r.length+' definic dodavatelů. Klikni na řádek pro pole/zóny.</div><div class="card"><table><thead><tr><th>Dodavatel</th><th>Typ</th><th>Verze</th><th>Polí</th><th>Zpracováno</th><th>Stav</th></tr></thead><tbody>';
+    r.forEach(function(d){
+      var typ=d.dekod_typ==="pozicni"?'<span class="pill p-poz">poziční</span>':'<span class="pill p-mar">marker</span>';
+      var st=d.aktivni?'<span class="pill p-mar">aktivní</span>':'<span class="pill p-off">vypnutá</span>';
+      h+='<tr class="click" onclick="detail('+d.src_id+')"><td>'+esc(d.partner_nazev||"")+(d.klic?' <span class="hint mono">['+esc(d.klic)+']</span>':'')+'</td><td>'+typ+'</td><td class="hint">v'+d.verze+'</td><td>'+d.poli+'</td><td>'+d.zprac+'</td><td>'+st+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+    document.getElementById("body").innerHTML=h;
+  });
+}
+function detail(src){
+  document.getElementById("body").innerHTML='<div class="hint">Načítám…</div>';
+  api("/api/v1/erp/app/edi/definice?src_id="+src).then(function(j){
+    if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="err">chyba</div>';return;}
+    var d=j.definice||{},p=j.pole||[];
+    var typ=d.dekod_typ==="pozicni"?'<span class="pill p-poz">poziční (zóny)</span>':'<span class="pill p-mar">marker</span>';
+    var h='<div class="back" onclick="loadDef()">← zpět na definice</div>';
+    h+='<div class="card"><b>'+esc(d.partner_nazev||"")+'</b> '+typ+' <span class="hint">· verze '+d.verze+' · klíč: <span class="mono">'+esc(d.klic||"—")+'</span> · zdroj: '+esc(d.zdroj_typ||"")+'</span>';
+    if(d.poznamka)h+='<div class="hint" style="font-size:12px;margin-top:4px">'+esc(d.poznamka)+'</div>';
+    h+='</div>';
+    h+='<div class="card"><table><thead><tr><th>#</th><th>Pole</th><th>'+(d.dekod_typ==="pozicni"?"Zóna (x,y,š,v)":"marker od → do")+'</th><th>datum</th><th>AI</th></tr></thead><tbody>';
+    p.forEach(function(f){
+      var spec;
+      if(d.dekod_typ==="pozicni"){
+        spec=(f.zone_x==null)?'<span class="hint">—</span>':'<span class="zone mono">'+[f.zone_x,f.zone_y,f.zone_w,f.zone_h].map(function(v){return(+v).toFixed(3);}).join(", ")+'</span>'+(f.anchor_text?' <span class="hint">kotva: '+esc(f.anchor_text)+'</span>':'');
+      }else{
+        spec='<span class="mk mono">'+esc(f.marker_od||"")+'</span> → <span class="mono">'+esc(f.marker_do||"⏎")+'</span>';
+      }
+      h+='<tr><td class="hint">'+f.poradi+'</td><td><b>'+esc(f.field_name||"")+'</b>'+(f.je_polozka?' <span class="hint">(položka)</span>':'')+'</td><td>'+spec+'</td><td>'+(f.je_datum?"📅":"")+'</td><td>'+(f.ai_learned?'<span class="pill p-poz">naučeno</span>':'')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+    document.getElementById("body").innerHTML=h;
+  });
+}
+loadEsk();
+</script>
+</body>
+</html>

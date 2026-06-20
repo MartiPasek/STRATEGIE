@@ -22576,7 +22576,49 @@ def _edi_read_text(mcp, path):
         return rb.decode("latin-1", "replace"), ""
 
 
-def _edi_process_text(sp, fn, txt, words=None):
+def _edi_eskaluj(sp, soubor, partner, duvod, snippet):
+    """Zapíše/aktualizuje fakturu ve frontě eskalací (worklist pro Peťu + jejího Claude).
+    Dedup dle souboru; vyřešené (stav='resolved') nepřepisuje."""
+    from sqlalchemy import text as _tp
+    try:
+        sp.execute(_tp(
+            "INSERT INTO tenant.edi_eskalace (tenant_id, soubor, partner_guess, duvod, text_snippet, stav) "
+            "VALUES (2, :s, :pg, :d, :sn, 'open') "
+            "ON CONFLICT (tenant_id, soubor) DO UPDATE SET "
+            "partner_guess=EXCLUDED.partner_guess, duvod=EXCLUDED.duvod, text_snippet=EXCLUDED.text_snippet "
+            "WHERE tenant.edi_eskalace.stav <> 'resolved'"),
+            {"s": soubor, "pg": (partner or "")[:120], "d": (duvod or "")[:200], "sn": (snippet or "")[:400]})
+        sp.commit()
+    except Exception:
+        sp.rollback()
+
+
+def _edi_resolve_esc(sp, soubor):
+    """Označí eskalaci souboru jako vyřešenou (faktura po nové/opravené definici prošla)."""
+    from sqlalchemy import text as _tp
+    try:
+        sp.execute(_tp(
+            "UPDATE tenant.edi_eskalace SET stav='resolved', resolved_at=now() "
+            "WHERE soubor=:s AND stav <> 'resolved'"), {"s": soubor})
+        sp.commit()
+    except Exception:
+        sp.rollback()
+
+
+def _edi_guess_partner(txt):
+    """Hrubý odhad dodavatele z textu pro frontu eskalací (řádek s s.r.o./a.s.)."""
+    for ln in (txt or "").splitlines():
+        s = ln.strip()
+        if 4 <= len(s) <= 60 and (" s.r.o" in s or " a.s" in s or "spol." in s or "GmbH" in s):
+            return s
+    for ln in (txt or "").splitlines():
+        s = ln.strip()
+        if 4 <= len(s) <= 60:
+            return s
+    return ""
+
+
+def _edi_process_text(sp, fn, txt, words=None, path=None):
     """Tiered EDI engine nad fakturou: match definice → dle dekod_typ buď markerové
     (Tier 0 → Haiku Tier 1 + verzování) NEBO poziční dekódování (zóny) → validace → log."""
     from sqlalchemy import text as _tp
@@ -22606,6 +22648,7 @@ def _edi_process_text(sp, fn, txt, words=None):
             sp.commit()
         except Exception:
             sp.rollback()
+        _edi_eskaluj(sp, path or fn, _edi_guess_partner(txt), "bez definice", txt)
         return {"no_match": True, "soubor": fn}
     rules = sp.execute(_tp(
         "SELECT poradi, je_polozka, field_name, marker_od, marker_do, min_len, max_len, je_datum, "
@@ -22629,6 +22672,10 @@ def _edi_process_text(sp, fn, txt, words=None):
             sp.commit()
         except Exception:
             sp.rollback()
+        if problems:
+            _edi_eskaluj(sp, path or fn, match["partner_nazev"], "validace (poziční): " + "; ".join(problems), txt)
+        else:
+            _edi_resolve_esc(sp, path or fn)
         return {"no_match": False, "soubor": fn, "partner": match["partner_nazev"], "verze": def_verze,
                 "tier": 0, "tokens": 0, "ok_val": (not problems), "problems": problems,
                 "patch_info": "poziční dekódování (zóny)", "hlavicka": final["hlavicka"],
@@ -22691,6 +22738,10 @@ def _edi_process_text(sp, fn, txt, words=None):
         sp.commit()
     except Exception:
         sp.rollback()
+    if problems:
+        _edi_eskaluj(sp, path or fn, match["partner_nazev"], "validace: " + "; ".join(problems), txt)
+    else:
+        _edi_resolve_esc(sp, path or fn)
     return {"no_match": False, "soubor": fn, "partner": match["partner_nazev"], "verze": def_verze,
             "tier": tier, "tokens": tokens, "ok_val": (not problems), "problems": problems,
             "patch_info": patch_info, "hlavicka": final["hlavicka"], "polozky": final["polozky"],
@@ -22744,6 +22795,107 @@ def edi_statistika(req: Request):
         return out
     finally:
         s.close()
+
+
+def _edi_preview(sp, txt, words, src_id):
+    """Test definice nad fakturou BEZ commitu (žádný log, učení ani eskalace).
+    Pro „vyzkoušej" v UI / Peťin Claude. Vrací extrahovaná pole + validaci."""
+    from sqlalchemy import text as _tp
+    d = sp.execute(_tp(
+        "SELECT partner_nazev, COALESCE(verze,1) v, COALESCE(dekod_typ,'marker') dt "
+        "FROM tenant.edi_definice WHERE src_id=:d"), {"d": src_id}).mappings().first()
+    if not d:
+        return {"ok": False, "error": "definice nenalezena"}
+    rules = sp.execute(_tp(
+        "SELECT poradi, je_polozka, field_name, marker_od, marker_do, min_len, max_len, je_datum, "
+        "zone_page, zone_x, zone_y, zone_w, zone_h, anchor_text "
+        "FROM tenant.edi_pole WHERE definice_src_id=:d ORDER BY poradi"), {"d": src_id}).mappings().all()
+    rl = [dict(x) for x in rules]
+    final = _edi_parse_pozicni(words or [], rl) if d["dt"] == "pozicni" else _edi_parse_tier0(txt, rl)
+    ok, problems = _edi_validate(final)
+    return {"ok": True, "partner": d["partner_nazev"], "dekod": d["dt"], "verze": int(d["v"]),
+            "validace": ok, "problems": problems, "hlavicka": final["hlavicka"],
+            "polozky": len(final["polozky"])}
+
+
+@api_router.get("/app/edi/eskalace")
+def edi_eskalace(req: Request):
+    """Fronta eskalací EDI — faktury, které engine nezvládl (bez definice / validace).
+    Worklist pro Peťu + jejího Claude (postavit/opravit definici)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, soubor, partner_guess, duvod, stav, to_char(created_at,'DD.MM. HH24:MI') kdy, "
+            "left(text_snippet, 200) snippet, definice_src_id "
+            "FROM tenant.edi_eskalace WHERE stav <> 'resolved' ORDER BY created_at DESC LIMIT 200")).mappings().all()
+        return {"ok": True, "polozky": [dict(r) for r in rows], "count": len(rows)}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/edi/definice")
+def edi_definice(req: Request):
+    """Přehled EDI definic (+ pole/zóny při ?src_id=). Správa pro Peťu + Claude."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    src_id = req.query_params.get("src_id")
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if src_id:
+            d = s.execute(_t(
+                "SELECT src_id, partner_nazev, klic, COALESCE(dekod_typ,'marker') dekod_typ, "
+                "COALESCE(verze,1) verze, aktivni, zdroj_typ, poznamka "
+                "FROM tenant.edi_definice WHERE src_id=:d"), {"d": int(src_id)}).mappings().first()
+            pole = s.execute(_t(
+                "SELECT poradi, je_polozka, field_name, marker_od, marker_do, je_datum, "
+                "zone_x, zone_y, zone_w, zone_h, anchor_text, ai_learned "
+                "FROM tenant.edi_pole WHERE definice_src_id=:d ORDER BY poradi"), {"d": int(src_id)}).mappings().all()
+            return {"ok": True, "definice": (dict(d) if d else None), "pole": [dict(p) for p in pole]}
+        rows = s.execute(_t(
+            "SELECT d.src_id, d.partner_nazev, d.klic, COALESCE(d.dekod_typ,'marker') dekod_typ, "
+            "COALESCE(d.verze,1) verze, d.aktivni, d.zdroj_typ, "
+            "(SELECT COUNT(*) FROM tenant.edi_pole p WHERE p.definice_src_id=d.src_id) poli, "
+            "(SELECT COUNT(*) FROM tenant.edi_zpracovani_log l WHERE l.partner=d.partner_nazev) zprac "
+            "FROM tenant.edi_definice d WHERE d.druh_nazev='faktura' ORDER BY d.aktivni DESC, zprac DESC")).mappings().all()
+        return {"ok": True, "polozky": [dict(r) for r in rows], "count": len(rows)}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/edi/preview")
+def edi_preview_ep(req: Request):
+    """Otestuje definici (src_id) nad fakturou (path) BEZ zápisu. Pro „vyzkoušej"."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    path = req.query_params.get("path") or ""
+    src_id = req.query_params.get("src_id")
+    if not path or not src_id:
+        return JSONResponse({"ok": False, "error": "path + src_id povinné"}, status_code=400)
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        mcp = get_eurosoft_mcp_client()
+        if mcp is None:
+            return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+        txt, words, err = _edi_read_doc(mcp, path)
+        if not txt and not words:
+            return JSONResponse({"ok": False, "error": err or "nepodařilo se získat text"})
+        from core.database_data import get_data_session as _g
+        s = _g()
+        try:
+            return _edi_preview(s, txt, words, int(src_id))
+        finally:
+            s.close()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
 
 
 @api_router.post("/diag-sql")

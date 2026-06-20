@@ -21880,8 +21880,9 @@ def _isds_list_received(account: dict, days_back: int = 60):
     """GetListOfReceivedMessages → list dict {dm_id, subject, sender, delivered}."""
     import datetime as _dt
     frm = (_dt.datetime.now() - _dt.timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00")
-    body = ('<p:GetListOfReceivedMessages><p:dmFromTime>%s</p:dmFromTime>'
-            '<p:dmToTime></p:dmToTime><p:dmOrgUnitNum></p:dmOrgUnitNum>'
+    body = ('<p:GetListOfReceivedMessages xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+            '<p:dmFromTime>%s</p:dmFromTime>'
+            '<p:dmToTime xsi:nil="true"/><p:dmOrgUnitNum xsi:nil="true"/>'
             '<p:dmStatusFilter>-1</p:dmStatusFilter><p:dmOffset>1</p:dmOffset>'
             '<p:dmLimit>1000</p:dmLimit></p:GetListOfReceivedMessages>' % frm)
     # GetListOfReceivedMessages = služba dmInfo → /dx (ne /dz = dmOperations).
@@ -23160,8 +23161,9 @@ async def diag_sql(req: Request) -> JSONResponse:
                 import requests as _rq
                 login = acc.get("login_name") or ""
                 pwd = _isds_dec(acc.get("password_enc")) or ""
-                body = ('<p:GetListOfReceivedMessages><p:dmFromTime>2026-01-01T00:00:00</p:dmFromTime>'
-                        '<p:dmToTime></p:dmToTime><p:dmOrgUnitNum></p:dmOrgUnitNum>'
+                body = ('<p:GetListOfReceivedMessages xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+                        '<p:dmFromTime>2026-01-01T00:00:00</p:dmFromTime>'
+                        '<p:dmToTime xsi:nil="true"/><p:dmOrgUnitNum xsi:nil="true"/>'
                         '<p:dmStatusFilter>-1</p:dmStatusFilter><p:dmOffset>1</p:dmOffset>'
                         '<p:dmLimit>1000</p:dmLimit></p:GetListOfReceivedMessages>')
                 env = ('<?xml version="1.0" encoding="utf-8"?>'

@@ -22456,6 +22456,90 @@ def _edi_apply_patch(rules, patch):
     return out
 
 
+def _edi_words_from_pdf(rb):
+    """Slova s NORMALIZOVANÝMI rámečky z digitálního PDF (pdfplumber, bez OCR).
+    Vrací [{t, x0,x1,y0,y1,cx,cy (0..1), page}]. Pro poziční dekódování."""
+    out = []
+    try:
+        import io as _io, pdfplumber as _pp
+        with _pp.open(_io.BytesIO(rb)) as pdf:
+            for pi, pg in enumerate(pdf.pages, start=1):
+                pw = float(pg.width or 1) or 1.0
+                ph = float(pg.height or 1) or 1.0
+                for w in pg.extract_words(use_text_flow=False):
+                    x0 = float(w["x0"]) / pw; x1 = float(w["x1"]) / pw
+                    y0 = float(w["top"]) / ph; y1 = float(w["bottom"]) / ph
+                    out.append({"t": w.get("text", ""), "x0": x0, "x1": x1, "y0": y0, "y1": y1,
+                                "cx": (x0 + x1) / 2, "cy": (y0 + y1) / 2, "page": pi})
+    except Exception:
+        pass
+    return out
+
+
+def _edi_parse_pozicni(words, rules):
+    """Poziční dekódování (Martiho vize 20.6.2026): místo hledání markeru čteme,
+    co leží v ZÓNĚ (x,y,š,v relativně 0..1). Volitelná kotva (anchor_text) → zóna
+    relativně k nalezenému slovu (pro pohyblivé součty/položky). Vrací {hlavicka,polozky}."""
+    import re as _re
+    hdr = {}
+    words = words or []
+    for r in rules:
+        if r.get("je_polozka"):
+            continue
+        fn = (r.get("field_name") or "").strip()
+        if not fn or r.get("zone_x") is None:
+            continue
+        page = int(r.get("zone_page") or 1)
+        ax = ay = 0.0
+        anchor = (r.get("anchor_text") or "").strip()
+        if anchor:
+            aw = next((w for w in words if w["page"] == page and anchor.lower() in (w["t"] or "").lower()), None)
+            if aw:
+                ax, ay = aw["x0"], aw["y0"]
+        x0 = ax + float(r["zone_x"]); y0 = ay + float(r["zone_y"])
+        x1 = x0 + float(r.get("zone_w") or 0.2); y1 = y0 + float(r.get("zone_h") or 0.02)
+        inside = [w for w in words if w["page"] == page and x0 <= w["cx"] <= x1 and y0 <= w["cy"] <= y1]
+        inside.sort(key=lambda w: (round(w["cy"], 3), w["cx"]))
+        val = " ".join((w["t"] or "") for w in inside).strip()
+        if r.get("je_datum"):
+            m = _re.search(r"\d{1,2}[.\-/]\s?\d{1,2}[.\-/]\s?\d{2,4}", val)
+            val = m.group(0).replace(" ", "") if m else val
+        hdr[fn] = val
+    return {"hlavicka": hdr, "polozky": []}
+
+
+def _edi_read_doc(mcp, path):
+    """Přečte soubor přes MCP a vrátí (text, words, chyba). words = bbox slova
+    z digitálního PDF (pro poziční dekódování); prázdné pro text/sken."""
+    import json as _j, os.path as _op, base64 as _b64
+    base = _op.dirname(path); fn = _op.basename(path)
+    try:
+        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                 {"user_namespace": "ro", "base_override": base, "path": fn,
+                                  "encoding": "base64"}, conversation_id=None)
+        r = _j.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict) and r.get("ok") is False:
+            return "", [], str(r.get("error") or r)
+        b64 = (r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r)
+        rb = _b64.b64decode(b64) if b64 else b""
+    except Exception as e:
+        return "", [], "%s: %s" % (type(e).__name__, e)
+    if fn.lower().endswith(".pdf"):
+        txt = ""
+        try:
+            import io as _io, pdfplumber as _pp
+            with _pp.open(_io.BytesIO(rb)) as pdf:
+                txt = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+        except Exception:
+            txt = ""
+        words = _edi_words_from_pdf(rb)
+        return (txt, words, "" if (txt or words) else "PDF bez textu (skenovaný → OCR)")
+    try:
+        return rb.decode("utf-8"), [], ""
+    except Exception:
+        return rb.decode("latin-1", "replace"), [], ""
+
+
 def _edi_read_text(mcp, path):
     """Přečte soubor přes EUROSOFT MCP (RO) a vrátí (text, chyba). PDF→text."""
     import json as _j, os.path as _op, base64 as _b64, io as _io
@@ -22491,12 +22575,13 @@ def _edi_read_text(mcp, path):
         return rb.decode("latin-1", "replace"), ""
 
 
-def _edi_process_text(sp, fn, txt):
-    """Tiered EDI engine nad textem faktury: match definice → Tier 0 → validace →
-    Tier 1 (Haiku patch markerů + verzování) → log. Vrací dict s výsledkem."""
+def _edi_process_text(sp, fn, txt, words=None):
+    """Tiered EDI engine nad fakturou: match definice → dle dekod_typ buď markerové
+    (Tier 0 → Haiku Tier 1 + verzování) NEBO poziční dekódování (zóny) → validace → log."""
     from sqlalchemy import text as _tp
     defs = sp.execute(_tp(
-        "SELECT src_id, partner_nazev, druh_nazev, COALESCE(verze,1) AS verze, klic "
+        "SELECT src_id, partner_nazev, druh_nazev, COALESCE(verze,1) AS verze, klic, "
+        "COALESCE(dekod_typ,'marker') AS dekod_typ "
         "FROM tenant.edi_definice WHERE druh_nazev='faktura' AND aktivni ORDER BY src_id")).mappings().all()
     match = None
     low = txt.lower()
@@ -22522,10 +22607,32 @@ def _edi_process_text(sp, fn, txt):
             sp.rollback()
         return {"no_match": True, "soubor": fn}
     rules = sp.execute(_tp(
-        "SELECT poradi, je_polozka, field_name, marker_od, marker_do, min_len, max_len, je_datum "
+        "SELECT poradi, je_polozka, field_name, marker_od, marker_do, min_len, max_len, je_datum, "
+        "zone_page, zone_x, zone_y, zone_w, zone_h, anchor_text "
         "FROM tenant.edi_pole WHERE definice_src_id=:d ORDER BY poradi"), {"d": match["src_id"]}).mappings().all()
     rl = [dict(x) for x in rules]
     def_verze = int(match["verze"] or 1)
+    dekod = (match.get("dekod_typ") or "marker")
+
+    # Poziční dekódování (Martiho vize): čteme ze zóny, ne hledáním markeru. Deterministické.
+    if dekod == "pozicni":
+        final = _edi_parse_pozicni(words or [], rl)
+        okp, problems = _edi_validate(final)
+        try:
+            sp.execute(_tp(
+                "INSERT INTO tenant.edi_zpracovani_log (partner, druh, zdroj_soubor, tier, vysledek, "
+                "tokens, definice_verze, doklad_cislo) VALUES (:p,'faktura',:zf,0,:vy,0,:dv,:dc)"),
+                {"p": match["partner_nazev"], "zf": fn,
+                 "vy": ("ok" if not problems else "eskalovano"),
+                 "dv": def_verze, "dc": (final["hlavicka"].get("CisloDokladu") or "")[:60]})
+            sp.commit()
+        except Exception:
+            sp.rollback()
+        return {"no_match": False, "soubor": fn, "partner": match["partner_nazev"], "verze": def_verze,
+                "tier": 0, "tokens": 0, "ok_val": (not problems), "problems": problems,
+                "patch_info": "poziční dekódování (zóny)", "hlavicka": final["hlavicka"],
+                "polozky": final["polozky"], "doklad_cislo": (final["hlavicka"].get("CisloDokladu") or "")}
+
     t0 = _edi_parse_tier0(txt, rl)
     ok0, prob0 = _edi_validate(t0)
     tier = 0; tokens = 0; final = t0; problems = prob0; patch_info = ""
@@ -22752,6 +22859,28 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
 
+    # @@WORDS <cesta> → slova faktury s normalizovanými rámečky (návrh pozičních zón, Tier 2)
+    if sql.upper().startswith("@@WORDS"):
+        parts = sql.split(None, 1)
+        path = (parts[1].strip() if len(parts) > 1 else "")
+        if not path:
+            return JSONResponse({"ok": False, "error": "@@WORDS <cesta_k_pdf>"})
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+            _txt, words, err = _edi_read_doc(mcp, path)
+            if not words:
+                return JSONResponse({"ok": False, "error": err or "žádná slova (sken → OCR větev)"})
+            words.sort(key=lambda w: (w["page"], round(w["cy"], 3), w["cx"]))
+            rows = [[w["page"], "%.3f" % w["x0"], "%.3f" % w["y0"], "%.3f" % w["x1"], "%.3f" % w["y1"],
+                     (w["t"] or "")[:40]] for w in words]
+            return JSONResponse({"ok": True, "columns": ["str", "x0", "y0", "x1", "y1", "text"],
+                                 "rows": rows, "count": len(rows)})
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
     # EDI tiered engine (Marti 20.6.2026):
     #   @@PARSE <cesta_k_fakture>            → jedna faktura (detail hlavička+položky)
     #   @@PARSEBATCH <root_adresar> <pocet>  → dávka N nejnovějších složek (souhrn)
@@ -22810,11 +22939,11 @@ async def diag_sql(req: Request) -> JSONResponse:
                     if not pdf:
                         rows.append([dname, "—", "bez souboru", "", ""])
                         continue
-                    txt, err = _edi_read_text(mcp, sub + "\\" + pdf)
-                    if not txt:
+                    txt, words, err = _edi_read_doc(mcp, sub + "\\" + pdf)
+                    if not txt and not words:
                         rows.append([dname, "—", (err or "bez textu")[:24], "", ""])
                         continue
-                    res = _edi_process_text(sp, pdf, txt)
+                    res = _edi_process_text(sp, pdf, txt, words)
                     if res.get("no_match"):
                         stat["esk"] += 1
                         rows.append([dname, "?", "eskalace T2", "", ""])
@@ -22848,13 +22977,13 @@ async def diag_sql(req: Request) -> JSONResponse:
             if mcp is None:
                 return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
             fn = _opp.basename(path)
-            txt, err = _edi_read_text(mcp, path)
-            if not txt:
+            txt, words, err = _edi_read_doc(mcp, path)
+            if not txt and not words:
                 return JSONResponse({"ok": False, "error": err or "nepodařilo se získat text"})
             from core.database_data import get_data_session as _gp
             sp = _gp()
             try:
-                r = _edi_process_text(sp, fn, txt)
+                r = _edi_process_text(sp, fn, txt, words)
                 if r.get("no_match"):
                     return JSONResponse({"ok": True, "columns": ["info"], "count": 1,
                                          "rows": [["Definice nenalezena (délka textu %d) → eskalace Tier 2 (Marti-AI)" % len(txt)]]})

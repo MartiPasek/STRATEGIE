@@ -22429,18 +22429,45 @@ async def diag_sql(req: Request) -> JSONResponse:
             else:
                 base = _op.dirname(path); fn = _op.basename(path)
                 raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
-                                         {"user_namespace": "ro", "base_override": base, "path": fn},
+                                         {"user_namespace": "ro", "base_override": base, "path": fn,
+                                          "encoding": "base64"},
                                          conversation_id=None)
                 r = _jf.loads(raw) if isinstance(raw, str) else raw
                 if isinstance(r, dict) and r.get("ok") is False:
                     return JSONResponse({"ok": False, "error": str(r.get("error") or r)})
-                content = ""
-                if isinstance(r, dict):
-                    content = r.get("content") or r.get("text") or r.get("data") or ""
-                else:
-                    content = str(r)
+                import base64 as _b64
+                b64 = (r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r)
+                try:
+                    rawbytes = _b64.b64decode(b64)
+                except Exception:
+                    rawbytes = b""
+                low = fn.lower()
+                if low.endswith(".pdf"):
+                    text = None
+                    try:
+                        import io as _io, pdfplumber as _pp
+                        with _pp.open(_io.BytesIO(rawbytes)) as pdf:
+                            text = "\n".join((pg.extract_text() or "") for pg in pdf.pages)
+                    except Exception:
+                        try:
+                            import io as _io2
+                            from pypdf import PdfReader as _PR
+                            rd = _PR(_io2.BytesIO(rawbytes))
+                            text = "\n".join((p.extract_text() or "") for p in rd.pages)
+                        except Exception:
+                            text = None
+                    if not text:
+                        return JSONResponse({"ok": True, "file_read": True, "path": path, "binary": True,
+                                             "length": len(rawbytes),
+                                             "content": "(PDF %d B — extrakce textu selhala, asi skenovaný → OCR)" % len(rawbytes)})
+                    return JSONResponse({"ok": True, "file_read": True, "path": path,
+                                         "length": len(text), "content": text})
+                try:
+                    txt = rawbytes.decode("utf-8")
+                except Exception:
+                    txt = rawbytes.decode("latin-1", "replace")
                 return JSONResponse({"ok": True, "file_read": True, "path": path,
-                                     "length": len(content), "content": content})
+                                     "length": len(txt), "content": txt})
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
 

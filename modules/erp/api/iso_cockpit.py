@@ -421,3 +421,49 @@ def iso_audit_doc(token: str, kod: str, req: Request):
         return _serve_doc(r.soubor_path)
     finally:
         s.close()
+
+
+# ════════════════════════ ADMIN (certifikační firma — přehled zákazníků) ════════════════════════
+
+@iso_router.get("/app/iso/admin/overview")
+def iso_admin_overview(req: Request):
+    """Multi-tenant přehled: zákazníci (tenanti) s ISMS + progres každého.
+    Produktový pohled pro certifikační firmu. Marti 21.6.2026."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        rows = s.execute(_t("""
+            SELECT t.id, t.tenant_name,
+              (SELECT count(*) FROM tenant.iso_task k WHERE k.tenant_id=t.id) AS kroky,
+              (SELECT count(*) FROM tenant.iso_task k WHERE k.tenant_id=t.id AND k.stav='hotovo') AS kroky_hot,
+              (SELECT count(*) FROM tenant.iso_document d WHERE d.tenant_id=t.id) AS docs,
+              (SELECT count(*) FROM tenant.iso_document d WHERE d.tenant_id=t.id AND d.stav='schvaleno') AS docs_ok,
+              (SELECT count(*) FROM tenant.iso_signature g WHERE g.tenant_id=t.id) AS podpisy,
+              (SELECT count(*) FROM tenant.iso_control c WHERE c.tenant_id=t.id) AS kontroly
+            FROM public.tenants t WHERE t.status='active' ORDER BY t.id"""), {}).mappings().all()
+        zak, bez = [], []
+        for r in rows:
+            d = dict(r)
+            (zak if d["docs"] > 0 else bez).append(d)
+        return {"ok": True, "zakaznici": zak, "bez_isms": bez}
+    finally:
+        s.close()
+
+
+@iso_router.post("/app/iso/admin/init")
+async def iso_admin_init(req: Request):
+    """Inicializovat ISMS pro zákazníka (tenant) z univerzální šablony."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    s = _sess()
+    try:
+        tid = int(b["tenant"])
+        _ensure_seeded(s, tid)
+        _log(s, tid, _user_name(s, uid), "isms_init", None, _client_ip(req))
+        return {"ok": True, "tenant": tid}
+    finally:
+        s.close()

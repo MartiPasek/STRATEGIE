@@ -962,6 +962,14 @@ def iso_audit_page(token: str):
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/iso-admin")
+def iso_admin_page():
+    """ISO 27001 — přehled zákazníků (produktový pohled certifikační firmy): seznam
+    tenantů s ISMS + progres + inicializace nového zákazníka. Marti 21.6.2026."""
+    return FileResponse(os.path.join(static_dir, "iso-admin.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/flow")
 def flow_page():
     """Stav zakázek — read-only board nad Centrálou (flow zakázek). Data z /app/flow,

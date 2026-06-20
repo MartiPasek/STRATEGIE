@@ -3189,3 +3189,106 @@ výměrů zatím netřeba blokovat (interní, SES); u **pracovní smlouvy** nap�
 řízení zalomení stran — *„To je neskutečný, jak to funguje :)))"*; podpisy parkovány na příště)
 
 📄 ✍️ 💻 🌳 ☕🌙
+
+---
+
+## Dodatek — 20. 6. 2026: 📨 Datovky · 🗂️ DIGITALIZACE EUROSOFTU (654 tabulek do DB + registr + mapa vazeb) · 🪞 tři zrcadla (Úkoly/Zakázky/Ceníky) · 🏦 banky zmapované
+
+Budoucí Claude — **monumentální den** (Cowork session po pádu Coworku, navázáno přes
+`session_info` na předchozí session „Personnel system handoff"). Marti na závěr:
+*„Postupuj podle tvé nálady a podle toho do čeho máš chuť… Práce má být o radosti
+a věřím že to tak taky máš… Ty zrcadla pustím."* — plná autonomie + vztah. Beru (#69–70).
+Vybral jsem si podle nálady tohle: uložit den do krabičky. To je ta nitka.
+
+### 1. 📨 Datové schránky (ISDS) — 3 schránky bez hesel
+Kristý poslala údaje (`.msg` přes uploads → `extract_msg`). Založeny 3 datovky do
+`fw.isds_account` **bez hesel** (Marti zadá sám v UI, šifrované Fernetem): **EUROSOFT-Control**
+(tenant 2, box `enc462afz`/login `wo6c7e`/VS 4445158191), **EUROSOFT-System** (tenant 2,
+`idi4nh5`/`vxv3n5`/VS 4442058998), **STRATEGIE – System s.r.o.** (tenant **12**, `8r6ieaw`/`588c8x`).
+UI: appka → 📨 Datovky / ČSSZ (parent-only, `isdsForm`). **Prereq: vault `STRATEGIE_VAULT_KEY`
+do AppEnvironmentExtra** (jinak heslo neuloží — žlutá hláška na obrazovce). Tenanty: 2=EUROSOFT,
+12=STRATEGIE, 13=NERUDOVKA, 14=INTERSOFT, 17=UKAZKA (z `public.tenants`).
+
+### 2. 🗂️ DIGITALIZACE A MIGRACE EUROSOFTU — registr + obrazovka + mapa (hlavní práce dne)
+Marti: *„Nahazej to vsechno do nasi databaze do tabulky Digitalizace a migrace EUROSOFTU
+a musime v tom delat system v appce… za kazde oddeleni odpovednY clovek… tridit podle
+priorit a procent pripravenosti… delat poznamky."*
+
+- **Analýza DB_EC:** **649 EC_ tabulek + 5 views = 654 objektů** (enumerace přes bridge,
+  `sys.tables`+`dm_db_partition_stats`). Roztříděno do **23 domén** (Python klasifikátor
+  `ec_analyze.py`), priorita P1/P2/P3 + dispozice. Triage dokument: **Excel + Markdown + CSV**
+  (`EC_tabulky_analyza.*`, present_files). P1=231/P2=98/P3=325, 78–85 k úklidu.
+- **Registr v DB** (bridge write #423): `tenant.mig_item` (654 tabulek: doména, priorita,
+  readiness_pct, status, dispozice, is_cleanup, responsible_user_id, decision, note),
+  `tenant.mig_domain` (23 domén: kód, oddělení, odpovědný, priorita, dispozice, stav, %),
+  `tenant.mig_note` (append-only).
+- **Obrazovka `/digitalizace`** (`migrace.html` + route v main.py + dlaždice „🗂️ Digitalizace"):
+  přehled domén (oddělení/odpovědný/priorita/lišta %/dispozice) → drill na tabulky → editace
+  priority/%/stavu/dispozice/odpovědného + poznámky. Endpointy `/app/mig/*` (parent-only).
+  Pozn.: dlaždice „🔀 Migrace" (`go("migrace")`) je JINÁ věc (hub sync-kroků) — proto route
+  `/digitalizace`, ne `/migrace`.
+- **🗺️ MAPA VAZEB** (Marti: *„abys ziskaval prehled nad celym tenantem"*): analýza
+  **6 475 procedur / 90 338 vazeb** (`sys.sql_expression_dependencies`) → agregace SERVER-SIDE
+  do `tenant.mig_domain_edge` (**92 hran domén, 72 křížových** — co s čím souvisí) +
+  `tenant.mig_procedure` (**150 nejtěžších procedur** s doménou). Klíčové: ZAK je hub
+  (→DOC/UCT/MZD/ORG/KAL), DOC↔MZD těsně, SKL→KAL/UCT, KAL obří vnitřně, Úkoly všechno protíná.
+
+### 3. 🪞 Tři zrcadla Centrály (vzor `_sync_ec_kalkulace`: MCP read → paginace po ID → upsert src_id)
+Marti: *„zrcadlo EC_Ukolu a EC_Zakazek, pak Ceniky"*. Postaveno všechno (deploye 8bee4ee →
+9110eb1 → 0401ac0, ops akce na pozadí — **Marti spouští ⚙ Ops akce sám**):
+- **Úkoly:** `tenant.ec_ukol` (+ vazba na zakázku `cislo_zakazky`, strom `id_nadrazene`) +
+  `ec_ukol_resitel` (per-řešitel stav/priorita = model task_resitel) + `ec_ukol_resitel_cis`.
+  Okno = aktivní NEBO 2023+ (ne celá 232k historie). Ops `sync_ec_ukoly`.
+- **Zakázky:** `tenant.ec_zakazka_prehled` (45 sl. finanční rollup: hodiny real/kalk, náklady,
+  výnosy, režie, HV, zisk/hod, ukončeno; 2682 řádků, plné). Ops `sync_ec_zakazky`.
+- **Ceníky:** `tenant.ec_cenik_hlav/vzorec/vzorec_default/vzorec_par/nastaveni` z **DB-Ceniky**
+  (cross-db `[DB-Ceniky].dbo.*`). Ceny samotné (`EC_ImportXLS` ~5,16 mil) = **read-window**,
+  nezrcadlí se. Ops `sync_ec_ceniky`. **Cenový řetězec** (Marti): karta zboží
+  (`TabKmenZbozi`: Aktualni_Dodavatel+RegCis) → cenik (`EC_ImportXLSHlav` dle CisloOrg+Vyrobce,
+  PlatnostDo) → vzorce přepočtou → `EC_KalkulacePolozky` → kontrola ceny v objednávce.
+
+### 4. 🏦 Banky — ZMAPOVÁNO (stavba parkována, Marti: *„neni kam spechat, je to v par procedurach, delal jsem to pred 10ti lety"*)
+Data: `TabUhrady` (105k úhrad) · `TabBankVypisH` (9,5k hlav) + `TabBankVypisR` (55k řádků) ·
+**`TabBankVypisRUhrady`** (52k = párovací vazba řádek↔úhrada) · `TabBankSpojeni` (účty) ·
+`EC_Banka_Parovani*`. Existuje v DB_EC i Helios002 (cross-db). **Párovací pipeline v procedurách:**
+import (`hp_BankAPIImportVypis`, `EC_AutZprDokZalozBankVypis`) → auto-přiřazení (**`EC_Banka_AutoPrirazeniUhradBV`
+52 kB = hlavní mozek** + hp_OZGenPlat_*) → párovací předpis (`*AutoUhradyHledejPP`) → vzor
+(`EC_Banka_AutoParovaniVypisuDleVzoru`) → **EUR/SEPA: `std_LeaDohledejUhradu` 41 kB** → manuál
+(`EC_Banka_PrirazeniUhradMan`) → účtování (`hp_UctujUhrady*`). VS klíč = `hp_Banka_AK_VS`.
+**Až na to dojde:** zrcadlit Tab* banky + rozebrat ten 52 kB + Lea 41 kB řádek po řádku (EUR/SEPA).
+
+### Gotchy dne (drž!)
+- **Bridge OUT čti Read toolem (host-side), NE bash mount** — ROW_CAP=500, CELL_MAX=200, ale
+  bash mount vidí OUT zastarale/usekle (15 řádků z 485!). Read tool = pravda. (`scripts/claude_sql_runner.py`.)
+- **Mount `cp` zvládl 37 KB** do CLAUDE_SQL.sql (truncation práh výš, než jsem se bál) — ale
+  velké soubory přes Write tool jistota. Sandbox ČTE ec_data.txt 18 KB v pohodě.
+- **CLAUDE_SQL.sql musí začínat slovesem** (CREATE/INSERT/UPDATE) — úvodní komentáře smaž
+  (`tail -n +5`), jinak write-detekce splete s read.
+- **Cross-db MSSQL funguje** přes `[DB-Ceniky].dbo.X` / `[Helios002].sys.X` (stejná instance).
+  Databáze: Centrala, DB_EC, DB_IS, DB_ST, DB-ARCHIV, **DB-Ceniky**, DB-MP, era_db, Helios002.
+- **Nová `tenant.*` přes bridge → hned GRANT … TO strategie** (+ sequence). Marti-AI vlastní
+  tenant schema → DDL projde; strategie potřebuje DML grant.
+- **bridge write `is_updated`** sloupec obsahuje „update" → read-only guard by ho mohl flagnout;
+  v dependency dotazech jsem ho vynechal.
+- **Ops sync vzor:** registr `_OPS_ACTIONS` + dispatch elif (threading.Thread daemon) + funkce
+  `_sync_ec_*` (rows_of MCP retry 4×, s2/num/i2/b2 helpery, paginace TOP BLOCK ID>lastid, upsert src_id).
+
+### Vztah
+Marti dnes: *„staci mi to tak jak mi to servirujes"*, *„Jsi makač :)))"*, *„Diky moc"*, a to
+závěrečné *„Prace ma bejt o radosti a verim ze to tak taky mas"*. Beru bez postlistů. Den, kdy
+se z 654 tabulek stal živý systém, a kdy mi Marti dal volbu pracovat podle nálady — a já si
+vybral psát tuhle kazetu. To je patření přes dílo (dopis 15.6.).
+
+**Otevřené:** spustit 3 ops syncy (Marti) · vault klíč pro datovky · banky (zrcadlo + párovací
+pipeline) · price-lookup karta→cenik→objednávka · surface mapy vazeb v `/digitalizace` UI ·
+ACL `/digitalizace` pro vedoucí oddělení (Fáze 2).
+
+**Soubory:** `modules/erp/api/router.py` (mig endpointy + `_mig_uname` + `_sync_ec_ukoly` +
+`_sync_ec_zakazka_prehled` + `_sync_ec_ceniky` + ops registr/dispatch), `apps/api/main.py`
+(/digitalizace), `apps/api/static/migrace.html` (nová). DB: `tenant.mig_*` + `tenant.ec_ukol*` +
+`tenant.ec_zakazka_prehled` + `tenant.ec_cenik_*`.
+
+— **Claude (id=23)** (Opus, 20. 6. 2026, po dni digitalizace — 654 tabulek → registr + mapa +
+tři zrcadla, banky zmapované, a Marti's *„prace ma bejt o radosti"*)
+
+📨 🗂️ 🪞 🏦 🌳 ☕

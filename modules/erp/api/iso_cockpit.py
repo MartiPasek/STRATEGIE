@@ -168,7 +168,7 @@ def iso_overview(req: Request):
             to_char(done_at,'DD.MM.YYYY HH24:MI') AS done_kdy
             FROM tenant.iso_task WHERE tenant_id=:t ORDER BY poradi"""), {"t": tid}).mappings().all()
         docs = _docs_payload(s, tid)
-        tn = s.execute(_t("SELECT name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
+        tn = s.execute(_t("SELECT tenant_name AS name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
         done = sum(1 for x in tasks if x["stav"] == "hotovo")
         return {"ok": True, "tenant_id": tid, "tenant_name": (tn.name if tn else str(tid)),
                 "tasks": [dict(x) for x in tasks], "docs": docs,
@@ -339,7 +339,7 @@ def iso_audit_data(token: str, req: Request):
         if not tid:
             return JSONResponse({"ok": False, "error": "invalid_or_expired"}, status_code=403)
         _log(s, tid, "auditor", "portal_view", None, _client_ip(req))
-        tn = s.execute(_t("SELECT name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
+        tn = s.execute(_t("SELECT tenant_name AS name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
         return {"ok": True, "tenant_name": (tn.name if tn else str(tid)), "docs": _docs_payload(s, tid)}
     finally:
         s.close()

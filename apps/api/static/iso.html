@@ -54,7 +54,7 @@ var DATA=null;
 function load(){return api("/api/v1/erp/app/iso/overview").then(j=>{
   if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="c" style="color:#ff8a8a">'+esc((j&&j.error)||"přístup jen pro vedení")+'</div>';document.getElementById("head").textContent="";return;}
   DATA=j;render();
-});}
+}).catch(e=>{document.getElementById("head").textContent="";document.getElementById("body").innerHTML='<div class="c" style="color:#ff8a8a">Chyba načtení ('+esc(String(e))+'). Zkus obnovit (Ctrl+Shift+R).</div>';});}
 function render(){
   var j=DATA;
   document.getElementById("head").innerHTML='Subjekt: <b>'+esc(j.tenant_name)+'</b> · vedeme elektronicky, podpis klikem (SES), bez tisku';

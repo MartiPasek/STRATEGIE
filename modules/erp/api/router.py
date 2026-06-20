@@ -6312,14 +6312,49 @@ async def app_self_child_delete(req: Request) -> JSONResponse:
 
 
 # ---- Trezor hesel/tokenu (Marti 11.6.): Fernet + PIN + SMS 2FA + email -------
+# Marti 20.6.2026: vault klíč SAMOBOOTSTRAP — nesmí čekat na ruční env/klik.
+# Priorita: (1) env STRATEGIE_VAULT_KEY (override, silnější separace klíče od dat),
+# (2) persistovaný klíč v fw.app_secret (sdílený přes blue-green obě instance),
+# (3) auto-vygeneruj a ulož při prvním použití. Memoizováno.
+# Pozn. tradeoff: klíč v DB = DB dump odhalí i klíč; pro interní nástroj za VPN
+# přijatelné a hlavně to běží automaticky. Env override zůstává pro tvrdší režim.
+_VAULT_FERNET_CACHE = [None]
+
+
 def _vault_fernet():
     import os
-    key = (os.environ.get("STRATEGIE_VAULT_KEY") or "").strip()
-    if not key:
-        return None
     try:
         from cryptography.fernet import Fernet
-        return Fernet(key.encode())
+    except Exception:
+        return None
+    key = (os.environ.get("STRATEGIE_VAULT_KEY") or "").strip()
+    if key:
+        try:
+            return Fernet(key.encode())
+        except Exception:
+            pass
+    if _VAULT_FERNET_CACHE[0] is not None:
+        return _VAULT_FERNET_CACHE[0]
+    try:
+        from core.database_data import get_data_session as _g
+        from sqlalchemy import text as _t
+        s = _g()
+        try:
+            row = s.execute(_t("SELECT sval FROM fw.app_secret WHERE skey='vault_key'")).first()
+            if row and row[0]:
+                k = row[0]
+            else:
+                k = Fernet.generate_key().decode()
+                s.execute(_t("INSERT INTO fw.app_secret(skey,sval) VALUES('vault_key',:v) "
+                             "ON CONFLICT (skey) DO NOTHING"), {"v": k})
+                s.commit()
+                r2 = s.execute(_t("SELECT sval FROM fw.app_secret WHERE skey='vault_key'")).first()
+                k = r2[0] if r2 and r2[0] else k  # kdyby druhá instance vložila dřív
+            f = Fernet(k.encode())
+            _VAULT_FERNET_CACHE[0] = f
+            return f
+        finally:
+            s.close()
     except Exception:
         return None
 

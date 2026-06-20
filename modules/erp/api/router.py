@@ -21935,6 +21935,48 @@ def _isds_download(account: dict, dm_id: str):
     return subj, files
 
 
+def _isds_send(account, recipient_box, subject, files, dmType="V"):
+    """Odešle datovou zprávu (CreateMessage, /dz) s přílohami. files=[{filename,bytes,mime}].
+    Vrací (ok, dm_id_or_err). Pozn.: odeslání na OVM (ČSSZ) je zdarma; PO→PO je placené (PDZ)."""
+    import base64 as _b64
+    fxml = []
+    first = True
+    for f in files:
+        b64 = _b64.b64encode(f["bytes"]).decode("ascii")
+        meta = "main" if first else "enclosure"
+        first = False
+        mime = f.get("mime") or "application/xml"
+        fxml.append(
+            '<p:dmFile dmFileMetaType="%s" dmMimeType="%s" dmFileDescr="%s">'
+            '<p:dmEncodedContent>%s</p:dmEncodedContent></p:dmFile>'
+            % (meta, mime, (f.get("filename") or "soubor.xml"), b64))
+    body = (
+        '<p:CreateMessage>'
+        '<p:dmEnvelope>'
+        '<p:dbIDRecipient>%s</p:dbIDRecipient>'
+        '<p:dmAnnotation>%s</p:dmAnnotation>'
+        '<p:dmAllowSubstDelivery>1</p:dmAllowSubstDelivery>'
+        '</p:dmEnvelope>'
+        '<p:dmFiles>%s</p:dmFiles>'
+        '</p:CreateMessage>'
+        % (recipient_box, (subject or "")[:255], "".join(fxml)))
+    ok, root = _isds_soap(account, "/dz", body)
+    if not ok:
+        return False, root
+    code = ""; msg = ""; dm = ""
+    for ch in root.iter():
+        t = ch.tag.rsplit("}", 1)[-1]
+        if t == "dmStatusCode":
+            code = (ch.text or "").strip()
+        elif t == "dmStatusMessage":
+            msg = (ch.text or "").strip()
+        elif t == "dmID":
+            dm = (ch.text or "").strip()
+    if code == "0000":
+        return True, dm
+    return False, "%s: %s" % (code, msg)
+
+
 def _isds_extract_text(rb, fname):
     """Z příloh datovky vytáhne text: digitální PDF (pdfplumber) → jinak OCR → jinak decode."""
     low = (fname or "").lower()
@@ -23513,6 +23555,33 @@ async def diag_sql(req: Request) -> JSONResponse:
                     t = _isds_extract_text(files[0]["bytes"], files[0]["filename"])
                     rows.append(["TEXT[0]", (t or "(prázdné / binární)")[:400]])
                 return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": rows, "count": len(rows)})
+            if op == "SENDNEMPRI":
+                # @@ISDS SENDNEMPRI <acct> <davka_id> <recipient_box> — explicitní příjemce
+                try:
+                    davka_id = int(parts[3]); recip = parts[4]
+                except Exception:
+                    return JSONResponse({"ok": False, "error": "@@ISDS SENDNEMPRI <acct> <davka_id> <recipient_box>"})
+                from core.database_data import get_data_session as _gs2
+                from sqlalchemy import text as _ts2
+                ss = _gs2()
+                try:
+                    d = ss.execute(_ts2("SELECT * FROM tenant.davka_podani WHERE id=:i"),
+                                   {"i": davka_id}).mappings().first()
+                    if not d:
+                        return JSONResponse({"ok": False, "error": "podání nenalezeno"})
+                    xml = _nempri25_ose_xml(dict(d))
+                    oks, res = _isds_send(acc, recip, "e - Podani NEMPRI25",
+                                          [{"filename": "NEMPRI25.xml", "bytes": xml.encode("utf-8"),
+                                            "mime": "application/xml"}])
+                    if oks:
+                        ss.execute(_ts2("UPDATE tenant.davka_podani SET stav='odeslano', odeslano_at=now(), "
+                                        "protokol=:p WHERE id=:i"), {"p": "dmID=" + res, "i": davka_id})
+                        ss.commit()
+                    return JSONResponse({"ok": oks, "columns": ["k", "v"],
+                                         "rows": [["odesláno", "ANO" if oks else "NE"], ["dmID/chyba", res]],
+                                         "count": 2})
+                finally:
+                    ss.close()
             if op == "DOC":
                 dm_id = parts[3]
                 from core.database_data import get_data_session as _gd

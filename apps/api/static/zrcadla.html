@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Řídící centrum zrcadel</title>
+<style>
+  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;
+        --accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#ff8a8a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14.5px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:18px}
+  h1{font-size:21px;margin:0 0 3px;font-weight:800}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:14px}
+  .health{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:11px 14px;margin-bottom:14px}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .j{background:var(--card);border:1px solid var(--bord);border-radius:13px;padding:12px 14px;margin-bottom:10px}
+  .j.off{opacity:.6}
+  .r1{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .nm{font-weight:700;font-size:15.5px;flex:1;min-width:150px}
+  .grp{font-size:11px;color:var(--mut);background:#16223a;border:1px solid #2a3a55;border-radius:8px;padding:1px 8px}
+  .badge{font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:9px}
+  .b-ok{background:rgba(52,211,153,.16);color:var(--green);border:1px solid #34d39955}
+  .b-run{background:rgba(79,142,247,.16);color:var(--accent);border:1px solid #4f8ef755}
+  .b-err{background:rgba(255,138,138,.16);color:var(--red);border:1px solid #ff8a8a55}
+  .b-idle{background:#1d2737;color:var(--mut);border:1px solid #2a3a55}
+  .meta{color:var(--mut);font-size:12.5px;margin-top:6px;line-height:1.6}
+  .res{color:#bcd0e6;font-size:12.5px;margin-top:3px;word-break:break-word}
+  .res.err{color:var(--red)}
+  .acts{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .btn{border:1px solid var(--bord);background:#0f1830;color:var(--tx);border-radius:8px;padding:7px 13px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .btn:hover{border-color:var(--accent)} .btn.prim{background:var(--accent);border-color:var(--accent);color:#06101f}
+  .sw{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mut);cursor:pointer;user-select:none}
+  .track{width:38px;height:21px;border-radius:11px;background:#33435c;position:relative;transition:background .15s}
+  .track.on{background:var(--green)} .knob{position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#fff;transition:left .15s} .track.on .knob{left:19px}
+  input.iv{width:62px;background:#0a1226;color:var(--tx);border:1px solid #2b3a5c;border-radius:7px;padding:5px 7px;font-size:13px}
+  .hint{color:var(--mut)} .age-g{color:var(--green)} .age-a{color:var(--amber)} .age-r{color:var(--red)}
+  .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><h1>🪞 Řídící centrum zrcadel</h1><button class="btn" id="refresh">↻ Obnovit</button>
+    <label class="sw" id="autoref"><span class="track on"><span class="knob"></span></span> auto‑obnova</label></div>
+  <div class="sub">Živý stav zrcadel Centrály + jejich automatický život. Plánovač běží na pozadí (tik 30 s), watermark dotahuje i přerušené běhy.</div>
+  <div class="health" id="health"><span class="hint">Načítám…</span></div>
+  <div id="list"></div>
+</div>
+<script>
+function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;
+  try{if(window.__opcUrl)return new URL(window.__opcUrl,location.origin).searchParams.get(k);}catch(e){}return null;}
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(m,p,b){var o={method:m,credentials:"include",headers:{}};if(b){o.headers["Content-Type"]="application/json";o.body=JSON.stringify(b);}
+  return fetch(p,o).then(function(r){return r.json();}).catch(function(){return{ok:false};});}
+function ageCls(m){if(m==null)return"";return m<360?"age-g":(m<1440?"age-a":"age-r");}
+function ageTxt(m){if(m==null)return"—";if(m<60)return m+" min";if(m<1440)return Math.round(m/60)+" h";return Math.round(m/1440)+" dní";}
+function ivTxt(m){if(m<60)return m+" min";if(m%1440===0)return(m/1440)+" d";if(m%60===0)return(m/60)+" h";return m+" min";}
+
+var listEl=document.getElementById("list"), healthEl=document.getElementById("health");
+var _autoref=true;
+
+function badge(j){
+  if(j.running) return '<span class="badge b-run">● běží</span>';
+  if(j.last_status==="chyba") return '<span class="badge b-err">✕ chyba</span>';
+  if(j.last_status==="ok") return '<span class="badge b-ok">✓ ok'+(j.last_done===false?' (pokr.)':'')+'</span>';
+  return '<span class="badge b-idle">○ čeká</span>';
+}
+function render(jobs){
+  var nErr=0,nRun=0,nOff=0,nOk=0;
+  jobs.forEach(function(j){ if(!j.enabled)nOff++; else if(j.running)nRun++; else if(j.last_status==="chyba")nErr++; else if(j.last_status==="ok")nOk++; });
+  var hc=nErr? "var(--red)":(nRun?"var(--accent)":"var(--green)");
+  var ht=nErr? (nErr+" s chybou"):(nRun?(nRun+" běží"):"vše v pořádku");
+  healthEl.innerHTML='<span class="dot" style="background:'+hc+'"></span><b>'+esc(ht)+'</b>'
+    +'<span class="hint">· '+jobs.length+' zrcadel · '+nOk+' ok · '+nErr+' chyba · '+nRun+' běží · '+nOff+' vyp.</span>';
+  var h="";
+  jobs.forEach(function(j){
+    h+='<div class="j'+(j.enabled?'':' off')+'" data-k="'+esc(j.job_key)+'">'
+      +'<div class="r1"><span class="nm">'+esc(j.label)+'</span><span class="grp">'+esc(j.grp||'')+'</span>'+badge(j)+'</div>'
+      +'<div class="meta">Naposledy: <span class="'+ageCls(j.age_min)+'">'+(j.last_run?esc(j.last_run):'nikdy')+(j.age_min!=null?(' · před '+ageTxt(j.age_min)):'')+'</span>'
+      +' · řádků: <b>'+(j.last_rows!=null?Number(j.last_rows).toLocaleString("cs-CZ"):'—')+'</b>'
+      +' · příště: '+(j.enabled?esc(j.next_run||'—'):'—')+'</div>'
+      +'<div class="res'+(j.last_status==="chyba"?' err':'')+'">'+esc(j.last_result||'')+'</div>'
+      +'<div class="acts">'
+      +'<button class="btn prim run" data-k="'+esc(j.job_key)+'"'+(j.running?' disabled':'')+'>▶ Spustit teď</button>'
+      +'<label class="sw tog" data-k="'+esc(j.job_key)+'" data-en="'+(j.enabled?1:0)+'"><span class="track '+(j.enabled?'on':'')+'"><span class="knob"></span></span> auto</label>'
+      +'<span class="hint">interval</span><input class="iv" type="number" min="1" value="'+j.interval_min+'" data-k="'+esc(j.job_key)+'"> <span class="hint">min ('+ivTxt(j.interval_min)+')</span>'
+      +'</div></div>';
+  });
+  listEl.innerHTML=h;
+  Array.prototype.forEach.call(listEl.querySelectorAll(".run"),function(b){b.onclick=function(){
+    b.disabled=true;b.textContent="▶ zařazeno…";api("POST","/api/v1/erp/app/mirror/run",{job_key:b.getAttribute("data-k")}).then(function(){setTimeout(load,800);});};});
+  Array.prototype.forEach.call(listEl.querySelectorAll(".tog"),function(t){t.onclick=function(){
+    var en=t.getAttribute("data-en")==="1";api("POST","/api/v1/erp/app/mirror/auto",{job_key:t.getAttribute("data-k"),enabled:!en}).then(load);};});
+  Array.prototype.forEach.call(listEl.querySelectorAll(".iv"),function(i){i.onchange=function(){
+    var v=parseInt(i.value,10);if(v>=1)api("POST","/api/v1/erp/app/mirror/auto",{job_key:i.getAttribute("data-k"),interval_min:v}).then(load);};});
+}
+function load(){
+  api("GET","/api/v1/erp/app/mirror/status").then(function(j){
+    if(!j||!j.ok){healthEl.innerHTML='<span class="res err">'+esc((j&&(j.error||j.detail))||"Nelze načíst (rodič only / běží registr?)")+'</span>';return;}
+    render(j.jobs||[]);
+  });
+}
+document.getElementById("refresh").onclick=load;
+document.getElementById("autoref").onclick=function(){_autoref=!_autoref;
+  this.querySelector(".track").classList.toggle("on",_autoref);};
+load();
+setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
+</script>
+</body>
+</html>

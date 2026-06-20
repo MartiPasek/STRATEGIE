@@ -18358,6 +18358,197 @@ def _att_sync_stop_now():
         _ATT_SYNC_TASK[0].cancel()
 
 
+# ════════════════════════════════════════════════════════════════════════
+# ŘÍDÍCÍ CENTRUM ZRCADEL — plánovač „automatického života" (Marti 20.6.2026).
+# fw.mirror_job (registr) + tik: claimni 1 dozrálý job (FOR UPDATE SKIP LOCKED →
+# blue-green nepustí 2× stejný), spusť sync, přeplánuj. Watermark resume → i
+# recyklované vlákno příští tik dotáhne; nedokončený job retry za 2 min.
+# Auto ON = IT tým se na zrcadla spolehne bez ručních kliků.
+# ════════════════════════════════════════════════════════════════════════
+_MIRROR_SCHED_STOP = [False]
+_MIRROR_SCHED_TASK = [None]
+
+
+def _mirror_run_job(job_key):
+    """Spustí jeden sync dle klíče. Vrací (ok, done, rows, msg)."""
+    fnmap = {
+        "sync_ec_dochazka_sumaden": lambda: _sync_dochazka_sumaden(),
+        "sync_ec_doklady": lambda: _sync_ec_doklady_zbozi(cap_per_table=300000),
+        "sync_ec_kalkulace": lambda: _sync_ec_kalkulace(),
+        "sync_ec_ukoly": lambda: _sync_ec_ukoly(),
+        "sync_ec_zakazky": lambda: _sync_ec_zakazka_prehled(),
+        "sync_ec_sklad_kmen": lambda: _sync_ec_sklad_kmen(),
+        "sync_ec_ceniky": lambda: _sync_ec_ceniky(),
+        "sync_ec_org_kontakt": lambda: _sync_ec_org_kontakt(),
+    }
+    fn = fnmap.get(job_key)
+    if fn is None:
+        return (False, True, None, "neznámý job")
+    try:
+        out = fn() or {}
+        ok = bool(out.get("ok", True))
+        done = bool(out.get("done", True))
+        nums = {k: v for k, v in out.items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        rows = int(sum(nums.values())) if nums else None
+        msg = ", ".join("%s=%s" % (k, v) for k, v in nums.items()) or "ok"
+        return (ok, done, rows, msg[:400])
+    except Exception as e:
+        return (False, True, None, ("%s: %s" % (type(e).__name__, str(e)))[:400])
+
+
+def _mirror_sched_tick():
+    """Jeden tik: claim 1 dozrálý job → spusť → přeplánuj (done=interval, jinak 2 min)."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    jk = None
+    interval = 360
+    try:
+        row = s.execute(_t(
+            "UPDATE fw.mirror_job SET running=true, started_at=now(), last_status='běží', updated_at=now() "
+            "WHERE job_key = (SELECT job_key FROM fw.mirror_job "
+            "  WHERE enabled AND NOT running AND (next_run_at IS NULL OR next_run_at <= now()) "
+            "  ORDER BY next_run_at NULLS FIRST FOR UPDATE SKIP LOCKED LIMIT 1) "
+            "RETURNING job_key, interval_min")).first()
+        s.commit()
+        if not row:
+            return
+        jk, interval = row[0], int(row[1] or 360)
+    finally:
+        s.close()
+    ok, done, rows, msg = _mirror_run_job(jk)
+    nextmin = interval if done else 2
+    s2 = _g()
+    try:
+        s2.execute(_t(
+            "UPDATE fw.mirror_job SET running=false, last_run_at=now(), last_status=:st, "
+            "last_result=:r, last_rows=:rw, last_done=:d, "
+            "next_run_at=now() + :nm * interval '1 minute', updated_at=now() WHERE job_key=:k"),
+            {"st": ("ok" if ok else "chyba"), "r": msg, "rw": rows, "d": done,
+             "nm": nextmin, "k": jk})
+        s2.commit()
+    finally:
+        s2.close()
+
+
+async def _mirror_sched_loop():
+    import asyncio as _aio
+    while not _MIRROR_SCHED_STOP[0]:
+        try:
+            await _aio.sleep(30)
+            loop = _aio.get_event_loop()
+            await loop.run_in_executor(None, _mirror_sched_tick)
+        except _aio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning("[mirror_sched_loop] %s", e)
+
+
+def _mirror_sched_start():
+    import asyncio as _aio
+    if _MIRROR_SCHED_TASK[0] is not None and not _MIRROR_SCHED_TASK[0].done():
+        return
+    _MIRROR_SCHED_STOP[0] = False
+    try:
+        _MIRROR_SCHED_TASK[0] = _aio.create_task(_mirror_sched_loop())
+        logger.info("[mirror_sched] background loop started (30s tik)")
+    except Exception as e:
+        logger.warning("[mirror_sched] start failed: %s", e)
+
+
+def _mirror_sched_stop_now():
+    _MIRROR_SCHED_STOP[0] = True
+    if _MIRROR_SCHED_TASK[0] is not None and not _MIRROR_SCHED_TASK[0].done():
+        _MIRROR_SCHED_TASK[0].cancel()
+
+
+@api_router.get("/app/mirror/status")
+def mirror_status(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT job_key, label, grp, interval_min, enabled, running, last_status, "
+            "COALESCE(last_result,''), last_rows, last_done, "
+            "to_char(last_run_at,'DD.MM. HH24:MI:SS'), "
+            "to_char(next_run_at,'DD.MM. HH24:MI:SS'), "
+            "CASE WHEN last_run_at IS NULL THEN NULL ELSE "
+            "  round(EXTRACT(EPOCH FROM (now()-last_run_at))/60.0)::int END AS age_min "
+            "FROM fw.mirror_job ORDER BY enabled DESC, grp, label")).fetchall()
+        out = [{"job_key": r[0], "label": r[1], "grp": r[2], "interval_min": r[3],
+                "enabled": r[4], "running": r[5], "last_status": r[6], "last_result": r[7],
+                "last_rows": r[8], "last_done": r[9], "last_run": r[10], "next_run": r[11],
+                "age_min": r[12]} for r in rows]
+        return {"ok": True, "jobs": out}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/mirror/run")
+async def mirror_run(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    jk = (str(b.get("job_key") or "").strip())
+    if not jk:
+        return JSONResponse({"ok": False, "error": "chybí job_key"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        # force due — plánovač ho vezme do 30 s (pokud zrovna neběží)
+        s.execute(_t("UPDATE fw.mirror_job SET next_run_at=now(), updated_at=now() "
+                     "WHERE job_key=:k AND NOT running"), {"k": jk})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+
+@api_router.post("/app/mirror/auto")
+async def mirror_auto(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not is_marti_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    jk = (str(b.get("job_key") or "").strip())
+    if not jk:
+        return JSONResponse({"ok": False, "error": "chybí job_key"}, status_code=400)
+    sets = []
+    params = {"k": jk}
+    if "enabled" in b:
+        sets.append("enabled=:en"); params["en"] = bool(b.get("enabled"))
+    if b.get("interval_min"):
+        try:
+            params["iv"] = max(1, int(b.get("interval_min"))); sets.append("interval_min=:iv")
+        except Exception:
+            pass
+    if not sets:
+        return JSONResponse({"ok": False, "error": "nic ke změně"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        s.execute(_t("UPDATE fw.mirror_job SET " + ", ".join(sets) +
+                     ", updated_at=now() WHERE job_key=:k"), params)
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True}
+
+
 @api_router.post("/hr/migrate-dochazka")
 async def hr_migrate_dochazka(req: Request) -> JSONResponse:
     """Migrace EC_Dochazka (MSSQL přes EUROSOFT MCP) → tenant.att_*. Běží IN-PROCESS
@@ -23110,7 +23301,9 @@ def _sync_ec_ukoly(_unused=None) -> dict:
                 break
         res["cis_resitelu"] = nc
 
-        return {"ok": True, **res}
+        _, _u_done = get_wm("EC_Ukoly")
+        _, _r_done = get_wm("EC_UkolyResitelVazba")
+        return {"ok": True, "done": (_u_done == "done" and _r_done == "done"), **res}
     except Exception:
         s.rollback()
         raise

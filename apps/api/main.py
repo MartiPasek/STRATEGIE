@@ -220,6 +220,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logging.getLogger(__name__).warning(f"[lifespan] att_sync start failed: {exc}")
 
+    # Marti 20.6.2026: planovac zrcadel (ridici centrum, automaticky zivot).
+    try:
+        from modules.erp.api.router import _mirror_sched_start as _mir_start
+        _mir_start()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] mirror_sched start failed: {exc}")
+
     yield
 
     # Phase HA-1: SHUTDOWN audit (before background drain stop)
@@ -250,6 +257,11 @@ async def lifespan(app: FastAPI):
     try:
         from modules.erp.api.router import _att_sync_stop_now as _att_stop
         _att_stop()
+    except Exception:
+        pass
+    try:
+        from modules.erp.api.router import _mirror_sched_stop_now as _mir_stop
+        _mir_stop()
     except Exception:
         pass
 
@@ -946,6 +958,14 @@ def doklad_page():
     """Detail dokladu (vydaná objednávka) ve STRATEGII — desktop. Mobil = řízení,
     PC = detail (Marti 19.6.2026). Data z /app/doklad/detail?id=."""
     return FileResponse(os.path.join(static_dir, "doklad.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/zrcadla")
+def zrcadla_page():
+    """Řídící centrum zrcadel — živý stav + automatický život (Marti 20.6.2026).
+    Data z /app/mirror/*. Parent-only. Pro IT tým, aby se na zrcadla spolehl."""
+    return FileResponse(os.path.join(static_dir, "zrcadla.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 

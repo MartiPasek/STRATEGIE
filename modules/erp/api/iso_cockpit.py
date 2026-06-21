@@ -17,8 +17,84 @@ import secrets
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, Response
 from sqlalchemy import text as _t
+
+
+def _esc_html(s):
+    return (str(s or "")).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _docx_to_html(full):
+    """docx → HTML pro zobrazení v prohlížeči (mammoth, fallback python-docx)."""
+    try:
+        import mammoth
+        with open(full, "rb") as f:
+            h = mammoth.convert_to_html(f).value
+        if h:
+            return h
+    except Exception:
+        pass
+    try:
+        import docx as _docx
+        from docx.oxml.ns import qn as _qn
+        from docx.text.paragraph import Paragraph as _P
+        from docx.table import Table as _Tb
+        d = _docx.Document(full)
+        out = []
+        for ch in d.element.body.iterchildren():
+            if ch.tag == _qn("w:p"):
+                p = _P(ch, d)
+                t = (p.text or "").strip()
+                if not t:
+                    continue
+                st = (p.style.name or "").lower() if p.style else ""
+                if "heading 1" in st or st == "title":
+                    out.append("<h1>%s</h1>" % _esc_html(t))
+                elif "heading 2" in st:
+                    out.append("<h2>%s</h2>" % _esc_html(t))
+                elif "heading" in st:
+                    out.append("<h3>%s</h3>" % _esc_html(t))
+                else:
+                    out.append("<p>%s</p>" % _esc_html(t))
+            elif ch.tag == _qn("w:tbl"):
+                tb = _Tb(ch, d)
+                out.append("<table>")
+                for row in tb.rows:
+                    out.append("<tr>" + "".join("<td>%s</td>" % _esc_html(c.text) for c in row.cells) + "</tr>")
+                out.append("</table>")
+        return "\n".join(out)
+    except Exception:
+        return None
+
+
+def _wrap_doc_html(title, body):
+    return ("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<title>%s</title><style>body{font:15px/1.6 -apple-system,Segoe UI,Roboto,system-ui;"
+            "max-width:860px;margin:0 auto;padding:18px 18px 120px;color:#111;background:#fff}"
+            "table{border-collapse:collapse;margin:8px 0;width:100%%}td,th{border:1px solid #aab;padding:4px 8px;"
+            "vertical-align:top;font-size:13px}h1{font-size:22px}h2{font-size:18px;margin-top:20px}h3{font-size:15px}"
+            "@media print{.noprint{display:none}}</style>"
+            "<div class=noprint style='margin-bottom:12px'><button onclick='window.print()' "
+            "style='padding:8px 14px;border:0;border-radius:8px;background:#1f3864;color:#fff;font-weight:700;cursor:pointer'>"
+            "\U0001f5a8 Tisk</button></div>%s") % (_esc_html(title), body)
+
+
+def _serve_file(full):
+    """Zobraz dokument v prohlížeči: docx→HTML, pdf inline, ostatní stáhnout."""
+    low = full.lower()
+    if low.endswith(".docx"):
+        h = _docx_to_html(full)
+        if h is not None:
+            return HTMLResponse(_wrap_doc_html(os.path.basename(full), h))
+    if low.endswith(".pdf"):
+        try:
+            with open(full, "rb") as f:
+                data = f.read()
+            return Response(content=data, media_type="application/pdf", headers={"Content-Disposition": "inline"})
+        except Exception:
+            pass
+    return FileResponse(full, filename=os.path.basename(full))
 
 try:
     from modules.erp.api.iso_controls_catalog import CONTROLS as _CONTROLS
@@ -312,8 +388,7 @@ def _serve_doc(soubor_path):
     base = os.path.normpath(os.path.join(_REPO, _DOC_DIR_REL))
     if not full.startswith(base) or not os.path.isfile(full):
         return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-    fn = os.path.basename(full)
-    return FileResponse(full, filename=fn)
+    return _serve_file(full)
 
 
 def _controls_payload(s, tenant_id):
@@ -456,7 +531,7 @@ def _serve_storage(storage_path):
     root = os.path.normpath(_DOC_STORE_ROOT)
     if not full.startswith(root) or not os.path.isfile(full):
         return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-    return FileResponse(full, filename=os.path.basename(full))
+    return _serve_file(full)
 
 
 def _evidence_payload(s, tenant_id):

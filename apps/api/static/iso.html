@@ -56,7 +56,7 @@ function api(p,m,b){if(TENANT&&p.indexOf("/app/iso")>=0){p+=(p.indexOf("?")>=0?"
 var DATA=null;
 var KROKFILTR="Vše";
 function setKrokFiltr(o){KROKFILTR=o;if(DATA)render();}
-function navodKey(t){var v=t.vlastnik||"",f=t.faze||"";if(v.indexOf("Michal")>=0||f.indexOf("Obnova")>=0)return "michal";if(v.indexOf("Kristý")>=0)return "handoff";if(f.indexOf("Dodavatel")>=0)return "dodavatele";if(f.indexOf("Technika")>=0)return "dr";return "dorazeni";}
+function navodKey(t){var v=t.vlastnik||"",f=t.faze||"";if(v.indexOf("Michal")>=0||f.indexOf("Obnova")>=0)return "michal";if(v.indexOf("Mísa")>=0||v.indexOf("Kristý")>=0)return "handoff";if(f.indexOf("Dodavatel")>=0)return "dodavatele";if(f.indexOf("Technika")>=0)return "dr";return "dorazeni";}
 function load(){return api("/api/v1/erp/app/iso/overview").then(j=>{
   if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="c" style="color:#ff8a8a">'+esc((j&&j.error)||"přístup jen pro vedení")+'</div>';document.getElementById("head").textContent="";return;}
   DATA=j;render();
@@ -96,7 +96,7 @@ function render(){
       +tnav
       +'</div><div class="right" style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'
       +(t.navod?('<button class="btn sm ghost" onclick="tgl(\'tnav_'+t.id+'\')">📖 Jak na to</button>'):'')
-      +(t.vyzaduje_podpis?'<span class="hint">podpis u dokumentu ↓</span>':('<button class="btn sm '+(done?'ghost':'')+'" onclick="taskDone('+t.id+','+(!done)+')">'+(done?"vrátit":"hotovo")+'</button>'))
+      +(t.vyzaduje_podpis?'<span class="hint">podpis u dokumentu ↓</span>':('<button class="btn sm '+(done?'ghost':'')+'" style="'+(done?'':'background:rgba(52,211,153,.16);border:1px solid #34d399;color:#34d399;font-weight:700')+'" onclick="taskDone('+t.id+','+(!done)+')">'+(done?"vrátit":"✓ hotovo")+'</button>'))
       +'</div></div>';
   });
   h+='</div>';
@@ -210,7 +210,9 @@ function loadCadence(){api("/api/v1/erp/app/iso/cadence").then(function(j){
     if(c.last)info="naposledy "+c.last+(c.due?(" · příště do "+c.due+(c.dleft!=null?(c.dleft<0?(" (už by to chtělo, +"+(-c.dleft)+" dní)"):(" (zbývá "+c.dleft+" dní)")):"")):"");
     else if(c.stav==="nikdy")info="zatím jsme nezačali — až bude vhodná chvíle";
     else if(c.stav==="prubezne")info="průběžná činnost (bez termínu)";
-    var btn=c.auto?'<span class="hint">automaticky (sken výše)</span>':(c.stav==="prubezne"?"":'<button class="btn sm ghost" onclick="cadDone(\''+c.kod+'\')">✓ Provedeno</button>');
+    var done=(c.stav==="ok");
+    var grn='background:rgba(52,211,153,.16);border:1px solid #34d399;color:#34d399;font-weight:700';
+    var btn=c.auto?'<span class="hint">automaticky (sken výše)</span>':(c.stav==="prubezne"?"":'<button class="btn sm" style="'+grn+'" onclick="cadDone(\''+c.kod+'\')">'+(done?"✓ Provedeno":"✓ Označit za provedené")+'</button>');
     var navbtn=c.navod?('<button class="btn sm ghost" onclick="tgl(\'nav_'+c.kod+'\')">📖 Jak na to</button> '):'';
     var docl=c.doc?(' &nbsp;<a href="/dokument?key='+esc(c.doc)+'">📖 otevřít návod v dokumentu →</a>'):'';
     var nav=c.navod?('<div class="meta" id="nav_'+c.kod+'" style="display:none;margin-top:6px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px;line-height:1.5">'+esc(c.navod)+docl+'</div>'):'';

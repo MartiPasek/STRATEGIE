@@ -1384,7 +1384,7 @@ setTimeout(function(){
   // Appka se neopustí → Android Back nezavře aplikaci, jen zavře overlay. Žádný externí prohlížeč.
   // Přehledy se otevírají jako NATIVNÍ obrazovka v zásobníku (stejné schéma jako Skupiny) →
   // Zpět řídí výhradně back() appky (topbar i systémové Zpět). Žádný vlastní overlay/history hack.
-  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace","/zrcadla":"🪞 Zrcadla","/parovani":"🏦 Párování","/uctovani":"📒 Účetnictví","/edi-stat":"📊 Statistika EDI","/edi-definice":"🧩 EDI definice","/neschopenky":"🤒 Neschopenky","/davky":"📤 Dávky ČSSZ","/audit-davky":"🛡️ Audit dávek","/iso":"🛡️ ISO 27001"};
+  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace","/zrcadla":"🪞 Zrcadla","/parovani":"🏦 Párování","/uctovani":"📒 Účetnictví","/edi-stat":"📊 Statistika EDI","/edi-definice":"🧩 EDI definice","/neschopenky":"🤒 Neschopenky","/davky":"📤 Dávky ČSSZ","/audit-davky":"🛡️ Audit dávek","/iso":"🛡️ ISO 27001","/dokument":"📚 Dokumentace"};
   var _xvUrl="", _xvTitle="";
   function openInApp(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; go("extview"); }
   function extview(){
@@ -1443,6 +1443,7 @@ setTimeout(function(){
     g.appendChild(appCell("📤","Dávky ČSSZ",0,function(){openInApp("/davky");}));
     g.appendChild(appCell("🛡️","Audit dávek",0,function(){openInApp("/audit-davky");}));
     g.appendChild(appCell("🛡️","ISO 27001",0,function(){openInApp("/iso");}));
+    g.appendChild(appCell("📚","Dokumentace",0,function(){openInApp("/dokument");}));
     g.appendChild(appCell("📥","Poptávky",0,function(){go("poptavka");}));
     g.appendChild(appCell("🛒","Co objednat",0,function(){openInApp("/objednavky");}));
     g.appendChild(appCell("🤖","SW zakázky",0,function(){go("sw_zakazky");}));

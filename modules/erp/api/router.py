@@ -24031,6 +24031,26 @@ async def diag_sql(req: Request) -> JSONResponse:
         finally:
             _sd.close()
 
+    # Feedback z dokumentace/portálu (Marti 21.6.2026): co lidé i auditoři napsali.
+    #   @@FEEDBACK            → posledních 100 (nové první)
+    #   @@FEEDBACK NOVE       → jen nevyřízené
+    if sql.upper().startswith("@@FEEDBACK"):
+        from core.database_data import get_data_session as _gfb
+        from sqlalchemy import text as _t
+        only_new = sql.upper().split(None, 1)[1].strip().startswith("NOVE") if len(sql.split(None, 1)) > 1 else False
+        _sf = _gfb()
+        try:
+            where = "WHERE stav<>'vyrizeno'" if only_new else ""
+            rows = _sf.execute(_t(
+                "SELECT id, tenant_id, zdroj, typ, COALESCE(jmeno,'') , COALESCE(doc_key,''), stav, "
+                "left(text,180), to_char(created_at,'DD.MM HH24:MI') FROM tenant.doc_feedback "
+                + where + " ORDER BY (stav='nove') DESC, (zdroj='auditor') DESC, created_at DESC LIMIT 100")).all()
+            return JSONResponse({"ok": True,
+                                 "columns": ["id", "tenant", "zdroj", "typ", "jmeno", "doc", "stav", "text", "kdy"],
+                                 "rows": [list(r) for r in rows], "count": len(rows)})
+        finally:
+            _sf.close()
+
     # EDI tiered engine (Marti 20.6.2026):
     #   @@PARSE <cesta_k_fakture>            → jedna faktura (detail hlavička+položky)
     #   @@PARSEBATCH <root_adresar> <pocet>  → dávka N nejnovějších složek (souhrn)

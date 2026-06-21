@@ -73,9 +73,38 @@ function load(){
       });
       h+='</div>';
     }
-    h+='<div class="sub" style="margin-top:10px">Přístup je auditovaný (každé otevření se zaznamenává). Pro otázky kontaktujte správce ISMS.</div>';
+    h+='<h1 style="font-size:16px;margin:18px 0 6px">💬 Napište nám přímo (bez e-mailu)</h1><div class="c">'
+      +'<div class="sub">Co potřebujete? Napište to sem — uvidíme to hned a odpovíme přímo v tomto portálu.</div>'
+      +'<div id="aftypes" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0"></div>'
+      +'<textarea id="aftext" placeholder="Dotaz, požadavek na doklad, zjištění, co doplnit…" style="width:100%;min-height:70px;background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:8px;padding:8px"></textarea>'
+      +'<div style="margin-top:8px"><button onclick="sendAFb()" style="background:var(--accent);color:#06101f;border:0;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer">Odeslat</button> <span id="afmsg" class="sub"></span></div>'
+      +'<div id="afthread" style="margin-top:12px"></div></div>';
+    h+='<div class="sub" style="margin-top:10px">Přístup je auditovaný (každé otevření i zpráva se zaznamenává).</div>';
     document.getElementById("body").innerHTML=h;
+    initAfTypes();loadAuditFb();
   }).catch(()=>{document.getElementById("body").innerHTML='<div class="c err">Chyba načtení.</div>';});
+}
+var AFTYPES=[["otazka","❓ Dotaz"],["doplnit","➕ Doplnit"],["spatne","⚠️ Zjištění"],["nesouhlas","✋ Nesouhlas"]];
+var aftype="otazka";
+function initAfTypes(){var e=document.getElementById("aftypes");if(!e)return;e.innerHTML=AFTYPES.map(t=>'<span onclick="aftype=\''+t[0]+'\';initAfTypes()" style="font-size:12px;padding:4px 9px;border-radius:8px;cursor:pointer;'+(t[0]===aftype?'background:#4f8ef7;color:#06101f;font-weight:700':'background:#0f1830;border:1px solid var(--bord)')+'">'+t[1]+'</span>').join('');}
+function sendAFb(){
+  var t=document.getElementById("aftext").value.trim();if(!t){document.getElementById("afmsg").textContent="napište text";return;}
+  fetch("/api/v1/erp/app/iso/audit/"+encodeURIComponent(TOKEN)+"/feedback",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({typ:aftype,text:t})}).then(r=>r.json()).then(r=>{
+    if(r&&r.ok){document.getElementById("aftext").value="";document.getElementById("afmsg").innerHTML='<span style="color:#34d399">Odesláno — díky! Reagujeme.</span>';loadAuditFb();}
+    else{document.getElementById("afmsg").textContent=(r&&r.error)||"chyba";}
+  });
+}
+function loadAuditFb(){
+  fetch("/api/v1/erp/app/iso/audit/"+encodeURIComponent(TOKEN)+"/feedback",{credentials:"omit"}).then(r=>r.json()).then(j=>{
+    var el=document.getElementById("afthread");if(!el||!j||!j.ok)return;
+    if(!j.feedback.length){el.innerHTML='';return;}
+    el.innerHTML='<div class="sub" style="margin:6px 0">Vaše zprávy a naše odpovědi:</div>'+j.feedback.map(f=>
+      '<div style="border:1px solid var(--bord);border-radius:8px;padding:8px;margin-bottom:6px">'
+      +'<div><b>'+esc(f.typ)+'</b> <span class="meta">· '+esc(f.kdy)+' · '+(f.stav==="vyrizeno"?'<span style="color:#34d399">vyřízeno</span>':'<span style="color:#fbbf24">čeká</span>')+'</span></div>'
+      +'<div style="margin:3px 0">'+esc(f.text)+'</div>'
+      +(f.odpoved?('<div style="border-left:3px solid #34d399;padding:3px 8px;margin-top:4px;color:#bfe3c8">Naše odpověď: '+esc(f.odpoved)+'</div>'):'')
+      +'</div>').join('');
+  });
 }
 load();
 </script>

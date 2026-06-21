@@ -115,8 +115,33 @@ function render(){
     +'<div id="evid"></div></div>';
   // AUDITOR
   h+='<h2>👁️ Přístup pro auditora (web, read-only)</h2><div class="c" id="aud"><div class="hint">Načítám…</div></div>';
+  // FEEDBACK INBOX
+  h+='<h2>💬 Dotazy a připomínky (od lidí i auditorů)</h2><div class="c" id="fbinbox"><div class="hint">Načítám…</div></div>';
   document.getElementById("body").innerHTML=h;
-  loadAud();
+  loadAud();loadFeedback();
+}
+var FBTYP={otazka:"❓ Dotaz",nerozumim:"🤔 Nerozumím",spatne:"⚠️ Špatně",nesouhlas:"✋ Nesouhlas",doplnit:"➕ Doplnit"};
+function loadFeedback(){api("/api/v1/erp/app/kb/feedback").then(j=>{
+  var el=document.getElementById("fbinbox");if(!el)return;
+  if(!j||!j.ok){el.innerHTML='<div class="hint">'+esc((j&&j.error)||"chyba")+'</div>';return;}
+  var rows=j.feedback||[];
+  if(!rows.length){el.innerHTML='<div class="hint">Zatím žádné dotazy ani připomínky.</div>';return;}
+  var nove=rows.filter(r=>r.stav!=="vyrizeno").length;
+  el.innerHTML='<div class="hint" style="margin-bottom:6px">Nových: '+nove+' · celkem '+rows.length+'</div>'+rows.map(f=>{
+    var aud=(f.zdroj==="auditor");
+    return '<div class="row"><div class="grow">'
+      +'<div class="nm">'+(FBTYP[f.typ]||f.typ)+' '+(aud?'<span class="pill" style="background:rgba(79,142,247,.18);color:#4f8ef7">AUDITOR</span> ':'')
+      +(f.stav==="vyrizeno"?'<span class="pill p-hotovo">vyřízeno</span>':'<span class="pill p-navrh">nové</span>')+'</div>'
+      +'<div class="meta">'+esc(f.jmeno||"")+' · '+esc(f.doc_key||"")+' · '+esc(f.kdy||"")+'</div>'
+      +'<div style="margin:3px 0">'+esc(f.text)+'</div>'
+      +(f.odpoved?('<div class="sig">↳ '+esc(f.odpoved)+'</div>'):'')
+      +'</div><div class="right">'+(f.stav!=="vyrizeno"?'<button class="btn sm" onclick="replyFb('+f.id+')">Odpovědět</button>':'')+'</div></div>';
+  }).join('');
+}
+function replyFb(id){
+  var o=prompt("Vaše odpověď (uvidí ji tazatel/auditor v portálu):");
+  if(o==null||!o.trim())return;
+  api("/api/v1/erp/app/kb/feedback/reply","POST",{id:id,odpoved:o.trim()}).then(r=>{if(r&&r.ok)loadFeedback();else alert((r&&r.error)||"chyba");});
 }
 var STAVY=["HOTOVO","ROZPRACOVÁNO","ZBÝVÁ","PROCES-ISMS","EUROSOFT-INFRA","NEAPLIKOVATELNÉ"];
 function loadControls(){

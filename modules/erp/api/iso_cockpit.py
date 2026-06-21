@@ -566,6 +566,62 @@ def iso_audit_evidence_doc(token: str, doc_id: int, req: Request):
         s.close()
 
 
+def _auditor_access_row(s, token):
+    if not token:
+        return None
+    th = hashlib.sha256(token.encode()).hexdigest()
+    return s.execute(_t("""SELECT id, tenant_id, auditor_jmeno FROM tenant.iso_auditor_access
+        WHERE token_hash=:h AND revoked=false AND (platnost_do IS NULL OR platnost_do > now()) LIMIT 1"""),
+        {"h": th}).first()
+
+
+@iso_router.post("/app/iso/audit/{token}/feedback")
+async def iso_audit_feedback(token: str, req: Request):
+    """Auditor / certifikační firma píše přímo do portálu (bez e-mailu) → naše DB."""
+    b = await req.json()
+    s = _sess()
+    try:
+        row = _auditor_access_row(s, token)
+        if not row:
+            return JSONResponse({"ok": False, "error": "invalid_or_expired"}, status_code=403)
+        typ = (b.get("typ") or "otazka").strip()
+        if typ not in _KB_TYPY:
+            typ = "otazka"
+        txt = (b.get("text") or "").strip()
+        if not txt:
+            return JSONResponse({"ok": False, "error": "prázdný text"}, status_code=400)
+        s.execute(_t("""INSERT INTO tenant.doc_feedback(tenant_id,doc_key,sekce,typ,text,jmeno,zdroj,auditor_access_id)
+            VALUES(:t,:dk,:sek,:ty,:tx,:j,'auditor',:aid)"""),
+            {"t": row.tenant_id, "dk": (b.get("doc_key") or "")[:80], "sek": (b.get("sekce") or "")[:200],
+             "ty": typ, "tx": txt[:4000], "j": row.auditor_jmeno or "auditor", "aid": row.id})
+        s.commit()
+        _log(s, row.tenant_id, "auditor:%s" % (row.auditor_jmeno or "?"), "feedback", b.get("doc_key"), _client_ip(req))
+        body = ("<p>🔔 <b>Auditor %s</b> napsal v portálu (%s):</p><blockquote>%s</blockquote>"
+                "<p>Reagujte v cockpitu: <a href='%s/iso'>%s/iso</a></p>") % (
+            row.auditor_jmeno or "auditor", typ, txt[:1000], _PORTAL, _PORTAL)
+        for em in _parent_emails(s):
+            _notify_email(s, row.tenant_id, em, "🔔 Auditor napsal v portálu — %s" % (row.auditor_jmeno or ""), body)
+        return {"ok": True}
+    finally:
+        s.close()
+
+
+@iso_router.get("/app/iso/audit/{token}/feedback")
+def iso_audit_feedback_list(token: str, req: Request):
+    """Auditor vidí svoje dotazy + naše odpovědi (obousměrně, bez e-mailu)."""
+    s = _sess()
+    try:
+        row = _auditor_access_row(s, token)
+        if not row:
+            return JSONResponse({"ok": False, "error": "invalid_or_expired"}, status_code=403)
+        rows = s.execute(_t("""SELECT id, doc_key, typ, text, stav, odpoved,
+            to_char(created_at,'DD.MM.YYYY HH24:MI') AS kdy FROM tenant.doc_feedback
+            WHERE auditor_access_id=:aid ORDER BY created_at DESC LIMIT 100"""), {"aid": row.id}).mappings().all()
+        return {"ok": True, "feedback": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
 # ════════════════════════ ADMIN (certifikační firma — přehled zákazníků) ════════════════════════
 
 @iso_router.get("/app/iso/admin/overview")
@@ -608,5 +664,174 @@ async def iso_admin_init(req: Request):
         _ensure_seeded(s, tid)
         _log(s, tid, _user_name(s, uid), "isms_init", None, _client_ip(req))
         return {"ok": True, "tenant": tid}
+    finally:
+        s.close()
+
+
+# ════════════════════════ DOKUMENTACE (KB) + FEEDBACK PRO VŠECHNY ════════════════════════
+
+_KB_DOCS = {
+    "tutorial": ("docs/infrastruktura_tutorial.md", "Tutoriál infrastruktury (od nuly)"),
+    "michal": ("docs/iso27001_plan_obnovy_michal.md", "Plán obnovy — pokyny pro Michala"),
+    "harmonizace": ("docs/iso_tisax_harmonizace_2026.md", "Harmonizace ISO ↔ TISAX"),
+    "dorazeni": ("docs/iso27001_dorazeni_2026.md", "ISO 27001 — plán dorážení"),
+    "handoff": ("docs/iso27001_handoff_kristy.md", "ISO 27001 — balíček pro Kristý"),
+    "inventar": ("docs/iso27001_inventar_aktiv_dataflow.md", "Inventář aktiv + data-flow"),
+    "dr": ("docs/iso27001_dr_plan_rto_rpo.md", "Plán obnovy DR (RTO/RPO)"),
+    "cve": ("docs/iso27001_cve_sprava_zranitelnosti.md", "Správa zranitelností (CVE)"),
+    "dodavatele": ("docs/iso27001_dodavatele_dpa.md", "Dodavatelé + DPA"),
+}
+_KB_TYPY = {"otazka", "nerozumim", "spatne", "nesouhlas", "doplnit"}
+_PORTAL = os.environ.get("STRATEGIE_PUBLIC_URL") or "https://strategie-ai.com"
+
+
+def _email_for_user(s, uid):
+    try:
+        r = s.execute(_t("""SELECT contact_value FROM public.user_contacts
+            WHERE user_id=:u AND contact_type='email' AND COALESCE(status,'active')<>'archived'
+            ORDER BY is_primary DESC NULLS LAST LIMIT 1"""), {"u": uid}).first()
+        return r.contact_value if r else None
+    except Exception:
+        return None
+
+
+def _parent_emails(s):
+    try:
+        rows = s.execute(_t("""SELECT DISTINCT c.contact_value FROM public.users u
+            JOIN public.user_contacts c ON c.user_id=u.id AND c.contact_type='email'
+            WHERE u.is_marti_parent=true AND COALESCE(c.status,'active')<>'archived'""")).all()
+        return [r[0] for r in rows if r[0]]
+    except Exception:
+        return []
+
+
+def _notify_email(s, tenant_id, to_email, subject, body_html):
+    """E-mail jako pojistka (lidé žijí v e-mailu) — s proklikem do portálu. Worker pošle."""
+    if not to_email:
+        return
+    try:
+        s.execute(_t("""INSERT INTO public.email_outbox(persona_id, from_identity, tenant_id, to_email,
+            subject, body, purpose, status, created_at)
+            VALUES(1,'persona',:t,:to,:subj,:body,'doc_feedback','pending',now())"""),
+            {"t": tenant_id, "to": to_email, "subj": subject[:990], "body": body_html})
+        s.commit()
+    except Exception:
+        pass
+
+
+@iso_router.get("/app/kb/list")
+def kb_list(req: Request):
+    """Seznam dostupných dokumentů (pro všechny přihlášené)."""
+    uid = _uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "login"}, status_code=401)
+    return {"ok": True, "docs": [{"key": k, "title": v[1]} for k, v in _KB_DOCS.items()]}
+
+
+@iso_router.get("/app/kb/raw/{key}")
+def kb_raw(key: str, req: Request):
+    """Zdrojový markdown dokumentu (pro všechny přihlášené) — renderuje se v appce."""
+    uid = _uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "login"}, status_code=401)
+    item = _KB_DOCS.get(key)
+    if not item:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+    full = os.path.normpath(os.path.join(_REPO, item[0]))
+    base = os.path.normpath(os.path.join(_REPO, "docs"))
+    if not full.startswith(base) or not os.path.isfile(full):
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+    try:
+        with open(full, encoding="utf-8", errors="replace") as f:
+            md = f.read()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    return {"ok": True, "key": key, "title": item[1], "md": md}
+
+
+@iso_router.post("/app/kb/feedback")
+async def kb_feedback(req: Request):
+    """Kdokoliv přihlášený: dotaz / nerozumím / špatně / nesouhlas / doplnit → do DB."""
+    uid = _uid(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "login"}, status_code=401)
+    b = await req.json()
+    typ = (b.get("typ") or "otazka").strip()
+    if typ not in _KB_TYPY:
+        typ = "otazka"
+    txt = (b.get("text") or "").strip()
+    if not txt:
+        return JSONResponse({"ok": False, "error": "prázdný text"}, status_code=400)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        s.execute(_t("""INSERT INTO tenant.doc_feedback(tenant_id,doc_key,sekce,typ,text,user_id,jmeno)
+            VALUES(:t,:dk,:sek,:ty,:tx,:u,:j)"""),
+            {"t": tid, "dk": (b.get("doc_key") or "")[:80], "sek": (b.get("sekce") or "")[:200],
+             "ty": typ, "tx": txt[:4000], "u": uid, "j": _user_name(s, uid)})
+        s.commit()
+        jm = _user_name(s, uid)
+        body = ("<p><b>%s</b> napsal(a) v portálu (%s) — dokument <b>%s</b>:</p><blockquote>%s</blockquote>"
+                "<p>Otevřete a odpovězte v portálu: <a href='%s/iso'>%s/iso</a></p>") % (
+            jm, typ, (b.get("doc_key") or "?"), txt[:1000], _PORTAL, _PORTAL)
+        for em in _parent_emails(s):
+            _notify_email(s, tid, em, "Nový dotaz v portálu (dokumentace) — %s" % jm, body)
+        return {"ok": True}
+    finally:
+        s.close()
+
+
+@iso_router.get("/app/kb/feedback")
+def kb_feedback_list(req: Request):
+    """Přehled feedbacku (parent)."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        rows = s.execute(_t("""SELECT id, doc_key, sekce, typ, text, jmeno, stav, odpoved, zdroj,
+            to_char(created_at,'DD.MM.YYYY HH24:MI') AS kdy FROM tenant.doc_feedback
+            ORDER BY (stav='nove') DESC, (zdroj='auditor') DESC, created_at DESC LIMIT 300""")).mappings().all()
+        return {"ok": True, "feedback": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@iso_router.post("/app/kb/feedback/reply")
+async def kb_feedback_reply(req: Request):
+    """Odpovědět / vyřešit feedback (parent)."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    odp = (b.get("odpoved") or "").strip()[:4000]
+    s = _sess()
+    try:
+        fid = int(b["id"])
+        row = s.execute(_t("""SELECT tenant_id, user_id, zdroj, auditor_access_id, doc_key, text
+            FROM tenant.doc_feedback WHERE id=:id"""), {"id": fid}).first()
+        s.execute(_t("""UPDATE tenant.doc_feedback SET odpoved=:o, odpovedel_id=:u,
+            stav='vyrizeno', resolved_at=now() WHERE id=:id"""), {"o": odp, "u": uid, "id": fid})
+        s.commit()
+        # e-mail tazateli s proklikem do portálu (pojistka — lidé žijí v e-mailu)
+        if row:
+            if row.zdroj == "auditor" and row.auditor_access_id:
+                ar = s.execute(_t("SELECT auditor_email FROM tenant.iso_auditor_access WHERE id=:i"),
+                               {"i": row.auditor_access_id}).first()
+                if ar and ar.auditor_email:
+                    body = ("<p>Odpověděli jsme na vaši zprávu v auditorském portálu:</p>"
+                            "<blockquote>%s</blockquote><p><b>Naše odpověď:</b> %s</p>"
+                            "<p>Vše vidíte ve svém auditorském portálu (odkaz, který jste obdrželi).</p>") % (
+                        (row.text or "")[:600], odp)
+                    _notify_email(s, row.tenant_id, ar.auditor_email, "Odpověď v auditorském portálu", body)
+            elif row.user_id:
+                em = _email_for_user(s, row.user_id)
+                if em:
+                    link = "%s/dokument?key=%s" % (_PORTAL, row.doc_key or "tutorial")
+                    body = ("<p>Odpověděli jsme na váš dotaz v portálu:</p><blockquote>%s</blockquote>"
+                            "<p><b>Odpověď:</b> %s</p><p>Otevřít v portálu: <a href='%s'>%s</a></p>") % (
+                        (row.text or "")[:600], odp, link, link)
+                    _notify_email(s, row.tenant_id, em, "Odpověď na váš dotaz (portál STRATEGIE)", body)
+        return {"ok": True}
     finally:
         s.close()

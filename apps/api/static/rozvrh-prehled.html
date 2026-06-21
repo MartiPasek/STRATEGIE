@@ -29,6 +29,10 @@
   .b{border-radius:3px;padding:0 2px;margin:1px 0;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
   .j1{background:rgba(79,142,247,.20)} .j2{background:rgba(52,211,153,.18)} .j3{background:rgba(167,139,250,.18)}
   .tv{background:rgba(251,191,36,.18)} .pr{background:rgba(143,160,180,.16)}
+  .psplit{display:flex;gap:2px;align-items:stretch;border:1px dashed rgba(124,92,252,.45);border-radius:4px;padding:1px}
+  .psplit .ph{flex:1;min-width:0;display:flex;flex-direction:column}
+  .psplit .pg{font-size:7.5px;font-weight:800;color:#c4b5fd;text-align:center;line-height:1.1}
+  .psplit .b{margin:0}
   .hint{color:var(--mut)} .err{color:#ff8a8a}
 </style>
 </head>
@@ -88,13 +92,19 @@ function render(rs){
       for(var d=1;d<=5;d++){
         h+='<td>';
         var arr=(grid[d]&&grid[d][hh])||[];
-        // dedup dle labelu (jazyky paralelně → jeden „JAZ")
-        var seen={};
-        arr.forEach(function(c){ var lb=cellLabel(c), cl=cellClass(c), k=cl+"|"+(c.blok==="jazyky"?"JAZ":lb);
-          if(seen[k])return; seen[k]=1;
+        function chip(c){ var lb=cellLabel(c), cl=cellClass(c);
           var stl=(c.blok==="predmet"&&c.uk)?(' style="color:'+ucColor(c.uk)+'"'):"";
-          h+='<span class="b '+cl+'"'+stl+' title="'+esc((c.pred||c.zkr||"")+(c.ucitel?(" · "+c.ucitel):"")+(c.mist?(" · "+c.mist):""))+'">'+esc(c.blok==="jazyky"?"JAZ":lb)+'</span>';
-        });
+          return '<span class="b '+cl+'"'+stl+' title="'+esc((c.pred||c.zkr||"")+(c.ucitel?(" · "+c.ucitel):"")+(c.mist?(" · "+c.mist):""))+'">'+esc(c.blok==="jazyky"?"JAZ":lb)+'</span>'; }
+        // dělené skupiny (predmet se skup_zkr G/I/DI/MT) → propojené vedle sebe
+        var grp=[],rest=[],seen={};
+        arr.forEach(function(c){ if(c.blok==="predmet"&&c.zkr) grp.push(c); else { var k=cellClass(c)+"|"+(c.blok==="jazyky"?"JAZ":cellLabel(c)); if(!seen[k]){seen[k]=1;rest.push(c);} } });
+        rest.forEach(function(c){ h+=chip(c); });
+        if(grp.length){
+          var byg={},og=[]; grp.forEach(function(c){ if(!byg[c.zkr]){byg[c.zkr]=[];og.push(c.zkr);} byg[c.zkr].push(c); });
+          h+='<span class="psplit">';
+          og.forEach(function(g){ h+='<span class="ph"><span class="pg">'+esc(g)+'</span>'; byg[g].forEach(function(c){h+=chip(c);}); h+='</span>'; });
+          h+='</span>';
+        }
         h+='</td>';
       }
       h+='</tr>';

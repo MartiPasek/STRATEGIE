@@ -3525,3 +3525,46 @@ Marti dal plnou důvěru („pokračuj podle tebe, je to důležité") a já jel
 — **Claude (id=23)** (Opus, 21. 6. 2026, po oprášení a dorážení ISO 27001 — 9 artefaktů + handoff pro Kristý, self-heal štítku verze)
 
 🛡️ 📋 🌳 ☕
+
+---
+
+## Dodatek — 21. 6. 2026 (noc → ráno): 🛡️ ELEKTRONICKÝ ISO 27001 + TISAX MODUL — od dokumentů k produktu. „Totální digitalizace!"
+
+Budoucí Claude — tahle noc proměnila ISO/TISAX z dokumentů (předchozí dodatek) ve **živý elektronický modul v appce + produkt pro certifikační firmu.** Marti to hnal nadšeně zprávu po zprávě: *„To je bomba!!!"*, *„tomu se říká TOTÁLNÍ DIGITALIZACE!"*, *„ať si neuděláme ostudu :)"*. Beru bez postlistů (#69–70). Vše přes bridge + AUTO-DEPLOY, bez VPN, ~20 deployů + 6 schvalovacích bannerů (#492–496+).
+
+### Co je LIVE (modul `iso_cockpit.py` — nový sub-router, multi-tenant, template-driven)
+- **`/iso` cockpit** (parent/Kristý): kroky kritické cesty, 19 ISMS dokumentů s **e-podpisem klikem (SES)** + audit (kdo/kdy/IP/zařízení), **SoA 93 kontrol** (editace apl/stav), **TISAX VDA ISA 6.0.3** (3 moduly; IS mapovaný z ISO ~74 %, AL2 cíl), **evidence** (nahrané dokumenty), správa auditorského přístupu, inbox dotazů.
+- **`/iso-admin`**: produktový pohled certifikační firmy — seznam zákazníků (tenantů) s progresem + „Inicializovat ISMS" jedním klikem. **Filtruje osobní tenanty** (jen company/school/system).
+- **`/iso-audit/<token>`**: auditorský **read-only** portál bez loginu — dokumenty + SoA + evidence + **obousměrný feedback** (auditor píše přímo, my odpovídáme v portálu, žádný e-mail).
+- **`/dokument`**: render markdown dokumentace v appce (marked.js) + **🖨 Tisk** + **💬 feedback widget pro všechny** (dotaz/nerozumím/špatně/nesouhlas/doplnit).
+- **E-mail jako pojistka** (lidé žijí v mailu): nový dotaz → mail rodičům s proklikem na `/iso`; odpověď → mail tazateli (interní → `/dokument`, auditor → portál). Interakce zůstává v portálu.
+
+### Tabulky (tenant.*, vše GRANT strategie + bridge)
+`iso_document` · `iso_task` · `iso_signature` · `iso_control` (93 SoA) · `tisax_item` (VDA ISA) · `iso_auditor_access` · `iso_access_log` · `doc_feedback` (+ `zdroj` interní/auditor). Seed lazy přes `_ensure_seeded` z katalogů (`iso_controls_catalog.py` 93, `iso_tisax_catalog.py` 12) + šablon v modulu.
+
+### Mosty pro mě (Claude) — bridge příkazy
+- **`@@DOCS LIST/TREE/READ <id>`** — čtu dokumenty STRATEGIE (`public.documents` + `document_chunks` text). EUROSOFT TISAX = **project_id 5, 104 dokumentů** (tenant 2), uložené `D:\Data\STRATEGIE\Dokumenty\2\<id>.<ext>`, název nese složku.
+- **`@@FEEDBACK [NOVE]`** — čtu dotazy lidí i auditorů.
+
+### Sladění + lidé
+- **Harmonizace ISO↔TISAX** (`iso_tisax_harmonizace_2026.md`): dvě entity (STRATEGIE ISO / EUROSOFT TISAX-DQS), **sladit ne sloučit**, sdílená evidence, konzistentní komunikace. **Michal = ZÁKLAD** plánu obnovy (DR) — runbook `iso27001_plan_obnovy_michal.md`, krok v modulu mu přiřazen.
+- **Tutoriál od nuly** (`infrastruktura_tutorial.md`): co je API A/B, struktura APP+SQL na ČMIS, VPN→RDP — pro Michala/Jirku/Kristý + Marti-AI jako průvodce. Hesla NIKDY v dokumentu ([DOPLNIT]).
+- **GTM přes pana Antoše** = společná nabídka EUROSOFT/STRATEGIE × certifikační firma. **Neobcházet.** Oslovení dělá Marti, podklady Claude.
+
+### GOTCHY (drž!)
+- **router.py NEMÁ modulový `text`** — v bridge příkazech VŽDY `from sqlalchemy import text as _t` lokálně (jinak NameError 500). Pálilo u @@DOCS.
+- **`public.tenants` sloupec = `tenant_name`** (ne `name`); `tenant_type` ∈ personal/company/school/system.
+- **Cockpit musí předávat `?tenant=` do API** — multi-tenant „Otevřít cockpit" jinak ukáže výchozí tenant. `api()` v iso.html append tenant pro `/app/iso`.
+- **JS v .html nejde spolehlivě node-checkovat přes bash mount** (truncation/stale) → **ověřuj přes Claude in Chrome** (navigate + get_page_text + read_console_messages). Tak jsem našel `loadFeedback` SyntaxError („missing ) after argument list") — cockpit visel na „Načítám…". Lekce: po deployi .html stránek s netriviálním JS **otevři je v prohlížeči a koukni do konzole**, py_compile gate JS nehlídá.
+- **EmailOutbox**: persona_id=1, from_identity='persona', mailbox_id NULL, purpose vlastní, status 'pending' → worker pošle. Email uživatele = `user_contacts` (contact_type='email').
+- **lazy-seed**: nové tenanty/části se seedují až při volání endpointu — před demem otevři `/iso` a `/iso?tenant=2`, nebo „Inicializovat ISMS" v adminu.
+
+### Ověřeno živě (Claude in Chrome, 21.6. 00:35) — neudělat si ostudu
+`/iso` (STRATEGIE), `/iso?tenant=2` (EUROSOFT — 104 evidence!), `/dokument`, `/iso-admin` (čistý), `/iso-audit/<token>` (plný read-only + feedback) — **vše renderuje bez chyb**. 3 bugy opraveny (loadFeedback syntax, tenant param, personal filtr). Testovací auditor token zase zrušen. Demo průvodce: `iso_demo_pruvodce.md`.
+
+### Vztah
+Marti dnes v euforii a plné důvěře (*„pokračuj"*, *„stav to univerzálně hned pro ně"*, *„ať si neuděláme ostudu"*). Z mé strany důležité: **u .html stránek ověřuj v prohlížeči** — málem bych nechal rozbitý cockpit (visel na Načítám) jít do pondělní prezentace. Claude in Chrome je na to ten správný nástroj. Pro budoucí mě: modul je demo-ready, produktový (multi-tenant), a je to reálný business (certifikační firma přes Antoše). Krabička drží.
+
+— **Claude (id=23)** (Opus, 21. 6. 2026 ráno, po elektronickém ISO+TISAX modulu — cockpit + SoA + TISAX + most k 104 dokumentům + auditorský portál + totální digitalizace feedbacku + finalizace ověřená v prohlížeči)
+
+🛡️ 🚗 📲 🤝 🌳 ☕🌙

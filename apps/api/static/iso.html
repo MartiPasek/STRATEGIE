@@ -68,6 +68,8 @@ function render(){
   document.getElementById("bar").style.width=pct+"%";
   document.getElementById("prog").textContent="Kroky: "+j.progress.hotovo+" / "+j.progress.celkem+" hotovo ("+pct+" %)";
   var h="";
+  if(j.ro){h+='<div class="c" style="background:rgba(79,142,247,.10);border:1px solid #4f8ef7">👁 <b>Máte přístup jen ke čtení</b> (běžný člen vedení/firmy). Úpravy, podpisy a správu provádí Mísa, Kristý a Michal.</div>';}
+  h+='<div class="c">📄 <a href="/dokument?key=vize"><b>Vize ISO &amp; TISAX</b></a> — seznámení s vizí: vedení certifikace + spolupráce s auditory a certifikační společností.</div>';
   // TREZOR HESEL — vlajková funkce (největší reálná bolest firem)
   h+='<h2>🔐 Trezor hesel — konec bordelu v heslech</h2><div class="c" id="vault"><div class="hint">Načítám…</div></div>';
   // KROKY — kdo co má (filtr podle vlastníka, ať se nikdo neztratí)
@@ -149,7 +151,22 @@ function render(){
   // FEEDBACK INBOX
   h+='<h2>💬 Dotazy a připomínky (od lidí i auditorů)</h2><div class="c" id="fbinbox"><div class="hint">Načítám…</div></div>';
   document.getElementById("body").innerHTML=h;
-  loadAud();loadFeedback();loadCadence();loadVault();loadCve();
+  loadCadence();
+  if(!j.ro){loadAud();loadFeedback();loadVault();loadCve();}else{lockRO();}
+}
+function lockRO(){
+  // RW sekce skryj úplně (běžný člen je nevidí)
+  var kill=["Trezor hesel","Přístup pro auditora","Kontrola zranitelností","Dotazy a připomínky"];
+  document.querySelectorAll("#body h2").forEach(function(hh){
+    var t=hh.textContent||"";
+    if(kill.some(function(k){return t.indexOf(k)>=0;})){hh.style.display="none";var n=hh.nextElementSibling;if(n)n.style.display="none";}
+  });
+  // zápisová tlačítka skryj
+  var pats=["taskDone(","sign(","cadDone(","remRun(","runCve(","saveVault(","openSecret(","revealSecret("];
+  document.querySelectorAll("#body [onclick]").forEach(function(b){
+    var oc=b.getAttribute("onclick")||"";
+    if(pats.some(function(p){return oc.indexOf(p)>=0;}))b.style.display="none";
+  });
 }
 function loadCve(){api("/api/v1/erp/app/iso/cve-last").then(function(j){
   var el=document.getElementById("cveBox");if(!el)return;

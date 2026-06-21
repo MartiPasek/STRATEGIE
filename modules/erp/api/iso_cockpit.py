@@ -219,6 +219,24 @@ def _is_parent(uid):
         return False
 
 
+def _is_member(uid, tid):
+    """Aktivní člen tenantu = smí číst (RO). RW = jen _is_parent (rodič / iso_access)."""
+    if not uid or not tid:
+        return False
+    try:
+        from core.database_data import get_data_session as _g
+        from sqlalchemy import text as _tt
+        s = _g()
+        try:
+            return bool(s.execute(_tt(
+                "SELECT 1 FROM public.user_tenants WHERE user_id=:u AND tenant_id=:t "
+                "AND membership_status IN ('active','invited') LIMIT 1"), {"u": uid, "t": tid}).first())
+        finally:
+            s.close()
+    except Exception:
+        return False
+
+
 def _user_name(s, uid):
     try:
         r = s.execute(_t("SELECT COALESCE(first_name,'')||' '||COALESCE(last_name,'') AS j FROM public.users WHERE id=:i"), {"i": uid}).first()
@@ -308,11 +326,12 @@ def _docs_payload(s, tenant_id):
 @iso_router.get("/app/iso/overview")
 def iso_overview(req: Request):
     uid = _uid(req)
-    if not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     s = _sess()
     try:
         tid = _tenant(req, uid, s)
+        if not (_is_parent(uid) or _is_member(uid, tid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        ro = not _is_parent(uid)
         _ensure_seeded(s, tid)
         tasks = [dict(x) for x in s.execute(_t("""SELECT id,poradi,faze,nazev,popis,vlastnik,stav,doc_kod,vyzaduje_podpis,
             to_char(done_at,'DD.MM.YYYY HH24:MI') AS done_kdy
@@ -341,7 +360,7 @@ def iso_overview(req: Request):
                 "tasks": tasks, "docs": docs,
                 "soa": {"apl_ano": cs["apl_ano"], "apl_ne": cs["apl_ne"], "total": cs["total"], "stav": doc06},
                 "tisax": {"appl": tx["appl"], "hotovo": tx["hot"], "moduly": tx["moduly"], "is_coverage": is_cov, "verze": "VDA ISA 6.0.3"},
-                "progress": {"hotovo": done, "celkem": len(tasks)}}
+                "progress": {"hotovo": done, "celkem": len(tasks)}, "ro": ro}
     finally:
         s.close()
 
@@ -402,13 +421,13 @@ async def iso_sign(req: Request):
 
 @iso_router.get("/app/iso/doc/{kod}")
 def iso_doc_file(kod: str, req: Request):
-    """Stáhnout/zobrazit obsah dokumentu (parent)."""
+    """Stáhnout/zobrazit obsah dokumentu (parent nebo člen = RO)."""
     uid = _uid(req)
-    if not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     s = _sess()
     try:
         tid = _tenant(req, uid, s)
+        if not (_is_parent(uid) or _is_member(uid, tid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         r = s.execute(_t("SELECT soubor_path,nazev FROM tenant.iso_document WHERE tenant_id=:t AND kod=:k"),
                       {"t": tid, "k": kod}).first()
         if not r or not r.soubor_path:
@@ -530,11 +549,12 @@ def iso_cadence(req: Request):
     """Aktivní kalendář bezpečnosti — co se kdy naposledy udělalo, kdy je to příště,
     a barevný stav (aktuální / blíží se / po termínu). Modul jako živý hlídač."""
     uid = _uid(req)
-    if not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     s = _sess()
     try:
-        return {"ok": True, "cadence": _cadence_compute(s, _tenant(req, uid, s))}
+        tid = _tenant(req, uid, s)
+        if not (_is_parent(uid) or _is_member(uid, tid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        return {"ok": True, "cadence": _cadence_compute(s, tid)}
     finally:
         s.close()
 
@@ -710,15 +730,15 @@ def iso_cve_last(req: Request):
 
 @iso_router.get("/app/iso/controls")
 def iso_controls(req: Request):
-    """SoA — 93 kontrol Annex A pro tenant (parent)."""
+    """SoA — 93 kontrol Annex A pro tenant (parent nebo člen = RO)."""
     uid = _uid(req)
-    if not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     s = _sess()
     try:
         tid = _tenant(req, uid, s)
+        if not (_is_parent(uid) or _is_member(uid, tid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         _ensure_seeded(s, tid)
-        return {"ok": True, "controls": _controls_payload(s, tid)}
+        return {"ok": True, "controls": _controls_payload(s, tid), "ro": (not _is_parent(uid))}
     finally:
         s.close()
 
@@ -753,15 +773,15 @@ def _tisax_payload(s, tenant_id):
 
 @iso_router.get("/app/iso/tisax")
 def iso_tisax(req: Request):
-    """TISAX (VDA ISA 6.0.3) položky pro tenant (parent)."""
+    """TISAX (VDA ISA 6.0.3) položky pro tenant (parent nebo člen = RO)."""
     uid = _uid(req)
-    if not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     s = _sess()
     try:
         tid = _tenant(req, uid, s)
+        if not (_is_parent(uid) or _is_member(uid, tid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         _ensure_seeded(s, tid)
-        return {"ok": True, "verze": "VDA ISA 6.0.3", "tisax": _tisax_payload(s, tid)}
+        return {"ok": True, "verze": "VDA ISA 6.0.3", "tisax": _tisax_payload(s, tid), "ro": (not _is_parent(uid))}
     finally:
         s.close()
 
@@ -819,13 +839,13 @@ def _evidence_payload(s, tenant_id):
 
 @iso_router.get("/app/iso/evidence")
 def iso_evidence(req: Request):
-    """Nahrané dokumenty (evidence) ze STRATEGIE pro tenant (parent)."""
+    """Nahrané dokumenty (evidence) ze STRATEGIE pro tenant (parent nebo člen = RO)."""
     uid = _uid(req)
-    if not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     s = _sess()
     try:
         tid = _tenant(req, uid, s)
+        if not (_is_parent(uid) or _is_member(uid, tid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         return {"ok": True, "evidence": _evidence_payload(s, tid)}
     finally:
         s.close()
@@ -833,13 +853,13 @@ def iso_evidence(req: Request):
 
 @iso_router.get("/app/iso/evidence-doc/{doc_id}")
 def iso_evidence_doc(doc_id: int, req: Request):
-    """Otevřít nahraný dokument (parent), jen z vlastního tenantu."""
+    """Otevřít nahraný dokument (parent nebo člen = RO), jen z vlastního tenantu."""
     uid = _uid(req)
-    if not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     s = _sess()
     try:
         tid = _tenant(req, uid, s)
+        if not (_is_parent(uid) or _is_member(uid, tid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         r = s.execute(_t("SELECT storage_path FROM public.documents WHERE id=:i AND tenant_id=:t"),
                       {"i": int(doc_id), "t": tid}).first()
         if not r:
@@ -1088,6 +1108,7 @@ _KB_DOCS = {
     "dr": ("docs/iso27001_dr_plan_rto_rpo.md", "Plán obnovy DR (RTO/RPO)"),
     "cve": ("docs/iso27001_cve_sprava_zranitelnosti.md", "Správa zranitelností (CVE)"),
     "dodavatele": ("docs/iso27001_dodavatele_dpa.md", "Dodavatelé + DPA"),
+    "vize": ("docs/iso_vize_pro_misu.md", "Vize ISO & TISAX — vedení certifikace a spolupráce"),
 }
 _KB_TYPY = {"otazka", "nerozumim", "spatne", "nesouhlas", "doplnit"}
 _PORTAL = os.environ.get("STRATEGIE_PUBLIC_URL") or "https://strategie-ai.com"

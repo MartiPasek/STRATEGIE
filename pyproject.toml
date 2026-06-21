@@ -116,6 +116,7 @@ pillow-heif = "^1.0"
 # (sync->async bridge), fail-soft reconnect, circuit breaker per-conversation
 # (3 consecutive failures -> open state, skip MCP tools).
 mcp = "^1.0.0"
+pypdf = "^6.13.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

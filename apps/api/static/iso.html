@@ -197,14 +197,24 @@ function saveVault(){
     else{document.getElementById("vsMsg").textContent=(r&&r.error)||"chyba";}
   });
 }
+var CADST={ok:["✅ aktuální","#34d399"],blizi:["⏰ blíží se","#fbbf24"],po_terminu:["🔴 po termínu","#f87171"],nikdy:["🔴 neprovedeno","#f87171"],prubezne:["průběžně","#8fa0b4"]};
 function loadCadence(){api("/api/v1/erp/app/iso/cadence").then(function(j){
   var el=document.getElementById("cad");if(!el)return;
   if(!j||!j.ok){el.innerHTML='<div class="hint">—</div>';return;}
   el.innerHTML=(j.cadence||[]).map(function(c){
-    return '<div class="row"><div class="grow"><div class="nm">'+esc(c.nazev)+' <span class="pill" style="background:rgba(79,142,247,.16);color:#4f8ef7">'+esc(c.perioda)+'</span></div>'
-      +'<div class="meta">'+esc(c.popis)+' · '+esc(c.vazba)+'</div></div></div>';
+    var st=CADST[c.stav]||["",""];
+    var info="";
+    if(c.last)info="naposledy "+c.last+(c.due?(" · příště do "+c.due+(c.dleft!=null?(c.dleft<0?(" (po termínu o "+(-c.dleft)+" dní)"):(" (zbývá "+c.dleft+" dní)")):"")):"");
+    else if(c.stav==="nikdy")info="zatím nikdy neprovedeno";
+    else if(c.stav==="prubezne")info="průběžná činnost (bez termínu)";
+    var btn=c.auto?'<span class="hint">automaticky (sken výše)</span>':(c.stav==="prubezne"?"":'<button class="btn sm ghost" onclick="cadDone(\''+c.kod+'\')">✓ Provedeno</button>');
+    return '<div class="row"><div class="grow"><div class="nm">'+esc(c.nazev)+' <span class="pill" style="background:rgba(255,255,255,.06);color:'+st[1]+'">'+st[0]+'</span> <span class="hint">· '+esc(c.perioda)+'</span></div>'
+      +'<div class="meta">'+esc(c.popis)+' · '+esc(c.vazba)+'</div>'
+      +(info?('<div class="meta" style="color:'+st[1]+'">'+esc(info)+'</div>'):'')
+      +'</div><div class="right">'+btn+'</div></div>';
   }).join('');
 });}
+function cadDone(kod){api("/api/v1/erp/app/iso/cadence-done","POST",{kod:kod}).then(function(r){if(r&&r.ok)loadCadence();else alert((r&&r.error)||"chyba");});}
 var FBTYP={otazka:"❓ Dotaz",nerozumim:"🤔 Nerozumím",spatne:"⚠️ Špatně",nesouhlas:"✋ Nesouhlas",doplnit:"➕ Doplnit"};
 function loadFeedback(){api("/api/v1/erp/app/kb/feedback").then(function(j){
   var el=document.getElementById("fbinbox");if(!el)return;

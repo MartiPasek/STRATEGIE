@@ -397,18 +397,19 @@ def _controls_payload(s, tenant_id):
     return [dict(r) for r in rows]
 
 
+# (kod, název, perioda(text), perioda_dny(0=průběžně), popis, vazba)
 _CADENCE = [
-    ("Sken zranitelností (CVE)", "týdně", "Kontrola závislostí proti známým zranitelnostem (pip-audit).", "A.8.8"),
-    ("Přezkum přístupových práv", "čtvrtletně", "Kdo má k čemu přístup — odebrat nadbytečné.", "A.5.18"),
-    ("Test obnovy ze zálohy (restore drill)", "čtvrtletně", "Reálně vyzkoušet obnovu dat, změřit RTO/RPO.", "A.5.30 / A.8.13"),
-    ("Rotace a kontrola hesel / tajemství", "průběžně", "Správa hesel v šifrovaném trezoru, rotace klíčů a přístupů.", "A.5.17 / A.8.24"),
-    ("Interní audit ISMS", "ročně", "Projít systém řízení (kap. 4–10), zapsat zjištění.", "A.9.2"),
-    ("Přezkoumání vedením (management review)", "ročně", "Vedení vyhodnotí stav, rizika, cíle a zdroje.", "A.9.3"),
-    ("Revize rizik (registr rizik)", "ročně + při změně", "Aktualizovat hrozby, dopady, opatření.", "A.6.1.2"),
-    ("Školení bezpečnosti", "ročně + při nástupu", "Proškolit lidi, doložit záznam.", "A.6.3"),
-    ("Revize a hodnocení dodavatelů", "ročně", "Zkontrolovat sub-processory, DPA, certifikace.", "A.5.22"),
-    ("Aktualizace politik a dokumentace", "ročně", "Projít a znovu schválit politiky.", "A.5.1"),
-    ("Test plánu kontinuity (BCP)", "ročně", "Ověřit, že firma přežije výpadek.", "A.5.29 / A.5.30"),
+    ("cve", "Sken zranitelností (CVE)", "týdně", 7, "Kontrola závislostí proti známým zranitelnostem (pip-audit).", "A.8.8"),
+    ("access_review", "Přezkum přístupových práv", "čtvrtletně", 90, "Kdo má k čemu přístup — odebrat nadbytečné.", "A.5.18"),
+    ("restore_drill", "Test obnovy ze zálohy (restore drill)", "čtvrtletně", 90, "Reálně vyzkoušet obnovu dat, změřit RTO/RPO.", "A.5.30 / A.8.13"),
+    ("secrets", "Rotace a kontrola hesel / tajemství", "průběžně", 0, "Správa hesel v šifrovaném trezoru, rotace klíčů a přístupů.", "A.5.17 / A.8.24"),
+    ("internal_audit", "Interní audit ISMS", "ročně", 365, "Projít systém řízení (kap. 4–10), zapsat zjištění.", "A.9.2"),
+    ("mgmt_review", "Přezkoumání vedením (management review)", "ročně", 365, "Vedení vyhodnotí stav, rizika, cíle a zdroje.", "A.9.3"),
+    ("risk_review", "Revize rizik (registr rizik)", "ročně", 365, "Aktualizovat hrozby, dopady, opatření.", "A.6.1.2"),
+    ("training", "Školení bezpečnosti", "ročně", 365, "Proškolit lidi, doložit záznam.", "A.6.3"),
+    ("supplier_review", "Revize a hodnocení dodavatelů", "ročně", 365, "Zkontrolovat sub-processory, DPA, certifikace.", "A.5.22"),
+    ("policy_review", "Aktualizace politik a dokumentace", "ročně", 365, "Projít a znovu schválit politiky.", "A.5.1"),
+    ("bcp_test", "Test plánu kontinuity (BCP)", "ročně", 365, "Ověřit, že firma přežije výpadek.", "A.5.29 / A.5.30"),
 ]
 
 
@@ -433,11 +434,68 @@ def iso_vault_overview(req: Request):
 
 @iso_router.get("/app/iso/cadence")
 def iso_cadence(req: Request):
-    """Průběžné kontroly (kalendář bezpečnosti) — modul jako stálý pomocník, ne jen cesta k certifikaci."""
+    """Aktivní kalendář bezpečnosti — co se kdy naposledy udělalo, kdy je to příště,
+    a barevný stav (aktuální / blíží se / po termínu). Modul jako živý hlídač."""
     uid = _uid(req)
     if not _is_parent(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    return {"ok": True, "cadence": [{"nazev": n, "perioda": p, "popis": d, "vazba": v} for n, p, d, v in _CADENCE]}
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        runs = {r.kod: r.last_done for r in s.execute(_t(
+            "SELECT kod, last_done FROM tenant.iso_cadence_run WHERE tenant_id=:t"), {"t": tid}).all()}
+        cve_last = s.execute(_t("SELECT max(created_at) AS m FROM fw.cve_run")).scalar()
+        out = []
+        for kod, nazev, perioda, dny, popis, vazba in _CADENCE:
+            last = cve_last if kod == "cve" else runs.get(kod)
+            stav = "prubezne"
+            due_s = None
+            dleft = None
+            if dny > 0:
+                if not last:
+                    stav = "nikdy"
+                else:
+                    due = last + _dt.timedelta(days=dny)
+                    dleft = (due - now).days
+                    due_s = due.strftime("%d.%m.%Y")
+                    if dleft < 0:
+                        stav = "po_terminu"
+                    elif dleft <= max(2, int(dny * 0.2)):
+                        stav = "blizi"
+                    else:
+                        stav = "ok"
+            out.append({"kod": kod, "nazev": nazev, "perioda": perioda, "popis": popis, "vazba": vazba,
+                        "last": (last.strftime("%d.%m.%Y") if last else None), "due": due_s,
+                        "dleft": dleft, "stav": stav, "auto": (kod == "cve")})
+        return {"ok": True, "cadence": out}
+    finally:
+        s.close()
+
+
+@iso_router.post("/app/iso/cadence-done")
+async def iso_cadence_done(req: Request):
+    """Zaznamenat, že pravidelná kontrola byla právě provedena (resetuje termín)."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    kod = (b.get("kod") or "").strip()
+    if not kod:
+        return JSONResponse({"ok": False, "error": "kod chybí"}, status_code=400)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        s.execute(_t("""INSERT INTO tenant.iso_cadence_run(tenant_id,kod,last_done,by_uid,updated_at)
+            VALUES(:t,:k,now(),:u,now())
+            ON CONFLICT (tenant_id,kod) DO UPDATE SET last_done=now(), by_uid=:u, updated_at=now()"""),
+            {"t": tid, "k": kod, "u": uid})
+        s.commit()
+        _log(s, tid, _user_name(s, uid), "cadence_done", kod, _client_ip(req))
+        return {"ok": True}
+    finally:
+        s.close()
 
 
 @iso_router.post("/app/iso/cve-run")

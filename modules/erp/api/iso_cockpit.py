@@ -86,9 +86,30 @@ def _uid(req):
     return _uid_from_token_or_cookie(req)
 
 
-def _is_parent(uid):
+def _strict_parent(uid):
+    """Jen rodič (cert-firma admin / multi-zákazník)."""
     from modules.erp.api.router import is_marti_parent
     return bool(uid) and is_marti_parent(uid)
+
+
+def _is_parent(uid):
+    """Přístup do cockpitu ISMS = rodič NEBO člen fw.iso_access (např. Michal).
+    Nedělá z nikoho 'rodiče' (žádná cross-tenant práva) — jen vpustí do modulu."""
+    if not uid:
+        return False
+    from modules.erp.api.router import is_marti_parent
+    if is_marti_parent(uid):
+        return True
+    try:
+        from core.database_data import get_data_session as _g
+        from sqlalchemy import text as _tt
+        s = _g()
+        try:
+            return bool(s.execute(_tt("SELECT 1 FROM fw.iso_access WHERE user_id=:u LIMIT 1"), {"u": uid}).first())
+        finally:
+            s.close()
+    except Exception:
+        return False
 
 
 def _user_name(s, uid):
@@ -672,7 +693,7 @@ def iso_admin_overview(req: Request):
     """Multi-tenant přehled: zákazníci (tenanti) s ISMS + progres každého.
     Produktový pohled pro certifikační firmu. Marti 21.6.2026."""
     uid = _uid(req)
-    if not _is_parent(uid):
+    if not _strict_parent(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     s = _sess()
     try:
@@ -699,7 +720,7 @@ def iso_admin_overview(req: Request):
 async def iso_admin_init(req: Request):
     """Inicializovat ISMS pro zákazníka (tenant) z univerzální šablony."""
     uid = _uid(req)
-    if not _is_parent(uid):
+    if not _strict_parent(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     b = await req.json()
     s = _sess()

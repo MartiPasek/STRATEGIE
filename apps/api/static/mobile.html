@@ -1692,21 +1692,39 @@ setTimeout(function(){
       _bkRenderGrid(box, esc(j.nazev||"")+' · '+esc(j.budova||"")+' · verze '+esc(j.plat_od||""), j, 'room');
     });
   }
+  var _bkUvazPo="";
   function bk_uvazky(){
     app.innerHTML=topbar("📋 Úvazky", true);
     app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.5;">Co který učitel učí — předměty, třídy a počet hodin týdně.</div>'));
+    var bar=el('<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 6px 6px;"></div>'); app.appendChild(bar);
     var box=el('<div class="list"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
-    api("GET",_bkUrl("/api/v1/erp/app/bakalari/loads"),"").then(function(j){
-      box.innerHTML="";
-      if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Žádné úvazky.")+'</div>')); return; }
-      j.items.forEach(function(t){
-        var card=el('<div style="background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;margin:6px;"></div>');
-        var head='<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:4px;"><b style="font-size:15px;">'+esc(t.jmeno)+'</b><span style="color:var(--green);font-weight:800;">'+t.total+' h/týd</span></div>';
-        var lines=(t.items||[]).map(function(it){ return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;border-top:1px solid #1b2742;"><span style="flex:1;">'+esc(it.pred_nazev||it.pred)+(it.tridy?(' <span style="color:var(--mut);">'+esc(it.tridy)+'</span>'):'')+'</span><b>'+it.hodin+'</b></div>'; }).join("");
-        card.innerHTML=head+lines;
-        box.appendChild(card);
+    function load(po){
+      box.innerHTML='<div class="hint">Načítám…</div>';
+      var u=_bkUrl("/api/v1/erp/app/bakalari/loads"); if(po) u+=(u.indexOf("?")>=0?"&":"?")+"po="+encodeURIComponent(po);
+      api("GET",u,"").then(function(j){
+        box.innerHTML="";
+        if(!j||!j.ok||!(j.items&&j.items.length)){ box.appendChild(el('<div class="hint">'+((j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Žádné úvazky.")+'</div>')); return; }
+        _bkUvazPo=j.plat_od||po||"";
+        // přepínač školních roků
+        bar.innerHTML="";
+        if((j.roky||[]).length>1){
+          j.roky.forEach(function(r){
+            var on=(r.po===_bkUvazPo);
+            var b=el('<button style="border:1px solid '+(on?'var(--accent)':'var(--bord)')+';background:'+(on?'var(--accent)':'transparent')+';color:'+(on?'#06101f':'var(--tx)')+';border-radius:9px;padding:5px 12px;font-size:13px;font-weight:700;">'+esc(r.skolrok)+'</button>');
+            b.onclick=function(){ load(r.po); };
+            bar.appendChild(b);
+          });
+        }
+        j.items.forEach(function(t){
+          var card=el('<div style="background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:10px 12px;margin:6px;"></div>');
+          var head='<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:4px;"><b style="font-size:15px;">'+esc(t.jmeno)+'</b><span style="color:var(--green);font-weight:800;">'+t.total+' h/týd</span></div>';
+          var lines=(t.items||[]).map(function(it){ return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:2px 0;border-top:1px solid #1b2742;"><span style="flex:1;">'+esc(it.pred_nazev||it.pred)+(it.tridy?(' <span style="color:var(--mut);">'+esc(it.tridy)+'</span>'):'')+'</span><b>'+it.hodin+'</b></div>'; }).join("");
+          card.innerHTML=head+lines;
+          box.appendChild(card);
+        });
       });
-    });
+    }
+    load(_bkUvazPo);
   }
   function bk_skola(){
     app.innerHTML=topbar("📊 Přehled školy", true);

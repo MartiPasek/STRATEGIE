@@ -7253,10 +7253,13 @@ async def app_bakalari_loads(req: Request) -> JSONResponse:
     try:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        po = _bk_po(req, s)
-        # Cyklicky správné úvazky z r_rozvrh (lichý/sudý zohledněn) — zrcadlo bakalari_uvaz_cyc.
-        po = s.execute(_t("SELECT MAX(plat_od) FROM tenant.bakalari_uvaz_cyc WHERE tenant_id=:t"),
-                       {"t": _BK_TENANT}).scalar() or po
+        # Cyklicky správné úvazky z r_rozvrh / úvazkového modulu — zrcadlo bakalari_uvaz_cyc.
+        # Výběr školního roku z ?po=, jinak nejnovější. roky = přepínač v appce.
+        roky = [r[0] for r in s.execute(_t(
+            "SELECT DISTINCT plat_od FROM tenant.bakalari_uvaz_cyc WHERE tenant_id=:t ORDER BY plat_od DESC"),
+            {"t": _BK_TENANT}).fetchall()]
+        sel = (req.query_params.get("po") or "").strip()
+        po = sel if sel in roky else (roky[0] if roky else "")
         rows = s.execute(_t(
             "SELECT TRIM(c.kod_ucit) uc, TRIM(COALESCE(ucr.prijmeni,'')) prij, TRIM(COALESCE(ucr.jmeno,'')) jm, "
             " TRIM(COALESCE(ucr.zkratka, c.kod_ucit)) zk, "
@@ -7283,7 +7286,9 @@ async def app_bakalari_loads(req: Request) -> JSONResponse:
             tt["total"] = round(tt["total"], 1)
         out = [teachers[u] for u in order]
         out.sort(key=lambda x: x["jmeno"].lower())
-        return JSONResponse({"ok": True, "plat_od": po, "items": out})
+        return JSONResponse({"ok": True, "plat_od": po, "skolrok": _bk_skolrok(po),
+                             "roky": [{"po": y, "skolrok": _bk_skolrok(y)} for y in roky],
+                             "items": out})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

@@ -545,14 +545,21 @@ def _iso_reminders_run(force=False):
                 if dg and (now - dg).days < 3:
                     continue  # nedávno posláno — nespamovat
                 tn = s.execute(_t("SELECT tenant_name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
-                body = "<p>ISMS termíny (%s) — bezpečnost potřebuje pozornost:</p><ul>" % (tn.tenant_name if tn else tid)
-                for i in over:
-                    body += "<li>🔴 <b>%s</b> — %s</li>" % (i["nazev"], "po termínu" if i["stav"] == "po_terminu" else "ještě neprovedeno")
-                for i in soon:
-                    body += "<li>⏰ %s — blíží se (do %s)</li>" % (i["nazev"], i.get("due") or "")
-                body += "</ul><p>Otevřít cockpit: <a href='%s/iso?tenant=%s'>%s/iso</a></p>" % (_PORTAL, tid, _PORTAL)
+                tnm = tn.tenant_name if tn else tid
+                body = ("<p>Dobrý den, tady váš průvodce bezpečností (%s). 🌳</p>"
+                        "<p>Nic se neděje — jen vás v klidu provázím, ať na nic společně nezapomeneme. "
+                        "Tohle je seznam věcí, které nás <b>ještě čekají</b> na cestě k certifikaci. "
+                        "Není to úkol na dnes a není to všechno na jednoho — klidně po jedné, vlastním tempem.</p>"
+                        "<p><b>Ještě nás čeká:</b></p><ul>") % tnm
+                for i in over + soon:
+                    body += "<li>○ %s</li>" % i["nazev"]
+                body += ("</ul><p>Jak na to: v přehledu u každé položky je tlačítko "
+                         "<b>„✓ Provedeno“</b> — jak se věc udělá, odškrtne se a já vás přestanu na ni upozorňovat. "
+                         "Kdo má co na starosti a návody najdete přímo v přehledu.</p>"
+                         "<p>👉 <a href='%s/iso?tenant=%s'>Otevřít přehled bezpečnosti</a></p>"
+                         "<p>Ozvu se zase, až bude vhodná chvíle. Hezký den!</p>") % (_PORTAL, tid)
                 for em in parents:
-                    _notify_email(s, tid, em, "🛡️ ISMS termíny — %d po termínu, %d se blíží" % (len(over), len(soon)), body)
+                    _notify_email(s, tid, em, "🌳 Váš průvodce bezpečností — co nás ještě čeká (%s)" % tnm, body)
                 s.execute(_t("""INSERT INTO tenant.iso_cadence_run(tenant_id,kod,last_done,updated_at)
                     VALUES(:t,'_digest',now(),now())
                     ON CONFLICT (tenant_id,kod) DO UPDATE SET last_done=now(), updated_at=now()"""), {"t": tid})

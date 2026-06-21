@@ -138,7 +138,7 @@ function render(){
   // PRŮBĚŽNÉ KONTROLY (kalendář bezpečnosti)
   h+='<h2>🔁 Průběžné kontroly (kalendář bezpečnosti)</h2><div class="c">'
     +'<div class="hint" style="margin-bottom:6px">Bezpečnost není jednorázová. Modul vás drží v pravidelném rytmu kontrol — aby se firma neztratila a zůstala v pořádku i <b>po</b> certifikaci. Tohle je vaše pravá ruka v bezpečnosti.</div>'
-    +'<div class="hint" style="margin-bottom:8px">🔔 Modul hlídá termíny <b>automaticky každý den</b> a po termínu upozorní rodiče e‑mailem (+ spustí týdně CVE sken). <button class="btn sm ghost" onclick="remRun(this)">Zkontrolovat teď</button> <span id="remMsg"></span></div>'
+    +'<div class="hint" style="margin-bottom:8px">🌳 Modul vás <b>v klidu provází</b> — sám hlídá termíny a laskavě připomene e‑mailem, co nás čeká (+ týdně CVE sken). Nic nehoří, jedeme vlastním tempem. <button class="btn sm ghost" onclick="remRun(this)">Zkontrolovat teď</button> <span id="remMsg"></span></div>'
     +'<div id="cad"><div class="hint">Načítám…</div></div></div>';
   // CVE — kontrola zranitelností závislostí
   h+='<h2>🛡️ Kontrola zranitelností (CVE)</h2><div class="c" id="cveBox"><div class="hint">Načítám…</div></div>';
@@ -198,15 +198,15 @@ function saveVault(){
     else{document.getElementById("vsMsg").textContent=(r&&r.error)||"chyba";}
   });
 }
-var CADST={ok:["✅ aktuální","#34d399"],blizi:["⏰ blíží se","#fbbf24"],po_terminu:["🔴 po termínu","#f87171"],nikdy:["🔴 neprovedeno","#f87171"],prubezne:["průběžně","#8fa0b4"]};
+var CADST={ok:["✅ v pořádku","#34d399"],blizi:["⏰ brzy na řadě","#fbbf24"],po_terminu:["○ čeká na nás","#fbbf24"],nikdy:["○ ještě nás čeká","#8fa0b4"],prubezne:["průběžně","#8fa0b4"]};
 function loadCadence(){api("/api/v1/erp/app/iso/cadence").then(function(j){
   var el=document.getElementById("cad");if(!el)return;
   if(!j||!j.ok){el.innerHTML='<div class="hint">—</div>';return;}
   el.innerHTML=(j.cadence||[]).map(function(c){
     var st=CADST[c.stav]||["",""];
     var info="";
-    if(c.last)info="naposledy "+c.last+(c.due?(" · příště do "+c.due+(c.dleft!=null?(c.dleft<0?(" (po termínu o "+(-c.dleft)+" dní)"):(" (zbývá "+c.dleft+" dní)")):"")):"");
-    else if(c.stav==="nikdy")info="zatím nikdy neprovedeno";
+    if(c.last)info="naposledy "+c.last+(c.due?(" · příště do "+c.due+(c.dleft!=null?(c.dleft<0?(" (už by to chtělo, +"+(-c.dleft)+" dní)"):(" (zbývá "+c.dleft+" dní)")):"")):"");
+    else if(c.stav==="nikdy")info="zatím jsme nezačali — až bude vhodná chvíle";
     else if(c.stav==="prubezne")info="průběžná činnost (bez termínu)";
     var btn=c.auto?'<span class="hint">automaticky (sken výše)</span>':(c.stav==="prubezne"?"":'<button class="btn sm ghost" onclick="cadDone(\''+c.kod+'\')">✓ Provedeno</button>');
     return '<div class="row"><div class="grow"><div class="nm">'+esc(c.nazev)+' <span class="pill" style="background:rgba(255,255,255,.06);color:'+st[1]+'">'+st[0]+'</span> <span class="hint">· '+esc(c.perioda)+'</span></div>'

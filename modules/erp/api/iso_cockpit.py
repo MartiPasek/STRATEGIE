@@ -398,18 +398,41 @@ def _controls_payload(s, tenant_id):
 
 
 # (kod, název, perioda(text), perioda_dny(0=průběžně), popis, vazba)
+# (kod, nazev, perioda, dny, popis, vazba, kdo, navod, doc_key)
 _CADENCE = [
-    ("cve", "Sken zranitelností (CVE)", "týdně", 7, "Kontrola závislostí proti známým zranitelnostem (pip-audit).", "A.8.8"),
-    ("access_review", "Přezkum přístupových práv", "čtvrtletně", 90, "Kdo má k čemu přístup — odebrat nadbytečné.", "A.5.18"),
-    ("restore_drill", "Test obnovy ze zálohy (restore drill)", "čtvrtletně", 90, "Reálně vyzkoušet obnovu dat, změřit RTO/RPO.", "A.5.30 / A.8.13"),
-    ("secrets", "Rotace a kontrola hesel / tajemství", "průběžně", 0, "Správa hesel v šifrovaném trezoru, rotace klíčů a přístupů.", "A.5.17 / A.8.24"),
-    ("internal_audit", "Interní audit ISMS", "ročně", 365, "Projít systém řízení (kap. 4–10), zapsat zjištění.", "A.9.2"),
-    ("mgmt_review", "Přezkoumání vedením (management review)", "ročně", 365, "Vedení vyhodnotí stav, rizika, cíle a zdroje.", "A.9.3"),
-    ("risk_review", "Revize rizik (registr rizik)", "ročně", 365, "Aktualizovat hrozby, dopady, opatření.", "A.6.1.2"),
-    ("training", "Školení bezpečnosti", "ročně", 365, "Proškolit lidi, doložit záznam.", "A.6.3"),
-    ("supplier_review", "Revize a hodnocení dodavatelů", "ročně", 365, "Zkontrolovat sub-processory, DPA, certifikace.", "A.5.22"),
-    ("policy_review", "Aktualizace politik a dokumentace", "ročně", 365, "Projít a znovu schválit politiky.", "A.5.1"),
-    ("bcp_test", "Test plánu kontinuity (BCP)", "ročně", 365, "Ověřit, že firma přežije výpadek.", "A.5.29 / A.5.30"),
+    ("cve", "Sken zranitelností (CVE)", "týdně", 7, "Kontrola závislostí proti známým zranitelnostem (pip-audit).", "A.8.8",
+     "Automaticky (IT / Claude)",
+     "Běží sám každý týden — nic nedělejte. Výsledek je v kartě „Zranitelnosti“ výše; když se najdou opravitelné, IT naplánuje aktualizaci.", "cve"),
+    ("access_review", "Přezkum přístupových práv", "čtvrtletně", 90, "Kdo má k čemu přístup — odebrat nadbytečné.", "A.5.18",
+     "Marti + IT",
+     "Projděte seznam uživatelů a jejich přístupy (kdo má k čemu právo). Odeberte nadbytečné a u lidí, co odešli, zrušte účty. Pak klikněte „Provedeno“.", ""),
+    ("restore_drill", "Test obnovy ze zálohy (restore drill)", "čtvrtletně", 90, "Reálně vyzkoušet obnovu dat, změřit RTO/RPO.", "A.5.30 / A.8.13",
+     "Michal",
+     "Podle návodu obnovte data ze zálohy na testovacím místě, ověřte, že fungují, a změřte, jak dlouho to trvalo (RTO) a kolik dat by se mohlo ztratit (RPO). Zapište výsledek.", "michal"),
+    ("secrets", "Rotace a kontrola hesel / tajemství", "průběžně", 0, "Správa hesel v šifrovaném trezoru, rotace klíčů a přístupů.", "A.5.17 / A.8.24",
+     "Každý + IT",
+     "Hesla patří do šifrovaného trezoru (karta výše), ne do papírů a e-mailů. Průběžná věc — není potřeba odškrtávat.", ""),
+    ("internal_audit", "Interní audit ISMS", "ročně", 365, "Projít systém řízení (kap. 4–10), zapsat zjištění.", "A.9.2",
+     "Kristý",
+     "Otevřete připravený checklist (kapitoly 4–10), projděte body, zapište zjištění a nápravy. Pak „Provedeno“.", "handoff"),
+    ("mgmt_review", "Přezkoumání vedením (management review)", "ročně", 365, "Vedení vyhodnotí stav, rizika, cíle a zdroje.", "A.9.3",
+     "Marti + vedení",
+     "Vedení se krátce sejde, projde stav bezpečnosti, rizika, cíle a zdroje a rozhodne další kroky. Stačí krátký zápis.", "dorazeni"),
+    ("risk_review", "Revize rizik (registr rizik)", "ročně", 365, "Aktualizovat hrozby, dopady, opatření.", "A.6.1.2",
+     "Kristý",
+     "Otevřete registr rizik, aktualizujte hrozby, dopady a opatření a znovu je odsouhlaste.", "handoff"),
+    ("training", "Školení bezpečnosti", "ročně", 365, "Proškolit lidi, doložit záznam.", "A.6.3",
+     "Marti + HR (Šárka)",
+     "Krátce proškolte lidi v základech (hesla, phishing, ochrana dat) a doložte záznam, kdo se zúčastnil.", ""),
+    ("supplier_review", "Revize a hodnocení dodavatelů", "ročně", 365, "Zkontrolovat sub-processory, DPA, certifikace.", "A.5.22",
+     "Kristý",
+     "Projděte dodavatele a sub-processory, jejich smlouvy o ochraně dat (DPA) a certifikace.", "dodavatele"),
+    ("policy_review", "Aktualizace politik a dokumentace", "ročně", 365, "Projít a znovu schválit politiky.", "A.5.1",
+     "Kristý",
+     "Projděte politiky a dokumenty, aktualizujte zastaralé a znovu je schvalte podpisem v přehledu dokumentů.", "dorazeni"),
+    ("bcp_test", "Test plánu kontinuity (BCP)", "ročně", 365, "Ověřit, že firma přežije výpadek.", "A.5.29 / A.5.30",
+     "Michal + Marti",
+     "Vyzkoušejte scénář výpadku (např. serveru) a ověřte, že firma dokáže pokračovat. Zapište výsledek.", "dr"),
 ]
 
 
@@ -440,7 +463,7 @@ def _cadence_compute(s, tid):
         "SELECT kod, last_done FROM tenant.iso_cadence_run WHERE tenant_id=:t"), {"t": tid}).all()}
     cve_last = s.execute(_t("SELECT max(created_at) AS m FROM fw.cve_run")).scalar()
     out = []
-    for kod, nazev, perioda, dny, popis, vazba in _CADENCE:
+    for kod, nazev, perioda, dny, popis, vazba, kdo, navod, doc in _CADENCE:
         last = cve_last if kod == "cve" else runs.get(kod)
         stav = "prubezne"
         due_s = None
@@ -459,6 +482,7 @@ def _cadence_compute(s, tid):
                 else:
                     stav = "ok"
         out.append({"kod": kod, "nazev": nazev, "perioda": perioda, "popis": popis, "vazba": vazba,
+                    "kdo": kdo, "navod": navod, "doc": doc,
                     "last": (last.strftime("%d.%m.%Y") if last else None), "due": due_s,
                     "dleft": dleft, "stav": stav, "auto": (kod == "cve")})
     return out
@@ -552,7 +576,7 @@ def _iso_reminders_run(force=False):
                         "Není to úkol na dnes a není to všechno na jednoho — klidně po jedné, vlastním tempem.</p>"
                         "<p><b>Ještě nás čeká:</b></p><ul>") % tnm
                 for i in over + soon:
-                    body += "<li>○ %s</li>" % i["nazev"]
+                    body += "<li>○ %s — <i style='color:#888'>má na starosti: %s</i></li>" % (i["nazev"], i.get("kdo") or "—")
                 body += ("</ul><p>Jak na to: v přehledu u každé položky je tlačítko "
                          "<b>„✓ Provedeno“</b> — jak se věc udělá, odškrtne se a já vás přestanu na ni upozorňovat. "
                          "Kdo má co na starosti a návody najdete přímo v přehledu.</p>"

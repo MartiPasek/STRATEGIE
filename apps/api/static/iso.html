@@ -209,12 +209,17 @@ function loadCadence(){api("/api/v1/erp/app/iso/cadence").then(function(j){
     else if(c.stav==="nikdy")info="zatím jsme nezačali — až bude vhodná chvíle";
     else if(c.stav==="prubezne")info="průběžná činnost (bez termínu)";
     var btn=c.auto?'<span class="hint">automaticky (sken výše)</span>':(c.stav==="prubezne"?"":'<button class="btn sm ghost" onclick="cadDone(\''+c.kod+'\')">✓ Provedeno</button>');
+    var navbtn=c.navod?('<button class="btn sm ghost" onclick="tgl(\'nav_'+c.kod+'\')">📖 Jak na to</button> '):'';
+    var docl=c.doc?(' &nbsp;<a href="/dokument?key='+esc(c.doc)+'">📖 otevřít návod v dokumentu →</a>'):'';
+    var nav=c.navod?('<div class="meta" id="nav_'+c.kod+'" style="display:none;margin-top:6px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px;line-height:1.5">'+esc(c.navod)+docl+'</div>'):'';
     return '<div class="row"><div class="grow"><div class="nm">'+esc(c.nazev)+' <span class="pill" style="background:rgba(255,255,255,.06);color:'+st[1]+'">'+st[0]+'</span> <span class="hint">· '+esc(c.perioda)+'</span></div>'
-      +'<div class="meta">'+esc(c.popis)+' · '+esc(c.vazba)+'</div>'
+      +'<div class="meta">👤 <b>'+esc(c.kdo||"—")+'</b> · '+esc(c.popis)+'</div>'
       +(info?('<div class="meta" style="color:'+st[1]+'">'+esc(info)+'</div>'):'')
-      +'</div><div class="right">'+btn+'</div></div>';
+      +nav
+      +'</div><div class="right">'+navbtn+btn+'</div></div>';
   }).join('');
 });}
+function tgl(id){var e=document.getElementById(id);if(e)e.style.display=(e.style.display==="none"?"block":"none");}
 function cadDone(kod){api("/api/v1/erp/app/iso/cadence-done","POST",{kod:kod}).then(function(r){if(r&&r.ok)loadCadence();else alert((r&&r.error)||"chyba");});}
 function remRun(btn){var m=document.getElementById("remMsg");if(m)m.textContent="⏳ kontroluji…";if(btn)btn.disabled=true;api("/api/v1/erp/app/iso/reminders-run","POST",{}).then(function(r){if(btn)btn.disabled=false;if(r&&r.ok){if(m)m.textContent="✅ hotovo"+(r.cve_ran?" (CVE sken proběhl)":"")+(r.digestu?(" · digest e‑mailů: "+r.digestu):" · vše v termínu");loadCadence();}else{if(m)m.textContent="⚠️ "+((r&&r.error)||"chyba");}});}
 var FBTYP={otazka:"❓ Dotaz",nerozumim:"🤔 Nerozumím",spatne:"⚠️ Špatně",nesouhlas:"✋ Nesouhlas",doplnit:"➕ Doplnit"};

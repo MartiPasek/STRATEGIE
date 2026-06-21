@@ -4,73 +4,77 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Chat s Claudem</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
-  :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;}
+  :root{--bg:#0e0f11;--surface:#16181c;--border:#2a2d33;--accent:#4f8ef7;--accent2:#7c5cfc;--text:#e8eaf0;--muted:#6b7280;--radius:12px;}
   *{box-sizing:border-box}
-  html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;flex-direction:column}
-  header{padding:12px 16px;border-bottom:1px solid var(--bord);display:flex;align-items:center;gap:10px}
-  header .av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#4f8ef7,#a78bfa);display:flex;align-items:center;justify-content:center;font-size:18px}
-  header h1{font-size:16px;margin:0;font-weight:800}
-  header .s{font-size:11.5px;color:var(--mut)}
-  #feed{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:8px;max-width:900px;width:100%;margin:0 auto}
-  .row{display:flex}
-  .row.me{justify-content:flex-end}
-  .bub{max-width:78%;padding:8px 12px;border-radius:14px;font-size:14.5px;white-space:pre-wrap;word-break:break-word}
-  .me .bub{background:var(--accent);color:#06101f;border-bottom-right-radius:5px}
-  .cl .bub{background:var(--card);border:1px solid var(--bord);border-bottom-left-radius:5px}
-  .t{font-size:10.5px;color:var(--mut);margin-top:2px}
-  .hint{color:var(--mut);text-align:center;padding:18px;font-size:13px}
-  .err{color:#ff8a8a;text-align:center;padding:10px}
-  footer{border-top:1px solid var(--bord);padding:10px;display:flex;gap:8px;max-width:900px;width:100%;margin:0 auto}
-  textarea{flex:1;background:#0a1226;color:var(--tx);border:1px solid #2b3a5c;border-radius:12px;padding:10px 12px;font-size:15px;resize:none;font-family:inherit;max-height:120px}
-  button{background:var(--accent);color:#06101f;border:0;border-radius:12px;padding:0 16px;font-size:15px;font-weight:800;cursor:pointer}
-  button:disabled{opacity:.5}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--text);font-family:'DM Sans',system-ui,sans-serif;font-size:15px;display:flex;flex-direction:column}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  header{display:flex;align-items:center;gap:11px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface)}
+  header .av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+  header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.01em}
+  header .s{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.04em;margin-top:1px}
+  #feed{flex:1;overflow-y:auto;padding:18px 14px;display:flex;flex-direction:column;gap:14px;max-width:860px;width:100%;margin:0 auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  .msg{display:flex;flex-direction:column;gap:3px;max-width:calc(100% - 1.5cm);align-self:flex-start;align-items:flex-start;animation:fadeIn .25s ease}
+  .msg.me{align-self:flex-end;align-items:flex-end}
+  .role{font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.08em;color:var(--muted);padding:0 3px;text-transform:uppercase}
+  .bubble{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);border-top-left-radius:4px;padding:10px 14px;font-size:14.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+  .me .bubble{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;border-radius:var(--radius);border-top-right-radius:4px}
+  .time{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);opacity:.55;padding:0 4px}
+  .hint{color:var(--muted);text-align:center;padding:30px 20px;font-size:13.5px;line-height:1.7;max-width:520px;margin:auto;align-self:center}
+  .err{color:#f87171;text-align:center;padding:14px}
+  footer{border-top:1px solid var(--border);background:var(--surface);padding:10px 12px}
+  .composer{display:flex;gap:9px;align-items:flex-end;max-width:860px;margin:0 auto}
+  textarea{flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:14px;padding:11px 14px;font-size:15px;font-family:'DM Sans',system-ui,sans-serif;resize:none;outline:none;max-height:140px;transition:border-color .15s}
+  textarea:focus{border-color:var(--accent)}
+  .send{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:0;border-radius:50%;width:42px;height:42px;font-size:18px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:opacity .15s}
+  .send:disabled{opacity:.45}
 </style>
 </head>
 <body>
-<header><div class="av">🛠️</div><div><h1>Chat s Claudem</h1><div class="s" id="sub">řešení rozvrhu — piš sem, co potřebuješ</div></div></header>
+<header><div class="av">🛠️</div><div><h1>Claude</h1><div class="s">řešení rozvrhu · odpovídám přes most</div></div></header>
 <div id="feed"><div class="hint">Načítám…</div></div>
-<footer>
+<footer><div class="composer">
   <textarea id="inp" rows="1" placeholder="Napiš zprávu Claudovi…"></textarea>
-  <button id="snd">Poslat</button>
-</footer>
+  <button class="send" id="snd" title="Poslat">➤</button>
+</div></footer>
 <script>
 function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
 function api(m,p,b){var o={method:m,credentials:"include",headers:{}};if(b){o.headers["Content-Type"]="application/json";o.body=JSON.stringify(b);}
-  return fetch(p,o).then(function(r){if(!r.ok)return{ok:false,error:r.status===401?"Nejsi přihlášen — přihlas se prosím znovu.":("HTTP "+r.status)};return r.json();}).catch(function(){return{ok:false,error:"spojení"};});}
-var feed=document.getElementById("feed"), inp=document.getElementById("inp"), snd=document.getElementById("snd");
-var lastCount=-1, atBottom=true;
-feed.addEventListener("scroll",function(){ atBottom=(feed.scrollHeight-feed.scrollTop-feed.clientHeight)<60; });
+  return fetch(p,o).then(function(r){if(!r.ok)return{ok:false,error:r.status===401?"Nejsi přihlášen — přihlas se prosím znovu.":(r.status===403?"Tento chat vidí jen přihlášení uživatelé.":("HTTP "+r.status))};return r.json();}).catch(function(){return{ok:false,error:"Nepodařilo se spojit se serverem."};});}
+var feed=document.getElementById("feed"),inp=document.getElementById("inp"),snd=document.getElementById("snd");
+var lastCount=-1,atBottom=true;
+feed.addEventListener("scroll",function(){atBottom=(feed.scrollHeight-feed.scrollTop-feed.clientHeight)<80;});
 function render(msgs){
-  if(!msgs.length){ feed.innerHTML='<div class="hint">Zatím žádné zprávy.<br>Napiš Claudovi, co u rozvrhu potřebuješ změnit nebo zkontrolovat — přečte si to a odpoví ti sem.</div>'; return; }
+  if(!msgs.length){feed.innerHTML='<div class="hint">Zatím tu žádné zprávy.<br><br>Napiš Claudovi, co u rozvrhu potřebuješ změnit nebo zkontrolovat — přečte si to a odpoví ti sem. 🛠️</div>';return;}
   var h="";
   msgs.forEach(function(m){
     var me=(m.sender==="user");
-    h+='<div class="row '+(me?"me":"cl")+'"><div><div class="bub">'+esc(m.msg)+'</div><div class="t" style="text-align:'+(me?"right":"left")+'">'+(me?"":"Claude · ")+esc(m.kdy)+'</div></div></div>';
+    h+='<div class="msg '+(me?"me":"cl")+'">'+(me?"":'<div class="role">Claude</div>')+'<div class="bubble">'+esc(m.msg)+'</div><div class="time">'+esc(m.kdy)+'</div></div>';
   });
   feed.innerHTML=h;
   if(atBottom) feed.scrollTop=feed.scrollHeight;
 }
 function load(){
   api("GET","/api/v1/erp/app/claude-chat").then(function(j){
-    if(!j||!j.ok){ feed.innerHTML='<div class="err">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
-    if((j.messages||[]).length!==lastCount){ lastCount=(j.messages||[]).length; render(j.messages||[]); }
+    if(!j||!j.ok){feed.innerHTML='<div class="err">'+esc((j&&j.error)||"Chyba")+'</div>';return;}
+    if((j.messages||[]).length!==lastCount){lastCount=(j.messages||[]).length;render(j.messages||[]);}
   });
 }
 function send(){
-  var t=inp.value.trim(); if(!t) return;
+  var t=inp.value.trim();if(!t)return;
   snd.disabled=true;
   api("POST","/api/v1/erp/app/claude-chat/send",{text:t}).then(function(r){
     snd.disabled=false;
-    if(r&&r.ok){ inp.value=""; inp.style.height="auto"; atBottom=true; lastCount=-1; load(); }
+    if(r&&r.ok){inp.value="";inp.style.height="auto";atBottom=true;lastCount=-1;load();inp.focus();}
     else alert("Nepodařilo se odeslat: "+((r&&r.error)||"?"));
   });
 }
 snd.onclick=send;
-inp.addEventListener("input",function(){ this.style.height="auto"; this.style.height=Math.min(this.scrollHeight,120)+"px"; });
-inp.addEventListener("keydown",function(e){ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); } });
-load(); setInterval(load,5000);
+inp.addEventListener("input",function(){this.style.height="auto";this.style.height=Math.min(this.scrollHeight,140)+"px";});
+inp.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}});
+load();setInterval(load,5000);
 </script>
 </body>
 </html>

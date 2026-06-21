@@ -87,13 +87,15 @@ function render(){
   ft.forEach(function(t){
     var done=t.stav==="hotovo";
     var nk=navodKey(t);
+    var tnav=t.navod?('<div class="meta" id="tnav_'+t.id+'" style="display:none;margin-top:6px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px;line-height:1.5">'+esc(t.navod)+' &nbsp;<a href="/dokument?key='+nk+'">📖 otevřít návod v dokumentu →</a></div>'):'';
     h+='<div class="row"><div class="num'+(done?" done":"")+'">'+(done?"✓":t.poradi)+'</div><div class="grow">'
       +'<div class="nm">'+esc(t.nazev)+' <span class="pill p-'+esc(t.stav)+'">'+(done?"hotovo":"čeká")+'</span></div>'
-      +'<div class="meta">'+esc(t.faze)+' · '+esc(t.vlastnik||"")+(t.doc_kod?(' · '+esc(t.doc_kod)):'')+'</div>'
+      +'<div class="meta">👤 <b>'+esc(t.vlastnik||"")+'</b> · '+esc(t.faze)+(t.doc_kod?(' · '+esc(t.doc_kod)):'')+'</div>'
       +'<div class="meta">'+esc(t.popis||"")+'</div>'
       +(t.done_kdy?('<div class="sig">✓ '+esc(t.done_kdy)+'</div>'):'')
+      +tnav
       +'</div><div class="right" style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'
-      +'<a class="lnk" href="/dokument?key='+nk+'" target="_blank">📖 Jak na to</a>'
+      +(t.navod?('<button class="btn sm ghost" onclick="tgl(\'tnav_'+t.id+'\')">📖 Jak na to</button>'):'')
       +(t.vyzaduje_podpis?'<span class="hint">podpis u dokumentu ↓</span>':('<button class="btn sm '+(done?'ghost':'')+'" onclick="taskDone('+t.id+','+(!done)+')">'+(done?"vrátit":"hotovo")+'</button>'))
       +'</div></div>';
   });

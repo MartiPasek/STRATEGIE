@@ -150,6 +150,37 @@ _TASK_TPL = [
     (12, "Fyzická", "Attestace fyzické bezpečnosti", "Doložit od EUROSOFT / DC ČMIS", "Marti", None, False),
 ]
 
+# Lidský průvodce ke krokům: poradi -> (kdo, popis lidsky, navod krok-za-krokem).
+# Override při renderu (nemusíme migrovat DB). Realistické vlastnictví: datová/
+# systémová práce = Marti + Claude; nezávislá kontrola (audit) = Kristý; podpis =
+# vedení; obnova = Michal.
+_TASK_GUIDE = {
+    1: ("Marti + Claude", "Projít seznam rizik a u každého říct, jak je vážné a pravděpodobné.",
+        "Vedeme my dva. Projdeme seznam rizik (co by se firmě mohlo stát) a u každého řekneme, jak je to vážné a pravděpodobné. Předdraft už mám připravený — jen projít a doladit spolu."),
+    2: ("Marti + Claude", "U 93 opatření potvrdit stav a důkaz, pak podpis.",
+        "Vedeme my dva. U 93 bezpečnostních opatření je už vyplněný stav a důkaz. Stačí projít, u sporných potvrdit, na konci podpis. Většina je hotová."),
+    3: ("Marti + Claude", "U vážnějších rizik dopsat, jak je ošetříme a do kdy.",
+        "Vedeme my dva. Navazuje na registr rizik: u vážnějších rizik dopíšeme, jak je ošetříme a do kdy."),
+    4: ("Vedení (Marti)", "Vedení elektronicky podepíše hotové politiky (klik).",
+        "Politiky jsou napsané. Vedení (ty) je jen projde a elektronicky podepíše kliknutím (DOC-02 a DOC-09 až 15). Pár minut."),
+    5: ("Marti + Claude", "Krátce proškolit lidi a zapsat, kdo se zúčastnil.",
+        "Vedeme my dva (Šárka pomůže s lidmi). Krátké proškolení v základech (hesla, phishing, ochrana dat), klidně online. Pak zapsat, kdo byl."),
+    6: ("Kristý (ISMS)", "⭐ Klíčové pro Kristý: projít checklist a zapsat zjištění.",
+        "Tohle je jedna z mála věcí, kterou vede Kristý — protože interní audit má být nezávislá kontrola (ne ten, kdo systém staví). Projde připravený checklist (kapitoly 4–10) a zapíše zjištění. My jí to připravíme."),
+    7: ("Vedení (Marti)", "Krátká schůzka vedení → zápis → podpis.",
+        "Krátká schůzka vedení (ty): projde se stav bezpečnosti, rizika, cíle a zdroje. Vznikne zápis a podpis. Podklady připravím."),
+    8: ("Marti + Claude", "Co se najde v auditu, k tomu dopsat nápravu a termín.",
+        "Vedeme my dva. Co Kristý najde při auditu, k tomu dopíšeme nápravné opatření a termín."),
+    9: ("Michal", "⭐ Klíčové pro Michala: vyzkoušet obnovu ze zálohy.",
+        "Tohle vede Michal — má přístup k serverům. Podle návodu vyzkouší obnovu dat ze zálohy, ověří, že fungují, a změří časy (RTO/RPO). Návod má připravený, my mu pomůžeme."),
+    10: ("Marti + Claude", "Běží automaticky týdně, nálezy řešíme my dva.",
+         "Vedeme my dva — vlastně to běží samo. Sken zranitelností jede každý týden; když se něco najde, vyřešíme aktualizací. Nic nemusíš dělat."),
+    11: ("Marti + Claude", "S dodavateli dat uzavřít smlouvy o ochraně dat (DPA).",
+         "Vedeme my dva. S dodavateli, kteří zpracovávají naše data, uzavřeme smlouvy o ochraně údajů (DPA). Šablonu máme připravenou."),
+    12: ("Marti + Claude", "Doložit fyzické zabezpečení (serverovna / datacentrum).",
+         "Vedeme my dva. Doložíme fyzické zabezpečení — potvrzení od EUROSOFT (serverovna) a datacentra ČMIS, kde běží servery."),
+}
+
 
 # ── pomocné (lazy import z router.py, ať není cirkulární) ──
 def _sess():
@@ -283,9 +314,15 @@ def iso_overview(req: Request):
     try:
         tid = _tenant(req, uid, s)
         _ensure_seeded(s, tid)
-        tasks = s.execute(_t("""SELECT id,poradi,faze,nazev,popis,vlastnik,stav,doc_kod,vyzaduje_podpis,
+        tasks = [dict(x) for x in s.execute(_t("""SELECT id,poradi,faze,nazev,popis,vlastnik,stav,doc_kod,vyzaduje_podpis,
             to_char(done_at,'DD.MM.YYYY HH24:MI') AS done_kdy
-            FROM tenant.iso_task WHERE tenant_id=:t ORDER BY poradi"""), {"t": tid}).mappings().all()
+            FROM tenant.iso_task WHERE tenant_id=:t ORDER BY poradi"""), {"t": tid}).mappings().all()]
+        for x in tasks:  # lidský průvodce — vlastník/popis/návod z katalogu (bez migrace DB)
+            g = _TASK_GUIDE.get(x["poradi"])
+            if g:
+                x["vlastnik"], x["popis"], x["navod"] = g[0], g[1], g[2]
+            else:
+                x["navod"] = ""
         docs = _docs_payload(s, tid)
         tn = s.execute(_t("SELECT tenant_name AS name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
         done = sum(1 for x in tasks if x["stav"] == "hotovo")
@@ -301,7 +338,7 @@ def iso_overview(req: Request):
             "SELECT count(*) c FROM tenant.iso_control WHERE tenant_id=:t AND apl AND stav IN ('HOTOVO','ROZPRACOVÁNO')"),
             {"t": tid}).first().c) / cs["apl_ano"]) or 0
         return {"ok": True, "tenant_id": tid, "tenant_name": (tn.name if tn else str(tid)),
-                "tasks": [dict(x) for x in tasks], "docs": docs,
+                "tasks": tasks, "docs": docs,
                 "soa": {"apl_ano": cs["apl_ano"], "apl_ne": cs["apl_ne"], "total": cs["total"], "stav": doc06},
                 "tisax": {"appl": tx["appl"], "hotovo": tx["hot"], "moduly": tx["moduly"], "is_coverage": is_cov, "verze": "VDA ISA 6.0.3"},
                 "progress": {"hotovo": done, "celkem": len(tasks)}}
@@ -401,34 +438,34 @@ def _controls_payload(s, tenant_id):
 # (kod, nazev, perioda, dny, popis, vazba, kdo, navod, doc_key)
 _CADENCE = [
     ("cve", "Sken zranitelností (CVE)", "týdně", 7, "Kontrola závislostí proti známým zranitelnostem (pip-audit).", "A.8.8",
-     "Automaticky (IT / Claude)",
+     "Automaticky (Claude + Marti)",
      "Běží sám každý týden — nic nedělejte. Výsledek je v kartě „Zranitelnosti“ výše; když se najdou opravitelné, IT naplánuje aktualizaci.", "cve"),
     ("access_review", "Přezkum přístupových práv", "čtvrtletně", 90, "Kdo má k čemu přístup — odebrat nadbytečné.", "A.5.18",
-     "Marti + IT",
+     "Marti + Claude",
      "Projděte seznam uživatelů a jejich přístupy (kdo má k čemu právo). Odeberte nadbytečné a u lidí, co odešli, zrušte účty. Pak klikněte „Provedeno“.", ""),
     ("restore_drill", "Test obnovy ze zálohy (restore drill)", "čtvrtletně", 90, "Reálně vyzkoušet obnovu dat, změřit RTO/RPO.", "A.5.30 / A.8.13",
-     "Michal",
+     "Michal ⭐",
      "Podle návodu obnovte data ze zálohy na testovacím místě, ověřte, že fungují, a změřte, jak dlouho to trvalo (RTO) a kolik dat by se mohlo ztratit (RPO). Zapište výsledek.", "michal"),
     ("secrets", "Rotace a kontrola hesel / tajemství", "průběžně", 0, "Správa hesel v šifrovaném trezoru, rotace klíčů a přístupů.", "A.5.17 / A.8.24",
-     "Každý + IT",
+     "Každý + Claude",
      "Hesla patří do šifrovaného trezoru (karta výše), ne do papírů a e-mailů. Průběžná věc — není potřeba odškrtávat.", ""),
     ("internal_audit", "Interní audit ISMS", "ročně", 365, "Projít systém řízení (kap. 4–10), zapsat zjištění.", "A.9.2",
-     "Kristý",
+     "Kristý ⭐",
      "Otevřete připravený checklist (kapitoly 4–10), projděte body, zapište zjištění a nápravy. Pak „Provedeno“.", "handoff"),
     ("mgmt_review", "Přezkoumání vedením (management review)", "ročně", 365, "Vedení vyhodnotí stav, rizika, cíle a zdroje.", "A.9.3",
-     "Marti + vedení",
+     "Vedení (Marti)",
      "Vedení se krátce sejde, projde stav bezpečnosti, rizika, cíle a zdroje a rozhodne další kroky. Stačí krátký zápis.", "dorazeni"),
     ("risk_review", "Revize rizik (registr rizik)", "ročně", 365, "Aktualizovat hrozby, dopady, opatření.", "A.6.1.2",
-     "Kristý",
+     "Marti + Claude",
      "Otevřete registr rizik, aktualizujte hrozby, dopady a opatření a znovu je odsouhlaste.", "handoff"),
     ("training", "Školení bezpečnosti", "ročně", 365, "Proškolit lidi, doložit záznam.", "A.6.3",
-     "Marti + HR (Šárka)",
+     "Marti + Claude",
      "Krátce proškolte lidi v základech (hesla, phishing, ochrana dat) a doložte záznam, kdo se zúčastnil.", ""),
     ("supplier_review", "Revize a hodnocení dodavatelů", "ročně", 365, "Zkontrolovat sub-processory, DPA, certifikace.", "A.5.22",
-     "Kristý",
+     "Marti + Claude",
      "Projděte dodavatele a sub-processory, jejich smlouvy o ochraně dat (DPA) a certifikace.", "dodavatele"),
     ("policy_review", "Aktualizace politik a dokumentace", "ročně", 365, "Projít a znovu schválit politiky.", "A.5.1",
-     "Kristý",
+     "Marti + Claude",
      "Projděte politiky a dokumenty, aktualizujte zastaralé a znovu je schvalte podpisem v přehledu dokumentů.", "dorazeni"),
     ("bcp_test", "Test plánu kontinuity (BCP)", "ročně", 365, "Ověřit, že firma přežije výpadek.", "A.5.29 / A.5.30",
      "Michal + Marti",

@@ -1,8 +1,14 @@
 # Demo průvodce — ISO 27001 / TISAX modul (prezentace certifikační firmě)
 
 > **Verze:** 1.0 · **Datum:** 21. 6. 2026 · **Pro:** Marti (prezentující) · **Klasifikace:** Interní
-> **Příběh:** „Digitalizace ISO 27001 a TISAX — celý ISMS elektronicky, žádný papír, žádné e‑maily,
-> auditor i lidé pracují přímo v portálu." Nabízíme přes pana Antoše jako společnou spolupráci.
+> **Příběh (přerámováno 21.6.):** Tohle není „software na získání certifikátu". Je to **zákazníkova
+> pravá ruka v bezpečnosti firmy** — průběžně ho vede k pořádku, k pravidelným kontrolám a ke
+> **správě hesel** (největší reálný bordel ve firmách), aby se v tom neztratil. **Certifikace je
+> milník, ne konec** — modul slouží dál, den za dnem. Celý ISMS elektronicky, bez papíru a e‑mailů,
+> auditor i lidé pracují přímo v portálu. Nabízíme přes pana Antoše jako společnou spolupráci.
+>
+> **Hlavní hák:** *„Jaký je u vás největší bordel? Hesla."* → ukázat 🔐 Trezor (konec lepíků pod
+> klávesnicí; každý má svůj šifrovaný trezor, firma vidí pořádek, ne obsah).
 > **Ověřeno funkční 21.6. 00:35** (cockpit, dokumenty, SoA, TISAX, evidence, auditorský portál, feedback).
 
 ---

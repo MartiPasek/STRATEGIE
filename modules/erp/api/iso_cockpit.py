@@ -301,6 +301,49 @@ def _controls_payload(s, tenant_id):
     return [dict(r) for r in rows]
 
 
+_CADENCE = [
+    ("Sken zranitelností (CVE)", "týdně", "Kontrola závislostí proti známým zranitelnostem (pip-audit).", "A.8.8"),
+    ("Přezkum přístupových práv", "čtvrtletně", "Kdo má k čemu přístup — odebrat nadbytečné.", "A.5.18"),
+    ("Test obnovy ze zálohy (restore drill)", "čtvrtletně", "Reálně vyzkoušet obnovu dat, změřit RTO/RPO.", "A.5.30 / A.8.13"),
+    ("Rotace a kontrola hesel / tajemství", "průběžně", "Správa hesel v šifrovaném trezoru, rotace klíčů a přístupů.", "A.5.17 / A.8.24"),
+    ("Interní audit ISMS", "ročně", "Projít systém řízení (kap. 4–10), zapsat zjištění.", "A.9.2"),
+    ("Přezkoumání vedením (management review)", "ročně", "Vedení vyhodnotí stav, rizika, cíle a zdroje.", "A.9.3"),
+    ("Revize rizik (registr rizik)", "ročně + při změně", "Aktualizovat hrozby, dopady, opatření.", "A.6.1.2"),
+    ("Školení bezpečnosti", "ročně + při nástupu", "Proškolit lidi, doložit záznam.", "A.6.3"),
+    ("Revize a hodnocení dodavatelů", "ročně", "Zkontrolovat sub-processory, DPA, certifikace.", "A.5.22"),
+    ("Aktualizace politik a dokumentace", "ročně", "Projít a znovu schválit politiky.", "A.5.1"),
+    ("Test plánu kontinuity (BCP)", "ročně", "Ověřit, že firma přežije výpadek.", "A.5.29 / A.5.30"),
+]
+
+
+@iso_router.get("/app/iso/vault-overview")
+def iso_vault_overview(req: Request):
+    """Pořádek v heslech (firemní přehled, BEZ obsahu) — největší reálná bolest firem.
+    Kolik lidí už používá šifrovaný trezor a kolik hesel je bezpečně uloženo."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        r = s.execute(_t("""SELECT count(DISTINCT user_id) AS lidi, count(*) AS hesla
+            FROM tenant.user_secret WHERE tenant_id=:t"""), {"t": tid}).mappings().first()
+        ppl = s.execute(_t("SELECT count(*) c FROM public.user_tenants WHERE tenant_id=:t AND membership_status IN ('active','invited')"),
+                        {"t": tid}).first()
+        return {"ok": True, "lidi": r["lidi"], "hesla": r["hesla"], "lidi_celkem": (ppl.c if ppl else None)}
+    finally:
+        s.close()
+
+
+@iso_router.get("/app/iso/cadence")
+def iso_cadence(req: Request):
+    """Průběžné kontroly (kalendář bezpečnosti) — modul jako stálý pomocník, ne jen cesta k certifikaci."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    return {"ok": True, "cadence": [{"nazev": n, "perioda": p, "popis": d, "vazba": v} for n, p, d, v in _CADENCE]}
+
+
 @iso_router.get("/app/iso/controls")
 def iso_controls(req: Request):
     """SoA — 93 kontrol Annex A pro tenant (parent)."""

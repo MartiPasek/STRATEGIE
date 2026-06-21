@@ -41,7 +41,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🛡️ ISO 27001 — elektronické vedení ISMS</h1>
+  <h1>🛡️ ISO 27001 &amp; TISAX — váš pomocník v bezpečnosti firmy</h1>
   <div class="sub" id="head">Načítám…</div>
   <div class="bar"><i id="bar" style="width:0%"></i></div>
   <div class="hint" id="prog"></div>
@@ -58,11 +58,13 @@ function load(){return api("/api/v1/erp/app/iso/overview").then(j=>{
 }).catch(e=>{document.getElementById("head").textContent="";document.getElementById("body").innerHTML='<div class="c" style="color:#ff8a8a">Chyba načtení ('+esc(String(e))+'). Zkus obnovit (Ctrl+Shift+R).</div>';});}
 function render(){
   var j=DATA;
-  document.getElementById("head").innerHTML='Subjekt: <b>'+esc(j.tenant_name)+'</b> · vedeme elektronicky, podpis klikem (SES), bez tisku';
+  document.getElementById("head").innerHTML='Subjekt: <b>'+esc(j.tenant_name)+'</b> · průběžná správa bezpečnosti — vede vás k pořádku, kontrolám a správě hesel. Certifikace je milník, ne cíl. Elektronicky, podpis klikem (SES), bez tisku.';
   var pct=j.progress.celkem?Math.round(100*j.progress.hotovo/j.progress.celkem):0;
   document.getElementById("bar").style.width=pct+"%";
   document.getElementById("prog").textContent="Kroky: "+j.progress.hotovo+" / "+j.progress.celkem+" hotovo ("+pct+" %)";
   var h="";
+  // TREZOR HESEL — vlajková funkce (největší reálná bolest firem)
+  h+='<h2>🔐 Trezor hesel — konec bordelu v heslech</h2><div class="c" id="vault"><div class="hint">Načítám…</div></div>';
   // KROKY
   h+='<h2>📋 Kroky k certifikaci</h2><div class="c">';
   j.tasks.forEach(t=>{
@@ -114,13 +116,57 @@ function render(){
     +'<div class="meta">Servírují se přímo z úložiště STRATEGIE; auditor je vidí read-only.</div></div>'
     +'<div class="right"><button class="btn sm ghost" id="evBtn" onclick="loadEvidence()">Zobrazit dokumenty</button></div></div>'
     +'<div id="evid"></div></div>';
+  // PRŮBĚŽNÉ KONTROLY (kalendář bezpečnosti)
+  h+='<h2>🔁 Průběžné kontroly (kalendář bezpečnosti)</h2><div class="c">'
+    +'<div class="hint" style="margin-bottom:6px">Bezpečnost není jednorázová. Modul vás drží v pravidelném rytmu kontrol — aby se firma neztratila a zůstala v pořádku i <b>po</b> certifikaci. Tohle je vaše pravá ruka v bezpečnosti.</div>'
+    +'<div id="cad"><div class="hint">Načítám…</div></div></div>';
   // AUDITOR
   h+='<h2>👁️ Přístup pro auditora (web, read-only)</h2><div class="c" id="aud"><div class="hint">Načítám…</div></div>';
   // FEEDBACK INBOX
   h+='<h2>💬 Dotazy a připomínky (od lidí i auditorů)</h2><div class="c" id="fbinbox"><div class="hint">Načítám…</div></div>';
   document.getElementById("body").innerHTML=h;
-  loadAud();loadFeedback();
+  loadAud();loadFeedback();loadCadence();loadVault();
 }
+function loadVault(){
+  var el=document.getElementById("vault");if(!el)return;
+  Promise.all([
+    fetch("/api/v1/erp/app/self-secret",{credentials:"include"}).then(function(r){return r.json();}),
+    api("/api/v1/erp/app/iso/vault-overview")
+  ]).then(function(res){
+    var mine=res[0]||{}, ov=res[1]||{};
+    var items=mine.items||mine.secrets||[];
+    var ready=mine.vault_ready!==false;
+    var h='<div class="hint" style="margin-bottom:6px">Největší bordel ve firmách jsou hesla. Tady má <b>každý svůj šifrovaný trezor</b> (Fernet + PIN/SMS). STRATEGIE ani HR obsah <b>nevidí</b> — jen vlastník po 2FA. Konec lepíků pod klávesnicí.</div>';
+    if(ov&&ov.ok){h+='<div class="row"><div class="grow"><div class="nm">📊 Pořádek v heslech (firma)</div><div class="meta">Trezor používá <b>'+(ov.lidi||0)+'</b>'+(ov.lidi_celkem?(' z '+ov.lidi_celkem):'')+' lidí · bezpečně uloženo <b>'+(ov.hesla||0)+'</b> hesel</div></div></div>';}
+    h+='<div class="row"><div class="grow"><div class="nm">🔑 Moje hesla ('+items.length+')</div>';
+    if(!ready){h+='<div class="meta" style="color:#fbbf24">Trezor se inicializuje…</div>';}
+    h+=items.map(function(it){return '<div class="meta">• '+esc(it.label||"")+(it.username?(' ('+esc(it.username)+')'):'')+'</div>';}).join('');
+    h+='</div></div>';
+    h+='<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">'
+      +'<input id="vsLabel" placeholder="Název (např. Helios)" style="background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:7px;padding:6px 8px">'
+      +'<input id="vsUser" placeholder="Uživatel" style="background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:7px;padding:6px 8px">'
+      +'<input id="vsSecret" type="password" placeholder="Heslo" style="background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:7px;padding:6px 8px">'
+      +'<button class="btn sm" onclick="saveVault()">➕ Uložit do trezoru</button> <span id="vsMsg" class="hint"></span></div>'
+      +'<div class="hint" style="margin-top:6px">Zobrazení hesla = jen vlastník po PIN + SMS (v appce). Tady bezpečně přidáš a máš přehled.</div>';
+    el.innerHTML=h;
+  }).catch(function(){el.innerHTML='<div class="hint">Trezor nedostupný.</div>';});
+}
+function saveVault(){
+  var lb=document.getElementById("vsLabel").value.trim(),un=document.getElementById("vsUser").value.trim(),sc=document.getElementById("vsSecret").value;
+  if(!lb||!sc){document.getElementById("vsMsg").textContent="vyplň název a heslo";return;}
+  fetch("/api/v1/erp/app/self-secret/save",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({label:lb,username:un,secret:sc})}).then(function(r){return r.json();}).then(function(r){
+    if(r&&r.ok){document.getElementById("vsMsg").innerHTML='<span style="color:#34d399">Uloženo bezpečně.</span>';loadVault();}
+    else{document.getElementById("vsMsg").textContent=(r&&r.error)||"chyba";}
+  });
+}
+function loadCadence(){api("/api/v1/erp/app/iso/cadence").then(function(j){
+  var el=document.getElementById("cad");if(!el)return;
+  if(!j||!j.ok){el.innerHTML='<div class="hint">—</div>';return;}
+  el.innerHTML=(j.cadence||[]).map(function(c){
+    return '<div class="row"><div class="grow"><div class="nm">'+esc(c.nazev)+' <span class="pill" style="background:rgba(79,142,247,.16);color:#4f8ef7">'+esc(c.perioda)+'</span></div>'
+      +'<div class="meta">'+esc(c.popis)+' · '+esc(c.vazba)+'</div></div></div>';
+  }).join('');
+});}
 var FBTYP={otazka:"❓ Dotaz",nerozumim:"🤔 Nerozumím",spatne:"⚠️ Špatně",nesouhlas:"✋ Nesouhlas",doplnit:"➕ Doplnit"};
 function loadFeedback(){api("/api/v1/erp/app/kb/feedback").then(function(j){
   var el=document.getElementById("fbinbox");if(!el)return;

@@ -234,6 +234,8 @@ setTimeout(function(){
     try{ if(typeof window._planAnyOpen==="function" && window._planAnyOpen()) return; }catch(e){}
     // Marti 8.6.: nejdřív zavřít otevřený accordion (Výroba/kontakty), teprve pak odejít.
     try{ var _op=document.querySelector('#vylist li.ct.open'); if(_op){ _op.classList.remove('open'); var _x=_op.querySelector('.ctexp'); if(_x)_x.style.display='none'; return; } }catch(e){}
+    // V appce otevřená stránka (extview): zpět o JEDEN krok v rámci appky (dokument → root ISO), ne ven.
+    try{ if(stack[stack.length-1]==="extview" && _xvStack.length>1){ _xvStack.pop(); _xvSet(_xvStack[_xvStack.length-1]); render(); return; } }catch(e){}
     if(stack.length>1){ stack.pop(); render(); }
   }
   // iPhone nemá systémové tlačítko Zpět → swipe od levého okraje = Zpět.
@@ -1385,8 +1387,12 @@ setTimeout(function(){
   // Přehledy se otevírají jako NATIVNÍ obrazovka v zásobníku (stejné schéma jako Skupiny) →
   // Zpět řídí výhradně back() appky (topbar i systémové Zpět). Žádný vlastní overlay/history hack.
   var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace","/zrcadla":"🪞 Zrcadla","/parovani":"🏦 Párování","/uctovani":"📒 Účetnictví","/edi-stat":"📊 Statistika EDI","/edi-definice":"🧩 EDI definice","/neschopenky":"🤒 Neschopenky","/davky":"📤 Dávky ČSSZ","/audit-davky":"🛡️ Audit dávek","/iso":"🛡️ ISO 27001","/dokument":"📚 Dokumentace"};
-  var _xvUrl="", _xvTitle="";
-  function openInApp(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; go("extview"); }
+  var _xvUrl="", _xvTitle="", _xvStack=[];
+  function _xvSet(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; }
+  function openInApp(url){
+    if(stack[stack.length-1]==="extview"){ _xvStack.push(url); _xvSet(url); render(); }  // navigace UVNITŘ appky → zásobník (zpět se vrátí o krok, ne ven)
+    else { _xvStack=[url]; _xvSet(url); go("extview"); }
+  }
   function extview(){
     app.innerHTML=topbar(_xvTitle||"Přehled", true, true);
     var fr=el('<iframe id="stgXvF" style="display:block;width:100%;height:calc(100vh - 56px);border:0;background:var(--bg);"></iframe>');

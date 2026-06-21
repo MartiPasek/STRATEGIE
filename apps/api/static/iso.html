@@ -8,7 +8,7 @@
   :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#f87171;}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-  .wrap{max-width:1000px;margin:0 auto;padding:18px}
+  .wrap{max-width:1000px;margin:0 auto;padding:18px;padding-bottom:110px}
   h1{font-size:21px;margin:0 0 2px;font-weight:800}
   h2{font-size:16px;margin:20px 0 8px;font-weight:700}
   .sub{color:var(--mut);font-size:13px;margin-bottom:6px}
@@ -50,6 +50,8 @@
 <script>
 function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
 var TENANT=new URLSearchParams(location.search).get("tenant");
+// V appce (iframe) odkazy na stránky neotvírej target=_blank (vyskočí z appky a rozbije Zpět) — pošli je rodičovské appce.
+if(window.parent!==window){document.addEventListener("click",function(e){var a=e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var h=a.getAttribute("href")||"";if(h.indexOf("/dokument")===0||h.indexOf("/iso")===0){e.preventDefault();try{parent.postMessage({stgOpen:h},"*");}catch(x){}}},true);}
 function api(p,m,b){if(TENANT&&p.indexOf("/app/iso")>=0){p+=(p.indexOf("?")>=0?"&":"?")+"tenant="+encodeURIComponent(TENANT);}return fetch(p,{method:m||"GET",credentials:"include",headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):undefined}).then(r=>r.json());}
 var DATA=null;
 var KROKFILTR="Vše";

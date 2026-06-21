@@ -9,7 +9,7 @@
   :root{--bg:#0a1018;--card:#121a25;--bord:#1f2a38;--tx:#e6edf5;--mut:#8fa0b4;--accent:#4f8ef7;--green:#34d399;--amber:#fbbf24;--red:#f87171;}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-  .wrap{max-width:880px;margin:0 auto;padding:16px}
+  .wrap{max-width:880px;margin:0 auto;padding:16px;padding-bottom:120px}
   .topbar{position:sticky;top:0;background:var(--bg);padding:8px 0;border-bottom:1px solid var(--bord);display:flex;gap:8px;flex-wrap:wrap;align-items:center;z-index:5}
   select,.btn{background:#0f1830;border:1px solid var(--bord);color:var(--tx);border-radius:8px;padding:8px 12px;font-size:14px}
   .btn{cursor:pointer;font-weight:700}
@@ -39,7 +39,7 @@
 <div class="wrap">
   <div class="topbar">
     <select id="sel" onchange="openDoc(this.value)"></select>
-    <button class="btn pri" onclick="window.print()">🖨 Tisk</button>
+    <button class="btn pri" onclick="printDoc()">🖨 Tisk</button>
     <span class="hint" id="hint">Máte dotaz nebo něco nesedí? → tlačítko vpravo dole 💬</span>
   </div>
   <div class="doc" id="doc">Načítám…</div>
@@ -61,6 +61,9 @@ function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;",
 function api(p,m,b){return fetch(p,{method:m||"GET",credentials:"include",headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):undefined}).then(r=>r.json());}
 function qp(k){return new URLSearchParams(location.search).get(k);}
 var KEY=qp("key")||"tutorial";
+var INAPP=(window.parent!==window);
+function printDoc(){ if(INAPP){ alert("🖨 Tisk dokumentu spustíš na počítači — otevři ho na PC (strategie-ai.com/dokument). V mobilní appce Android tisk z tohoto okna neumí."); return; } window.print(); }
+if(INAPP){document.addEventListener("click",function(e){var a=e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var h=a.getAttribute("href")||"";if(h.indexOf("/dokument")===0||h.indexOf("/iso")===0){e.preventDefault();try{parent.postMessage({stgOpen:h},"*");}catch(x){}}},true);}
 var FBTYPES=[["otazka","❓ Dotaz"],["nerozumim","🤔 Nerozumím"],["spatne","⚠️ Je to špatně"],["nesouhlas","✋ Nesouhlasím"],["doplnit","➕ Chci doplnit"]];
 var fbtype="otazka";
 function initTypes(){document.getElementById("fbtypes").innerHTML=FBTYPES.map(t=>'<span class="fbtype'+(t[0]===fbtype?' on':'')+'" data-t="'+t[0]+'" onclick="pickType(\''+t[0]+'\')">'+t[1]+'</span>').join('');}

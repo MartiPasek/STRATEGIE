@@ -121,7 +121,7 @@ function render(cells){
     h+='</tr>';
   }
   h+='</table>';
-  h+='<div class="sub" style="margin-top:10px">Varianta „'+esc(v.nazev||"")+'" · skóre '+(v.skore||0)+' (nižší = lepší) · neumístěno '+(v.neumisteno||0)+'. Iterace 1 = jen cizí jazyky; ostatní předměty, učebny a obědy přibudou v dalších krocích.</div>';
+  h+='<div class="sub" style="margin-top:10px">Varianta „'+esc(v.nazev||"")+'" — cizí jazyky + tělocviky + odborné (GD/MI). U odborných je vpravo nahoře učebna; dvě budovy: učebny B… = Ateliéry, ostatní = Nerudovka. Posledních pár bloků 4.MI se ještě dolaďuje.</div>';
   R.innerHTML=h;
   Array.prototype.forEach.call(document.querySelectorAll(".chip[data-vid]"),function(b){ b.onclick=function(){ ST.vid=+b.getAttribute("data-vid"); loadGrid(); }; });
   Array.prototype.forEach.call(document.querySelectorAll(".seg button[data-p]"),function(b){ b.onclick=function(){ ST.pohled=b.getAttribute("data-p"); ST.klic=""; loadGrid(); }; });

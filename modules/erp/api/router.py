@@ -7339,10 +7339,13 @@ async def app_rozvrh_grid(req: Request) -> JSONResponse:
             "SELECT b.den, b.hodina, COALESCE(b.trida,''), COALESCE(b.kod_spoj,''), COALESCE(b.skup_zkr,''), "
             " COALESCE(b.pred,''), COALESCE(b.kod_ucit,''), "
             " TRIM(COALESCE(uc.prijmeni,'')||' '||COALESCE(uc.jmeno,'')), COALESCE(b.cj_uroven,0), "
-            " COALESCE(b.kod_cykl,''), COALESCE(b.blok,''), COALESCE(b.kod_mist,'') "
+            " COALESCE(b.kod_cykl,''), COALESCE(b.blok,''), "
+            " COALESCE(NULLIF(TRIM(mi.zkratka),''), b.kod_mist, '') "
             "FROM tenant.rozvrh_bunka b "
             "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=b.tenant_id AND uc.plat_od='20260901' "
             "   AND TRIM(uc.intern_kod)=TRIM(b.kod_ucit) "
+            "LEFT JOIN tenant.bakalari_mistnost mi ON mi.tenant_id=b.tenant_id "
+            "   AND TRIM(mi.kod_mist)=TRIM(b.kod_mist) "
             "WHERE b.verze_id=:v ORDER BY b.den, b.hodina"), {"v": vid}).fetchall()
         cells = []
         tridy = set()

@@ -641,7 +641,8 @@ def iso_admin_overview(req: Request):
               (SELECT count(*) FROM tenant.iso_document d WHERE d.tenant_id=t.id AND d.stav='schvaleno') AS docs_ok,
               (SELECT count(*) FROM tenant.iso_signature g WHERE g.tenant_id=t.id) AS podpisy,
               (SELECT count(*) FROM tenant.iso_control c WHERE c.tenant_id=t.id) AS kontroly
-            FROM public.tenants t WHERE t.status='active' ORDER BY t.id"""), {}).mappings().all()
+            FROM public.tenants t WHERE t.status='active' AND COALESCE(t.tenant_type,'')<>'personal'
+            ORDER BY t.id"""), {}).mappings().all()
         zak, bez = [], []
         for r in rows:
             d = dict(r)

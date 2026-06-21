@@ -49,7 +49,8 @@
 </div>
 <script>
 function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
-function api(p,m,b){return fetch(p,{method:m||"GET",credentials:"include",headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):undefined}).then(r=>r.json());}
+var TENANT=new URLSearchParams(location.search).get("tenant");
+function api(p,m,b){if(TENANT&&p.indexOf("/app/iso")>=0){p+=(p.indexOf("?")>=0?"&":"?")+"tenant="+encodeURIComponent(TENANT);}return fetch(p,{method:m||"GET",credentials:"include",headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):undefined}).then(r=>r.json());}
 var DATA=null;
 function load(){return api("/api/v1/erp/app/iso/overview").then(j=>{
   if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="c" style="color:#ff8a8a">'+esc((j&&j.error)||"přístup jen pro vedení")+'</div>';document.getElementById("head").textContent="";return;}

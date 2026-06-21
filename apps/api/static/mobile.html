@@ -1386,7 +1386,7 @@ setTimeout(function(){
   // Appka se neopustí → Android Back nezavře aplikaci, jen zavře overlay. Žádný externí prohlížeč.
   // Přehledy se otevírají jako NATIVNÍ obrazovka v zásobníku (stejné schéma jako Skupiny) →
   // Zpět řídí výhradně back() appky (topbar i systémové Zpět). Žádný vlastní overlay/history hack.
-  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace","/zrcadla":"🪞 Zrcadla","/parovani":"🏦 Párování","/uctovani":"📒 Účetnictví","/edi-stat":"📊 Statistika EDI","/edi-definice":"🧩 EDI definice","/neschopenky":"🤒 Neschopenky","/davky":"📤 Dávky ČSSZ","/audit-davky":"🛡️ Audit dávek","/iso":"🛡️ ISO 27001","/dokument":"📚 Dokumentace","/rozvrh-verze":"🗓️ Varianty rozvrhu"};
+  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace","/zrcadla":"🪞 Zrcadla","/parovani":"🏦 Párování","/uctovani":"📒 Účetnictví","/edi-stat":"📊 Statistika EDI","/edi-definice":"🧩 EDI definice","/neschopenky":"🤒 Neschopenky","/davky":"📤 Dávky ČSSZ","/audit-davky":"🛡️ Audit dávek","/iso":"🛡️ ISO 27001","/dokument":"📚 Dokumentace","/rozvrh-verze":"🗓️ Varianty rozvrhu","/rozvrh-prehled":"🗓️ Přehled po ročnících"};
   var _xvUrl="", _xvTitle="", _xvStack=[];
   function _xvSet(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; }
   function openInApp(url){
@@ -1574,6 +1574,7 @@ setTimeout(function(){
     l.appendChild(row("📋","Úvazky","Co který učitel učí — předměty, třídy, hodiny",function(){ go("bk_uvazky"); }));
     l.appendChild(row("📊","Přehled školy","Žáci, naplněnost tříd, využití učeben — efektivita provozu",function(){ go("bk_skola"); }));
     l.appendChild(row("🗓️","Varianty rozvrhu","Vygenerované návrhy rozvrhu 2026/27 k porovnání (jazyky)",function(){ openInApp("/rozvrh-verze"); }));
+    l.appendChild(row("📅","Přehled po ročnících","Všechny třídy oboru (GD, MI…) vedle sebe, přepínání ročníků",function(){ openInApp("/rozvrh-prehled"); }));
     app.appendChild(l);
     api("GET",_bkUrl("/api/v1/erp/app/bakalari/overview"),"").then(function(j){
       if(!j||!j.ok){ dash.textContent=(j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Nepodařilo se načíst."; return; }

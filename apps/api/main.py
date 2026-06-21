@@ -1099,6 +1099,13 @@ def rozvrh_verze_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/rozvrh-prehled")
+def rozvrh_prehled_page():
+    """Velký přehled rozvrhu po ročnících — všechny třídy oboru vedle sebe (Marti 21.6.2026)."""
+    return FileResponse(os.path.join(static_dir, "rozvrh-prehled.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/doc-print")
 def doc_print_page():
     """Smlouva/dokument k tisku na PC přes handoff mobil→PC (Marti 19.6.2026).

@@ -45,14 +45,17 @@
 function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;
   try{if(window.__opcUrl)return new URL(window.__opcUrl,location.origin).searchParams.get(k);}catch(e){}return null;}
 function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
-function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();}).catch(function(){return{ok:false,error:"spojení"};});}
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){
+    if(!r.ok){ var m=r.status===401?"Nejsi přihlášen — přihlas se prosím znovu.":(r.status===403?"Tento přehled vidí jen vedení a učitelé školy.":("Server vrátil chybu HTTP "+r.status+".")); return {ok:false,error:m,http:r.status}; }
+    return r.json();
+  }).catch(function(){return{ok:false,error:"Nepodařilo se spojit se serverem (zkontroluj připojení / přihlášení)."};});}
 var DNI=["Po","Út","St","Čt","Pá"], HMAX=9;
 var R=document.getElementById("root");
 var ST={verze:[], vid:null, pohled:"trida", klic:"", tridy:[], ucitele:[]};
 
 function load(){
   api("/api/v1/erp/app/rozvrh/verze").then(function(j){
-    if(!j||!j.ok){R.innerHTML='<div class="err" style="padding:24px">'+esc((j&&j.error==="forbidden")?"🔒 Vidí jen vedení a učitelé školy.":((j&&j.error)||"Chyba"))+'</div>';return;}
+    if(!j||!j.ok){R.innerHTML='<div class="err" style="padding:24px">'+esc((j&&j.error)||"Neznámá chyba")+'</div>';return;}
     ST.verze=j.verze||[];
     if(!ST.verze.length){R.innerHTML='<div class="hint" style="padding:24px">Zatím žádné vygenerované varianty.</div>';return;}
     ST.vid=ST.verze[0].id;
@@ -62,7 +65,7 @@ function load(){
 function loadGrid(){
   var u="/api/v1/erp/app/rozvrh/grid?verze="+ST.vid+"&pohled="+ST.pohled+"&klic="+encodeURIComponent(ST.klic);
   api(u).then(function(j){
-    if(!j||!j.ok){R.innerHTML='<div class="err" style="padding:24px">'+esc((j&&j.error)||"Chyba")+'</div>';return;}
+    if(!j||!j.ok){R.innerHTML='<div class="err" style="padding:24px">'+esc((j&&j.error)||"Neznámá chyba")+'</div>';return;}
     ST.tridy=j.tridy||[]; ST.ucitele=j.ucitele||[];
     if(!ST.klic){ ST.klic = (ST.pohled==="trida") ? (ST.tridy[0]||"") : ((ST.ucitele[0]&&ST.ucitele[0].kod)||"");
       if(ST.klic){ return loadGrid(); } }

@@ -29,7 +29,9 @@
   .l2{background:rgba(52,211,153,.16);border-left:3px solid var(--cj2)}
   .l3{background:rgba(167,139,250,.16);border-left:3px solid var(--cj3)}
   .ltv{background:rgba(251,191,36,.15);border-left:3px solid var(--amber)}
+  .lpr{background:rgba(143,160,180,.12);border-left:3px solid var(--mut)}
   .cell .cy{font-size:9.5px;background:rgba(251,191,36,.25);border-radius:4px;padding:0 4px;color:#fbbf24;white-space:nowrap}
+  .cell .rm{font-size:9.5px;background:rgba(143,160,180,.22);border-radius:4px;padding:0 4px;color:#bcd0e6;white-space:nowrap}
   .cell b{font-size:12px} .cell .m{color:var(--mut);font-size:10.5px}
   .hint{color:var(--mut)} .err{color:#ff8a8a}
   .leg{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;font-size:11.5px;color:var(--mut)}
@@ -88,7 +90,8 @@ function render(cells){
   h+='<div class="leg"><span><span class="dot" style="background:var(--aj)"></span>1. cizí jazyk (AJ)</span>'
     +'<span><span class="dot" style="background:var(--cj2)"></span>2. cizí jazyk (Z)</span>'
     +'<span><span class="dot" style="background:var(--cj3)"></span>3. cizí jazyk (D)</span>'
-    +'<span><span class="dot" style="background:var(--amber)"></span>tělocvik (lichý/sudý)</span></div>';
+    +'<span><span class="dot" style="background:var(--amber)"></span>tělocvik (lichý/sudý)</span>'
+    +'<span><span class="dot" style="background:var(--mut)"></span>odborné (učebna)</span></div>';
   // mřížka
   var grid={};
   cells.forEach(function(c){ (grid[c.den]=grid[c.den]||{})[c.hod]=(grid[c.den][c.hod]||[]); grid[c.den][c.hod].push(c); });
@@ -101,11 +104,14 @@ function render(cells){
       h+='<td>';
       var arr=(grid[d]&&grid[d][hh])||[];
       arr.forEach(function(c){
-        var isTV=(c.blok==="tv"||c.cj===0);
-        var cls=isTV?"ltv":(c.cj===1?"l1":(c.cj===2?"l2":"l3"));
+        var isTV=(c.blok==="tv"), isPred=(c.blok==="predmet");
+        var cls=isTV?"ltv":(isPred?"lpr":(c.cj===1?"l1":(c.cj===2?"l2":"l3")));
         var right = ST.pohled==="trida" ? esc(c.ucitel) : esc((c.tridy||[]).join(", "));
-        var cyk=(isTV&&c.cykl)?(' <span class="cy">'+(c.cykl==="L"?"lichý":(c.cykl==="S"?"sudý":esc(c.cykl)))+'</span>'):'';
-        h+='<div class="cell '+cls+'"><b>'+esc(c.zkr||c.pred)+'</b>'+cyk+' <span class="m">'+right+'</span></div>';
+        var extra='';
+        if(isTV&&c.cykl) extra=' <span class="cy">'+(c.cykl==="L"?"lichý":(c.cykl==="S"?"sudý":esc(c.cykl)))+'</span>';
+        if(isPred&&c.mist) extra=' <span class="rm">'+esc(c.mist)+'</span>';
+        var label=isPred?esc(c.pred):esc(c.zkr||c.pred);
+        h+='<div class="cell '+cls+'"><b>'+label+'</b>'+extra+' <span class="m">'+right+'</span></div>';
       });
       h+='</td>';
     }

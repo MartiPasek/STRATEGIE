@@ -32,6 +32,7 @@
   .lpr{background:rgba(143,160,180,.12);border-left:3px solid var(--mut)}
   .cell .cy{font-size:9.5px;background:rgba(251,191,36,.25);border-radius:4px;padding:0 4px;color:#fbbf24;white-space:nowrap}
   .cell .rm{font-size:9.5px;background:rgba(143,160,180,.22);border-radius:4px;padding:0 4px;color:#bcd0e6;white-space:nowrap}
+  .cell .ob{font-size:9px;font-weight:700;background:rgba(124,92,252,.30);border-radius:4px;padding:0 4px;color:#c4b5fd;white-space:nowrap}
   .cell b{font-size:12px} .cell .m{color:var(--mut);font-size:10.5px}
   .hint{color:var(--mut)} .err{color:#ff8a8a}
   .leg{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;font-size:11.5px;color:var(--mut)}
@@ -112,7 +113,8 @@ function render(cells){
         var right = ST.pohled==="trida" ? esc(c.ucitel) : esc((c.tridy||[]).join(", "));
         var extra='';
         if(isTV&&c.cykl) extra=' <span class="cy">'+(c.cykl==="L"?"lichý":(c.cykl==="S"?"sudý":esc(c.cykl)))+'</span>';
-        if(isPred&&c.mist) extra=' <span class="rm">'+esc(c.mist)+'</span>';
+        if(isPred&&c.zkr) extra+=' <span class="ob">'+esc(c.zkr)+'</span>';
+        if(isPred&&c.mist) extra+=' <span class="rm">'+esc(c.mist)+'</span>';
         var label=isPred?esc(c.pred):esc(c.zkr||c.pred);
         h+='<div class="cell '+cls+'"><b>'+label+'</b>'+extra+' <span class="m">'+right+'</span></div>';
       });

@@ -52,6 +52,9 @@ function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;",
 var TENANT=new URLSearchParams(location.search).get("tenant");
 function api(p,m,b){if(TENANT&&p.indexOf("/app/iso")>=0){p+=(p.indexOf("?")>=0?"&":"?")+"tenant="+encodeURIComponent(TENANT);}return fetch(p,{method:m||"GET",credentials:"include",headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):undefined}).then(r=>r.json());}
 var DATA=null;
+var KROKFILTR="Vše";
+function setKrokFiltr(o){KROKFILTR=o;if(DATA)render();}
+function navodKey(t){var v=t.vlastnik||"",f=t.faze||"";if(v.indexOf("Michal")>=0||f.indexOf("Obnova")>=0)return "michal";if(v.indexOf("Kristý")>=0)return "handoff";if(f.indexOf("Dodavatel")>=0)return "dodavatele";if(f.indexOf("Technika")>=0)return "dr";return "dorazeni";}
 function load(){return api("/api/v1/erp/app/iso/overview").then(j=>{
   if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="c" style="color:#ff8a8a">'+esc((j&&j.error)||"přístup jen pro vedení")+'</div>';document.getElementById("head").textContent="";return;}
   DATA=j;render();
@@ -65,17 +68,31 @@ function render(){
   var h="";
   // TREZOR HESEL — vlajková funkce (největší reálná bolest firem)
   h+='<h2>🔐 Trezor hesel — konec bordelu v heslech</h2><div class="c" id="vault"><div class="hint">Načítám…</div></div>';
-  // KROKY
-  h+='<h2>📋 Kroky k certifikaci</h2><div class="c">';
-  j.tasks.forEach(t=>{
+  // KROKY — kdo co má (filtr podle vlastníka, ať se nikdo neztratí)
+  var owners=["Vše"]; j.tasks.forEach(function(t){ if(t.vlastnik && owners.indexOf(t.vlastnik)<0) owners.push(t.vlastnik); });
+  h+='<h2>📋 Kroky k certifikaci — kdo co má</h2><div class="c">';
+  h+='<div class="hint" style="margin-bottom:6px">Vyber, čí úkoly chceš vidět — každý se soustředí jen na svou část:</div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+owners.map(function(o){
+    var on=(o===KROKFILTR);
+    return '<span onclick="setKrokFiltr(\''+esc(o)+'\')" style="cursor:pointer;font-size:12px;padding:4px 10px;border-radius:8px;'+(on?'background:var(--accent);color:#06101f;font-weight:700':'background:#0f1830;border:1px solid var(--bord)')+'">'+esc(o)+'</span>';
+  }).join('')+'</div>';
+  var ft=j.tasks.filter(function(t){return KROKFILTR==="Vše"||t.vlastnik===KROKFILTR;});
+  if(KROKFILTR!=="Vše"){
+    var hot=ft.filter(function(t){return t.stav==="hotovo";}).length;
+    var dalsi=ft.filter(function(t){return t.stav!=="hotovo";})[0];
+    h+='<div class="row" style="background:rgba(79,142,247,.08);border-radius:8px"><div class="grow"><div class="nm">'+esc(KROKFILTR)+' — '+hot+'/'+ft.length+' hotovo</div><div class="meta">'+(dalsi?('👉 Tvůj další krok: <b>'+esc(dalsi.nazev)+'</b>'):'✅ Máš vše hotovo!')+'</div></div></div>';
+  }
+  ft.forEach(function(t){
     var done=t.stav==="hotovo";
+    var nk=navodKey(t);
     h+='<div class="row"><div class="num'+(done?" done":"")+'">'+(done?"✓":t.poradi)+'</div><div class="grow">'
       +'<div class="nm">'+esc(t.nazev)+' <span class="pill p-'+esc(t.stav)+'">'+(done?"hotovo":"čeká")+'</span></div>'
       +'<div class="meta">'+esc(t.faze)+' · '+esc(t.vlastnik||"")+(t.doc_kod?(' · '+esc(t.doc_kod)):'')+'</div>'
       +'<div class="meta">'+esc(t.popis||"")+'</div>'
       +(t.done_kdy?('<div class="sig">✓ '+esc(t.done_kdy)+'</div>'):'')
-      +'</div><div class="right">'
-      +(t.vyzaduje_podpis?'<span class="hint">podpis u dokumentu →</span>':('<button class="btn sm '+(done?'ghost':'')+'" onclick="taskDone('+t.id+','+(!done)+')">'+(done?"vrátit":"hotovo")+'</button>'))
+      +'</div><div class="right" style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">'
+      +'<a class="lnk" href="/dokument?key='+nk+'" target="_blank">📖 Jak na to</a>'
+      +(t.vyzaduje_podpis?'<span class="hint">podpis u dokumentu ↓</span>':('<button class="btn sm '+(done?'ghost':'')+'" onclick="taskDone('+t.id+','+(!done)+')">'+(done?"vrátit":"hotovo")+'</button>'))
       +'</div></div>';
   });
   h+='</div>';

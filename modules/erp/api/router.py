@@ -7338,7 +7338,8 @@ async def app_rozvrh_grid(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "SELECT b.den, b.hodina, COALESCE(b.trida,''), COALESCE(b.kod_spoj,''), COALESCE(b.skup_zkr,''), "
             " COALESCE(b.pred,''), COALESCE(b.kod_ucit,''), "
-            " TRIM(COALESCE(uc.prijmeni,'')||' '||COALESCE(uc.jmeno,'')), COALESCE(b.cj_uroven,0) "
+            " TRIM(COALESCE(uc.prijmeni,'')||' '||COALESCE(uc.jmeno,'')), COALESCE(b.cj_uroven,0), "
+            " COALESCE(b.kod_cykl,''), COALESCE(b.blok,'') "
             "FROM tenant.rozvrh_bunka b "
             "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=b.tenant_id AND uc.plat_od='20260901' "
             "   AND TRIM(uc.intern_kod)=TRIM(b.kod_ucit) "
@@ -7355,7 +7356,8 @@ async def app_rozvrh_grid(req: Request) -> JSONResponse:
             if uk:
                 ucitele[uk] = unm
             cells.append({"den": r[0], "hod": r[1], "tridy": trida_list, "spoj": r[3],
-                          "zkr": r[4], "pred": r[5], "uk": uk, "ucitel": unm, "cj": r[8]})
+                          "zkr": r[4], "pred": r[5], "uk": uk, "ucitel": unm, "cj": r[8],
+                          "cykl": r[9], "blok": r[10]})
         # filtr dle pohledu
         out = []
         for c in cells:

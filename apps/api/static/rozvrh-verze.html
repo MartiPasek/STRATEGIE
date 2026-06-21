@@ -28,6 +28,8 @@
   .l1{background:rgba(79,142,247,.18);border-left:3px solid var(--aj)}
   .l2{background:rgba(52,211,153,.16);border-left:3px solid var(--cj2)}
   .l3{background:rgba(167,139,250,.16);border-left:3px solid var(--cj3)}
+  .ltv{background:rgba(251,191,36,.15);border-left:3px solid var(--amber)}
+  .cell .cy{font-size:9.5px;background:rgba(251,191,36,.25);border-radius:4px;padding:0 4px;color:#fbbf24;white-space:nowrap}
   .cell b{font-size:12px} .cell .m{color:var(--mut);font-size:10.5px}
   .hint{color:var(--mut)} .err{color:#ff8a8a}
   .leg{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;font-size:11.5px;color:var(--mut)}
@@ -85,7 +87,8 @@ function render(cells){
   h+='</select></div>';
   h+='<div class="leg"><span><span class="dot" style="background:var(--aj)"></span>1. cizí jazyk (AJ)</span>'
     +'<span><span class="dot" style="background:var(--cj2)"></span>2. cizí jazyk (Z)</span>'
-    +'<span><span class="dot" style="background:var(--cj3)"></span>3. cizí jazyk (D)</span></div>';
+    +'<span><span class="dot" style="background:var(--cj3)"></span>3. cizí jazyk (D)</span>'
+    +'<span><span class="dot" style="background:var(--amber)"></span>tělocvik (lichý/sudý)</span></div>';
   // mřížka
   var grid={};
   cells.forEach(function(c){ (grid[c.den]=grid[c.den]||{})[c.hod]=(grid[c.den][c.hod]||[]); grid[c.den][c.hod].push(c); });
@@ -98,9 +101,11 @@ function render(cells){
       h+='<td>';
       var arr=(grid[d]&&grid[d][hh])||[];
       arr.forEach(function(c){
-        var cls=c.cj===1?"l1":(c.cj===2?"l2":"l3");
+        var isTV=(c.blok==="tv"||c.cj===0);
+        var cls=isTV?"ltv":(c.cj===1?"l1":(c.cj===2?"l2":"l3"));
         var right = ST.pohled==="trida" ? esc(c.ucitel) : esc((c.tridy||[]).join(", "));
-        h+='<div class="cell '+cls+'"><b>'+esc(c.zkr||c.pred)+'</b> <span class="m">'+right+'</span></div>';
+        var cyk=(isTV&&c.cykl)?(' <span class="cy">'+(c.cykl==="L"?"lichý":(c.cykl==="S"?"sudý":esc(c.cykl)))+'</span>'):'';
+        h+='<div class="cell '+cls+'"><b>'+esc(c.zkr||c.pred)+'</b>'+cyk+' <span class="m">'+right+'</span></div>';
       });
       h+='</td>';
     }

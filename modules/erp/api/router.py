@@ -7376,6 +7376,58 @@ async def app_rozvrh_grid(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/claude-chat")
+async def app_claude_chat(req: Request) -> JSONResponse:
+    """Chat uživatel ↔ Claude. Vrátí vlákno přihlášeného uživatele + označí Claudovy
+    zprávy jako přečtené. Claude čte/píše přes SQL bridge (tenant.claude_chat).
+    Marti 21.6.2026 — kanál pro Klárku (a produkčně Peťa/Zuzka/Míša)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, sender, msg, to_char(created_at,'DD.MM. HH24:MI') "
+            "FROM tenant.claude_chat WHERE user_id=:u ORDER BY id"), {"u": uid}).fetchall()
+        s.execute(_t("UPDATE tenant.claude_chat SET seen_by_user=true "
+                     "WHERE user_id=:u AND sender='claude' AND seen_by_user=false"), {"u": uid})
+        s.commit()
+        return JSONResponse({"ok": True, "messages": [
+            {"id": r[0], "sender": r[1], "msg": r[2], "kdy": r[3]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/claude-chat/send")
+async def app_claude_chat_send(req: Request) -> JSONResponse:
+    """Uživatel pošle zprávu Claudovi (do tenant.claude_chat). Claude ji přečte přes bridge."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    txt = (body.get("text") or "").strip()
+    if not txt:
+        return JSONResponse({"ok": False, "error": "empty"}, status_code=400)
+    if len(txt) > 4000:
+        txt = txt[:4000]
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        tid = s.execute(_t("SELECT COALESCE(last_active_tenant_id,2) FROM public.users WHERE id=:u"),
+                        {"u": uid}).scalar() or 2
+        s.execute(_t(
+            "INSERT INTO tenant.claude_chat(tenant_id,user_id,sender,msg) VALUES (:t,:u,'user',:m)"),
+            {"t": tid, "u": uid, "m": txt})
+        s.commit()
+        return JSONResponse({"ok": True})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/bakalari/skola")
 async def app_bakalari_skola(req: Request) -> JSONResponse:
     """Provozní přehled školy (efektivita) — žáci, naplněnost, využití učeben, úvazky."""

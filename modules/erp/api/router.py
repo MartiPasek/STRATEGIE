@@ -7309,7 +7309,7 @@ async def app_rozvrh_verze(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "SELECT id, nazev, COALESCE(popis,''), COALESCE(skore,0), COALESCE(neumisteno,0), "
             " COALESCE(je_finalni,false), to_char(created_at,'DD.MM.YYYY HH24:MI') "
-            "FROM tenant.rozvrh_verze WHERE tenant_id=:t ORDER BY skolni_rok DESC, id DESC"),
+            "FROM tenant.rozvrh_verze WHERE tenant_id=:t ORDER BY nazev ASC, id ASC"),
             {"t": _BK_TENANT}).fetchall()
         return JSONResponse({"ok": True, "verze": [
             {"id": r[0], "nazev": r[1], "popis": r[2], "skore": float(r[3]), "neumisteno": r[4],

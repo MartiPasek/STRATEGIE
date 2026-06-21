@@ -7254,18 +7254,19 @@ async def app_bakalari_loads(req: Request) -> JSONResponse:
         if not _bk_can_view(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         po = _bk_po(req, s)
+        # Cyklicky správné úvazky z r_rozvrh (lichý/sudý zohledněn) — zrcadlo bakalari_uvaz_cyc.
+        po = s.execute(_t("SELECT MAX(plat_od) FROM tenant.bakalari_uvaz_cyc WHERE tenant_id=:t"),
+                       {"t": _BK_TENANT}).scalar() or po
         rows = s.execute(_t(
-            "SELECT TRIM(u.kod_ucit) uc, TRIM(COALESCE(ucr.prijmeni,'')) prij, TRIM(COALESCE(ucr.jmeno,'')) jm, "
-            " TRIM(COALESCE(ucr.zkratka, u.kod_ucit)) zk, "
-            " TRIM(COALESCE(p.zkratka, u.kod_pred)) pred, TRIM(COALESCE(p.nazev,'')) pnaz, "
-            " count(DISTINCT (u.den||'_'||u.hod)) hod, "
-            " string_agg(DISTINCT REPLACE(TRIM(COALESCE(tr.zkratka, u.kod_trid)),'.',''), ', ') tridy "
-            "FROM tenant.bakalari_uvaz u "
-            "LEFT JOIN tenant.bakalari_ucit ucr ON ucr.tenant_id=u.tenant_id AND ucr.plat_od=u.plat_od AND TRIM(ucr.intern_kod)=TRIM(u.kod_ucit) "
-            "LEFT JOIN tenant.bakalari_pred p ON p.tenant_id=u.tenant_id AND p.plat_od=u.plat_od AND TRIM(p.kod_pred)=TRIM(u.kod_pred) "
-            "LEFT JOIN tenant.bakalari_trid tr ON tr.tenant_id=u.tenant_id AND tr.plat_od=u.plat_od AND TRIM(tr.kod_trid)=TRIM(u.kod_trid) "
-            "WHERE u.tenant_id=:t AND u.plat_od=:p AND u.den BETWEEN 1 AND 5 "
-            "GROUP BY u.kod_ucit, ucr.prijmeni, ucr.jmeno, ucr.zkratka, u.kod_pred, p.zkratka, p.nazev "
+            "SELECT TRIM(c.kod_ucit) uc, TRIM(COALESCE(ucr.prijmeni,'')) prij, TRIM(COALESCE(ucr.jmeno,'')) jm, "
+            " TRIM(COALESCE(ucr.zkratka, c.kod_ucit)) zk, "
+            " TRIM(c.kod_pred) pred, TRIM(COALESCE(MAX(p.nazev), c.kod_pred)) pnaz, "
+            " MAX(c.hodin) hod, MAX(c.tridy) tridy "
+            "FROM tenant.bakalari_uvaz_cyc c "
+            "LEFT JOIN tenant.bakalari_ucit ucr ON ucr.tenant_id=c.tenant_id AND ucr.plat_od=c.plat_od AND TRIM(ucr.intern_kod)=TRIM(c.kod_ucit) "
+            "LEFT JOIN tenant.bakalari_pred p ON p.tenant_id=c.tenant_id AND p.plat_od=c.plat_od AND TRIM(p.kod_pred)=TRIM(c.kod_pred) "
+            "WHERE c.tenant_id=:t AND c.plat_od=:p "
+            "GROUP BY c.kod_ucit, ucr.prijmeni, ucr.jmeno, ucr.zkratka, c.kod_pred "
             "ORDER BY prij, pred"), {"t": _BK_TENANT, "p": po}).fetchall()
         teachers = {}
         order = []
@@ -7273,12 +7274,15 @@ async def app_bakalari_loads(req: Request) -> JSONResponse:
             uc = r[0]
             if uc not in teachers:
                 nm = ((r[1] or "") + " " + (r[2] or "")).strip() or r[3] or uc
-                teachers[uc] = {"kod": uc, "zkratka": r[3], "jmeno": nm, "total": 0, "items": []}
+                teachers[uc] = {"kod": uc, "zkratka": r[3], "jmeno": nm, "total": 0.0, "items": []}
                 order.append(uc)
-            teachers[uc]["items"].append({"pred": r[4], "pred_nazev": r[5], "hodin": int(r[6] or 0), "tridy": r[7] or ""})
-            teachers[uc]["total"] += int(r[6] or 0)
+            hh = float(r[6] or 0)
+            teachers[uc]["items"].append({"pred": r[4], "pred_nazev": r[5], "hodin": round(hh, 1), "tridy": r[7] or ""})
+            teachers[uc]["total"] += hh
+        for tt in teachers.values():
+            tt["total"] = round(tt["total"], 1)
         out = [teachers[u] for u in order]
-        out.sort(key=lambda x: (-x["total"], x["jmeno"]))
+        out.sort(key=lambda x: x["jmeno"].lower())
         return JSONResponse({"ok": True, "plat_od": po, "items": out})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

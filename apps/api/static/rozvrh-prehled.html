@@ -45,7 +45,7 @@ function api(p){return fetch(p,{credentials:"include"}).then(function(r){
    return r.json();}).catch(function(){return{ok:false,error:"Nepodařilo se spojit se serverem."};});}
 var DNI=["Po","Út","St","Čt","Pá"], HMAX=10;
 var R=document.getElementById("root");
-var ST={verze:[],vid:null,rocnik:null,cells:[],tridy:[]};
+var ST={verze:[],vid:null,rocnik:null,cells:[],tridy:[],mode:"trida"};
 // obor = část za tečkou; pořadí oborů
 var OBP={"GD":1,"MI":2,"CR":3,"VO":4,"ZO":5,"A":6,"B":7,"O":8,"L":9};
 function obor(t){var p=(t||"").split(".");return p[1]||"";}
@@ -69,53 +69,80 @@ function loadGrid(){
 function cellClass(c){ if(c.blok==="tv")return"tv"; if(c.blok==="predmet")return"pr"; return c.cj===1?"j1":(c.cj===2?"j2":"j3"); }
 function ucColor(uk){ if(!uk)return""; if(uk==="UNS6G")return"#ff8ad1"; var hsh=0; for(var i=0;i<uk.length;i++){hsh=(hsh*31+uk.charCodeAt(i))>>>0;} return "hsl("+(hsh%360)+","+(62+(hsh>>9)%22)+"%,74%)"; }
 function cellLabel(c){ if(c.blok==="predmet"){var w=c.predzkr||((c.pred||"").split(" ")[0]); return w+(c.zkr?(" "+c.zkr):"")+(c.mist?(" "+c.mist):"");} if(c.blok==="tv")return c.predzkr||c.zkr||"TV"; return (c.zkr||"JAZ"); }
+function chip(c){ var lb=cellLabel(c), cl=cellClass(c);
+  var stl=(c.blok==="predmet"&&c.uk)?(' style="color:'+ucColor(c.uk)+'"'):"";
+  return '<span class="b '+cl+'"'+stl+' title="'+esc((c.pred||c.zkr||"")+(c.ucitel?(" · "+c.ucitel):"")+(c.mist?(" · "+c.mist):""))+'">'+esc(c.blok==="jazyky"?"JAZ":lb)+'</span>'; }
+function tchip(c){ // pohled učitele: předmět + třída + učebna
+  var p=c.predzkr||((c.pred||"").split(" ")[0]); if(c.blok==="tv")p="TV"; if(c.blok==="jazyky")p=(c.zkr||"JAZ");
+  var tr=(c.tridy||[]).join(","); var lb=p+(c.zkr&&c.blok==="predmet"?(" "+c.zkr):"")+(tr?(" "+tr):"")+(c.mist?(" "+c.mist):"");
+  return '<span class="b '+cellClass(c)+'" title="'+esc((c.pred||"")+" · "+tr+(c.mist?(" · "+c.mist):""))+'">'+esc(lb)+'</span>'; }
+function gridCellTrida(arr){
+  var h="";
+  var grp=[],rest=[],seen={};
+  arr.forEach(function(c){ if(c.blok==="predmet"&&c.zkr) grp.push(c); else { var k=cellClass(c)+"|"+(c.blok==="jazyky"?"JAZ":cellLabel(c)); if(!seen[k]){seen[k]=1;rest.push(c);} } });
+  rest.forEach(function(c){ h+=chip(c); });
+  if(grp.length){
+    var byg={},og=[]; grp.forEach(function(c){ if(!byg[c.zkr]){byg[c.zkr]=[];og.push(c.zkr);} byg[c.zkr].push(c); });
+    h+='<span class="psplit">';
+    og.forEach(function(g){ h+='<span class="ph"><span class="pg">'+esc(g)+'</span>'; byg[g].forEach(function(c){h+=chip(c);}); h+='</span>'; });
+    h+='</span>';
+  }
+  return h;
+}
+function miniGrid(title,titleColor,cells,cellFn){
+  var grid={}; cells.forEach(function(c){ ((grid[c.den]=grid[c.den]||{})[c.hod]=grid[c.den][c.hod]||[]).push(c); });
+  var h='<div class="cls"><h3'+(titleColor?(' style="color:'+titleColor+'"'):'')+'>'+title+'</h3><table><tr><th></th>';
+  for(var d=1;d<=5;d++) h+='<th>'+DNI[d-1]+'</th>';
+  h+='</tr>';
+  for(var hh=1;hh<=HMAX;hh++){
+    h+='<tr><td class="h">'+hh+'</td>';
+    for(var d=1;d<=5;d++){ h+='<td>'+cellFn((grid[d]&&grid[d][hh])||[])+'</td>'; }
+    h+='</tr>';
+  }
+  return h+'</table></div>';
+}
 function render(rs){
-  var h='<h1>🗓️ Rozvrh — přehled po ročnících</h1><div class="sub">Nerudovka 2026/2027 · vyber variantu a ročník, vidíš všechny třídy oboru vedle sebe.</div>';
+  var h='<h1>🗓️ Rozvrh — přehled '+(ST.mode==="ucitel"?"po učitelích":"po ročnících")+'</h1><div class="sub">Nerudovka 2026/2027 · vyber variantu a '+(ST.mode==="ucitel"?"prohlédni úvazek každého učitele.":"ročník, vidíš všechny třídy oboru vedle sebe.")+'</div>';
   h+='<div class="bar">';
   ST.verze.forEach(function(v){ h+='<button class="chip'+(v.id===ST.vid?' on':'')+'" data-v="'+v.id+'">'+esc(v.nazev)+'</button>'; });
-  h+='</div><div class="bar">';
-  rs.forEach(function(r){ h+='<button class="chip r'+(r===ST.rocnik?' on':'')+'" data-r="'+esc(r)+'">'+esc(r)+'. ročník</button>'; });
   h+='</div>';
-  h+='<div class="leg"><span><span class="dot" style="background:#4f8ef7"></span>1.CJ</span><span><span class="dot" style="background:#34d399"></span>2.CJ</span><span><span class="dot" style="background:#a78bfa"></span>3.CJ</span><span><span class="dot" style="background:#fbbf24"></span>TV</span><span><span class="dot" style="background:#8fa0b4"></span>odborné</span></div>';
-  // třídy daného ročníku
-  var cls=ST.tridy.filter(function(t){return rocnik(t)===ST.rocnik;});
-  cls.sort(function(a,b){return (OBP[obor(a)]||99)-(OBP[obor(b)]||99) || a.localeCompare(b);});
-  h+='<div class="grid">';
-  cls.forEach(function(t){
-    var grid={};
-    ST.cells.forEach(function(c){ if((c.tridy||[]).indexOf(t)<0)return; ((grid[c.den]=grid[c.den]||{})[c.hod]=grid[c.den][c.hod]||[]).push(c); });
-    h+='<div class="cls"><h3>'+esc(t)+' <span class="ob">'+esc(({GD:"grafický design",MI:"multimédia",CR:"cestovní ruch",VO:"vnitřní obchod",ZO:"zahraniční obchod",A:"aranžér",L:"lyceum",B:"?",O:"?"})[obor(t)]||"")+'</span></h3><table><tr><th></th>';
-    for(var d=1;d<=5;d++) h+='<th>'+DNI[d-1]+'</th>';
-    h+='</tr>';
-    for(var hh=1;hh<=HMAX;hh++){
-      h+='<tr><td class="h">'+hh+'</td>';
-      for(var d=1;d<=5;d++){
-        h+='<td>';
-        var arr=(grid[d]&&grid[d][hh])||[];
-        function chip(c){ var lb=cellLabel(c), cl=cellClass(c);
-          var stl=(c.blok==="predmet"&&c.uk)?(' style="color:'+ucColor(c.uk)+'"'):"";
-          return '<span class="b '+cl+'"'+stl+' title="'+esc((c.pred||c.zkr||"")+(c.ucitel?(" · "+c.ucitel):"")+(c.mist?(" · "+c.mist):""))+'">'+esc(c.blok==="jazyky"?"JAZ":lb)+'</span>'; }
-        // dělené skupiny (predmet se skup_zkr G/I/DI/MT) → propojené vedle sebe
-        var grp=[],rest=[],seen={};
-        arr.forEach(function(c){ if(c.blok==="predmet"&&c.zkr) grp.push(c); else { var k=cellClass(c)+"|"+(c.blok==="jazyky"?"JAZ":cellLabel(c)); if(!seen[k]){seen[k]=1;rest.push(c);} } });
-        rest.forEach(function(c){ h+=chip(c); });
-        if(grp.length){
-          var byg={},og=[]; grp.forEach(function(c){ if(!byg[c.zkr]){byg[c.zkr]=[];og.push(c.zkr);} byg[c.zkr].push(c); });
-          h+='<span class="psplit">';
-          og.forEach(function(g){ h+='<span class="ph"><span class="pg">'+esc(g)+'</span>'; byg[g].forEach(function(c){h+=chip(c);}); h+='</span>'; });
-          h+='</span>';
-        }
-        h+='</td>';
-      }
-      h+='</tr>';
-    }
-    h+='</table></div>';
-  });
-  h+='</div>';
-  if(!cls.length) h+='<div class="hint">V tomto ročníku nejsou třídy.</div>';
+  h+='<div class="bar"><button class="chip'+(ST.mode==="trida"?" on":"")+'" data-m="trida">📚 Třídy</button><button class="chip'+(ST.mode==="ucitel"?" on":"")+'" data-m="ucitel">👩‍🏫 Učitelé</button></div>';
+  if(ST.mode==="ucitel"){
+    var teach={};
+    ST.cells.forEach(function(c){ if(!c.uk)return; (teach[c.uk]=teach[c.uk]||{nm:(c.ucitel||c.uk),cells:[]}).cells.push(c); });
+    var tks=Object.keys(teach).sort(function(a,b){return teach[a].nm.toLowerCase().localeCompare(teach[b].nm.toLowerCase());});
+    h+='<div class="grid">';
+    tks.forEach(function(uk){
+      var hod=teach[uk].cells.filter(function(c){return c.blok==="predmet"||c.blok==="tv"||c.blok==="jazyky";}).length;
+      // dedup spojené (stejný slot+label) pro počet
+      h+=miniGrid(esc(teach[uk].nm), ucColor(uk), teach[uk].cells, function(arr){
+        var seen={},out="";
+        arr.forEach(function(c){ var k=c.den+"|"+c.hod+"|"+(c.pred||c.zkr)+"|"+(c.tridy||[]).join(","); if(seen[k])return; seen[k]=1; out+=tchip(c); });
+        return out;
+      });
+    });
+    h+='</div>';
+    if(!tks.length) h+='<div class="hint">Žádní učitelé.</div>';
+  } else {
+    h+='<div class="bar">';
+    rs.forEach(function(r){ h+='<button class="chip r'+(r===ST.rocnik?' on':'')+'" data-r="'+esc(r)+'">'+esc(r)+'. ročník</button>'; });
+    h+='</div>';
+    h+='<div class="leg"><span><span class="dot" style="background:#4f8ef7"></span>1.CJ</span><span><span class="dot" style="background:#34d399"></span>2.CJ</span><span><span class="dot" style="background:#a78bfa"></span>3.CJ</span><span><span class="dot" style="background:#fbbf24"></span>TV</span><span><span class="dot" style="background:#8fa0b4"></span>odborné</span></div>';
+    var cls=ST.tridy.filter(function(t){return rocnik(t)===ST.rocnik;});
+    cls.sort(function(a,b){return (OBP[obor(a)]||99)-(OBP[obor(b)]||99) || a.localeCompare(b);});
+    h+='<div class="grid">';
+    cls.forEach(function(t){
+      var cc=ST.cells.filter(function(c){return (c.tridy||[]).indexOf(t)>=0;});
+      var ob=esc(({GD:"grafický design",MI:"multimédia",CR:"cestovní ruch",VO:"vnitřní obchod",ZO:"zahraniční obchod",A:"aranžér",L:"lyceum",B:"?",O:"?"})[obor(t)]||"");
+      h+=miniGrid(esc(t)+' <span class="ob">'+ob+'</span>', null, cc, gridCellTrida);
+    });
+    h+='</div>';
+    if(!cls.length) h+='<div class="hint">V tomto ročníku nejsou třídy.</div>';
+  }
   R.innerHTML=h;
   Array.prototype.forEach.call(document.querySelectorAll(".chip[data-v]"),function(b){b.onclick=function(){ST.vid=+b.getAttribute("data-v");loadGrid();};});
   Array.prototype.forEach.call(document.querySelectorAll(".chip[data-r]"),function(b){b.onclick=function(){ST.rocnik=b.getAttribute("data-r");render(rs);};});
+  Array.prototype.forEach.call(document.querySelectorAll(".chip[data-m]"),function(b){b.onclick=function(){ST.mode=b.getAttribute("data-m");render(rs);};});
 }
 load();
 </script>

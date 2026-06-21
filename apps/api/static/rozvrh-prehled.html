@@ -63,7 +63,8 @@ function loadGrid(){
   });
 }
 function cellClass(c){ if(c.blok==="tv")return"tv"; if(c.blok==="predmet")return"pr"; return c.cj===1?"j1":(c.cj===2?"j2":"j3"); }
-function cellLabel(c){ if(c.blok==="predmet"){var w=(c.pred||"").split(" ")[0]; return w.slice(0,9)+(c.mist?(" "+c.mist):"");} if(c.blok==="tv")return c.zkr||"TV"; return (c.zkr||"JAZ"); }
+function ucColor(uk){ if(!uk)return""; if(uk==="UNS6G")return"#ff8ad1"; var hsh=0; for(var i=0;i<uk.length;i++){hsh=(hsh*31+uk.charCodeAt(i))>>>0;} return "hsl("+(hsh%360)+","+(62+(hsh>>9)%22)+"%,74%)"; }
+function cellLabel(c){ if(c.blok==="predmet"){var w=c.predzkr||((c.pred||"").split(" ")[0]); return w+(c.zkr?(" "+c.zkr):"")+(c.mist?(" "+c.mist):"");} if(c.blok==="tv")return c.predzkr||c.zkr||"TV"; return (c.zkr||"JAZ"); }
 function render(rs){
   var h='<h1>🗓️ Rozvrh — přehled po ročnících</h1><div class="sub">Nerudovka 2026/2027 · vyber variantu a ročník, vidíš všechny třídy oboru vedle sebe.</div>';
   h+='<div class="bar">';
@@ -91,7 +92,8 @@ function render(rs){
         var seen={};
         arr.forEach(function(c){ var lb=cellLabel(c), cl=cellClass(c), k=cl+"|"+(c.blok==="jazyky"?"JAZ":lb);
           if(seen[k])return; seen[k]=1;
-          h+='<span class="b '+cl+'" title="'+esc((c.pred||c.zkr||"")+(c.ucitel?(" · "+c.ucitel):"")+(c.mist?(" · "+c.mist):""))+'">'+esc(c.blok==="jazyky"?"JAZ":lb)+'</span>';
+          var stl=(c.blok==="predmet"&&c.uk)?(' style="color:'+ucColor(c.uk)+'"'):"";
+          h+='<span class="b '+cl+'"'+stl+' title="'+esc((c.pred||c.zkr||"")+(c.ucitel?(" · "+c.ucitel):"")+(c.mist?(" · "+c.mist):""))+'">'+esc(c.blok==="jazyky"?"JAZ":lb)+'</span>';
         });
         h+='</td>';
       }

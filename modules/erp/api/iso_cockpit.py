@@ -432,6 +432,38 @@ def iso_vault_overview(req: Request):
         s.close()
 
 
+def _cadence_compute(s, tid):
+    """Stav kalendáře bezpečnosti pro tenant (sdílené endpointem i připomínkami)."""
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    runs = {r.kod: r.last_done for r in s.execute(_t(
+        "SELECT kod, last_done FROM tenant.iso_cadence_run WHERE tenant_id=:t"), {"t": tid}).all()}
+    cve_last = s.execute(_t("SELECT max(created_at) AS m FROM fw.cve_run")).scalar()
+    out = []
+    for kod, nazev, perioda, dny, popis, vazba in _CADENCE:
+        last = cve_last if kod == "cve" else runs.get(kod)
+        stav = "prubezne"
+        due_s = None
+        dleft = None
+        if dny > 0:
+            if not last:
+                stav = "nikdy"
+            else:
+                due = last + _dt.timedelta(days=dny)
+                dleft = (due - now).days
+                due_s = due.strftime("%d.%m.%Y")
+                if dleft < 0:
+                    stav = "po_terminu"
+                elif dleft <= max(2, int(dny * 0.2)):
+                    stav = "blizi"
+                else:
+                    stav = "ok"
+        out.append({"kod": kod, "nazev": nazev, "perioda": perioda, "popis": popis, "vazba": vazba,
+                    "last": (last.strftime("%d.%m.%Y") if last else None), "due": due_s,
+                    "dleft": dleft, "stav": stav, "auto": (kod == "cve")})
+    return out
+
+
 @iso_router.get("/app/iso/cadence")
 def iso_cadence(req: Request):
     """Aktivní kalendář bezpečnosti — co se kdy naposledy udělalo, kdy je to příště,
@@ -439,37 +471,9 @@ def iso_cadence(req: Request):
     uid = _uid(req)
     if not _is_parent(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    import datetime as _dt
-    now = _dt.datetime.now(_dt.timezone.utc)
     s = _sess()
     try:
-        tid = _tenant(req, uid, s)
-        runs = {r.kod: r.last_done for r in s.execute(_t(
-            "SELECT kod, last_done FROM tenant.iso_cadence_run WHERE tenant_id=:t"), {"t": tid}).all()}
-        cve_last = s.execute(_t("SELECT max(created_at) AS m FROM fw.cve_run")).scalar()
-        out = []
-        for kod, nazev, perioda, dny, popis, vazba in _CADENCE:
-            last = cve_last if kod == "cve" else runs.get(kod)
-            stav = "prubezne"
-            due_s = None
-            dleft = None
-            if dny > 0:
-                if not last:
-                    stav = "nikdy"
-                else:
-                    due = last + _dt.timedelta(days=dny)
-                    dleft = (due - now).days
-                    due_s = due.strftime("%d.%m.%Y")
-                    if dleft < 0:
-                        stav = "po_terminu"
-                    elif dleft <= max(2, int(dny * 0.2)):
-                        stav = "blizi"
-                    else:
-                        stav = "ok"
-            out.append({"kod": kod, "nazev": nazev, "perioda": perioda, "popis": popis, "vazba": vazba,
-                        "last": (last.strftime("%d.%m.%Y") if last else None), "due": due_s,
-                        "dleft": dleft, "stav": stav, "auto": (kod == "cve")})
-        return {"ok": True, "cadence": out}
+        return {"ok": True, "cadence": _cadence_compute(s, _tenant(req, uid, s))}
     finally:
         s.close()
 
@@ -498,30 +502,97 @@ async def iso_cadence_done(req: Request):
         s.close()
 
 
-@iso_router.post("/app/iso/cve-run")
-def iso_cve_run(req: Request):
-    """Spustí kontrolu zranitelností závislostí (pip-audit nad běžícím prostředím) + uloží výsledek."""
+_ISO_REM_STATE = {"last_date": None}
+
+
+def _iso_reminders_run(force=False):
+    """Proaktivní hlídač (volá lifespan 1×/den i ruční spuštění):
+    1) auto-CVE sken, pokud poslední byl před ≥7 dny,
+    2) digest e-mail rodičům o kontrolách po termínu / blížících se (anti-spam: max 1×/3 dny per subjekt)."""
+    import datetime as _dt
+    today = _dt.date.today().isoformat()
+    if not force and _ISO_REM_STATE.get("last_date") == today:
+        return {"ok": True, "skipped": True}
+    _ISO_REM_STATE["last_date"] = today
+    now = _dt.datetime.now(_dt.timezone.utc)
+    res = {"ok": True, "cve_ran": False, "digestu": 0}
+    # 1) auto-CVE
+    try:
+        s = _sess()
+        try:
+            cve_last = s.execute(_t("SELECT max(created_at) AS m FROM fw.cve_run")).scalar()
+        finally:
+            s.close()
+        if (not cve_last) or ((now - cve_last).days >= 7):
+            _cve_scan_exec(None)
+            res["cve_ran"] = True
+    except Exception:
+        pass
+    # 2) digest termínů
+    try:
+        s = _sess()
+        try:
+            tenants = [r[0] for r in s.execute(_t("SELECT DISTINCT tenant_id FROM tenant.iso_task")).all()]
+            parents = _parent_emails(s)
+            for tid in tenants:
+                items = _cadence_compute(s, tid)
+                over = [i for i in items if i["stav"] in ("po_terminu", "nikdy")]
+                soon = [i for i in items if i["stav"] == "blizi"]
+                if not (over or soon):
+                    continue
+                dg = s.execute(_t("SELECT last_done FROM tenant.iso_cadence_run WHERE tenant_id=:t AND kod='_digest'"),
+                               {"t": tid}).scalar()
+                if dg and (now - dg).days < 3:
+                    continue  # nedávno posláno — nespamovat
+                tn = s.execute(_t("SELECT tenant_name FROM public.tenants WHERE id=:t"), {"t": tid}).first()
+                body = "<p>ISMS termíny (%s) — bezpečnost potřebuje pozornost:</p><ul>" % (tn.tenant_name if tn else tid)
+                for i in over:
+                    body += "<li>🔴 <b>%s</b> — %s</li>" % (i["nazev"], "po termínu" if i["stav"] == "po_terminu" else "ještě neprovedeno")
+                for i in soon:
+                    body += "<li>⏰ %s — blíží se (do %s)</li>" % (i["nazev"], i.get("due") or "")
+                body += "</ul><p>Otevřít cockpit: <a href='%s/iso?tenant=%s'>%s/iso</a></p>" % (_PORTAL, tid, _PORTAL)
+                for em in parents:
+                    _notify_email(s, tid, em, "🛡️ ISMS termíny — %d po termínu, %d se blíží" % (len(over), len(soon)), body)
+                s.execute(_t("""INSERT INTO tenant.iso_cadence_run(tenant_id,kod,last_done,updated_at)
+                    VALUES(:t,'_digest',now(),now())
+                    ON CONFLICT (tenant_id,kod) DO UPDATE SET last_done=now(), updated_at=now()"""), {"t": tid})
+                s.commit()
+                res["digestu"] += 1
+        finally:
+            s.close()
+    except Exception:
+        pass
+    return res
+
+
+@iso_router.post("/app/iso/reminders-run")
+async def iso_reminders_run_ep(req: Request):
+    """Ruční spuštění kontroly termínů + auto-CVE (parent)."""
     uid = _uid(req)
     if not _is_parent(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    return _iso_reminders_run(force=True)
+
+
+def _cve_scan_exec(by_uid):
+    """Spustí pip-audit, uloží do fw.cve_run, vrátí dict. Sdílené endpointem i auto-během."""
     import subprocess as _sp, sys as _sys, json as _j
     try:
         r = _sp.run([_sys.executable, "-m", "pip_audit", "-f", "json", "--progress-spinner", "off"],
                     capture_output=True, text=True, timeout=300, cwd=_REPO)
     except _sp.TimeoutExpired:
-        return JSONResponse({"ok": False, "error": "timeout (sken trval příliš dlouho)"})
+        return {"ok": False, "error": "timeout (sken trval příliš dlouho)"}
     except Exception as e:
-        return JSONResponse({"ok": False, "error": "spuštění selhalo: %s" % e})
+        return {"ok": False, "error": "spuštění selhalo: %s" % e}
     out = (r.stdout or "").strip()
     err = (r.stderr or "")
     if "No module named" in err and "pip_audit" in err:
-        return JSONResponse({"ok": False, "error": "pip-audit není nainstalován na serveru",
-                             "install": "Na cloud APP spusť: python -m poetry add --group dev pip-audit  → pak restart API."})
-    data = None
+        return {"ok": False, "error": "pip-audit není nainstalován na serveru",
+                "install": "Na cloud APP spusť: python -m poetry add --group dev pip-audit  → pak restart API."}
     try:
         data = _j.loads(out)
     except Exception:
-        return JSONResponse({"ok": False, "error": "nelze přečíst výstup skenu", "detail": (err[-300:] or out[-200:] or "?")})
+        return {"ok": False, "error": "nelze přečíst výstup skenu", "detail": (err[-300:] or out[-200:] or "?")}
     deps = data.get("dependencies", []) if isinstance(data, dict) else (data or [])
     found = 0
     fixable = 0
@@ -538,11 +609,21 @@ def iso_cve_run(req: Request):
     s = _sess()
     try:
         s.execute(_t("INSERT INTO fw.cve_run(found,fixable,summary,ok,by_uid) VALUES(:f,:x,:s,true,:u)"),
-                  {"f": found, "x": fixable, "s": summary, "u": uid})
+                  {"f": found, "x": fixable, "s": summary, "u": by_uid})
         s.commit()
     finally:
         s.close()
     return {"ok": True, "found": found, "fixable": fixable, "summary": summary}
+
+
+@iso_router.post("/app/iso/cve-run")
+def iso_cve_run(req: Request):
+    """Spustí kontrolu zranitelností závislostí (pip-audit) + uloží výsledek."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    res = _cve_scan_exec(uid)
+    return res if res.get("ok") else JSONResponse(res)
 
 
 @iso_router.get("/app/iso/cve-last")

@@ -138,6 +138,7 @@ function render(){
   // PRŮBĚŽNÉ KONTROLY (kalendář bezpečnosti)
   h+='<h2>🔁 Průběžné kontroly (kalendář bezpečnosti)</h2><div class="c">'
     +'<div class="hint" style="margin-bottom:6px">Bezpečnost není jednorázová. Modul vás drží v pravidelném rytmu kontrol — aby se firma neztratila a zůstala v pořádku i <b>po</b> certifikaci. Tohle je vaše pravá ruka v bezpečnosti.</div>'
+    +'<div class="hint" style="margin-bottom:8px">🔔 Modul hlídá termíny <b>automaticky každý den</b> a po termínu upozorní rodiče e‑mailem (+ spustí týdně CVE sken). <button class="btn sm ghost" onclick="remRun(this)">Zkontrolovat teď</button> <span id="remMsg"></span></div>'
     +'<div id="cad"><div class="hint">Načítám…</div></div></div>';
   // CVE — kontrola zranitelností závislostí
   h+='<h2>🛡️ Kontrola zranitelností (CVE)</h2><div class="c" id="cveBox"><div class="hint">Načítám…</div></div>';
@@ -215,6 +216,7 @@ function loadCadence(){api("/api/v1/erp/app/iso/cadence").then(function(j){
   }).join('');
 });}
 function cadDone(kod){api("/api/v1/erp/app/iso/cadence-done","POST",{kod:kod}).then(function(r){if(r&&r.ok)loadCadence();else alert((r&&r.error)||"chyba");});}
+function remRun(btn){var m=document.getElementById("remMsg");if(m)m.textContent="⏳ kontroluji…";if(btn)btn.disabled=true;api("/api/v1/erp/app/iso/reminders-run","POST",{}).then(function(r){if(btn)btn.disabled=false;if(r&&r.ok){if(m)m.textContent="✅ hotovo"+(r.cve_ran?" (CVE sken proběhl)":"")+(r.digestu?(" · digest e‑mailů: "+r.digestu):" · vše v termínu");loadCadence();}else{if(m)m.textContent="⚠️ "+((r&&r.error)||"chyba");}});}
 var FBTYP={otazka:"❓ Dotaz",nerozumim:"🤔 Nerozumím",spatne:"⚠️ Špatně",nesouhlas:"✋ Nesouhlas",doplnit:"➕ Doplnit"};
 function loadFeedback(){api("/api/v1/erp/app/kb/feedback").then(function(j){
   var el=document.getElementById("fbinbox");if(!el)return;

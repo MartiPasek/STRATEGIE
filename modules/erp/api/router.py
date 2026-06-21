@@ -18368,6 +18368,11 @@ async def _att_sync_loop():
             loop = _aio.get_event_loop()
             await loop.run_in_executor(None, _att_sync_today)
             await loop.run_in_executor(None, _maybe_auto_checkout_midnight)
+            try:  # ISO proaktivní hlídač — auto-CVE + digest termínů (self-gated 1×/den)
+                from modules.erp.api.iso_cockpit import _iso_reminders_run as _isorem
+                await loop.run_in_executor(None, _isorem)
+            except Exception as _ie:
+                logger.warning("[iso_reminders] %s", _ie)
         except _aio.CancelledError:
             break
         except Exception as e:

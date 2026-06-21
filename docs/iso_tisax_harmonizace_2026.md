@@ -1,7 +1,7 @@
 # Harmonizace EUROSOFT TISAX ↔ STRATEGIE ISO 27001
 
 > **Verze:** 1.0 (návrh) · **Datum:** 21. 6. 2026 · **Klasifikace:** Interní
-> **Autoři:** Claude + Marti · **Vlastník sladění:** Kristý (ISMS + TISAX) + Marti (vedení)
+> **Autoři:** Claude + Marti · **Vlastník sladění:** Mísa (ISMS + TISAX) + Marti (vedení)
 > **Účel:** Sladit dvě certifikace tak, aby si **nikdy neprotiřečily** — vůči auditorům
 > ani vůči lidem v EUROSOFTU — a aby se práce a důkazy dělaly **jednou pro obě**.
 
@@ -16,7 +16,7 @@
 | Entita (certifikovaný subjekt) | STRATEGIE – System s.r.o. (IČO 23365544) | EUROSOFT (Control / System) |
 | Norma / katalog | ISO/IEC 27001:2022 (Annex A, 93 opatření) | VDA ISA 6.0.3 (3 moduly) |
 | Auditor | certifikační orgán přes **pana Antoše** (společná spolupráce) | **DQS Slovakia** (stávající) |
-| Vlastník | Kristý (ISMS) + Marti (vedení) | **Kristý** (převzala od Miši) |
+| Vlastník | Mísa (ISMS) + Marti (vedení) | **Mísa** (manažerka kvality a bezpečnosti dat) |
 | Stav | nový — dorážíme (modul `/iso`) | existující — v .doc, digitalizujeme do modulu |
 
 > **Nesjednocujeme je do jednoho certifikátu** (jiné entity, jiné účely — ISO univerzální,
@@ -35,7 +35,7 @@ investice, dva výsledky). V modulu je toto mapování už zanesené (`tisax_ite
 | VDA ISA modul | Vztah k ISO 27001 | Sladění |
 |---|---|---|
 | **Information Security** (IS) | ~ Annex A (společné jádro) | **Sdílená evidence** — jedna kontrola, jeden důkaz, počítá se do obou |
-| **Prototype Protection** (PS) | mimo ISO (automotive specifikum) | jen EUROSOFT/TISAX — vlastní Kristý, do ISO nevstupuje |
+| **Prototype Protection** (PS) | mimo ISO (automotive specifikum) | jen EUROSOFT/TISAX — vlastní Mísa, do ISO nevstupuje |
 | **Data Protection** (DP) | ~ ISO A.5.34 + GDPR | sdílené (GDPR řešíme jednotně) |
 
 **Důsledek pro práci:** politiky, řízení přístupu, logování, zálohy, dodavatelé, incidenty,
@@ -54,8 +54,8 @@ kontinuita — **píšeme a udržujeme jednou**, používáme pro ISO i TISAX. J
 3. **Terminologie a tvrzení** — sjednotit formulace (viz §4 „make-true"), ať TISAX i ISO
    audit slyší **stejná pravdivá fakta** (šifrování při přenosu + trezor at-rest; append-only;
    role; atd.).
-4. **Role a odpovědnosti** — jedna matice rolí platná pro obě (Kristý ISMS+TISAX, Marti vedení,
-   Claude technika). Auditor obou potká stejné lidi se stejnými odpovědnostmi.
+4. **Role a odpovědnosti** — jedna matice rolí platná pro obě (Mísa ISMS+TISAX vede, Marti vedení/podpisy,
+   Michal plán obnovy + hesla, Marti+Claude podklady). Auditor obou potká stejné lidi se stejnými odpovědnostmi.
 5. **Rizika** — jeden registr rizik (DOC-05) pokrývající sdílená aktiva; TISAX-specifická rizika
    (prototypy) jako samostatná sekce.
 6. **Harmonogram** — koordinovat termíny obou auditů, ať se důkazy a interní audit/review dělají
@@ -67,10 +67,10 @@ kontinuita — **píšeme a udržujeme jednou**, používáme pro ISO i TISAX. J
 
 | Role | Vůči ISO auditorovi (přes Antoše) | Vůči DQS (TISAX) | Vůči lidem v EUROSOFTU |
 |---|---|---|---|
-| **Kristý** | vlastník ISMS — vede, dodává doklady | vlastník TISAX — vede | koordinuje, zadává úkoly, školí |
+| **Mísa** | vlastník ISMS — vede, dodává doklady | vlastník TISAX — vede | koordinuje, zadává úkoly, školí |
 | **Marti** | vedení — schvaluje politiky, review | vedení — totéž | komunikuje směr, podepisuje |
 | **Michal** | **plán obnovy (DR) — vyzkouší a rozjede** (zálohy, restore drill, RTO/RPO, kontinuita) | totéž (sdílené) | infrastruktura — provede a doloží obnovu |
-| **Claude** | technické podklady + modul | totéž | nezasahuje napřímo — přes Kristý/Marti |
+| **Claude** | technické podklady + modul | totéž | nezasahuje napřímo — přes Mísa/Marti |
 | **Pan Antoš** | **kanál k certifikaci ISO — společná nabídka** | (TISAX má DQS) | — |
 
 > **ZÁKLAD = Michal.** Plán obnovy provozu (DR/BCP) je technickou páteří obou certifikací
@@ -102,7 +102,7 @@ Aby sladění neznamenalo pro lidi chaos nebo dvojí práci:
    sdílené kontroly jsou jednou.
 2. **Jasné, kdo co dělá** (matice §3) — žádné „kdo to má" nejasnosti.
 3. **Školení jednou pro obě** — jeden záznam o proškolení pokrývá ISO i TISAX awareness.
-4. **Změny politik komunikuje Kristý/Marti**, ne ad-hoc — lidé dostanou jednu verzi.
+4. **Změny politik komunikuje Mísa/Marti**, ne ad-hoc — lidé dostanou jednu verzi.
 5. **Žádná překvapení před auditem** — kdo bude auditorem dotazován, ví dopředu co a jak (modul
    ukazuje stav, takže se nikdo „nelekne").
 
@@ -140,8 +140,8 @@ politika dokládá A.5.1 i IS-1"). Připraveno postavit.
 1. **Potvrdit model §0** (dvě entity, sladit — ne sloučit). Pokud jinak, přepíšu.
 2. **Antoš**: kdy a jak mu předat (společná nabídka) — já připravím one-pager (positioning),
    oslovení dělá Marti.
-3. **DQS vs ISO auditor**: koordinace termínů — kdo s kým mluví (Kristý vede oba).
-4. **Rozsah sdílené infrastruktury** mezi entitami (co přesně je společné) — dořešit s Kristý.
+3. **DQS vs ISO auditor**: koordinace termínů — kdo s kým mluví (Mísa vede oba).
+4. **Rozsah sdílené infrastruktury** mezi entitami (co přesně je společné) — dořešit s Mísa.
 5. **Cross-mapping evidence↔kontrola** v modulu — postavit (ano/ne).
 
 ---

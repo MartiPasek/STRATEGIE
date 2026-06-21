@@ -1,7 +1,7 @@
 # Plán obnovy a kontinuity (DR/BCP) — RTO/RPO + restore drill
 
 > **Verze:** 1.0 (návrh) · **Datum:** 21. 6. 2026 · **Entita:** STRATEGIE – System s.r.o.
-> **Vlastník:** Claude + Marti (technika) → podklad k DOC-11 (Kristý, ISMS) · **Klasifikace:** Interní
+> **Vede:** Michal (restore drill + kontinuita) · podklad k DOC-11 · ISMS dohled: Mísa · technika: Marti + Claude · **Klasifikace:** Interní
 > **Pokrývá:** A.5.29 (bezpečnost při výpadku), A.5.30 (připravenost ICT na kontinuitu),
 > A.8.13 (zálohování), A.8.14 (redundance).
 

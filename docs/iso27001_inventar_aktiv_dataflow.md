@@ -1,7 +1,7 @@
 # Inventář aktiv a tok dat (ISO 27001 — A.5.9, podklad k DOC-15)
 
 > **Verze:** 1.0 (návrh) · **Datum:** 21. 6. 2026 · **Entita:** STRATEGIE – System s.r.o.
-> **Vlastník:** Claude + Marti (technika) → předáno Kristý (ISMS, DOC-15) · **Klasifikace:** Interní
+> **Vlastník:** Marti + Claude (technika) → předáno Míse (ISMS, DOC-15) · **Klasifikace:** Interní
 > **Účel:** Soupis informačních aktiv + datový tok osobních údajů systémem. Auditní podklad
 > pro A.5.9 (evidence aktiv), A.5.12/5.13 (klasifikace), A.8.16 (monitoring), A.5.34 (soukromí).
 
@@ -119,7 +119,7 @@ flowchart TD
 ## 4. Vlastnictví a údržba
 
 - **Technická aktualizace** (servery, služby, DB, externí API): Claude + Marti — průběžně z reality.
-- **Klasifikace + zařazení do DOC-15** + DPA s dodavateli: Kristý (ISMS).
+- **Klasifikace + zařazení do DOC-15** + DPA s dodavateli: Mísa (ISMS).
 - **Attestace fyzické bezpečnosti** (DC ČMIS, EC-SERVER2): Marti ↔ EUROSOFT / ČMIS.
 - **Revize:** při změně infrastruktury a min. 1× ročně (management review).
 

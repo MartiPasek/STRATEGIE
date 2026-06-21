@@ -1083,7 +1083,7 @@ _KB_DOCS = {
     "michal": ("docs/iso27001_plan_obnovy_michal.md", "Plán obnovy — pokyny pro Michala"),
     "harmonizace": ("docs/iso_tisax_harmonizace_2026.md", "Harmonizace ISO ↔ TISAX"),
     "dorazeni": ("docs/iso27001_dorazeni_2026.md", "ISO 27001 — plán dorážení"),
-    "handoff": ("docs/iso27001_handoff_kristy.md", "ISO 27001 — balíček pro Kristý"),
+    "handoff": ("docs/iso27001_vedeni_certifikace.md", "ISO 27001 & TISAX — vedení certifikace (Mísa)"),
     "inventar": ("docs/iso27001_inventar_aktiv_dataflow.md", "Inventář aktiv + data-flow"),
     "dr": ("docs/iso27001_dr_plan_rto_rpo.md", "Plán obnovy DR (RTO/RPO)"),
     "cve": ("docs/iso27001_cve_sprava_zranitelnosti.md", "Správa zranitelností (CVE)"),

@@ -1,7 +1,7 @@
 # Sub-processoři a zpracovatelské smlouvy (DPA) — A.5.19 / A.5.20 / A.5.23
 
 > **Verze:** 1.0 (návrh) · **Datum:** 21. 6. 2026 · **Entita:** STRATEGIE – System s.r.o. (správce)
-> **Vlastník:** Kristý (ISMS) + Marti (smluvní) · **Klasifikace:** Interní
+> **Vlastník:** Mísa (ISMS) + Marti (smluvní) · **Klasifikace:** Interní
 > **⚠️ Caveat:** Šablona DPA níže je **technický podklad, NE právní rada.** Před podpisem ji
 > nech zkontrolovat právníkem (případně konzultace přes Marti-AI pack `pravnik_cz`). Konkrétní
 > znění závisí na smlouvě s každým dodavatelem a jejich vlastních podmínkách.

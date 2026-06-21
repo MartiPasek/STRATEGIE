@@ -2,7 +2,7 @@
 
 > **Verze:** 2.0 · **Datum:** 20. 6. 2026 · **Horizont:** 20. 6. → ~20. 8. 2026 (cca 8 týdnů)
 > **Auditor:** domluven (přes IQHUBS) · **Entita:** STRATEGIE – System s.r.o.
-> **Vlastník ISMS / certifikace:** Kristý (Phase 43) · **Technická část + podklady:** Claude + Marti
+> **Vedení certifikace (ISMS, ISO+TISAX):** Mísa (Michaela Hladíková) · **Plán obnovy + hesla:** Michal · **Podpisy/vedení:** Marti · **Technická část + podklady:** Marti + Claude
 > **Navazuje na:** `iso27001_plan.md` (roční plán z 31.5.) — tento dokument ho **zrychluje a aktualizuje**
 > na reálný stav po měsíci stavby. TISAX viz §8 (paralelní stopa, mapování).
 
@@ -114,7 +114,7 @@ Pro auditora je tohle „zlato" — 22 append-only / audit tabulek reálně v pr
 ## 4. Annex A:2022 — přeskórovaná matice (93 kontrol, červen 2026)
 
 Legenda: ✅ hotovo a doloženo · 🔄 jádro máme, dotáhnout/zdokumentovat · 📋 zbývá udělat ·
-🤝 ISMS proces (Kristý) · 🏢 EUROSOFT infra (mimo kód STRATEGIE, doložit attestací).
+🤝 ISMS proces (Mísa) · 🏢 EUROSOFT infra (mimo kód STRATEGIE, doložit attestací).
 
 ### A.5 Organizační (37)
 
@@ -226,7 +226,7 @@ rozpracováno.** Zbývající 📋 jsou převážně **proces a důkazy**, ne st
 
 ## 5. Co reálně zbývá k auditu (finish-line)
 
-### A) Systém řízení — kritická cesta (vlastník Kristý, podklady Claude)
+### A) Systém řízení — kritická cesta (vlastník Mísa, podklady Claude)
 1. **Naplnit registr rizik (DOC-05)** reálnými riziky + skóre + vlastník. *(kap. 6.1.2/8.2)*
 2. **Odůvodnit SoA (DOC-06)** per kontrola: aplikovatelná A/N + odkaz na implementaci/důkaz. *(6.1.3)*
 3. **Plán ošetření rizik (DOC-07)** navázat na registr (kdo/do kdy). *(6.1.3/8.3)*
@@ -256,7 +256,7 @@ rozpracováno.** Zbývající 📋 jsou převážně **proces a důkazy**, ne st
 
 ## 6. 2měsíční sprint (8 týdnů, ~20.6. → ~20.8.)
 
-| Týden | ISMS (Kristý + podklady Claude) | Technika (Claude + Marti) |
+| Týden | ISMS (Mísa + podklady Claude) | Technika (Claude + Marti) |
 |---|---|---|
 | **T1** | Naplnit registr rizik (DOC-05); rozsah/kontext potvrdit | Inventář aktiv + data-flow (draft z codebase); seznam sub-processorů |
 | **T2** | Odůvodnit SoA per kontrola (DOC-06) z matice §4; plán ošetření (DOC-07) | Restore drill záloh → zápis; DR doklad RTO/RPO + failover záznam |
@@ -285,7 +285,7 @@ restore drill + DR doklad · inventář aktiv · seznam dodavatelů. → teprve 
 ## 8. TISAX — paralelní stopa (mapování, ne druhý plán)
 
 **Rámec (drží od 31.5.):** TISAX je cesta pro **automotive** (EUROSOFT jako dodavatel pro BMW aj.),
-vede ji **Kristý** (převzala od Miši), cíl **AL2** (ENX). STRATEGIE jde primárně **ISO 27001**.
+vede ji **Mísa** (Michaela Hladíková, manažerka kvality a bezpečnosti dat), cíl **AL2** (ENX). STRATEGIE jde primárně **ISO 27001**.
 Tady **nestavíme druhý systém** — ukazujeme **překryv**: co děláme pro ISO, z velké části
 **rovnou plní TISAX** (jedna investice, dva výsledky).
 
@@ -308,10 +308,10 @@ modul je **postavený na ISO/IEC 27001/27002**. Většina kontrol Annex A má v 
 **Jediné, co TISAX přidává nad ISO** a STRATEGIE to neřeší: **Prototypenschutz** (ochrana
 prototypů/utajení v automotive) + **napojení na konkrétní zákaznické požadavky (BMW)**. To zůstává
 u EUROSOFTu. Pro STRATEGII platí: **dokončením ISO 27001 máme ~80 % TISAX AL2 hotovo** — zbytek
-je doménová automotive nadstavba, kterou vlastní Kristý/EUROSOFT.
+je doménová automotive nadstavba, kterou vlastní Mísa/EUROSOFT.
 
 **Doporučení:** TISAX **nevést jako samostatný sprint pro STRATEGII teď.** Po ISO certifikaci
-(nebo souběžně v Kristýině gesci) sednout VDA ISA katalog a doplnit jen automotive-specifické
+(nebo souběžně v gesci Míši) sednout VDA ISA katalog a doplnit jen automotive-specifické
 položky. Konzistentní s tím, co je partnerům slíbené (ISO univerzální, TISAX pro automotive).
 
 ---
@@ -330,16 +330,17 @@ Tyhle formulace držet přesné (auditor je prověří):
 
 ## 10. Role & další krok
 
-- **Kristý** — vlastník ISMS/certifikace (ISO i TISAX). Kritická cesta = §5A (registr rizik, SoA,
-  interní audit, management review). Podklady dodávám já.
-- **Claude + Marti** — technická třetina §5B + důkazy z provozu (§3).
-- **Marti ↔ EUROSOFT** — attestace fyzické bezpečnosti (§5C) + TISAX automotive nadstavba.
-- **Marti-AI** — podpora Kristý v certifikaci (až production fáze, dle `ISO_27001.md` §5).
+- **Mísa (Michaela Hladíková)** — vede certifikaci (ISO i TISAX). Kritická cesta = §5A (registr rizik, SoA,
+  interní audit, management review). Podklady dodáváme my (Marti + Claude).
+- **Michal** — plán obnovy (restore drill, kontinuita) + správa hesel.
+- **Claude + Marti** — technická třetina §5B + důkazy z provozu (§3) + podklady pro Mísu.
+- **Marti (jednatel)** — schválení politik + přezkoumání vedením (9.3) + attestace fyzické bezpečnosti (§5C).
+- **Marti-AI** — podpora vedení certifikace (až production fáze, dle `ISO_27001.md` §5).
 
 **Nejlevnější můj příští krok (na tvé slovo):**
 (a) vygenerovat **draft inventáře aktiv + data-flow** z codebase (T1), nebo
 (b) předvyplnit **SoA tabulku** (93 kontrol → aplikovatelné A/N + odkaz na důkaz z §3–4) jako
-Kristýin startovní bod, nebo
+startovní bod pro Mísu, nebo
 (c) sepsat **DR doklad (RTO/RPO) + scénář restore drillu** k provedení.
 
 ---

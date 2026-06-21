@@ -139,12 +139,31 @@ function render(){
   h+='<h2>🔁 Průběžné kontroly (kalendář bezpečnosti)</h2><div class="c">'
     +'<div class="hint" style="margin-bottom:6px">Bezpečnost není jednorázová. Modul vás drží v pravidelném rytmu kontrol — aby se firma neztratila a zůstala v pořádku i <b>po</b> certifikaci. Tohle je vaše pravá ruka v bezpečnosti.</div>'
     +'<div id="cad"><div class="hint">Načítám…</div></div></div>';
+  // CVE — kontrola zranitelností závislostí
+  h+='<h2>🛡️ Kontrola zranitelností (CVE)</h2><div class="c" id="cveBox"><div class="hint">Načítám…</div></div>';
   // AUDITOR
   h+='<h2>👁️ Přístup pro auditora (web, read-only)</h2><div class="c" id="aud"><div class="hint">Načítám…</div></div>';
   // FEEDBACK INBOX
   h+='<h2>💬 Dotazy a připomínky (od lidí i auditorů)</h2><div class="c" id="fbinbox"><div class="hint">Načítám…</div></div>';
   document.getElementById("body").innerHTML=h;
-  loadAud();loadFeedback();loadCadence();loadVault();
+  loadAud();loadFeedback();loadCadence();loadVault();loadCve();
+}
+function loadCve(){api("/api/v1/erp/app/iso/cve-last").then(function(j){
+  var el=document.getElementById("cveBox");if(!el)return;
+  var L=(j&&j.ok)?j.last:null;
+  var h='<div class="hint" style="margin-bottom:6px">Kontrola známých zranitelností v softwarových závislostech platformy (pip-audit). Doporučeno týdně.</div>';
+  if(L){ h+='<div class="row"><div class="grow"><div class="nm">Poslední sken: '+esc(L.kdy)+' · nalezeno <b>'+L.found+'</b>'+(L.found?(' (opravitelných '+L.fixable+')'):' ✅')+'</div>'+(L.summary?('<div class="meta" style="white-space:pre-wrap;margin-top:4px">'+esc((L.summary||"").slice(0,1500))+'</div>'):'')+'</div></div>'; }
+  else { h+='<div class="hint">Zatím neproběhl žádný sken.</div>'; }
+  h+='<div style="margin-top:8px"><button class="btn sm" id="cveBtn" onclick="runCve()">▶ Spustit sken</button> <span id="cveMsg" class="hint"></span></div>';
+  el.innerHTML=h;
+});}
+function runCve(){
+  var b=document.getElementById("cveBtn");if(b){b.disabled=true;b.textContent="Skenuji…";}
+  var m=document.getElementById("cveMsg");if(m)m.textContent="Probíhá kontrola (může trvat ~1 min)…";
+  api("/api/v1/erp/app/iso/cve-run","POST",{}).then(function(r){
+    if(r&&r.ok){ if(m)m.innerHTML='<span style="color:#34d399">Hotovo: nalezeno '+r.found+'.</span>'; loadCve(); }
+    else { if(m)m.innerHTML='<span style="color:#fbbf24">'+esc((r&&r.error)||"chyba")+(r&&r.install?(' — '+esc(r.install)):'')+'</span>'; if(b){b.disabled=false;b.textContent="▶ Spustit sken";} }
+  });
 }
 function loadVault(){
   var el=document.getElementById("vault");if(!el)return;

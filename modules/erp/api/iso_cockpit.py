@@ -440,6 +440,67 @@ def iso_cadence(req: Request):
     return {"ok": True, "cadence": [{"nazev": n, "perioda": p, "popis": d, "vazba": v} for n, p, d, v in _CADENCE]}
 
 
+@iso_router.post("/app/iso/cve-run")
+def iso_cve_run(req: Request):
+    """Spustí kontrolu zranitelností závislostí (pip-audit nad běžícím prostředím) + uloží výsledek."""
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    import subprocess as _sp, sys as _sys, json as _j
+    try:
+        r = _sp.run([_sys.executable, "-m", "pip_audit", "-f", "json", "--progress-spinner", "off"],
+                    capture_output=True, text=True, timeout=300, cwd=_REPO)
+    except _sp.TimeoutExpired:
+        return JSONResponse({"ok": False, "error": "timeout (sken trval příliš dlouho)"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": "spuštění selhalo: %s" % e})
+    out = (r.stdout or "").strip()
+    err = (r.stderr or "")
+    if "No module named" in err and "pip_audit" in err:
+        return JSONResponse({"ok": False, "error": "pip-audit není nainstalován na serveru",
+                             "install": "Na cloud APP spusť: python -m poetry add --group dev pip-audit  → pak restart API."})
+    data = None
+    try:
+        data = _j.loads(out)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "nelze přečíst výstup skenu", "detail": (err[-300:] or out[-200:] or "?")})
+    deps = data.get("dependencies", []) if isinstance(data, dict) else (data or [])
+    found = 0
+    fixable = 0
+    lines = []
+    for d in deps:
+        for v in (d.get("vulns") or d.get("vulnerabilities") or []):
+            found += 1
+            fx = v.get("fix_versions") or []
+            if fx:
+                fixable += 1
+            lines.append("%s %s: %s%s" % (d.get("name"), d.get("version"), v.get("id"),
+                                          (" (fix %s)" % fx[0] if fx else " (bez opravy)")))
+    summary = "\n".join(lines[:40]) if lines else "Žádné známé zranitelnosti v závislostech. ✅"
+    s = _sess()
+    try:
+        s.execute(_t("INSERT INTO fw.cve_run(found,fixable,summary,ok,by_uid) VALUES(:f,:x,:s,true,:u)"),
+                  {"f": found, "x": fixable, "s": summary, "u": uid})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True, "found": found, "fixable": fixable, "summary": summary}
+
+
+@iso_router.get("/app/iso/cve-last")
+def iso_cve_last(req: Request):
+    uid = _uid(req)
+    if not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        r = s.execute(_t("""SELECT found, fixable, summary, ok,
+            to_char(created_at,'DD.MM.YYYY HH24:MI') AS kdy FROM fw.cve_run ORDER BY id DESC LIMIT 1""")).mappings().first()
+        return {"ok": True, "last": (dict(r) if r else None)}
+    finally:
+        s.close()
+
+
 @iso_router.get("/app/iso/controls")
 def iso_controls(req: Request):
     """SoA — 93 kontrol Annex A pro tenant (parent)."""

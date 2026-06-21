@@ -7422,6 +7422,16 @@ async def app_claude_chat_send(req: Request) -> JSONResponse:
         s.execute(_t(
             "INSERT INTO tenant.claude_chat(tenant_id,user_id,sender,msg) VALUES (:t,:u,'user',:m)"),
             {"t": tid, "u": uid, "m": txt})
+        # Kombinace (Marti 21.6.): když píše někdo jiný než Marti, cinkni mu push
+        # do mobilu s náhledem zprávy. Akci/odpověď pak pustí člověk (řekne Claudovi Go).
+        try:
+            if int(uid) != 1:
+                nm = s.execute(_t(
+                    "SELECT COALESCE(NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),''), "
+                    "login_name, 'Uživatel') FROM public.users WHERE id=:u"), {"u": uid}).scalar() or "Uživatel"
+                _abs_notify(s, 1, "💬 Chat s Claudem — " + str(nm), str(nm) + ": " + txt[:160])
+        except Exception:
+            pass
         s.commit()
         return JSONResponse({"ok": True})
     finally:

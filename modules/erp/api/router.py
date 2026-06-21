@@ -7340,12 +7340,15 @@ async def app_rozvrh_grid(req: Request) -> JSONResponse:
             " COALESCE(b.pred,''), COALESCE(b.kod_ucit,''), "
             " TRIM(COALESCE(uc.prijmeni,'')||' '||COALESCE(uc.jmeno,'')), COALESCE(b.cj_uroven,0), "
             " COALESCE(b.kod_cykl,''), COALESCE(b.blok,''), "
-            " COALESCE(NULLIF(TRIM(mi.zkratka),''), b.kod_mist, '') "
+            " COALESCE(NULLIF(TRIM(mi.zkratka),''), b.kod_mist, ''), "
+            " COALESCE(NULLIF(TRIM(pz.zkratka),''), b.pred, '') "
             "FROM tenant.rozvrh_bunka b "
             "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=b.tenant_id AND uc.plat_od='20260901' "
             "   AND TRIM(uc.intern_kod)=TRIM(b.kod_ucit) "
             "LEFT JOIN tenant.bakalari_mistnost mi ON mi.tenant_id=b.tenant_id "
             "   AND TRIM(mi.kod_mist)=TRIM(b.kod_mist) "
+            "LEFT JOIN tenant.bakalari_pred_zkr pz ON pz.tenant_id=b.tenant_id "
+            "   AND TRIM(pz.nazev)=TRIM(b.pred) "
             "WHERE b.verze_id=:v ORDER BY b.den, b.hodina"), {"v": vid}).fetchall()
         cells = []
         tridy = set()
@@ -7360,7 +7363,7 @@ async def app_rozvrh_grid(req: Request) -> JSONResponse:
                 ucitele[uk] = unm
             cells.append({"den": r[0], "hod": r[1], "tridy": trida_list, "spoj": r[3],
                           "zkr": r[4], "pred": r[5], "uk": uk, "ucitel": unm, "cj": r[8],
-                          "cykl": r[9], "blok": r[10], "mist": r[11]})
+                          "cykl": r[9], "blok": r[10], "mist": r[11], "predzkr": r[12]})
         # filtr dle pohledu
         out = []
         for c in cells:

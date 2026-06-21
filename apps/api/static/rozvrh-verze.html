@@ -33,6 +33,10 @@
   .cell .cy{font-size:9.5px;background:rgba(251,191,36,.25);border-radius:4px;padding:0 4px;color:#fbbf24;white-space:nowrap}
   .cell .rm{font-size:9.5px;background:rgba(143,160,180,.22);border-radius:4px;padding:0 4px;color:#bcd0e6;white-space:nowrap}
   .cell .ob{font-size:9px;font-weight:700;background:rgba(124,92,252,.30);border-radius:4px;padding:0 4px;color:#c4b5fd;white-space:nowrap}
+  .split{display:flex;gap:3px;align-items:stretch}
+  .split .half{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .split .gh{font-size:8.5px;font-weight:800;letter-spacing:.04em;color:#c4b5fd;text-align:center;background:rgba(124,92,252,.20);border-radius:4px;padding:1px 0}
+  .split .hcell{margin:0}
   .cell b{font-size:12px} .cell .m{color:var(--mut);font-size:10.5px}
   .hint{color:var(--mut)} .err{color:#ff8a8a}
   .leg{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;font-size:11.5px;color:var(--mut)}
@@ -107,17 +111,34 @@ function render(cells){
     for(var d=1;d<=5;d++){
       h+='<td>';
       var arr=(grid[d]&&grid[d][hh])||[];
-      arr.forEach(function(c){
+      function clsOf(c){var isTV=(c.blok==="tv"),isPred=(c.blok==="predmet");return isTV?"ltv":(isPred?"lpr":(c.cj===1?"l1":(c.cj===2?"l2":"l3")));}
+      function ucColor(uk){ if(!uk) return ""; if(uk==="UNS6G") return "#ff8ad1"; /* Vlková růžová */ var hsh=0; for(var i=0;i<uk.length;i++){hsh=(hsh*31+uk.charCodeAt(i))>>>0;} var hue=hsh%360, sat=62+(hsh>>9)%22; return "hsl("+hue+","+sat+"%,74%)"; }
+      function styleOf(c){ return (c.blok==="predmet"&&c.uk)?(' style="color:'+ucColor(c.uk)+'"'):""; }
+      function inner(c,hideOb){
         var isTV=(c.blok==="tv"), isPred=(c.blok==="predmet");
-        var cls=isTV?"ltv":(isPred?"lpr":(c.cj===1?"l1":(c.cj===2?"l2":"l3")));
         var right = ST.pohled==="trida" ? esc(c.ucitel) : esc((c.tridy||[]).join(", "));
         var extra='';
         if(isTV&&c.cykl) extra=' <span class="cy">'+(c.cykl==="L"?"lichý":(c.cykl==="S"?"sudý":esc(c.cykl)))+'</span>';
-        if(isPred&&c.zkr) extra+=' <span class="ob">'+esc(c.zkr)+'</span>';
+        if(isPred&&c.zkr&&!hideOb) extra+=' <span class="ob">'+esc(c.zkr)+'</span>';
         if(isPred&&c.mist) extra+=' <span class="rm">'+esc(c.mist)+'</span>';
-        var label=isPred?esc(c.pred):esc(c.zkr||c.pred);
-        h+='<div class="cell '+cls+'"><b>'+label+'</b>'+extra+' <span class="m">'+right+'</span></div>';
-      });
+        var label=isPred?esc(c.predzkr||c.pred):esc(c.zkr||c.pred);
+        return '<b>'+label+'</b>'+extra+' <span class="m">'+right+'</span>';
+      }
+      // dělené skupiny (v pohledu tříd) zobraz vedle sebe; ostatní stohuj
+      var grp=[],rest=[];
+      arr.forEach(function(c){ if(ST.pohled==="trida"&&c.blok==="predmet"&&c.zkr) grp.push(c); else rest.push(c); });
+      rest.forEach(function(c){ h+='<div class="cell '+clsOf(c)+'"'+styleOf(c)+'>'+inner(c)+'</div>'; });
+      if(grp.length){
+        var byg={},ordg=[];
+        grp.forEach(function(c){ if(!byg[c.zkr]){byg[c.zkr]=[];ordg.push(c.zkr);} byg[c.zkr].push(c); });
+        h+='<div class="split">';
+        ordg.forEach(function(g){
+          h+='<div class="half"><div class="gh">'+esc(g)+'</div>';
+          byg[g].forEach(function(c){ h+='<div class="cell lpr hcell"'+styleOf(c)+'>'+inner(c,true)+'</div>'; });
+          h+='</div>';
+        });
+        h+='</div>';
+      }
       h+='</td>';
     }
     h+='</tr>';

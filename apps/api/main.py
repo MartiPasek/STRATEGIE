@@ -1092,6 +1092,13 @@ def digitalizace_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/rozvrh-verze")
+def rozvrh_verze_page():
+    """Prohlížeč vygenerovaných variant rozvrhu — Nerudovka (Marti 21.6.2026)."""
+    return FileResponse(os.path.join(static_dir, "rozvrh-verze.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/doc-print")
 def doc_print_page():
     """Smlouva/dokument k tisku na PC přes handoff mobil→PC (Marti 19.6.2026).

@@ -7295,6 +7295,85 @@ async def app_bakalari_loads(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/rozvrh/verze")
+async def app_rozvrh_verze(req: Request) -> JSONResponse:
+    """Seznam vygenerovaných variant rozvrhu (pro přepínač) — Nerudovka."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, nazev, COALESCE(popis,''), COALESCE(skore,0), COALESCE(neumisteno,0), "
+            " COALESCE(je_finalni,false), to_char(created_at,'DD.MM.YYYY HH24:MI') "
+            "FROM tenant.rozvrh_verze WHERE tenant_id=:t ORDER BY skolni_rok DESC, id DESC"),
+            {"t": _BK_TENANT}).fetchall()
+        return JSONResponse({"ok": True, "verze": [
+            {"id": r[0], "nazev": r[1], "popis": r[2], "skore": float(r[3]), "neumisteno": r[4],
+             "finalni": r[5], "kdy": r[6]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/rozvrh/grid")
+async def app_rozvrh_grid(req: Request) -> JSONResponse:
+    """Buňky jedné varianty rozvrhu + seznam tříd a učitelů (pro pohledy). Nerudovka."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        vid = int(req.query_params.get("verze") or 0)
+    except Exception:
+        vid = 0
+    pohled = (req.query_params.get("pohled") or "trida").strip()
+    klic = (req.query_params.get("klic") or "").strip()
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT b.den, b.hodina, COALESCE(b.trida,''), COALESCE(b.kod_spoj,''), COALESCE(b.skup_zkr,''), "
+            " COALESCE(b.pred,''), COALESCE(b.kod_ucit,''), "
+            " TRIM(COALESCE(uc.prijmeni,'')||' '||COALESCE(uc.jmeno,'')), COALESCE(b.cj_uroven,0) "
+            "FROM tenant.rozvrh_bunka b "
+            "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=b.tenant_id AND uc.plat_od='20260901' "
+            "   AND TRIM(uc.intern_kod)=TRIM(b.kod_ucit) "
+            "WHERE b.verze_id=:v ORDER BY b.den, b.hodina"), {"v": vid}).fetchall()
+        cells = []
+        tridy = set()
+        ucitele = {}
+        for r in rows:
+            trida_list = [x.strip() for x in (r[2] or "").split(",") if x.strip()]
+            for tr in trida_list:
+                tridy.add(tr)
+            uk = r[6]
+            unm = (r[7] or "").strip() or uk
+            if uk:
+                ucitele[uk] = unm
+            cells.append({"den": r[0], "hod": r[1], "tridy": trida_list, "spoj": r[3],
+                          "zkr": r[4], "pred": r[5], "uk": uk, "ucitel": unm, "cj": r[8]})
+        # filtr dle pohledu
+        out = []
+        for c in cells:
+            if pohled == "trida" and klic:
+                if klic not in c["tridy"]:
+                    continue
+            elif pohled == "ucitel" and klic:
+                if c["uk"] != klic:
+                    continue
+            out.append(c)
+        return JSONResponse({"ok": True, "verze_id": vid, "pohled": pohled, "klic": klic,
+                             "cells": out,
+                             "tridy": sorted(tridy),
+                             "ucitele": [{"kod": k, "jmeno": v} for k, v in sorted(ucitele.items(), key=lambda x: x[1].lower())]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/bakalari/skola")
 async def app_bakalari_skola(req: Request) -> JSONResponse:
     """Provozní přehled školy (efektivita) — žáci, naplněnost, využití učeben, úvazky."""

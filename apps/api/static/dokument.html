@@ -63,7 +63,7 @@ function qp(k){return new URLSearchParams(location.search).get(k);}
 var KEY=qp("key")||"tutorial";
 var INAPP=(window.parent!==window);
 function printDoc(){ if(INAPP){ alert("🖨 Tisk dokumentu spustíš na počítači — otevři ho na PC (strategie-ai.com/dokument). V mobilní appce Android tisk z tohoto okna neumí."); return; } window.print(); }
-if(INAPP){document.addEventListener("click",function(e){var a=e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var h=a.getAttribute("href")||"";if(h.indexOf("/dokument")===0||h.indexOf("/iso")===0){e.preventDefault();try{parent.postMessage({stgOpen:h},"*");}catch(x){}}},true);}
+if(INAPP){document.addEventListener("click",function(e){var a=e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var h=a.getAttribute("href")||"";if(h.indexOf("/dokument")===0||h.indexOf("/iso")===0){e.preventDefault();try{parent.postMessage({stgOpen:h},"*");}catch(x){}return;}if(h.indexOf("/api/")===0){e.preventDefault();try{parent.postMessage({stgOpenExt:location.origin+h},"*");}catch(x){}}},true);}
 var FBTYPES=[["otazka","❓ Dotaz"],["nerozumim","🤔 Nerozumím"],["spatne","⚠️ Je to špatně"],["nesouhlas","✋ Nesouhlasím"],["doplnit","➕ Chci doplnit"]];
 var fbtype="otazka";
 function initTypes(){document.getElementById("fbtypes").innerHTML=FBTYPES.map(t=>'<span class="fbtype'+(t[0]===fbtype?' on':'')+'" data-t="'+t[0]+'" onclick="pickType(\''+t[0]+'\')">'+t[1]+'</span>').join('');}

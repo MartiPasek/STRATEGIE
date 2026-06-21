@@ -51,7 +51,7 @@
 function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
 var TENANT=new URLSearchParams(location.search).get("tenant");
 // V appce (iframe) odkazy na stránky neotvírej target=_blank (vyskočí z appky a rozbije Zpět) — pošli je rodičovské appce.
-if(window.parent!==window){document.addEventListener("click",function(e){var a=e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var h=a.getAttribute("href")||"";if(h.indexOf("/dokument")===0||h.indexOf("/iso")===0){e.preventDefault();try{parent.postMessage({stgOpen:h},"*");}catch(x){}}},true);}
+if(window.parent!==window){document.addEventListener("click",function(e){var a=e.target.closest?e.target.closest("a[href]"):null;if(!a)return;var h=a.getAttribute("href")||"";if(h.indexOf("/dokument")===0||h.indexOf("/iso")===0){e.preventDefault();try{parent.postMessage({stgOpen:h},"*");}catch(x){}return;}if(h.indexOf("/api/")===0){e.preventDefault();try{parent.postMessage({stgOpenExt:location.origin+h},"*");}catch(x){}}},true);}
 function api(p,m,b){if(TENANT&&p.indexOf("/app/iso")>=0){p+=(p.indexOf("?")>=0?"&":"?")+"tenant="+encodeURIComponent(TENANT);}return fetch(p,{method:m||"GET",credentials:"include",headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):undefined}).then(r=>r.json());}
 var DATA=null;
 var KROKFILTR="Vše";

@@ -1575,7 +1575,7 @@ setTimeout(function(){
     l.appendChild(row("📊","Přehled školy","Žáci, naplněnost tříd, využití učeben — efektivita provozu",function(){ go("bk_skola"); }));
     l.appendChild(row("🗓️","Varianty rozvrhu","Vygenerované návrhy rozvrhu 2026/27 k porovnání (jazyky)",function(){ openInApp("/rozvrh-verze"); }));
     l.appendChild(row("📅","Přehled po ročnících","Všechny třídy oboru (GD, MI…) vedle sebe — otevře se přes celou obrazovku",function(){ openApp("/rozvrh-prehled"); }));
-    l.appendChild(row("🛠️","Chat s Claudem","Napiš, co u rozvrhu potřebuješ — Claude si to přečte a odpoví ti sem",function(){ openInApp("/claude-chat"); }));
+    l.appendChild(row("🛠️","Chat s Claudem","Napiš, co u rozvrhu potřebuješ — Claude si to přečte a odpoví ti sem",function(){ openApp("/claude-chat"); }));
     app.appendChild(l);
     api("GET",_bkUrl("/api/v1/erp/app/bakalari/overview"),"").then(function(j){
       if(!j||!j.ok){ dash.textContent=(j&&j.error==="forbidden")?"🔒 Vidí jen rodiče.":"Nepodařilo se načíst."; return; }

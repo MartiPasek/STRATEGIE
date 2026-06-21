@@ -80,7 +80,7 @@ function loadGrid(){
 function render(cells){
   var v=ST.verze.filter(function(x){return x.id===ST.vid;})[0]||{};
   var h='<h1>🗓️ Varianty rozvrhu — Nerudovka 2026/2027</h1>'
-    +'<div class="sub">Vygenerovaná jazyková kostra (iterace 1: cizí jazyky). Porovnej varianty, přepínej pohled tříd/učitelů.</div>';
+    +'<div class="sub">Rozvrh 2026/27: cizí jazyky + tělocviky + odborné (GD/MI). Předměty zkratkou, barva písma dle učitele (Vlková růžově). Přepínej varianty A/B/C a pohled tříd/učitelů.</div>';
   // verze chipy
   h+='<div class="bar">';
   ST.verze.forEach(function(vz){
@@ -121,7 +121,7 @@ function render(cells){
         if(isTV&&c.cykl) extra=' <span class="cy">'+(c.cykl==="L"?"lichý":(c.cykl==="S"?"sudý":esc(c.cykl)))+'</span>';
         if(isPred&&c.zkr&&!hideOb) extra+=' <span class="ob">'+esc(c.zkr)+'</span>';
         if(isPred&&c.mist) extra+=' <span class="rm">'+esc(c.mist)+'</span>';
-        var label=isPred?esc(c.predzkr||c.pred):esc(c.zkr||c.pred);
+        var label=esc(c.predzkr||c.zkr||c.pred);
         return '<b>'+label+'</b>'+extra+' <span class="m">'+right+'</span>';
       }
       // dělené skupiny (v pohledu tříd) zobraz vedle sebe; ostatní stohuj

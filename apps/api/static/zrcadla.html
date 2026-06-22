@@ -59,19 +59,45 @@ function ivTxt(m){if(m<60)return m+" min";if(m%1440===0)return(m/1440)+" d";if(m
 var listEl=document.getElementById("list"), healthEl=document.getElementById("health");
 var _autoref=true;
 
+// kolik minut je job po termínu (zapnutý, neběží); 0 = ok, >0 = zpožděno, -1 = nikdy neběžel
+function staleMin(j){
+  if(!j.enabled||j.running) return 0;
+  if(j.last_run==null||j.age_min==null) return -1;            // zapnutý, ale nikdy neproběhl
+  var lim=Math.max((j.interval_min||360)*2,(j.interval_min||360)+30); // tolerance: 2× interval (min +30)
+  return j.age_min>lim ? j.age_min : 0;
+}
+// běží zjevně moc dlouho = zaseklý (worker se recykloval, running zůstalo true)
+function stuck(j){ return !!(j.enabled && j.running && j.run_min!=null && j.run_min>30); }
 function badge(j){
+  if(stuck(j)) return '<span class="badge b-err">⚠ visí '+ageTxt(j.run_min)+'</span>';
   if(j.running) return '<span class="badge b-run">● běží</span>';
   if(j.last_status==="chyba") return '<span class="badge b-err">✕ chyba</span>';
+  var sm=staleMin(j);
+  if(sm===-1) return '<span class="badge b-err">⚠ nikdy neproběhlo</span>';
+  if(sm>0) return '<span class="badge b-err">⚠ neběží · '+ageTxt(sm)+' zpoždění</span>';
   if(j.last_status==="ok") return '<span class="badge b-ok">✓ ok'+(j.last_done===false?' (pokr.)':'')+'</span>';
   return '<span class="badge b-idle">○ čeká</span>';
 }
 function render(jobs){
-  var nErr=0,nRun=0,nOff=0,nOk=0;
-  jobs.forEach(function(j){ if(!j.enabled)nOff++; else if(j.running)nRun++; else if(j.last_status==="chyba")nErr++; else if(j.last_status==="ok")nOk++; });
-  var hc=nErr? "var(--red)":(nRun?"var(--accent)":"var(--green)");
-  var ht=nErr? (nErr+" s chybou"):(nRun?(nRun+" běží"):"vše v pořádku");
+  var nErr=0,nRun=0,nOff=0,nOk=0,nStale=0,nStuck=0;
+  jobs.forEach(function(j){
+    if(!j.enabled){nOff++;return;}
+    if(stuck(j)){nStuck++;return;}
+    if(j.running){nRun++;return;}
+    if(j.last_status==="chyba"){nErr++;return;}
+    if(staleMin(j)!==0){nStale++;return;}   // zpožděno nebo nikdy neproběhlo
+    if(j.last_status==="ok"){nOk++;return;}
+    nStale++;                                 // zapnuté, ale jen "čeká" bez běhu = taky problém
+  });
+  var nProblem=nErr+nStale+nStuck;
+  var hc=nProblem? "var(--red)":(nRun?"var(--accent)":"var(--green)");
+  var parts=[];
+  if(nErr)parts.push(nErr+" s chybou");
+  if(nStale)parts.push(nStale+" neběží/zpožděno");
+  if(nStuck)parts.push(nStuck+" visí");
+  var ht=nProblem? parts.join(", "):(nRun?(nRun+" běží"):"vše v pořádku");
   healthEl.innerHTML='<span class="dot" style="background:'+hc+'"></span><b>'+esc(ht)+'</b>'
-    +'<span class="hint">· '+jobs.length+' zrcadel · '+nOk+' ok · '+nErr+' chyba · '+nRun+' běží · '+nOff+' vyp.</span>';
+    +'<span class="hint">· '+jobs.length+' zrcadel · '+nOk+' ok · '+nErr+' chyba · '+nStale+' neběží · '+nStuck+' visí · '+nRun+' běží · '+nOff+' vyp.</span>';
   var h="";
   jobs.forEach(function(j){
     h+='<div class="j'+(j.enabled?'':' off')+'" data-k="'+esc(j.job_key)+'">'

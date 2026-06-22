@@ -18761,12 +18761,14 @@ def mirror_status(req: Request):
             "to_char(last_run_at,'DD.MM. HH24:MI:SS'), "
             "to_char(next_run_at,'DD.MM. HH24:MI:SS'), "
             "CASE WHEN last_run_at IS NULL THEN NULL ELSE "
-            "  round(EXTRACT(EPOCH FROM (now()-last_run_at))/60.0)::int END AS age_min "
+            "  round(EXTRACT(EPOCH FROM (now()-last_run_at))/60.0)::int END AS age_min, "
+            "CASE WHEN running AND started_at IS NOT NULL THEN "
+            "  round(EXTRACT(EPOCH FROM (now()-started_at))/60.0)::int END AS run_min "
             "FROM fw.mirror_job ORDER BY enabled DESC, grp, label")).fetchall()
         out = [{"job_key": r[0], "label": r[1], "grp": r[2], "interval_min": r[3],
                 "enabled": r[4], "running": r[5], "last_status": r[6], "last_result": r[7],
                 "last_rows": r[8], "last_done": r[9], "last_run": r[10], "next_run": r[11],
-                "age_min": r[12]} for r in rows]
+                "age_min": r[12], "run_min": r[13]} for r in rows]
         return {"ok": True, "jobs": out}
     finally:
         s.close()

@@ -5687,6 +5687,61 @@ async def crm_osloveni_enqueue(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.get("/crm/osloveni/sablony")
+async def crm_osloveni_sablony(req: Request) -> JSONResponse:
+    """Cislenik e-mailovych sablon pro dropdown v "Oslovit vybrane".
+    Read-only z dbo.EC_KontaktMailSablonyCis pres MCP (DB_EC).
+    Vraci {"ok":true,"sablony":[{"id":"9","nazev":"...","poradi":1}, ...]}
+    razeno dle Poradi, ID. Auth: clen ERP NEBO rodic."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _j_sb
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
+    sql = (
+        "SELECT ID, Nazev, Poradi FROM dbo.EC_KontaktMailSablonyCis WITH(NOLOCK)"
+        " ORDER BY Poradi, ID"
+    )
+    try:
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_sb.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error"))[:200])
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]
+                    break
+        elif isinstance(r, list):
+            rows = r
+    except Exception as exc:
+        logger.exception("[crm_osloveni_sablony] %s", exc)
+        return JSONResponse({"ok": False, "error": "CRM dotaz selhal"}, status_code=502)
+    out = []
+    for d in rows:
+        dd = {(k or "").lower(): v for k, v in d.items()}
+        try:
+            sid = int(dd.get("id"))
+        except Exception:
+            continue
+        nazev = (dd.get("nazev") or ("Šablona " + str(sid)))
+        try:
+            poradi = int(dd.get("poradi") or 0)
+        except Exception:
+            poradi = 0
+        out.append({"id": str(sid), "nazev": str(nazev).strip(), "poradi": poradi})
+    return JSONResponse({"ok": True, "sablony": out})
+
+
 @api_router.post("/crm/optout/make-tokens")
 async def crm_optout_make_tokens(req: Request) -> JSONResponse:
     """Vrati hotove odhlasovaci tokeny + URL pro dane (email, firma_id) pary, aby

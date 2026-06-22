@@ -257,10 +257,24 @@
         var sel = document.createElement("select");
         sel.style.cssText = "width:100%;padding:8px;border-radius:6px;background:#0d0d0d;" +
           "color:#e0e0e0;border:1px solid #3a4a5a;font-size:14px;";
-        [["9", "OTEVÍRÁK – první oslovení"], ["10", "PŘIPOMÍNAČ – druhá vlna"]].forEach(function (o) {
-          var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1];
-          sel.appendChild(op);
-        });
+        // Naplneni dropdownu sablonami z ciselniku (dbo.EC_KontaktMailSablonyCis).
+        // Fallback 9/10 zustava, kdyby endpoint selhal (dialog je pak stale funkcni).
+        function _oslFillSablony(list) {
+          sel.innerHTML = "";
+          list.forEach(function (o) {
+            var op = document.createElement("option");
+            op.value = o[0]; op.textContent = o[1];
+            sel.appendChild(op);
+          });
+        }
+        _oslFillSablony([["9", "OTEVÍRÁK – první oslovení"], ["10", "PŘIPOMÍNAČ – druhá vlna"]]);
+        fetch("/api/v1/erp/crm/osloveni/sablony", { method: "GET", credentials: "include" })
+          .then(function (r) { return r.json().catch(function () { return {}; }); })
+          .then(function (j) {
+            if (j && j.ok && Array.isArray(j.sablony) && j.sablony.length) {
+              _oslFillSablony(j.sablony.map(function (s) { return [String(s.id), s.nazev]; }));
+            }
+          }).catch(function () { /* ponech fallback 9/10 */ });
         var note = document.createElement("div");
         note.style.cssText = "font-size:12px;color:#8aa;margin-top:10px;";
         note.innerHTML = "Firmy se jen <b>zařadí do fronty</b> — odeslání proběhne řízeně až po " +

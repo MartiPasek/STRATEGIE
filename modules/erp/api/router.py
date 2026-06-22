@@ -18688,6 +18688,14 @@ def _mirror_sched_tick():
     jk = None
     interval = 360
     try:
+        # Watchdog: uvolni joby zaseklé v running (worker se recykloval mid-run, running zůstalo true).
+        # Bez tohoto je plánovač (WHERE NOT running) už nikdy nevezme → "evidentně neběží".
+        # Watermark + idempotentní upsert → po uvolnění plynule naváže.
+        s.execute(_t(
+            "UPDATE fw.mirror_job SET running=false, last_done=false, "
+            "last_status='přerušeno (recyklace workeru) — naváže', next_run_at=now(), updated_at=now() "
+            "WHERE running AND started_at IS NOT NULL AND started_at < now() - interval '20 minutes'"))
+        s.commit()
         row = s.execute(_t(
             "UPDATE fw.mirror_job SET running=true, started_at=now(), last_status='běží', updated_at=now() "
             "WHERE job_key = (SELECT job_key FROM fw.mirror_job "

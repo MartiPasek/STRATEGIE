@@ -25,10 +25,7 @@
   th{background:#0f1830;color:#9fb2d4;font-weight:700;text-align:center;white-space:nowrap}
   td.h,th:first-child{background:#0f1830;color:#9fb2d4;font-weight:700;text-align:center;width:38px}
   .cell{border-radius:6px;padding:3px 5px;margin:1px 0;font-size:11.5px;line-height:1.35}
-  .l1{background:rgba(79,142,247,.18);border-left:3px solid var(--aj)}
-  .l2{background:rgba(52,211,153,.16);border-left:3px solid var(--cj2)}
-  .l3{background:rgba(167,139,250,.16);border-left:3px solid var(--cj3)}
-  .ltv{background:rgba(251,191,36,.15);border-left:3px solid var(--amber)}
+  .l1,.l2,.l3,.ltv{background:rgba(239,68,68,.18);border-left:3px solid #ef4444}
   .lpr{background:rgba(143,160,180,.12);border-left:3px solid var(--mut)}
   .cell .cy{font-size:9.5px;background:rgba(251,191,36,.25);border-radius:4px;padding:0 4px;color:#fbbf24;white-space:nowrap}
   .cell .rm{font-size:9.5px;background:rgba(143,160,180,.22);border-radius:4px;padding:0 4px;color:#bcd0e6;white-space:nowrap}
@@ -138,11 +135,8 @@ function render(cells){
   if(ST.pohled==="trida"){ ST.tridy.forEach(function(t){h+='<option value="'+esc(t)+'"'+(t===ST.klic?' selected':'')+'>'+esc(t)+'</option>';}); }
   else { ST.ucitele.forEach(function(u){h+='<option value="'+esc(u.kod)+'"'+(u.kod===ST.klic?' selected':'')+'>'+esc(u.jmeno)+'</option>';}); }
   h+='</select></div>';
-  h+='<div class="leg"><span><span class="dot" style="background:var(--aj)"></span>1. cizí jazyk (AJ)</span>'
-    +'<span><span class="dot" style="background:var(--cj2)"></span>2. cizí jazyk (Z)</span>'
-    +'<span><span class="dot" style="background:var(--cj3)"></span>3. cizí jazyk (D)</span>'
-    +'<span><span class="dot" style="background:var(--amber)"></span>tělocvik (lichý/sudý)</span>'
-    +'<span><span class="dot" style="background:var(--mut)"></span>odborné (učebna)</span></div>';
+  h+='<div class="leg"><span><span class="dot" style="background:#ef4444"></span><b>1. blok — cizí jazyky + tělocvik</b> (hotovo, fixní)</span>'
+    +'<span><span class="dot" style="background:var(--mut)"></span>2. blok — odborné (chystá se)</span></div>';
   // mřížka
   var grid={};
   cells.forEach(function(c){ (grid[c.den]=grid[c.den]||{})[c.hod]=(grid[c.den][c.hod]||[]); grid[c.den][c.hod].push(c); });

@@ -33,8 +33,7 @@
   .drow{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #1b2738;font-size:13.5px}
   .dk{color:var(--mut);min-width:100px;font-weight:600}.dv{color:var(--tx);flex:1;word-break:break-word}
   .dx{margin-top:14px;text-align:right}.dx button{background:var(--accent);border:0;color:#06101f;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:700;cursor:pointer}
-  .j1{background:rgba(79,142,247,.20)} .j2{background:rgba(52,211,153,.18)} .j3{background:rgba(167,139,250,.18)}
-  .tv{background:rgba(251,191,36,.18)} .pr{background:rgba(143,160,180,.16)}
+  .j1,.j2,.j3,.tv{background:rgba(239,68,68,.22)} .pr{background:rgba(143,160,180,.16)}
   .psplit{display:flex;gap:2px;align-items:stretch;border:1px dashed rgba(124,92,252,.45);border-radius:4px;padding:1px}
   .psplit .ph{flex:1;min-width:0;display:flex;flex-direction:column}
   .psplit .pg{font-size:7.5px;font-weight:800;color:#c4b5fd;text-align:center;line-height:1.1}
@@ -162,7 +161,7 @@ function render(rs){
     h+='<div class="bar">';
     rs.forEach(function(r){ h+='<button class="chip r'+(r===ST.rocnik?' on':'')+'" data-r="'+esc(r)+'">'+esc(r)+'. ročník</button>'; });
     h+='</div>';
-    h+='<div class="leg"><span><span class="dot" style="background:#4f8ef7"></span>1.CJ</span><span><span class="dot" style="background:#34d399"></span>2.CJ</span><span><span class="dot" style="background:#a78bfa"></span>3.CJ</span><span><span class="dot" style="background:#fbbf24"></span>TV</span><span><span class="dot" style="background:#8fa0b4"></span>odborné</span></div>';
+    h+='<div class="leg"><span><span class="dot" style="background:#ef4444"></span><b>1. blok — jazyky + tělocvik</b> (hotovo)</span><span><span class="dot" style="background:#8fa0b4"></span>2. blok — odborné (chystá se)</span></div>';
     var cls=ST.tridy.filter(function(t){return rocnik(t)===ST.rocnik;});
     cls.sort(function(a,b){return (OBP[obor(a)]||99)-(OBP[obor(b)]||99) || a.localeCompare(b);});
     h+='<div class="grid">';

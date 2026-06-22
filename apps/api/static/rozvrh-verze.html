@@ -41,11 +41,21 @@
   .hint{color:var(--mut)} .err{color:#ff8a8a}
   .leg{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;font-size:11.5px;color:var(--mut)}
   .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:middle}
+  .cell{cursor:pointer}
+  .ovl{display:none;position:fixed;inset:0;background:rgba(4,8,14,.6);z-index:50;align-items:center;justify-content:center}
+  .dcard{background:var(--card);border:1px solid #2a3a55;border-radius:14px;max-width:380px;width:92%;padding:16px 18px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  .dttl{font-size:17px;font-weight:800;margin-bottom:10px;color:#dce8f7}
+  .drow{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #1b2738;font-size:13.5px}
+  .dk{color:var(--mut);min-width:96px;font-weight:600}
+  .dv{color:var(--tx);flex:1;word-break:break-word}
+  .dx{margin-top:14px;text-align:right}
+  .dx button{background:var(--accent);border:0;color:#06101f;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:700;cursor:pointer}
   @media(max-width:640px){.wrap{padding:8px} th,td{font-size:11px;padding:3px}}
 </style>
 </head>
 <body>
 <div class="wrap" id="root"><div class="hint" style="padding:24px">Načítám…</div></div>
+<div class="ovl" id="detail"><div class="dcard"><div id="dbody"></div><div class="dx"><button id="dclose">Zavřít</button></div></div></div>
 <script>
 function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;
   try{if(window.__opcUrl)return new URL(window.__opcUrl,location.origin).searchParams.get(k);}catch(e){}return null;}
@@ -57,6 +67,38 @@ function api(p){return fetch(p,{credentials:"include"}).then(function(r){
 var DNI=["Po","Út","St","Čt","Pá"], HMAX=10;
 var R=document.getElementById("root");
 var ST={verze:[], vid:null, pohled:"trida", klic:"", tridy:[], ucitele:[]};
+var DET=[];
+function showDetail(c){
+  if(!c) return;
+  var dni=["Pondělí","Úterý","Středa","Čtvrtek","Pátek"];
+  var rows=[];
+  function row(k,v){ if(v||v===0) rows.push('<div class="drow"><span class="dk">'+esc(k)+'</span><span class="dv">'+esc(v)+'</span></div>'); }
+  var nazev=c.pred||c.predzkr||c.zkr||"Hodina";
+  row("Den a hodina", dni[c.den-1]+" · "+c.hod+". hodina");
+  if(c.blok==="jazyky"){
+    row("Typ","Cizí jazyk");
+    row("Jazyk", c.zkr);
+    row("Úroveň", c.cj===1?"1. cizí jazyk (AJ)":(c.cj===2?"2. cizí jazyk":(c.cj===3?"3. cizí jazyk (mezitřídní)":"")));
+    if(c.spoj) row("Skupina", c.spoj);
+  } else if(c.blok==="tv"){
+    row("Typ","Tělocvik");
+    row("Kdo", c.zkr);   // Kluci / Dívky / Celá třída
+    row("Cyklus", c.cykl==="L"?"lichý týden":(c.cykl==="S"?"sudý týden":"každý týden"));
+    if(c.spoj && (c.tridy||[]).length>1) row("Spojené třídy","ano ("+c.spoj+")");
+  } else {
+    row("Typ","Odborný předmět");
+    if(c.zkr) row("Skupina", c.zkr);
+  }
+  row("Učitel", (c.ucitel||c.uk||"")+(c.uk&&c.ucitel&&c.ucitel!==c.uk?" ("+c.uk+")":""));
+  if(c.mist) row("Učebna", c.mist);
+  row("Třídy", (c.tridy||[]).join(", "));
+  document.getElementById("dbody").innerHTML='<div class="dttl">'+esc(nazev)+'</div>'+rows.join("");
+  document.getElementById("detail").style.display="flex";
+}
+function closeDetail(){ document.getElementById("detail").style.display="none"; }
+document.getElementById("dclose").onclick=closeDetail;
+document.getElementById("detail").onclick=function(e){ if(e.target===this) closeDetail(); };
+document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeDetail(); });
 
 function load(){
   api("/api/v1/erp/app/rozvrh/verze").then(function(j){
@@ -78,6 +120,7 @@ function loadGrid(){
   });
 }
 function render(cells){
+  DET=[];
   var v=ST.verze.filter(function(x){return x.id===ST.vid;})[0]||{};
   var h='<h1>🗓️ Varianty rozvrhu — Nerudovka 2026/2027</h1>'
     +'<div class="sub">Rozvrh 2026/27: cizí jazyky + tělocviky + odborné (GD/MI). Předměty zkratkou, barva písma dle učitele (Vlková růžově). Přepínej varianty A/B/C a pohled tříd/učitelů.</div>';
@@ -127,14 +170,14 @@ function render(cells){
       // dělené skupiny (v pohledu tříd) zobraz vedle sebe; ostatní stohuj
       var grp=[],rest=[];
       arr.forEach(function(c){ if(ST.pohled==="trida"&&c.blok==="predmet"&&c.zkr) grp.push(c); else rest.push(c); });
-      rest.forEach(function(c){ h+='<div class="cell '+clsOf(c)+'"'+styleOf(c)+'>'+inner(c)+'</div>'; });
+      rest.forEach(function(c){ h+='<div class="cell '+clsOf(c)+'" data-ci="'+(DET.push(c)-1)+'"'+styleOf(c)+'>'+inner(c)+'</div>'; });
       if(grp.length){
         var byg={},ordg=[];
         grp.forEach(function(c){ if(!byg[c.zkr]){byg[c.zkr]=[];ordg.push(c.zkr);} byg[c.zkr].push(c); });
         h+='<div class="split">';
         ordg.forEach(function(g){
           h+='<div class="half"><div class="gh">'+esc(g)+'</div>';
-          byg[g].forEach(function(c){ h+='<div class="cell lpr hcell"'+styleOf(c)+'>'+inner(c,true)+'</div>'; });
+          byg[g].forEach(function(c){ h+='<div class="cell lpr hcell" data-ci="'+(DET.push(c)-1)+'"'+styleOf(c)+'>'+inner(c,true)+'</div>'; });
           h+='</div>';
         });
         h+='</div>';
@@ -146,6 +189,7 @@ function render(cells){
   h+='</table>';
   h+='<div class="sub" style="margin-top:10px">Varianta „'+esc(v.nazev||"")+'" — cizí jazyky + tělocviky + odborné (GD/MI). U odborných je vpravo nahoře učebna; dvě budovy: učebny B… = Ateliéry, ostatní = Nerudovka. Posledních pár bloků 4.MI se ještě dolaďuje.</div>';
   R.innerHTML=h;
+  R.onclick=function(e){ var el=e.target.closest&&e.target.closest(".cell"); if(el&&el.getAttribute("data-ci")!=null){ showDetail(DET[+el.getAttribute("data-ci")]); } };
   Array.prototype.forEach.call(document.querySelectorAll(".chip[data-vid]"),function(b){ b.onclick=function(){ ST.vid=+b.getAttribute("data-vid"); loadGrid(); }; });
   Array.prototype.forEach.call(document.querySelectorAll(".seg button[data-p]"),function(b){ b.onclick=function(){ ST.pohled=b.getAttribute("data-p"); ST.klic=""; loadGrid(); }; });
   var pk=document.getElementById("pick"); if(pk) pk.onchange=function(){ ST.klic=this.value; loadGrid(); };

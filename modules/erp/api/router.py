@@ -18420,6 +18420,19 @@ def _att_auto_checkout_midnight(tenant: int = 2, notify: bool = True) -> dict:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
+        # A) Marti 22.6.: „Dnes už se mnou nepočítej" (day_end) běží do půlnoci, ale
+        #    uzavře se TIŠE — 0 h, bez poznámky o auto-odhlášení a BEZ notifikace.
+        #    Je to záměrný konec dne, ne zapomenutý odchod → nesmí dělat problém v kontrole.
+        s.execute(_t(
+            "UPDATE tenant.att_entry e SET"
+            "  ended_at = ((e.started_at AT TIME ZONE 'Europe/Prague')::date + time '23:59')"
+            "    AT TIME ZONE 'Europe/Prague',"
+            "  hours = 0, is_active = false, updated_at = now() "
+            "FROM tenant.att_entry_type et "
+            "WHERE et.id = e.entry_type_id AND et.code = 'day_end'"
+            "  AND e.tenant_id = :t AND e.is_active = true AND e.ended_at IS NULL"
+            "  AND e.started_at IS NOT NULL"), {"t": tenant})
+        # B) Ostatní otevřené směny (skutečně zapomenutý odchod) — uzavři a vlídně upozorni.
         rows = s.execute(_t(
             "WITH targ AS ("
             "  SELECT e.id, e.started_at,"
@@ -18428,6 +18441,8 @@ def _att_auto_checkout_midnight(tenant: int = 2, notify: bool = True) -> dict:
             "  FROM tenant.att_entry e"
             "  WHERE e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL"
             "    AND e.started_at IS NOT NULL"
+            "    AND e.entry_type_id NOT IN (SELECT id FROM tenant.att_entry_type"
+            "       WHERE tenant_id=:t AND code='day_end')"
             ") "
             "UPDATE tenant.att_entry e SET"
             "  ended_at = t.new_end,"
@@ -27280,6 +27295,8 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                        || ' — chybí odchod'
               FROM tenant.att_entry e
               WHERE e.tenant_id = 2 AND e.is_active = true AND e.entry_date < current_date
+                AND e.entry_type_id NOT IN (SELECT id FROM tenant.att_entry_type
+                    WHERE tenant_id = 2 AND code = 'day_end')
               UNION ALL
               SELECT min(e.id), e.employee_id, 'nepotvrzeny_den',
                      to_char(e.entry_date, 'DD.MM.') || ' nepotvrzená docházka'

@@ -399,6 +399,21 @@ class EurosoftMCPClient:
             try:
                 text = self._invoke_once(bare_name, arguments, timeout_s)
                 if text is not None:
+                    # Rate-limit back-off: MCP server vrací ok=false / error=rate_limit_exceeded
+                    # při >60 čtení/min (těžké stránkované syncy zrcadel burstnou přes limit).
+                    # Místo tvrdého selhání počkej (klouzavé okno 60 s uvolní pár slotů) a zkus
+                    # znovu — sync se zpomalí na limit, ale doběhne. Bounded: 3× 4 s = max ~12 s.
+                    import time as _time_rl
+                    _rl = 0
+                    while text and ('"rate_limit_exceeded"' in text) and _rl < 3:
+                        _time_rl.sleep(4)
+                        _rl += 1
+                        try:
+                            _retry = self._invoke_once(bare_name, arguments, timeout_s)
+                        except Exception:
+                            break
+                        if _retry is not None:
+                            text = _retry
                     self.circuit_breaker.record_success(conversation_id)
                     return text
                 self.circuit_breaker.record_failure(conversation_id)

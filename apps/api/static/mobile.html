@@ -1462,7 +1462,7 @@ setTimeout(function(){
     // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
     // g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
     app.appendChild(g);
-    app.appendChild(el('<div style="height:120px;"></div>'));  // místo pod dvě extra lišty
+    app.appendChild(el('<div style="height:200px;"></div>'));  // místo pod dvě extra lišty (zvětšeno 120→200, ať poslední řádek dlaždic nezajíždí pod spodní panel)
   }
   // Marti 9.6.: složka „Vedení" v Aplikacích — řídicí agendy. Příprava/Odvozy/
   // Zakázky deep-link do Výroby; IT/PLC/HR zatím placeholder „Připravujeme".

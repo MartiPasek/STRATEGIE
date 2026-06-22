@@ -159,6 +159,7 @@ function render(cells){
         if(isPred&&c.zkr&&!hideOb) extra+=' <span class="ob">'+esc(c.zkr)+'</span>';
         if(isPred&&c.mist) extra+=' <span class="rm">'+esc(c.mist)+'</span>';
         var label=esc(c.predzkr||c.zkr||c.pred);
+        if(c.blok==="jazyky"&&c.cj) label+='-'+c.cj;
         return '<b>'+label+'</b>'+extra+' <span class="m">'+right+'</span>';
       }
       // dělené skupiny (v pohledu tříd) zobraz vedle sebe; ostatní stohuj

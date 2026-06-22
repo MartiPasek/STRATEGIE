@@ -101,12 +101,12 @@ function loadGrid(){
 }
 function cellClass(c){ if(c.blok==="tv")return"tv"; if(c.blok==="predmet")return"pr"; return c.cj===1?"j1":(c.cj===2?"j2":"j3"); }
 function ucColor(uk){ if(!uk)return""; if(uk==="UNS6G")return"#ff8ad1"; var hsh=0; for(var i=0;i<uk.length;i++){hsh=(hsh*31+uk.charCodeAt(i))>>>0;} return "hsl("+(hsh%360)+","+(62+(hsh>>9)%22)+"%,74%)"; }
-function cellLabel(c){ if(c.blok==="predmet"){var w=c.predzkr||((c.pred||"").split(" ")[0]); return w+(c.zkr?(" "+c.zkr):"")+(c.mist?(" "+c.mist):"");} if(c.blok==="tv")return c.predzkr||c.zkr||"TV"; return (c.zkr||"JAZ"); }
+function cellLabel(c){ if(c.blok==="predmet"){var w=c.predzkr||((c.pred||"").split(" ")[0]); return w+(c.zkr?(" "+c.zkr):"")+(c.mist?(" "+c.mist):"");} if(c.blok==="tv")return c.predzkr||c.zkr||"TV"; return (c.zkr||"JAZ")+(c.cj?("-"+c.cj):""); }
 function chip(c){ var lb=cellLabel(c), cl=cellClass(c);
   var stl=(c.blok==="predmet"&&c.uk)?(' style="color:'+ucColor(c.uk)+'"'):"";
-  return '<span class="b '+cl+'" data-ci="'+(DET.push(c)-1)+'"'+stl+' title="'+esc((c.pred||c.zkr||"")+(c.ucitel?(" · "+c.ucitel):"")+(c.mist?(" · "+c.mist):""))+'">'+esc(c.blok==="jazyky"?"JAZ":lb)+'</span>'; }
+  return '<span class="b '+cl+'" data-ci="'+(DET.push(c)-1)+'"'+stl+' title="'+esc((c.pred||c.zkr||"")+(c.ucitel?(" · "+c.ucitel):"")+(c.mist?(" · "+c.mist):""))+'">'+esc(c.blok==="jazyky"?((c.zkr||"JAZ")+(c.cj?("-"+c.cj):"")):lb)+'</span>'; }
 function tchip(c){ // pohled učitele: předmět + třída + učebna
-  var p=c.predzkr||((c.pred||"").split(" ")[0]); if(c.blok==="tv")p="TV"; if(c.blok==="jazyky")p=(c.zkr||"JAZ");
+  var p=c.predzkr||((c.pred||"").split(" ")[0]); if(c.blok==="tv")p="TV"; if(c.blok==="jazyky")p=(c.zkr||"JAZ")+(c.cj?("-"+c.cj):"");
   var tr=(c.tridy||[]).join(","); var lb=p+(c.zkr&&c.blok==="predmet"?(" "+c.zkr):"")+(tr?(" "+tr):"")+(c.mist?(" "+c.mist):"");
   return '<span class="b '+cellClass(c)+'" data-ci="'+(DET.push(c)-1)+'" title="'+esc((c.pred||"")+" · "+tr+(c.mist?(" · "+c.mist):""))+'">'+esc(lb)+'</span>'; }
 function gridCellTrida(arr){

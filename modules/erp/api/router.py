@@ -23944,7 +23944,8 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]})
             if isinstance(r, dict) and r.get("ok"):
                 unc = "\\\\EC-SERVER2\\Data\\ZZ_Marti-AI RW\\" + rw_dest.replace("/", "\\")
-                return JSONResponse({"ok": True, "wrote": rw_dest, "bytes": len(data), "unc": unc})
+                return JSONResponse({"ok": True, "columns": ["soubor", "bytes", "unc"],
+                                     "rows": [[rw_dest, len(data), unc]], "count": 1})
             return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "zápis na RW selhal")})
         # @@FILES PUTREPODIR <rw_dest_dir> <repo_rel_dir>  — zkopíruje všechny soubory ze složky
         if op == "PUTREPODIR":
@@ -23976,11 +23977,12 @@ async def diag_sql(req: Request) -> JSONResponse:
                                              conversation_id=None)
                     rr = _jf.loads(raw) if isinstance(raw, str) else raw
                     if isinstance(rr, dict) and rr.get("ok"):
-                        done.append([fn, len(data)])
+                        done.append([fn, len(data), "OK"])
                     else:
-                        errs.append([fn, str(rr.get("error") if isinstance(rr, dict) else rr)[:80]])
-                return JSONResponse({"ok": not errs, "rw_dir": rw_dir,
-                                     "wrote": done, "count": len(done), "errors": errs})
+                        done.append([fn, len(data), "ERR: " + str(rr.get("error") if isinstance(rr, dict) else rr)[:60]])
+                        errs.append(fn)
+                return JSONResponse({"ok": not errs, "columns": ["soubor", "bytes", "stav"],
+                                     "rows": done, "count": len(done)})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]})
         if op not in ("LIST", "READ") or not path:

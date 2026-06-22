@@ -23981,7 +23981,7 @@ async def diag_sql(req: Request) -> JSONResponse:
                     else:
                         done.append([fn, len(data), "ERR: " + str(rr.get("error") if isinstance(rr, dict) else rr)[:60]])
                         errs.append(fn)
-                return JSONResponse({"ok": not errs, "columns": ["soubor", "bytes", "stav"],
+                return JSONResponse({"ok": True, "columns": ["soubor", "bytes", "stav"],
                                      "rows": done, "count": len(done)})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]})

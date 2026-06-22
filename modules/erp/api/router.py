@@ -23913,8 +23913,78 @@ async def diag_sql(req: Request) -> JSONResponse:
         parts = sql.split(None, 2)
         op = (parts[1].upper() if len(parts) > 1 else "")
         path = (parts[2].strip() if len(parts) > 2 else "")
+        # @@FILES PUTREPO <rw_dest_path> <repo_rel_src>
+        #   Zkopíruje JIŽ COMMITNUTÝ soubor z repo working-dir cloudu na EUROSOFT
+        #   RW share (ZZ_Marti-AI RW/...) přes MCP file_write. Binárka neteče bridgem.
+        #   Pro zpřístupnění souborů Marti-AI (čte z RW zóny). Marti+Kristý 22.6.2026.
+        if op == "PUTREPO":
+            import os as _osf, base64 as _b64f
+            a = path.split(None, 1)
+            if len(a) < 2:
+                return JSONResponse({"ok": False, "error": "@@FILES PUTREPO <rw_dest> <repo_src>"})
+            rw_dest, repo_src = a[0].strip().lstrip("/"), a[1].strip()
+            repo_root = _op.abspath(_op.join(_op.dirname(__file__), "..", "..", ".."))
+            src_abs = _op.normpath(_op.join(repo_root, repo_src))
+            if not src_abs.startswith(repo_root) or not _op.isfile(src_abs):
+                return JSONResponse({"ok": False, "error": "repo soubor nenalezen: " + repo_src})
+            try:
+                with open(src_abs, "rb") as _fh:
+                    data = _fh.read()
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
+                                         {"user_namespace": "rw", "path": rw_dest,
+                                          "content": _b64f.b64encode(data).decode("ascii"),
+                                          "encoding": "base64", "mode": "overwrite"},
+                                         conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]})
+            if isinstance(r, dict) and r.get("ok"):
+                unc = "\\\\EC-SERVER2\\Data\\ZZ_Marti-AI RW\\" + rw_dest.replace("/", "\\")
+                return JSONResponse({"ok": True, "wrote": rw_dest, "bytes": len(data), "unc": unc})
+            return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "zápis na RW selhal")})
+        # @@FILES PUTREPODIR <rw_dest_dir> <repo_rel_dir>  — zkopíruje všechny soubory ze složky
+        if op == "PUTREPODIR":
+            import os as _osd, base64 as _b64d
+            a = path.split(None, 1)
+            if len(a) < 2:
+                return JSONResponse({"ok": False, "error": "@@FILES PUTREPODIR <rw_dir> <repo_dir>"})
+            rw_dir, repo_dir = a[0].strip().lstrip("/").rstrip("/"), a[1].strip()
+            repo_root = _op.abspath(_op.join(_op.dirname(__file__), "..", "..", ".."))
+            src_dir = _op.normpath(_op.join(repo_root, repo_dir))
+            if not src_dir.startswith(repo_root) or not _op.isdir(src_dir):
+                return JSONResponse({"ok": False, "error": "repo složka nenalezena: " + repo_dir})
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                done, errs = [], []
+                for fn in sorted(_osd.listdir(src_dir)):
+                    fp = _op.join(src_dir, fn)
+                    if not _op.isfile(fp):
+                        continue
+                    with open(fp, "rb") as _fh:
+                        data = _fh.read()
+                    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
+                                             {"user_namespace": "rw", "path": rw_dir + "/" + fn,
+                                              "content": _b64d.b64encode(data).decode("ascii"),
+                                              "encoding": "base64", "mode": "overwrite"},
+                                             conversation_id=None)
+                    rr = _jf.loads(raw) if isinstance(raw, str) else raw
+                    if isinstance(rr, dict) and rr.get("ok"):
+                        done.append([fn, len(data)])
+                    else:
+                        errs.append([fn, str(rr.get("error") if isinstance(rr, dict) else rr)[:80]])
+                return JSONResponse({"ok": not errs, "rw_dir": rw_dir,
+                                     "wrote": done, "count": len(done), "errors": errs})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]})
         if op not in ("LIST", "READ") or not path:
-            return JSONResponse({"ok": False, "error": "@@FILES LIST|READ <cesta>"})
+            return JSONResponse({"ok": False, "error": "@@FILES LIST|READ|PUTREPO|PUTREPODIR <cesta>"})
         try:
             from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
             mcp = get_eurosoft_mcp_client()

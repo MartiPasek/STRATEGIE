@@ -104,6 +104,7 @@ function render(jobs){
       +'<div class="r1"><span class="nm">'+esc(j.label)+'</span><span class="grp">'+esc(j.grp||'')+'</span>'+badge(j)+'</div>'
       +'<div class="meta">Naposledy: <span class="'+ageCls(j.age_min)+'">'+(j.last_run?esc(j.last_run):'nikdy')+(j.age_min!=null?(' · před '+ageTxt(j.age_min)):'')+'</span>'
       +' · řádků: <b>'+(j.last_rows!=null?Number(j.last_rows).toLocaleString("cs-CZ"):'—')+'</b>'
+      +((!j.running&&j.last_status==="ok"&&Number(j.last_rows)===0)?' <span class="age-g">(aktuální — beze změny)</span>':'')
       +' · příště: '+(j.enabled?esc(j.next_run||'—'):'—')+'</div>'
       +'<div class="res'+(j.last_status==="chyba"?' err':'')+'">'+esc(j.last_result||'')+'</div>'
       +'<div class="acts">'

@@ -49,11 +49,26 @@ function api(p){return fetch(p,{credentials:"include"}).then(function(r){
   if(!r.ok){var m=r.status===403?"Bankovní sekci vidí jen účetní (Petra) a vedení.":(r.status===401?"Nejsi přihlášen.":"Chyba HTTP "+r.status);return{ok:false,error:m};}
   return r.json();}).catch(function(){return{ok:false,error:"Spojení se serverem selhalo."};});}
 var V=document.getElementById("view");
-var TABS=[["prehled","📊 Přehled"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["nastroje","🔧 Nástroje"]];
+var TABS=[["prehled","📊 Přehled"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["mustr","📐 Mustr 2025"],["nastroje","🔧 Nástroje"]];
 var cur="prehled";
 function renderTabs(){document.getElementById("tabs").innerHTML=TABS.map(function(t){return '<button class="tab'+(t[0]===cur?' on':'')+'" data-t="'+t[0]+'">'+t[1]+'</button>';}).join("");
   Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.onclick=function(){cur=b.getAttribute("data-t");renderTabs();load();};});}
-function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,ucty:tUcty,vypisy:tVypisy,nastroje:tNastroje}[cur])();}
+function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,ucty:tUcty,vypisy:tVypisy,mustr:tMustr,nastroje:tNastroje}[cur])();}
+
+function tMustr(sbornik){api("/api/v1/erp/app/uctovani/vzor"+(sbornik?("?sbornik="+encodeURIComponent(sbornik)):"")).then(function(j){
+  if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+  var h='<div class="sub">Uzavřený rok <b>'+j.rok+'</b> = zdroj pravdy. Takto se reálně účtovalo — mustr pro účtování běžného roku. Celkem '+fmt(j.celkem_radku)+' řádků, '+kc(j.celkem_suma)+'.</div>';
+  if(!j.celkem_radku){h+='<div class="hint">Deník '+j.rok+' zatím není zrcadlený — spusť v Nástrojích / plánovači „sync_ec_denik".</div>';V.innerHTML=h;return;}
+  h+=(sbornik?'<button class="back" id="bk">← Všechny sborníky</button>':'');
+  h+='<div class="sec">Sborníky (knihy deníku) '+j.rok+'</div><table><tr><th>Kód</th><th>Název</th><th class="r">Řádků</th><th class="r">Dokladů</th><th class="r">Suma MD</th></tr>';
+  (j.sborniky||[]).forEach(function(b){h+='<tr class="clik" data-sb="'+esc(b.sbornik||"")+'"><td>'+esc(b.sbornik||"")+'</td><td>'+esc(b.nazev||"")+'</td><td class="r">'+fmt(b.n)+'</td><td class="r">'+fmt(b.dok)+'</td><td class="r">'+kc(b.suma)+'</td></tr>';});
+  h+='</table>';
+  h+='<div class="sec">Mustr — kombinace účtů MD / DAL'+(sbornik?(" ve sborníku "+esc(sbornik)):"")+' (dle četnosti)</div><table><tr><th>Sborník</th><th>MD</th><th>DAL</th><th class="r">Počet</th><th class="r">Suma</th></tr>';
+  (j.vzory||[]).forEach(function(v){h+='<tr><td>'+esc(v.sbornik||"")+'</td><td>'+esc(v.ucet_md||"")+'</td><td>'+esc(v.ucet_dal||"")+'</td><td class="r">'+fmt(v.n)+'</td><td class="r">'+kc(v.suma)+'</td></tr>';});
+  h+='</table>';
+  V.innerHTML=h;
+  var bk=document.getElementById("bk"); if(bk)bk.onclick=function(){tMustr();};
+  Array.prototype.forEach.call(V.querySelectorAll("tr.clik"),function(tr){tr.onclick=function(){tMustr(tr.getAttribute("data-sb"));};});});}
 
 function tPrehled(){api("/api/v1/erp/app/banka/prehled").then(function(j){
   if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}

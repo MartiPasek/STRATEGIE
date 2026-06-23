@@ -18797,6 +18797,7 @@ def _mirror_run_job(job_key):
         "sync_ec_banka": lambda: _sync_ec_banka(),
         "sync_ec_banka_delta": lambda: _sync_ec_banka(delta_days=90),
         "sync_ec_saldo": lambda: _sync_ec_saldo(),
+        "sync_ec_denik": lambda: _sync_ec_denik(rok=2025),
         "sync_edi_definice": lambda: _sync_edi_definice(),
         # přesunuto z ⚙ Ops akcí do řídícího centra (Marti 20.6.2026)
         "sync_zakazky": lambda: _sync_zakazky_from_helios(),
@@ -21620,6 +21621,46 @@ def banka_vypis_radky(vid: int, req: Request):
             "LEFT(datum_splatnosti::text,10) ds, COALESCE(pocet_uhrad,0) pu, cislo_zakazky, doklad, popis_platby "
             "FROM tenant.ec_bank_vypis_radek WHERE id_hlava=:v ORDER BY cislo_radku"), {"v": vid}).mappings().all()
         return {"ok": True, "hlavicka": dict(hl) if hl else None, "radky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/uctovani/vzor")
+def uctovani_vzor(req: Request):
+    """MUSTR z uzavřeného roku (zdroj pravdy): jak se reálně účtovalo — kombinace účtů
+    MD/DAL per sborník (+ četnost, suma). Šablona pro účtování běžného roku. ?rok= ?sbornik=."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        rok = int(req.query_params.get("rok") or 2025)
+    except Exception:
+        rok = 2025
+    sbornik = (req.query_params.get("sbornik") or "").strip()
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        sb = s.execute(_t(
+            "SELECT d.sbornik, COALESCE(sb.nazev,'') nazev, COUNT(*) n, "
+            "COUNT(DISTINCT d.cislo_dokladu) dok, ROUND(COALESCE(SUM(d.castka_md),0)) suma "
+            "FROM tenant.ec_denik d "
+            "LEFT JOIN tenant.ucet_sbornik sb ON sb.kod=d.sbornik "
+            "WHERE d.rok=:r AND NOT COALESCE(d.storno,false) "
+            "GROUP BY d.sbornik, sb.nazev ORDER BY d.sbornik"), {"r": rok}).mappings().all()
+        where = "rok=:r AND NOT COALESCE(storno,false) AND COALESCE(ucet_md,'')<>'' AND COALESCE(ucet_dal,'')<>''"
+        params = {"r": rok}
+        if sbornik:
+            where += " AND sbornik=:sb"
+            params["sb"] = sbornik
+        vz = s.execute(_t(
+            "SELECT sbornik, ucet_md, ucet_dal, COUNT(*) n, ROUND(COALESCE(SUM(castka_md),0)) suma "
+            "FROM tenant.ec_denik WHERE " + where +
+            " GROUP BY sbornik, ucet_md, ucet_dal ORDER BY n DESC LIMIT 300"), params).mappings().all()
+        celk = s.execute(_t("SELECT COUNT(*) n, ROUND(COALESCE(SUM(castka_md),0)) suma FROM tenant.ec_denik "
+                            "WHERE rok=:r AND NOT COALESCE(storno,false)"), {"r": rok}).first()
+        return {"ok": True, "rok": rok, "celkem_radku": int(celk[0] or 0), "celkem_suma": float(celk[1] or 0),
+                "sborniky": [dict(x) for x in sb], "vzory": [dict(x) for x in vz]}
     finally:
         s.close()
 
@@ -27155,6 +27196,119 @@ def _sync_ec_banka(_unused=None, delta_days=None) -> dict:
         _, p3 = get_wm("TabBankVypisRUhrady"); _, p4 = get_wm("TabUhrady")
         done = all(x == "done" for x in (p1, p2, p3, p4))
         return {"ok": True, "done": done, **res}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_denik(_unused=None, rok=2025) -> dict:
+    """Marti 23.6.2026: zrcadlo účetního DENÍKU uzavřeného roku = ZDROJ PRAVDY + MUSTR
+    pro párování/účtování běžného roku. TabDenik WHERE DatumPripad_Y=rok, watermark per Id.
+    Denormalizované UcetMD/UcetDAL na řádku → mustr = agregace (sbornik × MD × DAL)."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    rok = int(rok or 2025)
+    BLOCK = 4000
+    WK = "TabDenik#%d" % rok
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        row = s.execute(_t("SELECT last_rowversion,last_note FROM tenant.ec_mirror_state WHERE src_table=:t"),
+                        {"t": WK}).first()
+        lastid = 0
+        if row and row[0]:
+            try:
+                lastid = int(row[0])
+            except (TypeError, ValueError):
+                lastid = 0
+        ph = row[1] if row else None
+        n = 0
+        while ph != "done":
+            batch = rows_of(
+                "SELECT TOP %d Id, Sbornik, CisloDokladu, CisloRadku, CeleCislo, "
+                "CONVERT(varchar(10),DatumPripad,120) dp, CONVERT(varchar(10),DatumDUZP,120) dz, "
+                "CisloUcet, UcetMD, UcetDAL, Strana, Castka, CastkaMD, CastkaDAL, Mena, CisloOrg, "
+                "RTRIM(CisloZakazky) CisloZakazky, Utvar, Popis, ParovaciZnak, SazbaDane, ZakladDane, "
+                "CastkaDane, CAST(Storno AS int) Storno, CONVERT(varchar(19),DatPorizeni,120) dpor "
+                "FROM TabDenik WHERE DatumPripad_Y=%d AND Id>%d ORDER BY Id" % (BLOCK, rok, lastid))
+            if not batch:
+                s.execute(_t("INSERT INTO tenant.ec_mirror_state(src_table,last_rowversion,last_sync_at,last_note) "
+                             "VALUES(:t,:w,now(),'done') ON CONFLICT (src_table) DO UPDATE SET "
+                             "last_rowversion=:w,last_sync_at=now(),last_note='done'"), {"t": WK, "w": str(lastid)})
+                s.commit()
+                break
+            for r in batch:
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_denik (src_id,tenant_id,rok,sbornik,cislo_dokladu,cislo_radku,cele_cislo,"
+                    "datum_pripad,datum_duzp,ucet,ucet_md,ucet_dal,strana,castka,castka_md,castka_dal,mena,cislo_org,"
+                    "cislo_zakazky,utvar,popis,parovaci_znak,sazba_dane,zaklad_dane,castka_dane,storno,dat_porizeni,synced_at) "
+                    "VALUES (:i,2,:rok,:sb,:cd,:cr,:cc,:dp,:dz,:uc,:md,:dal,:str,:ca,:cmd,:cdal,:me,:co,:zak,:ut,:po,:pz,:sd,:zd,:cda,:sto,:dpor,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET ucet_md=excluded.ucet_md,ucet_dal=excluded.ucet_dal,"
+                    "castka=excluded.castka,storno=excluded.storno,parovaci_znak=excluded.parovaci_znak,synced_at=now()"),
+                    {"i": i2(r.get("Id")), "rok": rok, "sb": s2(r.get("Sbornik")), "cd": i2(r.get("CisloDokladu")),
+                     "cr": i2(r.get("CisloRadku")), "cc": s2(r.get("CeleCislo")), "dp": s2(r.get("dp")), "dz": s2(r.get("dz")),
+                     "uc": s2(r.get("CisloUcet")), "md": s2(r.get("UcetMD")), "dal": s2(r.get("UcetDAL")),
+                     "str": i2(r.get("Strana")), "ca": num(r.get("Castka")), "cmd": num(r.get("CastkaMD")),
+                     "cdal": num(r.get("CastkaDAL")), "me": s2(r.get("Mena")), "co": i2(r.get("CisloOrg")),
+                     "zak": s2(r.get("CisloZakazky")), "ut": s2(r.get("Utvar")), "po": s2(r.get("Popis")),
+                     "pz": s2(r.get("ParovaciZnak")), "sd": num(r.get("SazbaDane")), "zd": num(r.get("ZakladDane")),
+                     "cda": num(r.get("CastkaDane")), "sto": (i2(r.get("Storno")) == 1), "dpor": s2(r.get("dpor"))})
+                lastid = i2(r.get("Id")) or lastid
+            n += len(batch)
+            s.execute(_t("INSERT INTO tenant.ec_mirror_state(src_table,last_rowversion,last_sync_at,last_note) "
+                         "VALUES(:t,:w,now(),'run') ON CONFLICT (src_table) DO UPDATE SET "
+                         "last_rowversion=:w,last_sync_at=now(),last_note='run'"), {"t": WK, "w": str(lastid)})
+            s.commit()
+            if len(batch) < BLOCK:
+                s.execute(_t("UPDATE tenant.ec_mirror_state SET last_note='done' WHERE src_table=:t"), {"t": WK})
+                s.commit()
+                break
+        done_row = s.execute(_t("SELECT last_note FROM tenant.ec_mirror_state WHERE src_table=:t"), {"t": WK}).first()
+        return {"ok": True, "done": (done_row and done_row[0] == "done"), "rok": rok, "radky": n}
     except Exception:
         s.rollback()
         raise

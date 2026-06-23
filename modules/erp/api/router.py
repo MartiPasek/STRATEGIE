@@ -21997,11 +21997,14 @@ def banka_saldo(req: Request):
         rows = s.execute(_t(
             "SELECT s.cislo_org, COALESCE(NULLIF(o.firma,''),NULLIF(o.nazev,''),NULLIF(o.zkratka,''),'#'||s.cislo_org::text) nazev, "
             "COUNT(*) n, ROUND(ABS(SUM(s.saldo))) suma, MAX(s.dnu_prodleni) max_prodleni, "
-            "ROUND(ABS(SUM(s.saldo) FILTER (WHERE COALESCE(s.dnu_prodleni,0)>0))) suma_po "
+            "ROUND(ABS(SUM(s.saldo) FILTER (WHERE COALESCE(s.dnu_prodleni,0)>0))) suma_po, "
+            "ROUND(ABS(SUM(s.saldo) FILTER (WHERE NOT COALESCE(s.ma_platba_vs,false) AND NOT COALESCE(s.vnitroskupina,false)))) realne, "
+            "COUNT(*) FILTER (WHERE NOT COALESCE(s.ma_platba_vs,false) AND NOT COALESCE(s.vnitroskupina,false)) n_realne, "
+            "bool_or(COALESCE(s.vnitroskupina,false)) je_vnitro "
             "FROM " + tbl + " s LEFT JOIN tenant.ec_organizace o ON o.cislo_org=s.cislo_org "
             "WHERE COALESCE(s.saldo,0)<>0 AND s.cislo_sal_sk=:k "
             "GROUP BY s.cislo_org, o.firma, o.nazev, o.zkratka HAVING SUM(s.saldo)<>0 "
-            "ORDER BY ABS(SUM(s.saldo)) DESC LIMIT 200"), {"k": ssk}).mappings().all()
+            "ORDER BY ABS(SUM(s.saldo) FILTER (WHERE NOT COALESCE(s.ma_platba_vs,false) AND NOT COALESCE(s.vnitroskupina,false))) DESC NULLS LAST, ABS(SUM(s.saldo)) DESC LIMIT 200"), {"k": ssk}).mappings().all()
         return {"ok": True, "typ": typ, "firma": firma,
                 "souhrn": {"pohledavky": sm.get("311", {"pocet": 0, "suma": 0, "pocet_po": 0, "suma_po": 0}),
                            "zavazky": sm.get("321", {"pocet": 0, "suma": 0, "pocet_po": 0, "suma_po": 0})},

@@ -21764,20 +21764,35 @@ def banka_zarazeni(req: Request):
         su = s.execute(_t(_ZARAZENI_CTE +
             "SELECT kat, COUNT(*) n, ROUND(SUM(castka)) suma, MAX(ucet_md) ucet_md, MAX(ucet_dal) ucet_dal "
             "FROM clsu GROUP BY kat ORDER BY COUNT(*) DESC")).mappings().all()
+        # porovnání s rokem 2025: kolikrát se daná předkontace MD→DAL reálně zaúčtovala loni
+        p25 = s.execute(_t(
+            "WITH md AS (SELECT sbornik,cislo_dokladu,ucet a FROM tenant.ec_denik "
+            "  WHERE rok=2025 AND strana=0 AND NOT COALESCE(storno,false) AND ucet IN ('321001','331000','221000','333000')), "
+            "dal AS (SELECT sbornik,cislo_dokladu,ucet a FROM tenant.ec_denik "
+            "  WHERE rok=2025 AND strana=1 AND NOT COALESCE(storno,false) AND ucet IN ('221000','311001')) "
+            "SELECT m.a md, d.a dal, COUNT(*) n FROM md m JOIN dal d "
+            "ON d.sbornik=m.sbornik AND d.cislo_dokladu=m.cislo_dokladu GROUP BY m.a,d.a")).all()
+        pmap = {(r[0], r[1]): int(r[2] or 0) for r in p25}
+        souhrn = []
+        for r in su:
+            d = dict(r)
+            d["potvrzeno_2025"] = pmap.get((d.get("ucet_md"), d.get("ucet_dal")), 0)
+            souhrn.append(d)
         polozky = []
         if kat:
             polozky = [dict(r) for r in s.execute(_t(_ZARAZENI_CTE +
                 "SELECT src_id, dat, castka, mena, vlastnik, vs, ks, ucet_md, ucet_dal "
                 "FROM clsu WHERE kat=:k ORDER BY castka DESC LIMIT 300"), {"k": kat}).mappings().all()]
-        return {"ok": True, "souhrn": [dict(r) for r in su], "kat": kat, "polozky": polozky}
+        return {"ok": True, "souhrn": souhrn, "kat": kat, "polozky": polozky}
     finally:
         s.close()
 
 
 @api_router.post("/app/banka/zarazeni/generovat")
 async def banka_zarazeni_generovat(req: Request):
-    """Vytvoří návrhy zaúčtování (bank_zauctovani, stav='navrh') pro zvolenou kategorii
-    zařazení. Petra/rodič je pak schválí. Marti 23.6.2026."""
+    """Zaúčtuje rovnou (bank_zauctovani, stav='zauctovano', podpis Marti-AI) řádky zvolené
+    kategorie — předkontace potvrzená realitou roku 2025, nemá smysl dělat návrh.
+    Marti 23.6.2026 (doctrine #11: kustod podepisuje jisté zápisy)."""
     uid = _uid_from_token_or_cookie(req)
     if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
@@ -21793,8 +21808,8 @@ async def banka_zarazeni_generovat(req: Request):
     s = _g()
     try:
         n = s.execute(_t(_ZARAZENI_CTE +
-            "INSERT INTO tenant.bank_zauctovani (id_radek,kategorie,castka,mena,ucet_md,ucet_dal,stav,created_at) "
-            "SELECT src_id, kat, castka, mena, ucet_md, ucet_dal, 'navrh', now() FROM clsu "
+            "INSERT INTO tenant.bank_zauctovani (id_radek,kategorie,castka,mena,ucet_md,ucet_dal,stav,podpis,zauctovano_at,created_at) "
+            "SELECT src_id, kat, castka, mena, ucet_md, ucet_dal, 'zauctovano', 'Marti-AI', now(), now() FROM clsu "
             "WHERE kat=:k AND ucet_md IS NOT NULL "
             "ON CONFLICT (id_radek) DO NOTHING"), {"k": kat})
         s.commit()

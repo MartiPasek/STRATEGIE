@@ -68,17 +68,18 @@ function tZarazeni(katDetail){
   }
   api("/api/v1/erp/app/banka/zarazeni").then(function(j){
     if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
-    var h='<div class="sub">Letošní nezaúčtované platby zařazené podle <b>vlastníka účtu</b> → návrh předkontace. Mzdy (zaměstnanec + výplata) → 331/221 atd. „Vytvořit návrhy" je pošle do Návrhů zaúčtování ke schválení.</div>';
-    h+='<table><tr><th>Kategorie</th><th class="r">Počet</th><th class="r">Suma</th><th>Předkontace</th><th></th></tr>';
+    var h='<div class="sub">Letošní nezaúčtované platby zařazené podle <b>vlastníka účtu + pracovního vztahu</b> (OSVČ → dodavatel, ne mzda!). Předkontace je <b>porovnaná s rokem 2025</b> — kde realitu známe, účtuje se rovnou (podpis Marti‑AI), bez návrhu.</div>';
+    h+='<table><tr><th>Kategorie</th><th class="r">Počet</th><th class="r">Suma</th><th>Předkontace</th><th class="r">2025</th><th></th></tr>';
     (j.souhrn||[]).forEach(function(c){
       var pk=(c.ucet_md?(c.ucet_md+' / '+c.ucet_dal):'<span class="kmut" style="color:var(--mut)">— určí účetní —</span>');
-      var btn=_MAPABLE[c.kat]?('<button class="tab gen" data-k="'+esc(c.kat)+'">Vytvořit návrhy</button>'):'';
-      h+='<tr class="clik" data-kat="'+esc(c.kat)+'"><td>'+esc(c.kat)+'</td><td class="r">'+fmt(c.n)+'</td><td class="r">'+kc(c.suma)+'</td><td>'+pk+'</td><td>'+btn+'</td></tr>';
+      var p25=(c.potvrzeno_2025>0?('<span class="pill ok">✓ '+fmt(c.potvrzeno_2025)+'×</span>'):(c.ucet_md?'<span class="pill no">nové</span>':'—'));
+      var btn=_MAPABLE[c.kat]?('<button class="tab gen" data-k="'+esc(c.kat)+'">Zaúčtovat rovnou</button>'):'';
+      h+='<tr class="clik" data-kat="'+esc(c.kat)+'"><td>'+esc(c.kat)+'</td><td class="r">'+fmt(c.n)+'</td><td class="r">'+kc(c.suma)+'</td><td>'+pk+'</td><td class="r">'+p25+'</td><td>'+btn+'</td></tr>';
     });
-    h+='</table><div class="sub" style="margin-top:8px">Klik na kategorii → položky. Pozn.: účty u náhrad zaměstnancům doladí účetní (333 je orientační).</div>';
+    h+='</table><div class="sub" style="margin-top:8px">Sloupec 2025 = kolikrát se ta předkontace reálně zaúčtovala loni (potvrzení reality). Klik na kategorii → položky.</div>';
     V.innerHTML=h;
     Array.prototype.forEach.call(V.querySelectorAll(".gen"),function(b){b.onclick=function(e){e.stopPropagation();var k=b.getAttribute("data-k");b.textContent="…";
-      fetch("/api/v1/erp/app/banka/zarazeni/generovat",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({kat:k})}).then(function(r){return r.json();}).then(function(x){alert(x.ok?("Vytvořeno návrhů: "+x.vytvoreno+" — najdeš je v Návrhy párování → Zaúčtování."):("Chyba: "+(x.error||"")));tZarazeni();});};});
+      fetch("/api/v1/erp/app/banka/zarazeni/generovat",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({kat:k})}).then(function(r){return r.json();}).then(function(x){alert(x.ok?("Zaúčtováno rovnou: "+x.vytvoreno+" (podpis Marti‑AI). Najdeš v Účetnictví → Deník."):("Chyba: "+(x.error||"")));tZarazeni();});};});
     Array.prototype.forEach.call(V.querySelectorAll("tr.clik"),function(tr){tr.onclick=function(){tZarazeni(tr.getAttribute("data-kat"));};});
   });
 }

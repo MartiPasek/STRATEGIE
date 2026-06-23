@@ -26275,6 +26275,14 @@ _OPS_ACTIONS = {
         "label": "GDPR: anonymizovat staré uchazeče (lhůta 1 rok, ne smazání)",
         "target": "cloud", "remote": False,
     },
+    "sync_deti_preview": {
+        "label": "👨‍👩‍👧 Náhled migrace dětí (jen spočítat, NIC nezapíše)",
+        "target": "cloud", "remote": False,
+    },
+    "sync_deti": {
+        "label": "👨‍👩‍👧 Migrace dětí z Heliosu → osobní karty (ZÁPIS)",
+        "target": "cloud", "remote": False,
+    },
 }
 
 
@@ -29003,6 +29011,117 @@ def _sync_dochazka_sumaden(year: int = 2026) -> dict:
         cm.__exit__(None, None, None)
 
 
+def _sync_deti(preview: bool = False) -> dict:
+    """Marti/Kristý 23.6.2026: plošná migrace dětí/rodinných příslušníků z Helios
+    TabZamRPr (DB_EC = firma EC, DB_IS = firma ES) → tenant.user_self_child.
+    Mapování rodič→uživatel přes Cislo (TabCisZam.ID=ZamestnanecId → Cislo) →
+    tenant.att_employee.cislo_zam → user_id (ověřeno 0 kolizí). Dedup: poslední
+    IdObdobi per RodneCislo dítěte. Idempotentní: nevkládá, pokud uživatel už má
+    dítě se shodným RČ (normalizováno) — neduplikuje ani ručně zadané (Marti, Nina).
+    preview=True → jen spočítá (found/matched/unmatched/new/exists), NIC nezapíše.
+    RČ se NIKAM neloguje (jen normalizace v paměti pro dedup)."""
+    import json as _j
+    import re as _re
+    import time as _tm
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(db, _tries=4):
+        sql = (
+            "SELECT z.Jmeno jm, z.Prijmeni pr, z.RodneCislo rc, "
+            "CONVERT(varchar(10), z.DatumNarozeni, 23) dn, z.Vztah vz, c.Cislo pc "
+            "FROM [" + db + "].dbo.TabZamRPr z "
+            "JOIN [" + db + "].dbo.TabCisZam c ON c.ID = z.ZamestnanecId "
+            "JOIN (SELECT RodneCislo, MAX(IdObdobi) mx FROM [" + db + "].dbo.TabZamRPr "
+            "      WHERE RodneCislo IS NOT NULL AND RodneCislo <> '' GROUP BY RodneCislo) m "
+            "  ON m.RodneCislo = z.RodneCislo AND m.mx = z.IdObdobi"
+        )
+        last = None
+        for _i in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                if isinstance(r, list):
+                    return r
+                return []
+            except Exception as e:
+                last = e
+                _tm.sleep(1.5)
+        raise RuntimeError("MCP read selhalo (%s): %s" % (db, last))
+
+    def norm_rc(v):
+        return _re.sub(r"\D", "", str(v or ""))
+
+    # sběr z obou DB + dedup podle RČ dítěte (poslední vyhrává)
+    by_rc = {}
+    for db in ("DB_EC", "DB_IS"):
+        for row in rows_of(db):
+            rc = norm_rc(row.get("rc"))
+            if len(rc) < 6:
+                continue
+            by_rc[rc] = row
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    found = len(by_rc)
+    matched = unmatched = new = exists = 0
+    try:
+        umap = {}
+        for er in s.execute(_t("SELECT cislo_zam, max(user_id) FROM tenant.att_employee "
+                               "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():
+            umap[str(er[0]).strip()] = er[1]
+        for rc, row in by_rc.items():
+            uid = umap.get(str(row.get("pc") or "").strip())
+            if not uid:
+                unmatched += 1
+                continue
+            matched += 1
+            ex = s.execute(_t(
+                "SELECT 1 FROM tenant.user_self_child WHERE tenant_id=2 AND user_id=:u "
+                "AND regexp_replace(COALESCE(birth_number,''),'\\D','','g')=:rc LIMIT 1"),
+                {"u": uid, "rc": rc}).first()
+            if ex:
+                exists += 1
+                continue
+            new += 1
+            if preview:
+                continue
+            jm = str(row.get("jm") or "").strip()
+            pr = str(row.get("pr") or "").strip()
+            nm = (jm + " " + pr).strip() or "(dítě)"
+            vz = str(row.get("vz") or "").strip()
+            rel = "dítě" if vz in ("0", "") else "rodinný příslušník"
+            s.execute(_t(
+                "INSERT INTO tenant.user_self_child "
+                "(tenant_id, user_id, child_name, birth_date, birth_number, is_dependent, relation, note) "
+                "VALUES (2, :u, :nm, :bd, :rc, true, :rel, 'import Helios 23.6.2026')"),
+                {"u": uid, "nm": nm, "bd": (row.get("dn") or None),
+                 "rc": (str(row.get("rc") or "").strip() or None), "rel": rel})
+        if preview:
+            s.rollback()
+        else:
+            s.commit()
+        return {"ok": True, "found": found, "matched": matched, "unmatched": unmatched,
+                "new": new, "exists": exists, "preview": preview}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _att_anomaly_scan(notify: bool = True) -> dict:
     """Marti 7.6.2026: „systém si má všímat nestandardností a sám upozorňovat."
     Pravidla (z reálných nálezů — Petra: píchnuto v budoucnosti, 23h směny):
@@ -30416,6 +30535,20 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             out = _sync_odvozy_from_ec()
             status = "done"
             result = "odvozy: %s řádků" % out.get("synced")
+        elif action_key == "sync_deti_preview":
+            out = _sync_deti(preview=True)
+            status = "done"
+            result = ("NÁHLED dětí: nalezeno %s, napárováno %s, NEnapárováno %s "
+                      "→ k vložení %s nových (%s už existuje). Nic nezapsáno."
+                      % (out.get("found"), out.get("matched"), out.get("unmatched"),
+                         out.get("new"), out.get("exists")))
+        elif action_key == "sync_deti":
+            out = _sync_deti(preview=False)
+            status = "done"
+            result = ("Migrace dětí: vloženo %s nových (napárováno %s, NEnapárováno %s, "
+                      "už existovalo %s, celkem nalezeno %s)."
+                      % (out.get("new"), out.get("matched"), out.get("unmatched"),
+                         out.get("exists"), out.get("found")))
         else:
             status, result = "error", "cloud handler chybí pro %s" % action_key
     except Exception as exc:

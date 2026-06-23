@@ -18943,6 +18943,24 @@ async def mirror_run(req: Request):
     jk = (str(b.get("job_key") or "").strip())
     if not jk:
         return JSONResponse({"ok": False, "error": "chybí job_key"}, status_code=400)
+    # inline: spusť ihned v tomto procesu (obejde plánovač na stale blue-green sekundáru)
+    if b.get("inline"):
+        try:
+            ok, done, rows, msg = _mirror_run_job(jk)
+            from core.database_data import get_data_session as _g2
+            from sqlalchemy import text as _t2
+            s2 = _g2()
+            try:
+                s2.execute(_t2("UPDATE fw.mirror_job SET last_run_at=now(), last_status=:st, "
+                               "last_result=:r, last_rows=:n, last_done=:d, updated_at=now() WHERE job_key=:k"),
+                           {"st": ("ok" if ok else "chyba"), "r": str(msg)[:400], "n": (rows or 0),
+                            "d": bool(done), "k": jk})
+                s2.commit()
+            finally:
+                s2.close()
+            return {"ok": ok, "done": done, "rows": rows, "msg": msg}
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()

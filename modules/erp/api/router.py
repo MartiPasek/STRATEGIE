@@ -30725,6 +30725,10 @@ _MIGRACE_STEPS = {
          "when": "3) Při změně smluv / mzdových složek (jinak stačí 1× za období)."},
         {"key": "sync_priplatky",
          "when": "4) Měsíčně k aktuálnímu období — příplatky a srážky."},
+        {"key": "sync_deti_preview",
+         "when": "Děti do osobních karet — NEJDŘÍV Náhled (jen spočítá, NIC nezapíše)."},
+        {"key": "sync_deti",
+         "when": "Děti do osobních karet — ZÁPIS (až po kontrole náhledu). Idempotentní, neduplikuje."},
     ],
 }
 

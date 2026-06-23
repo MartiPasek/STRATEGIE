@@ -1441,6 +1441,7 @@ setTimeout(function(){
     g.appendChild(appCell("🪞","Zrcadla",0,function(){openInApp("/zrcadla");}));
     g.appendChild(appCell("🏦","Banka",0,function(){openInApp("/banka");}));
     g.appendChild(appCell("🛒","Nákup",0,function(){openInApp("/nakup");}));
+    g.appendChild(appCell("🔒","HR",0,function(){go("hr_hub");}));
     g.appendChild(appCell("📊","Statistika EDI",0,function(){openInApp("/edi-stat");}));
     g.appendChild(appCell("🧩","EDI definice",0,function(){openInApp("/edi-definice");}));
     g.appendChild(appCell("🧾","Přefakturace",0,function(){go("prefakturace");}));
@@ -1501,7 +1502,7 @@ setTimeout(function(){
     app.appendChild(g1);
     sec("PERSONALISTIKA");
     var g2=el('<div class="appgrid"></div>');
-    g2.appendChild(appCell("🔒","HR",0,function(){go("hr");}));
+    g2.appendChild(appCell("🔒","HR",0,function(){go("hr_hub");}));
     g2.appendChild(appCell("🧲","Nábor",0,function(){go("hr_nabor");}));
     g2.appendChild(appCell("📊","Produktivita",0,function(){go("kara");}));
     app.appendChild(g2);
@@ -2037,6 +2038,59 @@ setTimeout(function(){
     p.innerHTML='<div style="font-size:18px;font-weight:800;margin-bottom:6px;">🚧 '+esc(window._soonT||"")+'</div>'
       +'<div class="hint" style="line-height:1.6;">'+esc(window._soonD||"Tato část je v přípravě — kostra hotová, obsah doplníme.")+'</div>';
     app.appendChild(p);
+  }
+  // 👥 HR hub pro Šárku (Marti 23.6.2026) — vzor sekce Vedení: nadpisy skupin + ikonky.
+  // Šárčina sekce, s Claudem-25 si ji upravuje. Server-side ACL _hr_can_manage (rodiče + HR skupina).
+  function hr_hub(){
+    app.innerHTML=topbar("👥 HR — personalistika", true);
+    app.appendChild(el('<div class="hint" style="margin:6px 6px 2px;line-height:1.6;">Tvoje sekce, Šárko — celá personalistika na jednom místě. Bloky: interní lidé, nábor, docházka a absence, nemoc/OČR, mzdy a dokumenty, přístupy. S Claudem‑25 si ji můžeš upravovat a doplňovat.</div>'));
+    var _nb=null;
+    var kpi=el('<div id="hrKpi" style="display:flex;gap:8px;margin:8px 2px 2px;"></div>'); app.appendChild(kpi);
+    function kc(lbl,val,col){ return '<div style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:10px 6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:'+col+';">'+(val==null?"…":val)+'</div><div style="font-size:10.5px;color:var(--mut);line-height:1.2;margin-top:2px;">'+lbl+'</div></div>'; }
+    function drawKpi(){ kpi.innerHTML=kc("Nábor — kandidáti",_nb,"#a78bfa"); }
+    drawKpi();
+    api("GET","/api/v1/erp/app/recruit/pipeline","").then(function(j){ if(j&&j.ok){ _nb=j.candidates; drawKpi(); } else { kpi.style.display="none"; } });
+    function s(t){ app.appendChild(el('<div style="margin:14px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
+    s("INTERNÍ PERSONALISTIKA");
+    var g1=el('<div class="appgrid"></div>');
+    g1.appendChild(appCell("🏛️","Firma",0,function(){go("hr_firma");}));
+    g1.appendChild(appCell("👥","Skupiny",0,function(){go("hr_skupiny");}));
+    g1.appendChild(appCell("📋","Podmínky",0,function(){go("hr_podminky");}));
+    g1.appendChild(appCell("🪪","Lidé — složky",0,function(){go("hr_people");}));
+    g1.appendChild(appCell("🧩","Režimy",0,function(){go("hr_rezimy");}));
+    app.appendChild(g1);
+    s("NÁBOR (externí)");
+    var g2=el('<div class="appgrid"></div>');
+    g2.appendChild(appCell("🧲","Nábor",0,function(){go("hr_nabor");}));
+    g2.appendChild(appCell("👤","Kandidáti",0,function(){window._nbFilter={phase:"",title:"👤 Kandidáti"};go("hr_nabor_list");}));
+    g2.appendChild(appCell("💬","Pohovory",0,function(){window._nbFilter={phase:"active",title:"💬 Pohovory — ve hře"};go("hr_nabor_list");}));
+    g2.appendChild(appCell("📨","Nástupy",0,function(){window._nbFilter={phase:"hired",title:"📨 Nástupy"};go("hr_nabor_list");}));
+    g2.appendChild(appCell("📣","Inzeráty",0,function(){go("hr_inzeraty");}));
+    app.appendChild(g2);
+    s("DOCHÁZKA & ABSENCE");
+    var g3=el('<div class="appgrid"></div>');
+    g3.appendChild(appCell("👀","Kdo kde dnes",0,function(){go("kdekdo");}));
+    g3.appendChild(appCell("🗓️","Absence — schvalování",0,function(){go("absence");}));
+    g3.appendChild(appCell("🗓️","Zdroj docházky",0,function(){go("hr_att_source");}));
+    g3.appendChild(appCell("📥","Import z EUROSOFTu",0,function(){go("hr_import");}));
+    app.appendChild(g3);
+    s("NEMOC · OČR · LÉKAŘ");
+    var g4=el('<div class="appgrid"></div>');
+    g4.appendChild(appCell("🤒","Nemocenská",0,function(){go("sick_schval");}));
+    g4.appendChild(appCell("🧑‍⚕️","Ošetřovné (OČR)",0,function(){go("ocr_schval");}));
+    g4.appendChild(appCell("🩺","Lístečky lékař",0,function(){go("med_schval");}));
+    g4.appendChild(appCell("📋","Nemoc/OČR přehled",0,function(){go("np_prehled");}));
+    app.appendChild(g4);
+    s("MZDY & DOKUMENTY");
+    var g5=el('<div class="appgrid"></div>');
+    g5.appendChild(appCell("🏦","Uzávěrka konta",0,function(){go("hr_konto");}));
+    g5.appendChild(appCell("📄","Generovat dokument",0,function(){go("doc_gen");}));
+    g5.appendChild(appCell("💰","Mzdy: Helios × my",0,function(){go("wage_cmp");}));
+    app.appendChild(g5);
+    s("PŘÍSTUPY");
+    var g6=el('<div class="appgrid"></div>');
+    g6.appendChild(appCell("🔑","Skupina HR — přístupy",0,function(){window._skFocusName='HR';go("skupiny");}));
+    app.appendChild(g6);
   }
   function hr(){
     app.innerHTML=topbar("🔒 HR — personalistika", true);
@@ -7710,7 +7764,7 @@ setTimeout(function(){
     else { render(z); }
   }
 
-  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek};
+  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr_hub:hr_hub,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek};
 
   function uceni(){
     app.innerHTML=topbar("⚡ Výuka",true);

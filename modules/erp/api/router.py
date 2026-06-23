@@ -18814,9 +18814,116 @@ _MIRROR_SCHED_STOP = [False]
 _MIRROR_SCHED_TASK = [None]
 
 
+_MIRROR_EC_AUTOR = "STRATEGIE"  # tag našich zrcadlených EC_Dochazka řádků (idempotence + reverzibilita)
+
+
+def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=False):
+    """Přechodové ZRCADLO docházky STRATEGIE → EUROSOFT Helios (Marti 23.6.2026).
+    Lidé, co píchají JEN ve STRATEGII (source_system IS NULL) a mají numerické EC číslo,
+    se propíšou do EC_Dochazka (záznam/den) + EC_Dochazka_SumaDen (souhrn/den), aby byli
+    vidět i ve starém systému. Idempotentní (přeskočí den, který už v EC existuje),
+    reverzibilní (EC_Dochazka.Autor='STRATEGIE'; SumaDen dle fw.att_ec_mirror_log), auditované.
+    test_one=zapiš max 1 den (validace write-kanálu); dry=jen spočítej, nezapisuj."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _j, datetime as _dt
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT ae.cislo_zam cz, e.entry_date dt, "
+            " to_char(MIN(e.started_at) AT TIME ZONE 'Europe/Prague','YYYY-MM-DD HH24:MI:SS') zac, "
+            " to_char(MAX(e.ended_at) AT TIME ZONE 'Europe/Prague','YYYY-MM-DD HH24:MI:SS') kon, "
+            " ROUND(SUM(COALESCE(e.hours,0))::numeric,2) hod, MAX(e.project_ref) zak, "
+            " COALESCE((SELECT wr.relation FROM tenant.work_relation wr WHERE wr.user_id=ae.user_id LIMIT 1),'zamestnanec') vztah "
+            "FROM tenant.att_entry e JOIN tenant.att_employee ae ON ae.id=e.employee_id "
+            "WHERE e.tenant_id=2 AND e.source_system IS NULL AND e.entry_date <= CURRENT_DATE "
+            " AND e.entry_date >= :od AND ae.cislo_zam ~ '^[0-9]+$' AND COALESCE(e.hours,0) > 0 "
+            "GROUP BY ae.cislo_zam, e.entry_date, ae.user_id ORDER BY e.entry_date DESC, ae.cislo_zam"),
+            {"od": datum_od}).mappings().all()
+    finally:
+        s.close()
+    if not rows:
+        return {"ok": True, "lidi": 0, "doch": 0, "suma": 0}
+    cisla = sorted({int(r["cz"]) for r in rows})
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return {"ok": False, "error": "mcp_unavailable"}
+
+    def _ec(sql):
+        rj = mcp.call_tool_sync("eurosoft_strategie_query_raw", {"sql": sql, "db_name": "DB_EC"},
+                                conversation_id=None)
+        return (_j.loads(rj) if isinstance(rj, str) else rj) or {}
+
+    inlist = ",".join(str(c) for c in cisla)
+
+    def _have(table):
+        r = _ec("SELECT DISTINCT CisloZam, CONVERT(varchar(10),DatumPripadu,23) d FROM %s "
+                "WHERE CisloZam IN (%s) AND DatumPripadu >= '%s'" % (table, inlist, datum_od))
+        out, cols = set(), (r.get("columns") or [])
+        for x in (r.get("rows") or []):
+            d = dict(zip(cols, x)) if isinstance(x, list) else x
+            try:
+                out.add((int(d["CisloZam"]), str(d["d"])[:10]))
+            except Exception:
+                pass
+        return out
+
+    have_d, have_s = _have("EC_Dochazka"), _have("EC_Dochazka_SumaDen")
+    dow = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+    nd = ns = did = 0
+    for r in rows:
+        if test_one and did >= 1:
+            break
+        cz = int(r["cz"]); dt = str(r["dt"])[:10]; hod = float(r["hod"] or 0)
+        zac = r["zac"] or (dt + " 08:00:00"); kon = r["kon"]
+        zak = (r["zak"] or "").replace("'", "").strip() or "Rezie"
+        je_zak = zak.upper().startswith(("VR", "SW", "PR"))
+        dc = 1 if je_zak else 6
+        do = _dt.date.fromisoformat(dt); dvt = dow[do.weekday()]
+        v = (r["vztah"] or "").lower()
+        hpp, dpp, osvc = (0, 0, 1) if v == "osvc" else (0, 1, 0) if v == "dohoda" else (1, 0, 0)
+        konv = ("'%s'" % kon) if kon else "NULL"
+        miss_d = (cz, dt) not in have_d
+        miss_s = (cz, dt) not in have_s
+        if not (miss_d or miss_s):
+            continue
+        if miss_d:
+            if not dry:
+                _ec("INSERT INTO EC_Dochazka (CisloZam,DatumPripadu,DenVTydnu,DruhCinnosti,DruhCinn_Mzdy,"
+                    "CisloZakazky,CasZacatek,CasKonec,CasCelkemZakazka,CasCelkemVcRezii,Status,Import,Autor,"
+                    "DatPorizeni,DatumPripadu_Y,DatumPripadu_M) VALUES "
+                    "(%d,'%s','%s',%d,1,'%s','%s',%s,%.2f,%.2f,0,1,'%s',GETDATE(),%d,%d)"
+                    % (cz, dt, dvt, dc, zak[:15], zac, konv, hod, hod, _MIRROR_EC_AUTOR, do.year, do.month))
+            nd += 1
+        if miss_s:
+            cmont = hod if je_zak else 0; crez = 0 if je_zak else hod
+            if not dry:
+                _ec("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,DatumPripadu_Y,DatumPripadu_M,"
+                    "DatumPripadu_D,CasCelkem,CasMontaz,CasRezie,CasZacatek,CasKonec,Uzavreno,HPP,DPP,OSVC) VALUES "
+                    "(%d,'%s',%d,%d,%d,%.2f,%.2f,%.2f,'%s',%s,0,%d,%d,%d)"
+                    % (cz, dt, do.year, do.month, do.day, hod, cmont, crez, zac, konv, hpp, dpp, osvc))
+            ns += 1
+        if not dry:
+            s2 = _g()
+            try:
+                s2.execute(_t("INSERT INTO fw.att_ec_mirror_log (cislo_zam,datum,hodiny,doch_zapsano,suma_zapsano) "
+                              "VALUES (:c,:d,:h,:dd,:ss)"),
+                           {"c": cz, "d": dt, "h": hod, "dd": miss_d, "ss": miss_s})
+                s2.commit()
+            finally:
+                s2.close()
+        did += 1
+    return {"ok": True, "lidi": len(cisla), "doch": nd, "suma": ns,
+            "dry": bool(dry), "test_one": bool(test_one)}
+
+
 def _mirror_run_job(job_key):
     """Spustí jeden sync dle klíče. Vrací (ok, done, rows, msg)."""
     fnmap = {
+        "mirror_att_to_ec": lambda: _mirror_att_to_ec(),
+        "mirror_att_to_ec_test": lambda: _mirror_att_to_ec(test_one=True),
+        "mirror_att_to_ec_dry": lambda: _mirror_att_to_ec(dry=True),
         "sync_ec_dochazka_sumaden": lambda: _sync_dochazka_sumaden(),
         "sync_ec_doklady": lambda: _sync_ec_doklady_zbozi(cap_per_table=300000),
         "sync_ec_kalkulace": lambda: _sync_ec_kalkulace(),

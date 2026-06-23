@@ -22036,29 +22036,24 @@ def banka_saldo_aging(req: Request):
             "FROM " + tbl + " WHERE cislo_sal_sk=:k AND COALESCE(saldo,0)<>0 "
             "GROUP BY 1 ORDER BY 1"), {"k": ssk}).mappings().all()
         buckets = [{"bucket": r["bucket"][2:], "n": int(r["n"] or 0), "suma": float(r["suma"] or 0)} for r in rows]
-        # PÁROVACÍ headline (Marti 23.6.2026): hrubé Helios / reálné externí otevřené (bez platby
-        # a bez vnitroskupiny) / zaplaceno-nespárováno (má platbu VS, jen Helios nenavázal) / vnitroskupina (org 1).
-        # Saldo je v CZK, počítá se magnituda netto.
+        # PÁROVACÍ rozpad (Marti 23.6.2026): SIGNED NET per bucket (sečte se přesně na net celkem;
+        # ABS/magnituda by lhala kvůli vzájemně se rušícím přeplatkům/dobropisům v EC). Tři skupiny:
+        # zaplaceno (má platbu VS, Helios nenavázal) / vnitroskupina (org 1, přefakturace) / bez platby (reálně otevřené).
         par = s.execute(_t(
-            "SELECT ROUND(ABS(SUM(saldo))) celkem, "
-            "ROUND(ABS(SUM(saldo) FILTER (WHERE NOT COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false)))) realne_externi, "
-            "COUNT(*) FILTER (WHERE NOT COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false)) n_externi, "
-            "ROUND(ABS(SUM(saldo) FILTER (WHERE COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false)))) zaplaceno_nesp, "
+            "SELECT ROUND(SUM(saldo)) net_celkem, COUNT(*) n_celkem, "
+            "ROUND(SUM(saldo) FILTER (WHERE COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false))) net_zaplaceno, "
             "COUNT(*) FILTER (WHERE COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false)) n_zaplaceno, "
-            "ROUND(ABS(SUM(saldo) FILTER (WHERE COALESCE(vnitroskupina,false)))) vnitro_suma, "
+            "ROUND(SUM(saldo) FILTER (WHERE COALESCE(vnitroskupina,false))) net_vnitro, "
             "COUNT(*) FILTER (WHERE COALESCE(vnitroskupina,false)) n_vnitro, "
-            "ROUND(ABS(SUM(saldo) FILTER (WHERE datum_splatno IS NOT NULL AND (CURRENT_DATE - datum_splatno::date) > 365))) stare, "
-            "ROUND(ABS(SUM(saldo) FILTER (WHERE datum_splatno IS NULL OR (CURRENT_DATE - datum_splatno::date) <= 365))) aktualni "
+            "ROUND(SUM(saldo) FILTER (WHERE NOT COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false))) net_bez, "
+            "COUNT(*) FILTER (WHERE NOT COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false)) n_bez "
             "FROM " + tbl + " WHERE cislo_sal_sk=:k AND COALESCE(saldo,0)<>0"), {"k": ssk}).mappings().first()
         p = par or {}
-        celkem = float(p.get("celkem") or 0)
         return {"ok": True, "typ": typ, "firma": firma, "buckety": buckets,
-                "celkem": celkem,
-                "realne_externi": float(p.get("realne_externi") or 0), "n_externi": int(p.get("n_externi") or 0),
-                "zaplaceno_nesparovano": float(p.get("zaplaceno_nesp") or 0), "n_zaplaceno": int(p.get("n_zaplaceno") or 0),
-                "vnitroskupina": {"n": int(p.get("n_vnitro") or 0), "suma": float(p.get("vnitro_suma") or 0)},
-                "aktualni": float(p.get("aktualni") or 0), "stare": float(p.get("stare") or 0),
-                "vnitropodnik": {"n": int(p.get("n_vnitro") or 0), "suma": float(p.get("vnitro_suma") or 0)}}
+                "net_celkem": float(p.get("net_celkem") or 0), "n_celkem": int(p.get("n_celkem") or 0),
+                "net_zaplaceno": float(p.get("net_zaplaceno") or 0), "n_zaplaceno": int(p.get("n_zaplaceno") or 0),
+                "net_vnitro": float(p.get("net_vnitro") or 0), "n_vnitro": int(p.get("n_vnitro") or 0),
+                "net_bez": float(p.get("net_bez") or 0), "n_bez": int(p.get("n_bez") or 0)}
     finally:
         s.close()
 

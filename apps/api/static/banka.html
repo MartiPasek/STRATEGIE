@@ -103,15 +103,14 @@ function tSaldo(){api("/api/v1/erp/app/banka/saldo?typ="+_saldoTyp+"&firma="+_sa
   V.innerHTML=h;
   api("/api/v1/erp/app/banka/saldo/aging?typ="+_saldoTyp+"&firma="+_saldoFirma).then(function(a){
     var box=document.getElementById("agingBox"); if(!box||!a.ok)return;
-    var vn=(a.vnitroskupina||{});
     var ah='<div style="background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:12px;margin-bottom:6px">';
-    ah+='<div class="sub" style="margin:0 0 6px">Hrubé saldo Helios: <b>'+kc(a.celkem)+'</b> — rozpad po spárování (VS ↔ banka):</div>';
-    ah+='<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">';
-    ah+='<div><span style="font-size:20px;font-weight:800;color:var(--ok)">'+kc(a.realne_externi)+'</span> <span class="sub" style="margin:0">reálné otevřené externě ('+fmt(a.n_externi)+')</span></div>';
-    ah+='<div><span style="font-size:18px;font-weight:800;color:var(--mut)">'+kc(a.zaplaceno_nesparovano)+'</span> <span class="sub" style="margin:0">zaplaceno‑nespárováno ('+fmt(a.n_zaplaceno)+' — platba v bance, Helios nenavázal)</span></div>';
-    if(vn.suma>0)ah+='<div><span style="font-size:18px;font-weight:800;color:var(--warn)">'+kc(vn.suma)+'</span> <span class="sub" style="margin:0">vnitroskupina Control/System ('+fmt(vn.n)+' — přefakturace, vyrovnává se)</span></div>';
-    ah+='</div>';
-    ah+='<table style="margin:0"><tr><th class="l">Stáří (dle splatnosti)</th><th class="r">Položek</th><th class="r">Částka</th></tr>';
+    ah+='<div class="sub" style="margin:0 0 6px">Net otevřené saldo (sedí na Helios): <b>'+kc(a.net_celkem)+'</b> · '+fmt(a.n_celkem)+' položek — rozpad po spárování s bankou (VS):</div>';
+    ah+='<table style="margin:0"><tr><th class="l">Skupina</th><th class="r">Položek</th><th class="r">Net částka</th></tr>';
+    ah+='<tr style="color:var(--bad)"><td class="l">bez platby = reálně otevřené</td><td class="r">'+fmt(a.n_bez)+'</td><td class="r">'+kc(a.net_bez)+'</td></tr>';
+    ah+='<tr style="color:var(--ok)"><td class="l">✓ má platbu v bance (VS) — Helios nenavázal</td><td class="r">'+fmt(a.n_zaplaceno)+'</td><td class="r">'+kc(a.net_zaplaceno)+'</td></tr>';
+    if(a.n_vnitro>0)ah+='<tr style="color:var(--warn)"><td class="l">vnitroskupina Control/System (přefakturace)</td><td class="r">'+fmt(a.n_vnitro)+'</td><td class="r">'+kc(a.net_vnitro)+'</td></tr>';
+    ah+='</table>';
+    ah+='<table style="margin:8px 0 0"><tr><th class="l">Stáří (dle splatnosti)</th><th class="r">Položek</th><th class="r">Částka</th></tr>';
     (a.buckety||[]).forEach(function(b){var old=b.bucket.indexOf("365+")===0;ah+='<tr'+(old?' style="color:var(--bad)"':'')+'><td class="l">'+esc(b.bucket)+'</td><td class="r">'+fmt(b.n)+'</td><td class="r">'+kc(b.suma)+'</td></tr>';});
     ah+='</table></div>';
     box.innerHTML=ah;

@@ -18963,6 +18963,7 @@ def _mirror_run_job(job_key):
         "sync_ec_banka_delta": lambda: _sync_ec_banka(delta_days=90),
         "sync_ec_saldo": lambda: _sync_ec_saldo(),
         "sync_ec_denik": lambda: _sync_ec_denik(rok=2025),
+        "sync_ec_denik_2026": lambda: _sync_ec_denik(rok=2026),
         "sync_ec_bank_ucet": lambda: _sync_ec_bank_ucet(),
         "sync_edi_definice": lambda: _sync_edi_definice(),
         # přesunuto z ⚙ Ops akcí do řídícího centra (Marti 20.6.2026)

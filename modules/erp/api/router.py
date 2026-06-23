@@ -21739,12 +21739,12 @@ _ZARAZENI_CTE = (
     "   ELSE 'Neurčeno' END kat FROM own), "
     "clsu AS ("
     " SELECT *, "
-    "  (CASE kat WHEN 'Mzda' THEN '331000' WHEN 'Úhrada dodavateli' THEN '321001' "
+    "  (CASE kat WHEN 'Úhrada dodavateli' THEN '321001' "
     "    WHEN 'Úhrada OSVČ (dodavatel)' THEN '321001' "
-    "    WHEN 'Příjem od odběratele' THEN '221000' WHEN 'Záloha/náhrada zaměstnanci' THEN '333000' END) ucet_md, "
-    "  (CASE kat WHEN 'Mzda' THEN '221000' WHEN 'Úhrada dodavateli' THEN '221000' "
-    "    WHEN 'Úhrada OSVČ (dodavatel)' THEN '221000' "
-    "    WHEN 'Příjem od odběratele' THEN '311001' WHEN 'Záloha/náhrada zaměstnanci' THEN '221000' END) ucet_dal "
+    "    WHEN 'Příjem od odběratele' THEN '221009' WHEN 'Záloha/náhrada zaměstnanci' THEN '333000' END) ucet_md, "
+    "  (CASE kat WHEN 'Úhrada dodavateli' THEN '221009' "
+    "    WHEN 'Úhrada OSVČ (dodavatel)' THEN '221009' "
+    "    WHEN 'Příjem od odběratele' THEN '311001' WHEN 'Záloha/náhrada zaměstnanci' THEN '221008' END) ucet_dal "
     " FROM cls) ")
 
 
@@ -21767,9 +21767,9 @@ def banka_zarazeni(req: Request):
         # porovnání s rokem 2025: kolikrát se daná předkontace MD→DAL reálně zaúčtovala loni
         p25 = s.execute(_t(
             "WITH md AS (SELECT sbornik,cislo_dokladu,ucet a FROM tenant.ec_denik "
-            "  WHERE rok=2025 AND strana=0 AND NOT COALESCE(storno,false) AND ucet IN ('321001','331000','221000','333000')), "
+            "  WHERE rok=2025 AND strana=0 AND NOT COALESCE(storno,false) AND ucet IN ('321001','221009','333000')), "
             "dal AS (SELECT sbornik,cislo_dokladu,ucet a FROM tenant.ec_denik "
-            "  WHERE rok=2025 AND strana=1 AND NOT COALESCE(storno,false) AND ucet IN ('221000','311001')) "
+            "  WHERE rok=2025 AND strana=1 AND NOT COALESCE(storno,false) AND ucet IN ('221009','311001','221008')) "
             "SELECT m.a md, d.a dal, COUNT(*) n FROM md m JOIN dal d "
             "ON d.sbornik=m.sbornik AND d.cislo_dokladu=m.cislo_dokladu GROUP BY m.a,d.a")).all()
         pmap = {(r[0], r[1]): int(r[2] or 0) for r in p25}
@@ -21801,8 +21801,8 @@ async def banka_zarazeni_generovat(req: Request):
     except Exception:
         b = {}
     kat = (str(b.get("kat") or "")).strip()
-    if kat not in ("Mzda", "Úhrada dodavateli", "Úhrada OSVČ (dodavatel)", "Příjem od odběratele", "Záloha/náhrada zaměstnanci"):
-        return JSONResponse({"ok": False, "error": "kategorie bez předkontace"}, status_code=400)
+    if kat not in ("Úhrada dodavateli", "Úhrada OSVČ (dodavatel)", "Příjem od odběratele", "Záloha/náhrada zaměstnanci"):
+        return JSONResponse({"ok": False, "error": "kategorie bez potvrzené předkontace 2025"}, status_code=400)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()

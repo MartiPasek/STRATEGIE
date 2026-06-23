@@ -6952,6 +6952,36 @@ def _banka_can_uid(uid: int) -> bool:
             pass
 
 
+def _has_capability(uid: int, cap: str, level: str = "read") -> bool:
+    """Fáze 2a práv — capability gate (data-driven, per-modul read/write).
+    Rodič (is_marti_parent) má vše = bypass (Q3). Jinak aktivní grant
+    v tenant.user_capability pro (uid, cap) s úrovní >= level (write >= read).
+    Tenant 2 (EUROSOFT). Granty/odběr = řádek v DB + audit, ne deploy."""
+    if not uid:
+        return False
+    try:
+        if is_marti_parent(uid):
+            return True
+    except Exception:
+        pass
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        cond = " AND level='write'" if level == "write" else ""
+        r = s.execute(_t(
+            "SELECT 1 FROM tenant.user_capability "
+            "WHERE tenant_id=2 AND user_id=:u AND capability_code=:c "
+            "AND revoked_at IS NULL" + cond + " LIMIT 1"),
+            {"u": uid, "c": cap}).first()
+        return r is not None
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
 @api_router.get("/app/hr/people")
 async def app_hr_people(req: Request) -> JSONResponse:
     """Seznam lidí pro HR (rodiče + HR skupina). Hledání přes ?q=."""
@@ -20969,7 +20999,7 @@ _POPTAVKA_STAVY = ["nova", "zpracovava", "nabidnuto", "vyhrana", "zamitnuta"]
 @api_router.get("/app/poptavka/list")
 def poptavka_list(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _sw_can_manage(uid):
+    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'poptavky', 'read')):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -20989,7 +21019,7 @@ def poptavka_list(req: Request):
 @api_router.get("/app/poptavka/detail")
 def poptavka_detail(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _sw_can_manage(uid):
+    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'poptavky', 'read')):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         pid = int(req.query_params.get("id"))
@@ -21012,7 +21042,7 @@ def poptavka_detail(req: Request):
 @api_router.post("/app/poptavka/save")
 async def poptavka_save(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _sw_can_manage(uid):
+    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'poptavky', 'write')):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -21062,7 +21092,7 @@ async def poptavka_save(req: Request):
 @api_router.post("/app/poptavka/delete")
 async def poptavka_delete(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _sw_can_manage(uid):
+    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'poptavky', 'write')):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -21257,7 +21287,7 @@ def _mig_uname(s, uid):
 @api_router.get("/app/mig/overview")
 def mig_overview(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'digitalizace', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -21307,7 +21337,7 @@ def mig_overview(req: Request):
 @api_router.get("/app/mig/items")
 def mig_items(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'digitalizace', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     q = req.query_params
     code = (q.get("code") or "").strip()
@@ -21342,7 +21372,7 @@ def mig_items(req: Request):
 @api_router.get("/app/mig/people")
 def mig_people(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'digitalizace', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -21360,7 +21390,7 @@ def mig_people(req: Request):
 @api_router.post("/app/mig/domain/save")
 async def mig_domain_save(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'digitalizace', 'write'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -21391,7 +21421,7 @@ async def mig_domain_save(req: Request):
 @api_router.post("/app/mig/item/save")
 async def mig_item_save(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'digitalizace', 'write'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -21428,7 +21458,7 @@ async def mig_item_save(req: Request):
 @api_router.get("/app/mig/notes")
 def mig_notes(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'digitalizace', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     q = req.query_params
     from core.database_data import get_data_session as _g
@@ -21453,7 +21483,7 @@ def mig_notes(req: Request):
 @api_router.post("/app/mig/note/add")
 async def mig_note_add(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'digitalizace', 'write'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -21484,7 +21514,7 @@ def mig_map(req: Request):
     co sahá do ní (dovnitř), vnitřní hustota + klíčové procedury. Z mig_domain_edge
     + mig_procedure (analýza 6475 procedur / 90338 vazeb)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'digitalizace', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     code = (req.query_params.get("code") or "").strip()
     from core.database_data import get_data_session as _g
@@ -23161,7 +23191,7 @@ def isds_accounts(req: Request):
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=401)
-    if not is_marti_parent(uid):
+    if not _has_capability(uid, 'datovky', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -23184,7 +23214,7 @@ async def isds_account_save(req: Request):
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "Nejsi přihlášen."}, status_code=401)
-    if not is_marti_parent(uid):
+    if not _has_capability(uid, 'datovky', 'write'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -23242,7 +23272,7 @@ async def isds_account_save(req: Request):
 @api_router.post("/app/isds/account/delete")
 async def isds_account_delete(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'datovky', 'write'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -23263,7 +23293,7 @@ async def isds_account_delete(req: Request):
 @api_router.get("/app/isds/messages")
 def isds_messages(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'datovky', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -23284,7 +23314,7 @@ async def isds_sync(req: Request):
     """Stáhne seznam přijatých zpráv z datovky a uloží nové do fw.isds_message.
     Plný parser eNeschopenky/OČR → absence se dolaďuje při živém testu (večer)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'datovky', 'write'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -24046,7 +24076,7 @@ def edi_statistika(req: Request):
     """Statistika samoučícího se EDI workflow (Tier 0/1/2, učící křivka, náklad)
     + náš trvalý audit (bridge/zápisy/ops od prvního pokusu k produkci). Marti 20.6.2026."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'edi', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -24116,7 +24146,7 @@ def edi_eskalace(req: Request):
     """Fronta eskalací EDI — faktury, které engine nezvládl (bez definice / validace).
     Worklist pro Peťu + jejího Claude (postavit/opravit definici)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'edi', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -24135,7 +24165,7 @@ def edi_eskalace(req: Request):
 def edi_definice(req: Request):
     """Přehled EDI definic (+ pole/zóny při ?src_id=). Správa pro Peťu + Claude."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'edi', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     src_id = req.query_params.get("src_id")
     from core.database_data import get_data_session as _g
@@ -24167,7 +24197,7 @@ def edi_definice(req: Request):
 def edi_preview_ep(req: Request):
     """Otestuje definici (src_id) nad fakturou (path) BEZ zápisu. Pro „vyzkoušej"."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'edi', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     path = req.query_params.get("path") or ""
     src_id = req.query_params.get("src_id")
@@ -24195,7 +24225,7 @@ def edi_preview_ep(req: Request):
 def isds_neschopenky(req: Request):
     """Registr neschopenek (sloučený dle CisloRozhodnuti) — jeden řádek na případ."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'neschopenky', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -24324,7 +24354,7 @@ def davka_audit(req: Request):
     """Měsíční audit dávek: spojí datovku (neschopenky), Helios přílohy a naše podání
     přes číslo rozhodnutí → u každé události kompletnost (nic nezapomenout). Rodič/HR."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'neschopenky', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     import datetime as _dt
     q = req.query_params
@@ -24412,7 +24442,7 @@ def davka_audit(req: Request):
 async def davka_generuj_xml(req: Request):
     """Vygeneruje NEMPRI25 XML z uloženého podání (zatím OSE) a uloží na záznam."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'neschopenky', 'write'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -24582,7 +24612,7 @@ async def secondary_refresh(req: Request):
 def davka_list(req: Request):
     """Seznam podání dávek NP (NEMPRI25) — rodič/HR."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'neschopenky', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -24601,7 +24631,7 @@ def davka_list(req: Request):
 @api_router.get("/app/davka/detail")
 def davka_detail(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'neschopenky', 'read'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     did = req.query_params.get("id")
     from core.database_data import get_data_session as _g
@@ -24618,7 +24648,7 @@ def davka_detail(req: Request):
 async def davka_save(req: Request):
     """Vytvoří/uloží podání dávky (záchyt dat — nahrazuje Excel účetní). Rodič/HR."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not uid or not _has_capability(uid, 'neschopenky', 'write'):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         b = await req.json()
@@ -29990,7 +30020,7 @@ async def app_payroll_summary(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _app_parent(s, uid):
+        if not (_app_parent(s, uid) or _has_capability(uid, 'mzdy', 'read')):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         periods = s.execute(_t(
             "SELECT DISTINCT rok, mesic FROM tenant.att_day_summary WHERE tenant_id=2 AND rok IS NOT NULL "
@@ -30049,7 +30079,7 @@ async def app_payroll_kontrola(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _app_parent(s, uid):
+        if not (_app_parent(s, uid) or _has_capability(uid, 'mzdy', 'read')):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         try:
             y = int(req.query_params.get("rok") or 0)

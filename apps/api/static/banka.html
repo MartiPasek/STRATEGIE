@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>🏦 Banka — STRATEGIE</title>
+<style>
+  :root{--bg:#0a1020;--card:#111a2e;--bord:#243049;--tx:#e6eefb;--mut:#90a0bd;--accent:#5b9dff;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+  .wrap{max-width:760px;margin:0 auto;padding:16px}
+  h1{font-size:21px;margin:0 0 2px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:16px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px}
+  .stat{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:12px 14px}
+  .stat .n{font-size:22px;font-weight:800}
+  .stat .l{color:var(--mut);font-size:12px;margin-top:2px}
+  .stat.warn .n{color:var(--warn)} .stat.ok .n{color:var(--ok)}
+  .sec{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:700;margin:18px 0 8px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .ca{background:var(--card);border:1px solid var(--bord);border-radius:14px;padding:16px;cursor:pointer;display:flex;gap:12px;align-items:flex-start;transition:border-color .15s}
+  .ca:hover{border-color:var(--accent)}
+  .ca .ic{font-size:26px;line-height:1}
+  .ca .t{font-weight:700;font-size:15px}
+  .ca .d{color:var(--mut);font-size:12.5px;margin-top:3px}
+  .ca .b{margin-top:6px;font-size:12px;color:var(--accent);font-weight:600}
+  .hint{color:var(--mut);padding:20px;text-align:center}
+  .err{color:var(--bad);padding:20px}
+</style>
+</head>
+<body>
+<div class="wrap" id="root"><div class="hint">Načítám…</div></div>
+<script>
+function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;try{if(window.__opcUrl)return new URL(window.__opcUrl,location.origin).searchParams.get(k);}catch(e){}return null;}
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function fmt(n){return (n==null?0:n).toLocaleString("cs-CZ");}
+function kc(n){return fmt(Math.round(n||0))+" Kč";}
+var inApp=(window.self!==window.top);
+function goTo(path){ if(inApp){ try{parent.postMessage({stgOpen:path},"*");}catch(e){location.href=path;} } else { location.href=path; } }
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){
+  if(!r.ok){var m=r.status===403?"Bankovní sekci vidí jen účetní (Petra) a vedení.":(r.status===401?"Nejsi přihlášen.":"Chyba HTTP "+r.status);return{ok:false,error:m};}
+  return r.json();}).catch(function(){return{ok:false,error:"Spojení se serverem selhalo."};});}
+var R=document.getElementById("root");
+api("/api/v1/erp/app/banka/prehled").then(function(j){
+  if(!j||!j.ok){R.innerHTML='<div class="err">'+esc((j&&j.error)||"Chyba")+'</div>';return;}
+  var h='<h1>🏦 Banka</h1><div class="sub">Bankovní výpisy, párování plateb, daně a poplatky, účetní deník a doklady. Vlastník: Petra Šafránková (účetní).</div>';
+  h+='<div class="stats">';
+  function st(n,l,cls){return '<div class="stat '+(cls||"")+'"><div class="n">'+n+'</div><div class="l">'+esc(l)+'</div></div>';}
+  h+=st(fmt(j.vypisy),"výpisy (hlavičky)");
+  h+=st(fmt(j.radky),"řádky výpisů");
+  h+=st(fmt(j.nesparovano),"nespárováno",(j.nesparovano>0?"warn":"ok"));
+  h+=st(kc(j.nesparovano_castka),"nespárovaná částka");
+  h+=st(fmt(j.uhrady),"úhrady (Centrála)");
+  h+=st(fmt(j.navrhy),"návrhy zaúčtování",(j.navrhy>0?"warn":""));
+  h+=st(fmt(j.zauctovano),"zaúčtováno","ok");
+  h+=st(fmt(j.denik),"řádky deníku");
+  h+=st(fmt(j.saldo),"otevřené faktury (saldo)");
+  h+=st(fmt(j.doklady),"účetní doklady");
+  h+='</div>';
+  h+='<div class="sec">Nástroje</div><div class="cards">';
+  function ca(ic,t,d,path){return '<div class="ca" data-go="'+esc(path)+'"><div class="ic">'+ic+'</div><div><div class="t">'+esc(t)+'</div><div class="d">'+esc(d)+'</div><div class="b">Otevřít →</div></div></div>';}
+  h+=ca("🔗","Párování plateb","Bankovní výpisy ↔ úhrady/faktury. Stav spárováno/nespárováno, VS, protistrana, daně a poplatky (template), návrhy zaúčtování.","/parovani");
+  h+=ca("📒","Účetnictví & deník","Sborníky, předkontace, číselné řady, účetní doklady a STRATEGIE deník (dvojitý zápis MD/DAL).","/uctovani");
+  h+='</div>';
+  h+='<div class="sec">Poznámka</div><div class="sub">Plné zrcadlo Centrály, vlastní párovací engine (VS → objednávka → zakázka) a dotažení zaúčtování přibývají v dalších fázích — tato dlaždice je sdružuje na jedno místo.</div>';
+  R.innerHTML=h;
+  R.addEventListener("click",function(e){var el=e.target.closest&&e.target.closest(".ca[data-go]");if(el)goTo(el.getAttribute("data-go"));});
+});
+</script>
+</body>
+</html>

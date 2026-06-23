@@ -6924,6 +6924,34 @@ def _hr_can_manage(s, uid: int) -> bool:
     return m is not None
 
 
+def _banka_can_uid(uid: int) -> bool:
+    """Přístup k bankovní sekci: rodič NEBO Petra Šafránková (uid 18, účetní) NEBO
+    člen skupiny Účetnictví/Banka/Finance. (Marti 23.6.2026 — Banka = věc Petry.)"""
+    if not uid:
+        return False
+    try:
+        if is_marti_parent(uid):
+            return True
+    except Exception:
+        pass
+    if int(uid) == 18:
+        return True
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        m = s.execute(_t(
+            "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
+            "WHERE g.tenant_id=2 AND NOT g.archived AND g.name IN ('Účetnictví','Banka','Finance') "
+            "AND m.user_id=:u"), {"u": uid}).first()
+        return m is not None
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
 @api_router.get("/app/hr/people")
 async def app_hr_people(req: Request) -> JSONResponse:
     """Seznam lidí pro HR (rodiče + HR skupina). Hledání přes ?q=."""
@@ -21478,6 +21506,48 @@ def mig_map(req: Request):
         s.close()
 
 
+@api_router.get("/app/banka/prehled")
+def banka_prehled(req: Request):
+    """Souhrn bankovní sekce pro hub 🏦 Banka (Petra Šafránková / rodič / účetní).
+    Sčítá: výpisy, úhrady, nespárováno, návrhy/zaúčtováno, deník, saldo, doklady."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        def one(sql):
+            try:
+                return s.execute(_t(sql)).first()
+            except Exception:
+                return None
+        vyp = one("SELECT COUNT(*) FROM tenant.ec_bank_vypis_hlav")
+        rad = one("SELECT COUNT(*), SUM(CASE WHEN COALESCE(pocet_uhrad,0)=0 THEN 1 ELSE 0 END), "
+                  "COALESCE(SUM(CASE WHEN COALESCE(pocet_uhrad,0)=0 THEN castka ELSE 0 END),0) "
+                  "FROM tenant.ec_bank_vypis_radek")
+        uhr = one("SELECT COUNT(*) FROM tenant.ec_uhrada")
+        zau = one("SELECT COUNT(*), COALESCE(ROUND(SUM(castka)),0) FROM tenant.bank_zauctovani WHERE stav='zauctovano'")
+        nav = one("SELECT COUNT(*) FROM tenant.bank_zauctovani WHERE stav='navrh'")
+        den = one("SELECT COUNT(*) FROM tenant.ucetni_denik")
+        sal = one("SELECT COUNT(*) FROM tenant.ec_saldo_fa WHERE COALESCE(saldo,0)<>0")
+        dok = one("SELECT COUNT(*) FROM tenant.ucet_doklad")
+        return {"ok": True,
+                "vypisy": int(vyp[0]) if vyp else 0,
+                "radky": int(rad[0]) if rad else 0,
+                "nesparovano": int(rad[1] or 0) if rad else 0,
+                "nesparovano_castka": float(rad[2] or 0) if rad else 0,
+                "uhrady": int(uhr[0]) if uhr else 0,
+                "zauctovano": int(zau[0] or 0) if zau else 0,
+                "zauctovano_suma": float(zau[1] or 0) if zau else 0,
+                "navrhy": int(nav[0] or 0) if nav else 0,
+                "denik": int(den[0] or 0) if den else 0,
+                "saldo": int(sal[0] or 0) if sal else 0,
+                "doklady": int(dok[0] or 0) if dok else 0}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/parovani/prehled")
 def parovani_prehled(req: Request):
     """Přehled párování bank výpisů ↔ úhrad (Marti 20.6.2026). Nad zrcadlenými daty
@@ -21485,7 +21555,7 @@ def parovani_prehled(req: Request):
     VS, protistrana, měna, na co napojeno (úhrada/faktura/zakázka). Základ pro
     vlastní párovací engine (VS + protistrana + EUR/SEPA)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     q = req.query_params
     stav = (q.get("stav") or "vse").strip()       # vse | spar | ne
@@ -21559,7 +21629,7 @@ def parovani_predpisy(req: Request):
     """Template daní/poplatků: seznam pravidel + pokrytí (kolik nespárovaných řádků
     každé pravidlo rozpozná). Marti 20.6.2026."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -21588,9 +21658,9 @@ def parovani_predpisy(req: Request):
 
 @api_router.post("/app/parovani/predpis/save")
 async def parovani_predpis_save(req: Request):
-    """Uložit/upravit pravidlo template (parent only)."""
+    """Uložit/upravit pravidlo template (rodič nebo účetní/Petra)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     b = await req.json()
     from core.database_data import get_data_session as _g
@@ -21622,7 +21692,7 @@ def parovani_zauctovani_generovat(req: Request):
     Auto pravidla (mzdy) → rovnou 'schvaleno', ostatní → 'navrh'. Idempotentní
     (neduplikuje řádky, co už návrh mají). Marti 20.6.2026."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -21652,7 +21722,7 @@ def parovani_zauctovani_generovat(req: Request):
 def parovani_zauctovani_list(req: Request):
     """Seznam návrhů zaúčtování + souhrn po stavech. Marti 20.6.2026."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     q = req.query_params
     stav = (q.get("stav") or "navrh").strip()
@@ -21681,7 +21751,7 @@ async def parovani_zauctovani_rozhodni(req: Request):
     'zauctovat' zatím nastaví zauctovano_at (příprava na zápis do deníku — vlastní zápis
     do Helios deníku = další krok po potvrzení účtů účetní + Braňo)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     b = await req.json()
     ids = b.get("ids") or []
@@ -21716,7 +21786,7 @@ def parovani_denik(req: Request):
     Dvojitý zápis MD/DAL, podpis. Souhrn po účtech MD + výpis. Marti 20.6.2026
     (volba „obojí — zrcadlit": náš deník = zdroj pravdy, Helios mirror = další krok)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     q = req.query_params
     kat = (q.get("kategorie") or "").strip()
@@ -21756,7 +21826,7 @@ def uctovani_prehled(req: Request):
     Marti 20.6.2026 (clean break: STRATEGIE účtuje přes vlastní předkontace, Helios = soustava
     účtů + mzdy). Sborníky seskupené po druhu + souhrn deníku."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -21803,7 +21873,7 @@ async def uctovani_doklad(req: Request):
     Vezme číslo z řady, účty z předkontace (nebo explicitně), zapíše do ucetni_denik
     s podpisem autora. Marti 20.6.2026 (plný účtovací oběh u nás)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     b = await req.json()
     sbornik_kod = (b.get("sbornik_kod") or "").strip()
@@ -21908,7 +21978,7 @@ async def uctovani_doklad_full(req: Request):
     pevný měsíční kurz, dvojí měna (CZK+EUR), DPH rekapitulace, zápis do deníku v CZK.
     Marti 20.6.2026 (vícеměnový účetní engine; deník CZK, doklad oba pohledy)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     b = await req.json()
     sbornik_kod = (b.get("sbornik_kod") or "").strip()
@@ -22053,7 +22123,7 @@ def _je_uzavreno(s, datum, company_id=None):
 async def uctovani_doklad_akce(dok_id: int, req: Request):
     """Workflow dokladu: odeslat / zauctovat / oductovat / odrealizovat. Audit + pojistka uzávěrky."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     b = await req.json()
     akce = (b.get("akce") or "").strip()
@@ -22107,7 +22177,7 @@ async def uctovani_doklad_akce(dok_id: int, req: Request):
 def uctovani_doklady(req: Request):
     """Přehled účetních dokladů (hlavičky + stav). Marti 20.6.2026."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -22126,7 +22196,7 @@ def uctovani_doklady(req: Request):
 def uctovani_doklad_detail(dok_id: int, req: Request):
     """Detail dokladu — hlavička + položky + řádky deníku + audit log. Marti 20.6.2026."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -22156,7 +22226,7 @@ def uctovani_doklad_detail(dok_id: int, req: Request):
 def uctovani_kurz(req: Request):
     """Pevný měsíční kurz pro měnu+datum (z tenant.ucet_kurz). Marti 20.6.2026."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not is_marti_parent(uid):
+    if not _banka_can_uid(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     q = req.query_params
     mena = (q.get("mena") or "CZK").strip().upper()

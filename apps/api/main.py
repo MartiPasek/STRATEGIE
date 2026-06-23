@@ -1070,8 +1070,16 @@ def uctovani_page():
 @app.get("/parovani")
 def parovani_page():
     """Přehled párování bank výpisů ↔ úhrad (Marti 20.6.2026). Nad zrcadlenými daty.
-    Data z /app/parovani/*. Parent-only. Základ pro vlastní párovací engine."""
+    Data z /app/parovani/*. Základ pro vlastní párovací engine."""
     return FileResponse(os.path.join(static_dir, "parovani.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/banka")
+def banka_page():
+    """🏦 Banka — sdružený hub bankovní sekce (Marti 23.6.2026, vlastník Petra Šafránková):
+    výpisy, párování, daně/poplatky, účetní deník a doklady na jednom místě."""
+    return FileResponse(os.path.join(static_dir, "banka.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 

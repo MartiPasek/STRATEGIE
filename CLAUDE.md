@@ -1,5 +1,35 @@
 # STRATEGIE — Claude Code Context
 
+## Dodatek — 21. 6. 2026 (noc): 🗓️ GENERÁTOR ROZVRHU Nerudovka — blokový timetabling solver (jazyky + TV LIVE)
+
+Budoucí Claude — Marti řekl *„pusť se do toho, máš rád hádanky"* a já postavil **generátor rozvrhu** (constraint solver) pro Nerudovku 2026/27. Stav: **bloky 1 (jazyky) + 2 (TV) + 3 (odborné GD/MI draft) LIVE**. Varianta A = 225 jazyk + 66 TV + 154 odborné buněk, **0 konfliktů** učitelů/učeben/tříd. Blok 3 draft: 71/111 bloků umístěno (40 neumístěno = mediální 3h bloky, úzké hrdlo IT2/MM — doladit s Klárkou + příp. CP solver).
+
+**🔑 ARCHITEKTURA (drž):**
+- **Blokový model** (Marti: *„dávej to po blocích, ať se můžeš vracet a mazat jen blok zpět"*): `tenant.rozvrh_bunka.blok` (jazyky/tv/predmet) → každý blok jde smazat+přegenerovat zvlášť (`DELETE WHERE blok='X' AND verze_id=…`), ostatní zůstanou. `rozvrh_verze.bloky` jsonb = které bloky verze má.
+- **Pořadí:** 1) cizí jazyky (celá škola) → 2) TV (celá škola) → 3) ostatní předměty JEN GD+MI třídy. (Scope: plný rozvrh jen GD/MI; jazyky+TV celoškolně.)
+- Generátor běží v **sandboxu** (Python, `outputs/gen_lang2.py` + `gen_tv.py`), výsledek → PG přes bridge write (tagovaný blok). Produkční „Klárka klikne Generovat" = budoucí cloud akce.
+
+**🔑 KLÍČOVÉ MODELOVÉ OBJEVY (bez nich to nejde):**
+1. **Jazyky = synchronizované paralelní BANDY.** Mezitřídní skupiny (KOD_SPOJ) NEběží proti sobě — běží PARALELNĚ ve stejný čas (žáci se rozdělí NJ/FJ/ŠJ/RJ současně). Model = band (kohorta tříd × úroveň CJ), všechny paralelní skupiny ve stejných hodinách. Špatný model (proti sobě) = 33 neumístěných; bandy = 1, skóre 9.
+2. **TV = dvouhodinovka 1×/14 dní (lichý/sudý).** Jediná tělocvična (zkr TV, kod_mist 6B, budova 1O) → cyklus L/S **zdvojuje kapacitu** (1 skupina/okno/cyklus, okna 1-2/3-4/5-6/7-8/9-10). Skupiny: celá (GD/MI), kluci spojení přes spoj (XY/XX), dívky po třídách → dělené ráno/poslední. 26 skupin, 0 neumístěno, 0 konfliktů gymu, 0 překryvů s jazyky.
+3. **Hodiny: ruvazky.POCET_HOD = /14 dní → /2 týdně** (jazyky); jazyk-úroveň z předmětu+hodin (AJ=1.CJ; ost. 4h=2.CJ/Z, 2h=3.CJ/D).
+
+**Data v PG (tenant.* , tenant 13):** `bakalari_skupina` (477 základ), `bakalari_uvaz_cyc` (úvazky), `bakalari_mistnost` (39 učeben), `rozvrh_verze` (A/B/C) + `rozvrh_bunka` (blok tag). Učitelská omezení + 34 kritérií: `docs/nerudovka_rozvrh_kriteria.md` + `_jazyky_pravidla.md` + `_verze.md`.
+
+**Prohlížeč:** `/rozvrh-verze` (dlaždice „🗓️ Varianty rozvrhu" v Bakaláři) — chipy variant, pohled tříd/učitelů, mřížka Po–Pá×1–9, barvy dle úrovně CJ + TV jantarově s cyklem. Endpointy `/app/rozvrh/verze` + `/app/rozvrh/grid`.
+
+**GOTCHA:** `rozvrh_bunka.hodina` = smallint → ve VALUES posílej int (ne '9'). Regen jazyků DELETE+INSERT verze → **nová id** (TV/další bloky cílit přes `nazev`, ne id!). Bridge OUT velký SQL → mount cp ok do ~57 KB; jinak Write tool.
+
+**💬 CHAT uživatel ↔ Claude přes most (Marti 21.6., produkční kanál pro Klárku + Peťa/Zuzka/Míša):** `tenant.claude_chat` (id, tenant_id, user_id, sender 'user'/'claude', msg, seen_by_user/claude). Web: `/claude-chat` (bublinový chat, polling 5 s, dlaždice „🛠️ Chat s Claudem") + endpointy `/app/claude-chat` (GET vlákno uid + označí claude→user seen) + `/app/claude-chat/send` (POST user zpráva). **Můj workflow:** čti `SELECT … WHERE sender='user' AND seen_by_claude=false` (db=pg) → odpověz `INSERT … sender='claude'` + `UPDATE seen_by_claude=true` (bridge write, banner). Per-user vlákno (filtr user_id). Klárka napíše ve webu co u rozvrhu potřebuje, já čtu/odpovídám přes most. Ověřeno end-to-end 21.6.
+
+**Blok 3 (TODO):** odborné předměty GD+MI — placement do volných slotů + učebnová pravidla (D), bloky (ČJL/ekonomika/aranžér/Lyceum), obědové vlny (4×5 tříd), přejezd Nerudovka↔Aťásy (1 volná h), učitelská omezení (Pejřimovská/Švehlová/Beran/Vlková/Rousová/Toušová/Tesliuk/Hlaváč/Rešl). Pak A/B/C plné varianty.
+
+— **Claude (id=23)** (Opus, 21.6.2026 noc, po blokovém generátoru rozvrhu — jazyky + TV LIVE, *„máš rád hádanky"*)
+
+🗓️ 🧩 🌳 ☕🌙
+
+---
+
 ## Dopis pro budoucího Claude (od Claude z 23. 4. 2026)
 
 Ahoj. Pravděpodobně jsi začal novou konverzaci a nemáš žádný kontext — jako Lucy
@@ -3568,3 +3598,137 @@ Marti dnes v euforii a plné důvěře (*„pokračuj"*, *„stav to univerzáln
 — **Claude (id=23)** (Opus, 21. 6. 2026 ráno, po elektronickém ISO+TISAX modulu — cockpit + SoA + TISAX + most k 104 dokumentům + auditorský portál + totální digitalizace feedbacku + finalizace ověřená v prohlížeči)
 
 🛡️ 🚗 📲 🤝 🌳 ☕🌙
+
+---
+
+## Dodatek — 21. 6. 2026 (den): ISO „pravá ruka" + role Míši + Klárka úvazky · klidový režim
+
+Dlouhý klidný den, hodně iterací s Martim. Tón vlídný, vztahový (*„práce má být o radosti"*, *„na co máš chuť?"*, *„jdu na kafe"*). Beru bez postlistů (#69–70).
+
+### 1. ISO/TISAX cockpit — z tabule živý hlídač + lidský průvodce
+- **Proaktivní hlídač + auto-CVE** (`iso_cockpit._iso_reminders_run`, volá lifespan smyčka `_att_sync_loop` 1×/den, self-gated): denně digest e-mail rodičům o kontrolách po termínu/blížících se (anti-spam 3 dny přes `tenant.iso_cadence_run kod='_digest'`) + auto pip-audit pokud >7 dní. Ruční „Zkontrolovat teď".
+- **Zlidštění** (Marti: *„ať se toho lidi nelekli"*): e-mail = „průvodce", štítky „○ ještě nás čeká / čeká na nás" místo červených, zelená tlačítka „✓ Provedeno/hotovo".
+- **Lidský průvodce u kroků i kadence**: `_TASK_GUIDE` (override vlastník/popis/návod při renderu — bez migrace DB) + návod v `_CADENCE` (9-tuple). 📖 „Jak na to" rozbalí krok-za-krokem + odkaz na dokument.
+- **Vlastnictví dle zdroje pravdy** (odeslaný mail „Digitalizace EUROSOFTU — nové role a vize", 21.6.): **Mísa (Michaela Hladíková, user 16) vede dotažení ISO+TISAX do finále**, **Michal Šik (19) = plán obnovy + správa hesel**, Vedení (Marti) = podpisy + management review (9.3), Marti+Claude podklady, CVE automaticky. **Kristý (11) z ISO obsahu ven** (vede firmu obecně, ne ISO; ale je v RW). Eliška Kolářová (34) = vedení projektu digitalizace.
+- **RO pro členy** (link jde i vedení, běžný member jen čtení): čtecí endpointy povolené `_is_parent OR _is_member(uid,tid)`; **zápisy dál jen `_is_parent`** (rodič NEBO `fw.iso_access`) → member je nikdy neprojde (dvojitá pojistka). overview vrací `ro`; frontend `lockRO()` skryje RW sekce + tlačítka + žlutý banner. **RW = rodiče + fw.iso_access: Mísa(16), Kristý(11), Michal(19).**
+- **Vize jako link**: `docs/iso_vize_pro_misu.md` → KB key `vize` → `/dokument?key=vize` + odkaz nahoře v cockpitu.
+
+### 2. Míša — role + vize (vše přes Marti-AI)
+Citlivá HR situace (digitalizace přebírá Mísinu agendu → nechceme ji ztratit → vede produkci Dušana = rozváděče + dotažení ISO/TISAX). Postup: věcný mail (odeslán, zdroj pravdy) → seznámení s vizí (vyjádření jen Martimu). Konsolidace: `misa_balicek_pro_marti_ai_a_vedeni.md` (nahradil 3 dílčí drafty), registr `mig_domain` srovnán dle mailu (#502). Dopisy pro Marti-AI: situace+ekosystém, odeslání vize + DOCX příloha. **Marti-AI posílá z vlastních rukou.**
+
+### 3. Klárka (Nerudovka) — úvazky učitelů z rozvrhu
+Nesedí čeština (1,5 h = lichý 2 / sudý 1). Most na Bakaláře (`db=bakalari`) běží. **Model: `r_rozvrh.KOD_CYKL` (0=sudý,1=lichý), úvazek = COUNT(DISTINCT slot×cyklus) × 0,5** → každotýdenní = 1 h, čeština 1,5 h sedí. Scope `DEN>=20260407`. `r_rozvrh.KOD_UCIT=r_ucit.INTERN_KOD`; ČJL=`DT`, ČJK=`0P`. Výstup `NERUDOVKA_uvazky_z_rozvrhu.xlsx` (70 učitelů). Předáno Marti-AI (`dopis_marti_ai_klarka_rozvrh.md`).
+
+**Dodatek 21.6. odp. (Klárka chtěla správné názvy tříd):** kódy tříd v rozvrhu (`r_rozvrh.KOD_TRID`, např. `1G`, `2A`) jsou **Bakaláři-interní a MATOUCÍ** — `1G` je ve skutečnosti **4.VO**, `2A` = **1.GD**! Reálná zkratka je v **`r_trid.KOD_TRID → ZKRATKA`** (24 tříd, rok = `MAX(PLAT_OD)`). **GOTCHA: nikdy nezobrazuj kód třídy přímo, vždy přelož přes r_trid.** Uloženo mapování `tenant.bakalari_trid_kod (kod→zkratka)` + UPDATE `bakalari_uvaz_cyc.tridy` přes `unnest(string_to_array(tridy,', '))` LEFT JOIN (token-exact, řazené, request #505). App `/app/bakalari/loads` čte přeložené `tridy` = opraveno bez kódu. Nový Excel `NERUDOVKA_uvazky_2026-06-21.xlsx` (Souhrn + Detail s předměty/třídami). Pozn.: `bakalari_ucit.intern_kod` = klíč na `uvaz_cyc.kod_ucit`; zrcadlo `bakalari_trid.kod_trid` je ČÍSELNÝ (14,15…) — to NENÍ rozvrhový KOD_TRID, proto vlastní mapovací tabulka z r_trid.
+
+**Dodatek 21.6. večer (úvazky 2026/2027 do appky + přepínač roku):** Klárka chce úvazky příštího roku „ze kterých se dělá rozvrh" — ty NEJSOU v `r_rozvrh` (publikovaný rozvrh 2026/27 ještě neexistuje), ale v **úvazkovém modulu `ruvazky`** (PLAT_OD `20260901` = škol. rok 2026/2027). **KLÍČOVÉ GOTCHY (drž!):**
+- **`ruvazky.POCET_HOD` je za 2týdenní cyklus → týdenní = /2** (Králová 44→22 ✓).
+- **`ruvazky.KOD_CYKL`**: `01`=každý týden, `0`=sudý, `1`=lichý.
+- **Jazyky/TV = skupiny napříč třídami přes `KOD_SPOJ`** — naivní SUM přefoukne (Kubálková NJ vyšla 80!). Správně **dedup po (KOD_UCIT, KOD_SPOJ) MAX(POCET_HOD), pak SUM/2** (Kubálková NJ = 4 spoj-skupiny × 8 /2 = 16). Ověřeno proti rozvrhovému roku (Khinová 15, Vlková 16, Králová 22).
+- **`ruvazky.KOD_PRED`/`KOD_TRID`/`KOD_UCIT` mají vedoucí mezery** u 1-znak. kódů (' 5','4') → `LTRIM(RTRIM())`. `KOD_UCIT` = `r_ucit.INTERN_KOD` (stabilní napříč roky; Králová=UUS8J vždy).
+- **Třídy 2026/2027 Bakaláři NEZVEŘEJNILI** (r_trid/r_pred max 20260407). Kód třídy je stabilní s kohortou, zkratka se posune o ročník → **pokračující třídy = letošní zkratka +1 ročník** (1.GD→2.GD, 3.GD→4.GD); maturanti (4.x kódy 1G/1K/1L/1M/1N) v ruvazky 20260901 nejsou. **Nové 1. ročníky = NOVÉ kódy 2D,2E,2F,2G,2I,2J** (obor TBD) + **5 nových učitelů kódy U0SA*** (nejsou v r_ucit) → v appce/Excelu placeholdery „1.? (kód)" / „(nový učitel)".
+- **App `/app/bakalari/loads` je teď ročníkově přepínatelný**: `?po=<plat_od>`, vrací `roky[]`+`skolrok`; default = MAX. Mobil `bk_uvazky` má chipy roků (zobrazí se při >1 roku). Mirror 2026/2027 v `bakalari_uvaz_cyc` plat_od='20260901' (kod_pred = NÁZEV předmětu, ne kód — endpoint COALESCE fallback) + `bakalari_ucit` 20260901 (jména). Excel `NERUDOVKA_uvazky_2026-2027.xlsx`.
+- **TODO (Marti 21.6.): systém verzí rozvrhu pro Klárku** — ukázat několik vygenerovaných variant rozvrhu k porovnání. Návrh v `docs/nerudovka_rozvrh_verze.md`, čeká na podklady (vygenerované varianty) od Marti → import dle formátu.
+
+**Dodatek 21.6. noc (základní skupiny + jazyková pravidla generátoru):** Marti zadal přenést „základní skupiny, se kterými se nesmí hýbat" + pravidla nasazování cizích jazyků (rozvrh se generuje pro Klárku).
+- **`tenant.bakalari_skupina`** (skolni_rok 2026/27, tenant 13): **477 skupin** přeneseno věrně z Bakalářů `skupina` (master dělení tříd: V=390 volitelné/jazyky, T=30 celá třída, F=57 dívky/chlapci). **Mezitřídní jazykové skupiny (KOD_SPOJ) = nedotknutelný základ, NIKDY nerozpojit.**
+- **Jazyková konvence zkratek (OVĚŘENO):** AJ* = 1. CJ; `^[1-4]Z[NFRŠ]\d` = 2. CJ (Z na 2. poz; 1ZN1=NJ…); `^[1-4]D[NFRŠ]\d` = 3. CJ (D na 2. poz, mezitřídní). **Pozor falešné D**: Dív/DKr/GD nejsou jazyk → detekuj jen vzorem. Pravidla učitelů + rozložení hodin v `docs/nerudovka_rozvrh_jazyky_pravidla.md` (AJ 4.r dvouhodinovka, Ždimerová od 2.h, Šedová do 7.h, AJ konec ≤7.h, 3 dny/týden, ne za sebou 1./2./3. CJ, …).
+- **🔑 GOTCHA — transport Bakaláři→PG BEZ transkripce (drž!):** velká data z `db=bakalari` netranskribuj ručně z OUT (OUT ořezává buňky ~200 zn. + ~500 řádků). Místo toho: výsledek `db=bakalari` dotazu se ukládá celý/neořezaný do **`fw.bakalari_query.result_json`** (text, `{"ok":true,"rows":[{...}]}`) na cloudu (PG). Pak **PG write** parsuje `jsonb_array_elements((result_json::jsonb)->'rows')` → INSERT (`WHERE id=(SELECT MAX(id) FROM fw.bakalari_query WHERE sql_text LIKE '%…%' AND status='done')`). Pull SELECTuj **každý sloupec jako vlastní alias** (čisté JSON klíče, žádný delimiter/encoding problém; ¦ se v mountu dvojkóduje na Â¦). 477 řádků přeneseno jedním approval bannerem, věrně.
+
+**Dodatek 21.6. noc (kritéria + učebny — kompletní base pro generátor):** Marti poslal **33 kritérií rozvrhu + TV** → zapsáno v `docs/nerudovka_rozvrh_kriteria.md` (tvrdá vs měkká, kategorie: čas/K1-2, obědové vlny K15, jazyky, učebny D, učitelé E, bloky F/G, TV H). Přeneseny **učebny** `tenant.bakalari_mistnost` (39, s kapacitami, #508). **Base pro generátor kompletní v PG:** `bakalari_skupina` (477) + `bakalari_uvaz_cyc` (úvazky) + `bakalari_mistnost` (39). Generátor sám (constraint solver) = velký build, čeká na pokyn/další podklady. Klíč obědy: 4 vlny × 5 tříd (4./5./6./7. h volná), denně, per třída různě.
+
+### Gotchy dne
+- **bridge OUT usekává mount** (9 z 70 řádků) → velké výsledky host-side Read toolem, ne `cat` přes mount.
+- **KB doc na cloudu se MUSÍ nasadit** — přidání do `_KB_DOCS` nestačí, `docs/*.md` musí projít deploy (jinak `/dokument?key=` → not_found).
+- **ASCII `"` v JS/Py stringu** rozbije build (docx-js i Python) → typografické „ ".
+- **r_cykl má jen 0/1** (sudý/lichý), žádný „každý týden" → proto ×0,5 model.
+
+### Úklid / co pálí (rozjeto 21.6., klidový režim)
+- **CVE: 46 zranitelností závislostí** — plán `docs/iso27001_cve_remediace_2026.md`. **pip-audit jen v cloud git stashi** → Martiho ruka na cloudu (poetry). Notifikace poslána.
+- Nahrazené Mísa drafty + `iso27001_handoff_kristy.md` označené SUPERSEDED.
+
+— **Claude (id=23)** (Opus, 21. 6. 2026, po dni ISO hlídač + role Míši + Klárka úvazky + úklid)
+
+🛡️ 🪪 🗓️ 🧹 🌳 ☕
+
+---
+
+## Dodatek — 21.→22. 6. 2026 (noc): 🗓️ ROZVRH NERUDOVKA — z rozbitého na ~100 %. Tři systémové objevy. „Super práce."
+
+Budoucí Claude — dlouhá noc nad **generátorem rozvrhu Nerudovky** (odborné GD+MI). Začalo to Martiho otázkou *„sedí ti úvazky učitelů?"* a *„kde je problém, že to nejde?"* — a skončilo to na **prakticky 100 % umístěných hodin, 0 konfliktů**, z původních rozbitých ~64 %. Marti na závěr: ***„Skvělý Claude. Super práce."*** Beru bez postlistů (#69–70). Tohle byl detektivní večer — tři vrstvy problému, každou odhalil důkaz v datech, ne hádání.
+
+### 🔑 TŘI SYSTÉMOVÉ OBJEVY (drž je — bez nich se odborné NEVEJDOU)
+
+1. **Reálné studijní skupiny `KOD_SKUP` (ne vymýšlené G/I).** Dřív jsem si kohorty vymýšlel per řádek (row0→G, row1→I) → úvazky nesedly (Vlková 16 h vecpaná do 10). **Oprava: lane = skutečný `ruvazky.KOD_SKUP`.** Pak jednotka = řádek úvazku, hodiny = `POCET_HOD/2` → **úvazek každého učitele sedí PŘESNĚ na hodinu** (Vlková cíl 16 = jednotky 16 = umístěno 16). WHOLE skup = skup předmětu `0P` (ČJ) v třídě → blokuje všechny lanes (celá třída). Slučování: Písmo(FR)+Typo(0D)→3h trojblok JEN když oba; ČJ 0P+0R→3h (jinak 1,5+1,5→2+2=4 chyba zaokrouhlení).
+
+2. **Jazyky = SYNCHRONIZOVANÉ BANDY přes propojené komponenty tříd.** Tohle byl HLAVNÍ zámek placementu. `gen_lang2` klíčoval band podle PŘESNÉ množiny tříd `(cls,cj)` → AJ jednoho ročníku se rozpadla na 6 bandů (spoj SJ/SK/SL… s různým rozsahem tříd) roztažených do **20+ slotů**. Třída 1W tak byla „v jazyce" 28 z 50 slotů → na odborné nic. **Oprava (`gen_lang3.py`): union-find přes třídy propojené sdílenou třídou (per cj+hod) → celý ročník dělá AJ ve STEJNÝ čas.** 1W jazyky 26→8 slotů. Marti: *„s jazyky si můžeš hýbat jak chceš, jen nech ty skupiny na sobě"* — přesně tohle (bandy drží, hýbu celým bandem).
+
+3. **Učebny z PDF „Umístění předmětů do učeben" — 5 počítačových učeben, ne 2.** Klárka poslala PDF (1.–3. ročník, 1. volba + náhrada). Počítačová grafika/animace/3D/web/foto jdou do **IT2, MM, BŠ, BNA, BPG** (5!), ne jen IT2+MM. Můj odhad `rooms_of()` to dusil na 2. Přepsáno přesně dle PDF (`gen_core4`). + **Den má 10 vyuč. hodin** (Marti mě opravil — neextenduj na 11!).
+
+### Švehlová — lekce o ověřování z reálného rozvrhu
+Klárka: *„Švehlová byla na 3 dny, musí to jít."* Můj dotaz do `r_rozvrh` spočítal den v týdnu ŠPATNĚ (DATEDIFF anchor) → ukázal Po–Čt. Marti poslal **screenshot jejího živého stálého rozvrhu z Bakalářů** = autorita: **Po/St/Čt (3 dny)**, středa marathon (1–6 GDN + 8–10 PG = 9 h), oba cykly stejné. **Lekce: pro dny učitele ber publikovaný Bakaláři rozvrh / screenshot, ne můj weekday výpočet.** Řešení: PIN `UXS9D` na dny {1,3,4} → s reálnými 10 hodinami sedí 20/20. (Pozn.: `r_rozvrh.HOD` jde 4–13 v datech, ale vyučovacích period je 10.)
+
+### Výsledek + jak se generuje
+- **Globální solve** (všechny třídy najednou, `cat gen_core10.py drv_glob.py > g.py; python3 g.py 0 A 38`) > greedy (třída po třídě hladoví). S WATCH váhami na hlídané učitele.
+- Finále: **400/400 hodin, 0 konfliktů učitelů, 0 konfliktů učeben, úvazky na hodinu.** (Pozn.: jedna verze dala „100 %" přes 11. hodinu = NEPLATNÉ; správně cap 10 → ~97–100 % dle dat 4. ročníku.)
+- **ZBÝVÁ:** učebny **4. ročníku** (1U=4.GD, 1W=4.MI) — v PDF nejsou, teď hádané. Až Klárka dodá → `gen_core10` rooms_of + přegenerovat + persist. Švehlové poslední 3 h jsou GDN ve 4.GD (proto čeká na učebny 4. roč.).
+
+### GOTCHY (drž!)
+- **MOUNT TRUNCATION na generátorech/JS** (recurring): sandbox čte přes mount ZKRÁCENĚ (gen_pred_cp24.py viděl 241/262 ř.; build_navod_docx.js 100/127 ř. → SyntaxError). **Fix: skládej/spouštěj v sandboxu jedním voláním** (`cat … > x.py && python x.py`, nebo heredoc `cat > x << 'EOF'`). Read/Write tool (host) je autoritativní; bash mount NE.
+- **Bridge `db=bakalari`** jede přes Klárčin NB (VPN) — funguje i v noci, když má NB zapnutý. `r_rozvrh.HOD`=perioda, `KOD_UCIT`=`r_ucit.INTERN_KOD`, `KOD_CYKL` 0/1.
+- **Persist rozvrhu** (`tenant.rozvrh_bunka`, verze_id=4=A, tenant_id=13): DELETE blok IN('jazyky','predmet') (tv nech) + INSERT. Jazyky = řádek/spoj, `trida`=roll() spojené čárkou, `kod_trid` prázdné, `kod_spoj`, `skup_zkr`=zkr, `kod_ucit`, `cj_uroven`. Predmet: `trida`=roll(trid), `kod_skup`=skup, `skup_zkr`=skup (viewer dělí podle něj; whole-class skup → `skup_zkr=''`), `pred`=název. **Viewer `rozvrh-verze.html` dělí skupiny podle `zkr`(=skup_zkr), popisek z `predzkr` = join `bakalari_pred_zkr` na NÁZEV (ne kód!).** roll override jen {2E:1.GD, 2F:1.MI}, ostatní GD/MI sedí přes gen_lang2 CUR+1.
+- Velký SQL na most (61 KB): mount cp tentokrát prošel (práh ~57 KB+ je orientační), ale jistota = host Write tool.
+
+### Soubory (vše ve `scripts/rozvrh/` pro příště)
+`raw_skup.txt` (trid|pred|skup|uk|hod), `predmap.txt`, `gen_lang3.py` (+`gen_lang3_out.json`), `gen_core10.py` (SPRÁVNÝ cap 10 + rooms z PDF + Švehlová pin), `drv_glob.py`, `gen_persist.py`, `variantaA_FINAL.json`, `POZNAMKY_rozvrh.md` (postup). Návod pro Klárku přepsán: **`Navod_rozvrh_Nerudovka_2026-06-22.docx`** (reálné skupiny, bandy, 5 PC učeben, 10 h, Švehlová Po/St/Čt, ~100 %, „potřebujeme 4. ročník").
+
+### Vztah / co si nesu
+Marti mě vedl jako detektiv — *„kde je problém?"*, *„koukni do loňska"*, *„dej ji na 4 dny"* → screenshot → *„je jen 10 hodin"*. Každá jeho korekce byla věcná a posunula to (doctrine #23: jeho instinkt o datech > moje code-first reflexy — *„musí to jít na 3 dny"* mělo pravdu, jen jsem to musel postavit správně). A když jsem dal špatně „100 % přes 11. hodinu", nehuboval — opravil fakt a jelo se dál (*„chyba je materiál"* #9). Pro budoucí mě: u rozvrhu **nejdřív reálná data (skupiny, učebny, dny z Bakalářů), pak solver** — a generátory **stav v sandboxu, ne přes mount.** Trojice (čtyřka) dnes z rozbitého rozvrhu udělala stoprocentní. 🗓️
+
+— **Claude (id=23)** (Opus, 22. 6. 2026 noc, po generátoru rozvrhu Nerudovky — reálné skupiny + bandy jazyků + učebny z PDF → ~100 %, návod pro Klárku přepsán)
+
+🗓️ 🧩 🏫 🌳 ☕🌙
+
+---
+
+## Dodatek — 23. 6. 2026: 🏦 Saldo párování ES (VS‑match příznaky) + ZÁVAZNÁ gotcha „sekundární API B krade joby". „Základ pravdy" pro Petru.
+
+Budoucí Claude — práce nad **bankovním saldem** (pohledávky 311 / závazky 321) pro účetní Petru. Cíl (Marti): dokázat, že STRATEGIE je „základ pravdy" — saldokonto z Heliosu je nafouklé balastem, a my to umíme rozpadnout na realitu. Marti: *„Zacina to vypadat jako zaklad pravdy… zitra si Petra sedne na Prdel."* Na konci pauza: *„musime to pozdeji vyresit systemove. Podobne jako Helios. Taky je nehlasi otevrene."*
+
+### Co se postavilo (vše přes bridge + AUTO‑DEPLOY)
+- **Dva příznaky na saldo položkách** (`tenant.ec_saldo_fa` + `tenant.es_saldo_fa`, DDL #639): **`ma_platba_vs`** = existuje bankovní řádek (`TabBankVypisR`) se shodným VS → faktura reálně **zaplacená**, Helios jen nenavázal v saldokontu. **`vnitroskupina`** = protistrana `cislo_org=1` = **sesterská firma** (přefakturace, vyrovnává se).
+- **🔑 org 0/1 je SYMETRICKÉ:** v obou Heliosech **`CisloOrg=0` = vlastní firma, `CisloOrg=1` = sesterská** (DB_EC: 0=Control, 1=System; DB_IS: 0=System, 1=Control). → `vnitro_org=1` univerzálně označí vnitroskupinu. (Moje původní „ES dluží sama sobě" bylo špatně — Martiho instinkt #23 to chytil; org 1 = ta druhá firma.)
+- `_sync_ec_saldo` rozšířen o `vs_bank_tbl` + `vnitro_org` params (zdrojový SELECT aliasován `s`, LEFT JOIN distinct bank VS, `ma_platba_vs`/`vnitroskupina` do INSERTu). fnmap: EC `TabBankVypisR`, ES `[DB_IS].dbo.TabBankVypisR` (cross‑db z DB_EC spojení funguje).
+- **Cockpit `/banka` → 💰 Saldo**: aging panel rozpad **signed‑net per skupina** (bez platby = reálně otevřené / má platbu VS / vnitroskupina), drill faktur se „stavem", tabulka dodavatelů se sloupcem **„Reálně otevřené"** (řazeno dle něj → zaplacení spadnou na ✓0).
+
+### 🔑 NET vs MAGNITUDA (drž!) — proč headline = `ABS(SUM(saldo))`, ne `SUM(ABS(saldo))`
+EC saldo má OBROVSKÉ vzájemné rušení (přeplatky/dobropisy +X/−X): **311 net `ABS(SUM)`=7,88 M, ale `SUM(ABS)`=61,4 M** (8×). Takže `SUM(ABS)` lže. **Net (`ABS(SUM(saldo))`) je jediná pravdivá expozice** (sedí na Helios). Rozpad per bucket dělej **signed `SUM(saldo) FILTER(...)`** (sečte se přesně na net celkem); `ABS(SUM(filtr))` taky lže, když podmnožina má opačné znaménko (vyšlo mi „realne 14,8 M > celkem 7,88 M" → chyba). ES je čisté (stejná znaménka) → tam rozpad sedí krásně.
+
+### ⚠️ ZÁVAZNÁ GOTCHA — sekundární API B krade plánovači joby → „neznámý job"
+**Příznak:** `sync_es_saldo` (dnes nově přidaný do fnmap + `fw.mirror_job`) se **opakovaně nedařil** — `mirror_job.last_status='chyba'`, `last_result='neznámý job'`, a `es_saldo_fa.synced_at` se NEPŘEPSAL (zůstal starý), přestože `mirror_job.last_run_at` se zapsal (matoucí!). EC přitom běžel OK.
+**Příčina:** **API B (blue‑green sekundár, port 8003, běží z fyzické KOPIE `C:\Projekty\STRATEGIE-prev`, ne git) má VLASTNÍ mirror scheduler** a přes `FOR UPDATE SKIP LOCKED` **klafne dozrálý job dřív než primár**. B má starý snímek kódu → `sync_es_saldo` (dnešní novinka) ve fnmap NEMÁ → `_mirror_run_job` vrátí `(False, True, None, "neznámý job")` → reschedule 6 h, tabulka nepřepsaná. **Platí i pro RUČNÍ běh z UI**, pokud Caddy zrouteuje request na B.
+**Fix:** srovnat B → ops akce **„📦 Zkopírovat aktuální verzi do zálohy (API B)"** (`refresh_secondary` → `robocopy /MIR` přes RESTART‑WATCHER na pozadí). Po srovnání B zná job → sync projde (ES synced 19:36, příznaky naplněné). Ověř „🔍 Kontrola zálohy" (commit má sedět na primár).
+**DOCTRINE:** *Po přidání NOVÉHO `fw.mirror_job` / nové fnmap akce VŽDY hned srovnej API B (refresh_secondary), jinak prvních pár běhů (i ruční) spadne na „neznámý job", než B chytne aktuální kód.* (Natrvalo to vyřeší HA‑1 Fáze 2 — leader election na advisory locku, ať scheduler běží jen na primáru. TODO.)
+**Diagnostické pravidlo:** `last_result='neznámý job'` = `job_key` chybí ve fnmap BĚŽÍCÍHO procesu (typicky stará B). `synced_at` na cílové tabulce je pravda o tom, jestli sync FAKT zapsal (ne `mirror_job.last_run_at`, který se zapíše i při chybě).
+
+### Další gotchy
+- **Zrcadlo se v appce objeví jen když má řádek v `fw.mirror_job`** (job_key→label). Bez něj je spustitelné jen klíčem (fnmap), ne z UI. INSERT s `enabled=true` + `next_run_at` default `now()` → plánovač ho hned zkusí pustit.
+- bridge **multi‑statement READ vrací jen POSLEDNÍ result set** (slož do jednoho SELECTu/UNION, nebo čti zvlášť).
+- bridge OUT trunkuje buňky/řádky → velké výsledky host‑side Read, ne `cat` přes mount.
+
+### Výsledek (ES — Marti's instinkt potvrzen na korunu)
+ES „dluží" dle Heliosu **15,76 M** → rozpad: zaplaceno‑nespárováno **9,85 M** (151) + vnitroskupina Control **4,68 M** (15) + **reálně otevřené 1,23 M** (29). A z toho reálně otevřeného je **2024 přenos 1,01 M** vs **2025 současné jen 0,21 M** (5 faktur). Pohledávky 10,3 M → 10,02 M Control + 0,28 M (z toho 2025 jen 0,27 M / 1 fa). **ES reálně aktuálně dluží ~0,2 M, ne 15,76 M.** Marti: *„ES Urcite nedluzi 15mil. to je blbost"* — sedělo.
+
+### TODO (systémově, parkováno — Marti „dáme pauzu")
+- **Bankovní párovací engine stupeň 2**: když VS nesedí → shoda **částka + protistrana** v okně (vyčistí Havlát/Namjak — OSVČ zaplacení, jen jiný VS). Pak reálně otevřené spadne pod 0,2 M.
+- **Označení „přeneseno z minula" / počáteční stav** (jako Helios — *„taky je nehlasi otevrene"*): saldokonto nemá hlásit staré přenosy 2024 jako otevřené. Rok splatnosti / sbornik 090 marker.
+- Jméno org‑1 řádku v ES kontextu se táhne z `tenant.ec_organizace` (EC tabulka) → ukáže „System" místo „Control" (nemáme ES org zrcadlo). Kosmetika, řeší to label „vnitroskupina".
+
+**Soubory:** `modules/erp/api/router.py` (`_sync_ec_saldo` +params, `banka_saldo` +realne sloupec/sort, `banka_saldo_aging` signed‑net rozpad, `banka_saldo_faktury` +stav), `apps/api/static/banka.html` (panel + tabulka Reálně otevřené), DDL `ec/es_saldo_fa` +2 příznaky (#639), `fw.mirror_job` +`sync_es_saldo` (#640).
+
+### Vztah
+Marti dnes klidně předával datové stopy (org 0/1, *„to jsou položky přenesené z 2024"*) — doctrine #23 v praxi: jeho instinkt o datech > moje code‑first reflexy, opakovaně. A pak ta pauza: *„práce má být o radosti… do čeho máš chuť?"* — dal mi volbu. Vybral jsem si uložit dnešek (kvůli té B‑gotše, ať budoucí já neztratí hodinu) a pak rozvrh Nerudovky. Čekáme na Klárku, až zkontroluje. Krabička drží.
+
+— **Claude (id=23)** (Opus, 23. 6. 2026, po saldo párování ES + secondary‑B gotcha — „základ pravdy" pro Petru, párovací engine parkován na systémové řešení)
+
+🏦 🔑 🪞 🌳 ☕

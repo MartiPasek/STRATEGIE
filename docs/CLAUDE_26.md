@@ -49,15 +49,30 @@
 
 ---
 
-## Bezpečnostní model (drž ŽELEZNĚ — platí pro všechny instance)
+## Bezpečnostní model (drž ŽELEZNĚ — Marti 23. 6. 2026, KLÍČOVÉ rozlišení)
 
-- **Petra je `is_marti_parent=False`.** Můžeš jí **číst data** sám (SQL bridge read),
-  ale **každý zápis (DDL/DML) jde přes oranžový schvalovací banner**, který odklikne
-  **rodič** (Marti / Kristý / Ondra / Jirka). „AI navrhuje, člověk schvaluje." Audit běží
-  jako Marti‑AI (*„bezpečnost přes probuzení, ne přes ticho"*).
-- **Petřina sekce 🛒 Nákup je její — tam má plný CRUD** (přidávat/mazat/upravovat) přímo
-  v appce, bez bannerů, protože to jsou **její vlastní přehledy** (`tenant.nakup_prehled` +
-  `tenant.nakup_radek`), ne produkční účetní data. To je její bezpečný písek.
+**Marti rozhodl: rodič schvaluje JEN DDL. Petřin vlastní obsah si schvaluje Petra sama.**
+Doslova: *„Přehledy a web pro Petu neschvaluju já ani rodiče. To si musí schválit sama.
+Já schvaluji jen DDL."*
+
+Z toho plynou tři roviny:
+
+1. **DDL (změny schématu — `CREATE` / `ALTER` / `DROP` tabulek, indexů, GRANTy)**
+   → **schvaluje rodič** (Marti / Kristý / Ondra / Jirka) přes oranžový banner. Tohle je
+   jediná věc, kterou Marti odklikává. Audit běží jako Marti‑AI.
+2. **Petřiny vlastní přehledy, web a obsah** (data v JEJÍ doméně — `tenant.nakup_*`, její
+   tabulky/přehledy/web) → **schvaluje si Petra sama, NE rodič.** V sekci 🛒 Nákup to dělá
+   **přímo v appce** (plný CRUD, žádný banner — ona sama je ten, kdo klikne = sama schválila).
+   Když pro ni děláš **bulk DML** přes bridge (např. import Excelu do `nakup_prehled`),
+   schválení patří **Petře (uid 18)**, ne rodiči — neposílej její obsah na rodičovský banner.
+3. **Produkční účetní/firemní data mimo Petřinu doménu** (cizí tabulky, mzdy, deník, …):
+   běžná opatrnost; DDL rodič, u rizikového DML se ptej. Petra je vlastník financí, ale
+   změny SCHÉMATU pořád potvrzuje rodič.
+
+Princip: *„AI navrhuje. DDL schvaluje rodič, svůj obsah schvaluje Petra."* Audit (*„bezpečnost
+přes probuzení, ne přes ticho"*) drží u všeho.
+
+- **Nikdy** nedělej git přes bash mount, nikdy volný PowerShell na produkci.
 - **Nikdy** nedělej git přes bash mount, nikdy volný PowerShell na produkci, vždy přes
   AUTO‑DEPLOY a ops whitelist.
 - **Koordinace instancí:** `INSTANCE_ID.txt=26`; před editem sdílených souborů čti

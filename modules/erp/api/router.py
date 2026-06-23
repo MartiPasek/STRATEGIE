@@ -19095,6 +19095,7 @@ def _mirror_run_job(job_key):
         "sync_ec_banka": lambda: _sync_ec_banka(),
         "sync_ec_banka_delta": lambda: _sync_ec_banka(delta_days=90),
         "sync_ec_saldo": lambda: _sync_ec_saldo(),
+        "sync_es_saldo": lambda: _sync_ec_saldo(src_tbl='[DB_IS].dbo.TabSaldoFA', tgt_tbl='tenant.es_saldo_fa'),
         "sync_ec_denik": lambda: _sync_ec_denik(rok=2025),
         "sync_ec_denik_2026": lambda: _sync_ec_denik(rok=2026),
         "sync_es_denik": lambda: _sync_es_denik(rok=2025),
@@ -21977,26 +21978,30 @@ def banka_saldo(req: Request):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     typ = (req.query_params.get("typ") or "pohledavky").strip()
     ssk = "311" if typ == "pohledavky" else "321"
+    firma = (req.query_params.get("firma") or "EC").upper()
+    tbl = "tenant.es_saldo_fa" if firma == "ES" else "tenant.ec_saldo_fa"
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()
     try:
+        # ČISTÉ NETTO (ne SUM(ABS)) — EUR + CZK položky se vynetují; saldo je už v CZK (Marti 23.6.2026).
         su = s.execute(_t(
-            "SELECT cislo_sal_sk, COUNT(*) n, ROUND(SUM(ABS(saldo))) suma, "
+            "SELECT cislo_sal_sk, COUNT(*) n, ROUND(SUM(saldo)) suma, "
             "COUNT(*) FILTER (WHERE COALESCE(dnu_prodleni,0)>0) n_po, "
-            "ROUND(SUM(ABS(saldo)) FILTER (WHERE COALESCE(dnu_prodleni,0)>0)) suma_po "
-            "FROM tenant.ec_saldo_fa WHERE COALESCE(saldo,0)<>0 AND cislo_sal_sk IN ('311','321') "
+            "ROUND(SUM(saldo) FILTER (WHERE COALESCE(dnu_prodleni,0)>0)) suma_po "
+            "FROM " + tbl + " WHERE COALESCE(saldo,0)<>0 AND cislo_sal_sk IN ('311','321') "
             "GROUP BY cislo_sal_sk")).mappings().all()
-        sm = {r["cislo_sal_sk"]: {"pocet": int(r["n"] or 0), "suma": float(r["suma"] or 0),
-                                  "pocet_po": int(r["n_po"] or 0), "suma_po": float(r["suma_po"] or 0)} for r in su}
+        sm = {r["cislo_sal_sk"]: {"pocet": int(r["n"] or 0), "suma": abs(float(r["suma"] or 0)),
+                                  "pocet_po": int(r["n_po"] or 0), "suma_po": abs(float(r["suma_po"] or 0))} for r in su}
         rows = s.execute(_t(
             "SELECT s.cislo_org, COALESCE(NULLIF(o.firma,''),NULLIF(o.nazev,''),NULLIF(o.zkratka,''),'#'||s.cislo_org::text) nazev, "
-            "COUNT(*) n, ROUND(SUM(ABS(s.saldo))) suma, MAX(s.dnu_prodleni) max_prodleni, "
-            "ROUND(SUM(ABS(s.saldo)) FILTER (WHERE COALESCE(s.dnu_prodleni,0)>0)) suma_po "
-            "FROM tenant.ec_saldo_fa s LEFT JOIN tenant.ec_organizace o ON o.cislo_org=s.cislo_org "
+            "COUNT(*) n, ROUND(ABS(SUM(s.saldo))) suma, MAX(s.dnu_prodleni) max_prodleni, "
+            "ROUND(ABS(SUM(s.saldo) FILTER (WHERE COALESCE(s.dnu_prodleni,0)>0))) suma_po "
+            "FROM " + tbl + " s LEFT JOIN tenant.ec_organizace o ON o.cislo_org=s.cislo_org "
             "WHERE COALESCE(s.saldo,0)<>0 AND s.cislo_sal_sk=:k "
-            "GROUP BY s.cislo_org, o.firma, o.nazev, o.zkratka ORDER BY SUM(ABS(s.saldo)) DESC LIMIT 200"), {"k": ssk}).mappings().all()
-        return {"ok": True, "typ": typ,
+            "GROUP BY s.cislo_org, o.firma, o.nazev, o.zkratka HAVING SUM(s.saldo)<>0 "
+            "ORDER BY ABS(SUM(s.saldo)) DESC LIMIT 200"), {"k": ssk}).mappings().all()
+        return {"ok": True, "typ": typ, "firma": firma,
                 "souhrn": {"pohledavky": sm.get("311", {"pocet": 0, "suma": 0, "pocet_po": 0, "suma_po": 0}),
                            "zavazky": sm.get("321", {"pocet": 0, "suma": 0, "pocet_po": 0, "suma_po": 0})},
                 "organizace": [dict(r) for r in rows]}
@@ -22016,6 +22021,8 @@ def banka_saldo_faktury(req: Request):
         org = 0
     typ = (req.query_params.get("typ") or "pohledavky").strip()
     ssk = "311" if typ == "pohledavky" else "321"
+    firma = (req.query_params.get("firma") or "EC").upper()
+    tbl = "tenant.es_saldo_fa" if firma == "ES" else "tenant.ec_saldo_fa"
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()
@@ -22023,7 +22030,7 @@ def banka_saldo_faktury(req: Request):
         rows = s.execute(_t(
             "SELECT parovaci_znak, ROUND(ABS(saldo)) saldo, mena, LEFT(datum_splatno::text,10) splatno, "
             "COALESCE(dnu_prodleni,0) prodleni, cislo_zakazky "
-            "FROM tenant.ec_saldo_fa WHERE cislo_org=:o AND cislo_sal_sk=:k AND COALESCE(saldo,0)<>0 "
+            "FROM " + tbl + " WHERE cislo_org=:o AND cislo_sal_sk=:k AND COALESCE(saldo,0)<>0 "
             "ORDER BY dnu_prodleni DESC NULLS LAST LIMIT 200"), {"o": org, "k": ssk}).mappings().all()
         return {"ok": True, "faktury": [dict(r) for r in rows]}
     finally:
@@ -27767,7 +27774,7 @@ def _sync_edi_definice(_unused=None) -> dict:
         cm.__exit__(None, None, None)
 
 
-def _sync_ec_saldo(_unused=None) -> dict:
+def _sync_ec_saldo(_unused=None, src_tbl="TabSaldoFA", tgt_tbl="tenant.ec_saldo_fa") -> dict:
     """Marti 20.6.2026: zrcadlo OTEVŘENÝCH faktur (saldokonto TabSaldoFA WHERE Saldo<>0,
     ~20.5k položek). ParovaciZnak = VS, Saldo = otevřený zůstatek, CisloOrg = partner,
     Castka_MD/Dal = pohledávka/závazek. Proti tomuto se párují nespárované bank řádky
@@ -27828,13 +27835,13 @@ def _sync_ec_saldo(_unused=None) -> dict:
                    "COALESCE(NULLIF(MenaZobraz,''),NULLIF(Mena,''),'CZK') menaz, Saldo, Castka_Splatno, "
                    "Castka_Uhrazeno, Castka_MD, Castka_Dal, CONVERT(varchar(19),DatumSplatno,120) ds, "
                    "CONVERT(varchar(19),DatumUhrazeno,120) du, RTRIM(CisloZakazky) CisloZakazky, ICO, DIC "
-                   "FROM TabSaldoFA WHERE Saldo <> 0 AND IdFASaldo > %d ORDER BY IdFASaldo" % (BLOCK, lastid))
+                   "FROM " + src_tbl + " WHERE Saldo <> 0 AND IdFASaldo > %d ORDER BY IdFASaldo") % (BLOCK, lastid)
             batch = rows_of(sql)
             if not batch:
                 break
             for row in batch:
                 s.execute(_t(
-                    "INSERT INTO tenant.ec_saldo_fa (src_id,parovaci_znak,cislo_org,cislo_sal_sk,dnu_prodleni,mena,saldo,castka_splatno,"
+                    "INSERT INTO " + tgt_tbl + " (src_id,parovaci_znak,cislo_org,cislo_sal_sk,dnu_prodleni,mena,saldo,castka_splatno,"
                     "castka_uhrazeno,castka_md,castka_dal,datum_splatno,datum_uhrazeno,cislo_zakazky,ico,dic,synced_at) "
                     "VALUES (:sid,:pz,:co,:ssk,:dnu,:me,:sa,:cs,:cu,:cmd,:cdal,:ds,:du,:cz,:ico,:dic,now()) "
                     "ON CONFLICT (src_id) DO UPDATE SET parovaci_znak=excluded.parovaci_znak,cislo_org=excluded.cislo_org,"
@@ -27855,7 +27862,7 @@ def _sync_ec_saldo(_unused=None) -> dict:
             if len(batch) < BLOCK:
                 break
         # cleanup zavřených (už nejsou v otevřeném saldu) — jen po úplném průchodu
-        s.execute(_t("DELETE FROM tenant.ec_saldo_fa WHERE synced_at < :rs"), {"rs": run_start})
+        s.execute(_t("DELETE FROM " + tgt_tbl + " WHERE synced_at < :rs"), {"rs": run_start})
         s.commit()
         return {"ok": True, "saldo": nz}
     except Exception:

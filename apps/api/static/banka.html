@@ -84,8 +84,8 @@ function tZarazeni(katDetail){
   });
 }
 
-var _saldoTyp="pohledavky";
-function tSaldo(){api("/api/v1/erp/app/banka/saldo?typ="+_saldoTyp).then(function(j){
+var _saldoTyp="pohledavky", _saldoFirma="EC";
+function tSaldo(){api("/api/v1/erp/app/banka/saldo?typ="+_saldoTyp+"&firma="+_saldoFirma).then(function(j){
   if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
   var p=j.souhrn.pohledavky, z=j.souhrn.zavazky;
   var h='<div class="stats">';
@@ -94,14 +94,16 @@ function tSaldo(){api("/api/v1/erp/app/banka/saldo?typ="+_saldoTyp).then(functio
   h+='<div class="stat"><div class="n">'+kc(p.suma_po)+'</div><div class="l">pohledávky po splatnosti ('+fmt(p.pocet_po)+')</div></div>';
   h+='<div class="stat"><div class="n">'+kc(z.suma_po)+'</div><div class="l">závazky po splatnosti ('+fmt(z.pocet_po)+')</div></div>';
   h+='</div>';
+  h+='<div class="tabs" style="border:0;padding:0;margin-bottom:8px"><button class="tab'+(_saldoFirma==="EC"?" on":"")+'" data-fi="EC">EUROSOFT‑Control</button><button class="tab'+(_saldoFirma==="ES"?" on":"")+'" data-fi="ES">EUROSOFT‑System</button></div>';
   h+='<div class="tabs" style="border:0;padding:0;margin-bottom:10px"><button class="tab'+(_saldoTyp==="pohledavky"?" on":"")+'" data-st="pohledavky">📥 Kdo nám dluží</button><button class="tab'+(_saldoTyp==="zavazky"?" on":"")+'" data-st="zavazky">📤 Komu dlužíme</button></div>';
   h+='<table><tr><th>'+(_saldoTyp==="pohledavky"?"Odběratel":"Dodavatel")+'</th><th class="r">Otevřeno</th><th class="r">Faktur</th><th class="r">Po splatnosti</th><th class="r">Max dnů</th></tr>';
   (j.organizace||[]).forEach(function(o){var pd=o.max_prodleni>0;h+='<tr class="clik" data-org="'+o.cislo_org+'"><td>'+esc(o.nazev||"")+'</td><td class="r">'+kc(o.suma)+'</td><td class="r">'+fmt(o.n)+'</td><td class="r"'+(o.suma_po>0?' style="color:var(--warn)"':'')+'>'+(o.suma_po>0?kc(o.suma_po):"—")+'</td><td class="r"'+(pd?' style="color:var(--bad)"':'')+'>'+(pd?o.max_prodleni:"—")+'</td></tr>';});
   h+='</table><div class="sub" style="margin-top:8px">Klik na řádek → otevřené faktury. (311 = pohledávky, 321 = závazky, z Helios saldokonta.)</div>';
   V.innerHTML=h;
+  Array.prototype.forEach.call(V.querySelectorAll(".tab[data-fi]"),function(b){b.onclick=function(){_saldoFirma=b.getAttribute("data-fi");tSaldo();};});
   Array.prototype.forEach.call(V.querySelectorAll(".tab[data-st]"),function(b){b.onclick=function(){_saldoTyp=b.getAttribute("data-st");tSaldo();};});
   Array.prototype.forEach.call(V.querySelectorAll("tr.clik"),function(tr){tr.onclick=function(){tSaldoFa(tr.getAttribute("data-org"),tr.querySelector("td").textContent);};});});}
-function tSaldoFa(org,nazev){api("/api/v1/erp/app/banka/saldo/faktury?typ="+_saldoTyp+"&org="+org).then(function(j){
+function tSaldoFa(org,nazev){api("/api/v1/erp/app/banka/saldo/faktury?typ="+_saldoTyp+"&firma="+_saldoFirma+"&org="+org).then(function(j){
   if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
   var h='<button class="back" id="bk">← Saldo</button><div class="sec">'+(_saldoTyp==="pohledavky"?"Pohledávky":"Závazky")+' — '+esc(nazev||"")+'</div>';
   h+='<table><tr><th>VS / pár. znak</th><th class="r">Částka</th><th>Měna</th><th>Splatnost</th><th class="r">Dnů po spl.</th><th>Zakázka</th></tr>';

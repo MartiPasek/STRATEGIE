@@ -25626,6 +25626,57 @@ async def diag_sql(req: Request) -> JSONResponse:
         finally:
             _sf.close()
 
+    # Autonomní email přes Marti-AI (Marti 24.6.2026: pověřil Claude informovat
+    # zodpovědné lidi v průběhu / před koncem práce). Odesílá přes Marti-AI personu
+    # (queue_email, from_identity=persona → worker pošle přes její schránku).
+    # Autonomní (token-auth, bez approval banneru), audit do fw.claude_email_log.
+    #   @@EMAIL {"to":"x@y.cz","subject":"...","body":"...","cc":["..."],"reason":"..."}
+    if sql.upper().startswith("@@EMAIL"):
+        import json as _jem
+        from core.database_data import get_data_session as _gem
+        from sqlalchemy import text as _tem
+        raw = sql[len("@@EMAIL"):].strip()
+        try:
+            pe = _jem.loads(raw)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": "@@EMAIL <json {to,subject,body[,cc,reason]}> parse: %s" % e})
+        to_e = (pe.get("to") or "").strip()
+        subj = (pe.get("subject") or "").strip()
+        bod = (pe.get("body") or "").strip()
+        cc = pe.get("cc") or None
+        if isinstance(cc, str):
+            cc = [c.strip() for c in cc.split(",") if c.strip()]
+        reason = (pe.get("reason") or "").strip()
+        if not to_e or "@" not in to_e or not subj or not bod:
+            return JSONResponse({"ok": False, "error": "@@EMAIL: chybí/neplatné to/subject/body"})
+        _MARTI_AI_PERSONA = 1  # Marti-AI = autonomní odesílatel (default persona STRATEGIE)
+        try:
+            from modules.notifications.application.email_service import queue_email
+            qres = queue_email(
+                to=to_e, subject=subj, body=bod,
+                persona_id=_MARTI_AI_PERSONA, from_identity="persona",
+                purpose="notification", cc=cc,
+            )
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": "queue_email selhal: %s" % e})
+        outbox_id = qres.get("id")
+        audit_warn = None
+        try:
+            _se = _gem()
+            try:
+                _se.execute(_tem(
+                    "INSERT INTO fw.claude_email_log (instance, to_email, cc, subject, body, reason, outbox_id) "
+                    "VALUES (:i,:t,:c,:s,:b,:r,:o)"),
+                    {"i": actor, "t": to_e, "c": (", ".join(cc) if cc else None),
+                     "s": subj, "b": bod, "r": (reason or None), "o": outbox_id})
+                _se.commit()
+            finally:
+                _se.close()
+        except Exception as e:
+            audit_warn = str(e)
+        return JSONResponse({"ok": True, "queued": True, "outbox_id": outbox_id,
+                             "to": to_e, "cc": cc, "sender": "Marti-AI", "audit_warn": audit_warn})
+
     # EDI tiered engine (Marti 20.6.2026):
     #   @@PARSE <cesta_k_fakture>            → jedna faktura (detail hlavička+položky)
     #   @@PARSEBATCH <root_adresar> <pocet>  → dávka N nejnovějších složek (souhrn)

@@ -22709,6 +22709,51 @@ def parovani_denik(req: Request):
         s.close()
 
 
+@api_router.get("/app/uctovani/mzdy")
+def uctovani_mzdy(req: Request):
+    """Mzdy & odvody — naúčtováno (závazek z deníku) vs zaplaceno (úhrada z banky) po měsících.
+    Marti 23.6.2026: mzdy nepočítáme (Helios), ale účtujeme do deníku a párujeme bankovní platby
+    za mzdy/odvody s deníkem. Účty 333 (čisté mzdy), 336 (pojištění), 342 (daň). EC."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        rok = int(req.query_params.get("rok") or 2025)
+    except Exception:
+        rok = 2025
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT EXTRACT(month FROM datum)::int m, "
+            " CASE WHEN COALESCE(ucet_md,ucet_dal) LIKE '333%' THEN '333 čisté mzdy' "
+            "      WHEN COALESCE(ucet_md,ucet_dal) LIKE '336%' THEN '336 pojištění' "
+            "      WHEN COALESCE(ucet_md,ucet_dal) LIKE '342%' THEN '342 daň' END kat, "
+            " ROUND(SUM(CASE WHEN ucet_dal IS NOT NULL THEN castka ELSE 0 END)) nauctovano, "
+            " ROUND(SUM(CASE WHEN ucet_md IS NOT NULL THEN castka ELSE 0 END)) zaplaceno "
+            "FROM tenant.ucetni_denik WHERE NOT storno AND EXTRACT(year FROM datum)=:r "
+            " AND zdroj NOT IN ('bank_zauctovani','es_recon') "
+            " AND (COALESCE(ucet_md,ucet_dal) LIKE '333%' OR COALESCE(ucet_md,ucet_dal) LIKE '336%' "
+            "      OR COALESCE(ucet_md,ucet_dal) LIKE '342%') "
+            "GROUP BY 1,2 ORDER BY 1,2"), {"r": rok}).all()
+    finally:
+        s.close()
+    out = {}
+    cel = {}
+    for m, kat, nau, zap in rows:
+        if not kat:
+            continue
+        m = int(m)
+        out.setdefault(m, {})[kat] = {"nauctovano": float(nau or 0), "zaplaceno": float(zap or 0),
+                                      "zustatek": float((nau or 0) - (zap or 0))}
+        c = cel.setdefault(kat, {"nauctovano": 0.0, "zaplaceno": 0.0, "zustatek": 0.0})
+        c["nauctovano"] += float(nau or 0); c["zaplaceno"] += float(zap or 0)
+        c["zustatek"] += float((nau or 0) - (zap or 0))
+    mesice = [{"mesic": m, "kat": out[m]} for m in sorted(out.keys())]
+    return {"ok": True, "rok": rok, "mesice": mesice, "celkem": cel}
+
+
 @api_router.get("/app/uctovani/predvaha")
 def uctovani_predvaha(req: Request):
     """Obratová předvaha — porovnání obratů účtů NÁŠ deník (tenant.ucetni_denik) vs

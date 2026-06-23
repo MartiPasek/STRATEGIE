@@ -1083,6 +1083,13 @@ def banka_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/mzdy")
+def mzdy_page():
+    """💰 Mzdy & odvody — naúčtováno (deník) vs zaplaceno (banka) po měsících (Marti 23.6.2026)."""
+    return FileResponse(os.path.join(static_dir, "mzdy.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/predvaha")
 def predvaha_page():
     """📊 Obratová předvaha — porovnání obratů účtů náš deník vs Helios (EC) za rok.

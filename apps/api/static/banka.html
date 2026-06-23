@@ -151,15 +151,49 @@ function tMustr(sbornik){api("/api/v1/erp/app/uctovani/vzor"+(sbornik?("?sbornik
 
 function tPrehled(){api("/api/v1/erp/app/banka/prehled").then(function(j){
   if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
-  function st(n,l,cls){return '<div class="stat '+(cls||"")+'"><div class="n">'+n+'</div><div class="l">'+esc(l)+'</div></div>';}
+  function st(n,l,cls,go){return '<div class="stat '+(cls||"")+(go?' clik':'')+'"'+(go?' data-go="'+go+'" style="cursor:pointer"':'')+'><div class="n">'+n+'</div><div class="l">'+esc(l)+(go?' ›':'')+'</div></div>';}
   var h='<div class="stats">';
-  h+=st(fmt(j.vypisy),"výpisy (hlavičky)")+st(fmt(j.radky),"řádky výpisů");
-  h+=st(fmt(j.nesparovano),"nespárováno",(j.nesparovano>0?"warn":"ok"))+st(kc(j.nesparovano_castka),"nespárovaná částka");
-  h+=st(fmt(j.uhrady),"úhrady (Centrála)")+st(fmt(j.navrhy),"návrhy zaúčtování",(j.navrhy>0?"warn":""));
-  h+=st(fmt(j.zauctovano),"zaúčtováno","ok")+st(fmt(j.denik),"řádky deníku");
-  h+=st(fmt(j.saldo),"otevřené faktury")+st(fmt(j.doklady),"účetní doklady");
-  h+='</div>';
-  V.innerHTML=h;});}
+  h+=st(fmt(j.vypisy),"výpisy (hlavičky)",null,"tab:vypisy")+st(fmt(j.radky),"řádky výpisů",null,"tab:vypisy");
+  h+=st(fmt(j.nesparovano),"nespárováno",(j.nesparovano>0?"warn":"ok"),"drill:nesparovano")+st(kc(j.nesparovano_castka),"nespárovaná částka",null,"drill:nesparovano");
+  h+=st(fmt(j.uhrady),"úhrady (Centrála)",null,"drill:uhrady")+st(fmt(j.navrhy),"návrhy zaúčtování",(j.navrhy>0?"warn":""),"tab:zarazeni");
+  h+=st(fmt(j.zauctovano),"zaúčtováno","ok","ext:/uctovani")+st(fmt(j.denik),"řádky deníku",null,"ext:/uctovani");
+  h+=st(fmt(j.saldo),"otevřené faktury",null,"tab:saldo")+st(fmt(j.doklady),"účetní doklady",null,"ext:/uctovani");
+  h+='</div><div class="sub">Klikni na dlaždici → detail (›).</div>';
+  V.innerHTML=h;
+  Array.prototype.forEach.call(V.querySelectorAll(".stat.clik"),function(el){el.onclick=function(){
+    var g=el.getAttribute("data-go")||"";
+    if(g.indexOf("tab:")===0){cur=g.slice(4);renderTabs();load();}
+    else if(g.indexOf("ext:")===0){goTo(g.slice(4));}
+    else if(g==="drill:nesparovano"){tNesparovane();}
+    else if(g==="drill:uhrady"){tUhrady();}
+  };});});}
+
+function tNesparovane(){
+  V.innerHTML='<div class="hint">Načítám nespárované…</div>';
+  api("/api/v1/erp/app/parovani/prehled?stav=ne&limit=1000").then(function(j){
+    if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+    var s=j.summary||{};
+    var h='<button class="back" id="bk">← Přehled</button><div class="sec">Nespárované platby — '+fmt(s.nesparovano)+' ('+kc(s.nesparovano_castka)+')</div>';
+    h+='<table><tr><th>Datum</th><th class="r">Částka</th><th>Měna</th><th>Protistrana</th><th>VS</th><th>Zakázka</th><th>Rozpoznáno</th></tr>';
+    (j.radky||[]).forEach(function(r){h+='<tr><td>'+esc(r.dat||"")+'</td><td class="r">'+kc(r.castka,r.mena)+'</td><td>'+esc(r.mena||"")+'</td><td>'+esc(r.nazev_org||"")+'</td><td>'+esc(r.variabilni_symbol||"")+'</td><td>'+esc(r.cislo_zakazky||"")+'</td><td>'+esc(r.predpis||r.kategorie||"")+'</td></tr>';});
+    h+='</table><div class="sub" style="margin-top:8px">Zobrazeno max 1000. Zařazení a předkontaci dělej v tabu 🧮 Zařazení.</div>';
+    V.innerHTML=h;
+    document.getElementById("bk").onclick=function(){cur="prehled";renderTabs();load();};
+  });
+}
+
+function tUhrady(){
+  V.innerHTML='<div class="hint">Načítám úhrady…</div>';
+  api("/api/v1/erp/app/banka/uhrady?limit=500").then(function(j){
+    if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+    var h='<button class="back" id="bk">← Přehled</button><div class="sec">Úhrady (Centrála) — '+fmt(j.celkem)+'</div>';
+    h+='<table><tr><th>Datum</th><th class="r">Částka</th><th>Měna</th><th>Popis</th><th>Faktura</th></tr>';
+    (j.uhrady||[]).forEach(function(u){h+='<tr><td>'+esc(u.datum||"")+'</td><td class="r">'+kc(u.castka,u.mena)+'</td><td>'+esc(u.mena||"")+'</td><td>'+esc(u.popis||"")+'</td><td>'+esc(u.id_fak||"")+'</td></tr>';});
+    h+='</table>';
+    V.innerHTML=h;
+    document.getElementById("bk").onclick=function(){cur="prehled";renderTabs();load();};
+  });
+}
 
 function tUcty(){api("/api/v1/erp/app/banka/ucty").then(function(j){
   if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}

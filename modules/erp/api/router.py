@@ -21644,6 +21644,29 @@ def banka_vypis_radky(vid: int, req: Request):
         s.close()
 
 
+@api_router.get("/app/banka/uhrady")
+def banka_uhrady(req: Request):
+    """Seznam úhrad (zrcadlo Centrály ec_uhrada) — drill z přehledu."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        limit = min(1000, max(10, int(req.query_params.get("limit") or 500)))
+    except Exception:
+        limit = 500
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        celkem = s.execute(_t("SELECT COUNT(*) FROM tenant.ec_uhrada")).scalar() or 0
+        rows = s.execute(_t(
+            "SELECT LEFT(datum::text,10) datum, castka, mena, popis, id_fak "
+            "FROM tenant.ec_uhrada ORDER BY datum DESC NULLS LAST, src_id DESC LIMIT :l"), {"l": limit}).mappings().all()
+        return {"ok": True, "celkem": int(celkem), "uhrady": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/banka/saldo")
 def banka_saldo(req: Request):
     """Saldo: pohledávky (311 — kdo nám dluží) vs závazky (321 — komu dlužíme), po

@@ -21648,15 +21648,20 @@ def uctovani_vzor(req: Request):
             "LEFT JOIN tenant.ucet_sbornik sb ON sb.kod=d.sbornik "
             "WHERE d.rok=:r AND NOT COALESCE(d.storno,false) "
             "GROUP BY d.sbornik, sb.nazev ORDER BY d.sbornik"), {"r": rok}).mappings().all()
-        where = "rok=:r AND NOT COALESCE(storno,false) AND COALESCE(ucet_md,'')<>'' AND COALESCE(ucet_dal,'')<>''"
+        # mustr = kombinace MD→DAL účtů spárovaná v rámci dokladu (strana 0=MD, 1=DAL)
+        filt = ""
         params = {"r": rok}
         if sbornik:
-            where += " AND sbornik=:sb"
+            filt = " AND sbornik=:sb"
             params["sb"] = sbornik
         vz = s.execute(_t(
-            "SELECT sbornik, ucet_md, ucet_dal, COUNT(*) n, ROUND(COALESCE(SUM(castka_md),0)) suma "
-            "FROM tenant.ec_denik WHERE " + where +
-            " GROUP BY sbornik, ucet_md, ucet_dal ORDER BY n DESC LIMIT 300"), params).mappings().all()
+            "WITH md AS (SELECT sbornik,cislo_dokladu,ucet a,castka FROM tenant.ec_denik "
+            " WHERE rok=:r AND strana=0 AND NOT COALESCE(storno,false) AND COALESCE(ucet,'')<>''" + filt + "), "
+            "dal AS (SELECT sbornik,cislo_dokladu,ucet a FROM tenant.ec_denik "
+            " WHERE rok=:r AND strana=1 AND NOT COALESCE(storno,false) AND COALESCE(ucet,'')<>''" + filt + ") "
+            "SELECT m.sbornik, m.a ucet_md, d.a ucet_dal, COUNT(*) n, ROUND(COALESCE(SUM(m.castka),0)) suma "
+            "FROM md m JOIN dal d ON d.sbornik=m.sbornik AND d.cislo_dokladu=m.cislo_dokladu "
+            "GROUP BY m.sbornik, m.a, d.a ORDER BY n DESC LIMIT 300"), params).mappings().all()
         celk = s.execute(_t("SELECT COUNT(*) n, ROUND(COALESCE(SUM(castka_md),0)) suma FROM tenant.ec_denik "
                             "WHERE rok=:r AND NOT COALESCE(storno,false)"), {"r": rok}).first()
         return {"ok": True, "rok": rok, "celkem_radku": int(celk[0] or 0), "celkem_suma": float(celk[1] or 0),

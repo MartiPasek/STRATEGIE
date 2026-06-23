@@ -18798,6 +18798,7 @@ def _mirror_run_job(job_key):
         "sync_ec_banka_delta": lambda: _sync_ec_banka(delta_days=90),
         "sync_ec_saldo": lambda: _sync_ec_saldo(),
         "sync_ec_denik": lambda: _sync_ec_denik(rok=2025),
+        "sync_ec_bank_ucet": lambda: _sync_ec_bank_ucet(),
         "sync_edi_definice": lambda: _sync_edi_definice(),
         # přesunuto z ⚙ Ops akcí do řídícího centra (Marti 20.6.2026)
         "sync_zakazky": lambda: _sync_zakazky_from_helios(),
@@ -21621,6 +21622,73 @@ def banka_vypis_radky(vid: int, req: Request):
             "LEFT(datum_splatnosti::text,10) ds, COALESCE(pocet_uhrad,0) pu, cislo_zakazky, doklad, popis_platby "
             "FROM tenant.ec_bank_vypis_radek WHERE id_hlava=:v ORDER BY cislo_radku"), {"v": vid}).mappings().all()
         return {"ok": True, "hlavicka": dict(hl) if hl else None, "radky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/banka/navrh-parovani")
+def banka_navrh_parovani(req: Request):
+    """Párovací engine (Marti 23.6.2026): nespárované příchozí platby → identifikace
+    protistrany přes ČÍSLO ÚČTU (registr TabBankSpojeni: org/zaměstnanec/úřad, ctí
+    Prednastaveno/Blokovano) + návrh otevřené faktury (saldo) dle org+částky.
+    VS→objednávka→zakázka = doladí Peťa s instancí 26."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        limit = min(300, max(10, int(req.query_params.get("limit") or 150)))
+    except Exception:
+        limit = 150
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "WITH ln AS ("
+            " SELECT src_id, nazev_org, castka, mena, variabilni_symbol, cislo_uctu, kod_banky, "
+            "  LEFT(datum_splatnosti::text,10) dat, "
+            "  NULLIF(ltrim(regexp_replace(COALESCE(cislo_uctu,''),'\\D','','g'),'0'),'') ucn "
+            " FROM tenant.ec_bank_vypis_radek WHERE COALESCE(pocet_uhrad,0)=0 AND castka>0 "
+            " ORDER BY datum_splatnosti DESC NULLS LAST, src_id DESC LIMIT :lim) "
+            "SELECT ln.src_id, ln.nazev_org, ln.castka, ln.mena, ln.variabilni_symbol, ln.cislo_uctu, "
+            " ln.kod_banky, ln.dat, bu.id_org, bu.id_zam, bu.id_ustavu, bu.nazev bu_nazev, bu.prednastaveno, "
+            " o.firma, o.nazev onazev, o.zkratka, o.cislo_org "
+            "FROM ln "
+            "LEFT JOIN LATERAL (SELECT b.id_org,b.id_zam,b.id_ustavu,b.nazev,b.prednastaveno FROM tenant.ec_bank_ucet b "
+            "  WHERE ln.ucn IS NOT NULL AND b.cislo_uctu_norm=ln.ucn AND NOT COALESCE(b.blokovano,false) "
+            "  ORDER BY b.prednastaveno DESC, b.prioritni DESC LIMIT 1) bu ON true "
+            "LEFT JOIN tenant.ec_organizace o ON o.src_id=bu.id_org") , {"lim": limit}).mappings().all()
+        out = []
+        ident = 0
+        for r in rows:
+            owner = None
+            typ = None
+            org = r["cislo_org"]
+            if r["id_org"]:
+                owner = r["firma"] or r["onazev"] or r["zkratka"] or ("org #" + str(r["id_org"]))
+                typ = "organizace"
+            elif r["id_zam"]:
+                owner = (r["bu_nazev"] or ("zaměstnanec #" + str(r["id_zam"])))
+                typ = "zaměstnanec"
+            elif r["id_ustavu"]:
+                owner = r["bu_nazev"] or ("úřad/ústav #" + str(r["id_ustavu"]))
+                typ = "úřad/ústav"
+            if owner:
+                ident += 1
+            navrh = None
+            if org and r["castka"]:
+                fa = s.execute(_t(
+                    "SELECT src_id, parovaci_znak, ROUND(saldo) saldo, LEFT(datum_splatno::text,10) spl, cislo_zakazky "
+                    "FROM tenant.ec_saldo_fa WHERE cislo_org=:o AND COALESCE(saldo,0)<>0 "
+                    "AND ABS(ABS(saldo)-:c) < 0.5 ORDER BY datum_splatno DESC NULLS LAST LIMIT 1"),
+                    {"o": org, "c": float(r["castka"])}).mappings().first()
+                if fa:
+                    navrh = dict(fa)
+            out.append({"src_id": r["src_id"], "nazev_org": r["nazev_org"], "castka": float(r["castka"] or 0),
+                        "mena": r["mena"], "vs": r["variabilni_symbol"], "cislo_uctu": r["cislo_uctu"],
+                        "kod_banky": r["kod_banky"], "dat": r["dat"], "vlastnik": owner, "typ": typ,
+                        "prednastaveno": bool(r["prednastaveno"]), "navrh_faktura": navrh})
+        return {"ok": True, "polozky": out, "celkem": len(out), "identifikovano": ident}
     finally:
         s.close()
 
@@ -27314,6 +27382,97 @@ def _sync_ec_denik(_unused=None, rok=2025) -> dict:
                 break
         done_row = s.execute(_t("SELECT last_note FROM tenant.ec_mirror_state WHERE src_table=:t"), {"t": WK}).first()
         return {"ok": True, "done": (done_row and done_row[0] == "done"), "rok": rok, "radky": n}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_ec_bank_ucet(_unused=None) -> dict:
+    """Marti 23.6.2026: registr bank. účtů protistran (TabBankSpojeni) — dodavatelé/odběratelé
+    (IDOrg), zaměstnanci (IDZam), úřady/ústavy (IDUstavu) + Prednastaveno/Blokovano + symboly.
+    ZÁKLAD párovacího enginu: účet protistrany na výpisu → vlastník. Plný refresh dle ID."""
+    import json as _j, time as _time, re as _re
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    BLOCK = 2000
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def norm(u):
+        d = _re.sub(r"\D", "", u or "")
+        d = d.lstrip("0")
+        return d or None
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        lastid = 0
+        n = 0
+        while True:
+            batch = rows_of(
+                "SELECT TOP %d ID,IDOrg,IDZam,IDUstavu,NazevBankSpoj,CisloUctu,IBANElektronicky,"
+                "CisloUctuAlias,Mena,VariabilniSymbol,KonstantniSymbol,SpecifickySymbol,"
+                "CAST(Prednastaveno AS int) Prednastaveno,CAST(Blokovano AS int) Blokovano,"
+                "CAST(Prioritni AS int) Prioritni,Priorita FROM TabBankSpojeni WHERE ID>%d ORDER BY ID"
+                % (BLOCK, lastid))
+            if not batch:
+                break
+            for r in batch:
+                cu = s2(r.get("CisloUctu"))
+                s.execute(_t(
+                    "INSERT INTO tenant.ec_bank_ucet (src_id,tenant_id,id_org,id_zam,id_ustavu,nazev,cislo_uctu,"
+                    "cislo_uctu_norm,iban,alias,mena,variabilni_symbol,konstantni_symbol,specificky_symbol,"
+                    "prednastaveno,blokovano,prioritni,priorita,synced_at) VALUES "
+                    "(:i,2,:org,:zam,:ust,:nz,:cu,:cn,:ib,:al,:me,:vs,:ks,:ss,:pn,:bl,:pr,:prio,now()) "
+                    "ON CONFLICT (src_id) DO UPDATE SET id_org=excluded.id_org,id_zam=excluded.id_zam,"
+                    "id_ustavu=excluded.id_ustavu,cislo_uctu=excluded.cislo_uctu,cislo_uctu_norm=excluded.cislo_uctu_norm,"
+                    "prednastaveno=excluded.prednastaveno,blokovano=excluded.blokovano,prioritni=excluded.prioritni,synced_at=now()"),
+                    {"i": i2(r.get("ID")), "org": i2(r.get("IDOrg")), "zam": i2(r.get("IDZam")),
+                     "ust": i2(r.get("IDUstavu")), "nz": s2(r.get("NazevBankSpoj")), "cu": cu, "cn": norm(cu),
+                     "ib": s2(r.get("IBANElektronicky")), "al": s2(r.get("CisloUctuAlias")), "me": s2(r.get("Mena")),
+                     "vs": s2(r.get("VariabilniSymbol")), "ks": s2(r.get("KonstantniSymbol")), "ss": s2(r.get("SpecifickySymbol")),
+                     "pn": (i2(r.get("Prednastaveno")) == 1), "bl": (i2(r.get("Blokovano")) == 1),
+                     "pr": (i2(r.get("Prioritni")) == 1), "prio": i2(r.get("Priorita"))})
+                lastid = i2(r.get("ID")) or lastid
+            n += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        return {"ok": True, "radky": n}
     except Exception:
         s.rollback()
         raise

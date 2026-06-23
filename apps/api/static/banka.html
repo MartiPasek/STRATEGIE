@@ -51,11 +51,37 @@ function api(p){return fetch(p,{credentials:"include"}).then(function(r){
   if(!r.ok){var m=r.status===403?"Bankovní sekci vidí jen účetní (Petra) a vedení.":(r.status===401?"Nejsi přihlášen.":"Chyba HTTP "+r.status);return{ok:false,error:m};}
   return r.json();}).catch(function(){return{ok:false,error:"Spojení se serverem selhalo."};});}
 var V=document.getElementById("view");
-var TABS=[["prehled","📊 Přehled"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["parovani","🔗 Návrhy párování"],["mustr","📐 Mustr 2025"],["prirucka","📖 Průvodce"],["nastroje","🔧 Nástroje"]];
+var TABS=[["prehled","📊 Přehled"],["saldo","💰 Saldo"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["parovani","🔗 Návrhy párování"],["mustr","📐 Mustr 2025"],["prirucka","📖 Průvodce"],["nastroje","🔧 Nástroje"]];
 var cur="prehled";
 function renderTabs(){document.getElementById("tabs").innerHTML=TABS.map(function(t){return '<button class="tab'+(t[0]===cur?' on':'')+'" data-t="'+t[0]+'">'+t[1]+'</button>';}).join("");
   Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.onclick=function(){cur=b.getAttribute("data-t");renderTabs();load();};});}
-function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,ucty:tUcty,vypisy:tVypisy,parovani:tParovani,mustr:tMustr,prirucka:tPrirucka,nastroje:tNastroje}[cur])();}
+function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,saldo:tSaldo,ucty:tUcty,vypisy:tVypisy,parovani:tParovani,mustr:tMustr,prirucka:tPrirucka,nastroje:tNastroje}[cur])();}
+
+var _saldoTyp="pohledavky";
+function tSaldo(){api("/api/v1/erp/app/banka/saldo?typ="+_saldoTyp).then(function(j){
+  if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+  var p=j.souhrn.pohledavky, z=j.souhrn.zavazky;
+  var h='<div class="stats">';
+  h+='<div class="stat ok"><div class="n">'+kc(p.suma)+'</div><div class="l">Pohledávky — kdo nám dluží ('+fmt(p.pocet)+' fa)</div></div>';
+  h+='<div class="stat warn"><div class="n">'+kc(z.suma)+'</div><div class="l">Závazky — komu dlužíme ('+fmt(z.pocet)+' fa)</div></div>';
+  h+='<div class="stat"><div class="n">'+kc(p.suma_po)+'</div><div class="l">pohledávky po splatnosti ('+fmt(p.pocet_po)+')</div></div>';
+  h+='<div class="stat"><div class="n">'+kc(z.suma_po)+'</div><div class="l">závazky po splatnosti ('+fmt(z.pocet_po)+')</div></div>';
+  h+='</div>';
+  h+='<div class="tabs" style="border:0;padding:0;margin-bottom:10px"><button class="tab'+(_saldoTyp==="pohledavky"?" on":"")+'" data-st="pohledavky">📥 Kdo nám dluží</button><button class="tab'+(_saldoTyp==="zavazky"?" on":"")+'" data-st="zavazky">📤 Komu dlužíme</button></div>';
+  h+='<table><tr><th>'+(_saldoTyp==="pohledavky"?"Odběratel":"Dodavatel")+'</th><th class="r">Otevřeno</th><th class="r">Faktur</th><th class="r">Po splatnosti</th><th class="r">Max dnů</th></tr>';
+  (j.organizace||[]).forEach(function(o){var pd=o.max_prodleni>0;h+='<tr class="clik" data-org="'+o.cislo_org+'"><td>'+esc(o.nazev||"")+'</td><td class="r">'+kc(o.suma)+'</td><td class="r">'+fmt(o.n)+'</td><td class="r"'+(o.suma_po>0?' style="color:var(--warn)"':'')+'>'+(o.suma_po>0?kc(o.suma_po):"—")+'</td><td class="r"'+(pd?' style="color:var(--bad)"':'')+'>'+(pd?o.max_prodleni:"—")+'</td></tr>';});
+  h+='</table><div class="sub" style="margin-top:8px">Klik na řádek → otevřené faktury. (311 = pohledávky, 321 = závazky, z Helios saldokonta.)</div>';
+  V.innerHTML=h;
+  Array.prototype.forEach.call(V.querySelectorAll(".tab[data-st]"),function(b){b.onclick=function(){_saldoTyp=b.getAttribute("data-st");tSaldo();};});
+  Array.prototype.forEach.call(V.querySelectorAll("tr.clik"),function(tr){tr.onclick=function(){tSaldoFa(tr.getAttribute("data-org"),tr.querySelector("td").textContent);};});});}
+function tSaldoFa(org,nazev){api("/api/v1/erp/app/banka/saldo/faktury?typ="+_saldoTyp+"&org="+org).then(function(j){
+  if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+  var h='<button class="back" id="bk">← Saldo</button><div class="sec">'+(_saldoTyp==="pohledavky"?"Pohledávky":"Závazky")+' — '+esc(nazev||"")+'</div>';
+  h+='<table><tr><th>VS / pár. znak</th><th class="r">Částka</th><th>Měna</th><th>Splatnost</th><th class="r">Dnů po spl.</th><th>Zakázka</th></tr>';
+  (j.faktury||[]).forEach(function(f){var pd=f.prodleni>0;h+='<tr><td>'+esc(f.parovaci_znak||"")+'</td><td class="r">'+kc(f.saldo,f.mena)+'</td><td>'+esc(f.mena||"")+'</td><td>'+esc(f.splatno||"")+'</td><td class="r"'+(pd?' style="color:var(--bad)"':'')+'>'+(pd?f.prodleni:"—")+'</td><td>'+esc(f.cislo_zakazky||"")+'</td></tr>';});
+  h+='</table>';
+  V.innerHTML=h;
+  document.getElementById("bk").onclick=function(){tSaldo();};});}
 
 function tPrirucka(){
   function show(){ api("/api/v1/erp/app/kb/raw/banka_pruvodce").then(function(j){

@@ -21644,6 +21644,68 @@ def banka_vypis_radky(vid: int, req: Request):
         s.close()
 
 
+@api_router.get("/app/banka/saldo")
+def banka_saldo(req: Request):
+    """Saldo: pohledávky (311 — kdo nám dluží) vs závazky (321 — komu dlužíme), po
+    organizaci, s částkou po splatnosti. Marti 23.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    typ = (req.query_params.get("typ") or "pohledavky").strip()
+    ssk = "311" if typ == "pohledavky" else "321"
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        su = s.execute(_t(
+            "SELECT cislo_sal_sk, COUNT(*) n, ROUND(SUM(ABS(saldo))) suma, "
+            "COUNT(*) FILTER (WHERE COALESCE(dnu_prodleni,0)>0) n_po, "
+            "ROUND(SUM(ABS(saldo)) FILTER (WHERE COALESCE(dnu_prodleni,0)>0)) suma_po "
+            "FROM tenant.ec_saldo_fa WHERE COALESCE(saldo,0)<>0 AND cislo_sal_sk IN ('311','321') "
+            "GROUP BY cislo_sal_sk")).mappings().all()
+        sm = {r["cislo_sal_sk"]: {"pocet": int(r["n"] or 0), "suma": float(r["suma"] or 0),
+                                  "pocet_po": int(r["n_po"] or 0), "suma_po": float(r["suma_po"] or 0)} for r in su}
+        rows = s.execute(_t(
+            "SELECT s.cislo_org, COALESCE(NULLIF(o.firma,''),NULLIF(o.nazev,''),NULLIF(o.zkratka,''),'#'||s.cislo_org::text) nazev, "
+            "COUNT(*) n, ROUND(SUM(ABS(s.saldo))) suma, MAX(s.dnu_prodleni) max_prodleni, "
+            "ROUND(SUM(ABS(s.saldo)) FILTER (WHERE COALESCE(s.dnu_prodleni,0)>0)) suma_po "
+            "FROM tenant.ec_saldo_fa s LEFT JOIN tenant.ec_organizace o ON o.cislo_org=s.cislo_org "
+            "WHERE COALESCE(s.saldo,0)<>0 AND s.cislo_sal_sk=:k "
+            "GROUP BY s.cislo_org, nazev ORDER BY SUM(ABS(s.saldo)) DESC LIMIT 200"), {"k": ssk}).mappings().all()
+        return {"ok": True, "typ": typ,
+                "souhrn": {"pohledavky": sm.get("311", {"pocet": 0, "suma": 0, "pocet_po": 0, "suma_po": 0}),
+                           "zavazky": sm.get("321", {"pocet": 0, "suma": 0, "pocet_po": 0, "suma_po": 0})},
+                "organizace": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/banka/saldo/faktury")
+def banka_saldo_faktury(req: Request):
+    """Otevřené faktury jedné organizace (drill ze salda). ?org= &typ=."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        org = int(req.query_params.get("org") or 0)
+    except Exception:
+        org = 0
+    typ = (req.query_params.get("typ") or "pohledavky").strip()
+    ssk = "311" if typ == "pohledavky" else "321"
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT parovaci_znak, ROUND(ABS(saldo)) saldo, mena, LEFT(datum_splatno::text,10) splatno, "
+            "COALESCE(dnu_prodleni,0) prodleni, cislo_zakazky "
+            "FROM tenant.ec_saldo_fa WHERE cislo_org=:o AND cislo_sal_sk=:k AND COALESCE(saldo,0)<>0 "
+            "ORDER BY dnu_prodleni DESC NULLS LAST LIMIT 200"), {"o": org, "k": ssk}).mappings().all()
+        return {"ok": True, "faktury": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/banka/navrh-parovani")
 def banka_navrh_parovani(req: Request):
     """Párovací engine (Marti 23.6.2026): nespárované příchozí platby → identifikace
@@ -27020,7 +27082,8 @@ def _sync_ec_saldo(_unused=None) -> dict:
         lastid = 0
         nz = 0
         while True:
-            sql = ("SELECT TOP %d IdFASaldo, ParovaciZnak, CisloOrg, Mena, Saldo, Castka_Splatno, "
+            sql = ("SELECT TOP %d IdFASaldo, ParovaciZnak, CisloOrg, CisloSalSk, DnuProdleniZapl, "
+                   "COALESCE(NULLIF(MenaZobraz,''),NULLIF(Mena,''),'CZK') menaz, Saldo, Castka_Splatno, "
                    "Castka_Uhrazeno, Castka_MD, Castka_Dal, CONVERT(varchar(19),DatumSplatno,120) ds, "
                    "CONVERT(varchar(19),DatumUhrazeno,120) du, RTRIM(CisloZakazky) CisloZakazky, ICO, DIC "
                    "FROM TabSaldoFA WHERE Saldo <> 0 AND IdFASaldo > %d ORDER BY IdFASaldo" % (BLOCK, lastid))
@@ -27029,16 +27092,18 @@ def _sync_ec_saldo(_unused=None) -> dict:
                 break
             for row in batch:
                 s.execute(_t(
-                    "INSERT INTO tenant.ec_saldo_fa (src_id,parovaci_znak,cislo_org,mena,saldo,castka_splatno,"
+                    "INSERT INTO tenant.ec_saldo_fa (src_id,parovaci_znak,cislo_org,cislo_sal_sk,dnu_prodleni,mena,saldo,castka_splatno,"
                     "castka_uhrazeno,castka_md,castka_dal,datum_splatno,datum_uhrazeno,cislo_zakazky,ico,dic,synced_at) "
-                    "VALUES (:sid,:pz,:co,:me,:sa,:cs,:cu,:cmd,:cdal,:ds,:du,:cz,:ico,:dic,now()) "
+                    "VALUES (:sid,:pz,:co,:ssk,:dnu,:me,:sa,:cs,:cu,:cmd,:cdal,:ds,:du,:cz,:ico,:dic,now()) "
                     "ON CONFLICT (src_id) DO UPDATE SET parovaci_znak=excluded.parovaci_znak,cislo_org=excluded.cislo_org,"
+                    "cislo_sal_sk=excluded.cislo_sal_sk,dnu_prodleni=excluded.dnu_prodleni,"
                     "mena=excluded.mena,saldo=excluded.saldo,castka_splatno=excluded.castka_splatno,"
                     "castka_uhrazeno=excluded.castka_uhrazeno,castka_md=excluded.castka_md,castka_dal=excluded.castka_dal,"
                     "datum_splatno=excluded.datum_splatno,datum_uhrazeno=excluded.datum_uhrazeno,"
                     "cislo_zakazky=excluded.cislo_zakazky,ico=excluded.ico,dic=excluded.dic,synced_at=now()"),
                     {"sid": i2(row.get("IdFASaldo")), "pz": s2(row.get("ParovaciZnak")), "co": i2(row.get("CisloOrg")),
-                     "me": s2(row.get("Mena")), "sa": num(row.get("Saldo")), "cs": num(row.get("Castka_Splatno")),
+                     "ssk": s2(row.get("CisloSalSk")), "dnu": i2(row.get("DnuProdleniZapl")),
+                     "me": s2(row.get("menaz")), "sa": num(row.get("Saldo")), "cs": num(row.get("Castka_Splatno")),
                      "cu": num(row.get("Castka_Uhrazeno")), "cmd": num(row.get("Castka_MD")),
                      "cdal": num(row.get("Castka_Dal")), "ds": s2(row.get("ds")), "du": s2(row.get("du")),
                      "cz": s2(row.get("CisloZakazky")), "ico": s2(row.get("ICO")), "dic": s2(row.get("DIC"))})

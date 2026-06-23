@@ -31,6 +31,8 @@
   .pill.ok{background:rgba(34,197,94,.18);color:#86efac} .pill.no{background:rgba(245,158,11,.18);color:#fcd9a0}
   .sec{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:700;margin:16px 0 6px}
   .hint{color:var(--mut);padding:18px;text-align:center} .err{color:var(--bad);padding:18px}
+  .mdbody{line-height:1.55;font-size:14px} .mdbody h1{font-size:20px;margin:14px 0 6px} .mdbody h2{font-size:17px;margin:18px 0 6px;border-bottom:1px solid var(--bord);padding-bottom:4px} .mdbody h3{font-size:15px;margin:14px 0 4px;color:#cfe0fb}
+  .mdbody code{background:#0f1830;padding:1px 5px;border-radius:5px;font-size:12.5px} .mdbody blockquote{border-left:3px solid var(--accent);margin:8px 0;padding:4px 12px;color:var(--mut)} .mdbody ul,.mdbody ol{padding-left:22px} .mdbody hr{border:0;border-top:1px solid var(--bord);margin:16px 0}
   .back{background:transparent;border:1px solid var(--bord);color:var(--accent);border-radius:8px;padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px}
 </style>
 </head>
@@ -49,11 +51,23 @@ function api(p){return fetch(p,{credentials:"include"}).then(function(r){
   if(!r.ok){var m=r.status===403?"Bankovní sekci vidí jen účetní (Petra) a vedení.":(r.status===401?"Nejsi přihlášen.":"Chyba HTTP "+r.status);return{ok:false,error:m};}
   return r.json();}).catch(function(){return{ok:false,error:"Spojení se serverem selhalo."};});}
 var V=document.getElementById("view");
-var TABS=[["prehled","📊 Přehled"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["parovani","🔗 Návrhy párování"],["mustr","📐 Mustr 2025"],["nastroje","🔧 Nástroje"]];
+var TABS=[["prehled","📊 Přehled"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["parovani","🔗 Návrhy párování"],["mustr","📐 Mustr 2025"],["prirucka","📖 Průvodce"],["nastroje","🔧 Nástroje"]];
 var cur="prehled";
 function renderTabs(){document.getElementById("tabs").innerHTML=TABS.map(function(t){return '<button class="tab'+(t[0]===cur?' on':'')+'" data-t="'+t[0]+'">'+t[1]+'</button>';}).join("");
   Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.onclick=function(){cur=b.getAttribute("data-t");renderTabs();load();};});}
-function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,ucty:tUcty,vypisy:tVypisy,parovani:tParovani,mustr:tMustr,nastroje:tNastroje}[cur])();}
+function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,ucty:tUcty,vypisy:tVypisy,parovani:tParovani,mustr:tMustr,prirucka:tPrirucka,nastroje:tNastroje}[cur])();}
+
+function tPrirucka(){
+  function show(){ api("/api/v1/erp/app/kb/raw/banka_pruvodce").then(function(j){
+    if(!j.ok){V.innerHTML='<div class="err">Průvodce zatím není dostupný ('+esc(j.error||"")+').</div>';return;}
+    var body=(window.marked?marked.parse(j.md):('<pre style="white-space:pre-wrap">'+esc(j.md)+'</pre>'));
+    V.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px"><div class="sub" style="margin:0">Příručka pro účetní — dostupná všem oprávněným kdykoli.</div><button class="tab" id="pfull">🖨 Tisk / celá stránka</button></div><div class="mdbody">'+body+'</div>';
+    var pf=document.getElementById("pfull"); if(pf)pf.onclick=function(){goTo("/dokument?key=banka_pruvodce");};
+  });}
+  V.innerHTML='<div class="hint">Načítám průvodce…</div>';
+  if(window.marked){show();}
+  else{var sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js";sc.onload=show;sc.onerror=show;document.head.appendChild(sc);}
+}
 
 function tParovani(){api("/api/v1/erp/app/banka/navrh-parovani?limit=250").then(function(j){
   if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}

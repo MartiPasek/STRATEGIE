@@ -1109,6 +1109,7 @@ _KB_DOCS = {
     "cve": ("docs/iso27001_cve_sprava_zranitelnosti.md", "Správa zranitelností (CVE)"),
     "dodavatele": ("docs/iso27001_dodavatele_dpa.md", "Dodavatelé + DPA"),
     "vize": ("docs/iso_vize_pro_misu.md", "Vize ISO & TISAX — vedení certifikace a spolupráce"),
+    "banka_pruvodce": ("docs/Banka_ucetnictvi_pruvodce_Petra.md", "🏦 Banka — průvodce účtováním a párováním plateb"),
 }
 _KB_TYPY = {"otazka", "nerozumim", "spatne", "nesouhlas", "doplnit"}
 _PORTAL = os.environ.get("STRATEGIE_PUBLIC_URL") or "https://strategie-ai.com"

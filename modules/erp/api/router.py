@@ -21549,6 +21549,81 @@ def banka_prehled(req: Request):
         s.close()
 
 
+@api_router.get("/app/banka/ucty")
+def banka_ucty(req: Request):
+    """Naše bankovní účty odvozené z výpisů: poslední zůstatek, počet výpisů, měna (cockpit)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT h.cislo_uctu, h.kod_banky, h.mena, COUNT(*) vyp, "
+            "LEFT(MAX(h.datum_vypisu::text),10) posl, "
+            "(SELECT h2.zustatek_novy FROM tenant.ec_bank_vypis_hlav h2 "
+            "  WHERE COALESCE(h2.cislo_uctu,'')=COALESCE(h.cislo_uctu,'') "
+            "   AND COALESCE(h2.kod_banky,'')=COALESCE(h.kod_banky,'') "
+            "   AND COALESCE(h2.mena,'')=COALESCE(h.mena,'') "
+            "  ORDER BY h2.datum_vypisu DESC NULLS LAST, h2.src_id DESC LIMIT 1) zustatek "
+            "FROM tenant.ec_bank_vypis_hlav h "
+            "GROUP BY h.cislo_uctu, h.kod_banky, h.mena "
+            "ORDER BY h.cislo_uctu, h.kod_banky")).mappings().all()
+        return {"ok": True, "ucty": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/banka/vypisy")
+def banka_vypisy(req: Request):
+    """Seznam bankovních výpisů (hlavičky) + filtr účtu. Drill → řádky (cockpit)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    ucet = (req.query_params.get("ucet") or "").strip()
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        where = "1=1"
+        params = {}
+        if ucet:
+            where = "COALESCE(h.cislo_uctu,'')=:u"
+            params["u"] = ucet
+        rows = s.execute(_t(
+            "SELECT h.src_id, h.cislo_vypisu, LEFT(h.datum_vypisu::text,10) dat, h.cislo_uctu, h.kod_banky, "
+            "h.mena, h.pocet_radku, h.obrat_debet, h.obrat_kredit, h.zustatek_novy "
+            "FROM tenant.ec_bank_vypis_hlav h WHERE " + where +
+            " ORDER BY h.datum_vypisu DESC NULLS LAST, h.src_id DESC LIMIT 200"), params).mappings().all()
+        return {"ok": True, "vypisy": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/banka/vypis/{vid}")
+def banka_vypis_radky(vid: int, req: Request):
+    """Řádky (transakce) jednoho výpisu + stav párování. Cockpit drill-down."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        hl = s.execute(_t(
+            "SELECT cislo_vypisu, LEFT(datum_vypisu::text,10) dat, cislo_uctu, kod_banky, mena, "
+            "zustatek_stary, zustatek_novy, obrat_debet, obrat_kredit "
+            "FROM tenant.ec_bank_vypis_hlav WHERE src_id=:v"), {"v": vid}).mappings().first()
+        rows = s.execute(_t(
+            "SELECT cislo_radku, nazev_org, castka, mena, variabilni_symbol, specificky_symbol, "
+            "LEFT(datum_splatnosti::text,10) ds, COALESCE(pocet_uhrad,0) pu, cislo_zakazky, doklad, popis_platby "
+            "FROM tenant.ec_bank_vypis_radek WHERE id_hlava=:v ORDER BY cislo_radku"), {"v": vid}).mappings().all()
+        return {"ok": True, "hlavicka": dict(hl) if hl else None, "radky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/parovani/prehled")
 def parovani_prehled(req: Request):
     """Přehled párování bank výpisů ↔ úhrad (Marti 20.6.2026). Nad zrcadlenými daty

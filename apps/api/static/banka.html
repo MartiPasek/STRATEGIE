@@ -8,64 +8,102 @@
   :root{--bg:#0a1020;--card:#111a2e;--bord:#243049;--tx:#e6eefb;--mut:#90a0bd;--accent:#5b9dff;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
-  .wrap{max-width:760px;margin:0 auto;padding:16px}
+  .wrap{max-width:880px;margin:0 auto;padding:16px}
   h1{font-size:21px;margin:0 0 2px}
-  .sub{color:var(--mut);font-size:13px;margin-bottom:16px}
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:14px}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--bord);padding-bottom:10px}
+  .tab{background:transparent;border:1px solid var(--bord);color:var(--tx);border-radius:9px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
+  .tab.on{background:var(--accent);border-color:var(--accent);color:#06101f}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
   .stat{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:12px 14px}
-  .stat .n{font-size:22px;font-weight:800}
+  .stat .n{font-size:21px;font-weight:800}
   .stat .l{color:var(--mut);font-size:12px;margin-top:2px}
   .stat.warn .n{color:var(--warn)} .stat.ok .n{color:var(--ok)}
-  .sec{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:700;margin:18px 0 8px}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
   .ca{background:var(--card);border:1px solid var(--bord);border-radius:14px;padding:16px;cursor:pointer;display:flex;gap:12px;align-items:flex-start;transition:border-color .15s}
-  .ca:hover{border-color:var(--accent)}
-  .ca .ic{font-size:26px;line-height:1}
-  .ca .t{font-weight:700;font-size:15px}
-  .ca .d{color:var(--mut);font-size:12.5px;margin-top:3px}
-  .ca .b{margin-top:6px;font-size:12px;color:var(--accent);font-weight:600}
-  .hint{color:var(--mut);padding:20px;text-align:center}
-  .err{color:var(--bad);padding:20px}
+  .ca:hover{border-color:var(--accent)} .ca .ic{font-size:26px;line-height:1}
+  .ca .t{font-weight:700;font-size:15px} .ca .d{color:var(--mut);font-size:12.5px;margin-top:3px} .ca .b{margin-top:6px;font-size:12px;color:var(--accent);font-weight:600}
+  table{width:100%;border-collapse:collapse;margin-top:6px}
+  th,td{border:1px solid var(--bord);padding:6px 8px;font-size:12.5px;text-align:left;vertical-align:top}
+  th{background:#0f1830;color:#9fb2d4;position:sticky;top:0}
+  td.r,th.r{text-align:right} tr.clik{cursor:pointer} tr.clik:hover td{background:#16213a}
+  .pill{display:inline-block;padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700}
+  .pill.ok{background:rgba(34,197,94,.18);color:#86efac} .pill.no{background:rgba(245,158,11,.18);color:#fcd9a0}
+  .sec{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:700;margin:16px 0 6px}
+  .hint{color:var(--mut);padding:18px;text-align:center} .err{color:var(--bad);padding:18px}
+  .back{background:transparent;border:1px solid var(--bord);color:var(--accent);border-radius:8px;padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px}
 </style>
 </head>
 <body>
-<div class="wrap" id="root"><div class="hint">Načítám…</div></div>
+<div class="wrap"><h1>🏦 Banka</h1><div class="sub">Bankovní výpisy, párování plateb, daně/poplatky, účetní deník a doklady. Vlastník: Petra Šafránková (účetní).</div>
+<div class="tabs" id="tabs"></div>
+<div id="view"><div class="hint">Načítám…</div></div>
+</div>
 <script>
-function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;try{if(window.__opcUrl)return new URL(window.__opcUrl,location.origin).searchParams.get(k);}catch(e){}return null;}
 function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
-function fmt(n){return (n==null?0:n).toLocaleString("cs-CZ");}
-function kc(n){return fmt(Math.round(n||0))+" Kč";}
+function fmt(n){return (n==null?0:Number(n)).toLocaleString("cs-CZ");}
+function kc(n,m){return fmt(Math.round(n||0))+" "+(m||"Kč");}
 var inApp=(window.self!==window.top);
 function goTo(path){ if(inApp){ try{parent.postMessage({stgOpen:path},"*");}catch(e){location.href=path;} } else { location.href=path; } }
 function api(p){return fetch(p,{credentials:"include"}).then(function(r){
   if(!r.ok){var m=r.status===403?"Bankovní sekci vidí jen účetní (Petra) a vedení.":(r.status===401?"Nejsi přihlášen.":"Chyba HTTP "+r.status);return{ok:false,error:m};}
   return r.json();}).catch(function(){return{ok:false,error:"Spojení se serverem selhalo."};});}
-var R=document.getElementById("root");
-api("/api/v1/erp/app/banka/prehled").then(function(j){
-  if(!j||!j.ok){R.innerHTML='<div class="err">'+esc((j&&j.error)||"Chyba")+'</div>';return;}
-  var h='<h1>🏦 Banka</h1><div class="sub">Bankovní výpisy, párování plateb, daně a poplatky, účetní deník a doklady. Vlastník: Petra Šafránková (účetní).</div>';
-  h+='<div class="stats">';
+var V=document.getElementById("view");
+var TABS=[["prehled","📊 Přehled"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["nastroje","🔧 Nástroje"]];
+var cur="prehled";
+function renderTabs(){document.getElementById("tabs").innerHTML=TABS.map(function(t){return '<button class="tab'+(t[0]===cur?' on':'')+'" data-t="'+t[0]+'">'+t[1]+'</button>';}).join("");
+  Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.onclick=function(){cur=b.getAttribute("data-t");renderTabs();load();};});}
+function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,ucty:tUcty,vypisy:tVypisy,nastroje:tNastroje}[cur])();}
+
+function tPrehled(){api("/api/v1/erp/app/banka/prehled").then(function(j){
+  if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
   function st(n,l,cls){return '<div class="stat '+(cls||"")+'"><div class="n">'+n+'</div><div class="l">'+esc(l)+'</div></div>';}
-  h+=st(fmt(j.vypisy),"výpisy (hlavičky)");
-  h+=st(fmt(j.radky),"řádky výpisů");
-  h+=st(fmt(j.nesparovano),"nespárováno",(j.nesparovano>0?"warn":"ok"));
-  h+=st(kc(j.nesparovano_castka),"nespárovaná částka");
-  h+=st(fmt(j.uhrady),"úhrady (Centrála)");
-  h+=st(fmt(j.navrhy),"návrhy zaúčtování",(j.navrhy>0?"warn":""));
-  h+=st(fmt(j.zauctovano),"zaúčtováno","ok");
-  h+=st(fmt(j.denik),"řádky deníku");
-  h+=st(fmt(j.saldo),"otevřené faktury (saldo)");
-  h+=st(fmt(j.doklady),"účetní doklady");
+  var h='<div class="stats">';
+  h+=st(fmt(j.vypisy),"výpisy (hlavičky)")+st(fmt(j.radky),"řádky výpisů");
+  h+=st(fmt(j.nesparovano),"nespárováno",(j.nesparovano>0?"warn":"ok"))+st(kc(j.nesparovano_castka),"nespárovaná částka");
+  h+=st(fmt(j.uhrady),"úhrady (Centrála)")+st(fmt(j.navrhy),"návrhy zaúčtování",(j.navrhy>0?"warn":""));
+  h+=st(fmt(j.zauctovano),"zaúčtováno","ok")+st(fmt(j.denik),"řádky deníku");
+  h+=st(fmt(j.saldo),"otevřené faktury")+st(fmt(j.doklady),"účetní doklady");
   h+='</div>';
-  h+='<div class="sec">Nástroje</div><div class="cards">';
+  V.innerHTML=h;});}
+
+function tUcty(){api("/api/v1/erp/app/banka/ucty").then(function(j){
+  if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+  var h='<div class="sec">Naše bankovní účty (poslední zůstatek z výpisů)</div><table><tr><th>Účet</th><th>Banka</th><th>Měna</th><th class="r">Výpisů</th><th>Poslední</th><th class="r">Zůstatek</th></tr>';
+  (j.ucty||[]).forEach(function(u){h+='<tr class="clik" data-u="'+esc(u.cislo_uctu||"")+'"><td>'+esc(u.cislo_uctu||"—")+'</td><td>'+esc(u.kod_banky||"")+'</td><td>'+esc(u.mena||"")+'</td><td class="r">'+fmt(u.vyp)+'</td><td>'+esc(u.posl||"")+'</td><td class="r">'+kc(u.zustatek,u.mena)+'</td></tr>';});
+  h+='</table><div class="sub" style="margin-top:8px">Klikni na účet → jeho výpisy.</div>';
+  V.innerHTML=h;
+  Array.prototype.forEach.call(V.querySelectorAll("tr.clik"),function(tr){tr.onclick=function(){cur="vypisy";renderTabs();tVypisy(tr.getAttribute("data-u"));};});});}
+
+function tVypisy(ucet){api("/api/v1/erp/app/banka/vypisy"+(ucet?("?ucet="+encodeURIComponent(ucet)):"")).then(function(j){
+  if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+  var h=(ucet?'<button class="back" id="bk">← Všechny výpisy</button>':'')+'<div class="sec">Bankovní výpisy'+(ucet?(" — účet "+esc(ucet)):"")+'</div>';
+  h+='<table><tr><th>Datum</th><th>Výpis</th><th>Účet</th><th>Měna</th><th class="r">Řádků</th><th class="r">Debet</th><th class="r">Kredit</th><th class="r">Zůstatek</th></tr>';
+  (j.vypisy||[]).forEach(function(v){h+='<tr class="clik" data-v="'+v.src_id+'"><td>'+esc(v.dat||"")+'</td><td>'+esc(v.cislo_vypisu||"")+'</td><td>'+esc(v.cislo_uctu||"")+'</td><td>'+esc(v.mena||"")+'</td><td class="r">'+fmt(v.pocet_radku)+'</td><td class="r">'+kc(v.obrat_debet,v.mena)+'</td><td class="r">'+kc(v.obrat_kredit,v.mena)+'</td><td class="r">'+kc(v.zustatek_novy,v.mena)+'</td></tr>';});
+  h+='</table><div class="sub" style="margin-top:8px">Klikni na výpis → jeho transakce.</div>';
+  V.innerHTML=h;
+  var bk=document.getElementById("bk"); if(bk)bk.onclick=function(){tVypisy();};
+  Array.prototype.forEach.call(V.querySelectorAll("tr.clik"),function(tr){tr.onclick=function(){tVypis(tr.getAttribute("data-v"),ucet);};});});}
+
+function tVypis(vid,ucet){api("/api/v1/erp/app/banka/vypis/"+vid).then(function(j){
+  if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+  var hd=j.hlavicka||{};
+  var h='<button class="back" id="bk">← Výpisy</button><div class="sec">Výpis '+esc(hd.cislo_vypisu||"")+' · '+esc(hd.dat||"")+' · účet '+esc(hd.cislo_uctu||"")+'</div>';
+  h+='<table><tr><th>#</th><th>Protistrana</th><th class="r">Částka</th><th>VS</th><th>Splatnost</th><th>Párování</th><th>Zakázka</th></tr>';
+  (j.radky||[]).forEach(function(r){var ok=(r.pu>0);h+='<tr><td>'+esc(r.cislo_radku)+'</td><td>'+esc(r.nazev_org||"")+'</td><td class="r">'+kc(r.castka,r.mena)+'</td><td>'+esc(r.variabilni_symbol||"")+'</td><td>'+esc(r.ds||"")+'</td><td><span class="pill '+(ok?'ok':'no')+'">'+(ok?'spárováno':'nespárováno')+'</span></td><td>'+esc(r.cislo_zakazky||"")+'</td></tr>';});
+  h+='</table>';
+  V.innerHTML=h;
+  document.getElementById("bk").onclick=function(){tVypisy(ucet);};});}
+
+function tNastroje(){var h='<div class="sec">Nástroje</div><div class="cards">';
   function ca(ic,t,d,path){return '<div class="ca" data-go="'+esc(path)+'"><div class="ic">'+ic+'</div><div><div class="t">'+esc(t)+'</div><div class="d">'+esc(d)+'</div><div class="b">Otevřít →</div></div></div>';}
-  h+=ca("🔗","Párování plateb","Bankovní výpisy ↔ úhrady/faktury. Stav spárováno/nespárováno, VS, protistrana, daně a poplatky (template), návrhy zaúčtování.","/parovani");
-  h+=ca("📒","Účetnictví & deník","Sborníky, předkontace, číselné řady, účetní doklady a STRATEGIE deník (dvojitý zápis MD/DAL).","/uctovani");
-  h+='</div>';
-  h+='<div class="sec">Poznámka</div><div class="sub">Plné zrcadlo Centrály, vlastní párovací engine (VS → objednávka → zakázka) a dotažení zaúčtování přibývají v dalších fázích — tato dlaždice je sdružuje na jedno místo.</div>';
-  R.innerHTML=h;
-  R.addEventListener("click",function(e){var el=e.target.closest&&e.target.closest(".ca[data-go]");if(el)goTo(el.getAttribute("data-go"));});
-});
+  h+=ca("🔗","Párování plateb","Bankovní výpisy ↔ úhrady/faktury, daně a poplatky (template), návrhy zaúčtování.","/parovani");
+  h+=ca("📒","Účetnictví & deník","Sborníky, předkontace, číselné řady, doklady a STRATEGIE deník (MD/DAL).","/uctovani");
+  h+='</div><div class="sec">Poznámka</div><div class="sub">Vlastní párovací engine (VS → objednávka → zakázka) a dotažení zaúčtování přibývají v dalších fázích.</div>';
+  V.innerHTML=h;
+  Array.prototype.forEach.call(V.querySelectorAll(".ca[data-go]"),function(el){el.onclick=function(){goTo(el.getAttribute("data-go"));};});}
+
+renderTabs(); load();
 </script>
 </body>
 </html>

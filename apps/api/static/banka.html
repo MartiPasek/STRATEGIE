@@ -94,12 +94,24 @@ function tSaldo(){api("/api/v1/erp/app/banka/saldo?typ="+_saldoTyp+"&firma="+_sa
   h+='<div class="stat"><div class="n">'+kc(p.suma_po)+'</div><div class="l">pohledávky po splatnosti ('+fmt(p.pocet_po)+')</div></div>';
   h+='<div class="stat"><div class="n">'+kc(z.suma_po)+'</div><div class="l">závazky po splatnosti ('+fmt(z.pocet_po)+')</div></div>';
   h+='</div>';
+  h+='<div id="agingBox"></div>';
   h+='<div class="tabs" style="border:0;padding:0;margin-bottom:8px"><button class="tab'+(_saldoFirma==="EC"?" on":"")+'" data-fi="EC">EUROSOFT‑Control</button><button class="tab'+(_saldoFirma==="ES"?" on":"")+'" data-fi="ES">EUROSOFT‑System</button></div>';
   h+='<div class="tabs" style="border:0;padding:0;margin-bottom:10px"><button class="tab'+(_saldoTyp==="pohledavky"?" on":"")+'" data-st="pohledavky">📥 Kdo nám dluží</button><button class="tab'+(_saldoTyp==="zavazky"?" on":"")+'" data-st="zavazky">📤 Komu dlužíme</button></div>';
   h+='<table><tr><th>'+(_saldoTyp==="pohledavky"?"Odběratel":"Dodavatel")+'</th><th class="r">Otevřeno</th><th class="r">Faktur</th><th class="r">Po splatnosti</th><th class="r">Max dnů</th></tr>';
   (j.organizace||[]).forEach(function(o){var pd=o.max_prodleni>0;h+='<tr class="clik" data-org="'+o.cislo_org+'"><td>'+esc(o.nazev||"")+'</td><td class="r">'+kc(o.suma)+'</td><td class="r">'+fmt(o.n)+'</td><td class="r"'+(o.suma_po>0?' style="color:var(--warn)"':'')+'>'+(o.suma_po>0?kc(o.suma_po):"—")+'</td><td class="r"'+(pd?' style="color:var(--bad)"':'')+'>'+(pd?o.max_prodleni:"—")+'</td></tr>';});
   h+='</table><div class="sub" style="margin-top:8px">Klik na řádek → otevřené faktury. (311 = pohledávky, 321 = závazky, z Helios saldokonta.)</div>';
   V.innerHTML=h;
+  api("/api/v1/erp/app/banka/saldo/aging?typ="+_saldoTyp+"&firma="+_saldoFirma).then(function(a){
+    var box=document.getElementById("agingBox"); if(!box||!a.ok)return;
+    var ah='<div style="background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:12px;margin-bottom:6px">';
+    ah+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px"><div><span style="font-size:18px;font-weight:800;color:var(--ok)">'+kc(a.aktualni)+'</span> <span class="sub" style="margin:0">reálné aktuální (≤365 dní)</span></div>';
+    ah+='<div><span style="font-size:18px;font-weight:800;color:var(--bad)">'+kc(a.stare)+'</span> <span class="sub" style="margin:0">starý balast (365+ dní — podezřelé na zaplaceno‑nespárováno)</span></div></div>';
+    ah+='<table style="margin:0"><tr><th class="l">Stáří</th><th class="r">Položek</th><th class="r">Částka</th></tr>';
+    (a.buckety||[]).forEach(function(b){var old=b.bucket.indexOf("365+")===0;ah+='<tr'+(old?' style="color:var(--bad)"':'')+'><td class="l">'+esc(b.bucket)+'</td><td class="r">'+fmt(b.n)+'</td><td class="r">'+kc(b.suma)+'</td></tr>';});
+    if(a.vnitropodnik&&a.vnitropodnik.suma>0)ah+='<tr style="color:var(--warn)"><td class="l">z toho vnitropodnik (EUROSOFT/INTERSOFT skupina)</td><td class="r">'+fmt(a.vnitropodnik.n)+'</td><td class="r">'+kc(a.vnitropodnik.suma)+'</td></tr>';
+    ah+='</table></div>';
+    box.innerHTML=ah;
+  });
   Array.prototype.forEach.call(V.querySelectorAll(".tab[data-fi]"),function(b){b.onclick=function(){_saldoFirma=b.getAttribute("data-fi");tSaldo();};});
   Array.prototype.forEach.call(V.querySelectorAll(".tab[data-st]"),function(b){b.onclick=function(){_saldoTyp=b.getAttribute("data-st");tSaldo();};});
   Array.prototype.forEach.call(V.querySelectorAll("tr.clik"),function(tr){tr.onclick=function(){tSaldoFa(tr.getAttribute("data-org"),tr.querySelector("td").textContent);};});});}

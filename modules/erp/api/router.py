@@ -22009,6 +22009,47 @@ def banka_saldo(req: Request):
         s.close()
 
 
+@api_router.get("/app/banka/saldo/aging")
+def banka_saldo_aging(req: Request):
+    """Stáří salda (Marti 23.6.2026): rozpad otevřených pohledávek/závazků po stáří
+    (dle dnů po splatnosti) → reálné AKTUÁLNÍ vs STARÝ balast (zaplaceno-nespárováno).
+    Saldo už je v CZK (Saldo_Ucet), počítá se magnituda. EC/ES."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    typ = (req.query_params.get("typ") or "pohledavky").strip()
+    ssk = "311" if typ == "pohledavky" else "321"
+    firma = (req.query_params.get("firma") or "EC").upper()
+    tbl = "tenant.es_saldo_fa" if firma == "ES" else "tenant.ec_saldo_fa"
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT CASE WHEN COALESCE(dnu_prodleni,0) <= 30 THEN '1 v termínu / do 30 dní' "
+            "  WHEN dnu_prodleni <= 90 THEN '2 31–90 dní' "
+            "  WHEN dnu_prodleni <= 365 THEN '3 91–365 dní' "
+            "  ELSE '4 365+ dní (staré — podezřelé na zaplaceno-nespárováno)' END bucket, "
+            "COUNT(*) n, ROUND(SUM(ABS(saldo))) suma "
+            "FROM " + tbl + " WHERE cislo_sal_sk=:k AND COALESCE(saldo,0)<>0 "
+            "GROUP BY 1 ORDER BY 1"), {"k": ssk}).mappings().all()
+        # vnitropodnik (org = vlastní firma / skupina) — orientačně dle názvu
+        ip = s.execute(_t(
+            "SELECT COUNT(*) n, ROUND(SUM(ABS(s.saldo))) suma "
+            "FROM " + tbl + " s LEFT JOIN tenant.ec_organizace o ON o.cislo_org=s.cislo_org "
+            "WHERE s.cislo_sal_sk=:k AND COALESCE(s.saldo,0)<>0 "
+            "AND (o.firma ILIKE '%EUROSOFT%' OR o.firma ILIKE '%INTERSOFT%' OR o.nazev ILIKE '%EUROSOFT%')"),
+            {"k": ssk}).first()
+        buckets = [{"bucket": r["bucket"][2:], "n": int(r["n"] or 0), "suma": float(r["suma"] or 0)} for r in rows]
+        celkem = sum(b["suma"] for b in buckets)
+        stare = sum(b["suma"] for b in buckets if b["bucket"].startswith("365+"))
+        return {"ok": True, "typ": typ, "firma": firma, "buckety": buckets,
+                "celkem": celkem, "aktualni": celkem - stare, "stare": stare,
+                "vnitropodnik": {"n": int(ip[0] or 0), "suma": float(ip[1] or 0)}}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/banka/saldo/faktury")
 def banka_saldo_faktury(req: Request):
     """Otevřené faktury jedné organizace (drill ze salda). ?org= &typ=."""

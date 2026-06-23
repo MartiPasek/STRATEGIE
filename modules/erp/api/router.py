@@ -21739,10 +21739,10 @@ _ZARAZENI_CTE = (
     "   ELSE 'Neurčeno' END kat FROM own), "
     "clsu AS ("
     " SELECT *, "
-    "  (CASE kat WHEN 'Úhrada dodavateli' THEN '321001' "
+    "  (CASE kat WHEN 'Mzda' THEN '333000' WHEN 'Úhrada dodavateli' THEN '321001' "
     "    WHEN 'Úhrada OSVČ (dodavatel)' THEN '321001' "
     "    WHEN 'Příjem od odběratele' THEN '221009' WHEN 'Záloha/náhrada zaměstnanci' THEN '333000' END) ucet_md, "
-    "  (CASE kat WHEN 'Úhrada dodavateli' THEN '221009' "
+    "  (CASE kat WHEN 'Mzda' THEN '221008' WHEN 'Úhrada dodavateli' THEN '221009' "
     "    WHEN 'Úhrada OSVČ (dodavatel)' THEN '221009' "
     "    WHEN 'Příjem od odběratele' THEN '311001' WHEN 'Záloha/náhrada zaměstnanci' THEN '221008' END) ucet_dal "
     " FROM cls) ")
@@ -21801,7 +21801,7 @@ async def banka_zarazeni_generovat(req: Request):
     except Exception:
         b = {}
     kat = (str(b.get("kat") or "")).strip()
-    if kat not in ("Úhrada dodavateli", "Úhrada OSVČ (dodavatel)", "Příjem od odběratele", "Záloha/náhrada zaměstnanci"):
+    if kat not in ("Mzda", "Úhrada dodavateli", "Úhrada OSVČ (dodavatel)", "Příjem od odběratele", "Záloha/náhrada zaměstnanci"):
         return JSONResponse({"ok": False, "error": "kategorie bez potvrzené předkontace 2025"}, status_code=400)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t

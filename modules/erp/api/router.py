@@ -21990,7 +21990,7 @@ def parovani_prehled(req: Request):
     mena = (q.get("mena") or "").strip().upper()  # CZK | EUR | ''
     hledej = (q.get("q") or "").strip()
     try:
-        limit = min(500, max(10, int(q.get("limit") or 150)))
+        limit = min(5000, max(10, int(q.get("limit") or 150)))
     except Exception:
         limit = 150
     from core.database_data import get_data_session as _g

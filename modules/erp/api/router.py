@@ -22042,8 +22042,12 @@ def banka_saldo_aging(req: Request):
             "AND (o.firma ILIKE '%EUROSOFT%' OR o.firma ILIKE '%INTERSOFT%' OR o.nazev ILIKE '%EUROSOFT%')"),
             {"k": ssk}).first()
         buckets = [{"bucket": r["bucket"][2:], "n": int(r["n"] or 0), "suma": float(r["suma"] or 0)} for r in rows]
-        celkem = sum(b["suma"] for b in buckets)
-        stare = sum(b["suma"] for b in buckets if b["bucket"].startswith("365+"))
+        # headline = ČISTÉ NETTO (ne součet magnitud bucketů — ty se kvůli offsetting EUR rozcházejí)
+        tot = s.execute(_t(
+            "SELECT ROUND(ABS(SUM(saldo))) celkem, "
+            "ROUND(ABS(SUM(saldo) FILTER (WHERE datum_splatno IS NOT NULL AND (CURRENT_DATE - datum_splatno::date) > 365))) stare "
+            "FROM " + tbl + " WHERE cislo_sal_sk=:k AND COALESCE(saldo,0)<>0"), {"k": ssk}).first()
+        celkem = float(tot[0] or 0); stare = float(tot[1] or 0)
         return {"ok": True, "typ": typ, "firma": firma, "buckety": buckets,
                 "celkem": celkem, "aktualni": celkem - stare, "stare": stare,
                 "vnitropodnik": {"n": int(ip[0] or 0), "suma": float(ip[1] or 0)}}

@@ -18918,10 +18918,32 @@ def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=F
             "dry": bool(dry), "test_one": bool(test_one)}
 
 
+def _mirror_ec_probe(_unused=None):
+    """Diagnostika write-kanálu do DB_EC: zkusí 1 INSERT do EC_Dochazka_SumaDen
+    (cislo 999999, fiktivní) + čtení zpět + úklid. Vrací surové MCP odpovědi."""
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _j
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return {"ok": False, "error": "mcp_unavailable"}
+
+    def _ec(sql):
+        rj = mcp.call_tool_sync("eurosoft_strategie_query_raw", {"sql": sql, "db_name": "DB_EC"},
+                                conversation_id=None)
+        return rj
+
+    ins = _ec("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,DatumPripadu_Y,DatumPripadu_M,"
+              "DatumPripadu_D,CasCelkem,Uzavreno) VALUES (999999,'2099-01-01',2099,1,1,1.0,0)")
+    rd = _ec("SELECT COUNT(*) c FROM EC_Dochazka_SumaDen WHERE CisloZam=999999")
+    cl = _ec("DELETE FROM EC_Dochazka_SumaDen WHERE CisloZam=999999")
+    return {"ok": True, "_msg": ("INS=%s | RD=%s | DEL=%s" % (str(ins)[:400], str(rd)[:150], str(cl)[:150]))}
+
+
 def _mirror_run_job(job_key):
     """Spustí jeden sync dle klíče. Vrací (ok, done, rows, msg)."""
     fnmap = {
         "mirror_att_to_ec": lambda: _mirror_att_to_ec(),
+        "mirror_ec_probe": lambda: _mirror_ec_probe(),
         "mirror_att_to_ec_test": lambda: _mirror_att_to_ec(test_one=True),
         "mirror_att_to_ec_dry": lambda: _mirror_att_to_ec(dry=True),
         "sync_ec_dochazka_sumaden": lambda: _sync_dochazka_sumaden(),
@@ -18961,8 +18983,8 @@ def _mirror_run_job(job_key):
         nums = {k: v for k, v in out.items()
                 if isinstance(v, (int, float)) and not isinstance(v, bool)}
         rows = int(sum(nums.values())) if nums else None
-        msg = ", ".join("%s=%s" % (k, v) for k, v in nums.items()) or "ok"
-        return (ok, done, rows, msg[:400])
+        msg = out.get("_msg") or (", ".join("%s=%s" % (k, v) for k, v in nums.items())) or "ok"
+        return (ok, done, rows, str(msg)[:600])
     except Exception as e:
         return (False, True, None, ("%s: %s" % (type(e).__name__, str(e)))[:400])
 

@@ -22045,11 +22045,12 @@ def banka_saldo_aging(req: Request):
         # headline = ČISTÉ NETTO (ne součet magnitud bucketů — ty se kvůli offsetting EUR rozcházejí)
         tot = s.execute(_t(
             "SELECT ROUND(ABS(SUM(saldo))) celkem, "
-            "ROUND(ABS(SUM(saldo) FILTER (WHERE datum_splatno IS NOT NULL AND (CURRENT_DATE - datum_splatno::date) > 365))) stare "
+            "ROUND(ABS(SUM(saldo) FILTER (WHERE datum_splatno IS NOT NULL AND (CURRENT_DATE - datum_splatno::date) > 365))) stare, "
+            "ROUND(ABS(SUM(saldo) FILTER (WHERE datum_splatno IS NULL OR (CURRENT_DATE - datum_splatno::date) <= 365))) aktualni "
             "FROM " + tbl + " WHERE cislo_sal_sk=:k AND COALESCE(saldo,0)<>0"), {"k": ssk}).first()
-        celkem = float(tot[0] or 0); stare = float(tot[1] or 0)
+        celkem = float(tot[0] or 0); stare = float(tot[1] or 0); aktualni = float(tot[2] or 0)
         return {"ok": True, "typ": typ, "firma": firma, "buckety": buckets,
-                "celkem": celkem, "aktualni": celkem - stare, "stare": stare,
+                "celkem": celkem, "aktualni": aktualni, "stare": stare,
                 "vnitropodnik": {"n": int(ip[0] or 0), "suma": float(ip[1] or 0)}}
     finally:
         s.close()

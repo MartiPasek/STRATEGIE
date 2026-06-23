@@ -22026,16 +22026,17 @@ def banka_saldo_aging(req: Request):
     s = _g()
     try:
         rows = s.execute(_t(
-            "SELECT CASE WHEN COALESCE(dnu_prodleni,0) <= 30 THEN '1 v termínu / do 30 dní' "
-            "  WHEN dnu_prodleni <= 90 THEN '2 31–90 dní' "
-            "  WHEN dnu_prodleni <= 365 THEN '3 91–365 dní' "
+            "SELECT CASE WHEN datum_splatno IS NULL THEN '5 bez data splatnosti' "
+            "  WHEN (CURRENT_DATE - datum_splatno::date) <= 30 THEN '1 v termínu / do 30 dní' "
+            "  WHEN (CURRENT_DATE - datum_splatno::date) <= 90 THEN '2 31–90 dní po splatnosti' "
+            "  WHEN (CURRENT_DATE - datum_splatno::date) <= 365 THEN '3 91–365 dní po splatnosti' "
             "  ELSE '4 365+ dní (staré — podezřelé na zaplaceno-nespárováno)' END bucket, "
-            "COUNT(*) n, ROUND(SUM(ABS(saldo))) suma "
+            "COUNT(*) n, ROUND(ABS(SUM(saldo))) suma "
             "FROM " + tbl + " WHERE cislo_sal_sk=:k AND COALESCE(saldo,0)<>0 "
             "GROUP BY 1 ORDER BY 1"), {"k": ssk}).mappings().all()
         # vnitropodnik (org = vlastní firma / skupina) — orientačně dle názvu
         ip = s.execute(_t(
-            "SELECT COUNT(*) n, ROUND(SUM(ABS(s.saldo))) suma "
+            "SELECT COUNT(*) n, ROUND(ABS(SUM(s.saldo))) suma "
             "FROM " + tbl + " s LEFT JOIN tenant.ec_organizace o ON o.cislo_org=s.cislo_org "
             "WHERE s.cislo_sal_sk=:k AND COALESCE(s.saldo,0)<>0 "
             "AND (o.firma ILIKE '%EUROSOFT%' OR o.firma ILIKE '%INTERSOFT%' OR o.nazev ILIKE '%EUROSOFT%')"),

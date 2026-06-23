@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>🛒 Nákup — STRATEGIE</title>
+<style>
+  :root{--bg:#0a1020;--card:#111a2e;--bord:#243049;--tx:#e6eefb;--mut:#90a0bd;--accent:#5b9dff;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+  .wrap{max-width:980px;margin:0 auto;padding:16px}
+  h1{font-size:21px;margin:0 0 2px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:14px;line-height:1.5}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .ca{background:var(--card);border:1px solid var(--bord);border-radius:14px;padding:15px;cursor:pointer;transition:border-color .15s}
+  .ca:hover{border-color:var(--accent)}
+  .ca .t{font-weight:700;font-size:15px} .ca .d{color:var(--mut);font-size:12.5px;margin-top:3px;line-height:1.4} .ca .b{margin-top:8px;font-size:12px;color:var(--accent);font-weight:600}
+  .ca.new{border-style:dashed;display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;font-size:15px;min-height:84px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{border:1px solid var(--bord);padding:6px 8px;font-size:12.5px;text-align:left;vertical-align:top}
+  th{background:#0f1830;color:#9fb2d4}
+  td.act{white-space:nowrap;width:1%}
+  .btn{background:var(--accent);border:0;color:#06101f;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer}
+  .btn.ghost{background:transparent;border:1px solid var(--bord);color:var(--tx)}
+  .btn.warn{background:transparent;border:1px solid var(--warn);color:var(--warn)}
+  .btn.bad{background:transparent;border:1px solid var(--bad);color:var(--bad)}
+  .btn.sm{padding:4px 9px;font-size:12px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input,textarea{background:#0b1426;border:1px solid var(--bord);color:var(--tx);border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;width:100%}
+  .back{background:transparent;border:1px solid var(--bord);color:var(--accent);border-radius:8px;padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:10px}
+  .hint{color:var(--mut);padding:18px;text-align:center} .err{color:var(--bad);padding:18px}
+  .sec{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);font-weight:700;margin:16px 0 6px}
+  .ov{position:fixed;inset:0;background:rgba(4,8,18,.72);display:flex;align-items:center;justify-content:center;padding:18px;z-index:50}
+  .modal{background:var(--card);border:1px solid var(--bord);border-radius:16px;padding:20px;max-width:520px;width:100%;max-height:88vh;overflow:auto}
+  .modal h3{margin:0 0 12px;font-size:17px}
+  .fld{margin-bottom:12px} .fld label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛒 Nákup</h1>
+  <div class="sub">Tvoje sekce, Peto — vlastní přehledy a tabulky. Můžeš přidávat, upravovat i mazat, jak potřebuješ. Vidíš ji jen ty a vedení.</div>
+  <div id="view"><div class="hint">Načítám…</div></div>
+</div>
+<script>
+function esc(s){return(s==null?"":String(s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+function api(method,p,body){return fetch(p,{method:method||"GET",credentials:"include",headers:body?{"Content-Type":"application/json"}:undefined,body:body?JSON.stringify(body):undefined}).then(function(r){
+  if(!r.ok){var m=r.status===403?"Tuhle sekci vidí jen Petra (účetní) a vedení.":(r.status===401?"Nejsi přihlášen.":"Chyba HTTP "+r.status);return{ok:false,error:m};}
+  return r.json();}).catch(function(){return{ok:false,error:"Spojení se serverem selhalo."};});}
+var V=document.getElementById("view");
+
+function modal(html,onOpen){
+  var ov=document.createElement("div");ov.className="ov";
+  ov.innerHTML='<div class="modal">'+html+'</div>';
+  ov.addEventListener("click",function(e){if(e.target===ov)document.body.removeChild(ov);});
+  document.body.appendChild(ov);
+  if(onOpen)onOpen(ov);
+  return ov;
+}
+
+/* ---------- seznam přehledů ---------- */
+function listView(){
+  V.innerHTML='<div class="hint">Načítám…</div>';
+  api("GET","/api/v1/erp/app/nakup/prehledy").then(function(j){
+    if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+    var h='<div class="cards">';
+    (j.prehledy||[]).forEach(function(p){
+      var cols=(p.sloupce||[]).length;
+      h+='<div class="ca" data-id="'+p.id+'"><div class="t">'+esc(p.nazev)+'</div>'+
+         (p.popis?'<div class="d">'+esc(p.popis)+'</div>':'')+
+         '<div class="b">'+p.pocet+' řádků · '+cols+' sloupců'+(p.upd?' · '+esc(p.upd):'')+'</div></div>';
+    });
+    h+='<div class="ca new" id="newP">＋ Nový přehled</div>';
+    h+='</div>';
+    if(!(j.prehledy||[]).length) h='<div class="sub">Zatím tu nic není. Začni tlačítkem <b>＋ Nový přehled</b> — vytvoříš si vlastní tabulku s libovolnými sloupci.</div>'+h;
+    V.innerHTML=h;
+    Array.prototype.forEach.call(V.querySelectorAll(".ca[data-id]"),function(c){c.onclick=function(){openPrehled(c.getAttribute("data-id"));};});
+    document.getElementById("newP").onclick=function(){editPrehled(null);};
+  });
+}
+
+/* ---------- vytvořit/upravit přehled ---------- */
+function editPrehled(p){
+  var isNew=!p;
+  var h='<h3>'+(isNew?'Nový přehled':'Upravit přehled')+'</h3>'+
+    '<div class="fld"><label>Název</label><input id="mN" value="'+esc(isNew?'':p.nazev)+'" placeholder="např. Objednávky materiálu"></div>'+
+    '<div class="fld"><label>Popis (volitelné)</label><input id="mP" value="'+esc(isNew?'':(p.popis||''))+'"></div>'+
+    '<div class="fld"><label>Sloupce (oddělené čárkou)</label><input id="mC" value="'+esc(isNew?'Dodavatel, Položka, Cena, Datum':(p.sloupce||[]).join(", "))+'"></div>'+
+    '<div class="row" style="margin-top:6px"><button class="btn" id="mSave">Uložit</button><button class="btn ghost" id="mCanc">Zrušit</button></div>';
+  modal(h,function(ov){
+    ov.querySelector("#mCanc").onclick=function(){document.body.removeChild(ov);};
+    ov.querySelector("#mSave").onclick=function(){
+      var nazev=ov.querySelector("#mN").value.trim();
+      if(!nazev){alert("Zadej název.");return;}
+      var cols=ov.querySelector("#mC").value.split(",").map(function(x){return x.trim();}).filter(Boolean);
+      var body={nazev:nazev,popis:ov.querySelector("#mP").value.trim(),sloupce:cols};
+      if(!isNew)body.id=p.id;
+      api("POST","/api/v1/erp/app/nakup/prehled/save",body).then(function(r){
+        if(!r.ok){alert("Chyba: "+(r.error||"?"));return;}
+        document.body.removeChild(ov);
+        if(isNew)openPrehled(r.id); else openPrehled(p.id);
+      });
+    };
+  });
+}
+
+/* ---------- detail přehledu (editovatelná tabulka) ---------- */
+function openPrehled(pid){
+  V.innerHTML='<div class="hint">Načítám…</div>';
+  api("GET","/api/v1/erp/app/nakup/prehled/"+pid).then(function(j){
+    if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+    var P=j.prehled, cols=P.sloupce||[], rows=j.radky||[];
+    var h='<button class="back" id="bk">← Přehledy</button>';
+    h+='<div class="row" style="justify-content:space-between;align-items:flex-start">';
+    h+='<div><div style="font-size:18px;font-weight:800">'+esc(P.nazev)+'</div>'+(P.popis?'<div class="sub" style="margin:2px 0 0">'+esc(P.popis)+'</div>':'')+'</div>';
+    h+='<div class="row"><button class="btn ghost sm" id="edP">✎ Upravit</button><button class="btn bad sm" id="delP">🗑 Smazat</button></div></div>';
+    if(!cols.length){
+      h+='<div class="sub" style="margin-top:14px">Tenhle přehled nemá žádné sloupce. Klikni na <b>✎ Upravit</b> a přidej je.</div>';
+      V.innerHTML=h; bind(); return;
+    }
+    h+='<div class="row" style="margin:12px 0 4px"><button class="btn" id="addR">＋ Přidat řádek</button></div>';
+    h+='<div style="overflow-x:auto"><table><tr>';
+    cols.forEach(function(c){h+='<th>'+esc(c)+'</th>';});
+    h+='<th class="act"></th></tr>';
+    rows.forEach(function(r){
+      h+='<tr data-id="'+r.id+'">';
+      cols.forEach(function(c){h+='<td>'+esc((r.data||{})[c]||"")+'</td>';});
+      h+='<td class="act"><button class="btn ghost sm edR">✎</button> <button class="btn bad sm delR">×</button></td></tr>';
+    });
+    h+='</table></div>';
+    if(!rows.length)h+='<div class="sub" style="margin-top:8px">Žádné řádky. Přidej první přes <b>＋ Přidat řádek</b>.</div>';
+    V.innerHTML=h; bind();
+
+    function bind(){
+      document.getElementById("bk").onclick=listView;
+      var edp=document.getElementById("edP"); if(edp)edp.onclick=function(){editPrehled(P);};
+      var dlp=document.getElementById("delP"); if(dlp)dlp.onclick=function(){
+        if(!confirm("Opravdu smazat celý přehled "+P.nazev+" včetně všech řádků?"))return;
+        api("POST","/api/v1/erp/app/nakup/prehled/"+pid+"/delete").then(function(r){if(r.ok)listView();else alert("Chyba: "+(r.error||"?"));});
+      };
+      var ar=document.getElementById("addR"); if(ar)ar.onclick=function(){editRadek(pid,cols,null);};
+      Array.prototype.forEach.call(V.querySelectorAll("tr[data-id]"),function(tr){
+        var rid=tr.getAttribute("data-id");
+        var rec=rows.filter(function(x){return String(x.id)===String(rid);})[0];
+        var e=tr.querySelector(".edR"); if(e)e.onclick=function(){editRadek(pid,cols,rec);};
+        var d=tr.querySelector(".delR"); if(d)d.onclick=function(){
+          if(!confirm("Smazat řádek?"))return;
+          api("POST","/api/v1/erp/app/nakup/radek/"+rid+"/delete").then(function(r){if(r.ok)openPrehled(pid);else alert("Chyba: "+(r.error||"?"));});
+        };
+      });
+    }
+  });
+}
+
+/* ---------- přidat/upravit řádek ---------- */
+function editRadek(pid,cols,rec){
+  var isNew=!rec, d=(rec&&rec.data)||{};
+  var h='<h3>'+(isNew?'Nový řádek':'Upravit řádek')+'</h3>';
+  cols.forEach(function(c,i){
+    h+='<div class="fld"><label>'+esc(c)+'</label><input class="rIn" data-c="'+esc(c)+'" value="'+esc(d[c]||"")+'"></div>';
+  });
+  h+='<div class="row" style="margin-top:6px"><button class="btn" id="rSave">Uložit</button><button class="btn ghost" id="rCanc">Zrušit</button></div>';
+  modal(h,function(ov){
+    var first=ov.querySelector(".rIn"); if(first)first.focus();
+    ov.querySelector("#rCanc").onclick=function(){document.body.removeChild(ov);};
+    ov.querySelector("#rSave").onclick=function(){
+      var data={};
+      Array.prototype.forEach.call(ov.querySelectorAll(".rIn"),function(inp){data[inp.getAttribute("data-c")]=inp.value;});
+      var body={prehled_id:pid,data:data};
+      if(!isNew)body.id=rec.id;
+      api("POST","/api/v1/erp/app/nakup/radek/save",body).then(function(r){
+        if(!r.ok){alert("Chyba: "+(r.error||"?"));return;}
+        document.body.removeChild(ov); openPrehled(pid);
+      });
+    };
+  });
+}
+
+listView();
+</script>
+</body>
+</html>

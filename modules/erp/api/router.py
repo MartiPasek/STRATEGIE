@@ -22211,6 +22211,163 @@ async def parovani_zauctovani_rozhodni(req: Request):
         s.close()
 
 
+@api_router.get("/app/nakup/prehledy")
+def nakup_prehledy(req: Request):
+    """Nákup = Petřin (a rodičů) volný workspace. Seznam jejích přehledů + počet řádků.
+    (Marti 23.6.2026 — separátní sekce, plný CRUD jen pro Petru + rodiče.)"""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT p.id, p.nazev, p.popis, p.sloupce, p.created_by_text, "
+            "to_char(p.updated_at,'DD.MM.YYYY HH24:MI') upd, "
+            "(SELECT COUNT(*) FROM tenant.nakup_radek r WHERE r.prehled_id=p.id) pocet "
+            "FROM tenant.nakup_prehled p WHERE p.tenant_id=2 "
+            "ORDER BY p.poradi, p.nazev")).mappings().all()
+        return {"ok": True, "prehledy": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/nakup/prehled/{pid}")
+def nakup_prehled_detail(pid: int, req: Request):
+    """Jeden přehled + jeho řádky."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        p = s.execute(_t(
+            "SELECT id, nazev, popis, sloupce, created_by_text FROM tenant.nakup_prehled "
+            "WHERE id=:i AND tenant_id=2"), {"i": pid}).mappings().first()
+        if not p:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        rows = s.execute(_t(
+            "SELECT id, data, poradi FROM tenant.nakup_radek WHERE prehled_id=:i "
+            "ORDER BY poradi, id"), {"i": pid}).mappings().all()
+        return {"ok": True, "prehled": dict(p), "radky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/nakup/prehled/save")
+async def nakup_prehled_save(req: Request):
+    """Vytvoř/uprav přehled (název, popis, sloupce[])."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    nazev = (b.get("nazev") or "").strip()
+    if not nazev:
+        return JSONResponse({"ok": False, "error": "nazev_required"}, status_code=400)
+    popis = (b.get("popis") or "").strip()
+    sloupce = b.get("sloupce") or []
+    if not isinstance(sloupce, list):
+        sloupce = []
+    sloupce = [str(c).strip() for c in sloupce if str(c).strip()]
+    pid = b.get("id")
+    import json as _json
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        who = s.execute(_t("SELECT COALESCE(first_name,'uid '||id::text) FROM public.users WHERE id=:u"),
+                        {"u": uid}).scalar() or "?"
+        if pid:
+            s.execute(_t(
+                "UPDATE tenant.nakup_prehled SET nazev=:n, popis=:p, sloupce=CAST(:s AS jsonb), "
+                "updated_at=now() WHERE id=:i AND tenant_id=2"),
+                {"n": nazev, "p": popis, "s": _json.dumps(sloupce), "i": int(pid)})
+            new_id = int(pid)
+        else:
+            new_id = s.execute(_t(
+                "INSERT INTO tenant.nakup_prehled (tenant_id, nazev, popis, sloupce, created_by_text) "
+                "VALUES (2, :n, :p, CAST(:s AS jsonb), :w) RETURNING id"),
+                {"n": nazev, "p": popis, "s": _json.dumps(sloupce), "w": who}).scalar()
+        s.commit()
+        return {"ok": True, "id": int(new_id)}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/nakup/prehled/{pid}/delete")
+def nakup_prehled_delete(pid: int, req: Request):
+    """Smaž celý přehled (kaskádně i řádky)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        s.execute(_t("DELETE FROM tenant.nakup_prehled WHERE id=:i AND tenant_id=2"), {"i": pid})
+        s.commit()
+        return {"ok": True}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/nakup/radek/save")
+async def nakup_radek_save(req: Request):
+    """Přidej/uprav řádek (prehled_id, id?, data{})."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    b = await req.json()
+    pid = b.get("prehled_id")
+    if not pid:
+        return JSONResponse({"ok": False, "error": "prehled_required"}, status_code=400)
+    data = b.get("data") or {}
+    if not isinstance(data, dict):
+        data = {}
+    rid = b.get("id")
+    import json as _json
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if rid:
+            s.execute(_t(
+                "UPDATE tenant.nakup_radek SET data=CAST(:d AS jsonb), updated_at=now() WHERE id=:i"),
+                {"d": _json.dumps(data, ensure_ascii=False), "i": int(rid)})
+            new_id = int(rid)
+        else:
+            mp = s.execute(_t(
+                "SELECT COALESCE(MAX(poradi),0)+1 FROM tenant.nakup_radek WHERE prehled_id=:p"),
+                {"p": int(pid)}).scalar() or 1
+            new_id = s.execute(_t(
+                "INSERT INTO tenant.nakup_radek (prehled_id, data, poradi) "
+                "VALUES (:p, CAST(:d AS jsonb), :o) RETURNING id"),
+                {"p": int(pid), "d": _json.dumps(data, ensure_ascii=False), "o": int(mp)}).scalar()
+        s.commit()
+        return {"ok": True, "id": int(new_id)}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/nakup/radek/{rid}/delete")
+def nakup_radek_delete(rid: int, req: Request):
+    """Smaž řádek."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        s.execute(_t("DELETE FROM tenant.nakup_radek WHERE id=:i"), {"i": rid})
+        s.commit()
+        return {"ok": True}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/parovani/denik")
 def parovani_denik(req: Request):
     """STRATEGIE účetní deník — reálné zápisy z auto-účtování (zdroj=bank_zauctovani).

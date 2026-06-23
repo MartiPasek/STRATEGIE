@@ -1083,6 +1083,14 @@ def banka_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/nakup")
+def nakup_page():
+    """🛒 Nákup — Petřin (a rodičů) volný workspace (Marti 23.6.2026): vlastní přehledy,
+    plný CRUD (přidávat/mazat/upravovat). Cíl i pro import jejích PC přehledů do appky."""
+    return FileResponse(os.path.join(static_dir, "nakup.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/zrcadla")
 def zrcadla_page():
     """Řídící centrum zrcadel — živý stav + automatický život (Marti 20.6.2026).

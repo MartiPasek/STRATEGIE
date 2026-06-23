@@ -49,11 +49,23 @@ function api(p){return fetch(p,{credentials:"include"}).then(function(r){
   if(!r.ok){var m=r.status===403?"Bankovní sekci vidí jen účetní (Petra) a vedení.":(r.status===401?"Nejsi přihlášen.":"Chyba HTTP "+r.status);return{ok:false,error:m};}
   return r.json();}).catch(function(){return{ok:false,error:"Spojení se serverem selhalo."};});}
 var V=document.getElementById("view");
-var TABS=[["prehled","📊 Přehled"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["mustr","📐 Mustr 2025"],["nastroje","🔧 Nástroje"]];
+var TABS=[["prehled","📊 Přehled"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["parovani","🔗 Návrhy párování"],["mustr","📐 Mustr 2025"],["nastroje","🔧 Nástroje"]];
 var cur="prehled";
 function renderTabs(){document.getElementById("tabs").innerHTML=TABS.map(function(t){return '<button class="tab'+(t[0]===cur?' on':'')+'" data-t="'+t[0]+'">'+t[1]+'</button>';}).join("");
   Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.onclick=function(){cur=b.getAttribute("data-t");renderTabs();load();};});}
-function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,ucty:tUcty,vypisy:tVypisy,mustr:tMustr,nastroje:tNastroje}[cur])();}
+function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,ucty:tUcty,vypisy:tVypisy,parovani:tParovani,mustr:tMustr,nastroje:tNastroje}[cur])();}
+
+function tParovani(){api("/api/v1/erp/app/banka/navrh-parovani?limit=250").then(function(j){
+  if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+  var h='<div class="sub">Nespárované příchozí platby. Engine identifikuje protistranu podle <b>čísla účtu</b> (registr: dodavatelé/odběratelé/zaměstnanci/úřady, ctí přednastaveno/blokováno) a navrhne otevřenou fakturu. Identifikováno <b>'+j.identifikovano+' / '+j.celkem+'</b>.</div>';
+  h+='<table><tr><th>Datum</th><th class="r">Částka</th><th>Z účtu</th><th>VS</th><th>Identifikovaná protistrana</th><th>Návrh faktury</th></tr>';
+  (j.polozky||[]).forEach(function(p){
+    var own=p.vlastnik?('<span class="pill ok">'+esc(p.vlastnik)+'</span> <span class="kmut" style="color:var(--mut)">'+esc(p.typ||"")+'</span>'):'<span class="pill no">neurčeno</span>';
+    var fa=p.navrh_faktura?('saldo '+kc(p.navrh_faktura.saldo)+(p.navrh_faktura.cislo_zakazky?(' · '+esc(p.navrh_faktura.cislo_zakazky)):'')):'—';
+    h+='<tr><td>'+esc(p.dat||"")+'</td><td class="r">'+kc(p.castka,p.mena)+'</td><td>'+esc(p.cislo_uctu||"")+(p.kod_banky?('/'+esc(p.kod_banky)):'')+'</td><td>'+esc(p.vs||"")+'</td><td>'+own+'</td><td>'+fa+'</td></tr>';
+  });
+  h+='</table><div class="sub" style="margin-top:8px">Pozn.: dotažení VS → přijatá objednávka → zakázka konzultuje Petra s instancí 26 (jemné doladění párování faktur).</div>';
+  V.innerHTML=h;});}
 
 function tMustr(sbornik){api("/api/v1/erp/app/uctovani/vzor"+(sbornik?("?sbornik="+encodeURIComponent(sbornik)):"")).then(function(j){
   if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}

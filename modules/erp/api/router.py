@@ -18795,6 +18795,7 @@ def _mirror_run_job(job_key):
         "sync_ec_ceniky": lambda: _sync_ec_ceniky(),
         "sync_ec_org_kontakt": lambda: _sync_ec_org_kontakt(),
         "sync_ec_banka": lambda: _sync_ec_banka(),
+        "sync_ec_banka_delta": lambda: _sync_ec_banka(delta_days=90),
         "sync_ec_saldo": lambda: _sync_ec_saldo(),
         "sync_edi_definice": lambda: _sync_edi_definice(),
         # přesunuto z ⚙ Ops akcí do řídícího centra (Marti 20.6.2026)
@@ -26850,10 +26851,12 @@ def _sync_ec_saldo(_unused=None) -> dict:
         cm.__exit__(None, None, None)
 
 
-def _sync_ec_banka(_unused=None) -> dict:
+def _sync_ec_banka(_unused=None, delta_days=None) -> dict:
     """Marti 20.6.2026: zrcadlo bank — výpisy (hlav+řádky), párovací vazby řádek↔úhrada,
     úhrady plateb. Okno 2024+, watermark resume per tabulka (velké → plánovač dotáhne).
-    Páteř pro budoucí párovací engine u nás (VS + protistrana + EUR/SEPA)."""
+    Páteř pro párovací engine u nás (VS + protistrana + EUR/SEPA).
+    delta_days (Marti 23.6.2026): re-pull okna posledních N dní (ignoruje watermark) →
+    chytí NOVÉ i PŘEPÁROVANÉ řádky (ON CONFLICT upsert). Pro průběžný delta-sync."""
     import json as _j, time as _time
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     from modules.strategie_pg.application import service as _pg
@@ -26861,7 +26864,11 @@ def _sync_ec_banka(_unused=None) -> dict:
     mcp = get_eurosoft_mcp_client()
     if mcp is None:
         raise RuntimeError("EUROSOFT MCP nedostupné")
-    FROM = "2024-01-01"
+    if delta_days:
+        from datetime import date as _date, timedelta as _td
+        FROM = (_date.today() - _td(days=int(delta_days))).isoformat()
+    else:
+        FROM = "2024-01-01"
     BLOCK = 3000
 
     def rows_of(sql, _tries=4):
@@ -26930,6 +26937,11 @@ def _sync_ec_banka(_unused=None) -> dict:
                     {"t": tbl, "w": str(lid), "no": note})
 
     try:
+        if delta_days:
+            # delta: re-pull okna posledních N dní → reset watermarků na 'run' od 0
+            for _tbl in ("TabBankVypisH", "TabBankVypisR", "TabBankVypisRUhrady", "TabUhrady"):
+                set_wm(_tbl, 0, "run")
+            s.commit()
         # ── 1) HLAVIČKY VÝPISŮ ──
         lastid, ph = get_wm("TabBankVypisH")
         nh = 0

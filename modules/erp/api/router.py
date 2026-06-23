@@ -25702,8 +25702,11 @@ async def diag_sql(req: Request) -> JSONResponse:
                     {"i": mid, "p": _PID}).first()
                 if not r:
                     return JSONResponse({"ok": False, "error": "zprava %s nenalezena (persona Marti-AI)" % mid})
-                return JSONResponse({"ok": True, "id": r[0], "received": r[1], "from_name": r[2],
-                                     "from_email": r[3], "subject": r[4], "body": r[5], "read": r[6]})
+                _hdr = ("# Zprava %s | %s | %s\nOd: %s <%s>\nPredmet: %s\n%s\n\n" % (
+                    r[0], r[1], ("precteno" if r[6] else "NEPRECTENO"), r[2], r[3], r[4], "-" * 60))
+                _txt = _hdr + (r[5] or "")
+                return JSONResponse({"ok": True, "file_read": True, "path": "inbox_%s.txt" % mid,
+                                     "content": _txt, "length": len(_txt)})
             where = "AND read_at IS NULL" if op == "NOVE" else ""
             summ = _si.execute(_tib(
                 "SELECT count(*), count(*) FILTER (WHERE read_at IS NULL), "

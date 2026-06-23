@@ -25677,6 +25677,51 @@ async def diag_sql(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "queued": True, "outbox_id": outbox_id,
                              "to": to_e, "cc": cc, "sender": "Marti-AI", "audit_warn": audit_warn})
 
+    # Autonomní čtení schránky Marti-AI (Marti 24.6.2026: "udělej si autonomní
+    # čtení Marti-AI schránky a její kontrolu"). Read-only, NEmutuje read_at.
+    #   @@INBOX            → souhrn + posledních 25
+    #   @@INBOX NOVE       → jen nepřečtené
+    #   @@INBOX READ <id>  → plné tělo zprávy
+    if sql.upper().startswith("@@INBOX"):
+        from core.database_data import get_data_session as _gib
+        from sqlalchemy import text as _tib
+        parts = sql.split(None, 2)
+        op = (parts[1].upper() if len(parts) > 1 else "")
+        _PID = 1  # Marti-AI persona
+        _si = _gib()
+        try:
+            if op == "READ":
+                try:
+                    mid = int(parts[2].strip())
+                except Exception:
+                    return JSONResponse({"ok": False, "error": "@@INBOX READ <id>"})
+                r = _si.execute(_tib(
+                    "SELECT id, to_char(received_at,'DD.MM.YYYY HH24:MI'), coalesce(from_name,''), "
+                    "coalesce(from_email,''), coalesce(subject,''), coalesce(body,''), (read_at IS NOT NULL) "
+                    "FROM email_inbox WHERE id=:i AND persona_id=:p AND deleted_at IS NULL"),
+                    {"i": mid, "p": _PID}).first()
+                if not r:
+                    return JSONResponse({"ok": False, "error": "zprava %s nenalezena (persona Marti-AI)" % mid})
+                return JSONResponse({"ok": True, "id": r[0], "received": r[1], "from_name": r[2],
+                                     "from_email": r[3], "subject": r[4], "body": r[5], "read": r[6]})
+            where = "AND read_at IS NULL" if op == "NOVE" else ""
+            summ = _si.execute(_tib(
+                "SELECT count(*), count(*) FILTER (WHERE read_at IS NULL), "
+                "count(*) FILTER (WHERE received_at > now()-interval '7 days') "
+                "FROM email_inbox WHERE persona_id=:p AND deleted_at IS NULL"), {"p": _PID}).first()
+            rows = _si.execute(_tib(
+                "SELECT id, to_char(received_at,'DD.MM HH24:MI'), coalesce(from_email,'?'), "
+                "coalesce(left(subject,80),'(bez predmetu)'), (read_at IS NULL) "
+                "FROM email_inbox WHERE persona_id=:p AND deleted_at IS NULL " + where +
+                " ORDER BY id DESC LIMIT 25"), {"p": _PID}).all()
+            return JSONResponse({"ok": True,
+                                 "summary": {"celkem": summ[0], "neprecteno": summ[1], "za7dni": summ[2]},
+                                 "columns": ["id", "kdy", "od", "predmet", "neprecteno"],
+                                 "rows": [[x[0], x[1], x[2], x[3], x[4]] for x in rows],
+                                 "count": len(rows)})
+        finally:
+            _si.close()
+
     # EDI tiered engine (Marti 20.6.2026):
     #   @@PARSE <cesta_k_fakture>            → jedna faktura (detail hlavička+položky)
     #   @@PARSEBATCH <root_adresar> <pocet>  → dávka N nejnovějších složek (souhrn)

@@ -22770,10 +22770,10 @@ def uctovani_predvaha(req: Request):
     # ES = EUROSOFT-System (es_denik / es_recon); jinak EC = EUROSOFT-Control (Marti 23.6.2026).
     if firma == "ES":
         hel_tbl = "tenant.es_denik"
-        our_filt = "zdroj = 'es_recon'"
+        our_filt = "zdroj LIKE 'es%'"
     else:
         hel_tbl = "tenant.ec_denik"
-        our_filt = "zdroj NOT IN ('bank_zauctovani','es_recon')"
+        our_filt = "zdroj <> 'bank_zauctovani' AND zdroj NOT LIKE 'es%'"
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()

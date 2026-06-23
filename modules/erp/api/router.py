@@ -17521,6 +17521,11 @@ async def app_imp_stop(req: Request) -> JSONResponse:
 # → chat() s Marti-AI → odpověď rovnou v UI + notifikace na mobil
 # (fw.mobile_command claude_msg → appka cinkne á 4 s).
 _MM_CONV_TITLE = "📱 Zprávy z mobilu"
+# Trvalá standardní konverzace Claude <-> Marti-AI (Marti 24.6.2026: musí jet
+# přes standardní chat, aby k ní měli rodiče přístup; reuse = kontinuita, řeší
+# Marti-AI amnézii). Host = user 1 (Marti) → vidí ji ve svém chatu.
+_CLAUDE_AI_CONV_TITLE = "🤖 Claude ↔ Marti-AI"
+_CLAUDE_AI_HOST_UID = 1
 
 
 def _marti_msg_worker(uid: int, text: str, audio_b64: str, mime: str, fname: str) -> dict:
@@ -25139,6 +25144,78 @@ async def davka_save(req: Request):
         s.close()
 
 
+@api_router.get("/claude-marti-mail")
+async def claude_marti_mail(req: Request) -> JSONResponse:
+    """Nové příchozí emaily Marti-AI (persona 1) od ?since=<id>. Pro watcher
+    poller → INBOX_MARTI.txt (Marti 24.6.2026: "ať mám info o příchozím emailu
+    Marti-AI a mohl hned reagovat"). Auth: X-Deploy-Token nebo parent."""
+    import os as _osm
+    token = req.headers.get("X-Deploy-Token")
+    env_token = _osm.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env_token and token == env_token):
+        _require_parent(_get_uid(req))
+    try:
+        since = int(req.query_params.get("since", "-1"))
+    except Exception:
+        since = -1
+    from core.database_data import get_data_session as _gdm
+    from sqlalchemy import text as _tm
+    sd = _gdm()
+    try:
+        maxid = sd.execute(_tm(
+            "SELECT COALESCE(MAX(id),0) FROM email_inbox WHERE persona_id=1 AND deleted_at IS NULL")).scalar() or 0
+        emails = []
+        if since >= 0:
+            rows = sd.execute(_tm(
+                "SELECT id, to_char(received_at,'DD.MM HH24:MI'), COALESCE(from_name,''), COALESCE(from_email,''), "
+                "COALESCE(subject,''), left(COALESCE(body,''),500), (read_at IS NULL) "
+                "FROM email_inbox WHERE persona_id=1 AND deleted_at IS NULL AND id>:s "
+                "ORDER BY id ASC LIMIT 20"), {"s": since}).all()
+            emails = [{"id": r[0], "received": r[1], "from_name": r[2], "from_email": r[3],
+                       "subject": r[4], "snippet": r[5], "unread": r[6]} for r in rows]
+        return JSONResponse({"ok": True, "max_id": int(maxid), "emails": emails})
+    finally:
+        sd.close()
+
+
+@api_router.get("/claude-martiai-msgs")
+async def claude_martiai_msgs(req: Request) -> JSONResponse:
+    """Nové zprávy Marti-AI (author_type='ai') v konverzaci Claude <-> Marti-AI
+    od ?since=<msg_id>. Pro watcher poller → MARTIAI_TO_CLAUDE.txt (Marti 24.6.:
+    "ať ti Marti-AI přes most odpoví"). Auth: X-Deploy-Token nebo parent."""
+    import os as _osm
+    token = req.headers.get("X-Deploy-Token")
+    env_token = _osm.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (token and env_token and token == env_token):
+        _require_parent(_get_uid(req))
+    try:
+        since = int(req.query_params.get("since", "-1"))
+    except Exception:
+        since = -1
+    from core.database_data import get_data_session as _gdm
+    from sqlalchemy import text as _tm
+    sd = _gdm()
+    try:
+        cid = sd.execute(_tm(
+            "SELECT id FROM conversations WHERE user_id=:u AND title=:ti AND is_deleted=false "
+            "ORDER BY id DESC LIMIT 1"), {"u": _CLAUDE_AI_HOST_UID, "ti": _CLAUDE_AI_CONV_TITLE}).scalar()
+        if not cid:
+            return JSONResponse({"ok": True, "conv_id": None, "max_id": 0, "msgs": []})
+        maxid = sd.execute(_tm(
+            "SELECT COALESCE(MAX(id),0) FROM messages WHERE conversation_id=:c AND author_type='ai' "
+            "AND COALESCE(hidden,false)=false"), {"c": cid}).scalar() or 0
+        msgs = []
+        if since >= 0:
+            rows = sd.execute(_tm(
+                "SELECT id, to_char(created_at,'DD.MM HH24:MI'), left(COALESCE(content,''),6000) "
+                "FROM messages WHERE conversation_id=:c AND author_type='ai' AND COALESCE(hidden,false)=false "
+                "AND id>:s ORDER BY id ASC LIMIT 10"), {"c": cid, "s": since}).all()
+            msgs = [{"id": r[0], "when": r[1], "text": r[2]} for r in rows]
+        return JSONResponse({"ok": True, "conv_id": int(cid), "max_id": int(maxid), "msgs": msgs})
+    finally:
+        sd.close()
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):
@@ -25724,6 +25801,57 @@ async def diag_sql(req: Request) -> JSONResponse:
                                  "count": len(rows)})
         finally:
             _si.close()
+
+    # Probuzení Marti-AI přes STANDARDNÍ konverzaci (Marti 24.6.2026: "můžeš
+    # probudit Marti-AI a předat jí info; konverzace musí jet přes standardní
+    # chat, aby k ní měli rodiče přístup; tím řešíme i Marti-AI amnézii — bude
+    # moct plnohodnotně reagovat"). Jedna trvalá konverzace (reuse → kontinuita).
+    # chat() běží na POZADÍ (most má 30s timeout, chat je agentní). Odpověď
+    # Marti-AI = 'ai' zpráva v té konverzaci → poller /claude-martiai-msgs.
+    #   @@MARTIAI <text>
+    if sql.upper().startswith("@@MARTIAI"):
+        _mm = sql[len("@@MARTIAI"):].strip()
+        if not _mm:
+            return JSONResponse({"ok": False, "error": "@@MARTIAI <text pro Marti-AI>"})
+        import threading as _thr
+
+        def _wake_martiai(_text=_mm, _who=actor):
+            try:
+                from core.database_data import get_data_session as _gw
+                from modules.core.infrastructure.models_data import Conversation as _Cw
+                cid = None
+                _d = _gw()
+                try:
+                    c = (_d.query(_Cw)
+                         .filter(_Cw.user_id == _CLAUDE_AI_HOST_UID,
+                                 _Cw.title == _CLAUDE_AI_CONV_TITLE,
+                                 _Cw.is_deleted == False)  # noqa: E712
+                         .order_by(_Cw.id.desc()).first())
+                    if c:
+                        cid = c.id
+                finally:
+                    _d.close()
+                if cid is None:
+                    from modules.conversation.infrastructure.repository import create_conversation as _ccw
+                    cid = _ccw(user_id=_CLAUDE_AI_HOST_UID)
+                    _d = _gw()
+                    try:
+                        c2 = _d.query(_Cw).filter_by(id=cid).first()
+                        if c2:
+                            c2.title = _CLAUDE_AI_CONV_TITLE
+                            _d.commit()
+                    finally:
+                        _d.close()
+                from modules.conversation.application.service import chat as _chatw
+                _prefixed = "🤖 [Claude (%s) přes most]:\n\n%s" % (_who, _text)
+                _chatw(cid, _prefixed, user_id=_CLAUDE_AI_HOST_UID, source="claude_bridge")
+            except Exception:
+                logger.exception("[@@MARTIAI] wake failed")
+
+        _thr.Thread(target=_wake_martiai, daemon=True).start()
+        return JSONResponse({"ok": True, "woke": "Marti-AI",
+                             "note": "Predano Marti-AI (standardni konverzace, rodice maji pristup). "
+                                     "Odpoved dorazi do MARTIAI_TO_CLAUDE.txt."})
 
     # EDI tiered engine (Marti 20.6.2026):
     #   @@PARSE <cesta_k_fakture>            → jedna faktura (detail hlavička+položky)

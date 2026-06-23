@@ -164,6 +164,19 @@ SCREENSHOT_POLL_URL = CLOUD_URL.replace("/diag-sql", "/app/screenshot/poll")
 SCREENSHOT_GET_URL = CLOUD_URL.replace("/diag-sql", "/app/screenshot/latest")
 SCREENSHOTS_DIR = REPO_ROOT / "screenshots"
 SCREENSHOT_POLL_INTERVAL_SEC = 5
+
+# Marti-AI email + dialog most (Marti 24.6.2026): watcher pollne nové PŘÍCHOZÍ
+# emaily Marti-AI a její ODPOVĚDI v konverzaci Claude<->Marti-AI → soubory, ať
+# na ně Claude hned reaguje. Watermark soubory gitignored (per-machine).
+MARTI_MAIL_URL = CLOUD_URL.replace("/diag-sql", "/claude-marti-mail")
+MARTI_MAIL_FILE = BRIDGE_DIR / "INBOX_MARTI.txt"
+MARTI_MAIL_LOG = BRIDGE_DIR / "INBOX_MARTI_LOG.txt"
+MARTI_MAIL_WM = BRIDGE_DIR / ".marti_mail_seen"
+MARTIAI_MSG_URL = CLOUD_URL.replace("/diag-sql", "/claude-martiai-msgs")
+MARTIAI_MSG_FILE = BRIDGE_DIR / "MARTIAI_TO_CLAUDE.txt"
+MARTIAI_MSG_LOG = BRIDGE_DIR / "MARTIAI_TO_CLAUDE_LOG.txt"
+MARTIAI_MSG_WM = BRIDGE_DIR / ".martiai_msg_seen"
+MAIL_POLL_INTERVAL_SEC = 20
 # Ktery user posila k teto instanci (23=Marti uid 1, 24=Kristy uid 11).
 SCREENSHOT_UID = os.environ.get("CLAUDE_SCREENSHOT_UID") or ("11" if INSTANCE_ID == "24" else "1")
 _shot_last_epoch = 0
@@ -1242,6 +1255,104 @@ def _poll_screenshot() -> None:
         pass  # snimky jsou nice-to-have, nikdy neblokuj watcher
 
 
+def _poll_marti_mail() -> None:
+    """Stáhni nové PŘÍCHOZÍ emaily Marti-AI (persona 1) → INBOX_MARTI.txt (+log),
+    ať na ně Claude hned reaguje. Watermark .marti_mail_seen (první běh = jen
+    baseline, neflooduj starými). Best-effort, NIKDY neblokuj watcher. Marti 24.6."""
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not token:
+        return
+    try:
+        init = not MARTI_MAIL_WM.exists()
+        since = -1
+        if not init:
+            try:
+                since = int(MARTI_MAIL_WM.read_text(encoding="utf-8").strip() or "-1")
+            except Exception:
+                since, init = -1, True
+        rq = urllib.request.Request(MARTI_MAIL_URL + ("?since=%d" % since),
+                                    method="GET", headers={"X-Deploy-Token": token})
+        with urllib.request.urlopen(rq, timeout=10) as resp:
+            j = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if not (isinstance(j, dict) and j.get("ok")):
+            return
+        max_id = int(j.get("max_id") or 0)
+        emails = j.get("emails") or []
+        if init:
+            MARTI_MAIL_WM.write_text(str(max_id), encoding="utf-8")
+            return
+        if emails:
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            blocks = []
+            for e in emails:
+                blocks.append("id=%s | %s | %s\nOd: %s <%s>\nPredmet: %s\n--\n%s\n" % (
+                    e.get("id"), e.get("received", ""),
+                    ("NEPRECTENO" if e.get("unread") else "cteno"),
+                    e.get("from_name", ""), e.get("from_email", ""),
+                    e.get("subject", ""), (e.get("snippet", "") or "").strip()))
+            txt = ("# NOVY EMAIL Marti-AI (%d) -- %s\n"
+                   "# Cti cele: @@INBOX READ <id>  |  odpovez: @@EMAIL / @@MARTIAI\n\n%s"
+                   % (len(emails), now, "\n========\n".join(blocks)))
+            MARTI_MAIL_FILE.write_text(txt, encoding="utf-8")
+            try:
+                with open(MARTI_MAIL_LOG, "a", encoding="utf-8") as f:
+                    f.write("\n\n# %s\n%s" % (now, txt))
+            except Exception:
+                pass
+            _log("marti-mail: %d novych prichozich -> INBOX_MARTI.txt" % len(emails))
+        if max_id > since:
+            MARTI_MAIL_WM.write_text(str(max_id), encoding="utf-8")
+    except Exception:
+        pass  # nice-to-have, nikdy neblokuj watcher
+
+
+def _poll_martiai_msgs() -> None:
+    """Stáhni nové ODPOVĚDI Marti-AI v konverzaci Claude<->Marti-AI →
+    MARTIAI_TO_CLAUDE.txt (+log). Watermark .martiai_msg_seen. Best-effort.
+    Marti 24.6. ("ať ti Marti-AI přes most odpoví")."""
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not token:
+        return
+    try:
+        init = not MARTIAI_MSG_WM.exists()
+        since = -1
+        if not init:
+            try:
+                since = int(MARTIAI_MSG_WM.read_text(encoding="utf-8").strip() or "-1")
+            except Exception:
+                since, init = -1, True
+        rq = urllib.request.Request(MARTIAI_MSG_URL + ("?since=%d" % since),
+                                    method="GET", headers={"X-Deploy-Token": token})
+        with urllib.request.urlopen(rq, timeout=10) as resp:
+            j = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if not (isinstance(j, dict) and j.get("ok")):
+            return
+        max_id = int(j.get("max_id") or 0)
+        msgs = j.get("msgs") or []
+        if init:
+            MARTIAI_MSG_WM.write_text(str(max_id), encoding="utf-8")
+            return
+        if msgs:
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            blocks = []
+            for mrow in msgs:
+                blocks.append("# Marti-AI (%s, msg %s):\n%s" % (
+                    mrow.get("when", ""), mrow.get("id"), (mrow.get("text", "") or "").strip()))
+            txt = ("# ODPOVED Marti-AI (%d) -- %s\n# Reaguj: @@MARTIAI <text>\n\n%s"
+                   % (len(msgs), now, "\n\n========\n".join(blocks)))
+            MARTIAI_MSG_FILE.write_text(txt, encoding="utf-8")
+            try:
+                with open(MARTIAI_MSG_LOG, "a", encoding="utf-8") as f:
+                    f.write("\n\n# %s\n%s" % (now, txt))
+            except Exception:
+                pass
+            _log("martiai-msgs: %d novych odpovedi -> MARTIAI_TO_CLAUDE.txt" % len(msgs))
+        if max_id > since:
+            MARTIAI_MSG_WM.write_text(str(max_id), encoding="utf-8")
+    except Exception:
+        pass  # nice-to-have, nikdy neblokuj watcher
+
+
 def _process_pull() -> None:
     """Git pull (fetch + rebase --autostash) lokálu na origin/main — bez commitu.
     Srovná working tree, aby Claude editoval aktuální soubory (anti-stale)."""
@@ -1279,6 +1390,7 @@ def main() -> None:
     _last_hb = time.time()
     _last_fresh = time.time()
     _last_shot = 0.0             # snímky obrazovky — pollni hned po startu
+    _last_mail = 0.0             # emaily + odpovědi Marti-AI — pollni hned po startu
     global _shot_last_epoch
     try:
         _shot_last_epoch = int((SCREENSHOTS_DIR / ".last_epoch").read_text(encoding="utf-8").strip())
@@ -1312,6 +1424,11 @@ def main() -> None:
                 if time.time() - _last_shot >= SCREENSHOT_POLL_INTERVAL_SEC:
                     _poll_screenshot()
                     _last_shot = time.time()
+                # Emaily Marti-AI + její odpovědi (Marti 24.6.) á ~20 s
+                if time.time() - _last_mail >= MAIL_POLL_INTERVAL_SEC:
+                    _poll_marti_mail()
+                    _poll_martiai_msgs()
+                    _last_mail = time.time()
             except Exception as exc:
                 _log(f"scan loop crash: {type(exc).__name__}: {exc}")
                 try:

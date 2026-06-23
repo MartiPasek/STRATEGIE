@@ -22594,13 +22594,17 @@ def uctovani_predvaha(req: Request):
             "SUM(CASE WHEN strana=1 THEN castka ELSE 0 END) dal, COUNT(*) n "
             "FROM tenant.ec_denik WHERE rok=:r AND NOT storno AND ucet IS NOT NULL GROUP BY ucet"),
             {"r": rok}).all()
+        # baseline = věrný rekon (ec_recon); bankovní engine-experiment (bank_zauctovani)
+        # se z baseline vyřazuje, aby se banka nezdvojila (Marti 23.6.2026).
         nmd = s.execute(_t(
             "SELECT ucet_md u, SUM(castka) v FROM tenant.ucetni_denik "
-            "WHERE NOT storno AND EXTRACT(year FROM datum)=:r AND ucet_md IS NOT NULL GROUP BY ucet_md"),
+            "WHERE NOT storno AND EXTRACT(year FROM datum)=:r AND ucet_md IS NOT NULL "
+            "AND zdroj IS DISTINCT FROM 'bank_zauctovani' GROUP BY ucet_md"),
             {"r": rok}).all()
         ndal = s.execute(_t(
             "SELECT ucet_dal u, SUM(castka) v FROM tenant.ucetni_denik "
-            "WHERE NOT storno AND EXTRACT(year FROM datum)=:r AND ucet_dal IS NOT NULL GROUP BY ucet_dal"),
+            "WHERE NOT storno AND EXTRACT(year FROM datum)=:r AND ucet_dal IS NOT NULL "
+            "AND zdroj IS DISTINCT FROM 'bank_zauctovani' GROUP BY ucet_dal"),
             {"r": rok}).all()
     finally:
         s.close()

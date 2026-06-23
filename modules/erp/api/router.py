@@ -21671,7 +21671,7 @@ def banka_saldo(req: Request):
             "ROUND(SUM(ABS(s.saldo)) FILTER (WHERE COALESCE(s.dnu_prodleni,0)>0)) suma_po "
             "FROM tenant.ec_saldo_fa s LEFT JOIN tenant.ec_organizace o ON o.cislo_org=s.cislo_org "
             "WHERE COALESCE(s.saldo,0)<>0 AND s.cislo_sal_sk=:k "
-            "GROUP BY s.cislo_org, nazev ORDER BY SUM(ABS(s.saldo)) DESC LIMIT 200"), {"k": ssk}).mappings().all()
+            "GROUP BY s.cislo_org, o.firma, o.nazev, o.zkratka ORDER BY SUM(ABS(s.saldo)) DESC LIMIT 200"), {"k": ssk}).mappings().all()
         return {"ok": True, "typ": typ,
                 "souhrn": {"pohledavky": sm.get("311", {"pocet": 0, "suma": 0, "pocet_po": 0, "suma_po": 0}),
                            "zavazky": sm.get("321", {"pocet": 0, "suma": 0, "pocet_po": 0, "suma_po": 0})},

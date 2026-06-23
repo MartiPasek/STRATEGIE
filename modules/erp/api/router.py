@@ -9491,6 +9491,139 @@ async def ocr_approve(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── ČSSZ eOČR SMS most (Marti/Kristý 23.6.2026) ─────────────────────────────
+# eOČR NECHODÍ do datovky → zaměstnanec přepošle ČSSZ SMS na číslo Marti-AI,
+# brána ji zachytí (sms_preprocessor → cssz_ocr_dispatch) a TADY z ní založíme
+# OČR případ: spárování odesílatel→zaměstnanec přes user_contacts, dohledání
+# dítěte v osobní kartě (RČ se NIKDY neposílá po SMS — bere se z karty),
+# auto-reply zaměstnanci + notifikace Péťě (18) a vedoucímu s ePortál odkazem.
+
+_OCR_HR_USER = 18  # Péťa — zpracovává OČR (notifikace + ePortál link ke stažení)
+
+
+def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
+    """Zpracuje přeposlanou ČSSZ eOČR SMS. Vrací {'matched': bool, 'summary': str}.
+
+    matched=False → caller (store_inbound_sms) SMS uloží do inboxu, ať to vyřeší
+    člověk. Sync funkce, volá se z store_inbound_sms (lazy import) v API procesu.
+    """
+    from sqlalchemy import text as _t
+    import re as _re
+    import datetime as _dt
+    ident = (extra or {}).get("identifikator")
+    osoba_sms = ((extra or {}).get("osoba") or "").strip() or None
+    rok = (extra or {}).get("rok")
+    link = (extra or {}).get("link")
+    if not ident:
+        return {"matched": False, "summary": "chybi identifikator"}
+    # posledních 9 číslic odesílatele = robustní párování (formáty +420/420/0…)
+    d9 = _re.sub(r"\D", "", from_phone or "")[-9:]
+    if len(d9) < 9:
+        return {"matched": False, "summary": "neplatne cislo odesilatele"}
+    cid = None
+    rc = None
+    osoba = osoba_sms
+    d_od = _dt.date.today()
+    cm, s = _att_session()
+    try:
+        uid = s.execute(_t(
+            "SELECT user_id FROM public.user_contacts "
+            "WHERE contact_type='phone' AND COALESCE(status,'active')='active' "
+            "AND right(regexp_replace(contact_value,'\\D','','g'),9)=:d9 "
+            "ORDER BY COALESCE(is_verified,false) DESC, COALESCE(is_primary,false) DESC, id "
+            "LIMIT 1"), {"d9": d9}).scalar()
+        if not uid:
+            return {"matched": False, "summary": "odesilatel nenalezen mezi zamestnanci"}
+        uid = int(uid)
+        emp = _att_employee(s, uid)
+        if not emp:
+            return {"matched": False, "summary": "neni v evidenci dochazky"}
+        # dedup — stejný identifikátor pro tohoto zaměstnance už existuje
+        ex = s.execute(_t(
+            "SELECT id FROM tenant.att_ocr_case WHERE tenant_id=2 AND employee_id=:e "
+            "AND identifikator=:id LIMIT 1"), {"e": emp, "id": ident}).scalar()
+        if ex:
+            s.commit()
+            return {"matched": True, "summary": "jiz existuje (case " + str(ex) + ")"}
+        # dohledání dítěte v osobní kartě → RČ + vztah (RČ NIKDY po SMS)
+        vztah = None
+        try:
+            if osoba_sms:
+                like = osoba_sms.split()[0] + "%"
+                params = {"u": uid, "nm": like}
+                ysql = ""
+                if rok:
+                    ysql = "AND EXTRACT(YEAR FROM birth_date)=:yr "
+                    params["yr"] = int(rok)
+                ch = s.execute(_t(
+                    "SELECT child_name, birth_number, relation FROM tenant.user_self_child "
+                    "WHERE tenant_id=2 AND user_id=:u AND child_name ILIKE :nm "
+                    + ysql + "ORDER BY id LIMIT 1"), params).first()
+                if ch:
+                    osoba = ch[0] or osoba_sms
+                    rc = ch[1]
+                    vztah = ch[2]
+        except Exception:
+            pass
+        company = _ocr_company(s, emp)
+        mgr = None
+        try:
+            mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                            {"e": emp}).scalar()
+        except Exception:
+            mgr = None
+        arid = s.execute(_t(
+            "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,"
+            "datum_do,hours_per_day,note,stav,manager_user_id) "
+            "VALUES (2,:e,:u,'family_care',:od,:od,8,:n,'pending',:m) RETURNING id"),
+            {"e": emp, "u": uid, "od": d_od, "n": ("OČR (SMS): " + (osoba or "")), "m": mgr}).scalar()
+        cid = s.execute(_t(
+            "INSERT INTO tenant.att_ocr_case (tenant_id,employee_id,user_id,company,identifikator,"
+            "osoba_jmeno,osoba_rc,osoba_vztah,datum_od,stav,absence_request_id,created_by_id) "
+            "VALUES (2,:e,:u,:co,:id,:oj,:rc,:vz,:od,'novy',:ar,:u) RETURNING id"),
+            {"e": emp, "u": uid, "co": company, "id": ident, "oj": osoba, "rc": rc, "vz": vztah,
+             "od": d_od, "ar": arid}).scalar()
+        who = s.execute(_t(
+            "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
+            {"e": emp}).scalar() or "Zaměstnanec"
+        note = (who + " nahlásil OČR ze SMS (péče o: " + (osoba or "?") + "). "
+                + "Identifikátor: " + ident + ". "
+                + ("Otevři ePortál a stáhni dokument: " + link if link else "")).strip()
+        seen = set()
+        for tgt in (_OCR_HR_USER, mgr):
+            try:
+                t_i = int(tgt) if tgt is not None else None
+            except Exception:
+                t_i = None
+            if t_i and t_i not in seen:
+                seen.add(t_i)
+                _abs_notify(s, t_i, "🧑‍⚕️ Nové OČR ze SMS", note)
+        s.commit()
+    except Exception:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    # auto-reply zaměstnanci (mimo att session) — potvrzení + odkaz do appky, BEZ RČ
+    try:
+        from modules.notifications.application.sms_service import queue_sms
+        rep = ("STRATEGIE: Zachytili jsme oznámení o ošetřovném"
+               + ((" (péče o: " + osoba + ")") if osoba else "")
+               + ". Eviduji ti ho od " + str(d_od.day) + "." + str(d_od.month) + "."
+               + " Po skončení potvrď dny v appce: https://strategie-ai.com/mobile"
+               + " (Docházka → OČR). Mzdová účtárna dostala upozornění.")
+        queue_sms(to=from_phone, body=rep, purpose="ocr_autoreply",
+                  user_id=uid, tenant_id=2, persona_id=1)
+    except Exception:
+        pass
+    return {"matched": True,
+            "summary": "case " + str(cid) + " zalozen (emp " + str(emp) + ", rc=" + ("ano" if rc else "ne") + ")"}
+
+
 # ── eNeschopenka (DPN / nemocenská) — Fáze 1 (mirror OČR) ──────────────────
 
 @api_router.post("/app/sick/start")

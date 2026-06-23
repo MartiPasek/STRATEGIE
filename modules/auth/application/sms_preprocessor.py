@@ -51,6 +51,18 @@ _TOKEN_EXTRACT = re.compile(r"\bSTG-([A-Z]+)-([A-Z0-9]+)\b")
 # (info o nabití kreditu, MMS pickup link) — log only, skip processing.
 _SHORT_CODE_SENDER = re.compile(r"^\d{1,6}$")
 
+# ── ČSSZ eOČR SMS (přeposlaná zaměstnancem) — Marti/Kristý 23.6.2026 ──
+# Příklad: "11098621260623001N je identifikator vzniku osetrovani pro Nina,
+# nar. 2022, zamestnanec ho preda zamestnavateli. https://eportal.cssz.cz/np/YW9AnZ"
+# eOČR NECHODÍ do datovky (na rozdíl od eNeschopenky) → zaměstnanec přepošle SMS
+# na číslo Marti-AI a my z ní založíme OČR případ. Detekce KONZERVATIVNÍ: musí být
+# eportal.cssz.cz link + slovo "identifik" + "osetrov"/"ošetřov" (s/bez diakritiky),
+# aby se nezachytila běžná lidská SMS.
+_CSSZ_OCR_LINK = re.compile(r"https?://eportal\.cssz\.cz/\S+", re.IGNORECASE)
+_CSSZ_OCR_IDENT = re.compile(r"\b(\d{8,20}[A-Za-z])\b")
+_CSSZ_OCR_OSOBA = re.compile(r"\bpro\s+(.+?)\s*,\s*nar", re.IGNORECASE)
+_CSSZ_OCR_ROK = re.compile(r"\bnar\.?\s*(\d{4})", re.IGNORECASE)
+
 
 # ── Routing actions ───────────────────────────────────────────────────
 
@@ -64,6 +76,7 @@ RoutingAction = Literal[
     "unknown_purpose",     # token format match, ale neznámý purpose
     "forward",             # No token → standard sms_inbox flow (lidská SMS)
     "log_only_short_code", # operator SMS (4644...) → log + skip
+    "cssz_ocr_dispatch",   # přeposlaná ČSSZ eOČR SMS → založ OČR případ
 ]
 
 
@@ -74,6 +87,7 @@ class PreprocessResult:
     matched_token: str | None = None
     matched_purpose: str | None = None
     handler_result: str | None = None  # text summary pro audit log
+    extra: dict | None = None          # parsovaná data (ČSSZ OČR: ident/osoba/rok/link)
 
 
 # ── Public API ────────────────────────────────────────────────────────
@@ -106,6 +120,30 @@ def classify_sms(
         return PreprocessResult(
             action="log_only_short_code",
             handler_result=f"short_code_sender={sender_clean}",
+        )
+
+    # Rule 1b: ČSSZ eOČR SMS (přeposlaná zaměstnancem) — vlastní vzor, žádný STG token.
+    # Konzervativní: eportal.cssz.cz link + "identifik" + "osetrov"/"ošetřov".
+    low = body_clean.lower()
+    link_m = _CSSZ_OCR_LINK.search(body_clean)
+    if link_m and "identifik" in low and ("osetrov" in low or "ošetřov" in low):
+        ident_m = _CSSZ_OCR_IDENT.search(body_clean)
+        osoba_m = _CSSZ_OCR_OSOBA.search(body_clean)
+        rok_m = _CSSZ_OCR_ROK.search(body_clean)
+        extra = {
+            "identifikator": ident_m.group(1) if ident_m else None,
+            "osoba": (osoba_m.group(1).strip() if osoba_m else None),
+            "rok": (rok_m.group(1) if rok_m else None),
+            "link": link_m.group(0),
+        }
+        return PreprocessResult(
+            action="cssz_ocr_dispatch",
+            matched_purpose="CSSZ_OCR",
+            handler_result=(
+                f"ident={extra['identifikator']} osoba={extra['osoba']} "
+                f"rok={extra['rok']}"
+            ),
+            extra=extra,
         )
 
     # Rule 2: token regex match

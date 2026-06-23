@@ -629,6 +629,48 @@ def store_inbound_sms(
     except Exception as _pre_e:
         logger.warning(f"SMS | preprocess classify failed (non-fatal): {_pre_e!r}")
 
+    # ── ČSSZ eOČR SMS (Marti/Kristý 23.6.2026) — přeposlaná zaměstnancem ──
+    # Zkus založit OČR případ; když odesílatele nespárujeme se zaměstnancem,
+    # spadni do běžného inbox flow (ať to člověk uvidí). Defense in depth:
+    # handler chyba NESMÍ shodit SMS pipeline (try/except + fallback).
+    if preprocess_result is not None and preprocess_result.action == "cssz_ocr_dispatch":
+        _ocr_matched = False
+        try:
+            from modules.erp.api.router import handle_cssz_ocr_sms
+            _ocr_out = handle_cssz_ocr_sms(
+                from_phone_norm, body, getattr(preprocess_result, "extra", None) or {}
+            )
+            _ocr_matched = bool(_ocr_out and _ocr_out.get("matched"))
+            if _ocr_out and _ocr_out.get("summary"):
+                preprocess_result.handler_result = _ocr_out["summary"]
+        except Exception as _ocr_e:
+            logger.warning(f"SMS | cssz_ocr handler failed (non-fatal): {_ocr_e!r}")
+        if _ocr_matched:
+            try:
+                from modules.auth.application.sms_preprocessor import write_audit_log
+                write_audit_log(
+                    sms_inbox_id=None, sender_phone=from_phone_norm, result=preprocess_result
+                )
+            except Exception as _audit_e:
+                logger.warning(f"SMS | cssz_ocr audit failed: {_audit_e!r}")
+            logger.info(
+                f"SMS | cssz_ocr | matched | from={from_phone_norm} | "
+                f"{preprocess_result.handler_result}"
+            )
+            return {
+                "id": None,
+                "persona_id": None,
+                "from_phone": from_phone_norm,
+                "body": body,
+                "received_at": (received_at or datetime.now(timezone.utc)).isoformat(),
+                "task_id": None,
+                "deduped": False,
+                "preprocessed": "cssz_ocr_dispatch",
+                "preprocess_reason": preprocess_result.handler_result,
+            }
+        # nespárováno → ulož jako běžnou SMS (forward path níže, ať to člověk vyřeší)
+        preprocess_result = None
+
     if preprocess_result is not None and preprocess_result.action != "forward":
         # Auth consumed/rejected, log_only short code, unknown_purpose —
         # NEUKLÁDAT do sms_inbox (není to user message). Audit + skip.

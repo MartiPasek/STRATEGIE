@@ -18896,19 +18896,18 @@ def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=F
             continue
         if miss_d:
             if not dry:
-                _ecw("INSERT INTO EC_Dochazka (CisloZam,DatumPripadu,DenVTydnu,DruhCinnosti,DruhCinn_Mzdy,"
-                    "CisloZakazky,CasZacatek,CasKonec,CasCelkemZakazka,CasCelkemVcRezii,Status,Import,Autor,"
-                    "DatPorizeni,DatumPripadu_Y,DatumPripadu_M) VALUES "
-                    "(%d,'%s','%s',%d,1,'%s','%s',%s,%.2f,%.2f,0,1,'%s',GETDATE(),%d,%d)"
-                    % (cz, dt, dvt, dc, zak[:15], zac, konv, hod, hod, _MIRROR_EC_AUTOR, do.year, do.month))
+                _ecw("INSERT INTO EC_Dochazka (CisloZam,DatumPripadu,DruhCinnosti,"
+                    "CisloZakazky,CasZacatek,CasKonec,Status,Import,Autor,DatPorizeni) VALUES "
+                    "(%d,'%s',%d,'%s','%s',%s,0,1,'%s',GETDATE())"
+                    % (cz, dt, dc, zak[:15], zac, konv, _MIRROR_EC_AUTOR))
             nd += 1
         if miss_s:
             cmont = hod if je_zak else 0; crez = 0 if je_zak else hod
             if not dry:
-                _ecw("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,DatumPripadu_Y,DatumPripadu_M,"
-                    "DatumPripadu_D,CasCelkem,CasMontaz,CasRezie,CasZacatek,CasKonec,Uzavreno,HPP,DPP,OSVC) VALUES "
-                    "(%d,'%s',%d,%d,%d,%.2f,%.2f,%.2f,'%s',%s,0,%d,%d,%d)"
-                    % (cz, dt, do.year, do.month, do.day, hod, cmont, crez, zac, konv, hpp, dpp, osvc))
+                _ecw("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,CasCelkem,CasMontaz,CasRezie,"
+                    "CasZacatek,CasKonec,Uzavreno,HPP,DPP,OSVC) VALUES "
+                    "(%d,'%s',%.2f,%.2f,%.2f,'%s',%s,0,%d,%d,%d)"
+                    % (cz, dt, hod, cmont, crez, zac, konv, hpp, dpp, osvc))
             ns += 1
         if not dry:
             s2 = _g()

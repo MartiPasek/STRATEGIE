@@ -174,8 +174,15 @@ function tNesparovane(){
     if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
     var s=j.summary||{};
     var h='<button class="back" id="bk">← Přehled</button><div class="sec">Nespárované platby — '+fmt(s.nesparovano)+' ('+kc(s.nesparovano_castka)+')</div>';
-    h+='<table><tr><th>Datum</th><th class="r">Částka</th><th>Měna</th><th>Protistrana</th><th>VS</th><th>Zakázka</th><th>Rozpoznáno</th></tr>';
-    (j.radky||[]).forEach(function(r){h+='<tr><td>'+esc(r.dat||"")+'</td><td class="r">'+kc(r.castka,r.mena)+'</td><td>'+esc(r.mena||"")+'</td><td>'+esc(r.nazev_org||"")+'</td><td>'+esc(r.variabilni_symbol||"")+'</td><td>'+esc(r.cislo_zakazky||"")+'</td><td>'+esc(r.predpis||r.kategorie||"")+'</td></tr>';});
+    h+='<div class="sub">„Nespárováno" = Centrála to nenapojila na fakturu (mzdy/daně/poplatky fakturu nemají). Sloupec Zaúčtováno ukazuje, co o platbě víme.</div>';
+    h+='<table><tr><th>Datum</th><th class="r">Částka</th><th>Měna</th><th>Protistrana</th><th>VS</th><th>Zaúčtováno / kategorie</th></tr>';
+    (j.radky||[]).forEach(function(r){
+      var z;
+      if(r.z_stav==='zauctovano'){ z='<span class="pill ok">✓ '+esc(r.z_kat||"")+'</span> '+esc((r.z_md||"")+'/'+(r.z_dal||"")); }
+      else if(r.z_stav){ z='<span class="pill no">'+esc(r.z_stav)+' '+esc(r.z_kat||"")+'</span>'; }
+      else if(r.predpis||r.kategorie){ z='<span class="kmut" style="color:var(--mut)">rozpoznáno: '+esc(r.predpis||r.kategorie)+'</span>'; }
+      else { z='<span class="pill no">nezařazeno</span>'; }
+      h+='<tr><td>'+esc(r.dat||"")+'</td><td class="r">'+kc(r.castka,r.mena)+'</td><td>'+esc(r.mena||"")+'</td><td>'+esc(r.nazev_org||"")+'</td><td>'+esc(r.variabilni_symbol||"")+'</td><td>'+z+'</td></tr>';});
     h+='</table><div class="sub" style="margin-top:8px">Zobrazeno '+fmt((j.radky||[]).length)+' z '+fmt(s.nesparovano)+'. Zařazení a předkontaci dělej v tabu 🧮 Zařazení.</div>';
     V.innerHTML=h;
     document.getElementById("bk").onclick=function(){cur="prehled";renderTabs();load();};

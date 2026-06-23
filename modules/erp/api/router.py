@@ -18855,6 +18855,12 @@ def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=F
                                 conversation_id=None)
         return (_j.loads(rj) if isinstance(rj, str) else rj) or {}
 
+    def _ecw(sql):
+        r = _ec(sql)
+        if not r.get("ok"):
+            raise RuntimeError("EC write blokován: " + str(r.get("message") or r.get("error"))[:240])
+        return r
+
     inlist = ",".join(str(c) for c in cisla)
 
     def _have(table):
@@ -18890,7 +18896,7 @@ def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=F
             continue
         if miss_d:
             if not dry:
-                _ec("INSERT INTO EC_Dochazka (CisloZam,DatumPripadu,DenVTydnu,DruhCinnosti,DruhCinn_Mzdy,"
+                _ecw("INSERT INTO EC_Dochazka (CisloZam,DatumPripadu,DenVTydnu,DruhCinnosti,DruhCinn_Mzdy,"
                     "CisloZakazky,CasZacatek,CasKonec,CasCelkemZakazka,CasCelkemVcRezii,Status,Import,Autor,"
                     "DatPorizeni,DatumPripadu_Y,DatumPripadu_M) VALUES "
                     "(%d,'%s','%s',%d,1,'%s','%s',%s,%.2f,%.2f,0,1,'%s',GETDATE(),%d,%d)"
@@ -18899,7 +18905,7 @@ def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=F
         if miss_s:
             cmont = hod if je_zak else 0; crez = 0 if je_zak else hod
             if not dry:
-                _ec("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,DatumPripadu_Y,DatumPripadu_M,"
+                _ecw("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,DatumPripadu_Y,DatumPripadu_M,"
                     "DatumPripadu_D,CasCelkem,CasMontaz,CasRezie,CasZacatek,CasKonec,Uzavreno,HPP,DPP,OSVC) VALUES "
                     "(%d,'%s',%d,%d,%d,%.2f,%.2f,%.2f,'%s',%s,0,%d,%d,%d)"
                     % (cz, dt, do.year, do.month, do.day, hod, cmont, crez, zac, konv, hpp, dpp, osvc))

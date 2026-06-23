@@ -57,7 +57,7 @@ function renderTabs(){document.getElementById("tabs").innerHTML=TABS.map(functio
   Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.onclick=function(){cur=b.getAttribute("data-t");renderTabs();load();};});}
 function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,saldo:tSaldo,zarazeni:tZarazeni,ucty:tUcty,vypisy:tVypisy,parovani:tParovani,mustr:tMustr,prirucka:tPrirucka,nastroje:tNastroje}[cur])();}
 
-var _MAPABLE={"Mzda":1,"Úhrada dodavateli":1,"Příjem od odběratele":1,"Záloha/náhrada zaměstnanci":1};
+var _MAPABLE={"Mzda":1,"Úhrada dodavateli":1,"Úhrada OSVČ (dodavatel)":1,"Příjem od odběratele":1,"Záloha/náhrada zaměstnanci":1};
 function tZarazeni(katDetail){
   if(katDetail){ return api("/api/v1/erp/app/banka/zarazeni?kat="+encodeURIComponent(katDetail)).then(function(j){
     if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}

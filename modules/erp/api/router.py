@@ -21716,15 +21716,21 @@ _ZARAZENI_CTE = (
     " WHERE r.datum_splatnosti >= DATE '2026-01-01' "
     "   AND NOT EXISTS (SELECT 1 FROM tenant.bank_zauctovani z WHERE z.id_radek=r.src_id)), "
     "own AS ("
-    " SELECT b2.*, bu.id_zam, bu.id_org, o.je_dodavatel, o.je_odberatel, "
+    " SELECT b2.*, bu.id_zam, bu.id_org, bu.zam_cislo, o.je_dodavatel, o.je_odberatel, "
+    "  COALESCE(rel.relation, CASE WHEN bu.id_zam IS NOT NULL THEN 'zamestnanec' END) vztah, "
     "  COALESCE(NULLIF(o.firma,''),NULLIF(o.nazev,''),NULLIF(o.zkratka,''),b2.nazev_org) vlastnik "
     " FROM base b2 "
-    " LEFT JOIN LATERAL (SELECT b.id_zam,b.id_org FROM tenant.ec_bank_ucet b "
+    " LEFT JOIN LATERAL (SELECT b.id_zam,b.id_org,b.zam_cislo FROM tenant.ec_bank_ucet b "
     "    WHERE b2.ucn IS NOT NULL AND b.cislo_uctu_norm=b2.ucn AND NOT COALESCE(b.blokovano,false) "
     "    ORDER BY b.prednastaveno DESC LIMIT 1) bu ON true "
-    " LEFT JOIN tenant.ec_organizace o ON o.cislo_org=bu.id_org), "
+    " LEFT JOIN tenant.ec_organizace o ON o.cislo_org=bu.id_org "
+    " LEFT JOIN LATERAL (SELECT wr.relation FROM tenant.att_employee ae "
+    "    JOIN tenant.work_relation wr ON wr.user_id=ae.user_id "
+    "    WHERE bu.zam_cislo IS NOT NULL AND ae.tenant_id=2 AND ae.cislo_zam=bu.zam_cislo::text LIMIT 1) rel ON true), "
     "cls AS ("
     " SELECT *, CASE "
+    "   WHEN id_zam IS NOT NULL AND vztah='osvc' THEN 'Úhrada OSVČ (dodavatel)' "
+    "   WHEN id_zam IS NOT NULL AND vztah='jednatel' THEN 'Odměna jednatele' "
     "   WHEN id_zam IS NOT NULL AND (txt ILIKE '%%výplata%%' OR ks IN ('0308','0138')) THEN 'Mzda' "
     "   WHEN id_zam IS NOT NULL THEN 'Záloha/náhrada zaměstnanci' "
     "   WHEN id_org IS NOT NULL AND je_dodavatel THEN 'Úhrada dodavateli' "
@@ -21734,8 +21740,10 @@ _ZARAZENI_CTE = (
     "clsu AS ("
     " SELECT *, "
     "  (CASE kat WHEN 'Mzda' THEN '331000' WHEN 'Úhrada dodavateli' THEN '321001' "
+    "    WHEN 'Úhrada OSVČ (dodavatel)' THEN '321001' "
     "    WHEN 'Příjem od odběratele' THEN '221000' WHEN 'Záloha/náhrada zaměstnanci' THEN '333000' END) ucet_md, "
     "  (CASE kat WHEN 'Mzda' THEN '221000' WHEN 'Úhrada dodavateli' THEN '221000' "
+    "    WHEN 'Úhrada OSVČ (dodavatel)' THEN '221000' "
     "    WHEN 'Příjem od odběratele' THEN '311001' WHEN 'Záloha/náhrada zaměstnanci' THEN '221000' END) ucet_dal "
     " FROM cls) ")
 
@@ -21778,7 +21786,7 @@ async def banka_zarazeni_generovat(req: Request):
     except Exception:
         b = {}
     kat = (str(b.get("kat") or "")).strip()
-    if kat not in ("Mzda", "Úhrada dodavateli", "Příjem od odběratele", "Záloha/náhrada zaměstnanci"):
+    if kat not in ("Mzda", "Úhrada dodavateli", "Úhrada OSVČ (dodavatel)", "Příjem od odběratele", "Záloha/náhrada zaměstnanci"):
         return JSONResponse({"ok": False, "error": "kategorie bez předkontace"}, status_code=400)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -27616,24 +27624,26 @@ def _sync_ec_bank_ucet(_unused=None) -> dict:
         n = 0
         while True:
             batch = rows_of(
-                "SELECT TOP %d ID,IDOrg,IDZam,IDUstavu,NazevBankSpoj,CisloUctu,IBANElektronicky,"
-                "CisloUctuAlias,Mena,VariabilniSymbol,KonstantniSymbol,SpecifickySymbol,"
-                "CAST(Prednastaveno AS int) Prednastaveno,CAST(Blokovano AS int) Blokovano,"
-                "CAST(Prioritni AS int) Prioritni,Priorita FROM TabBankSpojeni WHERE ID>%d ORDER BY ID"
-                % (BLOCK, lastid))
+                "SELECT TOP %d bs.ID,bs.IDOrg,bs.IDZam,bs.IDUstavu,bs.NazevBankSpoj,bs.CisloUctu,bs.IBANElektronicky,"
+                "bs.CisloUctuAlias,bs.Mena,bs.VariabilniSymbol,bs.KonstantniSymbol,bs.SpecifickySymbol,"
+                "CAST(bs.Prednastaveno AS int) Prednastaveno,CAST(bs.Blokovano AS int) Blokovano,"
+                "CAST(bs.Prioritni AS int) Prioritni,bs.Priorita, z.Cislo zam_cislo "
+                "FROM TabBankSpojeni bs LEFT JOIN TabCisZam z ON z.ID=bs.IDZam "
+                "WHERE bs.ID>%d ORDER BY bs.ID" % (BLOCK, lastid))
             if not batch:
                 break
             for r in batch:
                 cu = s2(r.get("CisloUctu"))
                 s.execute(_t(
-                    "INSERT INTO tenant.ec_bank_ucet (src_id,tenant_id,id_org,id_zam,id_ustavu,nazev,cislo_uctu,"
+                    "INSERT INTO tenant.ec_bank_ucet (src_id,tenant_id,id_org,id_zam,zam_cislo,id_ustavu,nazev,cislo_uctu,"
                     "cislo_uctu_norm,iban,alias,mena,variabilni_symbol,konstantni_symbol,specificky_symbol,"
                     "prednastaveno,blokovano,prioritni,priorita,synced_at) VALUES "
-                    "(:i,2,:org,:zam,:ust,:nz,:cu,:cn,:ib,:al,:me,:vs,:ks,:ss,:pn,:bl,:pr,:prio,now()) "
+                    "(:i,2,:org,:zam,:zc,:ust,:nz,:cu,:cn,:ib,:al,:me,:vs,:ks,:ss,:pn,:bl,:pr,:prio,now()) "
                     "ON CONFLICT (src_id) DO UPDATE SET id_org=excluded.id_org,id_zam=excluded.id_zam,"
+                    "zam_cislo=excluded.zam_cislo,"
                     "id_ustavu=excluded.id_ustavu,cislo_uctu=excluded.cislo_uctu,cislo_uctu_norm=excluded.cislo_uctu_norm,"
                     "prednastaveno=excluded.prednastaveno,blokovano=excluded.blokovano,prioritni=excluded.prioritni,synced_at=now()"),
-                    {"i": i2(r.get("ID")), "org": i2(r.get("IDOrg")), "zam": i2(r.get("IDZam")),
+                    {"i": i2(r.get("ID")), "org": i2(r.get("IDOrg")), "zam": i2(r.get("IDZam")), "zc": i2(r.get("zam_cislo")),
                      "ust": i2(r.get("IDUstavu")), "nz": s2(r.get("NazevBankSpoj")), "cu": cu, "cn": norm(cu),
                      "ib": s2(r.get("IBANElektronicky")), "al": s2(r.get("CisloUctuAlias")), "me": s2(r.get("Mena")),
                      "vs": s2(r.get("VariabilniSymbol")), "ks": s2(r.get("KonstantniSymbol")), "ss": s2(r.get("SpecifickySymbol")),

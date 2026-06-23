@@ -31,6 +31,7 @@
 <div class="wrap">
   <h1>📊 Obratová předvaha — náš deník vs Helios</h1>
   <div class="sub">Cíl: ladit předkontace a doklady, dokud se náš obraz stavů účtů nevyrovná Heliosu (EC). Zelená = účet sedí, červená = rozdíl.</div>
+  <div class="tabs" id="firmy"></div>
   <div class="tabs" id="years"></div>
   <label class="chk"><input type="checkbox" id="onlyGap"> jen účty s rozdílem</label>
   <div id="view"><div class="hint">Načítám…</div></div>
@@ -42,13 +43,15 @@ function api(p){return fetch(p,{credentials:"include"}).then(function(r){
   if(!r.ok){return{ok:false,error:r.status===403?"Vidí jen účetní a vedení.":("HTTP "+r.status)};}
   return r.json();}).catch(function(){return{ok:false,error:"Spojení selhalo."};});}
 var V=document.getElementById("view");
-var rok=2025;
+var rok=2025, firma="EC";
+function firmy(){document.getElementById("firmy").innerHTML=[["EC","EUROSOFT‑Control"],["ES","EUROSOFT‑System"]].map(function(f){return '<button class="tab'+(f[0]===firma?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'</button>';}).join("");
+  Array.prototype.forEach.call(document.querySelectorAll("#firmy .tab"),function(b){b.onclick=function(){firma=b.getAttribute("data-f");firmy();load();};});}
 function years(){document.getElementById("years").innerHTML=[2025,2026].map(function(y){return '<button class="tab'+(y===rok?' on':'')+'" data-y="'+y+'">'+y+'</button>';}).join("");
-  Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.onclick=function(){rok=+b.getAttribute("data-y");years();load();};});}
+  Array.prototype.forEach.call(document.querySelectorAll("#years .tab"),function(b){b.onclick=function(){rok=+b.getAttribute("data-y");years();load();};});}
 document.getElementById("onlyGap").addEventListener("change",load);
 function load(){
   V.innerHTML='<div class="hint">Načítám…</div>';
-  api("/api/v1/erp/app/uctovani/predvaha?rok="+rok).then(function(j){
+  api("/api/v1/erp/app/uctovani/predvaha?rok="+rok+"&firma="+firma).then(function(j){
     if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
     var s=j.souhrn, onlyGap=document.getElementById("onlyGap").checked;
     var pct=s.uctu_helios?Math.round(100*s.uctu_sedi/s.uctu_helios):0;
@@ -70,7 +73,7 @@ function load(){
     V.innerHTML=h;
   });
 }
-years();load();
+firmy();years();load();
 </script>
 </body>
 </html>

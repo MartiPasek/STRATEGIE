@@ -22721,6 +22721,14 @@ def uctovani_predvaha(req: Request):
         rok = int(req.query_params.get("rok") or 2025)
     except Exception:
         rok = 2025
+    firma = (req.query_params.get("firma") or "EC").upper()
+    # ES = EUROSOFT-System (es_denik / es_recon); jinak EC = EUROSOFT-Control (Marti 23.6.2026).
+    if firma == "ES":
+        hel_tbl = "tenant.es_denik"
+        our_filt = "zdroj = 'es_recon'"
+    else:
+        hel_tbl = "tenant.ec_denik"
+        our_filt = "zdroj NOT IN ('bank_zauctovani','es_recon')"
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()
@@ -22728,19 +22736,19 @@ def uctovani_predvaha(req: Request):
         hel = s.execute(_t(
             "SELECT ucet, SUM(CASE WHEN strana=0 THEN castka ELSE 0 END) md, "
             "SUM(CASE WHEN strana=1 THEN castka ELSE 0 END) dal, COUNT(*) n "
-            "FROM tenant.ec_denik WHERE rok=:r AND NOT storno AND ucet IS NOT NULL GROUP BY ucet"),
+            "FROM " + hel_tbl + " WHERE rok=:r AND NOT storno AND ucet IS NOT NULL GROUP BY ucet"),
             {"r": rok}).all()
-        # baseline = věrný rekon (ec_recon); bankovní engine-experiment (bank_zauctovani)
-        # se z baseline vyřazuje, aby se banka nezdvojila (Marti 23.6.2026).
+        # baseline = věrný rekon; bankovní engine-experiment (bank_zauctovani) i druhá firma
+        # se z baseline vyřazují, aby se nic nezdvojilo (Marti 23.6.2026).
         nmd = s.execute(_t(
             "SELECT ucet_md u, SUM(castka) v FROM tenant.ucetni_denik "
             "WHERE NOT storno AND EXTRACT(year FROM datum)=:r AND ucet_md IS NOT NULL "
-            "AND zdroj IS DISTINCT FROM 'bank_zauctovani' GROUP BY ucet_md"),
+            "AND " + our_filt + " GROUP BY ucet_md"),
             {"r": rok}).all()
         ndal = s.execute(_t(
             "SELECT ucet_dal u, SUM(castka) v FROM tenant.ucetni_denik "
             "WHERE NOT storno AND EXTRACT(year FROM datum)=:r AND ucet_dal IS NOT NULL "
-            "AND zdroj IS DISTINCT FROM 'bank_zauctovani' GROUP BY ucet_dal"),
+            "AND " + our_filt + " GROUP BY ucet_dal"),
             {"r": rok}).all()
     finally:
         s.close()

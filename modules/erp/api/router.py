@@ -21706,6 +21706,95 @@ def banka_saldo_faktury(req: Request):
         s.close()
 
 
+_ZARAZENI_CTE = (
+    "WITH base AS ("
+    " SELECT r.src_id, r.castka, r.mena, r.nazev_org, r.variabilni_symbol vs, r.konstantni_symbol ks, "
+    "  LEFT(r.datum_splatnosti::text,10) dat, "
+    "  (COALESCE(r.popis_platby,'')||' '||COALESCE(r.popis,'')) txt, "
+    "  NULLIF(ltrim(regexp_replace(COALESCE(r.cislo_uctu,''),'\\D','','g'),'0'),'') ucn "
+    " FROM tenant.ec_bank_vypis_radek r "
+    " WHERE r.datum_splatnosti >= DATE '2026-01-01' "
+    "   AND NOT EXISTS (SELECT 1 FROM tenant.bank_zauctovani z WHERE z.id_radek=r.src_id)), "
+    "own AS ("
+    " SELECT b2.*, bu.id_zam, bu.id_org, o.je_dodavatel, o.je_odberatel, "
+    "  COALESCE(NULLIF(o.firma,''),NULLIF(o.nazev,''),NULLIF(o.zkratka,''),b2.nazev_org) vlastnik "
+    " FROM base b2 "
+    " LEFT JOIN LATERAL (SELECT b.id_zam,b.id_org FROM tenant.ec_bank_ucet b "
+    "    WHERE b2.ucn IS NOT NULL AND b.cislo_uctu_norm=b2.ucn AND NOT COALESCE(b.blokovano,false) "
+    "    ORDER BY b.prednastaveno DESC LIMIT 1) bu ON true "
+    " LEFT JOIN tenant.ec_organizace o ON o.cislo_org=bu.id_org), "
+    "cls AS ("
+    " SELECT *, CASE "
+    "   WHEN id_zam IS NOT NULL AND (txt ILIKE '%%výplata%%' OR ks IN ('0308','0138')) THEN 'Mzda' "
+    "   WHEN id_zam IS NOT NULL THEN 'Záloha/náhrada zaměstnanci' "
+    "   WHEN id_org IS NOT NULL AND je_dodavatel THEN 'Úhrada dodavateli' "
+    "   WHEN id_org IS NOT NULL AND je_odberatel THEN 'Příjem od odběratele' "
+    "   WHEN id_org IS NOT NULL THEN 'Organizace (neurčený směr)' "
+    "   ELSE 'Neurčeno' END kat FROM own), "
+    "clsu AS ("
+    " SELECT *, "
+    "  (CASE kat WHEN 'Mzda' THEN '331000' WHEN 'Úhrada dodavateli' THEN '321001' "
+    "    WHEN 'Příjem od odběratele' THEN '221000' WHEN 'Záloha/náhrada zaměstnanci' THEN '333000' END) ucet_md, "
+    "  (CASE kat WHEN 'Mzda' THEN '221000' WHEN 'Úhrada dodavateli' THEN '221000' "
+    "    WHEN 'Příjem od odběratele' THEN '311001' WHEN 'Záloha/náhrada zaměstnanci' THEN '221000' END) ucet_dal "
+    " FROM cls) ")
+
+
+@api_router.get("/app/banka/zarazeni")
+def banka_zarazeni(req: Request):
+    """Zařazení 2026: nezaúčtované bank řádky klasifikované dle vlastníka účtu →
+    kategorie + návrh předkontace (MD/DAL). Mzdy (zaměstnanec+výplata) → 331/221 atd.
+    Marti 23.6.2026. ?kat= pro výpis jedné kategorie."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    kat = (req.query_params.get("kat") or "").strip()
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        su = s.execute(_t(_ZARAZENI_CTE +
+            "SELECT kat, COUNT(*) n, ROUND(SUM(castka)) suma, MAX(ucet_md) ucet_md, MAX(ucet_dal) ucet_dal "
+            "FROM clsu GROUP BY kat ORDER BY COUNT(*) DESC")).mappings().all()
+        polozky = []
+        if kat:
+            polozky = [dict(r) for r in s.execute(_t(_ZARAZENI_CTE +
+                "SELECT src_id, dat, castka, mena, vlastnik, vs, ks, ucet_md, ucet_dal "
+                "FROM clsu WHERE kat=:k ORDER BY castka DESC LIMIT 300"), {"k": kat}).mappings().all()]
+        return {"ok": True, "souhrn": [dict(r) for r in su], "kat": kat, "polozky": polozky}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/banka/zarazeni/generovat")
+async def banka_zarazeni_generovat(req: Request):
+    """Vytvoří návrhy zaúčtování (bank_zauctovani, stav='navrh') pro zvolenou kategorii
+    zařazení. Petra/rodič je pak schválí. Marti 23.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    kat = (str(b.get("kat") or "")).strip()
+    if kat not in ("Mzda", "Úhrada dodavateli", "Příjem od odběratele", "Záloha/náhrada zaměstnanci"):
+        return JSONResponse({"ok": False, "error": "kategorie bez předkontace"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        n = s.execute(_t(_ZARAZENI_CTE +
+            "INSERT INTO tenant.bank_zauctovani (id_radek,kategorie,castka,mena,ucet_md,ucet_dal,stav,created_at) "
+            "SELECT src_id, kat, castka, mena, ucet_md, ucet_dal, 'navrh', now() FROM clsu "
+            "WHERE kat=:k AND ucet_md IS NOT NULL "
+            "ON CONFLICT (id_radek) DO NOTHING"), {"k": kat})
+        s.commit()
+        return {"ok": True, "vytvoreno": n.rowcount}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/banka/navrh-parovani")
 def banka_navrh_parovani(req: Request):
     """Párovací engine (Marti 23.6.2026): nespárované příchozí platby → identifikace

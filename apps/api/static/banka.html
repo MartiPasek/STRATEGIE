@@ -51,11 +51,37 @@ function api(p){return fetch(p,{credentials:"include"}).then(function(r){
   if(!r.ok){var m=r.status===403?"Bankovní sekci vidí jen účetní (Petra) a vedení.":(r.status===401?"Nejsi přihlášen.":"Chyba HTTP "+r.status);return{ok:false,error:m};}
   return r.json();}).catch(function(){return{ok:false,error:"Spojení se serverem selhalo."};});}
 var V=document.getElementById("view");
-var TABS=[["prehled","📊 Přehled"],["saldo","💰 Saldo"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["parovani","🔗 Návrhy párování"],["mustr","📐 Mustr 2025"],["prirucka","📖 Průvodce"],["nastroje","🔧 Nástroje"]];
+var TABS=[["prehled","📊 Přehled"],["saldo","💰 Saldo"],["zarazeni","🧮 Zařazení 2026"],["ucty","🏛️ Účty"],["vypisy","🧾 Výpisy"],["parovani","🔗 Návrhy párování"],["mustr","📐 Mustr 2025"],["prirucka","📖 Průvodce"],["nastroje","🔧 Nástroje"]];
 var cur="prehled";
 function renderTabs(){document.getElementById("tabs").innerHTML=TABS.map(function(t){return '<button class="tab'+(t[0]===cur?' on':'')+'" data-t="'+t[0]+'">'+t[1]+'</button>';}).join("");
   Array.prototype.forEach.call(document.querySelectorAll(".tab"),function(b){b.onclick=function(){cur=b.getAttribute("data-t");renderTabs();load();};});}
-function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,saldo:tSaldo,ucty:tUcty,vypisy:tVypisy,parovani:tParovani,mustr:tMustr,prirucka:tPrirucka,nastroje:tNastroje}[cur])();}
+function load(){V.innerHTML='<div class="hint">Načítám…</div>'; ({prehled:tPrehled,saldo:tSaldo,zarazeni:tZarazeni,ucty:tUcty,vypisy:tVypisy,parovani:tParovani,mustr:tMustr,prirucka:tPrirucka,nastroje:tNastroje}[cur])();}
+
+var _MAPABLE={"Mzda":1,"Úhrada dodavateli":1,"Příjem od odběratele":1,"Záloha/náhrada zaměstnanci":1};
+function tZarazeni(katDetail){
+  if(katDetail){ return api("/api/v1/erp/app/banka/zarazeni?kat="+encodeURIComponent(katDetail)).then(function(j){
+    if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+    var h='<button class="back" id="bk">← Zařazení</button><div class="sec">'+esc(katDetail)+'</div>';
+    h+='<table><tr><th>Datum</th><th class="r">Částka</th><th>Vlastník</th><th>VS</th><th>KS</th><th>MD</th><th>DAL</th></tr>';
+    (j.polozky||[]).forEach(function(p){h+='<tr><td>'+esc(p.dat||"")+'</td><td class="r">'+kc(p.castka,p.mena)+'</td><td>'+esc(p.vlastnik||"")+'</td><td>'+esc(p.vs||"")+'</td><td>'+esc(p.ks||"")+'</td><td>'+esc(p.ucet_md||"")+'</td><td>'+esc(p.ucet_dal||"")+'</td></tr>';});
+    h+='</table>';V.innerHTML=h;document.getElementById("bk").onclick=function(){tZarazeni();};});
+  }
+  api("/api/v1/erp/app/banka/zarazeni").then(function(j){
+    if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
+    var h='<div class="sub">Letošní nezaúčtované platby zařazené podle <b>vlastníka účtu</b> → návrh předkontace. Mzdy (zaměstnanec + výplata) → 331/221 atd. „Vytvořit návrhy" je pošle do Návrhů zaúčtování ke schválení.</div>';
+    h+='<table><tr><th>Kategorie</th><th class="r">Počet</th><th class="r">Suma</th><th>Předkontace</th><th></th></tr>';
+    (j.souhrn||[]).forEach(function(c){
+      var pk=(c.ucet_md?(c.ucet_md+' / '+c.ucet_dal):'<span class="kmut" style="color:var(--mut)">— určí účetní —</span>');
+      var btn=_MAPABLE[c.kat]?('<button class="tab gen" data-k="'+esc(c.kat)+'">Vytvořit návrhy</button>'):'';
+      h+='<tr class="clik" data-kat="'+esc(c.kat)+'"><td>'+esc(c.kat)+'</td><td class="r">'+fmt(c.n)+'</td><td class="r">'+kc(c.suma)+'</td><td>'+pk+'</td><td>'+btn+'</td></tr>';
+    });
+    h+='</table><div class="sub" style="margin-top:8px">Klik na kategorii → položky. Pozn.: účty u náhrad zaměstnancům doladí účetní (333 je orientační).</div>';
+    V.innerHTML=h;
+    Array.prototype.forEach.call(V.querySelectorAll(".gen"),function(b){b.onclick=function(e){e.stopPropagation();var k=b.getAttribute("data-k");b.textContent="…";
+      fetch("/api/v1/erp/app/banka/zarazeni/generovat",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({kat:k})}).then(function(r){return r.json();}).then(function(x){alert(x.ok?("Vytvořeno návrhů: "+x.vytvoreno+" — najdeš je v Návrhy párování → Zaúčtování."):("Chyba: "+(x.error||"")));tZarazeni();});};});
+    Array.prototype.forEach.call(V.querySelectorAll("tr.clik"),function(tr){tr.onclick=function(){tZarazeni(tr.getAttribute("data-kat"));};});
+  });
+}
 
 var _saldoTyp="pohledavky";
 function tSaldo(){api("/api/v1/erp/app/banka/saldo?typ="+_saldoTyp).then(function(j){

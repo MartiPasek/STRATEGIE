@@ -156,6 +156,16 @@ ALLOWED_TABLES: set[str] = set(TABLE_PERMISSIONS.keys())
 # TABLE_PERMISSIONS — tato pojistka není dotčena.
 ALLOW_ALL_SELECT: bool = os.getenv("MCP_ALLOW_ALL_SELECT", "true").lower() in ("true", "1", "yes")
 
+# ── Plný DML na DB_EC (Marti 23.6.2026) ────────────────────────────
+#
+# MCP_ALLOW_ALL_DML=true → INSERT/UPDATE/DELETE/MERGE na DB_EC napříč
+# VŠEMI schématy (vč. customer dbo) přes strategie_query_raw. Marti je
+# jednatel EUROSOFTu + dohoda s vedením (zrcadlení docházky STRATEGIE→EC
+# a další CRUD nad Centrálou). DDL (CREATE/ALTER/DROP) + TRUNCATE NEjsou
+# touto volbou dotčeny — drží se STRIKTNĚ na DDL_SCHEMA_ALLOWLIST (st.*).
+# Default: False (musí se explicitně zapnout v env / NSSM AppEnvironmentExtra).
+ALLOW_ALL_DML: bool = os.getenv("MCP_ALLOW_ALL_DML", "false").lower() in ("true", "1", "yes")
+
 
 def can(action: str, table: str) -> bool:
     """Returns True iff action is allowed on table.

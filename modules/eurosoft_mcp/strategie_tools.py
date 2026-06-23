@@ -144,6 +144,13 @@ _DML_TARGET_PATTERNS = [
     ),
 ]
 
+# TRUNCATE = destruktivní mass-delete (reset identity) → drží se i při MCP_ALLOW_ALL_DML
+# (Marti 23.6.2026: „plný DML mimo DDL" = INSERT/UPDATE/DELETE/MERGE, NE TRUNCATE).
+_TRUNCATE_PATTERN = re.compile(
+    r"\bTRUNCATE\s+TABLE\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+    re.IGNORECASE,
+)
+
 
 # GO batch separator pattern — T-SQL idiom z SSMS/sqlcmd, ne true T-SQL.
 # pyodbc neumi GO nativne, musime split na batche pred execution.
@@ -217,7 +224,7 @@ def _check_raw_sql_targets(sql: str, db_name: str) -> list[str]:
     Returns:
       list of violation messages (empty list = OK).
     """
-    from .config import DDL_SCHEMA_ALLOWLIST
+    from .config import DDL_SCHEMA_ALLOWLIST, ALLOW_ALL_DML
 
     allowed = DDL_SCHEMA_ALLOWLIST.get(db_name)
     if allowed is None:
@@ -226,10 +233,21 @@ def _check_raw_sql_targets(sql: str, db_name: str) -> list[str]:
     allowed_lower = {s.lower() for s in allowed}
     violations: list[str] = []
 
-    for pattern_set, op_kind in (
-        (_DDL_TARGET_PATTERNS, "DDL"),
-        (_DML_TARGET_PATTERNS, "DML"),
-    ):
+    # Marti 23.6.2026: MCP_ALLOW_ALL_DML=true → plný DML (INSERT/UPDATE/DELETE/MERGE)
+    # na DB_EC napříč schématy (vč. customer dbo) — Marti = jednatel, dohoda s vedením
+    # EUROSOFTu. DDL (CREATE/ALTER/DROP) + TRUNCATE zůstávají STRIKTNĚ na allowlist schémata.
+    if ALLOW_ALL_DML:
+        check_sets = (
+            (_DDL_TARGET_PATTERNS, "DDL"),
+            ([_TRUNCATE_PATTERN], "TRUNCATE"),
+        )
+    else:
+        check_sets = (
+            (_DDL_TARGET_PATTERNS, "DDL"),
+            (_DML_TARGET_PATTERNS, "DML"),
+        )
+
+    for pattern_set, op_kind in check_sets:
         for pattern in pattern_set:
             for match in pattern.finditer(sql):
                 # group(1) = schema prefix (None pokud chybi)

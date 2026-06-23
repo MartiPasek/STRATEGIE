@@ -22631,12 +22631,17 @@ def uctovani_predvaha(req: Request):
                      "dmd": round(dmd), "ddal": round(ddal), "hn": d.get("hn", 0), "ok": ok})
     rows.sort(key=lambda r: -(abs(r["hmd"]) + abs(r["hdal"])))
     h_uctu = sum(1 for r in rows if r["hmd"] or r["hdal"])
+    # Tržby (60x DAL) = skutečný firemní obrat; hrubý průtok deníku (hmd) zahrnuje
+    # i počáteční stavy, převody (261) a sklad — proto je řádově vyšší (Marti 23.6.2026).
+    trzby_h = round(sum(r["hdal"] for r in rows if str(r["ucet"]).startswith("60")))
+    trzby_n = round(sum(r["ndal"] for r in rows if str(r["ucet"]).startswith("60")))
     return {"ok": True, "rok": rok, "ucty": rows,
             "souhrn": {"uctu_helios": h_uctu, "uctu_sedi": sedi,
                        "hmd": round(sum(r["hmd"] for r in rows)),
                        "hdal": round(sum(r["hdal"] for r in rows)),
                        "nmd": round(sum(r["nmd"] for r in rows)),
-                       "ndal": round(sum(r["ndal"] for r in rows))}}
+                       "ndal": round(sum(r["ndal"] for r in rows)),
+                       "trzby_h": trzby_h, "trzby_n": trzby_n}}
 
 
 @api_router.get("/app/uctovani/prehled")

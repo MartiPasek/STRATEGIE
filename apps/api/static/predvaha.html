@@ -55,8 +55,8 @@ function load(){
     var h='<div class="stats">';
     h+='<div class="stat"><div class="n">'+s.uctu_helios+'</div><div class="l">účtů v Heliosu '+rok+'</div></div>';
     h+='<div class="stat '+(pct>=90?"ok":"warn")+'"><div class="n">'+s.uctu_sedi+' ('+pct+'%)</div><div class="l">účtů sedí s Heliosem</div></div>';
-    h+='<div class="stat"><div class="n">'+kc(s.hmd)+'</div><div class="l">Helios obrat MD (Kč)</div></div>';
-    h+='<div class="stat"><div class="n">'+kc(s.nmd)+'</div><div class="l">náš obrat MD (Kč)</div></div>';
+    h+='<div class="stat ok"><div class="n">'+kc(s.trzby_h)+'</div><div class="l">Tržby (60x) — firemní obrat</div></div>';
+    h+='<div class="stat"><div class="n">'+kc(s.hmd)+'</div><div class="l">hrubý průtok deníku (vč. poč. stavů a převodů)</div></div>';
     h+='</div>';
     h+='<table><tr><th class="l">Účet</th><th>Helios MD</th><th>Helios DAL</th><th>náš MD</th><th>náš DAL</th><th>Δ MD</th><th>Δ DAL</th></tr>';
     var rows=j.ucty.filter(function(r){return (r.hmd||r.hdal||r.nmd||r.ndal);});

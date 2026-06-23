@@ -22573,6 +22573,67 @@ def parovani_denik(req: Request):
         s.close()
 
 
+@api_router.get("/app/uctovani/predvaha")
+def uctovani_predvaha(req: Request):
+    """Obratová předvaha — porovnání obratů účtů NÁŠ deník (tenant.ucetni_denik) vs
+    Helios (tenant.ec_denik) za rok. Cíl (Marti 23.6.2026): ladit předkontace a doklady,
+    dokud se náš obraz stavů účtů nerovná Heliosu (EC). Měřicí nástroj rekonstrukce 2025/2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not _banka_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        rok = int(req.query_params.get("rok") or 2025)
+    except Exception:
+        rok = 2025
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        hel = s.execute(_t(
+            "SELECT ucet, SUM(CASE WHEN strana=0 THEN castka ELSE 0 END) md, "
+            "SUM(CASE WHEN strana=1 THEN castka ELSE 0 END) dal, COUNT(*) n "
+            "FROM tenant.ec_denik WHERE rok=:r AND NOT storno AND ucet IS NOT NULL GROUP BY ucet"),
+            {"r": rok}).all()
+        nmd = s.execute(_t(
+            "SELECT ucet_md u, SUM(castka) v FROM tenant.ucetni_denik "
+            "WHERE NOT storno AND EXTRACT(year FROM datum)=:r AND ucet_md IS NOT NULL GROUP BY ucet_md"),
+            {"r": rok}).all()
+        ndal = s.execute(_t(
+            "SELECT ucet_dal u, SUM(castka) v FROM tenant.ucetni_denik "
+            "WHERE NOT storno AND EXTRACT(year FROM datum)=:r AND ucet_dal IS NOT NULL GROUP BY ucet_dal"),
+            {"r": rok}).all()
+    finally:
+        s.close()
+    acc = {}
+    for u, md, dal, n in hel:
+        acc.setdefault(str(u), {})
+        acc[str(u)].update(hmd=float(md or 0), hdal=float(dal or 0), hn=int(n or 0))
+    for u, v in nmd:
+        acc.setdefault(str(u), {})["nmd"] = float(v or 0)
+    for u, v in ndal:
+        acc.setdefault(str(u), {})["ndal"] = float(v or 0)
+    rows = []
+    sedi = 0
+    for u, d in acc.items():
+        hmd = d.get("hmd", 0.0); hdal = d.get("hdal", 0.0)
+        nmdv = d.get("nmd", 0.0); ndalv = d.get("ndal", 0.0)
+        dmd = nmdv - hmd; ddal = ndalv - hdal
+        ok = abs(dmd) < 1 and abs(ddal) < 1
+        if ok and (hmd or hdal):
+            sedi += 1
+        rows.append({"ucet": u, "hmd": round(hmd), "hdal": round(hdal),
+                     "nmd": round(nmdv), "ndal": round(ndalv),
+                     "dmd": round(dmd), "ddal": round(ddal), "hn": d.get("hn", 0), "ok": ok})
+    rows.sort(key=lambda r: -(abs(r["hmd"]) + abs(r["hdal"])))
+    h_uctu = sum(1 for r in rows if r["hmd"] or r["hdal"])
+    return {"ok": True, "rok": rok, "ucty": rows,
+            "souhrn": {"uctu_helios": h_uctu, "uctu_sedi": sedi,
+                       "hmd": round(sum(r["hmd"] for r in rows)),
+                       "hdal": round(sum(r["hdal"] for r in rows)),
+                       "nmd": round(sum(r["nmd"] for r in rows)),
+                       "ndal": round(sum(r["ndal"] for r in rows))}}
+
+
 @api_router.get("/app/uctovani/prehled")
 def uctovani_prehled(req: Request):
     """Účetní modul STRATEGIE — replikovaný model: sborníky (knihy deníku) + náš deník.

@@ -1083,6 +1083,14 @@ def banka_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/predvaha")
+def predvaha_page():
+    """📊 Obratová předvaha — porovnání obratů účtů náš deník vs Helios (EC) za rok.
+    Měřicí nástroj rekonstrukce účetnictví 2025/2026 (Marti 23.6.2026)."""
+    return FileResponse(os.path.join(static_dir, "predvaha.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/nakup")
 def nakup_page():
     """🛒 Nákup — Petřin (a rodičů) volný workspace (Marti 23.6.2026): vlastní přehledy,

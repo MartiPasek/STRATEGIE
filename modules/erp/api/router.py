@@ -11821,8 +11821,8 @@ def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
             cm.__exit__(None, None, None)
         except Exception:
             pass
-    # rodič / ambasador / vedoucí výroby (Dušan 41, Marek 85)
-    if not isp and not _is_ambassador(uid) and int(uid) not in (41, 85):
+    # rodič / ambasador / vedoucí výroby (Dušan 41, Marek 85, Michaela 16)
+    if not isp and not _is_ambassador(uid) and int(uid) not in (16, 41, 85):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     mcp = get_eurosoft_mcp_client()
@@ -12125,7 +12125,7 @@ def app_flow(req: Request, section: str = "", cz: str = "") -> JSONResponse:
 
 
 def _flow_people_gate(req: Request):
-    """Parent NEBO vedoucí výroby (41/85). Vrací uid nebo None."""
+    """Parent NEBO vedoucí výroby (41/85) NEBO Michaela (16). Vrací uid nebo None."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return None
@@ -12139,7 +12139,7 @@ def _flow_people_gate(req: Request):
             cm.__exit__(None, None, None)
         except Exception:
             pass
-    if isp or int(uid) in (41, 85) or _is_ambassador(uid):
+    if isp or int(uid) in (16, 41, 85) or _is_ambassador(uid):
         return int(uid)
     return None
 
@@ -14695,7 +14695,8 @@ async def app_zakazky(req: Request) -> JSONResponse:
 
 # ═══ Plánování výroby — ruční přiřazení (Marti 8.6.) ═══════════════════════
 # Vedoucí výroby Dušan Havlát (41) + zástupce Marek Honal (85) + rodiče.
-_VYROBA_MANAGERS = {41, 85}
+# Michaela Hladíková (16) = zodpovědná za výrobu, plná práva (Marti 23.6.2026).
+_VYROBA_MANAGERS = {16, 41, 85}
 
 
 def _vyroba_can_manage(uid) -> bool:

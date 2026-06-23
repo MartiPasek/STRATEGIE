@@ -1426,7 +1426,7 @@ setTimeout(function(){
     g.appendChild(appCell("🤝","Spolupráce",0,function(){go("dochazka");}));
     // Marti 9.6.: vše ze složky Firma = aplikace. Výroba + její seznamy jako ikony,
     // řízení (Vedení) jako složka. Deep-link otevře Výrobu rovnou na daném seznamu.
-    g.appendChild(appCell("🏭","Výroba",0,function(){openVyroba("makam");}));
+    g.appendChild(appCell("🏭","Výroba",0,function(){go("vyroba_hub");}));
     g.appendChild(appCell("🧰","Moje činnosti",0,function(){go("moje_cinnosti");}));
     g.appendChild(appCell("⚡","Výuka",0,function(){go("uceni");}));
     g.appendChild(appCell("🛒","Nákup",0,function(){openVyroba("nakup");}));
@@ -4090,6 +4090,33 @@ setTimeout(function(){
     var P=window._persDnesek||{};
     _dochViewUid=P.uid; _dochViewName=P.jmeno||"";
     _dnesScreen("📅 Dnešek — "+(P.jmeno||""));
+  }
+  // 🏭 Výroba hub pro Michaelu Hladíkovou (Marti 23.6.2026) — vzor sekce Vedení:
+  // nadpisy bloků + ikonky. Její pracovní plocha pro výrobu. Plná práva (uid 16 v _VYROBA_MANAGERS).
+  function vyroba_hub(){
+    app.innerHTML=topbar("🏭 Výroba — pracovní plocha", true);
+    app.appendChild(el('<div class="hint" style="margin:6px 6px 2px;line-height:1.6;">Tvoje pracovní plocha, Míšo — celá výroba na jednom místě. Bloky: plánování a vytížení, operativa výroby, lidé a docházka. S Claudem‑27 si ji můžeš upravovat.</div>'));
+    function s(t){ app.appendChild(el('<div style="margin:14px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
+    s("PLÁNOVÁNÍ & VYTÍŽENÍ");
+    var g1=el('<div class="appgrid"></div>');
+    g1.appendChild(appCell("📊","FLOW — časová osa",0,function(){openInApp("/flow");}));
+    g1.appendChild(appCell("📈","Vytížení",0,function(){openInApp("/vytizeni");}));
+    app.appendChild(g1);
+    s("OPERATIVA VÝROBY");
+    var g2=el('<div class="appgrid"></div>');
+    g2.appendChild(appCell("👷","Výroba — konzole",0,function(){openVyroba("makam");}));
+    g2.appendChild(appCell("🧾","Zakázky",0,function(){openVyroba("zakazky");}));
+    g2.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
+    g2.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
+    g2.appendChild(appCell("🔧","Příprava",0,function(){openVyroba("priprava");}));
+    g2.appendChild(appCell("🚚","Odvozy",0,function(){openVyroba("odvozy");}));
+    g2.appendChild(appCell("🛒","Nákup materiálu",0,function(){openVyroba("nakup");}));
+    app.appendChild(g2);
+    s("LIDÉ & DOCHÁZKA");
+    var g3=el('<div class="appgrid"></div>');
+    g3.appendChild(appCell("👀","Kdo kde dnes",0,function(){go("kdekdo");}));
+    g3.appendChild(appCell("🏖️","Plán absencí",0,function(){openInApp("/absence-plan");}));
+    app.appendChild(g3);
   }
   function vyroba(){
     if(window._vyInitView){ _vyView=window._vyInitView; window._vyInitView=null; }
@@ -7764,7 +7791,7 @@ setTimeout(function(){
     else { render(z); }
   }
 
-  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr_hub:hr_hub,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek};
+  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vyroba_hub:vyroba_hub,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr_hub:hr_hub,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek};
 
   function uceni(){
     app.innerHTML=topbar("⚡ Výuka",true);

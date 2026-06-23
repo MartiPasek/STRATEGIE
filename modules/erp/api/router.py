@@ -19094,8 +19094,9 @@ def _mirror_run_job(job_key):
         "sync_ec_org_kontakt": lambda: _sync_ec_org_kontakt(),
         "sync_ec_banka": lambda: _sync_ec_banka(),
         "sync_ec_banka_delta": lambda: _sync_ec_banka(delta_days=90),
-        "sync_ec_saldo": lambda: _sync_ec_saldo(),
-        "sync_es_saldo": lambda: _sync_ec_saldo(src_tbl='[DB_IS].dbo.TabSaldoFA', tgt_tbl='tenant.es_saldo_fa'),
+        "sync_ec_saldo": lambda: _sync_ec_saldo(vs_bank_tbl='TabBankVypisR', vnitro_org=1),
+        "sync_es_saldo": lambda: _sync_ec_saldo(src_tbl='[DB_IS].dbo.TabSaldoFA', tgt_tbl='tenant.es_saldo_fa',
+                                                vs_bank_tbl='[DB_IS].dbo.TabBankVypisR', vnitro_org=1),
         "sync_ec_denik": lambda: _sync_ec_denik(rok=2025),
         "sync_ec_denik_2026": lambda: _sync_ec_denik(rok=2026),
         "sync_es_denik": lambda: _sync_es_denik(rok=2025),
@@ -22034,24 +22035,30 @@ def banka_saldo_aging(req: Request):
             "COUNT(*) n, ROUND(ABS(SUM(saldo))) suma "
             "FROM " + tbl + " WHERE cislo_sal_sk=:k AND COALESCE(saldo,0)<>0 "
             "GROUP BY 1 ORDER BY 1"), {"k": ssk}).mappings().all()
-        # vnitropodnik (org = vlastní firma / skupina) — orientačně dle názvu
-        ip = s.execute(_t(
-            "SELECT COUNT(*) n, ROUND(ABS(SUM(s.saldo))) suma "
-            "FROM " + tbl + " s LEFT JOIN tenant.ec_organizace o ON o.cislo_org=s.cislo_org "
-            "WHERE s.cislo_sal_sk=:k AND COALESCE(s.saldo,0)<>0 "
-            "AND (o.firma ILIKE '%EUROSOFT%' OR o.firma ILIKE '%INTERSOFT%' OR o.nazev ILIKE '%EUROSOFT%')"),
-            {"k": ssk}).first()
         buckets = [{"bucket": r["bucket"][2:], "n": int(r["n"] or 0), "suma": float(r["suma"] or 0)} for r in rows]
-        # headline = ČISTÉ NETTO (ne součet magnitud bucketů — ty se kvůli offsetting EUR rozcházejí)
-        tot = s.execute(_t(
+        # PÁROVACÍ headline (Marti 23.6.2026): hrubé Helios / reálné externí otevřené (bez platby
+        # a bez vnitroskupiny) / zaplaceno-nespárováno (má platbu VS, jen Helios nenavázal) / vnitroskupina (org 1).
+        # Saldo je v CZK, počítá se magnituda netto.
+        par = s.execute(_t(
             "SELECT ROUND(ABS(SUM(saldo))) celkem, "
+            "ROUND(ABS(SUM(saldo) FILTER (WHERE NOT COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false)))) realne_externi, "
+            "COUNT(*) FILTER (WHERE NOT COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false)) n_externi, "
+            "ROUND(ABS(SUM(saldo) FILTER (WHERE COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false)))) zaplaceno_nesp, "
+            "COUNT(*) FILTER (WHERE COALESCE(ma_platba_vs,false) AND NOT COALESCE(vnitroskupina,false)) n_zaplaceno, "
+            "ROUND(ABS(SUM(saldo) FILTER (WHERE COALESCE(vnitroskupina,false)))) vnitro_suma, "
+            "COUNT(*) FILTER (WHERE COALESCE(vnitroskupina,false)) n_vnitro, "
             "ROUND(ABS(SUM(saldo) FILTER (WHERE datum_splatno IS NOT NULL AND (CURRENT_DATE - datum_splatno::date) > 365))) stare, "
             "ROUND(ABS(SUM(saldo) FILTER (WHERE datum_splatno IS NULL OR (CURRENT_DATE - datum_splatno::date) <= 365))) aktualni "
-            "FROM " + tbl + " WHERE cislo_sal_sk=:k AND COALESCE(saldo,0)<>0"), {"k": ssk}).first()
-        celkem = float(tot[0] or 0); stare = float(tot[1] or 0); aktualni = float(tot[2] or 0)
+            "FROM " + tbl + " WHERE cislo_sal_sk=:k AND COALESCE(saldo,0)<>0"), {"k": ssk}).mappings().first()
+        p = par or {}
+        celkem = float(p.get("celkem") or 0)
         return {"ok": True, "typ": typ, "firma": firma, "buckety": buckets,
-                "celkem": celkem, "aktualni": aktualni, "stare": stare,
-                "vnitropodnik": {"n": int(ip[0] or 0), "suma": float(ip[1] or 0)}}
+                "celkem": celkem,
+                "realne_externi": float(p.get("realne_externi") or 0), "n_externi": int(p.get("n_externi") or 0),
+                "zaplaceno_nesparovano": float(p.get("zaplaceno_nesp") or 0), "n_zaplaceno": int(p.get("n_zaplaceno") or 0),
+                "vnitroskupina": {"n": int(p.get("n_vnitro") or 0), "suma": float(p.get("vnitro_suma") or 0)},
+                "aktualni": float(p.get("aktualni") or 0), "stare": float(p.get("stare") or 0),
+                "vnitropodnik": {"n": int(p.get("n_vnitro") or 0), "suma": float(p.get("vnitro_suma") or 0)}}
     finally:
         s.close()
 
@@ -22076,9 +22083,10 @@ def banka_saldo_faktury(req: Request):
     try:
         rows = s.execute(_t(
             "SELECT parovaci_znak, ROUND(ABS(saldo)) saldo, mena, LEFT(datum_splatno::text,10) splatno, "
-            "COALESCE(dnu_prodleni,0) prodleni, cislo_zakazky "
+            "COALESCE(dnu_prodleni,0) prodleni, cislo_zakazky, "
+            "COALESCE(ma_platba_vs,false) ma_platba_vs, COALESCE(vnitroskupina,false) vnitroskupina "
             "FROM " + tbl + " WHERE cislo_org=:o AND cislo_sal_sk=:k AND COALESCE(saldo,0)<>0 "
-            "ORDER BY dnu_prodleni DESC NULLS LAST LIMIT 200"), {"o": org, "k": ssk}).mappings().all()
+            "ORDER BY ma_platba_vs ASC, dnu_prodleni DESC NULLS LAST LIMIT 200"), {"o": org, "k": ssk}).mappings().all()
         return {"ok": True, "faktury": [dict(r) for r in rows]}
     finally:
         s.close()
@@ -27821,7 +27829,8 @@ def _sync_edi_definice(_unused=None) -> dict:
         cm.__exit__(None, None, None)
 
 
-def _sync_ec_saldo(_unused=None, src_tbl="TabSaldoFA", tgt_tbl="tenant.ec_saldo_fa") -> dict:
+def _sync_ec_saldo(_unused=None, src_tbl="TabSaldoFA", tgt_tbl="tenant.ec_saldo_fa",
+                   vs_bank_tbl=None, vnitro_org=None) -> dict:
     """Marti 20.6.2026: zrcadlo OTEVŘENÝCH faktur (saldokonto TabSaldoFA WHERE Saldo<>0,
     ~20.5k položek). ParovaciZnak = VS, Saldo = otevřený zůstatek, CisloOrg = partner,
     Castka_MD/Dal = pohledávka/závazek. Proti tomuto se párují nespárované bank řádky
@@ -27871,6 +27880,21 @@ def _sync_ec_saldo(_unused=None, src_tbl="TabSaldoFA", tgt_tbl="tenant.ec_saldo_
             return None
 
     BLOCK = 2000
+    # Marti 23.6.2026: párovací příznaky. ma_platba_vs = existuje bankovní řádek se shodným VS
+    # (=> reálně zaplaceno, Helios jen nenavázal). vnitroskupina = protistrana org 1 (sesterská
+    # firma EC<->ES, přefakturace, vyrovnává se). Reálné externí saldo = NOT ma_platba_vs AND NOT vnitroskupina.
+    if vs_bank_tbl:
+        extra_cols = (", CASE WHEN bvs.vs IS NOT NULL THEN 1 ELSE 0 END ma_platba_vs")
+        join = (" LEFT JOIN (SELECT DISTINCT LTRIM(RTRIM(VariabilniSymbol)) vs FROM " + vs_bank_tbl +
+                " WHERE VariabilniSymbol IS NOT NULL AND LTRIM(RTRIM(VariabilniSymbol))<>'') bvs"
+                " ON bvs.vs = LTRIM(RTRIM(s.ParovaciZnak))")
+    else:
+        extra_cols = ", 0 ma_platba_vs"
+        join = ""
+    if vnitro_org is not None:
+        extra_cols += (", CASE WHEN s.CisloOrg=" + str(int(vnitro_org)) + " THEN 1 ELSE 0 END vnitroskupina")
+    else:
+        extra_cols += ", 0 vnitroskupina"
     cm = _pg.get_session()
     s = cm.__enter__()
     try:
@@ -27878,31 +27902,35 @@ def _sync_ec_saldo(_unused=None, src_tbl="TabSaldoFA", tgt_tbl="tenant.ec_saldo_
         lastid = 0
         nz = 0
         while True:
-            sql = ("SELECT TOP %d IdFASaldo, ParovaciZnak, CisloOrg, CisloSalSk, DnuProdleniZapl, "
-                   "COALESCE(NULLIF(MenaZobraz,''),NULLIF(Mena,''),'CZK') menaz, Saldo, Castka_Splatno, "
-                   "Castka_Uhrazeno, Castka_MD, Castka_Dal, CONVERT(varchar(19),DatumSplatno,120) ds, "
-                   "CONVERT(varchar(19),DatumUhrazeno,120) du, RTRIM(CisloZakazky) CisloZakazky, ICO, DIC "
-                   "FROM " + src_tbl + " WHERE Saldo <> 0 AND IdFASaldo > %d ORDER BY IdFASaldo") % (BLOCK, lastid)
+            sql = ("SELECT TOP %d s.IdFASaldo, s.ParovaciZnak, s.CisloOrg, s.CisloSalSk, s.DnuProdleniZapl, "
+                   "COALESCE(NULLIF(s.MenaZobraz,''),NULLIF(s.Mena,''),'CZK') menaz, s.Saldo, s.Castka_Splatno, "
+                   "s.Castka_Uhrazeno, s.Castka_MD, s.Castka_Dal, CONVERT(varchar(19),s.DatumSplatno,120) ds, "
+                   "CONVERT(varchar(19),s.DatumUhrazeno,120) du, RTRIM(s.CisloZakazky) CisloZakazky, s.ICO, s.DIC"
+                   + extra_cols +
+                   " FROM " + src_tbl + " s" + join +
+                   " WHERE s.Saldo <> 0 AND s.IdFASaldo > %d ORDER BY s.IdFASaldo") % (BLOCK, lastid)
             batch = rows_of(sql)
             if not batch:
                 break
             for row in batch:
                 s.execute(_t(
                     "INSERT INTO " + tgt_tbl + " (src_id,parovaci_znak,cislo_org,cislo_sal_sk,dnu_prodleni,mena,saldo,castka_splatno,"
-                    "castka_uhrazeno,castka_md,castka_dal,datum_splatno,datum_uhrazeno,cislo_zakazky,ico,dic,synced_at) "
-                    "VALUES (:sid,:pz,:co,:ssk,:dnu,:me,:sa,:cs,:cu,:cmd,:cdal,:ds,:du,:cz,:ico,:dic,now()) "
+                    "castka_uhrazeno,castka_md,castka_dal,datum_splatno,datum_uhrazeno,cislo_zakazky,ico,dic,ma_platba_vs,vnitroskupina,synced_at) "
+                    "VALUES (:sid,:pz,:co,:ssk,:dnu,:me,:sa,:cs,:cu,:cmd,:cdal,:ds,:du,:cz,:ico,:dic,:mp,:vn,now()) "
                     "ON CONFLICT (src_id) DO UPDATE SET parovaci_znak=excluded.parovaci_znak,cislo_org=excluded.cislo_org,"
                     "cislo_sal_sk=excluded.cislo_sal_sk,dnu_prodleni=excluded.dnu_prodleni,"
                     "mena=excluded.mena,saldo=excluded.saldo,castka_splatno=excluded.castka_splatno,"
                     "castka_uhrazeno=excluded.castka_uhrazeno,castka_md=excluded.castka_md,castka_dal=excluded.castka_dal,"
                     "datum_splatno=excluded.datum_splatno,datum_uhrazeno=excluded.datum_uhrazeno,"
-                    "cislo_zakazky=excluded.cislo_zakazky,ico=excluded.ico,dic=excluded.dic,synced_at=now()"),
+                    "cislo_zakazky=excluded.cislo_zakazky,ico=excluded.ico,dic=excluded.dic,"
+                    "ma_platba_vs=excluded.ma_platba_vs,vnitroskupina=excluded.vnitroskupina,synced_at=now()"),
                     {"sid": i2(row.get("IdFASaldo")), "pz": s2(row.get("ParovaciZnak")), "co": i2(row.get("CisloOrg")),
                      "ssk": s2(row.get("CisloSalSk")), "dnu": i2(row.get("DnuProdleniZapl")),
                      "me": s2(row.get("menaz")), "sa": num(row.get("Saldo")), "cs": num(row.get("Castka_Splatno")),
                      "cu": num(row.get("Castka_Uhrazeno")), "cmd": num(row.get("Castka_MD")),
                      "cdal": num(row.get("Castka_Dal")), "ds": s2(row.get("ds")), "du": s2(row.get("du")),
-                     "cz": s2(row.get("CisloZakazky")), "ico": s2(row.get("ICO")), "dic": s2(row.get("DIC"))})
+                     "cz": s2(row.get("CisloZakazky")), "ico": s2(row.get("ICO")), "dic": s2(row.get("DIC")),
+                     "mp": bool(i2(row.get("ma_platba_vs"))), "vn": bool(i2(row.get("vnitroskupina")))})
                 lastid = i2(row.get("IdFASaldo")) or lastid
             nz += len(batch)
             s.commit()

@@ -103,12 +103,16 @@ function tSaldo(){api("/api/v1/erp/app/banka/saldo?typ="+_saldoTyp+"&firma="+_sa
   V.innerHTML=h;
   api("/api/v1/erp/app/banka/saldo/aging?typ="+_saldoTyp+"&firma="+_saldoFirma).then(function(a){
     var box=document.getElementById("agingBox"); if(!box||!a.ok)return;
+    var vn=(a.vnitroskupina||{});
     var ah='<div style="background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:12px;margin-bottom:6px">';
-    ah+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px"><div><span style="font-size:18px;font-weight:800;color:var(--ok)">'+kc(a.aktualni)+'</span> <span class="sub" style="margin:0">reálné aktuální (≤365 dní)</span></div>';
-    ah+='<div><span style="font-size:18px;font-weight:800;color:var(--bad)">'+kc(a.stare)+'</span> <span class="sub" style="margin:0">starý balast (365+ dní — podezřelé na zaplaceno‑nespárováno)</span></div></div>';
-    ah+='<table style="margin:0"><tr><th class="l">Stáří</th><th class="r">Položek</th><th class="r">Částka</th></tr>';
+    ah+='<div class="sub" style="margin:0 0 6px">Hrubé saldo Helios: <b>'+kc(a.celkem)+'</b> — rozpad po spárování (VS ↔ banka):</div>';
+    ah+='<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">';
+    ah+='<div><span style="font-size:20px;font-weight:800;color:var(--ok)">'+kc(a.realne_externi)+'</span> <span class="sub" style="margin:0">reálné otevřené externě ('+fmt(a.n_externi)+')</span></div>';
+    ah+='<div><span style="font-size:18px;font-weight:800;color:var(--mut)">'+kc(a.zaplaceno_nesparovano)+'</span> <span class="sub" style="margin:0">zaplaceno‑nespárováno ('+fmt(a.n_zaplaceno)+' — platba v bance, Helios nenavázal)</span></div>';
+    if(vn.suma>0)ah+='<div><span style="font-size:18px;font-weight:800;color:var(--warn)">'+kc(vn.suma)+'</span> <span class="sub" style="margin:0">vnitroskupina Control/System ('+fmt(vn.n)+' — přefakturace, vyrovnává se)</span></div>';
+    ah+='</div>';
+    ah+='<table style="margin:0"><tr><th class="l">Stáří (dle splatnosti)</th><th class="r">Položek</th><th class="r">Částka</th></tr>';
     (a.buckety||[]).forEach(function(b){var old=b.bucket.indexOf("365+")===0;ah+='<tr'+(old?' style="color:var(--bad)"':'')+'><td class="l">'+esc(b.bucket)+'</td><td class="r">'+fmt(b.n)+'</td><td class="r">'+kc(b.suma)+'</td></tr>';});
-    if(a.vnitropodnik&&a.vnitropodnik.suma>0)ah+='<tr style="color:var(--warn)"><td class="l">z toho vnitropodnik (EUROSOFT/INTERSOFT skupina)</td><td class="r">'+fmt(a.vnitropodnik.n)+'</td><td class="r">'+kc(a.vnitropodnik.suma)+'</td></tr>';
     ah+='</table></div>';
     box.innerHTML=ah;
   });
@@ -118,8 +122,10 @@ function tSaldo(){api("/api/v1/erp/app/banka/saldo?typ="+_saldoTyp+"&firma="+_sa
 function tSaldoFa(org,nazev){api("/api/v1/erp/app/banka/saldo/faktury?typ="+_saldoTyp+"&firma="+_saldoFirma+"&org="+org).then(function(j){
   if(!j.ok){V.innerHTML='<div class="err">'+esc(j.error)+'</div>';return;}
   var h='<button class="back" id="bk">← Saldo</button><div class="sec">'+(_saldoTyp==="pohledavky"?"Pohledávky":"Závazky")+' — '+esc(nazev||"")+'</div>';
-  h+='<table><tr><th>VS / pár. znak</th><th class="r">Částka</th><th>Měna</th><th>Splatnost</th><th class="r">Dnů po spl.</th><th>Zakázka</th></tr>';
-  (j.faktury||[]).forEach(function(f){var pd=f.prodleni>0;h+='<tr><td>'+esc(f.parovaci_znak||"")+'</td><td class="r">'+kc(f.saldo,f.mena)+'</td><td>'+esc(f.mena||"")+'</td><td>'+esc(f.splatno||"")+'</td><td class="r"'+(pd?' style="color:var(--bad)"':'')+'>'+(pd?f.prodleni:"—")+'</td><td>'+esc(f.cislo_zakazky||"")+'</td></tr>';});
+  h+='<table><tr><th>VS / pár. znak</th><th class="r">Částka</th><th>Měna</th><th>Stav</th><th>Splatnost</th><th class="r">Dnů po spl.</th><th>Zakázka</th></tr>';
+  (j.faktury||[]).forEach(function(f){var pd=f.prodleni>0;
+    var stav=f.vnitroskupina?'<span style="color:var(--warn)">vnitroskupina</span>':(f.ma_platba_vs?'<span style="color:var(--ok)">✓ zaplaceno (VS)</span>':'<span style="color:var(--bad)">otevřené</span>');
+    h+='<tr><td>'+esc(f.parovaci_znak||"")+'</td><td class="r">'+kc(f.saldo,f.mena)+'</td><td>'+esc(f.mena||"")+'</td><td>'+stav+'</td><td>'+esc(f.splatno||"")+'</td><td class="r"'+(pd?' style="color:var(--bad)"':'')+'>'+(pd?f.prodleni:"—")+'</td><td>'+esc(f.cislo_zakazky||"")+'</td></tr>';});
   h+='</table>';
   V.innerHTML=h;
   document.getElementById("bk").onclick=function(){tSaldo();};});}

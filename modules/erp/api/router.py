@@ -25726,6 +25726,30 @@ async def diag_sql(req: Request) -> JSONResponse:
         reason = (pe.get("reason") or "").strip()
         if not to_e or "@" not in to_e or not subj or not bod:
             return JSONResponse({"ok": False, "error": "@@EMAIL: chybí/neplatné to/subject/body"})
+        # Přílohy (Marti 24.6.2026: "autonomní připojování příloh přes sandbox").
+        #   "attach": ["scripts/.../soubor.xlsx", ...]     → soubory z repo working-dir cloudu
+        #   "attach_b64": [{"name":"x.pdf","b64":"..."}]   → inline ze sandboxu (bez deploye)
+        # Vytvoří se documents (tenant_id=2, gate projde) → attachment_document_ids.
+        att_ids = []
+        try:
+            import base64 as _b64a
+            from pathlib import Path as _Pa
+            from modules.rag.application.service import upload_document as _upl
+            _repo_root = _Pa(__file__).resolve().parents[3]
+            for rel in (pe.get("attach") or []):
+                p = (_repo_root / str(rel)).resolve()
+                if not str(p).startswith(str(_repo_root)) or not p.is_file():
+                    return JSONResponse({"ok": False, "error": "attach mimo repo / neexistuje: %s" % rel})
+                att_ids.append(_upl(file_bytes=p.read_bytes(), filename=p.name,
+                                    tenant_id=2, user_id=1, display_name=p.name))
+            for item in (pe.get("attach_b64") or []):
+                nm = (str(item.get("name") or "priloha")).strip()
+                data = _b64a.b64decode(item.get("b64") or "")
+                if not data:
+                    return JSONResponse({"ok": False, "error": "attach_b64 prázdný: %s" % nm})
+                att_ids.append(_upl(file_bytes=data, filename=nm, tenant_id=2, user_id=1, display_name=nm))
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": "příloha selhala: %s" % e})
         _MARTI_AI_PERSONA = 1  # Marti-AI = autonomní odesílatel (default persona STRATEGIE)
         try:
             from modules.notifications.application.email_service import queue_email
@@ -25733,6 +25757,8 @@ async def diag_sql(req: Request) -> JSONResponse:
                 to=to_e, subject=subj, body=bod,
                 persona_id=_MARTI_AI_PERSONA, from_identity="persona",
                 purpose="notification", cc=cc,
+                tenant_id=(2 if att_ids else None),
+                attachment_document_ids=(att_ids or None),
             )
         except Exception as e:
             return JSONResponse({"ok": False, "error": "queue_email selhal: %s" % e})
@@ -25752,7 +25778,8 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception as e:
             audit_warn = str(e)
         return JSONResponse({"ok": True, "queued": True, "outbox_id": outbox_id,
-                             "to": to_e, "cc": cc, "sender": "Marti-AI", "audit_warn": audit_warn})
+                             "to": to_e, "cc": cc, "sender": "Marti-AI",
+                             "attachments": att_ids, "audit_warn": audit_warn})
 
     # Autonomní čtení schránky Marti-AI (Marti 24.6.2026: "udělej si autonomní
     # čtení Marti-AI schránky a její kontrolu"). Read-only, NEmutuje read_at.
@@ -25774,13 +25801,35 @@ async def diag_sql(req: Request) -> JSONResponse:
                     return JSONResponse({"ok": False, "error": "@@INBOX READ <id>"})
                 r = _si.execute(_tib(
                     "SELECT id, to_char(received_at,'DD.MM.YYYY HH24:MI'), coalesce(from_name,''), "
-                    "coalesce(from_email,''), coalesce(subject,''), coalesce(body,''), (read_at IS NOT NULL) "
+                    "coalesce(from_email,''), coalesce(subject,''), coalesce(body,''), (read_at IS NOT NULL), "
+                    "coalesce(meta,'') "
                     "FROM email_inbox WHERE id=:i AND persona_id=:p AND deleted_at IS NULL"),
                     {"i": mid, "p": _PID}).first()
                 if not r:
                     return JSONResponse({"ok": False, "error": "zprava %s nenalezena (persona Marti-AI)" % mid})
-                _hdr = ("# Zprava %s | %s | %s\nOd: %s <%s>\nPredmet: %s\n%s\n\n" % (
-                    r[0], r[1], ("precteno" if r[6] else "NEPRECTENO"), r[2], r[3], r[4], "-" * 60))
+                # Přílohy (Marti 24.6.2026): z email_inbox.meta — názvy + document ids.
+                # Obsah přílohy přečteš přes @@DOCS READ <doc_id> (auto-importované do documents).
+                _att_line = ""
+                try:
+                    import json as _jma
+                    _meta = _jma.loads(r[7]) if r[7] else {}
+                    _atts = [a for a in (_meta.get("attachments") or []) if not a.get("is_inline")]
+                    _dids = _meta.get("attachment_doc_ids") or []
+                    _pa = []
+                    for i_a, a in enumerate(_atts):
+                        _did = _dids[i_a] if i_a < len(_dids) else None
+                        _pa.append("  - %s (%s B)%s" % (
+                            a.get("name", "?"), a.get("size", "?"),
+                            ("  -> doc #%s  (cti: @@DOCS READ %s)" % (_did, _did)) if _did else ""))
+                    if not _atts and _dids:
+                        _pa = ["  - doc #%s  (cti: @@DOCS READ %s)" % (d, d) for d in _dids]
+                    if _pa:
+                        _att_line = "PRILOHY (%d):\n%s\n" % (len(_pa), "\n".join(_pa))
+                except Exception:
+                    _att_line = ""
+                _hdr = ("# Zprava %s | %s | %s\nOd: %s <%s>\nPredmet: %s\n%s%s\n\n" % (
+                    r[0], r[1], ("precteno" if r[6] else "NEPRECTENO"), r[2], r[3], r[4],
+                    _att_line, "-" * 60))
                 _txt = _hdr + (r[5] or "")
                 return JSONResponse({"ok": True, "file_read": True, "path": "inbox_%s.txt" % mid,
                                      "content": _txt, "length": len(_txt)})

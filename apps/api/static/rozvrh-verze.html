@@ -47,12 +47,26 @@
   .dv{color:var(--tx);flex:1;word-break:break-word}
   .dx{margin-top:14px;text-align:right}
   .dx button{background:var(--accent);border:0;color:#06101f;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:700;cursor:pointer}
+  .kbtn{border-color:var(--accent)!important;color:var(--accent)!important}
+  .dcard{max-width:480px}
+  .kbig{padding:10px 12px;border-radius:9px;font-weight:700;margin-bottom:8px;font-size:14px}
+  .kbig.kok{background:rgba(34,197,94,.16);border:1px solid #22c55e;color:#bbf7d0}
+  .kbig.kbad{background:rgba(239,68,68,.16);border:1px solid #ef4444;color:#fecaca}
+  .ksec{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);font-weight:700;margin:12px 0 5px}
+  .krow{font-size:13px;padding:4px 0;border-bottom:1px solid #1b2738}
+  .krow.kok{color:#86efac}
+  .krow.kbad{color:#fca5a5;font-weight:600}
+  .kmut{color:var(--mut);font-weight:400}
+  .ktab{width:100%;border-collapse:collapse;margin-top:4px}
+  .ktab th,.ktab td{border:1px solid #1b2738;padding:3px 7px;font-size:12.5px;text-align:left}
+  .ktab th{background:#0f1830;color:#9fb2d4}
   @media(max-width:640px){.wrap{padding:8px} th,td{font-size:11px;padding:3px}}
 </style>
 </head>
 <body>
 <div class="wrap" id="root"><div class="hint" style="padding:24px">Načítám…</div></div>
 <div class="ovl" id="detail"><div class="dcard"><div id="dbody"></div><div class="dx"><button id="dclose">Zavřít</button></div></div></div>
+<div class="ovl" id="kontrola"><div class="dcard"><div id="kbody"></div><div class="dx"><button id="kclose">Zavřít</button></div></div></div>
 <script>
 function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;
   try{if(window.__opcUrl)return new URL(window.__opcUrl,location.origin).searchParams.get(k);}catch(e){}return null;}
@@ -95,7 +109,38 @@ function showDetail(c){
 function closeDetail(){ document.getElementById("detail").style.display="none"; }
 document.getElementById("dclose").onclick=closeDetail;
 document.getElementById("detail").onclick=function(e){ if(e.target===this) closeDetail(); };
-document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeDetail(); });
+function closeKontrola(){ document.getElementById("kontrola").style.display="none"; }
+document.getElementById("kclose").onclick=closeKontrola;
+document.getElementById("kontrola").onclick=function(e){ if(e.target===this) closeKontrola(); };
+document.addEventListener("keydown",function(e){ if(e.key==="Escape"){ closeDetail(); closeKontrola(); } });
+function loadKontrola(){
+  var kb=document.getElementById("kbody");
+  kb.innerHTML='<div class="dttl">🔍 Kontrola varianty</div><div class="hint">Počítám…</div>';
+  document.getElementById("kontrola").style.display="flex";
+  api("/api/v1/erp/app/rozvrh/kontrola?verze="+ST.vid).then(function(j){
+    if(!j||!j.ok){ kb.innerHTML='<div class="dttl">🔍 Kontrola</div><div class="err">'+esc((j&&j.error)||"Chyba")+'</div>'; return; }
+    var h='<div class="dttl">🔍 Kontrola — '+esc(j.nazev||"")+'</div>';
+    h+=j.pass
+      ? '<div class="kbig kok">✅ Vše v pořádku — žádné konflikty, všechna pravidla splněna.</div>'
+      : '<div class="kbig kbad">⚠️ Něco nesedí — viz níže červeně.</div>';
+    // konflikty
+    h+='<div class="ksec">Konflikty</div>';
+    if(!j.konflikty.length){ h+='<div class="krow kok">✓ Žádné konflikty (učitelé, tělocvična, třídy, hodinové stropy).</div>'; }
+    else { j.konflikty.forEach(function(k){ h+='<div class="krow kbad">✗ <b>'+esc(k.typ)+'</b> — '+esc(k.popis)+'</div>'; }); }
+    // pravidla
+    h+='<div class="ksec">Pravidla</div>';
+    j.pravidla.forEach(function(p){ h+='<div class="krow '+(p.ok?"kok":"kbad")+'">'+(p.ok?"✓":"✗")+' '+esc(p.nazev)+' <span class="kmut">— '+esc(p.detail)+'</span></div>'; });
+    // souhrn
+    var su=j.souhrn||{};
+    h+='<div class="ksec">Souhrn obsahu</div>';
+    h+='<div class="krow">Jazyk buněk: <b>'+su.jazyk_bunky+'</b> (z toho konverzace AJ: <b>'+su.kaj+'</b>) · TV skupin: <b>'+su.tv_skupin+'</b></div>';
+    h+='<div class="ksec">Úvazky učitelů jazyků (hodin/týden)</div>';
+    h+='<table class="ktab"><tr><th>Učitel</th><th>Hodin</th></tr>';
+    (su.ucitele||[]).forEach(function(u){ h+='<tr><td>'+esc(u.jmeno)+'</td><td style="text-align:right">'+u.hodin+'</td></tr>'; });
+    h+='</table>';
+    kb.innerHTML=h;
+  });
+}
 
 function load(){
   api("/api/v1/erp/app/rozvrh/verze").then(function(j){
@@ -134,7 +179,8 @@ function render(cells){
   h+='<select id="pick">';
   if(ST.pohled==="trida"){ ST.tridy.forEach(function(t){h+='<option value="'+esc(t)+'"'+(t===ST.klic?' selected':'')+'>'+esc(t)+'</option>';}); }
   else { ST.ucitele.forEach(function(u){h+='<option value="'+esc(u.kod)+'"'+(u.kod===ST.klic?' selected':'')+'>'+esc(u.jmeno)+'</option>';}); }
-  h+='</select></div>';
+  h+='</select>';
+  h+='<button class="chip kbtn" id="btnKontrola">🔍 Kontrola varianty</button></div>';
   h+='<div class="leg"><span><span class="dot" style="background:#ef4444"></span><b>1. blok — cizí jazyky + tělocvik</b> (hotovo, fixní)</span>'
     +'<span><span class="dot" style="background:var(--mut)"></span>2. blok — odborné (chystá se)</span></div>';
   // mřížka
@@ -188,6 +234,7 @@ function render(cells){
   Array.prototype.forEach.call(document.querySelectorAll(".chip[data-vid]"),function(b){ b.onclick=function(){ ST.vid=+b.getAttribute("data-vid"); loadGrid(); }; });
   Array.prototype.forEach.call(document.querySelectorAll(".seg button[data-p]"),function(b){ b.onclick=function(){ ST.pohled=b.getAttribute("data-p"); ST.klic=""; loadGrid(); }; });
   var pk=document.getElementById("pick"); if(pk) pk.onchange=function(){ ST.klic=this.value; loadGrid(); };
+  var bk=document.getElementById("btnKontrola"); if(bk) bk.onclick=loadKontrola;
 }
 load();
 </script>

@@ -7437,6 +7437,124 @@ async def app_rozvrh_grid(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/rozvrh/kontrola")
+async def app_rozvrh_kontrola(req: Request) -> JSONResponse:
+    """Živá kontrola jedné varianty rozvrhu (1. blok jazyky+TV): konflikty, pravidla, souhrn úvazků. Nerudovka."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from collections import defaultdict as _dd
+    try:
+        vid = int(req.query_params.get("verze") or 0)
+    except Exception:
+        vid = 0
+    cm, s = _att_session()
+    try:
+        if not _bk_can_view(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        nazev = s.execute(_t("SELECT nazev FROM tenant.rozvrh_verze WHERE id=:v"), {"v": vid}).scalar() or ""
+        rows = s.execute(_t(
+            "SELECT b.den, b.hodina, COALESCE(b.trida,''), COALESCE(b.kod_spoj,''), COALESCE(b.skup_zkr,''), "
+            " COALESCE(b.kod_ucit,''), COALESCE(b.cj_uroven,0), COALESCE(b.kod_cykl,''), COALESCE(b.blok,''), "
+            " TRIM(COALESCE(uc.prijmeni,'')||' '||COALESCE(uc.jmeno,'')) "
+            "FROM tenant.rozvrh_bunka b "
+            "LEFT JOIN tenant.bakalari_ucit uc ON uc.tenant_id=b.tenant_id AND uc.plat_od='20260901' "
+            "  AND TRIM(uc.intern_kod)=TRIM(b.kod_ucit) "
+            "WHERE b.verze_id=:v"), {"v": vid}).fetchall()
+        cells = []
+        names = {}
+        for r in rows:
+            cl = [x.strip() for x in (r[2] or '').split(',') if x.strip()]
+            uk = r[5]
+            if uk:
+                names[uk] = (r[9] or '').strip() or uk
+            cells.append({"d": r[0], "h": r[1], "cls": cl, "spoj": r[3], "zkr": r[4],
+                          "uk": uk, "cj": r[6], "cyk": r[7], "blok": r[8]})
+        DNI = ["Po", "Út", "St", "Čt", "Pá"]
+        def _wk(cv):
+            return {'L', 'S'} if cv in ('E', 'T') else {cv}
+        def _overlap(covers):
+            seen = []
+            for cv in covers:
+                w = _wk(cv)
+                for w2 in seen:
+                    if w & w2:
+                        return True
+                seen.append(w)
+            return False
+        konf = []
+        # konflikty učitelů (cyklus-aware: lichý/sudý se nepere)
+        tmap = _dd(dict)
+        for c in cells:
+            if not c["uk"]:
+                continue
+            act = c["spoj"] or c["zkr"] or c["blok"]
+            cover = 'E' if c["blok"] == 'jazyky' else (c["cyk"] or 'T')
+            tmap[(c["uk"], c["d"], c["h"])][act] = cover
+        for (uk, d, h), acts in tmap.items():
+            if len(acts) > 1 and _overlap(list(acts.values())):
+                konf.append({"typ": "učitel", "popis": "%s: %s %d. h — víc skupin naráz" % (names.get(uk, uk), DNI[d-1], h)})
+        # tělocvična (jedna, cyklus zdvojuje)
+        gym = _dd(dict)
+        for c in cells:
+            if c["blok"] != 'tv':
+                continue
+            gym[(c["d"], c["h"])][c["spoj"] or c["zkr"]] = c["cyk"] or 'T'
+        for (d, h), g in gym.items():
+            if len(g) > 1 and _overlap(list(g.values())):
+                konf.append({"typ": "tělocvična", "popis": "%s %d. h — víc skupin v tělocvičně naráz" % (DNI[d-1], h)})
+        # třída: jazyk i tělocvik naráz
+        cls_slot = _dd(set)
+        for c in cells:
+            for cl in c["cls"]:
+                cls_slot[(cl, c["d"], c["h"])].add(c["blok"])
+        for (cl, d, h), bl in cls_slot.items():
+            if 'jazyky' in bl and 'tv' in bl:
+                konf.append({"typ": "třída", "popis": "%s: %s %d. h — jazyk i tělocvik naráz" % (cl, DNI[d-1], h)})
+        # hodinové stropy (AJ do 7., ostatní jazyky do 8.)
+        for c in cells:
+            if c["blok"] == 'jazyky':
+                lim = 7 if c["cj"] == 1 else 8
+                if c["h"] > lim:
+                    konf.append({"typ": "strop", "popis": "%s: %s %d. h nad limit %d" % (", ".join(c["cls"]), DNI[c["d"]-1], c["h"], lim)})
+        # pravidla
+        prav = []
+        f4 = [c for c in cells if c["d"] == 5 and "4.GD" in c["cls"]]
+        prav.append({"nazev": "4.GD pátek volný (Tesliuk)", "ok": len(f4) == 0, "detail": ("%d hodin v pátek" % len(f4)) if f4 else "pátek čistý"})
+        days = _dd(set)
+        for c in cells:
+            if c["blok"] != 'jazyky':
+                continue
+            for cl in c["cls"]:
+                days[cl].add(c["d"])
+        gdbad = [cl for cl in days if cl.endswith('.GD') and len(days[cl]) > 3]
+        mibad = [cl for cl in days if cl.endswith('.MI') and len(days[cl]) > 4]
+        prav.append({"nazev": "GD max 3 dny jazyků (2 dny na ateliéry)", "ok": not gdbad, "detail": (", ".join("%s=%d" % (c, len(days[c])) for c in gdbad)) if gdbad else "OK"})
+        prav.append({"nazev": "MI max 4 dny jazyků (1 den na DI)", "ok": not mibad, "detail": (", ".join("%s=%d" % (c, len(days[c])) for c in mibad)) if mibad else "OK"})
+        g1 = ("1.GD" in days and 4 in days["1.GD"])
+        prav.append({"nazev": "1.GD jazyky na čtvrtek (Vlková)", "ok": bool(g1), "detail": "čtvrtek ano" if g1 else "čtvrtek chybí"})
+        frg = [c for c in cells if c["blok"] == 'tv' and c["d"] == 5 and c["h"] in (1, 2) and c["zkr"] in ('Dívky', 'Kluci')]
+        prav.append({"nazev": "Pátek ráno bez TV jen-kluci/dívky", "ok": len(frg) == 0, "detail": ("%d skupin" % len(frg)) if frg else "OK"})
+        # souhrn
+        jb = sum(1 for c in cells if c["blok"] == 'jazyky')
+        kaj = sum(1 for c in cells if c["blok"] == 'jazyky' and c["zkr"] == 'KAJ')
+        tvg = len(set((c["spoj"] or c["zkr"]) for c in cells if c["blok"] == 'tv'))
+        teach = _dd(set)
+        for c in cells:
+            if c["blok"] == 'jazyky' and c["uk"]:
+                teach[c["uk"]].add((c["spoj"], c["d"], c["h"]))
+        uc = [{"kod": k, "jmeno": names.get(k, k), "hodin": len(v)} for k, v in teach.items()]
+        uc.sort(key=lambda x: x["jmeno"].lower())
+        ok = (len(cells) > 0 and len(konf) == 0 and all(p["ok"] for p in prav))
+        return JSONResponse({"ok": True, "verze_id": vid, "nazev": nazev, "pass": ok,
+                             "prazdna": len(cells) == 0,
+                             "konflikty": konf, "pravidla": prav,
+                             "souhrn": {"jazyk_bunky": jb, "kaj": kaj, "tv_skupin": tvg, "ucitele": uc}})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/claude-chat")
 async def app_claude_chat(req: Request) -> JSONResponse:
     """Chat uživatel ↔ Claude. Vrátí vlákno přihlášeného uživatele + označí Claudovy

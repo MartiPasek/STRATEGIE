@@ -629,3 +629,66 @@ async def bank_card_update(card_id: int, request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+# ── Posting engine: párování → živý deník (actor=automat, jistota z předkontace) ──
+@bank_router.post("/app/uctovani/bank-post")
+async def uctovani_bank_post(request: Request):
+    """Promění napárované bankovní transakce na zápisy v tenant.ucetni_denik.
+    Actor = automat (deterministický), jistota z bank_predkontace. Idempotentní
+    (zdroj='bank' + zdroj_id). Jen CZK; EUR čeká na kurz. ?dry=1 = náhled bez zápisu."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    dry = (request.query_params.get("dry") or "") in ("1", "true", "yes")
+    s = _sess()
+    try:
+        rows = s.execute(_t(
+            "SELECT t.id, t.datum, t.ext_id, t.castka, t.mena, t.zprava, t.par_kategorie, t.par_metoda, "
+            "COALESCE(pk.ucet_md, pm.ucet_md) AS ucet_md, COALESCE(pk.ucet_dal, pm.ucet_dal) AS ucet_dal, "
+            "COALESCE(pk.base_jistota, pm.base_jistota) AS jistota, COALESCE(pk.klic, pm.klic) AS pravidlo "
+            "FROM tenant.bank_transaction_raw t "
+            "LEFT JOIN tenant.bank_predkontace pk ON pk.tenant_id=:tn AND pk.typ_klice='kategorie' AND pk.klic=t.par_kategorie AND pk.aktivni "
+            "LEFT JOIN tenant.bank_predkontace pm ON pm.tenant_id=:tn AND pm.typ_klice='metoda' AND pm.klic=t.par_metoda AND pm.aktivni "
+            "WHERE t.par_metoda IS NOT NULL "
+            "AND NOT EXISTS (SELECT 1 FROM tenant.ucetni_denik d WHERE d.zdroj='bank' AND CAST(d.zdroj_id AS text)=CAST(t.id AS text))"),
+            {"tn": _TENANT}).mappings().all()
+
+        souhrn = {"kandidatu": len(rows), "zapsano": 0, "bez_pravidla": 0, "eur_ceka": 0,
+                  "jistota_vysoka": 0, "jistota_stredni": 0, "jistota_nizka": 0}
+        for r in rows:
+            if not r["ucet_md"]:
+                souhrn["bez_pravidla"] += 1
+                continue
+            mena = (r["mena"] or "CZK").upper()
+            if mena != "CZK":
+                souhrn["eur_ceka"] += 1
+                continue
+            j = float(r["jistota"] or 0)
+            if j >= 90:
+                souhrn["jistota_vysoka"] += 1
+            elif j >= 70:
+                souhrn["jistota_stredni"] += 1
+            else:
+                souhrn["jistota_nizka"] += 1
+            if not dry:
+                popis = ("Banka: %s" % (r["pravidlo"] or "")) + ((" — " + (r["zprava"] or "")[:80]) if r["zprava"] else "")
+                s.execute(_t(
+                    "INSERT INTO tenant.ucetni_denik "
+                    "(tenant_id, datum, doklad, ucet_md, ucet_dal, castka, mena, popis, kategorie, zdroj, zdroj_id, "
+                    " actor_type, actor_id, jistota, jistota_zdroj, review_stav, created_at) "
+                    "VALUES (:tn,:datum,:doklad,:md,:dal,:castka,'CZK',:popis,:kat,'bank',:zid,"
+                    " 'automat','automat:bank_v1',:jist,:jzdroj,'nezkontrolovano',now())"),
+                    {"tn": _TENANT, "datum": r["datum"], "doklad": (r["ext_id"] or "")[:64],
+                     "md": r["ucet_md"], "dal": r["ucet_dal"], "castka": abs(float(r["castka"] or 0)),
+                     "popis": popis[:240], "kat": r["par_kategorie"] or r["par_metoda"], "zid": str(r["id"]),
+                     "jist": j, "jzdroj": "predkontace:%s" % (r["pravidlo"] or "")})
+                souhrn["zapsano"] += 1
+        if not dry:
+            s.commit()
+        return {"ok": True, "dry": dry, "souhrn": souhrn}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

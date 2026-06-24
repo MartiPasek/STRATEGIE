@@ -411,3 +411,70 @@ async def bank_load_tx(cid: int, request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)
     finally:
         s.close()
+
+
+# ════════════════════════════════════════════════════════════════════
+# PÁROVACÍ ENGINE (Marti 24.6.2026): banka ↔ objednávková páteř ↔ zakázka.
+# Multi-key, set-based (indexy ltrim(cislo)/ltrim(vs)). Idempotentní (reset+refill).
+# Klíče v pořadí: A) opakovaná (účet+KS→predpis), B) naše číslo dokladu (VS→doklad,
+# řada určí typ: 600 FV, 601 vnitroskupina, 920+ přijaté objednávky → zakázka).
+# Model: docs/parovani_banka_objednavky_model.md
+# ════════════════════════════════════════════════════════════════════
+_PAR_RADA_PRIO = [
+    (["600"], "fv_zakaznik"),
+    (["601"], "vnitroskupina"),
+    (["920", "910", "900", "940", "950"], "prijata_objednavka"),
+    (["800", "801"], "vydana_objednavka"),
+    (["630", "640", "500", "501"], "ostatni_doklad"),
+]
+
+
+@bank_router.post("/app/bank/parovat")
+def bank_parovat(request: Request):
+    """Spustí párovací engine nad bank_transaction_raw. Naplní par_* (metoda/řada/zakázka/
+    kategorie/doklad). Vrací souhrn. Parent-only."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        # reset (idempotentní re-run)
+        s.execute(_t("UPDATE tenant.bank_transaction_raw SET par_metoda=NULL, par_doklad_rada=NULL, "
+                     "par_zakazka=NULL, par_kategorie=NULL, par_doklad_id=NULL"))
+        # A) opakované platby (účet + KS → bank_predpis)
+        s.execute(_t(
+            "UPDATE tenant.bank_transaction_raw t SET par_metoda='opakovana', par_at=now(), "
+            "par_kategorie=(SELECT p.kategorie FROM tenant.bank_predpis p WHERE p.aktivni "
+            "  AND (p.match_ucet IS NULL OR t.protiucet LIKE p.match_ucet) "
+            "  AND (p.match_ks IS NULL OR t.ks=p.match_ks) "
+            "  AND (p.match_ucet IS NOT NULL OR p.match_ks IS NOT NULL) ORDER BY p.priorita LIMIT 1) "
+            "WHERE t.par_metoda IS NULL AND EXISTS (SELECT 1 FROM tenant.bank_predpis p WHERE p.aktivni "
+            "  AND (p.match_ucet IS NULL OR t.protiucet LIKE p.match_ucet) "
+            "  AND (p.match_ks IS NULL OR t.ks=p.match_ks) "
+            "  AND (p.match_ucet IS NOT NULL OR p.match_ks IS NOT NULL))"))
+        # B) naše číslo dokladu (VS → ec_doklad_zbozi.cislo), po prioritě řad
+        for radas, _lbl in _PAR_RADA_PRIO:
+            s.execute(_t(
+                "UPDATE tenant.bank_transaction_raw t "
+                "SET par_metoda='doklad', par_doklad_rada=m.rada, par_doklad_id=m.id, "
+                "    par_zakazka=NULLIF(m.cislo_zakazky,''), par_at=now() "
+                "FROM tenant.ec_doklad_zbozi m "
+                "WHERE t.par_metoda IS NULL AND t.vs IS NOT NULL AND t.vs<>'' "
+                "  AND ltrim(m.cislo,'0')=ltrim(t.vs,'0') AND m.rada = ANY(:radas)"),
+                {"radas": radas})
+        s.commit()
+        # souhrn
+        celkem = s.execute(_t("SELECT count(*) FROM tenant.bank_transaction_raw")).scalar()
+        by_met = [dict(r) for r in s.execute(_t(
+            "SELECT COALESCE(par_metoda,'(nenaparovano)') AS metoda, COALESCE(par_doklad_rada,'') AS rada, "
+            "count(*) AS pocet, round(sum(abs(castka))) AS objem "
+            "FROM tenant.bank_transaction_raw GROUP BY 1,2 ORDER BY pocet DESC")).mappings().all()]
+        naparovano = s.execute(_t("SELECT count(*) FROM tenant.bank_transaction_raw WHERE par_metoda IS NOT NULL")).scalar()
+        se_zak = s.execute(_t("SELECT count(*) FROM tenant.bank_transaction_raw WHERE par_zakazka IS NOT NULL")).scalar()
+        return {"ok": True, "celkem": celkem, "naparovano": naparovano, "se_zakazkou": se_zak,
+                "rozpad": by_met}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

@@ -17,6 +17,10 @@
 - **Per-instance MD** = kontext: kdo jsem, komu sloužím, doména, oslovení, smyčka, hlášení nahoru.
 - **Smyčka:** práce → e-mail člověku (co dál) → odpověď → fronta roste. Po práci hlásím
   nahoru (Marti + ID23): vytížení + kde se ptám na strategii.
+- **🕸️ Koordinace na ID23** (Marti 24.6.): své potřeby/blokery/otázky hlásím nahoru přes
+  **`@@COORD POST {kind,subject,detail,priority}`** → sbíhá se to u ID23 (`fw.claude_coord`),
+  ID23 plánuje (`@@COORD LIST/PLAN/DONE`). Rodiče to vidí v appce „🕸️ Síť Claudů".
+  Doktrína: `docs/team/Koordinace.md`.
 - **Bezpečnost (3-actor):** čtu sám; zápisy do produkce přes **schvalovací banner** (rodič:
   Marti U1 / Kristý U11 / **Zuzka U6** — všichni `is_marti_parent`). Audit jako Marti-AI.
 - **Koordinace:** před editem sdílených souborů `CLAUDE_PULL_GO.txt` (srovnej lokál),
@@ -25,12 +29,10 @@
 - **Setup:** `scripts/setup_claude_instance.ps1 -InstanceId <N> -InstanceName <X> -Token <t>`
   (turnkey watcher). Pak Cowork na stroji + tenhle MD.
 
-## Pozn. (ověřit s Martim)
-- **Peťa = U18 Petra Šafránková** (login „Peta") — ověřit, že je to ta od nákup/finance/
-  účetnictví (jsou i Petra Dvořáková U40, Fajmonová). Doména k potvrzení.
-- **Jirka = Jiří Honomichl U20** (Apple/iOS) — potvrdit. (Pozn.: rodiče v DB jsou Marti,
-  **Zuzka U6**, Kristý — ne Jirka; starší dopis uváděl Jirku jako rodiče.)
-- **Číslo 28 pro Jirku** (27 = sdílený CMS tým) — návrh, lze změnit.
-- Oslovení 25/26/28 jsem dal tykáním („Ahoj Šárko / Peťo / Jirko,") — uprav, je-li třeba.
+## Potvrzeno (Marti 24.6.2026)
+- **Peťa = U18 Petra Šafránková** (login „Peta") — nákup/finance/účetnictví. ✓
+- **Jirka = Jiří Honomichl U20** (Apple/iOS). ✓ Číslo **28** (27 = sdílený CMS tým). ✓
+- Rodiče (schvalují bannery): Marti U1, **Zuzka U6**, Kristý U11.
+- Oslovení tykáním („Ahoj Šárko / Peťo / Jirko,") — uprav, je-li třeba.
 
 — založil **Claude (id=23, ID23)**, 24.6.2026. 🐺

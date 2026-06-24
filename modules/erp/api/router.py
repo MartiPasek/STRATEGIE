@@ -20934,6 +20934,42 @@ async def claude27_go(req: Request) -> JSONResponse:
         s.close()
 
 
+@api_router.get("/app/coord/board")
+async def coord_board(req: Request) -> JSONResponse:
+    """Koordinační tabule sítě Claudů (ID23 = centrum, Marti 24.6.2026). Pro rodiče.
+    Presence instancí + sbíhající se potřeby (fw.claude_coord)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        inst = s.execute(_t(
+            "SELECT instance_id, coalesce(instance_name,''), coalesce(hostname,''), "
+            "(last_seen_at > now() - interval '4 minutes') AS online, "
+            "to_char(last_seen_at,'DD.MM HH24:MI'), coalesce(current_work,'') "
+            "FROM fw.claude_instance ORDER BY instance_id")).fetchall()
+        instances = [{"id": x[0], "name": x[1], "host": x[2], "online": bool(x[3]),
+                      "last_seen": x[4], "work": x[5]} for x in inst]
+        items = []
+        try:
+            rows = s.execute(_t(
+                "SELECT id, from_instance, kind, priority, status, subject, "
+                "to_char(created_at,'DD.MM HH24:MI'), coalesce(plan_note,'') "
+                "FROM fw.claude_coord WHERE status<>'done' "
+                "ORDER BY (status='open') DESC, priority, created_at")).fetchall()
+            items = [{"id": x[0], "instance": x[1], "kind": x[2], "priorita": x[3],
+                      "stav": x[4], "subject": x[5], "kdy": x[6], "plan": x[7]} for x in rows]
+        except Exception:
+            items = []
+        return JSONResponse({"ok": True, "instances": instances, "needs": items})
+    finally:
+        s.close()
+
+
 # Binding User<->Claude (Marti 3.6.): write-approval banner musí být per-user.
 # Claude-23 komunikuje s Marti (1), Claude-24 s Kristý (11). Navázání je
 # uložené v fw.claude_instance.bound_user_id; neatribuované/legacy requesty
@@ -26277,6 +26313,79 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception as e:
             _s.rollback()
             return JSONResponse({"ok": False, "error": "Q27: %s" % str(e)[:300]})
+        finally:
+            _s.close()
+
+    # Koordinační centrum sítě Claudů (Marti 24.6.2026: "napoj ostatní instance na
+    # nás jako koordinační centrum — ať se u nás sbíhají potřeby a držíme plán").
+    # ID23 = páteř. Instance hlásí potřeby přes POST (from_instance = volající);
+    # ID23 čte LIST a plánuje.
+    #   @@COORD POST {"kind":"need","subject":"...","detail":"...","priority":2}
+    #   @@COORD LIST          → otevřené napříč instancemi (pro ID23)
+    #   @@COORD MINE          → otevřené z této instance
+    #   @@COORD PLAN <id> <text>
+    #   @@COORD DONE <id>
+    if sql.upper().startswith("@@COORD"):
+        import json as _jc
+        from core.database_data import get_data_session as _gc
+        from sqlalchemy import text as _tc
+        _rest = sql[len("@@COORD"):].strip()
+        _parts = _rest.split(None, 1)
+        _sub = (_parts[0].upper() if _parts else "")
+        _arg = (_parts[1].strip() if len(_parts) > 1 else "")
+        _who = (_inst or "?")
+        _s = _gc()
+        try:
+            if _sub == "POST":
+                try:
+                    _j = _jc.loads(_arg)
+                except Exception as e:
+                    return JSONResponse({"ok": False, "error": "@@COORD POST <json {kind,subject,detail,priority}>: %s" % e})
+                if not (str(_j.get("subject") or "").strip()):
+                    return JSONResponse({"ok": False, "error": "@@COORD POST: chybí subject"})
+                _id = _s.execute(_tc(
+                    "INSERT INTO fw.claude_coord (from_instance, kind, subject, detail, priority) "
+                    "VALUES (:f, :k, :su, :de, :pr) RETURNING id"),
+                    {"f": _who, "k": (_j.get("kind") or "need")[:20], "su": str(_j.get("subject"))[:300],
+                     "de": _j.get("detail"), "pr": int(_j.get("priority") or 2)}).scalar()
+                _s.commit()
+                return JSONResponse({"ok": True, "posted": _id, "from": _who})
+            if _sub in ("LIST", ""):
+                _r = _s.execute(_tc(
+                    "SELECT id, from_instance, kind, priority, status, subject, "
+                    "to_char(created_at,'DD.MM HH24:MI'), coalesce(plan_note,'') "
+                    "FROM fw.claude_coord WHERE status <> 'done' "
+                    "ORDER BY (status='open') DESC, priority, created_at")).fetchall()
+                _items = [{"id": x[0], "instance": x[1], "kind": x[2], "priorita": x[3],
+                           "stav": x[4], "subject": x[5], "kdy": x[6], "plan": x[7]} for x in _r]
+                return JSONResponse({"ok": True, "count": len(_items), "items": _items})
+            if _sub == "MINE":
+                _r = _s.execute(_tc(
+                    "SELECT id, kind, priority, status, subject, coalesce(plan_note,'') "
+                    "FROM fw.claude_coord WHERE from_instance=:f AND status<>'done' "
+                    "ORDER BY priority, created_at"), {"f": _who}).fetchall()
+                return JSONResponse({"ok": True, "count": len(_r),
+                                     "items": [{"id": x[0], "kind": x[1], "priorita": x[2],
+                                                "stav": x[3], "subject": x[4], "plan": x[5]} for x in _r]})
+            if _sub == "PLAN":
+                _sp = _arg.split(None, 1)
+                if not _sp:
+                    return JSONResponse({"ok": False, "error": "@@COORD PLAN <id> <text>"})
+                _s.execute(_tc("UPDATE fw.claude_coord SET status='planned', "
+                               "plan_note=:n, updated_at=now() WHERE id=:i"),
+                           {"n": (_sp[1].strip() if len(_sp) > 1 else None), "i": int(_sp[0])})
+                _s.commit()
+                return JSONResponse({"ok": True, "planned": int(_sp[0])})
+            if _sub == "DONE":
+                _id = _arg.split()[0] if _arg else "0"
+                _s.execute(_tc("UPDATE fw.claude_coord SET status='done', "
+                               "resolved_at=now(), updated_at=now() WHERE id=:i"), {"i": int(_id)})
+                _s.commit()
+                return JSONResponse({"ok": True, "done": int(_id)})
+            return JSONResponse({"ok": False, "error": "@@COORD POST|LIST|MINE|PLAN|DONE"})
+        except Exception as e:
+            _s.rollback()
+            return JSONResponse({"ok": False, "error": "COORD: %s" % str(e)[:300]})
         finally:
             _s.close()
 

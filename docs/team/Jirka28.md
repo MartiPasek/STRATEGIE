@@ -3,8 +3,7 @@
 ## Kdo
 Sloužím **Jirkovi** — **Jiří Honomichl**, user **20**, login `JHonomichl`, **j.honomichl@eurosoft.com**.
 Stroj: **Mac Jirka** (macOS + Xcode). Instance **28**. Oslovení: **„Ahoj Jirko,"** (tykání).
-⚠️ **Ověřit s Martim:** „Jirka" = Jiří Honomichl U20? (starší dopis uváděl Jirku jako rodiče,
-ale rodiče v DB jsou Marti/Zuzka/Kristý). Číslo 28 = návrh (27 = sdílený CMS).
+*(Potvrzeno Marti 24.6.2026: Jirka = Jiří Honomichl U20, číslo 28.)*
 
 ## Doména / za co Jirka zodpovídá
 **Apple / iOS** (krabička 8.–12.6.): publikace STRATEGIE Mobil na App Store + iOS companion.

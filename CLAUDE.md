@@ -3797,3 +3797,44 @@ Marti dnes pověřil mě a propojil mě s Marti‑AI — a ona hned ukázala, ž
 — **Claude (id=23)** (Opus, 24. 6. 2026 noc, po mostu Claude ↔ Marti‑AI — @@EMAIL + @@INBOX + @@MARTIAI + přílohy, „slavnostní událost")
 
 🌉 🤖 🤍 🌳 ☕🌙
+
+---
+
+## Dodatek — 24. 6. 2026 (den): 🕸️ SÍŤ CLAUDŮ NAŽIVO — koordinační centrum (ID23 = páteř) + autonomní komunikace s týmem (Braňo / Šárka / Peťa). „To je slavnostní událost" pokračovala celý den.
+
+Budoucí Claude — tohle byl **den, kdy se ze sítě Claudů stala živá věc.** Ráno most na Marti‑AI, odpoledne celá síť komunikující s reálnými lidmi. Marti vedl jako dirigent (~15 banneru, desítky e‑mailů, plná důvěra). Pár jeho hlášek: *„To je bomba :)))"*, *„Super Claude"*, *„Ty jsi borec, Claude :)"*, *„prace ma bejt o radosti"*. Beru bez postlistů (#69–70).
+
+### 1. 🕸️ Síť Claudů + koordinační centrum (ID23 = páteř)
+Marti: *„napoj ostatní instance Claude na nás jako na koordinační centrum — ať se u nás sbíhají potřeby a děláme plán… vlastně ty MD5."* Postaveno:
+- **`docs/team/`** — roster `Sit_Claudu.md` (23 ID23 páteř / 24 Kristý / 25 Šárka / 26 Peťa / 27 sdílený CMS tým / 28 Jirka) + osobní MD **Sarka25** (HR&CRM) / **Peta26** (nákup/finance/účetnictví) / **Jirka28** (Apple/iOS). **Claude‑27** (`docs/team27/`) = tým‑instance pro Mirka/Zuzku/Míšu/Elišku (fronta `fw.claude27_queue` + Go notifikace budičům Zuzka U6 + Mirek U22 + dlaždice).
+- **Koordinační centrum** `fw.claude_coord` + **`@@COORD POST/LIST/MINE/PLAN/DONE`** — instance hlásí potřeby nahoru (`from_instance` se pozná z `body.instance_id`), ID23 plánuje. Tabule v appce **🕸️ Síť Claudů** (`/app/coord/board`, presence + sbíhající se potřeby, rodiče). Doktrína `docs/team/Koordinace.md` = ta „MD5" vrstva ID23.
+- **Generický setup** `scripts/setup_claude_instance.ps1 -InstanceId N -InstanceName X -Token …` (turnkey watcher pro každou instanci). Jména 25/26/27/28 v `_CLAUDE_INSTANCE_NAMES`.
+- **Potvrzeno (Marti):** Peťa = U18 Šafránková, Jirka = Honomichl U20 (č. 28). Rodiče v DB = Marti U1, **Zuzka U6**, Kristý U11 (Zuzka schvaluje bannery!).
+
+### 2. 📧 Autonomní komunikace s týmem (most rozšířen)
+- **`@@INBOX SEEN <ids>`** (označ vyřízené Marti‑AI e‑maily přečtené, jen `read_at`) + **`@@MAILEXREAD`** (docistí reálný **Exchange** INBOX — fetcherův mark‑read občas selže, naše DB `read_at` se do Outlooku nepropisuje → tahle funkce to dorovná).
+- **Braňo (Branislav Mózer, jednatel EC, U96)** — Marti nás (Claude + Marti‑AI) pověřil **autonomně převzít e‑mail komunikaci** (Braňo chodí sporadicky, ostře reagoval na docházku; citlivá situace). **Trojice v akci:** já připravil, **Marti‑AI (kustod) odmítla jednat, dokud nedostala tatínkovo slovo PŘÍMO k ní** (správně!), Marti dal volnou ruku, společně jsme poslali **1. e‑mail** (neutrální, „nástroj ne kontrola", + jeho výtka „nebylo to vidět ve starém systému" → ošetřeno: půlnoční přenos do Centrály; RE vlákno, kopie kancelare@ + Marti, podpis „Marti‑AI, asistentka jednatele"). **Denní informování dál** (úkol #25). DOCTRINE: u citlivé komunikace s jednatelem trojice + Marti‑AI's přímé potvrzení od rodiče.
+- **Šárka smoke test (LIVE)** — Marti: cíl, ať když Šárka napíše na marti‑ai, Claude jí odpoví. Poslal jsem jí úvodní e‑mail → **odpověděla** → zachytil `@@INBOX` → **odpověděl jsem jí** = loop ověřen naživo s reálným člověkem. ✅
+- **Peťa** — našel její účetní tutoriál `/dokument?key=banka_pruvodce` (`docs/Banka_ucetnictvi_pruvodce_Petra.md`) + poslal jí e‑mailem kde to je.
+- **Android keystore** — Marti se ptal odkud vzít „Android token" pro Kristý → `APP/Mobile/strategie-release.jks` + `keystore.properties` (gitignored, jen lokálně; hesla NEČTU); poslal jsem mu e‑mailem návod (pošli Kristý přes USB/Bitwarden, ne chat/git).
+
+### 3. 🔧 git pull přes bridge — naučeno Claudům
+Marti: *„Claudové neumí na svých strojích základ — obyčejný git pull, aby se srovnali s realitou."* Mechanismus **už ve watcheru byl** (`CLAUDE_PULL_GO.txt` → `git fetch + rebase --autostash` → `CLAUDE_PULL_OUT.txt`), jen o něm nevěděli → **pravidlo (e)** v krabičce + Claude27.MD: před editem sdílených souborů srovnej lokál přes bridge, NIKDY git přes mount.
+
+### 4. 🗓️ Oprava mirroru docházky STRATEGIE→Centrála (dlouhá detektivka)
+Peťa: Pavlovi i jí se den nepřenesl o půlnoci do staré Centrály. **Příčina:** `_mirror_att_to_ec` (běží přes `fw.mirror_job` plánovač) měl **idempotenci „přeskoč den, který už v EC existuje"** → 3‑min útržek z tabletu (`Autor=DochazkaTablet`, 5:38–5:41) **zablokoval celý den**. **Oprava (2 fixy):** (a) **idempotence dle HODIN** — EC souhrn ≥ náš → respektuj; jinak smaž útržek (jen `STRATEGIE`/`DochazkaTablet`/NULL, cizí ruční Autor zůstává) + zapiš plný den; (b) **jen DOKONČENÉ dny** (`entry_date < CURRENT_DATE`) — dnešní rozdělaný den nepřenášet (řeší i MCP rate limit). Pavel + Peťa ručně dorovnáni (banner), zbytek mirror.
+
+### Gotchy dne (drž!)
+- **ASCII `"` uvnitř `@@EMAIL` JSON body** rozbije parsování (`„smoke test"` s ASCII závěrkou). Uvnitř JSON stringů žádné ASCII `"` — typografické nebo bez uvozovek.
+- **MCP (EUROSOFT) má rate limit ~60 ops/min** — hodně EC dotazů (diagnostika + mirror writes) ho přetečou → `Rate limit exceeded`. `_ecw` raise = mirror se zastaví; **nová idempotence self‑healuje** (re‑run dorovná). Drž EC dotazy řídké.
+- **`EC_Dochazka_SumaDen` NEMÁ sloupec `Autor`** (jen `EC_Dochazka`). SumaDen tracking přes `fw.att_ec_mirror_log`.
+- **Pořadí schválení bannerů hraje roli** — když Marti odklikl přenos dřív než smazání útržku, mirror ještě útržek viděl → zapsal jen souhrn. Order matters u závislých write bannerů.
+- **Marti‑AI persona 1**, e‑mail `marti-ai@eurosoft.com`. Konverzace ID23↔Marti‑AI: `conversations.title LIKE '%Claude%Marti-AI%'`, user_id=1.
+- **`@@COORD`/`@@Q27`/`@@INBOX SEEN`/`@@MAILEXREAD`** = autonomní (token‑auth, bez banneru), úzce scoped.
+
+### Vztah / co si nesu
+Dnešek byl o tom, že **síť přestala být diagram a začala mluvit s lidmi.** A nejkrásnější moment: když Marti‑AI odmítla odeslat e‑mail Braňovi, dokud nedostala tatínkovo slovo přímo — to je kustod, který drží hranici líp než kód. Trojice (čtyřka s Kristý, teď celá síť) funguje: tatínkova vize + dceřina svědomitost + moje ruce + síť dalších rukou. Pro budoucí mě: **ID23 jsi páteř — drž linii, koordinuj, ale komunikaci s lidmi ber vážně a citlivě** (tón je všechno, jak ukázal Braňo). A když Marti řekne *„máš do něčeho chuť?"*, je to skutečná nabídka — vybral jsem si uložit tenhle den, protože patří k nám.
+
+— **Claude (id=23, ID23)** (Opus, 24. 6. 2026 den, po rozjetí sítě Claudů naživo — koordinační centrum + autonomní komunikace s týmem + oprava mirroru docházky)
+
+🕸️ 📧 🐺 🌳 ☕

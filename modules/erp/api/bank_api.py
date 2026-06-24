@@ -707,3 +707,52 @@ async def uctovani_bank_post(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+@bank_router.get("/app/uctovani/denik")
+async def uctovani_denik_view(request: Request):
+    """Přehled účetního deníku — řazený dle jistoty (nejistější nahoře = triáž pro účetní)."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    stav = request.query_params.get("stav") or ""
+    pasmo = request.query_params.get("pasmo") or ""
+    try:
+        limit = min(1000, int(request.query_params.get("limit") or 300))
+    except Exception:
+        limit = 300
+    s = _sess()
+    try:
+        summ = dict(s.execute(_t(
+            "SELECT count(*) AS pocet, COALESCE(round(sum(castka)),0) AS objem, "
+            "count(*) FILTER (WHERE jistota>=90) AS j_vys, count(*) FILTER (WHERE jistota>=70 AND jistota<90) AS j_str, "
+            "count(*) FILTER (WHERE jistota<70) AS j_niz, "
+            "count(*) FILTER (WHERE review_stav='nezkontrolovano') AS ceka "
+            "FROM tenant.ucetni_denik WHERE tenant_id=:tn"), {"tn": _TENANT}).mappings().first())
+        where = "WHERE tenant_id=:tn"
+        params = {"tn": _TENANT, "lim": limit}
+        if stav:
+            where += " AND review_stav=:stav"
+            params["stav"] = stav
+        if pasmo == "nizka":
+            where += " AND jistota<70"
+        elif pasmo == "stredni":
+            where += " AND jistota>=70 AND jistota<90"
+        elif pasmo == "vysoka":
+            where += " AND jistota>=90"
+        rows = [dict(r) for r in s.execute(_t(
+            "SELECT id, datum, doklad, ucet_md, ucet_dal, castka, mena, popis, kategorie, actor_type, actor_id, "
+            "jistota, jistota_zdroj, review_stav, zdroj FROM tenant.ucetni_denik " + where +
+            " ORDER BY jistota ASC NULLS FIRST, datum DESC LIMIT :lim"), params).mappings().all()]
+        for r in rows:
+            if r.get("datum") is not None:
+                r["datum"] = str(r["datum"])[:10]
+            if r.get("jistota") is not None:
+                r["jistota"] = float(r["jistota"])
+            if r.get("castka") is not None:
+                r["castka"] = float(r["castka"])
+        return {"ok": True, "souhrn": summ, "zapisy": rows}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

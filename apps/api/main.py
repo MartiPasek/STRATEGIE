@@ -966,6 +966,14 @@ def pokladny_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/denik")
+def denik_page():
+    """Přehled účetního deníku — živé zápisy řazené dle jistoty (triáž pro účetní).
+    Marti 24.6.2026 noc."""
+    return FileResponse(os.path.join(static_dir, "denik.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/iso")
 def iso_page():
     """ISO 27001 cockpit — elektronické vedení ISMS (parent/Kristý). Kroky + dokumenty

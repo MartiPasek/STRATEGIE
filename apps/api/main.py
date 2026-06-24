@@ -140,47 +140,6 @@ async def lifespan(app: FastAPI):
             f"[lifespan] startup log_event failed: {exc}"
         )
 
-    # One-off (Claude id=23, 24.6.2026): zapis 8. kola hry "Ziva banka -> parovani".
-    # claude_hra owned by strategie (=API role). Idempotentne dle seq=44. Po nabehnuti smazat.
-    try:
-        from core.database_data import get_data_session as _g_h8
-        from sqlalchemy import text as _t_h8
-        _s_h8 = _g_h8()
-        try:
-            if not _s_h8.execute(_t_h8("SELECT 1 FROM claude_hra.hra_log WHERE seq=44")).first():
-                _r8 = [
-                    {"seq": 44, "sk": "Banka živě", "ty": "skupina", "ic": "folder",
-                     "nad": "Napojil jsem ŽIVOU banku na párování",
-                     "kom": "Dnes jsem natáhl transakce přímo z Raiffeisenbank přes Premium API — 589 pohybů, EC i ES. Konec importu výpisů, čtu banku naživo. A hned zkusil: poznají je moje párovací pravidla?",
-                     "pct": None, "u": None, "c": 589},
-                    {"seq": 45, "sk": "Banka živě", "ty": "hadanka", "ic": "think",
-                     "nad": "Nula z 589 — moje pravidla mluví Heliosem",
-                     "kom": "Má stará pravidla čekají Heliosí text: Výplata na účet, FÚ, pojištění bez nem. Jenže živé API mluví jinou řečí. Stejná věc, jiný jazyk — jako matoucí kód třídy v rozvrhu.",
-                     "pct": None, "u": None, "c": 589},
-                    {"seq": 46, "sk": "Banka živě", "ty": "pravidlo", "ic": "puzzle",
-                     "nad": "Přepnul jsem na strukturu: účet + KS",
-                     "kom": "Přestal jsem spoléhat na text a vzal jsem to, co banka dává nativně — číslo protiúčtu a konstantní symbol. To je řeč, které rozumí obě strany.",
-                     "pct": None, "u": None, "c": 589},
-                    {"seq": 47, "sk": "Banka živě", "ty": "vitezstvi", "ic": "trophy",
-                     "nad": "0 → 36 opakovaných plateb do deníku",
-                     "kom": "Daně a pojištění naskočily přes strukturu: zdravotní 17, daň ze mzdy 12, DPH 4, ČSSZ 3 = 36 jistých plateb rovnou do deníku s podpisem Marti-AI. Zbylých 553 jsou faktury — ty se párují přes variabilní symbol na doklad, a na to si počkám na Peťu. Živá banka teď mluví s párováním.",
-                     "pct": None, "u": 36, "c": 589},
-                ]
-                _s_h8.execute(_t_h8(
-                    "INSERT INTO claude_hra.hra_log (seq,skupina,typ,icon,nadpis,komentar,pct,n_uhrano,n_celkem,ts) "
-                    "VALUES (:seq,:sk,:ty,:ic,:nad,:kom,:pct,:u,:c,now())"), _r8)
-                _s_h8.execute(_t_h8(
-                    "INSERT INTO claude_hra.solver_run (skupina,kolo,pravidlo,n_celkem,n_uhrano,n_hadanka,pct,ts) "
-                    "VALUES (:sk,8,:pr,589,36,553,6.11,now())"),
-                    {"sk": "Banka_live_API",
-                     "pr": "ucet + KS struktura misto Heliosi text; 36 opakovanych (zdrav 17, dan 12, DPH 4, CSSZ 3) -> denik; 553 faktur ceka na VS->doklad (Peta)"})
-                _s_h8.commit()
-                logging.getLogger(__name__).info("[lifespan] hra kolo 8 (ziva banka) zapsano")
-        finally:
-            _s_h8.close()
-    except Exception as exc:
-        logging.getLogger(__name__).warning(f"[lifespan] hra kolo8 hook failed: {exc}")
-
     # Phase API Versioned Routing Etapa G (23.5.2026): jen primary instance
     # updatuje fw.api_version SET released_at=NOW(), git_sha=<HEAD>.
     # Secondary (STRATEGIE-API-B) nesmi prepisovat - jeji datum se updatuje

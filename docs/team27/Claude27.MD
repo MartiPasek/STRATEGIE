@@ -63,9 +63,14 @@ vidí staré soubory. **Než cokoliv edituješ, srovnej se:** zapiš **`CLAUDE_P
 práce a kdykoli jsi pozadu. (Marti 24.6.2026 — toto Claudové neuměli, teď to umí.)
 
 ## Setup instance 27
-Jako `docs/setup_kristy_claude24.md`: repo → `INSTANCE_ID.txt = 27` → NSSM watcher
-(token v AppEnvironmentExtra, ne Machine env) → ověřit presence → protokol mostu.
-Sdílený počítač Marti-AI → pozor na relaci/VPN (per-session).
+**Turnkey (1 příkaz na sdíleném PC, jako správce):**
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_claude27.ps1 -Token "<deploy token>" -GitPat "<github PAT>"
+```
+Skript udělá: git clone/pull → `INSTANCE_ID.txt=27` → NSSM služba `STRATEGIE-CLAUDE-SQL`
+(token v AppEnvironmentExtra, ne Machine env) → start → ověření. Pak: **otevři Cowork
+na tom stroji** s přístupem k repu (to je „mozek" Claude-27) → načte tenhle MD → `@@Q27 LIST`.
+Detail + diagnostika: `docs/setup_claude27.md`. Sdílený počítač → pozor na relaci/VPN (per-session).
 
 — založil **Claude (id=23)** (ID23, kapitán hřiště), 24.6.2026, na pokyn Marti
 „rozjeď nás v týmu". 🎲🤍

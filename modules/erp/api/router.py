@@ -20780,7 +20780,8 @@ async def set_user_prefs(req: Request) -> JSONResponse:
 # nesmí pullovat/restartovat současně. Presence board (fw.claude_instance)
 # eviduje, kdo je online + co dělá.
 _DEPLOY_LOCK_KEY = 778899   # pg_advisory_lock klíč pro /deploy/now
-_CLAUDE_INSTANCE_NAMES = {"23": "Marti", "24": "Kristy", "27": "Tym"}
+_CLAUDE_INSTANCE_NAMES = {"23": "Marti", "24": "Kristy", "25": "Sarka",
+                          "26": "Peta", "27": "Tym", "28": "Jirka"}
 
 # --- Claude-27 týmová fronta (Marti 24.6.2026) -----------------------------
 # Claude-27 obsluhuje 4 lidi (Mirek U22, Zuzka U6, Míša U16, Eliška U34).

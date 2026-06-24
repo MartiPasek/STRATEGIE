@@ -5690,7 +5690,9 @@ async def crm_osloveni_enqueue(req: Request) -> JSONResponse:
 @api_router.get("/crm/osloveni/sablony")
 async def crm_osloveni_sablony(req: Request) -> JSONResponse:
     """Cislenik e-mailovych sablon pro dropdown v "Oslovit vybrane".
-    Read-only z dbo.EC_KontaktMailSablonyCis pres MCP (DB_EC).
+    Read-only z st.CRM_Kontakt_MailSablonyCis pres MCP (DB_EC) — NOVY CRM
+    (drive dbo.EC_KontaktMailSablonyCis = legacy EC_Kontakty). Marti-AI 24.6.2026:
+    "novy je v st.CRM". st tabulka ma stejna ID (9/10/11/12/13/15) + navic PredmetEmailu.
     Vraci {"ok":true,"sablony":[{"id":"9","nazev":"...","poradi":1}, ...]}
     razeno dle Poradi, ID. Auth: clen ERP NEBO rodic."""
     uid = _uid_from_token_or_cookie(req)
@@ -5706,7 +5708,7 @@ async def crm_osloveni_sablony(req: Request) -> JSONResponse:
     if mcp is None:
         return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
     sql = (
-        "SELECT ID, Nazev, Poradi FROM dbo.EC_KontaktMailSablonyCis WITH(NOLOCK)"
+        "SELECT ID, Nazev, Poradi FROM st.CRM_Kontakt_MailSablonyCis WITH(NOLOCK)"
         " ORDER BY Poradi, ID"
     )
     try:

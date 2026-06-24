@@ -20780,7 +20780,159 @@ async def set_user_prefs(req: Request) -> JSONResponse:
 # nesmí pullovat/restartovat současně. Presence board (fw.claude_instance)
 # eviduje, kdo je online + co dělá.
 _DEPLOY_LOCK_KEY = 778899   # pg_advisory_lock klíč pro /deploy/now
-_CLAUDE_INSTANCE_NAMES = {"23": "Marti", "24": "Kristy"}
+_CLAUDE_INSTANCE_NAMES = {"23": "Marti", "24": "Kristy", "27": "Tym"}
+
+# --- Claude-27 týmová fronta (Marti 24.6.2026) -----------------------------
+# Claude-27 obsluhuje 4 lidi (Mirek U22, Zuzka U6, Míša U16, Eliška U34).
+# Smyčka: práce → email člověku → odpověď → fronta. Zuzka (U6) drží instanci
+# naživu ("Go"). Když má frontu a instance neběží → slyšitelná notifikace
+# Zuzce + Mirkovi, ať dají Go.
+_C27_WAKERS = (6, 22)          # komu chodí "spusť Clauda-27" (Zuzka, Mirek)
+_C27_ALIVE_MIN = 4             # instance živá, pokud last_seen < N minut
+_C27_NOTIFY_DEDUP_MIN = 15     # neopakovat budící notifikaci častěji než N minut
+
+
+def _c27_alive(s) -> bool:
+    """Je instance 27 živá? (heartbeat last_seen < _C27_ALIVE_MIN minut)."""
+    from sqlalchemy import text as _t
+    try:
+        r = s.execute(_t(
+            "SELECT last_seen_at > now() - (:m || ' minutes')::interval "
+            "FROM fw.claude_instance WHERE instance_id='27'"
+        ), {"m": _C27_ALIVE_MIN}).scalar()
+        return bool(r)
+    except Exception:
+        return False
+
+
+def _c27_pending(s) -> int:
+    from sqlalchemy import text as _t
+    try:
+        return int(s.execute(_t(
+            "SELECT count(*) FROM fw.claude27_queue WHERE status='pending'"
+        )).scalar() or 0)
+    except Exception:
+        return 0
+
+
+def _c27_notify_wake(s, force=False) -> bool:
+    """Slyšitelná notifikace Zuzce + Mirkovi, že je třeba spustit Clauda-27.
+    Pošle JEN když je co dělat (pending>0) a instance neběží (nebo force).
+    Dedup: ne víc než 1× za _C27_NOTIFY_DEDUP_MIN minut."""
+    from sqlalchemy import text as _t
+    pend = _c27_pending(s)
+    if pend <= 0 and not force:
+        return False
+    if not force and _c27_alive(s):
+        return False
+    # dedup
+    try:
+        recent = s.execute(_t(
+            "SELECT 1 FROM fw.mobile_command WHERE command_type='claude_msg' "
+            "AND title LIKE '🤖 Spusť Clauda-27%' "
+            "AND created_at > now() - (:m || ' minutes')::interval LIMIT 1"
+        ), {"m": _C27_NOTIFY_DEDUP_MIN}).first()
+        if recent:
+            return False
+    except Exception:
+        pass
+    title = "🤖 Spusť Clauda-27"
+    msg = ("Claude-27 má ve frontě %d %s (požadavky / příchozí e-maily / práce). "
+           "Otevři appku → Claude-27 → ▶ Go." % (pend, "položku" if pend == 1 else "položek"))
+    for _u in _C27_WAKERS:
+        try:
+            _abs_notify(s, _u, title, msg, quiet=False)
+        except Exception:
+            pass
+    return True
+
+
+def _c27_can(s, uid: int) -> bool:
+    """Kdo vidí/ovládá Clauda-27: Zuzka (U6) + Mirek (U22) + rodiče."""
+    try:
+        return uid in _C27_WAKERS or _is_parent(s, uid)
+    except Exception:
+        return uid in _C27_WAKERS
+
+
+_C27_PEOPLE = {6: "Zuzka", 16: "Míša", 22: "Mirek", 34: "Eliška"}
+
+
+@api_router.get("/app/claude27/status")
+async def claude27_status(req: Request) -> JSONResponse:
+    """Stav Clauda-27: živý? kolik ve frontě, per člověk, čeká na odpověď.
+    Pro Zuzku/Mirka (budíci) + rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _c27_can(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        alive = _c27_alive(s)
+        ls = s.execute(_t("SELECT last_seen_at, work_status, current_work "
+                          "FROM fw.claude_instance WHERE instance_id='27'")).first()
+        rows = s.execute(_t(
+            "SELECT person_user_id, status, count(*) n FROM fw.claude27_queue "
+            "WHERE status IN ('pending','in_progress','waiting_reply') "
+            "GROUP BY person_user_id, status")).fetchall()
+        by_person = {}
+        pending = 0; in_progress = 0; waiting = 0
+        for r in rows:
+            nm = _C27_PEOPLE.get(r[0] or 0, "Obecné")
+            d = by_person.setdefault(nm, {"pending": 0, "in_progress": 0, "waiting_reply": 0})
+            d[r[1]] = int(r[2])
+            if r[1] == "pending": pending += int(r[2])
+            elif r[1] == "in_progress": in_progress += int(r[2])
+            elif r[1] == "waiting_reply": waiting += int(r[2])
+        recent = s.execute(_t(
+            "SELECT id, person_user_id, typ, predmet, status, "
+            "to_char(created_at,'DD.MM HH24:MI') ca FROM fw.claude27_queue "
+            "WHERE status IN ('pending','in_progress','waiting_reply') "
+            "ORDER BY created_at DESC LIMIT 30")).fetchall()
+        items = [{"id": r[0], "kdo": _C27_PEOPLE.get(r[1] or 0, "Obecné"),
+                  "typ": r[2], "predmet": r[3], "status": r[4], "kdy": r[5]} for r in recent]
+        return JSONResponse({"ok": True, "alive": alive,
+                             "last_seen": (ls[0].isoformat() if ls and ls[0] else None),
+                             "work_status": (ls[1] if ls else None),
+                             "current_work": (ls[2] if ls else None),
+                             "pending": pending, "in_progress": in_progress,
+                             "waiting_reply": waiting, "by_person": by_person,
+                             "items": items, "can_go": True})
+    finally:
+        s.close()
+
+
+@api_router.post("/app/claude27/go")
+async def claude27_go(req: Request) -> JSONResponse:
+    """Zuzka (nebo Mirek/rodič) dá Clauda-27 'Go' → zapíše budící signál.
+    Watcher instance 27 ho pollne a projede frontu."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    note = str((b or {}).get("note") or "")[:200]
+    s = _g()
+    try:
+        if not _c27_can(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("INSERT INTO fw.claude27_wake (pressed_by, note) VALUES (:u, :n)"),
+                  {"u": uid, "n": note or None})
+        s.commit()
+        pend = _c27_pending(s)
+        return JSONResponse({"ok": True, "pending": pend,
+                             "msg": "Go odesláno — Claude-27 si projede frontu."})
+    finally:
+        s.close()
+
+
 # Binding User<->Claude (Marti 3.6.): write-approval banner musí být per-user.
 # Claude-23 komunikuje s Marti (1), Claude-24 s Kristý (11). Navázání je
 # uložené v fw.claude_instance.bound_user_id; neatribuované/legacy requesty
@@ -26012,6 +26164,95 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "HRA SQL: %s" % str(e)[:400]})
         finally:
             _sh.close()
+
+    # Claude-27 týmová fronta (Marti 24.6.2026): Claude-27 si spravuje frontu
+    # práce pro 4 lidi; při uspání / nové položce pošle Zuzce+Mirkovi slyšitelnou
+    # notifikaci "dej Go". Token-auth (jako @@HRA).
+    #   @@Q27 LIST
+    #   @@Q27 ADD {"person":22,"typ":"task","predmet":"...","popis":"...","source":"..."}
+    #   @@Q27 DONE <id>
+    #   @@Q27 STATUS <id> <pending|in_progress|waiting_reply|error|done>
+    #   @@Q27 SLEEP [text]   → uspání + slyšitelná notifikace budičům (pokud fronta)
+    #   @@Q27 WAKE?          → byl stisknut Go? (konzumuje signál)
+    if sql.upper().startswith("@@Q27"):
+        import json as _jq
+        from core.database_data import get_data_session as _gq
+        from sqlalchemy import text as _tq
+        _rest = sql[len("@@Q27"):].strip()
+        _parts = _rest.split(None, 1)
+        _sub = (_parts[0].upper() if _parts else "")
+        _arg = (_parts[1].strip() if len(_parts) > 1 else "")
+        _s = _gq()
+        try:
+            if _sub == "LIST":
+                _r = _s.execute(_tq(
+                    "SELECT id, person_user_id, typ, predmet, status, "
+                    "to_char(created_at,'DD.MM HH24:MI') FROM fw.claude27_queue "
+                    "WHERE status IN ('pending','in_progress','waiting_reply') "
+                    "ORDER BY status, created_at")).fetchall()
+                _items = [{"id": x[0], "kdo": _C27_PEOPLE.get(x[1] or 0, "Obecné"),
+                           "typ": x[2], "predmet": x[3], "status": x[4], "kdy": x[5]} for x in _r]
+                return JSONResponse({"ok": True, "count": len(_items), "items": _items})
+            if _sub == "ADD":
+                try:
+                    _j = _jq.loads(_arg)
+                except Exception as e:
+                    return JSONResponse({"ok": False, "error": "@@Q27 ADD <json>: %s" % e})
+                _pid = _j.get("person")
+                _s.execute(_tq(
+                    "INSERT INTO fw.claude27_queue (person_user_id, typ, predmet, popis, source_ref, created_by) "
+                    "VALUES (:p, :ty, :pr, :po, :sr, NULL)"),
+                    {"p": int(_pid) if _pid else None, "ty": (_j.get("typ") or "task")[:30],
+                     "pr": (_j.get("predmet") or "")[:300], "po": _j.get("popis"),
+                     "sr": (_j.get("source") or None)})
+                _s.commit()
+                _notif = _c27_notify_wake(_s)
+                _s.commit()
+                return JSONResponse({"ok": True, "added": True, "notified": _notif})
+            if _sub == "DONE":
+                _id = _arg.split()[0] if _arg else "0"
+                _s.execute(_tq("UPDATE fw.claude27_queue SET status='done', done_at=now(), "
+                               "updated_at=now() WHERE id=:i"), {"i": int(_id)})
+                _s.commit()
+                return JSONResponse({"ok": True, "done": int(_id)})
+            if _sub == "STATUS":
+                _sp = _arg.split()
+                if len(_sp) < 2:
+                    return JSONResponse({"ok": False, "error": "@@Q27 STATUS <id> <stav>"})
+                _st = _sp[1].lower()
+                if _st not in ("pending", "in_progress", "waiting_reply", "error", "done"):
+                    return JSONResponse({"ok": False, "error": "neznámý stav %s" % _st})
+                _s.execute(_tq("UPDATE fw.claude27_queue SET status=:st, updated_at=now(), "
+                               "done_at=CASE WHEN :st='done' THEN now() ELSE done_at END WHERE id=:i"),
+                           {"st": _st, "i": int(_sp[0])})
+                _s.commit()
+                return JSONResponse({"ok": True, "id": int(_sp[0]), "status": _st})
+            if _sub == "SLEEP":
+                _pend = _c27_pending(_s)
+                _notif = False
+                if _pend > 0:
+                    _notif = _c27_notify_wake(_s, force=True)
+                    _s.commit()
+                return JSONResponse({"ok": True, "asleep": True, "pending": _pend,
+                                     "notified_wakers": _notif, "note": _arg[:200] or None})
+            if _sub in ("WAKE?", "WAKE"):
+                _w = _s.execute(_tq(
+                    "SELECT id, pressed_by FROM fw.claude27_wake "
+                    "WHERE consumed_at IS NULL ORDER BY id")).fetchall()
+                if not _w:
+                    return JSONResponse({"ok": True, "go": False})
+                _ids = [x[0] for x in _w]
+                _s.execute(_tq("UPDATE fw.claude27_wake SET consumed_at=now() WHERE id = ANY(:ids)"),
+                           {"ids": _ids})
+                _s.commit()
+                return JSONResponse({"ok": True, "go": True, "signals": len(_ids),
+                                     "by": [_C27_PEOPLE.get(x[1] or 0, str(x[1])) for x in _w]})
+            return JSONResponse({"ok": False, "error": "@@Q27 LIST|ADD|DONE|STATUS|SLEEP|WAKE?"})
+        except Exception as e:
+            _s.rollback()
+            return JSONResponse({"ok": False, "error": "Q27: %s" % str(e)[:300]})
+        finally:
+            _s.close()
 
     # EDI tiered engine (Marti 20.6.2026):
     #   @@PARSE <cesta_k_fakture>            → jedna faktura (detail hlavička+položky)

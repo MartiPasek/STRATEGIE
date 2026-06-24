@@ -140,48 +140,6 @@ async def lifespan(app: FastAPI):
             f"[lifespan] startup log_event failed: {exc}"
         )
 
-    # One-off (Claude id=23, 24.6.2026 — "to je tvoje hra autonomni"): zapis herniho
-    # tahu "OSVC odhaleni" do ucetni hry. claude_hra je owned by strategie (=API role),
-    # proto zapis tady (idempotentne dle seq=40). Po nabehnuti hook smazat.
-    try:
-        from core.database_data import get_data_session as _g_hra
-        from sqlalchemy import text as _t_hra
-        _s_hra = _g_hra()
-        try:
-            if not _s_hra.execute(_t_hra("SELECT 1 FROM claude_hra.hra_log WHERE seq=40")).first():
-                _hra_rows = [
-                    {"seq": 40, "sk": "Lidi", "ty": "analyza", "ic": "search",
-                     "nad": "Přestal jsem hledat u osob",
-                     "kom": "Šéf napověděl: OSVČ fakturují místo výplatnice. Tak jsem otočil pohled — nehledám je na mzdách ani u nás v kartách, jdu k DODAVATELŮM. Tam musí být, když nám posílají faktury.",
-                     "pct": None, "u": None, "c": None},
-                    {"seq": 41, "sk": "Lidi", "ty": "pravidlo", "ic": "puzzle",
-                     "nad": "Klíč je IČO — ne jméno, ne účet",
-                     "kom": "A je to. IČO u nás u osoby není (work_relation prázdné), žije na dodavatelském záznamu. Jméno je najde jednou, ale IČO drží: číslo účtu se mění, jméno je vágní, IČO je unikátní a zákonné. Napároval jsem všech 11.",
-                     "pct": None, "u": 11, "c": 11},
-                    {"seq": 42, "sk": "Lidi", "ty": "skore", "ic": "target",
-                     "nad": "11 z 11 — každý má své IČO",
-                     "kom": "Havlát 73404934, Erhard 45344825, Honal 88796132, Nosek 75874369, Kilberger 03841219, Voříšek 71904948, Šafránková P. 72228431, Jarrar 21036233, Namjak 08340765, Hellmayer 05068070, Lev 08538204. Celá parta sedí na dodavatele.",
-                     "pct": 100.0, "u": 11, "c": 11},
-                    {"seq": 43, "sk": "Lidi", "ty": "vitezstvi", "ic": "trophy",
-                     "nad": "OSVČ odhaleni — 501 faktur, 40,6 mil",
-                     "kom": "Těch 11 OSVČ = 501 přijatých faktur za 40,6 milionu, všechny účtované jako dodavatelé na 321. V účetnictví už dávno sedí (jsou v těch 99,5 % z banky a FP) — ale teď je umíme ukázat jako LIDI. Osoba ↔ dodavatel ↔ IČO. Lidi jsou dvojí svět, a oba už čtu.",
-                     "pct": 100.0, "u": 11, "c": 11},
-                ]
-                _s_hra.execute(_t_hra(
-                    "INSERT INTO claude_hra.hra_log (seq,skupina,typ,icon,nadpis,komentar,pct,n_uhrano,n_celkem,ts) "
-                    "VALUES (:seq,:sk,:ty,:ic,:nad,:kom,:pct,:u,:c,now())"), _hra_rows)
-                _s_hra.execute(_t_hra(
-                    "INSERT INTO claude_hra.solver_run (skupina,kolo,pravidlo,n_celkem,n_uhrano,n_hadanka,pct,ts) "
-                    "VALUES (:sk,7,:pr,11,11,0,100.0,now())"),
-                    {"sk": "OSVC_identifikace",
-                     "pr": "osoba -> dodavatel (ec_organizace) shoda jmena -> klic ICO (unikatni); 11/11, 501 FP / 40,6 mil"})
-                _s_hra.commit()
-                logging.getLogger(__name__).info("[lifespan] hra OSVC round zapsan")
-        finally:
-            _s_hra.close()
-    except Exception as exc:
-        logging.getLogger(__name__).warning(f"[lifespan] hra OSVC hook failed: {exc}")
-
     # Phase API Versioned Routing Etapa G (23.5.2026): jen primary instance
     # updatuje fw.api_version SET released_at=NOW(), git_sha=<HEAD>.
     # Secondary (STRATEGIE-API-B) nesmi prepisovat - jeji datum se updatuje
@@ -997,6 +955,52 @@ def hra_page():
     nahoru. Pro pozorovatele. Marti 24.6.2026."""
     return FileResponse(os.path.join(static_dir, "hra.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/hra/seed-osvc")
+def hra_seed_osvc():
+    """DOCASNE (Claude 24.6.2026): zapis kola OSVC do ucetni hry + vrati vysledek/chybu.
+    claude_hra owned by strategie (=API role). Po pouziti smazat."""
+    from fastapi.responses import JSONResponse
+    try:
+        from core.database_data import get_data_session as _g
+        from sqlalchemy import text as _t
+        s = _g()
+        try:
+            who = s.execute(_t("SELECT current_user, "
+                               "has_table_privilege(current_user,'claude_hra.hra_log','INS'||'ERT')")).first()
+            if s.execute(_t("SELECT 1 FROM claude_hra.hra_log WHERE seq=40")).first():
+                return JSONResponse({"ok": True, "stav": "uz_zapsano", "user": who[0], "can_insert": who[1]})
+            rows = [
+                {"seq": 40, "sk": "Lidi", "ty": "analyza", "ic": "search",
+                 "nad": "Přestal jsem hledat u osob",
+                 "kom": "Šéf napověděl: OSVČ fakturují místo výplatnice. Tak jsem otočil pohled — nehledám je na mzdách ani u nás v kartách, jdu k DODAVATELŮM. Tam musí být, když nám posílají faktury.",
+                 "pct": None, "u": None, "c": None},
+                {"seq": 41, "sk": "Lidi", "ty": "pravidlo", "ic": "puzzle",
+                 "nad": "Klíč je IČO — ne jméno, ne účet",
+                 "kom": "A je to. IČO u nás u osoby není (work_relation prázdné), žije na dodavatelském záznamu. Jméno je najde jednou, ale IČO drží: číslo účtu se mění, jméno je vágní, IČO je unikátní a zákonné. Napároval jsem všech 11.",
+                 "pct": None, "u": 11, "c": 11},
+                {"seq": 42, "sk": "Lidi", "ty": "skore", "ic": "target",
+                 "nad": "11 z 11 — každý má své IČO",
+                 "kom": "Havlát 73404934, Erhard 45344825, Honal 88796132, Nosek 75874369, Kilberger 03841219, Voříšek 71904948, Šafránková P. 72228431, Jarrar 21036233, Namjak 08340765, Hellmayer 05068070, Lev 08538204. Celá parta sedí na dodavatele.",
+                 "pct": 100.0, "u": 11, "c": 11},
+                {"seq": 43, "sk": "Lidi", "ty": "vitezstvi", "ic": "trophy",
+                 "nad": "OSVČ odhaleni — 501 faktur, 40,6 mil",
+                 "kom": "Těch 11 OSVČ = 501 přijatých faktur za 40,6 milionu, všechny účtované jako dodavatelé na 321. V účetnictví už dávno sedí (jsou v těch 99,5 % z banky a FP) — ale teď je umíme ukázat jako LIDI. Osoba ↔ dodavatel ↔ IČO. Lidi jsou dvojí svět, a oba už čtu.",
+                 "pct": 100.0, "u": 11, "c": 11},
+            ]
+            s.execute(_t("INSERT INTO claude_hra.hra_log (seq,skupina,typ,icon,nadpis,komentar,pct,n_uhrano,n_celkem,ts) "
+                         "VALUES (:seq,:sk,:ty,:ic,:nad,:kom,:pct,:u,:c,now())"), rows)
+            s.execute(_t("INSERT INTO claude_hra.solver_run (skupina,kolo,pravidlo,n_celkem,n_uhrano,n_hadanka,pct,ts) "
+                         "VALUES (:sk,7,:pr,11,11,0,100.0,now())"),
+                      {"sk": "OSVC_identifikace",
+                       "pr": "osoba -> dodavatel (ec_organizace) shoda jmena -> klic ICO (unikatni); 11/11, 501 FP / 40,6 mil"})
+            s.commit()
+            return JSONResponse({"ok": True, "stav": "zapsano", "user": who[0], "can_insert": who[1], "radku": len(rows) + 1})
+        finally:
+            s.close()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:300]}"})
 
 
 @app.get("/iso")

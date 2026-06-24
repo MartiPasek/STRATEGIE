@@ -993,6 +993,15 @@ def hra_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/pokladny")
+def pokladny_page():
+    """Systém pokladen + kartových účtů (zrcadlo Helios TabDruhPokladen) + registr
+    platebních karet (maskovaný PAN z banky). Editor držitelů/středisek pro Peťu.
+    Marti 24.6.2026."""
+    return FileResponse(os.path.join(static_dir, "pokladny.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/iso")
 def iso_page():
     """ISO 27001 cockpit — elektronické vedení ISMS (parent/Kristý). Kroky + dokumenty

@@ -506,3 +506,126 @@ def bank_parovat(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+# ── Systém pokladen + kartových účtů (zrcadlo Helios TabDruhPokladen) ──
+def _mcp_rows(sql: str, db_name: str):
+    """Read přes EUROSOFT MCP. Vrátí list dictů (lower-case klíče)."""
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": db_name}, conversation_id=None)
+    r = _json.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error"))[:200])
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+    return [{(k or "").lower(): v for k, v in d.items()} for d in rows]
+
+
+def _sync_pokladny_firma(s, db_name: str, firma: str) -> int:
+    sql = ("SELECT Cislo, Nazev, Mena, UcetMD, UcetDAL, Sbornik, CisloZakazky "
+           "FROM dbo.TabDruhPokladen")
+    rows = _mcp_rows(sql, db_name)
+    n = 0
+    for d in rows:
+        cislo = (d.get("cislo") or "").strip()
+        if not cislo:
+            continue
+        nazev = (d.get("nazev") or "").strip()
+        mena = (d.get("mena") or "").strip() or "CZK"
+        typ = "kartovy_ucet" if "kartov" in nazev.lower() else "pokladna"
+        s.execute(_t(
+            "INSERT INTO tenant.ucet_pokladna (firma,cislo,nazev,mena,typ,ucet_md,ucet_dal,sbornik,cislo_zakazky,synced_at) "
+            "VALUES (:f,:c,:n,:m,:typ,:md,:dal,:sb,:cz,now()) "
+            "ON CONFLICT (firma,cislo) DO UPDATE SET nazev=EXCLUDED.nazev, mena=EXCLUDED.mena, "
+            "typ=EXCLUDED.typ, ucet_md=EXCLUDED.ucet_md, ucet_dal=EXCLUDED.ucet_dal, "
+            "sbornik=EXCLUDED.sbornik, cislo_zakazky=EXCLUDED.cislo_zakazky, synced_at=now()"),
+            {"f": firma, "c": cislo, "n": nazev, "m": mena, "typ": typ,
+             "md": (d.get("ucetmd") or "").strip() or None, "dal": (d.get("ucetdal") or "").strip() or None,
+             "sb": (d.get("sbornik") or "").strip() or None, "cz": (d.get("cislozakazky") or "").strip() or None})
+        n += 1
+    return n
+
+
+@bank_router.post("/app/bank/sync-pokladny")
+async def bank_sync_pokladny(request: Request):
+    """Zrcadlí Helios TabDruhPokladen (EC=DB_EC, ES=DB_IS) → tenant.ucet_pokladna."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        ec = _sync_pokladny_firma(s, "DB_EC", "EC")
+        es = _sync_pokladny_firma(s, "DB_IS", "ES")
+        s.commit()
+        return {"ok": True, "ec": ec, "es": es}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/bank/pokladny")
+async def bank_pokladny(request: Request):
+    """Seznam pokladen/kartových účtů + registr karet (pro editor)."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        pok = [dict(r) for r in s.execute(_t(
+            "SELECT id,firma,cislo,nazev,mena,typ,ucet_md,ucet_dal,sbornik,cislo_zakazky,aktivni "
+            "FROM tenant.ucet_pokladna ORDER BY firma,cislo")).mappings().all()]
+        karty = [dict(r) for r in s.execute(_t(
+            "SELECT c.id,c.masked_pan,c.nazev,c.drzitel,c.firma,c.pokladna_cislo,c.stredisko,c.pozn,c.aktivni, "
+            "(SELECT count(*) FROM tenant.bank_transaction_raw t WHERE ltrim(t.ks,'0')='1178' "
+            "  AND t.raw->'entryDetails'->'transactionDetails'->>'paymentCardNumber'=c.masked_pan) AS pocet_plateb "
+            "FROM tenant.bank_card c ORDER BY c.firma,c.masked_pan")).mappings().all()]
+        kartove_ucty = [p for p in pok if p["typ"] == "kartovy_ucet"]
+        return {"ok": True, "pokladny": pok, "karty": karty, "kartove_ucty": kartove_ucty}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/bank/card/{card_id}")
+async def bank_card_update(card_id: int, request: Request):
+    """Editace karty (držitel/středisko/kartový účet/název/aktivní) — pro Peťu."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    sets, params = [], {"id": card_id}
+    for col in ("nazev", "drzitel", "stredisko", "pokladna_cislo"):
+        if col in body:
+            sets.append("%s=:%s" % (col, col))
+            params[col] = (str(body[col]).strip() or None) if body[col] is not None else None
+    if "aktivni" in body:
+        sets.append("aktivni=:aktivni")
+        params["aktivni"] = bool(body["aktivni"])
+    if not sets:
+        return JSONResponse({"ok": False, "error": "nic ke změně"}, status_code=400)
+    s = _sess()
+    try:
+        s.execute(_t("UPDATE tenant.bank_card SET %s WHERE id=:id" % ",".join(sets)), params)
+        s.commit()
+        return {"ok": True}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

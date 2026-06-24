@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pokladny a karty</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:16px;background:#0f1420;color:#e8edf6}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#9fb0c8;font-size:13px;margin-bottom:16px}
+  .card{background:#19202e;border:1px solid #26303f;border-radius:12px;padding:14px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 10px;color:#cdd9ea}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #232c3b}
+  th{color:#8fa3bd;font-weight:600;font-size:12px}
+  .tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600}
+  .tag.k{background:#3a2b14;color:#f0c674}
+  .tag.p{background:#16324a;color:#7fc0ff}
+  .eur{color:#9ad29a;font-weight:600}
+  input,select{background:#0f1622;color:#e8edf6;border:1px solid #2c3850;border-radius:8px;padding:5px 7px;font-size:13px;width:100%;box-sizing:border-box}
+  button{background:#2563eb;color:#fff;border:0;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}
+  button.sec{background:#27313f}
+  button.mini{padding:5px 10px;font-size:12px}
+  .pan{font-family:ui-monospace,Menlo,monospace;letter-spacing:.5px}
+  .row-actions{white-space:nowrap}
+  .ok{color:#7ee08a}.err{color:#ff8b8b}
+  .muted{color:#8295ad;font-size:12px}
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div><h1>🏦 Pokladny a karty</h1><div class="sub">Pokladny i kartové účty z Heliosu · registr platebních karet (maskovaný PAN z banky)</div></div>
+  <div><button class="sec" id="btnSync">🔄 Sync z Heliosu</button> <span id="syncMsg" class="muted"></span></div>
+</div>
+
+<div class="card">
+  <h2>💳 Platební karty <span class="muted" id="cardsHint"></span></h2>
+  <div id="cardsBox">Načítám…</div>
+</div>
+
+<div class="card">
+  <h2>💰 Pokladny a kartové účty</h2>
+  <div id="pokBox">Načítám…</div>
+</div>
+
+<script>
+const API='';
+let DATA={pokladny:[],karty:[],kartove_ucty:[]};
+async function j(url,opt){const r=await fetch(API+url,Object.assign({credentials:'include'},opt||{}));return r.json();}
+
+function renderCards(){
+  const ku=DATA.kartove_ucty;
+  const opts=['<option value="">—</option>'].concat(ku.map(p=>`<option value="${p.cislo}">${p.cislo} · ${p.nazev} (${p.mena})</option>`)).join('');
+  if(!DATA.karty.length){document.getElementById('cardsBox').innerHTML='<div class="muted">Žádné karty. Spusť načtení transakcí z banky — karty se objeví z plateb.</div>';return;}
+  let h='<table><tr><th>Karta (PAN)</th><th>Profil / název</th><th>Držitel</th><th>Středisko</th><th>Kartový účet</th><th>Plateb</th><th></th></tr>';
+  DATA.karty.forEach(c=>{
+    h+=`<tr data-id="${c.id}">
+      <td class="pan">${c.masked_pan}${c.aktivni?'':' <span class="muted">(neaktivní)</span>'}</td>
+      <td><input data-f="nazev" value="${(c.nazev||'').replace(/"/g,'&quot;')}"></td>
+      <td><input data-f="drzitel" value="${(c.drzitel||'').replace(/"/g,'&quot;')}" placeholder="kdo kartu má"></td>
+      <td><input data-f="stredisko" value="${(c.stredisko||'').replace(/"/g,'&quot;')}" placeholder="středisko"></td>
+      <td><select data-f="pokladna_cislo">${opts.replace('value="'+(c.pokladna_cislo||'')+'"','value="'+(c.pokladna_cislo||'')+'" selected')}</select></td>
+      <td style="text-align:center">${c.pocet_plateb||0}</td>
+      <td class="row-actions"><button class="mini" onclick="saveCard(${c.id},this)">Uložit</button> <span class="msg muted"></span></td>
+    </tr>`;
+  });
+  h+='</table><div class="muted" style="margin-top:8px">Tip: držitele a střediska doplní Peťa ze svého seznamu. „Plateb" = počet kartových transakcí (KS 1178) na tuto kartu.</div>';
+  document.getElementById('cardsBox').innerHTML=h;
+  document.getElementById('cardsHint').textContent='('+DATA.karty.length+')';
+}
+async function saveCard(id,btn){
+  const tr=btn.closest('tr');const body={};
+  tr.querySelectorAll('[data-f]').forEach(el=>body[el.dataset.f]=el.value);
+  const msg=tr.querySelector('.msg');msg.textContent='…';msg.className='msg muted';
+  const r=await j('/api/v1/erp/app/bank/card/'+id,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(r.ok){msg.textContent='✓ uloženo';msg.className='msg ok';}else{msg.textContent='✗ '+(r.error||'chyba');msg.className='msg err';}
+}
+function renderPok(){
+  if(!DATA.pokladny.length){document.getElementById('pokBox').innerHTML='<div class="muted">Žádné pokladny. Klikni „Sync z Heliosu".</div>';return;}
+  let h='<table><tr><th>Firma</th><th>Číslo</th><th>Název</th><th>Měna</th><th>Typ</th><th>Účet MD/DAL</th><th>Sborník</th></tr>';
+  DATA.pokladny.forEach(p=>{
+    h+=`<tr>
+      <td>${p.firma}</td><td><b>${p.cislo}</b></td><td>${p.nazev}</td>
+      <td>${p.mena==='EUR'?'<span class="eur">EUR</span>':p.mena}</td>
+      <td><span class="tag ${p.typ==='kartovy_ucet'?'k':'p'}">${p.typ==='kartovy_ucet'?'kartový účet':'pokladna'}</span></td>
+      <td class="muted">${[p.ucet_md,p.ucet_dal].filter(x=>x).join(' / ')||'—'}</td>
+      <td class="muted">${p.sbornik||'—'}</td>
+    </tr>`;
+  });
+  h+='</table>';
+  document.getElementById('pokBox').innerHTML=h;
+}
+async function load(){
+  const r=await j('/api/v1/erp/app/bank/pokladny');
+  if(!r.ok){document.getElementById('pokBox').innerHTML='<div class="err">'+(r.error||'Nedostupné (přihlas se jako rodič)')+'</div>';return;}
+  DATA=r;renderCards();renderPok();
+}
+document.getElementById('btnSync').onclick=async function(){
+  const m=document.getElementById('syncMsg');m.textContent='Synchronizuji z Heliosu…';
+  const r=await j('/api/v1/erp/app/bank/sync-pokladny',{method:'POST'});
+  if(r.ok){m.textContent='✓ EC: '+r.ec+' · ES: '+r.es+' pokladen';m.className='ok';load();}
+  else{m.textContent='✗ '+(r.error||'chyba');m.className='err';}
+};
+load();
+</script>
+</body>
+</html>

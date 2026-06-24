@@ -644,7 +644,7 @@ async def uctovani_bank_post(request: Request):
     s = _sess()
     try:
         rows = s.execute(_t(
-            "SELECT t.id, t.datum, t.ext_id, t.castka, t.mena, t.zprava, t.par_kategorie, t.par_metoda, "
+            "SELECT t.id, t.datum, t.ext_id, t.castka, t.mena, t.zprava, t.par_kategorie, t.par_metoda, t.par_zakazka, "
             "COALESCE(pk.ucet_md, pr.ucet_md, pm.ucet_md) AS ucet_md, COALESCE(pk.ucet_dal, pr.ucet_dal, pm.ucet_dal) AS ucet_dal, "
             "COALESCE(pk.base_jistota, pr.base_jistota, pm.base_jistota) AS jistota, COALESCE(pk.klic, pr.klic, pm.klic) AS pravidlo "
             "FROM tenant.bank_transaction_raw t "
@@ -666,6 +666,12 @@ async def uctovani_bank_post(request: Request):
                 souhrn["eur_ceka"] += 1
                 continue
             j = float(r["jistota"] or 0)
+            zak = r["par_zakazka"]
+            jzdroj = "predkontace:%s" % (r["pravidlo"] or "")
+            if zak:
+                # Celý řetězec doklad → (schválená) objednávka → zakázka rozpleten → bonus jistoty
+                j = min(99.0, j + 10.0)
+                jzdroj += "+zakazka:%s" % zak
             if j >= 90:
                 souhrn["jistota_vysoka"] += 1
             elif j >= 70:
@@ -673,7 +679,7 @@ async def uctovani_bank_post(request: Request):
             else:
                 souhrn["jistota_nizka"] += 1
             if not dry:
-                popis = ("Banka: %s" % (r["pravidlo"] or "")) + ((" — " + (r["zprava"] or "")[:80]) if r["zprava"] else "")
+                popis = ("Banka: %s" % (r["pravidlo"] or "")) + ((" zak %s" % zak) if zak else "") + ((" — " + (r["zprava"] or "")[:70]) if r["zprava"] else "")
                 s.execute(_t(
                     "INSERT INTO tenant.ucetni_denik "
                     "(tenant_id, datum, doklad, ucet_md, ucet_dal, castka, mena, popis, kategorie, zdroj, zdroj_id, "
@@ -683,7 +689,7 @@ async def uctovani_bank_post(request: Request):
                     {"tn": _TENANT, "datum": r["datum"], "doklad": (r["ext_id"] or "")[:64],
                      "md": r["ucet_md"], "dal": r["ucet_dal"], "castka": abs(float(r["castka"] or 0)),
                      "popis": popis[:240], "kat": r["par_kategorie"] or r["par_metoda"], "zid": str(r["id"]),
-                     "jist": j, "jzdroj": "predkontace:%s" % (r["pravidlo"] or "")})
+                     "jist": j, "jzdroj": jzdroj[:120]})
                 souhrn["zapsano"] += 1
         if not dry:
             s.commit()

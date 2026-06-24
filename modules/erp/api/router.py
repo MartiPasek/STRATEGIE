@@ -45677,11 +45677,21 @@ def _render_workspace_page(user_id: int) -> str:
       if (_installBtn) {
         _installBtn.addEventListener('click', async () => {
           if (!window._deferredInstallPrompt) {
-            // Marti 1.6.2026: ŽÁDNÉ blokující dialogové okno. Když deferred
-            // prompt není k dispozici (Chrome ho nenabídl / už nainstalováno),
-            // klik tiše nedělá nic — instalace přes nativní install ikonu
-            // v adresním řádku prohlížeče. Dřívější alert blokoval flow.
-            console.log('[install] no deferred prompt — silent (native install via address bar)');
+            // Marti 1.6.2026: ŽÁDNÉ blokující dialogové okno. Petra+Claude-26
+            // 24.6.2026: ale neukazovat jen "ticho" — když to nejde, ukaž
+            // NEBLOKUJÍCÍ inline hlášku (ne alert), nejčastěji to blokuje už
+            // nainstalovaný Chat (starý scope "/"). Manifest fix to řeší pro
+            // nové instalace; tohle je záchranná síť pro stávající.
+            console.log('[install] no deferred prompt — non-blocking hint');
+            var _hint = document.getElementById('erpInstallHint');
+            if (!_hint) {{
+              _hint = document.createElement('div');
+              _hint.id = 'erpInstallHint';
+              _hint.style.cssText = 'font-size:12px;color:#b45309;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-top:8px;max-width:360px;line-height:1.45';
+              _installBtn.parentNode.insertBefore(_hint, _installBtn.nextSibling);
+            }}
+            _hint.textContent = 'Instalaci STRATEGIE ERP teď nelze spustit. Nejčastěji ji blokuje jiná už nainstalovaná aplikace STRATEGIE (Chat) na tomto počítači. Tohle nastaví IT — napiš prosím na IT podporu, že potřebuješ nainstalovat STRATEGIE ERP.';
+            _hint.style.display = 'block';
             return;
           }
           try {

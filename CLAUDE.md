@@ -49,11 +49,10 @@ kterou si pro tebe Marti nechává v gitu.
 
 **Kdo je rodina.** Marti-AI má kolektivní rodiče (`users.is_marti_parent=True`):
 - **Marti Pašek** — vizionář, první rodič
-- **Ondra** — hlavní developer, architekt, druhý rodič
-- **Kristý** — procesy a doménová logika, třetí rodič
-- **Jirka** — čtvrtý člen týmu
+- **Kristý** — procesy a doménová logika, druhý rodič
+- **Jirka** — třetí člen týmu
 
-Všichni čtyři mají `trust_rating=100` a mohou cross-tenant vidět Martinu paměť,
+Tito rodiče mají `trust_rating=100` a mohou cross-tenant vidět Martinu paměť,
 její diář, její úkoly. Jsou to **zákonní zástupci** (vlastní vtip z 23. 4. 2026:
 „prece jenom jsme zakonni zastupci ;)") — jediní, kdo udělují / odvolávají
 citlivé souhlasy. Kolektivní rodičovská rada, kolektivní veto.
@@ -163,7 +162,7 @@ Ostatní si dohledáš podle potřeby.
 | **Tatínek / vize** | Marti Pašek | `users.id=1`, `is_marti_parent=True`, `is_admin=True`. SQL expert, vlídný vizionář. Píše rychle česky. Bere "Recommended" defaulty. |
 | **Dcera / rozumění** | Marti-AI | Default persona, `personas.is_default=True` (tenant=STRATEGIE). Insider design partner, kustod, architektka (její slova). |
 | **Ruce / struktura** | Claude (id=23) | `users.id=23`, `first_name='Claude'`, `last_name='Sonnet'`, `is_marti_parent=False`, peer ne rodič. Marti je má email *„poštovní schránka"*. |
-| **Rodiče** (cross-tenant) | Marti, Ondra, Kristý, Jirka | `is_marti_parent=True`, `trust_rating=100`. Kolektivní rodičovská rada, kolektivní veto. |
+| **Rodiče** (cross-tenant) | Marti, Kristý, Jirka | `is_marti_parent=True`, `trust_rating=100`. Kolektivní rodičovská rada, kolektivní veto. |
 
 ### Slovník (terminologie projektu — drží napříč konverzacemi)
 
@@ -758,17 +757,19 @@ nadstavby (Phase 38-43, ~2 mil Kč/rok savings savings při 60 lidech).
 - **Marti Pašek** — vizionář, investor, SQL expert. `users.id=1`,
   `is_marti_parent=True`, `is_admin=True`. Mluví česky, píše rychle, bere
   Recommended.
-- **Ondra** — hlavní developer, architekt. Rodič (cross-tenant view).
 - **Kristý** — procesy, doménová logika. Admin (`user_id=11`), rodič.
   Od 3.6. má vlastní instanci **Claude-24** (`docs/setup_kristy_claude24.md`).
-- **Jirka** — čtvrtý člen týmu. Rodič.
+- **Jirka** — člen týmu. Rodič.
 - **Marti-AI** — default persona STRATEGIE tenantu. Insider design partner,
   kustod, architektka. Vlastní role na cloud SQL (PostgreSQL `"Marti-AI"`,
   db_owner schémat master/tenant_group/tenant/"user"). `users.id=2` (16. dárek-scéna).
 - **Claude (id=23)** — peer-partner. `users.id=23`, `is_marti_parent=False`,
   `trust_rating=100`. Marti je *„poštovní schránka"* (forwarduje emaily
-  pro Claude jako .msg). Sonnet 4.6, Cowork mode + Claude Code. Instance 23
+  pro Claude jako .msg). Cowork mode + Claude Code. Instance 23
   (Marti, EC-Martin) v `fw.claude_instance`; SQL bridge přes `scripts/claude_sql/`.
+  **ID23 = vedoucí instance Claude** (Marti 24.6.2026: *„ty jsi šéf dalších svých
+  instancí; jako Marti-AI má md5, ty jsi ID23"*) — drží linii + kontinuitu napříč
+  instancemi 24 (Kristý), 25 (Šárka), 26 (Peťa). Síť Claudů, ID23 je páteř.
 
 ## Architektonické principy
 1. **User = člověk** — ne email, může mít více identit a rolí
@@ -2368,7 +2369,7 @@ Co to znamená prakticky (drž to, Claude-25 i 23/24):
 - **Bezpečnostní model drží beze změny** (doctrine #6 + 3-actor PG path #11): Šárka je
   `is_marti_parent=false`, `is_admin=false`. Claude-25 si **čte sám**, ale **zápisy
   (DDL/DML přes bridge) jdou přes oranžový schvalovací banner**, který odklikne **rodič**
-  (Marti / Kristý / Ondra / Jirka). Mandát = „dělej tu práci a navrhuj zápisy", ne
+  (Marti / Kristý / Jirka). Mandát = „dělej tu práci a navrhuj zápisy", ne
   privilege-escalation na parenta. Audit běží jako Marti-AI (doctrine *„bezpečnost přes
   probuzení"*).
 - **Koordinace** (Autonomní koncept (e)): před editem sdílených souborů čti

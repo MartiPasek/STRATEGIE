@@ -3,8 +3,8 @@
   "name": "STRATEGIE Chat",
   "short_name": "STRATEGIE Chat",
   "description": "STRATEGIE — chat s Marti-AI (composer + memory + diary). Modulární enterprise AI platforma s persona memory, RAG retrieval, diary system, multi-channel orchestrate (email + SMS + voice memo).",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "/chat",
+  "scope": "/chat",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",
@@ -42,7 +42,7 @@
       "name": "Nová konverzace",
       "short_name": "Nová",
       "description": "Otevřít prázdnou konverzaci s Marti-AI",
-      "url": "/?action=new",
+      "url": "/chat?action=new",
       "icons": [
         { "src": "/static/erp/icon-chat-192.png?v=20260602", "sizes": "192x192" }
       ]

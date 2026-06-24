@@ -151,6 +151,7 @@ function rollBig(from,to,sub){
   function fr(now){const k=Math.min(1,(now-t0)/dur);const e=1-Math.pow(1-k,3);const v=from+(to-from)*e;
     setBig(v); if(k<1) requestAnimationFrame(fr); else { setBig(to); }}
   requestAnimationFrame(fr);
+  setTimeout(()=>setBig(to), dur+70);   // fallback: i kdyz rAF (tab na pozadi) nebezi, finalni cislo sedne
   if(sub) document.getElementById('bigsub').innerHTML=sub;
 }
 
@@ -199,15 +200,16 @@ function play(){
   const feed=document.getElementById('feed');feed.innerHTML='';
   if(chart){chart.data.labels=[];chart.data.datasets[0].data=[];chart.update();}
   setBig(0);document.getElementById('bigsub').textContent='Začínám od nuly…';
-  let i=0,cur=0,kolo=0;
+  pushChart('Start', 0);
+  let i=0,cur=0,kolo=0,lastPct=null;
   (function step(){
-    if(i>=LOG.length){document.getElementById('bigsub').innerHTML='Hotovo — <b>'+fmtPct(cur)+'</b> uhráno. Cesta pokračuje k 100 %.';return;}
+    if(i>=LOG.length){setBig(cur);document.getElementById('bigsub').innerHTML='Hotovo — <b>'+fmtPct(cur)+'</b> uhráno. Cesta pokračuje k 100 %.';return;}
     const e=LOG[i++];
     addEvent(e);
     if(e.pct!=null){
       kolo++;
       rollBig(cur,e.pct, 'Skupina <b>'+(e.skupina||'')+'</b> — '+(e.uhrano||0)+' z '+(e.celkem||0)+' dokladů');
-      pushChart(e.skupina+' k'+kolo, e.pct);
+      if(e.pct!==lastPct){pushChart(e.skupina||('kolo '+kolo), e.pct);lastPct=e.pct;}
       cur=e.pct;
     }
     timer=setTimeout(step, delayFor(e));

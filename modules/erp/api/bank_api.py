@@ -484,6 +484,12 @@ def bank_parovat(request: Request):
             "WHERE par_metoda IS NULL AND (zprava ILIKE '%%Výplata na účet%%' OR zprava ILIKE '%%pojišť%%' "
             "  OR zprava ILIKE '%%Soc. pojištění%%' OR protiucet LIKE '%%7928311' OR zprava ILIKE '%%daň%%' "
             "  OR protiucet LIKE '%%77627311')"))
+        # E) platby kartou (KS 1178: Google Ads, Makro, Alza…) + zákonné pojištění (diakritika)
+        s.execute(_t(
+            "UPDATE tenant.bank_transaction_raw t SET par_metoda='opakovana', par_at=now(), "
+            "par_kategorie = CASE WHEN ltrim(ks,'0')='1178' THEN 'karta' "
+            "  WHEN zprava ILIKE '%%pojištění%%' THEN 'zak_pojisteni' ELSE par_kategorie END "
+            "WHERE par_metoda IS NULL AND (ltrim(ks,'0')='1178' OR zprava ILIKE '%%pojištění%%')"))
         s.commit()
         # souhrn
         celkem = s.execute(_t("SELECT count(*) FROM tenant.bank_transaction_raw")).scalar()

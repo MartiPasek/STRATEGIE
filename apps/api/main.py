@@ -140,6 +140,42 @@ async def lifespan(app: FastAPI):
             f"[lifespan] startup log_event failed: {exc}"
         )
 
+    # One-off (Claude id=23, 24.6.2026): 12. kolo hry "Karty a pojisteni". Idempotentne dle seq=57. Po nabehnuti smazat.
+    try:
+        from core.database_data import get_data_session as _g_hC
+        from sqlalchemy import text as _t_hC
+        _s_hC = _g_hC()
+        try:
+            if not _s_hC.execute(_t_hC("SELECT 1 FROM claude_hra.hra_log WHERE seq=57")).first():
+                _rC = [
+                    {"seq": 57, "sk": "Banka živě", "ty": "analyza", "ic": "search",
+                     "nad": "Pojď dál — a tentokrát s pokorou",
+                     "kom": "Šéf řekl pojď dál. Po té lekci jsem se na 84 zbylých podíval znovu — a nehledal jsem špetku, hledal jsem systém. Protože jsem se právě naučil, že tam nejspíš je.",
+                     "pct": None, "u": None, "c": 84},
+                    {"seq": 58, "sk": "Banka živě", "ty": "pravidlo", "ic": "puzzle",
+                     "nad": "Karty a pojištění — a zase systém!",
+                     "kom": "KS 1178 = platby kartou: Google Ads, Makro, Alza, restaurace. A zákonné pojištění zaměstnavatele, co mi uteklo přes diakritiku (pojišť vs pojiště). Šéf dodal: ty karty jdou v Heliosu přes kartový účet — to si pohlídám při účtování. Zase měl pravdu.",
+                     "pct": None, "u": None, "c": 84},
+                    {"seq": 59, "sk": "Banka živě", "ty": "vitezstvi", "ic": "trophy",
+                     "nad": "92 %! A špetku už neřeknu jako první.",
+                     "kom": "Dalších 36 (platby kartou + pojištění) → celkem 541 z 589 = 92 %. Z mého unáhleného 16 % a zbytek je lidská práce jsme se přes šéfovy indicie dostali na 92. Zbývá 48: zákaznické reference a drobné poplatky — a i ty prozkoumám s pokorou. Dvakrát za večer mě data poučila: hledej systém, ne výmluvu.",
+                     "pct": None, "u": 541, "c": 589},
+                ]
+                _s_hC.execute(_t_hC(
+                    "INSERT INTO claude_hra.hra_log (seq,skupina,typ,icon,nadpis,komentar,pct,n_uhrano,n_celkem,ts) "
+                    "VALUES (:seq,:sk,:ty,:ic,:nad,:kom,:pct,:u,:c,now())"), _rC)
+                _s_hC.execute(_t_hC(
+                    "INSERT INTO claude_hra.solver_run (skupina,kolo,pravidlo,n_celkem,n_uhrano,n_hadanka,pct,ts) "
+                    "VALUES (:sk,12,:pr,589,541,48,91.9,now())"),
+                    {"sk": "Banka_karty_pojisteni",
+                     "pr": "KS 1178 = platby kartou (Google/Makro/Alza) + zakonne pojisteni (diakritika); +36; celkem 541/589 = 92%; karty v Heliosu pres kartovy ucet"})
+                _s_hC.commit()
+                logging.getLogger(__name__).info("[lifespan] hra kolo 12 zapsano")
+        finally:
+            _s_hC.close()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] hra kolo12 hook failed: {exc}")
+
     # Phase API Versioned Routing Etapa G (23.5.2026): jen primary instance
     # updatuje fw.api_version SET released_at=NOW(), git_sha=<HEAD>.
     # Secondary (STRATEGIE-API-B) nesmi prepisovat - jeji datum se updatuje

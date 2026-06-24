@@ -472,6 +472,18 @@ def bank_parovat(request: Request):
             "WHERE t.par_metoda IS NULL AND t.zprava ~ '^\\d{4}' "
             "  AND d.rada = (regexp_match(t.zprava, '^(\\d{3})0*(\\d+)'))[1] "
             "  AND ltrim(d.cislo,'0') = (regexp_match(t.zprava, '^(\\d{3})0*(\\d+)'))[2]"))
+        # D) opakované přes text/účet — mzdy/pojištění/daně co mají KS/účet varianty mimo bank_predpis
+        #    (Marti 24.6.: Helios mzdy generuje 'Výplata na účet' dávky; pojišťovny/ČSSZ/FÚ dle účtu)
+        s.execute(_t(
+            "UPDATE tenant.bank_transaction_raw t SET par_metoda='opakovana', par_at=now(), "
+            "par_kategorie = CASE "
+            "  WHEN zprava ILIKE '%%Výplata na účet%%' THEN 'mzda' "
+            "  WHEN protiucet LIKE '%%77627311' OR zprava ILIKE '%%daň%%' THEN 'dan' "
+            "  WHEN protiucet LIKE '%%7928311' OR zprava ILIKE '%%Soc. pojištění%%' THEN 'soc_poj' "
+            "  WHEN zprava ILIKE '%%pojišť%%' THEN 'zdrav_poj' ELSE 'opakovana' END "
+            "WHERE par_metoda IS NULL AND (zprava ILIKE '%%Výplata na účet%%' OR zprava ILIKE '%%pojišť%%' "
+            "  OR zprava ILIKE '%%Soc. pojištění%%' OR protiucet LIKE '%%7928311' OR zprava ILIKE '%%daň%%' "
+            "  OR protiucet LIKE '%%77627311')"))
         s.commit()
         # souhrn
         celkem = s.execute(_t("SELECT count(*) FROM tenant.bank_transaction_raw")).scalar()

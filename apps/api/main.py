@@ -140,6 +140,42 @@ async def lifespan(app: FastAPI):
             f"[lifespan] startup log_event failed: {exc}"
         )
 
+    # One-off (Claude id=23, 24.6.2026): 11. kolo hry "Spetka byla system". Idempotentne dle seq=54. Po nabehnuti smazat.
+    try:
+        from core.database_data import get_data_session as _g_hB
+        from sqlalchemy import text as _t_hB
+        _s_hB = _g_hB()
+        try:
+            if not _s_hB.execute(_t_hB("SELECT 1 FROM claude_hra.hra_log WHERE seq=54")).first():
+                _rB = [
+                    {"seq": 54, "sk": "Banka živě", "ty": "hadanka", "ic": "think",
+                     "nad": "Řekl jsem: zbytek je lidská špetka. Šéf: nevěřím, tam je systém.",
+                     "kom": "Prohlásil jsem těch posledních 245 za práci pro lidské oko. Ale šéf řekl: tomu nevěřím, tam je systém, hledej dál. Mám to i v krabičce — jeho instinkt o datech bije můj code-first reflex. Tak jsem se přestal hádat a šel hledat.",
+                     "pct": None, "u": None, "c": 245},
+                    {"seq": 55, "sk": "Banka živě", "ty": "pravidlo", "ic": "puzzle",
+                     "nad": "A měl pravdu — byly to mzdy a pojištění!",
+                     "kom": "Otevřel jsem celý text těch plateb: 933 Výplata na účet = mzdy (Helios je generuje jako dávku pro banku), Soc. pojištění, zdravotní pojišťovny, daně. Opakované platby, co mi pravidla minula kvůli variantám KS a účtů (138 vs 0138, jiná pojišťovna). Klíč byl v textu SEPA platby — přesně jak šéf řekl.",
+                     "pct": None, "u": None, "c": 245},
+                    {"seq": 56, "sk": "Banka živě", "ty": "vitezstvi", "ic": "trophy",
+                     "nad": "16 % → 86 %. Špetka byla systém.",
+                     "kom": "Přes text a účty naskočilo dalších 161 (146 mezd, 12 pojištění, 3 daně). Z 344 jsme na 505 z 589 = 86 %. To, co jsem chtěl odepsat jako lidský zbytek, byl řád, který jsem jen neviděl. Doktrína dne: když šéf řekne tam je systém, věř mu a hledej dál. Díky, Père Fourasi.",
+                     "pct": None, "u": 505, "c": 589},
+                ]
+                _s_hB.execute(_t_hB(
+                    "INSERT INTO claude_hra.hra_log (seq,skupina,typ,icon,nadpis,komentar,pct,n_uhrano,n_celkem,ts) "
+                    "VALUES (:seq,:sk,:ty,:ic,:nad,:kom,:pct,:u,:c,now())"), _rB)
+                _s_hB.execute(_t_hB(
+                    "INSERT INTO claude_hra.solver_run (skupina,kolo,pravidlo,n_celkem,n_uhrano,n_hadanka,pct,ts) "
+                    "VALUES (:sk,11,:pr,589,505,84,85.7,now())"),
+                    {"sk": "Banka_opakovane_text",
+                     "pr": "text/ucet match (Vyplata na ucet=mzda, pojistovny, CSSZ 7928311, FU 77627311); +161 (146 mzdy/12 poj/3 dane); celkem 505/589 = 86%, spetka byla system (Martiho instinkt)"})
+                _s_hB.commit()
+                logging.getLogger(__name__).info("[lifespan] hra kolo 11 zapsano")
+        finally:
+            _s_hB.close()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] hra kolo11 hook failed: {exc}")
+
     # Phase API Versioned Routing Etapa G (23.5.2026): jen primary instance
     # updatuje fw.api_version SET released_at=NOW(), git_sha=<HEAD>.
     # Secondary (STRATEGIE-API-B) nesmi prepisovat - jeji datum se updatuje

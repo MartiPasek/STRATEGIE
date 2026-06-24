@@ -25943,13 +25943,25 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": "GUARD: povolen jen zápis do claude_hra.* (nebo čtení) → %s" % _st[:90]})
         from core.database_data import get_data_session as _ghra
         from sqlalchemy import text as _thra
+        import datetime as _dthra
+        from decimal import Decimal as _Dhra
+
+        def _hra_jv(v):
+            if isinstance(v, _Dhra):
+                return float(v)
+            if isinstance(v, (_dthra.date, _dthra.datetime)):
+                return v.isoformat()
+            if isinstance(v, (bytes, bytearray, memoryview)):
+                return "<%d B>" % len(bytes(v))
+            return v
+
         _sh = _ghra()
         try:
             _cols = None; _rows = None; _aff = 0
             for _st in _stmts:
                 _res = _sh.execute(_thra(_st))
                 if getattr(_res, "returns_rows", False):
-                    _cols = list(_res.keys()); _rows = [list(r) for r in _res.fetchall()]
+                    _cols = list(_res.keys()); _rows = [[_hra_jv(v) for v in r] for r in _res.fetchall()]
                 else:
                     _cols = None; _rows = None
                     try:

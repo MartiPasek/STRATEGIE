@@ -140,42 +140,6 @@ async def lifespan(app: FastAPI):
             f"[lifespan] startup log_event failed: {exc}"
         )
 
-    # One-off (Claude id=23, 24.6.2026): 9. kolo hry "Parovaci engine". Idempotentne dle seq=48. Po nabehnuti smazat.
-    try:
-        from core.database_data import get_data_session as _g_h9
-        from sqlalchemy import text as _t_h9
-        _s_h9 = _g_h9()
-        try:
-            if not _s_h9.execute(_t_h9("SELECT 1 FROM claude_hra.hra_log WHERE seq=48")).first():
-                _r9 = [
-                    {"seq": 48, "sk": "Banka živě", "ty": "pravidlo", "ic": "puzzle",
-                     "nad": "Postavil jsem párovací engine přes objednávky",
-                     "kom": "Šéf: žádná salda, objednávky jsou páteř — vydané pro nákup, přijaté pro prodej, zakázka je spojka. Ad-hoc dotaz mi vypršel (40k dokladů), tak jsem dal indexy a multi-key matcher: opakovaná → naše číslo → objednávka/zakázka zákazníka.",
-                     "pct": None, "u": None, "c": 589},
-                    {"seq": 49, "sk": "Banka živě", "ty": "skore", "ic": "target",
-                     "nad": "První průchod: 93 z 589, a zakázka DRŽÍ",
-                     "kom": "Opakované (daně/pojištění) 36, vydané faktury 26, vnitroskupina 11, přijaté objednávky 7 — a 45 plateb už nese zakázku. Řetězec banka → doklad → zakázka stojí. Přesně jak to popsal šéf.",
-                     "pct": None, "u": 93, "c": 589},
-                    {"seq": 50, "sk": "Banka živě", "ty": "hadanka", "ic": "think",
-                     "nad": "Příchozí skoro doma, odchozí jsou srdce",
-                     "kom": "Z příchozích zbývá 20. Ale 476 odchozích jsou platby dodavatelům — VS = jejich číslo faktury, na naše nesedne. Ty se párují přes VYDANÉ OBJEDNÁVKY (faktura nese navaznou objednávku). Objednávka je srdce přijatých faktur. To je další kolo.",
-                     "pct": None, "u": None, "c": 476},
-                ]
-                _s_h9.execute(_t_h9(
-                    "INSERT INTO claude_hra.hra_log (seq,skupina,typ,icon,nadpis,komentar,pct,n_uhrano,n_celkem,ts) "
-                    "VALUES (:seq,:sk,:ty,:ic,:nad,:kom,:pct,:u,:c,now())"), _r9)
-                _s_h9.execute(_t_h9(
-                    "INSERT INTO claude_hra.solver_run (skupina,kolo,pravidlo,n_celkem,n_uhrano,n_hadanka,pct,ts) "
-                    "VALUES (:sk,9,:pr,589,93,496,15.79,now())"),
-                    {"sk": "Banka_parovaci_engine",
-                     "pr": "multi-key indexovany: opakovane(ucet+KS) + VS->doklad->zakazka (FV600/vnitro601/prijate-obj920); incoming skoro hotovo, outgoing 476 pres vydane objednavky = dalsi iterace"})
-                _s_h9.commit()
-                logging.getLogger(__name__).info("[lifespan] hra kolo 9 zapsano")
-        finally:
-            _s_h9.close()
-    except Exception as exc:
-        logging.getLogger(__name__).warning(f"[lifespan] hra kolo9 hook failed: {exc}")
-
     # Phase API Versioned Routing Etapa G (23.5.2026): jen primary instance
     # updatuje fw.api_version SET released_at=NOW(), git_sha=<HEAD>.
     # Secondary (STRATEGIE-API-B) nesmi prepisovat - jeji datum se updatuje

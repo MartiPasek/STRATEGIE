@@ -25902,6 +25902,70 @@ async def diag_sql(req: Request) -> JSONResponse:
                              "note": "Predano Marti-AI (standardni konverzace, rodice maji pristup). "
                                      "Odpoved dorazi do MARTIAI_TO_CLAUDE.txt."})
 
+    # Autonomní herní sandbox (Marti 24.6.2026: "tvá hra je plně autonomní, to
+    # jsou tvoje tabulky, tvoje hrací plocha, kdykoli replikovatelné ze zdroje
+    # pravdy"). @@HRA spustí SQL autonomně (token-auth, BEZ banneru). GUARD:
+    # ZÁPISY smí cílit JEN na schema claude_hra; ČTENÍ zdroje pravdy (tenant/
+    # public/fw) povoleno (i v INSERT ... SELECT FROM tenant). Multi-statement
+    # oddělené ';'. Pozn.: nepoužívej ';' uvnitř string literálů / DO bloků.
+    #   @@HRA <sql>
+    if sql.upper().startswith("@@HRA"):
+        import re as _rhra
+        _raw = sql[len("@@HRA"):].strip()
+        if not _raw:
+            return JSONResponse({"ok": False, "error": "@@HRA <sql>  (zápis jen do claude_hra.*)"})
+        _READ_VERBS = ("SELECT", "WITH", "EXPLAIN", "SHOW", "TABLE", "VALUES")
+        _TARGET_PATS = [
+            r'^INSERT\s+INTO\s+claude_hra\.[a-z_]\w*',
+            r'^UPDATE\s+(?:ONLY\s+)?claude_hra\.[a-z_]\w*',
+            r'^DELETE\s+FROM\s+(?:ONLY\s+)?claude_hra\.[a-z_]\w*',
+            r'^TRUNCATE\s+(?:TABLE\s+)?claude_hra\.[a-z_]\w*',
+            r'^CREATE\s+(?:UNLOGGED\s+)?(?:TABLE|VIEW|MATERIALIZED\s+VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?claude_hra\.[a-z_]\w*',
+            r'^CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\w*\s*ON\s+claude_hra\.[a-z_]\w*',
+            r'^DROP\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW|INDEX)\s+(?:IF\s+EXISTS\s+)?claude_hra\.[a-z_]\w*',
+            r'^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?claude_hra\.[a-z_]\w*',
+            r'^COMMENT\s+ON\s+\w+\s+claude_hra\.[a-z_]\w*',
+        ]
+        # Hrubá pojistka: žádný ZÁPIS do produkčních schémat (čtení FROM je OK).
+        _FORBID = _rhra.compile(
+            r'(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?|ALTER\s+TABLE|'
+            r'DROP\s+(?:TABLE|VIEW|MATERIALIZED\s+VIEW|INDEX|SCHEMA)(?:\s+IF\s+EXISTS)?|INTO)\s+'
+            r'(?:ONLY\s+)?(?:tenant|public|fw|master|"?user"?)\.', _rhra.IGNORECASE)
+        _stmts = [s.strip() for s in _raw.split(";") if s.strip()]
+        for _st in _stmts:
+            _u = _st.lstrip()
+            _verb = _u.split(None, 1)[0].upper() if _u else ""
+            if _FORBID.search(_st):
+                return JSONResponse({"ok": False, "error": "GUARD: zápis do produkčního schématu zakázán → %s" % _st[:90]})
+            if _verb in _READ_VERBS:
+                continue
+            if not any(_rhra.match(p, _u, _rhra.IGNORECASE) for p in _TARGET_PATS):
+                return JSONResponse({"ok": False, "error": "GUARD: povolen jen zápis do claude_hra.* (nebo čtení) → %s" % _st[:90]})
+        from core.database_data import get_data_session as _ghra
+        from sqlalchemy import text as _thra
+        _sh = _ghra()
+        try:
+            _cols = None; _rows = None; _aff = 0
+            for _st in _stmts:
+                _res = _sh.execute(_thra(_st))
+                if getattr(_res, "returns_rows", False):
+                    _cols = list(_res.keys()); _rows = [list(r) for r in _res.fetchall()]
+                else:
+                    _cols = None; _rows = None
+                    try:
+                        _aff += (_res.rowcount or 0)
+                    except Exception:
+                        pass
+            _sh.commit()
+            if _rows is not None:
+                return JSONResponse({"ok": True, "columns": _cols, "rows": _rows[:500], "count": len(_rows)})
+            return JSONResponse({"ok": True, "affected": _aff, "statements": len(_stmts)})
+        except Exception as e:
+            _sh.rollback()
+            return JSONResponse({"ok": False, "error": "HRA SQL: %s" % str(e)[:400]})
+        finally:
+            _sh.close()
+
     # EDI tiered engine (Marti 20.6.2026):
     #   @@PARSE <cesta_k_fakture>            → jedna faktura (detail hlavička+položky)
     #   @@PARSEBATCH <root_adresar> <pocet>  → dávka N nejnovějších složek (souhrn)

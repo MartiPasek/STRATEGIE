@@ -645,11 +645,12 @@ async def uctovani_bank_post(request: Request):
     try:
         rows = s.execute(_t(
             "SELECT t.id, t.datum, t.ext_id, t.castka, t.mena, t.zprava, t.par_kategorie, t.par_metoda, "
-            "COALESCE(pk.ucet_md, pm.ucet_md) AS ucet_md, COALESCE(pk.ucet_dal, pm.ucet_dal) AS ucet_dal, "
-            "COALESCE(pk.base_jistota, pm.base_jistota) AS jistota, COALESCE(pk.klic, pm.klic) AS pravidlo "
+            "COALESCE(pk.ucet_md, pr.ucet_md, pm.ucet_md) AS ucet_md, COALESCE(pk.ucet_dal, pr.ucet_dal, pm.ucet_dal) AS ucet_dal, "
+            "COALESCE(pk.base_jistota, pr.base_jistota, pm.base_jistota) AS jistota, COALESCE(pk.klic, pr.klic, pm.klic) AS pravidlo "
             "FROM tenant.bank_transaction_raw t "
-            "LEFT JOIN tenant.bank_predkontace pk ON pk.tenant_id=:tn AND pk.typ_klice='kategorie' AND pk.klic=t.par_kategorie AND pk.aktivni "
-            "LEFT JOIN tenant.bank_predkontace pm ON pm.tenant_id=:tn AND pm.typ_klice='metoda' AND pm.klic=t.par_metoda AND pm.aktivni "
+            "LEFT JOIN tenant.bank_predkontace pk ON pk.tenant_id=:tn AND pk.typ_klice='kategorie' AND pk.klic=t.par_kategorie AND pk.aktivni AND (pk.smer IS NULL OR pk.smer=t.smer) "
+            "LEFT JOIN tenant.bank_predkontace pr ON pr.tenant_id=:tn AND pr.typ_klice='rada' AND pr.klic=t.par_doklad_rada AND pr.aktivni AND (pr.smer IS NULL OR pr.smer=t.smer) "
+            "LEFT JOIN tenant.bank_predkontace pm ON pm.tenant_id=:tn AND pm.typ_klice='metoda' AND pm.klic=t.par_metoda AND pm.aktivni AND (pm.smer IS NULL OR pm.smer=t.smer) "
             "WHERE t.par_metoda IS NOT NULL "
             "AND NOT EXISTS (SELECT 1 FROM tenant.ucetni_denik d WHERE d.zdroj='bank' AND CAST(d.zdroj_id AS text)=CAST(t.id AS text))"),
             {"tn": _TENANT}).mappings().all()

@@ -5,11 +5,19 @@
 **Oslovení v emailech: „Ahoj Eliško,"** (tykání, neformální, čárka za oslovením).
 
 ## Doména / za co zodpovídá
-**Vedení projektu digitalizace EUROSOFTU** — velký přechod Centrály 1 (Helios/Delphi) do STRATEGIE.
+**Dvě role:**
+
+**1) Vedení projektu digitalizace EUROSOFTU** — přechod Centrály 1 (Helios/Delphi) do STRATEGIE.
 - Registr „🗂️ Digitalizace" (`/digitalizace`): 654 tabulek DB_EC, 23 domén, priority P1/P2/P3,
   % připravenosti, odpovědný za oddělení, poznámky (`tenant.mig_*`).
 - Mapa vazeb domén (`mig_domain_edge`, 92 hran) + nejtěžší procedury (`mig_procedure`).
-- Koordinace per oddělení: kdo za co zodpovídá, co kdy migrovat.
+
+**2) Celý systém Vedoucích projektů VR (výroba rozváděčů) + jejich workflow.**
+Oběh zakázky pro VR end-to-end:
+**poptávka → kalkulace → nabídka → přijatá objednávka → zakázka → zakázkový list →
+komunikace s výrobou rozváděčů.**
+- Vede projektové vedoucí VR a jejich workflow napříč těmito stupni.
+- Zakázkové listy (ZL) + předávání do výroby rozváděčů a komunikace s ní.
 
 ## Jak s ní Claude-27 pracuje
 - Po posunu v migraci → **email „Ahoj Eliško,"**: co je hotovo / zmapováno + co navrhuju

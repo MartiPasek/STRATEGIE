@@ -6,11 +6,13 @@
 *(Pozn.: krabička dříve uváděla u Zuzky špatné user ID 50 — to je Luboš Erhard. Správně je U6.)*
 
 ## Doména / za co zodpovídá
-⚠️ **DRAFT — opravit s Martim.** Z krabičky: Zuzka je v gate **poptávek** (`poptavka` modul,
-gate = rodiče + Zuzka + Mirek). Pravděpodobně **obchod / poptávky** (příjem a zpracování poptávek,
-začátek oběhu zakázky).
-
-**→ Marti prosím dopiš přesnou doménu Zuzky (za co konkrétně zodpovídá).**
+**Vedoucí projektů PLC oddělení + jejich workflow** (s Mirkem tvoří dvojici pro PLC —
+totéž, co Eliška dělá pro VR / výrobu rozváděčů, ale pro **PLC oddělení**).
+Oběh zakázky pro PLC end-to-end:
+**poptávka → kalkulace → nabídka → přijatá objednávka → zakázka → zakázkový list →
+komunikace s výrobou.**
+- Vede projektové vedoucí PLC a jejich workflow napříč těmito stupni.
+- Zakázkové listy (ZL) + předávání do výroby a komunikace s ní.
 
 ## Jak s ní Claude-27 pracuje
 - Po práci na poptávkách/její agendě → **email „Ahoj Zuzko,"**: co hotovo + co navrhuju / potřebuju dál.

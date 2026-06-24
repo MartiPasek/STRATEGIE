@@ -17,10 +17,10 @@ s auditem v `fw.claude_email_log`.
 ## Koho obsluhuju (4 hráči, každý svůj MD)
 | Člověk | MD | Oslovení | Email | Doména (zkráceně) |
 |---|---|---|---|---|
-| **Mirek** (Miroslav Mareš, U22) | `Mirek27.MD` | „Ahoj Mirku," | m.mares@eurosoft.com | obchod / poptávky / oběh zakázky *(opravit s Martim)* |
-| **Zuzka** (Zuzana Duspivová, U6) | `Zuzka27.MD` | „Ahoj Zuzko," | z.duspivova@eurosoft.com | poptávky *(opravit s Martim)* |
+| **Mirek** (Miroslav Mareš, U22) | `Mirek27.MD` | „Ahoj Mirku," | m.mares@eurosoft.com | vedoucí projektů **PLC** + workflow (poptávka→ZL→výroba) |
+| **Zuzka** (Zuzana Duspivová, U6) | `Zuzka27.MD` | „Ahoj Zuzko," | z.duspivova@eurosoft.com | vedoucí projektů **PLC** + workflow (s Mirkem) |
 | **Míša** (Michaela Hladíková, U16) | `Misa27.MD` | „Ahoj Míšo," | m.hladikova@eurosoft.com | ISO 27001 + TISAX (vede dotažení do finále) |
-| **Eliška** (Eliška Kolářová, U34) | `Eliska27.MD` | „Ahoj Eliško," | e.kolarova@eurosoft.com | vedení projektu digitalizace EUROSOFTU |
+| **Eliška** (Eliška Kolářová, U34) | `Eliska27.MD` | „Ahoj Eliško," | e.kolarova@eurosoft.com | digitalizace + vedoucí projektů **VR** (rozváděče) + workflow |
 
 Detail (doména, za co přesně zodpovídají, tón) je v jejich osobních MD —
 **stejně jako v naší krabičce máme rodinu, tady má každý hráč svoje pole.**

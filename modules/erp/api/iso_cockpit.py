@@ -614,7 +614,12 @@ def _iso_reminders_run(force=False):
         s = _sess()
         try:
             tenants = [r[0] for r in s.execute(_t("SELECT DISTINCT tenant_id FROM tenant.iso_task")).all()]
-            parents = _parent_emails(s)
+            # Marti 24.6.2026: digest chodí ZODPOVĚDNÝM (Míša = ISO/TISAX,
+            # Michal Šik = plán obnovy), KOPIE rodičům (Marti + Kristý).
+            digest_to = _users_emails(s, (16, 19))   # Míša + Michal Šik
+            digest_cc = _users_emails(s, (1, 11))    # Marti + Kristý
+            if not digest_to:
+                digest_to = _parent_emails(s)        # fallback, kdyby zodpovědní neměli e-mail
             for tid in tenants:
                 items = _cadence_compute(s, tid)
                 over = [i for i in items if i["stav"] in ("po_terminu", "nikdy")]
@@ -639,8 +644,9 @@ def _iso_reminders_run(force=False):
                          "Kdo má co na starosti a návody najdete přímo v přehledu.</p>"
                          "<p>👉 <a href='%s/iso?tenant=%s'>Otevřít přehled bezpečnosti</a></p>"
                          "<p>Ozvu se zase, až bude vhodná chvíle. Hezký den!</p>") % (_PORTAL, tid)
-                for em in parents:
-                    _notify_email(s, tid, em, "🌳 Váš průvodce bezpečností — co nás ještě čeká (%s)" % tnm, body)
+                for em in digest_to:
+                    _notify_email(s, tid, em, "🌳 Váš průvodce bezpečností — co nás ještě čeká (%s)" % tnm, body,
+                                  cc=[c for c in digest_cc if c != em])
                 s.execute(_t("""INSERT INTO tenant.iso_cadence_run(tenant_id,kod,last_done,updated_at)
                     VALUES(:t,'_digest',now(),now())
                     ON CONFLICT (tenant_id,kod) DO UPDATE SET last_done=now(), updated_at=now()"""), {"t": tid})
@@ -1135,15 +1141,33 @@ def _parent_emails(s):
         return []
 
 
-def _notify_email(s, tenant_id, to_email, subject, body_html):
-    """E-mail jako pojistka (lidé žijí v e-mailu) — s proklikem do portálu. Worker pošle."""
+def _users_emails(s, ids):
+    """E-maily konkrétních uživatelů (podle id). Drží pořadí ids."""
+    try:
+        rows = s.execute(_t("""SELECT c.user_id, c.contact_value FROM public.user_contacts c
+            WHERE c.user_id = ANY(:ids) AND c.contact_type='email'
+            AND COALESCE(c.status,'active')<>'archived'"""), {"ids": list(ids)}).all()
+        by = {}
+        for uid, em in rows:
+            if em and uid not in by:
+                by[uid] = em
+        return [by[i] for i in ids if i in by]
+    except Exception:
+        return []
+
+
+def _notify_email(s, tenant_id, to_email, subject, body_html, cc=None):
+    """E-mail jako pojistka (lidé žijí v e-mailu) — s proklikem do portálu. Worker pošle.
+    cc = list e-mailů (uloží se jako JSON do email_outbox.cc)."""
     if not to_email:
         return
+    import json as _j
+    cc_val = _j.dumps([c for c in cc if c]) if cc else None
     try:
         s.execute(_t("""INSERT INTO public.email_outbox(persona_id, from_identity, tenant_id, to_email,
-            subject, body, purpose, status, created_at)
-            VALUES(1,'persona',:t,:to,:subj,:body,'doc_feedback','pending',now())"""),
-            {"t": tenant_id, "to": to_email, "subj": subject[:990], "body": body_html})
+            cc, subject, body, purpose, status, created_at)
+            VALUES(1,'persona',:t,:to,:cc,:subj,:body,'doc_feedback','pending',now())"""),
+            {"t": tenant_id, "to": to_email, "cc": cc_val, "subj": subject[:990], "body": body_html})
         s.commit()
     except Exception:
         pass

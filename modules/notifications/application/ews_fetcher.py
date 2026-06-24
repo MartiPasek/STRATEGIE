@@ -113,6 +113,35 @@ def _connect_account(creds: dict[str, str]):
         raise EwsFetcherError(f"EWS connect failed: {e}") from e
 
 
+def mark_inbox_read_in_exchange(persona_id: int, tenant_id: int | None = None,
+                                limit: int = 300) -> dict[str, Any]:
+    """Docisti reálny Exchange INBOX: oznaci VSECHNY neprectene zpravy jako
+    precten v Outlooku (Marti 24.6.2026). Reseni pro pripad, kdy fetcher
+    mark-read selhal a v Outlooku visi unread, ackoli u nas (email_inbox.read_at)
+    jsou vyrizene. Bezpecne: fetcher tahá podle datetime_received (ne is_read),
+    takze read flag je jen kosmetika Outlooku; obsah uz mame v DB."""
+    creds = get_email_credentials(persona_id, tenant_id=tenant_id)
+    if not creds:
+        return {"ok": False, "status": "no_channel", "marked": 0}
+    try:
+        account = _connect_account(creds)
+    except EwsFetcherError as e:
+        return {"ok": False, "status": "connect_failed", "marked": 0, "detail": str(e)}
+    marked = 0
+    errors = 0
+    try:
+        for msg in account.inbox.filter(is_read=False).order_by("-datetime_received")[:limit]:
+            try:
+                msg.is_read = True
+                msg.save(update_fields=["is_read"])
+                marked += 1
+            except Exception:
+                errors += 1
+    except Exception as e:
+        return {"ok": False, "status": "fetch_failed", "marked": marked, "detail": str(e)}
+    return {"ok": True, "status": "ok", "marked": marked, "errors": errors}
+
+
 # ── Extrakce dat ze zpravy ────────────────────────────────────────────────
 
 def _extract_message_fields(msg) -> dict[str, Any]:

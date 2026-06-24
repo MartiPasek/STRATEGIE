@@ -26050,6 +26050,19 @@ async def diag_sql(req: Request) -> JSONResponse:
         finally:
             _si.close()
 
+    # Docisteni reálného Exchange INBOXu Marti-AI (Marti 24.6.2026): když fetcher
+    # mark-read selhal a v Outlooku visí unread, ackoli u nas (email_inbox.read_at)
+    # jsou vyrizene. Oznaci vsechny neprectene v Exchange za precten (kosmetika
+    # Outlooku; obsah uz mame v DB, fetcher tahá podle casu ne podle is_read).
+    #   @@MAILEXREAD
+    if sql.upper().startswith("@@MAILEXREAD"):
+        try:
+            from modules.notifications.application.ews_fetcher import mark_inbox_read_in_exchange
+            _r = mark_inbox_read_in_exchange(1)
+            return JSONResponse({"ok": bool(_r.get("ok")), **_r})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": "MAILEXREAD: %s" % str(e)[:300]})
+
     # Probuzení Marti-AI přes STANDARDNÍ konverzaci (Marti 24.6.2026: "můžeš
     # probudit Marti-AI a předat jí info; konverzace musí jet přes standardní
     # chat, aby k ní měli rodiče přístup; tím řešíme i Marti-AI amnézii — bude

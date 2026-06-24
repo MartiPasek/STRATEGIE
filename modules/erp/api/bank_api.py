@@ -692,6 +692,14 @@ async def uctovani_bank_post(request: Request):
                      "jist": j, "jzdroj": jzdroj[:120]})
                 souhrn["zapsano"] += 1
         if not dry:
+            # Změnový log: vznik pro každý nově zaúčtovaný automat-zápis (idempotentní)
+            s.execute(_t(
+                "INSERT INTO tenant.ucetni_denik_log (tenant_id, denik_id, akce, actor_type, actor_id, nova_hodnota, ts) "
+                "SELECT :tn, d.id, 'vznik', d.actor_type, d.actor_id, "
+                "jsonb_build_object('castka',d.castka,'ucet_md',d.ucet_md,'ucet_dal',d.ucet_dal,'jistota',d.jistota,'kategorie',d.kategorie,'jistota_zdroj',d.jistota_zdroj), now() "
+                "FROM tenant.ucetni_denik d WHERE d.zdroj='bank' AND d.actor_type='automat' "
+                "AND NOT EXISTS (SELECT 1 FROM tenant.ucetni_denik_log l WHERE l.denik_id=d.id AND l.akce='vznik')"),
+                {"tn": _TENANT})
             s.commit()
         return {"ok": True, "dry": dry, "souhrn": souhrn}
     except Exception as exc:

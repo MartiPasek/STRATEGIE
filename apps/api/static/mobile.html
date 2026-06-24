@@ -8092,7 +8092,14 @@ setTimeout(function(){
       var j=null; try{ j=B.getSmsLog(""); j=j?JSON.parse(j):null; }catch(e){ return; }
       var list=(j&&j.sms)||[];
       list.forEach(function(s){
-        var body=s.body||""; if(!/STG-[A-Za-z]+-/.test(body)) return;
+        var body=s.body||"";
+        var lb=body.toLowerCase();
+        var isStg=/STG-[A-Za-z]+-/.test(body);
+        // ČSSZ eOČR SMS (přeposlaná zaměstnancem) — forwardni i ji, server ji
+        // v store_inbound_sms rozpozná a založí OČR případ. Kristý/Claude-24 23.6.
+        var isOcr=(lb.indexOf("eportal.cssz.cz")>=0 && lb.indexOf("identifik")>=0
+                   && (lb.indexOf("osetrov")>=0 || lb.indexOf("ošetřov")>=0));
+        if(!isStg && !isOcr) return;
         var num=s.number||s.address||"";
         var key="stgfwd_"+num+"_"+(s.date||s.when||"")+"_"+body.replace(/\s/g,"").slice(0,16);
         try{ if(localStorage.getItem(key)) return; }catch(e){}
@@ -8102,8 +8109,25 @@ setTimeout(function(){
       });
     }catch(e){}
   }
+  // Odchozí SMS přes bránu (Kristý/Claude-24 23.6.): stáhne pending frontu ze
+  // serveru, pošle přes B.sendSms a potvrdí. Jen bránový telefon (server hlídá).
+  function _gwSmsOutbound(){
+    try{
+      if(!(B && typeof B.sendSms==="function")) return;
+      var on=false; try{ on=!!(B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
+      if(!on) return;
+      api("GET","/api/v1/erp/app/sms-outbound/pending","").then(function(j){
+        if(!(j&&j.ok&&j.items&&j.items.length)) return;
+        j.items.forEach(function(it){
+          var r=""; try{ r=B.sendSms(it.to_phone, it.body); }catch(e){ r="0"; }
+          if(r==="1"){ api("POST","/api/v1/erp/app/sms-outbound/sent",{id:it.id,ok:true}); }
+          else { api("POST","/api/v1/erp/app/sms-outbound/sent",{id:it.id,ok:false,error:"sendSms="+r}); }
+        });
+      }).catch(function(){});
+    }catch(e){}
+  }
   try{ var _gwOn=false; try{ _gwOn=!!(native&&B&&B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
-       if(_gwOn){ _gwSmsForward(); setInterval(_gwSmsForward, 10000); } }catch(e){}
+       if(_gwOn){ _gwSmsForward(); setInterval(_gwSmsForward, 10000); _gwSmsOutbound(); setInterval(_gwSmsOutbound, 12000); } }catch(e){}
   try{ _urgentPoll(); setInterval(_urgentPoll, 20000); }catch(e){}  // urgentní notifikace
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
 

@@ -13100,6 +13100,84 @@ async def app_sms_inbound(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)[:160]}, status_code=500)
 
 
+# ── Odchozí SMS přes bránu (pull model, Kristý/Claude-24 23.6.2026) ──────────
+# 11.6. se provider přepnul na android_gateway (pull), ale chyběl konzument fronty.
+# Bránový telefon (JS poller v mobile.html) si tudy stáhne pending sms_outbox,
+# pošle přes B.sendSms a potvrdí. PŘÍSNÉ omezení: jen bránový telefon (carddav
+# phone == SMS_FROM_NUMBER) — fronta obsahuje PIN/aktivace, nesmí ji vidět nikdo jiný.
+
+def _is_gateway_request(req) -> bool:
+    from sqlalchemy import text as _t
+    import hashlib as _h, re as _re
+    from core.config import settings as _cfg
+    auth = req.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        return False
+    tok = auth[7:].strip()
+    if not tok:
+        return False
+    gw = _re.sub(r"\D", "", (_cfg.sms_from_number or ""))[-9:]
+    if len(gw) < 9:
+        return False
+    th = _h.sha256(tok.encode("utf-8")).hexdigest()
+    cm, s = _att_session()
+    try:
+        ph = s.execute(_t('SELECT phone_number FROM "user".carddav_token '
+                          'WHERE token_hash=:h AND revoked_at IS NULL'), {"h": th}).scalar()
+    except Exception:
+        ph = None
+    finally:
+        cm.__exit__(None, None, None)
+    if not ph:
+        return False
+    return _re.sub(r"\D", "", str(ph))[-9:] == gw
+
+
+@api_router.get("/app/sms-outbound/pending")
+async def app_sms_outbound_pending(req: Request) -> JSONResponse:
+    """Bránový telefon si stáhne pending odchozí SMS. Jen brána (viz _is_gateway_request)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _is_gateway_request(req):
+        return JSONResponse({"ok": False, "error": "not_gateway"}, status_code=403)
+    from starlette.concurrency import run_in_threadpool
+    from modules.notifications.application.sms_service import list_pending
+    try:
+        items = await run_in_threadpool(list_pending, 20)
+        return JSONResponse({"ok": True, "items": items})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:160]}, status_code=500)
+
+
+@api_router.post("/app/sms-outbound/sent")
+async def app_sms_outbound_sent(req: Request) -> JSONResponse:
+    """Bránový telefon potvrzuje odeslání (ok=true → sent, jinak failed)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _is_gateway_request(req):
+        return JSONResponse({"ok": False, "error": "not_gateway"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        oid = int((b or {}).get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "id required"}, status_code=400)
+    from starlette.concurrency import run_in_threadpool
+    from modules.notifications.application.sms_service import mark_sent, mark_failed
+    try:
+        if (b or {}).get("ok", True):
+            await run_in_threadpool(mark_sent, oid)
+        else:
+            await run_in_threadpool(mark_failed, oid, str((b or {}).get("error") or "gateway send failed")[:300])
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:160]}, status_code=500)
+
+
 @api_router.get("/app/phone-verify/status")
 async def app_phone_verify_status(req: Request, token: str = "") -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

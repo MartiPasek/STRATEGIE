@@ -35,8 +35,13 @@ class SmsReceiver : BroadcastReceiver() {
         // Ostatní telefony příchozí SMS NEpřeposílají (soukromí + jediná brána).
         if (!prefs.getBoolean("sms_gateway", false)) return
 
-        // A jen naše ověřovací SMS (token "STG-"). Soukromé SMS NEforwardujeme.
-        if (!text.contains("STG-", ignoreCase = true)) return
+        // Forwardujeme naše ověřovací SMS (token "STG-") A přeposlané ČSSZ eOČR SMS
+        // (eportal.cssz.cz + identifikator + osetrovani). Ostatní soukromé SMS NE.
+        val lb = text.lowercase()
+        val isStg = text.contains("STG-", ignoreCase = true)
+        val isOcr = lb.contains("eportal.cssz.cz") && lb.contains("identifik") &&
+            (lb.contains("osetrov") || lb.contains("ošetřov"))
+        if (!isStg && !isOcr) return
 
         val token = (prefs.getString(DialPollService.KEY_TOKEN, "") ?: "").trim()
         if (token.isBlank()) return  // nespárováno → neforwardujeme

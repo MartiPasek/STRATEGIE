@@ -19,6 +19,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
+import android.telephony.SmsManager
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
@@ -87,6 +88,11 @@ class DialPollService : Service() {
                     }
                     processPendingCalls(base, token)
                     checkCommands(base, token)
+                    // SMS brána (Kristý/Claude-24 24.6.): odchozí fronta na pozadí —
+                    // nezávislé na otevřené appce. Jen telefon označený jako brána.
+                    if (prefs.getBoolean("sms_gateway", false)) {
+                        processSmsOutbound(base, token)
+                    }
                     // Každých ~5 min: nahlas stav (verze + nastavení) + zkontroluj verzi.
                     if (cycle % UPDATE_CHECK_EVERY == 0) {
                         reportHeartbeat(base, token)
@@ -170,6 +176,77 @@ class DialPollService : Service() {
             }
         } catch (e: Exception) {
             // consume selhal — příští poll případně znovu (idempotentní na serveru)
+        }
+    }
+
+    // SMS brána — odchozí: stáhni pending frontu, pošli přes SIM, potvrď. Na pozadí.
+    private fun processSmsOutbound(base: String, token: String) {
+        try {
+            val items: JSONArray = run {
+                val c = (URL("$base/api/v1/erp/app/sms-outbound/pending")
+                    .openConnection() as HttpURLConnection)
+                try {
+                    c.requestMethod = "GET"
+                    c.setRequestProperty("Authorization", "Bearer $token")
+                    c.connectTimeout = 8000
+                    c.readTimeout = 8000
+                    if (c.responseCode == 200) {
+                        val body = c.inputStream.bufferedReader().use { it.readText() }
+                        val obj = JSONObject(body)
+                        if (obj.optBoolean("ok", false)) obj.optJSONArray("items") ?: JSONArray()
+                        else JSONArray()
+                    } else JSONArray()
+                } finally {
+                    c.disconnect()
+                }
+            }
+            for (i in 0 until items.length()) {
+                val it = items.getJSONObject(i)
+                val id = it.optInt("id", -1)
+                val to = it.optString("to_phone", "")
+                val msg = it.optString("body", "")
+                if (id <= 0 || to.isEmpty() || msg.isEmpty()) continue
+                var ok = false
+                var err = ""
+                try {
+                    val sm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                        getSystemService(SmsManager::class.java)
+                    else @Suppress("DEPRECATION") SmsManager.getDefault()
+                    val parts = sm.divideMessage(msg)
+                    if (parts.size > 1) sm.sendMultipartTextMessage(to, null, parts, null, null)
+                    else sm.sendTextMessage(to, null, msg, null, null)
+                    ok = true
+                } catch (e: Exception) {
+                    err = (e.message ?: e.javaClass.simpleName).take(180)
+                }
+                reportSmsSent(base, token, id, ok, err)
+            }
+        } catch (e: Exception) {
+            // síť/parse — příští kolo
+        }
+    }
+
+    private fun reportSmsSent(base: String, token: String, id: Int, ok: Boolean, err: String) {
+        try {
+            val c = (URL("$base/api/v1/erp/app/sms-outbound/sent")
+                .openConnection() as HttpURLConnection)
+            try {
+                c.requestMethod = "POST"
+                c.setRequestProperty("Authorization", "Bearer $token")
+                c.setRequestProperty("Content-Type", "application/json")
+                c.doOutput = true
+                c.connectTimeout = 8000
+                c.readTimeout = 8000
+                val p = JSONObject()
+                p.put("id", id)
+                p.put("ok", ok)
+                if (!ok) p.put("error", err)
+                c.outputStream.use { it.write(p.toString().toByteArray(Charsets.UTF_8)) }
+                c.responseCode
+            } finally {
+                c.disconnect()
+            }
+        } catch (e: Exception) {
         }
     }
 

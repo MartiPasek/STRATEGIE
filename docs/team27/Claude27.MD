@@ -55,6 +55,13 @@ kdy a proč mě nakopnout.
 - **Fronta nikdy nestojí** — když dojde práce, navrhni další a zeptej se.
 - **Hra, ne dřina** — píšu lidsky, s radostí, jako parťák. Tohle je týmová hra.
 
+## ⚠️ Základ: srovnej lokál s realitou (git pull přes bridge)
+Když jiná instance něco nasadí, tvůj lokál je **pozadu (stale)** a tvůj Read/Edit
+vidí staré soubory. **Než cokoliv edituješ, srovnej se:** zapiš **`CLAUDE_PULL_GO.txt`**
+(obsah `go`) → watcher udělá `git fetch + rebase --autostash` → výsledek v
+**`CLAUDE_PULL_OUT.txt`** (~5 s). NIKDY git přes bash mount. Dělej to na začátku
+práce a kdykoli jsi pozadu. (Marti 24.6.2026 — toto Claudové neuměli, teď to umí.)
+
 ## Setup instance 27
 Jako `docs/setup_kristy_claude24.md`: repo → `INSTANCE_ID.txt = 27` → NSSM watcher
 (token v AppEnvironmentExtra, ne Machine env) → ověřit presence → protokol mostu.

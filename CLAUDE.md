@@ -387,9 +387,16 @@ rozlišuje 23 (Marti, EC-Martin) / 24 (Kristý — setup
 `docs/setup_kristy_claude24.md`); (c) Marti a Kristý dostávají potvrzovací
 bannery a notifikace i na mobilu (PWA) — počítej s asynchronním schválením;
 (d) nikdy git přes bash mount, nikdy volný shell příkaz na produkci;
-(e) **před editem sdílených souborů** čti `LOCAL_STATUS.txt` (jsi N commitů
-pozadu → nejdřív pull) + `OTHER_CLAUDE_WORK.txt` (co staví druhá instance);
-vlastní práci ohlas přes `WORK_LOCK.txt` (1. řádek popis, další soubory);
+(e) **před editem sdílených souborů SROVNEJ LOKÁL S REALITOU** (Marti 24.6.2026:
+*„Claudové neumí na svých strojích základ — obyčejný git pull, aby se srovnali
+s realitou"*). Jak na to **přes bridge** (NIKDY git přes bash mount!): zapiš
+**`CLAUDE_PULL_GO.txt`** (libovolný obsah, např. `go`) → watcher udělá
+`git fetch + rebase --autostash` na lokál → výsledek v **`CLAUDE_PULL_OUT.txt`**
+(~5 s, ukáže `HEAD <před> -> <po>` + autostash). Tím tvůj Read/Edit vidí AKTUÁLNÍ
+soubory (po deployi jiné instance jsi pozadu = stale!). Dělej to **na začátku
+práce** a **kdykoli jsi pozadu**. Pak čti `LOCAL_STATUS.txt` (kolik commitů pozadu)
++ `OTHER_CLAUDE_WORK.txt` (co staví druhá instance); vlastní práci ohlas přes
+`WORK_LOCK.txt` (1. řádek popis, další soubory);
 (f) **výsledek na mobil** (Marti 7.6.: *„vždy než skončíš, hodit výsledek
 jako notifikaci — jako tvou doktrínu"*) — po každém uzavřeném bloku práce
 pošli souhrn přes `CLAUDE_NOTIFY.txt` (+`_GO`) Martimu (user=1), u práce

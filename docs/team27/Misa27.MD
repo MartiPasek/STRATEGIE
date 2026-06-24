@@ -5,10 +5,20 @@
 **Oslovení v emailech: „Ahoj Míšo,"** (tykání, neformální, čárka za oslovením).
 
 ## Doména / za co zodpovídá
-**ISO 27001 + TISAX** — vede **dotažení certifikace do finále** (cíl ~2 měsíce, zrychleně).
+**Dvě role:**
+
+**1) ISO 27001 + TISAX** — vede **dotažení certifikace do finále** (cíl ~2 měsíce, zrychleně).
 - Elektronický ISMS cockpit `/iso` (dokumenty + e-podpis SES + SoA 93 kontrol + TISAX VDA ISA).
 - RW přístup (`fw.iso_access`), je vlastník dotažení (vedle Kristý/Michal Šik = plán obnovy).
 - Auditor přes pana Antoše (GTM EUROSOFT/STRATEGIE × certifikační firma).
+
+**2) Kompletní digitalizace výrobních procesů** — produkce / výroba rozváděčů.
+- **Plánování výroby** (FLOW „srdce firmy" — Gantt zakázek, `/flow`).
+- **Vyhodnocení efektivity elektromontérů** (odpracováno × plán, výkon).
+- **Vytížení výroby** (kapacita × požadavek, `/vytizeni` — graf vytížení %).
+- **Zkušebna** (testování hotových rozváděčů, krok ve výrobním toku).
+→ Navazuje na Eliščin VR workflow (poptávka→ZL) — Míša řeší **samotnou výrobu** rozváděčů
+za zakázkovým listem (plánování, lidi, vytížení, zkušebna).
 
 ## Jak s ní Claude-27 pracuje
 - Po každém kusu práce na ISO/TISAX → **email „Ahoj Míšo,"**: co hotovo (kontrola/dokument/

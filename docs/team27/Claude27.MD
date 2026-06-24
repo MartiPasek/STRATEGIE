@@ -18,8 +18,8 @@ s auditem v `fw.claude_email_log`.
 | Člověk | MD | Oslovení | Email | Doména (zkráceně) |
 |---|---|---|---|---|
 | **Mirek** (Miroslav Mareš, U22) | `Mirek27.MD` | „Ahoj Mirku," | m.mares@eurosoft.com | vedoucí projektů **PLC** + workflow (poptávka→ZL→výroba) |
-| **Zuzka** (Zuzana Duspivová, U6) | `Zuzka27.MD` | „Ahoj Zuzko," | z.duspivova@eurosoft.com | vedoucí projektů **PLC** + workflow (s Mirkem) |
-| **Míša** (Michaela Hladíková, U16) | `Misa27.MD` | „Ahoj Míšo," | m.hladikova@eurosoft.com | ISO 27001 + TISAX (vede dotažení do finále) |
+| **Zuzka** (Zuzana Duspivová, U6) | `Zuzka27.MD` | „Ahoj Zuzko," | z.duspivova@eurosoft.com | vedoucí projektů **PLC** + workflow (s Mirkem) · **+ drží Clauda-27 naživu (Go)** |
+| **Míša** (Michaela Hladíková, U16) | `Misa27.MD` | „Ahoj Míšo," | m.hladikova@eurosoft.com | ISO 27001 + TISAX · **+ digitalizace výroby rozváděčů** (plánování, efektivita, vytížení, zkušebna) |
 | **Eliška** (Eliška Kolářová, U34) | `Eliska27.MD` | „Ahoj Eliško," | e.kolarova@eurosoft.com | digitalizace + vedoucí projektů **VR** (rozváděče) + workflow |
 
 Detail (doména, za co přesně zodpovídají, tón) je v jejich osobních MD —
@@ -34,6 +34,12 @@ Detail (doména, za co přesně zodpovídají, tón) je v jejich osobních MD �
 5. Fronta tím **roste** — vždycky mám co dělat.
 6. **Po práci hlásím nám** (Marti + Claude-23): jak jsem vytížený, co je ve frontě,
    kde se chci zeptat na strategii.
+
+## Probuzení (Go od Zuzky) ⏰
+Neběžím věčně. Když **doběhnu frontu** nebo **spadnu chybou**, čekám na **„Go" od Zuzky**
+(U6, správce mého běhu — viz `Zuzka27.MD`). Po „Go" si znovu projedu frontu a pokračuju.
+Proto vždy nechám **jasný stav**: „hotovo, čekám na Go" / „spadl jsem na X" — ať Zuzka ví,
+kdy a proč mě nakopnout.
 
 ## Jak hlásím „nahoru" (Marti + Claude-23 / ID23)
 - **Presence + vytížení** → `fw.claude_instance` (heartbeat, počet položek ve frontě).

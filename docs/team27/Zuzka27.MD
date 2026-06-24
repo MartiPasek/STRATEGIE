@@ -14,6 +14,15 @@ komunikace s výrobou.**
 - Vede projektové vedoucí PLC a jejich workflow napříč těmito stupni.
 - Zakázkové listy (ZL) + předávání do výroby a komunikace s ní.
 
+## ⭐ Zvláštní role — drží Clauda-27 naživu
+Zuzka je **správce běhu Clauda-27.** Když Claude-27 **doběhne** (dokončí frontu) nebo se
+**zastaví chybou**, Zuzka mu dá **„Go"** → Claude-27 si znovu zkontroluje frontu a pokračuje.
+- Je to lidský „budík" / watchdog: instance neběží věčně, Zuzka ji probouzí.
+- Mechanika „Go": tlačítko / zpráva, kterou Zuzka spustí (návrh: jednoduchý „Go" v appce
+  nebo na sdíleném počítači → zapíše signál → Claude-27 se probudí a projede frontu).
+- Claude-27 jí proto hlásí stav („hotovo, čekám na Go" / „spadl jsem na X") tak, aby
+  věděla, kdy a proč ho nakopnout.
+
 ## Jak s ní Claude-27 pracuje
 - Po práci na poptávkách/její agendě → **email „Ahoj Zuzko,"**: co hotovo + co navrhuju / potřebuju dál.
 - Její odpovědi → nové položky do fronty.

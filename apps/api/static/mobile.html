@@ -1386,7 +1386,7 @@ setTimeout(function(){
   // Appka se neopustí → Android Back nezavře aplikaci, jen zavře overlay. Žádný externí prohlížeč.
   // Přehledy se otevírají jako NATIVNÍ obrazovka v zásobníku (stejné schéma jako Skupiny) →
   // Zpět řídí výhradně back() appky (topbar i systémové Zpět). Žádný vlastní overlay/history hack.
-  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace","/zrcadla":"🪞 Zrcadla","/banka":"🏦 Banka","/parovani":"🏦 Párování plateb","/uctovani":"📒 Účetnictví","/edi-stat":"📊 Statistika EDI","/edi-definice":"🧩 EDI definice","/neschopenky":"🤒 Neschopenky","/davky":"📤 Dávky ČSSZ","/audit-davky":"🛡️ Audit dávek","/iso":"🛡️ ISO 27001","/dokument":"📚 Dokumentace","/rozvrh-verze":"🗓️ Varianty rozvrhu","/rozvrh-prehled":"🗓️ Přehled po ročnících","/claude-chat":"🛠️ Chat s Claudem"};
+  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace","/zrcadla":"🪞 Zrcadla","/banka":"🏦 Banka","/denik":"🧾 Účetní deník","/parovani":"🏦 Párování plateb","/uctovani":"📒 Účetnictví","/edi-stat":"📊 Statistika EDI","/edi-definice":"🧩 EDI definice","/neschopenky":"🤒 Neschopenky","/davky":"📤 Dávky ČSSZ","/audit-davky":"🛡️ Audit dávek","/iso":"🛡️ ISO 27001","/dokument":"📚 Dokumentace","/rozvrh-verze":"🗓️ Varianty rozvrhu","/rozvrh-prehled":"🗓️ Přehled po ročnících","/claude-chat":"🛠️ Chat s Claudem"};
   var _xvUrl="", _xvTitle="", _xvStack=[];
   function _xvSet(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; }
   function openInApp(url){
@@ -1441,6 +1441,7 @@ setTimeout(function(){
     g.appendChild(appCell("🗂️","Digitalizace",0,function(){openInApp("/digitalizace");}));
     g.appendChild(appCell("🪞","Zrcadla",0,function(){openInApp("/zrcadla");}));
     g.appendChild(appCell("🏦","Banka",0,function(){openInApp("/banka");}));
+    g.appendChild(appCell("🧾","Účetní deník",0,function(){openInApp("/denik");}));
     g.appendChild(appCell("📊","Předvaha",0,function(){openInApp("/predvaha");}));
     g.appendChild(appCell("💰","Mzdy & odvody",0,function(){openInApp("/mzdy");}));
     g.appendChild(appCell("🛒","Nákup",0,function(){openInApp("/nakup");}));

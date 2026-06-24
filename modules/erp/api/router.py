@@ -19013,7 +19013,24 @@ def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=F
                 pass
         return out
 
-    have_d, have_s = _have("EC_Dochazka"), _have("EC_Dochazka_SumaDen")
+    have_d = _have("EC_Dochazka")
+
+    # EC denní souhrn s HODINAMI — klíč pro novou idempotenci (Marti 24.6.2026):
+    # den je v EC "kompletní", když souhrn >= náš počet hodin. Pak respektuj.
+    # Jinak (chybí nebo jen útržek z tabletu) nahradíme naším plným dnem.
+    def _have_sum_h():
+        r = _ec("SELECT CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, CasCelkem h "
+                "FROM EC_Dochazka_SumaDen WHERE CisloZam IN (%s) AND DatumPripadu >= '%s'"
+                % (inlist, datum_od))
+        out, cols = {}, (r.get("columns") or [])
+        for x in (r.get("rows") or []):
+            dd = dict(zip(cols, x)) if isinstance(x, list) else x
+            try:
+                out[(int(dd["CisloZam"]), str(dd["d"])[:10])] = float(dd["h"] or 0)
+            except Exception:
+                pass
+        return out
+    have_s_h = _have_sum_h()
     dow = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
     nd = ns = did = 0
     for r in rows:
@@ -19028,31 +19045,38 @@ def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=F
         v = (r["vztah"] or "").lower()
         hpp, dpp, osvc = (0, 0, 1) if v == "osvc" else (0, 1, 0) if v == "dohoda" else (1, 0, 0)
         konv = ("'%s'" % kon) if kon else "NULL"
-        miss_d = (cz, dt) not in have_d
-        miss_s = (cz, dt) not in have_s
-        if not (miss_d or miss_s):
+        # Nová idempotence (Marti 24.6.2026): den je v EC "hotový", když souhrn
+        # >= náš počet hodin (tolerance 0.25 h) → respektuj a přeskoč. Jinak
+        # (chybí úplně NEBO je tam jen útržek z tabletu s méně hodinami) →
+        # nahraď naším plným dnem: smaž útržek/naše (cizí ruční Autor zůstane!),
+        # pak zapiš plný záznam + souhrn.
+        ec_h = have_s_h.get((cz, dt))
+        if ec_h is not None and ec_h >= (hod - 0.25):
             continue
-        if miss_d:
-            if not dry:
-                _ecw("INSERT INTO EC_Dochazka (CisloZam,DatumPripadu,DruhCinnosti,"
-                    "CisloZakazky,CasZacatek,CasKonec,Status,Import,Autor,DatPorizeni) VALUES "
-                    "(%d,'%s',%d,'%s','%s',%s,0,1,'%s',GETDATE())"
-                    % (cz, dt, dc, zak[:15], zac, konv, _MIRROR_EC_AUTOR))
-            nd += 1
-        if miss_s:
-            cmont = hod if je_zak else 0; crez = 0 if je_zak else hod
-            if not dry:
-                _ecw("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,CasCelkem,CasMontaz,CasRezie,"
-                    "CasZacatek,CasKonec,Uzavreno,HPP,DPP,OSVC) VALUES "
-                    "(%d,'%s',%.2f,%.2f,%.2f,'%s',%s,0,%d,%d,%d)"
-                    % (cz, dt, hod, cmont, crez, zac, konv, hpp, dpp, osvc))
-            ns += 1
+        cmont = hod if je_zak else 0
+        crez = 0 if je_zak else hod
+        if not dry:
+            _ecw("DELETE FROM EC_Dochazka WHERE CisloZam=%d AND DatumPripadu='%s' "
+                 "AND (Autor='%s' OR Autor='DochazkaTablet' OR Autor IS NULL)"
+                 % (cz, dt, _MIRROR_EC_AUTOR))
+            _ecw("DELETE FROM EC_Dochazka_SumaDen WHERE CisloZam=%d AND DatumPripadu='%s'"
+                 % (cz, dt))
+            _ecw("INSERT INTO EC_Dochazka (CisloZam,DatumPripadu,DruhCinnosti,"
+                "CisloZakazky,CasZacatek,CasKonec,Status,Import,Autor,DatPorizeni) VALUES "
+                "(%d,'%s',%d,'%s','%s',%s,0,1,'%s',GETDATE())"
+                % (cz, dt, dc, zak[:15], zac, konv, _MIRROR_EC_AUTOR))
+            _ecw("INSERT INTO EC_Dochazka_SumaDen (CisloZam,DatumPripadu,CasCelkem,CasMontaz,CasRezie,"
+                "CasZacatek,CasKonec,Uzavreno,HPP,DPP,OSVC) VALUES "
+                "(%d,'%s',%.2f,%.2f,%.2f,'%s',%s,0,%d,%d,%d)"
+                % (cz, dt, hod, cmont, crez, zac, konv, hpp, dpp, osvc))
+        nd += 1
+        ns += 1
         if not dry:
             s2 = _g()
             try:
                 s2.execute(_t("INSERT INTO fw.att_ec_mirror_log (cislo_zam,datum,hodiny,doch_zapsano,suma_zapsano) "
                               "VALUES (:c,:d,:h,:dd,:ss)"),
-                           {"c": cz, "d": dt, "h": hod, "dd": miss_d, "ss": miss_s})
+                           {"c": cz, "d": dt, "h": hod, "dd": True, "ss": True})
                 s2.commit()
             finally:
                 s2.close()

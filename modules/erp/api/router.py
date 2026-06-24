@@ -18975,7 +18975,7 @@ def _mirror_att_to_ec(_unused=None, datum_od="2026-06-01", test_one=False, dry=F
             " ROUND(SUM(COALESCE(e.hours,0))::numeric,2) hod, MAX(e.project_ref) zak, "
             " COALESCE((SELECT wr.relation FROM tenant.work_relation wr WHERE wr.user_id=ae.user_id LIMIT 1),'zamestnanec') vztah "
             "FROM tenant.att_entry e JOIN tenant.att_employee ae ON ae.id=e.employee_id "
-            "WHERE e.tenant_id=2 AND e.source_system IS NULL AND e.entry_date <= CURRENT_DATE "
+            "WHERE e.tenant_id=2 AND e.source_system IS NULL AND e.entry_date < CURRENT_DATE "
             " AND e.entry_date >= :od AND ae.cislo_zam ~ '^[0-9]+$' AND COALESCE(e.hours,0) > 0 "
             "GROUP BY ae.cislo_zam, e.entry_date, ae.user_id ORDER BY e.entry_date DESC, ae.cislo_zam"),
             {"od": datum_od}).mappings().all()

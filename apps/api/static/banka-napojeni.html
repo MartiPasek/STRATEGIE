@@ -11,52 +11,44 @@
   .card{background:#1b1e24;border:1px solid #2a2e36;border-radius:12px;padding:16px;margin-bottom:16px}
   label{display:block;font-size:12px;color:#9aa0a6;margin:10px 0 4px}
   input,select{width:100%;box-sizing:border-box;background:#0f1115;border:1px solid #2a2e36;color:#e8eaed;border-radius:8px;padding:9px 10px;font-size:14px}
-  input[type=checkbox]{width:auto}
-  .acc{display:grid;grid-template-columns:1.4fr 1.4fr .7fr;gap:8px;align-items:end;margin-bottom:8px}
-  .scopes{display:flex;gap:14px;font-size:12px;color:#cbd0d6;margin:6px 0 2px}
-  .scopes label{display:flex;align-items:center;gap:5px;margin:0;color:#cbd0d6}
-  button{background:#f5c518;color:#111;border:0;border-radius:8px;padding:10px 16px;font-weight:600;cursor:pointer;font-size:14px}
-  button.sec{background:#2a2e36;color:#e8eaed}
+  button{background:#f5c518;color:#111;border:0;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;font-size:13px}
+  button.sec{background:#2a2e36;color:#e8eaed} button:disabled{opacity:.5;cursor:default}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .conn{border:1px solid #2a2e36;border-radius:10px;padding:12px;margin-bottom:10px;background:#15181d}
   .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;margin-left:6px}
   .ok{background:#143d2b;color:#46d18b} .no{background:#3d2a14;color:#e0a94a}
   .muted{color:#9aa0a6;font-size:12px} .err{color:#ff6b6b;font-size:13px;margin-top:8px}
   .okmsg{color:#46d18b;font-size:13px;margin-top:8px}
+  .acts{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+  .res{font-size:12px;color:#cbd0d6;margin-top:8px;white-space:pre-wrap}
   .note{background:#15181d;border-left:3px solid #f5c518;padding:10px 12px;border-radius:6px;font-size:12px;color:#cbd0d6;margin-bottom:14px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>🏦 Bankovní napojení</h1>
-  <div class="sub">Univerzální napojení banka ↔ STRATEGIE (per firma per banka). Certifikát i heslo se ukládají šifrovaně do trezoru.</div>
+  <div class="sub">Univerzální napojení banka ↔ STRATEGIE (per firma per banka). Připrav EC i ES — každé svůj certifikát.</div>
 
-  <div class="note">⚠️ <b>Bezpečně:</b> certifikát <code>.p12</code>, heslo k certifikátu a Client ID se odešlou jen sem a uloží se <b>zašifrované</b> (Fernet). Nikam se nelogují. Jen pro rodiče.</div>
+  <div class="note">⚠️ <b>Bezpečně:</b> certifikát <code>.p12</code>, heslo i Client ID se uloží <b>zašifrované do trezoru</b> (Fernet), nikam se nelogují. Účty se po uložení <b>načtou přímo z banky</b> (nemusíš opisovat čísla). Jen pro rodiče.</div>
 
   <div class="card">
-    <b>Nové / upravit napojení</b>
+    <b>Přidat / aktualizovat napojení</b>
     <div class="row">
       <div><label>Firma</label><select id="company"></select></div>
-      <div><label>Banka (provider)</label><select id="provider"></select></div>
+      <div><label>Banka</label><select id="provider"></select></div>
     </div>
     <label>Název napojení</label><input id="nazev" placeholder="např. EUROSOFT-Control — Raiffeisenbank">
     <label>Client ID (X-IBM-Client-Id z portálu)</label><input id="clientid" placeholder="AuClMxII...">
-
-    <label style="margin-top:14px">Účty + rozsahy</label>
-    <div id="accs"></div>
-    <button class="sec" type="button" onclick="addAcc()">+ účet</button>
-
-    <div class="row" style="margin-top:14px">
+    <div class="row">
       <div><label>Certifikát (.p12 / PKCS#12)</label><input id="p12" type="file" accept=".p12,.pfx"></div>
       <div><label>Heslo k certifikátu</label><input id="pwd" type="password" placeholder="••••••••"></div>
     </div>
-
     <div style="margin-top:14px"><button onclick="save()">💾 Uložit a zašifrovat do trezoru</button></div>
     <div id="msg"></div>
   </div>
 
   <div class="card">
-    <b>Existující napojení</b>
+    <b>Napojení (EC + ES)</b>
     <div id="conns" class="muted">Načítám…</div>
   </div>
 </div>
@@ -65,22 +57,6 @@
 const A = (p,o={}) => fetch('/api/v1/erp'+p,{credentials:'include',...o}).then(r=>r.json());
 let OV = null;
 
-function accRow(a={}){
-  const d=document.createElement('div'); d.className='acc';
-  d.innerHTML = `
-    <div><label>Číslo účtu</label><input class="cu" value="${a.cislo_uctu||''}" placeholder="9251651001"></div>
-    <div><label>Název účtu</label><input class="cn" value="${a.nazev||''}" placeholder="EC běžný CZK"></div>
-    <div><label>Měna</label><input class="cm" value="${a.mena||'CZK'}"></div>
-    <div class="scopes" style="grid-column:1/4">
-      <label><input type="checkbox" class="sh" ${a.sc_historie!==false?'checked':''}>Historie</label>
-      <label><input type="checkbox" class="sz" ${a.sc_zustatky!==false?'checked':''}>Zůstatky</label>
-      <label><input type="checkbox" class="sv" ${a.sc_vypisy!==false?'checked':''}>Výpisy</label>
-      <span class="muted">(platby zatím vypnuté)</span>
-    </div>`;
-  return d;
-}
-function addAcc(a){ document.getElementById('accs').appendChild(accRow(a||{})); }
-
 async function load(){
   OV = await A('/app/bank/overview');
   if(!OV.ok){ document.getElementById('conns').innerHTML='<span class="err">Nemáš oprávnění (jen rodiče) nebo chyba.</span>'; return; }
@@ -88,21 +64,23 @@ async function load(){
   OV.companies.forEach(c=>{ const o=document.createElement('option'); o.value=c.id; o.textContent=c.code+' — '+c.nazev; cs.appendChild(o); });
   const ps=document.getElementById('provider'); ps.innerHTML='';
   OV.providers.forEach(p=>{ const o=document.createElement('option'); o.value=p.kod; o.textContent=p.nazev; ps.appendChild(o); });
-  // předvyplň 2 účty EUROSOFT-Control z RB
-  const accs=document.getElementById('accs'); accs.innerHTML='';
-  addAcc({cislo_uctu:'9251651001',nazev:'EC účet 1',mena:'CZK'});
-  addAcc({cislo_uctu:'9251651044',nazev:'EC účet 2',mena:'CZK'});
   renderConns();
 }
+
 function renderConns(){
   const el=document.getElementById('conns');
-  if(!OV.connections.length){ el.innerHTML='<span class="muted">Zatím žádné napojení.</span>'; return; }
+  if(!OV.connections.length){ el.innerHTML='<span class="muted">Zatím žádné napojení. Přidej EC i ES výše.</span>'; return; }
   el.innerHTML='';
   OV.connections.forEach(c=>{
     const d=document.createElement('div'); d.className='conn';
     const cert = c.has_cert?'<span class="badge ok">certifikát uložen</span>':'<span class="badge no">bez certifikátu</span>';
-    const accs = (c.accounts||[]).map(a=>`${a.cislo_uctu}/${a.mena} <span class="muted">[${[a.sc_historie&&'H',a.sc_zustatky&&'Z',a.sc_vypisy&&'V'].filter(Boolean).join(' ')}]</span>`).join(' · ')||'<span class="muted">bez účtů</span>';
-    d.innerHTML=`<b>${c.nazev}</b> ${cert}<br><span class="muted">${c.company_code||'?'} · ${c.provider_nazev||'?'} · stav ${c.stav}</span><br>${accs}`;
+    const accs = (c.accounts||[]).map(a=>`${a.cislo_uctu}/${a.mena}`).join(' · ')||'<span class="muted">účty zatím nenačtené</span>';
+    d.innerHTML=`<b>${c.nazev}</b> ${cert}<br><span class="muted">${c.company_code||'?'} · ${c.provider_nazev||'?'} · stav ${c.stav}</span><br>${accs}
+      <div class="acts">
+        <button class="sec" onclick="discover(${c.id},this)" ${c.has_cert?'':'disabled'}>🔌 Načíst účty z banky</button>
+        <button class="sec" onclick="loadTx(${c.id},this)" ${c.has_cert?'':'disabled'}>⬇️ Načíst transakce (90 dní)</button>
+      </div>
+      <div class="res" id="res${c.id}"></div>`;
     el.appendChild(d);
   });
 }
@@ -111,11 +89,6 @@ function fileB64(f){ return new Promise((res,rej)=>{ if(!f){res('');return;} con
 
 async function save(){
   const msg=document.getElementById('msg'); msg.innerHTML='';
-  const accs=[...document.querySelectorAll('#accs .acc')].map(d=>({
-    cislo_uctu:d.querySelector('.cu').value.trim(), nazev:d.querySelector('.cn').value.trim(),
-    mena:d.querySelector('.cm').value.trim()||'CZK',
-    sc_historie:d.querySelector('.sh').checked, sc_zustatky:d.querySelector('.sz').checked, sc_vypisy:d.querySelector('.sv').checked
-  })).filter(a=>a.cislo_uctu);
   let p12='';
   try{ p12 = await fileB64(document.getElementById('p12').files[0]); }catch(e){ msg.innerHTML='<div class="err">Chyba čtení certifikátu.</div>'; return; }
   const payload={
@@ -124,14 +97,29 @@ async function save(){
     nazev: document.getElementById('nazev').value.trim() || 'Bankovní napojení',
     client_id: document.getElementById('clientid').value.trim(),
     p12_base64: p12, password: document.getElementById('pwd').value,
-    accounts: accs
+    accounts: []
   };
   msg.innerHTML='<span class="muted">Ukládám…</span>';
   const r = await A('/app/bank/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-  if(r.ok){ msg.innerHTML='<div class="okmsg">✅ Uloženo. '+(r.has_cert?'Certifikát zašifrován do trezoru.':'Bez certifikátu (jen connection).')+'</div>';
-    document.getElementById('pwd').value=''; document.getElementById('p12').value='';
+  if(r.ok){ msg.innerHTML='<div class="okmsg">✅ Uloženo'+(r.has_cert?' + certifikát v trezoru. Teď dole „Načíst účty z banky".':' (bez certifikátu).')+'</div>';
+    document.getElementById('pwd').value=''; document.getElementById('p12').value=''; document.getElementById('clientid').value=''; document.getElementById('nazev').value='';
     await load();
   } else { msg.innerHTML='<div class="err">Chyba: '+(r.error||'?')+'</div>'; }
+}
+
+async function discover(id,btn){
+  const res=document.getElementById('res'+id); res.textContent='Volám banku…'; btn.disabled=true;
+  const r = await A('/app/bank/connection/'+id+'/discover',{method:'POST'});
+  btn.disabled=false;
+  if(r.ok){ res.textContent='✅ Načteno '+r.found+' účtů z banky:\n'+(r.accounts||[]).map(a=>'  '+a.cislo_uctu+'/'+(a.mena||'')+(a.nazev?' — '+a.nazev:'')).join('\n'); await load(); }
+  else { res.textContent='❌ '+(r.error||'?'); }
+}
+async function loadTx(id,btn){
+  const res=document.getElementById('res'+id); res.textContent='Načítám transakce (90 dní)…'; btn.disabled=true;
+  const r = await A('/app/bank/connection/'+id+'/load',{method:'POST'});
+  btn.disabled=false;
+  if(r.ok){ res.textContent='✅ Načteno celkem '+r.celkem+' transakcí ('+r.od+' → '+r.do+'):\n'+(r.ucty||[]).map(u=>'  '+u.ucet+': '+(u.nacteno!=null?u.nacteno+' tx':u.chyba)).join('\n'); }
+  else { res.textContent='❌ '+(r.error||'?'); }
 }
 load();
 </script>

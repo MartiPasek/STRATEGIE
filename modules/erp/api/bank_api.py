@@ -181,8 +181,9 @@ async def bank_setup(request: Request):
                 "VALUES (:tn,:co,:p,:n,'active',:by) RETURNING id"),
                 {"tn": _TENANT, "co": company_id, "p": provider_id, "n": nazev, "by": "user:%s" % uid}).scalar()
 
-        # účty: smaž a vlož znovu (jednoduchý sync)
-        s.execute(_t("DELETE FROM tenant.bank_connection_account WHERE connection_id=:c"), {"c": conn_id})
+        # účty: synchronizuj JEN když je seznam zadán (jinak nech discover-naplněné být)
+        if accounts:
+            s.execute(_t("DELETE FROM tenant.bank_connection_account WHERE connection_id=:c"), {"c": conn_id})
         for a in accounts:
             cislo = (a.get("cislo_uctu") or "").strip()
             if not cislo:
@@ -204,6 +205,207 @@ async def bank_setup(request: Request):
                              "WHERE id=:id"), {"r": skey, "id": conn_id})
         s.commit()
         return {"ok": True, "connection_id": conn_id, "has_cert": bool(client_id or p12_b64)}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)
+    finally:
+        s.close()
+
+
+# ════════════════════════════════════════════════════════════════════
+# RB Premium API adaptér (read) — mTLS z trezoru (ephemeral), host api.rb.cz
+# Spec: docs/bank_api_rb_adapter.md. X-IBM-Client-Id + klientský cert (.p12).
+# ════════════════════════════════════════════════════════════════════
+_RB_BASE = "https://api.rb.cz/rbcz/premium/api"
+
+
+def _p12_to_pem(p12_b64: str, password: str):
+    """PKCS#12 (.p12) → (cert_chain_pem_bytes, key_pem_bytes). Ephemeral v paměti."""
+    from cryptography.hazmat.primitives.serialization import pkcs12, Encoding, PrivateFormat, NoEncryption
+    import base64 as _b64
+    data = _b64.b64decode(p12_b64)
+    pwd = (password or "").encode("utf-8") or None
+    key, cert, addl = pkcs12.load_key_and_certificates(data, pwd)
+    cert_pem = cert.public_bytes(Encoding.PEM)
+    for c in (addl or []):
+        cert_pem += c.public_bytes(Encoding.PEM)
+    key_pem = key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+    return cert_pem, key_pem
+
+
+def _rb_call(bundle: dict, method: str, path: str, params=None, json_body=None, accept=None, timeout=40):
+    """mTLS volání na RB. Cert z trezoru → ephemeral temp PEM (smaže se hned). Vrací requests.Response."""
+    import requests, tempfile, os, uuid
+    cert_pem, key_pem = _p12_to_pem(bundle.get("p12_b64") or "", bundle.get("password") or "")
+    cf = tempfile.NamedTemporaryFile(delete=False, suffix=".pem"); cf.write(cert_pem); cf.close()
+    kf = tempfile.NamedTemporaryFile(delete=False, suffix=".pem"); kf.write(key_pem); kf.close()
+    try:
+        headers = {"X-IBM-Client-Id": bundle.get("client_id") or "", "X-Request-Id": uuid.uuid4().hex[:60]}
+        if accept:
+            headers["Accept"] = accept
+        return requests.request(method, _RB_BASE + path, headers=headers, params=params,
+                                json=json_body, cert=(cf.name, kf.name), timeout=timeout)
+    finally:
+        for p in (cf.name, kf.name):
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
+
+
+def _rb_accounts(bundle: dict):
+    out, page = [], 1
+    while True:
+        r = _rb_call(bundle, "GET", "/accounts", params={"page": page, "size": 50})
+        if r.status_code == 204:
+            break
+        r.raise_for_status()
+        j = r.json()
+        out += j.get("accounts", [])
+        if j.get("last", True):
+            break
+        page += 1
+    return out
+
+
+def _norm_tx(t: dict, ccy: str) -> dict:
+    amt = t.get("amount", {}) or {}
+    det = ((t.get("entryDetails", {}) or {}).get("transactionDetails", {}) or {})
+    cp = ((det.get("relatedParties", {}) or {}).get("counterParty", {}) or {})
+    acc = (cp.get("account", {}) or {})
+    rem = (det.get("remittanceInformation", {}) or {})
+    cref = (rem.get("creditorReferenceInformation", {}) or {})
+    bd = t.get("bookingDate") or ""
+    return {
+        "ext_id": str(t.get("entryReference") or ""),
+        "datum": bd[:10] or None,
+        "castka": amt.get("value"),
+        "mena": amt.get("currency") or ccy,
+        "smer": "out" if t.get("creditDebitIndication") == "DBIT" else "in",
+        "protiucet": acc.get("iban") or acc.get("accountNumber"),
+        "vs": cref.get("variable"), "ks": cref.get("constant"), "ss": cref.get("specific"),
+        "zprava": rem.get("unstructured") or det.get("originatorMessage"),
+        "raw": t,
+    }
+
+
+def _bundle_for(s, connection_id: int):
+    row = s.execute(_t("SELECT vault_ref FROM tenant.bank_connection WHERE id=:id AND tenant_id=:tn"),
+                    {"id": connection_id, "tn": _TENANT}).first()
+    if not row or not row[0]:
+        return None
+    return load_cert_bundle(s, row[0])
+
+
+def _log(s, conn_id, acc_id, operace, uroven, actor, vysledek, detail=None):
+    try:
+        s.execute(_t("INSERT INTO tenant.bank_api_log (connection_id, account_id, operace, uroven, actor, vysledek, detail) "
+                     "VALUES (:c,:a,:o,:u,:ac,:v,CAST(:d AS jsonb))"),
+                  {"c": conn_id, "a": acc_id, "o": operace, "u": uroven, "ac": actor, "v": vysledek,
+                   "d": _json.dumps(detail or {})})
+    except Exception:
+        pass
+
+
+@bank_router.post("/app/bank/connection/{cid}/discover")
+async def bank_discover(cid: int, request: Request):
+    """Test spojení + načtení seznamu účtů z banky → upsert bank_connection_account."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        bundle = _bundle_for(s, cid)
+        if not bundle:
+            return JSONResponse({"ok": False, "error": "Napojení nemá uložený certifikát."}, status_code=400)
+        try:
+            accs = _rb_accounts(bundle)
+        except Exception as exc:
+            _log(s, cid, None, "get_accounts", "batch", "user:%s" % uid, "ERROR:%s" % type(exc).__name__)
+            s.commit()
+            return JSONResponse({"ok": False, "error": "RB volání selhalo: %s: %s" % (type(exc).__name__, str(exc)[:160])}, status_code=502)
+        n = 0
+        for a in accs:
+            cislo = a.get("accountNumber") or ""
+            if not cislo:
+                continue
+            mena = a.get("mainCurrency") or "CZK"
+            nazev = a.get("accountName") or a.get("friendlyName")
+            res = s.execute(_t(
+                "INSERT INTO tenant.bank_connection_account (connection_id, cislo_uctu, nazev, mena, sc_historie, sc_zustatky, sc_vypisy, sc_platby) "
+                "SELECT :c,:cu,:n,:m,true,true,true,false WHERE NOT EXISTS "
+                "(SELECT 1 FROM tenant.bank_connection_account WHERE connection_id=:c AND cislo_uctu=:cu)"),
+                {"c": cid, "cu": cislo, "n": nazev, "m": mena})
+            n += (res.rowcount or 0)
+        _log(s, cid, None, "get_accounts", "batch", "user:%s" % uid, "OK:%d" % len(accs))
+        s.commit()
+        return {"ok": True, "found": len(accs), "upserted": n,
+                "accounts": [{"cislo_uctu": a.get("accountNumber"), "nazev": a.get("accountName"),
+                              "mena": a.get("mainCurrency"), "iban": a.get("iban"),
+                              "typ": a.get("accountTypeId")} for a in accs]}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/bank/connection/{cid}/load")
+async def bank_load_tx(cid: int, request: Request):
+    """Načte transakce (posledních 90 dní) pro účty s scope historie → staging bank_transaction_raw."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    import datetime as _dt
+    s = _sess()
+    try:
+        bundle = _bundle_for(s, cid)
+        if not bundle:
+            return JSONResponse({"ok": False, "error": "Napojení nemá uložený certifikát."}, status_code=400)
+        accs = [dict(r) for r in s.execute(_t(
+            "SELECT id, cislo_uctu, mena FROM tenant.bank_connection_account "
+            "WHERE connection_id=:c AND aktivni AND sc_historie ORDER BY id"), {"c": cid}).mappings().all()]
+        date_to = _dt.date.today()
+        date_from = date_to - _dt.timedelta(days=89)
+        total, per = 0, []
+        for a in accs:
+            ccy = a["mena"] or "CZK"
+            got = 0
+            try:
+                page = 1
+                while True:
+                    r = _rb_call(bundle, "GET", "/accounts/%s/%s/transactions" % (a["cislo_uctu"], ccy),
+                                 params={"from": date_from.isoformat(), "to": date_to.isoformat(), "page": page})
+                    if r.status_code == 204:
+                        break
+                    r.raise_for_status()
+                    j = r.json()
+                    for t in j.get("transactions", []):
+                        tx = _norm_tx(t, ccy)
+                        if not tx["ext_id"]:
+                            continue
+                        s.execute(_t(
+                            "INSERT INTO tenant.bank_transaction_raw "
+                            "(account_id, ext_id, datum, castka, mena, smer, protiucet, vs, ks, ss, zprava, raw) "
+                            "VALUES (:aid,:e,:d,:ca,:m,:sm,:pu,:vs,:ks,:ss,:z,CAST(:raw AS jsonb)) "
+                            "ON CONFLICT (account_id, ext_id) WHERE ext_id IS NOT NULL DO NOTHING"),
+                            {"aid": a["id"], "e": tx["ext_id"], "d": tx["datum"], "ca": tx["castka"],
+                             "m": tx["mena"], "sm": tx["smer"], "pu": tx["protiucet"], "vs": tx["vs"],
+                             "ks": tx["ks"], "ss": tx["ss"], "z": tx["zprava"], "raw": _json.dumps(tx["raw"])})
+                        got += 1
+                    if j.get("lastPage", True):
+                        break
+                    page += 1
+                _log(s, cid, a["id"], "get_transactions", "batch", "user:%s" % uid, "OK:%d" % got)
+            except Exception as exc:
+                _log(s, cid, a["id"], "get_transactions", "batch", "user:%s" % uid, "ERROR:%s" % type(exc).__name__)
+                per.append({"ucet": a["cislo_uctu"], "chyba": "%s: %s" % (type(exc).__name__, str(exc)[:120])})
+                continue
+            total += got
+            per.append({"ucet": a["cislo_uctu"], "nacteno": got})
+        s.commit()
+        return {"ok": True, "od": date_from.isoformat(), "do": date_to.isoformat(),
+                "celkem": total, "ucty": per}
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)

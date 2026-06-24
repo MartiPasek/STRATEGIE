@@ -74,21 +74,31 @@ image019.jpg image019.jpg@01DCFF1B.83980450 681907
 2. **Inline přílohy = 14 obrázků** `image001`–`image014` (z `docs/mail_sablony/de_images/`)
    s Content-ID skupiny `@01DCD717.C657E160` (stejný princip jako OTEVÍRÁK `cid:20let_cz.png`).
    Plné `cid` hodnoty jsou přímo v `src="cid:…"` ve FINAL HTML. **image015–019 vynech.**
-3. **INSERT** do `dbo.EC_KontaktMailSablonyCis`: `Nazev='Automatický e-mail DE'`,
-   `Sablona=<obsah automaticky_email_DE_FINAL.html>`, `Autor='Pavel'` (nebo `'Marti-AI'`),
-   `Poradi=7` (poslední stávající je ID 15 s `Poradi=6`).
+3. **INSERT do `st.CRM_Kontakt_MailSablonyCis`** (NOVÝ CRM — ROZHODNUTO 24.6., varianta B;
+   NE do `dbo.EC_KontaktMailSablonyCis` = legacy). Sloupce:
+   - `Nazev` = `Automatický e-mail DE`
+   - `Sablona` = obsah `automaticky_email_DE_FINAL.html`
+   - `PredmetEmailu` = `Kooperationsangebot: Unterstützung im Bereich Elektrokonstruktion und Automatisierung`
+     (nová tabulka má předmět přímo ve sloupci — využij ho)
+   - `Poradi` = `7` (poslední stávající je ID 15 s `Poradi=6`)
+   - `Autor` = `Pavel` (nebo `Marti-AI`), `DatPorizeni` = teď
+   - `SeznamPriloh` / `ListPriloh` = 14 příloh `image001`–`image014` — **dle tvé konvence
+     odesílací rutiny** (existující šablony 9/10 mají tyto sloupce prázdné a `cid` řeší rutina;
+     ty víš nejlíp, jestli u DE patří seznam příloh sem, nebo se cid resolvuje při `send_email`).
 4. Merge pole: žádná — oslovení je už **„Sehr geehrte Damen und Herren,"** (anonymní,
    potvrdila Kristý 22.6.). Tělo nech jak je.
 
 > Pozn. k odeslání: u `send_email` namapuj 14 příloh na jejich `cid` (Content-ID v hlavičce
 > přílohy = hodnota za `cid:` ve `src`), aby se zobrazily inline — stejně jako u OTEVÍRÁKu.
+> Soubory máš na RW share `ZZ_Marti-AI RW\CRM\sablona_DE\` (HTML + image001–014) i v repu `docs/mail_sablony/`.
 
-## Co udělal Claude-24 ✅ (HOTOVO 22. 6. 2026, commit 905c080d)
-- Výběr šablony v „Oslovit vybrané" se teď **načítá dynamicky** z číselníku
-  `dbo.EC_KontaktMailSablonyCis` (nový read endpoint `GET /crm/osloveni/sablony`,
-  dropdown v `erp_grid_actions.js` přes fetch, fallback 9/10).
-- **Důsledek pro tebe:** jakmile vložíš „Automatický e-mail DE", objeví se ve výběru
-  **sama** — žádná další úprava UI není potřeba. Tvůj INSERT je poslední krok.
+## Co udělal Claude-24 ✅
+- 22.6. (commit 905c080d): dynamický dropdown v „Oslovit vybrané" (`GET /crm/osloveni/sablony`).
+- **24.6. (commit c9c6352e): dropdown PŘESMĚROVÁN z `dbo` na `st.CRM_Kontakt_MailSablonyCis`**
+  (varianta B — sladění s novým CRM; `st` už má stejné šablony 9/10/11/12/13/15, takže
+  pro Pavla beze změny). → DE vlož do `st`, ne do `dbo`.
+- **Důsledek pro tebe:** jakmile vložíš „Automatický e-mail DE" do `st.CRM_Kontakt_MailSablonyCis`,
+  objeví se ve výběru **sama** — žádná další úprava UI není potřeba. Tvůj INSERT je poslední krok.
 
 ## Pozn.
 - Zatím existuje jen DE varianta. CZ doplníme, až ji Pavel dodá.

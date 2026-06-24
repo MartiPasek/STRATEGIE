@@ -462,6 +462,16 @@ def bank_parovat(request: Request):
                 "WHERE t.par_metoda IS NULL AND t.vs IS NOT NULL AND t.vs<>'' "
                 "  AND ltrim(m.cislo,'0')=ltrim(t.vs,'0') AND m.rada = ANY(:radas)"),
                 {"radas": radas})
+        # C) odchozí: zpráva "RRRNNNNNN" = řada + číslo NAŠÍ faktury → objednávka → zakázka
+        #    (platbu generujeme ze systému, do zprávy dáme referenci na fakturu, kterou platíme)
+        s.execute(_t(
+            "UPDATE tenant.bank_transaction_raw t "
+            "SET par_metoda='doklad_zprava', par_doklad_rada=d.rada, par_doklad_id=d.id, "
+            "    par_zakazka=NULLIF(d.cislo_zakazky,''), par_at=now() "
+            "FROM tenant.ec_doklad_zbozi d "
+            "WHERE t.par_metoda IS NULL AND t.zprava ~ '^\\d{4}' "
+            "  AND d.rada = (regexp_match(t.zprava, '^(\\d{3})0*(\\d+)'))[1] "
+            "  AND ltrim(d.cislo,'0') = (regexp_match(t.zprava, '^(\\d{3})0*(\\d+)'))[2]"))
         s.commit()
         # souhrn
         celkem = s.execute(_t("SELECT count(*) FROM tenant.bank_transaction_raw")).scalar()

@@ -140,6 +140,42 @@ async def lifespan(app: FastAPI):
             f"[lifespan] startup log_event failed: {exc}"
         )
 
+    # One-off (Claude id=23, 24.6.2026): 10. kolo hry "Odchozi pres zpravu". Idempotentne dle seq=51. Po nabehnuti smazat.
+    try:
+        from core.database_data import get_data_session as _g_hA
+        from sqlalchemy import text as _t_hA
+        _s_hA = _g_hA()
+        try:
+            if not _s_hA.execute(_t_hA("SELECT 1 FROM claude_hra.hra_log WHERE seq=51")).first():
+                _rA = [
+                    {"seq": 51, "sk": "Banka živě", "ty": "analyza", "ic": "search",
+                     "nad": "Odchozí: tajemství je ve ZPRÁVĚ",
+                     "kom": "Vystopoval jsem celý řetězec u jednoho dodavatele. Platba −19 348 měla ve zprávě 500000934 — a hle, naše faktura číslo 000934 řada 500, částka přesně 19 348. Platba nese v textu naši fakturu, kterou platí.",
+                     "pct": None, "u": None, "c": 476},
+                    {"seq": 52, "sk": "Banka živě", "ty": "pravidlo", "ic": "puzzle",
+                     "nad": "Zpráva = naše faktura → objednávka → zakázka",
+                     "kom": "Formát RRRNNNNNN: první tři číslice = řada, zbytek = číslo naší přijaté faktury. Platbu generujeme ze systému, tak do zprávy dáme referenci. A faktura nese navaznou objednávku a zakázku. Žádné saldo — objednávková páteř, přesně jak řekl šéf.",
+                     "pct": None, "u": None, "c": 476},
+                    {"seq": 53, "sk": "Banka živě", "ty": "vitezstvi", "ic": "trophy",
+                     "nad": "16 % → 58 %, a 294 plateb nese zakázku",
+                     "kom": "251 odchozích plateb naskočilo přes zprávu — a VŠECHNY se zakázkou. Z 93 jsme na 344 z 589. Řetězec banka → faktura → objednávka → zakázka stojí na obou stranách. Zbývá 245 na poslední iteraci. V pondělí už můžeme i platit od nás.",
+                     "pct": None, "u": 344, "c": 589},
+                ]
+                _s_hA.execute(_t_hA(
+                    "INSERT INTO claude_hra.hra_log (seq,skupina,typ,icon,nadpis,komentar,pct,n_uhrano,n_celkem,ts) "
+                    "VALUES (:seq,:sk,:ty,:ic,:nad,:kom,:pct,:u,:c,now())"), _rA)
+                _s_hA.execute(_t_hA(
+                    "INSERT INTO claude_hra.solver_run (skupina,kolo,pravidlo,n_celkem,n_uhrano,n_hadanka,pct,ts) "
+                    "VALUES (:sk,10,:pr,589,344,245,58.4,now())"),
+                    {"sk": "Banka_odchozi_zprava",
+                     "pr": "zprava RRRNNNNNN = rada+cislo nasi FP -> navazna_objednavka -> zakazka; +251 (vse se zakazkou), celkem 344/589 = 58%, 294 se zakazkou"})
+                _s_hA.commit()
+                logging.getLogger(__name__).info("[lifespan] hra kolo 10 zapsano")
+        finally:
+            _s_hA.close()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] hra kolo10 hook failed: {exc}")
+
     # Phase API Versioned Routing Etapa G (23.5.2026): jen primary instance
     # updatuje fw.api_version SET released_at=NOW(), git_sha=<HEAD>.
     # Secondary (STRATEGIE-API-B) nesmi prepisovat - jeji datum se updatuje

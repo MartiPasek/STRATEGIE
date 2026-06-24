@@ -25216,6 +25216,41 @@ async def claude_martiai_msgs(req: Request) -> JSONResponse:
         sd.close()
 
 
+@api_router.get("/hra/data")
+async def hra_data(req: Request) -> JSONResponse:
+    """Data pro replay dashboard účetní hry (Marti 24.6.2026: 'zrychlené
+    přehrávání tvé hry, ať lidi dostane do kolen'). Čte claude_hra.* (herní
+    sandbox, žádná citlivá data) → veřejné read-only pro pozorování hry."""
+    from core.database_data import get_data_session as _ghd
+    from sqlalchemy import text as _thd
+    import datetime as _dthd
+    from decimal import Decimal as _Dhd
+
+    def _jv(v):
+        if isinstance(v, _Dhd):
+            return float(v)
+        if isinstance(v, (_dthd.date, _dthd.datetime)):
+            return v.isoformat()
+        return v
+    s = _ghd()
+    try:
+        log = s.execute(_thd(
+            "SELECT seq,skupina,typ,icon,nadpis,komentar,pct,n_uhrano,n_celkem,to_char(ts,'HH24:MI:SS') "
+            "FROM claude_hra.hra_log ORDER BY seq NULLS LAST, id")).all()
+        runs = s.execute(_thd(
+            "SELECT skupina,kolo,pravidlo,n_celkem,n_uhrano,n_hadanka,pct,to_char(ts,'DD.MM HH24:MI') "
+            "FROM claude_hra.solver_run ORDER BY id")).all()
+        return JSONResponse({"ok": True,
+            "log": [{"seq": r[0], "skupina": r[1], "typ": r[2], "icon": r[3], "nadpis": r[4],
+                     "komentar": r[5], "pct": _jv(r[6]), "uhrano": r[7], "celkem": r[8], "ts": r[9]} for r in log],
+            "runs": [{"skupina": r[0], "kolo": r[1], "pravidlo": r[2], "celkem": r[3], "uhrano": r[4],
+                      "hadanka": r[5], "pct": _jv(r[6]), "ts": r[7]} for r in runs]})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)[:300]})
+    finally:
+        s.close()
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):

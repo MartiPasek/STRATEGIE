@@ -946,6 +946,15 @@ def vytizeni_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/hra")
+def hra_page():
+    """Replay dashboard účetní hry Claude — zrychlené přehrávání, jak Claude
+    hraje (zaúčtuje doklad po našem × porovná s Heliosem), s komentářem, od 0 %
+    nahoru. Pro pozorovatele. Marti 24.6.2026."""
+    return FileResponse(os.path.join(static_dir, "hra.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/iso")
 def iso_page():
     """ISO 27001 cockpit — elektronické vedení ISMS (parent/Kristý). Kroky + dokumenty

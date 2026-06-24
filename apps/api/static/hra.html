@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="cs"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Účetní hra Claude — replay · STRATEGIE</title>
+<meta name="description" content="Zrychlené přehrávání účetní hry: Claude účtuje doklad po našem a porovnává s Heliosem. Od 0 % ke 100 %.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#05070f;--bg2:#0a1226;--card:#0e1730;--bord:#1d2a4a;--tx:#e8eefc;--mut:#8ea0c4;
+    --grn:#34d399;--tl:#2dd4bf;--bl:#60a5fa;--am:#fbbf24;--rd:#f87171;--gr:#64748b;--vio:#a78bfa}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Inter',system-ui,sans-serif;background:
+    radial-gradient(900px 600px at 80% -10%,rgba(45,212,191,.10),transparent 60%),
+    radial-gradient(800px 500px at 0% 10%,rgba(96,165,250,.07),transparent 55%),var(--bg);
+    color:var(--tx);line-height:1.5;min-height:100vh}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1240px;margin:0 auto;padding:0 18px}
+  .top{position:sticky;top:0;z-index:40;backdrop-filter:blur(14px);background:rgba(5,7,15,.82);border-bottom:1px solid var(--bord)}
+  .top .wrap{display:flex;align-items:center;justify-content:space-between;min-height:60px;padding:8px 0;gap:10px 14px;flex-wrap:wrap}
+  .brand{font-weight:900;font-size:16px;display:flex;align-items:center;gap:10px}
+  .brand .lg{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--grn),var(--tl));display:flex;align-items:center;justify-content:center;color:#04150e;font-size:15px}
+  .live{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--am);
+    border:1px solid rgba(251,191,36,.35);border-radius:30px;padding:5px 12px;background:rgba(251,191,36,.06)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--am);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(251,191,36,.55)}70%{box-shadow:0 0 0 9px rgba(251,191,36,0)}100%{box-shadow:0 0 0 0 rgba(251,191,36,0)}}
+  .clock{font-variant-numeric:tabular-nums;font-weight:700;font-size:15px}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:11px;font-weight:800;font-size:13px;border:0;cursor:pointer;transition:.2s}
+  .btn-p{background:linear-gradient(110deg,var(--grn),var(--tl));color:#04150e}.btn-p:hover{transform:translateY(-1px)}
+  .btn-g{background:transparent;border:1px solid var(--bord);color:var(--tx)}.btn-g:hover{border-color:var(--tl);color:var(--tl)}
+  .dhead{padding:24px 0 4px}
+  .dhead h1{font-size:clamp(21px,3vw,32px);font-weight:900;letter-spacing:-.6px}
+  .dhead p{color:var(--mut);font-size:14px;margin-top:4px;max-width:760px}
+  /* hero score */
+  .hero{display:grid;grid-template-columns:300px 1fr;gap:18px;margin:18px 0 6px;align-items:stretch}
+  @media(max-width:780px){.hero{grid-template-columns:1fr}}
+  .scorebox{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:20px;padding:20px 22px;display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
+  .scorebox .lab{font-size:12.5px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  .scorebox .big{font-size:64px;font-weight:900;letter-spacing:-2px;line-height:1;margin:8px 0 4px;font-variant-numeric:tabular-nums;
+    background:linear-gradient(110deg,var(--grn),var(--tl));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .scorebox .sub{font-size:13px;color:var(--mut)}
+  .scorebox .sub b{color:var(--tx)}
+  .progwrap{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:20px;padding:20px 22px;display:flex;flex-direction:column;justify-content:center}
+  .progwrap h3{font-size:14px;font-weight:800;margin-bottom:3px}
+  .progwrap .psub{font-size:12px;color:var(--mut);margin-bottom:16px}
+  .ptrack{height:26px;background:rgba(255,255,255,.05);border-radius:14px;overflow:hidden;position:relative;border:1px solid var(--bord)}
+  .pfill{height:100%;border-radius:14px;width:0%;background:linear-gradient(90deg,var(--bl),var(--tl),var(--grn));transition:width .9s cubic-bezier(.3,0,.2,1);box-shadow:0 0 18px rgba(45,212,191,.4)}
+  .pscale{display:flex;justify-content:space-between;font-size:11px;color:var(--mut);margin-top:7px;font-variant-numeric:tabular-nums}
+  .goal{font-size:12.5px;color:var(--mut);margin-top:12px}
+  .goal b{color:var(--grn)}
+  /* grid */
+  .grid2{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;align-items:start;margin-top:10px}
+  @media(max-width:980px){.grid2{grid-template-columns:1fr}}
+  .panel{background:linear-gradient(180deg,var(--card),rgba(14,23,48,.5));border:1px solid var(--bord);border-radius:18px;padding:18px;margin-bottom:14px}
+  .panel h3{font-size:15px;font-weight:800;margin-bottom:2px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .panel .psub{font-size:12px;color:var(--mut);margin-bottom:14px}
+  /* feed */
+  .feed{display:flex;flex-direction:column;gap:9px;min-height:340px}
+  .ev{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;background:rgba(255,255,255,.025);border:1px solid var(--bord);border-radius:12px;animation:slidein .5s ease}
+  .ev.big{border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.06)}
+  @keyframes slidein{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+  .ev .ei{font-size:22px;line-height:1.15;flex:0 0 auto}
+  .ev .etx{flex:1}
+  .ev .etx .eh{font-size:14px;font-weight:800}
+  .ev .etx .ec{font-size:12.5px;color:var(--mut);margin-top:3px;line-height:1.45}
+  .ev .etm{font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ev .pctchip{font-size:12px;font-weight:800;color:var(--grn);background:rgba(52,211,153,.13);border-radius:20px;padding:3px 10px;white-space:nowrap;margin-top:3px;display:inline-block}
+  /* scoreboard rows */
+  .bar{margin-bottom:13px}
+  .bar .bt{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px;gap:10px}
+  .bar .bt b{font-weight:800} .bar .bt .pv{color:var(--grn);font-variant-numeric:tabular-nums;font-weight:800}
+  .bar .rule{font-size:11.5px;color:var(--mut);margin-bottom:6px}
+  .track{height:10px;background:rgba(255,255,255,.05);border-radius:6px;overflow:hidden}
+  .fill{height:100%;border-radius:6px;width:0%;transition:width 1s cubic-bezier(.4,0,.2,1);background:linear-gradient(90deg,var(--tl),var(--grn))}
+  .meta{display:flex;gap:8px;margin-top:6px;font-size:11px;color:var(--mut)}
+  .meta .w{color:var(--grn)} .meta .h{color:var(--am)}
+  .chartwrap{height:200px}
+  .footer{padding:24px 0 40px;text-align:center;color:var(--mut);font-size:12.5px}
+  .footer a{color:var(--tl)}
+  .empty{color:var(--mut);font-size:13px;padding:20px;text-align:center}
+</style></head><body>
+
+<div class="top"><div class="wrap">
+  <div class="brand"><span class="lg">S</span> STRATEGIE · Účetní hra</div>
+  <span class="live"><span class="dot"></span> REPLAY</span>
+  <span class="clock" id="clock">--:--:--</span>
+  <button class="btn btn-p" id="replay">▶ Přehrát znovu</button>
+</div></div>
+
+<div class="wrap">
+  <div class="dhead">
+    <h1>Jak Claude hraje účetnictví 🧩</h1>
+    <p>Helios je „klíč odpovědí". Claude bere doklad po dokladu, zkusí ho zaúčtovat <b>po našem</b>
+       a porovná s Heliosem. Kde se shodnou = uhráno. Kde ne = hádanka, kterou doladí v pravidlech.
+       Cesta od <b>0 %</b> ke <b>100 %</b> — autonomně, jen pár věcí zbude na člověka.</p>
+  </div>
+
+  <div class="hero">
+    <div class="scorebox">
+      <div class="lab">Uhráno s Heliosem</div>
+      <div class="big" id="bigpct">0,0 %</div>
+      <div class="sub" id="bigsub">Připravuji hru…</div>
+    </div>
+    <div class="progwrap">
+      <h3>Postup hrou</h3>
+      <div class="psub">Od nuly nahoru — kolik dokladů už účtujeme stejně jako Helios</div>
+      <div class="ptrack"><div class="pfill" id="pfill"></div></div>
+      <div class="pscale"><span>0 %</span><span>25 %</span><span>50 %</span><span>75 %</span><span>100 %</span></div>
+      <div class="goal">🎯 Cíl: <b>100 %</b> autonomně zaúčtováno. Zbytek = chytré výjimky pro lidské oko.</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h3>Záznam hry <span class="live" style="color:var(--tl);border-color:rgba(45,212,191,.35);background:rgba(45,212,191,.06)"><span class="dot" style="background:var(--tl)"></span> hraje se</span></h3>
+      <div class="psub">Tah po tahu, jak Claude postupoval — s komentářem</div>
+      <div class="feed" id="feed"><div class="empty">Načítám záznam…</div></div>
+    </div>
+    <div>
+      <div class="panel">
+        <h3>Křivka vítězství</h3>
+        <div class="psub">% uhráno v čase — od 0 nahoru</div>
+        <div class="chartwrap"><canvas id="chart"></canvas></div>
+      </div>
+      <div class="panel">
+        <h3>Skóre po skupinách</h3>
+        <div class="psub">Které doklady už účtujeme po našem správně</div>
+        <div id="scoreboard"><div class="empty">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">STRATEGIE · Účetní hra Claude — zrychlené přehrávání reálné hry. Helios = zdroj pravdy, Claude = solver. <a href="/web">← Zpět na web</a></div>
+</div>
+
+<script>
+const ICON = {game:'🎲',folder:'📂',search:'🔍',puzzle:'🧩',target:'🎯',think:'🤔',trophy:'🏆',
+  start:'🎲',skupina:'📂',analyza:'🔍',pravidlo:'🧩',skore:'🎯',hadanka:'🤔',vitezstvi:'🏆'};
+let LOG=[], RUNS=[], chart=null, timer=null;
+
+function clk(){const d=new Date();document.getElementById('clock').textContent=d.toLocaleTimeString('cs-CZ');}
+setInterval(clk,1000);clk();
+
+function fmtPct(v){return (v==null?0:v).toLocaleString('cs-CZ',{minimumFractionDigits:1,maximumFractionDigits:2})+' %';}
+
+function setBig(v){document.getElementById('bigpct').textContent=fmtPct(v);
+  document.getElementById('pfill').style.width=Math.max(0,Math.min(100,v||0))+'%';}
+
+function rollBig(from,to,sub){
+  const t0=performance.now(),dur=900;
+  function fr(now){const k=Math.min(1,(now-t0)/dur);const e=1-Math.pow(1-k,3);const v=from+(to-from)*e;
+    setBig(v); if(k<1) requestAnimationFrame(fr); else { setBig(to); }}
+  requestAnimationFrame(fr);
+  if(sub) document.getElementById('bigsub').innerHTML=sub;
+}
+
+function initChart(){
+  const ctx=document.getElementById('chart');
+  chart=new Chart(ctx,{type:'line',
+    data:{labels:[],datasets:[{data:[],borderColor:'#34d399',backgroundColor:'rgba(52,211,153,.15)',
+      fill:true,tension:.35,pointRadius:3,pointBackgroundColor:'#2dd4bf',borderWidth:2.5}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:600},
+      plugins:{legend:{display:false},tooltip:{enabled:true}},
+      scales:{y:{min:0,max:100,ticks:{color:'#8ea0c4',callback:v=>v+' %'},grid:{color:'rgba(255,255,255,.05)'}},
+        x:{ticks:{color:'#8ea0c4',maxRotation:0},grid:{display:false}}}}});
+}
+function pushChart(label,v){chart.data.labels.push(label);chart.data.datasets[0].data.push(v);chart.update();}
+
+function addEvent(e){
+  const feed=document.getElementById('feed');
+  const big = (e.typ==='skore'||e.typ==='vitezstvi');
+  const div=document.createElement('div');div.className='ev'+(big?' big':'');
+  let pctchip = (e.pct!=null && (e.typ==='skore'||e.typ==='vitezstvi'))?`<div class="pctchip">🎯 ${fmtPct(e.pct)} uhráno</div>`:'';
+  div.innerHTML=`<div class="ei">${ICON[e.icon]||ICON[e.typ]||'•'}</div>
+    <div class="etx"><div class="eh">${e.nadpis||''}</div>
+      <div class="ec">${e.komentar||''}</div>${pctchip}</div>
+    <div class="etm">${e.ts||''}</div>`;
+  feed.appendChild(div);
+  feed.parentElement.scrollTop=feed.parentElement.scrollHeight;
+  div.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function renderScoreboard(){
+  const sb=document.getElementById('scoreboard');
+  if(!RUNS.length){sb.innerHTML='<div class="empty">Zatím žádné kolo.</div>';return;}
+  sb.innerHTML=RUNS.map(r=>`<div class="bar">
+    <div class="bt"><b>${r.skupina}</b> <span class="pv">${fmtPct(r.pct)}</span></div>
+    <div class="rule">Pravidlo: ${r.pravidlo||'—'}</div>
+    <div class="track"><div class="fill" style="width:0%" data-w="${r.pct||0}"></div></div>
+    <div class="meta"><span class="w">▲ uhráno ${r.uhrano}</span><span class="h">✦ hádanky ${r.hadanka}</span><span>z ${r.celkem} dokladů</span></div>
+  </div>`).join('');
+  setTimeout(()=>{document.querySelectorAll('#scoreboard .fill').forEach(f=>f.style.width=(f.dataset.w||0)+'%');},120);
+}
+
+function delayFor(e){return (e.typ==='skore'||e.typ==='vitezstvi')?1800:1050;}
+
+function play(){
+  clearTimeout(timer);
+  const feed=document.getElementById('feed');feed.innerHTML='';
+  if(chart){chart.data.labels=[];chart.data.datasets[0].data=[];chart.update();}
+  setBig(0);document.getElementById('bigsub').textContent='Začínám od nuly…';
+  let i=0,cur=0,kolo=0;
+  (function step(){
+    if(i>=LOG.length){document.getElementById('bigsub').innerHTML='Hotovo — <b>'+fmtPct(cur)+'</b> uhráno. Cesta pokračuje k 100 %.';return;}
+    const e=LOG[i++];
+    addEvent(e);
+    if(e.pct!=null){
+      kolo++;
+      rollBig(cur,e.pct, 'Skupina <b>'+(e.skupina||'')+'</b> — '+(e.uhrano||0)+' z '+(e.celkem||0)+' dokladů');
+      pushChart(e.skupina+' k'+kolo, e.pct);
+      cur=e.pct;
+    }
+    timer=setTimeout(step, delayFor(e));
+  })();
+}
+
+async function load(){
+  try{
+    const r=await fetch('/api/v1/erp/hra/data',{cache:'no-store'});
+    const d=await r.json();
+    if(!d.ok){throw new Error(d.error||'chyba');}
+    LOG=d.log||[];RUNS=d.runs||[];
+    initChart();renderScoreboard();
+    if(!LOG.length){document.getElementById('feed').innerHTML='<div class="empty">Hra zatím nemá žádný záznam.</div>';return;}
+    play();
+  }catch(err){
+    document.getElementById('feed').innerHTML='<div class="empty">Nepodařilo se načíst hru: '+err.message+'</div>';
+  }
+}
+document.getElementById('replay').addEventListener('click',play);
+load();
+</script>
+</body></html>

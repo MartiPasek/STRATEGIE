@@ -44,6 +44,7 @@ from modules.erp.api.router import router as erp_router, api_router as erp_api_r
 from modules.erp.api.carddav import carddav_router, carddav_mgmt_router
 from modules.erp.api.directories import dir_router  # Fáze A: systém adresářů dokumentů (18.6.2026)
 from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elektronické vedení ISMS (21.6.2026)
+from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
 
 setup_logging()
 
@@ -798,6 +799,7 @@ app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.w
 app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa tokenů (/api/v1/erp/carddav/*)
 app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_config + resolver)
 app.include_router(iso_router)  # ISO 27001 cockpit (elektronické ISMS + e-podpis + auditor portál)
+app.include_router(bank_router)  # Univerzální bankovní napojení (connection + cert do trezoru) — Fáze 1
 from modules.act_pipeline.act_router import act_router  # FW Action Pipelines executor (Marti 3.6.)
 app.include_router(act_router)
 
@@ -1022,6 +1024,14 @@ def edi_stat_page():
 def edi_definice_page():
     """Správa EDI definic + fronta eskalací (pro Peťu + jejího Claude). Marti 20.6.2026."""
     return FileResponse(os.path.join(static_dir, "edi-definice.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/banka-napojeni")
+def banka_napojeni_page():
+    """Univerzální bankovní napojení — bezpečné uložení mTLS certifikátu (.p12) + Client ID
+    do trezoru, správa connection per firma per banka. Parent-only data. Marti 24.6.2026."""
+    return FileResponse(os.path.join(static_dir, "banka-napojeni.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 

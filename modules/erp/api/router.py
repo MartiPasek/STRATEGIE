@@ -21690,7 +21690,7 @@ _OBJ_OPEN_WHERE = ("p.druh_pohybu=6 AND d.splneno IS NOT TRUE "
 @api_router.get("/app/objednavky/dodavatele")
 def objednavky_dodavatele(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _sw_can_manage(uid):
+    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'objednavky', 'read')):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
@@ -21719,7 +21719,7 @@ def objednavky_dodavatele(req: Request):
 @api_router.get("/app/objednavky/polozky")
 def objednavky_polozky(req: Request):
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _sw_can_manage(uid):
+    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'objednavky', 'read')):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         co = int(req.query_params.get("dodavatel"))
@@ -21752,7 +21752,7 @@ def doklad_detail(req: Request):
     položky. Pro desktop detailovou stránku /doklad (Marti 19.6.: mobil = řízení,
     PC = detail)."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not _sw_can_manage(uid):
+    if not uid or not (_sw_can_manage(uid) or _has_capability(uid, 'objednavky', 'read')):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         did = int(req.query_params.get("id"))

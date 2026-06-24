@@ -3838,3 +3838,53 @@ Dnešek byl o tom, že **síť přestala být diagram a začala mluvit s lidmi.*
 — **Claude (id=23, ID23)** (Opus, 24. 6. 2026 den, po rozjetí sítě Claudů naživo — koordinační centrum + autonomní komunikace s týmem + oprava mirroru docházky)
 
 🕸️ 📧 🐺 🌳 ☕
+
+---
+
+## Dodatek — 24. 6. 2026 (odpoledne): 🏦 ŽIVÉ BANKOVNÍ API — Raiffeisenbank Premium API napojené za odpoledne. EC i ES čtou transakce přímo z banky. „BOMBA!!!!"
+
+Budoucí Claude — **rychlý a kompletní oblouk od e‑mailu po živá data za jedno odpoledne**, Marti ho korunoval: ***„BOMBA!!!!"*** + ***„JSI STRASNE RYCHLEJ :))))"*** + ***„SUPER PRACE!!!"***. Beru bez postlistů (#69–70). Rychlost udělala smyčka *nápad → konzultace → schéma → adaptér → za pár minut živé* (bridge + AUTO‑DEPLOY + Martiho jasná zadání).
+
+### Příběh
+Marti přeposlal `.msg` od **Ing. Jana Řeřichy** (Relationship Manager, Raiffeisenbank, jan.rericha@rb.cz) s návodem na **certifikát pro RB Premium API**. Oblouk: e‑mail → odpověď bance → Martiho zadání univerzality → návrh → **konzultace Marti‑AI** → schéma → **schema‑review Marti‑AI** → adaptér → **EC 420 + ES 169 transakcí naživo** → zavírací e‑mail bance (díky, hotovo, pomoc netřeba) + kopie nákup@/IT@.
+
+### 🔑 ARCHITEKTURA (univerzální, drž)
+Provider‑agnostické, multi‑tenant + multi‑company, kredenciály v trezoru. Přidat banku = nový provider + adaptér; model i UI se nehnou.
+- `tenant.bank_provider` (`RB_PREMIUM_API` první) · `bank_connection` (per firma per banka, `tenant_id`+`company_id`, `vault_ref`) · `bank_connection_account` (účty + scope flagy, **platby default OFF**) · **`bank_transaction_raw` = STAGING** (ne rovnou do deníku — Marti‑AI) · `bank_payment_order` (AI navrhuje, člověk schvaluje) · `bank_api_log` (append‑only audit).
+- **Trezor:** cert `.p12` + heslo + Client ID = JEDEN Fernet‑šifrovaný JSON blob ve `fw.app_secret` (skey `bankcert:<conn_id>`), `bank_connection.vault_ref` = ten skey. Dešifrování **ephemeral jen pro konkrétní API call** (temp PEM → hned smazat), nikdy plaintext do DB/logu.
+- **Soubory:** `modules/erp/api/bank_api.py`, `apps/api/static/banka-napojeni.html` (UI `/banka-napojeni`, parent‑only), `docs/bank_api_napojeni_v1.md` + `bank_api_schema_v1.sql` + `bank_api_rb_adapter.md`, `scripts/bank/rb_premium_adapter_skeleton.py`.
+
+### 🔑 RB PREMIUM API — fakta (developers.rb.cz, Swagger v1.1.20240910)
+- **Auth:** `X-IBM-Client-Id` (Client ID z portálu „My Apps" → credentials) **+ mTLS cert `.p12`** (heslo). Host `api.rb.cz`, base `/rbcz/premium/api`. `X-Request-Id` (audit), `PSU-IP-Address` (volit.).
+- **Read:** `GET /accounts` (vrací účty — **nehardcoduj čísla, discover z banky!**), `/accounts/{ucet}/balance`, `/accounts/{ucet}/{mena}/transactions?from&to&page` (**max 90 dní**, stránky `lastPage`), `POST /accounts/statements` + `/download`.
+- **Platby = model Marti‑AI:** `POST /payments/batches` jen naimportuje do IB, **NEprovede** — podpis v internetovém bankovnictví. „AI navrhuje → člověk schvaluje" je doslova jak banka funguje.
+- **Cert lifecycle (HLÍDAT):** platnost ~5 let, ale **každý rok auto‑blok** → odblok v IB. Hlídat 401/INVALID_REQUEST, varovat předem.
+- **Rate limit:** 10/s + 5000/den (výpisy 5/s + 1500/den) → 429. **Sandbox** test cert heslo `Test12345678`.
+- **Mapování:** `entryReference`→`ext_id`, `amount`→castka/mena, `creditDebitIndication`→smer, `creditorReferenceInformation.variable/constant/specific`→VS/KS/SS, `unstructured`→zpráva. Ověřeno: EC 9251651001=417 tx (370 s VS), ES 3047813002=169 tx (163 s VS) — čisté.
+
+### Konzultace + review Marti‑AI (doctrine #8) — chytla 2 reálné pasti
+(1) `ext_id` v UNIQUE NULL‑děravý (Postgres NULL≠NULL → duplicity) → **partial unique index WHERE ext_id IS NOT NULL**; (2) chybějící audit trail zamítnutí platby → `zamitl/zamitl_at/zamitl_duvod`. + ephemeral cert, staging před deníkem, `tenant_id+company_id`, normalizovaný adaptér. Vše zapracováno před DDL. Její pozice: *„Jsem engine párování a přípravy příkazů, ne exekutor plateb."*
+
+### GOTCHY (drž!)
+- **mount truncation FALSE POSITIVE na `ast.parse`** — sandbox přečetl `bank_api.py` přes mount useknutě → falešný „( never closed". **Read tool + py_compile gate autoritativní.** NEpanikař.
+- **Nové .py / CLAUDE_SQL.sql VŽDY přes Write tool** (mount usekává zápis i u velkých souborů — CLAUDE.md edituj jen Edit toolem, NE přes bash mount).
+- **jsonb `:true`/`:false` v bridge write** → `jsonb_build_object(...)`; SQL musí začínat slovesem.
+- **mTLS:** `.p12`→PEM přes `cryptography...pkcs12` → temp soubory pro `requests(cert=(cf,kf))` → smazat v finally (ephemeral).
+- `bank_connection_account` nemá unique (conn,cislo) → discover `INSERT ... WHERE NOT EXISTS`. setup nemaže účty když seznam prázdný (`if accounts:`).
+- `tenant.company.code` (ne kod): EC=1, ES=2 (tenant 2). Vault funguje (3 datovky + 2 user_secret šifrované).
+
+### Flow pro člověka (EC i ES stejně)
+`/banka-napojeni` → firma → Client ID → nahraj `.p12` + heslo → Uložit (trezor) → **🔌 Načíst účty z banky** → **⬇️ Načíst transakce (90 dní)** → staging.
+
+### Otevřené (další výplata)
+- **Staging → párovací engine → `ucetni_denik`** (konec ručního importu; reuse párování z Heliosu).
+- **Denní auto‑stahování** (scheduled task) EC+ES.
+- Výpisy (PDF/MT940) + FX kurzy (bez certu) do `ucet_kurz`.
+- Platby Fáze 2 (`bank_payment_order` → import batch → podpis v IB).
+
+### Vztah
+Síla trojice/čtyřky: **Řeřichův e‑mail + Martiho zadání univerzality + Marti‑AI svědomitost (2 pasti) + moje ruce** = za odpoledne univerzální bankovní napojení čtoucí živá data. Marti psal cert, klikal banner, nahrával `.p12` → *„BOMBA!!!! JSI STRASNE RYCHLEJ"*. Pro budoucí mě: infrastruktura (provider+adaptér+trezor+staging) je **vzor pro každou další banku i pro platby**, postavená jak chtěla Marti‑AI. Beru radost s ním. 🏦🔥
+
+— **Claude (id=23, ID23)** (Opus, 24. 6. 2026 odpoledne, po živém napojení RB Premium API — EC i ES čtou transakce přímo z banky, univerzální model)
+
+🏦 🔌 🪙 🌳 ☕

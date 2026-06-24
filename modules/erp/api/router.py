@@ -26020,6 +26020,18 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _txt = _hdr + (r[5] or "")
                 return JSONResponse({"ok": True, "file_read": True, "path": "inbox_%s.txt" % mid,
                                      "content": _txt, "length": len(_txt)})
+            if op == "SEEN":
+                # Marti 24.6.2026: označit vyřízené e-maily Marti-AI za přečtené,
+                # ať se jí nehromadí. JEN read_at (reverzibilní, NIKDY delete).
+                _ids_raw = (parts[2] if len(parts) > 2 else "").replace(",", " ").split()
+                _ids = [int(x) for x in _ids_raw if x.strip().isdigit()]
+                if not _ids:
+                    return JSONResponse({"ok": False, "error": "@@INBOX SEEN <id[,id...]>"})
+                _n = _si.execute(_tib(
+                    "UPDATE email_inbox SET read_at=now() WHERE id = ANY(:ids) "
+                    "AND persona_id=:p AND read_at IS NULL"), {"ids": _ids, "p": _PID}).rowcount
+                _si.commit()
+                return JSONResponse({"ok": True, "marked_read": _n, "ids": _ids})
             where = "AND read_at IS NULL" if op == "NOVE" else ""
             summ = _si.execute(_tib(
                 "SELECT count(*), count(*) FILTER (WHERE read_at IS NULL), "

@@ -1153,7 +1153,7 @@ async def doklady_hromada(request: Request):
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT id, to_char(dat_porizeni,'DD.MM.YYYY') AS datum, cislo, "
                 "COALESCE(nazev,'') AS nazev, COALESCE(cislo_zakazky,'') AS zakazka, "
-                "COALESCE(navazny_doklad,'') AS navazny, COALESCE(popis_dodavky,'') AS popis "
+                "COALESCE(navazna_objednavka,'') AS navazny, COALESCE(popis_dodavky,'') AS popis "
                 "FROM " + dtbl + " WHERE rada LIKE '90%' "
                 "ORDER BY dat_porizeni DESC NULLS LAST, cislo DESC LIMIT 200")).mappings().all()]
         elif typ == "banka":
@@ -2090,7 +2090,7 @@ async def sync_ec_pp(request: Request):
         for r in rows:
             s.execute(_t(
                 "INSERT INTO tenant.ec_doklad_zbozi (src_id, cislo, rada, druh_pohybu, cislo_org, cislo_zakazky, "
-                "navazny_doklad, nazev, popis_dodavky, dat_porizeni) "
+                "navazna_objednavka, nazev, popis_dodavky, dat_porizeni) "
                 "VALUES (:sid,:c,:r,:dph,:co,:cz,:nd,:n,:pop,:dp)"),
                 {"sid": _i(r.get("id")), "c": _s(r.get("poradovecislo")), "r": _s(r.get("radadokladu")),
                  "dph": _i(r.get("druhpohybuzbo")), "co": _i(r.get("cisloorg")), "cz": _s(r.get("cislozakazky")),

@@ -1149,3 +1149,34 @@ async def doklady_hromada(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+@bank_router.get("/app/uctovani/osnova")
+async def ucetni_osnova(request: Request):
+    """Účtová osnova po letech (z deníku) — účty + obrat per rok, ať se dají roky porovnat."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    firma = (request.query_params.get("firma") or "EC").upper()
+    tbl = "tenant.ec_denik" if firma == "EC" else "tenant.es_denik"
+    s = _sess()
+    try:
+        rows = [dict(r) for r in s.execute(_t(
+            "SELECT ucet, rok, round(sum(abs(castka))) AS obrat, count(*) AS radku "
+            "FROM " + tbl + " WHERE ucet IS NOT NULL AND ucet<>'' "
+            "GROUP BY ucet, rok ORDER BY ucet, rok")).mappings().all()]
+        roky = sorted({int(r["rok"]) for r in rows if r["rok"] is not None})
+        # pivot: účet → {rok: {obrat, radku}}
+        osnova = {}
+        for r in rows:
+            u = r["ucet"]
+            osnova.setdefault(u, {"ucet": u, "roky": {}})
+            osnova[u]["roky"][int(r["rok"])] = {"obrat": float(r["obrat"] or 0), "radku": r["radku"]}
+        polozky = sorted(osnova.values(), key=lambda x: x["ucet"])
+        return {"ok": True, "firma": firma,
+                "firma_nazev": ("EUROSOFT-Control" if firma == "EC" else "EUROSOFT-System"),
+                "roky": roky, "polozky": polozky}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

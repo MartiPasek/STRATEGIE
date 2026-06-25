@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Účtová osnova po letech</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:14px;background:#0f1420;color:#e8edf6}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{color:#9fb0c8;font-size:12px;margin-bottom:12px}
+  .fbtn{background:#27313f;color:#cdd9ea;border:0;border-radius:16px;padding:7px 14px;font-size:13px;cursor:pointer;margin-right:6px}
+  .fbtn.on{background:#2563eb;color:#fff}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:6px 9px;border-bottom:1px solid #232c3b}
+  th{color:#8fa3bd;font-weight:600;font-size:11.5px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ucet{font-family:ui-monospace,Menlo,monospace;font-weight:600}
+  .muted{color:#8295ad}
+  tr.only2025{background:#2a1414}
+  tr.only2026{background:#13261a}
+  .tag{font-size:11px;padding:1px 7px;border-radius:9px}
+  .tag.r{background:#3a1818;color:#ff8b8b}
+  .tag.g{background:#16341f;color:#74e08a}
+  .leg{font-size:12px;color:#9fb0c8;margin:8px 0 12px}
+  #msg{color:#9fb0c8;font-size:13px}
+  .cls{color:#8295ad;font-size:11px}
+</style>
+</head>
+<body>
+<h1>📚 Účtová osnova po letech</h1>
+<div class="sub">Účty z deníku vedle sebe za jednotlivé roky — ať si je hezky porovnáš.</div>
+<div style="margin-bottom:10px">
+  <span class="muted" style="font-size:12px;margin-right:6px">Firma:</span>
+  <button class="fbtn on" id="f_EC" onclick="setFirma('EC')">🏢 EUROSOFT-Control (EC)</button>
+  <button class="fbtn" id="f_ES" onclick="setFirma('ES')">🏢 EUROSOFT-System (ES)</button>
+</div>
+<div class="leg">🟥 účet jen v dřívějším roce (v novém zmizel — typicky přechod A→B) · 🟩 účet nově přibyl</div>
+<div id="msg">Načítám osnovu…</div>
+<table id="tbl" style="display:none"><thead id="thead"></thead><tbody id="rows"></tbody></table>
+
+<script>
+const API='';
+let FIRMA='EC';
+function czk(n){return (n==null||n===0)?'—':n.toLocaleString('cs-CZ',{maximumFractionDigits:0})+' Kč';}
+function setFirma(f){FIRMA=f;document.getElementById('f_EC').classList.toggle('on',f==='EC');document.getElementById('f_ES').classList.toggle('on',f==='ES');load();}
+function tridaUctu(u){const c=(u||'')[0];return {'1':'zásoby/majetek','2':'fin. účty','3':'zúčtovací vztahy','4':'kapitál','5':'náklady','6':'výnosy','7':'závěrkové'}[c]||'';}
+async function load(){
+  document.getElementById('msg').style.display='';document.getElementById('msg').textContent='Načítám osnovu…';
+  document.getElementById('tbl').style.display='none';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/osnova?firma='+FIRMA,{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){document.getElementById('msg').textContent=r.error||'Nedostupné (přihlas se jako rodič)';return;}
+  const roky=r.roky||[];
+  if(!roky.length){document.getElementById('msg').textContent='Pro firmu '+FIRMA+' nemám v deníku žádné roky.';return;}
+  const rMin=roky[0], rMax=roky[roky.length-1];
+  let head='<tr><th>Účet</th><th>Třída</th>'+roky.map(y=>`<th class="num">Obrat ${y}</th>`).join('')+'<th>Změna</th></tr>';
+  let body=r.polozky.map(p=>{
+    const has={};roky.forEach(y=>has[y]=!!(p.roky[y]&&p.roky[y].obrat));
+    let cls='',zmena='';
+    if(roky.length>1){
+      if(has[rMin]&&!has[rMax]){cls='only2025';zmena='<span class="tag r">jen '+rMin+'</span>';}
+      else if(!has[rMin]&&has[rMax]){cls='only2026';zmena='<span class="tag g">nově '+rMax+'</span>';}
+    }
+    return `<tr class="${cls}"><td class="ucet">${p.ucet}</td><td class="cls">${tridaUctu(p.ucet)}</td>`+
+      roky.map(y=>`<td class="num">${czk(p.roky[y]?p.roky[y].obrat:0)}</td>`).join('')+
+      `<td>${zmena}</td></tr>`;
+  }).join('');
+  document.getElementById('thead').innerHTML=head;
+  document.getElementById('rows').innerHTML=body;
+  document.getElementById('msg').style.display='none';
+  document.getElementById('tbl').style.display='';
+}
+load();
+</script>
+</body>
+</html>

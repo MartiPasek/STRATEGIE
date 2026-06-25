@@ -45,7 +45,7 @@
   <button class="chip" data-f="pasmo=vysoka">🟢 Vysoká</button>
   <button class="chip" data-f="stav=nezkontrolovano">Čeká na kontrolu</button>
 </div>
-<div style="margin-bottom:12px"><button class="chip" style="background:#3a2b14;color:#f0c674" onclick="openKucharka()">📖 Kuchařka automata — jeho pravidla</button></div>
+<div style="margin-bottom:12px"><button class="chip" style="background:#3a2b14;color:#f0c674" onclick="openAutomatList()">🤖 Automaty (registr)</button></div>
 <div id="msg">Načítám…</div>
 <table id="tbl" style="display:none"><thead><tr>
   <th>Datum</th><th>Doklad</th><th>MD</th><th>Dal</th><th class="num">Částka</th>
@@ -118,16 +118,28 @@ async function openDetail(id){
   b.innerHTML=h;
 }
 function closeDetail(){document.getElementById('ov').style.display='none';}
-async function openKucharka(){
+let _curKod='bank_v1';
+async function openAutomatList(){
   const ov=document.getElementById('ov');const b=document.getElementById('ovbody');
-  ov.style.display='';b.innerHTML='Otevírám kuchařku… 📖';
+  ov.style.display='';b.innerHTML='Načítám registr… 🤖';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/automaty',{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){b.innerHTML='<div style="color:#ff8b8b">'+(r.error||'chyba')+'</div>';return;}
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:16px">🤖 Registr automatů</h2><button class="chip" onclick="closeDetail()">✕</button></div><div class="muted" style="font-size:12px;margin:6px 0 10px">Klikni na automat → otevře se jeho detail (občanka + kuchařka).</div>`;
+  h+=r.automaty.map(a=>`<div onclick="openAutomatDetail('${a.kod}')" style="cursor:pointer;background:#0f1622;border:1px solid #2c3850;border-radius:10px;padding:11px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:14px"><b>${a.nazev}</b> <code>${a.kod}</code> · v${a.verze}</div>${a.aktivni?'<span class="j hi">🟢 AKTIVNÍ</span>':'<span class="j lo">🔴 DEAKTIVOVÁN</span>'}</div><div class="muted" style="font-size:12px;margin-top:4px">Vytvořil: ${a.vytvoril||'?'} · zaúčtováno ${a.pocet_zapisu} · poslední běh: ${a.posledni_beh||'—'} · ${a.spousteni||''}</div></div>`).join('');
+  if(!r.automaty.length)h+='<div class="muted">Žádný automat.</div>';
+  b.innerHTML=h;
+}
+async function openAutomatDetail(kod){
+  _curKod=kod;
+  const ov=document.getElementById('ov');const b=document.getElementById('ovbody');
+  ov.style.display='';b.innerHTML='Otevírám automata… 🤖';
   const [ai,rk]=await Promise.all([
-    fetch(API+'/api/v1/erp/app/uctovani/automat?kod=bank_v1',{credentials:'include'}).then(x=>x.json()).catch(()=>({ok:false})),
+    fetch(API+'/api/v1/erp/app/uctovani/automat?kod='+encodeURIComponent(kod),{credentials:'include'}).then(x=>x.json()).catch(()=>({ok:false})),
     fetch(API+'/api/v1/erp/app/uctovani/predkontace',{credentials:'include'}).then(x=>x.json())
   ]);
   if(!rk.ok){b.innerHTML='<div style="color:#ff8b8b">'+(rk.error||'chyba')+'</div>';return;}
   let h=`<div style="display:flex;justify-content:space-between;align-items:center">
-    <h2 style="margin:0;font-size:16px">🤖 Automat — občanka & kuchařka</h2>
+    <button class="chip" onclick="openAutomatList()">← Zpět na seznam</button>
     <button class="chip" onclick="closeDetail()">✕</button></div>`;
   if(ai.ok){const a=ai.automat;
     h+=`<div style="background:#0f1622;border:1px solid #2c3850;border-radius:10px;padding:11px;margin:10px 0;font-size:12.5px;line-height:1.7">
@@ -151,12 +163,12 @@ async function openKucharka(){
 }
 async function automatRun(){
   const m=document.getElementById('amsg');if(m)m.textContent='Spouštím automata… ▶';
-  const r=await fetch(API+'/api/v1/erp/app/uctovani/automat/run',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({kod:'bank_v1'})}).then(x=>x.json());
-  if(r.ok){if(m)m.textContent='✓ Hotovo — zaúčtováno '+r.zapsano+' ('+r.trvani_ms+' ms)';load();setTimeout(openKucharka,500);}else if(m){m.textContent='✗ '+(r.error||'chyba');}
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/automat/run',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({kod:_curKod})}).then(x=>x.json());
+  if(r.ok){if(m)m.textContent='✓ Hotovo — zaúčtováno '+r.zapsano+' ('+r.trvani_ms+' ms)';load();setTimeout(()=>openAutomatDetail(_curKod),500);}else if(m){m.textContent='✗ '+(r.error||'chyba');}
 }
 async function automatToggle(){
-  const r=await fetch(API+'/api/v1/erp/app/uctovani/automat/toggle',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({kod:'bank_v1'})}).then(x=>x.json());
-  if(r.ok){openKucharka();}else{const m=document.getElementById('amsg');if(m)m.textContent='✗ '+(r.error||'chyba');}
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/automat/toggle',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({kod:_curKod})}).then(x=>x.json());
+  if(r.ok){openAutomatDetail(_curKod);}else{const m=document.getElementById('amsg');if(m)m.textContent='✗ '+(r.error||'chyba');}
 }
 async function doReview(id,akce){
   const m=document.getElementById('ovmsg');if(m)m.textContent='…';

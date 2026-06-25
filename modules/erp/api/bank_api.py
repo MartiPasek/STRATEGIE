@@ -998,3 +998,23 @@ async def automat_toggle(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+@bank_router.get("/app/uctovani/automaty")
+async def automaty_list(request: Request):
+    """Seznam (registr) všech automatů — u každého hned vidět, zda je aktivní."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        rows = [dict(r) for r in s.execute(_t(
+            "SELECT a.kod, a.nazev, a.verze, a.aktivni, a.spousteni, a.vytvoril, "
+            "to_char(a.posledni_beh,'DD.MM.YYYY HH24:MI') AS posledni_beh, "
+            "(SELECT count(*) FROM tenant.ucetni_denik d WHERE d.tenant_id=a.tenant_id AND d.actor_id='automat:'||a.kod) AS pocet_zapisu "
+            "FROM tenant.automat a WHERE a.tenant_id=:tn ORDER BY a.kod"), {"tn": _TENANT}).mappings().all()]
+        return {"ok": True, "automaty": rows}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

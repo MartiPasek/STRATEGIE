@@ -49,7 +49,7 @@
 <div id="msg">Načítám…</div>
 <table id="tbl" style="display:none"><thead><tr>
   <th>Datum</th><th>Doklad</th><th>MD</th><th>Dal</th><th class="num">Částka</th>
-  <th>Kategorie</th><th>Jistota</th><th>Aktér</th><th>Základ (proč tak)</th><th>Stav</th><th>Popis</th>
+  <th>Kategorie</th><th>Jistota</th><th>Autor / způsob</th><th>Základ (proč tak)</th><th>Stav</th><th>Popis</th>
 </tr></thead><tbody id="rows"></tbody></table>
 <div id="ov" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:50;padding:18px;overflow:auto" onclick="if(event.target===this)closeDetail()">
   <div style="max-width:580px;margin:24px auto;background:#19202e;border:1px solid #2c3850;border-radius:14px;padding:18px">
@@ -63,6 +63,13 @@ let FILTER='';
 function czk(n){return (n==null?0:n).toLocaleString('cs-CZ',{maximumFractionDigits:0})+' Kč';}
 function jcls(j){return j>=90?'hi':(j>=70?'mid':'lo');}
 function actcls(a){return a==='ai'?'ai':(a==='human'?'human':'');}
+function fmtAkter(typ,id){
+  const nm=(id||'').split(':')[1]||'';
+  if(typ==='automat')return '🤖 <b>'+(nm||'automat')+'</b><br><span class="muted" style="font-size:10px">automaticky</span>';
+  if(typ==='ai')return '✨ <b>'+(nm||'Marti-AI')+'</b><br><span class="muted" style="font-size:10px">AI</span>';
+  if(typ==='human')return '👤 <b>'+(nm||'?')+'</b><br><span class="muted" style="font-size:10px">ručně</span>';
+  return '<span class="muted">—</span>';
+}
 async function load(){
   document.getElementById('msg').style.display='';document.getElementById('msg').textContent='Načítám…';
   document.getElementById('tbl').style.display='none';
@@ -82,7 +89,7 @@ async function load(){
     <td class="num">${czk(z.castka)}</td>
     <td>${z.kategorie||''}</td>
     <td><span class="j ${jcls(z.jistota)}">${z.jistota==null?'?':Math.round(z.jistota)}</span></td>
-    <td><span class="act ${actcls(z.actor_type)}">${z.actor_type||''}</span></td>
+    <td>${fmtAkter(z.actor_type,z.actor_id)}</td>
     <td class="muted" style="font-size:11px">${(z.jistota_zdroj||'').replace('predkontace_','')}</td>
     <td class="rev">${z.review_stav||''}</td>
     <td class="popis" title="${(z.popis||'').replace(/"/g,'&quot;')}">${z.popis||''}</td>

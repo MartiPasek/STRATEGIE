@@ -1122,9 +1122,11 @@ async def doklady_hromada(request: Request):
             else:
                 rl = "5%" if typ == "fp" else "6%"
                 rows = [dict(r) for r in s.execute(_t(
-                    "SELECT cislo, rada, COALESCE(nazev,'') AS nazev, mena, round(suma_bez_dph) AS castka, "
+                    "SELECT to_char(COALESCE(dat_realizace,dat_porizeni),'DD.MM.YYYY') AS datum, cislo, rada, "
+                    "COALESCE(nazev,'') AS nazev, mena, round(suma_bez_dph) AS castka, "
                     "cislo_org, COALESCE(cislo_zakazky,'') AS zakazka, COALESCE(stav_fakturace,'') AS stav "
-                    "FROM tenant.ec_doklad_zbozi WHERE rada LIKE :rl ORDER BY cislo DESC LIMIT 200"),
+                    "FROM tenant.ec_doklad_zbozi WHERE rada LIKE :rl "
+                    "ORDER BY COALESCE(dat_realizace,dat_porizeni) ASC NULLS LAST, cislo ASC LIMIT 200"),
                     {"rl": rl}).mappings().all()]
         elif typ == "banka":
             rows = [dict(r) for r in s.execute(_t(
@@ -1134,7 +1136,7 @@ async def doklady_hromada(request: Request):
                 "JOIN tenant.bank_connection_account a ON a.id=t.account_id "
                 "JOIN tenant.bank_connection c ON c.id=a.connection_id "
                 "JOIN tenant.company co ON co.id=c.company_id WHERE co.code=:f "
-                "ORDER BY t.datum DESC LIMIT 200"), {"f": firma}).mappings().all()]
+                "ORDER BY t.datum ASC LIMIT 200"), {"f": firma}).mappings().all()]
         elif typ == "pokladna":
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT cislo, nazev, mena, typ, COALESCE(ucet_md,'') AS ucet FROM tenant.ucet_pokladna "

@@ -25993,15 +25993,34 @@ def _xfer_table(src_db, dst_db, table, where=None):
         except Exception:
             pass
         return {"ok": False, "error": "cíl meta: %s: %s" % (type(exc).__name__, str(exc)[:300])}
-    # čtení zdroje přes MCP (jen vkládatelné sloupce)
+    # čtení zdroje přes EUROSOFT MCP (jen vkládatelné sloupce)
     collist = ", ".join("[" + c + "]" for c in cols)
     src_sql = "SELECT " + collist + " FROM dbo.[" + t + "]" + ((" WHERE " + where) if where else "")
     try:
-        rows = _mcp_rows(src_sql, src_db)
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        import json as _jx
+        _mcp = get_eurosoft_mcp_client()
+        if _mcp is None:
+            cn.close()
+            return {"ok": False, "error": "EUROSOFT MCP nedostupný"}
+        _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                  {"sql": src_sql, "db_name": src_db}, conversation_id=None)
+        _r = _jx.loads(_rj) if isinstance(_rj, str) else _rj
+        if isinstance(_r, dict) and _r.get("ok") is False:
+            cn.close()
+            return {"ok": False, "error": "zdroj: " + str(_r.get("error"))[:300]}
+        rows = []
+        if isinstance(_r, dict):
+            for _k in ("rows", "data", "result", "records"):
+                if isinstance(_r.get(_k), list):
+                    rows = _r[_k]
+                    break
+        elif isinstance(_r, list):
+            rows = _r
     except Exception as exc:
         cn.close()
         return {"ok": False, "error": "zdroj (MCP): %s" % str(exc)[:300]}
-    lc = [c.lower() for c in cols]
+    lc = list(cols)  # MCP vrací klíče = názvy sloupců ze SELECTu (původní case)
     try:
         cur.execute("ALTER TABLE %s NOCHECK CONSTRAINT ALL" % fq)
         cur.execute("DISABLE TRIGGER ALL ON %s" % fq)

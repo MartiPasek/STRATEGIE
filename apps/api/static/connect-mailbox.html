@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Připojit poštovní schránku — STRATEGIE</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0d0d0d; color:#e0e0e0;
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         display:flex; align-items:flex-start; justify-content:center; min-height:100vh; padding:24px; }
+  .card { background:#1a1a1a; border:1px solid #2a3a4a; border-radius:14px;
+          max-width:460px; width:100%; padding:26px 28px; box-shadow:0 12px 48px rgba(0,0,0,.5); }
+  h1 { font-size:20px; color:#aac8ec; margin:0 0 6px; }
+  .sub { font-size:13px; color:#9fb6cc; margin:0 0 18px; line-height:1.5; }
+  label { display:block; font-size:13px; color:#9fb6cc; margin:14px 0 5px; }
+  input { width:100%; padding:10px 12px; border-radius:8px; background:#0d0d0d;
+          color:#e0e0e0; border:1px solid #3a4a5a; font-size:14px; }
+  input:focus { outline:none; border-color:#5b87c4; }
+  .hint { font-size:11px; color:#6f8296; margin-top:4px; }
+  button { width:100%; margin-top:20px; background:#2563eb; color:#fff; border:0;
+           padding:12px; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:default; }
+  .note { margin-top:16px; font-size:12px; color:#8aa; background:#11202a;
+          border:1px solid #244; border-radius:8px; padding:10px 12px; line-height:1.5; }
+  .msg { margin-top:16px; font-size:14px; padding:12px; border-radius:8px; display:none; }
+  .ok  { background:#10301a; border:1px solid #2c6e3f; color:#a8e6bf; }
+  .err { background:#3a1414; border:1px solid #6e2c2c; color:#ffb38a; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>📧 Připojit poštovní schránku</h1>
+    <p class="sub">Připoj svou firemní e-mailovou schránku, aby z ní systém mohl posílat
+      e-maily <b>tvým jménem</b> (např. hromadné oslovení v CRM). Heslo se uloží
+      <b>šifrovaně</b> a posílá se přímo na server — neprochází přes žádnou AI.</p>
+
+    <label for="login">Přihlašovací jméno (login)</label>
+    <input id="login" type="text" autocomplete="username" placeholder="firemní login / UPN">
+    <div class="hint">Tvůj login do firemní pošty (ví IT — nemusí být stejný jako adresa níže).</div>
+
+    <label for="password">Heslo ke schránce</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="heslo">
+
+    <label for="display">Zobrazovaná adresa odesílatele</label>
+    <input id="display" type="text" placeholder="např. p.zeman@eurosoft.com">
+    <div class="hint">Adresa, která se příjemcům ukáže jako „From".</div>
+
+    <label for="server">EWS server</label>
+    <input id="server" type="text" value="https://mail.eurosoft-control.cz">
+
+    <button id="btn" type="button">Připojit a ověřit</button>
+
+    <div class="note">🔒 Heslo nikdo z týmu ani žádná AI nevidí — uloží se zašifrované
+      a použije se jen pro odesílání z tvé schránky.</div>
+
+    <div id="msg" class="msg"></div>
+  </div>
+
+<script>
+(function () {
+  var btn = document.getElementById('btn');
+  var msg = document.getElementById('msg');
+  function show(kind, text) {
+    msg.className = 'msg ' + kind;
+    msg.textContent = text;
+    msg.style.display = 'block';
+  }
+  btn.addEventListener('click', function () {
+    var login = document.getElementById('login').value.trim();
+    var password = document.getElementById('password').value;
+    var display = document.getElementById('display').value.trim();
+    var server = document.getElementById('server').value.trim();
+    if (!login || !password) { show('err', 'Vyplň přihlašovací jméno i heslo.'); return; }
+    btn.disabled = true; btn.textContent = 'Ověřuji a ukládám…';
+    fetch('/api/v1/erp/app/connect-mailbox', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: login, password: password, display: display, server: server })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { return { r: r, j: j }; });
+    }).then(function (x) {
+      btn.disabled = false; btn.textContent = 'Připojit a ověřit';
+      if (x.r.ok && x.j.ok) {
+        var v = x.j.verified ? ' a ověřena' : ' (ověření spojení se teď nezdařilo — zkus testovací e-mail)';
+        show('ok', '✓ Schránka ' + (x.j.display || '') + ' připojena' + v + '.');
+        document.getElementById('password').value = '';
+      } else if (x.r.status === 401) {
+        show('err', 'Nejsi přihlášen do STRATEGIE. Přihlas se a zkus to znovu.');
+      } else {
+        show('err', '✗ ' + ((x.j && x.j.error) || ('Chyba ' + x.r.status)));
+      }
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Připojit a ověřit';
+      show('err', '✗ Síť: ' + (e && e.message || e));
+    });
+  });
+})();
+</script>
+</body>
+</html>

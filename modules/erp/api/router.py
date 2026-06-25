@@ -5759,6 +5759,59 @@ async def crm_osloveni_sablony(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "sablony": out})
 
 
+@api_router.post("/app/connect-mailbox")
+async def app_connect_mailbox(req: Request) -> JSONResponse:
+    """Self-service: přihlášený uživatel připojí SVOU EWS poštovní schránku
+    (login + heslo + server + zobrazovaná adresa). Heslo se šifruje (Fernet) a
+    NEprochází přes AI ani do logů. Umožní „posílat z mojí schránky"
+    (send_email from_identity='user'). Cíl = přihlášený uid. (Kristý 25.6.2026.)"""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    login = (body.get("login") or "").strip()
+    password = body.get("password") or ""
+    server = (body.get("server") or "https://mail.eurosoft-control.cz").strip()
+    display = (body.get("display") or "").strip()
+    if not login or not password:
+        return JSONResponse({"ok": False, "error": "Vyplň přihlašovací jméno i heslo."},
+                            status_code=400)
+    # 1) Ověření údajů proti EWS (best-effort) — ať uživatel hned ví, jestli sedí.
+    verified = False
+    try:
+        from modules.notifications.application.email_service import _get_account
+        acct = _get_account(email=login, password=password, server=server)
+        _ = acct.inbox.total_count  # vynutí reálné přihlášení
+        verified = True
+    except Exception as exc:
+        _auth = False
+        try:
+            from modules.notifications.application.email_service import _is_auth_error as _iae
+            _auth = _iae(exc)
+        except Exception:
+            _auth = False
+        if _auth:
+            return JSONResponse(
+                {"ok": False, "error": "Přihlášení ke schránce selhalo — zkontroluj "
+                                       "přihlašovací jméno a heslo."}, status_code=400)
+        logger.warning("[connect-mailbox] uid=%s validace (non-auth): %s", uid, str(exc)[:160])
+    # 2) Uložit (heslo se šifruje uvnitř upsert_user_email).
+    try:
+        from modules.notifications.application.user_channel_service import upsert_user_email
+        res = upsert_user_email(uid, email=login, password=password, server=server,
+                                display_email=(display or None))
+    except Exception as exc:
+        logger.exception("[connect-mailbox] uid=%s upsert selhal", uid)
+        return JSONResponse({"ok": False, "error": "Uložení selhalo: " + str(exc)[:120]},
+                            status_code=500)
+    logger.info("[connect-mailbox] uid=%s ulozeno (verified=%s)", uid, verified)
+    return JSONResponse({"ok": True, "verified": verified,
+                         "display": res.get("ews_display_email") or res.get("ews_email")})
+
+
 @api_router.post("/crm/optout/make-tokens")
 async def crm_optout_make_tokens(req: Request) -> JSONResponse:
     """Vrati hotove odhlasovaci tokeny + URL pro dane (email, firma_id) pary, aby

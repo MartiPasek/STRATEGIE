@@ -866,6 +866,16 @@ def privacy_page():
                         headers={"Cache-Control": "public, max-age=3600"})
 
 
+@app.get("/pripojit-schranku")
+def connect_mailbox_page():
+    """Self-service připojení poštovní schránky (login+heslo → EWS kanál uživatele).
+    Session-gated přes API /api/v1/erp/app/connect-mailbox (uid z cookie). Heslo jde
+    browser→server, šifruje se, neprochází přes AI. Kristý 25.6.2026."""
+    return FileResponse(os.path.join(static_dir, "connect-mailbox.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 def _optout_page(msg_html: str, show_form: bool, token: str = "") -> "object":
     from fastapi.responses import HTMLResponse
     form = ""

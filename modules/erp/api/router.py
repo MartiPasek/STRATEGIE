@@ -25970,14 +25970,15 @@ def _xfer_ddl(src_db, dst_db, t):
         import pyodbc as _po2
     except Exception as e:
         return {"ok": False, "error": "pyodbc: %s" % e}
+    _pfx = "" if (src_db or "").upper() == "DB_EC" else "[" + src_db + "]."
     meta_sql = (
         "SELECT COLUMN_NAME AS name, DATA_TYPE AS typ, "
         "ISNULL(CHARACTER_MAXIMUM_LENGTH,0) AS max_length, "
         "ISNULL(NUMERIC_PRECISION,0) AS prec, ISNULL(NUMERIC_SCALE,0) AS scale, "
         "CASE WHEN IS_NULLABLE='YES' THEN 1 ELSE 0 END AS is_nullable, "
-        "ISNULL(COLUMNPROPERTY(OBJECT_ID('dbo.'+TABLE_NAME),COLUMN_NAME,'IsIdentity'),0) AS is_identity, "
-        "ISNULL(COLUMNPROPERTY(OBJECT_ID('dbo.'+TABLE_NAME),COLUMN_NAME,'IsComputed'),0) AS is_computed "
-        "FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='" + t + "' "
+        "ISNULL(COLUMNPROPERTY(OBJECT_ID('" + _pfx + "dbo.'+TABLE_NAME),COLUMN_NAME,'IsIdentity'),0) AS is_identity, "
+        "ISNULL(COLUMNPROPERTY(OBJECT_ID('" + _pfx + "dbo.'+TABLE_NAME),COLUMN_NAME,'IsComputed'),0) AS is_computed "
+        "FROM " + _pfx + "INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='" + t + "' "
         "ORDER BY ORDINAL_POSITION")
     try:
         from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
@@ -25986,7 +25987,7 @@ def _xfer_ddl(src_db, dst_db, t):
         if _mcp is None:
             return {"ok": False, "error": "MCP nedostupný"}
         _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                  {"sql": meta_sql, "db_name": src_db}, conversation_id=None)
+                                  {"sql": meta_sql, "db_name": "DB_EC"}, conversation_id=None)
         _r = _jd.loads(_rj) if isinstance(_rj, str) else _rj
         if isinstance(_r, dict) and _r.get("ok") is False:
             return {"ok": False, "error": "zdroj meta: " + str(_r.get("error"))[:200]}
@@ -26099,9 +26100,11 @@ def _xfer_table(src_db, dst_db, table, where=None):
         except Exception:
             pass
         return {"ok": False, "error": "cíl meta: %s: %s" % (type(exc).__name__, str(exc)[:300])}
-    # čtení zdroje přes EUROSOFT MCP (jen vkládatelné sloupce)
+    # čtení zdroje přes EUROSOFT MCP (jen vkládatelné sloupce). DB_IS se čte cross-db
+    # přes DB_EC connection ([DB_IS].dbo.…) — MCP db_name="DB_IS" NEBERE (gotcha).
+    _pfx = "" if (src_db or "").upper() == "DB_EC" else "[" + src_db + "]."
     collist = ", ".join("[" + c + "]" for c in cols)
-    src_sql = "SELECT " + collist + " FROM dbo.[" + t + "]" + ((" WHERE " + where) if where else "")
+    src_sql = "SELECT " + collist + " FROM " + _pfx + "dbo.[" + t + "]" + ((" WHERE " + where) if where else "")
     try:
         from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
         import json as _jx
@@ -26110,7 +26113,7 @@ def _xfer_table(src_db, dst_db, table, where=None):
             cn.close()
             return {"ok": False, "error": "EUROSOFT MCP nedostupný"}
         _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                  {"sql": src_sql, "db_name": src_db}, conversation_id=None)
+                                  {"sql": src_sql, "db_name": "DB_EC"}, conversation_id=None)
         _r = _jx.loads(_rj) if isinstance(_rj, str) else _rj
         if isinstance(_r, dict) and _r.get("ok") is False:
             cn.close()

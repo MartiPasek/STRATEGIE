@@ -2101,6 +2101,7 @@ setTimeout(function(){
   }
   function hr(){
     app.innerHTML=topbar("🔒 HR — personalistika", true);
+    var dash=el('<div id="hrDash"></div>'); app.appendChild(dash); _hrDash(dash);
     var l=el('<div class="list"></div>');
     l.appendChild(row("🏢","Interní personalistika","Naši lidé — firma, skupiny, jednotlivci, režimy, docházka",function(){ go("hr_interni"); }));
     l.appendChild(row("🧲","Externí personalistika — nábor","Inzeráty, pohovory a pracovní nabídky pro nové lidi",function(){ go("hr_nabor"); }));
@@ -2111,6 +2112,42 @@ setTimeout(function(){
     app.appendChild(l);
     app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personalistika má dva světy: <b>interní</b> (lidé, které už máme — od pravidel firmy přes skupiny po jednotlivce) a <b>externí</b> (nábor nových lidí). Citlivé personální složky vidí jen rodiče a „Skupina HR".</div>'));
   }
+  // HR nástěnka (Šárka 23.6.): dlaždice s notifikací + Aktuality
+  function _hrDash(box){
+    box.innerHTML='<div class="hint" style="margin:8px 6px;">Načítám nástěnku…</div>';
+    api("GET","/app/hr/dashboard").then(function(r){
+      box.innerHTML="";
+      if(!r||!r.ok){ box.appendChild(el('<div class="hint" style="margin:8px 6px;">Nástěnku se nepodařilo načíst.</div>')); return; }
+      var b=r.badges||{};
+      var g=el('<div class="appgrid" style="margin:8px 6px;"></div>');
+      g.appendChild(appCell("🏠","Mimo kancelář",b.mimo,function(){ go("kdekdo"); }));
+      g.appendChild(appCell("🎂","Narozeniny a výročí",b.naroz,function(){ go("hr_naroz"); }));
+      g.appendChild(appCell("🆕","Noví zaměstnanci",b.novi,function(){ go("hr_novi"); }));
+      g.appendChild(appCell("🧲","Výběrová řízení",b.vyberka,function(){ go("hr_nabor"); }));
+      g.appendChild(appCell("✉️","Mé zprávy",0,function(){ hrSoon("Mé zprávy k lidem","Komunikace s lidmi — jednotlivě i celé skupině. Připravujeme (Krok B): napíšeš zprávu, doručí se a cinkne dotyčným."); }));
+      box.appendChild(g);
+      box.appendChild(_hrSec("📰 AKTUALITY"));
+      var a=el('<div class="list"></div>');
+      (r.aktuality||[]).forEach(function(it){ a.appendChild(row(it.ikona,it.text,"",function(){})); });
+      if(!(r.aktuality||[]).length) a.appendChild(el('<div class="hint" style="margin:6px;">Nic nového. 🎉</div>'));
+      box.appendChild(a);
+    }).catch(function(){ box.innerHTML='<div class="hint" style="margin:8px 6px;">Nástěnku se nepodařilo načíst.</div>'; });
+  }
+  function _hrFeed(title, types){
+    app.innerHTML=topbar(title, true);
+    var box=el('<div></div>'); app.appendChild(box);
+    box.innerHTML='<div class="hint" style="margin:8px 6px;">Načítám…</div>';
+    api("GET","/app/hr/dashboard").then(function(r){
+      box.innerHTML="";
+      var items=((r&&r.aktuality)||[]).filter(function(it){ return types.indexOf(it.typ)>=0; });
+      var a=el('<div class="list"></div>');
+      items.forEach(function(it){ a.appendChild(row(it.ikona,it.text,"",function(){})); });
+      if(!items.length) a.appendChild(el('<div class="hint" style="margin:6px;">Nic k zobrazení.</div>'));
+      box.appendChild(a);
+    });
+  }
+  function hr_naroz(){ _hrFeed("🎂 Narozeniny a výročí", ["narozeniny","vyroci"]); }
+  function hr_novi(){ _hrFeed("🆕 Noví zaměstnanci", ["novy","zkusebka","prodlouzeni"]); }
   // INTERNÍ — kostra shora dolů (firma → skupiny → jednotlivci → mzdy/dokumenty)
   function hr_interni(){
     app.innerHTML=topbar("🏢 Interní personalistika", true);
@@ -7798,7 +7835,7 @@ setTimeout(function(){
     else { render(z); }
   }
 
-  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vyroba_hub:vyroba_hub,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr_hub:hr_hub,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek,claude27:claude27,coord:coord};
+  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vyroba_hub:vyroba_hub,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr_hub:hr_hub,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_naroz:hr_naroz,hr_novi:hr_novi,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek,claude27:claude27,coord:coord};
 
   // Claude-27 týmová hra (Marti 24.6.2026): Zuzka (+Mirek) vidí frontu Clauda-27
   // a dá mu „Go", když stojí. Slyšitelné notifikace chodí přes mobile_command.

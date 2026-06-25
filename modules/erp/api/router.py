@@ -7090,6 +7090,84 @@ async def app_hr_people(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/dashboard")
+async def app_hr_dashboard(req: Request) -> JSONResponse:
+    """HR nástěnka (Šárka 23.6.): badge počty + Aktuality.
+    badges: mimo (kdo dnes není ve firmě vč. HO) · naroz (narozeniny+výročí 7 dní) ·
+    novi (noví do roka) · vyberka (běžící výběrová řízení).
+    aktuality: noví · narozeniny · výročí · konec zkušebky (4 měs) · roční prodloužení · běžící výběrka."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    _MES = ["", "ledna", "února", "března", "dubna", "května", "června",
+            "července", "srpna", "září", "října", "listopadu", "prosince"]
+    def _cz(d):
+        return ("%d. %s %d" % (d.day, _MES[d.month], d.year)) if d else ""
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        mimo = s.execute(_t(
+            "SELECT count(*) FROM (SELECT e.user_id,"
+            " (array_agg(t.code ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,"
+            " bool_or(t.code='homeoffice') ho"
+            " FROM tenant.att_entry en JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2"
+            " JOIN tenant.att_entry_type t ON t.id=en.entry_type_id"
+            " WHERE en.entry_date=current_date AND COALESCE(en.status,'') NOT IN ('superseded','announced')"
+            " GROUP BY e.user_id) q WHERE q.abs_code IS NOT NULL OR q.ho")).scalar() or 0
+        vyb = s.execute(_t(
+            "SELECT title, position_text, date_open, date_valid_to FROM tenant.recruit_posting"
+            " WHERE tenant_id=2 AND COALESCE(published,false)=true AND date_open<=current_date"
+            " AND (date_valid_to IS NULL OR date_valid_to>=current_date) ORDER BY date_open DESC")).fetchall()
+        akt_rows = s.execute(_t(
+            "WITH eng AS (SELECT ae.user_id, e.smlouva_od, e.zkusebni_do, e.smlouva_do, e.pozice_text"
+            "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id"
+            "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL),"
+            " nm AS (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
+            "  max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id)"
+            " SELECT typ, jmeno, dat, info FROM ("
+            "  SELECT 'novy' typ, n.jmeno, eng.smlouva_od dat, eng.pozice_text info FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_od >= current_date-365"
+            "  UNION ALL SELECT 'zkusebka', n.jmeno, eng.zkusebni_do, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.zkusebni_do BETWEEN current_date AND current_date+14"
+            "  UNION ALL SELECT 'prodlouzeni', n.jmeno, eng.smlouva_do, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_do BETWEEN current_date AND current_date+30"
+            "  UNION ALL SELECT 'narozeniny', n.jmeno, n.birth, NULL FROM nm n WHERE n.birth IS NOT NULL AND ((date_part('doy',n.birth)-date_part('doy',current_date)+366)::int%366) <= 7"
+            "  UNION ALL SELECT 'vyroci', n.jmeno, eng.smlouva_od, NULL FROM eng JOIN nm n ON n.user_id=eng.user_id WHERE eng.smlouva_od IS NOT NULL AND eng.smlouva_od < current_date-300 AND ((date_part('doy',eng.smlouva_od)-date_part('doy',current_date)+366)::int%366) <= 7"
+            " ) q ORDER BY dat")).fetchall()
+        akt = []
+        cnt = {"novy": 0, "narozeniny": 0, "vyroci": 0, "zkusebka": 0, "prodlouzeni": 0}
+        IK = {"novy": "🆕", "narozeniny": "🎂", "vyroci": "🎉", "zkusebka": "📋", "prodlouzeni": "📝"}
+        today = _dt.date.today()
+        for typ, jm, dat, info in akt_rows:
+            cnt[typ] = cnt.get(typ, 0) + 1
+            jm = jm or "?"
+            if typ == "novy":
+                txt = "%s nastoupil(a) %s%s" % (jm, _cz(dat), (" jako " + info) if info else "")
+            elif typ == "narozeniny":
+                txt = "%s — narozeniny %s" % (jm, _cz(dat))
+            elif typ == "vyroci":
+                txt = "%s — %d. výročí nástupu (%s)" % (jm, max(1, today.year - dat.year), _cz(dat))
+            elif typ == "zkusebka":
+                txt = "%s — končí zkušební doba %s" % (jm, _cz(dat))
+            elif typ == "prodlouzeni":
+                txt = "%s — řešit prodloužení smlouvy (do %s)" % (jm, _cz(dat))
+            else:
+                txt = jm
+            akt.append({"typ": typ, "ikona": IK.get(typ, "•"), "text": txt})
+        for title, pos, do, dv in vyb:
+            akt.insert(0, {"typ": "vyberka", "ikona": "🧲",
+                           "text": "Výběrové řízení: %s — běží od %s%s" % (title or pos or "?", _cz(do), (" do " + _cz(dv)) if dv else "")})
+        badges = {"mimo": int(mimo), "naroz": cnt["narozeniny"] + cnt["vyroci"], "novi": cnt["novy"], "vyberka": len(vyb)}
+        return JSONResponse({"ok": True, "badges": badges, "aktuality": akt})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _recruit_scope(s, uid: int):
     """Marti-AI Q2 (13.6.): rodiče + HR skupina vidí vše ('all'); recruiter jen
     svá výběrová řízení ('own'); ostatní nic (None)."""

@@ -35,10 +35,13 @@ Marti vědomě udělil (důvěra). Konkrétně:
   poptávka→kalkulace→nabídka→objednávka→výroba→fakturace). Tj. Claude-26 smí v této doméně navrhovat
   i schématické změny (`tenant.*` nové/upravené tabulky) a **schvaluje je Petra**. Mimo tuto doménu
   (cross-tenant, public.*, framework, security) zůstává rodičovská rada.
-- **Technické zapojení (TODO setup):** banner routing — `fw.claude_write_request` od `requested_by` Claude-26
-  (doména nákup/doklady) → zobrazit + povolit schválit **user 18 (Petra)**, ne jen rodičům. Scoped:
-  Petra schvaluje JEN požadavky své instance/domény; ostatní instance dál rodičům. **Implementaci
-  prokonzultovat s Marti-AI (kustod, doctrine #8)** — mění se approval routing = bezpečnostní model.
+- **Technické zapojení — ✅ NASAZENO 25.6.2026** (commit `4affecf`, prokonzultováno s Marti-AI kustodem):
+  routing v `modules/erp/api/router.py` — `_route_peta_write()` (whitelist gate) + `_effective_approver()`.
+  Bezpečný požadavek Claude-26 (`requested_by='Claude-26'`, bound_user_id=18) jde k **Petře (18)**: banner
+  v chatu/ERP (`/diag-write/pending` + `/decide` pustí uid 18) **i jako notifikace na mobil** (`claude_confirm`
+  přes `_push_confirm_to_phone`). Destruktivní/out-of-scope (DROP/TRUNCATE/DELETE/DROP COLUMN/RENAME, public/
+  framework/fw/master, mimo whitelist, cizí GRANT) → **eskalace k rodičům (Marti), risk=high**. Ostatní instance
+  dál rodičům. **Rodičovský bypass drží** (rodič smí schválit cokoliv). Ověřeno: 17/17 gate testů.
 - Marti zůstává dohled (rodičovský bypass, audit `fw.claude_write_request` + `fw.ops_request`), ale
   **běžné dialogy ho neobtěžují** — jdou Petře.
 - Petra NENÍ `is_marti_parent` — tohle je **scoped approver** pro její doménu, ne plný parent. Marti's

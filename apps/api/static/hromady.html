@@ -51,7 +51,9 @@ function setFirma(f){FIRMA=f;document.getElementById('f_EC').classList.toggle('o
 async function syncES(){
   const m=document.getElementById('syncmsg');m.textContent='Tahám z Heliosu… 🔄';
   const r=await fetch(API+'/api/v1/erp/app/uctovani/sync-es-faktury',{method:'POST',credentials:'include'}).then(x=>x.json());
-  if(r.ok){m.textContent='✓ Dotaženo '+r.zapsano+' ES dokladů (FP/FV/VO)';if(FIRMA==='ES'){document.getElementById('listwrap').style.display='none';loadPiles();}}else{m.textContent='✗ '+(r.error||'chyba');}
+  // VF přesynchronizovat 1:1 z DB_EC (přehled 10120) + doc_path/je_sken
+  const rv=await fetch(API+'/api/v1/erp/app/uctovani/sync-es-vf',{method:'POST',credentials:'include'}).then(x=>x.json());
+  if(r.ok){m.textContent='✓ Dotaženo '+r.zapsano+' ES dokladů; VF 1:1 '+(rv.ok?(rv.zapsano+' ('+rv.se_skenem+' se skenem)'):('chyba: '+(rv.error||'')));if(FIRMA==='ES'){document.getElementById('listwrap').style.display='none';loadPiles();}}else{m.textContent='✗ '+(r.error||'chyba');}
 }
 function czk(n){return (n==null?0:n).toLocaleString('cs-CZ',{maximumFractionDigits:0})+' Kč';}
 async function loadPiles(){
@@ -75,7 +77,7 @@ async function openPile(kod,nazev){
   let head='',body='';
   if(kod==='fp'||kod==='fv'){
     head='<tr><th>Datum realizace</th><th>Doklad (klik = papír 📄)</th><th>Řada</th><th>Název</th><th>Org</th><th>Zakázka</th><th class="num">Částka (bez DPH)</th><th>Měna</th></tr>';
-    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis"><a onclick="window.open('/api/v1/erp/app/uctovani/doklad-pdf?typ=${kod}&cislo='+encodeURIComponent('${d.cislo}'),'_blank')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">📄 ${d.cislo||''}</a></td><td class="muted">${d.rada||''}</td><td>${d.nazev||''}</td><td class="muted">${d.cislo_org||''}</td><td class="muted">${d.zakazka||''}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||'CZK'}</td></tr>`).join('');
+    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis"><a onclick="window.open('/api/v1/erp/app/uctovani/doklad-pdf?typ=${kod}&firma=${FIRMA}&cislo='+encodeURIComponent('${d.cislo}'),'_blank')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">📄 ${d.cislo||''}</a></td><td class="muted">${d.rada||''}</td><td>${d.nazev||''}</td><td class="muted">${d.cislo_org||''}</td><td class="muted">${d.zakazka||''}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||'CZK'}</td></tr>`).join('');
   }else if(kod==='vo'){
     head='<tr><th>Datum</th><th>Doklad</th><th>Řada</th><th>Org</th><th>Zakázka</th><th class="num">Částka (bez DPH)</th><th>Měna</th><th>Stav</th></tr>';
     body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.cislo||''}</td><td class="muted">${d.rada||''}</td><td class="muted">${d.cislo_org||''}</td><td class="muted">${d.zakazka||''}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||'CZK'}</td><td class="muted">${d.stav||''}</td></tr>`).join('');

@@ -22,6 +22,7 @@ bez nás. Schvalovací dialogy musí chodit JEN jí, ne mně. Má moji důvěru.
 - … a zbytek dokladové řady (příjemky/výdejky dle způsobu B vyloučit — viz účetní vize)
 - **Prokliky na fyzické doklady** u všech (EC = `D:\data\Faktury*`; ES = Helios DMS `TabDokumenty`/`TabDokumentyAgenda`).
 - **Celé oddělení NÁKUPU + vedení projektů (zakázkové flow)** — oběh zakázky poptávka→kalkulace→nabídka→objednávka→výroba→fakturace (kostry už existují v `tenant.poptavka/nabidka/objednavka/...`, viz dodatek 19.6.).
+- **DOCHÁZKA (Marti 25.6.):** Petra je zodpovědná i za docházku — celý modul `tenant.att_*` (příchody/odchody, denní souhrny, plán, absence, anomálie, audit, kalendář) + pracovní alokace/vztahy (`work_alloc`, `work_relation`). Spadá do jejích práv (schvaluje její zápisy).
 
 Obě firmy zvlášť (EC = Centrála/`ec_doklad_zbozi`; ES = Helios/`es_doklad_zbozi`), po letech, seřazené.
 
@@ -57,7 +58,9 @@ zafixovala model (doctrine #8). **Identity check proveden:** `users.id=18` = Pet
 - `allowed_schemas = [tenant]`
 - `allowed_table_prefixes` (reálné názvy naší domény): `ec_doklad_`, `es_doklad_`, `doklad_`, `poptavka`,
   `kalkulace`, `nabidka`, `objednavka`, `vydana_objednavka`, `vyroba`, `ec_zakazka_`, `zakazka`, `ec_stav_sklad`,
-  `ec_kmen_`, `sklad_`, `nakup_`, `vo_`, `po_`, `dl_`
+  `ec_kmen_`, `sklad_`, `nakup_`, `vo_`, `po_`, `dl_`, `ec_pohyb_`, `ec_cenik_`, `ec_organizace`, `ec_saldo_`,
+  `es_saldo_` + **DOCHÁZKA** (Marti 25.6.): `att_` (celá docházka — entry/summary/plán/absence/anomálie/audit/
+  kalendář), `work_alloc`, `work_relation`
 - `blocked_always = [public.*, framework.*, master.*, tenant_group.*, security.*]`
 
 **Matice schvalování:**

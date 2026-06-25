@@ -21091,10 +21091,13 @@ _DEFAULT_APPROVER_UID = 1
 _PETA_UID = 18
 _PETA_INSTANCE = "claude-26"
 _PETA_ALLOWED_PREFIXES = (
+    # doklady / oběh zboží / zakázky
     "ec_doklad_", "es_doklad_", "doklad_", "poptavka", "kalkulace", "nabidka",
     "objednavka", "vydana_objednavka", "vyroba", "ec_zakazka_", "zakazka",
     "ec_stav_sklad", "ec_kmen_", "sklad_", "nakup_", "vo_", "po_", "dl_",
     "ec_pohyb_", "ec_cenik_", "ec_organizace", "ec_saldo_", "es_saldo_",
+    # docházka (Marti 25.6.2026 — Petra zodpovědná i za docházku)
+    "att_", "work_alloc", "work_relation",
 )
 _PETA_BLOCKED_SCHEMAS = ("public", "framework", "master", "tenant_group", "security", "fw")
 

@@ -1254,8 +1254,25 @@ async def doklad_pdf(request: Request):
             dp_loc = ("D:\\data" + dp[len("\\\\192.168.30.11\\data"):]) \
                      if dp.lower().startswith("\\\\192.168.30.11\\data") else dp
             fname = _np.basename(dp_loc)
+            folder = _np.dirname(dp_loc)
+            # Preferuj PDF: pokud doc_path není .pdf (může být .msg/.docx z e-mailu),
+            # projdi složku dokladu (FP<ID>\) a vezmi papír (.pdf). Marti 25.6.2026.
+            if not fname.lower().endswith(".pdf"):
+                try:
+                    lraw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                                              {"user_namespace": "ro", "base_override": folder, "subpath": ""},
+                                              conversation_id=None)
+                    lr = _je.loads(lraw) if isinstance(lraw, str) else lraw
+                    its = (lr.get("items") or lr.get("files") or lr.get("entries") or []) if isinstance(lr, dict) else (lr or [])
+                    for it in its:
+                        nm = (it.get("name") or it.get("filename") or it.get("path")) if isinstance(it, dict) else it
+                        if nm and str(nm).lower().endswith(".pdf"):
+                            fname = str(nm)
+                            break
+                except Exception:
+                    pass
             raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
-                                      {"user_namespace": "ro", "base_override": _np.dirname(dp_loc),
+                                      {"user_namespace": "ro", "base_override": folder,
                                        "path": fname, "encoding": "base64"}, conversation_id=None)
             r2 = _je.loads(raw2) if isinstance(raw2, str) else raw2
             if isinstance(r2, dict) and r2.get("ok") is False:

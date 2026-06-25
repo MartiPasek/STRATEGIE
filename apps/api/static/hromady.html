@@ -41,10 +41,13 @@
 <div style="margin-bottom:12px"><button class="fbtn" style="background:#1a3320;color:#8fe0a0" onclick="syncES()">🔄 Dotáhnout doklady z Heliosu (1:1)</button> <span id="syncmsg" class="muted" style="font-size:12px"></span></div>
 <div class="piles" id="piles"></div>
 <div id="msg">Načítám hromady…</div>
-<div id="listwrap" style="display:none"><h2 id="listh" style="font-size:15px"></h2><table id="tbl"><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
+<div id="listwrap" style="display:none"><h2 id="listh" style="font-size:15px"></h2><div id="grid"></div></div>
 
+<script src="/static/aggrid_lite.js"></script>
 <script>
 const API='';
+function dCmp(a,b){function p(s){if(!s)return 0;const x=(''+s).split('.');return x.length===3?(x[2]+x[1].padStart(2,'0')+x[0].padStart(2,'0'))*1:0;}return p(a)-p(b);}
+const COLDAT=(h)=>({headerName:h||'Datum',field:'datum',maxWidth:130,comparator:dCmp});
 let CUR='';
 let FIRMA='ES';
 function setFirma(f){FIRMA=f;document.getElementById('f_EC').classList.toggle('on',f==='EC');document.getElementById('f_ES').classList.toggle('on',f==='ES');document.getElementById('listwrap').style.display='none';CUR='';loadPiles();}
@@ -84,47 +87,45 @@ async function openPile(kod,nazev){
   const r=await fetch(API+'/api/v1/erp/app/uctovani/hromada?typ='+kod+'&firma='+FIRMA,{credentials:'include'}).then(x=>x.json());
   if(!r.ok){document.getElementById('msg').textContent=r.error||'chyba';return;}
   const rows=r.polozky||[];
-  let head='',body='';
+  const CZK={type:'numericColumn',valueFormatter:AGLite.fmt.czk,filter:'agNumberColumnFilter',aggFunc:'sum'};
+  const pdf=(typ)=>({headerName:'Doklad 📄',field:'cislo',minWidth:130,filter:'agTextColumnFilter',
+    cellRenderer:p=>p.value?('<a class="aglite-link" href="/api/v1/erp/app/uctovani/doklad-pdf?typ='+typ+'&firma='+FIRMA+'&id='+(p.data.id||'')+'&cislo='+encodeURIComponent(p.value)+'" target="_blank">📄 '+p.value+'</a>'):''});
+  let cols=[], opts={csvName:kod+'_'+FIRMA, totals:['castka']};
   if(kod==='fp'||kod==='fv'){
-    head='<tr><th>Datum realizace</th><th>Doklad (klik = papír 📄)</th><th>Řada</th><th>Název</th><th>Org</th><th>Zakázka</th><th class="num">Částka (bez DPH)</th><th>Měna</th></tr>';
-    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis"><a onclick="window.open('/api/v1/erp/app/uctovani/doklad-pdf?typ=${kod}&firma=${FIRMA}&id=${d.id}&cislo='+encodeURIComponent('${d.cislo}'),'_blank')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">📄 ${d.cislo||''}</a></td><td class="muted">${d.rada||''}</td><td>${d.nazev||''}</td><td class="muted">${d.cislo_org||''}</td><td class="muted">${d.zakazka||''}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||'CZK'}</td></tr>`).join('');
+    cols=[COLDAT('Datum realizace'),pdf(kod),{headerName:'Řada',field:'rada',maxWidth:90},{headerName:'Název',field:'nazev',flex:2,minWidth:180},{headerName:'Org',field:'cislo_org',maxWidth:90},{headerName:'Zakázka',field:'zakazka',maxWidth:130},Object.assign({headerName:'Částka (bez DPH)',field:'castka'},CZK),{headerName:'Měna',field:'mena',maxWidth:90}];
   }else if(kod==='vo'){
-    head='<tr><th>Datum</th><th>Doklad</th><th>Řada</th><th>Org</th><th>Zakázka</th><th class="num">Částka (bez DPH)</th><th>Měna</th><th>Stav</th></tr>';
-    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis"><a onclick="window.open('/api/v1/erp/app/uctovani/doklad-pdf?typ=vo&firma=${FIRMA}&id=${d.id}&cislo='+encodeURIComponent('${d.cislo}'),'_blank')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">📄 ${d.cislo||''}</a></td><td class="muted">${d.rada||''}</td><td class="muted">${d.cislo_org||''}</td><td class="muted">${d.zakazka||''}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||'CZK'}</td><td class="muted">${d.stav||''}</td></tr>`).join('');
+    cols=[COLDAT(),pdf('vo'),{headerName:'Řada',field:'rada',maxWidth:90},{headerName:'Org',field:'cislo_org',maxWidth:90},{headerName:'Zakázka',field:'zakazka',maxWidth:130},Object.assign({headerName:'Částka (bez DPH)',field:'castka'},CZK),{headerName:'Měna',field:'mena',maxWidth:90},{headerName:'Stav',field:'stav',maxWidth:120}];
   }else if(kod==='po'){
-    head='<tr><th>Datum</th><th>Doklad</th><th>Zákazník</th><th>Zakázka</th><th>Ref. zákazníka</th><th>Popis</th><th class="num">Částka</th></tr>';
-    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.cislo||''}</td><td>${d.nazev||''}</td><td class="cis">${d.zakazka||''}</td><td class="cis muted">${d.ref_zak||''}</td><td class="muted">${(d.popis||'').slice(0,40)}</td><td class="num">${czk(d.castka)}</td></tr>`).join('');
+    cols=[COLDAT(),{headerName:'Doklad',field:'cislo',maxWidth:120},{headerName:'Zákazník',field:'nazev',flex:2,minWidth:180},{headerName:'Zakázka',field:'zakazka',maxWidth:130},{headerName:'Ref. zákazníka',field:'ref_zak',minWidth:130},{headerName:'Popis',field:'popis',flex:1},Object.assign({headerName:'Částka',field:'castka'},CZK)];
   }else if(kod==='kontace'){
-    head='<tr><th class="num">Kontace</th><th>Název</th><th>Řada</th><th>Sborník (DUD)</th><th class="num">Řádků MD/DAL</th></tr>';
-    body=rows.map(d=>`<tr><td class="num cis"><a onclick="openKontace(${d.id},'${(d.cislo||'').toString().replace(/'/g,"")}')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">🧾 ${d.cislo||''}</a></td><td>${d.nazev||''}</td><td class="cis">${d.rada||''}</td><td class="cis muted">${d.sbornik||''}</td><td class="num">${d.radku||0}</td></tr>`).join('');
+    cols=[{headerName:'Kontace',field:'cislo',type:'numericColumn',maxWidth:110,filter:'agNumberColumnFilter'},{headerName:'Název',field:'nazev',flex:2,minWidth:200},{headerName:'Řada',field:'rada',maxWidth:90},{headerName:'Sborník (DUD)',field:'sbornik',minWidth:130},{headerName:'Řádků MD/DAL',field:'radku',type:'numericColumn',maxWidth:130}];
+    opts.onRowClick=(d)=>openKontace(d.id,d.cislo); opts.totals=null;
   }else if(kod==='pp'){
-    head='<tr><th>Datum</th><th>Doklad</th><th>Zákazník</th><th>Zakázka</th><th>Navazuje (nabídka)</th><th>Popis</th></tr>';
-    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.cislo||''}</td><td>${d.nazev||''}</td><td class="cis">${d.zakazka||''}</td><td class="cis muted">${d.navazny||''}</td><td class="muted">${(d.popis||'').slice(0,40)}</td></tr>`).join('');
+    cols=[COLDAT(),{headerName:'Doklad',field:'cislo',maxWidth:120},{headerName:'Zákazník',field:'nazev',flex:2,minWidth:180},{headerName:'Zakázka',field:'zakazka',maxWidth:130},{headerName:'Navazuje (nabídka)',field:'navazny',minWidth:140},{headerName:'Popis',field:'popis',flex:1}]; opts.totals=null;
   }else if(kod==='kalk'){
-    head='<tr><th>Datum</th><th>Doklad</th><th>Č. kalk.</th><th>Zákazník</th><th>Zakázka</th><th class="num">Položek</th><th class="num">Celkem cena</th><th>Řešitel</th></tr>';
-    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis"><a onclick="openKalkPol(${d.id_kalk},'${(d.cislo||'').replace(/'/g,"")}')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">🧮 ${d.cislo||''}</a></td><td class="cis muted">${d.cislo_kalk||''}</td><td>${d.nazev||''}</td><td class="cis">${d.zakazka||''}</td><td class="num">${d.pocet_polozek||0}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.resitel||''}</td></tr>`).join('');
+    cols=[COLDAT(),{headerName:'Doklad',field:'cislo',minWidth:120},{headerName:'Č. kalk.',field:'cislo_kalk',maxWidth:120},{headerName:'Zákazník',field:'nazev',flex:2,minWidth:170},{headerName:'Zakázka',field:'zakazka',maxWidth:130},{headerName:'Položek',field:'pocet_polozek',type:'numericColumn',maxWidth:110},Object.assign({headerName:'Celkem cena',field:'castka'},CZK),{headerName:'Řešitel',field:'resitel',maxWidth:120}];
+    opts.onRowClick=(d)=>openKalkPol(d.id_kalk,d.cislo);
   }else if(kod==='banka'){
-    head='<tr><th>Datum</th><th>Doklad</th><th>VS</th><th>Směr</th><th class="num">Částka</th><th>Měna</th><th>Zpráva</th></tr>';
-    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.doklad||''}</td><td class="cis">${d.vs||''}</td><td><span class="badge ${d.smer==='out'?'out':''}">${d.smer==='out'?'výdej':'příjem'}</span></td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||''}</td><td class="muted">${d.zprava||''}</td></tr>`).join('');
+    cols=[COLDAT(),{headerName:'Doklad',field:'doklad',minWidth:120},{headerName:'VS',field:'vs',maxWidth:130},{headerName:'Směr',field:'smer',maxWidth:100,valueFormatter:p=>p.value==='out'?'výdej':'příjem'},Object.assign({headerName:'Částka',field:'castka'},CZK),{headerName:'Měna',field:'mena',maxWidth:90},{headerName:'Zpráva',field:'zprava',flex:2}];
   }else if(kod==='pokladna'){
-    head='<tr><th>Číslo</th><th>Název</th><th>Měna</th><th>Typ</th><th>Účet</th></tr>';
-    body=rows.map(d=>`<tr><td class="cis">${d.cislo||''}</td><td>${d.nazev||''}</td><td class="muted">${d.mena||''}</td><td class="muted">${d.typ||''}</td><td class="cis muted">${d.ucet||''}</td></tr>`).join('');
+    cols=[{headerName:'Číslo',field:'cislo',maxWidth:110},{headerName:'Název',field:'nazev',flex:2},{headerName:'Měna',field:'mena',maxWidth:90},{headerName:'Typ',field:'typ',minWidth:120},{headerName:'Účet',field:'ucet',maxWidth:120}]; opts.totals=null;
   }
-  document.getElementById('listh').textContent=nazev+' — '+rows.length+' dokladů'+(rows.length>=200?' (prvních 200)':'');
-  document.getElementById('thead').innerHTML=head;
-  document.getElementById('rows').innerHTML=body;
-  document.getElementById('msg').textContent='';
+  document.getElementById('listh').textContent=nazev+' — '+rows.length+(rows.length>=200?' (prvních 200)':'');
   document.getElementById('listwrap').style.display='';
+  await AGLite.mount('grid',cols,rows,opts);
+  document.getElementById('msg').textContent='';
 }
 async function openKalkPol(idk,doklad){
   document.getElementById('msg').textContent='Načítám položky '+doklad+'…';
   const r=await fetch(API+'/api/v1/erp/app/uctovani/kalkulace-pol?id_kalk='+idk,{credentials:'include'}).then(x=>x.json());
   if(!r.ok){document.getElementById('msg').textContent=r.error||'chyba';return;}
-  const rows=r.polozky||[];const nf=(n)=>(n==null?0:n).toLocaleString('cs-CZ',{maximumFractionDigits:2});
+  const rows=r.polozky||[];
   document.getElementById('listh').innerHTML='Kalkulace '+doklad+' — '+rows.length+' položek &nbsp;<a onclick="openPile(\'kalk\',\'Nabídky/Kalkulace (910)\')" style="cursor:pointer;color:#7fb0ff;font-size:12px">← zpět na kalkulace</a>';
-  document.getElementById('thead').innerHTML='<tr><th class="num">Poz</th><th>Reg. číslo</th><th>Název</th><th>Výrobce</th><th class="num">Ks</th><th class="num">JC EUR</th><th class="num">Celkem</th><th>Zakázka</th><th class="num">Obj</th><th class="num">Vyd</th></tr>';
-  document.getElementById('rows').innerHTML=rows.map(p=>`<tr><td class="num muted">${p.pos||''}</td><td class="cis">${p.reg_cis||''}</td><td>${(p.nazev||'').slice(0,45)}</td><td class="muted">${p.vyrobce||''}</td><td class="num">${nf(p.pocet_kusu)}</td><td class="num">${nf(p.jcena_eur)}</td><td class="num">${nf(p.gesamt_preis)}</td><td class="cis muted">${p.zakazka||''}</td><td class="num">${nf(p.objednano)}</td><td class="num">${nf(p.vydano)}</td></tr>`).join('');
-  document.getElementById('msg').textContent='';document.getElementById('listwrap').style.display='';
+  document.getElementById('listwrap').style.display='';
+  const N={type:'numericColumn',valueFormatter:AGLite.fmt.num};
+  const cols=[{headerName:'Poz',field:'pos',type:'numericColumn',maxWidth:90},{headerName:'Reg. číslo',field:'reg_cis',minWidth:130},{headerName:'Název',field:'nazev',flex:2,minWidth:200},{headerName:'Výrobce',field:'vyrobce',minWidth:110},Object.assign({headerName:'Ks',field:'pocet_kusu'},N),Object.assign({headerName:'JC EUR',field:'jcena_eur'},N),Object.assign({headerName:'Celkem',field:'gesamt_preis',aggFunc:'sum'},N),{headerName:'Zakázka',field:'zakazka',maxWidth:130},Object.assign({headerName:'Obj',field:'objednano'},N),Object.assign({headerName:'Vyd',field:'vydano'},N)];
+  await AGLite.mount('grid',cols,rows,{csvName:'kalkulace_'+doklad,totals:['gesamt_preis']});
+  document.getElementById('msg').textContent='';
 }
 async function openKontace(idu,cislo){
   document.getElementById('msg').textContent='Načítám řádky kontace '+cislo+'…';
@@ -132,10 +133,10 @@ async function openKontace(idu,cislo){
   if(!r.ok){document.getElementById('msg').textContent=r.error||'chyba';return;}
   const rows=r.radky||[];
   document.getElementById('listh').innerHTML='Kontace '+cislo+' — '+rows.length+' řádků MD/DAL &nbsp;<a onclick="openPile(\'kontace\',\'Předkontace (Helios 1:1)\')" style="cursor:pointer;color:#7fb0ff;font-size:12px">← zpět na kontace</a>';
-  document.getElementById('thead').innerHTML='<tr><th class="num">Řádek</th><th>Druh řádku</th><th class="num">Sazba DPH</th><th>Účet MD</th><th>Účet DAL</th><th>Cizí měna</th><th>Záporně</th><th>Uplatnit DPH</th></tr>';
-  const yn=(b)=>b?'Ano':'Ne';
-  document.getElementById('rows').innerHTML=rows.map(p=>`<tr><td class="num muted">${p.radek||''}</td><td class="muted">${p.druhradku!=null?p.druhradku:''}</td><td class="num">${p.sazbadph!=null?p.sazbadph:''}</td><td class="cis">${p.ucetmd||''}</td><td class="cis">${p.ucetdal||''}</td><td class="muted">${yn(p.cizimena)}</td><td class="muted">${yn(p.zaporne)}</td><td class="muted">${yn(p.uplatnitdph)}</td></tr>`).join('');
-  document.getElementById('msg').textContent='';document.getElementById('listwrap').style.display='';
+  document.getElementById('listwrap').style.display='';
+  const cols=[{headerName:'Řádek',field:'radek',type:'numericColumn',maxWidth:90},{headerName:'Druh řádku',valueGetter:p=>(p.data.sazbadph!=null)?('Základ DPH '+p.data.sazbadph+'%'):'Ostatní částky',minWidth:150},{headerName:'Sazba DPH',valueGetter:p=>(p.data.sazbadph!=null)?(p.data.sazbadph+' %'):'—',maxWidth:120},{headerName:'Účet MD',field:'ucetmd',cellStyle:{color:'#8fe0a0',fontFamily:'ui-monospace,Menlo,monospace'},minWidth:110},{headerName:'Účet DAL',field:'ucetdal',cellStyle:{color:'#f0a0b4',fontFamily:'ui-monospace,Menlo,monospace'},minWidth:110},{headerName:'Cizí měna',valueGetter:p=>AGLite.fmt.yn({value:p.data.cizimena}),maxWidth:110},{headerName:'Záporně',valueGetter:p=>AGLite.fmt.yn({value:p.data.zaporne}),maxWidth:100},{headerName:'Uplatnit DPH',valueGetter:p=>AGLite.fmt.yn({value:p.data.uplatnitdph}),maxWidth:130}];
+  await AGLite.mount('grid',cols,rows,{quickFilter:false,grouping:false,csvName:'kontace_'+cislo});
+  document.getElementById('msg').textContent='';
 }
 loadPiles();
 </script>

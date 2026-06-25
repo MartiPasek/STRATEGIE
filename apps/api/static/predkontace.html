@@ -36,6 +36,7 @@
   .skup{background:#19202e;border:1px solid #26303f;border-radius:10px;padding:10px 12px;margin-bottom:8px}
   .skup .sn{font-weight:600;font-size:13.5px}
 </style>
+<script src="/static/aggrid_lite.js"></script>
 </head>
 <body>
 <h1>🧾 Předkontace — účetní kódy (1:1 z Heliosu)</h1>
@@ -68,16 +69,18 @@ async function loadKontace(){
   const r=await fetch(API+'/api/v1/erp/app/uctovani/kontace?firma='+FIRMA,{credentials:'include'}).then(x=>x.json());
   if(!r.ok){document.getElementById('msg').textContent=r.error||'Nedostupné (přihlas se jako rodič)';return;}
   KONT=r.kontace||[];
-  document.getElementById('msg').textContent=KONT.length+' kontací · klikni na řádek pro detail (řádky MD/DAL)';
-  const rows=KONT.map(k=>`<tr class="kontrow" onclick="detail(${k.id})">
-    <td class="num cis">${k.cislokontace!=null?k.cislokontace:''}</td>
-    <td>${dp(k.druhpohybu)}</td>
-    <td class="cis">${k.rada||''}</td>
-    <td>${k.nazev||''}</td>
-    <td class="cis muted">${k.sbornik||''}${k.sbornik_nazev?(' · '+k.sbornik_nazev):''}</td>
-    <td class="muted" style="font-size:11px">${k.datumod||''}${k.datumdo?(' – '+k.datumdo):''}</td>
-    <td class="num">${k.radku||0}</td></tr>`).join('');
-  document.getElementById('view').innerHTML=`<table><thead><tr><th class="num">Číslo</th><th>Druh pohybu</th><th>Řada</th><th>Název</th><th>Sborník (DUD)</th><th>Platnost</th><th class="num">Řádků</th></tr></thead><tbody>${rows}</tbody></table>`;
+  document.getElementById('msg').textContent='Klikni na řádek pro detail (řádky MD/DAL). Sloupce lze řadit, filtrovat, přesouvat'+(AGLite.isEnterprise()?', seskupovat a exportovat do Excelu.':' a exportovat do CSV.');
+  document.getElementById('view').innerHTML='<div id="grid"></div>';
+  const cols=[
+    {headerName:'Číslo',field:'cislokontace',type:'numericColumn',maxWidth:110,filter:'agNumberColumnFilter'},
+    {headerName:'Druh pohybu',valueGetter:p=>dp(p.data.druhpohybu),minWidth:180},
+    {headerName:'Řada',field:'rada',maxWidth:90},
+    {headerName:'Název',field:'nazev',flex:2,minWidth:200},
+    {headerName:'Sborník (DUD)',valueGetter:p=>(p.data.sbornik||'')+(p.data.sbornik_nazev?(' · '+p.data.sbornik_nazev):''),minWidth:200},
+    {headerName:'Platnost',valueGetter:p=>(p.data.datumod||'')+(p.data.datumdo?(' – '+p.data.datumdo):''),minWidth:170},
+    {headerName:'Řádků',field:'radku',type:'numericColumn',maxWidth:100,filter:'agNumberColumnFilter'},
+  ];
+  await AGLite.mount('grid',cols,KONT,{csvName:'kontace_'+FIRMA,onRowClick:(d)=>detail(d.id),height:'calc(100vh - 220px)'});
 }
 async function detail(id){
   const k=KONT.find(x=>x.id===id);if(!k)return;
@@ -92,15 +95,19 @@ async function detail(id){
       <div><div class="lbl">Platnost</div><div class="val">${k.datumod||''}${k.datumdo?(' – '+k.datumdo):''}</div></div>
       <div><div class="lbl">Základní</div><div class="val">${k.zakladni?'Ano':'Ne'}</div></div>
     </div></div>`;
-  const body=rad.map(p=>{
-    const druh=(p.sazbadph!=null)?('Základ DPH '+p.sazbadph+'%'):'Ostatní částky';
-    return `<tr><td class="num muted">${p.radek!=null?p.radek:''}</td><td>${druh}</td>
-      <td class="num">${p.sazbadph!=null?(p.sazbadph+' %'):'—'}</td>
-      <td class="acct md">${p.ucetmd||'<span class="muted" style="font-weight:400">—</span>'}</td>
-      <td class="acct dal">${p.ucetdal||'<span class="muted" style="font-weight:400">—</span>'}</td>
-      <td>${yn(p.cizimena)}</td><td>${yn(p.zaporne)}</td><td>${yn(p.uplatnitdph)}</td></tr>`;}).join('');
-  document.getElementById('view').innerHTML=hdr+`<h2>Řádky kontace (předkontace MD/DAL)</h2>
-    <table><thead><tr><th class="num">Č.</th><th>Druh řádku</th><th class="num">Sazba DPH</th><th>Účet MD</th><th>Účet DAL</th><th>Cizí měna</th><th>Záporně</th><th>Uplatnit DPH</th></tr></thead><tbody>${body||'<tr><td colspan=8 class=muted>Bez řádků</td></tr>'}</tbody></table>`;
+  document.getElementById('view').innerHTML=hdr+'<h2>Řádky kontace (předkontace MD/DAL)</h2><div id="gridR" style="height:auto"></div>';
+  const cols=[
+    {headerName:'Č.',field:'radek',type:'numericColumn',maxWidth:80,filter:false,floatingFilter:false},
+    {headerName:'Druh řádku',valueGetter:p=>(p.data.sazbadph!=null)?('Základ DPH '+p.data.sazbadph+'%'):'Ostatní částky',minWidth:150},
+    {headerName:'Sazba DPH',valueGetter:p=>(p.data.sazbadph!=null)?(p.data.sazbadph+' %'):'—',type:'numericColumn',maxWidth:120},
+    {headerName:'Účet MD',field:'ucetmd',cellStyle:{color:'#8fe0a0',fontFamily:'ui-monospace,Menlo,monospace'},minWidth:110},
+    {headerName:'Účet DAL',field:'ucetdal',cellStyle:{color:'#f0a0b4',fontFamily:'ui-monospace,Menlo,monospace'},minWidth:110},
+    {headerName:'Cizí měna',valueGetter:p=>AGLite.fmt.yn({value:p.data.cizimena}),maxWidth:110},
+    {headerName:'Záporně',valueGetter:p=>AGLite.fmt.yn({value:p.data.zaporne}),maxWidth:100},
+    {headerName:'Uplatnit DPH',valueGetter:p=>AGLite.fmt.yn({value:p.data.uplatnitdph}),maxWidth:130},
+  ];
+  const h=Math.min(70+(rad.length||1)*32, 520);
+  await AGLite.mount('gridR',cols,rad,{quickFilter:false,grouping:false,csvName:'kontace_'+k.cislokontace+'_radky',height:h+'px'});
   document.getElementById('msg').textContent='';
 }
 async function loadSkupiny(){

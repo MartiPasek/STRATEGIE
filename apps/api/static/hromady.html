@@ -55,8 +55,8 @@ async function syncES(){
   if(FIRMA==='EC'){
     const rp=await P('sync-ec-pf');const rv=await P('sync-ec-fv');const ro=await P('sync-ec-vo');const rpo=await P('sync-ec-po');
     m.textContent='✓ EC: PF '+fmt(rp)+' · FV '+fmt(rv)+' · VO '+fmt(ro)+' · PO '+fmt(rpo)+' · kalkulace…';
-    const rk=await P('sync-ec-kalkulace');const rkp=await P('sync-ec-kalk-pol');
-    m.textContent='✓ EC: PF '+fmt(rp)+' · FV '+fmt(rv)+' · VO '+fmt(ro)+' · PO '+fmt(rpo)+' · Kalk '+fmt(rk)+' ('+fmt(rkp)+' pol.)';
+    const rpp=await P('sync-ec-pp');const rk=await P('sync-ec-kalkulace');const rkp=await P('sync-ec-kalk-pol');
+    m.textContent='✓ EC: PF '+fmt(rp)+' · FV '+fmt(rv)+' · VO '+fmt(ro)+' · PO '+fmt(rpo)+' · PP '+fmt(rpp)+' · Kalk '+fmt(rk)+' ('+fmt(rkp)+' pol.)';
   }else{
     const rv=await P('sync-es-vf');const rp=await P('sync-es-pf');const ro=await P('sync-es-vo');
     m.textContent='✓ ES: VF 1:1 '+fmt(rv)+' · PF 1:1 '+fmt(rp)+' · VO 1:1 '+fmt(ro);
@@ -92,6 +92,9 @@ async function openPile(kod,nazev){
   }else if(kod==='po'){
     head='<tr><th>Datum</th><th>Doklad</th><th>Zákazník</th><th>Zakázka</th><th>Ref. zákazníka</th><th>Popis</th><th class="num">Částka</th></tr>';
     body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.cislo||''}</td><td>${d.nazev||''}</td><td class="cis">${d.zakazka||''}</td><td class="cis muted">${d.ref_zak||''}</td><td class="muted">${(d.popis||'').slice(0,40)}</td><td class="num">${czk(d.castka)}</td></tr>`).join('');
+  }else if(kod==='pp'){
+    head='<tr><th>Datum</th><th>Doklad</th><th>Zákazník</th><th>Zakázka</th><th>Navazuje (nabídka)</th><th>Popis</th></tr>';
+    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.cislo||''}</td><td>${d.nazev||''}</td><td class="cis">${d.zakazka||''}</td><td class="cis muted">${d.navazny||''}</td><td class="muted">${(d.popis||'').slice(0,40)}</td></tr>`).join('');
   }else if(kod==='kalk'){
     head='<tr><th>Datum</th><th>Doklad</th><th>Č. kalk.</th><th>Zákazník</th><th>Zakázka</th><th class="num">Položek</th><th class="num">Celkem cena</th><th>Řešitel</th></tr>';
     body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis"><a onclick="openKalkPol(${d.id_kalk},'${(d.cislo||'').replace(/'/g,"")}')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">🧮 ${d.cislo||''}</a></td><td class="cis muted">${d.cislo_kalk||''}</td><td>${d.nazev||''}</td><td class="cis">${d.zakazka||''}</td><td class="num">${d.pocet_polozek||0}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.resitel||''}</td></tr>`).join('');

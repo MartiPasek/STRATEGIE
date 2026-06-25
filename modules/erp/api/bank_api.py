@@ -1084,7 +1084,9 @@ async def doklady_hromady(request: Request):
         # VO = vydané objednávky (řada 800/801). Marti 25.6.2026.
         vo = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '8%'")
         # PO = přijaté objednávky (řada 920) = zdroj zakázek pro párování. Marti 25.6.2026.
-        po = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '9%'")
+        po = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '92%'")
+        # PP = přijaté poptávky (řada 900) = poptávka od zákazníka → vzniká kalkulace+nabídka. Marti 25.6.2026.
+        pp = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '90%'")
         # Kalkulace/nabídky (řada 910 + EC_KalkulaceHlav) — jen EC. Marti 25.6.2026.
         kalk = cnt("SELECT count(*) c, COALESCE(round(sum(celkem_cena)),0) o FROM tenant.ec_kalkulace") \
             if firma == "EC" else {"ks": 0, "objem": 0}
@@ -1101,6 +1103,7 @@ async def doklady_hromady(request: Request):
             {"kod": "fv", "ikona": "📤", "nazev": fvn, "ks": fv["ks"], "objem": fv["objem"]},
             {"kod": "vo", "ikona": "📋", "nazev": "Vydané objednávky (VO)", "ks": vo["ks"], "objem": vo["objem"]},
             {"kod": "po", "ikona": "📑", "nazev": "Přijaté objednávky (PO)", "ks": po["ks"], "objem": po["objem"]},
+            {"kod": "pp", "ikona": "❓", "nazev": "Přijaté poptávky (PP)", "ks": pp["ks"], "objem": pp["objem"]},
             {"kod": "kalk", "ikona": "🧮", "nazev": "Nabídky/Kalkulace (910)", "ks": kalk["ks"], "objem": kalk["objem"]},
             {"kod": "banka", "ikona": "🏦", "nazev": "Bankovní výpisy", "ks": bk["ks"], "objem": bk["objem"]},
             {"kod": "pokladna", "ikona": "💵", "nazev": "Pokladna", "ks": pk["ks"], "objem": pk["objem"]},
@@ -1144,7 +1147,14 @@ async def doklady_hromada(request: Request):
                 "COALESCE(nazev,'') AS nazev, COALESCE(cislo_zakazky,'') AS zakazka, "
                 "COALESCE(navazna_objednavka,'') AS ref_zak, COALESCE(popis_dodavky,'') AS popis, "
                 "mena, round(suma_bez_dph) AS castka "
-                "FROM " + dtbl + " WHERE rada LIKE '9%' "
+                "FROM " + dtbl + " WHERE rada LIKE '92%' "
+                "ORDER BY dat_porizeni DESC NULLS LAST, cislo DESC LIMIT 200")).mappings().all()]
+        elif typ == "pp":
+            rows = [dict(r) for r in s.execute(_t(
+                "SELECT id, to_char(dat_porizeni,'DD.MM.YYYY') AS datum, cislo, "
+                "COALESCE(nazev,'') AS nazev, COALESCE(cislo_zakazky,'') AS zakazka, "
+                "COALESCE(navazny_doklad,'') AS navazny, COALESCE(popis_dodavky,'') AS popis "
+                "FROM " + dtbl + " WHERE rada LIKE '90%' "
                 "ORDER BY dat_porizeni DESC NULLS LAST, cislo DESC LIMIT 200")).mappings().all()]
         elif typ == "banka":
             rows = [dict(r) for r in s.execute(_t(
@@ -1859,7 +1869,7 @@ async def sync_ec_po(request: Request):
         return JSONResponse({"ok": False, "error": "Helios (MCP): %s" % str(exc)[:200]}, status_code=502)
     s = _sess()
     try:
-        s.execute(_t("DELETE FROM tenant.ec_doklad_zbozi WHERE rada LIKE '9%'"))
+        s.execute(_t("DELETE FROM tenant.ec_doklad_zbozi WHERE rada LIKE '92%'"))
         n = 0
         for r in rows:
             s.execute(_t(
@@ -2031,6 +2041,66 @@ async def kalkulace_pol(request: Request):
                     r[c] = float(r[c])
         return {"ok": True, "id_kalk": idk, "polozky": rows}
     except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/uctovani/sync-ec-pp")
+async def sync_ec_pp(request: Request):
+    """1:1 zrcadlo EC Přijatých poptávek z DB_EC (přehled 504, Marti 25.6.2026):
+    rada 900 (poptávka od zákazníka), roky 2025-26. Z poptávky vzniká kalkulace +
+    nabídka (910). cislo=PoradoveCislo, navazny_doklad = EC_GetDoklad(NavaznyDoklad).
+    DELETE+INSERT řad 90% = čistý mirror."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+    def _n(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def _i(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def _s(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    sql = (
+        "SELECT d.ID, d.PoradoveCislo, d.RadaDokladu, d.DruhPohybuZbo, d.CisloOrg, o.Nazev, "
+        "RTRIM(d.CisloZakazky) CisloZakazky, dbo.EC_GetDoklad(d.NavaznyDoklad) NavaznyDoklad, "
+        "SUBSTRING(REPLACE(SUBSTRING(d.Poznamka,1,255),NCHAR(13)+NCHAR(10),NCHAR(32)),1,255) PopisDodavky, "
+        "CONVERT(varchar(10),d.DatPorizeni,23) dp "
+        "FROM TabDokladyZbozi d LEFT JOIN TabCisOrg o ON d.CisloOrg=o.CisloOrg "
+        "WHERE d.RadaDokladu=900 AND d.PoradoveCislo>=0 AND YEAR(d.DatPorizeni) IN (2025,2026)")
+    try:
+        rows = _mcp_rows(sql, "DB_EC")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Helios (MCP): %s" % str(exc)[:200]}, status_code=502)
+    s = _sess()
+    try:
+        s.execute(_t("DELETE FROM tenant.ec_doklad_zbozi WHERE rada LIKE '90%'"))
+        n = 0
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.ec_doklad_zbozi (src_id, cislo, rada, druh_pohybu, cislo_org, cislo_zakazky, "
+                "navazny_doklad, nazev, popis_dodavky, dat_porizeni) "
+                "VALUES (:sid,:c,:r,:dph,:co,:cz,:nd,:n,:pop,:dp)"),
+                {"sid": _i(r.get("id")), "c": _s(r.get("poradovecislo")), "r": _s(r.get("radadokladu")),
+                 "dph": _i(r.get("druhpohybuzbo")), "co": _i(r.get("cisloorg")), "cz": _s(r.get("cislozakazky")),
+                 "nd": _s(r.get("navaznydoklad")), "n": _s(r.get("nazev")), "pop": _s(r.get("popisdodavky")),
+                 "dp": _s(r.get("dp"))})
+            n += 1
+        s.commit()
+        return {"ok": True, "zapsano": n}
+    except Exception as exc:
+        s.rollback()
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()

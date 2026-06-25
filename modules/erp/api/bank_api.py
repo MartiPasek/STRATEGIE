@@ -1180,3 +1180,36 @@ async def ucetni_osnova(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+@bank_router.get("/app/uctovani/rady")
+async def rady_predkontace(request: Request):
+    """Řady dokladů (sborníky) a jejich předkontace — jaké účty se na danou řadu reálně účtují."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    firma = (request.query_params.get("firma") or "EC").upper()
+    tbl = "tenant.ec_denik" if firma == "EC" else "tenant.es_denik"
+    s = _sess()
+    try:
+        roky = [int(r[0]) for r in s.execute(_t("SELECT DISTINCT rok FROM " + tbl + " WHERE rok IS NOT NULL ORDER BY rok")).all()]
+        try:
+            rok = int(request.query_params.get("rok") or (roky[-1] if roky else 0))
+        except Exception:
+            rok = roky[-1] if roky else 0
+        rady = [dict(r) for r in s.execute(_t(
+            "SELECT d.sbornik AS kod, COALESCE(sb.nazev,'') AS nazev, COALESCE(sb.druh,'') AS druh, "
+            "count(*) AS radku, round(sum(abs(d.castka))) AS obrat, "
+            "string_agg(DISTINCT d.ucet, ', ' ORDER BY d.ucet) FILTER (WHERE d.ucet IS NOT NULL AND d.ucet<>'') AS ucty "
+            "FROM " + tbl + " d LEFT JOIN tenant.ucet_sbornik sb ON sb.kod=d.sbornik AND sb.tenant_id=:tn "
+            "WHERE d.rok=:rok AND d.sbornik IS NOT NULL "
+            "GROUP BY d.sbornik, sb.nazev, sb.druh ORDER BY count(*) DESC"),
+            {"tn": _TENANT, "rok": rok}).mappings().all()]
+        for r in rady:
+            if r.get("obrat") is not None:
+                r["obrat"] = float(r["obrat"] or 0)
+        return {"ok": True, "firma": firma, "rok": rok, "roky": roky, "rady": rady}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

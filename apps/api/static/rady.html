@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Řady dokladů a předkontace</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:14px;background:#0f1420;color:#e8edf6}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{color:#9fb0c8;font-size:12px;margin-bottom:12px}
+  .fbtn{background:#27313f;color:#cdd9ea;border:0;border-radius:16px;padding:6px 13px;font-size:13px;cursor:pointer;margin-right:6px}
+  .fbtn.on{background:#2563eb;color:#fff}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid #232c3b;vertical-align:top}
+  th{color:#8fa3bd;font-weight:600;font-size:11.5px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .kod{font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:13px}
+  .druh{font-size:11px;padding:1px 7px;border-radius:9px;background:#16243a;color:#7fb0ff}
+  .muted{color:#8295ad}
+  .ucty{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#aebdd2;line-height:1.6}
+  #msg{color:#9fb0c8;font-size:13px}
+  .sel{margin-bottom:10px}
+</style>
+</head>
+<body>
+<h1>📋 Řady dokladů a jejich předkontace</h1>
+<div class="sub">Každá řada (sborník) + účty, na které se reálně účtuje (z deníku dané firmy a roku).</div>
+<div class="sel">
+  <span class="muted" style="font-size:12px;margin-right:6px">Firma:</span>
+  <button class="fbtn on" id="f_EC" onclick="setFirma('EC')">🏢 EC</button>
+  <button class="fbtn" id="f_ES" onclick="setFirma('ES')">🏢 ES</button>
+  <span class="muted" style="font-size:12px;margin:0 6px 0 14px">Rok:</span>
+  <span id="roky"></span>
+</div>
+<div id="msg">Načítám řady…</div>
+<table id="tbl" style="display:none"><thead><tr>
+  <th>Řada</th><th>Název</th><th>Druh</th><th class="num">Dokladů</th><th class="num">Obrat</th><th>Předkontace (účty)</th>
+</tr></thead><tbody id="rows"></tbody></table>
+
+<script>
+const API='';
+let FIRMA='EC', ROK=0;
+function czk(n){return (n==null||n===0)?'—':n.toLocaleString('cs-CZ',{maximumFractionDigits:0})+' Kč';}
+function setFirma(f){FIRMA=f;ROK=0;document.getElementById('f_EC').classList.toggle('on',f==='EC');document.getElementById('f_ES').classList.toggle('on',f==='ES');load();}
+function setRok(y){ROK=y;load();}
+async function load(){
+  document.getElementById('msg').style.display='';document.getElementById('msg').textContent='Načítám řady…';
+  document.getElementById('tbl').style.display='none';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/rady?firma='+FIRMA+(ROK?('&rok='+ROK):''),{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){document.getElementById('msg').textContent=r.error||'Nedostupné (přihlas se jako rodič)';return;}
+  ROK=r.rok;
+  document.getElementById('roky').innerHTML=(r.roky||[]).map(y=>`<button class="fbtn ${y===r.rok?'on':''}" onclick="setRok(${y})">${y}</button>`).join('');
+  if(!(r.rady||[]).length){document.getElementById('msg').textContent='Pro firmu '+FIRMA+' rok '+r.rok+' nemám řady.';return;}
+  document.getElementById('rows').innerHTML=r.rady.map(d=>`<tr>
+    <td class="kod">${d.kod||''}</td><td>${d.nazev||'<span class="muted">?</span>'}</td>
+    <td>${d.druh?'<span class="druh">'+d.druh+'</span>':''}</td>
+    <td class="num">${(d.radku||0).toLocaleString('cs-CZ')}</td>
+    <td class="num">${czk(d.obrat)}</td>
+    <td class="ucty">${d.ucty||'<span class="muted">—</span>'}</td></tr>`).join('');
+  document.getElementById('msg').style.display='none';
+  document.getElementById('tbl').style.display='';
+}
+load();
+</script>
+</body>
+</html>

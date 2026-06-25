@@ -989,6 +989,13 @@ def osnova_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/rady")
+def rady_page():
+    """Řady dokladů (sborníky) a jejich předkontace — z deníku. Marti 25.6.2026."""
+    return FileResponse(os.path.join(static_dir, "rady.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/iso")
 def iso_page():
     """ISO 27001 cockpit — elektronické vedení ISMS (parent/Kristý). Kroky + dokumenty

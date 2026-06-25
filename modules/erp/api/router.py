@@ -25958,6 +25958,51 @@ async def hra_data(req: Request) -> JSONResponse:
         s.close()
 
 
+def _mssql188_query(sql):
+    """Přímé spojení na cloud Helios MSSQL (10.200.188.12) přes pyodbc. Read i DDL/DML
+    (autocommit). Connection string z env MSSQL188_CONN (NSSM AppEnvironmentExtra na
+    cloud API) — heslo 'sa' NIKDY v kódu/chatu. Vrací {ok, columns, rows, count}.
+    Marti 25.6.2026 (základ bridge pro přenos mezd + deníku)."""
+    import os as _os188
+    conn_str = _os188.environ.get("MSSQL188_CONN")
+    if not conn_str:
+        return {"ok": False, "error": "chybí env MSSQL188_CONN na cloud API (NSSM AppEnvironmentExtra)"}
+    try:
+        import pyodbc as _po188
+    except Exception as e:
+        return {"ok": False, "error": "pyodbc není v cloud venv: %s (poetry add pyodbc)" % e}
+    import datetime as _dt188, decimal as _dec188
+
+    def _safe188(v):
+        if isinstance(v, (_dt188.datetime, _dt188.date)):
+            return v.isoformat()[:19]
+        if isinstance(v, _dec188.Decimal):
+            return float(v)
+        if isinstance(v, (bytes, bytearray)):
+            return "<%d B>" % len(v)
+        return v
+
+    cn = None
+    try:
+        cn = _po188.connect(conn_str, timeout=10, autocommit=True)
+        cur = cn.cursor()
+        cur.execute(sql)
+        if cur.description:
+            cols = [c[0] for c in cur.description]
+            rows = [[_safe188(v) for v in r] for r in cur.fetchall()]
+            return {"ok": True, "columns": cols, "rows": rows, "count": len(rows)}
+        return {"ok": True, "columns": [], "rows": [],
+                "count": (cur.rowcount if cur.rowcount is not None else -1)}
+    except Exception as exc:
+        return {"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:500])}
+    finally:
+        try:
+            if cn:
+                cn.close()
+        except Exception:
+            pass
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):
@@ -27026,6 +27071,33 @@ async def diag_sql(req: Request) -> JSONResponse:
                 sp.close()
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
+    # ── mssql188 = náš cloud Helios MSSQL (10.200.188.12), přímé spojení pyodbc z API.
+    #    Nová prázdná DB (sandbox), parent-only → read i DDL/DML běží PŘÍMO (bez banneru),
+    #    stavíme ji společně (přenos mezd + deníku). Connection string z env MSSQL188_CONN.
+    #    Marti 25.6.2026. ──
+    if db == "mssql188":
+        from starlette.concurrency import run_in_threadpool as _rtp188
+        res188 = await _rtp188(_mssql188_query, sql)
+        try:
+            from core.database_data import get_data_session as _gds188
+            from sqlalchemy import text as _t188
+            _d188 = _gds188()
+            try:
+                _d188.execute(_t188(
+                    "INSERT INTO fw.claude_sql_log (actor, db_target, sql_text, status, row_count, error) "
+                    "VALUES (:a,:db,:sql,:st,:rc,:err)"),
+                    {"a": actor, "db": db, "sql": sql[:8000],
+                     "st": "ok" if (isinstance(res188, dict) and res188.get("ok")) else "error",
+                     "rc": (res188.get("count") if isinstance(res188, dict) else None),
+                     "err": (None if (isinstance(res188, dict) and res188.get("ok"))
+                             else str(res188.get("error"))[:2000] if isinstance(res188, dict) else None)})
+                _d188.commit()
+            finally:
+                _d188.close()
+        except Exception:
+            pass
+        return JSONResponse(res188 if isinstance(res188, dict) else {"ok": False, "error": "neznámý výstup"})
 
     # Krok 2 (1.6.2026): WRITE (ne SELECT/WITH/EXPLAIN/SHOW) → nespouštět,
     # vytvořit pending request → Marti schválí v chatu/ERP banneru.

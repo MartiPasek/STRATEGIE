@@ -219,6 +219,22 @@
         return;
       }
 
+      // A.3 (Pavlovy připomínky, Kristý 25.6.2026): souhrnný pruh „Moje CRM čísla"
+      // NAD přehledem Aktivity obchodníka. GATED na data_source code → jiných
+      // přehledů se NETÝKÁ. Fail-safe: chyba jen zaloguje, grid jede dál.
+      try {
+        if (rootCd && rootCd.data_source_code === 'crm_aktivity_obchodnik'
+            && window.CrmAktivitaSouhrn && typeof window.CrmAktivitaSouhrn.mount === 'function'
+            && !document.getElementById('crm-aktivita-souhrn')) {
+          var _souhrnEl = document.createElement('div');
+          _souhrnEl.id = 'crm-aktivita-souhrn';
+          mainContent.insertBefore(_souhrnEl, gridHost);
+          window.CrmAktivitaSouhrn.mount(_souhrnEl);
+        }
+      } catch (_souhrnErr) {
+        console.warn('[page_render] CRM souhrn band failed (grid jede dál):', _souhrnErr);
+      }
+
       // No data_source → dashed placeholder
       if (!rootCd.data_source_code) {
         gridHost.style.border = '1px dashed #3a4754';

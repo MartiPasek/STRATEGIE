@@ -5812,6 +5812,118 @@ async def app_connect_mailbox(req: Request) -> JSONResponse:
                          "display": res.get("ews_display_email") or res.get("ews_email")})
 
 
+@api_router.get("/app/crm/aktivity-souhrn")
+async def app_crm_aktivity_souhrn(req: Request) -> JSONResponse:
+    """A.3 (Pavlovy připomínky): souhrnná čísla NAD přehledem „Aktivity obchodníka".
+    Read-only agregace z st.CRM_Kontakt_Akce (MCP DB_EC): oslovené firmy / e-maily /
+    hovory / osobní / poptávky / zakázky / nezájem za období, per obchodník (Autor).
+    Query: ?autor=<Autor>&obdobi=mesic|rok|vse (autor vynechán = můj login; prázdný = všichni).
+    Auth: člen ERP NEBO rodič. (Kristý 25.6.2026.)"""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    q = req.query_params
+    obdobi = (q.get("obdobi") or "rok").lower()
+    # muj_autor = login_name uzivatele (Autor v CRM = login, napr. Pavel = 'PZeman')
+    muj_autor = ""
+    try:
+        from core.database_data import get_data_session as _gds_au
+        from sqlalchemy import text as _t_au
+        _sa = _gds_au()
+        try:
+            muj_autor = (_sa.execute(_t_au("SELECT login_name FROM public.users WHERE id=:i"),
+                                     {"i": uid}).scalar() or "").strip()
+        finally:
+            _sa.close()
+    except Exception:
+        muj_autor = ""
+    autor_eff = (q.get("autor") or "").strip() if "autor" in q else muj_autor
+    import datetime as _dt_au
+    today = _dt_au.date.today()
+    od = do = None
+    if obdobi == "mesic":
+        od, do = today.replace(day=1), today
+    elif obdobi == "rok":
+        od, do = today.replace(month=1, day=1), today
+
+    def _lit(v):  # MSSQL string literál
+        return "'" + str(v).replace("'", "''") + "'"
+    where = ["1=1"]
+    if autor_eff:
+        where.append("LTRIM(RTRIM(a.Autor)) = " + _lit(autor_eff))
+    if od:
+        where.append("COALESCE(a.DatumAkce, CAST(a.DatPorizeni AS date)) >= " + _lit(od.isoformat()))
+    if do:
+        where.append("COALESCE(a.DatumAkce, CAST(a.DatPorizeni AS date)) <= " + _lit(do.isoformat()))
+    wsql = " AND ".join(where)
+    sql_counts = (
+        "SELECT"
+        " COUNT(DISTINCT CASE WHEN a.IDakce IN (1,3,22) THEN a.IDHlav END) AS oslovene_firmy,"
+        " SUM(CASE WHEN a.IDakce IN (1,3,22) THEN 1 ELSE 0 END) AS emaily,"
+        " SUM(CASE WHEN a.IDakce IN (2,4) THEN 1 ELSE 0 END) AS hovory,"
+        " SUM(CASE WHEN a.IDakce = 6 THEN 1 ELSE 0 END) AS osobni,"
+        " SUM(CASE WHEN a.IDakce = 7 THEN 1 ELSE 0 END) AS poptavky,"
+        " SUM(CASE WHEN a.IDakce = 8 THEN 1 ELSE 0 END) AS zakazky,"
+        " SUM(CASE WHEN a.IDakce = 20 THEN 1 ELSE 0 END) AS nezajem"
+        " FROM st.CRM_Kontakt_Akce a WITH(NOLOCK) WHERE " + wsql
+    )
+    sql_autori = (
+        "SELECT LTRIM(RTRIM(a.Autor)) AS autor, COUNT(*) AS pocet"
+        " FROM st.CRM_Kontakt_Akce a WITH(NOLOCK)"
+        " WHERE a.Autor IS NOT NULL AND LTRIM(RTRIM(a.Autor)) <> ''"
+        " GROUP BY LTRIM(RTRIM(a.Autor)) ORDER BY COUNT(*) DESC"
+    )
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _j_au
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
+
+    def _run(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_au.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error"))[:200])
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]
+                    break
+        elif isinstance(r, list):
+            rows = r
+        return rows
+
+    try:
+        crows = _run(sql_counts)
+        arows = _run(sql_autori)
+    except Exception as exc:
+        logger.exception("[crm_aktivity_souhrn] %s", exc)
+        return JSONResponse({"ok": False, "error": "CRM dotaz selhal"}, status_code=502)
+
+    def _ci(d, key):
+        dd = {(k or "").lower(): v for k, v in d.items()}
+        try:
+            return int(dd.get(key) or 0)
+        except Exception:
+            return 0
+    keys = ("oslovene_firmy", "emaily", "hovory", "osobni", "poptavky", "zakazky", "nezajem")
+    counts = {k: (_ci(crows[0], k) if crows else 0) for k in keys}
+    obchodnici = []
+    for d in arows:
+        dd = {(k or "").lower(): v for k, v in d.items()}
+        a = (dd.get("autor") or "").strip()
+        if a:
+            obchodnici.append({"autor": a, "pocet": _ci(d, "pocet")})
+    return JSONResponse({"ok": True, "counts": counts, "obchodnici": obchodnici,
+                         "muj_autor": muj_autor, "autor": autor_eff, "obdobi": obdobi})
+
+
 @api_router.post("/crm/optout/make-tokens")
 async def crm_optout_make_tokens(req: Request) -> JSONResponse:
     """Vrati hotove odhlasovaci tokeny + URL pro dane (email, firma_id) pary, aby

@@ -1090,6 +1090,8 @@ async def doklady_hromady(request: Request):
         # Kalkulace/nabídky (řada 910 + EC_KalkulaceHlav) — jen EC. Marti 25.6.2026.
         kalk = cnt("SELECT count(*) c, COALESCE(round(sum(celkem_cena)),0) o FROM tenant.ec_kalkulace") \
             if firma == "EC" else {"ks": 0, "objem": 0}
+        # Předkontace (TabUKod 1:1 z Heliosu) — jen ES. Marti 25.6.2026.
+        pred = cnt("SELECT count(*) c, 0 o FROM tenant.es_ukod") if firma == "ES" else {"ks": 0, "objem": 0}
         fpn = "Přijaté faktury (FP)"
         fvn = "Vydané faktury (FV)"
         bk = cnt("SELECT count(*) c, COALESCE(round(sum(abs(t.castka))),0) o FROM tenant.bank_transaction_raw t "
@@ -1105,6 +1107,7 @@ async def doklady_hromady(request: Request):
             {"kod": "po", "ikona": "📑", "nazev": "Přijaté objednávky (PO)", "ks": po["ks"], "objem": po["objem"]},
             {"kod": "pp", "ikona": "❓", "nazev": "Přijaté poptávky (PP)", "ks": pp["ks"], "objem": pp["objem"]},
             {"kod": "kalk", "ikona": "🧮", "nazev": "Nabídky/Kalkulace (910)", "ks": kalk["ks"], "objem": kalk["objem"]},
+            {"kod": "kontace", "ikona": "🧾", "nazev": "Předkontace (Helios 1:1)", "ks": pred["ks"], "objem": 0},
             {"kod": "banka", "ikona": "🏦", "nazev": "Bankovní výpisy", "ks": bk["ks"], "objem": bk["objem"]},
             {"kod": "pokladna", "ikona": "💵", "nazev": "Pokladna", "ks": pk["ks"], "objem": pk["objem"]},
         ]}
@@ -1134,6 +1137,12 @@ async def doklady_hromada(request: Request):
                 "FROM " + dtbl + " WHERE rada LIKE :rl "
                 "ORDER BY COALESCE(dat_realizace,dat_porizeni) ASC NULLS LAST, cislo ASC LIMIT 200"),
                 {"rl": rl}).mappings().all()]
+        elif typ == "kontace":
+            rows = [dict(r) for r in s.execute(_t(
+                "SELECT u.id, u.cislokontace AS cislo, COALESCE(u.nazev,'') AS nazev, "
+                "COALESCE(u.radadokladu,'') AS rada, COALESCE(u.sbornik,'') AS sbornik, u.druhpohybu, "
+                "(SELECT count(*) FROM tenant.es_ukod_radek r WHERE r.idukod=u.id) AS radku "
+                "FROM tenant.es_ukod u ORDER BY u.cislokontace")).mappings().all()]
         elif typ == "kalk":
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT id, id_kalk, to_char(dat_porizeni,'DD.MM.YYYY') AS datum, doklad AS cislo, "
@@ -2101,6 +2110,123 @@ async def sync_ec_pp(request: Request):
         return {"ok": True, "zapsano": n}
     except Exception as exc:
         s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/uctovani/sync-es-kontace")
+async def sync_es_kontace(request: Request):
+    """1:1 zrcadlo účetních kódů/kontací z Heliosu ES (DB_IS, Marti 25.6.2026):
+    PRAVDA JE V HELIOSU, my podle ní jen účtujeme. Kontace (TabUKod) = řada+druh
+    pohybu → sborník; řádky (TabRadekUKod) = předkontace MD/DAL per sazba DPH;
+    skupiny (TabSkupUKod) + vazby (Tab1NUKod). DELETE+INSERT všech 4 = čistý mirror."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+    def _b(v):
+        return bool(v) if v not in (None, "") else None
+
+    res = {}
+    s = _sess()
+    try:
+        # 1) kontace hlavičky (TabUKod) — názvy sloupců = Helios (lowercase), PK = Helios ID
+        rows = _mcp_rows(
+            "SELECT ID, CisloKontace, DruhPohybu, RadaDokladu, Nazev, Zakladni, Sbornik, "
+            "CONVERT(varchar(10),DatumOd,23) datumod, CONVERT(varchar(10),DatumDo,23) datumdo "
+            "FROM [DB_IS].dbo.TabUKod", "DB_EC")
+        s.execute(_t("DELETE FROM tenant.es_ukod"))
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.es_ukod (id, cislokontace, druhpohybu, radadokladu, nazev, "
+                "zakladni, sbornik, datumod, datumdo) VALUES (:i,:ck,:dp,:rd,:nz,:zk,:sb,:od,:do)"),
+                {"i": _kalk_i(r.get("id")), "ck": _kalk_i(r.get("cislokontace")), "dp": _kalk_i(r.get("druhpohybu")),
+                 "rd": _kalk_s(r.get("radadokladu")), "nz": _kalk_s(r.get("nazev")), "zk": _b(r.get("zakladni")),
+                 "sb": _kalk_s(r.get("sbornik")), "od": _kalk_s(r.get("datumod")), "do": _kalk_s(r.get("datumdo"))})
+        res["kontace"] = len(rows)
+        # 2) řádky kontací (TabRadekUKod = předkontace MD/DAL per sazba DPH)
+        rows = _mcp_rows(
+            "SELECT Id, IDUKod, Radek, DruhRadku, SazbaDPH, UcetMD, UcetDAL, CiziMena, Zaporne, "
+            "UplatnitDPH, CisloOrg, PomerKoef FROM [DB_IS].dbo.TabRadekUKod", "DB_EC")
+        s.execute(_t("DELETE FROM tenant.es_ukod_radek"))
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.es_ukod_radek (id, idukod, radek, druhradku, sazbadph, ucetmd, "
+                "ucetdal, cizimena, zaporne, uplatnitdph, cisloorg, pomerkoef) "
+                "VALUES (:id,:iu,:rk,:dr,:sd,:md,:dal,:cm,:zp,:ud,:co,:pk)"),
+                {"id": _kalk_i(r.get("id")), "iu": _kalk_i(r.get("idukod")), "rk": _kalk_i(r.get("radek")),
+                 "dr": _kalk_i(r.get("druhradku")), "sd": _kalk_n(r.get("sazbadph")), "md": _kalk_s(r.get("ucetmd")),
+                 "dal": _kalk_s(r.get("ucetdal")), "cm": _b(r.get("cizimena")), "zp": _b(r.get("zaporne")),
+                 "ud": _b(r.get("uplatnitdph")), "co": _kalk_i(r.get("cisloorg")), "pk": _kalk_n(r.get("pomerkoef"))})
+        res["radky"] = len(rows)
+        # 3) skupiny kontací (TabSkupUKod)
+        rows = _mcp_rows("SELECT ID, Nazev FROM [DB_IS].dbo.TabSkupUKod", "DB_EC")
+        s.execute(_t("DELETE FROM tenant.es_ukod_skupina"))
+        for r in rows:
+            s.execute(_t("INSERT INTO tenant.es_ukod_skupina (id, nazev) VALUES (:i,:n)"),
+                      {"i": _kalk_i(r.get("id")), "n": _kalk_s(r.get("nazev"))})
+        res["skupiny"] = len(rows)
+        # 4) vazby skupina → kontace (Tab1NUKod)
+        rows = _mcp_rows("SELECT IDSkup, CisloUKod, DruhPohybu, RadaDokladu FROM [DB_IS].dbo.Tab1NUKod", "DB_EC")
+        s.execute(_t("DELETE FROM tenant.es_1n_ukod"))
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.es_1n_ukod (idskup, cisloukod, druhpohybu, radadokladu) "
+                "VALUES (:s,:c,:dp,:rd)"),
+                {"s": _kalk_i(r.get("idskup")), "c": _kalk_i(r.get("cisloukod")),
+                 "dp": _kalk_i(r.get("druhpohybu")), "rd": _kalk_s(r.get("radadokladu"))})
+        res["vazby"] = len(rows)
+        s.commit()
+        return {"ok": True, **res}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/uctovani/kontace")
+async def kontace_list(request: Request):
+    """Účetní kódy/kontace (1:1 z Heliosu) — řada+druh pohybu → sborník + počet řádků MD/DAL."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        rows = [dict(r) for r in s.execute(_t(
+            "SELECT u.id, u.cislokontace, u.druhpohybu, COALESCE(u.radadokladu,'') AS rada, "
+            "COALESCE(u.nazev,'') AS nazev, COALESCE(u.sbornik,'') AS sbornik, u.zakladni, "
+            "(SELECT count(*) FROM tenant.es_ukod_radek r WHERE r.idukod=u.id) AS radku "
+            "FROM tenant.es_ukod u ORDER BY u.cislokontace")).mappings().all()]
+        return {"ok": True, "kontace": rows}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/uctovani/kontace-radky")
+async def kontace_radky(request: Request):
+    """Řádky jedné kontace (předkontace MD/DAL per sazba DPH) — drill-down."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        idu = int(request.query_params.get("idukod") or request.query_params.get("src_id_ukod") or 0)
+    except (TypeError, ValueError):
+        idu = 0
+    s = _sess()
+    try:
+        rows = [dict(r) for r in s.execute(_t(
+            "SELECT radek, druhradku, sazbadph, COALESCE(ucetmd,'') AS ucetmd, "
+            "COALESCE(ucetdal,'') AS ucetdal, cizimena, zaporne, uplatnitdph "
+            "FROM tenant.es_ukod_radek WHERE idukod=:i ORDER BY radek"), {"i": idu}).mappings().all()]
+        for r in rows:
+            if r.get("sazbadph") is not None:
+                r["sazbadph"] = float(r["sazbadph"])
+        return {"ok": True, "radky": rows}
+    except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()

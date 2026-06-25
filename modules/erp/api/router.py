@@ -25958,6 +25958,86 @@ async def hra_data(req: Request) -> JSONResponse:
         s.close()
 
 
+def _xfer_table(src_db, dst_db, table, where=None):
+    """Přenos JEDNÉ tabulky z kancelářského Heliosu (MCP: DB_EC/DB_IS) → cloud MSSQL
+    188.12 (pyodbc). 1:1 vč. původních id (IDENTITY_INSERT), jen vkládatelné sloupce
+    (ne computed), triggery+constraints VYPNUTÉ při loadu, cíl napřed promazán.
+    Marti 25.6.2026. where = volitelná podmínka (bez 'WHERE')."""
+    import os as _ox
+    conn_str = _ox.environ.get("MSSQL188_CONN")
+    if not conn_str:
+        return {"ok": False, "error": "chybí env MSSQL188_CONN"}
+    try:
+        import pyodbc as _po
+    except Exception as e:
+        return {"ok": False, "error": "pyodbc není: %s" % e}
+    t = table.strip().strip("[]")
+    fq = "[" + dst_db + "].dbo.[" + t + "]"
+    cn = None
+    try:
+        cn = _po.connect(conn_str, timeout=20, autocommit=False)
+        cur = cn.cursor()
+        # vkládatelné sloupce z CÍLE (ne computed) + identita
+        cur.execute(
+            "SELECT c.name, c.is_identity FROM " + dst_db + ".sys.columns c "
+            "WHERE c.object_id = OBJECT_ID(?) AND c.is_computed = 0 ORDER BY c.column_id",
+            dst_db + ".dbo." + t)
+        colinfo = [(r[0], bool(r[1])) for r in cur.fetchall()]
+        if not colinfo:
+            return {"ok": False, "error": "cíl %s.dbo.%s neexistuje / bez sloupců" % (dst_db, t)}
+        cols = [c for c, _ in colinfo]
+        has_identity = any(i for _, i in colinfo)
+    except Exception as exc:
+        try:
+            cn.close()
+        except Exception:
+            pass
+        return {"ok": False, "error": "cíl meta: %s: %s" % (type(exc).__name__, str(exc)[:300])}
+    # čtení zdroje přes MCP (jen vkládatelné sloupce)
+    collist = ", ".join("[" + c + "]" for c in cols)
+    src_sql = "SELECT " + collist + " FROM dbo.[" + t + "]" + ((" WHERE " + where) if where else "")
+    try:
+        rows = _mcp_rows(src_sql, src_db)
+    except Exception as exc:
+        cn.close()
+        return {"ok": False, "error": "zdroj (MCP): %s" % str(exc)[:300]}
+    lc = [c.lower() for c in cols]
+    try:
+        cur.execute("ALTER TABLE %s NOCHECK CONSTRAINT ALL" % fq)
+        cur.execute("DISABLE TRIGGER ALL ON %s" % fq)
+        cur.execute("DELETE FROM %s" % fq)
+        if has_identity:
+            cur.execute("SET IDENTITY_INSERT %s ON" % fq)
+        n = 0
+        if rows:
+            ins = ("INSERT INTO %s (%s) VALUES (%s)"
+                   % (fq, ", ".join("[" + c + "]" for c in cols), ",".join(["?"] * len(cols))))
+            batch = [tuple(r.get(k) for k in lc) for r in rows]
+            # po dávkách (legacy driver bez fast_executemany)
+            CH = 500
+            for i in range(0, len(batch), CH):
+                cur.executemany(ins, batch[i:i + CH])
+                n += len(batch[i:i + CH])
+        if has_identity:
+            cur.execute("SET IDENTITY_INSERT %s OFF" % fq)
+        cn.commit()
+        return {"ok": True, "tabulka": t, "src": src_db, "dst": dst_db,
+                "preneseno": n, "sloupcu": len(cols), "identity": has_identity,
+                "pozn": "triggery+constraints ponechány VYPNUTÉ (load mód)"}
+    except Exception as exc:
+        try:
+            cn.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:500]),
+                "tabulka": t, "sloupcu": len(cols)}
+    finally:
+        try:
+            cn.close()
+        except Exception:
+            pass
+
+
 def _mssql188_query(sql):
     """Přímé spojení na cloud Helios MSSQL (10.200.188.12) přes pyodbc. Read i DDL/DML
     (autocommit). Connection string z env MSSQL188_CONN (NSSM AppEnvironmentExtra na
@@ -27071,6 +27151,22 @@ async def diag_sql(req: Request) -> JSONResponse:
                 sp.close()
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
+
+    # ── @@XFER <src_db> <dst_db> <Tabulka> [| where] — přenos tabulky z kancelářského
+    #    Heliosu (DB_EC/DB_IS přes MCP) → cloud MSSQL 188.12. 1:1 vč. původních id.
+    #    Marti 25.6.2026 (přenos mezd + deníku, čistý start 2025-26). ──
+    if sql.upper().startswith("@@XFER"):
+        _bx = sql[6:].strip()
+        _wh = None
+        if "|" in _bx:
+            _bx, _wh = _bx.split("|", 1)
+            _wh = _wh.strip() or None
+        _px = _bx.split()
+        if len(_px) < 3:
+            return JSONResponse({"ok": False, "error": "@@XFER <src_db> <dst_db> <Tabulka> [| where]"})
+        from starlette.concurrency import run_in_threadpool as _rtpx
+        _resx = await _rtpx(_xfer_table, _px[0], _px[1], _px[2], _wh)
+        return JSONResponse(_resx if isinstance(_resx, dict) else {"ok": False, "error": "xfer selhal"})
 
     # ── mssql188 = náš cloud Helios MSSQL (10.200.188.12), přímé spojení pyodbc z API.
     #    Nová prázdná DB (sandbox), parent-only → read i DDL/DML běží PŘÍMO (bez banneru),

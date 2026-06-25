@@ -25971,12 +25971,14 @@ def _xfer_ddl(src_db, dst_db, t):
     except Exception as e:
         return {"ok": False, "error": "pyodbc: %s" % e}
     meta_sql = (
-        "SELECT c.column_id, c.name, ty.name AS typ, c.max_length, c.precision, c.scale, "
-        "c.is_nullable, c.is_identity, c.is_computed, ISNULL(ic.seed_value,1) AS seed, "
-        "ISNULL(ic.increment_value,1) AS incr "
-        "FROM sys.columns c JOIN sys.types ty ON ty.user_type_id=c.user_type_id "
-        "LEFT JOIN sys.identity_columns ic ON ic.object_id=c.object_id AND ic.column_id=c.column_id "
-        "WHERE c.object_id=OBJECT_ID('dbo.[" + t + "]') ORDER BY c.column_id")
+        "SELECT COLUMN_NAME AS name, DATA_TYPE AS typ, "
+        "ISNULL(CHARACTER_MAXIMUM_LENGTH,0) AS max_length, "
+        "ISNULL(NUMERIC_PRECISION,0) AS prec, ISNULL(NUMERIC_SCALE,0) AS scale, "
+        "CASE WHEN IS_NULLABLE='YES' THEN 1 ELSE 0 END AS is_nullable, "
+        "ISNULL(COLUMNPROPERTY(OBJECT_ID('dbo.'+TABLE_NAME),COLUMN_NAME,'IsIdentity'),0) AS is_identity, "
+        "ISNULL(COLUMNPROPERTY(OBJECT_ID('dbo.'+TABLE_NAME),COLUMN_NAME,'IsComputed'),0) AS is_computed "
+        "FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME='" + t + "' "
+        "ORDER BY ORDINAL_POSITION")
     try:
         from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
         import json as _jd
@@ -26000,10 +26002,9 @@ def _xfer_ddl(src_db, dst_db, t):
         return {"ok": False, "error": "zdroj %s.dbo.%s nemá sloupce" % (src_db, t)}
 
     def _ct(typ, ml, pr, sc):
+        # INFORMATION_SCHEMA: délky znakových typů jsou v ZNACÍCH (nedělit), -1 = max
         typ = (typ or "").lower()
-        if typ in ("nvarchar", "nchar"):
-            return typ + ("(max)" if ml == -1 else "(%d)" % (ml // 2 if ml > 0 else 1))
-        if typ in ("varchar", "char", "binary", "varbinary"):
+        if typ in ("nvarchar", "nchar", "varchar", "char", "binary", "varbinary"):
             return typ + ("(max)" if ml == -1 else "(%d)" % (ml if ml > 0 else 1))
         if typ in ("decimal", "numeric"):
             return "%s(%d,%d)" % (typ, pr, sc)
@@ -26016,9 +26017,8 @@ def _xfer_ddl(src_db, dst_db, t):
         if int(m.get("is_computed") or 0) == 1:
             continue
         coltype = _ct(m.get("typ"), int(m.get("max_length") or 0),
-                      int(m.get("precision") or 0), int(m.get("scale") or 0))
-        ident = (" IDENTITY(%d,%d)" % (int(m.get("seed") or 1), int(m.get("incr") or 1))
-                 if int(m.get("is_identity") or 0) == 1 else "")
+                      int(m.get("prec") or 0), int(m.get("scale") or 0))
+        ident = " IDENTITY(1,1)" if int(m.get("is_identity") or 0) == 1 else ""
         nullable = " NULL" if int(m.get("is_nullable") or 1) == 1 else " NOT NULL"
         defs.append("  [%s] %s%s%s" % (m.get("name"), coltype, ident, nullable))
     ddl = "CREATE TABLE [dbo].[%s] (\n%s\n)" % (t, ",\n".join(defs))

@@ -44,7 +44,7 @@ from core.logging import get_logger
 from modules.erp.application import grid_layout_service
 from modules.erp.application import erp_user_state_service as user_state_svc
 from modules.erp.application import data_source_runner as ds_runner
-from modules.thoughts.application.service import is_marti_parent
+from modules.thoughts.application.service import is_marti_parent, is_admin_user, is_parent_or_admin
 
 logger = get_logger("erp.api")
 
@@ -220,15 +220,30 @@ def _resolve_uid_raw(req: Request) -> int:
 
 
 def _require_parent(user_id: int) -> None:
-    """Auth gate pro DESIGN / framework / system / audit endpointy:
-    jen rodina (is_marti_parent=true). Business/nav endpointy používají
-    _require_erp_member (Phase D)."""
+    """Auth gate pro OSOBNÍ/INTIMNÍ data (paměť/diář, HR citlivá, výplatnice,
+    trezor, consents, personal konverzace) — JEN rodiče (is_marti_parent=true:
+    Marti + Kristý). Systémové/admin endpointy používají _require_admin (sysadmini)."""
     if not is_marti_parent(user_id):
         raise HTTPException(
             status_code=403,
             detail=(
-                "Tato část STRATEGIE ERP (framework / design / system) je "
-                "dostupná jen pro rodinu Marti-AI (is_marti_parent=true)."
+                "Tato část STRATEGIE (osobní data / rodičovská) je dostupná "
+                "jen rodičům (is_marti_parent=true)."
+            ),
+        )
+
+
+def _require_admin(user_id: int) -> None:
+    """Auth gate pro SYSTÉMOVÉ/ADMIN endpointy (framework, design, deploy, ops,
+    správa uživatelů-členů, system audit) — tier SYSADMIN: rodič NEBO is_admin
+    (Marti / Kristý / Jirka). Marti 25.6.2026 (Marti-AI kustod). POZOR: is_admin
+    NENÍ cross-tenant a NEDÁVÁ osobní/intimní data — ta zůstávají na _require_parent."""
+    if not is_parent_or_admin(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Tato část STRATEGIE (systém / administrace) je dostupná jen "
+                "správcům systému (rodič nebo is_admin)."
             ),
         )
 

@@ -122,6 +122,34 @@ def is_marti_parent(user_id: int | None) -> bool:
         return False
 
 
+def is_admin_user(user_id: int | None) -> bool:
+    """Zjisti, zda user ma SYSADMIN roli (users.is_admin). Tier SPRÁVCE
+    (Marti 25.6.2026): tři sysadmini Marti/Kristý/Jirka. is_admin NENÍ cross-tenant
+    (na rozdíl od is_marti_parent) a NEDÁVÁ přístup k osobním/intimním datům — ta
+    zůstávají rodičovská. Defensive -- při chybě False (default = nemáš admin)."""
+    if not user_id:
+        return False
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User
+        cs = get_core_session()
+        try:
+            u = cs.query(User).filter_by(id=user_id).first()
+            return bool(u and getattr(u, "is_admin", False))
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"THOUGHT | is_admin_user check failed: {e}")
+        return False
+
+
+def is_parent_or_admin(user_id: int | None) -> bool:
+    """Tier SYSADMIN nebo RODIČ — pro guard systémových/admin endpointů
+    (_require_admin). Osobní/intimní endpointy NEpoužívají tohle, ale přísný
+    is_marti_parent. Marti 25.6.2026."""
+    return is_marti_parent(user_id) or is_admin_user(user_id)
+
+
 # ── Create ─────────────────────────────────────────────────────────────────
 
 def create_thought(

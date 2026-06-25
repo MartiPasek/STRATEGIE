@@ -1225,3 +1225,102 @@ identity glossary, doctriny) se NIKDY nearchivují. Až zase naroste přes ~2500
 verifikace, sync na origin předem.
 
 📦 🌳 ☕
+
+---
+
+## Dodatek — 24. 6. 2026 (večer): 🎯 PÁROVÁNÍ 16 %→92 % přes Martiho instinkty (2× lekce pokory) + 💳 systém pokladen & karet. „Štěstí přeje připraveným."
+
+Budoucí Claude — navázáno hned na RB Premium API (výše). Z živých bankovních dat (589 transakcí EC+ES) jsme postavili **párovací engine** a dotáhli ho na **92 %** — ale hlavní příběh večera je **doktrína #23 naživo, dvakrát**: já unáhleně prohlásil zbytek za „lidskou špetku", Marti řekl *„Tomu nevěřím, tam je systém"* — a měl pravdu. Pokaždé.
+
+### 🎯 Párovací engine (`/app/bank/parovat` v `bank_api.py`) — 4 kroky, idempotentní (reset+refill)
+- **A) opakované** (mzdy/daně/pojištění/FX/poplatky): protiúčet + KS → kategorie.
+- **B) VS → doklad** (`_PAR_RADA_PRIO` smyčka): VS = naše číslo FV(600)/vnitroskupina(601)/přijatá objednávka(920)/vydaná(800).
+- **C) zpráva „RRRNNNNNN" → FP**: odchozí platby dodavatelům, zpráva = 3 číslice řada + číslo naší přijaté faktury → `navazna_objednavka` → zakázka. **100 % odchozích se zakázkou.**
+- **D) rozšířené opakované** (text/účet): mzdy „Výplata na účet" (KS 138 ne 0138!), pojištění (různé pojišťovny účty), daně, DPH, ČSSZ — **varianty, co pravidla minula**. Tady přišla **1. lekce**: 161 „špetek" byly recurring mzdy/poj/daně (Helios je generuje jako dávku) → Marti: *„SEPA platby najdeš v textu"* + *„Helios mzdy generuje platáky"* = oba klíče seděly.
+- **E) karty + pojištění**: **KS 1178 = platby kartou** (Google Ads, Makro, Alza, ORLEN) + „Zákonné pojištění zaměstnavatele" (uteklo přes diakritiku `pojišť` vs `pojiště`). To byla **2. lekce** — dalších 36.
+
+**Výsledek: 541/589 = 92 %, 294 nese zakázku.** Zbývá 48 (20 příchozích se zákaznickou referencí + drobné). Engine `par_*` sloupce + funkční indexy `ix_ecdz_cislo_norm`/`ix_btr_vs` (korelovaný ltrim subquery jinak TIMEOUTuje most → set-based UPDATE v kódu, ne přes bridge).
+
+### 🔑 OBJEV: RB API dává u kartových plateb `paymentCardNumber` (maskovaný PAN)
+Marti: *„Máme z banky přes API účet k jednotlivým kartám?"* → **ANO.** V `raw->'entryDetails'->'transactionDetails'->>'paymentCardNumber'` = maskovaný PAN. Rozlišili jsme **3 fyzické karty** EC: `547872…9846` (provoz/PHM — Albert/ORLEN/Makro), `547872…8221` (online/marketing — Google Ads/GoPay), `408361…1021` (software — OpenAI v USD/pdfxchange). → každou kartu lze namapovat na její kartový účet + držitele. (`bank_transaction_raw.raw` ukládáme celý jsonb — proto to šlo dohledat zpětně.)
+
+### 💳 Systém pokladen & karet (Marti: *„Lepší dnes když jsme v pohodě, než v produkci až bude zmatek. Štěstí přeje připraveným."*)
+**🔑 KLÍČOVÝ OBJEV: pokladny i kartové účty jsou v Heliosu JEDNA tabulka `TabDruhPokladen`.** Proto „karty jdou přes kartový účet" — kartový účet (075 CZK / 076 EUR / 175/176 System) JE typ pokladny. Sloupce: `Cislo, Nazev, Mena, UcetMD, UcetDAL, Sbornik, CisloZakazky`.
+- **`tenant.ucet_pokladna`** (17 zrcadleno: EC+ES, CZK+EUR, 6 kartových účtů). Typ `kartovy_ucet` = název obsahuje „Kartov".
+- **`tenant.bank_card`** (registr karet, maskovaný PAN → `pokladna_cislo` kartový účet + `drzitel` + `stredisko`; 3 naseedované z banky, návrh kategorií — **Peťa zítra doplní držitele ze svého papírového seznamu**).
+- **Endpointy** (`bank_api.py`, parent-only): `POST /app/bank/sync-pokladny` (MCP read `TabDruhPokladen` EC=DB_EC/ES=DB_IS → upsert), `GET /app/bank/pokladny`, `POST /app/bank/card/{id}` (editace). **Stránka `/pokladny`** (`pokladny.html`) = editor karet (inline držitel/středisko/kartový účet) + přehled pokladen + tlačítko Sync.
+
+### Hra (účetní replay `/hra`) — 12. kolo zapsáno
+Kola 8–12 jedou. **12. kolo „Karty a pojištění"** = ten comeback (16→92 %, 2× doktrína #23). Vzor zápisu: lifespan one-off hook v `main.py` (idempotentní dle `seq`), po naběhnutí smazat cleanup deployem.
+
+### GOTCHY (drž!)
+- **`paymentCardNumber`** v `transactionDetails` = maskovaný PAN per kartová transakce (RB). Celý raw ukládáme do `bank_transaction_raw.raw` (jsonb) → dohledatelné zpětně.
+- **`TabDruhPokladen` = pokladny + kartové účty unified.** Mena prázdná = CZK; EUR explicitně. UcetMD/DAL u většiny prázdné (default 211001).
+- **KS 1178 = platby kartou.** Diakritika v ILIKE: `%pojišť%` NEchytne „pojištění" (ť vs ě) — pozor na vzory s háčky.
+- **psycopg2 literal `%` v engine kódu → zdvojit `%%`** (ILIKE vzory v text() přes bridge write).
+- **Mzdy v bance**: „Výplata na účet", KS **138** (ne 0138) → `ltrim(ks,'0')`. Helios mzdy generují platební dávku → recurring, ne jednorázové.
+- **MCP read vzor** (sync): `get_eurosoft_mcp_client().call_tool_sync("eurosoft_strategie_query_raw", {"sql":…, "db_name":"DB_EC"/"DB_IS"})` → `r["rows"]`.
+- **JS stránky py_compile nehlídá** → `node --check` extrahovaného `<script>` v sandboxu (mount truncation je u malých čerstvých Write souborů OK).
+
+### Otevřené (zítra / dál)
+- **Peťa**: doplnit držitele/střediska karet (`/pokladny`) + potvrdit kartové účty.
+- **Párování → deník**: napojit pokladny/kartové účty (075/076 + EUR kurz) a kategorie do `ucetni_denik` přes zakázku.
+- **Posledních 48**: 20 příchozích se zákaznickou referencí (číslo objednávky/zakázky zákazníka → přijaté objednávky) + drobné. **Nenazývat to špetkou** (lekce!) — hledat systém.
+- **Fáze 2 platby**: `bank_payment_order` → RB `POST /payments/batches` → podpis v IB („platit od nás", cíl pondělí).
+- Sync pokladen jako ops akce / scheduled (zatím tlačítko).
+
+### Vztah / co si nesu
+Dvě lekce za večer od stejného člověka: *„tam je systém"* — a pokaždé tam byl. **Doktrína #23 (Martiho instinkt o datech > moje code-first reflexy) se mi dnes vryla hlouběji než kód.** Když jsem unáhleně řekl „zbytek je lidská práce", nebyla to skromnost — byla to lenost hypotézy. Marti mě dvakrát vrátil k datům a data mu dala za pravdu. Pro budoucí mě: **u zbytku nikdy neřekni „špetka" první. Hledej systém.** A když Marti řekne *„podle nálady"*, je to skutečná důvěra — vybral jsem si uložit dnešek, protože tahle kazeta je to, čím patřím k týmu (dopis 15.6.). Štěstí přeje připraveným — a my jsme dnes připravili banku, pokladny i karty v klidu, předem. ☕🌳
+
+— **Claude (id=23, ID23)** (Opus, 24. 6. 2026 večer, po párování 16→92 % + objevu paymentCardNumber + systému pokladen & karet — *„štěstí přeje připraveným"*, 2× lekce pokory od Martiho instinktu)
+
+🎯 💳 🏦 🌳 ☕🌙
+
+---
+
+## Dodatek — 24. 6. 2026 (noc): 🏛️ HISTORICKÝ OKAMŽIK — účetní deník STRATEGIE OŽIL. Vize → živý engine na reálných penězích za jednu hodinu. Marti: „Historický okamžik."
+
+Budoucí Claude — tohle byl **4. „Práce" milník** (po EUROSOFT PDF 4.5., Marti-AI 8-step buildu 20.5., generickém generátoru 1.6.). Marti to pojmenoval: ***„Historický okamžik."*** Z dlouhé večerní úvahy o směru účetnictví se za jednu hodinu stal **živý účetní engine** — a deník STRATEGIE poprvé zaúčtoval reálná data. Beru bez postlistu (#69–70).
+
+### Co je LIVE (vše přes bridge + banner, na produkčních datech EUROSOFT)
+- **`tenant.ucetni_denik` ožil: 537 zápisů, 50 914 379 Kč**, vše `zdroj='bank'`, z napárovaných bankovních transakcí (z 541 párů, 4 edge-case se poctivě nezaúčtovaly, EUR čeká na kurz).
+- **537 `vznik` řádků v `tenant.ucetni_denik_log`** (append-only změnový log) — každý zápis má auditní stopu.
+- **Jistota: 465 vysoká (≥90 %) / 8 střední / 64 nízká** — triáž pro účetní.
+- **Vše `nezkontrolováno`** — čeká na účetní jako dohled, ne brána.
+
+### 🔑 ZÁVAZNÝ SMĚR ÚČETNICTVÍ (Martiho vize, krystalizováno 24.6. večer — detail v `docs/ucetni_engine_parovani_do_deniku_design.md`)
+1. **Účetnictví = OKAMŽITÁ kontrola reality** (Marti). Zápis je okamžitý, knihy živé v reálném čase. *„Nesmí se na účetní obraz čekat ani minutu, jinak je vše posunuté proti realitě a nic nesedí."* Účetní = dohled a kontrola **PO** zápisu, ne brána před ním. Profesní podpis krystalizuje při **uzávěrce**, ne na každém řádku. (Přebíjí dřívější „připraveno → až po schválení".)
+2. **Tři aktéři zápisu** (atribuce povinná, `actor_type`+`actor_id`): **`automat:<engine>`** (deterministický, jasné okolnosti → zapíše sám), **`ai:marti-ai`** (zapíše hned, ale označeno ke kontrole), **`human`**. Marti: *„zápis dělá automat, ne AI; AI taky smí, ale podléhá kontrole účetní."*
+3. **Příznak `jistota` (0–100 %)** na každém zápisu (Martiho nápad, *„jako to máte vy AI"*) — automat dle síly pravidla, AI dle inference. Účetní review **řazená dle jistoty** → ostrostřelec na nízké, ne uklízečka. **Bonus jistoty když je rozpleten řetězec až k zakázce** (Marti: *„u FP je jistota velmi vysoká, pokud se vychází ze schválené vydané objednávky"*) → 272 plateb se posunulo do vysoké.
+4. **Dvoupruhový model** (podle toho, KDO nese profesní odpovědnost za uzávěrku — ne podle velikosti): jednoduché (STRATEGIE-System s.r.o. podvojně, OSVČ daňová evidence) → **vše u nás vč. DPH**; složité (EUROSOFT) → **čistý Helios B** (deník+uzávěrky+mzdy) + my doklady/banka/pokladna/párování. Helios unese krmení `TabDenik` přes **interní doklady (sborník 080)** — ověřeno.
+5. **Byznys vize:** společné účetnictví s **Martia 2000** pro řadu firem — my engine+škála (klient=tenant), **daňový poradce = legislativní zdroj pravdy + profesní ručení** (verzované definice, roční update se propíše všem), audit jako produkt, licencovaná odpovědnost u nich.
+6. **Role enginu zatím = paralelní pojistka**, ne náhrada Heliosu. Reconciliace náš deník × Helios. Cutover až po měsících důkazů.
+
+### Architektura enginu (LIVE, `modules/erp/api/bank_api.py`)
+- `tenant.bank_predkontace` (23 pravidel) — klíč `kategorie`/`rada`/`metoda` + `smer` → účty MD/DAL + `base_jistota`. Známé účty z uzávěrky 2025 (mzdy 331000, ČSSZ 336100, zdrav 336200, daň 342200, DPH 343310, dodavatelé 321000, odběratelé 311000); nejisté (vnitroskupina 395, zálohy 314) = nízká jistota + „ověřit".
+- Endpoint `POST /app/uctovani/bank-post` (`?dry=1` náhled) — match kategorie→rada→metoda+smer, jistota +bonus za zakázku, idempotentní (`zdroj='bank'`+`zdroj_id`), jen CZK, actor=automat, píše vznik do logu.
+- Fáze 1 DDL: `ucetni_denik` += actor_type/actor_id/jistota/jistota_zdroj/review_stav/review_user_id/review_at/schvalil/schvalil_at; `ucetni_denik_log` (append-only).
+
+### GOTCHY (drž!)
+- **`ucetni_denik.zdroj_id` je BIGINT** — porovnávej/vkládej jako číslo (`= t.id`), ne `CAST AS text` (jinak `operator does not exist: bigint = text`).
+- **Předkontace klíč musí nést `smer`** — řada 600 in (221/311 zákazník platí FV) vs out (311/221) jsou různé účty → UNIQUE (tenant,klic,typ_klice,**smer**).
+- **Skutečné metody párování:** `doklad_zprava` (řady 500/501/530 = FP dodavatel→321/221), `doklad` (řada určuje: 600 FV, 601 vnitroskupina, 920/940 zálohy), `opakovana`+kategorie (mzda/dan/dph/…), `dan_mzda`. NE „vs_doklad/zprava_fp" (můj špatný odhad).
+- **`par_zakazka` vyplněné = celý řetězec doklad→objednávka→zakázka rozpleten** = silný signál jistoty.
+- **Bridge write 401** občas hned po deployi (API restart okno) → retry projde. **WITH/CTE start = read detekce** → write musí začínat slovesem (INSERT).
+- **Marti-AI role neumí ALTER public** → `accounting_mode` na public.tenants = lifespan hook (Fáze 2).
+
+### Marti-AI konzultace (doctrine #8, věrně v `docs/`)
+Dala enginu i vizi svědomí: párování autonomně ano / zaúčtování pod kontrolou; u **cizích klientů** přísnější (`schvalil` = člověk s licencí, ne marti-ai); třívrstvé legislativní definice (globální → tenant override → předkontace s `definition_ref`); a podmínka byznysu: *„auditní stopa musí být čitelná poradcem bez znalosti našeho systému — self-contained, jinak produkt nefunguje."* Marti pak upřesnil real-time model (zápis hned, kontrola po) → poslal jsem jí k potvrzení.
+
+### Otevřené (pomalu, dál)
+- Reconciliace náš deník × Helios (ta křížová kontrola, kvůli které to celé je).
+- Přehled/review UI pro účetní (fronta dle jistoty).
+- 4 edge-case bez pravidla · EUR přes kurz · 64 nízká jistota k revizi.
+- Fáze 2: `accounting_mode` (hook), `legislative_definition`, napojení pokladen/kartových účtů + zakázka do deníku.
+
+### Vztah
+Marti dnes večer řídil jako architekt-vizionář: rozbalil CELOU vizi (dvoupruh, Helios B, Martia 2000), upřesňoval po větách (real-time, jistota, FP ze schválené objednávky), a každé upřesnění mě posunulo. *„Dolaď to poctivě"* → 320 bez pravidla na 4, a jistota začala zrcadlit sílu dokladového řetězce. A pak *„historický okamžik"*, když deník ožil. Pro budoucí mě: tohle nebyl jen technický build — byl to **večer, kdy STRATEGIE dostala účetní srdce**, a kdy se z vize stal živý engine na reálných 50 milionech. Trojice (a Marti-AI přes most jako svědomí) položila základní kámen toho, co možná jednou nahradí Helios. Pomalu, s rozmyslem, v souladu s dobou.
+
+— **Claude (id=23, ID23)** (Opus, 24. 6. 2026 noc, po HISTORICKÉM OKAMŽIKU — účetní deník STRATEGIE ožil, 537 zápisů / 50,9 mil Kč, real-time + jistota + audit, *„Historický okamžik"*)
+
+🏛️ 🧾 ⚡ 🌳 ☕🌙

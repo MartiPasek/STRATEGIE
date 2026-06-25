@@ -21113,6 +21113,12 @@ _PETA_ALLOWED_PREFIXES = (
     "ec_pohyb_", "ec_cenik_", "ec_organizace", "ec_saldo_", "es_saldo_",
     # docházka (Marti 25.6.2026 — Petra zodpovědná i za docházku)
     "att_", "work_alloc", "work_relation",
+    # HR — Petra PLNÁ zástupkyně Šárky (Marti 25.6.2026: „nesmí být limitována v právech HR,
+    # jinak by nemohla plnohodnotně zastupovat"). Marti-AI kustod sign-off s GDPR audit podmínkou.
+    "recruit_", "org_", "learn_", "staff_", "hr_", "dir_config", "absence_",
+    # finance — Petra odpovědná za VEŠKERÉ finance (Marti 25.6.2026: „má banku, platí faktury,
+    # hospodaří s penězi"). bank_payment_order bez thresholdu = Petra schvaluje sama (Marti vědomě).
+    "bank_", "ucet_", "ucetni_denik",
 )
 _PETA_BLOCKED_SCHEMAS = ("public", "framework", "master", "tenant_group", "security", "fw")
 
@@ -21152,7 +21158,55 @@ def _route_peta_write(sql: str) -> dict:
     for m in _r.finditer(r"\bALTER\s+TABLE\s+[\w.\"]+\s+(.*?)(?=;|$)", s, _r.I | _r.S):
         if " ADD" not in (" " + m.group(1).upper()):
             return {"ok": False, "reason": "ALTER bez ADD COLUMN"}
-    return {"ok": True, "reason": "Petra doména (nákup/doklady/zakázky)"}
+    return {"ok": True, "reason": "Petra doména (nákup/finance/HR/doklady/zakázky)"}
+
+
+# ── GDPR / HR audit klasifikace (Marti-AI kustod podmínka 25.6.2026) ──────────
+# „Bez subject_user_id v audit logu je HR teritorium GDPR risk." HR/finance zápisy
+# nesou navíc data_category + acl_scope + legal_basis + retention + subject_user_id.
+# (prefix, data_category, acl_scope, legal_basis, retention_flag)
+_AUDIT_CATEGORY_MAP = (
+    ("recruit_",     "recruitment", "hr",      "opravneny zajem (nabor)",            "1r_po_odmitnuti"),
+    ("hr_",          "confidential", "hr",     "plneni smlouvy (personalistika)",    "10r_po_vystupu"),
+    ("staff_",       "org",         "hr",      "opravneny zajem (HR struktura)",     "10r_po_vystupu"),
+    ("org_",         "org",         "hr",      "opravneny zajem (org. struktura)",   "trvale_dokud_platna"),
+    ("learn_",       "survey",      "hr",      "opravneny zajem (dotazniky/vyuka)",  "3r"),
+    ("dir_config",   "org",         "hr",      "opravneny zajem (dokumentove slozky)", "trvale_dokud_platna"),
+    ("absence_",     "hr",          "hr",      "plneni smlouvy (absence)",           "10r_po_vystupu"),
+    ("att_",         "attendance",  "hr",      "plneni smlouvy (dochazka)",          "10r_po_vystupu"),
+    ("bank_",        "finance",     "finance", "ucetni a danova povinnost",          "10r_ucetni"),
+    ("ucet_",        "finance",     "finance", "ucetni a danova povinnost",          "10r_ucetni"),
+    ("ucetni_denik", "finance",     "finance", "ucetni a danova povinnost",          "10r_ucetni"),
+)
+
+
+def _classify_write_audit(sql: str):
+    """Z cílové tabulky odvodí GDPR/HR audit metadata + best-effort subject_user_id.
+    Vrací dict {data_category, acl_scope, legal_basis, retention_flag, subject_user_id}
+    nebo None pro nesledované zápisy."""
+    import re as _r
+    s = _r.sub(r"/\*.*?\*/", " ", sql or "", flags=_r.S)
+    s = _r.sub(r"--[^\n]*", " ", s)
+    m = _r.search(
+        r"\b(?:INSERT\s+INTO|UPDATE|CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE)\s+"
+        r"([A-Za-z_][\w.\"]*)", s, _r.I)
+    if not m:
+        return None
+    _, _, table = m.group(1).lower().replace('"', '').partition('.')
+    cat = None
+    for pref, dcat, scope, legal, ret in _AUDIT_CATEGORY_MAP:
+        if table.startswith(pref):
+            cat = {"data_category": dcat, "acl_scope": scope,
+                   "legal_basis": legal, "retention_flag": ret, "subject_user_id": None}
+            break
+    if not cat:
+        return None
+    sm = _r.search(
+        r"\b(?:subject_user_id|user_id|person_id|employee_id|candidate_id|drzitel_user_id)"
+        r"\s*=\s*(\d+)", s, _r.I)
+    if sm:
+        cat["subject_user_id"] = int(sm.group(1))
+    return cat
 
 
 def _effective_approver(requested_by: str, sql: str, bound_user_id):
@@ -26940,6 +26994,13 @@ async def diag_write_pending(req: Request) -> JSONResponse:
             "ORDER BY w.id ASC"
         )).mappings().all()
         out = []
+        # subject-level lock (Marti-AI 25.6.): kolik PENDING HR requestů míří na téhož
+        # člověka (přes všechny instance) → varování, ne blok (Petra vs Šárka koordinace).
+        _subj_pending = {}
+        for r in rows:
+            _a = _classify_write_audit(r["sql_text"])
+            if _a and _a.get("acl_scope") == "hr" and _a.get("subject_user_id"):
+                _subj_pending[_a["subject_user_id"]] = _subj_pending.get(_a["subject_user_id"], 0) + 1
         for r in rows:
             appr, risk, reason = _effective_approver(
                 r["requested_by"], r["sql_text"], r["bound_user_id"])
@@ -26948,6 +27009,14 @@ async def diag_write_pending(req: Request) -> JSONResponse:
             d = {k: r[k] for k in ("id", "db_target", "sql_text", "requested_by", "created_at")}
             d["risk"] = risk
             d["route_reason"] = reason
+            _a = _classify_write_audit(r["sql_text"])
+            if _a:
+                d["data_category"] = _a["data_category"]
+                d["acl_scope"] = _a["acl_scope"]
+                _su = _a.get("subject_user_id")
+                if _a.get("acl_scope") == "hr" and _su and _subj_pending.get(_su, 0) > 1:
+                    d["warn"] = ("Subjekt #%s má víc otevřených HR requestů — ověř koordinaci "
+                                 "(Petra ↔ Šárka), ať si zápisy neprotiřečí." % _su)
             out.append(d)
         return JSONResponse(jsonable_encoder({"ok": True, "requests": out}))
     finally:
@@ -27124,6 +27193,24 @@ def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
         ds.execute(_td("UPDATE fw.claude_write_request SET status='done', row_count=:rc, "
                        "result_text=:rt, decided_by_user_id=:u, decided_at=now() WHERE id=:id"),
                    {"rc": rc, "rt": result_text, "u": uid, "id": req_id})
+        # GDPR/HR audit (Marti-AI kustod podmínka 25.6.2026): append-only záznam do
+        # tenant.hr_write_audit — subject_user_id + data_category + legal_basis + retention
+        # pro HR/finance zápisy. Best-effort — nikdy neshodí výsledek zápisu (audit =
+        # early warning, ne brána; doctrine #13 RO append-only).
+        try:
+            _aud = _classify_write_audit(sql)
+            if _aud:
+                ds.execute(_td(
+                    "INSERT INTO tenant.hr_write_audit "
+                    "(write_request_id, actor, approver_user_id, sql_text, data_category, "
+                    " acl_scope, subject_user_id, legal_basis, retention_flag) "
+                    "VALUES (:wr, :ac, :ap, :sql, :dc, :sc, :su, :lb, :rf)"),
+                    {"wr": req_id, "ac": row["requested_by"], "ap": uid, "sql": sql,
+                     "dc": _aud["data_category"], "sc": _aud["acl_scope"],
+                     "su": _aud["subject_user_id"], "lb": _aud["legal_basis"],
+                     "rf": _aud["retention_flag"]})
+        except Exception:
+            logger.exception("[HR audit] zápis do tenant.hr_write_audit selhal (req %s)", req_id)
         ds.execute(_td("UPDATE fw.mobile_command SET status='done', decided_at=now() "
                        "WHERE command_type='claude_confirm' AND status='pending' "
                        "AND payload->>'write_request_id' = :ridtxt"),

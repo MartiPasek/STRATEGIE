@@ -1,3 +1,2 @@
-nabor: import CV v appce - PDF nahraje Sarka, LLM vytahne udaje, zalozi kandidata + prihlasku + notifikace
-modules/erp/api/router.py
-apps/api/static/mobile.html
+Mandat Petra+Claude-26: DDL duvera (obeh zbozi+zakazky) + zavazna bezpecnostni spec Marti-AI kustod (whitelist gate, eskalacni matice, FK pravidlo)
+docs/team/mandat_Peta_Claude26.md

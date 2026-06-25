@@ -45,6 +45,7 @@
   <button class="chip" data-f="pasmo=vysoka">🟢 Vysoká</button>
   <button class="chip" data-f="stav=nezkontrolovano">Čeká na kontrolu</button>
 </div>
+<div style="margin-bottom:12px"><button class="chip" style="background:#3a2b14;color:#f0c674" onclick="openKucharka()">📖 Kuchařka automata — jeho pravidla</button></div>
 <div id="msg">Načítám…</div>
 <table id="tbl" style="display:none"><thead><tr>
   <th>Datum</th><th>Doklad</th><th>MD</th><th>Dal</th><th class="num">Částka</th>
@@ -106,6 +107,7 @@ async function openDetail(id){
     <b>Účet:</b> <code class="ucet">${z.ucet_md} / ${z.ucet_dal}</code> &nbsp; <b>Částka:</b> ${czk(z.castka)}<br>
     <b>Doklad:</b> ${z.doklad||''} &nbsp; <b>Datum:</b> ${z.datum||''}<br>
     <b>Popis:</b> ${z.popis||''}</div>`;
+  if(r.pravidla&&r.pravidla.length){h+='<div style="background:#0f1622;border:1px solid #3a3414;border-radius:9px;padding:10px;margin-bottom:10px;font-size:12.5px"><b>📖 Pravidlo z kuchařky (na základě čeho účtoval):</b><br>'+r.pravidla.map(p=>`<code>${p.klic}</code> <span class="muted">(${p.typ_klice}${p.smer?'/'+p.smer:''})</span> → <code class="ucet">${p.ucet_md} / ${p.ucet_dal}</code> @ <span class="j ${jcls(p.base_jistota)}">${Math.round(p.base_jistota)}%</span>${p.pozn?('<br><i class="muted">'+p.pozn+'</i>'):''}`).join('<br>')+'</div>';}
   if(r.log&&r.log.length){h+='<div style="font-size:12px;color:#9fb0c8;border-top:1px solid #2c3850;padding-top:8px"><b>Historie (změnový log):</b><br>'+r.log.map(l=>`${l.kdy} · <b>${l.akce}</b> · ${l.actor_id||l.actor_type}${l.poznamka?(' · '+l.poznamka):''}`).join('<br>')+'</div>';}
   h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
     <button class="chip on" onclick="doReview(${z.id},'zkontrolovano')">✓ Zkontrolováno</button>
@@ -116,6 +118,24 @@ async function openDetail(id){
   b.innerHTML=h;
 }
 function closeDetail(){document.getElementById('ov').style.display='none';}
+async function openKucharka(){
+  const ov=document.getElementById('ov');const b=document.getElementById('ovbody');
+  ov.style.display='';b.innerHTML='Otevírám kuchařku… 📖';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/predkontace',{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){b.innerHTML='<div style="color:#ff8b8b">'+(r.error||'chyba')+'</div>';return;}
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center">
+    <h2 style="margin:0;font-size:16px">📖 Kuchařka automata</h2>
+    <button class="chip" onclick="closeDetail()">✕</button></div>
+    <div class="muted" style="font-size:12px;margin:6px 0 10px">Postavil: <b>${r.postavil||''}</b></div>
+    <table style="font-size:12px"><tr><th>Klíč</th><th>Typ</th><th>Směr</th><th>MD / Dal</th><th>Jistota</th><th>Poznámka</th></tr>`;
+  h+=r.pravidla.map(p=>`<tr>
+    <td><code>${p.klic}</code></td><td class="muted">${p.typ_klice}</td><td class="muted">${p.smer||'—'}</td>
+    <td class="ucet">${p.ucet_md} / ${p.ucet_dal}</td>
+    <td><span class="j ${jcls(p.base_jistota)}">${Math.round(p.base_jistota)}%</span></td>
+    <td class="muted">${p.pozn||''}</td></tr>`).join('');
+  h+='</table>';
+  b.innerHTML=h;
+}
 async function doReview(id,akce){
   const m=document.getElementById('ovmsg');if(m)m.textContent='…';
   const r=await fetch(API+'/api/v1/erp/app/uctovani/denik/review',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,akce:akce})}).then(x=>x.json());

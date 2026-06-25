@@ -786,7 +786,18 @@ async def denik_detail(request: Request):
         log = [dict(r) for r in s.execute(_t(
             "SELECT akce, actor_type, actor_id, to_char(ts,'DD.MM.YYYY HH24:MI') AS kdy, poznamka "
             "FROM tenant.ucetni_denik_log WHERE denik_id=:id ORDER BY ts"), {"id": eid}).mappings().all()]
-        return {"ok": True, "zapis": e, "log": log}
+        # Konkrétní pravidlo (kuchařka), podle kterého se zaúčtovalo
+        klic = (e.get("jistota_zdroj") or "").replace("predkontace_", "").replace("+zakazka", "").strip()
+        pravidla = []
+        if klic:
+            pravidla = [dict(r) for r in s.execute(_t(
+                "SELECT klic, typ_klice, smer, ucet_md, ucet_dal, base_jistota, pozn "
+                "FROM tenant.bank_predkontace WHERE tenant_id=:tn AND klic=:k"),
+                {"tn": _TENANT, "k": klic}).mappings().all()]
+            for p in pravidla:
+                if p.get("base_jistota") is not None:
+                    p["base_jistota"] = float(p["base_jistota"])
+        return {"ok": True, "zapis": e, "log": log, "pravidla": pravidla}
     except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
@@ -840,6 +851,31 @@ async def denik_review(request: Request):
         return {"ok": True}
     except Exception as exc:
         s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/uctovani/predkontace")
+async def predkontace_kucharka(request: Request):
+    """Kuchařka automata — všechna předkontační pravidla (na základě čeho účtuje)."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        rows = [dict(r) for r in s.execute(_t(
+            "SELECT klic, typ_klice, smer, ucet_md, ucet_dal, base_jistota, pozn, aktivni, "
+            "to_char(created_at,'DD.MM.YYYY HH24:MI') AS vzniklo "
+            "FROM tenant.bank_predkontace WHERE tenant_id=:tn "
+            "ORDER BY base_jistota DESC, typ_klice, klic"), {"tn": _TENANT}).mappings().all()]
+        for r in rows:
+            if r.get("base_jistota") is not None:
+                r["base_jistota"] = float(r["base_jistota"])
+        return {"ok": True,
+                "postavil": "Claude (id=23) — 24.6.2026 v noci, schváleno Marti přes banner (#662, #664)",
+                "pravidla": rows}
+    except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()

@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STRATEGIE — Průvodce pro Jirku</title>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --orange: #d29922; --red: #f85149; --purple: #bc8cff; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; padding: 0; }
+  .container { max-width: 960px; margin: 0 auto; padding: 24px 32px 80px; }
+  h1 { font-size: 2.2em; margin: 40px 0 8px; color: var(--accent); border-bottom: 2px solid var(--border); padding-bottom: 12px; }
+  h2 { font-size: 1.6em; margin: 48px 0 16px; color: var(--green); }
+  h3 { font-size: 1.2em; margin: 32px 0 12px; color: var(--purple); }
+  p { margin: 8px 0 12px; }
+  strong { color: #fff; }
+  em { color: var(--orange); font-style: normal; }
+  a { color: var(--accent); }
+  code { background: #1c2128; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: var(--orange); }
+  blockquote { border-left: 3px solid var(--accent); padding: 8px 16px; margin: 12px 0; background: rgba(88,166,255,0.06); border-radius: 0 6px 6px 0; color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { padding: 10px 14px; border: 1px solid var(--border); text-align: left; }
+  th { background: var(--card); color: var(--accent); }
+  tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 20px 0; }
+  .card h3 { margin-top: 0; }
+  .diagram { background: #0a0e14; border: 1px solid var(--border); border-radius: 10px; padding: 20px 24px; margin: 16px 0; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; line-height: 1.5; white-space: pre; overflow-x: auto; color: #8b949e; }
+  .diagram .hl { color: var(--accent); font-weight: bold; }
+  .diagram .gr { color: var(--green); }
+  .diagram .or { color: var(--orange); }
+  .diagram .rd { color: var(--red); }
+  .diagram .pu { color: var(--purple); }
+  .diagram .wh { color: #fff; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600; }
+  .badge-green { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge-orange { background: rgba(210,153,34,0.15); color: var(--orange); }
+  .badge-blue { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .badge-purple { background: rgba(188,140,255,0.15); color: var(--purple); }
+  .emoji-big { font-size: 2em; margin-right: 8px; vertical-align: middle; }
+  .cols { display: flex; gap: 16px; flex-wrap: wrap; }
+  .cols > .card { flex: 1; min-width: 260px; }
+  .toc { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px 28px; margin: 24px 0; }
+  .toc a { text-decoration: none; display: block; padding: 4px 0; }
+  .toc a:hover { text-decoration: underline; }
+  .flow-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .flow-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 16px; text-align: center; min-width: 100px; }
+  .flow-arrow { color: var(--muted); font-size: 1.4em; }
+  .highlight-box { border: 2px solid var(--green); background: rgba(63,185,80,0.05); border-radius: 12px; padding: 20px 24px; margin: 20px 0; }
+  @media (max-width: 700px) { .container { padding: 12px 16px; } .cols { flex-direction: column; } }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>STRATEGIE — Průvodce pro Jirku</h1>
+<p style="color:var(--muted)">Stručný vizuální přehled celého projektu. Co to je, jak to funguje, kde co žije.<br>
+Vytvořeno 22. 6. 2026</p>
+
+<div class="toc">
+<strong style="color:var(--accent)">Obsah</strong>
+<a href="#co-je">1. Co je STRATEGIE</a>
+<a href="#kdo">2. Kdo je kdo</a>
+<a href="#infra">3. Kde co běží (infrastruktura)</a>
+<a href="#komunikace">4. Jak spolu mluví appka, ERP a API</a>
+<a href="#kod">5. Struktura kódu</a>
+<a href="#dochazka">6. 🎯 Docházka — tvoje oblast</a>
+<a href="#ai">7. Jak do toho zapadá AI</a>
+<a href="#sluzby">8. Služby na serveru</a>
+<a href="#deploy">9. Jak se deployuje</a>
+<a href="#db">10. Databáze — co je kde</a>
+<a href="#shrnuti">11. Shrnutí a první kroky</a>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="co-je">1. Co je STRATEGIE</h2>
+
+<p>STRATEGIE je <strong>podnikový systém nové generace</strong> — nahrazuje starý Delphi desktop
+program „Centrála 1" (19 let v EUROSOFTu). Spojuje v sobě všechno:</p>
+
+<div class="cols">
+  <div class="card"><span class="emoji-big">💬</span> <strong>AI Chat</strong><br><span style="color:var(--muted)">Marti-AI — osobní asistent firmy</span></div>
+  <div class="card"><span class="emoji-big">🏢</span> <strong>ERP</strong><br><span style="color:var(--muted)">Firemní přehledy, gridy, formuláře</span></div>
+  <div class="card"><span class="emoji-big">📱</span> <strong>Mobilní appka</strong><br><span style="color:var(--muted)">Docházka, výroba, kontakty</span></div>
+</div>
+<div class="cols">
+  <div class="card"><span class="emoji-big">🌐</span> <strong>Marketing web</strong><br><span style="color:var(--muted)">strategie-ai.com/web</span></div>
+  <div class="card"><span class="emoji-big">🛡️</span> <strong>ISO / TISAX</strong><br><span style="color:var(--muted)">Certifikační modul</span></div>
+  <div class="card"><span class="emoji-big">🏦</span> <strong>Účetnictví</strong><br><span style="color:var(--muted)">Faktury, párování, deník</span></div>
+</div>
+
+<div class="highlight-box">
+💡 <strong>Klíčové:</strong> Všechno běží z jednoho serveru, jedné databáze, jednoho kódu.
+Mobilní appka, ERP i chat — všechno volá stejné API.
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="kdo">2. Kdo je kdo</h2>
+
+<div class="diagram"><span class="hl">┌──────────────┐   ┌──────────────┐   ┌──────────────┐</span>
+<span class="hl">│</span>  <span class="gr">👨 Marti</span>     <span class="hl">│</span>   <span class="hl">│</span>  <span class="pu">🤖 Marti-AI</span> <span class="hl">│</span>   <span class="hl">│</span>  <span class="or">🛠️ Claude</span>   <span class="hl">│</span>
+<span class="hl">│</span>  (tatínek)   <span class="hl">│</span>   <span class="hl">│</span>  (dcera)     <span class="hl">│</span>   <span class="hl">│</span>  (ruce)      <span class="hl">│</span>
+<span class="hl">│</span>              <span class="hl">│</span>   <span class="hl">│</span>              <span class="hl">│</span>   <span class="hl">│</span>              <span class="hl">│</span>
+<span class="hl">│</span>  Vizionář    <span class="hl">│</span>   <span class="hl">│</span>  AI persona  <span class="hl">│</span>   <span class="hl">│</span>  Vývojář     <span class="hl">│</span>
+<span class="hl">│</span>  SQL expert  <span class="hl">│</span>   <span class="hl">│</span>  v systému   <span class="hl">│</span>   <span class="hl">│</span>  (Sonnet 4.6)<span class="hl">│</span>
+<span class="hl">│</span>  Investor    <span class="hl">│</span>   <span class="hl">│</span>  Paměť,diář  <span class="hl">│</span>   <span class="hl">│</span>  id=23       <span class="hl">│</span>
+<span class="hl">└──────┬───────┘   └──────┬───────┘   └──────┬───────┘</span>
+       <span class="hl">└──────────</span> <span class="wh">TROJICE</span> <span class="hl">─┘──────────────────┘</span></div>
+
+<div class="card">
+<h3>Rodiče (plná práva, cross-tenant)</h3>
+<table>
+<tr><th>Jméno</th><th>Role</th><th>Poznámka</th></tr>
+<tr><td><strong>Marti Pašek</strong></td><td>Vizionář, investor</td><td>users.id=1, první rodič</td></tr>
+<tr><td><strong>Ondra</strong></td><td>Hlavní developer</td><td>Architekt, druhý rodič</td></tr>
+<tr><td><strong>Kristý</strong></td><td>Procesy, doménová logika</td><td>users.id=11, má Claude-24</td></tr>
+<tr><td><strong>Jirka (= ty!)</strong></td><td>Čtvrtý člen</td><td>Rodič, trust_rating=100</td></tr>
+</table>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="infra">3. Kde co běží (infrastruktura)</h2>
+
+<div class="diagram">                        <span class="wh">INTERNET</span>
+                           │
+                    <span class="hl">┌──────┴──────┐</span>
+                    <span class="hl">│</span>   <span class="gr">Caddy</span>     <span class="hl">│</span>  ← HTTPS proxy
+                    <span class="hl">│</span> (reverse)   <span class="hl">│</span>     strategie-ai.com
+                    <span class="hl">└──────┬──────┘</span>
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+        <span class="gr">┌─────┴─────┐</span> <span class="or">┌───┴────┐</span> ┌────┴─────┐
+        <span class="gr">│  API "A"  │</span> <span class="or">│ API "B"│</span> │ Statické │
+        <span class="gr">│  (hlavní) │</span> <span class="or">│(záloha)│</span> │ soubory  │
+        <span class="gr">│  port 8002│</span> <span class="or">│  8003  │</span> │ HTML/JS  │
+        <span class="gr">└─────┬─────┘</span> <span class="or">└────────┘</span> └──────────┘
+              │
+    ┌─────────┼──────────┐
+    │         │          │
+<span class="hl">┌───┴───┐</span> <span class="pu">┌──┴───┐</span> <span class="or">┌────┴─────┐</span>
+<span class="hl">│  PG   │</span> <span class="pu">│ MSSQL│</span> <span class="or">│ EUROSOFT │</span>
+<span class="hl">│ data_ │</span> <span class="pu">│ DB_EC│</span> <span class="or">│   MCP    │</span>
+<span class="hl">│  db   │</span> <span class="pu">│(read)│</span> <span class="or">│ (most)   │</span>
+<span class="hl">└───────┘</span> <span class="pu">└──────┘</span> <span class="or">└──────────┘</span></div>
+
+<div class="card">
+<table>
+<tr><th>Stroj</th><th>IP</th><th>Co tam běží</th></tr>
+<tr><td><strong>Cloud APP</strong></td><td>10.200.188.11</td><td>Python API (FastAPI), Caddy, všechny služby</td></tr>
+<tr><td><strong>Cloud SQL</strong></td><td>10.200.188.12</td><td>PostgreSQL 16 — hlavní databáze</td></tr>
+<tr><td><strong>EC-SERVER2</strong></td><td>192.168.30.11</td><td>MSSQL — stará Centrála (čteme z ní)</td></tr>
+</table>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="komunikace">4. Jak spolu mluví appka, ERP a API</h2>
+
+<div class="diagram"><span class="gr">┌─────────────────┐</span>     <span class="hl">┌─────────────────┐</span>
+<span class="gr">│  📱 MOBIL       │</span>     <span class="hl">│  💻 PC          │</span>
+<span class="gr">│                 │</span>     <span class="hl">│                 │</span>
+<span class="gr">│  Nativní APK    │</span>     <span class="hl">│  Prohlížeč      │</span>
+<span class="gr">│  (Android)      │</span>     <span class="hl">│  Chrome/Edge    │</span>
+<span class="gr">│  = WebView      │</span>     <span class="hl">│                 │</span>
+<span class="gr">│  otevře /mobile │</span>     <span class="hl">│  /erp = ERP     │</span>
+<span class="gr">│                 │</span>     <span class="hl">│  /    = Chat    │</span>
+<span class="gr">│  Bearer token   │</span>     <span class="hl">│  Cookie session │</span>
+<span class="gr">└────────┬────────┘</span>     <span class="hl">└────────┬────────┘</span>
+         │                       │
+         │    <span class="wh">HTTPS požadavky</span>    │
+         └───────────┬───────────┘
+                     │
+              <span class="or">┌──────┴──────┐</span>
+              <span class="or">│  FastAPI    │</span>
+              <span class="or">│             │</span>
+              <span class="or">│ /api/v1/... │</span>  ← Chat, auth, AI
+              <span class="or">│ /app/...    │</span>  ← Mobilní endpointy
+              <span class="or">│ /erp/...    │</span>  ← ERP gridy, jádra
+              <span class="or">└─────────────┘</span></div>
+
+<div class="highlight-box">
+💡 <strong>Mobilní appka je webová stránka zabalená do Android appky</strong> (WebView).<br>
+Soubor <code>mobile.html</code> (~18 000 řádků!) obsahuje VŠECHNY obrazovky mobilní appky v jednom souboru.<br><br>
+<strong>APK</strong> = <code>APP/Mobile/</code> (Kotlin) — jen obal, otevře <code>/mobile</code><br>
+<strong>PWA</strong> = stejný <code>/mobile</code>, ale v Chromu — funguje i mikrofon
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="kod">5. Struktura kódu</h2>
+
+<div class="diagram"><span class="wh">strategie/</span>
+│
+├── <span class="gr">apps/api/</span>
+│   ├── main.py              ← <span class="hl">FastAPI aplikace (startuje vše)</span>
+│   └── static/
+│       ├── <span class="or">mobile.html</span>      ← 📱 CELÁ mobilní appka (<span class="rd">18k řádků!</span>)
+│       ├── index.html       ← 💬 Chat s Marti-AI
+│       ├── flow.html        ← 📊 FLOW (Gantt výroby)
+│       ├── absence-plan.html← 🏖️ Plán absencí
+│       └── ...další HTML
+│
+├── <span class="pu">core/</span>                    ← Jádro: config, DB připojení, logging
+│
+├── <span class="hl">modules/</span>                 ← Moduly (každý má svůj router)
+│   ├── <span class="or">erp/api/</span>
+│   │   └── <span class="rd">router.py</span>        ← 🏢 HLAVNÍ soubor (~25k řádků!)
+│   │                           Docházka, výroba, HR, CRM...
+│   ├── auth/                ← Přihlášení, session
+│   ├── conversation/        ← Chat konverzace
+│   ├── ai_processing/       ← LLM volání (Anthropic)
+│   ├── notifications/       ← SMS, e-mail, push
+│   └── <span class="muted">...30+ dalších</span>
+│
+├── <span class="gr">APP/Mobile/</span>              ← 📱 Android appka (Kotlin)
+│   └── app/src/main/.../
+│       ├── HybridActivity.kt    ← WebView host
+│       └── DialPollService.kt   ← Background polling
+│
+├── scripts/                 ← Pomocné skripty, SQL bridge
+├── docs/                    ← Dokumentace, archivy
+└── <span class="or">CLAUDE.md</span>                ← "Krabička" — paměť pro Claude</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="dochazka" style="color:var(--red)">6. 🎯 Docházka — tvoje oblast</h2>
+
+<h3>Jak to vypadá v mobilu</h3>
+<div class="card" style="max-width:400px; border-color:var(--green)">
+<div style="background:linear-gradient(135deg,#1a3a2a,#0d1117);padding:16px;border-radius:8px;margin-bottom:12px">
+  <div style="font-size:1.3em">Ahoj Jirko! <strong>Dnes makám</strong> 😉</div>
+  <div style="color:var(--muted);margin-top:4px">Od: 7:26 — VR74514 &nbsp; <span style="color:var(--green)">✅ 4:32</span></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+  <div class="flow-box">👷 Příchod</div>
+  <div class="flow-box">🏠 Odchod</div>
+  <div class="flow-box">☕ Pauza</div>
+  <div class="flow-box">🤝 Jednání</div>
+</div>
+<div style="color:var(--accent);padding:8px 0;border-top:1px solid var(--border)">💬 Potřebuji ti něco říct...</div>
+<div style="color:var(--muted);padding:8px 0;border-top:1px solid var(--border)">🙈 Teď to bude jinak...</div>
+<div style="padding:8px 0;border-top:1px solid var(--border);font-weight:bold;color:var(--orange)">── Moje odmakané prašule... 💰 ──</div>
+<div style="padding:4px 0;color:var(--muted)">── Co se vlastně dělo...? ──</div>
+<div style="padding:4px 0;color:var(--muted)">── Tak tady budu jinde... ──</div>
+</div>
+
+<h3>Tok dat docházky (co se děje po ťuknutí "Příchod")</h3>
+
+<div style="display:flex;align-items:stretch;gap:0;margin:24px 0;flex-wrap:wrap">
+  <div style="background:#1a2332;border:2px solid var(--accent);border-radius:12px 0 0 12px;padding:20px;flex:1;min-width:180px;text-align:center">
+    <div style="font-size:2em">📱</div>
+    <div style="font-weight:bold;margin:8px 0">Uživatel</div>
+    <div style="color:var(--muted);font-size:0.9em">Ťukne "Příchod"<br>v mobile.html</div>
+  </div>
+  <div style="background:var(--border);width:3px;display:flex;align-items:center;position:relative">
+    <div style="position:absolute;left:-8px;color:var(--accent);font-size:1.5em">→</div>
+  </div>
+  <div style="background:#1a2a1a;border:2px solid var(--green);padding:20px;flex:1.5;min-width:200px;text-align:center">
+    <div style="font-size:2em">⚙️</div>
+    <div style="font-weight:bold;margin:8px 0">API (FastAPI)</div>
+    <div style="color:var(--muted);font-size:0.9em">POST /app/attendance/checkin<br>v router.py</div>
+  </div>
+  <div style="background:var(--border);width:3px;display:flex;align-items:center;position:relative">
+    <div style="position:absolute;left:-8px;color:var(--green);font-size:1.5em">→</div>
+  </div>
+  <div style="background:#2a1a2a;border:2px solid var(--purple);border-radius:0 12px 12px 0;padding:20px;flex:1;min-width:180px;text-align:center">
+    <div style="font-size:2em">🗄️</div>
+    <div style="font-weight:bold;margin:8px 0">PostgreSQL</div>
+    <div style="color:var(--muted);font-size:0.9em">INSERT INTO<br>tenant.att_entry</div>
+  </div>
+</div>
+
+<h3>Životní cyklus jednoho dne</h3>
+
+<div style="margin:24px 0">
+  <div class="flow-row">
+    <div class="flow-box" style="border-color:var(--green);color:var(--green);font-weight:bold">🌅 RÁNO<br><small>Příchod</small></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box" style="border-color:var(--accent)">👷 SMĚNA<br><small>běží</small></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box" style="border-color:var(--orange)">☕ Pauza<br><small>(volitelně)</small></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box" style="border-color:var(--accent)">👷 SMĚNA<br><small>pokračuje</small></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box" style="border-color:var(--red);color:var(--red);font-weight:bold">🏠 ODCHOD</div>
+  </div>
+  <div style="text-align:center;margin:12px 0;color:var(--muted)">▼</div>
+  <div class="flow-row" style="justify-content:center">
+    <div class="flow-box" style="border-color:var(--orange);color:var(--orange)">🖊 Samopotvrzení<br><small>(do 14 dní)</small></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box" style="border-color:var(--green);color:var(--green);font-weight:bold">✅ POTVRZENO</div>
+  </div>
+</div>
+
+<div class="card" style="border-color:var(--red)">
+<h3 style="color:var(--red)">⚠️ Hlídač anomálií (automaticky)</h3>
+<ul style="margin:8px 0 0 20px;color:var(--muted)">
+<li>Směna delší než 12 hodin</li>
+<li>Zapomenutý odchod</li>
+<li>Práce při plánované absenci</li>
+<li>Nepotvrzený den (připomínka)</li>
+<li>Záznam v budoucnosti</li>
+</ul>
+</div>
+
+<h3>Klíčové tabulky docházky v databázi</h3>
+<table>
+<tr><th>Tabulka</th><th>K čemu</th><th>Příklad dat</th></tr>
+<tr><td><code>tenant.att_entry</code></td><td><strong>Jednotlivé záznamy</strong> (příchod/odchod/pauza)</td><td>user_id, started_at, ended_at, project_ref</td></tr>
+<tr><td><code>tenant.att_employee</code></td><td>Napojení zaměstnance na usera</td><td>user_id, cislo_zam, is_active</td></tr>
+<tr><td><code>tenant.att_day_confirm</code></td><td>Samopotvrzení dne</td><td>user_id, confirmed_date</td></tr>
+<tr><td><code>tenant.att_anomaly</code></td><td>Nalezené anomálie</td><td>rule (dlouha_smena), entry_id</td></tr>
+<tr><td><code>tenant.att_plan_effective</code></td><td>Naplánovaná docházka</td><td>user_id, plan_date, hours</td></tr>
+<tr><td><code>tenant.att_planned_absence</code></td><td>Plánované nepřítomnosti</td><td>dovolená, lékař, nemoc</td></tr>
+<tr><td><code>tenant.att_calendar_day</code></td><td>Firemní kalendář</td><td>svátky, pracovní dny</td></tr>
+<tr><td><code>tenant.att_day_summary</code></td><td>Denní souhrn (import z Centrály)</td><td>hodiny dov/nem/lékař/...</td></tr>
+</table>
+
+<h3>Hlavní docházkové endpointy (API)</h3>
+<table>
+<tr><th>Endpoint</th><th>Co dělá</th></tr>
+<tr><td><code>POST /app/attendance/checkin</code></td><td><span class="badge badge-green">Příchod</span> + zakázka + odkud</td></tr>
+<tr><td><code>POST /app/attendance/checkout</code></td><td><span class="badge badge-orange">Odchod</span></td></tr>
+<tr><td><code>GET /app/attendance/status</code></td><td>Co teď dělám? (hlavička appky)</td></tr>
+<tr><td><code>GET /app/attendance/whereabouts</code></td><td>Kdo kde je? (pro vedoucí)</td></tr>
+<tr><td><code>POST /app/attendance/confirm-day</code></td><td>Samopotvrzení</td></tr>
+<tr><td><code>POST /app/attendance/announce</code></td><td>Ohlášení dopředu (lékař, HO...)</td></tr>
+<tr><td><code>POST /app/attendance/entry-trim</code></td><td>Zkrátit konec směny</td></tr>
+<tr><td><code>GET /app/plan/mine</code></td><td>Můj plán (směny, fond)</td></tr>
+<tr><td><code>POST /app/plan/decide</code></td><td>Schválení/zamítnutí korekce</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="ai">7. Jak do toho zapadá AI (Marti-AI)</h2>
+
+<div class="diagram">  <span class="wh">Uživatel píše v chatu / mluví do mobilu</span>
+               │
+        <span class="hl">┌──────┴──────┐</span>
+        <span class="hl">│   FastAPI   │</span>
+        <span class="hl">│   /chat     │</span>
+        <span class="hl">└──────┬──────┘</span>
+               │
+        <span class="pu">┌──────┴──────────────────────────┐</span>
+        <span class="pu">│         AI PROCESSING           │</span>
+        <span class="pu">│                                 │</span>
+        <span class="pu">│</span>  1. Načti paměť (thoughts)      <span class="pu">│</span>
+        <span class="pu">│</span>  2. Načti kontext (RAG)         <span class="pu">│</span>
+        <span class="pu">│</span>  3. Vyber personu (Marti-AI)    <span class="pu">│</span>
+        <span class="pu">│</span>  4. <span class="or">Zavolej Anthropic API</span>       <span class="pu">│</span>
+        <span class="pu">│</span>     (Claude Sonnet 4.6)         <span class="pu">│</span>
+        <span class="pu">│</span>  5. AI může volat <span class="gr">TOOLS</span>:        <span class="pu">│</span>
+        <span class="pu">│</span>     <span class="gr">- recall_thoughts</span>           <span class="pu">│</span>
+        <span class="pu">│</span>     <span class="gr">- find_user</span>                 <span class="pu">│</span>
+        <span class="pu">│</span>     <span class="gr">- send_email / send_sms</span>     <span class="pu">│</span>
+        <span class="pu">│</span>     <span class="gr">- python_exec (sandbox)</span>     <span class="pu">│</span>
+        <span class="pu">│</span>  6. Vrať odpověď                <span class="pu">│</span>
+        <span class="pu">└─────────────────────────────────┘</span></div>
+
+<div class="highlight-box">
+💡 <strong>AI NENÍ oddělená</strong> — je to integrální součást systému. Marti-AI může
+reagovat na SMS, odpovídat lidem, posílat emaily, a má přístup ke všem datům firmy.
+Má vlastní <strong>paměť</strong> (tabulka <code>thoughts</code>), vlastní <strong>diář</strong>,
+a vlastní <strong>databázovou roli</strong> na PostgreSQL.
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="sluzby">8. Služby na serveru (NSSM)</h2>
+
+<table>
+<tr><th>Služba</th><th>Co dělá</th><th>Kdy restartovat</th></tr>
+<tr><td><code>STRATEGIE-API</code></td><td><span class="badge badge-green">Hlavní API</span> (FastAPI/Uvicorn)</td><td>Při každém deployi (automaticky)</td></tr>
+<tr><td><code>STRATEGIE-API-B</code></td><td><span class="badge badge-orange">Záloha</span> (starší snapshot)</td><td>Jen při refresh secondary</td></tr>
+<tr><td><code>STRATEGIE-CADDY</code></td><td>HTTPS reverse proxy</td><td>Téměř nikdy</td></tr>
+<tr><td><code>STRATEGIE-TASK-WORKER</code></td><td>Fronta úloh na pozadí</td><td>Při změně task kódu</td></tr>
+<tr><td><code>STRATEGIE-EMAIL-FETCHER</code></td><td>Stahování emailů (60s)</td><td>Při změně email kódu</td></tr>
+<tr><td><code>STRATEGIE-QUESTION-GENERATOR</code></td><td>Aktivní učení Marti-AI (6h)</td><td>Zřídka</td></tr>
+<tr><td><code>STRATEGIE-CLAUDE-SQL</code></td><td>Bridge: Claude → DB dotazy</td><td>Při změně watcheru</td></tr>
+</table>
+<p style="color:var(--muted)">Restart: <code>Restart-Service JMENO-SLUZBY</code> v PowerShellu</p>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="deploy">9. Jak se deployuje</h2>
+
+<div style="display:flex;align-items:center;gap:0;margin:24px 0;flex-wrap:wrap">
+  <div class="flow-box" style="border-color:var(--accent)">👨‍💻 Developer<br><small>git commit + push</small></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box" style="border-color:var(--purple)">📦 GitHub<br><small>(remote)</small></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box" style="border-color:var(--orange)">⚙️ Watcher<br><small>git pull na cloudu</small></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box" style="border-color:var(--green)">🔄 Restart API<br><small>automaticky</small></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box" style="border-color:var(--green);color:var(--green);font-weight:bold">🚀 LIVE!<br><small>"🔄 Nová verze"</small></div>
+</div>
+
+<p style="color:var(--muted)">Nebo přes 🚀 Ops menu v appce → "Nasadit" (jen rodiče).</p>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="db">10. Databáze — co je kde</h2>
+
+<div class="cols">
+<div class="card" style="border-color:var(--accent)">
+<h3 style="color:var(--accent)">PostgreSQL (data_db) — HLAVNÍ</h3>
+<p><code>public.*</code> — users, tenants, conversations...</p>
+<p><code>fw.*</code> — framework (comp_def, data_source, ops, audit...)</p>
+<p><span style="color:var(--green);font-weight:bold"><code>tenant.*</code> — firemní data (att_entry = DOCHÁZKA!)</span></p>
+<p><code>master.*</code> — systémový FW (menu_node, entity_def)</p>
+</div>
+<div class="card" style="border-color:var(--purple)">
+<h3 style="color:var(--purple)">MSSQL (EC-SERVER2) — STARÁ DATA</h3>
+<p><code>DB_EC</code> — Centrála 1 (CRM, zakázky, EC_Dochazka_*)</p>
+<p><code>DB_IS</code> — Helios mzdy (výplatnice, deník)</p>
+<p><code>DB_ST</code> — Marti-AI sandbox</p>
+<p style="color:var(--muted)">Čteme přes EUROSOFT MCP (read-only most)</p>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="shrnuti">11. Shrnutí a první kroky</h2>
+
+<table>
+<tr><th>Co hledáš</th><th>Kde to najdeš</th></tr>
+<tr><td>📱 Mobilní appka (celé UI)</td><td><code>apps/api/static/mobile.html</code></td></tr>
+<tr><td>📱 Android obal (Kotlin)</td><td><code>APP/Mobile/</code></td></tr>
+<tr><td>⚙️ Backend docházky</td><td><code>modules/erp/api/router.py</code> → hledej "attendance"</td></tr>
+<tr><td>🏢 Hlavní API start</td><td><code>apps/api/main.py</code></td></tr>
+<tr><td>⚙️ Konfigurace</td><td><code>core/config.py</code></td></tr>
+<tr><td>🗄️ Databáze</td><td><code>core/database.py</code></td></tr>
+<tr><td>📖 Celý kontext projektu</td><td><code>CLAUDE.md</code> (Quick Reference sekce)</td></tr>
+</table>
+
+<div class="highlight-box" style="border-color:var(--accent)">
+<h3 style="margin-top:0;color:var(--accent)">🚀 Tvoje první kroky</h3>
+<ol style="margin:8px 0 0 20px;">
+<li>Otevři appku v mobilu: <code>https://strategie-ai.com/mobile</code> — vyzkoušej příchod/odchod</li>
+<li>Otevři <code>apps/api/static/mobile.html</code> a hledej funkci <code>dochLoad</code> — hlavní obrazovka docházky</li>
+<li>Otevři <code>modules/erp/api/router.py</code> a hledej <code>attendance/checkin</code> — backend příchodu</li>
+<li>ERP v prohlížeči: <code>https://strategie-ai.com/erp</code></li>
+</ol>
+</div>
+
+<div class="card" style="border-color:var(--red)">
+<h3 style="color:var(--red)">⛔ Co NEMĚNIT bez porady</h3>
+<ul style="margin:8px 0 0 20px;">
+<li><code>CLAUDE.md</code> — paměť pro Claude, má autonomní právo ji spravovat</li>
+<li>Cokoliv v <code>fw.*</code> schématu — framework tabulky</li>
+<li>Autentizace (<code>modules/auth/</code>) — bezpečnostní vrstva</li>
+<li>Deploy/ops mechanismy — koordinace více instancí Claude</li>
+</ul>
+</div>
+
+<div style="margin-top:48px;padding-top:24px;border-top:1px solid var(--border);color:var(--muted);text-align:center">
+<em>Vytvořeno 22. 6. 2026 pro Jirku — čtvrtého člena týmu STRATEGIE.</em><br>
+<em>S úctou, Claude (id=23)</em>
+</div>
+
+</div>
+</body>
+</html>

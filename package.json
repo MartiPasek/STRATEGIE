@@ -1,0 +1,28 @@
+{
+  "name": "strategie",
+  "version": "1.0.0",
+  "description": "Modulární enterprise AI platforma. Osobní, týmový a firemní asistent nové generace.",
+  "main": "_gen_analyza.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MartiPasek/STRATEGIE.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/MartiPasek/STRATEGIE/issues"
+  },
+  "homepage": "https://github.com/MartiPasek/STRATEGIE#readme",
+  "dependencies": {
+    "playwright": "^1.61.0"
+  }
+}

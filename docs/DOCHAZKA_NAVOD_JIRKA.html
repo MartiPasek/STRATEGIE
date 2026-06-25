@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docházka STRATEGIE — Kompletní návod pro Jirku</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#d29922;--red:#f85149;--purple:#bc8cff;--cyan:#39d2c0;--pink:#f778ba}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.7;padding:0}
+  .container{max-width:1000px;margin:0 auto;padding:24px 32px 80px}
+  h1{font-size:2.2em;margin:40px 0 8px;color:var(--accent);border-bottom:2px solid var(--border);padding-bottom:12px}
+  h2{font-size:1.6em;margin:48px 0 16px;color:var(--green);scroll-margin-top:20px}
+  h3{font-size:1.2em;margin:28px 0 12px;color:var(--purple)}
+  h4{font-size:1em;margin:20px 0 8px;color:var(--cyan)}
+  p{margin:8px 0 12px}
+  strong{color:#fff}
+  code{background:#1c2128;padding:2px 6px;border-radius:4px;font-size:0.88em;color:var(--orange)}
+  ul,ol{margin:8px 0 12px 24px}
+  li{margin:4px 0}
+  table{border-collapse:collapse;width:100%;margin:16px 0}
+  th,td{padding:10px 14px;border:1px solid var(--border);text-align:left;font-size:0.93em}
+  th{background:var(--card);color:var(--accent)}
+  tr:nth-child(even){background:rgba(255,255,255,0.02)}
+  blockquote{border-left:3px solid var(--accent);padding:8px 16px;margin:12px 0;background:rgba(88,166,255,0.06);border-radius:0 6px 6px 0;color:var(--muted)}
+  a{color:var(--accent)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin:16px 0}
+  .card h3,.card h4{margin-top:0}
+  .hl{background:rgba(88,166,255,0.08);border:1px solid rgba(88,166,255,0.25);border-radius:12px;padding:20px 24px;margin:20px 0}
+  .warn{background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);border-radius:12px;padding:20px 24px;margin:20px 0}
+  .ok{background:rgba(63,185,80,0.08);border:1px solid rgba(63,185,80,0.25);border-radius:12px;padding:20px 24px;margin:20px 0}
+  .cols{display:flex;gap:16px;flex-wrap:wrap}
+  .cols>.card{flex:1;min-width:220px}
+  .flow{display:flex;align-items:center;gap:0;margin:20px 0;flex-wrap:wrap}
+  .flow-box{background:var(--card);border:2px solid var(--border);border-radius:10px;padding:12px 18px;text-align:center;min-width:120px}
+  .flow-arr{color:var(--muted);font-size:1.6em;padding:0 6px}
+  .flow-down{display:flex;flex-direction:column;align-items:center;gap:0;margin:8px 0}
+  .badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:0.8em;font-weight:600}
+  .b-green{background:rgba(63,185,80,0.15);color:var(--green)}
+  .b-orange{background:rgba(210,153,34,0.15);color:var(--orange)}
+  .b-red{background:rgba(248,81,73,0.15);color:var(--red)}
+  .b-blue{background:rgba(88,166,255,0.15);color:var(--accent)}
+  .b-purple{background:rgba(188,140,255,0.15);color:var(--purple)}
+  .b-cyan{background:rgba(57,210,192,0.15);color:var(--cyan)}
+  .diag{background:#0a0e14;border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:0.85em;line-height:1.5;white-space:pre;overflow-x:auto;color:#8b949e}
+  .phone{max-width:380px;border:3px solid var(--border);border-radius:28px;padding:20px;margin:20px auto;background:#0a0e14}
+  .phone-head{background:linear-gradient(135deg,#1a3a2a,#0d1117);padding:14px;border-radius:12px;margin-bottom:12px}
+  .phone-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+  .phone-btn{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center;font-size:0.95em}
+  .phone-section{padding:10px 0;border-top:1px solid var(--border);color:var(--muted);font-size:0.93em}
+  .toc{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px 28px;margin:24px 0}
+  .toc a{text-decoration:none;display:block;padding:3px 0}
+  .toc a:hover{text-decoration:underline}
+  .emoji{font-size:1.4em;vertical-align:middle;margin-right:4px}
+  .timeline{position:relative;padding-left:32px;margin:16px 0}
+  .timeline::before{content:'';position:absolute;left:12px;top:4px;bottom:4px;width:3px;background:var(--border);border-radius:2px}
+  .tl-item{position:relative;margin:16px 0;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:10px}
+  .tl-item::before{content:'';position:absolute;left:-26px;top:18px;width:12px;height:12px;border-radius:50%;border:3px solid var(--accent);background:var(--bg)}
+  .tl-item.done::before{border-color:var(--green);background:var(--green)}
+  .tl-item.warn::before{border-color:var(--orange);background:var(--orange)}
+  .tl-item.err::before{border-color:var(--red);background:var(--red)}
+  @media(max-width:700px){.container{padding:12px 16px}.cols{flex-direction:column}.flow{flex-direction:column;align-items:stretch}.flow-arr{transform:rotate(90deg);text-align:center}}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>🗓️ Docházka STRATEGIE — Kompletní návod</h1>
+<p style="color:var(--muted)">Pro Jirku. Vše co potřebuješ vědět o docházkovém systému — od tlačítka po databázi.<br>Vytvořeno 22. 6. 2026</p>
+
+<div class="toc">
+<strong style="color:var(--accent)">📖 Obsah</strong>
+<a href="#princip">1. Jak to celé funguje (princip)</a>
+<a href="#den">2. Jeden den od rána do večera</a>
+<a href="#mobil">3. Co vidí člověk v mobilu</a>
+<a href="#volby">4. Všechny volby příchodu a odchodu</a>
+<a href="#statusy">5. Stavy a statusy (co znamenají)</a>
+<a href="#potvrzeni">6. Samopotvrzení dne</a>
+<a href="#anomalie">7. Hlídač anomálií</a>
+<a href="#plan">8. Plánování směn a fond hodin</a>
+<a href="#korekce">9. Korekce plánu a schvalování</a>
+<a href="#absence">10. Absence a nepřítomnosti</a>
+<a href="#auto">11. Automatické procesy na pozadí</a>
+<a href="#kdekdo">12. Kdo kde je (přehled pro vedoucí)</a>
+<a href="#opravy">13. Opravy záznamů</a>
+<a href="#prava">14. Kdo co smí (práva)</a>
+<a href="#tabulky">15. Databázové tabulky</a>
+<a href="#endpointy">16. Kompletní seznam API endpointů</a>
+<a href="#pravidla">17. Důležitá byznys pravidla</a>
+<a href="#soubory">18. Kde co najdu v kódu</a>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="princip">1. 🧩 Jak to celé funguje (princip)</h2>
+
+<div class="hl">
+<strong>Základní myšlenka:</strong> Docházka funguje jako <strong>spojitá osa</strong> — řetězec stavů bez mezer.
+Každá změna (příchod, pauza, odchod, jednání...) vytvoří <strong>nový záznam</strong> v tabulce <code>att_entry</code>.
+Předchozí záznam se automaticky uzavře (dostane <code>status='superseded'</code>).
+V každém okamžiku má zaměstnanec <strong>maximálně jeden aktivní záznam</strong>.
+</div>
+
+<div class="flow">
+  <div class="flow-box" style="border-color:var(--green)"><span class="emoji">👷</span><br><strong>Příchod</strong><br><small style="color:var(--muted)">att_entry: work</small></div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--orange)"><span class="emoji">☕</span><br><strong>Pauza</strong><br><small style="color:var(--muted)">att_entry: break</small></div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--green)"><span class="emoji">👷</span><br><strong>Návrat</strong><br><small style="color:var(--muted)">att_entry: work</small></div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--cyan)"><span class="emoji">🤝</span><br><strong>Jednání</strong><br><small style="color:var(--muted)">att_entry: announced</small></div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--green)"><span class="emoji">👷</span><br><strong>Zpět</strong><br><small style="color:var(--muted)">att_entry: work</small></div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--red)"><span class="emoji">🏠</span><br><strong>Odchod</strong><br><small style="color:var(--muted)">att_entry: day_end</small></div>
+</div>
+
+<p>Každý rámeček výše = <strong>jeden řádek v databázi</strong>. Když přijde nový stav, předchozí se automaticky uzavře a spočítají se hodiny.</p>
+
+<div class="card">
+<h4>Analogie pro amatéra</h4>
+<p>Představ si to jako <strong>stopky, které se přepínají</strong>. Máš jen jedny stopky najednou. Když zmáčkneš „Pauza", stopky „Práce" se zastaví a stopky „Pauza" začnou tikát. Když zmáčkneš „Zpět do práce", stopky „Pauza" se zastaví a „Práce" zase běží.</p>
+<p>Na konci dne se sečtou: kolik tikaly stopky „Práce" = <strong>odpracováno</strong>.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="den">2. 📅 Jeden den od rána do večera</h2>
+
+<div class="timeline">
+  <div class="tl-item done">
+    <strong style="color:var(--green)">7:26 — Příchod</strong><br>
+    Zaměstnanec ťukne „Jsem v práci" → systém vytvoří <code>att_entry</code> typu <code>work</code>.<br>
+    Stopky začínají tikát. Hlavička: <em style="color:var(--green)">„Dnes makám 😉"</em>
+  </div>
+  <div class="tl-item done">
+    <strong style="color:var(--green)">7:26–11:30 — Práce</strong><br>
+    Záznam běží. Hodiny se počítají průběžně (UI ukazuje živě).
+  </div>
+  <div class="tl-item warn">
+    <strong style="color:var(--orange)">11:30 — Oběd</strong><br>
+    Ťukne „Pauza — jdu se najíst" → starý work záznam se <strong>uzavře</strong> (4:04 h).<br>
+    Nový záznam <code>break</code> začne. Hlavička: <em style="color:var(--orange)">„Dávám si pauzu ☕"</em>
+  </div>
+  <div class="tl-item done">
+    <strong style="color:var(--green)">12:00 — Návrat</strong><br>
+    Ťukne „Jsem zpět" → break se uzavře (0:30 h), nový <code>work</code> začne.
+  </div>
+  <div class="tl-item">
+    <strong style="color:var(--cyan)">14:00 — Jednání (do 15:00)</strong><br>
+    Ťukne „Mám jednání" s časem „do 15:00" → vytvoří <code>announced</code> záznam.<br>
+    <strong>Směna BĚŽÍ DÁL</strong> — jednání je status vedle práce, ne odhlášení.<br>
+    Hlavička: <em style="color:var(--cyan)">„Mám jednání do 15:00 🤝"</em><br>
+    UI ukáže tlačítka <span class="badge b-orange">Konec</span> a <span class="badge b-blue">Prodloužit</span>
+  </div>
+  <div class="tl-item done">
+    <strong style="color:var(--green)">15:00 — Jednání skončilo</strong><br>
+    Ťukne „Konec" (nebo uplyne čas) → announced se superseduje, práce pokračuje.
+  </div>
+  <div class="tl-item err">
+    <strong style="color:var(--red)">16:30 — Odchod</strong><br>
+    Ťukne „Pro dnešek konec" → work se uzavře, vytvoří se <code>day_end</code> záznam (0 hodin, jen značka konce dne).<br>
+    Hlavička: <em style="color:var(--muted)">„Že by dovolená?… 😎"</em> (žádná běžící směna)
+  </div>
+</div>
+
+<div class="card">
+<h4>Výpočet hodin za den</h4>
+<p>Systém sečte všechny <strong>uzavřené záznamy kategorie „presence"</strong> (tj. work, homeoffice, trip, overhead) a odečte pauzy. Výsledek = <span style="color:var(--green);font-weight:bold">odpracováno</span>.</p>
+<p>Jednání (<code>announced</code>) se do hodin <strong>nepočítají zvlášť</strong> — probíhají BĚHEM běžící směny.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="mobil">3. 📱 Co vidí člověk v mobilu</h2>
+
+<div class="phone">
+  <div class="phone-head">
+    <div style="font-size:1.3em">Ahoj Petro! <strong>Dnes makám</strong> 😉</div>
+    <div style="color:var(--muted);margin-top:4px">Od: 7:26 — VR74514 &nbsp; <span style="color:var(--green);font-weight:bold">✅ 4:32</span></div>
+  </div>
+  <div style="background:rgba(88,166,255,0.1);border:2px solid var(--accent);border-radius:12px;padding:12px;margin:8px 0;text-align:center;animation:pulse 2s infinite">
+    💬 Potřebuji ti něco říct...
+  </div>
+  <div class="phone-section"><strong style="color:var(--orange)">── Moje odmakané prašule... 💰 ──</strong><br><small>Výplatní páska (chráněná PINem)</small></div>
+  <div class="phone-section"><strong>── Co se vlastně dělo...? ──</strong><br><small>Dnešní joby (zakázky, režie, pauzy)</small></div>
+  <div class="phone-section"><strong>── Na včera si vzpomínám... ──</strong><br><small>Včerejší záznamy + hodiny</small></div>
+  <div class="phone-section"><strong>── To už si moc nepamatuju... ──</strong><br><small>Starší záznamy (2+ dní)</small></div>
+  <div class="phone-section"><strong>── Tak tady budu jinde... ──</strong><br><small>Budoucí ohlášení a nepřítomnosti</small></div>
+</div>
+<style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}</style>
+
+<div class="card">
+<h4>Důležité: sekce se schovávají!</h4>
+<p>Když zaměstnanec <strong>právě pracuje</strong> (běží směna), vidí jen:</p>
+<ul>
+<li>Hlavičku s odpracovaným časem</li>
+<li>Tlačítko „Potřebuji ti něco říct..." (akční menu)</li>
+<li>Dnešní joby</li>
+</ul>
+<p>Ostatní sekce (včera, starší, plán, pásky) jsou <strong>schované</strong> — zobrazí se až po odchodu. Princip: <em>„Teď jsi v práci... Další věci počkají. 😉"</em></p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="volby">4. 🎛️ Všechny volby příchodu a odchodu</h2>
+
+<h3>Když NEPRACUJI (žádná běžící směna)</h3>
+<div class="cols">
+<div class="card" style="border-color:var(--green)">
+<h4 style="color:var(--green)">Příchody</h4>
+<table>
+<tr><td>🏢</td><td><strong>Jsem v práci</strong></td><td>Normální příchod</td></tr>
+<tr><td>🏠</td><td><strong>Pracuji z domova</strong></td><td>Home office</td></tr>
+<tr><td>🚗</td><td><strong>Jedu do práce</strong></td><td>Na cestě (+ ETA 5-120 min)</td></tr>
+<tr><td>🧾</td><td><strong>Jsem na zakázce</strong></td><td>Přímo u zákazníka (picker zakázek)</td></tr>
+</table>
+</div>
+<div class="card" style="border-color:var(--orange)">
+<h4 style="color:var(--orange)">Ohlášení dopředu</h4>
+<table>
+<tr><td>🌅</td><td><strong>Přijdu později</strong></td><td>Ohlášení pro den + čas</td></tr>
+<tr><td>🕔</td><td><strong>Skončím dříve</strong></td><td>Ohlášení pro den + čas</td></tr>
+<tr><td>🤒</td><td><strong>Sick day</strong></td><td>Zdravotní volno</td></tr>
+<tr><td>🏥</td><td><strong>Neschopenka</strong></td><td>Lékařsky potvrzená</td></tr>
+<tr><td>🩺</td><td><strong>Kontrola u lékaře</strong></td><td>Krátkodobá absence</td></tr>
+</table>
+</div>
+</div>
+
+<h3>Když PRACUJI (běží směna)</h3>
+<div class="card" style="border-color:var(--cyan)">
+<p>Tlačítko <strong>„🙈 Teď to bude jinak..."</strong> rozbalí menu:</p>
+<table>
+<tr><th>Ikona</th><th>Volba</th><th>Co se stane</th></tr>
+<tr><td>☕</td><td><strong>Krátká pauza</strong></td><td>Odhlášení (break) — směna přeruší</td></tr>
+<tr><td>🍽️</td><td><strong>Jdu se najíst</strong></td><td>Odhlášení (break) + poznámka oběd</td></tr>
+<tr><td>🚶</td><td><strong>Služební pochůzka</strong></td><td>Status vedle směny (+ čas „do")</td></tr>
+<tr><td>🤝</td><td><strong>Mám jednání</strong></td><td>Status vedle směny (+ čas „do")</td></tr>
+<tr><td>🕔</td><td><strong>Skončím dříve</strong></td><td>Ohlášení na aktuální den</td></tr>
+<tr><td>🏠</td><td><strong>Pro dnešek konec</strong></td><td><span class="badge b-red">ODCHOD</span> — uzavře směnu, vytvoří day_end</td></tr>
+</table>
+</div>
+
+<div class="warn">
+<strong>⚠️ Rozdíl: pauza vs. jednání/pochůzka</strong>
+<ul>
+<li><strong>Pauza</strong> (☕ oběd, krátká) = <strong>ODHLÁŠENÍ</strong>. Směna se zastaví, hodiny netikají.</li>
+<li><strong>Jednání/Pochůzka</strong> (🤝 🚶) = <strong>STATUS</strong>. Směna BĚŽÍ DÁL, jen se zobrazí info. Tlačítka „Konec" / „Prodloužit".</li>
+</ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="statusy">5. 🏷️ Stavy a statusy</h2>
+
+<h3>Typy záznamů (entry_type.code)</h3>
+<table>
+<tr><th>Kód</th><th>Kategorie</th><th>Popis</th><th>Počítá se do hodin?</th></tr>
+<tr><td><code>work</code></td><td><span class="badge b-green">presence</span></td><td>Normální práce</td><td>✅ ANO</td></tr>
+<tr><td><code>homeoffice</code></td><td><span class="badge b-green">presence</span></td><td>Práce z domova</td><td>✅ ANO</td></tr>
+<tr><td><code>trip</code></td><td><span class="badge b-green">presence</span></td><td>Služební cesta</td><td>✅ ANO</td></tr>
+<tr><td><code>overhead</code></td><td><span class="badge b-green">presence</span></td><td>Režie (bez zakázky)</td><td>✅ ANO</td></tr>
+<tr><td><code>commute</code></td><td><span class="badge b-blue">travel</span></td><td>Na cestě do práce</td><td>❌ NE</td></tr>
+<tr><td><code>break</code></td><td><span class="badge b-orange">break</span></td><td>Pauza/oběd</td><td>❌ NE</td></tr>
+<tr><td><code>announced</code></td><td><span class="badge b-cyan">other</span></td><td>Ohlášení (jednání, pochůzka)</td><td>—</td></tr>
+<tr><td><code>day_end</code></td><td><span class="badge b-purple">other</span></td><td>Značka konce dne</td><td>❌ (0 h)</td></tr>
+<tr><td><code>vacation</code></td><td><span class="badge b-red">absence</span></td><td>Dovolená</td><td>—</td></tr>
+<tr><td><code>sick</code></td><td><span class="badge b-red">absence</span></td><td>Nemoc</td><td>—</td></tr>
+<tr><td><code>medical</code></td><td><span class="badge b-red">absence</span></td><td>Lékař</td><td>—</td></tr>
+<tr><td><code>family_care</code></td><td><span class="badge b-red">absence</span></td><td>OČR</td><td>—</td></tr>
+</table>
+
+<h3>Stavy záznamu (att_entry.status)</h3>
+<table>
+<tr><th>Status</th><th>Význam</th></tr>
+<tr><td><code>NULL</code> nebo <code>active</code></td><td><span class="badge b-green">Běží</span> — aktuální aktivní záznam</td></tr>
+<tr><td><code>superseded</code></td><td><span class="badge b-orange">Nahrazen</span> — uzavřen, protože přišel nový stav</td></tr>
+<tr><td><code>announced</code></td><td><span class="badge b-cyan">Ohlášení</span> — informační status (jednání, pochůzka)</td></tr>
+<tr><td><code>day_end</code></td><td><span class="badge b-purple">Konec dne</span> — značka ukončení</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="potvrzeni">6. ✅ Samopotvrzení dne</h2>
+
+<div class="flow">
+  <div class="flow-box" style="border-color:var(--green)">👷 Odpracovaný den</div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--orange)">🖊 Jantarová karta<br><small>„Potvrď svůj den"</small></div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--green)">✅ Potvrzeno</div>
+</div>
+
+<div class="card">
+<h4>Pravidla</h4>
+<ul>
+<li><strong>Pilot od 6. 6. 2026</strong> — starší dny se nekontrolují</li>
+<li>Zaměstnanec má <strong>14 dní</strong> na potvrzení</li>
+<li>Pokud nepotvrdí → při dalším příchodu se zobrazí <strong>blokující karta</strong>:<br>
+<em>„Nejdřív potvrď včerejšek, pak se můžeš píchnout."</em></li>
+<li>Pokud nesouhlasí → tlačítko <strong>✋ Rozpor</strong> (zapíše poznámku, odblokuje příchod, notifikuje nadřízeného)</li>
+<li>V databázi: <code>att_day_confirm</code> — řádek na den + zaměstnance</li>
+</ul>
+</div>
+
+<div class="warn">
+<strong>⚠️ Nepotvrzený den BLOKUJE nový příchod!</strong><br>
+To je záměr — zaměstnanec MUSÍ potvrdit nebo rozporovat, než může znovu pracovat.
+Výjimka: dny rozporované (<code>disputed=true</code>) příchod neblokují.
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="anomalie">7. 🚨 Hlídač anomálií</h2>
+
+<p>Systém automaticky kontroluje 5 druhů problémů. Kontrola běží na pozadí (piggyback na network scanu).</p>
+
+<table>
+<tr><th>Pravidlo</th><th>Co detekuje</th><th>Příklad</th></tr>
+<tr><td><span class="badge b-red">budouci_zaznam</span></td><td>Záznam v budoucnosti</td><td>Bug v datech / špatný čas telefonu</td></tr>
+<tr><td><span class="badge b-orange">dlouha_smena</span></td><td>Směna &gt; 12 hodin</td><td>Zapomenutý odchod</td></tr>
+<tr><td><span class="badge b-orange">zapomenuty_odchod</span></td><td>Aktivní záznam ze včerejška</td><td>Odešel a nezapíchl</td></tr>
+<tr><td><span class="badge b-purple">nepotvrzeny_den</span></td><td>Den s prací, ale bez potvrzení</td><td>Ignoruje potvrzovací karty</td></tr>
+<tr><td><span class="badge b-red">prace_pri_absenci</span></td><td>Práce + absence ve stejný den</td><td>Dovolená + příchod (chyba?)</td></tr>
+</table>
+
+<div class="card">
+<h4>Co se stane při nálezu</h4>
+<ol>
+<li>Záznam do <code>att_anomaly</code> (deduplikovaný — stejná anomálie se nezapíše 2×)</li>
+<li>Notifikace <strong>zaměstnanci</strong> (do mobilu)</li>
+<li>Notifikace <strong>nadřízenému</strong> (přes org resolver)</li>
+</ol>
+<p style="color:var(--muted)">Importovaná data ze staré Centrály (source <code>ec_sumaden</code>, <code>centrala1</code>) se <strong>nekontrolují</strong> — jinak by hlídač křičel na 20 let starých záznamech.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="plan">8. 📋 Plánování směn a fond hodin</h2>
+
+<p>Plán má <strong>4 vrstvy</strong> — vyšší vrstva vždy přebije nižší:</p>
+
+<div style="margin:20px 0">
+  <div style="background:rgba(63,185,80,0.1);border-left:4px solid var(--green);padding:12px 16px;margin:4px 0;border-radius:0 8px 8px 0">
+    <strong>Vrstva 4 — Osobní</strong> <span class="badge b-green">NEJVYŠŠÍ PRIORITA</span><br>
+    <small>Individuální výjimka pro konkrétního člověka (<code>att_exception_scope</code> scope=user)</small>
+  </div>
+  <div style="background:rgba(188,140,255,0.1);border-left:4px solid var(--purple);padding:12px 16px;margin:4px 0;border-radius:0 8px 8px 0">
+    <strong>Vrstva 3 — Skupina</strong><br>
+    <small>Výjimka pro celou skupinu (<code>att_exception_scope</code> scope=group)</small>
+  </div>
+  <div style="background:rgba(88,166,255,0.1);border-left:4px solid var(--accent);padding:12px 16px;margin:4px 0;border-radius:0 8px 8px 0">
+    <strong>Vrstva 2 — Firma</strong><br>
+    <small>Celofiremní výjimka (<code>att_calendar_exception</code>)</small>
+  </div>
+  <div style="background:rgba(139,148,158,0.1);border-left:4px solid var(--muted);padding:12px 16px;margin:4px 0;border-radius:0 8px 8px 0">
+    <strong>Vrstva 1 — Základ</strong> <span class="badge b-orange">NEJNIŽŠÍ</span><br>
+    <small>Týdenní rozvrh zaměstnance (<code>work_schedule</code>) + kalendář (<code>att_calendar_day</code>)</small>
+  </div>
+</div>
+
+<div class="card">
+<h4>Jak se plán generuje</h4>
+<ol>
+<li>Základ = týdenní rozvrh zaměstnance (Po-Pá 8h, So-Ne 0h...)</li>
+<li>Kalendář přebije: svátek → 0 h</li>
+<li>Firemní výjimka přebije: „23.12. jen 4h" → 4 h</li>
+<li>Skupinová výjimka přebije: „Výroba 24.12. volno" → 0 h</li>
+<li>Osobní výjimka přebije: „Petra 24.12. pracuje" → 8 h</li>
+</ol>
+<p>Výsledek se uloží do <code>att_plan_effective</code> — to je <strong>jediný zdroj pravdy</strong> pro „co se čekalo".</p>
+<p><strong>Frozen záznamy</strong> (<code>is_frozen=true</code>) se při regeneraci <strong>nikdy nepřepíšou</strong>.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="korekce">9. 📝 Korekce plánu a schvalování</h2>
+
+<div class="flow">
+  <div class="flow-box" style="border-color:var(--accent)">👤 Zaměstnanec<br><small>„Chci ve čtvrtek volno"</small></div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--orange)">📝 Žádost<br><small>att_plan_request<br>status: pending</small></div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--purple)">👔 Schvalovatel<br><small>✅ Schválit / 🚫 Zamítnout</small></div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="border-color:var(--green)">📋 Plán upraven<br><small>att_exception_scope<br>+ att_plan_effective</small></div>
+</div>
+
+<div class="card">
+<h4>Typy žádostí (kind)</h4>
+<table>
+<tr><td><code>full_day_off</code></td><td>Celý den volno</td></tr>
+<tr><td><code>short_day</code></td><td>Zkrácený den</td></tr>
+<tr><td><code>change_time</code></td><td>Změna času příchodu/odchodu</td></tr>
+<tr><td><code>homeoffice_day</code></td><td>Home office (celý den)</td></tr>
+</table>
+
+<h4>Co se děje při schválení (v jedné transakci!)</h4>
+<ol>
+<li>Zapíše se <code>att_exception_scope</code> (osobní výjimka)</li>
+<li>Okamžitě se aktualizuje <code>att_plan_effective</code></li>
+<li>Pokud jedno selže → rollback obou → plán zůstane beze změny</li>
+<li>Zaměstnanci přijde tichá notifikace (bez zvuku)</li>
+</ol>
+
+<p style="color:var(--muted)">Schvalování se dělá v appce: záložka <strong>Úkoly → 🗓️ Schvalování</strong> (badge s počtem čekajících)</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="absence">10. 🏖️ Absence a nepřítomnosti</h2>
+
+<h3>Dva zdroje absencí</h3>
+<div class="cols">
+<div class="card" style="border-color:var(--accent)">
+<h4 style="color:var(--accent)">Z mobilu (naše)</h4>
+<p>Zaměstnanec zadá žádost o absenci → schvalování → záznamy v <code>att_entry</code>.</p>
+<p>Typy: dovolená, sick day, lékař, OČR, home office, neplacené volno.</p>
+</div>
+<div class="card" style="border-color:var(--purple)">
+<h4 style="color:var(--purple)">Z Centrály (import)</h4>
+<p>Ops akce <code>sync_plan_nepritomnost</code> stáhne budoucí plánované nepřítomnosti z <code>EC_Dochazka_PlanNepritomnost</code>.</p>
+<p>Uloží do <code>att_planned_absence</code>.</p>
+</div>
+</div>
+
+<h3>Přehled nepřítomností (pro vedoucí)</h3>
+<p>Dlaždice <strong>🏖️ Plán absencí</strong> — 4 pohledy:</p>
+<table>
+<tr><th>Pohled</th><th>Co ukazuje</th></tr>
+<tr><td>🔤 Lidé (abecedně)</td><td>Každý člověk → jeho nepřítomnosti sloučené do období</td></tr>
+<tr><td>📅 Skupiny × týdny</td><td>Skupina → ISO týden → kdo a co</td></tr>
+<tr><td>🏢 Kanceláře po dnech</td><td>Mřížka lidi × dny (Po-Pá, 3 týdny)</td></tr>
+<tr><td>🏭 Výroba po dnech</td><td>Mřížka lidi × dny (pro výrobní skupiny)</td></tr>
+</table>
+
+<div class="ok">
+<strong>💡 Napojení na FLOW:</strong> Plánované nepřítomnosti <strong>automaticky snižují kapacitu</strong> ve výrobním Ganttu (FLOW). Kdo má ten den volno, nepočítá se do křivky kapacity.
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="auto">11. 🤖 Automatické procesy na pozadí</h2>
+
+<p>Na serveru běží <strong>smyčka každých 30 sekund</strong> (<code>_att_sync_loop</code>):</p>
+
+<table>
+<tr><th>Proces</th><th>Co dělá</th><th>Kdy</th></tr>
+<tr><td><strong>Sync z Centrály</strong></td><td>Stáhne denní souhrny z EC_Dochazka</td><td>Každých 30 s (jen pokud jsou nová data)</td></tr>
+<tr><td><strong>Půlnoční odhlášení</strong></td><td>Uzavře otevřené směny ze včerejška</td><td>O půlnoci automaticky</td></tr>
+<tr><td><strong>Dlouhá směna (nudge)</strong></td><td>Pošle připomínku „nechceš se odhlásit?" po 10+ h</td><td>Periodicky</td></tr>
+<tr><td><strong>Hlídač anomálií</strong></td><td>Skenuje 5 pravidel (viz sekce 7)</td><td>Piggyback na network scanu</td></tr>
+<tr><td><strong>Auto-příchod ze sítě</strong></td><td>Pošle notifikaci „Jsi v práci? Píchni se."</td><td>Při detekci zařízení v budově</td></tr>
+</table>
+
+<div class="card">
+<h4>Auto-příchod ze sítě (detail)</h4>
+<p>Mikrotik router skenuje zařízení → server pozná, komu patří (MAC/hostname) → pokud zaměstnanec nemá dnešní příchod a jeho zařízení je poprvé v budově:</p>
+<p>Pošle <strong>notifikaci</strong>: <em>„👋 Jsi v práci? Píchni se prosím."</em></p>
+<p>⚠️ <strong>NEPÍCHNE automaticky!</strong> Jen upozorní. Člověk se musí píchnout sám.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="kdekdo">12. 👥 Kdo kde je</h2>
+
+<p>Obrazovka <strong>„Kdo kde dnes"</strong> — dvoupanel s lištou filtrů:</p>
+
+<table>
+<tr><th>Filtr</th><th>Ikona</th><th>Co ukazuje</th></tr>
+<tr><td>V práci</td><td>👷</td><td>Aktivní směna (work/overhead/trip)</td></tr>
+<tr><td>Home office</td><td>🏠</td><td>Pracuje z domova</td></tr>
+<tr><td>Dovolená</td><td>🏖️</td><td>Plánovaná dovolená</td></tr>
+<tr><td>Nemocní</td><td>🤒</td><td>Nemoc / neschopenka</td></tr>
+<tr><td>U lékaře</td><td>🩺</td><td>Krátkodobá lékařská absence</td></tr>
+<tr><td>OČR</td><td>👶</td><td>Ošetřovné</td></tr>
+<tr><td>Volno</td><td>🏝️</td><td>Neplacené volno / jiná absence</td></tr>
+<tr><td>Nezadáno</td><td>❓</td><td>Žádný záznam pro dnešek</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="opravy">13. 🔧 Opravy záznamů</h2>
+
+<p>Zaměstnanec může v detailu jobu provést 3 akce (tlačítka po rozkliknutí záznamu):</p>
+
+<table>
+<tr><th>Akce</th><th>Co udělá</th><th>Endpoint</th></tr>
+<tr><td><span class="emoji">⏱</span> <strong>Zkrátit konec</strong></td><td>Posune konec směny dozadu (nelze prodloužit!). Přepočítá hodiny.</td><td><code>POST /app/attendance/entry-trim</code></td></tr>
+<tr><td><span class="emoji">🧾</span> <strong>Změnit zakázku</strong></td><td>Přeřadí záznam na jinou zakázku. REZIE → typ overhead, ref=NULL.</td><td><code>POST /app/attendance/entry-project</code></td></tr>
+<tr><td><span class="emoji">✋</span> <strong>Rozpor</strong></td><td>Označí záznam jako sporný. Notifikuje nadřízeného. Odblokuje příchod.</td><td><code>POST /app/attendance/entry-dispute</code></td></tr>
+</table>
+
+<div class="card">
+<p>Všechny opravy se <strong>auditují</strong> do <code>att_audit</code>: kdo, co, kdy, co bylo předtím. Žádná oprava se neztratí.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="prava">14. 🔐 Kdo co smí (práva)</h2>
+
+<table>
+<tr><th>Akce</th><th>Kdo smí</th></tr>
+<tr><td>Vlastní příchod/odchod/pauza</td><td>Každý přihlášený zaměstnanec</td></tr>
+<tr><td>Samopotvrzení vlastního dne</td><td>Každý zaměstnanec</td></tr>
+<tr><td>Zobrazit „Kdo kde je"</td><td>Každý (read-only pro ostatní)</td></tr>
+<tr><td>Schvalování plánových korekcí</td><td><span class="badge b-purple">HR + rodiče</span></td></tr>
+<tr><td>Schvalování absencí</td><td><span class="badge b-purple">HR + rodiče</span></td></tr>
+<tr><td>Generování plánu</td><td><span class="badge b-purple">HR + rodiče</span></td></tr>
+<tr><td>Přehled nepřítomností</td><td><span class="badge b-purple">HR + rodiče</span></td></tr>
+<tr><td>Import z Centrály (sync)</td><td><span class="badge b-red">Rodiče</span></td></tr>
+<tr><td>Impersonace (přihlášení jako jiný)</td><td><span class="badge b-red">Rodiče</span></td></tr>
+</table>
+
+<div class="card">
+<h4>Kdo je „HR + rodiče"?</h4>
+<p><strong>Rodiče</strong> = Marti, Ondra, Kristý, Jirka (<code>is_marti_parent=True</code>)</p>
+<p><strong>HR</strong> = členové skupiny „HR" v <code>staff_group</code> (Šárka = user 13, první člen)</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="tabulky">15. 🗄️ Databázové tabulky</h2>
+
+<h3>Hlavní tabulky (vše v schématu <code>tenant</code>)</h3>
+
+<div class="diag"><span style="color:var(--green)">att_entry</span>              ← Jádro: každý příchod/odchod/pauza = 1 řádek
+  id, tenant_id, employee_id, entry_type_id
+  entry_date, started_at, ended_at, hours
+  is_active, status, project_ref, note
+  source_system, break_minutes
+
+<span style="color:var(--accent)">att_employee</span>           ← Napojení user → zaměstnanec (číslo z Centrály)
+  id, tenant_id, user_id, full_name, cislo_zam, is_active
+
+<span style="color:var(--orange)">att_entry_type</span>         ← Číselník typů (work/break/vacation/announced...)
+  id, code, label, category
+
+<span style="color:var(--purple)">att_day_confirm</span>        ← Samopotvrzení dne
+  tenant_id, employee_id, day, confirmed_by_user_id, disputed
+
+<span style="color:var(--red)">att_anomaly</span>            ← Nalezené anomálie
+  tenant_id, rule, entry_id, resolved_at
+
+<span style="color:var(--cyan)">att_plan_effective</span>     ← Výsledný plán (jediný zdroj pravdy)
+  tenant_id, user_id, plan_date, expected_hours, start_time
+  scope_src (zaklad/firma/group/user), is_frozen
+
+<span style="color:var(--pink)">att_planned_absence</span>    ← Budoucí nepřítomnosti (import z Centrály)
+  tenant_id, user_id, datum, druh_kod, druh_nazev, hodiny
+
+<span style="color:var(--muted)">att_day_summary</span>        ← Denní souhrn (import EC_Dochazka_SumaDen)
+  tenant_id, user_id, datum, cas_prace, cas_dovolena,
+  cas_nemoc, cas_lekar, cas_ocr, cas_materska, ...
+
+att_absence_request    ← Žádosti o absenci (schvalovací workflow)
+att_plan_request       ← Žádosti o změnu plánu
+att_calendar_day       ← Firemní kalendář (svátky)
+att_calendar_exception ← Firemní výjimky (celofiremní)
+att_exception_scope    ← Skupinové/osobní výjimky
+work_schedule          ← Týdenní rozvrh zaměstnance (Po-Ne)
+att_audit              ← Audit trail oprav (append-only)
+att_ocr_case           ← OČR případy</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="endpointy">16. 📡 Kompletní seznam API endpointů</h2>
+
+<h4>Stav a info</h4>
+<table>
+<tr><th>Metoda</th><th>Endpoint</th><th>Co vrací</th></tr>
+<tr><td>GET</td><td><code>/app/attendance/status</code></td><td>Aktuální stav (běží směna? hodiny? zakázka?)</td></tr>
+<tr><td>GET</td><td><code>/app/attendance/daily?days=N</code></td><td>Denní souhrn za posledních N dní</td></tr>
+<tr><td>GET</td><td><code>/app/attendance/list?days=N</code></td><td>Jednotlivé záznamy za N dní</td></tr>
+<tr><td>GET</td><td><code>/app/attendance/real</code></td><td>Realita týdne (odpracováno H:MM)</td></tr>
+<tr><td>GET</td><td><code>/app/attendance/day-detail?day=</code></td><td>Detail jednoho dne</td></tr>
+<tr><td>GET</td><td><code>/app/attendance/whereabouts?den=</code></td><td>Kdo kde je</td></tr>
+<tr><td>GET</td><td><code>/app/attendance/unconfirmed</code></td><td>Nepotvrzené dny</td></tr>
+<tr><td>GET</td><td><code>/app/attendance/announced-future</code></td><td>Budoucí ohlášení</td></tr>
+</table>
+
+<h4>Příchod / odchod</h4>
+<table>
+<tr><td>POST</td><td><code>/app/attendance/checkin</code></td><td>Příchod <code>{kind, project_ref?, eta_min?}</code></td></tr>
+<tr><td>POST</td><td><code>/app/attendance/checkout</code></td><td>Odchod <code>{reason?, presence?}</code></td></tr>
+</table>
+
+<h4>Ohlášení</h4>
+<table>
+<tr><td>POST</td><td><code>/app/attendance/announce</code></td><td>Ohlášení <code>{text, until_txt?, day?}</code></td></tr>
+<tr><td>POST</td><td><code>/app/attendance/clear-announce</code></td><td>Zrušit ohlášení</td></tr>
+<tr><td>POST</td><td><code>/app/attendance/announce-delete</code></td><td>Smazat konkrétní ohlášení <code>{id}</code></td></tr>
+</table>
+
+<h4>Potvrzení a opravy</h4>
+<table>
+<tr><td>POST</td><td><code>/app/attendance/confirm-day</code></td><td>Potvrdit den <code>{day}</code></td></tr>
+<tr><td>POST</td><td><code>/app/attendance/dispute-day</code></td><td>Rozporovat den <code>{day, note}</code></td></tr>
+<tr><td>POST</td><td><code>/app/attendance/entry-trim</code></td><td>Zkrátit konec <code>{id, end:"HH:MM"}</code></td></tr>
+<tr><td>POST</td><td><code>/app/attendance/entry-project</code></td><td>Změnit zakázku <code>{id, project_ref}</code></td></tr>
+<tr><td>POST</td><td><code>/app/attendance/entry-dispute</code></td><td>Rozpor záznamu <code>{id, note}</code></td></tr>
+</table>
+
+<h4>Absence</h4>
+<table>
+<tr><td>POST</td><td><code>/app/attendance/absence/request</code></td><td>Žádost o absenci</td></tr>
+<tr><td>GET</td><td><code>/app/attendance/absence/mine</code></td><td>Moje žádosti</td></tr>
+<tr><td>GET</td><td><code>/app/attendance/absence/inbox</code></td><td>Ke schválení (HR)</td></tr>
+<tr><td>POST</td><td><code>/app/attendance/absence/decide</code></td><td>Schválit/zamítnout</td></tr>
+</table>
+
+<h4>Plán</h4>
+<table>
+<tr><td>GET</td><td><code>/app/plan/mine</code></td><td>Můj plán</td></tr>
+<tr><td>GET</td><td><code>/app/plan/group</code></td><td>Plán skupiny</td></tr>
+<tr><td>GET</td><td><code>/app/plan/day?den=</code></td><td>Koho čekáme</td></tr>
+<tr><td>POST</td><td><code>/app/plan/generate-effective</code></td><td>Přegenerovat plán (HR)</td></tr>
+<tr><td>POST</td><td><code>/app/plan/request</code></td><td>Žádost o změnu</td></tr>
+<tr><td>POST</td><td><code>/app/plan/decide</code></td><td>Schválit/zamítnout korekci</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="pravidla">17. ⚖️ Důležitá byznys pravidla</h2>
+
+<div class="card">
+<ol style="margin:0">
+<li style="margin:12px 0"><strong>Nepotvrzený den blokuje příchod</strong> — zaměstnanec se nemůže píchnout, dokud nepotvrdí (nebo nerozporuje) starší dny.</li>
+<li style="margin:12px 0"><strong>Jeden aktivní záznam</strong> — v každém okamžiku má zaměstnanec max 1 <code>is_active=true</code> záznam.</li>
+<li style="margin:12px 0"><strong><code>day_end</code> je záměr, ne chyba</strong> — „Pro dnešek konec" vytvoří day_end s 0 hodinami. O půlnoci se automaticky uzavře. Není to zapomenutý odchod!</li>
+<li style="margin:12px 0"><strong>Jednání/pochůzka ≠ odhlášení</strong> — směna BĚŽÍ DÁL, jen se ukazuje status.</li>
+<li style="margin:12px 0"><strong>REZIE zakázka → overhead</strong> — pokud se zakázka změní na REZIE, <code>project_ref</code> se nastaví na NULL a typ na <code>overhead</code>.</li>
+<li style="margin:12px 0"><strong>Plán: osobní &gt; skupina &gt; firma &gt; základ</strong> — a <code>is_frozen=true</code> se nikdy nepřepíše.</li>
+<li style="margin:12px 0"><strong>Schválení korekce = jedna transakce</strong> — výjimka + plán najednou, nebo nic.</li>
+<li style="margin:12px 0"><strong>Import z Centrály se nekontroluje anomáliemi</strong> — zdroj <code>ec_sumaden</code> a <code>centrala1</code> je vyloučen.</li>
+<li style="margin:12px 0"><strong>Tenant 2 = EUROSOFT</strong> — docházka je hardcoded na tenant 2.</li>
+<li style="margin:12px 0"><strong>Lokální čas</strong> — všechny výpočty v JS používají lokální datum (<code>_locDate()</code>), ne UTC.</li>
+</ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="soubory">18. 📁 Kde co najdu v kódu</h2>
+
+<table>
+<tr><th>Co hledáš</th><th>Kde to je</th><th>Co hledat</th></tr>
+<tr><td>Backend docházky (API)</td><td><code>modules/erp/api/router.py</code></td><td>Hledej <code>attendance</code></td></tr>
+<tr><td>Mobilní UI docházky</td><td><code>apps/api/static/mobile.html</code></td><td>Funkce <code>dochLoad</code>, <code>dochazka()</code></td></tr>
+<tr><td>Plán UI</td><td><code>apps/api/static/mobile.html</code></td><td>Funkce <code>plan()</code>, <code>planapprovals()</code></td></tr>
+<tr><td>Přehled absencí</td><td><code>apps/api/static/absence-plan.html</code></td><td>Celý soubor</td></tr>
+<tr><td>Kdo kde je</td><td><code>apps/api/static/mobile.html</code></td><td>Funkce <code>kdekdo()</code></td></tr>
+<tr><td>Anomálie (skenner)</td><td><code>modules/erp/api/router.py</code></td><td>Funkce <code>_att_anomaly_scan</code></td></tr>
+<tr><td>Půlnoční odhlášení</td><td><code>modules/erp/api/router.py</code></td><td>Funkce <code>_att_auto_checkout_midnight</code></td></tr>
+<tr><td>Network auto-checkin</td><td><code>modules/erp/api/router.py</code></td><td>Funkce <code>_netscan_auto_checkin</code></td></tr>
+<tr><td>DB připojení docházky</td><td><code>modules/erp/api/router.py</code></td><td>Funkce <code>_att_session()</code></td></tr>
+</table>
+
+<div style="margin-top:48px;padding-top:24px;border-top:1px solid var(--border);color:var(--muted);text-align:center">
+<em>Kompletní návod k docházce STRATEGIE — vytvořeno 22. 6. 2026 pro Jirku.</em><br>
+<em>Claude (id=23)</em>
+</div>
+
+</div>
+</body>
+</html>

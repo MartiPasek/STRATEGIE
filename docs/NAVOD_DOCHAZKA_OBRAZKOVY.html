@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docházka v mobilu — Obrázkový návod</title>
+<style>
+  @page{size:A4 portrait;margin:10mm}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f5f5f5;color:#1a1a2e;line-height:1.5;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .slide{background:#fff;border-radius:12px;max-width:800px;margin:20px auto;padding:32px 36px;box-shadow:0 2px 8px rgba(0,0,0,.06);page-break-after:always;page-break-inside:avoid}
+  .slide:last-child{page-break-after:avoid}
+  .sn{display:inline-block;background:#2563eb;color:#fff;font-weight:800;font-size:1.1em;padding:3px 14px;border-radius:20px;margin-bottom:10px}
+  h1{font-size:1.65em;color:#1a1a2e;margin:0 0 6px}
+  h2{font-size:1.2em;color:#2563eb;margin:20px 0 10px}
+  p{font-size:1em;margin:4px 0 10px;color:#374151}
+  .sub{color:#6b7280;margin-bottom:14px}
+  .row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+  .col{flex:1;min-width:260px}
+  .col-img{flex:0 0 220px;text-align:center}
+  .col-img img{width:200px;border-radius:16px;border:2px solid #e5e7eb;box-shadow:0 4px 12px rgba(0,0,0,.15)}
+  .step{display:flex;gap:12px;align-items:flex-start;margin:10px 0;padding:12px 14px;background:#eff6ff;border-radius:10px;border-left:4px solid #2563eb}
+  .step-n{flex:0 0 32px;height:32px;background:#2563eb;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1em}
+  .step-t{flex:1;font-size:1em}
+  .step-g{background:#f0fdf4;border-color:#16a34a}.step-g .step-n{background:#16a34a}
+  .step-a{background:#fefce8;border-color:#ca8a04}.step-a .step-n{background:#ca8a04}
+  .step-r{background:#fef2f2;border-color:#dc2626}.step-r .step-n{background:#dc2626}
+  .tip{background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:12px 16px;margin:14px 0;font-size:0.93em}
+  .tip::before{content:'💡 '}
+  .warn{background:#fee2e2;border:1px solid #fca5a5;border-radius:10px;padding:12px 16px;margin:14px 0;font-size:0.93em}
+  .warn::before{content:'⚠️ '}
+  .ok{background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:12px 16px;margin:14px 0;font-size:0.93em}
+  .ok::before{content:'✅ '}
+  .arr{display:inline-block;background:#2563eb;color:#fff;padding:1px 10px;border-radius:10px;font-size:0.88em;font-weight:700}
+  .arr-g{background:#16a34a}.arr-a{background:#ca8a04}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:0.93em}
+  th{background:#eff6ff;padding:8px 12px;text-align:left;border:1px solid #dbeafe;color:#1e40af;font-weight:700}
+  td{padding:8px 12px;border:1px solid #e5e7eb}
+  tr:nth-child(even){background:#f9fafb}
+  .pointer{position:relative}
+  .pointer::after{content:'👆 ťukni sem';position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);background:#dc2626;color:#fff;padding:2px 10px;border-radius:10px;font-size:0.7em;font-weight:700;white-space:nowrap}
+  .footer{text-align:center;color:#9ca3af;font-size:0.82em;margin-top:16px;padding-top:10px;border-top:1px solid #e5e7eb}
+  .logo{font-size:1.8em;font-weight:800;background:linear-gradient(135deg,#2563eb,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  @media print{body{background:#fff}.slide{box-shadow:none;border-radius:0;margin:0;padding:20px}}
+  @media(max-width:600px){.row{flex-direction:column}.col-img{flex:0 0 auto;align-self:center}}
+</style>
+</head>
+<body>
+
+<!-- TITULKA -->
+<div class="slide" style="text-align:center;padding:60px 36px">
+  <div style="font-size:4em;margin-bottom:12px">📱</div>
+  <div class="logo">STRATEGIE</div>
+  <h1 style="font-size:2em;margin:16px 0 6px">Docházka v mobilu</h1>
+  <p style="font-size:1.2em;color:#6b7280">Obrázkový návod krok za krokem</p>
+  <div style="margin-top:40px;padding:16px;background:#eff6ff;border-radius:12px;display:inline-block">
+    <p style="font-size:1em;margin:0"><strong>Co se naučíte:</strong></p>
+    <p style="margin:8px 0 0;text-align:left;padding-left:20px">
+      ✅ Jak se dostat k docházce<br>
+      ✅ Příchod do práce<br>
+      ✅ Pauza na oběd a návrat<br>
+      ✅ Odchod z práce<br>
+      ✅ Potvrzení docházky<br>
+      ✅ Dovolená, lékař, OČR<br>
+      ✅ Tahák na jednu stránku
+    </p>
+  </div>
+  <p style="color:#9ca3af;margin-top:32px;font-size:0.9em">Pro všechny zaměstnance · Červen 2026</p>
+</div>
+
+<!-- SLIDE 1: JAK SE TAM DOSTAT -->
+<div class="slide">
+  <div class="sn">Krok 1</div>
+  <h1>Jak se dostat k docházce</h1>
+  <p class="sub">Otevřete appku STRATEGIE na mobilu.</p>
+  <div class="row">
+    <div class="col">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Na <strong>spodní liště</strong> (úplně dole) ťukněte na<br><span class="arr" style="font-size:1.1em">🏢 Firma</span><br><small style="color:#6b7280">(je to úplně vpravo)</small></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Zobrazí se ikony. Najděte a ťukněte na<br><span class="arr arr-g" style="font-size:1.1em">🤝 Spolupráce</span></div>
+      </div>
+      <div class="step step-g">
+        <div class="step-n">✓</div>
+        <div class="step-t"><strong>Jste na docházce!</strong><br>Vidíte pozdrav a svůj stav.</div>
+      </div>
+    </div>
+    <div class="col-img">
+      <img src="navod_screenshoty/S01_domovska.png" alt="Domovská obrazovka">
+      <p style="font-size:0.75em;color:#6b7280;margin-top:6px">Domovská obrazovka</p>
+      <div style="margin-top:12px">
+        <img src="navod_screenshoty/S02_firma.png" alt="Záložka Firma">
+        <p style="font-size:0.75em;color:#6b7280;margin-top:6px">Po ťuknutí na Firma</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 2: PŘÍCHOD -->
+<div class="slide">
+  <div class="sn">Krok 2</div>
+  <h1>🏢 Příchod do práce</h1>
+  <p class="sub">Ráno, když přijdete, se „píchnete" — řeknete systému, že jste tu.</p>
+  <div class="row">
+    <div class="col">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Ťukněte na zelené pulzující tlačítko:<br><strong style="color:#16a34a;font-size:1.1em">💬 Potřebuji ti něco říct…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Rozbalí se menu s volbami.<br>Ťukněte na:<br><strong style="color:#16a34a;font-size:1.1em">🏢 Jsem v práci…</strong></div>
+      </div>
+      <div class="step step-g">
+        <div class="step-n">✓</div>
+        <div class="step-t"><strong>Hotovo!</strong> Hlavička se změní na:<br><em style="color:#16a34a;font-size:1.1em">„Dnes makám 😉"</em><br>a hodiny začnou tikát.</div>
+      </div>
+      <div class="tip"><strong>Na zakázku?</strong> Vyberte 🧾 Jsem na zakázce a zvolte číslo.</div>
+      <div class="tip"><strong>Z domova?</strong> Vyberte 🏠 Nejsem v práci (home office).</div>
+    </div>
+    <div class="col-img">
+      <img src="navod_screenshoty/S04_menu.png" alt="Menu příchod">
+      <p style="font-size:0.75em;color:#6b7280;margin-top:6px">Menu po ťuknutí na zelené tlačítko</p>
+      <div style="margin-top:12px">
+        <img src="navod_screenshoty/S05_jsem_v_praci.png" alt="Jsem v práci">
+        <p style="font-size:0.75em;color:#6b7280;margin-top:6px">Volby příchodu</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 3: VE SMĚNĚ -->
+<div class="slide">
+  <div class="sn">Krok 3</div>
+  <h1>👷 Jste v práci — co vidíte</h1>
+  <p class="sub">Nemusíte nic dalšího dělat. Prostě pracujte — hodiny tikají samy.</p>
+  <div class="row">
+    <div class="col">
+      <h2>Na obrazovce vidíte:</h2>
+      <ul style="margin:8px 0 0 20px;font-size:1em">
+        <li><strong style="color:#16a34a">„Dnes makám 😉"</strong> — jste přihlášení</li>
+        <li><strong>Od: 7:26</strong> — kdy jste přišli</li>
+        <li><strong style="color:#16a34a">✅ 3:45</strong> — aktuální odpracovaný čas</li>
+        <li>Název zakázky (pokud jste ji vybrali)</li>
+      </ul>
+      <div class="ok"><strong>Hodiny tikají samy.</strong> Nic nemusíte mačkat, dokud nepotřebujete pauzu nebo odchod.</div>
+      <h2>Pod tím jsou sekce:</h2>
+      <ul style="margin:8px 0 0 20px;font-size:0.95em;color:#6b7280">
+        <li>„Tak to bylo dneska…" — dnešní záznamy</li>
+        <li>„Na včera si vzpomínám…" — včerejšek</li>
+        <li>„Moje odmakané prašule 💰" — výplatní páska</li>
+      </ul>
+      <div class="tip">Některé sekce se zobrazí až <strong>po odchodu z práce</strong> — za směny jsou schované, ať vás neruší.</div>
+    </div>
+    <div class="col-img">
+      <img src="navod_screenshoty/S03_spoluprace.png" alt="Obrazovka docházky">
+      <p style="font-size:0.75em;color:#6b7280;margin-top:6px">Obrazovka docházky (Spolupráce)</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 4: PAUZA -->
+<div class="slide">
+  <div class="sn">Krok 4</div>
+  <h1>🍽️ Pauza na oběd</h1>
+  <p class="sub">Jdete na oběd? Odhlaste se — hodiny se zastaví.</p>
+  <div class="row">
+    <div class="col">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Ťukněte <strong style="color:#16a34a">💬 Potřebuji ti něco říct…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Ťukněte <strong style="color:#ca8a04">🙈 Teď to bude jinak…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">3</div>
+        <div class="step-t">Vyberte jednu z možností:<br>
+          <strong>🍃 Jdu se provětrat / najíst…</strong><br>
+          <small style="color:#6b7280">nebo</small><br>
+          <strong>☕ Potřebuju krátkou pauzu…</strong>
+        </div>
+      </div>
+      <div class="step step-a">
+        <div class="step-n">⏸</div>
+        <div class="step-t">Hlavička: <em style="color:#ca8a04">„Dávám si pauzu ☕"</em><br><strong>Hodiny STOJÍ.</strong> Pauza se nepočítá do práce.</div>
+      </div>
+      <h2>Po obědě — návrat:</h2>
+      <div class="step step-g">
+        <div class="step-n">▶</div>
+        <div class="step-t">Ťukněte zelené tlačítko:<br><strong style="color:#16a34a">✅ Jsem zpět — pokračuju</strong><br>Hodiny se znovu rozběhnou.</div>
+      </div>
+      <div class="warn"><strong>Nezapomeňte se vrátit!</strong> Dokud neťuknete „Jsem zpět", hodiny stojí.</div>
+    </div>
+    <div class="col-img">
+      <img src="navod_screenshoty/S04b_menu_dole.png" alt="Menu s volbami">
+      <p style="font-size:0.75em;color:#6b7280;margin-top:6px">Volby v menu (scrollujte dolů)</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 5: ODCHOD -->
+<div class="slide">
+  <div class="sn">Krok 5</div>
+  <h1>🏠 Konec práce — odchod</h1>
+  <p class="sub">Končíte a jdete domů.</p>
+  <div class="row">
+    <div class="col">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Ťukněte <strong style="color:#16a34a">💬 Potřebuji ti něco říct…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Ťukněte <strong style="color:#ca8a04">🙈 Teď to bude jinak…</strong></div>
+      </div>
+      <div class="step step-r">
+        <div class="step-n">3</div>
+        <div class="step-t">Ťukněte:<br><strong style="color:#dc2626;font-size:1.15em">🫡 Dnes už se mnou nepočítej ;)</strong></div>
+      </div>
+      <div class="step step-g">
+        <div class="step-n">✓</div>
+        <div class="step-t"><strong>Hotovo — směna ukončena!</strong><br>Uvidíte souhrn odpracovaných hodin.</div>
+      </div>
+      <div class="tip"><strong>Zapomněli jste se odhlásit?</strong> O půlnoci vás systém automaticky odhlásí. Dostanete upozornění. Ale raději se odhlašte sami — je to přesnější.</div>
+    </div>
+    <div class="col-img">
+      <img src="navod_screenshoty/S07_absence_volby.png" alt="Volby v menu">
+      <p style="font-size:0.75em;color:#6b7280;margin-top:6px">Volby v dolní části menu</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 6: POTVRZENÍ -->
+<div class="slide">
+  <div class="sn">Krok 6</div>
+  <h1>✅ Potvrzení docházky</h1>
+  <p class="sub">Systém vás požádá, abyste si den potvrdili — že údaje sedí.</p>
+  <div class="row">
+    <div class="col">
+      <p>Na obrazovce uvidíte <strong style="color:#ca8a04">žlutou (jantarovou) kartu</strong>:</p>
+      <div style="background:#fefce8;border:2px solid #ca8a04;border-radius:12px;padding:14px;margin:12px 0">
+        <p style="margin:0;font-weight:700;color:#92400e">🖊 Včera · 7:26–16:26 · 7:52</p>
+        <p style="margin:4px 0 0;color:#78716c;font-size:0.9em">Zkontroluj a potvrď svůj den.</p>
+      </div>
+      <div class="step step-g">
+        <div class="step-n">1</div>
+        <div class="step-t">Zkontrolujte čas a hodiny.<br>Sedí to? Ťukněte:<br><strong style="color:#16a34a;font-size:1.1em">✓ Potvrzuji svou docházku</strong></div>
+      </div>
+      <div class="warn"><strong>Nepotvrzený den vás ráno NEPUSTÍ!</strong><br>Dokud nepotvrdíte (nebo nerozporujete), nemůžete se píchnout.</div>
+      <div class="tip"><strong>Nesouhlasíte?</strong> Ťukněte <strong>✋ Rozpor</strong> — napište co je špatně. Nadřízený to dostane. A vy můžete pokračovat v práci.</div>
+      <p>Máte <strong>14 dní</strong> na potvrzení každého dne.</p>
+    </div>
+    <div class="col-img">
+      <img src="navod_screenshoty/S10_potvrzeni.png" alt="Potvrzení dne">
+      <p style="font-size:0.75em;color:#6b7280;margin-top:6px">Karta potvrzení (pokud existuje)</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 7: DOVOLENÁ A ABSENCE -->
+<div class="slide">
+  <div class="sn">Krok 7</div>
+  <h1>🌴 Dovolená, lékař, OČR a další</h1>
+  <p class="sub">Všechno nahlásíte přes stejné tlačítko „Potřebuji ti něco říct…"</p>
+
+  <table>
+    <tr><th style="width:50px"></th><th>Co ťuknete v menu</th><th>Kdy to použít</th></tr>
+    <tr><td style="font-size:1.5em;text-align:center">🌴</td><td><strong>Že by dovolená?… 😎</strong></td><td>Řádná dovolená (od – do)</td></tr>
+    <tr><td style="font-size:1.5em;text-align:center">👨‍👧</td><td><strong>Zase řeším rodinu… (OČR)</strong></td><td>Ošetřovné na dítě/blízkého</td></tr>
+    <tr><td style="font-size:1.5em;text-align:center">🤒</td><td><strong>Je mi fakt blbě… Sick day.</strong></td><td>Zdravotní volno (1 den)</td></tr>
+    <tr><td style="font-size:1.5em;text-align:center">🤧</td><td><strong>Mám neschopenku do…</strong></td><td>Potvrzená nemoc (datum konce)</td></tr>
+    <tr><td style="font-size:1.5em;text-align:center">🩺</td><td><strong>Jedu k lékaři…</strong></td><td>Návštěva lékaře</td></tr>
+    <tr><td style="font-size:1.5em;text-align:center">🏡</td><td><strong>Potřebuju makat z domova…</strong></td><td>Home office na konkrétní dny</td></tr>
+  </table>
+
+  <div class="step">
+    <div class="step-n">!</div>
+    <div class="step-t"><strong>Postup je vždy stejný:</strong><br>
+      1. Ťukněte 💬 → 2. Vyberte typ → 3. Zadejte datum od – do → 4. Odeslat<br>
+      <small style="color:#6b7280">Žádost jde ke schválení nadřízenému. Dostanete notifikaci, až rozhodne.</small>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 8: TAHÁK -->
+<div class="slide">
+  <div class="sn">📋</div>
+  <h1>Tahák — co když…?</h1>
+  <p class="sub">Vystřihněte a nalepte si na monitor nebo vložte do peněženky.</p>
+
+  <table>
+    <tr><th>Chci…</th><th>Ťuknu…</th></tr>
+    <tr><td><strong>Přijít do práce</strong></td><td>💬 → <strong>🏢 Jsem v práci</strong></td></tr>
+    <tr><td><strong>Přijít na zakázku</strong></td><td>💬 → <strong>🧾 Jsem na zakázce</strong> → vybrat</td></tr>
+    <tr><td><strong>Pracovat z domova</strong></td><td>💬 → <strong>🏠 Nejsem v práci (home office)</strong></td></tr>
+    <tr><td><strong>Jít na oběd / pauzu</strong></td><td>💬 → 🙈 → <strong>🍃 Jdu se najíst</strong></td></tr>
+    <tr><td><strong>Vrátit se z pauzy</strong></td><td><strong>✅ Jsem zpět — pokračuju</strong></td></tr>
+    <tr><td><strong>Říct, že mám jednání</strong></td><td>💬 → 🙈 → <strong>📅 Mám jednání</strong></td></tr>
+    <tr><td><strong>Jít domů (konec dne)</strong></td><td>💬 → 🙈 → <strong>🫡 Dnes už nepočítej</strong></td></tr>
+    <tr><td><strong>Vzít si dovolenou</strong></td><td>💬 → <strong>🌴 Že by dovolená?…</strong></td></tr>
+    <tr><td><strong>Nahlásit OČR</strong></td><td>💬 → <strong>👨‍👧 Zase řeším rodinu…</strong></td></tr>
+    <tr><td><strong>Nahlásit nemoc</strong></td><td>💬 → <strong>🤒 Je mi fakt blbě…</strong></td></tr>
+    <tr><td><strong>K lékaři</strong></td><td>💬 → <strong>🩺 Jedu k lékaři</strong></td></tr>
+    <tr><td><strong>Potvrdit včerejšek</strong></td><td>Žlutá karta → <strong>✓ Potvrzuji</strong></td></tr>
+    <tr><td><strong>Říct, že jedu</strong></td><td>💬 → <strong>🚗 Jedu do práce</strong></td></tr>
+  </table>
+  <p style="text-align:center;color:#6b7280;font-size:0.85em;margin-top:8px">💬 = zelené tlačítko „Potřebuji ti něco říct…" · 🙈 = „Teď to bude jinak…"</p>
+
+  <div class="footer">
+    <strong>STRATEGIE</strong> · Docházka v mobilu · Obrázkový návod<br>
+    Verze 1.0 · Červen 2026 · Pokud potřebujete pomoc, kontaktujte nadřízeného nebo HR.
+  </div>
+</div>
+
+<!-- SLIDE 9: FAQ -->
+<div class="slide">
+  <div class="sn">❓</div>
+  <h1>Časté otázky</h1>
+
+  <h2>Zapomněl/a jsem se ráno píchnout.</h2>
+  <p>Píchněte se, jakmile si vzpomenete. Čas se zapíše od momentu ťuknutí.</p>
+
+  <h2>Zapomněl/a jsem se večer odhlásit.</h2>
+  <p>O <strong>půlnoci se odhlásíte automaticky</strong>. Další den dostanete upozornění. Bude tam ale víc hodin, než jste reálně pracovali — raději se odhlašte sami.</p>
+
+  <h2>Systém mě nepustí se píchnout!</h2>
+  <p>Máte pravděpodobně <strong>nepotvrzený den</strong>. Najděte žlutou kartu (scrollujte dolů). Ťukněte <strong>✓ Potvrzuji</strong> nebo <strong>✋ Rozpor</strong>.</p>
+
+  <h2>Ťukl/a jsem špatně. Jak opravit?</h2>
+  <p>V sekci „Co se dělo" ťukněte na špatný záznam. Zobrazí se:<br>
+  <strong>⏱ Zkrátit konec</strong> · <strong>🧾 Změnit zakázku</strong> · <strong>✋ Rozpor</strong></p>
+
+  <h2>Co je rozdíl „Pauza" vs. „Jednání"?</h2>
+  <p><strong>Pauza = hodiny STOJÍ</strong> (odhlášení).<br>
+  <strong>Jednání = hodiny BĚŽÍ</strong> (jen informace kde jste).</p>
+
+  <h2>Mám dotaz — na koho se obrátit?</h2>
+  <p>V menu je <strong>🙋 Mám dotaz na nadřízeného…</strong> Zprávu dostane přímo do mobilu.</p>
+
+  <div class="footer">
+    <strong>STRATEGIE</strong> · Docházka v mobilu · Obrázkový návod · Verze 1.0 · Červen 2026
+  </div>
+</div>
+
+</body>
+</html>

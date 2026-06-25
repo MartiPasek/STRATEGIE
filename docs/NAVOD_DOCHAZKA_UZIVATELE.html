@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docházka v mobilu — Návod krok za krokem</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;background:#f0f2f5;color:#1a1a2e;line-height:1.5;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+
+  .slide{
+    background:#fff;border-radius:16px;max-width:780px;margin:24px auto;
+    padding:36px 40px 40px;box-shadow:0 2px 12px rgba(0,0,0,.08);
+    page-break-after:always;page-break-inside:avoid;
+    min-height:auto;
+  }
+  .slide:last-child{page-break-after:avoid}
+
+  .slide-num{display:inline-block;background:#2563eb;color:#fff;font-weight:800;font-size:1.1em;padding:4px 14px;border-radius:20px;margin-bottom:12px}
+  .slide h1{font-size:1.7em;color:#1a1a2e;margin:0 0 8px;line-height:1.3}
+  .slide h2{font-size:1.3em;color:#2563eb;margin:24px 0 12px}
+  .slide h3{font-size:1.1em;color:#7c3aed;margin:20px 0 8px}
+  .slide p{font-size:1.05em;margin:6px 0 10px;color:#374151}
+  .slide .sub{font-size:1em;color:#6b7280;margin-bottom:16px}
+
+  /* Phone mockup */
+  .phone{width:260px;border:3px solid #d1d5db;border-radius:28px;padding:12px 14px 16px;background:#111827;margin:0 auto;position:relative}
+  .phone-notch{width:80px;height:6px;background:#374151;border-radius:3px;margin:0 auto 8px}
+  .phone-screen{background:#0d1117;border-radius:14px;overflow:hidden;min-height:200px}
+  .phone-home{height:4px;width:60px;background:#4b5563;border-radius:2px;margin:10px auto 0}
+
+  /* Phone UI elements */
+  .p-tab{display:flex;justify-content:space-around;background:#161b22;padding:8px 4px 6px;border-top:1px solid #30363d;font-size:0.6em;color:#8b949e}
+  .p-tab span{text-align:center;line-height:1.3}
+  .p-tab .active{color:#58a6ff;font-weight:700}
+  .p-btn{display:block;margin:5px 8px;padding:8px 10px;border-radius:10px;font-size:0.72em;text-align:center;line-height:1.3}
+  .p-btn-green{background:#1a3a2a;color:#3fb950;border:1px solid #238636}
+  .p-btn-amber{background:#2a2a1a;color:#d29922;border:1px solid #9e6a03}
+  .p-btn-blue{background:#1a2a3a;color:#58a6ff;border:1px solid #1f6feb}
+  .p-btn-ghost{background:transparent;color:#8b949e;border:1px solid #30363d}
+  .p-btn-red{background:#3a1a1a;color:#f85149;border:1px solid #da3633}
+  .p-head{padding:10px 10px 8px;font-size:0.78em;color:#e6edf3}
+  .p-head-title{font-size:1.1em;font-weight:700}
+  .p-section{padding:6px 10px;font-size:0.65em;color:#8b949e;border-top:1px solid #21262d}
+  .p-card{margin:5px 8px;padding:8px 10px;background:#161b22;border:1px solid #30363d;border-radius:8px;font-size:0.65em;color:#e6edf3}
+  .p-confirm{margin:5px 8px;padding:8px 10px;background:#2a2a1a;border:2px solid #d29922;border-radius:10px;font-size:0.65em;color:#d29922;text-align:center}
+
+  /* Layout helpers */
+  .two-col{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap}
+  .two-col .col-text{flex:1;min-width:280px}
+  .two-col .col-phone{flex:0 0 290px}
+
+  .step{display:flex;gap:14px;align-items:flex-start;margin:12px 0;padding:14px 16px;background:#f0f7ff;border-radius:12px;border-left:4px solid #2563eb}
+  .step-n{flex:0 0 36px;height:36px;background:#2563eb;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1em}
+  .step-t{flex:1;font-size:1.05em}
+  .step-t strong{color:#1a1a2e}
+
+  .step-green{background:#f0fdf4;border-color:#16a34a}
+  .step-green .step-n{background:#16a34a}
+  .step-amber{background:#fefce8;border-color:#ca8a04}
+  .step-amber .step-n{background:#ca8a04}
+  .step-red{background:#fef2f2;border-color:#dc2626}
+  .step-red .step-n{background:#dc2626}
+
+  .arrow{display:inline-block;background:#2563eb;color:#fff;padding:2px 10px;border-radius:12px;font-size:0.85em;font-weight:700;margin:0 2px}
+  .arrow-green{background:#16a34a}
+  .arrow-amber{background:#ca8a04}
+
+  .tip{background:#fef3c7;border:1px solid #fbbf24;border-radius:12px;padding:14px 18px;margin:16px 0;font-size:0.95em}
+  .tip::before{content:'💡 ';font-size:1.2em}
+  .warn{background:#fee2e2;border:1px solid #fca5a5;border-radius:12px;padding:14px 18px;margin:16px 0;font-size:0.95em}
+  .warn::before{content:'⚠️ ';font-size:1.2em}
+  .ok{background:#dcfce7;border:1px solid #86efac;border-radius:12px;padding:14px 18px;margin:16px 0;font-size:0.95em}
+  .ok::before{content:'✅ ';font-size:1.2em}
+
+  .table-simple{width:100%;border-collapse:collapse;margin:12px 0;font-size:0.95em}
+  .table-simple th{background:#eff6ff;padding:10px 14px;text-align:left;border:1px solid #dbeafe;color:#1e40af;font-weight:700}
+  .table-simple td{padding:10px 14px;border:1px solid #e5e7eb}
+  .table-simple tr:nth-child(even){background:#f9fafb}
+
+  .logo-bar{text-align:center;padding:20px;margin-bottom:12px}
+  .logo-bar img{height:48px}
+  .logo-text{font-size:2em;font-weight:800;background:linear-gradient(135deg,#2563eb,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.5px}
+
+  .footer{text-align:center;color:#9ca3af;font-size:0.85em;margin-top:20px;padding-top:12px;border-top:1px solid #e5e7eb}
+
+  @media print {
+    body{background:#fff}
+    .slide{box-shadow:none;border-radius:0;margin:0;padding:24px 20px 20px;max-width:100%}
+    .no-print{display:none}
+  }
+  @media(max-width:700px){
+    .slide{margin:12px;padding:20px}
+    .two-col{flex-direction:column}
+    .two-col .col-phone{flex:0 0 auto;align-self:center}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============== SLIDE 0: TITULKA ============== -->
+<div class="slide" style="text-align:center;display:flex;flex-direction:column;justify-content:center;min-height:500px">
+  <div style="font-size:4em;margin-bottom:16px">📱</div>
+  <div class="logo-text">STRATEGIE</div>
+  <h1 style="font-size:2em;margin:20px 0 8px">Docházka v mobilu</h1>
+  <p style="font-size:1.3em;color:#6b7280">Návod krok za krokem</p>
+  <p style="font-size:1em;color:#9ca3af;margin-top:32px">Pro všechny zaměstnance · Verze 1.0 · Červen 2026</p>
+  <p style="font-size:0.9em;color:#d1d5db;margin-top:8px">Vytiskněte si nebo čtěte na obrazovce</p>
+</div>
+
+<!-- ============== SLIDE 1: JAK SE TAM DOSTAT ============== -->
+<div class="slide">
+  <div class="slide-num">1</div>
+  <h1>Jak se dostat k docházce</h1>
+  <p class="sub">Otevřete appku STRATEGIE v mobilu. Na spodní liště vidíte 5 ikon.</p>
+
+  <div class="two-col">
+    <div class="col-text">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Na spodní liště ťukněte na <span class="arrow">🏢 Firma</span><br><small style="color:#6b7280">(úplně vpravo dole)</small></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Zobrazí se ikony firmy. Ťukněte na <span class="arrow arrow-green">🤝 Spolupráce</span></div>
+      </div>
+      <div class="step step-green">
+        <div class="step-n">✓</div>
+        <div class="step-t"><strong>Jste na obrazovce docházky!</strong><br>Uvidíte pozdrav a svůj aktuální stav.</div>
+      </div>
+
+      <div class="tip">
+        Existuje i zkratka: na liště <span class="arrow">Aplikace</span> (druhá ikona zleva) najdete dlaždici <strong>🤝 Spolupráce</strong> taky.
+      </div>
+    </div>
+    <div class="col-phone">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="p-head">
+            <div style="text-align:center;padding:20px 0 10px">
+              <div style="font-size:2.5em">🤝</div>
+              <div style="font-size:0.9em;color:#8b949e;margin-top:4px">Spolupráce</div>
+            </div>
+          </div>
+          <div class="p-tab">
+            <span>🏠<br>Domů</span>
+            <span>⊞<br>Aplikace</span>
+            <span>🔔<br>Úkoly</span>
+            <span>👤<br>Kontakty</span>
+            <span class="active" style="position:relative">🏢<br>Firma<div style="position:absolute;top:-6px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:6px solid #58a6ff"></div></span>
+          </div>
+        </div>
+        <div class="phone-home"></div>
+      </div>
+      <p style="text-align:center;color:#6b7280;font-size:0.85em;margin-top:8px">Ťukněte na 🏢 Firma → 🤝 Spolupráce</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============== SLIDE 2: PŘÍCHOD DO PRÁCE ============== -->
+<div class="slide">
+  <div class="slide-num">2</div>
+  <h1>🏢 Příchod do práce</h1>
+  <p class="sub">Ráno, když přijdete do práce, se „píchnete" — řeknete systému, že jste tu.</p>
+
+  <div class="two-col">
+    <div class="col-text">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Na obrazovce docházky ťukněte na zelené tlačítko:<br><strong style="color:#16a34a;font-size:1.15em">💬 Potřebuji ti něco říct…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Rozbalí se menu. Ťukněte na:<br><strong style="color:#16a34a;font-size:1.15em">🏢 Jsem v práci…</strong></div>
+      </div>
+      <div class="step step-green">
+        <div class="step-n">✓</div>
+        <div class="step-t"><strong>Hotovo!</strong> Hlavička se změní na:<br><em style="color:#16a34a">„Dnes makám 😉"</em><br>a začne se počítat čas.</div>
+      </div>
+
+      <div class="tip">
+        <strong>Jedete na zakázku?</strong> Místo „Jsem v práci" ťukněte <strong>🧾 Jsem na zakázce</strong> a vyberte číslo zakázky.
+      </div>
+      <div class="tip">
+        <strong>Pracujete z domova?</strong> Ťukněte <strong>🏠 Nejsem v práci… (home office)</strong>.
+      </div>
+    </div>
+    <div class="col-phone">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="p-head">
+            <div style="color:#8b949e;font-size:0.8em">Ahoj!</div>
+            <div class="p-head-title">Tak co, jdeme na to? 🌅</div>
+          </div>
+          <div class="p-btn p-btn-green" style="border:2px solid #3fb950;font-weight:700;animation:pulse 2s infinite">💬 Potřebuji ti něco říct…</div>
+          <div style="padding:4px 8px;font-size:0.55em;color:#58a6ff;text-align:center">▼ rozbalí se menu ▼</div>
+          <div class="p-btn p-btn-green" style="font-weight:700">🏢 Jsem v práci…</div>
+          <div class="p-btn p-btn-green">🏠 Nejsem v práci… (home office)</div>
+          <div class="p-btn p-btn-green">🚗 Jedu do práce…</div>
+          <div class="p-tab">
+            <span>🏠<br>Domů</span><span>⊞<br>Aplik.</span><span>🔔<br>Úkoly</span><span>👤<br>Kont.</span><span class="active">🏢<br>Firma</span>
+          </div>
+        </div>
+        <div class="phone-home"></div>
+      </div>
+    </div>
+  </div>
+  <style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.65}}</style>
+</div>
+
+<!-- ============== SLIDE 3: TEĎ JSTE V PRÁCI ============== -->
+<div class="slide">
+  <div class="slide-num">3</div>
+  <h1>👷 Teď jste v práci</h1>
+  <p class="sub">Systém počítá vaše hodiny. Nemusíte nic dalšího dělat — prostě pracujte.</p>
+
+  <div class="two-col">
+    <div class="col-text">
+      <h2>Co vidíte na obrazovce</h2>
+      <ul style="font-size:1.05em;margin:8px 0 0 20px">
+        <li><strong style="color:#16a34a">„Dnes makám 😉"</strong> — jste přihlášeni</li>
+        <li><strong>Od: 7:26</strong> — kdy jste začali</li>
+        <li><strong style="color:#16a34a">✅ 2:15</strong> — kolik hodin už máte (aktualizuje se živě)</li>
+        <li>Název zakázky (pokud jste ji vybrali)</li>
+      </ul>
+
+      <div class="ok">
+        <strong>Nemusíte nic mačkat.</strong> Hodiny tikají samy. Až budete potřebovat pauzu nebo odchod, pokračujte dalším krokem.
+      </div>
+    </div>
+    <div class="col-phone">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="p-head" style="background:linear-gradient(135deg,#1a3a2a,#111827)">
+            <div style="color:#8b949e;font-size:0.7em">Ahoj Petro!</div>
+            <div class="p-head-title" style="color:#3fb950">Dnes makám 😉</div>
+            <div style="color:#8b949e;font-size:0.75em;margin-top:4px">Od: 7:26 — VR74514 &nbsp; <span style="color:#3fb950;font-weight:700">✅ 2:15</span></div>
+          </div>
+          <div class="p-btn p-btn-green" style="font-weight:700">💬 Potřebuji ti něco říct…</div>
+          <div class="p-section" style="font-weight:700;color:#d29922">── Tak to bylo dneska… ──</div>
+          <div class="p-card">
+            <div style="color:#3fb950">👷 7:26 – nyní</div>
+            <div style="color:#8b949e;font-size:0.9em">VR74514 · práce</div>
+          </div>
+          <div class="p-tab">
+            <span>🏠<br>Domů</span><span>⊞<br>Aplik.</span><span>🔔<br>Úkoly</span><span>👤<br>Kont.</span><span class="active">🏢<br>Firma</span>
+          </div>
+        </div>
+        <div class="phone-home"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============== SLIDE 4: PAUZA NA OBĚD ============== -->
+<div class="slide">
+  <div class="slide-num">4</div>
+  <h1>🍽️ Pauza na oběd</h1>
+  <p class="sub">Když jdete na oběd nebo si potřebujete dát pauzu, odhlaste se. Hodiny se zastaví.</p>
+
+  <div class="two-col">
+    <div class="col-text">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Ťukněte <strong style="color:#16a34a">💬 Potřebuji ti něco říct…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Ťukněte <strong style="color:#ca8a04">🙈 Teď to bude jinak…</strong><br><small style="color:#6b7280">(rozbalí se další volby)</small></div>
+      </div>
+      <div class="step">
+        <div class="step-n">3</div>
+        <div class="step-t">Vyberte:<br>
+          <strong>🍃 Jdu se provětrat / najíst…</strong><br>
+          <small style="color:#6b7280">nebo</small><br>
+          <strong>☕ Potřebuju krátkou pauzu…</strong>
+        </div>
+      </div>
+      <div class="step step-amber">
+        <div class="step-n">✓</div>
+        <div class="step-t">Hlavička se změní na:<br><em style="color:#ca8a04">„Dávám si pauzu ☕"</em><br><strong>Hodiny NETIKAJÍ</strong> (pauza se nepočítá).</div>
+      </div>
+
+      <h3>Návrat z pauzy</h3>
+      <p>Ťukněte zelené tlačítko <strong>Jsem zpět — pokračuju</strong> a směna se zase rozběhne.</p>
+
+      <div class="warn">
+        <strong>Pauza = hodiny stojí!</strong> Nezapomeňte se po obědě znovu „píchnout" zpátky.
+      </div>
+    </div>
+    <div class="col-phone">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="p-head" style="background:linear-gradient(135deg,#2a2a1a,#111827)">
+            <div style="color:#8b949e;font-size:0.7em">Ahoj Petro!</div>
+            <div class="p-head-title" style="color:#d29922">Dávám si pauzu ☕</div>
+            <div style="color:#8b949e;font-size:0.75em;margin-top:4px">Pauza od 11:30</div>
+          </div>
+          <div class="p-btn p-btn-green" style="font-weight:700">✅ Jsem zpět — pokračuju</div>
+          <div class="p-section" style="color:#8b949e">── Tak to bylo dneska… ──</div>
+          <div class="p-card">
+            <div style="color:#d29922">☕ 11:30 – nyní · pauza</div>
+          </div>
+          <div class="p-card">
+            <div style="color:#3fb950">👷 7:26 – 11:30 · 4:04</div>
+            <div style="color:#8b949e;font-size:0.9em">VR74514</div>
+          </div>
+          <div class="p-tab">
+            <span>🏠<br>Domů</span><span>⊞<br>Aplik.</span><span>🔔<br>Úkoly</span><span>👤<br>Kont.</span><span class="active">🏢<br>Firma</span>
+          </div>
+        </div>
+        <div class="phone-home"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============== SLIDE 5: KONEC PRÁCE ============== -->
+<div class="slide">
+  <div class="slide-num">5</div>
+  <h1>🏠 Konec práce (odchod)</h1>
+  <p class="sub">Když končíte a jdete domů.</p>
+
+  <div class="two-col">
+    <div class="col-text">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Ťukněte <strong style="color:#16a34a">💬 Potřebuji ti něco říct…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Ťukněte <strong style="color:#ca8a04">🙈 Teď to bude jinak…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">3</div>
+        <div class="step-t">Ťukněte:<br><strong style="color:#dc2626;font-size:1.1em">🫡 Dnes už se mnou nepočítej ;)</strong></div>
+      </div>
+      <div class="step step-green">
+        <div class="step-n">✓</div>
+        <div class="step-t"><strong>Hotovo!</strong> Směna ukončena.<br>Uvidíte souhrn odpracovaných hodin.</div>
+      </div>
+
+      <div class="tip">
+        <strong>Zapomněli jste se odhlásit?</strong> Systém vás o půlnoci automaticky odhlásí a pošle upozornění. Ale raději se odhlašte sami — je to přesnější.
+      </div>
+    </div>
+    <div class="col-phone">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="p-head">
+            <div class="p-head-title" style="color:#e6edf3">Tak co, jdeme na to? 🌅</div>
+            <div style="color:#8b949e;font-size:0.75em;margin-top:4px">Dnes: <span style="color:#3fb950;font-weight:700">7:52</span> odpracováno</div>
+          </div>
+          <div class="p-btn p-btn-green" style="font-weight:700">💬 Potřebuji ti něco říct…</div>
+          <div class="p-section" style="font-weight:700;color:#d29922">── Tak to bylo dneska… ──</div>
+          <div class="p-card">
+            <div style="color:#3fb950">👷 12:00 – 16:26 · 4:26</div>
+          </div>
+          <div class="p-card">
+            <div style="color:#d29922">☕ 11:30 – 12:00 · 0:30 pauza</div>
+          </div>
+          <div class="p-card">
+            <div style="color:#3fb950">👷 7:26 – 11:30 · 4:04</div>
+          </div>
+          <div class="p-tab">
+            <span>🏠<br>Domů</span><span>⊞<br>Aplik.</span><span>🔔<br>Úkoly</span><span>👤<br>Kont.</span><span class="active">🏢<br>Firma</span>
+          </div>
+        </div>
+        <div class="phone-home"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============== SLIDE 6: POTVRZENÍ DNE ============== -->
+<div class="slide">
+  <div class="slide-num">6</div>
+  <h1>✅ Potvrzení docházky</h1>
+  <p class="sub">Po konci dne (nebo další ráno) vás systém požádá, abyste si den potvrdili.</p>
+
+  <div class="two-col">
+    <div class="col-text">
+      <p>Na obrazovce docházky uvidíte <strong style="color:#ca8a04">jantarovou (žlutou) kartu</strong> s textem:<br>
+      <em>„🖊 Včera · 7:26–16:26 · 7:52 (3 záznamy)"</em></p>
+
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Zkontrolujte si, jestli údaje sedí<br><small style="color:#6b7280">(můžete ťuknout „🔍 Raději chci vidět detaily…" pro detail)</small></div>
+      </div>
+      <div class="step step-green">
+        <div class="step-n">2</div>
+        <div class="step-t">Ťukněte zelené tlačítko:<br><strong style="color:#16a34a;font-size:1.1em">✓ Potvrzuji svou docházku</strong></div>
+      </div>
+
+      <div class="warn">
+        <strong>Dokud nepotvrdíte, nemůžete se ráno píchnout!</strong>
+        Systém zobrazí kartu a nepustí vás dál, dokud nekliknete „Potvrzuji" nebo „Rozpor".
+      </div>
+
+      <div class="tip">
+        <strong>Nesouhlasíte?</strong> Ťukněte <strong>✋ Rozpor</strong> a napište, co je špatně. Dostane to váš nadřízený k vyřešení. Rozpor vás pustí pracovat dál.
+      </div>
+
+      <p style="color:#6b7280"><strong>Máte 14 dní</strong> na potvrzení každého dne.</p>
+    </div>
+    <div class="col-phone">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="p-head">
+            <div class="p-head-title">Tak co, jdeme na to? 🌅</div>
+          </div>
+          <div class="p-confirm" style="animation:pulse 2s infinite">
+            <div style="font-weight:700">🖊 Včera · 7:26–16:26 · 7:52</div>
+            <div style="font-size:0.9em;color:#8b949e;margin:4px 0">Zkontroluj a potvrď svůj den.</div>
+            <div style="margin-top:6px;background:#1a3a2a;color:#3fb950;padding:6px;border-radius:8px;font-weight:700">✓ Potvrzuji svou docházku</div>
+            <div style="margin-top:4px;color:#8b949e;font-size:0.9em">🔍 Raději chci vidět detaily…</div>
+          </div>
+          <div class="p-btn p-btn-green" style="font-weight:700">💬 Potřebuji ti něco říct…</div>
+          <div class="p-tab">
+            <span>🏠<br>Domů</span><span>⊞<br>Aplik.</span><span>🔔<br>Úkoly</span><span>👤<br>Kont.</span><span class="active">🏢<br>Firma</span>
+          </div>
+        </div>
+        <div class="phone-home"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============== SLIDE 7: DOVOLENÁ ============== -->
+<div class="slide">
+  <div class="slide-num">7</div>
+  <h1>🌴 Nahlášení dovolené</h1>
+  <p class="sub">Chcete si vzít dovolenou? Nahlaste ji předem přímo z mobilu.</p>
+
+  <div class="two-col">
+    <div class="col-text">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Na docházce ťukněte <strong>💬 Potřebuji ti něco říct…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Přejděte dolů a najděte:<br><strong style="color:#ca8a04;font-size:1.1em">🌴 Že by dovolená?… 😎</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">3</div>
+        <div class="step-t">Zobrazí se <strong>výběr datumů</strong>:<br>
+          <em>„Dovolená od: [datum] do: [datum]"</em><br>
+          Vyberte začátek a konec dovolené.</div>
+      </div>
+      <div class="step">
+        <div class="step-n">4</div>
+        <div class="step-t">Ťukněte <strong style="color:#16a34a">Odeslat</strong></div>
+      </div>
+      <div class="step step-amber">
+        <div class="step-n">⏳</div>
+        <div class="step-t"><strong>Žádost odeslána ke schválení.</strong><br>Váš nadřízený (nebo HR) ji schválí nebo zamítne. Dostanete notifikaci.</div>
+      </div>
+
+      <div class="ok">
+        Po schválení se dovolená automaticky propíše do vašeho plánu a do přehledu „Kdo kde je".
+      </div>
+    </div>
+    <div class="col-phone">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="p-head">
+            <div class="p-head-title">Tak co, jdeme na to? 🌅</div>
+          </div>
+          <div style="padding:4px 8px;font-size:0.6em;color:#58a6ff;text-align:center">▼ v menu scrollujte dolů ▼</div>
+          <div class="p-btn p-btn-amber" style="font-weight:700">🌴 Že by dovolená?… 😎</div>
+          <div style="margin:5px 8px;padding:8px 10px;background:#161b22;border:1px solid #30363d;border-radius:8px;font-size:0.65em;color:#e6edf3">
+            <div style="color:#d29922;font-weight:700;margin-bottom:4px">Dovolená</div>
+            <div>od: <span style="background:#1c2128;padding:2px 8px;border-radius:4px">24.06.2026</span></div>
+            <div style="margin-top:4px">do: <span style="background:#1c2128;padding:2px 8px;border-radius:4px">28.06.2026</span></div>
+            <div style="margin-top:8px;background:#1a3a2a;color:#3fb950;padding:6px;border-radius:8px;text-align:center;font-weight:700">Odeslat</div>
+          </div>
+          <div class="p-tab">
+            <span>🏠<br>Domů</span><span>⊞<br>Aplik.</span><span>🔔<br>Úkoly</span><span>👤<br>Kont.</span><span class="active">🏢<br>Firma</span>
+          </div>
+        </div>
+        <div class="phone-home"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============== SLIDE 8: DALŠÍ ABSENCE ============== -->
+<div class="slide">
+  <div class="slide-num">8</div>
+  <h1>🏥 Další druhy nepřítomnosti</h1>
+  <p class="sub">Stejným způsobem (přes „Potřebuji ti něco říct…") nahlásíte i ostatní důvody.</p>
+
+  <table class="table-simple">
+    <tr>
+      <th style="width:50px">Ikona</th>
+      <th>Co ťuknete</th>
+      <th>Kdy to použít</th>
+    </tr>
+    <tr>
+      <td style="font-size:1.5em;text-align:center">🌴</td>
+      <td><strong>Že by dovolená?… 😎</strong></td>
+      <td>Řádná dovolená (vybíráte datum od–do)</td>
+    </tr>
+    <tr>
+      <td style="font-size:1.5em;text-align:center">👨‍👧</td>
+      <td><strong>Zase řeším rodinu… (OČR)</strong></td>
+      <td>Ošetřovné na dítě / blízkého (datum od–do)</td>
+    </tr>
+    <tr>
+      <td style="font-size:1.5em;text-align:center">🤒</td>
+      <td><strong>Je mi fakt blbě… Sick day.</strong></td>
+      <td>Zdravotní volno (1 den, bez lékaře)</td>
+    </tr>
+    <tr>
+      <td style="font-size:1.5em;text-align:center">🤧</td>
+      <td><strong>Mám neschopenku do…</strong></td>
+      <td>Lékařem potvrzená nemoc (datum konce)</td>
+    </tr>
+    <tr>
+      <td style="font-size:1.5em;text-align:center">🩺</td>
+      <td><strong>Jedu k lékaři…</strong></td>
+      <td>Návštěva lékaře (pak dorazíte NEBO ne)</td>
+    </tr>
+    <tr>
+      <td style="font-size:1.5em;text-align:center">🏡</td>
+      <td><strong>Potřebuju makat z domova…</strong></td>
+      <td>Home office na konkrétní dny</td>
+    </tr>
+    <tr>
+      <td style="font-size:1.5em;text-align:center">🕐</td>
+      <td><strong>Něco si zařizuji…</strong></td>
+      <td>Krátkodobá nepřítomnost (pak se vrátíte)</td>
+    </tr>
+  </table>
+
+  <div class="tip">
+    U všech typů nepřítomnosti systém pošle <strong>žádost ke schválení</strong> vašemu nadřízenému. Dostanete notifikaci, až bude rozhodnuto.
+  </div>
+</div>
+
+<!-- ============== SLIDE 9: JEDNÁNÍ A POCHŮZKA ============== -->
+<div class="slide">
+  <div class="slide-num">9</div>
+  <h1>🤝 Jednání a služební pochůzka</h1>
+  <p class="sub">Musíte na schůzku nebo jít na pochůzku? Směna běží dál, jen řeknete kde jste.</p>
+
+  <div class="two-col">
+    <div class="col-text">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Ťukněte <strong>💬 Potřebuji ti něco říct…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Ťukněte <strong>🙈 Teď to bude jinak…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">3</div>
+        <div class="step-t">Vyberte:<br>
+          <strong>📅 Mám jednání…</strong> nebo<br>
+          <strong>🚗 Mám služební pochůzku…</strong><br>
+          a zadejte čas „do kdy"
+        </div>
+      </div>
+      <div class="step step-green">
+        <div class="step-n">✓</div>
+        <div class="step-t">Hlavička: <em style="color:#58a6ff">„Mám jednání do 15:00 🤝"</em><br>
+          <strong style="color:#16a34a">Hodiny TIKAJÍ DÁL!</strong><br>
+          Uvidíte tlačítka <strong>Konec</strong> a <strong>Prodloužit</strong>.
+        </div>
+      </div>
+
+      <div class="ok">
+        <strong>Tohle NENÍ pauza!</strong> Směna běží, hodiny se počítají. Je to jen informace pro ostatní, kde zrovna jste.
+      </div>
+    </div>
+    <div class="col-phone">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="p-head" style="background:linear-gradient(135deg,#1a2a3a,#111827)">
+            <div style="color:#8b949e;font-size:0.7em">Ahoj Petro!</div>
+            <div class="p-head-title" style="color:#58a6ff">Mám jednání do 15:00 🤝</div>
+            <div style="color:#3fb950;font-size:0.75em;margin-top:4px">Směna běží · ✅ 5:34</div>
+          </div>
+          <div style="display:flex;gap:6px;margin:5px 8px">
+            <div class="p-btn p-btn-amber" style="flex:1;font-weight:700">Konec</div>
+            <div class="p-btn p-btn-blue" style="flex:1">Prodloužit</div>
+          </div>
+          <div class="p-tab">
+            <span>🏠<br>Domů</span><span>⊞<br>Aplik.</span><span>🔔<br>Úkoly</span><span>👤<br>Kont.</span><span class="active">🏢<br>Firma</span>
+          </div>
+        </div>
+        <div class="phone-home"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============== SLIDE 10: JEDU DO PRÁCE ============== -->
+<div class="slide">
+  <div class="slide-num">10</div>
+  <h1>🚗 Jedu do práce (na cestě)</h1>
+  <p class="sub">Můžete dát vědět, že jste na cestě — kolegové uvidí, že dorazíte.</p>
+
+  <div class="two-col">
+    <div class="col-text">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div class="step-t">Ťukněte <strong>💬 Potřebuji ti něco říct…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div class="step-t">Ťukněte <strong style="color:#16a34a">🚗 Jedu do práce…</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-n">3</div>
+        <div class="step-t">Vyberte, za kolik minut dorazíte:<br>
+          <span class="arrow arrow-green">5 min</span>
+          <span class="arrow arrow-green">15 min</span>
+          <span class="arrow arrow-green">30 min</span>
+          <span class="arrow arrow-green">45 min</span>
+          <span class="arrow arrow-green">1 h</span>
+        </div>
+      </div>
+
+      <div class="tip">
+        Hlavička se změní na <em style="color:#ca8a04">„Už jedu do práce 🚗"</em> — kolegové v „Kdo kde je" vidí, že jste na cestě.
+        <strong>Hodiny se ještě nepočítají</strong> — počítají se až po příchodu.
+      </div>
+    </div>
+    <div class="col-phone">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="p-head">
+            <div class="p-head-title">Tak co, jdeme na to? 🌅</div>
+          </div>
+          <div class="p-btn p-btn-green" style="font-weight:700">🚗 Jedu do práce…</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin:4px 8px">
+            <div style="background:#1a3a2a;color:#3fb950;padding:4px 10px;border-radius:16px;font-size:0.65em;border:1px solid #238636">5 min</div>
+            <div style="background:#1a3a2a;color:#3fb950;padding:4px 10px;border-radius:16px;font-size:0.65em;border:1px solid #238636">15 min</div>
+            <div style="background:#1a3a2a;color:#3fb950;padding:4px 10px;border-radius:16px;font-size:0.65em;border:1px solid #238636">30 min</div>
+            <div style="background:#1a3a2a;color:#3fb950;padding:4px 10px;border-radius:16px;font-size:0.65em;border:1px solid #238636">45 min</div>
+            <div style="background:#1a3a2a;color:#3fb950;padding:4px 10px;border-radius:16px;font-size:0.65em;border:1px solid #238636">1 h</div>
+            <div style="background:#1a3a2a;color:#3fb950;padding:4px 10px;border-radius:16px;font-size:0.65em;border:1px solid #238636">1,5 h</div>
+          </div>
+          <div class="p-tab">
+            <span>🏠<br>Domů</span><span>⊞<br>Aplik.</span><span>🔔<br>Úkoly</span><span>👤<br>Kont.</span><span class="active">🏢<br>Firma</span>
+          </div>
+        </div>
+        <div class="phone-home"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============== SLIDE 11: SHRNUTÍ / TAHÁK ============== -->
+<div class="slide">
+  <div class="slide-num">📋</div>
+  <h1>Tahák — co když…?</h1>
+  <p class="sub">Rychlý přehled. Vystřihněte si a nalepte na monitor nebo do peněženky.</p>
+
+  <table class="table-simple">
+    <tr>
+      <th>Chci…</th>
+      <th>Ťuknu…</th>
+    </tr>
+    <tr>
+      <td><strong>Přijít do práce</strong></td>
+      <td>💬 → <strong>🏢 Jsem v práci</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Přijít na zakázku</strong></td>
+      <td>💬 → <strong>🧾 Jsem na zakázce</strong> → vybrat zakázku</td>
+    </tr>
+    <tr>
+      <td><strong>Pracovat z domova</strong></td>
+      <td>💬 → <strong>🏠 Nejsem v práci (home office)</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Jít na oběd / pauzu</strong></td>
+      <td>💬 → 🙈 → <strong>🍃 Jdu se provětrat / najíst</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Vrátit se z pauzy</strong></td>
+      <td><strong>✅ Jsem zpět — pokračuju</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Říct, že mám jednání</strong></td>
+      <td>💬 → 🙈 → <strong>📅 Mám jednání</strong> → zadat čas „do"</td>
+    </tr>
+    <tr>
+      <td><strong>Jít domů (konec dne)</strong></td>
+      <td>💬 → 🙈 → <strong>🫡 Dnes už se mnou nepočítej</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Vzít si dovolenou</strong></td>
+      <td>💬 → <strong>🌴 Že by dovolená?…</strong> → datum od–do</td>
+    </tr>
+    <tr>
+      <td><strong>Nahlásit OČR</strong></td>
+      <td>💬 → <strong>👨‍👧 Zase řeším rodinu…</strong> → datum od–do</td>
+    </tr>
+    <tr>
+      <td><strong>Nahlásit nemoc</strong></td>
+      <td>💬 → <strong>🤒 Je mi fakt blbě… Sick day.</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Nahlásit lékaře</strong></td>
+      <td>💬 → <strong>🩺 Jedu k lékaři</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Potvrdit včerejšek</strong></td>
+      <td>Jantarová karta → <strong>✓ Potvrzuji svou docházku</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Říct, že jedu</strong></td>
+      <td>💬 → <strong>🚗 Jedu do práce</strong> → vybrat čas</td>
+    </tr>
+  </table>
+
+  <div class="tip">
+    <strong>Legenda:</strong> 💬 = zelené tlačítko „Potřebuji ti něco říct…" · 🙈 = oranžové „Teď to bude jinak…" (jen za směny)
+  </div>
+</div>
+
+<!-- ============== SLIDE 12: TIPY A ČASTÉ OTÁZKY ============== -->
+<div class="slide">
+  <div class="slide-num">❓</div>
+  <h1>Časté otázky</h1>
+
+  <h3>Zapomněl/a jsem se ráno píchnout. Co teď?</h3>
+  <p>Píchnete se, jakmile si vzpomenete. Systém vám zapíše příchod od aktuálního času. Pokud potřebujete opravit čas, kontaktujte nadřízeného.</p>
+
+  <h3>Zapomněl/a jsem se večer odhlásit. Co se stane?</h3>
+  <p>Systém vás o <strong>půlnoci automaticky odhlásí</strong>. Další den dostanete upozornění. Směna se zapíše, ale konec bude o půlnoci — což bude pravděpodobně víc hodin, než jste reálně pracovali. Raději se odhlašujte sami.</p>
+
+  <h3>Nemůžu se píchnout — systém mě nepustí!</h3>
+  <p>Máte pravděpodobně <strong>nepotvrzený den</strong>. Scrollujte dolů a najděte jantarovou kartu. Ťukněte <strong>✓ Potvrzuji</strong> nebo <strong>✋ Rozpor</strong>. Pak se můžete píchnout.</p>
+
+  <h3>Ťukl/a jsem špatně. Jak to opravit?</h3>
+  <p>V sekci „Co se vlastně dělo…" ťukněte na špatný záznam. Zobrazí se tlačítka:<br>
+    <strong>⏱ Zkrátit konec</strong> · <strong>🧾 Změnit zakázku</strong> · <strong>✋ Rozpor</strong></p>
+
+  <h3>Co znamená „Směna běží" vs. „Pauza"?</h3>
+  <p><strong>Směna běží</strong> = hodiny se počítají (zelená hlavička).<br>
+    <strong>Pauza</strong> = hodiny STOJÍ (oranžová hlavička). Musíte se vrátit.</p>
+
+  <h3>Mám dotaz a nevím na koho se obrátit.</h3>
+  <p>V menu je tlačítko <strong>🙋 Mám dotaz na nadřízeného…</strong> — napište zprávu a odešlete. Dostane ji váš nadřízený přímo do mobilu.</p>
+
+  <div class="footer">
+    <strong>STRATEGIE</strong> · Docházka v mobilu · Návod pro zaměstnance · Verze 1.0 · Červen 2026<br>
+    Pokud potřebujete pomoc, kontaktujte svého nadřízeného nebo HR.
+  </div>
+</div>
+
+</body>
+</html>

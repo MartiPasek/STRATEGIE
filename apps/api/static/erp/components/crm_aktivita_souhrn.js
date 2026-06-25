@@ -71,11 +71,20 @@
       var optAll = document.createElement("option");
       optAll.value = "__ALL__"; optAll.textContent = "Všichni";
       selAutor.appendChild(optAll);
+      var have = {};
       (list || []).forEach(function (o) {
+        have[o.autor] = true;
         var op = document.createElement("option");
         op.value = o.autor; op.textContent = o.autor + " (" + o.pocet + ")";
         selAutor.appendChild(op);
       });
+      // Default = přihlášený uživatel. Když není v seznamu (nemá akce v CRM),
+      // přidej ho jako volbu, ať dropdown ukazuje JEHO, ne „Všichni" (Kristý 25.6.).
+      if (selected && selected.length && !have[selected]) {
+        var opMe = document.createElement("option");
+        opMe.value = selected; opMe.textContent = selected + " (já)";
+        selAutor.insertBefore(opMe, optAll.nextSibling);
+      }
       selAutor.value = (selected && selected.length) ? selected : "__ALL__";
       if (selAutor.selectedIndex < 0) selAutor.value = "__ALL__";
     }
@@ -94,7 +103,9 @@
         .then(function (j) {
           if (!j || !j.ok) { stav.textContent = "✗ " + ((j && j.error) || "chyba"); return; }
           if (!autoriLoaded) {
-            fillAutori(j.obchodnici, j.muj_autor || (j.autor || ""));
+            // j.autor = obchodník, podle kterého server reálně filtroval (default = já).
+            // Dropdown nastavíme PŘESNĚ na něj → čísla i filtr si odpovídají.
+            fillAutori(j.obchodnici, j.autor || j.muj_autor || "");
             autoriLoaded = true;
           }
           renderKarty(j.counts);

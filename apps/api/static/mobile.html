@@ -1427,6 +1427,7 @@ setTimeout(function(){
     // Marti 9.6.: vše ze složky Firma = aplikace. Výroba + její seznamy jako ikony,
     // řízení (Vedení) jako složka. Deep-link otevře Výrobu rovnou na daném seznamu.
     g.appendChild(appCell("🏭","Výroba",0,function(){go("vyroba_hub");}));
+    g.appendChild(appCell("💰","Finance",0,function(){openInApp("/finance");}));   // Petřin finance sandbox (Marti 25.6.2026)
     g.appendChild(appCell("🧰","Moje činnosti",0,function(){go("moje_cinnosti");}));
     g.appendChild(appCell("🪪","Moje osobní údaje",0,function(){go("hr_me");}));
     g.appendChild(appCell("⚡","Výuka",0,function(){go("uceni");}));

@@ -41495,6 +41495,11 @@ def _render_full_page(
              onclick="event.preventDefault(); window.open('/flow','strategieFlow','noopener');"
              class="erp-navico" data-hint="FLOW — přehledy běhu zakázek (Časová osa, VP, Nákup, Výroba…)">
              <span class="erp-navico-ico">🏭</span><span class="erp-navico-cap">Výroba</span></a>
+          <!-- Finance — sandbox Petra (Marti 25.6.2026): banka, pokladny, deník, párování. -->
+          <a id="erpFinanceLink" href="/finance" target="_blank" rel="noopener"
+             onclick="event.preventDefault(); window.open('/finance','strategieFinance','noopener');"
+             class="erp-navico" data-hint="Finance — sandbox Petra (banka, pokladny, deník, párování)">
+             <span class="erp-navico-ico">💰</span><span class="erp-navico-cap">Finance</span></a>
           <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled
                smazány z headeru — duplikát s browser title barem. Zachováno jako
                skryté kotvy pro JS update document.title (žádný visual). -->

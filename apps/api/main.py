@@ -984,6 +984,18 @@ def denik_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/finance")
+def finance_page():
+    """Finance — sandbox Petra (Marti 25.6.2026): rozcestník finančních nástrojů
+    (banka & saldo, pokladny & karty, účetní deník, párování, bank. napojení).
+    Funguje v ERP (dlaždice Finance), v appce (launcher) i samostatném okně.
+    SAMEORIGIN pro případný iframe embed v ERP."""
+    return FileResponse(os.path.join(static_dir, "finance.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/hromady")
 def hromady_page():
     """Doklady roztříděné na hromady (FP/FV/banka/pokladna) — pohled účetní před účtováním.

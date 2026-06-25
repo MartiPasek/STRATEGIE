@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Finance — STRATEGIE</title>
+<style>
+  :root{
+    --bg:#0e0f11; --surface:#16181c; --surface2:#1c1f24; --bord:#2a2e35;
+    --txt:#e6eaf0; --mut:#9aa3b0; --ac:#34d399; --ac2:#2dd4bf; --amber:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+       padding:22px 18px 48px;line-height:1.5}
+  .wrap{max-width:1000px;margin:0 auto}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  h1{font-size:26px;margin:0;font-weight:800;letter-spacing:.2px}
+  .tag{font-size:12px;font-weight:700;color:#0e0f11;background:var(--amber);
+       padding:3px 10px;border-radius:999px}
+  .lead{color:var(--mut);font-size:14.5px;margin:8px 0 26px;max-width:760px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+  a.card{display:block;text-decoration:none;color:inherit;background:var(--surface);
+       border:1px solid var(--bord);border-radius:14px;padding:18px 18px 16px;
+       transition:border-color .12s,background .12s,transform .12s}
+  a.card:hover{border-color:var(--ac2);background:var(--surface2);transform:translateY(-2px)}
+  .ic{font-size:30px;line-height:1;margin-bottom:10px}
+  .ct{font-size:16.5px;font-weight:700;margin:0 0 4px}
+  .cd{font-size:13px;color:var(--mut);margin:0}
+  .more{display:inline-block;margin-top:11px;color:var(--ac2);font-weight:700;font-size:13px}
+  .note{margin-top:30px;padding:14px 16px;background:var(--surface);border:1px dashed var(--bord);
+        border-radius:12px;color:var(--mut);font-size:13px}
+  .note b{color:var(--txt)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>💰 Finance</h1>
+    <span class="tag">sandbox · Petra</span>
+  </header>
+  <p class="lead">Pracovní plocha financí — banka, pokladny a karty, účetní deník,
+     párování a bankovní napojení na jednom místě. Rozcestník postupně poroste podle
+     toho, co Petra potřebuje.</p>
+
+  <div class="grid">
+    <a class="card" href="/banka">
+      <div class="ic">🏦</div>
+      <p class="ct">Banka &amp; saldo</p>
+      <p class="cd">Transakce z banky, párování, saldo pohledávek a závazků (reálně otevřené).</p>
+      <span class="more">Otevřít →</span>
+    </a>
+    <a class="card" href="/pokladny">
+      <div class="ic">💳</div>
+      <p class="ct">Pokladny &amp; karty</p>
+      <p class="cd">Pokladny, kartové účty a registr platebních karet (držitel, středisko).</p>
+      <span class="more">Otevřít →</span>
+    </a>
+    <a class="card" href="/denik">
+      <div class="ic">🧾</div>
+      <p class="ct">Účetní deník</p>
+      <p class="cd">Živé účetní zápisy řazené dle jistoty — triáž a kontrola.</p>
+      <span class="more">Otevřít →</span>
+    </a>
+    <a class="card" href="/banka-napojeni">
+      <div class="ic">🔌</div>
+      <p class="ct">Bankovní napojení</p>
+      <p class="cd">Připojení banky (certifikát do trezoru), účty a stahování transakcí.</p>
+      <span class="more">Otevřít →</span>
+    </a>
+  </div>
+
+  <div class="note">
+    <b>Sandbox.</b> Tahle stránka je Petřina finanční pracovní plocha — klidně si řekni,
+    co sem přidat (další nástroj, přehled, zkratku) a doplníme to.
+  </div>
+</div>
+</body>
+</html>

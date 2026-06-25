@@ -1242,9 +1242,12 @@ async def doklad_pdf(request: Request):
         mcp = get_eurosoft_mcp_client()
         if mcp is None:
             return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"}, status_code=503)
+        # UNC \\192.168.30.11\data\... → lokální D:\data\... (MCP RO root je D:\data na EC-SERVER2)
+        dp_loc = ("D:\\data" + dp[len("\\\\192.168.30.11\\data"):]) \
+                 if dp.lower().startswith("\\\\192.168.30.11\\data") else dp
         raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
-                                  {"user_namespace": "ro", "base_override": _np.dirname(dp),
-                                   "path": _np.basename(dp), "encoding": "base64"}, conversation_id=None)
+                                  {"user_namespace": "ro", "base_override": _np.dirname(dp_loc),
+                                   "path": _np.basename(dp_loc), "encoding": "base64"}, conversation_id=None)
         r2 = _je.loads(raw2) if isinstance(raw2, str) else raw2
         if isinstance(r2, dict) and r2.get("ok") is False:
             return JSONResponse({"ok": False, "error": "Sken nenalezen: " + dp}, status_code=404)

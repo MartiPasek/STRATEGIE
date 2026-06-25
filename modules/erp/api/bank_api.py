@@ -879,3 +879,122 @@ async def predkontace_kucharka(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+# Posting SQL automatu bank_v1 (idempotentní, jen CZK, jistota + bonus za zakázku)
+_BANK_POST_SQL = (
+    "INSERT INTO tenant.ucetni_denik (tenant_id, datum, doklad, ucet_md, ucet_dal, castka, mena, popis, "
+    "kategorie, zdroj, zdroj_id, actor_type, actor_id, jistota, jistota_zdroj, review_stav, created_at) "
+    "SELECT :tn, t.datum, left(t.ext_id,64), COALESCE(pk.ucet_md,pr.ucet_md,pm.ucet_md), "
+    "COALESCE(pk.ucet_dal,pr.ucet_dal,pm.ucet_dal), abs(t.castka), 'CZK', "
+    "left('Banka: '||COALESCE(pk.klic,pr.klic,pm.klic,'')||CASE WHEN t.par_zakazka IS NOT NULL THEN ' zak '||t.par_zakazka ELSE '' END||COALESCE(' - '||left(t.zprava,70),''),240), "
+    "COALESCE(t.par_kategorie,t.par_metoda), 'bank', t.id, 'automat', :aid, "
+    "LEAST(99, COALESCE(pk.base_jistota,pr.base_jistota,pm.base_jistota)+CASE WHEN t.par_zakazka IS NOT NULL THEN 10 ELSE 0 END), "
+    "'predkontace_'||COALESCE(pk.klic,pr.klic,pm.klic,'')||CASE WHEN t.par_zakazka IS NOT NULL THEN '+zakazka' ELSE '' END, "
+    "'nezkontrolovano', now() "
+    "FROM tenant.bank_transaction_raw t "
+    "LEFT JOIN tenant.bank_predkontace pk ON pk.tenant_id=:tn AND pk.typ_klice='kategorie' AND pk.klic=t.par_kategorie AND pk.aktivni AND (pk.smer IS NULL OR pk.smer=t.smer) "
+    "LEFT JOIN tenant.bank_predkontace pr ON pr.tenant_id=:tn AND pr.typ_klice='rada' AND pr.klic=t.par_doklad_rada AND pr.aktivni AND (pr.smer IS NULL OR pr.smer=t.smer) "
+    "LEFT JOIN tenant.bank_predkontace pm ON pm.tenant_id=:tn AND pm.typ_klice='metoda' AND pm.klic=t.par_metoda AND pm.aktivni AND (pm.smer IS NULL OR pm.smer=t.smer) "
+    "WHERE t.par_metoda IS NOT NULL AND (t.mena='CZK' OR t.mena IS NULL) "
+    "AND COALESCE(pk.ucet_md,pr.ucet_md,pm.ucet_md) IS NOT NULL "
+    "AND NOT EXISTS (SELECT 1 FROM tenant.ucetni_denik d WHERE d.zdroj='bank' AND d.zdroj_id=t.id)")
+
+
+@bank_router.get("/app/uctovani/automat")
+async def automat_info(request: Request):
+    """Občanka automatu: kdo vytvořil/schválil, verze, aktivní, jak se spouští + log běhů."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    kod = (request.query_params.get("kod") or "bank_v1").strip()
+    s = _sess()
+    try:
+        a = s.execute(_t(
+            "SELECT kod, nazev, verze, popis, vytvoril, to_char(vytvoreno,'DD.MM.YYYY HH24:MI') AS vytvoreno, "
+            "schvalil, to_char(schvaleno,'DD.MM.YYYY HH24:MI') AS schvaleno, aktivni, spousteni, "
+            "to_char(posledni_beh,'DD.MM.YYYY HH24:MI') AS posledni_beh "
+            "FROM tenant.automat WHERE tenant_id=:tn AND kod=:k"), {"tn": _TENANT, "k": kod}).mappings().first()
+        if not a:
+            return JSONResponse({"ok": False, "error": "automat nenalezen"}, status_code=404)
+        runs = [dict(r) for r in s.execute(_t(
+            "SELECT spustil, to_char(spusteno,'DD.MM.YYYY HH24:MI') AS kdy, zapsano, vysledek, trvani_ms "
+            "FROM tenant.automat_run WHERE tenant_id=:tn AND automat_kod=:k ORDER BY spusteno DESC LIMIT 15"),
+            {"tn": _TENANT, "k": kod}).mappings().all()]
+        pravidel = s.execute(_t("SELECT count(*) FROM tenant.bank_predkontace WHERE tenant_id=:tn AND aktivni"), {"tn": _TENANT}).scalar()
+        zapisu = s.execute(_t("SELECT count(*) FROM tenant.ucetni_denik WHERE tenant_id=:tn AND actor_id=:aid"),
+                           {"tn": _TENANT, "aid": "automat:" + kod}).scalar()
+        return {"ok": True, "automat": dict(a), "behy": runs, "pocet_pravidel": pravidel, "pocet_zapisu": zapisu}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/uctovani/automat/run")
+async def automat_run_now(request: Request):
+    """Ruční spuštění automatu — zaúčtuje nové napárované transakce + zapíše běh do logu."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    kod = (body.get("kod") or "bank_v1").strip()
+    import time as _time
+    s = _sess()
+    try:
+        akt = s.execute(_t("SELECT aktivni FROM tenant.automat WHERE tenant_id=:tn AND kod=:k"),
+                        {"tn": _TENANT, "k": kod}).scalar()
+        if akt is None:
+            return JSONResponse({"ok": False, "error": "automat nenalezen"}, status_code=404)
+        if not akt:
+            return JSONResponse({"ok": False, "error": "automat je DEAKTIVOVANÝ — nejdřív ho aktivuj"}, status_code=400)
+        t0 = _time.time()
+        rr = s.execute(_t(_BANK_POST_SQL), {"tn": _TENANT, "aid": "automat:" + kod})
+        zapsano = rr.rowcount if rr.rowcount is not None else 0
+        s.execute(_t(
+            "INSERT INTO tenant.ucetni_denik_log (tenant_id, denik_id, akce, actor_type, actor_id, nova_hodnota, ts) "
+            "SELECT :tn, d.id, 'vznik', d.actor_type, d.actor_id, "
+            "jsonb_build_object('castka',d.castka,'ucet_md',d.ucet_md,'ucet_dal',d.ucet_dal,'jistota',d.jistota), now() "
+            "FROM tenant.ucetni_denik d WHERE d.zdroj='bank' AND d.actor_type='automat' "
+            "AND NOT EXISTS (SELECT 1 FROM tenant.ucetni_denik_log l WHERE l.denik_id=d.id AND l.akce='vznik')"),
+            {"tn": _TENANT})
+        ms = int((_time.time() - t0) * 1000)
+        vysl = "zaúčtováno %d nových" % zapsano if zapsano else "nic nového k zaúčtování"
+        s.execute(_t("INSERT INTO tenant.automat_run (tenant_id, automat_kod, spustil, zapsano, vysledek, trvani_ms) "
+                     "VALUES (:tn,:k,:who,:z,:v,:ms)"),
+                  {"tn": _TENANT, "k": kod, "who": "human:%s" % uid, "z": zapsano, "v": vysl, "ms": ms})
+        s.execute(_t("UPDATE tenant.automat SET posledni_beh=now() WHERE tenant_id=:tn AND kod=:k"), {"tn": _TENANT, "k": kod})
+        s.commit()
+        return {"ok": True, "zapsano": zapsano, "trvani_ms": ms}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/uctovani/automat/toggle")
+async def automat_toggle(request: Request):
+    """Aktivace / deaktivace automatu."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    kod = (body.get("kod") or "bank_v1").strip()
+    s = _sess()
+    try:
+        nova = s.execute(_t("UPDATE tenant.automat SET aktivni = NOT aktivni WHERE tenant_id=:tn AND kod=:k RETURNING aktivni"),
+                         {"tn": _TENANT, "k": kod}).scalar()
+        s.commit()
+        return {"ok": True, "aktivni": nova}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

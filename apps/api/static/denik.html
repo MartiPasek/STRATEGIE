@@ -121,20 +121,42 @@ function closeDetail(){document.getElementById('ov').style.display='none';}
 async function openKucharka(){
   const ov=document.getElementById('ov');const b=document.getElementById('ovbody');
   ov.style.display='';b.innerHTML='Otevírám kuchařku… 📖';
-  const r=await fetch(API+'/api/v1/erp/app/uctovani/predkontace',{credentials:'include'}).then(x=>x.json());
-  if(!r.ok){b.innerHTML='<div style="color:#ff8b8b">'+(r.error||'chyba')+'</div>';return;}
+  const [ai,rk]=await Promise.all([
+    fetch(API+'/api/v1/erp/app/uctovani/automat?kod=bank_v1',{credentials:'include'}).then(x=>x.json()).catch(()=>({ok:false})),
+    fetch(API+'/api/v1/erp/app/uctovani/predkontace',{credentials:'include'}).then(x=>x.json())
+  ]);
+  if(!rk.ok){b.innerHTML='<div style="color:#ff8b8b">'+(rk.error||'chyba')+'</div>';return;}
   let h=`<div style="display:flex;justify-content:space-between;align-items:center">
-    <h2 style="margin:0;font-size:16px">📖 Kuchařka automata</h2>
-    <button class="chip" onclick="closeDetail()">✕</button></div>
-    <div class="muted" style="font-size:12px;margin:6px 0 10px">Postavil: <b>${r.postavil||''}</b></div>
+    <h2 style="margin:0;font-size:16px">🤖 Automat — občanka & kuchařka</h2>
+    <button class="chip" onclick="closeDetail()">✕</button></div>`;
+  if(ai.ok){const a=ai.automat;
+    h+=`<div style="background:#0f1622;border:1px solid #2c3850;border-radius:10px;padding:11px;margin:10px 0;font-size:12.5px;line-height:1.7">
+      <div style="font-size:14px;margin-bottom:4px"><b>${a.nazev}</b> <code>${a.kod}</code> · verze <b>${a.verze}</b>
+        ${a.aktivni?'<span class="j hi">AKTIVNÍ</span>':'<span class="j lo">DEAKTIVOVÁN</span>'}</div>
+      <b>Vytvořil:</b> ${a.vytvoril||'?'} · ${a.vytvoreno||''}<br>
+      <b>Schválil:</b> ${a.schvalil||'<i>neschváleno</i>'} · ${a.schvaleno||''}<br>
+      <b>Spouštění:</b> ${a.spousteni||''} · <b>poslední běh:</b> ${a.posledni_beh||'—'}<br>
+      <b>Pravidel:</b> ${ai.pocet_pravidel} · <b>zaúčtováno zápisů:</b> ${ai.pocet_zapisu}
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="chip on" onclick="automatRun()">▶ Spustit ručně</button>
+        <button class="chip" style="background:${a.aktivni?'#3a1818':'#1a3320'};color:${a.aktivni?'#ff8b8b':'#8fe0a0'}" onclick="automatToggle()">${a.aktivni?'⏸ Deaktivovat':'▶ Aktivovat'}</button>
+      </div><div id="amsg" class="muted" style="margin-top:6px"></div></div>`;
+    if(ai.behy&&ai.behy.length){h+='<div style="font-size:12px;color:#9fb0c8;margin-bottom:10px"><b>📜 Log běhů:</b><br>'+ai.behy.map(x=>`${x.kdy} · ${x.spustil} · <b>${x.vysledek}</b> (${x.trvani_ms} ms)`).join('<br>')+'</div>';}
+  }
+  h+=`<div class="muted" style="font-size:12px;margin:4px 0 6px">📖 Kuchařka — ${rk.pravidla.length} pravidel (${rk.postavil||''}):</div>
     <table style="font-size:12px"><tr><th>Klíč</th><th>Typ</th><th>Směr</th><th>MD / Dal</th><th>Jistota</th><th>Poznámka</th></tr>`;
-  h+=r.pravidla.map(p=>`<tr>
-    <td><code>${p.klic}</code></td><td class="muted">${p.typ_klice}</td><td class="muted">${p.smer||'—'}</td>
-    <td class="ucet">${p.ucet_md} / ${p.ucet_dal}</td>
-    <td><span class="j ${jcls(p.base_jistota)}">${Math.round(p.base_jistota)}%</span></td>
-    <td class="muted">${p.pozn||''}</td></tr>`).join('');
+  h+=rk.pravidla.map(p=>`<tr><td><code>${p.klic}</code></td><td class="muted">${p.typ_klice}</td><td class="muted">${p.smer||'—'}</td><td class="ucet">${p.ucet_md} / ${p.ucet_dal}</td><td><span class="j ${jcls(p.base_jistota)}">${Math.round(p.base_jistota)}%</span></td><td class="muted">${p.pozn||''}</td></tr>`).join('');
   h+='</table>';
   b.innerHTML=h;
+}
+async function automatRun(){
+  const m=document.getElementById('amsg');if(m)m.textContent='Spouštím automata… ▶';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/automat/run',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({kod:'bank_v1'})}).then(x=>x.json());
+  if(r.ok){if(m)m.textContent='✓ Hotovo — zaúčtováno '+r.zapsano+' ('+r.trvani_ms+' ms)';load();setTimeout(openKucharka,500);}else if(m){m.textContent='✗ '+(r.error||'chyba');}
+}
+async function automatToggle(){
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/automat/toggle',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({kod:'bank_v1'})}).then(x=>x.json());
+  if(r.ok){openKucharka();}else{const m=document.getElementById('amsg');if(m)m.textContent='✗ '+(r.error||'chyba');}
 }
 async function doReview(id,akce){
   const m=document.getElementById('ovmsg');if(m)m.textContent='…';

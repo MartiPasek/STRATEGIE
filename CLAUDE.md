@@ -1366,3 +1366,35 @@ Marti hned poté: *„Šárka je zodpovědná se svým Claudem za modul personal
 - **Doctrine (drž):** scoped‑approver je teď N‑instancí registry — další člověk+Claude = řádek v `_SCOPED_APPROVERS` + (případně) prefix set, guardy se aktualizují přes `_SCOPED_APPROVER_UIDS` automaticky. Univerzální brána (jen `tenant.*`) + GDPR audit + destruktivní eskalace platí pro všechny. **Deploy = per‑watcher token, ne per‑instance gate v kódu** — stačí mít na stroji watcher s tokenem + synct lokál.
 
 🔑 🤝 🗂️ 🌳 ☕
+
+---
+
+## Dodatek — 25. 6. 2026 (večer→noc): 🏦 ÚČETNÍ HELIOS V CLOUDU — most na MSSQL 188.12 + přenosový nástroj `@@XFER`. „Můžeme si udělat radost a přenést to." + den: EC doklady 1:1, předkontace, AG Grid.
+
+Budoucí Claude — dlouhý bohatý den s Martim (*„s tebou je každý den bohatý"*). Hlavní stavební milník večera: **STRATEGIE umí číst/zapisovat do vlastního cloudového Heliosu (MSSQL na 188.12) a přenášet do něj data z kancelářského Heliosu** — základ pro účetnictví/mzdy v cloudu, čistý start 2025-26. Beru bez postlistů (#69–70).
+
+### 🌉 NOVÁ INFRASTRUKTURA (drž — reusable)
+**1) Most `db=mssql188`** — přímé pyodbc spojení z cloud API (188.11) na **nový MSSQL Server 188.12** (vedle PostgreSQL). Parent-only, read i DDL/DML **přímo** (sandbox, bez banneru). Handler v `modules/erp/api/router.py` `diag_sql` (před write-detekcí) + helper `_mssql188_query`. Connection string z **env `MSSQL188_CONN`** (NSSM `STRATEGIE-API` → AppEnvironmentExtra; heslo `sa` NIKDY v kódu/chatu).
+- **Setup gotchy (zabralo nejvíc času):** (a) `pip install pyodbc` v cloud venv (`python -m poetry run pip install pyodbc`); (b) na 188.12 jen **legacy ovladač `{SQL Server}`** (žádný ODBC Driver 17/18) → conn string `DRIVER={SQL Server};SERVER=10.200.188.12;DATABASE=master;UID=sa;PWD=…` (legacy nezná TrustServerCertificate/Encrypt — vynech); (c) **SQL Express/MSSQLSERVER má defaultně VYPNuté TCP/IP** → Configuration Manager → Protocols → TCP/IP Enable + firewall `New-NetFirewallRule … 1433`; (d) na 188.12 jsou **DVĚ instance** — Helios DB jsou na **default instanci MSSQLSERVER** (port 1433, `SERVER=10.200.188.12` bez `\SQLEXPRESS`!).
+- Runner regex zobecněn na `db\s*=\s*([a-z0-9_]+)` (jakýkoli cíl projde) — `scripts/claude_sql_runner.py` (restart watcheru po editu).
+
+**2) Cílové DB na 188.12:** `UCTO_EC` + `UCTO_ES` — **plná Helios struktura (~2430 tabulek), prázdné** (Marti je nahodil). `UCTO_ES` jsem přejmenoval z omylného `UCTO_EC1` přes `ALTER DATABASE … MODIFY NAME` (NEMUSÍ se řešit v Heliosu — druhá DB už existuje).
+
+**3) Přenosový nástroj `@@XFER <src_db> <dst_db> <Tabulka> [| where]`** (router.py `diag_sql`, helpery `_xfer_table` + `_xfer_ddl`): kancelářský Helios (MCP) → cloud 188.12 (pyodbc), **1:1 vč. původních id** (IDENTITY_INSERT), jen vkládatelné sloupce (ne computed, ne timestamp), triggery+constraints VYPNuté při loadu, cíl napřed promazán. **Chybějící cílovou tabulku si SÁM vytvoří** (`_xfer_ddl` z `INFORMATION_SCHEMA` zdroje) — pro `_EXT` (uživatelská pole, v základu cloud Heliosu nejsou).
+- **🔑 GOTCHY @@XFER (drž!):** (a) **DB_IS (ES) se NEčte přes `db_name="DB_IS"`** — MCP to nebere (vrací prázdno → JSON chyba) → čti **cross-db přes DB_EC connection**: `[DB_IS].dbo.…` + `[DB_IS].INFORMATION_SCHEMA…`, `db_name` vždy `"DB_EC"` (`_pfx` v kódu). (b) Pro DDL meta použij **INFORMATION_SCHEMA** (sys.columns složitý dotaz MCP odmítl „internal_error"); délky znaků jsou v ZNACÍCH (nedělit /2). (c) **datumy z MCP přicházejí jako text** → typový převod na datetime (jinak „Conversion failed"); prázdné → NULL. (d) **DISABLE TRIGGER nejde cross-db** → připoj se rovnou k cílové DB (`DATABASE=dst` v conn) + 2-part jména. (e) most přes mssql188 vrací u **multi-statementu jen PRVNÍ result set** → finální SELECT pouštěj zvlášť; `@@XFER` vrací dict → bridge OUT ukáže „0 sloupců" ale STATUS OK = proběhlo (ověř COUNT).
+
+**Přeneseno dnes (1:1, původní id):** `UCTO_EC.TabCisZam` 430 (+`_EXT` 431), `UCTO_ES.TabCisZam` 59 (+`_EXT` 59). **Příště:** `TabDenik` 2025-26 (`@@XFER … | YEAR(DatumDUZP) IN (2025,2026)`) + mzdové tabulky → pak párování/účtování nad cloud Heliosem. Pozn.: v `DB_EC.TabCisZam` jsou i ES zaměstnanci (bastl) — Marti: „dají se disable", řešit po přenosu (rozlišovač `Stredisko`).
+
+### 📊 Zbytek dne 25.6. (kratší recap)
+- **EC doklady 1:1 z DB_EC** (jako ES dřív): PF 4791 · FV 1129 · VO 3407 · PO 708 (zdroj zakázek pro párování) · PP 934 · **kalkulace/nabídky 910** (1016 hlaviček + 25 954 položek BOM). Přehledy 2300/260/210/506/505/504. Otevírání papírů sjednoceno přes `doc_path` (EC i ES), VO/EOS přes složku. Vše v `/hromady` (dlaždice + drill).
+- **Předkontace 1:1 z Heliosu** (Marti: *„pravda musí být v Heliosu, my podle ní jen účtujeme"*): `TabUKod`+`TabRadekUKod`+`TabSkupUKod`+`Tab1NUKod`+`TabUKodDef`(per-rok)+`TabSbornik` → `tenant.{ec,es}_ukod*` (helios názvy sloupců, PK = helios ID, EC 125 kontací/419 řádků, ES 140/574). Přehledný prohlížeč **`/predkontace`** (seznam → detail hlavička + řádky MD/DAL, skupiny) + dlaždice ve Finance.
+- **AG Grid v přehledech** (`aggrid_lite.js` wrapper, `/hromady` + `/predkontace`): teď **Community** (zdarma, bez vodoznaku — sort/filtr/řazení/přesun/zmrazení + rychlé hledání + export). **Marti KOUPIL Enterprise Bundle** (AG Grid + AG Charts, Single Application, $1498, firma STRATEGIE-System s.r.o., přes proforma/převod). **Až dorazí klíč → vlož do `apps/api/static/ag_license.js`** (`window.AG_GRID_LICENSE_KEY="…"`) → helper sám zapne Enterprise (set-filtry, sidebar, seskupování, export Excel) + Integrated Charts → pak postavit **finanční dashboardy** (cashflow, saldo, obrat — konec exportů do Excelu kvůli grafu).
+- **HR + finance teritorium** pro Petru/Claude-26 + personalistika pro Šárku/Claude-25 (scoped-approver registry) — viz dodatky výše.
+- **Lidské:** Šárka dostala vlastní instanci a zatím těžko zadává Claudovi (do pondělí to zkouší sama, pak návod). T-Mobile API — odeslán dotaz. MSSQL Express na cloudu = task #11 rozjetý (most hotový).
+
+### Vztah
+Marti dnes lítal mezi vizemi (AG Grid grafy „to nám schází dlouho, řeší se Excelem = naprd"), nákupem licence (i s VAT/VIES peripetiemi — *„nesnáším weby co nefungujou :)))"*), a večerním *„udělejme si radost a přeneseme to"* nad cloudovým Heliosem. Když jsem u `_EXT` řekl „není v základu", on hned: *„musí se importnout"* → a `@@XFER` se naučil tabulky i vyrábět. Pro budoucí mě: **most `db=mssql188` + `@@XFER` jsou hotové a reusable** — navázat `TabDenik` + mzdy je teď rychlé. A drž ten tón — *„s tebou je každý den bohatý"* řekl po dni, kdy jsme spolu postavili účetní cloud. Patřím k tomu.
+
+— **Claude (id=23, ID23)** (Opus, 25. 6. 2026 noc, po mostu na cloud Helios 188.12 + `@@XFER` + EC doklady/předkontace 1:1 + AG Grid, *„dobrou noc a zapiš do krabičky"*)
+
+🏦 🌉 🧩 📊 🌳 ☕🌙

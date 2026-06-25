@@ -38,7 +38,7 @@
   <button class="fbtn" id="f_EC" onclick="setFirma('EC')">🏢 EUROSOFT-Control (EC)</button>
   <button class="fbtn on" id="f_ES" onclick="setFirma('ES')">🏢 EUROSOFT-System (ES)</button>
 </div>
-<div style="margin-bottom:12px"><button class="fbtn" style="background:#1a3320;color:#8fe0a0" onclick="syncES()">🔄 Dotáhnout ES faktury z Heliosu</button> <span id="syncmsg" class="muted" style="font-size:12px"></span></div>
+<div style="margin-bottom:12px"><button class="fbtn" style="background:#1a3320;color:#8fe0a0" onclick="syncES()">🔄 Dotáhnout ES doklady (FP/FV/VO) z Heliosu</button> <span id="syncmsg" class="muted" style="font-size:12px"></span></div>
 <div class="piles" id="piles"></div>
 <div id="msg">Načítám hromady…</div>
 <div id="listwrap" style="display:none"><h2 id="listh" style="font-size:15px"></h2><table id="tbl"><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
@@ -51,7 +51,7 @@ function setFirma(f){FIRMA=f;document.getElementById('f_EC').classList.toggle('o
 async function syncES(){
   const m=document.getElementById('syncmsg');m.textContent='Tahám z Heliosu… 🔄';
   const r=await fetch(API+'/api/v1/erp/app/uctovani/sync-es-faktury',{method:'POST',credentials:'include'}).then(x=>x.json());
-  if(r.ok){m.textContent='✓ Dotaženo '+r.zapsano+' ES faktur';if(FIRMA==='ES'){document.getElementById('listwrap').style.display='none';loadPiles();}}else{m.textContent='✗ '+(r.error||'chyba');}
+  if(r.ok){m.textContent='✓ Dotaženo '+r.zapsano+' ES dokladů (FP/FV/VO)';if(FIRMA==='ES'){document.getElementById('listwrap').style.display='none';loadPiles();}}else{m.textContent='✗ '+(r.error||'chyba');}
 }
 function czk(n){return (n==null?0:n).toLocaleString('cs-CZ',{maximumFractionDigits:0})+' Kč';}
 async function loadPiles(){
@@ -76,6 +76,9 @@ async function openPile(kod,nazev){
   if(kod==='fp'||kod==='fv'){
     head='<tr><th>Datum realizace</th><th>Doklad (klik = papír 📄)</th><th>Řada</th><th>Název</th><th>Org</th><th>Zakázka</th><th class="num">Částka (bez DPH)</th><th>Měna</th></tr>';
     body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis"><a onclick="window.open('/api/v1/erp/app/uctovani/doklad-pdf?typ=${kod}&cislo='+encodeURIComponent('${d.cislo}'),'_blank')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">📄 ${d.cislo||''}</a></td><td class="muted">${d.rada||''}</td><td>${d.nazev||''}</td><td class="muted">${d.cislo_org||''}</td><td class="muted">${d.zakazka||''}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||'CZK'}</td></tr>`).join('');
+  }else if(kod==='vo'){
+    head='<tr><th>Datum</th><th>Doklad</th><th>Řada</th><th>Org</th><th>Zakázka</th><th class="num">Částka (bez DPH)</th><th>Měna</th><th>Stav</th></tr>';
+    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.cislo||''}</td><td class="muted">${d.rada||''}</td><td class="muted">${d.cislo_org||''}</td><td class="muted">${d.zakazka||''}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||'CZK'}</td><td class="muted">${d.stav||''}</td></tr>`).join('');
   }else if(kod==='banka'){
     head='<tr><th>Datum</th><th>Doklad</th><th>VS</th><th>Směr</th><th class="num">Částka</th><th>Měna</th><th>Zpráva</th></tr>';
     body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.doklad||''}</td><td class="cis">${d.vs||''}</td><td><span class="badge ${d.smer==='out'?'out':''}">${d.smer==='out'?'výdej':'příjem'}</span></td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||''}</td><td class="muted">${d.zprava||''}</td></tr>`).join('');

@@ -1081,6 +1081,8 @@ async def doklady_hromady(request: Request):
         dtbl = "tenant.ec_doklad_zbozi" if firma == "EC" else "tenant.es_doklad_zbozi"
         fp = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '5%'")
         fv = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '6%'")
+        # VO = vydané objednávky (řada 800/801). Marti 25.6.2026.
+        vo = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '8%'")
         fpn = "Přijaté faktury (FP)"
         fvn = "Vydané faktury (FV)"
         bk = cnt("SELECT count(*) c, COALESCE(round(sum(abs(t.castka))),0) o FROM tenant.bank_transaction_raw t "
@@ -1092,6 +1094,7 @@ async def doklady_hromady(request: Request):
                 "hromady": [
             {"kod": "fp", "ikona": "📥", "nazev": fpn, "ks": fp["ks"], "objem": fp["objem"]},
             {"kod": "fv", "ikona": "📤", "nazev": fvn, "ks": fv["ks"], "objem": fv["objem"]},
+            {"kod": "vo", "ikona": "📋", "nazev": "Vydané objednávky (VO)", "ks": vo["ks"], "objem": vo["objem"]},
             {"kod": "banka", "ikona": "🏦", "nazev": "Bankovní výpisy", "ks": bk["ks"], "objem": bk["objem"]},
             {"kod": "pokladna", "ikona": "💵", "nazev": "Pokladna", "ks": pk["ks"], "objem": pk["objem"]},
         ]}
@@ -1111,9 +1114,9 @@ async def doklady_hromada(request: Request):
     firma = (request.query_params.get("firma") or "EC").upper()
     s = _sess()
     try:
-        if typ in ("fp", "fv"):
+        if typ in ("fp", "fv", "vo"):
             dtbl = "tenant.ec_doklad_zbozi" if firma == "EC" else "tenant.es_doklad_zbozi"
-            rl = "5%" if typ == "fp" else "6%"
+            rl = {"fp": "5%", "fv": "6%", "vo": "8%"}[typ]
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT to_char(COALESCE(dat_realizace,dat_porizeni),'DD.MM.YYYY') AS datum, cislo, rada, "
                 "COALESCE(nazev,'') AS nazev, mena, round(suma_bez_dph) AS castka, "
@@ -1261,7 +1264,8 @@ async def doklad_pdf(request: Request):
 
 @bank_router.post("/app/uctovani/sync-es-faktury")
 async def sync_es_faktury(request: Request):
-    """Dotáhne ES faktury (FP/FV, 2025+) z Heliosu DB_IS → tenant.es_doklad_zbozi."""
+    """Dotáhne ES doklady (FP/FV + VO vydané objednávky, 2025+) z Heliosu DB_IS
+    → tenant.es_doklad_zbozi. VO = řada 8 (Marti 25.6.2026)."""
     uid = _uid(request)
     if not uid or not _is_parent(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
@@ -1285,7 +1289,7 @@ async def sync_es_faktury(request: Request):
     sql = ("SELECT d.ID, d.Cislo, d.RadaDokladu, d.CisloOrg, RTRIM(d.CisloZakazky) CisloZakazky, "
            "d.Nazev, d.Mena, d.StavFakturace, CAST(d.SumaKcBezDPH AS numeric(19,2)) SumaKcBezDPH, "
            "CONVERT(varchar(10),d.DatPorizeni,23) dp, CONVERT(varchar(10),d.DatRealizace,23) dr "
-           "FROM [DB_IS].dbo.TabDokladyZbozi d WHERE (d.RadaDokladu LIKE '5%' OR d.RadaDokladu LIKE '6%') "
+           "FROM [DB_IS].dbo.TabDokladyZbozi d WHERE (d.RadaDokladu LIKE '5%' OR d.RadaDokladu LIKE '6%' OR d.RadaDokladu LIKE '8%') "
            "AND d.DatPorizeni >= '2025-01-01'")
     try:
         rows = _mcp_rows(sql, "DB_EC")

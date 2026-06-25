@@ -1085,6 +1085,9 @@ async def doklady_hromady(request: Request):
         vo = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '8%'")
         # PO = přijaté objednávky (řada 920) = zdroj zakázek pro párování. Marti 25.6.2026.
         po = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '9%'")
+        # Kalkulace/nabídky (řada 910 + EC_KalkulaceHlav) — jen EC. Marti 25.6.2026.
+        kalk = cnt("SELECT count(*) c, COALESCE(round(sum(celkem_cena)),0) o FROM tenant.ec_kalkulace") \
+            if firma == "EC" else {"ks": 0, "objem": 0}
         fpn = "Přijaté faktury (FP)"
         fvn = "Vydané faktury (FV)"
         bk = cnt("SELECT count(*) c, COALESCE(round(sum(abs(t.castka))),0) o FROM tenant.bank_transaction_raw t "
@@ -1098,6 +1101,7 @@ async def doklady_hromady(request: Request):
             {"kod": "fv", "ikona": "📤", "nazev": fvn, "ks": fv["ks"], "objem": fv["objem"]},
             {"kod": "vo", "ikona": "📋", "nazev": "Vydané objednávky (VO)", "ks": vo["ks"], "objem": vo["objem"]},
             {"kod": "po", "ikona": "📑", "nazev": "Přijaté objednávky (PO)", "ks": po["ks"], "objem": po["objem"]},
+            {"kod": "kalk", "ikona": "🧮", "nazev": "Nabídky/Kalkulace (910)", "ks": kalk["ks"], "objem": kalk["objem"]},
             {"kod": "banka", "ikona": "🏦", "nazev": "Bankovní výpisy", "ks": bk["ks"], "objem": bk["objem"]},
             {"kod": "pokladna", "ikona": "💵", "nazev": "Pokladna", "ks": pk["ks"], "objem": pk["objem"]},
         ]}
@@ -1127,6 +1131,13 @@ async def doklady_hromada(request: Request):
                 "FROM " + dtbl + " WHERE rada LIKE :rl "
                 "ORDER BY COALESCE(dat_realizace,dat_porizeni) ASC NULLS LAST, cislo ASC LIMIT 200"),
                 {"rl": rl}).mappings().all()]
+        elif typ == "kalk":
+            rows = [dict(r) for r in s.execute(_t(
+                "SELECT id, id_kalk, to_char(dat_porizeni,'DD.MM.YYYY') AS datum, doklad AS cislo, "
+                "COALESCE(cislo_kalkulace,'') AS cislo_kalk, COALESCE(nazev,'') AS nazev, "
+                "COALESCE(cislo_zakazky,'') AS zakazka, pocet_polozek, round(celkem_cena) AS castka, "
+                "COALESCE(resitel,'') AS resitel "
+                "FROM tenant.ec_kalkulace ORDER BY dat_porizeni DESC NULLS LAST, id DESC LIMIT 200")).mappings().all()]
         elif typ == "po":
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT id, to_char(dat_porizeni,'DD.MM.YYYY') AS datum, cislo, "
@@ -1864,6 +1875,162 @@ async def sync_ec_po(request: Request):
         return {"ok": True, "zapsano": n}
     except Exception as exc:
         s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+def _kalk_n(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _kalk_i(v):
+    try:
+        return int(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _kalk_s(v):
+    v = (str(v).replace("\x00", "").strip() if v is not None else "")
+    return v or None
+
+
+@bank_router.post("/app/uctovani/sync-ec-kalkulace")
+async def sync_ec_kalkulace(request: Request):
+    """1:1 zrcadlo EC nabídek/kalkulací z DB_EC (přehled 505, Marti 25.6.2026):
+    rada 910 (nabídka zákazníkovi) + EC_KalkulaceHlav (kalkulace výroby rozváděče),
+    roky 2025-26. Hlavička → tenant.ec_kalkulace. Položky zvlášť (sync-ec-kalk-pol).
+    Z kalkulací se generují VO a výdejky na zakázky."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    sql = (
+        "SELECT d.ID src_doklad_id, k.ID id_kalk, k.CisloKalkulace, dbo.EC_GetDoklad(d.ID) doklad, "
+        "RTRIM(d.CisloZakazky) cislo_zakazky, d.CisloOrg, o.Nazev, d.StredNaklad stredisko, "
+        "(SELECT count(*) FROM EC_KalkulacePolozky WHERE IDHlav=k.ID) pocet_polozek, "
+        "CAST(k.CelkemCena AS numeric(19,2)) celkem_cena, CAST(k.CelkemHod AS numeric(19,2)) celkem_hod, "
+        "CAST(k.MarzeProcent AS numeric(9,2)) marze_proc, CONVERT(varchar(10),d.DatPorizeni,23) dp, "
+        "d.Autor, z.LoginID resitel, d.Splneno, "
+        "SUBSTRING(REPLACE(SUBSTRING(d.Poznamka,1,255),NCHAR(13)+NCHAR(10),NCHAR(32)),1,255) poznamka "
+        "FROM TabDokladyZbozi d JOIN EC_KalkulaceHlav k ON d.ID=k.IDDoklad "
+        "LEFT JOIN TabCisOrg o ON d.CisloOrg=o.CisloOrg LEFT JOIN TabCisZam z ON d.CisloZam=z.Cislo "
+        "WHERE d.RadaDokladu='910' AND YEAR(d.DatPorizeni) IN (2025,2026)")
+    try:
+        rows = _mcp_rows(sql, "DB_EC")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Helios (MCP): %s" % str(exc)[:200]}, status_code=502)
+    s = _sess()
+    try:
+        s.execute(_t("DELETE FROM tenant.ec_kalkulace"))
+        batch = [{
+            "sd": _kalk_i(r.get("src_doklad_id")), "ik": _kalk_i(r.get("id_kalk")),
+            "ck": _kalk_s(r.get("cislokalkulace")), "dk": _kalk_s(r.get("doklad")),
+            "cz": _kalk_s(r.get("cislo_zakazky")), "co": _kalk_i(r.get("cisloorg")),
+            "nz": _kalk_s(r.get("nazev")), "st": _kalk_s(r.get("stredisko")),
+            "pp": _kalk_i(r.get("pocet_polozek")), "cc": _kalk_n(r.get("celkem_cena")),
+            "ch": _kalk_n(r.get("celkem_hod")), "mp": _kalk_n(r.get("marze_proc")),
+            "dp": _kalk_s(r.get("dp")), "au": _kalk_s(r.get("autor")), "re": _kalk_s(r.get("resitel")),
+            "sp": _kalk_i(r.get("splneno")), "po": _kalk_s(r.get("poznamka"))} for r in rows]
+        if batch:
+            s.execute(_t(
+                "INSERT INTO tenant.ec_kalkulace (src_doklad_id, id_kalk, cislo_kalkulace, doklad, "
+                "cislo_zakazky, cislo_org, nazev, stredisko, pocet_polozek, celkem_cena, celkem_hod, "
+                "marze_proc, dat_porizeni, autor, resitel, splneno, poznamka) VALUES "
+                "(:sd,:ik,:ck,:dk,:cz,:co,:nz,:st,:pp,:cc,:ch,:mp,:dp,:au,:re,:sp,:po)"), batch)
+        s.commit()
+        return {"ok": True, "zapsano": len(batch)}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/uctovani/sync-ec-kalk-pol")
+async def sync_ec_kalk_pol(request: Request):
+    """Položky kalkulací EC z DB_EC (EC_KalkulacePolozky, Marti 25.6.2026): BOM výroby
+    rozváděčů (RegCis, Bezeichnung, PocetKusu, ceny, Objednano/Vydano, dodavatel,
+    zakázka). Keyset stránkování po 5000 (26k řádků). DELETE+INSERT = čistý mirror."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    base = (
+        "SELECT TOP 5000 p.ID, p.IDHlav id_kalk, p.Pos, p.RegCis, p.Bezeichnung nazev, p.Vyrobce, "
+        "p.PocetKusu, p.JCenaEUR, p.Einheitpreis, p.GesamtPreis, p.Dodavatel, RTRIM(p.CisloZakazky) cislo_zakazky, "
+        "p.Objednano, p.Vydano, p.Arbeitstunden, p.Hmotnost "
+        "FROM EC_KalkulacePolozky p JOIN EC_KalkulaceHlav k ON k.ID=p.IDHlav "
+        "JOIN TabDokladyZbozi d ON d.ID=k.IDDoklad "
+        "WHERE d.RadaDokladu='910' AND YEAR(d.DatPorizeni) IN (2025,2026) AND p.ID > %d "
+        "ORDER BY p.ID")
+    s = _sess()
+    try:
+        s.execute(_t("DELETE FROM tenant.ec_kalkulace_pol"))
+        total = 0
+        last_id = 0
+        ins = _t(
+            "INSERT INTO tenant.ec_kalkulace_pol (id_kalk, pos, reg_cis, nazev, vyrobce, pocet_kusu, "
+            "jcena_eur, einheitpreis, gesamt_preis, dodavatel, cislo_zakazky, objednano, vydano, "
+            "arbeitstunden, hmotnost) VALUES "
+            "(:ik,:po,:rc,:nz,:vy,:pk,:jc,:ei,:gp,:do,:cz,:ob,:vy2,:ar,:hm)")
+        for _ in range(50):  # max 250k řádků, pojistka
+            try:
+                rows = _mcp_rows(base % last_id, "DB_EC")
+            except Exception as exc:
+                s.rollback()
+                return JSONResponse({"ok": False, "error": "Helios (MCP) @%d: %s" % (last_id, str(exc)[:180])}, status_code=502)
+            if not rows:
+                break
+            batch = [{
+                "ik": _kalk_i(r.get("id_kalk")), "po": _kalk_i(r.get("pos")), "rc": _kalk_s(r.get("regcis")),
+                "nz": _kalk_s(r.get("nazev")), "vy": _kalk_s(r.get("vyrobce")), "pk": _kalk_n(r.get("pocetkusu")),
+                "jc": _kalk_n(r.get("jcenaeur")), "ei": _kalk_n(r.get("einheitpreis")), "gp": _kalk_n(r.get("gesamtpreis")),
+                "do": _kalk_i(r.get("dodavatel")), "cz": _kalk_s(r.get("cislo_zakazky")), "ob": _kalk_n(r.get("objednano")),
+                "vy2": _kalk_n(r.get("vydano")), "ar": _kalk_n(r.get("arbeitstunden")), "hm": _kalk_n(r.get("hmotnost"))}
+                for r in rows]
+            s.execute(ins, batch)
+            total += len(batch)
+            last_id = max(_kalk_i(r.get("id")) or 0 for r in rows)
+            if len(rows) < 5000:
+                break
+        s.commit()
+        return {"ok": True, "zapsano": total}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/uctovani/kalkulace-pol")
+async def kalkulace_pol(request: Request):
+    """Položky jedné kalkulace (drill-down z hromady kalkulací)."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        idk = int(request.query_params.get("id_kalk") or 0)
+    except (TypeError, ValueError):
+        idk = 0
+    if not idk:
+        return JSONResponse({"ok": False, "error": "chybí id_kalk"}, status_code=400)
+    s = _sess()
+    try:
+        rows = [dict(r) for r in s.execute(_t(
+            "SELECT pos, COALESCE(reg_cis,'') AS reg_cis, COALESCE(nazev,'') AS nazev, "
+            "COALESCE(vyrobce,'') AS vyrobce, pocet_kusu, round(jcena_eur::numeric,2) AS jcena_eur, "
+            "round(gesamt_preis::numeric,2) AS gesamt_preis, COALESCE(cislo_zakazky,'') AS zakazka, "
+            "objednano, vydano FROM tenant.ec_kalkulace_pol WHERE id_kalk=:k "
+            "ORDER BY pos NULLS LAST, id"), {"k": idk}).mappings().all()]
+        for r in rows:
+            for c in ("pocet_kusu", "jcena_eur", "gesamt_preis", "objednano", "vydano"):
+                if r.get(c) is not None:
+                    r[c] = float(r[c])
+        return {"ok": True, "id_kalk": idk, "polozky": rows}
+    except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()

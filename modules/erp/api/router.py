@@ -42922,6 +42922,10 @@ def _render_workspace_page(user_id: int) -> str:
          wrap, namespace window.ErpPageRender. Volano z router.py inline
          pri kliknuti na soudecek s coreId. -->
     <script src="/static/erp/components/page_render.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- CRM souhrn (A.3, 25.6.2026): pruh „Moje CRM čísla" nad přehledem
+         Aktivity obchodníka (jádro 124). window.CrmAktivitaSouhrn.mount,
+         gated v page_render.js. Patří do ERP HTML (ne index.html=chat). -->
+    <script src="/static/erp/components/crm_aktivita_souhrn.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14g Etapa D+1 (16.5.2026): grid dispatcher modul.
          Extrahuje gridDataResolved 3-tier dispatch z inline router.py +
          logs every step do fw.diag_log via _erpLogToDb. -->

@@ -759,3 +759,87 @@ async def uctovani_denik_view(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+@bank_router.get("/app/uctovani/denik/detail")
+async def denik_detail(request: Request):
+    """Zpověď zápisu — klik na automata: kdo/kdy/na základě čeho + celý změnový log."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        eid = int(request.query_params.get("id") or 0)
+    except Exception:
+        eid = 0
+    s = _sess()
+    try:
+        e = s.execute(_t(
+            "SELECT id, datum, doklad, ucet_md, ucet_dal, castka, mena, popis, kategorie, "
+            "actor_type, actor_id, jistota, jistota_zdroj, review_stav, review_at, zdroj, zdroj_id "
+            "FROM tenant.ucetni_denik WHERE id=:id AND tenant_id=:tn"), {"id": eid, "tn": _TENANT}).mappings().first()
+        if not e:
+            return JSONResponse({"ok": False, "error": "zápis nenalezen"}, status_code=404)
+        e = dict(e)
+        for k in ("datum", "review_at", "jistota", "castka"):
+            if e.get(k) is not None:
+                e[k] = (float(e[k]) if k in ("jistota", "castka") else str(e[k]))
+        log = [dict(r) for r in s.execute(_t(
+            "SELECT akce, actor_type, actor_id, to_char(ts,'DD.MM.YYYY HH24:MI') AS kdy, poznamka "
+            "FROM tenant.ucetni_denik_log WHERE denik_id=:id ORDER BY ts"), {"id": eid}).mappings().all()]
+        return {"ok": True, "zapis": e, "log": log}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/uctovani/denik/review")
+async def denik_review(request: Request):
+    """Účetní akce na zápisu: zkontrolováno / schváleno / vráceno automatu / oprava účtů.
+    Píše do změnového logu (append-only). Deník = sandbox, běží přímo."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    eid = int(body.get("id") or 0)
+    akce = (body.get("akce") or "").strip()
+    _MAP = {"zkontrolovano": "zkontrolovano", "schvaleno": "schvaleno",
+            "vraceno": "vraceno_automatu", "nazpet": "nezkontrolovano"}
+    if akce not in _MAP and akce != "oprav":
+        return JSONResponse({"ok": False, "error": "neznámá akce"}, status_code=400)
+    s = _sess()
+    try:
+        if akce == "oprav":
+            md = (str(body.get("ucet_md") or "")).strip()
+            dal = (str(body.get("ucet_dal") or "")).strip()
+            if not md or not dal:
+                return JSONResponse({"ok": False, "error": "chybí účty"}, status_code=400)
+            stara = s.execute(_t("SELECT ucet_md||'/'||ucet_dal FROM tenant.ucetni_denik WHERE id=:id AND tenant_id=:tn"),
+                              {"id": eid, "tn": _TENANT}).scalar()
+            s.execute(_t("UPDATE tenant.ucetni_denik SET ucet_md=:md, ucet_dal=:dal, "
+                         "review_stav='opraveno', review_user_id=:u, review_at=now() WHERE id=:id AND tenant_id=:tn"),
+                      {"md": md, "dal": dal, "u": uid, "id": eid, "tn": _TENANT})
+            s.execute(_t("INSERT INTO tenant.ucetni_denik_log (tenant_id, denik_id, akce, actor_type, actor_id, poznamka, ts) "
+                         "VALUES (:tn,:id,'oprava_uctu','human',:aid,:pozn,now())"),
+                      {"tn": _TENANT, "id": eid, "aid": "human:%s" % uid, "pozn": "%s -> %s/%s" % (stara, md, dal)})
+        else:
+            rs = _MAP[akce]
+            extra = ", schvalil=:u2, schvalil_at=now()" if akce == "schvaleno" else ""
+            params = {"rs": rs, "u": uid, "id": eid, "tn": _TENANT}
+            if akce == "schvaleno":
+                params["u2"] = uid
+            s.execute(_t("UPDATE tenant.ucetni_denik SET review_stav=:rs, review_user_id=:u, review_at=now()" + extra +
+                         " WHERE id=:id AND tenant_id=:tn"), params)
+            s.execute(_t("INSERT INTO tenant.ucetni_denik_log (tenant_id, denik_id, akce, actor_type, actor_id, ts) "
+                         "VALUES (:tn,:id,:akce,'human',:aid,now())"),
+                      {"tn": _TENANT, "id": eid, "akce": rs, "aid": "human:%s" % uid})
+        s.commit()
+        return {"ok": True}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

@@ -50,6 +50,11 @@
   <th>Datum</th><th>Doklad</th><th>MD</th><th>Dal</th><th class="num">Částka</th>
   <th>Kategorie</th><th>Jistota</th><th>Aktér</th><th>Základ (proč tak)</th><th>Stav</th><th>Popis</th>
 </tr></thead><tbody id="rows"></tbody></table>
+<div id="ov" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:50;padding:18px;overflow:auto" onclick="if(event.target===this)closeDetail()">
+  <div style="max-width:580px;margin:24px auto;background:#19202e;border:1px solid #2c3850;border-radius:14px;padding:18px">
+    <div id="ovbody">Načítám…</div>
+  </div>
+</div>
 
 <script>
 const API='';
@@ -68,7 +73,7 @@ async function load(){
     kpi(s.j_vys,'🟢 vysoká',' #74e08a')+kpi(s.j_str,'🟡 střední',' #f0d674')+
     kpi(s.j_niz,'🔴 nízká',' #ff8b8b')+kpi(s.ceka,'čeká kontrola');
   const rows=r.zapisy||[];
-  document.getElementById('rows').innerHTML=rows.map(z=>`<tr>
+  document.getElementById('rows').innerHTML=rows.map(z=>`<tr onclick="openDetail(${z.id})" style="cursor:pointer">
     <td class="muted">${z.datum||''}</td>
     <td class="ucet">${z.doklad||''}</td>
     <td class="ucet">${z.ucet_md||''}</td>
@@ -85,6 +90,43 @@ async function load(){
   document.getElementById('tbl').style.display='';
 }
 function kpi(v,l,c){return `<div class="kpi"><div class="v"${c?(' style="color:'+c+'"'):''}>${v==null?'0':v}</div><div class="l">${l}</div></div>`;}
+async function openDetail(id){
+  const ov=document.getElementById('ov');const b=document.getElementById('ovbody');
+  ov.style.display='';b.innerHTML='Ťukám na automata… 🚪';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/denik/detail?id='+id,{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){b.innerHTML='<div style="color:#ff8b8b">'+(r.error||'chyba')+'</div>';return;}
+  const z=r.zapis;const jc=jcls(z.jistota);
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center">
+    <h2 style="margin:0;font-size:16px">🚪 Zpověď zápisu #${z.id}</h2>
+    <button class="chip" onclick="closeDetail()">✕</button></div>
+    <div style="margin:10px 0;font-size:13px;line-height:1.75">
+    <b>Kdo zaúčtoval:</b> <span class="act ${actcls(z.actor_type)}">${z.actor_type}</span> <code>${z.actor_id||''}</code><br>
+    <b>Jistota:</b> <span class="j ${jc}">${z.jistota==null?'?':Math.round(z.jistota)} %</span> &nbsp; <b>Stav:</b> ${z.review_stav||''}<br>
+    <b>Na základě čeho:</b> <code>${z.jistota_zdroj||''}</code><br>
+    <b>Účet:</b> <code class="ucet">${z.ucet_md} / ${z.ucet_dal}</code> &nbsp; <b>Částka:</b> ${czk(z.castka)}<br>
+    <b>Doklad:</b> ${z.doklad||''} &nbsp; <b>Datum:</b> ${z.datum||''}<br>
+    <b>Popis:</b> ${z.popis||''}</div>`;
+  if(r.log&&r.log.length){h+='<div style="font-size:12px;color:#9fb0c8;border-top:1px solid #2c3850;padding-top:8px"><b>Historie (změnový log):</b><br>'+r.log.map(l=>`${l.kdy} · <b>${l.akce}</b> · ${l.actor_id||l.actor_type}${l.poznamka?(' · '+l.poznamka):''}`).join('<br>')+'</div>';}
+  h+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+    <button class="chip on" onclick="doReview(${z.id},'zkontrolovano')">✓ Zkontrolováno</button>
+    <button class="chip" style="background:#1a3320;color:#8fe0a0" onclick="doReview(${z.id},'schvaleno')">✓✓ Schvaluji</button>
+    <button class="chip" style="background:#3a1818;color:#ff8b8b" onclick="doReview(${z.id},'vraceno')">↩ Vrátit automatu</button>
+    <button class="chip" onclick="opravUcet(${z.id})">✏️ Opravit účty</button></div>
+    <div id="ovmsg" class="muted" style="margin-top:8px"></div>`;
+  b.innerHTML=h;
+}
+function closeDetail(){document.getElementById('ov').style.display='none';}
+async function doReview(id,akce){
+  const m=document.getElementById('ovmsg');if(m)m.textContent='…';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/denik/review',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,akce:akce})}).then(x=>x.json());
+  if(r.ok){closeDetail();load();}else if(m){m.textContent='✗ '+(r.error||'chyba');}
+}
+async function opravUcet(id){
+  const md=prompt('Nový účet MD (má dáti):');if(!md)return;
+  const dal=prompt('Nový účet Dal:');if(!dal)return;
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/denik/review',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,akce:'oprav',ucet_md:md,ucet_dal:dal})}).then(x=>x.json());
+  if(r.ok){closeDetail();load();}else{const m=document.getElementById('ovmsg');if(m)m.textContent='✗ '+(r.error||'chyba');}
+}
 document.getElementById('chips').addEventListener('click',e=>{
   const b=e.target.closest('.chip');if(!b)return;
   document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));b.classList.add('on');

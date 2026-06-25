@@ -1090,8 +1090,8 @@ async def doklady_hromady(request: Request):
         # Kalkulace/nabídky (řada 910 + EC_KalkulaceHlav) — jen EC. Marti 25.6.2026.
         kalk = cnt("SELECT count(*) c, COALESCE(round(sum(celkem_cena)),0) o FROM tenant.ec_kalkulace") \
             if firma == "EC" else {"ks": 0, "objem": 0}
-        # Předkontace (TabUKod 1:1 z Heliosu) — jen ES. Marti 25.6.2026.
-        pred = cnt("SELECT count(*) c, 0 o FROM tenant.es_ukod") if firma == "ES" else {"ks": 0, "objem": 0}
+        # Předkontace (TabUKod 1:1 z Heliosu) — EC i ES. Marti 25.6.2026.
+        pred = cnt("SELECT count(*) c, 0 o FROM tenant.%sukod" % ("ec_" if firma == "EC" else "es_"))
         fpn = "Přijaté faktury (FP)"
         fvn = "Vydané faktury (FV)"
         bk = cnt("SELECT count(*) c, COALESCE(round(sum(abs(t.castka))),0) o FROM tenant.bank_transaction_raw t "
@@ -1138,11 +1138,12 @@ async def doklady_hromada(request: Request):
                 "ORDER BY COALESCE(dat_realizace,dat_porizeni) ASC NULLS LAST, cislo ASC LIMIT 200"),
                 {"rl": rl}).mappings().all()]
         elif typ == "kontace":
+            _kp = "ec_" if firma == "EC" else "es_"
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT u.id, u.cislokontace AS cislo, COALESCE(u.nazev,'') AS nazev, "
                 "COALESCE(u.radadokladu,'') AS rada, COALESCE(u.sbornik,'') AS sbornik, u.druhpohybu, "
-                "(SELECT count(*) FROM tenant.es_ukod_radek r WHERE r.idukod=u.id) AS radku "
-                "FROM tenant.es_ukod u ORDER BY u.cislokontace")).mappings().all()]
+                "(SELECT count(*) FROM tenant.%sukod_radek r WHERE r.idukod=u.id) AS radku "
+                "FROM tenant.%sukod u ORDER BY u.cislokontace" % (_kp, _kp))).mappings().all()]
         elif typ == "kalk":
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT id, id_kalk, to_char(dat_porizeni,'DD.MM.YYYY') AS datum, doklad AS cislo, "
@@ -2115,15 +2116,14 @@ async def sync_ec_pp(request: Request):
         s.close()
 
 
-@bank_router.post("/app/uctovani/sync-es-kontace")
-async def sync_es_kontace(request: Request):
-    """1:1 zrcadlo účetních kódů/kontací z Heliosu ES (DB_IS, Marti 25.6.2026):
-    PRAVDA JE V HELIOSU, my podle ní jen účtujeme. Kontace (TabUKod) = řada+druh
-    pohybu → sborník; řádky (TabRadekUKod) = předkontace MD/DAL per sazba DPH;
-    skupiny (TabSkupUKod) + vazby (Tab1NUKod). DELETE+INSERT všech 4 = čistý mirror."""
-    uid = _uid(request)
-    if not uid or not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+def _kontace_sync(firma):
+    """1:1 zrcadlo účetních kódů/kontací z Heliosu (Marti 25.6.2026). PRAVDA JE
+    V HELIOSU, my podle ní jen účtujeme. Kontace (TabUKod) = řada+druh pohybu →
+    sborník; řádky (TabRadekUKod) = předkontace MD/DAL per sazba DPH; skupiny
+    (TabSkupUKod)+vazby (Tab1NUKod); per-rok platnost (TabUKodDef) + období
+    (TabObdobi). firma 'ES' → DB_IS / tenant.es_*, 'EC' → DB_EC / tenant.ec_*."""
+    src = "[DB_IS].dbo." if firma == "ES" else "dbo."
+    P = "es_" if firma == "ES" else "ec_"
 
     def _b(v):
         return bool(v) if v not in (None, "") else None
@@ -2131,59 +2131,98 @@ async def sync_es_kontace(request: Request):
     res = {}
     s = _sess()
     try:
-        # 1) kontace hlavičky (TabUKod) — názvy sloupců = Helios (lowercase), PK = Helios ID
         rows = _mcp_rows(
             "SELECT ID, CisloKontace, DruhPohybu, RadaDokladu, Nazev, Zakladni, Sbornik, "
             "CONVERT(varchar(10),DatumOd,23) datumod, CONVERT(varchar(10),DatumDo,23) datumdo "
-            "FROM [DB_IS].dbo.TabUKod", "DB_EC")
-        s.execute(_t("DELETE FROM tenant.es_ukod"))
+            "FROM %sTabUKod" % src, "DB_EC")
+        s.execute(_t("DELETE FROM tenant.%sukod" % P))
         for r in rows:
             s.execute(_t(
-                "INSERT INTO tenant.es_ukod (id, cislokontace, druhpohybu, radadokladu, nazev, "
-                "zakladni, sbornik, datumod, datumdo) VALUES (:i,:ck,:dp,:rd,:nz,:zk,:sb,:od,:do)"),
+                "INSERT INTO tenant.%sukod (id, cislokontace, druhpohybu, radadokladu, nazev, "
+                "zakladni, sbornik, datumod, datumdo) VALUES (:i,:ck,:dp,:rd,:nz,:zk,:sb,:od,:do)" % P),
                 {"i": _kalk_i(r.get("id")), "ck": _kalk_i(r.get("cislokontace")), "dp": _kalk_i(r.get("druhpohybu")),
                  "rd": _kalk_s(r.get("radadokladu")), "nz": _kalk_s(r.get("nazev")), "zk": _b(r.get("zakladni")),
                  "sb": _kalk_s(r.get("sbornik")), "od": _kalk_s(r.get("datumod")), "do": _kalk_s(r.get("datumdo"))})
         res["kontace"] = len(rows)
-        # 2) řádky kontací (TabRadekUKod = předkontace MD/DAL per sazba DPH)
         rows = _mcp_rows(
             "SELECT Id, IDUKod, Radek, DruhRadku, SazbaDPH, UcetMD, UcetDAL, CiziMena, Zaporne, "
-            "UplatnitDPH, CisloOrg, PomerKoef FROM [DB_IS].dbo.TabRadekUKod", "DB_EC")
-        s.execute(_t("DELETE FROM tenant.es_ukod_radek"))
+            "UplatnitDPH, CisloOrg, PomerKoef FROM %sTabRadekUKod" % src, "DB_EC")
+        s.execute(_t("DELETE FROM tenant.%sukod_radek" % P))
         for r in rows:
             s.execute(_t(
-                "INSERT INTO tenant.es_ukod_radek (id, idukod, radek, druhradku, sazbadph, ucetmd, "
+                "INSERT INTO tenant.%sukod_radek (id, idukod, radek, druhradku, sazbadph, ucetmd, "
                 "ucetdal, cizimena, zaporne, uplatnitdph, cisloorg, pomerkoef) "
-                "VALUES (:id,:iu,:rk,:dr,:sd,:md,:dal,:cm,:zp,:ud,:co,:pk)"),
+                "VALUES (:id,:iu,:rk,:dr,:sd,:md,:dal,:cm,:zp,:ud,:co,:pk)" % P),
                 {"id": _kalk_i(r.get("id")), "iu": _kalk_i(r.get("idukod")), "rk": _kalk_i(r.get("radek")),
                  "dr": _kalk_i(r.get("druhradku")), "sd": _kalk_n(r.get("sazbadph")), "md": _kalk_s(r.get("ucetmd")),
                  "dal": _kalk_s(r.get("ucetdal")), "cm": _b(r.get("cizimena")), "zp": _b(r.get("zaporne")),
                  "ud": _b(r.get("uplatnitdph")), "co": _kalk_i(r.get("cisloorg")), "pk": _kalk_n(r.get("pomerkoef"))})
         res["radky"] = len(rows)
-        # 3) skupiny kontací (TabSkupUKod)
-        rows = _mcp_rows("SELECT ID, Nazev FROM [DB_IS].dbo.TabSkupUKod", "DB_EC")
-        s.execute(_t("DELETE FROM tenant.es_ukod_skupina"))
+        rows = _mcp_rows("SELECT ID, Nazev FROM %sTabSkupUKod" % src, "DB_EC")
+        s.execute(_t("DELETE FROM tenant.%sukod_skupina" % P))
         for r in rows:
-            s.execute(_t("INSERT INTO tenant.es_ukod_skupina (id, nazev) VALUES (:i,:n)"),
+            s.execute(_t("INSERT INTO tenant.%sukod_skupina (id, nazev) VALUES (:i,:n)" % P),
                       {"i": _kalk_i(r.get("id")), "n": _kalk_s(r.get("nazev"))})
         res["skupiny"] = len(rows)
-        # 4) vazby skupina → kontace (Tab1NUKod)
-        rows = _mcp_rows("SELECT IDSkup, CisloUKod, DruhPohybu, RadaDokladu FROM [DB_IS].dbo.Tab1NUKod", "DB_EC")
-        s.execute(_t("DELETE FROM tenant.es_1n_ukod"))
+        rows = _mcp_rows("SELECT IDSkup, CisloUKod, DruhPohybu, RadaDokladu FROM %sTab1NUKod" % src, "DB_EC")
+        s.execute(_t("DELETE FROM tenant.%s1n_ukod" % P))
         for r in rows:
             s.execute(_t(
-                "INSERT INTO tenant.es_1n_ukod (idskup, cisloukod, druhpohybu, radadokladu) "
-                "VALUES (:s,:c,:dp,:rd)"),
+                "INSERT INTO tenant.%s1n_ukod (idskup, cisloukod, druhpohybu, radadokladu) "
+                "VALUES (:s,:c,:dp,:rd)" % P),
                 {"s": _kalk_i(r.get("idskup")), "c": _kalk_i(r.get("cisloukod")),
                  "dp": _kalk_i(r.get("druhpohybu")), "rd": _kalk_s(r.get("radadokladu"))})
         res["vazby"] = len(rows)
+        # per-rok platnost kontace (TabUKodDef: idukod × idobdobi → blokovano)
+        rows = _mcp_rows("SELECT ID, IdUKod, IdObdobi, Blokovano FROM %sTabUKodDef" % src, "DB_EC")
+        s.execute(_t("DELETE FROM tenant.%sukod_def" % P))
+        for r in rows:
+            s.execute(_t("INSERT INTO tenant.%sukod_def (id, idukod, idobdobi, blokovano) "
+                         "VALUES (:i,:iu,:io,:bl)" % P),
+                      {"i": _kalk_i(r.get("id")), "iu": _kalk_i(r.get("idukod")),
+                       "io": _kalk_i(r.get("idobdobi")), "bl": _b(r.get("blokovano"))})
+        res["def"] = len(rows)
+        # účetní období (TabObdobi: idobdobi → rok)
+        rows = _mcp_rows(
+            "SELECT Id, Nazev, CONVERT(varchar(10),DatumOd,23) od, CONVERT(varchar(10),DatumDo,23) do "
+            "FROM %sTabObdobi" % src, "DB_EC")
+        s.execute(_t("DELETE FROM tenant.%sobdobi" % P))
+        for r in rows:
+            s.execute(_t("INSERT INTO tenant.%sobdobi (id, nazev, datumod, datumdo) VALUES (:i,:n,:od,:do)" % P),
+                      {"i": _kalk_i(r.get("id")), "n": _kalk_s(r.get("nazev")),
+                       "od": _kalk_s(r.get("od")), "do": _kalk_s(r.get("do"))})
+        res["obdobi"] = len(rows)
         s.commit()
-        return {"ok": True, **res}
-    except Exception as exc:
+        return res
+    except Exception:
         s.rollback()
-        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+        raise
     finally:
         s.close()
+
+
+@bank_router.post("/app/uctovani/sync-es-kontace")
+async def sync_es_kontace(request: Request):
+    """1:1 zrcadlo ES kontací z Heliosu DB_IS (viz _kontace_sync)."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        return {"ok": True, **_kontace_sync("ES")}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+
+
+@bank_router.post("/app/uctovani/sync-ec-kontace")
+async def sync_ec_kontace(request: Request):
+    """1:1 zrcadlo EC kontací z Heliosu DB_EC (viz _kontace_sync)."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        return {"ok": True, **_kontace_sync("EC")}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
 
 
 @bank_router.get("/app/uctovani/kontace")
@@ -2216,12 +2255,14 @@ async def kontace_radky(request: Request):
         idu = int(request.query_params.get("idukod") or request.query_params.get("src_id_ukod") or 0)
     except (TypeError, ValueError):
         idu = 0
+    firma = (request.query_params.get("firma") or "ES").upper()
+    _kp = "ec_" if firma == "EC" else "es_"
     s = _sess()
     try:
         rows = [dict(r) for r in s.execute(_t(
             "SELECT radek, druhradku, sazbadph, COALESCE(ucetmd,'') AS ucetmd, "
             "COALESCE(ucetdal,'') AS ucetdal, cizimena, zaporne, uplatnitdph "
-            "FROM tenant.es_ukod_radek WHERE idukod=:i ORDER BY radek"), {"i": idu}).mappings().all()]
+            "FROM tenant.%sukod_radek WHERE idukod=:i ORDER BY radek" % _kp), {"i": idu}).mappings().all()]
         for r in rows:
             if r.get("sazbadph") is not None:
                 r["sazbadph"] = float(r["sazbadph"])

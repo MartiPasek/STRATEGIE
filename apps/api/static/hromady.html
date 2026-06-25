@@ -55,8 +55,8 @@ async function syncES(){
   if(FIRMA==='EC'){
     const rp=await P('sync-ec-pf');const rv=await P('sync-ec-fv');const ro=await P('sync-ec-vo');const rpo=await P('sync-ec-po');
     m.textContent='✓ EC: PF '+fmt(rp)+' · FV '+fmt(rv)+' · VO '+fmt(ro)+' · PO '+fmt(rpo)+' · kalkulace…';
-    const rpp=await P('sync-ec-pp');const rk=await P('sync-ec-kalkulace');const rkp=await P('sync-ec-kalk-pol');
-    m.textContent='✓ EC: PF '+fmt(rp)+' · FV '+fmt(rv)+' · VO '+fmt(ro)+' · PO '+fmt(rpo)+' · PP '+fmt(rpp)+' · Kalk '+fmt(rk)+' ('+fmt(rkp)+' pol.)';
+    const rpp=await P('sync-ec-pp');const rk=await P('sync-ec-kalkulace');const rkp=await P('sync-ec-kalk-pol');const rko=await P('sync-ec-kontace');
+    m.textContent='✓ EC: PF '+fmt(rp)+' · FV '+fmt(rv)+' · VO '+fmt(ro)+' · PO '+fmt(rpo)+' · PP '+fmt(rpp)+' · Kalk '+fmt(rk)+' ('+fmt(rkp)+' pol.) · Předkontace '+(rko&&rko.ok?(rko.kontace+'/'+rko.radky+' MD-DAL'):'err');
   }else{
     const rv=await P('sync-es-vf');const rp=await P('sync-es-pf');const ro=await P('sync-es-vo');
     m.textContent='✓ ES: VF '+fmt(rv)+' · PF '+fmt(rp)+' · VO '+fmt(ro)+' · předkontace…';
@@ -128,7 +128,7 @@ async function openKalkPol(idk,doklad){
 }
 async function openKontace(idu,cislo){
   document.getElementById('msg').textContent='Načítám řádky kontace '+cislo+'…';
-  const r=await fetch(API+'/api/v1/erp/app/uctovani/kontace-radky?idukod='+idu,{credentials:'include'}).then(x=>x.json());
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/kontace-radky?idukod='+idu+'&firma='+FIRMA,{credentials:'include'}).then(x=>x.json());
   if(!r.ok){document.getElementById('msg').textContent=r.error||'chyba';return;}
   const rows=r.radky||[];
   document.getElementById('listh').innerHTML='Kontace '+cislo+' — '+rows.length+' řádků MD/DAL &nbsp;<a onclick="openPile(\'kontace\',\'Předkontace (Helios 1:1)\')" style="cursor:pointer;color:#7fb0ff;font-size:12px">← zpět na kontace</a>';

@@ -1265,10 +1265,15 @@ async def doklad_pdf(request: Request):
             data = _be.b64decode(b64) if b64 else b""
             if not data:
                 return JSONResponse({"ok": False, "error": "Soubor prázdný"}, status_code=404)
+            import urllib.parse as _up
             ctype = _mt.guess_type(fname)[0] or "application/octet-stream"
             disp = "inline" if ctype == "application/pdf" or ctype.startswith("image/") else "attachment"
-            return Response(content=data, media_type=ctype,
-                            headers={"Content-Disposition": '%s; filename="%s"' % (disp, fname)})
+            # HTTP hlavička = latin-1; český název souboru → RFC 5987 filename* (UTF-8)
+            # + ASCII fallback (cislo+přípona), ať to nespadne na diakritice.
+            _ext = _np.splitext(fname)[1] or ".bin"
+            _ascii = ((cislo or "doklad").encode("ascii", "ignore").decode() or "doklad") + _ext
+            cd = "%s; filename=\"%s\"; filename*=UTF-8''%s" % (disp, _ascii, _up.quote(fname))
+            return Response(content=data, media_type=ctype, headers={"Content-Disposition": cd})
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "Čtení skenu selhalo: %s: %s" % (type(exc).__name__, str(exc)[:200]),
                                  "doc_path": dp}, status_code=502)

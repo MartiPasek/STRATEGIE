@@ -25972,16 +25972,22 @@ def _xfer_table(src_db, dst_db, table, where=None):
     except Exception as e:
         return {"ok": False, "error": "pyodbc není: %s" % e}
     t = table.strip().strip("[]")
-    fq = "[" + dst_db + "].dbo.[" + t + "]"
+    fq = "[dbo].[" + t + "]"
+    import re as _rex188
+    cs = conn_str
+    if _rex188.search(r"DATABASE\s*=", cs, _rex188.I):
+        cs = _rex188.sub(r"DATABASE\s*=[^;]*", "DATABASE=" + dst_db, cs, flags=_rex188.I)
+    else:
+        cs = cs.rstrip(";") + ";DATABASE=" + dst_db
     cn = None
     try:
-        cn = _po.connect(conn_str, timeout=20, autocommit=False)
+        cn = _po.connect(cs, timeout=20, autocommit=False)
         cur = cn.cursor()
-        # vkládatelné sloupce z CÍLE (ne computed) + identita
+        # vkládatelné sloupce z CÍLE (ne computed) + identita — jsme v kontextu dst_db
         cur.execute(
-            "SELECT c.name, c.is_identity FROM " + dst_db + ".sys.columns c "
+            "SELECT c.name, c.is_identity FROM sys.columns c "
             "WHERE c.object_id = OBJECT_ID(?) AND c.is_computed = 0 ORDER BY c.column_id",
-            dst_db + ".dbo." + t)
+            "dbo." + t)
         colinfo = [(r[0], bool(r[1])) for r in cur.fetchall()]
         if not colinfo:
             return {"ok": False, "error": "cíl %s.dbo.%s neexistuje / bez sloupců" % (dst_db, t)}

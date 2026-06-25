@@ -1285,10 +1285,10 @@ async def sync_es_faktury(request: Request):
     sql = ("SELECT d.ID, d.Cislo, d.RadaDokladu, d.CisloOrg, RTRIM(d.CisloZakazky) CisloZakazky, "
            "d.Nazev, d.Mena, d.StavFakturace, CAST(d.SumaKcBezDPH AS numeric(19,2)) SumaKcBezDPH, "
            "CONVERT(varchar(10),d.DatPorizeni,23) dp, CONVERT(varchar(10),d.DatRealizace,23) dr "
-           "FROM TabDokladyZbozi d WHERE (d.RadaDokladu LIKE '5%' OR d.RadaDokladu LIKE '6%') "
+           "FROM [DB_IS].dbo.TabDokladyZbozi d WHERE (d.RadaDokladu LIKE '5%' OR d.RadaDokladu LIKE '6%') "
            "AND d.DatPorizeni >= '2025-01-01'")
     try:
-        rows = _mcp_rows(sql, "DB_IS")
+        rows = _mcp_rows(sql, "DB_EC")
     except Exception as exc:
         return JSONResponse({"ok": False, "error": "Helios (MCP): %s" % str(exc)[:200]}, status_code=502)
     s = _sess()

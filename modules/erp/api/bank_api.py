@@ -1116,9 +1116,9 @@ async def doklady_hromada(request: Request):
     typ = (request.query_params.get("typ") or "").strip()
     firma = (request.query_params.get("firma") or "EC").upper()
     s = _sess()
+    dtbl = "tenant.ec_doklad_zbozi" if firma == "EC" else "tenant.es_doklad_zbozi"
     try:
         if typ in ("fp", "fv", "vo"):
-            dtbl = "tenant.ec_doklad_zbozi" if firma == "EC" else "tenant.es_doklad_zbozi"
             rl = {"fp": "5%", "fv": "6%", "vo": "8%"}[typ]
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT id, to_char(COALESCE(dat_realizace,dat_porizeni),'DD.MM.YYYY') AS datum, cislo, rada, "

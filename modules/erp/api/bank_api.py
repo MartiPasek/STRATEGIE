@@ -1083,6 +1083,8 @@ async def doklady_hromady(request: Request):
         fv = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '6%'")
         # VO = vydané objednávky (řada 800/801). Marti 25.6.2026.
         vo = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '8%'")
+        # PO = přijaté objednávky (řada 920) = zdroj zakázek pro párování. Marti 25.6.2026.
+        po = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '9%'")
         fpn = "Přijaté faktury (FP)"
         fvn = "Vydané faktury (FV)"
         bk = cnt("SELECT count(*) c, COALESCE(round(sum(abs(t.castka))),0) o FROM tenant.bank_transaction_raw t "
@@ -1095,6 +1097,7 @@ async def doklady_hromady(request: Request):
             {"kod": "fp", "ikona": "📥", "nazev": fpn, "ks": fp["ks"], "objem": fp["objem"]},
             {"kod": "fv", "ikona": "📤", "nazev": fvn, "ks": fv["ks"], "objem": fv["objem"]},
             {"kod": "vo", "ikona": "📋", "nazev": "Vydané objednávky (VO)", "ks": vo["ks"], "objem": vo["objem"]},
+            {"kod": "po", "ikona": "📑", "nazev": "Přijaté objednávky (PO)", "ks": po["ks"], "objem": po["objem"]},
             {"kod": "banka", "ikona": "🏦", "nazev": "Bankovní výpisy", "ks": bk["ks"], "objem": bk["objem"]},
             {"kod": "pokladna", "ikona": "💵", "nazev": "Pokladna", "ks": pk["ks"], "objem": pk["objem"]},
         ]}
@@ -1124,6 +1127,14 @@ async def doklady_hromada(request: Request):
                 "FROM " + dtbl + " WHERE rada LIKE :rl "
                 "ORDER BY COALESCE(dat_realizace,dat_porizeni) ASC NULLS LAST, cislo ASC LIMIT 200"),
                 {"rl": rl}).mappings().all()]
+        elif typ == "po":
+            rows = [dict(r) for r in s.execute(_t(
+                "SELECT id, to_char(dat_porizeni,'DD.MM.YYYY') AS datum, cislo, "
+                "COALESCE(nazev,'') AS nazev, COALESCE(cislo_zakazky,'') AS zakazka, "
+                "COALESCE(navazna_objednavka,'') AS ref_zak, COALESCE(popis_dodavky,'') AS popis, "
+                "mena, round(suma_bez_dph) AS castka "
+                "FROM " + dtbl + " WHERE rada LIKE '9%' "
+                "ORDER BY dat_porizeni DESC NULLS LAST, cislo DESC LIMIT 200")).mappings().all()]
         elif typ == "banka":
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT to_char(t.datum,'DD.MM.YYYY') AS datum, t.ext_id AS doklad, round(t.castka) AS castka, t.mena, "
@@ -1786,6 +1797,68 @@ async def sync_ec_vo(request: Request):
                  "n": _s(r.get("nazev")), "m": _s(r.get("mena")), "sf": _s(r.get("stavfakturace")),
                  "s": _n(r.get("sumakcbezdph")), "dp": _s(r.get("dp")), "dr": _s(r.get("dr")),
                  "doc": _s(r.get("doc_path"))})
+            n += 1
+        s.commit()
+        return {"ok": True, "zapsano": n}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/uctovani/sync-ec-po")
+async def sync_ec_po(request: Request):
+    """1:1 zrcadlo EC Přijatých objednávek z DB_EC (přehled 506, Marti 25.6.2026):
+    DruhPohybuZbo 11, rada 920, roky 2025-26. ZDROJ ZAKÁZEK pro párování příchozích
+    plateb (zákazník referencuje svou objednávku → navazna_objednavka → cislo_zakazky).
+    cislo=PoradoveCislo. DELETE+INSERT řad 9% = čistý mirror."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+    def _n(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def _i(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def _s(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    sql = (
+        "SELECT d.ID, d.PoradoveCislo, d.RadaDokladu, d.DruhPohybuZbo, d.CisloOrg, o.Nazev, "
+        "RTRIM(d.CisloZakazky) CisloZakazky, d.NavaznaObjednavka, d.Mena, "
+        "CAST(d.SumaKcBezDPH AS numeric(19,2)) SumaKcBezDPH, "
+        "SUBSTRING(REPLACE(SUBSTRING(d.PopisDodavky,1,255),NCHAR(13)+NCHAR(10),NCHAR(32)),1,255) PopisDodavky, "
+        "CONVERT(varchar(10),d.DatPorizeni,23) dp "
+        "FROM TabDokladyZbozi d LEFT JOIN TabCisOrg o ON d.CisloOrg=o.CisloOrg "
+        "WHERE d.DruhPohybuZbo=11 AND d.RadaDokladu=920 AND d.PoradoveCislo>=0 "
+        "AND YEAR(d.DatPorizeni) IN (2025,2026)")
+    try:
+        rows = _mcp_rows(sql, "DB_EC")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Helios (MCP): %s" % str(exc)[:200]}, status_code=502)
+    s = _sess()
+    try:
+        s.execute(_t("DELETE FROM tenant.ec_doklad_zbozi WHERE rada LIKE '9%'"))
+        n = 0
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.ec_doklad_zbozi (src_id, cislo, rada, druh_pohybu, cislo_org, cislo_zakazky, "
+                "navazna_objednavka, nazev, popis_dodavky, mena, suma_bez_dph, dat_porizeni) "
+                "VALUES (:sid,:c,:r,:dph,:co,:cz,:no,:n,:pop,:m,:s,:dp)"),
+                {"sid": _i(r.get("id")), "c": _s(r.get("poradovecislo")), "r": _s(r.get("radadokladu")),
+                 "dph": _i(r.get("druhpohybuzbo")), "co": _i(r.get("cisloorg")), "cz": _s(r.get("cislozakazky")),
+                 "no": _s(r.get("navaznaobjednavka")), "n": _s(r.get("nazev")), "pop": _s(r.get("popisdodavky")),
+                 "m": _s(r.get("mena")), "s": _n(r.get("sumakcbezdph")), "dp": _s(r.get("dp"))})
             n += 1
         s.commit()
         return {"ok": True, "zapsano": n}

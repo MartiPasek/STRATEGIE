@@ -53,8 +53,8 @@ async function syncES(){
   const P=(u)=>fetch(API+'/api/v1/erp/app/uctovani/'+u,{method:'POST',credentials:'include'}).then(x=>x.json());
   const fmt=(x)=>x&&x.ok?(x.zapsano+(x.se_skenem!=null?('/'+x.se_skenem+' sken'):'')):('err '+((x&&x.error)||''));
   if(FIRMA==='EC'){
-    const rp=await P('sync-ec-pf');const rv=await P('sync-ec-fv');const ro=await P('sync-ec-vo');
-    m.textContent='✓ EC: PF 1:1 '+fmt(rp)+' · FV 1:1 '+fmt(rv)+' · VO 1:1 '+fmt(ro);
+    const rp=await P('sync-ec-pf');const rv=await P('sync-ec-fv');const ro=await P('sync-ec-vo');const rpo=await P('sync-ec-po');
+    m.textContent='✓ EC: PF 1:1 '+fmt(rp)+' · FV 1:1 '+fmt(rv)+' · VO 1:1 '+fmt(ro)+' · PO 1:1 '+fmt(rpo);
   }else{
     const rv=await P('sync-es-vf');const rp=await P('sync-es-pf');const ro=await P('sync-es-vo');
     m.textContent='✓ ES: VF 1:1 '+fmt(rv)+' · PF 1:1 '+fmt(rp)+' · VO 1:1 '+fmt(ro);
@@ -87,6 +87,9 @@ async function openPile(kod,nazev){
   }else if(kod==='vo'){
     head='<tr><th>Datum</th><th>Doklad</th><th>Řada</th><th>Org</th><th>Zakázka</th><th class="num">Částka (bez DPH)</th><th>Měna</th><th>Stav</th></tr>';
     body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis"><a onclick="window.open('/api/v1/erp/app/uctovani/doklad-pdf?typ=vo&firma=${FIRMA}&id=${d.id}&cislo='+encodeURIComponent('${d.cislo}'),'_blank')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">📄 ${d.cislo||''}</a></td><td class="muted">${d.rada||''}</td><td class="muted">${d.cislo_org||''}</td><td class="muted">${d.zakazka||''}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||'CZK'}</td><td class="muted">${d.stav||''}</td></tr>`).join('');
+  }else if(kod==='po'){
+    head='<tr><th>Datum</th><th>Doklad</th><th>Zákazník</th><th>Zakázka</th><th>Ref. zákazníka</th><th>Popis</th><th class="num">Částka</th></tr>';
+    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.cislo||''}</td><td>${d.nazev||''}</td><td class="cis">${d.zakazka||''}</td><td class="cis muted">${d.ref_zak||''}</td><td class="muted">${(d.popis||'').slice(0,40)}</td><td class="num">${czk(d.castka)}</td></tr>`).join('');
   }else if(kod==='banka'){
     head='<tr><th>Datum</th><th>Doklad</th><th>VS</th><th>Směr</th><th class="num">Částka</th><th>Měna</th><th>Zpráva</th></tr>';
     body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.doklad||''}</td><td class="cis">${d.vs||''}</td><td><span class="badge ${d.smer==='out'?'out':''}">${d.smer==='out'?'výdej':'příjem'}</span></td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||''}</td><td class="muted">${d.zprava||''}</td></tr>`).join('');

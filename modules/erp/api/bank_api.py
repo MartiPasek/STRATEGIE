@@ -1072,16 +1072,31 @@ async def doklady_hromady(request: Request):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     s = _sess()
     try:
+        firma = (request.query_params.get("firma") or "EC").upper()
+
         def cnt(sql, p=None):
             r = s.execute(_t(sql), p or {}).mappings().first()
             return {"ks": r["c"], "objem": float(r["o"] or 0)}
-        fp = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM tenant.ec_doklad_zbozi WHERE rada LIKE '5%'")
-        fv = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM tenant.ec_doklad_zbozi WHERE rada LIKE '6%'")
-        bk = cnt("SELECT count(*) c, COALESCE(round(sum(abs(castka))),0) o FROM tenant.bank_transaction_raw")
-        pk = cnt("SELECT count(*) c, 0 o FROM tenant.ucet_pokladna WHERE tenant_id=:tn", {"tn": _TENANT})
-        return {"ok": True, "hromady": [
-            {"kod": "fp", "ikona": "📥", "nazev": "Přijaté faktury (FP)", "ks": fp["ks"], "objem": fp["objem"]},
-            {"kod": "fv", "ikona": "📤", "nazev": "Vydané faktury (FV)", "ks": fv["ks"], "objem": fv["objem"]},
+        # FP/FV = zrcadlo Centrály (DB_EC = Control) → jen EC. ES faktury v Heliosu, nenatažené.
+        if firma == "EC":
+            fp = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM tenant.ec_doklad_zbozi WHERE rada LIKE '5%'")
+            fv = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM tenant.ec_doklad_zbozi WHERE rada LIKE '6%'")
+            fpn = "Přijaté faktury (FP)"
+            fvn = "Vydané faktury (FV)"
+        else:
+            fp = {"ks": 0, "objem": 0}
+            fv = {"ks": 0, "objem": 0}
+            fpn = "Přijaté faktury (FP) — v Heliosu, nenataženo"
+            fvn = "Vydané faktury (FV) — v Heliosu, nenataženo"
+        bk = cnt("SELECT count(*) c, COALESCE(round(sum(abs(t.castka))),0) o FROM tenant.bank_transaction_raw t "
+                 "JOIN tenant.bank_connection_account a ON a.id=t.account_id "
+                 "JOIN tenant.bank_connection c ON c.id=a.connection_id "
+                 "JOIN tenant.company co ON co.id=c.company_id WHERE co.code=:f", {"f": firma})
+        pk = cnt("SELECT count(*) c, 0 o FROM tenant.ucet_pokladna WHERE tenant_id=:tn AND firma=:f", {"tn": _TENANT, "f": firma})
+        return {"ok": True, "firma": firma, "firma_nazev": ("EUROSOFT-Control" if firma == "EC" else "EUROSOFT-System"),
+                "hromady": [
+            {"kod": "fp", "ikona": "📥", "nazev": fpn, "ks": fp["ks"], "objem": fp["objem"]},
+            {"kod": "fv", "ikona": "📤", "nazev": fvn, "ks": fv["ks"], "objem": fv["objem"]},
             {"kod": "banka", "ikona": "🏦", "nazev": "Bankovní výpisy", "ks": bk["ks"], "objem": bk["objem"]},
             {"kod": "pokladna", "ikona": "💵", "nazev": "Pokladna", "ks": pk["ks"], "objem": pk["objem"]},
         ]}
@@ -1098,24 +1113,32 @@ async def doklady_hromada(request: Request):
     if not uid or not _is_parent(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     typ = (request.query_params.get("typ") or "").strip()
+    firma = (request.query_params.get("firma") or "EC").upper()
     s = _sess()
     try:
         if typ in ("fp", "fv"):
-            rl = "5%" if typ == "fp" else "6%"
-            rows = [dict(r) for r in s.execute(_t(
-                "SELECT cislo, rada, COALESCE(nazev,'') AS nazev, mena, round(suma_bez_dph) AS castka, "
-                "cislo_org, COALESCE(cislo_zakazky,'') AS zakazka, COALESCE(stav_fakturace,'') AS stav "
-                "FROM tenant.ec_doklad_zbozi WHERE rada LIKE :rl ORDER BY cislo DESC LIMIT 200"),
-                {"rl": rl}).mappings().all()]
+            if firma != "EC":
+                rows = []  # ES faktury v Heliosu, nenatažené
+            else:
+                rl = "5%" if typ == "fp" else "6%"
+                rows = [dict(r) for r in s.execute(_t(
+                    "SELECT cislo, rada, COALESCE(nazev,'') AS nazev, mena, round(suma_bez_dph) AS castka, "
+                    "cislo_org, COALESCE(cislo_zakazky,'') AS zakazka, COALESCE(stav_fakturace,'') AS stav "
+                    "FROM tenant.ec_doklad_zbozi WHERE rada LIKE :rl ORDER BY cislo DESC LIMIT 200"),
+                    {"rl": rl}).mappings().all()]
         elif typ == "banka":
             rows = [dict(r) for r in s.execute(_t(
-                "SELECT to_char(datum,'DD.MM.YYYY') AS datum, ext_id AS doklad, round(castka) AS castka, mena, "
-                "COALESCE(vs,'') AS vs, smer, left(COALESCE(zprava,''),50) AS zprava "
-                "FROM tenant.bank_transaction_raw ORDER BY datum DESC LIMIT 200")).mappings().all()]
+                "SELECT to_char(t.datum,'DD.MM.YYYY') AS datum, t.ext_id AS doklad, round(t.castka) AS castka, t.mena, "
+                "COALESCE(t.vs,'') AS vs, t.smer, left(COALESCE(t.zprava,''),50) AS zprava "
+                "FROM tenant.bank_transaction_raw t "
+                "JOIN tenant.bank_connection_account a ON a.id=t.account_id "
+                "JOIN tenant.bank_connection c ON c.id=a.connection_id "
+                "JOIN tenant.company co ON co.id=c.company_id WHERE co.code=:f "
+                "ORDER BY t.datum DESC LIMIT 200"), {"f": firma}).mappings().all()]
         elif typ == "pokladna":
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT cislo, nazev, mena, typ, COALESCE(ucet_md,'') AS ucet FROM tenant.ucet_pokladna "
-                "WHERE tenant_id=:tn ORDER BY firma, cislo"), {"tn": _TENANT}).mappings().all()]
+                "WHERE tenant_id=:tn AND firma=:f ORDER BY cislo"), {"tn": _TENANT, "f": firma}).mappings().all()]
         else:
             return JSONResponse({"ok": False, "error": "neznámý typ"}, status_code=400)
         for r in rows:

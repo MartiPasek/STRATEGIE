@@ -26,11 +26,18 @@
   .badge{font-size:11px;padding:1px 7px;border-radius:9px;background:#16243a;color:#7fb0ff}
   .badge.out{background:#3a2414;color:#f0b674}
   #msg{color:#9fb0c8;font-size:13px;margin-top:10px}
+  .fbtn{background:#27313f;color:#cdd9ea;border:0;border-radius:16px;padding:7px 14px;font-size:13px;cursor:pointer;margin-right:6px}
+  .fbtn.on{background:#2563eb;color:#fff}
 </style>
 </head>
 <body>
 <h1>📂 Doklady — hromady</h1>
 <div class="sub">Nejdřív si haldu roztřiď na hromady. Klikni na hromadu → rozsype se ti jen ta jedna.</div>
+<div style="margin-bottom:14px">
+  <span class="muted" style="font-size:12px;margin-right:6px">Účtuji firmu:</span>
+  <button class="fbtn on" id="f_EC" onclick="setFirma('EC')">🏢 EUROSOFT-Control (EC)</button>
+  <button class="fbtn" id="f_ES" onclick="setFirma('ES')">🏢 EUROSOFT-System (ES)</button>
+</div>
 <div class="piles" id="piles"></div>
 <div id="msg">Načítám hromady…</div>
 <div id="listwrap" style="display:none"><h2 id="listh" style="font-size:15px"></h2><table id="tbl"><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
@@ -38,9 +45,11 @@
 <script>
 const API='';
 let CUR='';
+let FIRMA='EC';
+function setFirma(f){FIRMA=f;document.getElementById('f_EC').classList.toggle('on',f==='EC');document.getElementById('f_ES').classList.toggle('on',f==='ES');document.getElementById('listwrap').style.display='none';CUR='';loadPiles();}
 function czk(n){return (n==null?0:n).toLocaleString('cs-CZ',{maximumFractionDigits:0})+' Kč';}
 async function loadPiles(){
-  const r=await fetch(API+'/api/v1/erp/app/uctovani/hromady',{credentials:'include'}).then(x=>x.json());
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/hromady?firma='+FIRMA,{credentials:'include'}).then(x=>x.json());
   if(!r.ok){document.getElementById('msg').textContent=r.error||'Nedostupné (přihlas se jako rodič)';return;}
   document.getElementById('piles').innerHTML=r.hromady.map(h=>`<div class="pile" id="p_${h.kod}" onclick="openPile('${h.kod}','${h.nazev.replace(/'/g,"\\'")}')">
     <div class="ic">${h.ikona}</div><div class="nm">${h.nazev}</div>
@@ -54,7 +63,7 @@ async function openPile(kod,nazev){
   const pe=document.getElementById('p_'+kod);if(pe)pe.classList.add('on');
   document.getElementById('msg').textContent='Načítám hromadu '+nazev+'…';
   document.getElementById('listwrap').style.display='none';
-  const r=await fetch(API+'/api/v1/erp/app/uctovani/hromada?typ='+kod,{credentials:'include'}).then(x=>x.json());
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/hromada?typ='+kod+'&firma='+FIRMA,{credentials:'include'}).then(x=>x.json());
   if(!r.ok){document.getElementById('msg').textContent=r.error||'chyba';return;}
   const rows=r.polozky||[];
   let head='',body='';

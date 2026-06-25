@@ -517,7 +517,7 @@ def erp_palette_popup(req: Request) -> HTMLResponse:
     Auth: same session cookie jako parent ERP. _require_parent gate.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     # Standalone HTML page — reuse design_forms.js gallery render.
     # window.opener reference v JS pro drop event propagation do parent.
@@ -829,7 +829,7 @@ def system_audit_dashboard(
     Přehled), každý → samostatný single-view dashboard.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     if mode not in ("audited", "all", "stats", "tabs"):
         mode = "audited"
@@ -904,7 +904,7 @@ def erp_service_worker() -> Response:
 def erp_landing(req: Request) -> HTMLResponse:
     """Phase A landing zachovaný pod /erp/landing pro reference."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     return HTMLResponse(content=_render_landing_page(uid))
 
 
@@ -928,7 +928,7 @@ def jadro_render(
     (bez _render_full_page wrapperu) pro embed v 3-pane workspace.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     logger.info(
         f"ERP | jadro render | user={uid} form_id={form_id} row_id={row_id} "
         f"fragment={fragment}"
@@ -1029,7 +1029,7 @@ def jadro_render(
 def health(req: Request) -> JSONResponse:
     """Health check + tenant info."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     tid = _get_tenant_id(uid)
     return JSONResponse({
@@ -1253,7 +1253,7 @@ def core_dataset_fields(core_id: int, req: Request) -> JSONResponse:
     Returns: {ok, fields: [str], data_source_code} | {ok:False, error}
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     from core.database_data import get_data_session as _gds_df
     from sqlalchemy import text as _sql_df
@@ -1322,7 +1322,7 @@ def core_dataset_sql(core_id: int, req: Request) -> JSONResponse:
     Returns: {ok, sql, data_source{id,code,name}, data_set_id, db_type, connection{id,code}}
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     from core.database_data import get_data_session as _gds_dsql
     from sqlalchemy import text as _sql_dsql
@@ -1393,7 +1393,7 @@ async def core_set_edit_select(core_id: int, req: Request) -> JSONResponse:
     sql_text + code, a přiřadí edit-opu. Returns {ok, data_set_id, created}.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     try:
         body = await req.json()
     except Exception:
@@ -2263,7 +2263,7 @@ def design_menu_node_by_id(menu_node_id: int, req: Request) -> JSONResponse:
     """
     from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     ds = _gds_fw()
     try:
         mn = _fetch_menu_node(ds, "n.id = :id", {"id": menu_node_id})
@@ -2302,7 +2302,7 @@ def design_list_menu_nodes(req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_text_lmn
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     ds = _gds_lmn()
     try:
@@ -2345,7 +2345,7 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
     from modules.strategie_pg.application.service import insert_row as _spg_insert_cmn
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     body = await req.json()
     label = (body.get("label") or "").strip()
@@ -2500,7 +2500,7 @@ def design_core_by_id(core_id: int, req: Request) -> JSONResponse:
     """
     from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     ds = _gds_fw()
     try:
         core = _fetch_core(ds, "c.id = :id", {"id": core_id})
@@ -2532,7 +2532,7 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
     import re
     from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     ds = _gds_fw()
     try:
         # Primary: přímý match fw.core.code
@@ -4100,7 +4100,7 @@ def fw_state_discriminators_list(core_id: int, req: Request) -> JSONResponse:
 async def fw_state_discriminator_create(core_id: int, req: Request) -> JSONResponse:
     """Upsert řídicí pole (ON CONFLICT form_core_id+field_name → update)."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     body = await req.json()
     field_name = (body.get("field_name") or "").strip()
     source = (body.get("source") or "column").strip()
@@ -4144,7 +4144,7 @@ async def fw_state_discriminator_create(core_id: int, req: Request) -> JSONRespo
 async def fw_state_discriminator_patch(discr_id: int, req: Request) -> JSONResponse:
     """Update priority/label/source/is_active řídicího pole."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     body = await req.json()
     sets = []
     params = {"id": discr_id}
@@ -4189,7 +4189,7 @@ async def fw_state_discriminator_patch(discr_id: int, req: Request) -> JSONRespo
 async def fw_state_discriminator_delete(discr_id: int, req: Request) -> JSONResponse:
     """Soft-delete řídicí pole + jeho overrides (is_active=FALSE; GRANT bez DELETE)."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     audit_uid, audit_text = _sr_audit(uid)
     from core.database_data import get_data_session as _gds_sdd
     from sqlalchemy import text as _t_sdd
@@ -4288,7 +4288,7 @@ async def fw_state_override_upsert(req: Request) -> JSONResponse:
     efektu' jako reset jen té vlastnosti). Pro úplné zrušení použij DELETE.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     body = await req.json()
     try:
         comp_def_id = int(body.get("comp_def_id"))
@@ -4347,7 +4347,7 @@ async def fw_state_override_upsert(req: Request) -> JSONResponse:
 async def fw_state_override_delete(ovr_id: int, req: Request) -> JSONResponse:
     """Soft-delete jeden override (is_active=FALSE)."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     audit_uid, audit_text = _sr_audit(uid)
     from core.database_data import get_data_session as _gds_sod
     from sqlalchemy import text as _t_sod
@@ -4842,7 +4842,7 @@ async def design_resolve_save_bindings(core_id: int, req: Request) -> JSONRespon
     import json as _json_rsb
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     dry_run = (req.query_params.get("dry_run", "true").lower() != "false")
 
@@ -12815,7 +12815,7 @@ async def app_versions(app_key: str, req: Request) -> JSONResponse:
     if not _app_key_ok(app_key):
         return JSONResponse({"ok": False, "error": "Neplatný app_key"}, status_code=400)
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     ds = _gds_av()
     try:
         rows = ds.execute(_sql_av("""
@@ -12859,7 +12859,7 @@ async def app_upload(
         uid = 0  # systémový (watcher publish z NB buildu)
     else:
         uid = _get_uid(req)
-        _require_parent(uid)
+        _require_admin(uid)
 
     name = (file.filename or "").lower()
     if not name.endswith(".apk"):
@@ -14175,7 +14175,7 @@ async def app_apid_backups(req: Request) -> JSONResponse:
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     try:
-        _require_parent(uid)
+        _require_admin(uid)
     except Exception:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     cm, s = _att_session()
@@ -14215,7 +14215,7 @@ async def app_apid_restore(req: Request) -> JSONResponse:
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     try:
-        _require_parent(uid)
+        _require_admin(uid)
     except Exception:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
@@ -19601,7 +19601,7 @@ async def app_devices(req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_dv
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     ds = _gds_dv()
     try:
         rows = ds.execute(_sql_dv("""
@@ -19634,7 +19634,7 @@ async def app_device_remove(device_row_id: int, req: Request) -> JSONResponse:
     from core.database_data import get_data_session as _gds_dr
     from sqlalchemy import text as _sql_dr
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     ds = _gds_dr()
     try:
         ds.execute(_sql_dr(
@@ -19701,7 +19701,7 @@ async def app_command_create(req: Request) -> JSONResponse:
     from core.database_data import get_data_session as _gds_cc
     from sqlalchemy import text as _sql_cc
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     try:
         body = await req.json()
     except Exception:
@@ -21294,7 +21294,7 @@ async def deploy_preview(req: Request) -> JSONResponse:
     Parent-only → 403 schová tlačítko non-parentům. ?fetch=1 udělá git fetch
     (čerstvý origin); bez něj jen lokální porovnání (levné, pro init)."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_parent(uid)  # deploy = rodičovské (Marti-AI: produkční deploy parent-only)
     from modules.conversation.application import deployment_service as _dep
 
     clean, detail = _dep._git_working_tree_clean()
@@ -21339,7 +21339,7 @@ async def deploy_now(req: Request) -> JSONResponse:
         pass  # token auth (NB) — předautorizováno
     else:
         uid = _get_uid(req)
-        _require_parent(uid)
+        _require_parent(uid)  # deploy = rodičovské (Marti-AI: produkční deploy parent-only)
         proposed_by = uid
 
     try:
@@ -21414,7 +21414,7 @@ async def restart_api(req: Request) -> JSONResponse:
         pass
     else:
         uid = _get_uid(req)
-        _require_parent(uid)
+        _require_parent(uid)  # restart = rodičovské (produkční zásah)
         actor = "user_%s" % uid
 
     ok, info = _dep._touch_restart_marker(0, "restart_%s" % actor)
@@ -25648,7 +25648,7 @@ async def diag_sql(req: Request) -> JSONResponse:
         pass
     else:
         uid = _get_uid(req)
-        _require_parent(uid)
+        _require_parent(uid)  # bridge /diag-sql = rodičovské (raw SQL proti produkci)
         actor = "user_%s" % uid
 
     try:
@@ -26922,7 +26922,7 @@ async def diag_write_pending(req: Request) -> JSONResponse:
     destruktivního DDL k Martimu) — Marti-AI kustod spec 25.6.2026."""
     uid = _get_uid(req)
     if not (is_marti_parent(uid) or uid == _PETA_UID):
-        _require_parent(uid)  # vyhodí 403 ostatním (banner se nezobrazí)
+        _require_admin(uid)  # vyhodí 403 ostatním (banner se nezobrazí)
     from core.database_data import get_data_session as _gp
     from sqlalchemy import text as _tp
     ds = _gp()
@@ -27140,7 +27140,7 @@ async def diag_write_decide(req_id: int, req: Request) -> JSONResponse:
     Petra (18); konkrétní routing per-request hlídá _apply_write_decision."""
     uid = _get_uid(req)
     if not (is_marti_parent(uid) or uid == _PETA_UID):
-        _require_parent(uid)
+        _require_admin(uid)
     try:
         body = await req.json()
     except Exception:
@@ -27159,7 +27159,7 @@ async def diag_write_status(req_id: int, req: Request) -> JSONResponse:
     env_token = _os_ws.environ.get("STRATEGIE_DEPLOY_TOKEN")
     if not (token and env_token and token == env_token):
         uid = _get_uid(req)
-        _require_parent(uid)
+        _require_admin(uid)
     from core.database_data import get_data_session as _gws
     from sqlalchemy import text as _tws
     ds = _gws()
@@ -27211,7 +27211,7 @@ async def instance_active(req: Request) -> JSONResponse:
     env_token = _os_ia.environ.get("STRATEGIE_DEPLOY_TOKEN")
     if not (token and env_token and token == env_token):
         uid = _get_uid(req)
-        _require_parent(uid)
+        _require_admin(uid)
     return JSONResponse(jsonable_encoder({"ok": True, "instances": _active_instances()}))
 
 
@@ -31144,7 +31144,7 @@ async def ops_request(req: Request) -> JSONResponse:
     """Parent požádá o pojmenovanou ops akci (z whitelistu). Cloud akce běží
     hned; remote jdou do fronty pro agenta. Vše do fw.ops_request (audit)."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_parent(uid)  # produkční ops akce (restart/deploy infra) = rodičovské
     try:
         body = await req.json()
     except Exception:
@@ -31596,7 +31596,7 @@ async def ops_result(req_id: int, req: Request) -> JSONResponse:
 async def ops_actions(req: Request) -> JSONResponse:
     """Whitelist dostupných ops akcí pro UI (parent-only)."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     items = [{"action_key": k, "label": v["label"], "target": v["target"]}
              for k, v in _OPS_ACTIONS.items()]
     return JSONResponse({"ok": True, "actions": items})
@@ -31606,7 +31606,7 @@ async def ops_actions(req: Request) -> JSONResponse:
 async def ops_log(req: Request) -> JSONResponse:
     """Audit posledních ops akcí (parent-only)."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     from core.database_data import get_data_session as _gp_ol
     from sqlalchemy import text as _tp_ol
     s = _gp_ol()
@@ -33073,7 +33073,7 @@ def design_list_comp_types(req: Request) -> JSONResponse:
     from core.database_data import get_data_session as _gds_ct
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     from sqlalchemy import text as _sql_text_ct
 
@@ -33121,7 +33121,7 @@ def design_get_comp_type_defaults(type_id: int, req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_text_ctd
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     ds = _gds_ctd()
     try:
@@ -33166,7 +33166,7 @@ async def design_put_comp_type_defaults(type_id: int, req: Request) -> JSONRespo
     import json as _json_ctp
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -33253,7 +33253,7 @@ async def design_create_comp_def(req: Request) -> JSONResponse:
     from modules.strategie_pg.application.service import insert_row as _spg_insert_cdc
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     body = await req.json()
     parent_id = body.get("parent_comp_def_id")
@@ -33475,7 +33475,7 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
     from sqlalchemy import text as _sql_text_cdd
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     caller_display = "Unknown"
     if uid:
@@ -33587,7 +33587,7 @@ async def design_get_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     cesta /design/comp-def/get/{id} se vyhne kolizi s generic /design/{e}/{id}.
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
     from core.database_data import get_data_session as _gds_gcd
     from sqlalchemy import text as _sql_gcd
     ds = _gds_gcd()
@@ -33644,7 +33644,7 @@ async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResp
     from sqlalchemy import text as _sql_text_dv
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     ds_dv = _gds_dv()
     try:
@@ -34401,7 +34401,7 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_text_pcd
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -34624,7 +34624,7 @@ async def design_reorder_comp_def(req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_text_rcd
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -34765,7 +34765,7 @@ def _design_patch_fw_table(
     from sqlalchemy import text as _sql_text_fwt
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         # Note: caller (FastAPI) musi byt async wrapper, ale jsme sync def.
@@ -34794,7 +34794,7 @@ async def design_create_fw_core(req: Request) -> JSONResponse:
         500: DB error
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -34944,7 +34944,7 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_cm
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -35096,7 +35096,7 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
 
     # Parent gate (PoC scope — drz security tight)
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     # Krok F (25.5.2026 vecer, Marti's PoC): parse optional POST body
     # pro context (coreId, coreCode, rowId, atd.). Orchestrator dostane
@@ -35354,7 +35354,7 @@ async def sandbox_execute_artifact_by_id(
     from core.log_queue import log_event as _log_event_sxi
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     ds_sxi = _gds_sxi()
     try:
@@ -35438,7 +35438,7 @@ def design_list_fw_core(req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_clst
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     ds = _gds_clst()
     try:
@@ -35552,7 +35552,7 @@ async def design_create_fw_data_source(req: Request) -> JSONResponse:
     from modules.strategie_pg.application.service import insert_row as _spg_insert_cds
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -35720,7 +35720,7 @@ async def design_archive_fw_data_source(data_source_id: int, req: Request) -> JS
     from sqlalchemy import text as _sql_text_pads
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     # caller_display lookup
     caller_display = "Unknown"
@@ -35899,7 +35899,7 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
     from modules.strategie_pg.application.service import insert_row as _spg_insert_dsf
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -36135,7 +36135,7 @@ async def design_patch_fw_data_source(data_source_id: int, req: Request) -> JSON
     from modules.strategie_pg.application.service import update_row as _spg_update_pds
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -36216,7 +36216,7 @@ async def design_add_op_to_data_source(data_source_id: int, req: Request) -> JSO
     from modules.strategie_pg.application.service import insert_row as _spg_insert_aop
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -36350,7 +36350,7 @@ async def design_patch_data_source_op(op_id: int, req: Request) -> JSONResponse:
     from modules.strategie_pg.application.service import update_row as _spg_update_pop
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -36409,7 +36409,7 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
     from sqlalchemy import text as _sql_text_dgf
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     ds_session = _gds_dgf()
     try:
@@ -36542,7 +36542,7 @@ def design_list_context_menu_items(req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_cml
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     scope = req.query_params.get("scope")
     applies_to_kind = req.query_params.get("applies_to_kind")
@@ -36639,7 +36639,7 @@ async def design_create_context_menu_item(req: Request) -> JSONResponse:
     from modules.strategie_pg.application.service import insert_row as _spg_insert_cmc
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -36799,7 +36799,7 @@ async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSON
     from sqlalchemy import text as _sql_lc
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -36913,7 +36913,7 @@ async def design_archive_context_menu_item(item_id: int, req: Request) -> JSONRe
     from modules.strategie_pg.application.service import update_row as _spg_update_cma
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     ds = _gds_cma()
     try:
@@ -37180,7 +37180,7 @@ def diag_log_get_events(req: Request) -> JSONResponse:
     from datetime import datetime, timedelta, timezone as _tz
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     qp = req.query_params
     view = (qp.get("view") or "master").lower()
@@ -37315,7 +37315,7 @@ async def diag_log_resolve_event(event_id: int, req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_dgr
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -37486,7 +37486,7 @@ def design_list_fw_data_source(req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_dsl
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     ds = _gds_dsl()
     try:
@@ -37579,7 +37579,7 @@ async def design_patch_fw_core(core_id: int, req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_text_pfc
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -37715,7 +37715,7 @@ async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResp
     from sqlalchemy import text as _sql_text_pmn
 
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     try:
         body = await req.json()
@@ -37890,7 +37890,7 @@ def design_list_entity_columns(
         404: entity_type nezaregistrovan
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     # Phase 38.4 Krok 5.M-3 hotfix (17.5.2026): defensive against
     # entity_type=="null" (string) — JS encodeURIComponent(null) -> "null".
@@ -38217,7 +38217,7 @@ def data_source_list(req: Request) -> JSONResponse:
     Returns: JSON {"ok": True, "items": [{code, name, description, operation_count, kinds}, ...]}
     """
     uid = _get_uid(req)
-    _require_parent(uid)
+    _require_admin(uid)
 
     from core.database_data import get_data_session as _gds_data_list
 

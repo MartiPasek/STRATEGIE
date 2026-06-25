@@ -17,7 +17,7 @@ import base64
 import json as _json
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text as _t
 
 bank_router = APIRouter(prefix="/api/v1/erp", tags=["bank-api"])
@@ -1215,3 +1215,52 @@ async def rady_predkontace(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+@bank_router.get("/app/uctovani/doklad-pdf")
+async def doklad_pdf(request: Request):
+    """Proklik na fyzický papír — naskenovaná faktura z EUROSOFT serveru přes MCP."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    cislo = (request.query_params.get("cislo") or "").strip()
+    typ = (request.query_params.get("typ") or "fp").strip().lower()
+    if not cislo:
+        return JSONResponse({"ok": False, "error": "chybí číslo"}, status_code=400)
+    # FP přijaté: D:\data\FakturyP\FP<cislo> ; FV vydané: D:\data\FakturyV\FV<cislo>
+    if typ == "fv":
+        base = "D:\\data\\FakturyV\\FV" + cislo
+    else:
+        base = "D:\\data\\FakturyP\\FP" + cislo
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        import json as _j, base64 as _b64
+        mcp = get_eurosoft_mcp_client()
+        if mcp is None:
+            return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"}, status_code=503)
+        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                                 {"user_namespace": "ro", "base_override": base, "subpath": ""}, conversation_id=None)
+        r = _j.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict) and r.get("ok") is False:
+            return JSONResponse({"ok": False, "error": "Složka dokladu nenalezena: " + base}, status_code=404)
+        items = (r.get("items") or r.get("files") or r.get("entries") or []) if isinstance(r, dict) else (r or [])
+        pdf_name = None
+        for it in items:
+            nm = (it.get("name") or it.get("filename") or it.get("path")) if isinstance(it, dict) else it
+            if nm and str(nm).lower().endswith(".pdf"):
+                pdf_name = nm
+                break
+        if not pdf_name:
+            return JSONResponse({"ok": False, "error": "Doklad nemá naskenovaný PDF papír"}, status_code=404)
+        raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                  {"user_namespace": "ro", "base_override": base, "path": pdf_name, "encoding": "base64"},
+                                  conversation_id=None)
+        r2 = _j.loads(raw2) if isinstance(raw2, str) else raw2
+        b64 = (r2.get("content") or r2.get("data") or "") if isinstance(r2, dict) else str(r2)
+        data = _b64.b64decode(b64) if b64 else b""
+        if not data:
+            return JSONResponse({"ok": False, "error": "PDF prázdné"}, status_code=404)
+        return Response(content=data, media_type="application/pdf",
+                        headers={"Content-Disposition": "inline; filename=%s%s.pdf" % (typ.upper(), cislo)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)

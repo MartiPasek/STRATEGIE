@@ -25985,14 +25985,17 @@ def _xfer_table(src_db, dst_db, table, where=None):
         cur = cn.cursor()
         # vkládatelné sloupce z CÍLE (ne computed) + identita — jsme v kontextu dst_db
         cur.execute(
-            "SELECT c.name, c.is_identity FROM sys.columns c "
-            "WHERE c.object_id = OBJECT_ID(?) AND c.is_computed = 0 ORDER BY c.column_id",
+            "SELECT c.name, c.is_identity, ty.name FROM sys.columns c "
+            "JOIN sys.types ty ON ty.user_type_id = c.user_type_id "
+            "WHERE c.object_id = OBJECT_ID(?) AND c.is_computed = 0 "
+            "AND ty.name <> 'timestamp' ORDER BY c.column_id",
             "dbo." + t)
-        colinfo = [(r[0], bool(r[1])) for r in cur.fetchall()]
+        colinfo = [(r[0], bool(r[1]), (r[2] or "").lower()) for r in cur.fetchall()]
         if not colinfo:
             return {"ok": False, "error": "cíl %s.dbo.%s neexistuje / bez sloupců" % (dst_db, t)}
-        cols = [c for c, _ in colinfo]
-        has_identity = any(i for _, i in colinfo)
+        cols = [c for c, _, _ in colinfo]
+        types = [ty for _, _, ty in colinfo]
+        has_identity = any(i for _, i, _ in colinfo)
     except Exception as exc:
         try:
             cn.close()
@@ -26027,6 +26030,29 @@ def _xfer_table(src_db, dst_db, table, where=None):
         cn.close()
         return {"ok": False, "error": "zdroj (MCP): %s" % str(exc)[:300]}
     lc = list(cols)  # MCP vrací klíče = názvy sloupců ze SELECTu (původní case)
+    import datetime as _dtx188
+    _DATE_T = {"datetime", "datetime2", "smalldatetime", "date"}
+    _NUM_T = {"int", "bigint", "smallint", "tinyint", "bit", "numeric",
+              "decimal", "money", "smallmoney", "float", "real"}
+
+    def _convcell(v, ty):
+        if v is None:
+            return None
+        if ty in _DATE_T:
+            if isinstance(v, (_dtx188.datetime, _dtx188.date)):
+                return v
+            s = str(v).strip().replace("T", " ")
+            if not s:
+                return None
+            for _f in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                try:
+                    return _dtx188.datetime.strptime(s[:26], _f)
+                except Exception:
+                    pass
+            return None
+        if v == "" and ty in _NUM_T:
+            return None
+        return v
     try:
         cur.execute("ALTER TABLE %s NOCHECK CONSTRAINT ALL" % fq)
         cur.execute("DISABLE TRIGGER ALL ON %s" % fq)
@@ -26037,7 +26063,7 @@ def _xfer_table(src_db, dst_db, table, where=None):
         if rows:
             ins = ("INSERT INTO %s (%s) VALUES (%s)"
                    % (fq, ", ".join("[" + c + "]" for c in cols), ",".join(["?"] * len(cols))))
-            batch = [tuple(r.get(k) for k in lc) for r in rows]
+            batch = [tuple(_convcell(r.get(c), ty) for c, ty in zip(cols, types)) for r in rows]
             # po dávkách (legacy driver bez fast_executemany)
             CH = 500
             for i in range(0, len(batch), CH):

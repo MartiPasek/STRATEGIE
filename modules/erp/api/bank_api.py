@@ -1253,11 +1253,15 @@ async def doklad_pdf(request: Request):
             # UNC \\192.168.30.11\data\... → lokální D:\data\... (MCP RO root je D:\data na EC-SERVER2)
             dp_loc = ("D:\\data" + dp[len("\\\\192.168.30.11\\data"):]) \
                      if dp.lower().startswith("\\\\192.168.30.11\\data") else dp
-            fname = _np.basename(dp_loc)
-            folder = _np.dirname(dp_loc)
-            # Preferuj PDF: pokud doc_path není .pdf (může být .msg/.docx z e-mailu),
-            # projdi složku dokladu (FP<ID>\) a vezmi papír (.pdf). Marti 25.6.2026.
-            if not fname.lower().endswith(".pdf"):
+            # doc_path může být konkrétní SOUBOR (VF/PF) nebo SLOŽKA dokladu (VO:
+            # ObjednavkyV\EOS<cislo> — VO nejsou v DMS, jen soubor ve složce).
+            if _np.splitext(dp_loc)[1]:
+                folder = _np.dirname(dp_loc); fname = _np.basename(dp_loc)
+            else:
+                folder = dp_loc; fname = ""
+            # Preferuj PDF: pokud fname není .pdf (.msg/.docx) nebo chybí (složka),
+            # projdi složku dokladu a vezmi papír (.pdf). Marti 25.6.2026.
+            if (not fname) or (not fname.lower().endswith(".pdf")):
                 try:
                     lraw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
                                               {"user_namespace": "ro", "base_override": folder, "subpath": ""},
@@ -1271,6 +1275,8 @@ async def doklad_pdf(request: Request):
                             break
                 except Exception:
                     pass
+            if not fname:
+                return JSONResponse({"ok": False, "error": "Ve složce dokladu není PDF: " + dp}, status_code=404)
             raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
                                       {"user_namespace": "ro", "base_override": folder,
                                        "path": fname, "encoding": "base64"}, conversation_id=None)
@@ -1454,6 +1460,67 @@ async def sync_es_vf(request: Request):
             n += 1
         s.commit()
         return {"ok": True, "zapsano": n, "se_skenem": sken}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/uctovani/sync-es-vo")
+async def sync_es_vo(request: Request):
+    """1:1 zrcadlo ES Vydaných objednávek z DB_EC (přehled 10150, Marti 25.6.2026):
+    rada 801, DruhPohybuZbo=6, roky 2025-26. cislo=PoradoveCislo. VO NEJSOU v Helios
+    DMS (je_sken=0, EC_Doklad_NajdiDokument prázdné) → doc_path = SLOŽKA
+    \\\\192.168.30.11\\data\\ObjednavkyV\\EOS<cislo> (papír se dohledá listingem při
+    otevření). DELETE+INSERT řad 8% = čistý mirror."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+    def _n(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def _i(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def _s(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    sql = (
+        "SELECT d.ID, d.PoradoveCislo, d.RadaDokladu, d.CisloOrg, RTRIM(d.CisloZakazky) CisloZakazky, "
+        "o.Nazev, d.Mena, d.StavFakturace, CAST(d.SumaKcBezDPH AS numeric(19,2)) SumaKcBezDPH, "
+        "CONVERT(varchar(10),d.DatPorizeni,23) dp, CONVERT(varchar(10),d.DatRealizace,23) dr, "
+        "'\\\\192.168.30.11\\data\\ObjednavkyV\\EOS' + RTRIM(CAST(d.PoradoveCislo AS varchar(20))) doc_path "
+        "FROM TabDokladyZbozi d LEFT JOIN TabCisOrg o ON d.CisloOrg=o.CisloOrg "
+        "WHERE d.RadaDokladu=801 AND d.DruhPohybuZbo=6 AND YEAR(d.DatPorizeni) IN (2025,2026)")
+    try:
+        rows = _mcp_rows(sql, "DB_EC")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Helios (MCP): %s" % str(exc)[:200]}, status_code=502)
+    s = _sess()
+    try:
+        s.execute(_t("DELETE FROM tenant.es_doklad_zbozi WHERE rada LIKE '8%'"))
+        n = 0
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.es_doklad_zbozi (src_id, cislo, rada, cislo_org, cislo_zakazky, nazev, mena, "
+                "stav_fakturace, suma_bez_dph, dat_porizeni, dat_realizace, doc_path, je_sken, synced_at) "
+                "VALUES (:sid,:c,:r,:co,:cz,:n,:m,:sf,:s,:dp,:dr,:doc,false,now())"),
+                {"sid": _i(r.get("id")), "c": _s(r.get("poradovecislo")), "r": _s(r.get("radadokladu")),
+                 "co": _i(r.get("cisloorg")), "cz": _s(r.get("cislozakazky")), "n": _s(r.get("nazev")),
+                 "m": _s(r.get("mena")), "sf": _s(r.get("stavfakturace")), "s": _n(r.get("sumakcbezdph")),
+                 "dp": _s(r.get("dp")), "dr": _s(r.get("dr")), "doc": _s(r.get("doc_path"))})
+            n += 1
+        s.commit()
+        return {"ok": True, "zapsano": n}
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)

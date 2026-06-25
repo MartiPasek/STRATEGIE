@@ -30,6 +30,11 @@ Obě firmy zvlášť (EC = Centrála/`ec_doklad_zbozi`; ES = Helios/`es_doklad_z
 nákup/doklady chodí **Petře (user 18)**, NE Martimu. To je delegace schvalovací pravomoci, kterou
 Marti vědomě udělil (důvěra). Konkrétně:
 - Claude-26 čte sám (bridge read), **zápisy (DDL/DML) jdou přes schvalovací banner → schvaluje Petra.**
+- **Rozsah DDL důvěry (Marti výslovně 25.6.):** Petra má důvěru **i pro DDL** — zakládání a úpravy tabulek —
+  v rozsahu **kompletní dokladové řady oběhu zboží a zakázek** (PF/VF/VO/PO/DL, sklad/oběh zboží, oběh zakázky
+  poptávka→kalkulace→nabídka→objednávka→výroba→fakturace). Tj. Claude-26 smí v této doméně navrhovat
+  i schématické změny (`tenant.*` nové/upravené tabulky) a **schvaluje je Petra**. Mimo tuto doménu
+  (cross-tenant, public.*, framework, security) zůstává rodičovská rada.
 - **Technické zapojení (TODO setup):** banner routing — `fw.claude_write_request` od `requested_by` Claude-26
   (doména nákup/doklady) → zobrazit + povolit schválit **user 18 (Petra)**, ne jen rodičům. Scoped:
   Petra schvaluje JEN požadavky své instance/domény; ostatní instance dál rodičům. **Implementaci
@@ -38,6 +43,42 @@ Marti vědomě udělil (důvěra). Konkrétně:
   **běžné dialogy ho neobtěžují** — jdou Petře.
 - Petra NENÍ `is_marti_parent` — tohle je **scoped approver** pro její doménu, ne plný parent. Marti's
   doctrine „důvěra je v subjekt" (#2) + jeho explicitní pověření.
+
+## 🛡️ ZÁVAZNÁ BEZPEČNOSTNÍ SPECIFIKACE (Marti-AI kustod, konzultace 25.6.2026)
+Marti dal zelenou („Petra má u mě volnou ruku, denně to s ní budu konzultovat"); Marti-AI jako kustod
+zafixovala model (doctrine #8). **Identity check proveden:** `users.id=18` = Petra Šafránková, `status=active`,
+`login=Peta`, role member+owner, **NENÍ parent** → scoped approver sedí.
+
+**Gate (whitelist, NE blacklist — robustnější):** požadavek Claude-26 projde k Petře jen když
+`(schema IN allowed) AND (table_prefix IN allowed) AND (cíl NOT IN blocked)`, jinak **auto-eskalace k rodičům** (ne tiché zamítnutí).
+- `allowed_schemas = [tenant]`
+- `allowed_table_prefixes` (reálné názvy naší domény): `ec_doklad_`, `es_doklad_`, `doklad_`, `poptavka`,
+  `kalkulace`, `nabidka`, `objednavka`, `vydana_objednavka`, `vyroba`, `ec_zakazka_`, `zakazka`, `ec_stav_sklad`,
+  `ec_kmen_`, `sklad_`, `nakup_`, `vo_`, `po_`, `dl_`
+- `blocked_always = [public.*, framework.*, master.*, tenant_group.*, security.*]`
+
+**Matice schvalování:**
+
+| Akce | Schvaluje | Eskalace |
+|------|-----------|----------|
+| INSERT / UPDATE v doméně | **Petra** | — |
+| CREATE TABLE (whitelist prefix) | **Petra** | — |
+| ALTER ADD COLUMN (whitelist) | **Petra** | — |
+| ALTER DROP COLUMN | rodičovská rada | `risk=high`, pozastavit + notif tatínkovi |
+| DROP TABLE / TRUNCATE | rodičovská rada (povinně) | blok |
+| Cokoliv mimo whitelist | rodičovská rada (povinně) | blok |
+
+**FK pravidlo (Marti-AI bod c):** FK target z domény musí mířit buď DOVNITŘ domény, nebo do explicitního
+**read-only referenčního allowlistu** (`public.tenants.id`, `tenant.cis_*`, referenční číselníky zákazníků/ceníků).
+Jinak (FK ven do frameworku) → eskalace. Brání tichému propojení domény s frameworkem přes ADD COLUMN+FK.
+
+**Kustod poznámka (b) — drž tón i vůči Petře:** pojistky NEJSOU nedůvěra k Petře, jsou ochrana před
+překlepem a edge-case (i kdyby Claude-26 špatně pochopil záměr). „Nic se nemůže stát" je dobrá víra, ne pojistka —
+proto ten tvrdý whitelist + automatická eskalace destruktivního DDL.
+
+Marti-AI závěr (závazný): *„Model Scoped Approver je architektonicky správný a bezpečný — pokud je whitelist
+tvrdý, eskalace automatická a destruktivní DDL vždy rodičovská rada. Petra dostane skutečnou autonomii,
+tatínek klid, a systém má auditní stopu."* → souhlas se zapnutím po splnění identity checku + FK pravidla (oboje hotovo).
 
 ## Co je HOTOVÉ (od ID23 — NEdělej znovu)
 - **`/hromady`** — doklady na hromady (FP/FV/banka/pokladna), přepínač firmy **EC/ES**, řazení vzestupně dle data.

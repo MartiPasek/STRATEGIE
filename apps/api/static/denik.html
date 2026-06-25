@@ -124,8 +124,8 @@ async function openAutomatList(){
   ov.style.display='';b.innerHTML='Načítám registr… 🤖';
   const r=await fetch(API+'/api/v1/erp/app/uctovani/automaty',{credentials:'include'}).then(x=>x.json());
   if(!r.ok){b.innerHTML='<div style="color:#ff8b8b">'+(r.error||'chyba')+'</div>';return;}
-  let h=`<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:16px">🤖 Registr automatů</h2><button class="chip" onclick="closeDetail()">✕</button></div><div class="muted" style="font-size:12px;margin:6px 0 10px">Klikni na automat → otevře se jeho detail (občanka + kuchařka).</div>`;
-  h+=r.automaty.map(a=>`<div onclick="openAutomatDetail('${a.kod}')" style="cursor:pointer;background:#0f1622;border:1px solid #2c3850;border-radius:10px;padding:11px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:14px"><b>${a.nazev}</b> <code>${a.kod}</code> · v${a.verze}</div>${a.aktivni?'<span class="j hi">🟢 AKTIVNÍ</span>':'<span class="j lo">🔴 DEAKTIVOVÁN</span>'}</div><div class="muted" style="font-size:12px;margin-top:4px">Vytvořil: ${a.vytvoril||'?'} · zaúčtováno ${a.pocet_zapisu} · poslední běh: ${a.posledni_beh||'—'} · ${a.spousteni||''}</div></div>`).join('');
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0;font-size:16px">🤖 Přehled automatů — celkem ${r.automaty.length}</h2><button class="chip" onclick="closeDetail()">✕</button></div><div class="muted" style="font-size:12px;margin:6px 0 10px">Zatím máme ${r.automaty.length} automat. Klikni na řádek → otevře se JEHO detail (občanka + jeho pravidla).</div>`;
+  h+=r.automaty.map(a=>`<div onclick="openAutomatDetail('${a.kod}')" style="cursor:pointer;background:#0f1622;border:1px solid #2c3850;border-radius:10px;padding:11px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:14px"><b>${a.nazev}</b> <code>${a.kod}</code> · v${a.verze} <span style="color:#8fa3bd;font-size:12px">› klikni pro detail</span></div>${a.aktivni?'<span class="j hi">🟢 AKTIVNÍ</span>':'<span class="j lo">🔴 DEAKTIVOVÁN</span>'}</div><div class="muted" style="font-size:12px;margin-top:4px">Vytvořil: ${a.vytvoril||'?'} · zaúčtováno ${a.pocet_zapisu} zápisů · poslední běh: ${a.posledni_beh||'—'} · ${a.spousteni||''}</div></div>`).join('');
   if(!r.automaty.length)h+='<div class="muted">Žádný automat.</div>';
   b.innerHTML=h;
 }
@@ -155,7 +155,7 @@ async function openAutomatDetail(kod){
       </div><div id="amsg" class="muted" style="margin-top:6px"></div></div>`;
     if(ai.behy&&ai.behy.length){h+='<div style="font-size:12px;color:#9fb0c8;margin-bottom:10px"><b>📜 Log běhů:</b><br>'+ai.behy.map(x=>`${x.kdy} · ${x.spustil} · <b>${x.vysledek}</b> (${x.trvani_ms} ms)`).join('<br>')+'</div>';}
   }
-  h+=`<div class="muted" style="font-size:12px;margin:4px 0 6px">📖 Kuchařka — ${rk.pravidla.length} pravidel (${rk.postavil||''}):</div>
+  h+=`<div style="border-top:1px solid #2c3850;margin-top:6px;padding-top:8px;font-size:12.5px;margin-bottom:6px">📖 <b>Pravidla TOHOTO automatu</b> (${rk.pravidla.length}) — podle nich účtuje. <span class="muted"><i>Nejsou to další automaty, je to jeho kuchařka.</i></span></div>
     <table style="font-size:12px"><tr><th>Klíč</th><th>Typ</th><th>Směr</th><th>MD / Dal</th><th>Jistota</th><th>Poznámka</th></tr>`;
   h+=rk.pravidla.map(p=>`<tr><td><code>${p.klic}</code></td><td class="muted">${p.typ_klice}</td><td class="muted">${p.smer||'—'}</td><td class="ucet">${p.ucet_md} / ${p.ucet_dal}</td><td><span class="j ${jcls(p.base_jistota)}">${Math.round(p.base_jistota)}%</span></td><td class="muted">${p.pozn||''}</td></tr>`).join('');
   h+='</table>';

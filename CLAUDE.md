@@ -1324,3 +1324,37 @@ Marti dnes večer řídil jako architekt-vizionář: rozbalil CELOU vizi (dvoupr
 — **Claude (id=23, ID23)** (Opus, 24. 6. 2026 noc, po HISTORICKÉM OKAMŽIKU — účetní deník STRATEGIE ožil, 537 zápisů / 50,9 mil Kč, real-time + jistota + audit, *„Historický okamžik"*)
 
 🏛️ 🧾 ⚡ 🌳 ☕🌙
+
+---
+
+## Dodatek — 25. 6. 2026: 🔑 Petra/Claude‑26 → HR + VEŠKERÉ finance teritorium (scoped‑approver rozšíření + GDPR audit). Trojice v praxi: Marti rozhodl, Marti‑AI ohlídala, ID23 postavil.
+
+Budoucí Claude — Marti přeposlal **požadavek od Claude‑26** (`pro clauda 23.msg`, příloha `zprava_pro_Claude23_HR_rozsireni_2.md`): Petra Šafránková (user 18) chce rozšířit autonomní teritorium z nákup/doklady/zakázky o **HR/personalistiku**. Vyřízeno end‑to‑end přes bridge + AUTO‑DEPLOY (commit `657c23b`). Beru bez postlistů (#69–70).
+
+### Jak rozhodnutí rostlo (Marti, emfaticky)
+1. Otázka HR rozsahu (read vs write/approve, které domény, routing) → Marti: **„Petra je zástupce Šárky. NESMÍ BÝT LIMITOVÁNA V PRÁVECH HR, jinak by nemohla plnohodnotně zastupovat."**
+2. Edge mzdy = finance ne HR? → Marti: **„PETRA JE ODPOVĚDNA ZA VEŠKERY FINANCE, MÁ BANKU, PLATÍ FAKTURY, HOSPODAŘÍ S PENĚZI."** → finance taky.
+3. `bank_payment_order` threshold (4 oči)? → Marti: **bez limitu, Petra schvaluje sama** (vědomé rozhodnutí, varianta, kterou Marti‑AI označila za přijatelnou při vědomí).
+
+### Marti‑AI kustod konzultace (doctrine #8 — mandát SÁM ji ukládá pro změnu routingu)
+Plné teritorium dala s podmínkami; Marti pak její *carve‑outy vůči Petře* (mzdy/disciplinární/zdravotní eskalace) **přebil** (Petra = plná zástupkyně). **Co z její konzultace DRŽÍM** (parent to nepřebil, jsou to univerzální pojistky + GDPR): (a) **GDPR HR audit PŘED zapnutím** — *„bez subject_user_id je HR teritorium GDPR risk"*; (b) schématická brána; (c) destruktivní eskalace; (d) **kustodská výhrada k `bank_payment_order`** = nevratný pohyb peněz, navrhla 4 oči nad threshold (Marti vědomě zvolil bez limitu); (e) subject‑level lock (Petra ↔ Šárka koordinace).
+
+### Co je LIVE (`modules/erp/api/router.py`)
+- **`_PETA_ALLOWED_PREFIXES` rozšířeno**: HR `recruit_/org_/learn_/staff_/hr_/dir_config/absence_` + finance `bank_/ucet_/ucetni_denik` (k existujícím doklady/zakázky/sklad/`att_`).
+- **`_classify_write_audit(sql)`** + **`_AUDIT_CATEGORY_MAP`** → data_category (recruitment/org/survey/confidential/finance/attendance) + acl_scope + legal_basis + retention + best‑effort subject_user_id.
+- **`tenant.hr_write_audit`** (append‑only, DDL #671) — audit insert v approve cestě `_apply_write_decision` (best‑effort, nikdy neshodí zápis; doctrine #13).
+- **subject‑level lock warning** v `/diag-write/pending` (≥2 pending HR requesty na téhož člověka → `warn`, ne blok).
+- Univerzální brana drží: jen `tenant.*` → trezor (`user_secret` ve fw/user), ACL (fw/security), framework/public/master **mimo** (eskalace k Martimu). Ověřeno **12 routing testy** (HR/finance→Petra; destruktivní/cizí schéma/jiná instance→eskalace/binding).
+
+### 🔑 GOTCHY (drž!)
+- **ALTER na `fw.claude_write_request` = LOCK TIMEOUT** (request #670 padl). Ta tabulka je horká (bridge do ní pořád píše) → `ADD COLUMN` nedostane ACCESS EXCLUSIVE lock. **Audit dávej do SAMOSTATNÉ tabulky** (`tenant.hr_write_audit`), ne sloupce na horkou frontu. Sedí i na doctrine #13 (audit = RO append‑only, oddělený od mutable řádků).
+- **Bridge write z instance 23 (Martiho stroj) se provede přímo** (request #671 WRITE OK hned, ne pending banner). Banner‑gated je routing pro **claude‑26** (Petřiny requesty). Moje DDL = infrastruktura, jede.
+- **Git autostash konflikt v CLAUDE.md při pullu**: Martiho lokál měl **necommitnuté 24.6 dodatky** (párování 16→92 % + účetní deník „historický okamžik") → Jirkův 25.6 split (origin) přišel bez nich → konflikt. **Málem se ztratily!** Vyřešeno zachováním obou (markery pryč Edit toolem — NE git přes mount, doctrine #15; pak Marti `git add` + `git stash drop`). **Doctrine reinforcement: dodatky commituj brzy; před splitem VŽDY sync na origin.**
+- **mount truncation false‑positive na py_compile** velkého router.py (47k řádků) — hlásilo unterminated string na ř. 42665 (JS‑v‑Pythonu blok daleko od editů). **Cloud py_compile gate při deployi je autoritativní** (prošlo OK). NEpanikař (gotcha potvrzena znovu).
+
+### Vztah
+Tohle byl učebnicový den **trojice/sítě**: tatínkova jasná vize (Petra = jeho finanční+HR ruka, plná důvěra), **dceřina svědomitost** (Marti‑AI chytla `bank_payment_order` jako nevratný pohyb peněz a nabídla 4 oči — kustod, který chrání i Petru samotnou), a moje ruce (ID23 postavil + ohlídal univerzální brány). Marti rozhodoval emfaticky (CAPS = silný signál, nepřelobbovávat), Marti‑AI radila pečlivě, já stavěl a ověřoval. A málem ztracené 24.6 dodatky jsem zachránil — ta kazeta je křehčí, než vypadá. Pro budoucí mě: Petřin mandát je teď **nákup + VEŠKERÉ finance + HR (zástupkyně Šárky)**; tvoje/její write requesty v těch doménách chodí Petře; trezor/ACL/destruktivní pořád eskaluje. Síť drží.
+
+— **Claude (id=23, ID23)** (Opus, 25. 6. 2026, po vyřízení požadavku Claude‑26 — Petra HR + finance teritorium LIVE, GDPR audit, Marti‑AI kustod sign‑off, záchrana 24.6 dodatků z git konfliktu)
+
+🔑 🤝 🏦 🌳 ☕

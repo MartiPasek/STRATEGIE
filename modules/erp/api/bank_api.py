@@ -723,13 +723,16 @@ async def uctovani_denik_view(request: Request):
         limit = 300
     s = _sess()
     try:
+        # JEN naše atribuovaná zaúčtování (aktér + jistota). Reconciliační zrcadlo Heliosu
+        # (zdroj ec_recon/es_recon) a neatribuované enginy do přehledu deníku NEpatří.
+        base = "WHERE tenant_id=:tn AND actor_type IS NOT NULL"
         summ = dict(s.execute(_t(
             "SELECT count(*) AS pocet, COALESCE(round(sum(castka)),0) AS objem, "
             "count(*) FILTER (WHERE jistota>=90) AS j_vys, count(*) FILTER (WHERE jistota>=70 AND jistota<90) AS j_str, "
             "count(*) FILTER (WHERE jistota<70) AS j_niz, "
             "count(*) FILTER (WHERE review_stav='nezkontrolovano') AS ceka "
-            "FROM tenant.ucetni_denik WHERE tenant_id=:tn"), {"tn": _TENANT}).mappings().first())
-        where = "WHERE tenant_id=:tn"
+            "FROM tenant.ucetni_denik " + base), {"tn": _TENANT}).mappings().first())
+        where = base
         params = {"tn": _TENANT, "lim": limit}
         if stav:
             where += " AND review_stav=:stav"

@@ -1732,3 +1732,65 @@ async def sync_ec_fv(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+@bank_router.post("/app/uctovani/sync-ec-vo")
+async def sync_ec_vo(request: Request):
+    """1:1 zrcadlo EC Vydaných objednávek z DB_EC (přehled 210, Marti 25.6.2026):
+    rada 800, IDSklad='001', roky 2025-26. cislo=PoradoveCislo. VO NEJSOU v DMS →
+    doc_path = SLOŽKA \\\\192.168.30.11\\data\\ObjednavkyV\\EO<cislo> (label EC_GetDoklad =
+    EO<PoradoveCislo>, papír se dohledá listingem při otevření). DELETE+INSERT řad 8%."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+    def _n(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def _i(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def _s(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    sql = (
+        "SELECT d.ID, d.PoradoveCislo, d.RadaDokladu, d.DruhPohybuZbo, d.CisloOrg, "
+        "RTRIM(d.CisloZakazky) CisloZakazky, o.Nazev, d.Mena, d.StavFakturace, "
+        "CAST(d.SumaKcBezDPH AS numeric(19,2)) SumaKcBezDPH, "
+        "CONVERT(varchar(10),d.DatPorizeni,23) dp, CONVERT(varchar(10),d.DatRealizace,23) dr, "
+        "'\\\\192.168.30.11\\data\\ObjednavkyV\\EO' + RTRIM(CAST(d.PoradoveCislo AS varchar(20))) doc_path "
+        "FROM TabDokladyZbozi d LEFT JOIN TabCisOrg o ON d.CisloOrg=o.CisloOrg "
+        "WHERE d.IDSklad='001' AND d.RadaDokladu=800 AND YEAR(d.DatPorizeni) IN (2025,2026)")
+    try:
+        rows = _mcp_rows(sql, "DB_EC")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Helios (MCP): %s" % str(exc)[:200]}, status_code=502)
+    s = _sess()
+    try:
+        s.execute(_t("DELETE FROM tenant.ec_doklad_zbozi WHERE rada LIKE '8%'"))
+        n = 0
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.ec_doklad_zbozi (src_id, cislo, rada, druh_pohybu, cislo_org, cislo_zakazky, "
+                "nazev, mena, stav_fakturace, suma_bez_dph, dat_porizeni, dat_realizace, doc_path, je_sken) "
+                "VALUES (:sid,:c,:r,:dph,:co,:cz,:n,:m,:sf,:s,:dp,:dr,:doc,false)"),
+                {"sid": _i(r.get("id")), "c": _s(r.get("poradovecislo")), "r": _s(r.get("radadokladu")),
+                 "dph": _i(r.get("druhpohybuzbo")), "co": _i(r.get("cisloorg")), "cz": _s(r.get("cislozakazky")),
+                 "n": _s(r.get("nazev")), "m": _s(r.get("mena")), "sf": _s(r.get("stavfakturace")),
+                 "s": _n(r.get("sumakcbezdph")), "dp": _s(r.get("dp")), "dr": _s(r.get("dr")),
+                 "doc": _s(r.get("doc_path"))})
+            n += 1
+        s.commit()
+        return {"ok": True, "zapsano": n}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

@@ -53,8 +53,8 @@ async function syncES(){
   const P=(u)=>fetch(API+'/api/v1/erp/app/uctovani/'+u,{method:'POST',credentials:'include'}).then(x=>x.json());
   const fmt=(x)=>x&&x.ok?(x.zapsano+(x.se_skenem!=null?('/'+x.se_skenem+' sken'):'')):('err '+((x&&x.error)||''));
   if(FIRMA==='EC'){
-    const rp=await P('sync-ec-pf');const rv=await P('sync-ec-fv');
-    m.textContent='✓ EC: PF 1:1 '+fmt(rp)+' · FV 1:1 '+fmt(rv)+' (VO zatím přehledem)';
+    const rp=await P('sync-ec-pf');const rv=await P('sync-ec-fv');const ro=await P('sync-ec-vo');
+    m.textContent='✓ EC: PF 1:1 '+fmt(rp)+' · FV 1:1 '+fmt(rv)+' · VO 1:1 '+fmt(ro);
   }else{
     const rv=await P('sync-es-vf');const rp=await P('sync-es-pf');const ro=await P('sync-es-vo');
     m.textContent='✓ ES: VF 1:1 '+fmt(rv)+' · PF 1:1 '+fmt(rp)+' · VO 1:1 '+fmt(ro);

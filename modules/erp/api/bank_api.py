@@ -1221,13 +1221,41 @@ async def doklad_pdf(request: Request):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     cislo = (request.query_params.get("cislo") or "").strip()
     typ = (request.query_params.get("typ") or "fp").strip().lower()
+    firma = (request.query_params.get("firma") or "EC").upper()
     if not cislo:
         return JSONResponse({"ok": False, "error": "chybí číslo"}, status_code=400)
-    # FP přijaté: D:\data\FakturyP\FP<cislo> ; FV vydané: D:\data\FakturyV\FV<cislo>
-    if typ == "fv":
-        base = "D:\\data\\FakturyV\\FV" + cislo
-    else:
-        base = "D:\\data\\FakturyP\\FP" + cislo
+    # Adresář dokladu z dir_config (zrcadlo EC_OrgAdresare) = jediný zdroj pravdy.
+    # doklad → rada → dir_config (doc_series_id) → kořen + podsložka. Marti 25.6.2026.
+    dtbl = "tenant.ec_doklad_zbozi" if firma == "EC" else "tenant.es_doklad_zbozi"
+    rl = {"fp": "5%", "fv": "6%", "vo": "8%"}.get(typ, "5%")
+    base = None
+    s_ = _sess()
+    try:
+        drow = s_.execute(_t("SELECT src_id, rada FROM " + dtbl +
+                             " WHERE cislo=:c AND rada LIKE :rl ORDER BY id LIMIT 1"),
+                          {"c": cislo, "rl": rl}).mappings().first()
+        if drow and drow["rada"]:
+            cfg = s_.execute(_t(
+                "SELECT dc.subfolder_rule, dc.short_code, st.root_path "
+                "FROM tenant.dir_config dc JOIN tenant.dir_config_storage st "
+                "  ON st.dir_config_id=dc.id AND st.role='primary' "
+                "WHERE dc.tenant_id=2 AND dc.doc_series_id=:r LIMIT 1"),
+                {"r": int(drow["rada"])}).mappings().first()
+            if cfg and cfg["root_path"]:
+                root = cfg["root_path"].rstrip("\\/")
+                rule = cfg["subfolder_rule"]
+                if rule == "id" and drow["src_id"]:
+                    base = root + "\\" + str(drow["src_id"])
+                elif rule == "poradove_cislo":
+                    base = root + "\\" + (cfg["short_code"] or "") + cislo
+                else:  # none → plochý kořen, PDF dohledáme podle čísla níže
+                    base = root
+    except Exception:
+        base = None
+    finally:
+        s_.close()
+    if not base:  # fallback na starý odhad, ať není regrese
+        base = ("D:\\data\\FakturyV\\FV" + cislo) if typ == "fv" else ("D:\\data\\FakturyP\\FP" + cislo)
     try:
         from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
         import json as _j, base64 as _b64
@@ -1244,8 +1272,11 @@ async def doklad_pdf(request: Request):
         for it in items:
             nm = (it.get("name") or it.get("filename") or it.get("path")) if isinstance(it, dict) else it
             if nm and str(nm).lower().endswith(".pdf"):
-                pdf_name = nm
-                break
+                if cislo and cislo in str(nm):   # plochá složka → preferuj soubor s číslem dokladu
+                    pdf_name = nm
+                    break
+                if pdf_name is None:
+                    pdf_name = nm
         if not pdf_name:
             return JSONResponse({"ok": False, "error": "Doklad nemá naskenovaný PDF papír"}, status_code=404)
         raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_read",

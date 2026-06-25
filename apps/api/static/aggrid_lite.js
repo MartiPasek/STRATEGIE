@@ -10,8 +10,8 @@
  */
 (function () {
   const V = "32.2.0";
-  const COMM = "https://cdnjs.cloudflare.com/ajax/libs/ag-grid/" + V;
-  const ENTJS = "https://cdnjs.cloudflare.com/ajax/libs/ag-grid-enterprise/" + V + "/ag-grid-enterprise.min.js";
+  const COMM = "https://cdnjs.cloudflare.com/ajax/libs/ag-grid/" + V;          // styles + community JS
+  const ENTJS = "https://cdn.jsdelivr.net/npm/ag-grid-enterprise@" + V + "/dist/ag-grid-enterprise.min.js";
   let _ready = null;
   let ENT = false;
 
@@ -36,7 +36,10 @@
       await _css(COMM + "/styles/ag-grid.css");
       await _css(COMM + "/styles/ag-theme-quartz.css");
       if (typeof window.agGrid === "undefined") {
-        try { await _js(ENTJS); } catch (e) { /* fallback */ }
+        // Enterprise jen když je k dispozici licenční klíč (jinak Community = bez vodoznaku).
+        if (window.AG_GRID_LICENSE_KEY) {
+          try { await _js(ENTJS); } catch (e) { /* fallback níže */ }
+        }
         if (typeof window.agGrid === "undefined") {
           await _js(COMM + "/ag-grid-community.min.js");
         }

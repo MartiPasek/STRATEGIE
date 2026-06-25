@@ -717,6 +717,7 @@ async def uctovani_denik_view(request: Request):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     stav = request.query_params.get("stav") or ""
     pasmo = request.query_params.get("pasmo") or ""
+    klic = request.query_params.get("klic") or ""
     try:
         limit = min(1000, int(request.query_params.get("limit") or 300))
     except Exception:
@@ -743,6 +744,9 @@ async def uctovani_denik_view(request: Request):
             where += " AND jistota>=70 AND jistota<90"
         elif pasmo == "vysoka":
             where += " AND jistota>=90"
+        if klic:
+            where += " AND jistota_zdroj IN ('predkontace_'||:klic, 'predkontace_'||:klic||'+zakazka')"
+            params["klic"] = klic
         rows = [dict(r) for r in s.execute(_t(
             "SELECT id, datum, doklad, ucet_md, ucet_dal, castka, mena, popis, kategorie, actor_type, actor_id, "
             "jistota, jistota_zdroj, review_stav, zdroj FROM tenant.ucetni_denik " + where +

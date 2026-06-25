@@ -46,6 +46,7 @@
   <button class="chip" data-f="stav=nezkontrolovano">Čeká na kontrolu</button>
 </div>
 <div style="margin-bottom:12px"><button class="chip" style="background:#3a2b14;color:#f0c674" onclick="openAutomatList()">🤖 Automaty (registr)</button></div>
+<div id="rulefilter" style="display:none;margin-bottom:10px;font-size:12.5px;color:#9fb0c8;background:#19202e;border:1px solid #2c3850;border-radius:8px;padding:8px 12px"></div>
 <div id="msg">Načítám…</div>
 <table id="tbl" style="display:none"><thead><tr>
   <th>Datum</th><th>Doklad</th><th>MD</th><th>Dal</th><th class="num">Částka</th>
@@ -71,6 +72,8 @@ function fmtAkter(typ,id){
   return '<span class="muted">—</span>';
 }
 async function load(){
+  const rf=document.getElementById('rulefilter');
+  if(rf){if(FILTER.indexOf('klic=')===0){const k=decodeURIComponent(FILTER.split('=')[1]);rf.style.display='';rf.innerHTML='🔧 Zobrazuji jen zápisy pravidla <b>'+k+'</b> (jedna skupina) — <a onclick="clearRuleFilter()" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">zrušit filtr</a>';}else{rf.style.display='none';}}
   document.getElementById('msg').style.display='';document.getElementById('msg').textContent='Načítám…';
   document.getElementById('tbl').style.display='none';
   const r=await fetch(API+'/api/v1/erp/app/uctovani/denik'+(FILTER?('?'+FILTER):''),{credentials:'include'}).then(x=>x.json());
@@ -171,7 +174,7 @@ async function openAutomatDetail(kod){
     <td class="ucet">${p.ucet_md} / ${p.ucet_dal}</td>
     <td><span class="j ${jcls(p.base_jistota)}">${Math.round(p.base_jistota)}%</span></td>
     <td>${p.aktivni?'<span class="j hi">● zap</span>':'<span class="j lo">○ vyp</span>'}</td>
-    <td class="muted" style="text-align:center">${p.pouzito||0}×</td></tr>`).join('');
+    <td style="text-align:center"><a onclick="event.stopPropagation();filterByRule('${p.klic}')" style="cursor:pointer;color:#7fb0ff;text-decoration:underline">${p.pouzito||0}×</a></td></tr>`).join('');
   h+='</table>';
   b.innerHTML=h;
 }
@@ -203,6 +206,8 @@ async function toggleRule(id,akt){
   const r=await fetch(API+'/api/v1/erp/app/uctovani/predkontace/save',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,aktivni:akt})}).then(x=>x.json());
   if(r.ok){openAutomatDetail(_curKod);}else{const m=document.getElementById('rmsg');if(m)m.textContent='✗ '+(r.error||'chyba');}
 }
+function filterByRule(klic){closeDetail();FILTER='klic='+encodeURIComponent(klic);document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));load();}
+function clearRuleFilter(){FILTER='';document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));const v=document.querySelector('.chip[data-f=""]');if(v)v.classList.add('on');load();}
 async function automatRun(){
   const m=document.getElementById('amsg');if(m)m.textContent='Spouštím automata… ▶';
   const r=await fetch(API+'/api/v1/erp/app/uctovani/automat/run',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({kod:_curKod})}).then(x=>x.json());

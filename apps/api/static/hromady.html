@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doklady — hromady</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:14px;background:#0f1420;color:#e8edf6}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{color:#9fb0c8;font-size:12px;margin-bottom:14px}
+  .piles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px}
+  .pile{background:#19202e;border:1px solid #26303f;border-radius:13px;padding:15px;cursor:pointer;transition:border-color .15s}
+  .pile:hover{border-color:#2563eb}
+  .pile.on{border-color:#2563eb;background:#1b2740}
+  .pile .ic{font-size:26px}
+  .pile .nm{font-size:14px;font-weight:600;margin:6px 0 2px}
+  .pile .ks{font-size:22px;font-weight:700}
+  .pile .ob{font-size:12px;color:#8fa3bd}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #232c3b}
+  th{color:#8fa3bd;font-weight:600;font-size:11.5px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .muted{color:#8295ad}
+  .cis{font-family:ui-monospace,Menlo,monospace}
+  .badge{font-size:11px;padding:1px 7px;border-radius:9px;background:#16243a;color:#7fb0ff}
+  .badge.out{background:#3a2414;color:#f0b674}
+  #msg{color:#9fb0c8;font-size:13px;margin-top:10px}
+</style>
+</head>
+<body>
+<h1>📂 Doklady — hromady</h1>
+<div class="sub">Nejdřív si haldu roztřiď na hromady. Klikni na hromadu → rozsype se ti jen ta jedna.</div>
+<div class="piles" id="piles"></div>
+<div id="msg">Načítám hromady…</div>
+<div id="listwrap" style="display:none"><h2 id="listh" style="font-size:15px"></h2><table id="tbl"><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
+
+<script>
+const API='';
+let CUR='';
+function czk(n){return (n==null?0:n).toLocaleString('cs-CZ',{maximumFractionDigits:0})+' Kč';}
+async function loadPiles(){
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/hromady',{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){document.getElementById('msg').textContent=r.error||'Nedostupné (přihlas se jako rodič)';return;}
+  document.getElementById('piles').innerHTML=r.hromady.map(h=>`<div class="pile" id="p_${h.kod}" onclick="openPile('${h.kod}','${h.nazev.replace(/'/g,"\\'")}')">
+    <div class="ic">${h.ikona}</div><div class="nm">${h.nazev}</div>
+    <div class="ks">${(h.ks||0).toLocaleString('cs-CZ')} <span style="font-size:13px;color:#8fa3bd">ks</span></div>
+    <div class="ob">${h.objem?czk(h.objem):''}</div></div>`).join('');
+  document.getElementById('msg').textContent='Vyber hromadu nahoře.';
+}
+async function openPile(kod,nazev){
+  CUR=kod;
+  document.querySelectorAll('.pile').forEach(p=>p.classList.remove('on'));
+  const pe=document.getElementById('p_'+kod);if(pe)pe.classList.add('on');
+  document.getElementById('msg').textContent='Načítám hromadu '+nazev+'…';
+  document.getElementById('listwrap').style.display='none';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/hromada?typ='+kod,{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){document.getElementById('msg').textContent=r.error||'chyba';return;}
+  const rows=r.polozky||[];
+  let head='',body='';
+  if(kod==='fp'||kod==='fv'){
+    head='<tr><th>Číslo</th><th>Řada</th><th>Název</th><th>Org</th><th>Zakázka</th><th class="num">Částka (bez DPH)</th><th>Měna</th></tr>';
+    body=rows.map(d=>`<tr><td class="cis">${d.cislo||''}</td><td class="muted">${d.rada||''}</td><td>${d.nazev||''}</td><td class="muted">${d.cislo_org||''}</td><td class="muted">${d.zakazka||''}</td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||'CZK'}</td></tr>`).join('');
+  }else if(kod==='banka'){
+    head='<tr><th>Datum</th><th>Doklad</th><th>VS</th><th>Směr</th><th class="num">Částka</th><th>Měna</th><th>Zpráva</th></tr>';
+    body=rows.map(d=>`<tr><td class="muted">${d.datum||''}</td><td class="cis">${d.doklad||''}</td><td class="cis">${d.vs||''}</td><td><span class="badge ${d.smer==='out'?'out':''}">${d.smer==='out'?'výdej':'příjem'}</span></td><td class="num">${czk(d.castka)}</td><td class="muted">${d.mena||''}</td><td class="muted">${d.zprava||''}</td></tr>`).join('');
+  }else if(kod==='pokladna'){
+    head='<tr><th>Číslo</th><th>Název</th><th>Měna</th><th>Typ</th><th>Účet</th></tr>';
+    body=rows.map(d=>`<tr><td class="cis">${d.cislo||''}</td><td>${d.nazev||''}</td><td class="muted">${d.mena||''}</td><td class="muted">${d.typ||''}</td><td class="cis muted">${d.ucet||''}</td></tr>`).join('');
+  }
+  document.getElementById('listh').textContent=nazev+' — '+rows.length+' dokladů'+(rows.length>=200?' (prvních 200)':'');
+  document.getElementById('thead').innerHTML=head;
+  document.getElementById('rows').innerHTML=body;
+  document.getElementById('msg').textContent='';
+  document.getElementById('listwrap').style.display='';
+}
+loadPiles();
+</script>
+</body>
+</html>

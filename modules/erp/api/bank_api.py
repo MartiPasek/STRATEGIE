@@ -1062,3 +1062,67 @@ async def predkontace_save(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+@bank_router.get("/app/uctovani/hromady")
+async def doklady_hromady(request: Request):
+    """Roztříděná halda dokladů na hromady: přijaté/vydané faktury, banka, pokladna."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        def cnt(sql, p=None):
+            r = s.execute(_t(sql), p or {}).mappings().first()
+            return {"ks": r["c"], "objem": float(r["o"] or 0)}
+        fp = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM tenant.ec_doklad_zbozi WHERE rada LIKE '5%'")
+        fv = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM tenant.ec_doklad_zbozi WHERE rada LIKE '6%'")
+        bk = cnt("SELECT count(*) c, COALESCE(round(sum(abs(castka))),0) o FROM tenant.bank_transaction_raw")
+        pk = cnt("SELECT count(*) c, 0 o FROM tenant.ucet_pokladna WHERE tenant_id=:tn", {"tn": _TENANT})
+        return {"ok": True, "hromady": [
+            {"kod": "fp", "ikona": "📥", "nazev": "Přijaté faktury (FP)", "ks": fp["ks"], "objem": fp["objem"]},
+            {"kod": "fv", "ikona": "📤", "nazev": "Vydané faktury (FV)", "ks": fv["ks"], "objem": fv["objem"]},
+            {"kod": "banka", "ikona": "🏦", "nazev": "Bankovní výpisy", "ks": bk["ks"], "objem": bk["objem"]},
+            {"kod": "pokladna", "ikona": "💵", "nazev": "Pokladna", "ks": pk["ks"], "objem": pk["objem"]},
+        ]}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/uctovani/hromada")
+async def doklady_hromada(request: Request):
+    """Doklady v jedné hromadě (typ=fp|fv|banka|pokladna)."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    typ = (request.query_params.get("typ") or "").strip()
+    s = _sess()
+    try:
+        if typ in ("fp", "fv"):
+            rl = "5%" if typ == "fp" else "6%"
+            rows = [dict(r) for r in s.execute(_t(
+                "SELECT cislo, rada, COALESCE(nazev,'') AS nazev, mena, round(suma_bez_dph) AS castka, "
+                "cislo_org, COALESCE(cislo_zakazky,'') AS zakazka, COALESCE(stav_fakturace,'') AS stav "
+                "FROM tenant.ec_doklad_zbozi WHERE rada LIKE :rl ORDER BY cislo DESC LIMIT 200"),
+                {"rl": rl}).mappings().all()]
+        elif typ == "banka":
+            rows = [dict(r) for r in s.execute(_t(
+                "SELECT to_char(datum,'DD.MM.YYYY') AS datum, ext_id AS doklad, round(castka) AS castka, mena, "
+                "COALESCE(vs,'') AS vs, smer, left(COALESCE(zprava,''),50) AS zprava "
+                "FROM tenant.bank_transaction_raw ORDER BY datum DESC LIMIT 200")).mappings().all()]
+        elif typ == "pokladna":
+            rows = [dict(r) for r in s.execute(_t(
+                "SELECT cislo, nazev, mena, typ, COALESCE(ucet_md,'') AS ucet FROM tenant.ucet_pokladna "
+                "WHERE tenant_id=:tn ORDER BY firma, cislo"), {"tn": _TENANT}).mappings().all()]
+        else:
+            return JSONResponse({"ok": False, "error": "neznámý typ"}, status_code=400)
+        for r in rows:
+            if r.get("castka") is not None:
+                r["castka"] = float(r["castka"])
+        return {"ok": True, "typ": typ, "polozky": rows}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

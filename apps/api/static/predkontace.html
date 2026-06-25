@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Předkontace — účetní kódy</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:14px;background:#0f1420;color:#e8edf6}
+  a{color:#7fb0ff}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{color:#9fb0c8;font-size:12px;margin-bottom:14px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .fbtn{background:#27313f;color:#cdd9ea;border:0;border-radius:16px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .fbtn.on{background:#2563eb;color:#fff}
+  .tab{background:#19202e;color:#cdd9ea;border:1px solid #26303f;border-radius:9px;padding:6px 14px;font-size:13px;cursor:pointer}
+  .tab.on{background:#1b2740;border-color:#2563eb;color:#fff}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:6px 9px;border-bottom:1px solid #232c3b;vertical-align:top}
+  th{color:#8fa3bd;font-weight:600;font-size:11.5px;position:sticky;top:0;background:#0f1420}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .muted{color:#8295ad}
+  .cis{font-family:ui-monospace,Menlo,monospace}
+  tr.kontrow{cursor:pointer}
+  tr.kontrow:hover{background:#19202e}
+  .card{background:#19202e;border:1px solid #26303f;border-radius:12px;padding:14px;margin-bottom:14px}
+  .hdr{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px 18px}
+  .hdr .lbl{font-size:11px;color:#8fa3bd}
+  .hdr .val{font-size:14px;font-weight:600}
+  .chip{display:inline-block;font-size:11px;padding:1px 8px;border-radius:9px;background:#16243a;color:#7fb0ff;margin-left:6px}
+  .acct{font-family:ui-monospace,Menlo,monospace;font-weight:600}
+  .md{color:#8fe0a0}.dal{color:#f0a0b4}
+  #msg{color:#9fb0c8;font-size:13px;margin-top:8px}
+  .back{cursor:pointer;font-size:12px;margin-left:8px}
+  h2{font-size:15px;margin:4px 0 8px}
+  .skup{background:#19202e;border:1px solid #26303f;border-radius:10px;padding:10px 12px;margin-bottom:8px}
+  .skup .sn{font-weight:600;font-size:13.5px}
+</style>
+</head>
+<body>
+<h1>🧾 Předkontace — účetní kódy (1:1 z Heliosu)</h1>
+<div class="sub">Pravda je v Heliosu, my podle ní jen účtujeme. Kontace = řada + druh pohybu → sborník + řádky MD/DAL. <a href="/finance">← Finance</a></div>
+<div class="bar">
+  <span class="muted" style="font-size:12px">Firma:</span>
+  <button class="fbtn" id="f_EC" onclick="setFirma('EC')">🏢 EUROSOFT-Control (EC)</button>
+  <button class="fbtn on" id="f_ES" onclick="setFirma('ES')">🏢 EUROSOFT-System (ES)</button>
+  <span style="width:14px"></span>
+  <button class="tab on" id="t_kont" onclick="setTab('kont')">Kontace</button>
+  <button class="tab" id="t_skup" onclick="setTab('skup')">Skupiny účetních kódů</button>
+</div>
+<div id="msg">Načítám…</div>
+<div id="view"></div>
+
+<script>
+const API='';
+let FIRMA='ES', TAB='kont', KONT=[];
+const DP={0:'Příjem na sklad',1:'Sklad - storno příjmu',2:'Dodací list / příjem',3:'Sklad - storno výdeje',4:'Výdej ze skladu',13:'Faktura vydaná',14:'Faktura vydaná - dobropis',16:'Výdaj z pokladny',17:'Příjem do pokladny',18:'Faktura přijatá',20:'Majetek - účetní pohyby',22:'Mzdy / cestovné',28:'Saldokonto - kurz. rozdíl k faktuře',29:'Saldokonto - kurz. rozdíl k bil. dni',43:'Haléřové vyrovnání',44:'Kurzový rozdíl k 31.12.',50:'Období DPH (přiznání)',60:'Saldokonto - úhrada faktury'};
+function dp(c){return DP[c]||('druh '+(c==null?'?':c));}
+function yn(b){return b?'<span style="color:#8fe0a0">Ano</span>':'<span class="muted">Ne</span>';}
+function setFirma(f){FIRMA=f;document.getElementById('f_EC').classList.toggle('on',f==='EC');document.getElementById('f_ES').classList.toggle('on',f==='ES');load();}
+function setTab(t){TAB=t;document.getElementById('t_kont').classList.toggle('on',t==='kont');document.getElementById('t_skup').classList.toggle('on',t==='skup');load();}
+async function load(){
+  document.getElementById('view').innerHTML='';document.getElementById('msg').textContent='Načítám…';
+  if(TAB==='kont') return loadKontace();
+  return loadSkupiny();
+}
+async function loadKontace(){
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/kontace?firma='+FIRMA,{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){document.getElementById('msg').textContent=r.error||'Nedostupné (přihlas se jako rodič)';return;}
+  KONT=r.kontace||[];
+  document.getElementById('msg').textContent=KONT.length+' kontací · klikni na řádek pro detail (řádky MD/DAL)';
+  const rows=KONT.map(k=>`<tr class="kontrow" onclick="detail(${k.id})">
+    <td class="num cis">${k.cislokontace!=null?k.cislokontace:''}</td>
+    <td>${dp(k.druhpohybu)}</td>
+    <td class="cis">${k.rada||''}</td>
+    <td>${k.nazev||''}</td>
+    <td class="cis muted">${k.sbornik||''}${k.sbornik_nazev?(' · '+k.sbornik_nazev):''}</td>
+    <td class="muted" style="font-size:11px">${k.datumod||''}${k.datumdo?(' – '+k.datumdo):''}</td>
+    <td class="num">${k.radku||0}</td></tr>`).join('');
+  document.getElementById('view').innerHTML=`<table><thead><tr><th class="num">Číslo</th><th>Druh pohybu</th><th>Řada</th><th>Název</th><th>Sborník (DUD)</th><th>Platnost</th><th class="num">Řádků</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function detail(id){
+  const k=KONT.find(x=>x.id===id);if(!k)return;
+  document.getElementById('msg').textContent='Načítám řádky kontace '+k.cislokontace+'…';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/kontace-radky?idukod='+id+'&firma='+FIRMA,{credentials:'include'}).then(x=>x.json());
+  const rad=(r.radky||[]);
+  const hdr=`<div class="card"><div style="margin-bottom:10px"><b style="font-size:16px">Kontace ${k.cislokontace} — ${k.nazev||''}</b><span class="back" onclick="loadKontace()">← zpět na seznam</span></div>
+    <div class="hdr">
+      <div><div class="lbl">Sborník (DUD)</div><div class="val cis">${k.sbornik||''} ${k.sbornik_nazev?('<span class="muted" style="font-weight:400">'+k.sbornik_nazev+'</span>'):''}</div></div>
+      <div><div class="lbl">Řada dokladu</div><div class="val cis">${k.rada||'—'}</div></div>
+      <div><div class="lbl">Druh pohybu</div><div class="val">${dp(k.druhpohybu)}</div></div>
+      <div><div class="lbl">Platnost</div><div class="val">${k.datumod||''}${k.datumdo?(' – '+k.datumdo):''}</div></div>
+      <div><div class="lbl">Základní</div><div class="val">${k.zakladni?'Ano':'Ne'}</div></div>
+    </div></div>`;
+  const body=rad.map(p=>{
+    const druh=(p.sazbadph!=null)?('Základ DPH '+p.sazbadph+'%'):'Ostatní částky';
+    return `<tr><td class="num muted">${p.radek!=null?p.radek:''}</td><td>${druh}</td>
+      <td class="num">${p.sazbadph!=null?(p.sazbadph+' %'):'—'}</td>
+      <td class="acct md">${p.ucetmd||'<span class="muted" style="font-weight:400">—</span>'}</td>
+      <td class="acct dal">${p.ucetdal||'<span class="muted" style="font-weight:400">—</span>'}</td>
+      <td>${yn(p.cizimena)}</td><td>${yn(p.zaporne)}</td><td>${yn(p.uplatnitdph)}</td></tr>`;}).join('');
+  document.getElementById('view').innerHTML=hdr+`<h2>Řádky kontace (předkontace MD/DAL)</h2>
+    <table><thead><tr><th class="num">Č.</th><th>Druh řádku</th><th class="num">Sazba DPH</th><th>Účet MD</th><th>Účet DAL</th><th>Cizí měna</th><th>Záporně</th><th>Uplatnit DPH</th></tr></thead><tbody>${body||'<tr><td colspan=8 class=muted>Bez řádků</td></tr>'}</tbody></table>`;
+  document.getElementById('msg').textContent='';
+}
+async function loadSkupiny(){
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/kontace-skupiny?firma='+FIRMA,{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){document.getElementById('msg').textContent=r.error||'chyba';return;}
+  const sk=r.skupiny||[];
+  document.getElementById('msg').textContent=sk.length+' skupin účetních kódů';
+  document.getElementById('view').innerHTML=sk.map(g=>`<div class="skup">
+    <div class="sn">${g.nazev||''} <span class="chip">${(g.kontace||[]).length} kontací</span></div>
+    ${(g.kontace||[]).length?('<table style="margin-top:6px"><thead><tr><th class="num">Kontace</th><th>Název</th><th>Řada</th><th>Sborník</th></tr></thead><tbody>'+
+      g.kontace.map(k=>`<tr class="kontrow" ${k.idukod?('onclick="detailFromSkup('+k.idukod+')"'):''}><td class="num cis">${k.cisloukod}</td><td>${k.nazev||''}</td><td class="cis">${k.rada||''}</td><td class="cis muted">${k.sbornik||''}</td></tr>`).join('')+'</tbody></table>'):''}
+  </div>`).join('');
+}
+async function detailFromSkup(idu){
+  // přepnout na záložku Kontace a otevřít detail
+  if(!KONT.length){const r=await fetch(API+'/api/v1/erp/app/uctovani/kontace?firma='+FIRMA,{credentials:'include'}).then(x=>x.json());KONT=r.kontace||[];}
+  document.getElementById('t_kont').classList.add('on');document.getElementById('t_skup').classList.remove('on');TAB='kont';
+  detail(idu);
+}
+load();
+</script>
+</body>
+</html>

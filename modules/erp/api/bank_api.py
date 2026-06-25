@@ -2192,6 +2192,18 @@ def _kontace_sync(firma):
                       {"i": _kalk_i(r.get("id")), "n": _kalk_s(r.get("nazev")),
                        "od": _kalk_s(r.get("od")), "do": _kalk_s(r.get("do"))})
         res["obdobi"] = len(rows)
+        # sborníky (TabSbornik = účetní řady; DUD název + default MD/DAL)
+        rows = _mcp_rows(
+            "SELECT Id, Cislo, Nazev, DruhData, UcetMD, UcetDAL, Strana FROM %sTabSbornik" % src, "DB_EC")
+        s.execute(_t("DELETE FROM tenant.%ssbornik" % P))
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.%ssbornik (id, cislo, nazev, druhdata, ucetmd, ucetdal, strana) "
+                "VALUES (:i,:c,:n,:dd,:md,:dal,:st)" % P),
+                {"i": _kalk_i(r.get("id")), "c": _kalk_s(r.get("cislo")), "n": _kalk_s(r.get("nazev")),
+                 "dd": _kalk_i(r.get("druhdata")), "md": _kalk_s(r.get("ucetmd")),
+                 "dal": _kalk_s(r.get("ucetdal")), "st": _kalk_i(r.get("strana"))})
+        res["sbornik"] = len(rows)
         s.commit()
         return res
     except Exception:
@@ -2231,14 +2243,48 @@ async def kontace_list(request: Request):
     uid = _uid(request)
     if not uid or not _is_parent(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    firma = (request.query_params.get("firma") or "ES").upper()
+    _kp = "ec_" if firma == "EC" else "es_"
     s = _sess()
     try:
         rows = [dict(r) for r in s.execute(_t(
             "SELECT u.id, u.cislokontace, u.druhpohybu, COALESCE(u.radadokladu,'') AS rada, "
-            "COALESCE(u.nazev,'') AS nazev, COALESCE(u.sbornik,'') AS sbornik, u.zakladni, "
-            "(SELECT count(*) FROM tenant.es_ukod_radek r WHERE r.idukod=u.id) AS radku "
-            "FROM tenant.es_ukod u ORDER BY u.cislokontace")).mappings().all()]
-        return {"ok": True, "kontace": rows}
+            "COALESCE(u.nazev,'') AS nazev, COALESCE(u.sbornik,'') AS sbornik, "
+            "COALESCE(sb.nazev,'') AS sbornik_nazev, u.zakladni, "
+            "to_char(u.datumod,'DD.MM.YYYY') AS datumod, to_char(u.datumdo,'DD.MM.YYYY') AS datumdo, "
+            "(SELECT count(*) FROM tenant.{p}ukod_radek r WHERE r.idukod=u.id) AS radku "
+            "FROM tenant.{p}ukod u LEFT JOIN tenant.{p}sbornik sb ON sb.cislo=u.sbornik "
+            "ORDER BY u.cislokontace".format(p=_kp))).mappings().all()]
+        return {"ok": True, "firma": firma, "kontace": rows}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/uctovani/kontace-skupiny")
+async def kontace_skupiny(request: Request):
+    """Skupiny účetních kódů (TabSkupUKod) + kontace v každé skupině (Tab1NUKod). 1:1 Helios."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    firma = (request.query_params.get("firma") or "ES").upper()
+    _kp = "ec_" if firma == "EC" else "es_"
+    s = _sess()
+    try:
+        skup = [dict(r) for r in s.execute(_t(
+            "SELECT id, COALESCE(nazev,'') AS nazev FROM tenant.{p}ukod_skupina ORDER BY id".format(p=_kp))).mappings().all()]
+        links = [dict(r) for r in s.execute(_t(
+            "SELECT l.idskup, l.cisloukod, COALESCE(u.nazev,'') AS nazev, COALESCE(u.radadokladu,'') AS rada, "
+            "COALESCE(u.sbornik,'') AS sbornik, u.id AS idukod "
+            "FROM tenant.{p}1n_ukod l LEFT JOIN tenant.{p}ukod u ON u.cislokontace=l.cisloukod "
+            "ORDER BY l.idskup, l.cisloukod".format(p=_kp))).mappings().all()]
+        by = {}
+        for l in links:
+            by.setdefault(l["idskup"], []).append(l)
+        for g in skup:
+            g["kontace"] = by.get(g["id"], [])
+        return {"ok": True, "firma": firma, "skupiny": skup}
     except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:

@@ -1004,6 +1004,14 @@ def hromady_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/predkontace")
+def predkontace_page():
+    """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,
+    skupiny). Přehledný prohlížeč dle Helios "Účetní kódy - kontace". Marti 25.6.2026."""
+    return FileResponse(os.path.join(static_dir, "predkontace.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/osnova")
 def osnova_page():
     """Účtová osnova po letech (z deníku) — porovnání let. Marti 25.6.2026."""

@@ -26623,6 +26623,32 @@ async def diag_sql(req: Request) -> JSONResponse:
         if db not in ("pg", "mssql"):
             return JSONResponse({"ok": False,
                                  "error": "Write přes bridge jen pro PG nebo MSSQL."})
+        # SANDBOX (Marti 25.6.2026): "deník = náš společný živý sandbox, hra o nic" —
+        # write do ucetni_denik / _log / bank_predkontace běží PŘÍMO, bez banneru.
+        # JEN tyto tabulky (schema-qualified); cokoliv jiného jde dál na banner.
+        _SANDBOX_T = {"tenant.ucetni_denik", "tenant.ucetni_denik_log", "tenant.bank_predkontace"}
+        _wtargets = _re_ds.findall(
+            r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?|ALTER\s+TABLE)\s+([A-Za-z_][\w.\"]*)",
+            _s_chk, _re_ds.I)
+        _wtargets = [t.lower().replace('"', '') for t in _wtargets]
+        if db == "pg" and _wtargets and all(t in _SANDBOX_T for t in _wtargets):
+            try:
+                from modules.strategie_pg.application.service import get_session as _pgsb
+                from sqlalchemy import text as _tsb
+                _rcsb = None
+                with _pgsb() as _ssb:
+                    _resb = _ssb.execute(_tsb(sql))
+                    try:
+                        _rcsb = _resb.rowcount
+                    except Exception:
+                        _rcsb = None
+                    _ssb.commit()
+                return JSONResponse({"ok": True, "columns": ["sandbox"], "count": 1,
+                                     "rows": [["OK · %s řádků · DENÍK SANDBOX (přímo, bez banneru)"
+                                               % (_rcsb if _rcsb is not None else "?")]]})
+            except Exception as _esb:
+                return JSONResponse({"ok": False,
+                                     "error": "sandbox %s: %s" % (type(_esb).__name__, str(_esb)[:500])})
         from core.database_data import get_data_session as _gw_ds
         from sqlalchemy import text as _tw_ds
         _wds = _gw_ds()

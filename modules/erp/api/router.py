@@ -25958,6 +25958,91 @@ async def hra_data(req: Request) -> JSONResponse:
         s.close()
 
 
+def _xfer_ddl(src_db, dst_db, t):
+    """Vytvoří v cílové DB (188.12) tabulku podle struktury zdrojové (office Helios přes
+    MCP) — jen sloupce (ne computed), bez PK/indexů/constraintů; pro datový mirror, když
+    tabulka v základu cloud Heliosu chybí (např. _EXT uživatelská pole). Marti 25.6.2026."""
+    import os as _ox2
+    conn_str = _ox2.environ.get("MSSQL188_CONN")
+    if not conn_str:
+        return {"ok": False, "error": "chybí MSSQL188_CONN"}
+    try:
+        import pyodbc as _po2
+    except Exception as e:
+        return {"ok": False, "error": "pyodbc: %s" % e}
+    meta_sql = (
+        "SELECT c.column_id, c.name, ty.name AS typ, c.max_length, c.precision, c.scale, "
+        "c.is_nullable, c.is_identity, c.is_computed, ISNULL(ic.seed_value,1) AS seed, "
+        "ISNULL(ic.increment_value,1) AS incr "
+        "FROM sys.columns c JOIN sys.types ty ON ty.user_type_id=c.user_type_id "
+        "LEFT JOIN sys.identity_columns ic ON ic.object_id=c.object_id AND ic.column_id=c.column_id "
+        "WHERE c.object_id=OBJECT_ID('dbo.[" + t + "]') ORDER BY c.column_id")
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        import json as _jd
+        _mcp = get_eurosoft_mcp_client()
+        if _mcp is None:
+            return {"ok": False, "error": "MCP nedostupný"}
+        _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                  {"sql": meta_sql, "db_name": src_db}, conversation_id=None)
+        _r = _jd.loads(_rj) if isinstance(_rj, str) else _rj
+        if isinstance(_r, dict) and _r.get("ok") is False:
+            return {"ok": False, "error": "zdroj meta: " + str(_r.get("error"))[:200]}
+        meta = []
+        if isinstance(_r, dict):
+            for _k in ("rows", "data", "result", "records"):
+                if isinstance(_r.get(_k), list):
+                    meta = _r[_k]
+                    break
+    except Exception as e:
+        return {"ok": False, "error": "MCP meta: %s" % str(e)[:200]}
+    if not meta:
+        return {"ok": False, "error": "zdroj %s.dbo.%s nemá sloupce" % (src_db, t)}
+
+    def _ct(typ, ml, pr, sc):
+        typ = (typ or "").lower()
+        if typ in ("nvarchar", "nchar"):
+            return typ + ("(max)" if ml == -1 else "(%d)" % (ml // 2 if ml > 0 else 1))
+        if typ in ("varchar", "char", "binary", "varbinary"):
+            return typ + ("(max)" if ml == -1 else "(%d)" % (ml if ml > 0 else 1))
+        if typ in ("decimal", "numeric"):
+            return "%s(%d,%d)" % (typ, pr, sc)
+        if typ in ("datetime2", "time", "datetimeoffset"):
+            return "%s(%d)" % (typ, sc)
+        return typ
+
+    defs = []
+    for m in meta:
+        if int(m.get("is_computed") or 0) == 1:
+            continue
+        coltype = _ct(m.get("typ"), int(m.get("max_length") or 0),
+                      int(m.get("precision") or 0), int(m.get("scale") or 0))
+        ident = (" IDENTITY(%d,%d)" % (int(m.get("seed") or 1), int(m.get("incr") or 1))
+                 if int(m.get("is_identity") or 0) == 1 else "")
+        nullable = " NULL" if int(m.get("is_nullable") or 1) == 1 else " NOT NULL"
+        defs.append("  [%s] %s%s%s" % (m.get("name"), coltype, ident, nullable))
+    ddl = "CREATE TABLE [dbo].[%s] (\n%s\n)" % (t, ",\n".join(defs))
+    cs = conn_str
+    import re as _re2
+    if _re2.search(r"DATABASE\s*=", cs, _re2.I):
+        cs = _re2.sub(r"DATABASE\s*=[^;]*", "DATABASE=" + dst_db, cs, flags=_re2.I)
+    else:
+        cs = cs.rstrip(";") + ";DATABASE=" + dst_db
+    cn = None
+    try:
+        cn = _po2.connect(cs, timeout=20, autocommit=True)
+        cn.cursor().execute(ddl)
+        return {"ok": True, "vytvoreno": t, "sloupcu": len(defs)}
+    except Exception as e:
+        return {"ok": False, "error": "CREATE: %s: %s" % (type(e).__name__, str(e)[:300])}
+    finally:
+        try:
+            if cn:
+                cn.close()
+        except Exception:
+            pass
+
+
 def _xfer_table(src_db, dst_db, table, where=None):
     """Přenos JEDNÉ tabulky z kancelářského Heliosu (MCP: DB_EC/DB_IS) → cloud MSSQL
     188.12 (pyodbc). 1:1 vč. původních id (IDENTITY_INSERT), jen vkládatelné sloupce
@@ -25992,7 +26077,19 @@ def _xfer_table(src_db, dst_db, table, where=None):
             "dbo." + t)
         colinfo = [(r[0], bool(r[1]), (r[2] or "").lower()) for r in cur.fetchall()]
         if not colinfo:
-            return {"ok": False, "error": "cíl %s.dbo.%s neexistuje / bez sloupců" % (dst_db, t)}
+            # cíl v základu cloud Heliosu chybí (např. _EXT) → vytvoř ho dle zdroje
+            _dd = _xfer_ddl(src_db, dst_db, t)
+            if not _dd.get("ok"):
+                return {"ok": False, "error": "cíl %s.dbo.%s chybí a CREATE selhal: %s"
+                        % (dst_db, t, _dd.get("error"))}
+            cur.execute(
+                "SELECT c.name, c.is_identity, ty.name FROM sys.columns c "
+                "JOIN sys.types ty ON ty.user_type_id = c.user_type_id "
+                "WHERE c.object_id = OBJECT_ID(?) AND c.is_computed = 0 "
+                "AND ty.name <> 'timestamp' ORDER BY c.column_id", "dbo." + t)
+            colinfo = [(r[0], bool(r[1]), (r[2] or "").lower()) for r in cur.fetchall()]
+            if not colinfo:
+                return {"ok": False, "error": "cíl %s.dbo.%s ani po CREATE nemá sloupce" % (dst_db, t)}
         cols = [c for c, _, _ in colinfo]
         types = [ty for _, _, ty in colinfo]
         has_identity = any(i for _, i, _ in colinfo)

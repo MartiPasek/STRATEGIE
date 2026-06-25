@@ -38,6 +38,7 @@
   <button class="fbtn" id="f_EC" onclick="setFirma('EC')">🏢 EUROSOFT-Control (EC)</button>
   <button class="fbtn on" id="f_ES" onclick="setFirma('ES')">🏢 EUROSOFT-System (ES)</button>
 </div>
+<div style="margin-bottom:12px"><button class="fbtn" style="background:#1a3320;color:#8fe0a0" onclick="syncES()">🔄 Dotáhnout ES faktury z Heliosu</button> <span id="syncmsg" class="muted" style="font-size:12px"></span></div>
 <div class="piles" id="piles"></div>
 <div id="msg">Načítám hromady…</div>
 <div id="listwrap" style="display:none"><h2 id="listh" style="font-size:15px"></h2><table id="tbl"><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
@@ -47,6 +48,11 @@ const API='';
 let CUR='';
 let FIRMA='ES';
 function setFirma(f){FIRMA=f;document.getElementById('f_EC').classList.toggle('on',f==='EC');document.getElementById('f_ES').classList.toggle('on',f==='ES');document.getElementById('listwrap').style.display='none';CUR='';loadPiles();}
+async function syncES(){
+  const m=document.getElementById('syncmsg');m.textContent='Tahám z Heliosu… 🔄';
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/sync-es-faktury',{method:'POST',credentials:'include'}).then(x=>x.json());
+  if(r.ok){m.textContent='✓ Dotaženo '+r.zapsano+' ES faktur';if(FIRMA==='ES'){document.getElementById('listwrap').style.display='none';loadPiles();}}else{m.textContent='✗ '+(r.error||'chyba');}
+}
 function czk(n){return (n==null?0:n).toLocaleString('cs-CZ',{maximumFractionDigits:0})+' Kč';}
 async function loadPiles(){
   const r=await fetch(API+'/api/v1/erp/app/uctovani/hromady?firma='+FIRMA,{credentials:'include'}).then(x=>x.json());

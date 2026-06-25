@@ -1077,17 +1077,12 @@ async def doklady_hromady(request: Request):
         def cnt(sql, p=None):
             r = s.execute(_t(sql), p or {}).mappings().first()
             return {"ks": r["c"], "objem": float(r["o"] or 0)}
-        # FP/FV = zrcadlo Centrály (DB_EC = Control) → jen EC. ES faktury v Heliosu, nenatažené.
-        if firma == "EC":
-            fp = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM tenant.ec_doklad_zbozi WHERE rada LIKE '5%'")
-            fv = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM tenant.ec_doklad_zbozi WHERE rada LIKE '6%'")
-            fpn = "Přijaté faktury (FP)"
-            fvn = "Vydané faktury (FV)"
-        else:
-            fp = {"ks": 0, "objem": 0}
-            fv = {"ks": 0, "objem": 0}
-            fpn = "Přijaté faktury (FP) — v Heliosu, nenataženo"
-            fvn = "Vydané faktury (FV) — v Heliosu, nenataženo"
+        # EC faktury = zrcadlo Centrály (ec_doklad_zbozi); ES faktury = z Heliosu (es_doklad_zbozi)
+        dtbl = "tenant.ec_doklad_zbozi" if firma == "EC" else "tenant.es_doklad_zbozi"
+        fp = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '5%'")
+        fv = cnt("SELECT count(*) c, COALESCE(round(sum(suma_bez_dph)),0) o FROM " + dtbl + " WHERE rada LIKE '6%'")
+        fpn = "Přijaté faktury (FP)"
+        fvn = "Vydané faktury (FV)"
         bk = cnt("SELECT count(*) c, COALESCE(round(sum(abs(t.castka))),0) o FROM tenant.bank_transaction_raw t "
                  "JOIN tenant.bank_connection_account a ON a.id=t.account_id "
                  "JOIN tenant.bank_connection c ON c.id=a.connection_id "
@@ -1117,17 +1112,15 @@ async def doklady_hromada(request: Request):
     s = _sess()
     try:
         if typ in ("fp", "fv"):
-            if firma != "EC":
-                rows = []  # ES faktury v Heliosu, nenatažené
-            else:
-                rl = "5%" if typ == "fp" else "6%"
-                rows = [dict(r) for r in s.execute(_t(
-                    "SELECT to_char(COALESCE(dat_realizace,dat_porizeni),'DD.MM.YYYY') AS datum, cislo, rada, "
-                    "COALESCE(nazev,'') AS nazev, mena, round(suma_bez_dph) AS castka, "
-                    "cislo_org, COALESCE(cislo_zakazky,'') AS zakazka, COALESCE(stav_fakturace,'') AS stav "
-                    "FROM tenant.ec_doklad_zbozi WHERE rada LIKE :rl "
-                    "ORDER BY COALESCE(dat_realizace,dat_porizeni) ASC NULLS LAST, cislo ASC LIMIT 200"),
-                    {"rl": rl}).mappings().all()]
+            dtbl = "tenant.ec_doklad_zbozi" if firma == "EC" else "tenant.es_doklad_zbozi"
+            rl = "5%" if typ == "fp" else "6%"
+            rows = [dict(r) for r in s.execute(_t(
+                "SELECT to_char(COALESCE(dat_realizace,dat_porizeni),'DD.MM.YYYY') AS datum, cislo, rada, "
+                "COALESCE(nazev,'') AS nazev, mena, round(suma_bez_dph) AS castka, "
+                "cislo_org, COALESCE(cislo_zakazky,'') AS zakazka, COALESCE(stav_fakturace,'') AS stav "
+                "FROM " + dtbl + " WHERE rada LIKE :rl "
+                "ORDER BY COALESCE(dat_realizace,dat_porizeni) ASC NULLS LAST, cislo ASC LIMIT 200"),
+                {"rl": rl}).mappings().all()]
         elif typ == "banka":
             rows = [dict(r) for r in s.execute(_t(
                 "SELECT to_char(t.datum,'DD.MM.YYYY') AS datum, t.ext_id AS doklad, round(t.castka) AS castka, t.mena, "
@@ -1264,3 +1257,61 @@ async def doklad_pdf(request: Request):
                         headers={"Content-Disposition": "inline; filename=%s%s.pdf" % (typ.upper(), cislo)})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+
+
+@bank_router.post("/app/uctovani/sync-es-faktury")
+async def sync_es_faktury(request: Request):
+    """Dotáhne ES faktury (FP/FV, 2025+) z Heliosu DB_IS → tenant.es_doklad_zbozi."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+
+    def _num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def _int(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    def _str(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    sql = ("SELECT d.ID, d.Cislo, d.RadaDokladu, d.CisloOrg, RTRIM(d.CisloZakazky) CisloZakazky, "
+           "d.Nazev, d.Mena, d.StavFakturace, CAST(d.SumaKcBezDPH AS numeric(19,2)) SumaKcBezDPH, "
+           "CONVERT(varchar(10),d.DatPorizeni,23) dp, CONVERT(varchar(10),d.DatRealizace,23) dr "
+           "FROM TabDokladyZbozi d WHERE (d.RadaDokladu LIKE '5%' OR d.RadaDokladu LIKE '6%') "
+           "AND d.DatPorizeni >= '2025-01-01'")
+    try:
+        rows = _mcp_rows(sql, "DB_IS")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Helios (MCP): %s" % str(exc)[:200]}, status_code=502)
+    s = _sess()
+    try:
+        n = 0
+        for r in rows:
+            s.execute(_t(
+                "INSERT INTO tenant.es_doklad_zbozi (src_id, cislo, rada, cislo_org, cislo_zakazky, nazev, mena, "
+                "stav_fakturace, suma_bez_dph, dat_porizeni, dat_realizace, synced_at) "
+                "VALUES (:sid,:c,:r,:co,:cz,:n,:m,:sf,:s,:dp,:dr,now()) "
+                "ON CONFLICT (src_id) DO UPDATE SET cislo=excluded.cislo, rada=excluded.rada, "
+                "cislo_org=excluded.cislo_org, cislo_zakazky=excluded.cislo_zakazky, nazev=excluded.nazev, "
+                "mena=excluded.mena, stav_fakturace=excluded.stav_fakturace, suma_bez_dph=excluded.suma_bez_dph, "
+                "dat_porizeni=excluded.dat_porizeni, dat_realizace=excluded.dat_realizace, synced_at=now()"),
+                {"sid": _int(r.get("id")), "c": _str(r.get("cislo")), "r": _str(r.get("radadokladu")),
+                 "co": _int(r.get("cisloorg")), "cz": _str(r.get("cislozakazky")), "n": _str(r.get("nazev")),
+                 "m": _str(r.get("mena")), "sf": _str(r.get("stavfakturace")), "s": _num(r.get("sumakcbezdph")),
+                 "dp": _str(r.get("dp")), "dr": _str(r.get("dr"))})
+            n += 1
+        s.commit()
+        return {"ok": True, "zapsano": n}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()

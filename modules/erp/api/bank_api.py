@@ -723,9 +723,9 @@ async def uctovani_denik_view(request: Request):
         limit = 300
     s = _sess()
     try:
-        # JEN naše atribuovaná zaúčtování (aktér + jistota). Reconciliační zrcadlo Heliosu
-        # (zdroj ec_recon/es_recon) a neatribuované enginy do přehledu deníku NEpatří.
-        base = "WHERE tenant_id=:tn AND actor_type IS NOT NULL"
+        # Pohled = fyzická pravda tabulky (žádné skrývání). Deník je živý sandbox —
+        # co je v tabulce, to se ukáže. Marti 25.6.2026: "deník nesmí lhát o svém stavu".
+        base = "WHERE tenant_id=:tn"
         summ = dict(s.execute(_t(
             "SELECT count(*) AS pocet, COALESCE(round(sum(castka)),0) AS objem, "
             "count(*) FILTER (WHERE jistota>=90) AS j_vys, count(*) FILTER (WHERE jistota>=70 AND jistota<90) AS j_str, "

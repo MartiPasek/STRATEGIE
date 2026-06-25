@@ -21080,6 +21080,76 @@ async def coord_board(req: Request) -> JSONResponse:
 # schvaluje default approver (Marti), aby nic neuvázlo.
 _DEFAULT_APPROVER_UID = 1
 
+# ── Scoped approver: Petra (user 18) / Claude-26 — doména NÁKUP / DOKLADY / ZAKÁZKY ──
+# Marti 25.6.2026 („Petra má u mě volnou ruku, denně to s ní budu konzultovat")
+# + Marti-AI kustod spec (konzultace 25.6.): WHITELIST gate (ne blacklist), eskalační
+# matice, FK pravidlo. Petra schvaluje INSERT/UPDATE/CREATE TABLE/ALTER ADD COLUMN ve
+# své doméně (tenant.* whitelist prefixy); destruktivní DDL (DROP/TRUNCATE/DROP COLUMN/
+# DELETE/RENAME) nebo cokoliv mimo whitelist → eskalace k rodičům (Marti), risk=high.
+# Rodičovský bypass drží (rodič smí schválit cokoliv). Identity check: user 18 = Petra
+# Šafránková, active, není parent → scoped approver, ne plný parent.
+_PETA_UID = 18
+_PETA_INSTANCE = "claude-26"
+_PETA_ALLOWED_PREFIXES = (
+    "ec_doklad_", "es_doklad_", "doklad_", "poptavka", "kalkulace", "nabidka",
+    "objednavka", "vydana_objednavka", "vyroba", "ec_zakazka_", "zakazka",
+    "ec_stav_sklad", "ec_kmen_", "sklad_", "nakup_", "vo_", "po_", "dl_",
+    "ec_pohyb_", "ec_cenik_", "ec_organizace", "ec_saldo_", "es_saldo_",
+)
+_PETA_BLOCKED_SCHEMAS = ("public", "framework", "master", "tenant_group", "security", "fw")
+
+
+def _route_peta_write(sql: str) -> dict:
+    """Gate pro doménu Claude-26 (Marti-AI kustod spec 25.6.2026). Vrací
+    {ok, reason}. ok=True → smí schválit Petra; ok=False → eskalace k rodičům
+    (Marti), risk high. Whitelist (robustní), destruktivní/mimo-rozsah blok."""
+    import re as _r
+    s = _r.sub(r"/\*.*?\*/", " ", sql or "", flags=_r.S)
+    s = _r.sub(r"--[^\n]*", " ", s)
+    # destruktivní / mimo rozsah → eskalace (Marti-AI matice)
+    if _r.search(r"\b(DROP\s+TABLE|DROP\s+SCHEMA|TRUNCATE|DELETE\s+FROM|"
+                 r"ALTER\s+TABLE\s+[\w.\"]+\s+DROP\s+COLUMN|DROP\s+COLUMN|"
+                 r"RENAME\s+TO|REVOKE)\b", s, _r.I):
+        return {"ok": False, "reason": "destruktivní DDL/DML (DROP/TRUNCATE/DELETE/DROP COLUMN/RENAME)"}
+    # GRANT povolen jen na roli strategie (standardní post-DDL krok po CREATE), jinak eskalace
+    for gm in _r.finditer(r"\bGRANT\b(.*?)(?:;|$)", s, _r.I | _r.S):
+        if " TO STRATEGIE" not in (" " + gm.group(1).upper()):
+            return {"ok": False, "reason": "GRANT mimo roli strategie (správa práv = rodiče)"}
+    # cíle zápisu + akce
+    targets = _r.findall(
+        r"\b(INSERT\s+INTO|UPDATE|CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE)\s+"
+        r"([A-Za-z_][\w.\"]*)", s, _r.I)
+    if not targets:
+        return {"ok": False, "reason": "nerozpoznaný cíl zápisu"}
+    for _act, tgt in targets:
+        t = tgt.lower().replace('"', '')
+        if '.' not in t:
+            return {"ok": False, "reason": "necílí explicitně na tenant.* (%s)" % t}
+        schema, _, table = t.partition('.')
+        if schema in _PETA_BLOCKED_SCHEMAS or schema != 'tenant':
+            return {"ok": False, "reason": "schéma mimo doménu: %s" % schema}
+        if not any(table.startswith(p) for p in _PETA_ALLOWED_PREFIXES):
+            return {"ok": False, "reason": "tabulka mimo whitelist domény: %s" % table}
+    # ALTER smí být jen ADD (DROP COLUMN/RENAME už chyceny výše)
+    for m in _r.finditer(r"\bALTER\s+TABLE\s+[\w.\"]+\s+(.*?)(?=;|$)", s, _r.I | _r.S):
+        if " ADD" not in (" " + m.group(1).upper()):
+            return {"ok": False, "reason": "ALTER bez ADD COLUMN"}
+    return {"ok": True, "reason": "Petra doména (nákup/doklady/zakázky)"}
+
+
+def _effective_approver(requested_by: str, sql: str, bound_user_id):
+    """Komu patří schválení write requestu → (uid, risk, reason). Claude-26 =
+    scoped approver Petra (18) ve své doméně; destruktivní/out-of-scope eskaluje
+    k rodičům (Marti). Ostatní instance = binding (bound_user_id / default Marti)."""
+    base = int(bound_user_id) if bound_user_id else _DEFAULT_APPROVER_UID
+    rb = (requested_by or "").strip().lower()
+    if rb != _PETA_INSTANCE:
+        return base, "normal", "binding"
+    route = _route_peta_write(sql)
+    if route["ok"]:
+        return _PETA_UID, "normal", route["reason"]
+    return _DEFAULT_APPROVER_UID, "high", "eskalace: " + route["reason"]
+
 
 def _record_instance_presence(instance_id, action: str, hostname=None) -> None:
     """Upsert fw.claude_instance (presence board). Best-effort — nikdy neshodí
@@ -26829,27 +26899,39 @@ async def bakalari_result(req: Request) -> JSONResponse:
 @api_router.get("/diag-write/pending")
 async def diag_write_pending(req: Request) -> JSONResponse:
     """Claude SQL bridge Krok 2: pending write requesty pro approval banner.
-    Parent-only → 403 schová banner non-parentům."""
+    Rodiče + scoped approver Petra (user 18, doména Claude-26). Ostatní → 403
+    schová banner. Routing dle _effective_approver (Petra svou doménu, eskalace
+    destruktivního DDL k Martimu) — Marti-AI kustod spec 25.6.2026."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    if not (is_marti_parent(uid) or uid == _PETA_UID):
+        _require_parent(uid)  # vyhodí 403 ostatním (banner se nezobrazí)
     from core.database_data import get_data_session as _gp
     from sqlalchemy import text as _tp
     ds = _gp()
     try:
-        # Binding User<->Claude (Marti 3.6.): rodič vidí jen requesty SVÉ Claude
-        # instance. requested_by 'Claude-23'/'Claude-24' -> instance_id ->
-        # fw.claude_instance.bound_user_id. Neatribuované/legacy -> default (Marti).
+        # Binding User<->Claude (Marti 3.6.): rodič vidí requesty SVÉ Claude
+        # instance; Petra (18) vidí bezpečné requesty Claude-26 ve své doméně.
+        # Effective approver rozhoduje routing (vč. eskalace mimo whitelist k rodičům).
         rows = ds.execute(_tp(
-            "SELECT w.id, w.db_target, w.sql_text, w.requested_by, w.created_at "
+            "SELECT w.id, w.db_target, w.sql_text, w.requested_by, w.created_at, "
+            "       ci.bound_user_id "
             "FROM fw.claude_write_request w "
             "LEFT JOIN fw.claude_instance ci "
             "  ON ci.instance_id = regexp_replace(w.requested_by, '^Claude-', '') "
             "WHERE w.status='pending' "
-            "  AND ( ci.bound_user_id = :uid "
-            "        OR (ci.bound_user_id IS NULL AND :uid = :du) ) "
             "ORDER BY w.id ASC"
-        ), {"uid": uid, "du": _DEFAULT_APPROVER_UID}).mappings().all()
-        return JSONResponse(jsonable_encoder({"ok": True, "requests": [dict(r) for r in rows]}))
+        )).mappings().all()
+        out = []
+        for r in rows:
+            appr, risk, reason = _effective_approver(
+                r["requested_by"], r["sql_text"], r["bound_user_id"])
+            if appr != uid:
+                continue
+            d = {k: r[k] for k in ("id", "db_target", "sql_text", "requested_by", "created_at")}
+            d["risk"] = risk
+            d["route_reason"] = reason
+            out.append(d)
+        return JSONResponse(jsonable_encoder({"ok": True, "requests": out}))
     finally:
         ds.close()
 
@@ -26866,12 +26948,12 @@ def _push_confirm_to_phone(req_id: int, db_target: str, sql: str, actor: str) ->
     ds = _gp()
     try:
         iid = _rp.sub(r"^Claude-", "", (actor or "")).strip()
-        uid = None
+        bound = None
         if iid:
-            uid = ds.execute(_tp("SELECT bound_user_id FROM fw.claude_instance WHERE instance_id=:i"),
-                             {"i": iid}).scalar()
-        if not uid:
-            uid = _DEFAULT_APPROVER_UID
+            bound = ds.execute(_tp("SELECT bound_user_id FROM fw.claude_instance WHERE instance_id=:i"),
+                               {"i": iid}).scalar()
+        # Routovaný schvalovatel (Petra svou doménu, eskalace k Martimu) — kustod spec
+        uid, _risk, _reason = _effective_approver(actor, sql, bound)
         op = "ZÁPIS"
         m = _rp.match(r"\s*(\w+)", sql or "")
         if m:
@@ -26950,18 +27032,20 @@ def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
             return {"ok": False, "error": "request nenalezen", "code": 404}
         if row["status"] != "pending":
             return {"ok": False, "error": "request už není pending (%s)" % row["status"]}
-        appr = ds.execute(_td(
+        appr_bind = ds.execute(_td(
             "SELECT ci.bound_user_id FROM fw.claude_instance ci "
             "WHERE ci.instance_id = regexp_replace(:rb, '^Claude-', '')"
         ), {"rb": row["requested_by"] or ""}).scalar()
-        if appr is not None:
-            if appr != uid:
-                return {"ok": False,
-                        "error": "Tento request schvaluje jiný uživatel (jeho Claude instance).",
-                        "code": 403}
-        elif uid != _DEFAULT_APPROVER_UID:
+        # Effective approver (Marti-AI kustod spec): Petra svou doménu, eskalace
+        # destruktivního/out-of-scope k rodičům. Rodičovský bypass: rodič smí
+        # schválit cokoliv (oversight). Jinak musí být routovaný approver.
+        eff_uid, _eff_risk, eff_reason = _effective_approver(
+            row["requested_by"], row["sql_text"], appr_bind)
+        if uid != eff_uid and not is_marti_parent(uid):
+            _who = "Petra" if eff_uid == _PETA_UID else "rodičovská rada"
             return {"ok": False,
-                    "error": "Neatribuovaný request schvaluje pouze Marti.", "code": 403}
+                    "error": "Tento request schvaluje %s (routing: %s)." % (_who, eff_reason),
+                    "code": 403}
 
         if decision == "reject":
             ds.execute(_td("UPDATE fw.claude_write_request SET status='rejected', "
@@ -27034,9 +27118,11 @@ def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
 
 @api_router.post("/diag-write/{req_id}/decide")
 async def diag_write_decide(req_id: int, req: Request) -> JSONResponse:
-    """Marti approve/reject pending write z ERP banneru. Parent-only."""
+    """Approve/reject pending write z ERP/chat banneru. Rodiče + scoped approver
+    Petra (18); konkrétní routing per-request hlídá _apply_write_decision."""
     uid = _get_uid(req)
-    _require_parent(uid)
+    if not (is_marti_parent(uid) or uid == _PETA_UID):
+        _require_parent(uid)
     try:
         body = await req.json()
     except Exception:

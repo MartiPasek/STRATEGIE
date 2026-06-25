@@ -156,10 +156,45 @@ async function openAutomatDetail(kod){
     if(ai.behy&&ai.behy.length){h+='<div style="font-size:12px;color:#9fb0c8;margin-bottom:10px"><b>📜 Log běhů:</b><br>'+ai.behy.map(x=>`${x.kdy} · ${x.spustil} · <b>${x.vysledek}</b> (${x.trvani_ms} ms)`).join('<br>')+'</div>';}
   }
   h+=`<div style="border-top:1px solid #2c3850;margin-top:6px;padding-top:8px;font-size:12.5px;margin-bottom:6px">📖 <b>Pravidla TOHOTO automatu</b> (${rk.pravidla.length}) — podle nich účtuje. <span class="muted"><i>Nejsou to další automaty, je to jeho kuchařka.</i></span></div>
-    <table style="font-size:12px"><tr><th>Klíč</th><th>Typ</th><th>Směr</th><th>MD / Dal</th><th>Jistota</th><th>Poznámka</th></tr>`;
-  h+=rk.pravidla.map(p=>`<tr><td><code>${p.klic}</code></td><td class="muted">${p.typ_klice}</td><td class="muted">${p.smer||'—'}</td><td class="ucet">${p.ucet_md} / ${p.ucet_dal}</td><td><span class="j ${jcls(p.base_jistota)}">${Math.round(p.base_jistota)}%</span></td><td class="muted">${p.pozn||''}</td></tr>`).join('');
+    <div class="muted" style="font-size:11px;margin-bottom:4px">Klikni na pravidlo → otevře se jeho detail (úprava účtů, jistoty, zapnutí/vypnutí).</div>
+    <table style="font-size:12px"><tr><th>Klíč</th><th>Typ</th><th>Směr</th><th>MD / Dal</th><th>Jistota</th><th>Stav</th><th>Použito</th></tr>`;
+  window._rules=rk.pravidla;
+  h+=rk.pravidla.map(p=>`<tr onclick="openRuleDetail(${p.id})" style="cursor:pointer">
+    <td><code>${p.klic}</code> <span style="color:#8fa3bd">›</span></td><td class="muted">${p.typ_klice}</td><td class="muted">${p.smer||'—'}</td>
+    <td class="ucet">${p.ucet_md} / ${p.ucet_dal}</td>
+    <td><span class="j ${jcls(p.base_jistota)}">${Math.round(p.base_jistota)}%</span></td>
+    <td>${p.aktivni?'<span class="j hi">● zap</span>':'<span class="j lo">○ vyp</span>'}</td>
+    <td class="muted" style="text-align:center">${p.pouzito||0}×</td></tr>`).join('');
   h+='</table>';
   b.innerHTML=h;
+}
+function openRuleDetail(id){
+  const p=(window._rules||[]).find(x=>x.id===id);if(!p)return;
+  const b=document.getElementById('ovbody');
+  b.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center">
+    <button class="chip" onclick="openAutomatDetail(_curKod)">← Zpět na automat</button>
+    <button class="chip" onclick="closeDetail()">✕</button></div>
+    <h2 style="font-size:15px;margin:10px 0 2px">🔧 Podautomat (pravidlo) <code>${p.klic}</code></h2>
+    <div class="muted" style="font-size:12px;margin-bottom:12px">${p.typ_klice}${p.smer?' / '+p.smer:''} · použito <b>${p.pouzito||0}×</b> · ${p.aktivni?'🟢 aktivní':'🔴 vypnuto'}</div>
+    <div style="font-size:13px;line-height:2.2">
+      <b>Účet MD:</b> <input id="rmd" value="${(p.ucet_md||'').replace(/"/g,'&quot;')}" style="width:100px"> &nbsp;
+      <b>Dal:</b> <input id="rdal" value="${(p.ucet_dal||'').replace(/"/g,'&quot;')}" style="width:100px"><br>
+      <b>Jistota %:</b> <input id="rjist" type="number" min="0" max="100" value="${Math.round(p.base_jistota)}" style="width:80px"><br>
+      <b>Poznámka:</b><br><input id="rpozn" value="${(p.pozn||'').replace(/"/g,'&quot;')}" style="width:100%"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="chip on" onclick="saveRule(${p.id})">💾 Uložit</button>
+      <button class="chip" style="background:${p.aktivni?'#3a1818':'#1a3320'};color:${p.aktivni?'#ff8b8b':'#8fe0a0'}" onclick="toggleRule(${p.id},${p.aktivni?'false':'true'})">${p.aktivni?'⏸ Vypnout pravidlo':'▶ Zapnout pravidlo'}</button>
+    </div><div id="rmsg" class="muted" style="margin-top:8px"></div>`;
+}
+async function saveRule(id){
+  const body={id:id,ucet_md:document.getElementById('rmd').value,ucet_dal:document.getElementById('rdal').value,base_jistota:parseFloat(document.getElementById('rjist').value),pozn:document.getElementById('rpozn').value};
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/predkontace/save',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(x=>x.json());
+  const m=document.getElementById('rmsg');
+  if(r.ok){if(m)m.textContent='✓ uloženo';setTimeout(()=>openAutomatDetail(_curKod),600);}else if(m){m.textContent='✗ '+(r.error||'chyba');}
+}
+async function toggleRule(id,akt){
+  const r=await fetch(API+'/api/v1/erp/app/uctovani/predkontace/save',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,aktivni:akt})}).then(x=>x.json());
+  if(r.ok){openAutomatDetail(_curKod);}else{const m=document.getElementById('rmsg');if(m)m.textContent='✗ '+(r.error||'chyba');}
 }
 async function automatRun(){
   const m=document.getElementById('amsg');if(m)m.textContent='Spouštím automata… ▶';

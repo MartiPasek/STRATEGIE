@@ -865,8 +865,9 @@ async def predkontace_kucharka(request: Request):
     s = _sess()
     try:
         rows = [dict(r) for r in s.execute(_t(
-            "SELECT klic, typ_klice, smer, ucet_md, ucet_dal, base_jistota, pozn, aktivni, "
-            "to_char(created_at,'DD.MM.YYYY HH24:MI') AS vzniklo "
+            "SELECT id, klic, typ_klice, smer, ucet_md, ucet_dal, base_jistota, pozn, aktivni, "
+            "to_char(created_at,'DD.MM.YYYY HH24:MI') AS vzniklo, "
+            "(SELECT count(*) FROM tenant.ucetni_denik d WHERE d.tenant_id=:tn AND d.jistota_zdroj LIKE 'predkontace_'||bank_predkontace.klic||'%') AS pouzito "
             "FROM tenant.bank_predkontace WHERE tenant_id=:tn "
             "ORDER BY base_jistota DESC, typ_klice, klic"), {"tn": _TENANT}).mappings().all()]
         for r in rows:
@@ -1015,6 +1016,45 @@ async def automaty_list(request: Request):
             "FROM tenant.automat a WHERE a.tenant_id=:tn ORDER BY a.kod"), {"tn": _TENANT}).mappings().all()]
         return {"ok": True, "automaty": rows}
     except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/uctovani/predkontace/save")
+async def predkontace_save(request: Request):
+    """Editace / aktivace pravidla (podautomatu) — účty, jistota, poznámka, aktivní."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    rid = int(body.get("id") or 0)
+    sets, params = [], {"id": rid, "tn": _TENANT}
+    for col in ("ucet_md", "ucet_dal", "pozn"):
+        if col in body:
+            sets.append("%s=:%s" % (col, col))
+            params[col] = (str(body[col]).strip() or None) if body[col] is not None else None
+    if "base_jistota" in body and body["base_jistota"] is not None:
+        try:
+            sets.append("base_jistota=:bj")
+            params["bj"] = max(0, min(100, float(body["base_jistota"])))
+        except Exception:
+            pass
+    if "aktivni" in body:
+        sets.append("aktivni=:akt")
+        params["akt"] = bool(body["aktivni"])
+    if not sets:
+        return JSONResponse({"ok": False, "error": "nic ke změně"}, status_code=400)
+    s = _sess()
+    try:
+        s.execute(_t("UPDATE tenant.bank_predkontace SET %s WHERE id=:id AND tenant_id=:tn" % ",".join(sets)), params)
+        s.commit()
+        return {"ok": True}
+    except Exception as exc:
+        s.rollback()
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()

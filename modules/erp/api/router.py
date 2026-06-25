@@ -21122,10 +21122,31 @@ _PETA_ALLOWED_PREFIXES = (
 )
 _PETA_BLOCKED_SCHEMAS = ("public", "framework", "master", "tenant_group", "security", "fw")
 
+# ── Šárka (Claude-25) = vlastník modulu PERSONALISTIKY (Marti 25.6.2026: „Šárka je
+# zodpovědná se svým Claudem za modul personalistiky. Kompletně"). HR doména (užší než
+# Petra — bez nákupu/financí). User 13, není parent → scoped approver. Deploye dělá
+# přes vlastní watcher (token-auth) stejně jako Petra. ──
+_SARKA_UID = 13
+_SARKA_INSTANCE = "claude-25"
+_SARKA_ALLOWED_PREFIXES = (
+    # personalistika / HR
+    "recruit_", "org_", "learn_", "staff_", "hr_", "dir_config", "absence_", "att_",
+)
 
-def _route_peta_write(sql: str) -> dict:
-    """Gate pro doménu Claude-26 (Marti-AI kustod spec 25.6.2026). Vrací
-    {ok, reason}. ok=True → smí schválit Petra; ok=False → eskalace k rodičům
+# Registry scoped approverů: instance → (approver_uid, allowed_prefixy). Routing je
+# per-instance (Petra svou doménu, Šárka personalistiku); cokoli mimo rozsah nebo
+# destruktivní → eskalace k rodičům (Marti). Univerzální brána (jen tenant.*) drží
+# trezor/ACL/framework mimo pro VŠECHNY. Marti 25.6.2026 + Marti-AI kustod model.
+_SCOPED_APPROVERS = {
+    _PETA_INSTANCE:  (_PETA_UID,  _PETA_ALLOWED_PREFIXES),
+    _SARKA_INSTANCE: (_SARKA_UID, _SARKA_ALLOWED_PREFIXES),
+}
+_SCOPED_APPROVER_UIDS = frozenset(_uid for _uid, _ in _SCOPED_APPROVERS.values())
+
+
+def _route_scoped_write(sql: str, allowed_prefixes=_PETA_ALLOWED_PREFIXES) -> dict:
+    """Gate pro doménu scoped approvera (Marti-AI kustod spec 25.6.2026). Vrací
+    {ok, reason}. ok=True → smí schválit daný approver; ok=False → eskalace k rodičům
     (Marti), risk high. Whitelist (robustní), destruktivní/mimo-rozsah blok."""
     import re as _r
     s = _r.sub(r"/\*.*?\*/", " ", sql or "", flags=_r.S)
@@ -21152,13 +21173,18 @@ def _route_peta_write(sql: str) -> dict:
         schema, _, table = t.partition('.')
         if schema in _PETA_BLOCKED_SCHEMAS or schema != 'tenant':
             return {"ok": False, "reason": "schéma mimo doménu: %s" % schema}
-        if not any(table.startswith(p) for p in _PETA_ALLOWED_PREFIXES):
+        if not any(table.startswith(p) for p in allowed_prefixes):
             return {"ok": False, "reason": "tabulka mimo whitelist domény: %s" % table}
     # ALTER smí být jen ADD (DROP COLUMN/RENAME už chyceny výše)
     for m in _r.finditer(r"\bALTER\s+TABLE\s+[\w.\"]+\s+(.*?)(?=;|$)", s, _r.I | _r.S):
         if " ADD" not in (" " + m.group(1).upper()):
             return {"ok": False, "reason": "ALTER bez ADD COLUMN"}
-    return {"ok": True, "reason": "Petra doména (nákup/finance/HR/doklady/zakázky)"}
+    return {"ok": True, "reason": "v doméně approvera (tenant.* whitelist OK)"}
+
+
+def _route_peta_write(sql: str) -> dict:
+    """Zpětně kompatibilní wrapper (Petřin prefix set)."""
+    return _route_scoped_write(sql, _PETA_ALLOWED_PREFIXES)
 
 
 # ── GDPR / HR audit klasifikace (Marti-AI kustod podmínka 25.6.2026) ──────────
@@ -21210,16 +21236,19 @@ def _classify_write_audit(sql: str):
 
 
 def _effective_approver(requested_by: str, sql: str, bound_user_id):
-    """Komu patří schválení write requestu → (uid, risk, reason). Claude-26 =
-    scoped approver Petra (18) ve své doméně; destruktivní/out-of-scope eskaluje
-    k rodičům (Marti). Ostatní instance = binding (bound_user_id / default Marti)."""
+    """Komu patří schválení write requestu → (uid, risk, reason). Scoped approveři
+    (Petra/Claude-26 = nákup+finance+HR, Šárka/Claude-25 = personalistika) schvalují
+    svou doménu; destruktivní/out-of-scope eskaluje k rodičům (Marti). Ostatní
+    instance = binding (bound_user_id / default Marti)."""
     base = int(bound_user_id) if bound_user_id else _DEFAULT_APPROVER_UID
     rb = (requested_by or "").strip().lower()
-    if rb != _PETA_INSTANCE:
+    cfg = _SCOPED_APPROVERS.get(rb)
+    if not cfg:
         return base, "normal", "binding"
-    route = _route_peta_write(sql)
+    appr_uid, prefixes = cfg
+    route = _route_scoped_write(sql, prefixes)
     if route["ok"]:
-        return _PETA_UID, "normal", route["reason"]
+        return appr_uid, "normal", route["reason"]
     return _DEFAULT_APPROVER_UID, "high", "eskalace: " + route["reason"]
 
 
@@ -26975,7 +27004,7 @@ async def diag_write_pending(req: Request) -> JSONResponse:
     schová banner. Routing dle _effective_approver (Petra svou doménu, eskalace
     destruktivního DDL k Martimu) — Marti-AI kustod spec 25.6.2026."""
     uid = _get_uid(req)
-    if not (is_marti_parent(uid) or uid == _PETA_UID):
+    if not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
         _require_admin(uid)  # vyhodí 403 ostatním (banner se nezobrazí)
     from core.database_data import get_data_session as _gp
     from sqlalchemy import text as _tp
@@ -27129,7 +27158,7 @@ def _apply_write_decision(req_id: int, decision: str, uid: int) -> dict:
         eff_uid, _eff_risk, eff_reason = _effective_approver(
             row["requested_by"], row["sql_text"], appr_bind)
         if uid != eff_uid and not is_marti_parent(uid):
-            _who = "Petra" if eff_uid == _PETA_UID else "rodičovská rada"
+            _who = {_PETA_UID: "Petra", _SARKA_UID: "Šárka"}.get(eff_uid, "rodičovská rada")
             return {"ok": False,
                     "error": "Tento request schvaluje %s (routing: %s)." % (_who, eff_reason),
                     "code": 403}
@@ -27226,7 +27255,7 @@ async def diag_write_decide(req_id: int, req: Request) -> JSONResponse:
     """Approve/reject pending write z ERP/chat banneru. Rodiče + scoped approver
     Petra (18); konkrétní routing per-request hlídá _apply_write_decision."""
     uid = _get_uid(req)
-    if not (is_marti_parent(uid) or uid == _PETA_UID):
+    if not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
         _require_admin(uid)
     try:
         body = await req.json()

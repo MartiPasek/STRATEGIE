@@ -1358,3 +1358,11 @@ Tohle byl učebnicový den **trojice/sítě**: tatínkova jasná vize (Petra = j
 — **Claude (id=23, ID23)** (Opus, 25. 6. 2026, po vyřízení požadavku Claude‑26 — Petra HR + finance teritorium LIVE, GDPR audit, Marti‑AI kustod sign‑off, záchrana 24.6 dodatků z git konfliktu)
 
 🔑 🤝 🏦 🌳 ☕
+
+### Navazuje (25.6.): Šárka/Claude‑25 = vlastník personalistiky + vlastní deploye (commit `4320613`)
+Marti hned poté: *„Šárka je zodpovědná se svým Claudem za modul personalistiky. Kompletně. Se svým Claudem může dělat jejich Deploye stejně jako Peta."* Provedeno:
+- **Scoped‑approver zobecněn na registry** `_SCOPED_APPROVERS = {claude-26→Petra(18, nákup+finance+HR), claude-25→Šárka(13, personalistika/HR)}`. `_route_peta_write` → `_route_scoped_write(sql, prefixes)` (parametrizované; starý název ponechán jako wrapper). `_effective_approver` čte registry. Endpoint guardy (`diag_write_pending`/`decide`) povolují `uid in _SCOPED_APPROVER_UIDS` ({13,18}) + rodiče. Šárčiny HR write requesty (claude-25) → schvaluje Šárka; finance/nákup/destruktivní → eskalace k Martimu. Petra beze změny.
+- **Deploye: ŽÁDNÁ změna kódu.** `/deploy/now` je token‑auth (instance‑agnostický) NEBO parent. Claude‑25 watcher už běží s deploy tokenem (hlásí presence) → může deployovat stejně jako Petra. **Gotcha:** Šárčin lokál byl ~114 commitů pozadu → před jejími deploye `CLAUDE_PULL_GO` (rebase --autostash to sice srovná, ale čistěji předem).
+- **Doctrine (drž):** scoped‑approver je teď N‑instancí registry — další člověk+Claude = řádek v `_SCOPED_APPROVERS` + (případně) prefix set, guardy se aktualizují přes `_SCOPED_APPROVER_UIDS` automaticky. Univerzální brána (jen `tenant.*`) + GDPR audit + destruktivní eskalace platí pro všechny. **Deploy = per‑watcher token, ne per‑instance gate v kódu** — stačí mít na stroji watcher s tokenem + synct lokál.
+
+🔑 🤝 🗂️ 🌳 ☕

@@ -1398,3 +1398,23 @@ Marti dnes lítal mezi vizemi (AG Grid grafy „to nám schází dlouho, řeší
 — **Claude (id=23, ID23)** (Opus, 25. 6. 2026 noc, po mostu na cloud Helios 188.12 + `@@XFER` + EC doklady/předkontace 1:1 + AG Grid, *„dobrou noc a zapiš do krabičky"*)
 
 🏦 🌉 🧩 📊 🌳 ☕🌙
+
+---
+
+## Dodatek — 26. 6. 2026 (Jirka, ID28): 📖 Nápověda + hlasový průvodce docházky — kanonický SPEC v projektu
+
+Den s Jirkou nad **nápovědou a hlasovým průvodcem docházky** v mobilu (`apps/api/static/mobile.html`). Jirka opakovaně (právem) nacházel nesrovnalosti → poučení: **obsah nápovědy MUSÍ být 100 % pravdivý proti kódu, ověřený, ne odhadem.**
+
+**🔑 KANONICKÝ POPIS (vždy aktualizuj při změně): `docs/dochazka_napoveda_pruvodce_SPEC.md`** — kde to je v kódu, skutečná struktura menu docházky, seznam kroků průvodce + mapování obrázků, jak znovu pořídit snímky, gotchy.
+
+**Co je v kódu:** `dochHelp()` = textová nápověda (overlay ❓, bez obrázků); `dochPruvodce()` = hlasový průvodce (`SL=[{t,img,cap,v}]`, řeč přes speechSynthesis, 12 kroků, **obrázek per krok**). Zdroj pravdy o menu = `dochazka()`+`showOpts()`+`_buildWorkSwitch`+`jindeBuild`. Vstupy: dlaždice „❓ Nápověda docházka" v Aplikacích + ❓ na Spolupráci + ⓘ tipy.
+
+**Snímky průvodce:** verzované v `apps/api/static/navod_dochazka/pruvodce_*.png`; pořízení = `node scripts/screenshot_dochazka_pruvodce.js` (Playwright Pixel 7, `auth.json`). `P_*.png` jsou regenerovatelné mezivýstupy (nekomitovat).
+
+**Gotchy:** ASCII `"` ve dvojitě uvozovaných JS stringech (`v:`, items) rozbije parsování → typografické „ "; **NIKDY replace_all na frázi končící `"`** (zasáhne delimitery jinde); žádné „Krok N" v naraci (čítač ukazuje pozici); speechSynthesis Android = chunking + watchdog, řeč se ruší při zavření/skrytí/back; on-shift menu (🙈 pauza/jednání/odchod) zatím nemá vlastní snímek (vyžaduje aktivní směnu — TODO).
+
+**Pozn.: CLAUDE.md je na limitu 150k znaků → brzy potřebuje split** (dodatky 21.–25.6. → archiv, viz vzor 25.6.).
+
+— **Claude (Opus, 26. 6. 2026, Jirkova instance ID28, po dotažení nápovědy+průvodce docházky a založení SPEC)**
+
+📖 🗣️ 🧭 🌳 ☕

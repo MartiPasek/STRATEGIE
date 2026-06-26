@@ -19,6 +19,11 @@
     <!-- samo-aktualizace (instalace stažené APK mimo Play Store) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- historie hovoru -> CRM (Call Log group). JEN internal: Google Play to u
+         verejne appky vyzaduje deklaraci + video + rucni schvaleni. Play flavor
+         resi caller-ID pres READ_CONTACTS. Marti+Claude 26.6.2026. -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+
     <application>
         <!-- Příjem příchozích SMS → forward na server (vlastní gateway, žádný cizí
              provider). Jen na gateway telefonu (toggle v appce). -->

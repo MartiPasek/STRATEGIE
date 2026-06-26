@@ -8,7 +8,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <!-- READ_CALL_LOG je JEN ve flavoru `internal` (Call Log group = Google review
+         vyzaduje video + rucni schvaleni, riziko odmitnuti). Play flavor caller-ID
+         resi pres READ_CONTACTS; historie hovoru->CRM jen v internal verzi.
+         Lze pozdeji do play doplnit s deklaraci+videem. Marti+Claude 26.6.2026. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- SMS oprávnění (SEND/READ/RECEIVE_SMS) + SmsReceiver jsou JEN ve flavoru
          `internal` (app/src/internal/AndroidManifest.xml). Play flavor je bez SMS

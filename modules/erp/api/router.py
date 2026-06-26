@@ -27470,17 +27470,28 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": True, "file_read": True, "path": "inbox_%s.txt" % mid,
                                      "content": _txt, "length": len(_txt)})
             if op == "SEEN":
-                # Marti 24.6.2026: označit vyřízené e-maily Marti-AI za přečtené,
-                # ať se jí nehromadí. JEN read_at (reverzibilní, NIKDY delete).
-                _ids_raw = (parts[2] if len(parts) > 2 else "").replace(",", " ").split()
+                # Marti 24.6./26.6.2026: označit e-maily Marti-AI za VYŘÍZENÉ. Chatový
+                # přehled „nevyřízené" = processed_at IS NULL (overview_service), proto
+                # nastavíme i processed_at, ne jen read_at — jinak v chatu visí dál.
+                # Reverzibilní (NIKDY delete). „ALL" = celý backlog persony.
+                _arg = (parts[2] if len(parts) > 2 else "").strip()
+                if _arg.upper() == "ALL":
+                    _n = _si.execute(_tib(
+                        "UPDATE email_inbox SET read_at=COALESCE(read_at,now()), processed_at=now() "
+                        "WHERE persona_id=:p AND deleted_at IS NULL AND processed_at IS NULL"),
+                        {"p": _PID}).rowcount
+                    _si.commit()
+                    return JSONResponse({"ok": True, "marked_done": _n, "scope": "ALL"})
+                _ids_raw = _arg.replace(",", " ").split()
                 _ids = [int(x) for x in _ids_raw if x.strip().isdigit()]
                 if not _ids:
-                    return JSONResponse({"ok": False, "error": "@@INBOX SEEN <id[,id...]>"})
+                    return JSONResponse({"ok": False, "error": "@@INBOX SEEN <id[,id...]|ALL>"})
                 _n = _si.execute(_tib(
-                    "UPDATE email_inbox SET read_at=now() WHERE id = ANY(:ids) "
-                    "AND persona_id=:p AND read_at IS NULL"), {"ids": _ids, "p": _PID}).rowcount
+                    "UPDATE email_inbox SET read_at=COALESCE(read_at,now()), "
+                    "processed_at=COALESCE(processed_at,now()) "
+                    "WHERE id = ANY(:ids) AND persona_id=:p"), {"ids": _ids, "p": _PID}).rowcount
                 _si.commit()
-                return JSONResponse({"ok": True, "marked_read": _n, "ids": _ids})
+                return JSONResponse({"ok": True, "marked_done": _n, "ids": _ids})
             where = "AND read_at IS NULL" if op == "NOVE" else ""
             summ = _si.execute(_tib(
                 "SELECT count(*), count(*) FILTER (WHERE read_at IS NULL), "

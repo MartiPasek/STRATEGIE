@@ -377,6 +377,42 @@ def _write_other_work(others: list) -> None:
         pass
 
 
+def _ps_quote(s) -> str:
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def _local_alert(title: str, msg: str) -> None:
+    """Lokální cinknutí přímo na NB (Marti 26.6.2026): jakmile zápis čeká na
+    schválení, hned pípni + vyskoč Windows toast u Martiho — nezávisle na webu
+    a mobilu (ty mají latenci: záložka na pozadí se uspí, push chodí později).
+    Best-effort, nikdy neshodí watcher."""
+    try:
+        import winsound
+        winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+        winsound.Beep(880, 160)
+        winsound.Beep(1175, 220)
+    except Exception:
+        pass
+    try:
+        import subprocess
+        ps = (
+            "$ErrorActionPreference='SilentlyContinue';"
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "Add-Type -AssemblyName System.Drawing;"
+            "$n=New-Object System.Windows.Forms.NotifyIcon;"
+            "$n.Icon=[System.Drawing.SystemIcons]::Information;"
+            "$n.BalloonTipTitle=" + _ps_quote(title) + ";"
+            "$n.BalloonTipText=" + _ps_quote(msg) + ";"
+            "$n.Visible=$true;$n.ShowBalloonTip(8000);"
+            "Start-Sleep -Milliseconds 9000;$n.Dispose()"
+        )
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+            creationflags=0x08000000)  # CREATE_NO_WINDOW
+    except Exception:
+        pass
+
+
 def _process() -> None:
     db = "pg"
     try:
@@ -409,6 +445,8 @@ def _process() -> None:
     if isinstance(res, dict) and res.get("pending") and res.get("request_id"):
         rid = res["request_id"]
         _log(f"WRITE pending #{rid} — čekám na schválení Marti…")
+        _local_alert("Claude čeká na schválení",
+                     f"Zápis #{rid} ({db}) čeká na potvrzení v banneru.")
         _write_out(
             f"# STATUS: ČEKÁ NA SCHVÁLENÍ · request #{rid} · db={db}\n# {ts}\n\n"
             "Write detekován → Marti to schvaluje v banneru (chat/ERP). "

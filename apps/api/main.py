@@ -1020,6 +1020,14 @@ def claude_fronta_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/prehled")
+def prehled_page():
+    """Vrstvený přehledový kalendář — práce/volno/porady/úkoly/Google jako
+    přepínatelné vrstvy, týden+měsíc, překryvy a díry. Marti 26.6.2026."""
+    return FileResponse(os.path.join(static_dir, "prehled.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

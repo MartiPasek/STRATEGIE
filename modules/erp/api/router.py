@@ -18784,6 +18784,109 @@ async def claude_fronta_new(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.get("/app/prehled/events")
+async def prehled_events(req: Request) -> JSONResponse:
+    """Vrstvený přehledový kalendář (Marti 26.6.2026): vrátí události vybraných
+    vrstev v rozsahu [from,to) jednotně {layer,title,person,person_id,start,end,
+    all_day,color}. Vrstvy: prace (att_entry presence), volno (att_planned_absence),
+    porady (calendar_event manual), google (calendar_event google), ukoly (task.termin).
+    Celofiremní → rodič/HR. Každá vrstva guard try/except (chybí-li, ostatní jedou)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    qp = req.query_params
+    frm = (qp.get("from") or "").strip()
+    to = (qp.get("to") or "").strip()
+    if not frm or not to:
+        return JSONResponse({"ok": False, "error": "from/to (YYYY-MM-DD) povinné"}, status_code=400)
+    layers = set((qp.get("layers") or "prace,volno,porady,google,ukoly").split(","))
+    users_raw = (qp.get("users") or "").replace(",", " ").split()
+    users = [int(x) for x in users_raw if x.strip().isdigit()] or None
+    _C = {"prace": "#3b82f6", "volno": "#22c55e", "porady": "#a855f7",
+          "google": "#f97316", "ukoly": "#eab308"}
+    cm, s = _att_session()
+    ev = []
+
+    def _nm(uid_map, pid):
+        return uid_map.get(pid) or (("#%s" % pid) if pid else "—")
+    try:
+        # jmenná mapa (jen relevantní userů tenantu)
+        nm = {}
+        for r in s.execute(_t(
+            "SELECT id, NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
+            "FROM public.users")).fetchall():
+            nm[int(r[0])] = r[1]
+        ufilt = " AND em.user_id = ANY(:u) " if users else ""
+        ufilt2 = " AND user_id = ANY(:u) " if users else ""
+        ufilt3 = " AND COALESCE(owner_user_id,0) = ANY(:u) " if users else ""
+        prm = {"t": _ATT_TENANT, "f": frm, "to": to}
+        if users:
+            prm["u"] = users
+        if "prace" in layers:
+            try:
+                for r in s.execute(_t(
+                    "SELECT em.user_id, et.label, e.started_at, e.ended_at "
+                    "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+                    "JOIN tenant.att_employee em ON em.id=e.employee_id "
+                    "WHERE e.tenant_id=:t AND et.category='presence' "
+                    "AND et.code IN ('work','homeoffice','overhead') AND e.started_at IS NOT NULL "
+                    "AND e.started_at < (:to)::date AND COALESCE(e.ended_at,now()) >= (:f)::date "
+                    + ufilt + " ORDER BY e.started_at LIMIT 4000"), prm).fetchall():
+                    ev.append({"layer": "prace", "title": r[1] or "Práce", "person": _nm(nm, r[0]),
+                               "person_id": r[0], "start": r[2].isoformat() if r[2] else None,
+                               "end": r[3].isoformat() if r[3] else None, "all_day": False,
+                               "color": _C["prace"]})
+            except Exception as exc:
+                logger.warning("[prehled] prace: %s", exc)
+        if "volno" in layers:
+            try:
+                for r in s.execute(_t(
+                    "SELECT user_id, druh_nazev, datum FROM tenant.att_planned_absence "
+                    "WHERE tenant_id=:t AND datum >= (:f)::date AND datum < (:to)::date "
+                    + ufilt2 + " ORDER BY datum LIMIT 4000"), prm).fetchall():
+                    ev.append({"layer": "volno", "title": r[1] or "Volno", "person": _nm(nm, r[0]),
+                               "person_id": r[0], "start": r[2].isoformat(), "end": r[2].isoformat(),
+                               "all_day": True, "color": _C["volno"]})
+            except Exception as exc:
+                logger.warning("[prehled] volno: %s", exc)
+        for _lyr, _src in (("porady", "manual"), ("google", "google")):
+            if _lyr in layers:
+                try:
+                    prm2 = dict(prm); prm2["src"] = _src
+                    for r in s.execute(_t(
+                        "SELECT owner_user_id, title, start_at, end_at, all_day "
+                        "FROM tenant.calendar_event WHERE tenant_id=:t AND source=:src "
+                        "AND start_at < (:to)::date + 1 AND COALESCE(end_at,start_at) >= (:f)::date "
+                        + ufilt3 + " ORDER BY start_at LIMIT 4000"), prm2).fetchall():
+                        ev.append({"layer": _lyr, "title": r[1], "person": _nm(nm, r[0]),
+                                   "person_id": r[0], "start": r[2].isoformat() if r[2] else None,
+                                   "end": r[3].isoformat() if r[3] else None,
+                                   "all_day": bool(r[4]), "color": _C[_lyr]})
+                except Exception as exc:
+                    logger.warning("[prehled] %s: %s", _lyr, exc)
+        if "ukoly" in layers:
+            try:
+                uf = " AND COALESCE(zadavatel,created_by) = ANY(:u) " if users else ""
+                for r in s.execute(_t(
+                    "SELECT COALESCE(zadavatel,created_by), predmet, termin FROM tenant.task "
+                    "WHERE tenant_id=:t AND termin IS NOT NULL "
+                    "AND termin >= (:f)::date AND termin < (:to)::date + 1 "
+                    + uf + " ORDER BY termin LIMIT 2000"), prm).fetchall():
+                    ev.append({"layer": "ukoly", "title": "📋 " + (r[1] or "úkol"),
+                               "person": _nm(nm, r[0]), "person_id": r[0],
+                               "start": r[2].isoformat() if r[2] else None,
+                               "end": r[2].isoformat() if r[2] else None, "all_day": False,
+                               "color": _C["ukoly"]})
+            except Exception as exc:
+                logger.warning("[prehled] ukoly: %s", exc)
+        return {"ok": True, "events": ev, "count": len(ev)}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/list")
 async def att_list(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

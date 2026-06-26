@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Přehled — vrstvený kalendář</title>
+<style>
+  :root{color-scheme:light dark}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:12px;background:#0f1420;color:#e8edf6}
+  a{color:#7fb0ff}
+  h1{font-size:18px;margin:0 0 8px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+  .chip{font-size:12.5px;padding:5px 11px;border-radius:20px;border:1px solid #2a3547;background:#161d2b;color:#9fb0c8;cursor:pointer;user-select:none}
+  .chip.on{color:#fff;border-color:transparent}
+  button,select,input{background:#161d2b;color:#e8edf6;border:1px solid #2a3547;border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit}
+  button{cursor:pointer}
+  .nav{display:flex;gap:6px;align-items:center}
+  #rng{font-weight:600;min-width:180px;text-align:center}
+  #msg{color:#9fb0c8;font-size:12.5px;margin:6px 0}
+  /* week */
+  .week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .day{background:#141b28;border:1px solid #232c3b;border-radius:10px;min-height:120px;padding:6px}
+  .day.today{border-color:#3b82f6}
+  .day h4{margin:0 0 5px;font-size:12px;color:#9fb0c8;font-weight:600;display:flex;justify-content:space-between}
+  .ev{font-size:11px;padding:3px 6px;border-radius:6px;margin-bottom:3px;color:#fff;line-height:1.25;opacity:.92}
+  .ev .t{opacity:.8;font-variant-numeric:tabular-nums}
+  .ev .p{opacity:.85}
+  .ovl{font-size:10.5px;color:#ffd27f;margin:4px 0 2px}
+  .gap{font-size:10.5px;color:#7fe0a0;margin-top:3px}
+  .cnt{font-size:10px;color:#6f7f96;font-weight:400}
+  /* month */
+  .month{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .mh{font-size:11px;color:#8fa3bd;text-align:center;padding:2px}
+  .mc{background:#141b28;border:1px solid #232c3b;border-radius:8px;min-height:66px;padding:4px}
+  .mc.off{opacity:.4}
+  .mc.today{border-color:#3b82f6}
+  .mc .dn{font-size:11px;color:#9fb0c8}
+  .dot{display:inline-block;height:8px;border-radius:3px;margin:2px 2px 0 0}
+  .leg{font-size:11px;color:#8295ad}
+</style>
+</head>
+<body>
+<h1>🗓️ Přehled — vrstvený kalendář <span class="leg" id="legend"></span></h1>
+<div class="bar" id="chips"></div>
+<div class="bar">
+  <div class="nav">
+    <button onclick="move(-1)">‹</button>
+    <span id="rng"></span>
+    <button onclick="move(1)">›</button>
+    <button onclick="goToday()">Dnes</button>
+  </div>
+  <select id="view" onchange="setView(this.value)">
+    <option value="week">Týden</option>
+    <option value="month">Měsíc</option>
+  </select>
+  <input id="q" placeholder="🔎 filtr osoby" oninput="render()" style="width:150px">
+  <a href="/">← Domů</a>
+</div>
+<div id="msg"></div>
+<div id="cal"></div>
+
+<script>
+const API='';
+const LAYERS=[
+  {k:'prace', n:'Práce', c:'#3b82f6'},
+  {k:'volno', n:'Volno', c:'#22c55e'},
+  {k:'porady', n:'Porady', c:'#a855f7'},
+  {k:'google', n:'Google (privát)', c:'#f97316'},
+  {k:'ukoly', n:'Úkoly', c:'#eab308'},
+];
+let ON={prace:true,volno:true,porady:true,google:true,ukoly:true};
+let VIEW='week';
+let ANCHOR=new Date(); ANCHOR.setHours(0,0,0,0);
+let DATA=[];
+
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function addD(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
+function startOfWeek(d){const x=new Date(d);const w=(x.getDay()+6)%7;x.setDate(x.getDate()-w);x.setHours(0,0,0,0);return x;}
+function sameDay(a,b){return a.getFullYear()==b.getFullYear()&&a.getMonth()==b.getMonth()&&a.getDate()==b.getDate();}
+const DOW=['Po','Út','St','Čt','Pá','So','Ne'];
+
+function rangeFor(){
+  if(VIEW==='week'){const s=startOfWeek(ANCHOR);return [s, addD(s,7)];}
+  const s=new Date(ANCHOR.getFullYear(),ANCHOR.getMonth(),1);
+  const e=new Date(ANCHOR.getFullYear(),ANCHOR.getMonth()+1,1);
+  return [s,e];
+}
+function chips(){
+  document.getElementById('chips').innerHTML=LAYERS.map(l=>
+    `<span class="chip ${ON[l.k]?'on':''}" style="${ON[l.k]?('background:'+l.c):''}" onclick="toggle('${l.k}')">${l.n}</span>`).join('');
+  document.getElementById('legend').textContent='(klik na vrstvu = zapni/vypni · překryvy 🟧 · díry 🟩)';
+}
+function toggle(k){ON[k]=!ON[k];chips();render();}
+function setView(v){VIEW=v;load();}
+function move(n){ANCHOR=VIEW==='week'?addD(ANCHOR,7*n):new Date(ANCHOR.getFullYear(),ANCHOR.getMonth()+n,1);load();}
+function goToday(){ANCHOR=new Date();ANCHOR.setHours(0,0,0,0);load();}
+
+async function load(){
+  const [s,e]=rangeFor();
+  document.getElementById('rng').textContent = VIEW==='week'
+    ? (ymd(s)+' – '+ymd(addD(e,-1)))
+    : (ANCHOR.toLocaleDateString('cs-CZ',{month:'long',year:'numeric'}));
+  document.getElementById('msg').textContent='Načítám…';
+  const r=await fetch(API+'/api/v1/erp/app/prehled/events?from='+ymd(s)+'&to='+ymd(e)+'&layers='+LAYERS.map(l=>l.k).join(','),
+    {credentials:'include'}).then(x=>x.json()).catch(()=>({ok:false}));
+  if(!r.ok){document.getElementById('msg').textContent=r.error||'Nedostupné (přihlas se jako rodič / HR)';DATA=[];render();return;}
+  DATA=r.events||[];document.getElementById('msg').textContent='';
+  chips();render();
+}
+function visible(){
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  return DATA.filter(ev=>ON[ev.layer] && (!q || (ev.person||'').toLowerCase().includes(q)));
+}
+function evDate(iso){const d=new Date(iso);return d;}
+function hm(iso){const d=new Date(iso);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+
+function render(){
+  if(VIEW==='week') renderWeek(); else renderMonth();
+}
+function renderWeek(){
+  const evs=visible();
+  const s=startOfWeek(ANCHOR);
+  const today=new Date();
+  let h='<div class="week">';
+  for(let i=0;i<7;i++){
+    const day=addD(s,i);
+    const dayEvs=evs.filter(ev=>ev.start && sameDay(evDate(ev.start),day))
+      .sort((a,b)=>(a.all_day?-1:0)-(b.all_day?-1:0) || new Date(a.start)-new Date(b.start));
+    const layersToday=new Set(dayEvs.map(e=>e.layer));
+    h+=`<div class="day ${sameDay(day,today)?'today':''}"><h4><span>${DOW[i]} ${day.getDate()}.${day.getMonth()+1}.</span><span class="cnt">${dayEvs.length}</span></h4>`;
+    if(layersToday.size>=2) h+=`<div class="ovl">🟧 překryv ${layersToday.size} vrstev</div>`;
+    dayEvs.forEach(ev=>{
+      const tm = ev.all_day ? 'celý den' : (ev.start?hm(ev.start):'')+(ev.end&&ev.layer==='prace'?'–'+hm(ev.end):'');
+      h+=`<div class="ev" style="background:${ev.color}"><span class="t">${tm}</span> ${esc(ev.title)}<div class="p">${esc(ev.person)}</div></div>`;
+    });
+    // díry: volná okna 7:00-18:00 mimo timed práce události
+    const gaps=freeWindows(dayEvs);
+    gaps.forEach(g=>{ h+=`<div class="gap">🟩 volno ${g}</div>`; });
+    h+='</div>';
+  }
+  h+='</div>';
+  document.getElementById('cal').innerHTML=h;
+}
+function freeWindows(dayEvs){
+  // union časovaných práce-bloků, díry v okně 7-18
+  const segs=dayEvs.filter(e=>!e.all_day && e.layer==='prace' && e.start && e.end)
+    .map(e=>[new Date(e.start),new Date(e.end)]).sort((a,b)=>a[0]-b[0]);
+  if(!segs.length) return [];
+  const base=new Date(segs[0][0]); base.setHours(7,0,0,0);
+  const endW=new Date(segs[0][0]); endW.setHours(18,0,0,0);
+  let cur=base; const out=[];
+  segs.forEach(([a,b])=>{ if(a>cur){ if(a>base&&cur<endW){ const gs=cur<base?base:cur; const ge=a>endW?endW:a; if(ge-gs>=30*60000) out.push(fmt(gs)+'–'+fmt(ge)); } } if(b>cur)cur=b; });
+  if(cur<endW && (endW-cur)>=30*60000) out.push(fmt(cur)+'–'+fmt(endW));
+  return out.slice(0,3);
+}
+function fmt(d){return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+
+function renderMonth(){
+  const evs=visible();
+  const first=new Date(ANCHOR.getFullYear(),ANCHOR.getMonth(),1);
+  const gs=startOfWeek(first);
+  const today=new Date();
+  let h='<div class="month">'+DOW.map(d=>`<div class="mh">${d}</div>`).join('');
+  for(let i=0;i<42;i++){
+    const day=addD(gs,i);
+    const off=day.getMonth()!==ANCHOR.getMonth();
+    const dayEvs=evs.filter(ev=>ev.start && sameDay(evDate(ev.start),day));
+    const byL={};dayEvs.forEach(e=>{byL[e.layer]=(byL[e.layer]||0)+1;});
+    let dots=LAYERS.filter(l=>byL[l.k]).map(l=>`<span class="dot" style="background:${l.c};width:${Math.min(28,6+byL[l.k]*4)}px" title="${l.n}: ${byL[l.k]}"></span>`).join('');
+    const ovl=Object.keys(byL).length>=2?' 🟧':'';
+    h+=`<div class="mc ${off?'off':''} ${sameDay(day,today)?'today':''}"><div class="dn">${day.getDate()}${ovl}</div>${dots}</div>`;
+    if(i>=35 && day.getMonth()!==ANCHOR.getMonth() && day.getDay()===0) {} // necháme 6 řádků
+  }
+  h+='</div>';
+  document.getElementById('cal').innerHTML=h;
+}
+chips();load();
+</script>
+</body>
+</html>

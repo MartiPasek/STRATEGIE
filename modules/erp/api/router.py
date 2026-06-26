@@ -18845,7 +18845,8 @@ async def prehled_events(req: Request) -> JSONResponse:
                     "SELECT user_id, druh_nazev, datum FROM tenant.att_planned_absence "
                     "WHERE tenant_id=:t AND datum >= (:f)::date AND datum < (:to)::date "
                     + ufilt2 + " ORDER BY datum LIMIT 4000"), prm).fetchall():
-                    ev.append({"layer": "volno", "title": r[1] or "Volno", "person": _nm(nm, r[0]),
+                    _vt = r[1] if (r[1] and not str(r[1]).startswith("Druh ")) else "Nepřítomnost"
+                    ev.append({"layer": "volno", "title": _vt, "person": _nm(nm, r[0]),
                                "person_id": r[0], "start": r[2].isoformat(), "end": r[2].isoformat(),
                                "all_day": True, "color": _C["volno"]})
             except Exception as exc:
@@ -18882,6 +18883,43 @@ async def prehled_events(req: Request) -> JSONResponse:
                 logger.warning("[prehled] ukoly: %s", exc)
         return {"ok": True, "events": ev, "count": len(ev)}
     except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/prehled/porada")
+async def prehled_porada_new(req: Request) -> JSONResponse:
+    """Založí poradu/událost do vrstvy 'porady' (tenant.calendar_event, source=manual).
+    Marti 26.6.2026. Rodič/HR. Body: title, date(YYYY-MM-DD), from(HH:MM), to(HH:MM), kind."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    title = (str(b.get("title") or "")).strip()[:300]
+    date = (str(b.get("date") or "")).strip()
+    t_from = (str(b.get("from") or "")).strip() or "09:00"
+    t_to = (str(b.get("to") or "")).strip() or "10:00"
+    kind = (str(b.get("kind") or "porada")).strip()[:40]
+    if not title or not date:
+        return JSONResponse({"ok": False, "error": "title a date povinné"}, status_code=400)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rid = s.execute(_t(
+            "INSERT INTO tenant.calendar_event (tenant_id,title,kind,start_at,end_at,all_day,"
+            "owner_user_id,source,created_by,created_at,updated_at) VALUES (:t,:ti,:k,"
+            "(:d || ' ' || :f)::timestamp AT TIME ZONE 'Europe/Prague',"
+            "(:d || ' ' || :tt)::timestamp AT TIME ZONE 'Europe/Prague',false,"
+            ":u,'manual',:u,now(),now()) RETURNING id"),
+            {"t": _ATT_TENANT, "ti": title, "k": kind, "d": date, "f": t_from, "tt": t_to, "u": uid}).scalar()
+        s.commit()
+        return {"ok": True, "id": rid}
+    except Exception as exc:
+        s.rollback()
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         cm.__exit__(None, None, None)

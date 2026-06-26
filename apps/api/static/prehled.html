@@ -55,10 +55,30 @@
     <option value="month">Měsíc</option>
   </select>
   <input id="q" placeholder="🔎 filtr osoby" oninput="render()" style="width:150px">
+  <button onclick="poradaForm()" style="background:#2b1f3d;border-color:#5a3a8a;color:#d6aef5">＋ Porada</button>
   <a href="/">← Domů</a>
 </div>
 <div id="msg"></div>
 <div id="cal"></div>
+
+<div id="pmodal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(4,8,16,.8);align-items:center;justify-content:center">
+  <div style="background:#141b28;border:1px solid #2a3547;border-radius:14px;padding:18px;width:320px;max-width:92vw">
+    <div style="font-weight:700;margin-bottom:10px">＋ Nová porada / událost</div>
+    <label style="font-size:12px;color:#8fa3bd">Název</label>
+    <input id="p_title" placeholder="např. IT porada" style="width:100%;margin-bottom:8px">
+    <label style="font-size:12px;color:#8fa3bd">Datum</label>
+    <input id="p_date" type="date" style="width:100%;margin-bottom:8px">
+    <div style="display:flex;gap:8px">
+      <div style="flex:1"><label style="font-size:12px;color:#8fa3bd">Od</label><input id="p_from" type="time" value="09:00" style="width:100%"></div>
+      <div style="flex:1"><label style="font-size:12px;color:#8fa3bd">Do</label><input id="p_to" type="time" value="10:00" style="width:100%"></div>
+    </div>
+    <div id="p_msg" style="font-size:12px;color:#9fb0c8;margin:8px 0;min-height:16px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="document.getElementById('pmodal').style.display='none'">Zrušit</button>
+      <button id="p_save" onclick="savePorada()" style="background:#3a7a3a;color:#fff;border:0">Uložit</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const API='';
@@ -175,6 +195,23 @@ function renderMonth(){
   }
   h+='</div>';
   document.getElementById('cal').innerHTML=h;
+}
+function poradaForm(){
+  document.getElementById('p_date').value=ymd(ANCHOR.getTime?ANCHOR:new Date());
+  document.getElementById('p_title').value='';document.getElementById('p_msg').textContent='';
+  document.getElementById('pmodal').style.display='flex';
+}
+async function savePorada(){
+  const t=document.getElementById('p_title').value.trim();
+  const d=document.getElementById('p_date').value;
+  if(!t||!d){document.getElementById('p_msg').textContent='Vyplň název a datum.';return;}
+  const sb=document.getElementById('p_save');sb.disabled=true;sb.textContent='Ukládám…';
+  const b={title:t,date:d,from:document.getElementById('p_from').value,to:document.getElementById('p_to').value,kind:'porada'};
+  const r=await fetch(API+'/api/v1/erp/app/prehled/porada',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(x=>x.json()).catch(()=>({ok:false}));
+  sb.disabled=false;sb.textContent='Uložit';
+  if(r.ok){document.getElementById('pmodal').style.display='none';if(!ON.porady){ON.porady=true;chips();}load();}
+  else document.getElementById('p_msg').textContent='✗ '+((r&&r.error)||'chyba');
 }
 chips();load();
 </script>

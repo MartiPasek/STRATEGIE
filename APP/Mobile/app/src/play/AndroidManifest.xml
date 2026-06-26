@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Flavor `play` = AAB do Google Play.
+  REQUEST_INSTALL_PACKAGES do mergovaneho manifestu pridava nektera zavislost
+  (knihovna) i kdyz ho v main NedeklarujemE. Play verze se aktualizuje pres
+  Store; samo-update (InstallActivity) je jen v internal flavoru. tools:node=
+  "remove" donuti manifest merger toto opravneni z PLAY buildu vyhodit, aby
+  Google Play nehlasil nedeklarovane citlive opravneni. Internal flavor si ho
+  necha (ma vlastni explicitni deklaraci). Marti+Claude 26.6.2026.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"
+        tools:node="remove" />
+
+</manifest>

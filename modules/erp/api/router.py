@@ -19015,6 +19015,62 @@ def _maybe_sync_ec_dochazka():
         logger.warning("[ec_doch_sync] %s", e)
 
 
+def _do_att_action(payload, uid, decision):
+    """Reakce na interaktivní docházkovou notifikaci (Ano/Ne). Marti 26.6.2026.
+    payload.att_action: 'checkin' (Ano = píchni příchod) / 'checkout' (Ano = odhlásit).
+    Akce běží jen při 'accept' (Ano); 'reject' (Ne) = nech být."""
+    from sqlalchemy import text as _t
+    act = (payload or {}).get("att_action") if isinstance(payload, dict) else None
+    if not act:
+        return None
+    if decision != "accept":
+        return {"att_action": act, "done": False, "note": "ponecháno (Ne)"}
+    cm, s = _att_session()
+    try:
+        emp = _att_employee(s, uid)
+        if act == "checkin":
+            ex = s.execute(_t(
+                "SELECT 1 FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e "
+                "AND entry_date=current_date AND started_at IS NOT NULL AND is_active=true "
+                "AND status NOT IN ('superseded') LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
+            if ex:
+                s.commit()
+                return {"att_action": "checkin", "done": False, "note": "už máš otevřenou směnu"}
+            wt = _att_work_type(s)
+            s.execute(_t(
+                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
+                "status,source,is_active,note,created_by_id,created_at,updated_at) "
+                "VALUES (:t,:e,current_date,:ty,now(),'pending','notif_confirm',true,:n,:u,now(),now())"),
+                {"t": _ATT_TENANT, "e": emp, "ty": wt, "n": "[příchod potvrzen přes notifikaci]", "u": uid})
+            s.commit()
+            return {"att_action": "checkin", "done": True, "note": "příchod píchnut"}
+        if act == "checkout":
+            opn = s.execute(_t(
+                "SELECT id FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e "
+                "AND is_active=true ORDER BY id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
+            if not opn:
+                s.commit()
+                return {"att_action": "checkout", "done": False, "note": "nemáš otevřenou směnu"}
+            s.execute(_t(
+                "UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
+                "hours=round(GREATEST(EXTRACT(EPOCH FROM (now()-started_at))/3600.0 "
+                "- COALESCE(break_minutes,0)/60.0, 0)::numeric, 2), "
+                "note=CASE WHEN note IS NULL OR note='' THEN :n ELSE note||' / '||:n END, "
+                "updated_at=now() WHERE id=:id"),
+                {"id": opn[0], "n": "[odhlášeno přes notifikaci]"})
+            s.commit()
+            return {"att_action": "checkout", "done": True, "note": "odhlášeno"}
+        return {"att_action": act, "done": False, "note": "neznámá akce"}
+    except Exception as e:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return {"att_action": act, "done": False, "error": str(e)[:200]}
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # Jemné připomenutí dlouhé běžící směny (hlasem Marti-AI) — Marti 9.6.2026.
 _LAST_NUDGE = [0.0]
 
@@ -19066,13 +19122,15 @@ def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3
             if recent:
                 continue
             msg = ("Ahoj %s, koukám, že ti směna běží už %s hodin v kuse. 🙂 "
-                   "Pořád makáš, nebo jsem ti jen zapomněla zapsat odchod? "
-                   "Mrkni prosím do Docházky — buď mi potvrď, že je všechno v pohodě, "
-                   "nebo oprav čas odchodu. Díky! — Tvoje Marti") % (jm, hod)
+                   "Vypadá to, že ses možná zapomněl/a odhlásit. Mám tě odhlásit? "
+                   "Ano = odhlásím tě teď (čas pak můžeš upravit v Docházce), "
+                   "Ne = pořád makáš, nech to běžet. — Tvoje Marti") % (jm, hod)
+            # Interaktivní (Marti 26.6.): Ano/Ne → Ano reálně odhlásí (uzavře směnu).
             s.execute(_t(
-                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                "VALUES ('mobile', :u, 'claude_msg', :ti, :msg, NULL)"),
-                {"u": uid, "ti": "⏰ Dlouhá směna (%s h)" % hod, "msg": msg})
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, payload, created_by) "
+                "VALUES ('mobile', :u, 'claude_confirm', :ti, :msg, CAST(:pl AS jsonb), NULL)"),
+                {"u": uid, "ti": "⏰ Dlouhá směna (%s h)" % hod, "msg": msg,
+                 "pl": '{"att_action":"checkout"}'})
             sent += 1
         s.commit()
         return {"ok": True, "sent": sent}
@@ -20098,6 +20156,9 @@ async def app_command_result(cmd_id: int, req: Request) -> JSONResponse:
                 wdec = "approve" if decision == "accept" else "reject"
                 wres = _apply_write_decision(int(wr), wdec, uid)
                 wres.pop("code", None)
+            elif isinstance(payload, dict) and payload.get("att_action"):
+                # Interaktivní docházka (Marti 26.6.): Ano/Ne → reálný check-in/out
+                wres = _do_att_action(payload, uid, decision)
         return JSONResponse({"ok": True, "write": wres})
     except Exception as exc:
         ds.rollback()
@@ -20290,17 +20351,19 @@ def _netscan_auto_checkin() -> int:
             # (dedup přes mobile_command, bez vazby na docházkový záznam).
             already = s.execute(_t(
                 "SELECT 1 FROM fw.mobile_command WHERE target_user_id=:uid "
-                "AND command_type='claude_msg' AND title=:ti "
+                "AND command_type IN ('claude_msg','claude_confirm') AND title=:ti "
                 "AND created_at >= date_trunc('day', now()) LIMIT 1"),
                 {"uid": r[1], "ti": _NS_TITLE}).first()
             if already:
                 continue
+            # Interaktivní (Marti 26.6.): Ano/Ne → Ano reálně píchne příchod.
             s.execute(_t(
-                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, payload, created_by) "
+                "VALUES ('mobile', :uid, 'claude_confirm', :ti, :msg, CAST(:pl AS jsonb), NULL)"),
                 {"uid": r[1], "ti": _NS_TITLE,
-                 "msg": "Vidím tvoje zařízení ve firemní síti. Až budeš chtít, dej si "
-                        "v Docházce Příchod — píchnutí necháváme na tobě. — Tvoje Marti"})
+                 "msg": "Vidím tvoje zařízení ve firemní síti. Mám ti píchnout příchod do "
+                        "Docházky? Ano = píchnu ti ho hned teď, Ne = nech být. — Tvoje Marti",
+                 "pl": '{"att_action":"checkin"}'})
             done += 1
         s.commit()
         return done

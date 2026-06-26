@@ -1293,6 +1293,11 @@
           window.ErpGridActions.dispatch(actionKey, {
             gridCode: gridCode,
             coreId: coreId,
+            // refId = master_id (IDHlav firmy u CRM Akce sub-gridu). Z coreInfo.refId
+            // (embedded grid posila filterValue). Pouziva CRM Akce create picker
+            // pro seed IDHlav do field_changes. (Kristy 26.6.2026.)
+            refId: (self.options.coreInfo && self.options.coreInfo.refId != null)
+              ? self.options.coreInfo.refId : null,
             rowData: rowData,
             rowIds: rowIds,   // NEW: multi-row support
             gridApi: self.gridApi,
@@ -2260,6 +2265,9 @@
                     window.ErpGridActions.dispatch(action.key, {
                       gridCode: gridCode,
                       coreId: coreIdForCtx,
+                      // refId = master_id (IDHlav firmy) pro CRM Akce picker.
+                      refId: (opts.coreInfo && opts.coreInfo.refId != null)
+                        ? opts.coreInfo.refId : null,
                       rowData: rowData,
                       rowIds: _rowIdsArr,   // NEW: multi-row support
                       gridApi: params.api,

@@ -61,7 +61,13 @@
     }
 
     /** Open DesignFwForm (universal FW edit form, Marti's doctrine 17.5.). */
-    function _openFwEditForm(gridCode, rowId, mode, onSaveCallback) {
+    function _openFwEditForm(gridCode, rowId, mode, onSaveCallback, extra) {
+      // extra (Kristy 26.6.2026, CRM Akce routing):
+      //   overrideCoreId — otevri konkretni edit jadro (misto registry lookup);
+      //                    CRM Akce routuje podle typu akce / IDAkce zaznamu.
+      //   injectValues   — hodnoty primichane do field_changes pri CREATE
+      //                    (IDHlav firmy + IDAkce zvolene akce -> insert).
+      extra = extra || {};
       // Phase 38.4 Krok 5.X+1 Fix I (27.5.2026, Marti's "double clik
       // vyrendrovalo sami duplicitne"): re-open guard. Without guard,
       // double-click on parent grid row WHILE edit form already open
@@ -70,7 +76,8 @@
       // "duplicate sections in same area" actually 2 modals stacked).
       // Detection via dataset marker designFwFormRoot=1 (set v open()
       // line 1134). Re-open → no-op + warn.
-      var coreId = _lookupEditFormCore(gridCode);
+      var coreId = (extra.overrideCoreId != null)
+        ? extra.overrideCoreId : _lookupEditFormCore(gridCode);
       if (!coreId) {
         alert(
           "⚠ Edit form není nakonfigurován pro grid '" + gridCode + "'.\n\n" +
@@ -105,6 +112,8 @@
           coreId: coreId,
           rowId: rowId,
           mode: mode || (rowId ? "edit" : "create"),
+          // CRM Akce: seed IDHlav + IDAkce do field_changes pri CREATE.
+          injectValues: extra.injectValues || null,
           // Etapa F Krok 1+ (24.5.2026 vecer pozde, Marti's directive
           // "po editaci vety pres fw DesignFwGrid se pak da take refresh"):
           // FIX parameter name — DesignFwForm cte this.opts.onSaveSuccess
@@ -127,6 +136,129 @@
         alert("⚠ Otevření edit formuláře selhalo: " + (e.message || e));
         return Promise.reject(e);
       }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // CRM Akce — picker typu akce + routing na edit jadro (Kristy 26.6.2026).
+    // Grid 'grid_crm_akce' (sub-grid v karte zakaznika). 'Novy' otevre picker
+    // typu akce; podle IDAkce se otevre prislusne edit jadro (default 82) se
+    // seedem IDHlav (firma) + IDAkce. Edit existujiciho zaznamu routuje stejne
+    // podle jeho IDAkce. Mapovani akce->jadro je config-driven (backend
+    // /app/crm/akce-typy cte zivy cisselnik st.CRM_Kontakt_AkceCis).
+    // ════════════════════════════════════════════════════════════════
+    var CRM_AKCE_GRID_CODE = "grid_crm_akce";
+    var _crmAkceTypesCache = null;
+
+    function _crmAkceFetchTypes() {
+      if (_crmAkceTypesCache) return Promise.resolve(_crmAkceTypesCache);
+      return fetch("/api/v1/erp/app/crm/akce-typy", { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j && j.ok && Array.isArray(j.types)) { _crmAkceTypesCache = j; return j; }
+          throw new Error((j && j.error) || "akce-typy fetch failed");
+        });
+    }
+
+    function _crmAkceCoreFor(idAkce) {
+      var def = (_crmAkceTypesCache && _crmAkceTypesCache.default_core) || 82;
+      if (!_crmAkceTypesCache || idAkce == null) return def;
+      var hit = _crmAkceTypesCache.types.filter(function (t) {
+        return String(t.id) === String(idAkce);
+      })[0];
+      return (hit && hit.core_id != null) ? hit.core_id : def;
+    }
+
+    function _crmAkceRowIdAkce(rowData) {
+      if (!rowData) return null;
+      // MSSQL/MCP alias parity: IDakce / IDAkce / idakce.
+      if (rowData.IDakce != null) return rowData.IDakce;
+      if (rowData.IDAkce != null) return rowData.IDAkce;
+      if (rowData.idakce != null) return rowData.idakce;
+      return null;
+    }
+
+    /** Modal picker typu akce. Resolve(type) nebo resolve(null) pri zruseni. */
+    function _crmAkcePickType() {
+      return _crmAkceFetchTypes().then(function (j) {
+        return new Promise(function (resolve) {
+          var overlay = document.createElement("div");
+          overlay.style.cssText =
+            "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10002;" +
+            "display:flex;align-items:center;justify-content:center;";
+          var modal = document.createElement("div");
+          modal.style.cssText =
+            "background:#141a20;border:1px solid #2a3340;border-radius:6px;" +
+            "min-width:360px;max-width:440px;max-height:80vh;color:#e8eef5;" +
+            "font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.6);overflow:hidden;" +
+            "display:flex;flex-direction:column;";
+          var header = document.createElement("div");
+          header.style.cssText =
+            "padding:12px 16px;background:#1a2028;border-bottom:1px solid #2a3340;" +
+            "font-weight:600;font-size:14px;display:flex;justify-content:space-between;align-items:center;";
+          header.innerHTML = "<span>➕ Nová akce — vyber typ</span>";
+          var closeBtn = document.createElement("button");
+          closeBtn.type = "button"; closeBtn.textContent = "✕";
+          closeBtn.style.cssText =
+            "background:transparent;border:none;color:#8a96a4;font-size:18px;cursor:pointer;line-height:1;";
+          header.appendChild(closeBtn);
+          modal.appendChild(header);
+          var list = document.createElement("div");
+          list.style.cssText = "padding:8px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;";
+          function _close(val) {
+            if (overlay.parentNode) document.body.removeChild(overlay);
+            resolve(val);
+          }
+          (j.types || []).forEach(function (t) {
+            var b = document.createElement("button");
+            b.type = "button";
+            b.textContent = t.nazev || ("Akce " + t.id);
+            b.style.cssText =
+              "text-align:left;padding:9px 12px;background:#0f141a;border:1px solid #2a3340;" +
+              "color:#e8eef5;border-radius:4px;font-size:13px;cursor:pointer;";
+            b.addEventListener("mouseenter", function () { b.style.background = "#1d2530"; });
+            b.addEventListener("mouseleave", function () { b.style.background = "#0f141a"; });
+            b.addEventListener("click", function () { _close(t); });
+            list.appendChild(b);
+          });
+          modal.appendChild(list);
+          closeBtn.addEventListener("click", function () { _close(null); });
+          overlay.addEventListener("click", function (e) { if (e.target === overlay) _close(null); });
+          overlay.appendChild(modal);
+          document.body.appendChild(overlay);
+        });
+      }).catch(function (e) {
+        alert("⚠ Načtení typů akcí selhalo: " + (e.message || e));
+        return null;
+      });
+    }
+
+    /** CRM Akce 'Novy' -> picker -> open edit jadro se seedem IDHlav+IDAkce. */
+    function _crmAkceCreate(ctx) {
+      if (ctx.refId == null) {
+        alert("⚠ Nová akce: chybí ID firmy (otevři akci z karty zákazníka).");
+        return Promise.reject(new Error("no_master_id"));
+      }
+      return _crmAkcePickType().then(function (type) {
+        if (!type) return;  // zruseno
+        return _openFwEditForm(
+          CRM_AKCE_GRID_CODE, null, "create", ctx.refreshFn,
+          {
+            overrideCoreId: type.core_id,
+            injectValues: { IDHlav: ctx.refId, IDAkce: type.id },
+          }
+        );
+      });
+    }
+
+    /** CRM Akce 'Oprava' -> routuj na jadro podle IDAkce zaznamu. */
+    function _crmAkceEdit(ctx, rowId) {
+      return _crmAkceFetchTypes().then(function () {
+        var idAkce = _crmAkceRowIdAkce(ctx.rowData);
+        return _openFwEditForm(
+          CRM_AKCE_GRID_CODE, rowId, "edit", ctx.refreshFn,
+          { overrideCoreId: _crmAkceCoreFor(idAkce) }
+        );
+      });
     }
 
     /** Hard delete via erp_batch_action (Marti's Q3=a hard delete).
@@ -398,6 +530,10 @@
         destructive: false,
         requiresRow: false,  // grid header / context menu i bez selected row
         handler: function (ctx) {
+          // CRM Akce: picker typu akce -> routing + seed IDHlav/IDAkce.
+          if (ctx.gridCode === CRM_AKCE_GRID_CODE) {
+            return _crmAkceCreate(ctx);
+          }
           return _openFwEditForm(
             ctx.gridCode, null, "create", ctx.refreshFn
           );
@@ -424,6 +560,10 @@
           if (rowId == null) {
             alert("⚠ Oprava: nejprve vyber řádek.");
             return Promise.reject(new Error("no_row_selected"));
+          }
+          // CRM Akce: routuj edit na jadro podle IDAkce zaznamu.
+          if (ctx.gridCode === CRM_AKCE_GRID_CODE) {
+            return _crmAkceEdit(ctx, rowId);
           }
           return _openFwEditForm(
             ctx.gridCode, rowId, "edit", ctx.refreshFn
@@ -627,6 +767,12 @@
 
       /** Read-only view of registry (pro debug). */
       _registry: FW_EDIT_FORM_REGISTRY,
+
+      // CRM Akce routing helpers (Kristy 26.6.2026) — pouziva i design_forms.js
+      // embedded grid dblclick (edit routing podle IDAkce).
+      crmAkceFetchTypes: _crmAkceFetchTypes,
+      crmAkceCoreFor: _crmAkceCoreFor,
+      crmAkceGridCode: CRM_AKCE_GRID_CODE,
     };
 
     console.log("[ErpGridActions] registered (v1.0.0) — actions:",

@@ -5084,6 +5084,17 @@
         let savedFieldsCount = 0;
         let lastRespData = null;
         if (_isCreateSave) {
+          // CRM Akce (Kristy 26.6.2026): primichaj injectValues (IDHlav firmy +
+          // IDAkce zvolene akce) do field_changes -> insert je dostane do
+          // st.CRM_Kontakt_Akce, i kdyz nejsou viditelna pole formulare.
+          if (this.opts.injectValues && typeof this.opts.injectValues === "object") {
+            for (var _ivK in this.opts.injectValues) {
+              if (Object.prototype.hasOwnProperty.call(this.opts.injectValues, _ivK)
+                  && !(_ivK in fieldChanges)) {
+                fieldChanges[_ivK] = this.opts.injectValues[_ivK];
+              }
+            }
+          }
           if (Object.keys(fieldChanges).length === 0) {
             alert(
               "Nový záznam: nezadal jsi žádnou hodnotu.\n\n" +
@@ -6252,6 +6263,15 @@
       const gridCode = (comp && comp.name) ? comp.name
         : (gridCoreId != null ? ("core_" + gridCoreId) : null);
 
+      // CRM Akce (Kristy 26.6.2026): vynut CRUD toolbar (Nový/Oprava) na sub-gridu
+      // akcí. Create routuje pres picker typu akce + seed IDHlav/IDAkce
+      // (erp_grid_actions.js _crmAkceCreate). Scoped JEN sem — jine sub-gridy by
+      // create bez seedu vytvorily osirely zaznam (chybi IDHlav/IDAkce).
+      const isCrmAkceGrid = (gridCode === "grid_crm_akce");
+      const effGridActions = isCrmAkceGrid
+        ? { has_insert: true, has_edit: true, has_delete: true, edit_core_id: editCoreId }
+        : gridActions;
+
       // Register edit form coreId (Marti "fw self edited" doctrine — DesignFwForm
       // vola registry lookup). Stejne jako page_render.js.
       if (editCoreId != null && gridCode
@@ -6365,6 +6385,9 @@
             rowSelection: "single",
             compact: true,
             disableColumnFlex: true,
+            // CRM Akce (Kristy 26.6.2026): vynut toolbar (coreInfo.coreId je NULL
+            // u sub-gridu -> 'auto' by ho schoval). Picker+seed resi create.
+            crudToolbar: isCrmAkceGrid ? true : "auto",
             // Krok 5.Z (30.5.2026, Marti: "bez core_id nema co CRUD na gridu
             // delat, to je spravne"): crudToolbar zustava 'auto'. Dokud nested
             // grid nema vlastni core (coreId=null), _shouldRenderCrudToolbar
@@ -6386,7 +6409,7 @@
               coreLabel: title,
             },
             gridCode: gridCode,
-            gridActions: gridActions,
+            gridActions: effGridActions,
             contextMenuActions: contextMenuActions,
             // Krok 5.Z (31.5.2026, Marti: "double click na vete pro U"):
             // dvojklik na řádek = Oprava, kódově stejně jako page_render.js
@@ -6403,25 +6426,39 @@
                 console.warn("[embedded_grid dblclick] DesignFwForm not loaded");
                 return;
               }
-              try {
-                var fwf = new window.DesignFwForm({
-                  coreId: editCoreId,
-                  rowId: _rid,
-                  onSaveSuccess: function () {
-                    return _fetchData().then(function (j) {
-                      if (j && j.ok && Array.isArray(j.rows) && gridInst && gridInst.gridApi) {
-                        gridInst.gridApi.setGridOption("rowData", j.rows);
-                        try {
-                          if (typeof gridInst.markFresh === "function") gridInst.markFresh();
-                        } catch (_e) { /* fail-safe */ }
-                      }
-                    }).catch(function () { /* fail-safe */ });
-                  },
-                });
-                if (typeof fwf.open === "function") fwf.open();
-              } catch (e) {
-                console.error("[embedded_grid dblclick] DesignFwForm open failed:", e);
+              var _openWith = function (_coreId) {
+                try {
+                  var fwf = new window.DesignFwForm({
+                    coreId: _coreId,
+                    rowId: _rid,
+                    onSaveSuccess: function () {
+                      return _fetchData().then(function (j) {
+                        if (j && j.ok && Array.isArray(j.rows) && gridInst && gridInst.gridApi) {
+                          gridInst.gridApi.setGridOption("rowData", j.rows);
+                          try {
+                            if (typeof gridInst.markFresh === "function") gridInst.markFresh();
+                          } catch (_e) { /* fail-safe */ }
+                        }
+                      }).catch(function () { /* fail-safe */ });
+                    },
+                  });
+                  if (typeof fwf.open === "function") fwf.open();
+                } catch (e) {
+                  console.error("[embedded_grid dblclick] DesignFwForm open failed:", e);
+                }
+              };
+              // CRM Akce (Kristy 26.6.2026): routuj edit na jadro podle IDAkce
+              // zaznamu (ruzne typy akci = ruzna jadra). Jinak editCoreId.
+              var _GA = window.ErpGridActions;
+              if (gridCode === (_GA && _GA.crmAkceGridCode) && _GA && _GA.crmAkceFetchTypes) {
+                var _ia = rowData ? (rowData.IDakce != null ? rowData.IDakce
+                          : (rowData.IDAkce != null ? rowData.IDAkce : rowData.idakce)) : null;
+                _GA.crmAkceFetchTypes().then(function () {
+                  _openWith(_GA.crmAkceCoreFor(_ia));
+                }).catch(function () { _openWith(editCoreId); });
+                return;
               }
+              _openWith(editCoreId);
             },
             onRefresh: function () {
               return _fetchData().then(function (j) {

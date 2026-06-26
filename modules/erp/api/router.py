@@ -5812,6 +5812,72 @@ async def app_connect_mailbox(req: Request) -> JSONResponse:
                          "display": res.get("ews_display_email") or res.get("ews_email")})
 
 
+# CRM Akce → STRATEGIE edit-jadro mapping (Kristy 26.6.2026). Picker na gridu
+# Akci nabidne typ akce; podle IDAkce se otevre prislusne edit jadro. Default =
+# jadro 82 (osobni jednani / Centrala 1495). Doplnuj jak vznikaji jadra per akce.
+_CRM_AKCE_DEFAULT_CORE = 82
+_CRM_AKCE_CORE_MAP = {
+    6: 82,    # Osobni jednani = vychozi jadro
+    17: 81,   # Ziskani kontaktu na osobu z firmy = hotove jadro 81
+}
+
+
+@api_router.get("/app/crm/akce-typy")
+async def app_crm_akce_typy(req: Request) -> JSONResponse:
+    """Picker typu akce pro grid CRM Akce (Kristy 26.6.2026).
+
+    Vraci seznam typu akci z st.CRM_Kontakt_AkceCis (DB_EC, MCP) + namapovane
+    STRATEGIE edit-jadro (core_id, default 82). Frontend (erp_grid_actions.js)
+    z toho staví picker pri 'Novy' a routuje edit podle IDAkce zaznamu.
+    Auth: clen ERP NEBO rodic."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Neprihlasen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _j_at
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupne"}, status_code=503)
+    sql = (
+        "SELECT c.ID AS id, c.Nazev AS nazev, c.ID_Edit AS id_edit "
+        "FROM st.CRM_Kontakt_AkceCis c WITH(NOLOCK) ORDER BY c.Poradi, c.ID"
+    )
+    try:
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_at.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error"))[:200])
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]
+                    break
+        elif isinstance(r, list):
+            rows = r
+    except Exception as exc:
+        logger.exception("[crm_akce_typy] %s", exc)
+        return JSONResponse({"ok": False, "error": "CRM dotaz selhal"}, status_code=502)
+    types = []
+    for row in rows:
+        try:
+            _id = int(row.get("id"))
+        except Exception:
+            continue
+        types.append({
+            "id": _id,
+            "nazev": (row.get("nazev") or "").strip(),
+            "core_id": _CRM_AKCE_CORE_MAP.get(_id, _CRM_AKCE_DEFAULT_CORE),
+        })
+    return JSONResponse({"ok": True, "types": types,
+                         "default_core": _CRM_AKCE_DEFAULT_CORE})
+
+
 @api_router.get("/app/crm/aktivity-souhrn")
 async def app_crm_aktivity_souhrn(req: Request) -> JSONResponse:
     """A.3 (Pavlovy připomínky): souhrnná čísla NAD přehledem „Aktivity obchodníka".

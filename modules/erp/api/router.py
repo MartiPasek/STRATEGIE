@@ -18677,7 +18677,7 @@ async def automat_prehled(req: Request) -> JSONResponse:
             " WHERE em.user_id=u.id AND em.tenant_id=2 AND g.is_current=true AND g.uvazek_tyden_h IS NOT NULL "
             " ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1) AS uvazek_h_den "
             "FROM public.users u "
-            "JOIN public.user_tenants ut ON ut.user_id=u.id AND ut.tenant_id=2 AND ut.status IN ('active','invited') "
+            "JOIN public.user_tenants ut ON ut.user_id=u.id AND ut.tenant_id=2 AND ut.membership_status IN ('active','invited') "
             "WHERE COALESCE(TRIM(u.first_name||u.last_name),'')<>'' ORDER BY u.last_name, u.first_name")).mappings().all()]
         return {"ok": True, "kategorie": kat, "zarazeni": zar, "fond": fond, "lide": lide}
     except Exception as exc:

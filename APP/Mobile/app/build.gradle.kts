@@ -85,6 +85,22 @@ android {
             }
         }
     }
+
+    // Dvě distribuční varianty (Jirka 26.6.2026, kvůli Google Play review):
+    //  - play     = AAB do Google Play. BEZ SMS oprávnění (sedí s /privacy, projde
+    //               review). SMS deklarace jsou jen ve flavoru `internal` (manifest
+    //               app/src/internal/AndroidManifest.xml).
+    //  - internal = sideload APK (54 uživatelů + gateway telefon). SE SMS bránou.
+    // Oba sdílí applicationId cz.strategie.mobile (plynulý přechod sideload→Play).
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("play") {
+            dimension = "distribution"
+        }
+        create("internal") {
+            dimension = "distribution"
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

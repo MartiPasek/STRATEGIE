@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Flavor `internal` = sideload APK (54 uživatelů + gateway telefon).
+  Sem patří funkce, které veřejná Play verze nesmí mít:
+   - SMS oprávnění + SmsReceiver (vlastní SMS brána, Marti 8.6.2026)
+   - REQUEST_INSTALL_PACKAGES + InstallActivity (samo-aktualizace; Play se
+     aktualizuje přes Store, Google tohle oprávnění omezuje)
+  Manifest merger je přidá K hlavnímu manifestu jen pro internal build.
+  Play flavor (AAB do Google Play) je NEMÁ → sedí s /privacy, projde Google
+  review. Jirka 26.6.2026.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <!-- vlastni prijem prichozich SMS (gateway bez ciziho provideru) -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
+    <!-- samo-aktualizace (instalace stažené APK mimo Play Store) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application>
+        <!-- Příjem příchozích SMS → forward na server (vlastní gateway, žádný cizí
+             provider). Jen na gateway telefonu (toggle v appce). -->
+        <receiver
+            android:name=".SmsReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Tichá aktivita: spustí instalaci stažené APK (samo-aktualizace).
+             Cíl tapu na notifikaci „Nová verze". FileProvider je v hlavním
+             manifestu (sdílený), tady jen aktivita. -->
+        <activity
+            android:name=".InstallActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true" />
+    </application>
+
+</manifest>

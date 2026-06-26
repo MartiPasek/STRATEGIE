@@ -69,7 +69,9 @@ BRIDGE_DIR = REPO_ROOT / "scripts" / "claude_sql"
 # + APK z release/ a nahraje na server (zadny rucni vyber souboru v UI).
 APP_MOBILE_DIR = REPO_ROOT / "APP" / "Mobile"
 APP_VERSION_PROPS = APP_MOBILE_DIR / "version.properties"
-APP_APK = APP_MOBILE_DIR / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk"
+# Sideload APK = flavor `internal` (SE SMS branou). Play AAB stavi build_aab.ps1
+# z flavoru `play` (bez SMS). Flavor split Jirka 26.6.2026.
+APP_APK = APP_MOBILE_DIR / "app" / "build" / "outputs" / "apk" / "internal" / "release" / "app-internal-release.apk"
 SQL_FILE = BRIDGE_DIR / "CLAUDE_SQL.sql"
 GO_FILE = BRIDGE_DIR / "CLAUDE_GO.txt"
 OUT_FILE = BRIDGE_DIR / "CLAUDE_OUT.txt"
@@ -898,7 +900,7 @@ def _publish_app_mobile(notes: str = "") -> dict:
     if not token:
         return {"status": "error", "msg": "chybi STRATEGIE_DEPLOY_TOKEN na NB"}
     if not APP_APK.exists():
-        return {"status": "error", "msg": "APK nenalezeno: nejdriv gradlew assembleRelease"}
+        return {"status": "error", "msg": "APK nenalezeno: nejdriv gradlew assembleInternalRelease"}
     vc, vn = _read_app_version()
     if vc <= 0:
         return {"status": "error", "msg": "neprecetl jsem versionCode z build.gradle.kts"}
@@ -941,9 +943,10 @@ def _publish_app_mobile(notes: str = "") -> dict:
 
 
 def _build_app_mobile() -> dict:
-    """Spusti `gradlew.bat assembleRelease` v APP/Mobile (release build auto-zvysi
-    verzi predchozi+1 a vyrobi app-release.apk). JAVA_HOME nastavi na Android Studio
-    JBR, kdyz chybi. Vraci {status, msg}; pri chybe tail gradle vystupu."""
+    """Spusti `gradlew.bat assembleInternalRelease` v APP/Mobile (sideload flavor SE
+    SMS; release build auto-zvysi verzi predchozi+1 a vyrobi app-internal-release.apk).
+    JAVA_HOME nastavi na Android Studio JBR, kdyz chybi. Vraci {status, msg}; pri
+    chybe tail gradle vystupu."""
     import subprocess
     gradlew = APP_MOBILE_DIR / "gradlew.bat"
     if not gradlew.exists():
@@ -961,7 +964,7 @@ def _build_app_mobile() -> dict:
                 break
     try:
         p = subprocess.run(
-            ["cmd", "/c", str(gradlew), "assembleRelease"],
+            ["cmd", "/c", str(gradlew), "assembleInternalRelease"],
             cwd=str(APP_MOBILE_DIR), env=env,
             capture_output=True, text=True, timeout=900,
         )
@@ -977,7 +980,7 @@ def _build_app_mobile() -> dict:
 
 
 def _build_publish_app_mobile() -> dict:
-    """Postavi APK (gradlew assembleRelease) a hned ho nahraje na server."""
+    """Postavi APK (gradlew assembleInternalRelease) a hned ho nahraje na server."""
     b = _build_app_mobile()
     if b.get("status") != "done":
         return b
@@ -994,8 +997,9 @@ def _write_build_out(text_body: str) -> None:
 
 def _process_build() -> None:
     """Bridge build: Claude zapíše CLAUDE_BUILD_GO.txt → spustíme gradlew
-    assembleRelease (verze +1) a STREAMUJEME průběh do CLAUDE_BUILD_OUT.txt
-    (start → běží → OK/ERR). Po úspěchu APK nahrajeme (pokud není 'noupload')."""
+    assembleInternalRelease (sideload flavor SE SMS, verze +1) a STREAMUJEME průběh
+    do CLAUDE_BUILD_OUT.txt (start → běží → OK/ERR). Po úspěchu APK nahrajeme
+    (pokud není 'noupload')."""
     import subprocess
     do_upload = True
     notes = ""
@@ -1035,17 +1039,17 @@ def _process_build() -> None:
                 env["JAVA_HOME"] = cand
                 break
     jdk = env.get("JAVA_HOME", "(systemovy)")
-    _log("BUILD: gradlew assembleRelease …")
+    _log("BUILD: gradlew assembleInternalRelease …")
     vc0, vn0 = _read_app_version()
     head = "# BUILD: start\n# %s · JAVA_HOME=%s\n# verze pred: %s (code %s) → bude +1\n\n" % (
         ts, jdk, vn0, vc0)
-    _write_build_out(head + "gradlew assembleRelease se spousti…\n")
+    _write_build_out(head + "gradlew assembleInternalRelease se spousti…\n")
 
     tail = []
     rc = None
     try:
         p = subprocess.Popen(
-            ["cmd", "/c", str(gradlew), "assembleRelease", "--console=plain"],
+            ["cmd", "/c", str(gradlew), "assembleInternalRelease", "--console=plain"],
             cwd=str(APP_MOBILE_DIR), env=env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
@@ -1178,7 +1182,7 @@ def _handle_ops(ops: list) -> None:
             res = _publish_app_mobile()
             _ops_report(rid, res.get("status", "done"), res.get("msg", ""))
         elif kind == "build_publish_app_mobile":
-            _log(f"OPS #{rid}: stavim APK (gradlew assembleRelease) + nahravam…")
+            _log(f"OPS #{rid}: stavim APK (gradlew assembleInternalRelease) + nahravam…")
             res = _build_publish_app_mobile()
             _ops_report(rid, res.get("status", "done"), res.get("msg", ""))
         else:

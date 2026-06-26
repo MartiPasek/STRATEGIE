@@ -10,10 +10,9 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <uses-permission android:name="android.permission.SEND_SMS" />
-    <uses-permission android:name="android.permission.READ_SMS" />
-    <!-- Marti 8.6.: vlastni prijem prichozich SMS (gateway bez ciziho provideru) -->
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <!-- SMS oprávnění (SEND/READ/RECEIVE_SMS) + SmsReceiver jsou JEN ve flavoru
+         `internal` (app/src/internal/AndroidManifest.xml). Play flavor je bez SMS
+         (sedí s /privacy, projde Google review). Jirka 26.6.2026. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
     <!-- Marti 8.6.: jemna vibrace pri tapu (navigator.vibrate ve WebView) -->
@@ -24,7 +23,10 @@
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
     </queries>
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- REQUEST_INSTALL_PACKAGES + InstallActivity (samo-aktualizace) jsou JEN ve
+         flavoru `internal` (app/src/internal/AndroidManifest.xml). Play flavor je
+         nemá — Google Play tohle oprávnění u veřejných appek omezuje a Play verze
+         se aktualizuje přes Play Store, ne sama. Jirka 26.6.2026. -->
 
     <application
         android:allowBackup="false"
@@ -74,25 +76,13 @@
             </intent-filter>
         </receiver>
 
-        <!-- Marti 8.6.: příjem příchozích SMS → forward na server (vlastní gateway,
-             žádný cizí provider). Jen na gateway telefonu (toggle v appce). -->
-        <receiver
-            android:name=".SmsReceiver"
-            android:enabled="true"
-            android:exported="true"
-            android:permission="android.permission.BROADCAST_SMS">
-            <intent-filter android:priority="999">
-                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
-            </intent-filter>
-        </receiver>
+        <!-- SmsReceiver (příjem příchozích SMS → gateway forward) je JEN ve flavoru
+             `internal` (app/src/internal/AndroidManifest.xml). Play flavor ho nemá
+             → žádný SMS_RECEIVED intent-filter → čistý pro Google review. Jirka 26.6. -->
 
-        <!-- Tichá aktivita: spustí instalaci stažené APK (samo-aktualizace).
-             Cíl tapu na notifikaci „Nová verze". -->
-        <activity
-            android:name=".InstallActivity"
-            android:exported="false"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:excludeFromRecents="true" />
+        <!-- InstallActivity (instalace stažené APK = samo-aktualizace) je JEN ve
+             flavoru `internal` (app/src/internal/AndroidManifest.xml). Play flavor
+             ji nemá (Play se aktualizuje přes Store). Jirka 26.6.2026. -->
 
         <!-- Párování přes odkaz z webu (deep link) — samoobsluha na stejném telefonu. -->
         <activity

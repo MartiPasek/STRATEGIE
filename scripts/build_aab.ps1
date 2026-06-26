@@ -1,6 +1,7 @@
-# Build podepsaneho AAB pro Google Play (gradlew bundleRelease).
+# Build podepsaneho AAB pro Google Play (gradlew bundlePlayRelease).
+# Flavor `play` = BEZ SMS opravneni (sedi s /privacy, projde Google review).
 # Pouziva release signingConfig (strategie-release.jks pres keystore.properties).
-# Marti 9.6.2026. ASCII-only (doctrine #110).
+# Marti 9.6.2026; flavor split Jirka 26.6.2026. ASCII-only (doctrine #110).
 $ErrorActionPreference = "Stop"
 $mobile = Join-Path $PSScriptRoot "..\APP\Mobile"
 Set-Location $mobile
@@ -14,12 +15,12 @@ if (-not $env:JAVA_HOME -or -not (Test-Path $env:JAVA_HOME)) {
     )) { if (Test-Path $c) { $env:JAVA_HOME = $c; break } }
 }
 Write-Host "JAVA_HOME = $env:JAVA_HOME"
-Write-Host "Spoustim: gradlew.bat bundleRelease ..."
+Write-Host "Spoustim: gradlew.bat bundlePlayRelease ..."
 Write-Host ""
 
-& .\gradlew.bat bundleRelease --console=plain
+& .\gradlew.bat bundlePlayRelease --console=plain
 
-$aab = Join-Path $mobile "app\build\outputs\bundle\release\app-release.aab"
+$aab = Join-Path $mobile "app\build\outputs\bundle\playRelease\app-play-release.aab"
 Write-Host ""
 if (Test-Path $aab) {
     $kb = [int]((Get-Item $aab).Length / 1KB)

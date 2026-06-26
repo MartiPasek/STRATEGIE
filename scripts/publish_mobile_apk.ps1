@@ -6,7 +6,8 @@
 #   .\scripts\publish_mobile_apk.ps1 -Notes "v1.14 dial poller"
 #
 # Predpoklady:
-#   - release build hotovy: APP\Mobile\app\build\outputs\apk\release\app-release.apk
+#   - release build hotovy (sideload flavor internal SE SMS):
+#       APP\Mobile\app\build\outputs\apk\internal\release\app-internal-release.apk
 #   - env STRATEGIE_DEPLOY_TOKEN na NB (stejna hodnota jako na cloud APP)
 #
 # Po uploadu appky pollnou /app/<key>/latest, uvidi vyssi version_code a stahnou.
@@ -18,7 +19,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $root    = Split-Path -Parent $PSScriptRoot
-$apk     = Join-Path $root "APP\Mobile\app\build\outputs\apk\release\app-release.apk"
+$apk     = Join-Path $root "APP\Mobile\app\build\outputs\apk\internal\release\app-internal-release.apk"
 $verFile = Join-Path $root "APP\Mobile\version.properties"
 
 if (-not (Test-Path $apk))     { Write-Host "CHYBA: APK nenalezeno: $apk" -ForegroundColor Red; exit 1 }

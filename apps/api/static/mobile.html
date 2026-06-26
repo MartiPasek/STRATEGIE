@@ -1424,6 +1424,7 @@ setTimeout(function(){
     g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"STRATEGIE",0,function(){openApp("/erp/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Tvoje Marti",0,function(){openApp("/");}));
     g.appendChild(appCell("🤝","Spolupráce",0,function(){go("dochazka");}));
+    g.appendChild(appCell("❓","Nápověda docházka",0,function(){ dochHelp(); }));   // Jirka 26.6.: rychlý návod docházky ze seznamu aplikací
     // Marti 9.6.: vše ze složky Firma = aplikace. Výroba + její seznamy jako ikony,
     // řízení (Vedení) jako složka. Deep-link otevře Výrobu rovnou na daném seznamu.
     g.appendChild(appCell("🏭","Výroba",0,function(){go("vyroba_hub");}));
@@ -4651,12 +4652,66 @@ setTimeout(function(){
     box.appendChild(ta); box.appendChild(ok); box.appendChild(st);
     setTimeout(function(){ try{ box.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
   }
+  // Nápověda pro docházku (Jirka 26.6.2026) — adaptace docs/NAVOD_DOCHAZKA_UZIVATELE.html.
+  // ❓ z hlavičky Spolupráce + kontextové ⓘ tipy (openKey auto-rozbalí sekci).
+  function dochHelp(openKey){
+    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:400;display:flex;flex-direction:column;padding:14px 14px 0;"></div>');
+    var hd=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><div style="flex:1;font-weight:800;font-size:18px;">❓ Nápověda — Docházka</div></div>');
+    var cl=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); cl.addEventListener("click",function(){ ov.remove(); }); hd.appendChild(cl); ov.appendChild(hd);
+    var sc=el('<div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding-bottom:60px;"></div>'); ov.appendChild(sc);
+    sc.appendChild(el('<div class="hint" style="margin-top:0;">Docházku najdeš dole: <b>🏢 Firma → 🤝 Spolupráce</b>. Skoro vše ovládáš zeleným <b>💬 Potřebuji ti něco říct…</b></div>'));
+    // Tahák
+    var tah=el('<div style="margin:12px 0;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:12px;padding:10px 12px;"></div>');
+    tah.appendChild(el('<div style="font-weight:700;margin-bottom:4px;">📋 Tahák — co když…?</div>'));
+    [["Přijít do práce","💬 → 🏢 Jsem v práci"],["Na zakázku","💬 → 🧾 Jsem na zakázce"],["Z domova","💬 → 🏠 home office"],["Oběd / pauza","💬 → 🙈 → 🍃 Jdu se najíst"],["Zpět z pauzy","✅ Jsem zpět — pokračuju"],["Mám jednání","💬 → 🙈 → 📅 Mám jednání"],["Konec dne","💬 → 🙈 → 🫡 Nepočítej se mnou"],["Dovolená","💬 → 🌴 Že by dovolená?"],["Nemoc","💬 → 🤒 / 🤧"],["Potvrdit den","Jantar. karta → ✓ Potvrzuji"]].forEach(function(r){ tah.appendChild(el('<div style="display:flex;gap:8px;padding:3px 0;border-top:1px solid rgba(255,255,255,.06);font-size:13.5px;"><div style="flex:0 0 40%;">'+r[0]+'</div><div style="flex:1;color:var(--mut);">'+r[1]+'</div></div>')); });
+    sc.appendChild(tah);
+    // Rozbalovací sekce (věrně dle uživatelského návodu)
+    var items=[
+     ["prichod","🏢 Příchod do práce",
+       "1. Ťukni zelené <b>💬 Potřebuji ti něco říct…</b><br>2. Ťukni <b>🏢 Jsem v práci…</b><br>✓ Hlavička se změní na <i>„Dnes makám 😉“</i> a začne se počítat čas.<br><br>💡 Jedeš na zakázku? Ťukni <b>🧾 Jsem na zakázce</b> a vyber číslo.<br>💡 Pracuješ z domova? <b>🏠 Nejsem v práci (home office)</b>."],
+     ["vpraci","👷 Když jsi v práci",
+       "Hodiny tikají samy — nemusíš nic mačkat. Na hlavičce vidíš <b>„Dnes makám 😉“</b>, čas <b>Od:</b> a živě rostoucí <b>✅ odpracováno</b> (plus zakázku, pokud jsi ji vybral)."],
+     ["pauza","🍽️ Pauza / oběd",
+       "1. <b>💬 Potřebuji ti něco říct…</b><br>2. <b>🙈 Teď to bude jinak…</b><br>3. <b>🍃 Jdu se najíst</b> nebo <b>☕ Krátká pauza</b><br>Hlavička: <i>„Dávám si pauzu ☕“</i> — <b>hodiny NETIKAJÍ</b>.<br>Návrat: <b>✅ Jsem zpět — pokračuju</b>.<br><br>⚠️ Pauza = hodiny stojí! Po obědě se nezapomeň píchnout zpátky."],
+     ["odchod","🏠 Konec práce (odchod)",
+       "1. <b>💬 Potřebuji ti něco říct…</b><br>2. <b>🙈 Teď to bude jinak…</b><br>3. <b>🫡 Dnes už se mnou nepočítej ;)</b><br>✓ Směna ukončena — uvidíš souhrn hodin.<br><br>💡 Zapomněl ses odhlásit? Systém tě o půlnoci odhlásí sám a pošle upozornění. Raději se ale odhlas sám, je to přesnější."],
+     ["potvrzeni","✅ Potvrzení docházky",
+       "Po dni uvidíš <b>jantarovou (žlutou) kartu</b>: <i>„🖊 Včera · 7:26–16:26 · 7:52“</i>.<br>1. Zkontroluj údaje (detail v sekci „Tak to bylo dneska“).<br>2. Ťukni <b>✓ Potvrzuji svou docházku</b>.<br><br>⚠️ Dokud den nepotvrdíš, ráno se nepíchneš! Na potvrzení máš <b>14 dní</b>.<br>💡 Nesouhlasíš? Ťukni <b>✋ Rozpor</b> a napiš, co je špatně — dostane to nadřízený."],
+     ["dovolena","🌴 Dovolená",
+       "1. <b>💬 Potřebuji ti něco říct…</b> → <b>🌴 Že by dovolená?… 😎</b><br>2. Vyber <b>datum od–do</b> → <b>Odeslat</b>.<br>⏳ Žádost jde nadřízenému ke schválení, přijde ti notifikace. Po schválení se propíše do plánu i do „Kdo kde je“."],
+     ["absence","🏥 Další nepřítomnosti",
+       "Stejně přes <b>💬 Potřebuji ti něco říct…</b>:<br><br>🌴 <b>Že by dovolená?</b> — řádná dovolená (datum od–do)<br>👨‍👧 <b>Zase řeším rodinu</b> — OČR (datum od–do)<br>🤒 <b>Je mi fakt blbě</b> — sick day (1 den, bez lékaře)<br>🤧 <b>Mám neschopenku do…</b> — nemoc potvrzená lékařem<br>🩺 <b>Jedu k lékaři</b> — návštěva lékaře<br>🏡 <b>Makat z domova</b> — home office<br>🕐 <b>Něco si zařizuji</b> — krátká nepřítomnost<br><br>💡 U všech systém pošle žádost ke schválení nadřízenému."],
+     ["jednani","🤝 Jednání / pochůzka",
+       "1. <b>💬</b> → <b>🙈 Teď to bude jinak…</b><br>2. <b>📅 Mám jednání</b> nebo <b>🚗 Služební pochůzka</b> → zadej čas „do kdy“.<br>Hlavička: <i>„Mám jednání do 15:00 🤝“</i> — <b>hodiny TIKAJÍ DÁL</b> (není to pauza, jen info, kde jsi). Vidíš tlačítka <b>Konec</b> a <b>Prodloužit</b>."],
+     ["cesta","🚗 Jedu do práce",
+       "<b>💬</b> → <b>🚗 Jedu do práce…</b> → vyber, za jak dlouho dorazíš (5 / 15 / 30 / 45 min / 1 h).<br>Kolegové v „Kdo kde je“ uvidí, že jsi na cestě. <b>Hodiny se počítají až po příchodu.</b>"],
+     ["faq","❓ Časté otázky",
+       "<b>Zapomněl jsem se ráno píchnout.</b><br>Píchni se, jak si vzpomeneš (zapíše se od aktuálního času). Opravu času řeš s nadřízeným.<br><br><b>Zapomněl jsem se odhlásit.</b><br>O půlnoci tě systém odhlásí sám — bude to ale víc hodin než realita. Raději se odhlas sám.<br><br><b>Nepustí mě píchnout!</b><br>Máš nepotvrzený den. Scrollni na jantarovou kartu → <b>✓ Potvrzuji</b> nebo <b>✋ Rozpor</b>.<br><br><b>Ťukl jsem špatně.</b><br>V sekci „Tak to bylo dneska“ ťukni na záznam → <b>⏱ Zkrátit konec</b> · <b>🧾 Změnit zakázku</b> · <b>✋ Rozpor</b>.<br><br><b>Směna běží vs. pauza?</b><br>Běží = zelená hlavička, hodiny počítají. Pauza = oranžová, hodiny stojí.<br><br><b>Mám dotaz.</b><br>V menu ťukni <b>🙋 Mám dotaz na nadřízeného…</b> — napiš zprávu, dostane ji rovnou do mobilu."]
+    ];
+    var openWrap=null;
+    items.forEach(function(it){
+      var open=(openKey&&openKey===it[0]);
+      var wrap=el('<div style="border:1px solid var(--bord);border-radius:12px;margin-bottom:8px;overflow:hidden;"></div>');
+      var h=el('<div style="padding:12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:var(--surf);"><span>'+it[1]+'</span><span class="caret" style="color:var(--mut);">'+(open?'▾':'▸')+'</span></div>');
+      var b=el('<div style="padding:0 12px 12px;font-size:14px;line-height:1.55;color:var(--tx);display:'+(open?'block':'none')+';">'+it[2]+'</div>');
+      h.addEventListener("click",function(){ var o=b.style.display==="none"; b.style.display=o?'block':'none'; var c=h.querySelector('.caret'); if(c)c.textContent=o?'▾':'▸'; if(o){ try{wrap.scrollIntoView({behavior:'smooth',block:'nearest'});}catch(e){} } });
+      wrap.appendChild(h); wrap.appendChild(b); sc.appendChild(wrap);
+      if(open) openWrap=wrap;
+    });
+    sc.appendChild(el('<div class="hint" style="text-align:center;">Potřebuješ víc? Napiš nadřízenému přes 🙋 v menu, nebo HR.</div>'));
+    app.appendChild(ov);
+    if(openWrap){ try{ openWrap.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){} }
+  }
   function dochazka(){
     app.innerHTML=topbar("", false, true);  // Marti 7.6.: bez nadpisu a šipky; prázdná lišta drží odsazení
     var p=el('<div class="panel"></div>');
     // Marti 16.6.: docházka běží i v PWA (web) přes cookie auth — gate na nativní appku zrušen.
     // Marti 7.6. večer: „Dnes" logicky nahoru — obrazovka KONČÍ kartou
     // „Potřebuji ti něco říct…". Nadpis „Dnes makám 😉" při běžící směně.
+    // Nápověda (Jirka 26.6.): ❓ vpravo nahoře → kompletní návod docházky.
+    var _hb=el('<div style="display:flex;justify-content:flex-end;margin:-6px 0 2px;"><button class="ghost" style="margin:0;width:auto;padding:6px 14px;font-size:13px;border-radius:18px;">❓ Nápověda</button></div>');
+    _hb.querySelector("button").addEventListener("click",function(){ try{_tapFeedback();}catch(e){} dochHelp(); });
+    p.appendChild(_hb);
     p.appendChild(el('<div id="dochHead" style="display:none;font-size:24px;font-weight:800;margin:6px 0 12px;">Dnes makám 😉</div>'));
     // Marti 14.6.: region nástrojů ve stylu sekce „Vedení" — JEN ikony v grupách
     // (BEZ rozbalovací hlavičky). Zobrazí se, KDYŽ ČLOVĚK NEMAKÁ. Časové sekce jsou
@@ -4811,6 +4866,10 @@ setTimeout(function(){
           var card=el('<div class="doch-pulse" style="background:rgba(224,176,112,.10);border:1px solid #6e5326;border-radius:12px;padding:12px;margin-bottom:8px;"></div>');
           card.appendChild(el('<div style="font-weight:600;font-size:14.5px;">🖊 '+esc(czDayLabel(d.day))+' · '+esc(d.od||'?')+'–'+esc(d.do||'…')+' · '+fmtHM(d.hodin)+' <span style="color:var(--mut);font-weight:400;">('+d.zaznamu+' zázn.)</span></div>'));
           card.appendChild(el('<div class="hint" style="margin-top:4px;">Zkontroluj si den (detail v Posledních záznamech) a potvrď ho.</div>'));
+          // Kontextový tip (Jirka 26.6.): jak potvrdit / co je rozpor.
+          var _ch=el('<div style="margin-top:2px;"><span style="color:var(--blue);font-size:12px;cursor:pointer;">ⓘ Jak potvrdit den / co je rozpor?</span></div>');
+          _ch.querySelector("span").addEventListener("click",function(){ dochHelp("potvrzeni"); });
+          card.appendChild(_ch);
           var b=el('<button class="green full" style="margin-top:8px;">✓ Potvrzuji svou docházku</button>');
           b.addEventListener("click",function(){
             b.disabled=true;
@@ -5014,6 +5073,10 @@ setTimeout(function(){
         var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);
         bw.appendChild(btn);
+        // Kontextový tip (Jirka 26.6.): rychlá nápověda k příchodu/odchodu.
+        var _tip=el('<div style="text-align:right;margin-top:4px;"><span style="color:var(--mut);font-size:12px;cursor:pointer;">ⓘ Jak na příchod, pauzu, odchod?</span></div>');
+        _tip.querySelector("span").addEventListener("click",function(){ dochHelp("prichod"); });
+        bw.appendChild(_tip);
       }
       function addOpts(defs, cls){
         defs.forEach(function(o){

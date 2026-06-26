@@ -19027,6 +19027,24 @@ def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3
     cm, s = _att_session()
     sent = 0
     try:
+        # ROBUSTNOST (Marti 26.6.2026): „když funguje odhlášení po půlnoci, nemůže vzniknout
+        # směna delší než 23 h" → existence 36/50/60h směn = důkaz, že půlnoční job občas
+        # minul okno (deploy/restart). Záchytka: zavři KAŽDOU aktivní směnu z PŘEDCHOZÍHO dne
+        # ke konci jejího dne (23:59), nezávisle na půlnočním okně. Tím žádná směna nepřekročí
+        # ~23 h a zmizí i bogus „dlouhá směna 36h+". day_end (záměrný konec) tiše, bez noty.
+        s.execute(_t(
+            "UPDATE tenant.att_entry e SET "
+            "  ended_at = ((e.started_at AT TIME ZONE 'Europe/Prague')::date + time '23:59') AT TIME ZONE 'Europe/Prague', "
+            "  hours = round(GREATEST(EXTRACT(EPOCH FROM (((e.started_at AT TIME ZONE 'Europe/Prague')::date + time '23:59') AT TIME ZONE 'Europe/Prague' - e.started_at))/3600.0 - COALESCE(e.break_minutes,0)/60.0, 0)::numeric, 2), "
+            "  is_active=false, "
+            "  note = CASE WHEN e.note IS NULL OR e.note='' THEN :n ELSE e.note || ' / ' || :n END, "
+            "  updated_at=now() "
+            "FROM tenant.att_entry_type et "
+            "WHERE et.id=e.entry_type_id AND et.code <> 'day_end' "
+            "  AND e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL AND e.started_at IS NOT NULL "
+            "  AND (e.started_at AT TIME ZONE 'Europe/Prague')::date < (now() AT TIME ZONE 'Europe/Prague')::date"),
+            {"t": tenant, "n": "[auto-odhlášení — záchytka po minutém půlnočním jobu]"})
+        s.commit()
         rows = s.execute(_t(
             "SELECT em.user_id, "
             "  (SELECT NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),'') "
@@ -27681,6 +27699,16 @@ def _notify_deploy_done(instance_id: str, result: dict) -> None:
             "WHERE target_user_id=:uid AND command_type='claude_msg' "
             "AND status='pending' AND title LIKE '%% — nasazeno ✓'"),
             {"uid": int(uid)})
+        # Anti-spam (Marti 26.6.2026): deploy-notif = provozní šum (1277× za 20 dní).
+        # Max 1 ping / 30 min na uživatele — rychlé iterativní deploye už neotravují
+        # (poslední stejně nahradila předchozí, a stav verze ukazuje lišta v UI).
+        recent = ds.execute(_tp2(
+            "SELECT 1 FROM fw.mobile_command WHERE target_user_id=:uid AND command_type='claude_msg' "
+            "AND title LIKE '%% — nasazeno ✓' AND created_at > now() - interval '30 minutes' LIMIT 1"),
+            {"uid": int(uid)}).first()
+        if recent:
+            ds.commit()
+            return
         ds.execute(_tp2("""
             INSERT INTO fw.mobile_command
               (app_key, target_user_id, command_type, title, message, created_by)

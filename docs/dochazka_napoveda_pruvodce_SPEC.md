@@ -55,7 +55,9 @@ až bude někdo reálně ve směně, pořídit `pruvodce_pauza.png` / `pruvodce_
 (menu 🙈) a doplnit je ke krokům 7–9.
 
 ## Obrázky (`apps/api/static/navod_dochazka/`)
-Zdroj = `docs/navod_screenshoty/P_*.png`, pořízené Playwrightem (Pixel 7, ostré).
+Verzovaná pravda = **`apps/api/static/navod_dochazka/pruvodce_*.png`** (to appka servíruje).
+Pořízené Playwrightem: skript zapíše dočasné `docs/navod_screenshoty/P_*.png`, ty se zkopírují
+do `pruvodce_*.png`. **`P_*.png` jsou regenerovatelné mezivýstupy — do gitu nekomituj.**
 - `pruvodce_firma.png` ← P_firma (záložka Firma)
 - `pruvodce_prehled.png` ← P_prehled (ZAKÁZKY A ČINNOSTI + Makat + 💬 + Moje docházka)
 - `pruvodce_zakazka.png` ← P_zakazka (Vyber zakázku)

@@ -18639,6 +18639,78 @@ async def att_checkout(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/automat/prehled")
+async def automat_prehled(req: Request) -> JSONResponse:
+    """Docházkový automat (Marti 26.6.): kategorie + zařazení lidí + co automat dopíchl.
+    Vidí rodič nebo HR (Šárka/Petra). Transparentní: kolik hodin automat doplnil."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (_is_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        kat = [dict(r) for r in s.execute(_t(
+            "SELECT id, kod, nazev, popis, dopichavat_fond, fond_h_den, bez_prescasu, "
+            "hlidat_dlouhou_smenu, dlouha_smena_h, hlidat_pauzy, auto_odhlasit, aktivni "
+            "FROM tenant.att_kategorie ORDER BY poradi, id")).mappings().all()]
+        zar = [dict(r) for r in s.execute(_t(
+            "SELECT uk.user_id, COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''),'#'||uk.user_id) jmeno, "
+            "uk.kategorie_id, k.nazev kategorie, to_char(uk.updated_at,'DD.MM.YYYY') zarazeno "
+            "FROM tenant.att_user_kategorie uk JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            "LEFT JOIN public.users u ON u.id=uk.user_id ORDER BY jmeno")).mappings().all()]
+        fond = [dict(r) for r in s.execute(_t(
+            "SELECT em.user_id, COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''),'#'||em.user_id) jmeno, "
+            "round(sum(e.hours)::numeric,1) doplneno_h, count(*) dni "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "JOIN tenant.att_employee em ON em.id=e.employee_id LEFT JOIN public.users u ON u.id=em.user_id "
+            "WHERE e.tenant_id=2 AND et.code='fond_doplneni' AND e.entry_date >= current_date - 30 "
+            "GROUP BY em.user_id, u.first_name, u.last_name ORDER BY doplneno_h DESC")).mappings().all()]
+        lide = [dict(r) for r in s.execute(_t(
+            "SELECT u.id, TRIM(u.first_name||' '||u.last_name) jmeno FROM public.users u "
+            "JOIN public.user_tenants ut ON ut.user_id=u.id AND ut.tenant_id=2 AND ut.status IN ('active','invited') "
+            "WHERE COALESCE(TRIM(u.first_name||u.last_name),'')<>'' ORDER BY u.last_name, u.first_name")).mappings().all()]
+        return {"ok": True, "kategorie": kat, "zarazeni": zar, "fond": fond, "lide": lide}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/automat/zarazeni")
+async def automat_zarazeni(req: Request) -> JSONResponse:
+    """Zařadí uživatele do kategorie (rodič/HR). Marti 26.6."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (_is_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        tu = int(body.get("user_id"))
+        kat = body.get("kategorie_id")
+        kat = int(kat) if kat not in (None, "", "null") else None
+    except Exception:
+        return JSONResponse({"ok": False, "error": "user_id/kategorie_id"}, status_code=400)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if kat is None:
+            s.execute(_t("DELETE FROM tenant.att_user_kategorie WHERE user_id=:u"), {"u": tu})
+        else:
+            s.execute(_t(
+                "INSERT INTO tenant.att_user_kategorie (user_id, kategorie_id, updated_by) VALUES (:u,:k,:by) "
+                "ON CONFLICT (user_id) DO UPDATE SET kategorie_id=EXCLUDED.kategorie_id, updated_by=:by, updated_at=now()"),
+                {"u": tu, "k": kat, "by": uid})
+        s.commit()
+        return {"ok": True}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/list")
 async def att_list(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

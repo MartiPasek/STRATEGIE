@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docházkový automat</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:14px;background:#0f1420;color:#e8edf6}
+  a{color:#7fb0ff}
+  h1{font-size:19px;margin:0 0 2px}
+  h2{font-size:15px;margin:18px 0 8px}
+  .sub{color:#9fb0c8;font-size:12.5px;margin-bottom:14px;max-width:760px;line-height:1.5}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px}
+  th,td{text-align:left;padding:6px 9px;border-bottom:1px solid #232c3b}
+  th{color:#8fa3bd;font-weight:600;font-size:11.5px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .muted{color:#8295ad}
+  .card{background:#19202e;border:1px solid #26303f;border-radius:11px;padding:12px 14px;margin-bottom:10px}
+  .kn{font-weight:600;font-size:13.5px}
+  .chip{display:inline-block;font-size:11px;padding:1px 8px;border-radius:9px;background:#16243a;color:#7fb0ff;margin-left:6px}
+  .chip.on{background:#1a3320;color:#8fe0a0}
+  select{background:#0f1420;color:#e8edf6;border:1px solid #2a3547;border-radius:7px;padding:5px 8px;font-size:12.5px;min-width:230px}
+  input[type=search]{background:#0f1420;color:#e8edf6;border:1px solid #2a3547;border-radius:8px;padding:7px 11px;font-size:13px;width:260px;margin-bottom:8px}
+  #msg{color:#9fb0c8;font-size:12.5px;margin:6px 0}
+</style>
+</head>
+<body>
+<h1>🤖 Docházkový automat</h1>
+<div class="sub">Smysl: ať se lidé <b>neupínají na píchání</b> příchodů a odchodů a jsou v pohodě. Automat (deterministická pravidla, ne AI) se řídí <b>kategorií</b> každého člověka — vy ho řídíte tím, do jaké kategorie koho zařadíte. U „volné kancelářské doby" automat <b>dopíchne</b> chybějící část dne do fondu hodin (pro mzdy plná doba), ale <b>je to vidět</b>. <a href="/finance">← Finance</a></div>
+<div id="msg">Načítám…</div>
+
+<h2>Kategorie automatu</h2>
+<div id="kat"></div>
+
+<h2>Zařazení lidí</h2>
+<input type="search" id="q" placeholder="🔎 Hledat člověka…" oninput="renderLide()">
+<div id="lide"></div>
+
+<h2>Co automat dopíchl (30 dní)</h2>
+<div id="fond"></div>
+
+<script>
+const API='';let DATA={};
+async function load(){
+  const r=await fetch(API+'/api/v1/erp/app/automat/prehled',{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){document.getElementById('msg').textContent=r.error||'Nedostupné (přihlas se jako rodič / HR)';return;}
+  DATA=r;document.getElementById('msg').textContent='';
+  renderKat();renderLide();renderFond();
+}
+function renderKat(){
+  document.getElementById('kat').innerHTML=(DATA.kategorie||[]).map(k=>`<div class="card">
+    <div class="kn">${k.nazev} <span class="chip ${k.aktivni?'on':''}">${k.kod}</span></div>
+    <div class="muted" style="margin:3px 0 6px">${k.popis||''}</div>
+    <div style="font-size:11.5px;color:#9fb0c8">
+      ${k.dopichavat_fond?('🟢 dopíchnout do fondu '+k.fond_h_den+' h'+(k.bez_prescasu?' (bez přesčasů)':'')):'⚪ nedopíchávat'} ·
+      ${k.hlidat_dlouhou_smenu?('hlídat dlouhou směnu >'+k.dlouha_smena_h+'h'):'dlouhou směnu nehlídat'} ·
+      ${k.hlidat_pauzy?'hlídat pauzy':'pauzy nehlídat'} ·
+      ${k.auto_odhlasit?'auto-odhlášení':'bez auto-odhlášení'}
+    </div></div>`).join('');
+}
+function renderLide(){
+  const zmap={};(DATA.zarazeni||[]).forEach(z=>zmap[z.user_id]=z.kategorie_id);
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  const opts=(DATA.kategorie||[]).map(k=>`<option value="${k.id}">${k.nazev}</option>`).join('');
+  const rows=(DATA.lide||[]).filter(l=>!q||(l.jmeno||'').toLowerCase().includes(q)).map(l=>{
+    const cur=zmap[l.id];
+    return `<tr><td>${l.jmeno}</td><td>
+      <select onchange="zarad(${l.id},this.value)">
+        <option value="">— bez kategorie —</option>${opts}
+      </select></td></tr>`;
+  }).join('');
+  document.getElementById('lide').innerHTML=`<table><thead><tr><th>Člověk</th><th>Kategorie automatu</th></tr></thead><tbody>${rows}</tbody></table>`;
+  // nastav aktuální hodnoty selectů
+  (DATA.lide||[]).filter(l=>!q||(l.jmeno||'').toLowerCase().includes(q)).forEach((l,i)=>{
+    const sel=document.querySelectorAll('#lide select')[i];if(sel&&zmap[l.id]!=null)sel.value=zmap[l.id];
+  });
+}
+async function zarad(uid,kat){
+  document.getElementById('msg').textContent='Ukládám…';
+  const r=await fetch(API+'/api/v1/erp/app/automat/zarazeni',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,kategorie_id:kat||null})}).then(x=>x.json());
+  if(r.ok){const z=await fetch(API+'/api/v1/erp/app/automat/prehled',{credentials:'include'}).then(x=>x.json());if(z.ok){DATA=z;}document.getElementById('msg').textContent='✓ uloženo';renderFond();}
+  else document.getElementById('msg').textContent='✗ '+(r.error||'chyba');
+}
+function renderFond(){
+  const f=DATA.fond||[];
+  if(!f.length){document.getElementById('fond').innerHTML='<div class="muted">Zatím automat nic nedopíchl (běží po půlnoční uzávěrce dne).</div>';return;}
+  document.getElementById('fond').innerHTML=`<table><thead><tr><th>Člověk</th><th class="num">Dopíchnuto (h)</th><th class="num">Dní</th></tr></thead><tbody>${
+    f.map(x=>`<tr><td>${x.jmeno}</td><td class="num">${x.doplneno_h}</td><td class="num">${x.dni}</td></tr>`).join('')}</tbody></table>`;
+}
+load();
+</script>
+</body>
+</html>

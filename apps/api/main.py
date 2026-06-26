@@ -1004,6 +1004,14 @@ def hromady_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/dochazka-automat")
+def dochazka_automat_page():
+    """Docházkový automat — kategorie + zařazování lidí + přehled co automat dopíchl.
+    Marti 26.6.2026: lidé v pohodě, automat řízený kategoriemi, transparentně."""
+    return FileResponse(os.path.join(static_dir, "dochazka-automat.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

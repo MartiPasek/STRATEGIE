@@ -19107,7 +19107,10 @@ def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3
             "   FROM public.users u WHERE u.id=em.user_id) AS jmeno, "
             "  round(MAX(EXTRACT(EPOCH FROM (now()-e.started_at))/3600.0)) AS hod "
             "FROM tenant.att_entry e JOIN tenant.att_employee em ON em.id=e.employee_id "
+            "JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "WHERE e.tenant_id=:t AND e.is_active=true AND e.started_at IS NOT NULL "
+            "  AND e.ended_at IS NULL "                 # Marti 26.6.: jen SKUTEČNĚ otevřené (import nech)
+            "  AND et.code IN ('work','homeoffice') "   # jen reálné směny, ne overhead/režie
             "  AND e.started_at < now() - (:h * interval '1 hour') AND em.user_id IS NOT NULL "
             "GROUP BY em.user_id"), {"t": tenant, "h": hours}).fetchall()
         for r in rows:

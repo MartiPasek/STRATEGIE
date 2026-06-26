@@ -18644,7 +18644,7 @@ async def automat_prehled(req: Request) -> JSONResponse:
     """Docházkový automat (Marti 26.6.): kategorie + zařazení lidí + co automat dopíchl.
     Vidí rodič nebo HR (Šárka/Petra). Transparentní: kolik hodin automat doplnil."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not (_is_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from sqlalchemy import text as _t
     cm, s = _att_session()
@@ -18690,7 +18690,7 @@ async def automat_prehled(req: Request) -> JSONResponse:
 async def automat_zarazeni(req: Request) -> JSONResponse:
     """Zařadí uživatele do kategorie (rodič/HR). Marti 26.6."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not (_is_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         body = await req.json()
@@ -18727,7 +18727,7 @@ async def claude_fronta(req: Request) -> JSONResponse:
     (sám nebo přes Marti-AI) vloží požadavek → naplánovaná úloha danou instanci
     probudí, vyřídí a reportne. Prázdná fronta = klid, jede se. Vidí rodič / HR."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not (_is_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from core.database_data import get_data_session as _gd
     from sqlalchemy import text as _t
@@ -18751,7 +18751,7 @@ async def claude_fronta_new(req: Request) -> JSONResponse:
     """Vloží úkol do fronty pro zvolenou Claude instanci (Marti / HR z mobilu).
     Cíl (ID23 / C27 / …) se kóduje do kind='task_<cil>'. Žádné DDL."""
     uid = _uid_from_token_or_cookie(req)
-    if not uid or not (_is_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     try:
         body = await req.json()

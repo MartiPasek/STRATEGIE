@@ -19328,7 +19328,15 @@ def _att_automat_fond_fill(tenant: int = 2, days_back: int = 14) -> dict:
             return {"ok": False, "error": "typ fond_doplneni chybí"}
         rows = s.execute(_t(
             "WITH cat AS ("
-            "  SELECT uk.user_id, k.fond_h_den FROM tenant.att_user_kategorie uk "
+            "  SELECT uk.user_id, COALESCE("
+            "    (SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
+            "     FROM tenant.engagement g JOIN tenant.att_employee em ON em.id=g.employee_id "
+            "     LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id "
+            "     WHERE em.user_id=uk.user_id AND em.tenant_id=:t AND g.is_current=true "
+            "       AND g.uvazek_tyden_h IS NOT NULL "
+            "     ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1), "
+            "    k.fond_h_den) AS fond_h_den "
+            "  FROM tenant.att_user_kategorie uk "
             "  JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
             "  WHERE k.dopichavat_fond=true AND k.aktivni=true), "
             "dny AS ("
@@ -19391,12 +19399,20 @@ def _att_automat_fond_odpich(tenant: int = 2, days_back: int = 14) -> dict:
             return {"ok": False, "error": "typ nenarokova chybí"}
         rows = s.execute(_t(
             "WITH cat AS ("
-            "  SELECT uk.user_id, k.fond_h_den FROM tenant.att_user_kategorie uk "
+            "  SELECT uk.user_id, COALESCE("
+            "    (SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
+            "     FROM tenant.engagement g JOIN tenant.att_employee em ON em.id=g.employee_id "
+            "     LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id "
+            "     WHERE em.user_id=uk.user_id AND em.tenant_id=:t AND g.is_current=true "
+            "       AND g.uvazek_tyden_h IS NOT NULL "
+            "     ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1), "
+            "    k.fond_h_den) AS fond_h_den "
+            "  FROM tenant.att_user_kategorie uk "
             "  JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
-            "  WHERE k.bez_prescasu=true AND k.aktivni=true AND COALESCE(k.fond_h_den,0) > 0), "
+            "  WHERE k.bez_prescasu=true AND k.aktivni=true), "
             "dny AS ("
             "  SELECT e.employee_id, em.user_id, e.entry_date, "
-            "    sum(COALESCE(e.hours,0)) FILTER (WHERE et.category='presence' AND et.code<>'nenarokova') AS real_h "
+            "    sum(COALESCE(e.hours,0)) FILTER (WHERE et.code IN ('work','homeoffice')) AS real_h "
             "  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "  JOIN tenant.att_employee em ON em.id=e.employee_id JOIN cat ON cat.user_id=em.user_id "
             "  WHERE e.tenant_id=:t AND e.entry_date < current_date "
@@ -19421,7 +19437,7 @@ def _att_automat_fond_odpich(tenant: int = 2, days_back: int = 14) -> dict:
                 "SELECT e.id, COALESCE(e.hours,0) FROM tenant.att_entry e "
                 "JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
                 "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d "
-                "  AND et.category='presence' AND et.code<>'nenarokova' AND COALESCE(e.hours,0)>0 "
+                "  AND et.code IN ('work','homeoffice') AND COALESCE(e.hours,0)>0 "
                 "ORDER BY e.started_at DESC NULLS LAST, e.id DESC"),
                 {"t": tenant, "e": emp, "d": day}).fetchall()
             for pe in paid:

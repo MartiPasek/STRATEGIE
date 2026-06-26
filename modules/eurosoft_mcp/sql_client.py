@@ -112,6 +112,35 @@ def close_connection(db_name: str | None = None) -> None:
                 logger.info(f"SQL connection closed: {db_name}")
 
 
+def _is_alive(conn: pyodbc.Connection) -> bool:
+    """Lehký ping — žije spojení? (mrtvý socket projde get(), spadne až na dotazu).
+    SELECT 1 + commit, ať nedrží implicitní transakci (Krok 5.Z lock)."""
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        cur.close()
+        try:
+            conn.commit()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def _get_live_connection(target_db: str) -> pyodbc.Connection:
+    """AUTO-RECOVERY (Marti 26.6.2026): vrať ŽIVÉ spojení. Když cached spoj umřel
+    (mrtvý SQL socket na EC-SERVER2, co se sám neobnoví — Kristýin „MCP problém"),
+    automaticky reconnectni. Cíl: žádné ruční Restart-Service EUROSOFT-MCP."""
+    conn = _connections.get(target_db)
+    if conn is not None and _is_alive(conn):
+        return conn
+    if conn is not None:
+        logger.warning("Mrtvé SQL spojení pro %s — auto-reconnect (zadní vrátka).", target_db)
+    return init_connection(target_db)
+
+
 @contextmanager
 def get_cursor(
     db_name: str | None = None,
@@ -119,12 +148,11 @@ def get_cursor(
 ) -> Generator[pyodbc.Cursor, None, None]:
     """
     Yield a cursor pro daný db_name (default DB_EC).
-    Automatic reconnect on connection loss.
+    Automatic reconnect on connection loss (ověří živost + reconnect).
     """
     target_db = db_name or settings.sql_database
-    conn = _connections.get(target_db)
-    if conn is None:
-        conn = init_connection(target_db)
+    conn = _get_live_connection(target_db) if retry_on_disconnect else (
+        _connections.get(target_db) or init_connection(target_db))
 
     try:
         cur = conn.cursor()
@@ -166,13 +194,11 @@ def get_cursor(
 def get_connection(db_name: str | None = None) -> pyodbc.Connection:
     """
     Direct connection access pro DDL operations co potřebují commit/rollback
-    explicit (strategie_* tools v Phase 28-D). Auto-init pokud chybí.
-    """
+    explicit (strategie_* tools v Phase 28-D). Auto-init + AUTO-RECOVERY:
+    ověří živost cached spojení a při mrtvém socketu sám reconnectne
+    (Marti 26.6.2026 — zadní vrátka, ať MCP nepotřebuje ruční restart)."""
     target_db = db_name or settings.sql_database
-    conn = _connections.get(target_db)
-    if conn is None:
-        conn = init_connection(target_db)
-    return conn
+    return _get_live_connection(target_db)
 
 
 def quote_identifier(name: str) -> str:

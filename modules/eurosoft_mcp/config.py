@@ -34,6 +34,12 @@ class Settings:
     listen_host: str = os.getenv("MCP_LISTEN_HOST", "127.0.0.1")
     listen_port: int = int(os.getenv("MCP_LISTEN_PORT", "8765"))
 
+    # Self-update (Marti 26.6.2026, „naše vizitka"): MCP si na pokyn sám stáhne
+    # opravu z repa (git pull), zkopíruje modules/eurosoft_mcp/*.py do běžící
+    # složky a restartne službu — konec ručního RDP + Copy-Item na EC-SERVER2.
+    mcp_repo_dir: str = os.getenv("MCP_REPO_DIR", "C:\\PROJEKTY\\STRATEGIE")
+    mcp_service_name: str = os.getenv("MCP_SERVICE_NAME", "EUROSOFT-MCP")
+
     # Audit log file (JSON lines)
     audit_log_path: str = os.getenv(
         "MCP_AUDIT_LOG_PATH",

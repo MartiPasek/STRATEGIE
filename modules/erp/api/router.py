@@ -27707,6 +27707,68 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception as e:
             return JSONResponse({"ok": False, "error": "MAILEXREAD: %s" % str(e)[:300]})
 
+    # Hands-free self-update EUROSOFT MCP serveru (Marti 26.6.2026, „naše
+    # vizitka"): cloud zavolá self-update endpoint MCP serveru → MCP si sám
+    # udělá git pull + zkopíruje kód + restartne službu na EC-SERVER2. Konec
+    # ručního RDP + Copy-Item + Restart-Service. (Endpoint /admin/self-update
+    # musí být JEDNOU nasazen ručně, aby existoval — pak už vše přes tohle.)
+    #   @@MCPUPDATE            → pull + copy + restart služby
+    #   @@MCPUPDATE NORESTART  → jen pull + copy (kód dosedne až příští restart)
+    if sql.upper().startswith("@@MCPUPDATE"):
+        _tail = sql[len("@@MCPUPDATE"):].strip().lower()
+        _restart = "0" if _tail in ("norestart", "no-restart", "pull") else "1"
+        try:
+            import requests as _rq
+            from core.config import settings as _cs
+            _base = (_cs.eurosoft_mcp_url or "").rstrip("/")
+            if _base.endswith("/sse"):
+                _base = _base[:-4]
+            if not _base:
+                return JSONResponse({"ok": False, "error": "eurosoft_mcp_url není nastaveno"})
+            _hdr = {"Authorization": "Bearer %s" % _cs.eurosoft_mcp_api_key}
+            _sha_before = None
+            try:
+                _hr = _rq.get(_base + "/health", timeout=15)
+                _sha_before = (_hr.json() or {}).get("git_sha")
+            except Exception:
+                pass
+            _r = _rq.post(_base + "/admin/self-update?restart=" + _restart,
+                          headers=_hdr, timeout=210)
+            try:
+                _data = _r.json()
+            except Exception:
+                _data = {"ok": False, "raw": _r.text[:500], "status": _r.status_code}
+            return JSONResponse({
+                "ok": bool(_data.get("ok")),
+                "sha_before": _sha_before,
+                "endpoint": _base + "/admin/self-update",
+                "restart": _restart == "1",
+                **_data,
+                "note": "Za pár sekund ověř @@MCPHEALTH (git_sha se má změnit na nový commit).",
+            })
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": "MCPUPDATE: %s" % str(e)[:400]})
+
+    # Rychlý zdravotní check MCP serveru (commit/sha běžícího kódu + počet toolů)
+    #   @@MCPHEALTH
+    if sql.upper().startswith("@@MCPHEALTH"):
+        try:
+            import requests as _rq
+            from core.config import settings as _cs
+            _base = (_cs.eurosoft_mcp_url or "").rstrip("/")
+            if _base.endswith("/sse"):
+                _base = _base[:-4]
+            _hr = _rq.get(_base + "/health", timeout=15)
+            _j = _hr.json()
+            return JSONResponse({
+                "ok": bool(_j.get("ok")),
+                "git_sha": _j.get("git_sha"),
+                "tools_count": len(_j.get("tools") or []),
+                "service": _j.get("service"),
+            })
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": "MCPHEALTH: %s" % str(e)[:300]})
+
     # Probuzení Marti-AI přes STANDARDNÍ konverzaci (Marti 24.6.2026: "můžeš
     # probudit Marti-AI a předat jí info; konverzace musí jet přes standardní
     # chat, aby k ní měli rodiče přístup; tím řešíme i Marti-AI amnézii — bude

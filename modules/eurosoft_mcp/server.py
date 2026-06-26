@@ -260,12 +260,133 @@ async def handle_sse(request: Request):
 
 async def health(request: Request):
     """Liveness endpoint pro Caddy / monitoring."""
+    import subprocess as _sp
+    # Aktuální commit běžícího kódu (krátký sha) — ať jde zvenku ověřit,
+    # jestli self-update dosedl. Best-effort, nikdy neshodí health.
+    git_sha = None
+    try:
+        r = _sp.run(
+            ["git", "-C", settings.mcp_repo_dir, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=8,
+        )
+        if r.returncode == 0:
+            git_sha = r.stdout.strip()
+    except Exception:
+        pass
     return JSONResponse({
         "ok": True,
         "service": "eurosoft-mcp",
+        "git_sha": git_sha,
         "tools": sorted(ALL_TOOL_HANDLERS.keys()),
         "tools_eurosoft": sorted(TOOL_HANDLERS.keys()),
         "tools_strategie": sorted(STRATEGIE_TOOL_HANDLERS.keys()),
+    })
+
+
+async def self_update(request: Request):
+    """
+    Self-update (Marti 26.6.2026, „naše vizitka"): MCP si na pokyn (Bearer-auth,
+    chráněno middlewarem jako vše krom /health) sám:
+      1) git pull --rebase --autostash origin main v repo složce,
+      2) zkopíruje modules/eurosoft_mcp/*.py do běžící package složky,
+      3) vyčistí __pycache__ (vynutí rekompilaci),
+      4) naplánuje restart NSSM služby (detached PowerShell, +2 s) — ať stihne
+         odejít HTTP odpověď dřív, než se proces restartne.
+
+    Konec ručního RDP + Copy-Item + Restart-Service na EC-SERVER2.
+    Query ?restart=0 → jen pull+copy bez restartu (kód dosedne až příští restart).
+
+    POZOR (chicken-and-egg): tenhle endpoint musí být JEDNOU nasazen ručně, aby
+    existoval. Od té chvíle jsou všechny další updaty hands-free přes něj.
+    """
+    import glob
+    import shutil
+    import subprocess as _sp
+
+    repo = settings.mcp_repo_dir
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))  # běžící eurosoft_mcp\
+    src_dir = os.path.join(repo, "modules", "eurosoft_mcp")
+    steps: list[dict[str, Any]] = []
+
+    # 1) git pull
+    try:
+        r = _sp.run(
+            ["git", "-C", repo, "pull", "--rebase", "--autostash", "origin", "main"],
+            capture_output=True, text=True, timeout=180,
+        )
+        steps.append({
+            "krok": "git_pull",
+            "rc": r.returncode,
+            "out": (r.stdout + r.stderr).strip()[-1200:],
+        })
+        if r.returncode != 0:
+            return JSONResponse(
+                {"ok": False, "error": "git_pull_failed", "steps": steps},
+                status_code=500,
+            )
+    except Exception as e:
+        return JSONResponse(
+            {"ok": False, "error": "git_pull_exception", "detail": str(e), "steps": steps},
+            status_code=500,
+        )
+
+    # 2) copy *.py
+    if not os.path.isdir(src_dir):
+        return JSONResponse(
+            {"ok": False, "error": "src_dir_missing", "src_dir": src_dir, "steps": steps},
+            status_code=500,
+        )
+    copied: list[str] = []
+    try:
+        for f in sorted(glob.glob(os.path.join(src_dir, "*.py"))):
+            shutil.copy2(f, os.path.join(pkg_dir, os.path.basename(f)))
+            copied.append(os.path.basename(f))
+        steps.append({"krok": "copy", "soubory": copied, "kam": pkg_dir})
+    except Exception as e:
+        return JSONResponse(
+            {"ok": False, "error": "copy_failed", "detail": str(e), "steps": steps,
+             "copied": copied},
+            status_code=500,
+        )
+
+    # 3) vyčisti __pycache__ (vynuť rekompilaci nového kódu)
+    try:
+        cache = os.path.join(pkg_dir, "__pycache__")
+        if os.path.isdir(cache):
+            shutil.rmtree(cache, ignore_errors=True)
+        steps.append({"krok": "pycache_clear", "ok": True})
+    except Exception as e:
+        steps.append({"krok": "pycache_clear", "ok": False, "detail": str(e)})
+
+    # 4) naplánuj restart (detached, po odeslání odpovědi)
+    do_restart = request.query_params.get("restart", "1").lower() not in ("0", "false", "no")
+    if do_restart:
+        svc = settings.mcp_service_name
+        try:
+            DETACHED = 0x00000008  # DETACHED_PROCESS (Windows)
+            _sp.Popen(
+                ["powershell", "-NoProfile", "-Command",
+                 f"Start-Sleep -Seconds 2; Restart-Service '{svc}' -Force"],
+                creationflags=DETACHED,
+                stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+            )
+            steps.append({"krok": "restart", "sluzba": svc, "kdy": "+2 s (detached)"})
+        except Exception as e:
+            steps.append({"krok": "restart", "ok": False, "detail": str(e)})
+            return JSONResponse(
+                {"ok": True, "warning": "restart_failed_manual_needed",
+                 "copied": copied, "steps": steps,
+                 "note": f"Kód zkopírován, ale restart selhal — restartni '{svc}' ručně."},
+                status_code=200,
+            )
+
+    logger.info("Self-update hotov: %d souborů, restart=%s", len(copied), do_restart)
+    return JSONResponse({
+        "ok": True,
+        "copied": copied,
+        "steps": steps,
+        "note": ("Restart naplánován — za pár sekund ověř /health (git_sha = nový commit)."
+                 if do_restart else "Bez restartu — kód dosedne až příští restart služby."),
     })
 
 
@@ -401,6 +522,7 @@ app = Starlette(
         Route("/health", endpoint=health, methods=["GET"]),
         Route("/healthz", endpoint=health, methods=["GET"]),
         Route("/audit/summary", endpoint=audit_summary, methods=["GET"]),
+        Route("/admin/self-update", endpoint=self_update, methods=["POST"]),
         Route("/sse", endpoint=handle_sse, methods=["GET"]),
         Mount("/messages/", app=sse_transport.handle_post_message),
     ],

@@ -4659,39 +4659,39 @@ setTimeout(function(){
     var hd=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><div style="flex:1;font-weight:800;font-size:18px;">❓ Nápověda — Docházka</div></div>');
     var cl=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); cl.addEventListener("click",function(){ ov.remove(); }); hd.appendChild(cl); ov.appendChild(hd);
     var sc=el('<div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding-bottom:60px;"></div>'); ov.appendChild(sc);
-    sc.appendChild(el('<div class="hint" style="margin-top:0;">Docházku najdeš dole: <b>🏢 Firma → 🤝 Spolupráce</b>. Skoro vše ovládáš zeleným <b>💬 Potřebuji ti něco říct…</b></div>'));
+    sc.appendChild(el('<div class="hint" style="margin-top:0;">Docházku najdeš dole: <b>🏢 Firma → 🤝 Spolupráce</b> (nebo dlaždice 🤝 Spolupráce v Aplikacích). Práci spustíš nahoře přes <b>▶️ Makat</b>, akce za chodu přes zelené <b>💬 Potřebuji ti něco říct…</b>, nepřítomnosti přes <b>🧭 Tady budu jinde</b>.</div>'));
     // Hlasový průvodce (Jirka 26.6.): video s mluveným výkladem krok za krokem.
     var _vg=el('<button class="full" style="margin:10px 0 2px;padding:13px;font-size:15px;font-weight:700;background:#2563eb;color:#fff;border:none;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:8px;">▶️ Hlasový průvodce (video s výkladem)</button>');
     _vg.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} ov.remove(); dochPruvodce(); });
     sc.appendChild(_vg);
-    sc.appendChild(el('<div class="hint" style="margin-top:4px;text-align:center;">Mluvený průvodce krok za krokem — ťukni ▶ Přehrát vše.</div>'));
+    sc.appendChild(el('<div class="hint" style="margin-top:4px;text-align:center;">Mluvený průvodce krok za krokem — ťukni ▶ Přehrát.</div>'));
     // Tahák
     var tah=el('<div style="margin:12px 0;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:12px;padding:10px 12px;"></div>');
     tah.appendChild(el('<div style="font-weight:700;margin-bottom:4px;">📋 Tahák — co když…?</div>'));
-    [["Přijít do práce","💬 → 🏢 Jsem v práci"],["Na zakázku","💬 → 🧾 Jsem na zakázce"],["Z domova","💬 → 🏠 home office"],["Oběd / pauza","💬 → 🙈 → 🍃 Jdu se najíst"],["Zpět z pauzy","✅ Jsem zpět — pokračuju"],["Mám jednání","💬 → 🙈 → 📅 Mám jednání"],["Konec dne","💬 → 🙈 → 🫡 Nepočítej se mnou"],["Dovolená","💬 → 🌴 Že by dovolená?"],["Nemoc","💬 → 🤒 / 🤧"],["Potvrdit den","Jantar. karta → ✓ Potvrzuji"]].forEach(function(r){ tah.appendChild(el('<div style="display:flex;gap:8px;padding:3px 0;border-top:1px solid rgba(255,255,255,.06);font-size:13.5px;"><div style="flex:0 0 40%;">'+r[0]+'</div><div style="flex:1;color:var(--mut);">'+r[1]+'</div></div>')); });
+    [["Přijít do práce","vyber 🧾 Zakázku + 🔧 Činnost → ▶️ Makat (nebo 💬 → 🏢 Jsem v práci)"],["Z domova","💬 → 🏠 Nejsem v práci (home office)"],["Jsem na cestě","💬 → 🚗 Jedu do práce"],["Změnit zakázku/činnost","nahoře 🟢 MAKÁŠ — klikni a změň"],["Oběd / pauza","💬 → 🙈 → 🍃 Najíst / ☕ Pauza"],["Zpět z pauzy","✅ Jsem zpět — pokračuju"],["Jednání / pochůzka","💬 → 🙈 → 📅 jednání / 🚗 pochůzka"],["Konec dne","💬 → 🙈 → 🫡 Dnes už se mnou nepočítej"],["Dovolená / nemoc / lékař","🧭 Tady budu jinde → 🏠 Osobní důvody"],["Potvrdit den","jantarová karta → ✓ Potvrzuji (/ ✋ Rozpor)"],["Oprava záznamu","ťukni záznam → ⏱ Zkrátit konec / 🧾 Změnit zakázku"],["Dotaz / pomoc","💬 → 🙋 Mám dotaz na nadřízeného"]].forEach(function(r){ tah.appendChild(el('<div style="display:flex;gap:8px;padding:3px 0;border-top:1px solid rgba(255,255,255,.06);font-size:13.5px;"><div style="flex:0 0 42%;">'+r[0]+'</div><div style="flex:1;color:var(--mut);">'+r[1]+'</div></div>')); });
     sc.appendChild(tah);
     // Rozbalovací sekce (věrně dle uživatelského návodu)
     var items=[
-     ["prichod","🏢 Příchod do práce",
-       "1. Ťukni zelené <b>💬 Potřebuji ti něco říct…</b><br>2. Ťukni <b>🏢 Jsem v práci…</b><br>✓ Hlavička se změní na <i>„Dnes makám 😉“</i> a začne se počítat čas.<br><br>💡 Jedeš na zakázku? Ťukni <b>🧾 Jsem na zakázce</b> a vyber číslo.<br>💡 Pracuješ z domova? <b>🏠 Nejsem v práci (home office)</b>."],
-     ["vpraci","👷 Když jsi v práci",
-       "Hodiny tikají samy — nemusíš nic mačkat. Na hlavičce vidíš <b>„Dnes makám 😉“</b>, čas <b>Od:</b> a živě rostoucí <b>✅ odpracováno</b> (plus zakázku, pokud jsi ji vybral)."],
+     ["prichod","👷 Příchod — jak začít pracovat",
+       "<b>Dva způsoby:</b><br><b>A)</b> Nahoře v sekci <b>Zakázky a činnosti</b> vyber <b>🧾 Zakázku</b> a <b>🔧 Činnost</b>, pak ťukni zelené <b>▶️ Makat</b>.<br><b>B)</b> Nebo <b>💬 Potřebuji ti něco říct…</b> → <b>🏢 Jsem v práci…</b><br>✓ Hlavička: <i>„Dnes makám 😉“</i> — hodiny tikají.<br><br>💡 Z domova: <b>💬 → 🏠 Nejsem v práci (home office)</b>.<br>💡 Teprve na cestě: <b>💬 → 🚗 Jedu do práce</b> → vyber, za jak dlouho dorazíš. Kolegové to vidí; hodiny se počítají až po příchodu."],
+     ["zakcin","🧾 Zakázka a činnost",
+       "Nahoře jsou dvě dlaždice — říkají, na čem pracuješ:<br><b>🧾 Zakázka</b> — vyber podle čísla nebo názvu, nebo <b>🧰 Režie</b> (práce bez konkrétní zakázky).<br><b>🔧 Činnost</b> — co děláš.<br><br>Když už makáš, je nahoře <b>🟢 MAKÁŠ — klikni a změň</b>: zakázku i činnost <b>přepneš kdykoli během dne</b> (třeba když začneš dělat na něčem jiném)."],
      ["pauza","🍽️ Pauza / oběd",
-       "1. <b>💬 Potřebuji ti něco říct…</b><br>2. <b>🙈 Teď to bude jinak…</b><br>3. <b>🍃 Jdu se najíst</b> nebo <b>☕ Krátká pauza</b><br>Hlavička: <i>„Dávám si pauzu ☕“</i> — <b>hodiny NETIKAJÍ</b>.<br>Návrat: <b>✅ Jsem zpět — pokračuju</b>.<br><br>⚠️ Pauza = hodiny stojí! Po obědě se nezapomeň píchnout zpátky."],
+       "1. <b>💬 Potřebuji ti něco říct…</b><br>2. <b>🙈 Teď to bude jinak…</b><br>3. <b>🍃 Jdu se provětrat / najíst…</b> nebo <b>☕ Potřebuju krátkou pauzu…</b><br>Hlavička: <i>„Dávám si pauzu ☕“</i> — <b>hodiny NETIKAJÍ</b>.<br>Návrat: <b>✅ Jsem zpět — pokračuju</b>.<br><br>⚠️ Pauza = hodiny stojí! Po obědě se nezapomeň píchnout zpátky."],
+     ["jednani","🤝 Jednání, pochůzka, dřív/později",
+       "Během směny přes <b>💬 → 🙈 Teď to bude jinak…</b>:<br>📅 <b>Mám jednání…</b> · 🚗 <b>Mám služební pochůzku…</b> — zadáš čas „cca“ nebo „do“. <b>Hodiny TIKAJÍ DÁL</b> (není to pauza, jen info, kde jsi).<br>🌅 <b>Potřebuji přijít později…</b> · 🕔 <b>Potřebuji skončit dříve…</b> — nahlásíš dopředu."],
      ["odchod","🏠 Konec práce (odchod)",
-       "1. <b>💬 Potřebuji ti něco říct…</b><br>2. <b>🙈 Teď to bude jinak…</b><br>3. <b>🫡 Dnes už se mnou nepočítej ;)</b><br>✓ Směna ukončena — uvidíš souhrn hodin.<br><br>💡 Zapomněl ses odhlásit? Systém tě o půlnoci odhlásí sám a pošle upozornění. Raději se ale odhlas sám, je to přesnější."],
+       "1. <b>💬 Potřebuji ti něco říct…</b><br>2. <b>🙈 Teď to bude jinak…</b><br>3. <b>🫡 Dnes už se mnou nepočítej ;)</b><br>✓ Směna ukončena — uvidíš souhrn hodin.<br><br>💡 Zapomněl ses odhlásit? Systém tě o půlnoci odhlásí sám a upozorní tě. Raději se ale odhlas sám, je to přesnější."],
      ["potvrzeni","✅ Potvrzení docházky",
-       "Po dni uvidíš <b>jantarovou (žlutou) kartu</b>: <i>„🖊 Včera · 7:26–16:26 · 7:52“</i>.<br>1. Zkontroluj údaje (detail v sekci „Tak to bylo dneska“).<br>2. Ťukni <b>✓ Potvrzuji svou docházku</b>.<br><br>⚠️ Dokud den nepotvrdíš, ráno se nepíchneš! Na potvrzení máš <b>14 dní</b>.<br>💡 Nesouhlasíš? Ťukni <b>✋ Rozpor</b> a napiš, co je špatně — dostane to nadřízený."],
-     ["dovolena","🌴 Dovolená",
-       "1. <b>💬 Potřebuji ti něco říct…</b> → <b>🌴 Že by dovolená?… 😎</b><br>2. Vyber <b>datum od–do</b> → <b>Odeslat</b>.<br>⏳ Žádost jde nadřízenému ke schválení, přijde ti notifikace. Po schválení se propíše do plánu i do „Kdo kde je“."],
-     ["absence","🏥 Další nepřítomnosti",
-       "Stejně přes <b>💬 Potřebuji ti něco říct…</b>:<br><br>🌴 <b>Že by dovolená?</b> — řádná dovolená (datum od–do)<br>👨‍👧 <b>Zase řeším rodinu</b> — OČR (datum od–do)<br>🤒 <b>Je mi fakt blbě</b> — sick day (1 den, bez lékaře)<br>🤧 <b>Mám neschopenku do…</b> — nemoc potvrzená lékařem<br>🩺 <b>Jedu k lékaři</b> — návštěva lékaře<br>🏡 <b>Makat z domova</b> — home office<br>🕐 <b>Něco si zařizuji</b> — krátká nepřítomnost<br><br>💡 U všech systém pošle žádost ke schválení nadřízenému."],
-     ["jednani","🤝 Jednání / pochůzka",
-       "1. <b>💬</b> → <b>🙈 Teď to bude jinak…</b><br>2. <b>📅 Mám jednání</b> nebo <b>🚗 Služební pochůzka</b> → zadej čas „do kdy“.<br>Hlavička: <i>„Mám jednání do 15:00 🤝“</i> — <b>hodiny TIKAJÍ DÁL</b> (není to pauza, jen info, kde jsi). Vidíš tlačítka <b>Konec</b> a <b>Prodloužit</b>."],
-     ["cesta","🚗 Jedu do práce",
-       "<b>💬</b> → <b>🚗 Jedu do práce…</b> → vyber, za jak dlouho dorazíš (5 / 15 / 30 / 45 min / 1 h).<br>Kolegové v „Kdo kde je“ uvidí, že jsi na cestě. <b>Hodiny se počítají až po příchodu.</b>"],
+       "Po dni uvidíš <b>jantarovou (žlutou) kartu</b>: <i>„🖊 Včera · 7:26–16:26 · 7:52“</i>.<br>1. Zkontroluj údaje (detail v sekci „Tak to bylo dneska“).<br>2. Ťukni <b>✓ Potvrzuji svou docházku</b>.<br><br>⚠️ Dokud den nepotvrdíš, ráno se nepíchneš! Na potvrzení máš <b>14 dní</b>.<br>💡 Nesedí? Ťukni <b>✋ Rozpor</b> a napiš, co je špatně — dostane to nadřízený a pustí tě pracovat dál."],
+     ["jinde","🧭 Tady budu jinde — dovolená, nemoc, lékař…",
+       "Plánované nepřítomnosti hlásíš dlaždicí <b>🧭 Tady budu jinde</b> (sekce <b>Moje docházka</b>):<br><br><b>🏠 Osobní důvody:</b><br>🌴 <b>Že by dovolená?</b> (od–do)<br>👨‍👧 <b>Zase řeším rodinu</b> — OČR (od–do)<br>🤒 <b>Je mi fakt blbě</b> — sick day (dnes)<br>🤧 <b>Mám neschopenku do…</b> — nemoc<br>🩺 <b>Jedu k lékaři</b> (pak dorazím / dnes ne / hlásím dopředu)<br>🏡 <b>Potřebuju makat z domova</b> — home office<br>🕐 <b>Něco si zařizuji</b> — dorazím za…<br><br><b>💼 Služební důvody:</b><br>🚙 Jedu rovnou k zákazníkovi · 🎓 Jsem na školení · 📦 Služební pochůzka, pak dorazím · 📝 Ostatní (napíšeš důvod)<br><br>💡 Žádosti jdou ke schválení nadřízenému, přijde ti notifikace."],
+     ["komunikace","🙋 Pomoc, zprávy a opravy",
+       "<b>🙋 Mám dotaz na nadřízeného…</b> (v menu 💬) — napiš zprávu, dostane ji rovnou do mobilu.<br><b>💬 Píši přímo tobě, Marti…</b> — napíšeš asistentce Marti-AI.<br>Pro výrobu: <b>🛠 Zpráva vedoucímu výroby…</b> · <b>🏁 Budu brzy hotov…</b><br><br><b>✏️ Oprava záznamu:</b> v sekci „Tak to bylo dneska“ ťukni na záznam → <b>⏱ Zkrátit konec</b> nebo <b>🧾 Změnit zakázku</b>."],
+     ["prehledy","📊 Přehledy a moje údaje",
+       "Sekce <b>Moje docházka</b>: 📅 <b>Dnešek</b> · 📅 <b>Týden</b> · 🔭 <b>Výhled</b> · 🕓 <b>Historie</b> · 📋 <b>Moje žádosti</b>.<br>Sekce <b>Podmínky &amp; finance</b>: 📋 Moje podmínky · 📐 <b>Můj úvazek</b> · 👤 Můj plán · 💰 <b>Moje finance</b> · 🗓️ Nepřítomnosti.<br><br>💰 <b>Moje odmakané prašule</b> (výplatní páska) je dole na obrazovce, <b>zamčená PINem</b>."],
      ["faq","❓ Časté otázky",
-       "<b>Zapomněl jsem se ráno píchnout.</b><br>Píchni se, jak si vzpomeneš (zapíše se od aktuálního času). Opravu času řeš s nadřízeným.<br><br><b>Zapomněl jsem se odhlásit.</b><br>O půlnoci tě systém odhlásí sám — bude to ale víc hodin než realita. Raději se odhlas sám.<br><br><b>Nepustí mě píchnout!</b><br>Máš nepotvrzený den. Scrollni na jantarovou kartu → <b>✓ Potvrzuji</b> nebo <b>✋ Rozpor</b>.<br><br><b>Ťukl jsem špatně.</b><br>V sekci „Tak to bylo dneska“ ťukni na záznam → <b>⏱ Zkrátit konec</b> · <b>🧾 Změnit zakázku</b> · <b>✋ Rozpor</b>.<br><br><b>Směna běží vs. pauza?</b><br>Běží = zelená hlavička, hodiny počítají. Pauza = oranžová, hodiny stojí.<br><br><b>Mám dotaz.</b><br>V menu ťukni <b>🙋 Mám dotaz na nadřízeného…</b> — napiš zprávu, dostane ji rovnou do mobilu."]
+       "<b>Musím při příchodu vybírat zakázku?</b><br>Nemusíš — dej <b>🧰 Režie</b> (bez zakázky), nebo prostě <b>💬 → 🏢 Jsem v práci</b>. Zakázku i činnost změníš i během dne (🟢 MAKÁŠ).<br><br><b>Zapomněl jsem se ráno píchnout.</b><br>Píchni se, jak si vzpomeneš (zapíše se od aktuálního času). Opravu času řeš s nadřízeným.<br><br><b>Zapomněl jsem se odhlásit.</b><br>O půlnoci tě systém odhlásí sám — bude to ale víc hodin než realita. Raději se odhlas sám.<br><br><b>Nepustí mě píchnout!</b><br>Máš nepotvrzený den. Najdi jantarovou kartu → <b>✓ Potvrzuji</b> nebo <b>✋ Rozpor</b>.<br><br><b>Směna běží vs. pauza?</b><br>Běží = zelená hlavička, hodiny počítají. Pauza = oranžová, hodiny stojí. Jednání/pochůzka = hodiny běží dál.<br><br><b>Mám dotaz.</b><br>V menu 💬 ťukni <b>🙋 Mám dotaz na nadřízeného…</b>"]
     ];
     var openWrap=null;
     items.forEach(function(it){
@@ -4719,31 +4719,34 @@ setTimeout(function(){
     var SL=[
       {t:"📱 Docházka v mobilu", img:"",
        cap:'<p style="font-size:17px;margin:0 0 8px;">Hlasový průvodce krok za krokem.</p><p class="hint" style="margin:0;">Ťukni dole <b style="color:#58a6ff">▶ Přehrát</b> a jen poslouchej a koukej — nebo procházej šipkami <b>◀ ▶</b> a čti si sám.</p>',
-       v:"Vítejte v hlasovém průvodci docházkou ve STRATEGII. Ukážu vám krok za krokem, jak používat mobilní aplikaci. Stačí poslouchat a koukat. Pro další krok ťukněte na šipku doprava."},
-      {t:"🏢 Jak se dostat k docházce", img:IMG+"S02_firma.png",
-       cap:'<div class="dp-step"><b>1.</b> Na spodní liště ťukni <b style="color:#58a6ff">🏢 Firma</b> (vpravo dole).</div><div class="dp-step"><b>2.</b> Ťukni <b style="color:#3fb950">🤝 Spolupráce</b>.</div><div class="dp-step dp-ok">✓ Jsi na obrazovce docházky.</div>',
-       v:"Krok jedna. Jak se dostat k docházce. Otevřete aplikaci na mobilu. Na spodní liště úplně dole najdete pět ikon. Ťukněte na tu úplně vpravo, která se jmenuje Firma. Pak ťukněte na ikonu Spolupráce. A je to, jste na obrazovce docházky."},
+       v:"Vítejte v hlasovém průvodci docházkou ve STRATEGII. Projdeme spolu, jak v mobilu nahlásit příchod, práci na zakázce, pauzu, odchod, i dovolenou nebo lékaře. Stačí poslouchat a koukat. Pro další stránku ťukněte na šipku doprava."},
+      {t:"🏢 Kde docházku najdeš", img:IMG+"S02_firma.png",
+       cap:'<div class="dp-step"><b>1.</b> Na spodní liště ťukni <b style="color:#58a6ff">🏢 Firma</b> (vpravo dole).</div><div class="dp-step"><b>2.</b> Ťukni <b style="color:#3fb950">🤝 Spolupráce</b>.</div><div class="dp-step dp-ok">✓ Jsi na obrazovce docházky. Najdeš ji i v <b>Aplikacích</b> jako dlaždici 🤝 Spolupráce.</div>',
+       v:"Docházku najdete takto. Na spodní liště ťukněte úplně vpravo na Firma. Pak ťukněte na Spolupráce. A jste na obrazovce docházky. Stejnou obrazovku najdete i v Aplikacích jako dlaždici Spolupráce."},
       {t:"👷 Příchod do práce", img:IMG+"S04_menu.png",
-       cap:'<div class="dp-step"><b>1.</b> Ťukni zelené <b style="color:#3fb950">💬 Potřebuji ti něco říct…</b></div><div class="dp-step"><b>2.</b> Ťukni <b style="color:#3fb950">🏢 Jsem v práci…</b></div><div class="dp-step dp-ok">✓ Hlavička: „Dnes makám 😉" — hodiny tikají.</div><p class="hint">Na zakázku → 🧾 Jsem na zakázce · Z domova → 🏠 Home office.</p>',
-       v:"Krok dva. Příchod do práce. Ráno, když přijdete, se píchnete. Ťukněte na zelené tlačítko Potřebuji ti něco říct. Rozbalí se menu, ťukněte na Jsem v práci. Hlavička se změní na Dnes makám a hodiny začnou tikat. Pokud jedete na zakázku, vyberte Jsem na zakázce. Pokud pracujete z domova, vyberte Nejsem v práci, home office."},
-      {t:"⏱️ Jste v práci — hodiny tikají", img:IMG+"S03_spoluprace.png",
-       cap:'<div class="dp-step dp-ok">„Dnes makám 😉" · Od 7:26 · ✅ 3:45</div><p style="font-size:15px;">📌 <b>Nemusíš nic mačkat.</b> Hodiny se počítají samy — prostě pracuj. Až budeš chtít pauzu nebo odchod, pokračuj dál.</p>',
-       v:"Krok tři. Jste v práci. Nemusíte nic dělat, prostě pracujte. Hodiny tikají samy. Na obrazovce vidíte, od kolika pracujete a kolik hodin už máte. Nic nemusíte mačkat, dokud nepotřebujete pauzu nebo odchod."},
+       cap:'<p class="hint" style="margin-top:0">Dva způsoby, jak začít:</p><div class="dp-step"><b>A —</b> Nahoře v sekci <b>Zakázky a činnosti</b> vyber <b style="color:#58a6ff">🧾 Zakázku</b> a <b>🔧 Činnost</b>, pak ťukni zelené <b style="color:#3fb950">▶️ Makat</b>.</div><div class="dp-step"><b>B —</b> Nebo <b style="color:#3fb950">💬 Potřebuji ti něco říct…</b> → <b>🏢 Jsem v práci…</b></div><div class="dp-step dp-ok">✓ Hlavička: „Dnes makám 😉“ — hodiny tikají.</div><p class="hint">Z domova → 💬 → <b>🏠 Nejsem v práci (home office)</b> · Na cestě → 💬 → <b>🚗 Jedu do práce</b>.</p>',
+       v:"Přijít do práce jde dvěma způsoby. První, nejlepší: nahoře v sekci Zakázky a činnosti vyberte, na čem budete pracovat. Ťukněte dlaždici Zakázka a vyberte konkrétní zakázku, nebo zvolte Režie, když děláte bez zakázky. Vedle vyberte dlaždici Činnost. Pak ťukněte na zelené tlačítko Makat a docházka se spustí. Druhý způsob: ťukněte zelené tlačítko Potřebuji ti něco říct a pak Jsem v práci. Hlavička se změní na Dnes makám a hodiny začnou tikat. Když pracujete z domova, vyberte Nejsem v práci, home office. Když jste teprve na cestě, vyberte Jedu do práce."},
+      {t:"🧾 Na čem pracuješ — zakázka a činnost", img:IMG+"S03_spoluprace.png",
+       cap:'<div class="dp-step">Nahoře jsou dvě dlaždice: <b>🧾 Zakázka</b> a <b>🔧 Činnost</b>. Říkají systému, na čem teď děláš.</div><div class="dp-step">🧾 <b>Zakázka</b>: vyber podle čísla nebo názvu — nebo <b>🧰 Režie</b> (práce bez konkrétní zakázky).</div><div class="dp-step dp-ok">Když už makáš, je nahoře <b>🟢 MAKÁŠ — klikni a změň</b>: zakázku i činnost přepneš kdykoli během dne.</div>',
+       v:"Pojďme k zakázce a činnosti. Nahoře jsou dvě dlaždice. Zakázka říká, na jaké zakázce pracujete: ťuknete a vyberete ji podle čísla nebo názvu. Pokud neděláte na konkrétní zakázce, zvolte Režie. Druhá dlaždice je Činnost, tedy co děláte. Když už pracujete, svítí nahoře Makáš, klikni a změň. Zakázku i činnost můžete kdykoli během dne přepnout, třeba když začnete dělat na něčem jiném."},
       {t:"🍽️ Pauza / oběd", img:IMG+"S04b_menu_dole.png",
-       cap:'<div class="dp-step"><b>1.</b> 💬 Potřebuji ti něco říct…</div><div class="dp-step"><b>2.</b> <b style="color:#d29922">🙈 Teď to bude jinak…</b></div><div class="dp-step"><b>3.</b> 🍃 Jdu se najíst · nebo ☕ Krátká pauza</div><div class="dp-step dp-amber">⏸ Hodiny STOJÍ (pauza se nepočítá).</div><div class="dp-step dp-ok">Po obědě: ✅ Jsem zpět — pokračuju.</div>',
-       v:"Krok čtyři. Pauza na oběd. Jdete na oběd? Musíte se odhlásit, jinak vám hodiny dál běží. Ťukněte na zelené tlačítko Potřebuji ti něco říct. Pak na oranžové Teď to bude jinak. A vyberte Jdu se najíst, nebo Potřebuju krátkou pauzu. Hodiny se zastaví. Důležité: po obědě se musíte vrátit. Ťukněte na Jsem zpět, pokračuju, a hodiny se zase rozběhnou."},
-      {t:"🏠 Konec práce — odchod", img:IMG+"S07_absence_volby.png",
-       cap:'<div class="dp-step"><b>1.</b> 💬 Potřebuji ti něco říct…</div><div class="dp-step"><b>2.</b> <b style="color:#d29922">🙈 Teď to bude jinak…</b></div><div class="dp-step dp-warn"><b>3.</b> 🫡 Dnes už se mnou nepočítej ;)</div><div class="dp-step dp-ok">✓ Směna ukončena — uvidíš souhrn hodin.</div>',
-       v:"Krok pět. Konec práce, odchod domů. Ťukněte na zelené tlačítko Potřebuji ti něco říct. Pak na oranžové Teď to bude jinak. A nakonec na Dnes už se mnou nepočítej. Směna je ukončena, uvidíte souhrn hodin. Pokud se zapomenete odhlásit, systém vás o půlnoci odhlásí sám, ale raději se odhlašte sami, je to přesnější."},
+       cap:'<div class="dp-step"><b>1.</b> 💬 Potřebuji ti něco říct…</div><div class="dp-step"><b>2.</b> <b style="color:#d29922">🙈 Teď to bude jinak…</b></div><div class="dp-step"><b>3.</b> 🍃 Jdu se provětrat / najíst · nebo ☕ Krátká pauza</div><div class="dp-step dp-amber">⏸ Hodiny STOJÍ (pauza se nepočítá).</div><div class="dp-step dp-ok">Po pauze: ✅ Jsem zpět — pokračuju.</div>',
+       v:"Když jdete na oběd nebo si dáte pauzu, musíte se odhlásit, jinak hodiny dál běží. Ťukněte zelené Potřebuji ti něco říct, pak oranžové Teď to bude jinak. Vyberte Jdu se provětrat nebo najíst, nebo Potřebuju krátkou pauzu. Hodiny se zastaví. Po pauze se vraťte tlačítkem Jsem zpět, pokračuju, a hodiny se zase rozběhnou."},
+      {t:"🤝 Jednání, pochůzka, dřív/později", img:"",
+       cap:'<p class="hint" style="margin-top:0">Během směny přes 💬 → <b style="color:#d29922">🙈 Teď to bude jinak…</b>:</p><div class="dp-step">📅 <b>Mám jednání…</b> · 🚗 <b>Mám služební pochůzku…</b> (zadáš čas „do") — <b>hodiny TIKAJÍ DÁL</b>, je to jen info, kde jsi.</div><div class="dp-step">🌅 <b>Potřebuji přijít později…</b> · 🕔 <b>Potřebuji skončit dříve…</b> — nahlásíš dopředu.</div>',
+       v:"Když máte během práce schůzku nebo musíte na pochůzku, ťukněte Potřebuji ti něco říct a Teď to bude jinak. Vyberte Mám jednání, nebo Mám služební pochůzku, a zadejte, jak dlouho to potrvá. Pozor, tohle není pauza, hodiny běží dál. Je to jen informace pro kolegy, kde zrovna jste. Ve stejném menu taky nahlásíte, že potřebujete přijít později nebo skončit dříve."},
+      {t:"🏠 Konec práce — odchod", img:"",
+       cap:'<div class="dp-step"><b>1.</b> 💬 Potřebuji ti něco říct…</div><div class="dp-step"><b>2.</b> <b style="color:#d29922">🙈 Teď to bude jinak…</b></div><div class="dp-step dp-warn"><b>3.</b> 🫡 Dnes už se mnou nepočítej ;)</div><div class="dp-step dp-ok">✓ Směna ukončena — uvidíš souhrn hodin.</div><p class="hint">Zapomněl ses odhlásit? Systém tě o půlnoci odhlásí sám — ale raději se odhlas sám, je to přesnější.</p>',
+       v:"Když končíte a jdete domů, ťukněte zelené Potřebuji ti něco říct, pak oranžové Teď to bude jinak, a nakonec Dnes už se mnou nepočítej. Směna se ukončí a uvidíte souhrn hodin. Když se zapomenete odhlásit, systém vás o půlnoci odhlásí sám a upozorní vás, ale raději se odhlašte sami, je to přesnější."},
       {t:"✅ Potvrzení docházky", img:IMG+"S10_potvrzeni.png",
-       cap:'<div class="dp-step dp-amber">🖊 Včera · 7:26–16:26 · 7:52 — zkontroluj a potvrď.</div><div class="dp-step dp-ok">✓ Potvrzuji svou docházku</div><div class="dp-step dp-warn">⚠️ Bez potvrzení se ráno nepíchneš! Nesedí? → ✋ Rozpor.</div>',
-       v:"Krok šest. Potvrzení docházky. Po konci dne, nebo další ráno, vás systém požádá, abyste si den potvrdili. Uvidíte žlutou kartu s časem a počtem hodin. Zkontrolujte, jestli to sedí, a ťukněte na Potvrzuji svou docházku. Pozor, dokud den nepotvrdíte, ráno se nepíchnete. Pokud nesouhlasíte, ťukněte na Rozpor a napište, co je špatně."},
-      {t:"🌴 Dovolená, lékař, OČR", img:"",
-       cap:'<p class="hint" style="margin-top:0">Vše přes stejné zelené 💬:</p><table class="dp"><tr><td>🌴</td><td><b>Že by dovolená?</b></td><td>řádná dovolená</td></tr><tr><td>👨‍👧</td><td><b>Zase řeším rodinu</b></td><td>OČR</td></tr><tr><td>🤒</td><td><b>Je mi fakt blbě</b></td><td>sick day</td></tr><tr><td>🤧</td><td><b>Mám neschopenku</b></td><td>nemoc</td></tr><tr><td>🩺</td><td><b>Jedu k lékaři</b></td><td>lékař</td></tr><tr><td>🏡</td><td><b>Makat z domova</b></td><td>home office</td></tr></table><div class="dp-step">📌 Vždy: 💬 → vyber typ → datum od–do → Odeslat. Jde ke schválení nadřízenému.</div>',
-       v:"Krok sedm. Dovolená, lékař a další nepřítomnosti. Všechno nahlásíte přes stejné zelené tlačítko Potřebuji ti něco říct. V menu najdete Že by dovolená pro dovolenou, Zase řeším rodinu pro ošetřovné, Je mi blbě pro sick day, Mám neschopenku pro nemoc, a Jedu k lékaři. Postup je vždy stejný: vyberete typ, zadáte datum od do, a odešlete. Žádost jde ke schválení nadřízenému."},
-      {t:"📋 Tahák — co když…?", img:"",
-       cap:'<table class="dp"><tr><td><b>Příchod</b></td><td>💬 → 🏢 Jsem v práci</td></tr><tr><td><b>Pauza</b></td><td>💬 → 🙈 → 🍃 Najíst</td></tr><tr><td><b>Zpět z pauzy</b></td><td>✅ Jsem zpět</td></tr><tr><td><b>Odchod</b></td><td>💬 → 🙈 → 🫡 Nepočítej</td></tr><tr><td><b>Dovolená</b></td><td>💬 → 🌴 Dovolená</td></tr><tr><td><b>Potvrdit den</b></td><td>žlutá karta → ✓ Potvrzuji</td></tr></table><div class="dp-step dp-ok" style="text-align:center">💬 = zelené „Potřebuji ti něco říct…"<br>🙈 = oranžové „Teď to bude jinak…"</div>',
-       v:"A nakonec tahák. Příchod: zelené tlačítko, pak Jsem v práci. Pauza: zelené tlačítko, Teď to bude jinak, Jdu se najíst. Návrat: Jsem zpět. Odchod: zelené tlačítko, Teď to bude jinak, Dnes už se mnou nepočítej. Dovolená: zelené tlačítko, Že by dovolená. Potvrzení: na žluté kartě Potvrzuji. To je celé. Pokud potřebujete pomoct, v menu je tlačítko Mám dotaz na nadřízeného. Děkuji a hezký den."}
+       cap:'<div class="dp-step dp-amber">🖊 Včera · 7:26–16:26 · 7:52 — zkontroluj a potvrď.</div><div class="dp-step dp-ok">✓ Potvrzuji svou docházku</div><div class="dp-step dp-warn">⚠️ Bez potvrzení se ráno nepíchneš! Nesedí? → ✋ Rozpor (napiš, co je špatně).</div><p class="hint">Na potvrzení máš 14 dní.</p>',
+       v:"Po skončení dne, nebo další ráno, vás systém požádá o potvrzení. Uvidíte žlutou kartu s časem a počtem hodin. Zkontrolujte, jestli to sedí, a ťukněte Potvrzuji svou docházku. Důležité: dokud den nepotvrdíte, ráno se nepíchnete. Když něco nesedí, ťukněte Rozpor a napište, co je špatně. Dostane to nadřízený a vy můžete pracovat dál. Na potvrzení máte čtrnáct dní."},
+      {t:"🧭 Dovolená, nemoc, lékař, OČR…", img:IMG+"S07_absence_volby.png",
+       cap:'<p class="hint" style="margin-top:0">Plánované nepřítomnosti hlásíš dlaždicí <b>🧭 Tady budu jinde</b> (sekce Moje docházka), pak <b>🏠 Osobní důvody</b>:</p><table class="dp"><tr><td>🌴</td><td><b>Že by dovolená?</b></td><td>od–do</td></tr><tr><td>👨‍👧</td><td><b>Zase řeším rodinu</b></td><td>OČR, od–do</td></tr><tr><td>🤒</td><td><b>Je mi fakt blbě</b></td><td>sick day (dnes)</td></tr><tr><td>🤧</td><td><b>Mám neschopenku do…</b></td><td>nemoc</td></tr><tr><td>🩺</td><td><b>Jedu k lékaři</b></td><td>pak dorazím / dnes ne</td></tr><tr><td>🏡</td><td><b>Makat z domova</b></td><td>home office</td></tr><tr><td>🕐</td><td><b>Něco si zařizuji</b></td><td>dorazím za…</td></tr></table><div class="dp-step">💼 <b>Služební důvody</b>: 🚙 k zákazníkovi · 🎓 školení · 📦 pochůzka. Vše jde ke schválení nadřízenému.</div>',
+       v:"Dovolenou, lékaře nebo nemoc nahlásíte takhle. Na obrazovce docházky v sekci Moje docházka ťukněte na dlaždici Tady budu jinde. Pak vyberte Osobní důvody. Najdete tu Že by dovolená, Zase řeším rodinu pro ošetřovné, Je mi fakt blbě pro sick day, Mám neschopenku, Jedu k lékaři, Potřebuju makat z domova, a Něco si zařizuji. U dovolené, ošetřovného nebo home office zadáte datum od do. Je tu i volba Služební důvody, třeba školení nebo cesta k zákazníkovi. Každá žádost jde ke schválení nadřízenému a přijde vám notifikace."},
+      {t:"🆘 Pomoc, opravy a přehledy", img:"",
+       cap:'<div class="dp-step">🙋 <b>Mám dotaz na nadřízeného…</b> (v menu 💬) — napiš zprávu, dostane ji rovnou do mobilu.</div><div class="dp-step">✏️ <b>Ťukl jsi špatně?</b> V sekci „Tak to bylo dneska“ ťukni na záznam → <b>⏱ Zkrátit konec</b> nebo <b>🧾 Změnit zakázku</b>.</div><div class="dp-step">📊 Přehledy (sekce Moje docházka): 📅 Dnešek · Týden · 🕓 Historie · 📋 Moje žádosti · 📐 Můj úvazek · 💰 Moje finance (PIN).</div><div class="dp-step dp-ok" style="text-align:center">💬 zelené „Potřebuji ti něco říct" · 🙈 oranžové „Teď to bude jinak" · 🧭 „Tady budu jinde"</div>',
+       v:"Na závěr pár užitečných věcí. Když si nevíte rady, v menu Potřebuji ti něco říct je tlačítko Mám dotaz na nadřízeného. Napíšete zprávu a dostane ji rovnou do mobilu. Když se spletete a chcete opravit záznam, ťukněte na něj v sekci Tak to bylo dneska a vyberte Zkrátit konec, nebo Změnit zakázku. A v sekci Moje docházka najdete přehledy: dnešek, týden, historii, svoje žádosti, úvazek i svoje finance, které jsou zamčené PINem. To je celé. Děkuji za pozornost a přeji hezký den."}
     ];
     var cur=0, voiceMode=false, queue=[], qi=0, nextT=null, mo=null, watchdog=null;
     var czVoice=null;
@@ -4865,7 +4868,7 @@ setTimeout(function(){
     var p=el('<div class="panel"></div>');
     // Marti 16.6.: docházka běží i v PWA (web) přes cookie auth — gate na nativní appku zrušen.
     // Marti 7.6. večer: „Dnes" logicky nahoru — obrazovka KONČÍ kartou
-    // „Potřebuji ti něco říct…". Nadpis „Dnes makám 😉" při běžící směně.
+    // „Potřebuji ti něco říct…". Nadpis „Dnes makám 😉“ při běžící směně.
     // Nápověda (Jirka 26.6.): ❓ vpravo nahoře → kompletní návod docházky.
     var _hb=el('<div style="display:flex;justify-content:flex-end;margin:-6px 0 2px;"><button class="ghost" style="margin:0;width:auto;padding:6px 14px;font-size:13px;border-radius:18px;">❓ Nápověda</button></div>');
     _hb.querySelector("button").addEventListener("click",function(){ try{_tapFeedback();}catch(e){} dochHelp(); });
@@ -4949,7 +4952,7 @@ setTimeout(function(){
     _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">🔒 Páska je zamčená.</div></div>';
     // Marti 14.6.: časové sekce defaultně SCHOVANÉ — pod ikonami zůstane jen
     // „Potřebuji ti něco říct". Odkryjí se přes ikonu v regionu (Dnešek/Historie/…).
-    // „Tak to bylo dneska" (todayhist) skryté natrvalo (Marti: úplně schovat).
+    // „Tak to bylo dneska“ (todayhist) skryté natrvalo (Marti: úplně schovat).
     try{ ["today","todayhist","yest","prev","plan","paska"].forEach(function(k){
       if(_dS[k]&&_dS[k].box&&_dS[k].box.parentNode) _dS[k].box.parentNode.style.display="none"; }); }catch(e){}
     // Marti 7.6. večer: pro tlačítko Zpět — zavření otevřeného menu/sekcí.
@@ -4959,7 +4962,7 @@ setTimeout(function(){
       var dbx=document.querySelector(".detbox");
       if(dbx){ dbx.remove(); return true; }
       if(window._dochMenuTs){ try{ if(window._dochCloseMenu) window._dochCloseMenu(); }catch(e){} window._dochMenuTs=0; return true; }
-      // Marti 11.6.: rozkliknutý job „Tak to bylo dneska" → Zpět zavře detail jobu
+      // Marti 11.6.: rozkliknutý job „Tak to bylo dneska“ → Zpět zavře detail jobu
       // a zase ukáže pravou lištu (teprve další Zpět zavírá sekci).
       var _ojob=document.querySelector("#dochToday2 li.ct.open, #dochYest2 li.ct.open, #dochPrev2 li.ct.open, #dochPlan2 li.ct.open");
       if(_ojob){ var _oul=_ojob.parentNode; _ojob.classList.remove("open"); var _ojx=_ojob.querySelector(".ctexp"); if(_ojx)_ojx.style.display="none"; try{ var _lid=(_oul&&_oul.id)||"dochToday2"; _railSync(_lid.replace(/2$/,"")+"Rail",_lid); }catch(e){} return true; }
@@ -5854,7 +5857,7 @@ setTimeout(function(){
       }
     });
   }
-  // Marti 11.6.: „Tak to bylo dneska" — joby ve stylu Kontaktů (avatar+ikona,
+  // Marti 11.6.: „Tak to bylo dneska“ — joby ve stylu Kontaktů (avatar+ikona,
   // accordion zvětšení, 3 tlačítka; 2. klik = detail přes celou obrazovku).
   function _jobIcon(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
     if(/home|domov/.test(s)) return '🏠';
@@ -5949,7 +5952,7 @@ setTimeout(function(){
     return /pauz|p[řr]est[aá]v|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d/.test(_jobText(e)); }
   function _jobMakam(e){ return !_jobSpecial(e) && !_jobRelax2(e); }
   // Marti 11.6.: TEMPLATE „brand" dvoupanelu — lišta filtrů + joby + souhrn. Sdílený
-  // pro „Tak to bylo dneska", „Na včera si vzpomínám", „To už si nepamatuju".
+  // pro „Tak to bylo dneska“, „Na včera si vzpomínám", „To už si nepamatuju".
   var _todaySt={f:"vse"}, _yestSt={f:"vse"}, _prevSt={f:"vse"};
   // Marti 19.6.: stejný „Dnešek" template lze zobrazit i pro jiného člověka (👁 v panelu skupin).
   // _dochViewUid != null → read-only pohled na docházku cizí osoby (bez akcí). Vlastní obrazovky ho resetují.

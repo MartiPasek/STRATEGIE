@@ -5817,8 +5817,16 @@ async def app_connect_mailbox(req: Request) -> JSONResponse:
 # jadro 82 (osobni jednani / Centrala 1495). Doplnuj jak vznikaji jadra per akce.
 _CRM_AKCE_DEFAULT_CORE = 82
 _CRM_AKCE_CORE_MAP = {
+    1: 132,   # Email na info
+    2: 130,   # Telefonat na firmu
+    3: 133,   # Email odpovedne osobe
+    4: 131,   # Telefonat na OO
+    5: 129,   # Info o zakaznikovi
     6: 82,    # Osobni jednani = vychozi jadro
+    16: 134,  # Ziskani firmy obecne (nejpouzivanejsi, 9186 zaznamu)
     17: 81,   # Ziskani kontaktu na osobu z firmy = hotove jadro 81
+    # Skupina B (1491 grid / 1499 zakazky / 1497 poptavky) = TODO navazne seznamy.
+    # NULL akce (20 Nema zajem / 21 LinkedIn / 22 Osloveni) -> default 82.
 }
 
 

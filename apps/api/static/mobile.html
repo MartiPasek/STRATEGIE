@@ -4655,14 +4655,14 @@ setTimeout(function(){
   // Nápověda pro docházku (Jirka 26.6.2026) — adaptace docs/NAVOD_DOCHAZKA_UZIVATELE.html.
   // ❓ z hlavičky Spolupráce + kontextové ⓘ tipy (openKey auto-rozbalí sekci).
   function dochHelp(openKey){
-    var ov=el('<div style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:400;display:flex;flex-direction:column;padding:14px 14px 0;"></div>');
+    var ov=el('<div class="appmodal" style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:400;display:flex;flex-direction:column;padding:14px 14px 0;"></div>');
     var hd=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><div style="flex:1;font-weight:800;font-size:18px;">❓ Nápověda — Docházka</div></div>');
     var cl=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); cl.addEventListener("click",function(){ ov.remove(); }); hd.appendChild(cl); ov.appendChild(hd);
     var sc=el('<div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding-bottom:60px;"></div>'); ov.appendChild(sc);
     sc.appendChild(el('<div class="hint" style="margin-top:0;">Docházku najdeš dole: <b>🏢 Firma → 🤝 Spolupráce</b>. Skoro vše ovládáš zeleným <b>💬 Potřebuji ti něco říct…</b></div>'));
     // Hlasový průvodce (Jirka 26.6.): video s mluveným výkladem krok za krokem.
     var _vg=el('<button class="full" style="margin:10px 0 2px;padding:13px;font-size:15px;font-weight:700;background:#2563eb;color:#fff;border:none;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:8px;">▶️ Hlasový průvodce (video s výkladem)</button>');
-    _vg.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} ov.remove(); openInApp("/static/dochazka-pruvodce.html"); });
+    _vg.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} ov.remove(); dochPruvodce(); });
     sc.appendChild(_vg);
     sc.appendChild(el('<div class="hint" style="margin-top:4px;text-align:center;">Mluvený průvodce krok za krokem — ťukni ▶ Přehrát vše.</div>'));
     // Tahák
@@ -4706,6 +4706,152 @@ setTimeout(function(){
     sc.appendChild(el('<div class="hint" style="text-align:center;">Potřebuješ víc? Napiš nadřízenému přes 🙋 v menu, nebo HR.</div>'));
     app.appendChild(ov);
     if(openWrap){ try{ openWrap.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){} }
+  }
+  // ── Hlasový průvodce docházkou (Jirka 26.6.): nativní full-screen přehrávač ──
+  // Profi přestavba: responsivní (obrázky se vždy vejdou), spolehlivá řeč:
+  //  • text dělen na krátké úseky (<180 zn.) kvůli Android 15s/250zn. cutoffu (chunking,
+  //    NE pause/resume — ten Android zruší),
+  //  • řeč se VŽDY zruší při zavření/skrytí/hardware-back (MutationObserver + visibilitychange),
+  //  • žádný globální swipe (skákání kapitol), jen jasná tlačítka.
+  function dochPruvodce(){
+    var synth = window.speechSynthesis;
+    var IMG="/static/navod_dochazka/";
+    var SL=[
+      {t:"📱 Docházka v mobilu", img:"",
+       cap:'<p style="font-size:17px;margin:0 0 8px;">Hlasový průvodce krok za krokem.</p><p class="hint" style="margin:0;">Ťukni dole <b style="color:#58a6ff">▶ Přehrát</b> a jen poslouchej a koukej — nebo procházej šipkami <b>◀ ▶</b> a čti si sám.</p>',
+       v:"Vítejte v hlasovém průvodci docházkou ve STRATEGII. Ukážu vám krok za krokem, jak používat mobilní aplikaci. Stačí poslouchat a koukat. Pro další krok ťukněte na šipku doprava."},
+      {t:"🏢 Jak se dostat k docházce", img:IMG+"S02_firma.png",
+       cap:'<div class="dp-step"><b>1.</b> Na spodní liště ťukni <b style="color:#58a6ff">🏢 Firma</b> (vpravo dole).</div><div class="dp-step"><b>2.</b> Ťukni <b style="color:#3fb950">🤝 Spolupráce</b>.</div><div class="dp-step dp-ok">✓ Jsi na obrazovce docházky.</div>',
+       v:"Krok jedna. Jak se dostat k docházce. Otevřete aplikaci na mobilu. Na spodní liště úplně dole najdete pět ikon. Ťukněte na tu úplně vpravo, která se jmenuje Firma. Pak ťukněte na ikonu Spolupráce. A je to, jste na obrazovce docházky."},
+      {t:"👷 Příchod do práce", img:IMG+"S04_menu.png",
+       cap:'<div class="dp-step"><b>1.</b> Ťukni zelené <b style="color:#3fb950">💬 Potřebuji ti něco říct…</b></div><div class="dp-step"><b>2.</b> Ťukni <b style="color:#3fb950">🏢 Jsem v práci…</b></div><div class="dp-step dp-ok">✓ Hlavička: „Dnes makám 😉" — hodiny tikají.</div><p class="hint">Na zakázku → 🧾 Jsem na zakázce · Z domova → 🏠 Home office.</p>',
+       v:"Krok dva. Příchod do práce. Ráno, když přijdete, se píchnete. Ťukněte na zelené tlačítko Potřebuji ti něco říct. Rozbalí se menu, ťukněte na Jsem v práci. Hlavička se změní na Dnes makám a hodiny začnou tikat. Pokud jedete na zakázku, vyberte Jsem na zakázce. Pokud pracujete z domova, vyberte Nejsem v práci, home office."},
+      {t:"⏱️ Jste v práci — hodiny tikají", img:IMG+"S03_spoluprace.png",
+       cap:'<div class="dp-step dp-ok">„Dnes makám 😉" · Od 7:26 · ✅ 3:45</div><p style="font-size:15px;">📌 <b>Nemusíš nic mačkat.</b> Hodiny se počítají samy — prostě pracuj. Až budeš chtít pauzu nebo odchod, pokračuj dál.</p>',
+       v:"Krok tři. Jste v práci. Nemusíte nic dělat, prostě pracujte. Hodiny tikají samy. Na obrazovce vidíte, od kolika pracujete a kolik hodin už máte. Nic nemusíte mačkat, dokud nepotřebujete pauzu nebo odchod."},
+      {t:"🍽️ Pauza / oběd", img:IMG+"S04b_menu_dole.png",
+       cap:'<div class="dp-step"><b>1.</b> 💬 Potřebuji ti něco říct…</div><div class="dp-step"><b>2.</b> <b style="color:#d29922">🙈 Teď to bude jinak…</b></div><div class="dp-step"><b>3.</b> 🍃 Jdu se najíst · nebo ☕ Krátká pauza</div><div class="dp-step dp-amber">⏸ Hodiny STOJÍ (pauza se nepočítá).</div><div class="dp-step dp-ok">Po obědě: ✅ Jsem zpět — pokračuju.</div>',
+       v:"Krok čtyři. Pauza na oběd. Jdete na oběd? Musíte se odhlásit, jinak vám hodiny dál běží. Ťukněte na zelené tlačítko Potřebuji ti něco říct. Pak na oranžové Teď to bude jinak. A vyberte Jdu se najíst, nebo Potřebuju krátkou pauzu. Hodiny se zastaví. Důležité: po obědě se musíte vrátit. Ťukněte na Jsem zpět, pokračuju, a hodiny se zase rozběhnou."},
+      {t:"🏠 Konec práce — odchod", img:IMG+"S07_absence_volby.png",
+       cap:'<div class="dp-step"><b>1.</b> 💬 Potřebuji ti něco říct…</div><div class="dp-step"><b>2.</b> <b style="color:#d29922">🙈 Teď to bude jinak…</b></div><div class="dp-step dp-warn"><b>3.</b> 🫡 Dnes už se mnou nepočítej ;)</div><div class="dp-step dp-ok">✓ Směna ukončena — uvidíš souhrn hodin.</div>',
+       v:"Krok pět. Konec práce, odchod domů. Ťukněte na zelené tlačítko Potřebuji ti něco říct. Pak na oranžové Teď to bude jinak. A nakonec na Dnes už se mnou nepočítej. Směna je ukončena, uvidíte souhrn hodin. Pokud se zapomenete odhlásit, systém vás o půlnoci odhlásí sám, ale raději se odhlašte sami, je to přesnější."},
+      {t:"✅ Potvrzení docházky", img:IMG+"S10_potvrzeni.png",
+       cap:'<div class="dp-step dp-amber">🖊 Včera · 7:26–16:26 · 7:52 — zkontroluj a potvrď.</div><div class="dp-step dp-ok">✓ Potvrzuji svou docházku</div><div class="dp-step dp-warn">⚠️ Bez potvrzení se ráno nepíchneš! Nesedí? → ✋ Rozpor.</div>',
+       v:"Krok šest. Potvrzení docházky. Po konci dne, nebo další ráno, vás systém požádá, abyste si den potvrdili. Uvidíte žlutou kartu s časem a počtem hodin. Zkontrolujte, jestli to sedí, a ťukněte na Potvrzuji svou docházku. Pozor, dokud den nepotvrdíte, ráno se nepíchnete. Pokud nesouhlasíte, ťukněte na Rozpor a napište, co je špatně."},
+      {t:"🌴 Dovolená, lékař, OČR", img:"",
+       cap:'<p class="hint" style="margin-top:0">Vše přes stejné zelené 💬:</p><table class="dp"><tr><td>🌴</td><td><b>Že by dovolená?</b></td><td>řádná dovolená</td></tr><tr><td>👨‍👧</td><td><b>Zase řeším rodinu</b></td><td>OČR</td></tr><tr><td>🤒</td><td><b>Je mi fakt blbě</b></td><td>sick day</td></tr><tr><td>🤧</td><td><b>Mám neschopenku</b></td><td>nemoc</td></tr><tr><td>🩺</td><td><b>Jedu k lékaři</b></td><td>lékař</td></tr><tr><td>🏡</td><td><b>Makat z domova</b></td><td>home office</td></tr></table><div class="dp-step">📌 Vždy: 💬 → vyber typ → datum od–do → Odeslat. Jde ke schválení nadřízenému.</div>',
+       v:"Krok sedm. Dovolená, lékař a další nepřítomnosti. Všechno nahlásíte přes stejné zelené tlačítko Potřebuji ti něco říct. V menu najdete Že by dovolená pro dovolenou, Zase řeším rodinu pro ošetřovné, Je mi blbě pro sick day, Mám neschopenku pro nemoc, a Jedu k lékaři. Postup je vždy stejný: vyberete typ, zadáte datum od do, a odešlete. Žádost jde ke schválení nadřízenému."},
+      {t:"📋 Tahák — co když…?", img:"",
+       cap:'<table class="dp"><tr><td><b>Příchod</b></td><td>💬 → 🏢 Jsem v práci</td></tr><tr><td><b>Pauza</b></td><td>💬 → 🙈 → 🍃 Najíst</td></tr><tr><td><b>Zpět z pauzy</b></td><td>✅ Jsem zpět</td></tr><tr><td><b>Odchod</b></td><td>💬 → 🙈 → 🫡 Nepočítej</td></tr><tr><td><b>Dovolená</b></td><td>💬 → 🌴 Dovolená</td></tr><tr><td><b>Potvrdit den</b></td><td>žlutá karta → ✓ Potvrzuji</td></tr></table><div class="dp-step dp-ok" style="text-align:center">💬 = zelené „Potřebuji ti něco říct…"<br>🙈 = oranžové „Teď to bude jinak…"</div>',
+       v:"A nakonec tahák. Příchod: zelené tlačítko, pak Jsem v práci. Pauza: zelené tlačítko, Teď to bude jinak, Jdu se najíst. Návrat: Jsem zpět. Odchod: zelené tlačítko, Teď to bude jinak, Dnes už se mnou nepočítej. Dovolená: zelené tlačítko, Že by dovolená. Potvrzení: na žluté kartě Potvrzuji. To je celé. Pokud potřebujete pomoct, v menu je tlačítko Mám dotaz na nadřízeného. Děkuji a hezký den."}
+    ];
+    var cur=0, voiceMode=false, queue=[], qi=0, nextT=null, mo=null;
+    var czVoice=null;
+    function pickVoice(){ try{ var vs=synth?synth.getVoices():[]; czVoice=vs.filter(function(v){return v.lang==="cs-CZ";})[0] || vs.filter(function(v){return v.lang&&v.lang.indexOf("cs")===0;})[0] || null; }catch(e){} }
+    if(synth){ pickVoice(); try{ synth.addEventListener("voiceschanged",pickVoice); }catch(e){} }
+    // Dělení na krátké úseky (<180 zn.) — Android-safe (chunking, ne pause/resume).
+    function chunk(t){
+      var parts=(t.match(/[^.!?]+[.!?]*/g)||[t]).map(function(s){return s.trim();}).filter(Boolean), out=[];
+      parts.forEach(function(s){
+        if(s.length<=180){ out.push(s); return; }
+        var buf=""; s.split(/,\s*/).forEach(function(c){
+          if((buf+", "+c).length>180){ if(buf)out.push(buf); buf=c; } else buf=buf?buf+", "+c:c;
+        });
+        if(buf)out.push(buf);
+      });
+      return out;
+    }
+    // Overlay
+    var ov=el('<div id="dpOverlay" class="appmodal"></div>');
+    ov.style.cssText="position:fixed;inset:0;z-index:100000;background:#0b0e14;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);";
+    ov.appendChild(el('<style>#dpOverlay *{box-sizing:border-box}'
+      +'#dpHd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #1d2733}'
+      +'#dpHd .ttl{flex:1;font-weight:700;font-size:15px;color:#e6edf3}'
+      +'#dpPill{display:none;align-items:center;gap:6px;background:rgba(37,99,235,.18);color:#7db0ff;border:1px solid #2f6feb;border-radius:20px;padding:3px 10px;font-size:12px}'
+      +'#dpPill.on{display:inline-flex}'
+      +'#dpPill .w{display:inline-block;width:3px;height:10px;background:#7db0ff;border-radius:2px;animation:dpw 1s infinite}'
+      +'#dpProg{height:3px;background:#1d2733}#dpProg>div{height:100%;width:0;background:linear-gradient(90deg,#2f6feb,#7c3aed);transition:width .35s}'
+      +'#dpStage{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:16px 16px 8px;display:flex;flex-direction:column;align-items:center;gap:12px}'
+      +'#dpStage h2{font-size:20px;margin:0;text-align:center;color:#fff}'
+      +'#dpStage img{max-width:100%;max-height:44vh;object-fit:contain;border-radius:14px;border:1px solid #25303f;display:block}'
+      +'#dpStage .capw{width:100%;max-width:520px;color:#dbe3ee}'
+      +'#dpStage .dp-step{background:#121822;border:1px solid #25303f;border-left:3px solid #2f6feb;border-radius:10px;padding:9px 12px;margin:8px 0;font-size:15px;line-height:1.5;text-align:left}'
+      +'#dpStage .dp-ok{border-left-color:#16a34a;background:rgba(22,163,74,.08)}'
+      +'#dpStage .dp-warn{border-left-color:#dc2626;background:rgba(220,38,38,.09)}'
+      +'#dpStage .dp-amber{border-left-color:#d29922;background:rgba(210,153,34,.10)}'
+      +'#dpStage table.dp{width:100%;border-collapse:collapse;font-size:14px}'
+      +'#dpStage table.dp td{padding:7px 8px;border-bottom:1px solid #1b2430;text-align:left;vertical-align:top}'
+      +'#dpStage table.dp td:first-child{width:1%;white-space:nowrap;font-size:1.3em}'
+      +'#dpCtl{display:flex;align-items:center;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid #1d2733}'
+      +'#dpCtl button{border:1px solid #2a3340;background:#161d28;color:#e6edf3;border-radius:12px;padding:11px 14px;font-size:15px;font-weight:700;cursor:pointer}'
+      +'#dpCtl button:disabled{opacity:.35}'
+      +'#dpCtl .play{flex:1;background:#2563eb;border-color:#2563eb;color:#fff}'
+      +'#dpCtl .num{min-width:42px;text-align:center;color:#8b949e;font-size:13px}'
+      +'@keyframes dpw{0%,100%{transform:scaleY(.5)}50%{transform:scaleY(1)}}'
+      +'</style>'));
+    var hd=el('<div id="dpHd"><span class="ttl">🔊 Hlasový průvodce</span><span id="dpPill"><span class="w"></span>Čtu…</span></div>');
+    var clo=el('<button style="border:1px solid #2a3340;background:#161d28;color:#e6edf3;border-radius:10px;width:40px;height:36px;font-size:16px;cursor:pointer;">✕</button>');
+    clo.addEventListener("click",function(){ closeDp(); });
+    hd.appendChild(clo); ov.appendChild(hd);
+    var prog=el('<div id="dpProg"><div></div></div>'); ov.appendChild(prog);
+    var stage=el('<div id="dpStage"></div>'); ov.appendChild(stage);
+    var ctl=el('<div id="dpCtl"></div>');
+    var bPrev=el('<button>◀</button>'), bPlay=el('<button class="play">▶ Přehrát</button>'), bNext=el('<button>▶</button>'), num=el('<span class="num">1/'+SL.length+'</span>');
+    ctl.appendChild(bPrev); ctl.appendChild(num); ctl.appendChild(bPlay); ctl.appendChild(bNext); ov.appendChild(ctl);
+
+    function pill(on){ var p=document.getElementById("dpPill"); if(p)p.classList.toggle("on",!!on); }
+    function stopSpeak(){ try{ if(synth)synth.cancel(); }catch(e){} if(nextT){clearTimeout(nextT);nextT=null;} pill(false); }
+    function updUI(){
+      num.textContent=(cur+1)+"/"+SL.length;
+      prog.firstChild.style.width=(SL.length>1?(cur/(SL.length-1))*100:100)+"%";
+      bPrev.disabled=cur===0; bNext.disabled=cur===SL.length-1;
+      bPlay.textContent=voiceMode?"⏸ Pauza":"▶ Přehrát";
+      bPlay.classList.toggle("playing",voiceMode);
+    }
+    function render(){
+      stage.scrollTop=0; stage.innerHTML="";
+      var s=SL[cur];
+      stage.appendChild(el('<h2>'+s.t+'</h2>'));
+      if(s.img){ var im=el('<img alt="">'); im.src=s.img; stage.appendChild(im); }
+      var cw=el('<div class="capw"></div>'); cw.innerHTML=s.cap; stage.appendChild(cw);
+      updUI();
+    }
+    function speakCur(){
+      stopSpeak();
+      if(!synth || !voiceMode) return;
+      var t=SL[cur].v||"";
+      if(!t){ scheduleNext(); return; }
+      queue=chunk(t); qi=0; pill(true); speakChunk();
+    }
+    function speakChunk(){
+      if(!voiceMode || !document.body.contains(ov)) return;
+      if(qi>=queue.length){ pill(false);
+        if(cur<SL.length-1){ scheduleNext(); } else { voiceMode=false; updUI(); }
+        return; }
+      var u=new SpeechSynthesisUtterance(queue[qi]);
+      if(czVoice)u.voice=czVoice; u.lang="cs-CZ"; u.rate=.97; u.pitch=1;
+      u.onend=function(){ qi++; speakChunk(); };
+      u.onerror=function(){ qi++; speakChunk(); };
+      try{ synth.speak(u); }catch(e){ qi++; speakChunk(); }
+    }
+    function scheduleNext(){ if(nextT)clearTimeout(nextT); nextT=setTimeout(function(){ if(voiceMode && cur<SL.length-1) goTo(cur+1); },1100); }
+    function goTo(n){ if(n<0||n>=SL.length)return; stopSpeak(); cur=n; render(); if(voiceMode) speakCur(); }
+    bPrev.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} goTo(cur-1); });
+    bNext.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} goTo(cur+1); });
+    bPlay.addEventListener("click",function(){ try{_tapFeedback();}catch(e){}
+      if(voiceMode){ voiceMode=false; stopSpeak(); updUI(); }
+      else { voiceMode=true; updUI(); speakCur(); } });
+
+    function cleanup(){ stopSpeak(); document.removeEventListener("visibilitychange",onVis); if(mo){mo.disconnect();mo=null;} }
+    function closeDp(){ try{ ov.remove(); }catch(e){} /* MutationObserver dorovná cleanup */ }
+    function onVis(){ if(document.hidden){ voiceMode=false; stopSpeak(); updUI(); } }
+    document.addEventListener("visibilitychange",onVis);
+    // Bezpečně zruš řeč při JAKÉMKOLI odebrání overlaye (✕ / hardware back přes .appmodal / render)
+    mo=new MutationObserver(function(){ if(!document.body.contains(ov)) cleanup(); });
+    try{ mo.observe(document.body,{childList:true}); }catch(e){}
+
+    document.body.appendChild(ov);
+    render();
   }
   function dochazka(){
     app.innerHTML=topbar("", false, true);  // Marti 7.6.: bez nadpisu a šipky; prázdná lišta drží odsazení

@@ -147,6 +147,12 @@
     // /app/crm/akce-typy cte zivy cisselnik st.CRM_Kontakt_AkceCis).
     // ════════════════════════════════════════════════════════════════
     var CRM_AKCE_GRID_CODE = "grid_crm_akce";
+    // Grid Kontaktni udaje (osoby) na karte 72 (Kristy 26.6.2026): Novy vytvori
+    // kontakt = akce typu 17 (Ziskani kontaktu na osobu z firmy) pres jadro 81.
+    // Jediny typ -> bez pickeru, IDAkce napevno 17 + IDHlav firmy.
+    var CRM_OSOBY_GRID_CODE = "grid_crm_kontaktni_udaje";
+    var CRM_OSOBY_CORE_ID = 81;
+    var CRM_OSOBY_IDAKCE = 17;
     var _crmAkceTypesCache = null;
 
     function _crmAkceFetchTypes() {
@@ -259,6 +265,22 @@
           { overrideCoreId: _crmAkceCoreFor(idAkce) }
         );
       });
+    }
+
+    /** Grid Kontaktni udaje 'Novy' -> jadro 81 se seedem IDHlav + IDAkce=17
+     *  (bez pickeru — jediny typ akce). */
+    function _crmOsobaCreate(ctx) {
+      if (ctx.refId == null) {
+        alert("⚠ Nový kontakt: chybí ID firmy (otevři z karty zákazníka).");
+        return Promise.reject(new Error("no_master_id"));
+      }
+      return _openFwEditForm(
+        CRM_OSOBY_GRID_CODE, null, "create", ctx.refreshFn,
+        {
+          overrideCoreId: CRM_OSOBY_CORE_ID,
+          injectValues: { IDHlav: ctx.refId, IDAkce: CRM_OSOBY_IDAKCE },
+        }
+      );
     }
 
     /** Hard delete via erp_batch_action (Marti's Q3=a hard delete).
@@ -533,6 +555,10 @@
           // CRM Akce: picker typu akce -> routing + seed IDHlav/IDAkce.
           if (ctx.gridCode === CRM_AKCE_GRID_CODE) {
             return _crmAkceCreate(ctx);
+          }
+          // CRM Kontaktni udaje (osoby): jadro 81 + seed IDHlav + IDAkce=17.
+          if (ctx.gridCode === CRM_OSOBY_GRID_CODE) {
+            return _crmOsobaCreate(ctx);
           }
           return _openFwEditForm(
             ctx.gridCode, null, "create", ctx.refreshFn

@@ -6275,11 +6275,13 @@
       const gridCode = (comp && comp.name) ? comp.name
         : (gridCoreId != null ? ("core_" + gridCoreId) : null);
 
-      // CRM Akce (Kristy 26.6.2026): vynut CRUD toolbar (Nový/Oprava) na sub-gridu
-      // akcí. Create routuje pres picker typu akce + seed IDHlav/IDAkce
-      // (erp_grid_actions.js _crmAkceCreate). Scoped JEN sem — jine sub-gridy by
-      // create bez seedu vytvorily osirely zaznam (chybi IDHlav/IDAkce).
-      const isCrmAkceGrid = (gridCode === "grid_crm_akce");
+      // CRM (Kristy 26.6.2026): vynut CRUD toolbar (Nový/Oprava) na sub-gridech,
+      // ktere maji v erp_grid_actions.js create handler se seedem IDHlav/IDAkce:
+      //   grid_crm_akce            -> picker typu akce
+      //   grid_crm_kontaktni_udaje -> jadro 81, IDAkce=17 (Ziskani kontaktu)
+      // Scoped JEN sem — jine sub-gridy by create bez seedu vytvorily osirely zaznam.
+      const isCrmAkceGrid = (gridCode === "grid_crm_akce"
+                             || gridCode === "grid_crm_kontaktni_udaje");
       const effGridActions = isCrmAkceGrid
         ? { has_insert: true, has_edit: true, has_delete: true, edit_core_id: editCoreId }
         : gridActions;

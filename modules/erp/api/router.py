@@ -19083,6 +19083,12 @@ def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3
     cm, s = _att_session()
     sent = 0
     try:
+        # SAMO-LÉČENÍ KONZISTENCE (Marti 26.6.2026): záznam s vyplněným ended_at NEMŮŽE být
+        # „aktivní/běžící" — import (source='import', overhead) občas nechá is_active=true
+        # i u zavřeného → tím vznikaly bogus „dlouhá směna" i „zapomenutý odchod". Srovnej.
+        s.execute(_t("UPDATE tenant.att_entry SET is_active=false, updated_at=now() "
+                     "WHERE tenant_id=:t AND is_active=true AND ended_at IS NOT NULL"), {"t": tenant})
+        s.commit()
         # ROBUSTNOST (Marti 26.6.2026): „když funguje odhlášení po půlnoci, nemůže vzniknout
         # směna delší než 23 h" → existence 36/50/60h směn = důkaz, že půlnoční job občas
         # minul okno (deploy/restart). Záchytka: zavři KAŽDOU aktivní směnu z PŘEDCHOZÍHO dne

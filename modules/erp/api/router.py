@@ -5825,7 +5825,8 @@ _CRM_AKCE_CORE_MAP = {
     6: 82,    # Osobni jednani = vychozi jadro
     16: 134,  # Ziskani firmy obecne (nejpouzivanejsi, 9186 zaznamu)
     17: 81,   # Ziskani kontaktu na osobu z firmy = hotove jadro 81
-    # Skupina B (1491 grid / 1499 zakazky / 1497 poptavky) = TODO navazne seznamy.
+    19: 135,  # Sem zavolej = jadro s vnorenym gridem kontaktu firmy
+    # 1499 zakazky / 1497 poptavky = odlozeno (Kristy 26.6. - nestavet na dbo).
     # NULL akce (20 Nema zajem / 21 LinkedIn / 22 Osloveni) -> default 82.
 }
 

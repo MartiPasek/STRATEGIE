@@ -6241,6 +6241,18 @@
               ? this._spec.data.id : null);
         filterValue = _editedId;
       }
+      // CRM "Sem zavolej" (Kristy 26.6.2026): filtruj embedded grid podle HODNOTY
+      // POLE editovaneho radku (ne podle jeho PK). Pr.: grid kontaktu firmy uvnitr
+      // edit formu akce -> filtr = akce.IDHlav (firma), ne ID akce. Na CREATE z
+      // injectValues (seed IDHlav). Additivni: jen kdyz layout.master_value_field.
+      if (layout.master_value_field) {
+        const _mvf = String(layout.master_value_field);
+        filterValue =
+          (this._spec && this._spec.data && this._spec.data[_mvf] != null)
+            ? this._spec.data[_mvf]
+            : ((this.opts && this.opts.injectValues && this.opts.injectValues[_mvf] != null)
+                ? this.opts.injectValues[_mvf] : null);
+      }
 
       const heightPx = (typeof layout.height_px === "number" && layout.height_px > 0)
         ? layout.height_px : 360;

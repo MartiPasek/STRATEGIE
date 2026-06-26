@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docházka v mobilu — Hlasový průvodce</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#0d1117;color:#e6edf3;overflow:hidden;height:100vh;user-select:none}
+
+  /* Prezentace */
+  #prez{width:100vw;height:100vh;position:relative}
+  .sl{display:none;width:100%;height:100%;padding:40px 60px;flex-direction:column;justify-content:center;position:absolute;top:0;left:0;opacity:0;transition:opacity .6s}
+  .sl.active{display:flex;opacity:1}
+
+  /* Typografie */
+  h1{font-size:2.8em;margin-bottom:12px;line-height:1.2}
+  h2{font-size:1.8em;color:#58a6ff;margin:16px 0 10px}
+  p,.txt{font-size:1.35em;color:#c9d1d9;line-height:1.6;margin:6px 0 12px}
+  .big{font-size:1.6em}
+  .sub{color:#8b949e;font-size:1.1em}
+  .hl{color:#3fb950;font-weight:700}
+  .warn-t{color:#d29922;font-weight:700}
+  .red{color:#f85149;font-weight:700}
+
+  /* Layout */
+  .row{display:flex;gap:40px;align-items:center;flex:1}
+  .col{flex:1}
+  .col-img{flex:0 0 280px;text-align:center}
+  .col-img img{width:240px;border-radius:20px;border:3px solid #30363d;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+  .center{text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
+
+  /* Kroky */
+  .step{display:flex;gap:16px;align-items:flex-start;margin:14px 0;padding:16px 20px;background:rgba(255,255,255,.04);border-radius:14px;border-left:5px solid #2563eb;font-size:1.15em}
+  .step.reading{background:rgba(37,99,235,.12);border-color:#58a6ff;transform:scale(1.01);transition:all .3s}
+  .step-n{flex:0 0 40px;height:40px;background:#2563eb;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.2em}
+  .step-g{border-color:#3fb950}.step-g .step-n{background:#3fb950}
+  .step-a{border-color:#d29922}.step-a .step-n{background:#d29922}
+
+  /* Navigace */
+  #nav{position:fixed;bottom:0;left:0;right:0;background:rgba(13,17,23,.95);border-top:1px solid #30363d;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;z-index:100;backdrop-filter:blur(8px)}
+  #nav button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:12px;padding:12px 28px;font-size:1.15em;cursor:pointer;font-weight:600;transition:all .2s}
+  #nav button:hover{background:#30363d;border-color:#58a6ff}
+  #nav button:active{transform:scale(.96)}
+  #nav .play-btn{background:#2563eb;border-color:#2563eb;color:#fff;padding:12px 36px;font-size:1.2em}
+  #nav .play-btn:hover{background:#3b82f6}
+  #nav .play-btn.playing{background:#dc2626;border-color:#dc2626}
+  #progress{flex:1;margin:0 20px;height:6px;background:#21262d;border-radius:3px;overflow:hidden}
+  #progress-bar{height:100%;background:linear-gradient(90deg,#2563eb,#7c3aed);border-radius:3px;transition:width .5s}
+  #slide-num{color:#8b949e;font-size:1em;min-width:60px;text-align:center}
+
+  /* Hlasový indikátor */
+  #voice-indicator{position:fixed;top:20px;right:24px;background:rgba(37,99,235,.9);color:#fff;padding:8px 18px;border-radius:20px;font-size:0.95em;z-index:200;display:none;backdrop-filter:blur(4px)}
+  #voice-indicator.active{display:flex;align-items:center;gap:8px}
+  .voice-wave{display:flex;gap:2px;align-items:center;height:16px}
+  .voice-wave span{width:3px;background:#fff;border-radius:2px;animation:wave 1s infinite}
+  .voice-wave span:nth-child(2){animation-delay:.15s}
+  .voice-wave span:nth-child(3){animation-delay:.3s}
+  .voice-wave span:nth-child(4){animation-delay:.45s}
+  @keyframes wave{0%,100%{height:4px}50%{height:16px}}
+
+  /* Tabulka */
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:1.1em}
+  th{background:rgba(37,99,235,.15);padding:10px 16px;text-align:left;border:1px solid #30363d;color:#58a6ff}
+  td{padding:10px 16px;border:1px solid #30363d}
+  tr:nth-child(even){background:rgba(255,255,255,.02)}
+
+  /* Box */
+  .box{background:rgba(255,255,255,.04);border:1px solid #30363d;border-radius:14px;padding:20px 24px;margin:14px 0}
+  .box-green{border-color:#238636;background:rgba(63,185,80,.06)}
+  .box-amber{border-color:#9e6a03;background:rgba(210,153,34,.06)}
+  .box-red{border-color:#da3633;background:rgba(248,81,73,.06)}
+
+  /* Animace vstupu */
+  .sl.active .step{animation:fadeUp .5s ease-out both}
+  .sl.active .step:nth-child(1){animation-delay:.1s}
+  .sl.active .step:nth-child(2){animation-delay:.3s}
+  .sl.active .step:nth-child(3){animation-delay:.5s}
+  .sl.active .step:nth-child(4){animation-delay:.7s}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+
+<div id="voice-indicator"><div class="voice-wave"><span></span><span></span><span></span><span></span></div> Čtu…</div>
+
+<div id="prez">
+
+<!-- ═══════ SLIDE 0: TITULKA ═══════ -->
+<div class="sl" data-voice="Vítejte v hlasovém průvodci docházkou ve STRATEGII. Ukážu vám krok za krokem, jak používat mobilní appku. Stačí poslouchat a koukat. Až budete připraveni, klikněte na šipku doprava nebo na tlačítko Přehrát.">
+  <div class="center">
+    <div style="font-size:5em;margin-bottom:16px">📱</div>
+    <h1 style="font-size:3.2em;background:linear-gradient(135deg,#58a6ff,#bc8cff);-webkit-background-clip:text;-webkit-text-fill-color:transparent">STRATEGIE</h1>
+    <h2 style="color:#e6edf3;font-size:2em;margin:12px 0">Docházka v mobilu</h2>
+    <p style="font-size:1.4em;color:#8b949e;margin-top:8px">Hlasový průvodce krok za krokem</p>
+    <div style="margin-top:40px;padding:20px 32px;background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.3);border-radius:16px">
+      <p style="font-size:1.2em;margin:0;color:#58a6ff">🔊 Zapněte si zvuk — průvodce vám vše přečte</p>
+      <p style="font-size:1em;margin:8px 0 0;color:#8b949e">Nebo klikejte šipkami a čtěte sami</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ SLIDE 1: JAK SE TAM DOSTAT ═══════ -->
+<div class="sl" data-voice="Krok jedna. Jak se dostat k docházce. Otevřete appku Strategie na mobilu. Na spodní liště úplně dole najdete pět ikon. Ťukněte na tu úplně vpravo, která se jmenuje Firma. Pak se zobrazí ikony firmy. Najděte a ťukněte na ikonu Spolupráce. A je to! Jste na obrazovce docházky.">
+  <h1>🏢 Jak se dostat k docházce</h1>
+  <p class="sub">Otevřete appku STRATEGIE na mobilu.</p>
+  <div class="row">
+    <div class="col">
+      <div class="step" id="s1-1">
+        <div class="step-n">1</div>
+        <div style="flex:1">Na <strong>spodní liště</strong> ťukněte na<br><span style="font-size:1.3em;color:#58a6ff;font-weight:700">🏢 Firma</span><br><span style="color:#8b949e">(úplně vpravo dole)</span></div>
+      </div>
+      <div class="step" id="s1-2">
+        <div class="step-n">2</div>
+        <div style="flex:1">Zobrazí se ikony. Ťukněte na<br><span style="font-size:1.3em;color:#3fb950;font-weight:700">🤝 Spolupráce</span></div>
+      </div>
+      <div class="step step-g" id="s1-3">
+        <div class="step-n" style="font-size:1.4em">✓</div>
+        <div style="flex:1"><strong style="font-size:1.15em">Jste na docházce!</strong><br>Vidíte pozdrav a svůj stav.</div>
+      </div>
+    </div>
+    <div class="col-img">
+      <img src="/static/navod_dochazka/S02_firma.png" alt="Firma tab">
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ SLIDE 2: PŘÍCHOD ═══════ -->
+<div class="sl" data-voice="Krok dva. Příchod do práce. Ráno, když přijdete, se takzvaně píchnete. Ťukněte na zelené pulzující tlačítko Potřebuji ti něco říct. Rozbalí se menu s volbami. Ťukněte na Jsem v práci. A hotovo! Hlavička se změní na Dnes makám a hodiny začnou tikát. Pokud jedete na zakázku, vyberte místo toho Jsem na zakázce. Pokud pracujete z domova, vyberte Nejsem v práci home office.">
+  <h1>👷 Příchod do práce</h1>
+  <p class="sub">Ráno, když přijdete — „píchnete se".</p>
+  <div class="row">
+    <div class="col">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div style="flex:1">Ťukněte na zelené tlačítko:<br><span class="hl" style="font-size:1.2em">💬 Potřebuji ti něco říct…</span></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div style="flex:1">V menu ťukněte na:<br><span class="hl" style="font-size:1.2em">🏢 Jsem v práci…</span></div>
+      </div>
+      <div class="step step-g">
+        <div class="step-n" style="font-size:1.4em">✓</div>
+        <div style="flex:1"><strong>Hotovo!</strong> Uvidíte:<br><span class="hl" style="font-size:1.3em">„Dnes makám 😉"</span><br>Hodiny tikají.</div>
+      </div>
+    </div>
+    <div class="col-img">
+      <img src="/static/navod_dochazka/S04_menu.png" alt="Menu příchod">
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ SLIDE 3: VE SMĚNĚ ═══════ -->
+<div class="sl" data-voice="Krok tři. Jste v práci. Nemusíte nic dalšího dělat. Prostě pracujte. Hodiny tikají samy. Na obrazovce vidíte, od kolika pracujete, kolik hodin už máte, a na jaké zakázce jste. Nic nemusíte mačkat, dokud nepotřebujete pauzu nebo odchod.">
+  <h1>⏱️ Jste v práci — hodiny tikají</h1>
+  <div class="row">
+    <div class="col">
+      <div class="box box-green">
+        <p class="big"><span class="hl">„Dnes makám 😉"</span></p>
+        <p>Od: <strong>7:26</strong> — VR74514</p>
+        <p>Odpracováno: <span class="hl" style="font-size:1.4em">✅ 3:45</span></p>
+      </div>
+      <p style="font-size:1.3em;margin-top:20px">📌 <strong>Nemusíte nic mačkat.</strong></p>
+      <p>Hodiny se počítají samy. Prostě pracujte. Až budete potřebovat pauzu nebo odchod, pokračujte dalším krokem.</p>
+    </div>
+    <div class="col-img">
+      <img src="/static/navod_dochazka/S03_spoluprace.png" alt="Směna běží">
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ SLIDE 4: PAUZA ═══════ -->
+<div class="sl" data-voice="Krok čtyři. Pauza na oběd. Jdete na oběd? Musíte se odhlásit, jinak vám hodiny dál tikají. Ťukněte na zelené tlačítko Potřebuji ti něco říct. Pak ťukněte na oranžové Teď to bude jinak. A vyberte: Jdu se provětrat lomeno najíst. Nebo Potřebuju krátkou pauzu. Hlavička se změní na Dávám si pauzu a hodiny se zastaví. Důležité: po obědě se musíte vrátit! Ťukněte na zelené tlačítko Jsem zpět pokračuju. Hodiny se zase rozběhnou.">
+  <h1>🍽️ Pauza na oběd</h1>
+  <p class="sub">Hodiny se zastaví — pauza se nepočítá.</p>
+  <div class="row">
+    <div class="col">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div style="flex:1">Ťukněte <span class="hl">💬 Potřebuji ti něco říct…</span></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div style="flex:1">Ťukněte <span class="warn-t">🙈 Teď to bude jinak…</span></div>
+      </div>
+      <div class="step">
+        <div class="step-n">3</div>
+        <div style="flex:1">Vyberte:<br><strong>🍃 Jdu se provětrat / najíst…</strong><br>nebo <strong>☕ Potřebuju krátkou pauzu…</strong></div>
+      </div>
+      <div class="step step-a">
+        <div class="step-n" style="font-size:1.2em">⏸</div>
+        <div style="flex:1"><span class="warn-t" style="font-size:1.15em">Hodiny STOJÍ!</span></div>
+      </div>
+      <div class="box box-green" style="margin-top:16px">
+        <p><strong>Po obědě:</strong> Ťukněte <span class="hl" style="font-size:1.1em">✅ Jsem zpět — pokračuju</span></p>
+      </div>
+    </div>
+    <div class="col-img">
+      <img src="/static/navod_dochazka/S04b_menu_dole.png" alt="Menu pauza">
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ SLIDE 5: KONEC ═══════ -->
+<div class="sl" data-voice="Krok pět. Konec práce, odchod domů. Ťukněte na zelené tlačítko Potřebuji ti něco říct. Pak na oranžové Teď to bude jinak. A nakonec ťukněte na: Dnes už se mnou nepočítej. Směna je ukončena! Uvidíte souhrn odpracovaných hodin. Pokud se zapomenete odhlásit, systém vás o půlnoci odhlásí automaticky. Ale raději se odhlašte sami, je to přesnější.">
+  <h1>🏠 Konec práce — odchod</h1>
+  <div class="row">
+    <div class="col">
+      <div class="step">
+        <div class="step-n">1</div>
+        <div style="flex:1">Ťukněte <span class="hl">💬 Potřebuji ti něco říct…</span></div>
+      </div>
+      <div class="step">
+        <div class="step-n">2</div>
+        <div style="flex:1">Ťukněte <span class="warn-t">🙈 Teď to bude jinak…</span></div>
+      </div>
+      <div class="step" style="border-color:#f85149">
+        <div class="step-n" style="background:#dc2626;font-size:1.3em">3</div>
+        <div style="flex:1"><span class="red" style="font-size:1.3em">🫡 Dnes už se mnou nepočítej ;)</span></div>
+      </div>
+      <div class="step step-g">
+        <div class="step-n" style="font-size:1.4em">✓</div>
+        <div style="flex:1"><strong style="font-size:1.2em">Směna ukončena!</strong><br>Uvidíte souhrn hodin.</div>
+      </div>
+    </div>
+    <div class="col-img">
+      <img src="/static/navod_dochazka/S07_absence_volby.png" alt="Menu odchod">
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ SLIDE 6: POTVRZENÍ ═══════ -->
+<div class="sl" data-voice="Krok šest. Potvrzení docházky. Po konci dne, nebo další ráno, vás systém požádá, abyste si den potvrdili. Na obrazovce uvidíte žlutou kartu s textem jako: Včera, sedm dvacet šest až šestnáct dvacet šest, sedm hodin padesát dva minut. Zkontrolujte si, jestli to sedí. Pokud ano, ťukněte na zelené tlačítko Potvrzuji svou docházku. Důležité upozornění: dokud nepotvrdíte, systém vás ráno nepustí se píchnout! Pokud nesouhlasíte, ťukněte na Rozpor a napište co je špatně. Rozpor vás pustí pracovat dál.">
+  <h1>✅ Potvrzení docházky</h1>
+  <p class="sub">Systém vás požádá — potvrďte, že údaje sedí.</p>
+  <div class="row">
+    <div class="col">
+      <div class="box box-amber">
+        <p style="font-size:1.3em;color:#d29922;font-weight:700">🖊 Včera · 7:26–16:26 · 7:52</p>
+        <p style="color:#8b949e">Zkontroluj a potvrď svůj den.</p>
+      </div>
+      <div class="step step-g">
+        <div class="step-n">✓</div>
+        <div style="flex:1">Ťukněte:<br><span class="hl" style="font-size:1.2em">✓ Potvrzuji svou docházku</span></div>
+      </div>
+      <div class="box box-red" style="margin-top:14px">
+        <p><strong>⚠️ Nepotvrzený den vás NEPUSTÍ!</strong></p>
+        <p style="color:#8b949e">Dokud nekliknete „Potvrzuji" nebo „Rozpor", nemůžete se ráno píchnout.</p>
+      </div>
+    </div>
+    <div class="col-img">
+      <img src="/static/navod_dochazka/S10_potvrzeni.png" alt="Potvrzení">
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ SLIDE 7: DOVOLENÁ ═══════ -->
+<div class="sl" data-voice="Krok sedm. Dovolená, lékař, OČR a další nepřítomnosti. Všechno nahlásíte přes stejné zelené tlačítko Potřebuji ti něco říct. V menu najdete: Že by dovolená pro řádnou dovolenou. Zase řeším rodinu pro OČR. Je mi fakt blbě pro sick day. Mám neschopenku pro nemoc. Jedu k lékaři. Postup je vždy stejný: ťuknete, vyberete typ, zadáte datum od do, a odešlete. Žádost jde ke schválení nadřízenému. Dostanete notifikaci, až rozhodne.">
+  <h1>🌴 Dovolená, lékař, OČR</h1>
+  <p class="sub">Vše přes stejné tlačítko 💬</p>
+  <table>
+    <tr><th></th><th>Co ťuknete</th><th>Kdy</th></tr>
+    <tr><td style="font-size:1.6em">🌴</td><td><strong>Že by dovolená?… 😎</strong></td><td>Řádná dovolená</td></tr>
+    <tr><td style="font-size:1.6em">👨‍👧</td><td><strong>Zase řeším rodinu… (OČR)</strong></td><td>Ošetřovné</td></tr>
+    <tr><td style="font-size:1.6em">🤒</td><td><strong>Je mi fakt blbě… Sick day.</strong></td><td>Zdravotní volno</td></tr>
+    <tr><td style="font-size:1.6em">🤧</td><td><strong>Mám neschopenku do…</strong></td><td>Potvrzená nemoc</td></tr>
+    <tr><td style="font-size:1.6em">🩺</td><td><strong>Jedu k lékaři…</strong></td><td>Návštěva lékaře</td></tr>
+    <tr><td style="font-size:1.6em">🏡</td><td><strong>Potřebuju makat z domova…</strong></td><td>Home office</td></tr>
+  </table>
+  <div class="box" style="margin-top:10px">
+    <p>📌 <strong>Vždy stejný postup:</strong> 💬 → vyber typ → datum od–do → Odeslat</p>
+    <p style="color:#8b949e">Žádost jde ke schválení nadřízenému.</p>
+  </div>
+</div>
+
+<!-- ═══════ SLIDE 8: TAHÁK ═══════ -->
+<div class="sl" data-voice="A nakonec, tahák. Tuhle tabulku si můžete vytisknout. Příchod: ťukněte zelené tlačítko, pak Jsem v práci. Pauza: zelené tlačítko, pak Teď to bude jinak, pak Jdu se najíst. Návrat z pauzy: ťukněte Jsem zpět pokračuju. Odchod domů: zelené tlačítko, Teď to bude jinak, Dnes už se mnou nepočítej. Dovolená: zelené tlačítko, pak Že by dovolená. OČR: zelené tlačítko, Zase řeším rodinu. Potvrzení: na žluté kartě ťukněte Potvrzuji. To je celé! Pokud potřebujete pomoct, v menu je tlačítko Mám dotaz na nadřízeného. Děkuji za pozornost a přeji hezký den.">
+  <h1>📋 Tahák — vytiskněte si!</h1>
+  <table>
+    <tr><th>Chci…</th><th>Ťuknu…</th></tr>
+    <tr><td><strong>Přijít do práce</strong></td><td>💬 → <span class="hl">🏢 Jsem v práci</span></td></tr>
+    <tr><td><strong>Na zakázku</strong></td><td>💬 → 🧾 Jsem na zakázce → vybrat</td></tr>
+    <tr><td><strong>Z domova</strong></td><td>💬 → 🏠 Home office</td></tr>
+    <tr><td><strong>Oběd / pauza</strong></td><td>💬 → 🙈 → <span class="warn-t">🍃 Najíst / ☕ Pauza</span></td></tr>
+    <tr><td><strong>Zpět z pauzy</strong></td><td><span class="hl">✅ Jsem zpět</span></td></tr>
+    <tr><td><strong>Domů</strong></td><td>💬 → 🙈 → <span class="red">🫡 Nepočítej</span></td></tr>
+    <tr><td><strong>Dovolená</strong></td><td>💬 → 🌴 Dovolená</td></tr>
+    <tr><td><strong>OČR</strong></td><td>💬 → 👨‍👧 Rodina</td></tr>
+    <tr><td><strong>Potvrdit den</strong></td><td>Žlutá karta → <span class="hl">✓ Potvrzuji</span></td></tr>
+  </table>
+  <div class="box box-green" style="text-align:center;margin-top:16px">
+    <p style="font-size:1.3em">💬 = zelené „Potřebuji ti něco říct…"<br>🙈 = oranžové „Teď to bude jinak…"</p>
+  </div>
+</div>
+
+</div><!-- /prez -->
+
+<!-- NAVIGACE -->
+<nav id="nav">
+  <button onclick="prev()" id="btn-prev">◀ Zpět</button>
+  <div id="progress"><div id="progress-bar" style="width:0%"></div></div>
+  <div id="slide-num">1 / 9</div>
+  <button class="play-btn" onclick="togglePlay()" id="btn-play">▶ Přehrát vše</button>
+  <button onclick="next()" id="btn-next">Další ▶</button>
+</nav>
+
+<script>
+const slides = document.querySelectorAll('.sl');
+const total = slides.length;
+let cur = 0;
+let playing = false;
+let synth = window.speechSynthesis;
+let czVoice = null;
+
+// Najdi český hlas
+function findCzVoice() {
+  const voices = synth.getVoices();
+  // Preferuj Microsoft české hlasy
+  czVoice = voices.find(v => v.lang === 'cs-CZ' && v.name.includes('Jakub'))
+    || voices.find(v => v.lang === 'cs-CZ')
+    || voices.find(v => v.lang.startsWith('cs'))
+    || voices[0];
+  if (czVoice) console.log('🔊 Hlas:', czVoice.name, czVoice.lang);
+}
+synth.onvoiceschanged = findCzVoice;
+findCzVoice();
+
+function showSlide(n) {
+  slides.forEach(s => s.classList.remove('active'));
+  slides[n].classList.add('active');
+  document.getElementById('progress-bar').style.width = ((n / (total - 1)) * 100) + '%';
+  document.getElementById('slide-num').textContent = (n + 1) + ' / ' + total;
+  document.getElementById('btn-prev').disabled = n === 0;
+  document.getElementById('btn-next').disabled = n === total - 1;
+}
+
+function next() {
+  synth.cancel();
+  if (cur < total - 1) { cur++; showSlide(cur); }
+  if (playing) speakSlide();
+}
+
+function prev() {
+  synth.cancel();
+  if (cur > 0) { cur--; showSlide(cur); }
+}
+
+function speakSlide() {
+  const text = slides[cur].getAttribute('data-voice');
+  if (!text) { if (playing) setTimeout(next, 2000); return; }
+
+  const ind = document.getElementById('voice-indicator');
+  ind.classList.add('active');
+
+  const utt = new SpeechSynthesisUtterance(text);
+  if (czVoice) utt.voice = czVoice;
+  utt.lang = 'cs-CZ';
+  utt.rate = 0.9;  // Trochu pomalejší pro srozumitelnost
+  utt.pitch = 1.0;
+
+  utt.onend = () => {
+    ind.classList.remove('active');
+    if (playing && cur < total - 1) {
+      setTimeout(next, 1500); // Pauza mezi slidy
+    } else if (cur >= total - 1) {
+      stopPlay();
+    }
+  };
+
+  utt.onerror = () => {
+    ind.classList.remove('active');
+    if (playing) setTimeout(next, 2000);
+  };
+
+  synth.speak(utt);
+}
+
+function togglePlay() {
+  if (playing) {
+    stopPlay();
+  } else {
+    playing = true;
+    document.getElementById('btn-play').textContent = '⏹ Zastavit';
+    document.getElementById('btn-play').classList.add('playing');
+    speakSlide();
+  }
+}
+
+function stopPlay() {
+  playing = false;
+  synth.cancel();
+  document.getElementById('voice-indicator').classList.remove('active');
+  document.getElementById('btn-play').textContent = '▶ Přehrát vše';
+  document.getElementById('btn-play').classList.remove('playing');
+}
+
+// Klávesnice
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+  if (e.key === 'Escape') stopPlay();
+  if (e.key === 'p' || e.key === 'P') togglePlay();
+});
+
+// Touch swipe
+let tx = 0;
+document.addEventListener('touchstart', e => { tx = e.touches[0].clientX; });
+document.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - tx;
+  if (Math.abs(dx) > 60) { dx < 0 ? next() : prev(); }
+});
+
+// Start
+showSlide(0);
+</script>
+
+</body>
+</html>

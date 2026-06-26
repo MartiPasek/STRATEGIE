@@ -4660,6 +4660,11 @@ setTimeout(function(){
     var cl=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); cl.addEventListener("click",function(){ ov.remove(); }); hd.appendChild(cl); ov.appendChild(hd);
     var sc=el('<div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding-bottom:60px;"></div>'); ov.appendChild(sc);
     sc.appendChild(el('<div class="hint" style="margin-top:0;">Docházku najdeš dole: <b>🏢 Firma → 🤝 Spolupráce</b>. Skoro vše ovládáš zeleným <b>💬 Potřebuji ti něco říct…</b></div>'));
+    // Hlasový průvodce (Jirka 26.6.): video s mluveným výkladem krok za krokem.
+    var _vg=el('<button class="full" style="margin:10px 0 2px;padding:13px;font-size:15px;font-weight:700;background:#2563eb;color:#fff;border:none;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:8px;">▶️ Hlasový průvodce (video s výkladem)</button>');
+    _vg.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} ov.remove(); openInApp("/static/dochazka-pruvodce.html"); });
+    sc.appendChild(_vg);
+    sc.appendChild(el('<div class="hint" style="margin-top:4px;text-align:center;">Mluvený průvodce krok za krokem — ťukni ▶ Přehrát vše.</div>'));
     // Tahák
     var tah=el('<div style="margin:12px 0;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:12px;padding:10px 12px;"></div>');
     tah.appendChild(el('<div style="font-weight:700;margin-bottom:4px;">📋 Tahák — co když…?</div>'));

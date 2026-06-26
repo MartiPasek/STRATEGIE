@@ -4745,7 +4745,7 @@ setTimeout(function(){
        cap:'<table class="dp"><tr><td><b>Příchod</b></td><td>💬 → 🏢 Jsem v práci</td></tr><tr><td><b>Pauza</b></td><td>💬 → 🙈 → 🍃 Najíst</td></tr><tr><td><b>Zpět z pauzy</b></td><td>✅ Jsem zpět</td></tr><tr><td><b>Odchod</b></td><td>💬 → 🙈 → 🫡 Nepočítej</td></tr><tr><td><b>Dovolená</b></td><td>💬 → 🌴 Dovolená</td></tr><tr><td><b>Potvrdit den</b></td><td>žlutá karta → ✓ Potvrzuji</td></tr></table><div class="dp-step dp-ok" style="text-align:center">💬 = zelené „Potřebuji ti něco říct…"<br>🙈 = oranžové „Teď to bude jinak…"</div>',
        v:"A nakonec tahák. Příchod: zelené tlačítko, pak Jsem v práci. Pauza: zelené tlačítko, Teď to bude jinak, Jdu se najíst. Návrat: Jsem zpět. Odchod: zelené tlačítko, Teď to bude jinak, Dnes už se mnou nepočítej. Dovolená: zelené tlačítko, Že by dovolená. Potvrzení: na žluté kartě Potvrzuji. To je celé. Pokud potřebujete pomoct, v menu je tlačítko Mám dotaz na nadřízeného. Děkuji a hezký den."}
     ];
-    var cur=0, voiceMode=false, queue=[], qi=0, nextT=null, mo=null;
+    var cur=0, voiceMode=false, queue=[], qi=0, nextT=null, mo=null, watchdog=null;
     var czVoice=null;
     function pickVoice(){ try{ var vs=synth?synth.getVoices():[]; czVoice=vs.filter(function(v){return v.lang==="cs-CZ";})[0] || vs.filter(function(v){return v.lang&&v.lang.indexOf("cs")===0;})[0] || null; }catch(e){} }
     if(synth){ pickVoice(); try{ synth.addEventListener("voiceschanged",pickVoice); }catch(e){} }
@@ -4800,7 +4800,8 @@ setTimeout(function(){
     ctl.appendChild(bPrev); ctl.appendChild(num); ctl.appendChild(bPlay); ctl.appendChild(bNext); ov.appendChild(ctl);
 
     function pill(on){ var p=document.getElementById("dpPill"); if(p)p.classList.toggle("on",!!on); }
-    function stopSpeak(){ try{ if(synth)synth.cancel(); }catch(e){} if(nextT){clearTimeout(nextT);nextT=null;} pill(false); }
+    function clearWd(){ if(watchdog){ clearTimeout(watchdog); watchdog=null; } }
+    function stopSpeak(){ try{ if(synth)synth.cancel(); }catch(e){} if(nextT){clearTimeout(nextT);nextT=null;} clearWd(); pill(false); }
     function updUI(){
       num.textContent=(cur+1)+"/"+SL.length;
       prog.firstChild.style.width=(SL.length>1?(cur/(SL.length-1))*100:100)+"%";
@@ -4821,18 +4822,24 @@ setTimeout(function(){
       if(!synth || !voiceMode) return;
       var t=SL[cur].v||"";
       if(!t){ scheduleNext(); return; }
-      queue=chunk(t); qi=0; pill(true); speakChunk();
+      queue=chunk(t); qi=0; pill(true);
+      // malé zpoždění po cancel() — jinak Chrome/Android občas zahodí hned navázaný speak()
+      setTimeout(function(){ if(voiceMode && document.body.contains(ov)) speakChunk(); }, 160);
     }
     function speakChunk(){
       if(!voiceMode || !document.body.contains(ov)) return;
-      if(qi>=queue.length){ pill(false);
+      if(qi>=queue.length){ pill(false); clearWd();
         if(cur<SL.length-1){ scheduleNext(); } else { voiceMode=false; updUI(); }
         return; }
-      var u=new SpeechSynthesisUtterance(queue[qi]);
+      var txt=queue[qi], moved=false;
+      function adv(){ if(moved)return; moved=true; clearWd(); qi++; speakChunk(); }
+      var u=new SpeechSynthesisUtterance(txt);
       if(czVoice)u.voice=czVoice; u.lang="cs-CZ"; u.rate=.97; u.pitch=1;
-      u.onend=function(){ qi++; speakChunk(); };
-      u.onerror=function(){ qi++; speakChunk(); };
-      try{ synth.speak(u); }catch(e){ qi++; speakChunk(); }
+      u.onend=adv; u.onerror=adv;
+      // WATCHDOG: když speechSynthesis nevyšle onend (Android/Chrome to po pár větách občas
+      // zahodí → auto-posun zamrzne), posuň se po odhadnuté době sám. Pojistka, ne primární cesta.
+      clearWd(); watchdog=setTimeout(adv, Math.max(4000, txt.length*95) + 2500);
+      try{ synth.speak(u); }catch(e){ adv(); }
     }
     function scheduleNext(){ if(nextT)clearTimeout(nextT); nextT=setTimeout(function(){ if(voiceMode && cur<SL.length-1) goTo(cur+1); },1100); }
     function goTo(n){ if(n<0||n>=SL.length)return; stopSpeak(); cur=n; render(); if(voiceMode) speakCur(); }

@@ -18887,6 +18887,49 @@ async def prehled_events(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/marti/cockpit")
+async def marti_cockpit(req: Request) -> JSONResponse:
+    """Živé metriky pro Martiho cockpit (/marti). Rodič/HR. Každá metrika guard."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    st = {}
+
+    def _q(key, sql):
+        try:
+            st[key] = int(s.execute(_t(sql), {"t": _ATT_TENANT}).scalar() or 0)
+        except Exception as exc:
+            logger.warning("[cockpit] %s: %s", key, exc)
+            st[key] = None
+    try:
+        _q("prace_ted",
+           "SELECT COUNT(DISTINCT em.user_id) FROM tenant.att_entry e "
+           "JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+           "JOIN tenant.att_employee em ON em.id=e.employee_id "
+           "WHERE e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL "
+           "AND et.category='presence' AND e.started_at<=now()")
+        _q("volno_dnes",
+           "SELECT COUNT(DISTINCT user_id) FROM tenant.att_planned_absence "
+           "WHERE tenant_id=:t AND datum=current_date")
+        _q("automat_lidi",
+           "SELECT COUNT(*) FROM tenant.att_user_kategorie")
+        _q("fronta_new",
+           "SELECT COUNT(*) FROM fw.claude_coord WHERE kind LIKE 'task\\_%' AND status='new'")
+        _q("notif_nevyrizene",
+           "SELECT COUNT(*) FROM public.email_inbox WHERE persona_id=1 "
+           "AND deleted_at IS NULL AND processed_at IS NULL")
+        _q("ukoly_open",
+           "SELECT COUNT(*) FROM tenant.task WHERE tenant_id=:t AND COALESCE(stav,0) < 3")
+        return {"ok": True, "stats": st,
+                "ts": __import__("datetime").datetime.now().strftime("%H:%M")}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/attendance/list")
 async def att_list(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

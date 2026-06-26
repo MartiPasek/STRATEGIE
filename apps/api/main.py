@@ -1028,6 +1028,14 @@ def prehled_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/marti")
+def marti_cockpit_page():
+    """Řídicí pult Martiho (cockpit firmy) — živé metriky + moduly + stav ladění.
+    Marti 26.6.2026. (Veřejný profil je na /web/marti.)"""
+    return FileResponse(os.path.join(static_dir, "cockpit-marti.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

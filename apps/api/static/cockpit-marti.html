@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Řídicí pult — Marti</title>
+<style>
+  :root{--bg:#070b14;--pan:#0e1626;--bord:#1b2740;--tx:#e8eef9;--mut:#8094b3;--ac:#34d399;--bl:#5b9dff;--pu:#a855f7;--am:#f0b35a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx);
+    background-image:radial-gradient(circle at 15% -10%,rgba(91,157,255,.10),transparent 45%),radial-gradient(circle at 90% 0%,rgba(52,211,153,.08),transparent 40%);
+    min-height:100vh;padding:16px;max-width:1180px;margin:0 auto}
+  a{color:inherit;text-decoration:none}
+  .hd{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px}
+  h1{font-size:20px;font-weight:800;letter-spacing:.3px;display:flex;align-items:center;gap:9px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--ac);box-shadow:0 0 0 0 rgba(52,211,153,.6);animation:pp 2s infinite}
+  @keyframes pp{0%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}70%{box-shadow:0 0 0 9px rgba(52,211,153,0)}100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}}
+  .hd .meta{color:var(--mut);font-size:12.5px}
+  .hd button{background:var(--pan);border:1px solid var(--bord);color:var(--mut);border-radius:8px;padding:6px 12px;font-size:12.5px;cursor:pointer}
+  .lbl{font-size:11.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--mut);margin:20px 2px 9px;font-weight:700}
+  /* stat tiles */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px}
+  .stat{background:linear-gradient(180deg,var(--pan),rgba(14,22,38,.55));border:1px solid var(--bord);border-radius:14px;padding:15px 16px;position:relative;overflow:hidden}
+  .stat:before{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:var(--c,var(--bl));opacity:.8}
+  .stat .n{font-size:34px;font-weight:900;line-height:1;letter-spacing:-1px;color:var(--c,var(--tx));text-shadow:0 0 18px var(--g,transparent)}
+  .stat .l{font-size:12px;color:var(--mut);margin-top:6px}
+  .stat .ic{position:absolute;right:12px;top:12px;font-size:18px;opacity:.5}
+  /* module tiles */
+  .mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}
+  .mod{background:var(--pan);border:1px solid var(--bord);border-radius:13px;padding:15px 12px;text-align:center;transition:.13s;cursor:pointer}
+  .mod:hover{border-color:var(--bl);transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .mod .i{font-size:26px;display:block;margin-bottom:7px}
+  .mod .t{font-size:13px;font-weight:700}
+  .mod .d{font-size:10.5px;color:var(--mut);margin-top:2px}
+  /* ladime */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+  .c{background:var(--pan);border:1px solid var(--bord);border-radius:13px;padding:13px 15px}
+  .c .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .c .nm{font-weight:700;font-size:13.5px}
+  .c .ds{color:var(--mut);font-size:12px;margin-top:4px;line-height:1.5}
+  .b{font-size:10px;padding:2px 9px;border-radius:20px;white-space:nowrap;font-weight:700;letter-spacing:.3px}
+  .live{background:rgba(52,211,153,.16);color:#7fe9b6}
+  .pause{background:rgba(168,85,247,.16);color:#d6aef5}
+  .wait{background:rgba(91,157,255,.16);color:#a9caff}
+  ul.nx{margin:8px 0 0;padding-left:18px}
+  ul.nx li{font-size:12.5px;color:#bcd0ee;margin-bottom:6px;line-height:1.5}
+  .foot{color:#56688a;font-size:11px;text-align:center;margin:24px 0 6px}
+</style>
+</head>
+<body>
+<div class="hd">
+  <h1><span class="dot"></span> Řídicí pult — Marti</h1>
+  <div><span class="meta" id="ts">načítám…</span> &nbsp; <button onclick="loadStats()">↻ obnovit</button></div>
+</div>
+
+<div class="lbl">📡 Stav teď</div>
+<div class="stats" id="stats"></div>
+
+<div class="lbl">🧩 Moduly</div>
+<div class="mods">
+  <a class="mod" href="/prehled"><span class="i">🗓️</span><span class="t">Přehled</span><span class="d">vrstvený kalendář</span></a>
+  <a class="mod" href="/dochazka-automat"><span class="i">🤖</span><span class="t">Automat</span><span class="d">docházka + fond</span></a>
+  <a class="mod" href="/claude-fronta"><span class="i">📥</span><span class="t">Zadat úkol</span><span class="d">fronta Claudů</span></a>
+  <a class="mod" href="/finance"><span class="i">🧾</span><span class="t">Finance</span><span class="d">deník · saldo</span></a>
+  <a class="mod" href="/banka"><span class="i">🏦</span><span class="t">Banka</span><span class="d">RB API · saldo</span></a>
+  <a class="mod" href="/pokladny"><span class="i">💳</span><span class="t">Pokladny</span><span class="d">karty</span></a>
+  <a class="mod" href="/hromady"><span class="i">📂</span><span class="t">Hromady</span><span class="d">doklady</span></a>
+  <a class="mod" href="/predkontace"><span class="i">📊</span><span class="t">Předkontace</span><span class="d">z Heliosu</span></a>
+  <a class="mod" href="/iso"><span class="i">🛡️</span><span class="t">ISO/TISAX</span><span class="d">cockpit</span></a>
+  <a class="mod" href="/dokument"><span class="i">📘</span><span class="t">Dokumenty</span><span class="d">znalosti</span></a>
+</div>
+
+<div class="lbl">🔧 Co teď ladíme</div>
+<div class="cards">
+  <div class="c"><div class="top"><span class="nm">🤖 Docházkový automat</span><span class="b live">LIVE</span></div><div class="ds">Kategorie + per‑osobu úvazek, dopíchnutí i odpíchnutí, monitory dle kategorie. Červen srovnán.</div></div>
+  <div class="c"><div class="top"><span class="nm">🗓️ Přehledový kalendář</span><span class="b live">LIVE</span></div><div class="ds">Vrstvy práce/volno/porady/úkoly/Google, týden+měsíc, překryvy 🟧 a díry 🟩.</div></div>
+  <div class="c"><div class="top"><span class="nm">📥 Fronta + budík</span><span class="b pause">budík stojí</span></div><div class="ds">Zadávání z mobilu jede. Budík dočasně vyplý — čeká přesun fronty do tenant.* (samozavírání) + budík pro C27.</div></div>
+  <div class="c"><div class="top"><span class="nm">🔔 Notifikace</span><span class="b live">uklizeno</span></div><div class="ds">Kontrolní tabulka, 36h bug opraven, inbox čistitelný (@@INBOX SEEN ALL).</div></div>
+  <div class="c"><div class="top"><span class="nm">✉️ Eliška — digitalizace + rozváděče</span><span class="b wait">čeká odpověď</span></div><div class="ds">Nabídka spolupráce odeslána. Až pošle kalkulace/nabídky → projdu vizí. (docs/Eliska.md)</div></div>
+  <div class="c"><div class="top"><span class="nm">🏦 Banka · 🧾 Účetní deník</span><span class="b live">LIVE</span></div><div class="ds">RB API čte transakce, párování ~92 %, deník účtuje z banky (real‑time + jistota + audit).</div></div>
+</div>
+
+<div class="lbl">📌 Další na řadě</div>
+<ul class="nx">
+  <li><b>Budík fronty</b> → tenant.* (samozavírání bez banneru) + vlastní bridge soubory + budík pro Claude‑27.</li>
+  <li><b>Přehled</b> → Google privát (tajný iCal) · tvorba porad · hezké názvy volna · seskupení po týmech · mobil.</li>
+  <li><b>Eliška</b> → kalkulace rozváděčů vizí (KalkulacPolozky + Excel + nabídky).</li>
+  <li><b>Účetní</b> → reconciliace deník × Helios · review UI · TabDenik + mzdy do cloud Heliosu.</li>
+</ul>
+
+<div class="foot">Řídicí pult udržuje Claude ID23 · živá data á 60 s</div>
+
+<script>
+const API='';
+const DEF=[
+  {k:'prace_ted',  l:'V práci teď',      ic:'🟢', c:'#34d399'},
+  {k:'volno_dnes', l:'Dnes na volnu',    ic:'🌴', c:'#5b9dff'},
+  {k:'fronta_new', l:'Úkolů ve frontě',  ic:'📥', c:'#f0b35a'},
+  {k:'automat_lidi',l:'Lidí v automatu', ic:'🤖', c:'#a855f7'},
+  {k:'ukoly_open', l:'Otevřené úkoly',   ic:'📋', c:'#5b9dff'},
+  {k:'notif_nevyrizene',l:'Nevyřízené notif.', ic:'🔔', c:'#34d399'},
+];
+function tile(d,v){
+  const val = (v==null)?'—':v;
+  return `<div class="stat" style="--c:${d.c};--g:${d.c}55"><span class="ic">${d.ic}</span>`
+    +`<div class="n">${val}</div><div class="l">${d.l}</div></div>`;
+}
+async function loadStats(){
+  document.getElementById('stats').innerHTML=DEF.map(d=>tile(d,'…')).join('');
+  const r=await fetch(API+'/api/v1/erp/app/marti/cockpit',{credentials:'include'}).then(x=>x.json()).catch(()=>({ok:false}));
+  if(!r.ok){
+    document.getElementById('stats').innerHTML='<div class="stat" style="grid-column:1/-1"><div class="l">'+((r&&r.error)||'Nedostupné — přihlas se jako rodič/HR (na webu strategie‑ai.com).')+'</div></div>';
+    return;
+  }
+  const st=r.stats||{};
+  document.getElementById('stats').innerHTML=DEF.map(d=>tile(d,st[d.k])).join('');
+  document.getElementById('ts').textContent='živá data · '+(r.ts||'');
+}
+loadStats();
+setInterval(loadStats,60000);
+</script>
+</body>
+</html>

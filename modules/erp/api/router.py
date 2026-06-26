@@ -26951,7 +26951,14 @@ def _xfer_ddl(src_db, dst_db, t):
         coltype = _ct(m.get("typ"), int(m.get("max_length") or 0),
                       int(m.get("prec") or 0), int(m.get("scale") or 0))
         ident = " IDENTITY(1,1)" if int(m.get("is_identity") or 0) == 1 else ""
-        nullable = " NULL" if int(m.get("is_nullable") or 1) == 1 else " NOT NULL"
+        # IDENTITY sloupec MUSI byt NOT NULL (SQL Server jinak CREATE odmitne).
+        # EC_ vlastni tabulky maji v INFORMATION_SCHEMA ID jako IS_NULLABLE='YES'
+        # i kdyz je IsIdentity=1 -> bez teto pojistky padalo "Could not create
+        # IDENTITY attribute on nullable column". Marti 26.6.2026.
+        if ident:
+            nullable = " NOT NULL"
+        else:
+            nullable = " NULL" if int(m.get("is_nullable") or 1) == 1 else " NOT NULL"
         defs.append("  [%s] %s%s%s" % (m.get("name"), coltype, ident, nullable))
     ddl = "CREATE TABLE [dbo].[%s] (\n%s\n)" % (t, ",\n".join(defs))
     cs = conn_str
@@ -27163,6 +27170,159 @@ def _mssql188_query(sql):
                 cn.close()
         except Exception:
             pass
+
+
+# ── Dávkové zrcadlení MEZD: office Helios (DB_EC/DB_IS) → cloud Express DB 188.12 ──
+# Marti 26.6.2026: kompletní mzdové podklady (mzdový list + složky + výpočet) jako ZDROJ
+# PRAVDY U NÁS, ze kterého půjde generovat mzdy (Helios/Pohoda). Plné 1:1 přes _xfer_table,
+# JEN 2025+2026 (očista), per tabulka správný filtr období, throttle kvůli MCP rate limitu,
+# reconciliace do fw.mzdy_xfer_log. Statutární statistiky (ISP/ISPV/P1-04/ÚNP) vynechány
+# (Marti: "uděláme si vlastní"). Generování (TabGenMzdyVysl_*) = transientní, vynecháno.
+_MZDY_XFER_MAP = [
+    # (tabulka, typ_filtru): OBD=IdObdobi IN(obd), ZM=Uplatneno_IdObdobi, ROK=Rok IN(2025,2026),
+    #                        DATY=Datum_Y IN(2025,2026), WHOLE=celé (číselník/bez období)
+    ("TabCisZam", "WHOLE"), ("TabCisZam_EXT", "WHOLE"),
+    ("TabMzdObd", "ROK"),
+    ("TabCisMzSl", "OBD"), ("TabCisMzSlDef", "OBD"), ("TabCisMzSlDistrLog", "OBD"),
+    ("TabMzDruhyPP", "OBD"), ("TabMzDruhyPPMS", "OBD"), ("TabMzDruhyVynetiES", "OBD"),
+    ("TabMzKalendar", "ROK"), ("TabMzKalDefSmen", "ROK"), ("TabMzKalDefSmenR", "WHOLE"),
+    ("TabMzKalendarZam", "ROK"), ("TabMzKalendarDny", "DATY"), ("TabMzKalendarDnyZam", "DATY"),
+    ("TabMzdList", "OBD"), ("TabMzSloz", "OBD"), ("TabMzKontace", "OBD"),
+    ("TabZamMzd", "OBD"), ("TabMzdaZaruc", "OBD"), ("TabMzPaus", "OBD"),
+    ("TabMzdOdpPol", "OBD"), ("TabMzdOdpPolMes", "OBD"), ("TabMzdOdpPolMS", "OBD"),
+    ("TabMzdOdpPolMzd", "OBD"), ("TabMzPF", "OBD"), ("TabMzPrepStavy", "OBD"),
+    ("TabMzPocHod", "ROK"), ("TabMzDohadnePol", "OBD"),
+    ("TabMzKons", "OBD"), ("TabMzKonsDNP", "OBD"),
+    ("TabMzPrilohaDnp", "OBD"), ("TabMzPrilohaDNPRO", "OBD"),
+    ("TabMzHlaseniDohod", "OBD"), ("TabMzHlaseniKonecPN", "OBD"),
+    ("TabMzMesUzav", "OBD"), ("TabMzMesUzavAkce", "OBD"), ("TabMzMesUzavCfg", "OBD"),
+    ("TabMzSpZmeny", "OBD"), ("TabMzSpZmenyDoby", "WHOLE"), ("TabMzSPZmenyLog", "OBD"),
+    ("TabMzZmenyZM", "ZM"), ("TabMzZmenyZP", "OBD"), ("TabMzZmenyPost", "WHOLE"),
+    ("TabMzRegZamCz", "OBD"), ("TabMzRegZamCzLog", "OBD"),
+    ("TabMzExportOrg", "OBD"), ("TabMzExportPDS", "WHOLE"),
+    ("TabMzNarokDovCz2021Kor", "OBD"),
+    ("TabMzOstatniKonstanty", "WHOLE"), ("TabMzJubileaTypy", "WHOLE"),
+    ("TabMzPrintParams", "WHOLE"), ("TabMzAntivirusDefinice", "WHOLE"),
+    ("TabMzOdvodZa1Osobu", "WHOLE"),
+    ("TabGenMzdyH", "WHOLE"), ("TabGenMzdyPar", "WHOLE"), ("TabGenMzdyR", "WHOLE"),
+    ("EC_Mzdy_SumaMesic", "ROK"), ("EC_Mzdy_LandMarkVstupniData", "ROK"),
+    ("LP_RozpadMzdy", "WHOLE"),
+]
+_MZDY_XFER_TARGETS = {"EC": ("DB_EC", "UCTO_EC"), "ES": ("DB_IS", "UCTO_ES")}
+
+
+def _mzdy_mcp_rows(src_db, sql):
+    """Pomocník: čtení z office Heliosu přes MCP (DB_IS cross-db přes DB_EC connection)."""
+    import json as _jp
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    _mcp = get_eurosoft_mcp_client()
+    if _mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                              {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    _r = _jp.loads(_rj) if isinstance(_rj, str) else _rj
+    if isinstance(_r, dict):
+        if _r.get("ok") is False:
+            raise RuntimeError(str(_r.get("error"))[:200])
+        for _k in ("rows", "data", "result", "records"):
+            if isinstance(_r.get(_k), list):
+                return _r[_k]
+    return _r if isinstance(_r, list) else []
+
+
+def _xfer_mzdy_run(targets):
+    """Background: pro každou firmu (EC→UCTO_EC, ES→UCTO_ES) zrcadlí mapu mzdových tabulek
+    JEN 2025+2026 office Helios → 188.12, throttle 1.2 s (MCP rate limit ~60/min),
+    log každé tabulky do fw.mzdy_xfer_log (reconciliace / důkaz úplnosti)."""
+    import time as _tm, datetime as _dt
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    run_ts = _dt.datetime.utcnow()
+
+    def _sess():
+        cm = _pg.get_session()
+        return cm, cm.__enter__()
+
+    # idempotentní log tabulka (fw vlastní Marti-AI role)
+    try:
+        cm, s = _sess()
+        try:
+            s.execute(_t(
+                "CREATE TABLE IF NOT EXISTS fw.mzdy_xfer_log ("
+                " id bigserial PRIMARY KEY, run_ts timestamptz NOT NULL, company text,"
+                " tabulka text, filtr text, preneseno integer, ok boolean, error text,"
+                " ts timestamptz NOT NULL DEFAULT now())"))
+            s.commit()
+        finally:
+            cm.__exit__(None, None, None)
+    except Exception:
+        pass
+
+    def _log(company, tabulka, filtr, preneseno, ok, error):
+        try:
+            cm2, s2 = _sess()
+            try:
+                s2.execute(_t(
+                    "INSERT INTO fw.mzdy_xfer_log (run_ts, company, tabulka, filtr, preneseno, ok, error)"
+                    " VALUES (:r,:c,:t,:f,:p,:o,:e)"),
+                    {"r": run_ts, "c": company, "t": tabulka, "f": filtr, "p": preneseno,
+                     "o": ok, "e": (str(error)[:1000] if error else None)})
+                s2.commit()
+            finally:
+                cm2.__exit__(None, None, None)
+        except Exception:
+            pass
+
+    for company in targets:
+        if company not in _MZDY_XFER_TARGETS:
+            continue
+        src_db, dst_db = _MZDY_XFER_TARGETS[company]
+        _pfx = "" if src_db.upper() == "DB_EC" else "[" + src_db + "]."
+        # období 2025+2026 daného Heliosu
+        try:
+            per_rows = _mzdy_mcp_rows(src_db,
+                "SELECT ID FROM " + _pfx + "dbo.TabMzdObd WHERE Rok IN (2025,2026)")
+            pers = [int(x["ID"]) for x in per_rows if x.get("ID") is not None]
+        except Exception as e:
+            _log(company, "_OBDOBI", None, None, False, "perioda: %s" % e)
+            continue
+        if not pers:
+            _log(company, "_OBDOBI", None, None, False, "žádná období 2025/2026")
+            continue
+        obd_in = ",".join(str(p) for p in pers)
+        # které mapované tabulky v tomto Heliosu existují
+        names = [m[0] for m in _MZDY_XFER_MAP]
+        inlist = ",".join("'" + n + "'" for n in names)
+        try:
+            ex_rows = _mzdy_mcp_rows(src_db,
+                "SELECT TABLE_NAME FROM " + _pfx + "INFORMATION_SCHEMA.TABLES "
+                "WHERE TABLE_TYPE='BASE TABLE' AND TABLE_NAME IN (" + inlist + ")")
+            exist = {str(x.get("TABLE_NAME")) for x in ex_rows}
+        except Exception:
+            exist = set(names)
+        _tm.sleep(1.2)
+        for tabulka, ftyp in _MZDY_XFER_MAP:
+            if tabulka not in exist:
+                _log(company, tabulka, "SKIP-neexistuje", None, None, None)
+                continue
+            if ftyp == "OBD":
+                where = "IdObdobi IN (%s)" % obd_in
+            elif ftyp == "ZM":
+                where = "Uplatneno_IdObdobi IN (%s)" % obd_in
+            elif ftyp == "ROK":
+                where = "Rok IN (2025,2026)"
+            elif ftyp == "DATY":
+                where = "Datum_Y IN (2025,2026)"
+            else:
+                where = None
+            try:
+                res = _xfer_table(src_db, dst_db, tabulka, where)
+                _log(company, tabulka, (where or "CELÉ"), res.get("preneseno"),
+                     bool(res.get("ok")), None if res.get("ok") else res.get("error"))
+            except Exception as e:
+                _log(company, tabulka, (where or "CELÉ"), None, False, str(e))
+            _tm.sleep(1.2)  # throttle pod MCP rate limit
+    _log("_DONE", "_RUN", None, None, True, None)
 
 
 @api_router.post("/diag-sql")
@@ -28310,7 +28470,7 @@ async def diag_sql(req: Request) -> JSONResponse:
     # ── @@XFER <src_db> <dst_db> <Tabulka> [| where] — přenos tabulky z kancelářského
     #    Heliosu (DB_EC/DB_IS přes MCP) → cloud MSSQL 188.12. 1:1 vč. původních id.
     #    Marti 25.6.2026 (přenos mezd + deníku, čistý start 2025-26). ──
-    if sql.upper().startswith("@@XFER"):
+    if sql.upper().startswith("@@XFER") and not sql.upper().startswith("@@XFERMZDY"):
         _bx = sql[6:].strip()
         _wh = None
         if "|" in _bx:
@@ -28322,6 +28482,22 @@ async def diag_sql(req: Request) -> JSONResponse:
         from starlette.concurrency import run_in_threadpool as _rtpx
         _resx = await _rtpx(_xfer_table, _px[0], _px[1], _px[2], _wh)
         return JSONResponse(_resx if isinstance(_resx, dict) else {"ok": False, "error": "xfer selhal"})
+
+    # ── @@XFERMZDY <EC|ES|ALL> — dávkové zrcadlení mezd 2025+2026 office Helios → 188.12.
+    #    Běží NA POZADÍ (throttle kvůli MCP rate limitu) → progress sleduj:
+    #    SELECT company, tabulka, preneseno, ok, error FROM fw.mzdy_xfer_log
+    #      WHERE run_ts=(SELECT max(run_ts) FROM fw.mzdy_xfer_log) ORDER BY id;  (db=pg)
+    #    Marti 26.6.2026 (kompletní mzdové podklady = zdroj pravdy U NÁS). ──
+    if sql.upper().startswith("@@XFERMZDY"):
+        import threading as _thrm
+        _argm = sql[10:].strip().upper()
+        _tg = ["EC", "ES"] if _argm in ("", "ALL") else ([_argm] if _argm in ("EC", "ES") else None)
+        if _tg is None:
+            return JSONResponse({"ok": False, "error": "@@XFERMZDY <EC|ES|ALL>"})
+        _thrm.Thread(target=_xfer_mzdy_run, args=(_tg,), daemon=True).start()
+        return JSONResponse({"ok": True, "spusteno": _tg, "tabulek_v_mape": len(_MZDY_XFER_MAP),
+                             "pozn": "běží na pozadí; progress: SELECT * FROM fw.mzdy_xfer_log "
+                                     "WHERE run_ts=(SELECT max(run_ts) FROM fw.mzdy_xfer_log)"})
 
     # ── mssql188 = náš cloud Helios MSSQL (10.200.188.12), přímé spojení pyodbc z API.
     #    Nová prázdná DB (sandbox), parent-only → read i DDL/DML běží PŘÍMO (bez banneru),

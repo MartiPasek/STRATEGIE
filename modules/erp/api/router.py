@@ -20012,6 +20012,60 @@ def _att_sync_today():
             pass
 
 
+# ── Hlídač volného místa na cloud SQL serveru (188.12) — Marti 26.6.2026 ──
+# Po incidentu plného disku E: (denní PG zálohy bez retence) hlídáme disky přes
+# xp_fixeddrives (MSSQL na 188.12 vidí všechny disky boxu, kde běží i PostgreSQL).
+# Když některý disk < práh → notifikace Martimu (mobil). Self-gated 1×/6h,
+# dedup 1×/den/disk. Žádný zásah, jen upozornění (mazání záloh řeší retence ps1).
+_DISK_MON = {"last_run": 0.0, "alerted": {}}
+_DISK_MON_THRESHOLD_MB = 2048   # < 2 GB volných = upozornit
+_DISK_MON_MIN_INTERVAL_S = 6 * 3600
+
+
+def _disk_space_monitor():
+    import time as _t, datetime as _d
+    now = _t.time()
+    if now - _DISK_MON["last_run"] < _DISK_MON_MIN_INTERVAL_S:
+        return
+    _DISK_MON["last_run"] = now
+    res = _mssql188_query("EXEC master..xp_fixeddrives;")
+    if not res.get("ok"):
+        return
+    today = _d.date.today().isoformat()
+    fresh = []
+    for r in res.get("rows", []):
+        try:
+            drive = str(r[0]).strip()
+            free_mb = int(r[1])
+        except Exception:
+            continue
+        if free_mb < _DISK_MON_THRESHOLD_MB and _DISK_MON["alerted"].get(drive) != today:
+            fresh.append((drive, free_mb))
+    if not fresh:
+        return
+    detail = ", ".join("%s: %.1f GB volných" % (d, mb / 1024.0) for d, mb in fresh)
+    title = "Disk dochází na SQL serveru (188.12)"
+    msg = ("Málo místa — %s (práh %d GB). Zkontroluj E: (denní PG zálohy). "
+           "Retence: scripts/ops/prune_pg_backups.ps1." % (detail, _DISK_MON_THRESHOLD_MB // 1024))
+    try:
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t2
+        s = _gds()
+        try:
+            s.execute(_t2(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', 1, 'claude_msg', :ti, :m, 1)"),
+                {"ti": title[:120], "m": msg[:2000]})
+            s.commit()
+        finally:
+            s.close()
+        for d, _mb in fresh:
+            _DISK_MON["alerted"][d] = today
+        logger.info("[disk_mon] alert sent: %s", detail)
+    except Exception as e:
+        logger.warning("[disk_mon] notify failed: %s", e)
+
+
 async def _att_sync_loop():
     import asyncio as _aio
     while not _ATT_SYNC_STOP[0]:
@@ -20025,6 +20079,10 @@ async def _att_sync_loop():
                 await loop.run_in_executor(None, _isorem)
             except Exception as _ie:
                 logger.warning("[iso_reminders] %s", _ie)
+            try:  # hlídač volného místa na SQL serveru (self-gated 1×/6h)
+                await loop.run_in_executor(None, _disk_space_monitor)
+            except Exception as _de:
+                logger.warning("[disk_mon] %s", _de)
         except _aio.CancelledError:
             break
         except Exception as e:

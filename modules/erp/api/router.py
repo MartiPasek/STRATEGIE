@@ -19240,6 +19240,67 @@ def _att_break_overrun_nudge(tenant: int = 2) -> dict:
         cm.__exit__(None, None, None)
 
 
+def _att_automat_fond_fill(tenant: int = 2, days_back: int = 14) -> dict:
+    """DOCHÁZKOVÝ AUTOMAT (Marti 26.6.2026): pro kategorie s dopichavat_fond dopíchne
+    chybějící hodiny do fond_h_den speciálním jobem 'fond_doplneni'. Smysl: lidé se
+    nemusí upínat na píchání. JEN dny s ČÁSTEČNOU přítomností (real>0 a <fond), bez
+    schválené absence, jen dokončené dny. Viditelně oddělené, pro mzdy plná doba.
+    bez_prescasu = strop fond (nedopočítává přes). Idempotentní (skip pokud doplněno)."""
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    filled = 0
+    try:
+        ft = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='fond_doplneni'"),
+                       {"t": tenant}).scalar()
+        if not ft:
+            return {"ok": False, "error": "typ fond_doplneni chybí"}
+        rows = s.execute(_t(
+            "WITH cat AS ("
+            "  SELECT uk.user_id, k.fond_h_den FROM tenant.att_user_kategorie uk "
+            "  JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            "  WHERE k.dopichavat_fond=true AND k.aktivni=true), "
+            "dny AS ("
+            "  SELECT e.employee_id, em.user_id, e.entry_date, "
+            "    sum(COALESCE(e.hours,0)) FILTER (WHERE et.category='presence' AND et.code<>'fond_doplneni') AS real_h "
+            "  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "  JOIN tenant.att_employee em ON em.id=e.employee_id JOIN cat ON cat.user_id=em.user_id "
+            "  WHERE e.tenant_id=:t AND e.entry_date < current_date "
+            "    AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-06') "
+            "    AND e.status NOT IN ('superseded') "
+            "  GROUP BY e.employee_id, em.user_id, e.entry_date) "
+            "SELECT d.employee_id, d.user_id, d.entry_date, d.real_h, c.fond_h_den "
+            "FROM dny d JOIN cat c ON c.user_id=d.user_id "
+            "WHERE d.real_h > 0.1 AND d.real_h < c.fond_h_den "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry a JOIN tenant.att_entry_type a2 ON a2.id=a.entry_type_id "
+            "     WHERE a.tenant_id=:t AND a.employee_id=d.employee_id AND a.entry_date=d.entry_date "
+            "       AND a2.category='absence' AND a.status IN ('pending','approved')) "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry f WHERE f.tenant_id=:t AND f.employee_id=d.employee_id "
+            "       AND f.entry_date=d.entry_date AND f.entry_type_id=:ft)"),
+            {"t": tenant, "db": days_back, "ft": ft}).fetchall()
+        for r in rows:
+            emp, day, realh, fond = r[0], r[2], float(r[3] or 0), float(r[4] or 0)
+            missing = round(fond - realh, 2)
+            if missing < 0.1:
+                continue
+            s.execute(_t(
+                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                "status,source,is_active,note,created_at,updated_at) "
+                "VALUES (:t,:e,:d,:ft,:h,'pending','automat',false,:n,now(),now())"),
+                {"t": tenant, "e": emp, "d": day, "ft": ft, "h": missing,
+                 "n": "[automat: doplnění do fondu %.2f h]" % missing})
+            filled += 1
+        s.commit()
+        return {"ok": True, "filled": filled}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc)}
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _maybe_long_shift_nudge():
     import time as _tm
     now = _tm.time()
@@ -19385,6 +19446,12 @@ def _maybe_auto_checkout_midnight():
         _LAST_AUTO_CO[0] = day
         out = _att_auto_checkout_midnight()
         logger.info("[auto_checkout] půlnoční odhlášení: %s", out)
+        # Automat: po uzávěrce dne dopíchni fond hodin lidem v příslušné kategorii
+        try:
+            ff = _att_automat_fond_fill()
+            logger.info("[automat] doplnění do fondu: %s", ff)
+        except Exception:
+            logger.exception("[automat] fond fill failed")
     except Exception as e:
         logger.warning("[auto_checkout] %s", e)
 

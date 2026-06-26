@@ -1012,6 +1012,14 @@ def dochazka_automat_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/claude-fronta")
+def claude_fronta_page():
+    """Mobilní fronta úkolů pro Claude instance — zadej z provozu, budík vyřídí.
+    Marti 26.6.2026."""
+    return FileResponse(os.path.join(static_dir, "claude-fronta.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/predkontace")
 def predkontace_page():
     """Předkontace — účetní kódy/kontace 1:1 z Heliosu (kontace → sborník + řádky MD/DAL,

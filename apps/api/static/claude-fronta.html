@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fronta úkolů pro Clauda</title>
+<style>
+  :root{color-scheme:light dark}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:14px;background:#0f1420;color:#e8edf6}
+  a{color:#7fb0ff}
+  h1{font-size:19px;margin:0 0 2px}
+  h2{font-size:14px;margin:16px 0 8px;color:#bcd}
+  .sub{color:#9fb0c8;font-size:12.5px;margin-bottom:12px;line-height:1.5}
+  label{display:block;font-size:12px;color:#8fa3bd;margin:8px 0 3px}
+  input,textarea,select{width:100%;background:#0f1420;color:#e8edf6;border:1px solid #2a3547;border-radius:8px;padding:10px 11px;font-size:15px;font-family:inherit}
+  textarea{min-height:84px;resize:vertical}
+  .row{display:flex;gap:8px}
+  .row>div{flex:1}
+  button{margin-top:12px;width:100%;background:#3a7a3a;color:#fff;border:none;padding:13px;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer}
+  button:active{opacity:.85}
+  #msg{font-size:13px;margin:8px 0;min-height:18px}
+  .card{background:#19202e;border:1px solid #26303f;border-radius:11px;padding:11px 13px;margin-bottom:9px}
+  .card .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .subj{font-weight:600;font-size:14px}
+  .chip{display:inline-block;font-size:10.5px;padding:1px 8px;border-radius:9px;background:#16243a;color:#7fb0ff}
+  .chip.new{background:#3a2e1f;color:#f0c987}
+  .chip.done{background:#1a3320;color:#8fe0a0}
+  .chip.err{background:#3a1f1f;color:#f0a0a0}
+  .meta{color:#8295ad;font-size:11.5px;margin-top:3px}
+  .det{color:#cdd8e8;font-size:12.5px;margin-top:5px;white-space:pre-wrap}
+  .res{color:#9fe0b0;font-size:12.5px;margin-top:6px;border-top:1px solid #243; padding-top:5px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>📥 Fronta úkolů pro Clauda</h1>
+<div class="sub">Zadej úkol odkudkoli (i z provozu z mobilu). Naplánovaná úloha danou instanci probudí, vyřídí a pošle ti výsledek. Prázdná fronta = klid. <a href="/">← Domů</a></div>
+
+<label>Komu</label>
+<select id="cil">
+  <option value="ID23">Claude ID23 (hlavní – stavění, DB, složitější)</option>
+  <option value="C27">Claude‑27 (tým – lehčí věci)</option>
+  <option value="C24">Claude‑24 (Kristý)</option>
+  <option value="C25">Claude‑25 (Šárka)</option>
+  <option value="C26">Claude‑26 (Peťa)</option>
+</select>
+
+<label>Co je potřeba (krátce)</label>
+<input id="subject" placeholder="např. Vyjeď přehled neuhrazených faktur ES za červen">
+
+<label>Detail (nepovinné)</label>
+<textarea id="detail" placeholder="Upřesnění, kontext, na co si dát pozor…"></textarea>
+
+<div class="row">
+  <div>
+    <label>Priorita</label>
+    <select id="priority">
+      <option value="1">1 – běžná</option>
+      <option value="2" selected>2 – důležité</option>
+      <option value="3">3 – spěchá</option>
+    </select>
+  </div>
+</div>
+
+<button id="send" onclick="odeslat()">📤 Vložit do fronty</button>
+<div id="msg"></div>
+
+<h2>Fronta a hotové</h2>
+<div id="list"><div class="meta">Načítám…</div></div>
+
+<script>
+const API='';
+async function load(){
+  const r=await fetch(API+'/api/v1/erp/app/claude-fronta',{credentials:'include'}).then(x=>x.json()).catch(()=>({ok:false}));
+  const el=document.getElementById('list');
+  if(!r.ok){el.innerHTML='<div class="meta">'+((r&&r.error)||'Nedostupné (přihlas se jako rodič / HR)')+'</div>';return;}
+  if(!(r.fronta||[]).length){el.innerHTML='<div class="meta">Fronta je prázdná — klid. 🌿</div>';return;}
+  el.innerHTML=r.fronta.map(t=>{
+    const st=t.status==='done'?'<span class="chip done">hotovo</span>':
+             t.status==='new'?'<span class="chip new">čeká</span>':
+             t.status==='error'?'<span class="chip err">chyba</span>':'<span class="chip">'+t.status+'</span>';
+    return `<div class="card"><div class="top"><span class="subj">${esc(t.subject)}</span>${st}</div>
+      <div class="meta">→ ${esc(t.cil)} · ${esc(t.vznik||'')}${t.hotovo?(' · hotovo '+esc(t.hotovo)):''}</div>
+      ${t.detail?('<div class="det">'+esc(t.detail)+'</div>'):''}
+      ${t.vysledek?('<div class="res">✓ '+esc(t.vysledek)+'</div>'):''}</div>`;
+  }).join('');
+}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+async function odeslat(){
+  const subject=document.getElementById('subject').value.trim();
+  if(!subject){document.getElementById('msg').textContent='Napiš aspoň co je potřeba.';return;}
+  const b={cil:document.getElementById('cil').value,subject:subject,
+    detail:document.getElementById('detail').value,priority:document.getElementById('priority').value};
+  document.getElementById('msg').textContent='Odesílám…';
+  const r=await fetch(API+'/api/v1/erp/app/claude-fronta/new',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(x=>x.json()).catch(()=>({ok:false}));
+  if(r.ok){document.getElementById('msg').textContent='✓ Vloženo do fronty (#'+r.id+'). Claude to vyřídí na nejbližší probuzení.';
+    document.getElementById('subject').value='';document.getElementById('detail').value='';load();}
+  else document.getElementById('msg').textContent='✗ '+(r.error||'chyba');
+}
+load();setInterval(load,15000);
+</script>
+</body>
+</html>

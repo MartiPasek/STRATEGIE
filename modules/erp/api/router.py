@@ -18721,6 +18721,69 @@ async def automat_zarazeni(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/claude-fronta")
+async def claude_fronta(req: Request) -> JSONResponse:
+    """Mobilní fronta úkolů pro Claude instance (Marti 26.6.2026): Marti z mobilu
+    (sám nebo přes Marti-AI) vloží požadavek → naplánovaná úloha danou instanci
+    probudí, vyřídí a reportne. Prázdná fronta = klid, jede se. Vidí rodič / HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (_is_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _gd
+    from sqlalchemy import text as _t
+    ds = _gd()
+    try:
+        rows = [dict(r) for r in ds.execute(_t(
+            "SELECT id, from_instance, replace(kind,'task_','') AS cil, subject, detail, "
+            "priority, status, to_char(created_at AT TIME ZONE 'Europe/Prague','DD.MM HH24:MI') vznik, "
+            "plan_note vysledek, to_char(resolved_at AT TIME ZONE 'Europe/Prague','DD.MM HH24:MI') hotovo "
+            "FROM fw.claude_coord WHERE kind LIKE 'task\\_%' "
+            "ORDER BY (status='new') DESC, created_at DESC LIMIT 50")).mappings().all()]
+        return {"ok": True, "fronta": rows}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.post("/app/claude-fronta/new")
+async def claude_fronta_new(req: Request) -> JSONResponse:
+    """Vloží úkol do fronty pro zvolenou Claude instanci (Marti / HR z mobilu).
+    Cíl (ID23 / C27 / …) se kóduje do kind='task_<cil>'. Žádné DDL."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (_is_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    cil = (str(body.get("cil") or "ID23")).strip()[:20] or "ID23"
+    subject = (str(body.get("subject") or "")).strip()[:300]
+    detail = (str(body.get("detail") or "")).strip()[:8000]
+    try:
+        priority = int(body.get("priority") or 2)
+    except Exception:
+        priority = 2
+    if not subject:
+        return JSONResponse({"ok": False, "error": "subject povinný"}, status_code=400)
+    from core.database_data import get_data_session as _gd
+    from sqlalchemy import text as _t
+    ds = _gd()
+    try:
+        rid = ds.execute(_t(
+            "INSERT INTO fw.claude_coord (from_instance, kind, subject, detail, priority, status, created_at, updated_at) "
+            "VALUES (:fi, :kind, :subj, :det, :pri, 'new', now(), now()) RETURNING id"),
+            {"fi": "marti-mobil#%s" % uid, "kind": "task_" + cil, "subj": subject,
+             "det": detail, "pri": priority}).scalar()
+        ds.commit()
+        return {"ok": True, "id": rid}
+    except Exception as exc:
+        ds.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.get("/app/attendance/list")
 async def att_list(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

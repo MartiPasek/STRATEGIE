@@ -37,7 +37,7 @@
 <input type="search" id="q" placeholder="🔎 Hledat člověka…" oninput="renderLide()">
 <div id="lide"></div>
 
-<h2>Co automat dopíchl (30 dní)</h2>
+<h2>Co automat srovnal na úvazek (tento měsíc)</h2>
 <div id="fond"></div>
 
 <script>
@@ -65,12 +65,13 @@ function renderLide(){
   const opts=(DATA.kategorie||[]).map(k=>`<option value="${k.id}">${k.nazev}</option>`).join('');
   const rows=(DATA.lide||[]).filter(l=>!q||(l.jmeno||'').toLowerCase().includes(q)).map(l=>{
     const cur=zmap[l.id];
-    return `<tr><td>${l.jmeno}</td><td>
+    const uv=(l.uvazek_h_den!=null)?(l.uvazek_h_den+' h/den'):'<span class="muted">—</span>';
+    return `<tr><td>${l.jmeno}</td><td class="num">${uv}</td><td>
       <select onchange="zarad(${l.id},this.value)">
         <option value="">— bez kategorie —</option>${opts}
       </select></td></tr>`;
   }).join('');
-  document.getElementById('lide').innerHTML=`<table><thead><tr><th>Člověk</th><th>Kategorie automatu</th></tr></thead><tbody>${rows}</tbody></table>`;
+  document.getElementById('lide').innerHTML=`<table><thead><tr><th>Člověk</th><th class="num">Úvazek</th><th>Kategorie automatu</th></tr></thead><tbody>${rows}</tbody></table>`;
   // nastav aktuální hodnoty selectů
   (DATA.lide||[]).filter(l=>!q||(l.jmeno||'').toLowerCase().includes(q)).forEach((l,i)=>{
     const sel=document.querySelectorAll('#lide select')[i];if(sel&&zmap[l.id]!=null)sel.value=zmap[l.id];
@@ -85,9 +86,14 @@ async function zarad(uid,kat){
 }
 function renderFond(){
   const f=DATA.fond||[];
-  if(!f.length){document.getElementById('fond').innerHTML='<div class="muted">Zatím automat nic nedopíchl (běží po půlnoční uzávěrce dne).</div>';return;}
-  document.getElementById('fond').innerHTML=`<table><thead><tr><th>Člověk</th><th class="num">Dopíchnuto (h)</th><th class="num">Dní</th></tr></thead><tbody>${
-    f.map(x=>`<tr><td>${x.jmeno}</td><td class="num">${x.doplneno_h}</td><td class="num">${x.dni}</td></tr>`).join('')}</tbody></table>`;
+  if(!f.length){document.getElementById('fond').innerHTML='<div class="muted">Zatím automat za tento měsíc nic nesrovnal (běží po půlnoční uzávěrce dne).</div>';return;}
+  const cell=(v)=>(v!=null&&v!=='')?v:'<span class="muted">·</span>';
+  document.getElementById('fond').innerHTML=`<table><thead><tr><th>Člověk</th>`+
+    `<th class="num">Dopíchnuto (h)</th><th class="num">dní</th>`+
+    `<th class="num">Nad fond → nenárokové (h)</th><th class="num">dní</th></tr></thead><tbody>${
+    f.map(x=>`<tr><td>${x.jmeno}</td>`+
+      `<td class="num">${cell(x.doplneno_h)}</td><td class="num">${cell(x.dni_doplneno)}</td>`+
+      `<td class="num">${cell(x.nenarokove_h)}</td><td class="num">${cell(x.dni_nad)}</td></tr>`).join('')}</tbody></table>`;
 }
 load();
 </script>

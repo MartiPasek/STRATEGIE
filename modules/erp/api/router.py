@@ -18660,13 +18660,23 @@ async def automat_prehled(req: Request) -> JSONResponse:
             "LEFT JOIN public.users u ON u.id=uk.user_id ORDER BY jmeno")).mappings().all()]
         fond = [dict(r) for r in s.execute(_t(
             "SELECT em.user_id, COALESCE(NULLIF(TRIM(u.first_name||' '||u.last_name),''),'#'||em.user_id) jmeno, "
-            "round(sum(e.hours)::numeric,1) doplneno_h, count(*) dni "
+            "round(sum(e.hours) FILTER (WHERE et.code='fond_doplneni')::numeric,1) doplneno_h, "
+            "count(*) FILTER (WHERE et.code='fond_doplneni') dni_doplneno, "
+            "round(sum(e.hours) FILTER (WHERE et.code='nenarokova')::numeric,1) nenarokove_h, "
+            "count(*) FILTER (WHERE et.code='nenarokova') dni_nad "
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "JOIN tenant.att_employee em ON em.id=e.employee_id LEFT JOIN public.users u ON u.id=em.user_id "
-            "WHERE e.tenant_id=2 AND et.code='fond_doplneni' AND e.entry_date >= current_date - 30 "
-            "GROUP BY em.user_id, u.first_name, u.last_name ORDER BY doplneno_h DESC")).mappings().all()]
+            "WHERE e.tenant_id=2 AND e.source='automat' AND et.code IN ('fond_doplneni','nenarokova') "
+            "AND e.entry_date >= date_trunc('month', current_date) "
+            "GROUP BY em.user_id, u.first_name, u.last_name HAVING count(*)>0 ORDER BY jmeno")).mappings().all()]
         lide = [dict(r) for r in s.execute(_t(
-            "SELECT u.id, TRIM(u.first_name||' '||u.last_name) jmeno FROM public.users u "
+            "SELECT u.id, TRIM(u.first_name||' '||u.last_name) jmeno, "
+            "(SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
+            " FROM tenant.engagement g JOIN tenant.att_employee em ON em.id=g.employee_id "
+            " LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id "
+            " WHERE em.user_id=u.id AND em.tenant_id=2 AND g.is_current=true AND g.uvazek_tyden_h IS NOT NULL "
+            " ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1) AS uvazek_h_den "
+            "FROM public.users u "
             "JOIN public.user_tenants ut ON ut.user_id=u.id AND ut.tenant_id=2 AND ut.status IN ('active','invited') "
             "WHERE COALESCE(TRIM(u.first_name||u.last_name),'')<>'' ORDER BY u.last_name, u.first_name")).mappings().all()]
         return {"ok": True, "kategorie": kat, "zarazeni": zar, "fond": fond, "lide": lide}

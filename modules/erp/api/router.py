@@ -19214,10 +19214,15 @@ def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3
             "  round(MAX(EXTRACT(EPOCH FROM (now()-e.started_at))/3600.0)) AS hod "
             "FROM tenant.att_entry e JOIN tenant.att_employee em ON em.id=e.employee_id "
             "JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "LEFT JOIN tenant.att_user_kategorie uk ON uk.user_id=em.user_id "
+            "LEFT JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id AND k.aktivni=true "
             "WHERE e.tenant_id=:t AND e.is_active=true AND e.started_at IS NOT NULL "
             "  AND e.ended_at IS NULL "                 # Marti 26.6.: jen SKUTEČNĚ otevřené (import nech)
-            "  AND et.code IN ('work','homeoffice') "   # jen reálné směny, ne overhead/režie
-            "  AND e.started_at < now() - (:h * interval '1 hour') AND em.user_id IS NOT NULL "
+            "  AND et.code IN ('work','homeoffice') AND em.user_id IS NOT NULL "   # jen reálné směny, ne overhead/režie
+            # Marti 26.6.: monitor respektuje KATEGORII — hlídat dlouhou směnu (default ano),
+            # práh hodin dle kategorie (volna_kancelar 16, prescasy 14, pevna 12); bez_automatu=false → vypadne.
+            "  AND COALESCE(k.hlidat_dlouhou_smenu, true) = true "
+            "  AND e.started_at < now() - (COALESCE(k.dlouha_smena_h, :h) * interval '1 hour') "
             "GROUP BY em.user_id"), {"t": tenant, "h": hours}).fetchall()
         for r in rows:
             uid = int(r[0])
@@ -19269,8 +19274,12 @@ def _att_break_overrun_nudge(tenant: int = 2) -> dict:
             "  round(EXTRACT(EPOCH FROM (now()-e.started_at))/60.0) min "
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "JOIN tenant.att_employee em ON em.id=e.employee_id "
+            "LEFT JOIN tenant.att_user_kategorie uk ON uk.user_id=em.user_id "
+            "LEFT JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id AND k.aktivni=true "
             "WHERE e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL "
             "  AND et.code='break' AND em.user_id IS NOT NULL "
+            # Marti 26.6.: hlídat pauzy jen u kategorií, co to mají zapnuté (default NE; jen pevna_doba ano)
+            "  AND COALESCE(k.hlidat_pauzy, false) = true "
             "  AND e.started_at < now() - interval '20 minutes' AND e.started_at <= now()"),
             {"t": tenant}).fetchall()
         for r in rows:
@@ -19573,6 +19582,10 @@ def _att_auto_checkout_midnight(tenant: int = 2, notify: bool = True) -> dict:
                     "FROM tenant.att_employee em WHERE em.id=:e"), {"e": eid}).first()
                 if not u or not u[0]:
                     continue
+                if s.execute(_t("SELECT 1 FROM tenant.att_user_kategorie uk JOIN tenant.att_kategorie k "
+                                "ON k.id=uk.kategorie_id WHERE uk.user_id=:u AND k.kod='bez_automatu'"),
+                             {"u": int(u[0])}).first():
+                    continue  # Marti 26.6.: kategorie bez_automatu → žádné automat zprávy
                 jm = ((u[1] or "").split(" ")[0]) or "ahoj"
                 msg = ("Ahoj %s, večer ses zapomněl/a odhlásit z docházky, tak jsem ti směnu "
                        "uzavřela o půlnoci (23:59). 🙂 Jestli to nesedí, mrkni prosím do Docházky "
@@ -20697,7 +20710,11 @@ def _netscan_auto_checkin() -> int:
             "       JOIN tenant.att_entry_type tx ON tx.id = ax.entry_type_id "
             "       WHERE ax.tenant_id = :tn AND ax.employee_id = em.id "
             "         AND ax.entry_date = current_date "
-            "         AND tx.category = 'absence' AND ax.status IN ('pending','approved'))"),
+            "         AND tx.category = 'absence' AND ax.status IN ('pending','approved')) "
+            # Marti 26.6.: monitor respektuje kategorii — lidem v 'bez_automatu' check-in nenabízíme
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_user_kategorie uk "
+            "       JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            "       WHERE uk.user_id = em.user_id AND k.kod='bez_automatu')"),
             {"tn": _ATT_TENANT}).fetchall()
         if not rows:
             s.commit()

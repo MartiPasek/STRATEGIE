@@ -107,6 +107,12 @@ _freshness = {"behind": 0, "head": None, "origin_sha": None,
               "origin_author": None, "origin_msg": None, "checked_at": None}
 
 SCAN_INTERVAL_SEC = 1.5
+# Adaptivní cadence (Marti 26.6.2026): když pracujeme, tikat svižně, ať se banner
+# a výsledek objeví hned; když je delší dobu ticho, zpomalit (šetří NB i síť).
+# „Aktivně" = od poslední akce (jakýkoli *_GO soubor) uplynulo < ACTIVE_WINDOW.
+SCAN_ACTIVE_SEC = 0.6          # rychlé tikání během práce
+SCAN_IDLE_SEC = 5.0           # klidové tikání, když se nic neděje
+ACTIVE_WINDOW_SEC = 180.0     # jak dlouho po poslední akci zůstat ve „svižném" režimu
 HTTP_TIMEOUT_SEC = 30
 ROW_CAP = 500
 CELL_MAX = 200
@@ -1391,6 +1397,7 @@ def main() -> None:
     _last_fresh = time.time()
     _last_shot = 0.0             # snímky obrazovky — pollni hned po startu
     _last_mail = 0.0             # emaily + odpovědi Marti-AI — pollni hned po startu
+    _last_activity = time.time() # poslední akce (GO soubor) — řídí adaptivní cadenci
     global _shot_last_epoch
     try:
         _shot_last_epoch = int((SCREENSHOTS_DIR / ".last_epoch").read_text(encoding="utf-8").strip())
@@ -1399,16 +1406,19 @@ def main() -> None:
     try:
         while True:
             try:
+                _did_work = False
                 if PULL_GO_FILE.exists():
-                    _process_pull()
+                    _process_pull(); _did_work = True
                 if DEPLOY_GO_FILE.exists():
-                    _process_deploy()
+                    _process_deploy(); _did_work = True
                 if BUILD_GO_FILE.exists():
-                    _process_build()
+                    _process_build(); _did_work = True
                 if NOTIFY_GO_FILE.exists():
-                    _process_notify()
+                    _process_notify(); _did_work = True
                 if GO_FILE.exists():
-                    _process()
+                    _process(); _did_work = True
+                if _did_work:
+                    _last_activity = time.time()
                 # Freshness (Marti 3.6.): git fetch + behind check á ~90 s →
                 # LOCAL_STATUS.txt + banner v OUT (Claude na startu práce vidí,
                 # jestli má pullnout).
@@ -1438,7 +1448,9 @@ def main() -> None:
                     _consume_deploy()
                 except Exception:
                     pass
-            time.sleep(SCAN_INTERVAL_SEC)
+            # Adaptivní spánek: svižně během práce, klidně když je ticho (Marti 26.6.)
+            _idle = (time.time() - _last_activity) >= ACTIVE_WINDOW_SEC
+            time.sleep(SCAN_IDLE_SEC if _idle else SCAN_ACTIVE_SEC)
     except KeyboardInterrupt:
         _log("STRATEGIE-CLAUDE-SQL forwarder stopped (Ctrl+C)")
 

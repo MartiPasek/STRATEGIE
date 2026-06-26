@@ -19023,8 +19023,12 @@ def _do_att_action(payload, uid, decision):
     act = (payload or {}).get("att_action") if isinstance(payload, dict) else None
     if not act:
         return None
-    if decision != "accept":
-        return {"att_action": act, "done": False, "note": "ponecháno (Ne)"}
+    # Semantika tlačítek: checkin/checkout se provádí na Ano (accept);
+    # resume_work (přetažená pauza „ještě na pauze? Ano/Ne") se provádí na Ne (reject).
+    do_it = ((decision == "accept" and act in ("checkin", "checkout"))
+             or (decision == "reject" and act == "resume_work"))
+    if not do_it:
+        return {"att_action": act, "done": False, "note": "ponecháno"}
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
@@ -19060,6 +19064,29 @@ def _do_att_action(payload, uid, decision):
                 {"id": opn[0], "n": "[odhlášeno přes notifikaci]"})
             s.commit()
             return {"att_action": "checkout", "done": True, "note": "odhlášeno"}
+        if act == "resume_work":
+            # Ano(=ještě na pauze) řeší kód výš (decision!=accept → ponecháno). Sem se
+            # dostaneme jen při accept; ale u resume je „akce" = Ne. Proto resume_work
+            # provádíme při decision=='reject' (Ne = už pracuju) — viz dispatch.
+            opn = s.execute(_t(
+                "SELECT id FROM tenant.att_entry WHERE tenant_id=:t AND employee_id=:e "
+                "AND is_active=true ORDER BY id DESC LIMIT 1"), {"t": _ATT_TENANT, "e": emp}).first()
+            if not opn:
+                s.commit()
+                return {"att_action": "resume_work", "done": False, "note": "nemáš otevřenou pauzu"}
+            s.execute(_t(
+                "UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
+                "hours=round(GREATEST(EXTRACT(EPOCH FROM (now()-started_at))/3600.0,0)::numeric,2), "
+                "note=CASE WHEN note IS NULL OR note='' THEN :n ELSE note||' / '||:n END, updated_at=now() "
+                "WHERE id=:id"), {"id": opn[0], "n": "[návrat do práce přes notifikaci]"})
+            wt = _att_work_type(s)
+            s.execute(_t(
+                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,started_at,"
+                "status,source,is_active,note,created_by_id,created_at,updated_at) "
+                "VALUES (:t,:e,current_date,:ty,now(),'pending','notif_confirm',true,:n,:u,now(),now())"),
+                {"t": _ATT_TENANT, "e": emp, "ty": wt, "n": "[návrat z pauzy přes notifikaci]", "u": uid})
+            s.commit()
+            return {"att_action": "resume_work", "done": True, "note": "vráceno do práce"}
         return {"att_action": act, "done": False, "note": "neznámá akce"}
     except Exception as e:
         try:
@@ -19087,7 +19114,8 @@ def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3
         # „aktivní/běžící" — import (source='import', overhead) občas nechá is_active=true
         # i u zavřeného → tím vznikaly bogus „dlouhá směna" i „zapomenutý odchod". Srovnej.
         s.execute(_t("UPDATE tenant.att_entry SET is_active=false, updated_at=now() "
-                     "WHERE tenant_id=:t AND is_active=true AND ended_at IS NOT NULL"), {"t": tenant})
+                     "WHERE tenant_id=:t AND is_active=true "
+                     "AND (ended_at IS NOT NULL OR started_at > now())"), {"t": tenant})
         s.commit()
         # ROBUSTNOST (Marti 26.6.2026): „když funguje odhlášení po půlnoci, nemůže vzniknout
         # směna delší než 23 h" → existence 36/50/60h směn = důkaz, že půlnoční job občas
@@ -19140,6 +19168,65 @@ def _att_long_shift_nudge(tenant: int = 2, hours: int = 12, renag_hours: int = 3
                 "VALUES ('mobile', :u, 'claude_confirm', :ti, :msg, CAST(:pl AS jsonb), NULL)"),
                 {"u": uid, "ti": "⏰ Dlouhá směna (%s h)" % hod, "msg": msg,
                  "pl": '{"att_action":"checkout"}'})
+            sent += 1
+        s.commit()
+        return {"ok": True, "sent": sent}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc)}
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _att_break_overrun_nudge(tenant: int = 2) -> dict:
+    """Interaktivně hlídá přetažené pauzy/oběd/jednání (Marti 26.6.2026). Práh dle note:
+    oběd 40 min, jednání/schůzka/lékař 75 min, ostatní (krátká pauza) 20 min. Když aktivní
+    break job přeteče → claude_confirm „ještě X? Ano/Ne" (Ne = resume_work → vrátí do práce).
+    day_end (záměrný konec dne) se nehlídá. Dedup 20 min."""
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    sent = 0
+    try:
+        rows = s.execute(_t(
+            "SELECT e.id, em.user_id, "
+            "  COALESCE(split_part(NULLIF(TRIM((SELECT first_name FROM public.users u WHERE u.id=em.user_id)),''),' ',1),'ahoj') jm, "
+            "  lower(COALESCE(e.note,'')) note, "
+            "  round(EXTRACT(EPOCH FROM (now()-e.started_at))/60.0) min "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "JOIN tenant.att_employee em ON em.id=e.employee_id "
+            "WHERE e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL "
+            "  AND et.code='break' AND em.user_id IS NOT NULL "
+            "  AND e.started_at < now() - interval '20 minutes' AND e.started_at <= now()"),
+            {"t": tenant}).fetchall()
+        for r in rows:
+            uid2, jm, note, mins = int(r[1]), r[2], (r[3] or ''), int(r[4] or 0)
+            if 'oběd' in note or 'obed' in note:
+                thr, lab = 40, 'na obědě'
+            elif 'jedn' in note or 'schůz' in note or 'schuz' in note or 'porad' in note:
+                thr, lab = 75, 'na jednání'
+            elif 'lékař' in note or 'lekar' in note:
+                thr, lab = 75, 'u lékaře'
+            else:
+                thr, lab = 20, 'na pauze'
+            if mins < thr:
+                continue
+            recent = s.execute(_t(
+                "SELECT 1 FROM fw.mobile_command WHERE target_user_id=:u "
+                "AND title LIKE '⏱ Přetažen%%' AND created_at > now()-interval '20 minutes' LIMIT 1"),
+                {"u": uid2}).first()
+            if recent:
+                continue
+            msg = ("Ahoj %s, koukám, že jsi %s už %s min. Jsi pořád %s, nebo ses zapomněl/a "
+                   "připíchnout zpátky do práce? Ano = pořád %s, Ne = už makám (vrať mě do práce). "
+                   "— Tvoje Marti") % (jm, lab, mins, lab, lab)
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, payload, created_by) "
+                "VALUES ('mobile', :u, 'claude_confirm', :ti, :msg, CAST(:pl AS jsonb), NULL)"),
+                {"u": uid2, "ti": "⏱ Přetažená pauza (%s min)" % mins, "msg": msg,
+                 "pl": '{"att_action":"resume_work"}'})
             sent += 1
         s.commit()
         return {"ok": True, "sent": sent}
@@ -20295,11 +20382,33 @@ async def netscan_ingest(req: Request) -> JSONResponse:
         auto = _netscan_auto_checkin()
     except Exception:
         logger.exception("[netscan] auto-checkin failed")
+    # Self-heal docházky (Marti 26.6.): „aktivní/Makám" smí být JEN záznam, který už
+    # začal (started_at<=now) a nemá konec (ended_at IS NULL). Budoucí plánovaný start
+    # z importu ani uzavřený záznam nesmí ukazovat Makám. Běží často (každý netscan) →
+    # robustní bez závislosti na úzkém půlnočním okně. Marti měl ve 3 ráno Makám.
+    try:
+        from core.database_data import get_data_session as _gh_ns
+        from sqlalchemy import text as _th_ns
+        _sh = _gh_ns()
+        try:
+            _sh.execute(_th_ns("UPDATE tenant.att_entry SET is_active=false, updated_at=now() "
+                               "WHERE tenant_id=2 AND is_active=true "
+                               "AND (ended_at IS NOT NULL OR started_at > now())"))
+            _sh.commit()
+        finally:
+            _sh.close()
+    except Exception:
+        logger.exception("[netscan] att self-heal failed")
     # …a při té příležitosti hlídka anomálií (dedup v tabulce → žádný spam)
     try:
         _att_anomaly_scan()
     except Exception:
         logger.exception("[netscan] anomaly scan failed")
+    # Přetažené pauzy/oběd/jednání → interaktivní „ještě? Ano/Ne" (Marti 26.6.)
+    try:
+        _att_break_overrun_nudge()
+    except Exception:
+        logger.exception("[netscan] break overrun nudge failed")
     # Marti 9.6.: živá docházka EC → naše (throttle 5 min, hybrid Fáze 1)
     try:
         _maybe_sync_ec_dochazka()

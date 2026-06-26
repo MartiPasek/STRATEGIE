@@ -258,24 +258,35 @@
     // Navigate na Diag log node v System tree
     // ──────────────────────────────────────────────────────────────
     function _navigateToDiagLog() {
-      const treeNodes = document.querySelectorAll(
-        '#sidebarTree [data-menu-node-id], #sidebarTree .tree-node[data-node-id]'
-      );
-      let targetNode = null;
-      treeNodes.forEach((node) => {
-        const label = (node.textContent || "").trim().toLowerCase();
-        if (label.includes("diag log") || label.includes("diag_log")) {
-          targetNode = node;
-        }
-      });
+      // Claude-24 fix 26.6.: původní selektor ([data-menu-node-id] /
+      // .tree-node[data-node-id]) uzel „Diag log" často nenašel → tlačítko
+      // nic neudělalo. Robustně: projdi celý strom a vyber NEJkonkrétnější
+      // prvek se štítkem „Diag log" (nejkratší textContent = list, ne větev),
+      // pak klikni na nejbližší klikací uzel.
+      const root = document.querySelector("#sidebarTree");
+      let target = null, bestLen = Infinity;
+      if (root) {
+        root.querySelectorAll(
+          '[data-menu-node-id], .tree-node, [role="treeitem"], a, button, li, span, div'
+        ).forEach((node) => {
+          const txt = (node.textContent || "").trim();
+          const low = txt.toLowerCase();
+          if ((low.includes("diag log") || low.includes("diag_log")) && txt.length < bestLen) {
+            target = node; bestLen = txt.length;
+          }
+        });
+      }
 
-      if (targetNode) {
-        targetNode.click();
+      if (target) {
+        const clickable = target.closest(
+          '[data-menu-node-id], .tree-node, [role="treeitem"], a, button'
+        ) || target;
+        clickable.click();
       } else {
         console.warn("[erp_error_alert] Diag log node not found in tree");
         if (typeof global._erpToast === "function") {
           global._erpToast(
-            "⚠ Diag log node nenalezen — otevři ručně přes System → Security → Diag log",
+            "⚠ Diag log nenalezen ve stromu — otevři přes System → Security → Diag log",
             "warning"
           );
         }

@@ -21052,15 +21052,9 @@ async def netscan_ingest(req: Request) -> JSONResponse:
     except Exception:
         body = {}
     devices = body.get("devices") or []
-    # Marti 9.6.: jednorázová diagnostika — vzorek syrových dat z Mikrotiku do
-    # diag logu (kde jsou byty / last-seen / signál) → návrh byte-delta presence.
-    try:
-        _smp = body.get("_sample")
-        if _smp:
-            import json as _js_ns
-            logger.warning("[netscan][SAMPLE] %s", _js_ns.dumps(_smp, ensure_ascii=False)[:4000])
-    except Exception:
-        pass
+    # (Odstraněno 26.6. — Claude-24: jednorázová diagnostika [netscan][SAMPLE] z 9.6.
+    #  logovala warning každý netscan (~5 min) = šum v logu. Byte-delta presence
+    #  je už hotová a běží níž, vzorek do diag logu není potřeba.)
     if not isinstance(devices, list):
         return JSONResponse({"ok": False, "error": "devices must be list"}, status_code=400)
     from modules.hr.presence import touch_device as _ni_td
@@ -21119,9 +21113,11 @@ async def netscan_ingest(req: Request) -> JSONResponse:
     # z importu ani uzavřený záznam nesmí ukazovat Makám. Běží často (každý netscan) →
     # robustní bez závislosti na úzkém půlnočním okně. Marti měl ve 3 ráno Makám.
     try:
-        from core.database_data import get_data_session as _gh_ns
+        # Marti-AI role (smí UPDATE tenant.att_entry); strategie session má jen
+        # SELECT na tenant.* → dřív padalo „permission denied for table att_entry"
+        # každý netscan (error flood). Claude-24 diagnostika 26.6.
         from sqlalchemy import text as _th_ns
-        _sh = _gh_ns()
+        _sh = _att_session()
         try:
             _sh.execute(_th_ns("UPDATE tenant.att_entry SET is_active=false, updated_at=now() "
                                "WHERE tenant_id=2 AND is_active=true "

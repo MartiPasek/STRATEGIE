@@ -1465,7 +1465,7 @@ setTimeout(function(){
     g.appendChild(appCell("📲","Sdílený telefon",0,function(){go("sdileny");}));
     g.appendChild(appCell("🧲","Teamio",0,function(){ openApp("https://my.teamio.com"); }));
     g.appendChild(appCell("🤖","Claude-27",0,function(){go("claude27");}));
-    g.appendChild(appCell("📥","Zadat úkol",0,function(){ openApp("/claude-fronta"); }));
+    g.appendChild(appCell("📥","Zadat úkol",0,function(){ go("fronta"); }));
     g.appendChild(appCell("🕸️","Síť Claudů",0,function(){go("coord");}));
     // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
     // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
@@ -7836,7 +7836,7 @@ setTimeout(function(){
     else { render(z); }
   }
 
-  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vyroba_hub:vyroba_hub,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr_hub:hr_hub,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_naroz:hr_naroz,hr_novi:hr_novi,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek,claude27:claude27,coord:coord};
+  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vyroba_hub:vyroba_hub,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr_hub:hr_hub,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_naroz:hr_naroz,hr_novi:hr_novi,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek,claude27:claude27,coord:coord,fronta:fronta};
 
   // Claude-27 týmová hra (Marti 24.6.2026): Zuzka (+Mirek) vidí frontu Clauda-27
   // a dá mu „Go", když stojí. Slyšitelné notifikace chodí přes mobile_command.
@@ -7873,6 +7873,61 @@ setTimeout(function(){
         box.innerHTML=h;
         var gb=document.getElementById("c27go");
         if(gb) gb.addEventListener("click",function(){ gb.disabled=true; gb.textContent="Posílám Go…"; api("POST","/api/v1/erp/app/claude27/go",{}).then(function(r){ gb.textContent=(r&&r.ok)?"✓ Go odesláno":"Chyba"; setTimeout(load,1200); }).catch(function(){ gb.textContent="Chyba"; gb.disabled=false; }); });
+      }).catch(function(){ box.innerHTML='<div style="padding:20px;opacity:.7;">Nepodařilo se načíst.</div>'; });
+    }
+    load();
+  }
+
+  // Zadávání úkolů Claudovi z mobilu (Marti 26.6.2026): napiš co chceš + komu →
+  // fronta (fw.claude_coord) → budík danou instanci probudí, vyřídí, cinkne výsledek.
+  // Vnitřní pohled (ne externí stránka) — jezdí přes ověřený api() (token), proto bez 403.
+  function fronta(){
+    app.innerHTML=topbar("📥 Zadat úkol Claudovi",true)+'<div id="frbox" style="padding:14px 14px 130px;color:#e6edf5;font:14px/1.55 system-ui;"><div class="hint">Načítám…</div></div>';
+    var box=document.getElementById("frbox");
+    function load(){
+      api("GET","/api/v1/erp/app/claude-fronta","").then(function(j){
+        if(!j||!j.ok){ box.innerHTML='<div style="padding:22px;text-align:center;opacity:.85;">Zadávání úkolů je pro rodiče / HR.</div>'; return; }
+        var h='';
+        h+='<div style="background:#0e1726;border:1px solid #1d2c44;border-radius:14px;padding:14px;margin-bottom:14px;">';
+        h+='<div style="font-size:13px;opacity:.7;margin-bottom:6px;">Komu</div>';
+        h+='<select id="frcil" style="width:100%;background:#0c1420;color:#e6edf5;border:1px solid #28375a;border-radius:10px;padding:11px;font-size:15px;margin-bottom:10px;">'
+          +'<option value="ID23">Claude ID23 (hlavní – stavění, DB)</option>'
+          +'<option value="C27">Claude-27 (tým – lehčí)</option>'
+          +'<option value="C24">Claude-24 (Kristý)</option>'
+          +'<option value="C25">Claude-25 (Šárka)</option>'
+          +'<option value="C26">Claude-26 (Peťa)</option></select>';
+        h+='<div style="font-size:13px;opacity:.7;margin-bottom:6px;">Co je potřeba</div>';
+        h+='<input id="frsubj" placeholder="např. vyjeď neuhrazené faktury ES za červen" style="width:100%;background:#0c1420;color:#e6edf5;border:1px solid #28375a;border-radius:10px;padding:11px;font-size:15px;margin-bottom:10px;">';
+        h+='<div style="font-size:13px;opacity:.7;margin-bottom:6px;">Detail (nepovinné)</div>';
+        h+='<textarea id="frdet" placeholder="kontext, na co dát pozor…" style="width:100%;min-height:80px;background:#0c1420;color:#e6edf5;border:1px solid #28375a;border-radius:10px;padding:11px;font-size:15px;font-family:inherit;"></textarea>';
+        h+='<button id="frsend" style="width:100%;margin-top:12px;background:linear-gradient(135deg,#3ad07a,#2bb564);color:#fff;border:0;border-radius:14px;padding:15px;font-size:16px;font-weight:700;">📤 Vložit do fronty</button>';
+        h+='<div id="frmsg" style="font-size:13px;margin-top:8px;min-height:18px;opacity:.9;"></div>';
+        h+='</div>';
+        var its=j.fronta||[];
+        if(its.length){
+          h+='<div style="font-size:13px;opacity:.7;margin:4px 2px 8px;">Fronta a hotové</div>';
+          its.forEach(function(t){
+            var st=(t.status==="done")?'<span style="color:#8fe0a0;">hotovo</span>':(t.status==="new")?'<span style="color:#f0c987;">čeká</span>':(t.status==="error")?'<span style="color:#f0a0a0;">chyba</span>':esc(t.status);
+            h+='<div style="padding:10px 12px;background:#0c1420;border:1px solid #18233a;border-radius:10px;margin-bottom:6px;">'
+              +'<div style="display:flex;justify-content:space-between;gap:8px;"><b style="font-weight:600;">'+esc(t.subject)+'</b><span style="font-size:12px;white-space:nowrap;">'+st+'</span></div>'
+              +'<div style="opacity:.55;font-size:12px;margin-top:2px;">→ '+esc(t.cil)+' · '+esc(t.vznik||"")+'</div>'
+              +(t.vysledek?('<div style="color:#9fe0b0;font-size:12.5px;margin-top:5px;white-space:pre-wrap;">✓ '+esc(t.vysledek)+'</div>'):'')+'</div>';
+          });
+        } else {
+          h+='<div style="opacity:.6;text-align:center;padding:16px;">Fronta je prázdná — klid. 🌿</div>';
+        }
+        box.innerHTML=h;
+        var sb=document.getElementById("frsend");
+        if(sb) sb.addEventListener("click",function(){
+          var subj=(document.getElementById("frsubj").value||"").trim();
+          var msg=document.getElementById("frmsg");
+          if(!subj){ msg.textContent="Napiš aspoň co je potřeba."; return; }
+          sb.disabled=true; sb.textContent="Odesílám…";
+          api("POST","/api/v1/erp/app/claude-fronta/new",{cil:document.getElementById("frcil").value,subject:subj,detail:document.getElementById("frdet").value,priority:2}).then(function(r){
+            if(r&&r.ok){ msg.textContent="✓ Vloženo (#"+r.id+"). Claude to vyřídí na nejbližší probuzení."; setTimeout(load,800); }
+            else { msg.textContent="✗ "+((r&&r.error)||"chyba"); sb.disabled=false; sb.textContent="📤 Vložit do fronty"; }
+          }).catch(function(){ msg.textContent="✗ chyba sítě"; sb.disabled=false; sb.textContent="📤 Vložit do fronty"; });
+        });
       }).catch(function(){ box.innerHTML='<div style="padding:20px;opacity:.7;">Nepodařilo se načíst.</div>'; });
     }
     load();

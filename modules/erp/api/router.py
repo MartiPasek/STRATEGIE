@@ -19486,6 +19486,101 @@ def _att_automat_fond_odpich(tenant: int = 2, days_back: int = 14) -> dict:
         cm.__exit__(None, None, None)
 
 
+def _att_automat_level_day(tenant: int = 2, days_back: int = 4) -> dict:
+    """DOCHÁZKOVÝ AUTOMAT — denní srovnání na úvazek (Marti 26.6.2026). Sjednocuje
+    dopíchnutí i odpíchnutí do JEDNÉ přesné logiky (stejné jako měsíční dorovnání):
+    reálná přítomnost dne = SLOUČENÉ intervaly presence MINUS pauzy (řeší duplicitní
+    zdroje tablet/mobil, kde se work a overhead časově překrývají). Pak srovná na
+    OSOBNÍ úvazek (engagement úvazek/dny, fallback fond kategorie): pod fond → dopíchne
+    (fond_doplneni, pending), nad fond → přebytek do nenárokové (nenarokova, approved).
+    Jen lidé v kategorii s dopichavat_fond, jen dokončené dny, ne při schválené absenci.
+    Idempotentní: okno se přepočítá (smaž automat joby okna → vlož znovu)."""
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        nt = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='nenarokova'"),
+                       {"t": tenant}).scalar()
+        ft = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code='fond_doplneni'"),
+                       {"t": tenant}).scalar()
+        if not nt or not ft:
+            return {"ok": False, "error": "typy fond_doplneni/nenarokova chybí"}
+        # 1) přepočet okna — smaž stávající automat joby (idempotence)
+        s.execute(_t(
+            "DELETE FROM tenant.att_entry e USING tenant.att_entry_type et "
+            "WHERE et.id=e.entry_type_id AND e.tenant_id=:t AND e.source='automat' "
+            "  AND et.code IN ('fond_doplneni','nenarokova') "
+            "  AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-01') "
+            "  AND e.entry_date < current_date"), {"t": tenant, "db": days_back})
+        # 2) srovnání dne (merged net minus pauzy, per-osobu fond) — dopíchnutí i odpíchnutí
+        r = s.execute(_t(
+            "WITH iv AS ("
+            "  SELECT e.employee_id, e.entry_date, e.started_at AS s, e.ended_at AS en "
+            "  FROM tenant.att_entry e "
+            "  JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "  JOIN tenant.att_employee em ON em.id=e.employee_id "
+            "  JOIN tenant.att_user_kategorie uk ON uk.user_id=em.user_id "
+            "  JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id AND k.dopichavat_fond=true AND k.aktivni=true "
+            "  WHERE e.tenant_id=:t AND et.category='presence' "
+            "    AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-01') AND e.entry_date < current_date "
+            "    AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL AND e.ended_at > e.started_at "
+            "    AND e.status NOT IN ('superseded')), "
+            "ordd AS (SELECT employee_id, entry_date, s, en, "
+            "  max(en) OVER (PARTITION BY employee_id, entry_date ORDER BY s, en "
+            "    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_max FROM iv), "
+            "grp AS (SELECT employee_id, entry_date, s, en, "
+            "  sum(CASE WHEN prev_max IS NULL OR s > prev_max THEN 1 ELSE 0 END) "
+            "    OVER (PARTITION BY employee_id, entry_date ORDER BY s, en) AS g FROM ordd), "
+            "merged AS (SELECT employee_id, entry_date, min(s) AS s, max(en) AS en "
+            "  FROM grp GROUP BY employee_id, entry_date, g), "
+            "pres AS (SELECT employee_id, entry_date, sum(EXTRACT(EPOCH FROM (en - s))/3600.0) AS presence_h "
+            "  FROM merged GROUP BY employee_id, entry_date), "
+            "brk AS (SELECT e.employee_id, e.entry_date, sum(COALESCE(e.hours,0)) AS break_h "
+            "  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "  WHERE e.tenant_id=:t AND et.code='break' "
+            "    AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-01') AND e.entry_date < current_date "
+            "  GROUP BY e.employee_id, e.entry_date), "
+            "fondp AS (SELECT em.id AS employee_id, COALESCE("
+            "    (SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
+            "     FROM tenant.engagement g JOIN tenant.att_employee em2 ON em2.id=g.employee_id "
+            "     LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id "
+            "     WHERE em2.user_id=em.user_id AND em2.tenant_id=:t AND g.is_current=true AND g.uvazek_tyden_h IS NOT NULL "
+            "     ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1), "
+            "    (SELECT max(k.fond_h_den) FROM tenant.att_user_kategorie uk JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            "     WHERE uk.user_id=em.user_id AND k.dopichavat_fond=true)) AS fond "
+            "  FROM tenant.att_employee em WHERE em.tenant_id=:t), "
+            "netf AS (SELECT p.employee_id, p.entry_date, "
+            "  GREATEST(p.presence_h - COALESCE(b.break_h,0),0) AS net, f.fond "
+            "  FROM pres p LEFT JOIN brk b ON b.employee_id=p.employee_id AND b.entry_date=p.entry_date "
+            "  JOIN fondp f ON f.employee_id=p.employee_id WHERE f.fond IS NOT NULL) "
+            "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+            "status,source,is_active,note,created_at,updated_at) "
+            "SELECT :t, nf.employee_id, nf.entry_date, "
+            "  CASE WHEN nf.net < nf.fond THEN :ft ELSE :nt END, "
+            "  round(abs(nf.fond - nf.net)::numeric,2), "
+            "  CASE WHEN nf.net < nf.fond THEN 'pending' ELSE 'approved' END, "
+            "  'automat', false, "
+            "  CASE WHEN nf.net < nf.fond THEN '[automat: doplnění do fondu '||round((nf.fond-nf.net)::numeric,2)||' h]' "
+            "       ELSE '[automat: nad fond '||round((nf.net-nf.fond)::numeric,2)||' h → nenárokové]' END, "
+            "  now(), now() "
+            "FROM netf nf "
+            "WHERE nf.net > 0.1 AND abs(nf.fond - nf.net) >= 0.1 "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry a JOIN tenant.att_entry_type a2 ON a2.id=a.entry_type_id "
+            "     WHERE a.tenant_id=:t AND a.employee_id=nf.employee_id AND a.entry_date=nf.entry_date "
+            "       AND a2.category='absence' AND a.status IN ('pending','approved'))"),
+            {"t": tenant, "db": days_back, "ft": ft, "nt": nt})
+        cnt = r.rowcount
+        s.commit()
+        return {"ok": True, "leveled": cnt}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc)}
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _maybe_long_shift_nudge():
     import time as _tm
     now = _tm.time()
@@ -19635,18 +19730,13 @@ def _maybe_auto_checkout_midnight():
         _LAST_AUTO_CO[0] = day
         out = _att_auto_checkout_midnight()
         logger.info("[auto_checkout] půlnoční odhlášení: %s", out)
-        # Automat: po uzávěrce dne dopíchni fond hodin lidem v příslušné kategorii
+        # Automat: srovnání dne na osobní úvazek (sloučené intervaly minus pauzy) —
+        # obě strany najednou: dopíchnutí pod fond i odpíchnutí přebytku do nenárokové.
         try:
-            ff = _att_automat_fond_fill()
-            logger.info("[automat] doplnění do fondu: %s", ff)
+            lv = _att_automat_level_day()
+            logger.info("[automat] srovnání na úvazek: %s", lv)
         except Exception:
-            logger.exception("[automat] fond fill failed")
-        # Automat: odpíchnutí po fondu — přebytek nad fond → nenárokové (bez_prescasu)
-        try:
-            od = _att_automat_fond_odpich()
-            logger.info("[automat] odpíchnutí po fondu: %s", od)
-        except Exception:
-            logger.exception("[automat] fond odpich failed")
+            logger.exception("[automat] level_day failed")
     except Exception as e:
         logger.warning("[auto_checkout] %s", e)
 

@@ -31622,7 +31622,8 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                        || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
                        || ' — chybí odchod'
               FROM tenant.att_entry e
-              WHERE e.tenant_id = 2 AND e.is_active = true AND e.entry_date < current_date
+              WHERE e.tenant_id = 2 AND e.is_active = true AND e.ended_at IS NULL
+                AND e.entry_date < current_date
                 AND e.entry_type_id NOT IN (SELECT id FROM tenant.att_entry_type
                     WHERE tenant_id = 2 AND code = 'day_end')
               UNION ALL

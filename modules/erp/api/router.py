@@ -27072,7 +27072,8 @@ def _xfer_table(src_db, dst_db, table, where=None):
     # přes DB_EC connection ([DB_IS].dbo.…) — MCP db_name="DB_IS" NEBERE (gotcha).
     _pfx = "" if (src_db or "").upper() == "DB_EC" else "[" + src_db + "]."
     collist = ", ".join("[" + c + "]" for c in cols)
-    src_sql = "SELECT " + collist + " FROM " + _pfx + "dbo.[" + t + "]" + ((" WHERE " + where) if where else "")
+    _base_where = (" WHERE " + where) if where else ""
+    _id_col = next((c for c in cols if (c or "").lower() == "id"), None)  # case-aware (Id/ID)
     try:
         from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
         import json as _jx
@@ -27080,20 +27081,40 @@ def _xfer_table(src_db, dst_db, table, where=None):
         if _mcp is None:
             cn.close()
             return {"ok": False, "error": "EUROSOFT MCP nedostupný"}
-        _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                  {"sql": src_sql, "db_name": "DB_EC"}, conversation_id=None)
-        _r = _jx.loads(_rj) if isinstance(_rj, str) else _rj
-        if isinstance(_r, dict) and _r.get("ok") is False:
-            cn.close()
-            return {"ok": False, "error": "zdroj: " + str(_r.get("error"))[:300]}
+
+        def _read_page(sql):
+            _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                      {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+            _r = _jx.loads(_rj) if isinstance(_rj, str) else _rj
+            if isinstance(_r, dict) and _r.get("ok") is False:
+                raise RuntimeError(str(_r.get("error"))[:300])
+            if isinstance(_r, dict):
+                for _k in ("rows", "data", "result", "records"):
+                    if isinstance(_r.get(_k), list):
+                        return _r[_k]
+                return []
+            return _r if isinstance(_r, list) else []
+
         rows = []
-        if isinstance(_r, dict):
-            for _k in ("rows", "data", "result", "records"):
-                if isinstance(_r.get(_k), list):
-                    rows = _r[_k]
+        if _id_col:
+            # Stránkované čtení po Id (široké/velké tabulky jako TabDenik = 224 sloupců → jeden
+            # MCP read by praskl na payloadu). Marti 27.6.2026 (účetní deník 2025).
+            _last = -2147483648
+            while True:
+                _w = _base_where + ((" AND " if where else " WHERE ") + "[" + _id_col + "] > %d" % _last)
+                _batch = _read_page("SELECT TOP 3000 " + collist + " FROM " + _pfx + "dbo.["
+                                    + t + "]" + _w + " ORDER BY [" + _id_col + "]")
+                if not _batch:
                     break
-        elif isinstance(_r, list):
-            rows = _r
+                rows.extend(_batch)
+                try:
+                    _last = max(int(b.get(_id_col)) for b in _batch if b.get(_id_col) is not None)
+                except Exception:
+                    break
+                if len(_batch) < 3000:
+                    break
+        else:
+            rows = _read_page("SELECT " + collist + " FROM " + _pfx + "dbo.[" + t + "]" + _base_where)
     except Exception as exc:
         cn.close()
         return {"ok": False, "error": "zdroj (MCP): %s" % str(exc)[:300]}
@@ -27366,6 +27387,92 @@ def _xfer_mzdy_run(targets):
             except Exception as e:
                 _log(company, tabulka, (where or "1:1 CELÉ"), None, False, str(e))
             _tm.sleep(1.2)  # throttle pod MCP rate limit
+    _log("_DONE", "_RUN", None, None, True, None)
+
+
+# ── ÚČETNICTVÍ 2025+2026: office Helios → cloud 188.12 (Marti 27.6.2026) ──
+# Číselníky (osnova/sborník/předkontace/období-DPH) CELÉ; TabDenik filtr 2025+2026
+# (paged read v _xfer_table). Cíl: ověřit, že Helios běží na čisté DB jen s mzdami+účetnictvím,
+# bez dokladů. TabObdobi srovnáno na office čísla → nula remapu, vše 1:1.
+_UCTO_XFER_WHOLE = [
+    "TabObdobiDPH", "TabObdobiStavu", "TabObdobiKalendar",
+    "TabCisUct", "TabCisUctDef", "TabSbornik", "TabSbornikDef",
+    "TabUKod", "TabUKodDef", "TabSkupUKod", "Tab1NUKod",
+    "TabMaStdUcto", "TabBankSpojUcto",
+]
+
+
+def _xfer_ucto_run(targets):
+    """Background: účetní číselníky CELÉ + TabDenik 2025+2026 (paged) office Helios → 188.12.
+    Log do fw.mzdy_xfer_log (company prefix 'U:'). FK-fix + stránkování jsou v _xfer_table."""
+    import time as _tm, datetime as _dt
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    run_ts = _dt.datetime.utcnow()
+
+    def _sess():
+        cm = _pg.get_session()
+        return cm, cm.__enter__()
+
+    try:
+        cm, s = _sess()
+        try:
+            s.execute(_t(
+                "CREATE TABLE IF NOT EXISTS fw.mzdy_xfer_log ("
+                " id bigserial PRIMARY KEY, run_ts timestamptz NOT NULL, company text,"
+                " tabulka text, filtr text, preneseno integer, ok boolean, error text,"
+                " ts timestamptz NOT NULL DEFAULT now())"))
+            s.commit()
+        finally:
+            cm.__exit__(None, None, None)
+    except Exception:
+        pass
+
+    def _log(company, tabulka, filtr, preneseno, ok, error):
+        try:
+            cm2, s2 = _sess()
+            try:
+                s2.execute(_t(
+                    "INSERT INTO fw.mzdy_xfer_log (run_ts, company, tabulka, filtr, preneseno, ok, error)"
+                    " VALUES (:r,:c,:t,:f,:p,:o,:e)"),
+                    {"r": run_ts, "c": company, "t": tabulka, "f": filtr, "p": preneseno,
+                     "o": ok, "e": (str(error)[:1000] if error else None)})
+                s2.commit()
+            finally:
+                cm2.__exit__(None, None, None)
+        except Exception:
+            pass
+
+    for company in targets:
+        if company not in _MZDY_XFER_TARGETS:
+            continue
+        src_db, dst_db = _MZDY_XFER_TARGETS[company]
+        _pfx = "" if src_db.upper() == "DB_EC" else "[" + src_db + "]."
+        try:
+            per_rows = _mzdy_mcp_rows(src_db,
+                "SELECT ID FROM " + _pfx + "dbo.TabObdobi WHERE YEAR(DatumOd) IN (2025,2026)")
+            pers = [int(x["ID"]) for x in per_rows if x.get("ID") is not None]
+        except Exception as e:
+            _log("U:" + company, "_OBDOBI", None, None, False, "perioda: %s" % e)
+            pers = []
+        for tabulka in _UCTO_XFER_WHOLE:
+            try:
+                res = _xfer_table(src_db, dst_db, tabulka, None)
+                _log("U:" + company, tabulka, "1:1 CELÉ", res.get("preneseno"),
+                     bool(res.get("ok")), None if res.get("ok") else res.get("error"))
+            except Exception as e:
+                _log("U:" + company, tabulka, "1:1 CELÉ", None, False, str(e))
+            _tm.sleep(1.2)
+        if pers:
+            where = "IdObdobi IN (%s)" % ",".join(str(p) for p in pers)
+            try:
+                res = _xfer_table(src_db, dst_db, "TabDenik", where)
+                _log("U:" + company, "TabDenik", where, res.get("preneseno"),
+                     bool(res.get("ok")), None if res.get("ok") else res.get("error"))
+            except Exception as e:
+                _log("U:" + company, "TabDenik", where, None, False, str(e))
+        else:
+            _log("U:" + company, "TabDenik", None, None, False, "žádné účetní období 2025/2026")
     _log("_DONE", "_RUN", None, None, True, None)
 
 
@@ -28542,6 +28649,18 @@ async def diag_sql(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "spusteno": _tg, "tabulek_v_mape": len(_MZDY_XFER_MAP),
                              "pozn": "běží na pozadí; progress: SELECT * FROM fw.mzdy_xfer_log "
                                      "WHERE run_ts=(SELECT max(run_ts) FROM fw.mzdy_xfer_log)"})
+
+    # ── @@XFERUCTO <EC|ES|ALL> — účetnictví 2025+2026 (číselníky celé + deník paged) → 188.12.
+    #    Background. Progress: SELECT * FROM fw.mzdy_xfer_log WHERE run_ts=(SELECT max(...)). ──
+    if sql.upper().startswith("@@XFERUCTO"):
+        import threading as _thru
+        _argu = sql[10:].strip().upper()
+        _tgu = ["EC", "ES"] if _argu in ("", "ALL") else ([_argu] if _argu in ("EC", "ES") else None)
+        if _tgu is None:
+            return JSONResponse({"ok": False, "error": "@@XFERUCTO <EC|ES|ALL>"})
+        _thru.Thread(target=_xfer_ucto_run, args=(_tgu,), daemon=True).start()
+        return JSONResponse({"ok": True, "spusteno": _tgu, "pozn": "účetnictví běží na pozadí; "
+                             "progress: SELECT * FROM fw.mzdy_xfer_log WHERE run_ts=(SELECT max(run_ts) FROM fw.mzdy_xfer_log)"})
 
     # ── @@SYNCLIST — naplní tenant.payslip_sheet (mzdový list pro „Moje finance") z obou
     #    Heliosů. Synchronní (jen ~8 tis. řádků). Marti 26.6.2026. ──

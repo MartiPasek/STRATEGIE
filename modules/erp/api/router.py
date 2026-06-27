@@ -13901,8 +13901,11 @@ async def att_status(req: Request) -> JSONResponse:
         # Marti 12.6.: mzdový režim (hodinovy / volny / pausal) — píchají všichni, režim řeší odměnu/řízení
         mode = s.execute(_t("SELECT COALESCE(rez_mzdovy,'hodinovy') FROM tenant.att_employee WHERE id=:e"),
                          {"e": emp}).scalar() or "hodinovy"
+        # Petra 25.6.2026: OSVČ vidí v „Teď to bude jinak" volbu „Nepřítomnost OSVČ".
+        is_osvc = (str(s.execute(_t("SELECT COALESCE(rez_forma,'') FROM tenant.att_employee WHERE id=:e"),
+                                 {"e": emp}).scalar() or "").upper() == "OSVC")
         s.commit()
-        return JSONResponse({"ok": True, "mode": mode,
+        return JSONResponse({"ok": True, "mode": mode, "is_osvc": is_osvc,
                              "open": ({"id": opn[0], "started_at": opn[1], "project_ref": opn[2],
                                        "project_name": pname, "project_type": ptyp,
                                        "open_type": opn[3]} if opn else None),
@@ -19348,7 +19351,7 @@ async def att_absence(req: Request) -> JSONResponse:
     code = (str(body.get("type_code") or "")).strip().lower()
     # Marti 7.6.: + homeoffice — hlášení HO dopředu (presence, hours NULL = plán,
     # reálné hodiny vzniknou až píchnutím; nepočítá se do absencí ani odpracovaného).
-    if code not in ("vacation", "sick", "medical", "family_care", "sickday", "unpaid", "homeoffice"):
+    if code not in ("vacation", "sick", "medical", "family_care", "sickday", "unpaid", "homeoffice", "osvc_absence"):
         return JSONResponse({"ok": False, "error": "invalid_type"}, status_code=400)
     from datetime import datetime as _dt, timedelta as _td
     try:

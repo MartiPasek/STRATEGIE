@@ -5692,6 +5692,16 @@ setTimeout(function(){
               var nb=el('<button class="ghost full" style="margin-top:8px;">Zatím nevím — bez času</button>');
               nb.addEventListener("click",function(){ nb.disabled=true; presence({text:"Na služební pochůzce",add_since:true},nb); }); b2.appendChild(nb);
             });
+            // Petra 25.6.2026: OSVČ — nahlášení nepřítomnosti (od–do), neplacené. Jen pro formu OSVČ.
+            if(j.is_osvc){
+              expOpt(bx,"🧾 Nepřítomnost OSVČ…","ghost",function(b2){
+                dateRangePickIn(b2,"Nepřítomnost OSVČ od – do:",function(od,dd,b){
+                  absence({type_code:"osvc_absence",date_from:od,date_to:dd,mode:"days",note:"nepřítomnost OSVČ (přes mobil)"},function(){
+                    absOk(b2,"Nepřítomnost OSVČ "+czDate(od)+" – "+czDate(dd));
+                  },b);
+                });
+              },_amberStyle);
+            }
             var bn=btnEl("🫡 Dnes už se mnou nepočítej ;)","ghost"); bn.addEventListener("click",function(){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},bn); }); bx.appendChild(bn);
           },_amberStyle);
           expOpt(bw,"🛠 Zpráva vedoucímu výroby…","ghost",vyrobaFbBuild,_blueStyle);

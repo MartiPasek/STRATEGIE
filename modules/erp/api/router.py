@@ -27324,54 +27324,41 @@ def _xfer_mzdy_run(targets):
         except Exception:
             pass
 
+    # Marti 27.6.2026: „projeď VEŠKERÉ mzdové tabulky, kde něco je 1:1 zrcadli, pozor na
+    #   IdObdobi". → DYNAMICKY objevíme všechny NEPRÁZDNÉ mzdové tabulky (nic nevynecháme) a
+    #   zrcadlíme 1:1 CELÉ (žádný IdObdobi filtr → nic se neztratí). Jediná výjimka: kalendářní
+    #   DNY filtrujeme po DATU (Datum_Y, ne IdObdobi) na 2025/2026 — jinak 362k řádků v jednom
+    #   MCP čtení zbytečně. TabObdobi (účetní) + TabDenik se patterny NEchytají (mimo mzdy).
+    _MZDY_DATEONLY = {"TabMzKalendarDny", "TabMzKalendarDnyZam"}
+    _DISC_SQL = (
+        "SELECT t.name AS nm FROM {p}sys.tables t "
+        "JOIN {p}sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) "
+        "WHERE (t.name LIKE 'TabMz%' OR t.name LIKE 'TabZamMzd%' OR t.name LIKE 'TabCisMzSl%' "
+        "OR t.name LIKE 'TabCisZam%' OR t.name LIKE 'EC_Mzdy%' OR t.name='LP_RozpadMzdy' "
+        "OR t.name LIKE 'TabGenMzdy%') GROUP BY t.name HAVING SUM(p.rows) > 0 ORDER BY t.name")
     for company in targets:
         if company not in _MZDY_XFER_TARGETS:
             continue
         src_db, dst_db = _MZDY_XFER_TARGETS[company]
         _pfx = "" if src_db.upper() == "DB_EC" else "[" + src_db + "]."
-        # období 2025+2026 daného Heliosu
         try:
-            per_rows = _mzdy_mcp_rows(src_db,
-                "SELECT ID FROM " + _pfx + "dbo.TabMzdObd WHERE Rok IN (2025,2026)")
-            pers = [int(x["ID"]) for x in per_rows if x.get("ID") is not None]
+            disc = _mzdy_mcp_rows(src_db, _DISC_SQL.format(p=_pfx))
+            tabs = [str(x["nm"]) for x in disc if x.get("nm")]
         except Exception as e:
-            _log(company, "_OBDOBI", None, None, False, "perioda: %s" % e)
+            _log(company, "_DISCOVERY", None, None, False, "discovery: %s" % e)
             continue
-        if not pers:
-            _log(company, "_OBDOBI", None, None, False, "žádná období 2025/2026")
+        if not tabs:
+            _log(company, "_DISCOVERY", None, None, False, "žádné neprázdné mzdové tabulky")
             continue
-        obd_in = ",".join(str(p) for p in pers)
-        # které mapované tabulky v tomto Heliosu existují
-        names = [m[0] for m in _MZDY_XFER_MAP]
-        inlist = ",".join("'" + n + "'" for n in names)
-        try:
-            ex_rows = _mzdy_mcp_rows(src_db,
-                "SELECT TABLE_NAME FROM " + _pfx + "INFORMATION_SCHEMA.TABLES "
-                "WHERE TABLE_TYPE='BASE TABLE' AND TABLE_NAME IN (" + inlist + ")")
-            exist = {str(x.get("TABLE_NAME")) for x in ex_rows}
-        except Exception:
-            exist = set(names)
         _tm.sleep(1.2)
-        for tabulka, ftyp in _MZDY_XFER_MAP:
-            if tabulka not in exist:
-                _log(company, tabulka, "SKIP-neexistuje", None, None, None)
-                continue
-            if ftyp == "OBD":
-                where = "IdObdobi IN (%s)" % obd_in
-            elif ftyp == "ZM":
-                where = "Uplatneno_IdObdobi IN (%s)" % obd_in
-            elif ftyp == "ROK":
-                where = "Rok IN (2025,2026)"
-            elif ftyp == "DATY":
-                where = "Datum_Y IN (2025,2026)"
-            else:
-                where = None
+        for tabulka in tabs:
+            where = "Datum_Y IN (2025,2026)" if tabulka in _MZDY_DATEONLY else None
             try:
                 res = _xfer_table(src_db, dst_db, tabulka, where)
-                _log(company, tabulka, (where or "CELÉ"), res.get("preneseno"),
+                _log(company, tabulka, (where or "1:1 CELÉ"), res.get("preneseno"),
                      bool(res.get("ok")), None if res.get("ok") else res.get("error"))
             except Exception as e:
-                _log(company, tabulka, (where or "CELÉ"), None, False, str(e))
+                _log(company, tabulka, (where or "1:1 CELÉ"), None, False, str(e))
             _tm.sleep(1.2)  # throttle pod MCP rate limit
     _log("_DONE", "_RUN", None, None, True, None)
 
@@ -29429,7 +29416,7 @@ def _sync_mzdovy_list_from_helios() -> dict:
         raise
     finally:
         cm.__exit__(None, None, None)
-    return {"sheets": total}
+    return {"ok": True, "sheets": total}
 
 
 def _sync_priplatky_from_ec() -> dict:

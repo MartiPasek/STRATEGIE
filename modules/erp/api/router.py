@@ -23737,6 +23737,18 @@ def ucto_porovnani(req: Request):
     for _row in _cl.get("rows") or []:
         cloud[str(_row[_ci["ucet"]]).strip()] = _row
 
+    # názvy účtů (účetní osnova) z TabCisUctDef (cloud)
+    nazvy = {}
+    try:
+        _nz = _mssql188_query("SELECT LTRIM(RTRIM(CisloUcet)) AS u, MAX(NazevUctu) AS n FROM " + cloud_db +
+                              ".dbo.TabCisUctDef WHERE NazevUctu IS NOT NULL AND NazevUctu<>'' GROUP BY LTRIM(RTRIM(CisloUcet))")
+        if _nz.get("ok"):
+            _ni = {c: i for i, c in enumerate(_nz.get("columns") or [])}
+            for _row in _nz.get("rows") or []:
+                nazvy[str(_row[_ni["u"]]).strip()] = _row[_ni["n"]]
+    except Exception:
+        pass
+
     def _f(v):
         try:
             return float(v or 0)
@@ -23748,11 +23760,16 @@ def ucto_porovnani(req: Request):
         c = cloud.get(_u)
         oz = _f(o.get("zust"))
         cz = _f(c[_ci["zust"]]) if c else 0.0
-        out.append({"ucet": _u, "office_zust": round(oz, 2), "cloud_zust": round(cz, 2),
+        out.append({"ucet": _u, "nazev": nazvy.get(_u, ""), "office_zust": round(oz, 2), "cloud_zust": round(cz, 2),
                     "rozdil": round(cz - oz, 2),
                     "office_md": round(_f(o.get("md")), 2), "cloud_md": round(_f(c[_ci["md"]]) if c else 0.0, 2),
                     "jen_v": "" if (o and c) else ("office" if o else "cloud")})
     out.sort(key=lambda x: abs(x["rozdil"]), reverse=True)
+    # účetní osnova = celý číselník účtů (i s nulovým zůstatkem) + zůstatek z konta
+    _cz = {x["ucet"]: x["cloud_zust"] for x in out}
+    _oz = {x["ucet"]: x["office_zust"] for x in out}
+    osnova = [{"ucet": u, "nazev": nazvy[u], "cloud_zust": _cz.get(u, 0.0), "office_zust": _oz.get(u, 0.0),
+               "synt": len(u) <= 3 or (u[:3] + "000") == u, "v_konte": u in _cz} for u in sorted(nazvy)]
     sumo = round(sum(x["office_zust"] for x in out), 2)
     sumc = round(sum(x["cloud_zust"] for x in out), 2)
     # HV (tř. 5 a 6)
@@ -23760,9 +23777,10 @@ def ucto_porovnani(req: Request):
         nak = round(sum(x[zkey] for x in out if x["ucet"][:1] == "5"), 2)
         vyn = round(sum(x[zkey] for x in out if x["ucet"][:1] == "6"), 2)
         return {"naklady": nak, "vynosy": vyn, "hv": round(-(nak + vyn), 2)}
-    return {"ok": True, "firma": firma, "radky": out,
+    return {"ok": True, "firma": firma, "radky": out, "osnova": osnova,
             "souhrn": {"office_zust": sumo, "cloud_zust": sumc, "rozdil_celkem": round(sumc - sumo, 2),
                        "uctu": len(out), "uctu_s_rozdilem": sum(1 for x in out if abs(x["rozdil"]) >= 0.01),
+                       "uctu_osnova": len(osnova),
                        "hv_office": _hv("office_zust"), "hv_cloud": _hv("cloud_zust")}}
 
 

@@ -1235,6 +1235,13 @@ def mzdy_prehled_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/mzdy-c")
+def mzdy_c_page():
+    """🌱 Systém C — vlastní jednoduché mzdy (smlouvy + transparentní výpočet). Marti 27.6.2026."""
+    return FileResponse(os.path.join(static_dir, "mzdy-c.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/mzdy")
 def mzdy_page():
     """💰 Mzdy & odvody — naúčtováno (deník) vs zaplaceno (banka) po měsících (Marti 23.6.2026)."""

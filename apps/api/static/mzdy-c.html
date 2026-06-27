@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🌱 Mzdy — systém C</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;background:#0c111b;color:#e8edf6;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+  .wrap{max-width:1240px;margin:0 auto;padding:18px 16px 70px}
+  h1{font-size:20px;margin:0 0 2px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .sub{color:#8295ad;font-size:12.5px;margin:0 0 14px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+  .card{background:#141b29;border:1px solid #232c3b;border-radius:12px;padding:12px 14px}
+  .card .k{color:#8295ad;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+  .card .v{font-size:18px;font-weight:700;margin-top:4px}
+  table{width:100%;border-collapse:collapse;background:#121826;border:1px solid #232c3b;border-radius:12px;overflow:hidden;font-variant-numeric:tabular-nums}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid #1d2533;white-space:nowrap}
+  th{background:#161d2c;color:#8fa3bd;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;position:sticky;top:0}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  tbody tr:hover{background:#1a2236}
+  tfoot td{background:#16203258;font-weight:700;border-top:2px solid #2c3a52}
+  input.e{width:74px;background:#0f1626;color:#e8edf6;border:1px solid #2a3547;border-radius:6px;padding:4px 6px;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
+  input.e:focus{border-color:#3b6bd4;outline:none}
+  .firma{font-size:10px;padding:1px 6px;border-radius:6px}
+  .ec{background:#1d3a2a;color:#86e8b0}.es{background:#16314f;color:#9ec5ff}
+  .hruba{color:#9ec5ff;font-weight:700}.cista{color:#86e8b0;font-weight:700}
+  .mut{color:#6f8097}
+  .note{background:#141b29;border:1px solid #232c3b;border-left:3px solid #3b6bd4;border-radius:10px;padding:11px 14px;color:#aebccf;font-size:12.6px;line-height:1.55;margin-top:16px}
+  a.back{color:#7fb0ff;text-decoration:none;font-size:12.5px}
+  .saved{color:#86e8b0;font-size:11px}
+  .loading{padding:30px;text-align:center;color:#8295ad}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/marti">← Řídicí pult</a>
+  <h1>🌱 Mzdy — systém C <span style="font-size:12px;color:#8295ad;font-weight:400">vlastní · jednoduchý · transparentní</span></h1>
+  <p class="sub">Nevýrobní lidé (měsíční mzda). Smlouva = měsíční mzda + osobní ohodnocení → průhledný výpočet odvodů a čisté. Edituj mzdu/osobní přímo v tabulce.</p>
+  <div id="cards" class="cards"></div>
+  <div id="body"><div class="loading">Načítám…</div></div>
+  <div class="note">
+    <b>Výpočet C (sazby 2026, zákonné):</b> hrubá = měsíční mzda + osobní ohodnocení.
+    <b>Pracovník:</b> SP 7,1 % · ZP 4,5 % · záloha daně 15 % − sleva na poplatníka 2 570 Kč.
+    <b>Firma:</b> SP 24,8 % · ZP 9 %. Čistá = hrubá − SP − ZP − daň. Náklad firmy = hrubá + SP firma + ZP firma.<br>
+    <span class="mut">v1: bez náhrad (stravenka/HO/cestovné) a dovolené — ty doplníme jako měsíční vstupy. Jednatel (Marti) = odměna místo mzdy, zvlášť. Hodnoty jsou seed z Heliosu (led–kvě 2026 průměr) ke kontrole.</span>
+  </div>
+</div>
+<script>
+const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ")+" Kč";
+async function jget(u){const r=await fetch(u,{credentials:"include"});if(!r.ok)throw new Error(r.status);return r.json();}
+async function jpost(u){const r=await fetch(u,{method:"POST",credentials:"include"});return r.json();}
+let DATA=[];
+async function load(){
+  let d;
+  try{ d=await jget("/api/v1/erp/app/mzdy-c/smlouvy"); }
+  catch(e){ document.getElementById("body").innerHTML='<div class="loading">Chyba: '+e.message+'</div>'; return; }
+  if(!d.ok){ document.getElementById("body").innerHTML='<div class="loading">'+(d.error||"chyba")+'</div>'; return; }
+  DATA=d.smlouvy; render();
+}
+function render(){
+  let sH=0,sC=0,sN=0;
+  let h='<table><thead><tr><th>Jméno</th><th>Firma</th><th>Měs. mzda</th><th>Osobní</th>'+
+    '<th>Hrubá</th><th>SP 7,1%</th><th>ZP 4,5%</th><th>Daň</th><th>Čistá</th><th>Náklad firmy</th><th></th></tr></thead><tbody>';
+  for(const r of DATA){
+    const v=r.vyp; sH+=v.hruba; sC+=v.cista; sN+=v.naklad_firmy;
+    const jed = r.typ_pomeru==='jednatel';
+    h+='<tr id="row_'+r.id+'"><td><b>'+r.jmeno+'</b>'+(jed?' <span class="mut">(jednatel)</span>':'')+'</td>'+
+      '<td><span class="firma '+(r.firma==='EC'?'ec':'es')+'">'+r.firma+'</span></td>'+
+      '<td><input class="e" id="mz_'+r.id+'" value="'+Math.round(r.mesicni_mzda)+'" onchange="save('+r.id+')"></td>'+
+      '<td><input class="e" id="os_'+r.id+'" value="'+Math.round(r.osobni_ohodnoceni)+'" onchange="save('+r.id+')"></td>'+
+      '<td class="hruba" id="h_'+r.id+'">'+fk(v.hruba)+'</td>'+
+      '<td class="mut">'+fk(v.sp_zam)+'</td><td class="mut">'+fk(v.zp_zam)+'</td>'+
+      '<td class="mut" id="d_'+r.id+'">'+fk(v.dan)+'</td>'+
+      '<td class="cista" id="c_'+r.id+'">'+fk(v.cista)+'</td>'+
+      '<td id="n_'+r.id+'">'+fk(v.naklad_firmy)+'</td>'+
+      '<td><span class="saved" id="s_'+r.id+'"></span></td></tr>';
+  }
+  h+='</tbody><tfoot><tr><td>Celkem ('+DATA.length+')</td><td></td><td></td><td></td>'+
+     '<td class="hruba">'+fk(sH)+'</td><td></td><td></td><td></td><td class="cista">'+fk(sC)+'</td><td>'+fk(sN)+'</td><td></td></tr></tfoot></table>';
+  document.getElementById("body").innerHTML=h;
+  document.getElementById("cards").innerHTML=
+    '<div class="card"><div class="k">Lidí (smluv)</div><div class="v">'+DATA.length+'</div></div>'+
+    '<div class="card"><div class="k">Hrubé mzdy / měs</div><div class="v" style="color:#9ec5ff">'+fk(sH)+'</div></div>'+
+    '<div class="card"><div class="k">Čisté / měs</div><div class="v" style="color:#86e8b0">'+fk(sC)+'</div></div>'+
+    '<div class="card"><div class="k">Náklad firmy / měs</div><div class="v">'+fk(sN)+'</div></div>';
+}
+async function save(id){
+  const mz=document.getElementById("mz_"+id).value, os=document.getElementById("os_"+id).value;
+  const r=await jpost("/api/v1/erp/app/mzdy-c/smlouva-save?id="+id+"&mzda="+encodeURIComponent(mz)+"&osobni="+encodeURIComponent(os));
+  const sp=document.getElementById("s_"+id);
+  if(r&&r.ok){ sp.textContent="✓ uloženo"; setTimeout(()=>sp.textContent="",2500); load(); }
+  else { sp.textContent="✗"; sp.style.color="#ff9b9b"; }
+}
+load();
+</script>
+</body>
+</html>

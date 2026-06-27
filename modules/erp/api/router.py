@@ -24206,6 +24206,102 @@ def ucto_mzdy_akce(req: Request):
     return {"ok": True, "akce": akce, "proc": proc, "message": msg or "(bez zprávy)"}
 
 
+# === SYSTÉM C — vlastní mzdy (jednoduchý, transparentní). Marti 27.6.2026 =====
+# Smlouva (měsíční mzda) → transparentní výpočet: hrubá → odvody → čistá.
+# Sazby 2026: SP zam 7,1 %, ZP zam 4,5 %, SP firma 24,8 %, ZP firma 9 %, daň 15 %,
+# sleva na poplatníka 2 570 Kč/měs.
+_C_SP_ZAM = 0.071
+_C_ZP_ZAM = 0.045
+_C_SP_FIRMA = 0.248
+_C_ZP_FIRMA = 0.09
+_C_DAN = 0.15
+_C_SLEVA_POPLATNIK = 2570
+
+
+def _c_vypocet(mzda, osobni, sleva_poplatnik=True):
+    """Transparentní výpočet mzdy systému C z hrubé (mzda+osobní)."""
+    hruba = float(mzda or 0) + float(osobni or 0)
+    sp_zam = round(hruba * _C_SP_ZAM)
+    zp_zam = round(hruba * _C_ZP_ZAM)
+    dan_zaloha = round(hruba * _C_DAN)
+    sleva = _C_SLEVA_POPLATNIK if sleva_poplatnik else 0
+    dan = max(0, dan_zaloha - sleva)
+    cista = round(hruba - sp_zam - zp_zam - dan)
+    sp_firma = round(hruba * _C_SP_FIRMA)
+    zp_firma = round(hruba * _C_ZP_FIRMA)
+    return {"hruba": round(hruba), "sp_zam": sp_zam, "zp_zam": zp_zam,
+            "dan_zaloha": dan_zaloha, "sleva": sleva, "dan": dan, "cista": cista,
+            "sp_firma": sp_firma, "zp_firma": zp_firma,
+            "naklad_firmy": round(hruba + sp_firma + zp_firma)}
+
+
+@api_router.get("/app/mzdy-c/smlouvy")
+def mzdy_c_smlouvy(req: Request):
+    """Seznam smluv systému C + transparentní výpočet mzdy (parent)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT sm.id, sm.user_id, "
+            "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'?') jmeno, "
+            "  sm.firma, sm.typ_pomeru, sm.mesicni_mzda, sm.osobni_ohodnoceni, "
+            "  sm.uvazek_h_tyden, sm.zdrav_pojistovna, sm.sleva_poplatnik, sm.poznamka "
+            "FROM tenant.c_smlouva sm LEFT JOIN public.users u ON u.id=sm.user_id "
+            "WHERE sm.tenant_id=2 AND COALESCE(sm.platnost_do,DATE '9999-12-31') >= current_date "
+            "ORDER BY (COALESCE(sm.mesicni_mzda,0)+COALESCE(sm.osobni_ohodnoceni,0)) DESC")).fetchall()
+        out = []
+        for r in rows:
+            v = _c_vypocet(r[5], r[6], bool(r[9]))
+            out.append({"id": r[0], "user_id": r[1], "jmeno": r[2], "firma": r[3],
+                        "typ_pomeru": r[4], "mesicni_mzda": float(r[5] or 0),
+                        "osobni_ohodnoceni": float(r[6] or 0), "uvazek": float(r[7] or 0),
+                        "pojistovna": r[8], "sleva_poplatnik": bool(r[9]),
+                        "poznamka": r[10], "vyp": v})
+        return {"ok": True, "smlouvy": out}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/mzdy-c/smlouva-save")
+def mzdy_c_smlouva_save(req: Request):
+    """Úprava smlouvy C (mzda/osobní/úvazek/pojišťovna/sleva). Parent."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        p = req.query_params
+        try:
+            sid = int(p.get("id"))
+        except Exception:
+            return {"ok": False, "error": "chybí id"}
+        sets, vals = [], {"id": sid}
+        for k, col in [("mzda", "mesicni_mzda"), ("osobni", "osobni_ohodnoceni"), ("uvazek", "uvazek_h_tyden")]:
+            if p.get(k):
+                try:
+                    vals[k] = float(p.get(k)); sets.append(col + "=:" + k)
+                except Exception:
+                    pass
+        if p.get("pojistovna") is not None:
+            vals["poj"] = p.get("pojistovna"); sets.append("zdrav_pojistovna=:poj")
+        if p.get("sleva") is not None:
+            vals["sl"] = (p.get("sleva") in ("1", "true", "ano")); sets.append("sleva_poplatnik=:sl")
+        if not sets:
+            return {"ok": False, "error": "nic ke změně"}
+        s.execute(_t("UPDATE tenant.c_smlouva SET " + ", ".join(sets) +
+                     ", updated_at=now() WHERE id=:id AND tenant_id=2"), vals)
+        s.commit()
+        return {"ok": True}
+    finally:
+        s.close()
+
+
 # === ZRCADLA office → cloud Helios (Marti 27.6.2026) =========================
 # Samostatná ikona: každé zrcadlo = 1:1 kopie tabulky z kancelářského Heliosu
 # (DB_EC/DB_IS přes MCP) do cloudu (UCTO_EC/UCTO_ES na 188.12). Plná kopie (mirror).

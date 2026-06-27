@@ -98,22 +98,31 @@ function th(k,l){var ar=SORT.k===k?(SORT.dir<0?" ▼":" ▲"):"";return '<th dat
 function render(){if(!DATA)return;if(VIEW==="vysledovka")renderVysledovka();else if(VIEW==="kontroly")renderKontroly();else if(VIEW==="osnova")renderOsnova();else renderTab();}
 
 // --- ÚČETNÍ OSNOVA (číselník účtů + zůstatek) ---
-var OSF="";
+var OSF="", OSACT=true;
 var TRIDY={"0":"Dlouhodobý majetek","1":"Zásoby","2":"Finanční účty","3":"Zúčtovací vztahy","4":"Kapitál a dl. závazky","5":"Náklady","6":"Výnosy","7":"Závěrkové účty","8":"Vnitropodnikové","9":"Vnitropodnikové"};
 function renderOsnova(){
-  var os=(DATA.osnova||[]);
-  if(OSF)os=os.filter(function(x){return x.ucet.indexOf(OSF)===0||(x.nazev||"").toLowerCase().indexOf(OSF.toLowerCase())>=0;});
-  var h='<div style="margin-bottom:10px"><input id="osf" placeholder="filtr účet / název…" value="'+OSF+'" '
-    +'style="padding:7px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--txt);width:260px"/> '
-    +'<span style="color:var(--mut);font-size:12px">'+os.length+' účtů</span></div>';
-  h+='<table><thead><tr><th>Účet</th><th style="text-align:left">Název</th><th>Zůstatek (cloud)</th><th>Office</th><th>Rozdíl</th></tr></thead><tbody>';
+  var all=(DATA.osnova||[]);
+  var nblok=all.filter(function(x){return x.blok;}).length;
+  var os=all.filter(function(x){
+    if(OSACT&&x.blok&&!(Math.abs(x.cloud_zust)>=0.01))return false; // skryj blokované (ale blok. se zůstatkem nech – anomálie)
+    if(OSF)return x.ucet.indexOf(OSF)===0||(x.nazev||"").toLowerCase().indexOf(OSF.toLowerCase())>=0;
+    return true;
+  });
+  var h='<div style="margin-bottom:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">'
+    +'<input id="osf" placeholder="filtr účet / název…" value="'+OSF+'" style="padding:7px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--txt);width:240px"/>'
+    +'<label style="color:var(--mut);font-size:13px;cursor:pointer"><input type="checkbox" id="osact" '+(OSACT?"checked":"")+'/> jen aktivní účty</label>'
+    +'<span style="color:var(--mut);font-size:12px">'+os.length+' zobrazeno · '+(all.length-nblok)+' aktivních · '+nblok+' blokovaných</span></div>';
+  h+='<table><thead><tr><th>Účet</th><th style="text-align:left">Název</th><th>Stav</th><th>Zůstatek (cloud)</th><th>Office</th><th>Rozdíl</th></tr></thead><tbody>';
   var lastT="";
   os.forEach(function(x){
     var t=x.ucet.substr(0,1);
-    if(t!==lastT){lastT=t;h+='<tr><td colspan="5" style="background:#172033;color:var(--mut);font-weight:600;font-size:12px;letter-spacing:.03em">Třída '+t+' — '+(TRIDY[t]||"")+'</td></tr>';}
+    if(t!==lastT){lastT=t;h+='<tr><td colspan="6" style="background:#172033;color:var(--mut);font-weight:600;font-size:12px;letter-spacing:.03em">Třída '+t+' — '+(TRIDY[t]||"")+'</td></tr>';}
     var d=Math.round((x.cloud_zust-x.office_zust)*100)/100, dd=Math.abs(d)>=0.01;
-    var synt=x.synt?'font-weight:700':'';
-    h+='<tr><td style="'+synt+'">'+x.ucet+'</td><td style="text-align:left;'+synt+'">'+(x.nazev||"")+'</td>'
+    var anomalie=x.blok&&Math.abs(x.cloud_zust)>=0.01;
+    var synt=x.synt?'font-weight:700':'', dim=x.blok?'opacity:.55':'';
+    var stav=x.blok?(anomalie?'<span style="color:var(--bad);font-weight:700">⚠ blokovaný se zůstatkem</span>':'<span class="tag">blokovaný</span>'):'<span style="color:var(--ok)">aktivní</span>';
+    h+='<tr style="'+dim+'"><td style="'+synt+'">'+x.ucet+'</td><td style="text-align:left;'+synt+'">'+(x.nazev||"")+'</td>'
+      +'<td style="text-align:left">'+stav+'</td>'
       +'<td>'+(x.cloud_zust?fmt(x.cloud_zust):'<span style="color:var(--mut)">0,00</span>')+'</td>'
       +'<td>'+(x.office_zust?fmt(x.office_zust):'<span style="color:var(--mut)">0,00</span>')+'</td>'
       +'<td class="r '+(dd?"":"zero")+'" style="'+(dd?"color:var(--bad);font-weight:700":"")+'">'+fmt(d)+'</td></tr>';
@@ -122,6 +131,7 @@ function renderOsnova(){
   document.getElementById("obsah").innerHTML=h;
   var f=document.getElementById("osf");
   f.oninput=function(){OSF=f.value;var p=f.selectionStart;renderOsnova();var nf=document.getElementById("osf");nf.focus();try{nf.setSelectionRange(p,p);}catch(e){}};
+  document.getElementById("osact").onchange=function(){OSACT=this.checked;renderOsnova();};
 }
 
 // --- KONTROLY PRO DAŇAŘE (vzájemné kontroly, souvztažnosti) ---

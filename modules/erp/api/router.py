@@ -23737,15 +23737,21 @@ def ucto_porovnani(req: Request):
     for _row in _cl.get("rows") or []:
         cloud[str(_row[_ci["ucet"]]).strip()] = _row
 
-    # názvy účtů (účetní osnova) z TabCisUctDef (cloud)
+    # názvy + STAV účtů (účetní osnova) z TabCisUctDef pro daný rok (IdObdobi) — respektuje
+    # blokované (neaktivní) účty. Blokovano=1 → účet je v daném roce zablokovaný.
     nazvy = {}
+    blok = {}
     try:
-        _nz = _mssql188_query("SELECT LTRIM(RTRIM(CisloUcet)) AS u, MAX(NazevUctu) AS n FROM " + cloud_db +
-                              ".dbo.TabCisUctDef WHERE NazevUctu IS NOT NULL AND NazevUctu<>'' GROUP BY LTRIM(RTRIM(CisloUcet))")
+        _nz = _mssql188_query("SELECT LTRIM(RTRIM(CisloUcet)) AS u, MAX(NazevUctu) AS n, "
+                              "MAX(CAST(Blokovano AS int)) AS b FROM " + cloud_db +
+                              ".dbo.TabCisUctDef WHERE IdObdobi=" + str(idobd) +
+                              " AND NazevUctu IS NOT NULL AND NazevUctu<>'' GROUP BY LTRIM(RTRIM(CisloUcet))")
         if _nz.get("ok"):
             _ni = {c: i for i, c in enumerate(_nz.get("columns") or [])}
             for _row in _nz.get("rows") or []:
-                nazvy[str(_row[_ni["u"]]).strip()] = _row[_ni["n"]]
+                _u = str(_row[_ni["u"]]).strip()
+                nazvy[_u] = _row[_ni["n"]]
+                blok[_u] = int(_row[_ni["b"]] or 0)
     except Exception:
         pass
 
@@ -23769,7 +23775,10 @@ def ucto_porovnani(req: Request):
     _cz = {x["ucet"]: x["cloud_zust"] for x in out}
     _oz = {x["ucet"]: x["office_zust"] for x in out}
     osnova = [{"ucet": u, "nazev": nazvy[u], "cloud_zust": _cz.get(u, 0.0), "office_zust": _oz.get(u, 0.0),
-               "synt": len(u) <= 3 or (u[:3] + "000") == u, "v_konte": u in _cz} for u in sorted(nazvy)]
+               "synt": len(u) <= 3 or (u[:3] + "000") == u, "v_konte": u in _cz,
+               "blok": blok.get(u, 0)} for u in sorted(nazvy)]
+    # blokovaný účet s nenulovým zůstatkem = anomálie (mělo by se prověřit)
+    _blok_nenul = [o["ucet"] for o in osnova if o["blok"] and abs(o["cloud_zust"]) >= 0.01]
     sumo = round(sum(x["office_zust"] for x in out), 2)
     sumc = round(sum(x["cloud_zust"] for x in out), 2)
     # HV (tř. 5 a 6)
@@ -23781,6 +23790,9 @@ def ucto_porovnani(req: Request):
             "souhrn": {"office_zust": sumo, "cloud_zust": sumc, "rozdil_celkem": round(sumc - sumo, 2),
                        "uctu": len(out), "uctu_s_rozdilem": sum(1 for x in out if abs(x["rozdil"]) >= 0.01),
                        "uctu_osnova": len(osnova),
+                       "uctu_aktivni": sum(1 for o in osnova if not o["blok"]),
+                       "uctu_blokovane": sum(1 for o in osnova if o["blok"]),
+                       "blok_nenulove": _blok_nenul,
                        "hv_office": _hv("office_zust"), "hv_cloud": _hv("cloud_zust")}}
 
 

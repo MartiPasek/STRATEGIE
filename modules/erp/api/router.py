@@ -14129,6 +14129,36 @@ async def app_payslip(req: Request) -> JSONResponse:
             "LEFT JOIN tenant.company c ON c.id = p.company_id "
             "WHERE p.tenant_id = 2 AND p.employee_id = ANY(:e) AND p.rok = :y AND p.mesic = :m "
             "ORDER BY c.code, p.cislo_ms"), {"e": emps, "y": y, "m": m}).fetchall()
+        # Mzdový LIST k pásce (Marti 26.6.2026) — savepoint, ať chybějící tabulka nerozbije pásku
+        mzdovy_list = []
+        try:
+            with s.begin_nested():
+                lrows = s.execute(_t(
+                    "SELECT c.code, ps.tydenni_uvazek, ps.denni_uvazek, ps.zakladni_mzda,"
+                    " ps.zdrav_pojistovna, ps.prum_vydelek, ps.prum_vydelek_hod, ps.dov_prumer,"
+                    " ps.fond_dny, ps.fond_hod, ps.odprac_dny, ps.odprac_hod, ps.prescas_hod,"
+                    " ps.svatek_tarif_hod, ps.svatek_nahrada_hod "
+                    "FROM tenant.payslip_sheet ps LEFT JOIN tenant.company c ON c.id = ps.company_id "
+                    "WHERE ps.tenant_id=2 AND ps.employee_id = ANY(:e) AND ps.rok=:y AND ps.mesic=:m "
+                    "ORDER BY c.code"), {"e": emps, "y": y, "m": m}).fetchall()
+            mzdovy_list = [{"firma": lr[0],
+                            "tydenni_uvazek": (float(lr[1]) if lr[1] is not None else None),
+                            "denni_uvazek": (float(lr[2]) if lr[2] is not None else None),
+                            "zakladni_mzda": (float(lr[3]) if lr[3] is not None else None),
+                            "zdrav_pojistovna": lr[4],
+                            "prum_vydelek": (float(lr[5]) if lr[5] is not None else None),
+                            "prum_vydelek_hod": (float(lr[6]) if lr[6] is not None else None),
+                            "dov_prumer": (float(lr[7]) if lr[7] is not None else None),
+                            "fond_dny": (float(lr[8]) if lr[8] is not None else None),
+                            "fond_hod": (float(lr[9]) if lr[9] is not None else None),
+                            "odprac_dny": (float(lr[10]) if lr[10] is not None else None),
+                            "odprac_hod": (float(lr[11]) if lr[11] is not None else None),
+                            "prescas_hod": (float(lr[12]) if lr[12] is not None else None),
+                            "svatek_tarif_hod": (float(lr[13]) if lr[13] is not None else None),
+                            "svatek_nahrada_hod": (float(lr[14]) if lr[14] is not None else None)}
+                           for lr in lrows]
+        except Exception:
+            mzdovy_list = []
         jmeno = s.execute(_t(
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), u.login_name) "
             "FROM public.users u WHERE u.id = :u"), {"u": uid}).scalar() or ""
@@ -14140,7 +14170,7 @@ async def app_payslip(req: Request) -> JSONResponse:
                   "hruba": bool(r[7])} for r in rows]
         return JSONResponse({"ok": True, "y": y, "m": m, "jmeno": jmeno,
                              "periods": [{"y": int(p[0]), "m": int(p[1])} for p in periods],
-                             "items": items})
+                             "items": items, "list": mzdovy_list})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
@@ -27094,6 +27124,19 @@ def _xfer_table(src_db, dst_db, table, where=None):
     try:
         cur.execute("ALTER TABLE %s NOCHECK CONSTRAINT ALL" % fq)
         cur.execute("DISABLE TRIGGER ALL ON %s" % fq)
+        # Vypni i PŘÍCHOZÍ FK (z cizích tabulek odkazujících na tuto) — jinak DELETE padá
+        # na FK u centrálních tabulek (TabObdobi, TabGenMzdyH…). Necháme NOCHECK (load mód).
+        try:
+            cur.execute(
+                "SELECT OBJECT_SCHEMA_NAME(fk.parent_object_id), OBJECT_NAME(fk.parent_object_id), fk.name "
+                "FROM sys.foreign_keys fk WHERE fk.referenced_object_id = OBJECT_ID(?)", "dbo." + t)
+            for _sch, _ptbl, _fkn in list(cur.fetchall()):
+                try:
+                    cur.execute("ALTER TABLE [%s].[%s] NOCHECK CONSTRAINT [%s]" % (_sch, _ptbl, _fkn))
+                except Exception:
+                    pass
+        except Exception:
+            pass
         cur.execute("DELETE FROM %s" % fq)
         if has_identity:
             cur.execute("SET IDENTITY_INSERT %s ON" % fq)
@@ -27181,30 +27224,38 @@ def _mssql188_query(sql):
 _MZDY_XFER_MAP = [
     # (tabulka, typ_filtru): OBD=IdObdobi IN(obd), ZM=Uplatneno_IdObdobi, ROK=Rok IN(2025,2026),
     #                        DATY=Datum_Y IN(2025,2026), WHOLE=celé (číselník/bez období)
+    # WHOLE = celé (definice/číselníky/konfigurace/události — mohou být založené v dřívějším
+    #   období, ale stále AKTIVNÍ v 2025/2026; filtr IdObdobi by je usekl → Marti 27.6.2026:
+    #   „raději všechno, ať nechybí aktivní pravidlo"). OBD/DATY/ROK = jen 2025/2026 POUZE
+    #   u skutečně per-měsíc transakčních (složky/list/kontace/uzávěrky) + kalendářních dnů.
     ("TabCisZam", "WHOLE"), ("TabCisZam_EXT", "WHOLE"),
-    ("TabMzdObd", "ROK"),
-    ("TabCisMzSl", "OBD"), ("TabCisMzSlDef", "OBD"), ("TabCisMzSlDistrLog", "OBD"),
-    ("TabMzDruhyPP", "OBD"), ("TabMzDruhyPPMS", "OBD"), ("TabMzDruhyVynetiES", "OBD"),
-    ("TabMzKalendar", "ROK"), ("TabMzKalDefSmen", "ROK"), ("TabMzKalDefSmenR", "WHOLE"),
+    # MZDOVÁ období CELÁ s původními ID (Marti 27.6.: definice táhneme celé → IdObdobi odkazy
+    #   na starší období musí mít kam ukazovat). POZN: TabObdobi (ÚČETNÍ období) NEsaháme —
+    #   Marti tam záměrně založil čisté číslování 1=2025, 3=2026 (jeho účetní doména).
+    ("TabMzdObd", "WHOLE"),
+    ("TabCisMzSl", "WHOLE"), ("TabCisMzSlDef", "WHOLE"), ("TabCisMzSlDistrLog", "WHOLE"),
+    ("TabMzDruhyPP", "WHOLE"), ("TabMzDruhyPPMS", "WHOLE"), ("TabMzDruhyVynetiES", "WHOLE"),
+    ("TabMzKalendar", "ROK"), ("TabMzKalDefSmen", "WHOLE"), ("TabMzKalDefSmenR", "WHOLE"),
     ("TabMzKalendarZam", "ROK"), ("TabMzKalendarDny", "DATY"), ("TabMzKalendarDnyZam", "DATY"),
     ("TabMzdList", "OBD"), ("TabMzSloz", "OBD"), ("TabMzKontace", "OBD"),
-    ("TabZamMzd", "OBD"), ("TabMzdaZaruc", "OBD"), ("TabMzPaus", "OBD"),
-    ("TabMzdOdpPol", "OBD"), ("TabMzdOdpPolMes", "OBD"), ("TabMzdOdpPolMS", "OBD"),
-    ("TabMzdOdpPolMzd", "OBD"), ("TabMzPF", "OBD"), ("TabMzPrepStavy", "OBD"),
-    ("TabMzPocHod", "ROK"), ("TabMzDohadnePol", "OBD"),
-    ("TabMzKons", "OBD"), ("TabMzKonsDNP", "OBD"),
-    ("TabMzPrilohaDnp", "OBD"), ("TabMzPrilohaDNPRO", "OBD"),
-    ("TabMzHlaseniDohod", "OBD"), ("TabMzHlaseniKonecPN", "OBD"),
+    ("TabZamMzd", "WHOLE"), ("TabMzdaZaruc", "WHOLE"), ("TabMzPaus", "WHOLE"),
+    ("TabMzdOdpPol", "WHOLE"), ("TabMzdOdpPolMes", "WHOLE"), ("TabMzdOdpPolMS", "WHOLE"),
+    ("TabMzdOdpPolMzd", "WHOLE"), ("TabMzPF", "WHOLE"), ("TabMzPrepStavy", "WHOLE"),
+    ("TabMzPocHod", "WHOLE"), ("TabMzDohadnePol", "WHOLE"),
+    ("TabMzKons", "WHOLE"), ("TabMzKonsDNP", "WHOLE"),
+    ("TabMzPrilohaDnp", "WHOLE"), ("TabMzPrilohaDNPRO", "WHOLE"),
+    ("TabMzHlaseniDohod", "WHOLE"), ("TabMzHlaseniKonecPN", "WHOLE"),
     ("TabMzMesUzav", "OBD"), ("TabMzMesUzavAkce", "OBD"), ("TabMzMesUzavCfg", "OBD"),
-    ("TabMzSpZmeny", "OBD"), ("TabMzSpZmenyDoby", "WHOLE"), ("TabMzSPZmenyLog", "OBD"),
-    ("TabMzZmenyZM", "ZM"), ("TabMzZmenyZP", "OBD"), ("TabMzZmenyPost", "WHOLE"),
-    ("TabMzRegZamCz", "OBD"), ("TabMzRegZamCzLog", "OBD"),
+    ("TabMzSpZmeny", "WHOLE"), ("TabMzSpZmenyDoby", "WHOLE"), ("TabMzSPZmenyLog", "WHOLE"),
+    ("TabMzZmenyZM", "WHOLE"), ("TabMzZmenyZP", "WHOLE"), ("TabMzZmenyPost", "WHOLE"),
+    ("TabMzRegZamCz", "WHOLE"), ("TabMzRegZamCzLog", "WHOLE"),
     ("TabMzExportOrg", "OBD"), ("TabMzExportPDS", "WHOLE"),
-    ("TabMzNarokDovCz2021Kor", "OBD"),
+    ("TabMzNarokDovCz2021Kor", "WHOLE"),
     ("TabMzOstatniKonstanty", "WHOLE"), ("TabMzJubileaTypy", "WHOLE"),
     ("TabMzPrintParams", "WHOLE"), ("TabMzAntivirusDefinice", "WHOLE"),
     ("TabMzOdvodZa1Osobu", "WHOLE"),
-    ("TabGenMzdyH", "WHOLE"), ("TabGenMzdyPar", "WHOLE"), ("TabGenMzdyR", "WHOLE"),
+    # TabGenMzdy* (generační scratch) VYNECHÁNO: transientní (Helios regeneruje každý běh),
+    # není zdroj pravdy, a TabGenMzdyR má FK na TabGenMzdyH → DELETE parenta konfliktuje.
     ("EC_Mzdy_SumaMesic", "ROK"), ("EC_Mzdy_LandMarkVstupniData", "ROK"),
     ("LP_RozpadMzdy", "WHOLE"),
 ]
@@ -28499,6 +28550,16 @@ async def diag_sql(req: Request) -> JSONResponse:
                              "pozn": "běží na pozadí; progress: SELECT * FROM fw.mzdy_xfer_log "
                                      "WHERE run_ts=(SELECT max(run_ts) FROM fw.mzdy_xfer_log)"})
 
+    # ── @@SYNCLIST — naplní tenant.payslip_sheet (mzdový list pro „Moje finance") z obou
+    #    Heliosů. Synchronní (jen ~8 tis. řádků). Marti 26.6.2026. ──
+    if sql.upper().startswith("@@SYNCLIST"):
+        from starlette.concurrency import run_in_threadpool as _rtpl
+        try:
+            _resl = await _rtpl(_sync_mzdovy_list_from_helios)
+            return JSONResponse(_resl if isinstance(_resl, dict) else {"ok": True})
+        except Exception as _el:
+            return JSONResponse({"ok": False, "error": str(_el)[:400]})
+
     # ── mssql188 = náš cloud Helios MSSQL (10.200.188.12), přímé spojení pyodbc z API.
     #    Nová prázdná DB (sandbox), parent-only → read i DDL/DML běží PŘÍMO (bez banneru),
     #    stavíme ji společně (přenos mezd + deníku). Connection string z env MSSQL188_CONN.
@@ -29248,6 +29309,127 @@ def _sync_pasky_from_helios() -> dict:
     finally:
         cm.__exit__(None, None, None)
     return {"items": total}
+
+
+def _sync_mzdovy_list_from_helios() -> dict:
+    """Marti 26.6.2026: kompletní mzdový LIST k pásce („Moje finance"). Zrcadlo
+    TabMzdList z OBOU Heliosů (DB_EC=EC, DB_IS=ES) → tenant.payslip_sheet — jeden
+    řádek na zaměstnance×období: úvazek, fond prac. doby, odpracováno, přesčasy,
+    svátky, průměrné výdělky, zdrav. pojišťovna. Plné 1:1 podklady jsou v 188.12;
+    tohle je kurátorovaný přehled pro appku. Idempotentní dle (firma, zam, rok, měsíc)."""
+    import json as _json_l
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _json_l.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    def _num(v):
+        if v is None or v == "":
+            return None
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    total = 0
+    try:
+        s.execute(_t(
+            "CREATE TABLE IF NOT EXISTS tenant.payslip_sheet ("
+            " id bigserial PRIMARY KEY, tenant_id int NOT NULL, company_id int,"
+            " employee_id int NOT NULL, rok int NOT NULL, mesic int NOT NULL,"
+            " tydenni_uvazek numeric, denni_uvazek numeric, zakladni_mzda numeric,"
+            " zdrav_pojistovna text, prum_vydelek numeric, prum_vydelek_hod numeric,"
+            " dov_prumer numeric, fond_dny numeric, fond_hod numeric, odprac_dny numeric,"
+            " odprac_hod numeric, prescas_hod numeric, svatek_tarif_hod numeric,"
+            " svatek_nahrada_hod numeric, src text, synced_at timestamptz NOT NULL DEFAULT now(),"
+            " UNIQUE (tenant_id, company_id, employee_id, rok, mesic))"))
+        s.commit()
+        co_ids = {r2[0]: r2[1] for r2 in s.execute(_t(
+            "SELECT code, id FROM tenant.company WHERE tenant_id = 2")).fetchall()}
+        emp_cache = {}
+
+        def emp_id(cislo):
+            key = str(cislo).strip()
+            if not key:
+                return None
+            if key in emp_cache:
+                return emp_cache[key]
+            r3 = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id = 2 AND cislo_zam = :c"),
+                           {"c": key}).first()
+            if not r3:
+                r3 = s.execute(_t(
+                    "INSERT INTO tenant.att_employee (tenant_id, cislo_zam, is_active, created_at, updated_at) "
+                    "VALUES (2, :c, false, now(), now()) RETURNING id"), {"c": key}).first()
+            emp_cache[key] = r3[0]
+            return r3[0]
+
+        for src, dbp in (("EC", ""), ("ES", "DB_IS.dbo.")):
+            obd = {int(o["ID"]): (int(o["Rok"]), int(o["Mesic"])) for o in rows_of(
+                "SELECT ID, Rok, Mesic FROM " + dbp + "TabMzdObd "
+                "WHERE Rok IS NOT NULL AND Mesic IS NOT NULL")}
+            batch = rows_of(
+                "SELECT l.IdObdobi, z.Cislo, l.TydenniUvazek, l.DenniUvazek, l.ZakladniMzda,"
+                " l.ZdravPojistovna, l.PrumVydelek, l.PrumVydelekHod, l.DovPrumer,"
+                " l.FondPDDny, l.FondPDHod, l.OdpracDny, l.OdpracHod, l.PrescasHod,"
+                " l.SvatekTarifHod, l.SvatekNahradaHod "
+                "FROM " + dbp + "TabMzdList l JOIN " + dbp + "TabCisZam z ON z.ID = l.ZamestnanecId")
+            for b in batch:
+                per = obd.get(int(b.get("IdObdobi") or 0))
+                if not per:
+                    continue
+                eid = emp_id(b.get("Cislo"))
+                if eid is None:
+                    continue
+                s.execute(_t(
+                    "INSERT INTO tenant.payslip_sheet (tenant_id, company_id, employee_id, rok, mesic,"
+                    " tydenni_uvazek, denni_uvazek, zakladni_mzda, zdrav_pojistovna, prum_vydelek,"
+                    " prum_vydelek_hod, dov_prumer, fond_dny, fond_hod, odprac_dny, odprac_hod,"
+                    " prescas_hod, svatek_tarif_hod, svatek_nahrada_hod, src, synced_at)"
+                    " VALUES (2, :co, :emp, :r, :m, :tu, :du, :zm, :zp, :pv, :pvh, :dp, :fd, :fh,"
+                    " :od, :oh, :pre, :sth, :snh, :src, now())"
+                    " ON CONFLICT (tenant_id, company_id, employee_id, rok, mesic) DO UPDATE SET"
+                    " tydenni_uvazek=EXCLUDED.tydenni_uvazek, denni_uvazek=EXCLUDED.denni_uvazek,"
+                    " zakladni_mzda=EXCLUDED.zakladni_mzda, zdrav_pojistovna=EXCLUDED.zdrav_pojistovna,"
+                    " prum_vydelek=EXCLUDED.prum_vydelek, prum_vydelek_hod=EXCLUDED.prum_vydelek_hod,"
+                    " dov_prumer=EXCLUDED.dov_prumer, fond_dny=EXCLUDED.fond_dny, fond_hod=EXCLUDED.fond_hod,"
+                    " odprac_dny=EXCLUDED.odprac_dny, odprac_hod=EXCLUDED.odprac_hod,"
+                    " prescas_hod=EXCLUDED.prescas_hod, svatek_tarif_hod=EXCLUDED.svatek_tarif_hod,"
+                    " svatek_nahrada_hod=EXCLUDED.svatek_nahrada_hod, synced_at=now()"),
+                    {"co": co_ids.get(src), "emp": eid, "r": per[0], "m": per[1],
+                     "tu": _num(b.get("TydenniUvazek")), "du": _num(b.get("DenniUvazek")),
+                     "zm": _num(b.get("ZakladniMzda")),
+                     "zp": (str(b.get("ZdravPojistovna")).strip() or None) if b.get("ZdravPojistovna") else None,
+                     "pv": _num(b.get("PrumVydelek")), "pvh": _num(b.get("PrumVydelekHod")),
+                     "dp": _num(b.get("DovPrumer")), "fd": _num(b.get("FondPDDny")),
+                     "fh": _num(b.get("FondPDHod")), "od": _num(b.get("OdpracDny")),
+                     "oh": _num(b.get("OdpracHod")), "pre": _num(b.get("PrescasHod")),
+                     "sth": _num(b.get("SvatekTarifHod")), "snh": _num(b.get("SvatekNahradaHod")),
+                     "src": src})
+                total += 1
+            s.commit()
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+    return {"sheets": total}
 
 
 def _sync_priplatky_from_ec() -> dict:
@@ -33381,10 +33563,11 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
                       % (out.get("imported"), out.get("skipped")))
         elif action_key == "sync_pasky":
             out = _sync_pasky_from_helios()
+            lst = _sync_mzdovy_list_from_helios()
             heal = _refresh_employee_active()
             status = "done"
-            result = ("pásky: %s položek (EC+ES); samooprava: %s odešlých zneaktivněno"
-                      % (out.get("items"), heal.get("deactivated")))
+            result = ("pásky: %s složek + %s mzdových listů (EC+ES); samooprava: %s odešlých zneaktivněno"
+                      % (out.get("items"), lst.get("sheets"), heal.get("deactivated")))
         elif action_key == "refresh_active_status":
             heal = _refresh_employee_active()
             status = "done"

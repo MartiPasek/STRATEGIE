@@ -5726,6 +5726,16 @@ setTimeout(function(){
           ],"green");
           expOpt(bw,"🌅 Potřebuji přijít později…","ghost",pozdejiBuild);
           expOpt(bw,"🕔 Potřebuji skončit dříve…","ghost",driveBuild);
+          // Petra 25.6.2026: OSVČ nepřítomnost (od–do) — viditelná i MIMO směnu. Jen forma OSVČ.
+          if(j.is_osvc){
+            expOpt(bw,"🧾 Nepřítomnost OSVČ…","ghost",function(b2){
+              dateRangePickIn(b2,"Nepřítomnost OSVČ od – do:",function(od,dd,b){
+                absence({type_code:"osvc_absence",date_from:od,date_to:dd,mode:"days",note:"nepřítomnost OSVČ (přes mobil)"},function(){
+                  absOk(b2,"Nepřítomnost OSVČ "+czDate(od)+" – "+czDate(dd));
+                },b);
+              });
+            },_amberStyle);
+          }
           // Marti 14.6.: „Tady budu asi jinde" přesunuto do regionu docházky (dlaždice).
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
           expOpt(bw,"🙋 Mám dotaz na nadřízeného…","ghost",bossAskBuild,_blueStyle);

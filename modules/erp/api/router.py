@@ -19529,7 +19529,11 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
                "CasPauza, CasCelkemZakazka hod, CisloZakazky, LoginFrom, "
                "CAST(ISNULL(PraceAktivni,0) AS int) akt, "
                "CAST(VedSchvaleno AS int) ved, CAST(SefSchvaleno AS int) sef, CAST(Uzavreno AS int) uz "
-               "FROM EC_Dochazka WHERE " + _wh + " ORDER BY ID")
+               # Jirka 27.6.2026: NEimportuj zpět naše vlastní zrcadlené řádky (Autor='STRATEGIE') —
+               # jinak mirror(STRATEGIE→EC, DELETE+INSERT=nová EC.ID) × import(EC→STRATEGIE) tvořily
+               # zpětnou smyčku → 1 nová centrala1 duplicita/den (Iva Hrůzová 24.6: 3×). Originál
+               # máme jako app záznam (source_system NULL), takže nic neztrácíme.
+               "FROM EC_Dochazka WHERE " + _wh + " AND ISNULL(Autor,'')<>'STRATEGIE' ORDER BY ID")
         # Marti 27.6.: „běžící" (is_active) smí být JEN dnešní den. Centrála drží u starých
         # režijních/zapomenutých záznamů PraceAktivni=1 → import je dřív kopíroval jako otevřenou
         # směnu z minulých dnů → bogus „zapomenutý odchod" notifikace. Past day = vždy uzavřeno.
@@ -20857,7 +20861,10 @@ async def hr_migrate_dochazka(req: Request) -> JSONResponse:
                    "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
                    "CasPauza, CasCelkemZakazka hod, CisloZakazky, LoginFrom, "
                    "CAST(VedSchvaleno AS int) ved, CAST(SefSchvaleno AS int) sef, CAST(Uzavreno AS int) uz "
-                   "FROM EC_Dochazka WHERE DatumPripadu >= '%s'%s AND ID > %d ORDER BY ID"
+                   # Jirka 27.6.2026: NEimportuj zpět naše zrcadlené řádky (Autor='STRATEGIE') — viz
+                   # zpětná smyčka mirror×import (duplicitní centrala1 overhead). Originál = app záznam.
+                   "FROM EC_Dochazka WHERE DatumPripadu >= '%s'%s AND ID > %d "
+                   "AND ISNULL(Autor,'')<>'STRATEGIE' ORDER BY ID"
                    % (page, from_date, cond_to, last_id))
             rows = _mcp_rows(sql)
             if not rows:

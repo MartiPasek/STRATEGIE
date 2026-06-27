@@ -23872,6 +23872,199 @@ def ucto_mzdy(req: Request):
     return {"ok": True, "firma": firma, "rok_cislo": rok, "mesice": mes, "rok": tot, "pocet_zamestnancu": pocet}
 
 
+# === ZRCADLA office → cloud Helios (Marti 27.6.2026) =========================
+# Samostatná ikona: každé zrcadlo = 1:1 kopie tabulky z kancelářského Heliosu
+# (DB_EC/DB_IS přes MCP) do cloudu (UCTO_EC/UCTO_ES na 188.12). Plná kopie (mirror).
+_ZRC_GROUPS = [
+    ("ucet", "📒 Účetní deník a osnova", [
+        ("TabDenik", "Účetní deník"),
+        ("TabCisUct", "Osnova — čísla účtů"),
+        ("TabCisUctDef", "Osnova — názvy a stavy účtů"),
+        ("TabKontaD", "Konta — stavy účtů"),
+        ("TabObdobi", "Účetní období"),
+    ]),
+    ("predkont", "🧩 Předkontace", [
+        ("TabUKod", "Předkontace — hlavičky"),
+        ("TabRadekUKod", "Předkontace — řádky"),
+        ("TabSkupUKod", "Předkontace — skupiny"),
+        ("Tab1NUKod", "Předkontace — 1:N vazby"),
+        ("TabUKodDef", "Předkontace — definice (rok)"),
+        ("TabSbornik", "Sborníky"),
+    ]),
+    ("ciselniky", "📇 Číselníky", [
+        ("TabCisOrg", "Organizace"),
+        ("TabCisZam", "Zaměstnanci"),
+        ("TabMzdObd", "Mzdová období"),
+    ]),
+    ("mzdy", "💰 Mzdy", [
+        ("TabZamMzd", "Mzdy — nastavení zaměstnanců"),
+        ("TabMzSloz", "Mzdy — mzdové složky"),
+    ]),
+]
+_ZRC_TABLES = {t: lbl for _g, _gl, items in _ZRC_GROUPS for t, lbl in items}
+
+
+def _zrc_dbs(firma):
+    return ("DB_IS", "UCTO_ES") if (firma or "").upper() == "ES" else ("DB_EC", "UCTO_EC")
+
+
+def _zrc_where(table, firma):
+    """Scope zrcadla na roky 2025+2026 + mzdy (Marti 27.6.2026). None = celá tabulka.
+    Účetní období: EC 39=2025/40=2026, ES 1007/1008. Mzdy přes TabMzdObd.Rok."""
+    ec = (firma or "").upper() != "ES"
+    obd = "39,40" if ec else "1007,1008"
+    pfx = "" if ec else "[DB_IS]."
+    mzobd = ("IdObdobi IN (SELECT IdObdobi FROM " + pfx +
+             "dbo.TabMzdObd WHERE Rok IN (2025,2026))")
+    return {
+        "TabDenik": "IdObdobi IN (" + obd + ")",
+        "TabKontaD": "IdObdobi IN (" + obd + ")",
+        "TabCisUctDef": "IdObdobi IN (" + obd + ")",
+        "TabUKodDef": "IdObdobi IN (" + obd + ")",
+        "TabMzdObd": "Rok IN (2025,2026)",
+        "TabZamMzd": mzobd,
+        "TabMzSloz": mzobd,
+    }.get(table)
+
+
+def _zrc_office_count(src_db, table, where=None):
+    """COUNT(*) ze zdrojové office tabulky přes EUROSOFT MCP (DB_IS cross-db přes DB_EC)."""
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        import json as _jx
+        _mcp = get_eurosoft_mcp_client()
+        if _mcp is None:
+            return None
+        pfx = "" if (src_db or "").upper() == "DB_EC" else "[" + src_db + "]."
+        sql = "SELECT COUNT(*) c FROM " + pfx + "dbo.[" + table.strip().strip("[]") + "]"
+        if where:
+            sql += " WHERE " + where
+        _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                  {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        _r = _jx.loads(_rj) if isinstance(_rj, str) else _rj
+        rows = _r.get("rows") if isinstance(_r, dict) else _r
+        if rows:
+            v = list(rows[0].values())[0] if isinstance(rows[0], dict) else rows[0][0]
+            return int(v)
+    except Exception:
+        return None
+    return None
+
+
+def _zrc_cloud_count(cloud_db, table):
+    r = _mssql188_query("SELECT COUNT(*) c FROM " + cloud_db + ".dbo.[" + table.strip().strip("[]") + "]")
+    if r.get("ok") and r.get("rows"):
+        try:
+            return int(r["rows"][0][0])
+        except Exception:
+            return None
+    return None
+
+
+@api_router.get("/app/ucto/zrcadla")
+def ucto_zrcadla(req: Request):
+    """Seznam zrcadel + cloud počty + poslední přenos (parent). Office počty na vyžádání."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "EC").upper()
+    src_db, cloud_db = _zrc_dbs(firma)
+    # poslední přenos z logu (best-effort — tabulka nemusí ještě existovat)
+    last = {}
+    try:
+        s2 = _g()
+        try:
+            from sqlalchemy import text as _t
+            rs = s2.execute(_t(
+                "SELECT DISTINCT ON (mirror_key) mirror_key, radku, ok, run_at "
+                "FROM tenant.ucto_zrcadlo_log WHERE firma=:f "
+                "ORDER BY mirror_key, run_at DESC"), {"f": firma}).fetchall()
+            for r in rs:
+                last[r[0]] = {"radku": r[1], "ok": r[2],
+                              "run_at": r[3].isoformat() if r[3] else None}
+        finally:
+            s2.close()
+    except Exception:
+        last = {}
+    groups = []
+    for gk, gl, items in _ZRC_GROUPS:
+        mirrors = []
+        for tbl, lbl in items:
+            _w = _zrc_where(tbl, firma)
+            _sc = "celé" if not _w else ("mzdy 25+26" if "TabMzdObd" in _w else "2025+2026")
+            mirrors.append({"key": tbl, "label": lbl, "scope": _sc,
+                            "cloud_rows": _zrc_cloud_count(cloud_db, tbl),
+                            "last": last.get(tbl)})
+        groups.append({"key": gk, "label": gl, "mirrors": mirrors})
+    return {"ok": True, "firma": firma, "src_db": src_db, "cloud_db": cloud_db, "groups": groups}
+
+
+@api_router.get("/app/ucto/zrcadlo-check")
+def ucto_zrcadlo_check(req: Request):
+    """Ověření jednoho zrcadla: office počet × cloud počet × rozdíl (parent)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "EC").upper()
+    key = req.query_params.get("key") or ""
+    if key not in _ZRC_TABLES:
+        return {"ok": False, "error": "neznámé zrcadlo"}
+    src_db, cloud_db = _zrc_dbs(firma)
+    oc = _zrc_office_count(src_db, key, _zrc_where(key, firma))
+    cc = _zrc_cloud_count(cloud_db, key)
+    diff = (oc - cc) if (oc is not None and cc is not None) else None
+    return {"ok": True, "key": key, "office": oc, "cloud": cc, "diff": diff}
+
+
+@api_router.post("/app/ucto/zrcadlo-run")
+def ucto_zrcadlo_run(req: Request):
+    """Spustí JEDNO zrcadlo (1:1 kopie office→cloud). Frontend volá pro skupinu/vše ve smyčce.
+    Jen rodič (přepisuje cloud data 1:1 ze zdroje pravdy = office)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "EC").upper()
+    key = req.query_params.get("key") or ""
+    if key not in _ZRC_TABLES:
+        return {"ok": False, "error": "neznámé zrcadlo"}
+    src_db, cloud_db = _zrc_dbs(firma)
+    res = _xfer_table(src_db, cloud_db, key, _zrc_where(key, firma))
+    radku = res.get("preneseno") if res.get("ok") else None
+    msg = None if res.get("ok") else str(res.get("error"))[:400]
+    # log (best-effort)
+    try:
+        s3 = _g()
+        try:
+            from sqlalchemy import text as _t
+            s3.execute(_t(
+                "INSERT INTO tenant.ucto_zrcadlo_log (firma, mirror_key, radku, ok, msg, run_by) "
+                "VALUES (:f,:k,:r,:o,:m,:u)"),
+                {"f": firma, "k": key, "r": radku, "o": bool(res.get("ok")),
+                 "m": msg, "u": uid})
+            s3.commit()
+        finally:
+            s3.close()
+    except Exception:
+        pass
+    return {"ok": res.get("ok"), "key": key, "label": _ZRC_TABLES[key],
+            "radku": radku, "cloud_rows": _zrc_cloud_count(cloud_db, key), "error": msg}
+
+
 @api_router.get("/app/ucto/kontrola-ucetni")
 def ucto_kontrola_ucetni(req: Request):
     """Kontrola pro ÚČETNÍ (průběžná, provozní) — měsíční zaúčtování (MD=DAL), finanční

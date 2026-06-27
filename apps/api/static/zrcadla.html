@@ -43,6 +43,16 @@
   <div class="top"><h1>🪞 Řídící centrum zrcadel</h1><button class="btn" id="refresh">↻ Obnovit</button>
     <label class="sw" id="autoref"><span class="track on"><span class="knob"></span></span> auto‑obnova</label></div>
   <div class="sub">Živý stav zrcadel Centrály + jejich automatický život. Plánovač běží na pozadí (tik 30 s), watermark dotahuje i přerušené běhy.</div>
+  <div class="top" style="margin-top:6px"><h2 style="font-size:17px;margin:0;font-weight:800">📥 Účetnictví: kancelář → cloud</h2>
+    <span class="seg2" id="uz_firma"><button data-f="EC" class="on">EUROSOFT‑Control</button><button data-f="ES">EUROSOFT‑System</button></span>
+    <button class="btn prim" id="uz_all">🔄 Zrcadlit vše</button><span id="uz_prog" class="hint"></span></div>
+  <div class="sub">Tahá účetnictví z kancelářského Heliosu 1:1 do cloudu (zdroj pravdy = kancelář). Po uzávěrce roku stačí kliknout.</div>
+  <div id="uz_body"><span class="hint">Načítám…</span></div>
+
+  <div class="top" style="margin-top:24px"><h2 style="font-size:17px;margin:0;font-weight:800">🪞 Řídící centrum zrcadel</h2>
+    <button class="btn" id="refresh">↻ Obnovit</button>
+    <label class="sw" id="autoref"><span class="track on"><span class="knob"></span></span> auto‑obnova</label></div>
+  <div class="sub">Automatická zrcadla Centrály (plánovač tik 30 s, watermark dotahuje přerušené běhy).</div>
   <div class="health" id="health"><span class="hint">Načítám…</span></div>
   <div id="list"></div>
 </div>
@@ -132,6 +142,114 @@ document.getElementById("autoref").onclick=function(){_autoref=!_autoref;
   this.querySelector(".track").classList.toggle("on",_autoref);};
 load();
 setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
+
+// ===== Účetní zrcadla (office → cloud, manuální tah) ========================
+(function(){
+  var UF="EC", UBUSY=false, UDATA=null;
+  var fmt=function(n){return n==null?"—":Number(n).toLocaleString("cs-CZ");};
+  function uget(u){return fetch(u,{credentials:"include"}).then(function(r){return r.json();});}
+  function upost(u){return fetch(u,{method:"POST",credentials:"include"}).then(function(r){return r.json();});}
+  function lastTxt(m){
+    if(!m.last) return '<span class="hint">—</span>';
+    var dt=m.last.run_at?new Date(m.last.run_at).toLocaleString("cs-CZ",{day:"numeric",month:"numeric",hour:"2-digit",minute:"2-digit"}):"";
+    return (m.last.ok?'<span class="age-g">✓ ':'<span class="age-r">✗ ')+dt+'</span>';
+  }
+  function rowHtml(m){
+    return '<div class="j" id="ur_'+m.key+'">'+
+      '<div class="r1"><span class="nm">'+esc(m.label)+'</span>'+
+        '<span class="grp">'+esc(m.key)+'</span><span class="grp">'+esc(m.scope||'')+'</span></div>'+
+      '<div class="meta">Cloud řádků: <b id="ucc_'+m.key+'">'+fmt(m.cloud_rows)+'</b>'+
+        ' · Kontrola: <span id="uck_'+m.key+'" class="hint">—</span>'+
+        ' · Poslední: <span id="uls_'+m.key+'">'+lastTxt(m)+'</span></div>'+
+      '<div class="acts">'+
+        '<button class="btn prim" onclick="UZ.run(\''+m.key+'\')">⤓ Zrcadlit</button>'+
+        '<button class="btn" onclick="UZ.check(\''+m.key+'\')">Zkontrolovat</button>'+
+      '</div></div>';
+  }
+  function render(){
+    var h="";
+    UDATA.groups.forEach(function(g){
+      h+='<div class="top" style="margin:14px 0 6px"><span class="nm" style="font-size:14.5px;flex:0">'+esc(g.label)+'</span>'+
+         '<button class="btn" onclick="UZ.group(\''+g.key+'\')">⤓ Zrcadlit skupinu</button></div>';
+      g.mirrors.forEach(function(m){h+=rowHtml(m);});
+    });
+    document.getElementById("uz_body").innerHTML=h;
+  }
+  function loadU(){
+    document.getElementById("uz_body").innerHTML='<span class="hint">Načítám…</span>';
+    uget("/api/v1/erp/app/ucto/zrcadla?firma="+UF).then(function(d){
+      if(!d||!d.ok){document.getElementById("uz_body").innerHTML='<div class="res err">'+esc((d&&d.error)||"chyba (rodič only)")+'</div>';return;}
+      UDATA=d; render();
+    });
+  }
+  function check(key){
+    var c=document.getElementById("uck_"+key); if(!c)return;
+    c.innerHTML='zjišťuji…'; c.className="hint";
+    uget("/api/v1/erp/app/ucto/zrcadlo-check?firma="+UF+"&key="+key).then(function(r){
+      if(!r||!r.ok){c.textContent="chyba";c.className="age-r";return;}
+      document.getElementById("ucc_"+key).textContent=fmt(r.cloud);
+      if(r.diff===0){c.innerHTML='<span class="age-g">✓ sedí ('+fmt(r.office)+')</span>';}
+      else if(r.diff==null){c.innerHTML='office '+fmt(r.office)+' / cloud '+fmt(r.cloud);c.className="hint";}
+      else {c.innerHTML='<span class="age-a">Δ '+fmt(r.diff)+' (office '+fmt(r.office)+')</span>';}
+    });
+  }
+  function run(key){
+    if(UBUSY) return Promise.resolve(); UBUSY=true;
+    var row=document.getElementById("ur_"+key);
+    var btns=row?row.querySelectorAll("button"):[];
+    btns.forEach(function(b){b.disabled=true;});
+    var cc=document.getElementById("ucc_"+key), old=cc.innerHTML;
+    cc.textContent="…";
+    return upost("/api/v1/erp/app/ucto/zrcadlo-run?firma="+UF+"&key="+key).then(function(r){
+      if(r&&r.ok){
+        cc.textContent=fmt(r.cloud_rows);
+        document.getElementById("uls_"+key).innerHTML='<span class="age-g">✓ právě teď ('+fmt(r.radku)+')</span>';
+        document.getElementById("uck_"+key).innerHTML='<span class="age-g">✓ přeneseno</span>';
+      } else {
+        cc.innerHTML=old;
+        document.getElementById("uls_"+key).innerHTML='<span class="age-r">✗ '+esc((r&&r.error||"chyba").slice(0,70))+'</span>';
+      }
+    }).catch(function(e){cc.innerHTML=old;}).then(function(){
+      UBUSY=false; btns.forEach(function(b){b.disabled=false;});
+    });
+  }
+  function runList(keys){
+    if(UBUSY) return;
+    document.getElementById("uz_all").disabled=true;
+    var i=0;
+    function next(){
+      if(i>=keys.length){
+        document.getElementById("uz_prog").textContent="Hotovo ("+keys.length+" tabulek).";
+        document.getElementById("uz_all").disabled=false;
+        setTimeout(function(){document.getElementById("uz_prog").textContent="";},6000);
+        return;
+      }
+      var k=keys[i]; i++;
+      document.getElementById("uz_prog").textContent="Zrcadlím "+i+"/"+keys.length+" — "+k+"…";
+      run(k).then(next);
+    }
+    next();
+  }
+  window.UZ={
+    run:run, check:check,
+    group:function(gk){var g=UDATA.groups.find(function(x){return x.key===gk;});if(g)runList(g.mirrors.map(function(m){return m.key;}));},
+    all:function(){var keys=[];UDATA.groups.forEach(function(g){g.mirrors.forEach(function(m){keys.push(m.key);});});
+      if(confirm("Zrcadlit všech "+keys.length+" tabulek (2025+2026 a mzdy) z kanceláře do cloudu?")) runList(keys);}
+  };
+  document.getElementById("uz_firma").addEventListener("click",function(e){
+    var b=e.target.closest("button"); if(!b||UBUSY)return;
+    document.querySelectorAll("#uz_firma button").forEach(function(x){x.classList.remove("on");});
+    b.classList.add("on"); UF=b.getAttribute("data-f"); loadU();
+  });
+  document.getElementById("uz_all").addEventListener("click",window.UZ.all);
+  // styl pro segment přepínače firem (sdílí .btn vzhled)
+  var st=document.createElement("style");
+  st.textContent=".seg2{display:inline-flex;border:1px solid var(--bord);border-radius:9px;overflow:hidden}"+
+    ".seg2 button{background:#0f1830;color:var(--mut);border:0;padding:7px 14px;font-size:13px;cursor:pointer;font-weight:600}"+
+    ".seg2 button.on{background:var(--accent);color:#06101f}";
+  document.head.appendChild(st);
+  loadU();
+})();
 </script>
 </body>
 </html>

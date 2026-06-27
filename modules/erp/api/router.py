@@ -24116,6 +24116,82 @@ def ucto_mzdy_zpracovani(req: Request):
             "slozky": _mzd_pair(src_db, cloud_db, "TabMzSloz", idobd)}
 
 
+def _mcp_exec_office(sql, db_name="DB_EC"):
+    """Spustí SQL (vč. EXEC procedury) v kancelářském Heliosu přes MCP, vrátí řádky (poslední SELECT)."""
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        import json as _jx
+        _mcp = get_eurosoft_mcp_client()
+        if _mcp is None:
+            return {"ok": False, "error": "MCP nedostupný"}
+        _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                  {"sql": sql, "db_name": db_name}, conversation_id=None)
+        _r = _jx.loads(_rj) if isinstance(_rj, str) else _rj
+        if isinstance(_r, dict) and _r.get("ok") is False:
+            return {"ok": False, "error": str(_r.get("error"))[:400]}
+        rows = _r.get("rows") if isinstance(_r, dict) else _r
+        return {"ok": True, "rows": rows or []}
+    except Exception as e:
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:300])}
+
+
+# Path A — staré EC procedury (jen Rok+Mesic). ES zatím nemá (procedury jsou EC_).
+_MZD_A_PROC = {
+    "vstupni": ("EC_Mzdy_GenVstupniData", True),    # předzpracování (vstupní data)
+    "generovat": ("EC_Mzdy_GenerujMesic", True),    # výpočet mezd měsíce
+    "kontrola": ("EC_KontrolaMzdy", False),         # kontrola
+}
+
+
+@api_router.post("/app/ucto/mzdy-akce")
+def ucto_mzdy_akce(req: Request):
+    """Path A: spustí EC mzdovou proceduru na office Heliosu pro období (parent).
+    akce: vstupni | generovat | kontrola | smazat. Jen EC (procedury jsou EC_)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "EC").upper()
+    akce = (req.query_params.get("akce") or "").lower()
+    import datetime as _dt
+    _now = _dt.date.today()
+    try:
+        rok = int(req.query_params.get("rok") or _now.year)
+        mesic = int(req.query_params.get("mesic") or _now.month)
+    except Exception:
+        rok, mesic = _now.year, _now.month
+    if firma != "EC":
+        return {"ok": False, "error": "Path A je zatím jen pro EUROSOFT-Control (procedury EC_). ES doplníme."}
+    if akce == "smazat":
+        _ro = _mssql188_query("SELECT IdObdobi FROM UCTO_EC.dbo.TabMzdObd "
+                              "WHERE Rok=" + str(rok) + " AND Mesic=" + str(mesic))
+        idobd = int(_ro["rows"][0][0]) if (_ro.get("ok") and _ro.get("rows")) else None
+        if not idobd:
+            return {"ok": False, "error": "období nenalezeno"}
+        sql = ("DELETE FROM dbo.TabMzSloz WHERE IdObdobi=" + str(idobd) + "; "
+               "DELETE FROM dbo.TabPredzp WHERE IdObdobi=" + str(idobd) + "; "
+               "SELECT 'Smazáno období " + str(idobd) + " (TabMzSloz+TabPredzp)' AS msg;")
+        r = _mcp_exec_office(sql)
+        msg = (r.get("rows") or [{}])[0].get("msg") if r.get("ok") else r.get("error")
+        return {"ok": r.get("ok"), "akce": akce, "message": msg}
+    if akce not in _MZD_A_PROC:
+        return {"ok": False, "error": "neznámá akce"}
+    proc, has_doch = _MZD_A_PROC[akce]
+    doch = (", @PrepocetDochazky=1" if has_doch else "")
+    sql = ("DECLARE @m nvarchar(max)=''; EXEC dbo." + proc + " @Rok=" + str(rok) +
+           ", @Mesic=" + str(mesic) + doch + ", @Message=@m OUTPUT; SELECT @m AS msg;")
+    r = _mcp_exec_office(sql)
+    if not r.get("ok"):
+        return {"ok": False, "akce": akce, "error": r.get("error")}
+    msg = (r.get("rows") or [{}])
+    msg = msg[0].get("msg") if (msg and isinstance(msg[0], dict)) else None
+    return {"ok": True, "akce": akce, "proc": proc, "message": msg or "(bez zprávy)"}
+
+
 # === ZRCADLA office → cloud Helios (Marti 27.6.2026) =========================
 # Samostatná ikona: každé zrcadlo = 1:1 kopie tabulky z kancelářského Heliosu
 # (DB_EC/DB_IS přes MCP) do cloudu (UCTO_EC/UCTO_ES na 188.12). Plná kopie (mirror).
@@ -24145,6 +24221,7 @@ _ZRC_GROUPS = [
         ("TabZakazka_EXT", "Zakázky — uživatelská pole (_EXT)"),
     ]),
     ("mzdy", "💰 Mzdy", [
+        ("TabPredzp", "Mzdy — předzpracování"),
         ("TabZamMzd", "Mzdy — nastavení zaměstnanců"),
         ("TabMzSloz", "Mzdy — mzdové složky"),
     ]),
@@ -24172,6 +24249,7 @@ def _zrc_where(table, firma):
         "TabMzdObd": "Rok IN (2025,2026)",
         "TabZamMzd": mzobd,
         "TabMzSloz": mzobd,
+        "TabPredzp": mzobd,
     }.get(table)
 
 

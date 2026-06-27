@@ -38,6 +38,10 @@
   .loading{color:#8295ad;padding:30px;text-align:center}
   .err{color:#ff9b9b;padding:14px;background:#2a1820;border:1px solid #5a2a33;border-radius:10px}
   a.back{color:#7fb0ff;text-decoration:none;font-size:12.5px}
+  .cway{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .ctag{font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;white-space:nowrap;min-width:130px}
+  .cbtn{background:#27313f;color:#cdd9ea;border:0;border-radius:8px;padding:7px 11px;font-size:12px;cursor:pointer;font-weight:600}
+  .cbtn:hover:not([disabled]){background:#2f3b4d}
 </style>
 </head>
 <body>
@@ -106,11 +110,55 @@ async function loadZpr(){
       '</tbody></table>';
     inner+='<div class="note" style="border-left-color:#3b6bd4">'+
       (empty
-        ? '<b>'+obd+' zatím nezpracováno.</b> Až mzdová účetní spustí předzpracování + výpočet (Helios procedury <code>EC_…</code>), objeví se tu čísla. Tento monitor pak hlídá, že <b>kancelář = cloud</b> (rovná se), ať to můžeš opakovaně importovat, zkontrolovat a smazat.'
-        : 'Monitor hlídá, že předzpracování i vypočtené složky <b>sedí mezi kanceláří a cloudem</b>. „⚠ nerovná" = po importu/výpočtu znovu zrcadli do cloudu (ikona Zrcadla) a porovnej.')+'</div>';
+        ? '<b>'+obd+' zatím nezpracováno.</b> Spusť cyklus tlačítky níže (cesta A = staré Helios procedury). Monitor pak hlídá, že <b>kancelář = cloud</b> (rovná se), ať můžeš opakovaně generovat, zkontrolovat a smazat.'
+        : 'Monitor hlídá, že předzpracování i vypočtené složky <b>sedí mezi kanceláří a cloudem</b>. Po generování klikni „⤓ Zrcadlit do cloudu" a porovnej.')+'</div>';
+    // === 3 cesty výpočtu (A staré procedury / B náš engine office / C náš engine cloud) ===
+    const dis='style="opacity:.45;cursor:default" disabled';
+    inner+='<div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">'+
+      '<div class="cway"><span class="ctag" style="background:#1d3a2a;color:#86e8b0">A · staré procedury</span>'+
+        '<button class="cbtn" onclick="MZ.akce(\'vstupni\')">1️⃣ Vstupní data</button>'+
+        '<button class="cbtn" onclick="MZ.akce(\'generovat\')">2️⃣ Generovat mzdy</button>'+
+        '<button class="cbtn" onclick="MZ.akce(\'kontrola\')">3️⃣ Kontrola</button>'+
+        '<button class="cbtn" onclick="MZ.zrcadli()">⤓ Zrcadlit do cloudu</button>'+
+        '<button class="cbtn" style="color:#ff9b9b" onclick="MZ.akce(\'smazat\')">🗑️ Smazat</button></div>'+
+      '<div class="cway"><span class="ctag" style="background:#2a2440;color:#c9b6f0">B · náš engine (office)</span>'+
+        '<button class="cbtn" '+dis+'>Vstupní data</button><button class="cbtn" '+dis+'>Generovat</button>'+
+        '<span class="muted" style="font-size:11.5px">připravujeme</span></div>'+
+      '<div class="cway"><span class="ctag" style="background:#16314f;color:#9ec5ff">C · náš engine (cloud)</span>'+
+        '<button class="cbtn" '+dis+'>Vstupní data</button><button class="cbtn" '+dis+'>Generovat</button>'+
+        '<span class="muted" style="font-size:11.5px">připravujeme</span></div>'+
+      '</div>'+
+      '<div id="mzakce_out" class="note" style="display:none;margin-top:8px"></div>';
   }
   el.innerHTML=inner;
 }
+const MZ={
+  busy:false,
+  async akce(a){
+    if(MZ.busy)return;
+    if(a==="generovat"&&!confirm("Spustit GENEROVÁNÍ mezd za aktuální období v kancelářském Heliosu ("+FIRMA+")? (vratné — lze smazat a znovu)"))return;
+    if(a==="smazat"&&!confirm("SMAZAT vypočtené mzdy + předzpracování aktuálního období ("+FIRMA+")? Půjde znovu vygenerovat."))return;
+    MZ.busy=true; MZ.out('<span class="muted">⏳ Spouštím '+a+'… (běží procedura v kanceláři, může chvíli trvat)</span>');
+    try{
+      const r=await fetch("/api/v1/erp/app/ucto/mzdy-akce?firma="+FIRMA+"&akce="+a,{method:"POST",credentials:"include"}).then(x=>x.json());
+      if(r.ok) MZ.out('<span class="pos">✓ '+a+' hotovo.</span> '+(r.message?('<br><span class="muted">'+r.message+'</span>'):''));
+      else MZ.out('<span style="color:#ff9b9b">✗ '+(r.error||"chyba")+'</span>');
+    }catch(e){ MZ.out('<span style="color:#ff9b9b">✗ '+e.message+'</span>'); }
+    MZ.busy=false; loadZpr();
+  },
+  async zrcadli(){
+    if(MZ.busy)return; MZ.busy=true;
+    MZ.out('<span class="muted">⏳ Zrcadlím mzdy období do cloudu (TabPredzp, TabMzSloz, TabZamMzd)…</span>');
+    try{
+      for(const k of ["TabPredzp","TabZamMzd","TabMzSloz"]){
+        await fetch("/api/v1/erp/app/ucto/zrcadlo-run?firma="+FIRMA+"&key="+k,{method:"POST",credentials:"include"}).then(x=>x.json());
+      }
+      MZ.out('<span class="pos">✓ Zrcadleno do cloudu.</span>');
+    }catch(e){ MZ.out('<span style="color:#ff9b9b">✗ '+e.message+'</span>'); }
+    MZ.busy=false; loadZpr();
+  },
+  out(h){ const o=document.getElementById("mzakce_out"); if(o){o.style.display="block"; o.innerHTML=h;} }
+};
 async function load(){
   loadZpr();
   document.getElementById("body").innerHTML='<div class="loading">Načítám…</div>';

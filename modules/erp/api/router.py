@@ -23826,7 +23826,14 @@ def ucto_mzdy(req: Request):
     finally:
         s.close()
     firma = (req.query_params.get("firma") or "EC").upper()
-    cloud_db, idobd = ("UCTO_ES", 1007) if firma == "ES" else ("UCTO_EC", 39)
+    try:
+        rok = int(req.query_params.get("rok") or 2025)
+    except Exception:
+        rok = 2025
+    # IdObdobi: EC 39=2025/40=2026; ES 1007=2025/1008=2026
+    _OBD = {("EC", 2025): ("UCTO_EC", 39), ("EC", 2026): ("UCTO_EC", 40),
+            ("ES", 2025): ("UCTO_ES", 1007), ("ES", 2026): ("UCTO_ES", 1008)}
+    cloud_db, idobd = _OBD.get((firma, rok), ("UCTO_EC", 39))
     _q = ("SELECT MONTH(d.DatumPripad) m, "
           "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetMD),3)='521' THEN d.CastkaMD ELSE 0 END),2) hrube, "
           "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetMD),3)='524' THEN d.CastkaMD ELSE 0 END),2) pojzam, "
@@ -23849,10 +23856,12 @@ def ucto_mzdy(req: Request):
             tot[k] += row[k]
         row["naklady"] = round(row["hrube"] + row["pojzam"] + row["ostsoc"], 2)
         mes.append(row)
-    # počet zaměstnanců s mzdou v roce (distinct přes mzdové složky)
+    # počet zaměstnanců s mzdou v roce (distinct přes mzdové složky, scopováno přes TabMzdObd.Rok)
     pocet = None
-    _pc = _mssql188_query("SELECT COUNT(DISTINCT ZamestnanecId) p FROM " + cloud_db +
-                          ".dbo.TabMzSloz WHERE ZamestnanecId IS NOT NULL")
+    _pc = _mssql188_query(
+        "SELECT COUNT(DISTINCT s.ZamestnanecId) p FROM " + cloud_db + ".dbo.TabMzSloz s "
+        "JOIN " + cloud_db + ".dbo.TabMzdObd o ON s.IdObdobi=o.IdObdobi "
+        "WHERE s.ZamestnanecId IS NOT NULL AND o.Rok=" + str(rok))
     if _pc.get("ok") and _pc["rows"]:
         try:
             pocet = int(_pc["rows"][0][0])
@@ -23860,7 +23869,7 @@ def ucto_mzdy(req: Request):
             pass
     tot = {k: round(val, 2) for k, val in tot.items()}
     tot["naklady"] = round(tot["hrube"] + tot["pojzam"] + tot["ostsoc"], 2)
-    return {"ok": True, "firma": firma, "mesice": mes, "rok": tot, "pocet_zamestnancu": pocet}
+    return {"ok": True, "firma": firma, "rok_cislo": rok, "mesice": mes, "rok": tot, "pocet_zamestnancu": pocet}
 
 
 @api_router.get("/app/ucto/kontrola-ucetni")

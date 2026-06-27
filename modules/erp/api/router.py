@@ -23896,6 +23896,10 @@ _ZRC_GROUPS = [
         ("TabCisZam", "Zaměstnanci"),
         ("TabMzdObd", "Mzdová období"),
     ]),
+    ("zakazky", "📁 Zakázky", [
+        ("TabZakazka", "Zakázky"),
+        ("TabZakazka_EXT", "Zakázky — uživatelská pole (_EXT)"),
+    ]),
     ("mzdy", "💰 Mzdy", [
         ("TabZamMzd", "Mzdy — nastavení zaměstnanců"),
         ("TabMzSloz", "Mzdy — mzdové složky"),

@@ -23796,6 +23796,101 @@ def ucto_porovnani(req: Request):
                        "hv_office": _hv("office_zust"), "hv_cloud": _hv("cloud_zust")}}
 
 
+def _ucto_kateg(naz):
+    n = (naz or "").lower()
+    if n.startswith("fv") or "vydan" in n: return ("VF", "Vydané faktury")
+    if n.startswith("fp") or "prijat" in n or "přijat" in n: return ("PF", "Přijaté faktury")
+    if "banka" in n: return ("BANKA", "Banka")
+    if "pokladna" in n: return ("POKL", "Pokladna")
+    if "kartov" in n: return ("KARTA", "Kartové účty")
+    if "mzd" in n: return ("MZDY", "Mzdy")
+    if "počáteč" in n or "pocat" in n: return ("PS", "Počáteční stav")
+    if "interní" in n or "intern" in n: return ("INT", "Interní doklady")
+    if "zápoč" in n or "zapoc" in n: return ("ZAP", "Vzájemné zápočty")
+    if "skont" in n: return ("SKON", "Skonta")
+    if "sklad" in n: return ("SKLAD", "Sklady")
+    return ("OST", "Ostatní")
+
+
+@api_router.get("/app/ucto/doklady")
+def ucto_doklady(req: Request):
+    """Rozpad účetnictví PO DOKLADECH (Marti 27.6.2026): kategorie (VF/PF/Banka/Pokladna/…)
+    → sborník → jednotlivé doklady → řádky deníku. Drill-down z cloud Heliosu (188.12).
+    Parent-only."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "EC").upper()
+    cloud_db, idobd = ("UCTO_ES", 1007) if firma == "ES" else ("UCTO_EC", 39)
+    sbornik = (req.query_params.get("sbornik") or "").strip().replace("'", "''")
+    doklad = (req.query_params.get("doklad") or "").strip().replace("'", "''")
+    _W = " WHERE d.IdObdobi=" + str(idobd)
+
+    if doklad:
+        _r = _mssql188_query(
+            "SELECT d.CisloRadku rad, LTRIM(RTRIM(d.CisloUcet)) ucet, d.CastkaMD md, d.CastkaDAL dal, "
+            "LEFT(ISNULL(d.Popis,''),80) popis FROM " + cloud_db + ".dbo.TabDenik d" + _W +
+            " AND LTRIM(RTRIM(d.Sbornik))='" + sbornik + "' AND d.CeleCislo='" + doklad + "' ORDER BY d.CisloRadku")
+        if not _r.get("ok"):
+            return {"ok": False, "error": _r.get("error")}
+        _i = {c: k for k, c in enumerate(_r["columns"])}
+        rk = [{"rad": v[_i["rad"]], "ucet": str(v[_i["ucet"]] or ""), "md": float(v[_i["md"]] or 0),
+               "dal": float(v[_i["dal"]] or 0), "popis": v[_i["popis"]] or ""} for v in _r["rows"]]
+        return {"ok": True, "uroven": "radky", "doklad": req.query_params.get("doklad"), "radky": rk}
+
+    if sbornik:
+        _r = _mssql188_query(
+            "SELECT d.CeleCislo dok, MIN(CONVERT(varchar(10),d.DatumOd,104)) datum, COUNT(*) radku, "
+            "ROUND(SUM(d.CastkaMD),2) md, MAX(d.CisloOrg) org, MAX(LEFT(ISNULL(d.Popis,''),60)) popis "
+            "FROM " + cloud_db + ".dbo.TabDenik d" + _W + " AND LTRIM(RTRIM(d.Sbornik))='" + sbornik +
+            "' GROUP BY d.CeleCislo ORDER BY MIN(d.DatumOd), d.CeleCislo")
+        if not _r.get("ok"):
+            return {"ok": False, "error": _r.get("error")}
+        _i = {c: k for k, c in enumerate(_r["columns"])}
+        # názvy organizací
+        orgs = set(str(v[_i["org"]]) for v in _r["rows"] if v[_i["org"]] not in (None, 0))
+        onm = {}
+        if orgs:
+            _ro = _mssql188_query("SELECT CisloOrg o, Firma f, Nazev n FROM " + cloud_db +
+                                  ".dbo.TabCisOrg WHERE CisloOrg IN (" + ",".join(sorted(orgs)) + ")")
+            if _ro.get("ok"):
+                _oi = {c: k for k, c in enumerate(_ro["columns"])}
+                for v in _ro["rows"]:
+                    onm[str(v[_oi["o"]])] = (v[_oi["f"]] or v[_oi["n"]] or "").strip()
+        dk = [{"dok": v[_i["dok"]], "datum": v[_i["datum"]], "radku": v[_i["radku"]],
+               "md": float(v[_i["md"]] or 0), "org": onm.get(str(v[_i["org"]]), ""),
+               "popis": v[_i["popis"]] or ""} for v in _r["rows"]]
+        return {"ok": True, "uroven": "doklady", "sbornik": req.query_params.get("sbornik"), "doklady": dk}
+
+    # úroveň sborníků (+ kategorie)
+    _r = _mssql188_query(
+        "SELECT LTRIM(RTRIM(d.Sbornik)) sb, COUNT(DISTINCT d.CeleCislo) dokladu, COUNT(*) radku, "
+        "ROUND(SUM(d.CastkaMD),2) md FROM " + cloud_db + ".dbo.TabDenik d" + _W + " GROUP BY LTRIM(RTRIM(d.Sbornik))")
+    if not _r.get("ok"):
+        return {"ok": False, "error": _r.get("error")}
+    _i = {c: k for k, c in enumerate(_r["columns"])}
+    _nz = _mssql188_query("SELECT LTRIM(RTRIM(Cislo)) c, Nazev n FROM " + cloud_db + ".dbo.TabSbornik")
+    sbn = {}
+    if _nz.get("ok"):
+        _ni = {c: k for k, c in enumerate(_nz["columns"])}
+        for v in _nz["rows"]:
+            sbn[str(v[_ni["c"]]).strip()] = (v[_ni["n"]] or "").strip()
+    sb = []
+    for v in _r["rows"]:
+        code = str(v[_i["sb"]]).strip()
+        naz = sbn.get(code, "")
+        kat, katn = _ucto_kateg(naz)
+        sb.append({"sbornik": code, "nazev": naz, "kat": kat, "katnazev": katn,
+                   "dokladu": v[_i["dokladu"]], "radku": v[_i["radku"]], "md": float(v[_i["md"]] or 0)})
+    sb.sort(key=lambda x: (x["kat"], x["sbornik"]))
+    return {"ok": True, "uroven": "sborniky", "firma": firma, "sborniky": sb}
+
+
 @api_router.get("/app/banka/saldo/aging")
 def banka_saldo_aging(req: Request):
     """Stáří salda (Marti 23.6.2026): rozpad otevřených pohledávek/závazků po stáří

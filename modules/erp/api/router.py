@@ -28621,7 +28621,8 @@ async def diag_sql(req: Request) -> JSONResponse:
     # ── @@XFER <src_db> <dst_db> <Tabulka> [| where] — přenos tabulky z kancelářského
     #    Heliosu (DB_EC/DB_IS přes MCP) → cloud MSSQL 188.12. 1:1 vč. původních id.
     #    Marti 25.6.2026 (přenos mezd + deníku, čistý start 2025-26). ──
-    if sql.upper().startswith("@@XFER") and not sql.upper().startswith("@@XFERMZDY"):
+    if (sql.upper().startswith("@@XFER") and not sql.upper().startswith("@@XFERMZDY")
+            and not sql.upper().startswith("@@XFERUCTO")):
         _bx = sql[6:].strip()
         _wh = None
         if "|" in _bx:

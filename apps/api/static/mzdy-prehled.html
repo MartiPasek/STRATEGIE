@@ -74,7 +74,7 @@ async function load(){
   document.getElementById("body").innerHTML='<div class="loading">Načítám…</div>';
   document.getElementById("cards").innerHTML="";
   let d;
-  try{ d=await jget("/app/ucto/mzdy?firma="+FIRMA); }
+  try{ d=await jget("/api/v1/erp/app/ucto/mzdy?firma="+FIRMA); }
   catch(e){ document.getElementById("body").innerHTML='<div class="err">Chyba načítání: '+e.message+'</div>'; return; }
   if(!d.ok){ document.getElementById("body").innerHTML='<div class="err">'+(d.error||"chyba")+'</div>'; return; }
   const r=d.rok;

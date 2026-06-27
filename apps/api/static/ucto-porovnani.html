@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Účetní kontrola office × cloud</title>
+<style>
+  :root{--bg:#0f172a;--card:#1e293b;--mut:#94a3b8;--bd:#334155;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--txt:#e2e8f0}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:18px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--mut);margin-bottom:16px}
+  .chips{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .chip{padding:6px 14px;border:1px solid var(--bd);border-radius:20px;cursor:pointer;background:var(--card);color:var(--txt)}
+  .chip.on{background:#2563eb;border-color:#2563eb;color:#fff}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:18px}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px}
+  .card .lbl{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  .card .val{font-size:20px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+  .val.ok{color:var(--ok)} .val.bad{color:var(--bad)} .val.warn{color:var(--warn)}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--bd);border-radius:12px;overflow:hidden}
+  th,td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--bd);font-variant-numeric:tabular-nums}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#172033;color:var(--mut);font-weight:600;cursor:pointer;position:sticky;top:0}
+  tr.diff td{background:rgba(239,68,68,.08)}
+  tr.diff td.r{color:var(--bad);font-weight:700}
+  td.r.zero{color:var(--mut);font-weight:400}
+  .tag{font-size:11px;padding:2px 7px;border-radius:10px;background:#334155;color:var(--mut)}
+  .loading{color:var(--mut);padding:30px;text-align:center}
+  .err{color:var(--bad);padding:16px;background:rgba(239,68,68,.1);border-radius:10px}
+  .hint{color:var(--mut);font-size:12px;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📊 Účetní kontrola — office × cloud</h1>
+  <div class="sub">Konta (stavy účtů) k 31.12.2025. Zdroj pravdy: office Helios. Cloud = nezávislá kontrolní vrstva. Rozdíly = co dorovnat.</div>
+  <div class="chips" id="firmy">
+    <div class="chip on" data-f="EC">EUROSOFT‑Control (EC)</div>
+    <div class="chip" data-f="ES">EUROSOFT‑System (ES)</div>
+    <div class="chip" data-f="_reload" style="margin-left:auto">↻ Načíst</div>
+  </div>
+  <div id="souhrn" class="cards"></div>
+  <div id="obsah"><div class="loading">Načítám…</div></div>
+  <div class="hint">Pozn.: bere se jen souhrnná řádka konta (bez středisek) — to je úroveň účtu. „Jen v office/cloud" = účet existuje jen na jedné straně (typicky nulový). Řazeno dle velikosti rozdílu.</div>
+</div>
+<script>
+var FIRMA="EC", SORT={k:"rozdil",dir:-1}, DATA=null;
+function fmt(n){if(n==null)return"";var s=(Math.round(n*100)/100).toLocaleString("cs-CZ",{minimumFractionDigits:2,maximumFractionDigits:2});return s;}
+function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();});}
+function load(){
+  document.getElementById("obsah").innerHTML='<div class="loading">Načítám office (Helios) + cloud…</div>';
+  document.getElementById("souhrn").innerHTML="";
+  api("/api/v1/erp/app/ucto/porovnani?firma="+FIRMA).then(function(x){
+    if(!x||!x.ok){document.getElementById("obsah").innerHTML='<div class="err">Chyba: '+((x&&x.error)||"neznámá")+'</div>';return;}
+    DATA=x; renderSouhrn(x.souhrn); renderTab();
+  }).catch(function(e){document.getElementById("obsah").innerHTML='<div class="err">Chyba spojení: '+e+'</div>';});
+}
+function renderSouhrn(s){
+  var rc=s.rozdil_celkem, rcls=Math.abs(rc)<0.01?"ok":"bad";
+  var h="";
+  h+=card("Účtů celkem", s.uctu, "");
+  h+=card("Účtů s rozdílem", s.uctu_s_rozdilem, s.uctu_s_rozdilem>0?"warn":"ok");
+  h+=card("Σ zůstatků office", fmt(s.office_zust), "");
+  h+=card("Σ zůstatků cloud", fmt(s.cloud_zust), "");
+  h+=card("Rozdíl celkem", fmt(rc), rcls);
+  h+=card("HV office", fmt(s.hv_office.hv), s.hv_office.hv<0?"bad":"ok");
+  h+=card("HV cloud", fmt(s.hv_cloud.hv), s.hv_cloud.hv<0?"bad":"ok");
+  document.getElementById("souhrn").innerHTML=h;
+}
+function card(l,v,c){return '<div class="card"><div class="lbl">'+l+'</div><div class="val '+(c||"")+'">'+v+'</div></div>';}
+function renderTab(){
+  var r=DATA.radky.slice();
+  r.sort(function(a,b){var k=SORT.k,va=a[k],vb=b[k];if(typeof va==="string"){return SORT.dir*(va<vb?-1:va>vb?1:0);}return SORT.dir*((Math.abs(va)||0)-(Math.abs(vb)||0))*(k==="ucet"?1:1);});
+  if(SORT.k==="ucet")r.sort(function(a,b){return SORT.dir*(a.ucet<b.ucet?-1:1);});
+  var h='<table><thead><tr>'
+    +th("ucet","Účet")+th("office_zust","Office zůstatek")+th("cloud_zust","Cloud zůstatek")
+    +th("rozdil","Rozdíl (cloud−office)")+'<th>Jen v</th></tr></thead><tbody>';
+  r.forEach(function(x){
+    var diff=Math.abs(x.rozdil)>=0.01;
+    h+='<tr class="'+(diff?"diff":"")+'"><td>'+x.ucet+'</td><td>'+fmt(x.office_zust)+'</td><td>'+fmt(x.cloud_zust)+'</td>'
+      +'<td class="r '+(diff?"":"zero")+'">'+fmt(x.rozdil)+'</td>'
+      +'<td>'+(x.jen_v?'<span class="tag">'+x.jen_v+'</span>':'')+'</td></tr>';
+  });
+  h+='</tbody></table>';
+  document.getElementById("obsah").innerHTML=h;
+  Array.prototype.forEach.call(document.querySelectorAll("th[data-k]"),function(t){
+    t.onclick=function(){var k=t.getAttribute("data-k");if(SORT.k===k)SORT.dir*=-1;else{SORT.k=k;SORT.dir=(k==="ucet"?1:-1);}renderTab();};});
+}
+function th(k,l){var ar=SORT.k===k?(SORT.dir<0?" ▼":" ▲"):"";return '<th data-k="'+k+'">'+l+ar+'</th>';}
+document.getElementById("firmy").onclick=function(e){
+  var f=e.target.getAttribute("data-f");if(!f)return;
+  if(f==="_reload"){load();return;}
+  FIRMA=f;Array.prototype.forEach.call(this.querySelectorAll(".chip"),function(c){if(c.getAttribute("data-f")==="EC"||c.getAttribute("data-f")==="ES")c.classList.toggle("on",c.getAttribute("data-f")===f);});
+  load();
+};
+load();
+</script>
+</body>
+</html>

@@ -23686,6 +23686,86 @@ def banka_saldo(req: Request):
         s.close()
 
 
+@api_router.get("/app/ucto/porovnani")
+def ucto_porovnani(req: Request):
+    """Účetní kontrolní vrstva: konta (stavy účtů) k 31.12.2025 — office (Helios DB_EC/IS
+    přes MCP) vs cloud (UCTO_EC/ES na 188.12 přes pyodbc), po účtech + rozdíl. Bere jen
+    souhrnné řádky (Stredisko prázdné) — viz docs/helios_cloud_knowhow. Marti 27.6.2026.
+    Zrcadlo pro dorovnání rozdílů. Parent-only."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "EC").upper()
+    if firma == "ES":
+        off_pfx, cloud_db, idobd = "[DB_IS]", "UCTO_ES", 1007
+    else:
+        off_pfx, cloud_db, idobd = "DB_EC", "UCTO_EC", 39
+
+    def _konta_sql(pfx):
+        return ("WITH latest AS (SELECT LTRIM(RTRIM(k.Ucet)) AS ucet, k.KonStavDEN_MD AS md, "
+                "k.KonStavDEN_Dal AS dal, k.ZustDEN_KonSt AS zust, "
+                "ROW_NUMBER() OVER (PARTITION BY k.Ucet ORDER BY k.Datum DESC) rn "
+                "FROM " + pfx + ".dbo.TabKontaD k WHERE k.IdObdobi=" + str(idobd) +
+                " AND k.Datum<='20251231' AND (k.Stredisko IS NULL OR LTRIM(RTRIM(k.Stredisko))='')) "
+                "SELECT ucet, md, dal, zust FROM latest WHERE rn=1")
+
+    office = {}
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        import json as _jx
+        _mcp = get_eurosoft_mcp_client()
+        if _mcp is None:
+            return {"ok": False, "error": "EUROSOFT MCP nedostupný (office)"}
+        _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                  {"sql": _konta_sql(off_pfx), "db_name": "DB_EC"}, conversation_id=None)
+        _r = _jx.loads(_rj) if isinstance(_rj, str) else _rj
+        for _row in (_r.get("rows") if isinstance(_r, dict) else []) or []:
+            office[str(_row.get("ucet")).strip()] = _row
+    except Exception as e:
+        return {"ok": False, "error": "office (MCP): %s" % str(e)[:200]}
+
+    _cl = _mssql188_query(_konta_sql(cloud_db))
+    if not _cl.get("ok"):
+        return {"ok": False, "error": "cloud (188): %s" % _cl.get("error")}
+    cloud = {}
+    _ci = {c: i for i, c in enumerate(_cl.get("columns") or [])}
+    for _row in _cl.get("rows") or []:
+        cloud[str(_row[_ci["ucet"]]).strip()] = _row
+
+    def _f(v):
+        try:
+            return float(v or 0)
+        except Exception:
+            return 0.0
+    out = []
+    for _u in sorted(set(office) | set(cloud)):
+        o = office.get(_u, {})
+        c = cloud.get(_u)
+        oz = _f(o.get("zust"))
+        cz = _f(c[_ci["zust"]]) if c else 0.0
+        out.append({"ucet": _u, "office_zust": round(oz, 2), "cloud_zust": round(cz, 2),
+                    "rozdil": round(cz - oz, 2),
+                    "office_md": round(_f(o.get("md")), 2), "cloud_md": round(_f(c[_ci["md"]]) if c else 0.0, 2),
+                    "jen_v": "" if (o and c) else ("office" if o else "cloud")})
+    out.sort(key=lambda x: abs(x["rozdil"]), reverse=True)
+    sumo = round(sum(x["office_zust"] for x in out), 2)
+    sumc = round(sum(x["cloud_zust"] for x in out), 2)
+    # HV (tř. 5 a 6)
+    def _hv(zkey):
+        nak = round(sum(x[zkey] for x in out if x["ucet"][:1] == "5"), 2)
+        vyn = round(sum(x[zkey] for x in out if x["ucet"][:1] == "6"), 2)
+        return {"naklady": nak, "vynosy": vyn, "hv": round(-(nak + vyn), 2)}
+    return {"ok": True, "firma": firma, "radky": out,
+            "souhrn": {"office_zust": sumo, "cloud_zust": sumc, "rozdil_celkem": round(sumc - sumo, 2),
+                       "uctu": len(out), "uctu_s_rozdilem": sum(1 for x in out if abs(x["rozdil"]) >= 0.01),
+                       "hv_office": _hv("office_zust"), "hv_cloud": _hv("cloud_zust")}}
+
+
 @api_router.get("/app/banka/saldo/aging")
 def banka_saldo_aging(req: Request):
     """Stáří salda (Marti 23.6.2026): rozpad otevřených pohledávek/závazků po stáří

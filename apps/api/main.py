@@ -1203,6 +1203,13 @@ def banka_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/ucto-porovnani")
+def ucto_porovnani_page():
+    """📊 Účetní kontrola office × cloud — konta po účtech, rozdíly k dorovnání (Marti 27.6.2026)."""
+    return FileResponse(os.path.join(static_dir, "ucto-porovnani.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/mzdy")
 def mzdy_page():
     """💰 Mzdy & odvody — naúčtováno (deník) vs zaplaceno (banka) po měsících (Marti 23.6.2026)."""

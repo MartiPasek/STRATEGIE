@@ -90,7 +90,14 @@ async function load(){
     card("Daň ze záv. čin. (342)",fmt(r.dan))+
     card("Závazky k zaměstnancům (331)","<span class='pos'>"+fmt(r.cista)+"</span>")+
     card("Zaměstnanců (mzdy)",d.pocet_zamestnancu==null?"—":d.pocet_zamestnancu);
-  let h='<div class="sec-h">Měsíční přehled '+ROK+'</div><table><thead><tr>'+
+  let h="";
+  if(!d.mesice.length || r.naklady===0){
+    h+='<div class="note" style="border-left-color:#caa24a;color:#e4cf9a;margin:0 0 18px">'+
+       '<b>Účetnictví '+ROK+' zatím není v cloud Heliosu.</b> Aktuálně je přenesený a očištěný rok 2025. '+
+       'Rok 2026 se objeví po přenosu uzávěrky. (V mzdové evidenci už '+(d.pocet_zamestnancu||0)+
+       ' zaměstnanců '+ROK+' je.)</div>';
+  }
+  h+='<div class="sec-h">Měsíční přehled '+ROK+'</div><table><thead><tr>'+
     '<th>Měsíc</th><th>Hrubé mzdy</th><th>Poj. zaměstnavatel</th><th>Ost. soc.</th>'+
     '<th>Náklady celkem</th><th>Odvody SP+ZP</th><th>Daň</th><th>Závazky 331</th></tr></thead><tbody>';
   if(!d.mesice.length) h+='<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">Žádná data</td></tr>';

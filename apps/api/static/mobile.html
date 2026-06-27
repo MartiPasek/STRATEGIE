@@ -5353,8 +5353,8 @@ setTimeout(function(){
             var today=_locDate(0);
             absence({type_code:"homeoffice",date_from:od,date_to:dd,mode:"days",note:"home office (přes mobil)"},function(){
               if(od<=today && dd>=today){ presence({text:"Jsem na home office",add_since:false,until_txt:czDate(dd)},b); }
-              else dochLoad();
-            });
+              else absOk(bx,"Home office "+czDate(od)+" – "+czDate(dd));
+            },b);
           });
         },_greenStyle);
         expOpt(box,"🕐 Něco si zařizuji…","ghost",function(bx){
@@ -5365,20 +5365,20 @@ setTimeout(function(){
             var today=_locDate(0);
             absence({type_code:"family_care",date_from:od,date_to:dd,mode:"days",note:"OČR (přes mobil)"},function(){
               if(od<=today && dd>=today){ presence({text:"Pečuji o rodinu (OČR)",add_since:false,until_txt:czDate(dd)},b); }
-              else dochLoad();
-            });
+              else absOk(bx,"OČR "+czDate(od)+" – "+czDate(dd));
+            },b);
           });
         },_amberStyle);
         dirBtn(box,"🤒 Je mi fakt blbě… Vidím to na sick day.","ghost",function(b){
           b.disabled=true; var today=_locDate(0);
           absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
-            presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); });
+            presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); },b);
         },_amberStyle);
         expOpt(box,"🤧 Mám neschopenku do…","ghost",function(bx){
           datePickIn(bx,"Neschopenka do:",function(d,b){
             var today=_locDate(0);
             absence({type_code:"sick",date_from:today,date_to:d,mode:"days",note:"neschopenka (přes mobil)"},function(){
-              presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); }); });
+              presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); },b); });
         },_amberStyle);
         expOpt(box,"🩺 Jedu k lékaři…","ghost",function(bx){
           // Marti 7.6. večer: rychlé volby teď + hlášení dopředu (dny i měsíce).
@@ -5389,8 +5389,8 @@ setTimeout(function(){
             var today=_locDate(0);
             absence({type_code:"medical",date_from:d,date_to:d,mode:"days",note:"u lékaře"+(t?(" do ~"+t):"")},function(){
               if(d===today){ presence({text:"Jsem u lékaře",add_since:false,until_txt:(t?("~"+t):"")},b); }
-              else dochLoad();
-            });
+              else absOk(bx,"Lékař "+czDate(d));
+            },b);
           });
         },_amberStyle);
         expOpt(box,"🌴 Že by dovolená?… 😎","ghost",function(bx){
@@ -5398,8 +5398,8 @@ setTimeout(function(){
             var today=_locDate(0);
             absence({type_code:"vacation",date_from:od,date_to:dd,mode:"days",note:"přes mobil"},function(){
               if(od<=today && dd>=today){ presence({text:"Mám dovolenou",add_since:false,until_txt:czDate(dd)},b); }
-              else dochLoad();
-            });
+              else absOk(bx,"Dovolená "+czDate(od)+" – "+czDate(dd));
+            },b);
           });
         },_amberStyle);
       }
@@ -5540,7 +5540,21 @@ setTimeout(function(){
         box.appendChild(st); box.appendChild(reply);
       }
       function presence(payload, b){ b.disabled=true; api("POST","/api/v1/erp/app/attendance/announce",payload).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); }
-      function absence(payload, then){ return api("POST","/api/v1/erp/app/attendance/absence",payload).then(then); }
+      // Jirka 27.6.: robustní nahlášení nepřítomnosti. Na chybu re-enable tlačítka
+      // + viditelná hláška (dřív tlačítko Potvrdit zůstalo šedé = „nešlo zmáčknout").
+      function absence(payload, then, btn){
+        return api("POST","/api/v1/erp/app/attendance/absence",payload).then(function(r){
+          if(r&&r.ok===false){ throw new Error(r.error||"nepovedlo se"); }
+          if(then) then(r);
+        }).catch(function(e){
+          if(btn){ btn.disabled=false;
+            if(btn.parentNode){ btn.parentNode.appendChild(el('<div class="hint" style="color:#f87171;margin-top:6px;">Nepovedlo se uložit ('+esc((e&&e.message)||"zkus to znovu")+'). Zkus to prosím ještě jednou.</div>')); } }
+        });
+      }
+      // Zelené potvrzení nahlášené (budoucí) nepřítomnosti do boxu — ať uživatel ví, že to prošlo.
+      function absOk(box, txt){
+        if(box){ box.innerHTML=''; box.appendChild(el('<div class="hint" style="color:var(--green);margin:8px 4px;font-size:14px;line-height:1.5;">✓ '+esc(txt)+'<br>Díky, nahlásil/a jsi to — čeká to na schválení.</div>')); }
+      }
       var _blueStyle=function(b){ b.style.borderColor="var(--blue)"; b.style.color="var(--blue)"; };
       var _amberStyle=function(b){ b.style.borderColor="var(--amber)"; b.style.color="var(--amber)"; };
       // Marti 7.6. večer: ohlášení dřívějšího konce / pozdějšího příchodu —

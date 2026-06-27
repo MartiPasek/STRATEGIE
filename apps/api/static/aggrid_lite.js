@@ -110,6 +110,29 @@
       pagination: !!opts.pageSize, paginationPageSize: opts.pageSize || undefined,
       onModelUpdated: (e) => { try { cnt.textContent = e.api.getDisplayedRowCount() + " řádků"; } catch (x) {} },
     };
+    // MASTER-DETAIL (vnořitelný) — jedna šablona pro všechny drill-down přehledy.
+    // opts.masterDetail = { cols:[detailColDefs], load:fn(parentRow)->Promise([rows]),
+    //   detail:{ cols, load, detail... } }  (rekurzivně pro víc úrovní; vyžaduje Enterprise)
+    function _md(md) {
+      var dgo = {
+        columnDefs: md.cols,
+        defaultColDef: { sortable: true, resizable: true, filter: ENT ? "agSetColumnFilter" : true, floatingFilter: false, flex: 1, minWidth: 70 },
+        detailRowAutoHeight: true, rowHeight: 30, headerHeight: 32,
+      };
+      if (md.detail) { dgo.masterDetail = true; dgo.detailCellRendererParams = _md(md.detail); }
+      return {
+        detailGridOptions: dgo,
+        getDetailRowData: function (p) {
+          try { md.load(p.data).then(function (rows) { p.successCallback(rows || []); }); }
+          catch (e) { p.successCallback([]); }
+        },
+      };
+    }
+    if (opts.masterDetail && ENT) {
+      go.masterDetail = true;
+      go.detailRowAutoHeight = true;
+      go.detailCellRendererParams = _md(opts.masterDetail);
+    }
     if (ENT) {
       go.sideBar = { toolPanels: ["columns", "filters"], position: "right" };
       if (opts.grouping !== false) go.rowGroupPanelShow = "always";

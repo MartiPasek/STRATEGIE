@@ -103,65 +103,41 @@ function render(){if(VIEW==="doklady"){renderDoklady();return;}if(!DATA)return;i
 // --- DOKLADY (AG Grid Enterprise master-detail: sborník → doklad → řádky) ---
 function czk(p){return p.value==null?"":Number(p.value).toLocaleString("cs-CZ",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function jget(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();});}
-var DGRID=null;
+var DB="/api/v1/erp/app/ucto/doklady?firma=";
+var RADKY_COLS=[
+  {headerName:"Účet",field:"ucet",width:90,flex:0},
+  {headerName:"Popis",field:"popis",flex:2,minWidth:200},
+  {headerName:"MD",field:"md",type:"rightAligned",valueFormatter:czk,flex:1},
+  {headerName:"DAL",field:"dal",type:"rightAligned",valueFormatter:czk,flex:1}];
+var DOKLADY_COLS=[
+  {headerName:"Doklad",field:"dok",cellRenderer:"agGroupCellRenderer",flex:1,minWidth:150},
+  {headerName:"Datum",field:"datum",width:110,flex:0},
+  {headerName:"Organizace",field:"org",flex:2,minWidth:160},
+  {headerName:"Řádků",field:"radku",type:"rightAligned",width:90,flex:0},
+  {headerName:"Σ MD",field:"md",type:"rightAligned",valueFormatter:czk,flex:1}];
+var SB_COLS=[
+  {headerName:"Sborník",field:"sbornik",cellRenderer:"agGroupCellRenderer",width:120,flex:0},
+  {headerName:"Kategorie",field:"katnazev",flex:1,minWidth:130},
+  {headerName:"Název",field:"nazev",flex:2,minWidth:180},
+  {headerName:"Dokladů",field:"dokladu",type:"rightAligned",width:100,flex:0},
+  {headerName:"Řádků",field:"radku",type:"rightAligned",width:90,flex:0},
+  {headerName:"Σ MD",field:"md",type:"rightAligned",valueFormatter:czk,flex:1}];
 function renderDoklady(){
   document.getElementById("souhrn").innerHTML="";
-  document.getElementById("obsah").innerHTML='<div class="loading">Načítám doklady (AG Grid)…</div>';
-  AGLite.ensure().then(function(){
-    return jget("/api/v1/erp/app/ucto/doklady?firma="+FIRMA);
-  }).then(function(x){
+  document.getElementById("obsah").innerHTML='<div class="hint" style="margin:0 0 8px">Master-detail (AG Grid šablona): rozbal sborník → doklad → řádky deníku. Třídění/filtr/Excel v každé úrovni.</div><div id="dgrid"></div>';
+  jget(DB+FIRMA).then(function(x){
     if(!x||!x.ok){document.getElementById("obsah").innerHTML='<div class="err">Chyba: '+((x&&x.error)||"")+'</div>';return;}
-    document.getElementById("obsah").innerHTML='<div class="hint" style="margin:0 0 8px">'+(AGLite.isEnterprise()?"AG Grid Enterprise":"AG Grid")+' · master-detail: rozbal sborník → doklad → řádky deníku.</div><div id="dgrid" class="ag-theme-quartz-dark" style="width:100%;height:calc(100vh - 230px)"></div>';
-    var radkyCols=[
-      {headerName:"Účet",field:"ucet",width:90,flex:0},
-      {headerName:"Popis",field:"popis",flex:2,minWidth:200},
-      {headerName:"MD",field:"md",type:"rightAligned",valueFormatter:czk,flex:1},
-      {headerName:"DAL",field:"dal",type:"rightAligned",valueFormatter:czk,flex:1}
-    ];
-    var dokladyCols=[
-      {headerName:"Doklad",field:"dok",cellRenderer:"agGroupCellRenderer",flex:1,minWidth:150},
-      {headerName:"Datum",field:"datum",width:110,flex:0},
-      {headerName:"Organizace",field:"org",flex:2,minWidth:160},
-      {headerName:"Řádků",field:"radku",type:"rightAligned",width:90,flex:0},
-      {headerName:"Σ MD",field:"md",type:"rightAligned",valueFormatter:czk,flex:1}
-    ];
-    var sbCols=[
-      {headerName:"Kategorie",field:"katnazev",rowGroup:AGLite.isEnterprise(),hide:AGLite.isEnterprise(),flex:1},
-      {headerName:"Sborník",field:"sbornik",cellRenderer:"agGroupCellRenderer",width:110,flex:0},
-      {headerName:"Název",field:"nazev",flex:2,minWidth:180},
-      {headerName:"Dokladů",field:"dokladu",type:"rightAligned",width:100,flex:0},
-      {headerName:"Řádků",field:"radku",type:"rightAligned",width:90,flex:0},
-      {headerName:"Σ MD",field:"md",type:"rightAligned",valueFormatter:czk,flex:1,aggFunc:"sum"}
-    ];
-    var go={
-      columnDefs:sbCols, rowData:x.sborniky,
-      defaultColDef:{sortable:true,resizable:true,filter:true},
-      masterDetail:true, animateRows:true,
-      groupDefaultExpanded:0,
-      detailRowAutoHeight:true,
-      detailCellRendererParams:{
-        detailGridOptions:{
-          columnDefs:dokladyCols,
-          defaultColDef:{sortable:true,resizable:true,filter:true},
-          masterDetail:true, detailRowAutoHeight:true,
-          detailCellRendererParams:{
-            detailGridOptions:{columnDefs:radkyCols,defaultColDef:{sortable:true,resizable:true}},
-            getDetailRowData:function(p){
-              jget("/api/v1/erp/app/ucto/doklady?firma="+FIRMA+"&sbornik="+encodeURIComponent(p.data._sb)+"&doklad="+encodeURIComponent(p.data.dok)).then(function(r){p.successCallback((r&&r.radky)||[]);});
-            }
-          }
-        },
-        getDetailRowData:function(p){
-          jget("/api/v1/erp/app/ucto/doklady?firma="+FIRMA+"&sbornik="+encodeURIComponent(p.data.sbornik)).then(function(r){
-            var rows=((r&&r.doklady)||[]).map(function(d){d._sb=p.data.sbornik;return d;});
-            p.successCallback(rows);
-          });
+    AGLite.mount("dgrid", SB_COLS, x.sborniky, {
+      csvName:"doklady_"+FIRMA, height:"calc(100vh - 250px)", grouping:false, totals:["md"],
+      masterDetail:{
+        cols:DOKLADY_COLS,
+        load:function(row){return jget(DB+FIRMA+"&sbornik="+encodeURIComponent(row.sbornik)).then(function(r){return ((r&&r.doklady)||[]).map(function(d){d._sb=row.sbornik;return d;});});},
+        detail:{
+          cols:RADKY_COLS,
+          load:function(row){return jget(DB+FIRMA+"&sbornik="+encodeURIComponent(row._sb)+"&doklad="+encodeURIComponent(row.dok)).then(function(r){return (r&&r.radky)||[];});}
         }
       }
-    };
-    if(AGLite.isEnterprise()){go.sideBar={toolPanels:["columns","filters"],position:"right"};go.statusBar={statusPanels:[{statusPanel:"agTotalAndFilteredRowCountComponent",align:"left"},{statusPanel:"agAggregationComponent",align:"right"}]};}
-    if(DGRID&&DGRID.destroy){try{DGRID.destroy();}catch(e){}}
-    DGRID=window.agGrid.createGrid(document.getElementById("dgrid"),go);
+    });
   }).catch(function(e){document.getElementById("obsah").innerHTML='<div class="err">Chyba: '+e+'</div>';});
 }
 

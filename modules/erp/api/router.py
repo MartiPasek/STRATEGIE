@@ -33273,10 +33273,13 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                        || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
                        || ' — chybí odchod'
               FROM tenant.att_entry e
+              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
               WHERE e.tenant_id = 2 AND e.is_active = true AND e.ended_at IS NULL
                 AND e.entry_date < current_date
-                AND e.entry_type_id NOT IN (SELECT id FROM tenant.att_entry_type
-                    WHERE tenant_id = 2 AND code = 'day_end')
+                -- Marti 27.6.: import z Centrály (centrala1) a režie (overhead) NEJSOU zapomenutý
+                -- odchod → jinak supervizor (Marti) dostával bogus notifikace o cizích směnách.
+                AND COALESCE(e.source_system,'') NOT IN ('ec_sumaden','absence_req','centrala1','import')
+                AND et.code IN ('work','homeoffice')
               UNION ALL
               SELECT min(e.id), e.employee_id, 'nepotvrzeny_den',
                      to_char(e.entry_date, 'DD.MM.') || ' nepotvrzená docházka'

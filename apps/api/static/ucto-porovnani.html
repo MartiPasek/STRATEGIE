@@ -31,6 +31,8 @@
   .err{color:var(--bad);padding:16px;background:rgba(239,68,68,.1);border-radius:10px}
   .hint{color:var(--mut);font-size:12px;margin-top:12px}
 </style>
+<script src="/static/ag_license.js"></script>
+<script src="/static/aggrid_lite.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -98,68 +100,69 @@ function renderTab(){
 function th(k,l){var ar=SORT.k===k?(SORT.dir<0?" ▼":" ▲"):"";return '<th data-k="'+k+'">'+l+ar+'</th>';}
 function render(){if(VIEW==="doklady"){renderDoklady();return;}if(!DATA)return;if(VIEW==="vysledovka")renderVysledovka();else if(VIEW==="kontroly")renderKontroly();else if(VIEW==="osnova")renderOsnova();else renderTab();}
 
-// --- DOKLADY (drill-down: kategorie → sborník → doklad → řádky) ---
-function eFmt(s){return (s||"").replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+// --- DOKLADY (AG Grid Enterprise master-detail: sborník → doklad → řádky) ---
+function czk(p){return p.value==null?"":Number(p.value).toLocaleString("cs-CZ",{minimumFractionDigits:2,maximumFractionDigits:2});}
+function jget(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();});}
+var DGRID=null;
 function renderDoklady(){
   document.getElementById("souhrn").innerHTML="";
-  document.getElementById("obsah").innerHTML='<div class="loading">Načítám sborníky…</div>';
-  api("/api/v1/erp/app/ucto/doklady?firma="+FIRMA).then(function(x){
+  document.getElementById("obsah").innerHTML='<div class="loading">Načítám doklady (AG Grid)…</div>';
+  AGLite.ensure().then(function(){
+    return jget("/api/v1/erp/app/ucto/doklady?firma="+FIRMA);
+  }).then(function(x){
     if(!x||!x.ok){document.getElementById("obsah").innerHTML='<div class="err">Chyba: '+((x&&x.error)||"")+'</div>';return;}
-    var groups={};x.sborniky.forEach(function(s){(groups[s.katnazev]=groups[s.katnazev]||[]).push(s);});
-    var order=["Vydané faktury","Přijaté faktury","Banka","Pokladna","Kartové účty","Mzdy","Interní doklady","Vzájemné zápočty","Skonta","Sklady","Počáteční stav","Ostatní"];
-    var ks=Object.keys(groups).sort(function(a,b){var ia=order.indexOf(a),ib=order.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib);});
-    var h='<table><thead><tr><th style="text-align:left">Doklad / sborník</th><th>Dokladů</th><th>Řádků</th><th>Σ MD (Kč)</th></tr></thead><tbody>';
-    ks.forEach(function(k){
-      var tot=groups[k].reduce(function(a,s){return a+s.dokladu;},0), totm=groups[k].reduce(function(a,s){return a+s.md;},0);
-      h+='<tr style="background:#172033"><td style="text-align:left;font-weight:700;color:#93c5fd">'+eFmt(k)+'</td><td style="font-weight:700">'+tot+'</td><td></td><td style="font-weight:700">'+fmt(totm)+'</td></tr>';
-      groups[k].forEach(function(s){
-        h+='<tr class="sb" data-sb="'+s.sbornik+'" style="cursor:pointer"><td style="text-align:left;padding-left:24px">▸ '+s.sbornik+' — '+eFmt(s.nazev)+'</td>'
-          +'<td>'+s.dokladu+'</td><td>'+s.radku+'</td><td>'+fmt(s.md)+'</td></tr>';
-      });
-    });
-    h+='</tbody></table><div class="hint">Klikni na sborník → rozbalí jednotlivé doklady; klikni na doklad → řádky deníku (účty MD/DAL).</div>';
-    document.getElementById("obsah").innerHTML=h;
-    wireDoklady();
-  }).catch(function(e){document.getElementById("obsah").innerHTML='<div class="err">Chyba: '+e+'</div>';});
-}
-function wireDoklady(){
-  Array.prototype.forEach.call(document.querySelectorAll("tr.sb"),function(tr){
-    tr.onclick=function(){
-      var sb=tr.getAttribute("data-sb");
-      if(tr.getAttribute("data-open")){ // collapse
-        var n=tr.nextSibling;while(n&&n.className&&n.className.indexOf("d-"+sb)>=0){var nx=n.nextSibling;n.parentNode.removeChild(n);n=nx;}
-        tr.removeAttribute("data-open");tr.children[0].innerHTML=tr.children[0].innerHTML.replace("▾","▸");return;
+    document.getElementById("obsah").innerHTML='<div class="hint" style="margin:0 0 8px">'+(AGLite.isEnterprise()?"AG Grid Enterprise":"AG Grid")+' · master-detail: rozbal sborník → doklad → řádky deníku.</div><div id="dgrid" class="ag-theme-quartz-dark" style="width:100%;height:calc(100vh - 230px)"></div>';
+    var radkyCols=[
+      {headerName:"Účet",field:"ucet",width:90,flex:0},
+      {headerName:"Popis",field:"popis",flex:2,minWidth:200},
+      {headerName:"MD",field:"md",type:"rightAligned",valueFormatter:czk,flex:1},
+      {headerName:"DAL",field:"dal",type:"rightAligned",valueFormatter:czk,flex:1}
+    ];
+    var dokladyCols=[
+      {headerName:"Doklad",field:"dok",cellRenderer:"agGroupCellRenderer",flex:1,minWidth:150},
+      {headerName:"Datum",field:"datum",width:110,flex:0},
+      {headerName:"Organizace",field:"org",flex:2,minWidth:160},
+      {headerName:"Řádků",field:"radku",type:"rightAligned",width:90,flex:0},
+      {headerName:"Σ MD",field:"md",type:"rightAligned",valueFormatter:czk,flex:1}
+    ];
+    var sbCols=[
+      {headerName:"Kategorie",field:"katnazev",rowGroup:AGLite.isEnterprise(),hide:AGLite.isEnterprise(),flex:1},
+      {headerName:"Sborník",field:"sbornik",cellRenderer:"agGroupCellRenderer",width:110,flex:0},
+      {headerName:"Název",field:"nazev",flex:2,minWidth:180},
+      {headerName:"Dokladů",field:"dokladu",type:"rightAligned",width:100,flex:0},
+      {headerName:"Řádků",field:"radku",type:"rightAligned",width:90,flex:0},
+      {headerName:"Σ MD",field:"md",type:"rightAligned",valueFormatter:czk,flex:1,aggFunc:"sum"}
+    ];
+    var go={
+      columnDefs:sbCols, rowData:x.sborniky,
+      defaultColDef:{sortable:true,resizable:true,filter:true},
+      masterDetail:true, animateRows:true,
+      groupDefaultExpanded:0,
+      detailRowAutoHeight:true,
+      detailCellRendererParams:{
+        detailGridOptions:{
+          columnDefs:dokladyCols,
+          defaultColDef:{sortable:true,resizable:true,filter:true},
+          masterDetail:true, detailRowAutoHeight:true,
+          detailCellRendererParams:{
+            detailGridOptions:{columnDefs:radkyCols,defaultColDef:{sortable:true,resizable:true}},
+            getDetailRowData:function(p){
+              jget("/api/v1/erp/app/ucto/doklady?firma="+FIRMA+"&sbornik="+encodeURIComponent(p.data._sb)+"&doklad="+encodeURIComponent(p.data.dok)).then(function(r){p.successCallback((r&&r.radky)||[]);});
+            }
+          }
+        },
+        getDetailRowData:function(p){
+          jget("/api/v1/erp/app/ucto/doklady?firma="+FIRMA+"&sbornik="+encodeURIComponent(p.data.sbornik)).then(function(r){
+            var rows=((r&&r.doklady)||[]).map(function(d){d._sb=p.data.sbornik;return d;});
+            p.successCallback(rows);
+          });
+        }
       }
-      tr.children[0].innerHTML=tr.children[0].innerHTML.replace("▸","▾");tr.setAttribute("data-open","1");
-      api("/api/v1/erp/app/ucto/doklady?firma="+FIRMA+"&sbornik="+encodeURIComponent(sb)).then(function(x){
-        if(!x||!x.ok)return;var html="";
-        x.doklady.forEach(function(d){
-          html+='<tr class="d-'+sb+' dok" data-sb="'+sb+'" data-dok="'+eFmt(d.dok)+'" style="cursor:pointer;background:rgba(255,255,255,.02)">'
-            +'<td style="text-align:left;padding-left:46px;color:var(--mut)">· '+eFmt(d.dok)+' <span style="opacity:.7">'+(d.datum||"")+(d.org?(" · "+eFmt(d.org)):"")+'</span></td>'
-            +'<td></td><td>'+d.radku+'</td><td>'+fmt(d.md)+'</td></tr>';
-        });
-        tr.insertAdjacentHTML("afterend",html);wireDoklRadky(sb);
-      });
     };
-  });
-}
-function wireDoklRadky(sb){
-  Array.prototype.forEach.call(document.querySelectorAll("tr.dok[data-sb='"+sb+"']"),function(tr){
-    if(tr.getAttribute("data-w"))return;tr.setAttribute("data-w","1");
-    tr.onclick=function(ev){ev.stopPropagation();
-      var dok=tr.getAttribute("data-dok");
-      if(tr.getAttribute("data-open")){var n=tr.nextSibling;while(n&&n.className&&n.className.indexOf("r-")>=0){var nx=n.nextSibling;n.parentNode.removeChild(n);n=nx;}tr.removeAttribute("data-open");return;}
-      tr.setAttribute("data-open","1");
-      api("/api/v1/erp/app/ucto/doklady?firma="+FIRMA+"&sbornik="+encodeURIComponent(sb)+"&doklad="+encodeURIComponent(dok)).then(function(x){
-        if(!x||!x.ok)return;var html="";
-        x.radky.forEach(function(r){
-          html+='<tr class="r-'+(""+dok).replace(/[^a-zA-Z0-9]/g,"")+'" style="font-size:13px"><td style="text-align:left;padding-left:70px;color:var(--mut)">'+r.ucet+' '+eFmt(r.popis)+'</td>'
-            +'<td></td><td></td><td>MD '+fmt(r.md)+(r.dal?(" / DAL "+fmt(r.dal)):"")+'</td></tr>';
-        });
-        tr.insertAdjacentHTML("afterend",html);
-      });
-    };
-  });
+    if(AGLite.isEnterprise()){go.sideBar={toolPanels:["columns","filters"],position:"right"};go.statusBar={statusPanels:[{statusPanel:"agTotalAndFilteredRowCountComponent",align:"left"},{statusPanel:"agAggregationComponent",align:"right"}]};}
+    if(DGRID&&DGRID.destroy){try{DGRID.destroy();}catch(e){}}
+    DGRID=window.agGrid.createGrid(document.getElementById("dgrid"),go);
+  }).catch(function(e){document.getElementById("obsah").innerHTML='<div class="err">Chyba: '+e+'</div>';});
 }
 
 // --- ÚČETNÍ OSNOVA (číselník účtů + zůstatek) ---

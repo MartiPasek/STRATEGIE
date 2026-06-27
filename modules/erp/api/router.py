@@ -27071,7 +27071,13 @@ def _xfer_table(src_db, dst_db, table, where=None):
     # čtení zdroje přes EUROSOFT MCP (jen vkládatelné sloupce). DB_IS se čte cross-db
     # přes DB_EC connection ([DB_IS].dbo.…) — MCP db_name="DB_IS" NEBERE (gotcha).
     _pfx = "" if (src_db or "").upper() == "DB_EC" else "[" + src_db + "]."
-    collist = ", ".join("[" + c + "]" for c in cols)
+    # LOB typy legacy ODBC driver ({SQL Server}) neumí bindovat (ntext/image/varbinary
+    # clash) → nečteme je ze zdroje, do cíle jdou NULL. Pro účetní zrcadlo nepotřebné
+    # (poznámky/loga). Marti 27.6.2026 (TabCisOrg saldokonto). Id/účty/název zůstávají.
+    _LOB_T = {"ntext", "text", "image", "xml", "varbinary", "binary",
+              "geography", "geometry", "hierarchyid", "sql_variant"}
+    _src_cols = [c for c, ty in zip(cols, types) if ty not in _LOB_T]
+    collist = ", ".join("[" + c + "]" for c in _src_cols)
     _base_where = (" WHERE " + where) if where else ""
     _id_col = next((c for c in cols if (c or "").lower() == "id"), None)  # case-aware (Id/ID)
     try:
@@ -27475,6 +27481,78 @@ def _xfer_ucto_run(targets):
                 _log("U:" + company, "TabDenik", where, None, False, str(e))
         else:
             _log("U:" + company, "TabDenik", None, None, False, "žádné účetní období 2025/2026")
+    _log("_DONE", "_RUN", None, None, True, None)
+
+
+# ── SYSTÉMOVÉ tabulky Helios (uživatelé/práva/role/menu) → 188.12 (Marti 27.6.2026) ──
+# Aby přehledy v cloud Heliosu chodily (permission/menu vrstva). Dynamický objev neprázdných
+# systémových tabulek, 1:1 CELÉ. POZN: SUSER_SNAME() v cloudu = jiný SQL login → mapování
+# uživatele na cloud login je věc Helios setupu (tabulky jsou 1. krok).
+def _xfer_sys_run(targets):
+    import time as _tm, datetime as _dt
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    run_ts = _dt.datetime.utcnow()
+
+    def _sess():
+        cm = _pg.get_session()
+        return cm, cm.__enter__()
+
+    try:
+        cm, s = _sess()
+        try:
+            s.execute(_t(
+                "CREATE TABLE IF NOT EXISTS fw.mzdy_xfer_log ("
+                " id bigserial PRIMARY KEY, run_ts timestamptz NOT NULL, company text,"
+                " tabulka text, filtr text, preneseno integer, ok boolean, error text,"
+                " ts timestamptz NOT NULL DEFAULT now())"))
+            s.commit()
+        finally:
+            cm.__exit__(None, None, None)
+    except Exception:
+        pass
+
+    def _log(company, tabulka, filtr, preneseno, ok, error):
+        try:
+            cm2, s2 = _sess()
+            try:
+                s2.execute(_t(
+                    "INSERT INTO fw.mzdy_xfer_log (run_ts, company, tabulka, filtr, preneseno, ok, error)"
+                    " VALUES (:r,:c,:t,:f,:p,:o,:e)"),
+                    {"r": run_ts, "c": company, "t": tabulka, "f": filtr, "p": preneseno,
+                     "o": ok, "e": (str(error)[:1000] if error else None)})
+                s2.commit()
+            finally:
+                cm2.__exit__(None, None, None)
+        except Exception:
+            pass
+
+    _DISC = (
+        "SELECT t.name AS nm FROM {p}sys.tables t "
+        "JOIN {p}sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) "
+        "WHERE (t.name LIKE 'TabUziv%' OR t.name LIKE 'TabPrava%' OR t.name LIKE 'TabRole%' "
+        "OR t.name LIKE 'TabStrom%' OR t.name LIKE 'TabSkupina%' OR t.name LIKE 'TabKonfig%' "
+        "OR t.name LIKE 'TabNastaveni%' OR t.name LIKE 'TabMaStd%' OR t.name LIKE 'TabSoudek%') "
+        "GROUP BY t.name HAVING SUM(p.rows) > 0 ORDER BY t.name")
+    for company in targets:
+        if company not in _MZDY_XFER_TARGETS:
+            continue
+        src_db, dst_db = _MZDY_XFER_TARGETS[company]
+        _pfx = "" if src_db.upper() == "DB_EC" else "[" + src_db + "]."
+        try:
+            disc = _mzdy_mcp_rows(src_db, _DISC.format(p=_pfx))
+            tabs = [str(x["nm"]) for x in disc if x.get("nm")]
+        except Exception as e:
+            _log("S:" + company, "_DISCOVERY", None, None, False, "discovery: %s" % e)
+            continue
+        for tabulka in tabs:
+            try:
+                res = _xfer_table(src_db, dst_db, tabulka, None)
+                _log("S:" + company, tabulka, "1:1 CELÉ", res.get("preneseno"),
+                     bool(res.get("ok")), None if res.get("ok") else res.get("error"))
+            except Exception as e:
+                _log("S:" + company, tabulka, "1:1 CELÉ", None, False, str(e))
+            _tm.sleep(1.2)
     _log("_DONE", "_RUN", None, None, True, None)
 
 
@@ -28624,7 +28702,7 @@ async def diag_sql(req: Request) -> JSONResponse:
     #    Heliosu (DB_EC/DB_IS přes MCP) → cloud MSSQL 188.12. 1:1 vč. původních id.
     #    Marti 25.6.2026 (přenos mezd + deníku, čistý start 2025-26). ──
     if (sql.upper().startswith("@@XFER") and not sql.upper().startswith("@@XFERMZDY")
-            and not sql.upper().startswith("@@XFERUCTO")):
+            and not sql.upper().startswith("@@XFERUCTO") and not sql.upper().startswith("@@XFERSYS")):
         _bx = sql[6:].strip()
         _wh = None
         if "|" in _bx:

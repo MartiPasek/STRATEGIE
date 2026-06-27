@@ -27330,12 +27330,18 @@ def _xfer_mzdy_run(targets):
     #   DNY filtrujeme po DATU (Datum_Y, ne IdObdobi) na 2025/2026 — jinak 362k řádků v jednom
     #   MCP čtení zbytečně. TabObdobi (účetní) + TabDenik se patterny NEchytají (mimo mzdy).
     _MZDY_DATEONLY = {"TabMzKalendarDny", "TabMzKalendarDnyZam"}
+    # Objev podle NÁZVU (TabMz* …) NEBO podle STRUKTURY: tabulka s IdObdobi + ZamestnanecId =
+    #   per-zaměstnanec per-období = mzdy (chytí i ne-TabMz názvy: TabPredzp/TabZamPer/RPr/Vyp —
+    #   Marti 27.6.). TabObdobi/TabDenik/banka/DPH nemají ZamestnanecId → nechytí se.
     _DISC_SQL = (
         "SELECT t.name AS nm FROM {p}sys.tables t "
         "JOIN {p}sys.partitions p ON p.object_id=t.object_id AND p.index_id IN (0,1) "
         "WHERE (t.name LIKE 'TabMz%' OR t.name LIKE 'TabZamMzd%' OR t.name LIKE 'TabCisMzSl%' "
         "OR t.name LIKE 'TabCisZam%' OR t.name LIKE 'EC_Mzdy%' OR t.name='LP_RozpadMzdy' "
-        "OR t.name LIKE 'TabGenMzdy%') GROUP BY t.name HAVING SUM(p.rows) > 0 ORDER BY t.name")
+        "OR t.name LIKE 'TabGenMzdy%' "
+        "OR (EXISTS (SELECT 1 FROM {p}sys.columns ci WHERE ci.object_id=t.object_id AND ci.name='IdObdobi') "
+        "AND EXISTS (SELECT 1 FROM {p}sys.columns cz WHERE cz.object_id=t.object_id AND cz.name='ZamestnanecId'))) "
+        "GROUP BY t.name HAVING SUM(p.rows) > 0 ORDER BY t.name")
     for company in targets:
         if company not in _MZDY_XFER_TARGETS:
             continue

@@ -41,12 +41,16 @@
     <div class="chip" data-f="ES">EUROSOFT‑System (ES)</div>
     <div class="chip" data-f="_reload" style="margin-left:auto">↻ Načíst</div>
   </div>
+  <div class="chips" id="pohledy">
+    <div class="chip on" data-v="predvaha">Předvaha (účty)</div>
+    <div class="chip" data-v="vysledovka">Výsledovka (HV)</div>
+  </div>
   <div id="souhrn" class="cards"></div>
   <div id="obsah"><div class="loading">Načítám…</div></div>
   <div class="hint">Pozn.: bere se jen souhrnná řádka konta (bez středisek) — to je úroveň účtu. „Jen v office/cloud" = účet existuje jen na jedné straně (typicky nulový). Řazeno dle velikosti rozdílu.</div>
 </div>
 <script>
-var FIRMA="EC", SORT={k:"rozdil",dir:-1}, DATA=null;
+var FIRMA="EC", SORT={k:"rozdil",dir:-1}, DATA=null, VIEW="predvaha";
 function fmt(n){if(n==null)return"";var s=(Math.round(n*100)/100).toLocaleString("cs-CZ",{minimumFractionDigits:2,maximumFractionDigits:2});return s;}
 function api(p){return fetch(p,{credentials:"include"}).then(function(r){return r.json();});}
 function load(){
@@ -54,7 +58,7 @@ function load(){
   document.getElementById("souhrn").innerHTML="";
   api("/api/v1/erp/app/ucto/porovnani?firma="+FIRMA).then(function(x){
     if(!x||!x.ok){document.getElementById("obsah").innerHTML='<div class="err">Chyba: '+((x&&x.error)||"neznámá")+'</div>';return;}
-    DATA=x; renderSouhrn(x.souhrn); renderTab();
+    DATA=x; renderSouhrn(x.souhrn); render();
   }).catch(function(e){document.getElementById("obsah").innerHTML='<div class="err">Chyba spojení: '+e+'</div>';});
 }
 function renderSouhrn(s){
@@ -89,6 +93,83 @@ function renderTab(){
     t.onclick=function(){var k=t.getAttribute("data-k");if(SORT.k===k)SORT.dir*=-1;else{SORT.k=k;SORT.dir=(k==="ucet"?1:-1);}renderTab();};});
 }
 function th(k,l){var ar=SORT.k===k?(SORT.dir<0?" ▼":" ▲"):"";return '<th data-k="'+k+'">'+l+ar+'</th>';}
+function render(){if(!DATA)return;if(VIEW==="vysledovka")renderVysledovka();else renderTab();}
+
+// --- VÝSLEDOVKA (P&L, druhové členění) ---
+function pnlCat(u){
+  var p2=u.substr(0,2), p3=u.substr(0,3);
+  if(p3==="601"||p3==="602") return "v_trzby";
+  if(p3==="604") return "v_zbozi";
+  if(p2==="64") return "v_provoz";
+  if(p2==="66") return "v_fin";
+  if(p2==="60"||p2==="61"||p2==="62"||p2==="63"||p2==="65"||p2==="67"||p2==="69") return "v_provoz";
+  if(p3==="501"||p3==="502"||p3==="503") return "n_material";
+  if(p3==="504") return "n_zbozi";
+  if(p2==="51") return "n_sluzby";
+  if(p2==="50") return "n_material";
+  if(p2==="52") return "n_osobni";
+  if(p2==="53") return "n_dane";
+  if(p2==="55") return "n_odpisy";
+  if(p2==="54") return "n_provoz";
+  if(p2==="56") return "n_fin";
+  if(p2==="58") return "n_provoz";
+  if(p2==="57") return "n_fin";
+  if(p2==="59") return "dan";
+  return null;
+}
+function renderVysledovka(){
+  var agO={}, agC={};
+  DATA.radky.forEach(function(x){
+    if(x.ucet.substr(0,1)!=="5"&&x.ucet.substr(0,1)!=="6")return;
+    var c=pnlCat(x.ucet); if(!c)return;
+    var sign=(x.ucet.substr(0,1)==="6")?-1:1; // výnosy: zůstatek záporný → kladný výnos
+    agO[c]=(agO[c]||0)+sign*x.office_zust; agC[c]=(agC[c]||0)+sign*x.cloud_zust;
+  });
+  function g(k){return [agO[k]||0, agC[k]||0];}
+  function sum(){var o=0,c=0;for(var i=0;i<arguments.length;i++){o+=agO[arguments[i]]||0;c+=agC[arguments[i]]||0;}return[o,c];}
+  var vynP=sum("v_trzby","v_zbozi","v_provoz");
+  var nakP=sum("n_material","n_zbozi","n_sluzby","n_osobni","n_dane","n_odpisy","n_provoz");
+  var provoz=[vynP[0]-nakP[0], vynP[1]-nakP[1]];
+  var vynF=g("v_fin"), nakF=g("n_fin");
+  var fin=[vynF[0]-nakF[0], vynF[1]-nakF[1]];
+  var pred=[provoz[0]+fin[0], provoz[1]+fin[1]];
+  var dan=g("dan");
+  var po=[pred[0]-dan[0], pred[1]-dan[1]];
+  var rows=[
+    ["Tržby z výrobků a služeb (601,602)",g("v_trzby"),0],
+    ["Tržby za zboží (604)",g("v_zbozi"),0],
+    ["Ostatní provozní výnosy (64,ост.6)",g("v_provoz"),0],
+    ["Spotřeba materiálu a energie (50)",g("n_material"),1],
+    ["Náklady na zboží (504)",g("n_zbozi"),1],
+    ["Služby (51)",g("n_sluzby"),1],
+    ["Osobní náklady (52)",g("n_osobni"),1],
+    ["Daně a poplatky (53)",g("n_dane"),1],
+    ["Odpisy a opravné položky (55)",g("n_odpisy"),1],
+    ["Ostatní provozní náklady (54,58)",g("n_provoz"),1],
+    ["* Provozní výsledek hospodaření",provoz,2],
+    ["Finanční výnosy (66)",g("v_fin"),0],
+    ["Finanční náklady (56,57)",g("n_fin"),1],
+    ["* Finanční výsledek hospodaření",fin,2],
+    ["** Výsledek hospodaření před zdaněním",pred,2],
+    ["Daň z příjmů (59)",dan,1],
+    ["** Výsledek hospodaření po zdanění (HV)",po,3]
+  ];
+  var h='<table><thead><tr><th>Položka výsledovky</th><th>Office</th><th>Cloud</th><th>Rozdíl</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    var o=r[1][0],c=r[1][1],d=Math.round((c-o)*100)/100, lvl=r[2];
+    var cls=lvl>=2?"diff":"", st=lvl===3?"font-weight:700;background:rgba(34,197,94,.07)":(lvl===2?"font-weight:600":"");
+    var ddiff=Math.abs(d)>=0.01;
+    h+='<tr style="'+st+'"><td>'+r[0]+'</td><td>'+fmt(o)+'</td><td>'+fmt(c)+'</td>'
+      +'<td class="r '+(ddiff?"bad":"zero")+'" style="'+(ddiff?"color:var(--bad);font-weight:700":"")+'">'+fmt(d)+'</td></tr>';
+  });
+  h+='</tbody></table>';
+  document.getElementById("obsah").innerHTML=h;
+}
+document.getElementById("pohledy").onclick=function(e){
+  var v=e.target.getAttribute("data-v"); if(!v)return;
+  VIEW=v; Array.prototype.forEach.call(this.querySelectorAll(".chip"),function(c){c.classList.toggle("on",c.getAttribute("data-v")===v);});
+  render();
+};
 document.getElementById("firmy").onclick=function(e){
   var f=e.target.getAttribute("data-f");if(!f)return;
   if(f==="_reload"){load();return;}

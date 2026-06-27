@@ -40,19 +40,22 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><h1>🪞 Řídící centrum zrcadel</h1><button class="btn" id="refresh">↻ Obnovit</button>
-    <label class="sw" id="autoref"><span class="track on"><span class="knob"></span></span> auto‑obnova</label></div>
-  <div class="sub">Živý stav zrcadel Centrály + jejich automatický život. Plánovač běží na pozadí (tik 30 s), watermark dotahuje i přerušené běhy.</div>
-  <div class="top" style="margin-top:6px"><h2 style="font-size:17px;margin:0;font-weight:800">📥 Účetnictví: kancelář → cloud</h2>
+  <div class="top"><h1>🪞 Zrcadla — kancelář → cloud</h1></div>
+  <div class="sub">Dvě vrstvy: ruční přetažení účetnictví do cloud Heliosu (nahoře) + automatická zrcadla Centrály do STRATEGIE (dole). Obojí monitorovatelné na první pohled.</div>
+
+  <div class="top" style="margin-top:16px"><h2 style="font-size:17px;margin:0;font-weight:800">📥 Účetnictví → cloud Helios <span class="hint" style="font-weight:400">(ruční)</span></h2>
     <span class="seg2" id="uz_firma"><button data-f="EC" class="on">EUROSOFT‑Control</button><button data-f="ES">EUROSOFT‑System</button></span>
-    <button class="btn prim" id="uz_all">🔄 Zrcadlit vše</button><span id="uz_prog" class="hint"></span></div>
-  <div class="sub">Tahá účetnictví z kancelářského Heliosu 1:1 do cloudu (zdroj pravdy = kancelář). Po uzávěrce roku stačí kliknout.</div>
+    <button class="btn prim" id="uz_all">🔄 Zrcadlit vše</button>
+    <button class="btn" id="uz_checkall">🔍 Zkontrolovat vše</button>
+    <span id="uz_prog" class="hint"></span></div>
+  <div class="sub">Zdroj pravdy = kancelář. Po uzávěrce roku stačí kliknout „Zrcadlit".</div>
+  <div class="health" id="uz_health"><span class="hint">Načítám…</span></div>
   <div id="uz_body"><span class="hint">Načítám…</span></div>
 
-  <div class="top" style="margin-top:24px"><h2 style="font-size:17px;margin:0;font-weight:800">🪞 Řídící centrum zrcadel</h2>
+  <div class="top" style="margin-top:26px"><h2 style="font-size:17px;margin:0;font-weight:800">🔄 Automatická zrcadla Centrály <span class="hint" style="font-weight:400">(plánovač)</span></h2>
     <button class="btn" id="refresh">↻ Obnovit</button>
     <label class="sw" id="autoref"><span class="track on"><span class="knob"></span></span> auto‑obnova</label></div>
-  <div class="sub">Automatická zrcadla Centrály (plánovač tik 30 s, watermark dotahuje přerušené běhy).</div>
+  <div class="sub">Plánovač tik 30 s, watermark dotahuje i přerušené běhy.</div>
   <div class="health" id="health"><span class="hint">Načítám…</span></div>
   <div id="list"></div>
 </div>
@@ -145,8 +148,31 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
 
 // ===== Účetní zrcadla (office → cloud, manuální tah) ========================
 (function(){
-  var UF="EC", UBUSY=false, UDATA=null;
+  var UF="EC", UBUSY=false, UDATA=null, _chk={};
   var fmt=function(n){return n==null?"—":Number(n).toLocaleString("cs-CZ");};
+  function setBadge(key,html){var b=document.getElementById("ub_"+key);if(b)b.innerHTML=html;}
+  function renderHealth(){
+    if(!UDATA){return;}
+    var n=0,done=0,never=0,err=0,sync=0,drift=0,checked=0,skip=0;
+    UDATA.groups.forEach(function(g){g.mirrors.forEach(function(m){
+      n++;
+      var c=_chk[m.key];
+      if(c&&c.skipped){skip++;return;}
+      if(m.last){ if(m.last.ok) done++; else err++; } else never++;
+      if(c&&c.diff!=null){ checked++; if(c.diff===0) sync++; else drift++; }
+    }));
+    var problem=err>0||drift>0;
+    var col=problem?"var(--red)":(never>0?"var(--amber)":"var(--green)");
+    var head=problem?((drift+err)+" k řešení"):(never>0?(never+" nezrcadleno"):"vše zrcadleno");
+    var parts=[n+" zrcadel",done+" zrcadleno"];
+    if(never)parts.push(never+" nezrcadleno");
+    if(err)parts.push(err+" chyba");
+    if(skip)parts.push(skip+" mimo firmu");
+    if(checked)parts.push("kontrola: "+sync+" sedí"+(drift?(", "+drift+" rozdíl"):""));
+    document.getElementById("uz_health").innerHTML=
+      '<span class="dot" style="background:'+col+'"></span><b>'+esc(head)+'</b>'+
+      '<span class="hint">· '+parts.join(' · ')+'</span>';
+  }
   function uget(u){return fetch(u,{credentials:"include"}).then(function(r){return r.json();});}
   function upost(u){return fetch(u,{method:"POST",credentials:"include"}).then(function(r){return r.json();});}
   function lastTxt(m){
@@ -181,21 +207,28 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
     document.getElementById("uz_body").innerHTML=h;
   }
   function loadU(){
+    _chk={};
     document.getElementById("uz_body").innerHTML='<span class="hint">Načítám…</span>';
+    document.getElementById("uz_health").innerHTML='<span class="hint">Načítám…</span>';
     uget("/api/v1/erp/app/ucto/zrcadla?firma="+UF).then(function(d){
-      if(!d||!d.ok){document.getElementById("uz_body").innerHTML='<div class="res err">'+esc((d&&d.error)||"chyba (rodič only)")+'</div>';return;}
-      UDATA=d; render();
+      if(!d||!d.ok){document.getElementById("uz_body").innerHTML='<div class="res err">'+esc((d&&d.error)||"chyba (rodič only)")+'</div>';
+        document.getElementById("uz_health").innerHTML='<span class="res err">nelze načíst</span>';return;}
+      UDATA=d; render(); renderHealth();
     });
   }
   function check(key){
-    var c=document.getElementById("uck_"+key); if(!c)return;
+    var c=document.getElementById("uck_"+key); if(!c)return Promise.resolve();
     c.className="res"; c.innerHTML='Kontrola: zjišťuji…';
-    uget("/api/v1/erp/app/ucto/zrcadlo-check?firma="+UF+"&key="+key).then(function(r){
+    return uget("/api/v1/erp/app/ucto/zrcadlo-check?firma="+UF+"&key="+key).then(function(r){
       if(!r||!r.ok){c.innerHTML='<span class="age-r">Kontrola selhala</span>';return;}
+      _chk[key]={office:r.office,cloud:r.cloud,diff:r.diff};
       document.getElementById("ucc_"+key).textContent=fmt(r.cloud);
-      if(r.diff===0){c.innerHTML='Kontrola: <span class="age-g">✓ sedí — office '+fmt(r.office)+' = cloud '+fmt(r.cloud)+'</span>';}
+      if(r.diff===0){c.innerHTML='Kontrola: <span class="age-g">✓ sedí — office '+fmt(r.office)+' = cloud '+fmt(r.cloud)+'</span>';
+        setBadge(key,'<span class="badge b-ok">✓ v sync</span>');}
       else if(r.diff==null){c.innerHTML='Kontrola: office '+fmt(r.office)+' / cloud '+fmt(r.cloud);}
-      else {c.innerHTML='Kontrola: <span class="age-a">Δ '+fmt(r.diff)+' — office '+fmt(r.office)+', cloud '+fmt(r.cloud)+'</span>';}
+      else {c.innerHTML='Kontrola: <span class="age-a">Δ '+fmt(r.diff)+' — office '+fmt(r.office)+', cloud '+fmt(r.cloud)+'</span>';
+        setBadge(key,'<span class="badge b-warn">Δ rozdíl</span>');}
+      renderHealth();
     });
   }
   function run(key){
@@ -210,18 +243,23 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
     return upost("/api/v1/erp/app/ucto/zrcadlo-run?firma="+UF+"&key="+key).then(function(r){
       if(r&&r.ok&&r.skipped){
         cc.textContent=fmt(r.cloud_rows);
+        _chk[key]={skipped:true,diff:null};
         document.getElementById("ub_"+key).innerHTML='<span class="badge b-idle">○ není v této firmě</span>';
         document.getElementById("uck_"+key).innerHTML='<span class="hint">'+esc(r.note||"v této firmě není")+'</span>';
       } else if(r&&r.ok){
         cc.textContent=fmt(r.cloud_rows);
-        document.getElementById("ub_"+key).innerHTML='<span class="badge b-ok">✓ ok</span>';
+        _chk[key]={diff:0,cloud:r.cloud_rows,office:r.cloud_rows};
+        if(!UDATA._lastnow)UDATA._lastnow={}; UDATA._lastnow[key]=true;
+        document.getElementById("ub_"+key).innerHTML='<span class="badge b-ok">✓ v sync</span>';
         document.getElementById("uls_"+key).innerHTML='právě teď · '+fmt(r.radku)+' řádků';
         document.getElementById("uck_"+key).innerHTML='<span class="age-g">✓ přeneseno do cloudu</span>';
       } else {
         cc.innerHTML=old;
+        _chk[key]={diff:null};
         document.getElementById("ub_"+key).innerHTML='<span class="badge b-err">✕ chyba</span>';
         document.getElementById("uck_"+key).innerHTML='<span class="age-r">✗ '+esc((r&&r.error||"chyba").slice(0,90))+'</span>';
       }
+      renderHealth();
     }).catch(function(e){cc.innerHTML=old;}).then(function(){
       UBUSY=false; btns.forEach(function(b){b.disabled=false;});
     });
@@ -243,11 +281,29 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
     }
     next();
   }
+  function checkList(keys){
+    if(UBUSY) return;
+    var btn=document.getElementById("uz_checkall"); btn.disabled=true;
+    var i=0;
+    function next(){
+      if(i>=keys.length){
+        document.getElementById("uz_prog").textContent="Kontrola hotová.";
+        btn.disabled=false;
+        setTimeout(function(){document.getElementById("uz_prog").textContent="";},5000);
+        return;
+      }
+      var k=keys[i]; i++;
+      document.getElementById("uz_prog").textContent="Kontroluji "+i+"/"+keys.length+" — "+k+"…";
+      check(k).then(next);
+    }
+    next();
+  }
   window.UZ={
     run:run, check:check,
     group:function(gk){var g=UDATA.groups.find(function(x){return x.key===gk;});if(g)runList(g.mirrors.map(function(m){return m.key;}));},
     all:function(){var keys=[];UDATA.groups.forEach(function(g){g.mirrors.forEach(function(m){keys.push(m.key);});});
-      if(confirm("Zrcadlit všech "+keys.length+" tabulek (2025+2026 a mzdy) z kanceláře do cloudu?")) runList(keys);}
+      if(confirm("Zrcadlit všech "+keys.length+" tabulek (2025+2026 a mzdy) z kanceláře do cloudu?")) runList(keys);},
+    checkAll:function(){var keys=[];UDATA.groups.forEach(function(g){g.mirrors.forEach(function(m){keys.push(m.key);});});checkList(keys);}
   };
   document.getElementById("uz_firma").addEventListener("click",function(e){
     var b=e.target.closest("button"); if(!b||UBUSY)return;
@@ -255,11 +311,13 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
     b.classList.add("on"); UF=b.getAttribute("data-f"); loadU();
   });
   document.getElementById("uz_all").addEventListener("click",window.UZ.all);
-  // styl pro segment přepínače firem (sdílí .btn vzhled)
+  document.getElementById("uz_checkall").addEventListener("click",window.UZ.checkAll);
+  // styl pro segment přepínače firem + badge rozdílu (amber)
   var st=document.createElement("style");
   st.textContent=".seg2{display:inline-flex;border:1px solid var(--bord);border-radius:9px;overflow:hidden}"+
     ".seg2 button{background:#0f1830;color:var(--mut);border:0;padding:7px 14px;font-size:13px;cursor:pointer;font-weight:600}"+
-    ".seg2 button.on{background:var(--accent);color:#06101f}";
+    ".seg2 button.on{background:var(--accent);color:#06101f}"+
+    ".badge.b-warn{background:rgba(251,191,36,.16);color:var(--amber);border:1px solid #fbbf2455}";
   document.head.appendChild(st);
   loadU();
 })();

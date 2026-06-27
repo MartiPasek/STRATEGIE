@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vytížení dílny</title>
+<style>
+  :root{ --bg:#0b1020; --card:#16203c; --line:#26314f; --tx:#e8eef9; --mut:#9fb0d0;
+         --grn:#3ecf8e; --org:#f0a93b; --blu:#5b8def; --red:#ff6b6b; --teal:#2bd4a0; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,#0b1020,#0e1430 60%,#0b1020);color:var(--tx);min-height:100vh}
+  .wrap{max-width:1000px;margin:0 auto;padding:16px 14px 50px}
+  .hd{display:flex;align-items:center;gap:10px;margin:2px 2px 4px;flex-wrap:wrap}
+  .hd .ic{font-size:24px}.hd h1{font-size:18px;margin:0;font-weight:700}.hd .sp{flex:1}
+  .live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--grn);
+        background:rgba(62,207,142,.12);padding:4px 10px;border-radius:20px}
+  .live .d{width:7px;height:7px;border-radius:50%;background:var(--grn);display:inline-block}
+  .sub{color:var(--mut);font-size:13px;margin:6px 2px 14px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .kpi .l{font-size:12px;color:var(--mut);margin:0 0 4px}
+  .kpi .v{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
+  .kpi .d{font-size:11px;color:var(--mut);margin-top:4px}
+  .seclbl{font-size:13px;color:var(--mut);margin:0 0 10px}
+  .bats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:10px}
+  .bcell{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+  .btop{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+  .btop .m{font-size:14px}.btop .p{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+  .brow{display:flex;align-items:center;gap:3px}
+  .bat{position:relative;flex:1;height:34px;border:2px solid var(--line);border-radius:8px;background:#0e1630;overflow:hidden}
+  .bfill{height:100%;width:0;border-radius:5px;transition:width 1.1s cubic-bezier(.4,0,.2,1)}
+  .nub{width:5px;height:14px;border-radius:0 3px 3px 0;background:var(--line)}
+  .bsub{font-size:12px;color:var(--mut);margin-top:9px}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--mut);margin:4px 2px 22px}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:16px}
+  .tankbig{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
+  .tankcap{font-size:12px;color:var(--mut);margin:2px 0 14px}
+  .tank{position:relative;width:100%;height:30px;border-radius:8px;background:rgba(91,141,239,.16);overflow:hidden;display:flex}
+  .tank .fill{height:100%;background:var(--blu);width:0;transition:width 1.1s cubic-bezier(.4,0,.2,1)}
+  .tlbl{display:flex;justify-content:space-between;font-size:12px;color:var(--mut);margin-top:8px}
+  .chlegend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--mut);margin:0 0 10px}
+  .muted{color:var(--mut);font-size:13px}
+  canvas{max-width:100%}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><div class="ic">🔋</div><h1>Vytížení dílny</h1><div class="sp"></div>
+    <span class="live" id="live"><span class="d"></span>živá data výroby</span></div>
+  <div class="sub">Kolik práce má výroba domluvené proti své kapacitě — výhled na 3 měsíce od dneška. Prázdná baterka = volná kapacita = prostor pro obchod.</div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <p class="seclbl" id="lbl1">Výhled na 3 měsíce</p>
+  <div class="bats" id="bats"></div>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--grn)"></i>nabito — vytíženo (70 %+)</span>
+    <span><i class="sw" style="background:var(--org)"></i>napůl (35–70 %)</span>
+    <span><i class="sw" style="background:var(--red)"></i>vybito — volno (pod 35 %)</span>
+  </div>
+
+  <div class="card">
+    <p class="seclbl" style="margin-bottom:6px">Volná kapacita do konce roku</p>
+    <div class="tankbig" id="tankbig">—</div>
+    <div class="tankcap" id="tankcap"></div>
+    <div class="tank"><div class="fill" id="tf"></div></div>
+    <div class="tlbl"><span id="tl_sold">naplánováno</span><span id="tl_free">volno</span></div>
+  </div>
+
+  <div class="card">
+    <p class="seclbl" style="margin-bottom:6px">Kapacita dílny vs. naplánovaná práce (hodiny) — mezera = kolik práce chybí</p>
+    <div class="chlegend">
+      <span><span class="sw" style="background:var(--blu)"></span>Kapacita dílny</span>
+      <span><span class="sw" style="background:var(--teal)"></span>Naplánovaná práce</span>
+    </div>
+    <canvas id="ch" height="150"></canvas>
+  </div>
+
+  <div id="msg" class="muted" style="margin:6px 2px"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+var NAMES=["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
+function col(p){return p>=70?"#3ecf8e":p>=35?"#f0a93b":"#ff6b6b";}
+function csNum(n){return Math.round(n).toLocaleString("cs");}
+async function j(u){var r=await fetch(u,{credentials:"include"});try{return await r.json()}catch(e){return{ok:false}}}
+
+function render(rows,generated){
+  var cy=(new Date()).getFullYear(), cm=(new Date()).getMonth()+1;
+  var letos={}, loni={};
+  rows.forEach(function(r){
+    if(r.rok===cy) letos[r.mesic]=r;
+    else if(r.rok===cy-1) loni[r.mesic]=r;
+  });
+  var win=[];
+  for(var i=0;i<3;i++){ var mn=cm+i; if(mn>12) break; win.push(mn); }
+
+  var volna=0, spl=0, kap=0, n=0;
+  for(var mn2=cm; mn2<=12; mn2++){
+    var d=letos[mn2]; if(!d) continue;
+    volna+=Math.max((d.kapacita||0)-(d.hodiny||0),0);
+    spl+=(d.hodiny||0); kap+=(d.kapacita||0); n++;
+  }
+  var naplPct=kap>0?Math.round(100*spl/kap):0;
+  var kapMes=n>0?Math.round(kap/n):0;
+
+  var first=letos[win[0]]||{}; var firstLoni=loni[win[0]]||{};
+  var hp=Math.round(first.vytizeni||0), hl=Math.round(firstLoni.vytizeni||0), hc=col(hp);
+  document.getElementById("kpis").innerHTML=
+    '<div class="kpi"><p class="l">Vytížení dílny — '+NAMES[win[0]-1].toLowerCase()+'</p><div class="v" style="color:'+hc+'">'+hp+' %</div><div class="d">loni '+hl+' %</div></div>'+
+    '<div class="kpi"><p class="l">Volná kapacita do konce roku</p><div class="v">'+csNum(volna)+' h</div><div class="d">tolik práce ještě „chybí“</div></div>'+
+    '<div class="kpi"><p class="l">Naplánováno z kapacity</p><div class="v">'+naplPct+' %</div><div class="d">'+NAMES[win[0]-1].toLowerCase()+'–prosinec</div></div>'+
+    '<div class="kpi"><p class="l">Kapacita dílny / měsíc</p><div class="v">~'+csNum(kapMes)+' h</div><div class="d">reálná kapacita výroby</div></div>';
+
+  document.getElementById("lbl1").textContent="Výhled "+NAMES[win[0]-1].toLowerCase()+"–"+NAMES[win[win.length-1]-1].toLowerCase()+" — čím prázdnější baterka, tím víc volné kapacity (prostor pro obchod)";
+
+  var host=document.getElementById("bats"); host.innerHTML="";
+  win.forEach(function(mn){
+    var d=letos[mn]||{}, dl=loni[mn]||{};
+    var p=Math.round(d.vytizeni||0), l=Math.round(dl.vytizeni||0), c=col(p);
+    var el=document.createElement("div"); el.className="bcell";
+    el.innerHTML='<div class="btop"><span class="m">'+NAMES[mn-1]+'</span><span class="p" style="color:'+c+'">'+p+' %</span></div>'+
+      '<div class="brow"><div class="bat"><div class="bfill" style="background:'+c+'"></div></div><div class="nub"></div></div>'+
+      '<div class="bsub">loni '+l+' %</div>';
+    host.appendChild(el);
+    var f=el.querySelector(".bfill");
+    setTimeout(function(){f.style.width=Math.min(Math.max(p,2),100)+"%";},120);
+  });
+
+  var freePct=kap>0?Math.round(100*volna/kap):0, soldPct=100-freePct;
+  document.getElementById("tankbig").textContent=csNum(volna)+" h volno";
+  document.getElementById("tankcap").textContent="z "+csNum(kap)+" h kapacity do konce roku";
+  document.getElementById("tl_sold").textContent="naplánováno "+soldPct+" %";
+  document.getElementById("tl_free").textContent="volno "+freePct+" %";
+  setTimeout(function(){document.getElementById("tf").style.width=soldPct+"%";},150);
+
+  var labels=win.map(function(mn){return NAMES[mn-1];});
+  var capArr=win.map(function(mn){return Math.round((letos[mn]||{}).kapacita||0);});
+  var plArr=win.map(function(mn){return Math.round((letos[mn]||{}).hodiny||0);});
+  new Chart(document.getElementById("ch"),{type:"bar",
+    data:{labels:labels,datasets:[
+      {label:"Kapacita dílny",data:capArr,backgroundColor:"#5b8def",borderRadius:5,maxBarThickness:46},
+      {label:"Naplánovaná práce",data:plArr,backgroundColor:"#2bd4a0",borderRadius:5,maxBarThickness:46}
+    ]},
+    options:{responsive:true,maintainAspectRatio:true,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return c.dataset.label+": "+csNum(c.parsed.y)+" h";}}}},
+      scales:{
+        x:{ticks:{color:"#9fb0d0",font:{size:13}},grid:{display:false}},
+        y:{beginAtZero:true,ticks:{color:"#9fb0d0",callback:function(v){return csNum(v);}},grid:{color:"rgba(255,255,255,.05)"}}
+      }}
+  });
+
+  if(generated){ document.getElementById("live").innerHTML='<span class="d"></span>živá data · '+generated; }
+  document.getElementById("msg").textContent="";
+}
+
+async function boot(){
+  var r=await j("/api/v1/erp/app/vytizeni-mesice");
+  if(!r||r.ok===false||!r.rows){
+    document.getElementById("msg").innerHTML='<span style="color:#ff8a8a">Nepodařilo se načíst data (přístup má vedení, výroba a obchod).</span>';
+    return;
+  }
+  render(r.rows, r.generated);
+}
+boot();
+</script>
+</body>
+</html>

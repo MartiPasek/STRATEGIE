@@ -958,6 +958,15 @@ def vytizeni_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/vytizeni-prehled")
+def vytizeni_prehled_page():
+    """Vytížení dílny — motivační přehled pro obchod (baterky vytížení po měsících,
+    výhled 3 měsíce od dneška, + tank volné kapacity). Data z /app/vytizeni-mesice
+    (DB_EC pohled ECv_Vytizeni_Historie). Vedení + obchod. Kristý 27.6.2026."""
+    return FileResponse(os.path.join(static_dir, "vytizeni-prehled.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/hra")
 def hra_page():
     """Replay dashboard účetní hry Claude — zrychlené přehrávání, jak Claude

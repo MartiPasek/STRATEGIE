@@ -12671,6 +12671,75 @@ async def app_flow_people_toggle(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+@api_router.get("/app/vytizeni-mesice")
+def app_vytizeni_mesice(req: Request) -> JSONResponse:
+    """Měsíční vytížení dílny z DB_EC (pohled ECv_Vytizeni_Historie) — letos i loni.
+    Pro dashboard 'Vytížení dílny' (baterky + tank, výhled 3 měsíce). Read-only přes
+    EUROSOFT MCP, NIC nezapisuje. Přístup: rodič / ambasador / vedoucí výroby
+    (16,41,85) / obchod Pavel Zeman (30). Kristý 27.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import json as _j
+    cm, s = _att_session()
+    try:
+        isp = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                        {"u": int(uid)}).scalar()
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+    if not isp and not _is_ambassador(uid) and int(uid) not in (16, 41, 85, 30):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "mcp_unavailable"}, status_code=503)
+    sql = ("SELECT Rok, Mesic, Hodiny, HodinyBezNab, Kapacita,"
+           " CONVERT(numeric(5,2), CASE WHEN ISNULL(Kapacita,0)=0 THEN 0"
+           " ELSE Hodiny*100.0/Kapacita END) AS Vytizeni"
+           " FROM dbo.ECv_Vytizeni_Historie ORDER BY Rok, Mesic")
+    try:
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                return JSONResponse({"ok": False, "error": str(r.get("error"))[:200]}, status_code=502)
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]
+                    break
+        elif isinstance(r, list):
+            rows = r
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
+
+    def _n(x):
+        try:
+            return round(float(x), 2)
+        except Exception:
+            return 0.0
+
+    out = []
+    for d in rows:
+        dl = {(k or "").lower(): v for k, v in d.items()}
+        out.append({
+            "rok": int(_n(dl.get("rok"))),
+            "mesic": int(_n(dl.get("mesic"))),
+            "hodiny": _n(dl.get("hodiny")),
+            "hodiny_bez_nab": _n(dl.get("hodinybeznab")),
+            "kapacita": _n(dl.get("kapacita")),
+            "vytizeni": _n(dl.get("vytizeni")),
+        })
+    import datetime as _dt
+    return JSONResponse({"ok": True, "rows": out,
+                         "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
+
+
 @api_router.get("/app/learn/sync")
 async def app_learn_sync(req: Request) -> JSONResponse:
     """Plný import Martiho báze MP_STRAG_Komun (DB_EC) -> tenant.learn_frame (RTF->HTML).

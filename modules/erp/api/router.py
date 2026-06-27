@@ -23845,10 +23845,10 @@ def ucto_doklady(req: Request):
 
     if sbornik:
         _r = _mssql188_query(
-            "SELECT d.CeleCislo dok, MIN(CONVERT(varchar(10),d.DatumOd,104)) datum, COUNT(*) radku, "
+            "SELECT d.CeleCislo dok, MIN(CONVERT(varchar(10),d.DatumPripad,104)) datum, COUNT(*) radku, "
             "ROUND(SUM(d.CastkaMD),2) md, MAX(d.CisloOrg) org, MAX(LEFT(ISNULL(d.Popis,''),60)) popis "
             "FROM " + cloud_db + ".dbo.TabDenik d" + _W + " AND LTRIM(RTRIM(d.Sbornik))='" + sbornik +
-            "' GROUP BY d.CeleCislo ORDER BY MIN(d.DatumOd), d.CeleCislo")
+            "' GROUP BY d.CeleCislo ORDER BY MIN(d.DatumPripad), d.CeleCislo")
         if not _r.get("ok"):
             return {"ok": False, "error": _r.get("error")}
         _i = {c: k for k, c in enumerate(_r["columns"])}

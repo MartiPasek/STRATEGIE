@@ -160,7 +160,7 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
       if(c&&c.skipped){skip++;return;}
       if(m.last){ if(m.last.ok) done++; else err++; } else never++;
       if(c&&c.diff!=null){ checked++; if(c.diff===0) sync++; else drift++; }
-    }));
+    })});
     var problem=err>0||drift>0;
     var col=problem?"var(--red)":(never>0?"var(--amber)":"var(--green)");
     var head=problem?((drift+err)+" k řešení"):(never>0?(never+" nezrcadleno"):"vše zrcadleno");

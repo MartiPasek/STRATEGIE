@@ -24117,6 +24117,12 @@ def ucto_zrcadlo_run(req: Request):
         return {"ok": False, "error": "neznámé zrcadlo"}
     src_db, cloud_db = _zrc_dbs(firma)
     res = _xfer_table(src_db, cloud_db, key, _zrc_where(key, firma))
+    # tabulka v této firmě neexistuje (např. ES nemá _EXT uživatelská pole) → ne chyba
+    _err = str(res.get("error") or "")
+    if not res.get("ok") and ("nemá sloupce" in _err or "chybí a CREATE" in _err):
+        return {"ok": True, "skipped": True, "key": key, "label": _ZRC_TABLES[key],
+                "radku": None, "cloud_rows": _zrc_cloud_count(cloud_db, key),
+                "note": "v této firmě není"}
     radku = res.get("preneseno") if res.get("ok") else None
     msg = None if res.get("ok") else str(res.get("error"))[:400]
     # log (best-effort)

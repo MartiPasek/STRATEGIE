@@ -208,7 +208,11 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
     var bd=document.getElementById("ub_"+key); if(bd) bd.innerHTML='<span class="badge b-run">● běží</span>';
     var ck=document.getElementById("uck_"+key); if(ck) ck.innerHTML='<span class="hint">zrcadlím… (velké tabulky chvíli trvají)</span>';
     return upost("/api/v1/erp/app/ucto/zrcadlo-run?firma="+UF+"&key="+key).then(function(r){
-      if(r&&r.ok){
+      if(r&&r.ok&&r.skipped){
+        cc.textContent=fmt(r.cloud_rows);
+        document.getElementById("ub_"+key).innerHTML='<span class="badge b-idle">○ není v této firmě</span>';
+        document.getElementById("uck_"+key).innerHTML='<span class="hint">'+esc(r.note||"v této firmě není")+'</span>';
+      } else if(r&&r.ok){
         cc.textContent=fmt(r.cloud_rows);
         document.getElementById("ub_"+key).innerHTML='<span class="badge b-ok">✓ ok</span>';
         document.getElementById("uls_"+key).innerHTML='právě teď · '+fmt(r.radku)+' řádků';

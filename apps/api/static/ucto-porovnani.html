@@ -44,6 +44,7 @@
   <div class="chips" id="pohledy">
     <div class="chip on" data-v="predvaha">Předvaha (účty)</div>
     <div class="chip" data-v="vysledovka">Výsledovka (HV)</div>
+    <div class="chip" data-v="kontroly">🔍 Kontroly pro daňaře</div>
   </div>
   <div id="souhrn" class="cards"></div>
   <div id="obsah"><div class="loading">Načítám…</div></div>
@@ -93,7 +94,54 @@ function renderTab(){
     t.onclick=function(){var k=t.getAttribute("data-k");if(SORT.k===k)SORT.dir*=-1;else{SORT.k=k;SORT.dir=(k==="ucet"?1:-1);}renderTab();};});
 }
 function th(k,l){var ar=SORT.k===k?(SORT.dir<0?" ▼":" ▲"):"";return '<th data-k="'+k+'">'+l+ar+'</th>';}
-function render(){if(!DATA)return;if(VIEW==="vysledovka")renderVysledovka();else renderTab();}
+function render(){if(!DATA)return;if(VIEW==="vysledovka")renderVysledovka();else if(VIEW==="kontroly")renderKontroly();else renderTab();}
+
+// --- KONTROLY PRO DAŇAŘE (vzájemné kontroly, souvztažnosti) ---
+function sumPfx(pfx){return DATA.radky.reduce(function(a,r){return a+(r.ucet.indexOf(pfx)===0?r.cloud_zust:0);},0);}
+function sumPfxO(pfx){return DATA.radky.reduce(function(a,r){return a+(r.ucet.indexOf(pfx)===0?r.office_zust:0);},0);}
+function renderKontroly(){
+  var s=DATA.souhrn;
+  var h='';
+  function sek(t){h+='<tr><td colspan="4" style="background:#172033;color:var(--mut);font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:.04em">'+t+'</td></tr>';}
+  function rad(naz,val,ok,pozn){
+    var st=ok?'<span style="color:var(--ok)">✓ OK</span>':'<span style="color:var(--warn)">⚠ pozor</span>';
+    h+='<tr><td>'+naz+'</td><td>'+(val==null?'':fmt(val))+'</td><td>'+st+'</td><td style="color:var(--mut);font-size:12px;text-align:left">'+(pozn||'')+'</td></tr>';
+  }
+  h='<table><thead><tr><th>Kontrola</th><th>Hodnota (Kč)</th><th>Stav</th><th style="text-align:left">Poznámka</th></tr></thead><tbody>';
+
+  sek("Základní bilanční vazby");
+  rad("Předvaha vyrovnaná (Σ všech zůstatků = 0)", s.cloud_zust, Math.abs(s.cloud_zust)<1, "součet MD−DAL všech účtů; má být 0 (±zaokr.)");
+  var rozv=DATA.radky.reduce(function(a,r){var t=r.ucet.substr(0,1);return a+((t>="0"&&t<="4")?r.cloud_zust:0);},0);
+  rad("Rozvahové účty (tř. 0–4) = −HV", rozv, Math.abs(rozv+(-s.hv_cloud.hv))<1, "Σ rozvahy má být opačná k HV ("+fmt(-s.hv_cloud.hv)+")");
+  rad("Výsledovkové účty (tř. 5–6) = HV", -(s.hv_cloud.naklady+s.hv_cloud.vynosy), true, "náklady−výnosy = HV "+fmt(s.hv_cloud.hv));
+
+  sek("Účty, které mají být na konci roku NULOVÉ");
+  [["111","Pořízení materiálu"],["112","Materiál na skladě (kontr.)"],["131","Pořízení zboží"],["261","Peníze na cestě"],["349","Vyrovnávací účet DPH"],["395","Vnitřní zúčtování"],["431","Výsledek ve schvalovacím řízení"]].forEach(function(p){
+    var v=sumPfx(p[0]); if(p[0]==="112")return; // 112 sklad nemusí být 0
+    rad(p[0]+" "+p[1], v, Math.abs(v)<1, Math.abs(v)<1?"":"není vynulováno – prověřit");
+  });
+
+  sek("DPH");
+  var d343=sumPfx("343");
+  rad("343 DPH (nárok +/závazek −)", d343, true, d343>=0?"nadměrný odpočet / nárok vůči FÚ":"vlastní daň – povinnost vůči FÚ");
+
+  sek("Mzdy a odvody (závazky k 31.12.)");
+  [["331","Zaměstnanci (čistá mzda)"],["333","Ostatní závazky k zaměstnancům"],["336","Soc. + zdrav. pojištění"],["342","Daň ze závislé činnosti"]].forEach(function(p){
+    var v=sumPfx(p[0]); rad(p[0]+" "+p[1], v, true, "");
+  });
+
+  sek("Saldokonto");
+  rad("311 Pohledávky (odběratelé)", sumPfx("311"), true, "kdo nám dluží");
+  rad("321 Závazky (dodavatelé)", sumPfx("321"), true, "komu dlužíme");
+
+  sek("Vzájemná kontrola systémů (office × cloud)");
+  rad("Účtů s rozdílem office×cloud", s.uctu_s_rozdilem, s.uctu_s_rozdilem===0, s.uctu_s_rozdilem===0?"účetnictví v cloudu sedí na Helios 1:1":"jsou rozdíly – viz Předvaha");
+  rad("Rozdíl HV office×cloud", Math.round((s.hv_cloud.hv-s.hv_office.hv)*100)/100, Math.abs(s.hv_cloud.hv-s.hv_office.hv)<1, "HV má v obou systémech sedět");
+
+  h+='</tbody></table>';
+  h+='<div class="hint">Vnitroskupinové vyrovnání (EC pohledávka za ES = ES závazek vůči EC, účty 395/35x) přidám jako křížovou kontrolu mezi firmami v dalším kroku.</div>';
+  document.getElementById("obsah").innerHTML=h;
+}
 
 // --- VÝSLEDOVKA (P&L, druhové členění) ---
 function pnlCat(u){

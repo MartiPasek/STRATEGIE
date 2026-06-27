@@ -24034,6 +24034,88 @@ def ucto_mzdy(req: Request):
     return {"ok": True, "firma": firma, "rok_cislo": rok, "mesice": mes, "rok": tot, "pocet_zamestnancu": pocet}
 
 
+# === ZPRACOVÁNÍ MEZD — aktuální období (předzpracování, Marti 27.6.2026) =====
+# Read-only monitor: porovná office × cloud pro běžné mzdové období (TabPredzp
+# = předzpracování + TabMzSloz = vypočtené složky) → „rovná se / nerovná".
+# Workflow Klárka/Petra: import → generovat (EC_ procedura) → zkontrolovat tady → smazat když nesedí.
+def _mzd_sum_office(src_db, table, idobd):
+    """Souhrn office tabulky přes MCP: zam / hodiny / částka pro IdObdobi (DB_IS cross-db)."""
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        import json as _jx
+        _mcp = get_eurosoft_mcp_client()
+        if _mcp is None:
+            return None
+        pfx = "" if (src_db or "").upper() == "DB_EC" else "[" + src_db + "]."
+        sql = ("SELECT COUNT(DISTINCT ZamestnanecId) zam, ISNULL(SUM(Hodiny),0) hod, "
+               "ISNULL(SUM(CM_Castka),0) cast FROM " + pfx + "dbo.[" + table + "] "
+               "WHERE IdObdobi=" + str(int(idobd)))
+        _rj = _mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                  {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        _r = _jx.loads(_rj) if isinstance(_rj, str) else _rj
+        rows = _r.get("rows") if isinstance(_r, dict) else _r
+        if rows:
+            d = rows[0]
+            if isinstance(d, dict):
+                return {"zam": int(d.get("zam") or 0), "hodiny": float(d.get("hod") or 0),
+                        "castka": float(d.get("cast") or 0)}
+            return {"zam": int(d[0] or 0), "hodiny": float(d[1] or 0), "castka": float(d[2] or 0)}
+    except Exception:
+        return None
+    return None
+
+
+def _mzd_sum_cloud(cloud_db, table, idobd):
+    r = _mssql188_query("SELECT COUNT(DISTINCT ZamestnanecId) zam, ISNULL(SUM(Hodiny),0) hod, "
+                        "ISNULL(SUM(CM_Castka),0) cast FROM " + cloud_db + ".dbo.[" + table + "] "
+                        "WHERE IdObdobi=" + str(int(idobd)))
+    if r.get("ok") and r.get("rows"):
+        v = r["rows"][0]
+        return {"zam": int(v[0] or 0), "hodiny": float(v[1] or 0), "castka": float(v[2] or 0)}
+    return None
+
+
+def _mzd_pair(src_db, cloud_db, table, idobd):
+    o = _mzd_sum_office(src_db, table, idobd)
+    c = _mzd_sum_cloud(cloud_db, table, idobd)
+    rovna = bool(o and c and o["zam"] == c["zam"]
+                 and abs(o["castka"] - c["castka"]) < 0.5
+                 and abs(o["hodiny"] - c["hodiny"]) < 0.5)
+    return {"office": o, "cloud": c, "rovna": rovna}
+
+
+@api_router.get("/app/ucto/mzdy-zpracovani")
+def ucto_mzdy_zpracovani(req: Request):
+    """Monitor zpracování mezd běžného období: office × cloud (předzpracování + složky). Parent."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "EC").upper()
+    src_db, cloud_db = _zrc_dbs(firma)
+    import datetime as _dt
+    _now = _dt.date.today()
+    try:
+        rok = int(req.query_params.get("rok") or _now.year)
+        mesic = int(req.query_params.get("mesic") or _now.month)
+    except Exception:
+        rok, mesic = _now.year, _now.month
+    # IdObdobi běžného období z cloudu (sdílené id s office)
+    _ro = _mssql188_query("SELECT IdObdobi FROM " + cloud_db + ".dbo.TabMzdObd "
+                          "WHERE Rok=" + str(rok) + " AND Mesic=" + str(mesic))
+    if not (_ro.get("ok") and _ro.get("rows")):
+        return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "idobdobi": None,
+                "predzp": None, "slozky": None, "pozn": "období v cloudu není"}
+    idobd = int(_ro["rows"][0][0])
+    return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "idobdobi": idobd,
+            "predzp": _mzd_pair(src_db, cloud_db, "TabPredzp", idobd),
+            "slozky": _mzd_pair(src_db, cloud_db, "TabMzSloz", idobd)}
+
+
 # === ZRCADLA office → cloud Helios (Marti 27.6.2026) =========================
 # Samostatná ikona: každé zrcadlo = 1:1 kopie tabulky z kancelářského Heliosu
 # (DB_EC/DB_IS přes MCP) do cloudu (UCTO_EC/UCTO_ES na 188.12). Plná kopie (mirror).

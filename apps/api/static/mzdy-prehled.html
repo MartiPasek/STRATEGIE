@@ -55,6 +55,7 @@
       <button data-r="2026">2026</button>
     </div>
   </div>
+  <div id="zpr"></div>
   <div id="cards" class="cards"></div>
   <div id="body"><div class="loading">Načítám…</div></div>
   <div class="note">
@@ -74,7 +75,44 @@ async function jget(u){const r=await fetch(u,{credentials:"include"});if(!r.ok)t
 
 function card(k,v,cls){return `<div class="card ${cls||''}"><div class="k">${k}</div><div class="v ${cls==='hl'?'':''}">${v}</div></div>`;}
 
+const fmtH=(n)=>n==null?"—":Number(n).toLocaleString("cs-CZ",{maximumFractionDigits:1})+" h";
+function zprRow(label,p){
+  if(!p) return '<tr><td>'+label+'</td><td colspan="4" class="muted">—</td></tr>';
+  const o=p.office||{},c=p.cloud||{};
+  const bad=!p.rovna;
+  const badge=p.rovna?'<span style="color:#86e8b0">✓ rovná se</span>'
+    :((o.zam||c.zam)?'<span style="color:#e4c878">⚠ nerovná</span>':'<span class="muted">prázdné</span>');
+  return '<tr><td><b>'+label+'</b></td>'+
+    '<td>'+ (o.zam!=null?o.zam:'—') +' zam · '+fmtH(o.hodiny)+' · '+fmt(o.castka)+'</td>'+
+    '<td>'+ (c.zam!=null?c.zam:'—') +' zam · '+fmtH(c.hodiny)+' · '+fmt(c.castka)+'</td>'+
+    '<td>'+badge+'</td></tr>';
+}
+async function loadZpr(){
+  const el=document.getElementById("zpr");
+  el.innerHTML='<div class="loading" style="padding:12px">Načítám zpracování…</div>';
+  let z;
+  try{ z=await jget("/api/v1/erp/app/ucto/mzdy-zpracovani?firma="+FIRMA); }
+  catch(e){ el.innerHTML=""; return; }
+  if(!z||!z.ok){ el.innerHTML=""; return; }
+  const obd=z.idobdobi?(MES[z.mesic]+" "+z.rok):"—";
+  let inner='<div class="sec-h" style="margin-top:4px">🔄 Zpracování mezd — aktuální období ('+obd+')</div>';
+  if(!z.idobdobi){
+    inner+='<div class="note">Období '+z.mesic+'/'+z.rok+' není v cloudu.</div>';
+  } else {
+    const empty=(!z.predzp||!z.predzp.office||z.predzp.office.zam===0)&&(!z.slozky||!z.slozky.office||z.slozky.office.zam===0);
+    inner+='<table style="margin-bottom:6px"><thead><tr><th>Krok</th><th>Kancelář (office)</th><th>Cloud</th><th>Stav</th></tr></thead><tbody>'+
+      zprRow("Předzpracování (TabPredzp)",z.predzp)+
+      zprRow("Vypočtené složky (TabMzSloz)",z.slozky)+
+      '</tbody></table>';
+    inner+='<div class="note" style="border-left-color:#3b6bd4">'+
+      (empty
+        ? '<b>'+obd+' zatím nezpracováno.</b> Až mzdová účetní spustí předzpracování + výpočet (Helios procedury <code>EC_…</code>), objeví se tu čísla. Tento monitor pak hlídá, že <b>kancelář = cloud</b> (rovná se), ať to můžeš opakovaně importovat, zkontrolovat a smazat.'
+        : 'Monitor hlídá, že předzpracování i vypočtené složky <b>sedí mezi kanceláří a cloudem</b>. „⚠ nerovná" = po importu/výpočtu znovu zrcadli do cloudu (ikona Zrcadla) a porovnej.')+'</div>';
+  }
+  el.innerHTML=inner;
+}
 async function load(){
+  loadZpr();
   document.getElementById("body").innerHTML='<div class="loading">Načítám…</div>';
   document.getElementById("cards").innerHTML="";
   let d;

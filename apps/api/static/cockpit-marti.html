@@ -56,16 +56,23 @@
 <div class="lbl">📡 Stav teď</div>
 <div class="stats" id="stats"></div>
 
-<div class="lbl">🧩 Moduly</div>
+<div class="lbl">🏦 Účetnictví, finance & migrace do cloudu</div>
 <div class="mods">
-  <a class="mod" href="/prehled"><span class="i">🗓️</span><span class="t">Přehled</span><span class="d">vrstvený kalendář</span></a>
-  <a class="mod" href="/dochazka-automat"><span class="i">🤖</span><span class="t">Automat</span><span class="d">docházka + fond</span></a>
-  <a class="mod" href="/claude-fronta"><span class="i">📥</span><span class="t">Zadat úkol</span><span class="d">fronta Claudů</span></a>
+  <a class="mod" href="/zrcadla"><span class="i">🪞</span><span class="t">Zrcadla</span><span class="d">kancelář → cloud + monitor</span></a>
+  <a class="mod" href="/ucto-porovnani"><span class="i">📊</span><span class="t">Účetní kontrola</span><span class="d">office × cloud · kontroly</span></a>
+  <a class="mod" href="/mzdy-prehled"><span class="i">💰</span><span class="t">Mzdy</span><span class="d">náklady · odvody · čistá</span></a>
   <a class="mod" href="/finance"><span class="i">🧾</span><span class="t">Finance</span><span class="d">deník · saldo</span></a>
   <a class="mod" href="/banka"><span class="i">🏦</span><span class="t">Banka</span><span class="d">RB API · saldo</span></a>
   <a class="mod" href="/pokladny"><span class="i">💳</span><span class="t">Pokladny</span><span class="d">karty</span></a>
   <a class="mod" href="/hromady"><span class="i">📂</span><span class="t">Hromady</span><span class="d">doklady</span></a>
-  <a class="mod" href="/predkontace"><span class="i">📊</span><span class="t">Předkontace</span><span class="d">z Heliosu</span></a>
+  <a class="mod" href="/predkontace"><span class="i">📑</span><span class="t">Předkontace</span><span class="d">z Heliosu</span></a>
+</div>
+
+<div class="lbl">🛠️ Provoz, lidé & compliance</div>
+<div class="mods">
+  <a class="mod" href="/prehled"><span class="i">🗓️</span><span class="t">Přehled</span><span class="d">vrstvený kalendář</span></a>
+  <a class="mod" href="/dochazka-automat"><span class="i">🤖</span><span class="t">Automat</span><span class="d">docházka + fond</span></a>
+  <a class="mod" href="/claude-fronta"><span class="i">📥</span><span class="t">Zadat úkol</span><span class="d">fronta Claudů</span></a>
   <a class="mod" href="/iso"><span class="i">🛡️</span><span class="t">ISO/TISAX</span><span class="d">cockpit</span></a>
   <a class="mod" href="/dokument"><span class="i">📘</span><span class="t">Dokumenty</span><span class="d">znalosti</span></a>
 </div>
@@ -78,6 +85,8 @@
   <div class="c"><div class="top"><span class="nm">🔔 Notifikace</span><span class="b live">uklizeno</span></div><div class="ds">Kontrolní tabulka · 36h bug opraven · falešné „chybí odchod" opraveny (monitor hlásí jen opravdu otevřené směny) · inbox čistitelný (@@INBOX SEEN ALL).</div></div>
   <div class="c"><div class="top"><span class="nm">✉️ Eliška — digitalizace + rozváděče</span><span class="b wait">čeká odpověď</span></div><div class="ds">Nabídka spolupráce odeslána. Až pošle kalkulace/nabídky → projdu vizí. (docs/Eliska.md)</div></div>
   <div class="c"><div class="top"><span class="nm">🏦 Banka · 🧾 Účetní deník</span><span class="b live">LIVE</span></div><div class="ds">RB API čte transakce, párování ~92 %, deník účtuje z banky (real‑time + jistota + audit).</div></div>
+  <div class="c"><div class="top"><span class="nm">🪞 Migrace → cloud Helios</span><span class="b live">LIVE</span></div><div class="ds">Ikona Zrcadla = hub office→cloud (188.12). EC+ES: účetnictví 2025+2026, mzdy, zakázky přeneseny 1:1. Monitor sync (zdravotní lišta + Zkontrolovat vše). Další modul = pár řádků + klik.</div></div>
+  <div class="c"><div class="top"><span class="nm">📊 Účetní kontrola · 💰 Mzdy</span><span class="b live">LIVE</span></div><div class="ds">Office × cloud konta, výsledovka, kontroly pro daňaře i účetní, doklady (master‑detail). Mzdy: měsíční náklady/odvody/čistá z cloud Heliosu, přepínač roku.</div></div>
 </div>
 
 <div class="lbl">📌 Další na řadě</div>
@@ -85,10 +94,11 @@
   <li><b>Budík fronty</b> → tenant.* (samozavírání bez banneru) + vlastní bridge soubory + budík pro Claude‑27.</li>
   <li><b>Přehled</b> → Google privát (tajný iCal) · tvorba porad · hezké názvy volna · seskupení po týmech · mobil.</li>
   <li><b>Eliška</b> → kalkulace rozváděčů vizí (KalkulacPolozky + Excel + nabídky).</li>
-  <li><b>Účetní</b> → reconciliace deník × Helios · review UI · TabDenik + mzdy do cloud Heliosu.</li>
+  <li><b>Migrace</b> → přiskládat další moduly do Zrcadel (doklady do cloud Heliosu, CRM = Kristý) · reconciliace deník × Helios · review UI pro účetní.</li>
+  <li><b>Účetní</b> → ověřit čísla cloud = kancelář za 2026 · případně auto‑monitoring driftu zrcadel.</li>
 </ul>
 
-<div class="foot">Řídicí pult udržuje Claude ID23 · živá data á 60 s · aktualizováno 26.6.2026 10:40</div>
+<div class="foot">Řídicí pult udržuje Claude ID23 · živá data á 60 s · aktualizováno 27.6.2026</div>
 
 <script>
 const API='';

@@ -57,8 +57,8 @@
     <b>Jak to čteme:</b> <b>Hrubé mzdy</b> = účet 521 (mzdové náklady), <b>pojištění zaměstnavatele</b>
     = 524 (SP+ZP 33,8 % nad hrubou), <b>ostatní soc. náklady</b> = 527. Součet = mzdové náklady firmy.
     <b>Odvody SP+ZP</b> = 336 (sražené zaměstnanci + zaměstnavatel, jde na ČSSZ a zdravotní pojišťovny),
-    <b>daň</b> = 342 (záloha daně ze závislé činnosti na FÚ), <b>čistá mzda</b> = 331 (závazek vůči
-    zaměstnancům k výplatě). Kontrola: hrubé mzdy ≈ čistá + odvody zaměstnance + daň.<br>
+    <b>daň</b> = 342 (záloha daně ze závislé činnosti na FÚ), <b>závazky 331</b> = připsáno zaměstnancům
+    k výplatě (hrubá mzda + náhrady; <i>čistá výplata</i> = 331 − sražené odvody zaměstnance − daň).<br>
     <span class="muted">Připravuji v2: mzdové listy po jednotlivých zaměstnancích (z mzdových složek).</span>
   </div>
 </div>
@@ -84,11 +84,11 @@ async function load(){
     card("Pojištění zaměstnavatel (524)",fmt(r.pojzam))+
     card("Odvody SP+ZP (336)",fmt(r.odvody))+
     card("Daň ze záv. čin. (342)",fmt(r.dan))+
-    card("Čistá mzda (331)","<span class='pos'>"+fmt(r.cista)+"</span>")+
+    card("Závazky k zaměstnancům (331)","<span class='pos'>"+fmt(r.cista)+"</span>")+
     card("Zaměstnanců (mzdy)",d.pocet_zamestnancu==null?"—":d.pocet_zamestnancu);
   let h='<div class="sec-h">Měsíční přehled 2025</div><table><thead><tr>'+
     '<th>Měsíc</th><th>Hrubé mzdy</th><th>Poj. zaměstnavatel</th><th>Ost. soc.</th>'+
-    '<th>Náklady celkem</th><th>Odvody SP+ZP</th><th>Daň</th><th>Čistá mzda</th></tr></thead><tbody>';
+    '<th>Náklady celkem</th><th>Odvody SP+ZP</th><th>Daň</th><th>Závazky 331</th></tr></thead><tbody>';
   if(!d.mesice.length) h+='<tr><td colspan="8" class="muted" style="text-align:center;padding:24px">Žádná data</td></tr>';
   for(const m of d.mesice){
     h+='<tr><td>'+MES[m.mesic]+'</td><td>'+fmt(m.hrube)+'</td><td>'+fmt(m.pojzam)+'</td>'+

@@ -19530,6 +19530,10 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
                "CAST(ISNULL(PraceAktivni,0) AS int) akt, "
                "CAST(VedSchvaleno AS int) ved, CAST(SefSchvaleno AS int) sef, CAST(Uzavreno AS int) uz "
                "FROM EC_Dochazka WHERE " + _wh + " ORDER BY ID")
+        # Marti 27.6.: „běžící" (is_active) smí být JEN dnešní den. Centrála drží u starých
+        # režijních/zapomenutých záznamů PraceAktivni=1 → import je dřív kopíroval jako otevřenou
+        # směnu z minulých dnů → bogus „zapomenutý odchod" notifikace. Past day = vždy uzavřeno.
+        _today_iso = _date_d.today().isoformat()
         for r in _rows(sql):
             rid = int(r["ID"])
             total += 1
@@ -19544,7 +19548,7 @@ def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
                  "et": type_oh if rezie else type_work, "h": r.get("hod"),
                  "z": r.get("z"), "k": r.get("k"), "br": int(r.get("CasPauza") or 0),
                  "proj": ("Režie" if rezie else (zak or None)), "st": st, "src": src, "sid": rid,
-                 "akt": (int(r.get("akt") or 0) == 1)}
+                 "akt": (int(r.get("akt") or 0) == 1 and str(r.get("d") or "") == _today_iso)}
             res = sess.execute(_t(
                 "UPDATE tenant.att_entry SET employee_id=:emp,entry_date=:d,entry_type_id=:et,hours=:h,"
                 "started_at=:z,ended_at=:k,break_minutes=:br,project_ref=:proj,status=:st,source=:src,"

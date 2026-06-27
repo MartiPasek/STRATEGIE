@@ -27448,9 +27448,11 @@ def _xfer_ucto_run(targets):
             continue
         src_db, dst_db = _MZDY_XFER_TARGETS[company]
         _pfx = "" if src_db.upper() == "DB_EC" else "[" + src_db + "]."
+        # Marti 27.6.2026: ZATÍM JEN 2025 (na odladění). 2026 pojede až v Bčku s vyčištěnou
+        # účetní osnovou — separátní krok potom, NEmigrovat office 2026 sem.
         try:
             per_rows = _mzdy_mcp_rows(src_db,
-                "SELECT ID FROM " + _pfx + "dbo.TabObdobi WHERE YEAR(DatumOd) IN (2025,2026)")
+                "SELECT ID FROM " + _pfx + "dbo.TabObdobi WHERE YEAR(DatumOd) = 2025")
             pers = [int(x["ID"]) for x in per_rows if x.get("ID") is not None]
         except Exception as e:
             _log("U:" + company, "_OBDOBI", None, None, False, "perioda: %s" % e)

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plán hovorů</title>
+<style>
+  :root{ --bg:#0b1020; --card:#16203c; --line:#26314f; --tx:#e8eef9; --mut:#9fb0d0;
+         --grn:#3ecf8e; --org:#f0a93b; --blu:#5b8def; --red:#ff6b6b; --teal:#2bd4a0; --pur:#a78bfa; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,#0b1020,#0e1430 60%,#0b1020);color:var(--tx);min-height:100vh}
+  .wrap{max-width:1000px;margin:0 auto;padding:16px 14px 50px}
+  .hd{display:flex;align-items:center;gap:10px;margin:2px 2px 4px;flex-wrap:wrap}
+  .hd .ic{font-size:24px}.hd h1{font-size:18px;margin:0;font-weight:700}.hd .sp{flex:1}
+  .proto{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--org);
+         background:rgba(240,169,59,.12);padding:4px 10px;border-radius:20px}
+  .sub{color:var(--mut);font-size:13px;margin:6px 2px 14px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 14px}
+  .kpi .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+  .kpi .l{font-size:12px;color:var(--mut);margin-top:3px}
+  .grouphd{font-size:13px;color:var(--mut);margin:18px 2px 8px;display:flex;align-items:center;gap:8px}
+  .grouphd .cnt{background:var(--line);border-radius:10px;padding:1px 8px;font-size:12px}
+  .row{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);
+       border-radius:10px;padding:11px 13px;margin-bottom:8px}
+  .row.over{border-left-color:var(--red)}
+  .r1{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .firma{font-size:15px;font-weight:600;flex:1;min-width:160px}
+  .badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap}
+  .date{font-size:12px;color:var(--mut);white-space:nowrap}
+  .date.over{color:var(--red)}
+  .stars{color:var(--org);font-size:12px;letter-spacing:1px}
+  .dial{display:inline-flex;align-items:center;gap:6px;background:rgba(62,207,142,.14);color:var(--grn);
+        border:1px solid rgba(62,207,142,.3);border-radius:9px;padding:6px 12px;font-size:13px;
+        font-weight:700;text-decoration:none;white-space:nowrap}
+  .dial.off{background:transparent;color:var(--mut);border-color:var(--line);font-weight:400}
+  .note{font-size:13px;color:#cdd6e2;margin-top:8px;line-height:1.5;white-space:pre-wrap;
+        max-height:42px;overflow:hidden;cursor:pointer;position:relative}
+  .note.open{max-height:none}
+  .note .more{color:var(--blu);font-size:12px}
+  .empty{background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:26px;text-align:center;color:var(--mut)}
+  .muted{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><div class="ic">📞</div><h1>Plán hovorů</h1><div class="sp"></div>
+    <span class="proto">prototyp</span></div>
+  <div class="sub">Firmy, kterým je naplánovaný příští kontakt — co je po termínu a co tento týden. Klikni na „Vytočit", po hovoru zapiš výsledek a posuň příští kontakt.</div>
+
+  <div class="kpis" id="kpis"></div>
+  <div id="list"></div>
+  <div id="msg" class="muted" style="margin:10px 2px"></div>
+</div>
+<script>
+var STAV={1:["#9fb0d0","Nový"],2:["#5b8def","Osloven"],3:["#a78bfa","Aktivní jednání"],
+  4:["#f0a93b","Nabídka"],5:["#3ecf8e","Zákazník"],6:["#2bd4a0","Dlouhodobý"],
+  7:["#7e8aa3","Neaktivní"],8:["#ff6b6b","Odmítl"],9:["#5f6b86","Archiv"],
+  10:["#f0a93b","Dělají si sami"],11:["#2bd4a0","Založí a ozve se"]};
+function esc(s){return (s||"").replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function stars(a){a=parseInt(a||0,10);if(!a)return "";return "★".repeat(Math.min(a,5));}
+function toDate(s){var p=(s||"").split("-");return p.length===3?new Date(+p[0],+p[1]-1,+p[2]):null;}
+async function j(u){var r=await fetch(u,{credentials:"include"});try{return await r.json()}catch(e){return{ok:false}}}
+
+function rowHtml(r,over){
+  var st=STAV[r.stav_id]||null;
+  var badge=st?'<span class="badge" style="background:'+st[0]+'22;color:'+st[0]+'">'+st[1]+'</span>':'';
+  var tel=(r.telefon||"").replace(/\s+/g,"");
+  var dial=tel?'<a class="dial" href="tel:'+esc(tel)+'"><span>📞</span>Vytočit</a>'
+              :'<span class="dial off">bez čísla</span>';
+  var note=r.poznamka?'<div class="note" onclick="this.classList.toggle(\'open\')">'+esc(r.poznamka)+'</div>':'';
+  return '<div class="row'+(over?" over":"")+'">'+
+    '<div class="r1">'+
+      '<span class="firma">'+esc(r.firma)+'</span>'+
+      (r.atraktivita?'<span class="stars">'+stars(r.atraktivita)+'</span>':'')+
+      badge+
+      '<span class="date'+(over?" over":"")+'">'+(over?"⚠ ":"")+ (r.pristi||"") +'</span>'+
+      dial+
+    '</div>'+ note +'</div>';
+}
+
+function render(rows){
+  var today=new Date(); today.setHours(0,0,0,0);
+  var weekEnd=new Date(today); weekEnd.setDate(weekEnd.getDate()+6);
+  var over=[], week=[], later=[];
+  rows.forEach(function(r){
+    var d=toDate(r.pristi);
+    if(!d){later.push(r);return;}
+    if(d<today) over.push(r);
+    else if(d<=weekEnd) week.push(r);
+    else later.push(r);
+  });
+  document.getElementById("kpis").innerHTML=
+    '<div class="kpi"><div class="v" style="color:var(--red)">'+over.length+'</div><div class="l">Po termínu</div></div>'+
+    '<div class="kpi"><div class="v" style="color:var(--grn)">'+week.length+'</div><div class="l">Tento týden</div></div>'+
+    '<div class="kpi"><div class="v">'+later.length+'</div><div class="l">Později</div></div>'+
+    '<div class="kpi"><div class="v">'+rows.length+'</div><div class="l">Celkem v plánu</div></div>';
+
+  var h="";
+  function group(title,arr,over){
+    if(!arr.length)return;
+    h+='<div class="grouphd">'+title+'<span class="cnt">'+arr.length+'</span></div>';
+    arr.forEach(function(r){h+=rowHtml(r,over);});
+  }
+  group("⚠ Po termínu — ozvat se co nejdřív",over,true);
+  group("📅 Tento týden",week,false);
+  group("⏳ Později",later,false);
+  if(!rows.length) h='<div class="empty">Zatím tu nejsou naplánované hovory.<br>Jakmile u firem nastavíš „příští kontakt", objeví se tady.</div>';
+  document.getElementById("list").innerHTML=h;
+}
+
+async function boot(){
+  var r=await j("/api/v1/erp/app/crm/plan-hovoru");
+  if(!r||r.ok===false||!r.rows){
+    document.getElementById("msg").innerHTML='<span style="color:#ff8a8a">Nepodařilo se načíst data (přístup má vedení a obchod).</span>';
+    return;
+  }
+  render(r.rows);
+  if(r.generated) document.getElementById("msg").textContent="Data z CRM · "+r.generated;
+}
+boot();
+</script>
+</body>
+</html>

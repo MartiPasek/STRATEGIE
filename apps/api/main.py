@@ -967,6 +967,15 @@ def vytizeni_prehled_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/crm-plan-hovoru")
+def crm_plan_hovoru_page():
+    """Plán hovorů na týden — prototyp pro Pavla: firmy s naplánovaným příštím kontaktem
+    (po termínu / tento týden), stav vztahu, vytáčení. Data z /app/crm/plan-hovoru
+    (DB_EC st.CRM_Kontakt). Vedení + obchod. Kristý 27.6.2026."""
+    return FileResponse(os.path.join(static_dir, "crm-plan-hovoru.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/hra")
 def hra_page():
     """Replay dashboard účetní hry Claude — zrychlené přehrávání, jak Claude

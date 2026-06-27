@@ -12752,6 +12752,87 @@ def app_vytizeni_mesice(req: Request) -> JSONResponse:
                          "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
 
 
+@api_router.get("/app/crm/plan-hovoru")
+def app_crm_plan_hovoru(req: Request) -> JSONResponse:
+    """Plán hovorů na týden — firmy s vyplněným PristiKontakt (DB_EC st.CRM_Kontakt),
+    stav vztahu z číselníku CRM_Kontakt_StavVztahuCis, název+telefon+poznámka z poslední
+    akce (na firmě bývají prázdné). BEZ filtru na autora — obvolává Pavel, vidí celý plán.
+    Read-only přes EUROSOFT MCP. Přístup: rodič / ambasador / obchod Pavel (30).
+    Kristý 27.6.2026 (prototyp k budoucímu framework přehledu)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import json as _j
+    cm, s = _att_session()
+    try:
+        isp = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                        {"u": int(uid)}).scalar()
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+    if not isp and not _is_ambassador(uid) and int(uid) != 30:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "mcp_unavailable"}, status_code=503)
+    sql = (
+        "SELECT k.ID AS id,"
+        " COALESCE(NULLIF(LTRIM(RTRIM(k.FirmaText)),''), NULLIF(LTRIM(RTRIM(a.FirmaText)),'')) AS firma,"
+        " CONVERT(varchar(10), k.PristiKontakt, 23) AS pristi,"
+        " s.Nazev AS stav, s.Kod AS stav_kod, k.StavVztahuID AS stav_id,"
+        " k.Atraktivita AS atraktivita,"
+        " COALESCE(NULLIF(LTRIM(RTRIM(k.FirmaTelefon)),''), NULLIF(LTRIM(RTRIM(a.Telefon)),''),"
+        "          NULLIF(LTRIM(RTRIM(a.Mobil)),'')) AS telefon,"
+        " a.Prubeh AS poznamka"
+        " FROM st.CRM_Kontakt k"
+        " LEFT JOIN st.CRM_Kontakt_StavVztahuCis s ON s.ID = k.StavVztahuID"
+        " OUTER APPLY ("
+        "   SELECT TOP 1 aa.Prubeh, aa.FirmaText, aa.Telefon, aa.Mobil"
+        "   FROM st.CRM_Kontakt_Akce aa WHERE aa.IDHlav = k.ID"
+        "   ORDER BY aa.DatPorizeni DESC, aa.ID DESC) a"
+        " WHERE k.PristiKontakt IS NOT NULL"
+        " ORDER BY k.PristiKontakt ASC"
+    )
+    try:
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                return JSONResponse({"ok": False, "error": str(r.get("error"))[:200]}, status_code=502)
+            for kk in ("rows", "data", "result", "records"):
+                if isinstance(r.get(kk), list):
+                    rows = r[kk]
+                    break
+        elif isinstance(r, list):
+            rows = r
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
+    out = []
+    for d in rows:
+        dl = {(c or "").lower(): v for c, v in d.items()}
+        fid = dl.get("id")
+        out.append({
+            "id": fid,
+            "firma": (str(dl.get("firma") or "").strip()) or ("Firma #" + str(fid)),
+            "pristi": dl.get("pristi"),
+            "stav": dl.get("stav"),
+            "stav_kod": dl.get("stav_kod"),
+            "stav_id": dl.get("stav_id"),
+            "atraktivita": dl.get("atraktivita"),
+            "telefon": str(dl.get("telefon") or "").strip(),
+            "poznamka": str(dl.get("poznamka") or "").strip(),
+        })
+    import datetime as _dt
+    return JSONResponse({"ok": True, "rows": out,
+                         "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
+
+
 @api_router.get("/app/learn/sync")
 async def app_learn_sync(req: Request) -> JSONResponse:
     """Plný import Martiho báze MP_STRAG_Komun (DB_EC) -> tenant.learn_frame (RTF->HTML).

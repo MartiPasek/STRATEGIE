@@ -12697,10 +12697,22 @@ def app_vytizeni_mesice(req: Request) -> JSONResponse:
     mcp = get_eurosoft_mcp_client()
     if mcp is None:
         return JSONResponse({"ok": False, "error": "mcp_unavailable"}, status_code=503)
-    sql = ("SELECT Rok, Mesic, Hodiny, HodinyBezNab, Kapacita,"
+    # Celoroční měsíční řada (letos + loni). Z base tabulky EC_Vytizeni_Historie
+    # bereme PER MĚSÍC nejnovější log (ROW_NUMBER) — pro minulé měsíce contemporaneous
+    # skutečnost, pro budoucí měsíce poslední projekce. Pohled ECv_* vrací jen výhled
+    # od aktuálního měsíce, proto čteme base přímo (kvůli celoročnímu tanku).
+    sql = ("WITH base AS ("
+           " SELECT vh.Rok, vh.Mesic, vh.Kapacita,"
+           " vh.HodinyMinRok AS Hodiny, vh.HodinyBezNabMinRok AS HodinyBezNab,"
+           " ROW_NUMBER() OVER (PARTITION BY vh.Rok, vh.Mesic"
+           "   ORDER BY h.DatPorizeni DESC, h.ID DESC) AS rn"
+           " FROM EC_Vytizeni_Historie vh"
+           " JOIN EC_Vytizeni_LogPlanSumaHlav h ON vh.IDHlavLogu = h.ID"
+           " WHERE vh.Rok IN (YEAR(GETDATE())-1, YEAR(GETDATE())))"
+           " SELECT Rok, Mesic, Hodiny, HodinyBezNab, Kapacita,"
            " CONVERT(numeric(5,2), CASE WHEN ISNULL(Kapacita,0)=0 THEN 0"
            " ELSE Hodiny*100.0/Kapacita END) AS Vytizeni"
-           " FROM dbo.ECv_Vytizeni_Historie ORDER BY Rok, Mesic")
+           " FROM base WHERE rn = 1 ORDER BY Rok, Mesic")
     try:
         raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
                                  {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)

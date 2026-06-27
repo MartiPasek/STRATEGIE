@@ -63,7 +63,7 @@
   </div>
 
   <div class="card">
-    <p class="seclbl" style="margin-bottom:6px">Volná kapacita do konce roku</p>
+    <p class="seclbl" style="margin-bottom:6px">Volná kapacita za celý rok</p>
     <div class="tankbig" id="tankbig">—</div>
     <div class="tankcap" id="tankcap"></div>
     <div class="tank"><div class="fill" id="tf"></div></div>
@@ -98,21 +98,22 @@ function render(rows,generated){
   var win=[];
   for(var i=0;i<3;i++){ var mn=cm+i; if(mn>12) break; win.push(mn); }
 
-  var volna=0, spl=0, kap=0, n=0;
-  for(var mn2=cm; mn2<=12; mn2++){
+  var kapY=0, splY=0;
+  for(var mn2=1; mn2<=12; mn2++){
     var d=letos[mn2]; if(!d) continue;
-    volna+=Math.max((d.kapacita||0)-(d.hodiny||0),0);
-    spl+=(d.hodiny||0); kap+=(d.kapacita||0); n++;
+    splY+=(d.hodiny||0); kapY+=(d.kapacita||0);
   }
-  var naplPct=kap>0?Math.round(100*spl/kap):0;
-  var kapMes=n>0?Math.round(kap/n):0;
+  var volnaY=Math.max(kapY-splY,0);
+  var naplPctY=kapY>0?Math.round(100*splY/kapY):0;
+  var freePctY=100-naplPctY;
+  var kapMes=Math.round(kapY/12);
 
   var first=letos[win[0]]||{}; var firstLoni=loni[win[0]]||{};
   var hp=Math.round(first.vytizeni||0), hl=Math.round(firstLoni.vytizeni||0), hc=col(hp);
   document.getElementById("kpis").innerHTML=
     '<div class="kpi"><p class="l">Vytížení dílny — '+NAMES[win[0]-1].toLowerCase()+'</p><div class="v" style="color:'+hc+'">'+hp+' %</div><div class="d">loni '+hl+' %</div></div>'+
-    '<div class="kpi"><p class="l">Volná kapacita do konce roku</p><div class="v">'+csNum(volna)+' h</div><div class="d">tolik práce ještě „chybí“</div></div>'+
-    '<div class="kpi"><p class="l">Naplánováno z kapacity</p><div class="v">'+naplPct+' %</div><div class="d">'+NAMES[win[0]-1].toLowerCase()+'–prosinec</div></div>'+
+    '<div class="kpi"><p class="l">Volná kapacita (celý rok '+cy+')</p><div class="v">'+csNum(volnaY)+' h</div><div class="d">z '+csNum(kapY)+' h ročně</div></div>'+
+    '<div class="kpi"><p class="l">Naplánováno z kapacity</p><div class="v">'+naplPctY+' %</div><div class="d">celý rok '+cy+'</div></div>'+
     '<div class="kpi"><p class="l">Kapacita dílny / měsíc</p><div class="v">~'+csNum(kapMes)+' h</div><div class="d">reálná kapacita výroby</div></div>';
 
   document.getElementById("lbl1").textContent="Výhled "+NAMES[win[0]-1].toLowerCase()+"–"+NAMES[win[win.length-1]-1].toLowerCase()+" — čím prázdnější baterka, tím víc volné kapacity (prostor pro obchod)";
@@ -130,12 +131,11 @@ function render(rows,generated){
     setTimeout(function(){f.style.width=Math.min(Math.max(p,2),100)+"%";},120);
   });
 
-  var freePct=kap>0?Math.round(100*volna/kap):0, soldPct=100-freePct;
-  document.getElementById("tankbig").textContent=csNum(volna)+" h volno";
-  document.getElementById("tankcap").textContent="z "+csNum(kap)+" h kapacity do konce roku";
-  document.getElementById("tl_sold").textContent="naplánováno "+soldPct+" %";
-  document.getElementById("tl_free").textContent="volno "+freePct+" %";
-  setTimeout(function(){document.getElementById("tf").style.width=soldPct+"%";},150);
+  document.getElementById("tankbig").textContent=csNum(volnaY)+" h volno";
+  document.getElementById("tankcap").textContent="z "+csNum(kapY)+" h kapacity za rok "+cy;
+  document.getElementById("tl_sold").textContent="naplánováno "+naplPctY+" %";
+  document.getElementById("tl_free").textContent="volno "+freePctY+" %";
+  setTimeout(function(){document.getElementById("tf").style.width=naplPctY+"%";},150);
 
   var labels=win.map(function(mn){return NAMES[mn-1];});
   var capArr=win.map(function(mn){return Math.round((letos[mn]||{}).kapacita||0);});

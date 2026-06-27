@@ -1210,6 +1210,13 @@ def ucto_porovnani_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/mzdy-prehled")
+def mzdy_prehled_page():
+    """💰 Mzdový přehled (účetní pohled) — měsíčně náklady/odvody/čistá z cloud Heliosu (Marti 27.6.2026)."""
+    return FileResponse(os.path.join(static_dir, "mzdy-prehled.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/mzdy")
 def mzdy_page():
     """💰 Mzdy & odvody — naúčtováno (deník) vs zaplaceno (banka) po měsících (Marti 23.6.2026)."""

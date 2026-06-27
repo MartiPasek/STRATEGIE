@@ -23812,6 +23812,57 @@ def _ucto_kateg(naz):
     return ("OST", "Ostatní")
 
 
+@api_router.get("/app/ucto/mzdy")
+def ucto_mzdy(req: Request):
+    """Mzdový přehled (účetní pohled) — měsíčně z deníku: hrubé mzdy (521), zák. pojištění
+    zaměstnavatele (524), ost. soc. náklady (527) = mzdové náklady; odvody SP+ZP (336),
+    daň ze záv. čin. (342), čistá mzda k výplatě (331). Cloud Helios. Marti 27.6.2026. Parent."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "EC").upper()
+    cloud_db, idobd = ("UCTO_ES", 1007) if firma == "ES" else ("UCTO_EC", 39)
+    _q = ("SELECT MONTH(d.DatumPripad) m, "
+          "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetMD),3)='521' THEN d.CastkaMD ELSE 0 END),2) hrube, "
+          "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetMD),3)='524' THEN d.CastkaMD ELSE 0 END),2) pojzam, "
+          "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetMD),3)='527' THEN d.CastkaMD ELSE 0 END),2) ostsoc, "
+          "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetDAL),3)='331' THEN d.CastkaDAL ELSE 0 END),2) cista, "
+          "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetDAL),3)='336' THEN d.CastkaDAL ELSE 0 END),2) odvody, "
+          "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetDAL),3)='342' THEN d.CastkaDAL ELSE 0 END),2) dan "
+          "FROM " + cloud_db + ".dbo.TabDenik d WHERE d.IdObdobi=" + str(idobd) +
+          " AND d.DatumPripad IS NOT NULL GROUP BY MONTH(d.DatumPripad) ORDER BY MONTH(d.DatumPripad)")
+    _r = _mssql188_query(_q)
+    if not _r.get("ok"):
+        return {"ok": False, "error": _r.get("error")}
+    _i = {c: k for k, c in enumerate(_r["columns"])}
+    mes = []
+    tot = {"hrube": 0.0, "pojzam": 0.0, "ostsoc": 0.0, "cista": 0.0, "odvody": 0.0, "dan": 0.0}
+    for v in _r["rows"]:
+        row = {"mesic": v[_i["m"]]}
+        for k in tot:
+            row[k] = float(v[_i[k]] or 0)
+            tot[k] += row[k]
+        row["naklady"] = round(row["hrube"] + row["pojzam"] + row["ostsoc"], 2)
+        mes.append(row)
+    # počet zaměstnanců s mzdou v roce (distinct přes mzdové složky)
+    pocet = None
+    _pc = _mssql188_query("SELECT COUNT(DISTINCT ZamestnanecId) p FROM " + cloud_db +
+                          ".dbo.TabMzSloz WHERE ZamestnanecId IS NOT NULL")
+    if _pc.get("ok") and _pc["rows"]:
+        try:
+            pocet = int(_pc["rows"][0][0])
+        except Exception:
+            pass
+    tot = {k: round(val, 2) for k, val in tot.items()}
+    tot["naklady"] = round(tot["hrube"] + tot["pojzam"] + tot["ostsoc"], 2)
+    return {"ok": True, "firma": firma, "mesice": mes, "rok": tot, "pocet_zamestnancu": pocet}
+
+
 @api_router.get("/app/ucto/kontrola-ucetni")
 def ucto_kontrola_ucetni(req: Request):
     """Kontrola pro ÚČETNÍ (průběžná, provozní) — měsíční zaúčtování (MD=DAL), finanční

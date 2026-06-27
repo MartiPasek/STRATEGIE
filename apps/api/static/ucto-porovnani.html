@@ -48,6 +48,7 @@
     <div class="chip on" data-v="predvaha">Předvaha (účty)</div>
     <div class="chip" data-v="vysledovka">Výsledovka (HV)</div>
     <div class="chip" data-v="kontroly">🔍 Kontroly pro daňaře</div>
+    <div class="chip" data-v="ucetni">🧮 Kontrola pro účetní</div>
     <div class="chip" data-v="doklady">📑 Doklady</div>
   </div>
   <div id="souhrn" class="cards"></div>
@@ -98,7 +99,56 @@ function renderTab(){
     t.onclick=function(){var k=t.getAttribute("data-k");if(SORT.k===k)SORT.dir*=-1;else{SORT.k=k;SORT.dir=(k==="ucet"?1:-1);}renderTab();};});
 }
 function th(k,l){var ar=SORT.k===k?(SORT.dir<0?" ▼":" ▲"):"";return '<th data-k="'+k+'">'+l+ar+'</th>';}
-function render(){if(VIEW==="doklady"){renderDoklady();return;}if(!DATA)return;if(VIEW==="vysledovka")renderVysledovka();else if(VIEW==="kontroly")renderKontroly();else if(VIEW==="osnova")renderOsnova();else renderTab();}
+function render(){if(VIEW==="doklady"){renderDoklady();return;}if(VIEW==="ucetni"){renderUcetni();return;}if(!DATA)return;if(VIEW==="vysledovka")renderVysledovka();else if(VIEW==="kontroly")renderKontroly();else if(VIEW==="osnova")renderOsnova();else renderTab();}
+
+// --- KONTROLA PRO ÚČETNÍ (průběžná/provozní) ---
+var MESNAZ=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
+function renderUcetni(){
+  document.getElementById("souhrn").innerHTML="";
+  document.getElementById("obsah").innerHTML='<div class="loading">Počítám účetní kontroly…</div>';
+  jget("/api/v1/erp/app/ucto/kontrola-ucetni?firma="+FIRMA).then(function(x){
+    if(!x||!x.ok){document.getElementById("obsah").innerHTML='<div class="err">Chyba: '+((x&&x.error)||"")+'</div>';return;}
+    var s=x.souhrn,c="";
+    c+=card("Měsíců zaúčtováno",s.mesicu,s.mesicu>=12?"ok":"warn");
+    c+=card("Nevyrovnané měsíce",s.mesice_nevyrovnane,s.mesice_nevyrovnane?"bad":"ok");
+    c+=card("Σ pokladny",fmt(s.pokladny),s.zaporne_pokladny?"bad":"ok");
+    c+=card("Σ banky",fmt(s.banky),"");
+    c+=card("Pohledávky 311",fmt(s.pohledavky),"");
+    c+=card("Závazky 321",fmt(s.zavazky),"");
+    c+=card("DPH 343",fmt(s.dph),"");
+    document.getElementById("souhrn").innerHTML=c;
+    var h="";
+    // měsíční zaúčtování
+    h+='<table style="margin-bottom:18px"><thead><tr><th style="text-align:left">Měsíc</th><th>Dokladů</th><th>Řádků</th><th>Obrat MD</th><th>Obrat DAL</th><th>MD−DAL</th></tr></thead><tbody>';
+    h+='<tr><td colspan="6" style="background:#172033;color:var(--mut);font-weight:600;font-size:12px">MĚSÍČNÍ ZAÚČTOVÁNÍ (každý měsíc musí být vyrovnaný)</td></tr>';
+    x.mesice.forEach(function(m){var dd=Math.abs(m.rozdil)>=1;
+      h+='<tr class="'+(dd?"diff":"")+'"><td style="text-align:left">'+m.mesic+' — '+MESNAZ[m.mesic]+'</td><td>'+m.dokladu+'</td><td>'+m.radku+'</td><td>'+fmt(m.md)+'</td><td>'+fmt(m.dal)+'</td><td class="r '+(dd?"":"zero")+'" style="'+(dd?"color:var(--bad);font-weight:700":"")+'">'+fmt(m.rozdil)+'</td></tr>';});
+    h+='</tbody></table>';
+    // skupinové kontroly
+    h+='<table><thead><tr><th>Účet</th><th style="text-align:left">Co</th><th>Zůstatek</th><th>Stav / poznámka</th></tr></thead><tbody>';
+    function sek(t){h+='<tr><td colspan="4" style="background:#172033;color:var(--mut);font-weight:600;font-size:12px">'+t+'</td></tr>';}
+    function rad(u,naz,z,ok,pozn){var st=ok?'<span style="color:var(--ok)">✓</span>':'<span style="color:var(--warn)">⚠</span>';
+      h+='<tr><td>'+u+'</td><td style="text-align:left">'+naz+'</td><td class="r">'+fmt(z)+'</td><td style="text-align:left;color:var(--mut);font-size:12px">'+st+' '+(pozn||'')+'</td></tr>';}
+    sek("Finanční účty — pokladna nesmí být záporná");
+    x.pokladny.forEach(function(p){rad(p.ucet,"Pokladna",p.zust,p.zust>=0,p.zust<0?"ZÁPORNÁ POKLADNA – prověřit!":"");});
+    x.banky.forEach(function(b){rad(b.ucet,"Bankovní účet",b.zust,true,"ověřit proti výpisu");});
+    sek("Účty, které mají být průběžně NULOVÉ");
+    x.nulove.forEach(function(n){rad(n.ucet,n.nazev,n.zust,n.ok,n.ok?"":"není vynulováno");});
+    sek("Zálohy (314 poskytnuté / 324 přijaté) — k vyúčtování");
+    if(!x.zalohy.length)h+='<tr><td></td><td style="text-align:left;color:var(--mut)">žádné otevřené zálohy</td><td></td><td></td></tr>';
+    x.zalohy.forEach(function(z){rad(z.ucet,"Záloha",z.zust,true,"nevyúčtovaná záloha");});
+    sek("Časové rozlišení (381–385)");
+    if(!x.rozliseni.length)h+='<tr><td></td><td style="text-align:left;color:var(--mut)">žádné</td><td></td><td></td></tr>';
+    x.rozliseni.forEach(function(z){rad(z.ucet,"Časové rozlišení",z.zust,true,"");});
+    sek("Dohadné položky (388 aktivní / 389 pasivní)");
+    if(!x.dohadne.length)h+='<tr><td></td><td style="text-align:left;color:var(--mut)">žádné</td><td></td><td></td></tr>';
+    x.dohadne.forEach(function(z){rad(z.ucet,"Dohadná položka",z.zust,true,"prověřit k rozvahovému dni");});
+    sek("DPH (343) — pro kontrolní hlášení / přiznání");
+    x.dph.forEach(function(z){rad(z.ucet,"DPH",z.zust,true,"");});
+    h+='</tbody></table>';
+    document.getElementById("obsah").innerHTML=h;
+  }).catch(function(e){document.getElementById("obsah").innerHTML='<div class="err">Chyba: '+e+'</div>';});
+}
 
 // --- DOKLADY (AG Grid Enterprise master-detail: sborník → doklad → řádky) ---
 function czk(p){return p.value==null?"":Number(p.value).toLocaleString("cs-CZ",{minimumFractionDigits:2,maximumFractionDigits:2});}

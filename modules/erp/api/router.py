@@ -23812,6 +23812,87 @@ def _ucto_kateg(naz):
     return ("OST", "Ostatní")
 
 
+@api_router.get("/app/ucto/kontrola-ucetni")
+def ucto_kontrola_ucetni(req: Request):
+    """Kontrola pro ÚČETNÍ (průběžná, provozní) — měsíční zaúčtování (MD=DAL), finanční
+    účty (pokladna nesmí být záporná), saldokonto, zálohy, časové rozlišení, dohadné,
+    průběžně-nulové účty, DPH. Z cloud Heliosu (188.12). Marti 27.6.2026. Parent-only."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "EC").upper()
+    cloud_db, idobd = ("UCTO_ES", 1007) if firma == "ES" else ("UCTO_EC", 39)
+
+    # 1) měsíční zaúčtování (každý měsíc MD=DAL)
+    mes = []
+    _m = _mssql188_query(
+        "SELECT MONTH(d.DatumPripad) m, COUNT(DISTINCT d.CeleCislo) dok, COUNT(*) rad, "
+        "ROUND(SUM(d.CastkaMD),2) md, ROUND(SUM(d.CastkaDAL),2) dal FROM " + cloud_db +
+        ".dbo.TabDenik d WHERE d.IdObdobi=" + str(idobd) + " AND d.DatumPripad IS NOT NULL "
+        "GROUP BY MONTH(d.DatumPripad) ORDER BY MONTH(d.DatumPripad)")
+    if _m.get("ok"):
+        _i = {c: k for k, c in enumerate(_m["columns"])}
+        for v in _m["rows"]:
+            md = float(v[_i["md"]] or 0); dal = float(v[_i["dal"]] or 0)
+            mes.append({"mesic": v[_i["m"]], "dokladu": v[_i["dok"]], "radku": v[_i["rad"]],
+                        "md": round(md, 2), "dal": round(dal, 2), "rozdil": round(md - dal, 2)})
+
+    # 2) konta per účet (souhrn, k 31.12.) — pro skupinové kontroly
+    konta = {}
+    _k = _mssql188_query(
+        "WITH l AS (SELECT LTRIM(RTRIM(k.Ucet)) u, k.ZustDEN_KonSt z, "
+        "ROW_NUMBER() OVER (PARTITION BY k.Ucet ORDER BY k.Datum DESC) rn FROM " + cloud_db +
+        ".dbo.TabKontaD k WHERE k.IdObdobi=" + str(idobd) + " AND k.Datum<='20251231' "
+        "AND (k.Stredisko IS NULL OR LTRIM(RTRIM(k.Stredisko))='')) "
+        "SELECT u, z FROM l WHERE rn=1")
+    if _k.get("ok"):
+        _i = {c: k for k, c in enumerate(_k["columns"])}
+        for v in _k["rows"]:
+            konta[str(v[_i["u"]]).strip()] = float(v[_i["z"]] or 0)
+
+    def grp(*prefixy):
+        out = []
+        tot = 0.0
+        for u in sorted(konta):
+            if abs(konta[u]) < 0.01:
+                continue
+            if any(u.startswith(p) for p in prefixy):
+                out.append({"ucet": u, "zust": round(konta[u], 2)})
+                tot += konta[u]
+        return out, round(tot, 2)
+
+    pokl, pokl_t = grp("211", "213")
+    banky, bank_t = grp("221")
+    nulove = []
+    for p, naz in [("261", "Peníze na cestě"), ("395", "Vnitřní zúčtování"), ("349", "Vyrovnávací DPH"),
+                   ("111", "Pořízení materiálu"), ("131", "Pořízení zboží")]:
+        z = round(sum(konta[u] for u in konta if u.startswith(p)), 2)
+        nulove.append({"ucet": p, "nazev": naz, "zust": z, "ok": abs(z) < 1})
+    zalohy, zal_t = grp("314", "324", "052", "151")
+    rozliseni, roz_t = grp("381", "382", "383", "384", "385")
+    dohadne, doh_t = grp("388", "389")
+    dph, dph_t = grp("343")
+    pohl, pohl_t = grp("311")
+    zav, zav_t = grp("321")
+
+    zaporne_pokl = [p for p in pokl if p["zust"] < 0]
+    mesice_nevyrovnane = [m for m in mes if abs(m["rozdil"]) >= 1]
+
+    return {"ok": True, "firma": firma,
+            "mesice": mes,
+            "souhrn": {"mesicu": len(mes), "mesice_nevyrovnane": len(mesice_nevyrovnane),
+                       "pokladny": pokl_t, "banky": bank_t, "zaporne_pokladny": len(zaporne_pokl),
+                       "pohledavky": pohl_t, "zavazky": zav_t, "dph": dph_t,
+                       "zalohy": zal_t, "rozliseni": roz_t, "dohadne": doh_t},
+            "pokladny": pokl, "banky": banky, "nulove": nulove, "zalohy": zalohy,
+            "rozliseni": rozliseni, "dohadne": dohadne, "dph": dph}
+
+
 @api_router.get("/app/ucto/doklady")
 def ucto_doklady(req: Request):
     """Rozpad účetnictví PO DOKLADECH (Marti 27.6.2026): kategorie (VF/PF/Banka/Pokladna/…)

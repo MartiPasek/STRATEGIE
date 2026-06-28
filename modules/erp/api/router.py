@@ -30350,15 +30350,28 @@ async def diag_sql(req: Request) -> JSONResponse:
     # (queue_email, from_identity=persona → worker pošle přes její schránku).
     # Autonomní (token-auth, bez approval banneru), audit do fw.claude_email_log.
     #   @@EMAIL {"to":"x@y.cz","subject":"...","body":"...","cc":["..."],"reason":"..."}
-    #   @@DOCHAZKA <rok> <mesic>  → srovnaná docházka z EC_Dochazka (fond per úvazek) → att_entry+summary
+    #   @@DOCHAZKA <rok> <mesic|ROK>  → srovnaná docházka z EC_Dochazka (fond per úvazek) → att_entry+summary
     if sql.upper().startswith("@@DOCHAZKA"):
         import datetime as _dtd
         parts = sql.split()
         try:
             rok = int(parts[1]) if len(parts) > 1 else _dtd.date.today().year
-            mesic = int(parts[2]) if len(parts) > 2 else _dtd.date.today().month
         except Exception:
-            return JSONResponse({"ok": False, "error": "@@DOCHAZKA <rok> <mesic>"})
+            return JSONResponse({"ok": False, "error": "@@DOCHAZKA <rok> <mesic|ROK>"})
+        marg = parts[2] if len(parts) > 2 else str(_dtd.date.today().month)
+        if marg.upper() in ("ROK", "ALL", "*"):
+            _last = _dtd.date.today().month if rok == _dtd.date.today().year else 12
+            res = []
+            for mm in range(1, _last + 1):
+                try:
+                    res.append(_sync_dochazka_ec(rok, mm))
+                except Exception as _me:
+                    res.append({"ok": False, "mesic": mm, "error": str(_me)[:150]})
+            return JSONResponse({"ok": True, "rok": rok, "mesice": res})
+        try:
+            mesic = int(marg)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "@@DOCHAZKA <rok> <mesic|ROK>"})
         return JSONResponse(_sync_dochazka_ec(rok, mesic))
 
     #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)

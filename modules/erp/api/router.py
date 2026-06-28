@@ -24920,6 +24920,66 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows):
     return None
 
 
+def _mzdy_status_check(rok, mesic):
+    """Monitor výplatnic (Marti 28.6.2026): co je potřeba dořešit v Heliosu.
+    (a) Helios Status != 1 (nespočítáno čistě). (b) Absence v NAŠEM registru (OČR/nemoc)
+    bez odpovídající dávky na pásce (ošetřovné 205 / nemocenská 203) → 'doplnit dávky'.
+    Vrací seznam k řešení (firma, číslo, jméno, problém, detail)."""
+    import datetime as _dt
+    import calendar as _cal
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    m_first = _dt.date(int(rok), int(mesic), 1)
+    m_last = _dt.date(int(rok), int(mesic), _cal.monthrange(int(rok), int(mesic))[1])
+    today = _dt.date.today()
+    out = []
+    for firma in ("EC", "ES"):
+        try:
+            _src, cdb = _zrc_dbs(firma)
+            ro = _mssql188_query("SELECT IdObdobi FROM " + cdb + ".dbo.TabMzdObd WHERE Rok=%d AND Mesic=%d"
+                                 % (int(rok), int(mesic)))
+            if not (ro.get("ok") and ro.get("rows")):
+                continue
+            idobd = int(ro["rows"][0][0])
+            st = _mssql188_query(
+                "SELECT c.Cislo, RTRIM(c.Prijmeni)+' '+RTRIM(ISNULL(c.Jmeno,'')), v.Status, v.Info "
+                "FROM " + cdb + ".dbo.TabZamVyp v JOIN " + cdb + ".dbo.TabCisZam c ON c.ID=v.ZamestnanecId "
+                "WHERE v.IdObdobi=%d AND ISNULL(v.Status,0)<>1" % idobd)
+            for r in (st.get("rows") or []):
+                out.append({"firma": firma, "cislo": r[0], "jmeno": (r[1] or "").strip(),
+                            "problem": "status", "detail": "Helios status %s (Info %s)" % (r[2], r[3])})
+            for tbl, ms, label in (("att_ocr_case", 205, "ošetřovné"), ("att_sick_case", 203, "nemocenská")):
+                cm, s = _att_session()
+                try:
+                    cases = s.execute(_t(
+                        "SELECT DISTINCT e.cislo_zam FROM tenant." + tbl + " c "
+                        "JOIN tenant.att_employee e ON e.id=c.employee_id "
+                        "WHERE c.tenant_id=2 AND c.company=:f "
+                        "  AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
+                        "  AND c.datum_od <= :ml AND COALESCE(c.datum_do, :tod) >= :mf"),
+                        {"f": firma, "ml": m_last, "mf": m_first, "tod": today}).fetchall()
+                finally:
+                    cm.__exit__(None, None, None)
+                for cr in cases:
+                    try:
+                        cislo = int(str(cr[0]).strip())
+                    except Exception:
+                        continue
+                    chk = _mssql188_query(
+                        "SELECT COUNT(*) FROM " + cdb + ".dbo.TabMzSloz m "
+                        "JOIN " + cdb + ".dbo.TabCisZam c ON c.ID=m.ZamestnanecId "
+                        "WHERE m.IdObdobi=%d AND c.Cislo=%d AND m.CisloMS=%d" % (idobd, cislo, ms))
+                    has = int(chk["rows"][0][0]) if (chk.get("ok") and chk.get("rows")) else 0
+                    if not has:
+                        out.append({"firma": firma, "cislo": cislo, "jmeno": "",
+                                    "problem": "davka",
+                                    "detail": "absence v registru (%s) — chybí dávka na pásce, DOPLNIT v Heliosu" % label})
+        except Exception as _e:
+            out.append({"firma": firma, "cislo": 0, "jmeno": "",
+                        "problem": "chyba", "detail": str(_e)[:160]})
+    return {"ok": True, "rok": int(rok), "mesic": int(mesic), "pocet": len(out), "polozky": out}
+
+
 def _mzdy_absence_rows(firma, rok, mesic):
     """Absence z REGISTRU případů (OČR/nemoc) → Helios docházková MS (Dny), automat dopočítá
     náhradu (ošetřovné/nemocenská) + poníží mzdu za absenční dny. Firma z case.company
@@ -30453,6 +30513,17 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "@@MZDY <firma> <rok> <mesic> [CLEAN]"})
         fclean = any(p.upper() == "CLEAN" for p in parts[4:])
         return JSONResponse(_mzdy_full_run(firma, rok, mesic, fclean))
+
+    #   @@MZDYCHECK <rok> <mesic>  → monitor výplatnic (status≠1 + absence bez dávky)
+    if sql.upper().startswith("@@MZDYCHECK"):
+        import datetime as _dmc
+        parts = sql.split()
+        try:
+            rok = int(parts[1]) if len(parts) > 1 else _dmc.date.today().year
+            mesic = int(parts[2]) if len(parts) > 2 else _dmc.date.today().month
+        except Exception:
+            return JSONResponse({"ok": False, "error": "@@MZDYCHECK <rok> <mesic>"})
+        return JSONResponse(_mzdy_status_check(rok, mesic))
 
     #   @@VYTIZABS [dnu_zpet]  → naše plánované absence → st.EC_Vytizeni_NepritomnostSTRATEGIE
     #   (jednosměrně, čte to view vytížení; default 14 dní zpět + budoucnost)

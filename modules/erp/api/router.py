@@ -24423,6 +24423,83 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
     return out
 
 
+# Generické příplatky/srážky (Marti 28.6.) — z wage_movement (mirror EC_FinPriplatkySrazkyDefinice)
+# do mzdy přes vlastní Helios CisloMS. Autoritativní mapa = EC číselník (MzdovaSlozka+ReakceMzdy),
+# zrcadlená v wage_system_mapping. VYJMA HO/OBL/korekce (typy 10/30/40 = ReakceMzdy False → benefit systém).
+# Pojistka proti dvojímu započtení = NÁŠ ledger závazků tenant.zamestnanecky_zavazek (kanál 'mzda',
+# stav otevreno→v_mzde→vyplaceno; čistá voda per období, 'vyplaceno' se nepřemazává), NEsaháme do EC
+# příznaků (Přeneseno/DatVyplaceni). Závazek vůči zaměstnanci drží v saldu do vyplacení (Marti). Ledger
+# unese i kanály faktura/objednávka (OSVČ, na více firem) — to později; teď jen kanál mzda.
+def _mzdy_priplatky_rows(firma, rok, mesic):
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    fkod = '1' if str(firma).upper() in ('EC', '1') else '2'
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT ae.cislo_zam AS cislo, msm.ext_code AS cislo_ms, wm.import_src_id AS ecid, "
+            "  COALESCE(wm.amount, wm.hours*wm.rate, 0) AS castka, wm.zakazka_ref AS zak "
+            "FROM tenant.wage_movement wm "
+            "JOIN tenant.engagement e ON e.id=wm.engagement_id "
+            "JOIN tenant.company c ON c.id=e.company_id AND c.code=:f "
+            "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam ~ '^[0-9]+$' "
+            "JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
+            "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
+            "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
+            "WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') "
+            "  AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod') "
+            "  AND ( (wm.period_year=:y AND wm.period_month=:mo) "
+            "     OR (COALESCE(wm.is_recurring,false) AND wm.valid_from <= make_date(:y,:mo,1) "
+            "         AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))) )"),
+            {"f": fkod, "y": rok, "mo": mesic}).fetchall()
+        # čistá voda: smaž alokace ZÁVAZKŮ do mzdy za období+firma (re-run při ladění); 'vyplaceno' nech být
+        s.execute(_t("DELETE FROM tenant.zamestnanecky_zavazek WHERE tenant_id=2 AND zdroj='EC_PRIPL' "
+                     "AND firma=:f AND rok=:y AND mesic=:mo AND kanal='mzda' AND stav<>'vyplaceno'"),
+                  {"f": fkod, "y": rok, "mo": mesic})
+        agg = {}
+        for r in rows:
+            try:
+                cislo = int(str(r[0]).strip()); ms = int(r[1]); ecid = r[2]
+                kc = float(r[3] or 0); zak = r[4]
+            except Exception:
+                continue
+            if not kc:
+                continue
+            agg[(cislo, ms)] = agg.get((cislo, ms), 0) + kc
+            s.execute(_t(
+                "INSERT INTO tenant.zamestnanecky_zavazek (firma, cislo, rok, mesic, zdroj, zdroj_id, "
+                " kanal, cilova_firma, cislo_ms, zakazka_ref, castka, stav) "
+                "VALUES (:f,:c,:y,:mo,'EC_PRIPL',:zid,'mzda',:f,:ms,:zak,:kc,'v_mzde') "
+                "ON CONFLICT (tenant_id, zdroj, zdroj_id, rok, mesic, kanal, cilova_firma) "
+                "DO UPDATE SET castka=EXCLUDED.castka, cislo_ms=EXCLUDED.cislo_ms, stav='v_mzde', updated_at=now()"),
+                {"f": fkod, "c": cislo, "y": rok, "mo": mesic,
+                 "zid": (int(ecid) if ecid else None), "ms": ms,
+                 "zak": (str(zak)[:40] if zak else None), "kc": kc})
+        s.commit()
+        return [(c, ms, int(round(v)), 0) for (c, ms), v in agg.items()]
+    finally:
+        s.close()
+
+
+def _mzdy_consolidate(prows):
+    """Sečte koruny + dny per (cislo, cislo_ms) — víc zdrojů do jedné Helios složky
+    (např. 651 ze snapshotu premie/vedení + příplatků odměny)."""
+    agg = {}
+    order = []
+    for row in prows:
+        try:
+            c = int(row[0]); ms = int(row[1]); kc = int(row[2] or 0)
+            dny = int(row[3] if len(row) > 3 else 0)
+        except Exception:
+            continue
+        if (c, ms) not in agg:
+            agg[(c, ms)] = [0, 0]
+            order.append((c, ms))
+        agg[(c, ms)][0] += kc
+        agg[(c, ms)][1] += dny
+    return [(c, ms, agg[(c, ms)][0], agg[(c, ms)][1]) for (c, ms) in order]
+
+
 def _mzdy_predzprac_apply(cloud_db, idobd, rows):
     """Zapíše předzpracování PER-ŘÁDEK přes 3-part jména (bez USE/temp/cursor) — spolehlivé
     přes API _mssql188_query a trigger-safe (single-row INSERT projde Helios triggerem).
@@ -24505,6 +24582,14 @@ def mzdy_generuj(req: Request):
             prows = _mzdy_benefity_apply(prows, firma, rok, mesic)
         except Exception as _be:
             pass  # benefity best-effort, nesmí shodit generování
+        try:
+            prows = prows + _mzdy_priplatky_rows(firma, rok, mesic)
+        except Exception as _pe:
+            pass  # příplatky/srážky best-effort
+        try:
+            prows = _mzdy_consolidate(prows)  # sečti víc zdrojů do jedné Helios složky
+        except Exception as _ce:
+            pass
         if prows:
             perr = _mzdy_predzprac_apply(cloud_db, idobd, prows)
             if perr:

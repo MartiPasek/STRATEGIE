@@ -24670,10 +24670,25 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
     try:
         # Nárok = odpracované dny >4 h (Marti). Firma se rozliší až při zápisu (join na
         # TabCisZam dané firmy v _mzdy_predzprac_apply). Enrollment (stravenky_od) = TODO doladit.
+        # Nárok = odpracovaný den >4 h, KTERÝ NENÍ absenční (OČR/nemoc/dovolená/… ze
+        # záznamu i z registru případů) — Marti 28.6.: stravenka jen za reálně odpracovaný den.
         rr = s.execute(_t(
             "SELECT ds.cislo_zam, COUNT(*) AS dny "
             "FROM tenant.att_day_summary ds "
             "WHERE ds.tenant_id=2 AND ds.rok=:y AND ds.mesic=:mo AND ds.cas_celkem>4 "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry a "
+            "     JOIN tenant.att_employee e ON e.id=a.employee_id "
+            "     JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+            "     WHERE e.cislo_zam=ds.cislo_zam AND a.entry_date=ds.datum "
+            "       AND et.code IN ('family_care','sick','vacation','medical','unpaid','sickday','maternity')) "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_ocr_case c "
+            "     JOIN tenant.att_employee e ON e.id=c.employee_id "
+            "     WHERE e.cislo_zam=ds.cislo_zam AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
+            "       AND c.datum_od<=ds.datum AND COALESCE(c.datum_do, CURRENT_DATE)>=ds.datum) "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_sick_case c "
+            "     JOIN tenant.att_employee e ON e.id=c.employee_id "
+            "     WHERE e.cislo_zam=ds.cislo_zam AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
+            "       AND c.datum_od<=ds.datum AND COALESCE(c.datum_do, CURRENT_DATE)>=ds.datum) "
             "GROUP BY ds.cislo_zam"),
             {"y": rok, "mo": mesic}).fetchall()
     finally:

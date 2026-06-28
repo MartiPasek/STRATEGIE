@@ -24797,6 +24797,73 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows):
     return None
 
 
+def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
+    """MOST @@MZDY (Marti 28.6.): čistá voda + předzpracování (benefity+stravenky+příplatky)
+    + výpočet ve smyčce s časovým rozpočtem. Volat opakovaně, dokud done=False (Express je pomalý).
+    Čistá voda + předzpracování jen na začátku (hot==0) nebo force_clean."""
+    import time as _tm
+    _src, cloud_db = _zrc_dbs(firma)
+    _ro = _mssql188_query("SELECT IdObdobi FROM " + cloud_db + ".dbo.TabMzdObd WHERE Rok=" +
+                          str(int(rok)) + " AND Mesic=" + str(int(mesic)))
+    if not (_ro.get("ok") and _ro.get("rows")):
+        return {"ok": False, "error": "období v cloud Heliosu není (TabMzdObd)"}
+    idobd = int(_ro["rows"][0][0])
+
+    def _counts():
+        c = _mssql188_query(
+            "SELECT (SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamMzd WHERE IdObdobi=" + str(idobd) +
+            " AND Automat=1 AND Uzavreno=0 AND StavES=0) cil,"
+            "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + ") hot,"
+            "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + " AND Info=58801) vys")
+        if c.get("ok") and c.get("rows"):
+            r0 = c["rows"][0]
+            return int(r0[0] or 0), int(r0[1] or 0), int(r0[2] or 0)
+        return 0, 0, 0
+
+    cil, hot, _v = _counts()
+    if force_clean or hot == 0:
+        cw = _mssql188_query(_mzdy_clean_sql(cloud_db, idobd))
+        if not cw.get("ok"):
+            return {"ok": False, "error": "vyčištění: " + str(cw.get("error"))[:200]}
+        prows = _mzdy_predzprac_rows(firma)
+        try:
+            prows = prows + _mzdy_stravenky_rows(firma, rok, mesic)
+        except Exception:
+            pass
+        try:
+            prows = _mzdy_benefity_apply(prows, firma, rok, mesic)
+        except Exception:
+            pass
+        try:
+            prows = prows + _mzdy_priplatky_rows(firma, rok, mesic)
+        except Exception:
+            pass
+        try:
+            prows = _mzdy_consolidate(prows)
+        except Exception:
+            pass
+        if prows:
+            perr = _mzdy_predzprac_apply(cloud_db, idobd, prows)
+            if perr:
+                return {"ok": False, "error": "předzpracování: " + str(perr)[:200]}
+    t0 = _tm.time()
+    stalled = False
+    while _tm.time() - t0 < budget_s:
+        cil, hot, _v = _counts()
+        if hot >= cil:
+            break
+        w = _mssql188_query(_mzdy_worker_sql(cloud_db, idobd, 8))
+        if not w.get("ok"):
+            return {"ok": False, "error": "worker: " + str(w.get("error"))[:200], "cil": cil, "hotovo": hot}
+        cil2, hot2, _v2 = _counts()
+        if hot2 <= hot:
+            stalled = True
+            break
+    cil, hot, vys = _counts()
+    return {"ok": True, "firma": firma, "idobdobi": idobd, "cil": cil, "hotovo": hot,
+            "vystrahy": vys, "done": hot >= cil, "uvazlo": stalled}
+
+
 @api_router.post("/app/mzdy/generuj")
 def mzdy_generuj(req: Request):
     """Generování mezd na CLOUD Heliosu: jeden tok = (volitelně vyčištění) generování +
@@ -30176,6 +30243,19 @@ async def diag_sql(req: Request) -> JSONResponse:
     # (queue_email, from_identity=persona → worker pošle přes její schránku).
     # Autonomní (token-auth, bez approval banneru), audit do fw.claude_email_log.
     #   @@EMAIL {"to":"x@y.cz","subject":"...","body":"...","cc":["..."],"reason":"..."}
+    #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)
+    if sql.upper().startswith("@@MZDY"):
+        import datetime as _dtm
+        parts = sql.split()
+        firma = (parts[1] if len(parts) > 1 else "ES").upper()
+        try:
+            rok = int(parts[2]) if len(parts) > 2 else _dtm.date.today().year
+            mesic = int(parts[3]) if len(parts) > 3 else _dtm.date.today().month
+        except Exception:
+            return JSONResponse({"ok": False, "error": "@@MZDY <firma> <rok> <mesic> [CLEAN]"})
+        fclean = any(p.upper() == "CLEAN" for p in parts[4:])
+        return JSONResponse(_mzdy_full_run(firma, rok, mesic, fclean))
+
     if sql.upper().startswith("@@EMAIL"):
         import json as _jem
         from core.database_data import get_data_session as _gem

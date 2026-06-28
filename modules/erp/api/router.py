@@ -24305,16 +24305,14 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
     from sqlalchemy import text as _t
     s = _g()
     try:
+        # Nárok = odpracované dny >4 h (Marti). Firma se rozliší až při zápisu (join na
+        # TabCisZam dané firmy v _mzdy_predzprac_apply). Enrollment (stravenky_od) = TODO doladit.
         rr = s.execute(_t(
             "SELECT ds.cislo_zam, COUNT(*) AS dny "
             "FROM tenant.att_day_summary ds "
             "WHERE ds.tenant_id=2 AND ds.rok=:y AND ds.mesic=:mo AND ds.cas_celkem>4 "
-            "  AND EXISTS (SELECT 1 FROM tenant.engagement e "
-            "    JOIN tenant.company co ON co.id=e.company_id "
-            "    WHERE e.tenant_id=2 AND e.ec_id=ds.cislo_zam AND co.code=:fc "
-            "      AND e.stravenky_od IS NOT NULL AND e.stravenky_od <= make_date(:y,:mo,28)) "
             "GROUP BY ds.cislo_zam"),
-            {"y": rok, "mo": mesic, "fc": ("1" if firma == "EC" else "2")}).fetchall()
+            {"y": rok, "mo": mesic}).fetchall()
     finally:
         s.close()
     out = []

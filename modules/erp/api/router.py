@@ -24130,6 +24130,49 @@ def ucto_mzdy_zpracovani(req: Request):
             "slozky": _mzd_pair(src_db, cloud_db, "TabMzSloz", idobd)}
 
 
+@api_router.get("/app/mzdy/vyplatnice")
+def mzdy_vyplatnice(req: Request):
+    """Výplatnice za období přímo z Helios cloud TabZamVyp (spočítané hodnoty). Parent-only."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "ES").upper()
+    _src, cloud_db = _zrc_dbs(firma)
+    import datetime as _dt
+    _now = _dt.date.today()
+    try:
+        rok = int(req.query_params.get("rok") or _now.year)
+        mesic = int(req.query_params.get("mesic") or _now.month)
+    except Exception:
+        rok, mesic = _now.year, _now.month
+    _ro = _mssql188_query("SELECT IdObdobi FROM " + cloud_db + ".dbo.TabMzdObd "
+                          "WHERE Rok=" + str(rok) + " AND Mesic=" + str(mesic))
+    if not (_ro.get("ok") and _ro.get("rows")):
+        return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "lidi": [], "pozn": "období v cloudu není"}
+    idobd = int(_ro["rows"][0][0])
+    q = ("SELECT z.Cislo, z.Prijmeni, z.Jmeno, v.ZamestnanecId, "
+         "ISNULL(v.HrubaMzda,0), ISNULL(v.SocPojZam,0), ISNULL(v.ZdrPojZam,0), "
+         "ISNULL(v.DanZakladni,0), ISNULL(v.DanovyBonus,0), ISNULL(v.CistaMzda,0), ISNULL(v.SocPojFirma,0) "
+         "FROM " + cloud_db + ".dbo.TabZamVyp v "
+         "JOIN " + cloud_db + ".dbo.TabCisZam z ON z.ID=v.ZamestnanecId "
+         "WHERE v.IdObdobi=" + str(idobd) + " ORDER BY z.Prijmeni, z.Jmeno")
+    r = _mssql188_query(q)
+    lidi = []
+    if r.get("ok") and r.get("rows"):
+        for v in r["rows"]:
+            lidi.append({"cislo": v[0], "prijmeni": v[1], "jmeno": (v[2] or "").strip(),
+                         "zam_id": int(v[3] or 0), "hruba": float(v[4] or 0),
+                         "sp_zam": float(v[5] or 0), "zp_zam": float(v[6] or 0),
+                         "dan": float(v[7] or 0), "bonus": float(v[8] or 0),
+                         "cista": float(v[9] or 0), "sp_firma": float(v[10] or 0)})
+    return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "idobdobi": idobd, "lidi": lidi}
+
+
 def _mcp_exec_office(sql, db_name="DB_EC"):
     """Spustí SQL (vč. EXEC procedury) v kancelářském Heliosu přes MCP, vrátí řádky (poslední SELECT)."""
     try:

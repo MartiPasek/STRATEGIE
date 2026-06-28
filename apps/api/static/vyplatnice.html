@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🧾 Výplatnice</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;background:#0c111b;color:#e8edf6;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+  .wrap{max-width:1280px;margin:0 auto;padding:18px 16px 70px}
+  h1{font-size:20px;margin:0 0 2px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .sub{color:#8295ad;font-size:12.5px;margin:0 0 14px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  select,button{background:#141b29;color:#e8edf6;border:1px solid #2a3547;border-radius:8px;padding:6px 10px;font-size:13px}
+  button{cursor:pointer}
+  button.act{background:#1d3a2a;border-color:#2e6b47;color:#9af0c0}
+  .seg{display:inline-flex;border:1px solid #2a3547;border-radius:8px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:#141b29}
+  .seg button.on{background:#23406b;color:#bcd6ff}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+  .card{background:#141b29;border:1px solid #232c3b;border-radius:12px;padding:12px 14px}
+  .card .k{color:#8295ad;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+  .card .v{font-size:18px;font-weight:700;margin-top:4px}
+  table{width:100%;border-collapse:collapse;background:#121826;border:1px solid #232c3b;border-radius:12px;overflow:hidden;font-variant-numeric:tabular-nums}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid #1d2533;white-space:nowrap}
+  th{background:#161d2c;color:#8fa3bd;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;position:sticky;top:0}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  tbody tr:hover{background:#1a2236}
+  tfoot td{background:#16203258;font-weight:700;border-top:2px solid #2c3a52}
+  .hruba{color:#9ec5ff;font-weight:700}.cista{color:#86e8b0;font-weight:700}.mut{color:#6f8097}
+  a.back{color:#7fb0ff;text-decoration:none;font-size:12.5px}
+  .loading{padding:30px;text-align:center;color:#8295ad}
+  .note{background:#141b29;border:1px solid #232c3b;border-left:3px solid #3b6bd4;border-radius:10px;padding:11px 14px;color:#aebccf;font-size:12.4px;line-height:1.5;margin-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/marti">← Řídicí pult</a>
+  <h1>🧾 Výplatnice <span style="font-size:12px;color:#8295ad;font-weight:400">přímo z Helios výpočtu</span></h1>
+  <p class="sub">Spočítané mzdy čtené z Helios cloud (TabZamVyp). Helios počítá legislativu, my zobrazujeme.</p>
+  <div class="bar">
+    <span class="seg" id="firmaSeg">
+      <button data-f="ES" class="on" onclick="setF('ES')">ES (System)</button>
+      <button data-f="EC" onclick="setF('EC')">EC (Control)</button>
+    </span>
+    <select id="rok"></select>
+    <select id="mesic"></select>
+    <button class="act" onclick="load()">Načíst</button>
+  </div>
+  <div id="cards" class="cards"></div>
+  <div id="body"><div class="loading">Vyber firmu/období a načti…</div></div>
+  <div class="note">
+    Pokud jsou částky nulové nebo staré, spusť v Heliosu <b>Mzdy → Výpočet mzdy → Akce → Výpočet</b> — Helios přepočítá z předzpracování a zde se objeví aktuální čísla. Aktivní lidé do období se řídí z našeho systému (MOST · Mzdy_Vstup).
+  </div>
+</div>
+<script>
+const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ")+" Kč";
+let FIRMA="ES";
+function setF(f){FIRMA=f;document.querySelectorAll('#firmaSeg button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));load();}
+function fillSelectors(){
+  const now=new Date(); const ry=document.getElementById('rok'), ms=document.getElementById('mesic');
+  for(let y=now.getFullYear();y>=2024;y--){const o=document.createElement('option');o.value=y;o.textContent=y;ry.appendChild(o);}
+  const mn=['leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
+  for(let m=1;m<=12;m++){const o=document.createElement('option');o.value=m;o.textContent=mn[m-1];ms.appendChild(o);}
+  ms.value=now.getMonth()+1; ry.value=now.getFullYear();
+}
+async function load(){
+  const rok=document.getElementById('rok').value, mesic=document.getElementById('mesic').value;
+  document.getElementById('body').innerHTML='<div class="loading">Načítám z Heliosu…</div>';
+  document.getElementById('cards').innerHTML='';
+  let d; try{ d=await (await fetch('/api/v1/erp/app/mzdy/vyplatnice?firma='+FIRMA+'&rok='+rok+'&mesic='+mesic,{credentials:'include'})).json(); }
+  catch(e){ document.getElementById('body').innerHTML='<div class="loading">Chyba: '+e.message+'</div>'; return; }
+  if(!d.ok){ document.getElementById('body').innerHTML='<div class="loading">'+(d.error||'chyba')+'</div>'; return; }
+  if(!d.lidi||!d.lidi.length){ document.getElementById('body').innerHTML='<div class="loading">Žádné výplatnice za období'+(d.pozn?' ('+d.pozn+')':'')+'. Naplň přes MOST a spusť v Heliosu výpočet.</div>'; return; }
+  let sH=0,sC=0,sSP=0,sZP=0,sD=0,sF=0;
+  let h='<table><thead><tr><th>Jméno</th><th>Os.č.</th><th>Hrubá</th><th>SP zam</th><th>ZP zam</th><th>Daň</th><th>Bonus</th><th>Čistá</th><th>SP firma</th></tr></thead><tbody>';
+  for(const r of d.lidi){
+    sH+=r.hruba;sC+=r.cista;sSP+=r.sp_zam;sZP+=r.zp_zam;sD+=r.dan;sF+=r.sp_firma;
+    h+='<tr><td><b>'+r.prijmeni+'</b> '+r.jmeno+'</td><td class="mut">'+(r.cislo||'')+'</td>'+
+       '<td class="hruba">'+fk(r.hruba)+'</td><td class="mut">'+fk(r.sp_zam)+'</td><td class="mut">'+fk(r.zp_zam)+'</td>'+
+       '<td class="mut">'+fk(r.dan)+'</td><td class="mut">'+fk(r.bonus)+'</td><td class="cista">'+fk(r.cista)+'</td>'+
+       '<td class="mut">'+fk(r.sp_firma)+'</td></tr>';
+  }
+  h+='</tbody><tfoot><tr><td>Celkem ('+d.lidi.length+')</td><td></td><td class="hruba">'+fk(sH)+'</td><td>'+fk(sSP)+'</td><td>'+fk(sZP)+'</td><td>'+fk(sD)+'</td><td></td><td class="cista">'+fk(sC)+'</td><td>'+fk(sF)+'</td></tr></tfoot></table>';
+  document.getElementById('body').innerHTML=h;
+  document.getElementById('cards').innerHTML=
+    '<div class="card"><div class="k">Lidí</div><div class="v">'+d.lidi.length+'</div></div>'+
+    '<div class="card"><div class="k">Hrubé / měs</div><div class="v" style="color:#9ec5ff">'+fk(sH)+'</div></div>'+
+    '<div class="card"><div class="k">Čisté / měs</div><div class="v" style="color:#86e8b0">'+fk(sC)+'</div></div>'+
+    '<div class="card"><div class="k">Náklad firmy (hrubá+SP firma)</div><div class="v">'+fk(sH+sF)+'</div></div>';
+}
+fillSelectors(); load();
+</script>
+</body>
+</html>

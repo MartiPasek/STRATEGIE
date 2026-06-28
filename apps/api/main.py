@@ -1022,6 +1022,13 @@ def hromady_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/vyplatnice")
+def vyplatnice_page():
+    """Výplatnice za období přímo z Helios cloud výpočtu (TabZamVyp). Marti 28.6.2026."""
+    return FileResponse(os.path.join(static_dir, "vyplatnice.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/dochazka-automat")
 def dochazka_automat_page():
     """Docházkový automat — kategorie + zařazování lidí + přehled co automat dopíchl.

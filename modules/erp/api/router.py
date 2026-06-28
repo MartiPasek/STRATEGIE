@@ -19418,11 +19418,72 @@ async def att_real(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _sickday_lekar_apply(s, emp, code, days_hours, uid, note):
+    """Čerpání sick day PŘEDNOSTNĚ (Marti 28.6.). days_hours=[(date,hours)].
+    - sickday: hodiny čerpá z balance (cap na zbytek nároku).
+    - medical (lékař): cap 4 h/návštěva; čerpá se PŘEDNOSTNĚ ze sickday (ta část → entry 'sickday'),
+      zbytek zůstává 'medical'. Hned ten den sníží sick_day_balance.cerpano_h. Nárok default 16 h (HR opraví)."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    if not days_hours:
+        return None
+    rok = days_hours[0][0].year
+    eng = s.execute(_t(
+        "SELECT id FROM tenant.engagement WHERE employee_id=:e AND tenant_id=2 "
+        "AND (smlouva_do IS NULL OR smlouva_do>=CURRENT_DATE) ORDER BY smlouva_od DESC NULLS LAST LIMIT 1"),
+        {"e": emp}).scalar() or s.execute(_t(
+        "SELECT id FROM tenant.engagement WHERE employee_id=:e AND tenant_id=2 ORDER BY id DESC LIMIT 1"),
+        {"e": emp}).scalar()
+    if not eng:
+        return None
+    bal = s.execute(_t("SELECT narok_h, cerpano_h FROM tenant.sick_day_balance "
+                       "WHERE tenant_id=2 AND engagement_id=:g AND rok=:r"), {"g": eng, "r": rok}).first()
+    if not bal:
+        s.execute(_t("INSERT INTO tenant.sick_day_balance (tenant_id,engagement_id,rok,narok_h,cerpano_h) "
+                     "VALUES (2,:g,:r,16,0)"), {"g": eng, "r": rok})
+        narok, cerp = 16.0, 0.0
+    else:
+        narok, cerp = float(bal[0] or 0), float(bal[1] or 0)
+    sd_tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code='sickday'")).scalar()
+    med_tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code='medical'")).scalar()
+    for (d, h) in days_hours:
+        avail = max(0.0, narok - cerp)
+        if code == "medical":
+            hcap = min(float(h or 0), 4.0)
+            draw = min(hcap, avail)
+            rest = round(hcap - draw, 2)
+            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND employee_id=:e AND entry_date=:d "
+                         "AND entry_type_id IN (:m,:s)"), {"e": emp, "d": d, "m": med_tid, "s": sd_tid})
+            if draw > 0 and sd_tid:
+                s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                             "status,source,note,is_active,created_by_id,created_at,updated_at) "
+                             "VALUES (2,:e,:d,:t,:h,'pending','mobile_app',:n,false,:u,now(),now())"),
+                          {"e": emp, "d": d, "t": sd_tid, "h": draw, "n": ((note or "") + " [lékař→sickday]")[:250], "u": uid})
+                cerp += draw
+            if rest > 0 and med_tid:
+                s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                             "status,source,note,is_active,created_by_id,created_at,updated_at) "
+                             "VALUES (2,:e,:d,:t,:h,'pending','mobile_app',:n,false,:u,now(),now())"),
+                          {"e": emp, "d": d, "t": med_tid, "h": rest, "n": (note or "lékař")[:250], "u": uid})
+        else:  # sickday přímo
+            req = float(h or 0)
+            draw = min(req, avail)
+            if sd_tid:
+                s.execute(_t("UPDATE tenant.att_entry SET hours=:h, note=:n, updated_at=now() "
+                             "WHERE tenant_id=2 AND employee_id=:e AND entry_date=:d AND entry_type_id=:t"),
+                          {"h": draw, "n": (note or "sickday")[:250], "e": emp, "d": d, "t": sd_tid})
+            cerp += draw
+    s.execute(_t("UPDATE tenant.sick_day_balance SET cerpano_h=:c WHERE tenant_id=2 AND engagement_id=:g AND rok=:r"),
+              {"c": cerp, "g": eng, "r": rok})
+    return {"narok_h": narok, "cerpano_h": cerp, "zbyva_h": max(0.0, narok - cerp)}
+
+
 @api_router.post("/app/attendance/absence")
 async def att_absence(req: Request) -> JSONResponse:
     """Nahlášení nepřítomnosti z appky (dovolená/nemoc/lékař/OČR/sickday/neplacené).
     Vytvoří att_entry na každý pracovní den v rozsahu (Po–Pá), status 'pending'.
-    Idempotentní per (employee, den, typ). Marti 6.6.2026."""
+    Idempotentní per (employee, den, typ). Marti 6.6.2026.
+    sickday/medical: čerpá sick_day_balance přednostně (lékař max 4 h, sickday first) — Marti 28.6."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -19491,6 +19552,21 @@ async def att_absence(req: Request) -> JSONResponse:
                 if day.weekday() < 5:  # Po–Pá
                     _upsert(day.isoformat(), None if code == "homeoffice" else 8)
                 day += _td(days=1)
+        # sickday/lékař: čerpání sick day přednostně, hned ten den (Marti 28.6.)
+        if code in ("medical", "sickday"):
+            try:
+                if mode == "hours":
+                    dh = [(d0, hrs)]
+                else:
+                    dh = []
+                    dd = d0
+                    while dd <= d1:
+                        if dd.weekday() < 5:
+                            dh.append((dd, 8.0))
+                        dd += _td(days=1)
+                _sickday_lekar_apply(s, emp, code, dh, uid, note)
+            except Exception:
+                pass
         s.commit()
         # Marti 7.6.: notifikace rodičům (schvalování z kapsy) — kdo, co, odkdy dokdy.
         try:

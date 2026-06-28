@@ -24662,7 +24662,7 @@ def benefity_moje(req: Request):
                 fkod = r[0]; cislo = int(r[1])
                 ho_max_kc = float(r[2] or 0); obl_kc = float(r[3] or 0)
                 ho_kc_den = _benefit_ho_kc_den(s, fkod, rok, mesic)
-                ho_max_dny = int(ho_max_kc // ho_kc_den) if ho_kc_den else 0
+                ho_max_dny = int(-(-ho_max_kc // ho_kc_den)) if ho_kc_den else 0  # ceil (kč cap hlídá částku)
                 ho_dny = int(r[4]) if r[4] is not None else min(ho_max_dny, 8 if ho_max_kc > 0 else 0)
                 obl_on = bool(r[5]) if r[5] is not None else (obl_kc > 0)
                 dny_pritomen = pres.get(cislo, 0)
@@ -24713,8 +24713,8 @@ async def benefity_moje_save(req: Request):
         if not lim:
             return JSONResponse({"ok": False, "error": "no limit"}, status_code=404)
         ho_kc_den = _benefit_ho_kc_den(s, firma, rok, mesic)
-        ho_max_dny = int(float(lim[0] or 0) // ho_kc_den) if ho_kc_den else 0
-        ho_dny = min(ho_dny, ho_max_dny)          # strop HR (částka ≤ HR)
+        ho_max_dny = int(-(-float(lim[0] or 0) // ho_kc_den)) if ho_kc_den else 0  # ceil
+        ho_dny = min(ho_dny, ho_max_dny)          # strop HR (částka ≤ HR drží kč cap)
         s.execute(_t(
             "INSERT INTO tenant.benefit_volba (tenant_id, firma, cislo, rok, mesic, ho_dny, obl_on, user_id) "
             "VALUES (2,:f,:c,:y,:mo,:d,:o,:u) "
@@ -24769,7 +24769,7 @@ def benefity_hr(req: Request):
             cislo = int(r[0]); ho_max_kc = float(r[1] or 0)
             out.append({
                 "cislo": cislo, "jmeno": names.get(cislo, ''),
-                "ho_max_kc": int(ho_max_kc), "ho_max_dny": int(ho_max_kc // ho_kc_den) if ho_kc_den else 0,
+                "ho_max_kc": int(ho_max_kc), "ho_max_dny": int(-(-ho_max_kc // ho_kc_den)) if ho_kc_den else 0,
                 "obl_kc": int(float(r[2] or 0)),
                 "ho_dny": (int(r[3]) if r[3] is not None else None),
                 "obl_on": (bool(r[4]) if r[4] is not None else None),

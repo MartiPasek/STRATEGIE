@@ -38,6 +38,7 @@
       .then(function (j) {
         _injectStyle();
         _renderButton();
+        if (IS_ERP) _renderOwners();   // Marti 28.6.: avatar Marti + Kristý vlevo od rakety
         _setActive(!!(j && j.deployable), j || {});
         setTimeout(function () { _poll(true); }, 4000); // první čerstvá kontrola
         setInterval(function () { _poll(true); }, POLL_MS);
@@ -97,6 +98,58 @@
     });
     b.addEventListener("click", _menu);
     document.body.appendChild(b);
+  }
+
+  // Avatar chipy Marti + Kristý vlevo od rakety (Marti 28.6.2026). Jen rodiče (běží
+  // ve stejném parent-gated flow jako raketa). Presence prstýnek dle „Kdo je kde".
+  function _renderOwners() {
+    if (document.getElementById("erpOwnerMarti")) return;
+    var people = [
+      { id: "erpOwnerMarti", uid: 1, ini: "M", name: "Marti Pašek", role: "zakladatel", col: "#2e5d3a", right: 112 },
+      { id: "erpOwnerKristy", uid: 11, ini: "K", name: "Kristýna", role: "procesy", col: "#4a3a6e", right: 64 }
+    ];
+    people.forEach(function (p) {
+      var b = document.createElement("button");
+      b.id = p.id; b.type = "button"; b.textContent = p.ini;
+      b.title = p.name + " — " + p.role;
+      b.style.cssText =
+        "position:fixed;top:8px;right:" + p.right + "px;z-index:99000;width:36px;height:36px;" +
+        "border-radius:50%;background:" + p.col + ";border:1px solid rgba(255,255,255,0.18);" +
+        "color:#eaf2ea;font-size:14px;font-weight:700;cursor:pointer;opacity:0.8;" +
+        "box-shadow:0 2px 8px rgba(0,0,0,0.4);transition:opacity .2s ease;";
+      b.addEventListener("mouseenter", function () { b.style.opacity = "1"; });
+      b.addEventListener("mouseleave", function () { b.style.opacity = "0.8"; });
+      b.addEventListener("click", function () { _ownerCard(p); });
+      document.body.appendChild(b);
+    });
+    _ownerPresence(people);
+  }
+
+  function _ownerCard(p) {
+    _menuDialog(p.name + " · " + p.role, [
+      { label: "💬 Otevřít chat (Tvoje Marti)", primary: true, fn: function () { try { window.open("/", "_blank"); } catch (e) {} } },
+      { label: "👀 Kdo je kde (Docházka → Kdo je kde)", fn: function () { _toast("Otevři ve stromu ERP: Docházka → Kdo je kde"); } }
+    ]);
+  }
+
+  function _ownerPresence(people) {
+    try {
+      var d = new Date();
+      var iso = d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+      fetch("/api/v1/erp/app/attendance/whereabouts?den=" + iso, { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j || !j.lide) return;
+          people.forEach(function (p) {
+            var rec = j.lide.filter(function (x) { return x.user_id === p.uid; })[0];
+            var b = document.getElementById(p.id);
+            if (!b || !rec) return;
+            var col = rec.kind === "prace" ? "#34d399" : (rec.kind === "mimo" ? "#e0b070" : "#6b7280");
+            b.style.boxShadow = "0 2px 8px rgba(0,0,0,0.4),0 0 0 2px " + col;
+            b.title = p.name + " — " + p.role + " · " + (rec.kind === "prace" ? "v budově" : (rec.kind === "mimo" ? "mimo" : "offline"));
+          });
+        }).catch(function () {});
+    } catch (e) {}
   }
 
   // Zapne/vypne "živý" stav rakety podle toho, jestli je co nasadit.

@@ -9605,6 +9605,77 @@ async def att_absence_mine(req: Request) -> JSONResponse:
 # Fáze 2 (až bude certifikát): ověření identifikátoru + stažení dokumentů +
 # podání NEMPRI přes VREP. Složka + podklad pro účetní = Fáze 1b.
 
+def _ocr_fill_dochazka(s, emp, d0, d1, uid, note, source="ocr") -> int:
+    """OČR (family_care) → docházka att_entry na každý pracovní den d0..d1 (Po–Pá), idempotentně.
+    Nepřepisuje den, kde už je reálná práce (work). Marti 28.6.: OČR ze SMS musí jít i do docházky."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    tr = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code='family_care'")).first()
+    if not tr:
+        return 0
+    tid = tr[0]
+    created = 0
+    day = d0
+    while day <= d1:
+        if day.weekday() < 5:
+            res = s.execute(_t(
+                "UPDATE tenant.att_entry SET hours=8, status='pending', source=:src, note=:n, updated_at=now() "
+                "WHERE tenant_id=2 AND employee_id=:e AND entry_date=:d AND entry_type_id=:et"),
+                {"src": source, "n": note, "e": emp, "d": day, "et": tid})
+            if (res.rowcount or 0) == 0:
+                hasw = s.execute(_t(
+                    "SELECT 1 FROM tenant.att_entry en JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
+                    "WHERE en.tenant_id=2 AND en.employee_id=:e AND en.entry_date=:d AND t.code='work' LIMIT 1"),
+                    {"e": emp, "d": day}).first()
+                if not hasw:
+                    s.execute(_t(
+                        "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                        "status,source,note,is_active,created_by_id,created_at,updated_at) "
+                        "VALUES (2,:e,:d,:et,8,'pending',:src,:n,false,:u,now(),now())"),
+                        {"e": emp, "d": day, "et": tid, "src": source, "n": note, "u": uid})
+                    created += 1
+        day = day + _dt.timedelta(days=1)
+    return created
+
+
+_OCR_EXTEND_LAST = [0.0]  # self-gate (1×/hod)
+
+
+def _ocr_extend_active():
+    """Aktivní OČR (stav novy/probiha, bez datum_do) → označ dnešek family_care v docházce.
+    Volá se z _att_sync_loop (self-gated 1×/hod). Tím průběžné dny OČR padají do docházky samy."""
+    import time as _tm
+    if _tm.time() - _OCR_EXTEND_LAST[0] < 3600:
+        return
+    _OCR_EXTEND_LAST[0] = _tm.time()
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    today = _dt.date.today()
+    if today.weekday() >= 5:
+        return
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT employee_id, user_id, osoba_jmeno, datum_od FROM tenant.att_ocr_case "
+            "WHERE tenant_id=2 AND stav IN ('novy','probiha') AND datum_do IS NULL "
+            "AND datum_od <= :t"), {"t": today}).fetchall()
+        for r in rows:
+            try:
+                d0 = r[3] if r[3] and r[3] >= (today - _dt.timedelta(days=60)) else today
+                _ocr_fill_dochazka(s, r[0], d0, today, r[1],
+                                   "OČR (probíhá): " + (r[2] or ""), "ocr_auto")
+            except Exception:
+                pass
+        s.commit()
+    except Exception:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _ocr_company(s, emp) -> str | None:
     """Kód firmy (EC/ES) z aktivního engagementu zaměstnance. Best-effort."""
     from sqlalchemy import text as _t
@@ -9669,6 +9740,10 @@ async def ocr_start(req: Request) -> JSONResponse:
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
             "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
             {"e": emp}).scalar() or "Zaměstnanec"
+        try:  # OČR z appky → rovnou do docházky (start den)
+            _ocr_fill_dochazka(s, emp, d_od, d_od, uid, "OČR: " + (osoba or ""), "ocr_app")
+        except Exception:
+            pass
         msg = (who + " zahájil OČR (péče o: " + osoba + ") od "
                + str(d_od.day) + "." + str(d_od.month) + ". Po skončení doplní dny ke schválení.")
         _abs_notify(s, mgr if mgr and int(mgr) != uid else 1, "🧑‍⚕️ Nové ošetřovné (OČR)", msg)
@@ -9720,6 +9795,10 @@ async def ocr_end(req: Request) -> JSONResponse:
         if row[3]:
             s.execute(_t("UPDATE tenant.att_absence_request SET datum_do=:dd WHERE id=:a"),
                       {"dd": d_do, "a": row[3]})
+        try:  # celý rozsah OČR do docházky (od..do)
+            _ocr_fill_dochazka(s, row[0], row[2], d_do, row[1], "OČR: " + (row[4] or ""), "ocr_end")
+        except Exception:
+            pass
         mgr = None
         try:
             mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
@@ -9922,6 +10001,10 @@ def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
             "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
             {"e": emp}).scalar() or "Zaměstnanec"
+        try:  # OČR ze SMS → rovnou do docházky (start den; průběžné dny doplní _ocr_extend_active)
+            _ocr_fill_dochazka(s, emp, d_od, d_od, uid, "OČR (SMS): " + (osoba or ""), "cssz_sms")
+        except Exception:
+            pass
         note = (who + " nahlásil OČR ze SMS (péče o: " + (osoba or "?") + "). "
                 + "Identifikátor: " + ident + ". "
                 + ("Otevři ePortál a stáhni dokument: " + link if link else "")).strip()
@@ -20352,6 +20435,10 @@ async def _att_sync_loop():
             loop = _aio.get_event_loop()
             await loop.run_in_executor(None, _att_sync_today)
             await loop.run_in_executor(None, _maybe_auto_checkout_midnight)
+            try:  # průběžné dny aktivního OČR → docházka (self-gated 1×/hod)
+                await loop.run_in_executor(None, _ocr_extend_active)
+            except Exception as _oe:
+                logger.warning("[ocr_extend] %s", _oe)
             try:  # ISO proaktivní hlídač — auto-CVE + digest termínů (self-gated 1×/den)
                 from modules.erp.api.iso_cockpit import _iso_reminders_run as _isorem
                 await loop.run_in_executor(None, _isorem)

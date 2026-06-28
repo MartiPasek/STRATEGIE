@@ -9605,13 +9605,13 @@ async def att_absence_mine(req: Request) -> JSONResponse:
 # Fáze 2 (až bude certifikát): ověření identifikátoru + stažení dokumentů +
 # podání NEMPRI přes VREP. Složka + podklad pro účetní = Fáze 1b.
 
-def _ocr_fill_dochazka(s, emp, d0, d1, uid, note, source="ocr") -> int:
-    """OČR (family_care) → docházka att_entry na každý pracovní den d0..d1 (Po–Pá), idempotentně.
-    **OČR den = ŽÁDNÉ jiné záznamy** (Marti 28.6.: kdo je na OČR nesmí mít docházku — mazat o půlnoci).
-    Na OČR dnech proto SMAŽE všechny ostatní att_entry (práce/režie/pauza/…) a nechá jen family_care."""
+def _ocr_fill_dochazka(s, emp, d0, d1, uid, note, source="ocr", code="family_care") -> int:
+    """Absence (family_care/sick) → docházka att_entry na každý pracovní den d0..d1 (Po–Pá), idempotentně.
+    **Absenční den = ŽÁDNÉ jiné záznamy** (Marti 28.6.: kdo je na OČR/nemocenské nesmí mít docházku — úklid).
+    Na těch dnech SMAŽE všechny ostatní att_entry (práce/režie/pauza/…) a nechá jen daný absenční typ."""
     from sqlalchemy import text as _t
     import datetime as _dt
-    tr = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code='family_care'")).first()
+    tr = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code=:c"), {"c": code}).first()
     if not tr:
         return 0
     tid = tr[0]
@@ -9662,7 +9662,20 @@ def _ocr_extend_active():
             try:
                 d0 = r[3] if r[3] and r[3] >= (today - _dt.timedelta(days=60)) else today
                 _ocr_fill_dochazka(s, r[0], d0, today, r[1],
-                                   "OČR (probíhá): " + (r[2] or ""), "ocr_auto")
+                                   "OČR (probíhá): " + (r[2] or ""), "ocr_auto", "family_care")
+            except Exception:
+                pass
+        # aktivní nemocenská → docházka (sick)
+        srows = s.execute(_t(
+            "SELECT employee_id, user_id, cislo_dpn, datum_od FROM tenant.att_sick_case "
+            "WHERE tenant_id=2 AND stav IN ('novy','probiha') AND datum_do IS NULL "
+            "AND datum_od <= :t"), {"t": today}).fetchall()
+        for r in srows:
+            try:
+                d0 = r[3] if r[3] and r[3] >= (today - _dt.timedelta(days=60)) else today
+                _ocr_fill_dochazka(s, r[0], d0, today, r[1],
+                                   "Nemocenská (probíhá)" + ((" DPN " + r[2]) if r[2] else ""),
+                                   "sick_auto", "sick")
             except Exception:
                 pass
         s.commit()
@@ -10093,6 +10106,11 @@ async def sick_start(req: Request) -> JSONResponse:
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
             "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
             {"e": emp}).scalar() or "Zaměstnanec"
+        try:  # nemocenská → docházka (start den; průběžné dny doplní _ocr_extend_active)
+            _ocr_fill_dochazka(s, emp, d_od, d_od, uid,
+                               "Nemocenská" + ((" DPN " + cislo) if cislo else ""), "sick_app", "sick")
+        except Exception:
+            pass
         msg = (who + " hlásí nemocenskou od " + str(d_od.day) + "." + str(d_od.month) + "."
                + ((" (předpoklad do " + str(pdo.day) + "." + str(pdo.month) + ".)") if pdo else "")
                + ". Po ukončení doplní konec ke schválení.")
@@ -10141,6 +10159,10 @@ async def sick_end(req: Request) -> JSONResponse:
         if row[3]:
             s.execute(_t("UPDATE tenant.att_absence_request SET datum_do=:dd WHERE id=:a"),
                       {"dd": d_do, "a": row[3]})
+        try:  # celý rozsah nemocenské do docházky (od..do)
+            _ocr_fill_dochazka(s, row[0], row[2], d_do, row[1], "Nemocenská", "sick_end", "sick")
+        except Exception:
+            pass
         mgr = None
         try:
             mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
@@ -19565,6 +19587,33 @@ async def att_absence(req: Request) -> JSONResponse:
                             dh.append((dd, 8.0))
                         dd += _td(days=1)
                 _sickday_lekar_apply(s, emp, code, dh, uid, note)
+            except Exception:
+                pass
+        # dovolená → čerpání holiday_balance (recompute z docházky = idempotentní)
+        if code == "vacation":
+            try:
+                rok = d0.year
+                eng = s.execute(_t(
+                    "SELECT id FROM tenant.engagement WHERE employee_id=:e AND tenant_id=2 "
+                    "AND (smlouva_do IS NULL OR smlouva_do>=CURRENT_DATE) ORDER BY smlouva_od DESC NULLS LAST LIMIT 1"),
+                    {"e": emp}).scalar()
+                if eng:
+                    used = s.execute(_t(
+                        "SELECT COALESCE(SUM(en.hours),0) FROM tenant.att_entry en "
+                        "JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
+                        "WHERE en.tenant_id=2 AND en.employee_id=:e AND t.code='vacation' "
+                        "AND EXTRACT(YEAR FROM en.entry_date)=:r"), {"e": emp, "r": rok}).scalar() or 0
+                    ex = s.execute(_t("SELECT narok_h, prevod_h FROM tenant.holiday_balance "
+                                      "WHERE tenant_id=2 AND engagement_id=:g AND rok=:r"),
+                                   {"g": eng, "r": rok}).first()
+                    if not ex:
+                        s.execute(_t("INSERT INTO tenant.holiday_balance (tenant_id,engagement_id,rok,narok_h,prevod_h,cerpano_h,zbytek_h) "
+                                     "VALUES (2,:g,:r,0,0,:u,:z)"), {"g": eng, "r": rok, "u": used, "z": -float(used)})
+                    else:
+                        nar = float(ex[0] or 0); prv = float(ex[1] or 0)
+                        s.execute(_t("UPDATE tenant.holiday_balance SET cerpano_h=:u, zbytek_h=:z, changed_at=now() "
+                                     "WHERE tenant_id=2 AND engagement_id=:g AND rok=:r"),
+                                  {"u": used, "z": nar + prv - float(used), "g": eng, "r": rok})
             except Exception:
                 pass
         s.commit()

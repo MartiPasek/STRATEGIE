@@ -15,6 +15,8 @@
   select,button{background:#141b29;color:#e8edf6;border:1px solid #2a3547;border-radius:8px;padding:6px 10px;font-size:13px}
   button{cursor:pointer}
   button.act{background:#1d3a2a;border-color:#2e6b47;color:#9af0c0}
+  button.gen{background:#2a2150;border-color:#5142a0;color:#cdbcff;font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
   .seg{display:inline-flex;border:1px solid #2a3547;border-radius:8px;overflow:hidden}
   .seg button{border:0;border-radius:0;background:#141b29}
   .seg button.on{background:#23406b;color:#bcd6ff}
@@ -24,21 +26,40 @@
   .card .v{font-size:18px;font-weight:700;margin-top:4px}
   table{width:100%;border-collapse:collapse;background:#121826;border:1px solid #232c3b;border-radius:12px;overflow:hidden;font-variant-numeric:tabular-nums}
   th,td{padding:8px 10px;text-align:right;border-bottom:1px solid #1d2533;white-space:nowrap}
-  th{background:#161d2c;color:#8fa3bd;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;position:sticky;top:0}
+  th{background:#161d2c;color:#8fa3bd;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px}
   th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  tbody tr{cursor:pointer}
   tbody tr:hover{background:#1a2236}
   tfoot td{background:#16203258;font-weight:700;border-top:2px solid #2c3a52}
   .hruba{color:#9ec5ff;font-weight:700}.cista{color:#86e8b0;font-weight:700}.mut{color:#6f8097}
   a.back{color:#7fb0ff;text-decoration:none;font-size:12.5px}
   .loading{padding:30px;text-align:center;color:#8295ad}
   .note{background:#141b29;border:1px solid #232c3b;border-left:3px solid #3b6bd4;border-radius:10px;padding:11px 14px;color:#aebccf;font-size:12.4px;line-height:1.5;margin-top:16px}
+  .prog{height:8px;background:#1a2236;border-radius:5px;overflow:hidden;flex:1;min-width:120px;max-width:280px}
+  .prog>i{display:block;height:100%;background:linear-gradient(90deg,#5142a0,#7d6bff);width:0}
+  .ovl{position:fixed;inset:0;background:#06080cdd;display:none;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto;z-index:50}
+  .ovl.on{display:flex}
+  .pas{background:#0f1622;border:1px solid #283449;border-radius:14px;max-width:680px;width:100%;padding:0 0 14px}
+  .pashead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:16px 18px;border-bottom:1px solid #222c3d;position:sticky;top:0;background:#0f1622;border-radius:14px 14px 0 0}
+  .pashead h2{margin:0;font-size:17px}
+  .pashead .meta{color:#8295ad;font-size:12px;margin-top:3px;line-height:1.5}
+  .pasbody{padding:8px 18px}
+  .grp{margin-top:14px}
+  .grp h3{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#8fa3bd;margin:0 0 5px;border-bottom:1px solid #1d2533;padding-bottom:4px}
+  .row{display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:3px 0;font-variant-numeric:tabular-nums}
+  .row .n{color:#cfd9e8}.row .h{color:#6f8097;font-size:12px;text-align:right;min-width:74px}.row .c{text-align:right;min-width:92px;font-weight:600}
+  .sumblk{margin-top:16px;border-top:2px solid #2c3a52;padding-top:10px}
+  .sumrow{display:flex;justify-content:space-between;padding:3px 0;font-variant-numeric:tabular-nums}
+  .sumrow.big{font-size:16px;font-weight:700;border-top:1px solid #2c3a52;margin-top:6px;padding-top:8px}
+  .x{background:transparent;border:0;color:#9fb0c8;font-size:20px;cursor:pointer;line-height:1}
+  @media print{body{background:#fff;color:#000}.ovl{position:static;background:#fff;padding:0}.pas{border:0;max-width:none}.bar,.cards,.note,.x,.tools{display:none!important}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <a class="back" href="/marti">← Řídicí pult</a>
-  <h1>🧾 Výplatnice <span style="font-size:12px;color:#8295ad;font-weight:400">přímo z Helios výpočtu</span></h1>
-  <p class="sub">Spočítané mzdy čtené z Helios cloud (TabZamVyp). Helios počítá legislativu, my zobrazujeme.</p>
+  <h1>🧾 Výplatnice <span style="font-size:12px;color:#8295ad;font-weight:400">cloud Helios · plné pásky pro HR</span></h1>
+  <p class="sub">Helios počítá legislativu, my vlastníme tok. Klikni na řádek = plná výplatní páska.</p>
   <div class="bar">
     <span class="seg" id="firmaSeg">
       <button data-f="ES" class="on" onclick="setF('ES')">ES (System)</button>
@@ -47,17 +68,29 @@
     <select id="rok"></select>
     <select id="mesic"></select>
     <button class="act" onclick="load()">Načíst</button>
+    <button class="gen" id="genBtn" onclick="generuj()">▶ Generovat mzdy (čistá voda)</button>
+    <div class="prog" id="prog" style="display:none"><i id="progBar"></i></div>
+    <span id="genMsg" class="mut" style="font-size:12px"></span>
   </div>
   <div id="cards" class="cards"></div>
   <div id="body"><div class="loading">Vyber firmu/období a načti…</div></div>
   <div class="note">
-    Pokud jsou částky nulové nebo staré, spusť v Heliosu <b>Mzdy → Výpočet mzdy → Akce → Výpočet</b> — Helios přepočítá z předzpracování a zde se objeví aktuální čísla. Aktivní lidé do období se řídí z našeho systému (MOST · Mzdy_Vstup).
+    <b>Generovat mzdy (čistá voda)</b> = smaže období (jen regenerovaný set) a spustí Helios tok per člověk:
+    generování → paušály (hp_VlozMzPausDoMzSloz) → výpočet (hp_VypocitejMzdu). Výstraha „Bonus dny" je
+    YTD/config mezera (leden–květen), páska je spočtená. Po odsouhlasení jednotlivců se pásky zpřístupní lidem v appce.
   </div>
 </div>
+
+<div class="ovl" id="ovl" onclick="if(event.target===this)closePas()">
+  <div class="pas" id="pas"></div>
+</div>
+
 <script>
 const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ")+" Kč";
-let FIRMA="ES";
+const fh=(n)=>!n?"":Number(n).toLocaleString("cs-CZ");
+let FIRMA="ES", LIDI=[];
 function setF(f){FIRMA=f;document.querySelectorAll('#firmaSeg button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));load();}
+function rm(){return {r:document.getElementById('rok').value,m:document.getElementById('mesic').value};}
 function fillSelectors(){
   const now=new Date(); const ry=document.getElementById('rok'), ms=document.getElementById('mesic');
   for(let y=now.getFullYear();y>=2024;y--){const o=document.createElement('option');o.value=y;o.textContent=y;ry.appendChild(o);}
@@ -66,30 +99,94 @@ function fillSelectors(){
   ms.value=now.getMonth()+1; ry.value=now.getFullYear();
 }
 async function load(){
-  const rok=document.getElementById('rok').value, mesic=document.getElementById('mesic').value;
+  const {r,m}=rm();
   document.getElementById('body').innerHTML='<div class="loading">Načítám z Heliosu…</div>';
   document.getElementById('cards').innerHTML='';
-  let d; try{ d=await (await fetch('/api/v1/erp/app/mzdy/vyplatnice?firma='+FIRMA+'&rok='+rok+'&mesic='+mesic,{credentials:'include'})).json(); }
+  let d; try{ d=await (await fetch('/api/v1/erp/app/mzdy/vyplatnice?firma='+FIRMA+'&rok='+r+'&mesic='+m,{credentials:'include'})).json(); }
   catch(e){ document.getElementById('body').innerHTML='<div class="loading">Chyba: '+e.message+'</div>'; return; }
   if(!d.ok){ document.getElementById('body').innerHTML='<div class="loading">'+(d.error||'chyba')+'</div>'; return; }
-  if(!d.lidi||!d.lidi.length){ document.getElementById('body').innerHTML='<div class="loading">Žádné výplatnice za období'+(d.pozn?' ('+d.pozn+')':'')+'. Naplň přes MOST a spusť v Heliosu výpočet.</div>'; return; }
+  LIDI=d.lidi||[];
+  if(!LIDI.length){ document.getElementById('body').innerHTML='<div class="loading">Žádné výplatnice za období. Klikni „Generovat mzdy".</div>'; return; }
   let sH=0,sC=0,sSP=0,sZP=0,sD=0,sF=0;
-  let h='<table><thead><tr><th>Jméno</th><th>Os.č.</th><th>Hrubá</th><th>SP zam</th><th>ZP zam</th><th>Daň</th><th>Bonus</th><th>Čistá</th><th>SP firma</th></tr></thead><tbody>';
-  for(const r of d.lidi){
+  let h='<table><thead><tr><th>Jméno</th><th>Os.č.</th><th>Hrubá</th><th>SP zam</th><th>ZP zam</th><th>Daň</th><th>Čistá</th><th>SP firma</th></tr></thead><tbody>';
+  LIDI.forEach((r)=>{
     sH+=r.hruba;sC+=r.cista;sSP+=r.sp_zam;sZP+=r.zp_zam;sD+=r.dan;sF+=r.sp_firma;
-    h+='<tr><td><b>'+r.prijmeni+'</b> '+r.jmeno+'</td><td class="mut">'+(r.cislo||'')+'</td>'+
+    h+='<tr onclick="openPas('+r.zam_id+')"><td><b>'+r.prijmeni+'</b> '+r.jmeno+'</td><td class="mut">'+(r.cislo||'')+'</td>'+
        '<td class="hruba">'+fk(r.hruba)+'</td><td class="mut">'+fk(r.sp_zam)+'</td><td class="mut">'+fk(r.zp_zam)+'</td>'+
-       '<td class="mut">'+fk(r.dan)+'</td><td class="mut">'+fk(r.bonus)+'</td><td class="cista">'+fk(r.cista)+'</td>'+
-       '<td class="mut">'+fk(r.sp_firma)+'</td></tr>';
-  }
-  h+='</tbody><tfoot><tr><td>Celkem ('+d.lidi.length+')</td><td></td><td class="hruba">'+fk(sH)+'</td><td>'+fk(sSP)+'</td><td>'+fk(sZP)+'</td><td>'+fk(sD)+'</td><td></td><td class="cista">'+fk(sC)+'</td><td>'+fk(sF)+'</td></tr></tfoot></table>';
+       '<td class="mut">'+fk(r.dan)+'</td><td class="cista">'+fk(r.cista)+'</td><td class="mut">'+fk(r.sp_firma)+'</td></tr>';
+  });
+  h+='</tbody><tfoot><tr><td>Celkem ('+LIDI.length+')</td><td></td><td class="hruba">'+fk(sH)+'</td><td>'+fk(sSP)+'</td><td>'+fk(sZP)+'</td><td>'+fk(sD)+'</td><td class="cista">'+fk(sC)+'</td><td>'+fk(sF)+'</td></tr></tfoot></table>';
   document.getElementById('body').innerHTML=h;
   document.getElementById('cards').innerHTML=
-    '<div class="card"><div class="k">Lidí</div><div class="v">'+d.lidi.length+'</div></div>'+
+    '<div class="card"><div class="k">Lidí</div><div class="v">'+LIDI.length+'</div></div>'+
     '<div class="card"><div class="k">Hrubé / měs</div><div class="v" style="color:#9ec5ff">'+fk(sH)+'</div></div>'+
     '<div class="card"><div class="k">Čisté / měs</div><div class="v" style="color:#86e8b0">'+fk(sC)+'</div></div>'+
-    '<div class="card"><div class="k">Náklad firmy (hrubá+SP firma)</div><div class="v">'+fk(sH+sF)+'</div></div>';
+    '<div class="card"><div class="k">Náklad firmy</div><div class="v">'+fk(sH+sF)+'</div></div>';
 }
+async function generuj(){
+  const {r,m}=rm(); const btn=document.getElementById('genBtn');
+  if(!confirm('Smazat období '+m+'/'+r+' ('+FIRMA+') a přegenerovat mzdy z Heliosu?')) return;
+  btn.disabled=true; document.getElementById('prog').style.display='block';
+  const pb=document.getElementById('progBar'), msg=document.getElementById('genMsg');
+  let clean=1, done=false, guard=0, vyst=0;
+  try{
+    while(!done && guard++<40){
+      const d=await (await fetch('/api/v1/erp/app/mzdy/generuj?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&clean='+clean+'&max=8',
+        {method:'POST',credentials:'include'})).json();
+      if(!d.ok){ msg.textContent='Chyba: '+(d.error||''); break; }
+      clean=0; done=d.done; vyst=d.vystrahy||0;
+      const pct=d.cil?Math.round(100*d.hotovo/d.cil):0;
+      pb.style.width=pct+'%';
+      msg.textContent=d.hotovo+'/'+d.cil+' spočteno'+(vyst?' · '+vyst+' s výstrahou':'')+(d.uvazlo?' · část neprošla':'');
+      if(d.uvazlo) break;
+    }
+  }catch(e){ msg.textContent='Chyba: '+e.message; }
+  btn.disabled=false;
+  await load();
+}
+function grpName(t){return {0:'Mzda',1:'Příplatky a doplatky',2:'Náhrady',10:'Srážky ze mzdy',11:'Daně',12:'Zákonná pojištění'}[t]||null;}
+async function openPas(zam){
+  const {r,m}=rm();
+  document.getElementById('pas').innerHTML='<div class="loading">Načítám pásku…</div>';
+  document.getElementById('ovl').classList.add('on');
+  let d; try{ d=await (await fetch('/api/v1/erp/app/mzdy/vyplatnice-detail?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&zam='+zam,{credentials:'include'})).json(); }
+  catch(e){ document.getElementById('pas').innerHTML='<div class="loading">Chyba: '+e.message+'</div>'; return; }
+  if(!d.ok){ document.getElementById('pas').innerHTML='<div class="loading">'+(d.error||'chyba')+'</div>'; return; }
+  const H=d.header, S=d.souhrn;
+  const mn=['','leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
+  const groups={}; (d.slozky||[]).forEach(s=>{ (groups[s.skup_typ]=groups[s.skup_typ]||{nazev:s.skupina,items:[]}).items.push(s); });
+  let body='';
+  Object.keys(groups).sort((a,b)=>a-b).forEach(t=>{
+    const g=groups[t]; const rows=g.items.filter(s=>s.koruny||s.hodiny||s.dny);
+    if(!rows.length) return;
+    body+='<div class="grp"><h3>'+(g.nazev||grpName(+t)||'Ostatní')+'</h3>';
+    rows.forEach(s=>{ body+='<div class="row"><span class="n">'+s.nazev+'</span><span class="h">'+
+      (s.hodiny?fh(s.hodiny)+' h':(s.dny?fh(s.dny)+' dní':''))+'</span><span class="c">'+fk(s.koruny)+'</span></div>'; });
+    body+='</div>';
+  });
+  const firmaPoj=(d.slozky||[]).filter(s=>s.skup_typ==12 && /firma/i.test(s.nazev)).reduce((a,s)=>a+s.koruny,0);
+  const naklad=S.hruba+firmaPoj;
+  document.getElementById('pas').innerHTML=
+    '<div class="pashead"><div><h2>'+H.prijmeni+' '+H.jmeno+'</h2>'+
+      '<div class="meta">Os. číslo '+(H.cislo||'?')+(H.stredisko?' · středisko '+H.stredisko:'')+
+      ' · '+(FIRMA==='ES'?'EUROSOFT-System':'EUROSOFT-Control')+'<br>Období '+mn[m]+' '+r+
+      (H.zakladni_plat?' · základní plat '+fk(H.zakladni_plat):'')+'</div></div>'+
+      '<div class="tools"><button class="x" title="Tisk" onclick="window.print()">🖨</button> '+
+      '<button class="x" onclick="closePas()">✕</button></div></div>'+
+    '<div class="pasbody">'+(body||'<div class="loading">Bez složek (nulová mzda?)</div>')+
+      '<div class="sumblk">'+
+      '<div class="sumrow"><span>Hrubá mzda</span><span class="hruba">'+fk(S.hruba)+'</span></div>'+
+      '<div class="sumrow"><span class="mut">Sociální pojištění (zaměstnanec)</span><span>−'+fk(S.sp_zam)+'</span></div>'+
+      '<div class="sumrow"><span class="mut">Zdravotní pojištění (zaměstnanec)</span><span>−'+fk(S.zp_zam)+'</span></div>'+
+      '<div class="sumrow"><span class="mut">Záloha daně po slevě</span><span>−'+fk(S.dan_po_sleve)+'</span></div>'+
+      (S.bonus?'<div class="sumrow"><span class="mut">Daňový bonus</span><span>+'+fk(S.bonus)+'</span></div>':'')+
+      '<div class="sumrow big"><span>Čistá mzda</span><span class="cista">'+fk(S.cista)+'</span></div>'+
+      '<div class="sumrow" style="margin-top:10px"><span class="mut">Pojištění zaměstnavatele</span><span class="mut">'+fk(firmaPoj)+'</span></div>'+
+      '<div class="sumrow"><span class="mut">Náklad zaměstnavatele</span><span>'+fk(naklad)+'</span></div>'+
+      '</div></div>';
+}
+function closePas(){document.getElementById('ovl').classList.remove('on');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePas();});
 fillSelectors(); load();
 </script>
 </body>

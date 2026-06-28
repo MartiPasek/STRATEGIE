@@ -24173,6 +24173,192 @@ def mzdy_vyplatnice(req: Request):
     return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "idobdobi": idobd, "lidi": lidi}
 
 
+# Worker mzdového automatu na CLOUD Heliosu (rozluštěno z Profileru DB_EC 28.6.2026).
+# Per člověk 3 standardní Helios kroky = generování (INSERT TabZamVyp) + paušály
+# (hp_VlozMzPausDoMzSloz) + výpočet (hp_VypocitejMzdu @Z,@O,20). 99997 = "spočítáno
+# s výstrahou" → COMMIT (Helios ji vyhodí jako RAISERROR, přes TRY/CATCH = warn, ne chyba).
+# Idempotentní (NOT IN TabZamVyp). Dávka TOP(@max) ať Express stihne pod HTTP timeout.
+def _mzdy_worker_sql(cloud_db, idobd, maxn):
+    return (
+        "USE " + cloud_db + ";\n"
+        "SET NOCOUNT ON; SET XACT_ABORT OFF;\n"
+        "SET ARITHABORT ON; SET ANSI_WARNINGS ON; SET ANSI_PADDING ON; "
+        "SET CONCAT_NULL_YIELDS_NULL ON; SET NUMERIC_ROUNDABORT OFF;\n"
+        "DECLARE @O INT=" + str(int(idobd)) + ";\n"
+        "DECLARE @Z INT,@Err INT,@Status INT,@Info INT,@em NVARCHAR(2000);\n"
+        "DECLARE c CURSOR LOCAL FAST_FORWARD FOR\n"
+        " SELECT TOP (" + str(int(maxn)) + ") ZamestnanecId FROM TabZamMzd\n"
+        " WHERE IdObdobi=@O AND Automat=1 AND Uzavreno=0 AND StavES=0\n"
+        "   AND ZamestnanecId NOT IN (SELECT ZamestnanecId FROM TabZamVyp WHERE IdObdobi=@O)\n"
+        " ORDER BY ZamestnanecId;\n"
+        "OPEN c; FETCH NEXT FROM c INTO @Z;\n"
+        "WHILE @@FETCH_STATUS=0\n"
+        "BEGIN\n"
+        " SET @Err=0;SET @em=NULL;\n"
+        " BEGIN TRY\n"
+        "  BEGIN TRAN;\n"
+        "  INSERT TabZamVyp (IdObdobi,ZamestnanecId) VALUES(@O,@Z);\n"
+        "  EXEC hp_VlozMzPausDoMzSloz @Z,@O,0,0;\n"
+        "  EXEC @Err=hp_VypocitejMzdu @Z,@O,20;\n"
+        "  SELECT @Info=Info,@Status=Status FROM TabZamVyp WHERE ZamestnanecId=@Z AND IdObdobi=@O;\n"
+        "  IF (@Err<>0) AND @Err NOT IN (99997) ROLLBACK ELSE COMMIT;\n"
+        " END TRY\n"
+        " BEGIN CATCH\n"
+        "  SET @em=ERROR_MESSAGE();\n"
+        "  IF @em LIKE '99997%' AND XACT_STATE()=1 COMMIT\n"
+        "  ELSE IF @@TRANCOUNT>0 ROLLBACK;\n"
+        " END CATCH\n"
+        " FETCH NEXT FROM c INTO @Z;\n"
+        "END\n"
+        "CLOSE c; DEALLOCATE c;\n"
+        "SELECT 1 AS hotovo;\n"
+    )
+
+
+# Vyčištění před regenerací (Marti 28.6.: "před insertem vyčištění smazání" = čistá voda).
+# Smaže JEN regenerovaný set (Automat=1/Uzavreno=0/StavES=0) za období: jejich složky
+# (TabMzSloz) + výpočet (TabZamVyp). EC má triggery → DISABLE/ENABLE okolo (na ES no-op).
+def _mzdy_clean_sql(cloud_db, idobd):
+    o = str(int(idobd))
+    inset = ("(SELECT ZamestnanecId FROM dbo.TabZamMzd WHERE IdObdobi=" + o +
+             " AND Automat=1 AND Uzavreno=0 AND StavES=0)")
+    return (
+        "USE " + cloud_db + ";\nSET NOCOUNT ON;\n"
+        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
+        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
+        "DELETE FROM dbo.TabMzSloz WHERE IdObdobi=" + o + " AND ZamestnanecId IN " + inset + ";\n"
+        "DELETE FROM dbo.TabZamVyp WHERE IdObdobi=" + o + " AND ZamestnanecId IN " + inset + ";\n"
+        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
+        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
+        "SELECT 1 AS cisto;\n")
+
+
+@api_router.post("/app/mzdy/generuj")
+def mzdy_generuj(req: Request):
+    """Generování mezd na CLOUD Heliosu: jeden tok = (volitelně vyčištění) generování +
+    paušály + výpočet, idempotentně, dávka po @max (frontend loopuje s progresem). Parent-only.
+    ?clean=1 (1. volání cyklu) smaže regenerovaný set před insertem (čistá voda).
+    Marti 28.6.2026 (propojení hp_VlozMzPausDoMzSloz + předgenerování + hp_VypocitejMzdu)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "ES").upper()
+    _src, cloud_db = _zrc_dbs(firma)
+    import datetime as _dt
+    _now = _dt.date.today()
+    try:
+        rok = int(req.query_params.get("rok") or _now.year)
+        mesic = int(req.query_params.get("mesic") or _now.month)
+        maxn = max(1, min(20, int(req.query_params.get("max") or 8)))
+    except Exception:
+        rok, mesic, maxn = _now.year, _now.month, 8
+    _ro = _mssql188_query("SELECT IdObdobi FROM " + cloud_db + ".dbo.TabMzdObd "
+                          "WHERE Rok=" + str(rok) + " AND Mesic=" + str(mesic))
+    if not (_ro.get("ok") and _ro.get("rows")):
+        return {"ok": False, "error": "období v cloud Heliosu není (TabMzdObd)"}
+    idobd = int(_ro["rows"][0][0])
+    clean = (req.query_params.get("clean") or "") in ("1", "true", "ano")
+    if clean:
+        cw = _mssql188_query(_mzdy_clean_sql(cloud_db, idobd))
+        if not cw.get("ok"):
+            return {"ok": False, "error": "vyčištění selhalo: " + str(cw.get("error"))[:300]}
+
+    def _counts():
+        c = _mssql188_query(
+            "SELECT "
+            "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamMzd WHERE IdObdobi=" + str(idobd) +
+            " AND Automat=1 AND Uzavreno=0 AND StavES=0) cil,"
+            "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + ") hotovo,"
+            "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) +
+            " AND Info=58801) vystrahy")
+        if c.get("ok") and c.get("rows"):
+            r0 = c["rows"][0]
+            return int(r0[0] or 0), int(r0[1] or 0), int(r0[2] or 0)
+        return 0, 0, 0
+
+    cil, before, _v = _counts()
+    if before >= cil:
+        return {"ok": True, "firma": firma, "idobdobi": idobd, "cil": cil, "hotovo": before,
+                "pridano": 0, "vystrahy": _v, "done": True, "uvazlo": False}
+    w = _mssql188_query(_mzdy_worker_sql(cloud_db, idobd, maxn))
+    if not w.get("ok"):
+        return {"ok": False, "error": "worker selhal: " + str(w.get("error"))[:300]}
+    cil, after, vystrahy = _counts()
+    pridano = after - before
+    return {"ok": True, "firma": firma, "idobdobi": idobd, "cil": cil, "hotovo": after,
+            "pridano": pridano, "vystrahy": vystrahy,
+            "done": (after >= cil) or (pridano == 0),
+            "uvazlo": (pridano == 0 and after < cil)}
+
+
+@api_router.get("/app/mzdy/vyplatnice-detail")
+def mzdy_vyplatnice_detail(req: Request):
+    """Plná výplatní páska jednoho člověka z cloud Heliosu: hlavička + rozpad mzdových
+    složek (TabMzSloz⋈TabCisMzSl⋈TabSkupMS) + souhrn (TabZamVyp). Parent-only.
+    Marti 28.6.2026 (výplatnice se vším všudy, ne jen seznam)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    firma = (req.query_params.get("firma") or "ES").upper()
+    _src, cloud_db = _zrc_dbs(firma)
+    import datetime as _dt
+    _now = _dt.date.today()
+    try:
+        rok = int(req.query_params.get("rok") or _now.year)
+        mesic = int(req.query_params.get("mesic") or _now.month)
+        zam = int(req.query_params.get("zam"))
+    except Exception:
+        return {"ok": False, "error": "chybí zam / období"}
+    _ro = _mssql188_query("SELECT IdObdobi FROM " + cloud_db + ".dbo.TabMzdObd "
+                          "WHERE Rok=" + str(rok) + " AND Mesic=" + str(mesic))
+    if not (_ro.get("ok") and _ro.get("rows")):
+        return {"ok": False, "error": "období v cloudu není"}
+    idobd = int(_ro["rows"][0][0])
+    o, z = str(idobd), str(zam)
+    h = _mssql188_query(
+        "SELECT c.Cislo, c.Prijmeni, c.Jmeno, m.Stredisko, m.DruhPP, ISNULL(m.ZakladniPlat,0), "
+        "ISNULL(v.HrubaMzda,0), ISNULL(v.SocPojZam,0), ISNULL(v.ZdrPojZam,0), "
+        "ISNULL(v.DanZakladni,0), ISNULL(v.DS_DanPoSleve,0), ISNULL(v.DanovyBonus,0), "
+        "ISNULL(v.CistaMzda,0), ISNULL(v.SocPojFirma,0), v.Status "
+        "FROM " + cloud_db + ".dbo.TabZamVyp v "
+        "JOIN " + cloud_db + ".dbo.TabCisZam c ON c.ID=v.ZamestnanecId "
+        "LEFT JOIN " + cloud_db + ".dbo.TabZamMzd m ON m.ZamestnanecId=v.ZamestnanecId AND m.IdObdobi=v.IdObdobi "
+        "WHERE v.IdObdobi=" + o + " AND v.ZamestnanecId=" + z)
+    if not (h.get("ok") and h.get("rows")):
+        return {"ok": False, "error": "výplatnice nenalezena (není spočítáno?)"}
+    r0 = h["rows"][0]
+    header = {"cislo": r0[0], "prijmeni": r0[1], "jmeno": (r0[2] or "").strip(),
+              "stredisko": r0[3], "druh_pp": r0[4], "zakladni_plat": float(r0[5] or 0)}
+    souhrn = {"hruba": float(r0[6] or 0), "sp_zam": float(r0[7] or 0), "zp_zam": float(r0[8] or 0),
+              "dan": float(r0[9] or 0), "dan_po_sleve": float(r0[10] or 0), "bonus": float(r0[11] or 0),
+              "cista": float(r0[12] or 0), "sp_firma": float(r0[13] or 0), "status": r0[14]}
+    sl = _mssql188_query(
+        "SELECT m.CisloMS, sl.NazevMS, ISNULL(sk.Typ,99) skup_typ, sk.Nazev skupina, "
+        "ISNULL(m.Hodiny,0), ISNULL(m.Dny,0), ISNULL(m.Koruny,0) "
+        "FROM " + cloud_db + ".dbo.TabMzSloz m "
+        "LEFT JOIN " + cloud_db + ".dbo.TabCisMzSl sl ON sl.CisloMzSl=m.CisloMS AND sl.IdObdobi=m.IdObdobi "
+        "LEFT JOIN " + cloud_db + ".dbo.TabSkupMS sk ON sk.SkupinaMS=sl.SkupinaMS AND sk.IdObdobi=sl.IdObdobi "
+        "WHERE m.IdObdobi=" + o + " AND m.ZamestnanecId=" + z + " ORDER BY ISNULL(sk.Typ,99), m.CisloMS")
+    slozky = []
+    if sl.get("ok") and sl.get("rows"):
+        for v in sl["rows"]:
+            slozky.append({"cislo_ms": v[0], "nazev": (v[1] or "").strip(),
+                           "skup_typ": int(v[2] or 99), "skupina": (v[3] or "Ostatní").strip(),
+                           "hodiny": float(v[4] or 0), "dny": float(v[5] or 0), "koruny": float(v[6] or 0)})
+    return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "zam": zam,
+            "idobdobi": idobd, "header": header, "souhrn": souhrn, "slozky": slozky}
+
+
 def _mcp_exec_office(sql, db_name="DB_EC"):
     """Spustí SQL (vč. EXEC procedury) v kancelářském Heliosu přes MCP, vrátí řádky (poslední SELECT)."""
     try:

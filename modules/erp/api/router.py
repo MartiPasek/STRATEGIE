@@ -21361,6 +21361,49 @@ async def app_commands_pending(app_key: str, req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/app/notif/reply")
+async def app_notif_reply(req: Request) -> JSONResponse:
+    """Odpověď na claude_msg notifikaci → zapíše do tenant.claude_chat (kanál, který Claude čte
+    přes bridge) + označí mobile_command jako vyřízenou. Marti 28.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    txt = (str(body.get("text") or "")).strip()
+    try:
+        cid = int(body.get("id"))
+    except Exception:
+        cid = 0
+    if not txt:
+        return JSONResponse({"ok": False, "error": "empty"}, status_code=400)
+    txt = txt[:4000]
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        tid = s.execute(_t("SELECT COALESCE(last_active_tenant_id,2) FROM public.users WHERE id=:u"),
+                        {"u": uid}).scalar() or 2
+        qtitle = ""
+        if cid:
+            qtitle = s.execute(_t("SELECT title FROM fw.mobile_command WHERE id=:i AND target_user_id=:u"),
+                               {"i": cid, "u": uid}).scalar() or ""
+        msg = (("[odpověď na: " + qtitle + "] ") if qtitle else "") + txt
+        s.execute(_t("INSERT INTO tenant.claude_chat(tenant_id,user_id,sender,msg) VALUES (:t,:u,'user',:m)"),
+                  {"t": tid, "u": uid, "m": msg})
+        if cid:
+            s.execute(_t("UPDATE fw.mobile_command SET status='done', decided_at=now() "
+                         "WHERE id=:i AND target_user_id=:u"), {"i": cid, "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/command/{cmd_id}/result")
 async def app_command_result(cmd_id: int, req: Request) -> JSONResponse:
     """Appka hlásí rozhodnutí uživatele (accept/reject). Token NEBO cookie."""

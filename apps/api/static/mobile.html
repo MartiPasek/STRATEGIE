@@ -695,8 +695,31 @@ setTimeout(function(){
         txt.addEventListener("click",function(){ openClaudeDetail(c); });
         var a=el('<div class="nactions" style="margin-top:8px;"></div>');
         function b(l,cl,d){var x=el('<button class="sm '+cl+'">'+l+'</button>'); x.addEventListener("click",function(e){e.stopPropagation();act(c.id,d,li);}); a.appendChild(x);}
-        if(c.command_type==="claude_confirm"){b("Odmítnout","warn","reject");b("Povolit","green","accept");} else {b("OK","ghost","done");}
+        if(c.command_type==="claude_confirm"){b("Odmítnout","warn","reject");b("Povolit","green","accept");}
+        else {
+          var rb=el('<button class="sm green">💬 Odpovědět</button>');
+          rb.addEventListener("click",function(e){e.stopPropagation();replyMsg(c,li);}); a.appendChild(rb);
+          b("OK","ghost","done");
+        }
         li.appendChild(txt); li.appendChild(a); ul.appendChild(li); }); }); }
+  function replyMsg(c,li){
+    if(li.querySelector(".replywrap"))return;
+    var wrap=el('<div class="replywrap" style="margin-top:8px;"></div>');
+    var ta=el('<textarea placeholder="Tvoje odpověď Claudovi…" style="width:100%;min-height:64px;background:#141b29;color:#e8edf6;border:1px solid #2a3547;border-radius:8px;padding:8px;font-size:14px;box-sizing:border-box;"></textarea>');
+    var sb=el('<button class="sm green" style="margin-top:6px;">Odeslat</button>');
+    var st=el('<span style="margin-left:8px;color:var(--mut);font-size:12px;"></span>');
+    wrap.appendChild(ta); wrap.appendChild(sb); wrap.appendChild(st);
+    li.appendChild(wrap); try{ta.focus();}catch(e){}
+    sb.addEventListener("click",function(ev){ ev.stopPropagation();
+      var t=(ta.value||"").trim(); if(!t){ta.focus();return;}
+      sb.disabled=true; st.textContent="Odesílám…";
+      api("POST","/api/v1/erp/app/notif/reply",{id:c.id,text:t}).then(function(r){
+        if(r&&r.ok){ st.textContent="✓ Odesláno Claudovi"; if(notifCount>0){notifCount--;renderNav();}
+          setTimeout(function(){ try{li.parentNode.removeChild(li);}catch(e){} if(!document.querySelectorAll('#ntlist li').length){selectTab('home');} },600); }
+        else { st.textContent="Chyba: "+((r&&r.error)||"?"); sb.disabled=false; }
+      }).catch(function(){ st.textContent="Chyba sítě"; sb.disabled=false; });
+    });
+  }
   function notifs(){ // dashboard s dlaždicemi
     app.innerHTML=topbar("", false); var p=el('<div class="panel"></div>');
     var grid=el('<div class="dashgrid"></div>');

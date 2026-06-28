@@ -25062,6 +25062,30 @@ def _mzdy_status_check(rok, mesic):
     return {"ok": True, "rok": int(rok), "mesic": int(mesic), "pocet": len(out), "polozky": out}
 
 
+def _mzdy_rucni_rows(firma):
+    """Ruční mzdové složky (tenant.mzdy_rucni_slozka) → předzpracování. Durable — přežije
+    přegenerování i refresh snapshotu. Marti 28.6.: odměna jednatele MS 693, DPP MS 700,
+    stravenkový paušál MS 793 ap. (cislo, cislo_ms, koruny, dny)."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rr = s.execute(_t(
+            "SELECT cislo, cislo_ms, castka, COALESCE(dny,0) FROM tenant.mzdy_rucni_slozka "
+            "WHERE tenant_id=2 AND firma=:f AND aktivni=true"), {"f": str(firma).upper()}).fetchall()
+    finally:
+        s.close()
+    out = []
+    for r in rr:
+        try:
+            c = int(str(r[0]).strip()); ms = int(r[1]); kc = int(r[2] or 0); dny = int(r[3] or 0)
+        except Exception:
+            continue
+        if kc or dny:
+            out.append((c, ms, kc, dny))
+    return out
+
+
 def _mzdy_absence_rows(firma, rok, mesic):
     """Absence z REGISTRU případů (OČR/nemoc) → Helios docházková MS (Dny), automat dopočítá
     náhradu (ošetřovné/nemocenská) + poníží mzdu za absenční dny. Firma z case.company
@@ -25156,6 +25180,10 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
         # dávky = doplnit v Helios modulu nepřítomnosti (TODO přímé napojení).
         try:
             prows = prows + _mzdy_absence_rows(firma, rok, mesic)
+        except Exception:
+            pass
+        try:
+            prows = prows + _mzdy_rucni_rows(firma)
         except Exception:
             pass
         try:

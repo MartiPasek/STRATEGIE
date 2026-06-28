@@ -9430,46 +9430,48 @@ def _sync_dochazka_ec(rok, mesic):
         # tím zmizí zbytková app/test data, co nafukovala dny i hodiny). Marti 28.6.
         s.execute(_t("DELETE FROM tenant.att_day_summary WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
                   {"y": rok, "m": mesic})
-        lidi = set()
-        for (cz, den), d in day.items():
+        # Iteruj VŠECHNY Po–Pá dny měsíce pro každého aktivního (= kdo má aspoň záznam v EC) —
+        # prázdné dny bez záznamu se DOPÍCHNOU na fond (Marti 28.6.: dopíchat i chybějící dny).
+        active = sorted(set(k[0] for k in day.keys()))
+        ld2 = _cal.monthrange(rok, mesic)[1]
+        workdays = [_dt.date(rok, mesic, x) for x in range(1, ld2 + 1) if _dt.date(rok, mesic, x).weekday() < 5]
+        for cz in active:
             emp, uid, uv = emp_uv[cz]
-            dd = _dt.date.fromisoformat(den)
-            if dd.weekday() >= 5:
-                out["vikend_skip"] += 1
-                continue
-            lidi.add(cz)
             fond = round(uv / 5.0, 2)
-            abs_total = sum(d["abs"].values())
-            for code, h in d["abs"].items():
-                tid = tids.get(code)
-                if tid and h > 0:
-                    s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                                 "status,source,source_system,is_active,note,created_at,updated_at) "
-                                 "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,'EC absence',now(),now())"),
-                              {"e": emp, "d": dd, "t": tid, "h": round(min(h, fond), 2)})
-                    out["absence"] += 1
-            work_target = round(max(0.0, fond - min(abs_total, fond)), 2)
-            present = d["work"] + d["ho"]
-            if work_target > 0:
-                wcode = "homeoffice" if (d["ho"] > d["work"]) else "work"
-                tid = tids.get(wcode)
-                if tid:
-                    s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                                 "status,source,source_system,is_active,note,created_at,updated_at) "
-                                 "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,'EC práce (fond)',now(),now())"),
-                              {"e": emp, "d": dd, "t": tid, "h": work_target})
-                    out["prace"] += 1
-                    if present < work_target:
-                        out["dopichnuto_h"] += round(work_target - present, 2)
-                    elif present > work_target:
-                        out["odpichnuto_h"] += round(present - work_target, 2)
-            # att_day_summary: cas_celkem = odpracovaný fond (pro stravenky/přehled); absence den = 0
-            s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem) "
-                         "VALUES (2,:c,:u,:d,:y,:m,:h) "
-                         "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,user_id=:u"),
-                      {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": work_target})
+            for dd in workdays:
+                d = day.get((cz, dd.isoformat()))
+                abs_map = d["abs"] if d else {}
+                present = (d["work"] + d["ho"]) if d else 0.0
+                abs_total = sum(abs_map.values())
+                for code, h in abs_map.items():
+                    tid = tids.get(code)
+                    if tid and h > 0:
+                        s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                                     "status,source,source_system,is_active,note,created_at,updated_at) "
+                                     "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,'EC absence',now(),now())"),
+                                  {"e": emp, "d": dd, "t": tid, "h": round(min(h, fond), 2)})
+                        out["absence"] += 1
+                work_target = round(max(0.0, fond - min(abs_total, fond)), 2)
+                if work_target > 0:
+                    wcode = "homeoffice" if (d and d["ho"] > d["work"]) else "work"
+                    tid = tids.get(wcode)
+                    if tid:
+                        nt = "EC práce (fond)" if present > 0 else "Dopíchnuto na fond (chybělo)"
+                        s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                                     "status,source,source_system,is_active,note,created_at,updated_at) "
+                                     "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,:nt,now(),now())"),
+                                  {"e": emp, "d": dd, "t": tid, "h": work_target, "nt": nt})
+                        out["prace"] += 1
+                        if present < work_target:
+                            out["dopichnuto_h"] += round(work_target - present, 2)
+                        elif present > work_target:
+                            out["odpichnuto_h"] += round(present - work_target, 2)
+                s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem) "
+                             "VALUES (2,:c,:u,:d,:y,:m,:h) "
+                             "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,user_id=:u"),
+                          {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": work_target})
         s.commit()
-        out["lidi"] = len(lidi)
+        out["lidi"] = len(active)
         out["ok"] = True
         return out
     finally:

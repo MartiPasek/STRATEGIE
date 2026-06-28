@@ -24288,7 +24288,43 @@ def _mzdy_predzprac_rows(firma):
         except Exception:
             continue
         if kc != 0:
-            out.append((c, ms, kc))
+            out.append((c, ms, kc, 0))  # (cislo, cislo_ms, koruny, dny)
+    return out
+
+
+# Stravenky (Marti 28.6.): nárok = odpracované dny >4 h v docházce × konstanta 85 Kč.
+# Helios složka 793 (Stravenkový paušál do limitu), Dny = počet dní, Koruny = Dny×85.
+_STRAVENKA_KC = 85
+_STRAVENKA_MS = 793
+
+
+def _mzdy_stravenky_rows(firma, rok, mesic):
+    """Pro každého s nárokem (engagement.stravenky_od ≤ období) spočítá dny >4 h
+    z docházky att_day_summary → složka 793 (Dny, Koruny=Dny×85)."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rr = s.execute(_t(
+            "SELECT ds.cislo_zam, COUNT(*) AS dny "
+            "FROM tenant.att_day_summary ds "
+            "WHERE ds.tenant_id=2 AND ds.rok=:y AND ds.mesic=:mo AND ds.cas_celkem>4 "
+            "  AND EXISTS (SELECT 1 FROM tenant.engagement e "
+            "    JOIN tenant.company co ON co.id=e.company_id "
+            "    WHERE e.tenant_id=2 AND e.ec_id=ds.cislo_zam AND co.code=:fc "
+            "      AND e.stravenky_od IS NOT NULL AND e.stravenky_od <= make_date(:y,:mo,28)) "
+            "GROUP BY ds.cislo_zam"),
+            {"y": rok, "mo": mesic, "fc": ("1" if firma == "EC" else "2")}).fetchall()
+    finally:
+        s.close()
+    out = []
+    for r in rr:
+        try:
+            c = int(r[0]); dny = int(r[1] or 0)
+        except Exception:
+            continue
+        if dny > 0:
+            out.append((c, _STRAVENKA_MS, dny * _STRAVENKA_KC, dny))
     return out
 
 
@@ -24310,12 +24346,14 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows):
     if not dw.get("ok"):
         return "DELETE: " + str(dw.get("error"))
     stmts, kart = [], []
-    for c, ms, kc in rows:
+    for row in rows:
+        c, ms, kc = row[0], row[1], row[2]
+        dny = row[3] if len(row) > 3 else 0
         zid = id_by_cislo.get(int(c))
         if not zid or not kc:
             continue
         stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
-                     "VALUES(%s,%d,%d,0,0,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), int(kc)))
+                     "VALUES(%s,%d,%d,0,%d,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), int(dny or 0), int(kc)))
         if int(ms) == 1:
             kart.append("UPDATE " + cloud_db + ".dbo.TabZamMzd SET ZakladniPlat=%d WHERE ZamestnanecId=%d AND IdObdobi=%s;" % (int(kc), zid, o))
     allstmts = stmts + kart
@@ -24364,6 +24402,10 @@ def mzdy_generuj(req: Request):
             return {"ok": False, "error": "vyčištění selhalo: " + str(cw.get("error"))[:300]}
         # PŘEDZPRACOVÁNÍ ze STRATEGIE: obě složky (zaklad→karta 001, os_ohodnoceni→TabPredzp 432)
         prows = _mzdy_predzprac_rows(firma)
+        try:
+            prows = prows + _mzdy_stravenky_rows(firma, rok, mesic)
+        except Exception as _se:
+            pass  # stravenky best-effort, nesmí shodit generování
         if prows:
             perr = _mzdy_predzprac_apply(cloud_db, idobd, prows)
             if perr:

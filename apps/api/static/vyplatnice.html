@@ -156,7 +156,8 @@ async function openPas(zam){
   const mn=['','leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
   const groups={}; (d.slozky||[]).forEach(s=>{ (groups[s.skup_typ]=groups[s.skup_typ]||{nazev:s.skupina,items:[]}).items.push(s); });
   let body='';
-  Object.keys(groups).sort((a,b)=>a-b).forEach(t=>{
+  const skey=t=>(groups[t].nazev && /(Základní|Mzda)/i.test(groups[t].nazev))?-1:Number(t);
+  Object.keys(groups).sort((a,b)=>skey(a)-skey(b)).forEach(t=>{
     const g=groups[t]; const rows=g.items.filter(s=>s.koruny||s.hodiny||s.dny);
     if(!rows.length) return;
     body+='<div class="grp"><h3>'+(g.nazev||grpName(+t)||'Ostatní')+'</h3>';

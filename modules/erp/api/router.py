@@ -24268,10 +24268,13 @@ def _mzdy_predzprac_rows(firma):
     from sqlalchemy import text as _t
     s = _g()
     try:
+        # Obě složky od nás (Marti 28.6.): pevná = zaklad → karta 001;
+        # pohyblivá = SUMA všech ostatních složek (os_ohodnoceni + prémie + vedení +
+        # jednatelská odměna + individuální + …) → TabPredzp 432.
         pr = s.execute(_t(
             "SELECT cislo, "
-            " MAX(castka) FILTER (WHERE slozka='zaklad') AS zaklad, "
-            " MAX(castka) FILTER (WHERE slozka='os_ohodnoceni') AS os "
+            " COALESCE(SUM(castka) FILTER (WHERE slozka='zaklad'),0) AS zaklad, "
+            " COALESCE(SUM(castka) FILTER (WHERE slozka<>'zaklad'),0) AS pohyb "
             "FROM tenant.helios_wage_snapshot "
             "WHERE tenant_id=2 AND firma=:f AND asof=("
             "  SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f) "

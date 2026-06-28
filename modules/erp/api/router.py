@@ -24292,6 +24292,40 @@ def _mzdy_predzprac_rows(firma):
     return out
 
 
+def _mzdy_predzprac_apply(cloud_db, idobd, rows):
+    """Zapíše předzpracování PER-ŘÁDEK přes 3-part jména (bez USE/temp/cursor) — spolehlivé
+    přes API _mssql188_query a trigger-safe (single-row INSERT projde Helios triggerem).
+    rows=(cislo,cislo_ms,koruny). Pevná 1 i na kartu. Vrací None=OK / chybový string."""
+    o = str(int(idobd))
+    nr = _mssql188_query("SELECT Cislo, ID FROM " + cloud_db + ".dbo.TabCisZam")
+    if not nr.get("ok"):
+        return "TabCisZam: " + str(nr.get("error"))
+    id_by_cislo = {}
+    for v in nr.get("rows") or []:
+        try:
+            id_by_cislo[int(v[0])] = int(v[1])
+        except Exception:
+            pass
+    dw = _mssql188_query("DELETE FROM " + cloud_db + ".dbo.TabPredzp WHERE IdObdobi=" + o + " AND Autor='STRATEGIE'")
+    if not dw.get("ok"):
+        return "DELETE: " + str(dw.get("error"))
+    stmts, kart = [], []
+    for c, ms, kc in rows:
+        zid = id_by_cislo.get(int(c))
+        if not zid or not kc:
+            continue
+        stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
+                     "VALUES(%s,%d,%d,0,0,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), int(kc)))
+        if int(ms) == 1:
+            kart.append("UPDATE " + cloud_db + ".dbo.TabZamMzd SET ZakladniPlat=%d WHERE ZamestnanecId=%d AND IdObdobi=%s;" % (int(kc), zid, o))
+    allstmts = stmts + kart
+    for i in range(0, len(allstmts), 25):
+        rw = _mssql188_query("SET NOCOUNT ON;\n" + "\n".join(allstmts[i:i + 25]))
+        if not rw.get("ok"):
+            return "INSERT chunk %d: %s" % (i, str(rw.get("error")))
+    return None
+
+
 @api_router.post("/app/mzdy/generuj")
 def mzdy_generuj(req: Request):
     """Generování mezd na CLOUD Heliosu: jeden tok = (volitelně vyčištění) generování +
@@ -24329,9 +24363,9 @@ def mzdy_generuj(req: Request):
         # PŘEDZPRACOVÁNÍ ze STRATEGIE: obě složky (zaklad→karta 001, os_ohodnoceni→TabPredzp 432)
         prows = _mzdy_predzprac_rows(firma)
         if prows:
-            pw = _mssql188_query(_mzdy_predzprac_sql(cloud_db, idobd, prows))
-            if not pw.get("ok"):
-                return {"ok": False, "error": "předzpracování selhalo: " + str(pw.get("error"))[:300]}
+            perr = _mzdy_predzprac_apply(cloud_db, idobd, prows)
+            if perr:
+                return {"ok": False, "error": "předzpracování selhalo: " + str(perr)[:300]}
 
     def _counts():
         c = _mssql188_query(

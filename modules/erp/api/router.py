@@ -24677,6 +24677,9 @@ def benefity_moje(req: Request):
                     "danova_uspora": int(round((ho_castka + (obl_kc if (obl_on and dny_pritomen >= 1) else 0)) * 0.15)),
                 })
         return {"ok": True, "rok": rok, "mesic": mesic, "je_hr": je_hr, "polozky": out}
+    except Exception as _e:
+        import traceback as _tb
+        return JSONResponse({"ok": False, "error": "DBG: " + repr(_e), "tb": _tb.format_exc()[-800:]}, status_code=200)
     finally:
         s.close()
 

@@ -9426,6 +9426,10 @@ def _sync_dochazka_ec(rok, mesic):
         # idempotence: smaž předchozí EC-real za měsíc (att_entry + att_day_summary)
         s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND source_system='ec_real' "
                      "AND EXTRACT(YEAR FROM entry_date)=:y AND EXTRACT(MONTH FROM entry_date)=:m"), {"y": rok, "m": mesic})
+        # att_day_summary nemá source_system → smaž celý měsíc a naplň čistě z EC (EC = zdroj pravdy;
+        # tím zmizí zbytková app/test data, co nafukovala dny i hodiny). Marti 28.6.
+        s.execute(_t("DELETE FROM tenant.att_day_summary WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
+                  {"y": rok, "m": mesic})
         lidi = set()
         for (cz, den), d in day.items():
             emp, uid, uv = emp_uv[cz]

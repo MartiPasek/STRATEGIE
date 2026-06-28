@@ -9607,7 +9607,8 @@ async def att_absence_mine(req: Request) -> JSONResponse:
 
 def _ocr_fill_dochazka(s, emp, d0, d1, uid, note, source="ocr") -> int:
     """OČR (family_care) → docházka att_entry na každý pracovní den d0..d1 (Po–Pá), idempotentně.
-    Nepřepisuje den, kde už je reálná práce (work). Marti 28.6.: OČR ze SMS musí jít i do docházky."""
+    **OČR den = ŽÁDNÉ jiné záznamy** (Marti 28.6.: kdo je na OČR nesmí mít docházku — mazat o půlnoci).
+    Na OČR dnech proto SMAŽE všechny ostatní att_entry (práce/režie/pauza/…) a nechá jen family_care."""
     from sqlalchemy import text as _t
     import datetime as _dt
     tr = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code='family_care'")).first()
@@ -9618,22 +9619,20 @@ def _ocr_fill_dochazka(s, emp, d0, d1, uid, note, source="ocr") -> int:
     day = d0
     while day <= d1:
         if day.weekday() < 5:
+            # OČR den = jen OČR → smaž vše ostatní (práce/režie/pauza/nenároková/automat…)
+            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND employee_id=:e "
+                         "AND entry_date=:d AND entry_type_id<>:et"), {"e": emp, "d": day, "et": tid})
             res = s.execute(_t(
                 "UPDATE tenant.att_entry SET hours=8, status='pending', source=:src, note=:n, updated_at=now() "
                 "WHERE tenant_id=2 AND employee_id=:e AND entry_date=:d AND entry_type_id=:et"),
                 {"src": source, "n": note, "e": emp, "d": day, "et": tid})
             if (res.rowcount or 0) == 0:
-                hasw = s.execute(_t(
-                    "SELECT 1 FROM tenant.att_entry en JOIN tenant.att_entry_type t ON t.id=en.entry_type_id "
-                    "WHERE en.tenant_id=2 AND en.employee_id=:e AND en.entry_date=:d AND t.code='work' LIMIT 1"),
-                    {"e": emp, "d": day}).first()
-                if not hasw:
-                    s.execute(_t(
-                        "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                        "status,source,note,is_active,created_by_id,created_at,updated_at) "
-                        "VALUES (2,:e,:d,:et,8,'pending',:src,:n,false,:u,now(),now())"),
-                        {"e": emp, "d": day, "et": tid, "src": source, "n": note, "u": uid})
-                    created += 1
+                s.execute(_t(
+                    "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                    "status,source,note,is_active,created_by_id,created_at,updated_at) "
+                    "VALUES (2,:e,:d,:et,8,'pending',:src,:n,false,:u,now(),now())"),
+                    {"e": emp, "d": day, "et": tid, "src": source, "n": note, "u": uid})
+                created += 1
         day = day + _dt.timedelta(days=1)
     return created
 

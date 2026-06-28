@@ -20906,6 +20906,7 @@ def _mirror_run_job(job_key):
         "sync_plan_nepritomnost": lambda: _sync_plan_nepritomnost(),
         "sync_plan_dochazka": lambda: _sync_plan_to_dochazka(),
         "sync_vyroba_plan": lambda: _sync_vyroba_plan_from_ec(),
+        "sync_vytizeni_absence": lambda: _sync_absence_to_ec_vytizeni(30),
         "sync_odvozy": lambda: _sync_odvozy_from_ec(),
         "sync_nabor": lambda: _sync_nabor_from_ec(),
     }

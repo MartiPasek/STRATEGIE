@@ -40,20 +40,39 @@
   <h1>🎁 Moje benefity <span id="obd" class="muted"></span></h1>
   <p class="sub">Daňově zvýhodněné složky mzdy — nastav si je sám. Snižují zdaněnou pohyblivou část (nižší daň), ale i základ pro sociální pojištění.</p>
   <div class="note">💡 <b>Můžeš si je vypnout</b>, pokud chceš raději vyšší zdaněnou mzdu (vyšší vyměřovací základ na důchod / nemocenskou).</div>
+  <div id="hrbar" style="display:none;margin-bottom:14px"></div>
   <div id="body"><div class="loading">Načítám…</div></div>
 </div>
 <script>
 const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ")+" Kč";
 const now=new Date(); let ROK=now.getFullYear(), MES=now.getMonth()+1;
 const MN=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
-let DATA=[];
+let DATA=[]; let OV=null; let LIDE=null; let JEHR=false;
+async function hrbar(){
+  if(!JEHR){document.getElementById('hrbar').style.display='none';return;}
+  const bar=document.getElementById('hrbar'); bar.style.display='block';
+  if(!LIDE){
+    try{const d=await (await fetch('/api/v1/erp/app/benefity/lidi',{credentials:'include'})).json();LIDE=d.ok?(d.lidi||[]):[];}catch(e){LIDE=[];}
+  }
+  let h='<div class="note" style="background:#1a1626;border-color:#3a2d5a;color:#d9c8ff">🛠️ <b>HR režim</b> — listuješ mezi všemi. ';
+  h+='<select id="hrsel" onchange="hrpick()" style="margin-left:6px;max-width:230px">';
+  h+='<option value="">— moje —</option>';
+  for(const p of (LIDE||[])){const v=p.firma+'|'+p.cislo;const sel=(OV&&OV.firma===p.firma&&OV.cislo===p.cislo)?' selected':'';
+    h+='<option value="'+v+'"'+sel+'>'+p.firma_nazev.substr(0,2)+' '+p.cislo+' · '+p.jmeno+'</option>';}
+  h+='</select></div>';
+  bar.innerHTML=h;
+}
+function hrpick(){const v=document.getElementById('hrsel').value;
+  if(!v){OV=null;}else{const a=v.split('|');OV={firma:a[0],cislo:parseInt(a[1],10)};}
+  load();
+}
 function comp(p){
   // přepočet HO částky z dnů
   return {ho:Math.min(p.ho_dny*p.ho_kc_den, p.ho_max_kc), obl:(p.obl_on && p.dny_pritomen>=1)?p.obl_kc:0};
 }
 function render(){
   document.getElementById('obd').textContent='· '+MN[MES]+' '+ROK;
-  if(!DATA.length){document.getElementById('body').innerHTML='<div class="loading">Pro tebe nejsou nastavené žádné benefity. Ozvi se personalistce.</div>';return;}
+  if(!DATA.length){document.getElementById('body').innerHTML='<div class="loading">'+(OV?'Tato osoba nemá nastavené benefity.':'Pro tebe nejsou nastavené žádné benefity. Ozvi se personalistce.')+'</div>';return;}
   let h='';
   DATA.forEach((p,i)=>{
     const c=comp(p); const total=c.ho+c.obl; const uspora=Math.round(total*0.15);
@@ -103,10 +122,12 @@ async function save(i){
   b.disabled=false; b.textContent='Uložit';
 }
 async function load(){
-  let d;try{d=await (await fetch('/api/v1/erp/app/benefity/moje?rok='+ROK+'&mesic='+MES,{credentials:'include'})).json();}
+  let url='/api/v1/erp/app/benefity/moje?rok='+ROK+'&mesic='+MES;
+  if(OV)url+='&firma='+OV.firma+'&cislo='+OV.cislo;
+  let d;try{d=await (await fetch(url,{credentials:'include'})).json();}
   catch(e){document.getElementById('body').innerHTML='<div class="loading">Chyba: '+e.message+'</div>';return;}
   if(!d.ok){document.getElementById('body').innerHTML='<div class="loading">'+(d.error==='unauth'?'Přihlas se prosím.':(d.error||'chyba'))+'</div>';return;}
-  DATA=d.polozky||[]; render();
+  JEHR=!!d.je_hr; DATA=d.polozky||[]; await hrbar(); render();
 }
 load();
 </script>

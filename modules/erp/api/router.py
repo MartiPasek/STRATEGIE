@@ -24578,9 +24578,47 @@ def _benefit_presence(sess, rok, mesic):
     return pres
 
 
+def _benefit_is_hr(uid):
+    try:
+        return bool(is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS)
+    except Exception:
+        return False
+
+
+@api_router.get("/app/benefity/lidi")
+def benefity_lidi(req: Request):
+    """HR: seznam všech osob (firma+číslo+jméno) k prolistování benefitů."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not _benefit_is_hr(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT firma, cislo FROM tenant.benefit_limit WHERE tenant_id=2 ORDER BY firma, cislo")).fetchall()
+    finally:
+        s.close()
+    names = {}
+    for fkod, db in (('1', None), ('2', None)):
+        _src, cdb = _zrc_dbs('EC' if fkod == '1' else 'ES')
+        nr = _mssql188_query("SELECT Cislo, RTRIM(ISNULL(Prijmeni,'')), RTRIM(ISNULL(Jmeno,'')) FROM " + cdb + ".dbo.TabCisZam")
+        if nr.get("ok"):
+            for v in nr.get("rows") or []:
+                try:
+                    names[(fkod, int(v[0]))] = (str(v[1] or '') + ' ' + str(v[2] or '')).strip()
+                except Exception:
+                    pass
+    out = [{"firma": r[0], "cislo": int(r[1]),
+            "jmeno": names.get((r[0], int(r[1])), '(č. ' + str(r[1]) + ')'),
+            "firma_nazev": 'EC Control' if r[0] == '1' else 'ES System'} for r in rows]
+    return {"ok": True, "lidi": out}
+
+
 @api_router.get("/app/benefity/moje")
 def benefity_moje(req: Request):
-    """Self-service: přihlášený uživatel vidí svoje benefity HO/OBL pro období."""
+    """Self-service: přihlášený uživatel vidí svoje benefity HO/OBL pro období.
+    HR (parent / scoped approver) může přes ?firma&cislo prolistovat kohokoliv."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauth"}, status_code=401)
@@ -24591,21 +24629,35 @@ def benefity_moje(req: Request):
         mesic = int(req.query_params.get("mesic") or _now.month)
     except Exception:
         rok, mesic = _now.year, _now.month
+    je_hr = _benefit_is_hr(uid)
+    ov_firma = (req.query_params.get("firma") or "").strip()
+    ov_cislo = req.query_params.get("cislo")
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()
     try:
-        cisla = _benefit_user_cisla(s, uid)
+        if je_hr and ov_firma and ov_cislo:
+            try:
+                cisla = [int(ov_cislo)]
+            except Exception:
+                cisla = []
+        else:
+            cisla = _benefit_user_cisla(s, uid)
         out = []
         if cisla:
             pres = _benefit_presence(s, rok, mesic)
+            ffilt = ""
+            params = {"y": rok, "mo": mesic, "cs": cisla}
+            if je_hr and ov_firma and ov_cislo:
+                ffilt = " AND l.firma=:ff"
+                params["ff"] = ('1' if ov_firma.upper() in ('EC', '1') else '2')
             rows = s.execute(_t(
                 "SELECT l.firma, l.cislo, l.ho_max_kc, l.obl_kc, v.ho_dny, v.obl_on "
                 "FROM tenant.benefit_limit l "
                 "LEFT JOIN tenant.benefit_volba v ON v.tenant_id=2 AND v.firma=l.firma AND v.cislo=l.cislo "
                 "  AND v.rok=:y AND v.mesic=:mo "
-                "WHERE l.tenant_id=2 AND l.cislo = ANY(:cs) ORDER BY l.firma, l.cislo"),
-                {"y": rok, "mo": mesic, "cs": cisla}).fetchall()
+                "WHERE l.tenant_id=2 AND l.cislo = ANY(:cs)" + ffilt + " ORDER BY l.firma, l.cislo"),
+                params).fetchall()
             for r in rows:
                 fkod = r[0]; cislo = int(r[1])
                 ho_max_kc = float(r[2] or 0); obl_kc = float(r[3] or 0)
@@ -24624,7 +24676,7 @@ def benefity_moje(req: Request):
                     "dny_pritomen": dny_pritomen,
                     "danova_uspora": int(round((ho_castka + (obl_kc if (obl_on and dny_pritomen >= 1) else 0)) * 0.15)),
                 })
-        return {"ok": True, "rok": rok, "mesic": mesic, "polozky": out}
+        return {"ok": True, "rok": rok, "mesic": mesic, "je_hr": je_hr, "polozky": out}
     finally:
         s.close()
 
@@ -24641,6 +24693,7 @@ async def benefity_moje_save(req: Request):
         b = {}
     try:
         firma = str(b.get("firma") or "").strip()
+        firma = '1' if firma.upper() in ('EC', '1') else '2'
         cislo = int(b.get("cislo"))
         rok = int(b.get("rok")); mesic = int(b.get("mesic"))
         ho_dny = max(0, int(b.get("ho_dny") or 0))
@@ -24651,8 +24704,8 @@ async def benefity_moje_save(req: Request):
     from sqlalchemy import text as _t
     s = _g()
     try:
-        # vlastnictví: cislo musí patřit přihlášenému uživateli
-        if cislo not in _benefit_user_cisla(s, uid):
+        # vlastnictví: cislo musí patřit uživateli (nebo je HR — může za kohokoliv)
+        if not _benefit_is_hr(uid) and cislo not in _benefit_user_cisla(s, uid):
             return JSONResponse({"ok": False, "error": "not your number"}, status_code=403)
         lim = s.execute(_t("SELECT ho_max_kc, obl_kc FROM tenant.benefit_limit "
                            "WHERE tenant_id=2 AND firma=:f AND cislo=:c"),

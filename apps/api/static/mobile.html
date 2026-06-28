@@ -706,6 +706,8 @@ setTimeout(function(){
     tt.addEventListener("click",function(){go("strtask");}); grid.appendChild(tt);
     var ut=el('<div class="tile"><div class="tile-ic">📋</div><div class="tile-tt">Úkoly</div><div class="tile-sub">Z Centrály</div></div>');
     ut.addEventListener("click",function(){go("ecukoly");}); grid.appendChild(ut);
+    var bt=el('<div class="tile"><div class="tile-ic">🎁</div><div class="tile-tt">Benefity</div><div class="tile-sub">Home office / oblečení</div></div>');
+    bt.addEventListener("click",function(){ openApp("/benefity"); }); grid.appendChild(bt);
     // Schvalování návrhů plánu — viditelné jen pro schvalovatele (jinak 403 → skryto).
     var ap=el('<div class="tile" style="position:relative;display:none;"><div class="tile-ic">🗓️</div><div class="tile-tt">Schvalování</div><div class="tile-sub" id="apSub">…</div><span id="apBadge" style="display:none;position:absolute;top:8px;right:8px;background:#f59e0b;color:#fff;border-radius:11px;min-width:22px;height:22px;line-height:22px;text-align:center;font-size:12px;font-weight:700;padding:0 6px;box-shadow:0 1px 4px rgba(0,0,0,.35);"></span></div>');
     ap.addEventListener("click",function(){go("planapprovals");}); grid.appendChild(ap);

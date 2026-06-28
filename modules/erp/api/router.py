@@ -25025,7 +25025,10 @@ def _mzdy_status_check(rok, mesic):
             for r in (st.get("rows") or []):
                 out.append({"firma": firma, "cislo": r[0], "jmeno": (r[1] or "").strip(),
                             "problem": "status", "detail": "Helios status %s (Info %s)" % (r[2], r[3])})
-            for tbl, ms, label in (("att_ocr_case", 205, "ošetřovné"), ("att_sick_case", 203, "nemocenská")):
+            # nemoc: prvních 14 dní = náhrada zaměstnavatele (213/106/882), od 15. dne ČSSZ (203);
+            # docházkové 200/201 taky beru jako "řešeno". OČR = ošetřovné 205 (+201 docházka).
+            for tbl, ms_in, label in (("att_ocr_case", "205,201,251", "ošetřovné"),
+                                      ("att_sick_case", "200,203,213,882,106", "nemocenská/náhrada")):
                 cm, s = _att_session()
                 try:
                     cases = s.execute(_t(
@@ -25045,7 +25048,7 @@ def _mzdy_status_check(rok, mesic):
                     chk = _mssql188_query(
                         "SELECT COUNT(*) FROM " + cdb + ".dbo.TabMzSloz m "
                         "JOIN " + cdb + ".dbo.TabCisZam c ON c.ID=m.ZamestnanecId "
-                        "WHERE m.IdObdobi=%d AND c.Cislo=%d AND m.CisloMS=%d" % (idobd, cislo, ms))
+                        "WHERE m.IdObdobi=%d AND c.Cislo=%d AND m.CisloMS IN (%s)" % (idobd, cislo, ms_in))
                     has = int(chk["rows"][0][0]) if (chk.get("ok") and chk.get("rows")) else 0
                     if not has:
                         out.append({"firma": firma, "cislo": cislo, "jmeno": "",

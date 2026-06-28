@@ -1429,53 +1429,65 @@ setTimeout(function(){
     g.appendChild(appCell("❓","Nápověda docházka",0,function(){ dochHelp(); }));   // Jirka 26.6.: rychlý návod docházky ze seznamu aplikací
     // Marti 9.6.: vše ze složky Firma = aplikace. Výroba + její seznamy jako ikony,
     // řízení (Vedení) jako složka. Deep-link otevře Výrobu rovnou na daném seznamu.
-    g.appendChild(appCell("🏭","Výroba",0,function(){go("vyroba_hub");}));
-    g.appendChild(appCell("💰","Finance",0,function(){openInApp("/finance");}));   // Petřin finance sandbox (Marti 25.6.2026)
-    g.appendChild(appCell("🧰","Moje činnosti",0,function(){go("moje_cinnosti");}));
-    g.appendChild(appCell("🪪","Moje osobní údaje",0,function(){go("hr_me");}));
-    g.appendChild(appCell("⚡","Výuka",0,function(){go("uceni");}));
-    g.appendChild(appCell("🛒","Nákup",0,function(){openVyroba("nakup");}));
-    g.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
-    g.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
-    g.appendChild(appCell("📊","FLOW",0,function(){openInApp("/flow");}));
-    g.appendChild(appCell("📈","Vytížení",0,function(){openInApp("/vytizeni");}));
-    g.appendChild(appCell("🔋","Vytížení dílny",0,function(){openInApp("/vytizeni-prehled");}));
-    g.appendChild(appCell("📞","Plán hovorů",0,function(){openInApp("/crm-plan-hovoru");}));
-    g.appendChild(appCell("🏖️","Plán absencí",0,function(){openInApp("/absence-plan");}));
-    g.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
-    g.appendChild(appCell("🔀","Migrace",0,function(){go("migrace");}));
-    g.appendChild(appCell("🗂️","Digitalizace",0,function(){openInApp("/digitalizace");}));
-    g.appendChild(appCell("🪞","Zrcadla",0,function(){openInApp("/zrcadla");}));
-    g.appendChild(appCell("🏦","Banka",0,function(){openInApp("/banka");}));
-    g.appendChild(appCell("🧾","Účetní deník",0,function(){openInApp("/denik");}));
-    g.appendChild(appCell("📊","Předvaha",0,function(){openInApp("/predvaha");}));
-    g.appendChild(appCell("💰","Mzdy & odvody",0,function(){openInApp("/mzdy");}));
-    g.appendChild(appCell("🛒","Nákup",0,function(){openInApp("/nakup");}));
-    g.appendChild(appCell("🔒","HR",0,function(){go("hr_hub");}));
-    g.appendChild(appCell("📊","Statistika EDI",0,function(){openInApp("/edi-stat");}));
-    g.appendChild(appCell("🧩","EDI definice",0,function(){openInApp("/edi-definice");}));
-    g.appendChild(appCell("🧾","Přefakturace",0,function(){go("prefakturace");}));
-    g.appendChild(appCell("📨","Datovky / ČSSZ",0,function(){go("isds");}));
-    g.appendChild(appCell("🤒","Neschopenky",0,function(){openInApp("/neschopenky");}));
-    g.appendChild(appCell("📤","Dávky ČSSZ",0,function(){openInApp("/davky");}));
-    g.appendChild(appCell("🛡️","Audit dávek",0,function(){openInApp("/audit-davky");}));
-    g.appendChild(appCell("🛡️","ISO 27001",0,function(){openInApp("/iso");}));
-    g.appendChild(appCell("📚","Dokumentace",0,function(){openInApp("/dokument");}));
-    g.appendChild(appCell("📥","Poptávky",0,function(){go("poptavka");}));
-    g.appendChild(appCell("🛒","Co objednat",0,function(){openInApp("/objednavky");}));
-    g.appendChild(appCell("🤖","SW zakázky",0,function(){go("sw_zakazky");}));
-    g.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
-    g.appendChild(appCell("🌐","Uživatelé",0,function(){ _auMode="users"; go("alluser"); }));
-    g.appendChild(appCell("📒","Účetní",0,function(){ _auMode="helios"; go("alluser"); }));
-    g.appendChild(appCell("📲","Sdílený telefon",0,function(){go("sdileny");}));
-    g.appendChild(appCell("🧲","Teamio",0,function(){ openApp("https://my.teamio.com"); }));
-    g.appendChild(appCell("🤖","Claude-27",0,function(){go("claude27");}));
-    g.appendChild(appCell("📥","Zadat úkol",0,function(){ go("fronta"); }));
-    g.appendChild(appCell("🕸️","Síť Claudů",0,function(){go("coord");}));
-    // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
-    // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
-    // g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
-    app.appendChild(g);
+    app.appendChild(g);  // základ: hlavní launchery nahoře (bez nadpisu)
+    // Marti 28.6.: celková revize řazení — skupiny s nadpisy (sec) jako ve „Vedení".
+    function sec(t){ app.appendChild(el('<div style="margin:16px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
+    function grp(){ var gg=el('<div class="appgrid"></div>'); app.appendChild(gg); return gg; }
+    var gg;
+    sec("🧑 MOJE"); gg=grp();
+    gg.appendChild(appCell("🧰","Moje činnosti",0,function(){go("moje_cinnosti");}));
+    gg.appendChild(appCell("🪪","Moje osobní údaje",0,function(){go("hr_me");}));
+    gg.appendChild(appCell("📥","Zadat úkol",0,function(){ go("fronta"); }));
+    sec("🏭 VÝROBA & OBCHOD"); gg=grp();
+    gg.appendChild(appCell("🏭","Výroba",0,function(){go("vyroba_hub");}));
+    gg.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
+    gg.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
+    gg.appendChild(appCell("📊","FLOW",0,function(){openInApp("/flow");}));
+    gg.appendChild(appCell("📈","Vytížení",0,function(){openInApp("/vytizeni");}));
+    gg.appendChild(appCell("🔋","Vytížení dílny",0,function(){openInApp("/vytizeni-prehled");}));
+    gg.appendChild(appCell("📞","Plán hovorů",0,function(){openInApp("/crm-plan-hovoru");}));
+    gg.appendChild(appCell("📥","Poptávky",0,function(){go("poptavka");}));
+    gg.appendChild(appCell("🤖","SW zakázky",0,function(){go("sw_zakazky");}));
+    sec("🛒 NÁKUP & SKLAD"); gg=grp();
+    gg.appendChild(appCell("🛒","Nákup (výroba)",0,function(){openVyroba("nakup");}));
+    gg.appendChild(appCell("🛒","Nákup",0,function(){openInApp("/nakup");}));
+    gg.appendChild(appCell("🛒","Co objednat",0,function(){openInApp("/objednavky");}));
+    sec("🏦 FINANCE & ÚČETNICTVÍ"); gg=grp();
+    gg.appendChild(appCell("💰","Finance",0,function(){openInApp("/finance");}));
+    gg.appendChild(appCell("🏦","Banka",0,function(){openInApp("/banka");}));
+    gg.appendChild(appCell("🧾","Účetní deník",0,function(){openInApp("/denik");}));
+    gg.appendChild(appCell("📊","Předvaha",0,function(){openInApp("/predvaha");}));
+    gg.appendChild(appCell("💰","Mzdy & odvody",0,function(){openInApp("/mzdy");}));
+    gg.appendChild(appCell("🧾","Přefakturace",0,function(){go("prefakturace");}));
+    gg.appendChild(appCell("📒","Účetní",0,function(){ _auMode="helios"; go("alluser"); }));
+    sec("📨 ČSSZ & COMPLIANCE"); gg=grp();
+    gg.appendChild(appCell("📨","Datovky / ČSSZ",0,function(){go("isds");}));
+    gg.appendChild(appCell("🤒","Neschopenky",0,function(){openInApp("/neschopenky");}));
+    gg.appendChild(appCell("📤","Dávky ČSSZ",0,function(){openInApp("/davky");}));
+    gg.appendChild(appCell("🛡️","Audit dávek",0,function(){openInApp("/audit-davky");}));
+    gg.appendChild(appCell("🛡️","ISO 27001",0,function(){openInApp("/iso");}));
+    sec("🔌 EDI"); gg=grp();
+    gg.appendChild(appCell("📊","Statistika EDI",0,function(){openInApp("/edi-stat");}));
+    gg.appendChild(appCell("🧩","EDI definice",0,function(){openInApp("/edi-definice");}));
+    sec("🧑‍💼 HR & LIDÉ"); gg=grp();
+    gg.appendChild(appCell("🔒","HR",0,function(){go("hr_hub");}));
+    gg.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
+    gg.appendChild(appCell("🌐","Uživatelé",0,function(){ _auMode="users"; go("alluser"); }));
+    gg.appendChild(appCell("⚡","Výuka",0,function(){go("uceni");}));
+    sec("🏛️ ŘÍZENÍ"); gg=grp();
+    gg.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
+    gg.appendChild(appCell("🏖️","Plán absencí",0,function(){openInApp("/absence-plan");}));
+    gg.appendChild(appCell("⚙️","Ops akce",0,function(){go("ops");}));
+    sec("🛠️ SYSTÉM & MIGRACE"); gg=grp();
+    gg.appendChild(appCell("🔀","Migrace",0,function(){go("migrace");}));
+    gg.appendChild(appCell("🗂️","Digitalizace",0,function(){openInApp("/digitalizace");}));
+    gg.appendChild(appCell("🪞","Zrcadla",0,function(){openInApp("/zrcadla");}));
+    gg.appendChild(appCell("📚","Dokumentace",0,function(){openInApp("/dokument");}));
+    sec("🤖 AI & KOMUNIKACE"); gg=grp();
+    gg.appendChild(appCell("🤖","Claude-27",0,function(){go("claude27");}));
+    gg.appendChild(appCell("🕸️","Síť Claudů",0,function(){go("coord");}));
+    gg.appendChild(appCell("📲","Sdílený telefon",0,function(){go("sdileny");}));
+    gg.appendChild(appCell("🧲","Teamio",0,function(){ openApp("https://my.teamio.com"); }));
     app.appendChild(el('<div style="height:200px;"></div>'));  // místo pod dvě extra lišty (zvětšeno 120→200, ať poslední řádek dlaždic nezajíždí pod spodní panel)
   }
   // Marti 9.6.: složka „Vedení" v Aplikacích — řídicí agendy. Příprava/Odvozy/

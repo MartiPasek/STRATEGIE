@@ -24889,7 +24889,7 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows):
         c, ms, kc = row[0], row[1], row[2]
         dny = row[3] if len(row) > 3 else 0
         zid = id_by_cislo.get(int(c))
-        if not zid or not kc:
+        if not zid or (not kc and not dny):  # absence = jen Dny (koruny dopočítá automat)
             continue
         stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
                      "VALUES(%s,%d,%d,0,%d,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), int(dny or 0), int(kc)))
@@ -24903,6 +24903,53 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows):
             if "HY007" not in err:  # HY007 = pyodbc fetch nad bez-result batchem, DML ale proběhl
                 return "INSERT chunk %d: %s" % (i, err)
     return None
+
+
+def _mzdy_absence_rows(firma, rok, mesic):
+    """Absence z REGISTRU případů (OČR/nemoc) → Helios docházková MS (Dny), automat dopočítá
+    náhradu (ošetřovné/nemocenská) + poníží mzdu za absenční dny. Firma z case.company
+    (jednoznačná — řeší multi-firmu). OČR→201, nemoc→200. Počítá pracovní dny (Po–Pá) případu
+    spadající do daného měsíce (otevřený případ = do dneška). Marti 28.6.2026."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    import calendar as _cal
+    fkod = str(firma).upper()
+    m_first = _dt.date(int(rok), int(mesic), 1)
+    m_last = _dt.date(int(rok), int(mesic), _cal.monthrange(int(rok), int(mesic))[1])
+    today = _dt.date.today()
+    out = []
+    s = _g()
+    try:
+        for tbl, ms in (("att_ocr_case", 201), ("att_sick_case", 200)):
+            try:
+                rows = s.execute(_t(
+                    "SELECT e.cislo_zam, c.datum_od, c.datum_do "
+                    "FROM tenant." + tbl + " c "
+                    "JOIN tenant.att_employee e ON e.id=c.employee_id "
+                    "WHERE c.tenant_id=2 AND c.company=:f "
+                    "  AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
+                    "  AND c.datum_od <= :ml AND COALESCE(c.datum_do, :tod) >= :mf"),
+                    {"f": fkod, "ml": m_last, "mf": m_first, "tod": today}).fetchall()
+            except Exception:
+                rows = []
+            for r in rows:
+                try:
+                    c = int(str(r[0]).strip())
+                except Exception:
+                    continue
+                d0 = max(r[1], m_first)
+                d1 = min(r[2] or today, m_last)
+                dny, d = 0, d0
+                while d <= d1:
+                    if d.weekday() < 5:
+                        dny += 1
+                    d = d + _dt.timedelta(days=1)
+                if dny > 0:
+                    out.append((c, ms, 0, dny))
+    finally:
+        s.close()
+    return out
 
 
 def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
@@ -24944,6 +24991,10 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
             pass
         try:
             prows = prows + _mzdy_priplatky_rows(firma, rok, mesic)
+        except Exception:
+            pass
+        try:
+            prows = prows + _mzdy_absence_rows(firma, rok, mesic)
         except Exception:
             pass
         try:

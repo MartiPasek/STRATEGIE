@@ -9371,6 +9371,107 @@ _EC_DOCH_MAP = [("mont", "work"), ("rez", "overhead"), ("dov", "vacation"),
                 ("nem", "sick"), ("lek", "medical"), ("ocr", "family_care")]
 
 
+# DruhCinnosti klasifikace (číselník Kristý + reálná data 28.6.): absence → att_entry typ; 8=HO; ostatní=práce.
+_DRUH_ABSENCE = {20: "vacation", 30: "vacation", 21: "medical", 22: "sick", 23: "family_care",
+                 31: "sickday", 26: "unpaid", 39: "unpaid", 47: "unpaid", 133: "unpaid",
+                 10: "unpaid", 34: "unpaid", 35: "unpaid", 33: "sick", 36: "sick"}
+_DRUH_HO = 8
+
+
+def _sync_dochazka_ec(rok, mesic):
+    """SROVNANÁ docházka z EC_Dochazka (REÁLNÝ zdroj, ne sparse SumaDen) → att_entry + att_day_summary.
+    Klasifikace DruhCinnosti (práce/HO/absence), fond per úvazek (úvazek_tyden_h/5, JEN Po–Pá, víkend=0),
+    dopíchat schodek / odpíchat přebytek práce, absence DOTÁHNOUT jako att_entry. Marti 28.6.2026."""
+    import datetime as _dt
+    import calendar as _cal
+    from sqlalchemy import text as _t
+    od = "%04d-%02d-01" % (rok, mesic)
+    ld = _cal.monthrange(rok, mesic)[1]
+    do = "%04d-%02d-%02d" % (rok, mesic, ld)
+    sql = ("SELECT CisloZam cz, CONVERT(varchar(10),DatumPripadu,23) den, DruhCinnosti druh, "
+           "SUM(ISNULL(CasCelkemVcRezii,0)) hod FROM EC_Dochazka "
+           "WHERE DatumPripadu>='" + od + "' AND DatumPripadu<='" + do + "' "
+           "GROUP BY CisloZam, CONVERT(varchar(10),DatumPripadu,23), DruhCinnosti")
+    ec_rows = _ec_mcp_rows(sql)
+    cm, s = _att_session()
+    out = {"prace": 0, "absence": 0, "dopichnuto_h": 0.0, "odpichnuto_h": 0.0, "vikend_skip": 0, "lidi": 0}
+    try:
+        emp_uv = {}
+        for r in s.execute(_t(
+            "SELECT ae.cislo_zam, ae.id, ae.user_id, COALESCE(e.uvazek_tyden_h,40) "
+            "FROM tenant.att_employee ae JOIN tenant.engagement e ON e.employee_id=ae.id AND e.is_current=true "
+            "WHERE ae.tenant_id=2 AND ae.cislo_zam ~ '^[0-9]+$'")).fetchall():
+            emp_uv[str(r[0])] = (r[1], r[2], float(r[3] or 40))
+        tids = {}
+        for r in s.execute(_t("SELECT code,id FROM tenant.att_entry_type WHERE tenant_id=2")).fetchall():
+            tids[r[0]] = r[1]
+        day = {}
+        for row in ec_rows:
+            cz = str(row.get("cz")).strip()
+            den = row.get("den")
+            try:
+                druh = int(row.get("druh")); h = float(row.get("hod") or 0)
+            except Exception:
+                continue
+            if cz not in emp_uv or not den:
+                continue
+            d = day.setdefault((cz, den), {"work": 0.0, "ho": 0.0, "abs": {}})
+            if druh == _DRUH_HO:
+                d["ho"] += h
+            elif druh in _DRUH_ABSENCE:
+                c = _DRUH_ABSENCE[druh]
+                d["abs"][c] = d["abs"].get(c, 0.0) + h
+            else:
+                d["work"] += h
+        # idempotence: smaž předchozí EC-real za měsíc (att_entry + att_day_summary)
+        s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND source_system='ec_real' "
+                     "AND EXTRACT(YEAR FROM entry_date)=:y AND EXTRACT(MONTH FROM entry_date)=:m"), {"y": rok, "m": mesic})
+        lidi = set()
+        for (cz, den), d in day.items():
+            emp, uid, uv = emp_uv[cz]
+            dd = _dt.date.fromisoformat(den)
+            if dd.weekday() >= 5:
+                out["vikend_skip"] += 1
+                continue
+            lidi.add(cz)
+            fond = round(uv / 5.0, 2)
+            abs_total = sum(d["abs"].values())
+            for code, h in d["abs"].items():
+                tid = tids.get(code)
+                if tid and h > 0:
+                    s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                                 "status,source,source_system,is_active,note,created_at,updated_at) "
+                                 "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,'EC absence',now(),now())"),
+                              {"e": emp, "d": dd, "t": tid, "h": round(min(h, fond), 2)})
+                    out["absence"] += 1
+            work_target = round(max(0.0, fond - min(abs_total, fond)), 2)
+            present = d["work"] + d["ho"]
+            if work_target > 0:
+                wcode = "homeoffice" if (d["ho"] > d["work"]) else "work"
+                tid = tids.get(wcode)
+                if tid:
+                    s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                                 "status,source,source_system,is_active,note,created_at,updated_at) "
+                                 "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,'EC práce (fond)',now(),now())"),
+                              {"e": emp, "d": dd, "t": tid, "h": work_target})
+                    out["prace"] += 1
+                    if present < work_target:
+                        out["dopichnuto_h"] += round(work_target - present, 2)
+                    elif present > work_target:
+                        out["odpichnuto_h"] += round(present - work_target, 2)
+            # att_day_summary: cas_celkem = odpracovaný fond (pro stravenky/přehled); absence den = 0
+            s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem) "
+                         "VALUES (2,:c,:u,:d,:y,:m,:h) "
+                         "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,user_id=:u"),
+                      {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": work_target})
+        s.commit()
+        out["lidi"] = len(lidi)
+        out["ok"] = True
+        return out
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.post("/app/hr/import-dochazka")
 async def app_hr_import_dochazka(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
@@ -30243,6 +30344,17 @@ async def diag_sql(req: Request) -> JSONResponse:
     # (queue_email, from_identity=persona → worker pošle přes její schránku).
     # Autonomní (token-auth, bez approval banneru), audit do fw.claude_email_log.
     #   @@EMAIL {"to":"x@y.cz","subject":"...","body":"...","cc":["..."],"reason":"..."}
+    #   @@DOCHAZKA <rok> <mesic>  → srovnaná docházka z EC_Dochazka (fond per úvazek) → att_entry+summary
+    if sql.upper().startswith("@@DOCHAZKA"):
+        import datetime as _dtd
+        parts = sql.split()
+        try:
+            rok = int(parts[1]) if len(parts) > 1 else _dtd.date.today().year
+            mesic = int(parts[2]) if len(parts) > 2 else _dtd.date.today().month
+        except Exception:
+            return JSONResponse({"ok": False, "error": "@@DOCHAZKA <rok> <mesic>"})
+        return JSONResponse(_sync_dochazka_ec(rok, mesic))
+
     #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)
     if sql.upper().startswith("@@MZDY"):
         import datetime as _dtm

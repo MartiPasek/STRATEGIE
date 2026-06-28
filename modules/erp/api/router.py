@@ -24434,24 +24434,28 @@ def _mzdy_priplatky_rows(firma, rok, mesic):
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     fkod = '1' if str(firma).upper() in ('EC', '1') else '2'
+    fec = 'EC' if str(firma).upper() in ('EC', '1') else 'ES'  # company.code = 'EC'/'ES'
     s = _g()
     try:
+        # Výběr dle EC logiky (EC_Mzdy_PrepocetMesicZam): Schvaleno + platnost bracketing období,
+        # ne period_month (is_recurring v mirroru není spolehlivé). konec měsíce = make_date(y,mo,1)+1měsíc-1den.
         rows = s.execute(_t(
             "SELECT ae.cislo_zam AS cislo, msm.ext_code AS cislo_ms, wm.import_src_id AS ecid, "
             "  COALESCE(wm.amount, wm.hours*wm.rate, 0) AS castka, wm.zakazka_ref AS zak "
             "FROM tenant.wage_movement wm "
             "JOIN tenant.engagement e ON e.id=wm.engagement_id "
-            "JOIN tenant.company c ON c.id=e.company_id AND c.code=:f "
+            "JOIN tenant.company c ON c.id=e.company_id AND c.code=:fec "
             "JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam ~ '^[0-9]+$' "
             "JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
             "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
             "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
             "WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') "
-            "  AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod') "
-            "  AND ( (wm.period_year=:y AND wm.period_month=:mo) "
-            "     OR (COALESCE(wm.is_recurring,false) AND wm.valid_from <= make_date(:y,:mo,1) "
-            "         AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))) )"),
-            {"f": fkod, "y": rok, "mo": mesic}).fetchall()
+            # VYJMA: HO/OBL/korekce (benefit systém) + srazka_telefon (EC číselník ReakceMzdy=False,
+            # EC řeší telefon zvlášť; sign/mechanismus doladit → TODO mirror číselníku ReakceMzdy)
+            "  AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod','srazka_telefon') "
+            "  AND wm.valid_from <= (make_date(:y,:mo,1) + INTERVAL '1 month' - INTERVAL '1 day') "
+            "  AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))"),
+            {"fec": fec, "y": rok, "mo": mesic}).fetchall()
         # čistá voda: smaž alokace ZÁVAZKŮ do mzdy za období+firma (re-run při ladění); 'vyplaceno' nech být
         s.execute(_t("DELETE FROM tenant.zamestnanecky_zavazek WHERE tenant_id=2 AND zdroj='EC_PRIPL' "
                      "AND firma=:f AND rok=:y AND mesic=:mo AND kanal='mzda' AND stav<>'vyplaceno'"),

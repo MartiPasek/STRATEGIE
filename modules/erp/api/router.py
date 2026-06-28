@@ -24569,7 +24569,7 @@ def _benefit_presence(sess, rok, mesic):
     pres = {}
     for r in sess.execute(_t(
         "SELECT cislo_zam, COUNT(*) FROM tenant.att_day_summary "
-        "WHERE tenant_id=2 AND rok=:y AND mesic=:mo AND cas_celkem>4 AND cislo_zam ~ '^[0-9]+$' "
+        "WHERE tenant_id=2 AND rok=:y AND mesic=:mo AND cas_celkem>4 AND cislo_zam IS NOT NULL "
         "GROUP BY cislo_zam"), {"y": rok, "mo": mesic}).fetchall():
         try:
             pres[int(r[0])] = int(r[1] or 0)
@@ -24677,9 +24677,6 @@ def benefity_moje(req: Request):
                     "danova_uspora": int(round((ho_castka + (obl_kc if (obl_on and dny_pritomen >= 1) else 0)) * 0.15)),
                 })
         return {"ok": True, "rok": rok, "mesic": mesic, "je_hr": je_hr, "polozky": out}
-    except Exception as _e:
-        import traceback as _tb
-        return JSONResponse({"ok": False, "error": "DBG: " + repr(_e), "tb": _tb.format_exc()[-800:]}, status_code=200)
     finally:
         s.close()
 

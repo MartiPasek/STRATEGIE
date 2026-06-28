@@ -25148,10 +25148,14 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
             prows = prows + _mzdy_priplatky_rows(firma, rok, mesic)
         except Exception:
             pass
-        # POZN. (Marti 28.6.): absence (OČR/nemoc) přes předzpracování Helios nepřijme —
-        # docházková MS 201/200 nezpůsobí výpočet náhrady a hodí Status 9. OČR/nemoc je
-        # potřeba zapsat do Helios modulu NEPŘÍTOMNOSTI (odkud hp_VypocitejMzdu čte). TODO blok.
-        # prows = prows + _mzdy_absence_rows(firma, rok, mesic)
+        # Absence (OČR/nemoc) → docházková MS 201/200 do předzpracování. Marti 28.6.: nechat
+        # VIDITELNÉ na pásce. Helios sám náhradu nedopočítá (hodí Status 9 = „doplnit dávku"),
+        # což je záměrný signál — monitor @@MZDYCHECK i Status 9 na to ukáží. Skutečný výpočet
+        # dávky = doplnit v Helios modulu nepřítomnosti (TODO přímé napojení).
+        try:
+            prows = prows + _mzdy_absence_rows(firma, rok, mesic)
+        except Exception:
+            pass
         try:
             prows = _mzdy_consolidate(prows)
         except Exception:

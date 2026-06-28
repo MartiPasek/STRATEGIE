@@ -24233,69 +24233,62 @@ def _mzdy_clean_sql(cloud_db, idobd):
         "SELECT 1 AS cisto;\n")
 
 
-# PŘEDZPRACOVÁNÍ ze STRATEGIE (zdroj pravdy, Marti 28.6.: "obě složky jdou od nás").
-# Z tenant.helios_wage_snapshot (mzdové podmínky): zaklad→karta ZakladniPlat (fix 001),
-# os_ohodnoceni→TabPredzp CisloMS=432 (pohyblivá). Výpočet pak obě složky vezme.
-# rows = list (cislo:int, os:int, zaklad:int). EC triggery off okolo zápisů.
+# PŘEDZPRACOVÁNÍ ze STRATEGIE (zdroj pravdy, Marti 28.6.). Každá složka má VLASTNÍ
+# Helios CisloMS (mapa wage_component_type.code→id→wage_system_mapping.ext_code).
+# Zápis PER-ŘÁDEK přes cursor (TabPredzp má zašifrovaný Helios trigger ht_InsDel_Predzp,
+# který set-based INSERT...SELECT zahazuje; per-row VALUES projde, triggery NEvypínáme).
+# Pevná základní (CisloMS=1) jde i do předzpracování (Marti) i na kartu ZakladniPlat pro výpočet.
+# rows = list (cislo:int, cislo_ms:int, koruny:int).
 def _mzdy_predzprac_sql(cloud_db, idobd, rows):
     o = str(int(idobd))
-    vals = ",".join("(%d,%d,%d)" % (int(c), int(os or 0), int(z or 0)) for c, os, z in rows)
+    vals = ",".join("(%d,%d,%d)" % (int(c), int(ms), int(kc or 0)) for c, ms, kc in rows)
     return (
         "USE " + cloud_db + ";\nSET NOCOUNT ON;\n"
-        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabPredzp';\n"
-        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabZamMzd';\n"
         "IF OBJECT_ID('tempdb..#src') IS NOT NULL DROP TABLE #src;\n"
-        "CREATE TABLE #src(cislo int, os money, zaklad money);\n"
-        "INSERT INTO #src(cislo,os,zaklad) VALUES " + vals + ";\n"
-        # pohyblivá 432 do předzpracování (přepsat)
-        "DELETE p FROM dbo.TabPredzp p JOIN dbo.TabCisZam c ON c.ID=p.ZamestnanecId "
-        "JOIN #src s ON s.cislo=c.Cislo WHERE p.IdObdobi=" + o + " AND p.CisloMS=432;\n"
+        "CREATE TABLE #src(cislo int, cislo_ms int, koruny money);\n"
+        "INSERT INTO #src(cislo,cislo_ms,koruny) VALUES " + vals + ";\n"
+        # čistá voda: smaž dříve zapsané STRATEGIE předzpracování za období
+        "DELETE FROM dbo.TabPredzp WHERE IdObdobi=" + o + " AND Autor='STRATEGIE';\n"
+        "DECLARE @id INT,@ms INT,@kc MONEY;\n"
+        "DECLARE cur CURSOR LOCAL FAST_FORWARD FOR "
+        "SELECT c.ID, s.cislo_ms, s.koruny FROM #src s JOIN dbo.TabCisZam c ON c.Cislo=s.cislo WHERE s.koruny<>0;\n"
+        "OPEN cur; FETCH NEXT FROM cur INTO @id,@ms,@kc;\n"
+        "WHILE @@FETCH_STATUS=0 BEGIN "
         "INSERT dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
-        "SELECT " + o + ",c.ID,432,0,0,s.os,0,'STRATEGIE',GETDATE() "
-        "FROM dbo.TabCisZam c JOIN #src s ON s.cislo=c.Cislo WHERE s.os<>0;\n"
-        "DECLARE @ins INT=@@ROWCOUNT;\n"
-        "DECLARE @nsrc INT=(SELECT COUNT(*) FROM #src), "
-        "@os_nz INT=(SELECT COUNT(*) FROM #src WHERE os<>0), "
-        "@maxos INT=(SELECT ISNULL(MAX(os),0) FROM #src), "
-        "@jmatch INT=(SELECT COUNT(*) FROM dbo.TabCisZam c JOIN #src s ON s.cislo=c.Cislo WHERE s.os<>0);\n"
-        "DELETE FROM MOST.dbo.Mzdy_Diag;\n"
-        "INSERT MOST.dbo.Mzdy_Diag(zam,err,status,info,errmsg) "
-        "VALUES(@nsrc,@ins,@os_nz,@jmatch,'maxos=' + CAST(@maxos AS VARCHAR(20)) + ' " + cloud_db + "');\n"
-        # fix 001 = zaklad na kartu (přepsat)
-        "UPDATE m SET ZakladniPlat=s.zaklad FROM dbo.TabZamMzd m JOIN dbo.TabCisZam c ON c.ID=m.ZamestnanecId "
-        "JOIN #src s ON s.cislo=c.Cislo WHERE m.IdObdobi=" + o + " AND s.zaklad<>0;\n"
-        "DROP TABLE #src;\n"
-        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabPredzp';\n"
-        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabZamMzd';\n"
-        "SELECT 1 AS hotovo;\n")
+        "VALUES(" + o + ",@id,@ms,0,0,@kc,0,'STRATEGIE',GETDATE()); "
+        # pevná základní (1) i na kartu pro výpočet
+        "IF @ms=1 UPDATE dbo.TabZamMzd SET ZakladniPlat=@kc WHERE ZamestnanecId=@id AND IdObdobi=" + o + "; "
+        "FETCH NEXT FROM cur INTO @id,@ms,@kc; END\n"
+        "CLOSE cur; DEALLOCATE cur;\nDROP TABLE #src;\nSELECT 1 AS hotovo;\n")
 
 
 def _mzdy_predzprac_rows(firma):
-    """Načte mzdové podmínky ze STRATEGIE (zdroj pravdy) k nejnovějšímu asof."""
+    """Mzdové podmínky ze STRATEGIE → per (číslo, Helios CisloMS): složka přes
+    wage_component_type.code → id → wage_system_mapping.ext_code (CisloMS).
+    K nejnovějšímu asof snapshotu (číslo+firma už vyřešené)."""
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()
     try:
-        # Obě složky od nás (Marti 28.6.): pevná = zaklad → karta 001;
-        # pohyblivá = SUMA všech ostatních složek (os_ohodnoceni + prémie + vedení +
-        # jednatelská odměna + individuální + …) → TabPredzp 432.
         pr = s.execute(_t(
-            "SELECT cislo, "
-            " COALESCE(SUM(castka) FILTER (WHERE slozka='zaklad'),0) AS zaklad, "
-            " COALESCE(SUM(castka) FILTER (WHERE slozka<>'zaklad'),0) AS pohyb "
-            "FROM tenant.helios_wage_snapshot "
-            "WHERE tenant_id=2 AND firma=:f AND asof=("
+            "SELECT sn.cislo, msm.ext_code AS cislo_ms, SUM(sn.castka) AS koruny "
+            "FROM tenant.helios_wage_snapshot sn "
+            "JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
+            "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
+            "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true)=true "
+            "WHERE sn.tenant_id=2 AND sn.firma=:f AND sn.asof=("
             "  SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f) "
-            "GROUP BY cislo"), {"f": firma}).fetchall()
+            "GROUP BY sn.cislo, msm.ext_code"), {"f": firma}).fetchall()
     finally:
         s.close()
     out = []
     for r in pr:
         try:
-            c = int(str(r[0]).strip())
+            c = int(str(r[0]).strip()); ms = int(r[1]); kc = int(r[2] or 0)
         except Exception:
             continue
-        out.append((c, int(r[2] or 0), int(r[1] or 0)))  # (cislo, os, zaklad)
+        if kc != 0:
+            out.append((c, ms, kc))
     return out
 
 

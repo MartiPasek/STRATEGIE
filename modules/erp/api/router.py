@@ -9819,7 +9819,7 @@ def _eneschopenka_to_sick():
             firma = cislo = None
             for f, cdb in (("EC", "UCTO_EC"), ("ES", "UCTO_ES")):
                 q = _mssql188_query("SELECT TOP 1 Cislo FROM " + cdb +
-                                    ".dbo.TabCisZam WHERE REPLACE(REPLACE(RodCislo,'/',''),' ','')='" + rc + "'")
+                                    ".dbo.TabCisZam WHERE RodneCisloBezLomitka='" + rc + "'")
                 if q.get("ok") and q.get("rows"):
                     try:
                         firma, cislo = f, int(q["rows"][0][0])

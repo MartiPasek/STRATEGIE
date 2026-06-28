@@ -34161,10 +34161,11 @@ def _refresh_employee_active() -> dict:
         cm.__exit__(None, None, None)
 
 
-def _sync_plan_nepritomnost(days_back: int = 30) -> dict:
+def _sync_plan_nepritomnost(days_back: int = 30, whole_year: bool = True) -> dict:
     """Plánované nepřítomnosti z Centrály (EC_Dochazka_PlanNepritomnost) →
-    tenant.att_planned_absence. Per den: kdo/datum/druh/hodiny/schváleno, od
-    (dnes - days_back). Název druhu z editovatelného číselníku
+    tenant.att_planned_absence. Per den: kdo/datum/druh/hodiny/schváleno.
+    whole_year=True (default, Marti 28.6.: musíme mít celý rok) → od 1.1. aktuálního roku + dopředu;
+    jinak rolling okno (dnes - days_back). Název druhu z editovatelného číselníku
     att_planned_absence_type (kód→název). Zrušené plány v okně zmizí (DELETE+INSERT)."""
     import json as _j
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
@@ -34173,11 +34174,14 @@ def _sync_plan_nepritomnost(days_back: int = 30) -> dict:
     mcp = get_eurosoft_mcp_client()
     if mcp is None:
         raise RuntimeError("EUROSOFT MCP nedostupné")
+    if whole_year:
+        cutoff = "CONVERT(date, CONVERT(varchar(4), YEAR(GETDATE())) + '-01-01')"  # celý rok + dopředu
+    else:
+        cutoff = "DATEADD(day,-" + str(int(days_back)) + ",CONVERT(date,GETDATE()))"
     sql = ("SELECT ID src, CisloZam cz, CONVERT(varchar(10),DatumPripadu,23) d, "
            "DruhCinnosti druh, PocetHodin hod, CAST(ISNULL(Schvaleno,0) AS int) schv "
            "FROM EC_Dochazka_PlanNepritomnost "
-           "WHERE DatumPripadu >= DATEADD(day,-" + str(int(days_back)) + ",CONVERT(date,GETDATE())) "
-           "AND CisloZam IS NOT NULL")
+           "WHERE DatumPripadu >= " + cutoff + " AND CisloZam IS NOT NULL")
     raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
                              {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
     r = _j.loads(raw) if isinstance(raw, str) else raw
@@ -34202,8 +34206,12 @@ def _sync_plan_nepritomnost(days_back: int = 30) -> dict:
         names = {}
         for nr in s.execute(_t("SELECT kod, nazev FROM tenant.att_planned_absence_type WHERE tenant_id=2")).fetchall():
             names[int(nr[0])] = nr[1]
-        s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 "
-                     "AND datum >= CURRENT_DATE - make_interval(days => :db)"), {"db": int(days_back)})
+        if whole_year:
+            s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 "
+                         "AND datum >= date_trunc('year', CURRENT_DATE)::date"))
+        else:
+            s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 "
+                         "AND datum >= CURRENT_DATE - make_interval(days => :db)"), {"db": int(days_back)})
         for row in rows:
             try:
                 src = int(row.get("src"))

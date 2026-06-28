@@ -24233,6 +24233,61 @@ def _mzdy_clean_sql(cloud_db, idobd):
         "SELECT 1 AS cisto;\n")
 
 
+# PŘEDZPRACOVÁNÍ ze STRATEGIE (zdroj pravdy, Marti 28.6.: "obě složky jdou od nás").
+# Z tenant.helios_wage_snapshot (mzdové podmínky): zaklad→karta ZakladniPlat (fix 001),
+# os_ohodnoceni→TabPredzp CisloMS=432 (pohyblivá). Výpočet pak obě složky vezme.
+# rows = list (cislo:int, os:int, zaklad:int). EC triggery off okolo zápisů.
+def _mzdy_predzprac_sql(cloud_db, idobd, rows):
+    o = str(int(idobd))
+    vals = ",".join("(%d,%d,%d)" % (int(c), int(os or 0), int(z or 0)) for c, os, z in rows)
+    return (
+        "USE " + cloud_db + ";\nSET NOCOUNT ON;\n"
+        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabPredzp';\n"
+        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabZamMzd';\n"
+        "IF OBJECT_ID('tempdb..#src') IS NOT NULL DROP TABLE #src;\n"
+        "CREATE TABLE #src(cislo int, os money, zaklad money);\n"
+        "INSERT INTO #src(cislo,os,zaklad) VALUES " + vals + ";\n"
+        # pohyblivá 432 do předzpracování (přepsat)
+        "DELETE p FROM dbo.TabPredzp p JOIN dbo.TabCisZam c ON c.ID=p.ZamestnanecId "
+        "JOIN #src s ON s.cislo=c.Cislo WHERE p.IdObdobi=" + o + " AND p.CisloMS=432;\n"
+        "INSERT dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
+        "SELECT " + o + ",c.ID,432,0,0,s.os,0,'STRATEGIE',GETDATE() "
+        "FROM dbo.TabCisZam c JOIN #src s ON s.cislo=c.Cislo WHERE s.os<>0;\n"
+        # fix 001 = zaklad na kartu (přepsat)
+        "UPDATE m SET ZakladniPlat=s.zaklad FROM dbo.TabZamMzd m JOIN dbo.TabCisZam c ON c.ID=m.ZamestnanecId "
+        "JOIN #src s ON s.cislo=c.Cislo WHERE m.IdObdobi=" + o + " AND s.zaklad<>0;\n"
+        "DROP TABLE #src;\n"
+        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabPredzp';\n"
+        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabZamMzd';\n"
+        "SELECT 1 AS hotovo;\n")
+
+
+def _mzdy_predzprac_rows(firma):
+    """Načte mzdové podmínky ze STRATEGIE (zdroj pravdy) k nejnovějšímu asof."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        pr = s.execute(_t(
+            "SELECT cislo, "
+            " MAX(castka) FILTER (WHERE slozka='zaklad') AS zaklad, "
+            " MAX(castka) FILTER (WHERE slozka='os_ohodnoceni') AS os "
+            "FROM tenant.helios_wage_snapshot "
+            "WHERE tenant_id=2 AND firma=:f AND asof=("
+            "  SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f) "
+            "GROUP BY cislo"), {"f": firma}).fetchall()
+    finally:
+        s.close()
+    out = []
+    for r in pr:
+        try:
+            c = int(str(r[0]).strip())
+        except Exception:
+            continue
+        out.append((c, int(r[2] or 0), int(r[1] or 0)))  # (cislo, os, zaklad)
+    return out
+
+
 @api_router.post("/app/mzdy/generuj")
 def mzdy_generuj(req: Request):
     """Generování mezd na CLOUD Heliosu: jeden tok = (volitelně vyčištění) generování +
@@ -24267,6 +24322,12 @@ def mzdy_generuj(req: Request):
         cw = _mssql188_query(_mzdy_clean_sql(cloud_db, idobd))
         if not cw.get("ok"):
             return {"ok": False, "error": "vyčištění selhalo: " + str(cw.get("error"))[:300]}
+        # PŘEDZPRACOVÁNÍ ze STRATEGIE: obě složky (zaklad→karta 001, os_ohodnoceni→TabPredzp 432)
+        prows = _mzdy_predzprac_rows(firma)
+        if prows:
+            pw = _mssql188_query(_mzdy_predzprac_sql(cloud_db, idobd, prows))
+            if not pw.get("ok"):
+                return {"ok": False, "error": "předzpracování selhalo: " + str(pw.get("error"))[:300]}
 
     def _counts():
         c = _mssql188_query(

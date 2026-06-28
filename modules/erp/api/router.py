@@ -24326,6 +24326,103 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
     return out
 
 
+# Benefity HO/OBL (Marti 28.6.). Zdroj pravdy = STRATEGIE (tenant.benefit_*).
+#  HO  = dny zadané UŽIVATELEM (0..max) × firemní konstanta (benefit_konstanta) → MS 795,
+#        strop = benefit_limit.ho_max_kc (HR). Daňově uznatelné.
+#  OBL = benefit_limit.obl_kc (HR měsíční částka), nárok když měl měsíc dny >4 h (jako
+#        stravenky) a uživatel má obl_on=true → MS 794. Daňově uznatelné.
+#  Obě složky PONÍŽÍ pohyblivou (432) o svou částku (jsou nedaněnou náhradou za zdaněné
+#  os. ohodnocení → nižší základ na SOC POJ). Cap: vždy nech aspoň _BENEFIT_BUFFER Kč
+#  pohyblivé; když benefit > pohyblivá-buffer, ořež nejdřív HO dny, pak OBL.
+_HO_MS, _OBL_MS, _POHYB_MS = 795, 794, 432
+_BENEFIT_BUFFER = 100
+
+
+def _mzdy_benefity_apply(prows, firma, rok, mesic):
+    """Vezme prows (předzpracování vč. 432) a aplikuje benefity HO/OBL: doplní MS 795/794
+    a poníží 432 o jejich součet (se stropem buffer). Vrací nové prows."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    fkod = '1' if str(firma).upper() in ('EC', '1') else '2'
+    s = _g()
+    try:
+        konst = s.execute(_t(
+            "SELECT kc_za_den FROM tenant.benefit_konstanta "
+            "WHERE typ='HO' AND (firma IS NULL OR firma=:f) "
+            "AND platnost_od<=make_date(:y,:mo,1) "
+            "AND (platnost_do IS NULL OR platnost_do>=make_date(:y,:mo,1)) "
+            "ORDER BY platnost_od DESC LIMIT 1"), {"f": fkod, "y": rok, "mo": mesic}).fetchone()
+        ho_kc_den = float(konst[0]) if konst and konst[0] else 234.0
+        vol = s.execute(_t(
+            "SELECT v.cislo, v.ho_dny, v.obl_on, COALESCE(l.ho_max_kc,0), COALESCE(l.obl_kc,0) "
+            "FROM tenant.benefit_volba v "
+            "LEFT JOIN tenant.benefit_limit l ON l.tenant_id=2 AND l.firma=v.firma AND l.cislo=v.cislo "
+            "WHERE v.tenant_id=2 AND v.firma=:f AND v.rok=:y AND v.mesic=:mo"),
+            {"f": fkod, "y": rok, "mo": mesic}).fetchall()
+        # presence (dny >4 h) pro OBL gate
+        pres = s.execute(_t(
+            "SELECT cislo_zam, COUNT(*) FROM tenant.att_day_summary "
+            "WHERE tenant_id=2 AND rok=:y AND mesic=:mo AND cas_celkem>4 GROUP BY cislo_zam"),
+            {"y": rok, "mo": mesic}).fetchall()
+    finally:
+        s.close()
+    if not vol:
+        return prows
+    days_by = {}
+    for r in pres:
+        try:
+            days_by[int(r[0])] = int(r[1] or 0)
+        except Exception:
+            pass
+    # aktuální pohyblivá (432) z prows
+    pohyb_by = {}
+    for row in prows:
+        if int(row[1]) == _POHYB_MS:
+            pohyb_by[int(row[0])] = int(row[2] or 0)
+    add = []  # nové 795/794 řádky
+    new_pohyb = {}  # cislo -> nová 432
+    for r in vol:
+        try:
+            cislo = int(r[0]); ho_dny = int(r[1] or 0); obl_on = bool(r[2])
+            ho_max = int(r[3] or 0); obl_kc = int(r[4] or 0)
+        except Exception:
+            continue
+        ho_amt = min(int(round(ho_dny * ho_kc_den)), ho_max) if ho_dny > 0 else 0
+        present = days_by.get(cislo, 0) >= 1
+        obl_amt = obl_kc if (obl_on and present and obl_kc > 0) else 0
+        pohyb = pohyb_by.get(cislo, 0)
+        avail = max(0, pohyb - _BENEFIT_BUFFER)
+        # cap: benefit nesmí spolknout celou pohyblivou
+        if ho_amt + obl_amt > avail:
+            if obl_amt <= avail:
+                ho_amt = avail - obl_amt
+            else:
+                ho_amt = 0; obl_amt = avail
+            ho_dny_eff = int(ho_amt // ho_kc_den)
+            ho_amt = int(round(ho_dny_eff * ho_kc_den))
+            if ho_amt + obl_amt > avail:
+                obl_amt = max(0, avail - ho_amt)
+        else:
+            ho_dny_eff = ho_dny
+        korekce = ho_amt + obl_amt
+        if ho_amt > 0:
+            add.append((cislo, _HO_MS, ho_amt, ho_dny_eff))
+        if obl_amt > 0:
+            add.append((cislo, _OBL_MS, obl_amt, 0))
+        if korekce > 0 and cislo in pohyb_by:
+            new_pohyb[cislo] = pohyb - korekce
+    # poskládej výstup: 432 nahraď sníženou hodnotou, přidej 795/794
+    out = []
+    for row in prows:
+        c = int(row[0])
+        if int(row[1]) == _POHYB_MS and c in new_pohyb:
+            out.append((c, _POHYB_MS, new_pohyb[c], 0))
+        else:
+            out.append(row)
+    out.extend(add)
+    return out
+
+
 def _mzdy_predzprac_apply(cloud_db, idobd, rows):
     """Zapíše předzpracování PER-ŘÁDEK přes 3-part jména (bez USE/temp/cursor) — spolehlivé
     přes API _mssql188_query a trigger-safe (single-row INSERT projde Helios triggerem).
@@ -24404,6 +24501,10 @@ def mzdy_generuj(req: Request):
             prows = prows + _mzdy_stravenky_rows(firma, rok, mesic)
         except Exception as _se:
             pass  # stravenky best-effort, nesmí shodit generování
+        try:
+            prows = _mzdy_benefity_apply(prows, firma, rok, mesic)
+        except Exception as _be:
+            pass  # benefity best-effort, nesmí shodit generování
         if prows:
             perr = _mzdy_predzprac_apply(cloud_db, idobd, prows)
             if perr:
@@ -24435,6 +24536,228 @@ def mzdy_generuj(req: Request):
             "pridano": pridano, "vystrahy": vystrahy,
             "done": (after >= cil) or (pridano == 0),
             "uvazlo": (pridano == 0 and after < cil)}
+
+
+# ========================= BENEFITY HO/OBL — endpointy =========================
+def _benefit_user_cisla(sess, uid):
+    from sqlalchemy import text as _t
+    rr = sess.execute(_t(
+        "SELECT DISTINCT cislo_zam FROM tenant.att_employee "
+        "WHERE tenant_id=2 AND user_id=:u AND cislo_zam ~ '^[0-9]+$'"), {"u": uid}).fetchall()
+    out = []
+    for r in rr:
+        try:
+            out.append(int(r[0]))
+        except Exception:
+            pass
+    return out
+
+
+def _benefit_ho_kc_den(sess, fkod, rok, mesic):
+    from sqlalchemy import text as _t
+    r = sess.execute(_t(
+        "SELECT kc_za_den FROM tenant.benefit_konstanta "
+        "WHERE typ='HO' AND (firma IS NULL OR firma=:f) "
+        "AND platnost_od<=make_date(:y,:mo,1) "
+        "AND (platnost_do IS NULL OR platnost_do>=make_date(:y,:mo,1)) "
+        "ORDER BY platnost_od DESC LIMIT 1"), {"f": fkod, "y": rok, "mo": mesic}).first()
+    return float(r[0]) if r and r[0] else 234.0
+
+
+def _benefit_presence(sess, rok, mesic):
+    from sqlalchemy import text as _t
+    pres = {}
+    for r in sess.execute(_t(
+        "SELECT cislo_zam, COUNT(*) FROM tenant.att_day_summary "
+        "WHERE tenant_id=2 AND rok=:y AND mesic=:mo AND cas_celkem>4 AND cislo_zam ~ '^[0-9]+$' "
+        "GROUP BY cislo_zam"), {"y": rok, "mo": mesic}).fetchall():
+        try:
+            pres[int(r[0])] = int(r[1] or 0)
+        except Exception:
+            pass
+    return pres
+
+
+@api_router.get("/app/benefity/moje")
+def benefity_moje(req: Request):
+    """Self-service: přihlášený uživatel vidí svoje benefity HO/OBL pro období."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauth"}, status_code=401)
+    import datetime as _dt
+    _now = _dt.date.today()
+    try:
+        rok = int(req.query_params.get("rok") or _now.year)
+        mesic = int(req.query_params.get("mesic") or _now.month)
+    except Exception:
+        rok, mesic = _now.year, _now.month
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        cisla = _benefit_user_cisla(s, uid)
+        out = []
+        if cisla:
+            pres = _benefit_presence(s, rok, mesic)
+            rows = s.execute(_t(
+                "SELECT l.firma, l.cislo, l.ho_max_kc, l.obl_kc, v.ho_dny, v.obl_on "
+                "FROM tenant.benefit_limit l "
+                "LEFT JOIN tenant.benefit_volba v ON v.tenant_id=2 AND v.firma=l.firma AND v.cislo=l.cislo "
+                "  AND v.rok=:y AND v.mesic=:mo "
+                "WHERE l.tenant_id=2 AND l.cislo = ANY(:cs) ORDER BY l.firma, l.cislo"),
+                {"y": rok, "mo": mesic, "cs": cisla}).fetchall()
+            for r in rows:
+                fkod = r[0]; cislo = int(r[1])
+                ho_max_kc = float(r[2] or 0); obl_kc = float(r[3] or 0)
+                ho_kc_den = _benefit_ho_kc_den(s, fkod, rok, mesic)
+                ho_max_dny = int(ho_max_kc // ho_kc_den) if ho_kc_den else 0
+                ho_dny = int(r[4]) if r[4] is not None else min(ho_max_dny, 8 if ho_max_kc > 0 else 0)
+                obl_on = bool(r[5]) if r[5] is not None else (obl_kc > 0)
+                dny_pritomen = pres.get(cislo, 0)
+                ho_castka = int(round(min(ho_dny * ho_kc_den, ho_max_kc)))
+                out.append({
+                    "firma": fkod, "cislo": cislo,
+                    "ho_kc_den": ho_kc_den, "ho_max_dny": ho_max_dny,
+                    "ho_dny": ho_dny, "ho_castka": ho_castka,
+                    "obl_mozne": obl_kc > 0, "obl_kc": int(obl_kc), "obl_on": obl_on,
+                    "obl_castka": int(obl_kc) if (obl_on and dny_pritomen >= 1) else 0,
+                    "dny_pritomen": dny_pritomen,
+                    "danova_uspora": int(round((ho_castka + (obl_kc if (obl_on and dny_pritomen >= 1) else 0)) * 0.15)),
+                })
+        return {"ok": True, "rok": rok, "mesic": mesic, "polozky": out}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/benefity/moje")
+async def benefity_moje_save(req: Request):
+    """Self-service uložení: uživatel nastaví HO dny + OBL on/off (validace proti HR stropu)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauth"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        firma = str(b.get("firma") or "").strip()
+        cislo = int(b.get("cislo"))
+        rok = int(b.get("rok")); mesic = int(b.get("mesic"))
+        ho_dny = max(0, int(b.get("ho_dny") or 0))
+        obl_on = bool(b.get("obl_on"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad input"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        # vlastnictví: cislo musí patřit přihlášenému uživateli
+        if cislo not in _benefit_user_cisla(s, uid):
+            return JSONResponse({"ok": False, "error": "not your number"}, status_code=403)
+        lim = s.execute(_t("SELECT ho_max_kc, obl_kc FROM tenant.benefit_limit "
+                           "WHERE tenant_id=2 AND firma=:f AND cislo=:c"),
+                        {"f": firma, "c": cislo}).first()
+        if not lim:
+            return JSONResponse({"ok": False, "error": "no limit"}, status_code=404)
+        ho_kc_den = _benefit_ho_kc_den(s, firma, rok, mesic)
+        ho_max_dny = int(float(lim[0] or 0) // ho_kc_den) if ho_kc_den else 0
+        ho_dny = min(ho_dny, ho_max_dny)          # strop HR (částka ≤ HR)
+        s.execute(_t(
+            "INSERT INTO tenant.benefit_volba (tenant_id, firma, cislo, rok, mesic, ho_dny, obl_on, user_id) "
+            "VALUES (2,:f,:c,:y,:mo,:d,:o,:u) "
+            "ON CONFLICT (tenant_id, firma, cislo, rok, mesic) DO UPDATE SET "
+            "ho_dny=EXCLUDED.ho_dny, obl_on=EXCLUDED.obl_on, user_id=EXCLUDED.user_id, updated_at=now()"),
+            {"f": firma, "c": cislo, "y": rok, "mo": mesic, "d": ho_dny, "o": obl_on, "u": uid})
+        s.commit()
+        return {"ok": True, "ho_dny": ho_dny, "obl_on": obl_on}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/benefity/hr")
+def benefity_hr(req: Request):
+    """HR (personalistka/parent): seznam osob s benefit stropy + aktuální volbou."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    firma = (req.query_params.get("firma") or "ES").upper()
+    fkod = '1' if firma in ('EC', '1') else '2'
+    _src, cloud_db = _zrc_dbs('EC' if fkod == '1' else 'ES')
+    import datetime as _dt
+    _now = _dt.date.today()
+    try:
+        rok = int(req.query_params.get("rok") or _now.year)
+        mesic = int(req.query_params.get("mesic") or _now.month)
+    except Exception:
+        rok, mesic = _now.year, _now.month
+    # jména z cloud Heliosu
+    names = {}
+    nr = _mssql188_query("SELECT Cislo, RTRIM(ISNULL(Prijmeni,'')), RTRIM(ISNULL(Jmeno,'')) FROM " + cloud_db + ".dbo.TabCisZam")
+    if nr.get("ok"):
+        for v in nr.get("rows") or []:
+            try:
+                names[int(v[0])] = (str(v[1] or '') + ' ' + str(v[2] or '')).strip()
+            except Exception:
+                pass
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        ho_kc_den = _benefit_ho_kc_den(s, fkod, rok, mesic)
+        rows = s.execute(_t(
+            "SELECT l.cislo, l.ho_max_kc, l.obl_kc, v.ho_dny, v.obl_on "
+            "FROM tenant.benefit_limit l "
+            "LEFT JOIN tenant.benefit_volba v ON v.tenant_id=2 AND v.firma=l.firma AND v.cislo=l.cislo "
+            "  AND v.rok=:y AND v.mesic=:mo "
+            "WHERE l.tenant_id=2 AND l.firma=:f ORDER BY l.cislo"),
+            {"f": fkod, "y": rok, "mo": mesic}).fetchall()
+        out = []
+        for r in rows:
+            cislo = int(r[0]); ho_max_kc = float(r[1] or 0)
+            out.append({
+                "cislo": cislo, "jmeno": names.get(cislo, ''),
+                "ho_max_kc": int(ho_max_kc), "ho_max_dny": int(ho_max_kc // ho_kc_den) if ho_kc_den else 0,
+                "obl_kc": int(float(r[2] or 0)),
+                "ho_dny": (int(r[3]) if r[3] is not None else None),
+                "obl_on": (bool(r[4]) if r[4] is not None else None),
+            })
+        return {"ok": True, "firma": fkod, "rok": rok, "mesic": mesic, "ho_kc_den": ho_kc_den, "osoby": out}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/benefity/hr")
+async def benefity_hr_save(req: Request):
+    """HR uloží per osoba strop HO (max částka) + OBL částku."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid or not (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        firma = str(b.get("firma") or "").strip()
+        fkod = '1' if firma.upper() in ('EC', '1') else '2'
+        cislo = int(b.get("cislo"))
+        ho_max_kc = max(0, int(b.get("ho_max_kc") or 0))
+        obl_kc = max(0, int(b.get("obl_kc") or 0))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad input"}, status_code=400)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        s.execute(_t(
+            "INSERT INTO tenant.benefit_limit (tenant_id, firma, cislo, ho_max_kc, obl_kc) "
+            "VALUES (2,:f,:c,:h,:o) "
+            "ON CONFLICT (tenant_id, firma, cislo) DO UPDATE SET "
+            "ho_max_kc=EXCLUDED.ho_max_kc, obl_kc=EXCLUDED.obl_kc, updated_at=now()"),
+            {"f": fkod, "c": cislo, "h": ho_max_kc, "o": obl_kc})
+        s.commit()
+        return {"ok": True, "cislo": cislo, "ho_max_kc": ho_max_kc, "obl_kc": obl_kc}
+    finally:
+        s.close()
 
 
 @api_router.get("/app/mzdy/vyplatnice-detail")

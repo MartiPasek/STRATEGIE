@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🎁 Benefity — HR stropy</title>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;background:#0c111b;color:#e8edf6;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+  .wrap{max-width:920px;margin:0 auto;padding:18px 16px 70px}
+  h1{font-size:20px;margin:0 0 2px}
+  .sub{color:#8295ad;font-size:12.5px;margin:0 0 14px}
+  a.back{color:#7fb0ff;text-decoration:none;font-size:12.5px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 14px}
+  .seg{display:inline-flex;border:1px solid #2a3547;border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:#141b29;color:#e8edf6;padding:6px 12px;cursor:pointer;font-size:13px}
+  .seg button.on{background:#23406b;color:#bcd6ff}
+  .pill{font-size:10.5px;color:#8295ad;border:1px solid #2a3547;border-radius:20px;padding:1px 8px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:7px 9px;text-align:left;border-bottom:1px solid #1d2533}
+  th{color:#8295ad;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.3px}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  input.k{width:92px;background:#141b29;color:#e8edf6;border:1px solid #2a3547;border-radius:7px;padding:5px 7px;text-align:right;font-variant-numeric:tabular-nums}
+  .save{background:#23406b;color:#cfe3ff;border:1px solid #2f5894;border-radius:7px;padding:5px 11px;font-weight:600;cursor:pointer;font-size:12px}
+  .save:disabled{opacity:.5}
+  .jm{font-weight:600}.muted{color:#6f8097;font-size:11.5px}
+  .ok{color:#86e8b0;font-size:11px}
+  .loading{padding:30px;text-align:center;color:#8295ad}
+  .note{background:#14223a;border:1px solid #25406b;border-radius:10px;padding:10px 12px;color:#bcd6ff;font-size:12px;line-height:1.5;margin-bottom:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/marti">← Řídicí pult</a>
+  <h1>🎁 Benefity — HR stropy</h1>
+  <p class="sub">Per osoba: maximální částka HO (uživatel ji nepřekročí) a měsíční částka OBL. Zdroj pravdy STRATEGIE.</p>
+  <div class="note">🔒 <b>HO max</b> = strop, který si zaměstnanec nesmí překročit (dny × konstanta ≤ tento strop). <b>OBL</b> = měsíční částka, nárok když je v práci (dny &gt;4 h). Obě snižují zdaněnou pohyblivou složku (daňové zvýhodnění).</div>
+  <div class="bar">
+    <span class="seg" id="seg">
+      <button data-f="ES" class="on" onclick="setF('ES')">ES (System)</button>
+      <button data-f="EC" onclick="setF('EC')">EC (Control)</button>
+    </span>
+    <span class="pill" id="meta"></span>
+  </div>
+  <div id="body"><div class="loading">Načítám…</div></div>
+</div>
+<script>
+const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ");
+let FIRMA="ES", HOKC=234;
+function setF(f){FIRMA=f;document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));load();}
+async function save(cislo,i){
+  const b=document.getElementById('sv'+i); b.disabled=true; b.textContent='…';
+  const ho=parseInt(document.getElementById('ho'+i).value||'0',10);
+  const obl=parseInt(document.getElementById('ob'+i).value||'0',10);
+  try{
+    const r=await (await fetch('/api/v1/erp/app/benefity/hr',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({firma:FIRMA,cislo:cislo,ho_max_kc:ho,obl_kc:obl})})).json();
+    document.getElementById('m'+i).textContent=r.ok?'✓':(r.error||'chyba');
+    if(r.ok)document.getElementById('hd'+i).textContent=HOKC?Math.floor(ho/HOKC):0;
+  }catch(e){document.getElementById('m'+i).textContent='chyba';}
+  b.disabled=false; b.textContent='Uložit';
+}
+async function load(){
+  document.getElementById('body').innerHTML='<div class="loading">Načítám…</div>';
+  let d;try{d=await (await fetch('/api/v1/erp/app/benefity/hr?firma='+FIRMA,{credentials:'include'})).json();}
+  catch(e){document.getElementById('body').innerHTML='<div class="loading">Chyba: '+e.message+'</div>';return;}
+  if(!d.ok){document.getElementById('body').innerHTML='<div class="loading">'+(d.error||'chyba')+'</div>';return;}
+  HOKC=d.ho_kc_den||234;
+  document.getElementById('meta').textContent=(d.osoby||[]).length+' lidí · HO '+HOKC+' Kč/den';
+  if(!(d.osoby||[]).length){document.getElementById('body').innerHTML='<div class="loading">Žádné osoby.</div>';return;}
+  let h='<table><thead><tr><th>Os.č.</th><th>Jméno</th><th class="num">HO max (Kč)</th><th class="num">= dní</th><th class="num">OBL (Kč)</th><th>Volba (měs.)</th><th></th><th></th></tr></thead><tbody>';
+  d.osoby.forEach((p,i)=>{
+    const vol=(p.ho_dny!=null?(p.ho_dny+' dní HO'):'—')+(p.obl_on===false?' · OBL vyp':'');
+    h+='<tr><td class="num">'+p.cislo+'</td><td class="jm">'+(p.jmeno||'(č. '+p.cislo+')')+'</td>';
+    h+='<td class="num"><input class="k" id="ho'+i+'" value="'+p.ho_max_kc+'"></td>';
+    h+='<td class="num muted" id="hd'+i+'">'+p.ho_max_dny+'</td>';
+    h+='<td class="num"><input class="k" id="ob'+i+'" value="'+p.obl_kc+'"></td>';
+    h+='<td class="muted">'+vol+'</td>';
+    h+='<td><button class="save" id="sv'+i+'" onclick="save('+p.cislo+','+i+')">Uložit</button></td>';
+    h+='<td class="ok" id="m'+i+'"></td></tr>';
+  });
+  h+='</tbody></table>';
+  document.getElementById('body').innerHTML=h;
+}
+load();
+</script>
+</body>
+</html>

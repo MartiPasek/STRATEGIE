@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🎁 Moje benefity</title>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;background:#0c111b;color:#e8edf6;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+  .wrap{max-width:680px;margin:0 auto;padding:18px 16px 70px}
+  h1{font-size:20px;margin:0 0 2px}
+  .sub{color:#8295ad;font-size:12.5px;margin:0 0 14px}
+  a.back{color:#7fb0ff;text-decoration:none;font-size:12.5px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 14px}
+  select,button,input{background:#141b29;color:#e8edf6;border:1px solid #2a3547;border-radius:8px;padding:6px 10px;font-size:13px}
+  .karta{background:#121826;border:1px solid #232c3b;border-radius:14px;padding:15px 16px;margin-bottom:14px}
+  .karta .hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #1d2533;padding-bottom:8px;margin-bottom:10px}
+  .karta .jm{font-weight:700;font-size:15px}.karta .cis{color:#6f8097;font-size:12px}
+  .blk{margin:12px 0;padding:11px 12px;background:#0f1521;border:1px solid #1d2533;border-radius:10px}
+  .blk .t{font-weight:700;font-size:13.5px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+  .blk .d{color:#8295ad;font-size:11.5px;line-height:1.5}
+  .stepper{display:inline-flex;align-items:center;gap:0;border:1px solid #2a3547;border-radius:8px;overflow:hidden}
+  .stepper button{border:0;border-radius:0;background:#1a2536;width:34px;font-size:18px;cursor:pointer;padding:4px 0}
+  .stepper .val{min-width:46px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums;background:#141b29;padding:6px 0}
+  .castka{font-weight:700;color:#86e8b0;font-variant-numeric:tabular-nums}
+  .sw{position:relative;width:46px;height:26px;background:#2a3547;border-radius:20px;cursor:pointer;transition:.15s;flex:0 0 auto}
+  .sw.on{background:#2f7d52}.sw b{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#e8edf6;transition:.15s}
+  .sw.on b{left:23px}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .save{background:#23406b;color:#cfe3ff;border-color:#2f5894;font-weight:600;padding:8px 16px;cursor:pointer}
+  .save:disabled{opacity:.5;cursor:default}
+  .ok{color:#86e8b0;font-size:12px}.muted{color:#6f8097;font-size:11.5px}
+  .loading{padding:30px;text-align:center;color:#8295ad}
+  .note{background:#14223a;border:1px solid #25406b;border-radius:10px;padding:10px 12px;color:#bcd6ff;font-size:12px;line-height:1.55;margin-bottom:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/marti">← Řídicí pult</a>
+  <h1>🎁 Moje benefity <span id="obd" class="muted"></span></h1>
+  <p class="sub">Daňově zvýhodněné složky mzdy — nastav si je sám. Snižují zdaněnou pohyblivou část (nižší daň), ale i základ pro sociální pojištění.</p>
+  <div class="note">💡 <b>Můžeš si je vypnout</b>, pokud chceš raději vyšší zdaněnou mzdu (vyšší vyměřovací základ na důchod / nemocenskou).</div>
+  <div id="body"><div class="loading">Načítám…</div></div>
+</div>
+<script>
+const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ")+" Kč";
+const now=new Date(); let ROK=now.getFullYear(), MES=now.getMonth()+1;
+const MN=["","leden","únor","březen","duben","květen","červen","červenec","srpen","září","říjen","listopad","prosinec"];
+let DATA=[];
+function comp(p){
+  // přepočet HO částky z dnů
+  return {ho:Math.min(p.ho_dny*p.ho_kc_den, p.ho_max_kc), obl:(p.obl_on && p.dny_pritomen>=1)?p.obl_kc:0};
+}
+function render(){
+  document.getElementById('obd').textContent='· '+MN[MES]+' '+ROK;
+  if(!DATA.length){document.getElementById('body').innerHTML='<div class="loading">Pro tebe nejsou nastavené žádné benefity. Ozvi se personalistce.</div>';return;}
+  let h='';
+  DATA.forEach((p,i)=>{
+    const c=comp(p); const total=c.ho+c.obl; const uspora=Math.round(total*0.15);
+    h+='<div class="karta"><div class="hd"><span class="jm">'+(p.firma==='1'?'EC Control':'ES System')+'</span><span class="cis">os.č. '+p.cislo+'</span></div>';
+    // HO
+    if(p.ho_max_dny>0){
+      h+='<div class="blk"><div class="t"><span>🏠 Home office</span><span class="castka" id="hok'+i+'">'+fk(c.ho)+'</span></div>';
+      h+='<div class="row" style="margin:8px 0"><span class="muted">Počet dní v měsíci (max '+p.ho_max_dny+')</span>';
+      h+='<span class="stepper"><button onclick="hod('+i+',-1)">−</button><span class="val" id="hov'+i+'">'+p.ho_dny+'</span><button onclick="hod('+i+',1)">+</button></span></div>';
+      h+='<div class="d">'+p.ho_kc_den+' Kč/den × dny. Nedaněná náhrada — sníží zdaněnou pohyblivou složku.</div></div>';
+    }
+    // OBL
+    if(p.obl_mozne){
+      h+='<div class="blk"><div class="row"><div><div class="t" style="margin:0">👕 Náhrada za oblečení</div>';
+      h+='<div class="d">'+fk(p.obl_kc)+'/měsíc · nárok když jsi v práci (dny &gt;4 h). '+(p.dny_pritomen>=1?('letos '+p.dny_pritomen+' dní'):'zatím bez nároku')+'.</div></div>';
+      h+='<div class="sw'+(p.obl_on?' on':'')+'" id="obl'+i+'" onclick="oblt('+i+')"><b></b></div></div>';
+      h+='<div class="row" style="margin-top:8px"><span class="muted">aktuálně</span><span class="castka" id="oblk'+i+'">'+fk(c.obl)+'</span></div></div>';
+    }
+    h+='<div class="row" style="margin-top:10px"><div><div class="muted">Odhad daňové úspory</div><div class="castka" id="usp'+i+'">'+fk(uspora)+'/měsíc</div></div>';
+    h+='<button class="save" id="sv'+i+'" onclick="save('+i+')">Uložit</button></div>';
+    h+='<div class="ok" id="msg'+i+'" style="text-align:right;margin-top:6px"></div>';
+    h+='</div>';
+  });
+  document.getElementById('body').innerHTML=h;
+}
+function refreshCard(i){
+  const p=DATA[i], c=comp(p);
+  const e=id=>document.getElementById(id+i);
+  if(e('hok'))e('hok').textContent=fk(c.ho);
+  if(e('hov'))e('hov').textContent=p.ho_dny;
+  if(e('oblk'))e('oblk').textContent=fk(c.obl);
+  if(e('obl'))e('obl').classList.toggle('on',p.obl_on);
+  e('usp').textContent=fk(Math.round((c.ho+c.obl)*0.15))+'/měsíc';
+  e('msg').textContent='';
+}
+function hod(i,d){const p=DATA[i];p.ho_dny=Math.max(0,Math.min(p.ho_max_dny,p.ho_dny+d));refreshCard(i);}
+function oblt(i){DATA[i].obl_on=!DATA[i].obl_on;refreshCard(i);}
+async function save(i){
+  const p=DATA[i]; const b=document.getElementById('sv'+i); b.disabled=true; b.textContent='Ukládám…';
+  try{
+    const r=await (await fetch('/api/v1/erp/app/benefity/moje',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({firma:p.firma,cislo:p.cislo,rok:ROK,mesic:MES,ho_dny:p.ho_dny,obl_on:p.obl_on})})).json();
+    if(r.ok){document.getElementById('msg'+i).textContent='✓ Uloženo';if(typeof r.ho_dny==='number'){p.ho_dny=r.ho_dny;refreshCard(i);document.getElementById('msg'+i).textContent='✓ Uloženo';}}
+    else document.getElementById('msg'+i).textContent='Chyba: '+(r.error||'?');
+  }catch(e){document.getElementById('msg'+i).textContent='Chyba: '+e.message;}
+  b.disabled=false; b.textContent='Uložit';
+}
+async function load(){
+  let d;try{d=await (await fetch('/api/v1/erp/app/benefity/moje?rok='+ROK+'&mesic='+MES,{credentials:'include'})).json();}
+  catch(e){document.getElementById('body').innerHTML='<div class="loading">Chyba: '+e.message+'</div>';return;}
+  if(!d.ok){document.getElementById('body').innerHTML='<div class="loading">'+(d.error==='unauth'?'Přihlas se prosím.':(d.error||'chyba'))+'</div>';return;}
+  DATA=d.polozky||[]; render();
+}
+load();
+</script>
+</body>
+</html>

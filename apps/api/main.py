@@ -942,6 +942,22 @@ def payroll_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/benefity")
+def benefity_page():
+    """Soudeček Benefity — self-service: zaměstnanec nastaví HO dny + OBL on/off.
+    Marti 28.6.2026."""
+    return FileResponse(os.path.join(static_dir, "benefity.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/benefity-hr")
+def benefity_hr_page():
+    """Benefity HR — personalistka nastaví per osoba strop HO + částku OBL. Parent/HR.
+    Marti 28.6.2026."""
+    return FileResponse(os.path.join(static_dir, "benefity-hr.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/absence-plan")
 def absence_plan_page():
     """Plán nepřítomností dopředu (dovolená/náhr.volno/lékař…) z Centrály.

@@ -24320,9 +24320,11 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows):
             kart.append("UPDATE " + cloud_db + ".dbo.TabZamMzd SET ZakladniPlat=%d WHERE ZamestnanecId=%d AND IdObdobi=%s;" % (int(kc), zid, o))
     allstmts = stmts + kart
     for i in range(0, len(allstmts), 25):
-        rw = _mssql188_query("SET NOCOUNT ON;\n" + "\n".join(allstmts[i:i + 25]))
+        rw = _mssql188_query("SET NOCOUNT ON;\n" + "\n".join(allstmts[i:i + 25]) + "\nSELECT 1 AS done;")
         if not rw.get("ok"):
-            return "INSERT chunk %d: %s" % (i, str(rw.get("error")))
+            err = str(rw.get("error"))
+            if "HY007" not in err:  # HY007 = pyodbc fetch nad bez-result batchem, DML ale proběhl
+                return "INSERT chunk %d: %s" % (i, err)
     return None
 
 

@@ -25027,8 +25027,10 @@ def _mzdy_status_check(rok, mesic):
                             "problem": "status", "detail": "Helios status %s (Info %s)" % (r[2], r[3])})
             # nemoc: prvních 14 dní = náhrada zaměstnavatele (213/106/882), od 15. dne ČSSZ (203);
             # docházkové 200/201 taky beru jako "řešeno". OČR = ošetřovné 205 (+201 docházka).
-            for tbl, ms_in, label in (("att_ocr_case", "205,201,251", "ošetřovné"),
-                                      ("att_sick_case", "200,203,213,882,106", "nemocenská/náhrada")):
+            # POZOR: 200/201 jsou NAŠE docházkové markery (krmíme je z předzpracování) — NEpočítají
+            # se jako „dávka". Skutečná dávka = ošetřovné 205 / náhrada nemoci 213,106,882 / ČSSZ 203.
+            for tbl, ms_in, label in (("att_ocr_case", "205", "ošetřovné"),
+                                      ("att_sick_case", "203,213,882,106", "nemocenská/náhrada")):
                 cm, s = _att_session()
                 try:
                     cases = s.execute(_t(

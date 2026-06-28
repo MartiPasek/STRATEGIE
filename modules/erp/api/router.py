@@ -9795,6 +9795,82 @@ def _ocr_extend_active():
         cm.__exit__(None, None, None)
 
 
+def _eneschopenka_to_sick():
+    """AUTOMAT (Marti 28.6.2026): ČSSZ DPN z datovky (tenant.eneschopenka) → registr nemocí
+    (att_sick_case) → docházka (sick). OBECNĚ přes VŠECHNY řádky, párování přes RODNÉ ČÍSLO
+    (ne jméno): emp_rc → cloud Helios TabCisZam.RodCislo → firma+číslo → att_employee.
+    Idempotentní na cislo_dpn=id_pripadu. Uzavřené DPN rovnou naplní docházku za celý rozsah;
+    otevřené dobíhá _ocr_extend_active. Odtud teče do plánu (vytížení) i do monitoru mezd."""
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    created = updated = skipped = filled = 0
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, id_pripadu, emp_rc, datum_od, datum_do, druh_nemoci "
+            "FROM tenant.eneschopenka WHERE tenant_id=2 AND COALESCE(emp_rc,'')<>'' "
+            "AND datum_od IS NOT NULL")).fetchall()
+        for r in rows:
+            dpn = str(r[1] or "").strip()
+            rc = str(r[2]).replace("/", "").replace(" ", "").strip()
+            if not dpn or not rc:
+                skipped += 1
+                continue
+            firma = cislo = None
+            for f, cdb in (("EC", "UCTO_EC"), ("ES", "UCTO_ES")):
+                q = _mssql188_query("SELECT TOP 1 Cislo FROM " + cdb +
+                                    ".dbo.TabCisZam WHERE REPLACE(REPLACE(RodCislo,'/',''),' ','')='" + rc + "'")
+                if q.get("ok") and q.get("rows"):
+                    try:
+                        firma, cislo = f, int(q["rows"][0][0])
+                    except Exception:
+                        firma = cislo = None
+                    if cislo:
+                        break
+            if not cislo:
+                skipped += 1
+                continue
+            emp = s.execute(_t("SELECT id, user_id FROM tenant.att_employee "
+                               "WHERE tenant_id=2 AND cislo_zam=:c LIMIT 1"), {"c": str(cislo)}).first()
+            if not emp:
+                skipped += 1
+                continue
+            eid, uid = emp[0], emp[1]
+            d_od, d_do = r[3], r[4]
+            stav = "ukonceno" if d_do else "probiha"
+            ex = s.execute(_t("SELECT id FROM tenant.att_sick_case WHERE tenant_id=2 AND cislo_dpn=:d"),
+                           {"d": dpn}).first()
+            if ex:
+                s.execute(_t("UPDATE tenant.att_sick_case SET employee_id=:e, user_id=:u, company=:f, "
+                             "datum_od=:od, datum_do=:dd, stav=:st, updated_at=now() WHERE id=:i"),
+                          {"e": eid, "u": uid, "f": firma, "od": d_od, "dd": d_do, "st": stav, "i": ex[0]})
+                updated += 1
+            else:
+                s.execute(_t("INSERT INTO tenant.att_sick_case "
+                             "(tenant_id, employee_id, user_id, company, cislo_dpn, datum_od, datum_do, stav, created_at, updated_at) "
+                             "VALUES (2,:e,:u,:f,:d,:od,:dd,:st, now(), now())"),
+                          {"e": eid, "u": uid, "f": firma, "d": dpn, "od": d_od, "dd": d_do, "st": stav})
+                created += 1
+            # uzavřené DPN → rovnou doplnit docházku za celý rozsah (otevřené dobíhá _ocr_extend_active)
+            try:
+                end = d_do if d_do else _dt.date.today()
+                filled += _ocr_fill_dochazka(s, eid, d_od, end, uid,
+                                             "Nemocenská (DPN " + dpn + ")", "cssz_dpn", "sick")
+            except Exception:
+                pass
+        s.commit()
+    except Exception as _e:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(_e)[:200]}
+    finally:
+        cm.__exit__(None, None, None)
+    return {"ok": True, "vytvoreno": created, "aktualizovano": updated,
+            "preskoceno": skipped, "dochazka_dnu": filled}
+
+
 def _ocr_company(s, emp) -> str | None:
     """Kód firmy (EC/ES) z aktivního engagementu zaměstnance. Best-effort."""
     from sqlalchemy import text as _t
@@ -20907,6 +20983,7 @@ def _mirror_run_job(job_key):
         "sync_plan_dochazka": lambda: _sync_plan_to_dochazka(),
         "sync_vyroba_plan": lambda: _sync_vyroba_plan_from_ec(),
         "sync_vytizeni_absence": lambda: _sync_absence_to_ec_vytizeni(30),
+        "sync_eneschopenka": lambda: _eneschopenka_to_sick(),
         "sync_odvozy": lambda: _sync_odvozy_from_ec(),
         "sync_nabor": lambda: _sync_nabor_from_ec(),
     }
@@ -30502,7 +30579,7 @@ async def diag_sql(req: Request) -> JSONResponse:
         return JSONResponse(_sync_dochazka_ec(rok, mesic))
 
     #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)
-    if sql.upper().startswith("@@MZDY"):
+    if sql.upper().startswith("@@MZDY") and not sql.upper().startswith("@@MZDYCHECK"):
         import datetime as _dtm
         parts = sql.split()
         firma = (parts[1] if len(parts) > 1 else "ES").upper()
@@ -30524,6 +30601,10 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception:
             return JSONResponse({"ok": False, "error": "@@MZDYCHECK <rok> <mesic>"})
         return JSONResponse(_mzdy_status_check(rok, mesic))
+
+    #   @@ENESYNC  → automat: ČSSZ DPN (datovka eneschopenka) → registr nemocí + docházka
+    if sql.upper().startswith("@@ENESYNC"):
+        return JSONResponse(_eneschopenka_to_sick())
 
     #   @@VYTIZABS [dnu_zpet]  → naše plánované absence → st.EC_Vytizeni_NepritomnostSTRATEGIE
     #   (jednosměrně, čte to view vytížení; default 14 dní zpět + budoucnost)

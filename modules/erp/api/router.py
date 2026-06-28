@@ -24253,6 +24253,11 @@ def _mzdy_predzprac_sql(cloud_db, idobd, rows):
         "INSERT dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
         "SELECT " + o + ",c.ID,432,0,0,s.os,0,'STRATEGIE',GETDATE() "
         "FROM dbo.TabCisZam c JOIN #src s ON s.cislo=c.Cislo WHERE s.os<>0;\n"
+        "DECLARE @ins INT=@@ROWCOUNT, @nsrc INT=(SELECT COUNT(*) FROM #src), "
+        "@trigdis INT=(SELECT COUNT(*) FROM sys.triggers WHERE parent_id=OBJECT_ID('dbo.TabPredzp') AND is_disabled=1);\n"
+        "DELETE FROM MOST.dbo.Mzdy_Diag;\n"
+        "INSERT MOST.dbo.Mzdy_Diag(zam,err,status,info,errmsg) "
+        "VALUES(@nsrc,@ins,@trigdis,0,'predzprac " + cloud_db + " obd " + o + "');\n"
         # fix 001 = zaklad na kartu (přepsat)
         "UPDATE m SET ZakladniPlat=s.zaklad FROM dbo.TabZamMzd m JOIN dbo.TabCisZam c ON c.ID=m.ZamestnanecId "
         "JOIN #src s ON s.cislo=c.Cislo WHERE m.IdObdobi=" + o + " AND s.zaklad<>0;\n"

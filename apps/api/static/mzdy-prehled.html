@@ -110,7 +110,7 @@ async function loadZpr(){
       '</tbody></table>';
     inner+='<div class="note" style="border-left-color:#3b6bd4">'+
       (empty
-        ? '<b>'+obd+' zatím nezpracováno.</b> Spusť cyklus tlačítky níže (cesta A = staré Helios procedury). Monitor pak hlídá, že <b>kancelář = cloud</b> (rovná se), ať můžeš opakovaně generovat, zkontrolovat a smazat.'
+        ? '<b>'+obd+' — generujeme a kontrolujeme cestou C (náš cloud engine).</b> Klikni „🧾 Generovat + prohlížet pásky" u cesty C → otevřou se Výplatnice (generování i plné pásky z cloud Heliosu). Cesta A (staré Helios procedury) zůstává jako záloha; monitor hlídá, že kancelář = cloud.'
         : 'Monitor hlídá, že předzpracování i vypočtené složky <b>sedí mezi kanceláří a cloudem</b>. Po generování klikni „⤓ Zrcadlit do cloudu" a porovnej.')+'</div>';
     // === 3 cesty výpočtu (A staré procedury / B náš engine office / C náš engine cloud) ===
     const dis='style="opacity:.45;cursor:default" disabled';
@@ -125,8 +125,8 @@ async function loadZpr(){
         '<button class="cbtn" '+dis+'>Vstupní data</button><button class="cbtn" '+dis+'>Generovat</button>'+
         '<span class="muted" style="font-size:11.5px">připravujeme</span></div>'+
       '<div class="cway"><span class="ctag" style="background:#16314f;color:#9ec5ff">C · náš engine (cloud)</span>'+
-        '<button class="cbtn" '+dis+'>Vstupní data</button><button class="cbtn" '+dis+'>Generovat</button>'+
-        '<span class="muted" style="font-size:11.5px">připravujeme</span></div>'+
+        '<button class="cbtn" style="background:#16314f;color:#9ec5ff;border-color:#2c5a8f" onclick="location.href=\'/vyplatnice\'">🧾 Generovat + prohlížet pásky →</button>'+
+        '<span class="pos" style="font-size:11.5px">LIVE · cloud Helios (Výplatnice)</span></div>'+
       '</div>'+
       '<div id="mzakce_out" class="note" style="display:none;margin-top:8px"></div>';
   }

@@ -105,13 +105,13 @@
   function _renderOwners() {
     if (document.getElementById("erpOwnerMarti")) return;
     var people = [
-      { id: "erpOwnerMarti", uid: 1, ini: "M", name: "Marti Pašek", role: "zakladatel", col: "#2e5d3a", right: 112 },
-      { id: "erpOwnerKristy", uid: 11, ini: "K", name: "Kristýna", role: "procesy", col: "#4a3a6e", right: 64 }
+      { id: "erpOwnerMarti", uid: 1, ini: "M", name: "Marti Pašek", role: "zakladatel", col: "#2e5d3a", right: 112, cockpit: "/marti" },
+      { id: "erpOwnerKristy", uid: 11, ini: "K", name: "Kristýna", role: "procesy", col: "#4a3a6e", right: 64, cockpit: "/marti" }
     ];
     people.forEach(function (p) {
       var b = document.createElement("button");
       b.id = p.id; b.type = "button"; b.textContent = p.ini;
-      b.title = p.name + " — " + p.role;
+      b.title = p.name + " — " + p.role + " · klik = cockpit";
       b.style.cssText =
         "position:fixed;top:8px;right:" + p.right + "px;z-index:99000;width:36px;height:36px;" +
         "border-radius:50%;background:" + p.col + ";border:1px solid rgba(255,255,255,0.18);" +
@@ -119,7 +119,7 @@
         "box-shadow:0 2px 8px rgba(0,0,0,0.4);transition:opacity .2s ease;";
       b.addEventListener("mouseenter", function () { b.style.opacity = "1"; });
       b.addEventListener("mouseleave", function () { b.style.opacity = "0.8"; });
-      b.addEventListener("click", function () { _ownerCard(p); });
+      b.addEventListener("click", function () { try { window.location.href = p.cockpit; } catch (e) {} });
       document.body.appendChild(b);
     });
     _ownerPresence(people);

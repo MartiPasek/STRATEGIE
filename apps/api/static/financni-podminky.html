@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>💼 Finanční podmínky</title>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;background:#0c111b;color:#e8edf6;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+  .wrap{max-width:1280px;margin:0 auto;padding:18px 16px 70px}
+  h1{font-size:20px;margin:0 0 2px}
+  .sub{color:#8295ad;font-size:12.5px;margin:0 0 14px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  select,button{background:#141b29;color:#e8edf6;border:1px solid #2a3547;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer}
+  .seg{display:inline-flex;border:1px solid #2a3547;border-radius:8px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:#141b29}.seg button.on{background:#23406b;color:#bcd6ff}
+  a.back{color:#7fb0ff;text-decoration:none;font-size:12.5px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  .karta{background:#121826;border:1px solid #232c3b;border-radius:12px;padding:13px 15px}
+  .karta .hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-bottom:1px solid #1d2533;padding-bottom:7px;margin-bottom:8px}
+  .karta .jm{font-weight:700;font-size:15px}.karta .cis{color:#6f8097;font-size:12px}
+  .rowx{display:flex;justify-content:space-between;padding:2px 0;font-variant-numeric:tabular-nums}
+  .rowx .n{color:#cfd9e8}.rowx .v{font-weight:600}
+  .rowx.zaklad .n{color:#9ec5ff}.rowx.pohyb .n{color:#f0c674}
+  .tot{display:flex;justify-content:space-between;border-top:2px solid #2c3a52;margin-top:8px;padding-top:7px;font-weight:700;font-variant-numeric:tabular-nums}
+  .tot .v{color:#86e8b0}
+  .loading{padding:30px;text-align:center;color:#8295ad}
+  .pill{font-size:10.5px;color:#8295ad;border:1px solid #2a3547;border-radius:20px;padding:1px 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/marti">← Řídicí pult</a>
+  <h1>💼 Finanční podmínky <span style="font-size:12px;color:#8295ad;font-weight:400">zdroj pravdy STRATEGIE</span></h1>
+  <p class="sub">Kompletní karty mzdových podmínek — z toho se generuje výplatnice (pevná složka + všechny pohyblivé).</p>
+  <div class="bar">
+    <span class="seg" id="seg">
+      <button data-f="ES" class="on" onclick="setF('ES')">ES (System)</button>
+      <button data-f="EC" onclick="setF('EC')">EC (Control)</button>
+    </span>
+    <span class="pill" id="meta"></span>
+  </div>
+  <div id="body"><div class="loading">Načítám…</div></div>
+</div>
+<script>
+const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ")+" Kč";
+let FIRMA="ES";
+function setF(f){FIRMA=f;document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));load();}
+async function load(){
+  document.getElementById('body').innerHTML='<div class="loading">Načítám…</div>';
+  let d;try{d=await (await fetch('/api/v1/erp/app/mzdy/financni-podminky?firma='+FIRMA,{credentials:'include'})).json();}
+  catch(e){document.getElementById('body').innerHTML='<div class="loading">Chyba: '+e.message+'</div>';return;}
+  if(!d.ok){document.getElementById('body').innerHTML='<div class="loading">'+(d.error||'chyba')+'</div>';return;}
+  document.getElementById('meta').textContent=(d.pocet||0)+' lidí · k '+(d.asof||'?');
+  if(!(d.lidi||[]).length){document.getElementById('body').innerHTML='<div class="loading">Žádné podmínky.</div>';return;}
+  let h='<div class="grid">';
+  for(const p of d.lidi){
+    h+='<div class="karta"><div class="hd"><span class="jm">'+(p.jmeno||'(č. '+p.cislo+')')+'</span><span class="cis">os.č. '+p.cislo+'</span></div>';
+    h+='<div class="rowx zaklad"><span class="n">Pevná základní složka</span><span class="v">'+fk(p.zaklad)+'</span></div>';
+    for(const s of (p.slozky||[])){ if(s.kod==='zaklad')continue;
+      h+='<div class="rowx pohyb"><span class="n">'+s.nazev+'</span><span class="v">'+fk(s.castka)+'</span></div>'; }
+    h+='<div class="tot"><span>Celkem hrubá</span><span class="v">'+fk(p.celkem)+'</span></div></div>';
+  }
+  h+='</div>';
+  document.getElementById('body').innerHTML=h;
+}
+load();
+</script>
+</body>
+</html>

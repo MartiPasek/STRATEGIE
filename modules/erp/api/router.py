@@ -24423,6 +24423,63 @@ def mzdy_vyplatnice_detail(req: Request):
             "idobdobi": idobd, "header": header, "souhrn": souhrn, "slozky": slozky}
 
 
+_WAGE_LABEL = {
+    "zaklad": "Pevná základní složka", "os_ohodnoceni": "Osobní ohodnocení",
+    "premie": "Prémie", "individualni": "Individuální složka", "vedeni_lidi": "Vedení lidí",
+    "vedeni_obchod": "Vedení obchodu", "produkce": "Produkce", "kvalita": "Kvalita",
+    "firemni_kodex": "Firemní kodex/kultura", "jednatelska_odmena": "Jednatelská odměna",
+    "garant_odmena": "Garantská odměna", "jednorazovy_poplatek": "Jednorázový poplatek",
+    "sluzebni_auto": "Služební auto (benefit)", "prispevek_doprava": "Příspěvek na dopravu",
+}
+
+
+@api_router.get("/app/mzdy/financni-podminky")
+def mzdy_financni_podminky(req: Request):
+    """Kompletní karty finančních (mzdových) podmínek per člověk ze STRATEGIE
+    (tenant.helios_wage_snapshot) = zdroj pravdy. Parent-only. Marti 28.6."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        firma = (req.query_params.get("firma") or "ES").upper()
+        rows = s.execute(_t(
+            "SELECT cislo, slozka, castka FROM tenant.helios_wage_snapshot "
+            "WHERE tenant_id=2 AND firma=:f AND asof=("
+            "  SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f) "
+            "ORDER BY cislo"), {"f": firma}).fetchall()
+        asof = s.execute(_t("SELECT MAX(asof) FROM tenant.helios_wage_snapshot "
+                            "WHERE tenant_id=2 AND firma=:f"), {"f": firma}).scalar()
+    finally:
+        s.close()
+    _src, cloud_db = _zrc_dbs(firma)
+    nm = {}
+    nr = _mssql188_query("SELECT Cislo, Prijmeni, Jmeno FROM " + cloud_db + ".dbo.TabCisZam")
+    if nr.get("ok"):
+        for v in nr.get("rows") or []:
+            nm[str(v[0]).strip()] = ((v[1] or "").strip() + " " + (v[2] or "").strip()).strip()
+    by = {}
+    for cislo, slozka, castka in rows:
+        c = str(cislo).strip()
+        d = by.setdefault(c, {"cislo": c, "slozky": [], "zaklad": 0, "pohyb": 0})
+        amt = int(castka or 0)
+        d["slozky"].append({"kod": slozka, "nazev": _WAGE_LABEL.get(slozka, slozka), "castka": amt})
+        if slozka == "zaklad":
+            d["zaklad"] = amt
+        else:
+            d["pohyb"] += amt
+    out = []
+    for c, d in by.items():
+        d["jmeno"] = nm.get(c, "")
+        d["celkem"] = d["zaklad"] + d["pohyb"]
+        out.append(d)
+    out.sort(key=lambda x: (-x["celkem"], x["cislo"]))
+    return {"ok": True, "firma": firma, "asof": str(asof) if asof else None,
+            "pocet": len(out), "lidi": out}
+
+
 def _mcp_exec_office(sql, db_name="DB_EC"):
     """Spustí SQL (vč. EXEC procedury) v kancelářském Heliosu přes MCP, vrátí řádky (poslední SELECT)."""
     try:

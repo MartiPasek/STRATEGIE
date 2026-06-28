@@ -1029,6 +1029,13 @@ def vyplatnice_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/financni-podminky")
+def financni_podminky_page():
+    """Kompletní karty finančních/mzdových podmínek ze STRATEGIE. Marti 28.6.2026."""
+    return FileResponse(os.path.join(static_dir, "financni-podminky.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/dochazka-automat")
 def dochazka_automat_page():
     """Docházkový automat — kategorie + zařazování lidí + přehled co automat dopíchl.

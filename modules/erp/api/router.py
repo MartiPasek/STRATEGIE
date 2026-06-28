@@ -20797,6 +20797,7 @@ def _mirror_run_job(job_key):
         "sync_pasky": lambda: (_sync_pasky_from_helios(), _refresh_employee_active())[1],
         "refresh_active_status": lambda: _refresh_employee_active(),
         "sync_plan_nepritomnost": lambda: _sync_plan_nepritomnost(),
+        "sync_plan_dochazka": lambda: _sync_plan_to_dochazka(),
         "sync_vyroba_plan": lambda: _sync_vyroba_plan_from_ec(),
         "sync_odvozy": lambda: _sync_odvozy_from_ec(),
         "sync_nabor": lambda: _sync_nabor_from_ec(),
@@ -34242,12 +34243,71 @@ def _sync_plan_nepritomnost(days_back: int = 30, whole_year: bool = True) -> dic
                  "nz": nz, "hod": hod, "schv": bool(int(row.get("schv") or 0))})
             n += 1
         s.commit()
-        return {"ok": True, "rows": len(rows), "upserted": n}
+        out = {"ok": True, "rows": len(rows), "upserted": n}
+        try:  # propis známých plánovaných činností do docházky (ke kontrole v mzdách)
+            out["propis"] = _sync_plan_to_dochazka()
+        except Exception as _pe:
+            out["propis"] = {"ok": False, "error": str(_pe)[:200]}
+        return out
     except Exception:
         s.rollback()
         raise
     finally:
         cm.__exit__(None, None, None)
+
+
+# Známé činnosti z plánu → náš entry-type (133 Náhradní volno = TODO, chybí entry type)
+_PLAN_DRUH_TO_CODE = {20: "vacation", 21: "medical", 23: "family_care"}
+
+
+def _sync_plan_to_dochazka(rok: int = None) -> dict:
+    """Propíše ZNÁMÉ plánované činnosti (att_planned_absence) do docházky att_entry
+    (dovolená/lékař/OČR), aby je viděly mzdy ke kontrole (Marti 28.6.). Idempotentní,
+    **NEpřepisuje existující záznam dne** (jen prázdné dny; realita má přednost). source='plan_ec'."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    if rok is None:
+        rok = _dt.date.today().year
+    s = _g()
+    n = 0
+    try:
+        tids = {}
+        for code in set(_PLAN_DRUH_TO_CODE.values()):
+            tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=2 AND code=:c"),
+                            {"c": code}).scalar()
+            if tid:
+                tids[code] = tid
+        emap = {}
+        for er in s.execute(_t("SELECT cislo_zam, max(id) FROM tenant.att_employee "
+                               "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():
+            emap[str(er[0]).strip()] = er[1]
+        rows = s.execute(_t(
+            "SELECT cislo_zam, datum, druh_kod, hodiny FROM tenant.att_planned_absence "
+            "WHERE tenant_id=2 AND druh_kod = ANY(:dk) AND EXTRACT(YEAR FROM datum)=:r"),
+            {"dk": list(_PLAN_DRUH_TO_CODE.keys()), "r": rok}).fetchall()
+        for r in rows:
+            try:
+                cz = str(r[0]).strip(); d = r[1]; druh = int(r[2]); hod = float(r[3] or 0) or 8.0
+            except Exception:
+                continue
+            code = _PLAN_DRUH_TO_CODE.get(druh); emp = emap.get(cz); tid = tids.get(code)
+            if not (code and emp and tid):
+                continue
+            ex = s.execute(_t("SELECT 1 FROM tenant.att_entry WHERE tenant_id=2 AND employee_id=:e "
+                              "AND entry_date=:d LIMIT 1"), {"e": emp, "d": d}).first()
+            if ex:  # realita (píchnutí/report) má přednost — nepřepisuj
+                continue
+            s.execute(_t(
+                "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                "status,source,note,is_active,created_by_id,created_at,updated_at) "
+                "VALUES (2,:e,:d,:t,:h,'pending','plan_ec','z plánu nepřítomností',false,NULL,now(),now())"),
+                {"e": emp, "d": d, "t": tid, "h": hod})
+            n += 1
+        s.commit()
+        return {"ok": True, "vlozeno": n}
+    finally:
+        s.close()
 
 
 def _sync_dochazka_sumaden(year: int = 2026) -> dict:

@@ -34299,8 +34299,13 @@ def _sync_plan_nepritomnost(days_back: int = 30, whole_year: bool = True) -> dic
         cm.__exit__(None, None, None)
 
 
-# Známé činnosti z plánu → náš entry-type (133 Náhradní volno = TODO, chybí entry type)
-_PLAN_DRUH_TO_CODE = {20: "vacation", 21: "medical", 23: "family_care"}
+# DruhCinnosti (číselník od Kristý 28.6.) → náš att_entry_type. Mapujeme jen ty s odpovídajícím
+# typem; speciály bez typu (9 služebka, 10 nař.volno, 33 otcovská, 34, 35 volno60, 36 mateřská,
+# 47 volno70, 133 náhr.volno) zatím NEpropisujeme do docházky (chybí entry-typ → TODO).
+_PLAN_DRUH_TO_CODE = {
+    8: "homeoffice", 20: "vacation", 30: "vacation", 21: "medical", 22: "sick",
+    23: "family_care", 31: "sickday", 26: "unpaid", 39: "unpaid", 37: "osvc_absence",
+}
 
 
 def _sync_plan_to_dochazka(rok: int = None) -> dict:

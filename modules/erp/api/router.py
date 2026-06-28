@@ -30387,6 +30387,16 @@ async def diag_sql(req: Request) -> JSONResponse:
         fclean = any(p.upper() == "CLEAN" for p in parts[4:])
         return JSONResponse(_mzdy_full_run(firma, rok, mesic, fclean))
 
+    #   @@VYTIZABS [dnu_zpet]  → naše plánované absence → st.EC_Vytizeni_NepritomnostSTRATEGIE
+    #   (jednosměrně, čte to view vytížení; default 14 dní zpět + budoucnost)
+    if sql.upper().startswith("@@VYTIZABS"):
+        parts = sql.split()
+        try:
+            dnu = int(parts[1]) if len(parts) > 1 else 14
+        except Exception:
+            dnu = 14
+        return JSONResponse(_sync_absence_to_ec_vytizeni(dnu))
+
     if sql.upper().startswith("@@EMAIL"):
         import json as _jem
         from core.database_data import get_data_session as _gem
@@ -35601,6 +35611,70 @@ def _derive_kontakty() -> dict:
     finally:
         cm.__exit__(None, None, None)
     return res
+
+
+def _sync_absence_to_ec_vytizeni(dnu_zpet: int = 14) -> dict:
+    """JEDNOSMĚRNÝ sync (Marti 28.6.2026): naše plánované absence
+    (tenant.att_planned_absence = NAŠE pravda, plněná naší appkou) →
+    st.EC_Vytizeni_NepritomnostSTRATEGIE v DB_EC, odkud (po přesměrování
+    dbo.ECv_Vytizeni_SeznamNepritomnost) čte Excel 'Plánování vytížení'.
+    Čteme jen z PG, píšeme jen do st — st nikdo nečte zpátky k nám → BEZ REKURZE.
+    Originál dbo.EC_Dochazka_PlanNepritomnost se nepoužívá (zakázán)."""
+    import json as _jv
+    import datetime as _dtv
+    from sqlalchemy import text as _tv
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return {"ok": False, "error": "EUROSOFT MCP nedostupné"}
+
+    def _ecw(s):
+        rj = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                {"sql": s, "db_name": "DB_EC"}, conversation_id=None)
+        r = (_jv.loads(rj) if isinstance(rj, str) else rj) or {}
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error") or r.get("message"))[:200])
+        return r
+
+    # 1) NAŠE absence z PG (jen číselné EC cislo_zam; recent + budoucnost)
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_tv(
+            "SELECT (e.cislo_zam)::int AS cislo, pa.datum::text AS d, "
+            "       pa.druh_kod AS druh, COALESCE(pa.hodiny,0)::int AS hod "
+            "FROM tenant.att_planned_absence pa "
+            "JOIN tenant.att_employee e "
+            "  ON e.cislo_zam = pa.cislo_zam AND e.tenant_id = pa.tenant_id "
+            "WHERE pa.tenant_id = 2 AND pa.datum >= CURRENT_DATE - :db "
+            "  AND e.cislo_zam ~ '^[0-9]+$' "
+            "ORDER BY cislo, d"), {"db": int(dnu_zpet)}).fetchall()
+    finally:
+        cm.__exit__(None, None, None)
+
+    _DOW = {0: "Po", 1: "Út", 2: "St", 3: "Čt", 4: "Pá", 5: "So", 6: "Ne"}
+    # 2) přepiš st tabulku (jednosměrně): DELETE + batch INSERT
+    _ecw("DELETE FROM st.EC_Vytizeni_NepritomnostSTRATEGIE")
+    vals, n = [], 0
+
+    def _flush(vv):
+        if not vv:
+            return 0
+        _ecw("INSERT INTO st.EC_Vytizeni_NepritomnostSTRATEGIE"
+             "(CisloZam,DatumPripadu,DenVTydnu,DruhCinnosti,PocetHodin) VALUES "
+             + ",".join(vv))
+        return len(vv)
+
+    for r in rows:
+        try:
+            cislo = int(r[0]); d = str(r[1])[:10]; druh = int(r[2]); hod = int(r[3] or 0)
+        except Exception:
+            continue
+        wd = _dtv.date.fromisoformat(d).weekday()
+        vals.append("(%d,'%s',N'%s',%d,%d)" % (cislo, d, _DOW.get(wd, ""), druh, hod))
+        if len(vals) >= 200:
+            n += _flush(vals); vals = []
+    n += _flush(vals)
+    return {"ok": True, "vlozeno": n, "dnu_zpet": int(dnu_zpet)}
 
 
 def _sync_vyroba_plan_from_ec() -> dict:

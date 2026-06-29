@@ -5606,7 +5606,7 @@ async def crm_osloveni_preview(req: Request) -> JSONResponse:
         " MAX(CASE WHEN a.IDAkce=17 AND a.Email LIKE '%@%' THEN a.Email END) AS osobni_email,"
         " MAX(CASE WHEN a.IDAkce=17 AND a.Email LIKE '%@%' THEN a.Prijmeni END) AS prijmeni,"
         " CONVERT(varchar, MAX(CASE WHEN a.IDAkce=22 THEN a.DatPorizeni END), 104) AS osloven_kdy"
-        " FROM dbo.EC_KontaktAkce a WITH(NOLOCK)"
+        " FROM st.CRM_Kontakt_Akce a WITH(NOLOCK)"
         " WHERE a.IDHlav IN (" + id_list + ") GROUP BY a.IDHlav"
     )
     try:
@@ -5796,7 +5796,7 @@ async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
     try:
         for d in _mcp_rows(
             "SELECT a.IDHlav AS fid, MAX(CASE WHEN a.IDAkce=16 THEN a.FirmaText END) AS firma "
-            "FROM dbo.EC_KontaktAkce a WITH(NOLOCK) WHERE a.IDHlav IN (" + id_list + ") GROUP BY a.IDHlav"):
+            "FROM st.CRM_Kontakt_Akce a WITH(NOLOCK) WHERE a.IDHlav IN (" + id_list + ") GROUP BY a.IDHlav"):
             dd = {(k or "").lower(): v for k, v in d.items()}
             try:
                 names[int(dd.get("fid"))] = (dd.get("firma") or "").strip()

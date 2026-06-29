@@ -6658,35 +6658,6 @@ setTimeout(function(){
     p.appendChild(el('<div class="hint">Pro testování docházky a práv. Vše se loguje do fw.impersonation_log (od–do, kdo, koho). Automaticky končí po 8 hodinách nebo tlačítkem výše.</div>'));
     app.appendChild(p); refresh();
   }
-  function buildAbsForm(box){
-    var today=_locDate(0);
-    var ist="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;margin-bottom:4px;";
-    box.innerHTML='<label>Typ nepřítomnosti</label>'
-      +'<select id="absType" style="'+ist+'"><option value="vacation">Dovolená</option>'
-      +'<option value="homeoffice">🏠 Home office (hlášení dopředu)</option>'
-      +'<option value="sick">Nemoc (PN)</option><option value="medical">Lékař</option>'
-      +'<option value="family_care">OČR</option><option value="sickday">Sickday</option>'
-      +'<option value="unpaid">Neplacené volno</option></select>'
-      +'<label>Od</label><input type="date" id="absFrom" value="'+today+'" style="'+ist+'">'
-      +'<label>Do (volitelně, jen pro celé dny)</label><input type="date" id="absTo" value="'+today+'" style="'+ist+'">'
-      +'<label>Počet hodin (část dne — prázdné = celé dny po 8 h)</label><input type="number" step="0.5" min="0" id="absHours" placeholder="např. 1.5 (lékař)" style="'+ist+'">'
-      +'<label>Poznámka (volitelné)</label><input id="absNote" placeholder="důvod…" style="'+ist+'">';
-    var b=el('<button class="green full" style="margin-top:10px;">Odeslat ke schválení</button>');
-    b.addEventListener("click",function(){
-      var t=document.getElementById("absType").value, f=document.getElementById("absFrom").value,
-          to=document.getElementById("absTo").value, n=document.getElementById("absNote").value,
-          hv=(document.getElementById("absHours").value||"").trim();
-      if(!f){ return; }
-      var payload = hv ? {type_code:t,date_from:f,mode:"hours",hours:parseFloat(hv),note:n}
-                       : {type_code:t,date_from:f,date_to:to,mode:"days",note:n};
-      b.disabled=true; b.textContent="Odesílám…";
-      api("POST","/api/v1/erp/app/attendance/absence",payload).then(function(j){
-        if(j&&j.ok){ box.style.display="none"; box.innerHTML=""; dochListLoad(); alert("Nahlášeno ✓ ("+(j.created||0)+" pracovních dní)"); }
-        else { b.disabled=false; b.textContent="Odeslat ke schválení"; alert("Nepodařilo se: "+((j&&j.error)||"")); }
-      }).catch(function(){ b.disabled=false; b.textContent="Odeslat ke schválení"; });
-    });
-    box.appendChild(b);
-  }
   // === Lišta skupin (Marti 10.6.2026): skupiny sdílí konzoli Výroby (_vyCtx mode=group) ===
   var _skupBarCache=null,_skupBarOn=false;
   function openSkup(gid,name,icon){ _vyCtx={mode:"group",gid:gid,name:name||"Skupina",icon:icon||"👥"}; _vyView="makam"; _vyPeople=[]; _vyData=null; _vyLidiSig=""; go("vyroba"); }

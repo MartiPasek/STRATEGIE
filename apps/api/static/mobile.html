@@ -5713,10 +5713,15 @@ setTimeout(function(){
           // Marti 10.6.: víc místa v „makám" — těchto 7 voleb sbalit pod jeden obal.
           // („Tak tady budu jinde" = budoucnost, sem nepatří → jiný název.)
           expOpt(bw,"🙈 Teď to bude jinak…","ghost",function(bx){
-            var bp=btnEl("☕ Potřebuju krátkou pauzu…","ghost"); bp.addEventListener("click",function(){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},bp); }); bx.appendChild(bp);
-            expOpt(bx,"🍃 Jdu se provětrat / najíst…","ghost",function(b2){
-              chipsIn(b2,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
-            });
+            // OSVČ nemá zákonnou pauzu ani fond → žádné tlačítko pauza (Marti 29.6.:
+            // „den OSVČ = čistá přítomnost"). Tím nemůže vzniknout zapomenutá pauza
+            // jako u Petry 25.6. (6,3h break). Pauza jen pro zaměstnance (hpp/dpp).
+            if(!j.is_osvc){
+              var bp=btnEl("☕ Potřebuju krátkou pauzu…","ghost"); bp.addEventListener("click",function(){ act("checkout",{reason:"krátká pauza",presence:"Jsem na krátké pauze"},bp); }); bx.appendChild(bp);
+              expOpt(bx,"🍃 Jdu se provětrat / najíst…","ghost",function(b2){
+                chipsIn(b2,"Na jak dlouho cca?",function(m,b){ act("checkout",{reason:"pauza — provětrání/jídlo",presence:"Relaxuji a odpočívám",presence_eta_min:m},b); });
+              });
+            }
             expOpt(bx,"🕔 Potřebuji skončit dříve…","ghost",driveBuild);
             expOpt(bx,"🌅 Potřebuji přijít později…","ghost",pozdejiBuild);
             expOpt(bx,"📅 Mám jednání…","ghost",function(b2){

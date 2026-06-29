@@ -335,6 +335,29 @@ def _is_ambassador(uid: int | None) -> bool:
         return False
 
 
+def _is_obchod(uid: int | None) -> bool:
+    """True pokud user je člen skupiny Obchod (EUROSOFT tenant 2, group_id 7).
+    Pro přístup obchodu (Pavel 30, Martin Pašek jr. 35, …) k vytížení/plánu hovorů. Kristý 29.6.2026."""
+    if not uid:
+        return False
+    from sqlalchemy import text as _t
+    try:
+        cm, s = _att_session()
+        try:
+            r = s.execute(_t(
+                "SELECT 1 FROM tenant.staff_group_member "
+                "WHERE tenant_id=2 AND group_id=7 AND user_id=:u LIMIT 1"),
+                {"u": int(uid)}).first()
+            return r is not None
+        finally:
+            try:
+                cm.__exit__(None, None, None)
+            except Exception:
+                pass
+    except Exception:
+        return False
+
+
 def _can_showcase_view(uid: int | None) -> bool:
     """Read gate pro provozní přehledy: rodič NEBO ambasador (read-only)."""
     if not uid:
@@ -12978,7 +13001,7 @@ def app_vytizeni_mesice(req: Request) -> JSONResponse:
             cm.__exit__(None, None, None)
         except Exception:
             pass
-    if not isp and not _is_ambassador(uid) and int(uid) not in (16, 41, 85, 30):
+    if not isp and not _is_ambassador(uid) and not _is_obchod(uid) and int(uid) not in (16, 41, 85):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     mcp = get_eurosoft_mcp_client()
@@ -13060,7 +13083,7 @@ def app_crm_plan_hovoru(req: Request) -> JSONResponse:
             cm.__exit__(None, None, None)
         except Exception:
             pass
-    if not isp and not _is_ambassador(uid) and int(uid) != 30:
+    if not isp and not _is_ambassador(uid) and not _is_obchod(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     mcp = get_eurosoft_mcp_client()
@@ -13141,7 +13164,7 @@ def app_crm_hovory_tyden(req: Request) -> JSONResponse:
             cm.__exit__(None, None, None)
         except Exception:
             pass
-    if not isp and not _is_ambassador(uid) and int(uid) != 30:
+    if not isp and not _is_ambassador(uid) and not _is_obchod(uid):
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     mcp = get_eurosoft_mcp_client()

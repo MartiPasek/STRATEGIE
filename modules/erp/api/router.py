@@ -23385,10 +23385,15 @@ _WAGE_EC_COLS = [
     # import jako zvlášť složka = dvojí započtení (Martin: premie 5000 + vedeni_lidi 5000 = 10000
     # místo 5000). Ověřeno na 79 lidech: MzdPremie vždy = SUM(VedeniLidi+VedeniObch+Produkce+
     # Kvalita+OdmJednatel+OdmGarant+FKodex). Marti 29.6.2026. Bereme jen komponenty.
-    ("zaklad", "Zaklad"), ("os_ohodnoceni", "OsOhod"),
-    ("individualni", "IndividualOhod"), ("vedeni_lidi", "VedeniLidi"),
-    ("vedeni_obchod", "VedeniObch"), ("produkce", "Produkce"), ("kvalita", "Kvalita"),
-    ("firemni_kodex", "FKodexKultur"), ("jednatelska_odmena", "OdmenaJednatel"),
+    # POZOR 2 (Marti/Kristýna 29.6.): bereme *Real sloupce — ty mají ODEČTENÝ zkrácený úvazek.
+    # Sloupce bez "Real" (Zaklad/OsOhod…) = mzda PRO 40h (display) → u part-time přeplácelo
+    # (cislo 349: 30h, Zaklad 44000 = 40h ekviv, ZakladReal 33000 = realita). Kristýna: „řídit se
+    # sloupci ...Real". U full úvazku Real==plné, takže bezpečné pro všechny. Odměny/benefity bez
+    # Real varianty (jednatel/garant/poplatek/auto/doprava) = absolutní, neškálují úvazkem.
+    ("zaklad", "ZakladReal"), ("os_ohodnoceni", "OsOhodReal"),
+    ("individualni", "IndividualOhodReal"), ("vedeni_lidi", "VedeniLidiReal"),
+    ("vedeni_obchod", "VedeniObchReal"), ("produkce", "ProdukceReal"), ("kvalita", "KvalitaReal"),
+    ("firemni_kodex", "FKodexKulturReal"), ("jednatelska_odmena", "OdmenaJednatel"),
     ("garant_odmena", "OdmenaGarant"), ("jednorazovy_poplatek", "JednorazovyPoplatek"),
     ("sluzebni_auto", "BenefitSluzebAut"), ("prispevek_doprava", "PrispevekDoprava"),
 ]

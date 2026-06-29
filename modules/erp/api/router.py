@@ -10606,6 +10606,114 @@ async def ocr_form_save(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/ocr/file")
+async def ocr_file_upload(req: Request,
+                          case: int = Form(...),
+                          kind: str = Form("priloha"),
+                          file: UploadFile = File(...)) -> JSONResponse:
+    """Nahraje PDF/obrázek jako přílohu OČR případu. Vlastník případu nebo HR.
+    Soubor → public.documents (upload_document, tenant 2) → naváže na případ
+    přes tenant.att_ocr_file. kind: 'priloha' (od zaměstnance) | 'excel' (generovaný)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        c = s.execute(_t("SELECT user_id FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"),
+                      {"i": int(case)}).first()
+        if not c:
+            return JSONResponse({"ok": False, "error": "Případ nenalezen."})
+        if int(c[0] or 0) != uid and not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        fname = (file.filename or "priloha.pdf").strip() or "priloha.pdf"
+        data = await file.read()
+        if not data:
+            return JSONResponse({"ok": False, "error": "Prázdný soubor."})
+        if len(data) > 25 * 1024 * 1024:
+            return JSONResponse({"ok": False, "error": "Soubor je příliš velký (>25 MB)."})
+        from modules.rag.application.service import upload_document as _upl
+        doc_id = _upl(file_bytes=data, filename=fname, tenant_id=2, user_id=uid,
+                      display_name="OČR příloha: " + fname[:150])
+        k = (kind or "priloha").strip()[:20] or "priloha"
+        s.execute(_t(
+            "INSERT INTO tenant.att_ocr_file (tenant_id, case_id, document_id, kind, filename, uploaded_by_user_id) "
+            "VALUES (2, :c, :d, :k, :fn, :u)"),
+            {"c": int(case), "d": int(doc_id), "k": k, "fn": fname[:200], "u": uid})
+        s.commit()
+        return JSONResponse({"ok": True, "document_id": int(doc_id), "filename": fname})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)[:160]}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/ocr/files")
+async def ocr_files_list(req: Request) -> JSONResponse:
+    """Seznam příloh OČR případu. Vlastník nebo HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        case_id = int(req.query_params.get("case") or 0)
+    except Exception:
+        case_id = 0
+    cm, s = _att_session()
+    try:
+        c = s.execute(_t("SELECT user_id FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"),
+                      {"i": case_id}).first()
+        if not c:
+            return JSONResponse({"ok": False, "error": "Případ nenalezen."})
+        if int(c[0] or 0) != uid and not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT id, document_id, kind, filename, to_char(created_at,'DD.MM.YYYY HH24:MI') "
+            "FROM tenant.att_ocr_file WHERE tenant_id=2 AND case_id=:i ORDER BY id"),
+            {"i": case_id}).all()
+        files = [{"id": r[0], "document_id": r[1], "kind": r[2],
+                  "filename": r[3], "created": r[4]} for r in rows]
+        return JSONResponse({"ok": True, "files": files})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/ocr/file/delete")
+async def ocr_file_delete(req: Request) -> JSONResponse:
+    """Smaže navázání přílohy na případ (záznam v att_ocr_file). Vlastník nebo HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        fid = int((b or {}).get("id") or 0)
+    except Exception:
+        fid = 0
+    cm, s = _att_session()
+    try:
+        r = s.execute(_t(
+            "SELECT f.case_id, o.user_id FROM tenant.att_ocr_file f "
+            "JOIN tenant.att_ocr_case o ON o.id=f.case_id "
+            "WHERE f.id=:i AND f.tenant_id=2"), {"i": fid}).first()
+        if not r:
+            return JSONResponse({"ok": False, "error": "Příloha nenalezena."})
+        if int(r[1] or 0) != uid and not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        s.execute(_t("DELETE FROM tenant.att_ocr_file WHERE id=:i AND tenant_id=2"), {"i": fid})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)[:160]}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── eNeschopenka (DPN / nemocenská) — Fáze 1 (mirror OČR) ──────────────────
 
 @api_router.post("/app/sick/start")

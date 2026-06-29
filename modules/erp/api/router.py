@@ -10417,7 +10417,7 @@ def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
                 _rep = ("STRATEGIE: Zaznamenali jsme ukončení ošetřovného"
                         + ((" (péče o: " + osoba + ")") if osoba else "")
                         + " k " + str(d_od.day) + "." + str(d_od.month) + "."
-                        + " Doplň prosím počet dní v appce: https://strategie-ai.com/mobile (Docházka → OČR).")
+                        + " Doplň prosím počet dní v appce: https://strategie-ai.com/mobile#ocr")
                 _summary = "ukonceni zaznamenano (case " + str(ex_id) + ")"
             else:
                 _rep = ("STRATEGIE: Toto ošetřovné už evidujeme"
@@ -10505,8 +10505,8 @@ def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
         rep = ("STRATEGIE: Zachytili jsme oznámení o ošetřovném"
                + ((" (péče o: " + osoba + ")") if osoba else "")
                + ". Eviduji ti ho od " + str(d_od.day) + "." + str(d_od.month) + "."
-               + " Po skončení potvrď dny v appce: https://strategie-ai.com/mobile"
-               + " (Docházka → OČR). Mzdová účtárna dostala upozornění.")
+               + " Po skončení potvrď dny v appce: https://strategie-ai.com/mobile#ocr"
+               + " Mzdová účtárna dostala upozornění.")
         queue_sms(to=from_phone, body=rep, purpose="ocr_autoreply",
                   user_id=uid, tenant_id=2, persona_id=1)
     except Exception:

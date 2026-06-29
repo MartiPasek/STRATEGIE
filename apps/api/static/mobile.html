@@ -8573,6 +8573,12 @@ setTimeout(function(){
        if(_gwOn){ _gwSmsForward(); setInterval(_gwSmsForward, 10000); _gwSmsOutbound(); setInterval(_gwSmsOutbound, 12000); } }catch(e){}
   try{ _urgentPoll(); setInterval(_urgentPoll, 20000); }catch(e){}  // urgentní notifikace
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
+  // Deep-link (Kristý/Claude-24 29.6.): …/mobile#ocr otevře rovnou OČR obrazovku.
+  // Segment za lomítkem (#ocr/1) zatím ignorujeme — naviguje na obrazovku dle 1. části.
+  try{
+    var _dl=(location.hash||"").replace(/^#/,"").trim();
+    if(_dl){ var _dseg=_dl.split("/")[0]; setTimeout(function(){ try{ go(_dseg); }catch(e){} }, 950); }
+  }catch(e){}
 
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).
   function pollNotifs(){

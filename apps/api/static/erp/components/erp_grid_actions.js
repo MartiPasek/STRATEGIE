@@ -465,8 +465,64 @@
             btnOk.disabled = false; btnOk.textContent = "Zařadit do fronty";
           });
         });
+        // DEMO odeslani + tracking otevreni (Kristy 29.6.2026) — posila VZDY na
+        // testovaci adresu (k.ksirova@eurosoft.com) z Marti-AI schranky.
+        var firmaById = {};
+        function _oslTrackCheck() {
+          btnDemo.disabled = true; btnDemo.textContent = "Načítám…";
+          fetch("/api/v1/erp/crm/osloveni/track-status", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idhlav_list: idhlavList }),
+          }).then(function (r) { return r.json().catch(function () { return {}; }); })
+            .then(function (j) {
+              btnDemo.disabled = false; btnDemo.textContent = "🔄 Zkontrolovat otevření";
+              if (!j || !j.ok) { _osloveniToast("error", "✗ Stav se nepodařilo načíst"); return; }
+              var by = {}; (j.items || []).forEach(function (it) { by[it.firma_id] = it; });
+              var opened = 0, html = "";
+              idhlavList.forEach(function (fid) {
+                var it = by[fid] || {};
+                var stav = it.opened_at ? "<b style='color:#a3e4a3'>Otevřeno ✓</b>"
+                  : (it.sent_at ? "<span style='color:#9fc4ec'>Odesláno</span>"
+                  : "<span style='color:#888'>—</span>");
+                if (it.opened_at) opened++;
+                html += "<div style='display:flex;justify-content:space-between;gap:8px;" +
+                  "padding:4px 2px;border-bottom:1px solid #1c1c1c'>" +
+                  "<span style='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:320px'>" +
+                  _oslEsc(firmaById[fid] || ("#" + fid)) + "</span><span style='white-space:nowrap'>" +
+                  stav + "</span></div>";
+              });
+              listBox.innerHTML = html || "<div style='padding:6px;color:#9fb6cc'>Žádná data.</div>";
+              sumLine.innerHTML = "Otevřeno: <b style='color:#a3e4a3'>" + opened + "</b> z " + idhlavList.length;
+            }).catch(function () { btnDemo.disabled = false; btnDemo.textContent = "🔄 Zkontrolovat otevření"; _osloveniToast("error", "✗ Síť"); });
+        }
+        var btnDemo = mk("📨 Odeslat teď (DEMO)", "#7c3aed", function () {
+          btnDemo.disabled = true; btnDemo.textContent = "Odesílám…";
+          fetch("/api/v1/erp/crm/osloveni/demo-send", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idhlav_list: idhlavList, template_id: sel.value }),
+          }).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (j) { return { r: r, j: j }; });
+          }).then(function (x) {
+            if (x.r.ok && x.j.ok) {
+              _osloveniToast("success", "✓ Odesláno (DEMO): " + x.j.sent + " → " + x.j.recipient);
+              note.innerHTML = "DEMO odesláno na <b>" + _oslEsc(x.j.recipient) + "</b> (z Marti-AI schránky). " +
+                "Otevři e-maily ve schránce a pak klikni <b>🔄 Zkontrolovat otevření</b>.";
+              btnDemo.textContent = "🔄 Zkontrolovat otevření";
+              btnDemo.disabled = false;
+              btnDemo.onclick = _oslTrackCheck;
+            } else {
+              _osloveniToast("error", "✗ " + ((x.j && x.j.error) || ("HTTP " + x.r.status)));
+              btnDemo.disabled = false; btnDemo.textContent = "📨 Odeslat teď (DEMO)";
+            }
+          }).catch(function (e) {
+            _osloveniToast("error", "✗ Síť: " + (e && e.message || e));
+            btnDemo.disabled = false; btnDemo.textContent = "📨 Odeslat teď (DEMO)";
+          });
+        });
         var btnNo = mk("Zrušit", "#3a3a3a", function () { close(false); });
-        row.appendChild(btnOk); row.appendChild(btnNo);
+        row.appendChild(btnDemo); row.appendChild(btnOk); row.appendChild(btnNo);
         dlg.appendChild(h); dlg.appendChild(listBox); dlg.appendChild(sumLine);
         dlg.appendChild(lab); dlg.appendChild(sel); dlg.appendChild(note); dlg.appendChild(row);
         bd.appendChild(dlg); document.body.appendChild(bd);
@@ -486,6 +542,7 @@
           }
           var nOsob = 0, nInfo = 0, nNic = 0, nOdhl = 0, html = "";
           j.items.forEach(function (it) {
+            firmaById[it.firma_id] = it.firma;
             if (it.opted_out) nOdhl++;
             else if (it.kind === "osobni") nOsob++;
             else if (it.kind === "info") nInfo++;

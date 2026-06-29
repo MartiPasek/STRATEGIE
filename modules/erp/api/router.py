@@ -5725,6 +5725,172 @@ async def crm_osloveni_enqueue(req: Request) -> JSONResponse:
         ds.close()
 
 
+# CRM demo rozesilka (Kristy 29.6.2026): posila VZDY na pevnou test adresu
+# (nikdy na realne firmy) z Marti-AI schranky, s tracking pixelem. Po pripojeni
+# Pavlovy schranky -> sender prepnout na neho (mailbox_id / persona).
+_CRM_DEMO_RECIPIENT = "k.ksirova@eurosoft.com"
+_CRM_DEMO_FROM_PERSONA = 1  # marti-ai@eurosoft.com
+_CRM_PUBLIC_BASE = "https://strategie-ai.com"
+
+
+@api_router.post("/crm/osloveni/demo-send")
+async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
+    """DEMO odeslani: vyrenderuje sablonu + tracking pixel a posle VZDY na
+    _CRM_DEMO_RECIPIENT (test, nikdy realne firmy) z Marti-AI schranky. Eviduje
+    do mod.crm_email_track. Auth: clen ERP NEBO rodic.
+    Telo: {"idhlav_list":[...], "template_id":"9"}."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    ids = []
+    for x in (body.get("idhlav_list") or []):
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+    ids = sorted(set(ids))[:10]  # demo cap
+    if not ids:
+        return JSONResponse({"ok": False, "error": "Nevybral jsi žádné firmy"}, status_code=400)
+    template_code = str(body.get("template_id") or body.get("template_code") or "9")[:32]
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _j_ds, uuid as _uuid_ds
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
+
+    def _mcp_rows(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_ds.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error"))[:200])
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    try:
+        trow = _mcp_rows(
+            "SELECT Sablona, PredmetEmailu FROM st.CRM_Kontakt_MailSablonyCis "
+            "WITH(NOLOCK) WHERE ID = " + str(int(template_code)))
+    except Exception as exc:
+        logger.exception("[crm_demo_send] template %s", exc)
+        return JSONResponse({"ok": False, "error": "Šablonu se nepodařilo načíst"}, status_code=502)
+    if not trow:
+        return JSONResponse({"ok": False, "error": "Šablona ID %s nenalezena" % template_code}, status_code=404)
+    t0 = {(k or "").lower(): v for k, v in trow[0].items()}
+    sablona = (t0.get("sablona") or "").strip()
+    predmet = (t0.get("predmetemailu") or "Oslovení").strip()
+
+    id_list = ",".join(str(i) for i in ids)
+    names = {}
+    try:
+        for d in _mcp_rows(
+            "SELECT a.IDHlav AS fid, MAX(CASE WHEN a.IDAkce=16 THEN a.FirmaText END) AS firma "
+            "FROM dbo.EC_KontaktAkce a WITH(NOLOCK) WHERE a.IDHlav IN (" + id_list + ") GROUP BY a.IDHlav"):
+            dd = {(k or "").lower(): v for k, v in d.items()}
+            try:
+                names[int(dd.get("fid"))] = (dd.get("firma") or "").strip()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    from modules.notifications.application.email_service import queue_email
+    from core.database_data import get_data_session as _gds_ds
+    from sqlalchemy import text as _sql_ds
+    sent, errs = 0, []
+    ds = _gds_ds()
+    try:
+        for fid in ids:
+            tok = _uuid_ds.uuid4().hex
+            firma = names.get(fid) or ("#" + str(fid))
+            pixel = ('<img src="' + _CRM_PUBLIC_BASE + '/crm/track/open/' + tok
+                     + '" width="1" height="1" alt="" style="display:none">')
+            body_html = (sablona or "<p>(prázdná šablona)</p>") + pixel
+            ds.execute(_sql_ds(
+                "INSERT INTO mod.crm_email_track "
+                "(token, firma_id, firma, recipient, template_code, demo, requested_by) "
+                "VALUES (:tok,:fid,:firma,:rec,:tc,true,:by)"),
+                {"tok": tok, "fid": fid, "firma": firma[:200], "rec": _CRM_DEMO_RECIPIENT,
+                 "tc": template_code, "by": "uid:%d" % uid})
+            try:
+                queue_email(to=_CRM_DEMO_RECIPIENT,
+                            subject=("[DEMO] " + predmet + " — " + firma)[:200],
+                            body=body_html, persona_id=_CRM_DEMO_FROM_PERSONA,
+                            from_identity="persona", purpose="user_request")
+                sent += 1
+            except Exception as se:
+                errs.append(str(se)[:80])
+        ds.commit()
+    except Exception as exc:
+        try:
+            ds.rollback()
+        except Exception:
+            pass
+        logger.exception("[crm_demo_send] %s", exc)
+        return JSONResponse({"ok": False, "error": "Demo odeslání selhalo"}, status_code=500)
+    finally:
+        ds.close()
+    logger.info("[crm_demo_send] uid=%d sent=%d to=%s tmpl=%s",
+                uid, sent, _CRM_DEMO_RECIPIENT, template_code)
+    return JSONResponse({"ok": True, "sent": sent, "recipient": _CRM_DEMO_RECIPIENT, "errors": errs})
+
+
+@api_router.post("/crm/osloveni/track-status")
+async def crm_osloveni_track_status(req: Request) -> JSONResponse:
+    """Stav demo rozesilky pro dane firmy: kdy odeslano + kdy/kolikrat otevreno
+    (mod.crm_email_track). Auth: clen ERP NEBO rodic."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    ids = []
+    for x in (body.get("idhlav_list") or []):
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+    ids = sorted(set(ids))
+    if not ids:
+        return JSONResponse({"ok": True, "items": []})
+    from core.database_data import get_data_session as _gds_ts
+    from sqlalchemy import text as _sql_ts
+    ds = _gds_ts()
+    try:
+        rows = ds.execute(_sql_ts(
+            "SELECT firma_id, MAX(sent_at) AS sent_at, MAX(opened_at) AS opened_at, "
+            "COALESCE(SUM(open_count),0) AS opens FROM mod.crm_email_track "
+            "WHERE firma_id = ANY(:ids) GROUP BY firma_id"), {"ids": ids}).mappings().all()
+    finally:
+        ds.close()
+    items = []
+    for r in rows:
+        items.append({
+            "firma_id": r["firma_id"],
+            "sent_at": r["sent_at"].isoformat() if r["sent_at"] else None,
+            "opened_at": r["opened_at"].isoformat() if r["opened_at"] else None,
+            "opens": int(r["opens"] or 0),
+        })
+    return JSONResponse({"ok": True, "items": items})
+
+
 @api_router.get("/crm/osloveni/sablony")
 async def crm_osloveni_sablony(req: Request) -> JSONResponse:
     """Cislenik e-mailovych sablon pro dropdown v "Oslovit vybrane".

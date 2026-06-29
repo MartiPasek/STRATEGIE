@@ -215,6 +215,32 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logging.getLogger(__name__).warning(f"[lifespan] sms_outbox gate cols failed: {exc}")
 
+    # Pavel CRM (Kristy 29.6.2026): demo rozesilka + tracking otevreni emailu.
+    try:
+        from sqlalchemy import text as _t_trk
+        from core.database_data import get_data_session as _gs_trk
+        _ds_trk = _gs_trk()
+        try:
+            _ds_trk.execute(_t_trk(
+                "CREATE TABLE IF NOT EXISTS mod.crm_email_track ("
+                " id bigserial PRIMARY KEY,"
+                " token varchar(48) NOT NULL UNIQUE,"
+                " firma_id int,"
+                " firma varchar(200),"
+                " recipient varchar(200),"
+                " template_code varchar(32),"
+                " demo boolean NOT NULL DEFAULT true,"
+                " requested_by varchar(40),"
+                " sent_at timestamptz NOT NULL DEFAULT now(),"
+                " opened_at timestamptz,"
+                " open_count int NOT NULL DEFAULT 0,"
+                " opened_ip varchar(60))"))
+            _ds_trk.commit()
+        finally:
+            _ds_trk.close()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"[lifespan] crm_email_track DDL failed: {exc}")
+
     # Marti 9.6.2026: zivy 30s tik dochazky — mirror dnesku z Centraly.
     try:
         from modules.erp.api.router import _att_sync_start as _att_start
@@ -900,6 +926,35 @@ def _optout_page(msg_html: str, show_form: bool, token: str = "") -> "object":
         '</div></body></html>'
     )
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/crm/track/open/{token}")
+def crm_track_open(token: str, request: Request):
+    """Verejny tracking pixel pro CRM rozesilku (otevreni emailu). Bez auth —
+    e-mailovy klient nacte obrazek pri otevreni. Zaznamena opened_at + open_count
+    do mod.crm_email_track a vrati 1x1 transparentni GIF. Kristy 29.6.2026."""
+    try:
+        from sqlalchemy import text as _t_to
+        from core.database_data import get_data_session as _gs_to
+        _ip = (request.client.host if request and request.client else None)
+        _ds = _gs_to()
+        try:
+            _ds.execute(_t_to(
+                "UPDATE mod.crm_email_track SET open_count = open_count + 1,"
+                " opened_at = COALESCE(opened_at, now()),"
+                " opened_ip = COALESCE(opened_ip, :ip) WHERE token = :t"),
+                {"t": (token or "")[:48], "ip": (_ip or "")[:60]})
+            _ds.commit()
+        finally:
+            _ds.close()
+    except Exception:
+        pass
+    from fastapi import Response as _Resp
+    _gif = (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00"
+            b"!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01"
+            b"\x00\x00\x02\x02D\x01\x00;")
+    return _Resp(content=_gif, media_type="image/gif",
+                 headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
 
 @app.get("/crm/odhlasit/{token}")

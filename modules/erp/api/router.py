@@ -47609,6 +47609,9 @@ def _render_workspace_page(user_id: int) -> str:
          Aktivity obchodníka (jádro 124). window.CrmAktivitaSouhrn.mount,
          gated v page_render.js. Patří do ERP HTML (ne index.html=chat). -->
     <script src="/static/erp/components/crm_aktivita_souhrn.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Band „Vytížení + plán" nad přehledem „Přehled pro obchodníka" (jádro 136).
+         window.ObchodnikPult.mount, gated v page_render.js. (Kristý 29.6.2026) -->
+    <script src="/static/erp/components/crm_obchodnik_pult.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14g Etapa D+1 (16.5.2026): grid dispatcher modul.
          Extrahuje gridDataResolved 3-tier dispatch z inline router.py +
          logs every step do fw.diag_log via _erpLogToDb. -->

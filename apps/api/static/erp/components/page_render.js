@@ -235,6 +235,22 @@
         console.warn('[page_render] CRM souhrn band failed (grid jede dál):', _souhrnErr);
       }
 
+      // Band „Vytížení dílny + plán hovorů" NAD přehledem „Přehled pro obchodníka"
+      // (jádro 136, Kristý 29.6.2026). Grafy vytížení + týdenní KPI hovorů. Stejný
+      // gated/fail-safe vzor jako souhrn 124 → jiných přehledů se netýká.
+      try {
+        if (String(coreId) === '136'
+            && window.ObchodnikPult && typeof window.ObchodnikPult.mount === 'function'
+            && !document.getElementById('crm-obchodnik-pult')) {
+          var _pultEl = document.createElement('div');
+          _pultEl.id = 'crm-obchodnik-pult';
+          mainContent.insertBefore(_pultEl, gridHost);
+          window.ObchodnikPult.mount(_pultEl);
+        }
+      } catch (_pultErr) {
+        console.warn('[page_render] Obchodnik pult band failed (grid jede dál):', _pultErr);
+      }
+
       // No data_source → dashed placeholder
       if (!rootCd.data_source_code) {
         gridHost.style.border = '1px dashed #3a4754';

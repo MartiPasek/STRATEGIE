@@ -2671,6 +2671,36 @@ setTimeout(function(){
       }
       var sv=el('<button style="'+_OCR_BTN+'">💾 Uložit formulář</button>'); sv.addEventListener("click",function(){ doSave("rozpracovany"); }); w.appendChild(sv);
       var done=el('<button style="margin-top:6px;padding:11px;border-radius:12px;border:1px solid #34d399;background:rgba(52,211,153,.15);color:#5ee0b7;font-weight:800;width:100%;cursor:pointer;">✓ Označit jako kompletní</button>'); done.addEventListener("click",function(){ doSave("kompletni"); }); w.appendChild(done);
+      var gx=el('<button style="margin-top:6px;padding:11px;border-radius:12px;border:1px solid #6aa9ff;background:rgba(106,169,255,.12);color:#9fd0ff;font-weight:800;width:100%;cursor:pointer;">📊 Vygenerovat ČSSZ Excel</button>');
+      gx.addEventListener("click",function(){
+        if(fOr.value && !_rcValid(fOr.value)){ st.style.color="#ff8b8b"; st.textContent="RČ ošetřované osoby nevypadá platně."; return; }
+        gx.disabled=true; st.style.color="#9fb2d4"; st.textContent="Ukládám a generuji Excel…";
+        api("POST","/api/v1/erp/app/ocr/form/save",{case:caseId,data:collect(),stav:"kompletni"}).then(function(r){
+          if(!r||!r.ok){ gx.disabled=false; st.style.color="#ff8b8b"; st.textContent="Uložení selhalo: "+((r&&r.error)||"?"); return; }
+          api("POST","/api/v1/erp/app/ocr/excel",{case:caseId}).then(function(e){
+            gx.disabled=false;
+            if(e&&e.ok){ st.style.color="#5ee0b7"; st.textContent="✓ Excel vygenerován: "+esc(e.filename||""); _ocrLoadFiles(filesBox, caseId); }
+            else { st.style.color="#ff8b8b"; st.textContent="Generování selhalo: "+((e&&e.error)||"?"); }
+          });
+        });
+      }); w.appendChild(gx);
+      var mb=el('<button style="margin-top:6px;padding:11px;border-radius:12px;border:1px solid #f0b35e;background:rgba(240,179,94,.12);color:#f6c98a;font-weight:800;width:100%;cursor:pointer;">📧 Odeslat účetní (Péťě)</button>');
+      mb.addEventListener("click",function(){
+        if(!confirm("Odeslat formulář a přílohy e-mailem na p.safrankova@eurosoft.com (kopie k.ksirova@eurosoft.com)?\n\nExcel se před odesláním vygeneruje z aktuálních dat."))return;
+        mb.disabled=true; st.style.color="#9fb2d4"; st.textContent="Ukládám, generuji a odesílám…";
+        api("POST","/api/v1/erp/app/ocr/form/save",{case:caseId,data:collect(),stav:"kompletni"}).then(function(r){
+          if(!r||!r.ok){ mb.disabled=false; st.style.color="#ff8b8b"; st.textContent="Uložení selhalo: "+((r&&r.error)||"?"); return; }
+          api("POST","/api/v1/erp/app/ocr/excel",{case:caseId}).then(function(e){
+            if(!e||!e.ok){ mb.disabled=false; st.style.color="#ff8b8b"; st.textContent="Excel selhal: "+((e&&e.error)||"?"); return; }
+            api("POST","/api/v1/erp/app/ocr/mail",{case:caseId}).then(function(m){
+              mb.disabled=false;
+              if(m&&m.ok){ st.style.color="#5ee0b7"; st.textContent="✓ Odesláno Péťě ("+(m.attachments||0)+" příloh), kopie Kristý."; _ocrLoadFiles(filesBox, caseId); }
+              else if(m&&m.error==="forbidden"){ st.style.color="#ff8b8b"; st.textContent="Odeslání může spustit jen HR/účetní."; }
+              else { st.style.color="#ff8b8b"; st.textContent="Odeslání selhalo: "+((m&&m.error)||"?"); }
+            });
+          });
+        });
+      }); w.appendChild(mb);
       var cx=el('<button class="ghost sm" style="margin-top:4px;">Zpět na seznam OČR</button>'); cx.addEventListener("click",function(){ ocr(); }); w.appendChild(cx);
     });
   }

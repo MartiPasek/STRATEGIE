@@ -10714,6 +10714,256 @@ async def ocr_file_delete(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+def _ocr_load_form_data(s, case_id):
+    """Sloučí prefill (case + identity) s uloženým att_ocr_form.data → dict."""
+    from sqlalchemy import text as _t
+    c = s.execute(_t(
+        "SELECT user_id, osoba_jmeno, osoba_rc, osoba_vztah, identifikator, "
+        "to_char(datum_od,'YYYY-MM-DD'), to_char(datum_do,'YYYY-MM-DD') "
+        "FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"), {"i": case_id}).first()
+    if not c:
+        return None, None
+    u = s.execute(_t("SELECT first_name, last_name FROM public.users WHERE id=:u"), {"u": c[0]}).first()
+    zam_rc = s.execute(_t("SELECT birth_number FROM tenant.user_self_data "
+                          "WHERE tenant_id=2 AND user_id=:u"), {"u": c[0]}).scalar() or ""
+    d = {
+        "zam_jmeno": (u[0] if u else "") or "", "zam_prijmeni": (u[1] if u else "") or "",
+        "zam_rc": zam_rc or "",
+        "os_jmeno": c[1] or "", "os_rc": c[2] or "", "os_vztah": c[3] or "",
+        "cislo_rozhodnuti": c[4] or "", "datum_od": c[5] or "", "datum_do": c[6] or "",
+    }
+    frow = s.execute(_t("SELECT data FROM tenant.att_ocr_form WHERE tenant_id=2 AND case_id=:i"),
+                     {"i": case_id}).first()
+    if frow and frow[0]:
+        try:
+            d.update(frow[0])
+        except Exception:
+            pass
+    return int(c[0] or 0), d
+
+
+def _ocr_fill_cssz_xlsx(d):
+    """Naplní ČSSZ šablonu daty formuláře → vrátí (bytes, filename). S7 = RČ ošetřované osoby."""
+    import os as _os, io as _io, datetime as _dt
+    import openpyxl
+    tpl = _os.path.join(_os.path.dirname(__file__), "..", "templates", "ocr_cssz_template.xlsx")
+    if not _os.path.exists(tpl):
+        raise FileNotFoundError("ocr_cssz_template.xlsx")
+
+    def _pd(v):
+        try:
+            return _dt.date.fromisoformat(str(v)[:10])
+        except Exception:
+            return None
+
+    wb = openpyxl.load_workbook(tpl)
+    ws = wb.active
+    nm = (d.get("os_jmeno") or "").strip()
+    if nm:
+        parts = nm.split()
+        if len(parts) >= 2:
+            ws["S5"] = " ".join(parts[:-1])
+            ws["S3"] = parts[-1]
+        else:
+            ws["S5"] = nm
+    if d.get("os_rc"):
+        ws["S7"] = d["os_rc"]
+    if d.get("os_vztah"):
+        ws["M33"] = d["os_vztah"]
+    if d.get("cislo_rozhodnuti"):
+        ws["C15"] = d["cislo_rozhodnuti"]
+    duv = {"osetrovani_nemocne": "O3", "karantena_dite": "O5",
+           "zarizeni_uzavreno": "O7", "osoba_onemocnela": "O9"}.get(d.get("duvod") or "")
+    if duv:
+        ws[duv] = "X"
+
+    def _yn(row, val):
+        ws[("D" if (val == "ano") else "G") + str(row)] = "X"
+    _yn(24, d.get("osamely_zamestnanec") or "ne")
+    _yn(30, d.get("spolecna_domacnost") or "ano")
+    _yn(35, d.get("jina_osoba_ppm") or "ne")
+
+    if (d.get("osetrovani_poskytl") or "cela_doba") == "v_dnech":
+        ws["C44"] = "X"
+        od, do = _pd(d.get("poskytl_od")), _pd(d.get("poskytl_do"))
+        if od:
+            ws["E46"] = od
+            ws["E46"].number_format = "d.m.yyyy"
+        if do:
+            ws["H46"] = do
+            ws["H46"].number_format = "d.m.yyyy"
+    else:
+        ws["C42"] = "X"
+    if d.get("sdeleni"):
+        ws["O40"] = d["sdeleni"]
+    if (d.get("obdobi_zadosti") or "cela_doba") == "v_dnech" and d.get("obdobi_od"):
+        o_od, o_do = _pd(d.get("obdobi_od")), _pd(d.get("obdobi_do"))
+    else:
+        o_od, o_do = _pd(d.get("datum_od")), _pd(d.get("datum_do"))
+    if o_od:
+        ws["E55"] = o_od
+        ws["E55"].number_format = "d.m.yyyy"
+    if o_do:
+        ws["H55"] = o_do
+        ws["H55"].number_format = "d.m.yyyy"
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    safe = (nm or "osetrovani").replace("/", "-").replace(" ", "_")
+    fname = "OCR_%s_%s.xlsx" % (safe, (d.get("datum_od") or "")[:10] or "bez_data")
+    return buf.getvalue(), fname
+
+
+@api_router.post("/app/ocr/excel")
+async def ocr_excel_gen(req: Request) -> JSONResponse:
+    """Vygeneruje ČSSZ Excel z uloženého formuláře → public.documents +
+    att_ocr_file(kind='excel'). Vlastník případu nebo HR."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        case_id = int((b or {}).get("case") or req.query_params.get("case") or 0)
+    except Exception:
+        case_id = 0
+    cm, s = _att_session()
+    try:
+        owner, d = _ocr_load_form_data(s, case_id)
+        if d is None:
+            return JSONResponse({"ok": False, "error": "Případ nenalezen."})
+        if owner != uid and not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        cm.__exit__(None, None, None)
+    try:
+        xbytes, fname = _ocr_fill_cssz_xlsx(d)
+    except FileNotFoundError:
+        return JSONResponse({"ok": False, "error": "Šablona ČSSZ nenalezena na serveru."})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Generování selhalo: " + str(exc)[:140]})
+    from modules.rag.application.service import upload_document as _upl
+    try:
+        doc_id = _upl(file_bytes=xbytes, filename=fname, tenant_id=2, user_id=uid,
+                      display_name="OČR ČSSZ: " + fname)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Uložení selhalo: " + str(exc)[:140]})
+    cm2, s2 = _att_session()
+    try:
+        s2.execute(_t("DELETE FROM tenant.att_ocr_file WHERE tenant_id=2 AND case_id=:c AND kind='excel'"),
+                   {"c": case_id})
+        s2.execute(_t(
+            "INSERT INTO tenant.att_ocr_file (tenant_id, case_id, document_id, kind, filename, uploaded_by_user_id) "
+            "VALUES (2, :c, :d, 'excel', :fn, :u)"),
+            {"c": case_id, "d": int(doc_id), "fn": fname[:200], "u": uid})
+        s2.commit()
+    finally:
+        cm2.__exit__(None, None, None)
+    return JSONResponse({"ok": True, "document_id": int(doc_id), "filename": fname})
+
+
+@api_router.post("/app/ocr/mail")
+async def ocr_mail_send(req: Request) -> JSONResponse:
+    """Zařadí e-mail s OČR podklady (Excel + přílohy) účetní. JEN HR/rodič.
+    Odesílá z marti-ai@ (persona 1) na p.safrankova@eurosoft.com, kopie
+    k.ksirova@eurosoft.com (ZATÍM ne na účetní). Spouští výhradně klik HR,
+    nikdy automaticky. Rodná čísla jen v přílohách, ne v těle."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    ocr_mail_to = "p.safrankova@eurosoft.com"
+    ocr_mail_cc = ["k.ksirova@eurosoft.com"]
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    cases = (b or {}).get("cases")
+    if not cases:
+        one = (b or {}).get("case")
+        cases = [one] if one else []
+    try:
+        cases = [int(x) for x in cases if x]
+    except Exception:
+        cases = []
+    if not cases:
+        return JSONResponse({"ok": False, "error": "Žádný případ k odeslání."})
+    att_ids = []
+    lines = []
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        for cid in cases:
+            owner, d = _ocr_load_form_data(s, cid)
+            if d is None:
+                continue
+            ex = s.execute(_t("SELECT document_id FROM tenant.att_ocr_file "
+                              "WHERE tenant_id=2 AND case_id=:c AND kind='excel' ORDER BY id DESC"),
+                           {"c": cid}).first()
+            if not ex:
+                try:
+                    xbytes, fname = _ocr_fill_cssz_xlsx(d)
+                    from modules.rag.application.service import upload_document as _upl
+                    doc_id = _upl(file_bytes=xbytes, filename=fname, tenant_id=2, user_id=uid,
+                                  display_name="OČR ČSSZ: " + fname)
+                    s.execute(_t(
+                        "INSERT INTO tenant.att_ocr_file (tenant_id, case_id, document_id, kind, filename, uploaded_by_user_id) "
+                        "VALUES (2,:c,:d,'excel',:fn,:u)"),
+                        {"c": cid, "d": int(doc_id), "fn": fname[:200], "u": uid})
+                    s.commit()
+                except Exception:
+                    pass
+            rows = s.execute(_t("SELECT document_id FROM tenant.att_ocr_file "
+                                "WHERE tenant_id=2 AND case_id=:c ORDER BY kind, id"),
+                             {"c": cid}).all()
+            for r in rows:
+                if r[0] and int(r[0]) not in att_ids:
+                    att_ids.append(int(r[0]))
+            zam = ((d.get("zam_jmeno") or "") + " " + (d.get("zam_prijmeni") or "")).strip() or ("uživatel " + str(owner))
+            obd = ""
+            if d.get("datum_od"):
+                obd = d["datum_od"]
+                if d.get("datum_do"):
+                    obd += " – " + d["datum_do"]
+            lines.append("- %s — péče o %s%s%s%s" % (
+                zam, (d.get("os_jmeno") or "?"),
+                (" (" + d["os_vztah"] + ")") if d.get("os_vztah") else "",
+                (", " + obd) if obd else "",
+                (", identifikátor " + d["cislo_rozhodnuti"]) if d.get("cislo_rozhodnuti") else ""))
+    finally:
+        cm.__exit__(None, None, None)
+
+    if not lines:
+        return JSONResponse({"ok": False, "error": "Případy nenalezeny."})
+    if not att_ids:
+        return JSONResponse({"ok": False, "error": "Žádné přílohy — vyplň formulář a vygeneruj Excel."})
+    body = (
+        "Dobrý den,\n\n"
+        "posílám podklady k ošetřovnému (ČSSZ „Oznámení zaměstnavateli o potřebě "
+        "ošetřování / péče“, § 109).\n\n"
+        "Případy:\n" + "\n".join(lines) + "\n\n"
+        "V příloze najdete vyplněné formuláře (Excel) a doklady z ČSSZ. "
+        "Rodná čísla jsou uvedena pouze v přílohách.\n\n"
+        "Děkuji,\nMarti-AI — asistentka, STRATEGIE")
+    poc = len(lines)
+    subj = "OČR — podklady k ošetřovnému (%d %s)" % (
+        poc, "případ" if poc == 1 else ("případy" if poc < 5 else "případů"))
+    from modules.notifications.application.email_service import queue_email
+    try:
+        qres = queue_email(to=ocr_mail_to, cc=ocr_mail_cc, subject=subj, body=body,
+                           persona_id=1, tenant_id=2, from_identity="persona",
+                           purpose="notification", attachment_document_ids=att_ids)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Odeslání selhalo: " + str(exc)[:140]})
+    return JSONResponse({"ok": True, "to": ocr_mail_to, "cc": ocr_mail_cc,
+                         "attachments": len(att_ids), "cases": poc,
+                         "outbox_id": (qres or {}).get("id")})
+
+
 # ── eNeschopenka (DPN / nemocenská) — Fáze 1 (mirror OČR) ──────────────────
 
 @api_router.post("/app/sick/start")

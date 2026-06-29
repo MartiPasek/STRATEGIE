@@ -9895,6 +9895,44 @@ async def att_absence_mine(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.post("/app/attendance/absence/cancel")
+async def att_absence_cancel(req: Request) -> JSONResponse:
+    """Zaměstnanec zruší VLASTNÍ nevyřízenou (pending) žádost o absenci.
+    Pokud už byla materializovaná do docházky, uklidí i att_entry té žádosti
+    (source_system='absence_req', source_id=rid). Jirka 29.6.2026 (souhlas Marti)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        rid = int((b or {}).get("id") or 0)
+    except Exception:
+        rid = 0
+    if not rid:
+        return JSONResponse({"ok": False, "error": "missing_id"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        r = s.execute(_t("SELECT stav, materialized FROM tenant.att_absence_request "
+                         "WHERE id=:i AND user_id=:u"), {"i": rid, "u": uid}).first()
+        if not r:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        stav, materialized = r[0], r[1]
+        if stav != "pending":
+            return JSONResponse({"ok": False, "error": "not_cancellable"}, status_code=400)
+        if materialized:
+            s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 "
+                         "AND source_system='absence_req' AND source_id=:i"), {"i": rid})
+        s.execute(_t("UPDATE tenant.att_absence_request SET stav='cancelled', materialized=false, "
+                     "status_text='Zrušeno zaměstnancem', decided_at=now() WHERE id=:i"), {"i": rid})
+        return JSONResponse({"ok": True})
+    finally:
+        cm.__exit__(None, None, None)
+
+
 # ── OČR (ošetřovné) — Fáze 1: strukturovaný případ (bez ČSSZ API) ──────────
 # Zaměstnanec zadá identifikátor ze SMS + ošetřovanou osobu + datum od;
 # na konci doplní datum do + dny; HR/vedoucí schválí. Firma EC/ES z engagementu.

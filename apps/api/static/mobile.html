@@ -3310,7 +3310,7 @@ setTimeout(function(){
     app.innerHTML=topbar("🗓️ Absence", true);
     var TYPY=[["vacation","Dovolená"],["homeoffice","Home office"],["medical","Lékař"],["family_care","OČR"],["sick","Nemoc (PN)"],["unpaid","Neplacené volno"]];
     var TL={vacation:"Dovolená",homeoffice:"Home office",medical:"Lékař",family_care:"OČR",sick:"Nemoc (PN)",unpaid:"Neplacené volno"};
-    var stavChip={pending:["čeká","#60a5fa"],approved:["schváleno","#34d399"],rejected:["zamítnuto","#f87171"],info:["info","#fbbf24"]};
+    var stavChip={pending:["čeká","#60a5fa"],approved:["schváleno","#34d399"],rejected:["zamítnuto","#f87171"],info:["info","#fbbf24"],cancelled:["zrušeno","#9aa4b2"]};
     function chip(t,c){ return '<span style="background:'+c+';color:#04150e;border-radius:8px;padding:2px 7px;font-size:11px;font-weight:700;">'+esc(t)+'</span>'; }
     function cz(d){ var p=(d||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):d; }
     var t=new Date(); var today=t.getFullYear()+"-"+("0"+(t.getMonth()+1)).slice(-2)+"-"+("0"+t.getDate()).slice(-2);
@@ -3374,7 +3374,19 @@ setTimeout(function(){
         if(!j.zadosti.length){ mine.appendChild(el('<div class="hint">Zatím žádné žádosti.</div>')); return; }
         j.zadosti.forEach(function(z){
           var sc=stavChip[z.stav]||["?","#888"];
-          mine.appendChild(el('<div style="border-bottom:1px solid #1b2742;padding:9px 4px;"><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;">'+esc(z.typ_label)+' '+cz(z.od)+(z.od!==z.do?("–"+cz(z.do)):"")+'</div>'+chip(sc[0],sc[1])+'</div>'+(z.status_text?('<div class="hint" style="margin-top:3px;">Vedoucí: „'+esc(z.status_text)+'“</div>'):'')+'</div>'));
+          var row=el('<div style="border-bottom:1px solid #1b2742;padding:9px 4px;"><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;">'+esc(z.typ_label)+' '+cz(z.od)+(z.od!==z.do?("–"+cz(z.do)):"")+'</div>'+chip(sc[0],sc[1])+'</div>'+(z.status_text?('<div class="hint" style="margin-top:3px;">Vedoucí: „'+esc(z.status_text)+'“</div>'):'')+'</div>');
+          if(z.stav==='pending'){
+            var zr=el('<button class="ghost" style="margin-top:6px;padding:6px 10px;font-size:13px;color:#f87171;border-color:#5a2b2b;">✕ Zrušit</button>');
+            zr.addEventListener("click",function(){
+              if(!confirm("Zrušit žádost: "+z.typ_label+" "+cz(z.od)+(z.od!==z.do?("–"+cz(z.do)):"")+"?")) return;
+              zr.disabled=true; zr.textContent="…";
+              api("POST","/api/v1/erp/app/attendance/absence/cancel",{id:z.id}).then(function(r){
+                if(r&&r.ok){ loadMine(); } else { zr.disabled=false; zr.textContent="✕ Zrušit"; alert("Nepodařilo se zrušit: "+((r&&r.error)||"?")); }
+              }).catch(function(){ zr.disabled=false; zr.textContent="✕ Zrušit"; });
+            });
+            row.appendChild(zr);
+          }
+          mine.appendChild(row);
         });
       });
     }
@@ -5407,10 +5419,20 @@ setTimeout(function(){
             },b);
           });
         },_amberStyle);
-        dirBtn(box,"🤒 Je mi fakt blbě… Vidím to na sick day.","ghost",function(b){
-          b.disabled=true; var today=_locDate(0);
-          absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
-            presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); },b);
+        expOpt(box,"🤒 Je mi blbě… sick day","ghost",function(bx){
+          dirBtn(bx,"🤒 Dnes je mi blbě","ghost",function(b){
+            b.disabled=true; var today=_locDate(0);
+            absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
+              presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); },b);
+          },_amberStyle);
+          bx.appendChild(el('<div class="hint" style="margin-top:8px;">…nebo sick day na konkrétní dny (i zpětně):</div>'));
+          dateRangePickIn(bx,"Sick day od – do:",function(od, dd, b){
+            var today=_locDate(0);
+            absence({type_code:"sickday",date_from:od,date_to:dd,mode:"days",note:"sick day (přes mobil)"},function(){
+              if(od<=today && dd>=today){ presence({text:"Je mi blbě — sick day",add_since:false,until_txt:czDate(dd)},b); }
+              else absOk(bx,"Sick day "+czDate(od)+" – "+czDate(dd));
+            },b);
+          });
         },_amberStyle);
         expOpt(box,"🤧 Mám neschopenku do…","ghost",function(bx){
           datePickIn(bx,"Neschopenka do:",function(d,b){

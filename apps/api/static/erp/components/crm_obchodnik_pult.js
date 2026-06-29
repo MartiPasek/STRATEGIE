@@ -27,7 +27,9 @@
       '  <span id="opPlanKpi" style="font-size:12px;color:#9fb6cc;"></span>' +
       '  <span id="opStav" style="font-size:11px;color:#6f8296;margin-left:auto;"></span>' +
       '</div>' +
-      '<div id="opBaty" style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;"></div>';
+      '<div id="opBaty" style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;"></div>' +
+      '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #1e2730;' +
+      'font-size:13px;font-weight:700;color:#aac8ec;">📞 Plán hovorů — tento týden</div>';
 
     var baty = el.querySelector("#opBaty");
     var planKpi = el.querySelector("#opPlanKpi");

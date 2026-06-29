@@ -37426,6 +37426,27 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                         _dt_audit.now().isoformat(timespec="seconds")
                     )
 
+            # E (Pavel, Kristy 26./29.6.2026): automatika PristiKontakt podle
+            # StavVztahu na st.CRM_Kontakt. Odmítl(8)/Neaktivní(7)/Archiv(9)/
+            # Dělají si sami(10) -> PristiKontakt NULL; Nezájem-obvolat-za-rok(12)
+            # -> +1 rok. Jen kdyz user PristiKontakt sam v tomtez save nemenil.
+            for _g_pk in _save_groups.values():
+                if (_g_pk.get("schema") == "st"
+                        and _g_pk.get("table") == "CRM_Kontakt"
+                        and "StavVztahuID" in _g_pk["data"]
+                        and "PristiKontakt" not in _g_pk["data"]):
+                    try:
+                        _sv_pk = int(_g_pk["data"]["StavVztahuID"])
+                    except (TypeError, ValueError):
+                        _sv_pk = None
+                    if _sv_pk in (7, 8, 9, 10):
+                        _g_pk["data"]["PristiKontakt"] = None
+                    elif _sv_pk == 12:
+                        from datetime import timedelta as _td_pk
+                        _g_pk["data"]["PristiKontakt"] = (
+                            _dt_audit.now() + _td_pk(days=365)
+                        ).date().isoformat()
+
             if _skipped_fields:
                 logger.info(
                     "[design_patch_entity] MSSQL skip fields (readonly/no-key): %s",

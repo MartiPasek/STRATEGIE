@@ -13120,6 +13120,85 @@ def app_crm_plan_hovoru(req: Request) -> JSONResponse:
                          "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
 
 
+@api_router.get("/app/crm/hovory-tyden")
+def app_crm_hovory_tyden(req: Request) -> JSONResponse:
+    """Proběhlé hovory za tento týden — telefonáty (IDAkce 2 = na firmu, 4 = na OO) z DB_EC
+    st.CRM_Kontakt_Akce, datum v aktuálním kalendářním týdnu (Po–Ne). Pro dolní panel bandu
+    „Přehled pro obchodníka" (core 136). Read-only přes MCP. Přístup: rodič / ambasador /
+    obchod Pavel (30). Kristý 29.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import json as _j
+    import datetime as _dt
+    cm, s = _att_session()
+    try:
+        isp = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                        {"u": int(uid)}).scalar()
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+    if not isp and not _is_ambassador(uid) and int(uid) != 30:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "mcp_unavailable"}, status_code=503)
+    _today = _dt.date.today()
+    _mon = _today - _dt.timedelta(days=_today.weekday())
+    _sun = _mon + _dt.timedelta(days=6)
+    sql = (
+        "SELECT a.ID AS id,"
+        " COALESCE(NULLIF(LTRIM(RTRIM(a.FirmaText)),''), NULLIF(LTRIM(RTRIM(k.FirmaText)),'')) AS firma,"
+        " CONVERT(varchar(10), COALESCE(a.DatumAkce, CAST(a.DatPorizeni AS date)), 23) AS datum,"
+        " c.Nazev AS typ,"
+        " CASE WHEN a.Splneno=1 THEN 1 ELSE 0 END AS splneno,"
+        " COALESCE(NULLIF(LTRIM(RTRIM(a.Telefon)),''), NULLIF(LTRIM(RTRIM(a.Mobil)),'')) AS telefon,"
+        " a.Prubeh AS poznamka"
+        " FROM st.CRM_Kontakt_Akce a"
+        " LEFT JOIN st.CRM_Kontakt k ON k.ID = a.IDHlav"
+        " LEFT JOIN st.CRM_Kontakt_AkceCis c ON c.ID = a.IDAkce"
+        " WHERE a.IDAkce IN (2,4)"
+        " AND COALESCE(a.DatumAkce, CAST(a.DatPorizeni AS date)) >= '" + _mon.isoformat() + "'"
+        " AND COALESCE(a.DatumAkce, CAST(a.DatPorizeni AS date)) <= '" + _sun.isoformat() + "'"
+        " ORDER BY COALESCE(a.DatumAkce, CAST(a.DatPorizeni AS date)) DESC, a.ID DESC"
+    )
+    try:
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                return JSONResponse({"ok": False, "error": str(r.get("error"))[:200]}, status_code=502)
+            for kk in ("rows", "data", "result", "records"):
+                if isinstance(r.get(kk), list):
+                    rows = r[kk]
+                    break
+        elif isinstance(r, list):
+            rows = r
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
+    out = []
+    for d in rows:
+        dl = {(c2 or "").lower(): v for c2, v in d.items()}
+        out.append({
+            "id": dl.get("id"),
+            "firma": (str(dl.get("firma") or "").strip()) or ("Firma #" + str(dl.get("id"))),
+            "datum": dl.get("datum"),
+            "typ": dl.get("typ"),
+            "splneno": dl.get("splneno"),
+            "telefon": str(dl.get("telefon") or "").strip(),
+            "poznamka": str(dl.get("poznamka") or "").strip(),
+        })
+    return JSONResponse({"ok": True, "rows": out,
+                         "od": _mon.isoformat(), "do": _sun.isoformat(),
+                         "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
+
+
 @api_router.get("/app/learn/sync")
 async def app_learn_sync(req: Request) -> JSONResponse:
     """Plný import Martiho báze MP_STRAG_Komun (DB_EC) -> tenant.learn_frame (RTF->HTML).

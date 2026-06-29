@@ -246,6 +246,15 @@
           _pultEl.id = 'crm-obchodnik-pult';
           mainContent.insertBefore(_pultEl, gridHost);
           window.ObchodnikPult.mount(_pultEl);
+          // Druhý panel POD gridem: proběhlé hovory za tento týden (Kristý 29.6.2026).
+          // appendChild → za gridHost; grid (flex:1) se zmenší, panel dostane svou výšku.
+          if (typeof window.ObchodnikPult.mountHovory === 'function'
+              && !document.getElementById('crm-obchodnik-hovory')) {
+            var _hovEl = document.createElement('div');
+            _hovEl.id = 'crm-obchodnik-hovory';
+            mainContent.appendChild(_hovEl);
+            window.ObchodnikPult.mountHovory(_hovEl);
+          }
         }
       } catch (_pultErr) {
         console.warn('[page_render] Obchodnik pult band failed (grid jede dál):', _pultErr);

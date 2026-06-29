@@ -6,11 +6,17 @@
   "use strict";
   var EP_VYT = "/api/v1/erp/app/vytizeni-mesice";
   var EP_PLAN = "/api/v1/erp/app/crm/plan-hovoru";
+  var EP_HOVORY = "/api/v1/erp/app/crm/hovory-tyden";
   var NAMES = ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen",
                "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"];
 
   function col(p) { return p >= 70 ? "#3ecf8e" : p >= 35 ? "#f0a93b" : "#ff6b6b"; }
   function csNum(n) { return Math.round(n).toLocaleString("cs"); }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
+  }
 
   function mount(el) {
     if (!el) return;
@@ -110,5 +116,53 @@
     }
   }
 
-  window.ObchodnikPult = { mount: mount };
+  function mountHovory(el) {
+    if (!el) return;
+    el.style.cssText = "background:#0f141a;border-top:1px solid #1e2730;padding:8px 12px 10px;" +
+      "max-height:230px;overflow:auto;flex:0 0 auto;";
+    el.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">' +
+      '  <span style="font-size:13px;font-weight:700;color:#aac8ec;">✅ Proběhlé hovory — tento týden</span>' +
+      '  <span id="opHovStav" style="font-size:11px;color:#6f8296;"></span>' +
+      '</div>' +
+      '<div id="opHovBody"></div>';
+    var body = el.querySelector("#opHovBody");
+    var stav = el.querySelector("#opHovStav");
+
+    fetch(EP_HOVORY, { credentials: "include" })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (j) {
+        if (!j || !j.ok || !j.rows) { stav.textContent = "✗ " + ((j && j.error) || "chyba"); return; }
+        render(j.rows);
+      })
+      .catch(function () { stav.textContent = "✗ síť"; });
+
+    function render(rows) {
+      var n = rows.length;
+      stav.textContent = n + (n === 1 ? " hovor" : (n >= 2 && n <= 4 ? " hovory" : " hovorů"));
+      if (!n) {
+        body.innerHTML = '<div style="font-size:12px;color:#6f8296;padding:6px 2px;">' +
+          'Tento týden zatím žádné proběhlé hovory — jakmile Pavel zapíše telefonát, objeví se tady.</div>';
+        return;
+      }
+      var h = '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+        '<thead><tr style="color:#7e8aa3;text-align:left;">' +
+        '<th style="padding:3px 8px 3px 0;">Datum</th><th style="padding:3px 8px;">Firma</th>' +
+        '<th style="padding:3px 8px;">Typ</th><th style="padding:3px 8px;">Telefon</th>' +
+        '<th style="padding:3px 8px;">Průběh</th></tr></thead><tbody>';
+      rows.forEach(function (r) {
+        h += '<tr style="border-top:1px solid #1a2230;">' +
+          '<td style="padding:4px 8px 4px 0;color:#cdd6e2;white-space:nowrap;">' + esc(r.datum || "") + '</td>' +
+          '<td style="padding:4px 8px;color:#eef3f8;">' + esc(r.firma || "") + '</td>' +
+          '<td style="padding:4px 8px;color:#9fb6cc;white-space:nowrap;">' + esc(r.typ || "") + '</td>' +
+          '<td style="padding:4px 8px;color:#9fb6cc;white-space:nowrap;">' + esc(r.telefon || "") + '</td>' +
+          '<td style="padding:4px 8px;color:#cdd6e2;">' + esc(String(r.poznamka || "").slice(0, 160)) + '</td>' +
+          '</tr>';
+      });
+      h += '</tbody></table>';
+      body.innerHTML = h;
+    }
+  }
+
+  window.ObchodnikPult = { mount: mount, mountHovory: mountHovory };
 })();

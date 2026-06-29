@@ -9619,6 +9619,18 @@ def _sync_dochazka_ec(rok, mesic):
         # tím zmizí zbytková app/test data, co nafukovala dny i hodiny). Marti 28.6.
         s.execute(_t("DELETE FROM tenant.att_day_summary WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
                   {"y": rok, "m": mesic})
+        # Plánované absence (dovolená/nemoc/OČR/… z plánu nepřítomností, source<>'ec_real')
+        # přežijí DELETE výše → MUSÍME je započítat do fondu, ať automat NEDOPÍCHÁVÁ práci na
+        # absenční den (Saad 29.6.: vacation 8h z plánu + work 8h dopíchnuto = dvojí 16h). Marti 29.6.
+        planned_abs = {}
+        for _pr in s.execute(_t(
+                "SELECT a.employee_id, a.entry_date, SUM(a.hours) "
+                "FROM tenant.att_entry a JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+                "WHERE a.tenant_id=2 AND COALESCE(a.source_system,'')<>'ec_real' "
+                "  AND et.code IN ('vacation','sick','family_care','medical','sickday','unpaid','maternity') "
+                "  AND EXTRACT(YEAR FROM a.entry_date)=:y AND EXTRACT(MONTH FROM a.entry_date)=:m "
+                "GROUP BY a.employee_id, a.entry_date"), {"y": rok, "m": mesic}).fetchall():
+            planned_abs[(_pr[0], _pr[1].isoformat())] = float(_pr[2] or 0)
         # Iteruj VŠECHNY Po–Pá dny měsíce pro každého aktivního (= kdo má aspoň záznam v EC) —
         # prázdné dny bez záznamu se DOPÍCHNOU na fond (Marti 28.6.: dopíchat i chybějící dny).
         active = sorted(set(k[0] for k in day.keys()))
@@ -9640,7 +9652,8 @@ def _sync_dochazka_ec(rok, mesic):
                                      "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,'EC absence',now(),now())"),
                                   {"e": emp, "d": dd, "t": tid, "h": round(min(h, fond), 2)})
                         out["absence"] += 1
-                work_target = round(max(0.0, fond - min(abs_total, fond)), 2)
+                abs_plan = planned_abs.get((emp, dd.isoformat()), 0.0)
+                work_target = round(max(0.0, fond - min(abs_total + abs_plan, fond)), 2)
                 if work_target > 0:
                     wcode = "homeoffice" if (d and d["ho"] > d["work"]) else "work"
                     tid = tids.get(wcode)

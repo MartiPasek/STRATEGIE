@@ -20254,11 +20254,13 @@ def _att_break_overrun_nudge(tenant: int = 2) -> dict:
 
 
 def _att_automat_fond_fill(tenant: int = 2, days_back: int = 14) -> dict:
-    """DOCHÁZKOVÝ AUTOMAT (Marti 26.6.2026): pro kategorie s dopichavat_fond dopíchne
-    chybějící hodiny do fond_h_den speciálním jobem 'fond_doplneni'. Smysl: lidé se
-    nemusí upínat na píchání. JEN dny s ČÁSTEČNOU přítomností (real>0 a <fond), bez
-    schválené absence, jen dokončené dny. Viditelně oddělené, pro mzdy plná doba.
-    bez_prescasu = strop fond (nedopočítává přes). Idempotentní (skip pokud doplněno)."""
+    """DOCHÁZKOVÝ AUTOMAT (Marti 26.6.2026, rozšířeno 29.6.): pro kategorie s
+    dopichavat_fond dopíchne chybějící hodiny do fond_h_den jobem 'fond_doplneni'.
+    Marti 29.6.: dopichává i ÚPLNĚ PRÁZDNÉ pracovní dny (nejen částečné) — kdo nemá
+    plán nepřítomnosti, MUSÍ být dopíchnut do FPD (řeší OSVČ/IT co vůbec nepíchají,
+    např. Michal Šik). Kalendář = att_calendar_day (is_workday vylučuje víkend+svátky).
+    Vynechá dny se schválenou/čekající absencí a už dopíchnuté dny. Jen dokončené dny.
+    bez_prescasu = strop fond. Idempotentní (skip pokud fond_doplneni pro den existuje)."""
     from sqlalchemy import text as _t
     cm, s = _att_session()
     filled = 0
@@ -20269,46 +20271,55 @@ def _att_automat_fond_fill(tenant: int = 2, days_back: int = 14) -> dict:
             return {"ok": False, "error": "typ fond_doplneni chybí"}
         rows = s.execute(_t(
             "WITH cat AS ("
-            "  SELECT uk.user_id, COALESCE("
+            "  SELECT em.id AS employee_id, uk.user_id, COALESCE("
             "    (SELECT round((g.uvazek_tyden_h / NULLIF(COALESCE(wm.dny_v_tydnu,5),0))::numeric,2) "
-            "     FROM tenant.engagement g JOIN tenant.att_employee em ON em.id=g.employee_id "
+            "     FROM tenant.engagement g JOIN tenant.att_employee em2 ON em2.id=g.employee_id "
             "     LEFT JOIN tenant.work_mode wm ON wm.id=g.work_mode_id "
-            "     WHERE em.user_id=uk.user_id AND em.tenant_id=:t AND g.is_current=true "
+            "     WHERE em2.user_id=uk.user_id AND em2.tenant_id=:t AND g.is_current=true "
             "       AND g.uvazek_tyden_h IS NOT NULL "
             "     ORDER BY g.uvazek_tyden_h DESC NULLS LAST LIMIT 1), "
             "    k.fond_h_den) AS fond_h_den "
             "  FROM tenant.att_user_kategorie uk "
             "  JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            # jeden att_employee na usera (anti fan-out, doctrine — víc firem/divizí)
+            "  JOIN LATERAL (SELECT id FROM tenant.att_employee WHERE user_id=uk.user_id "
+            "                AND tenant_id=:t ORDER BY id LIMIT 1) em ON true "
             "  WHERE k.dopichavat_fond=true AND k.aktivni=true), "
-            "dny AS ("
-            "  SELECT e.employee_id, em.user_id, e.entry_date, "
-            "    sum(COALESCE(e.hours,0)) FILTER (WHERE et.category='presence' AND et.code<>'fond_doplneni') AS real_h "
-            "  FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
-            "  JOIN tenant.att_employee em ON em.id=e.employee_id JOIN cat ON cat.user_id=em.user_id "
-            "  WHERE e.tenant_id=:t AND e.entry_date < current_date "
-            "    AND e.entry_date >= GREATEST(current_date - :db, DATE '2026-06-06') "
-            "    AND e.status NOT IN ('superseded') "
-            "  GROUP BY e.employee_id, em.user_id, e.entry_date) "
-            "SELECT d.employee_id, d.user_id, d.entry_date, d.real_h, c.fond_h_den "
-            "FROM dny d JOIN cat c ON c.user_id=d.user_id "
-            "WHERE d.real_h > 0.1 AND d.real_h < c.fond_h_den "
+            # Marti 29.6.: kalendářní mřížka (att_calendar_day) → dopíchne FPD i u ÚPLNĚ
+            # PRÁZDNÝCH pracovních dnů (ne jen částečných). is_workday vylučuje víkend i svátky.
+            "cal AS ("
+            "  SELECT day AS entry_date FROM tenant.att_calendar_day "
+            "  WHERE tenant_id=:t AND is_workday=true AND COALESCE(is_holiday,false)=false "
+            "    AND day < current_date AND day >= GREATEST(current_date - :db, DATE '2026-06-06')), "
+            "base AS ("
+            "  SELECT c.employee_id, c.user_id, c.fond_h_den, cal.entry_date, "
+            "    COALESCE((SELECT sum(COALESCE(e.hours,0)) "
+            "       FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "       WHERE e.tenant_id=:t AND e.employee_id=c.employee_id AND e.entry_date=cal.entry_date "
+            "         AND et.category='presence' AND et.code<>'fond_doplneni' "
+            "         AND e.status NOT IN ('superseded')),0) AS real_h "
+            "  FROM cat c CROSS JOIN cal) "
+            "SELECT b.employee_id, b.user_id, b.entry_date, b.real_h, b.fond_h_den "
+            "FROM base b "
+            "WHERE b.real_h < b.fond_h_den - 0.1 "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry a JOIN tenant.att_entry_type a2 ON a2.id=a.entry_type_id "
-            "     WHERE a.tenant_id=:t AND a.employee_id=d.employee_id AND a.entry_date=d.entry_date "
+            "     WHERE a.tenant_id=:t AND a.employee_id=b.employee_id AND a.entry_date=b.entry_date "
             "       AND a2.category='absence' AND a.status IN ('pending','approved')) "
-            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry f WHERE f.tenant_id=:t AND f.employee_id=d.employee_id "
-            "       AND f.entry_date=d.entry_date AND f.entry_type_id=:ft)"),
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry f WHERE f.tenant_id=:t AND f.employee_id=b.employee_id "
+            "       AND f.entry_date=b.entry_date AND f.entry_type_id=:ft)"),
             {"t": tenant, "db": days_back, "ft": ft}).fetchall()
         for r in rows:
             emp, day, realh, fond = r[0], r[2], float(r[3] or 0), float(r[4] or 0)
             missing = round(fond - realh, 2)
             if missing < 0.1:
                 continue
+            note = (("[automat: FPD bez píchnutí %.2f h]" if realh < 0.1
+                     else "[automat: doplnění do fondu %.2f h]") % missing)
             s.execute(_t(
                 "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
                 "status,source,is_active,note,created_at,updated_at) "
                 "VALUES (:t,:e,:d,:ft,:h,'pending','automat',false,:n,now(),now())"),
-                {"t": tenant, "e": emp, "d": day, "ft": ft, "h": missing,
-                 "n": "[automat: doplnění do fondu %.2f h]" % missing})
+                {"t": tenant, "e": emp, "d": day, "ft": ft, "h": missing, "n": note})
             filled += 1
         s.commit()
         return {"ok": True, "filled": filled}

@@ -47,6 +47,10 @@
   .grp{margin-top:14px}
   .grp h3{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#8fa3bd;margin:0 0 5px;border-bottom:1px solid #1d2533;padding-bottom:4px}
   .row{display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:3px 0;font-variant-numeric:tabular-nums}
+  .bdr{cursor:pointer;border-radius:6px;margin:0 -6px;padding-left:6px;padding-right:6px}
+  .bdr:hover{background:#172033}
+  .bddet{padding:2px 0 6px 14px;border-left:2px solid #2a3850;margin:1px 0 5px 6px}
+  .row.sub{font-size:12.5px;opacity:.9}
   .row .n{color:#cfd9e8}.row .h{color:#6f8097;font-size:12px;text-align:right;min-width:74px}.row .c{text-align:right;min-width:92px;font-weight:600}
   .sumblk{margin-top:16px;border-top:2px solid #2c3a52;padding-top:10px}
   .sumrow{display:flex;justify-content:space-between;padding:3px 0;font-variant-numeric:tabular-nums}
@@ -152,7 +156,7 @@ async function openPas(zam){
   let d; try{ d=await (await fetch('/api/v1/erp/app/mzdy/vyplatnice-detail?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&zam='+zam,{credentials:'include'})).json(); }
   catch(e){ document.getElementById('pas').innerHTML='<div class="loading">Chyba: '+e.message+'</div>'; return; }
   if(!d.ok){ document.getElementById('pas').innerHTML='<div class="loading">'+(d.error||'chyba')+'</div>'; return; }
-  const H=d.header, S=d.souhrn;
+  const H=d.header, S=d.souhrn; window._pasCislo=H.cislo;
   const mn=['','leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
   const groups={}; (d.slozky||[]).forEach(s=>{ (groups[s.skup_typ]=groups[s.skup_typ]||{nazev:s.skupina,items:[]}).items.push(s); });
   let body='';
@@ -161,7 +165,7 @@ async function openPas(zam){
     const g=groups[t]; const rows=g.items.filter(s=>s.koruny||s.hodiny||s.dny);
     if(!rows.length) return;
     body+='<div class="grp"><h3>'+(g.nazev||grpName(+t)||'Ostatní')+'</h3>';
-    rows.forEach(s=>{ body+='<div class="row"><span class="n">'+s.nazev+'</span><span class="h">'+
+    rows.forEach(s=>{ body+='<div class="row bdr" onclick="bd('+s.cislo_ms+',this)" title="Rozpis – z čeho se skládá"><span class="n">▸ '+s.nazev+'</span><span class="h">'+
       (s.hodiny?fh(s.hodiny)+' h':(s.dny?fh(s.dny)+' dní':''))+'</span><span class="c">'+fk(s.koruny)+'</span></div>'; });
     body+='</div>';
   });
@@ -185,6 +189,19 @@ async function openPas(zam){
       '<div class="sumrow" style="margin-top:10px"><span class="mut">Pojištění zaměstnavatele</span><span class="mut">'+fk(firmaPoj)+'</span></div>'+
       '<div class="sumrow"><span class="mut">Náklad zaměstnavatele</span><span>'+fk(naklad)+'</span></div>'+
       '</div></div>';
+}
+async function bd(cms, el){
+  const nx=el.nextElementSibling;
+  if(nx && nx.classList.contains('bddet')){ nx.remove(); return; }
+  const {r,m}=rm();
+  el.insertAdjacentHTML('afterend','<div class="bddet"><div class="mut" style="padding:5px 0 5px 16px;font-size:12px">Načítám rozpis…</div></div>');
+  const box=el.nextElementSibling;
+  let d; try{ d=await(await fetch('/api/v1/erp/app/mzdy/vyplatnice-slozka-detail?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&cislo='+encodeURIComponent(window._pasCislo||'')+'&cislo_ms='+cms,{credentials:'include'})).json(); }
+  catch(e){ box.innerHTML='<div class="mut" style="padding:5px 16px">Chyba: '+e.message+'</div>'; return; }
+  if(!d.ok || !d.polozky || !d.polozky.length){ box.innerHTML='<div class="mut" style="padding:5px 0 5px 16px;font-size:12px">Bez rozpisu (pevná složka / daně / pojištění).</div>'; return; }
+  let h='';
+  d.polozky.forEach(p=>{ h+='<div class="row sub"><span class="n">• '+p.typ+(p.zakazka?' <span class="mut">('+p.zakazka+')</span>':'')+(p.zdroj==='zaklad'?' <span class="mut">[základ]</span>':' <span class="mut">[příplatek/srážka]</span>')+'</span><span class="h"></span><span class="c">'+fk(p.castka)+'</span></div>'; });
+  box.innerHTML=h;
 }
 function closePas(){document.getElementById('ovl').classList.remove('on');}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closePas();});

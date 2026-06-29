@@ -23314,7 +23314,11 @@ async def doc_public(nonce: str, req: Request):
 
 # ── Přehled mezd: Helios (EC) × STRATEGIE × delta (Marti 11.6.) ──────────────
 _WAGE_EC_COLS = [
-    ("zaklad", "Zaklad"), ("os_ohodnoceni", "OsOhod"), ("premie", "MzdPremie"),
+    # POZOR: MzdPremie NEimportovat — je to SOUČET prémiové sekce (= komponenty níže),
+    # import jako zvlášť složka = dvojí započtení (Martin: premie 5000 + vedeni_lidi 5000 = 10000
+    # místo 5000). Ověřeno na 79 lidech: MzdPremie vždy = SUM(VedeniLidi+VedeniObch+Produkce+
+    # Kvalita+OdmJednatel+OdmGarant+FKodex). Marti 29.6.2026. Bereme jen komponenty.
+    ("zaklad", "Zaklad"), ("os_ohodnoceni", "OsOhod"),
     ("individualni", "IndividualOhod"), ("vedeni_lidi", "VedeniLidi"),
     ("vedeni_obchod", "VedeniObch"), ("produkce", "Produkce"), ("kvalita", "Kvalita"),
     ("firemni_kodex", "FKodexKultur"), ("jednatelska_odmena", "OdmenaJednatel"),
@@ -25590,23 +25594,31 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
         # Nárok = odpracovaný den >4 h, KTERÝ NENÍ absenční (OČR/nemoc/dovolená/… ze
         # záznamu i z registru případů) — Marti 28.6.: stravenka jen za reálně odpracovaný den.
         rr = s.execute(_t(
-            "SELECT ds.cislo_zam, COUNT(*) AS dny "
-            "FROM tenant.att_day_summary ds "
-            "WHERE ds.tenant_id=2 AND ds.rok=:y AND ds.mesic=:mo AND ds.cas_celkem>4 "
+            # Marti 29.6.: počet dní z AUTORITATIVNÍHO att_entry (work+HO+fond_doplneni >4 h),
+            # NE z att_day_summary.cas_celkem (sparse = jen reálně napíchaný čas → u volné
+            # docházky podhodnocené, viz Martin 6 dní vs reálných 16). Absenční dny vyloučeny.
+            "SELECT e.cislo_zam, COUNT(DISTINCT d.entry_date) AS dny "
+            "FROM (SELECT a.employee_id, a.entry_date FROM tenant.att_entry a "
+            "      JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+            "      WHERE et.code IN ('work','homeoffice','fond_doplneni') "
+            "        AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
+            "      GROUP BY a.employee_id, a.entry_date HAVING SUM(a.hours)>4) d "
+            "JOIN tenant.att_employee e ON e.id=d.employee_id "
+            "WHERE e.tenant_id=2 "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_entry a "
-            "     JOIN tenant.att_employee e ON e.id=a.employee_id "
-            "     JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-            "     WHERE e.cislo_zam=ds.cislo_zam::text AND a.entry_date=ds.datum "
-            "       AND et.code IN ('family_care','sick','vacation','medical','unpaid','sickday','maternity')) "
+            "     JOIN tenant.att_employee e2 ON e2.id=a.employee_id "
+            "     JOIN tenant.att_entry_type et2 ON et2.id=a.entry_type_id "
+            "     WHERE e2.cislo_zam=e.cislo_zam AND a.entry_date=d.entry_date "
+            "       AND et2.code IN ('family_care','sick','vacation','medical','unpaid','sickday','maternity')) "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_ocr_case c "
-            "     JOIN tenant.att_employee e ON e.id=c.employee_id "
-            "     WHERE e.cislo_zam=ds.cislo_zam::text AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
-            "       AND c.datum_od<=ds.datum AND COALESCE(c.datum_do, CURRENT_DATE)>=ds.datum) "
+            "     JOIN tenant.att_employee e3 ON e3.id=c.employee_id "
+            "     WHERE e3.cislo_zam=e.cislo_zam AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
+            "       AND c.datum_od<=d.entry_date AND COALESCE(c.datum_do, CURRENT_DATE)>=d.entry_date) "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_sick_case c "
-            "     JOIN tenant.att_employee e ON e.id=c.employee_id "
-            "     WHERE e.cislo_zam=ds.cislo_zam::text AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
-            "       AND c.datum_od<=ds.datum AND COALESCE(c.datum_do, CURRENT_DATE)>=ds.datum) "
-            "GROUP BY ds.cislo_zam"),
+            "     JOIN tenant.att_employee e4 ON e4.id=c.employee_id "
+            "     WHERE e4.cislo_zam=e.cislo_zam AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
+            "       AND c.datum_od<=d.entry_date AND COALESCE(c.datum_do, CURRENT_DATE)>=d.entry_date) "
+            "GROUP BY e.cislo_zam"),
             {"y": rok, "mo": mesic}).fetchall()
     finally:
         s.close()
@@ -25656,8 +25668,14 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             {"f": fkod, "y": rok, "mo": mesic}).fetchall()
         # presence (dny >4 h) pro OBL gate
         pres = s.execute(_t(
-            "SELECT cislo_zam, COUNT(*) FROM tenant.att_day_summary "
-            "WHERE tenant_id=2 AND rok=:y AND mesic=:mo AND cas_celkem>4 GROUP BY cislo_zam"),
+            # Marti 29.6.: worked-days z att_entry (autoritativní), ne sparse att_day_summary
+            "SELECT e.cislo_zam, COUNT(DISTINCT d.entry_date) FROM "
+            "(SELECT a.employee_id, a.entry_date FROM tenant.att_entry a "
+            " JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+            " WHERE et.code IN ('work','homeoffice','fond_doplneni') "
+            "   AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
+            " GROUP BY a.employee_id, a.entry_date HAVING SUM(a.hours)>4) d "
+            "JOIN tenant.att_employee e ON e.id=d.employee_id WHERE e.tenant_id=2 GROUP BY e.cislo_zam"),
             {"y": rok, "mo": mesic}).fetchall()
     finally:
         s.close()
@@ -26167,9 +26185,15 @@ def _benefit_presence(sess, rok, mesic):
     from sqlalchemy import text as _t
     pres = {}
     for r in sess.execute(_t(
-        "SELECT cislo_zam, COUNT(*) FROM tenant.att_day_summary "
-        "WHERE tenant_id=2 AND rok=:y AND mesic=:mo AND cas_celkem>4 AND cislo_zam IS NOT NULL "
-        "GROUP BY cislo_zam"), {"y": rok, "mo": mesic}).fetchall():
+        # Marti 29.6.: worked-days z att_entry (autoritativní), ne sparse att_day_summary
+        "SELECT e.cislo_zam, COUNT(DISTINCT d.entry_date) FROM "
+        "(SELECT a.employee_id, a.entry_date FROM tenant.att_entry a "
+        " JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+        " WHERE et.code IN ('work','homeoffice','fond_doplneni') "
+        "   AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
+        " GROUP BY a.employee_id, a.entry_date HAVING SUM(a.hours)>4) d "
+        "JOIN tenant.att_employee e ON e.id=d.employee_id "
+        "WHERE e.tenant_id=2 AND e.cislo_zam IS NOT NULL GROUP BY e.cislo_zam"), {"y": rok, "mo": mesic}).fetchall():
         try:
             pres[int(r[0])] = int(r[1] or 0)
         except Exception:
@@ -26473,6 +26497,65 @@ def mzdy_vyplatnice_detail(req: Request):
                            "hodiny": float(v[4] or 0), "dny": float(v[5] or 0), "koruny": float(v[6] or 0)})
     return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "zam": zam,
             "idobdobi": idobd, "header": header, "souhrn": souhrn, "slozky": slozky}
+
+
+@api_router.get("/app/mzdy/vyplatnice-slozka-detail")
+def mzdy_vyplatnice_slozka_detail(req: Request):
+    """Z čeho se mzdová složka skládá (proklik z Prémie): rozpad na základ
+    (helios_wage_snapshot) + příplatky/srážky (wage_movement) per člověk+období+CisloMS.
+    Parent-only. Marti 29.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _is_parent(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        firma = (req.query_params.get("firma") or "ES").upper()
+        fec = 'EC' if firma in ('EC', '1') else 'ES'
+        try:
+            rok = int(req.query_params.get("rok")); mesic = int(req.query_params.get("mesic"))
+            cislo = str(req.query_params.get("cislo") or "").strip()
+            cms = int(req.query_params.get("cislo_ms"))
+        except Exception:
+            return {"ok": False, "error": "chybí parametry (firma/rok/mesic/cislo/cislo_ms)"}
+        rows = s.execute(_t(
+            "SELECT kod, castka, zakazka, zdroj FROM ("
+            "  SELECT sn.slozka AS kod, SUM(sn.castka) AS castka, NULL::text AS zakazka, 'zaklad' AS zdroj "
+            "  FROM tenant.helios_wage_snapshot sn "
+            "  JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
+            "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
+            "    AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
+            "  WHERE sn.tenant_id=2 AND sn.firma=:fec AND sn.cislo::text=:cislo "
+            "    AND msm.ext_code ~ '^[0-9]+$' AND msm.ext_code::int=:cms "
+            "    AND sn.asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:fec) "
+            "  GROUP BY sn.slozka "
+            "  UNION ALL "
+            "  SELECT wct.code AS kod, COALESCE(wm.amount, wm.hours*wm.rate,0) AS castka, wm.zakazka_ref AS zakazka, 'pohyb' AS zdroj "
+            "  FROM tenant.wage_movement wm "
+            "  JOIN tenant.engagement e ON e.id=wm.engagement_id "
+            "  JOIN tenant.company c ON c.id=e.company_id AND c.code=:fec "
+            "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:cislo "
+            "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
+            "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
+            "    AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
+            "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') "
+            "    AND msm.ext_code ~ '^[0-9]+$' AND msm.ext_code::int=:cms "
+            "    AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod','srazka_telefon') "
+            "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
+            "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1)) "
+            ") q WHERE castka<>0 ORDER BY castka DESC"),
+            {"fec": fec, "cislo": cislo, "cms": cms, "y": rok, "mo": mesic}).fetchall()
+        pol = []
+        soucet = 0.0
+        for r in rows:
+            kc = float(r[1] or 0)
+            soucet += kc
+            pol.append({"typ": _WAGE_LABEL.get(r[0], r[0]), "kod": r[0], "castka": kc,
+                        "zakazka": (r[2] or None), "zdroj": r[3]})
+        return {"ok": True, "polozky": pol, "soucet": round(soucet)}
+    finally:
+        s.close()
 
 
 _WAGE_LABEL = {

@@ -35835,7 +35835,7 @@ def _sync_plan_to_dochazka(rok: int = None) -> dict:
             s.execute(_t(
                 "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
                 "status,source,note,is_active,created_by_id,created_at,updated_at) "
-                "VALUES (2,:e,:d,:t,:h,'pending','plan_ec','z plánu nepřítomností',false,NULL,now(),now())"),
+                "VALUES (2,:e,:d,:t,:h,'confirmed','plan_ec','z plánu nepřítomností',false,NULL,now(),now())"),
                 {"e": emp, "d": d, "t": tid, "h": hod})
             n += 1
         s.commit()

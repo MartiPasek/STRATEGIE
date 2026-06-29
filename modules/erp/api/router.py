@@ -20196,27 +20196,34 @@ def _att_break_overrun_nudge(tenant: int = 2) -> dict:
             "SELECT e.id, em.user_id, "
             "  COALESCE(split_part(NULLIF(TRIM((SELECT first_name FROM public.users u WHERE u.id=em.user_id)),''),' ',1),'ahoj') jm, "
             "  lower(COALESCE(e.note,'')) note, "
-            "  round(EXTRACT(EPOCH FROM (now()-e.started_at))/60.0) min "
+            "  round(EXTRACT(EPOCH FROM (now()-e.started_at))/60.0) min, "
+            "  COALESCE(k.hlidat_pauzy, false) hp "
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
             "JOIN tenant.att_employee em ON em.id=e.employee_id "
             "LEFT JOIN tenant.att_user_kategorie uk ON uk.user_id=em.user_id "
             "LEFT JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id AND k.aktivni=true "
             "WHERE e.tenant_id=:t AND e.is_active=true AND e.ended_at IS NULL "
             "  AND et.code='break' AND em.user_id IS NOT NULL "
-            # Marti 26.6.: hlídat pauzy jen u kategorií, co to mají zapnuté (default NE; jen pevna_doba ano)
-            "  AND COALESCE(k.hlidat_pauzy, false) = true "
+            # Marti 26.6.: jemné prahy (oběd/jednání/pauza) jen u kategorií s hlidat_pauzy.
+            # Marti 29.6.: ALE univerzální tvrdý strop 2 h platí pro VŠECHNY (i bez kategorie,
+            # i OSVČ) — zapomenutá pauza nesmí projít. Filtr proto pryč, rozhoduje práh v Pythonu.
             "  AND e.started_at < now() - interval '20 minutes' AND e.started_at <= now()"),
             {"t": tenant}).fetchall()
         for r in rows:
-            uid2, jm, note, mins = int(r[1]), r[2], (r[3] or ''), int(r[4] or 0)
-            if 'oběd' in note or 'obed' in note:
-                thr, lab = 40, 'na obědě'
-            elif 'jedn' in note or 'schůz' in note or 'schuz' in note or 'porad' in note:
-                thr, lab = 75, 'na jednání'
-            elif 'lékař' in note or 'lekar' in note:
-                thr, lab = 75, 'u lékaře'
+            uid2, jm, note, mins, hp = int(r[1]), r[2], (r[3] or ''), int(r[4] or 0), bool(r[5])
+            if hp:
+                # jemné prahy jen u kategorií, co mají hlídání pauz zapnuté
+                if 'oběd' in note or 'obed' in note:
+                    thr, lab = 40, 'na obědě'
+                elif 'jedn' in note or 'schůz' in note or 'schuz' in note or 'porad' in note:
+                    thr, lab = 75, 'na jednání'
+                elif 'lékař' in note or 'lekar' in note:
+                    thr, lab = 75, 'u lékaře'
+                else:
+                    thr, lab = 20, 'na pauze'
             else:
-                thr, lab = 20, 'na pauze'
+                # Marti 29.6.: univerzální tvrdý strop 2 h pro všechny ostatní (i OSVČ).
+                thr, lab = 120, 'na pauze'
             if mins < thr:
                 continue
             recent = s.execute(_t(
@@ -35111,6 +35118,20 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                             WHERE a2.tenant_id = 2 AND a2.employee_id = e.employee_id
                               AND a2.entry_date = e.entry_date AND t2.category = 'absence'
                               AND a2.status IN ('pending','approved'))
+              UNION ALL
+              -- R6 dlouha_pauza (Marti 29.6.): zapomenuté přepnutí z pauzy zpět → break > 2 h
+              -- tiše sežere odpracované hodiny (Petra 25.6.: 6,3h break). Záchranná síť pro VŠECHNY
+              -- (vč. OSVČ — pauzy jim necháváme, jen hlídáme zapomenuté). Práh 2 h = nad legitimní oběd.
+              SELECT e.id, e.employee_id, 'dlouha_pauza',
+                     to_char(e.entry_date, 'DD.MM.') || ' dlouhá pauza ' || round(e.hours::numeric,1) || ' h ('
+                       || COALESCE(to_char(e.started_at,'HH24') || ':' || to_char(e.started_at,'MI'), '?')
+                       || '–' || COALESCE(to_char(e.ended_at,'HH24') || ':' || to_char(e.ended_at,'MI'), '…')
+                       || ') — zapomenuté přepnutí zpět do práce?'
+              FROM tenant.att_entry e
+              JOIN tenant.att_entry_type et ON et.id = e.entry_type_id
+              WHERE e.tenant_id = 2 AND et.code = 'break'
+                AND e.hours > 2 AND e.status NOT IN ('superseded','announced')
+                AND e.entry_date >= GREATEST(current_date - 14, DATE '2026-06-06')
             )
             INSERT INTO tenant.att_anomaly (tenant_id, employee_id, entry_id, rule, detail)
             SELECT 2, k.employee_id, k.id, k.rule, k.detail FROM kand k

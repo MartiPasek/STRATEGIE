@@ -10374,13 +10374,64 @@ def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
         emp = _att_employee(s, uid)
         if not emp:
             return {"matched": False, "summary": "neni v evidenci dochazky"}
-        # dedup — stejný identifikátor pro tohoto zaměstnance už existuje
-        ex = s.execute(_t(
-            "SELECT id FROM tenant.att_ocr_case WHERE tenant_id=2 AND employee_id=:e "
-            "AND identifikator=:id LIMIT 1"), {"e": emp, "id": ident}).scalar()
-        if ex:
+        # ── UKONČENÍ vs VZNIK + dedup (Kristý/Claude-24 29.6.2026) ──
+        # Ukončovací ČSSZ SMS má STEJNÝ identifikátor, ale text "ukonceni osetrovani"
+        # (vznik = "vzniku osetrovani"). Když případ existuje: ukončení → doplň datum do
+        # + konec-odkaz Péťě + potvrzení; duplicitní vznik → krátké potvrzení (pojistka).
+        je_ukonceni = "ukonc" in (body or "").lower()
+        exr = s.execute(_t(
+            "SELECT id, absence_request_id, osoba_jmeno FROM tenant.att_ocr_case "
+            "WHERE tenant_id=2 AND employee_id=:e AND identifikator=:id "
+            "ORDER BY id DESC LIMIT 1"), {"e": emp, "id": ident}).first()
+        if exr:
+            ex_id, ex_ar = exr[0], exr[1]
+            osoba = exr[2] or osoba
+            who = s.execute(_t(
+                "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+                "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
+                {"e": emp}).scalar() or "Zaměstnanec"
+            mgr = None
+            try:
+                mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
+                                {"e": emp}).scalar()
+            except Exception:
+                mgr = None
+            if je_ukonceni:
+                s.execute(_t("UPDATE tenant.att_ocr_case SET datum_do=:dd, updated_at=now() WHERE id=:i"),
+                          {"dd": d_od, "i": ex_id})
+                if ex_ar:
+                    s.execute(_t("UPDATE tenant.att_absence_request SET datum_do=:dd WHERE id=:a"),
+                              {"dd": d_od, "a": ex_ar})
+                _note = (who + " nahlásil UKONČENÍ OČR (péče o: " + (osoba or "?") + ") k "
+                         + str(d_od.day) + "." + str(d_od.month) + ". Identifikátor: " + ident + ". "
+                         + ("Stáhni dokument ukončení z ePortálu: " + link if link else "")).strip()
+                seen = set()
+                for tgt in (_OCR_HR_USER, mgr):
+                    try:
+                        t_i = int(tgt) if tgt is not None else None
+                    except Exception:
+                        t_i = None
+                    if t_i and t_i not in seen:
+                        seen.add(t_i)
+                        _abs_notify(s, t_i, "🧑‍⚕️ OČR — ukončení", _note)
+                _rep = ("STRATEGIE: Zaznamenali jsme ukončení ošetřovného"
+                        + ((" (péče o: " + osoba + ")") if osoba else "")
+                        + " k " + str(d_od.day) + "." + str(d_od.month) + "."
+                        + " Doplň prosím počet dní v appce: https://strategie-ai.com/mobile (Docházka → OČR).")
+                _summary = "ukonceni zaznamenano (case " + str(ex_id) + ")"
+            else:
+                _rep = ("STRATEGIE: Toto ošetřovné už evidujeme"
+                        + ((" (péče o: " + osoba + ")") if osoba else "")
+                        + ". Není potřeba nic dalšího — po skončení potvrď dny v appce (Docházka → OČR).")
+                _summary = "duplikat vzniku (case " + str(ex_id) + "), potvrzeno"
             s.commit()
-            return {"matched": True, "summary": "jiz existuje (case " + str(ex) + ")"}
+            try:
+                from modules.notifications.application.sms_service import queue_sms
+                queue_sms(to=from_phone, body=_rep, purpose="ocr_autoreply",
+                          user_id=uid, tenant_id=2, persona_id=1)
+            except Exception:
+                pass
+            return {"matched": True, "summary": _summary}
         # dohledání dítěte v osobní kartě → RČ + vztah (RČ NIKDY po SMS)
         vztah = None
         try:

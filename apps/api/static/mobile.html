@@ -2493,14 +2493,15 @@ setTimeout(function(){
       if(!cs.length){ box.innerHTML='<div class="hint">Zatím žádné OČR.</div>'; return; }
       cs.forEach(function(c){
         var lbl={novy:"probíhá",ukonceno:"ke schválení",schvaleno:"schváleno"}[c.stav]||c.stav;
-        var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
-        rw.appendChild(el('<div style="font-weight:600;">'+esc(c.osoba||"")+(c.vztah?(' · '+esc(c.vztah)):'')+'</div>'));
+        var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);cursor:pointer;"></div>');
+        rw.appendChild(el('<div style="font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:8px;"><span>'+esc(c.osoba||"")+(c.vztah?(' · '+esc(c.vztah)):'')+'</span><span style="color:#9fd0ff;font-size:20px;line-height:1;">›</span></div>'));
         rw.appendChild(el('<div class="hint">'+_czDate(c.od)+(c.do?(' – '+_czDate(c.do)):'')+(c.dny?(' · '+c.dny+' dní'):'')+' · '+esc(lbl)+(c.company?(' · '+esc(c.company)):'')+'</div>'));
+        rw.addEventListener("click",function(){ ocrVyplnit(c.id); });
         var fb=el('<button style="margin-top:6px;margin-right:6px;padding:8px 12px;border-radius:10px;border:1px solid #2b3a5c;background:rgba(159,208,255,.08);color:#9fd0ff;font-weight:700;cursor:pointer;">📋 Vyplnit formulář</button>');
-        fb.addEventListener("click",function(){ ocrVyplnit(c.id); }); rw.appendChild(fb);
+        fb.addEventListener("click",function(e){ try{e.stopPropagation();}catch(_){} ocrVyplnit(c.id); }); rw.appendChild(fb);
         if(c.stav==="novy"){
           var eb=el('<button style="margin-top:6px;padding:8px 12px;border-radius:10px;border:1px solid var(--bord);background:rgba(255,255,255,.04);color:var(--tx);font-weight:700;cursor:pointer;">Ukončit a poslat ke schválení</button>');
-          eb.addEventListener("click",function(){ ocrEndForm(c); }); rw.appendChild(eb);
+          eb.addEventListener("click",function(e){ try{e.stopPropagation();}catch(_){} ocrEndForm(c); }); rw.appendChild(eb);
         }
         box.appendChild(rw);
       });

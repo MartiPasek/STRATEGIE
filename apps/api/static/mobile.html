@@ -2460,6 +2460,29 @@ setTimeout(function(){
   var _OCR_BTN="width:100%;box-sizing:border-box;margin-top:8px;padding:12px;border-radius:12px;border:none;background:var(--green);color:#04150e;font-weight:800;font-size:15px;cursor:pointer;";
   function ocr(){
     app.innerHTML=topbar("🧑‍⚕️ Ošetřovné (OČR)", true);
+    // Auth gate (Kristý 29.6.): nepřihlášený host nesmí skončit u prázdného
+    // formuláře bez cesty k loginu. whoami → jméno = přihlášen; jinak login karta.
+    var _ocrLoad=el('<div class="hint" style="margin:12px 6px;">Ověřuji přihlášení…</div>'); app.appendChild(_ocrLoad);
+    var _dev=""; try{ if(B&&typeof B.deviceId==="function") _dev=B.deviceId()||""; }catch(e){}
+    api("GET","/api/v1/erp/app/whoami"+(_dev?("?device_id="+encodeURIComponent(_dev)):""),"").then(function(w){
+      try{ _ocrLoad.remove(); }catch(e){}
+      if(!(w && w.jmeno)){ _ocrLoginGate(); return; }
+      _ocrListBody();
+    });
+  }
+  function _ocrLoginGate(){
+    var box=el('<div style="padding:14px 8px;"></div>');
+    box.appendChild(el('<div style="font-weight:800;font-size:17px;margin-bottom:6px;">🔒 Nejdřív se přihlas</div>'));
+    box.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:14px;">Pro práci s ošetřovným se přihlas jako zaměstnanec. Tvůj OČR případ se založil přeposláním SMS od ČSSZ — po přihlášení ho tu uvidíš předvyplněný.</div>'));
+    var bPwd=el('<button style="'+_OCR_BTN+'">🔑 Přihlásit e-mailem a heslem</button>');
+    bPwd.addEventListener("click",function(){ try{ openPasswordLogin(); }catch(e){ location.href="/api/v1/auth/sms-login?next="+encodeURIComponent("/mobile?screen=ocr"); } });
+    box.appendChild(bPwd);
+    var bPair=el('<button class="ghost full" style="margin-top:8px;">🔗 Přihlásit odkazem (SMS)</button>');
+    bPair.addEventListener("click",function(){ location.href="/api/v1/auth/sms-login?next="+encodeURIComponent("/mobile?screen=ocr"); });
+    box.appendChild(bPair);
+    app.appendChild(box);
+  }
+  function _ocrListBody(){
     app.appendChild(el('<div class="hint" style="margin:8px 6px;line-height:1.6;">Když ti přijde SMS od ČSSZ s identifikátorem ošetřování, založ tu OČR. Po skončení doplníš datum do a počet dní — vedoucí/HR to schválí. (Brzy se dokumenty z ČSSZ potáhnou samy.)</div>'));
     var nb=el('<button style="'+_OCR_BTN+'">➕ Nové ošetřovné</button>'); nb.addEventListener("click",function(){ ocrForm(); }); app.appendChild(nb);
     var box=el('<div class="list" style="margin-top:10px;"><div class="hint">Načítám…</div></div>'); app.appendChild(box);
@@ -8623,6 +8646,14 @@ setTimeout(function(){
   render();
   window.__stgBoot=true;  // appka úspěšně nastartovala → watchdog se nespustí
   try{sessionStorage.removeItem("stgAutoHeal");}catch(e){}  // reset auto-recovery pro příště
+  // Deep-link (Kristý 29.6.): /mobile?screen=ocr nebo /mobile#ocr → po startu skoč
+  // na obrazovku. Nepřihlášený dostane login přímo v ní (ocr() má vlastní auth gate),
+  // a login se vrací přes next=/mobile?screen=ocr zpět sem.
+  (function(){
+    var scr=""; try{ scr=(params.get("screen")||(location.hash||"").replace(/^#/,"")||"").replace(/[^a-z_]/gi,""); }catch(e){}
+    var KNOWN={ocr:1,sick:1};
+    if(scr && KNOWN[scr] && stack[stack.length-1]!==scr){ try{ go(scr); }catch(e){} }
+  })();
   // ── Zámek sdíleného telefonu (Claude-24 + Kristý 11.6.2026): při otevření
   //    appky vyber profil + PIN. JEN sdílené telefony (shared_device_user) s
   //    aspoň jedním PINem. E-mailový únik vždy (i při rozbité SMS se nikdo

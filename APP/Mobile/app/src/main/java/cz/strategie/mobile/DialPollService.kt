@@ -51,7 +51,12 @@ class DialPollService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundCompat()
+        if (!startForegroundCompat()) {
+            // Start FGS odmítnut (Android 15+ z pozadí) — neběž naprázdno,
+            // služba se rozjede při příštím spuštění z popředí (otevření appky).
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (!running) {
             running = true
             worker = thread(name = "dial-poll") { pollLoop() }
@@ -284,12 +289,23 @@ class DialPollService : Service() {
         } catch (e: Exception) {}
     }
 
-    private fun startForegroundCompat() {
+    /**
+     * Spustí službu v popředí (dataSync). Vrací true při úspěchu. Na Androidu 15+
+     * může systém start dataSync FGS z pozadí (např. po boot) odmítnout výjimkou
+     * ForegroundServiceStartNotAllowedException — tu odchytíme a vrátíme false,
+     * aby appka nespadla (služba se rozjede při dalším spuštění z popředí).
+     */
+    private fun startForegroundCompat(): Boolean {
         val n = buildOngoing()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ONGOING, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIF_ONGOING, n)
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIF_ONGOING, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIF_ONGOING, n)
+            }
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 

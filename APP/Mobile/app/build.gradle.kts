@@ -120,6 +120,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    // Vynuceni novejsi androidx.fragment (Google Play hlasilo zastaralou
+    // tranzitivni verzi u vydani 72). Jirka 29.6.2026.
+    implementation(libs.androidx.fragment)
     // QR skener pro spárování s PC (Google Code Scanner — UI z Play Services)
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     // Avatar Marti-AI v hlavičce (načtení obrázku ze serveru s Bearer tokenem)

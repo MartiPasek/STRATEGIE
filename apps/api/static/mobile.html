@@ -1485,7 +1485,8 @@ setTimeout(function(){
     gg.appendChild(appCell("📒","Účetní",0,function(){ _auMode="helios"; go("alluser"); }));
     sec("📨 ČSSZ & COMPLIANCE"); gg=grp();
     gg.appendChild(appCell("📨","Datovky / ČSSZ",0,function(){go("isds");}));
-    gg.appendChild(appCell("🤒","Neschopenky",0,function(){openInApp("/neschopenky");}));
+    gg.appendChild(appCell("🤒","Neschopenky",0,function(){openInApp("/neschopenky?typ=nemoc");}));
+    gg.appendChild(appCell("👶","Ošetřovné (OČR)",0,function(){openInApp("/neschopenky?typ=ocr");}));
     gg.appendChild(appCell("📤","Dávky ČSSZ",0,function(){openInApp("/davky");}));
     gg.appendChild(appCell("🛡️","Audit dávek",0,function(){openInApp("/audit-davky");}));
     gg.appendChild(appCell("🛡️","ISO 27001",0,function(){openInApp("/iso");}));

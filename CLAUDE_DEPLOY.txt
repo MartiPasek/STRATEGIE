@@ -1,2 +1,3 @@
-Mandat Petra+Claude-26: DDL duvera (obeh zbozi+zakazky) + zavazna bezpecnostni spec Marti-AI kustod (whitelist gate, eskalacni matice, FK pravidlo)
-docs/team/mandat_Peta_Claude26.md
+mzdy: mzdovy list v Moje finance (mobil - rozbalovaci panel uvazek/fond/odpracovano/prumer/pojistovna) + @@SYNCLIST navrat ok:true
+apps/api/static/mobile.html
+modules/erp/api/router.py

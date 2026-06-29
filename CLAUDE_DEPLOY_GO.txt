@@ -1,1 +1,1 @@
-go
+go mzdovy list UI 0050

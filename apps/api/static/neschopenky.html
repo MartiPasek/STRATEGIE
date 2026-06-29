@@ -37,7 +37,10 @@ function stavPill(s){var m={ukonceno:"ukončeno",trva:"trvá",vznik:"vznik"};ret
 api("/api/v1/erp/app/isds/neschopenky").then(function(j){
   if(!j||!j.ok){document.getElementById("body").innerHTML='<div class="err">'+esc((j&&j.error)||"chyba (rodič only)")+'</div>';return;}
   var r=j.polozky||[];
-  if(!r.length){document.getElementById("body").innerHTML='<div class="card" style="padding:14px">Žádné neschopenky. Spusť sync datovek + zpracování.</div>';return;}
+  var _typ=(new URLSearchParams(location.search).get("typ")||"").toLowerCase();
+  if(_typ==="ocr"){ r=r.filter(function(e){return e.typ==="ocr";}); var _h=document.querySelector("h1"); if(_h)_h.textContent="👶 Ošetřovné (OČR)"; }
+  else if(_typ==="nemoc"){ r=r.filter(function(e){return e.typ!=="ocr";}); var _h2=document.querySelector("h1"); if(_h2)_h2.textContent="🤒 Neschopenky"; }
+  if(!r.length){document.getElementById("body").innerHTML='<div class="card" style="padding:14px">Žádné záznamy. Spusť sync datovek + zpracování.</div>';return;}
   var h='<div class="sub">'+r.length+' případů</div><div class="card"><table><thead><tr><th>Typ</th><th>Zaměstnanec</th><th>Od</th><th>Do</th><th>Dní</th><th>Stav</th><th>Detail</th><th>Lékař</th></tr></thead><tbody>';
   r.forEach(function(e){
     var jm=((e.emp_jmeno||"")+" "+(e.emp_prijmeni||"")).trim();

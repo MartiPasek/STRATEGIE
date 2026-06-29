@@ -9806,6 +9806,19 @@ async def app_hr_import_dochazka(req: Request) -> JSONResponse:
 # ── Marti 12.6.: schvalování absencí vedoucím (statusy v lidské řeči) ──────────
 _ABS_TYP = {"vacation": "Dovolená", "homeoffice": "Home office", "medical": "Lékař",
             "family_care": "OČR", "sick": "Nemoc (PN)", "unpaid": "Neplacené volno"}
+
+
+def _announce_absence_typ(note):
+    """Z volného textu presence-ohlášení rozpozná typ skutečné ABSENCE (ne HO/práce).
+    Marti 29.6.: ohlásit dovolenou/nemoc přes presence-status zakládalo 'work' → past."""
+    import unicodedata as _u
+    t = "".join(c for c in _u.normalize("NFKD", (note or "").lower()) if not _u.combining(c))
+    if any(k in t for k in ("dovolen", "dovca", "dovca")): return "vacation"
+    if any(k in t for k in ("osetrov", "ocr", "osetreni clena")): return "family_care"
+    if any(k in t for k in ("lekar", "doktor", "zubar", "obvodak")): return "medical"
+    if any(k in t for k in ("nemoc", "marod", "neschopen", "nemocensk")): return "sick"
+    if "neplacen" in t: return "unpaid"
+    return None
 # přednastavené statusy vedoucího → výsledek (stav)
 _ABS_STATUSY = {
     "OK, beru na vědomí": "approved",
@@ -19030,6 +19043,37 @@ async def att_announce(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         emp = _att_employee(s, uid)
+        # Marti 29.6.: když ohlášení znamená ABSENCI (dovolená/nemoc/lékař/OČR/neplacené),
+        # NEzakládej 'work' ohlášení (vznikla past: Eliška ohlásila dovolenou → 'work' + automat
+        # dopíchal práci). Místo toho založ žádost o absenci → schválení vedoucím rovnou zapíše
+        # absenční job do docházky (/absence/decide materializuje att_entry).
+        _abs_typ = _announce_absence_typ(note)
+        if _abs_typ and emp:
+            _dd = day or _dta.now().date().isoformat()
+            _mgr = None
+            try:
+                _mgr = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"), {"e": emp}).scalar()
+            except Exception:
+                _mgr = None
+            _rid = s.execute(_t(
+                "INSERT INTO tenant.att_absence_request (tenant_id,employee_id,user_id,typ,datum_od,datum_do,"
+                "hours_per_day,note,stav,manager_user_id) "
+                "VALUES (2,:e,:u,:ty,:d,:d,8,:n,'pending',:m) RETURNING id"),
+                {"e": emp, "u": uid, "ty": _abs_typ, "d": _dd, "n": note, "m": _mgr}).scalar()
+            _who = s.execute(_t(
+                "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+                "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
+                {"e": emp}).scalar() or "Zaměstnanec"
+            try:
+                _abs_notify(s, _mgr if _mgr and int(_mgr) != uid else 1, "🗓️ Nová žádost o absenci",
+                            _who + " žádá o „" + _ABS_TYP[_abs_typ] + "“ na " + _dd + ((" — " + note) if note else "")
+                            + ". Rozhodni v Docházce → Žádosti o absenci (schválení rovnou zapíše do docházky).")
+            except Exception:
+                pass
+            s.commit()
+            return JSONResponse({"ok": True, "absence_request": _rid, "typ": _abs_typ,
+                                 "note": "Rozpoznal jsem absenci („" + _ABS_TYP[_abs_typ] + "“) — založil jsem žádost, "
+                                         "čeká na schválení vedoucím a pak se rovnou zapíše do docházky."})
         s.execute(_t("UPDATE tenant.att_entry SET status='superseded', updated_at=now() "
                      "WHERE tenant_id=:t AND employee_id=:e "
                      "AND entry_date = COALESCE(CAST(:d AS date), current_date) AND status='announced'"),

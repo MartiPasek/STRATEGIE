@@ -29021,14 +29021,28 @@ def isds_neschopenky(req: Request):
     from sqlalchemy import text as _t
     s = _g()
     try:
+        # Marti 29.6.: sloučit datovkový registr (eneschopenka) + SMS/automat OČR
+        # (att_ocr_case) — Kristýnčina OČR přišla SMSkou, ne datovkou, ať ji OČR
+        # dlaždice taky ukáže. Řazení přes skrytý _sort (skutečné datum).
         rows = s.execute(_t(
-            "SELECT id_pripadu, COALESCE(typ,'nemoc') typ, osetrovana_osoba, "
-            "emp_jmeno, emp_prijmeni, emp_rc, "
-            "to_char(datum_od,'DD.MM.YYYY') od, to_char(datum_do,'DD.MM.YYYY') do, "
-            "stav, druh_nemoci, lekar_nazev, profese, company_vs, user_id, "
-            "(datum_do - datum_od + 1) dni "
-            "FROM tenant.eneschopenka ORDER BY datum_od DESC NULLS LAST")).mappings().all()
-        return {"ok": True, "polozky": [dict(r) for r in rows], "count": len(rows)}
+            "SELECT * FROM ("
+            "  SELECT id_pripadu::text id_pripadu, COALESCE(typ,'nemoc') typ, osetrovana_osoba, "
+            "    emp_jmeno, emp_prijmeni, emp_rc, "
+            "    to_char(datum_od,'DD.MM.YYYY') od, to_char(datum_do,'DD.MM.YYYY') do, "
+            "    stav, druh_nemoci, lekar_nazev, profese, company_vs, user_id, "
+            "    (datum_do - datum_od + 1) dni, datum_od _sort "
+            "  FROM tenant.eneschopenka "
+            "  UNION ALL "
+            "  SELECT 'ocr-'||o.id, 'ocr', o.osoba_jmeno, "
+            "    u.first_name, u.last_name, NULL::text, "
+            "    to_char(o.datum_od,'DD.MM.YYYY'), to_char(o.datum_do,'DD.MM.YYYY'), "
+            "    CASE o.stav WHEN 'ukonceno' THEN 'ukonceno' ELSE 'trva' END, "
+            "    NULL::text, NULL::text, NULL::text, NULL::text, o.user_id, "
+            "    (COALESCE(o.datum_do, current_date) - o.datum_od + 1), o.datum_od "
+            "  FROM tenant.att_ocr_case o LEFT JOIN public.users u ON u.id=o.user_id "
+            "  WHERE o.tenant_id=2"
+            ") q ORDER BY _sort DESC NULLS LAST")).mappings().all()
+        return {"ok": True, "polozky": [{k: v for k, v in dict(r).items() if k != '_sort'} for r in rows], "count": len(rows)}
     finally:
         s.close()
 

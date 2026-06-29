@@ -19161,17 +19161,6 @@ async def att_checkout(req: Request) -> JSONResponse:
         # Pauza/oběd = běžící job 'break'; „Dneska nepočítej" = job 'day_end' do půlnoci.
         # ŽÁDNÝ note-bleed na zavřený pracovní job (zůstane prací).
         is_dayend = "nepočítej" in (presence or "").lower()
-        # OSVČ pojistka (Marti 29.6.): OSVČ nemá zákonnou pauzu ani fond → den = čistá
-        # přítomnost. Když přijde break checkout (stará appka/API), break NEVYTVÁŘEJ —
-        # přítomnost běží dál. Tím nemůže vzniknout zapomenutá pauza (Petra 25.6., 6,3h).
-        # Day_end (konec dne) projde i pro OSVČ. Zdroj pravdy = att_employee.rez_forma.
-        if not is_dayend:
-            _rf = str(s.execute(_t("SELECT COALESCE(rez_forma,'') FROM tenant.att_employee WHERE id=:e"),
-                                {"e": emp}).scalar() or "").upper()
-            if _rf == "OSVC":
-                s.rollback()
-                return JSONResponse({"ok": True, "noop": True,
-                                     "note": "OSVČ nemá pauzu — přítomnost běží dál"})
         # 1) zavři aktuální job v T
         s.execute(_t("UPDATE tenant.att_entry SET ended_at=now(), is_active=false, "
                      "hours=round((EXTRACT(EPOCH FROM (now()-started_at))/3600.0 "

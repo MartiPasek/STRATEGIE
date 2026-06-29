@@ -83,6 +83,12 @@ android {
             optimization {
                 enable = false
             }
+            // Nativni debug symboly do AAB (Play doporuceni u buildu s nativnim
+            // kodem z knihoven) - lepsi analyza padu/ANR v produkci. Projevi se
+            // az pri pristim buildu (soucasny interni v73 ho jeste nema). Jirka 29.6.
+            ndk {
+                debugSymbolLevel = "FULL"
+            }
         }
     }
 

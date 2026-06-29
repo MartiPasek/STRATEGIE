@@ -9672,6 +9672,16 @@ def _sync_dochazka_ec(rok, mesic):
                              "VALUES (2,:c,:u,:d,:y,:m,:h) "
                              "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,user_id=:u"),
                           {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": work_target})
+        # EC absence = zdroj pravdy pro realizovaný den → smaž plánovou (non-ec_real) absenci,
+        # když EC pro stejný den+člověka absenci má (jinak dvojí dovolená: plán + EC). Marti 29.6.
+        s.execute(_t(
+            "DELETE FROM tenant.att_entry p "
+            "WHERE p.tenant_id=2 AND COALESCE(p.source_system,'')<>'ec_real' "
+            "  AND EXTRACT(YEAR FROM p.entry_date)=:y AND EXTRACT(MONTH FROM p.entry_date)=:m "
+            "  AND p.entry_type_id IN (SELECT id FROM tenant.att_entry_type WHERE category='absence') "
+            "  AND EXISTS (SELECT 1 FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "    WHERE e.tenant_id=2 AND e.source_system='ec_real' AND et.category='absence' "
+            "      AND e.employee_id=p.employee_id AND e.entry_date=p.entry_date)"), {"y": rok, "m": mesic})
         s.commit()
         out["lidi"] = len(active)
         out["ok"] = True

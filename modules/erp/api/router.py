@@ -23287,6 +23287,17 @@ _SCOPED_APPROVERS = {
 }
 _SCOPED_APPROVER_UIDS = frozenset(_uid for _uid, _ in _SCOPED_APPROVERS.values())
 
+# ── Plní approveři (Marti 29.6.2026 — schváleno přímo přes WhatsApp „OK. Schvaluji",
+# pokyn Kristý přes Claude-24) ──────────────────────────────────────────────────────
+# Instance, jejíž approver schvaluje VŠE ze své VLASTNÍ instance — VČETNĚ destruktivních
+# operací (DROP/DELETE/TRUNCATE/RENAME) a NAPŘÍČ všemi schématy (trezor/framework/master/
+# security/ACL) — BEZ eskalace na rodiče. Vědomé rozhodnutí Martiho: pojistka „destruktivní
+# / out-of-scope → rodič" se pro tuto instanci RUŠÍ. Pozn.: NENÍ to rodič — žádný cross-tenant
+# náhled do paměti/diáře; platí JEN na requesty Z TÉTO instance (cizí instance se approvera
+# netýkají, routing je per-requested_by). Audit drží beze změny (claude_write_request.
+# decided_by_user_id + fw.claude_sql_log + HR/finance tenant.hr_write_audit).
+_FULL_APPROVERS = frozenset({_PETA_INSTANCE})  # claude-26 / Petra (user 18)
+
 
 def _route_scoped_write(sql: str, allowed_prefixes=_PETA_ALLOWED_PREFIXES) -> dict:
     """Gate pro doménu scoped approvera (Marti-AI kustod spec 25.6.2026). Vrací
@@ -23390,6 +23401,11 @@ def _effective_approver(requested_by: str, sql: str, bound_user_id):
     if not cfg:
         return base, "normal", "binding"
     appr_uid, prefixes = cfg
+    # Plný approver (Marti 29.6.2026): schvaluje vše ze své instance bez eskalace —
+    # vč. destruktivních a napříč schématy. Routovací brána se přeskakuje. Platí jen
+    # na requesty z této instance (rb už je matchnuté v _SCOPED_APPROVERS výše).
+    if rb in _FULL_APPROVERS:
+        return appr_uid, "normal", "plné samoschvalování instance (Marti 29.6.2026)"
     route = _route_scoped_write(sql, prefixes)
     if route["ok"]:
         return appr_uid, "normal", route["reason"]

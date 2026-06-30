@@ -1,0 +1,34 @@
+# Guacamole — webová RDP brána pro účetní (Helios desktop bez VPN).
+# Běží na 188.11 (vedle Caddy). RDP → Helios desktop na 188.12 (u DB).
+# Heslo NIKDY v repu → vytvoř vedle soubor .env (gitignored) s GUAC_DB_PASSWORD=...
+# Spuštění: docker compose up -d   (na 188.11, kde je Docker)
+services:
+  guacd:
+    image: guacamole/guacd:1.5.5
+    restart: unless-stopped
+
+  guac-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: guacamole
+      POSTGRES_USER: guacamole
+      POSTGRES_PASSWORD: ${GUAC_DB_PASSWORD:?nutno nastavit v .env}
+    volumes:
+      - ./guac-db:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro   # init SQL schéma (vygeneruje se 1×, viz runbook)
+    restart: unless-stopped
+
+  guacamole:
+    image: guacamole/guacamole:1.5.5
+    depends_on: [guacd, guac-db]
+    environment:
+      GUACD_HOSTNAME: guacd
+      POSTGRESQL_HOSTNAME: guac-db
+      POSTGRESQL_DATABASE: guacamole
+      POSTGRESQL_USER: guacamole
+      POSTGRESQL_PASSWORD: ${GUAC_DB_PASSWORD:?nutno nastavit v .env}
+      TOTP_ENABLED: "true"          # 2FA na bránu (povinné — mzdy na internetu)
+      EXTENSION_PRIORITY: "totp"
+    ports:
+      - "127.0.0.1:8080:8080"        # JEN lokálně → ven výhradně přes Caddy (HTTPS + IP allowlist)
+    restart: unless-stopped

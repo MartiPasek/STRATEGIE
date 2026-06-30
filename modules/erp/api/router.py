@@ -26957,22 +26957,36 @@ def smlouvy_fill_helios(req: Request):
     try:
         if not _smlouvy_can_access(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # reset předchozích (auto) čísel — výsledek čistě z aktuální logiky
+        s.execute(_t("UPDATE tenant.user_smlouva SET helios_cislo=NULL WHERE tenant_id=2"))
         urows = s.execute(_t("SELECT id, first_name, last_name FROM public.users")).fetchall()
         uname = {r[0]: _smlouvy_norm((r[2] or "") + " " + (r[1] or "")) for r in urows}
+        # PRAVDA = kancelářský Helios (Marti 30.6.): firma → DB (EC=DB_EC, ES=DB_IS),
+        # a u duplicit jména vyber to číslo, POD KTERÝM BĚŽÍ MZDA (TabZamMzd). Tím se
+        # neaktivní/staré dvojče samo odfiltruje (jen zaměstnanci s mzdovým listem).
+        from modules.erp.api.bank_api import _mcp_rows as _mcprows
         hel = {"EC": {}, "ES": {}}
         helerr = None
-        for firma, db in (("EC", "UCTO_EC"), ("ES", "UCTO_ES")):
-            r = _mssql188_query("SELECT Cislo, Prijmeni, Jmeno FROM " + db + ".dbo.TabCisZam")
-            if not r.get("ok"):
-                helerr = (helerr or "") + ("%s: %s; " % (firma, r.get("error")))
-            for v in (r.get("rows") or []):
-                key = _smlouvy_norm((v[1] or "") + " " + (v[2] or ""))
+        for firma, db in (("EC", "DB_EC"), ("ES", "DB_IS")):
+            try:
+                rows = _mcprows(
+                    "SELECT c.Cislo, c.Prijmeni, c.Jmeno FROM dbo.TabCisZam c "
+                    "WHERE EXISTS (SELECT 1 FROM dbo.TabZamMzd z WHERE z.ZamestnanecId=c.ID)", db)
+            except Exception as _me:
+                helerr = (helerr or "") + ("%s: %s; " % (firma, str(_me)[:120])); rows = []
+            for d in rows:
+                key = _smlouvy_norm((d.get("prijmeni") or "") + " " + (d.get("jmeno") or ""))
+                cis = d.get("cislo")
+                try:
+                    cis = int(str(cis).strip())
+                except Exception:
+                    continue
                 if not key:
                     continue
-                if key in hel[firma] and hel[firma][key] != v[0]:
-                    hel[firma][key] = None  # kolize jména → nejednoznačné, přeskoč
+                if key in hel[firma] and hel[firma][key] != cis:
+                    hel[firma][key] = None  # dvě osoby stejného jména s mzdou → nejednoznačné
                 elif key not in hel[firma]:
-                    hel[firma][key] = v[0]
+                    hel[firma][key] = cis
         smrows = s.execute(_t("SELECT user_id, firma FROM tenant.user_smlouva WHERE tenant_id=2")).fetchall()
         n = 0; nm = 0
         for user_id, firma in smrows:

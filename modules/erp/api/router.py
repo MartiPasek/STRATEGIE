@@ -10352,7 +10352,8 @@ async def ocr_inbox(req: Request) -> JSONResponse:
         rows = s.execute(_t(
             "SELECT o.id, o.company, o.identifikator, o.osoba_jmeno, o.osoba_vztah, o.datum_od, "
             "o.datum_do, o.dny_count, o.stav, "
-            "COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
+            "o.cssz_link "
             "FROM tenant.att_ocr_case o "
             "LEFT JOIN tenant.att_employee em ON em.id=o.employee_id "
             "LEFT JOIN public.users u ON u.id=o.user_id "
@@ -10360,7 +10361,7 @@ async def ocr_inbox(req: Request) -> JSONResponse:
             "ORDER BY o.stav DESC, o.datum_od DESC LIMIT 100"), ).fetchall()
         out = [{"id": r[0], "company": r[1], "identifikator": r[2], "osoba": r[3], "vztah": r[4],
                 "od": r[5].isoformat() if r[5] else None, "do": r[6].isoformat() if r[6] else None,
-                "dny": r[7], "stav": r[8], "zamestnanec": r[9]} for r in rows]
+                "dny": r[7], "stav": r[8], "zamestnanec": r[9], "link": r[10]} for r in rows]
         return JSONResponse({"ok": True, "cases": out})
     finally:
         cm.__exit__(None, None, None)
@@ -10476,8 +10477,8 @@ def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
             except Exception:
                 mgr = None
             if je_ukonceni:
-                s.execute(_t("UPDATE tenant.att_ocr_case SET datum_do=:dd, updated_at=now() WHERE id=:i"),
-                          {"dd": d_od, "i": ex_id})
+                s.execute(_t("UPDATE tenant.att_ocr_case SET datum_do=:dd, cssz_link=COALESCE(cssz_link,:lnk), updated_at=now() WHERE id=:i"),
+                          {"dd": d_od, "i": ex_id, "lnk": link})
                 if ex_ar:
                     s.execute(_t("UPDATE tenant.att_absence_request SET datum_do=:dd WHERE id=:a"),
                               {"dd": d_od, "a": ex_ar})
@@ -10545,10 +10546,10 @@ def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
             {"e": emp, "u": uid, "od": d_od, "n": ("OČR (SMS): " + (osoba or "")), "m": mgr}).scalar()
         cid = s.execute(_t(
             "INSERT INTO tenant.att_ocr_case (tenant_id,employee_id,user_id,company,identifikator,"
-            "osoba_jmeno,osoba_rc,osoba_vztah,datum_od,stav,absence_request_id,created_by_id) "
-            "VALUES (2,:e,:u,:co,:id,:oj,:rc,:vz,:od,'novy',:ar,:u) RETURNING id"),
+            "osoba_jmeno,osoba_rc,osoba_vztah,datum_od,stav,absence_request_id,created_by_id,cssz_link) "
+            "VALUES (2,:e,:u,:co,:id,:oj,:rc,:vz,:od,'novy',:ar,:u,:lnk) RETURNING id"),
             {"e": emp, "u": uid, "co": company, "id": ident, "oj": osoba, "rc": rc, "vz": vztah,
-             "od": d_od, "ar": arid}).scalar()
+             "od": d_od, "ar": arid, "lnk": link}).scalar()
         who = s.execute(_t(
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
             "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id=em.user_id WHERE em.id=:e"),
@@ -11008,11 +11009,15 @@ async def ocr_mail_send(req: Request) -> JSONResponse:
                 obd = d["datum_od"]
                 if d.get("datum_do"):
                     obd += " – " + d["datum_do"]
+            _lnk = s.execute(_t("SELECT cssz_link FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"),
+                             {"i": cid}).scalar()
             lines.append("- %s — péče o %s%s%s%s" % (
                 zam, (d.get("os_jmeno") or "?"),
                 (" (" + d["os_vztah"] + ")") if d.get("os_vztah") else "",
                 (", " + obd) if obd else "",
                 (", identifikátor " + d["cislo_rozhodnuti"]) if d.get("cislo_rozhodnuti") else ""))
+            if _lnk:
+                lines.append("  📄 Doklad ke stažení z ČSSZ ePortálu: " + str(_lnk))
     finally:
         cm.__exit__(None, None, None)
 

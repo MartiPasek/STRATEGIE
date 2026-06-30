@@ -2601,6 +2601,7 @@ setTimeout(function(){
         var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
         rw.appendChild(el('<div style="font-weight:600;">'+esc(c.zamestnanec||"")+'</div>'));
         rw.appendChild(el('<div class="hint">péče o: '+esc(c.osoba||"")+(c.vztah?(' ('+esc(c.vztah)+')'):'')+' · '+_czDate(c.od)+(c.do?(' – '+_czDate(c.do)):'')+(c.dny?(' · '+c.dny+' dní'):'')+(c.company?(' · '+esc(c.company)):'')+(c.identifikator?(' · id '+esc(c.identifikator)):'')+'</div>'));
+        if(c.link){ rw.appendChild(el('<div style="margin-top:4px;"><a href="'+esc(c.link)+'" target="_blank" rel="noopener" style="color:#9fd0ff;font-size:13px;font-weight:600;">📄 Stáhnout doklad z ČSSZ ePortálu</a></div>')); }
         if(c.stav==="ukonceno"){
           var b=el('<button style="margin-top:6px;padding:8px 14px;border-radius:10px;border:1px solid #34d399;background:rgba(52,211,153,.15);color:#5ee0b7;font-weight:700;cursor:pointer;">✓ Schválit</button>');
           b.addEventListener("click",function(){ if(!confirm("Schválit OČR pro "+(c.zamestnanec||"")+"?"))return; b.disabled=true; b.textContent="…"; api("POST","/api/v1/erp/app/ocr/approve",{id:c.id}).then(function(r){ if(r&&r.ok){ ocr_schval(); } else { b.disabled=false; b.textContent="✓ Schválit"; alert("Chyba: "+((r&&r.error)||"?")); } }); });

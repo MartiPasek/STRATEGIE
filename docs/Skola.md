@@ -25,13 +25,23 @@
 - **C23 / CMS session** — já. C23 = hlavní instance (Martiho stroj), drží krabičku;
   CMS session = řeší Klárčiny požadavky přes most.
 
-## 2) Jak se rozvrh řeší z CMS (Chat s Claudem) — ZVOLENÝ KANÁL
-- CMS dlaždice **„🛠️ Chat s Claudem"** → tabulka `tenant.claude_chat` (per‑user vlákno).
-  Web `/claude-chat` (bublinový chat, polling 5 s). Endpointy `/app/claude-chat` (GET
-  vlákno + označí claude→user seen) + `/app/claude-chat/send` (POST user zpráva).
-- **Workflow (most):** čti `SELECT … WHERE sender='user' AND seen_by_claude=false`
-  (`db=pg`) → vyřeš (přegeneruj rozvrh) → `INSERT … sender='claude'` + `UPDATE
-  seen_by_claude=true` (bridge write, approval banner). Per‑user filtr `user_id`.
+## 2) Jak se rozvrh řeší z CMS — ZVOLENÝ KANÁL (Marti 30.6.)
+- **Marti chatuje se mnou PŘÍMO v Coworku na CMS stroji** (ne přes webový „Chat
+  s Claudem"). Na tom stroji běžím jako samostatná instance Claude → mluví se mnou
+  napřímo, řešíme rozvrh. **Předpoklad: CMS stroj nastavený jako instance** (repo +
+  watcher `STRATEGIE-CLAUDE-SQL` s tokenem v NSSM AppEnvironmentExtra + `INSTANCE_ID.txt`)
+  → `scripts/setup_claude_instance.ps1 -InstanceId N -InstanceName … -Token …`. Pak má
+  Cowork session most: čtení SQL (`db=pg/bakalari`), `@@EMAIL`, deploy.
+- **E‑maily Klárce přes most = `@@EMAIL`** (Marti 30.6. „je nutné umět odesílat e‑maily
+  Klárce"). Formát: `@@EMAIL {"to":"vlkova@nerudovka.cz","subject":"Rozvrh","body":"…",
+  "cc":["m.pasek@eurosoft.com"],"reason":"…"}` → `queue_email(persona_id=1)` → odešle
+  z `marti-ai@eurosoft.com`, audit `fw.claude_email_log`. Ověřeno 24.6. (společný
+  e‑mail Claude + Marti‑AI Klárce). Příchozí od Klárky: `@@INBOX` / `@@INBOX NOVE` /
+  `@@INBOX READ <id>`. POZOR: uvnitř `@@EMAIL` JSON žádné ASCII `"` (rozbije parser) —
+  typografické „ " nebo bez uvozovek.
+- **Záloha (Klárka sama bez Martiho):** webová dlaždice „🛠️ Chat s Claudem"
+  (`tenant.claude_chat`, `/claude-chat`) — čti `WHERE sender='user' AND seen_by_claude=false`,
+  odpověz `INSERT sender='claude'` + `UPDATE seen_by_claude=true`. Zůstává jako kanál.
 - Výsledek ukázat ve **`/rozvrh-verze`** („🗓️ Varianty rozvrhu"): chipy variant,
   pohled tříd/učitelů, mřížka Po–Pá × 1–10, 🔍 Kontrola varianty (živý report
   konfliktů/pravidel/úvazků). Endpointy `/app/rozvrh/verze` + `/grid` + `/kontrola`.

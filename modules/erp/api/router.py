@@ -25877,7 +25877,7 @@ _ABS_CODE_TO_MS = {"vacation": 211, "medical": 243, "sick": 200,
                    "family_care": 251, "unpaid": 246, "maternity": 255}
 
 
-def _mzdy_absence_rows(firma, rok, mesic):
+def _mzdy_absence_rows(firma, rok, mesic):  # v2 (force redeploy)
     """Absence z NAŠÍ docházky (att_entry, kategorie absence) -> předzpracování Helios.
     Náhrady NEpočítáme — dáme Dny+Hodiny do mzdové složky, Helios dopočítá z průměru
     (jako dovolená/nemoc v EC). Vrací (cislo, ms, koruny=0, dny, hodiny). Firma-agnostické:

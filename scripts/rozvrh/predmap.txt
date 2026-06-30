@@ -1,0 +1,147 @@
+01|Figurální kresba|0J
+03|Naučná literatura|
+05|Prostorový design|09
+08|Navrhování|
+09|Ekonomika zahraničního obchodu|
+0A|Cizojazyčná korespondence|DT
+0D|Typografie|0A
+0E|Technologie|
+0F|Výtvarná příprava|0J
+0O|Základy ekologie a biologie|
+0P|Český jazyk a komunikace|
+0Q|Ekonomika cestovního ruchu|
+0R|Literární výchova|
+0S|Jakost zboží|
+0X|Propagace|
+0Y|Počítačová grafika|0K
+10|Grafický design|
+11|Dějiny kultury|
+12|Chemie|
+13|Elektronická a písemná komunikace|DT
+14|Profesní komunikace|
+15|Zeměpis cestovního ruchu|
+17|Tělesná výchova|SR
+18|Služby cestovního ruchu|
+19|Průvodcovství|
+1A|Společenskovědní seminář|
+1B|Právo|
+1D|Informační a multimediální technologie|LY
+1G|Francouzský jazyk|RP
+1I|Španělský jazyk|RP
+1J|Fotografie|0B
+1L|Marketingová komunikace|
+1N|Aranžování|0I
+1P|Dějiny umění|51
+1T|Daně|
+1U|Zeměpis zahraničního obchodu|
+20|3D modelování|
+22|Konverzace v německém jazyce|RP
+23|Figurální kresba|0J
+24|Web design|
+26|Ekonomika a management|
+27|Grafický design a navrhování|07
+28|Animovaná tvorba|G0
+2C|Digitální fotografie|0E
+2D|Multimediální tvorba|
+2F|Odborné kreslení|
+2I|Grafické umělecké techniky|0L
+2K|Výtvarná tvorba pro media|0E
+2O|Prostorová tvorba|09
+2S|Výtvarná příprava pro média|0J
+2V|Animace|G0
+2W|Audiovizuální tvorba|0E
+2X|3D vizualizace|ZX
+2Y|Konstrukční příprava|0G
+30|Chování|
+31|Výtvarná tvorba - nepovinná|0J
+33|Třídnická hodina|
+34|Psychologie|
+35|Fyzika|
+37|Design interieru a navrhování|0G
+38|Práce ve fiktivním podniku|
+39|Scénáristika|
+3A|Design nábytku|0D
+3B|Dějiny designu|
+3C|Dějiny multimedií|
+3E|3D Animace|G0
+3I|Web design a multimediální aplikace|
+3J|Kresba|0J
+3K|Filmový seminář|
+3M|Dějiny grafického designu|
+3Q|praktická zkouška z odborných předmětů|
+3R|praktická zkouška z odborných předmětů|
+3S|Výtvarná tvorba|0J
+3T|Matematika rozšiřující|
+3U|Písmo a typografie|0A
+3W|Motion design|
+3X|Ekonomická cvičení|
+4|Anglický jazyk|RP
+41|Portugalský jazyk|RP
+42|Profesní komunikace v cizím jazyce|
+43|Digitální kresba|
+44|Umělecká fotografie|
+46|3D modelování|
+47|Průvodcovství v cizím jazyce|
+48|Základy ekologie|
+4A|Technologie a materiály|
+4B|Biologie a ekologie|
+4C|Společenskovědní praktikum|
+4D|Kariérové vzdělávání|
+4E|Jazykové praktikum|
+4F|Historie 20. a 21. stol.|
+4G|Mezinárodní vztahy|
+4I|Právo v kontextech oborové orientace|
+4J|Ekonomika a finance|
+4K|Informační a komunikační technologie 2|
+4L|Praktikum z dějepisu|
+4M|Praktikum z psychologie|
+4N|Praktikum z matematiky|
+4O|Praktikum z přírodních věd|
+4P|Praktikum ze společenských věd|
+4Q|Praktikum z IKT|
+4R|Člověk a média|
+4S|Základy grafické tvorby|
+4T|Audiovizuální tvorba|
+4U|Marketingová komunikace a AI|
+4V|Kulturní dědictví a jeho ochrana|
+4W|Dějiny kultury a umění|
+4X|Historie v regionálních souvislostech|
+4Y|Průvodcovství|
+4Z|Aplikovaná psychologie|
+5|Německý jazyk|RP
+52|Game design|
+54|Umění v souvislostech|
+55|Modelování|
+56|Animovaná tvorba|
+57|Audiovizuální tvorba 2|
+58|Animace 2|
+59|Fotografie 2|
+5Z|Zbožíznalství|
+61|Ekonomika|
+6B|Marketing|
+7|Občanská nauka|
+8|Dějepis|
+9A|Obchodní provoz|
+9B|Konverzace v anglickém jazyce|RP
+9P|Cvičení z účetnictví|FO
+A5|Matematika|
+AN|Ruský jazyk|RP
+C7|Daňová evidence|
+DT|Český jazyk a literatura|
+F2|Praxe|LY
+FO|Základy společenských věd|
+FR|Písmo|0A
+GZ|Cestovní ruch|
+IZ|Obchodní logistika|
+JI|Odborný výcvik|LY
+LG|Zeměpis|
+PL|Technika administrativy|DT
+RR|Management|
+T0|Obchodní počty|
+TG|Fotografie|0B
+YC|Účetnictví|
+ZX|Informační a komunikační technologie|OG
+ZY|Aplikovaná psychologie|
+ZZ|Technické kreslení|ZX
+5A|Grafický design a navrhování|07
+5B|Grafický design a navrhování|07

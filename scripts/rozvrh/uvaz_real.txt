@@ -1,0 +1,90 @@
+U0SAC~Fotografie~2.0~?~2.MI, 1.? (2F) |
+U0SAC~Fotografie 2~3.0~?~3.MI, 4.MI |
+U0SAI~Konverzace v anglickém jazyce~0.5~?~4.CR, 4.GD, 4.MI, 4.VO, 4.ZO |
+U0SAI~Španělský jazyk~10.0~?~2.CR, 2.GD, 2.L, 2.O, 3.CR, 3.GD, 4.MI, 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+U0SAJ~5G~1.0~?~2.MI |
+U0SAL~Motion design~5.0~?~3.GD, 4.GD |
+U9TI4~Základy ekologie a biologie~2.0~?~2.GD, 2.MI, 1.? (2G), 1.? (2J) |
+UBHJ6~Český jazyk a komunikace~1.3~?~2.GD, 4.GD |
+UBHJ6~Literární výchova~2.3~?~2.GD, 4.GD |
+UBHJ6~Občanská nauka~2.0~?~2.CR, 3.GD, 4.ZO |
+UDC5V~Matematika~5.5~?~2.CR, 2.GD, 2.MI, 3.MI |
+UI7OD~Německý jazyk~8.0~?~2.CR, 2.GD, 2.L, 2.MI, 2.O, 3.CR, 3.GD, 3.MI, 3.VO, 3.ZO, 4.CR, 4.GD, 4.MI, 4.VO, 4.ZO, 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+ULS5N~Německý jazyk~5.0~?~4.CR, 4.MI, 4.VO, 4.ZO, 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+UMS61~3D Animace~1.5~?~4.MI |
+UMS61~3D modelování~1.0~?~4.GD, 4.MI |
+UMS61~Dějiny multimedií~0.5~?~2.MI |
+UMS61~Počítačová grafika~1.0~?~2.MI |
+UMS61~Web design~3.0~?~4.GD |
+UMS61~Web design a multimediální aplikace~2.5~?~3.MI, 4.MI |
+UNS6I~Anglický jazyk~2.0~?~4.CR, 4.GD, 4.MI, 4.VO, 4.ZO |
+UNS6I~Německý jazyk~7.0~?~2.CR, 2.GD, 2.L, 2.MI, 2.O, 3.CR, 3.GD, 3.MI, 3.VO, 3.ZO, 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+UNS6M~Český jazyk a komunikace~4.8~?~2.L, 2.MI, 3.MI, 4.MI, 4.ZO, 1.? (2F) |
+UNS6M~Literární výchova~6.3~?~2.L, 2.MI, 3.MI, 4.MI, 4.ZO, 1.? (2F) |
+UNS6O~Ekonomika a management~2.0~?~4.GD, 4.MI |
+UOS6U~5B~6.0~?~3.GD |
+UOS6U~Písmo~2.0~?~3.GD |
+UOS6U~Počítačová grafika~2.0~?~3.MI, 4.MI |
+UOS6W~Figurální kresba~3.0~?~3.GD |
+UOS6W~Výtvarná tvorba~2.0~?~4.GD |
+UOS6X~3D vizualizace~1.5~?~2.MI |
+UOS6X~Prostorový design~3.0~?~2.GD |
+UOS6X~Výtvarná příprava~4.5~?~2.MI, 1.? (2F) |
+UPS70~Dějiny grafického designu~0.5~?~2.GD |
+UPS70~Počítačová grafika~3.5~?~2.MI, 3.MI, 1.? (2F) |
+UPS75~Tělesná výchova~6.0~?~2.CR, 2.L, 2.MI, 3.A, 3.B, 3.CR, 4.GD, 4.VO, 4.ZO, 1.? (2G), 1.? (2I), 1.? (2J) |
+UPS77~Anglický jazyk~9.5~?~2.A, 2.MI, 2.O, 3.CR, 3.MI, 3.VO, 4.CR, 4.MI, 1.? (2D), 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+UPS77~Konverzace v anglickém jazyce~1.0~?~3.CR, 3.MI, 3.VO, 4.CR, 4.MI |
+URS7F~Anglický jazyk~2.0~?~4.GD |
+URS7F~Konverzace v anglickém jazyce~0.5~?~4.GD |
+URS7F~Španělský jazyk~9.0~?~2.MI, 3.MI, 4.CR, 4.GD, 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+URS7L~Anglický jazyk~6.5~?~2.CR, 2.MI, 3.GD, 4.GD, 4.MI, 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+URS7L~Český jazyk a komunikace~1.8~?~3.GD, 1.? (2G) |
+URS7L~Konverzace v anglickém jazyce~1.0~?~3.GD, 4.GD, 4.MI |
+URS7L~Literární výchova~1.8~?~3.GD, 1.? (2G) |
+USNKF~Občanská nauka~1.5~?~2.GD, 2.MI, 2.O |
+USNKF~Tělesná výchova~5.0~?~2.A, 2.CR, 2.GD, 2.L, 2.O, 3.GD, 3.MI, 3.ZO, 4.MI, 4.VO, 4.ZO, 1.? (2D), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+USS80~Dějiny umění~3.0~?~3.MI, 4.MI |
+USS80~Figurální kresba~4.5~?~2.GD, 3.MI |
+USS80~Konstrukční příprava~1.5~?~2.MI |
+USS80~Technologie~1.5~?~2.MI, 3.MI |
+UTEMU~Anglický jazyk~6.5~?~2.CR, 2.GD, 2.L, 2.MI, 2.O, 3.GD, 3.MI, 3.VO, 3.ZO, 4.CR, 4.GD, 4.MI, 4.VO, 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+UTEMU~Konverzace v anglickém jazyce~1.0~?~3.GD, 3.MI, 3.VO, 3.ZO, 4.CR, 4.GD, 4.MI, 4.VO |
+UTS85~Německý jazyk~3.0~?~3.CR, 3.GD, 3.MI, 3.VO, 3.ZO |
+UTS85~Ruský jazyk~5.0~?~2.CR, 2.GD, 2.L, 2.MI, 4.CR, 4.ZO, 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+UTS88~Grafický design a navrhování~6.0~?~4.GD |
+UTS88~Písmo~1.0~?~2.GD |
+UTS88~Počítačová grafika~3.0~?~2.GD |
+UUS8D~Dějiny umění~6.0~?~2.GD, 2.MI, 3.GD, 4.GD |
+UUS8D~Výtvarná příprava~3.0~?~2.GD |
+UUS8F~3D Animace~3.0~?~2.MI, 3.MI |
+UUS8F~5F~1.5~?~2.MI |
+UUS8F~Digitální fotografie~5.0~?~2.GD, 2.MI, 3.GD |
+UUS8F~Digitální kresba~1.0~?~4.GD, 4.MI |
+UUS8I~Audiovizuální tvorba 2~3.0~?~3.MI |
+UUS8I~Scénáristika~0.5~?~2.MI |
+UUS8L~Audiovizuální tvorba~1.5~?~2.MI |
+UUS8L~Audiovizuální tvorba 2~3.0~?~4.MI |
+UVS8S~Design interieru a navrhování~3.0~?~3.MI |
+UVS8S~Design nábytku~1.5~?~4.MI |
+UWS8Z~Anglický jazyk~3.0~?~2.CR, 2.GD, 2.L, 2.MI, 2.O, 3.GD, 3.MI, 3.VO, 3.ZO |
+UWS8Z~Konverzace v anglickém jazyce~0.5~?~3.GD, 3.MI, 3.VO, 3.ZO |
+UWS8Z~Německý jazyk~3.0~?~2.CR, 2.L, 2.O, 4.CR, 4.GD, 4.MI, 4.VO, 4.ZO |
+UXS9D~Grafický design a navrhování~6.0~?~4.GD |
+UXS9D~Písmo~1.0~?~2.GD |
+UXS9D~Počítačová grafika~3.0~?~3.GD |
+UYMUL~Anglický jazyk~8.5~?~2.CR, 2.GD, 3.B, 3.MI, 3.VO, 4.MI, 4.VO, 1.? (2D), 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+UYMUL~Konverzace v anglickém jazyce~1.0~?~3.MI, 3.VO, 4.MI, 4.VO |
+UYS9M~Francouzský jazyk~8.0~?~2.CR, 2.GD, 2.L, 2.MI, 2.O, 3.CR, 3.GD, 3.MI, 3.VO, 3.ZO, 4.CR, 4.MI, 4.VO, 4.ZO, 1.? (2E), 1.? (2F), 1.? (2G), 1.? (2I), 1.? (2J) |
+UZS44~Animace~3.0~?~2.MI, 1.? (2F) |
+UZS44~Animace 2~4.5~?~3.MI, 4.MI |
+UZS4A~3D vizualizace~2.5~?~3.MI, 4.MI |
+UZS4A~Dějiny designu~0.5~?~2.MI |
+UZS4A~Design interieru a navrhování~3.0~?~4.MI |
+UZS4A~Občanská nauka~1.0~?~3.MI |
+UZS4A~Technické kreslení~1.5~?~2.MI, 1.? (2F) |
+UZS4A~Technologie~1.0~?~4.MI |
+UZS4C~5A~6.0~?~3.GD |
+UZS4C~Grafické umělecké techniky~5.0~?~2.GD, 3.GD |
+UZS4C~Technologie~1.0~?~4.GD |
+UZS4O~Konstrukčn

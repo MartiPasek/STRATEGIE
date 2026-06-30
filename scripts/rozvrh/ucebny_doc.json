@@ -1,0 +1,785 @@
+[
+{
+"class": "1.GD",
+"abbr": "VP",
+"prefer": [
+"BK",
+"BA"
+],
+"fallback": []
+},
+{
+"class": "1.GD",
+"abbr": "Pí",
+"prefer": [
+"BD4"
+],
+"fallback": []
+},
+{
+"class": "1.GD",
+"abbr": "PG",
+"prefer": [
+"BNA"
+],
+"fallback": [
+"BŠ"
+]
+},
+{
+"class": "1.GD",
+"abbr": "PD",
+"prefer": [
+"BD4"
+],
+"fallback": []
+},
+{
+"class": "1.GD",
+"abbr": "IMT",
+"prefer": [
+"IT5"
+],
+"fallback": []
+},
+{
+"class": "1.MI",
+"abbr": "VPm",
+"prefer": [
+"BK",
+"BA"
+],
+"fallback": []
+},
+{
+"class": "1.MI",
+"abbr": "VP",
+"prefer": [
+"BK",
+"BA"
+],
+"fallback": []
+},
+{
+"class": "1.MI",
+"abbr": "PT",
+"prefer": [
+"BD1"
+],
+"fallback": []
+},
+{
+"class": "1.MI",
+"abbr": "Te",
+"prefer": [
+"BD1"
+],
+"fallback": []
+},
+{
+"class": "1.MI",
+"abbr": "A",
+"prefer": [
+"IT2"
+],
+"fallback": []
+},
+{
+"class": "1.MI",
+"abbr": "TK",
+"prefer": [
+"MM"
+],
+"fallback": [
+"BŠ"
+]
+},
+{
+"class": "1.MI",
+"abbr": "PG",
+"prefer": [
+"BŠ"
+],
+"fallback": [
+"MM"
+]
+},
+{
+"class": "1.MI",
+"abbr": "Fo",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2"
+]
+},
+{
+"class": "2.GD",
+"abbr": "VP",
+"prefer": [
+"BK",
+"BA"
+],
+"fallback": []
+},
+{
+"class": "2.GD",
+"abbr": "Pí",
+"prefer": [
+"BD4"
+],
+"fallback": [
+"BA",
+"BD1",
+"BK"
+]
+},
+{
+"class": "2.GD",
+"abbr": "PG",
+"prefer": [
+"BŠ"
+],
+"fallback": [
+"BNA",
+"BPG"
+]
+},
+{
+"class": "2.GD",
+"abbr": "PD",
+"prefer": [
+"BD1"
+],
+"fallback": []
+},
+{
+"class": "2.GD",
+"abbr": "DFo",
+"prefer": [
+"BPG"
+],
+"fallback": [
+"MM",
+"BŠ"
+]
+},
+{
+"class": "2.GD",
+"abbr": "GUT",
+"prefer": [
+"BD4"
+],
+"fallback": []
+},
+{
+"class": "2.GD",
+"abbr": "FK",
+"prefer": [
+"BA"
+],
+"fallback": [
+"BK"
+]
+},
+{
+"class": "2.MI",
+"abbr": "VP",
+"prefer": [
+"BA"
+],
+"fallback": []
+},
+{
+"class": "2.MI",
+"abbr": "DD",
+"prefer": [
+"1"
+],
+"fallback": [
+"1",
+"6",
+"D",
+"IT2",
+"MM"
+]
+},
+{
+"class": "2.MI",
+"abbr": "PT",
+"prefer": [
+"BD1"
+],
+"fallback": []
+},
+{
+"class": "2.MI",
+"abbr": "V3D",
+"prefer": [
+"BŠ"
+],
+"fallback": [
+"MM"
+]
+},
+{
+"class": "2.MI",
+"abbr": "A",
+"prefer": [
+"IT2"
+],
+"fallback": []
+},
+{
+"class": "2.MI",
+"abbr": "Sc",
+"prefer": [
+"IT2"
+],
+"fallback": []
+},
+{
+"class": "2.MI",
+"abbr": "TK",
+"prefer": [
+"MM"
+],
+"fallback": [
+"BŠ"
+]
+},
+{
+"class": "2.MI",
+"abbr": "Te",
+"prefer": [
+"1",
+"6",
+"D"
+],
+"fallback": [
+"IT2",
+"MM"
+]
+},
+{
+"class": "2.MI",
+"abbr": "PG-MT",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2"
+]
+},
+{
+"class": "2.MI",
+"abbr": "PG-DI",
+"prefer": [
+"BŠ"
+],
+"fallback": [
+"BPG"
+]
+},
+{
+"class": "2.MI",
+"abbr": "Fo",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2"
+]
+},
+{
+"class": "2.MI",
+"abbr": "WDMA",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2",
+"BŠ",
+"BPG"
+]
+},
+{
+"class": "2.MI",
+"abbr": "AVT",
+"prefer": [
+"MM"
+],
+"fallback": []
+},
+{
+"class": "2.MI",
+"abbr": "KP",
+"prefer": [
+"D"
+],
+"fallback": [
+"BD1"
+]
+},
+{
+"class": "2.MI",
+"abbr": "Zv",
+"prefer": [
+"MM"
+],
+"fallback": []
+},
+{
+"class": "2.MI",
+"abbr": "KT",
+"prefer": [
+"IT2"
+],
+"fallback": [
+"MM",
+"Kn"
+]
+},
+{
+"class": "2.MI",
+"abbr": "A3D",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2"
+]
+},
+{
+"class": "3.GD",
+"abbr": "FK",
+"prefer": [
+"BK",
+"BA"
+],
+"fallback": []
+},
+{
+"class": "3.GD",
+"abbr": "Pí",
+"prefer": [
+"BNA"
+],
+"fallback": [
+"BŠ",
+"BPG"
+]
+},
+{
+"class": "3.GD",
+"abbr": "PG",
+"prefer": [
+"BNA"
+],
+"fallback": [
+"BŠ",
+"BPG"
+]
+},
+{
+"class": "3.GD",
+"abbr": "GUT",
+"prefer": [
+"BD4"
+],
+"fallback": []
+},
+{
+"class": "3.GD",
+"abbr": "GDN-G",
+"prefer": [
+"BNA"
+],
+"fallback": [
+"BPG"
+]
+},
+{
+"class": "3.GD",
+"abbr": "GDN-I",
+"prefer": [
+"BŠ"
+],
+"fallback": [
+"BPG",
+"BNA"
+]
+},
+{
+"class": "3.GD",
+"abbr": "DFo",
+"prefer": [
+"BPG"
+],
+"fallback": [
+"BŠ",
+"MM"
+]
+},
+{
+"class": "3.GD",
+"abbr": "MD",
+"prefer": [
+"BPG",
+"BŠ"
+],
+"fallback": [
+"MM",
+"IT2"
+]
+},
+{
+"class": "3.MI",
+"abbr": "FK",
+"prefer": [
+"BA"
+],
+"fallback": [
+"BK"
+]
+},
+{
+"class": "3.MI",
+"abbr": "WDMA",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2",
+"BŠ",
+"BPG"
+]
+},
+{
+"class": "3.MI",
+"abbr": "AVT2",
+"prefer": [
+"MM"
+],
+"fallback": []
+},
+{
+"class": "3.MI",
+"abbr": "A2",
+"prefer": [
+"IT2"
+],
+"fallback": []
+},
+{
+"class": "3.MI",
+"abbr": "Fo2",
+"prefer": [
+"MM"
+],
+"fallback": []
+},
+{
+"class": "3.MI",
+"abbr": "GmD",
+"prefer": [
+"Kn"
+],
+"fallback": []
+},
+{
+"class": "3.MI",
+"abbr": "DIN",
+"prefer": [
+"BD1"
+],
+"fallback": []
+},
+{
+"class": "3.MI",
+"abbr": "KP",
+"prefer": [
+"D"
+],
+"fallback": [
+"BD1"
+]
+},
+{
+"class": "3.MI",
+"abbr": "A3D",
+"prefer": [
+"IT2"
+],
+"fallback": []
+},
+{
+"class": "3.MI",
+"abbr": "V3D",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2",
+"BŠ"
+]
+},
+{
+"class": "3.MI",
+"abbr": "PG-MT",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2",
+"BŠ"
+]
+},
+{
+"class": "3.MI",
+"abbr": "PG-DI",
+"prefer": [
+"BŠ"
+],
+"fallback": [
+"MM",
+"IT2"
+]
+},
+{
+"class": "3.MI",
+"abbr": "Te",
+"prefer": [
+"D"
+],
+"fallback": [
+"1",
+"BD1",
+"MM"
+]
+},
+{
+"class": "4.GD",
+"abbr": "VT",
+"prefer": [
+"BK",
+"BA"
+],
+"fallback": []
+},
+{
+"class": "4.GD",
+"abbr": "Te",
+"prefer": [
+"BA"
+],
+"fallback": []
+},
+{
+"class": "4.GD",
+"abbr": "GDN",
+"prefer": [
+"BNA"
+],
+"fallback": [
+"BPG"
+]
+},
+{
+"class": "4.GD",
+"abbr": "WD",
+"prefer": [
+"BPG",
+"BŠ"
+],
+"fallback": [
+"BNA",
+"MM",
+"IT2"
+]
+},
+{
+"class": "4.GD",
+"abbr": "MD",
+"prefer": [
+"BPG",
+"BŠ"
+],
+"fallback": [
+"BNA",
+"MM",
+"IT2"
+]
+},
+{
+"class": "4.GD",
+"abbr": "Mod1",
+"prefer": [
+"BD1"
+],
+"fallback": [
+"D"
+]
+},
+{
+"class": "4.MI",
+"abbr": "Mod2",
+"prefer": [
+"BD1"
+],
+"fallback": [
+"D"
+]
+},
+{
+"class": "4.GD",
+"abbr": "DKr",
+"prefer": [
+"IT2"
+],
+"fallback": []
+},
+{
+"class": "4.MI",
+"abbr": "DKr",
+"prefer": [
+"IT2"
+],
+"fallback": []
+},
+{
+"class": "4.GD",
+"abbr": "MO3D",
+"prefer": [
+"MM"
+],
+"fallback": [
+"BŠ"
+]
+},
+{
+"class": "4.MI",
+"abbr": "MO3D",
+"prefer": [
+"MM"
+],
+"fallback": [
+"BŠ"
+]
+},
+{
+"class": "4.MI",
+"abbr": "FK",
+"prefer": [
+"BA"
+],
+"fallback": [
+"BK"
+]
+},
+{
+"class": "4.MI",
+"abbr": "WDMA",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2",
+"BŠ",
+"BPG"
+]
+},
+{
+"class": "4.MI",
+"abbr": "AVT2",
+"prefer": [
+"MM"
+],
+"fallback": []
+},
+{
+"class": "4.MI",
+"abbr": "A2",
+"prefer": [
+"IT2"
+],
+"fallback": []
+},
+{
+"class": "4.MI",
+"abbr": "Fo2",
+"prefer": [
+"MM"
+],
+"fallback": []
+},
+{
+"class": "4.MI",
+"abbr": "GmD",
+"prefer": [
+"Kn"
+],
+"fallback": []
+},
+{
+"class": "4.MI",
+"abbr": "DIN",
+"prefer": [
+"BD1"
+],
+"fallback": []
+},
+{
+"class": "4.MI",
+"abbr": "DNá",
+"prefer": [
+"BD1"
+],
+"fallback": [
+"D"
+]
+},
+{
+"class": "4.MI",
+"abbr": "A3D",
+"prefer": [
+"IT2"
+],
+"fallback": []
+},
+{
+"class": "4.MI",
+"abbr": "V3D",
+"prefer": [
+"MM"
+],
+"fallback": [
+"IT2",
+"BŠ"
+]
+},
+{
+"class": "4.MI",
+"abbr": "PG-DI",
+"prefer": [
+"BŠ"
+],
+"fallback": [
+"MM",
+"IT2"
+]
+},
+{
+"class": "4.MI",
+"abbr": "Te",
+"prefer": [
+"D"
+],
+"fallback": [
+"1",
+"BD1",
+"MM"
+]
+}
+]

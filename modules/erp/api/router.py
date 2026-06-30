@@ -9631,6 +9631,17 @@ def _sync_dochazka_ec(rok, mesic):
                 "  AND EXTRACT(YEAR FROM a.entry_date)=:y AND EXTRACT(MONTH FROM a.entry_date)=:m "
                 "GROUP BY a.employee_id, a.entry_date"), {"y": rok, "m": mesic}).fetchall():
             planned_abs[(_pr[0], _pr[1].isoformat())] = float(_pr[2] or 0)
+        # Reálně odpracováno z NE-EC zdrojů (mobil/tablet) — fond skupiny 24 dopíchneme jen na MEZERU,
+        # ať se EC-fond NESČÍTÁ s reálnými píchnutími (Havlát 29.6.: mobil 8h + EC-fond 8h = 16h). Marti 30.6.
+        real_present = {}
+        for _rp in s.execute(_t(
+                "SELECT a.employee_id, a.entry_date, SUM(a.hours) "
+                "FROM tenant.att_entry a JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+                "WHERE a.tenant_id=2 AND COALESCE(a.source_system,'')<>'ec_real' "
+                "  AND et.code IN ('work','homeoffice') "
+                "  AND EXTRACT(YEAR FROM a.entry_date)=:y AND EXTRACT(MONTH FROM a.entry_date)=:m "
+                "GROUP BY a.employee_id, a.entry_date"), {"y": rok, "m": mesic}).fetchall():
+            real_present[(_rp[0], _rp[1].isoformat())] = float(_rp[2] or 0)
         # FOND-FILL JEN pro skupinu 24 = kategorie s dopichavat_fond=true (volná prac. doba).
         # Marti 30.6.2026: DÍLENŠTÍ (a všichni mimo skupinu 24) NEMAJÍ dopíchávání ani
         # odpíchávání — importují se jen jejich REÁLNĚ odpracované hodiny z EC.
@@ -9659,9 +9670,11 @@ def _sync_dochazka_ec(rok, mesic):
                                   {"e": emp, "d": dd, "t": tid, "h": round(min(h, fond), 2)})
                         out["absence"] += 1
                 abs_plan = planned_abs.get((emp, dd.isoformat()), 0.0)
+                rp = real_present.get((emp, dd.isoformat()), 0.0)
                 if uid in fond_uids:
-                    # skupina 24 (volná doba) → dopíchnout na fond (i prázdné dny)
-                    work_target = round(max(0.0, fond - min(abs_total + abs_plan, fond)), 2)
+                    # skupina 24 (volná doba) → dopíchnout JEN na mezeru (fond − reálně odpíchnuto),
+                    # ať se EC-fond nesčítá s mobilními píchnutími do dvojího dne. Marti 30.6.
+                    work_target = round(max(0.0, fond - min(abs_total + abs_plan, fond) - rp), 2)
                 else:
                     # dílenští/pevná doba → JEN reálně odpracováno, žádné dopíchávání/odpíchávání
                     work_target = round(present, 2)
@@ -9682,10 +9695,11 @@ def _sync_dochazka_ec(rok, mesic):
                             out["dopichnuto_h"] += round(work_target - present, 2)
                         elif present > work_target:
                             out["odpichnuto_h"] += round(present - work_target, 2)
+                den_cas = round((rp + work_target) if uid in fond_uids else work_target, 2)
                 s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem) "
                              "VALUES (2,:c,:u,:d,:y,:m,:h) "
                              "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,user_id=:u"),
-                          {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": work_target})
+                          {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": den_cas})
         # EC absence = zdroj pravdy pro realizovaný den → smaž plánovou (non-ec_real) absenci,
         # když EC pro stejný den+člověka absenci má (jinak dvojí dovolená: plán + EC). Marti 29.6.
         s.execute(_t(

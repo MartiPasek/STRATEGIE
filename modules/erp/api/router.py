@@ -26876,8 +26876,13 @@ def _smlouvy_can_access(s, uid):
 
 def _smlouvy_norm(x):
     import unicodedata
+    import re as _re
     x = (x or "").strip().lower()
-    return "".join(c for c in unicodedata.normalize("NFD", x) if unicodedata.category(c) != "Mn")
+    x = "".join(c for c in unicodedata.normalize("NFD", x) if unicodedata.category(c) != "Mn")
+    # odstraň akademické tituly (Ing. Branislav → Branislav) a sraz vícenásobné mezery
+    x = _re.sub(r"\b(ing|mgr|bc|mudr|judr|phdr|rndr|paeddr|dis|csc|ph\.?d|drsc)\.?\b", " ", x)
+    x = _re.sub(r"\s+", " ", x).strip()
+    return x
 
 
 @api_router.get("/app/smlouvy")

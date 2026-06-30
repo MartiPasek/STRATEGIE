@@ -1,5 +1,5 @@
 # Trvalé pokyny od Petry pro Claude‑26
-(Číst při startu. Petra = user 18. Aktualizováno 29. 6. 2026.)
+(Číst při startu. Petra = user 18. Aktualizováno 30. 6. 2026.)
 
 ## Přístup k práci (DŮLEŽITÉ)
 - Vždy cíl na **maximální výsledek** a věc **dotáhnout do konce**.
@@ -14,11 +14,11 @@
 ## Git
 - Když Petra napíše **„udělej git pull"** (nebo „srovnej lokál"):
   proveď ho **přes most**, NE přes PowerShell a NE žádej Petru, ať to ťuká.
-  Postup: vlož soubor `scripts/claude_sql/CLAUDE_PULL_GO.txt` (přes přenos
-  souborů / device_commit_files), počkej ~10–15 s, přečti výsledek z
+  Postup: vlož `scripts/claude_sql/CLAUDE_PULL_GO.txt`, počkej ~10–15 s, přečti
   `scripts/claude_sql/CLAUDE_PULL_OUT.txt` (most spustí `git pull --rebase --autostash`).
 - Obecně: Petra nechce psát do příkazové řádky. Co jde udělat přes most, dělej za ni.
 
 ## Styl komunikace (Petra)
-- Méně technických vysvětlení, víc „co mám udělat / co se stalo". Konkrétně a prakticky.
-- Nezahlcovat; postupovat po krocích.
+- **Piš STRUČNĚ.** Krátké, k věci. Žádné dlouhé výklady.
+- Méně technicky, víc „co mám udělat / co se stalo". Konkrétně a prakticky.
+- Nezahlcovat; po krocích.

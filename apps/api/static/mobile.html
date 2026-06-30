@@ -2419,12 +2419,13 @@ setTimeout(function(){
     t.value=val||""; wr.appendChild(t); parent.appendChild(wr); return t;
   }
   function _ocrRadio(parent,label,opts,val){
+    var grp="ocrR"+Math.floor(Math.random()*1e9);  // společný name → vzájemně se vylučují
     var wr=el('<div></div>'); wr.appendChild(el('<div style="font-size:13px;color:#cdd6e2;margin-bottom:4px;">'+esc(label)+'</div>'));
     var box=el('<div style="display:flex;flex-direction:column;gap:4px;"></div>'); var cur={v:val};
     opts.forEach(function(o){
       var row=el('<label style="display:flex;align-items:center;gap:8px;font-size:14px;color:#e8eefc;cursor:pointer;"></label>');
-      var r=el('<input type="radio" style="accent-color:#34d399;width:16px;height:16px;">'); if(o.v===val)r.checked=true;
-      r.addEventListener("click",function(){ cur.v=o.v; });
+      var r=el('<input type="radio" name="'+grp+'" style="accent-color:#34d399;width:16px;height:16px;">'); if(o.v===val)r.checked=true;
+      r.addEventListener("change",function(){ cur.v=o.v; });
       row.appendChild(r); row.appendChild(el('<span>'+esc(o.t)+'</span>')); box.appendChild(row);
     });
     wr.appendChild(box); parent.appendChild(wr); return { get:function(){ return cur.v; } };

@@ -25728,15 +25728,16 @@ def _mzdy_predzprac_rows(firma):
     return out
 
 
-# Stravenky (Marti 28.6.): nárok = odpracované dny >4 h v docházce × konstanta 85 Kč.
-# Helios složka 793 (Stravenkový paušál do limitu), Dny = počet dní, Koruny = Dny×85.
-_STRAVENKA_KC = 85
+# Stravenky (Marti 28.6.): nárok = odpracované dny >4 h v docházce × konstanta 82 Kč.
+# Helios složka 793 (Stravenkový paušál do limitu), Dny = počet dní, Koruny = Dny×82.
+# Sazba 85→82 Kč (Marti 30.6.2026).
+_STRAVENKA_KC = 82
 _STRAVENKA_MS = 793
 
 
 def _mzdy_stravenky_rows(firma, rok, mesic):
     """Pro každého s nárokem (engagement.stravenky_od ≤ období) spočítá dny >4 h
-    z docházky att_day_summary → složka 793 (Dny, Koruny=Dny×85)."""
+    z docházky att_day_summary → složka 793 (Dny, Koruny=Dny×82)."""
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     s = _g()

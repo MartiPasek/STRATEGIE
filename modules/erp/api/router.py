@@ -37344,6 +37344,23 @@ def _sync_absence_to_ec_vytizeni(dnu_zpet: int = 14) -> dict:
         cm.__exit__(None, None, None)
 
     _DOW = {0: "Po", 1: "Út", 2: "St", 3: "Čt", 4: "Pá", 5: "So", 6: "Ne"}
+    # 1b) barva per DruhCinnosti = kanonická z EC originálu (EC_Dochazka_PlanNepritomnost.Barva,
+    # nejčastější barva na druh). Bez ní Excel „Plánování vytížení" nedobarví činnosti/druhy
+    # nepřítomnosti → rozpadlé statistiky (reklamace Pillár 30.6.). View bere pn.Barva → MUSÍME plnit.
+    _BARVA_DEF = "FFDCA5"
+    barva_by = {}
+    try:
+        rb = _ecw("SELECT DruhCinnosti, Barva FROM (SELECT DruhCinnosti, Barva, "
+                  "ROW_NUMBER() OVER (PARTITION BY DruhCinnosti ORDER BY COUNT(*) DESC) rn "
+                  "FROM dbo.EC_Dochazka_PlanNepritomnost WHERE Barva IS NOT NULL AND Barva<>'' "
+                  "GROUP BY DruhCinnosti, Barva) t WHERE rn=1")
+        for rr in (rb.get("rows") or []):
+            try:
+                barva_by[int(rr.get("DruhCinnosti"))] = (str(rr.get("Barva") or "").strip()[:10]) or _BARVA_DEF
+            except Exception:
+                pass
+    except Exception:
+        pass
     # 2) přepiš st tabulku (jednosměrně): DELETE + batch INSERT
     _ecw("DELETE FROM st.EC_Vytizeni_NepritomnostSTRATEGIE")
     vals, n = [], 0
@@ -37352,7 +37369,7 @@ def _sync_absence_to_ec_vytizeni(dnu_zpet: int = 14) -> dict:
         if not vv:
             return 0
         _ecw("INSERT INTO st.EC_Vytizeni_NepritomnostSTRATEGIE"
-             "(CisloZam,DatumPripadu,DenVTydnu,DruhCinnosti,PocetHodin) VALUES "
+             "(CisloZam,DatumPripadu,DenVTydnu,DruhCinnosti,PocetHodin,Barva) VALUES "
              + ",".join(vv))
         return len(vv)
 
@@ -37362,11 +37379,12 @@ def _sync_absence_to_ec_vytizeni(dnu_zpet: int = 14) -> dict:
         except Exception:
             continue
         wd = _dtv.date.fromisoformat(d).weekday()
-        vals.append("(%d,'%s',N'%s',%d,%d)" % (cislo, d, _DOW.get(wd, ""), druh, hod))
+        barva = barva_by.get(druh, _BARVA_DEF) or _BARVA_DEF
+        vals.append("(%d,'%s',N'%s',%d,%d,N'%s')" % (cislo, d, _DOW.get(wd, ""), druh, hod, barva))
         if len(vals) >= 200:
             n += _flush(vals); vals = []
     n += _flush(vals)
-    return {"ok": True, "vlozeno": n, "dnu_zpet": int(dnu_zpet)}
+    return {"ok": True, "vlozeno": n, "dnu_zpet": int(dnu_zpet), "barev": len(barva_by)}
 
 
 def _sync_vyroba_plan_from_ec() -> dict:

@@ -27020,6 +27020,123 @@ def smlouvy_fill_helios(req: Request):
         s.close()
 
 
+def _smlouvy_mzda_mapy(s):
+    """Vrátí {'EC':{norm_jmeno:cislo}, 'ES':{...}} = kde komu běží VÝPLATNICE 2026 (office
+    Helios, firma=DB). Kolize jména (2 osoby s 2026 mzdou) → None (skip). Marti 30.6."""
+    from modules.erp.api.bank_api import _mcp_rows as _mcprows
+    maps = {"EC": {}, "ES": {}}
+    err = None
+    for firma, pfx in (("EC", "dbo."), ("ES", "[DB_IS].dbo.")):
+        try:
+            rows = _mcprows(
+                "SELECT c.Cislo, c.Prijmeni, c.Jmeno FROM " + pfx + "TabCisZam c "
+                "WHERE EXISTS (SELECT 1 FROM " + pfx + "TabZamVyp v "
+                "JOIN " + pfx + "TabMzdObd o ON o.ID=v.IdObdobi "
+                "WHERE v.ZamestnanecId=c.ID AND o.Rok=2026)", "DB_EC")
+        except Exception as _me:
+            err = (err or "") + ("%s: %s; " % (firma, str(_me)[:120])); rows = []
+        d = maps[firma]
+        for r in rows:
+            k = _smlouvy_norm((r.get("prijmeni") or "") + " " + (r.get("jmeno") or ""))
+            try:
+                cis = int(str(r.get("cislo")).strip())
+            except Exception:
+                continue
+            if not k:
+                continue
+            if k in d and d[k] != cis:
+                d[k] = None
+            elif k not in d:
+                d[k] = cis
+    return maps, err
+
+
+@api_router.get("/app/smlouvy/navrhy")
+def smlouvy_navrhy(req: Request):
+    """NÁVRHY oprav smluv podle „kde běží mzda 2026" (Marti var. 1). Read-only — Marti schválí,
+    pak /app/smlouvy/navrhy-apply zapíše. Akce: PRIDAT (mzda běží, chybí smlouva),
+    OPRAVIT_CISLO, FIRMA_BEZ_MZDY (HPP smlouva ale 2026 mzda jinde → asi špatná firma)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _smlouvy_can_access(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        maps, err = _smlouvy_mzda_mapy(s)
+        cur = {}
+        for r in s.execute(_t("SELECT user_id, firma, typ_smlouvy, helios_cislo "
+                              "FROM tenant.user_smlouva WHERE tenant_id=2")).fetchall():
+            cur[(r[0], r[1])] = (r[2], r[3])
+        urows = s.execute(_t(
+            "SELECT DISTINCT u.id, u.first_name, u.last_name FROM public.users u "
+            "JOIN tenant.user_smlouva sm ON sm.user_id=u.id AND sm.tenant_id=2")).fetchall()
+        navrhy = []
+        for u in urows:
+            uid2 = u[0]; nm = ((u[2] or "") + " " + (u[1] or "")).strip()
+            key = _smlouvy_norm((u[2] or "") + " " + (u[1] or ""))
+            for firma in ("EC", "ES"):
+                mzcis = maps[firma].get(key)
+                has = (uid2, firma) in cur
+                curtyp, curcis = cur.get((uid2, firma), (None, None))
+                if mzcis:
+                    if not has:
+                        navrhy.append({"user_id": uid2, "jmeno": nm, "akce": "PRIDAT",
+                                       "firma": firma, "cislo": mzcis, "stare": None})
+                    elif curcis != mzcis:
+                        navrhy.append({"user_id": uid2, "jmeno": nm, "akce": "OPRAVIT_CISLO",
+                                       "firma": firma, "cislo": mzcis, "stare": curcis})
+                else:
+                    if has and curtyp == "hpp" and curcis is None:
+                        navrhy.append({"user_id": uid2, "jmeno": nm, "akce": "FIRMA_BEZ_MZDY",
+                                       "firma": firma, "cislo": None, "stare": None})
+        navrhy.sort(key=lambda x: (x["jmeno"], x["firma"]))
+        return {"ok": True, "navrhy": navrhy, "helios_chyba": err}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/smlouvy/navrhy-apply")
+async def smlouvy_navrhy_apply(req: Request):
+    """Zapíše schválené návrhy (Marti odsouhlasil). PRIDAT/OPRAVIT_CISLO → upsert firma+cislo+hpp;
+    FIRMA_BEZ_MZDY → smaže tu (chybnou) smlouvu. Tělo: {akce:[{user_id,firma,akce,cislo}]}."""
+    uid = _uid_from_token_or_cookie(req)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _smlouvy_can_access(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        n = 0
+        for a in (b.get("akce") or []):
+            try:
+                u2 = int(a.get("user_id")); fr = str(a.get("firma")).upper(); ak = a.get("akce")
+            except Exception:
+                continue
+            if fr not in ("EC", "ES"):
+                continue
+            if ak in ("PRIDAT", "OPRAVIT_CISLO"):
+                cis = a.get("cislo")
+                cis = int(cis) if cis not in (None, "", "null") else None
+                s.execute(_t(
+                    "INSERT INTO tenant.user_smlouva (tenant_id,user_id,firma,typ_smlouvy,helios_cislo,aktivni,zdroj,updated_by_user_id) "
+                    "VALUES (2,:u,:f,'hpp',:c,true,'mzda2026',:by) "
+                    "ON CONFLICT (tenant_id,user_id,firma) DO UPDATE SET helios_cislo=EXCLUDED.helios_cislo, "
+                    "  zdroj='mzda2026', updated_by_user_id=EXCLUDED.updated_by_user_id, updated_at=now()"),
+                    {"u": u2, "f": fr, "c": cis, "by": uid}); n += 1
+            elif ak == "FIRMA_BEZ_MZDY":
+                s.execute(_t("DELETE FROM tenant.user_smlouva WHERE tenant_id=2 AND user_id=:u AND firma=:f "
+                             "AND helios_cislo IS NULL"), {"u": u2, "f": fr}); n += 1
+        s.commit()
+        return {"ok": True, "zapsano": n}
+    finally:
+        s.close()
+
+
 # === ZRCADLA office → cloud Helios (Marti 27.6.2026) =========================
 # Samostatná ikona: každé zrcadlo = 1:1 kopie tabulky z kancelářského Heliosu
 # (DB_EC/DB_IS přes MCP) do cloudu (UCTO_EC/UCTO_ES na 188.12). Plná kopie (mirror).

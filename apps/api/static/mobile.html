@@ -695,8 +695,31 @@ setTimeout(function(){
         txt.addEventListener("click",function(){ openClaudeDetail(c); });
         var a=el('<div class="nactions" style="margin-top:8px;"></div>');
         function b(l,cl,d){var x=el('<button class="sm '+cl+'">'+l+'</button>'); x.addEventListener("click",function(e){e.stopPropagation();act(c.id,d,li);}); a.appendChild(x);}
-        if(c.command_type==="claude_confirm"){b("Odmítnout","warn","reject");b("Povolit","green","accept");} else {b("OK","ghost","done");}
+        if(c.command_type==="claude_confirm"){b("Odmítnout","warn","reject");b("Povolit","green","accept");}
+        else {
+          var rb=el('<button class="sm green">💬 Odpovědět</button>');
+          rb.addEventListener("click",function(e){e.stopPropagation();replyMsg(c,li);}); a.appendChild(rb);
+          b("OK","ghost","done");
+        }
         li.appendChild(txt); li.appendChild(a); ul.appendChild(li); }); }); }
+  function replyMsg(c,li){
+    if(li.querySelector(".replywrap"))return;
+    var wrap=el('<div class="replywrap" style="margin-top:8px;"></div>');
+    var ta=el('<textarea placeholder="Tvoje odpověď Claudovi…" style="width:100%;min-height:64px;background:#141b29;color:#e8edf6;border:1px solid #2a3547;border-radius:8px;padding:8px;font-size:14px;box-sizing:border-box;"></textarea>');
+    var sb=el('<button class="sm green" style="margin-top:6px;">Odeslat</button>');
+    var st=el('<span style="margin-left:8px;color:var(--mut);font-size:12px;"></span>');
+    wrap.appendChild(ta); wrap.appendChild(sb); wrap.appendChild(st);
+    li.appendChild(wrap); try{ta.focus();}catch(e){}
+    sb.addEventListener("click",function(ev){ ev.stopPropagation();
+      var t=(ta.value||"").trim(); if(!t){ta.focus();return;}
+      sb.disabled=true; st.textContent="Odesílám…";
+      api("POST","/api/v1/erp/app/notif/reply",{id:c.id,text:t}).then(function(r){
+        if(r&&r.ok){ st.textContent="✓ Odesláno Claudovi"; if(notifCount>0){notifCount--;renderNav();}
+          setTimeout(function(){ try{li.parentNode.removeChild(li);}catch(e){} if(!document.querySelectorAll('#ntlist li').length){selectTab('home');} },600); }
+        else { st.textContent="Chyba: "+((r&&r.error)||"?"); sb.disabled=false; }
+      }).catch(function(){ st.textContent="Chyba sítě"; sb.disabled=false; });
+    });
+  }
   function notifs(){ // dashboard s dlaždicemi
     app.innerHTML=topbar("", false); var p=el('<div class="panel"></div>');
     var grid=el('<div class="dashgrid"></div>');
@@ -706,6 +729,8 @@ setTimeout(function(){
     tt.addEventListener("click",function(){go("strtask");}); grid.appendChild(tt);
     var ut=el('<div class="tile"><div class="tile-ic">📋</div><div class="tile-tt">Úkoly</div><div class="tile-sub">Z Centrály</div></div>');
     ut.addEventListener("click",function(){go("ecukoly");}); grid.appendChild(ut);
+    var bt=el('<div class="tile"><div class="tile-ic">🎁</div><div class="tile-tt">Benefity</div><div class="tile-sub">Home office / oblečení</div></div>');
+    bt.addEventListener("click",function(){ openApp("/benefity"); }); grid.appendChild(bt);
     // Schvalování návrhů plánu — viditelné jen pro schvalovatele (jinak 403 → skryto).
     var ap=el('<div class="tile" style="position:relative;display:none;"><div class="tile-ic">🗓️</div><div class="tile-tt">Schvalování</div><div class="tile-sub" id="apSub">…</div><span id="apBadge" style="display:none;position:absolute;top:8px;right:8px;background:#f59e0b;color:#fff;border-radius:11px;min-width:22px;height:22px;line-height:22px;text-align:center;font-size:12px;font-weight:700;padding:0 6px;box-shadow:0 1px 4px rgba(0,0,0,.35);"></span></div>');
     ap.addEventListener("click",function(){go("planapprovals");}); grid.appendChild(ap);
@@ -1386,7 +1411,7 @@ setTimeout(function(){
   // Appka se neopustí → Android Back nezavře aplikaci, jen zavře overlay. Žádný externí prohlížeč.
   // Přehledy se otevírají jako NATIVNÍ obrazovka v zásobníku (stejné schéma jako Skupiny) →
   // Zpět řídí výhradně back() appky (topbar i systémové Zpět). Žádný vlastní overlay/history hack.
-  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace","/zrcadla":"🪞 Zrcadla","/parovani":"🏦 Párování","/uctovani":"📒 Účetnictví","/edi-stat":"📊 Statistika EDI","/edi-definice":"🧩 EDI definice","/neschopenky":"🤒 Neschopenky","/davky":"📤 Dávky ČSSZ","/audit-davky":"🛡️ Audit dávek","/iso":"🛡️ ISO 27001","/dokument":"📚 Dokumentace","/rozvrh-verze":"🗓️ Varianty rozvrhu","/rozvrh-prehled":"🗓️ Přehled po ročnících","/claude-chat":"🛠️ Chat s Claudem"};
+  var _XV_TITLES={"/flow":"📊 FLOW","/vytizeni":"📈 Vytížení","/vytizeni-prehled":"🔋 Vytížení dílny","/crm-plan-hovoru":"📞 Plán hovorů","/absence-plan":"🏖️ Plán absencí","/dir-admin":"🗂️ Adresáře","/files":"📁 Dokumenty","/payroll":"💰 Mzdové podklady","/objednavky":"🛒 Co objednat","/digitalizace":"🗂️ Digitalizace","/zrcadla":"🪞 Zrcadla","/banka":"🏦 Banka","/denik":"🧾 Účetní deník","/parovani":"🏦 Párování plateb","/uctovani":"📒 Účetnictví","/edi-stat":"📊 Statistika EDI","/edi-definice":"🧩 EDI definice","/neschopenky":"🤒 Neschopenky","/davky":"📤 Dávky ČSSZ","/audit-davky":"🛡️ Audit dávek","/iso":"🛡️ ISO 27001","/dokument":"📚 Dokumentace","/rozvrh-verze":"🗓️ Varianty rozvrhu","/rozvrh-prehled":"🗓️ Přehled po ročnících","/claude-chat":"🛠️ Chat s Claudem"};
   var _xvUrl="", _xvTitle="", _xvStack=[];
   function _xvSet(url){ _xvUrl=url; _xvTitle=_XV_TITLES[(url||"").split("?")[0]]||"Přehled"; }
   function openInApp(url){
@@ -1424,45 +1449,69 @@ setTimeout(function(){
     g.appendChild(appCell('<img src="/static/erp/icon-erp-192.png">',"STRATEGIE",0,function(){openApp("/erp/");}));
     g.appendChild(appCell('<img src="/static/erp/icon-chat-192.png">',"Tvoje Marti",0,function(){openApp("/");}));
     g.appendChild(appCell("🤝","Spolupráce",0,function(){go("dochazka");}));
+    g.appendChild(appCell("❓","Nápověda docházka",0,function(){ dochHelp(); }));   // Jirka 26.6.: rychlý návod docházky ze seznamu aplikací
     // Marti 9.6.: vše ze složky Firma = aplikace. Výroba + její seznamy jako ikony,
     // řízení (Vedení) jako složka. Deep-link otevře Výrobu rovnou na daném seznamu.
-    g.appendChild(appCell("🏭","Výroba",0,function(){openVyroba("makam");}));
-    g.appendChild(appCell("🧰","Moje činnosti",0,function(){go("moje_cinnosti");}));
-    g.appendChild(appCell("⚡","Výuka",0,function(){go("uceni");}));
-    g.appendChild(appCell("🛒","Nákup",0,function(){openVyroba("nakup");}));
-    g.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
-    g.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
-    g.appendChild(appCell("📊","FLOW",0,function(){openInApp("/flow");}));
-    g.appendChild(appCell("📈","Vytížení",0,function(){openInApp("/vytizeni");}));
-    g.appendChild(appCell("🏖️","Plán absencí",0,function(){openInApp("/absence-plan");}));
-    g.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
-    g.appendChild(appCell("🔀","Migrace",0,function(){go("migrace");}));
-    g.appendChild(appCell("🗂️","Digitalizace",0,function(){openInApp("/digitalizace");}));
-    g.appendChild(appCell("🪞","Zrcadla",0,function(){openInApp("/zrcadla");}));
-    g.appendChild(appCell("🏦","Párování",0,function(){openInApp("/parovani");}));
-    g.appendChild(appCell("📒","Účetnictví",0,function(){openInApp("/uctovani");}));
-    g.appendChild(appCell("📊","Statistika EDI",0,function(){openInApp("/edi-stat");}));
-    g.appendChild(appCell("🧩","EDI definice",0,function(){openInApp("/edi-definice");}));
-    g.appendChild(appCell("🧾","Přefakturace",0,function(){go("prefakturace");}));
-    g.appendChild(appCell("📨","Datovky / ČSSZ",0,function(){go("isds");}));
-    g.appendChild(appCell("🧑‍⚕️","Ošetřovné (OČR)",0,function(){go("ocr");}));
-    g.appendChild(appCell("🤒","Neschopenky",0,function(){openInApp("/neschopenky");}));
-    g.appendChild(appCell("📤","Dávky ČSSZ",0,function(){openInApp("/davky");}));
-    g.appendChild(appCell("🛡️","Audit dávek",0,function(){openInApp("/audit-davky");}));
-    g.appendChild(appCell("🛡️","ISO 27001",0,function(){openInApp("/iso");}));
-    g.appendChild(appCell("📚","Dokumentace",0,function(){openInApp("/dokument");}));
-    g.appendChild(appCell("📥","Poptávky",0,function(){go("poptavka");}));
-    g.appendChild(appCell("🛒","Co objednat",0,function(){openInApp("/objednavky");}));
-    g.appendChild(appCell("🤖","SW zakázky",0,function(){go("sw_zakazky");}));
-    g.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
-    g.appendChild(appCell("🌐","Uživatelé",0,function(){ _auMode="users"; go("alluser"); }));
-    g.appendChild(appCell("📒","Účetní",0,function(){ _auMode="helios"; go("alluser"); }));
-    g.appendChild(appCell("📲","Sdílený telefon",0,function(){go("sdileny");}));
-    g.appendChild(appCell("🧲","Teamio",0,function(){ openApp("https://my.teamio.com"); }));
-    // Marti 7.6.: WhatsApp + Zprávy schovány (snadno vrátit odkomentováním).
-    // g.appendChild(appCell(WA_SVG,"WhatsApp",bd.whatsapp||0,function(){ if(B&&typeof B.openPackage==="function") B.openPackage("com.whatsapp","https://wa.me/"); else openApp("https://wa.me/"); }));
-    // g.appendChild(appCell("💬","Zprávy",bd.sms||0,function(){openApp("sms:");}));
-    app.appendChild(g);
+    app.appendChild(g);  // základ: hlavní launchery nahoře (bez nadpisu)
+    // Marti 28.6.: celková revize řazení — skupiny s nadpisy (sec) jako ve „Vedení".
+    function sec(t){ app.appendChild(el('<div style="margin:16px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
+    function grp(){ var gg=el('<div class="appgrid"></div>'); app.appendChild(gg); return gg; }
+    var gg;
+    sec("🧑 MOJE"); gg=grp();
+    gg.appendChild(appCell("🧰","Moje činnosti",0,function(){go("moje_cinnosti");}));
+    gg.appendChild(appCell("🪪","Moje osobní údaje",0,function(){go("hr_me");}));
+    gg.appendChild(appCell("📥","Zadat úkol",0,function(){ go("fronta"); }));
+    sec("🏭 VÝROBA & OBCHOD"); gg=grp();
+    gg.appendChild(appCell("🏭","Výroba",0,function(){go("vyroba_hub");}));
+    gg.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
+    gg.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
+    gg.appendChild(appCell("📊","FLOW",0,function(){openInApp("/flow");}));
+    gg.appendChild(appCell("📈","Vytížení",0,function(){openInApp("/vytizeni");}));
+    gg.appendChild(appCell("🔋","Vytížení dílny",0,function(){openInApp("/vytizeni-prehled");}));
+    gg.appendChild(appCell("📞","Plán hovorů",0,function(){openInApp("/crm-plan-hovoru");}));
+    gg.appendChild(appCell("📥","Poptávky",0,function(){go("poptavka");}));
+    gg.appendChild(appCell("🤖","SW zakázky",0,function(){go("sw_zakazky");}));
+    sec("🛒 NÁKUP & SKLAD"); gg=grp();
+    gg.appendChild(appCell("🛒","Nákup (výroba)",0,function(){openVyroba("nakup");}));
+    gg.appendChild(appCell("🛒","Nákup",0,function(){openInApp("/nakup");}));
+    gg.appendChild(appCell("🛒","Co objednat",0,function(){openInApp("/objednavky");}));
+    sec("🏦 FINANCE & ÚČETNICTVÍ"); gg=grp();
+    gg.appendChild(appCell("💰","Finance",0,function(){openInApp("/finance");}));
+    gg.appendChild(appCell("🏦","Banka",0,function(){openInApp("/banka");}));
+    gg.appendChild(appCell("🧾","Účetní deník",0,function(){openInApp("/denik");}));
+    gg.appendChild(appCell("📊","Předvaha",0,function(){openInApp("/predvaha");}));
+    gg.appendChild(appCell("💰","Mzdy & odvody",0,function(){openInApp("/mzdy");}));
+    gg.appendChild(appCell("🧾","Přefakturace",0,function(){go("prefakturace");}));
+    gg.appendChild(appCell("📒","Účetní",0,function(){ _auMode="helios"; go("alluser"); }));
+    sec("📨 ČSSZ & COMPLIANCE"); gg=grp();
+    gg.appendChild(appCell("📨","Datovky / ČSSZ",0,function(){go("isds");}));
+    gg.appendChild(appCell("🤒","Neschopenky",0,function(){openInApp("/neschopenky?typ=nemoc");}));
+    gg.appendChild(appCell("🧑‍⚕️","Ošetřovné (OČR)",0,function(){go("ocr");}));
+    gg.appendChild(appCell("📤","Dávky ČSSZ",0,function(){openInApp("/davky");}));
+    gg.appendChild(appCell("🛡️","Audit dávek",0,function(){openInApp("/audit-davky");}));
+    gg.appendChild(appCell("🛡️","ISO 27001",0,function(){openInApp("/iso");}));
+    sec("🔌 EDI"); gg=grp();
+    gg.appendChild(appCell("📊","Statistika EDI",0,function(){openInApp("/edi-stat");}));
+    gg.appendChild(appCell("🧩","EDI definice",0,function(){openInApp("/edi-definice");}));
+    sec("🧑‍💼 HR & LIDÉ"); gg=grp();
+    gg.appendChild(appCell("🔒","HR",0,function(){go("hr_hub");}));
+    gg.appendChild(appCell("👥","Skupiny",0,function(){go("skupiny");}));
+    gg.appendChild(appCell("🌐","Uživatelé",0,function(){ _auMode="users"; go("alluser"); }));
+    gg.appendChild(appCell("⚡","Výuka",0,function(){go("uceni");}));
+    sec("🏛️ ŘÍZENÍ"); gg=grp();
+    gg.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
+    gg.appendChild(appCell("🏖️","Plán absencí",0,function(){openInApp("/absence-plan");}));
+    gg.appendChild(appCell("⚙️","Ops akce",0,function(){go("ops");}));
+    sec("🛠️ SYSTÉM & MIGRACE"); gg=grp();
+    gg.appendChild(appCell("🔀","Migrace",0,function(){go("migrace");}));
+    gg.appendChild(appCell("🗂️","Digitalizace",0,function(){openInApp("/digitalizace");}));
+    gg.appendChild(appCell("🪞","Zrcadla",0,function(){openInApp("/zrcadla");}));
+    gg.appendChild(appCell("📚","Dokumentace",0,function(){openInApp("/dokument");}));
+    sec("🤖 AI & KOMUNIKACE"); gg=grp();
+    gg.appendChild(appCell("🤖","Claude-27",0,function(){go("claude27");}));
+    gg.appendChild(appCell("🕸️","Síť Claudů",0,function(){go("coord");}));
+    gg.appendChild(appCell("📲","Sdílený telefon",0,function(){go("sdileny");}));
+    gg.appendChild(appCell("🧲","Teamio",0,function(){ openApp("https://my.teamio.com"); }));
     app.appendChild(el('<div style="height:200px;"></div>'));  // místo pod dvě extra lišty (zvětšeno 120→200, ať poslední řádek dlaždic nezajíždí pod spodní panel)
   }
   // Marti 9.6.: složka „Vedení" v Aplikacích — řídicí agendy. Příprava/Odvozy/
@@ -1502,7 +1551,7 @@ setTimeout(function(){
     app.appendChild(g1);
     sec("PERSONALISTIKA");
     var g2=el('<div class="appgrid"></div>');
-    g2.appendChild(appCell("🔒","HR",0,function(){go("hr");}));
+    g2.appendChild(appCell("🔒","HR",0,function(){go("hr_hub");}));
     g2.appendChild(appCell("🧲","Nábor",0,function(){go("hr_nabor");}));
     g2.appendChild(appCell("📊","Produktivita",0,function(){go("kara");}));
     app.appendChild(g2);
@@ -2039,8 +2088,62 @@ setTimeout(function(){
       +'<div class="hint" style="line-height:1.6;">'+esc(window._soonD||"Tato část je v přípravě — kostra hotová, obsah doplníme.")+'</div>';
     app.appendChild(p);
   }
+  // 👥 HR hub pro Šárku (Marti 23.6.2026) — vzor sekce Vedení: nadpisy skupin + ikonky.
+  // Šárčina sekce, s Claudem-25 si ji upravuje. Server-side ACL _hr_can_manage (rodiče + HR skupina).
+  function hr_hub(){
+    app.innerHTML=topbar("👥 HR — personalistika", true);
+    app.appendChild(el('<div class="hint" style="margin:6px 6px 2px;line-height:1.6;">Tvoje sekce, Šárko — celá personalistika na jednom místě. Bloky: interní lidé, nábor, docházka a absence, nemoc/OČR, mzdy a dokumenty, přístupy. S Claudem‑25 si ji můžeš upravovat a doplňovat.</div>'));
+    var _nb=null;
+    var kpi=el('<div id="hrKpi" style="display:flex;gap:8px;margin:8px 2px 2px;"></div>'); app.appendChild(kpi);
+    function kc(lbl,val,col){ return '<div style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--bord);border-radius:12px;padding:10px 6px;text-align:center;"><div style="font-size:22px;font-weight:800;color:'+col+';">'+(val==null?"…":val)+'</div><div style="font-size:10.5px;color:var(--mut);line-height:1.2;margin-top:2px;">'+lbl+'</div></div>'; }
+    function drawKpi(){ kpi.innerHTML=kc("Nábor — kandidáti",_nb,"#a78bfa"); }
+    drawKpi();
+    api("GET","/api/v1/erp/app/recruit/pipeline","").then(function(j){ if(j&&j.ok){ _nb=j.candidates; drawKpi(); } else { kpi.style.display="none"; } });
+    function s(t){ app.appendChild(el('<div style="margin:14px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
+    s("INTERNÍ PERSONALISTIKA");
+    var g1=el('<div class="appgrid"></div>');
+    g1.appendChild(appCell("🏛️","Firma",0,function(){go("hr_firma");}));
+    g1.appendChild(appCell("👥","Skupiny",0,function(){go("hr_skupiny");}));
+    g1.appendChild(appCell("📋","Podmínky",0,function(){go("hr_podminky");}));
+    g1.appendChild(appCell("🪪","Lidé — složky",0,function(){go("hr_people");}));
+    g1.appendChild(appCell("🧩","Režimy",0,function(){go("hr_rezimy");}));
+    app.appendChild(g1);
+    s("NÁBOR (externí)");
+    var g2=el('<div class="appgrid"></div>');
+    g2.appendChild(appCell("🧲","Nábor",0,function(){go("hr_nabor");}));
+    g2.appendChild(appCell("👤","Kandidáti",0,function(){window._nbFilter={phase:"",title:"👤 Kandidáti"};go("hr_nabor_list");}));
+    g2.appendChild(appCell("💬","Pohovory",0,function(){window._nbFilter={phase:"active",title:"💬 Pohovory — ve hře"};go("hr_nabor_list");}));
+    g2.appendChild(appCell("📨","Nástupy",0,function(){window._nbFilter={phase:"hired",title:"📨 Nástupy"};go("hr_nabor_list");}));
+    g2.appendChild(appCell("📣","Inzeráty",0,function(){go("hr_inzeraty");}));
+    app.appendChild(g2);
+    s("DOCHÁZKA & ABSENCE");
+    var g3=el('<div class="appgrid"></div>');
+    g3.appendChild(appCell("👀","Kdo kde dnes",0,function(){go("kdekdo");}));
+    g3.appendChild(appCell("🗓️","Absence — schvalování",0,function(){go("absence");}));
+    g3.appendChild(appCell("🗓️","Zdroj docházky",0,function(){go("hr_att_source");}));
+    g3.appendChild(appCell("📥","Import z EUROSOFTu",0,function(){go("hr_import");}));
+    app.appendChild(g3);
+    s("NEMOC · OČR · LÉKAŘ");
+    var g4=el('<div class="appgrid"></div>');
+    g4.appendChild(appCell("🤒","Nemocenská",0,function(){go("sick_schval");}));
+    g4.appendChild(appCell("🧑‍⚕️","Ošetřovné (OČR)",0,function(){go("ocr_schval");}));
+    g4.appendChild(appCell("🩺","Lístečky lékař",0,function(){go("med_schval");}));
+    g4.appendChild(appCell("📋","Nemoc/OČR přehled",0,function(){go("np_prehled");}));
+    app.appendChild(g4);
+    s("MZDY & DOKUMENTY");
+    var g5=el('<div class="appgrid"></div>');
+    g5.appendChild(appCell("🏦","Uzávěrka konta",0,function(){go("hr_konto");}));
+    g5.appendChild(appCell("📄","Generovat dokument",0,function(){go("doc_gen");}));
+    g5.appendChild(appCell("💰","Mzdy: Helios × my",0,function(){go("wage_cmp");}));
+    app.appendChild(g5);
+    s("PŘÍSTUPY");
+    var g6=el('<div class="appgrid"></div>');
+    g6.appendChild(appCell("🔑","Skupina HR — přístupy",0,function(){window._skFocusName='HR';go("skupiny");}));
+    app.appendChild(g6);
+  }
   function hr(){
     app.innerHTML=topbar("🔒 HR — personalistika", true);
+    var dash=el('<div id="hrDash"></div>'); app.appendChild(dash); _hrDash(dash);
     var l=el('<div class="list"></div>');
     l.appendChild(row("🏢","Interní personalistika","Naši lidé — firma, skupiny, jednotlivci, režimy, docházka",function(){ go("hr_interni"); }));
     l.appendChild(row("🧲","Externí personalistika — nábor","Inzeráty, pohovory a pracovní nabídky pro nové lidi",function(){ go("hr_nabor"); }));
@@ -2051,6 +2154,42 @@ setTimeout(function(){
     app.appendChild(l);
     app.appendChild(el('<div class="hint" style="margin-top:10px;line-height:1.6;">Personalistika má dva světy: <b>interní</b> (lidé, které už máme — od pravidel firmy přes skupiny po jednotlivce) a <b>externí</b> (nábor nových lidí). Citlivé personální složky vidí jen rodiče a „Skupina HR".</div>'));
   }
+  // HR nástěnka (Šárka 23.6.): dlaždice s notifikací + Aktuality
+  function _hrDash(box){
+    box.innerHTML='<div class="hint" style="margin:8px 6px;">Načítám nástěnku…</div>';
+    api("GET","/app/hr/dashboard").then(function(r){
+      box.innerHTML="";
+      if(!r||!r.ok){ box.appendChild(el('<div class="hint" style="margin:8px 6px;">Nástěnku se nepodařilo načíst.</div>')); return; }
+      var b=r.badges||{};
+      var g=el('<div class="appgrid" style="margin:8px 6px;"></div>');
+      g.appendChild(appCell("🏠","Mimo kancelář",b.mimo,function(){ go("kdekdo"); }));
+      g.appendChild(appCell("🎂","Narozeniny a výročí",b.naroz,function(){ go("hr_naroz"); }));
+      g.appendChild(appCell("🆕","Noví zaměstnanci",b.novi,function(){ go("hr_novi"); }));
+      g.appendChild(appCell("🧲","Výběrová řízení",b.vyberka,function(){ go("hr_nabor"); }));
+      g.appendChild(appCell("✉️","Mé zprávy",0,function(){ hrSoon("Mé zprávy k lidem","Komunikace s lidmi — jednotlivě i celé skupině. Připravujeme (Krok B): napíšeš zprávu, doručí se a cinkne dotyčným."); }));
+      box.appendChild(g);
+      box.appendChild(_hrSec("📰 AKTUALITY"));
+      var a=el('<div class="list"></div>');
+      (r.aktuality||[]).forEach(function(it){ a.appendChild(row(it.ikona,it.text,"",function(){})); });
+      if(!(r.aktuality||[]).length) a.appendChild(el('<div class="hint" style="margin:6px;">Nic nového. 🎉</div>'));
+      box.appendChild(a);
+    }).catch(function(){ box.innerHTML='<div class="hint" style="margin:8px 6px;">Nástěnku se nepodařilo načíst.</div>'; });
+  }
+  function _hrFeed(title, types){
+    app.innerHTML=topbar(title, true);
+    var box=el('<div></div>'); app.appendChild(box);
+    box.innerHTML='<div class="hint" style="margin:8px 6px;">Načítám…</div>';
+    api("GET","/app/hr/dashboard").then(function(r){
+      box.innerHTML="";
+      var items=((r&&r.aktuality)||[]).filter(function(it){ return types.indexOf(it.typ)>=0; });
+      var a=el('<div class="list"></div>');
+      items.forEach(function(it){ a.appendChild(row(it.ikona,it.text,"",function(){})); });
+      if(!items.length) a.appendChild(el('<div class="hint" style="margin:6px;">Nic k zobrazení.</div>'));
+      box.appendChild(a);
+    });
+  }
+  function hr_naroz(){ _hrFeed("🎂 Narozeniny a výročí", ["narozeniny","vyroci"]); }
+  function hr_novi(){ _hrFeed("🆕 Noví zaměstnanci", ["novy","zkusebka","prodlouzeni"]); }
   // INTERNÍ — kostra shora dolů (firma → skupiny → jednotlivci → mzdy/dokumenty)
   function hr_interni(){
     app.innerHTML=topbar("🏢 Interní personalistika", true);
@@ -2412,6 +2551,7 @@ setTimeout(function(){
       });
     });
   }
+  // ── OČR formulář (ČSSZ §109) — předvyplněný, ukládá do att_ocr_form ──────
   function _ocrSec(title){ return el('<div style="margin-top:14px;font-weight:800;color:#9fd0ff;border-bottom:1px solid #24324f;padding-bottom:4px;">'+esc(title)+'</div>'); }
   function _ocrArea(parent,label,ph,val){
     var wr=el('<div></div>'); wr.appendChild(el('<div style="font-size:13px;color:#cdd6e2;margin-bottom:4px;">'+esc(label)+'</div>'));
@@ -3376,7 +3516,7 @@ setTimeout(function(){
     app.innerHTML=topbar("🗓️ Absence", true);
     var TYPY=[["vacation","Dovolená"],["homeoffice","Home office"],["medical","Lékař"],["family_care","OČR"],["sick","Nemoc (PN)"],["unpaid","Neplacené volno"]];
     var TL={vacation:"Dovolená",homeoffice:"Home office",medical:"Lékař",family_care:"OČR",sick:"Nemoc (PN)",unpaid:"Neplacené volno"};
-    var stavChip={pending:["čeká","#60a5fa"],approved:["schváleno","#34d399"],rejected:["zamítnuto","#f87171"],info:["info","#fbbf24"]};
+    var stavChip={pending:["čeká","#60a5fa"],approved:["schváleno","#34d399"],rejected:["zamítnuto","#f87171"],info:["info","#fbbf24"],cancelled:["zrušeno","#9aa4b2"]};
     function chip(t,c){ return '<span style="background:'+c+';color:#04150e;border-radius:8px;padding:2px 7px;font-size:11px;font-weight:700;">'+esc(t)+'</span>'; }
     function cz(d){ var p=(d||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."):d; }
     var t=new Date(); var today=t.getFullYear()+"-"+("0"+(t.getMonth()+1)).slice(-2)+"-"+("0"+t.getDate()).slice(-2);
@@ -3440,7 +3580,19 @@ setTimeout(function(){
         if(!j.zadosti.length){ mine.appendChild(el('<div class="hint">Zatím žádné žádosti.</div>')); return; }
         j.zadosti.forEach(function(z){
           var sc=stavChip[z.stav]||["?","#888"];
-          mine.appendChild(el('<div style="border-bottom:1px solid #1b2742;padding:9px 4px;"><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;">'+esc(z.typ_label)+' '+cz(z.od)+(z.od!==z.do?("–"+cz(z.do)):"")+'</div>'+chip(sc[0],sc[1])+'</div>'+(z.status_text?('<div class="hint" style="margin-top:3px;">Vedoucí: „'+esc(z.status_text)+'“</div>'):'')+'</div>'));
+          var row=el('<div style="border-bottom:1px solid #1b2742;padding:9px 4px;"><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;">'+esc(z.typ_label)+' '+cz(z.od)+(z.od!==z.do?("–"+cz(z.do)):"")+'</div>'+chip(sc[0],sc[1])+'</div>'+(z.status_text?('<div class="hint" style="margin-top:3px;">Vedoucí: „'+esc(z.status_text)+'“</div>'):'')+'</div>');
+          if(z.stav==='pending'){
+            var zr=el('<button class="ghost" style="margin-top:6px;padding:6px 10px;font-size:13px;color:#f87171;border-color:#5a2b2b;">✕ Zrušit</button>');
+            zr.addEventListener("click",function(){
+              if(!confirm("Zrušit žádost: "+z.typ_label+" "+cz(z.od)+(z.od!==z.do?("–"+cz(z.do)):"")+"?")) return;
+              zr.disabled=true; zr.textContent="…";
+              api("POST","/api/v1/erp/app/attendance/absence/cancel",{id:z.id}).then(function(r){
+                if(r&&r.ok){ loadMine(); } else { zr.disabled=false; zr.textContent="✕ Zrušit"; alert("Nepodařilo se zrušit: "+((r&&r.error)||"?")); }
+              }).catch(function(){ zr.disabled=false; zr.textContent="✕ Zrušit"; });
+            });
+            row.appendChild(zr);
+          }
+          mine.appendChild(row);
         });
       });
     }
@@ -4243,6 +4395,33 @@ setTimeout(function(){
     _dochViewUid=P.uid; _dochViewName=P.jmeno||"";
     _dnesScreen("📅 Dnešek — "+(P.jmeno||""));
   }
+  // 🏭 Výroba hub pro Michaelu Hladíkovou (Marti 23.6.2026) — vzor sekce Vedení:
+  // nadpisy bloků + ikonky. Její pracovní plocha pro výrobu. Plná práva (uid 16 v _VYROBA_MANAGERS).
+  function vyroba_hub(){
+    app.innerHTML=topbar("🏭 Výroba — pracovní plocha", true);
+    app.appendChild(el('<div class="hint" style="margin:6px 6px 2px;line-height:1.6;">Tvoje pracovní plocha, Míšo — celá výroba na jednom místě. Bloky: plánování a vytížení, operativa výroby, lidé a docházka. S Claudem‑27 si ji můžeš upravovat.</div>'));
+    function s(t){ app.appendChild(el('<div style="margin:14px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
+    s("PLÁNOVÁNÍ & VYTÍŽENÍ");
+    var g1=el('<div class="appgrid"></div>');
+    g1.appendChild(appCell("📊","FLOW — časová osa",0,function(){openInApp("/flow");}));
+    g1.appendChild(appCell("📈","Vytížení",0,function(){openInApp("/vytizeni");}));
+    app.appendChild(g1);
+    s("OPERATIVA VÝROBY");
+    var g2=el('<div class="appgrid"></div>');
+    g2.appendChild(appCell("👷","Výroba — konzole",0,function(){openVyroba("makam");}));
+    g2.appendChild(appCell("🧾","Zakázky",0,function(){openVyroba("zakazky");}));
+    g2.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
+    g2.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
+    g2.appendChild(appCell("🔧","Příprava",0,function(){openVyroba("priprava");}));
+    g2.appendChild(appCell("🚚","Odvozy",0,function(){openVyroba("odvozy");}));
+    g2.appendChild(appCell("🛒","Nákup materiálu",0,function(){openVyroba("nakup");}));
+    app.appendChild(g2);
+    s("LIDÉ & DOCHÁZKA");
+    var g3=el('<div class="appgrid"></div>');
+    g3.appendChild(appCell("👀","Kdo kde dnes",0,function(){go("kdekdo");}));
+    g3.appendChild(appCell("🏖️","Plán absencí",0,function(){openInApp("/absence-plan");}));
+    app.appendChild(g3);
+  }
   function vyroba(){
     if(window._vyInitView){ _vyView=window._vyInitView; window._vyInitView=null; }
     app.innerHTML=topbar(_vyIsGroup()?(((_vyCtx.icon||"👥").split("|")[0])+" "+(_vyCtx.name||"Skupina")):"🏭 Výroba", true, true);
@@ -4731,12 +4910,233 @@ setTimeout(function(){
     box.appendChild(ta); box.appendChild(ok); box.appendChild(st);
     setTimeout(function(){ try{ box.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} },60);
   }
+  // Nápověda pro docházku (Jirka 26.6.2026) — adaptace docs/NAVOD_DOCHAZKA_UZIVATELE.html.
+  // ❓ z hlavičky Spolupráce + kontextové ⓘ tipy (openKey auto-rozbalí sekci).
+  function dochHelp(openKey){
+    var ov=el('<div class="appmodal" style="position:fixed;inset:0;background:rgba(4,10,18,.97);z-index:400;display:flex;flex-direction:column;padding:14px 14px 0;"></div>');
+    var hd=el('<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><div style="flex:1;font-weight:800;font-size:18px;">❓ Nápověda — Docházka</div></div>');
+    var cl=el('<button class="ghost" style="margin:0;width:44px;">✕</button>'); cl.addEventListener("click",function(){ ov.remove(); }); hd.appendChild(cl); ov.appendChild(hd);
+    var sc=el('<div style="flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding-bottom:60px;"></div>'); ov.appendChild(sc);
+    sc.appendChild(el('<div class="hint" style="margin-top:0;">Docházku najdeš dole: <b>🏢 Firma → 🤝 Spolupráce</b> (nebo dlaždice 🤝 Spolupráce v Aplikacích). Práci spustíš nahoře přes <b>▶️ Makat</b>, akce za chodu přes zelené <b>💬 Potřebuji ti něco říct…</b>, nepřítomnosti přes <b>🧭 Tady budu jinde</b>.</div>'));
+    // Hlasový průvodce (Jirka 26.6.): video s mluveným výkladem krok za krokem.
+    var _vg=el('<button class="full" style="margin:10px 0 2px;padding:13px;font-size:15px;font-weight:700;background:#2563eb;color:#fff;border:none;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:8px;">▶️ Hlasový průvodce (video s výkladem)</button>');
+    _vg.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} ov.remove(); dochPruvodce(); });
+    sc.appendChild(_vg);
+    sc.appendChild(el('<div class="hint" style="margin-top:4px;text-align:center;">Mluvený průvodce krok za krokem — ťukni ▶ Přehrát.</div>'));
+    // Tahák
+    var tah=el('<div style="margin:12px 0;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:12px;padding:10px 12px;"></div>');
+    tah.appendChild(el('<div style="font-weight:700;margin-bottom:4px;">📋 Tahák — co když…?</div>'));
+    [["Přijít do práce","vyber 🧾 Zakázku + 🔧 Činnost → ▶️ Makat (nebo 💬 → 🏢 Jsem v práci)"],["Z domova","💬 → 🏠 Nejsem v práci (home office)"],["Jsem na cestě","💬 → 🚗 Jedu do práce"],["Změnit zakázku/činnost","nahoře 🟢 MAKÁŠ — klikni a změň"],["Oběd / pauza","💬 → 🙈 → 🍃 Najíst / ☕ Pauza"],["Zpět z pauzy","✅ Jsem zpět — pokračuju"],["Jednání / pochůzka","💬 → 🙈 → 📅 jednání / 🚗 pochůzka"],["Konec dne","💬 → 🙈 → 🫡 Dnes už se mnou nepočítej"],["Dovolená / nemoc / lékař","🧭 Tady budu jinde → 🏠 Osobní důvody"],["Potvrdit den","jantarová karta → ✓ Potvrzuji (/ ✋ Rozpor)"],["Oprava záznamu","ťukni záznam → ⏱ Zkrátit konec / 🧾 Změnit zakázku"],["Dotaz / pomoc","💬 → 🙋 Mám dotaz na nadřízeného"]].forEach(function(r){ tah.appendChild(el('<div style="display:flex;gap:8px;padding:3px 0;border-top:1px solid rgba(255,255,255,.06);font-size:13.5px;"><div style="flex:0 0 42%;">'+r[0]+'</div><div style="flex:1;color:var(--mut);">'+r[1]+'</div></div>')); });
+    sc.appendChild(tah);
+    // Rozbalovací sekce (věrně dle uživatelského návodu)
+    var items=[
+     ["prichod","👷 Příchod — jak začít pracovat",
+       "<b>Dva způsoby:</b><br><b>A)</b> Nahoře v sekci <b>Zakázky a činnosti</b> vyber <b>🧾 Zakázku</b> a <b>🔧 Činnost</b>, pak ťukni zelené <b>▶️ Makat</b>.<br><b>B)</b> Nebo <b>💬 Potřebuji ti něco říct…</b> → <b>🏢 Jsem v práci…</b><br>✓ Hlavička: <i>„Dnes makám 😉“</i> — hodiny tikají.<br><br>💡 Z domova: <b>💬 → 🏠 Nejsem v práci (home office)</b>.<br>💡 Teprve na cestě: <b>💬 → 🚗 Jedu do práce</b> → vyber, za jak dlouho dorazíš. Kolegové to vidí; hodiny se počítají až po příchodu."],
+     ["zakcin","🧾 Zakázka a činnost",
+       "Nahoře jsou dvě dlaždice — říkají, na čem pracuješ:<br><b>🧾 Zakázka</b> — vyber podle čísla nebo názvu, nebo <b>🧰 Režie</b> (práce bez konkrétní zakázky).<br><b>🔧 Činnost</b> — co děláš.<br><br>Když už makáš, je nahoře <b>🟢 MAKÁŠ — klikni a změň</b>: zakázku i činnost <b>přepneš kdykoli během dne</b> (třeba když začneš dělat na něčem jiném)."],
+     ["pauza","🍽️ Pauza / oběd",
+       "1. <b>💬 Potřebuji ti něco říct…</b><br>2. <b>🙈 Teď to bude jinak…</b><br>3. <b>🍃 Jdu se provětrat / najíst…</b> nebo <b>☕ Potřebuju krátkou pauzu…</b><br>Hlavička: <i>„Dávám si pauzu ☕“</i> — <b>hodiny NETIKAJÍ</b>.<br>Návrat: <b>✅ Jsem zpět — pokračuju</b>.<br><br>⚠️ Pauza = hodiny stojí! Po obědě se nezapomeň píchnout zpátky."],
+     ["jednani","🤝 Jednání, pochůzka, dřív/později",
+       "Během směny přes <b>💬 → 🙈 Teď to bude jinak…</b>:<br>📅 <b>Mám jednání…</b> · 🚗 <b>Mám služební pochůzku…</b> — zadáš čas „cca“ nebo „do“. <b>Hodiny TIKAJÍ DÁL</b> (není to pauza, jen info, kde jsi).<br>🌅 <b>Potřebuji přijít později…</b> · 🕔 <b>Potřebuji skončit dříve…</b> — nahlásíš dopředu."],
+     ["odchod","🏠 Konec práce (odchod)",
+       "1. <b>💬 Potřebuji ti něco říct…</b><br>2. <b>🙈 Teď to bude jinak…</b><br>3. <b>🫡 Dnes už se mnou nepočítej ;)</b><br>✓ Směna ukončena — uvidíš souhrn hodin.<br><br>💡 Zapomněl ses odhlásit? Systém tě o půlnoci odhlásí sám a upozorní tě. Raději se ale odhlas sám, je to přesnější."],
+     ["potvrzeni","✅ Potvrzení docházky",
+       "Po dni uvidíš <b>jantarovou (žlutou) kartu</b>: <i>„🖊 Včera · 7:26–16:26 · 7:52“</i>.<br>1. Zkontroluj údaje (detail v sekci „Tak to bylo dneska“).<br>2. Ťukni <b>✓ Potvrzuji svou docházku</b>.<br><br>⚠️ Dokud den nepotvrdíš, ráno se nepíchneš! Na potvrzení máš <b>14 dní</b>.<br>💡 Nesedí? Ťukni <b>✋ Rozpor</b> a napiš, co je špatně — dostane to nadřízený a pustí tě pracovat dál."],
+     ["jinde","🧭 Tady budu jinde — dovolená, nemoc, lékař…",
+       "Plánované nepřítomnosti hlásíš dlaždicí <b>🧭 Tady budu jinde</b> (sekce <b>Moje docházka</b>):<br><br><b>🏠 Osobní důvody:</b><br>🌴 <b>Že by dovolená?</b> (od–do)<br>👨‍👧 <b>Zase řeším rodinu</b> — OČR (od–do)<br>🤒 <b>Je mi fakt blbě</b> — sick day (dnes)<br>🤧 <b>Mám neschopenku do…</b> — nemoc<br>🩺 <b>Jedu k lékaři</b> (pak dorazím / dnes ne / hlásím dopředu)<br>🏡 <b>Potřebuju makat z domova</b> — home office<br>🕐 <b>Něco si zařizuji</b> — dorazím za…<br><br><b>💼 Služební důvody:</b><br>🚙 Jedu rovnou k zákazníkovi · 🎓 Jsem na školení · 📦 Služební pochůzka, pak dorazím · 📝 Ostatní (napíšeš důvod)<br><br>💡 Žádosti jdou ke schválení nadřízenému, přijde ti notifikace."],
+     ["komunikace","🙋 Pomoc, zprávy a opravy",
+       "<b>🙋 Mám dotaz na nadřízeného…</b> (v menu 💬) — napiš zprávu, dostane ji rovnou do mobilu.<br><b>💬 Píši přímo tobě, Marti…</b> — napíšeš asistentce Marti-AI.<br>Pro výrobu: <b>🛠 Zpráva vedoucímu výroby…</b> · <b>🏁 Budu brzy hotov…</b><br><br><b>✏️ Oprava záznamu:</b> v sekci „Tak to bylo dneska“ ťukni na záznam → <b>⏱ Zkrátit konec</b> nebo <b>🧾 Změnit zakázku</b>."],
+     ["prehledy","📊 Přehledy a moje údaje",
+       "Sekce <b>Moje docházka</b>: 📅 <b>Dnešek</b> · 📅 <b>Týden</b> · 🔭 <b>Výhled</b> · 🕓 <b>Historie</b> · 📋 <b>Moje žádosti</b>.<br>Sekce <b>Podmínky &amp; finance</b>: 📋 Moje podmínky · 📐 <b>Můj úvazek</b> · 👤 Můj plán · 💰 <b>Moje finance</b> · 🗓️ Nepřítomnosti.<br><br>💰 <b>Moje odmakané prašule</b> (výplatní páska) je dole na obrazovce, <b>zamčená PINem</b>."],
+     ["faq","❓ Časté otázky",
+       "<b>Musím při příchodu vybírat zakázku?</b><br>Nemusíš — dej <b>🧰 Režie</b> (bez zakázky), nebo prostě <b>💬 → 🏢 Jsem v práci</b>. Zakázku i činnost změníš i během dne (🟢 MAKÁŠ).<br><br><b>Zapomněl jsem se ráno píchnout.</b><br>Píchni se, jak si vzpomeneš (zapíše se od aktuálního času). Opravu času řeš s nadřízeným.<br><br><b>Zapomněl jsem se odhlásit.</b><br>O půlnoci tě systém odhlásí sám — bude to ale víc hodin než realita. Raději se odhlas sám.<br><br><b>Nepustí mě píchnout!</b><br>Máš nepotvrzený den. Najdi jantarovou kartu → <b>✓ Potvrzuji</b> nebo <b>✋ Rozpor</b>.<br><br><b>Směna běží vs. pauza?</b><br>Běží = zelená hlavička, hodiny počítají. Pauza = oranžová, hodiny stojí. Jednání/pochůzka = hodiny běží dál.<br><br><b>Mám dotaz.</b><br>V menu 💬 ťukni <b>🙋 Mám dotaz na nadřízeného…</b>"]
+    ];
+    var openWrap=null;
+    items.forEach(function(it){
+      var open=(openKey&&openKey===it[0]);
+      var wrap=el('<div style="border:1px solid var(--bord);border-radius:12px;margin-bottom:8px;overflow:hidden;"></div>');
+      var h=el('<div style="padding:12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:var(--surf);"><span>'+it[1]+'</span><span class="caret" style="color:var(--mut);">'+(open?'▾':'▸')+'</span></div>');
+      var b=el('<div style="padding:0 12px 12px;font-size:14px;line-height:1.55;color:var(--tx);display:'+(open?'block':'none')+';">'+it[2]+'</div>');
+      h.addEventListener("click",function(){ var o=b.style.display==="none"; b.style.display=o?'block':'none'; var c=h.querySelector('.caret'); if(c)c.textContent=o?'▾':'▸'; if(o){ try{wrap.scrollIntoView({behavior:'smooth',block:'nearest'});}catch(e){} } });
+      wrap.appendChild(h); wrap.appendChild(b); sc.appendChild(wrap);
+      if(open) openWrap=wrap;
+    });
+    sc.appendChild(el('<div class="hint" style="text-align:center;">Potřebuješ víc? Napiš nadřízenému přes 🙋 v menu, nebo HR.</div>'));
+    app.appendChild(ov);
+    if(openWrap){ try{ openWrap.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){} }
+  }
+  // ── Hlasový průvodce docházkou (Jirka 26.6.): nativní full-screen přehrávač ──
+  // Profi přestavba: responsivní (obrázky se vždy vejdou), spolehlivá řeč:
+  //  • text dělen na krátké úseky (<180 zn.) kvůli Android 15s/250zn. cutoffu (chunking,
+  //    NE pause/resume — ten Android zruší),
+  //  • řeč se VŽDY zruší při zavření/skrytí/hardware-back (MutationObserver + visibilitychange),
+  //  • žádný globální swipe (skákání kapitol), jen jasná tlačítka.
+  function dochPruvodce(){
+    var synth = window.speechSynthesis;
+    var IMG="/static/navod_dochazka/";
+    var SL=[
+      {t:"📱 Docházka v mobilu", img:"",
+       cap:'<p style="font-size:17px;margin:0 0 8px;">Hlasový průvodce krok za krokem.</p><p class="hint" style="margin:0;">Ťukni dole <b style="color:#58a6ff">▶ Přehrát</b> a jen poslouchej a koukej — nebo procházej šipkami <b>◀ ▶</b> a čti si sám.</p>',
+       v:"Vítejte v hlasovém průvodci docházkou ve STRATEGII. Projdeme spolu, jak v mobilu nahlásit příchod, práci na zakázce, pauzu, odchod, i dovolenou nebo lékaře. Stačí poslouchat a koukat. Pro další stránku ťukněte na šipku doprava."},
+      {t:"🏢 Kde docházku najdeš", img:IMG+"pruvodce_firma.png",
+       cap:'<div class="dp-step"><b>1.</b> Na spodní liště ťukni <b style="color:#58a6ff">🏢 Firma</b> (vpravo dole).</div><div class="dp-step"><b>2.</b> Ťukni <b style="color:#3fb950">🤝 Spolupráce</b>.</div><div class="dp-step dp-ok">✓ Jsi na obrazovce docházky. Najdeš ji i v <b>Aplikacích</b> jako dlaždici 🤝 Spolupráce.</div>',
+       v:"Docházku najdete takto. Na spodní liště ťukněte úplně vpravo na Firma. Pak ťukněte na Spolupráce. A jste na obrazovce docházky. Stejnou obrazovku najdete i v Aplikacích jako dlaždici Spolupráce."},
+      {t:"👀 Obrazovka docházky — kde co je", img:IMG+"pruvodce_prehled.png",
+       cap:'<p class="hint" style="margin-top:0">Tohle je obrazovka docházky:</p><div class="dp-step">Nahoře <b>ZAKÁZKY A ČINNOSTI</b> — dlaždice <b style="color:#58a6ff">🧾 Zakázka</b> a <b>🔧 Činnost</b> + zelené <b style="color:#3fb950">▶️ Makat</b>.</div><div class="dp-step">Pod tím zelené <b style="color:#3fb950">💬 Potřebuji ti něco říct…</b> (skoro všechny akce).</div><div class="dp-step">Níž <b>Moje docházka</b>: Dnešek, Týden, Historie, <b>🧭 Tady budu jinde</b>.</div>',
+       v:"Tohle je obrazovka docházky. Úplně nahoře je sekce Zakázky a činnosti se dvěma dlaždicemi, Zakázka a Činnost, a zeleným tlačítkem Makat. Pod tím je zelené tlačítko Potřebuji ti něco říct, kterým ovládáte skoro všechno. A níž je sekce Moje docházka s přehledy a s dlaždicí Tady budu jinde."},
+      {t:"🧾 Příchod: vyber zakázku", img:IMG+"pruvodce_zakazka.png",
+       cap:'<div class="dp-step"><b>1.</b> Ťukni dlaždici <b style="color:#58a6ff">🧾 Zakázka</b>.</div><div class="dp-step">Vyber zakázku podle <b>čísla nebo názvu</b> (hledání nahoře) — nebo <b>🧰 Režie</b> (práce bez konkrétní zakázky).</div>',
+       v:"Začneme příchodem. Nejdřív vyberte, na čem budete pracovat. Ťukněte na dlaždici Zakázka. Otevře se seznam, kde zakázku najdete podle čísla nebo názvu. Pokud neděláte na konkrétní zakázce, zvolte nahoře Režie."},
+      {t:"🔧 Příchod: vyber činnost a Makat", img:IMG+"pruvodce_cinnost.png",
+       cap:'<div class="dp-step"><b>2.</b> Ťukni dlaždici <b style="color:#58a6ff">🔧 Činnost</b> a vyber, co děláš (Bez rozlišení činnosti, Porada, Úklid, Pracovní cesta…).</div><div class="dp-step dp-ok"><b>3.</b> Pak ťukni zelené <b style="color:#3fb950">▶️ Makat</b> — docházka se spustí, hlavička „Dnes makám 😉", hodiny tikají.</div>',
+       v:"Pak ťukněte na dlaždici Činnost a vyberte, co budete dělat. Když máte vybranou zakázku i činnost, ťukněte na zelené tlačítko Makat. Docházka se spustí, hlavička se změní na Dnes makám a hodiny začnou tikat."},
+      {t:"💬 Příchod jinak — přes menu", img:IMG+"pruvodce_menu.png",
+       cap:'<p class="hint" style="margin-top:0">Rychlá alternativa — ťukni zelené <b style="color:#3fb950">💬 Potřebuji ti něco říct…</b>:</p><div class="dp-step">🏢 <b>Jsem v práci…</b> — běžný příchod</div><div class="dp-step">🏠 <b>Nejsem v práci… (home office)</b></div><div class="dp-step">🚗 <b>Jedu do práce…</b> — když jsi teprve na cestě (vybereš, za jak dlouho dorazíš)</div><div class="dp-step">🌅 Potřebuji přijít později… · 🕔 Potřebuji skončit dříve…</div>',
+       v:"Příchod jde i rychleji, přes zelené tlačítko Potřebuji ti něco říct. Tam ťuknete Jsem v práci pro běžný příchod, nebo Nejsem v práci, home office, když děláte z domova. Když jste teprve na cestě, vyberte Jedu do práce a kolegové uvidí, že dorazíte. Najdete tu i volby Potřebuji přijít později a Potřebuji skončit dříve."},
+      {t:"🍽️ Pauza / oběd", img:IMG+"pruvodce_prehled.png",
+       cap:'<p class="hint" style="margin-top:0">Během směny ťukni zelené <b style="color:#3fb950">💬 Potřebuji ti něco říct…</b>, pak:</p><div class="dp-step"><b style="color:#d29922">🙈 Teď to bude jinak…</b> → 🍃 Jdu se provětrat / najíst · nebo ☕ Krátká pauza</div><div class="dp-step dp-amber">⏸ Hodiny STOJÍ (pauza se nepočítá).</div><div class="dp-step dp-ok">Po pauze: ✅ Jsem zpět — pokračuju.</div>',
+       v:"Když jdete na oběd nebo si dáte pauzu, ťukněte zelené Potřebuji ti něco říct, pak oranžové Teď to bude jinak, a vyberte Jdu se provětrat nebo najíst, případně Potřebuju krátkou pauzu. Hodiny se zastaví, pauza se nepočítá. Po pauze se vraťte tlačítkem Jsem zpět, pokračuju."},
+      {t:"🤝 Jednání, pochůzka, dřív/později", img:IMG+"pruvodce_prehled.png",
+       cap:'<p class="hint" style="margin-top:0">Také přes 💬 → <b style="color:#d29922">🙈 Teď to bude jinak…</b>:</p><div class="dp-step">📅 <b>Mám jednání…</b> · 🚗 <b>Mám služební pochůzku…</b> (zadáš čas) — <b>hodiny TIKAJÍ DÁL</b>, jen info, kde jsi.</div><div class="dp-step">🌅 <b>Potřebuji přijít později…</b> · 🕔 <b>Potřebuji skončit dříve…</b></div>',
+       v:"Když máte během práce schůzku nebo pochůzku, ťukněte Potřebuji ti něco říct, Teď to bude jinak, a vyberte Mám jednání nebo Mám služební pochůzku. Zadáte, jak dlouho to potrvá. Pozor, tohle není pauza, hodiny běží dál. Je to jen informace pro kolegy, kde zrovna jste."},
+      {t:"🏠 Konec práce — odchod", img:IMG+"pruvodce_prehled.png",
+       cap:'<div class="dp-step"><b>1.</b> 💬 Potřebuji ti něco říct…</div><div class="dp-step"><b>2.</b> <b style="color:#d29922">🙈 Teď to bude jinak…</b></div><div class="dp-step dp-warn"><b>3.</b> 🫡 Dnes už se mnou nepočítej ;)</div><div class="dp-step dp-ok">✓ Směna ukončena — uvidíš souhrn hodin.</div><p class="hint">Zapomněl ses odhlásit? Systém tě o půlnoci odhlásí sám — ale raději se odhlas sám, je to přesnější.</p>',
+       v:"Když končíte a jdete domů, ťukněte zelené Potřebuji ti něco říct, pak oranžové Teď to bude jinak, a nakonec Dnes už se mnou nepočítej. Směna se ukončí a uvidíte souhrn hodin. Když se zapomenete odhlásit, systém vás o půlnoci odhlásí sám a upozorní vás, ale raději se odhlašte sami, je to přesnější."},
+      {t:"✅ Potvrzení docházky", img:IMG+"pruvodce_potvrzeni.png",
+       cap:'<div class="dp-step dp-amber">🖊 Včera · 7:26–16:26 · 7:52 — zkontroluj a potvrď.</div><div class="dp-step dp-ok">✓ Potvrzuji svou docházku</div><div class="dp-step dp-warn">⚠️ Bez potvrzení se ráno nepíchneš! Nesedí? → ✋ Rozpor (napiš, co je špatně).</div><p class="hint">Na potvrzení máš 14 dní.</p>',
+       v:"Po skončení dne, nebo další ráno, vás systém požádá o potvrzení. Uvidíte žlutou kartu s časem a počtem hodin. Zkontrolujte, jestli to sedí, a ťukněte Potvrzuji svou docházku. Důležité: dokud den nepotvrdíte, ráno se nepíchnete. Když něco nesedí, ťukněte Rozpor a napište, co je špatně. Dostane to nadřízený a vy můžete pracovat dál. Na potvrzení máte čtrnáct dní."},
+      {t:"🧭 Dovolená, nemoc, lékař, OČR…", img:IMG+"pruvodce_jinde.png",
+       cap:'<p class="hint" style="margin-top:0">Plánované nepřítomnosti hlásíš dlaždicí <b>🧭 Tady budu jinde</b> (sekce Moje docházka), pak <b>🏠 Osobní důvody</b>:</p><table class="dp"><tr><td>🌴</td><td><b>Že by dovolená?</b></td><td>od–do</td></tr><tr><td>👨‍👧</td><td><b>Zase řeším rodinu</b></td><td>OČR, od–do</td></tr><tr><td>🤒</td><td><b>Je mi fakt blbě</b></td><td>sick day (dnes)</td></tr><tr><td>🤧</td><td><b>Mám neschopenku do…</b></td><td>nemoc</td></tr><tr><td>🩺</td><td><b>Jedu k lékaři</b></td><td>pak dorazím / dnes ne</td></tr><tr><td>🏡</td><td><b>Makat z domova</b></td><td>home office</td></tr><tr><td>🕐</td><td><b>Něco si zařizuji</b></td><td>dorazím za…</td></tr></table><div class="dp-step">💼 <b>Služební důvody</b>: 🚙 k zákazníkovi · 🎓 školení · 📦 pochůzka. Vše jde ke schválení nadřízenému.</div>',
+       v:"Dovolenou, lékaře nebo nemoc nahlásíte takhle. Na obrazovce docházky v sekci Moje docházka ťukněte na dlaždici Tady budu jinde. Pak vyberte Osobní důvody. Najdete tu Že by dovolená, Zase řeším rodinu pro ošetřovné, Je mi fakt blbě pro sick day, Mám neschopenku, Jedu k lékaři, Potřebuju makat z domova, a Něco si zařizuji. U dovolené, ošetřovného nebo home office zadáte datum od do. Je tu i volba Služební důvody, třeba školení nebo cesta k zákazníkovi. Každá žádost jde ke schválení nadřízenému a přijde vám notifikace."},
+      {t:"🆘 Pomoc, opravy a přehledy", img:IMG+"pruvodce_menu.png",
+       cap:'<div class="dp-step">🙋 <b>Mám dotaz na nadřízeného…</b> (v menu 💬) — napiš zprávu, dostane ji rovnou do mobilu.</div><div class="dp-step">✏️ <b>Ťukl jsi špatně?</b> V sekci „Tak to bylo dneska“ ťukni na záznam → <b>⏱ Zkrátit konec</b> nebo <b>🧾 Změnit zakázku</b>.</div><div class="dp-step">📊 Přehledy (sekce Moje docházka): 📅 Dnešek · Týden · 🕓 Historie · 📋 Moje žádosti · 📐 Můj úvazek · 💰 Moje finance (PIN).</div><div class="dp-step dp-ok" style="text-align:center">💬 zelené „Potřebuji ti něco říct" · 🙈 oranžové „Teď to bude jinak" · 🧭 „Tady budu jinde"</div>',
+       v:"Na závěr pár užitečných věcí. Když si nevíte rady, v menu Potřebuji ti něco říct je tlačítko Mám dotaz na nadřízeného. Napíšete zprávu a dostane ji rovnou do mobilu. Když se spletete a chcete opravit záznam, ťukněte na něj v sekci Tak to bylo dneska a vyberte Zkrátit konec, nebo Změnit zakázku. A v sekci Moje docházka najdete přehledy: dnešek, týden, historii, svoje žádosti, úvazek i svoje finance, které jsou zamčené PINem. To je celé. Děkuji za pozornost a přeji hezký den."}
+    ];
+    var cur=0, voiceMode=false, queue=[], qi=0, nextT=null, mo=null, watchdog=null;
+    var czVoice=null;
+    function pickVoice(){ try{ var vs=synth?synth.getVoices():[]; czVoice=vs.filter(function(v){return v.lang==="cs-CZ";})[0] || vs.filter(function(v){return v.lang&&v.lang.indexOf("cs")===0;})[0] || null; }catch(e){} }
+    if(synth){ pickVoice(); try{ synth.addEventListener("voiceschanged",pickVoice); }catch(e){} }
+    // Dělení na krátké úseky (<180 zn.) — Android-safe (chunking, ne pause/resume).
+    function chunk(t){
+      var parts=(t.match(/[^.!?]+[.!?]*/g)||[t]).map(function(s){return s.trim();}).filter(Boolean), out=[];
+      parts.forEach(function(s){
+        if(s.length<=180){ out.push(s); return; }
+        var buf=""; s.split(/,\s*/).forEach(function(c){
+          if((buf+", "+c).length>180){ if(buf)out.push(buf); buf=c; } else buf=buf?buf+", "+c:c;
+        });
+        if(buf)out.push(buf);
+      });
+      return out;
+    }
+    // Overlay
+    var ov=el('<div id="dpOverlay" class="appmodal"></div>');
+    ov.style.cssText="position:fixed;inset:0;z-index:100000;background:#0b0e14;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);";
+    ov.appendChild(el('<style>#dpOverlay *{box-sizing:border-box}'
+      +'#dpHd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #1d2733}'
+      +'#dpHd .ttl{flex:1;font-weight:700;font-size:15px;color:#e6edf3}'
+      +'#dpPill{display:none;align-items:center;gap:6px;background:rgba(37,99,235,.18);color:#7db0ff;border:1px solid #2f6feb;border-radius:20px;padding:3px 10px;font-size:12px}'
+      +'#dpPill.on{display:inline-flex}'
+      +'#dpPill .w{display:inline-block;width:3px;height:10px;background:#7db0ff;border-radius:2px;animation:dpw 1s infinite}'
+      +'#dpProg{height:3px;background:#1d2733}#dpProg>div{height:100%;width:0;background:linear-gradient(90deg,#2f6feb,#7c3aed);transition:width .35s}'
+      +'#dpStage{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:16px 16px 8px;display:flex;flex-direction:column;align-items:center;gap:12px}'
+      +'#dpStage h2{font-size:20px;margin:0;text-align:center;color:#fff}'
+      +'#dpStage img{max-width:100%;max-height:44vh;object-fit:contain;border-radius:14px;border:1px solid #25303f;display:block}'
+      +'#dpStage .capw{width:100%;max-width:520px;color:#dbe3ee}'
+      +'#dpStage .dp-step{background:#121822;border:1px solid #25303f;border-left:3px solid #2f6feb;border-radius:10px;padding:9px 12px;margin:8px 0;font-size:15px;line-height:1.5;text-align:left}'
+      +'#dpStage .dp-ok{border-left-color:#16a34a;background:rgba(22,163,74,.08)}'
+      +'#dpStage .dp-warn{border-left-color:#dc2626;background:rgba(220,38,38,.09)}'
+      +'#dpStage .dp-amber{border-left-color:#d29922;background:rgba(210,153,34,.10)}'
+      +'#dpStage table.dp{width:100%;border-collapse:collapse;font-size:14px}'
+      +'#dpStage table.dp td{padding:7px 8px;border-bottom:1px solid #1b2430;text-align:left;vertical-align:top}'
+      +'#dpStage table.dp td:first-child{width:1%;white-space:nowrap;font-size:1.3em}'
+      +'#dpCtl{display:flex;align-items:center;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid #1d2733}'
+      +'#dpCtl button{border:1px solid #2a3340;background:#161d28;color:#e6edf3;border-radius:12px;padding:11px 14px;font-size:15px;font-weight:700;cursor:pointer}'
+      +'#dpCtl button:disabled{opacity:.35}'
+      +'#dpCtl .play{flex:1;background:#2563eb;border-color:#2563eb;color:#fff}'
+      +'#dpCtl .num{min-width:42px;text-align:center;color:#8b949e;font-size:13px}'
+      +'@keyframes dpw{0%,100%{transform:scaleY(.5)}50%{transform:scaleY(1)}}'
+      +'</style>'));
+    var hd=el('<div id="dpHd"><span class="ttl">🔊 Hlasový průvodce</span><span id="dpPill"><span class="w"></span>Čtu…</span></div>');
+    var clo=el('<button style="border:1px solid #2a3340;background:#161d28;color:#e6edf3;border-radius:10px;width:40px;height:36px;font-size:16px;cursor:pointer;">✕</button>');
+    clo.addEventListener("click",function(){ closeDp(); });
+    hd.appendChild(clo); ov.appendChild(hd);
+    var prog=el('<div id="dpProg"><div></div></div>'); ov.appendChild(prog);
+    var stage=el('<div id="dpStage"></div>'); ov.appendChild(stage);
+    var ctl=el('<div id="dpCtl"></div>');
+    var bPrev=el('<button>◀</button>'), bPlay=el('<button class="play">▶ Přehrát</button>'), bNext=el('<button>▶</button>'), num=el('<span class="num">1/'+SL.length+'</span>');
+    ctl.appendChild(bPrev); ctl.appendChild(num); ctl.appendChild(bPlay); ctl.appendChild(bNext); ov.appendChild(ctl);
+
+    function pill(on){ var p=document.getElementById("dpPill"); if(p)p.classList.toggle("on",!!on); }
+    function clearWd(){ if(watchdog){ clearTimeout(watchdog); watchdog=null; } }
+    function stopSpeak(){ try{ if(synth)synth.cancel(); }catch(e){} if(nextT){clearTimeout(nextT);nextT=null;} clearWd(); pill(false); }
+    function updUI(){
+      num.textContent=(cur+1)+"/"+SL.length;
+      prog.firstChild.style.width=(SL.length>1?(cur/(SL.length-1))*100:100)+"%";
+      bPrev.disabled=cur===0; bNext.disabled=cur===SL.length-1;
+      bPlay.textContent=voiceMode?"⏸ Pauza":"▶ Přehrát";
+      bPlay.classList.toggle("playing",voiceMode);
+    }
+    function render(){
+      stage.scrollTop=0; stage.innerHTML="";
+      var s=SL[cur];
+      stage.appendChild(el('<h2>'+s.t+'</h2>'));
+      if(s.img){ var im=el('<img alt="">'); im.src=s.img; stage.appendChild(im); }
+      var cw=el('<div class="capw"></div>'); cw.innerHTML=s.cap; stage.appendChild(cw);
+      updUI();
+    }
+    function speakCur(){
+      stopSpeak();
+      if(!synth || !voiceMode) return;
+      var t=SL[cur].v||"";
+      if(!t){ scheduleNext(); return; }
+      queue=chunk(t); qi=0; pill(true);
+      // malé zpoždění po cancel() — jinak Chrome/Android občas zahodí hned navázaný speak()
+      setTimeout(function(){ if(voiceMode && document.body.contains(ov)) speakChunk(); }, 160);
+    }
+    function speakChunk(){
+      if(!voiceMode || !document.body.contains(ov)) return;
+      if(qi>=queue.length){ pill(false); clearWd();
+        if(cur<SL.length-1){ scheduleNext(); } else { voiceMode=false; updUI(); }
+        return; }
+      var txt=queue[qi], moved=false;
+      function adv(){ if(moved)return; moved=true; clearWd(); qi++; speakChunk(); }
+      var u=new SpeechSynthesisUtterance(txt);
+      if(czVoice)u.voice=czVoice; u.lang="cs-CZ"; u.rate=.97; u.pitch=1;
+      u.onend=adv; u.onerror=adv;
+      // WATCHDOG: když speechSynthesis nevyšle onend (Android/Chrome to po pár větách občas
+      // zahodí → auto-posun zamrzne), posuň se po odhadnuté době sám. Pojistka, ne primární cesta.
+      clearWd(); watchdog=setTimeout(adv, Math.max(4000, txt.length*95) + 2500);
+      try{ synth.speak(u); }catch(e){ adv(); }
+    }
+    function scheduleNext(){ if(nextT)clearTimeout(nextT); nextT=setTimeout(function(){ if(voiceMode && cur<SL.length-1) goTo(cur+1); },1100); }
+    function goTo(n){ if(n<0||n>=SL.length)return; stopSpeak(); cur=n; render(); if(voiceMode) speakCur(); }
+    bPrev.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} goTo(cur-1); });
+    bNext.addEventListener("click",function(){ try{_tapFeedback();}catch(e){} goTo(cur+1); });
+    bPlay.addEventListener("click",function(){ try{_tapFeedback();}catch(e){}
+      if(voiceMode){ voiceMode=false; stopSpeak(); updUI(); }
+      else { voiceMode=true; updUI(); speakCur(); } });
+
+    function cleanup(){ stopSpeak(); document.removeEventListener("visibilitychange",onVis); if(mo){mo.disconnect();mo=null;} }
+    function closeDp(){ try{ ov.remove(); }catch(e){} /* MutationObserver dorovná cleanup */ }
+    function onVis(){ if(document.hidden){ voiceMode=false; stopSpeak(); updUI(); } }
+    document.addEventListener("visibilitychange",onVis);
+    // Bezpečně zruš řeč při JAKÉMKOLI odebrání overlaye (✕ / hardware back přes .appmodal / render)
+    mo=new MutationObserver(function(){ if(!document.body.contains(ov)) cleanup(); });
+    try{ mo.observe(document.body,{childList:true}); }catch(e){}
+
+    document.body.appendChild(ov);
+    render();
+  }
   function dochazka(){
     app.innerHTML=topbar("", false, true);  // Marti 7.6.: bez nadpisu a šipky; prázdná lišta drží odsazení
     var p=el('<div class="panel"></div>');
     // Marti 16.6.: docházka běží i v PWA (web) přes cookie auth — gate na nativní appku zrušen.
     // Marti 7.6. večer: „Dnes" logicky nahoru — obrazovka KONČÍ kartou
-    // „Potřebuji ti něco říct…". Nadpis „Dnes makám 😉" při běžící směně.
+    // „Potřebuji ti něco říct…". Nadpis „Dnes makám 😉“ při běžící směně.
+    // Nápověda (Jirka 26.6.): ❓ vpravo nahoře → kompletní návod docházky.
+    var _hb=el('<div style="display:flex;justify-content:flex-end;margin:-6px 0 2px;"><button class="ghost" style="margin:0;width:auto;padding:6px 14px;font-size:13px;border-radius:18px;">❓ Nápověda</button></div>');
+    _hb.querySelector("button").addEventListener("click",function(){ try{_tapFeedback();}catch(e){} dochHelp(); });
+    p.appendChild(_hb);
     p.appendChild(el('<div id="dochHead" style="display:none;font-size:24px;font-weight:800;margin:6px 0 12px;">Dnes makám 😉</div>'));
     // Marti 14.6.: region nástrojů ve stylu sekce „Vedení" — JEN ikony v grupách
     // (BEZ rozbalovací hlavičky). Zobrazí se, KDYŽ ČLOVĚK NEMAKÁ. Časové sekce jsou
@@ -4816,7 +5216,7 @@ setTimeout(function(){
     _dS.paska.box.innerHTML='<div id="paskaBox"><div class="hint">🔒 Páska je zamčená.</div></div>';
     // Marti 14.6.: časové sekce defaultně SCHOVANÉ — pod ikonami zůstane jen
     // „Potřebuji ti něco říct". Odkryjí se přes ikonu v regionu (Dnešek/Historie/…).
-    // „Tak to bylo dneska" (todayhist) skryté natrvalo (Marti: úplně schovat).
+    // „Tak to bylo dneska“ (todayhist) skryté natrvalo (Marti: úplně schovat).
     try{ ["today","todayhist","yest","prev","plan","paska"].forEach(function(k){
       if(_dS[k]&&_dS[k].box&&_dS[k].box.parentNode) _dS[k].box.parentNode.style.display="none"; }); }catch(e){}
     // Marti 7.6. večer: pro tlačítko Zpět — zavření otevřeného menu/sekcí.
@@ -4826,7 +5226,7 @@ setTimeout(function(){
       var dbx=document.querySelector(".detbox");
       if(dbx){ dbx.remove(); return true; }
       if(window._dochMenuTs){ try{ if(window._dochCloseMenu) window._dochCloseMenu(); }catch(e){} window._dochMenuTs=0; return true; }
-      // Marti 11.6.: rozkliknutý job „Tak to bylo dneska" → Zpět zavře detail jobu
+      // Marti 11.6.: rozkliknutý job „Tak to bylo dneska“ → Zpět zavře detail jobu
       // a zase ukáže pravou lištu (teprve další Zpět zavírá sekci).
       var _ojob=document.querySelector("#dochToday2 li.ct.open, #dochYest2 li.ct.open, #dochPrev2 li.ct.open, #dochPlan2 li.ct.open");
       if(_ojob){ var _oul=_ojob.parentNode; _ojob.classList.remove("open"); var _ojx=_ojob.querySelector(".ctexp"); if(_ojx)_ojx.style.display="none"; try{ var _lid=(_oul&&_oul.id)||"dochToday2"; _railSync(_lid.replace(/2$/,"")+"Rail",_lid); }catch(e){} return true; }
@@ -4891,6 +5291,10 @@ setTimeout(function(){
           var card=el('<div class="doch-pulse" style="background:rgba(224,176,112,.10);border:1px solid #6e5326;border-radius:12px;padding:12px;margin-bottom:8px;"></div>');
           card.appendChild(el('<div style="font-weight:600;font-size:14.5px;">🖊 '+esc(czDayLabel(d.day))+' · '+esc(d.od||'?')+'–'+esc(d.do||'…')+' · '+fmtHM(d.hodin)+' <span style="color:var(--mut);font-weight:400;">('+d.zaznamu+' zázn.)</span></div>'));
           card.appendChild(el('<div class="hint" style="margin-top:4px;">Zkontroluj si den (detail v Posledních záznamech) a potvrď ho.</div>'));
+          // Kontextový tip (Jirka 26.6.): jak potvrdit / co je rozpor.
+          var _ch=el('<div style="margin-top:2px;"><span style="color:var(--blue);font-size:12px;cursor:pointer;">ⓘ Jak potvrdit den / co je rozpor?</span></div>');
+          _ch.querySelector("span").addEventListener("click",function(){ dochHelp("potvrzeni"); });
+          card.appendChild(_ch);
           var b=el('<button class="green full" style="margin-top:8px;">✓ Potvrzuji svou docházku</button>');
           b.addEventListener("click",function(){
             b.disabled=true;
@@ -5094,6 +5498,10 @@ setTimeout(function(){
         var btn=el('<button class="green full" style="font-size:16px;display:flex;justify-content:space-between;align-items:center;text-align:left;"><span>Potřebuji ti něco říct…</span><span>💬</span></button>');
         btn.addEventListener("click",showOpts);
         bw.appendChild(btn);
+        // Kontextový tip (Jirka 26.6.): rychlá nápověda k příchodu/odchodu.
+        var _tip=el('<div style="text-align:right;margin-top:4px;"><span style="color:var(--mut);font-size:12px;cursor:pointer;">ⓘ Jak na příchod, pauzu, odchod?</span></div>');
+        _tip.querySelector("span").addEventListener("click",function(){ dochHelp("prichod"); });
+        bw.appendChild(_tip);
       }
       function addOpts(defs, cls){
         defs.forEach(function(o){
@@ -5201,8 +5609,8 @@ setTimeout(function(){
             var today=_locDate(0);
             absence({type_code:"homeoffice",date_from:od,date_to:dd,mode:"days",note:"home office (přes mobil)"},function(){
               if(od<=today && dd>=today){ presence({text:"Jsem na home office",add_since:false,until_txt:czDate(dd)},b); }
-              else dochLoad();
-            });
+              else absOk(bx,"Home office "+czDate(od)+" – "+czDate(dd));
+            },b);
           });
         },_greenStyle);
         expOpt(box,"🕐 Něco si zařizuji…","ghost",function(bx){
@@ -5213,20 +5621,30 @@ setTimeout(function(){
             var today=_locDate(0);
             absence({type_code:"family_care",date_from:od,date_to:dd,mode:"days",note:"OČR (přes mobil)"},function(){
               if(od<=today && dd>=today){ presence({text:"Pečuji o rodinu (OČR)",add_since:false,until_txt:czDate(dd)},b); }
-              else dochLoad();
-            });
+              else absOk(bx,"OČR "+czDate(od)+" – "+czDate(dd));
+            },b);
           });
         },_amberStyle);
-        dirBtn(box,"🤒 Je mi fakt blbě… Vidím to na sick day.","ghost",function(b){
-          b.disabled=true; var today=_locDate(0);
-          absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
-            presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); });
+        expOpt(box,"🤒 Je mi blbě… sick day","ghost",function(bx){
+          dirBtn(bx,"🤒 Dnes je mi blbě","ghost",function(b){
+            b.disabled=true; var today=_locDate(0);
+            absence({type_code:"sickday",date_from:today,date_to:today,mode:"days",note:"přes mobil — je mi blbě"},function(){
+              presence({text:"Je mi blbě — sick day, dnes nedorazím",add_since:false},b); },b);
+          },_amberStyle);
+          bx.appendChild(el('<div class="hint" style="margin-top:8px;">…nebo sick day na konkrétní dny (i zpětně):</div>'));
+          dateRangePickIn(bx,"Sick day od – do:",function(od, dd, b){
+            var today=_locDate(0);
+            absence({type_code:"sickday",date_from:od,date_to:dd,mode:"days",note:"sick day (přes mobil)"},function(){
+              if(od<=today && dd>=today){ presence({text:"Je mi blbě — sick day",add_since:false,until_txt:czDate(dd)},b); }
+              else absOk(bx,"Sick day "+czDate(od)+" – "+czDate(dd));
+            },b);
+          });
         },_amberStyle);
         expOpt(box,"🤧 Mám neschopenku do…","ghost",function(bx){
           datePickIn(bx,"Neschopenka do:",function(d,b){
             var today=_locDate(0);
             absence({type_code:"sick",date_from:today,date_to:d,mode:"days",note:"neschopenka (přes mobil)"},function(){
-              presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); }); });
+              presence({text:"Neschopenka",add_since:false,until_txt:czDate(d)},b); },b); });
         },_amberStyle);
         expOpt(box,"🩺 Jedu k lékaři…","ghost",function(bx){
           // Marti 7.6. večer: rychlé volby teď + hlášení dopředu (dny i měsíce).
@@ -5237,8 +5655,8 @@ setTimeout(function(){
             var today=_locDate(0);
             absence({type_code:"medical",date_from:d,date_to:d,mode:"days",note:"u lékaře"+(t?(" do ~"+t):"")},function(){
               if(d===today){ presence({text:"Jsem u lékaře",add_since:false,until_txt:(t?("~"+t):"")},b); }
-              else dochLoad();
-            });
+              else absOk(bx,"Lékař "+czDate(d));
+            },b);
           });
         },_amberStyle);
         expOpt(box,"🌴 Že by dovolená?… 😎","ghost",function(bx){
@@ -5246,8 +5664,8 @@ setTimeout(function(){
             var today=_locDate(0);
             absence({type_code:"vacation",date_from:od,date_to:dd,mode:"days",note:"přes mobil"},function(){
               if(od<=today && dd>=today){ presence({text:"Mám dovolenou",add_since:false,until_txt:czDate(dd)},b); }
-              else dochLoad();
-            });
+              else absOk(bx,"Dovolená "+czDate(od)+" – "+czDate(dd));
+            },b);
           });
         },_amberStyle);
       }
@@ -5388,7 +5806,21 @@ setTimeout(function(){
         box.appendChild(st); box.appendChild(reply);
       }
       function presence(payload, b){ b.disabled=true; api("POST","/api/v1/erp/app/attendance/announce",payload).then(function(){ dochLoad(); }).catch(function(){ b.disabled=false; }); }
-      function absence(payload, then){ return api("POST","/api/v1/erp/app/attendance/absence",payload).then(then); }
+      // Jirka 27.6.: robustní nahlášení nepřítomnosti. Na chybu re-enable tlačítka
+      // + viditelná hláška (dřív tlačítko Potvrdit zůstalo šedé = „nešlo zmáčknout").
+      function absence(payload, then, btn){
+        return api("POST","/api/v1/erp/app/attendance/absence",payload).then(function(r){
+          if(r&&r.ok===false){ throw new Error(r.error||"nepovedlo se"); }
+          if(then) then(r);
+        }).catch(function(e){
+          if(btn){ btn.disabled=false;
+            if(btn.parentNode){ btn.parentNode.appendChild(el('<div class="hint" style="color:#f87171;margin-top:6px;">Nepovedlo se uložit ('+esc((e&&e.message)||"zkus to znovu")+'). Zkus to prosím ještě jednou.</div>')); } }
+        });
+      }
+      // Zelené potvrzení nahlášené (budoucí) nepřítomnosti do boxu — ať uživatel ví, že to prošlo.
+      function absOk(box, txt){
+        if(box){ box.innerHTML=''; box.appendChild(el('<div class="hint" style="color:var(--green);margin:8px 4px;font-size:14px;line-height:1.5;">✓ '+esc(txt)+'<br>Díky, nahlásil/a jsi to — čeká to na schválení.</div>')); }
+      }
       var _blueStyle=function(b){ b.style.borderColor="var(--blue)"; b.style.color="var(--blue)"; };
       var _amberStyle=function(b){ b.style.borderColor="var(--amber)"; b.style.color="var(--amber)"; };
       // Marti 7.6. večer: ohlášení dřívějšího konce / pozdějšího příchodu —
@@ -5526,6 +5958,16 @@ setTimeout(function(){
               var nb=el('<button class="ghost full" style="margin-top:8px;">Zatím nevím — bez času</button>');
               nb.addEventListener("click",function(){ nb.disabled=true; presence({text:"Na služební pochůzce",add_since:true},nb); }); b2.appendChild(nb);
             });
+            // Petra 25.6.2026: OSVČ — nahlášení nepřítomnosti (od–do), neplacené. Jen pro formu OSVČ.
+            if(j.is_osvc){
+              expOpt(bx,"🧾 Nepřítomnost OSVČ…","ghost",function(b2){
+                dateRangePickIn(b2,"Nepřítomnost OSVČ od – do:",function(od,dd,b){
+                  absence({type_code:"osvc_absence",date_from:od,date_to:dd,mode:"days",note:"nepřítomnost OSVČ (přes mobil)"},function(){
+                    absOk(b2,"Nepřítomnost OSVČ "+czDate(od)+" – "+czDate(dd));
+                  },b);
+                });
+              },_amberStyle);
+            }
             var bn=btnEl("🫡 Dnes už se mnou nepočítej ;)","ghost"); bn.addEventListener("click",function(){ act("checkout",{reason:"",presence:"Dnes už se mnou nepočítej ;)",add_since:false},bn); }); bx.appendChild(bn);
           },_amberStyle);
           expOpt(bw,"🛠 Zpráva vedoucímu výroby…","ghost",vyrobaFbBuild,_blueStyle);
@@ -5550,6 +5992,16 @@ setTimeout(function(){
           ],"green");
           expOpt(bw,"🌅 Potřebuji přijít později…","ghost",pozdejiBuild);
           expOpt(bw,"🕔 Potřebuji skončit dříve…","ghost",driveBuild);
+          // Petra 25.6.2026: OSVČ nepřítomnost (od–do) — viditelná i MIMO směnu. Jen forma OSVČ.
+          if(j.is_osvc){
+            expOpt(bw,"🧾 Nepřítomnost OSVČ…","ghost",function(b2){
+              dateRangePickIn(b2,"Nepřítomnost OSVČ od – do:",function(od,dd,b){
+                absence({type_code:"osvc_absence",date_from:od,date_to:dd,mode:"days",note:"nepřítomnost OSVČ (přes mobil)"},function(){
+                  absOk(b2,"Nepřítomnost OSVČ "+czDate(od)+" – "+czDate(dd));
+                },b);
+              });
+            },_amberStyle);
+          }
           // Marti 14.6.: „Tady budu asi jinde" přesunuto do regionu docházky (dlaždice).
           expOpt(bw,"💬 Píši přímo tobě, Marti…","ghost",martiMsgBuild,_blueStyle);
           expOpt(bw,"🙋 Mám dotaz na nadřízeného…","ghost",bossAskBuild,_blueStyle);
@@ -5713,7 +6165,7 @@ setTimeout(function(){
       }
     });
   }
-  // Marti 11.6.: „Tak to bylo dneska" — joby ve stylu Kontaktů (avatar+ikona,
+  // Marti 11.6.: „Tak to bylo dneska“ — joby ve stylu Kontaktů (avatar+ikona,
   // accordion zvětšení, 3 tlačítka; 2. klik = detail přes celou obrazovku).
   function _jobIcon(e){ var s=((e.typ||'')+' '+(e.note||'')).toLowerCase();
     if(/home|domov/.test(s)) return '🏠';
@@ -5808,7 +6260,7 @@ setTimeout(function(){
     return /pauz|p[řr]est[aá]v|relax|energ|jídl|jidl|provětr|provetr|naj[íi]st|ob[ěe]d/.test(_jobText(e)); }
   function _jobMakam(e){ return !_jobSpecial(e) && !_jobRelax2(e); }
   // Marti 11.6.: TEMPLATE „brand" dvoupanelu — lišta filtrů + joby + souhrn. Sdílený
-  // pro „Tak to bylo dneska", „Na včera si vzpomínám", „To už si nepamatuju".
+  // pro „Tak to bylo dneska“, „Na včera si vzpomínám", „To už si nepamatuju".
   var _todaySt={f:"vse"}, _yestSt={f:"vse"}, _prevSt={f:"vse"};
   // Marti 19.6.: stejný „Dnešek" template lze zobrazit i pro jiného člověka (👁 v panelu skupin).
   // _dochViewUid != null → read-only pohled na docházku cizí osoby (bez akcí). Vlastní obrazovky ho resetují.
@@ -6081,6 +6533,28 @@ setTimeout(function(){
         var card=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:12px;padding:12px;margin-bottom:10px;"></div>');
         card.appendChild(el('<div style="font-weight:700;font-size:14.5px;">🏢 '+esc(f.nazev)+'</div>'));
         card.appendChild(el('<div class="hint" style="margin:2px 0 8px;">Výplatní páska · '+esc(j.jmeno||"")+' · '+esc(_CZ_MES[j.m]||j.m)+' '+j.y+'</div>'));
+        // Mzdový LIST k pásce (Marti 27.6.) — úvazek, fond PD, odpracováno, průměry, pojišťovna
+        (function(){
+          var lst=(j.list||[]).filter(function(x){ return (x.firma||"?")===fk; });
+          if(!lst.length) return;
+          var L=lst[0];
+          function combo(dni,hod){ var a=[]; if(dni!=null)a.push(Math.round(dni*10)/10+" dní"); if(hod!=null)a.push(Math.round(hod*10)/10+" h"); return a.length?a.join(" · "):null; }
+          function lrow(lbl,val){ return val==null?"":('<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--bord);"><span style="font-size:12.5px;color:var(--mut);">'+esc(lbl)+'</span><span style="font-size:12.5px;font-weight:600;">'+esc(val)+'</span></div>'); }
+          var html=lrow("Týdenní úvazek", L.tydenni_uvazek!=null?(L.tydenni_uvazek+" h"):null)
+            +lrow("Denní úvazek", L.denni_uvazek!=null?(Math.round(L.denni_uvazek*10)/10+" h"):null)
+            +lrow("Fond prac. doby", combo(L.fond_dny,L.fond_hod))
+            +lrow("Odpracováno", combo(L.odprac_dny,L.odprac_hod))
+            +lrow("Přesčas", L.prescas_hod!=null?(Math.round(L.prescas_hod*10)/10+" h"):null)
+            +lrow("Svátek", L.svatek_tarif_hod!=null?(Math.round(L.svatek_tarif_hod*10)/10+" h"):null)
+            +lrow("Průměrný výdělek/h", L.prum_vydelek_hod!=null?(Math.round(L.prum_vydelek_hod*100)/100+" Kč"):null)
+            +lrow("Základní mzda", L.zakladni_mzda!=null?(Math.round(L.zakladni_mzda).toLocaleString("cs")+" Kč"):null)
+            +lrow("Zdrav. pojišťovna", L.zdrav_pojistovna);
+          if(!html) return;
+          var det=el('<details style="margin:0 0 10px;"></details>');
+          det.appendChild(el('<summary style="cursor:pointer;font-size:13px;color:var(--mut);padding:4px 0;">📄 Mzdový list (úvazek, fond, odpracováno)</summary>'));
+          var dbox=el('<div style="padding:4px 2px 2px;"></div>'); dbox.innerHTML=html;
+          det.appendChild(dbox); card.appendChild(det);
+        })();
         // Marti 7.6.: lidská struktura — 1) co firma poskytla (vč. odvodů firmy)
         // 2) FIRMA DALA CELKEM (superhrubá) 3) červené srážky (sleva na dani +)
         // 4) zelená Výplata na účet. Klasifikace dle názvu — doladí Šárka.
@@ -6186,35 +6660,6 @@ setTimeout(function(){
     p.appendChild(go); p.appendChild(bk);
     p.appendChild(el('<div class="hint">Pro testování docházky a práv. Vše se loguje do fw.impersonation_log (od–do, kdo, koho). Automaticky končí po 8 hodinách nebo tlačítkem výše.</div>'));
     app.appendChild(p); refresh();
-  }
-  function buildAbsForm(box){
-    var today=_locDate(0);
-    var ist="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;margin-bottom:4px;";
-    box.innerHTML='<label>Typ nepřítomnosti</label>'
-      +'<select id="absType" style="'+ist+'"><option value="vacation">Dovolená</option>'
-      +'<option value="homeoffice">🏠 Home office (hlášení dopředu)</option>'
-      +'<option value="sick">Nemoc (PN)</option><option value="medical">Lékař</option>'
-      +'<option value="family_care">OČR</option><option value="sickday">Sickday</option>'
-      +'<option value="unpaid">Neplacené volno</option></select>'
-      +'<label>Od</label><input type="date" id="absFrom" value="'+today+'" style="'+ist+'">'
-      +'<label>Do (volitelně, jen pro celé dny)</label><input type="date" id="absTo" value="'+today+'" style="'+ist+'">'
-      +'<label>Počet hodin (část dne — prázdné = celé dny po 8 h)</label><input type="number" step="0.5" min="0" id="absHours" placeholder="např. 1.5 (lékař)" style="'+ist+'">'
-      +'<label>Poznámka (volitelné)</label><input id="absNote" placeholder="důvod…" style="'+ist+'">';
-    var b=el('<button class="green full" style="margin-top:10px;">Odeslat ke schválení</button>');
-    b.addEventListener("click",function(){
-      var t=document.getElementById("absType").value, f=document.getElementById("absFrom").value,
-          to=document.getElementById("absTo").value, n=document.getElementById("absNote").value,
-          hv=(document.getElementById("absHours").value||"").trim();
-      if(!f){ return; }
-      var payload = hv ? {type_code:t,date_from:f,mode:"hours",hours:parseFloat(hv),note:n}
-                       : {type_code:t,date_from:f,date_to:to,mode:"days",note:n};
-      b.disabled=true; b.textContent="Odesílám…";
-      api("POST","/api/v1/erp/app/attendance/absence",payload).then(function(j){
-        if(j&&j.ok){ box.style.display="none"; box.innerHTML=""; dochListLoad(); alert("Nahlášeno ✓ ("+(j.created||0)+" pracovních dní)"); }
-        else { b.disabled=false; b.textContent="Odeslat ke schválení"; alert("Nepodařilo se: "+((j&&j.error)||"")); }
-      }).catch(function(){ b.disabled=false; b.textContent="Odeslat ke schválení"; });
-    });
-    box.appendChild(b);
   }
   // === Lišta skupin (Marti 10.6.2026): skupiny sdílí konzoli Výroby (_vyCtx mode=group) ===
   var _skupBarCache=null,_skupBarOn=false;
@@ -6341,23 +6786,6 @@ setTimeout(function(){
   }
   function _shotToast(msg){ var t=document.getElementById("shotToast"); if(!t){ t=el('<div id="shotToast" style="position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:1100;background:rgba(18,22,30,.96);border:1px solid var(--bord);color:#fff;padding:8px 14px;border-radius:20px;font-size:14px;box-shadow:0 4px 14px rgba(0,0,0,.45);"></div>'); document.body.appendChild(t); } t.textContent=msg; t.style.display="block"; }
   function _shotToastHide(){ var t=document.getElementById("shotToast"); if(t)t.style.display="none"; }
-  // Výrazná notifikace uprostřed obrazovky (datové schránky) — neprehlédnutelná, podbarvená, bez ztmavení pozadí.
-  function _isdsBanner(msg, kind){
-    var COL={progress:["#1f6fd6","#2f86ef"], ok:["#15803d","#22c55e"], err:["#b91c1c","#ef4444"]};
-    var c=COL[kind]||COL.progress;
-    var bg=document.getElementById("isdsBannerBg");
-    if(!bg){ bg=document.createElement("div"); bg.id="isdsBannerBg";
-      bg.style.cssText="position:fixed;inset:0;z-index:1190;pointer-events:none;display:flex;align-items:center;justify-content:center;padding:24px;";
-      document.body.appendChild(bg); }
-    var t=document.getElementById("isdsBanner");
-    if(!t){ t=document.createElement("div"); t.id="isdsBanner"; t.addEventListener("click",_isdsBannerHide); bg.appendChild(t); }
-    t.style.cssText="pointer-events:auto;cursor:pointer;max-width:90vw;min-width:220px;text-align:center;color:#fff;font-size:23px;font-weight:800;line-height:1.35;padding:26px 28px;border-radius:18px;box-shadow:0 14px 44px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);background:linear-gradient(180deg,"+c[1]+","+c[0]+");";
-    t.textContent=msg;
-    bg.style.display="flex";
-    if(_isdsBanner._t){ clearTimeout(_isdsBanner._t); _isdsBanner._t=null; }
-    if(kind==="ok"||kind==="err"){ _isdsBanner._t=setTimeout(_isdsBannerHide, kind==="err"?5000:3500); }
-  }
-  function _isdsBannerHide(){ var bg=document.getElementById("isdsBannerBg"); if(bg)bg.style.display="none"; if(_isdsBanner._t){ clearTimeout(_isdsBanner._t); _isdsBanner._t=null; } }
   var _h2cReady=null;
   function _loadH2C(){
     if(_h2cReady) return _h2cReady;
@@ -7218,21 +7646,18 @@ setTimeout(function(){
       tg2.appendChild(b);
     });
     app.appendChild(tg2);
-    app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">'+(K==="rezie"?"Seznam <b>režijních</b> činností (zakázka Režie).":"Výchozí seznam činností (pro běžné zakázky).")+' Přidej, přejmenuj, změň pořadí, skryj. U každé činnosti urči <b>oddělení</b> — komu se ukáže v hlavní nabídce. Bez oddělení = jen v „Ostatní".</div>'));
+    app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">'+(K==="rezie"?"Seznam <b>režijních</b> činností (zakázka Režie).":"Výchozí seznam činností (pro běžné zakázky).")+' Přidej, přejmenuj, změň pořadí, skryj. Pracovníci si z něj dělají vlastní seznam.</div>'));
     var addb=el('<button class="green full" style="margin-bottom:10px;">+ Přidat činnost</button>');
     addb.addEventListener("click",function(){ var n=prompt("Název nové činnosti:"); if(!n||!n.trim())return; api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{name:n.trim(),kind:K}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
     app.appendChild(addb);
     var box=el('<div></div>'); app.appendChild(box);
     app.appendChild(el('<div style="height:120px;"></div>'));
     var _all=[];
-    var _skup=[];
     function saveOrder(){ api("POST","/api/v1/erp/app/vyroba/cinnost-master/order",{order:_all.map(function(c){return c.id;})}).then(function(){}); }
-    function skupNazev(gid){ for(var i=0;i<_skup.length;i++){ if(_skup[i].id===gid) return (_skup[i].icon||"👥")+" "+_skup[i].name; } return "#"+gid; }
     function render(){
       box.innerHTML='';
       _all.forEach(function(c,idx){
-        var card=el('<div style="border-bottom:1px solid #1b2742;padding:4px 0;'+(c.active?'':'opacity:.5;')+'"></div>');
-        var row=el('<div style="display:flex;align-items:center;gap:6px;padding:6px 4px;"></div>');
+        var row=el('<div style="display:flex;align-items:center;gap:6px;border-bottom:1px solid #1b2742;padding:8px 4px;'+(c.active?'':'opacity:.5;')+'"></div>');
         var up=el('<button class="ghost" style="padding:4px 9px;flex:none;" '+(idx===0?'disabled':'')+'>▲</button>');
         var dn=el('<button class="ghost" style="padding:4px 9px;flex:none;" '+(idx===_all.length-1?'disabled':'')+'>▼</button>');
         up.addEventListener("click",function(){ if(idx===0)return; var t=_all[idx-1]; _all[idx-1]=_all[idx]; _all[idx]=t; render(); saveOrder(); });
@@ -7246,37 +7671,10 @@ setTimeout(function(){
         row.appendChild(nm);
         var tg=el('<button class="ghost" style="padding:6px 10px;flex:none;">'+(c.active?'🚫':'👁')+'</button>');
         tg.addEventListener("click",function(){ api("POST","/api/v1/erp/app/vyroba/cinnost-master/save",{id:c.id,active:!c.active}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba"); }); });
-        row.appendChild(tg); card.appendChild(row);
-        // Peta 23.6.: řádek s odděleními (pro koho je činnost v hlavní nabídce)
-        var groups=(c.groups||[]).slice();
-        var drow=el('<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 4px 8px 4px;"></div>');
-        var dlbl=el('<div style="flex:1;min-width:0;font-size:12px;color:#8696b8;">🏢 '+(groups.length?('Oddělení: '+groups.map(skupNazev).join(", ")):'<span style="color:#6b7a93;">bez oddělení — jen v „Ostatní"</span>')+'</div>');
-        drow.appendChild(dlbl);
-        var ebtn=el('<button class="ghost" style="padding:4px 10px;flex:none;font-size:12px;border-color:#3a5a8c;color:#9ec3ff;">Upravit</button>');
-        var panel=el('<div style="display:none;width:100%;background:rgba(79,142,247,.06);border:1px solid #2a3a5d;border-radius:10px;padding:8px 10px;margin-top:4px;"></div>');
-        ebtn.addEventListener("click",function(){
-          if(panel.style.display==='block'){ panel.style.display='none'; return; }
-          panel.innerHTML=''; var sel={}; groups.forEach(function(g){ sel[g]=true; });
-          if(!_skup.length){ panel.appendChild(el('<div class="hint">Nejsou žádné skupiny.</div>')); }
-          _skup.forEach(function(g){
-            var lab=el('<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;font-size:14px;"></label>');
-            var cb=el('<input type="checkbox" style="width:18px;height:18px;flex:none;">'); cb.checked=!!sel[g.id];
-            cb.addEventListener("change",function(){ sel[g.id]=cb.checked; });
-            lab.appendChild(cb); lab.appendChild(el('<span>'+(g.icon||"👥")+' '+esc(g.name)+'</span>'));
-            panel.appendChild(lab);
-          });
-          var sb=el('<button class="green full" style="margin-top:8px;">Uložit oddělení</button>');
-          sb.addEventListener("click",function(){
-            var ids=Object.keys(sel).filter(function(k){return sel[k];}).map(function(k){return parseInt(k,10);});
-            api("POST","/api/v1/erp/app/vyroba/cinnost-master/groups",{cinnost_id:c.id,group_ids:ids}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); });
-          });
-          panel.appendChild(sb); panel.style.display='block';
-        });
-        drow.appendChild(ebtn); card.appendChild(drow); card.appendChild(panel);
-        box.appendChild(card);
+        row.appendChild(tg); box.appendChild(row);
       });
     }
-    function load(){ box.innerHTML='<div class="hint">Načítám…</div>'; api("GET","/api/v1/erp/app/vyroba/cinnost-master?kind="+K,"").then(function(j){ box.innerHTML=''; if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Jen pro vedoucí/HR.")+'</div>')); return; } _all=j.cinnosti||[]; _skup=j.skupiny||[]; render(); }); }
+    function load(){ box.innerHTML='<div class="hint">Načítám…</div>'; api("GET","/api/v1/erp/app/vyroba/cinnost-master?kind="+K,"").then(function(j){ box.innerHTML=''; if(!j||!j.ok){ box.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Jen pro vedoucí/HR.")+'</div>')); return; } _all=j.cinnosti||[]; render(); }); }
     load();
   }
   function moje_cinnosti(){
@@ -7291,7 +7689,7 @@ setTimeout(function(){
     app.appendChild(tg3);
     // Marti 14.6.: vybrané činnosti složené jako ikony rovnou nahoře (náhled plochy).
     var _topGrid=el('<div class="appgrid" style="margin-bottom:12px;"></div>'); app.appendChild(_topGrid);
-    app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">Nahoře je <b>hlavní nabídka pro tvé oddělení</b>. Můžeš si měnit pořadí (▲▼), činnost odebrat (✕) nebo si přidat další z <b>Ostatní</b> dole.</div>'));
+    app.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:10px;">Vyber, které činnosti chceš mít ve svém seznamu a v jakém pořadí. Výchozí = všechny. ▲▼ pořadí · ✕ odebrat · + přidat zpět.</div>'));
     var mb=el('<button class="ghost full" style="margin-top:16px;border-color:#6b4a2a;color:#e6b97a;">🛠 Master číselník (správa)</button>');
     mb.addEventListener("click",function(){ go("master_cinnosti"); });
     var box=el('<div></div>'); app.appendChild(box);
@@ -7320,35 +7718,21 @@ setTimeout(function(){
       api("GET","/api/v1/erp/app/vyroba/my-cinnosti?kind="+K,"").then(function(j){
         box.innerHTML='';
         if(!j||!j.ok){ box.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }
-        var deptCfg=!!(j&&j.dept_config);
         _mine=(j.cinnosti||[]).filter(function(c){return !c.hidden;});
         var avail=(j.cinnosti||[]).filter(function(c){return c.hidden;});
         // náhled plochy nahoře — vybrané činnosti jako ikony
         if(_topGrid){ _topGrid.innerHTML=''; _mine.forEach(function(c){ _topGrid.appendChild(appCell(c.icon||"🔧",c.name,0,function(){})); }); }
-        box.appendChild(el('<div style="font-weight:700;margin-bottom:6px;">'+(deptCfg?'⭐ Hlavní nabídka pro tvé oddělení':'Můj seznam')+' ('+_mine.length+')</div>'));
+        box.appendChild(el('<div style="font-weight:700;margin-bottom:6px;">Můj seznam ('+_mine.length+')</div>'));
         var ml=el('<div></div>'); box.appendChild(ml); renderMine(ml);
-        // „Ostatní" — sbalená sekce se zbytkem činností (rozbalí se tlačítkem).
-        if(!avail.length){
-          box.appendChild(el('<div class="hint" style="margin-top:14px;">Máš všechny činnosti ve svém seznamu.</div>'));
-        } else {
-          var oExpanded=false;
-          var oBtn=el('<button class="ghost full" style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;">'
-            +'<span>➕ Ostatní činnosti ('+avail.length+')</span><span style="opacity:.7;">▾</span></button>');
-          var oList=el('<div style="display:none;margin-top:6px;"></div>');
-          oBtn.addEventListener("click",function(){
-            oExpanded=!oExpanded;
-            oList.style.display=oExpanded?'block':'none';
-            oBtn.innerHTML='<span>➕ Ostatní činnosti ('+avail.length+')</span><span style="opacity:.7;">'+(oExpanded?'▴':'▾')+'</span>';
-          });
-          box.appendChild(oBtn); box.appendChild(oList);
-          avail.forEach(function(c){
-            var row=el('<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid #1b2742;padding:9px 4px;"></div>');
-            row.appendChild(el('<div style="flex:1;color:#8696b8;"><span style="margin-right:6px;">'+(c.icon||"🔧")+'</span>'+esc(c.name)+'</div>'));
-            var add=el('<button class="ghost" style="padding:6px 12px;flex:none;border-color:#3a7a4c;color:#7fe0a0;">+ Přidat</button>');
-            add.addEventListener("click",function(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/toggle",{cinnost_id:c.id,in_list:true}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
-            row.appendChild(add); oList.appendChild(row);
-          });
-        }
+        box.appendChild(el('<div style="font-weight:700;margin:14px 0 6px;">Přidat ze seznamu</div>'));
+        if(!avail.length){ box.appendChild(el('<div class="hint">Máš všechny činnosti ve svém seznamu.</div>')); }
+        avail.forEach(function(c){
+          var row=el('<div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid #1b2742;padding:9px 4px;"></div>');
+          row.appendChild(el('<div style="flex:1;color:#8696b8;"><span style="margin-right:6px;">'+(c.icon||"🔧")+'</span>'+esc(c.name)+'</div>'));
+          var add=el('<button class="ghost" style="padding:6px 12px;flex:none;border-color:#3a7a4c;color:#7fe0a0;">+ Přidat</button>');
+          add.addEventListener("click",function(){ api("POST","/api/v1/erp/app/vyroba/my-cinnosti/toggle",{cinnost_id:c.id,in_list:true}).then(function(r){ if(r&&r.ok) load(); else alert("Chyba: "+((r&&r.error)||"?")); }); });
+          row.appendChild(add); box.appendChild(row);
+        });
       });
     }
     load();
@@ -7728,6 +8112,53 @@ setTimeout(function(){
   }
 
   // ── DATOVÉ SCHRÁNKY / ISDS → eNeschopenka + OČR (Marti 19.6.2026) ─────
+  function _isdsBanner(msg, kind){
+    var COL={progress:["#1f6fd6","#2f86ef"], ok:["#15803d","#22c55e"], err:["#b91c1c","#ef4444"]};
+    var c=COL[kind]||COL.progress;
+    var bg=document.getElementById("isdsBannerBg");
+    if(!bg){ bg=document.createElement("div"); bg.id="isdsBannerBg";
+      bg.style.cssText="position:fixed;inset:0;z-index:1190;pointer-events:none;display:flex;align-items:center;justify-content:center;padding:24px;";
+      document.body.appendChild(bg); }
+    var t=document.getElementById("isdsBanner");
+    if(!t){ t=document.createElement("div"); t.id="isdsBanner"; t.addEventListener("click",_isdsBannerHide); bg.appendChild(t); }
+    t.style.cssText="pointer-events:auto;cursor:pointer;max-width:90vw;min-width:220px;text-align:center;color:#fff;font-size:23px;font-weight:800;line-height:1.35;padding:26px 28px;border-radius:18px;box-shadow:0 14px 44px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.25);background:linear-gradient(180deg,"+c[1]+","+c[0]+");";
+    t.textContent=msg;
+    bg.style.display="flex";
+    if(_isdsBanner._t){ clearTimeout(_isdsBanner._t); _isdsBanner._t=null; }
+    if(kind==="ok"||kind==="err"){ _isdsBanner._t=setTimeout(_isdsBannerHide, kind==="err"?5000:3500); }
+  }
+  function _isdsBannerHide(){ var bg=document.getElementById("isdsBannerBg"); if(bg)bg.style.display="none"; if(_isdsBanner._t){ clearTimeout(_isdsBanner._t); _isdsBanner._t=null; } }
+  function buildAbsForm(box){
+    var today=_locDate(0);
+    var ist="width:100%;background:#0f1620;border:1px solid var(--bord);border-radius:8px;padding:11px;color:var(--tx);font-size:15px;margin-bottom:4px;";
+    box.innerHTML='<label>Typ nepřítomnosti</label>'
+      +'<select id="absType" style="'+ist+'"><option value="vacation">Dovolená</option>'
+      +'<option value="homeoffice">🏠 Home office (hlášení dopředu)</option>'
+      +'<option value="sick">Nemoc (PN)</option><option value="medical">Lékař</option>'
+      +'<option value="family_care">OČR</option><option value="sickday">Sickday</option>'
+      +'<option value="unpaid">Neplacené volno</option></select>'
+      +'<label>Od</label><input type="date" id="absFrom" value="'+today+'" style="'+ist+'">'
+      +'<label>Do (volitelně, jen pro celé dny)</label><input type="date" id="absTo" value="'+today+'" style="'+ist+'">'
+      +'<label>Počet hodin (část dne — prázdné = celé dny po 8 h)</label><input type="number" step="0.5" min="0" id="absHours" placeholder="např. 1.5 (lékař)" style="'+ist+'">'
+      +'<label>Poznámka (volitelné)</label><input id="absNote" placeholder="důvod…" style="'+ist+'">';
+    var b=el('<button class="green full" style="margin-top:10px;">Odeslat ke schválení</button>');
+    b.addEventListener("click",function(){
+      var t=document.getElementById("absType").value, f=document.getElementById("absFrom").value,
+          to=document.getElementById("absTo").value, n=document.getElementById("absNote").value,
+          hv=(document.getElementById("absHours").value||"").trim();
+      if(!f){ return; }
+      var payload = hv ? {type_code:t,date_from:f,mode:"hours",hours:parseFloat(hv),note:n}
+                       : {type_code:t,date_from:f,date_to:to,mode:"days",note:n};
+      b.disabled=true; b.textContent="Odesílám…";
+      api("POST","/api/v1/erp/app/attendance/absence",payload).then(function(j){
+        if(j&&j.ok){ box.style.display="none"; box.innerHTML=""; dochListLoad(); alert("Nahlášeno ✓ ("+(j.created||0)+" pracovních dní)"); }
+        else { b.disabled=false; b.textContent="Odeslat ke schválení"; alert("Nepodařilo se: "+((j&&j.error)||"")); }
+      }).catch(function(){ b.disabled=false; b.textContent="Odeslat ke schválení"; });
+    });
+    box.appendChild(b);
+  }
+  function skupNazev(gid){ for(var i=0;i<_skup.length;i++){ if(_skup[i].id===gid) return (_skup[i].icon||"👥")+" "+_skup[i].name; } return "#"+gid; }
+
   function isds(){
     app.innerHTML=topbar("📨 Datové schránky (ISDS)", true);
     app.appendChild(el('<div class="muted" style="margin:8px 6px;line-height:1.5">Neschopenky a OČR z datových schránek firem — taženo automaticky. Jeden tenant může mít víc datovek (EC, ES, INTERSOFT…). Heslo se ukládá šifrovaně.</div>'));
@@ -8049,7 +8480,126 @@ setTimeout(function(){
     else { render(z); }
   }
 
-  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek};
+  var SCREENS={home:home,poptavka:poptavka,phone:phone,notifs:notifs,claudetasks:claudetasks,claudeDetail:claudeDetail,mytodo:mytodo,ecukoly:ecukoly,strtask:strtask,contacts:contacts,calllog:calllog,settings:settings,apps:apps,firma:firma,vyroba:vyroba,vyroba_hub:vyroba_hub,vedeni:vedeni,soon:soon,skupiny:skupiny,sdileny:sdileny,dochazka:dochazka,alluser:alluser,set_listen:set_listen,set_icons:set_icons,set_install:set_install,set_prefixes:set_prefixes,set_phone:set_phone,set_notifaccess:set_notifaccess,set_dev:set_dev,set_about:set_about,strategie_nastroje:strategie_nastroje,apid_restore:apid_restore,set_imp:set_imp,set_smsgw:set_smsgw,set_shot:set_shot,urgent:urgent,hr_hub:hr_hub,hr:hr,hr_interni:hr_interni,hr_firma:hr_firma,hr_skupiny:hr_skupiny,hr_nabor:hr_nabor,hr_naroz:hr_naroz,hr_novi:hr_novi,hr_nabor_list:hr_nabor_list,hr_nabor_detail:hr_nabor_detail,hr_cv_result:hr_cv_result,hr_soon:hr_soon,hr_me:hr_me,hr_people:hr_people,hr_rezimy:hr_rezimy,hr_att_source:hr_att_source,ocr:ocr,ocr_schval:ocr_schval,sick:sick,sick_schval:sick_schval,np_prehled:np_prehled,med:med,med_schval:med_schval,med_prehled:med_prehled,hr_konto:hr_konto,hr_import:hr_import,hr_podminky:hr_podminky,moje_podminky:moje_podminky,absence:absence,kdekdo:kdekdo,hr_person:hr_person,sms_stav:sms_stav,dev_stav:dev_stav,doc_gen:doc_gen,wage_cmp:wage_cmp,kara:kara,kara_new:kara_new,kara_detail:kara_detail,kara_motive:kara_motive,kara_ref:kara_ref,kara_quad:kara_quad,kara_board:kara_board,hr_inzeraty:hr_inzeraty,hr_inzerat_edit:hr_inzerat_edit,ops:ops,plan:plan,plan_vyjimky:plan_vyjimky,moje_cinnosti:moje_cinnosti,master_cinnosti:master_cinnosti,prace:prace,prace_zak:prace_zak,prace_cin:prace_cin,webview:webview,web_stats:web_stats,doch_dnesek:doch_dnesek,doch_historie:doch_historie,doch_zitrek:doch_zitrek,moje_finance:moje_finance,moje_zadosti:moje_zadosti,planapprovals:planapprovals,bk_rozvrh:bk_rozvrh,bk_tridy:bk_tridy,bk_ucitele:bk_ucitele,bk_class:bk_class,bk_teacher:bk_teacher,bk_ucebny:bk_ucebny,bk_room:bk_room,bk_uvazky:bk_uvazky,bk_skola:bk_skola,uceni:uceni,migrace:migrace,migrace_dochazka:migrace_dochazka,migrace_mzdy:migrace_mzdy,prefakturace:prefakturace,isds:isds,sw_zakazky:sw_zakazky,extview:extview,persDnesek:persDnesek,claude27:claude27,coord:coord,fronta:fronta};
+
+  // Claude-27 týmová hra (Marti 24.6.2026): Zuzka (+Mirek) vidí frontu Clauda-27
+  // a dá mu „Go", když stojí. Slyšitelné notifikace chodí přes mobile_command.
+  function claude27(){
+    app.innerHTML=topbar("🤖 Claude-27",true)+'<div id="c27" style="padding:14px 14px 130px;color:#e6edf5;font:14px/1.55 system-ui;"><div class="hint">Načítám…</div></div>';
+    var box=document.getElementById("c27");
+    function load(){
+      api("GET","/api/v1/erp/app/claude27/status","").then(function(j){
+        if(!j||!j.ok){ box.innerHTML='<div style="padding:22px;text-align:center;opacity:.85;">Tahle hra je pro Zuzku a Mirka (a rodiče). 🎲</div>'; return; }
+        var alive=j.alive;
+        var dot=alive?'<span style="color:#3ad07a;">🟢 běží</span>':'<span style="color:#ff6b6b;">🔴 stojí</span>';
+        var h='';
+        h+='<div style="background:#0e1726;border:1px solid #1d2c44;border-radius:14px;padding:16px;text-align:center;margin-bottom:14px;">';
+        h+='<div style="font-size:13px;opacity:.7;margin-bottom:4px;">Claude-27 '+dot+'</div>';
+        h+='<div style="font-size:46px;font-weight:800;color:#4f8ef7;line-height:1;">'+(j.pending||0)+'</div>';
+        h+='<div style="font-size:13px;opacity:.75;margin-top:4px;">ve frontě '+((j.pending===1)?"položka":"položek")+((j.waiting_reply)?(" · "+j.waiting_reply+" čeká na odpověď"):"")+((j.in_progress)?(" · "+j.in_progress+" rozdělané"):"")+'</div>';
+        if(j.current_work){ h+='<div style="font-size:12px;opacity:.6;margin-top:6px;">právě: '+esc(j.current_work)+'</div>'; }
+        h+='</div>';
+        h+='<button id="c27go" style="width:100%;background:'+(alive?"#26344c":"linear-gradient(135deg,#3ad07a,#2bb564)")+';color:#fff;border:0;border-radius:14px;padding:16px;font-size:17px;font-weight:700;margin-bottom:16px;">▶ Go — '+(alive?"projet frontu":"spustit Clauda-27")+'</button>';
+        var bp=j.by_person||{}; var names=Object.keys(bp);
+        if(names.length){
+          h+='<div style="font-size:13px;opacity:.7;margin:4px 2px 8px;">Podle člověka</div>';
+          names.forEach(function(nm){ var d=bp[nm]; var tot=(d.pending||0)+(d.in_progress||0)+(d.waiting_reply||0);
+            h+='<div style="display:flex;justify-content:space-between;padding:8px 12px;background:#0c1420;border:1px solid #18233a;border-radius:10px;margin-bottom:6px;"><span>'+esc(nm)+'</span><span style="opacity:.8;">'+tot+'</span></div>'; });
+        }
+        var its=j.items||[];
+        if(its.length){
+          h+='<div style="font-size:13px;opacity:.7;margin:14px 2px 8px;">Fronta</div>';
+          its.forEach(function(it){ var ic=(it.status==="waiting_reply")?"⏳":((it.status==="in_progress")?"🔧":"•");
+            h+='<div style="padding:9px 12px;background:#0c1420;border:1px solid #18233a;border-radius:10px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;gap:8px;"><b style="font-weight:600;">'+ic+' '+esc(it.predmet)+'</b><span style="opacity:.5;font-size:12px;white-space:nowrap;">'+esc(it.kdy||"")+'</span></div><div style="opacity:.6;font-size:12px;margin-top:2px;">'+esc(it.kdo)+' · '+esc(it.typ)+'</div></div>'; });
+        } else {
+          h+='<div style="opacity:.6;text-align:center;padding:18px;">Fronta je prázdná. 🎉</div>';
+        }
+        box.innerHTML=h;
+        var gb=document.getElementById("c27go");
+        if(gb) gb.addEventListener("click",function(){ gb.disabled=true; gb.textContent="Posílám Go…"; api("POST","/api/v1/erp/app/claude27/go",{}).then(function(r){ gb.textContent=(r&&r.ok)?"✓ Go odesláno":"Chyba"; setTimeout(load,1200); }).catch(function(){ gb.textContent="Chyba"; gb.disabled=false; }); });
+      }).catch(function(){ box.innerHTML='<div style="padding:20px;opacity:.7;">Nepodařilo se načíst.</div>'; });
+    }
+    load();
+  }
+
+  // Zadávání úkolů Claudovi z mobilu (Marti 26.6.2026): napiš co chceš + komu →
+  // fronta (fw.claude_coord) → budík danou instanci probudí, vyřídí, cinkne výsledek.
+  // Vnitřní pohled (ne externí stránka) — jezdí přes ověřený api() (token), proto bez 403.
+  function fronta(){
+    app.innerHTML=topbar("📥 Zadat úkol Claudovi",true)+'<div id="frbox" style="padding:14px 14px 130px;color:#e6edf5;font:14px/1.55 system-ui;"><div class="hint">Načítám…</div></div>';
+    var box=document.getElementById("frbox");
+    function load(){
+      api("GET","/api/v1/erp/app/claude-fronta","").then(function(j){
+        if(!j||!j.ok){ box.innerHTML='<div style="padding:22px;text-align:center;opacity:.85;">Zadávání úkolů je pro rodiče / HR.</div>'; return; }
+        var h='';
+        h+='<div style="background:#0e1726;border:1px solid #1d2c44;border-radius:14px;padding:14px;margin-bottom:14px;">';
+        h+='<div style="font-size:13px;opacity:.7;margin-bottom:6px;">Komu</div>';
+        h+='<select id="frcil" style="width:100%;background:#0c1420;color:#e6edf5;border:1px solid #28375a;border-radius:10px;padding:11px;font-size:15px;margin-bottom:10px;">'
+          +'<option value="ID23">Claude ID23 (hlavní – stavění, DB)</option>'
+          +'<option value="C27">Claude-27 (tým – lehčí)</option>'
+          +'<option value="C24">Claude-24 (Kristý)</option>'
+          +'<option value="C25">Claude-25 (Šárka)</option>'
+          +'<option value="C26">Claude-26 (Peťa)</option></select>';
+        h+='<div style="font-size:13px;opacity:.7;margin-bottom:6px;">Co je potřeba</div>';
+        h+='<input id="frsubj" placeholder="např. vyjeď neuhrazené faktury ES za červen" style="width:100%;background:#0c1420;color:#e6edf5;border:1px solid #28375a;border-radius:10px;padding:11px;font-size:15px;margin-bottom:10px;">';
+        h+='<div style="font-size:13px;opacity:.7;margin-bottom:6px;">Detail (nepovinné)</div>';
+        h+='<textarea id="frdet" placeholder="kontext, na co dát pozor…" style="width:100%;min-height:80px;background:#0c1420;color:#e6edf5;border:1px solid #28375a;border-radius:10px;padding:11px;font-size:15px;font-family:inherit;"></textarea>';
+        h+='<button id="frsend" style="width:100%;margin-top:12px;background:linear-gradient(135deg,#3ad07a,#2bb564);color:#fff;border:0;border-radius:14px;padding:15px;font-size:16px;font-weight:700;">📤 Vložit do fronty</button>';
+        h+='<div id="frmsg" style="font-size:13px;margin-top:8px;min-height:18px;opacity:.9;"></div>';
+        h+='</div>';
+        var its=j.fronta||[];
+        if(its.length){
+          h+='<div style="font-size:13px;opacity:.7;margin:4px 2px 8px;">Fronta a hotové</div>';
+          its.forEach(function(t){
+            var st=(t.status==="done")?'<span style="color:#8fe0a0;">hotovo</span>':(t.status==="new")?'<span style="color:#f0c987;">čeká</span>':(t.status==="error")?'<span style="color:#f0a0a0;">chyba</span>':esc(t.status);
+            h+='<div style="padding:10px 12px;background:#0c1420;border:1px solid #18233a;border-radius:10px;margin-bottom:6px;">'
+              +'<div style="display:flex;justify-content:space-between;gap:8px;"><b style="font-weight:600;">'+esc(t.subject)+'</b><span style="font-size:12px;white-space:nowrap;">'+st+'</span></div>'
+              +'<div style="opacity:.55;font-size:12px;margin-top:2px;">→ '+esc(t.cil)+' · '+esc(t.vznik||"")+'</div>'
+              +(t.vysledek?('<div style="color:#9fe0b0;font-size:12.5px;margin-top:5px;white-space:pre-wrap;">✓ '+esc(t.vysledek)+'</div>'):'')+'</div>';
+          });
+        } else {
+          h+='<div style="opacity:.6;text-align:center;padding:16px;">Fronta je prázdná — klid. 🌿</div>';
+        }
+        box.innerHTML=h;
+        var sb=document.getElementById("frsend");
+        if(sb) sb.addEventListener("click",function(){
+          var subj=(document.getElementById("frsubj").value||"").trim();
+          var msg=document.getElementById("frmsg");
+          if(!subj){ msg.textContent="Napiš aspoň co je potřeba."; return; }
+          sb.disabled=true; sb.textContent="Odesílám…";
+          api("POST","/api/v1/erp/app/claude-fronta/new",{cil:document.getElementById("frcil").value,subject:subj,detail:document.getElementById("frdet").value,priority:2}).then(function(r){
+            if(r&&r.ok){ msg.textContent="✓ Vloženo (#"+r.id+"). Claude to vyřídí na nejbližší probuzení."; setTimeout(load,800); }
+            else { msg.textContent="✗ "+((r&&r.error)||"chyba"); sb.disabled=false; sb.textContent="📤 Vložit do fronty"; }
+          }).catch(function(){ msg.textContent="✗ chyba sítě"; sb.disabled=false; sb.textContent="📤 Vložit do fronty"; });
+        });
+      }).catch(function(){ box.innerHTML='<div style="padding:20px;opacity:.7;">Nepodařilo se načíst.</div>'; });
+    }
+    load();
+  }
+
+  // Síť Claudů — koordinační centrum (ID23 = páteř). Marti 24.6.2026. Pro rodiče.
+  function coord(){
+    app.innerHTML=topbar("🕸️ Síť Claudů",true)+'<div id="coordbox" style="padding:14px 14px 130px;color:#e6edf5;font:14px/1.55 system-ui;"><div class="hint">Načítám…</div></div>';
+    var box=document.getElementById("coordbox");
+    api("GET","/api/v1/erp/app/coord/board","").then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div style="padding:22px;text-align:center;opacity:.85;">Koordinační centrum je pro rodiče. 🕸️</div>'; return; }
+      var h='';
+      h+='<div style="font-size:13px;opacity:.7;margin:2px 2px 8px;">Instance (ID23 = páteř)</div>';
+      (j.instances||[]).forEach(function(it){
+        var on=it.online?'<span style="color:#3ad07a;">●</span>':'<span style="color:#6b7280;">○</span>';
+        h+='<div style="padding:9px 12px;background:#0c1420;border:1px solid #18233a;border-radius:10px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;"><b style="font-weight:600;">'+on+' '+esc(it.id)+' · '+esc(it.name||"")+'</b><span style="opacity:.5;font-size:12px;">'+esc(it.last_seen||"")+'</span></div>'+(it.work?'<div style="opacity:.6;font-size:12px;margin-top:2px;">'+esc(it.work)+'</div>':'')+'</div>';
+      });
+      var nd=j.needs||[];
+      h+='<div style="font-size:13px;opacity:.7;margin:14px 2px 8px;">Co se sbíhá ('+nd.length+')</div>';
+      if(!nd.length){ h+='<div style="opacity:.6;text-align:center;padding:16px;">Nic otevřeného. 🎉</div>'; }
+      nd.forEach(function(n){
+        var pc=(n.priorita===1)?"#ff6b6b":((n.priorita===2)?"#e0a800":"#6b7280");
+        var ki=(n.kind==="blocker")?"⛔":((n.kind==="question")?"❓":((n.kind==="handoff")?"🤝":"•"));
+        h+='<div style="padding:9px 12px;background:#0c1420;border:1px solid #18233a;border-left:3px solid '+pc+';border-radius:10px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;gap:8px;"><b style="font-weight:600;">'+ki+' '+esc(n.subject)+'</b><span style="opacity:.5;font-size:12px;white-space:nowrap;">'+esc(n.kdy||"")+'</span></div><div style="opacity:.6;font-size:12px;margin-top:2px;">od '+esc(n.instance)+' · '+esc(n.stav)+(n.plan?(' · plán: '+esc(n.plan)):"")+'</div></div>';
+      });
+      box.innerHTML=h;
+    }).catch(function(){ box.innerHTML='<div style="padding:20px;opacity:.7;">Nepodařilo se načíst.</div>'; });
+  }
 
   function uceni(){
     app.innerHTML=topbar("⚡ Výuka",true);
@@ -8190,6 +8740,14 @@ setTimeout(function(){
   render();
   window.__stgBoot=true;  // appka úspěšně nastartovala → watchdog se nespustí
   try{sessionStorage.removeItem("stgAutoHeal");}catch(e){}  // reset auto-recovery pro příště
+  // Deep-link (Kristý 29.6.): /mobile?screen=ocr nebo /mobile#ocr → po startu skoč
+  // na obrazovku. Nepřihlášený dostane login přímo v ní (ocr() má vlastní auth gate),
+  // a login se vrací přes next=/mobile?screen=ocr zpět sem.
+  (function(){
+    var scr=""; try{ scr=(params.get("screen")||(location.hash||"").replace(/^#/,"")||"").replace(/[^a-z_]/gi,""); }catch(e){}
+    var KNOWN={ocr:1,sick:1};
+    if(scr && KNOWN[scr] && stack[stack.length-1]!==scr){ try{ go(scr); }catch(e){} }
+  })();
   // ── Zámek sdíleného telefonu (Claude-24 + Kristý 11.6.2026): při otevření
   //    appky vyber profil + PIN. JEN sdílené telefony (shared_device_user) s
   //    aspoň jedním PINem. E-mailový únik vždy (i při rozbité SMS se nikdo
@@ -8281,7 +8839,14 @@ setTimeout(function(){
       var j=null; try{ j=B.getSmsLog(""); j=j?JSON.parse(j):null; }catch(e){ return; }
       var list=(j&&j.sms)||[];
       list.forEach(function(s){
-        var body=s.body||""; if(!/STG-[A-Za-z]+-/.test(body)) return;
+        var body=s.body||"";
+        var lb=body.toLowerCase();
+        var isStg=/STG-[A-Za-z]+-/.test(body);
+        // ČSSZ eOČR SMS (přeposlaná zaměstnancem) — forwardni i ji, server ji
+        // v store_inbound_sms rozpozná a založí OČR případ. Kristý/Claude-24 23.6.
+        var isOcr=(lb.indexOf("eportal.cssz.cz")>=0 && lb.indexOf("identifik")>=0
+                   && (lb.indexOf("osetrov")>=0 || lb.indexOf("ošetřov")>=0));
+        if(!isStg && !isOcr) return;
         var num=s.number||s.address||"";
         var key="stgfwd_"+num+"_"+(s.date||s.when||"")+"_"+body.replace(/\s/g,"").slice(0,16);
         try{ if(localStorage.getItem(key)) return; }catch(e){}
@@ -8291,10 +8856,33 @@ setTimeout(function(){
       });
     }catch(e){}
   }
+  // Odchozí SMS přes bránu (Kristý/Claude-24 23.6.): stáhne pending frontu ze
+  // serveru, pošle přes B.sendSms a potvrdí. Jen bránový telefon (server hlídá).
+  function _gwSmsOutbound(){
+    try{
+      if(!(B && typeof B.sendSms==="function")) return;
+      var on=false; try{ on=!!(B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
+      if(!on) return;
+      api("GET","/api/v1/erp/app/sms-outbound/pending","").then(function(j){
+        if(!(j&&j.ok&&j.items&&j.items.length)) return;
+        j.items.forEach(function(it){
+          var r=""; try{ r=B.sendSms(it.to_phone, it.body); }catch(e){ r="0"; }
+          if(r==="1"){ api("POST","/api/v1/erp/app/sms-outbound/sent",{id:it.id,ok:true}); }
+          else { api("POST","/api/v1/erp/app/sms-outbound/sent",{id:it.id,ok:false,error:"sendSms="+r}); }
+        });
+      }).catch(function(){});
+    }catch(e){}
+  }
   try{ var _gwOn=false; try{ _gwOn=!!(native&&B&&B.isSmsGateway&&B.isSmsGateway()); }catch(e){}
-       if(_gwOn){ _gwSmsForward(); setInterval(_gwSmsForward, 10000); } }catch(e){}
+       if(_gwOn){ _gwSmsForward(); setInterval(_gwSmsForward, 10000); _gwSmsOutbound(); setInterval(_gwSmsOutbound, 12000); } }catch(e){}
   try{ _urgentPoll(); setInterval(_urgentPoll, 20000); }catch(e){}  // urgentní notifikace
   setTimeout(function(){ refreshUpdate(); renderNav(); }, 800);
+  // Deep-link (Kristý/Claude-24 29.6.): …/mobile#ocr otevře rovnou OČR obrazovku.
+  // Segment za lomítkem (#ocr/1) zatím ignorujeme — naviguje na obrazovku dle 1. části.
+  try{
+    var _dl=(location.hash||"").replace(/^#/,"").trim();
+    if(_dl){ var _dseg=_dl.split("/")[0]; setTimeout(function(){ try{ go(_dseg); }catch(e){} }, 950); }
+  }catch(e){}
 
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).
   function pollNotifs(){

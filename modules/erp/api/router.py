@@ -20128,12 +20128,14 @@ async def att_checkin(req: Request) -> JSONResponse:
                 # (Jirka 30.6., schválil Marti). Jednosměrné, jednorázově (flag
                 # att_source_pref.ec_vypnuto_at). PILOT: zatím JEN Jirka (cz 9030) — po
                 # ověření v Centrále odgateovat na všechny. Best-effort (neshodí checkin).
-                # Gate na EXPLICITNÍ přepnutí zakázky (body.switch), NE na odvozené
-                # `switching` — to je True i po odchodu (day_end) / návratu z pauzy, což
-                # JSOU opravdová zahájení práce a hook tam vyfírovat MÁ. Blokujeme jen
-                # pouhou změnu zakázky uprostřed směny (Jirka 30.6., oprava guardu).
+                # POZOR: tlačítko „Makat" posílá VŽDY switch:true, takže ani body.switch
+                # ani odvozené `switching` guard nestačí. Rozlišujeme „zahájení/obnovení
+                # práce z NEAKTIVNÍHO stavu" (ráno / po odchodu=day_end / návrat z pauzy →
+                # předchozí aktivní záznam NEbyl práce) od „změny zakázky během směny"
+                # (předchozí aktivní = work/overhead). Firujeme jen to první.
                 try:
-                    if (not bool((body or {}).get("switch"))) and kind in ("work", "overhead") and str(_cz).strip() == "9030":
+                    _prev_work = bool(opn) and opn[1] in ("work", "overhead")
+                    if (not _prev_work) and kind in ("work", "overhead") and str(_cz).strip() == "9030":
                         _hot = s.execute(_t("SELECT ec_vypnuto_at FROM tenant.att_source_pref WHERE user_id=:u"),
                                          {"u": uid}).scalar()
                         if not _hot:

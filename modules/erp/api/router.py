@@ -9699,8 +9699,11 @@ def _sync_dochazka_ec(rok, mesic):
                                 out["odpichnuto_h"] += -korekce
                     den_cas = worked_cil
                 else:
-                    # dílenští/pevná doba → JEN reálně odpracováno, žádné dopíchávání/odpíchávání
-                    work_target = round(present, 2)
+                    # výroba/dílna/pevná doba → JEN reálně odpracováno, žádné dopíchávání.
+                    # GAP-fill (Marti 30.6.): EC import přidá jen hodiny NAD rámec vlastních
+                    # reálných píchnutí (mobil/tablet na zakázky), ať se NEZDVOJUJE den
+                    # (výroba si píchá zakázky u nás → EC z Centrály je tatáž práce zpět).
+                    work_target = round(max(0.0, present - rp), 2)
                     if work_target > 0:
                         wcode = "homeoffice" if (d and d["ho"] > d["work"]) else "work"
                         tid = tids.get(wcode)
@@ -9708,9 +9711,9 @@ def _sync_dochazka_ec(rok, mesic):
                             s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
                                          "status,source,source_system,is_active,note,created_at,updated_at) "
                                          "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,:nt,now(),now())"),
-                                      {"e": emp, "d": dd, "t": tid, "h": work_target, "nt": "EC práce"})
+                                      {"e": emp, "d": dd, "t": tid, "h": work_target, "nt": "EC práce (doplněk nad píchnutí)"})
                             out["prace"] += 1
-                    den_cas = work_target
+                    den_cas = round(rp + work_target, 2)
                 s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem) "
                              "VALUES (2,:c,:u,:d,:y,:m,:h) "
                              "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,user_id=:u"),

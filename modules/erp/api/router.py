@@ -15658,6 +15658,67 @@ def _ec_set_block_dochazka(cislo, block: bool, actor_uid=None, actor_name=None):
         return (False, str(exc))
 
 
+def _ec_vypni_dochazku(cislo, actor_uid=None, actor_name=None):
+    """Jirka 30.6.2026 (schválil Marti osobně): TRVALE vypne docházku ve staré Centrále
+    (DB_EC) pro osobu dle Čísla zaměstnance. Dvě nativní pole Centrály:
+    TabCisZam_EXT._AuthDochazka='' (docházkový terminál) + EC_GlobKonstUziv.
+    PovolitDochVCentrale=0 (ERP, přes LoginId↔LoginName). JEDNOSMĚRNÉ (zpět se nevrací).
+    Liší se od _ec_set_block_dochazka (to je jen reverzibilní blok). Loguje do
+    fw.ec_dml_log. Vrací (ok: bool, error: str|None)."""
+    import json as _j_vd
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        mcp = get_eurosoft_mcp_client()
+        if mcp is None:
+            return (False, "mcp_unavailable")
+        cz = str(cislo).strip().replace("'", "''")
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": "SELECT ID, LoginId FROM TabCisZam WHERE Cislo='" + cz + "'",
+                                  "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_vd.loads(raw) if isinstance(raw, str) else raw
+        rows = []
+        if isinstance(r, dict):
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    rows = r[k]; break
+        elif isinstance(r, list):
+            rows = r
+        if not rows:
+            return (False, "zam_not_found")
+        zid = rows[0].get("ID")
+        loginid = str(rows[0].get("LoginId") or "").strip()
+        # 1) Docházkový TERMINÁL: TabCisZam_EXT._AuthDochazka = '' (dle ID)
+        upd1 = mcp.call_tool_sync("eurosoft_strategie_update_row",
+                                  {"schema": "dbo", "table": "TabCisZam_EXT",
+                                   "data": {"_AuthDochazka": ""}, "where": {"ID": zid},
+                                   "db_name": "DB_EC"}, conversation_id=None)
+        u1 = _j_vd.loads(upd1) if isinstance(upd1, str) else upd1
+        ok1 = bool(isinstance(u1, dict) and u1.get("ok"))
+        _ec_dml_log("TabCisZam_EXT", "update", where={"ID": zid}, data={"_AuthDochazka": ""},
+                    rows=(1 if ok1 else 0), ok=ok1,
+                    error=None if ok1 else str((u1 or {}).get("error") if isinstance(u1, dict) else u1),
+                    actor_uid=actor_uid, actor_name=actor_name, via="vypni_dochazka")
+        # 2) ERP CENTRÁLA: EC_GlobKonstUziv.PovolitDochVCentrale = 0 (LoginName = LoginId).
+        #    Kdo nemá Centrála login (prázdný LoginId) → GU řádek není, přeskoč (ok).
+        ok2 = True
+        if loginid:
+            upd2 = mcp.call_tool_sync("eurosoft_strategie_update_row",
+                                      {"schema": "dbo", "table": "EC_GlobKonstUziv",
+                                       "data": {"PovolitDochVCentrale": 0}, "where": {"LoginName": loginid},
+                                       "db_name": "DB_EC"}, conversation_id=None)
+            u2 = _j_vd.loads(upd2) if isinstance(upd2, str) else upd2
+            ok2 = bool(isinstance(u2, dict) and u2.get("ok"))
+            _ec_dml_log("EC_GlobKonstUziv", "update", where={"LoginName": loginid},
+                        data={"PovolitDochVCentrale": 0}, rows=(1 if ok2 else 0), ok=ok2,
+                        error=None if ok2 else str((u2 or {}).get("error") if isinstance(u2, dict) else u2),
+                        actor_uid=actor_uid, actor_name=actor_name, via="vypni_dochazka")
+        return (ok1 and ok2, None if (ok1 and ok2) else "ec_update_failed")
+    except Exception as exc:
+        _ec_dml_log("TabCisZam_EXT", "update", ok=False, error=str(exc),
+                    actor_uid=actor_uid, actor_name=actor_name, via="vypni_dochazka")
+        return (False, str(exc))
+
+
 def _ec_dml_log(table, op, where=None, data=None, rows=0, ok=True, error=None,
                 actor_uid=None, actor_name=None, approver_uid=None, approver_name=None,
                 via=None, schema="dbo", db_name="DB_EC"):
@@ -20063,6 +20124,25 @@ async def att_checkin(req: Request) -> JSONResponse:
                 _an = s.execute(_t("SELECT NULLIF(TRIM(COALESCE(first_name,'')||' '||COALESCE(last_name,'')),'') "
                                    "FROM public.users WHERE id=:u"), {"u": uid}).scalar()
                 ec_closed, _ = _ec_close_open_shift(_cz, actor_uid=uid, actor_name=_an, via="app_checkin")
+                # Trvalé VYPNUTÍ docházky v Centrále při 1. zahájení práce přes mobil
+                # (Jirka 30.6., schválil Marti). Jednosměrné, jednorázově (flag
+                # att_source_pref.ec_vypnuto_at). PILOT: zatím JEN Jirka (cz 9030) — po
+                # ověření v Centrále odgateovat na všechny. Best-effort (neshodí checkin).
+                try:
+                    if (not switching) and kind in ("work", "overhead") and str(_cz).strip() == "9030":
+                        _hot = s.execute(_t("SELECT ec_vypnuto_at FROM tenant.att_source_pref WHERE user_id=:u"),
+                                         {"u": uid}).scalar()
+                        if not _hot:
+                            _vok, _verr = _ec_vypni_dochazku(_cz, actor_uid=uid, actor_name=_an)
+                            if _vok:
+                                s.execute(_t(
+                                    "INSERT INTO tenant.att_source_pref (user_id, app_only, ec_vypnuto_at, changed_by, changed_at) "
+                                    "VALUES (:u, true, now(), :by, now()) "
+                                    "ON CONFLICT (user_id) DO UPDATE SET ec_vypnuto_at=now(), changed_by=:by, changed_at=now()"),
+                                    {"u": uid, "by": (_an or "app_makat")})
+                                s.commit()
+                except Exception:
+                    pass
         except Exception:
             ec_closed = 0
         return JSONResponse({"ok": True, "id": r[0], "ec_closed": ec_closed})

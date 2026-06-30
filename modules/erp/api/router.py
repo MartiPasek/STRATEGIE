@@ -26972,7 +26972,9 @@ def smlouvy_fill_helios(req: Request):
             try:
                 rows = _mcprows(
                     "SELECT c.Cislo, c.Prijmeni, c.Jmeno FROM " + pfx + "TabCisZam c "
-                    "WHERE EXISTS (SELECT 1 FROM " + pfx + "TabZamMzd z WHERE z.ZamestnanecId=c.ID)", "DB_EC")
+                    "WHERE EXISTS (SELECT 1 FROM " + pfx + "TabZamVyp v "
+                    "JOIN " + pfx + "TabMzdObd o ON o.ID=v.IdObdobi "
+                    "WHERE v.ZamestnanecId=c.ID AND o.Rok=2026)", "DB_EC")
             except Exception as _me:
                 helerr = (helerr or "") + ("%s: %s; " % (firma, str(_me)[:120])); rows = []
             for d in rows:

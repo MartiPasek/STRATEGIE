@@ -25877,25 +25877,29 @@ _ABS_CODE_TO_MS = {"vacation": 211, "medical": 243, "sick": 200,
                    "family_care": 251, "unpaid": 246, "maternity": 255}
 
 
-def _mzdy_absence_rows(firma, rok, mesic):  # v2 (force redeploy)
-    """Absence z NAŠÍ docházky (att_entry, kategorie absence) -> předzpracování Helios.
-    Náhrady NEpočítáme — dáme Dny+Hodiny do mzdové složky, Helios dopočítá z průměru
-    (jako dovolená/nemoc v EC). Vrací (cislo, ms, koruny=0, dny, hodiny). Firma-agnostické:
-    _mzdy_predzprac_apply filtruje dle TabCisZam dané firmy (cislo bez záznamu = skip)."""
+def _mzdy_absence_rows(firma, rok, mesic):
+    """Absence z NAŠÍ docházky (att_entry) -> předzpracování Helios. KLÍČOVÁNÍ PŘES
+    tenant.user_smlouva (Marti 30.6.2026): absence agreguje per USER, firemní číslo =
+    user_smlouva.helios_cislo pro DANOU firmu (kde běží mzda 2026, bez kolizí), OSVČ
+    (typ='osvc') VEN. Náhrady nepočítáme — Dny+Hodiny do MS, Helios dopočítá z průměru.
+    Vrací (cislo, ms, koruny=0, dny, hodiny)."""
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
+    fkod = "EC" if str(firma).upper() in ("EC", "1") else "ES"
     s = _g()
     try:
         rows = s.execute(_t(
-            "SELECT e.cislo_zam AS cislo, et.code AS code, "
+            "SELECT sm.helios_cislo AS cislo, et.code AS code, "
             "  COUNT(DISTINCT a.entry_date) AS dny, COALESCE(SUM(a.hours),0) AS hod "
             "FROM tenant.att_entry a "
             "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id AND et.category='absence' "
             "JOIN tenant.att_employee e ON e.id=a.employee_id "
-            "WHERE a.tenant_id=2 AND e.cislo_zam ~ '^[0-9]+$' "
+            "JOIN tenant.user_smlouva sm ON sm.user_id=e.user_id AND sm.tenant_id=2 "
+            "   AND sm.firma=:f AND sm.typ_smlouvy<>'osvc' AND sm.helios_cislo IS NOT NULL "
+            "WHERE a.tenant_id=2 "
             "  AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
             "  AND et.code IN ('vacation','medical','sick','family_care','unpaid','maternity') "
-            "GROUP BY e.cislo_zam, et.code"), {"y": rok, "mo": mesic}).fetchall()
+            "GROUP BY sm.helios_cislo, et.code"), {"f": fkod, "y": rok, "mo": mesic}).fetchall()
         out = []
         for r in rows:
             try:

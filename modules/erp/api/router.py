@@ -26880,7 +26880,7 @@ def _smlouvy_norm(x):
     x = (x or "").strip().lower()
     x = "".join(c for c in unicodedata.normalize("NFD", x) if unicodedata.category(c) != "Mn")
     # odstraň akademické tituly (Ing. Branislav → Branislav) a sraz vícenásobné mezery
-    x = _re.sub(r"\b(ing|mgr|bc|mudr|judr|phdr|rndr|paeddr|dis|csc|ph\.?d|drsc)\.?\b", " ", x)
+    x = _re.sub(r"\b(ing|mgr|bc|mudr|judr|phdr|rndr|paeddr|dis|csc|phd|drsc)\b\.?", " ", x)
     x = _re.sub(r"\s+", " ", x).strip()
     return x
 

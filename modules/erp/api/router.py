@@ -20129,8 +20129,9 @@ async def att_checkin(req: Request) -> JSONResponse:
                 ec_closed, _ = _ec_close_open_shift(_cz, actor_uid=uid, actor_name=_an, via="app_checkin")
                 # Trvalé VYPNUTÍ docházky v Centrále při 1. zahájení práce přes mobil
                 # (Jirka 30.6., schválil Marti). Jednosměrné, jednorázově (flag
-                # att_source_pref.ec_vypnuto_at). PILOT: zatím JEN Jirka (cz 9030) — po
-                # ověření v Centrále odgateovat na všechny. Best-effort (neshodí checkin).
+                # att_source_pref.ec_vypnuto_at). ODGATEOVÁNO na VŠECHNY zaměstnance
+                # (Jirka 30.6. po ověření pilotu na 9030 — Martiho plán z pilotního commitu).
+                # Best-effort (neshodí checkin).
                 # POZOR: tlačítko „Makat" posílá VŽDY switch:true, takže ani body.switch
                 # ani odvozené `switching` guard nestačí. Rozlišujeme „zahájení/obnovení
                 # práce z NEAKTIVNÍHO stavu" (ráno / po odchodu=day_end / návrat z pauzy →
@@ -20138,7 +20139,7 @@ async def att_checkin(req: Request) -> JSONResponse:
                 # (předchozí aktivní = work/overhead). Firujeme jen to první.
                 try:
                     _prev_work = bool(opn) and opn[1] in ("work", "overhead")
-                    if (not _prev_work) and kind in ("work", "overhead") and str(_cz).strip() == "9030":
+                    if (not _prev_work) and kind in ("work", "overhead"):
                         _hot = s.execute(_t("SELECT ec_vypnuto_at FROM tenant.att_source_pref WHERE user_id=:u"),
                                          {"u": uid}).scalar()
                         if not _hot:

@@ -26102,6 +26102,11 @@ def _mzdy_absence_rows(firma, rok, mesic):
             "JOIN tenant.att_employee e ON e.id=a.employee_id "
             "JOIN tenant.user_smlouva sm ON sm.user_id=e.user_id AND sm.tenant_id=2 "
             "   AND sm.firma=:f AND sm.typ_smlouvy<>'osvc' AND sm.helios_cislo IS NOT NULL "
+            # Jednatelé (odměna 693, bez mzdového základu) VEN z absence — Helios neumí
+            # spočítat náhradu bez základu → výpočet padá. Detekce: aktivní ruční složka 693.
+            "   AND NOT EXISTS (SELECT 1 FROM tenant.mzdy_rucni_slozka jd WHERE jd.tenant_id=2 "
+            "        AND jd.firma=:f AND jd.cislo_ms=693 AND COALESCE(jd.aktivni,true)=true "
+            "        AND jd.cislo=sm.helios_cislo::text) "
             "WHERE a.tenant_id=2 "
             "  AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
             "  AND et.code IN ('vacation','medical','sick','family_care','unpaid','maternity') "

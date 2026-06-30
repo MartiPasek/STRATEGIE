@@ -26,12 +26,13 @@
   CMS session = řeší Klárčiny požadavky přes most.
 
 ## 2) Jak se rozvrh řeší z CMS — ZVOLENÝ KANÁL (Marti 30.6.)
-- **Marti chatuje se mnou PŘÍMO v Coworku na CMS stroji** (ne přes webový „Chat
-  s Claudem"). Na tom stroji běžím jako samostatná instance Claude → mluví se mnou
-  napřímo, řešíme rozvrh. **Předpoklad: CMS stroj nastavený jako instance** (repo +
-  watcher `STRATEGIE-CLAUDE-SQL` s tokenem v NSSM AppEnvironmentExtra + `INSTANCE_ID.txt`)
-  → `scripts/setup_claude_instance.ps1 -InstanceId N -InstanceName … -Token …`. Pak má
-  Cowork session most: čtení SQL (`db=pg/bakalari`), `@@EMAIL`, deploy.
+- **CMS stroj = instance ID27** (už nastavená, watcher `STRATEGIE-CLAUDE-SQL` běží).
+  Marti tam chatuje se mnou PŘÍMO v Coworku (přihlášený jako user Marti), ne přes
+  webový „Chat s Claudem". Já = ID27 session, mám plný most: čtení SQL (`db=pg`/
+  `db=bakalari`), `@@EMAIL`, deploy. **Na začátku práce vždy `CLAUDE_PULL_GO`** (ID23
+  bývá napřed — srovnat repo, ať mám čerstvou Skola.md + kód). Souběh s ID23 (EUROSOFT)
+  nekoliduje: bridge soubory jsou per‑stroj (gitignored); sdílené repo přes pull +
+  `WORK_LOCK`. (Pozn.: ID27 = i tým‑instance Mirek/Zuzka/Míša/Eliška, `docs/team27/`.)
 - **E‑maily Klárce přes most = `@@EMAIL`** (Marti 30.6. „je nutné umět odesílat e‑maily
   Klárce"). Formát: `@@EMAIL {"to":"vlkova@nerudovka.cz","subject":"Rozvrh","body":"…",
   "cc":["m.pasek@eurosoft.com"],"reason":"…"}` → `queue_email(persona_id=1)` → odešle

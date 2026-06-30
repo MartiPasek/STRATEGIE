@@ -10353,7 +10353,7 @@ async def ocr_inbox(req: Request) -> JSONResponse:
             "SELECT o.id, o.company, o.identifikator, o.osoba_jmeno, o.osoba_vztah, o.datum_od, "
             "o.datum_do, o.dny_count, o.stav, "
             "COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
-            "o.cssz_link "
+            "o.cssz_link, o.cssz_link_konec "
             "FROM tenant.att_ocr_case o "
             "LEFT JOIN tenant.att_employee em ON em.id=o.employee_id "
             "LEFT JOIN public.users u ON u.id=o.user_id "
@@ -10361,7 +10361,8 @@ async def ocr_inbox(req: Request) -> JSONResponse:
             "ORDER BY o.stav DESC, o.datum_od DESC LIMIT 100"), ).fetchall()
         out = [{"id": r[0], "company": r[1], "identifikator": r[2], "osoba": r[3], "vztah": r[4],
                 "od": r[5].isoformat() if r[5] else None, "do": r[6].isoformat() if r[6] else None,
-                "dny": r[7], "stav": r[8], "zamestnanec": r[9], "link": r[10]} for r in rows]
+                "dny": r[7], "stav": r[8], "zamestnanec": r[9], "link": r[10],
+                "link_konec": r[11]} for r in rows]
         return JSONResponse({"ok": True, "cases": out})
     finally:
         cm.__exit__(None, None, None)
@@ -10477,7 +10478,7 @@ def handle_cssz_ocr_sms(from_phone: str, body: str, extra: dict) -> dict:
             except Exception:
                 mgr = None
             if je_ukonceni:
-                s.execute(_t("UPDATE tenant.att_ocr_case SET datum_do=:dd, cssz_link=COALESCE(cssz_link,:lnk), updated_at=now() WHERE id=:i"),
+                s.execute(_t("UPDATE tenant.att_ocr_case SET datum_do=:dd, cssz_link_konec=COALESCE(:lnk, cssz_link_konec), updated_at=now() WHERE id=:i"),
                           {"dd": d_od, "i": ex_id, "lnk": link})
                 if ex_ar:
                     s.execute(_t("UPDATE tenant.att_absence_request SET datum_do=:dd WHERE id=:a"),
@@ -10613,7 +10614,7 @@ async def ocr_form_get(req: Request) -> JSONResponse:
     try:
         c = s.execute(_t(
             "SELECT user_id, osoba_jmeno, osoba_rc, osoba_vztah, identifikator, "
-            "to_char(datum_od,'YYYY-MM-DD'), to_char(datum_do,'YYYY-MM-DD'), cssz_link "
+            "to_char(datum_od,'YYYY-MM-DD'), to_char(datum_do,'YYYY-MM-DD'), cssz_link, cssz_link_konec "
             "FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"), {"i": case_id}).first()
         if not c:
             return JSONResponse({"ok": False, "error": "Případ nenalezen."})
@@ -10639,7 +10640,7 @@ async def ocr_form_get(req: Request) -> JSONResponse:
             except Exception:
                 pass
         return JSONResponse({"ok": True, "case_id": case_id, "prefill": prefill,
-                             "data": data, "cssz_link": (c[7] or ""),
+                             "data": data, "cssz_link": (c[7] or ""), "cssz_link_konec": (c[8] or ""),
                              "stav": (row[1] if row else "rozpracovany")})
     finally:
         cm.__exit__(None, None, None)
@@ -11010,15 +11011,17 @@ async def ocr_mail_send(req: Request) -> JSONResponse:
                 obd = d["datum_od"]
                 if d.get("datum_do"):
                     obd += " – " + d["datum_do"]
-            _lnk = s.execute(_t("SELECT cssz_link FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"),
-                             {"i": cid}).scalar()
+            _lnks = s.execute(_t("SELECT cssz_link, cssz_link_konec FROM tenant.att_ocr_case "
+                                 "WHERE id=:i AND tenant_id=2"), {"i": cid}).first()
             lines.append("- %s — péče o %s%s%s%s" % (
                 zam, (d.get("os_jmeno") or "?"),
                 (" (" + d["os_vztah"] + ")") if d.get("os_vztah") else "",
                 (", " + obd) if obd else "",
                 (", identifikátor " + d["cislo_rozhodnuti"]) if d.get("cislo_rozhodnuti") else ""))
-            if _lnk:
-                lines.append("  📄 Doklad ke stažení z ČSSZ ePortálu: " + str(_lnk))
+            if _lnks and _lnks[0]:
+                lines.append("  📄 Doklad o vzniku (zahájení) z ČSSZ ePortálu: " + str(_lnks[0]))
+            if _lnks and _lnks[1]:
+                lines.append("  📄 Doklad o ukončení z ČSSZ ePortálu: " + str(_lnks[1]))
     finally:
         cm.__exit__(None, None, None)
 

@@ -2609,7 +2609,9 @@ setTimeout(function(){
       if(!j||!j.ok){ w.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>')); var bk=el('<button class="ghost sm">Zpět</button>'); bk.addEventListener("click",function(){ocr();}); w.appendChild(bk); return; }
       var d=j.data||{};
       w.appendChild(el('<div class="hint" style="line-height:1.6;">Formulář ČSSZ „Oznámení zaměstnavateli o potřebě ošetřování" (§109). Předvyplnili jsme, co víme — doplň zbytek a ulož. Rodné číslo jde jen do formuláře, nikdy ne SMS.</div>'));
-      if(j.cssz_link){ w.appendChild(el('<div style="margin:2px 0 4px;padding:8px 10px;border-radius:10px;background:rgba(159,208,255,.08);border:1px solid #2b3a5c;"><a href="'+esc(j.cssz_link)+'" target="_blank" rel="noopener" style="color:#9fd0ff;font-weight:700;font-size:14px;text-decoration:none;">📄 Stáhnout doklad z ČSSZ ePortálu</a></div>')); }
+      function _ocrLinkBtn(url,label){ return el('<div style="margin:2px 0 4px;padding:8px 10px;border-radius:10px;background:rgba(159,208,255,.08);border:1px solid #2b3a5c;"><a href="'+esc(url)+'" target="_blank" rel="noopener" style="color:#9fd0ff;font-weight:700;font-size:14px;text-decoration:none;">'+esc(label)+'</a></div>'); }
+      if(j.cssz_link){ w.appendChild(_ocrLinkBtn(j.cssz_link,"📄 Doklad o vzniku (zahájení) – ČSSZ ePortál")); }
+      if(j.cssz_link_konec){ w.appendChild(_ocrLinkBtn(j.cssz_link_konec,"📄 Doklad o ukončení – ČSSZ ePortál")); }
       w.appendChild(_ocrSec("Zaměstnanec"));
       var fZj=_ocrFld(w,"Jméno",""); fZj.value=d.zam_jmeno||"";
       var fZp=_ocrFld(w,"Příjmení",""); fZp.value=d.zam_prijmeni||"";
@@ -2742,7 +2744,8 @@ setTimeout(function(){
         var rw=el('<div style="padding:10px 6px;border-bottom:1px solid var(--bord);"></div>');
         rw.appendChild(el('<div style="font-weight:600;">'+esc(c.zamestnanec||"")+'</div>'));
         rw.appendChild(el('<div class="hint">péče o: '+esc(c.osoba||"")+(c.vztah?(' ('+esc(c.vztah)+')'):'')+' · '+_czDate(c.od)+(c.do?(' – '+_czDate(c.do)):'')+(c.dny?(' · '+c.dny+' dní'):'')+(c.company?(' · '+esc(c.company)):'')+(c.identifikator?(' · id '+esc(c.identifikator)):'')+'</div>'));
-        if(c.link){ rw.appendChild(el('<div style="margin-top:4px;"><a href="'+esc(c.link)+'" target="_blank" rel="noopener" style="color:#9fd0ff;font-size:13px;font-weight:600;">📄 Stáhnout doklad z ČSSZ ePortálu</a></div>')); }
+        if(c.link){ rw.appendChild(el('<div style="margin-top:4px;"><a href="'+esc(c.link)+'" target="_blank" rel="noopener" style="color:#9fd0ff;font-size:13px;font-weight:600;">📄 Doklad o vzniku (zahájení)</a></div>')); }
+        if(c.link_konec){ rw.appendChild(el('<div style="margin-top:2px;"><a href="'+esc(c.link_konec)+'" target="_blank" rel="noopener" style="color:#9fd0ff;font-size:13px;font-weight:600;">📄 Doklad o ukončení</a></div>')); }
         if(c.stav==="ukonceno"){
           var b=el('<button style="margin-top:6px;padding:8px 14px;border-radius:10px;border:1px solid #34d399;background:rgba(52,211,153,.15);color:#5ee0b7;font-weight:700;cursor:pointer;">✓ Schválit</button>');
           b.addEventListener("click",function(){ if(!confirm("Schválit OČR pro "+(c.zamestnanec||"")+"?"))return; b.disabled=true; b.textContent="…"; api("POST","/api/v1/erp/app/ocr/approve",{id:c.id}).then(function(r){ if(r&&r.ok){ ocr_schval(); } else { b.disabled=false; b.textContent="✓ Schválit"; alert("Chyba: "+((r&&r.error)||"?")); } }); });

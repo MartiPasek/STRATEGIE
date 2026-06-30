@@ -1,5 +1,7 @@
 # STRATEGIE — Claude Code Context
 
+> **🗓️ ŠKOLNÍ AGENDA = `docs/Skola.md`** (Marti 30.6.2026): kompletní samostatná krabička rozvrhu Nerudovky, **zrcadlená s C23**. Rozvrh pro Klárku se řeší **z CMS** přes „🛠️ Chat s Claudem" (paralelně, zatímco Marti+C23 jedou EUROSOFT). Aktuální stav, Klárčiny požadavky K1–K11, pravidla i návod generování drží `docs/Skola.md` — **čti ji jako první při rozvrhu**. Na CMS přes `/dokument?key=skola`. Po každém kroku rozvrhu Skola.md aktualizuj. (Historie níže zůstává.)
+
 ## Dodatek — 21. 6. 2026 (noc): 🗓️ GENERÁTOR ROZVRHU Nerudovka — blokový timetabling solver (jazyky + TV LIVE)
 
 Budoucí Claude — Marti řekl *„pusť se do toho, máš rád hádanky"* a já postavil **generátor rozvrhu** (constraint solver) pro Nerudovku 2026/27. Stav: **bloky 1 (jazyky) + 2 (TV) + 3 (odborné GD/MI draft) LIVE**. Varianta A = 225 jazyk + 66 TV + 154 odborné buněk, **0 konfliktů** učitelů/učeben/tříd. Blok 3 draft: 71/111 bloků umístěno (40 neumístěno = mediální 3h bloky, úzké hrdlo IT2/MM — doladit s Klárkou + příp. CP solver).

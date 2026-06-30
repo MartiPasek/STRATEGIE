@@ -1116,6 +1116,7 @@ _KB_DOCS = {
     "dodavatele": ("docs/iso27001_dodavatele_dpa.md", "Dodavatelé + DPA"),
     "vize": ("docs/iso_vize_pro_misu.md", "Vize ISO & TISAX — vedení certifikace a spolupráce"),
     "banka_pruvodce": ("docs/Banka_ucetnictvi_pruvodce_Petra.md", "🏦 Banka — průvodce účtováním a párováním plateb"),
+    "skola": ("docs/Skola.md", "🗓️ Nerudovka — rozvrhová agenda (kompletní obraz pro řešení z CMS)"),
 }
 _KB_TYPY = {"otazka", "nerozumim", "spatne", "nesouhlas", "doplnit"}
 _PORTAL = os.environ.get("STRATEGIE_PUBLIC_URL") or "https://strategie-ai.com"

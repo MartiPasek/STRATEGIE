@@ -20441,6 +20441,24 @@ async def marti_cockpit(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/cockpit/access")
+async def cockpit_access(req: Request) -> JSONResponse:
+    """Kdo má přístup do řídicího pultu /marti (ikonka avatarů vlevo od 🚀 +
+    cockpit + moduly uvnitř). Okruh = rodiče + scoped approveři: Petra (18) a
+    Šárka (13). Frontend (deploy_button.js) podle toho vykreslí avatary nezávisle
+    na rocket-gate (ten zůstává jen rodičům). Marti 30.6.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    allowed = bool(uid and (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS))
+    team = [
+        {"uid": 1,  "ini": "M", "name": "Marti Pašek",     "role": "zakladatel",     "col": "#2e5d3a", "cockpit": "/marti"},
+        {"uid": 11, "ini": "K", "name": "Kristýna",         "role": "procesy",        "col": "#4a3a6e", "cockpit": "/marti"},
+        {"uid": 13, "ini": "Š", "name": "Šárka",            "role": "personalistika", "col": "#6e4a3a", "cockpit": "/marti"},
+        {"uid": 18, "ini": "P", "name": "Petra Šafránková", "role": "finance + HR",   "col": "#3a566e", "cockpit": "/marti"},
+    ]
+    return JSONResponse({"ok": True, "uid": uid or 0, "allowed": allowed,
+                         "team": team if allowed else []})
+
+
 @api_router.get("/app/attendance/list")
 async def att_list(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)

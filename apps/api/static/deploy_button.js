@@ -38,13 +38,16 @@
       .then(function (j) {
         _injectStyle();
         _renderButton();
-        if (IS_ERP) _renderOwners();   // Marti 28.6.: avatar Marti + Kristý vlevo od rakety
         _setActive(!!(j && j.deployable), j || {});
         setTimeout(function () { _poll(true); }, 4000); // první čerstvá kontrola
         setInterval(function () { _poll(true); }, POLL_MS);
       })
       .catch(function () {});
   } catch (e) {}
+
+  // Avatar ikonka (M/K/Š/P) vlevo od rakety — NEZÁVISLE na rocket-gate (ten je jen
+  // rodičům). Cockpit /marti + práva uvnitř má i Petra (18) a Šárka (13). Marti 30.6.
+  try { if (IS_ERP) _initOwners(); } catch (e) {}
 
   // Pravidelný poll stavu nasaditelnosti. fresh=true → git fetch (čerstvý
   // origin); fresh=false → jen lokální porovnání.
@@ -100,29 +103,41 @@
     document.body.appendChild(b);
   }
 
-  // Avatar chipy Marti + Kristý vlevo od rakety (Marti 28.6.2026). Jen rodiče (běží
-  // ve stejném parent-gated flow jako raketa). Presence prstýnek dle „Kdo je kde".
-  function _renderOwners() {
-    if (document.getElementById("erpOwnerMarti")) return;
-    var people = [
-      { id: "erpOwnerMarti", uid: 1, ini: "M", name: "Marti Pašek", role: "zakladatel", col: "#2e5d3a", right: 112, cockpit: "/marti" },
-      { id: "erpOwnerKristy", uid: 11, ini: "K", name: "Kristýna", role: "procesy", col: "#4a3a6e", right: 64, cockpit: "/marti" }
-    ];
-    people.forEach(function (p) {
+  // Avatar chipy vlevo od rakety (Marti 28.6. → rozšířeno 30.6.). Okruh řídicího pultu
+  // = rodiče + Petra (18) + Šárka (13). Server (/app/cockpit/access) řekne, jestli
+  // aktuální uživatel smí a vrátí tým (M/K/Š/P) → vykreslíme NEZÁVISLE na rocket-gate.
+  function _initOwners() {
+    if (document.getElementById("erpOwnersDone")) return;
+    fetch("/api/v1/erp/app/cockpit/access", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j || !j.allowed || !j.team || !j.team.length) return;
+        _renderOwners(j.team);
+      })
+      .catch(function () {});
+  }
+
+  function _renderOwners(team) {
+    if (document.getElementById("erpOwnersDone")) return;
+    var marker = document.createElement("span");
+    marker.id = "erpOwnersDone"; marker.style.display = "none";
+    document.body.appendChild(marker);
+    team.forEach(function (p, i) {
+      p.id = "erpOwner_" + p.uid;
       var b = document.createElement("button");
       b.id = p.id; b.type = "button"; b.textContent = p.ini;
-      b.title = p.name + " — " + p.role + " · klik = cockpit";
+      b.title = p.name + " — " + p.role + " · klik = řídicí pult";
       b.style.cssText =
-        "position:fixed;top:8px;right:" + p.right + "px;z-index:99000;width:36px;height:36px;" +
+        "position:fixed;top:8px;right:" + (64 + i * 44) + "px;z-index:99000;width:36px;height:36px;" +
         "border-radius:50%;background:" + p.col + ";border:1px solid rgba(255,255,255,0.18);" +
         "color:#eaf2ea;font-size:14px;font-weight:700;cursor:pointer;opacity:0.8;" +
         "box-shadow:0 2px 8px rgba(0,0,0,0.4);transition:opacity .2s ease;";
       b.addEventListener("mouseenter", function () { b.style.opacity = "1"; });
       b.addEventListener("mouseleave", function () { b.style.opacity = "0.8"; });
-      b.addEventListener("click", function () { try { window.location.href = p.cockpit; } catch (e) {} });
+      b.addEventListener("click", function () { try { window.location.href = p.cockpit || "/marti"; } catch (e) {} });
       document.body.appendChild(b);
     });
-    _ownerPresence(people);
+    _ownerPresence(team);
   }
 
   function _ownerCard(p) {

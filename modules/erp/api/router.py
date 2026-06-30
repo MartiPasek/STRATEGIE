@@ -33528,21 +33528,17 @@ def _sync_pasky_from_helios() -> dict:
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     from modules.strategie_pg.application import service as _pg
     from sqlalchemy import text as _t
-    mcp = get_eurosoft_mcp_client()
-    if mcp is None:
-        raise RuntimeError("EUROSOFT MCP nedostupné")
-
+    # Marti 30.6.2026: zdroj přepnut z office DB_EC (MCP) na CLOUD UCTO_ (188.12, pyodbc) —
+    # jediný zdroj pravdy, čistá re-sync (DELETE payslip_item před plněním).
     def rows_of(sql):
-        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
-                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
-        r = _json_p.loads(raw) if isinstance(raw, str) else raw
-        if isinstance(r, dict):
-            if r.get("ok") is False:
-                raise RuntimeError(str(r.get("error")))
-            for k in ("rows", "data", "result", "records"):
-                if isinstance(r.get(k), list):
-                    return r[k]
-        return r if isinstance(r, list) else []
+        r = _mssql188_query(sql)
+        if not (isinstance(r, dict) and r.get("ok")):
+            raise RuntimeError(str(r.get("error") if isinstance(r, dict) else r))
+        cols = r.get("columns") or []
+        out = []
+        for row in (r.get("rows") or []):
+            out.append({cols[i]: (row[i] if i < len(row) else None) for i in range(len(cols))})
+        return out
 
     cm = _pg.get_session()
     s = cm.__enter__()
@@ -33567,7 +33563,10 @@ def _sync_pasky_from_helios() -> dict:
             emp_cache[key] = r3[0]
             return r3[0]
 
-        for src, dbp in (("EC", ""), ("ES", "DB_IS.dbo.")):
+        # Čistá re-sync z cloudu = jediný zdroj (Marti 30.6.: cloud má celý 2025→teď).
+        s.execute(_t("DELETE FROM tenant.payslip_item WHERE tenant_id = 2"))
+        s.commit()
+        for src, dbp in (("EC", "UCTO_EC.dbo."), ("ES", "UCTO_ES.dbo.")):
             # MZDOVÁ období: TabMzdObd (ID, Rok, Mesic) — POZOR, ne účetní TabObdobi!
             # (gotcha 7.6.: TabObdobi = účetnictví, IdObdobi mezd tam není → 0 položek)
             obd = {int(o["ID"]): (int(o["Rok"]), int(o["Mesic"])) for o in rows_of(

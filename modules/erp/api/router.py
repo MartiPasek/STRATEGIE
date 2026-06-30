@@ -25870,23 +25870,66 @@ def _mzdy_priplatky_rows(firma, rok, mesic):
         s.close()
 
 
+# Mapování naší absence (att_entry.code) -> Helios mzdová složka (TabPredzp.CisloMS).
+# Ověřeno z reálných EC 2025 dat. sickday=odpracovaný den (Marti 30.6., neposíláme),
+# osvc_absence + volno navíc 70% mimo Helios (vlastní výpočet).
+_ABS_CODE_TO_MS = {"vacation": 211, "medical": 243, "sick": 200,
+                   "family_care": 251, "unpaid": 246, "maternity": 255}
+
+
+def _mzdy_absence_rows(firma, rok, mesic):
+    """Absence z NAŠÍ docházky (att_entry, kategorie absence) -> předzpracování Helios.
+    Náhrady NEpočítáme — dáme Dny+Hodiny do mzdové složky, Helios dopočítá z průměru
+    (jako dovolená/nemoc v EC). Vrací (cislo, ms, koruny=0, dny, hodiny). Firma-agnostické:
+    _mzdy_predzprac_apply filtruje dle TabCisZam dané firmy (cislo bez záznamu = skip)."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT e.cislo_zam AS cislo, et.code AS code, "
+            "  COUNT(DISTINCT a.entry_date) AS dny, COALESCE(SUM(a.hours),0) AS hod "
+            "FROM tenant.att_entry a "
+            "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id AND et.category='absence' "
+            "JOIN tenant.att_employee e ON e.id=a.employee_id "
+            "WHERE a.tenant_id=2 AND e.cislo_zam ~ '^[0-9]+$' "
+            "  AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
+            "  AND et.code IN ('vacation','medical','sick','family_care','unpaid','maternity') "
+            "GROUP BY e.cislo_zam, et.code"), {"y": rok, "mo": mesic}).fetchall()
+        out = []
+        for r in rows:
+            try:
+                cislo = int(str(r[0]).strip()); ms = _ABS_CODE_TO_MS.get(r[1])
+                dny = float(r[2] or 0); hod = float(r[3] or 0)
+            except Exception:
+                continue
+            if not ms or (dny <= 0 and hod <= 0):
+                continue
+            out.append((cislo, ms, 0, int(round(dny)), round(hod, 2)))
+        return out
+    finally:
+        s.close()
+
+
 def _mzdy_consolidate(prows):
-    """Sečte koruny + dny per (cislo, cislo_ms) — víc zdrojů do jedné Helios složky
-    (např. 651 ze snapshotu premie/vedení + příplatků odměny)."""
+    """Sečte koruny + dny + hodiny per (cislo, cislo_ms) — víc zdrojů do jedné Helios složky
+    (např. 651 ze snapshotu premie/vedení + příplatků odměny). 5. prvek = hodiny (absence)."""
     agg = {}
     order = []
     for row in prows:
         try:
             c = int(row[0]); ms = int(row[1]); kc = int(row[2] or 0)
             dny = int(row[3] if len(row) > 3 else 0)
+            hod = float(row[4]) if len(row) > 4 else 0.0
         except Exception:
             continue
         if (c, ms) not in agg:
-            agg[(c, ms)] = [0, 0]
+            agg[(c, ms)] = [0, 0, 0.0]
             order.append((c, ms))
         agg[(c, ms)][0] += kc
         agg[(c, ms)][1] += dny
-    return [(c, ms, agg[(c, ms)][0], agg[(c, ms)][1]) for (c, ms) in order]
+        agg[(c, ms)][2] += hod
+    return [(c, ms, agg[(c, ms)][0], agg[(c, ms)][1], round(agg[(c, ms)][2], 2)) for (c, ms) in order]
 
 
 def _mzdy_predzprac_apply(cloud_db, idobd, rows):
@@ -25910,11 +25953,12 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows):
     for row in rows:
         c, ms, kc = row[0], row[1], row[2]
         dny = row[3] if len(row) > 3 else 0
+        hod = float(row[4]) if len(row) > 4 else 0.0
         zid = id_by_cislo.get(int(c))
-        if not zid or (not kc and not dny):  # absence = jen Dny (koruny dopočítá automat)
+        if not zid or (not kc and not dny and not hod):  # absence = Dny+Hodiny (koruny/náhradu dopočítá Helios)
             continue
         stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
-                     "VALUES(%s,%d,%d,0,%d,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), int(dny or 0), int(kc)))
+                     "VALUES(%s,%d,%d,%.2f,%d,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), float(hod or 0), int(dny or 0), int(kc)))
         if int(ms) == 1:
             kart.append("UPDATE " + cloud_db + ".dbo.TabZamMzd SET ZakladniPlat=%d WHERE ZamestnanecId=%d AND IdObdobi=%s;" % (int(kc), zid, o))
     allstmts = stmts + kart
@@ -26190,6 +26234,10 @@ def mzdy_generuj(req: Request):
             prows = prows + _mzdy_priplatky_rows(firma, rok, mesic)
         except Exception as _pe:
             pass  # příplatky/srážky best-effort
+        try:
+            prows = prows + _mzdy_absence_rows(firma, rok, mesic)
+        except Exception as _ae:
+            pass  # absence (dovolená/nemoc/lékař/OČR…) z naší docházky, best-effort
         try:
             prows = _mzdy_consolidate(prows)  # sečti víc zdrojů do jedné Helios složky
         except Exception as _ce:

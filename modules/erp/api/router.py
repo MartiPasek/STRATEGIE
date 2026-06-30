@@ -9615,6 +9615,12 @@ def _sync_dochazka_ec(rok, mesic):
         # idempotence: smaž předchozí EC-real za měsíc (att_entry + att_day_summary)
         s.execute(_t("DELETE FROM tenant.att_entry WHERE tenant_id=2 AND source_system='ec_real' "
                      "AND EXTRACT(YEAR FROM entry_date)=:y AND EXTRACT(MONTH FROM entry_date)=:m"), {"y": rok, "m": mesic})
+        # zruš i staré automatové fond_doplneni (source<>'ec_real') — import je nahradí PŘESNOU korekcí,
+        # ať se nesčítají (skupina 24 drží fond, ne fond+automat → den 16h). Marti 30.6.
+        s.execute(_t("DELETE FROM tenant.att_entry a USING tenant.att_entry_type et "
+                     "WHERE a.entry_type_id=et.id AND et.code='fond_doplneni' AND COALESCE(a.source_system,'')<>'ec_real' "
+                     "AND a.tenant_id=2 AND EXTRACT(YEAR FROM a.entry_date)=:y AND EXTRACT(MONTH FROM a.entry_date)=:m"),
+                  {"y": rok, "m": mesic})
         # att_day_summary nemá source_system → smaž celý měsíc a naplň čistě z EC (EC = zdroj pravdy;
         # tím zmizí zbytková app/test data, co nafukovala dny i hodiny). Marti 28.6.
         s.execute(_t("DELETE FROM tenant.att_day_summary WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
@@ -9672,30 +9678,39 @@ def _sync_dochazka_ec(rok, mesic):
                 abs_plan = planned_abs.get((emp, dd.isoformat()), 0.0)
                 rp = real_present.get((emp, dd.isoformat()), 0.0)
                 if uid in fond_uids:
-                    # skupina 24 (volná doba) → dopíchnout JEN na mezeru (fond − reálně odpíchnuto),
-                    # ať se EC-fond nesčítá s mobilními píchnutími do dvojího dne. Marti 30.6.
-                    work_target = round(max(0.0, fond - min(abs_total + abs_plan, fond) - rp), 2)
+                    # ŽELEZNÉ PRAVIDLO (Marti 30.6.): skupina 24 drží PŘESNĚ fond/den.
+                    # Jedna signed korekce fond_doplneni = (fond − absence) − reálně odpíchnuto:
+                    # kladná dopíchne mezeru, záporná zastropuje přetažení (bez přesčasů).
+                    # Mobil zůstává jako „kdy"; vykázaný den (práce+absence) = fond vždy.
+                    worked_cil = round(fond - min(abs_total + abs_plan, fond), 2)
+                    korekce = round(worked_cil - rp, 2)
+                    if abs(korekce) >= 0.01:
+                        tid = tids.get("fond_doplneni")
+                        if tid:
+                            s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                                         "status,source,source_system,is_active,note,created_at,updated_at) "
+                                         "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,:nt,now(),now())"),
+                                      {"e": emp, "d": dd, "t": tid, "h": korekce,
+                                       "nt": "fond korekce (skupina 24 drzi fond)"})
+                            out["prace"] += 1
+                            if korekce > 0:
+                                out["dopichnuto_h"] += korekce
+                            else:
+                                out["odpichnuto_h"] += -korekce
+                    den_cas = worked_cil
                 else:
                     # dílenští/pevná doba → JEN reálně odpracováno, žádné dopíchávání/odpíchávání
                     work_target = round(present, 2)
-                if work_target > 0:
-                    wcode = "homeoffice" if (d and d["ho"] > d["work"]) else "work"
-                    tid = tids.get(wcode)
-                    if tid:
-                        if uid in fond_uids:
-                            nt = "EC práce (fond)" if present > 0 else "Dopíchnuto na fond (chybělo)"
-                        else:
-                            nt = "EC práce"
-                        s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                                     "status,source,source_system,is_active,note,created_at,updated_at) "
-                                     "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,:nt,now(),now())"),
-                                  {"e": emp, "d": dd, "t": tid, "h": work_target, "nt": nt})
-                        out["prace"] += 1
-                        if present < work_target:
-                            out["dopichnuto_h"] += round(work_target - present, 2)
-                        elif present > work_target:
-                            out["odpichnuto_h"] += round(present - work_target, 2)
-                den_cas = round((rp + work_target) if uid in fond_uids else work_target, 2)
+                    if work_target > 0:
+                        wcode = "homeoffice" if (d and d["ho"] > d["work"]) else "work"
+                        tid = tids.get(wcode)
+                        if tid:
+                            s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                                         "status,source,source_system,is_active,note,created_at,updated_at) "
+                                         "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,:nt,now(),now())"),
+                                      {"e": emp, "d": dd, "t": tid, "h": work_target, "nt": "EC práce"})
+                            out["prace"] += 1
+                    den_cas = work_target
                 s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem) "
                              "VALUES (2,:c,:u,:d,:y,:m,:h) "
                              "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,user_id=:u"),

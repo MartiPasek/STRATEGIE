@@ -36,9 +36,12 @@ def _uid(req):
 
 
 def _is_parent(uid):
-    from modules.erp.api.router import is_marti_parent
+    # Okruh řídicího pultu = rodiče + scoped approveři (Petra 18 finance+HR, Šárka 13
+    # personalistika). Marti 30.6.2026: „stejná práva pro nás pro všechny — naše sandboxy."
+    # Banka/pokladny/finance/saldo/účtování = finanční moduly cockpitu → celý okruh.
+    from modules.erp.api.router import is_marti_parent, _SCOPED_APPROVER_UIDS
     try:
-        return bool(is_marti_parent(uid))
+        return bool(is_marti_parent(uid)) or (uid in _SCOPED_APPROVER_UIDS)
     except Exception:
         return False
 

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smlouvy lidí</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:16px;background:#0f1420;color:#e8edf6}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#9fb0c8;font-size:13px;margin-bottom:16px}
+  .card{background:#19202e;border:1px solid #26303f;border-radius:12px;padding:14px;margin-bottom:16px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #232c3b;vertical-align:middle}
+  th{color:#8fa3bd;font-weight:600;font-size:12px}
+  th.firm{text-align:center;border-left:1px solid #2c3850}
+  td.fc{border-left:1px solid #232c3b}
+  .hl{font-family:ui-monospace,Menlo,monospace;color:#9ad29a;font-weight:700}
+  .nm{font-weight:600}
+  select,input{background:#0f1622;color:#e8edf6;border:1px solid #2c3850;border-radius:8px;padding:4px 6px;font-size:12px}
+  input.hc{width:64px}
+  select.typ{min-width:78px}
+  button{background:#2563eb;color:#fff;border:0;border-radius:9px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer}
+  button.sec{background:#27313f}
+  button.mini{padding:4px 9px;font-size:12px}
+  .ok{color:#7ee08a}.err{color:#ff8b8b}.muted{color:#8295ad;font-size:12px}
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .lg{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 0;font-size:11px;color:#9fb0c8}
+  .tg{display:inline-block;padding:1px 7px;border-radius:10px;font-weight:700;font-size:11px}
+  .tg.hpp{background:#16324a;color:#7fc0ff}.tg.osvc{background:#3a2b14;color:#f0c674}.tg.dpp{background:#2c1d3a;color:#c79bf0}
+</style>
+</head>
+<body>
+<a href="/cockpit" style="display:inline-block;margin:0 0 10px;color:#2dd4bf;text-decoration:none;font-size:13px;font-weight:700">← Zpět do cockpitu</a>
+<div class="topbar">
+  <div>
+    <h1>🪪 Smlouvy lidí</h1>
+    <div class="sub">Matka = STRATEGIE User (hlavní číslo = id). Smlouva per firma EC/ES · typ · Helios číslo. Filtr: jen aktivní lidé 2026.</div>
+  </div>
+  <div style="text-align:right">
+    <button class="sec" id="btnFill">🔢 Doplnit Helios čísla</button>
+    <div class="muted" id="fillMsg"></div>
+  </div>
+</div>
+<div class="card">
+  <div id="box">Načítám…</div>
+  <div class="lg">Typ: <span class="tg hpp">HPP</span> hlavní prac. poměr · <span class="tg osvc">OSVČ</span> · <span class="tg dpp">DPP</span> dohoda · prázdné = bez smlouvy v té firmě</div>
+</div>
+<script>
+const API='/api/v1/erp';
+async function j(u,o){const r=await fetch(API+u,Object.assign({credentials:'include'},o||{}));return r.json();}
+function esc(s){return (s||'').replace(/"/g,'&quot;')}
+function selTyp(firma,d){
+  const v=(d&&d.typ)||'';
+  const o=[['','—'],['hpp','HPP'],['osvc','OSVČ'],['dpp','DPP']]
+    .map(x=>`<option value="${x[0]}"${x[0]===v?' selected':''}>${x[1]}</option>`).join('');
+  return `<select class="typ" data-firma="${firma}" data-f="typ">${o}</select>`;
+}
+function inpHc(firma,d){
+  const v=(d&&d.helios_cislo!=null)?d.helios_cislo:'';
+  return `<input class="hc" data-firma="${firma}" data-f="helios" value="${v}" placeholder="—" inputmode="numeric">`;
+}
+function render(lide){
+  if(!lide.length){document.getElementById('box').innerHTML='<div class="muted">Žádné smlouvy.</div>';return;}
+  let h='<table><tr><th>Hl. číslo</th><th>Jméno</th>'
+    +'<th class="firm" colspan="2">EUROSOFT (EC)</th><th class="firm" colspan="2">System (ES)</th><th></th></tr>'
+    +'<tr><th></th><th></th><th class="fc">typ</th><th>Helios č.</th><th class="fc">typ</th><th>Helios č.</th><th></th></tr>';
+  lide.forEach(p=>{
+    h+=`<tr data-uid="${p.user_id}">
+      <td class="hl">${p.user_id}</td>
+      <td class="nm">${esc(p.jmeno)}</td>
+      <td class="fc">${selTyp('EC',p.EC)}</td><td>${inpHc('EC',p.EC)}</td>
+      <td class="fc">${selTyp('ES',p.ES)}</td><td>${inpHc('ES',p.ES)}</td>
+      <td><button class="mini" onclick="save(${p.user_id},this)">Uložit</button> <span class="m muted"></span></td>
+    </tr>`;
+  });
+  h+='</table>';
+  document.getElementById('box').innerHTML=h;
+}
+async function save(uid,btn){
+  const tr=btn.closest('tr');const m=tr.querySelector('.m');m.textContent='…';m.className='m muted';
+  const get=(firma,f)=>tr.querySelector(`[data-firma="${firma}"][data-f="${f}"]`).value;
+  let okall=true;
+  for(const firma of ['EC','ES']){
+    const typ=get(firma,'typ');const hc=get(firma,'helios');
+    if(!typ && !hc) continue; // prázdné obě → nic
+    const r=await j('/app/smlouvy/save',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({user_id:uid,firma:firma,typ:typ||null,helios_cislo:hc||null,aktivni:true})});
+    if(!r.ok){okall=false;m.textContent='✗ '+(r.error||'chyba');m.className='m err';}
+  }
+  if(okall){m.textContent='✓ uloženo';m.className='m ok';}
+}
+async function load(){
+  const r=await j('/app/smlouvy');
+  if(!r.ok){document.getElementById('box').innerHTML='<div class="err">'+(r.error==='forbidden'?'Nemáš přístup (jen Marti, Kristý, Šárka, Petra).':(r.error||'Nedostupné'))+'</div>';return;}
+  render(r.lide||[]);
+}
+document.getElementById('btnFill').onclick=async function(){
+  const m=document.getElementById('fillMsg');m.textContent='Páruji jména na Helios…';
+  const r=await j('/app/smlouvy/fill-helios',{method:'POST'});
+  if(r.ok){m.textContent='✓ doplněno '+r.doplneno+' · nenalezeno '+r.nenalezeno;m.className='muted ok';load();}
+  else{m.textContent='✗ '+(r.error||'chyba');m.className='muted err';}
+};
+load();
+</script>
+</body>
+</html>

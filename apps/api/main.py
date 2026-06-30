@@ -1065,6 +1065,14 @@ def pokladny_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/smlouvy")
+def smlouvy_page():
+    """Přehled smluv lidí: user.id (hlavní číslo) → firma (EC/ES) → typ (OSVČ/HPP/DPP) + Helios číslo.
+    Matka identity = STRATEGIE User. Pro Petru, Šárku, Kristý, Martiho. Marti 30.6.2026."""
+    return FileResponse(os.path.join(static_dir, "smlouvy.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/denik")
 def denik_page():
     """Přehled účetního deníku — živé zápisy řazené dle jistoty (triáž pro účetní).

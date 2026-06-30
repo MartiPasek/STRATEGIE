@@ -26864,6 +26864,129 @@ def mzdy_c_smlouva_save(req: Request):
         s.close()
 
 
+# ====== PŘEHLED SMLUV (user → firma → typ + Helios číslo) — cockpit, Marti 30.6.2026 ======
+# Matka identity = STRATEGIE User (user.id = hlavní číslo). Tady visí smlouvy per firma (EC/ES)
+# s typem (OSVČ/HPP/DPP) a firemním Helios číslem. Přístup: rodiče + Šárka(13)/Petra(18)/Kristý(11).
+_SMLOUVY_ACCESS_UIDS = {11, 13, 18}
+
+
+def _smlouvy_can_access(s, uid):
+    return bool(uid) and (_is_parent(s, uid) or int(uid) in _SMLOUVY_ACCESS_UIDS)
+
+
+def _smlouvy_norm(x):
+    import unicodedata
+    x = (x or "").strip().lower()
+    return "".join(c for c in unicodedata.normalize("NFD", x) if unicodedata.category(c) != "Mn")
+
+
+@api_router.get("/app/smlouvy")
+def smlouvy_list(req: Request):
+    """Přehled smluv: řádek = člověk (user.id + jméno), sloupce per firma EC/ES (typ + Helios číslo)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _smlouvy_can_access(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT u.id, u.first_name, u.last_name, sm.firma, sm.typ_smlouvy, sm.helios_cislo, "
+            "       sm.platnost_od::text, sm.platnost_do::text, sm.aktivni "
+            "FROM tenant.user_smlouva sm JOIN public.users u ON u.id=sm.user_id "
+            "WHERE sm.tenant_id=2 ORDER BY u.last_name, u.first_name, sm.firma")).fetchall()
+        by = {}
+        order = []
+        for r in rows:
+            up = r[0]
+            if up not in by:
+                by[up] = {"user_id": up, "jmeno": ((r[2] or "") + " " + (r[1] or "")).strip(),
+                          "EC": None, "ES": None}
+                order.append(up)
+            by[up][r[3]] = {"typ": r[4], "helios_cislo": r[5], "od": r[6], "do": r[7], "aktivni": r[8]}
+        return {"ok": True, "lide": [by[u] for u in order]}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/smlouvy/save")
+async def smlouvy_save(req: Request):
+    """Uloží/založí smlouvu pro (user, firma): typ (osvc/hpp/dpp), Helios číslo, aktivni."""
+    uid = _uid_from_token_or_cookie(req)
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _smlouvy_can_access(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            user_id = int(b.get("user_id")); firma = str(b.get("firma") or "").upper()
+        except Exception:
+            return {"ok": False, "error": "user_id/firma"}
+        if firma not in ("EC", "ES"):
+            return {"ok": False, "error": "firma EC/ES"}
+        typ = (b.get("typ") or None)
+        hc = b.get("helios_cislo")
+        hc = int(hc) if (hc not in (None, "", "null")) else None
+        akt = bool(b.get("aktivni", True))
+        s.execute(_t(
+            "INSERT INTO tenant.user_smlouva (tenant_id,user_id,firma,typ_smlouvy,helios_cislo,aktivni,zdroj,updated_by_user_id) "
+            "VALUES (2,:u,:f,:t,:h,:a,'rucne',:by) "
+            "ON CONFLICT (tenant_id,user_id,firma) DO UPDATE SET "
+            "  typ_smlouvy=EXCLUDED.typ_smlouvy, helios_cislo=EXCLUDED.helios_cislo, "
+            "  aktivni=EXCLUDED.aktivni, updated_by_user_id=EXCLUDED.updated_by_user_id, updated_at=now()"),
+            {"u": user_id, "f": firma, "t": typ, "h": hc, "a": akt, "by": uid})
+        s.commit()
+        return {"ok": True}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/smlouvy/fill-helios")
+def smlouvy_fill_helios(req: Request):
+    """Doplní Helios číslo per (user, firma) párováním jména na TabCisZam dané firmy (cloud Helios).
+    Jednoznačná shoda jen (jedno číslo na jméno ve firmě); kolize jmen přeskočí."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not _smlouvy_can_access(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        urows = s.execute(_t("SELECT id, first_name, last_name FROM public.users")).fetchall()
+        uname = {r[0]: _smlouvy_norm((r[2] or "") + " " + (r[1] or "")) for r in urows}
+        hel = {"EC": {}, "ES": {}}
+        for firma, db in (("EC", "UCTO_EC"), ("ES", "UCTO_ES")):
+            r = _mssql188_query("SELECT Cislo, Prijmeni, Jmeno FROM " + db + ".dbo.TabCisZam")
+            for v in (r.get("rows") or []):
+                key = _smlouvy_norm((v[1] or "") + " " + (v[2] or ""))
+                if not key:
+                    continue
+                if key in hel[firma] and hel[firma][key] != v[0]:
+                    hel[firma][key] = None  # kolize jména → nejednoznačné, přeskoč
+                elif key not in hel[firma]:
+                    hel[firma][key] = v[0]
+        smrows = s.execute(_t("SELECT user_id, firma FROM tenant.user_smlouva WHERE tenant_id=2")).fetchall()
+        n = 0; nm = 0
+        for user_id, firma in smrows:
+            cis = hel.get(firma, {}).get(uname.get(user_id))
+            if cis:
+                s.execute(_t("UPDATE tenant.user_smlouva SET helios_cislo=:c, updated_at=now() "
+                             "WHERE tenant_id=2 AND user_id=:u AND firma=:f"),
+                          {"c": int(cis), "u": user_id, "f": firma})
+                n += 1
+            else:
+                nm += 1
+        s.commit()
+        return {"ok": True, "doplneno": n, "nenalezeno": nm}
+    finally:
+        s.close()
+
+
 # === ZRCADLA office → cloud Helios (Marti 27.6.2026) =========================
 # Samostatná ikona: každé zrcadlo = 1:1 kopie tabulky z kancelářského Heliosu
 # (DB_EC/DB_IS přes MCP) do cloudu (UCTO_EC/UCTO_ES na 188.12). Plná kopie (mirror).

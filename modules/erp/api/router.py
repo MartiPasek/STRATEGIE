@@ -25784,42 +25784,71 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
     return out
 
 
-# Benefity HO/OBL (Marti 28.6.). Zdroj pravdy = STRATEGIE (tenant.benefit_*).
-#  HO  = dny zadané UŽIVATELEM (0..max) × firemní konstanta (benefit_konstanta) → MS 795,
-#        strop = benefit_limit.ho_max_kc (HR). Daňově uznatelné.
-#  OBL = benefit_limit.obl_kc (HR měsíční částka), nárok když měl měsíc dny >4 h (jako
-#        stravenky) a uživatel má obl_on=true → MS 794. Daňově uznatelné.
-#  Obě složky PONÍŽÍ pohyblivou (432) o svou částku (jsou nedaněnou náhradou za zdaněné
-#  os. ohodnocení → nižší základ na SOC POJ). Cap: vždy nech aspoň _BENEFIT_BUFFER Kč
-#  pohyblivé; když benefit > pohyblivá-buffer, ořež nejdřív HO dny, pak OBL.
+# Benefity HO/OBL — sazby dle e-mailu Petra/Landmark (Marti 30.6.2026). Rule-based:
+#  Skupina: KANCELÁŘ = att kategorie dopichavat_fond (skup24); jinak DÍLNA.
+#  OBL = denní sazba × odpracované dny (kancelář 109 Kč/den, dílna 279 Kč/den). HR může
+#        vypnout per osoba (benefit_volba.obl_on=false). → MS 794. Daňově uznatelné.
+#  HO  = 43 Kč × hodiny úvazku/den × min(odpracované dny, 12); JEN kancelář + výjimka
+#        Tomáš Bláha (ES 476 = dílna, ale má HO). → MS 795. Daňově uznatelné.
+#  Obě složky PONÍŽÍ pohyblivou (432) — nedaněná náhrada za zdaněné os. ohodnocení →
+#  nižší základ na SOC POJ. Cap: nech aspoň _BENEFIT_BUFFER Kč pohyblivé; OBL má PŘEDNOST
+#  (ze složky os. ohodnocení se vyplácí nejdřív OBL, pak HO — Marti) → při stropu ořež HO.
 _HO_MS, _OBL_MS, _POHYB_MS = 795, 794, 432
 _BENEFIT_BUFFER = 100
+_HO_HOD_SAZBA = 43.0           # Kč/hod, celofiremní
+_HO_MAX_DNY = 12              # strop HO dní/měsíc
+_OBL_SAZBA_KANCELAR = 109.0   # Kč/den
+_OBL_SAZBA_DILNA = 279.0      # Kč/den
+_HO_DILNA_VYJIMKA = {("2", 476)}  # (fkod, cislo) — Tomáš Bláha ES 476 = dílna, ale má HO
 
 
 def _mzdy_benefity_apply(prows, firma, rok, mesic):
-    """Vezme prows (předzpracování vč. 432) a aplikuje benefity HO/OBL: doplní MS 795/794
-    a poníží 432 o jejich součet (se stropem buffer). Vrací nové prows."""
+    """Vezme prows (předzpracování vč. 432) a aplikuje benefity OBL/HO dle sazeb
+    (Marti 30.6.). OBL = sazba/den × odpracované dny (kancelář 109 / dílna 279),
+    HR může vypnout (obl_on=false). HO = 43 × hodiny úvazku/den × min(uživatelem
+    NÁROKOVANÉ dny, 12), jen kancelář + Bláha. Obě poníží 432, OBL má přednost
+    (cap ořezává HO). Vrací nové prows."""
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     fkod = '1' if str(firma).upper() in ('EC', '1') else '2'
+    fk_sm = 'EC' if fkod == '1' else 'ES'
     s = _g()
     try:
-        konst = s.execute(_t(
-            "SELECT kc_za_den FROM tenant.benefit_konstanta "
-            "WHERE typ='HO' AND (firma IS NULL OR firma=:f) "
-            "AND platnost_od<=make_date(:y,:mo,1) "
-            "AND (platnost_do IS NULL OR platnost_do>=make_date(:y,:mo,1)) "
-            "ORDER BY platnost_od DESC LIMIT 1"), {"f": fkod, "y": rok, "mo": mesic}).fetchone()
-        ho_kc_den = float(konst[0]) if konst and konst[0] else 234.0
-        vol = s.execute(_t(
-            "SELECT v.cislo, v.ho_dny, v.obl_on, COALESCE(l.ho_max_kc,0), COALESCE(l.obl_kc,0) "
-            "FROM tenant.benefit_volba v "
-            "LEFT JOIN tenant.benefit_limit l ON l.tenant_id=2 AND l.firma=v.firma AND l.cislo=v.cislo "
-            "WHERE v.tenant_id=2 AND v.firma=:f AND v.rok=:y AND v.mesic=:mo"),
-            {"f": fkod, "y": rok, "mo": mesic}).fetchall()
-        # presence (dny >4 h) pro OBL gate
+        # KANCELÁŘ = skupina 24 (att kategorie dopichavat_fond); jinak DÍLNA
+        skup24 = set(int(r[0]) for r in s.execute(_t(
+            "SELECT uk.user_id FROM tenant.att_user_kategorie uk "
+            "JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            "WHERE k.tenant_id=2 AND k.dopichavat_fond=true AND k.aktivni=true")).fetchall())
+        # platná populace = HPP/DPP v user_smlouva pro firmu (NE OSVČ) + denní hodiny úvazku
+        emp = {}
+        for r in s.execute(_t(
+            "SELECT sm.helios_cislo, sm.user_id, COALESCE(MAX(g.uvazek_tyden_h),40) "
+            "FROM tenant.user_smlouva sm "
+            "LEFT JOIN tenant.att_employee e ON e.tenant_id=2 AND e.user_id=sm.user_id "
+            "LEFT JOIN tenant.engagement g ON g.employee_id=e.id AND g.is_current=true "
+            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND COALESCE(sm.typ_smlouvy,'')<>'osvc' "
+            "  AND sm.helios_cislo IS NOT NULL "
+            "GROUP BY sm.helios_cislo, sm.user_id"), {"fk": fk_sm}).fetchall():
+            try:
+                emp[int(r[0])] = (int(r[1]), float(r[2] or 40) / 5.0)
+            except Exception:
+                pass
+        # uživatelské volby HO/OBL (self-service): kolik HO dní si nárokuje + zda OBL vypnuto
+        ho_dny_by = {}
+        obl_off = set()
+        for r in s.execute(_t(
+            "SELECT cislo, COALESCE(ho_dny,0), COALESCE(obl_on,true) "
+            "FROM tenant.benefit_volba WHERE tenant_id=2 AND firma=:f AND rok=:y AND mesic=:mo"),
+                {"f": fkod, "y": rok, "mo": mesic}).fetchall():
+            try:
+                c = int(r[0])
+                ho_dny_by[c] = int(r[1] or 0)
+                if not bool(r[2]):
+                    obl_off.add(c)
+            except Exception:
+                pass
+        # odpracované dny (>4 h) — autoritativní z att_entry (Marti 29.6.)
         pres = s.execute(_t(
-            # Marti 29.6.: worked-days z att_entry (autoritativní), ne sparse att_day_summary
             "SELECT e.cislo_zam, COUNT(DISTINCT d.entry_date) FROM "
             "(SELECT a.employee_id, a.entry_date FROM tenant.att_entry a "
             " JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
@@ -25830,7 +25859,7 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             {"y": rok, "mo": mesic}).fetchall()
     finally:
         s.close()
-    if not vol:
+    if not emp:
         return prows
     days_by = {}
     for r in pres:
@@ -25838,44 +25867,43 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             days_by[int(r[0])] = int(r[1] or 0)
         except Exception:
             pass
-    # aktuální pohyblivá (432) z prows
     pohyb_by = {}
     for row in prows:
         if int(row[1]) == _POHYB_MS:
             pohyb_by[int(row[0])] = int(row[2] or 0)
-    add = []  # nové 795/794 řádky
+    add = []  # nové 794/795 řádky
     new_pohyb = {}  # cislo -> nová 432
-    for r in vol:
-        try:
-            cislo = int(r[0]); ho_dny = int(r[1] or 0); obl_on = bool(r[2])
-            ho_max = int(r[3] or 0); obl_kc = int(r[4] or 0)
-        except Exception:
-            continue
-        ho_amt = min(int(round(ho_dny * ho_kc_den)), ho_max) if ho_dny > 0 else 0
-        present = days_by.get(cislo, 0) >= 1
-        obl_amt = obl_kc if (obl_on and present and obl_kc > 0) else 0
+    for cislo, (user_id, daily_h) in emp.items():
+        wd = days_by.get(cislo, 0)
+        if wd <= 0:
+            continue  # bez odpracovaného dne není nárok
+        is_office = user_id in skup24
+        # OBL = denní sazba × odpracované dny (kancelář 109 / dílna 279); HR může vypnout
+        obl_rate = _OBL_SAZBA_KANCELAR if is_office else _OBL_SAZBA_DILNA
+        obl_amt = 0 if cislo in obl_off else int(round(obl_rate * wd))
+        # HO = 43 × hodiny úvazku/den × min(NÁROKOVANÉ dny, 12); jen kancelář + Bláha
+        ho_elig = is_office or ((fkod, cislo) in _HO_DILNA_VYJIMKA)
+        ho_dny = min(int(ho_dny_by.get(cislo, 0)), _HO_MAX_DNY) if ho_elig else 0
+        ho_kc_den = _HO_HOD_SAZBA * daily_h
+        ho_amt = int(round(ho_dny * ho_kc_den)) if ho_dny > 0 else 0
         pohyb = pohyb_by.get(cislo, 0)
         avail = max(0, pohyb - _BENEFIT_BUFFER)
-        # cap: benefit nesmí spolknout celou pohyblivou
-        if ho_amt + obl_amt > avail:
+        # OBL má PŘEDNOST → při stropu ořež nejdřív HO
+        if obl_amt + ho_amt > avail:
             if obl_amt <= avail:
                 ho_amt = avail - obl_amt
             else:
-                ho_amt = 0; obl_amt = avail
-            ho_dny_eff = int(ho_amt // ho_kc_den)
-            ho_amt = int(round(ho_dny_eff * ho_kc_den))
-            if ho_amt + obl_amt > avail:
-                obl_amt = max(0, avail - ho_amt)
-        else:
-            ho_dny_eff = ho_dny
-        korekce = ho_amt + obl_amt
-        if ho_amt > 0:
-            add.append((cislo, _HO_MS, ho_amt, ho_dny_eff))
+                ho_amt = 0
+                obl_amt = avail
+            ho_dny = int(ho_amt // ho_kc_den) if ho_kc_den > 0 else 0
+            ho_amt = int(round(ho_dny * ho_kc_den))
+        korekce = obl_amt + ho_amt
         if obl_amt > 0:
             add.append((cislo, _OBL_MS, obl_amt, 0))
+        if ho_amt > 0:
+            add.append((cislo, _HO_MS, ho_amt, ho_dny))
         if korekce > 0 and cislo in pohyb_by:
             new_pohyb[cislo] = pohyb - korekce
-    # poskládej výstup: 432 nahraď sníženou hodnotou, přidej 795/794
     out = []
     for row in prows:
         c = int(row[0])

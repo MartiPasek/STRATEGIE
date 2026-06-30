@@ -36194,8 +36194,10 @@ _PLAN_DRUH_TO_CODE = {
 
 def _sync_plan_to_dochazka(rok: int = None) -> dict:
     """Propíše ZNÁMÉ plánované činnosti (att_planned_absence) do docházky att_entry
-    (dovolená/lékař/OČR), aby je viděly mzdy ke kontrole (Marti 28.6.). Idempotentní,
-    **NEpřepisuje existující záznam dne** (jen prázdné dny; realita má přednost). source='plan_ec'."""
+    (dovolená/lékař/OČR), aby je viděly mzdy ke kontrole (Marti 28.6.). Idempotentní.
+    Stav dle pole `schvaleno`: schváleno→'confirmed', neschváleno→'announced' (Oprava A,
+    Marti-AI 30.6.). Cizí zdroj (realita/píchnutí) NEpřepisuje; vlastní plan_ec záznam
+    srovná status dle aktuálního schvaleno (confirmed↔announced). source='plan_ec'."""
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     import datetime as _dt
@@ -36215,29 +36217,42 @@ def _sync_plan_to_dochazka(rok: int = None) -> dict:
                                "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():
             emap[str(er[0]).strip()] = er[1]
         rows = s.execute(_t(
-            "SELECT cislo_zam, datum, druh_kod, hodiny FROM tenant.att_planned_absence "
+            "SELECT cislo_zam, datum, druh_kod, hodiny, schvaleno FROM tenant.att_planned_absence "
             "WHERE tenant_id=2 AND druh_kod = ANY(:dk) AND EXTRACT(YEAR FROM datum)=:r"),
             {"dk": list(_PLAN_DRUH_TO_CODE.keys()), "r": rok}).fetchall()
+        upd = 0
         for r in rows:
             try:
                 cz = str(r[0]).strip(); d = r[1]; druh = int(r[2]); hod = float(r[3] or 0) or 8.0
+                schvaleno = bool(r[4])
             except Exception:
                 continue
             code = _PLAN_DRUH_TO_CODE.get(druh); emp = emap.get(cz); tid = tids.get(code)
             if not (code and emp and tid):
                 continue
-            ex = s.execute(_t("SELECT 1 FROM tenant.att_entry WHERE tenant_id=2 AND employee_id=:e "
-                              "AND entry_date=:d LIMIT 1"), {"e": emp, "d": d}).first()
-            if ex:  # realita (píchnutí/report) má přednost — nepřepisuj
+            # Oprava A (Marti-AI 30.6.2026, schválil Marti): stav podle SKUTEČNÉHO
+            # schválení v plánu. schvaleno=true → 'confirmed'; schvaleno=false →
+            # 'announced' (appka čeká, nepočítá jako hotové). „Potvrzeno" ≠ schválil člověk.
+            st = 'confirmed' if schvaleno else 'announced'
+            ex = s.execute(_t("SELECT id, source, status FROM tenant.att_entry WHERE tenant_id=2 "
+                              "AND employee_id=:e AND entry_date=:d LIMIT 1"), {"e": emp, "d": d}).first()
+            if ex:
+                # Realita (píchnutí/report) má přednost — cizí zdroj NEpřepisuj. Jen NÁŠ
+                # vlastní plan_ec záznam srovnej dle aktuálního schvaleno (po schválení
+                # v Centrále se status sám přepne confirmed↔announced). Idempotentní.
+                if ex[1] == 'plan_ec' and ex[2] != st:
+                    s.execute(_t("UPDATE tenant.att_entry SET status=:st, updated_at=now() WHERE id=:i"),
+                              {"st": st, "i": ex[0]})
+                    upd += 1
                 continue
             s.execute(_t(
                 "INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
                 "status,source,note,is_active,created_by_id,created_at,updated_at) "
-                "VALUES (2,:e,:d,:t,:h,'confirmed','plan_ec','z plánu nepřítomností',false,NULL,now(),now())"),
-                {"e": emp, "d": d, "t": tid, "h": hod})
+                "VALUES (2,:e,:d,:t,:h,:st,'plan_ec','z plánu nepřítomností',false,NULL,now(),now())"),
+                {"e": emp, "d": d, "t": tid, "h": hod, "st": st})
             n += 1
         s.commit()
-        return {"ok": True, "vlozeno": n}
+        return {"ok": True, "vlozeno": n, "aktualizovano": upd}
     finally:
         s.close()
 

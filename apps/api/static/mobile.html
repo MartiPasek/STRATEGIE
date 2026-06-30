@@ -2469,6 +2469,7 @@ setTimeout(function(){
       if(!j||!j.ok){ w.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>')); var bk=el('<button class="ghost sm">Zpět</button>'); bk.addEventListener("click",function(){ocr();}); w.appendChild(bk); return; }
       var d=j.data||{};
       w.appendChild(el('<div class="hint" style="line-height:1.6;">Formulář ČSSZ „Oznámení zaměstnavateli o potřebě ošetřování" (§109). Předvyplnili jsme, co víme — doplň zbytek a ulož. Rodné číslo jde jen do formuláře, nikdy ne SMS.</div>'));
+      if(j.cssz_link){ w.appendChild(el('<div style="margin:2px 0 4px;padding:8px 10px;border-radius:10px;background:rgba(159,208,255,.08);border:1px solid #2b3a5c;"><a href="'+esc(j.cssz_link)+'" target="_blank" rel="noopener" style="color:#9fd0ff;font-weight:700;font-size:14px;text-decoration:none;">📄 Stáhnout doklad z ČSSZ ePortálu</a></div>')); }
       w.appendChild(_ocrSec("Zaměstnanec"));
       var fZj=_ocrFld(w,"Jméno",""); fZj.value=d.zam_jmeno||"";
       var fZp=_ocrFld(w,"Příjmení",""); fZp.value=d.zam_prijmeni||"";

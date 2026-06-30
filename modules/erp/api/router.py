@@ -10613,7 +10613,7 @@ async def ocr_form_get(req: Request) -> JSONResponse:
     try:
         c = s.execute(_t(
             "SELECT user_id, osoba_jmeno, osoba_rc, osoba_vztah, identifikator, "
-            "to_char(datum_od,'YYYY-MM-DD'), to_char(datum_do,'YYYY-MM-DD') "
+            "to_char(datum_od,'YYYY-MM-DD'), to_char(datum_do,'YYYY-MM-DD'), cssz_link "
             "FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"), {"i": case_id}).first()
         if not c:
             return JSONResponse({"ok": False, "error": "Případ nenalezen."})
@@ -10639,7 +10639,8 @@ async def ocr_form_get(req: Request) -> JSONResponse:
             except Exception:
                 pass
         return JSONResponse({"ok": True, "case_id": case_id, "prefill": prefill,
-                             "data": data, "stav": (row[1] if row else "rozpracovany")})
+                             "data": data, "cssz_link": (c[7] or ""),
+                             "stav": (row[1] if row else "rozpracovany")})
     finally:
         cm.__exit__(None, None, None)
 

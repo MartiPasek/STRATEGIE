@@ -13892,11 +13892,12 @@ def app_crm_plan_hovoru(req: Request) -> JSONResponse:
         " k.Atraktivita AS atraktivita,"
         " COALESCE(NULLIF(LTRIM(RTRIM(k.FirmaTelefon)),''), NULLIF(LTRIM(RTRIM(a.Telefon)),''),"
         "          NULLIF(LTRIM(RTRIM(a.Mobil)),'')) AS telefon,"
+        " LTRIM(RTRIM(CONCAT(a.Jmeno, ' ', a.Prijmeni))) AS osoba,"
         " a.Prubeh AS poznamka"
         " FROM st.CRM_Kontakt k"
         " LEFT JOIN st.CRM_Kontakt_StavVztahuCis s ON s.ID = k.StavVztahuID"
         " OUTER APPLY ("
-        "   SELECT TOP 1 aa.Prubeh, aa.FirmaText, aa.Telefon, aa.Mobil"
+        "   SELECT TOP 1 aa.Prubeh, aa.FirmaText, aa.Telefon, aa.Mobil, aa.Jmeno, aa.Prijmeni"
         "   FROM st.CRM_Kontakt_Akce aa WHERE aa.IDHlav = k.ID"
         "   ORDER BY aa.DatPorizeni DESC, aa.ID DESC) a"
         " WHERE k.PristiKontakt IS NOT NULL"
@@ -13931,6 +13932,7 @@ def app_crm_plan_hovoru(req: Request) -> JSONResponse:
             "stav_id": dl.get("stav_id"),
             "atraktivita": dl.get("atraktivita"),
             "telefon": str(dl.get("telefon") or "").strip(),
+            "osoba": str(dl.get("osoba") or "").strip(),
             "poznamka": str(dl.get("poznamka") or "").strip(),
         })
     import datetime as _dt
@@ -13975,6 +13977,7 @@ def app_crm_hovory_tyden(req: Request) -> JSONResponse:
         " c.Nazev AS typ,"
         " CASE WHEN a.Splneno=1 THEN 1 ELSE 0 END AS splneno,"
         " COALESCE(NULLIF(LTRIM(RTRIM(a.Telefon)),''), NULLIF(LTRIM(RTRIM(a.Mobil)),'')) AS telefon,"
+        " LTRIM(RTRIM(CONCAT(a.Jmeno, ' ', a.Prijmeni))) AS osoba,"
         " a.Prubeh AS poznamka"
         " FROM st.CRM_Kontakt_Akce a"
         " LEFT JOIN st.CRM_Kontakt k ON k.ID = a.IDHlav"
@@ -14010,6 +14013,7 @@ def app_crm_hovory_tyden(req: Request) -> JSONResponse:
             "typ": dl.get("typ"),
             "splneno": dl.get("splneno"),
             "telefon": str(dl.get("telefon") or "").strip(),
+            "osoba": str(dl.get("osoba") or "").strip(),
             "poznamka": str(dl.get("poznamka") or "").strip(),
         })
     return JSONResponse({"ok": True, "rows": out,

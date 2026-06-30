@@ -150,12 +150,14 @@
       var h = '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
         '<thead><tr style="color:#7e8aa3;text-align:left;">' +
         '<th style="padding:3px 8px 3px 0;">Datum</th><th style="padding:3px 8px;">Firma</th>' +
+        '<th style="padding:3px 8px;">Osoba</th>' +
         '<th style="padding:3px 8px;">Typ</th><th style="padding:3px 8px;">Telefon</th>' +
         '<th style="padding:3px 8px;">Průběh</th></tr></thead><tbody>';
       rows.forEach(function (r) {
         h += '<tr style="border-top:1px solid #1a2230;">' +
           '<td style="padding:4px 8px 4px 0;color:#cdd6e2;white-space:nowrap;">' + esc(r.datum || "") + '</td>' +
           '<td style="padding:4px 8px;color:#eef3f8;">' + esc(r.firma || "") + '</td>' +
+          '<td style="padding:4px 8px;color:#cdd6e2;white-space:nowrap;">' + esc(r.osoba || "") + '</td>' +
           '<td style="padding:4px 8px;color:#9fb6cc;white-space:nowrap;">' + esc(r.typ || "") + '</td>' +
           '<td style="padding:4px 8px;color:#9fb6cc;white-space:nowrap;">' + esc(r.telefon || "") + '</td>' +
           '<td style="padding:4px 8px;color:#cdd6e2;">' + esc(String(r.poznamka || "").slice(0, 160)) + '</td>' +

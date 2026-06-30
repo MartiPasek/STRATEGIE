@@ -77,7 +77,9 @@ function rowHtml(r,over){
       badge+
       '<span class="date'+(over?" over":"")+'">'+(over?"⚠ ":"")+ (r.pristi||"") +'</span>'+
       dial+
-    '</div>'+ note +'</div>';
+    '</div>'+
+    (r.osoba?'<div style="font-size:13px;color:#cdd6e2;margin-top:6px;"><span style="color:#9fb6cc;">👤</span> '+esc(r.osoba)+'</div>':'')+
+    note +'</div>';
 }
 
 function render(rows){

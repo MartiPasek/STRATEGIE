@@ -26967,11 +26967,12 @@ def smlouvy_fill_helios(req: Request):
         from modules.erp.api.bank_api import _mcp_rows as _mcprows
         hel = {"EC": {}, "ES": {}}
         helerr = None
-        for firma, db in (("EC", "DB_EC"), ("ES", "DB_IS")):
+        # DB_IS přes MCP přímo nejde (vrací prázdno) → čti cross-db přes DB_EC spojení [DB_IS].dbo.…
+        for firma, pfx in (("EC", "dbo."), ("ES", "[DB_IS].dbo.")):
             try:
                 rows = _mcprows(
-                    "SELECT c.Cislo, c.Prijmeni, c.Jmeno FROM dbo.TabCisZam c "
-                    "WHERE EXISTS (SELECT 1 FROM dbo.TabZamMzd z WHERE z.ZamestnanecId=c.ID)", db)
+                    "SELECT c.Cislo, c.Prijmeni, c.Jmeno FROM " + pfx + "TabCisZam c "
+                    "WHERE EXISTS (SELECT 1 FROM " + pfx + "TabZamMzd z WHERE z.ZamestnanecId=c.ID)", "DB_EC")
             except Exception as _me:
                 helerr = (helerr or "") + ("%s: %s; " % (firma, str(_me)[:120])); rows = []
             for d in rows:

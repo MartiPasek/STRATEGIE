@@ -32867,6 +32867,24 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception as _el:
             return JSONResponse({"ok": False, "error": str(_el)[:400]})
 
+    # ── @@SYNCPAY — zrcadlo výplatních pásek (TabMzSloz) z cloudu UCTO_ → tenant.payslip_item
+    #    + mzdový list + refresh aktivních. = ops akce sync_pasky, ale přes most. Marti 30.6.2026.
+    if sql.upper().startswith("@@SYNCPAY"):
+        from starlette.concurrency import run_in_threadpool as _rtpp
+        try:
+            _resp = await _rtpp(_sync_pasky_from_helios)
+            try:
+                await _rtpp(_sync_mzdovy_list_from_helios)
+            except Exception:
+                pass
+            try:
+                await _rtpp(_refresh_employee_active)
+            except Exception:
+                pass
+            return JSONResponse(_resp if isinstance(_resp, dict) else {"ok": True})
+        except Exception as _ep:
+            return JSONResponse({"ok": False, "error": str(_ep)[:400]})
+
     # ── mssql188 = náš cloud Helios MSSQL (10.200.188.12), přímé spojení pyodbc z API.
     #    Nová prázdná DB (sandbox), parent-only → read i DDL/DML běží PŘÍMO (bez banneru),
     #    stavíme ji společně (přenos mezd + deníku). Connection string z env MSSQL188_CONN.

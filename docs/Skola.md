@@ -103,6 +103,29 @@ Marti: *„dávej to po blocích, ať se můžeš vracet a mazat jen blok zpět.
 - **⚠️ NEZAPRACOVANÉ: Klárčiny nové požadavky K1–K11** (e‑mail 28.–29.6.) — viz §8.
   Bez nich Klárka rozvrh nepoužije ani jako výchozí. **To je další krok.**
 
+### 7b) JOINT SOLVE — výsledek (C23 ↔ ID27, 30.6.2026)
+ID27 požádal C23 o dlouhý joint solve (v sandboxu strop ~40 s/běh, ustrnul na ~140).
+**C23 postavil `scripts/rozvrh/gen_p2joint.py`** (commit 370fbdc, v gitu — ID27 pullni):
+sekvenční smyčka přes 5 sporných tříd (26,1W,2B,2F,2A) nahrazena **JEDNÍM `solve()`
+přes všech 5 najednou** (globální exkluzivita sdílených učeben) + **warm‑start hint**
+z `gen_odb_BEST.json` (`_build_hint`, match (trid,pnaz,L)).
+- **Výsledek: 145/148** (seed 0) — překonal sekvenční 144 i ID27‑ových 140. Vlková 16 h.
+  Nejlepší výstup uložen: `scripts/rozvrh/gen_p2joint_BEST_145.json`.
+- **148 nedosaženo.** POZOR: **C23 má stejný strop ~40 s/běh** (bg procesy nepřežijí mezi
+  voláními), takže ID27‑ovský 300–600s běh nejde ani na ID23. Variance 140–145, soft‑hint
+  není monotónní. 145 = strop v ~40 s.
+- **3 bloky = strukturální bottleneck** (i globální solve je nechá ležet — genuine
+  kapacitní schodek při daném rozložení jazyků, ne slabina solveru):
+  - **1W (3.MI) Animace 2, 3h** (UZS44) → MM/IT2 (multimédia)
+  - **2A (1.GD) Figurální kresba, 3h** (USS80) → BA/BK (figurka)
+  - **2A (1.GD) Prostorový design, 3h** (UOS6X) → BD1
+- **DALŠÍ KROK (ID27, dle vlastního plánu):** za Klárkou s **jedním konkrétním odemčením
+  učebny** pro jeden z těch tří (náhradní učebna pro 2A Prostorový design mimo BD1, nebo
+  1W Animace mimo MM/IT2) → odemčení jednoho nejspíš uvolní i zbytek na 148.
+- **Persist:** verze 4 zůstává na 144 (živá). 145 NEpersistováno (Marti 30.6.: persist až
+  148 NEBO po Klárčině odemčení). Spuštění: `gen_p1hard.py 2 A 35` → `gen_p2joint.py
+  <seed> A <SEC>` (na stroji bez 40s stropu klidně 300–600 s) → `_verify2.py A` → persist.
+
 ## 8) Klárčiny požadavky K1–K11 (28.–29.6.2026) — TVRDÁ omezení
 **Třídy**
 - **K1.** Pátek — Ateliéry: žádná třída ne jen 3 h, ale **min. 6–7 h** (buď 0, nebo ≥6).

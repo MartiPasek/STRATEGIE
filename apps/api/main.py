@@ -1093,6 +1093,14 @@ def finance_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/iso-vize")
+def iso_vize_page():
+    """Veřejná vizní stránka — digitalizace ISO/compliance (prezentace pro partnery,
+    poradenské a certifikační společnosti). BEZ auth, marketing. Marti 30.6.2026."""
+    return FileResponse(os.path.join(static_dir, "iso-vize.html"),
+                        headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/hromady")
 def hromady_page():
     """Doklady roztříděné na hromady (FP/FV/banka/pokladna) — pohled účetní před účtováním.

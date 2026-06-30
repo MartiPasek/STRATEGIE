@@ -18136,6 +18136,19 @@ def _is_parent(s, uid: int) -> bool:
     return bool(r and r[0])
 
 
+def _is_cockpit(s, uid: int) -> bool:
+    """Okruh řídicího pultu = rodiče + scoped approveři (Petra 18 finance+HR, Šárka 13
+    personalistika). Marti 30.6.2026 „stejná práva pro nás pro všechny — naše sandboxy."
+    Pro reportní/účetní/mzdové moduly cockpitu. Citlivé rodičovské operace (schvalování
+    cizích zápisů, souhlasy, koordinace Claudů) zůstávají na _is_parent."""
+    try:
+        if _is_parent(s, uid):
+            return True
+        return uid in _SCOPED_APPROVER_UIDS
+    except Exception:
+        return False
+
+
 def _task_parent_ids(s):
     from sqlalchemy import text as _t
     return [int(x[0]) for x in s.execute(_t(
@@ -25289,7 +25302,7 @@ def ucto_porovnani(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -25414,7 +25427,7 @@ def ucto_mzdy(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -25522,7 +25535,7 @@ def ucto_mzdy_zpracovani(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -25554,7 +25567,7 @@ def mzdy_vyplatnice(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -26218,7 +26231,7 @@ def mzdy_generuj(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -26587,7 +26600,7 @@ def mzdy_vyplatnice_detail(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -26651,7 +26664,7 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
     from sqlalchemy import text as _t
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         firma = (req.query_params.get("firma") or "ES").upper()
         fec = 'EC' if firma in ('EC', '1') else 'ES'
@@ -26719,7 +26732,7 @@ def mzdy_financni_podminky(req: Request):
     from sqlalchemy import text as _t
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         firma = (req.query_params.get("firma") or "ES").upper()
         rows = s.execute(_t(
@@ -26792,7 +26805,7 @@ def ucto_mzdy_akce(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -26870,7 +26883,7 @@ def mzdy_c_smlouvy(req: Request):
     from sqlalchemy import text as _t
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
             "SELECT sm.id, sm.user_id, "
@@ -26901,7 +26914,7 @@ def mzdy_c_smlouva_save(req: Request):
     from sqlalchemy import text as _t
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         p = req.query_params
         try:
@@ -27304,7 +27317,7 @@ def ucto_zrcadla(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -27347,7 +27360,7 @@ def ucto_zrcadlo_check(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -27370,7 +27383,7 @@ def ucto_zrcadlo_run(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -27416,7 +27429,7 @@ def ucto_kontrola_ucetni(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()
@@ -27497,7 +27510,7 @@ def ucto_doklady(req: Request):
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_parent(s, uid):
+        if not _is_cockpit(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()

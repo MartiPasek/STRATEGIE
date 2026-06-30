@@ -9,8 +9,20 @@ Architektura: prohlížeč → HTTPS **Caddy (188.11)** → **Guacamole (Docker,
 3. Založit **2 Windows usery** `martia`, `peta` (běžní, ne admini). Ideálně shell = Helios (po loginu naběhne rovnou Helios), nebo jen zástupce + AppLocker (ať nevidí systém).
 4. V Heliosu založit **2 Helios usery** (martia, peta) s právy na účetnictví/mzdy dle potřeby.
 
+## ⏱️ FÁZOVÁNÍ (Marti 30.6.): bez Michala teď uděláme VŠECHNO kromě DNS+Caddy
+- **TEĎ (bez Michala):** Docker/WSL2 na 188.11 → Guacamole běží lokálně → 2 connections + 2 useři + 2FA → na 188.12 RDP + Windows/Helios useři → **lokální test** (z 188.11 `http://localhost:8080`).
+- **PONDĚLÍ (Michal má DNS přístup):** A záznam `ucto.` + Caddy blok (HTTPS, Let's Encrypt) → ostrý provoz zvenku.
+- **IP allowlist:** ODLOŽENO — až poběží a budeme mít IP účetní. Caddy zatím jen 2FA (IP doplníme 1 změnou).
+
 ## B) Guacamole na 188.11 (Docker) — můj compose, spouští Marti
-1. Ověřit Docker na 188.11 (`docker --version`); když není → doinstalovat (Docker Desktop / Engine).
+1. **188.11 je Windows Server** → Guacamole = Linux kontejnery → potřeba Linux runtime:
+   - **Doporučeno (WSL2 + Docker Engine, bez Docker Desktop licence):**
+     ```powershell
+     wsl --install -d Ubuntu            # restart serveru, založ UNIX usera
+     ```
+     pak v Ubuntu (WSL): `curl -fsSL https://get.docker.com | sh` → `sudo usermod -aG docker $USER` (odhlásit/přihlásit).
+     Compose pustíš v WSL (`docker compose up -d`); port `127.0.0.1:8080` je dostupný i z Windows (WSL2 localhost forwarding) → Caddy ho uvidí.
+   - Alternativa: malá Hyper-V Linux VM jen pro Guacamole.
 2. `deploy/guacamole/` → vedle compose vytvořit **`.env`** (gitignored):
    ```
    GUAC_DB_PASSWORD=<silné heslo, NE do gitu>

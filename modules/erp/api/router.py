@@ -26960,8 +26960,11 @@ def smlouvy_fill_helios(req: Request):
         urows = s.execute(_t("SELECT id, first_name, last_name FROM public.users")).fetchall()
         uname = {r[0]: _smlouvy_norm((r[2] or "") + " " + (r[1] or "")) for r in urows}
         hel = {"EC": {}, "ES": {}}
+        helerr = None
         for firma, db in (("EC", "UCTO_EC"), ("ES", "UCTO_ES")):
             r = _mssql188_query("SELECT Cislo, Prijmeni, Jmeno FROM " + db + ".dbo.TabCisZam")
+            if not r.get("ok"):
+                helerr = (helerr or "") + ("%s: %s; " % (firma, r.get("error")))
             for v in (r.get("rows") or []):
                 key = _smlouvy_norm((v[1] or "") + " " + (v[2] or ""))
                 if not key:
@@ -26982,7 +26985,15 @@ def smlouvy_fill_helios(req: Request):
             else:
                 nm += 1
         s.commit()
-        return {"ok": True, "doplneno": n, "nenalezeno": nm}
+        return {"ok": True, "doplneno": n, "nenalezeno": nm, "helios_chyba": helerr}
+    except Exception as exc:
+        import traceback as _tb
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300]),
+                             "kde": _tb.format_exc()[-600:]}, status_code=200)
     finally:
         s.close()
 

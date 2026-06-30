@@ -9631,8 +9631,14 @@ def _sync_dochazka_ec(rok, mesic):
                 "  AND EXTRACT(YEAR FROM a.entry_date)=:y AND EXTRACT(MONTH FROM a.entry_date)=:m "
                 "GROUP BY a.employee_id, a.entry_date"), {"y": rok, "m": mesic}).fetchall():
             planned_abs[(_pr[0], _pr[1].isoformat())] = float(_pr[2] or 0)
-        # Iteruj VŠECHNY Po–Pá dny měsíce pro každého aktivního (= kdo má aspoň záznam v EC) —
-        # prázdné dny bez záznamu se DOPÍCHNOU na fond (Marti 28.6.: dopíchat i chybějící dny).
+        # FOND-FILL JEN pro skupinu 24 = kategorie s dopichavat_fond=true (volná prac. doba).
+        # Marti 30.6.2026: DÍLENŠTÍ (a všichni mimo skupinu 24) NEMAJÍ dopíchávání ani
+        # odpíchávání — importují se jen jejich REÁLNĚ odpracované hodiny z EC.
+        fond_uids = set(r[0] for r in s.execute(_t(
+            "SELECT uk.user_id FROM tenant.att_user_kategorie uk "
+            "JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            "WHERE k.tenant_id=2 AND k.dopichavat_fond=true AND k.aktivni=true")).fetchall())
+        # Iteruj VŠECHNY Po–Pá dny měsíce pro každého aktivního (= kdo má aspoň záznam v EC).
         active = sorted(set(k[0] for k in day.keys()))
         ld2 = _cal.monthrange(rok, mesic)[1]
         workdays = [_dt.date(rok, mesic, x) for x in range(1, ld2 + 1) if _dt.date(rok, mesic, x).weekday() < 5]
@@ -9653,12 +9659,20 @@ def _sync_dochazka_ec(rok, mesic):
                                   {"e": emp, "d": dd, "t": tid, "h": round(min(h, fond), 2)})
                         out["absence"] += 1
                 abs_plan = planned_abs.get((emp, dd.isoformat()), 0.0)
-                work_target = round(max(0.0, fond - min(abs_total + abs_plan, fond)), 2)
+                if uid in fond_uids:
+                    # skupina 24 (volná doba) → dopíchnout na fond (i prázdné dny)
+                    work_target = round(max(0.0, fond - min(abs_total + abs_plan, fond)), 2)
+                else:
+                    # dílenští/pevná doba → JEN reálně odpracováno, žádné dopíchávání/odpíchávání
+                    work_target = round(present, 2)
                 if work_target > 0:
                     wcode = "homeoffice" if (d and d["ho"] > d["work"]) else "work"
                     tid = tids.get(wcode)
                     if tid:
-                        nt = "EC práce (fond)" if present > 0 else "Dopíchnuto na fond (chybělo)"
+                        if uid in fond_uids:
+                            nt = "EC práce (fond)" if present > 0 else "Dopíchnuto na fond (chybělo)"
+                        else:
+                            nt = "EC práce"
                         s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
                                      "status,source,source_system,is_active,note,created_at,updated_at) "
                                      "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,:nt,now(),now())"),

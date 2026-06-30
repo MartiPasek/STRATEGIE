@@ -29354,12 +29354,19 @@ async def isds_sync(req: Request):
                 continue
             new_c = 0
             for msg in lst:
+                _dl = (msg.get("delivered") or "").strip() or None
+                # Ukládáme i datum doručení (dmDeliveryTime, ISO 8601). COALESCE doplní
+                # datum i u dříve stažených zpráv, kde dosud chybělo. (xmax=0) = nový INSERT.
                 ins = s.execute(_t(
-                    "INSERT INTO fw.isds_message (account_id, dm_id, subject, sender, msg_type, status) "
-                    "VALUES (:aid,:dm,:su,:se,:mt,'new') ON CONFLICT (account_id, dm_id) DO NOTHING RETURNING id"),
+                    "INSERT INTO fw.isds_message (account_id, dm_id, subject, sender, msg_type, status, delivered_at) "
+                    "VALUES (:aid,:dm,:su,:se,:mt,'new',CAST(NULLIF(:dl,'') AS timestamptz)) "
+                    "ON CONFLICT (account_id, dm_id) DO UPDATE SET "
+                    "delivered_at=COALESCE(fw.isds_message.delivered_at, EXCLUDED.delivered_at) "
+                    "RETURNING (xmax=0) AS inserted"),
                     {"aid": acc["id"], "dm": msg["dm_id"], "su": msg["subject"],
-                     "se": msg["sender"], "mt": _isds_classify(msg["subject"])})
-                if ins.first():
+                     "se": msg["sender"], "mt": _isds_classify(msg["subject"]), "dl": _dl})
+                _row = ins.first()
+                if _row and _row[0]:
                     new_c += 1
             total_new += new_c
             s.execute(_t("UPDATE fw.isds_account SET last_sync_at=now(), last_sync_note=:n WHERE id=:i"),

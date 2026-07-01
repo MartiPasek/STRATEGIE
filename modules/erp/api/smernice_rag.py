@@ -443,17 +443,23 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
 
 _DOMENY_SQL = """
 UPDATE tenant.kb_smernice SET kategorie = CASE
-  WHEN nazev ILIKE '%výroba rozvad%' OR nazev ILIKE '%rozvaděč%' OR nazev ILIKE '%rozváděč%' THEN '01 Výroba rozvaděčů'
-  WHEN nazev ILIKE '%zkouš%' OR nazev ILIKE '%revize%' OR nazev ILIKE '%kvalit%' OR nazev ILIKE '%reklamac%' OR nazev ILIKE '%norm%' OR nazev ILIKE '%audit%' THEN '02 Kvalita a zkoušky'
-  WHEN nazev ILIKE '%mzd%' OR nazev ILIKE '%docházk%' OR nazev ILIKE '%dovolen%' OR nazev ILIKE '%zaměstnan%' OR nazev ILIKE '%personál%' OR nazev ILIKE '%nástup%' OR nazev ILIKE '%pracovní poměr%' OR nazev ILIKE '%odměň%' OR nazev ILIKE '%stravné%' OR nazev ILIKE '%cestov%' THEN '03 Personalistika a HR'
-  WHEN nazev ILIKE '%clo%' OR nazev ILIKE '%dph%' OR nazev ILIKE '%faktur%' OR nazev ILIKE '%účetn%' OR nazev ILIKE '%daň%' OR nazev ILIKE '%finan%' OR nazev ILIKE '%pokladn%' OR nazev ILIKE '%cen%' THEN '04 Finance, clo a DPH'
-  WHEN nazev ILIKE '%bozp%' OR nazev ILIKE '%bezpečnost práce%' OR nazev ILIKE '%požár%' OR nazev ILIKE '%první pomoc%' OR nazev ILIKE '%úraz%' OR nazev ILIKE '%OOPP%' THEN '05 BOZP a PO'
-  WHEN nazev ILIKE '%odpad%' OR nazev ILIKE '%ekolog%' OR nazev ILIKE '%životní prostředí%' OR nazev ILIKE '%likvidac%' THEN '06 Ekologie a odpady'
-  WHEN nazev ILIKE '%objedn%' OR nazev ILIKE '%nákup%' OR nazev ILIKE '%sklad%' OR nazev ILIKE '%materiál%' OR nazev ILIKE '%dodavatel%' OR nazev ILIKE '%zásob%' THEN '07 Nákup a sklad'
-  WHEN nazev ILIKE '%doprav%' OR nazev ILIKE '%expedic%' OR nazev ILIKE '%odvoz%' OR nazev ILIKE '%balen%' OR nazev ILIKE '%přeprav%' THEN '08 Doprava a expedice'
+  WHEN nazev ILIKE '%výroba rozvad%' OR nazev ILIKE '%rozvaděč%' OR nazev ILIKE '%rozváděč%'
+       OR nazev ILIKE '%zapojovací plán%' OR nazev ILIKE '%zapojování%svorkovnic%' OR nazev ILIKE '%kabelov%svazek%'
+       OR nazev ILIKE '%proudov%transformátor%' THEN '01 Výroba rozvaděčů'
+  WHEN nazev ILIKE '%zkouš%' OR nazev ILIKE '%revize%' OR nazev ILIKE '%kvalit%' OR nazev ILIKE '%reklamac%' OR nazev ILIKE '%norm%' OR nazev ILIKE '%audit%'
+       OR nazev ILIKE '%ISO 9001%' OR nazev ILIKE '%metrolog%' OR nazev ILIKE '%měřid%' OR nazev ILIKE '%archivac%' OR nazev ILIKE '%verzování dokument%' OR nazev ILIKE '%neshod%' THEN '02 Kvalita a zkoušky'
+  WHEN nazev ILIKE '%mzd%' OR nazev ILIKE '%docházk%' OR nazev ILIKE '%dovolen%' OR nazev ILIKE '%zaměstnan%' OR nazev ILIKE '%personál%' OR nazev ILIKE '%nástup%' OR nazev ILIKE '%pracovní poměr%' OR nazev ILIKE '%odměň%' OR nazev ILIKE '%stravné%' OR nazev ILIKE '%cestov%'
+       OR nazev ILIKE '%benefit%' OR nazev ILIKE '%sick day%' OR nazev ILIKE '%stravován%' OR nazev ILIKE '%jazykov%kurz%' OR nazev ILIKE '%vozidl%' OR nazev ILIKE '%odměn%' OR nazev ILIKE '%garant%' OR nazev ILIKE '%zákoník práce%' OR nazev ILIKE '%změna zaměstnavatel%' OR nazev ILIKE '%odborn%způsobilost%' OR nazev ILIKE '%volno%' THEN '03 Personalistika a HR'
+  WHEN nazev ILIKE '%clo%' OR nazev ILIKE '%dph%' OR nazev ILIKE '%faktur%' OR nazev ILIKE '%účetn%' OR nazev ILIKE '%daň%' OR nazev ILIKE '%finan%' OR nazev ILIKE '%pokladn%' OR nazev ILIKE '%cen%' OR nazev ILIKE '%ČSÚ%' OR nazev ILIKE '%výkaz%' THEN '04 Finance, clo a DPH'
+  WHEN nazev ILIKE '%bozp%' OR nazev ILIKE '%bezpečnost práce%' OR nazev ILIKE '%požár%' OR nazev ILIKE '%první pomoc%' OR nazev ILIKE '%úraz%' OR nazev ILIKE '%OOPP%'
+       OR nazev ILIKE '%výtah%' OR nazev ILIKE '%elektrotechnice 50%' OR nazev ILIKE '%kniha návštěv%' OR nazev ILIKE '%evidence návštěv%' THEN '05 BOZP a PO'
+  WHEN nazev ILIKE '%odpad%' OR nazev ILIKE '%ekolog%' OR nazev ILIKE '%životní prostředí%' OR nazev ILIKE '%likvidac%' OR nazev ILIKE '%ASEKOL%' OR nazev ILIKE '%EKO-KOM%' THEN '06 Ekologie a odpady'
+  WHEN nazev ILIKE '%objedn%' OR nazev ILIKE '%nákup%' OR nazev ILIKE '%sklad%' OR nazev ILIKE '%materiál%' OR nazev ILIKE '%dodavatel%' OR nazev ILIKE '%zásob%' OR nazev ILIKE '%e-shop%' THEN '07 Nákup a sklad'
+  WHEN nazev ILIKE '%doprav%' OR nazev ILIKE '%expedic%' OR nazev ILIKE '%odvoz%' OR nazev ILIKE '%balen%' OR nazev ILIKE '%přeprav%' OR nazev ILIKE '%CMR%' OR nazev ILIKE '%dodací list%' OR nazev ILIKE '%Beistellung%' THEN '08 Doprava a expedice'
   WHEN nazev ILIKE '%školen%' OR nazev ILIKE '%kvalifikac%' OR nazev ILIKE '%oprávnění%' THEN '09 Školení a kvalifikace'
   WHEN nazev ILIKE '%nabídk%' OR nazev ILIKE '%kalkulac%' OR nazev ILIKE '%poptávk%' OR nazev ILIKE '%zakázk%' OR nazev ILIKE '%obchod%' THEN '10 Obchod a nabídky'
-  WHEN nazev ILIKE '%počítač%' OR nazev ILIKE '%software%' OR nazev ILIKE '%GDPR%' OR nazev ILIKE '%kybernet%' OR nazev ILIKE '%ISO 27%' OR nazev ILIKE '%heslo%' OR nazev ILIKE '%zálohov%' THEN '11 IT a bezpečnost'
+  WHEN nazev ILIKE '%počítač%' OR nazev ILIKE '%software%' OR nazev ILIKE '%GDPR%' OR nazev ILIKE '%kybernet%' OR nazev ILIKE '%ISO 27%' OR nazev ILIKE '%heslo%' OR nazev ILIKE '%zálohov%'
+       OR nazev ILIKE '%teamviewer%' OR nazev ILIKE '%datová schránk%' OR nazev ILIKE '%vzdálen%přístup%' OR nazev ILIKE '%e-mail%' OR nazev ILIKE '%outlook%' THEN '11 IT a bezpečnost'
   ELSE '12 Ostatní a administrativa'
 END
 WHERE ec_id > 0

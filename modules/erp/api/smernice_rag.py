@@ -439,6 +439,43 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
             "soubory_ok": files_ok, "soubory_err": files_err, "hotovo": done >= total}
 
 
+# ── @@SMCAT — klasifikace směrnic do domén (kategorie = pořádek v datech) ──
+
+_DOMENY_SQL = """
+UPDATE tenant.kb_smernice SET kategorie = CASE
+  WHEN nazev ILIKE '%výroba rozvad%' OR nazev ILIKE '%rozvaděč%' OR nazev ILIKE '%rozváděč%' THEN '01 Výroba rozvaděčů'
+  WHEN nazev ILIKE '%zkouš%' OR nazev ILIKE '%revize%' OR nazev ILIKE '%kvalit%' OR nazev ILIKE '%reklamac%' OR nazev ILIKE '%norm%' OR nazev ILIKE '%audit%' THEN '02 Kvalita a zkoušky'
+  WHEN nazev ILIKE '%mzd%' OR nazev ILIKE '%docházk%' OR nazev ILIKE '%dovolen%' OR nazev ILIKE '%zaměstnan%' OR nazev ILIKE '%personál%' OR nazev ILIKE '%nástup%' OR nazev ILIKE '%pracovní poměr%' OR nazev ILIKE '%odměň%' OR nazev ILIKE '%stravné%' OR nazev ILIKE '%cestov%' THEN '03 Personalistika a HR'
+  WHEN nazev ILIKE '%clo%' OR nazev ILIKE '%dph%' OR nazev ILIKE '%faktur%' OR nazev ILIKE '%účetn%' OR nazev ILIKE '%daň%' OR nazev ILIKE '%finan%' OR nazev ILIKE '%pokladn%' OR nazev ILIKE '%cen%' THEN '04 Finance, clo a DPH'
+  WHEN nazev ILIKE '%bozp%' OR nazev ILIKE '%bezpečnost práce%' OR nazev ILIKE '%požár%' OR nazev ILIKE '%první pomoc%' OR nazev ILIKE '%úraz%' OR nazev ILIKE '%OOPP%' THEN '05 BOZP a PO'
+  WHEN nazev ILIKE '%odpad%' OR nazev ILIKE '%ekolog%' OR nazev ILIKE '%životní prostředí%' OR nazev ILIKE '%likvidac%' THEN '06 Ekologie a odpady'
+  WHEN nazev ILIKE '%objedn%' OR nazev ILIKE '%nákup%' OR nazev ILIKE '%sklad%' OR nazev ILIKE '%materiál%' OR nazev ILIKE '%dodavatel%' OR nazev ILIKE '%zásob%' THEN '07 Nákup a sklad'
+  WHEN nazev ILIKE '%doprav%' OR nazev ILIKE '%expedic%' OR nazev ILIKE '%odvoz%' OR nazev ILIKE '%balen%' OR nazev ILIKE '%přeprav%' THEN '08 Doprava a expedice'
+  WHEN nazev ILIKE '%školen%' OR nazev ILIKE '%kvalifikac%' OR nazev ILIKE '%oprávnění%' THEN '09 Školení a kvalifikace'
+  WHEN nazev ILIKE '%nabídk%' OR nazev ILIKE '%kalkulac%' OR nazev ILIKE '%poptávk%' OR nazev ILIKE '%zakázk%' OR nazev ILIKE '%obchod%' THEN '10 Obchod a nabídky'
+  WHEN nazev ILIKE '%počítač%' OR nazev ILIKE '%software%' OR nazev ILIKE '%GDPR%' OR nazev ILIKE '%kybernet%' OR nazev ILIKE '%ISO 27%' OR nazev ILIKE '%heslo%' OR nazev ILIKE '%zálohov%' THEN '11 IT a bezpečnost'
+  ELSE '12 Ostatní a administrativa'
+END
+WHERE ec_id > 0
+"""
+
+
+def classify_domains() -> dict:
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    sd = get_data_session()
+    try:
+        sd.execute(_t(_DOMENY_SQL))
+        sd.commit()
+        rows = sd.execute(_t(
+            "SELECT kategorie, count(*)::int FROM tenant.kb_smernice WHERE ec_id>0 "
+            "GROUP BY kategorie ORDER BY kategorie")).all()
+    finally:
+        sd.close()
+    return {"ok": True, "columns": ["domena", "pocet"],
+            "rows": [[r[0], str(r[1])] for r in rows], "count": len(rows)}
+
+
 # ── @@SMREDOC — re-extrakce poničených .doc příloh ────────────────────
 
 def redo_doc(limit: int = 25) -> dict:

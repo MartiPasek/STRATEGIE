@@ -1106,7 +1106,7 @@ def vp_page():
     """Cockpit týmu Vedoucích projektů (digitalizace) — Eliščin tým (Marti 1.7.2026).
     Přístup gatuje sama stránka přes /app/vp/access (M/K/Jirka/Eliška)."""
     return FileResponse(os.path.join(static_dir, "vp.html"),
-                        headers={"Cache-Control": "no-cache"})
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/hromady")

@@ -69,12 +69,26 @@ def _ec(sql: str) -> list[dict]:
 # na rozdíl od strategie_* (bez prefixu). Takže musíme poslat DVOJITÝ prefix →
 # po strhnutí zůstane "eurosoft_file_list" a sedne na server. (Ostatní tooly:
 # "eurosoft_strategie_query_raw" → strip → "strategie_query_raw" = OK.)
+def _parse(raw) -> dict:
+    if raw is None:
+        return {"ok": False, "error": "empty_none"}
+    if isinstance(raw, (dict, list)):
+        return raw if isinstance(raw, dict) else {"ok": True, "items": raw}
+    s = str(raw).strip()
+    if not s:
+        return {"ok": False, "error": "empty_str"}
+    try:
+        return json.loads(s)
+    except Exception as e:
+        return {"ok": False, "error": "nonjson: %s | raw=%s" % (str(e)[:60], s[:200])}
+
+
 def _fs_list(subpath: str) -> dict:
     mcp = _mcp()
     raw = mcp.call_tool_sync(full_name="eurosoft_eurosoft_file_list",
                              arguments={"base_override": _SHARE_ROOT, "subpath": subpath},
                              conversation_id=None)
-    return json.loads(raw)
+    return _parse(raw)
 
 
 def _fs_read_b64(path: str) -> dict:
@@ -82,7 +96,7 @@ def _fs_read_b64(path: str) -> dict:
     raw = mcp.call_tool_sync(full_name="eurosoft_eurosoft_file_read",
                              arguments={"base_override": _SHARE_ROOT, "path": path, "encoding": "base64"},
                              conversation_id=None)
-    return json.loads(raw)
+    return _parse(raw)
 
 
 # ── čištění Popisu (RTF/HTML → plain text) ─────────────────────────────

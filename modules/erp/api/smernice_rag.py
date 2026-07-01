@@ -331,8 +331,10 @@ def kb_search(query: str, level: int = 2, limit: int = 8) -> dict:
             "ORDER BY (s.nazev ILIKE :like) DESC, s.priorita NULLS LAST "
             "LIMIT :lim"),
             {"like": like, "allowed": allowed, "lim": limit}).all()
-        out = [{"cislo": r[0], "nazev": r[1], "typ": r[2], "pristupnost": r[3],
-                "popis": r[4], "soubory": r[5], "uryvek": r[6]} for r in rows]
-        return {"ok": True, "dotaz": q, "level": level, "pocet": len(out), "vysledky": out}
+        cols = ["cislo", "nazev", "typ", "pristupnost", "popis", "soubory", "uryvek"]
+        out = [[r[0], r[1], r[2], r[3], (r[4] or "")[:300], r[5],
+                (r[6] or "")[:400]] for r in rows]
+        return {"ok": True, "dotaz": q, "level": level, "columns": cols,
+                "rows": out, "count": len(out)}
     finally:
         sd.close()

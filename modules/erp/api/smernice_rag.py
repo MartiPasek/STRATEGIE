@@ -84,7 +84,7 @@ def _fs_read_b64(path: str) -> dict:
 def _clean_popis(raw: str) -> str:
     if not raw:
         return ""
-    s = raw
+    s = raw.replace("\x00", "")
     if s.lstrip().startswith("{\\rtf"):
         # hrubý RTF strip: odstraň control words a skupiny
         s = re.sub(r"\\'[0-9a-fA-F]{2}", " ", s)
@@ -278,6 +278,8 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
                     continue
                 data = base64.b64decode(rd["content"])
                 txt, ok, err = _extract_text(fname, data)
+                if txt:
+                    txt = txt.replace("\x00", "")
                 if ok:
                     files_ok += 1
                 else:

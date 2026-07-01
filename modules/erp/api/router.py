@@ -32570,11 +32570,19 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _base = _base[:-4]
             _hr = _rq.get(_base + "/health", timeout=15)
             _j = _hr.json()
+            _tools = _j.get("tools") or []
+            _hasfl = "eurosoft_file_list" in _tools
             return JSONResponse({
                 "ok": bool(_j.get("ok")),
-                "git_sha": _j.get("git_sha"),
-                "tools_count": len(_j.get("tools") or []),
-                "service": _j.get("service"),
+                "columns": ["klic", "hodnota"],
+                "rows": [
+                    ["url", _base],
+                    ["git_sha", _j.get("git_sha")],
+                    ["tools_count", len(_tools)],
+                    ["ma_file_list", str(_hasfl)],
+                    ["service", _j.get("service")],
+                ],
+                "count": 5,
             })
         except Exception as e:
             return JSONResponse({"ok": False, "error": "MCPHEALTH: %s" % str(e)[:300]})

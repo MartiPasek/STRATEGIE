@@ -184,6 +184,7 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
     if(!m.last) return '<span class="badge b-idle">○ nezrcadleno</span>';
     return m.last.ok ? '<span class="badge b-ok">✓ ok</span>' : '<span class="badge b-err">✕ chyba</span>';
   }
+  var CAN_SYNC=false;  // spouštění zrcadel jen rodiče + IT Jirka (z /app/cockpit/access.sync); ostatní RO
   function rowHtml(m){
     return '<div class="j" id="ur_'+m.key+'">'+
       '<div class="r1"><span class="nm">'+esc(m.label)+'</span>'+
@@ -193,7 +194,7 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
         ' · Naposledy zrcadleno: <span id="uls_'+m.key+'">'+lastTxt(m)+'</span></div>'+
       '<div class="res" id="uck_'+m.key+'"></div>'+
       '<div class="acts">'+
-        '<button class="btn prim" onclick="UZ.run(\''+m.key+'\')">⤓ Zrcadlit teď</button>'+
+        (CAN_SYNC?'<button class="btn prim" onclick="UZ.run(\''+m.key+'\')">⤓ Zrcadlit teď</button>':'')+
         '<button class="btn" onclick="UZ.check(\''+m.key+'\')">Zkontrolovat</button>'+
       '</div></div>';
   }
@@ -201,7 +202,7 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
     var h="";
     UDATA.groups.forEach(function(g){
       h+='<div class="top" style="margin:14px 0 6px"><span class="nm" style="font-size:14.5px;flex:0">'+esc(g.label)+'</span>'+
-         '<button class="btn" onclick="UZ.group(\''+g.key+'\')">⤓ Zrcadlit skupinu</button></div>';
+         (CAN_SYNC?'<button class="btn" onclick="UZ.group(\''+g.key+'\')">⤓ Zrcadlit skupinu</button>':'')+'</div>';
       g.mirrors.forEach(function(m){h+=rowHtml(m);});
     });
     document.getElementById("uz_body").innerHTML=h;
@@ -312,6 +313,7 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
   });
   document.getElementById("uz_all").addEventListener("click",window.UZ.all);
   document.getElementById("uz_checkall").addEventListener("click",window.UZ.checkAll);
+  function applySyncGate(){ var a=document.getElementById("uz_all"); if(a) a.style.display=CAN_SYNC?"":"none"; }
   // styl pro segment přepínače firem + badge rozdílu (amber)
   var st=document.createElement("style");
   st.textContent=".seg2{display:inline-flex;border:1px solid var(--bord);border-radius:9px;overflow:hidden}"+
@@ -319,7 +321,9 @@ setInterval(function(){if(_autoref&&!document.hidden)load();},10000);
     ".seg2 button.on{background:var(--accent);color:#06101f}"+
     ".badge.b-warn{background:rgba(251,191,36,.16);color:var(--amber);border:1px solid #fbbf2455}";
   document.head.appendChild(st);
-  loadU();
+  // Spouštění zrcadel jen rodiče + IT Jirka; ostatní vidí RO (počty/kontrola). Marti 1.7.2026.
+  uget("/api/v1/erp/app/cockpit/access").then(function(j){ CAN_SYNC=!!(j&&j.sync); })
+    .catch(function(){}).then(function(){ applySyncGate(); loadU(); });
 })();
 </script>
 <script src="/static/nav-back.js"></script>

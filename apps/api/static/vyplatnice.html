@@ -96,11 +96,11 @@ let FIRMA="ES", LIDI=[];
 function setF(f){FIRMA=f;document.querySelectorAll('#firmaSeg button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));load();}
 function rm(){return {r:document.getElementById('rok').value,m:document.getElementById('mesic').value};}
 function fillSelectors(){
-  const now=new Date(); const ry=document.getElementById('rok'), ms=document.getElementById('mesic');
+  const now=new Date(); const prev=new Date(now.getFullYear(), now.getMonth()-1, 1); const ry=document.getElementById('rok'), ms=document.getElementById('mesic');
   for(let y=now.getFullYear();y>=2024;y--){const o=document.createElement('option');o.value=y;o.textContent=y;ry.appendChild(o);}
   const mn=['leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
   for(let m=1;m<=12;m++){const o=document.createElement('option');o.value=m;o.textContent=mn[m-1];ms.appendChild(o);}
-  ms.value=now.getMonth()+1; ry.value=now.getFullYear();
+  ms.value=prev.getMonth()+1; ry.value=prev.getFullYear(); // default = predchozi mesic (mzdy se delaji zpetne)
 }
 async function load(){
   const {r,m}=rm();

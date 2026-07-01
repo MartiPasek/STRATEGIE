@@ -20691,6 +20691,25 @@ async def cockpit_access(req: Request) -> JSONResponse:
     uid = _uid_from_token_or_cookie(req)
     cockpit_allowed = bool(uid and (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS))
     is_vp = bool(uid and uid in _VP_TEAM_UIDS)
+    # Příznaky pro vykreslování dlaždic dle role (Marti 1.7.2026 — member RO rozcestník):
+    #   fin  = plný finanční/HR okruh (rodiče + scoped + skupiny HR/Finance, vč. účetní firmy Martia2000)
+    #   sync = smí spouštět zrcadla/sync (rodiče + IT Jirka 20)
+    #   parent = rodič (řízení/ops/systém/AI)
+    is_parent_f = bool(uid and is_marti_parent(uid))
+    fin = is_sync = False
+    if uid:
+        from core.database_data import get_data_session as _gca
+        _sca = _gca()
+        try:
+            fin = _is_cockpit(_sca, uid)
+            is_sync = _can_run_sync(_sca, uid)
+        except Exception:
+            fin = is_sync = False
+        finally:
+            try:
+                _sca.close()
+            except Exception:
+                pass
     team = []
     if cockpit_allowed:
         team += [
@@ -20705,7 +20724,9 @@ async def cockpit_access(req: Request) -> JSONResponse:
         team.append({"uid": 34, "ini": "E", "name": "Vedoucí projektů — digitalizace (Eliščin tým)",
                      "role": "VP tým", "col": "#3a6e5a", "cockpit": "/vp"})
     return JSONResponse({"ok": True, "uid": uid or 0, "allowed": bool(cockpit_allowed or is_vp),
-                         "team": team})
+                         "team": team, "fin": bool(fin), "sync": bool(is_sync),
+                         "parent": is_parent_f, "vp": is_vp,
+                         "member": bool(uid and not (fin or is_parent_f or is_vp))})
 
 
 @api_router.get("/app/attendance/list")

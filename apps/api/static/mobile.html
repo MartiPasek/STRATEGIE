@@ -8196,13 +8196,15 @@ setTimeout(function(){
       box.querySelectorAll(".isds-sync").forEach(function(b){ b.addEventListener("click",function(){ isdsSync(b.getAttribute("data-id")); }); });
       box.querySelectorAll(".isds-hist").forEach(function(b){ b.addEventListener("click",function(){ isdsSync(b.getAttribute("data-id"),365); }); });
       box.querySelectorAll(".isds-del").forEach(function(b){ b.addEventListener("click",function(){ confirmDialog("Smazat datovku","Smazat "+b.getAttribute("data-nm")+" včetně stažených zpráv?","🗑 Smazat",function(){ api("POST","/api/v1/erp/app/isds/account/delete",{id:parseInt(b.getAttribute("data-id"),10)}).then(isdsLoad); }); }); });
-      isdsLoadMsgs();
+      isdsLoadMsgs((j.accounts||[]).map(function(a){return a.company_label;}));
     });
   }
-  function isdsLoadMsgs(){
+  function isdsLoadMsgs(accLabels){
     var box=document.getElementById("isdsMsgs"); if(!box)return;
+    accLabels=accLabels||[];
     api("GET","/api/v1/erp/app/isds/messages","").then(function(j){
-      if(!j||!j.ok||!(j.messages||[]).length){ box.innerHTML='<div class="hint" style="padding:6px 2px">Zatím žádné stažené zprávy.</div>'; return; }
+      var msgs=(j&&j.ok&&j.messages)?j.messages:[];
+      if(!msgs.length && !accLabels.length){ box.innerHTML='<div class="hint" style="padding:6px 2px">Zatím žádné stažené zprávy.</div>'; return; }
       var open=(window._isdsOpen=window._isdsOpen||{});         // pamatuje rozbalení firem (do zavření appky)
       var PAL=["#3b82f6","#22c55e","#f59e0b","#a855f7","#ec4899","#14b8a6","#ef4444"];
       function pad(n){ return (n<10?"0":"")+n; }
@@ -8228,14 +8230,19 @@ setTimeout(function(){
         var lbl=(diff===0)?"Dnes":((diff===1)?"Včera":(pad(dd)+". "+pad(mm)+". "+yy));
         return {time:tp.slice(0,5), dayLabel:lbl};
       }
-      // seskupení po firmách (pořadí dle nejnovější zprávy — backend řadí od nejnovější)
-      var groups=[], byco={};
-      j.messages.forEach(function(m){
-        var key=m.company_label||"(bez názvu)", g=byco[key];
-        if(!g){ g={key:key,msgs:[],nnew:0}; byco[key]=g; groups.push(g); }
+      // seskupení po firmách — tlačítko vznikne pro KAŽDOU datovku (i s 0 zprávami),
+      // v pořadí podle seznamu firem; případné ostatní se přidají na konec.
+      var byco={};
+      function _grp(key){ var g=byco[key]; if(!g){ g={key:key,msgs:[],nnew:0}; byco[key]=g; } return g; }
+      accLabels.forEach(function(lbl){ _grp(lbl||"(bez názvu)"); });
+      msgs.forEach(function(m){
+        var g=_grp(m.company_label||"(bez názvu)");
         g.msgs.push(m);
         if(((m.status||"").toLowerCase())==="new") g.nnew++;
       });
+      var groups=[], seen={};
+      accLabels.forEach(function(lbl){ var k=lbl||"(bez názvu)"; if(!seen[k]){ seen[k]=1; groups.push(byco[k]); } });
+      Object.keys(byco).forEach(function(k){ if(!seen[k]){ seen[k]=1; groups.push(byco[k]); } });
       var h='<div style="font-weight:700;margin:10px 2px 6px;font-size:15px">Stažené zprávy</div>';
       groups.forEach(function(g,gi){
         var col=PAL[gi%PAL.length];
@@ -8249,6 +8256,7 @@ setTimeout(function(){
           +'<span class="isds-co-arr" style="font-size:15px;color:#9fb0c2;width:16px;text-align:center;flex:0 0 auto">'+(isOpen?"▾":"▸")+'</span>'
           +'</div>';
         h+='<div class="isds-co-b" style="display:'+(isOpen?"block":"none")+'">';
+        if(!g.msgs.length){ h+='<div class="hint" style="padding:9px 12px;color:#7e90a4;font-size:12px">Zatím žádné stažené zprávy.</div>'; }
         var lastDay="";
         g.msgs.forEach(function(m){
           var pd=parseDelivered(m.delivered), dayLabel=pd?pd.dayLabel:"Bez data";

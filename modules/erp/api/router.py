@@ -9722,6 +9722,7 @@ def _sync_dochazka_ec(rok, mesic):
                 abs_plan = planned_abs.get((emp, dd.isoformat()), 0.0)
                 rp = real_present.get((emp, dd.isoformat()), 0.0)
                 den_dov = 0.0  # dovolená ze schválené žádosti (fond-fill) → do cas_dovolena
+                den_fpd = None  # plánovaný fond dne (skupina 24 = fond; jinak = vykázaný den)
                 if uid in fond_uids:
                     # ŽELEZNÉ PRAVIDLO (Marti 30.6.): skupina 24 drží PŘESNĚ fond/den.
                     # Jedna signed korekce fond_doplneni = (fond − absence) − reálně odpíchnuto:
@@ -9757,6 +9758,7 @@ def _sync_dochazka_ec(rok, mesic):
                                 else:
                                     out["odpichnuto_h"] += -korekce
                     den_cas = worked_cil
+                    den_fpd = fond
                 else:
                     # výroba/dílna/pevná doba → JEN reálně odpracováno, žádné dopíchávání.
                     # GAP-fill (Marti 30.6.): EC import přidá jen hodiny NAD rámec vlastních
@@ -9773,10 +9775,11 @@ def _sync_dochazka_ec(rok, mesic):
                                       {"e": emp, "d": dd, "t": tid, "h": work_target, "nt": "EC práce (doplněk nad píchnutí)"})
                             out["prace"] += 1
                     den_cas = round(rp + work_target, 2)
-                s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem,cas_dovolena) "
-                             "VALUES (2,:c,:u,:d,:y,:m,:h,:dov) "
-                             "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,cas_dovolena=:dov,user_id=:u"),
-                          {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": den_cas, "dov": den_dov})
+                    den_fpd = den_cas
+                s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem,cas_dovolena,fpd) "
+                             "VALUES (2,:c,:u,:d,:y,:m,:h,:dov,:fpd) "
+                             "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,cas_dovolena=:dov,fpd=:fpd,user_id=:u"),
+                          {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": den_cas, "dov": den_dov, "fpd": den_fpd})
         # EC absence = zdroj pravdy pro realizovaný den → smaž plánovou (non-ec_real) absenci,
         # když EC pro stejný den+člověka absenci má (jinak dvojí dovolená: plán + EC). Marti 29.6.
         s.execute(_t(

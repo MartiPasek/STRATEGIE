@@ -1101,6 +1101,14 @@ def iso_vize_page():
                         headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/vp")
+def vp_page():
+    """Cockpit týmu Vedoucích projektů (digitalizace) — Eliščin tým (Marti 1.7.2026).
+    Přístup gatuje sama stránka přes /app/vp/access (M/K/Jirka/Eliška)."""
+    return FileResponse(os.path.join(static_dir, "vp.html"),
+                        headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/hromady")
 def hromady_page():
     """Doklady roztříděné na hromady (FP/FV/banka/pokladna) — pohled účetní před účtováním.

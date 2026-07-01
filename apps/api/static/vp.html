@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Vedoucí projektů — digitalizace · STRATEGIE</title>
+<style>
+  :root{ --bg:#0e0f11; --surface:#16181c; --surface2:#1c1f24; --bord:#2a2e35;
+    --txt:#e6eaf0; --mut:#9aa3b0; --ac:#34d399; --ac2:#2dd4bf; --amber:#fbbf24; }
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;line-height:1.55;padding:22px 18px 60px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:25px;margin:0;font-weight:800}
+  .lead{color:var(--mut);font-size:14.5px;margin:8px 0 22px;max-width:760px}
+  .team{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0 4px}
+  .who{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--bord);
+    border-radius:999px;padding:5px 13px 5px 6px;font-size:13.5px}
+  .av{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:12px;color:#eaf2ea}
+  .eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--ac);margin:26px 0 10px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+  a.card,.card{display:block;text-decoration:none;color:inherit;background:var(--surface);
+    border:1px solid var(--bord);border-radius:14px;padding:17px 17px 15px;transition:border-color .12s,transform .12s}
+  a.card:hover{border-color:var(--ac2);transform:translateY(-2px)}
+  .ic{font-size:26px;margin-bottom:9px}
+  .ct{font-size:16px;font-weight:700;margin:0 0 3px}
+  .cd{font-size:12.5px;color:var(--mut);margin:0}
+  .soon{opacity:.6}
+  .tag{font-size:10.5px;font-weight:800;color:#0e0f11;background:var(--amber);padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:middle}
+  .note{margin-top:26px;padding:14px 16px;background:var(--surface);border:1px dashed var(--bord);border-radius:12px;color:var(--mut);font-size:13px}
+  #gate{display:none;max-width:520px;margin:80px auto;text-align:center;color:var(--mut)}
+</style>
+</head>
+<body>
+<div id="app" class="wrap" style="display:none">
+  <h1>🎯 Vedoucí projektů — digitalizace</h1>
+  <div class="team">
+    <span class="who"><span class="av" style="background:#2e5d3a">M</span> Marti</span>
+    <span class="who"><span class="av" style="background:#4a3a6e">K</span> Kristý</span>
+    <span class="who"><span class="av" style="background:#3a566e">J</span> Jirka</span>
+    <span class="who"><span class="av" style="background:#3a6e5a">E</span> Eliška</span>
+  </div>
+  <p class="lead">Náš tým na nakopnutí digitalizace u Vedoucích projektů. Cílem je dát vedení
+    projektů živý přehled — od poptávky a zakázky přes lidi, termíny a úkoly až po to, kde to vázne.
+    Tohle je první nástřel; rozkreslíme ho společně podle reálného procesu VP.</p>
+
+  <div class="eyebrow">Co už máme (základ)</div>
+  <div class="grid">
+    <a class="card" href="/zrcadla">
+      <div class="ic">🪞</div>
+      <p class="ct">Zrcadla Centrála ↔ cloud</p>
+      <p class="cd">Zakázkové a poptávkové flow zrcadlené mezi Centrálou a cloudem — datový základ cockpitu.</p>
+    </a>
+    <a class="card" href="/vytizeni">
+      <div class="ic">📈</div>
+      <p class="ct">Vytížení lidí</p>
+      <p class="cd">Kdo je kde vytížený — vstup pro plánování kapacit na projektech.</p>
+    </a>
+    <a class="card" href="/dokument">
+      <div class="ic">📚</div>
+      <p class="ct">Dokumentace</p>
+      <p class="cd">Sdílené podklady a rozkreslení procesu VP.</p>
+    </a>
+  </div>
+
+  <div class="eyebrow">Cockpit — stavíme s Eliškou</div>
+  <div class="grid">
+    <div class="card soon"><div class="ic">📋</div><p class="ct">Přehled projektů <span class="tag">skica</span></p><p class="cd">Projekt/zakázka → poptávka → stav → vedoucí. Jedno místo, kde je vidět vše.</p></div>
+    <div class="card soon"><div class="ic">⏱️</div><p class="ct">Termíny &amp; milníky <span class="tag">skica</span></p><p class="cd">Co kdy má být hotové, co se blíží, co je po termínu.</p></div>
+    <div class="card soon"><div class="ic">✅</div><p class="ct">Úkoly &amp; odpovědnost <span class="tag">skica</span></p><p class="cd">Kdo co má na starosti — napojení na nativní systém úkolů.</p></div>
+    <div class="card soon"><div class="ic">🚦</div><p class="ct">Kde to vázne (KPI) <span class="tag">skica</span></p><p class="cd">Rezervy a úzká hrdla — na co se zaměřit dřív.</p></div>
+  </div>
+
+  <div class="note"><b>Tvůj prostor, Eliško.</b> Řekni, co sem patří jako první — a tým (Marti, Kristý, Jirka + Claude a Marti-AI) to postaví přesně na to, co u VP reálně chybí.</div>
+</div>
+
+<div id="gate">🔒 Tento prostor je zatím jen pro tým Vedoucích projektů (digitalizace).</div>
+
+<script>
+(function(){
+  fetch('/api/v1/erp/app/vp/access',{credentials:'same-origin'})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(j){
+      if(j && j.member){ document.getElementById('app').style.display='block'; }
+      else { document.getElementById('gate').style.display='block'; }
+    }).catch(function(){ document.getElementById('gate').style.display='block'; });
+})();
+</script>
+</body>
+</html>

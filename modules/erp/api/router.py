@@ -20589,6 +20589,22 @@ async def marti_cockpit(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# VP tým (Marti 1.7.2026): Vedoucí projektů / digitalizace — Eliščin tým.
+# Ikonka „E" vedle rakety + cockpit /vp. Marti(1) + Kristý(11) + Jirka Honomichl(20) + Eliška(34).
+_VP_TEAM_UIDS = {1, 11, 20, 34}
+
+
+def _is_vp_team(uid) -> bool:
+    return bool(uid and uid in _VP_TEAM_UIDS)
+
+
+@api_router.get("/app/vp/access")
+async def vp_access(req: Request) -> JSONResponse:
+    """Je přihlášený uživatel v týmu Vedoucích projektů (digitalizace)? Pro gate /vp."""
+    uid = _uid_from_token_or_cookie(req)
+    return JSONResponse({"ok": True, "member": _is_vp_team(uid), "uid": uid or 0})
+
+
 @api_router.get("/app/cockpit/access")
 async def cockpit_access(req: Request) -> JSONResponse:
     """Kdo má přístup do řídicího pultu /marti (ikonka avatarů vlevo od 🚀 +
@@ -20596,15 +20612,23 @@ async def cockpit_access(req: Request) -> JSONResponse:
     Šárka (13). Frontend (deploy_button.js) podle toho vykreslí avatary nezávisle
     na rocket-gate (ten zůstává jen rodičům). Marti 30.6.2026."""
     uid = _uid_from_token_or_cookie(req)
-    allowed = bool(uid and (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS))
-    team = [
-        {"uid": 1,  "ini": "M", "name": "Marti Pašek",     "role": "zakladatel",     "col": "#2e5d3a", "cockpit": "/marti"},
-        {"uid": 11, "ini": "K", "name": "Kristýna",         "role": "procesy",        "col": "#4a3a6e", "cockpit": "/marti"},
-        {"uid": 13, "ini": "Š", "name": "Šárka",            "role": "personalistika", "col": "#6e4a3a", "cockpit": "/marti"},
-        {"uid": 18, "ini": "P", "name": "Petra Šafránková", "role": "finance + HR",   "col": "#3a566e", "cockpit": "/marti"},
-    ]
-    return JSONResponse({"ok": True, "uid": uid or 0, "allowed": allowed,
-                         "team": team if allowed else []})
+    cockpit_allowed = bool(uid and (is_marti_parent(uid) or uid in _SCOPED_APPROVER_UIDS))
+    is_vp = bool(uid and uid in _VP_TEAM_UIDS)
+    team = []
+    if cockpit_allowed:
+        team += [
+            {"uid": 1,  "ini": "M", "name": "Marti Pašek",     "role": "zakladatel",     "col": "#2e5d3a", "cockpit": "/marti"},
+            {"uid": 11, "ini": "K", "name": "Kristýna",         "role": "procesy",        "col": "#4a3a6e", "cockpit": "/marti"},
+            {"uid": 13, "ini": "Š", "name": "Šárka",            "role": "personalistika", "col": "#6e4a3a", "cockpit": "/marti"},
+            {"uid": 18, "ini": "P", "name": "Petra Šafránková", "role": "finance + HR",   "col": "#3a566e", "cockpit": "/marti"},
+        ]
+    if is_vp:
+        # Týmová ikonka „E" = Vedoucí projektů / digitalizace (Marti + Kristý + Jirka + Eliška).
+        # Marti 1.7.2026: „náš tým, který pomůže Elišce nakopnout digitalizaci u VP".
+        team.append({"uid": 34, "ini": "E", "name": "Vedoucí projektů — digitalizace (Eliščin tým)",
+                     "role": "VP tým", "col": "#3a6e5a", "cockpit": "/vp"})
+    return JSONResponse({"ok": True, "uid": uid or 0, "allowed": bool(cockpit_allowed or is_vp),
+                         "team": team})
 
 
 @api_router.get("/app/attendance/list")

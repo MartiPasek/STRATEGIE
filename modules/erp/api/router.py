@@ -32338,6 +32338,20 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@ENESYNC"):
         return JSONResponse(_eneschopenka_to_sick())
 
+    #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
+    #   @@KALKINFO → přehled naplnění zrcadla
+    if sql.upper().startswith("@@KALK"):
+        import traceback as _tbk
+        try:
+            if sql.upper().startswith("@@KALKINFO"):
+                from modules.erp.api.kalkulace_engine import engine_info as _ki
+                return JSONResponse(_ki())
+            from modules.erp.api.kalkulace_engine import sync_engine as _ks
+            return JSONResponse(_ks())
+        except Exception as _ke:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ke).__name__, str(_ke)[:400]),
+                                 "tb": _tbk.format_exc()[-1200:]})
+
     #   @@VYTIZABS [dnu_zpet]  → naše plánované absence → st.EC_Vytizeni_NepritomnostSTRATEGIE
     #   (jednosměrně, čte to view vytížení; default 14 dní zpět + budoucnost)
     if sql.upper().startswith("@@VYTIZABS"):

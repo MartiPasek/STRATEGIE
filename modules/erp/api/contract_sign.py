@@ -454,17 +454,32 @@ def _build_final_pdf(orig_bytes, e, parties):
     except Exception:
         return False
     try:
+        # Unicode font s plnou českou diakritikou (ě/ř/ů/ď/ť/ň) — reportlab Helvetica (WinAnsi)
+        # je nemá a dělá z nich ■. Použij Windows Arial; fallback na Helvetiku.
+        FN, FB, FI = "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
+        try:
+            import os as _os
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            _fd = (_os.environ.get("WINDIR") or "C:\\Windows") + "\\Fonts\\"
+            if "CzSans" not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont("CzSans", _fd + "verdana.ttf"))
+                pdfmetrics.registerFont(TTFont("CzSans-Bold", _fd + "verdanab.ttf"))
+                pdfmetrics.registerFont(TTFont("CzSans-It", _fd + "verdanai.ttf"))
+            FN, FB, FI = "CzSans", "CzSans-Bold", "CzSans-It"
+        except Exception:
+            pass
         buf = io.BytesIO()
         c = canvas.Canvas(buf, pagesize=A4)
         W, H = A4
         y = H - 30 * mm
-        c.setFont("Helvetica-Bold", 15)
+        c.setFont(FB, 15)
         c.drawString(25 * mm, y, "Podpisová doložka — elektronické podepsání")
         y -= 10 * mm
-        c.setFont("Helvetica", 10)
+        c.setFont(FN, 10)
         def line(txt, dy=6.2 * mm, bold=False):
             nonlocal y
-            c.setFont("Helvetica-Bold" if bold else "Helvetica", 10)
+            c.setFont(FB if bold else FN, 10)
             for chunk in _wrap(txt, 95):
                 c.drawString(25 * mm, y, chunk); y -= dy
         line("Dokument: %s" % (e["title"] or ""), bold=True)
@@ -481,7 +496,7 @@ def _build_final_pdf(orig_bytes, e, parties):
         line("")
         line("Tato doložka je auditní stopou elektronického podpisu. Obě strany vyjádřily")
         line("souhlas s elektronickým podepsáním. Integritu dokumentu ověřuje SHA-256 otisk výše.")
-        c.setFont("Helvetica-Oblique", 8)
+        c.setFont(FI, 8)
         c.drawString(25 * mm, 15 * mm, "Vygenerováno systémem STRATEGIE dne %s" % datetime.now().strftime("%d.%m.%Y %H:%M"))
         c.showPage(); c.save()
         buf.seek(0)

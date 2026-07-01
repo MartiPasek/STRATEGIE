@@ -86,7 +86,8 @@ def _parse(raw) -> dict:
 def _fs_list(subpath: str) -> dict:
     mcp = _mcp()
     raw = mcp.call_tool_sync(full_name="eurosoft_eurosoft_file_list",
-                             arguments={"base_override": _SHARE_ROOT, "subpath": subpath},
+                             arguments={"user_namespace": "ro", "base_override": _SHARE_ROOT,
+                                        "subpath": subpath},
                              conversation_id=None)
     return _parse(raw)
 
@@ -94,7 +95,8 @@ def _fs_list(subpath: str) -> dict:
 def _fs_read_b64(path: str) -> dict:
     mcp = _mcp()
     raw = mcp.call_tool_sync(full_name="eurosoft_eurosoft_file_read",
-                             arguments={"base_override": _SHARE_ROOT, "path": path, "encoding": "base64"},
+                             arguments={"user_namespace": "ro", "base_override": _SHARE_ROOT,
+                                        "path": path, "encoding": "base64"},
                              conversation_id=None)
     return _parse(raw)
 

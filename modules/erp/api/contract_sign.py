@@ -397,7 +397,7 @@ def _maybe_finalize(s, tid, cid):
     s.commit()
     _log(s, tid, cid, "completed", "systém", "", e["title"] or "")
     s.commit()
-    # notifikace oběma stranám — finální PDF je k dispozici v appce (my) / přes zaslaný odkaz (protistrana)
+    # notifikace oběma stranám — finální podepsané PDF PŘÍMO V PŘÍLOZE (přes upload_document → doc_id)
     try:
         from modules.notifications.application.email_service import queue_email
         emails = []
@@ -412,14 +412,31 @@ def _maybe_finalize(s, tid, cid):
                 {"u": our_uid}).scalar()
             if oem:
                 emails.append(oem)
-        body = ("Dobrý den,\n\nsmlouva %s byla elektronicky podepsána oběma stranami "
-                "(prostý el. podpis dle eIDAS + auditní stopa). Finální podepsané PDF s podpisovou "
-                "doložkou najdete přes odkaz, který jsme Vám k podpisu zaslali — je tam nyní finální verze. "
-                "Tisk ani sken není potřeba.\n\nS pozdravem\n%s") % (e["title"], e["our_party"] or "EUROSOFT-Control s.r.o.")
+        # finální PDF (s doložkou) → dokument → příloha e-mailu
+        doc_id = None
+        try:
+            if final_bytes:
+                from modules.rag.application.service import upload_document
+                fn = ("Podepsano_" + (e["title"] or "smlouva"))[:120] + ".pdf"
+                doc_id = upload_document(file_bytes=final_bytes, filename=fn, tenant_id=tid,
+                                        user_id=(our_uid or 1))
+        except Exception:
+            doc_id = None
+        if doc_id:
+            body = ("Dobrý den,\n\nsmlouva %s byla elektronicky podepsána oběma stranami "
+                    "(prostý el. podpis dle eIDAS + auditní stopa). V příloze najdete finální podepsané "
+                    "PDF s podpisovou doložkou (jména, časy, IP, otisk dokumentu). Tisk ani sken není potřeba.\n\n"
+                    "S pozdravem\n%s") % (e["title"], e["our_party"] or "STRATEGIE-System s.r.o.")
+        else:
+            body = ("Dobrý den,\n\nsmlouva %s byla elektronicky podepsána oběma stranami "
+                    "(prostý el. podpis dle eIDAS + auditní stopa). Finální podepsané PDF s podpisovou "
+                    "doložkou je k dispozici přes odkaz, který jsme Vám k podpisu zaslali.\n\nS pozdravem\n%s") % (
+                        e["title"], e["our_party"] or "STRATEGIE-System s.r.o.")
         for em in set(emails):
             try:
                 queue_email(to=em, subject="Podepsáno: %s" % e["title"], body=body,
-                            persona_id=1, from_identity="persona", tenant_id=tid, purpose="user_request")
+                            persona_id=1, from_identity="persona", tenant_id=tid, purpose="user_request",
+                            attachment_document_ids=([doc_id] if doc_id else None))
             except Exception:
                 pass
     except Exception:

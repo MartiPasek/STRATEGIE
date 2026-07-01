@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Osobní spisy</title>
+<style>
+  :root{--navy:#1f3864;--line:#e2e6ef;--muted:#667;}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,Segoe UI,Roboto,system-ui;color:#111;background:#f6f7fb}
+  header{background:var(--navy);color:#fff;padding:12px 18px;display:flex;align-items:center;gap:10px}
+  header h1{font-size:17px;margin:0;font-weight:700}
+  header .sub{opacity:.8;font-size:12px;margin-left:auto}
+  .wrap{display:flex;gap:16px;max-width:1100px;margin:16px auto;padding:0 14px;align-items:flex-start}
+  .col{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .left{width:340px;flex:none}
+  .right{flex:1;min-height:320px}
+  .hd{padding:10px 14px;border-bottom:1px solid var(--line);font-weight:700;color:var(--navy);display:flex;align-items:center;gap:8px}
+  .search{padding:10px 12px;border-bottom:1px solid var(--line)}
+  .search input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px}
+  ul{list-style:none;margin:0;padding:0;max-height:70vh;overflow:auto}
+  li.person{padding:10px 14px;border-bottom:1px solid #f0f2f7;cursor:pointer;display:flex;align-items:center;gap:8px}
+  li.person:hover{background:#f4f7ff}
+  li.person.sel{background:#eaf0ff}
+  li.person .nm{font-weight:600}
+  li.person .fi{font-size:12px;color:var(--muted)}
+  .badge{margin-left:auto;background:#eef2fb;color:var(--navy);border-radius:20px;padding:2px 9px;font-size:12px;font-weight:700}
+  .badge.zero{background:#f3f4f6;color:#98a}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid #f0f2f7;font-size:13px;vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px}
+  .tag{display:inline-block;border-radius:20px;padding:1px 8px;font-size:11px;font-weight:700}
+  .tag.ok{background:#e6f6ec;color:#1a7a3d}
+  .tag.no{background:#fdeeee;color:#b23}
+  .empty{padding:40px 20px;color:var(--muted);text-align:center}
+  .foot{padding:10px 14px;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🗂️ Osobní spisy</h1>
+  <span class="sub">HR pohled · jen pro personalistiku · přístupy se logují (GDPR)</span>
+</header>
+<div class="wrap">
+  <div class="col left">
+    <div class="hd">Lidé <span id="cnt" class="badge">…</span></div>
+    <div class="search"><input id="q" placeholder="Hledat jméno…" oninput="render()"></div>
+    <ul id="list"><li class="empty">Načítám…</li></ul>
+  </div>
+  <div class="col right">
+    <div class="hd"><span id="who">Vyber člověka vlevo</span></div>
+    <div id="detail"><div class="empty">Klikni na osobu v seznamu a uvidíš její aktuální a podepsané dokumenty.</div></div>
+    <div class="foot">Aktuální = platnost neskončila. Soubory zůstávají v Centrále, tady je jejich přehled.</div>
+  </div>
+</div>
+<script>
+const API="/api/v1/erp";
+let LIDE=[], SEL=null;
+async function j(u){const r=await fetch(u,{credentials:'same-origin'});return r.json();}
+async function load(){
+  const d=await j(API+"/app/hr-spis/lide");
+  if(!d.ok){document.getElementById('list').innerHTML='<li class="empty">Nemáš oprávnění nebo chyba: '+(d.error||'')+'</li>';return;}
+  LIDE=d.lide||[]; document.getElementById('cnt').textContent=LIDE.length; render();
+}
+function render(){
+  const q=(document.getElementById('q').value||'').toLowerCase().trim();
+  const el=document.getElementById('list'); el.innerHTML='';
+  const f=LIDE.filter(p=>!q||(p.jmeno||'').toLowerCase().includes(q));
+  if(!f.length){el.innerHTML='<li class="empty">Nikdo nenalezen.</li>';return;}
+  for(const p of f){
+    const li=document.createElement('li'); li.className='person'+(SEL===p.id?' sel':'');
+    li.onclick=()=>open(p);
+    li.innerHTML='<div><div class="nm">'+esc(p.jmeno)+'</div>'+(p.firma?'<div class="fi">'+esc(p.firma)+'</div>':'')+'</div>'+
+      '<span class="badge'+(p.pocet_platnych?'':' zero')+'">'+p.pocet_platnych+'</span>';
+    el.appendChild(li);
+  }
+}
+async function open(p){
+  SEL=p.id; render();
+  document.getElementById('who').textContent=p.jmeno;
+  const det=document.getElementById('detail'); det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+"/app/hr-spis/osoba/"+p.id);
+  if(!d.ok){det.innerHTML='<div class="empty">Chyba: '+(d.error||'')+'</div>';return;}
+  const dk=d.dokumenty||[];
+  if(!dk.length){det.innerHTML='<div class="empty">Zatím žádné dokumenty v systému.<br><span style="font-size:12px">Po napojení na Centrálu se sem načtou.</span></div>';return;}
+  let h='<table><tr><th>Typ</th><th>Dokument</th><th>Platnost</th><th>Podepsáno</th><th>Stav</th></tr>';
+  for(const x of dk){
+    h+='<tr><td>'+esc(x.typ_nazev)+'</td><td>'+esc(x.nazev)+'</td>'+
+       '<td>'+(x.platnost_od||'—')+(x.platnost_do?' – '+x.platnost_do:' – dosud')+'</td>'+
+       '<td>'+(x.podepsano?'<span class="tag ok">ano'+(x.podepsano_dne?' · '+x.podepsano_dne:'')+'</span>':'<span class="tag no">ne</span>')+'</td>'+
+       '<td>'+(x.aktualni?'<span class="tag ok">aktuální</span>':'<span class="tag no">archiv</span>')+'</td></tr>';
+  }
+  h+='</table>';
+  det.innerHTML=h;
+}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+load();
+</script>
+</body>
+</html>

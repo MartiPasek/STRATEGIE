@@ -45,6 +45,7 @@ from modules.erp.api.carddav import carddav_router, carddav_mgmt_router
 from modules.erp.api.directories import dir_router  # Fáze A: systém adresářů dokumentů (18.6.2026)
 from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elektronické vedení ISMS (21.6.2026)
 from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
+from modules.erp.api.hr_spis import hr_spis_router  # Osobní spis zaměstnance — HR pohled + self-service (1.7.2026)
 
 setup_logging()
 
@@ -826,6 +827,7 @@ app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa
 app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_config + resolver)
 app.include_router(iso_router)  # ISO 27001 cockpit (elektronické ISMS + e-podpis + auditor portál)
 app.include_router(bank_router)  # Univerzální bankovní napojení (connection + cert do trezoru) — Fáze 1
+app.include_router(hr_spis_router)  # Osobní spis zaměstnance — HR pohled + zaměstnanecký self-service
 from modules.act_pipeline.act_router import act_router  # FW Action Pipelines executor (Marti 3.6.)
 app.include_router(act_router)
 

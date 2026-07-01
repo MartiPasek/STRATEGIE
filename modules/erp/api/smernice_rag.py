@@ -33,6 +33,7 @@ _PRIST_MAP = {
     "Plná": ("Verejne", 0),
     "Interní": ("Interni", 2),
     "Vedení": ("Vedeni", 2),
+    "AI": ("_AI", 3),   # řada AI — orientační směrnice psané Claude/Marti-AI (level 3 = jen my + rodiče)
 }
 
 
@@ -345,6 +346,48 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
             "count": len(rows), "done": done, "total": total, "pct": pct,
             "smernic_zpracovano": processed, "bez_slozky": no_folder,
             "soubory_ok": files_ok, "soubory_err": files_err, "hotovo": done >= total}
+
+
+# ── @@KBADD — registrace vlastní (AI) směrnice z docs/*.md ─────────────
+
+def register_ai_smernice(key: str, nazev: str = "", popis: str = "") -> dict:
+    """Zaregistruje docs/<key>.md jako AI směrnici v RAG (pristupnost 'AI', ec_id záporné).
+    @@KB … | 3 ji pak najde. Reusable pro budoucí orientační směrnice Claude/Marti-AI."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    import hashlib as _h
+    # najdi soubor (repo root / module-relative)
+    cand = [os.path.join("docs", key + ".md"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "docs", key + ".md")]
+    path = next((p for p in cand if os.path.isfile(p)), None)
+    if not path:
+        return {"ok": False, "error": "docs/%s.md nenalezen (%s)" % (key, cand)}
+    with open(path, "r", encoding="utf-8") as fh:
+        txt = fh.read().replace("\x00", "")
+    ec_id = -(1 + int(_h.md5(key.encode("utf-8")).hexdigest()[:6], 16) % 900000)
+    nazev = nazev or key
+    popis = popis or txt[:300]
+    sd = get_data_session()
+    try:
+        sd.execute(_t("DELETE FROM tenant.kb_smernice_soubor WHERE ec_smernice_id=:e"), {"e": ec_id})
+        sd.execute(_t("DELETE FROM tenant.kb_smernice WHERE ec_id=:e"), {"e": ec_id})
+        sd.execute(_t(
+            "INSERT INTO tenant.kb_smernice (ec_id, nazev, typ_text, kategorie, popis_text, "
+            "status_text, archiv, pristupnost_text, autor, files_synced_at) VALUES "
+            "(:e,:n,'AI-orientace','AI',:p,'Aktivní',0,'AI','Claude-ID23',now())"),
+            {"e": ec_id, "n": nazev, "p": popis})
+        sd.execute(_t(
+            "INSERT INTO tenant.kb_smernice_soubor (ec_smernice_id, nazev_souboru, pripona, "
+            "cesta, text_extract, extract_ok, extracted_at) VALUES "
+            "(:e,:n,'md',:cesta,:txt,true,now())"),
+            {"e": ec_id, "n": key + ".md", "cesta": "docs/" + key + ".md", "txt": txt})
+        sd.commit()
+    finally:
+        sd.close()
+    return {"ok": True, "columns": ["klic", "hodnota"],
+            "rows": [["registrovano", nazev], ["ec_id", str(ec_id)],
+                     ["delka_textu", str(len(txt))], ["pristupnost", "AI (level 3)"]],
+            "count": 4}
 
 
 # ── @@KB — fulltext hledání ────────────────────────────────────────────

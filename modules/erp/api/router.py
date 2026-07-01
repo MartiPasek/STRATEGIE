@@ -32323,6 +32323,15 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _lim = int(_p[1]) if len(_p) > 1 and _p[1].isdigit() else 50
                 _cis = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else None
                 return JSONResponse(_smfiles(_lim, _cis))
+            if sql.upper().startswith("@@KBADD"):
+                from modules.erp.api.smernice_rag import register_ai_smernice as _kbadd
+                _a = [x.strip() for x in sql[len("@@KBADD"):].split("|")]
+                _key = _a[0] if _a and _a[0] else ""
+                _nz = _a[1] if len(_a) > 1 else ""
+                _po = _a[2] if len(_a) > 2 else ""
+                if not _key:
+                    return JSONResponse({"ok": False, "error": "@@KBADD <docs_key> | <nazev> | <popis>"})
+                return JSONResponse(_kbadd(_key, _nz, _po))
             if sql.upper().startswith("@@KB"):
                 from modules.erp.api.smernice_rag import kb_search as _kbs
                 _rest = sql[len("@@KB"):].strip()

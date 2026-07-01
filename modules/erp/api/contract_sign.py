@@ -90,15 +90,13 @@ def _log(s, tid, cid, akce, kdo, ip, device="", detail=""):
         pass
 
 
-def _serve_pdf(path, download_name="smlouva.pdf"):
-    if not path:
+def _pdf_resp(data):
+    """PDF z DB (bytea) → HTTP odpověď."""
+    if not data:
         return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-    full = os.path.normpath(path)
-    root = os.path.normpath(_CONTRACT_DIR)
-    if not full.startswith(root) or not os.path.isfile(full):
-        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-    return FileResponse(full, media_type="application/pdf",
-                        headers={"Content-Disposition": 'inline; filename="%s"' % download_name})
+    from fastapi.responses import Response
+    return Response(content=bytes(data), media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="smlouva.pdf"'})
 
 
 def _envelope(s, tid, cid):
@@ -156,11 +154,9 @@ async def sign_create(req: Request):
             VALUES(:t,:ti,:sha,:our,:cn,:ce,:no,'draft',:by) RETURNING id"""),
             {"t": tid, "ti": title, "sha": sha, "our": our, "cn": cp_name, "ce": cp_email, "no": note, "by": uid}).first()
         cid = int(row[0])
-        os.makedirs(os.path.join(_CONTRACT_DIR, str(tid)), exist_ok=True)
-        path = os.path.join(_CONTRACT_DIR, str(tid), "%d_orig.pdf" % cid)
-        with open(path, "wb") as f:
-            f.write(raw)
-        s.execute(_t("UPDATE tenant.contract_sign SET soubor_path=:p WHERE id=:c"), {"p": path, "c": cid})
+        # PDF ukládáme přímo do DB (bytea) — nezávislé na disku hostitele, přenositelné.
+        s.execute(_t("UPDATE tenant.contract_sign SET pdf_orig=:b WHERE id=:c"),
+                  {"b": raw, "c": cid})
         # signatáři: interní (my) + protistrana
         s.execute(_t("""INSERT INTO tenant.contract_sign_party(tenant_id,contract_id,role,jmeno,email,user_id,poradi)
             VALUES(:t,:c,'internal',:j,NULL,:u,1)"""), {"t": tid, "c": cid, "j": _user_name(s, uid), "u": uid})
@@ -228,10 +224,9 @@ def sign_pdf(cid: int, req: Request):
         tid = _tenant(req, uid, s)
         if not _can(uid, s):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        e = _envelope(s, tid, cid)
-        if not e:
-            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-        return _serve_pdf(e["final_path"] or e["soubor_path"], (e["title"] or "smlouva") + ".pdf")
+        data = s.execute(_t("SELECT COALESCE(pdf_final,pdf_orig) FROM tenant.contract_sign WHERE tenant_id=:t AND id=:c"),
+                         {"t": tid, "c": cid}).scalar()
+        return _pdf_resp(data)
     finally:
         s.close()
 
@@ -340,7 +335,9 @@ def portal_pdf(token: str, req: Request):
         r = _by_token(s, token)
         if not r:
             return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
-        return _serve_pdf(r["final_path"] or r["soubor_path"], (r["title"] or "smlouva") + ".pdf")
+        data = s.execute(_t("SELECT COALESCE(pdf_final,pdf_orig) FROM tenant.contract_sign WHERE id=:c"),
+                         {"c": r["contract_id"]}).scalar()
+        return _pdf_resp(data)
     finally:
         s.close()
 
@@ -387,23 +384,25 @@ def _maybe_finalize(s, tid, cid):
     e = _envelope(s, tid, cid)
     if not e or e["stav"] == "completed":
         return
-    final_path = os.path.join(_CONTRACT_DIR, str(tid), "%d_signed.pdf" % cid)
-    ok = _build_final_pdf(e["soubor_path"], final_path, e, parties)
-    if not ok:
-        final_path = e["soubor_path"]  # fallback: originál (doložka se nepovedla)
-    s.execute(_t("UPDATE tenant.contract_sign SET stav='completed',final_path=:f,completed_at=now(),updated_at=now() "
-                 "WHERE id=:c"), {"f": final_path, "c": cid})
+    orig = s.execute(_t("SELECT pdf_orig FROM tenant.contract_sign WHERE id=:c"), {"c": cid}).scalar()
+    final_bytes = _build_final_pdf(bytes(orig) if orig else b"", e, parties) if orig else None
+    if final_bytes:
+        s.execute(_t("UPDATE tenant.contract_sign SET stav='completed',pdf_final=:f,completed_at=now(),updated_at=now() "
+                     "WHERE id=:c"), {"f": final_bytes, "c": cid})
+    else:
+        # fallback: doložka se nepovedla → originál poslouží jako finální (stav completed)
+        s.execute(_t("UPDATE tenant.contract_sign SET stav='completed',completed_at=now(),updated_at=now() "
+                     "WHERE id=:c"), {"c": cid})
     s.commit()
     _log(s, tid, cid, "completed", "systém", "", e["title"] or "")
     s.commit()
-    # rozeslat oběma stranám (interní e-mail + protistrana)
+    # notifikace oběma stranám — finální PDF je k dispozici v appce (my) / přes zaslaný odkaz (protistrana)
     try:
         from modules.notifications.application.email_service import queue_email
         emails = []
         cp = [p for p in parties if p["role"] == "counterparty"]
         if cp and cp[0]["email"]:
             emails.append(cp[0]["email"])
-        # interní kopie na tvůrce/rodiče: pošli na e-mail našeho signatáře, pokud známe
         our_uid = s.execute(_t("SELECT user_id FROM tenant.contract_sign_party WHERE contract_id=:c AND role='internal'"),
                             {"c": cid}).scalar()
         if our_uid:
@@ -412,38 +411,22 @@ def _maybe_finalize(s, tid, cid):
                 {"u": our_uid}).scalar()
             if oem:
                 emails.append(oem)
-        body = ("Dobrý den,\n\nsmlouva %s byla elektronicky podepsána oběma stranami. "
-                "V příloze najdete finální podepsané PDF s podpisovou doložkou a auditní stopou.\n\n"
-                "S pozdravem\n%s") % (e["title"], e["our_party"] or "EUROSOFT-Control s.r.o.")
-        doc_id = _store_final_as_document(s, tid, cid, e, final_path)
+        body = ("Dobrý den,\n\nsmlouva %s byla elektronicky podepsána oběma stranami "
+                "(prostý el. podpis dle eIDAS + auditní stopa). Finální podepsané PDF s podpisovou "
+                "doložkou najdete přes odkaz, který jsme Vám k podpisu zaslali — je tam nyní finální verze. "
+                "Tisk ani sken není potřeba.\n\nS pozdravem\n%s") % (e["title"], e["our_party"] or "EUROSOFT-Control s.r.o.")
         for em in set(emails):
             try:
                 queue_email(to=em, subject="Podepsáno: %s" % e["title"], body=body,
-                            persona_id=1, from_identity="persona", tenant_id=tid, purpose="contract_signed",
-                            attachment_document_ids=[doc_id] if doc_id else None)
+                            persona_id=1, from_identity="persona", tenant_id=tid, purpose="contract_signed")
             except Exception:
                 pass
     except Exception:
         pass
 
 
-def _store_final_as_document(s, tid, cid, e, final_path):
-    """Uloží finální PDF do public.documents (pro přílohu e-mailu). Vrací doc_id nebo None."""
-    try:
-        if not final_path or not os.path.isfile(final_path):
-            return None
-        r = s.execute(_t("""INSERT INTO public.documents(tenant_id,name,file_type,storage_path,created_at)
-            VALUES(:t,:n,'pdf',:p,now()) RETURNING id"""),
-            {"t": tid, "n": "Podepsáno/" + (e["title"] or "smlouva") + ".pdf", "p": final_path}).first()
-        s.commit()
-        return int(r[0]) if r else None
-    except Exception:
-        s.rollback()
-        return None
-
-
-def _build_final_pdf(orig_path, out_path, e, parties):
-    """Sestaví finální PDF: originál + podpisová doložka (strana s údaji o podpisech + hash)."""
+def _build_final_pdf(orig_bytes, e, parties):
+    """Sestaví finální PDF (bytes): originál + podpisová doložka. Vrací bytes nebo None."""
     try:
         import io
         from reportlab.lib.pagesizes import A4
@@ -485,15 +468,15 @@ def _build_final_pdf(orig_path, out_path, e, parties):
         c.showPage(); c.save()
         buf.seek(0)
         w = PdfWriter()
-        for pg in PdfReader(orig_path).pages:
+        for pg in PdfReader(io.BytesIO(orig_bytes)).pages:
             w.add_page(pg)
         for pg in PdfReader(buf).pages:
             w.add_page(pg)
-        with open(out_path, "wb") as f:
-            w.write(f)
-        return True
+        out = io.BytesIO()
+        w.write(out)
+        return out.getvalue()
     except Exception:
-        return False
+        return None
 
 
 def _wrap(txt, n):

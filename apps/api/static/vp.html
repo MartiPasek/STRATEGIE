@@ -46,17 +46,17 @@
 
   <div class="eyebrow">Co už máme (základ)</div>
   <div class="grid">
-    <a class="card" href="/zrcadla">
+    <a class="card" href="/zrcadla?from=vp">
       <div class="ic">🪞</div>
       <p class="ct">Zrcadla Centrála ↔ cloud</p>
       <p class="cd">Zakázkové a poptávkové flow zrcadlené mezi Centrálou a cloudem — datový základ cockpitu.</p>
     </a>
-    <a class="card" href="/vytizeni">
+    <a class="card" href="/vytizeni?from=vp">
       <div class="ic">📈</div>
       <p class="ct">Vytížení lidí</p>
       <p class="cd">Kdo je kde vytížený — vstup pro plánování kapacit na projektech.</p>
     </a>
-    <a class="card" href="/dokument">
+    <a class="card" href="/dokument?from=vp">
       <div class="ic">📚</div>
       <p class="ct">Dokumentace</p>
       <p class="cd">Sdílené podklady a rozkreslení procesu VP.</p>
@@ -86,5 +86,6 @@
     }).catch(function(){ document.getElementById('gate').style.display='block'; });
 })();
 </script>
+<script src="/static/nav-back.js"></script>
 </body>
 </html>

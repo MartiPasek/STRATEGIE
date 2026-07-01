@@ -1,0 +1,37 @@
+# CVE remediace závislostí — stav 21. 6. 2026
+
+> **Výchozí stav:** 46 zranitelností. **Po `poetry update` (44 balíčků) + restart: 46 → 18.** ✅
+> **Po `poetry add pypdf@^6.13.3` (commit af2f7bfc) + deploy/restart: 18 → 17.** ✅
+> Sken běží přes pip-audit (cockpit `/iso` karta „Zranitelnosti" + auto týdně). Poslední sken uložen v `fw.cve_run`.
+
+## Hotovo (28 CVE pryč) — `poetry update`, live na cloudu
+cryptography 46→49 · aiohttp 3.13→3.14.1 · pyjwt 2.12→2.13 · lxml 6.0→6.1.1 · mako 1.3.11→1.3.12 ·
+idna 3.11→3.18 · pydantic-settings 2.13→2.14.2 · + další. **API po upgradu zdravé** (ověřeno — endpointy
+i zrcadla odpovídají). Marti commitnul `pyproject.toml`+`poetry.lock` na cloudu (commit 35e1ac8e).
+
+## Zbývá 17 CVE — potřebují cílené bumpy (ne `poetry update`, jsou zaheslované)
+
+| Balíček | Teď | Cíl | CVE | Riziko / pozn. |
+|---|---|---|---|---|
+| **starlette** | 0.37.2 | 0.47+ / 1.x | **8** | jádro FastAPI — **pinuje ho FastAPI**; nutno sladit verzi FastAPI a otestovat celé API |
+| **python-multipart** | 0.0.10 | 0.0.31 | **7** | uploady (FastAPI) — bump + test nahrávání souborů |
+| **mcp** | 1.12.4 | 1.23.0 | 1 | EUROSOFT MCP klient — **major skok, otestovat zrcadla/CRM!** |
+| **pytest** | 8.4.2 | 9.0.3 | 1 | **jen dev/test** — blokuje ho `pytest-asyncio 0.23` (drží pytest `<9`). Bump by chtěl i `pytest-asyncio@^0.24`. Neběží v provozu → **necháváme**, nízká priorita. |
+| ~~pypdf~~ | ~~6.13.2~~ | **6.13.3 ✅** | ~~1~~ | **HOTOVO** (commit af2f7bfc, live) |
+
+## Doporučený postup (až bude klid, blue-green secondary jako záchrana)
+
+1. ~~**Snadné hned:** pypdf.~~ ✅ **HOTOVO** (−1). pytest přeskočeno (dev-only, blokuje constraint `pytest = "^8.2.0"` + pytest-asyncio).
+2. **FastAPI stack** (starlette + python-multipart = 15 CVE): bumpnout **FastAPI** na verzi, která táhne starlette ≥0.47 a multipart ≥0.0.31 (`poetry add "fastapi@latest"` a ověřit lock). **Otestovat:** všechny endpointy, uploady, auth. Největší dopad — dělat opatrně.
+3. **mcp 1.23** (1 CVE, ale rizikové): bumpnout zvlášť, **otestovat EUROSOFT MCP** (zrcadla, CRM insert, filesystem) — velký major skok.
+4. Po každém kroku restart + smoke test + `pip-audit` (tlačítko v cockpitu) → sledovat pokles.
+
+## Co umím já (Claude)
+- Spustit CVE sken kdykoli (cockpit / auto týdně) — udělané, ukazuje 18.
+- Po bumpu ověřit přes bridge, že API + zrcadla žijí; doladit kód, kdyby bump něco rozbil.
+**Co potřebuju od tebe:** `poetry add ...` na cloudu (krok 1 hned, kroky 2–3 s testem) + commit lock.
+
+**Pozn. pip-audit:** běží (sken funguje), ale **není v `pyproject.toml`** — jen v cloud venv. Aby ho
+příští `poetry install --sync` nesmazal, přidej ho natrvalo: `poetry add --group dev pip-audit` + commit.
+
+*Stav: z 46 → 18. Zbytek je framework-core (FastAPI/starlette/multipart) + mcp major — vědomě opatrně, ne pod tlakem.*

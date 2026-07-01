@@ -1,0 +1,75 @@
+==========================================================
+ NÁVOD — build Google Play AAB (STRATEGIE mobil)
+ Pro: Jirka Honomichl
+==========================================================
+
+OBSAH ZIPu:
+  - strategie-release.jks   ... upload podpisový klíč
+  - keystore.properties     ... hesla ke klíči (storePassword, keyAlias, keyPassword)
+  - NAVOD_build_AAB.txt      ... tento návod
+
+⚠️  BEZPEČNOST — čti první:
+  Oba soubory (.jks i keystore.properties) jsou TAJNÉ.
+  - NIKDY je necommituj do gitu (v repu jsou v .gitignore — nech to tak).
+  - Neposílej je chatem / e-mailem / Teams.
+  - Drž je jen lokálně na svém PC. Po nakopírování z USB zip i USB ulož bezpečně.
+
+----------------------------------------------------------
+1) UMÍSTĚNÍ na tvém PC
+----------------------------------------------------------
+Zkopíruj OBA soubory do kořene mobilního projektu (vedle gradlew.bat):
+
+   <repo>\APP\Mobile\strategie-release.jks
+   <repo>\APP\Mobile\keystore.properties
+
+(keystore.properties má uvnitř řádek  storeFile=strategie-release.jks  —
+ odkazuje na klíč hned vedle sebe, takže oba soubory musí být ve stejné složce.)
+
+Před prvním buildem srovnej repo na nejnovější verzi:
+   cd <repo>
+   git pull origin main
+
+----------------------------------------------------------
+2) BUILD AAB pro Google Play
+----------------------------------------------------------
+V PowerShellu:
+
+   cd <repo>\APP\Mobile
+   .\gradlew.bat bundlePlayRelease
+
+  - flavor "play"     = AAB do Google Play, BEZ SMS oprávnění (projde review).
+  - flavor "internal" = sideload APK se SMS bránou — ten na Play NENAHRÁVEJ.
+
+Pozn.: každý release build sám zvýší verzi (versionCode +1 a poslední segment
+versionName) v souboru version.properties. Tuhle změnu pak commitni:
+   git add APP/Mobile/version.properties
+   git commit -m "release: bump verze pro Play AAB"
+   git push
+
+----------------------------------------------------------
+3) VÝSTUP — hotový AAB
+----------------------------------------------------------
+   <repo>\APP\Mobile\app\build\outputs\bundle\playRelease\app-play-release.aab
+
+----------------------------------------------------------
+4) NAHRÁNÍ na Google Play
+----------------------------------------------------------
+Tenhle .aab nahraj v Google Play Console:
+   (vyber track — Internal testing / Production) → Create new release → Upload → vyber app-play-release.aab → projdi a vydej.
+
+Google si drží hlavní (app signing) klíč sám. Tvůj upload klíč (tenhle .jks)
+jen podepisuje AAB PŘED nahráním — kdyby se ztratil, jde u Googlu resetovat.
+
+----------------------------------------------------------
+ŘEŠENÍ PROBLÉMŮ
+----------------------------------------------------------
+- Build hlásí "signed with debug key" / appka nejde nahrát jako update:
+    → keystore.properties nebo .jks nejsou v APP\Mobile. Zkontroluj umístění (krok 1).
+- "keystore was tampered with, or password was incorrect":
+    → špatné heslo v keystore.properties (storePassword / keyPassword).
+- Google Play: "Version code already used":
+    → verze se nezvýšila. Zkontroluj version.properties (versionCode musí být vyšší
+      než poslední nahraný) a buildni znovu.
+
+V případě nejasností napiš Martimu nebo Claudovi (ID23).
+==========================================================

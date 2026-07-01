@@ -372,5 +372,6 @@ function audCreate(){
 function audRevoke(id){if(!confirm("Zrušit tento auditorský přístup?"))return;api("/api/v1/erp/app/iso/auditor/revoke","POST",{id:id}).then(()=>loadAud());}
 load();
 </script>
+<script src="/static/nav-back.js"></script>
 </body>
 </html>

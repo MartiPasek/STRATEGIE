@@ -1,1 +1,1 @@
-go mzdovy list UI 0050
+go vyplatnice proklik slozka 0200

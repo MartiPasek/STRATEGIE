@@ -32,7 +32,8 @@
   </div>
   <div class="card">
     <iframe id="doc" class="doc" title="Dokument"></iframe>
-    <div class="note">Prohlédni si prosím celý dokument výše. Podpisem stvrzuješ jeho obsah.</div>
+    <div class="note">Prohlédni si prosím celý dokument výše. Podpisem stvrzuješ jeho obsah. &nbsp;
+      <a id="openpdf" href="#" style="color:#2dd4bf;font-weight:600">📄 Otevřít dokument v novém okně</a></div>
   </div>
   <div class="card" id="signBox" style="display:none">
     <label for="jmeno">Jméno a příjmení podepisujícího</label>
@@ -40,6 +41,12 @@
     <div class="chk"><input id="souhlas" type="checkbox">
       <span>Souhlasím s elektronickým podepsáním tohoto dokumentu a potvrzuji, že jsem oprávněn(a) jej podepsat. Beru na vědomí, že se zaznamená čas, IP adresa a zařízení (auditní stopa, prostý el. podpis dle eIDAS).</span></div>
     <button id="btn" type="button">Podepsat</button>
+    <div id="confirmBox" style="display:none;margin-top:14px;padding:15px;border:1px solid #3a556e;border-radius:11px;background:#101a26">
+      <div style="font-weight:800;font-size:15px;margin-bottom:8px">Opravdu chcete tento dokument elektronicky podepsat?</div>
+      <div style="font-size:12.5px;color:#9fb0c4;margin-bottom:14px;line-height:1.5">Podpis je závazný a nevratný. Zaznamená se čas, vaše IP adresa a zařízení (auditní stopa).</div>
+      <button id="btnYes" type="button">✍️ Ano, podepsat</button>
+      <button id="btnNo" type="button" style="background:#26303f;color:#e6e9ef;width:auto;margin-top:12px;margin-left:10px;padding:14px 20px">Zpět</button>
+    </div>
     <div id="msg" class="msg"></div>
   </div>
   <div class="card" id="doneBox" style="display:none">
@@ -54,6 +61,7 @@
   var msg=document.getElementById("msg");
   function show(k,t){msg.className="msg "+k;msg.textContent=t;msg.style.display="block";}
   document.getElementById("doc").src=A+"/pdf#toolbar=1";
+  document.getElementById("openpdf").addEventListener("click",function(e){e.preventDefault();window.open(A+"/pdf","_blank");});
   document.getElementById("dl").addEventListener("click",function(){window.open(A+"/pdf","_blank");});
   fetch(A+"/data").then(function(r){return r.json();}).then(function(j){
     var h=document.getElementById("head");
@@ -63,19 +71,28 @@
     else { document.getElementById("signBox").style.display="block"; var n=document.getElementById("jmeno"); if(!n.value) n.value=j.jmeno||""; }
   }).catch(function(){document.getElementById("head").textContent="Chyba načtení.";});
   function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
-  document.getElementById("btn").addEventListener("click",function(){
+  var btn=document.getElementById("btn"), cbox=document.getElementById("confirmBox");
+  btn.addEventListener("click",function(){
     var jmeno=document.getElementById("jmeno").value.trim();
     var souhlas=document.getElementById("souhlas").checked;
     if(!jmeno){show("err","Vyplň prosím jméno a příjmení.");return;}
     if(!souhlas){show("err","Potvrď prosím souhlas s elektronickým podpisem.");return;}
-    var btn=document.getElementById("btn"); btn.disabled=true; btn.textContent="Podepisuji…";
+    msg.style.display="none";
+    btn.style.display="none"; cbox.style.display="block";  // krok 2: potvrzení
+  });
+  document.getElementById("btnNo").addEventListener("click",function(){
+    cbox.style.display="none"; btn.style.display="";
+  });
+  document.getElementById("btnYes").addEventListener("click",function(){
+    var jmeno=document.getElementById("jmeno").value.trim();
+    var yes=document.getElementById("btnYes"); yes.disabled=true; yes.textContent="Podepisuji…";
     fetch(A+"/sign",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({jmeno:jmeno,souhlas:true})})
       .then(function(r){return r.json();}).then(function(j){
-        btn.disabled=false; btn.textContent="Podepsat";
+        yes.disabled=false; yes.textContent="✍️ Ano, podepsat";
         if(j&&j.ok){ document.getElementById("signBox").style.display="none"; document.getElementById("doneBox").style.display="block"; }
-        else { show("err","✗ "+((j&&j.error)||"Chyba podpisu.")); }
-      }).catch(function(e){ btn.disabled=false; btn.textContent="Podepsat"; show("err","✗ Síť: "+(e&&e.message||e)); });
+        else { cbox.style.display="none"; btn.style.display=""; show("err","✗ "+((j&&j.error)||"Chyba podpisu.")); }
+      }).catch(function(e){ yes.disabled=false; yes.textContent="✍️ Ano, podepsat"; show("err","✗ Síť: "+(e&&e.message||e)); });
   });
 })();
 </script>

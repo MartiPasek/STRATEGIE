@@ -91,12 +91,15 @@ def _log(s, tid, cid, akce, kdo, ip, device="", detail=""):
 
 
 def _pdf_resp(data):
-    """PDF z DB (bytea) → HTTP odpověď."""
+    """PDF z DB (bytea) → HTTP odpověď. X-Frame SAMEORIGIN, ať jde vložit do iframe
+    v podpisovém portálu (jinak prohlížeč/Caddy vložení odmítne)."""
     if not data:
         return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
     from fastapi.responses import Response
     return Response(content=bytes(data), media_type="application/pdf",
-                    headers={"Content-Disposition": 'inline; filename="smlouva.pdf"'})
+                    headers={"Content-Disposition": 'inline; filename="smlouva.pdf"',
+                             "X-Frame-Options": "SAMEORIGIN",
+                             "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
 def _envelope(s, tid, cid):

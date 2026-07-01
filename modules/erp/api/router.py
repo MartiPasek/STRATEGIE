@@ -18292,15 +18292,45 @@ def _is_parent(s, uid: int) -> bool:
     return bool(r and r[0])
 
 
+def _is_fin_hr_group(s, uid: int) -> bool:
+    """Člen skupiny HR / Finance / Účetnictví / Banka (tenant 2) = finanční+HR okruh.
+    Marti 1.7.2026: účetní firma Martia2000 (Fajmonová/Šafaříková/Hrbek) + IT Jirka
+    Honomichl (20) dostávají přístup k finančním/HR datům přes členství ve skupinách
+    (DB-driven, bez deploye). Zrcadla/sync běh zůstává úžeji (viz _can_run_sync)."""
+    from sqlalchemy import text as _t
+    try:
+        r = s.execute(_t(
+            "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
+            "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false "
+            "  AND g.name IN ('HR','Finance','Účetnictví','Banka') AND m.user_id=:u LIMIT 1"),
+            {"u": uid}).first()
+        return r is not None
+    except Exception:
+        return False
+
+
+def _can_run_sync(s, uid: int) -> bool:
+    """Spouštění zrcadel / synchronizací (Helios mirror, wage-compare, learn sync) =
+    JEN rodiče + IT Jirka Honomichl (20). Marti 1.7.2026: „zrcadla vidět může každý RO,
+    ale spouštět jen rodiče a IT Jirka." Vidění zrcadel řeší běžná _is_cockpit/RO brána."""
+    try:
+        return _is_parent(s, uid) or int(uid) == 20
+    except Exception:
+        return False
+
+
 def _is_cockpit(s, uid: int) -> bool:
     """Okruh řídicího pultu = rodiče + scoped approveři (Petra 18 finance+HR, Šárka 13
-    personalistika). Marti 30.6.2026 „stejná práva pro nás pro všechny — naše sandboxy."
-    Pro reportní/účetní/mzdové moduly cockpitu. Citlivé rodičovské operace (schvalování
-    cizích zápisů, souhlasy, koordinace Claudů) zůstávají na _is_parent."""
+    personalistika) + členové skupin HR/Finance/Účetnictví/Banka (účetní firma Martia2000,
+    IT Jirka 20). Marti 30.6.–1.7.2026. Pro reportní/účetní/mzdové/HR moduly cockpitu.
+    Citlivé rodičovské operace (schvalování cizích zápisů, souhlasy, koordinace Claudů)
+    zůstávají na _is_parent; SPOUŠTĚNÍ syncu na _can_run_sync (rodiče + Jirka)."""
     try:
         if _is_parent(s, uid):
             return True
-        return uid in _SCOPED_APPROVER_UIDS
+        if uid in _SCOPED_APPROVER_UIDS:
+            return True
+        return _is_fin_hr_group(s, uid)
     except Exception:
         return False
 
@@ -27552,15 +27582,11 @@ def _zrc_cloud_count(cloud_db, table):
 
 @api_router.get("/app/ucto/zrcadla")
 def ucto_zrcadla(req: Request):
-    """Seznam zrcadel + cloud počty + poslední přenos (parent). Office počty na vyžádání."""
+    """Seznam zrcadel + cloud počty + poslední přenos. Marti 1.7.2026: zrcadla VIDÍ každý
+    přihlášený (RO, jen počty/stav přenosů); SPOUŠTĚNÍ řeší zrcadlo-run (rodiče + Jirka)."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    s = _g()
-    try:
-        if not _is_cockpit(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    finally:
-        s.close()
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     firma = (req.query_params.get("firma") or "EC").upper()
     src_db, cloud_db = _zrc_dbs(firma)
     # poslední přenos z logu (best-effort — tabulka nemusí ještě existovat)
@@ -27595,15 +27621,10 @@ def ucto_zrcadla(req: Request):
 
 @api_router.get("/app/ucto/zrcadlo-check")
 def ucto_zrcadlo_check(req: Request):
-    """Ověření jednoho zrcadla: office počet × cloud počet × rozdíl (parent)."""
+    """Ověření jednoho zrcadla: office počet × cloud počet × rozdíl. RO — vidí každý přihlášený."""
     uid = _uid_from_token_or_cookie(req)
-    from core.database_data import get_data_session as _g
-    s = _g()
-    try:
-        if not _is_cockpit(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    finally:
-        s.close()
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     firma = (req.query_params.get("firma") or "EC").upper()
     key = req.query_params.get("key") or ""
     if key not in _ZRC_TABLES:
@@ -27618,12 +27639,13 @@ def ucto_zrcadlo_check(req: Request):
 @api_router.post("/app/ucto/zrcadlo-run")
 def ucto_zrcadlo_run(req: Request):
     """Spustí JEDNO zrcadlo (1:1 kopie office→cloud). Frontend volá pro skupinu/vše ve smyčce.
-    Jen rodič (přepisuje cloud data 1:1 ze zdroje pravdy = office)."""
+    SPOUŠTĚNÍ jen rodiče + IT Jirka (20) — přepisuje cloud data 1:1 ze zdroje pravdy = office.
+    Marti 1.7.2026: zrcadla vidí každý RO, ale spouští jen rodiče a IT."""
     uid = _uid_from_token_or_cookie(req)
     from core.database_data import get_data_session as _g
     s = _g()
     try:
-        if not _is_cockpit(s, uid):
+        if not _can_run_sync(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
     finally:
         s.close()

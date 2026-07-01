@@ -44,6 +44,7 @@ from modules.erp.api.router import router as erp_router, api_router as erp_api_r
 from modules.erp.api.carddav import carddav_router, carddav_mgmt_router
 from modules.erp.api.directories import dir_router  # Fáze A: systém adresářů dokumentů (18.6.2026)
 from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elektronické vedení ISMS (21.6.2026)
+from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
 from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
 from modules.erp.api.hr_spis import hr_spis_router  # Osobní spis zaměstnance — HR pohled + self-service (1.7.2026)
 
@@ -826,6 +827,7 @@ app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.w
 app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa tokenů (/api/v1/erp/carddav/*)
 app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_config + resolver)
 app.include_router(iso_router)  # ISO 27001 cockpit (elektronické ISMS + e-podpis + auditor portál)
+app.include_router(contract_router)  # E-podpis smluv (SES + audit + externí portál)
 app.include_router(bank_router)  # Univerzální bankovní napojení (connection + cert do trezoru) — Fáze 1
 app.include_router(hr_spis_router)  # Osobní spis zaměstnance — HR pohled + zaměstnanecký self-service
 from modules.act_pipeline.act_router import act_router  # FW Action Pipelines executor (Marti 3.6.)
@@ -908,6 +910,22 @@ def connect_mailbox_page():
 def connect_mailbox_page_alias():
     """Alias na /pripojit-schranku (dlaždice appky historicky mířila sem). Marti 1.7.2026."""
     return FileResponse(os.path.join(static_dir, "connect-mailbox.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
+@app.get("/podpisy")
+def podpisy_page():
+    """Interní správa e-podpisu smluv (finanční/HR okruh). Marti 1.7.2026."""
+    return FileResponse(os.path.join(static_dir, "podpisy.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
+@app.get("/podpis/{token}")
+def podpis_portal_page(token: str):
+    """Externí bezloginový podpisový portál (protistrana podepisuje přes token). Marti 1.7.2026."""
+    return FileResponse(os.path.join(static_dir, "podpis-portal.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                  "Pragma": "no-cache", "Expires": "0"})
 

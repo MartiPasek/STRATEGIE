@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podpisy smluv — STRATEGIE</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#0d1017;color:#e6e9ef;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:14px}
+  h1{font-size:20px;color:#8fd6c8;margin:2px 2px 12px}
+  .card{background:#151a24;border:1px solid #26303f;border-radius:13px;padding:16px 18px;margin-bottom:12px}
+  label{display:block;font-size:12.5px;color:#9fb0c4;margin:10px 0 4px}
+  input,textarea{width:100%;padding:10px 12px;border-radius:8px;background:#0d1017;color:#e6e9ef;border:1px solid #3a4a5a;font-size:14px}
+  button{background:#2dd4bf;color:#06231f;border:0;padding:10px 16px;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;margin-top:10px}
+  button.sec{background:#26303f;color:#e6e9ef}
+  button:disabled{opacity:.5}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 12px;border:1px solid #26303f;border-radius:10px;margin-bottom:8px;cursor:pointer}
+  .row:hover{border-color:#2dd4bf}
+  .badge{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:700;white-space:nowrap}
+  .b-draft{background:#2a2f3a;color:#9fb0c4}.b-sent{background:#243a52;color:#7cc0ff}
+  .b-partially_signed{background:#3a3216;color:#fbbf24}.b-completed{background:#0f2f1e;color:#5ee6a8}
+  .msg{margin-top:10px;padding:11px;border-radius:8px;display:none;font-size:13.5px}
+  .ok{background:#0f2f1e;border:1px solid #2c6e3f;color:#a8e6bf}.err{background:#3a1414;border:1px solid #6e2c2c;color:#ffb38a}
+  .mut{color:#7c8ca0;font-size:12.5px}
+  a{color:#7cc0ff}
+</style>
+</head>
+<body>
+<h1>✍️ Podpisy smluv</h1>
+<div class="card">
+  <b>Nová smlouva k elektronickému podpisu</b>
+  <label>Název</label><input id="title" type="text" placeholder="Licenční smlouva / smlouva o certifikaci…">
+  <label>Protistrana — jméno / firma</label><input id="cpn" type="text" placeholder="Jan Novák, Firma s.r.o.">
+  <label>E-mail protistrany</label><input id="cpe" type="text" placeholder="kontakt@firma.cz">
+  <label>PDF smlouvy</label><input id="file" type="file" accept="application/pdf">
+  <button id="create" type="button">Vytvořit obálku</button>
+  <div id="cmsg" class="msg"></div>
+</div>
+<div id="list"></div>
+<div id="detail"></div>
+<script src="/static/nav-back.js"></script>
+<script>
+(function(){
+  var B="/api/v1/erp/app/sign";
+  function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function api(m,u,b){return fetch(u,{method:m,credentials:"include",headers:b?{"Content-Type":"application/json"}:{},body:b?JSON.stringify(b):undefined}).then(function(r){return r.json();});}
+  var STAV={draft:"koncept",sent:"odesláno",partially_signed:"částečně podepsáno",completed:"podepsáno",declined:"odmítnuto"};
+  function loadList(){
+    api("GET",B+"/list").then(function(j){
+      var L=document.getElementById("list");
+      if(!j||!j.ok){L.innerHTML='<div class="card err" style="display:block">Nemáš přístup (finanční/HR okruh).</div>';return;}
+      if(!j.items.length){L.innerHTML='<div class="card mut">Zatím žádné smlouvy k podpisu.</div>';return;}
+      L.innerHTML='<div class="card"><b>Přehled ('+j.items.length+')</b>'+j.items.map(function(it){
+        return '<div class="row" onclick="SG.open('+it.id+')"><div><div><b>'+esc(it.title)+'</b></div>'+
+          '<div class="mut">'+esc(it.counterparty_name||"")+' · '+esc(it.created||"")+'</div></div>'+
+          '<span class="badge b-'+it.stav+'">'+(STAV[it.stav]||it.stav)+'</span></div>';
+      }).join("")+'</div>';
+    });
+  }
+  document.getElementById("create").addEventListener("click",function(){
+    var f=document.getElementById("file").files[0];
+    var m=document.getElementById("cmsg");
+    function show(k,t){m.className="msg "+k;m.textContent=t;m.style.display="block";}
+    if(!f){show("err","Vyber PDF smlouvy.");return;}
+    var title=document.getElementById("title").value.trim();
+    var cpn=document.getElementById("cpn").value.trim();
+    var cpe=document.getElementById("cpe").value.trim();
+    if(!cpn||cpe.indexOf("@")<0){show("err","Vyplň jméno a e-mail protistrany.");return;}
+    var btn=document.getElementById("create");btn.disabled=true;btn.textContent="Nahrávám…";
+    var rd=new FileReader();
+    rd.onload=function(){
+      api("POST",B+"/create",{title:title,counterparty_name:cpn,counterparty_email:cpe,pdf_b64:String(rd.result)})
+        .then(function(j){btn.disabled=false;btn.textContent="Vytvořit obálku";
+          if(j&&j.ok){show("ok","✓ Vytvořeno.");document.getElementById("file").value="";document.getElementById("title").value="";loadList();SG.open(j.id);}
+          else show("err","✗ "+((j&&j.error)||"chyba"));})
+        .catch(function(e){btn.disabled=false;btn.textContent="Vytvořit obálku";show("err","✗ "+e);});
+    };
+    rd.readAsDataURL(f);
+  });
+  window.SG={open:function(id){
+    api("GET",B+"/"+id).then(function(j){
+      var D=document.getElementById("detail");
+      if(!j||!j.ok){D.innerHTML="";return;}
+      var e=j.envelope, parties=j.parties||[];
+      var ours=parties.filter(function(p){return p.role==="internal";})[0]||{};
+      var cp=parties.filter(function(p){return p.role==="counterparty";})[0]||{};
+      var h='<div class="card"><b>'+esc(e.title)+'</b> <span class="badge b-'+e.stav+'">'+(STAV[e.stav]||e.stav)+'</span>';
+      h+='<div class="mut" style="margin-top:6px">Protistrana: '+esc(e.counterparty_name||"")+' ('+esc(e.counterparty_email||"")+')</div>';
+      h+='<div style="margin:10px 0"><div>'+(ours.signed?"✓":"○")+' Za nás: '+esc(ours.jmeno||"")+(ours.signed?(' — '+esc(ours.podpis_text||"")):"")+'</div>';
+      h+='<div>'+(cp.signed?"✓":"○")+' Protistrana: '+esc(cp.jmeno||"")+(cp.signed?(' — podepsáno'):"")+'</div></div>';
+      h+='<button class="sec" onclick="window.open(\''+B+'/'+id+'/pdf\',\'_blank\')">⤓ Zobrazit PDF</button> ';
+      if(!ours.signed) h+='<button onclick="SG.oursign('+id+')">✍️ Podepsat za nás</button> ';
+      if(e.stav!=="completed") h+='<button onclick="SG.send('+id+')">📧 Odeslat protistraně</button>';
+      h+='<div id="dmsg" class="msg"></div>';
+      if((j.log||[]).length){h+='<div class="mut" style="margin-top:12px"><b>Auditní stopa:</b><br>'+j.log.map(function(l){return esc(l.at)+" — "+esc(l.akce)+" — "+esc(l.kdo||"")+(l.ip?(" ("+esc(l.ip)+")"):"");}).join("<br>")+'</div>';}
+      h+='</div>';
+      D.innerHTML=h; D.scrollIntoView({behavior:"smooth"});
+    });
+  },
+  dmsg:function(k,t){var m=document.getElementById("dmsg");if(m){m.className="msg "+k;m.textContent=t;m.style.display="block";}},
+  oursign:function(id){SG.dmsg("","Podepisuji…");api("POST",B+"/"+id+"/our-sign",{}).then(function(j){if(j&&j.ok){SG.dmsg("ok","✓ Podepsáno za nás.");SG.open(id);loadList();}else SG.dmsg("err","✗ "+((j&&j.error)||"chyba"));});},
+  send:function(id){SG.dmsg("","Odesílám…");api("POST",B+"/"+id+"/send",{}).then(function(j){if(j&&j.ok){SG.dmsg("ok","✓ Odesláno protistraně"+(j.sent?" e-mailem.":" (e-mail se nezdařil, odkaz: "+j.odkaz+")"));SG.open(id);loadList();}else SG.dmsg("err","✗ "+((j&&j.error)||"chyba"));});}
+  };
+  loadList();
+})();
+</script>
+</body>
+</html>

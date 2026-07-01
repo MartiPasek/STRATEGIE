@@ -9687,6 +9687,18 @@ def _sync_dochazka_ec(rok, mesic):
             "SELECT uk.user_id FROM tenant.att_user_kategorie uk "
             "JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
             "WHERE k.tenant_id=2 AND k.dopichavat_fond=true AND k.aktivni=true")).fetchall())
+        # SCHVÁLENÁ ABSENCE (Marti 1.7.2026, Andrea pilot): den se schválenou žádostí o
+        # volno (att_plan_request kind='off', status='approved') → fond automat NEDOPÍCHÁVÁ
+        # mezeru jako práci (fond_doplneni), ale jako DOVOLENOU (vacation, typ 3) → propadne
+        # do docházky (cas_dovolena) i do mezd (_mzdy_absence_rows čte att_entry vacation).
+        # Půlden sedí sám: odpracováno 3:02 + dovolená (fond−odpracováno) = fond. Keyed (user_id, iso).
+        approved_off = set()
+        for _ao in s.execute(_t(
+                "SELECT user_id, req_date::text FROM tenant.att_plan_request "
+                "WHERE tenant_id=2 AND status='approved' AND kind='off' "
+                "  AND EXTRACT(YEAR FROM req_date)=:y AND EXTRACT(MONTH FROM req_date)=:m"),
+                {"y": rok, "m": mesic}).fetchall():
+            approved_off.add((_ao[0], _ao[1]))
         # Iteruj VŠECHNY Po–Pá dny měsíce pro každého aktivního (= kdo má aspoň záznam v EC).
         active = sorted(set(k[0] for k in day.keys()))
         ld2 = _cal.monthrange(rok, mesic)[1]
@@ -9709,6 +9721,7 @@ def _sync_dochazka_ec(rok, mesic):
                         out["absence"] += 1
                 abs_plan = planned_abs.get((emp, dd.isoformat()), 0.0)
                 rp = real_present.get((emp, dd.isoformat()), 0.0)
+                den_dov = 0.0  # dovolená ze schválené žádosti (fond-fill) → do cas_dovolena
                 if uid in fond_uids:
                     # ŽELEZNÉ PRAVIDLO (Marti 30.6.): skupina 24 drží PŘESNĚ fond/den.
                     # Jedna signed korekce fond_doplneni = (fond − absence) − reálně odpíchnuto:
@@ -9717,18 +9730,32 @@ def _sync_dochazka_ec(rok, mesic):
                     worked_cil = round(fond - min(abs_total + abs_plan, fond), 2)
                     korekce = round(worked_cil - rp, 2)
                     if abs(korekce) >= 0.01:
-                        tid = tids.get("fond_doplneni")
-                        if tid:
-                            s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
-                                         "status,source,source_system,is_active,note,created_at,updated_at) "
-                                         "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,:nt,now(),now())"),
-                                      {"e": emp, "d": dd, "t": tid, "h": korekce,
-                                       "nt": "fond korekce (skupina 24 drzi fond)"})
-                            out["prace"] += 1
-                            if korekce > 0:
-                                out["dopichnuto_h"] += korekce
-                            else:
-                                out["odpichnuto_h"] += -korekce
+                        # kladná mezera na den se SCHVÁLENOU absencí (off) → dovolená, ne práce
+                        is_off = (uid, dd.isoformat()) in approved_off
+                        if korekce > 0 and is_off:
+                            tid = tids.get("vacation")
+                            if tid:
+                                s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                                             "status,source,source_system,is_active,note,created_at,updated_at) "
+                                             "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,:nt,now(),now())"),
+                                          {"e": emp, "d": dd, "t": tid, "h": korekce,
+                                           "nt": "dovolena ze schvalene zadosti (fond-odpracovano)"})
+                                out["absence"] += 1
+                                abs_total += korekce  # promítni do bilance dne (den = práce + dovolená)
+                                den_dov = korekce
+                        else:
+                            tid = tids.get("fond_doplneni")
+                            if tid:
+                                s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
+                                             "status,source,source_system,is_active,note,created_at,updated_at) "
+                                             "VALUES (2,:e,:d,:t,:h,'imported','ec_import','ec_real',false,:nt,now(),now())"),
+                                          {"e": emp, "d": dd, "t": tid, "h": korekce,
+                                           "nt": "fond korekce (skupina 24 drzi fond)"})
+                                out["prace"] += 1
+                                if korekce > 0:
+                                    out["dopichnuto_h"] += korekce
+                                else:
+                                    out["odpichnuto_h"] += -korekce
                     den_cas = worked_cil
                 else:
                     # výroba/dílna/pevná doba → JEN reálně odpracováno, žádné dopíchávání.
@@ -9746,10 +9773,10 @@ def _sync_dochazka_ec(rok, mesic):
                                       {"e": emp, "d": dd, "t": tid, "h": work_target, "nt": "EC práce (doplněk nad píchnutí)"})
                             out["prace"] += 1
                     den_cas = round(rp + work_target, 2)
-                s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem) "
-                             "VALUES (2,:c,:u,:d,:y,:m,:h) "
-                             "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,user_id=:u"),
-                          {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": den_cas})
+                s.execute(_t("INSERT INTO tenant.att_day_summary (tenant_id,cislo_zam,user_id,datum,rok,mesic,cas_celkem,cas_dovolena) "
+                             "VALUES (2,:c,:u,:d,:y,:m,:h,:dov) "
+                             "ON CONFLICT (tenant_id,cislo_zam,datum) DO UPDATE SET cas_celkem=:h,cas_dovolena=:dov,user_id=:u"),
+                          {"c": int(cz), "u": uid, "d": dd, "y": rok, "m": mesic, "h": den_cas, "dov": den_dov})
         # EC absence = zdroj pravdy pro realizovaný den → smaž plánovou (non-ec_real) absenci,
         # když EC pro stejný den+člověka absenci má (jinak dvojí dovolená: plán + EC). Marti 29.6.
         s.execute(_t(

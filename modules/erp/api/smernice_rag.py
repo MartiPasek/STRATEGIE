@@ -23,6 +23,7 @@ import re
 from typing import Any
 
 _SHARE_ROOT = os.getenv("SMERNICE_SHARE_ROOT", r"\\192.168.30.11\Smernice")
+# (restart marker: refresh MCP SSE client po updatu MCP na file tools)
 
 # PristupnostText → (složka na share, úroveň přístupu)
 _PRIST_MAP = {

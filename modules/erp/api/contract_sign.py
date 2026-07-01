@@ -167,13 +167,11 @@ async def sign_create(req: Request):
         s.commit()
         return {"ok": True, "id": cid}
     except Exception as exc:
-        import traceback
         try:
             s.rollback()
         except Exception:
             pass
-        return JSONResponse({"ok": False, "error": "DEBUG: " + repr(exc)[:400],
-                             "tb": traceback.format_exc()[-800:]}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Vytvoření se nezdařilo: " + type(exc).__name__}, status_code=500)
     finally:
         s.close()
 
@@ -288,7 +286,7 @@ async def sign_send(cid: int, req: Request):
         try:
             from modules.notifications.application.email_service import queue_email
             queue_email(to=e["counterparty_email"], subject="K elektronickému podpisu: %s" % e["title"],
-                        body=body, persona_id=1, from_identity="persona", tenant_id=tid, purpose="contract_sign")
+                        body=body, persona_id=1, from_identity="persona", tenant_id=tid, purpose="user_request")
             sent = True
         except Exception as exc:
             _log(s, tid, cid, "send_error", _user_name(s, uid), _client_ip(req), detail=str(exc)[:400])
@@ -418,7 +416,7 @@ def _maybe_finalize(s, tid, cid):
         for em in set(emails):
             try:
                 queue_email(to=em, subject="Podepsáno: %s" % e["title"], body=body,
-                            persona_id=1, from_identity="persona", tenant_id=tid, purpose="contract_signed")
+                            persona_id=1, from_identity="persona", tenant_id=tid, purpose="user_request")
             except Exception:
                 pass
     except Exception:

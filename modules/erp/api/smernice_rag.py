@@ -439,6 +439,63 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
             "soubory_ok": files_ok, "soubory_err": files_err, "hotovo": done >= total}
 
 
+# ── @@DSADD / @@DS — knihovna datasheetů výrobců ──────────────────────
+
+def add_datasheet(payload: str) -> dict:
+    """Uloží datasheet komponenty do tenant.kb_datasheet (upsert dle vyrobce+obj_cislo).
+    payload = JSON {vyrobce, obj_cislo, nazev, url, spec_text}."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    try:
+        d = json.loads(payload)
+    except Exception as e:
+        return {"ok": False, "error": "JSON parse: %s" % e}
+    vyr = (d.get("vyrobce") or "").strip().upper()
+    obj = (d.get("obj_cislo") or "").strip()
+    if not vyr or not obj:
+        return {"ok": False, "error": "chybí vyrobce/obj_cislo"}
+    spec = (d.get("spec_text") or "").replace("\x00", "")[:200000]
+    p = {"v": vyr, "o": obj, "n": (d.get("nazev") or "")[:400],
+         "u": (d.get("url") or "")[:800], "s": spec}
+    sd = get_data_session()
+    try:
+        r = sd.execute(_t("UPDATE tenant.kb_datasheet SET nazev=:n, url=:u, spec_text=:s, "
+                          "fetched_at=now() WHERE vyrobce=:v AND obj_cislo=:o"), p)
+        if not r.rowcount:
+            sd.execute(_t("INSERT INTO tenant.kb_datasheet (vyrobce,obj_cislo,nazev,url,spec_text) "
+                          "VALUES (:v,:o,:n,:u,:s)"), p)
+        sd.commit()
+        tot = sd.execute(_t("SELECT count(*) FROM tenant.kb_datasheet")).scalar()
+    finally:
+        sd.close()
+    return {"ok": True, "columns": ["klic", "hodnota"],
+            "rows": [["ulozeno", "%s %s" % (vyr, obj)], ["delka", str(len(spec))],
+                     ["celkem_v_knihovne", str(tot)]], "count": 3}
+
+
+def ds_search(query: str) -> dict:
+    """Hledá v knihovně datasheetů (obj. číslo / název / specifikace / výrobce)."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    q = (query or "").strip()
+    sd = get_data_session()
+    try:
+        if not q:
+            rows = sd.execute(_t("SELECT vyrobce, count(*)::int FROM tenant.kb_datasheet "
+                                 "GROUP BY vyrobce ORDER BY 2 DESC")).all()
+            return {"ok": True, "columns": ["vyrobce", "pocet_datasheetu"],
+                    "rows": [[r[0], str(r[1])] for r in rows], "count": len(rows)}
+        like = "%" + q.replace(" ", "%") + "%"
+        rows = sd.execute(_t(
+            "SELECT vyrobce, obj_cislo, left(nazev,50), left(regexp_replace(coalesce(spec_text,''),'\\s+',' ','g'),260), url "
+            "FROM tenant.kb_datasheet WHERE obj_cislo ILIKE :l OR nazev ILIKE :l OR vyrobce ILIKE :l "
+            "OR spec_text ILIKE :l ORDER BY (obj_cislo ILIKE :l) DESC LIMIT 8"), {"l": like}).all()
+        return {"ok": True, "dotaz": q, "columns": ["vyrobce", "obj_cislo", "nazev", "specifikace", "url"],
+                "rows": [[r[0], r[1], r[2], r[3], r[4]] for r in rows], "count": len(rows)}
+    finally:
+        sd.close()
+
+
 # ── @@SMCAT — klasifikace směrnic do domén (kategorie = pořádek v datech) ──
 
 _DOMENY_SQL = """

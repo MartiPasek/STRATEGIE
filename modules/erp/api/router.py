@@ -32351,7 +32351,7 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   @@SMSYNC                    → mirror EC_OrgSmernice → tenant.kb_smernice (meta+Popis)
     #   @@SMFILES [limit] [cislo]   → ingest příloh ze share → tenant.kb_smernice_soubor (+text)
     #   @@KB <dotaz> [| level]      → fulltext hledání ve směrnicích + přílohách (RAG know-how)
-    if sql.upper().startswith("@@SM") or sql.upper().startswith("@@KB"):
+    if sql.upper().startswith("@@SM") or sql.upper().startswith("@@KB") or sql.upper().startswith("@@DS"):
         import traceback as _tbk
         try:
             if sql.upper().startswith("@@SMSYNC"):
@@ -32363,6 +32363,12 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _lim = int(_p[1]) if len(_p) > 1 and _p[1].isdigit() else 50
                 _cis = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else None
                 return JSONResponse(_smfiles(_lim, _cis))
+            if sql.upper().startswith("@@DSADD"):
+                from modules.erp.api.smernice_rag import add_datasheet as _dsadd
+                return JSONResponse(_dsadd(sql[len("@@DSADD"):].strip()))
+            if sql.upper().startswith("@@DS"):
+                from modules.erp.api.smernice_rag import ds_search as _dss
+                return JSONResponse(_dss(sql[len("@@DS"):].strip()))
             if sql.upper().startswith("@@SMCAT"):
                 from modules.erp.api.smernice_rag import classify_domains as _smcat
                 return JSONResponse(_smcat())

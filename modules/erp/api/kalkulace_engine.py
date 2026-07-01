@@ -173,6 +173,59 @@ def sync_engine() -> dict:
     return out
 
 
+def refresh_std(zdroj: str = "std2026") -> dict:
+    """Merge tenant.kalk_std_stage (naplněná z aktuální STANDARD kalkulace) → kalk_cena/rabat/koef.
+    Match na existující díl přes normalizované obj. číslo; nenalezené díly = nové (negativní kmen_ec_id).
+    Data dostanou tag `zdroj` (std2026) = přebíjí baseline ec2014 v enginu."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    sd = get_data_session()
+    out = {"ok": True, "zdroj": zdroj}
+    try:
+        sd.execute(_t("ALTER TABLE tenant.kalk_std_stage ADD COLUMN IF NOT EXISTS kmen_ec_id int"))
+        # 1) resolve na existující kmen (normalizovaná shoda, prefer STANDARD díl kratší)
+        sd.execute(_t(
+            "UPDATE tenant.kalk_std_stage s SET kmen_ec_id=(SELECT k.kmen_ec_id FROM tenant.kalk_kmen k "
+            "WHERE replace(replace(upper(k.reg_cis),' ',''),'-','') LIKE '%'||s.objn||'%' "
+            "ORDER BY length(k.reg_cis) LIMIT 1)"))
+        # 2) nové díly (bez shody) → nový kmen s negativním id
+        newp = sd.execute(_t(
+            "INSERT INTO tenant.kalk_kmen (kmen_ec_id, reg_cis, nazev, zdroj) "
+            "SELECT (SELECT COALESCE(MIN(kmen_ec_id),0) FROM tenant.kalk_kmen) - row_number() OVER (ORDER BY objn), "
+            "obj, nazev, :z FROM tenant.kalk_std_stage WHERE kmen_ec_id IS NULL RETURNING 1"),
+            {"z": zdroj}).rowcount
+        sd.execute(_t(
+            "UPDATE tenant.kalk_std_stage s SET kmen_ec_id=(SELECT k.kmen_ec_id FROM tenant.kalk_kmen k "
+            "WHERE k.reg_cis=s.obj AND k.zdroj=:z ORDER BY k.kmen_ec_id LIMIT 1) WHERE kmen_ec_id IS NULL"),
+            {"z": zdroj})
+        out["nove_dily"] = newp
+        # 3) purge předchozí std pro dotčené díly
+        for tab in ("kalk_cena", "kalk_rabat", "kalk_koef"):
+            sd.execute(_t("DELETE FROM tenant.%s WHERE zdroj=:z AND kmen_ec_id IN "
+                          "(SELECT kmen_ec_id FROM tenant.kalk_std_stage WHERE kmen_ec_id IS NOT NULL)" % tab),
+                       {"z": zdroj})
+        # 4) insert čerstvá data (negativní ec_id pod stávající minimum)
+        out["cena"] = sd.execute(_t(
+            "INSERT INTO tenant.kalk_cena (ec_id,kmen_ec_id,cc_cena,mena,zdroj) "
+            "SELECT (SELECT COALESCE(MIN(ec_id),0) FROM tenant.kalk_cena) - row_number() OVER (ORDER BY kmen_ec_id), "
+            "kmen_ec_id, cc, 'EUR', :z FROM tenant.kalk_std_stage WHERE cc IS NOT NULL AND kmen_ec_id IS NOT NULL RETURNING 1"),
+            {"z": zdroj}).rowcount
+        out["rabat"] = sd.execute(_t(
+            "INSERT INTO tenant.kalk_rabat (ec_id,kmen_ec_id,typ_text,rabat,zdroj) "
+            "SELECT (SELECT COALESCE(MIN(ec_id),0) FROM tenant.kalk_rabat) - row_number() OVER (ORDER BY kmen_ec_id), "
+            "kmen_ec_id, 'Prodejní', rabat, :z FROM tenant.kalk_std_stage WHERE rabat IS NOT NULL AND kmen_ec_id IS NOT NULL RETURNING 1"),
+            {"z": zdroj}).rowcount
+        out["koef"] = sd.execute(_t(
+            "INSERT INTO tenant.kalk_koef (ec_id,kmen_ec_id,k_vkm,k_arb,puvod,zdroj) "
+            "SELECT (SELECT COALESCE(MIN(ec_id),0) FROM tenant.kalk_koef) - row_number() OVER (ORDER BY kmen_ec_id), "
+            "kmen_ec_id, koef, koef, :z, :z FROM tenant.kalk_std_stage WHERE koef IS NOT NULL AND kmen_ec_id IS NOT NULL RETURNING 1"),
+            {"z": zdroj}).rowcount
+        sd.commit()
+    finally:
+        sd.close()
+    return out
+
+
 def engine_info() -> dict:
     """Přehled naplnění zrcadla."""
     from core.database_data import get_data_session

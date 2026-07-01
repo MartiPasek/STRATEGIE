@@ -32349,6 +32349,10 @@ async def diag_sql(req: Request) -> JSONResponse:
             if sql.upper().startswith("@@KALKCALC"):
                 from modules.erp.api.kalkulace_engine import compute_from_cmd as _kc
                 return JSONResponse(_kc(sql[len("@@KALKCALC"):].strip()))
+            if sql.upper().startswith("@@KALKSTD"):
+                from modules.erp.api.kalkulace_engine import refresh_std as _kstd
+                _z = sql[len("@@KALKSTD"):].strip() or "std2026"
+                return JSONResponse(_kstd(_z))
             from modules.erp.api.kalkulace_engine import sync_engine as _ks
             return JSONResponse(_ks())
         except Exception as _ke:

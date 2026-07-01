@@ -904,6 +904,14 @@ def connect_mailbox_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/connect-mailbox")
+def connect_mailbox_page_alias():
+    """Alias na /pripojit-schranku (dlaždice appky historicky mířila sem). Marti 1.7.2026."""
+    return FileResponse(os.path.join(static_dir, "connect-mailbox.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 def _optout_page(msg_html: str, show_form: bool, token: str = "") -> "object":
     from fastapi.responses import HTMLResponse
     form = ""

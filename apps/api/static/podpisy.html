@@ -30,6 +30,13 @@
 <div class="card">
   <b>Nová smlouva k elektronickému podpisu</b>
   <label>Název</label><input id="title" type="text" placeholder="Licenční smlouva / smlouva o certifikaci…">
+  <label>Naše strana (kdo podepisuje)</label>
+  <input id="our" type="text" list="ourlist" value="STRATEGIE-System s.r.o.">
+  <datalist id="ourlist">
+    <option value="STRATEGIE-System s.r.o."></option>
+    <option value="EUROSOFT-Control s.r.o."></option>
+    <option value="INTERSOFT-Automation s.r.o."></option>
+  </datalist>
   <label>Protistrana — jméno / firma</label><input id="cpn" type="text" placeholder="Jan Novák, Firma s.r.o.">
   <label>E-mail protistrany</label><input id="cpe" type="text" placeholder="kontakt@firma.cz">
   <label>PDF smlouvy</label><input id="file" type="file" accept="application/pdf">
@@ -63,13 +70,14 @@
     function show(k,t){m.className="msg "+k;m.textContent=t;m.style.display="block";}
     if(!f){show("err","Vyber PDF smlouvy.");return;}
     var title=document.getElementById("title").value.trim();
+    var our=document.getElementById("our").value.trim();
     var cpn=document.getElementById("cpn").value.trim();
     var cpe=document.getElementById("cpe").value.trim();
     if(!cpn||cpe.indexOf("@")<0){show("err","Vyplň jméno a e-mail protistrany.");return;}
     var btn=document.getElementById("create");btn.disabled=true;btn.textContent="Nahrávám…";
     var rd=new FileReader();
     rd.onload=function(){
-      api("POST",B+"/create",{title:title,counterparty_name:cpn,counterparty_email:cpe,pdf_b64:String(rd.result)})
+      api("POST",B+"/create",{title:title,our_party:our,counterparty_name:cpn,counterparty_email:cpe,pdf_b64:String(rd.result)})
         .then(function(j){btn.disabled=false;btn.textContent="Vytvořit obálku";
           if(j&&j.ok){show("ok","✓ Vytvořeno.");document.getElementById("file").value="";document.getElementById("title").value="";loadList();SG.open(j.id);}
           else show("err","✗ "+((j&&j.error)||"chyba"));})

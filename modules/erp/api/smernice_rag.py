@@ -241,17 +241,17 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
     no_folder = 0
     detail = []
     try:
-        where = "WHERE cislo IS NOT NULL"
+        where = "WHERE 1=1"
         params: dict = {}
         if only_cislo is not None:
-            where += " AND cislo=:c"
+            where += " AND ec_id=:c"
             params["c"] = only_cislo
         sm = sd.execute(_t(
             "SELECT ec_id, cislo, nazev, pristupnost_text FROM tenant.kb_smernice " + where +
-            " ORDER BY cislo LIMIT :lim"), dict(params, lim=limit)).all()
+            " ORDER BY ec_id LIMIT :lim"), dict(params, lim=limit)).all()
         for ec_id, cislo, nazev, prist in sm:
             folder = _prist_folder(prist)
-            sub = "%s/SM%s" % (folder, cislo)
+            sub = "%s/SM%s" % (folder, ec_id)
             lst = _fs_list(sub)
             if not lst.get("ok"):
                 no_folder += 1

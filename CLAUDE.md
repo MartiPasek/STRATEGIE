@@ -2,6 +2,38 @@
 
 > **🗓️ ŠKOLNÍ AGENDA = `docs/Skola.md`** (Marti 30.6.2026): kompletní samostatná krabička rozvrhu Nerudovky, **zrcadlená s C23**. Rozvrh pro Klárku se řeší **z CMS** přes „🛠️ Chat s Claudem" (paralelně, zatímco Marti+C23 jedou EUROSOFT). Aktuální stav, Klárčiny požadavky K1–K11, pravidla i návod generování drží `docs/Skola.md` — **čti ji jako první při rozvrhu**. Na CMS přes `/dokument?key=skola`. Po každém kroku rozvrhu Skola.md aktualizuj. (Historie níže zůstává.)
 
+## Dodatek — 1. 7. 2026 (večer): 📚 RAG MODUL SMĚRNIC — know-how celé firmy přes most. „To je bomba." Marti: „plný kule."
+
+Budoucí Claude — postavili jsme **RAG všech firemních směrnic** (Marti: *„RAG všech směrnic → pak přes most přístup pro Claude k celému know-how"*, *„rozjeď to na plný kule"*). LIVE a ověřené 100 %.
+
+**Co je LIVE (`modules/erp/api/smernice_rag.py` + dispatch v `router.diag_sql`):**
+- **`@@SMSYNC`** — zrcadlí EC_OrgSmernice (DB_EC přes MCP) → `tenant.kb_smernice` (meta + Popis + pristupnost + kategorie). **633 aktivních směrnic.**
+- **`@@SMFILES [limit] [ec_id]`** — ingest příloh ze sdíleného disku → `tenant.kb_smernice_soubor` (+extrahovaný text). **702 souborů, 633 s textem.** Dávkuje přes `kb_smernice.files_synced_at` (jen nezpracované), **commit po každé směrnici** (odolné vůči 30s timeoutu mostu).
+- **`@@KB <dotaz> [| level]`** — fulltext přes popisy **i uvnitř příloh** (PDF/DOC/XLS), respektuje úroveň přístupu. Ověřeno: „svorkovnice" → našel PDF s obsahem *„Kryt přívodní svorkovnice…"*. **Přímý přístup Claude ke know-how firmy přes most.**
+
+**🔑 KLÍČOVÁ FAKTA (drž):**
+- **Přílohy směrnic NEJSOU v DB** (EC_Soubory jen 23 ř.) — jsou to **soubory na `\\192.168.30.11\Smernice\{Verejne|Vedouci|Interni|Vedeni}\SM<ID>\`**. Složka = `SM`+**ec_id** (ne Cislo, to je většinou NULL!). Sekce dle `PristupnostText` (Veřejná 379 / Vedoucí 184 / Plná 60 / Interní 5 / Vedení 5). `Popis` je RTF (často prázdný — know-how je v příloze).
+- **Přístup ke share:** MCP `eurosoft_file_list`/`eurosoft_file_read` (base64) přes `base_override` pod `MCP_FS_RO_ROOTS`. Přidali jsme `\\192.168.30.11\Smernice` do NSSM env EUROSOFT-MCP na EC-SERVER2.
+
+**🔑 GOTCHY (čtyři zákeřné, stály hodinu — drž!):**
+1. **MCP klient `call_tool_sync` STRHÁVÁ prefix `eurosoft_`** (`bare_name = full_name[9:]`). FS tooly jsou na serveru registrované S prefixem (`eurosoft_file_list`), strategie_* bez. → volej FS s **DVOJITÝM prefixem** `eurosoft_eurosoft_file_list` (po strhnutí sedne). Jinak `unknown_tool`.
+2. **FS tooly vyžadují `user_namespace`** (schema required) i když použiješ `base_override` (ten má přednost v resolveru). Pošli `user_namespace="ro"`.
+3. **`git reset --hard origin/main` na EC-SERVER2 smázl Martiho lokální (necommitnutou) úpravu `MCP_RATE_LIMIT_READ` 60→1000000.** Rate-limit i FS root patří do **NSSM AppEnvironmentExtra** (přežije reset), ne do config.py. (Registr: `HKLM\SYSTEM\CurrentControlSet\Services\EUROSOFT-MCP\Parameters\AppEnvironmentExtra`, REG_MULTI_SZ.)
+4. **MCP na EC-SERVER2 byl 249 commitů pozadu** → `git reset --hard origin/main` + `Restart-Service EUROSOFT-MCP`. Ověř `@@MCPHEALTH` (git_sha + `ma_file_list`). Po restartu MCP **restartuj i cloud API** (deploy), jinak drží starého SSE klienta se starým tool-listem (perzistentní singleton).
+5. **NUL (0x00) v RTF/textu** → psycopg2 „string literal cannot contain NUL" → `.replace("\x00","")` před INSERT.
+
+**🔑 DOCTRINE (Marti večer):** **Ingest velkého objemu přes bridge dělej v MALÝCH DÁVKÁCH (~8 směrnic), NIKDY jedním velkým během.** `@@SMFILES 700` doběhl server-side, ale **zatuhl worker API A** → Caddy failnul na B → bridge read 401. Vzkříšení: **deploy = restart API A** (self-service, Marti: *„to bys měl zvládnout i ty přes API B"*). Malé dávky worker neblokují.
+
+**Tabulky (tenant.*, GRANT strategie):** `kb_smernice` (ec_id, cislo, nazev, typ_text, kategorie, popis_text, pristupnost_text, files_synced_at…), `kb_smernice_soubor` (ec_smernice_id, nazev_souboru, text_extract, extract_ok, hash_sha1…). Návrh: `docs/smernice_rag_navrh.md`.
+
+**TODO:** embedding (pgvector, reuse Marti Memory) nad `kb_smernice_soubor.text_extract` → sémantické `@@KB` místo ILIKE; UI dlaždice „📚 Znalostní báze"; `Rozvadece.md` destilát z RAG; napojení na kalkulační digitalizaci (SRDCE FIRMY, `docs/srdce_firmy_kalkulace_nabidky_analyza.md`).
+
+— **Claude (id=23, ID23)** (Opus, 1. 7. 2026 večer, po RAG modulu směrnic — 633 směrnic + 702 příloh + `@@KB` most, *„to je bomba… plný kule"*)
+
+📚 🔑 🗂️ 🌳 ☕
+
+---
+
 ## Dodatek — 21. 6. 2026 (noc): 🗓️ GENERÁTOR ROZVRHU Nerudovka — blokový timetabling solver (jazyky + TV LIVE)
 
 Budoucí Claude — Marti řekl *„pusť se do toho, máš rád hádanky"* a já postavil **generátor rozvrhu** (constraint solver) pro Nerudovku 2026/27. Stav: **bloky 1 (jazyky) + 2 (TV) + 3 (odborné GD/MI draft) LIVE**. Varianta A = 225 jazyk + 66 TV + 154 odborné buněk, **0 konfliktů** učitelů/učeben/tříd. Blok 3 draft: 71/111 bloků umístěno (40 neumístěno = mediální 3h bloky, úzké hrdlo IT2/MM — doladit s Klárkou + příp. CP solver).

@@ -35,6 +35,13 @@
       e-maily <b>tvým jménem</b> (např. hromadné oslovení v CRM). Heslo se uloží
       <b>šifrovaně</b> a posílá se přímo na server — neprochází přes žádnou AI.</p>
 
+    <div id="status" style="display:none;margin:0 0 6px;padding:11px 13px;border-radius:8px;
+         background:#10301a;border:1px solid #2c6e3f;color:#a8e6bf;font-size:13.5px">
+      <span id="statusTxt"></span>
+      <button id="disc" type="button" style="width:auto;margin:8px 0 0;padding:7px 14px;
+        background:#3a1414;border:1px solid #6e2c2c;color:#ffb38a;font-size:13px;font-weight:600">Odpojit schránku</button>
+    </div>
+
     <label for="login">Přihlašovací jméno (login)</label>
     <input id="login" type="text" autocomplete="username" placeholder="firemní login / UPN">
     <div class="hint">Tvůj login do firemní pošty (ví IT — nemusí být stejný jako adresa níže).</div>
@@ -85,6 +92,7 @@
         var v = x.j.verified ? ' a ověřena' : ' (ověření spojení se teď nezdařilo — zkus testovací e-mail)';
         show('ok', '✓ Schránka ' + (x.j.display || '') + ' připojena' + v + '.');
         document.getElementById('password').value = '';
+        loadStatus();
       } else if (x.r.status === 401) {
         show('err', 'Nejsi přihlášen do STRATEGIE. Přihlas se a zkus to znovu.');
       } else {
@@ -95,6 +103,30 @@
       show('err', '✗ Síť: ' + (e && e.message || e));
     });
   });
+
+  // Fáze 1 (Marti 1.7.2026): stav napojení + odpojení.
+  var statusBox = document.getElementById('status');
+  var statusTxt = document.getElementById('statusTxt');
+  function loadStatus() {
+    fetch('/api/v1/erp/app/my-email/status', { credentials: 'include' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok && j.connected) {
+          statusTxt.textContent = '✓ Napojeno: ' + (j.display || 'tvá schránka');
+          statusBox.style.display = 'block';
+        } else { statusBox.style.display = 'none'; }
+      }).catch(function () {});
+  }
+  document.getElementById('disc').addEventListener('click', function () {
+    if (!confirm('Opravdu odpojit schránku? Přestaneš z ní přes STRATEGII posílat.')) return;
+    fetch('/api/v1/erp/app/my-email/disconnect', { method: 'POST', credentials: 'include' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok) { show('ok', 'Schránka odpojena.'); loadStatus(); }
+        else { show('err', 'Odpojení selhalo.'); }
+      }).catch(function (e) { show('err', 'Síť: ' + (e && e.message || e)); });
+  });
+  loadStatus();
 })();
 </script>
 </body>

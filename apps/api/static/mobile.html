@@ -1511,6 +1511,7 @@ setTimeout(function(){
     gg.appendChild(appCell("🤖","Claude-27",0,function(){go("claude27");}));
     gg.appendChild(appCell("🕸️","Síť Claudů",0,function(){go("coord");}));
     gg.appendChild(appCell("📲","Sdílený telefon",0,function(){go("sdileny");}));
+    gg.appendChild(appCell("📧","Napojit e-mail",0,function(){openInApp("/connect-mailbox");}));
     gg.appendChild(appCell("🧲","Teamio",0,function(){ openApp("https://my.teamio.com"); }));
     app.appendChild(el('<div style="height:200px;"></div>'));  // místo pod dvě extra lišty (zvětšeno 120→200, ať poslední řádek dlaždic nezajíždí pod spodní panel)
   }

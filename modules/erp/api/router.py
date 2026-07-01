@@ -6001,6 +6001,38 @@ async def app_connect_mailbox(req: Request) -> JSONResponse:
                          "display": res.get("ews_display_email") or res.get("ews_email")})
 
 
+@api_router.get("/app/my-email/status")
+async def app_my_email_status(req: Request) -> JSONResponse:
+    """Fáze 1 self-service (Marti 1.7.2026): stav napojení VLASTNÍ e-mailové
+    schránky přihlášeného uživatele. Bez dešifrování hesla."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        from modules.notifications.application.user_channel_service import (
+            has_user_email, get_user_display_email)
+        connected = has_user_email(uid)
+        return JSONResponse({"ok": True, "connected": bool(connected),
+                             "display": (get_user_display_email(uid) if connected else None)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:120]}, status_code=500)
+
+
+@api_router.post("/app/my-email/disconnect")
+async def app_my_email_disconnect(req: Request) -> JSONResponse:
+    """Fáze 1 self-service: odpojení VLASTNÍ schránky (smaže EWS kredencialy).
+    Jen vlastní uid — nikdo cizí."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        from modules.notifications.application.user_channel_service import clear_user_email
+        ok = clear_user_email(uid)
+        return JSONResponse({"ok": True, "cleared": bool(ok)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)[:120]}, status_code=500)
+
+
 # CRM Akce → STRATEGIE edit-jadro mapping (Kristy 26.6.2026). Picker na gridu
 # Akci nabidne typ akce; podle IDAkce se otevre prislusne edit jadro. Default =
 # jadro 82 (osobni jednani / Centrala 1495). Doplnuj jak vznikaji jadra per akce.

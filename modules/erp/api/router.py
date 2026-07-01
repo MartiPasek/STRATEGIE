@@ -32380,6 +32380,9 @@ async def diag_sql(req: Request) -> JSONResponse:
                 if not _key:
                     return JSONResponse({"ok": False, "error": "@@KBADD <docs_key> | <nazev> | <popis>"})
                 return JSONResponse(_kbadd(_key, _nz, _po))
+            if sql.upper().startswith("@@KBREAD"):
+                from modules.erp.api.smernice_rag import kb_read as _kbr
+                return JSONResponse(_kbr(sql[len("@@KBREAD"):].strip()))
             if sql.upper().startswith("@@KB"):
                 from modules.erp.api.smernice_rag import kb_search as _kbs
                 _rest = sql[len("@@KB"):].strip()

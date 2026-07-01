@@ -575,6 +575,46 @@ def register_ai_smernice(key: str, nazev: str = "", popis: str = "") -> dict:
             "count": 4}
 
 
+# ── @@KBREAD — plný text směrnice + příloh (pro hluboké čtení) ─────────
+
+def kb_read(query: str) -> dict:
+    """Vrátí PLNÝ text směrnice + jejích příloh (file_read → neořezané mostem).
+    query = číslo směrnice, ec_id, nebo část názvu."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    q = (query or "").strip()
+    if not q:
+        return {"ok": False, "error": "@@KBREAD <cislo|ec_id|část názvu>"}
+    sd = get_data_session()
+    try:
+        row = None
+        if q.lstrip("-").isdigit():
+            n = int(q)
+            row = sd.execute(_t("SELECT ec_id, cislo, nazev, typ_text, pristupnost_text, popis_text "
+                                "FROM tenant.kb_smernice WHERE ec_id=:n OR cislo=:n LIMIT 1"), {"n": n}).first()
+        if row is None:
+            row = sd.execute(_t("SELECT ec_id, cislo, nazev, typ_text, pristupnost_text, popis_text "
+                                "FROM tenant.kb_smernice WHERE nazev ILIKE :l ORDER BY priorita NULLS LAST LIMIT 1"),
+                             {"l": "%" + q + "%"}).first()
+        if row is None:
+            return {"ok": False, "error": "nenalezeno: %s" % q}
+        ec_id, cislo, nazev, typ, prist, popis = row
+        files = sd.execute(_t("SELECT nazev_souboru, extract_ok, text_extract FROM tenant.kb_smernice_soubor "
+                              "WHERE ec_smernice_id=:e ORDER BY id"), {"e": ec_id}).all()
+        parts = ["# %s" % nazev, "(ec_id %s · %s · %s · %s)" % (ec_id, cislo, typ, prist), ""]
+        if popis and popis.strip():
+            parts += ["## Popis (z DB)", popis.strip(), ""]
+        for fn, okx, txt in files:
+            parts.append("## Příloha: %s%s" % (fn, "" if okx else "  [extrakce selhala]"))
+            parts.append((txt or "(bez textu)").strip())
+            parts.append("")
+        body = "\n".join(parts)
+        return {"ok": True, "file_read": True, "path": "kb_%s.txt" % ec_id,
+                "content": body, "length": len(body)}
+    finally:
+        sd.close()
+
+
 # ── @@KB — fulltext hledání ────────────────────────────────────────────
 
 def kb_search(query: str, level: int = 2, limit: int = 8) -> dict:

@@ -64,4 +64,15 @@ model to unese bez změny.
 4. **Ceník CC + rabaty = náhrada vypovězeného add-inu** — CC z našich dat automaticky do kalkulace.
 5. **Marže/NC vrstva**: nákupní rabat → NC → marže vůči prodejní ceně (kontrola ziskovosti).
 
+## ✅ STAV — LIVE (1. 7. 2026 večer)
+Oživeno end-to-end, ověřeno:
+1. **Zrcadlo** `tenant.kalk_*` (`@@KALKSYNC`): koef 3676, cena 2029, rabat 2466, STANDARD 141/1675, sestavy 2/199, kmen. Baseline `zdroj='ec2014'`.
+2. **Výpočtový engine** `compute()` + `@@KALKCALC`: CC×rabat→cena, koef→VKM/Arbeit, hodiny, řádek, součet, marže. Priorita zdroje `std*` > `ec2014`. Ověřeno na Absaugwerku (VX skříň CC 803 × −14 % = 690,58 € — sedí na Eliščin Excel na cent).
+3. **Refresh** `refresh_std()` + `@@KALKSTD`: staging (`tenant.kalk_std_stage`) z aktuální STANDARD kalkulace (EK262420: 479 cen, 501 rabatů, 446 koef, +154 nových dílů) → merge s tagem `std2026`. Opakovatelné pro jakoukoli aktuální kalkulaci.
+4. **UI** `/kalkulace` (dlaždice ve Finance, ACL `_is_cockpit`): 🧮 Kalkulačka (kusovník → engine → řádky+součet+marže), 📋 STANDARD šablona (skupiny→položky), 🔩 Katalog dílů (hledání + CC/rabat/koef+zdroj), ℹ️ Stav. Přidávání dílů do kalkulačky klikem. Endpointy `/app/kalk/info|dily|standard|compute`.
+
+**Soubory:** `modules/erp/api/kalkulace_engine.py` (sync+compute+refresh+dotazy), dispatch v `router.diag_sql` (`@@KALK*`) + endpointy `/app/kalk/*`, `apps/api/static/kalkulace.html`, dlaždice `finance.html`, page `main.py`.
+
+**TODO dál:** plný refresh ze VŠECH aktuálních STANDARD kalkulací (pokrytí cen ~500→tisíce); per-zákazník sestavy (`kalk_sestava` CisloOrg) do UI; napojení na čárkování (PDF plán → BOM → kalkulačka jedním klikem); uložení kalkulace (hlavička+řádky) + marže/NC vrstva; nákupní rabat → NC → kontrola marže.
+
 — Claude (ID23) 🧮📐

@@ -9692,13 +9692,21 @@ def _sync_dochazka_ec(rok, mesic):
         # mezeru jako práci (fond_doplneni), ale jako DOVOLENOU (vacation, typ 3) → propadne
         # do docházky (cas_dovolena) i do mezd (_mzdy_absence_rows čte att_entry vacation).
         # Půlden sedí sám: odpracováno 3:02 + dovolená (fond−odpracováno) = fond. Keyed (user_id, iso).
-        approved_off = set()
+        approved_off = {}
         for _ao in s.execute(_t(
-                "SELECT user_id, req_date::text FROM tenant.att_plan_request "
+                "SELECT id, user_id, req_date::text FROM tenant.att_plan_request "
                 "WHERE tenant_id=2 AND status='approved' AND kind='off' "
                 "  AND EXTRACT(YEAR FROM req_date)=:y AND EXTRACT(MONTH FROM req_date)=:m"),
                 {"y": rok, "m": mesic}).fetchall():
-            approved_off.add((_ao[0], _ao[1]))
+            approved_off[(_ao[1], _ao[2])] = _ao[0]  # (user_id, iso) -> plan_request.id
+        # Název dovolené pro kalendář/vytížení (att_planned_absence). Marti 1.7.2026.
+        _dov_nazev = s.execute(_t("SELECT nazev FROM tenant.att_planned_absence_type "
+                                  "WHERE tenant_id=2 AND kod=20")).scalar() or "Dovolená"
+        # Naše app-absence (schválené žádosti) drží ZÁPORNÝ src_id v att_planned_absence
+        # (EC-mirror vlastní src_id>=0, nesmí je mazat). Čistá voda za měsíc → re-fill níže.
+        s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 AND src_id<0 "
+                     "AND EXTRACT(YEAR FROM datum)=:y AND EXTRACT(MONTH FROM datum)=:m"),
+                  {"y": rok, "m": mesic})
         # Iteruj VŠECHNY Po–Pá dny měsíce pro každého aktivního (= kdo má aspoň záznam v EC).
         active = sorted(set(k[0] for k in day.keys()))
         ld2 = _cal.monthrange(rok, mesic)[1]
@@ -9732,8 +9740,8 @@ def _sync_dochazka_ec(rok, mesic):
                     korekce = round(worked_cil - rp, 2)
                     if abs(korekce) >= 0.01:
                         # kladná mezera na den se SCHVÁLENOU absencí (off) → dovolená, ne práce
-                        is_off = (uid, dd.isoformat()) in approved_off
-                        if korekce > 0 and is_off:
+                        _req_id = approved_off.get((uid, dd.isoformat()))
+                        if korekce > 0 and _req_id:
                             tid = tids.get("vacation")
                             if tid:
                                 s.execute(_t("INSERT INTO tenant.att_entry (tenant_id,employee_id,entry_date,entry_type_id,hours,"
@@ -9744,6 +9752,15 @@ def _sync_dochazka_ec(rok, mesic):
                                 out["absence"] += 1
                                 abs_total += korekce  # promítni do bilance dne (den = práce + dovolená)
                                 den_dov = korekce
+                                # propíšeme i do kalendáře/vytížení (att_planned_absence, src_id=-id žádosti)
+                                s.execute(_t(
+                                    "INSERT INTO tenant.att_planned_absence "
+                                    "(tenant_id,src_id,cislo_zam,user_id,datum,druh_kod,druh_nazev,hodiny,schvaleno,synced_at) "
+                                    "VALUES (2,:src,:cz,:u,:d,20,:nz,:h,true,now()) "
+                                    "ON CONFLICT (tenant_id,src_id) DO UPDATE SET cislo_zam=:cz,user_id=:u,datum=:d,"
+                                    "druh_kod=20,druh_nazev=:nz,hodiny=:h,schvaleno=true,synced_at=now()"),
+                                    {"src": -int(_req_id), "cz": str(cz), "u": uid, "d": dd,
+                                     "nz": _dov_nazev, "h": korekce})
                         else:
                             tid = tids.get("fond_doplneni")
                             if tid:
@@ -36334,11 +36351,13 @@ def _sync_plan_nepritomnost(days_back: int = 30, whole_year: bool = True) -> dic
         names = {}
         for nr in s.execute(_t("SELECT kod, nazev FROM tenant.att_planned_absence_type WHERE tenant_id=2")).fetchall():
             names[int(nr[0])] = nr[1]
+        # POZOR: maž jen EC-sourced řádky (src_id>=0). Naše app-absence ze schválených
+        # žádostí drží ZÁPORNÝ src_id (vlastní je fond automat) — EC-mirror je nesmí smazat. Marti 1.7.2026.
         if whole_year:
-            s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 "
+            s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 AND src_id>=0 "
                          "AND datum >= date_trunc('year', CURRENT_DATE)::date"))
         else:
-            s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 "
+            s.execute(_t("DELETE FROM tenant.att_planned_absence WHERE tenant_id=2 AND src_id>=0 "
                          "AND datum >= CURRENT_DATE - make_interval(days => :db)"), {"db": int(days_back)})
         for row in rows:
             try:

@@ -124,6 +124,109 @@ def _clean_popis(raw: str) -> str:
 
 # ── extrakce textu z příloh ────────────────────────────────────────────
 
+def _doc_via_olefile(data: bytes) -> str:
+    """Extrakce textu z legacy .doc (Word 97-2003) přes OLE piece-table. Pure-python."""
+    import olefile
+    import struct
+    import io as _io
+    ole = olefile.OleFileIO(_io.BytesIO(data))
+    try:
+        if not ole.exists("WordDocument"):
+            return ""
+        wd = ole.openstream("WordDocument").read()
+        flags = struct.unpack_from("<H", wd, 0x000A)[0]
+        which = (flags >> 9) & 1
+        tname = "1Table" if which else "0Table"
+        if not ole.exists(tname):
+            tname = "1Table" if ole.exists("1Table") else ("0Table" if ole.exists("0Table") else None)
+        if not tname:
+            return ""
+        tbl = ole.openstream(tname).read()
+        fcClx = struct.unpack_from("<I", wd, 0x01A2)[0]
+        lcbClx = struct.unpack_from("<I", wd, 0x01A6)[0]
+        clx = tbl[fcClx:fcClx + lcbClx]
+        i = 0
+        cps = fcs = None
+        while i < len(clx):
+            t = clx[i]
+            if t == 0x01:  # Prc
+                cb = struct.unpack_from("<H", clx, i + 1)[0]
+                i += 3 + cb
+            elif t == 0x02:  # Pcdt
+                lcb = struct.unpack_from("<I", clx, i + 1)[0]
+                pcdt = clx[i + 5:i + 5 + lcb]
+                n = (len(pcdt) - 4) // 12
+                cps = [struct.unpack_from("<I", pcdt, k * 4)[0] for k in range(n + 1)]
+                base = (n + 1) * 4
+                fcs = [struct.unpack_from("<I", pcdt, base + k * 8 + 2)[0] for k in range(n)]
+                break
+            else:
+                break
+        if not fcs:
+            return ""
+        out = []
+        for k in range(len(fcs)):
+            fc = fcs[k]
+            length = cps[k + 1] - cps[k]
+            if fc & 0x40000000:  # komprimované (1 bajt, cp1250)
+                off = (fc & 0x3FFFFFFF) // 2
+                out.append(wd[off:off + length].decode("cp1250", "ignore"))
+            else:  # UTF-16LE (2 bajty)
+                off = fc & 0x3FFFFFFF
+                out.append(wd[off:off + length * 2].decode("utf-16-le", "ignore"))
+        txt = "".join(out)
+        # ořízni control znaky (Word používá \x07 pro buňky tabulek, \x0d atd.)
+        txt = txt.replace("\r", "\n").replace("\x07", "\t").replace("\x0b", "\n")
+        txt = re.sub(r"[\x00-\x08\x0e-\x1f]", " ", txt)
+        return txt
+    finally:
+        ole.close()
+
+
+def _extract_doc(data: bytes) -> tuple[str, bool, str]:
+    """Legacy .doc: antiword/catdoc (pokud jsou) → olefile piece-table → fallback."""
+    import shutil
+    import subprocess
+    import tempfile
+    # 1) antiword / catdoc přes subprocess (nejlepší výsledek, pokud nainstalované)
+    for tool in ("antiword", "catdoc"):
+        if shutil.which(tool):
+            tp = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".doc", delete=False) as tf:
+                    tf.write(data)
+                    tp = tf.name
+                args = [tool, "-m", "cp1250"] if tool == "catdoc" else [tool]
+                r = subprocess.run(args + [tp], capture_output=True, timeout=40)
+                txt = r.stdout.decode("utf-8", "ignore").strip()
+                if len(txt) > 25:
+                    return (txt, True, "method=%s" % tool)
+            except Exception:
+                pass
+            finally:
+                if tp:
+                    try:
+                        os.unlink(tp)
+                    except Exception:
+                        pass
+    # 2) olefile piece-table (pure-python, bez systémových nástrojů)
+    try:
+        txt = _doc_via_olefile(data)
+        txt = re.sub(r"[ \t]{2,}", " ", txt or "").strip()
+        if len(txt) > 25:
+            return (txt, True, "method=olefile")
+    except Exception as e:
+        _olerr = "olefile: %s" % str(e)[:60]
+    else:
+        _olerr = "olefile: prazdny"
+    # 3) fallback: čitelné cp1250 úseky (nouzově)
+    raw = re.sub(rb"[^\x20-\x7e\r\n\xa0-\xff]+", b" ", data).decode("cp1250", "ignore")
+    raw = re.sub(r"\s{2,}", " ", raw).strip()
+    if len(raw) > 40:
+        return (raw[:20000], False, "fallback-regex (%s)" % _olerr)
+    return ("", False, "doc nečitelný (%s)" % _olerr)
+
+
 def _extract_text(name: str, data: bytes) -> tuple[str, bool, str]:
     """(text, ok, err). Podpora pdf/docx/xlsx/txt; doc/xls legacy best-effort."""
     ext = (name.rsplit(".", 1)[-1] if "." in name else "").lower()
@@ -166,20 +269,7 @@ def _extract_text(name: str, data: bytes) -> tuple[str, bool, str]:
                     continue
             return ("", False, "nelze dekódovat text")
         if ext == "doc":
-            # legacy Word — zkus antiword/textract, jinak hrubý strip čitelných úseků
-            try:
-                import textract  # type: ignore
-                import tempfile
-                with tempfile.NamedTemporaryFile(suffix=".doc", delete=False) as tf:
-                    tf.write(data); tp = tf.name
-                txt = textract.process(tp).decode("utf-8", "ignore")
-                os.unlink(tp)
-                return (txt.strip(), True, "")
-            except Exception:
-                # fallback: vytáhni čitelné ASCII/cp1250 úseky
-                txt = re.sub(rb"[^\x20-\x7e\r\n\xc0-\xff]+", b" ", data).decode("cp1250", "ignore")
-                txt = re.sub(r"\s{2,}", " ", txt)
-                return (txt.strip()[:20000], bool(txt.strip()), "" if txt.strip() else "doc nečitelný")
+            return _extract_doc(data)
         if ext in ("xls",):
             try:
                 import xlrd  # type: ignore
@@ -346,6 +436,57 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
             "count": len(rows), "done": done, "total": total, "pct": pct,
             "smernic_zpracovano": processed, "bez_slozky": no_folder,
             "soubory_ok": files_ok, "soubory_err": files_err, "hotovo": done >= total}
+
+
+# ── @@SMREDOC — re-extrakce poničených .doc příloh ────────────────────
+
+def redo_doc(limit: int = 25) -> dict:
+    """Re-extrahuje jen .doc přílohy (přes uloženou cestu), lepším extraktorem.
+    Commit po každém souboru (odolné). Dávkuje přes doc_redone IS NULL."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    import base64 as _b64
+    sd = get_data_session()
+    ok = err = 0
+    methods: dict = {}
+    detail = []
+    try:
+        rows = sd.execute(_t(
+            "SELECT id, cesta, nazev_souboru FROM tenant.kb_smernice_soubor "
+            "WHERE pripona='doc' AND doc_redone IS NULL ORDER BY id LIMIT :lim"),
+            {"lim": limit}).all()
+        for fid, cesta, fname in rows:
+            rd = _fs_read_b64(cesta)
+            _e = (rd.get("error", "") or "")
+            if not rd.get("ok"):
+                if any(x in _e for x in ("rate_limit", "unreachable", "circuit")):
+                    continue  # transient → zkus příště
+                sd.execute(_t("UPDATE tenant.kb_smernice_soubor SET doc_redone=now(), "
+                              "extract_ok=false, extract_err=:e WHERE id=:i"), {"e": _e[:200], "i": fid})
+                sd.commit(); err += 1; continue
+            data = _b64.b64decode(rd["content"])
+            txt, okx, m = _extract_doc(data)
+            if txt:
+                txt = txt.replace("\x00", "")
+            mk = (m.split()[0] if m else "?")
+            methods[mk] = methods.get(mk, 0) + 1
+            sd.execute(_t("UPDATE tenant.kb_smernice_soubor SET text_extract=:t, extract_ok=:o, "
+                          "extract_err=:e, doc_redone=now() WHERE id=:i"),
+                       {"t": (txt[:400000] if txt else None), "o": okx, "e": (m or None), "i": fid})
+            sd.commit()
+            ok += 1 if okx else 0
+            err += 0 if okx else 1
+            if len(detail) < 8:
+                detail.append([fname[:40], str(okx), (m or "")[:36]])
+        rem = sd.execute(_t("SELECT count(*) FROM tenant.kb_smernice_soubor WHERE pripona='doc' AND doc_redone IS NULL")).scalar() or 0
+        tot = sd.execute(_t("SELECT count(*) FROM tenant.kb_smernice_soubor WHERE pripona='doc'")).scalar() or 0
+    finally:
+        sd.close()
+    rrows = [["PROGRES", "hotovo %d/%d, zbyva %d" % (tot - rem, tot, rem), "metody: %s" % methods],
+             ["tato davka", "ok=%d err=%d" % (ok, err), ""]]
+    rrows.extend(detail)
+    return {"ok": True, "columns": ["soubor", "ok", "metoda/info"], "rows": rrows,
+            "count": len(rrows), "zbyva": rem, "hotovo": rem == 0}
 
 
 # ── @@KBADD — registrace vlastní (AI) směrnice z docs/*.md ─────────────

@@ -32323,6 +32323,11 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _lim = int(_p[1]) if len(_p) > 1 and _p[1].isdigit() else 50
                 _cis = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else None
                 return JSONResponse(_smfiles(_lim, _cis))
+            if sql.upper().startswith("@@SMREDOC"):
+                from modules.erp.api.smernice_rag import redo_doc as _redoc
+                _p = sql.split()
+                _lim = int(_p[1]) if len(_p) > 1 and _p[1].isdigit() else 25
+                return JSONResponse(_redoc(_lim))
             if sql.upper().startswith("@@KBADD"):
                 from modules.erp.api.smernice_rag import register_ai_smernice as _kbadd
                 _a = [x.strip() for x in sql[len("@@KBADD"):].split("|")]

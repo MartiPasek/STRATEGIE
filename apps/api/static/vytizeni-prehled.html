@@ -120,9 +120,17 @@ function render(rows,generated){
 
   var host=document.getElementById("bats"); host.innerHTML="";
   win.forEach(function(mn){
-    var d=letos[mn]||{}, dl=loni[mn]||{};
-    var p=Math.round(d.vytizeni||0), l=Math.round(dl.vytizeni||0), c=col(p);
+    var d=letos[mn], dl=loni[mn]||{};
+    var l=Math.round(dl.vytizeni||0);
     var el=document.createElement("div"); el.className="bcell";
+    if(!d || d.bez_planu){
+      el.innerHTML='<div class="btop"><span class="m">'+NAMES[mn-1]+'</span><span class="p" style="font-size:14px;color:var(--mut)">zatím neplánováno</span></div>'+
+        '<div class="brow"><div class="bat" style="border-style:dashed"></div><div class="nub"></div></div>'+
+        '<div class="bsub">ve výrobě zatím není plán (ne 0 %) · loni '+l+' %</div>';
+      host.appendChild(el);
+      return;
+    }
+    var p=Math.round(d.vytizeni||0), c=col(p);
     el.innerHTML='<div class="btop"><span class="m">'+NAMES[mn-1]+'</span><span class="p" style="color:'+c+'">'+p+' %</span></div>'+
       '<div class="brow"><div class="bat"><div class="bfill" style="background:'+c+'"></div></div><div class="nub"></div></div>'+
       '<div class="bsub">loni '+l+' %</div>';

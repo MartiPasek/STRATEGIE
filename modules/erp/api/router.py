@@ -13857,10 +13857,12 @@ async def app_flow_people_toggle(req: Request) -> JSONResponse:
 
 @api_router.get("/app/vytizeni-mesice")
 def app_vytizeni_mesice(req: Request) -> JSONResponse:
-    """Měsíční vytížení dílny z DB_EC (pohled ECv_Vytizeni_Historie) — letos i loni.
-    Pro dashboard 'Vytížení dílny' (baterky + tank, výhled 3 měsíce). Read-only přes
-    EUROSOFT MCP, NIC nezapisuje. Přístup: rodič / ambasador / vedoucí výroby
-    (16,41,85) / obchod Pavel Zeman (30). Kristý 27.6.2026."""
+    """Měsíční vytížení dílny. AKTUÁLNÍ ROK ze STRATEGIE (živě): naplánováno z
+    tenant.vyroba_plan, kapacita z docházky Výroby (att_plan_effective, group 3).
+    LONI z DB_EC (EC_Vytizeni_Historie) — jen pro porovnání. Měsíc bez plánu ve
+    vyroba_plan má bez_planu=True (frontend ukáže „zatím neplánováno", ne 0 %).
+    Pro dashboard 'Vytížení dílny' (baterky + tank). Read-only. Přístup: rodič /
+    ambasador / vedoucí výroby (16,41,85) / obchod (skupina 7). Kristý 1.7.2026."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
@@ -13881,10 +13883,8 @@ def app_vytizeni_mesice(req: Request) -> JSONResponse:
     mcp = get_eurosoft_mcp_client()
     if mcp is None:
         return JSONResponse({"ok": False, "error": "mcp_unavailable"}, status_code=503)
-    # Celoroční měsíční řada (letos + loni). Z base tabulky EC_Vytizeni_Historie
-    # bereme PER MĚSÍC nejnovější log (ROW_NUMBER) — pro minulé měsíce contemporaneous
-    # skutečnost, pro budoucí měsíce poslední projekce. Pohled ECv_* vrací jen výhled
-    # od aktuálního měsíce, proto čteme base přímo (kvůli celoročnímu tanku).
+    # LONI z DB_EC (EC_Vytizeni_Historie) — jen minulý rok pro porovnání baterek.
+    # Aktuální rok se čte ze STRATEGIE níže (PG). Per měsíc nejnovější log (ROW_NUMBER).
     sql = ("WITH base AS ("
            " SELECT vh.Rok, vh.Mesic, vh.Kapacita,"
            " vh.HodinyMinRok AS Hodiny, vh.HodinyBezNabMinRok AS HodinyBezNab,"
@@ -13892,7 +13892,7 @@ def app_vytizeni_mesice(req: Request) -> JSONResponse:
            "   ORDER BY h.DatPorizeni DESC, h.ID DESC) AS rn"
            " FROM EC_Vytizeni_Historie vh"
            " JOIN EC_Vytizeni_LogPlanSumaHlav h ON vh.IDHlavLogu = h.ID"
-           " WHERE vh.Rok IN (YEAR(GETDATE())-1, YEAR(GETDATE())))"
+           " WHERE vh.Rok = YEAR(GETDATE())-1)"
            " SELECT Rok, Mesic, Hodiny, HodinyBezNab, Kapacita,"
            " CONVERT(numeric(5,2), CASE WHEN ISNULL(Kapacita,0)=0 THEN 0"
            " ELSE Hodiny*100.0/Kapacita END) AS Vytizeni"
@@ -13930,8 +13930,48 @@ def app_vytizeni_mesice(req: Request) -> JSONResponse:
             "hodiny_bez_nab": _n(dl.get("hodinybeznab")),
             "kapacita": _n(dl.get("kapacita")),
             "vytizeni": _n(dl.get("vytizeni")),
+            "bez_planu": False,
         })
+
+    # AKTUÁLNÍ ROK ze STRATEGIE (Kristý 1.7.2026): naplánováno z tenant.vyroba_plan,
+    # kapacita z docházky Výroby (att_plan_effective, group 3, mimo vyjmuté + plánované absence).
+    # bez_planu=True → měsíc nemá v vyroba_plan žádný plán → frontend „zatím neplánováno".
     import datetime as _dt
+    _cy = _dt.date.today().year
+    cm2, s2 = _att_session()
+    try:
+        rows_cy = s2.execute(_t(
+            "WITH napl AS (SELECT EXTRACT(MONTH FROM datum)::int AS m, SUM(pocet_hodin) AS napl"
+            " FROM tenant.vyroba_plan WHERE tenant_id=2 AND EXTRACT(YEAR FROM datum)=:cy GROUP BY 1),"
+            " kap AS (SELECT EXTRACT(MONTH FROM pe.plan_date)::int AS m, SUM(pe.expected_hours) AS kap"
+            "   FROM tenant.att_plan_effective pe"
+            "   WHERE pe.tenant_id=2 AND EXTRACT(YEAR FROM pe.plan_date)=:cy"
+            "     AND pe.user_id IN (SELECT gm.user_id FROM tenant.staff_group_member gm"
+            "        WHERE gm.tenant_id=2 AND gm.group_id=3"
+            "        AND gm.user_id NOT IN (SELECT user_id FROM tenant.vyroba_plan_excl WHERE tenant_id=2))"
+            "     AND NOT EXISTS (SELECT 1 FROM tenant.att_planned_absence pa"
+            "        WHERE pa.tenant_id=2 AND pa.user_id=pe.user_id AND pa.datum=pe.plan_date)"
+            "   GROUP BY 1)"
+            " SELECT COALESCE(napl.m, kap.m) AS mesic, COALESCE(kap.kap,0) AS kapacita,"
+            "        napl.napl AS naplanovano"
+            " FROM napl FULL OUTER JOIN kap ON napl.m=kap.m ORDER BY 1"),
+            {"cy": _cy}).fetchall()
+        for rr in rows_cy:
+            _mes = int(rr[0]); _kap = float(rr[1] or 0); _napl_raw = rr[2]
+            _bez = _napl_raw is None
+            _napl = float(_napl_raw or 0)
+            _vyt = round(100.0 * _napl / _kap, 2) if _kap > 0 else 0.0
+            out.append({
+                "rok": _cy, "mesic": _mes,
+                "hodiny": _napl, "hodiny_bez_nab": _napl,
+                "kapacita": _kap, "vytizeni": _vyt, "bez_planu": _bez,
+            })
+    finally:
+        try:
+            cm2.__exit__(None, None, None)
+        except Exception:
+            pass
+
     return JSONResponse({"ok": True, "rows": out,
                          "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
 

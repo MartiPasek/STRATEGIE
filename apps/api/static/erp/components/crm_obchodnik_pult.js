@@ -62,7 +62,18 @@
 
       var html = "";
       win.forEach(function (mn) {
-        var d = letos[mn] || {};
+        var d = letos[mn];
+        if (!d || d.bez_planu) {
+          html +=
+            '<div style="background:#161c24;border:1px solid #233040;border-radius:8px;padding:8px 11px;min-width:120px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">' +
+            '<span style="font-size:12px;color:#cdd6e2;">' + NAMES[mn - 1] + '</span>' +
+            '<span style="font-size:12px;color:#9fb6cc;">zatím neplánováno</span></div>' +
+            '<div style="height:10px;border-radius:5px;background:#0e1630;border:1px dashed #33415a;"></div>' +
+            '<div style="font-size:10.5px;color:#6f8296;margin-top:4px;">ve výrobě zatím není plán (ne 0 %)</div>' +
+            '</div>';
+          return;
+        }
         var p = Math.round(d.vytizeni || 0);
         var c = col(p);
         html +=

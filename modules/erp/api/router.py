@@ -32308,6 +32308,30 @@ async def diag_sql(req: Request) -> JSONResponse:
             dnu = 14
         return JSONResponse(_sync_absence_to_ec_vytizeni(dnu))
 
+    #   @@SMSYNC                    → mirror EC_OrgSmernice → tenant.kb_smernice (meta+Popis)
+    #   @@SMFILES [limit] [cislo]   → ingest příloh ze share → tenant.kb_smernice_soubor (+text)
+    #   @@KB <dotaz> [| level]      → fulltext hledání ve směrnicích + přílohách (RAG know-how)
+    if sql.upper().startswith("@@SMSYNC"):
+        from modules.erp.api.smernice_rag import sync_smernice as _smsync
+        return JSONResponse(_smsync())
+    if sql.upper().startswith("@@SMFILES"):
+        from modules.erp.api.smernice_rag import ingest_files as _smfiles
+        _p = sql.split()
+        _lim = int(_p[1]) if len(_p) > 1 and _p[1].isdigit() else 50
+        _cis = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else None
+        return JSONResponse(_smfiles(_lim, _cis))
+    if sql.upper().startswith("@@KB"):
+        from modules.erp.api.smernice_rag import kb_search as _kbs
+        _rest = sql[len("@@KB"):].strip()
+        _lvl = 2
+        if "|" in _rest:
+            _rest, _lv = _rest.rsplit("|", 1)
+            try:
+                _lvl = int(_lv.strip())
+            except Exception:
+                _lvl = 2
+        return JSONResponse(_kbs(_rest.strip(), _lvl))
+
     if sql.upper().startswith("@@EMAIL"):
         import json as _jem
         from core.database_data import get_data_session as _gem

@@ -170,6 +170,14 @@ async def sign_create(req: Request):
         _log(s, tid, cid, "created", _user_name(s, uid), _client_ip(req), detail=title)
         s.commit()
         return {"ok": True, "id": cid}
+    except Exception as exc:
+        import traceback
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "DEBUG: " + repr(exc)[:400],
+                             "tb": traceback.format_exc()[-800:]}, status_code=500)
     finally:
         s.close()
 

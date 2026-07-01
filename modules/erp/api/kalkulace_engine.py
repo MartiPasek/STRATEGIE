@@ -218,6 +218,86 @@ def refresh_std(zdroj: str = "std2026") -> dict:
     return out
 
 
+def dily_search(q: str = "", limit: int = 300) -> dict:
+    """Katalog dílů: kmen + nejlepší CC/rabat/koef (priorita std) + zdroj. Filtr q na reg_cis/nazev."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    sd = get_data_session()
+    try:
+        where = ""
+        params = {"lim": min(int(limit or 300), 1000)}
+        if q:
+            where = ("WHERE replace(replace(upper(k.reg_cis),' ',''),'-','') LIKE :q "
+                     "OR upper(k.nazev) LIKE :qn")
+            import re
+            params["q"] = "%" + re.sub(r"[^0-9A-Za-z]", "", q).upper() + "%"
+            params["qn"] = "%" + q.upper() + "%"
+        rows = sd.execute(_t(
+            "SELECT k.kmen_ec_id, k.reg_cis, k.nazev, "
+            "(SELECT c.cc_cena FROM tenant.kalk_cena c WHERE c.kmen_ec_id=k.kmen_ec_id "
+            "  ORDER BY " + _SRC_PRIO + ", c.ec_id DESC LIMIT 1) cc, "
+            "(SELECT c.zdroj FROM tenant.kalk_cena c WHERE c.kmen_ec_id=k.kmen_ec_id "
+            "  ORDER BY " + _SRC_PRIO + ", c.ec_id DESC LIMIT 1) cc_zdroj, "
+            "(SELECT r.rabat FROM tenant.kalk_rabat r WHERE r.kmen_ec_id=k.kmen_ec_id AND r.typ_text='Prodejní' "
+            "  ORDER BY " + _SRC_PRIO + ", r.ec_id DESC LIMIT 1) rabat, "
+            "(SELECT o.k_vkm FROM tenant.kalk_koef o WHERE o.kmen_ec_id=k.kmen_ec_id "
+            "  ORDER BY " + _SRC_PRIO + ", o.ec_id DESC LIMIT 1) k_vkm, "
+            "(SELECT o.k_arb FROM tenant.kalk_koef o WHERE o.kmen_ec_id=k.kmen_ec_id "
+            "  ORDER BY " + _SRC_PRIO + ", o.ec_id DESC LIMIT 1) k_arb "
+            "FROM tenant.kalk_kmen k " + where + " ORDER BY k.reg_cis LIMIT :lim"), params)
+        out = []
+        for r in rows:
+            m = dict(r._mapping)
+            for f in ("cc", "rabat", "k_vkm", "k_arb"):
+                if m.get(f) is not None:
+                    m[f] = float(m[f])
+            m["prodejni"] = round(m["cc"] * (1 + (m.get("rabat") or 0) / 100.0), 2) if m.get("cc") is not None else None
+            out.append(m)
+        return {"ok": True, "dily": out}
+    finally:
+        sd.close()
+
+
+def standard_groups() -> dict:
+    """STANDARD skupiny (v pořadí) + počet položek."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    sd = get_data_session()
+    try:
+        rows = sd.execute(_t(
+            "SELECT s.ec_id, s.cislo, s.nazev, s.poradi, "
+            "(SELECT COUNT(*) FROM tenant.kalk_skupina_pol p WHERE p.skupina_ec_id=s.ec_id) pocet "
+            "FROM tenant.kalk_skupina s ORDER BY s.poradi, s.cislo"))
+        return {"ok": True, "skupiny": [dict(r._mapping) for r in rows]}
+    finally:
+        sd.close()
+
+
+def standard_items(skupina_ec_id: int) -> dict:
+    """Položky STANDARD skupiny + nejlepší CC/rabat/koef."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    sd = get_data_session()
+    try:
+        rows = sd.execute(_t(
+            "SELECT p.poradi, k.kmen_ec_id, k.reg_cis, k.nazev, "
+            "(SELECT c.cc_cena FROM tenant.kalk_cena c WHERE c.kmen_ec_id=k.kmen_ec_id ORDER BY " + _SRC_PRIO + ", c.ec_id DESC LIMIT 1) cc, "
+            "(SELECT r.rabat FROM tenant.kalk_rabat r WHERE r.kmen_ec_id=k.kmen_ec_id AND r.typ_text='Prodejní' ORDER BY " + _SRC_PRIO + ", r.ec_id DESC LIMIT 1) rabat, "
+            "(SELECT o.k_arb FROM tenant.kalk_koef o WHERE o.kmen_ec_id=k.kmen_ec_id ORDER BY " + _SRC_PRIO + ", o.ec_id DESC LIMIT 1) koef "
+            "FROM tenant.kalk_skupina_pol p JOIN tenant.kalk_kmen k ON k.kmen_ec_id=p.kmen_ec_id "
+            "WHERE p.skupina_ec_id=:s ORDER BY p.poradi"), {"s": int(skupina_ec_id)})
+        out = []
+        for r in rows:
+            m = dict(r._mapping)
+            for f in ("cc", "rabat", "koef"):
+                if m.get(f) is not None:
+                    m[f] = float(m[f])
+            out.append(m)
+        return {"ok": True, "polozky": out}
+    finally:
+        sd.close()
+
+
 def engine_info() -> dict:
     """Přehled naplnění zrcadla."""
     from core.database_data import get_data_session

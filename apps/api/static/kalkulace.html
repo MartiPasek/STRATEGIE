@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalkulace rozváděčů — STRATEGIE</title>
+<style>
+  :root{--bg:#0f1420;--card:#161d2c;--card2:#1b2536;--tx:#e8edf6;--mut:#9fb0c8;--ac:#2dd4bf;--ac2:#38bdf8;--bd:#232c3b;--warn:#f59e0b}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:0 16px 40px;background:var(--bg);color:var(--tx)}
+  a.back{display:inline-block;margin:12px 0 2px;color:var(--ac);text-decoration:none;font-size:13px;font-weight:700}
+  h1{font-size:20px;margin:6px 0 2px}
+  .sub{color:var(--mut);font-size:12.5px;margin-bottom:12px}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .tab{background:var(--card);border:1px solid var(--bd);color:var(--mut);padding:7px 13px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:600}
+  .tab.on{background:var(--ac);color:#062b26;border-color:var(--ac)}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+  label{font-size:12px;color:var(--mut);display:block;margin-bottom:3px}
+  input,textarea,select{background:var(--card2);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit}
+  textarea{width:100%;min-height:90px;resize:vertical}
+  button.go{background:var(--ac);color:#062b26;border:none;border-radius:9px;padding:9px 16px;font-weight:800;cursor:pointer;font-size:13.5px}
+  button.gh{background:var(--card2);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px 11px;cursor:pointer;font-size:12.5px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--bd);white-space:nowrap}
+  th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--card)}
+  td.n,th.n{text-align:right}
+  tr.sum td{border-top:2px solid var(--ac);font-weight:800;background:var(--card2)}
+  .miss{color:var(--warn);font-size:11px}
+  .src{font-size:10px;color:var(--mut)}
+  .kpi{display:flex;gap:16px;flex-wrap:wrap}
+  .kpi .b{background:var(--card2);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;min-width:120px}
+  .kpi .b b{font-size:19px;display:block}
+  .kpi .b span{font-size:11px;color:var(--mut)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
+  .hint{color:var(--mut);font-size:12.5px;padding:10px}
+  .chip{display:inline-block;background:var(--card2);border:1px solid var(--bd);border-radius:20px;padding:2px 9px;font-size:11px;color:var(--ac2);cursor:pointer;margin:2px}
+</style>
+<script src="/static/ag_license.js"></script>
+<script src="/static/aggrid_lite.js"></script>
+</head>
+<body>
+<a class="back" href="/finance">← Zpět</a>
+<h1>📐 Kalkulace rozváděčů</h1>
+<div class="sub">Engine z DB_EC 2014 · CC×rabat → cena, koeficient → VKM + práce. Data: baseline 2014 + aktuální STANDARD (std2026).</div>
+
+<div class="tabs" id="tabs"></div>
+<div id="view"><div class="hint">Načítám…</div></div>
+
+<script>
+const V=document.getElementById('view');
+function j(u,opt){return fetch(u,Object.assign({credentials:'include'},opt||{})).then(function(r){return r.json();}).catch(function(){return{ok:false,error:'síť'};});}
+function num(x){return (x==null)?'':Number(x).toLocaleString('cs-CZ',{maximumFractionDigits:2});}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+var TABS=[['kalk','🧮 Kalkulačka'],['std','📋 STANDARD šablona'],['dily','🔩 Katalog dílů'],['stav','ℹ️ Stav enginu']];
+var cur='kalk';
+// perzistentní BOM napříč záložkami (přidávání z katalogu/šablony)
+var BOM=[]; // {reg_cis, qty}
+function renderTabs(){
+  document.getElementById('tabs').innerHTML=TABS.map(function(t){return '<button class="tab'+(t[0]===cur?' on':'')+'" data-t="'+t[0]+'">'+t[1]+'</button>';}).join('');
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){b.onclick=function(){cur=b.getAttribute('data-t');renderTabs();load();};});
+}
+
+// ── KALKULAČKA ──
+function tKalk(){
+  V.innerHTML=
+   '<div class="card"><div class="row">'
+   +'<div><label>Báze VKM</label><input id="bv" value="14.5" size="6"></div>'
+   +'<div><label>Báze Arbeit</label><input id="ba" value="28" size="6"></div>'
+   +'<div><label>Globální koef.</label><input id="bk" value="1" size="6"></div>'
+   +'<div><label>Marže %</label><input id="bm" value="0" size="6"></div>'
+   +'<div><label>Zákazník (CisloOrg)</label><input id="bo" size="8" placeholder="volitelné"></div>'
+   +'</div>'
+   +'<label>Kusovník — 1 řádek = <b>obj.číslo*množství</b> (nebo obj.číslo, množství):</label>'
+   +'<textarea id="bom" placeholder="3RV2031-4PA10*1&#10;1039000*1&#10;8106245*2"></textarea>'
+   +'<div style="margin-top:8px"><button class="go" id="calc">Spočítat</button> '
+   +'<button class="gh" id="clr">Vyčistit</button> <span class="src">Tip: díly přidáš i z Katalogu / STANDARDu klikem.</span></div>'
+   +'</div><div id="res"></div>';
+  if(BOM.length){document.getElementById('bom').value=BOM.map(function(b){return b.reg_cis+'*'+b.qty;}).join('\n');}
+  document.getElementById('clr').onclick=function(){BOM=[];document.getElementById('bom').value='';document.getElementById('res').innerHTML='';};
+  document.getElementById('calc').onclick=doCalc;
+}
+function parseBom(){
+  var t=document.getElementById('bom').value.split('\n'),out=[];
+  t.forEach(function(ln){ln=ln.trim();if(!ln)return;var reg,q;
+    if(ln.indexOf('*')>=0){var p=ln.split('*');reg=p[0];q=p[1];}
+    else if(ln.indexOf(',')>=0){var p2=ln.split(',');reg=p2[0];q=p2[1];}
+    else {reg=ln;q='1';}
+    var qn=parseFloat((q||'1').replace(',','.'));if(isNaN(qn))qn=1;
+    out.push({reg_cis:reg.trim(),qty:qn});});
+  return out;
+}
+function doCalc(){
+  var bom=parseBom();BOM=bom;
+  var body={bom:bom,base_vkm:parseFloat(document.getElementById('bv').value)||14.5,
+    base_arb:parseFloat(document.getElementById('ba').value)||28,koef:parseFloat(document.getElementById('bk').value)||1,
+    marze:parseFloat(document.getElementById('bm').value)||0};
+  var o=document.getElementById('bo').value.trim();if(o)body.cislo_org=parseInt(o);
+  document.getElementById('res').innerHTML='<div class="hint">Počítám…</div>';
+  j('/api/v1/erp/app/kalk/compute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){
+    if(!r.ok){document.getElementById('res').innerHTML='<div class="hint">Chyba: '+esc(r.error)+'</div>';return;}
+    var s=r.souhrn,rows=r.radky;
+    var h='<div class="card"><div class="kpi">'
+      +'<div class="b"><b>'+num(s.celkem_s_marzi)+' €</b><span>Celkem'+(s.marze?' s marží':'')+'</span></div>'
+      +'<div class="b"><b>'+num(s.hodiny)+' h</b><span>Práce</span></div>'
+      +'<div class="b"><b>'+num(s.material)+' €</b><span>Materiál</span></div>'
+      +'<div class="b"><b>'+num(s.vkm)+' €</b><span>VKM</span></div>'
+      +'<div class="b"><b>'+num(s.arbeit)+' €</b><span>Arbeit</span></div>'
+      +'<div class="b"><b>'+s.polozek+'</b><span>položek · chybí cena '+s.chybi_cena+', nenal. '+s.nenalezeno+'</span></div>'
+      +'</div></div>';
+    h+='<div class="card" style="overflow:auto;max-height:60vh"><table><thead><tr>'
+      +'<th>Obj. číslo</th><th>Název</th><th class="n">Ks</th><th class="n">CC €</th><th class="n">Rabat</th>'
+      +'<th class="n">Cena €</th><th class="n">VKM</th><th class="n">Arbeit</th><th class="n">Hod</th><th class="n">Řádek €</th><th></th></tr></thead><tbody>';
+    rows.forEach(function(l){
+      if(l.found===false){h+='<tr><td>'+esc(l.reg_cis)+'</td><td colspan="9" class="miss">nenalezen</td><td></td></tr>';return;}
+      h+='<tr><td>'+esc(l.reg_cis)+'</td><td>'+esc((l.nazev||'').slice(0,42))+'</td>'
+        +'<td class="n">'+num(l.qty)+'</td><td class="n">'+num(l.cc)+'</td><td class="n">'+(l.rabat==null?'':num(l.rabat)+'%')+'</td>'
+        +'<td class="n">'+num(l.prodejni)+'</td><td class="n">'+num(l.vkm)+'</td><td class="n">'+num(l.arbeit)+'</td>'
+        +'<td class="n">'+num(l.hodiny)+'</td><td class="n">'+num(l.radek)+'</td>'
+        +'<td class="miss">'+(l.missing&&l.missing.length?l.missing.join(','):'')+'</td></tr>';
+    });
+    h+='<tr class="sum"><td colspan="5">SOUČET</td><td class="n">'+num(s.material)+'</td><td class="n">'+num(s.vkm)+'</td><td class="n">'+num(s.arbeit)+'</td><td class="n">'+num(s.hodiny)+'</td><td class="n">'+num(s.radky_celkem)+'</td><td></td></tr>';
+    h+='</tbody></table></div>';
+    document.getElementById('res').innerHTML=h;
+  });
+}
+function addToBom(reg,qty){for(var i=0;i<BOM.length;i++){if(BOM[i].reg_cis===reg){BOM[i].qty+=(qty||1);flash(reg);return;}}BOM.push({reg_cis:reg,qty:qty||1});flash(reg);}
+function flash(reg){var e=document.getElementById('added');if(e)e.textContent='➕ přidáno: '+reg+' (celkem '+BOM.length+' pol.) — přepni na 🧮 Kalkulačku';}
+
+// ── STANDARD ──
+function tStd(){
+  V.innerHTML='<div class="card"><div id="added" class="src">Klikni skupinu → položky; klikni položku → přidat do kalkulačky.</div>'
+    +'<div id="skl" class="hint">Načítám skupiny…</div></div><div id="stdItems"></div>';
+  j('/api/v1/erp/app/kalk/standard').then(function(r){
+    if(!r.ok){document.getElementById('skl').innerHTML='Chyba: '+esc(r.error);return;}
+    document.getElementById('skl').innerHTML=r.skupiny.map(function(s){
+      return '<span class="chip" data-s="'+s.ec_id+'">'+esc(s.nazev||('#'+s.cislo))+' ('+s.pocet+')</span>';
+    }).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('#skl .chip'),function(c){c.onclick=function(){stdItems(c.getAttribute('data-s'),c.textContent);};});
+  });
+}
+function stdItems(sid,nm){
+  var box=document.getElementById('stdItems');box.innerHTML='<div class="hint">Načítám položky…</div>';
+  j('/api/v1/erp/app/kalk/standard?skupina='+sid).then(function(r){
+    if(!r.ok){box.innerHTML='Chyba';return;}
+    var h='<div class="card" style="overflow:auto;max-height:55vh"><b>'+esc(nm)+'</b><table style="margin-top:8px"><thead><tr>'
+      +'<th>Obj. číslo</th><th>Název</th><th class="n">CC €</th><th class="n">Rabat</th><th class="n">Koef</th><th></th></tr></thead><tbody>';
+    r.polozky.forEach(function(p){
+      h+='<tr><td>'+esc(p.reg_cis)+'</td><td>'+esc((p.nazev||'').slice(0,44))+'</td><td class="n">'+num(p.cc)+'</td>'
+       +'<td class="n">'+(p.rabat==null?'':num(p.rabat)+'%')+'</td><td class="n">'+num(p.koef)+'</td>'
+       +'<td><button class="gh" data-r="'+esc(p.reg_cis)+'">➕</button></td></tr>';
+    });
+    h+='</tbody></table></div>';box.innerHTML=h;
+    Array.prototype.forEach.call(box.querySelectorAll('button[data-r]'),function(b){b.onclick=function(){addToBom(b.getAttribute('data-r'),1);};});
+  });
+}
+
+// ── KATALOG ──
+function tDily(){
+  V.innerHTML='<div class="card"><div class="row"><div style="flex:1"><label>Hledat díl (obj. číslo / název)</label>'
+    +'<input id="q" style="width:100%" placeholder="např. 3RV2031, LOGO, NZM, skříň"></div>'
+    +'<button class="go" id="find">Hledat</button></div>'
+    +'<div id="added" class="src">Klikni ➕ u dílu → přidat do kalkulačky.</div></div>'
+    +'<div id="dres" class="hint">Zadej dotaz a stiskni Hledat (nebo prázdné = prvních 300).</div>';
+  document.getElementById('find').onclick=findDily;
+  document.getElementById('q').addEventListener('keydown',function(e){if(e.key==='Enter')findDily();});
+}
+function findDily(){
+  var q=document.getElementById('q').value.trim();
+  document.getElementById('dres').innerHTML='<div class="hint">Hledám…</div>';
+  j('/api/v1/erp/app/kalk/dily?q='+encodeURIComponent(q)).then(function(r){
+    if(!r.ok){document.getElementById('dres').innerHTML='Chyba: '+esc(r.error);return;}
+    var h='<div class="card" style="overflow:auto;max-height:64vh"><table><thead><tr>'
+      +'<th>Obj. číslo</th><th>Název</th><th class="n">CC €</th><th class="n">Rabat</th><th class="n">Cena €</th><th class="n">Koef</th><th>Zdroj</th><th></th></tr></thead><tbody>';
+    r.dily.forEach(function(d){
+      h+='<tr><td>'+esc(d.reg_cis)+'</td><td>'+esc((d.nazev||'').slice(0,40))+'</td><td class="n">'+num(d.cc)+'</td>'
+       +'<td class="n">'+(d.rabat==null?'':num(d.rabat)+'%')+'</td><td class="n">'+num(d.prodejni)+'</td>'
+       +'<td class="n">'+num(d.k_vkm)+'</td><td class="src">'+esc(d.cc_zdroj||'')+'</td>'
+       +'<td><button class="gh" data-r="'+esc(d.reg_cis)+'">➕</button></td></tr>';
+    });
+    h+='</tbody></table></div>';document.getElementById('dres').innerHTML=h;
+    Array.prototype.forEach.call(document.querySelectorAll('#dres button[data-r]'),function(b){b.onclick=function(){addToBom(b.getAttribute('data-r'),1);};});
+  });
+}
+
+// ── STAV ──
+function tStav(){
+  V.innerHTML='<div class="hint">Načítám…</div>';
+  j('/api/v1/erp/app/kalk/info').then(function(r){
+    if(!r.ok){V.innerHTML='<div class="hint">Chyba: '+esc(r.error)+'</div>';return;}
+    var p=r.pocty;
+    var h='<div class="card"><h3 style="margin:0 0 8px">Naplnění zrcadla (tenant.kalk_*)</h3><table>';
+    [['kalk_kmen','Díly (identita)'],['kalk_koef','Koeficienty K_VKM/K_ARB'],['kalk_cena','Ceny CC'],['kalk_rabat','Rabaty (prodejní+nákupní)'],['kalk_skupina','STANDARD skupiny'],['kalk_skupina_pol','STANDARD položky'],['kalk_sestava','Sestavy (per zákazník)'],['kalk_sestava_pol','Sestavy — položky']].forEach(function(t){
+      h+='<tr><td>'+t[1]+'</td><td class="n">'+num(p[t[0]])+'</td></tr>';});
+    h+='</table></div>';
+    if(p.zdroje_cena){h+='<div class="card"><h3 style="margin:0 0 8px">Zdroje cen</h3><table><thead><tr><th>Zdroj</th><th class="n">Počet</th></tr></thead><tbody>';
+      p.zdroje_cena.forEach(function(z){h+='<tr><td>'+esc(z.zdroj)+'</td><td class="n">'+num(z.n)+'</td></tr>';});h+='</tbody></table>'
+      +'<div class="src" style="margin-top:6px">std* = aktuální STANDARD (přebíjí baseline ec2014). Refresh: naplnit staging + @@KALKSTD.</div></div>';}
+    V.innerHTML=h;
+  });
+}
+
+function load(){({kalk:tKalk,std:tStd,dily:tDily,stav:tStav}[cur])();}
+renderTabs();load();
+</script>
+</body>
+</html>

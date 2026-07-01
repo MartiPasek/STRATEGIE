@@ -25589,6 +25589,72 @@ def banka_saldo(req: Request):
         s.close()
 
 
+def _kalk_gate(req: Request):
+    """ACL pro kalkulační modul = okruh cockpitu (rodiče + scoped approveři + fin/HR skupiny).
+    Vrací (uid) nebo None při zákazu."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_cockpit(s, uid):
+            return None
+        return uid
+    finally:
+        s.close()
+
+
+@api_router.get("/app/kalk/info")
+def kalk_info_ep(req: Request):
+    if _kalk_gate(req) is None:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.erp.api.kalkulace_engine import engine_info
+    return JSONResponse(engine_info())
+
+
+@api_router.get("/app/kalk/dily")
+def kalk_dily_ep(req: Request):
+    if _kalk_gate(req) is None:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.erp.api.kalkulace_engine import dily_search
+    q = req.query_params.get("q") or ""
+    lim = req.query_params.get("limit") or "300"
+    try:
+        lim = int(lim)
+    except Exception:
+        lim = 300
+    return JSONResponse(dily_search(q, lim))
+
+
+@api_router.get("/app/kalk/standard")
+def kalk_standard_ep(req: Request):
+    if _kalk_gate(req) is None:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.erp.api.kalkulace_engine import standard_groups, standard_items
+    sk = req.query_params.get("skupina")
+    if sk:
+        try:
+            return JSONResponse(standard_items(int(sk)))
+        except Exception:
+            return JSONResponse({"ok": False, "error": "bad skupina"}, status_code=400)
+    return JSONResponse(standard_groups())
+
+
+@api_router.post("/app/kalk/compute")
+async def kalk_compute_ep(req: Request):
+    if _kalk_gate(req) is None:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.erp.api.kalkulace_engine import compute
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    bom = body.get("bom") or []
+    return JSONResponse(compute(
+        bom, body.get("cislo_org"),
+        float(body.get("base_vkm") or 14.5), float(body.get("base_arb") or 28.0),
+        float(body.get("koef") or 1.0), float(body.get("marze") or 0.0)))
+
+
 @api_router.get("/app/ucto/porovnani")
 def ucto_porovnani(req: Request):
     """Účetní kontrolní vrstva: konta (stavy účtů) k 31.12.2025 — office (Helios DB_EC/IS

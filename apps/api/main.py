@@ -888,6 +888,14 @@ def vyroba_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/kalkulace")
+def kalkulace_page():
+    """📐 Kalkulace rozváděčů — engine z DB_EC 2014 (CC×rabat→cena, koef→VKM/Arbeit).
+    Kalkulačka + STANDARD šablona + katalog dílů. ACL cockpit. Marti 1.7.2026."""
+    return FileResponse(os.path.join(static_dir, "kalkulace.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/privacy")
 def privacy_page():
     """Zásady ochrany osobních údajů — povinné pro Google Play / App Store.

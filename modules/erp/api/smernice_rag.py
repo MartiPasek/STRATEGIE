@@ -268,6 +268,8 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
         if only_cislo is not None:
             where += " AND ec_id=:c"
             params["c"] = only_cislo
+        else:
+            where += " AND files_synced_at IS NULL"   # dávkování: jen dosud nezpracované
         sm = sd.execute(_t(
             "SELECT ec_id, cislo, nazev, pristupnost_text FROM tenant.kb_smernice " + where +
             " ORDER BY ec_id LIMIT :lim"), dict(params, lim=limit)).all()
@@ -275,9 +277,14 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
             folder = _prist_folder(prist)
             sub = "%s/SM%s" % (folder, ec_id)
             lst = _fs_list(sub)
+            _err = (lst.get("error", "") or "")
+            # transientní chyby (rate limit / spojení) NEmarkuj jako hotové → zkusí se příště
+            _transient = ("rate_limit" in _err) or ("unreachable" in _err) or ("circuit" in _err)
             if not lst.get("ok"):
                 no_folder += 1
-                detail.append({"cislo": cislo, "folder": sub, "error": lst.get("error", "")[:120]})
+                detail.append({"cislo": ec_id, "folder": sub, "error": _err[:120]})
+                if not _transient:
+                    sd.execute(_t("UPDATE tenant.kb_smernice SET files_synced_at=now() WHERE ec_id=:e"), {"e": ec_id})
                 continue
             processed += 1
             # smaž staré záznamy souborů této směrnice (idempotence)
@@ -315,16 +322,27 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
                      "cesta": "%s/%s" % (sub, fname), "vel": len(data),
                      "txt": (txt[:400000] if txt else None), "ok": ok, "err": (err or None),
                      "h": hashlib.sha1(data).hexdigest()})
+            sd.execute(_t("UPDATE tenant.kb_smernice SET files_synced_at=now() WHERE ec_id=:e"), {"e": ec_id})
         sd.commit()
+        done = sd.execute(_t("SELECT count(*) FROM tenant.kb_smernice WHERE files_synced_at IS NOT NULL")).scalar() or 0
+        total = sd.execute(_t("SELECT count(*) FROM tenant.kb_smernice")).scalar() or 0
+        soub = sd.execute(_t("SELECT count(*) FROM tenant.kb_smernice_soubor")).scalar() or 0
+        soub_txt = sd.execute(_t("SELECT count(*) FROM tenant.kb_smernice_soubor WHERE extract_ok")).scalar() or 0
     finally:
         sd.close()
-    rows = [["SOUHRN", "zpracovano=%d bez_slozky=%d ok=%d err=%d" % (
-        processed, no_folder, files_ok, files_err), _SHARE_ROOT]]
-    for d in detail[:20]:
+    pct = round(100.0 * done / total, 1) if total else 0.0
+    rows = [
+        ["PROGRES", "%s / %s smernic  (%.1f%%)" % (done, total, pct),
+         "prilohy: %d souboru, %d s textem" % (soub, soub_txt)],
+        ["tato davka", "zpracovano=%d bez_slozky=%d" % (processed, no_folder),
+         "soubory ok=%d err=%d" % (files_ok, files_err)],
+    ]
+    for d in detail[:12]:
         rows.append([str(d.get("cislo")), d.get("folder", ""), d.get("error", "")[:150]])
-    return {"ok": True, "columns": ["cislo", "folder/info", "error"], "rows": rows,
-            "count": len(rows), "smernic_zpracovano": processed, "bez_slozky": no_folder,
-            "soubory_ok": files_ok, "soubory_err": files_err}
+    return {"ok": True, "columns": ["klic", "hodnota", "info"], "rows": rows,
+            "count": len(rows), "done": done, "total": total, "pct": pct,
+            "smernic_zpracovano": processed, "bez_slozky": no_folder,
+            "soubory_ok": files_ok, "soubory_err": files_err, "hotovo": done >= total}
 
 
 # ── @@KB — fulltext hledání ────────────────────────────────────────────

@@ -285,6 +285,7 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
                 detail.append({"cislo": ec_id, "folder": sub, "error": _err[:120]})
                 if not _transient:
                     sd.execute(_t("UPDATE tenant.kb_smernice SET files_synced_at=now() WHERE ec_id=:e"), {"e": ec_id})
+                    sd.commit()
                 continue
             processed += 1
             # smaž staré záznamy souborů této směrnice (idempotence)
@@ -323,7 +324,7 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
                      "txt": (txt[:400000] if txt else None), "ok": ok, "err": (err or None),
                      "h": hashlib.sha1(data).hexdigest()})
             sd.execute(_t("UPDATE tenant.kb_smernice SET files_synced_at=now() WHERE ec_id=:e"), {"e": ec_id})
-        sd.commit()
+            sd.commit()
         done = sd.execute(_t("SELECT count(*) FROM tenant.kb_smernice WHERE files_synced_at IS NOT NULL")).scalar() or 0
         total = sd.execute(_t("SELECT count(*) FROM tenant.kb_smernice")).scalar() or 0
         soub = sd.execute(_t("SELECT count(*) FROM tenant.kb_smernice_soubor")).scalar() or 0

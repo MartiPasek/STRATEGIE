@@ -194,8 +194,8 @@ def refresh_std(zdroj: str = "std2026") -> dict:
             {"z": zdroj}).rowcount
         # 2) purge předchozí std pro dotčené díly
         for tab in ("kalk_cena", "kalk_rabat", "kalk_koef"):
-            sd.execute(_t("DELETE FROM tenant.%s WHERE zdroj=:z AND kmen_ec_id IN "
-                          "(SELECT " + MS + " FROM tenant.kalk_std_stage s)" % tab), {"z": zdroj})
+            sd.execute(_t("DELETE FROM tenant." + tab + " WHERE zdroj=:z AND kmen_ec_id IN "
+                          "(SELECT " + MS + " FROM tenant.kalk_std_stage s)"), {"z": zdroj})
         # 3) insert čerstvá data (negativní ec_id pod stávající minimum), kmen resolve inline
         out["cena"] = sd.execute(_t(
             "INSERT INTO tenant.kalk_cena (ec_id,kmen_ec_id,cc_cena,mena,zdroj) "

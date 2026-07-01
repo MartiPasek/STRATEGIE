@@ -185,6 +185,147 @@ def engine_info() -> dict:
             q[tab] = sd.execute(_t("SELECT COUNT(*) FROM tenant.%s" % tab)).scalar()
         q["cena_prodejni_rabat_dilu"] = sd.execute(_t(
             "SELECT COUNT(DISTINCT kmen_ec_id) FROM tenant.kalk_rabat WHERE typ_text='Prodejní'")).scalar()
+        q["zdroje_cena"] = [dict(r._mapping) for r in sd.execute(_t(
+            "SELECT zdroj, COUNT(*) n FROM tenant.kalk_cena GROUP BY zdroj ORDER BY zdroj"))]
         return {"ok": True, "pocty": q}
     finally:
         sd.close()
+
+
+# ── VÝPOČTOVÝ ENGINE ───────────────────────────────────────────────────
+# Priorita zdroje dat: aktuální STANDARD (std*) přebíjí baseline 2014 (ec2014).
+_SRC_PRIO = "CASE WHEN zdroj LIKE 'std%' THEN 0 ELSE 1 END"
+
+
+def _norm(s: str) -> str:
+    import re
+    return re.sub(r"[^0-9A-Za-z]", "", (s or "")).upper()
+
+
+def _resolve_item(sd, reg_cis: str, cislo_org=None) -> dict:
+    """Najde díl v zrcadle podle obj. čísla (normalizovaně) + vytáhne CC, rabat, koef.
+    Priorita: aktuální STANDARD před 2014; rabat preferuje per-zákazník (cislo_org)."""
+    from sqlalchemy import text as _t
+    nrm = _norm(reg_cis)
+    if not nrm:
+        return {"found": False}
+    # díl (kmen) — nejlepší shoda na normalizované reg_cis (obsahuje, kvůli prefixu výrobce)
+    km = sd.execute(_t(
+        "SELECT kmen_ec_id, reg_cis, nazev FROM tenant.kalk_kmen "
+        "WHERE replace(replace(upper(reg_cis),' ',''),'-','') LIKE :p "
+        "ORDER BY length(reg_cis) LIMIT 1"), {"p": "%" + nrm + "%"}).first()
+    if not km:
+        return {"found": False, "reg_cis": reg_cis}
+    kid = km.kmen_ec_id
+    cc = sd.execute(_t(
+        "SELECT cc_cena, mena, zdroj FROM tenant.kalk_cena WHERE kmen_ec_id=:k "
+        "ORDER BY " + _SRC_PRIO + ", ec_id DESC LIMIT 1"), {"k": kid}).first()
+    rp = sd.execute(_t(
+        "SELECT rabat, cislo_org, zdroj FROM tenant.kalk_rabat WHERE kmen_ec_id=:k AND typ_text='Prodejní' "
+        "ORDER BY CASE WHEN cislo_org=:o THEN 0 WHEN cislo_org IS NULL THEN 1 ELSE 2 END, " + _SRC_PRIO +
+        ", ec_id DESC LIMIT 1"), {"k": kid, "o": cislo_org}).first()
+    ko = sd.execute(_t(
+        "SELECT k_vkm, k_arb, zdroj FROM tenant.kalk_koef WHERE kmen_ec_id=:k "
+        "ORDER BY " + _SRC_PRIO + ", ec_id DESC LIMIT 1"), {"k": kid}).first()
+    return {
+        "found": True, "kmen_ec_id": kid, "reg_cis": km.reg_cis, "nazev": km.nazev,
+        "cc": float(cc.cc_cena) if cc and cc.cc_cena is not None else None,
+        "mena": cc.mena if cc else None, "cc_zdroj": cc.zdroj if cc else None,
+        "rabat_prod": float(rp.rabat) if rp and rp.rabat is not None else None,
+        "rabat_zdroj": rp.zdroj if rp else None,
+        "k_vkm": float(ko.k_vkm) if ko and ko.k_vkm is not None else None,
+        "k_arb": float(ko.k_arb) if ko and ko.k_arb is not None else None,
+        "koef_zdroj": ko.zdroj if ko else None,
+    }
+
+
+def compute(bom: list, cislo_org=None, base_vkm: float = 14.5, base_arb: float = 28.0,
+            koef_g: float = 1.0, marze_pct: float = 0.0) -> dict:
+    """Spočítá kalkulaci nad zrcadlem. bom = [{'reg_cis','qty'} …].
+    Řádek: prodejní = CC×(1+rabat/100); VKM = k_vkm×base_vkm×koef_g;
+    Arbeit = k_arb×base_arb×koef_g; hodiny = qty×k_arb; řádek = (prodejní+VKM+Arbeit)×qty."""
+    from core.database_data import get_data_session
+    sd = get_data_session()
+    lines = []
+    try:
+        for it in bom:
+            reg = str(it.get("reg_cis") or "").strip()
+            qty = float(it.get("qty") or 0)
+            r = _resolve_item(sd, reg, cislo_org)
+            miss = []
+            if not r.get("found"):
+                lines.append({"reg_cis": reg, "qty": qty, "found": False, "missing": ["nenalezen"]})
+                continue
+            cc = r.get("cc"); rab = r.get("rabat_prod"); kv = r.get("k_vkm"); ka = r.get("k_arb")
+            if cc is None:
+                miss.append("cena")
+            if kv is None:
+                miss.append("koef")
+            prodejni = round(cc * (1 + (rab or 0) / 100.0), 2) if cc is not None else None
+            vkm = round((kv or 0) * base_vkm * koef_g, 2)
+            arb = round((ka or 0) * base_arb * koef_g, 2)
+            hod = round(qty * (ka or 0), 2)
+            radek = round(((prodejni or 0) + vkm + arb) * qty, 2)
+            lines.append({
+                "reg_cis": r["reg_cis"], "nazev": r["nazev"], "qty": qty,
+                "cc": cc, "rabat_prod": rab, "prodejni": prodejni,
+                "k_vkm": kv, "k_arb": ka, "vkm": vkm, "arbeit": arb,
+                "hodiny": hod, "radek": radek,
+                "zdroj": {"cena": r.get("cc_zdroj"), "rabat": r.get("rabat_zdroj"), "koef": r.get("koef_zdroj")},
+                "missing": miss,
+            })
+    finally:
+        sd.close()
+    mat = round(sum((l.get("prodejni") or 0) * l["qty"] for l in lines if l.get("found", True)), 2)
+    vkm_t = round(sum(l.get("vkm", 0) for l in lines), 2)
+    arb_t = round(sum(l.get("arbeit", 0) for l in lines), 2)
+    hod_t = round(sum(l.get("hodiny", 0) for l in lines), 2)
+    radek_t = round(sum(l.get("radek", 0) for l in lines), 2)
+    marze = round(radek_t * marze_pct / 100.0, 2)
+    return {
+        "ok": True, "cislo_org": cislo_org,
+        "baze": {"vkm": base_vkm, "arbeit": base_arb, "koef": koef_g, "marze_pct": marze_pct},
+        "souhrn": {"material": mat, "vkm": vkm_t, "arbeit": arb_t, "hodiny": hod_t,
+                   "radky_celkem": radek_t, "marze": marze, "celkem_s_marzi": round(radek_t + marze, 2),
+                   "polozek": len(lines), "chybi_cena": sum(1 for l in lines if "cena" in l.get("missing", [])),
+                   "chybi_koef": sum(1 for l in lines if "koef" in l.get("missing", [])),
+                   "nenalezeno": sum(1 for l in lines if not l.get("found", True))},
+        "radky": lines,
+    }
+
+
+def compute_from_cmd(rest: str) -> dict:
+    """@@KALKCALC org=NN vkm=14.5 arb=28 | REGCIS*QTY, REGCIS*QTY, …"""
+    cislo_org = None; bvkm = 14.5; barb = 28.0; kg = 1.0; mar = 0.0
+    head, _, body = rest.partition("|")
+    for tok in head.split():
+        if "=" in tok:
+            k, v = tok.split("=", 1)
+            try:
+                if k == "org":
+                    cislo_org = int(v)
+                elif k in ("vkm", "base_vkm"):
+                    bvkm = float(v)
+                elif k in ("arb", "arbeit"):
+                    barb = float(v)
+                elif k == "koef":
+                    kg = float(v)
+                elif k in ("marze", "marze_pct"):
+                    mar = float(v)
+            except Exception:
+                pass
+    bom = []
+    for part in body.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "*" in part:
+            reg, q = part.rsplit("*", 1)
+        else:
+            reg, q = part, "1"
+        try:
+            qn = float(q)
+        except Exception:
+            qn = 1.0
+        bom.append({"reg_cis": reg.strip(), "qty": qn})
+    return compute(bom, cislo_org, bvkm, barb, kg, mar)

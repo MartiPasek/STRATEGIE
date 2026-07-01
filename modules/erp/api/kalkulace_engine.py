@@ -328,4 +328,20 @@ def compute_from_cmd(rest: str) -> dict:
         except Exception:
             qn = 1.0
         bom.append({"reg_cis": reg.strip(), "qty": qn})
-    return compute(bom, cislo_org, bvkm, barb, kg, mar)
+    res = compute(bom, cislo_org, bvkm, barb, kg, mar)
+    # bridge-friendly: rows tabulka (řádky + součet)
+    rows = []
+    for l in res["radky"]:
+        rows.append({
+            "reg_cis": l.get("reg_cis"), "nazev": (l.get("nazev") or "")[:26], "ks": l.get("qty"),
+            "CC": l.get("cc"), "rabat": l.get("rabat_prod"), "cena": l.get("prodejni"),
+            "VKM": l.get("vkm"), "Arbeit": l.get("arbeit"), "hod": l.get("hodiny"),
+            "radek": l.get("radek"), "chybi": ",".join(l.get("missing", [])) or "-",
+        })
+    s = res["souhrn"]
+    rows.append({"reg_cis": "== SOUČET ==", "nazev": "%d pol." % s["polozek"], "ks": None,
+                 "CC": None, "rabat": None, "cena": s["material"], "VKM": s["vkm"],
+                 "Arbeit": s["arbeit"], "hod": s["hodiny"], "radek": s["radky_celkem"],
+                 "chybi": "cena:%d koef:%d nenal:%d" % (s["chybi_cena"], s["chybi_koef"], s["nenalezeno"])})
+    res["rows"] = rows
+    return res

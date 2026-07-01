@@ -296,9 +296,13 @@ def ingest_files(limit: int = 50, only_cislo: int | None = None) -> dict:
         sd.commit()
     finally:
         sd.close()
-    return {"ok": True, "smernic_zpracovano": processed, "bez_slozky": no_folder,
-            "soubory_ok": files_ok, "soubory_err": files_err,
-            "share_root": _SHARE_ROOT, "detail": detail[:20]}
+    rows = [["SOUHRN", "zpracovano=%d bez_slozky=%d ok=%d err=%d" % (
+        processed, no_folder, files_ok, files_err), _SHARE_ROOT]]
+    for d in detail[:20]:
+        rows.append([str(d.get("cislo")), d.get("folder", ""), d.get("error", "")[:150]])
+    return {"ok": True, "columns": ["cislo", "folder/info", "error"], "rows": rows,
+            "count": len(rows), "smernic_zpracovano": processed, "bez_slozky": no_folder,
+            "soubory_ok": files_ok, "soubory_err": files_err}
 
 
 # ── @@KB — fulltext hledání ────────────────────────────────────────────

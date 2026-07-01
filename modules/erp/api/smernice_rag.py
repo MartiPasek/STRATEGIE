@@ -64,9 +64,14 @@ def _ec(sql: str) -> list[dict]:
     return res.get("rows") or []
 
 
+# GOTCHA: call_tool_sync strhává 1× prefix "eurosoft_" (bare_name = full_name[9:]).
+# FS nástroje jsou na MCP serveru registrované S prefixem ("eurosoft_file_list"),
+# na rozdíl od strategie_* (bez prefixu). Takže musíme poslat DVOJITÝ prefix →
+# po strhnutí zůstane "eurosoft_file_list" a sedne na server. (Ostatní tooly:
+# "eurosoft_strategie_query_raw" → strip → "strategie_query_raw" = OK.)
 def _fs_list(subpath: str) -> dict:
     mcp = _mcp()
-    raw = mcp.call_tool_sync(full_name="eurosoft_file_list",
+    raw = mcp.call_tool_sync(full_name="eurosoft_eurosoft_file_list",
                              arguments={"base_override": _SHARE_ROOT, "subpath": subpath},
                              conversation_id=None)
     return json.loads(raw)
@@ -74,7 +79,7 @@ def _fs_list(subpath: str) -> dict:
 
 def _fs_read_b64(path: str) -> dict:
     mcp = _mcp()
-    raw = mcp.call_tool_sync(full_name="eurosoft_file_read",
+    raw = mcp.call_tool_sync(full_name="eurosoft_eurosoft_file_read",
                              arguments={"base_override": _SHARE_ROOT, "path": path, "encoding": "base64"},
                              conversation_id=None)
     return json.loads(raw)

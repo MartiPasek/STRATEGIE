@@ -55,7 +55,7 @@
       <button data-f="ES">EUROSOFT-System</button>
     </div>
     <div class="seg" id="rok">
-      <button data-r="2025" class="on">2025</button>
+      <button data-r="2025">2025</button>
       <button data-r="2026">2026</button>
     </div>
   </div>
@@ -74,7 +74,21 @@
 <script>
 const fmt=(n)=>n==null?"—":Number(n).toLocaleString("cs-CZ",{maximumFractionDigits:0})+" Kč";
 const MES=["","Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
-let FIRMA="EC", ROK="2025";
+let FIRMA="EC";
+// Výchozí rok = rok, za KTERÝ se právě dělají mzdy. Mzdy se dělají zpětně za minulý měsíc,
+// takže třeba v lednu jsme pořád v loňském roce (dělá se prosinec). Stejné pravidlo jako ve Výplatnicích.
+let ROK=(function(){
+  const p=new Date(new Date().getFullYear(), new Date().getMonth()-1, 1); // 1. den minulého měsíce
+  const cil=p.getFullYear();
+  const btns=Array.prototype.slice.call(document.querySelectorAll('#rok button'));
+  const roky=btns.map(b=>+b.dataset.r).sort((a,b)=>a-b);
+  // když je hledaný rok mezi tlačítky, vezmi ho; jinak nejbližší dostupný (nejvyšší, který není v budoucnu)
+  let vyber=roky.indexOf(cil)>=0?cil:roky[0];
+  for(const y of roky){ if(y<=cil) vyber=y; }
+  return String(vyber);
+})();
+// zvýrazni tlačítko výchozího roku
+document.querySelectorAll('#rok button').forEach(b=>b.classList.toggle('on', b.dataset.r===ROK));
 async function jget(u){const r=await fetch(u,{credentials:"include"});if(!r.ok)throw new Error(r.status);return r.json();}
 
 function card(k,v,cls){return `<div class="card ${cls||''}"><div class="k">${k}</div><div class="v ${cls==='hl'?'':''}">${v}</div></div>`;}

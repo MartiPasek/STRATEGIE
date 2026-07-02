@@ -140,6 +140,10 @@ async def sign_create(req: Request):
         cp_email = (b.get("counterparty_email") or "").strip()[:200]
         note = (b.get("note") or "").strip()[:1000] or None
         our = (b.get("our_party") or "EUROSOFT-Control s.r.o.").strip()[:200]
+        # Režim 'self' (Marti 2.7.2026): jen náš (interní) SES podpis, protistrana
+        # NEpodepisuje — je jen příjemcem hotového podepsaného PDF (uloženo do
+        # counterparty_email, ale bez counterparty signatáře → finalizace po našem podpisu).
+        mode = (b.get("mode") or "bilateral").strip().lower()
         pdf_b64 = b.get("pdf_b64") or ""
         if "," in pdf_b64[:80] and ";base64" in pdf_b64[:80]:
             pdf_b64 = pdf_b64.split(",", 1)[1]
@@ -149,7 +153,7 @@ async def sign_create(req: Request):
             raw = b""
         if not raw or raw[:4] != b"%PDF":
             return JSONResponse({"ok": False, "error": "Nahraj prosím PDF soubor smlouvy."})
-        if not cp_name or "@" not in cp_email:
+        if mode != "self" and (not cp_name or "@" not in cp_email):
             return JSONResponse({"ok": False, "error": "Vyplň jméno a e-mail protistrany."})
         sha = hashlib.sha256(raw).hexdigest()
         row = s.execute(_t("""INSERT INTO tenant.contract_sign(tenant_id,title,doc_sha256,our_party,
@@ -163,8 +167,10 @@ async def sign_create(req: Request):
         # signatáři: interní (my) + protistrana
         s.execute(_t("""INSERT INTO tenant.contract_sign_party(tenant_id,contract_id,role,jmeno,email,user_id,poradi)
             VALUES(:t,:c,'internal',:j,NULL,:u,1)"""), {"t": tid, "c": cid, "j": _user_name(s, uid), "u": uid})
-        s.execute(_t("""INSERT INTO tenant.contract_sign_party(tenant_id,contract_id,role,jmeno,email,poradi)
-            VALUES(:t,:c,'counterparty',:j,:e,2)"""), {"t": tid, "c": cid, "j": cp_name, "e": cp_email})
+        # counterparty signatář JEN v bilaterálním režimu; v 'self' je příjemce bez podpisu
+        if mode != "self":
+            s.execute(_t("""INSERT INTO tenant.contract_sign_party(tenant_id,contract_id,role,jmeno,email,poradi)
+                VALUES(:t,:c,'counterparty',:j,:e,2)"""), {"t": tid, "c": cid, "j": cp_name, "e": cp_email})
         s.commit()
         _log(s, tid, cid, "created", _user_name(s, uid), _client_ip(req), detail=title)
         s.commit()
@@ -404,6 +410,9 @@ def _maybe_finalize(s, tid, cid):
         cp = [p for p in parties if p["role"] == "counterparty"]
         if cp and cp[0]["email"]:
             emails.append(cp[0]["email"])
+        # self-režim: příjemce podepsaného PDF je v envelope.counterparty_email (bez signatáře)
+        if e.get("counterparty_email"):
+            emails.append(e["counterparty_email"])
         our_uid = s.execute(_t("SELECT user_id FROM tenant.contract_sign_party WHERE contract_id=:c AND role='internal'"),
                             {"c": cid}).scalar()
         if our_uid:
@@ -423,12 +432,12 @@ def _maybe_finalize(s, tid, cid):
         except Exception:
             doc_id = None
         if doc_id:
-            body = ("Dobrý den,\n\nsmlouva %s byla elektronicky podepsána oběma stranami "
+            body = ("Dobrý den,\n\ndokument %s byl elektronicky podepsán"
                     "(prostý el. podpis dle eIDAS + auditní stopa). V příloze najdete finální podepsané "
                     "PDF s podpisovou doložkou (jména, časy, IP, otisk dokumentu). Tisk ani sken není potřeba.\n\n"
                     "S pozdravem\n%s") % (e["title"], e["our_party"] or "STRATEGIE-System s.r.o.")
         else:
-            body = ("Dobrý den,\n\nsmlouva %s byla elektronicky podepsána oběma stranami "
+            body = ("Dobrý den,\n\ndokument %s byl elektronicky podepsán"
                     "(prostý el. podpis dle eIDAS + auditní stopa). Finální podepsané PDF s podpisovou "
                     "doložkou je k dispozici přes odkaz, který jsme Vám k podpisu zaslali.\n\nS pozdravem\n%s") % (
                         e["title"], e["our_party"] or "STRATEGIE-System s.r.o.")

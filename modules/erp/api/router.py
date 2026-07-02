@@ -32737,8 +32737,17 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _pth = (_ip[1].strip() if len(_ip) > 1 else None)
                 if not _vyr:
                     return JSONResponse({"ok": False, "error": "@@CENIK IMPORT <vyrobce> [cesta]"})
+                import threading as _thc
                 from modules.erp.api.cenik_engine import import_by_config as _ibc
-                return JSONResponse(_ibc(_vyr, path=_pth, tenant_id=2, uid=1))
+
+                def _run_imp(_v=_vyr, _pp=_pth):
+                    try:
+                        _ibc(_v, path=_pp, tenant_id=2, uid=1)
+                    except Exception:
+                        pass
+                _thc.Thread(target=_run_imp, daemon=True).start()
+                return JSONResponse({"ok": True, "spusteno": True, "vyrobce": _vyr,
+                                     "pozn": "import bezi na pozadi (velke soubory) — sleduj tenant.cenik_import"})
             return JSONResponse({"ok": False, "error": "@@CENIK PEEK|IMPORT|IMPORTFIN"})
         except Exception as _ce:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ce).__name__, str(_ce)[:300]),

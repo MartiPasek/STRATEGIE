@@ -5,49 +5,84 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>🧑‍💼 HR modul</title>
 <style>
-  :root{--navy:#1f3864;--line:#e2e6ef;--muted:#667;--accent:#3a5a9c;}
+  :root{
+    --green:#7cb342;      /* Pinya akcentní zelená */
+    --green-d:#5f9331;
+    --ink:#33404d;        /* tmavý text */
+    --title:#2b3a4a;
+    --muted:#8a94a3;      /* popisky */
+    --line:#e7eaef;
+    --bg:#f4f5f7;
+    --card:#ffffff;
+    --ic-bg:#f0f4ec;      /* světle zelené pozadí ikon */
+  }
   *{box-sizing:border-box}
-  body{margin:0;font:14px/1.5 -apple-system,Segoe UI,Roboto,system-ui;color:#111;background:#f6f7fb}
-  header{background:var(--navy);color:#fff;padding:12px 18px;display:flex;align-items:center;gap:10px}
-  header h1{font-size:17px;margin:0;font-weight:700}
-  header .sub{opacity:.8;font-size:12px;margin-left:auto}
-  .wrap{max-width:1120px;margin:16px auto;padding:0 14px}
-  /* KPI badges */
-  .badges{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
-  .badge{flex:1;min-width:150px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-  .badge .n{font-size:26px;font-weight:800;color:var(--navy);line-height:1}
-  .badge .l{font-size:12px;color:var(--muted);margin-top:4px}
-  /* dlaždice grid */
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
-  .tile{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-height:120px;display:flex;flex-direction:column}
-  .tile h3{margin:0 0 6px;font-size:15px;color:var(--navy);display:flex;align-items:center;gap:8px}
-  .tile .desc{font-size:12.5px;color:var(--muted);flex:1}
-  .tile .foot{margin-top:8px;font-size:12px}
-  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:11px;font-weight:700}
-  .tag.soon{background:#f3f4f6;color:#8894a8}
-  .tag.live{background:#e6f6ec;color:#1a7a3d}
-  .feed{background:#fff;border:1px solid var(--line);border-radius:12px;padding:6px 4px;margin-top:16px}
-  .feed .hd{padding:8px 14px;font-weight:700;color:var(--navy)}
-  .feed .row{display:flex;gap:10px;padding:8px 14px;border-top:1px solid #f0f2f7;font-size:13.5px;align-items:center}
-  .feed .row .ic{font-size:17px}
-  .empty{padding:22px;color:var(--muted);text-align:center}
+  body{margin:0;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+  /* Horní nav — světlá se zeleným akcentem (Pinya) */
+  .topbar{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 1px 2px rgba(20,30,50,.04)}
+  .topbar .inner{max-width:1180px;margin:0 auto;padding:11px 18px;display:flex;align-items:center;gap:12px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;color:var(--title)}
+  .brand .dot{width:26px;height:26px;border-radius:8px;background:var(--green);display:inline-flex;align-items:center;justify-content:center;font-size:15px}
+  .brand .sub{font-weight:500;font-size:12px;color:var(--muted);margin-left:2px}
+  .topbar .spacer{margin-left:auto}
+  .pill{font-size:12px;color:var(--green-d);background:var(--ic-bg);border:1px solid #e0ead4;border-radius:20px;padding:4px 12px;font-weight:700}
+  .wrap{max-width:1180px;margin:18px auto;padding:0 18px}
+
+  /* KPI badges — jemné stat karty */
+  .badges{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px}
+  .badge{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+  .badge .n{font-size:28px;font-weight:800;color:var(--title);line-height:1}
+  .badge .l{font-size:12px;color:var(--muted)}
+  .badge .bar{height:3px;border-radius:3px;background:var(--green);width:34px;margin-top:8px;opacity:.85}
+
+  /* Obsahová karta s dlaždicemi (styl „Profil pracovníka") */
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:18px}
+  .panel .phd{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800;color:var(--title);margin:2px 0 18px}
+  .panel .phd .pi{width:26px;height:26px;border-radius:50%;background:var(--ic-bg);color:var(--green-d);display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px 26px}
+  .tile{display:flex;gap:13px;padding:14px 10px;border-radius:10px;align-items:flex-start;transition:background .12s}
+  .tile .ico{flex:0 0 40px;height:40px;border-radius:10px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:19px;color:var(--green-d)}
+  .tile .bd{flex:1;min-width:0}
+  .tile .tt{font-weight:700;color:var(--title);font-size:14.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tile .dd{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .tile.click{cursor:pointer}
+  .tile.click:hover{background:#fafcf7}
+  .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:10.5px;font-weight:700;letter-spacing:.2px}
+  .tag.soon{background:#f1f3f5;color:#9aa4b1}
+  .tag.live{background:var(--ic-bg);color:var(--green-d)}
+
+  /* Aktuality */
+  .feed .phd{margin-bottom:10px}
+  .feed .row{display:flex;gap:11px;padding:10px 6px;border-top:1px solid #f2f4f6;font-size:13.5px;align-items:center}
+  .feed .row:first-of-type{border-top:0}
+  .feed .row .ic{flex:0 0 30px;height:30px;border-radius:8px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:15px}
+  .empty{padding:22px;color:var(--muted);text-align:center;font-style:italic}
+  @media(max-width:640px){.wrap{padding:0 12px}.panel{padding:16px}}
 </style>
 </head>
 <body>
-<header>
-  <h1>🧑‍💼 HR modul</h1>
-  <span class="sub">personalistika · přehled z jednoho místa</span>
-</header>
+<div class="topbar">
+  <div class="inner">
+    <div class="brand"><span class="dot">🧑‍💼</span> HR modul <span class="sub">· personalistika</span></div>
+    <span class="spacer"></span>
+    <span class="pill" id="pill">přehled z jednoho místa</span>
+  </div>
+</div>
+
 <div class="wrap">
   <div class="badges" id="badges"><div class="empty">Načítám…</div></div>
 
-  <div class="grid" id="grid"></div>
+  <div class="panel">
+    <div class="phd"><span class="pi">▦</span> Personalistika — přehled</div>
+    <div class="grid" id="grid"></div>
+  </div>
 
-  <div class="feed">
-    <div class="hd">📣 Aktuality</div>
+  <div class="panel feed">
+    <div class="phd"><span class="pi">📣</span> Aktuality</div>
     <div id="akt"><div class="empty">Načítám…</div></div>
   </div>
 </div>
+
 <script>
 const API="/api/v1/erp";
 function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
@@ -67,10 +102,12 @@ const TILES=[
 function renderTiles(){
   const g=document.getElementById('grid'); g.innerHTML='';
   for(const x of TILES){
-    const el=document.createElement('div'); el.className='tile';
-    el.innerHTML='<h3>'+x.ic+' '+esc(x.t)+'</h3><div class="desc">'+esc(x.d)+'</div>'+
-      '<div class="foot">'+(x.st==='live'?'<span class="tag live">funkční</span>':'<span class="tag soon">připravujeme</span>')+'</div>';
-    if(x.go){el.style.cursor='pointer';el.onclick=()=>{location.href=x.go;};}
+    const el=document.createElement('div'); el.className='tile'+(x.go?' click':'');
+    const tag=(x.st==='live')?'<span class="tag live">funkční</span>':'<span class="tag soon">připravujeme</span>';
+    el.innerHTML='<div class="ico">'+x.ic+'</div><div class="bd">'+
+      '<div class="tt">'+esc(x.t)+' '+tag+'</div>'+
+      '<div class="dd">'+esc(x.d)+'</div></div>';
+    if(x.go){el.onclick=()=>{location.href=x.go;};}
     g.appendChild(el);
   }
 }
@@ -92,7 +129,7 @@ async function load(){
   if(!akt.length){aEl.innerHTML='<div class="empty">Žádné aktuality.</div>';return;}
   aEl.innerHTML=akt.map(a=>'<div class="row"><span class="ic">'+esc(a.ikona||'•')+'</span><span>'+esc(a.text)+'</span></div>').join('');
 }
-function badge(n,l){return '<div class="badge"><div class="n">'+(n==null?'0':n)+'</div><div class="l">'+esc(l)+'</div></div>';}
+function badge(n,l){return '<div class="badge"><div class="n">'+(n==null?'0':n)+'</div><div class="l">'+esc(l)+'</div><div class="bar"></div></div>';}
 load();
 </script>
 </body>

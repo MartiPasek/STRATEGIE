@@ -354,9 +354,12 @@ async def self_update(request: Request):
         DETACHED = 0x00000008  # DETACHED_PROCESS (Windows)
         _ps = (
             f"Start-Sleep -Seconds 1; "
-            f"Stop-Service '{svc}' -Force; "
+            f"Stop-Service '{svc}' -Force -ErrorAction SilentlyContinue; "
+            # počkej, až služba REÁLNĚ přejde do Stopped (uvolní zámky .py), max 20 s:
+            f"$i=0; while(((Get-Service '{svc}').Status -ne 'Stopped') -and ($i -lt 40)){{Start-Sleep -Milliseconds 500; $i++}}; "
             f"Start-Sleep -Seconds 2; "
-            f"robocopy '{src_dir}' '{pkg_dir}' *.py /NJH /NJS /NP /R:2 /W:1 | Out-Null; "
+            # robustní copy: víc pokusů/čekání; /IS = přepiš i shodné (jistota nového obsahu):
+            f"robocopy '{src_dir}' '{pkg_dir}' *.py /NJH /NJS /NP /IS /R:8 /W:2 | Out-Null; "
             f"Remove-Item -Recurse -Force '{pkg_dir}\\__pycache__' -ErrorAction SilentlyContinue; "
             f"Start-Service '{svc}'"
         )

@@ -32719,7 +32719,20 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _cols = ["radek"] + ["c%02d" % (_k + 1) for _k in range(_mc)]
                 return JSONResponse({"ok": True, "columns": _cols, "rows": _rows,
                                      "count": len(_rows), "listy": _r.get("listy")})
-            return JSONResponse({"ok": False, "error": "@@CENIK PEEK <cesta_xls>"})
+            if _cop == "IMPORTFIN":
+                from modules.erp.api.cenik_engine import import_cenik as _imp
+                _defp = "D:\\Data\\ZZ_Marti-AI RW\\Ceniky\\Finder_EUROSOFT - Control s.r.o._ceník2026_od2026-01-05_7954_JV_260203.xlsx"
+                _lim = None
+                _p = _defp
+                if _carg.isdigit():
+                    _lim = int(_carg)
+                elif _carg:
+                    _p = _carg
+                return JSONResponse(_imp(
+                    _p, "FIN", {"P01": 3, "P02": 12, "P03": 10, "P04": 7, "P05": 9, "P06": 4},
+                    data_start=1, mena="EUR", platnost_od="2026-01-05",
+                    tenant_id=2, uid=1, limit=_lim))
+            return JSONResponse({"ok": False, "error": "@@CENIK PEEK|IMPORTFIN <cesta_xls>"})
         except Exception as _ce:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ce).__name__, str(_ce)[:300]),
                                  "tb": _tbc.format_exc()[-800:]})

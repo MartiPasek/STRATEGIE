@@ -302,3 +302,108 @@ def peek_xls(path: str, n: int = 12, sheet_idx: int = 0) -> dict:
     maxc = max((len(r) for r in rows), default=0)
     return {"ok": True, "listy": names, "list": ws.title,
             "sloupcu": maxc, "radky": rows}
+
+
+# výstupní pole vzorců (DB-Ceniky názvy) → sloupce tenant.cenik_polozka
+_OUT_MAP = {
+    "RegCisHeo": "kat_kod", "EC_PC": "list_price", "EC_NC": "net_price",
+    "Popis": "popis", "EAN": "ean", "HmotnostKg": "hmotnost_kg",
+    "MJ": "mj", "Mena": "mena", "Rabat": "rabat",
+}
+_NUM_FIELDS = {"list_price", "net_price", "hmotnost_kg", "rabat"}
+
+
+def _flush(s, batch):
+    from sqlalchemy import text as _t
+    s.execute(_t(
+        "INSERT INTO tenant.cenik_polozka"
+        "(tenant_id,import_id,radek_excel,raw,kat_kod,kat_kod_norm,popis,"
+        " list_price,net_price,rabat,mj,ean,hmotnost_kg,mena) VALUES"
+        "(:tenant_id,:import_id,:radek_excel,CAST(:raw AS jsonb),:kat_kod,:kat_kod_norm,"
+        ":popis,:list_price,:net_price,:rabat,:mj,:ean,:hmotnost_kg,:mena)"), batch)
+
+
+def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
+                 ceny_czk=False, platnost_od=None, tenant_id=2, uid=None, limit=None):
+    """Import XLS ceníku: staging raw (JSONB) + aplikace vzorců (z tenant.cenik_vzorec
+    dle vyrobce) → normalizovaná pole. col_map = {'P01': index_sloupce (1-based), ...}."""
+    import io as _io
+    import json as _j
+    import openpyxl as _ox
+    from decimal import Decimal, InvalidOperation
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+
+    s = get_data_session()
+    try:
+        vz = [dict(r) for r in s.execute(_t(
+            "SELECT poradi, cil_pole, vyraz FROM tenant.cenik_vzorec "
+            "WHERE tenant_id=:t AND vyrobce=:v AND aktivni ORDER BY poradi"),
+            {"t": tenant_id, "v": vyrobce}).mappings()]
+        if not vz:
+            return {"ok": False, "error": "žádné vzorce pro výrobce %s" % vyrobce}
+
+        data = _read_share_bytes(path)
+        wb = _ox.load_workbook(_io.BytesIO(data), read_only=True, data_only=True)
+        ws = wb.active
+        allrows = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        imp = s.execute(_t(
+            "INSERT INTO tenant.cenik_import(tenant_id,vyrobce,mena,ceny_czk,platnost_od,"
+            "zdroj_soubor,mapovani,created_by) VALUES(:t,:v,:m,:c,:po,:zs,CAST(:mp AS jsonb),:by) "
+            "RETURNING id"),
+            {"t": tenant_id, "v": vyrobce, "m": mena, "c": ceny_czk, "po": platnost_od,
+             "zs": path, "mp": _j.dumps({"col_map": col_map, "data_start": data_start}),
+             "by": uid}).scalar()
+
+        cnt = 0
+        chyb = 0
+        batch = []
+        for i in range(data_start, len(allrows)):
+            row = allrows[i]
+            if row is None or all(c is None or str(c).strip() == "" for c in row):
+                continue
+            params = {}
+            for pk, ci in col_map.items():
+                params[pk] = "" if (ci - 1 >= len(row) or row[ci - 1] is None) else str(row[ci - 1])
+            out = transform_row(vz, params)
+            if out.get("_chyby"):
+                chyb += 1
+            rec = {"tenant_id": tenant_id, "import_id": imp, "radek_excel": i + 1,
+                   "raw": _j.dumps({("c%02d" % (k + 1)): ("" if v is None else str(v))
+                                    for k, v in enumerate(row)}),
+                   "kat_kod": None, "kat_kod_norm": None, "popis": None, "list_price": None,
+                   "net_price": None, "rabat": None, "mj": None, "ean": None,
+                   "hmotnost_kg": None, "mena": mena}
+            for of, val in out.items():
+                if of == "_chyby":
+                    continue
+                col = _OUT_MAP.get(of)
+                if not col:
+                    continue
+                if col in _NUM_FIELDS:
+                    try:
+                        sv = str(val).strip().replace(",", ".")
+                        rec[col] = Decimal(sv) if sv != "" else None
+                    except (InvalidOperation, ValueError):
+                        rec[col] = None
+                else:
+                    rec[col] = str(val)[:500]
+            if rec["kat_kod"]:
+                rec["kat_kod_norm"] = norm_kod(rec["kat_kod"])
+            batch.append(rec)
+            cnt += 1
+            if len(batch) >= 500:
+                _flush(s, batch); batch = []
+            if limit and cnt >= limit:
+                break
+        if batch:
+            _flush(s, batch)
+        s.execute(_t("UPDATE tenant.cenik_import SET pocet_polozek=:n, zpracovano=true, "
+                     "updated_at=now() WHERE id=:i"), {"n": cnt, "i": imp})
+        s.commit()
+        return {"ok": True, "import_id": imp, "vlozeno": cnt, "vzorcu": len(vz),
+                "radku_s_chybou": chyb}
+    finally:
+        s.close()

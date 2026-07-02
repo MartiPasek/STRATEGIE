@@ -32377,8 +32377,13 @@ async def diag_sql(req: Request) -> JSONResponse:
                 mcp = get_eurosoft_mcp_client()
                 if mcp is None:
                     return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                # zápis do RO jen přes namespace 'ro' → převeď absolutní RO cestu na relativní bázi
+                _ro_root = "D:\\Data\\ZZ_Marti-AI RO"
+                _bb = _base.rstrip("\\/")
+                if _bb.lower().startswith(_ro_root.lower()):
+                    _bb = _bb[len(_ro_root):].lstrip("\\/")
                 raw = mcp.call_tool_sync("eurosoft_eurosoft_fs_reorg",
-                                         {"namespace": "ro", "base_override": _base.rstrip("\\/"), "moves": _moves},
+                                         {"namespace": "ro", "base": _bb.replace("\\", "/"), "moves": _moves},
                                          conversation_id=None)
                 r = _jf.loads(raw) if isinstance(raw, str) else raw
                 if isinstance(r, dict) and r.get("ok"):

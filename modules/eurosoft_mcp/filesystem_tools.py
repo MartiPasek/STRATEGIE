@@ -579,7 +579,11 @@ async def eurosoft_fs_reorg(
     shutil.move. moves = [{"src":"stará/cesta","dst":"nová/cesta"}, ...] (relativní
     k bázi). Přejmenuje složky (očíslování), přesune soubory do složek, atd.
     Idempotentní-ish: chybějící zdroj → 'skip' (už přesunuto)."""
-    root, err = _resolve(namespace, "", base_override or base, True)
+    # Zápis do RO jde přes namespace 'ro' (ne base_override — ten je pro RO read-only).
+    if base and not base_override:
+        root, err = _resolve_path(namespace, base)
+    else:
+        root, err = _resolve_path_override(base_override, "", True)
     if err:
         return {"ok": False, "error": "báze: " + err}
     if not root.exists():

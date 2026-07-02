@@ -95,7 +95,7 @@ def create_table(oz_table: str, cols: list, tenant_id: int = 2, drop: bool = Tru
         if drop:
             s.execute(_t("DROP TABLE IF EXISTS tenant.%s" % oz_table))
         s.execute(_t(ddl))
-        s.execute(_t("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON tenant.%s TO strategie" % oz_table))
+        s.execute(_t('GRANT ALL ON tenant.%s TO strategie, "Marti-AI"' % oz_table))
         s.commit()
     finally:
         s.close()
@@ -182,7 +182,7 @@ def _ensure_def_table(tenant_id: int = 2):
             "CREATE TABLE IF NOT EXISTS tenant.oz_mirror_def ("
             "oz_table text PRIMARY KEY, fw_code text, sql_mssql text, "
             "last_sync_at timestamp, last_rows int, updated_at timestamp DEFAULT now())"))
-        s.execute(_t("GRANT SELECT, INSERT, UPDATE, DELETE ON tenant.oz_mirror_def TO strategie"))
+        s.execute(_t('GRANT ALL ON tenant.oz_mirror_def TO strategie, "Marti-AI"'))
         s.commit()
     finally:
         s.close()

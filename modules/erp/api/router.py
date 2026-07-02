@@ -32852,7 +32852,13 @@ async def diag_sql(req: Request) -> JSONResponse:
                                          "rows": [[_c["kat_kod"], (_c["popis"] or "")[:40],
                                                    str(_c["net_price"]), str(_c["list_price"]), _c["vyrobce"]]]})
                 return JSONResponse({"ok": True, "columns": ["vysledek"], "rows": [["nenalezeno: " + _carg]]})
-            return JSONResponse({"ok": False, "error": "@@CENIK PEEK|IMPORT|IMPORTFIN|DEDUP|FIND"})
+            if _cop == "MIGRATEALL":
+                import threading as _thm
+                from modules.erp.api.cenik_engine import migrate_all as _mall
+                _thm.Thread(target=lambda: _mall(tenant_id=2, uid=1), daemon=True).start()
+                return JSONResponse({"ok": True, "spusteno": True,
+                                     "pozn": "migrace+import planovanych dodavatelu bezi na pozadi — sleduj tenant.cenik_import"})
+            return JSONResponse({"ok": False, "error": "@@CENIK PEEK|IMPORT|IMPORTFIN|DEDUP|FIND|MIGRATEALL"})
         except Exception as _ce:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ce).__name__, str(_ce)[:300]),
                                  "tb": _tbc.format_exc()[-800:]})

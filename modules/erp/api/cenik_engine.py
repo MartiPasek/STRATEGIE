@@ -308,9 +308,102 @@ def peek_xls(path: str, n: int = 12, sheet_idx: int = 0) -> dict:
 _OUT_MAP = {
     "RegCisHeo": "kat_kod", "EC_PC": "list_price", "EC_NC": "net_price",
     "Popis": "popis", "EAN": "ean", "HmotnostKg": "hmotnost_kg",
-    "MJ": "mj", "Mena": "mena", "Rabat": "rabat",
+    "MJ": "mj", "Mena": "mena", "Rabat": "rabat", "Rabat_N": "rabat",
 }
 _NUM_FIELDS = {"list_price", "net_price", "hmotnost_kg", "rabat"}
+
+
+def _dbc_query(sql):
+    """Dotaz do DB-Ceniky (EUROSOFT MSSQL) přes MCP. Vrací list dict řádků."""
+    import json as _j
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupný")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(r, dict):
+        return r.get("rows") or []
+    return r or []
+
+
+def migrate_supplier(dbc_id, vyrobce, nazev, pattern, mena="EUR", data_start=1, tenant_id=2):
+    """Přenese vzorce + mapování z DB-Ceniky (IDCenik=dbc_id) do STRATEGIE configu.
+    col_map se odvodí z EC_CenikyVzorcePar (Sloupec NN → index). Server-side, bez banneru."""
+    import json as _j
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+
+    vz = _dbc_query("SELECT Poradi, NazevCilSloupce, Vzorec FROM [DB-Ceniky].dbo.EC_CenikyVzorce "
+                    "WHERE IDCenik=%d ORDER BY Poradi" % int(dbc_id))
+    par = _dbc_query("SELECT TOP 1 P01,P02,P03,P04,P05,P06,P07,P08,P09,P10,P11,P12 "
+                     "FROM [DB-Ceniky].dbo.EC_CenikyVzorcePar WHERE IDCenik=%d" % int(dbc_id))
+    if not vz:
+        return {"ok": False, "error": "chybí vzorce pro IDCenik %s" % dbc_id}
+    col_map = {}
+    if par:
+        p = par[0]
+        for i in range(1, 13):
+            v = (p.get("P%02d" % i) if isinstance(p, dict) else (p[i - 1] if i - 1 < len(p) else None))
+            if v and str(v).strip().startswith("Sloupec"):
+                try:
+                    col_map["P%02d" % i] = int(str(v).strip().replace("Sloupec", ""))
+                except ValueError:
+                    pass
+    if not col_map:
+        return {"ok": False, "error": "col_map prázdný (VzorcePar) pro %s" % dbc_id}
+
+    s = get_data_session()
+    try:
+        s.execute(_t("INSERT INTO tenant.cenik_vyrobce(tenant_id,vyrobce,nazev,col_map,data_start,mena,soubor_pattern) "
+                     "VALUES(:t,:v,:n,CAST(:cm AS jsonb),:ds,:m,:p) "
+                     "ON CONFLICT (tenant_id,vyrobce) DO UPDATE SET col_map=EXCLUDED.col_map, nazev=EXCLUDED.nazev, "
+                     "soubor_pattern=EXCLUDED.soubor_pattern, data_start=EXCLUDED.data_start, mena=EXCLUDED.mena"),
+                  {"t": tenant_id, "v": vyrobce, "n": nazev, "cm": _j.dumps(col_map),
+                   "ds": data_start, "m": mena, "p": pattern})
+        s.execute(_t("DELETE FROM tenant.cenik_vzorec WHERE tenant_id=:t AND vyrobce=:v"),
+                  {"t": tenant_id, "v": vyrobce})
+        for r in vz:
+            s.execute(_t("INSERT INTO tenant.cenik_vzorec(tenant_id,vyrobce,poradi,cil_pole,vyraz,je_default,aktivni) "
+                         "VALUES(:t,:v,:po,:cf,:vy,true,true)"),
+                      {"t": tenant_id, "v": vyrobce, "po": r.get("Poradi"),
+                       "cf": r.get("NazevCilSloupce"), "vy": r.get("Vzorec")})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True, "vyrobce": vyrobce, "col_map": col_map, "vzorcu": len(vz)}
+
+
+# Plán migrace — dodavatelé s jasnou vazbou aktuální soubor ↔ DB-Ceniky import (2026).
+_MIGRATE_PLAN = [
+    {"dbc": 3966, "v": "HAR", "n": "Harting", "p": "harting_*"},
+    {"dbc": 3963, "v": "MUR", "n": "Murr", "p": "murr_*"},
+    {"dbc": 3962, "v": "SCH", "n": "Schneider", "p": "schneider_*"},
+    {"dbc": 3961, "v": "LAP", "n": "LAPP", "p": "lapp_*"},
+    {"dbc": 3959, "v": "PHO", "n": "Phoenix Contact", "p": "phoenixcontact_*"},
+    {"dbc": 3956, "v": "EAT", "n": "Eaton", "p": "eaton_*"},
+    {"dbc": 3950, "v": "WAG", "n": "WAGO", "p": "wago_*"},
+    {"dbc": 3949, "v": "RIT", "n": "Rittal", "p": "rittal_*"},
+]
+
+
+def migrate_all(tenant_id=2, uid=1, plan=None):
+    """Pro každý dodavatel: přenes vzorce z DB-Ceniky + importuj soubor. Vrací výsledky."""
+    res = []
+    for it in (plan or _MIGRATE_PLAN):
+        try:
+            m = migrate_supplier(it["dbc"], it["v"], it["n"], it["p"], tenant_id=tenant_id)
+            if not m.get("ok"):
+                res.append({"v": it["v"], "ok": False, "faze": "migrate", "error": m.get("error")})
+                continue
+            imp = import_by_config(it["v"], tenant_id=tenant_id, uid=uid)
+            res.append({"v": it["v"], "col_map": m.get("col_map"), "vzorcu": m.get("vzorcu"),
+                        "import_ok": imp.get("ok"), "vlozeno": imp.get("vlozeno"),
+                        "soubor": imp.get("soubor"), "error": imp.get("error")})
+        except Exception as e:  # noqa: BLE001
+            res.append({"v": it["v"], "ok": False, "error": str(e)[:200]})
+    return {"ok": True, "vysledky": res}
 
 
 def _flush(s, batch):

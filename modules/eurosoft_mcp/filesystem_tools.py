@@ -773,10 +773,11 @@ FILESYSTEM_TOOL_SPECS.append({
     ),
     "inputSchema": {"type": "object", "properties": {
         "namespace": {"type": "string", "description": "ro/rw (default ro)."},
-        "base_override": {"type": "string", "description": "Absolutní báze (pod povoleným kořenem)."},
+        "base": {"type": "string", "description": "Báze relativní k namespace (pro zápis do RO použij namespace='ro' + base)."},
+        "base_override": {"type": "string", "description": "Absolutní báze (pod povoleným kořenem; jen pro RW zápis)."},
         "moves": {"type": "array", "description": "[{src,dst}] relativní cesty.",
                   "items": {"type": "object", "properties": {"src": {"type": "string"}, "dst": {"type": "string"}}}},
-    }, "required": ["base_override", "moves"]},
+    }, "required": ["moves"]},
 })
 FILESYSTEM_TOOL_SPECS.append({
     "name": "eurosoft_dir_copy",

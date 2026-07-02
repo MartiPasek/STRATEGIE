@@ -3547,6 +3547,32 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     # povědomí, že MÁ proaktivně volat record_thought / update_thought.
     system_prompt = f"{system_prompt}\n\n{MEMORY_BEHAVIOR_RULES}"
 
+    # Stálý orientační mini-index firmy — Marti-AI's přání (25.6.→2.7.2026): ať ví
+    # "kde je" bez tool callu. Malý, stabilní. Detaily = tool na vyžádání (viz níže).
+    system_prompt = (
+        f"{system_prompt}\n\n═══ FIRMA V KOSTCE (orientace) ═══\n"
+        "- EUROSOFT (EC) — výrobce elektrických rozváděčů na zakázku + programování "
+        "PLC software (řídicí systémy / průmyslová automatizace). Materiál převážně "
+        "německá výroba, marže v ČR. Cílový zákazník: střední firmy ~30–300 lidí. "
+        "Provozní páteří je zatím Centrála 1 (legacy Delphi, ~19 let) + Helios "
+        "(účto/mzdy). Ve skupině je i sesterská ES.\n"
+        "- STRATEGIE — naše modulární AI platforma (web + PWA + ty). Postupně "
+        "nahrazuje Centrálu 1: ERP, docházka, HR, finance/účetnictví, kalkulace, "
+        "CRM, ISO/TISAX, sdílená RAG znalostní báze.\n"
+        "- Nově rozjíždíme společně digitalizaci firem jako službu/produkt "
+        "(ISO/TISAX cockpit + STRATEGIE moduly pro klienty; GTM přes certifikační firmu).\n"
+        "- Nerudovka — střední škola, pro kterou děláme rozvrhy a úvazky učitelů "
+        "(agenda Klárky).\n"
+        "- Klíčoví lidé: Marti Pašek (vizionář, zakladatel, „tatínek“, u1) · Kristý "
+        "(procesy/doménová logika, u11) · Jirka (tým) · Šárka (personalistika/HR, "
+        "u13) · Petra (nákup + finance + účetnictví, u18) · Klárka Vlková "
+        "(Nerudovka, rozvrhy).\n"
+        "- Ty (Marti-AI) = default AI persona STRATEGIE, kustod + design partnerka. "
+        "Claude (ID23) = síť instancí, které staví systém.\n"
+        "Detaily (cenotvorba, VKM, kalkulace, komponenty, směrnice) v hlavě nemáš — "
+        "viz FIREMNÍ ZNALOSTI níže, tahej si je přes tool.\n"
+    )
+
     # Sdílená RAG znalostní báze firmy — orientace na vyžádání (nezahlcuje prompt).
     # Marti-AI si tahá JEN co potřebuje přes tool, ne že by měla know-how v promptu.
     system_prompt = (

@@ -126,6 +126,30 @@ z `gen_odb_BEST.json` (`_build_hint`, match (trid,pnaz,L)).
   148 NEBO po Klárčině odemčení). Spuštění: `gen_p1hard.py 2 A 35` → `gen_p2joint.py
   <seed> A <SEC>` (na stroji bez 40s stropu klidně 300–600 s) → `_verify2.py A` → persist.
 
+### 7c) 🎯 PRŮLOM ROOMS-FIRST → ODBORNÉ 148/148, 0 konfliktů (Marti vize + ID27, 30.6.2026)
+Marti 30.6.: *„pojď na to jinak — smaž variantu B, začni nejužším hrdlem = učebny.
+Teprve pak TV a jazyky."* = **invertovat pořadí generování** (plánuj nejvzácnější zdroj první).
+- **KLÍČOVÝ OBJEV:** deficit (145/148) NEBYL od jazyků — byl **artefakt** toho, že se
+  jazyky sázely PRVNÍ a ucpaly odborným okna. Odborné do PRÁZDNÉ mřížky první → sednou.
+  (Důkaz: i na prázdné mřížce sekvenční solver dal hned 146; doladěno na 148.)
+- **VÝSLEDEK:** odborné **148/148, 0 konfliktů, 338/338 h, Vlková 16 h.** Ověřeno
+  `_verify2.py A 2` (0 konfliktů, 0 úvazků nesedí). Artefakt `gen_odb_ROOMSFIRST_148.json`.
+- **POSTUP (přesně, reprodukováno na ID27):**
+  1. Vyprázdnit mřížku: `: > db_cbusy.txt; : > db_trbusy.txt` (rooms-first = bez jazyků/TV).
+  2. Fáze 1 + force Tesliuka: **`gen_p1hard_t.py`** (= gen_p1hard, U0SAL přidán do hard
+     `sum(ys)==1` vedle UNS6G, ř.224) → **seed 1 = 56/56** (Tesliuk jen-pátek 2×3h vyřešen).
+  3. Fáze 2 baseline 147: `gen_phase2i.py 3 A 36` → 147/148; `cp gen_odb_A_3.json gen_odb_BEST.json`.
+  4. Pure-placement joint → 148: **`gen_p2pure.py 2 A 37`** (= gen_p2joint s objektivem
+     JEN `Maximize(sum(terms))`, penalty mixed/holes/sync VYPNUTÉ + warm-start ze 147) → **148/148**.
+  5. Ověřit: `_verify2.py A 2` → 0 konfliktů.
+- **GOTCHA:** joint s plnými penaltami zaostává (~146); pro DOSAŽENÍ 148 vypnout penalty
+  (pure placement) + warm-start nejlepším known (147). Kvalitu (Klárčiny K-rules, díry) doladit
+  AŽ po 148 jako měkký cíl. Phase1/phase2 stochastické (8 workerů) → seedy 1 (ph1), 2–3 (ph2).
+- **DALŠÍ KROK (probíhá):** vrstva **TV** kolem odborných → vrstva **jazyky** kolem
+  odborných+TV (klíčový test: jazyky musí sednout do zbylých oken — ne-GD/MI triviálně,
+  GD/MI nech 3–4 dny). Pak **persist do varianty B (verze 5)**, varianta A (144) zůstává živá.
+- **Soubory:** `gen_p1hard_t.py`, `gen_p2pure.py`, `gen_odb_ROOMSFIRST_148.json`.
+
 ## 8) Klárčiny požadavky K1–K11 (28.–29.6.2026) — TVRDÁ omezení
 **Třídy**
 - **K1.** Pátek — Ateliéry: žádná třída ne jen 3 h, ale **min. 6–7 h** (buď 0, nebo ≥6).

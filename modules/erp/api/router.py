@@ -32301,8 +32301,41 @@ async def diag_sql(req: Request) -> JSONResponse:
                                      "rows": done, "count": len(done)})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]})
+        # @@FILES COPY <src_abs> >> <dst_ro_subpath>  — server-side kopie RW→RO přes MCP
+        #   (Claude BOZP/PO úklid 2.7.2026). Čte přes base_override (funguje na RW i RO),
+        #   zapisuje do RO namespace. Pro binárky přes base64. Oddělovač " >> " (cesty mají mezery).
+        if op == "COPY":
+            import base64 as _b64c
+            if " >> " not in path:
+                return JSONResponse({"ok": False, "error": "@@FILES COPY <src_abs> >> <dst_ro_subpath>"})
+            src_abs, dst_rel = [x.strip() for x in path.split(" >> ", 1)]
+            dst_rel = dst_rel.lstrip("/").replace("\\", "/")
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                _sb = _op.dirname(src_abs); _sf = _op.basename(src_abs)
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                         {"user_namespace": "ro", "base_override": _sb, "path": _sf,
+                                          "encoding": "base64"}, conversation_id=None)
+                rr = _jf.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(rr, dict) and rr.get("ok") is False:
+                    return JSONResponse({"ok": False, "error": "čtení RW: " + str(rr.get("error") or rr)})
+                b64 = (rr.get("content") or rr.get("data") or "") if isinstance(rr, dict) else str(rr)
+                nbytes = len(_b64c.b64decode(b64)) if b64 else 0
+                raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
+                                          {"user_namespace": "ro", "path": dst_rel,
+                                           "content": b64, "encoding": "base64", "mode": "overwrite"},
+                                          conversation_id=None)
+                r2 = _jf.loads(raw2) if isinstance(raw2, str) else raw2
+                if isinstance(r2, dict) and r2.get("ok"):
+                    return JSONResponse({"ok": True, "columns": ["cil", "bytes"], "rows": [[dst_rel, nbytes]], "count": 1})
+                return JSONResponse({"ok": False, "error": "zápis do RO: " + str((r2.get("error") if isinstance(r2, dict) else r2))[:180]})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
         if op not in ("LIST", "READ") or not path:
-            return JSONResponse({"ok": False, "error": "@@FILES LIST|READ|PUTREPO|PUTREPODIR <cesta>"})
+            return JSONResponse({"ok": False, "error": "@@FILES LIST|READ|COPY|PUTREPO|PUTREPODIR <cesta>"})
         try:
             from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
             mcp = get_eurosoft_mcp_client()

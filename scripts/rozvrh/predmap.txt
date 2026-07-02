@@ -145,3 +145,4 @@ ZY|Aplikovaná psychologie|
 ZZ|Technické kreslení|ZX
 5A|Grafický design a navrhování|07
 5B|Grafický design a navrhování|07
+5F|Komiksová tvorba|

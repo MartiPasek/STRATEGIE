@@ -53,8 +53,8 @@ for ln in open("predmap.txt",encoding="utf-8"):
     a=ln.rstrip("\n").split("|")
     if a[0]: NAME[a[0]]=a[1]; MIST[a[0]]=(a[2] if len(a)>2 else "")
 LANG={"4","5","1G","1I","9B","AN","43","46","55","17"}
-ODB_ONLY=True
-VSEOB_KW=["český jazyk","literatura","literární","matematik","fyzik","chemie","dějepis",
+import os as _osf; ODB_ONLY=_osf.environ.get("ODB_ONLY","1")=="1"
+VSEOB_KW=["dějiny umění","český jazyk","literatura","literární","matematik","fyzik","chemie","dějepis",
  "historie","občansk","společenskovědní","základy spol","základy společ","zeměp",
  "ekolog","biolog","přírodních věd","psycholog","právo","ekonom","management","marketing",
  "finance","daň","účetn","nauka","náuka","třídnick","chování","kariér","kulturní dědictví",
@@ -67,6 +67,7 @@ def is_vseob(naz):
     return any(k in p for k in VSEOB_KW)
 def rooms_of(naz,mist):
     p=naz.lower()
+    if "animace 2" in p: return ["IT2"]   # Brosch A2 jen IT2 (Klarka)
     if any(k in p for k in ("dějiny umění","dějiny designu","dějiny multim","mediální komunikace",
         "český jazyk","literatura","chemie","fyzik","dějepis","matematik","občansk","zeměp",
         "ekonom","biologie","základy spol")): return []
@@ -83,8 +84,8 @@ def rooms_of(naz,mist):
     if "prostorový design" in p: return ["BD4"]
     if "game" in p: return ["MM","IT2"]
     if "webdesign" in p or "web design" in p or "multimediální aplik" in p: return ["MM","IT2","BŠ","BPG"]
-    if "audiovizu" in p: return ["MM","IT2"]
-    if "3d animace" in p: return ["IT2","MM"]
+    if "audiovizu" in p: return ["MM"]   # AVT jen MM = filmovy atelier (Klarka)
+    if "3d animace" in p: return ["IT2","MM","BŠ"]
     if "vizualizace" in p or p.startswith("3d") or " 3d" in p: return ["MM","IT2","BŠ"]
     if "animace" in p or "animovan" in p: return ["IT2","MM"]
     if "technické kreslení" in p: return ["MM","BŠ","IT2"]
@@ -104,11 +105,13 @@ def end_cap(p):
     if any(k in pl for k in ("fyzik","chemie","ekonom","management")): return 9
     return 10
 def spread(p):
-    pl=p.lower(); return any(k in pl for k in ("matematika","fyzika","občanská nauka","dějiny umění","dějepis","ekonom","management"))
+    pl=p.lower(); return any(k in pl for k in ("matematika","fyzika","občanská nauka","dějiny umění","dějepis","ekonom","management","výtvarná příprava"))
 def is_media(p):
     p=p.lower(); return any(k in p for k in ("animace","animovan","audiovizu","game design","motion design","web design","webdesign","multimediální tvorba"))
 def force_len(naz,trid,kp):
     p=naz.lower()
+    if "animace 2" in p: return 3   # Brosch: 2x3h kolem obeda h4-6/h8-10 (Klarka)
+    if "komiks" in p: return 3        # Komiksova tvorba 3h v kuse (Klarka)
     if kp=="PT": return 3
     if "grafick" in p and "techni" in p: return 2 if trid=="2A" else 3
     if "technologie" in p and trid=="1U": return 2
@@ -130,10 +133,11 @@ def t_ok(uk,d,hh,L):
     if uk=="UI7OD" and d==3 and hh<4: return False
     if uk=="UYS9G" and d==5 and e>4: return False
     if uk=="UNS6G":
-        if d==4 or hh<2: return False
+        if d==4: return False   # Vlkova: ctvrtek volno, jinak od 1.h (Klarka)
     if uk=="UMS61" and d==4 and e>3: return False
     if uk=="UZSA4" and d==3: return False
     if uk=="U0SAL" and d!=5: return False  # Tesliuk jen patek (4.GD Motion design)
+    if uk=="UUS8I" and d!=3: return False  # Stichenwirthova jen streda (Klarka)
     return True
 raw=[]
 for ln in open("raw_skup.txt",encoding="utf-8"):
@@ -161,11 +165,33 @@ agg=defaultdict(float); meta={}
 for trid,pred,skup,uk,hod in raw:
     kp,naz=key_of(trid,pred,skup,uk)
     k=(trid,kp,skup,uk); agg[k]+=hod; meta[k]=naz
+# KLARKA room override 30.6. (trida-kod, klicove slovo nazvu, ucitel|None) -> ucebny
+KL_OVR=[
+ ("25","motion","UZSA4",["BŠ","BPG","BNA"]),
+ ("26","počítačová grafika","UOS6U",["BŠ","BPG","BNA"]),
+ ("1W","počítačová grafika","UOS6U",["BŠ","BPG","BNA"]),
+ ("2F","technické kreslení",None,["IT2"]),
+ ("2A","digitální fotografie",None,["BPG","BŠ"]),
+ ("25","digitální fotografie",None,["BPG","BŠ"]),
+ ("2B","vizualizace","UOS6X",["BŠ","BPG","BNA"]),
+ ("1W","3d animace",None,["MM"]),
+ ("26","web design",None,["IT2","MM"]),
+ ("1W","design interi","UZS4A",["D"]),
+ ("1W","design náb","UVS8S",["BD1"]),
+ ("1U","dějiny umění","UUS8D",["BA"]),
+]
+def kl_room_override(trid,naz,uk):
+    p=(naz or "").lower()
+    for c,kw,t,rms in KL_OVR:
+        if trid==c and kw in p and (t is None or t==uk): return rms
+    return None
 units=[]
 for (trid,kp,skup,uk),hod in agg.items():
     naz=meta[(trid,kp,skup,uk)]
+    _ko=kl_room_override(trid,naz,uk)
     _dr=room_doc(trid,naz)
-    if _dr is not None: rms=_dr
+    if _ko is not None: rms=_ko
+    elif _dr is not None: rms=_dr
     elif kp=="PT": rms=["BD4","BD1","BNA","BŠ"]
     elif kp=="CJ": rms=[]
     else:
@@ -203,7 +229,7 @@ def subkeys(u):
     if u["skup"]==WHOLE.get(t):
         return [(t,ln) for ln in LANES.get(t,[u["skup"]])]
     return [(t,u["skup"])]
-TLIMIT={"UTS88":4,"UOS6U":4,"UZS4O":4,"UOS6X":3,"UVS8S":2,"UUS8D":4,"UPS70":3,"UXS9D":3}
+TLIMIT={"UTS88":4,"UOS6U":4,"UZS4O":4,"UOS6X":3,"UVS8S":2,"UUS8D":4,"UPS70":3,"UXS9D":3,"UUS8I":1}
 def solve(group,tbusy,rbusy,tsec,tdays_prior,hint=None):
     m=cp_model.CpModel(); cand=[]; yv=[]
     for ui,u in enumerate(group):
@@ -226,12 +252,14 @@ def solve(group,tbusy,rbusy,tsec,tdays_prior,hint=None):
             _hd,_hh,_hr=hint[ui]
             for _k,(d,h,r) in enumerate(cs):
                 if d==_hd and h==_hh and r==_hr: m.AddHint(ys[_k],1); break
-    cl=defaultdict(list); tc=defaultdict(list); ro=defaultdict(list); cd=defaultdict(list); claneSpec=defaultdict(list)
+    cl=defaultdict(list); tc=defaultdict(list); ro=defaultdict(list); cd=defaultdict(list); claneSpec=defaultdict(list); cl_ner=defaultdict(list)
     for ui,u in enumerate(group):
         subs=subkeys(u)
         for k,(d,h,r) in enumerate(cand[ui]):
             for x in range(h,h+u["L"]):
-                for sc in subs: cl[(sc,d,x)].append(yv[ui][k])
+                for sc in subs:
+                    cl[(sc,d,x)].append(yv[ui][k])
+                    if not (r and is_atel(r)): cl_ner[(sc,d,x)].append(yv[ui][k])
                 if u["skup"]!=WHOLE.get(u["trid"]): claneSpec[(u["trid"],u["skup"],d,x)].append(yv[ui][k])
                 for t in u["teachers"]: tc[(t,d,x)].append(yv[ui][k])
                 if r: ro[(r,d,x)].append(yv[ui][k])
@@ -254,7 +282,7 @@ def solve(group,tbusy,rbusy,tsec,tdays_prior,hint=None):
     scdays=set((sc,d) for (sc,d,x) in cl.keys())
     for (sc,d) in scdays:
         lv=[]
-        for x in LUNCH: lv+=cl.get((sc,d,x),[])
+        for x in LUNCH: lv+=cl_ner.get((sc,d,x),[])   # obeda jen Nerudovka (atelier bez pauzy)
         rhs=max(0,3-fl.get((sc[0],d),0))
         if lv: m.Add(sum(lv)<=rhs)
     clB=defaultdict(list); clN=defaultdict(list); tcB=defaultdict(list); tcN=defaultdict(list)
@@ -314,7 +342,9 @@ def solve(group,tbusy,rbusy,tsec,tdays_prior,hint=None):
                         nn[x]=vn
                 if a and nn: occ[(key,dd)]=(a,nn)
         return occ
-    for (dB,dN,tag) in ((clB,clN,"c"),(tcB,tcN,"t")):
+    import os as _osnf
+    if _osnf.environ.get("NF","1")=="1":
+     for (dB,dN,tag) in ((clB,clN,"c"),(tcB,tcN,"t")):
         for (key,dd),(a,nn) in _occbool(dB,dN,tag).items():
             if tag=="t" and key=="UXS9D": continue
             nF=m.NewBoolVar("nf_%s_%s_%d"%(tag,str(key),dd))
@@ -328,6 +358,7 @@ def solve(group,tbusy,rbusy,tsec,tdays_prior,hint=None):
         lv=[]
         for x in (4,5,6,7): lv+=tc.get((t,d,x),[])
         if lv: m.Add(sum(lv) <= 3)
+    _capover=[]
     for t,L in TLIMIT.items():
         P=tdays_prior.get(t,set()); perday=defaultdict(list)
         for (tt,dd,xx),vv in tc.items():
@@ -338,7 +369,22 @@ def solve(group,tbusy,rbusy,tsec,tdays_prior,hint=None):
             bd=m.NewBoolVar("dl_%s_%d"%(t,dd))
             for y in perday[dd]: m.Add(bd>=y)
             cost.append(bd)
-        if cost: m.Add(sum(cost)<=max(0,L-len(P)))
+        if cost:
+            _ov=m.NewIntVar(0,6,"capov_%s_%d"%(t,len(_capover))); m.Add(_ov>=sum(cost)-max(0,L-len(P))); _capover.append(_ov)
+    # Patek bez prejizdeni: trida cely patek atelier NEBO Nerudovka (penalta)
+    _ATEL={"BŠ","BNA","BPG","BD1","BA","BD4","BK"}
+    _fr=defaultdict(lambda:{"a":[],"n":[]})
+    for _ui,_u in enumerate(group):
+        for _k,(_d,_h,_r) in enumerate(cand[_ui]):
+            if _d!=5 or not _r: continue
+            _fr[_u["trid"]]["a" if _r in _ATEL else "n"].append(yv[_ui][_k])
+    _frmix=[]
+    for _cc,_sd in _fr.items():
+        if _sd["a"] and _sd["n"]:
+            _ba=m.NewBoolVar("fra_%s"%_cc); _bn=m.NewBoolVar("frn_%s"%_cc)
+            for _v in _sd["a"]: m.Add(_ba>=_v)
+            for _v in _sd["n"]: m.Add(_bn>=_v)
+            _mx=m.NewBoolVar("frmx_%s"%_cc); m.Add(_mx>=_ba+_bn-1); _frmix.append(_mx)
     rr=random.Random(SEED*97+len(group))
     WATCH={"UNS6G","UXS9D","UTS88","UOS6X","UVS8S","UZS4A","UMS61","USS80","UOS6W","UUS8D","UZS44"}
     terms=[]
@@ -427,10 +473,20 @@ def solve(group,tbusy,rbusy,tsec,tdays_prior,hint=None):
         for v in vs: m.Add(b>=v)
         m.Add(b<=sum(vs))
         return b
+    # Klarka: jedna skupina (obor MT/DI/sk) = jen 1 predmet naraz (pod-lanes oboru NESMI na sobe)
+    for _cc,(_la,_lb) in HALF.items():
+        for _grp in (_la,_lb):
+            if len(_grp)<2: continue
+            for _d in range(1,6):
+                for _x in range(1,11):
+                    _gv=[]
+                    for _ln in _grp: _gv+=claneSpec.get((_cc,_ln,_d,_x),[])
+                    if len(_gv)>1: m.Add(sum(_gv)<=1)
     _sync=[]
     for cc,(la,lb) in HALF.items():
         for d in range(1,6):
             for x in range(1,11):
+                if cc=="2A" and x>5: continue  # 2.GD nesoulad povolen odpoledne
                 ao=_occ(la,cc,d,x,"A"); bo=_occ(lb,cc,d,x,"B")
                 if ao is None and bo is None: continue
                 if ao is None: ao=0
@@ -438,6 +494,8 @@ def solve(group,tbusy,rbusy,tsec,tdays_prior,hint=None):
                 xo=m.NewBoolVar("xo_%s_%d_%d"%(cc,d,x))
                 m.Add(xo>=ao-bo); m.Add(xo>=bo-ao)   # XOR = jen jedna pulka odborne
                 _sync.append(xo)
+                import os as _oss
+                if _oss.environ.get("HSYNC","0")=="1": m.Add(ao==bo)   # TVRDE: skupiny proti sobe
     for cc,pairs in COH.items():
         for mains,subs in pairs:
             for d in range(1,6):
@@ -456,7 +514,7 @@ def solve(group,tbusy,rbusy,tsec,tdays_prior,hint=None):
                         m.Add(so<=sum(_sv))
                     if mo is not None and so is not None:
                         m.Add(mo+so<=1)   # hlavni a GDN nesmi naraz (stejni studenti)
-    m.Maximize(sum(terms) - 40*sum(_mixed) - 25*sum(_holes) - 150*sum(_sync))
+    m.Maximize(sum(terms) - 40*sum(_mixed) - 25*sum(_holes) - 150*sum(_sync) - 300*sum(_frmix) - 180*sum(_capover))
     s=cp_model.CpSolver(); s.parameters.max_time_in_seconds=tsec; s.parameters.num_search_workers=8; s.parameters.random_seed=SEED
     st=s.Solve(m); out=[]; un=[]; assign=[None]*len(group)
     for ui,u in enumerate(group):

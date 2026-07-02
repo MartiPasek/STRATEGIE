@@ -213,7 +213,13 @@ def _eu_read(root, relpath):
     mcp = _mcp()
     if mcp is None:
         return {"ok": False, "error": "mcp_offline"}
-    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read", _eu_args(root, relpath, "path"), conversation_id=None)
+    # Vždy base64 — binární soubory (PDF/DOC/obrázky, BOM 0xFF…) nejdou dekódovat
+    # jako utf-8 text a MCP by vrátil chybu. base64 funguje univerzálně i pro
+    # textové soubory. Frontend (/files i adresář v jádře) obsah dekóduje přes
+    # atob(). (Kristý 2.7.2026 — oprava stažení binárního souboru.)
+    args = _eu_args(root, relpath, "path")
+    args["encoding"] = "base64"
+    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read", args, conversation_id=None)
     return _json.loads(raw) if isinstance(raw, str) else raw
 
 

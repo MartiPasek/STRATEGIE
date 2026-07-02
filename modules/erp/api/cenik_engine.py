@@ -186,6 +186,25 @@ def _dec(x):
     return Decimal(str(x).strip().replace(",", "."))
 
 
+def _num_for_add(x):
+    """Vrátí Decimal, pokud je operand '+' bezpečně číselný (cena), jinak None (=konkat).
+    Kódy s vedoucí nulou před další číslicí ('0000000', '09120009901') a nečíselné
+    řetězce/literály zůstávají řetězci → '+' je pak konkatenace (SQL varchar sémantika)."""
+    if isinstance(x, Decimal):
+        return x
+    if isinstance(x, str):
+        s = x.strip().replace(",", ".")
+        if s == "" or not re.fullmatch(r"-?\d+(\.\d+)?", s):
+            return None
+        if re.match(r"-?0\d", s):   # '0' následované číslicí = kód (007, 0912), ne číslo
+            return None
+        try:
+            return Decimal(s)
+        except (InvalidOperation, ValueError):
+            return None
+    return None
+
+
 def _s(x):
     if x is None:
         return ""
@@ -218,10 +237,12 @@ def _eval(node, params):
         a = _eval(node[2], params)
         b = _eval(node[3], params)
         if op == "+":
-            # SQL sémantika: sčítá jen když jsou OBA číselný typ (Decimal); jinak
-            # (řetězcové literály, @P varchar parametry) = spojení řetězců.
-            if isinstance(a, Decimal) and isinstance(b, Decimal):
-                return a + b
+            # SQL sémantika: sčítá jen když jsou OBA bezpečně číselné (Decimal nebo
+            # číselný string bez vedoucí nuly); jinak (řetězcové literály, kódy,
+            # varchar parametry) = spojení řetězců. Viz _num_for_add.
+            na, nb = _num_for_add(a), _num_for_add(b)
+            if na is not None and nb is not None:
+                return na + nb
             return _s(a) + _s(b)
         if op == "-":
             return _dec(a) - _dec(b)

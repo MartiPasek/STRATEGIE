@@ -514,6 +514,60 @@ async def eurosoft_file_move(
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+async def eurosoft_dir_copy(
+    src_base_override: str = "",
+    dst_namespace: str = "ro",
+    dst_path: str = "",
+    dst_base_override: str = "",
+    junk_subdir: str = "_DELETE",
+    **_extra: Any,
+) -> dict[str, Any]:
+    """Server-side REKURZIVNÍ kopie celého stromu (jedno volání) — okamžité,
+    jakákoliv velikost. Zachová strukturu, balast (webové _files, Thumbs.db, ~$,
+    .db/.tmp) → <dst>/<junk_subdir>/. Přeskočí už existující (idempotentní)."""
+    src, err = _resolve("", "", src_base_override, False)
+    if err:
+        return {"ok": False, "error": "zdroj: " + err}
+    if not src.exists() or not src.is_dir():
+        return {"ok": False, "error": f"Zdrojová složka neexistuje: {src_base_override}"}
+    dst, err = _resolve(dst_namespace, dst_path, dst_base_override, True)
+    if err:
+        return {"ok": False, "error": "cil: " + err}
+
+    def _is_junk(relposix: str) -> bool:
+        low = relposix.lower(); base = relposix.split("/")[-1]
+        return ("_files/" in low or base == "Thumbs.db" or base.startswith("~$")
+                or base.endswith(".db") or base.endswith(".tmp"))
+
+    copied = skipped = junk = errs = 0; err_list = []
+    try:
+        for root, _dirs, files in os.walk(src):
+            for fn in files:
+                sp = Path(root) / fn
+                try:
+                    rel = str(sp.relative_to(src)).replace("\\", "/")
+                    tgt_rel = (junk_subdir + "/" + rel) if _is_junk(rel) else rel
+                    dp = dst / tgt_rel
+                    if dp.exists() and dp.stat().st_size == sp.stat().st_size:
+                        skipped += 1; continue
+                    dp.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(sp, dp)
+                    if _is_junk(rel):
+                        junk += 1
+                    else:
+                        copied += 1
+                except Exception as _e:
+                    errs += 1
+                    if len(err_list) < 10:
+                        err_list.append(f"{fn}: {str(_e)[:80]}")
+        return {"ok": True, "src": str(src), "dst": str(dst),
+                "copied": copied, "junk_to_delete": junk, "skipped_existing": skipped,
+                "errors": errs, "err_sample": err_list}
+    except Exception as exc:
+        logger.exception("eurosoft_dir_copy failed")
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 FILESYSTEM_TOOL_SPECS = [
     {
         "name": "eurosoft_file_list",
@@ -659,6 +713,21 @@ FILESYSTEM_TOOL_SPECS.append({
                     "required": ["dst_path"]},
 })
 FILESYSTEM_TOOL_SPECS.append({
+    "name": "eurosoft_dir_copy",
+    "description": (
+        "Server-side REKURZIVNÍ kopie celé složky (jedno volání) — OKAMŽITÁ, jakákoliv "
+        "velikost. Zachová strukturu, balast (web _files, Thumbs.db, ~$, .db/.tmp) → "
+        "<dst>/_DELETE/. Idempotentní (přeskočí existující). Pro 'vše do RO' naráz."
+    ),
+    "inputSchema": {"type": "object", "properties": {
+        "src_base_override": {"type": "string", "description": "Absolutní kořen-složka zdroje (pod RW/RO kořenem)."},
+        "dst_namespace": {"type": "string", "description": "ro/rw pro cíl (default 'ro')."},
+        "dst_path": {"type": "string", "description": "Cílová podsložka relativní k namespace."},
+        "dst_base_override": {"type": "string", "description": "Absolutní kořen-složka cíle."},
+        "junk_subdir": {"type": "string", "description": "Podsložka pro balast (default '_DELETE')."},
+    }, "required": ["src_base_override", "dst_path"]},
+})
+FILESYSTEM_TOOL_SPECS.append({
     "name": "eurosoft_file_move",
     "description": (
         "Server-side přesun souboru (shutil.move) — OKAMŽITÝ, jakákoliv velikost. "
@@ -677,4 +746,5 @@ FILESYSTEM_TOOL_HANDLERS = {
     "eurosoft_fs_info": eurosoft_fs_info,
     "eurosoft_file_copy": eurosoft_file_copy,
     "eurosoft_file_move": eurosoft_file_move,
+    "eurosoft_dir_copy": eurosoft_dir_copy,
 }

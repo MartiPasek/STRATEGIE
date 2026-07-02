@@ -101,7 +101,7 @@ def _classify_action(tool_name: str) -> str:
         return "read"
     # Phase 38.4 (11.5.2026): filesystem write/delete = "insert" bucket
     if tool_name in {"eurosoft_file_write", "eurosoft_file_delete",
-                     "eurosoft_file_copy", "eurosoft_file_move"}:
+                     "eurosoft_file_copy", "eurosoft_file_move", "eurosoft_dir_copy"}:
         return "insert"
     return "read"
 
@@ -331,63 +331,52 @@ async def self_update(request: Request):
             status_code=500,
         )
 
-    # 2) copy *.py
+    # 2) src check
     if not os.path.isdir(src_dir):
         return JSONResponse(
             {"ok": False, "error": "src_dir_missing", "src_dir": src_dir, "steps": steps},
             status_code=500,
         )
-    copied: list[str] = []
+
+    # 3+4) FIX (Claude 2.7.2026): kopie ZA BĚHU nejde (WinError 32 — proces drží .py).
+    #   Řešení: JEDEN detached PowerShell, který nejdřív STOP-Service (uvolní zámky),
+    #   pak zkopíruje repo→pkg (robocopy), vyčistí __pycache__ a START-Service.
+    #   Konec 'copy_failed' — hands-free i na zamčených souborech.
+    do_restart = request.query_params.get("restart", "1").lower() not in ("0", "false", "no")
+    svc = settings.mcp_service_name
+    if not do_restart:
+        # jen pull (kód dosedne až příští restart) — bez copy (ta za běhu stejně nejde)
+        steps.append({"krok": "pull_only", "ok": True})
+        return JSONResponse({"ok": True, "steps": steps,
+                             "note": "Bez restartu — pull hotov, kód dosedne až příští restart služby."})
     try:
-        for f in sorted(glob.glob(os.path.join(src_dir, "*.py"))):
-            shutil.copy2(f, os.path.join(pkg_dir, os.path.basename(f)))
-            copied.append(os.path.basename(f))
-        steps.append({"krok": "copy", "soubory": copied, "kam": pkg_dir})
+        DETACHED = 0x00000008  # DETACHED_PROCESS (Windows)
+        _ps = (
+            f"Start-Sleep -Seconds 1; "
+            f"Stop-Service '{svc}' -Force; "
+            f"Start-Sleep -Seconds 2; "
+            f"robocopy '{src_dir}' '{pkg_dir}' *.py /NJH /NJS /NP /R:2 /W:1 | Out-Null; "
+            f"Remove-Item -Recurse -Force '{pkg_dir}\\__pycache__' -ErrorAction SilentlyContinue; "
+            f"Start-Service '{svc}'"
+        )
+        _sp.Popen(
+            ["powershell", "-NoProfile", "-Command", _ps],
+            creationflags=DETACHED,
+            stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+        )
+        steps.append({"krok": "stop_copy_start", "sluzba": svc, "kdy": "+1 s (detached)"})
     except Exception as e:
+        steps.append({"krok": "stop_copy_start", "ok": False, "detail": str(e)})
         return JSONResponse(
-            {"ok": False, "error": "copy_failed", "detail": str(e), "steps": steps,
-             "copied": copied},
+            {"ok": False, "error": "spawn_failed", "detail": str(e), "steps": steps},
             status_code=500,
         )
 
-    # 3) vyčisti __pycache__ (vynuť rekompilaci nového kódu)
-    try:
-        cache = os.path.join(pkg_dir, "__pycache__")
-        if os.path.isdir(cache):
-            shutil.rmtree(cache, ignore_errors=True)
-        steps.append({"krok": "pycache_clear", "ok": True})
-    except Exception as e:
-        steps.append({"krok": "pycache_clear", "ok": False, "detail": str(e)})
-
-    # 4) naplánuj restart (detached, po odeslání odpovědi)
-    do_restart = request.query_params.get("restart", "1").lower() not in ("0", "false", "no")
-    if do_restart:
-        svc = settings.mcp_service_name
-        try:
-            DETACHED = 0x00000008  # DETACHED_PROCESS (Windows)
-            _sp.Popen(
-                ["powershell", "-NoProfile", "-Command",
-                 f"Start-Sleep -Seconds 2; Restart-Service '{svc}' -Force"],
-                creationflags=DETACHED,
-                stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-            )
-            steps.append({"krok": "restart", "sluzba": svc, "kdy": "+2 s (detached)"})
-        except Exception as e:
-            steps.append({"krok": "restart", "ok": False, "detail": str(e)})
-            return JSONResponse(
-                {"ok": True, "warning": "restart_failed_manual_needed",
-                 "copied": copied, "steps": steps,
-                 "note": f"Kód zkopírován, ale restart selhal — restartni '{svc}' ručně."},
-                status_code=200,
-            )
-
-    logger.info("Self-update hotov: %d souborů, restart=%s", len(copied), do_restart)
+    logger.info("Self-update: detached stop-copy-start naplánován (svc=%s)", svc)
     return JSONResponse({
         "ok": True,
-        "copied": copied,
         "steps": steps,
-        "note": ("Restart naplánován — za pár sekund ověř /health (git_sha = nový commit)."
-                 if do_restart else "Bez restartu — kód dosedne až příští restart služby."),
+        "note": "Stop→copy→start naplánován (detached, ~5 s). Pak ověř /health (git_sha = nový commit).",
     })
 
 

@@ -32334,6 +32334,28 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": "zápis do RO: " + str((r2.get("error") if isinstance(r2, dict) else r2))[:180]})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
+        # @@FILES DIRCOPY <src_dir> >> <dst_ro_dir>  — server-side REKURZIVNÍ kopie (1 volání)
+        if op == "DIRCOPY":
+            if " >> " not in path:
+                return JSONResponse({"ok": False, "error": "@@FILES DIRCOPY <src_dir> >> <dst_ro_dir>"})
+            _sd, _dd = [x.strip() for x in path.split(" >> ", 1)]
+            _dd = _dd.strip("/").replace("\\", "/")
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_dir_copy",
+                                         {"src_base_override": _sd.rstrip("\\/"), "dst_namespace": "ro",
+                                          "dst_path": _dd}, conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict) and r.get("ok"):
+                    return JSONResponse({"ok": True, "columns": ["zkopirovano", "balast_delete", "preskoceno", "chyb"],
+                                         "rows": [[r.get("copied"), r.get("junk_to_delete"), r.get("skipped_existing"), r.get("errors")]],
+                                         "count": 1, "note": str(r.get("err_sample") or "")[:300]})
+                return JSONResponse({"ok": False, "error": str((r.get("error") if isinstance(r, dict) else r))[:200]})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
         # @@FILES COPYBATCH \n <src1> >> <dst1> \n <src2> >> <dst2> ...  — dávková kopie RW→RO
         if op == "COPYBATCH":
             import base64 as _b64cb

@@ -13,7 +13,7 @@ pole (RegCisHeo, EC_NC…) NEBO pracovní @Pnn slot (přepíše se v params pro 
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 # ── tokenizer ────────────────────────────────────────────────────────────────
 _TOKEN_RE = re.compile(r"""
@@ -312,7 +312,7 @@ def _fn(name, a):
     if name == "ROUND":
         n = int(_dec(a[1])) if len(a) > 1 else 0
         try:
-            return _dec(a[0]).quantize(Decimal(1).scaleb(-n))
+            return _dec(a[0]).quantize(Decimal(1).scaleb(-n), rounding=ROUND_HALF_UP)
         except Exception:
             return _dec(a[0])
     if name == "ABS":
@@ -571,7 +571,7 @@ def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
     import io as _io
     import json as _j
     import openpyxl as _ox
-    from decimal import Decimal, InvalidOperation
+    from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
     from sqlalchemy import text as _t
     from core.database_data import get_data_session
 

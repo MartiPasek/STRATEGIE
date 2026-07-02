@@ -292,7 +292,9 @@ def sync_all(tenant_id: int = 2):
             res.append({"oz": t, "vlozeno": r.get("vlozeno"), "chyb": r.get("chyb"), "err": r.get("error")})
         except Exception as e:  # noqa: BLE001
             res.append({"oz": t, "err": str(e)[:200]})
-    return {"ok": True, "vysledky": res}
+    celkem = sum(int(x.get("vlozeno") or 0) for x in res)
+    chyby = sum(1 for x in res if x.get("err"))
+    return {"ok": chyby == 0, "celkem": celkem, "tabulek": len(res), "chyb": chyby, "vysledky": res}
 
 
 def rename(old_oz: str, new_oz: str, tenant_id: int = 2):

@@ -22319,6 +22319,9 @@ def _mirror_run_job(job_key):
         "sync_eneschopenka": lambda: _eneschopenka_to_sick(),
         "sync_odvozy": lambda: _sync_odvozy_from_ec(),
         "sync_nabor": lambda: _sync_nabor_from_ec(),
+        # OZ mirror — obnova všech zrcadel Oběhu zboží (tenant.oz_*) z Centrály (Marti 2.7.2026)
+        "oz_sync_all": lambda: __import__("modules.erp.api.oz_mirror",
+                                          fromlist=["sync_all"]).sync_all(tenant_id=2),
     }
     fn = fnmap.get(job_key)
     if fn is None:

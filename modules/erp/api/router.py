@@ -25971,7 +25971,9 @@ def mzdy_vyplatnice(req: Request):
 # (hp_VlozMzPausDoMzSloz) + výpočet (hp_VypocitejMzdu @Z,@O,20). 99997 = "spočítáno
 # s výstrahou" → COMMIT (Helios ji vyhodí jako RAISERROR, přes TRY/CATCH = warn, ne chyba).
 # Idempotentní (NOT IN TabZamVyp). Dávka TOP(@max) ať Express stihne pod HTTP timeout.
-def _mzdy_worker_sql(cloud_db, idobd, maxn):
+def _mzdy_worker_sql(cloud_db, idobd, maxn, only_zid=None):
+    # only_zid = přepočítat JEN jednoho zaměstnance (ZamestnanecId). Bez něj = všichni chybějící.
+    zfilt = ("   AND ZamestnanecId=" + str(int(only_zid)) + "\n") if only_zid else ""
     return (
         "USE " + cloud_db + ";\n"
         "SET NOCOUNT ON; SET XACT_ABORT OFF;\n"
@@ -25983,6 +25985,7 @@ def _mzdy_worker_sql(cloud_db, idobd, maxn):
         " SELECT TOP (" + str(int(maxn)) + ") ZamestnanecId FROM TabZamMzd\n"
         " WHERE IdObdobi=@O AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1)\n"
         "   AND ZamestnanecId NOT IN (SELECT ZamestnanecId FROM TabZamVyp WHERE IdObdobi=@O)\n"
+        + zfilt +
         " ORDER BY ZamestnanecId;\n"
         "OPEN c; FETCH NEXT FROM c INTO @Z;\n"
         "WHILE @@FETCH_STATUS=0\n"
@@ -26021,6 +26024,25 @@ def _mzdy_clean_sql(cloud_db, idobd):
         "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
         "DELETE FROM dbo.TabMzSloz WHERE IdObdobi=" + o + " AND ZamestnanecId IN " + inset + ";\n"
         "DELETE FROM dbo.TabZamVyp WHERE IdObdobi=" + o + " AND ZamestnanecId IN " + inset + ";\n"
+        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
+        "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
+        "SELECT 1 AS cisto;\n")
+
+
+# Vyčištění JEN JEDNOHO zaměstnance (přegenerovat jednoho člověka bez dotčení ostatních).
+# Smaže jeho složky (TabMzSloz) + výpočet (TabZamVyp) za období — jen pokud je v regenerovaném
+# setu (Automat=1/Uzavreno=0/StavES IN (0,1)), aby se uzavřená/ruční páska nikdy nesmazala.
+def _mzdy_clean_one_sql(cloud_db, idobd, zid):
+    o = str(int(idobd))
+    z = str(int(zid))
+    guard = (" AND ZamestnanecId IN (SELECT ZamestnanecId FROM dbo.TabZamMzd WHERE IdObdobi=" + o +
+             " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1))")
+    return (
+        "USE " + cloud_db + ";\nSET NOCOUNT ON;\n"
+        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
+        "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
+        "DELETE FROM dbo.TabMzSloz WHERE IdObdobi=" + o + " AND ZamestnanecId=" + z + guard + ";\n"
+        "DELETE FROM dbo.TabZamVyp WHERE IdObdobi=" + o + " AND ZamestnanecId=" + z + guard + ";\n"
         "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
         "EXEC " + cloud_db + "..sp_executesql N'ENABLE TRIGGER ALL ON dbo.TabMzSloz';\n"
         "SELECT 1 AS cisto;\n")
@@ -26281,15 +26303,28 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
 # stav otevreno→v_mzde→vyplaceno; čistá voda per období, 'vyplaceno' se nepřemazává), NEsaháme do EC
 # příznaků (Přeneseno/DatVyplaceni). Závazek vůči zaměstnanci drží v saldu do vyplacení (Marti). Ledger
 # unese i kanály faktura/objednávka (OSVČ, na více firem) — to později; teď jen kanál mzda.
-def _mzdy_priplatky_rows(firma, rok, mesic):
+def _mzdy_priplatky_rows(firma, rok, mesic, only_cislo=None):
+    # only_cislo = přegenerování JEN jednoho člověka: výběr i čistá voda ledgeru se omezí
+    # na jeho číslo, aby se závazky ostatních (v_mzde) nepřepsaly.
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     fkod = '1' if str(firma).upper() in ('EC', '1') else '2'
     fec = 'EC' if str(firma).upper() in ('EC', '1') else 'ES'  # company.code = 'EC'/'ES'
+    oc = None
+    if only_cislo is not None:
+        try:
+            oc = int(str(only_cislo).strip())
+        except Exception:
+            oc = None
     s = _g()
     try:
         # Výběr dle EC logiky (EC_Mzdy_PrepocetMesicZam): Schvaleno + platnost bracketing období,
         # ne period_month (is_recurring v mirroru není spolehlivé). konec měsíce = make_date(y,mo,1)+1měsíc-1den.
+        sel_params = {"fec": fec, "y": rok, "mo": mesic}
+        sel_filter = ""
+        if oc is not None:
+            sel_filter = "  AND ae.cislo_zam = :oc "
+            sel_params["oc"] = str(oc)
         rows = s.execute(_t(
             "SELECT ae.cislo_zam AS cislo, msm.ext_code AS cislo_ms, wm.import_src_id AS ecid, "
             "  COALESCE(wm.amount, wm.hours*wm.rate, 0) AS castka, wm.zakazka_ref AS zak "
@@ -26304,13 +26339,20 @@ def _mzdy_priplatky_rows(firma, rok, mesic):
             # VYJMA: HO/OBL/korekce (benefit systém) + srazka_telefon (EC číselník ReakceMzdy=False,
             # EC řeší telefon zvlášť; sign/mechanismus doladit → TODO mirror číselníku ReakceMzdy)
             "  AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod','srazka_telefon') "
+            + sel_filter +
             "  AND wm.valid_from <= (make_date(:y,:mo,1) + INTERVAL '1 month' - INTERVAL '1 day') "
             "  AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))"),
-            {"fec": fec, "y": rok, "mo": mesic}).fetchall()
-        # čistá voda: smaž alokace ZÁVAZKŮ do mzdy za období+firma (re-run při ladění); 'vyplaceno' nech být
+            sel_params).fetchall()
+        # čistá voda: smaž alokace ZÁVAZKŮ do mzdy za období+firma (re-run při ladění); 'vyplaceno' nech být.
+        # Při only_cislo se omezí jen na jeho číslo (ostatních se nedotkne).
+        del_params = {"f": fkod, "y": rok, "mo": mesic}
+        del_filter = ""
+        if oc is not None:
+            del_filter = " AND cislo=:oc"
+            del_params["oc"] = oc
         s.execute(_t("DELETE FROM tenant.zamestnanecky_zavazek WHERE tenant_id=2 AND zdroj='EC_PRIPL' "
-                     "AND firma=:f AND rok=:y AND mesic=:mo AND kanal='mzda' AND stav<>'vyplaceno'"),
-                  {"f": fkod, "y": rok, "mo": mesic})
+                     "AND firma=:f AND rok=:y AND mesic=:mo AND kanal='mzda' AND stav<>'vyplaceno'" + del_filter),
+                  del_params)
         agg = {}
         for r in rows:
             try:
@@ -26407,10 +26449,12 @@ def _mzdy_consolidate(prows):
     return [(c, ms, agg[(c, ms)][0], agg[(c, ms)][1], round(agg[(c, ms)][2], 2)) for (c, ms) in order]
 
 
-def _mzdy_predzprac_apply(cloud_db, idobd, rows):
+def _mzdy_predzprac_apply(cloud_db, idobd, rows, only_zid=None):
     """Zapíše předzpracování PER-ŘÁDEK přes 3-part jména (bez USE/temp/cursor) — spolehlivé
     přes API _mssql188_query a trigger-safe (single-row INSERT projde Helios triggerem).
-    rows=(cislo,cislo_ms,koruny). Pevná 1 i na kartu. Vrací None=OK / chybový string."""
+    rows=(cislo,cislo_ms,koruny). Pevná 1 i na kartu. Vrací None=OK / chybový string.
+    only_zid = přegenerování JEN jednoho člověka: čistá voda předzpracování se omezí na jeho
+    ZamestnanecId, aby se STRATEGIE řádky ostatních nesmazaly."""
     o = str(int(idobd))
     nr = _mssql188_query("SELECT Cislo, ID FROM " + cloud_db + ".dbo.TabCisZam")
     if not nr.get("ok"):
@@ -26421,7 +26465,10 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows):
             id_by_cislo[int(v[0])] = int(v[1])
         except Exception:
             pass
-    dw = _mssql188_query("DELETE FROM " + cloud_db + ".dbo.TabPredzp WHERE IdObdobi=" + o + " AND Autor='STRATEGIE'")
+    del_sql = "DELETE FROM " + cloud_db + ".dbo.TabPredzp WHERE IdObdobi=" + o + " AND Autor='STRATEGIE'"
+    if only_zid:
+        del_sql += " AND ZamestnanecId=" + str(int(only_zid))
+    dw = _mssql188_query(del_sql)
     if not dw.get("ok"):
         return "DELETE: " + str(dw.get("error"))
     stmts, kart = [], []
@@ -26647,6 +26694,83 @@ def mzdy_generuj(req: Request):
     if not (_ro.get("ok") and _ro.get("rows")):
         return {"ok": False, "error": "období v cloud Heliosu není (TabMzdObd)"}
     idobd = int(_ro["rows"][0][0])
+
+    # ─── REŽIM „JEN JEDEN ČLOVĚK" (?cislo=NNN) ──────────────────────────────────
+    # Přegeneruje sakumprask jednoho zaměstnance: smaže JEN jeho pásku + předzpracování,
+    # připraví JEN jeho složky a nechá výpočet dopočítat JEN jeho. Ostatních se nedotkne.
+    # Zrcadlí stejný postup jako celková generace (clean=1), jen omezený na jedno číslo.
+    cislo_raw = (req.query_params.get("cislo") or req.query_params.get("zam") or "").strip()
+    if cislo_raw:
+        try:
+            cislo = int(cislo_raw)
+        except Exception:
+            return {"ok": False, "error": "neplatné číslo zaměstnance: " + cislo_raw}
+        zr = _mssql188_query("SELECT ID FROM " + cloud_db + ".dbo.TabCisZam WHERE Cislo=" + str(cislo))
+        if not (zr.get("ok") and zr.get("rows")):
+            return {"ok": False, "error": "zaměstnanec č. " + str(cislo) + " není v cloud Heliosu (" + firma + ")"}
+        zid = int(zr["rows"][0][0])
+        # je v automaticky generovaném setu? uzavřenou/ruční pásku (mimo StavES 0,1) neregenerujeme
+        gr = _mssql188_query(
+            "SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamMzd WHERE IdObdobi=" + str(idobd) +
+            " AND ZamestnanecId=" + str(zid) + " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1)")
+        in_set = int(gr["rows"][0][0]) if (gr.get("ok") and gr.get("rows")) else 0
+        if not in_set:
+            return {"ok": False, "firma": firma, "cislo": cislo,
+                    "error": "č. " + str(cislo) + " není v automatické generaci "
+                             "(uzavřená/ruční/mimo StavES 0,1) — samostatně přegenerovat nelze"}
+        # 1) čistá voda JEN jeho (páska TabZamVyp + složky TabMzSloz)
+        cw = _mssql188_query(_mzdy_clean_one_sql(cloud_db, idobd, zid))
+        if not cw.get("ok"):
+            return {"ok": False, "error": "vyčištění (jeden) selhalo: " + str(cw.get("error"))[:300]}
+        # 2) předzpracování JEN jeho — postav všechny složky jako celková generace, pak odfiltruj na číslo
+        prows = _mzdy_predzprac_rows(firma)
+        try:
+            prows = prows + _mzdy_stravenky_rows(firma, rok, mesic)
+        except Exception:
+            pass  # stravenky best-effort
+        try:
+            prows = _mzdy_benefity_apply(prows, firma, rok, mesic)
+        except Exception:
+            pass  # benefity best-effort
+        try:
+            prows = prows + _mzdy_priplatky_rows(firma, rok, mesic, only_cislo=cislo)
+        except Exception:
+            pass  # příplatky/srážky best-effort (ledger jen jeho)
+        try:
+            prows = prows + _mzdy_absence_rows(firma, rok, mesic)
+        except Exception:
+            pass  # absence z naší docházky best-effort
+        prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
+        try:
+            prows = _mzdy_consolidate(prows)
+        except Exception:
+            pass
+        # apply vždy (i při prázdném) → smaže i jeho staré STRATEGIE předzpracování, zapíše nové
+        perr = _mzdy_predzprac_apply(cloud_db, idobd, prows, only_zid=zid)
+        if perr:
+            return {"ok": False, "error": "předzpracování (jeden) selhalo: " + str(perr)[:300]}
+        # 3) výpočet JEN jeho
+        w = _mssql188_query(_mzdy_worker_sql(cloud_db, idobd, 1, only_zid=zid))
+        if not w.get("ok"):
+            return {"ok": False, "error": "výpočet (jeden) selhal: " + str(w.get("error"))[:300]}
+        # kontrola výsledku: má teď hotovou pásku?
+        hr = _mssql188_query(
+            "SELECT COUNT(*), MAX(ISNULL(Status,0)), MAX(ISNULL(Info,0)) FROM " + cloud_db +
+            ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + " AND ZamestnanecId=" + str(zid))
+        hot = 0
+        status = None
+        info = None
+        if hr.get("ok") and hr.get("rows"):
+            r0 = hr["rows"][0]
+            hot = int(r0[0] or 0)
+            status = r0[1]
+            info = r0[2]
+        return {"ok": True, "firma": firma, "cislo": cislo, "idobdobi": idobd,
+                "jeden": True, "hotovo": hot, "done": hot >= 1,
+                "status": status, "vystraha": (int(info) if info else 0),
+                "slozek": len(prows)}
+    # ─── /REŽIM „JEN JEDEN ČLOVĚK" ──────────────────────────────────────────────
+
     clean = (req.query_params.get("clean") or "") in ("1", "true", "ano")
     if clean:
         cw = _mssql188_query(_mzdy_clean_sql(cloud_db, idobd))

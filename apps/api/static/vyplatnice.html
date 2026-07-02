@@ -148,6 +148,21 @@ async function generuj(){
   btn.disabled=false;
   await load();
 }
+async function pregenJeden(){
+  // Přegeneruje JEN tohoto jednoho člověka (bez dotčení ostatních).
+  const c=window._pasCislo, zam=window._pasZam; const {r,m}=rm();
+  if(!c){ alert('Nevím číslo zaměstnance.'); return; }
+  if(!confirm('Přegenerovat pásku JEN pro os. č. '+c+' ('+FIRMA+', '+m+'/'+r+')?\nOstatních se to nedotkne.')) return;
+  const pb=document.getElementById('pgBtn'); if(pb){ pb.disabled=true; pb.textContent='⏳'; }
+  try{
+    const d=await (await fetch('/api/v1/erp/app/mzdy/generuj?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&cislo='+encodeURIComponent(c),
+      {method:'POST',credentials:'include'})).json();
+    if(!d.ok){ alert('Chyba: '+(d.error||'?')); if(pb){ pb.disabled=false; pb.textContent='♻'; } return; }
+    await load();                       // obnov seznam (nové součty)
+    if(zam!=null) openPas(zam);         // znovu otevři pásku s čerstvými čísly
+    else closePas();
+  }catch(e){ alert('Chyba spojení: '+e.message); if(pb){ pb.disabled=false; pb.textContent='♻'; } }
+}
 function grpName(t){return {0:'Mzda',1:'Příplatky a doplatky',2:'Náhrady',10:'Srážky ze mzdy',11:'Daně',12:'Zákonná pojištění'}[t]||null;}
 async function openPas(zam){
   const {r,m}=rm();
@@ -156,7 +171,7 @@ async function openPas(zam){
   let d; try{ d=await (await fetch('/api/v1/erp/app/mzdy/vyplatnice-detail?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&zam='+zam,{credentials:'include'})).json(); }
   catch(e){ document.getElementById('pas').innerHTML='<div class="loading">Chyba: '+e.message+'</div>'; return; }
   if(!d.ok){ document.getElementById('pas').innerHTML='<div class="loading">'+(d.error||'chyba')+'</div>'; return; }
-  const H=d.header, S=d.souhrn; window._pasCislo=H.cislo;
+  const H=d.header, S=d.souhrn; window._pasCislo=H.cislo; window._pasZam=zam;
   const mn=['','leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
   const groups={}; (d.slozky||[]).forEach(s=>{ (groups[s.skup_typ]=groups[s.skup_typ]||{nazev:s.skupina,items:[]}).items.push(s); });
   let body='';
@@ -176,7 +191,8 @@ async function openPas(zam){
       '<div class="meta">Os. číslo '+(H.cislo||'?')+(H.stredisko?' · středisko '+H.stredisko:'')+
       ' · '+(FIRMA==='ES'?'EUROSOFT-System':'EUROSOFT-Control')+'<br>Období '+mn[m]+' '+r+
       (H.zakladni_plat?' · základní plat '+fk(H.zakladni_plat):'')+'</div></div>'+
-      '<div class="tools"><button class="x" title="Tisk" onclick="window.print()">🖨</button> '+
+      '<div class="tools"><button class="x" id="pgBtn" title="Přegenerovat JEN tuto pásku (ostatních se nedotkne)" onclick="pregenJeden()">♻</button> '+
+      '<button class="x" title="Tisk" onclick="window.print()">🖨</button> '+
       '<button class="x" onclick="closePas()">✕</button></div></div>'+
     '<div class="pasbody">'+(body||'<div class="loading">Bez složek (nulová mzda?)</div>')+
       '<div class="sumblk">'+

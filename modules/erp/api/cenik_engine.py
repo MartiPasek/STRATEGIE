@@ -407,3 +407,60 @@ def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
                 "radku_s_chybou": chyb}
     finally:
         s.close()
+
+
+_CENIK_DIR = r"D:\Data\ZZ_Marti-AI RW\Ceniky"
+
+
+def list_cenik_dir():
+    """Názvy souborů v adresáři Ceniky (přes MCP)."""
+    import json as _j
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return []
+    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                             {"user_namespace": "ro", "base_override": _CENIK_DIR, "subpath": ""},
+                             conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    items = (r.get("items") or r.get("files") or r.get("entries") or []) if isinstance(r, dict) else (r or [])
+    out = []
+    for it in items:
+        nm = (it.get("name") or it.get("filename") or it.get("path")) if isinstance(it, dict) else it
+        if nm:
+            out.append(nm)
+    return out
+
+
+def import_by_config(vyrobce, path=None, limit=None, tenant_id=2, uid=1):
+    """Generický import: načte config výrobce (col_map/data_start/mena/pattern), najde
+    nejnovější soubor v adresáři Ceniky (pokud path není zadán) a spustí import_cenik."""
+    import os.path as _op
+    import fnmatch as _fn
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        cfg = s.execute(_t(
+            "SELECT col_map, data_start, mena, ceny_czk, soubor_pattern, nazev "
+            "FROM tenant.cenik_vyrobce WHERE tenant_id=:t AND vyrobce=:v AND aktivni"),
+            {"t": tenant_id, "v": vyrobce}).mappings().first()
+    finally:
+        s.close()
+    if not cfg:
+        return {"ok": False, "error": "chybí config pro výrobce %s" % vyrobce}
+    if not path:
+        pat = (cfg["soubor_pattern"] or (vyrobce + "*")).lower()
+        files = [f for f in list_cenik_dir()
+                 if _fn.fnmatch(f.lower(), pat) and f.lower().endswith((".xlsx", ".xls"))]
+        if not files:
+            return {"ok": False, "error": "soubor nenalezen (pattern %s)" % pat}
+        files.sort()
+        path = _op.join(_CENIK_DIR, files[-1])
+    r = import_cenik(path, vyrobce, cfg["col_map"], data_start=cfg["data_start"] or 1,
+                     mena=cfg["mena"] or "EUR", ceny_czk=cfg["ceny_czk"] or False,
+                     tenant_id=tenant_id, uid=uid, limit=limit)
+    if isinstance(r, dict):
+        r["soubor"] = _op.basename(path)
+        r["nazev"] = cfg["nazev"]
+    return r

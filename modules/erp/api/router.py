@@ -50007,6 +50007,9 @@ def _render_workspace_page(user_id: int) -> str:
     <!-- Band „Vytížení + plán" nad přehledem „Přehled pro obchodníka" (jádro 136).
          window.ObchodnikPult.mount, gated v page_render.js. (Kristý 29.6.2026) -->
     <script src="/static/erp/components/crm_obchodnik_pult.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- HR přehled personalistiky (Pinya styl) jako band v ERP (jádro hr.prehled).
+         window.HrPult.mount, gated v page_render.js. (Claude-25 / Šárka 2.7.2026) -->
+    <script src="/static/erp/components/hr_pult.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14g Etapa D+1 (16.5.2026): grid dispatcher modul.
          Extrahuje gridDataResolved 3-tier dispatch z inline router.py +
          logs every step do fw.diag_log via _erpLogToDb. -->

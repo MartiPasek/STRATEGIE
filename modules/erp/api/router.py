@@ -26753,6 +26753,10 @@ def mzdy_generuj(req: Request):
             prows = prows + _mzdy_absence_rows(firma, rok, mesic)
         except Exception:
             pass  # absence z naší docházky best-effort
+        try:
+            prows = prows + _mzdy_rucni_rows(firma)
+        except Exception:
+            pass  # ruční složky (odměna společníků 693, DPP 700 ap.) best-effort
         prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
         try:
             prows = _mzdy_consolidate(prows)
@@ -26807,6 +26811,10 @@ def mzdy_generuj(req: Request):
             prows = prows + _mzdy_absence_rows(firma, rok, mesic)
         except Exception as _ae:
             pass  # absence (dovolená/nemoc/lékař/OČR…) z naší docházky, best-effort
+        try:
+            prows = prows + _mzdy_rucni_rows(firma)
+        except Exception as _re:
+            pass  # ruční složky (odměna společníků 693, DPP 700 ap.), best-effort
         try:
             prows = _mzdy_consolidate(prows)  # sečti víc zdrojů do jedné Helios složky
         except Exception as _ce:

@@ -253,3 +253,35 @@ def triage_pending(tenant_id: int = DEFAULT_TENANT, limit: int = 25) -> dict:
     finally:
         s.close()
 
+
+# ── Fáze 5: cockpit (monitoring) ────────────────────────────────────────────
+
+def list_poptavky(tenant_id: int = DEFAULT_TENANT, stav: str | None = None,
+                  typ: str | None = None, limit: int = 300) -> dict:
+    """Seznam VP poptávek pro cockpit (nejnovější první). Timestamp jako text
+    (JSON-safe). Volitelné filtry stav/typ."""
+    s = get_data_session()
+    try:
+        where = ["tenant_id = :t"]
+        params: dict = {"t": tenant_id, "lim": limit}
+        if stav:
+            where.append("stav = :stav")
+            params["stav"] = stav
+        if typ:
+            where.append("typ = :typ")
+            params["typ"] = typ
+        rows = s.execute(
+            _t(
+                "SELECT id, "
+                "to_char(COALESCE(received_at, created_at),'YYYY-MM-DD HH24:MI') AS kdy, "
+                "typ, stav, zakaznik, predmet, shrnuti, from_email, subject, jistota, "
+                "prideleno_user_id, zakazka_ref "
+                "FROM tenant.vp_poptavka WHERE " + " AND ".join(where) +
+                " ORDER BY COALESCE(received_at, created_at) DESC NULLS LAST LIMIT :lim"
+            ),
+            params,
+        ).mappings().all()
+        return {"ok": True, "poptavky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+

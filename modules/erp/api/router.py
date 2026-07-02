@@ -25668,6 +25668,30 @@ async def kalk_compute_ep(req: Request):
         float(body.get("koef") or 1.0), float(body.get("marze") or 0.0)))
 
 
+@api_router.get("/app/vp/poptavky")
+def vp_poptavky_ep(req: Request):
+    """VP cockpit (fáze 5): seznam poptávek vedoucích projektu + summary
+    (whitelist domén, stav schránky projects@). Přístup = okruh cockpitu
+    (rodiče + Petra/Šárka/Kristý). Read-only monitoring."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_cockpit(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    from modules.erp.api.vp_ingest import list_poptavky as _lp, info as _vpi
+    stav = req.query_params.get("stav") or None
+    typ = req.query_params.get("typ") or None
+    data = _lp(stav=stav, typ=typ)
+    try:
+        data["summary"] = _vpi()
+    except Exception as _e:  # noqa: BLE001
+        data["summary"] = {"ok": False, "error": str(_e)[:200]}
+    return JSONResponse(data)
+
+
 @api_router.get("/app/ucto/porovnani")
 def ucto_porovnani(req: Request):
     """Účetní kontrolní vrstva: konta (stavy účtů) k 31.12.2025 — office (Helios DB_EC/IS

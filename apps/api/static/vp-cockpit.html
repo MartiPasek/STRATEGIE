@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vedoucí projektu — poptávky</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:16px;background:#0f1420;color:#e8edf6}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#9fb0c8;font-size:13px;margin-bottom:16px}
+  .card{background:#19202e;border:1px solid #26303f;border-radius:12px;padding:14px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 10px;color:#cdd9ea}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #232c3b;vertical-align:top}
+  th{color:#8fa3bd;font-weight:600;font-size:12px}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700}
+  .t-poptavka{background:#16324a;color:#7fc0ff}
+  .t-provozni{background:#2a3320;color:#b6d67a}
+  .t-ostatni{background:#2b2f38;color:#9aa7bb}
+  .t-neurcen{background:#3a2b14;color:#f0c674}
+  .st{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:#222b3a;color:#cdd9ea}
+  .jist{font-weight:700}
+  .muted{color:#8295ad;font-size:12px}
+  .ok{color:#7ee08a}.warn{color:#f0c674}.err{color:#ff8b8b}
+  .pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .pill{background:#1c2637;border:1px solid #2c3850;color:#cdd9ea;border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer}
+  .pill.on{background:#2563eb;border-color:#2563eb;color:#fff;font-weight:700}
+  .kpi{display:flex;gap:14px;flex-wrap:wrap}
+  .kpi .b{background:#141b28;border:1px solid #26303f;border-radius:10px;padding:10px 14px;min-width:90px}
+  .kpi .n{font-size:22px;font-weight:800}
+  .kpi .l{font-size:11px;color:#8fa3bd;text-transform:uppercase;letter-spacing:.4px}
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<a href="/" style="display:inline-block;margin:6px 0 8px;color:#2dd4bf;text-decoration:none;font-size:13px;font-weight:700">← Domů</a>
+<div class="topbar">
+  <div><h1>📥 Vedoucí projektu — poptávky</h1>
+  <div class="sub">Příchozí korespondence z projects@ · triáž · stav · přidělení. Monitoring pro vedení a VP.</div></div>
+  <div><button class="pill" onclick="load()">↻ Obnovit</button></div>
+</div>
+
+<div class="card" id="statusCard">
+  <h2>Stav systému</h2>
+  <div id="statusBox" class="muted">Načítám…</div>
+</div>
+
+<div class="card">
+  <h2>Poptávky <span class="muted" id="cnt"></span></h2>
+  <div class="pills" id="filtersTyp"></div>
+  <div class="pills" id="filtersStav"></div>
+  <div id="tblBox">Načítám…</div>
+</div>
+
+<script>
+const API='';
+let FTYP='', FSTAV='';
+async function j(url){const r=await fetch(API+url,{credentials:'include'});return r.json();}
+
+function tagTyp(t){const c={poptavka:'t-poptavka',provozni:'t-provozni',ostatni:'t-ostatni'}[t]||'t-neurcen';
+  const lbl={poptavka:'poptávka',provozni:'provozní',ostatni:'ostatní',neurcen:'nezatříděno'}[t]||t;
+  return `<span class="tag ${c}">${lbl}</span>`;}
+function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function renderStatus(sm){
+  const el=document.getElementById('statusBox');
+  if(!sm||!sm.ok){el.innerHTML='<span class="warn">Souhrn nedostupný'+(sm&&sm.error?(' — '+esc(sm.error)):'')+'</span>';return;}
+  const mb = sm.mailbox_pripojen
+    ? '<span class="ok">✓ připojena</span>'
+    : '<span class="warn">⏳ zatím nepřipojena (čeká na IT: '+esc(sm.mailbox_upn)+')</span>';
+  const wl = (sm.whitelist||[]).map(w=>`${esc(w.domain)} <span class="muted">(${esc(w.kind)})</span>`).join(', ')||'<span class="warn">prázdný (čeká approve)</span>';
+  const st = sm.poptavky_dle_stavu||{};
+  const kpis = ['nova','prideleno','v_reseni','vyrizeno'].map(k=>
+    `<div class="b"><div class="n">${st[k]||0}</div><div class="l">${k.replace('_',' ')}</div></div>`).join('');
+  el.innerHTML = `<div class="kpi">${kpis}</div>
+    <div style="margin-top:10px"><b>Schránka projects@:</b> ${mb}</div>
+    <div style="margin-top:4px"><b>Whitelist domén:</b> ${wl}</div>`;
+}
+
+function renderTable(rows){
+  document.getElementById('cnt').textContent = rows.length?('· '+rows.length):'';
+  if(!rows.length){
+    document.getElementById('tblBox').innerHTML='<div class="muted">Žádné poptávky. Naplní se, jakmile IT připojí schránku projects@ a přiteče první příchozí mail (whitelistované domény). Triáž je pak zatřídí automaticky.</div>';
+    return;
+  }
+  let h='<table><tr><th>Kdy</th><th>Typ</th><th>Zákazník</th><th>Předmět / shrnutí</th><th>Jistota</th><th>Stav</th></tr>';
+  rows.forEach(r=>{
+    const jc = r.jistota>=90?'ok':(r.jistota>=60?'warn':'muted');
+    h+=`<tr>
+      <td class="muted" style="white-space:nowrap">${esc(r.kdy)}</td>
+      <td>${tagTyp(r.typ)}</td>
+      <td>${esc(r.zakaznik)||'<span class="muted">—</span>'}</td>
+      <td><div>${esc(r.predmet)||esc(r.subject)||'<span class="muted">—</span>'}</div>${r.shrnuti?('<div class="muted">'+esc(r.shrnuti)+'</div>'):''}</td>
+      <td class="jist ${jc}">${r.jistota!=null?r.jistota:'—'}</td>
+      <td><span class="st">${esc(r.stav)}</span></td>
+    </tr>`;
+  });
+  h+='</table>';
+  document.getElementById('tblBox').innerHTML=h;
+}
+
+function renderFilters(){
+  const typs=[['','vše'],['poptavka','poptávky'],['provozni','provozní'],['ostatni','ostatní'],['neurcen','nezatříděno']];
+  document.getElementById('filtersTyp').innerHTML = typs.map(([v,l])=>
+    `<span class="pill ${FTYP===v?'on':''}" onclick="setTyp('${v}')">${l}</span>`).join('');
+  const stavs=[['','vše stavy'],['nova','nové'],['prideleno','přiděleno'],['v_reseni','v řešení'],['vyrizeno','vyřízeno']];
+  document.getElementById('filtersStav').innerHTML = stavs.map(([v,l])=>
+    `<span class="pill ${FSTAV===v?'on':''}" onclick="setStav('${v}')">${l}</span>`).join('');
+}
+function setTyp(v){FTYP=v;renderFilters();load();}
+function setStav(v){FSTAV=v;renderFilters();load();}
+
+async function load(){
+  const qs=[]; if(FTYP)qs.push('typ='+encodeURIComponent(FTYP)); if(FSTAV)qs.push('stav='+encodeURIComponent(FSTAV));
+  const d=await j('/app/vp/poptavky'+(qs.length?('?'+qs.join('&')):''));
+  if(d.error==='forbidden'){document.getElementById('tblBox').innerHTML='<div class="err">Nemáš přístup (jen okruh cockpitu).</div>';renderStatus(null);return;}
+  renderStatus(d.summary);
+  renderTable(d.poptavky||[]);
+}
+renderFilters();
+load();
+</script>
+</body>
+</html>

@@ -1092,6 +1092,15 @@ def hra_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/vp-poptavky")
+def vp_poptavky_page():
+    """VP cockpit — nervový systém vedoucích projektu: příchozí poptávky z projects@,
+    triáž, stav, přidělení. Monitoring pro vedení + VP. Marti 2.7.2026.
+    (Pozn.: /vp je samostatná vizová stránka digitalizace VP.)"""
+    return FileResponse(os.path.join(static_dir, "vp-cockpit.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/pokladny")
 def pokladny_page():
     """Systém pokladen + kartových účtů (zrcadlo Helios TabDruhPokladen) + registr

@@ -10940,7 +10940,13 @@ async def ocr_file_view(req: Request):
     mt = MIME.get(ext, "application/octet-stream")
     fn = (drow[2] or drow[3] or ("priloha." + (ext or "bin"))) or "priloha"
     inline = ext in ("pdf", "jpg", "jpeg", "png", "gif", "webp", "txt")
-    disp = "inline" if inline else ('attachment; filename="%s"' % str(fn).replace('"', ''))
+    if inline:
+        disp = "inline"
+    else:
+        import urllib.parse as _up
+        fn_ascii = (str(fn).encode("ascii", "ignore").decode().strip() or ("priloha." + (ext or "bin")))
+        disp = "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (
+            fn_ascii.replace('"', ''), _up.quote(str(fn)))
     return _FR(path=drow[0], media_type=mt, headers={"Content-Disposition": disp})
 
 

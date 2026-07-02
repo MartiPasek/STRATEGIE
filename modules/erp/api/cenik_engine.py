@@ -406,14 +406,39 @@ def migrate_all(tenant_id=2, uid=1, plan=None):
     return {"ok": True, "vysledky": res}
 
 
+_INS_SQL = (
+    "INSERT INTO tenant.cenik_polozka"
+    "(tenant_id,import_id,radek_excel,raw,kat_kod,kat_kod_norm,popis,"
+    " list_price,net_price,rabat,mj,ean,hmotnost_kg,mena) VALUES"
+    "(:tenant_id,:import_id,:radek_excel,CAST(:raw AS jsonb),:kat_kod,:kat_kod_norm,"
+    ":popis,:list_price,:net_price,:rabat,:mj,:ean,:hmotnost_kg,:mena)")
+
+
 def _flush(s, batch):
+    """Vloží dávku; při chybě fallback na per-řádek (přeskočí vadné). Odolné +
+    zachytí příčinu. Vrací (vlozeno, chyb, prvni_chyba)."""
     from sqlalchemy import text as _t
-    s.execute(_t(
-        "INSERT INTO tenant.cenik_polozka"
-        "(tenant_id,import_id,radek_excel,raw,kat_kod,kat_kod_norm,popis,"
-        " list_price,net_price,rabat,mj,ean,hmotnost_kg,mena) VALUES"
-        "(:tenant_id,:import_id,:radek_excel,CAST(:raw AS jsonb),:kat_kod,:kat_kod_norm,"
-        ":popis,:list_price,:net_price,:rabat,:mj,:ean,:hmotnost_kg,:mena)"), batch)
+    ins = _t(_INS_SQL)
+    try:
+        s.execute(ins, batch)
+        s.commit()
+        return len(batch), 0, None
+    except Exception:
+        s.rollback()
+        ok = 0
+        err = 0
+        first = None
+        for rec in batch:
+            try:
+                s.execute(ins, rec)
+                s.commit()
+                ok += 1
+            except Exception as e:  # noqa: BLE001
+                s.rollback()
+                err += 1
+                if first is None:
+                    first = "ř.%s: %s: %s" % (rec.get("radek_excel"), type(e).__name__, str(e)[:160])
+        return ok, err, first
 
 
 def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
@@ -449,10 +474,23 @@ def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
             {"t": tenant_id, "v": vyrobce, "m": mena, "c": ceny_czk, "po": platnost_od,
              "zs": path, "mp": _j.dumps({"col_map": col_map, "data_start": data_start}),
              "by": uid}).scalar()
+        s.commit()  # hlavička persistuje i kdyby řádky selhaly
 
-        cnt = 0
-        chyb = 0
+        cnt = 0        # zpracováno řádků
+        vlozeno = 0    # reálně vloženo do DB
+        db_chyb = 0    # DB chyby (přeskočené řádky)
+        chyb = 0       # transform (vzorec) chyby
+        first_err = None
         batch = []
+
+        def _do_flush(_b):
+            nonlocal vlozeno, db_chyb, first_err
+            ok, er, fe = _flush(s, _b)
+            vlozeno += ok
+            db_chyb += er
+            if fe and first_err is None:
+                first_err = fe
+
         for i in range(data_start, len(allrows)):
             row = allrows[i]
             if row is None or all(c is None or str(c).strip() == "" for c in row):
@@ -488,16 +526,21 @@ def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
             batch.append(rec)
             cnt += 1
             if len(batch) >= 500:
-                _flush(s, batch); batch = []
+                _do_flush(batch); batch = []
             if limit and cnt >= limit:
                 break
         if batch:
-            _flush(s, batch)
+            _do_flush(batch)
+        _pozn = None
+        if db_chyb:
+            _pozn = ("db_chyb=%s | %s" % (db_chyb, first_err or ""))[:500]
         s.execute(_t("UPDATE tenant.cenik_import SET pocet_polozek=:n, zpracovano=true, "
-                     "updated_at=now() WHERE id=:i"), {"n": cnt, "i": imp})
+                     "poznamka=:pz, updated_at=now() WHERE id=:i"),
+                  {"n": vlozeno, "pz": _pozn, "i": imp})
         s.commit()
-        return {"ok": True, "import_id": imp, "vlozeno": cnt, "vzorcu": len(vz),
-                "radku_s_chybou": chyb}
+        return {"ok": True, "import_id": imp, "vlozeno": vlozeno, "zpracovano": cnt,
+                "vzorcu": len(vz), "vzorec_chyb": chyb, "db_chyb": db_chyb,
+                "prvni_chyba": first_err}
     finally:
         s.close()
 

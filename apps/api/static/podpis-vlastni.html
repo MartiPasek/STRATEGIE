@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vlastní podpis dokumentu</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:16px;background:#0f1420;color:#e8edf6}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#9fb0c8;font-size:13px;margin-bottom:16px}
+  .card{background:#19202e;border:1px solid #26303f;border-radius:12px;padding:16px;margin-bottom:14px;max-width:640px}
+  label{display:block;font-size:13px;color:#cdd9ea;margin:10px 0 4px;font-weight:600}
+  input[type=text],input[type=email]{width:100%;box-sizing:border-box;background:#0f1622;color:#e8edf6;border:1px solid #2c3850;border-radius:8px;padding:8px 10px;font-size:14px}
+  input[type=file]{font-size:13px;color:#cdd9ea}
+  .opts{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .opt{border:1px solid #2c3850;border-radius:20px;padding:6px 14px;font-size:13px;cursor:pointer;background:#1c2637;color:#cdd9ea}
+  .opt.on{background:#2563eb;border-color:#2563eb;color:#fff;font-weight:700}
+  button{background:#2563eb;color:#fff;border:0;border-radius:9px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;margin-top:14px}
+  button:disabled{opacity:.5;cursor:default}
+  .muted{color:#8295ad;font-size:12px}
+  .ok{color:#7ee08a}.err{color:#ff8b8b}
+  #msg{margin-top:12px;font-size:14px}
+</style>
+</head>
+<body>
+<a href="/" style="display:inline-block;margin:6px 0 8px;color:#2dd4bf;text-decoration:none;font-size:13px;font-weight:700">← Domů</a>
+<h1>✍️ Vlastní podpis dokumentu</h1>
+<div class="sub">Nahraj PDF → přidá se tvůj uložený podpis + doložka (SES) → stáhni, pošli e-mailem nebo ulož do dokumentů. Název dle konvence MP_RRMMDD.</div>
+
+<div class="card">
+  <label>PDF k podpisu</label>
+  <input type="file" id="pdf" accept="application/pdf">
+  <label>Název dokumentu (do doložky + názvu souboru)</label>
+  <input type="text" id="title" placeholder="např. Přiznání k DPPO 2025 EUROSOFT-Control">
+
+  <label>Co s podepsaným PDF?</label>
+  <div class="opts" id="deliv">
+    <span class="opt on" data-v="download">⬇️ Stáhnout</span>
+    <span class="opt" data-v="email">✉️ Odeslat e-mailem</span>
+    <span class="opt" data-v="save">🗂️ Uložit do dokumentů</span>
+  </div>
+
+  <div id="emailWrap" style="display:none">
+    <label>E-mail příjemce</label>
+    <input type="email" id="recipient" placeholder="prijemce@firma.cz">
+    <div class="muted">Odešle se z marti-ai@eurosoft.com jménem tebe, kopie tobě.</div>
+  </div>
+
+  <button id="go" onclick="run()">Podepsat</button>
+  <div id="msg"></div>
+</div>
+
+<script>
+let DELIV='download';
+document.querySelectorAll('#deliv .opt').forEach(o=>o.onclick=()=>{
+  document.querySelectorAll('#deliv .opt').forEach(x=>x.classList.remove('on'));
+  o.classList.add('on'); DELIV=o.dataset.v;
+  document.getElementById('emailWrap').style.display = (DELIV==='email')?'block':'none';
+});
+document.getElementById('pdf').onchange=e=>{
+  const f=e.target.files[0]; if(f && !document.getElementById('title').value){
+    document.getElementById('title').value=f.name.replace(/\.pdf$/i,'');
+  }
+};
+function b64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});}
+function dl(b64s,fn){const bin=atob(b64s);const arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+  const u=URL.createObjectURL(new Blob([arr],{type:'application/pdf'}));const a=document.createElement('a');a.href=u;a.download=fn;a.click();URL.revokeObjectURL(u);}
+async function run(){
+  const f=document.getElementById('pdf').files[0];
+  const msg=document.getElementById('msg');
+  if(!f){msg.innerHTML='<span class="err">Vyber PDF.</span>';return;}
+  const title=document.getElementById('title').value.trim()||f.name.replace(/\.pdf$/i,'');
+  const rec=document.getElementById('recipient').value.trim();
+  if(DELIV==='email' && !rec.includes('@')){msg.innerHTML='<span class="err">Zadej e-mail příjemce.</span>';return;}
+  const btn=document.getElementById('go'); btn.disabled=true; msg.textContent='Podepisuji…';
+  try{
+    const payload={pdf_b64:await b64(f),title:title,delivery:DELIV,recipient_email:rec};
+    const r=await fetch('/api/v1/erp/app/sign/self',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(!d.ok){msg.innerHTML='<span class="err">'+(d.error||'Nepodařilo se')+'</span>';btn.disabled=false;return;}
+    if(d.pdf_b64){dl(d.pdf_b64,d.filename); msg.innerHTML='<span class="ok">✓ Podepsáno a staženo: '+d.filename+'</span>';}
+    else if(d.sent){msg.innerHTML='<span class="ok">✓ Odesláno na '+d.recipient+' (kopie tobě). Soubor: '+d.filename+'</span>';}
+    else if(d.saved){msg.innerHTML='<span class="ok">✓ Uloženo do dokumentů: '+d.filename+'</span>';}
+    else{msg.innerHTML='<span class="ok">✓ Hotovo.</span>';}
+    if(!d.has_signature && d.pdf_b64){msg.innerHTML+=' <span class="muted">(bez obrázku podpisu — není uložený)</span>';}
+  }catch(e){msg.innerHTML='<span class="err">Chyba: '+e+'</span>';}
+  btn.disabled=false;
+}
+</script>
+</body>
+</html>

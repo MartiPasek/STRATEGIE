@@ -531,3 +531,184 @@ def _wrap(txt, n):
             cur = (cur + " " + word).strip()
     out.append(cur)
     return out or [""]
+
+
+# ═══════════════ SAMOOBSLUŽNÝ PODPIS (Marti 2.7.2026) ═══════════════
+# Nahraný PDF podepíše uloženým podpisem přihlášeného uživatele (SES + doložka
+# + obrázek podpisu z tenant.user_signature), název MP_RRMMDD. Řeší přenos přes
+# prohlížeč (upload do cloudu). Delivery: download | email (z marti-ai@ za uživatele) | save.
+
+def _initials(name: str) -> str:
+    parts = [p for p in (name or "").split() if p]
+    return ("".join(p[0].upper() for p in parts[:2]) or "XX")
+
+
+def _mp_filename(name: str, title: str) -> str:
+    import re
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        d = datetime.now(ZoneInfo("Europe/Prague"))
+    except Exception:
+        d = datetime.now()
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", title or "").strip("_")[:60] or "dokument"
+    return "%s_%s_%s_podepsano.pdf" % (_initials(name), d.strftime("%y%m%d"), slug)
+
+
+def _build_self_signed_pdf(orig_bytes, signer_name, our_party, sig_png_bytes, doc_title):
+    """Doložka (SES) + obrázek podpisu → připojí za originál. Vrací bytes / None."""
+    import io
+    import os as _os
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("Europe/Prague"))
+    except Exception:
+        now = datetime.now()
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from pypdf import PdfReader, PdfWriter
+    except Exception:
+        return None
+    try:
+        FN, FB, FI = "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
+        try:
+            _fd = (_os.environ.get("WINDIR") or "C:\\Windows") + "\\Fonts\\"
+            if "CzSans" not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont("CzSans", _fd + "verdana.ttf"))
+                pdfmetrics.registerFont(TTFont("CzSans-Bold", _fd + "verdanab.ttf"))
+                pdfmetrics.registerFont(TTFont("CzSans-It", _fd + "verdanai.ttf"))
+            FN, FB, FI = "CzSans", "CzSans-Bold", "CzSans-It"
+        except Exception:
+            pass
+        sha = hashlib.sha256(orig_bytes).hexdigest()
+        buf = io.BytesIO()
+        c = canvas.Canvas(buf, pagesize=A4)
+        W, H = A4
+        y = H - 28 * mm
+
+        def L(t, dy=6.6 * mm, f=FN, sz=10):
+            nonlocal y
+            c.setFont(f, sz)
+            c.drawString(24 * mm, y, t)
+            y -= dy
+
+        c.setFont(FB, 15)
+        c.drawString(24 * mm, y, "PODPISOVÁ DOLOŽKA — elektronický podpis")
+        y -= 11 * mm
+        L("Dokument: %s" % (doc_title or ""), f=FB)
+        L("Za: %s" % (our_party or ""))
+        y -= 3 * mm
+        L("Elektronicky podepsal:  %s" % signer_name, f=FB)
+        L("Datum a čas:  %s (Europe/Prague)" % now.strftime("%d.%m.%Y %H:%M"))
+        L("Způsob podpisu:  prostý elektronický podpis (SES) dle nařízení eIDAS č. 910/2014")
+        L("Provedeno přes systém STRATEGIE na pokyn oprávněné osoby.")
+        y -= 4 * mm
+        c.setFont(FN, 9)
+        c.drawString(24 * mm, y, "Podpis:")
+        y -= 2 * mm
+        if sig_png_bytes:
+            try:
+                sig = ImageReader(io.BytesIO(sig_png_bytes))
+                iw, ih = sig.getSize()
+                dispw = 58 * mm
+                disph = dispw * ih / float(iw)
+                c.drawImage(sig, 24 * mm, y - disph, width=dispw, height=disph,
+                            mask="auto", preserveAspectRatio=True)
+                c.line(24 * mm, y - disph - 1 * mm, 24 * mm + dispw, y - disph - 1 * mm)
+                y = y - disph - 8 * mm
+            except Exception:
+                y -= 8 * mm
+        c.setFont(FN, 8)
+        for i in range(0, len(sha), 64):
+            c.drawString(24 * mm, y, ("SHA-256 originálu: " if i == 0 else "                   ") + sha[i:i + 64])
+            y -= 5 * mm
+        c.setFont(FI, 8)
+        c.drawString(24 * mm, 15 * mm, "Vygenerováno systémem STRATEGIE dne %s" % now.strftime("%d.%m.%Y %H:%M"))
+        c.showPage()
+        c.save()
+        buf.seek(0)
+        w = PdfWriter()
+        for pg in PdfReader(io.BytesIO(orig_bytes)).pages:
+            w.add_page(pg)
+        for pg in PdfReader(buf).pages:
+            w.add_page(pg)
+        out = io.BytesIO()
+        w.write(out)
+        return out.getvalue()
+    except Exception:
+        return None
+
+
+@contract_router.post("/app/sign/self")
+async def sign_self(req: Request):
+    """Samoobslužný podpis PDF: nahraný PDF podepíše uloženým podpisem přihlášeného
+    uživatele. delivery = download | email | save. E-mail jde z marti-ai@ (za uživatele)."""
+    uid = _uid(req)
+    b = await req.json()
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        if not _can(uid, s):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        pdf_b64 = b.get("pdf_b64") or ""
+        if "," in pdf_b64[:80] and ";base64" in pdf_b64[:80]:
+            pdf_b64 = pdf_b64.split(",", 1)[1]
+        try:
+            raw = base64.b64decode(pdf_b64)
+        except Exception:
+            raw = b""
+        if not raw or raw[:4] != b"%PDF":
+            return JSONResponse({"ok": False, "error": "Nahraj prosím PDF soubor."})
+        title = (b.get("title") or "").strip()[:200] or "Dokument"
+        delivery = (b.get("delivery") or "download").strip().lower()
+        recipient = (b.get("recipient_email") or "").strip()[:200]
+        our = (b.get("our_party") or "EUROSOFT - Control s.r.o.").strip()[:200]
+        name = _user_name(s, uid)
+        sig_b64 = s.execute(_t("SELECT png_b64 FROM tenant.user_signature WHERE user_id=:u"),
+                            {"u": uid}).scalar()
+        sig_bytes = base64.b64decode(sig_b64) if sig_b64 else None
+        final = _build_self_signed_pdf(raw, name, our, sig_bytes, title)
+        if not final:
+            return JSONResponse({"ok": False, "error": "Podepsání PDF se nezdařilo."}, status_code=500)
+        fn = _mp_filename(name, title)
+        _log(s, tid, 0, "self_signed", name, _client_ip(req), detail=title)
+        s.commit()
+        if delivery == "download":
+            return {"ok": True, "filename": fn, "pdf_b64": base64.b64encode(final).decode(),
+                    "has_signature": bool(sig_bytes)}
+        # email / save → do úložiště dokumentů
+        try:
+            from modules.rag.application.service import upload_document
+            doc_id = upload_document(file_bytes=final, filename=fn, tenant_id=tid, user_id=uid)
+        except Exception as _ue:
+            return JSONResponse({"ok": False, "error": "Uložení dokumentu selhalo: %s" % type(_ue).__name__}, status_code=500)
+        if delivery == "email":
+            if "@" not in recipient:
+                return JSONResponse({"ok": False, "error": "Zadej e-mail příjemce."})
+            oem = s.execute(_t("""SELECT contact_value FROM public.user_contacts WHERE user_id=:u
+                AND contact_type='email' AND status='active' ORDER BY is_primary DESC, id LIMIT 1"""),
+                {"u": uid}).scalar()
+            body = ("Dobrý den,\n\nv příloze zasílám elektronicky podepsaný dokument: %s.\n"
+                    "Podepsáno prostým elektronickým podpisem (SES dle eIDAS) s podpisovou doložkou "
+                    "(datum, otisk SHA-256). Tisk ani sken není potřeba.\n\nS pozdravem\n%s\n\n"
+                    "(Odesláno systémem STRATEGIE jménem %s.)") % (title, name, name)
+            from modules.notifications.application.email_service import queue_email
+            queue_email(to=recipient, subject="Podepsáno: %s" % title, body=body,
+                        persona_id=1, from_identity="persona", tenant_id=tid, purpose="user_request",
+                        attachment_document_ids=[doc_id], cc=([oem] if oem else None))
+            return {"ok": True, "sent": True, "recipient": recipient, "filename": fn, "doc_id": doc_id}
+        return {"ok": True, "saved": True, "filename": fn, "doc_id": doc_id}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "Selhalo: %s" % type(exc).__name__}, status_code=500)
+    finally:
+        s.close()

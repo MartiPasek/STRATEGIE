@@ -1101,6 +1101,14 @@ def vp_poptavky_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/podpis-vlastni")
+def podpis_vlastni_page():
+    """Samoobslužný podpis dokumentu — nahraj PDF, přidá se uložený podpis + doložka
+    (SES), stáhni / pošli e-mailem / ulož. Název MP_RRMMDD. Marti 2.7.2026."""
+    return FileResponse(os.path.join(static_dir, "podpis-vlastni.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/pokladny")
 def pokladny_page():
     """Systém pokladen + kartových účtů (zrcadlo Helios TabDruhPokladen) + registr

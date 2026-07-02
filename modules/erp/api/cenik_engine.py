@@ -262,3 +262,43 @@ def transform_row(vzorce, raw_params: dict) -> dict:
 def norm_kod(code: str) -> str:
     """Normalizace katalogového kódu pro párování (bez mezer, velká písmena)."""
     return re.sub(r"\s+", "", (code or "")).upper()
+
+
+# ── XLS import (server-side: MCP file_read + openpyxl) ───────────────────────
+
+def _read_share_bytes(path: str) -> bytes:
+    """Přečte soubor ze sdíleného disku přes EUROSOFT MCP (base64) → bytes."""
+    import base64 as _b64, json as _j, os.path as _op
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupný")
+    base = _op.dirname(path)
+    fn = _op.basename(path)
+    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                             {"user_namespace": "ro", "base_override": base,
+                              "path": fn, "encoding": "base64"}, conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(r, dict) and r.get("ok") is False:
+        raise RuntimeError(str(r.get("error") or r)[:200])
+    b64 = (r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r)
+    return _b64.b64decode(b64)
+
+
+def peek_xls(path: str, n: int = 12, sheet_idx: int = 0) -> dict:
+    """Náhled XLS: prvních n řádků prvního listu jako pole hodnot (pro zjištění layoutu)."""
+    import io as _io
+    import openpyxl as _ox
+    data = _read_share_bytes(path)
+    wb = _ox.load_workbook(_io.BytesIO(data), read_only=True, data_only=True)
+    names = wb.sheetnames
+    ws = wb[names[sheet_idx]] if sheet_idx < len(names) else wb.active
+    rows = []
+    for i, row in enumerate(ws.iter_rows(values_only=True)):
+        if i >= n:
+            break
+        rows.append(["" if c is None else str(c) for c in row])
+    wb.close()
+    maxc = max((len(r) for r in rows), default=0)
+    return {"ok": True, "listy": names, "list": ws.title,
+            "sloupcu": maxc, "radky": rows}

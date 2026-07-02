@@ -32700,6 +32700,30 @@ async def diag_sql(req: Request) -> JSONResponse:
                                  "error": "%s: %s" % (type(_vpe).__name__, str(_vpe)[:400]),
                                  "tb": _tbvp.format_exc()[-1200:]})
 
+    #   @@CENIK PEEK <cesta_xls>  → náhled prvních řádků XLS ceníku (zjištění layoutu)
+    if sql.upper().startswith("@@CENIK"):
+        import traceback as _tbc
+        try:
+            _cp = sql.split(None, 2)
+            _cop = (_cp[1].upper() if len(_cp) > 1 else "")
+            _carg = (_cp[2].strip() if len(_cp) > 2 else "")
+            from modules.erp.api.cenik_engine import peek_xls as _pk
+            if _cop == "PEEK":
+                if not _carg:
+                    return JSONResponse({"ok": False, "error": "@@CENIK PEEK <cesta_xls>"})
+                _r = _pk(_carg)
+                _mc = _r.get("sloupcu") or 0
+                _rows = []
+                for _i, _rr in enumerate(_r.get("radky") or []):
+                    _rows.append([str(_i)] + list(_rr) + [""] * (_mc - len(_rr)))
+                _cols = ["radek"] + ["c%02d" % (_k + 1) for _k in range(_mc)]
+                return JSONResponse({"ok": True, "columns": _cols, "rows": _rows,
+                                     "count": len(_rows), "listy": _r.get("listy")})
+            return JSONResponse({"ok": False, "error": "@@CENIK PEEK <cesta_xls>"})
+        except Exception as _ce:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ce).__name__, str(_ce)[:300]),
+                                 "tb": _tbc.format_exc()[-800:]})
+
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):

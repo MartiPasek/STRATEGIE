@@ -33346,6 +33346,11 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _data = _r.json()
             except Exception:
                 _data = {"ok": False, "raw": _r.text[:500], "status": _r.status_code}
+            if not _data.get("ok"):
+                import json as _jfx
+                return JSONResponse({"ok": False, "error": "%s | detail=%s | copied=%s | steps=%s" % (
+                    _data.get("error"), str(_data.get("detail"))[:300],
+                    _data.get("copied"), _jfx.dumps(_data.get("steps"), ensure_ascii=False)[:600])})
             return JSONResponse({
                 "ok": bool(_data.get("ok")),
                 "sha_before": _sha_before,

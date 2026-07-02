@@ -450,7 +450,9 @@ def import_by_config(vyrobce, path=None, limit=None, tenant_id=2, uid=1):
     if not cfg:
         return {"ok": False, "error": "chybí config pro výrobce %s" % vyrobce}
     if not path:
-        pat = (cfg["soubor_pattern"] or (vyrobce + "*")).lower()
+        pat = (cfg["soubor_pattern"] or (vyrobce + "*")).lower().replace("%", "*")
+        if "*" not in pat and "?" not in pat:
+            pat = pat + "*"
         files = [f for f in list_cenik_dir()
                  if _fn.fnmatch(f.lower(), pat) and f.lower().endswith((".xlsx", ".xls"))]
         if not files:

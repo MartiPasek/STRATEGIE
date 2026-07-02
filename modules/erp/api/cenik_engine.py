@@ -309,6 +309,18 @@ def _fn(name, a):
         return Decimal(len(_s(a[0])))
     if name == "ISNUMERIC":
         return Decimal(1) if _is_num(a[0]) else Decimal(0)
+    if name == "ROUND":
+        n = int(_dec(a[1])) if len(a) > 1 else 0
+        try:
+            return _dec(a[0]).quantize(Decimal(1).scaleb(-n))
+        except Exception:
+            return _dec(a[0])
+    if name == "ABS":
+        return abs(_dec(a[0]))
+    if name in ("FLOOR", "CEILING", "CEIL"):
+        import math as _m
+        d = _dec(a[0])
+        return Decimal(_m.floor(d) if name == "FLOOR" else _m.ceil(d))
     if name == "ISNULL":
         return a[0] if (a[0] is not None and _s(a[0]) != "") else (a[1] if len(a) > 1 else "")
     if name == "CONCAT":

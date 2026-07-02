@@ -32952,7 +32952,22 @@ async def diag_sql(req: Request) -> JSONResponse:
                 from modules.erp.api.cenik_engine import set_colmap_reimport as _scr
                 _ths.Thread(target=lambda: _scr(_sv, _cm, tenant_id=2, uid=1), daemon=True).start()
                 return JSONResponse({"ok": True, "spusteno": True, "vyrobce": _sv, "col_map": _cm})
-            return JSONResponse({"ok": False, "error": "@@CENIK PEEK|IMPORT|IMPORTFIN|DEDUP|FIND|MIGRATEALL|SETMAP"})
+            if _cop == "MIGRATE1":
+                # @@CENIK MIGRATE1 <dbc_id> <vyrobce> <nazev> <pattern>  → přenes + importuj
+                _m1 = _carg.split(None, 3)
+                if len(_m1) < 4 or not _m1[0].isdigit():
+                    return JSONResponse({"ok": False, "error": "@@CENIK MIGRATE1 <dbc_id> <vyrobce> <nazev> <pattern>"})
+                _dbc1, _mv1, _mn1, _mpat1 = int(_m1[0]), _m1[1].upper(), _m1[2], _m1[3]
+                import threading as _thm1
+                from modules.erp.api.cenik_engine import migrate_supplier as _ms1, import_by_config as _ibc3
+
+                def _run1(_d=_dbc1, _v=_mv1, _n=_mn1, _p=_mpat1):
+                    _mm = _ms1(_d, _v, _n, _p, tenant_id=2)
+                    if _mm.get("ok"):
+                        _ibc3(_v, tenant_id=2, uid=1)
+                _thm1.Thread(target=_run1, daemon=True).start()
+                return JSONResponse({"ok": True, "spusteno": True, "vyrobce": _mv1, "dbc": _dbc1})
+            return JSONResponse({"ok": False, "error": "@@CENIK ...|MIGRATEALL|SETMAP|MIGRATE1"})
         except Exception as _ce:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ce).__name__, str(_ce)[:300]),
                                  "tb": _tbc.format_exc()[-800:]})

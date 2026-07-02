@@ -10723,6 +10723,7 @@ async def ocr_form_get(req: Request) -> JSONResponse:
                 pass
         return JSONResponse({"ok": True, "case_id": case_id, "prefill": prefill,
                              "data": data, "cssz_link": (c[7] or ""), "cssz_link_konec": (c[8] or ""),
+                             "can_manage": bool(_hr_can_manage(s, uid)),
                              "stav": (row[1] if row else "rozpracovany")})
     finally:
         cm.__exit__(None, None, None)
@@ -10889,6 +10890,58 @@ async def ocr_file_delete(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)[:160]}, status_code=500)
     finally:
         cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/ocr/file-view")
+async def ocr_file_view(req: Request):
+    """Náhled/stažení přílohy OČR (fid = tenant.att_ocr_file.id). Vlastník případu
+    nebo HR. Auth přes cookie/token → funguje i jako odkaz v appce (jako med/foto).
+    PDF/obrázky/txt inline, Office jako stažení."""
+    from starlette.responses import JSONResponse as _JR, FileResponse as _FR
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return _JR({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    import os as _os
+    try:
+        fid = int(req.query_params.get("fid") or 0)
+    except Exception:
+        fid = 0
+    cm, s = _att_session()
+    try:
+        r = s.execute(_t(
+            "SELECT f.document_id, o.user_id FROM tenant.att_ocr_file f "
+            "JOIN tenant.att_ocr_case o ON o.id=f.case_id "
+            "WHERE f.id=:i AND f.tenant_id=2"), {"i": fid}).first()
+        if not r:
+            return _JR({"ok": False, "error": "not_found"}, status_code=404)
+        if int(r[1] or 0) != uid and not _hr_can_manage(s, uid):
+            return _JR({"ok": False, "error": "forbidden"}, status_code=403)
+        doc_id = int(r[0])
+    finally:
+        cm.__exit__(None, None, None)
+    from core.database_data import get_data_session as _gds
+    ds = _gds()
+    try:
+        drow = ds.execute(_t("SELECT storage_path, file_type, original_filename, name "
+                             "FROM public.documents WHERE id=:i AND tenant_id=2"),
+                          {"i": doc_id}).first()
+    finally:
+        ds.close()
+    if not drow or not drow[0] or not _os.path.exists(drow[0]):
+        return _JR({"ok": False, "error": "Soubor už není na disku."}, status_code=410)
+    ext = (drow[1] or "").lower().lstrip(".")
+    MIME = {"pdf": "application/pdf", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "png": "image/png", "gif": "image/gif", "webp": "image/webp",
+            "txt": "text/plain; charset=utf-8",
+            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "xls": "application/vnd.ms-excel", "doc": "application/msword",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+    mt = MIME.get(ext, "application/octet-stream")
+    fn = (drow[2] or drow[3] or ("priloha." + (ext or "bin"))) or "priloha"
+    inline = ext in ("pdf", "jpg", "jpeg", "png", "gif", "webp", "txt")
+    disp = "inline" if inline else ('attachment; filename="%s"' % str(fn).replace('"', ''))
+    return _FR(path=drow[0], media_type=mt, headers={"Content-Disposition": disp})
 
 
 def _ocr_load_form_data(s, case_id):

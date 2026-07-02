@@ -2600,7 +2600,7 @@ setTimeout(function(){
     if(mm<1||mm>12||dd<1||dd>31)return "";
     return full+"-"+("0"+mm).slice(-2)+"-"+("0"+dd).slice(-2);
   }
-  function _ocrLoadFiles(box, caseId){
+  function _ocrLoadFiles(box, caseId, canDel){
     box.innerHTML='<div class="hint">Načítám přílohy…</div>';
     api("GET","/api/v1/erp/app/ocr/files?case="+caseId,"").then(function(j){
       box.innerHTML="";
@@ -2610,10 +2610,13 @@ setTimeout(function(){
       fs.forEach(function(f){
         var r=el('<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1c2740;"></div>');
         var icon=(f.kind==="excel")?"📊":"📄";
-        r.appendChild(el('<div style="flex:1;font-size:14px;color:#e8eefc;">'+icon+' '+esc(f.filename||("dokument "+f.document_id))+' <span class="hint">'+esc(f.created||"")+'</span></div>'));
-        var x=el('<button style="background:#3a1d28;border:0;color:#f9b;border-radius:8px;padding:5px 9px;cursor:pointer;">🗑</button>');
-        x.addEventListener("click",function(){ if(!confirm("Smazat přílohu?"))return; api("POST","/api/v1/erp/app/ocr/file/delete",{id:f.id}).then(function(rr){ if(rr&&rr.ok)_ocrLoadFiles(box,caseId); else alert("Chyba: "+((rr&&rr.error)||"?")); }); });
-        r.appendChild(x); box.appendChild(r);
+        r.appendChild(el('<div style="flex:1;font-size:14px;"><a href="/api/v1/erp/app/ocr/file-view?fid='+f.id+'" target="_blank" rel="noopener" style="color:#9fd0ff;text-decoration:none;">'+icon+' '+esc(f.filename||("dokument "+f.document_id))+'</a> <span class="hint">'+esc(f.created||"")+'</span></div>'));
+        if(canDel){
+          var x=el('<button style="background:#3a1d28;border:0;color:#f9b;border-radius:8px;padding:5px 9px;cursor:pointer;">🗑</button>');
+          x.addEventListener("click",function(){ if(!confirm("Smazat přílohu?"))return; api("POST","/api/v1/erp/app/ocr/file/delete",{id:f.id}).then(function(rr){ if(rr&&rr.ok)_ocrLoadFiles(box,caseId,canDel); else alert("Chyba: "+((rr&&rr.error)||"?")); }); });
+          r.appendChild(x);
+        }
+        box.appendChild(r);
       });
     });
   }
@@ -2624,7 +2627,7 @@ setTimeout(function(){
     api("GET","/api/v1/erp/app/ocr/form?case="+caseId,"").then(function(j){
       w.innerHTML="";
       if(!j||!j.ok){ w.appendChild(el('<div class="hint">'+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>')); var bk=el('<button class="ghost sm">Zpět</button>'); bk.addEventListener("click",function(){ocr();}); w.appendChild(bk); return; }
-      var d=j.data||{};
+      var d=j.data||{}; var canMng=!!j.can_manage;
       w.appendChild(el('<div class="hint" style="line-height:1.6;">Formulář ČSSZ „Oznámení zaměstnavateli o potřebě ošetřování" (§109). Předvyplnili jsme, co víme — doplň zbytek a ulož. Rodné číslo jde jen do formuláře, nikdy ne SMS.</div>'));
       function _ocrLinkBtn(url,label){ return el('<div style="margin:2px 0 4px;padding:8px 10px;border-radius:10px;background:rgba(159,208,255,.08);border:1px solid #2b3a5c;"><a href="'+esc(url)+'" target="_blank" rel="noopener" style="color:#9fd0ff;font-weight:700;font-size:14px;text-decoration:none;">'+esc(label)+'</a></div>'); }
       if(j.cssz_link){ w.appendChild(_ocrLinkBtn(j.cssz_link,"📄 Doklad o vzniku (zahájení) – ČSSZ ePortál")); }
@@ -2681,7 +2684,7 @@ setTimeout(function(){
       var area=_ocrArea(w,"Sdělení zaměstnance (nepovinné)","Cokoli pro účetní / úřad…", d.sdeleni||"");
       var fKont=_ocrFld(w,"Kontakt — telefon / e-mail (nepovinné)",""); fKont.value=d.kontakt||"";
       w.appendChild(_ocrSec("Přílohy (PDF / sken z ČSSZ)"));
-      var filesBox=el('<div></div>'); w.appendChild(filesBox); _ocrLoadFiles(filesBox, caseId);
+      var filesBox=el('<div></div>'); w.appendChild(filesBox); _ocrLoadFiles(filesBox, caseId, canMng);
       var upBtn=el('<button class="ghost sm" style="margin-top:6px;">⬆️ Nahrát přílohu (PDF / foto)</button>');
       upBtn.addEventListener("click",function(){
         var fi=el('<input type="file" accept="application/pdf,image/*" style="display:none;">'); document.body.appendChild(fi);
@@ -2696,14 +2699,14 @@ setTimeout(function(){
             api("POST","/api/v1/erp/app/ocr/file",{case:caseId,kind:"priloha",filename:fn,file_b64:b64}).then(function(r){
               upBtn.disabled=false; upBtn.textContent="⬆️ Nahrát přílohu (PDF / foto)";
               try{fi.remove();}catch(e){}
-              _ocrLoadFiles(filesBox, caseId);
+              _ocrLoadFiles(filesBox, caseId, canMng);
               if(!(r&&r.ok)){ alert("Chyba: "+((r&&r.error)||"nahrání selhalo")); }
             });
           };
           fr.readAsDataURL(f);
         });
         fi.click();
-      }); w.appendChild(upBtn);
+      }); if(canMng) w.appendChild(upBtn);
       var st=el('<div class="hint" style="min-height:16px;margin-top:8px;"></div>'); w.appendChild(st);
       function collect(){
         return {
@@ -2726,7 +2729,7 @@ setTimeout(function(){
         });
       }
       var sv=el('<button style="'+_OCR_BTN+'">💾 Uložit formulář</button>'); sv.addEventListener("click",function(){ doSave("rozpracovany"); }); w.appendChild(sv);
-      var done=el('<button style="margin-top:6px;padding:11px;border-radius:12px;border:1px solid #34d399;background:rgba(52,211,153,.15);color:#5ee0b7;font-weight:800;width:100%;cursor:pointer;">✓ Označit jako kompletní</button>'); done.addEventListener("click",function(){ doSave("kompletni"); }); w.appendChild(done);
+      var done=el('<button style="margin-top:6px;padding:11px;border-radius:12px;border:1px solid #34d399;background:rgba(52,211,153,.15);color:#5ee0b7;font-weight:800;width:100%;cursor:pointer;">✓ Označit jako kompletní</button>'); done.addEventListener("click",function(){ doSave("kompletni"); }); if(canMng) w.appendChild(done);
       var gx=el('<button style="margin-top:6px;padding:11px;border-radius:12px;border:1px solid #6aa9ff;background:rgba(106,169,255,.12);color:#9fd0ff;font-weight:800;width:100%;cursor:pointer;">📊 Vygenerovat ČSSZ Excel</button>');
       gx.addEventListener("click",function(){
         if(fOr.value && !_rcValid(fOr.value)){ st.style.color="#ff8b8b"; st.textContent="RČ ošetřované osoby nevypadá platně."; return; }
@@ -2735,12 +2738,12 @@ setTimeout(function(){
           if(!r||!r.ok){ gx.disabled=false; st.style.color="#ff8b8b"; st.textContent="Uložení selhalo: "+((r&&r.error)||"?"); return; }
           api("POST","/api/v1/erp/app/ocr/excel",{case:caseId}).then(function(e){
             gx.disabled=false;
-            _ocrLoadFiles(filesBox, caseId);
+            _ocrLoadFiles(filesBox, caseId, canMng);
             if(e&&e.ok){ st.style.color="#5ee0b7"; st.textContent="✓ Excel vygenerován: "+esc(e.filename||""); }
             else { st.style.color="#ff8b8b"; st.textContent="Generování selhalo: "+((e&&e.error)||"?"); }
           });
         });
-      }); w.appendChild(gx);
+      }); if(canMng) w.appendChild(gx);
       var mb=el('<button style="margin-top:6px;padding:11px;border-radius:12px;border:1px solid #f0b35e;background:rgba(240,179,94,.12);color:#f6c98a;font-weight:800;width:100%;cursor:pointer;">📧 Odeslat účetní (Péťě)</button>');
       mb.addEventListener("click",function(){
         if(!confirm("Odeslat formulář a přílohy e-mailem na p.safrankova@eurosoft.com (kopie k.ksirova@eurosoft.com)?\n\nExcel se před odesláním vygeneruje z aktuálních dat."))return;
@@ -2751,13 +2754,13 @@ setTimeout(function(){
             if(!e||!e.ok){ mb.disabled=false; st.style.color="#ff8b8b"; st.textContent="Excel selhal: "+((e&&e.error)||"?"); return; }
             api("POST","/api/v1/erp/app/ocr/mail",{case:caseId}).then(function(m){
               mb.disabled=false;
-              if(m&&m.ok){ st.style.color="#5ee0b7"; st.textContent="✓ Odesláno Péťě ("+(m.attachments||0)+" příloh), kopie Kristý."; _ocrLoadFiles(filesBox, caseId); }
+              if(m&&m.ok){ st.style.color="#5ee0b7"; st.textContent="✓ Odesláno Péťě ("+(m.attachments||0)+" příloh), kopie Kristý."; _ocrLoadFiles(filesBox, caseId, canMng); }
               else if(m&&m.error==="forbidden"){ st.style.color="#ff8b8b"; st.textContent="Odeslání může spustit jen HR/účetní."; }
               else { st.style.color="#ff8b8b"; st.textContent="Odeslání selhalo: "+((m&&m.error)||"?"); }
             });
           });
         });
-      }); w.appendChild(mb);
+      }); if(canMng) w.appendChild(mb);
       var cx=el('<button class="ghost sm" style="margin-top:4px;">Zpět na seznam OČR</button>'); cx.addEventListener("click",function(){ ocr(); }); w.appendChild(cx);
     });
   }

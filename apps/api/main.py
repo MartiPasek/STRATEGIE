@@ -44,6 +44,7 @@ from modules.erp.api.router import router as erp_router, api_router as erp_api_r
 from modules.erp.api.carddav import carddav_router, carddav_mgmt_router
 from modules.erp.api.directories import dir_router  # Fáze A: systém adresářů dokumentů (18.6.2026)
 from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elektronické vedení ISMS (21.6.2026)
+from modules.erp.api.bozp_cockpit import bozp_router  # BOZP a PO cockpit — řízení a evidence (2.7.2026)
 from modules.erp.api.contract_sign import contract_router  # E-podpis smluv — bilaterální SES + audit (1.7.2026)
 from modules.erp.api.bank_api import bank_router  # Univerzální bankovní napojení (Bank API) — Fáze 1 (24.6.2026)
 from modules.erp.api.hr_spis import hr_spis_router  # Osobní spis zaměstnance — HR pohled + self-service (1.7.2026)
@@ -827,6 +828,7 @@ app.include_router(carddav_router)  # CardDAV F1.5 — root-level /carddav + /.w
 app.include_router(carddav_mgmt_router)  # CardDAV F1.6 — self-service správa tokenů (/api/v1/erp/carddav/*)
 app.include_router(dir_router)  # Fáze A: systém adresářů dokumentů (dir_config + resolver)
 app.include_router(iso_router)  # ISO 27001 cockpit (elektronické ISMS + e-podpis + auditor portál)
+app.include_router(bozp_router)  # BOZP a PO cockpit (řízení dokumentů, rizik, termínů, úrazů)
 app.include_router(contract_router)  # E-podpis smluv (SES + audit + externí portál)
 app.include_router(bank_router)  # Univerzální bankovní napojení (connection + cert do trezoru) — Fáze 1
 app.include_router(hr_spis_router)  # Osobní spis zaměstnance — HR pohled + zaměstnanecký self-service
@@ -1262,6 +1264,13 @@ def iso_page():
     """ISO 27001 cockpit — elektronické vedení ISMS (parent/Kristý). Kroky + dokumenty
     + e-podpis klikem (SES) + správa auditorského přístupu. Marti 21.6.2026."""
     return FileResponse(os.path.join(static_dir, "iso.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/bozp")
+def bozp_page():
+    """BOZP a PO cockpit — řízení dokumentů, rizik, termínů/upomínek, úrazů (Claude 2.7.2026)."""
+    return FileResponse(os.path.join(static_dir, "bozp.html"),
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 

@@ -1,5 +1,7 @@
 # STRATEGIE — Claude Code Context
 
+> **🧠 SPOLEČNÁ RAG AI ZNALOSTNÍ BÁZE = `@@KB` most** (Marti 2.7.2026, „vidím to jako budoucnost"). Firemní a doménové know-how (obchod, cenotvorba, komponenty, kalkulace, procesy) NEDRŽ v dlouhých MD — **žije ve sdílené RAG** (`tenant.kb_smernice`, řada „AI") dostupné celé síti Claudů i všem instancím Marti-AI přes bridge. **Orientuj se přes `@@KB <dotaz> [| ai]`** (řada AI = level 3, jen síť + rodiče), zapisuj přes `@@KBADD`. CLAUDE.md drží už jen **osobní/vztahové jádro** (dopis, doctriny, identity, dárek-scény) + index; provozní znalosti překlápíme do RAG postupně. **Citlivé věci** (finance, interní/personální) do RAG NEPATŘÍ — jen soukromý sandbox C23 + Marti-AI (MD5) + Kristý.
+
 > **🗓️ ŠKOLNÍ AGENDA = `docs/Skola.md`** (Marti 30.6.2026): kompletní samostatná krabička rozvrhu Nerudovky, **zrcadlená s C23**. Rozvrh pro Klárku se řeší **z CMS** přes „🛠️ Chat s Claudem" (paralelně, zatímco Marti+C23 jedou EUROSOFT). Aktuální stav, Klárčiny požadavky K1–K11, pravidla i návod generování drží `docs/Skola.md` — **čti ji jako první při rozvrhu**. Na CMS přes `/dokument?key=skola`. Po každém kroku rozvrhu Skola.md aktualizuj. (Historie níže zůstává.)
 
 ## Dodatek — 1. 7. 2026 (večer): 📚 RAG MODUL SMĚRNIC — know-how celé firmy přes most. „To je bomba." Marti: „plný kule."

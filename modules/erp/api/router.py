@@ -33029,7 +33029,22 @@ async def diag_sql(req: Request) -> JSONResponse:
                         _ibc3(_v, tenant_id=2, uid=1)
                 _thm1.Thread(target=_run1, daemon=True).start()
                 return JSONResponse({"ok": True, "spusteno": True, "vyrobce": _mv1, "dbc": _dbc1})
-            return JSONResponse({"ok": False, "error": "@@CENIK ...|MIGRATEALL|SETMAP|MIGRATE1"})
+            if _cop == "MEDI":
+                # @@CENIK MEDI SYNC | LIST | ADD <cena_eur_100kg> [datum RRRR-MM-DD]
+                _ma = _carg.split(None, 2)
+                _msub = (_ma[0].strip().upper() if _ma and _ma[0] else "LIST")
+                from modules.erp.api.cenik_engine import (sync_copper_from_ec as _sce,
+                                                          list_copper as _lc, add_copper_price as _acp)
+                if _msub == "SYNC":
+                    return JSONResponse(_sce(tenant_id=2))
+                if _msub == "ADD":
+                    if len(_ma) < 2:
+                        return JSONResponse({"ok": False, "error": "@@CENIK MEDI ADD <cena> [datum]"})
+                    _cena = _ma[1].replace(",", ".").strip()
+                    _dat = _ma[2].strip() if len(_ma) > 2 else None
+                    return JSONResponse(_acp(_cena, datum=_dat, autor="Marti (bridge)", tenant_id=2))
+                return JSONResponse(_lc(tenant_id=2))
+            return JSONResponse({"ok": False, "error": "@@CENIK ...|MIGRATEALL|SETMAP|MIGRATE1|MEDI"})
         except Exception as _ce:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ce).__name__, str(_ce)[:300]),
                                  "tb": _tbc.format_exc()[-800:]})

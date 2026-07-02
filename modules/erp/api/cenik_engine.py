@@ -347,6 +347,10 @@ def transform_row(vzorce, raw_params: dict) -> dict:
         expr = v.get("vyraz") or ""
         if not cil or not expr:
             continue
+        # SQL subquery (např. aktuální cena mědi) — evaluátor SQL neumí; hodnota
+        # musí být předem naseedovaná v raw_params (viz import_by_config → @P13).
+        if expr.lstrip().lstrip("(").upper().startswith("SELECT"):
+            continue
         try:
             val = eval_expr(expr, p)
         except Exception as e:  # noqa: BLE001
@@ -565,7 +569,8 @@ def _flush(s, batch):
 
 
 def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
-                 ceny_czk=False, platnost_od=None, tenant_id=2, uid=None, limit=None):
+                 ceny_czk=False, platnost_od=None, tenant_id=2, uid=None, limit=None,
+                 seed_params=None):
     """Import XLS ceníku: staging raw (JSONB) + aplikace vzorců (z tenant.cenik_vzorec
     dle vyrobce) → normalizovaná pole. col_map = {'P01': index_sloupce (1-based), ...}."""
     import io as _io
@@ -618,7 +623,7 @@ def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
             row = allrows[i]
             if row is None or all(c is None or str(c).strip() == "" for c in row):
                 continue
-            params = {}
+            params = {str(k): ("" if v is None else str(v)) for k, v in (seed_params or {}).items()}
             for pk, ci in col_map.items():
                 params[pk] = "" if (ci - 1 >= len(row) or row[ci - 1] is None) else str(row[ci - 1])
             out = transform_row(vz, params)
@@ -691,6 +696,111 @@ def list_cenik_dir():
     return out
 
 
+# ── cena mědi (LAPP a další kabelové ceníky závisí na aktuálním kurzu mědi) ────
+# Obdoba DB_EC.dbo.EC_CenaMedi: vzorec @P13 = TOP 1 CenaMed_EUR_100Kg ORDER BY ID DESC.
+# Ve STRATEGII zrcadlíme do tenant.cenik_cena_medi a při importu seedujeme @P13.
+
+def current_copper_price(tenant_id=2):
+    """Aktuální cena mědi (EUR/100kg) = nejnovější řádek tenant.cenik_cena_medi.
+    Vrací Decimal nebo None."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        r = s.execute(_t(
+            "SELECT cena_eur_100kg FROM tenant.cenik_cena_medi "
+            "WHERE tenant_id=:t ORDER BY datum DESC NULLS LAST, id DESC LIMIT 1"),
+            {"t": tenant_id}).scalar()
+        return r
+    finally:
+        s.close()
+
+
+def sync_copper_from_ec(tenant_id=2):
+    """Zrcadlí DB_EC.dbo.EC_CenaMedi → tenant.cenik_cena_medi (podle ec_id, idempotentní)."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    rows = _dbc_query("SELECT ID, Datum, CenaMed_EUR_100Kg, Autor, DatPorizeni "
+                      "FROM DB_EC.dbo.EC_CenaMedi ORDER BY ID")
+    s = get_data_session()
+    ins = 0
+    try:
+        for r in rows:
+            ec_id = r.get("ID") if isinstance(r, dict) else None
+            datum = r.get("Datum") if isinstance(r, dict) else None
+            cena = r.get("CenaMed_EUR_100Kg") if isinstance(r, dict) else None
+            autor = r.get("Autor") if isinstance(r, dict) else None
+            dpor = r.get("DatPorizeni") if isinstance(r, dict) else None
+            if cena is None:
+                continue
+            s.execute(_t(
+                "INSERT INTO tenant.cenik_cena_medi(tenant_id,ec_id,datum,cena_eur_100kg,autor,dat_porizeni,zdroj) "
+                "VALUES(:t,:e,CAST(:d AS date),CAST(:c AS numeric),:a,CAST(:dp AS timestamp),'DB_EC') "
+                "ON CONFLICT (tenant_id,ec_id) DO UPDATE SET datum=EXCLUDED.datum, "
+                "cena_eur_100kg=EXCLUDED.cena_eur_100kg, autor=EXCLUDED.autor"),
+                {"t": tenant_id, "e": ec_id, "d": str(datum)[:10] if datum else None,
+                 "c": str(cena), "a": (str(autor)[:128] if autor else None),
+                 "dp": str(dpor)[:19] if dpor else None})
+            ins += 1
+        s.commit()
+        return {"ok": True, "zrcadleno": ins, "aktualni": str(current_copper_price(tenant_id))}
+    finally:
+        s.close()
+
+
+def add_copper_price(cena, datum=None, autor="ruční", tenant_id=2):
+    """Přidá nový záznam ceny mědi (EUR/100kg). ec_id=NULL (nepochází z DB_EC)."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        rid = s.execute(_t(
+            "INSERT INTO tenant.cenik_cena_medi(tenant_id,ec_id,datum,cena_eur_100kg,autor,zdroj) "
+            "VALUES(:t,NULL,COALESCE(CAST(:d AS date),CURRENT_DATE),CAST(:c AS numeric),:a,'STRATEGIE') "
+            "RETURNING id"),
+            {"t": tenant_id, "d": datum, "c": str(cena), "a": str(autor)[:128]}).scalar()
+        s.commit()
+        return {"ok": True, "id": rid, "cena": str(cena), "aktualni": str(current_copper_price(tenant_id))}
+    finally:
+        s.close()
+
+
+def list_copper(tenant_id=2, limit=15):
+    """Posledních N cen mědi."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        rows = [dict(r) for r in s.execute(_t(
+            "SELECT id, ec_id, datum, cena_eur_100kg, autor, zdroj FROM tenant.cenik_cena_medi "
+            "WHERE tenant_id=:t ORDER BY datum DESC NULLS LAST, id DESC LIMIT :n"),
+            {"t": tenant_id, "n": limit}).mappings()]
+        return {"ok": True, "aktualni": str(current_copper_price(tenant_id)), "radky": rows}
+    finally:
+        s.close()
+
+
+def _copper_seed_for(vyrobce, tenant_id=2):
+    """Pokud vzorce výrobce závisí na ceně mědi (SELECT ...CenaMedi), vrať {'P13': cena}."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        dep = s.execute(_t(
+            "SELECT 1 FROM tenant.cenik_vzorec WHERE tenant_id=:t AND vyrobce=:v "
+            "AND aktivni AND vyraz ILIKE '%%CenaMedi%%' LIMIT 1"),
+            {"t": tenant_id, "v": vyrobce}).scalar()
+    finally:
+        s.close()
+    if not dep:
+        return None
+    cp = current_copper_price(tenant_id)
+    if cp is None:
+        return None
+    # cíl @P13 → param 'P13'
+    return {"P13": str(cp)}
+
+
 def import_by_config(vyrobce, path=None, limit=None, tenant_id=2, uid=1):
     """Generický import: načte config výrobce (col_map/data_start/mena/pattern), najde
     nejnovější soubor v adresáři Ceniky (pokud path není zadán) a spustí import_cenik."""
@@ -718,9 +828,10 @@ def import_by_config(vyrobce, path=None, limit=None, tenant_id=2, uid=1):
             return {"ok": False, "error": "soubor nenalezen (pattern %s)" % pat}
         files.sort()
         path = _op.join(_CENIK_DIR, files[-1])
+    seed = _copper_seed_for(vyrobce, tenant_id=tenant_id)
     r = import_cenik(path, vyrobce, cfg["col_map"], data_start=cfg["data_start"] or 1,
                      mena=cfg["mena"] or "EUR", ceny_czk=cfg["ceny_czk"] or False,
-                     tenant_id=tenant_id, uid=uid, limit=limit)
+                     tenant_id=tenant_id, uid=uid, limit=limit, seed_params=seed)
     if isinstance(r, dict):
         r["soubor"] = _op.basename(path)
         r["nazev"] = cfg["nazev"]

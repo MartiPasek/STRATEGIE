@@ -32542,13 +32542,26 @@ async def diag_sql(req: Request) -> JSONResponse:
         return JSONResponse(_eneschopenka_to_sick())
 
     #   @@VPSYNC → ingest projects@ (email_inbox) → tenant.vp_poptavka (whitelist domen + dedup)
+    #   @@VPTRIAGE → AI klasifikace cekajicich (typ/zakaznik/predmet/shrnuti/jistota)
+    #   @@VPTEST <text> → ad-hoc test klasifikace na libovolnem textu (bez schranky)
     #   @@VPINFO → prehled VP poptavek + whitelist + zda je schranka projects@ pripojena
     if sql.upper().startswith("@@VP"):
         import traceback as _tbvp
         try:
-            from modules.erp.api.vp_ingest import sync_vp_poptavky as _vps, info as _vpi
-            if sql.upper().startswith("@@VPINFO"):
+            from modules.erp.api.vp_ingest import (
+                sync_vp_poptavky as _vps, info as _vpi,
+                triage_pending as _vptp, triage_text as _vptt,
+            )
+            _u = sql.upper()
+            if _u.startswith("@@VPINFO"):
                 return JSONResponse(_vpi())
+            if _u.startswith("@@VPTRIAGE"):
+                return JSONResponse(_vptp())
+            if _u.startswith("@@VPTEST"):
+                _txt = sql[len("@@VPTEST"):].strip()
+                if not _txt:
+                    return JSONResponse({"ok": False, "error": "@@VPTEST <text emailu>"})
+                return JSONResponse({"ok": True, "klasifikace": _vptt(_txt[:120], _txt)})
             return JSONResponse(_vps())
         except Exception as _vpe:
             return JSONResponse({"ok": False,

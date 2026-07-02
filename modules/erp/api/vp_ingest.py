@@ -11,6 +11,8 @@ domén; ostatní se přeskočí (nezakládáme záznam).
 """
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import text as _t
 
 from core.database_data import get_data_session
@@ -20,6 +22,23 @@ logger = get_logger("vp_ingest")
 
 VP_MAILBOX_UPN = "projects@eurosoft.com"
 DEFAULT_TENANT = 2  # EUROSOFT
+
+# Fáze 3 — triáž (AI klasifikace). Levný model (Haiku), loguje se do llm_calls.
+VP_TRIAGE_MODEL = "claude-haiku-4-5-20251001"
+VP_TRIAGE_SYSTEM = (
+    "Jsi triage asistent pro vedoucí projektu (VP) ve firmě EUROSOFT — výroba "
+    "elektrických rozváděčů na zakázku + programování PLC software. Dostaneš jeden "
+    "příchozí e-mail (předmět + tělo). Klasifikuj ho a vytěž strukturovaná data. "
+    "Vrať POUZE validní JSON (bez markdownu, bez komentářů) s klíči: "
+    "typ — 'poptavka' (nová zakázková poptávka / RFQ / dotaz na cenu či realizaci od "
+    "zákazníka), 'provozni' (běžná provozní/koordinační korespondence k existující "
+    "zakázce), nebo 'ostatni' (spam, newsletter, interní nesouvisející); "
+    "zakaznik — název firmy nebo osoby odesílatele (nebo null); "
+    "predmet — krátce čeho se týká, max 100 znaků; "
+    "shrnuti — 1–2 věty česky, co odesílatel chce; "
+    "jistota — celé číslo 0–100, jak jistá je klasifikace typu. "
+    "Buď konzervativní: pokud si poptávkou nejsi jistý, zvol 'provozni' nebo 'ostatni'."
+)
 
 
 def _domain_of(email: str | None) -> str | None:
@@ -135,3 +154,102 @@ def info(tenant_id: int = DEFAULT_TENANT) -> dict:
                 "whitelist": wl}
     finally:
         s.close()
+
+
+# ── Fáze 3: triáž (AI klasifikace) ──────────────────────────────────────────
+
+def triage_text(subject: str | None, body: str | None,
+                conversation_id: int | None = None,
+                tenant_id: int = DEFAULT_TENANT) -> dict:
+    """
+    Klasifikuje jeden e-mail přes levný model (Haiku) → dict
+    {typ, zakaznik, predmet, shrnuti, jistota}. Loguje se do llm_calls
+    (kind='vp_triage'). Čistá funkce — nesahá na DB (jde testovat ad-hoc textem).
+    """
+    import anthropic
+    from core.config import settings
+
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    content = (
+        f"PŘEDMĚT: {subject or '(bez předmětu)'}\n\n"
+        f"TĚLO:\n{(body or '')[:6000]}"
+    )
+    from modules.conversation.application import telemetry_service as _tel
+    resp = _tel.call_llm_with_trace(
+        client,
+        conversation_id=conversation_id,
+        kind="vp_triage",
+        model=VP_TRIAGE_MODEL,
+        max_tokens=400,
+        system=VP_TRIAGE_SYSTEM,
+        messages=[{"role": "user", "content": content}],
+        tenant_id=tenant_id,
+    )
+    raw = (resp.content[0].text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    data = json.loads(raw)
+
+    typ = str(data.get("typ") or "neurcen").strip().lower()
+    if typ not in ("poptavka", "provozni", "ostatni"):
+        typ = "neurcen"
+    try:
+        jist = int(data.get("jistota") or 0)
+    except (TypeError, ValueError):
+        jist = 0
+    return {
+        "typ": typ,
+        "zakaznik": (data.get("zakaznik") or None),
+        "predmet": (str(data.get("predmet"))[:500] if data.get("predmet") else None),
+        "shrnuti": (data.get("shrnuti") or None),
+        "jistota": max(0, min(100, jist)),
+    }
+
+
+def triage_pending(tenant_id: int = DEFAULT_TENANT, limit: int = 25) -> dict:
+    """
+    Vezme nezpracované záznamy (typ='neurcen', stav='nova'), doplní tělo z
+    email_inbox, klasifikuje a uloží typ/zákazník/předmět/shrnutí/jistotu.
+    Idempotentní — jednou klasifikovaný záznam (typ != 'neurcen') přeskočí.
+    """
+    s = get_data_session()
+    try:
+        rows = s.execute(
+            _t("""
+                SELECT p.id, p.subject, ei.body
+                FROM tenant.vp_poptavka p
+                LEFT JOIN email_inbox ei ON ei.id = p.source_email_id
+                WHERE p.tenant_id = :t AND p.typ = 'neurcen' AND p.stav = 'nova'
+                ORDER BY p.id
+                LIMIT :lim
+            """),
+            {"t": tenant_id, "lim": limit},
+        ).mappings().all()
+
+        done = 0
+        errors: list[str] = []
+        for r in rows:
+            try:
+                cls = triage_text(r["subject"], r["body"], tenant_id=tenant_id)
+                s.execute(
+                    _t("""
+                        UPDATE tenant.vp_poptavka
+                        SET typ=:typ, zakaznik=:zak, predmet=:pred,
+                            shrnuti=:shr, jistota=:jist, updated_at=now()
+                        WHERE id=:id
+                    """),
+                    {"typ": cls["typ"], "zak": cls["zakaznik"], "pred": cls["predmet"],
+                     "shr": cls["shrnuti"], "jist": cls["jistota"], "id": r["id"]},
+                )
+                s.commit()
+                done += 1
+            except Exception as e:  # noqa: BLE001
+                s.rollback()
+                errors.append(f"{r['id']}: {type(e).__name__}: {str(e)[:120]}")
+        logger.info("VP triage | zpracovano=%s | chyby=%s", done, len(errors))
+        return {"ok": True, "zpracovano": done, "chyby": errors[:5]}
+    finally:
+        s.close()
+

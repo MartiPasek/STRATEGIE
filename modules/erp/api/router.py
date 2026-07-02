@@ -32603,6 +32603,113 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)})
 
+    # @@QCOPY — frontový streamovaný kopírovací engine (Claude 2.7.2026, "standard").
+    #   @@QCOPY INDEX <batch> <src_root> >> <dst_ro_root>  — projde strom 1×, uloží frontu
+    #   @@QCOPY RUN <batch> [n]                             — zkopíruje n pending (default 15)
+    #   @@QCOPY STAT <batch>                                — stav fronty
+    #   Nativní file_copy (jakákoliv velikost) + fronta v fw.file_copy_q → pod rate-limitem,
+    #   re-spustitelné / plánovatelné scheduled taskem. Balast (_files/Thumbs/~$/.db) → _DELETE/.
+    if sql.upper().startswith("@@QCOPY"):
+        import json as _jq
+        from sqlalchemy import text as _tq
+        from core.database_data import get_data_session as _gq
+        _rest = sql[len("@@QCOPY"):].strip()
+        _sub = _rest.split(None, 1)
+        _qop = (_sub[0].upper() if _sub else "")
+        _qarg = (_sub[1].strip() if len(_sub) > 1 else "")
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+        _mcp = get_eurosoft_mcp_client()
+        if _qop == "INDEX":
+            if " >> " not in _qarg:
+                return JSONResponse({"ok": False, "error": "@@QCOPY INDEX <batch> <src_root> >> <dst_root>"})
+            _left, _dstroot = [x.strip() for x in _qarg.split(" >> ", 1)]
+            _lb = _left.split(None, 1)
+            _batch = _lb[0]; _srcroot = (_lb[1].strip() if len(_lb) > 1 else "").rstrip("\\/")
+            _dstroot = _dstroot.strip("/").replace("\\", "/")
+            if _mcp is None:
+                return JSONResponse({"ok": False, "error": "MCP nedostupný"})
+            def _qwalk(root):
+                files = []; q = [root]; seen = 0
+                while q and seen < 5000:
+                    cur = q.pop(0); seen += 1
+                    raw = _mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                                              {"user_namespace": "ro", "base_override": cur, "subpath": ""},
+                                              conversation_id=None)
+                    r = _jq.loads(raw) if isinstance(raw, str) else raw
+                    for it in ((r.get("items") or r.get("files") or r.get("entries") or []) if isinstance(r, dict) else (r or [])):
+                        if isinstance(it, dict):
+                            nm = it.get("name") or it.get("filename") or it.get("path")
+                            typ = it.get("type") or ("dir" if it.get("is_dir") else "file"); szz = it.get("size") or 0
+                        else:
+                            nm, typ, szz = it, "file", 0
+                        full = cur + "\\" + str(nm)
+                        if typ == "dir": q.append(full)
+                        else: files.append((cur, str(nm), full[len(root):].lstrip("\\/").replace("\\", "/"), szz))
+                return files
+            _fs = _qwalk(_srcroot)
+            def _isjunk(rel):
+                low = rel.lower(); base = rel.split("/")[-1]
+                return ("_files/" in low or base == "Thumbs.db" or base.startswith("~$")
+                        or base.endswith(".db") or base.endswith(".tmp"))
+            _s = _gq(); _n = 0
+            try:
+                for (base, nm, rel, szz) in _fs:
+                    tgt = ("_DELETE/" + rel) if _isjunk(rel) else rel
+                    _s.execute(_tq("""INSERT INTO fw.file_copy_q(batch,src_base,src_name,dst_ns,dst_path,sz)
+                        VALUES(:b,:sb,:sn,'ro',:dp,:sz) ON CONFLICT (batch,dst_path) DO NOTHING"""),
+                        {"b": _batch, "sb": base, "sn": nm, "dp": _dstroot + "/" + tgt, "sz": szz})
+                    _n += 1
+                _s.commit()
+                t = _s.execute(_tq("SELECT count(*) c, count(*) FILTER(WHERE status='pending') p FROM fw.file_copy_q WHERE batch=:b"), {"b": _batch}).first()
+                return JSONResponse({"ok": True, "columns": ["batch", "prosel", "celkem_ve_fronte", "pending"],
+                                     "rows": [[_batch, _n, t.c, t.p]], "count": 1,
+                                     "note": "Zaindexováno. Spouštěj @@QCOPY RUN %s dokud pending=0 (klidně scheduled taskem)." % _batch})
+            finally:
+                _s.close()
+        if _qop == "RUN":
+            _ra = _qarg.split()
+            _batch = _ra[0] if _ra else ""
+            try: _nn = int(_ra[1]) if len(_ra) > 1 else 15
+            except Exception: _nn = 15
+            if _mcp is None:
+                return JSONResponse({"ok": False, "error": "MCP nedostupný"})
+            _s = _gq(); rows = []
+            try:
+                pend = _s.execute(_tq("SELECT id,src_base,src_name,dst_ns,dst_path FROM fw.file_copy_q WHERE batch=:b AND status='pending' ORDER BY id LIMIT :n"),
+                                  {"b": _batch, "n": _nn}).fetchall()
+                for row in pend:
+                    try:
+                        raw = _mcp.call_tool_sync("eurosoft_eurosoft_file_copy",
+                                                  {"src_base_override": row.src_base, "src_path": row.src_name,
+                                                   "dst_namespace": row.dst_ns, "dst_path": row.dst_path, "overwrite": True},
+                                                  conversation_id=None)
+                        rr = _jq.loads(raw) if isinstance(raw, str) else raw
+                        if isinstance(rr, dict) and rr.get("ok"):
+                            _s.execute(_tq("UPDATE fw.file_copy_q SET status='done',done_at=now(),err=NULL WHERE id=:i"), {"i": row.id})
+                            rows.append([row.dst_path[-46:], "OK"])
+                        else:
+                            _e = str((rr.get("error") if isinstance(rr, dict) else rr))[:120]
+                            _s.execute(_tq("UPDATE fw.file_copy_q SET status='err',err=:e WHERE id=:i"), {"i": row.id, "e": _e})
+                            rows.append([row.dst_path[-40:], "ERR: " + _e[:40]])
+                    except Exception as _ex:
+                        _s.execute(_tq("UPDATE fw.file_copy_q SET status='err',err=:e WHERE id=:i"), {"i": row.id, "e": str(_ex)[:120]})
+                        rows.append([row.dst_path[-40:], "EXC: " + str(_ex)[:40]])
+                    _s.commit()
+                st = _s.execute(_tq("SELECT count(*) FILTER(WHERE status='pending') p, count(*) FILTER(WHERE status='done') d, count(*) FILTER(WHERE status='err') e FROM fw.file_copy_q WHERE batch=:b"), {"b": _batch}).first()
+                return JSONResponse({"ok": True, "columns": ["cil", "stav"], "rows": rows, "count": len(rows),
+                                     "note": "pending %d · done %d · err %d%s" % (st.p, st.d, st.e, "" if st.p else " · HOTOVO ✓")})
+            finally:
+                _s.close()
+        if _qop == "STAT":
+            _batch = _qarg.strip()
+            _s = _gq()
+            try:
+                st = _s.execute(_tq("SELECT status,count(*) c,COALESCE(sum(sz),0) b FROM fw.file_copy_q WHERE batch=:b GROUP BY status ORDER BY status"), {"b": _batch}).fetchall()
+                return JSONResponse({"ok": True, "columns": ["status", "pocet", "bajtu"], "rows": [[r.status, r.c, r.b] for r in st], "count": len(st)})
+            finally:
+                _s.close()
+        return JSONResponse({"ok": False, "error": "@@QCOPY INDEX <batch> <src> >> <dst> | RUN <batch> [n] | STAT <batch>"})
+
     # @@ISDS LIST <acct_id> [dny] / @@ISDS MSG <acct_id> <dm_id> → test datovek z bridge
     if sql.upper().startswith("@@ISDS"):
         parts = sql.split()

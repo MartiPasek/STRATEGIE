@@ -11111,8 +11111,8 @@ async def ocr_mail_send(req: Request) -> JSONResponse:
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
-    ocr_mail_to = "p.safrankova@eurosoft.com"
-    ocr_mail_cc = ["k.ksirova@eurosoft.com"]
+    ocr_mail_to = "fajmonova@martia2000.cz"
+    ocr_mail_cc = ["p.safrankova@eurosoft.com"]
     try:
         b = await req.json()
     except Exception:
@@ -11172,10 +11172,9 @@ async def ocr_mail_send(req: Request) -> JSONResponse:
                 (" (" + d["os_vztah"] + ")") if d.get("os_vztah") else "",
                 (", " + obd) if obd else "",
                 (", identifikátor " + d["cislo_rozhodnuti"]) if d.get("cislo_rozhodnuti") else ""))
-            if _lnks and _lnks[0]:
-                lines.append("  📄 Doklad o vzniku (zahájení) z ČSSZ ePortálu: " + str(_lnks[0]))
-            if _lnks and _lnks[1]:
-                lines.append("  📄 Doklad o ukončení z ČSSZ ePortálu: " + str(_lnks[1]))
+            _cl = (_lnks[0] if (_lnks and _lnks[0]) else (_lnks[1] if _lnks else None))
+            if _cl:
+                lines.append("  📄 Doklad ke stažení z ČSSZ ePortálu: " + str(_cl))
     finally:
         cm.__exit__(None, None, None)
 

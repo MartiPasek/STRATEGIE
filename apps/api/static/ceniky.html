@@ -57,7 +57,7 @@
 </div>
 
 <script>
-async function j(u,opt){const r=await fetch(u,Object.assign({credentials:'include'},opt||{}));return r.json();}
+async function j(u,opt){const r=await fetch('/api/v1/erp'+u,Object.assign({credentials:'include'},opt||{}));return r.json();}
 function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function money(x){return x==null?'—':Number(x).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:4});}
 

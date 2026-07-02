@@ -1109,6 +1109,14 @@ def podpis_vlastni_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/ceniky")
+def ceniky_page():
+    """Ceníky dodavatelů — přehled, import, prohlížeč položek, cena pro kalkulace.
+    Marti 2.7.2026."""
+    return FileResponse(os.path.join(static_dir, "ceniky.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/pokladny")
 def pokladny_page():
     """Systém pokladen + kartových účtů (zrcadlo Helios TabDruhPokladen) + registr

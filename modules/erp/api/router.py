@@ -25726,6 +25726,65 @@ async def kalk_compute_ep(req: Request):
         float(body.get("koef") or 1.0), float(body.get("marze") or 0.0)))
 
 
+def _ceniky_gate(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        return uid if _is_cockpit(s, uid) else None
+    finally:
+        s.close()
+
+
+@api_router.get("/app/ceniky/prehled")
+def ceniky_prehled_ep(req: Request):
+    if _ceniky_gate(req) is None:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.erp.api.cenik_engine import prehled as _ph
+    return JSONResponse(_ph(tenant_id=2))
+
+
+@api_router.get("/app/ceniky/polozky")
+def ceniky_polozky_ep(req: Request):
+    if _ceniky_gate(req) is None:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.erp.api.cenik_engine import polozky as _pz
+    return JSONResponse(_pz(tenant_id=2, vyrobce=(req.query_params.get("vyrobce") or None),
+                            q=(req.query_params.get("q") or None), limit=200))
+
+
+@api_router.get("/app/ceniky/find")
+def ceniky_find_ep(req: Request):
+    if _ceniky_gate(req) is None:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from modules.erp.api.cenik_engine import find_price as _fp
+    return JSONResponse(_fp(req.query_params.get("kod") or "", tenant_id=2))
+
+
+@api_router.post("/app/ceniky/import")
+async def ceniky_import_ep(req: Request):
+    _u = _ceniky_gate(req)
+    if _u is None:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        _b = await req.json()
+    except Exception:
+        _b = {}
+    _vyr = (_b.get("vyrobce") or "").strip().upper()
+    if not _vyr:
+        return JSONResponse({"ok": False, "error": "chybí výrobce"})
+    import threading as _thi
+    from modules.erp.api.cenik_engine import import_by_config as _ibc2
+
+    def _runi(_v=_vyr, _uid=_u):
+        try:
+            _ibc2(_v, tenant_id=2, uid=_uid)
+        except Exception:
+            pass
+    _thi.Thread(target=_runi, daemon=True).start()
+    return JSONResponse({"ok": True, "spusteno": True, "vyrobce": _vyr})
+
+
 @api_router.get("/app/vp/poptavky")
 def vp_poptavky_ep(req: Request):
     """VP cockpit (fáze 5): seznam poptávek vedoucích projektu + summary
@@ -32748,7 +32807,19 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _thc.Thread(target=_run_imp, daemon=True).start()
                 return JSONResponse({"ok": True, "spusteno": True, "vyrobce": _vyr,
                                      "pozn": "import bezi na pozadi (velke soubory) — sleduj tenant.cenik_import"})
-            return JSONResponse({"ok": False, "error": "@@CENIK PEEK|IMPORT|IMPORTFIN"})
+            if _cop == "DEDUP":
+                from modules.erp.api.cenik_engine import dedup_imports as _dd
+                return JSONResponse(_dd(tenant_id=2))
+            if _cop == "FIND":
+                from modules.erp.api.cenik_engine import find_price as _fp
+                _r = _fp(_carg, tenant_id=2)
+                if _r.get("nalezeno"):
+                    _c = _r["cena"]
+                    return JSONResponse({"ok": True, "columns": ["kat_kod", "popis", "net", "list", "vyrobce"],
+                                         "rows": [[_c["kat_kod"], (_c["popis"] or "")[:40],
+                                                   str(_c["net_price"]), str(_c["list_price"]), _c["vyrobce"]]]})
+                return JSONResponse({"ok": True, "columns": ["vysledek"], "rows": [["nenalezeno: " + _carg]]})
+            return JSONResponse({"ok": False, "error": "@@CENIK PEEK|IMPORT|IMPORTFIN|DEDUP|FIND"})
         except Exception as _ce:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ce).__name__, str(_ce)[:300]),
                                  "tb": _tbc.format_exc()[-800:]})

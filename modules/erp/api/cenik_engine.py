@@ -466,3 +466,102 @@ def import_by_config(vyrobce, path=None, limit=None, tenant_id=2, uid=1):
         r["soubor"] = _op.basename(path)
         r["nazev"] = cfg["nazev"]
     return r
+
+
+# ── UI / dotazy / kalkulace ──────────────────────────────────────────────────
+
+def prehled(tenant_id=2):
+    """Přehled dodavatelů (config) + poslední import + počet položek."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        rows = s.execute(_t("""
+            SELECT c.vyrobce, c.nazev, c.mena, c.aktivni,
+                   (SELECT count(*) FROM tenant.cenik_vzorec v WHERE v.tenant_id=c.tenant_id AND v.vyrobce=c.vyrobce AND v.aktivni) AS vzorcu,
+                   li.id AS last_import, li.pocet_polozek,
+                   to_char(li.created_at,'DD.MM.YYYY HH24:MI') AS importovano
+            FROM tenant.cenik_vyrobce c
+            LEFT JOIN LATERAL (SELECT id, pocet_polozek, created_at FROM tenant.cenik_import i
+                               WHERE i.tenant_id=c.tenant_id AND i.vyrobce=c.vyrobce
+                               ORDER BY i.id DESC LIMIT 1) li ON true
+            WHERE c.tenant_id=:t ORDER BY c.nazev
+        """), {"t": tenant_id}).mappings().all()
+        celkem = s.execute(_t("SELECT count(*) FROM tenant.cenik_polozka WHERE tenant_id=:t"),
+                           {"t": tenant_id}).scalar()
+        return {"ok": True, "dodavatele": [dict(r) for r in rows], "polozek_celkem": celkem}
+    finally:
+        s.close()
+
+
+def polozky(tenant_id=2, vyrobce=None, q=None, limit=100):
+    """Prohlížeč položek (poslední import daného výrobce / hledání dle kódu/popisu)."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        where = ["p.tenant_id=:t"]
+        params = {"t": tenant_id, "lim": limit}
+        if vyrobce:
+            where.append("i.vyrobce=:v AND i.id=(SELECT max(id) FROM tenant.cenik_import WHERE tenant_id=:t AND vyrobce=:v)")
+            params["v"] = vyrobce
+        if q:
+            where.append("(p.kat_kod_norm LIKE :q OR upper(p.popis) LIKE :q)")
+            params["q"] = "%" + norm_kod(q) + "%" if not vyrobce else "%" + q.upper() + "%"
+            params["q"] = "%" + q.upper().replace(" ", "") + "%"
+        rows = s.execute(_t(
+            "SELECT p.kat_kod, p.popis, p.list_price, p.net_price, p.rabat, p.ean, p.mena, i.vyrobce "
+            "FROM tenant.cenik_polozka p JOIN tenant.cenik_import i ON i.id=p.import_id "
+            "WHERE " + " AND ".join(where) + " ORDER BY p.kat_kod LIMIT :lim"), params).mappings().all()
+        return {"ok": True, "polozky": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+def find_price(kat_kod, tenant_id=2):
+    """Kalkulace: najdi net/list cenu komponenty dle katalogového kódu (nejnovější aktivní
+    import daného výrobce). Vrací i alternativy shody."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    kn = norm_kod(kat_kod)
+    s = get_data_session()
+    try:
+        rows = s.execute(_t("""
+            SELECT p.kat_kod, p.popis, p.net_price, p.list_price, p.rabat, p.mena, i.vyrobce,
+                   i.id AS import_id, to_char(i.created_at,'DD.MM.YYYY') AS import_dne
+            FROM tenant.cenik_polozka p JOIN tenant.cenik_import i ON i.id=p.import_id
+            WHERE p.tenant_id=:t AND p.kat_kod_norm=:kn
+              AND i.id=(SELECT max(id) FROM tenant.cenik_import WHERE tenant_id=:t AND vyrobce=i.vyrobce)
+            ORDER BY i.id DESC LIMIT 5
+        """), {"t": tenant_id, "kn": kn}).mappings().all()
+        if not rows:
+            return {"ok": True, "nalezeno": False, "kat_kod": kat_kod}
+        best = dict(rows[0])
+        return {"ok": True, "nalezeno": True, "cena": best, "shod": len(rows)}
+    finally:
+        s.close()
+
+
+def dedup_imports(tenant_id=2):
+    """Nechá jen NEJNOVĚJŠÍ import per výrobce, starší (+ jejich položky) smaže."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        keep = [r[0] for r in s.execute(_t(
+            "SELECT max(id) FROM tenant.cenik_import WHERE tenant_id=:t GROUP BY vyrobce"),
+            {"t": tenant_id})]
+        if not keep:
+            return {"ok": True, "smazano_importu": 0}
+        old = [r[0] for r in s.execute(_t(
+            "SELECT id FROM tenant.cenik_import WHERE tenant_id=:t AND id <> ALL(:keep)"),
+            {"t": tenant_id, "keep": keep})]
+        if old:
+            s.execute(_t("DELETE FROM tenant.cenik_polozka WHERE tenant_id=:t AND import_id = ANY(:o)"),
+                      {"t": tenant_id, "o": old})
+            s.execute(_t("DELETE FROM tenant.cenik_import WHERE tenant_id=:t AND id = ANY(:o)"),
+                      {"t": tenant_id, "o": old})
+            s.commit()
+        return {"ok": True, "ponechano": keep, "smazano_importu": len(old)}
+    finally:
+        s.close()

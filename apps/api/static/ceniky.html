@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ceníky dodavatelů</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:16px;background:#0f1420;color:#e8edf6}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#9fb0c8;font-size:13px;margin-bottom:16px}
+  .card{background:#19202e;border:1px solid #26303f;border-radius:12px;padding:14px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 10px;color:#cdd9ea}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #232c3b}
+  th{color:#8fa3bd;font-weight:600;font-size:12px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700;background:#16324a;color:#7fc0ff}
+  .muted{color:#8295ad;font-size:12px}
+  .ok{color:#7ee08a}.err{color:#ff8b8b}
+  button{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer}
+  button.sec{background:#27313f}
+  input{background:#0f1622;color:#e8edf6;border:1px solid #2c3850;border-radius:8px;padding:7px 10px;font-size:14px}
+  .kpi{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .kpi .b{background:#141b28;border:1px solid #26303f;border-radius:10px;padding:8px 14px}
+  .kpi .n{font-size:20px;font-weight:800}.kpi .l{font-size:11px;color:#8fa3bd;text-transform:uppercase}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+</style>
+</head>
+<body>
+<a href="/" style="display:inline-block;margin:6px 0 8px;color:#2dd4bf;text-decoration:none;font-size:13px;font-weight:700">← Domů</a>
+<h1>📗 Ceníky dodavatelů</h1>
+<div class="sub">Import XLS ceníků → normalizované položky (kód, ceny, EAN) → základ pro kalkulace. Přidat dodavatele = config + vzorce (bez kódu).</div>
+
+<div class="card">
+  <h2>Dodavatelé <span class="muted" id="celkem"></span></h2>
+  <div id="dodBox">Načítám…</div>
+</div>
+
+<div class="card">
+  <h2>Prohlížeč položek</h2>
+  <div class="row">
+    <input id="q" placeholder="hledat kód nebo popis (např. 011.02)" style="flex:1;min-width:220px" onkeydown="if(event.key==='Enter')hled()">
+    <button onclick="hled()">Hledat</button>
+    <span class="muted" id="polHint"></span>
+  </div>
+  <div id="polBox" style="margin-top:10px"></div>
+</div>
+
+<div class="card">
+  <h2>Cena pro kalkulaci <span class="muted">(test lookup dle katalogového kódu)</span></h2>
+  <div class="row">
+    <input id="kod" placeholder="kat. kód (např. WEI 010 170 0000)" style="flex:1;min-width:220px" onkeydown="if(event.key==='Enter')najdi()">
+    <button class="sec" onclick="najdi()">Najít cenu</button>
+  </div>
+  <div id="cenaBox" style="margin-top:8px" class="muted"></div>
+</div>
+
+<script>
+async function j(u,opt){const r=await fetch(u,Object.assign({credentials:'include'},opt||{}));return r.json();}
+function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function money(x){return x==null?'—':Number(x).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:4});}
+
+async function loadPrehled(){
+  const d=await j('/app/ceniky/prehled');
+  if(d.error==='forbidden'){document.getElementById('dodBox').innerHTML='<span class="err">Nemáš přístup (okruh cockpitu).</span>';return;}
+  document.getElementById('celkem').textContent='· celkem '+(d.polozek_celkem||0).toLocaleString('cs-CZ')+' položek';
+  const D=d.dodavatele||[];
+  if(!D.length){document.getElementById('dodBox').innerHTML='<div class="muted">Zatím žádní dodavatelé v configu.</div>';return;}
+  let h='<table><tr><th>Dodavatel</th><th>Vzorců</th><th>Položek</th><th>Importováno</th><th>Měna</th><th></th></tr>';
+  D.forEach(r=>{
+    h+=`<tr><td><span class="tag">${esc(r.vyrobce)}</span> ${esc(r.nazev)||''}</td>
+      <td class="num">${r.vzorcu||0}</td>
+      <td class="num">${r.pocet_polozek!=null?Number(r.pocet_polozek).toLocaleString('cs-CZ'):'<span class="muted">—</span>'}</td>
+      <td class="muted">${esc(r.importovano)||'—'}</td>
+      <td>${esc(r.mena)||''}</td>
+      <td><button class="sec" onclick="importuj('${esc(r.vyrobce)}',this)">↻ Import</button> <span class="msg muted"></span></td></tr>`;
+  });
+  h+='</table>';
+  document.getElementById('dodBox').innerHTML=h;
+}
+async function importuj(vyr,btn){
+  const msg=btn.parentNode.querySelector('.msg'); msg.textContent='spouštím…'; btn.disabled=true;
+  const d=await j('/app/ceniky/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vyrobce:vyr})});
+  msg.innerHTML = d.ok ? '<span class="ok">běží na pozadí, za chvíli obnov</span>' : '<span class="err">'+(d.error||'chyba')+'</span>';
+  btn.disabled=false;
+}
+async function hled(){
+  const q=document.getElementById('q').value.trim();
+  const d=await j('/app/ceniky/polozky?q='+encodeURIComponent(q));
+  const P=d.polozky||[];
+  document.getElementById('polHint').textContent=P.length?('· '+P.length):'';
+  if(!P.length){document.getElementById('polBox').innerHTML='<div class="muted">Nic nenalezeno.</div>';return;}
+  let h='<table><tr><th>Kód</th><th>Popis</th><th>Dod.</th><th class="num">List</th><th class="num">Net</th><th>Měna</th><th>EAN</th></tr>';
+  P.forEach(r=>{h+=`<tr><td>${esc(r.kat_kod)}</td><td>${esc(r.popis)}</td><td><span class="tag">${esc(r.vyrobce)}</span></td>
+    <td class="num">${money(r.list_price)}</td><td class="num">${money(r.net_price)}</td><td>${esc(r.mena)}</td><td class="muted">${esc(r.ean)}</td></tr>`;});
+  h+='</table>';
+  document.getElementById('polBox').innerHTML=h;
+}
+async function najdi(){
+  const kod=document.getElementById('kod').value.trim();
+  const box=document.getElementById('cenaBox'); box.textContent='hledám…';
+  const d=await j('/app/ceniky/find?kod='+encodeURIComponent(kod));
+  if(!d.nalezeno){box.innerHTML='<span class="err">Kód nenalezen.</span>';return;}
+  const c=d.cena;
+  box.innerHTML=`<b>${esc(c.kat_kod)}</b> — ${esc(c.popis)}<br>
+    Net: <b class="ok">${money(c.net_price)} ${esc(c.mena)}</b> · List: ${money(c.list_price)} ${esc(c.mena)} · ${esc(c.vyrobce)} · ceník ${esc(c.import_dne)}`;
+}
+loadPrehled();
+</script>
+</body>
+</html>

@@ -568,6 +568,54 @@ async def eurosoft_dir_copy(
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+async def eurosoft_fs_reorg(
+    namespace: str = "ro",
+    base: str = "",
+    base_override: str = "",
+    moves: "list | None" = None,
+    **_extra: Any,
+) -> dict[str, Any]:
+    """Hromadný přesun/přejmenování v rámci jedné báze (jedno volání) — server-side
+    shutil.move. moves = [{"src":"stará/cesta","dst":"nová/cesta"}, ...] (relativní
+    k bázi). Přejmenuje složky (očíslování), přesune soubory do složek, atd.
+    Idempotentní-ish: chybějící zdroj → 'skip' (už přesunuto)."""
+    root, err = _resolve(namespace, "", base_override or base, True)
+    if err:
+        return {"ok": False, "error": "báze: " + err}
+    if not root.exists():
+        return {"ok": False, "error": f"Báze neexistuje: {base or base_override}"}
+    if not moves or not isinstance(moves, list):
+        return {"ok": False, "error": "Chybí 'moves' (list of {src,dst})."}
+    rows = []; moved = skipped = errs = 0
+    for m in moves:
+        try:
+            s_rel = (m.get("src") or "").strip().strip("/\\")
+            d_rel = (m.get("dst") or "").strip().strip("/\\")
+            if not s_rel or not d_rel:
+                continue
+            sp = (root / s_rel).resolve(); dp = (root / d_rel).resolve()
+            # path traversal guard: zdroj i cíl pod bází
+            if not (str(sp).startswith(str(root)) and str(dp).startswith(str(root))):
+                rows.append([d_rel, "ERR: mimo bázi"]); errs += 1; continue
+            if not sp.exists():
+                rows.append([d_rel, "skip (zdroj chybí)"]); skipped += 1; continue
+            dp.parent.mkdir(parents=True, exist_ok=True)
+            if dp.exists() and dp.is_dir() and sp.is_dir():
+                # merge: přesuň obsah zdroje do existující cílové složky
+                for child in list(sp.iterdir()):
+                    shutil.move(str(child), str(dp / child.name))
+                try:
+                    sp.rmdir()
+                except Exception:
+                    pass
+            else:
+                shutil.move(str(sp), str(dp))
+            rows.append([d_rel, "OK"]); moved += 1
+        except Exception as _e:
+            rows.append([m.get("dst"), "ERR: " + str(_e)[:70]]); errs += 1
+    return {"ok": True, "moved": moved, "skipped": skipped, "errors": errs, "detail": rows}
+
+
 FILESYSTEM_TOOL_SPECS = [
     {
         "name": "eurosoft_file_list",
@@ -713,6 +761,20 @@ FILESYSTEM_TOOL_SPECS.append({
                     "required": ["dst_path"]},
 })
 FILESYSTEM_TOOL_SPECS.append({
+    "name": "eurosoft_fs_reorg",
+    "description": (
+        "Hromadný přesun/přejmenování v jedné bázi (1 volání, server-side). "
+        "moves=[{src,dst}] relativně k base_override. Očíslování složek, zařazení "
+        "volných souborů do složek, merge do existující složky. Idempotentní."
+    ),
+    "inputSchema": {"type": "object", "properties": {
+        "namespace": {"type": "string", "description": "ro/rw (default ro)."},
+        "base_override": {"type": "string", "description": "Absolutní báze (pod povoleným kořenem)."},
+        "moves": {"type": "array", "description": "[{src,dst}] relativní cesty.",
+                  "items": {"type": "object", "properties": {"src": {"type": "string"}, "dst": {"type": "string"}}}},
+    }, "required": ["base_override", "moves"]},
+})
+FILESYSTEM_TOOL_SPECS.append({
     "name": "eurosoft_dir_copy",
     "description": (
         "Server-side REKURZIVNÍ kopie celé složky (jedno volání) — OKAMŽITÁ, jakákoliv "
@@ -747,4 +809,5 @@ FILESYSTEM_TOOL_HANDLERS = {
     "eurosoft_file_copy": eurosoft_file_copy,
     "eurosoft_file_move": eurosoft_file_move,
     "eurosoft_dir_copy": eurosoft_dir_copy,
+    "eurosoft_fs_reorg": eurosoft_fs_reorg,
 }

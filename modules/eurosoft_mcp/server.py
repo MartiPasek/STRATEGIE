@@ -101,7 +101,8 @@ def _classify_action(tool_name: str) -> str:
         return "read"
     # Phase 38.4 (11.5.2026): filesystem write/delete = "insert" bucket
     if tool_name in {"eurosoft_file_write", "eurosoft_file_delete",
-                     "eurosoft_file_copy", "eurosoft_file_move", "eurosoft_dir_copy"}:
+                     "eurosoft_file_copy", "eurosoft_file_move", "eurosoft_dir_copy",
+                     "eurosoft_fs_reorg"}:
         return "insert"
     return "read"
 

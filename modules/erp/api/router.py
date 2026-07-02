@@ -32356,6 +32356,34 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": str((r.get("error") if isinstance(r, dict) else r))[:200]})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
+        # @@FILES REORG <base_abs> \n <src_rel> >> <dst_rel> ...  — hromadné přejmenování/přesun v bázi
+        if op == "REORG":
+            _lines = path.splitlines()
+            _base = _lines[0].strip() if _lines else ""
+            _moves = []
+            for ln in _lines[1:]:
+                ln = ln.strip()
+                if " >> " in ln:
+                    s, d = ln.split(" >> ", 1)
+                    _moves.append({"src": s.strip(), "dst": d.strip()})
+            if not _base or not _moves:
+                return JSONResponse({"ok": False, "error": "@@FILES REORG <base_abs> + řádky 'src_rel >> dst_rel'"})
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_fs_reorg",
+                                         {"namespace": "ro", "base_override": _base.rstrip("\\/"), "moves": _moves},
+                                         conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict) and r.get("ok"):
+                    return JSONResponse({"ok": True, "columns": ["cil", "stav"],
+                                         "rows": (r.get("detail") or [])[:60], "count": len(r.get("detail") or []),
+                                         "note": "přesunuto %s, skip %s, chyb %s" % (r.get("moved"), r.get("skipped"), r.get("errors"))})
+                return JSONResponse({"ok": False, "error": str((r.get("error") if isinstance(r, dict) else r))[:200]})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
         # @@FILES COPYBATCH \n <src1> >> <dst1> \n <src2> >> <dst2> ...  — dávková kopie RW→RO
         if op == "COPYBATCH":
             import base64 as _b64cb

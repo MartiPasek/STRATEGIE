@@ -32561,7 +32561,9 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _txt = sql[len("@@VPTEST"):].strip()
                 if not _txt:
                     return JSONResponse({"ok": False, "error": "@@VPTEST <text emailu>"})
-                return JSONResponse({"ok": True, "klasifikace": _vptt(_txt[:120], _txt)})
+                _kl = _vptt(_txt[:120], _txt)
+                return JSONResponse({"ok": True, "columns": ["pole", "hodnota"],
+                                     "rows": [[k, str(v)] for k, v in _kl.items()]})
             return JSONResponse(_vps())
         except Exception as _vpe:
             return JSONResponse({"ok": False,

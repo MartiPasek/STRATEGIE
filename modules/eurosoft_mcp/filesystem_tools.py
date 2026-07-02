@@ -36,6 +36,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -434,6 +435,85 @@ _NAMESPACE_DESC = (
     "psat i mazat."
 )
 
+# ─────────────────────────────────────────────────────────────────────
+# Tool 6/7: copy + move (server-side, Claude 2.7.2026 pro "vše do RO")
+#   Přímá kopie/přesun na serveru (shutil) — okamžité, JAKÁKOLIV velikost
+#   (i zálohy DB). Nejde přes base64/bridge → žádný timeout. Zdroj i cíl
+#   musí ležet pod povolenými kořeny (RW/RO namespace nebo base_override).
+# ─────────────────────────────────────────────────────────────────────
+
+async def eurosoft_file_copy(
+    src_namespace: str = "",
+    src_path: str = "",
+    src_base_override: str = "",
+    dst_namespace: str = "ro",
+    dst_path: str = "",
+    dst_base_override: str = "",
+    overwrite: bool = True,
+    **_extra: Any,
+) -> dict[str, Any]:
+    if not src_path and not src_base_override:
+        return {"ok": False, "error": "Parametr 'src_path' chybi."}
+    if not dst_path and not dst_base_override:
+        return {"ok": False, "error": "Parametr 'dst_path' chybi."}
+    src, err = _resolve(src_namespace, src_path, src_base_override, False)
+    if err:
+        return {"ok": False, "error": "zdroj: " + err}
+    if not src.exists():
+        return {"ok": False, "error": f"Zdroj neexistuje: {src_path or src_base_override}"}
+    if src.is_dir():
+        return {"ok": False, "error": "Zdroj je adresar — copy jen soubory."}
+    dst, err = _resolve(dst_namespace, dst_path, dst_base_override, True)
+    if err:
+        return {"ok": False, "error": "cil: " + err}
+    try:
+        if dst.exists() and not overwrite:
+            return {"ok": False, "error": f"Cil jiz existuje (overwrite=False): {dst_path}"}
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        return {"ok": True, "src": str(src), "dst": str(dst), "bytes": dst.stat().st_size}
+    except Exception as exc:
+        logger.exception("eurosoft_file_copy failed")
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+async def eurosoft_file_move(
+    src_namespace: str = "",
+    src_path: str = "",
+    src_base_override: str = "",
+    dst_namespace: str = "ro",
+    dst_path: str = "",
+    dst_base_override: str = "",
+    overwrite: bool = True,
+    **_extra: Any,
+) -> dict[str, Any]:
+    if not src_path and not src_base_override:
+        return {"ok": False, "error": "Parametr 'src_path' chybi."}
+    if not dst_path and not dst_base_override:
+        return {"ok": False, "error": "Parametr 'dst_path' chybi."}
+    src, err = _resolve(src_namespace, src_path, src_base_override, True)
+    if err:
+        return {"ok": False, "error": "zdroj: " + err}
+    if not src.exists():
+        return {"ok": False, "error": f"Zdroj neexistuje: {src_path or src_base_override}"}
+    if src.is_dir():
+        return {"ok": False, "error": "Zdroj je adresar — move jen soubory."}
+    dst, err = _resolve(dst_namespace, dst_path, dst_base_override, True)
+    if err:
+        return {"ok": False, "error": "cil: " + err}
+    try:
+        if dst.exists():
+            if not overwrite:
+                return {"ok": False, "error": f"Cil jiz existuje (overwrite=False): {dst_path}"}
+            dst.unlink()
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dst))
+        return {"ok": True, "src": str(src), "dst": str(dst), "bytes": dst.stat().st_size, "moved": True}
+    except Exception as exc:
+        logger.exception("eurosoft_file_move failed")
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 FILESYSTEM_TOOL_SPECS = [
     {
         "name": "eurosoft_file_list",
@@ -559,6 +639,35 @@ FILESYSTEM_TOOL_SPECS.append({
     "inputSchema": {"type": "object", "properties": {}},
 })
 
+_COPY_PROPS = {
+    "src_namespace": {"type": "string", "description": "ro/rw pro zdroj (nebo prázdné + src_base_override)."},
+    "src_path": {"type": "string", "description": "Cesta/název zdroje (relativní k namespace nebo k src_base_override)."},
+    "src_base_override": {"type": "string", "description": "Absolutní kořen-složka zdroje (pod povoleným RW/RO kořenem)."},
+    "dst_namespace": {"type": "string", "description": "ro/rw pro cíl (default 'ro')."},
+    "dst_path": {"type": "string", "description": "Cílová cesta relativní k namespace/base."},
+    "dst_base_override": {"type": "string", "description": "Absolutní kořen-složka cíle (pod povoleným kořenem)."},
+    "overwrite": {"type": "boolean", "description": "Přepsat existující cíl (default true)."},
+}
+FILESYSTEM_TOOL_SPECS.append({
+    "name": "eurosoft_file_copy",
+    "description": (
+        "Server-side kopie souboru (shutil.copy2) — OKAMŽITÁ, jakákoliv velikost "
+        "(i zálohy DB, velké PDF). Nejde přes base64/bridge → bez timeoutu. Zdroj "
+        "i cíl musí ležet pod povoleným kořenem (RW/RO namespace nebo base_override)."
+    ),
+    "inputSchema": {"type": "object", "properties": _COPY_PROPS,
+                    "required": ["dst_path"]},
+})
+FILESYSTEM_TOOL_SPECS.append({
+    "name": "eurosoft_file_move",
+    "description": (
+        "Server-side přesun souboru (shutil.move) — OKAMŽITÝ, jakákoliv velikost. "
+        "Zdroj musí být v zapisovatelné (RW) zóně. Pro úklid/přesun do DELETE apod."
+    ),
+    "inputSchema": {"type": "object", "properties": _COPY_PROPS,
+                    "required": ["dst_path"]},
+})
+
 
 FILESYSTEM_TOOL_HANDLERS = {
     "eurosoft_file_list": eurosoft_file_list,
@@ -566,4 +675,6 @@ FILESYSTEM_TOOL_HANDLERS = {
     "eurosoft_file_write": eurosoft_file_write,
     "eurosoft_file_delete": eurosoft_file_delete,
     "eurosoft_fs_info": eurosoft_fs_info,
+    "eurosoft_file_copy": eurosoft_file_copy,
+    "eurosoft_file_move": eurosoft_file_move,
 }

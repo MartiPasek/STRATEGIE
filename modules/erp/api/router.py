@@ -32417,30 +32417,21 @@ async def diag_sql(req: Request) -> JSONResponse:
                         continue
                     if nm == "Thumbs.db" or str(nm).startswith("~$"):
                         continue
-                    if sz and sz > HUGE:
-                        rows.append([nm, sz, "SKIP velké"]); continue
                     if nm in dst_have:
                         continue
-                    if done >= 12:
+                    if done >= 20:
                         left += 1; continue
                     try:
-                        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
-                                                 {"user_namespace": "ro", "base_override": src_dir, "path": nm,
-                                                  "encoding": "base64"}, conversation_id=None)
+                        # NATIVNÍ server-side kopie (shutil) — okamžitá, jakákoliv velikost
+                        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_copy",
+                                                 {"src_base_override": src_dir, "src_path": nm,
+                                                  "dst_namespace": "ro", "dst_path": dst_dir + "/" + nm,
+                                                  "overwrite": True}, conversation_id=None)
                         rr = _jf.loads(raw) if isinstance(raw, str) else raw
-                        if isinstance(rr, dict) and rr.get("ok") is False:
-                            rows.append([nm, 0, "ERR read"]); continue
-                        b64 = (rr.get("content") or rr.get("data") or "") if isinstance(rr, dict) else str(rr)
-                        nb = len(_b64d2.b64decode(b64)) if b64 else 0
-                        raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
-                                                  {"user_namespace": "ro", "path": dst_dir + "/" + nm,
-                                                   "content": b64, "encoding": "base64", "mode": "overwrite"},
-                                                  conversation_id=None)
-                        r2 = _jf.loads(raw2) if isinstance(raw2, str) else raw2
-                        if isinstance(r2, dict) and r2.get("ok"):
-                            rows.append([nm, nb, "OK"]); done += 1
+                        if isinstance(rr, dict) and rr.get("ok"):
+                            rows.append([nm, rr.get("bytes") or sz, "OK"]); done += 1
                         else:
-                            rows.append([nm, nb, "ERR write: " + str((r2.get("error") if isinstance(r2, dict) else r2))[:50]])
+                            rows.append([nm, sz, "ERR: " + str((rr.get("error") if isinstance(rr, dict) else rr))[:60]])
                     except Exception as _ex:
                         rows.append([nm, 0, "EXC: " + str(_ex)[:50]])
                 return JSONResponse({"ok": True, "columns": ["soubor", "bytes", "stav"], "rows": rows,

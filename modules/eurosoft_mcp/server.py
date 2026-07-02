@@ -100,7 +100,8 @@ def _classify_action(tool_name: str) -> str:
     if tool_name == "strategie_query_raw":
         return "read"
     # Phase 38.4 (11.5.2026): filesystem write/delete = "insert" bucket
-    if tool_name in {"eurosoft_file_write", "eurosoft_file_delete"}:
+    if tool_name in {"eurosoft_file_write", "eurosoft_file_delete",
+                     "eurosoft_file_copy", "eurosoft_file_move"}:
         return "insert"
     return "read"
 

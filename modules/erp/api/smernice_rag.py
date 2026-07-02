@@ -674,15 +674,20 @@ def kb_read(query: str) -> dict:
 
 # ── @@KB — fulltext hledání ────────────────────────────────────────────
 
-def kb_search(query: str, level: int = 2, limit: int = 8) -> dict:
-    """Hledá v popisu směrnic + textu příloh. level = max úroveň přístupu (0/1/2)."""
+def kb_search(query: str, level: int = 2, limit: int = 8, ai_only: bool = False) -> dict:
+    """Hledá v popisu směrnic + textu příloh. level = max úroveň přístupu (0/1/2/3).
+    ai_only=True → JEN řada AI (pristupnost 'AI') = čistá orientace v AI znalostech
+    (nepřebijí ji směrnice)."""
     from core.database_data import get_data_session
     from sqlalchemy import text as _t
     q = (query or "").strip()
     if not q:
         return {"ok": False, "error": "@@KB <dotaz>"}
-    # povolené pristupnosti dle úrovně
-    allowed = [k for k, v in _PRIST_MAP.items() if v[1] <= level]
+    # povolené pristupnosti: buď jen řada AI, nebo vše do dané úrovně
+    if ai_only:
+        allowed = ["AI"]
+    else:
+        allowed = [k for k, v in _PRIST_MAP.items() if v[1] <= level]
     sd = get_data_session()
     try:
         like = "%" + q.replace(" ", "%") + "%"

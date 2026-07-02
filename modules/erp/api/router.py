@@ -32480,13 +32480,19 @@ async def diag_sql(req: Request) -> JSONResponse:
                 from modules.erp.api.smernice_rag import kb_search as _kbs
                 _rest = sql[len("@@KB"):].strip()
                 _lvl = 2
+                _aio = False
                 if "|" in _rest:
                     _rest, _lv = _rest.rsplit("|", 1)
-                    try:
-                        _lvl = int(_lv.strip())
-                    except Exception:
-                        _lvl = 2
-                return JSONResponse(_kbs(_rest.strip(), _lvl))
+                    _lvs = _lv.strip().lower()
+                    if _lvs in ("ai", "ai-only", "airada", "řada ai"):
+                        _aio = True
+                        _lvl = 3
+                    else:
+                        try:
+                            _lvl = int(_lvs)
+                        except Exception:
+                            _lvl = 2
+                return JSONResponse(_kbs(_rest.strip(), _lvl, ai_only=_aio))
         except Exception as _sme:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_sme).__name__, str(_sme)[:400]),
                                  "tb": _tbk.format_exc()[-1200:]})

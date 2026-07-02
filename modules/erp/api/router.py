@@ -32541,6 +32541,20 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@ENESYNC"):
         return JSONResponse(_eneschopenka_to_sick())
 
+    #   @@VPSYNC → ingest projects@ (email_inbox) → tenant.vp_poptavka (whitelist domen + dedup)
+    #   @@VPINFO → prehled VP poptavek + whitelist + zda je schranka projects@ pripojena
+    if sql.upper().startswith("@@VP"):
+        import traceback as _tbvp
+        try:
+            from modules.erp.api.vp_ingest import sync_vp_poptavky as _vps, info as _vpi
+            if sql.upper().startswith("@@VPINFO"):
+                return JSONResponse(_vpi())
+            return JSONResponse(_vps())
+        except Exception as _vpe:
+            return JSONResponse({"ok": False,
+                                 "error": "%s: %s" % (type(_vpe).__name__, str(_vpe)[:400]),
+                                 "tb": _tbvp.format_exc()[-1200:]})
+
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):

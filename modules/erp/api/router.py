@@ -1,3 +1,4 @@
+# fs_reorg SSE refresh 2026-07-02
 """
 STRATEGIE ERP API router (Phase A — read-only single jádro renderer).
 

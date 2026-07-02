@@ -25981,7 +25981,7 @@ def _mzdy_worker_sql(cloud_db, idobd, maxn):
         "DECLARE @Z INT,@Err INT,@Status INT,@Info INT,@em NVARCHAR(2000);\n"
         "DECLARE c CURSOR LOCAL FAST_FORWARD FOR\n"
         " SELECT TOP (" + str(int(maxn)) + ") ZamestnanecId FROM TabZamMzd\n"
-        " WHERE IdObdobi=@O AND Automat=1 AND Uzavreno=0 AND StavES=0\n"
+        " WHERE IdObdobi=@O AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1)\n"
         "   AND ZamestnanecId NOT IN (SELECT ZamestnanecId FROM TabZamVyp WHERE IdObdobi=@O)\n"
         " ORDER BY ZamestnanecId;\n"
         "OPEN c; FETCH NEXT FROM c INTO @Z;\n"
@@ -26009,12 +26009,12 @@ def _mzdy_worker_sql(cloud_db, idobd, maxn):
 
 
 # Vyčištění před regenerací (Marti 28.6.: "před insertem vyčištění smazání" = čistá voda).
-# Smaže JEN regenerovaný set (Automat=1/Uzavreno=0/StavES=0) za období: jejich složky
+# Smaže JEN regenerovaný set (Automat=1/Uzavreno=0/StavES IN (0,1)) za období: jejich složky
 # (TabMzSloz) + výpočet (TabZamVyp). EC má triggery → DISABLE/ENABLE okolo (na ES no-op).
 def _mzdy_clean_sql(cloud_db, idobd):
     o = str(int(idobd))
     inset = ("(SELECT ZamestnanecId FROM dbo.TabZamMzd WHERE IdObdobi=" + o +
-             " AND Automat=1 AND Uzavreno=0 AND StavES=0)")
+             " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1))")
     return (
         "USE " + cloud_db + ";\nSET NOCOUNT ON;\n"
         "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
@@ -26554,7 +26554,7 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
     def _counts():
         c = _mssql188_query(
             "SELECT (SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamMzd WHERE IdObdobi=" + str(idobd) +
-            " AND Automat=1 AND Uzavreno=0 AND StavES=0) cil,"
+            " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1)) cil,"
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + ") hot,"
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + " AND Info=58801) vys")
         if c.get("ok") and c.get("rows"):
@@ -26683,7 +26683,7 @@ def mzdy_generuj(req: Request):
         c = _mssql188_query(
             "SELECT "
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamMzd WHERE IdObdobi=" + str(idobd) +
-            " AND Automat=1 AND Uzavreno=0 AND StavES=0) cil,"
+            " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1)) cil,"
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + ") hotovo,"
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) +
             " AND Info=58801) vystrahy")

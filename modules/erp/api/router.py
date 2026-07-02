@@ -32377,6 +32377,76 @@ async def diag_sql(req: Request) -> JSONResponse:
                                      "count": len(rows), "note": "%d/%d OK" % (_okc, len(rows))})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
+        # @@FILES COPYDIR <src_dir> >> <dst_ro_dir>  — zkopíruje soubory ze složky RW→RO
+        #   Přeskočí balast (Thumbs.db, ~$, _files), obří (>15MB), a už existující v cíli.
+        #   Dávkuje max 12 souborů/běh (kvůli 30s timeoutu) → re-spustitelné dokud "zbyva">0.
+        if op == "COPYDIR":
+            import base64 as _b64d2
+            if " >> " not in path:
+                return JSONResponse({"ok": False, "error": "@@FILES COPYDIR <src_dir> >> <dst_ro_dir>"})
+            src_dir, dst_dir = [x.strip() for x in path.split(" >> ", 1)]
+            src_dir = src_dir.rstrip("\\/"); dst_dir = dst_dir.strip("/").replace("\\", "/")
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                def _names(base):
+                    try:
+                        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                                                 {"user_namespace": "ro", "base_override": base, "subpath": ""},
+                                                 conversation_id=None)
+                        r = _jf.loads(raw) if isinstance(raw, str) else raw
+                        items = (r.get("items") or r.get("files") or r.get("entries") or []) if isinstance(r, dict) else (r or [])
+                        out = []
+                        for it in items:
+                            if isinstance(it, dict):
+                                out.append((it.get("name") or it.get("filename") or it.get("path"),
+                                            it.get("type") or ("dir" if it.get("is_dir") else "file"),
+                                            it.get("size") or 0))
+                            else:
+                                out.append((it, "file", 0))
+                        return out
+                    except Exception:
+                        return []
+                dst_have = set(n for (n, t, sz) in _names("D:\\Data\\ZZ_Marti-AI RO\\" + dst_dir.replace("/", "\\")))
+                HUGE = 15 * 1024 * 1024
+                rows = []; done = 0; left = 0
+                for (nm, typ, sz) in _names(src_dir):
+                    if typ == "dir":
+                        continue
+                    if nm == "Thumbs.db" or str(nm).startswith("~$"):
+                        continue
+                    if sz and sz > HUGE:
+                        rows.append([nm, sz, "SKIP velké"]); continue
+                    if nm in dst_have:
+                        continue
+                    if done >= 12:
+                        left += 1; continue
+                    try:
+                        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                                 {"user_namespace": "ro", "base_override": src_dir, "path": nm,
+                                                  "encoding": "base64"}, conversation_id=None)
+                        rr = _jf.loads(raw) if isinstance(raw, str) else raw
+                        if isinstance(rr, dict) and rr.get("ok") is False:
+                            rows.append([nm, 0, "ERR read"]); continue
+                        b64 = (rr.get("content") or rr.get("data") or "") if isinstance(rr, dict) else str(rr)
+                        nb = len(_b64d2.b64decode(b64)) if b64 else 0
+                        raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
+                                                  {"user_namespace": "ro", "path": dst_dir + "/" + nm,
+                                                   "content": b64, "encoding": "base64", "mode": "overwrite"},
+                                                  conversation_id=None)
+                        r2 = _jf.loads(raw2) if isinstance(raw2, str) else raw2
+                        if isinstance(r2, dict) and r2.get("ok"):
+                            rows.append([nm, nb, "OK"]); done += 1
+                        else:
+                            rows.append([nm, nb, "ERR write: " + str((r2.get("error") if isinstance(r2, dict) else r2))[:50]])
+                    except Exception as _ex:
+                        rows.append([nm, 0, "EXC: " + str(_ex)[:50]])
+                return JSONResponse({"ok": True, "columns": ["soubor", "bytes", "stav"], "rows": rows,
+                                     "count": len(rows), "note": "zkopírováno %d, zbývá %d (spusť znovu dokud 0)" % (done, left)})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
         # @@FILES LISTREC <abs_root>  — rekurzivní výpis (server-side BFS přes MCP file_list)
         if op == "LISTREC":
             try:

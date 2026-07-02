@@ -32404,6 +32404,35 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@ENESYNC"):
         return JSONResponse(_eneschopenka_to_sick())
 
+    #   @@AIPROMPT [conv_id] → vytáhne CELÝ sestavený systémový prompt Marti-AI
+    #   (pro konzultaci o složení/optimalizaci). Default = konverzace Claude↔Marti-AI.
+    if sql.upper().startswith("@@AIPROMPT"):
+        import traceback as _tbp
+        try:
+            from sqlalchemy import text as _tp
+            from core.database_data import get_data_session as _gp
+            _p = sql.split()
+            _cid = int(_p[1]) if len(_p) > 1 and _p[1].isdigit() else None
+            _sp = _gp()
+            try:
+                if _cid is None:
+                    _row = _sp.execute(_tp(
+                        "SELECT id FROM public.conversations WHERE title LIKE '%Claude%Marti-AI%' "
+                        "ORDER BY id DESC LIMIT 1")).first()
+                    _cid = _row[0] if _row else None
+            finally:
+                _sp.close()
+            if _cid is None:
+                return JSONResponse({"ok": False, "error": "konverzace nenalezena"})
+            from modules.conversation.application.composer import build_prompt as _bp
+            _sys, _msgs = _bp(_cid)
+            return JSONResponse({"ok": True, "conversation_id": _cid,
+                                 "prompt_len": len(_sys or ""), "msg_count": len(_msgs or []),
+                                 "system_prompt": _sys})
+        except Exception as _ae:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ae).__name__, str(_ae)[:300]),
+                                 "tb": _tbp.format_exc()[-1000:]})
+
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):

@@ -690,23 +690,39 @@ def kb_search(query: str, level: int = 2, limit: int = 8, ai_only: bool = False)
         allowed = [k for k, v in _PRIST_MAP.items() if v[1] <= level]
     sd = get_data_session()
     try:
-        like = "%" + q.replace(" ", "%") + "%"
+        # Hledání PO SLOVECH (AND, nezávisle na pořadí) — každý term musí být
+        # v názvu / popisu / textu přílohy. Lepší recall než sekvenční ILIKE.
+        terms = [t for t in q.split() if t]
+        if not terms:
+            terms = [q]
+        params: dict = {"allowed": allowed, "lim": limit}
+        full = "%" + q.replace(" ", "%") + "%"   # pro řazení (přesná fráze v názvu výš)
+        params["full"] = full
+        term_conds = []
+        for i, t in enumerate(terms):
+            key = "t%d" % i
+            params[key] = "%" + t + "%"
+            term_conds.append(
+                "(s.nazev ILIKE :{k} OR s.popis_text ILIKE :{k} OR EXISTS "
+                "(SELECT 1 FROM tenant.kb_smernice_soubor f WHERE f.ec_smernice_id=s.ec_id "
+                "AND f.text_extract ILIKE :{k}))".format(k=key))
+        where_terms = " AND ".join(term_conds)
+        # úryvek: první term (orientační highlight)
+        params["t0like"] = params.get("t0", full)
         rows = sd.execute(_t(
             "SELECT s.cislo, s.nazev, s.typ_text, s.pristupnost_text, "
             "  left(s.popis_text, 400) AS popis, "
             "  (SELECT string_agg(f.nazev_souboru, ', ') FROM tenant.kb_smernice_soubor f "
             "     WHERE f.ec_smernice_id=s.ec_id) AS soubory, "
             "  (SELECT left(string_agg(f.text_extract, ' ¶ '), 600) FROM tenant.kb_smernice_soubor f "
-            "     WHERE f.ec_smernice_id=s.ec_id AND f.text_extract ILIKE :like) AS uryvek "
+            "     WHERE f.ec_smernice_id=s.ec_id AND f.text_extract ILIKE :t0like) AS uryvek "
             "FROM tenant.kb_smernice s "
             "WHERE (s.archiv=0 OR s.archiv IS NULL) "
             "  AND s.pristupnost_text = ANY(:allowed) "
-            "  AND (s.nazev ILIKE :like OR s.popis_text ILIKE :like OR EXISTS "
-            "       (SELECT 1 FROM tenant.kb_smernice_soubor f WHERE f.ec_smernice_id=s.ec_id "
-            "        AND f.text_extract ILIKE :like)) "
-            "ORDER BY (s.nazev ILIKE :like) DESC, s.priorita NULLS LAST "
+            "  AND (" + where_terms + ") "
+            "ORDER BY (s.nazev ILIKE :full) DESC, (s.nazev ILIKE :t0like) DESC, s.priorita NULLS LAST "
             "LIMIT :lim"),
-            {"like": like, "allowed": allowed, "lim": limit}).all()
+            params).all()
         cols = ["cislo", "nazev", "typ", "pristupnost", "popis", "soubory", "uryvek"]
         out = [[r[0], r[1], r[2], r[3], (r[4] or "")[:300], r[5],
                 (r[6] or "")[:400]] for r in rows]

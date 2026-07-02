@@ -33268,6 +33268,44 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ce).__name__, str(_ce)[:300]),
                                  "tb": _tbc.format_exc()[-800:]})
 
+    #   @@OZ MIRROR <fw_code> <oz_table>  → zrcadlí přehled (MSSQL výsledek) do tenant.oz_<...> + přepne data_set na PG
+    #   @@OZ SYNC <oz_table>              → obnoví data z uloženého MSSQL dotazu
+    #   @@OZ LIST                          → přehled zrcadel
+    if sql.upper().startswith("@@OZ"):
+        import traceback as _tboz
+        try:
+            _op = sql[len("@@OZ"):].strip()
+            _ow = _op.split()
+            _osub = (_ow[0].strip().upper() if _ow else "LIST")
+            if _osub == "MIRROR":
+                if len(_ow) < 3:
+                    return JSONResponse({"ok": False, "error": "@@OZ MIRROR <fw_code> <oz_table>"})
+                import threading as _thoz
+                from modules.erp.api.oz_mirror import mirror as _ozm
+                _fw, _tbl = _ow[1], _ow[2]
+                _thoz.Thread(target=lambda: _ozm(_fw, _tbl, tenant_id=2), daemon=True).start()
+                return JSONResponse({"ok": True, "spusteno": True, "fw_code": _fw, "oz_table": _tbl})
+            if _osub == "SYNC":
+                if len(_ow) < 2:
+                    return JSONResponse({"ok": False, "error": "@@OZ SYNC <oz_table>"})
+                import threading as _thoz2
+                from modules.erp.api.oz_mirror import sync as _ozs
+                _tbl = _ow[1]
+                _thoz2.Thread(target=lambda: _ozs(_tbl, tenant_id=2), daemon=True).start()
+                return JSONResponse({"ok": True, "spusteno": True, "oz_table": _tbl})
+            from sqlalchemy import text as _toz
+            from core.database_data import get_data_session as _gdsoz
+            _soz = _gdsoz()
+            try:
+                _rows = [dict(r) for r in _soz.execute(_toz(
+                    "SELECT oz_table, fw_code, last_rows, last_sync_at FROM tenant.oz_mirror_def ORDER BY oz_table")).mappings()]
+            finally:
+                _soz.close()
+            return JSONResponse({"ok": True, "zrcadla": _rows})
+        except Exception as _oe:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_oe).__name__, str(_oe)[:300]),
+                                 "tb": _tboz.format_exc()[-800:]})
+
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):

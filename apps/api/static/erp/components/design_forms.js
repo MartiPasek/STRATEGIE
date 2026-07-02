@@ -6122,7 +6122,7 @@
       msg.style.cssText = "font-size:11px;min-height:14px;";
 
       function reload() {
-        fetch("/app/dir/list?sys_name=" + encodeURIComponent(sysName) +
+        fetch("/api/v1/erp/app/dir/list?sys_name=" + encodeURIComponent(sysName) +
           "&id=" + encodeURIComponent(recId), { credentials: "include" })
           .then((r) => r.json()).then((r) => {
             if (!r || !r.ok) {
@@ -6156,7 +6156,7 @@
       }
 
       function download(name) {
-        fetch("/app/dir/read?sys_name=" + encodeURIComponent(sysName) +
+        fetch("/api/v1/erp/app/dir/read?sys_name=" + encodeURIComponent(sysName) +
           "&id=" + encodeURIComponent(recId) + "&name=" + encodeURIComponent(name),
           { credentials: "include" })
           .then((r) => r.json()).then((r) => {
@@ -6179,7 +6179,7 @@
         const rd = new FileReader();
         rd.onload = function () {
           const b64 = String(rd.result || "").split(",")[1] || "";
-          fetch("/app/dir/write", {
+          fetch("/api/v1/erp/app/dir/write", {
             method: "POST", credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sys_name: sysName, id: recId, filename: file.name, content_b64: b64 }),

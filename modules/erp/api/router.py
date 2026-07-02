@@ -32357,6 +32357,7 @@ async def diag_sql(req: Request) -> JSONResponse:
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
         # @@FILES REORG <base_abs> \n <src_rel> >> <dst_rel> ...  — hromadné přejmenování/přesun v bázi
+        #   (fs_reorg; SSE refresh 2.7.2026)
         if op == "REORG":
             _lines = path.splitlines()
             _base = _lines[0].strip() if _lines else ""

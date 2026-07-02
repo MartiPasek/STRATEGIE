@@ -1118,6 +1118,17 @@ def smlouvy_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/hr-modul")
+def hr_modul_page():
+    """🧑‍💼 HR modul — dashboard personalistiky (Šárka + Kristý, 2.7.2026).
+    Dlaždice/gridy po vzoru Přehledu pro obchodníka + Pinya HR: mimo kancelář,
+    narozeniny/výročí, noví+budoucí nástupy, výběrová řízení, aktuality,
+    notifikace, úkoly, kalendář. Vstup do karty zaměstnance 360°.
+    Data z /app/hr/dashboard (HR-gated). Schvalování projektu → Kristý."""
+    return FileResponse(os.path.join(static_dir, "hr.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/denik")
 def denik_page():
     """Přehled účetního deníku — živé zápisy řazené dle jistoty (triáž pro účetní).

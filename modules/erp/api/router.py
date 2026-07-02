@@ -10771,39 +10771,52 @@ async def ocr_form_save(req: Request) -> JSONResponse:
 
 
 @api_router.post("/app/ocr/file")
-async def ocr_file_upload(req: Request,
-                          case: int = Form(...),
-                          kind: str = Form("priloha"),
-                          file: UploadFile = File(...)) -> JSONResponse:
+async def ocr_file_upload(req: Request) -> JSONResponse:
     """Nahraje PDF/obrázek jako přílohu OČR případu. Vlastník případu nebo HR.
-    Soubor → public.documents (upload_document, tenant 2) → naváže na případ
-    přes tenant.att_ocr_file. kind: 'priloha' (od zaměstnance) | 'excel' (generovaný)."""
+    JSON {case, kind, filename, file_b64} (base64) — funguje i v nativní appce
+    přes bridge (na rozdíl od multipart, který v nativu nenese přihlášení).
+    Soubor → public.documents (tenant 2) → naváže přes tenant.att_ocr_file."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     from sqlalchemy import text as _t
+    import base64 as _b64
+    try:
+        b = await req.json()
+    except Exception:
+        b = {}
+    try:
+        case = int((b or {}).get("case") or 0)
+    except Exception:
+        case = 0
+    kind = (str((b or {}).get("kind") or "priloha").strip()[:20]) or "priloha"
+    fname = (str((b or {}).get("filename") or "priloha.pdf").strip()) or "priloha.pdf"
+    raw = (b or {}).get("file_b64") or ""
+    if isinstance(raw, str) and raw[:5] == "data:" and "," in raw:
+        raw = raw.split(",", 1)[1]
+    try:
+        content = _b64.b64decode(raw) if raw else b""
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatný soubor (base64)."})
+    if not content:
+        return JSONResponse({"ok": False, "error": "Prázdný soubor."})
+    if len(content) > 25 * 1024 * 1024:
+        return JSONResponse({"ok": False, "error": "Soubor je příliš velký (>25 MB)."})
     cm, s = _att_session()
     try:
         c = s.execute(_t("SELECT user_id FROM tenant.att_ocr_case WHERE id=:i AND tenant_id=2"),
-                      {"i": int(case)}).first()
+                      {"i": case}).first()
         if not c:
             return JSONResponse({"ok": False, "error": "Případ nenalezen."})
         if int(c[0] or 0) != uid and not _hr_can_manage(s, uid):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        fname = (file.filename or "priloha.pdf").strip() or "priloha.pdf"
-        data = await file.read()
-        if not data:
-            return JSONResponse({"ok": False, "error": "Prázdný soubor."})
-        if len(data) > 25 * 1024 * 1024:
-            return JSONResponse({"ok": False, "error": "Soubor je příliš velký (>25 MB)."})
         from modules.rag.application.service import upload_document as _upl
-        doc_id = _upl(file_bytes=data, filename=fname, tenant_id=2, user_id=uid,
+        doc_id = _upl(file_bytes=content, filename=fname, tenant_id=2, user_id=uid,
                       display_name="OČR příloha: " + fname[:150])
-        k = (kind or "priloha").strip()[:20] or "priloha"
         s.execute(_t(
             "INSERT INTO tenant.att_ocr_file (tenant_id, case_id, document_id, kind, filename, uploaded_by_user_id) "
             "VALUES (2, :c, :d, :k, :fn, :u)"),
-            {"c": int(case), "d": int(doc_id), "k": k, "fn": fname[:200], "u": uid})
+            {"c": case, "d": int(doc_id), "k": kind, "fn": fname[:200], "u": uid})
         s.commit()
         return JSONResponse({"ok": True, "document_id": int(doc_id), "filename": fname})
     except Exception as exc:

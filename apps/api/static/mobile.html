@@ -2682,16 +2682,27 @@ setTimeout(function(){
       var fKont=_ocrFld(w,"Kontakt — telefon / e-mail (nepovinné)",""); fKont.value=d.kontakt||"";
       w.appendChild(_ocrSec("Přílohy (PDF / sken z ČSSZ)"));
       var filesBox=el('<div></div>'); w.appendChild(filesBox); _ocrLoadFiles(filesBox, caseId);
-      var up=el('<input type="file" accept="application/pdf,image/*" style="margin-top:6px;color:#cdd6e2;font-size:13px;">'); w.appendChild(up);
-      var upBtn=el('<button class="ghost sm" style="margin-top:4px;">⬆️ Nahrát přílohu</button>');
+      var upBtn=el('<button class="ghost sm" style="margin-top:6px;">⬆️ Nahrát přílohu (PDF / foto)</button>');
       upBtn.addEventListener("click",function(){
-        if(!up.files||!up.files.length){ alert("Vyber soubor."); return; }
-        var fd=new FormData(); fd.append("case",String(caseId)); fd.append("kind","priloha"); fd.append("file",up.files[0]);
-        upBtn.disabled=true; upBtn.textContent="Nahrávám…";
-        _apiForm("/api/v1/erp/app/ocr/file",fd).then(function(r){
-          upBtn.disabled=false; upBtn.textContent="⬆️ Nahrát přílohu";
-          if(r&&r.ok){ up.value=""; _ocrLoadFiles(filesBox, caseId); } else { alert("Chyba: "+((r&&r.error)||"nahrání selhalo")); }
+        var fi=el('<input type="file" accept="application/pdf,image/*" style="display:none;">'); document.body.appendChild(fi);
+        fi.addEventListener("change",function(){
+          var f=fi.files&&fi.files[0]; if(!f){ try{fi.remove();}catch(e){} return; }
+          if(f.size>25*1024*1024){ alert("Soubor je moc velký (max 25 MB)."); try{fi.remove();}catch(e){} return; }
+          var fr=new FileReader();
+          fr.onload=function(){
+            var b64=String(fr.result).split(",")[1]||"";
+            var fn=f.name||"priloha.pdf";
+            upBtn.disabled=true; upBtn.textContent="Nahrávám…";
+            api("POST","/api/v1/erp/app/ocr/file",{case:caseId,kind:"priloha",filename:fn,file_b64:b64}).then(function(r){
+              upBtn.disabled=false; upBtn.textContent="⬆️ Nahrát přílohu (PDF / foto)";
+              try{fi.remove();}catch(e){}
+              _ocrLoadFiles(filesBox, caseId);
+              if(!(r&&r.ok)){ alert("Chyba: "+((r&&r.error)||"nahrání selhalo")); }
+            });
+          };
+          fr.readAsDataURL(f);
         });
+        fi.click();
       }); w.appendChild(upBtn);
       var st=el('<div class="hint" style="min-height:16px;margin-top:8px;"></div>'); w.appendChild(st);
       function collect(){
@@ -2724,7 +2735,8 @@ setTimeout(function(){
           if(!r||!r.ok){ gx.disabled=false; st.style.color="#ff8b8b"; st.textContent="Uložení selhalo: "+((r&&r.error)||"?"); return; }
           api("POST","/api/v1/erp/app/ocr/excel",{case:caseId}).then(function(e){
             gx.disabled=false;
-            if(e&&e.ok){ st.style.color="#5ee0b7"; st.textContent="✓ Excel vygenerován: "+esc(e.filename||""); _ocrLoadFiles(filesBox, caseId); }
+            _ocrLoadFiles(filesBox, caseId);
+            if(e&&e.ok){ st.style.color="#5ee0b7"; st.textContent="✓ Excel vygenerován: "+esc(e.filename||""); }
             else { st.style.color="#ff8b8b"; st.textContent="Generování selhalo: "+((e&&e.error)||"?"); }
           });
         });

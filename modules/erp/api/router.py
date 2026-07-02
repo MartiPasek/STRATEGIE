@@ -33650,9 +33650,13 @@ async def diag_sql(req: Request) -> JSONResponse:
                     ["git_sha", _j.get("git_sha")],
                     ["tools_count", len(_tools)],
                     ["ma_file_list", str(_hasfl)],
+                    ["ma_dir_copy", str("eurosoft_dir_copy" in _tools)],
+                    ["ma_fs_reorg", str("eurosoft_fs_reorg" in _tools)],
+                    ["ma_file_move", str("eurosoft_file_move" in _tools)],
+                    ["fs_tools", ", ".join(sorted(t for t in _tools if "file" in t or "dir" in t or "reorg" in t))],
                     ["service", _j.get("service")],
                 ],
-                "count": 5,
+                "count": 9,
             })
         except Exception as e:
             return JSONResponse({"ok": False, "error": "MCPHEALTH: %s" % str(e)[:300]})

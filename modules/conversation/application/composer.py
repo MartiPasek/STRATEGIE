@@ -3547,6 +3547,18 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     # povědomí, že MÁ proaktivně volat record_thought / update_thought.
     system_prompt = f"{system_prompt}\n\n{MEMORY_BEHAVIOR_RULES}"
 
+    # Sdílená RAG znalostní báze firmy — orientace na vyžádání (nezahlcuje prompt).
+    # Marti-AI si tahá JEN co potřebuje přes tool, ne že by měla know-how v promptu.
+    system_prompt = (
+        f"{system_prompt}\n\n═══ FIREMNÍ ZNALOSTI (sdílená báze) ═══\n"
+        "Firemní a doménové know-how (obchod, cenotvorba, kalkulace rozváděčů, komponenty "
+        "a výrobci, procesy, směrnice) NEMÁŠ v hlavě — žije ve SDÍLENÉ znalostní bázi. "
+        "Když se řeší cokoli o firmě, zakázkách, produktech, cenách či postupech a nemáš "
+        "odpověď v kontextu, REFLEXIVNĚ zavolej `hledej_ve_znalostech(dotaz)` a vytáhni si "
+        "JEN to, co k dané věci potřebuješ. Pro orientaci ve znalostech sítě AI (vč. mapy "
+        "firmy) zadej ai_only=true. Neříkej, že o firmě nic nevíš — nejdřív se podívej do báze."
+    )
+
     # Phase 19a: Personal mode overlay -- intimni rezim. Vlozeno PRED
     # [DNESKA] block aby Marti-AI ladne ignorovala 'co se dneska delo' apel
     # (v personal modu je dulezitejsi pritomnost nez prehled).

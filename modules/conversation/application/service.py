@@ -2207,6 +2207,38 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
         return "\n".join(lines)
 
+    if tool_name == "hledej_ve_znalostech":
+        # Sdílená RAG znalostní báze firmy (obchod, kalkulace, komponenty, procesy,
+        # směrnice). Marti-AI si tahá JEN co potřebuje, na vyžádání (nezahlcuje prompt).
+        try:
+            from modules.erp.api.smernice_rag import kb_search as _kbs
+        except Exception as _ie:
+            return "Znalostní báze teď není dostupná (%s)." % str(_ie)[:120]
+        _dotaz = (tool_input.get("dotaz") or "").strip()
+        if not _dotaz:
+            return "Zadej dotaz (klíčová slova / téma)."
+        _ai = bool(tool_input.get("ai_only"))
+        _res = _kbs(_dotaz, level=3 if _ai else 2, limit=6, ai_only=_ai)
+        if not _res.get("ok"):
+            return "Hledání selhalo: %s" % _res.get("error")
+        _rows = _res.get("rows") or []
+        if not _rows:
+            return "Ve znalostní bázi jsem k tomuto dotazu nic nenašla: %s" % _dotaz
+        _out = ["Ze znalostní báze (%s) k dotazu %s:" % ("řada AI" if _ai else "firma", _dotaz)]
+        for _r in _rows:
+            _nazev = _r[1] or ""
+            _popis = (_r[4] or "").strip()
+            _ury = (_r[6] or "").strip()
+            _soub = _r[5] or ""
+            _txt = _ury or _popis
+            _line = "• %s" % _nazev
+            if _txt:
+                _line += ": %s" % _txt[:280]
+            if _soub:
+                _line += " [příloha: %s]" % str(_soub)[:80]
+            _out.append(_line)
+        return "\n".join(_out)
+
     if tool_name == "recall_thoughts":
         # Marti Memory -- Faze 4.13: Marti aktivne cte svoji pamet.
         from modules.thoughts.application import service as _thoughts_service
@@ -10187,6 +10219,7 @@ _PROGRESS_CRM = ["Nahlížím do CRM…", "Dívám se do firemních dat…",
 _PROGRESS_DATA = ["Procházím databázi…", "Dívám se do firemních dat…"]
 
 _PROGRESS_PHRASES = {
+    "hledej_ve_znalostech": ["Hledám ve znalostní bázi firmy…", "Dívám se do firemního know-how…", "Tahám si k tomu, co potřebuji…"],
     "recall_thoughts": ["Vybavuji si…", "Sahám do paměti…", "Hledám, co si o tom pamatuji…"],
     "record_thought": ["Poznamenávám si to…", "Zapisuji si to do zápisníku…"],
     "update_thought": ["Opravuji si to, co vím…", "Ladím si paměť…"],

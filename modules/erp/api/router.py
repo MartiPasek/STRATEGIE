@@ -32378,6 +32378,7 @@ async def diag_sql(req: Request) -> JSONResponse:
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
         # @@FILES COPYDIR <src_dir> >> <dst_ro_dir>  — zkopíruje soubory ze složky RW→RO
+        #   (nativní eurosoft_file_copy; SSE refresh 2.7.2026)
         #   Přeskočí balast (Thumbs.db, ~$, _files), obří (>15MB), a už existující v cíli.
         #   Dávkuje max 12 souborů/běh (kvůli 30s timeoutu) → re-spustitelné dokud "zbyva">0.
         if op == "COPYDIR":

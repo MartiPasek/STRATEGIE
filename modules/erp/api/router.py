@@ -27408,6 +27408,45 @@ def _mcp_exec_office(sql, db_name="DB_EC"):
         return {"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:300])}
 
 
+@api_router.get("/app/helios/select")
+def helios_select(req: Request):
+    """Parent/cockpit READ-ONLY nakouknutí do office Heliosu (DB_EC/DB_IS) přes MCP.
+    JEN SELECT (žádné DML/DDL/EXEC/sp_/xp_/;). Diagnostika: Helios čteme přes appku
+    (JSON v prohlížeči), protože Cowork most cachuje soubory. Petra 2.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    s = _g()
+    try:
+        if not _is_cockpit(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        s.close()
+    sql = (req.query_params.get("sql") or "").strip()
+    db = (req.query_params.get("db") or "DB_EC").strip().upper()
+    if db not in ("DB_EC", "DB_IS"):
+        return {"ok": False, "error": "db musí být DB_EC nebo DB_IS"}
+    if not sql:
+        return {"ok": False, "error": "chybí ?sql="}
+    low = sql.lower()
+    if not low.lstrip().startswith("select"):
+        return {"ok": False, "error": "povolen jen SELECT"}
+    if "sp_" in low or "xp_" in low or ";" in sql.rstrip().rstrip(";"):
+        return {"ok": False, "error": "nepovoleny obsah (sp_/xp_/;)"}
+    import re as _re
+    for _bad in ("insert","update","delete","drop","truncate","alter","create","exec","execute","merge","grant","revoke","into","waitfor","shutdown"):
+        if _re.search(r"(?<![a-z0-9_])" + _bad + r"(?![a-z0-9_])", low):
+            return {"ok": False, "error": "zakazany vyraz: " + _bad}
+    try:
+        maxn = min(1000, max(1, int(req.query_params.get("max") or 200)))
+    except Exception:
+        maxn = 200
+    r = _mcp_exec_office(sql, db_name=db)
+    if not r.get("ok"):
+        return {"ok": False, "error": str(r.get("error"))[:600]}
+    rows = r.get("rows") or []
+    return {"ok": True, "db": db, "pocet": len(rows), "rows": rows[:maxn]}
+
+
 # Path A — staré EC procedury (jen Rok+Mesic). ES zatím nemá (procedury jsou EC_).
 _MZD_A_PROC = {
     "vstupni": ("EC_Mzdy_GenVstupniData", True),    # předzpracování (vstupní data)

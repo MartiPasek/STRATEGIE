@@ -694,12 +694,14 @@ async def sign_self(req: Request):
             oem = s.execute(_t("""SELECT contact_value FROM public.user_contacts WHERE user_id=:u
                 AND contact_type='email' AND status='active' ORDER BY is_primary DESC, id LIMIT 1"""),
                 {"u": uid}).scalar()
-            body = ("Dobrý den,\n\nv příloze zasílám elektronicky podepsaný dokument: %s.\n"
+            subj = (b.get("subject") or "").strip()[:250] or ("Podepsáno: %s" % title)
+            body = (b.get("body") or "").strip() or (
+                    "Dobrý den,\n\nv příloze zasílám elektronicky podepsaný dokument: %s.\n"
                     "Podepsáno prostým elektronickým podpisem (SES dle eIDAS) s podpisovou doložkou "
                     "(datum, otisk SHA-256). Tisk ani sken není potřeba.\n\nS pozdravem\n%s\n\n"
                     "(Odesláno systémem STRATEGIE jménem %s.)") % (title, name, name)
             from modules.notifications.application.email_service import queue_email
-            queue_email(to=recipient, subject="Podepsáno: %s" % title, body=body,
+            queue_email(to=recipient, subject=subj, body=body,
                         persona_id=1, from_identity="persona", tenant_id=tid, purpose="user_request",
                         attachment_document_ids=[doc_id], cc=([oem] if oem else None))
             return {"ok": True, "sent": True, "recipient": recipient, "filename": fn, "doc_id": doc_id}

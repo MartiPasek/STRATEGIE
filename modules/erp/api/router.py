@@ -32934,7 +32934,25 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _thm.Thread(target=lambda: _mall(tenant_id=2, uid=1), daemon=True).start()
                 return JSONResponse({"ok": True, "spusteno": True,
                                      "pozn": "migrace+import planovanych dodavatelu bezi na pozadi — sleduj tenant.cenik_import"})
-            return JSONResponse({"ok": False, "error": "@@CENIK PEEK|IMPORT|IMPORTFIN|DEDUP|FIND|MIGRATEALL"})
+            if _cop == "SETMAP":
+                # @@CENIK SETMAP <vyrobce> P01=1,P02=2,...  → override mapovani + reimport
+                _sp = _carg.split(None, 1)
+                _sv = (_sp[0].strip().upper() if _sp and _sp[0] else "")
+                _cm = {}
+                for _kv in (_sp[1] if len(_sp) > 1 else "").replace(" ", "").split(","):
+                    if "=" in _kv:
+                        _k, _vv = _kv.split("=", 1)
+                        try:
+                            _cm[_k.upper()] = int(_vv)
+                        except ValueError:
+                            pass
+                if not _sv or not _cm:
+                    return JSONResponse({"ok": False, "error": "@@CENIK SETMAP <vyrobce> P01=1,P02=2,..."})
+                import threading as _ths
+                from modules.erp.api.cenik_engine import set_colmap_reimport as _scr
+                _ths.Thread(target=lambda: _scr(_sv, _cm, tenant_id=2, uid=1), daemon=True).start()
+                return JSONResponse({"ok": True, "spusteno": True, "vyrobce": _sv, "col_map": _cm})
+            return JSONResponse({"ok": False, "error": "@@CENIK PEEK|IMPORT|IMPORTFIN|DEDUP|FIND|MIGRATEALL|SETMAP"})
         except Exception as _ce:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ce).__name__, str(_ce)[:300]),
                                  "tb": _tbc.format_exc()[-800:]})

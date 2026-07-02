@@ -388,6 +388,29 @@ _MIGRATE_PLAN = [
 ]
 
 
+def set_colmap_reimport(vyrobce, col_map, tenant_id=2, uid=1):
+    """Ruční override mapování (když se aktuální soubor liší od DB-Ceniky verze):
+    smaže staré importy dodavatele, nastaví col_map a znovu importuje. Server-side."""
+    import json as _j
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        ids = [r[0] for r in s.execute(_t("SELECT id FROM tenant.cenik_import WHERE tenant_id=:t AND vyrobce=:v"),
+                                       {"t": tenant_id, "v": vyrobce})]
+        if ids:
+            s.execute(_t("DELETE FROM tenant.cenik_polozka WHERE tenant_id=:t AND import_id = ANY(:i)"),
+                      {"t": tenant_id, "i": ids})
+            s.execute(_t("DELETE FROM tenant.cenik_import WHERE tenant_id=:t AND id = ANY(:i)"),
+                      {"t": tenant_id, "i": ids})
+        s.execute(_t("UPDATE tenant.cenik_vyrobce SET col_map=CAST(:cm AS jsonb) WHERE tenant_id=:t AND vyrobce=:v"),
+                  {"cm": _j.dumps(col_map), "t": tenant_id, "v": vyrobce})
+        s.commit()
+    finally:
+        s.close()
+    return import_by_config(vyrobce, tenant_id=tenant_id, uid=uid)
+
+
 def migrate_all(tenant_id=2, uid=1, plan=None):
     """Pro každý dodavatel: přenes vzorce z DB-Ceniky + importuj soubor. Vrací výsledky."""
     res = []

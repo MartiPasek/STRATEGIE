@@ -33285,6 +33285,16 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _fw, _tbl = _ow[1], _ow[2]
                 _thoz.Thread(target=lambda: _ozm(_fw, _tbl, tenant_id=2), daemon=True).start()
                 return JSONResponse({"ok": True, "spusteno": True, "fw_code": _fw, "oz_table": _tbl})
+            if _osub == "MIRRORALL":
+                import threading as _thoza
+                from modules.erp.api.oz_mirror import mirror_all as _ozma
+                _thoza.Thread(target=lambda: _ozma(tenant_id=2), daemon=True).start()
+                return JSONResponse({"ok": True, "spusteno": True, "akce": "mirror_all"})
+            if _osub == "SYNCALL":
+                import threading as _thozs
+                from modules.erp.api.oz_mirror import sync_all as _ozsa
+                _thozs.Thread(target=lambda: _ozsa(tenant_id=2), daemon=True).start()
+                return JSONResponse({"ok": True, "spusteno": True, "akce": "sync_all"})
             if _osub == "SYNC":
                 if len(_ow) < 2:
                     return JSONResponse({"ok": False, "error": "@@OZ SYNC <oz_table>"})

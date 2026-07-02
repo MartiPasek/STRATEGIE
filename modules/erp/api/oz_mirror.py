@@ -246,6 +246,52 @@ def mirror(fw_code: str, oz_table: str, tenant_id: int = 2, repoint: bool = True
             "cols": [c["name"] + " " + c["pg_type"] for c in cols]}
 
 
+# Plán zrcadel: (fw.data_source code, cílová PG tabulka). Zkratky Marti 2.7.:
+# prij_ = přijaté, vy_ = vydané, fa = faktury.
+_OZ_PLAN = [
+    ("vp_zakazky", "oz_zakazky"),
+    ("vp_poptavky", "oz_prij_popt"),
+    ("vp_kalkulace", "oz_nabidky"),
+    ("vp_prijate_obj", "oz_prij_obj"),
+    ("vp_kalk_nakup", "oz_kalkulace"),
+    ("vp_vydane_obj", "oz_vy_obj"),
+    ("fin_prijate_faktury", "oz_prij_fa"),
+    ("fin_vydane_faktury", "oz_vy_fa"),
+]
+
+
+def mirror_all(tenant_id: int = 2, plan=None):
+    """Sekvenčně zrcadlí všechny přehledy z plánu (jeden po druhém — MCP rate limit)."""
+    res = []
+    for fw, tbl in (plan or _OZ_PLAN):
+        try:
+            r = mirror(fw, tbl, tenant_id=tenant_id)
+            res.append({"oz": tbl, "ok": r.get("ok"), "vlozeno": r.get("vlozeno"),
+                        "chyb": r.get("chyb"), "err": r.get("error") or r.get("prvni_chyba")})
+        except Exception as e:  # noqa: BLE001
+            res.append({"oz": tbl, "ok": False, "err": str(e)[:200]})
+    return {"ok": True, "vysledky": res}
+
+
+def sync_all(tenant_id: int = 2):
+    """Obnoví data ve všech zrcadlech z uložených MSSQL dotazů (scheduled refresh)."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        tbls = [r[0] for r in s.execute(_t("SELECT oz_table FROM tenant.oz_mirror_def ORDER BY oz_table"))]
+    finally:
+        s.close()
+    res = []
+    for t in tbls:
+        try:
+            r = sync(t, tenant_id=tenant_id)
+            res.append({"oz": t, "vlozeno": r.get("vlozeno"), "chyb": r.get("chyb"), "err": r.get("error")})
+        except Exception as e:  # noqa: BLE001
+            res.append({"oz": t, "err": str(e)[:200]})
+    return {"ok": True, "vysledky": res}
+
+
 def sync(oz_table: str, tenant_id: int = 2):
     """Obnoví data v tenant.<oz_table> z uloženého MSSQL dotazu (pro scheduled refresh)."""
     from sqlalchemy import text as _t

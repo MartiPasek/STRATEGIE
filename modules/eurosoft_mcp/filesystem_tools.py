@@ -579,11 +579,32 @@ async def eurosoft_fs_reorg(
     shutil.move. moves = [{"src":"stará/cesta","dst":"nová/cesta"}, ...] (relativní
     k bázi). Přejmenuje složky (očíslování), přesune soubory do složek, atd.
     Idempotentní-ish: chybějící zdroj → 'skip' (už přesunuto)."""
-    # Zápis do RO jde přes namespace 'ro' (ne base_override — ten je pro RO read-only).
+    # Zápis do RO jde přes namespace 'ro' (base_override je pro RO read-only).
+    # Pokud base_override leží pod RO namespace kořenem → přemapuj na namespace 'ro'
+    # + relativní cestu (zapisovatelné), jinak base_override tvrdě read-only.
+    root = None; err = None
     if base and not base_override:
         root, err = _resolve_path(namespace, base)
+    elif base_override:
+        _mapped = False
+        try:
+            _bo = Path(base_override).resolve()
+            for _ns in ("ro", "rw"):
+                _nb = _namespace_bases().get(_resolve_namespace(_ns) or _ns)
+                if not _nb:
+                    continue
+                _nbp = Path(_nb).resolve()
+                if _bo == _nbp or _under(_bo, _nbp):
+                    _rel = "" if _bo == _nbp else str(_bo.relative_to(_nbp))
+                    root, err = _resolve_path(_ns, _rel)
+                    _mapped = True
+                    break
+        except Exception as _me:
+            err = f"mapování báze selhalo: {_me}"; _mapped = True
+        if not _mapped:
+            root, err = _resolve_path_override(base_override, "", True)
     else:
-        root, err = _resolve_path_override(base_override, "", True)
+        err = "Chybí base nebo base_override."
     if err:
         return {"ok": False, "error": "báze: " + err}
     if not root.exists():

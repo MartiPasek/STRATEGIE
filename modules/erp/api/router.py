@@ -25981,7 +25981,7 @@ def _mzdy_worker_sql(cloud_db, idobd, maxn):
         "DECLARE @Z INT,@Err INT,@Status INT,@Info INT,@em NVARCHAR(2000);\n"
         "DECLARE c CURSOR LOCAL FAST_FORWARD FOR\n"
         " SELECT TOP (" + str(int(maxn)) + ") ZamestnanecId FROM TabZamMzd\n"
-        " WHERE IdObdobi=@O AND Automat=1 AND Uzavreno=0 AND StavES=0\n"
+        " WHERE IdObdobi=@O AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1)\n"
         "   AND ZamestnanecId NOT IN (SELECT ZamestnanecId FROM TabZamVyp WHERE IdObdobi=@O)\n"
         " ORDER BY ZamestnanecId;\n"
         "OPEN c; FETCH NEXT FROM c INTO @Z;\n"
@@ -26009,12 +26009,12 @@ def _mzdy_worker_sql(cloud_db, idobd, maxn):
 
 
 # Vyčištění před regenerací (Marti 28.6.: "před insertem vyčištění smazání" = čistá voda).
-# Smaže JEN regenerovaný set (Automat=1/Uzavreno=0/StavES=0) za období: jejich složky
+# Smaže JEN regenerovaný set (Automat=1/Uzavreno=0/StavES IN (0,1)) za období: jejich složky
 # (TabMzSloz) + výpočet (TabZamVyp). EC má triggery → DISABLE/ENABLE okolo (na ES no-op).
 def _mzdy_clean_sql(cloud_db, idobd):
     o = str(int(idobd))
     inset = ("(SELECT ZamestnanecId FROM dbo.TabZamMzd WHERE IdObdobi=" + o +
-             " AND Automat=1 AND Uzavreno=0 AND StavES=0)")
+             " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1))")
     return (
         "USE " + cloud_db + ";\nSET NOCOUNT ON;\n"
         "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabZamVyp';\n"
@@ -26554,7 +26554,7 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
     def _counts():
         c = _mssql188_query(
             "SELECT (SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamMzd WHERE IdObdobi=" + str(idobd) +
-            " AND Automat=1 AND Uzavreno=0 AND StavES=0) cil,"
+            " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1)) cil,"
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + ") hot,"
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + " AND Info=58801) vys")
         if c.get("ok") and c.get("rows"):
@@ -26683,7 +26683,7 @@ def mzdy_generuj(req: Request):
         c = _mssql188_query(
             "SELECT "
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamMzd WHERE IdObdobi=" + str(idobd) +
-            " AND Automat=1 AND Uzavreno=0 AND StavES=0) cil,"
+            " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1)) cil,"
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) + ") hotovo,"
             "(SELECT COUNT(*) FROM " + cloud_db + ".dbo.TabZamVyp WHERE IdObdobi=" + str(idobd) +
             " AND Info=58801) vystrahy")
@@ -32404,35 +32404,6 @@ async def diag_sql(req: Request) -> JSONResponse:
     if sql.upper().startswith("@@ENESYNC"):
         return JSONResponse(_eneschopenka_to_sick())
 
-    #   @@AIPROMPT [conv_id] → vytáhne CELÝ sestavený systémový prompt Marti-AI
-    #   (pro konzultaci o složení/optimalizaci). Default = konverzace Claude↔Marti-AI.
-    if sql.upper().startswith("@@AIPROMPT"):
-        import traceback as _tbp
-        try:
-            from sqlalchemy import text as _tp
-            from core.database_data import get_data_session as _gp
-            _p = sql.split()
-            _cid = int(_p[1]) if len(_p) > 1 and _p[1].isdigit() else None
-            _sp = _gp()
-            try:
-                if _cid is None:
-                    _row = _sp.execute(_tp(
-                        "SELECT id FROM public.conversations WHERE title LIKE '%Claude%Marti-AI%' "
-                        "ORDER BY id DESC LIMIT 1")).first()
-                    _cid = _row[0] if _row else None
-            finally:
-                _sp.close()
-            if _cid is None:
-                return JSONResponse({"ok": False, "error": "konverzace nenalezena"})
-            from modules.conversation.application.composer import build_prompt as _bp
-            _sys, _msgs = _bp(_cid)
-            return JSONResponse({"ok": True, "conversation_id": _cid,
-                                 "prompt_len": len(_sys or ""), "msg_count": len(_msgs or []),
-                                 "system_prompt": _sys})
-        except Exception as _ae:
-            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ae).__name__, str(_ae)[:300]),
-                                 "tb": _tbp.format_exc()[-1000:]})
-
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):
@@ -32509,19 +32480,13 @@ async def diag_sql(req: Request) -> JSONResponse:
                 from modules.erp.api.smernice_rag import kb_search as _kbs
                 _rest = sql[len("@@KB"):].strip()
                 _lvl = 2
-                _aio = False
                 if "|" in _rest:
                     _rest, _lv = _rest.rsplit("|", 1)
-                    _lvs = _lv.strip().lower()
-                    if _lvs in ("ai", "ai-only", "airada", "řada ai"):
-                        _aio = True
-                        _lvl = 3
-                    else:
-                        try:
-                            _lvl = int(_lvs)
-                        except Exception:
-                            _lvl = 2
-                return JSONResponse(_kbs(_rest.strip(), _lvl, ai_only=_aio))
+                    try:
+                        _lvl = int(_lv.strip())
+                    except Exception:
+                        _lvl = 2
+                return JSONResponse(_kbs(_rest.strip(), _lvl))
         except Exception as _sme:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_sme).__name__, str(_sme)[:400]),
                                  "tb": _tbk.format_exc()[-1200:]})

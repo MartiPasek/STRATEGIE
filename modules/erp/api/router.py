@@ -32334,8 +32334,84 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": "zápis do RO: " + str((r2.get("error") if isinstance(r2, dict) else r2))[:180]})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
+        # @@FILES COPYBATCH \n <src1> >> <dst1> \n <src2> >> <dst2> ...  — dávková kopie RW→RO
+        if op == "COPYBATCH":
+            import base64 as _b64cb
+            body = parts[2] if len(parts) > 2 else ""
+            pairs = []
+            for ln in body.splitlines():
+                ln = ln.strip()
+                if not ln or " >> " not in ln:
+                    continue
+                s, d = ln.split(" >> ", 1)
+                pairs.append((s.strip(), d.strip().lstrip("/").replace("\\", "/")))
+            if not pairs:
+                return JSONResponse({"ok": False, "error": "@@FILES COPYBATCH + řádky 'src >> dst'"})
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                rows = []
+                for src_abs, dst_rel in pairs:
+                    try:
+                        _sb = _op.dirname(src_abs); _sf = _op.basename(src_abs)
+                        raw = mcp.call_tool_sync("eurosoft_eurosoft_file_read",
+                                                 {"user_namespace": "ro", "base_override": _sb, "path": _sf,
+                                                  "encoding": "base64"}, conversation_id=None)
+                        rr = _jf.loads(raw) if isinstance(raw, str) else raw
+                        if isinstance(rr, dict) and rr.get("ok") is False:
+                            rows.append([dst_rel, 0, "ERR read: " + str(rr.get("error"))[:70]]); continue
+                        b64 = (rr.get("content") or rr.get("data") or "") if isinstance(rr, dict) else str(rr)
+                        nbytes = len(_b64cb.b64decode(b64)) if b64 else 0
+                        raw2 = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
+                                                  {"user_namespace": "ro", "path": dst_rel,
+                                                   "content": b64, "encoding": "base64", "mode": "overwrite"},
+                                                  conversation_id=None)
+                        r2 = _jf.loads(raw2) if isinstance(raw2, str) else raw2
+                        rows.append([dst_rel, nbytes, "OK" if (isinstance(r2, dict) and r2.get("ok")) else "ERR write: " + str((r2.get("error") if isinstance(r2, dict) else r2))[:60]])
+                    except Exception as _ex:
+                        rows.append([dst_rel, 0, "EXC: " + str(_ex)[:60]])
+                _okc = sum(1 for r in rows if r[2] == "OK")
+                return JSONResponse({"ok": True, "columns": ["cil", "bytes", "stav"], "rows": rows,
+                                     "count": len(rows), "note": "%d/%d OK" % (_okc, len(rows))})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
+        # @@FILES LISTREC <abs_root>  — rekurzivní výpis (server-side BFS přes MCP file_list)
+        if op == "LISTREC":
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                root = path.rstrip("\\/")
+                queue = [root]; rows = []; seen = 0
+                while queue and seen < 4000:
+                    cur = queue.pop(0); seen += 1
+                    raw = mcp.call_tool_sync("eurosoft_eurosoft_file_list",
+                                             {"user_namespace": "ro", "base_override": cur, "subpath": ""},
+                                             conversation_id=None)
+                    r = _jf.loads(raw) if isinstance(raw, str) else raw
+                    items = (r.get("items") or r.get("files") or r.get("entries") or []) if isinstance(r, dict) else (r or [])
+                    for it in items:
+                        if isinstance(it, dict):
+                            nm = it.get("name") or it.get("filename") or it.get("path")
+                            typ = it.get("type") or ("dir" if it.get("is_dir") else "file")
+                            sz = it.get("size")
+                        else:
+                            nm, typ, sz = it, "file", None
+                        full = cur + "\\" + str(nm)
+                        rel = full[len(root):].lstrip("\\/")
+                        if typ == "dir":
+                            queue.append(full)
+                        else:
+                            rows.append([rel, sz])
+                return JSONResponse({"ok": True, "columns": ["rel_cesta", "velikost"], "rows": rows,
+                                     "count": len(rows), "note": "%d souborů, %d složek proskenováno" % (len(rows), seen)})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
         if op not in ("LIST", "READ") or not path:
-            return JSONResponse({"ok": False, "error": "@@FILES LIST|READ|COPY|PUTREPO|PUTREPODIR <cesta>"})
+            return JSONResponse({"ok": False, "error": "@@FILES LIST|READ|COPY|COPYBATCH|LISTREC|PUTREPO|PUTREPODIR <cesta>"})
         try:
             from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
             mcp = get_eurosoft_mcp_client()

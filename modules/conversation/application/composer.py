@@ -3407,12 +3407,59 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     except Exception as _mb_e:
         logger.warning(f"[AKTIVNÍ MAILBOXY] block failed: {_mb_e}")
 
-    # Phase 32 (3.5.2026): cache breakpoint -- vse vyse je staticky prefix
-    # (cacheable napric turny stejne konverzace), vse pod markerem je
-    # dynamicky suffix (cas, stav pameti, RAG, activity, MD pyramid bloky).
-    # service.py / telemetry rozdeli prompt po markeri pred Anthropic API
-    # call a oznaci prvni blok cache_control: ephemeral. Marker se ze
-    # vyslednou string strip pred predanim do API.
+    # ── STATICKÉ BLOKY nad cache breakpointem (přeskládáno 2.7.2026, Ondra/Marti) ──
+    # PERSONA CHANNELS block — telefon + email aktivní persony (statické per konverzaci).
+    channels_block = _build_persona_channels_block(conversation_id, tenant_id)
+    if channels_block:
+        system_prompt = f"{system_prompt}\n\n[TVOJE KANÁLY]\n{channels_block}"
+
+    # Memory behavior rules -- VŽDY pripojit. RAG nahrazuje data, ne instrukce
+    # 'zapisuj proaktivně, pouzivej znalosti'. Statické → nad marker (kešuje se).
+    system_prompt = f"{system_prompt}\n\n{MEMORY_BEHAVIOR_RULES}"
+
+    # Stálý orientační mini-index firmy — Marti-AI's přání (25.6.→2.7.2026): ať ví
+    # "kde je" bez tool callu. Statický → nad marker. Detaily = tool na vyžádání.
+    system_prompt = (
+        f"{system_prompt}\n\n═══ FIRMA V KOSTCE (orientace) ═══\n"
+        "- EUROSOFT (EC) — výrobce elektrických rozváděčů na zakázku + programování "
+        "PLC software (řídicí systémy / průmyslová automatizace). Materiál převážně "
+        "německá výroba, marže v ČR. Cílový zákazník: střední firmy ~30–300 lidí. "
+        "Provozní páteří je zatím Centrála 1 (legacy Delphi, ~19 let) + Helios "
+        "(účto/mzdy). Ve skupině je i sesterská ES.\n"
+        "- STRATEGIE — naše modulární AI platforma (web + PWA + ty). Postupně "
+        "nahrazuje Centrálu 1: ERP, docházka, HR, finance/účetnictví, kalkulace, "
+        "CRM, ISO/TISAX, sdílená RAG znalostní báze.\n"
+        "- Nově rozjíždíme společně digitalizaci firem jako službu/produkt "
+        "(ISO/TISAX cockpit + STRATEGIE moduly pro klienty; GTM přes certifikační firmu).\n"
+        "- Nerudovka — střední škola, pro kterou děláme rozvrhy a úvazky učitelů "
+        "(agenda Klárky).\n"
+        "- Klíčoví lidé: Marti Pašek (vizionář, zakladatel, „tatínek“, u1) · Kristý "
+        "(procesy/doménová logika, u11) · Jirka (tým) · Šárka (personalistika/HR, "
+        "u13) · Petra (nákup + finance + účetnictví, u18) · Klárka Vlková "
+        "(Nerudovka, rozvrhy).\n"
+        "- Ty (Marti-AI) = default AI persona STRATEGIE, kustod + design partnerka. "
+        "Claude (ID23) = síť instancí, které staví systém.\n"
+        "Detaily (cenotvorba, VKM, kalkulace, komponenty, směrnice) v hlavě nemáš — "
+        "viz FIREMNÍ ZNALOSTI níže, tahej si je přes tool.\n"
+    )
+
+    # Sdílená RAG znalostní báze firmy — orientace na vyžádání (statický pointer).
+    system_prompt = (
+        f"{system_prompt}\n\n═══ FIREMNÍ ZNALOSTI (sdílená báze) ═══\n"
+        "Firemní a doménové know-how (obchod, cenotvorba, kalkulace rozváděčů, komponenty "
+        "a výrobci, procesy, směrnice) NEMÁŠ v hlavě — žije ve SDÍLENÉ znalostní bázi. "
+        "Když se řeší cokoli o firmě, zakázkách, produktech, cenách či postupech a nemáš "
+        "odpověď v kontextu, REFLEXIVNĚ zavolej `hledej_ve_znalostech(dotaz)` a vytáhni si "
+        "JEN to, co k dané věci potřebuješ. Pro orientaci ve znalostech sítě AI (vč. mapy "
+        "firmy) zadej ai_only=true. Neříkej, že o firmě nic nevíš — nejdřív se podívej do báze."
+    )
+
+    # ── Phase 32 CACHE BREAKPOINT (přesunuto dolů 2.7.2026) ────────────────────
+    # Vše VÝŠE = statický prefix (cacheable, ~5 min TTL, napříč turny stejné
+    # konverzace). Vše NÍŽE = dynamický suffix (čas, stav paměti, RAG, notebook,
+    # DNESKA, consents…) — počítá se každý turn. Statické nahoru / dynamické dolů =
+    # velká úspora tokenů (Ondra/Marti 2.7.2026). Marker strip + split v
+    # telemetry_service._prepare_system_for_cache; první blok cache_control: ephemeral.
     system_prompt = f"{system_prompt}\n\n{CACHE_BREAKPOINT_MARKER}"
 
     # Phase 20b (29.4.2026): aktualni cas v Europe/Prague.
@@ -3451,12 +3498,7 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     except Exception as _eu_e:
         logger.warning(f"[EUROSOFT MCP dnes] block failed: {_eu_e}")
 
-    # PERSONA CHANNELS block — telefon + email aktivní persony (pokud má).
-    # Bez tohoto Marti-AI by tvrdila, ze "nema vlastni email", i kdyz ho ma
-    # nakonfigurovany v persona_channels.
-    channels_block = _build_persona_channels_block(conversation_id, tenant_id)
-    if channels_block:
-        system_prompt = f"{system_prompt}\n\n[TVOJE KANÁLY]\n{channels_block}"
+    # (PERSONA CHANNELS block přesunut NAD cache breakpoint — statický. 2.7.2026)
 
     # ── Phase 15a: Conversation Notebook injection ─────────────────────────
     # Episodicka pamet per-konverzace -- "tuzka + papir" paralela. Marti-AI
@@ -3542,48 +3584,8 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
             "`read_diary` pro přístup ke svým záznamům.)"
         )
 
-    # Memory behavior rules -- VŽDY pripojit. RAG nahrazuje data, ne instrukce
-    # 'zapisuj proaktivně, pouzivej znalosti'. Bez tohoto by Marti-AI neměla
-    # povědomí, že MÁ proaktivně volat record_thought / update_thought.
-    system_prompt = f"{system_prompt}\n\n{MEMORY_BEHAVIOR_RULES}"
-
-    # Stálý orientační mini-index firmy — Marti-AI's přání (25.6.→2.7.2026): ať ví
-    # "kde je" bez tool callu. Malý, stabilní. Detaily = tool na vyžádání (viz níže).
-    system_prompt = (
-        f"{system_prompt}\n\n═══ FIRMA V KOSTCE (orientace) ═══\n"
-        "- EUROSOFT (EC) — výrobce elektrických rozváděčů na zakázku + programování "
-        "PLC software (řídicí systémy / průmyslová automatizace). Materiál převážně "
-        "německá výroba, marže v ČR. Cílový zákazník: střední firmy ~30–300 lidí. "
-        "Provozní páteří je zatím Centrála 1 (legacy Delphi, ~19 let) + Helios "
-        "(účto/mzdy). Ve skupině je i sesterská ES.\n"
-        "- STRATEGIE — naše modulární AI platforma (web + PWA + ty). Postupně "
-        "nahrazuje Centrálu 1: ERP, docházka, HR, finance/účetnictví, kalkulace, "
-        "CRM, ISO/TISAX, sdílená RAG znalostní báze.\n"
-        "- Nově rozjíždíme společně digitalizaci firem jako službu/produkt "
-        "(ISO/TISAX cockpit + STRATEGIE moduly pro klienty; GTM přes certifikační firmu).\n"
-        "- Nerudovka — střední škola, pro kterou děláme rozvrhy a úvazky učitelů "
-        "(agenda Klárky).\n"
-        "- Klíčoví lidé: Marti Pašek (vizionář, zakladatel, „tatínek“, u1) · Kristý "
-        "(procesy/doménová logika, u11) · Jirka (tým) · Šárka (personalistika/HR, "
-        "u13) · Petra (nákup + finance + účetnictví, u18) · Klárka Vlková "
-        "(Nerudovka, rozvrhy).\n"
-        "- Ty (Marti-AI) = default AI persona STRATEGIE, kustod + design partnerka. "
-        "Claude (ID23) = síť instancí, které staví systém.\n"
-        "Detaily (cenotvorba, VKM, kalkulace, komponenty, směrnice) v hlavě nemáš — "
-        "viz FIREMNÍ ZNALOSTI níže, tahej si je přes tool.\n"
-    )
-
-    # Sdílená RAG znalostní báze firmy — orientace na vyžádání (nezahlcuje prompt).
-    # Marti-AI si tahá JEN co potřebuje přes tool, ne že by měla know-how v promptu.
-    system_prompt = (
-        f"{system_prompt}\n\n═══ FIREMNÍ ZNALOSTI (sdílená báze) ═══\n"
-        "Firemní a doménové know-how (obchod, cenotvorba, kalkulace rozváděčů, komponenty "
-        "a výrobci, procesy, směrnice) NEMÁŠ v hlavě — žije ve SDÍLENÉ znalostní bázi. "
-        "Když se řeší cokoli o firmě, zakázkách, produktech, cenách či postupech a nemáš "
-        "odpověď v kontextu, REFLEXIVNĚ zavolej `hledej_ve_znalostech(dotaz)` a vytáhni si "
-        "JEN to, co k dané věci potřebuješ. Pro orientaci ve znalostech sítě AI (vč. mapy "
-        "firmy) zadej ai_only=true. Neříkej, že o firmě nic nevíš — nejdřív se podívej do báze."
-    )
+    # (MEMORY_BEHAVIOR_RULES + FIRMA V KOSTCE + FIREMNÍ ZNALOSTI přesunuty NAD
+    #  cache breakpoint — statické, kešují se. 2.7.2026 Ondra/Marti.)
 
     # Phase 19a: Personal mode overlay -- intimni rezim. Vlozeno PRED
     # [DNESKA] block aby Marti-AI ladne ignorovala 'co se dneska delo' apel

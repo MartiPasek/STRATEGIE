@@ -26014,7 +26014,7 @@ def _mzdy_worker_sql(cloud_db, idobd, maxn):
 def _mzdy_clean_sql(cloud_db, idobd):
     o = str(int(idobd))
     inset = ("(SELECT ZamestnanecId FROM dbo.TabZamMzd WHERE IdObdobi=" + o +
-             " AND Automat=1 AND Uzavreno=0 AND StavES=0)")
+             " AND Automat=1 AND Uzavreno=0 AND StavES IN (0,1))")
     return (
         "USE " + cloud_db + ";\nSET NOCOUNT ON;\n"
         "EXEC " + cloud_db + "..sp_executesql N'DISABLE TRIGGER ALL ON dbo.TabZamVyp';\n"

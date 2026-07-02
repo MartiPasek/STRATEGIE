@@ -22,6 +22,7 @@ _TOKEN_RE = re.compile(r"""
   | (?P<NUM>\d+\.\d+|\d+)
   | (?P<PARAM>@P\d{1,2}|@[A-Za-z_]\w*)
   | (?P<IDENT>[A-Za-z_]\w*)
+  | (?P<CMP><=|>=|<>|!=|=|<|>)
   | (?P<OP>[+\-*/(),])
 """, re.VERBOSE)
 
@@ -90,12 +91,50 @@ class _P:
         if k == "PARAM":
             self.next(); return ("param", v[1:])  # bez @
         if k == "IDENT":
+            up = v.upper()
+            if up == "NULL":
+                self.next(); return ("null",)
+            if up == "CASE":
+                self.next(); return self.case_expr()
             self.next()
             if self.peek()[1] == "(":
                 return self.func_call(v)
             # holé ident (např. typ v CAST) — vrátíme jako řetězec-název
             return ("name", v)
         raise ValueError("neočekávaný token: %r" % (v,))
+
+    def _kw(self):
+        v = self.peek()[1]
+        return str(v).upper() if v is not None else ""
+
+    def _expect_kw(self, kw):
+        k, v = self.next()
+        if not v or str(v).upper() != kw:
+            raise ValueError("čekal jsem %s, dostal %r" % (kw, v))
+
+    def condition(self):
+        """Porovnání (a > b, a = b, …) nebo prostý výraz."""
+        left = self.expr()
+        if self.peek()[0] == "CMP":
+            op = self.next()[1]
+            return ("cmp", op, left, self.expr())
+        return left
+
+    def case_expr(self):
+        """CASE [operand] WHEN … THEN … [ELSE …] END (searched i simple)."""
+        searched = (self._kw() == "WHEN")
+        operand = None if searched else self.expr()
+        branches = []
+        while self._kw() == "WHEN":
+            self.next()
+            whenpart = self.condition() if searched else self.expr()
+            self._expect_kw("THEN")
+            branches.append((whenpart, self.expr()))
+        elseval = None
+        if self._kw() == "ELSE":
+            self.next(); elseval = self.expr()
+        self._expect_kw("END")
+        return ("case", searched, operand, branches, elseval)
 
     def func_call(self, name):
         self.expect("(")
@@ -191,10 +230,57 @@ def _eval(node, params):
         if op == "/":
             db = _dec(b)
             return (_dec(a) / db) if db != 0 else Decimal(0)
+    if typ == "null":
+        return None
+    if typ == "cmp":
+        return _compare(_eval(node[2], params), _eval(node[3], params), node[1])
+    if typ == "case":
+        searched, operand, branches, elseval = node[1], node[2], node[3], node[4]
+        for wp, res in branches:
+            hit = _truthy(_eval(wp, params)) if searched else _eq(_eval(operand, params), _eval(wp, params))
+            if hit:
+                return _eval(res, params)
+        return _eval(elseval, params) if elseval is not None else None
     if typ == "call":
         name, args = node[1], [_eval(a, params) for a in node[2]]
         return _fn(name, args)
     raise ValueError("neznámý uzel: %r" % (typ,))
+
+
+def _compare(a, b, op):
+    if _is_num(a) and _is_num(b):
+        a, b = _dec(a), _dec(b)
+    else:
+        a, b = _s(a), _s(b)
+    if op == "=":
+        return a == b
+    if op in ("<>", "!="):
+        return a != b
+    if op == ">":
+        return a > b
+    if op == "<":
+        return a < b
+    if op == ">=":
+        return a >= b
+    if op == "<=":
+        return a <= b
+    return False
+
+
+def _truthy(x):
+    if isinstance(x, bool):
+        return x
+    if x is None:
+        return False
+    if _is_num(x):
+        return _dec(x) != 0
+    return _s(x) != ""
+
+
+def _eq(a, b):
+    if _is_num(a) and _is_num(b):
+        return _dec(a) == _dec(b)
+    return _s(a) == _s(b)
 
 
 def _fn(name, a):
@@ -221,6 +307,8 @@ def _fn(name, a):
         return _s(a[0]).strip()
     if name in ("LEN", "LENGTH"):
         return Decimal(len(_s(a[0])))
+    if name == "ISNUMERIC":
+        return Decimal(1) if _is_num(a[0]) else Decimal(0)
     if name == "ISNULL":
         return a[0] if (a[0] is not None and _s(a[0]) != "") else (a[1] if len(a) > 1 else "")
     if name == "CONCAT":
@@ -479,7 +567,7 @@ def import_cenik(path, vyrobce, col_map, data_start=1, mena="EUR",
     try:
         vz = [dict(r) for r in s.execute(_t(
             "SELECT poradi, cil_pole, vyraz FROM tenant.cenik_vzorec "
-            "WHERE tenant_id=:t AND vyrobce=:v AND aktivni ORDER BY poradi"),
+            "WHERE tenant_id=:t AND vyrobce=:v AND aktivni ORDER BY poradi, id"),
             {"t": tenant_id, "v": vyrobce}).mappings()]
         if not vz:
             return {"ok": False, "error": "žádné vzorce pro výrobce %s" % vyrobce}

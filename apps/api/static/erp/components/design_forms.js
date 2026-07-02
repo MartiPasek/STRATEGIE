@@ -6018,6 +6018,12 @@
       if (code === "grid_modern") {
         return this._renderEmbeddedGridSection(comp);
       }
+      // Adresář (soubory) — HW komponenta (Kristý 2.7.2026): seznam příloh
+      // záznamu + proklik (stažení) + drag&drop upload + tlačítko. Reuse
+      // /app/dir/list · /read · /write (stejné endpointy jako stránka /files).
+      if (code === "adresar") {
+        return this._renderDirPanel(comp);
+      }
       // Krok 5.X (27.5.2026): nested_grid je rendered INSIDE _renderContainerNode
       // panel branch (special _renderChildSection dispatch). Pokud nested_grid
       // padne sem (komponenta s parent != panel), skip — sirota, no render.
@@ -6053,6 +6059,169 @@
           (err && err.message ? err.message : String(err));
         return placeholder;
       }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Adresář (soubory) — HW komponenta (Kristý 2.7.2026)
+    // ════════════════════════════════════════════════════════════════
+    // Zobrazí přílohy záznamu (proklik = stažení), umožní nahrání
+    // (drag&drop + tlačítko). Reuse /app/dir/list · /read · /write —
+    // stejné endpointy jako stránka /files. sys_name z comp.layout.
+    // dir_sys_name (fallback core.data_entity_type / "kontakt").
+    // Record id z this.opts.rowId (fallback this._spec.data.id).
+    _renderDirPanel(comp) {
+      const layout = (comp && comp.layout) || {};
+      const core = (this._spec && this._spec.core) || {};
+      const sysName = layout.dir_sys_name || core.data_entity_type || "kontakt";
+      const recId = (this.opts && this.opts.rowId != null)
+        ? this.opts.rowId
+        : ((this._spec && this._spec.data && this._spec.data.id != null)
+            ? this._spec.data.id : null);
+
+      const wrap = document.createElement("div");
+      wrap.className = "erp-dir-panel";
+      wrap.dataset.compDefId = String(comp.id);
+      wrap.style.cssText = "display:flex;flex-direction:column;gap:8px;padding:4px 2px;";
+
+      const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      const fmtSize = (n) => (n == null ? "" : (n < 1024 ? n + " B"
+        : (n < 1048576 ? (n / 1024).toFixed(0) + " kB" : (n / 1048576).toFixed(1) + " MB")));
+
+      // Create mode (bez ID) — soubory se navážou až po uložení
+      if (recId == null) {
+        const hint = document.createElement("div");
+        hint.style.cssText = "color:#8a96a4;font-size:12px;padding:10px 8px;";
+        hint.textContent = "Soubory se zobrazí po uložení záznamu.";
+        wrap.appendChild(hint);
+        return wrap;
+      }
+
+      const listEl = document.createElement("div");
+      listEl.className = "erp-dir-list";
+      listEl.style.cssText = "display:flex;flex-direction:column;gap:2px;min-height:28px;";
+      listEl.innerHTML = '<div style="color:#8a96a4;font-size:12px;">Načítám…</div>';
+
+      const drop = document.createElement("div");
+      drop.style.cssText = "border:1px dashed #3a4656;border-radius:6px;padding:14px;" +
+        "text-align:center;color:#8a96a4;font-size:12px;cursor:pointer;" +
+        "transition:background .15s,border-color .15s;";
+      drop.textContent = "Přetáhni sem soubor, nebo klikni";
+
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.style.display = "none";
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "+ Přidat soubor";
+      btn.style.cssText = "align-self:flex-start;padding:4px 12px;font-size:12px;" +
+        "background:#26527a;color:#e8eef5;border:none;border-radius:4px;cursor:pointer;";
+
+      const msg = document.createElement("div");
+      msg.style.cssText = "font-size:11px;min-height:14px;";
+
+      function reload() {
+        fetch("/app/dir/list?sys_name=" + encodeURIComponent(sysName) +
+          "&id=" + encodeURIComponent(recId), { credentials: "include" })
+          .then((r) => r.json()).then((r) => {
+            if (!r || !r.ok) {
+              const m = (r && r.error === "acl_denied") ? "Na tuto složku nemáš přístup."
+                : (r && r.error === "config_not_found") ? "Adresář pro tento typ není nastaven."
+                : ("Chyba: " + ((r && r.error) || "?"));
+              listEl.innerHTML = '<div style="color:#e88;font-size:12px;">' + esc(m) + '</div>';
+              return;
+            }
+            const items = ((r.result && r.result.items) || []).filter((it) => !(it.is_dir || it.dir));
+            if (items.length === 0) {
+              listEl.innerHTML = '<div style="color:#8a96a4;font-size:12px;">Zatím tu nejsou žádné soubory.</div>';
+              return;
+            }
+            listEl.innerHTML = items.map((it) => {
+              const nm = esc(it.name);
+              const sz = it.size != null ? fmtSize(it.size) : "";
+              return '<div style="display:flex;align-items:center;gap:8px;padding:3px 6px;' +
+                'border-radius:4px;background:#0f151c;">' +
+                '<span>📄</span>' +
+                '<a href="#" data-fn="' + nm + '" style="flex:1 1 auto;color:#7ab8f0;' +
+                'text-decoration:none;font-size:12px;overflow:hidden;text-overflow:ellipsis;' +
+                'white-space:nowrap;">' + nm + '</a>' +
+                '<span style="color:#6a7686;font-size:10px;flex:0 0 auto;">' + sz + '</span></div>';
+            }).join("");
+            listEl.querySelectorAll("a[data-fn]").forEach((a) => {
+              a.addEventListener("click", (ev) => { ev.preventDefault(); download(a.getAttribute("data-fn")); });
+            });
+          })
+          .catch(() => { listEl.innerHTML = '<div style="color:#e88;font-size:12px;">Chyba načtení.</div>'; });
+      }
+
+      function download(name) {
+        fetch("/app/dir/read?sys_name=" + encodeURIComponent(sysName) +
+          "&id=" + encodeURIComponent(recId) + "&name=" + encodeURIComponent(name),
+          { credentials: "include" })
+          .then((r) => r.json()).then((r) => {
+            if (!r || !r.ok) { alert("Stažení selhalo: " + ((r && r.error) || "?")); return; }
+            const bin = atob(r.content_b64 || "");
+            const by = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) by[i] = bin.charCodeAt(i);
+            const url = URL.createObjectURL(new Blob([by]));
+            const a = document.createElement("a");
+            a.href = url; a.download = name;
+            document.body.appendChild(a); a.click();
+            setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+          })
+          .catch(() => alert("Stažení selhalo."));
+      }
+
+      function upload(file) {
+        if (!file) return;
+        msg.style.color = "#8a96a4"; msg.textContent = "Nahrávám…";
+        const rd = new FileReader();
+        rd.onload = function () {
+          const b64 = String(rd.result || "").split(",")[1] || "";
+          fetch("/app/dir/write", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sys_name: sysName, id: recId, filename: file.name, content_b64: b64 }),
+          }).then((r) => r.json()).then((r) => {
+            if (r && r.ok) {
+              msg.style.color = "#7ec87e";
+              msg.textContent = "Nahráno: " + (r.filename || file.name);
+              reload();
+            } else {
+              msg.style.color = "#e88";
+              msg.textContent = (r && r.error === "acl_denied") ? "Sem nesmíš zapisovat."
+                : ("Chyba: " + ((r && (r.error || r.detail)) || "?"));
+            }
+          }).catch(() => { msg.style.color = "#e88"; msg.textContent = "Chyba nahrávání."; });
+        };
+        rd.readAsDataURL(file);
+      }
+
+      drop.addEventListener("click", () => fileInput.click());
+      btn.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", () => {
+        if (fileInput.files && fileInput.files[0]) { upload(fileInput.files[0]); fileInput.value = ""; }
+      });
+      drop.addEventListener("dragover", (ev) => {
+        ev.preventDefault(); drop.style.background = "#14202c"; drop.style.borderColor = "#4a90d0";
+      });
+      drop.addEventListener("dragleave", () => {
+        drop.style.background = ""; drop.style.borderColor = "#3a4656";
+      });
+      drop.addEventListener("drop", (ev) => {
+        ev.preventDefault(); drop.style.background = ""; drop.style.borderColor = "#3a4656";
+        const f = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+        if (f) upload(f);
+      });
+
+      wrap.appendChild(listEl);
+      wrap.appendChild(drop);
+      wrap.appendChild(btn);
+      wrap.appendChild(fileInput);
+      wrap.appendChild(msg);
+      reload();
+      return wrap;
     }
 
     // ════════════════════════════════════════════════════════════════

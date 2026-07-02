@@ -33295,6 +33295,11 @@ async def diag_sql(req: Request) -> JSONResponse:
                 from modules.erp.api.oz_mirror import sync_all as _ozsa
                 _thozs.Thread(target=lambda: _ozsa(tenant_id=2), daemon=True).start()
                 return JSONResponse({"ok": True, "spusteno": True, "akce": "sync_all"})
+            if _osub == "RENAME":
+                if len(_ow) < 3:
+                    return JSONResponse({"ok": False, "error": "@@OZ RENAME <old_oz> <new_oz>"})
+                from modules.erp.api.oz_mirror import rename as _ozr
+                return JSONResponse(_ozr(_ow[1], _ow[2], tenant_id=2))
             if _osub == "SYNC":
                 if len(_ow) < 2:
                     return JSONResponse({"ok": False, "error": "@@OZ SYNC <oz_table>"})

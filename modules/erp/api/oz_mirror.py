@@ -211,8 +211,10 @@ def mirror(fw_code: str, oz_table: str, tenant_id: int = 2, repoint: bool = True
         # už přepnuto na PG — vezmi uloženou MSSQL definici
         s2 = get_data_session()
         try:
-            saved = s2.execute(_t("SELECT sql_mssql FROM tenant.oz_mirror_def WHERE oz_table=:o"),
-                               {"o": oz_table}).scalar()
+            saved = s2.execute(_t(
+                "SELECT sql_mssql FROM tenant.oz_mirror_def "
+                "WHERE fw_code=:f OR oz_table=:o ORDER BY updated_at DESC LIMIT 1"),
+                {"f": fw_code, "o": oz_table}).scalar()
         finally:
             s2.close()
         if saved:
@@ -251,12 +253,13 @@ def mirror(fw_code: str, oz_table: str, tenant_id: int = 2, repoint: bool = True
 _OZ_PLAN = [
     ("vp_zakazky", "oz_zakazky"),
     ("vp_poptavky", "oz_prij_popt"),
-    ("vp_kalkulace", "oz_nabidky"),
+    ("vp_kalkulace", "oz_vy_nab"),
     ("vp_prijate_obj", "oz_prij_obj"),
     ("vp_kalk_nakup", "oz_kalkulace"),
     ("vp_vydane_obj", "oz_vy_obj"),
     ("fin_prijate_faktury", "oz_prij_fa"),
     ("fin_vydane_faktury", "oz_vy_fa"),
+    ("nakup_prij_nab", "oz_prij_nab"),
 ]
 
 
@@ -290,6 +293,24 @@ def sync_all(tenant_id: int = 2):
         except Exception as e:  # noqa: BLE001
             res.append({"oz": t, "err": str(e)[:200]})
     return {"ok": True, "vysledky": res}
+
+
+def rename(old_oz: str, new_oz: str, tenant_id: int = 2):
+    """Přejmenuje mirror tabulku (běží jako strategie=owner): ALTER + oz_mirror_def + repoint data_set."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    s = get_data_session()
+    try:
+        s.execute(_t("ALTER TABLE tenant.%s RENAME TO %s" % (old_oz, new_oz)))
+        s.execute(_t('GRANT ALL ON tenant.%s TO strategie, "Marti-AI"' % new_oz))
+        s.execute(_t("UPDATE tenant.oz_mirror_def SET oz_table=:n, updated_at=now() WHERE oz_table=:o"),
+                  {"n": new_oz, "o": old_oz})
+        s.execute(_t("UPDATE fw.data_set SET sql_text=:q WHERE sql_text=:old"),
+                  {"q": "SELECT * FROM tenant.%s" % new_oz, "old": "SELECT * FROM tenant.%s" % old_oz})
+        s.commit()
+        return {"ok": True, "old": old_oz, "new": new_oz}
+    finally:
+        s.close()
 
 
 def sync(oz_table: str, tenant_id: int = 2):

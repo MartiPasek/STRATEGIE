@@ -6,6 +6,10 @@
   <title>STRATEGIE</title>
   <!-- Faze 10 Alt A: Chart.js pro LLM Usage dashboard grafy. CDN v4.4, ~80KB. -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- AG Grid Enterprise licence (Claude-23 3.7.2026): nastaví window.AG_GRID_LICENSE_KEY
+       PŘED init appky, ať ErpDataGrid zapne Enterprise (context menu = pravý-klik akce,
+       set-filtry, export…) bez vodoznaku. Klíč AG-134000, STRATEGIE-System s.r.o. -->
+  <script src="/static/ag_license.js"></script>
   <!-- Favicon: inline SVG s velkym 'S' v gradient barve loga (modra -> fialova).
        Tmave pozadi, zaobleny ctverec — vizualne sjednoceno s app theme. -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%234f8ef7'/><stop offset='100%25' stop-color='%237c5cfc'/></linearGradient></defs><rect width='64' height='64' rx='12' fill='%2316181c'/><text x='32' y='49' font-family='Montserrat,Arial,sans-serif' font-size='52' font-weight='800' fill='url(%23g)' text-anchor='middle'>S</text></svg>" />

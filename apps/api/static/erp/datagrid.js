@@ -1032,6 +1032,16 @@
       if (typeof window.agGrid === "undefined") {
         throw new Error("ErpDataGrid: agGrid not loaded (chybí <script src=...ag-grid-enterprise.min.js>)");
       }
+      // AG Grid Enterprise licence (Claude-23 3.7.2026): aplikuj klíč jednou,
+      // před vytvořením prvního gridu → zapne Enterprise bez vodoznaku (context
+      // menu, set-filtry, export). Klíč z ag_license.js (window.AG_GRID_LICENSE_KEY).
+      if (!ErpDataGrid._licenseApplied && window.agGrid.LicenseManager &&
+          window.AG_GRID_LICENSE_KEY) {
+        try {
+          window.agGrid.LicenseManager.setLicenseKey(window.AG_GRID_LICENSE_KEY);
+          ErpDataGrid._licenseApplied = true;
+        } catch (e) { /* neblokuj grid kvůli licenci */ }
+      }
       this.container = container;
       this.options = Object.assign({}, this._defaults(), options || {});
       this.gridApi = null;

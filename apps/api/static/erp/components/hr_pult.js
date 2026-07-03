@@ -41,6 +41,10 @@
       '<div class="hrp-wrap">' +
       '  <div class="hrp-badges" id="hrpBadges"><div class="hrp-empty">Načítám…</div></div>' +
       '  <div class="hrp-panel">' +
+      '    <div class="hrp-phd"><span class="hrp-pi">🏖️</span> Mimo kancelář dnes <span class="hrp-cnt" id="hrpMimoCnt"></span></div>' +
+      '    <div id="hrpMimoList"><div class="hrp-empty">Načítám…</div></div>' +
+      '  </div>' +
+      '  <div class="hrp-panel">' +
       '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
       '    <div class="hrp-grid" id="hrpGrid"></div>' +
       '  </div>' +
@@ -51,6 +55,7 @@
       '</div>';
 
     renderTiles(el.querySelector("#hrpGrid"));
+    loadMimoPanel(el);
 
     fetch(EP, { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -103,6 +108,37 @@
     return '<div class="hrp-badge' + (act ? ' click' : '') + '"' +
       (act ? ' data-act="' + act + '"' : '') + '><div class="hrp-n">' + (n == null ? "0" : n) +
       '</div><div class="hrp-l">' + esc(l) + '</div><div class="hrp-bar"></div></div>';
+  }
+
+  // Řádky seznamu Mimo kancelář (sdílené panel + modal).
+  function mimoRowsHtml(lide) {
+    return lide.map(function (p) {
+      return '<div class="hrp-mrow"><span class="hrp-mic">' + esc(p.ikona || "•") +
+        '</span><div><div class="hrp-mnm">' + esc(p.jmeno) + '</div><div class="hrp-mdv">' +
+        esc(p.duvod) + '</div></div></div>';
+    }).join("");
+  }
+
+  // Viditelný panel „Mimo kancelář dnes" přímo v přehledu (Šárka 3.7.2026 — přehled
+  // pro svolávání schůzek: kdo dnes není v kanceláři, hned na očích).
+  function loadMimoPanel(root) {
+    var list = root.querySelector("#hrpMimoList");
+    var cnt = root.querySelector("#hrpMimoCnt");
+    if (!list) return;
+    fetch("/api/v1/erp/app/hr/mimo", { credentials: "include" })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          list.innerHTML = '<div class="hrp-empty">Nemáš oprávnění nebo chyba: ' + esc(d && d.error || "") + '</div>';
+          return;
+        }
+        if (cnt) { cnt.textContent = "(" + (d.pocet || 0) + ")"; }
+        if (!d.lide || !d.lide.length) {
+          list.innerHTML = '<div class="hrp-empty">Dnes jsou všichni v kanceláři. 🎉</div>'; return;
+        }
+        list.innerHTML = mimoRowsHtml(d.lide);
+      })
+      .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
   }
 
   // Modal „Mimo kancelář dnes" — seznam jmen + důvod (Krok 1).
@@ -161,6 +197,7 @@
       '.hrp-panel{background:#fff;border:1px solid #e7eaef;border-radius:14px;padding:18px 20px;margin-bottom:16px;}' +
       '.hrp-phd{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800;color:#2b3a4a;margin:2px 0 16px;}' +
       '.hrp-pi{width:26px;height:26px;border-radius:50%;background:#f0f4ec;color:#5f9331;display:inline-flex;align-items:center;justify-content:center;font-size:14px;}' +
+      '.hrp-cnt{font-size:13px;color:#8a94a3;font-weight:600;margin-left:2px;}' +
       '.hrp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px 26px;}' +
       '.hrp-tile{display:flex;gap:13px;padding:14px 10px;border-radius:10px;align-items:flex-start;}' +
       '.hrp-tile.click{cursor:pointer;}' +

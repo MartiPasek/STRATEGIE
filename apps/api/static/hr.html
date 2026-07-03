@@ -39,6 +39,12 @@
   .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:18px}
   .panel .phd{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800;color:var(--title);margin:2px 0 18px}
   .panel .phd .pi{width:26px;height:26px;border-radius:50%;background:var(--ic-bg);color:var(--green-d);display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+  .panel .phd .cnt{font-size:13px;color:var(--muted);font-weight:600;margin-left:2px}
+  .mrow{display:flex;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid #f2f4f6}
+  .mrow:first-child{border-top:0}
+  .mrow .mic{flex:0 0 34px;height:34px;border-radius:9px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:17px}
+  .mrow .mnm{font-weight:700;color:var(--title)}
+  .mrow .mdv{font-size:12.5px;color:var(--muted)}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px 26px}
   .tile{display:flex;gap:13px;padding:14px 10px;border-radius:10px;align-items:flex-start;transition:background .12s}
   .tile .ico{flex:0 0 40px;height:40px;border-radius:10px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:19px;color:var(--green-d)}
@@ -84,6 +90,11 @@
 
 <div class="wrap">
   <div class="badges" id="badges"><div class="empty">Načítám…</div></div>
+
+  <div class="panel">
+    <div class="phd"><span class="pi">🏖️</span> Mimo kancelář dnes <span class="cnt" id="mimoCnt"></span></div>
+    <div id="mimoList"><div class="empty">Načítám…</div></div>
+  </div>
 
   <div class="panel">
     <div class="phd"><span class="pi">▦</span> Personalistika — přehled</div>
@@ -134,6 +145,7 @@ function renderTiles(){
 }
 async function load(){
   renderTiles();
+  loadMimoPanel();
   const d=await j(API+"/app/hr/dashboard");
   const bEl=document.getElementById('badges'), aEl=document.getElementById('akt');
   if(!d.ok){
@@ -152,6 +164,18 @@ async function load(){
 }
 function badge(n,l,act){return '<div class="badge'+(act?' click':'')+'"'+(act?' onclick="openMimo()"':'')+'><div class="n">'+(n==null?'0':n)+'</div><div class="l">'+esc(l)+'</div><div class="bar"></div></div>';}
 
+function mimoRows(lide){
+  return lide.map(p=>'<div class="mrow"><span class="mic">'+esc(p.ikona||'•')+'</span><div><div class="mnm">'+esc(p.jmeno)+'</div><div class="mdv">'+esc(p.duvod)+'</div></div></div>').join('');
+}
+async function loadMimoPanel(){
+  const list=document.getElementById('mimoList'), cnt=document.getElementById('mimoCnt');
+  if(!list)return;
+  const d=await j(API+"/app/hr/mimo");
+  if(!d.ok){list.innerHTML='<div class="empty">Nemáš oprávnění nebo chyba: '+esc(d.error||'')+'</div>';return;}
+  if(cnt)cnt.textContent='('+(d.pocet||0)+')';
+  if(!d.lide||!d.lide.length){list.innerHTML='<div class="empty">Dnes jsou všichni v kanceláři. 🎉</div>';return;}
+  list.innerHTML=mimoRows(d.lide);
+}
 async function openMimo(){
   const m=document.getElementById('modal'); m.classList.add('on');
   const body=document.getElementById('modalBody'); body.innerHTML='<div class="empty">Načítám…</div>';

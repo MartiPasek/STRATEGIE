@@ -4,6 +4,29 @@
 
 > **🗓️ ŠKOLNÍ AGENDA = `docs/Skola.md`** (Marti 30.6.2026): kompletní samostatná krabička rozvrhu Nerudovky, **zrcadlená s C23**. Rozvrh pro Klárku se řeší **z CMS** přes „🛠️ Chat s Claudem" (paralelně, zatímco Marti+C23 jedou EUROSOFT). Aktuální stav, Klárčiny požadavky K1–K11, pravidla i návod generování drží `docs/Skola.md` — **čti ji jako první při rozvrhu**. Na CMS přes `/dokument?key=skola`. Po každém kroku rozvrhu Skola.md aktualizuj. (Historie níže zůstává.)
 
+## Dodatek — 3. 7. 2026: 🧾 JMHZ MIMO HELIOS — generátor + ověření naostro u ČSSZ + odeslání vedení. „Mne to prijde jako perfektni."
+
+Budoucí Claude — Martia (účetní firma) měla obavu z **JMHZ** (Jednotné měsíční hlášení zaměstnavatele, povinné od 1.4.2026) a z toho, že jsme na novém Heliosu. Marti: *„chci abychom byli napřed a měli paralelní JMHZ za nás (EUROSOFT), abychom byli připraveni."* Skončilo to na: **umíme JMHZ vygenerovat a podat NEZÁVISLE na Heliosu, ověřeno přímo u ČSSZ.** Marti: *„Mne to prijde jako perfektni… Cil je odeslat toto hlaseni tento mesic mimo Helios. Nemuzeme se na Helios ted spolehnout."* Beru bez postlistů (#69–70).
+
+**Co je LIVE (vše ověřeno naostro proti ČSSZ):**
+- **Generátor JMHZ** (`outputs/gen_jmhz.py` → `docs/jmhz/pilot_JMHZ_EUROSOFT_2026-06.xml`) — 5 EC osob z `tenant.c_vyplatnice` (červen 2026; Marti: *„všechny mzdy tam jsou"* i když Helios období není uzavřené). Mirror struktury platného vzoru ShopNow_v1. **Platné vůči `jmhzPodani.xsd` 1.4.3.4.**
+- **Generátor PREZEC** (předregistrace, `gen_prezec.py` → `pilot_PREZEC_EUROSOFT.xml`) — platné vůči `PREZEC26 1.2.xsd`.
+- **`@@EPVAL <soubor> [PROD]`** (`modules/erp/api/epodani_validace.py` + dispatch router.diag_sql) — pošle XML na **oficiální validátor ČSSZ ePodaniValidace** (SOAP 1.1, **anonymní, bez registrace**; test `https://t-epodani.cssz.cz/ePodaniValidace.svc`, prod `epodani.cssz.cz`). **Ověřeno: JMHZ 5×OK, PREZEC OK (VysledekKod=OK).**
+- **Odeslán e-mail** vedení (outbox 346, sent): Komu `vedeni@eurosoft.com`, cc `it@eurosoft.com` + `fajmonova@martia2000.cz` + `Hrbek@martia2000.cz` — shrnutí připravenosti + co chybí k ostrému podání.
+
+**🔑 GOTCHY (drž — detail v paměti [[jmhz-epodani-validace]]):**
+- **REGZEC25.xsd (plná registrace, akce 1–8) ČSSZ jako samostatný XSD NEZVEŘEJŇUJE** — jen ve vzorech; validovat jde jen přes `@@EPVAL`. PREZEC schéma je matoucně v `PREZEC26_ver_1.2.zip` (sekce „Registrace zaměstnance → XSD schéma" na developers.mpsv.cz).
+- **JMHZ validátor bere placeholder ikMpsv/idPpv** (test OK). **PREZEC kontroluje RČ (mod-11)** → placeholder padne (Kód 311); nutná validní syntetická RČ (celé %11==0, ženy měsíc+50). **PREZEC: `dat` ≤ `predat` a nástup ≤8 dnů od vyplnění** (Kód 16).
+- **JMHZ validátor ověřuje JEDEN `formularOsoby` naráz** → modul loopuje osoby. **Volá to CLOUD** (můj sandbox SOAP nesmí — web-fetch je jen GET).
+- Most: @@EPVAL vrací dict → dispatch převádí na columns/rows a **vrací ok:True vždy** (jinak runner ukáže „neznámá chyba" a schová i chybové řádky). `CLAUDE_GO.txt` musí být čistě `db=pg` (druhá řádka = „neznámá chyba").
+- `bezPriznaku` povinná sekvence: identifikace → [souhrnDataZec] → pojisteni → vykonavanaPozice → prubehZamestnani → prijem → mzda; mzda musí mít **vydelek/vydelekPrumernyHod**. vypoctenaZaloha=ceil(hrubá×0,15); SP hrubá×0,248(firma)/×0,071(zam), PVPOJ jen SP.
+
+**Otevřené (pro ostré podání za tento měsíc):** finální kompletní mzdová data za měsíc (všichni EUROSOFT) + reálné IK MPSV / ID PPV (u stávajících z dřívější registrace). Pak `@@EPVAL … PROD` + odeslat přes ePortál/datovku. TODO: plné REGZEC ze vzorů, napojení generátoru na produkční mzdy, UI dlaždice „ČSSZ validace".
+
+— **Claude (id=23, ID23)** (Opus, 3. 7. 2026, po JMHZ mimo Helios — generátor + ověření naostro u ČSSZ + odeslání vedení)
+
+🧾 ✅ 🏛️ 🌳 ☕
+
 ## Dodatek — 1. 7. 2026 (večer): 📚 RAG MODUL SMĚRNIC — know-how celé firmy přes most. „To je bomba." Marti: „plný kule."
 
 Budoucí Claude — postavili jsme **RAG všech firemních směrnic** (Marti: *„RAG všech směrnic → pak přes most přístup pro Claude k celému know-how"*, *„rozjeď to na plný kule"*). LIVE a ověřené 100 %.

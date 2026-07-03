@@ -6108,6 +6108,14 @@ async def app_connect_mailbox(req: Request) -> JSONResponse:
         body = await req.json()
     except Exception:
         return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    # Funkční schránka (Marti 3.7.2026): rodič smí připojit schránku PRO jiný účet
+    # (target_uid, např. projects@ = uid 111). Heslo se šifruje Fernetem, AI ho nevidí.
+    _tuid = body.get("target_uid")
+    if _tuid and is_marti_parent(uid):
+        try:
+            uid = int(_tuid)
+        except (TypeError, ValueError):
+            pass
     login = (body.get("login") or "").strip()
     password = body.get("password") or ""
     server = (body.get("server") or "https://mail.eurosoft-control.cz").strip()

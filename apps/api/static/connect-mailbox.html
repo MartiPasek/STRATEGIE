@@ -73,6 +73,16 @@
     msg.textContent = text;
     msg.style.display = 'block';
   }
+  // Funkční schránka (Marti 3.7.2026): /connect-mailbox?target=111 → rodič připojí
+  // schránku PRO jiný účet (např. projects@). Předvyplní login/display, pošle target_uid.
+  var _mbTarget = (new URLSearchParams(location.search)).get('target');
+  if (_mbTarget) {
+    var _b = document.createElement('div');
+    _b.style.cssText = 'margin:0 0 14px;padding:11px 13px;border-radius:8px;background:#1e2a44;' +
+      'border:1px solid #35507e;color:#bcd4ff;font-size:13px;';
+    _b.textContent = '📮 Připojuješ schránku PRO funkční účet (uid ' + _mbTarget + '). Zadej její login (celý e-mail) a heslo.';
+    document.querySelector('label') && document.querySelector('label').parentNode.insertBefore(_b, document.querySelector('label'));
+  }
   btn.addEventListener('click', function () {
     var login = document.getElementById('login').value.trim();
     var password = document.getElementById('password').value;
@@ -80,10 +90,12 @@
     var server = document.getElementById('server').value.trim();
     if (!login || !password) { show('err', 'Vyplň přihlašovací jméno i heslo.'); return; }
     btn.disabled = true; btn.textContent = 'Ověřuji a ukládám…';
+    var _payload = { login: login, password: password, display: display, server: server };
+    if (_mbTarget) { _payload.target_uid = parseInt(_mbTarget, 10); }
     fetch('/api/v1/erp/app/connect-mailbox', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ login: login, password: password, display: display, server: server })
+      body: JSON.stringify(_payload)
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) { return { r: r, j: j }; });
     }).then(function (x) {

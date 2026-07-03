@@ -26707,6 +26707,91 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
     return out
 
 
+# ── Loajalita (přesčas u výroby) → složka 651 (prémie). Marti/Peta 3.7.2026 ────────────────
+#  loajalita = (celkem odpracováno − fond z úvazku) × HodSazbaPrescas × 1,25, JEN výroba (ne skup24).
+#  Celkem = tenant.att_day_summary.cas_celkem (Helios podklad, přezrcadleno @@DOCHSUM — dovolená
+#  se počítá jako 8 h a vyplňuje fond, takže „celkem − fond" = skutečný přesčas, žádné zdvojení).
+#  Sazba = poslední platná HodSazbaPrescas z EC_Mzdy_SumaMesic (.188). Strop koeficientu 1,25.
+_LOAJALITA_KOEF = 1.25
+
+
+def _mzdy_loajalita_rows(firma, rok, mesic):
+    """Vrací řádky (cislo, 651, koruny, 0) pro loajalitu výrobních (přesčas nad fond).
+    Přičítá se do složky 651 (prémie). Kancelář (skup24) loajalitu nemá."""
+    import calendar as _cal
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    fk_sm = 'EC' if str(firma).upper() in ('EC', '1') else 'ES'
+    ry = int(rok); rm = int(mesic)
+    ld = _cal.monthrange(ry, rm)[1]
+    workdays = sum(1 for x in range(1, ld + 1) if _cal.weekday(ry, rm, x) < 5)
+    s = _g()
+    try:
+        skup24 = set(int(r[0]) for r in s.execute(_t(
+            "SELECT uk.user_id FROM tenant.att_user_kategorie uk "
+            "JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
+            "WHERE k.tenant_id=2 AND k.dopichavat_fond=true AND k.aktivni=true")).fetchall())
+        emp = {}
+        for r in s.execute(_t(
+            "SELECT sm.helios_cislo, sm.user_id, COALESCE(MAX(g.uvazek_tyden_h),40) "
+            "FROM tenant.user_smlouva sm "
+            "LEFT JOIN tenant.att_employee e ON e.tenant_id=2 AND e.user_id=sm.user_id "
+            "LEFT JOIN tenant.engagement g ON g.employee_id=e.id AND g.is_current=true "
+            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND COALESCE(sm.typ_smlouvy,'')<>'osvc' "
+            "  AND sm.helios_cislo IS NOT NULL GROUP BY sm.helios_cislo, sm.user_id"),
+                {"fk": fk_sm}).fetchall():
+            try:
+                emp[int(r[0])] = (int(r[1]), float(r[2] or 40) / 5.0)
+            except Exception:
+                pass
+        celkem = {}
+        for r in s.execute(_t(
+            "SELECT cislo_zam, COALESCE(SUM(cas_celkem),0) FROM tenant.att_day_summary "
+            "WHERE tenant_id=2 AND rok=:y AND mesic=:mo GROUP BY cislo_zam"),
+                {"y": ry, "mo": rm}).fetchall():
+            try:
+                celkem[int(r[0])] = float(r[1] or 0)
+            except Exception:
+                pass
+    finally:
+        s.close()
+    if not emp:
+        return []
+    sazba = {}
+    try:
+        rr = _mssql188_query(
+            "SELECT s.CisloZam, s.HodSazbaPrescas FROM UCTO_EC.dbo.EC_Mzdy_SumaMesic s "
+            "JOIN (SELECT CisloZam, MAX(Rok*100+Mesic) mx FROM UCTO_EC.dbo.EC_Mzdy_SumaMesic "
+            "      WHERE HodSazbaPrescas>0 GROUP BY CisloZam) t "
+            "  ON t.CisloZam=s.CisloZam AND (s.Rok*100+s.Mesic)=t.mx")
+        for v in (rr.get("rows") or []):
+            try:
+                sazba[int(v[0])] = float(v[1] or 0)
+            except Exception:
+                pass
+    except Exception:
+        return []
+    out = []
+    for cislo, (user_id, daily_h) in emp.items():
+        if user_id in skup24:
+            continue
+        c = celkem.get(cislo)
+        if c is None:
+            continue
+        fond = daily_h * workdays
+        prescas = c - fond
+        if prescas <= 0.05:
+            continue
+        sz = sazba.get(cislo, 0.0)
+        if sz <= 0:
+            continue
+        loaj = int(round(prescas * sz * _LOAJALITA_KOEF))
+        if loaj > 0:
+            out.append((cislo, 651, loaj, 0))
+    return out
+
+
+
 # Generické příplatky/srážky (Marti 28.6.) — z wage_movement (mirror EC_FinPriplatkySrazkyDefinice)
 # do mzdy přes vlastní Helios CisloMS. Autoritativní mapa = EC číselník (MzdovaSlozka+ReakceMzdy),
 # zrcadlená v wage_system_mapping. VYJMA HO/OBL/korekce (typy 10/30/40 = ReakceMzdy False → benefit systém).
@@ -27036,6 +27121,10 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
             pass
         try:
             prows = prows + _mzdy_priplatky_rows(firma, rok, mesic)
+        except Exception:
+            pass
+        try:
+            prows = prows + _mzdy_loajalita_rows(firma, rok, mesic)
         except Exception:
             pass
         # Absence (OČR/nemoc) → docházková MS 201/200 do předzpracování. Marti 28.6.: nechat

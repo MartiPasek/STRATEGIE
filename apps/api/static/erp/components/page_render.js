@@ -260,6 +260,22 @@
         console.warn('[page_render] Obchodnik pult band failed (grid jede dál):', _pultErr);
       }
 
+      // Band „HR přehled" (Pinya styl) MÍSTO gridu pro jádro hr.prehled (core 137).
+      // Šárka 3.7.2026 — vzor obchodníkova pultu. HR pult sám skryje prázdný grid.
+      // Gated na coreId → jiných přehledů se NETÝKÁ. Fail-safe (chyba jen zaloguje).
+      try {
+        if (String(coreId) === '137'
+            && window.HrPult && typeof window.HrPult.mount === 'function'
+            && !document.getElementById('hr-pult')) {
+          var _hrEl = document.createElement('div');
+          _hrEl.id = 'hr-pult';
+          mainContent.insertBefore(_hrEl, gridHost);
+          window.HrPult.mount(_hrEl);
+        }
+      } catch (_hrErr) {
+        console.warn('[page_render] HR pult band failed (grid jede dál):', _hrErr);
+      }
+
       // No data_source → dashed placeholder
       if (!rootCd.data_source_code) {
         gridHost.style.border = '1px dashed #3a4754';

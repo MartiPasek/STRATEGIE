@@ -32765,6 +32765,32 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": str((r.get("error") if isinstance(r, dict) else r))[:200]})
             except Exception as exc:
                 return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
+        # @@FILES RMDIR <slozka_abs> [recursive]  — smaž složku (default prázdnou; 'recursive' = i obsah)
+        if op == "RMDIR":
+            _arg = (parts[2] if len(parts) > 2 else "").strip()
+            _rec = False
+            if _arg.lower().endswith(" recursive"):
+                _rec = True
+                _arg = _arg[:-len(" recursive")].strip()
+            _arg = _arg.splitlines()[0].strip() if _arg else ""
+            if not _arg:
+                return JSONResponse({"ok": False, "error": "@@FILES RMDIR <slozka_abs> [recursive]"})
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_dir_delete",
+                                         {"namespace": "ro", "base_override": _arg.rstrip("\\/"), "recursive": _rec},
+                                         conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict) and r.get("ok"):
+                    return JSONResponse({"ok": True, "columns": ["klic", "hodnota"],
+                                         "rows": [[k, str(v)] for k, v in r.items() if k != "ok"],
+                                         "count": len(r) - 1})
+                return JSONResponse({"ok": False, "error": str((r.get("error") if isinstance(r, dict) else r))[:200]})
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:160])})
         # @@FILES COPYBATCH \n <src1> >> <dst1> \n <src2> >> <dst2> ...  — dávková kopie RW→RO
         if op == "COPYBATCH":
             import base64 as _b64cb

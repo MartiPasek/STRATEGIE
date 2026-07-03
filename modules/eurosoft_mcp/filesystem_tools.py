@@ -641,6 +641,70 @@ async def eurosoft_fs_reorg(
     return {"ok": True, "moved": moved, "skipped": skipped, "errors": errs, "detail": rows}
 
 
+def _resolve_writable_base(namespace: str, base: str, base_override: str):
+    """Vrátí (root, err) pro zápisovou operaci. base_override pod RO/RW kořenem
+    přemapuje na namespace (RO zápis jinak read-only), jinak base (relativní) přes
+    namespace. Sdílené fs_reorg + dir_delete."""
+    if base and not base_override:
+        return _resolve_path(namespace, base)
+    if base_override:
+        try:
+            _bo = Path(base_override).resolve()
+            for _ns in ("ro", "rw"):
+                _nb = _namespace_bases().get(_resolve_namespace(_ns) or _ns)
+                if not _nb:
+                    continue
+                _nbp = Path(_nb).resolve()
+                if _bo == _nbp or _under(_bo, _nbp):
+                    _rel = "" if _bo == _nbp else str(_bo.relative_to(_nbp))
+                    return _resolve_path(_ns, _rel)
+        except Exception as _me:
+            return None, "mapování báze selhalo: %s" % _me
+        return _resolve_path_override(base_override, "", True)
+    return None, "Chybí base nebo base_override."
+
+
+async def eurosoft_dir_delete(
+    namespace: str = "ro",
+    path: str = "",
+    base_override: str = "",
+    recursive: bool = False,
+    **_extra: Any,
+) -> dict[str, Any]:
+    """Smaže složku. Default recursive=False → jen PRÁZDNOU (os.rmdir, bezpečné,
+    nezničí data). recursive=True → celý strom (shutil.rmtree). Bezpečnostní pojistky:
+    cíl musí ležet pod povoleným kořenem, NESMÍ být samotný kořen namespace."""
+    root, err = _resolve_writable_base(namespace, path, base_override)
+    if err:
+        return {"ok": False, "error": "cesta: " + err}
+    # zákaz mazání samotného kořene (base musí být PODsložka)
+    for _ns in ("ro", "rw"):
+        _nb = _namespace_bases().get(_ns)
+        if _nb:
+            try:
+                if root.resolve() == Path(_nb).resolve():
+                    return {"ok": False, "error": "Nelze smazat kořen namespace '%s'." % _ns}
+            except Exception:
+                pass
+    if not root.exists():
+        return {"ok": True, "deleted": False, "note": "Neexistuje (už smazáno): %s" % (path or base_override)}
+    if not root.is_dir():
+        return {"ok": False, "error": "Není složka: %s" % str(root)}
+    try:
+        if recursive:
+            n = sum(len(f) for _r, _d, f in os.walk(root))
+            shutil.rmtree(str(root))
+            return {"ok": True, "deleted": True, "recursive": True, "smazano_souboru": n, "cesta": str(root)}
+        # jen prázdná
+        if any(root.iterdir()):
+            return {"ok": False, "error": "Složka není prázdná (recursive=False). Použij recursive=True nebo ji nejdřív vyprázdni."}
+        os.rmdir(str(root))
+        return {"ok": True, "deleted": True, "recursive": False, "cesta": str(root)}
+    except Exception as exc:
+        logger.exception("eurosoft_dir_delete failed")
+        return {"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}
+
+
 FILESYSTEM_TOOL_SPECS = [
     {
         "name": "eurosoft_file_list",
@@ -824,6 +888,19 @@ FILESYSTEM_TOOL_SPECS.append({
     "inputSchema": {"type": "object", "properties": _COPY_PROPS,
                     "required": ["dst_path"]},
 })
+FILESYSTEM_TOOL_SPECS.append({
+    "name": "eurosoft_dir_delete",
+    "description": (
+        "Smaže složku pod povoleným kořenem. Default recursive=false → jen PRÁZDNOU "
+        "(bezpečné, nezničí data). recursive=true → celý strom. Kořen namespace nelze smazat."
+    ),
+    "inputSchema": {"type": "object", "properties": {
+        "namespace": {"type": "string", "description": "ro/rw (default ro)."},
+        "path": {"type": "string", "description": "Podsložka relativní k namespace."},
+        "base_override": {"type": "string", "description": "Absolutní cesta složky (pod povoleným kořenem)."},
+        "recursive": {"type": "boolean", "description": "true = smaž i obsah (default false = jen prázdnou)."},
+    }},
+})
 
 
 FILESYSTEM_TOOL_HANDLERS = {
@@ -836,4 +913,5 @@ FILESYSTEM_TOOL_HANDLERS = {
     "eurosoft_file_move": eurosoft_file_move,
     "eurosoft_dir_copy": eurosoft_dir_copy,
     "eurosoft_fs_reorg": eurosoft_fs_reorg,
+    "eurosoft_dir_delete": eurosoft_dir_delete,
 }

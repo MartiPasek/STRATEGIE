@@ -46634,8 +46634,12 @@ def data_source_list(req: Request) -> JSONResponse:
 # ---------------------------------------------------------------
 
 
-def _build_system_root_from_db():
+def _build_system_root_from_db(uid=None, is_parent=True):
     """Phase 38.4 Krok 6: DB-driven system tree.
+
+    Per-user viditelnost (Marti-AI návrh 3.7.2026): rodič vidí parent_only/NULL
+    uzly jako dřív; NAVÍC uživatel vidí uzly, kde je v `visibility_user_ids[]`,
+    + KASKÁDU PŘEDKŮ (rekurzivní CTE zdola nahoru) → uvidí celou svou větev.
 
     Načte aktivní rows z fw.menu_node (visibility_scope='parent_only'),
     sestaví nested dict structure kompatibilní s frontend renderTreeNodes
@@ -46664,6 +46668,20 @@ def _build_system_root_from_db():
         # NULL = visible v System tree (System tree je parent-only audience),
         # 'parent_only' explicit = visible.
         sql = _sql_text_st("""
+            WITH RECURSIVE base AS (
+                SELECT id, parent_id FROM fw.menu_node
+                WHERE status = 'active' AND (
+                    ( :is_parent AND (visibility_scope = 'parent_only' OR visibility_scope IS NULL) )
+                    OR ( :uid = ANY(COALESCE(visibility_user_ids, ARRAY[]::integer[])) )
+                )
+            ),
+            vis AS (
+                SELECT id, parent_id FROM base
+                UNION
+                SELECT n.id, n.parent_id FROM fw.menu_node n
+                JOIN vis ON vis.parent_id = n.id
+                WHERE n.status = 'active'
+            )
             SELECT n.id, n.parent_id, n.label, n.sort_order,
                    n.visibility_scope, n.status,
                    n.is_immutable, n.core_id, c.code AS core_code,
@@ -46671,11 +46689,11 @@ def _build_system_root_from_db():
             FROM fw.menu_node n
             LEFT JOIN fw.core c ON c.id = n.core_id
             LEFT JOIN fw.hw_registry hw ON hw.code = c.code AND hw.is_active = TRUE
-            WHERE n.status = 'active'
-              AND (n.visibility_scope = 'parent_only' OR n.visibility_scope IS NULL)
+            WHERE n.id IN (SELECT id FROM vis)
             ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.label
         """)
-        result = ds.execute(sql)
+        result = ds.execute(sql, {"is_parent": bool(is_parent),
+                                  "uid": (int(uid) if uid is not None else -1)})
         rows = [dict(r._mapping) for r in result]
     except Exception:
         import logging
@@ -46855,7 +46873,7 @@ def system_tree_json(req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_erp_member(uid)
 
-    db_roots = _build_system_root_from_db()
+    db_roots = _build_system_root_from_db(uid=uid, is_parent=is_marti_parent(uid))
 
     tree: list = []
     if isinstance(db_roots, list):

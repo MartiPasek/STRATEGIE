@@ -33658,9 +33658,22 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   @@SMSYNC                    → mirror EC_OrgSmernice → tenant.kb_smernice (meta+Popis)
     #   @@SMFILES [limit] [cislo]   → ingest příloh ze share → tenant.kb_smernice_soubor (+text)
     #   @@KB <dotaz> [| level]      → fulltext hledání ve směrnicích + přílohách (RAG know-how)
-    if sql.upper().startswith("@@SM") or sql.upper().startswith("@@KB") or sql.upper().startswith("@@DS"):
+    if sql.upper().startswith("@@SM") or sql.upper().startswith("@@KB") or sql.upper().startswith("@@DS") or sql.upper().startswith("@@BOZPRAG"):
         import traceback as _tbk
         try:
+            if sql.upper().startswith("@@BOZPRAG"):
+                # @@BOZPRAG [limit] [BOZP|PO] [redo] → ingest bozp_dokument z RO do RAG
+                from modules.erp.api.smernice_rag import ingest_bozp_rag as _bpr
+                _p = sql.split()
+                _lim = 20; _ob = None; _redo = False
+                for _tok in _p[1:]:
+                    if _tok.isdigit():
+                        _lim = int(_tok)
+                    elif _tok.upper() in ("BOZP", "PO"):
+                        _ob = _tok.upper()
+                    elif _tok.lower() == "redo":
+                        _redo = True
+                return JSONResponse(_bpr(_lim, _ob, _redo))
             if sql.upper().startswith("@@SMSYNC"):
                 from modules.erp.api.smernice_rag import sync_smernice as _smsync
                 return JSONResponse(_smsync())

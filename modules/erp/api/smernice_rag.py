@@ -730,3 +730,102 @@ def kb_search(query: str, level: int = 2, limit: int = 8, ai_only: bool = False)
                 "rows": out, "count": len(out)}
     finally:
         sd.close()
+
+
+# ── @@BOZPRAG — ingest BOZP/PO dokumentů z RO do RAG (TISAX evidence) ────
+# Marti-AI RO share: D:\Data\ZZ_Marti-AI RO ; bozp_dokument.soubor_ro je relativní
+# (např. 'BOZP_PO/PO/02_Pozarni_rad/...'). Čte přes MCP file_read, extrahuje text
+# (_extract_text) a registruje jako kb_smernice (ec_id = -(2 000 000 + doc.id),
+# typ = oblast BOZP/PO, pristupnost 'Vedoucí' → default @@KB (level 2) je najde).
+_BOZP_RO_BASE = "D:\\Data\\ZZ_Marti-AI RO"
+
+
+def _fs_read_ro(path: str) -> dict:
+    mcp = _mcp()
+    raw = mcp.call_tool_sync(full_name="eurosoft_eurosoft_file_read",
+                             arguments={"user_namespace": "ro", "base_override": _BOZP_RO_BASE,
+                                        "path": path, "encoding": "base64"},
+                             conversation_id=None)
+    return _parse(raw)
+
+
+def ingest_bozp_rag(limit: int = 20, only_oblast: str | None = None, redo: bool = False) -> dict:
+    """Ingest BOZP/PO dokumentů (tenant.bozp_dokument.soubor_ro) do sdílené RAG.
+    Dávkuje přes NOT EXISTS proti kb_smernice (ec_id syntetický). redo=True →
+    přemaže i už zpracované (limit platí). Volej po dávkách ~15."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    import hashlib as _h
+    import base64 as _b64
+    sd = get_data_session()
+    okc = errc = 0
+    rows_out: list = []
+    try:
+        q = ("SELECT d.id, d.oblast, COALESCE(d.kategorie,''), d.nazev, d.soubor_ro, "
+             "COALESCE(d.verze,''), to_char(d.datum_verze,'DD.MM.YYYY'), COALESCE(d.tisax_ref,'') "
+             "FROM tenant.bozp_dokument d "
+             "WHERE d.soubor_ro IS NOT NULL AND d.soubor_ro <> '' ")
+        params: dict = {"lim": limit}
+        if only_oblast:
+            q += "AND d.oblast = :ob "
+            params["ob"] = only_oblast
+        if not redo:
+            q += "AND NOT EXISTS (SELECT 1 FROM tenant.kb_smernice s WHERE s.ec_id = -(2000000 + d.id)) "
+        q += "ORDER BY d.oblast, d.kategorie, d.id LIMIT :lim"
+        docs = sd.execute(_t(q), params).all()
+        for d in docs:
+            did, oblast, kat, nazev, cesta, verze, dat, tref = d
+            ec_id = -(2000000 + int(did))
+            fname = cesta.replace("\\", "/").split("/")[-1]
+            try:
+                rd = _fs_read_ro(cesta)
+                if not rd.get("ok"):
+                    errc += 1
+                    rows_out.append([nazev, "čtení selhalo: " + str(rd.get("error"))[:60]])
+                    continue
+                data = _b64.b64decode(rd.get("content") or "")
+                txt, ok, err = _extract_text(fname, data)
+                txt = (txt or "").replace("\x00", "")
+                popis = "%s / %s — %s%s%s" % (
+                    oblast, kat or "-", nazev,
+                    (" (verze %s)" % verze) if verze else "",
+                    (", %s" % dat) if dat else "")
+                sd.execute(_t("DELETE FROM tenant.kb_smernice_soubor WHERE ec_smernice_id=:e"), {"e": ec_id})
+                sd.execute(_t("DELETE FROM tenant.kb_smernice WHERE ec_id=:e"), {"e": ec_id})
+                sd.execute(_t(
+                    "INSERT INTO tenant.kb_smernice (ec_id, nazev, typ_text, kategorie, popis_text, "
+                    "status_text, archiv, pristupnost_text, autor, files_synced_at) VALUES "
+                    "(:e,:n,:typ,:kat,:p,'Aktivní',0,'Vedoucí',:aut,now())"),
+                    {"e": ec_id, "n": nazev, "typ": oblast, "kat": oblast, "p": popis,
+                     "aut": "BOZP/PO TISAX (%s)" % (tref or "Míša")})
+                sd.execute(_t(
+                    "INSERT INTO tenant.kb_smernice_soubor (ec_smernice_id, nazev_souboru, pripona, "
+                    "cesta, velikost, text_extract, extract_ok, extract_err, hash_sha1, extracted_at) VALUES "
+                    "(:e,:n,:pr,:cesta,:vel,:txt,:ok,:err,:h,now())"),
+                    {"e": ec_id, "n": fname,
+                     "pr": (fname.rsplit(".", 1)[-1].lower()[:8] if "." in fname else ""),
+                     "cesta": cesta, "vel": len(data),
+                     "txt": (txt[:400000] if txt else None), "ok": ok,
+                     "err": ((err or None) if not ok else None),
+                     "h": _h.sha1(data).hexdigest() if data else None})
+                sd.commit()
+                okc += 1
+                rows_out.append([nazev, "OK — %d zn.%s" % (len(txt), "" if ok else " (bez textu)")])
+            except Exception as _e:
+                sd.rollback()
+                errc += 1
+                rows_out.append([nazev, "CHYBA: " + str(_e)[:70]])
+        rem = sd.execute(_t(
+            "SELECT count(*) FROM tenant.bozp_dokument d "
+            "WHERE d.soubor_ro IS NOT NULL AND d.soubor_ro <> '' "
+            "AND NOT EXISTS (SELECT 1 FROM tenant.kb_smernice s WHERE s.ec_id = -(2000000 + d.id))"
+        )).scalar() or 0
+        tot = sd.execute(_t(
+            "SELECT count(*) FROM tenant.kb_smernice WHERE typ_text IN ('BOZP','PO')"
+        )).scalar() or 0
+        rows_out += [["── zpracováno", str(okc + errc)], ["── OK", str(okc)],
+                     ["── chyb", str(errc)], ["── zbývá", str(rem)],
+                     ["── v RAG (BOZP+PO)", str(tot)]]
+        return {"ok": True, "columns": ["dokument", "stav"], "rows": rows_out, "count": len(rows_out)}
+    finally:
+        sd.close()

@@ -121,7 +121,7 @@ def sync_folder(uid: int, slozka: str, limit: int = 300,
                 hasatt = bool(getattr(m, "has_attachments", False))
                 unread = (getattr(m, "is_read", True) is False)
                 ex = s.execute(text(
-                    "SELECT id FROM tenant.mail_message "
+                    "SELECT id, prilohy_doc_ids FROM tenant.mail_message "
                     "WHERE tenant_id=:t AND user_id=:u AND ews_item_id=:e"),
                     {"t": tenant_id, "u": uid, "e": iid}).fetchone()
                 if ex is None:
@@ -138,6 +138,12 @@ def sync_folder(uid: int, slozka: str, limit: int = 300,
                          "un": unread})
                     nnew += 1
                 else:
+                    # backfill příloh: existující zpráva má přílohu, ale ještě nestaženou
+                    if with_attachments and hasatt and not ex[1]:
+                        _bdoc = _save_attachments(m, uid, tenant_id)
+                        if _bdoc:
+                            s.execute(text("UPDATE tenant.mail_message SET prilohy_doc_ids=CAST(:pd AS jsonb) "
+                                           "WHERE id=:i"), {"pd": json.dumps(_bdoc), "i": ex[0]})
                     s.execute(text("UPDATE tenant.mail_message SET ews_changekey=:ck, neprectene=:un, "
                                    "synced_at=now() WHERE id=:i"), {"ck": ck, "un": unread, "i": ex[0]})
                 n += 1

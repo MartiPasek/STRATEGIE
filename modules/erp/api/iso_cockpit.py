@@ -847,6 +847,26 @@ def export_tisax_to_ro(limit: int = 12, offset: int = 0) -> dict:
     okc = errc = 0
     rows_out: list = []
     try:
+        if limit <= 0:
+            # DIAG režim: kde reálně leží soubory
+            diag = [["_DOC_STORE_ROOT", _DOC_STORE_ROOT],
+                    ["root_exists", str(os.path.isdir(root))]]
+            sub2 = os.path.join(root, "2")
+            diag.append(["sub_2_exists", str(os.path.isdir(sub2))])
+            try:
+                listing = os.listdir(sub2)[:8] if os.path.isdir(sub2) else []
+                diag.append(["sub_2_sample", ", ".join(listing)])
+            except Exception as _le:
+                diag.append(["sub_2_sample", "err: %s" % _le])
+            one = sd.execute(_t2("SELECT storage_path FROM public.documents WHERE project_id=5 "
+                                 "AND original_filename NOT LIKE '%~$%' ORDER BY name LIMIT 1")).scalar()
+            diag.append(["vzor_storage_path", str(one)])
+            diag.append(["vzor_isfile", str(os.path.isfile(os.path.normpath(one)) if one else False)])
+            # zkus najít soubor i jinde (běžné kořeny)
+            for alt in (r"D:\Data\STRATEGIE\Dokumenty", r"C:\Data\STRATEGIE\Dokumenty",
+                        r"C:\STRATEGIE\Dokumenty", r"D:\STRATEGIE\Dokumenty"):
+                diag.append(["alt " + alt, str(os.path.isdir(alt))])
+            return {"ok": True, "columns": ["klic", "hodnota"], "rows": diag, "count": len(diag)}
         total = sd.execute(_t2(
             "SELECT count(*) FROM public.documents WHERE project_id=5 "
             "AND original_filename NOT LIKE '%~$%' AND COALESCE(file_size_bytes,0) >= 200"

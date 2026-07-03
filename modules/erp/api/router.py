@@ -7814,6 +7814,204 @@ async def app_hr_jubilea(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Gratulace a ocenění (Krok 2, Šárka 3.7.2026) ─────────────────────────────
+_BDAY_HTML = (
+    '<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#eef0f4;padding:24px 0;font-family:Verdana,Segoe UI,Arial,sans-serif;">'
+    '<tr><td align="center"><table role="presentation" width="640" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;">'
+    '<tr><td style="padding:20px 20px 0;"><img src="cid:narozeniny_banner" width="600" alt="Vše nejlepší" style="display:block;width:100%%;max-width:600px;border-radius:10px;"></td></tr>'
+    '<tr><td style="padding:26px 40px 34px;color:#33404d;">'
+    '<p style="margin:0 0 18px;font-size:19px;font-weight:bold;color:#23145F;">%(osloveni)s %(jmeno)s,</p>'
+    '<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#5a6069;">přejeme Ti k narozeninám hodně zdraví, štěstí a pohody &mdash; pracovní i osobní.</p>'
+    '<p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#5a6069;">Děkujeme, že jsi součástí týmu EUROSOFT. Vážíme si Tě a jsme rádi, že Tě máme.</p>'
+    '<p style="margin:0 0 22px;font-size:16px;font-weight:bold;color:#C78A00;">Užij si svůj den! 🎉</p>'
+    '<hr style="border:none;border-top:1px solid #ece8de;margin:0 0 16px;">'
+    '<p style="margin:0;font-size:14px;font-weight:bold;color:#2b3a4a;">Za celý tým EUROSOFT</p>'
+    '</td></tr></table></td></tr></table>'
+)
+
+
+def _osloveni(jmeno):
+    parts = (jmeno or "").split()
+    fem = any(p.lower().endswith(("ová", "á")) for p in parts)
+    return "Milá" if fem else "Milý"
+
+
+def _bday_banner_path():
+    from pathlib import Path as _P
+    return str(_P(__file__).resolve().parents[3] / "apps" / "api" / "static" / "brand" / "narozeniny_banner.png")
+
+
+def _bday_html(jmeno):
+    je = (jmeno or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return _BDAY_HTML % {"osloveni": _osloveni(jmeno), "jmeno": je}
+
+
+@api_router.get("/app/hr/gratulace")
+async def app_hr_gratulace(req: Request) -> JSONResponse:
+    """Přehled gratulací a ocenění: nadcházející narozeniny (přání e-mailem) + pracovní
+    výročí (certifikát), se stavem (pending/sent/skipped) a auditem. HR-gated."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    import datetime as _dt
+    try:
+        days = int(req.query_params.get("days") or 30)
+    except Exception:
+        days = 30
+    days = max(1, min(days, 366))
+    _MES = ["", "ledna", "února", "března", "dubna", "května", "června", "července", "srpna", "září", "října", "listopadu", "prosince"]
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "WITH eng AS (SELECT ae.user_id, min(e.smlouva_od) smlouva_od"
+            "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id"
+            "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL GROUP BY ae.user_id),"
+            " nm AS (SELECT user_id, max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
+            "  max(birth_date) birth FROM tenant.hr_person WHERE tenant_id=2 AND is_current GROUP BY user_id)"
+            " SELECT n.user_id, n.jmeno, n.birth, eng.smlouva_od FROM nm n LEFT JOIN eng ON eng.user_id=n.user_id"
+            " WHERE n.birth IS NOT NULL OR eng.smlouva_od IS NOT NULL")).fetchall()
+        today = _dt.date.today()
+
+        def _next_occ(d):
+            if not d:
+                return None
+            y = today.year
+            try:
+                occ = d.replace(year=y)
+            except ValueError:
+                occ = _dt.date(y, 2, 28)
+            if occ < today:
+                try:
+                    occ = d.replace(year=y + 1)
+                except ValueError:
+                    occ = _dt.date(y + 1, 2, 28)
+            return occ
+
+        def _cz(d):
+            return "%d. %s" % (d.day, _MES[d.month]) if d else ""
+
+        WORK_MAJOR = {10, 20}; WORK_MINOR = {5, 15, 25, 30, 35, 40}
+        BDAY_MAJOR = {50, 60}; BDAY_MINOR = {30, 40, 70, 80}
+        items = []
+        for user_id, jmeno, birth, smlouva_od in rows:
+            jm = (jmeno or "").strip() or ("ID " + str(user_id))
+            occ = _next_occ(birth)
+            if occ is not None and 0 <= (occ - today).days <= days:
+                age = occ.year - birth.year
+                if age >= 1:
+                    tier = "major" if age in BDAY_MAJOR else ("minor" if age in BDAY_MINOR else "normal")
+                    items.append({"user_id": user_id, "jmeno": jm, "kind": "narozeniny", "ikona": "🎂",
+                                  "datum": occ.isoformat(), "datum_cz": _cz(occ), "za_dni": (occ - today).days,
+                                  "roky": age, "tier": tier, "popis": "%d. narozeniny" % age})
+            occ2 = _next_occ(smlouva_od)
+            if occ2 is not None and 0 <= (occ2 - today).days <= days:
+                yrs = occ2.year - smlouva_od.year
+                if yrs >= 1:
+                    tier = "major" if yrs in WORK_MAJOR else ("minor" if yrs in WORK_MINOR else "normal")
+                    items.append({"user_id": user_id, "jmeno": jm, "kind": "vyroci",
+                                  "ikona": "🏆" if tier == "major" else ("⭐" if tier == "minor" else "🎉"),
+                                  "datum": occ2.isoformat(), "datum_cz": _cz(occ2), "za_dni": (occ2 - today).days,
+                                  "roky": yrs, "tier": tier, "popis": "%d let ve firmě" % yrs})
+        st = {}
+        try:
+            for r in s.execute(_t("SELECT typ, user_id, event_date, stav, rozhodnuto_at, poznamka"
+                                  " FROM tenant.hr_gratulace WHERE tenant_id=2")).fetchall():
+                st[(r[0], int(r[1]), r[2].isoformat())] = {
+                    "stav": r[3], "rozhodnuto_at": r[4].isoformat() if r[4] else None, "poznamka": r[5]}
+        except Exception:
+            pass
+        for it in items:
+            k = (it["kind"], int(it["user_id"]), it["datum"])
+            it["stav"] = st.get(k, {}).get("stav", "pending")
+            it["rozhodnuto_at"] = st.get(k, {}).get("rozhodnuto_at")
+            it["poznamka"] = st.get(k, {}).get("poznamka")
+        items.sort(key=lambda x: (x["za_dni"], 0 if x["tier"] == "major" else (1 if x["tier"] == "minor" else 2)))
+        return JSONResponse({"ok": True, "polozky": items, "pocet": len(items)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/gratulace/rozhodni")
+async def app_hr_gratulace_rozhodni(req: Request) -> JSONResponse:
+    """Odklepnutí gratulace: 'preview' (HTML náhled), 'send' (narozeniny → přání
+    e-mailem), 'skip' (nezasílat, např. výpovědní doba), 'reset'. HR-gated + audit."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    akce = str(body.get("akce") or "").strip()
+    typ = str(body.get("typ") or "").strip()
+    try:
+        target = int(body.get("user_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad_user"}, status_code=400)
+    jmeno = str(body.get("jmeno") or "").strip()
+    event_date = str(body.get("event_date") or "")[:10]
+    try:
+        roky = int(body.get("roky") or 0)
+    except Exception:
+        roky = 0
+    poznamka = str(body.get("poznamka") or "").strip()[:300] or None
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if akce == "preview":
+            if typ != "narozeniny":
+                return JSONResponse({"ok": True, "html": "<div style='padding:24px;font-family:sans-serif;color:#33404d'>Certifikát k pracovnímu výročí se připraví po dodání prázdných předloh od grafičky.</div>"})
+            return JSONResponse({"ok": True, "html": _bday_html(jmeno)})
+        if akce == "skip":
+            s.execute(_t(
+                "INSERT INTO tenant.hr_gratulace (tenant_id,typ,user_id,jmeno,event_date,roky,stav,rozhodl_uid,rozhodnuto_at,poznamka)"
+                " VALUES (2,:typ,:u,:jm,:d,:r,'skipped',:by,now(),:pozn)"
+                " ON CONFLICT (tenant_id,typ,user_id,event_date) DO UPDATE SET stav='skipped',rozhodl_uid=:by,rozhodnuto_at=now(),poznamka=:pozn"),
+                {"typ": typ, "u": target, "jm": jmeno[:200], "d": event_date, "r": roky, "by": uid, "pozn": poznamka})
+            s.commit()
+            return JSONResponse({"ok": True, "stav": "skipped"})
+        if akce == "reset":
+            s.execute(_t("DELETE FROM tenant.hr_gratulace WHERE tenant_id=2 AND typ=:typ AND user_id=:u AND event_date=:d"),
+                      {"typ": typ, "u": target, "d": event_date})
+            s.commit()
+            return JSONResponse({"ok": True, "stav": "pending"})
+        if akce == "send":
+            if typ != "narozeniny":
+                return JSONResponse({"ok": False, "error": "certifikat_brzy"}, status_code=400)
+            em = _self_owner_email(s, target)
+            if not em:
+                return JSONResponse({"ok": False, "error": "no_email"}, status_code=400)
+            from modules.notifications.application.email_service import send_email_or_raise
+            send_email_or_raise(to=em, subject="🎂 Všechno nejlepší k narozeninám!",
+                                body=_bday_html(jmeno), persona_id=1, from_identity="persona",
+                                html_body=True, inline_images=[(_bday_banner_path(), "narozeniny_banner")])
+            s.execute(_t(
+                "INSERT INTO tenant.hr_gratulace (tenant_id,typ,user_id,jmeno,event_date,roky,stav,kanal,rozhodl_uid,rozhodnuto_at,poznamka)"
+                " VALUES (2,:typ,:u,:jm,:d,:r,'sent','email',:by,now(),:pozn)"
+                " ON CONFLICT (tenant_id,typ,user_id,event_date) DO UPDATE SET stav='sent',kanal='email',rozhodl_uid=:by,rozhodnuto_at=now(),poznamka=:pozn"),
+                {"typ": typ, "u": target, "jm": jmeno[:200], "d": event_date, "r": roky, "by": uid, "pozn": poznamka})
+            s.commit()
+            return JSONResponse({"ok": True, "stav": "sent", "to": em})
+        return JSONResponse({"ok": False, "error": "bad_action"}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _recruit_scope(s, uid: int):
     """Marti-AI Q2 (13.6.): rodiče + HR skupina vidí vše ('all'); recruiter jen
     svá výběrová řízení ('own'); ostatní nic (None)."""

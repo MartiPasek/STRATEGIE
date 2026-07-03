@@ -146,36 +146,88 @@
       .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
   }
 
-  // Panel „Narozeniny a výročí" (Krok 2, Šárka 3.7.2026) — nadcházející jubilea,
-  // významná (10/20 let) zvýrazněná 🏆, ostatní kulatá ⭐.
-  function jubRowHtml(j) {
+  // Panel „Narozeniny a výročí" = přehled gratulací a ocenění (Krok 2, Šárka 3.7.2026).
+  // Významná jubilea (10/20) zvýrazněná; narozeniny lze odklepnout/přeskočit (výpovědní doba…).
+  var _grat = [];
+  function _stavChip(st) {
+    if (st === "sent") return '<span class="hrp-chip sent">✓ odesláno</span>';
+    if (st === "skipped") return '<span class="hrp-chip skip">přeskočeno</span>';
+    return "";
+  }
+  function jubRowHtml(j, idx) {
     var badge = "";
     if (j.tier && j.tier !== "normal") {
       var bt = (j.kind === "vyroci") ? (j.roky + " LET") : (j.roky + ". NAR.");
       badge = '<span class="hrp-jbadge">' + esc(bt) + '</span>';
     }
     var za = (j.za_dni === 0) ? "dnes" : (j.za_dni === 1 ? "zítra" : ("za " + j.za_dni + " dní"));
+    var st = j.stav || "pending";
+    var act = "";
+    if (j.kind === "narozeniny") {
+      act += '<button class="hrp-abtn" data-a="preview" data-i="' + idx + '">Náhled</button>';
+      if (st !== "sent") act += '<button class="hrp-abtn prim" data-a="send" data-i="' + idx + '">✉ Odeslat</button>';
+      if (st === "pending") act += '<button class="hrp-abtn" data-a="skip" data-i="' + idx + '">Přeskočit</button>';
+      else act += '<button class="hrp-abtn ghost" data-a="reset" data-i="' + idx + '" title="Vrátit">↺</button>';
+    } else {
+      act += '<span class="hrp-soon">certifikát brzy</span>';
+      if (st === "pending") act += '<button class="hrp-abtn" data-a="skip" data-i="' + idx + '">Přeskočit</button>';
+      else act += '<button class="hrp-abtn ghost" data-a="reset" data-i="' + idx + '" title="Vrátit">↺</button>';
+    }
     return '<div class="hrp-jrow hrp-j-' + esc(j.tier || "normal") + '">' +
       '<span class="hrp-jic">' + esc(j.ikona || "•") + '</span>' +
-      '<div class="hrp-jbd"><div class="hrp-jnm">' + esc(j.jmeno) + badge + '</div>' +
-      '<div class="hrp-jsub">' + esc(j.popis) + ' · ' + esc(j.datum_cz) + ' · ' + za + '</div></div></div>';
+      '<div class="hrp-jbd"><div class="hrp-jnm">' + esc(j.jmeno) + badge + ' ' + _stavChip(st) + '</div>' +
+      '<div class="hrp-jsub">' + esc(j.popis) + ' · ' + esc(j.datum_cz) + ' · ' + za + '</div></div>' +
+      '<div class="hrp-jact">' + act + '</div></div>';
+  }
+  function _gratPost(akce, j) {
+    return fetch("/api/v1/erp/app/hr/gratulace/rozhodni", {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ akce: akce, typ: j.kind, user_id: j.user_id, jmeno: j.jmeno, event_date: j.datum, roky: j.roky })
+    }).then(function (r) { return r.json().catch(function () { return {}; }); });
+  }
+  function _gratAction(a, i, root) {
+    var j = _grat[i]; if (!j) return;
+    if (a === "preview") {
+      _gratPost("preview", j).then(function (d) {
+        if (d && d.ok) {
+          var m = ensureModal(); m.classList.add("on");
+          m.querySelector("#hrpModalTitle").textContent = "Náhled přání — " + j.jmeno;
+          m.querySelector("#hrpModalBody").innerHTML = d.html;
+        }
+      });
+      return;
+    }
+    if (a === "send" && !window.confirm("Odeslat narozeninové přání: " + j.jmeno + "?")) return;
+    if (a === "skip" && !window.confirm("Přeskočit (neposílat) " + j.jmeno + "?")) return;
+    _gratPost(a, j).then(function (d) {
+      if (d && d.ok) { loadJubilea(root); }
+      else { alert("Nepovedlo se: " + (d && d.error || "")); }
+    });
   }
   function loadJubilea(root) {
     var list = root.querySelector("#hrpJubList");
     var cnt = root.querySelector("#hrpJubCnt");
     if (!list) return;
-    fetch("/api/v1/erp/app/hr/jubilea?days=30", { credentials: "include" })
+    fetch("/api/v1/erp/app/hr/gratulace?days=30", { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
       .then(function (d) {
         if (!d || !d.ok) {
           list.innerHTML = '<div class="hrp-empty">Nemáš oprávnění nebo chyba: ' + esc(d && d.error || "") + '</div>';
           return;
         }
-        if (cnt) { cnt.textContent = "(" + (d.pocet || 0) + ")"; }
-        if (!d.jubilea || !d.jubilea.length) {
+        _grat = d.polozky || [];
+        if (cnt) { cnt.textContent = "(" + _grat.length + ")"; }
+        if (!_grat.length) {
           list.innerHTML = '<div class="hrp-empty">V nejbližších 30 dnech žádná jubilea. 🎈</div>'; return;
         }
-        list.innerHTML = d.jubilea.map(jubRowHtml).join("");
+        list.innerHTML = _grat.map(function (j, i) { return jubRowHtml(j, i); }).join("");
+        if (!list._wired) {
+          list.addEventListener("click", function (ev) {
+            var b = ev.target.closest ? ev.target.closest(".hrp-abtn") : null;
+            if (b) { _gratAction(b.getAttribute("data-a"), parseInt(b.getAttribute("data-i"), 10), root); }
+          });
+          list._wired = true;
+        }
       })
       .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
   }
@@ -252,6 +304,16 @@
       '.hrp-j-minor{background:#f7fafd;border:1px solid #e4ecf5;padding:11px 12px;}' +
       '.hrp-j-minor .hrp-jic{background:#e9f1fb;}' +
       '.hrp-j-minor .hrp-jbadge{background:#dbe7ff;color:#3a5a9c;}' +
+      '.hrp-jact{display:flex;gap:6px;align-items:center;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;}' +
+      '.hrp-abtn{font-size:12px;font-weight:600;padding:5px 10px;border-radius:8px;border:1px solid #d5dbe4;background:#fff;color:#3a4754;cursor:pointer;}' +
+      '.hrp-abtn:hover{background:#f4f7fb;}' +
+      '.hrp-abtn.prim{background:#7cb342;border-color:#6ba233;color:#fff;}' +
+      '.hrp-abtn.prim:hover{background:#6ba233;}' +
+      '.hrp-abtn.ghost{padding:5px 8px;color:#9aa4b1;}' +
+      '.hrp-chip{font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:20px;}' +
+      '.hrp-chip.sent{background:#e6f6ec;color:#1a7a3d;}' +
+      '.hrp-chip.skip{background:#f1f3f5;color:#8a94a3;}' +
+      '.hrp-soon{font-size:11px;color:#aab2bd;font-style:italic;}' +
       '.hrp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px 26px;}' +
       '.hrp-tile{display:flex;gap:13px;padding:14px 10px;border-radius:10px;align-items:flex-start;}' +
       '.hrp-tile.click{cursor:pointer;}' +

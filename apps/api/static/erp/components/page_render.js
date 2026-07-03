@@ -43,6 +43,22 @@
     // ─── Render helpers ──────────────────────────────────────────────
 
     function _renderDraftedPlaceholder(mainContent, tab, coreCode, coreId) {
+      // HR přehled (Šárka 3.7.2026): jádro hr.prehled je záměrně „drafted" (bez
+      // root gridu) — obsah dodává HR pult (Pinya styl). Mount ho MÍSTO placeholderu.
+      if (String(coreCode) === 'hr.prehled'
+          && window.HrPult && typeof window.HrPult.mount === 'function') {
+        try {
+          mainContent.innerHTML = '';
+          var _hrEl = document.createElement('div');
+          _hrEl.id = 'hr-pult';
+          _hrEl.style.cssText = 'display:flex;flex-direction:column;flex:1 1 auto;min-height:0;height:100%;';
+          mainContent.appendChild(_hrEl);
+          window.HrPult.mount(_hrEl);
+          return;
+        } catch (_hrErr) {
+          console.warn('[page_render] HR pult (drafted) mount failed:', _hrErr);
+        }
+      }
       mainContent.innerHTML =
         '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
         '<h2 style="margin:0 0 12px;font-weight:500;color:#e8eef5;">📊 ' +

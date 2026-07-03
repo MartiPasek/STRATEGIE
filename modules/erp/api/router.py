@@ -6056,6 +6056,45 @@ async def app_mail_stav(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "id": mid, "stav": stav})
 
 
+@api_router.get("/app/mail/detail/{mid}")
+async def app_mail_detail(mid: int, req: Request) -> JSONResponse:
+    """Detail e-mailu (hlavičky + plné tělo + přílohy). ACL: majitel nebo rodič."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    import json as _jmd
+    from sqlalchemy import text as _tmd
+    from core.database_data import get_data_session as _gdmd
+    s = _gdmd()
+    try:
+        row = s.execute(_tmd(
+            "SELECT user_id, od_jmeno, od_email, komu, kopie, "
+            "to_char(datum,'DD.MM.YYYY HH24:MI') AS d, predmet, telo_text, slozka, stav, "
+            "prilohy_doc_ids, ma_prilohy FROM tenant.mail_message WHERE id=:i"), {"i": mid}).fetchone()
+        if not row:
+            return JSONResponse({"ok": False, "error": "e-mail nenalezen"}, status_code=404)
+        if row[0] != uid and not is_marti_parent(uid):
+            return JSONResponse({"ok": False, "error": "nemáš oprávnění"}, status_code=403)
+        prilohy = []
+        doc_ids = row[10]
+        if doc_ids:
+            try:
+                ids = doc_ids if isinstance(doc_ids, list) else _jmd.loads(doc_ids)
+                for did in ids:
+                    dn = s.execute(_tmd("SELECT COALESCE(original_filename, name) FROM public.documents WHERE id=:i"),
+                                   {"i": did}).scalar()
+                    prilohy.append({"id": did, "name": dn or ("priloha_%s" % did),
+                                    "url": "/api/v1/documents/%s/raw" % did})
+            except Exception:
+                pass
+        return JSONResponse({"ok": True, "id": mid, "od_jmeno": row[1], "od_email": row[2],
+                             "komu": row[3], "kopie": row[4], "datum": row[5], "predmet": row[6],
+                             "telo_text": row[7], "slozka": row[8], "stav": row[9],
+                             "ma_prilohy": row[11], "prilohy": prilohy})
+    finally:
+        s.close()
+
+
 @api_router.post("/app/connect-mailbox")
 async def app_connect_mailbox(req: Request) -> JSONResponse:
     """Self-service: přihlášený uživatel připojí SVOU EWS poštovní schránku

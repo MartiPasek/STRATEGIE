@@ -590,6 +590,67 @@
       }).catch(function (e) { alert("Chyba: " + e); });
     }
 
+    /** Escape HTML (detail e-mailu). */
+    function _mailEsc(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    /** Standardní detail e-mailu (Claude-23 3.7.2026): modal s hlavičkami +
+     *  plným tělem + přílohami (odkazy ke stažení). */
+    function _mailShowDetail(d) {
+      var ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:99999;" +
+        "display:flex;align-items:center;justify-content:center;";
+      var box = document.createElement("div");
+      box.style.cssText = "position:relative;background:#121826;color:#e8edf6;max-width:920px;" +
+        "width:92%;max-height:88vh;overflow:auto;border-radius:12px;border:1px solid #2a3547;" +
+        "box-shadow:0 20px 60px rgba(0,0,0,.5);";
+      var att = (d.prilohy || []).map(function (p) {
+        return '<a href="' + p.url + '" target="_blank" rel="noopener" ' +
+          'style="display:inline-block;color:#7cc4ff;text-decoration:none;background:#1a2233;' +
+          'border:1px solid #2a3547;border-radius:8px;padding:5px 10px;margin:4px 8px 0 0;font-size:12.5px;">' +
+          "📎 " + _mailEsc(p.name) + "</a>";
+      }).join("");
+      box.innerHTML =
+        '<div style="padding:18px 22px;border-bottom:1px solid #2a3547;">' +
+          '<div style="font-size:18px;font-weight:600;margin-bottom:10px;padding-right:90px;">' +
+            _mailEsc(d.predmet || "(bez předmětu)") + "</div>" +
+          '<div style="font-size:13px;color:#9fb0c8;line-height:1.8;">' +
+            "<b>Od:</b> " + _mailEsc(((d.od_jmeno ? d.od_jmeno + " " : "") + "<" + (d.od_email || "") + ">")) + "<br>" +
+            "<b>Komu:</b> " + _mailEsc(d.komu || "") +
+            (d.kopie ? "<br><b>Kopie:</b> " + _mailEsc(d.kopie) : "") + "<br>" +
+            "<b>Datum:</b> " + _mailEsc(d.datum || "") + "</div>" +
+          (att ? '<div style="margin-top:8px;">' + att + "</div>" : "") +
+        "</div>" +
+        '<div style="padding:22px;white-space:pre-wrap;word-break:break-word;font-size:14px;' +
+          'line-height:1.65;">' + _mailEsc(d.telo_text || "(prázdné tělo)") + "</div>";
+      var close = document.createElement("button");
+      close.textContent = "✕ Zavřít";
+      close.style.cssText = "position:absolute;top:16px;right:18px;background:#27313f;color:#cdd9ea;" +
+        "border:0;border-radius:8px;padding:7px 13px;cursor:pointer;font-size:12.5px;";
+      box.appendChild(close);
+      ov.appendChild(box);
+      function done() { try { document.body.removeChild(ov); } catch (e) {} document.removeEventListener("keydown", onEsc); }
+      function onEsc(e) { if (e.key === "Escape") done(); }
+      close.onclick = done;
+      ov.onclick = function (e) { if (e.target === ov) done(); };
+      document.addEventListener("keydown", onEsc);
+      document.body.appendChild(ov);
+    }
+
+    function _mailOpenDetail(ctx) {
+      var rowId = null;
+      if (ctx.rowData) rowId = ctx.rowData.id != null ? ctx.rowData.id : ctx.rowData.ID;
+      if (rowId == null) { alert("⚠ Nejprve vyber e-mail."); return Promise.reject(new Error("no_row")); }
+      return fetch("/api/v1/erp/app/mail/detail/" + rowId, { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d || !d.ok) { alert("Chyba: " + ((d && d.error) || "?")); return; }
+          _mailShowDetail(d);
+        }).catch(function (e) { alert("Chyba: " + e); });
+    }
+
     var ACTIONS = {
       // Marti's 30.5.2026 ranní doctrine: "Core setting" — universal
       // inspector pro fw.core metadata aktualniho core. Hardcoded
@@ -705,6 +766,18 @@
         handler: function (ctx) {
           return _refreshGrid(ctx.gridCode, ctx.refreshFn);
         },
+      },
+      // Mail: standardní detail e-mailu (Claude-23 3.7.2026). Modal s hlavičkami
+      // + plným tělem + přílohami. Gate v page_render.js (mail_* přehledy).
+      mail_otevrit: {
+        key: "mail_otevrit",
+        icon: "📧",
+        label: "Otevřít e-mail",
+        hint: "Zobrazit celý e-mail (od, komu, tělo, přílohy)",
+        cssClass: "erp-action-edit",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) { return _mailOpenDetail(ctx); },
       },
       // Mail: uklidit / vrátit (Claude-23 3.7.2026). Gate v page_render.js
       // (jen mail_dorucene / mail_zpracovane přehledy). POST /app/mail/stav.

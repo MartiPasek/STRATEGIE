@@ -470,8 +470,12 @@
             // pravý klik na kontakt → 📁 Dokumenty → /files?type=kontakt&id=.
             _ctxMenuActions.push("docfiles");
           }
-          // Mail přehledy (Claude-23 3.7.2026): Doručené → „Uklidit do Zpracovaných",
-          // Zpracované → „Vrátit do Doručených". Gate podle core code mail_*.
+          // Mail přehledy (Claude-23 3.7.2026): „Otevřít e-mail" (detail) na všech
+          // 4 přehledech; Doručené → „Uklidit", Zpracované → „Vrátit".
+          if (/mail_(dorucene|zpracovane|odeslane|koncepty)/i.test(_coreCodeForGraph) ||
+              /mail_(dorucene|zpracovane|odeslane|koncepty)/i.test(String(_gridCodeForActions))) {
+            _ctxMenuActions.push("mail_otevrit");
+          }
           if (/mail_dorucene/i.test(_coreCodeForGraph) ||
               /mail_dorucene/i.test(String(_gridCodeForActions))) {
             _ctxMenuActions.push("mail_uklidit");

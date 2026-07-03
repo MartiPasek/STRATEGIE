@@ -33631,8 +33631,9 @@ async def diag_sql(req: Request) -> JSONResponse:
         try:
             _mp = sql[len("@@MBTEST"):].split()
             if not _mp or not _mp[0].isdigit():
-                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MBTEST <uid>"]], "count": 1})
+                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MBTEST <uid> [username_override]"]], "count": 1})
             _muid = int(_mp[0])
+            _uover = _mp[1] if len(_mp) > 1 else None
             from sqlalchemy import text as _tmb
             from core.database_data import get_data_session as _gdmb
             _sm = _gdmb()
@@ -33650,8 +33651,9 @@ async def diag_sql(req: Request) -> JSONResponse:
             import urllib3 as _u3mb
             _u3mb.disable_warnings()
             from exchangelib import Credentials as _Cr, Account as _Ac, Configuration as _Cf, DELEGATE as _DG
+            _uname = (_uover or _r[0])
             _cfgmb = _Cf(server=str(_r[2] or "").replace("https://", "").replace("http://", ""),
-                         credentials=_Cr(username=_r[0], password=_pw))
+                         credentials=_Cr(username=_uname, password=_pw))
             _acct = _Ac(primary_smtp_address=_smtp, config=_cfgmb, autodiscover=False, access_type=_DG)
             _total = _acct.inbox.total_count
             try:
@@ -33659,7 +33661,7 @@ async def diag_sql(req: Request) -> JSONResponse:
             except Exception:
                 _unread = "?"
             _pw = None  # zahodit heslo z paměti hned po přihlášení
-            _rows = [["prihlaseni", "OK (overeno naostro)"], ["login (username)", _r[0]],
+            _rows = [["prihlaseni", "OK (overeno naostro)"], ["username", _uname],
                      ["schranka (SMTP)", _smtp], ["server", _r[2]],
                      ["inbox celkem", str(_total)], ["neprectene", str(_unread)]]
             try:

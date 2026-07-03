@@ -6021,6 +6021,41 @@ async def crm_osloveni_sablony(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "sablony": out})
 
 
+@api_router.post("/app/mail/stav")
+async def app_mail_stav(req: Request) -> JSONResponse:
+    """Uklidit e-mail: přesun mezi 'nove' (Doručené) a 'zpracovane' (Zpracované).
+    ACL: majitel schránky NEBO rodič. Nezapisuje do Outlooku — jen náš stav."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    try:
+        mid = int(body.get("id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "chybí id"}, status_code=400)
+    stav = (body.get("stav") or "zpracovane").strip()
+    if stav not in ("nove", "zpracovane"):
+        return JSONResponse({"ok": False, "error": "stav musí být nove|zpracovane"}, status_code=400)
+    from sqlalchemy import text as _tms
+    from core.database_data import get_data_session as _gdms
+    s = _gdms()
+    try:
+        row = s.execute(_tms("SELECT user_id FROM tenant.mail_message WHERE id=:i"), {"i": mid}).fetchone()
+        if not row:
+            return JSONResponse({"ok": False, "error": "zpráva nenalezena"}, status_code=404)
+        if row[0] != uid and not is_marti_parent(uid):
+            return JSONResponse({"ok": False, "error": "nemáš oprávnění"}, status_code=403)
+        s.execute(_tms("UPDATE tenant.mail_message SET stav=:s, stav_kdy=now(), stav_kdo=:u WHERE id=:i"),
+                  {"s": stav, "u": uid, "i": mid})
+        s.commit()
+    finally:
+        s.close()
+    return JSONResponse({"ok": True, "id": mid, "stav": stav})
+
+
 @api_router.post("/app/connect-mailbox")
 async def app_connect_mailbox(req: Request) -> JSONResponse:
     """Self-service: přihlášený uživatel připojí SVOU EWS poštovní schránku

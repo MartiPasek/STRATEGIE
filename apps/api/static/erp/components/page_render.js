@@ -470,6 +470,16 @@
             // pravý klik na kontakt → 📁 Dokumenty → /files?type=kontakt&id=.
             _ctxMenuActions.push("docfiles");
           }
+          // Mail přehledy (Claude-23 3.7.2026): Doručené → „Uklidit do Zpracovaných",
+          // Zpracované → „Vrátit do Doručených". Gate podle core code mail_*.
+          if (/mail_dorucene/i.test(_coreCodeForGraph) ||
+              /mail_dorucene/i.test(String(_gridCodeForActions))) {
+            _ctxMenuActions.push("mail_uklidit");
+          }
+          if (/mail_zpracovane/i.test(_coreCodeForGraph) ||
+              /mail_zpracovane/i.test(String(_gridCodeForActions))) {
+            _ctxMenuActions.push("mail_vratit");
+          }
           // Register edit form coreId pro gridCode (drz Marti "fw self
           // edited" doctrine 11.5. — DesignFwForm vola registry lookup).
           if (_gridActionsForCtx && _gridActionsForCtx.edit_core_id

@@ -570,6 +570,26 @@
     // ════════════════════════════════════════════════════════════════════
     // ACTION REGISTRY — single truth source
     // ════════════════════════════════════════════════════════════════════
+    /** Mail (Claude-23 3.7.2026): přesun e-mailu mezi Doručené (nove) a
+     *  Zpracované (zpracovane). Náš stav, do Outlooku nezapisuje. */
+    function _mailSetStav(ctx, stav) {
+      var rowId = null;
+      if (ctx.rowData) rowId = ctx.rowData.id != null ? ctx.rowData.id : ctx.rowData.ID;
+      if (rowId == null) {
+        alert("⚠ Nejprve vyber e-mail.");
+        return Promise.reject(new Error("no_row_selected"));
+      }
+      return fetch("/api/v1/erp/app/mail/stav", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ id: rowId, stav: stav }),
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        if (!j || !j.ok) { alert("Chyba: " + ((j && j.error) || "?")); return; }
+        return _refreshGrid(ctx.gridCode, ctx.refreshFn);
+      }).catch(function (e) { alert("Chyba: " + e); });
+    }
+
     var ACTIONS = {
       // Marti's 30.5.2026 ranní doctrine: "Core setting" — universal
       // inspector pro fw.core metadata aktualniho core. Hardcoded
@@ -685,6 +705,28 @@
         handler: function (ctx) {
           return _refreshGrid(ctx.gridCode, ctx.refreshFn);
         },
+      },
+      // Mail: uklidit / vrátit (Claude-23 3.7.2026). Gate v page_render.js
+      // (jen mail_dorucene / mail_zpracovane přehledy). POST /app/mail/stav.
+      mail_uklidit: {
+        key: "mail_uklidit",
+        icon: "✅",
+        label: "Uklidit do Zpracovaných",
+        hint: "Přesunout e-mail z Doručených do Zpracovaných",
+        cssClass: "erp-action-refresh",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) { return _mailSetStav(ctx, "zpracovane"); },
+      },
+      mail_vratit: {
+        key: "mail_vratit",
+        icon: "↩️",
+        label: "Vrátit do Doručených",
+        hint: "Vrátit e-mail zpět do Doručených",
+        cssClass: "erp-action-refresh",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) { return _mailSetStav(ctx, "nove"); },
       },
       // Hromadne osloveni firem (Claude-24/Kristy 18.6.2026): vyber firem v gridu
       // Kontakty -> zarazeni do fronty mod.crm_outreach. Gate v page_render.js

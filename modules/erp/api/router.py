@@ -22794,6 +22794,9 @@ def _mirror_run_job(job_key):
         # OZ mirror — obnova všech zrcadel Oběhu zboží (tenant.oz_*) z Centrály (Marti 2.7.2026)
         "oz_sync_all": lambda: __import__("modules.erp.api.oz_mirror",
                                           fromlist=["sync_all"]).sync_all(tenant_id=2),
+        # Mail zrcadlo — inkrementální sync schránky (Claude-23 3.7.2026). Bere posl. 100/složka.
+        "sync_mail_eliska": lambda: __import__("modules.erp.api.mail_mirror",
+                                               fromlist=["sync_user"]).sync_user(34, limit=100),
     }
     fn = fnmap.get(job_key)
     if fn is None:

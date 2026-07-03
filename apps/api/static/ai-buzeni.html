@@ -70,7 +70,7 @@
   function load(){
     fetch(API+'/app/ai-wake',{credentials:'include'}).then(function(r){return r.json();}).then(function(j){
       active={};
-      (j.sloty||[]).forEach(function(s){active[key(String(s.dow),s.cas.slice(0,5)+':00')]=true;});
+      (j.sloty||[]).forEach(function(s){active[key(String(s.dow),s.cas.slice(0,5))]=true;});
       render();
       var n=(j.sloty||[]).length;
       stav('Načteno — '+n+' časů probuzení.');

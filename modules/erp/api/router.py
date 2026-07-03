@@ -33775,6 +33775,27 @@ async def diag_sql(req: Request) -> JSONResponse:
                                  "rows": [["CHYBA pristupu ke schrance: %s: %s" % (type(_ee).__name__, str(_ee)[:200])]],
                                  "count": 1})
 
+    #   @@MAILSYNC <uid> [limit] [noatt]  → zrcadlí schránku uživatele (EWS → tenant.mail_message)
+    #   na pozadí (kvůli 30s timeoutu). Default limit=300/složka, s přílohami.
+    if sql.upper().startswith("@@MAILSYNC"):
+        import traceback as _tbms
+        try:
+            _ms = sql[len("@@MAILSYNC"):].split()
+            if not _ms or not _ms[0].isdigit():
+                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MAILSYNC <uid> [limit] [noatt]"]], "count": 1})
+            _msuid = int(_ms[0])
+            _mslim = int(_ms[1]) if len(_ms) > 1 and _ms[1].isdigit() else 300
+            _msatt = not any(x.lower() == "noatt" for x in _ms[1:])
+            from modules.erp.api.mail_mirror import sync_user_bg as _msbg
+            _msbg(_msuid, limit=_mslim, with_attachments=_msatt)
+            return JSONResponse({"ok": True, "columns": ["stav"],
+                                 "rows": [["spuštěno na pozadí: uid=%s limit=%s prilohy=%s" % (_msuid, _mslim, _msatt)]],
+                                 "count": 1})
+        except Exception as _me:
+            return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
+                                 "rows": [["%s: %s" % (type(_me).__name__, str(_me)[:200]), _tbms.format_exc()[-400:]]],
+                                 "count": 1})
+
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):

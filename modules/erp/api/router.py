@@ -33560,22 +33560,23 @@ async def diag_sql(req: Request) -> JSONResponse:
             _test = not (len(_ep) > 1 and _ep[1].strip().upper() == "PROD")
             from modules.erp.api.epodani_validace import validate_file as _epval
             _rv = _epval(_fname, test=_test)
-            # převod na tabulku pro most (columns/rows)
+            # převod na tabulku pro most (columns/rows) — ok:True vždy, ať se tabulka zobrazí
             if _rv.get("typ") == "JMHZ":
                 _cols = ["osoba", "ikMpsv", "http", "VysledekKod", "detaily"]
                 _rows = [[v.get("osoba"), v.get("ikMpsv"), v.get("http"), v.get("VysledekKod"),
                           " | ".join(v.get("detaily", []))[:250] or (v.get("chyba_spojeni") or "")]
                          for v in _rv.get("vysledky", [])]
-                return JSONResponse({"ok": _rv.get("ok"), "columns": _cols, "rows": _rows, "count": len(_rows)})
+                return JSONResponse({"ok": True, "columns": _cols, "rows": _rows, "count": len(_rows)})
             if _rv.get("typ") in ("PREZEC", "REGZEC"):
                 _cols = ["typ", "prostredi", "http", "VysledekKod", "detaily"]
                 _rows = [[_rv.get("typ"), _rv.get("prostredi"), _rv.get("http"), _rv.get("VysledekKod"),
-                          " | ".join(_rv.get("detaily", []))[:250] or (_rv.get("chyba_spojeni") or "")]]
-                return JSONResponse({"ok": _rv.get("ok"), "columns": _cols, "rows": _rows, "count": 1})
-            return JSONResponse({"ok": False, "columns": ["chyba"], "rows": [[str(_rv)[:400]]], "count": 1})
+                          " | ".join(_rv.get("detaily", []))[:250] or (_rv.get("chyba_spojeni") or _rv.get("raw") or "")]]
+                return JSONResponse({"ok": True, "columns": _cols, "rows": _rows, "count": 1})
+            return JSONResponse({"ok": True, "columns": ["vysledek"], "rows": [[str(_rv)[:600]]], "count": 1})
         except Exception as _ee:
-            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ee).__name__, str(_ee)[:300]),
-                                 "tb": _tbev.format_exc()[-800:]})
+            return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
+                                 "rows": [["%s: %s" % (type(_ee).__name__, str(_ee)[:300]), _tbev.format_exc()[-500:]]],
+                                 "count": 1})
 
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla

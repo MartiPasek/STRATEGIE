@@ -118,6 +118,14 @@ def sync_folder(uid: int, slozka: str, limit: int = 300,
                     telo = str(b) if b else None
                 if telo:
                     telo = telo.replace("\x00", "")[:100000]
+                # HTML tělo (pro standardní render v detailu jako Outlook)
+                telo_html = None
+                try:
+                    _b = getattr(m, "body", None)
+                    if _b is not None and str(getattr(_b, "body_type", "") or "").upper() == "HTML":
+                        telo_html = str(_b).replace("\x00", "")[:400000]
+                except Exception:
+                    telo_html = None
                 hasatt = bool(getattr(m, "has_attachments", False))
                 unread = (getattr(m, "is_read", True) is False)
                 ex = s.execute(text(
@@ -130,12 +138,12 @@ def sync_folder(uid: int, slozka: str, limit: int = 300,
                         doc_ids = _save_attachments(m, uid, tenant_id)
                     s.execute(text(
                         "INSERT INTO tenant.mail_message (tenant_id,user_id,slozka,ews_item_id,ews_changekey,"
-                        "datum,od_email,od_jmeno,komu,kopie,predmet,telo_text,ma_prilohy,prilohy_doc_ids,neprectene,stav) "
-                        "VALUES (:t,:u,:s,:e,:ck,:d,:oe,:oj,:k,:cc,:su,:tb,:ha,CAST(:pd AS jsonb),:un,'nove')"),
+                        "datum,od_email,od_jmeno,komu,kopie,predmet,telo_text,telo_html,ma_prilohy,prilohy_doc_ids,neprectene,stav) "
+                        "VALUES (:t,:u,:s,:e,:ck,:d,:oe,:oj,:k,:cc,:su,:tb,:th,:ha,CAST(:pd AS jsonb),:un,'nove')"),
                         {"t": tenant_id, "u": uid, "s": slozka, "e": iid, "ck": ck, "d": dt,
                          "oe": od_email, "oj": od_jmeno, "k": komu, "cc": kopie, "su": subj,
-                         "tb": telo, "ha": hasatt, "pd": (json.dumps(doc_ids) if doc_ids else None),
-                         "un": unread})
+                         "tb": telo, "th": telo_html, "ha": hasatt,
+                         "pd": (json.dumps(doc_ids) if doc_ids else None), "un": unread})
                     nnew += 1
                 else:
                     # backfill příloh: existující zpráva má přílohu, ale ještě nestaženou
@@ -144,6 +152,9 @@ def sync_folder(uid: int, slozka: str, limit: int = 300,
                         if _bdoc:
                             s.execute(text("UPDATE tenant.mail_message SET prilohy_doc_ids=CAST(:pd AS jsonb) "
                                            "WHERE id=:i"), {"pd": json.dumps(_bdoc), "i": ex[0]})
+                    if telo_html is not None:
+                        s.execute(text("UPDATE tenant.mail_message SET telo_html=:th "
+                                       "WHERE id=:i AND telo_html IS NULL"), {"th": telo_html, "i": ex[0]})
                     s.execute(text("UPDATE tenant.mail_message SET ews_changekey=:ck, neprectene=:un, "
                                    "synced_at=now() WHERE id=:i"), {"ck": ck, "un": unread, "i": ex[0]})
                 n += 1

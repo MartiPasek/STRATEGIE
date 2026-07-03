@@ -623,8 +623,23 @@
             "<b>Datum:</b> " + _mailEsc(d.datum || "") + "</div>" +
           (att ? '<div style="margin-top:8px;">' + att + "</div>" : "") +
         "</div>" +
-        '<div style="padding:22px;white-space:pre-wrap;word-break:break-word;font-size:14px;' +
-          'line-height:1.65;">' + _mailEsc(d.telo_text || "(prázdné tělo)") + "</div>";
+        '<div id="_mailBody"></div>';
+      var bodyWrap = box.querySelector("#_mailBody");
+      if (d.telo_html) {
+        // HTML e-mail v izolovaném sandbox iframe (bez skriptů) — bílé pozadí jako Outlook.
+        var ifr = document.createElement("iframe");
+        ifr.setAttribute("sandbox", "");
+        ifr.setAttribute("referrerpolicy", "no-referrer");
+        ifr.style.cssText = "width:100%;border:0;background:#fff;min-height:440px;display:block;";
+        ifr.srcdoc = d.telo_html;
+        bodyWrap.appendChild(ifr);
+      } else {
+        var pre = document.createElement("div");
+        pre.style.cssText = "padding:22px;white-space:pre-wrap;word-break:break-word;" +
+          "font-size:14px;line-height:1.65;";
+        pre.textContent = d.telo_text || "(prázdné tělo)";
+        bodyWrap.appendChild(pre);
+      }
       var close = document.createElement("button");
       close.textContent = "✕ Zavřít";
       close.style.cssText = "position:absolute;top:16px;right:18px;background:#27313f;color:#cdd9ea;" +

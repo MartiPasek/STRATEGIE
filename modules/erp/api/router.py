@@ -6070,7 +6070,7 @@ async def app_mail_detail(mid: int, req: Request) -> JSONResponse:
         row = s.execute(_tmd(
             "SELECT user_id, od_jmeno, od_email, komu, kopie, "
             "to_char(datum,'DD.MM.YYYY HH24:MI') AS d, predmet, telo_text, slozka, stav, "
-            "prilohy_doc_ids, ma_prilohy FROM tenant.mail_message WHERE id=:i"), {"i": mid}).fetchone()
+            "prilohy_doc_ids, ma_prilohy, telo_html FROM tenant.mail_message WHERE id=:i"), {"i": mid}).fetchone()
         if not row:
             return JSONResponse({"ok": False, "error": "e-mail nenalezen"}, status_code=404)
         if row[0] != uid and not is_marti_parent(uid):
@@ -6090,7 +6090,7 @@ async def app_mail_detail(mid: int, req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "id": mid, "od_jmeno": row[1], "od_email": row[2],
                              "komu": row[3], "kopie": row[4], "datum": row[5], "predmet": row[6],
                              "telo_text": row[7], "slozka": row[8], "stav": row[9],
-                             "ma_prilohy": row[11], "prilohy": prilohy})
+                             "ma_prilohy": row[11], "telo_html": row[12], "prilohy": prilohy})
     finally:
         s.close()
 

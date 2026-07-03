@@ -26540,32 +26540,76 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
 #  nižší základ na SOC POJ. Cap: nech aspoň _BENEFIT_BUFFER Kč pohyblivé; OBL má PŘEDNOST
 #  (ze složky os. ohodnocení se vyplácí nejdřív OBL, pak HO — Marti) → při stropu ořež HO.
 _HO_MS, _OBL_MS, _POHYB_MS = 795, 794, 432
-_BENEFIT_BUFFER = 100
-_HO_HOD_SAZBA = 43.0           # Kč/hod, celofiremní
-_HO_MAX_DNY = 12              # strop HO dní/měsíc
-_OBL_SAZBA_KANCELAR = 109.0   # Kč/den
-_OBL_SAZBA_DILNA = 279.0      # Kč/den
-_HO_DILNA_VYJIMKA = {("2", 476)}  # (fkod, cislo) — Tomáš Bláha ES 476 = dílna, ale má HO
+_HO_HOD_SAZBA = 43.0
+_OBL_SAZBA_KANCELAR, _OBL_SAZBA_DILNA = 109.0, 279.0
+_HO_DILNA_VYJIMKA = {("2", 476)}                     # Bláha ES 476 = dílna, ale má HO
+_LM_ABS_CODES = ('vacation', 'medical', 'sick', 'sickday', 'family_care', 'unpaid', 'maternity')
+
+
+def _lm_mr(x, m):   # Excel MROUND
+    import math
+    return math.floor(abs(x) / m + 0.5) * m * (1 if x >= 0 else -1) if m else 0.0
+
+
+def _lm_rd(x):      # Excel ROUND na celé
+    import math
+    return math.floor(abs(x) + 0.5) * (1 if x >= 0 else -1)
+
+
+def _lm_fl(x, m):   # Excel FLOOR
+    import math
+    return math.floor(x / m) * m if m else 0.0
+
+
+def _lm_engine(fond, odprac, dny, obl_sazba, ho_hod_narok, osoh):
+    """Ověřený Landmark výpočet (= engine z Excelu, sedí 45/45). U/X/W/DPP/parking = 0.
+    Vrací (OBL, HO, korekce). korekce je záporná = o kolik se poníží os. ohodnocení."""
+    import math
+    D = float(fond or 0); E = float(odprac or 0); F = float(dny or 0)
+    N = float(obl_sazba or 0); Q = _HO_HOD_SAZBA; R = float(ho_hod_narok or 0); V = float(osoh or 0)
+    if D <= 0:
+        return 0.0, 0.0, 0.0
+    podil = E / D
+    OBL = _lm_rd(F * N)
+    HOhod = _lm_mr(podil * R, 0.5)
+    HO0 = _lm_rd(Q * HOhod)
+    volna = math.ceil((podil * V) / 0.5) * 0.5
+    opatr = volna - (OBL + HO0)
+    if opatr >= 0:
+        HOfin_hod = HOhod
+    elif (HO0 + opatr) > 0:
+        HOfin_hod = _lm_fl((HO0 + opatr) / Q, 1) if Q else 0.0
+    else:
+        HOfin_hod = 0.0
+    HO = HOfin_hod * Q
+    benefits = OBL + HO
+    BO = -benefits
+    BR = podil * V
+    BS = (BO + BR) if BO < 0 else BR
+    BT = (BS / podil) if (BO < 0 and podil) else V
+    BV = BT if BT < 0 else 0.0
+    korekce = _lm_rd((BT - V) - BV)
+    return _lm_rd(OBL), _lm_rd(HO), korekce
 
 
 def _mzdy_benefity_apply(prows, firma, rok, mesic):
-    """Vezme prows (předzpracování vč. 432) a aplikuje benefity OBL/HO dle sazeb
-    (Marti 30.6.). OBL = sazba/den × odpracované dny (kancelář 109 / dílna 279),
-    HR může vypnout (obl_on=false). HO = 43 × hodiny úvazku/den × min(uživatelem
-    NÁROKOVANÉ dny, 12), jen kancelář + Bláha. Obě poníží 432, OBL má přednost
-    (cap ořezává HO). Vrací nové prows."""
+    """Landmark náhrady (OBL 794 + HO 795) + korekce os. ohodnocení (432).
+    Vstupy z att_entry (docházkové zrcadlo .188): odpracované dny + absence; fond z úvazku.
+    Ověřená matematika _lm_engine (Excel 45/45). Loajalita (651) se řeší zvlášť."""
+    import calendar as _cal
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     fkod = '1' if str(firma).upper() in ('EC', '1') else '2'
     fk_sm = 'EC' if fkod == '1' else 'ES'
+    ry = int(rok); rm = int(mesic)
+    ld = _cal.monthrange(ry, rm)[1]
+    workdays = sum(1 for x in range(1, ld + 1) if _cal.weekday(ry, rm, x) < 5)  # Po–Pá
     s = _g()
     try:
-        # KANCELÁŘ = skupina 24 (att kategorie dopichavat_fond); jinak DÍLNA
         skup24 = set(int(r[0]) for r in s.execute(_t(
             "SELECT uk.user_id FROM tenant.att_user_kategorie uk "
             "JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
             "WHERE k.tenant_id=2 AND k.dopichavat_fond=true AND k.aktivni=true")).fetchall())
-        # platná populace = HPP/DPP v user_smlouva pro firmu (NE OSVČ) + denní hodiny úvazku
         emp = {}
         for r in s.execute(_t(
             "SELECT sm.helios_cislo, sm.user_id, COALESCE(MAX(g.uvazek_tyden_h),40) "
@@ -26573,28 +26617,26 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             "LEFT JOIN tenant.att_employee e ON e.tenant_id=2 AND e.user_id=sm.user_id "
             "LEFT JOIN tenant.engagement g ON g.employee_id=e.id AND g.is_current=true "
             "WHERE sm.tenant_id=2 AND sm.firma=:fk AND COALESCE(sm.typ_smlouvy,'')<>'osvc' "
-            "  AND sm.helios_cislo IS NOT NULL "
-            "GROUP BY sm.helios_cislo, sm.user_id"), {"fk": fk_sm}).fetchall():
+            "  AND sm.helios_cislo IS NOT NULL GROUP BY sm.helios_cislo, sm.user_id"),
+                {"fk": fk_sm}).fetchall():
             try:
                 emp[int(r[0])] = (int(r[1]), float(r[2] or 40) / 5.0)
             except Exception:
                 pass
-        # uživatelské volby HO/OBL (self-service): kolik HO dní si nárokuje + zda OBL vypnuto
-        ho_dny_by = {}
-        obl_off = set()
+        ho_dny_by = {}; obl_off = set()
         for r in s.execute(_t(
             "SELECT cislo, COALESCE(ho_dny,0), COALESCE(obl_on,true) "
             "FROM tenant.benefit_volba WHERE tenant_id=2 AND firma=:f AND rok=:y AND mesic=:mo"),
-                {"f": fkod, "y": rok, "mo": mesic}).fetchall():
+                {"f": fkod, "y": ry, "mo": rm}).fetchall():
             try:
-                c = int(r[0])
-                ho_dny_by[c] = int(r[1] or 0)
+                c = int(r[0]); ho_dny_by[c] = int(r[1] or 0)
                 if not bool(r[2]):
                     obl_off.add(c)
             except Exception:
                 pass
-        # odpracované dny (>4 h) — autoritativní z att_entry (Marti 29.6.)
-        pres = s.execute(_t(
+        # odpracované dny (>4 h) — autoritativní z att_entry (jako stará verze)
+        days_by = {}
+        for r in s.execute(_t(
             "SELECT e.cislo_zam, COUNT(DISTINCT d.entry_date) FROM "
             "(SELECT a.employee_id, a.entry_date FROM tenant.att_entry a "
             " JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
@@ -26602,54 +26644,58 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             "   AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
             " GROUP BY a.employee_id, a.entry_date HAVING SUM(a.hours)>4) d "
             "JOIN tenant.att_employee e ON e.id=d.employee_id WHERE e.tenant_id=2 GROUP BY e.cislo_zam"),
-            {"y": rok, "mo": mesic}).fetchall()
+                {"y": ry, "mo": rm}).fetchall():
+            try:
+                days_by[int(r[0])] = int(r[1] or 0)
+            except Exception:
+                pass
+        # absence HODINY z att_entry (ec_real) — dovolená, lékař, nemoc, OČR, neplacené, mateřská
+        abs_by = {}
+        for r in s.execute(_t(
+            "SELECT e.cislo_zam, COALESCE(SUM(a.hours),0) "
+            "FROM tenant.att_entry a JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
+            "JOIN tenant.att_employee e ON e.id=a.employee_id "
+            "WHERE e.tenant_id=2 AND et.code IN "
+            "  ('vacation','medical','sick','sickday','family_care','unpaid','maternity') "
+            "  AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
+            "GROUP BY e.cislo_zam"), {"y": ry, "mo": rm}).fetchall():
+            try:
+                abs_by[int(r[0])] = float(r[1] or 0)
+            except Exception:
+                pass
     finally:
         s.close()
     if not emp:
         return prows
-    days_by = {}
-    for r in pres:
-        try:
-            days_by[int(r[0])] = int(r[1] or 0)
-        except Exception:
-            pass
-    pohyb_by = {}
+    osoh_by = {}
     for row in prows:
         if int(row[1]) == _POHYB_MS:
-            pohyb_by[int(row[0])] = int(row[2] or 0)
-    add = []  # nové 794/795 řádky
-    new_pohyb = {}  # cislo -> nová 432
+            osoh_by[int(row[0])] = float(row[2] or 0)
+    add = []
+    new_pohyb = {}
     for cislo, (user_id, daily_h) in emp.items():
         wd = days_by.get(cislo, 0)
         if wd <= 0:
-            continue  # bez odpracovaného dne není nárok
+            continue
+        fond = daily_h * workdays
+        absh = abs_by.get(cislo, 0.0)
+        odprac = max(0.0, fond - absh)
+        if fond <= 0 or odprac <= 0:
+            continue
+        V = osoh_by.get(cislo, 0.0)
         is_office = user_id in skup24
-        # OBL = denní sazba × odpracované dny (kancelář 109 / dílna 279); HR může vypnout
-        obl_rate = _OBL_SAZBA_KANCELAR if is_office else _OBL_SAZBA_DILNA
-        obl_amt = 0 if cislo in obl_off else int(round(obl_rate * wd))
-        # HO = 43 × hodiny úvazku/den × min(NÁROKOVANÉ dny, 12); jen kancelář + Bláha
+        obl_sazba = _OBL_SAZBA_KANCELAR if is_office else _OBL_SAZBA_DILNA
+        obl_sazba_eff = 0.0 if cislo in obl_off else obl_sazba
         ho_elig = is_office or ((fkod, cislo) in _HO_DILNA_VYJIMKA)
-        ho_dny = min(int(ho_dny_by.get(cislo, 0)), _HO_MAX_DNY) if ho_elig else 0
-        ho_kc_den = _HO_HOD_SAZBA * daily_h
-        ho_amt = int(round(ho_dny * ho_kc_den)) if ho_dny > 0 else 0
-        pohyb = pohyb_by.get(cislo, 0)
-        avail = max(0, pohyb - _BENEFIT_BUFFER)
-        # OBL má PŘEDNOST → při stropu ořež nejdřív HO
-        if obl_amt + ho_amt > avail:
-            if obl_amt <= avail:
-                ho_amt = avail - obl_amt
-            else:
-                ho_amt = 0
-                obl_amt = avail
-            ho_dny = int(ho_amt // ho_kc_den) if ho_kc_den > 0 else 0
-            ho_amt = int(round(ho_dny * ho_kc_den))
-        korekce = obl_amt + ho_amt
-        if obl_amt > 0:
-            add.append((cislo, _OBL_MS, obl_amt, 0))
-        if ho_amt > 0:
-            add.append((cislo, _HO_MS, ho_amt, ho_dny))
-        if korekce > 0 and cislo in pohyb_by:
-            new_pohyb[cislo] = pohyb - korekce
+        ho_hod_narok = (ho_dny_by.get(cislo, 0) * daily_h) if ho_elig else 0.0
+        obl, ho, korekce = _lm_engine(fond, odprac, wd, obl_sazba_eff, ho_hod_narok, V)
+        if obl > 0:
+            add.append((cislo, _OBL_MS, int(obl), 0))
+        if ho > 0:
+            ho_dny_pay = int(round(ho / (_HO_HOD_SAZBA * daily_h))) if daily_h else 0
+            add.append((cislo, _HO_MS, int(ho), ho_dny_pay))
+        if korekce != 0 and cislo in osoh_by:
+            new_pohyb[cislo] = int(round(V + korekce))
     out = []
     for row in prows:
         c = int(row[0])

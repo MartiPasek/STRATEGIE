@@ -33328,6 +33328,20 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_oe).__name__, str(_oe)[:300]),
                                  "tb": _tboz.format_exc()[-800:]})
 
+    #   @@DOCHSUM <rok> <mesic>  → att_day_summary daného měsíce = 1:1 pravda z EC_Dochazka_SumaDen
+    #   (smaže měsíc + upsert z Heliosu). Historii/uzavřené neměnit ručně jinudy. Marti 3.7.2026.
+    if sql.upper().startswith("@@DOCHSUM"):
+        import traceback as _tbds
+        try:
+            _dp = sql[len("@@DOCHSUM"):].split()
+            if len(_dp) < 2 or not _dp[0].isdigit() or not _dp[1].isdigit():
+                return JSONResponse({"ok": False, "error": "@@DOCHSUM <rok> <mesic>"})
+            _dy, _dm = int(_dp[0]), int(_dp[1])
+            return JSONResponse(_sync_dochazka_sumaden(_dy, month=_dm))
+        except Exception as _de:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_de).__name__, str(_de)[:300]),
+                                 "tb": _tbds.format_exc()[-800:]})
+
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):

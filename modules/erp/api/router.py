@@ -33624,6 +33624,59 @@ async def diag_sql(req: Request) -> JSONResponse:
                                  "rows": [["%s: %s" % (type(_ee).__name__, str(_ee)[:300]), _tbev.format_exc()[-500:]]],
                                  "count": 1})
 
+    #   @@MBTEST <uid>  → živý test EWS schránky uživatele. Heslo se jen dešifruje server-side
+    #   pro přihlášení k EWS, NIKDY se nevrací ani neloguje. Vrátí počet zpráv + pár posledních (metadata).
+    if sql.upper().startswith("@@MBTEST"):
+        import traceback as _tbmb
+        try:
+            _mp = sql[len("@@MBTEST"):].split()
+            if not _mp or not _mp[0].isdigit():
+                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MBTEST <uid>"]], "count": 1})
+            _muid = int(_mp[0])
+            from sqlalchemy import text as _tmb
+            from core.database_data import get_data_session as _gdmb
+            _sm = _gdmb()
+            try:
+                _r = _sm.execute(_tmb("SELECT ews_email, ews_password_encrypted, ews_server "
+                                      "FROM public.users WHERE id=:i"), {"i": _muid}).fetchone()
+            finally:
+                _sm.close()
+            if not _r or not _r[0] or not _r[1]:
+                return JSONResponse({"ok": True, "columns": ["stav"],
+                                     "rows": [["schránka není napojená (chybí login nebo heslo)"]], "count": 1})
+            from core.crypto import decrypt as _decmb
+            from modules.notifications.application.email_service import _get_account as _gamb
+            _pw = _decmb(_r[1])
+            _acct = _gamb(email=_r[0], password=_pw, server=(_r[2] or None))
+            _total = _acct.inbox.total_count
+            try:
+                _unread = _acct.inbox.unread_count
+            except Exception:
+                _unread = "?"
+            _pw = None  # zahodit heslo z paměti hned po přihlášení
+            _rows = [["prihlaseni", "OK (overeno naostro)"], ["login", _r[0]], ["server", _r[2]],
+                     ["inbox celkem", str(_total)], ["neprectene", str(_unread)]]
+            try:
+                for _m in _acct.inbox.all().only("subject", "sender", "datetime_received").order_by("-datetime_received")[:5]:
+                    _fr = ""
+                    try:
+                        _fr = (_m.sender.email_address if _m.sender else "") or ""
+                    except Exception:
+                        _fr = ""
+                    _kdy = ""
+                    try:
+                        _kdy = _m.datetime_received.strftime("%Y-%m-%d %H:%M") if _m.datetime_received else ""
+                    except Exception:
+                        _kdy = ""
+                    _rows.append(["posl. " + _kdy, ((_fr + " | ") if _fr else "") + str(_m.subject or "")[:80]])
+            except Exception as _re:
+                _rows.append(["pozn", "nacteni poslednich zprav selhalo: " + str(_re)[:120]])
+            return JSONResponse({"ok": True, "columns": ["pole", "hodnota"], "rows": _rows, "count": len(_rows)})
+        except Exception as _ee:
+            return JSONResponse({"ok": True, "columns": ["vysledek"],
+                                 "rows": [["CHYBA pristupu ke schrance: %s: %s" % (type(_ee).__name__, str(_ee)[:200])]],
+                                 "count": 1})
+
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):

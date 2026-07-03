@@ -828,6 +828,66 @@ def _serve_storage(storage_path):
     return _serve_file(full)
 
 
+def export_tisax_to_ro(limit: int = 12, offset: int = 0) -> dict:
+    """Export TISAX dokumentů (public.documents project_id=5) do Marti-AI RO namespace
+    se zachováním adresářové struktury (documents.name = relativní cesta 'TISAX/...').
+    Cloud čte lokální soubor (storage_path pod Dokumenty root) → přes MCP file_write
+    zapíše do RO (zakládá složky). Přeskočí balast (~$ / <200 B). Dávkuje přes offset,
+    overwrite = idempotentní. Vrací next_offset + total pro pokračování."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t2
+    import base64 as _b64
+    import json as _jf2
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return {"ok": False, "error": "EUROSOFT MCP nedostupný"}
+    root = os.path.normpath(_DOC_STORE_ROOT)
+    sd = get_data_session()
+    okc = errc = 0
+    rows_out: list = []
+    try:
+        total = sd.execute(_t2(
+            "SELECT count(*) FROM public.documents WHERE project_id=5 "
+            "AND original_filename NOT LIKE '%~$%' AND COALESCE(file_size_bytes,0) >= 200"
+        )).scalar() or 0
+        docs = sd.execute(_t2(
+            "SELECT id, name, storage_path, COALESCE(file_size_bytes,0) sz "
+            "FROM public.documents WHERE project_id=5 "
+            "AND original_filename NOT LIKE '%~$%' AND COALESCE(file_size_bytes,0) >= 200 "
+            "ORDER BY name OFFSET :off LIMIT :lim"), {"off": offset, "lim": limit}).mappings().all()
+        for d in docs:
+            rel = (d["name"] or "").replace("\\", "/").lstrip("/")
+            try:
+                full = os.path.normpath(d["storage_path"] or "")
+                if not full.startswith(root) or not os.path.isfile(full):
+                    raise RuntimeError("zdroj chybí")
+                with open(full, "rb") as fh:
+                    data = fh.read()
+                if len(data) > 50_000_000:
+                    raise RuntimeError(">50MB (přeskočeno)")
+                b64 = _b64.b64encode(data).decode("ascii")
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
+                    {"user_namespace": "ro", "path": rel, "content": b64,
+                     "encoding": "base64", "mode": "overwrite"}, conversation_id=None)
+                r = _jf2.loads(raw) if isinstance(raw, str) else raw
+                if not (isinstance(r, dict) and r.get("ok")):
+                    raise RuntimeError(str(r.get("error") if isinstance(r, dict) else r)[:120])
+                okc += 1
+                rows_out.append([rel, "OK %d B" % len(data)])
+            except Exception as _e:
+                errc += 1
+                rows_out.append([rel, "CHYBA: " + str(_e)[:70]])
+        nxt = offset + len(docs)
+        rows_out += [["── dávka", "%d–%d z %d" % (offset + 1, nxt, total)],
+                     ["── OK", str(okc)], ["── chyb", str(errc)],
+                     ["── next_offset", str(nxt) if nxt < total else "HOTOVO"]]
+        return {"ok": True, "columns": ["soubor", "stav"], "rows": rows_out,
+                "count": len(rows_out), "next_offset": nxt, "total": total}
+    finally:
+        sd.close()
+
+
 def _evidence_payload(s, tenant_id):
     """Nahrané dokumenty STRATEGIE pro tenant (jen ISO/TISAX/bezpečnostní projekty)."""
     rows = s.execute(_t("""SELECT d.id, d.name, d.file_type, COALESCE(p.name,'') AS projekt

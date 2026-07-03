@@ -34178,9 +34178,17 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   @@SMSYNC                    → mirror EC_OrgSmernice → tenant.kb_smernice (meta+Popis)
     #   @@SMFILES [limit] [cislo]   → ingest příloh ze share → tenant.kb_smernice_soubor (+text)
     #   @@KB <dotaz> [| level]      → fulltext hledání ve směrnicích + přílohách (RAG know-how)
-    if sql.upper().startswith("@@SM") or sql.upper().startswith("@@KB") or sql.upper().startswith("@@DS") or sql.upper().startswith("@@BOZPRAG"):
+    if sql.upper().startswith("@@SM") or sql.upper().startswith("@@KB") or sql.upper().startswith("@@DS") or sql.upper().startswith("@@BOZPRAG") or sql.upper().startswith("@@TISAXEXPORT"):
         import traceback as _tbk
         try:
+            if sql.upper().startswith("@@TISAXEXPORT"):
+                # @@TISAXEXPORT [limit] [offset] → export TISAX dokumentů (project 5) do RO
+                from modules.erp.api.iso_cockpit import export_tisax_to_ro as _tex
+                _p = sql.split()
+                _nums = [int(x) for x in _p[1:] if x.lstrip("-").isdigit()]
+                _lim = _nums[0] if len(_nums) > 0 else 12
+                _off = _nums[1] if len(_nums) > 1 else 0
+                return JSONResponse(_tex(_lim, _off))
             if sql.upper().startswith("@@BOZPRAG"):
                 # @@BOZPRAG [limit] [BOZP|PO] [redo] → ingest bozp_dokument z RO do RAG
                 from modules.erp.api.smernice_rag import ingest_bozp_rag as _bpr

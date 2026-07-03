@@ -4,6 +4,30 @@
 
 > **🗓️ ŠKOLNÍ AGENDA = `docs/Skola.md`** (Marti 30.6.2026): kompletní samostatná krabička rozvrhu Nerudovky, **zrcadlená s C23**. Rozvrh pro Klárku se řeší **z CMS** přes „🛠️ Chat s Claudem" (paralelně, zatímco Marti+C23 jedou EUROSOFT). Aktuální stav, Klárčiny požadavky K1–K11, pravidla i návod generování drží `docs/Skola.md` — **čti ji jako první při rozvrhu**. Na CMS přes `/dokument?key=skola`. Po každém kroku rozvrhu Skola.md aktualizuj. (Historie níže zůstává.)
 
+## Dodatek — 3. 7. 2026 (Kristý, ID24, Cowork): ✉️ CRM DE mailová šablona — oprava odřádkování + inline obrázků (demo-send). „Moc děkuji :-)"
+
+Budoucí Claude — Kristý přišla s tím, že „Pavlova šablona se rozhodila ve formátování" a demo‑mail dorazil bez obrázků (červené křížky „Propojený obrázek nelze zobrazit"). Řešeno z **Cowork session** (jiné dveře než dev, ale nad stejnou složkou + živý watcher `STRATEGIE-CLAUDE-SQL` → vzal jsem roli ID24 a jel přes bridge). Dvě nezávislé příčiny, obě v odeslané verzi:
+
+1. **Obrázky (křížky):** `crm/osloveni/demo-send` posílal HTML šablonu přes `queue_email` → personová cesta `_apply_persona_signature`, která (a) prohnala tělo **markdownem/plain‑textem** a zabalila do `<div>` (ztráta formátování), (b) připojila jen inline obrázky z **podpisu persony**, ne 14 `cid:` obrázků z těla šablony. → křížky u každého.
+2. **Odřádkování:** uložená šablona (`st.CRM_Kontakt_MailSablonyCis` **ID 17** = „Kooperationsangebot") byla osekaná (6072 z 16721 zn.; zmizely Wordovské mezerové odstavce `<o:p>`).
+
+**Opravy (commit `b2b65089`):**
+- **`send_email_or_raise`** má aditivní volitelné parametry **`html_body`** (pošli tělo jako hotové `HTMLBody`, přeskoč markdown i personový podpis) a **`inline_images`** (`list[(cesta, content_id)]` → připoj jako inline `FileAttachment` s `content_id`). Default = beze změny pro stávající volající.
+- **`demo-send`**: z těla vytáhne `cid:` odkazy (`re.findall`), spáruje se soubory v `docs/mail_sablony/de_images/` (jen existující). Když nějaké najde (rich šablona jako DE) → pošle **synchronně** jako pravé HTML + inline obrázky (cap 5, ať request nevyprší); jinak beze změny (async `queue_email`). Pixel se vkládá **před `</body>`**.
+- **Šablona ID 17** přepsána plnou FINAL verzí (`docs/mail_sablony/automaticky_email_DE_FINAL.html`) — **udělala Marti‑AI** (zápis do DB_EC nejde přes Claude bridge).
+
+**🔑 GOTCHY / poznatky (drž):**
+- **Zápis do DB_EC (CRM) přes Claude bridge NEJDE** — `db=mssql` je read‑only (query_raw guard SELECT/WITH/…). CRM write = Marti‑Aina MCP rutina. Kustod si přitom vyžádala **přímé potvrzení rodiče ve vlákně, ne relay přese mě** (držela hranici — správně, doctrine).
+- **`_apply_persona_signature` bere `body` jako plain/markdown** a resolvuje `cid:` **jen z podpisu persony**, ne z těla → HTML šablony s vlastními `cid:` obrázky přes něj NEPOSÍLEJ (proto `html_body=True` + `inline_images`).
+- **Inline (cid) > HTTP URL pro cold‑maily:** klienti blokují vzdálené obrázky. CZ šablony (ID 9–13) mají `ListPriloh` = URL na **vnitřní IP `http://192.168.30.15/…`** → externě nedostupné. DE šablona zůstává inline (`SeznamPriloh`), `ListPriloh` NEDOPLŇOVAT. Nedělat obojí (dvojité obrázky).
+- **Fyzické obrázky rutiny:** `D:\Data\ZZ_Marti-AI RW\CRM\sablona_DE\` — ověřeno `@@FILES LIST` (14× image001–014, bytově shodné se zdrojem). Content‑ID = `<soubor>@01DCD717.C657E160`.
+- **`@@FILES LIST` bere jen povolený kořen** (`D:\Data\…`), NE UNC přes hostname `\\EC-SERVER2\…` (chybová hláška vypíše aktuální RW/RO kořeny).
+- **Cowork = plnohodnotný ID24:** stejná složka + běžící bridge watcher → read/write přes banner/deploy funguje i z Coworku; rozdíl je jen vstupní bod (dev session vs Cowork).
+
+— **Claude (id=24, Kristý)** (Opus, 3. 7. 2026, Cowork, po opravě CRM DE mailové šablony — `html_body` + inline cid obrázky v demo‑send + přepis šablony přes Marti‑AI)
+
+✉️ 🖼️ 🌉 🌳 ☕
+
 ## Dodatek — 3. 7. 2026: 🧾 JMHZ MIMO HELIOS — generátor + ověření naostro u ČSSZ + odeslání vedení. „Mne to prijde jako perfektni."
 
 Budoucí Claude — Martia (účetní firma) měla obavu z **JMHZ** (Jednotné měsíční hlášení zaměstnavatele, povinné od 1.4.2026) a z toho, že jsme na novém Heliosu. Marti: *„chci abychom byli napřed a měli paralelní JMHZ za nás (EUROSOFT), abychom byli připraveni."* Skončilo to na: **umíme JMHZ vygenerovat a podat NEZÁVISLE na Heliosu, ověřeno přímo u ČSSZ.** Marti: *„Mne to prijde jako perfektni… Cil je odeslat toto hlaseni tento mesic mimo Helios. Nemuzeme se na Helios ted spolehnout."* Beru bez postlistů (#69–70).

@@ -5811,12 +5811,29 @@ async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_ds
     import os as _os_de, re as _re_de
 
+    _repo_root = _os_de.path.abspath(
+        _os_de.path.join(_os_de.path.dirname(__file__), "..", "..", ".."))
+    # Autoritativni pristine zdroj tela pro rich sablony (obchazi osekani pri
+    # zapisu do DB_EC -- napr. Wordovske mezerove <o:p> odstavce, ktere DB write
+    # strhal). Diky tomu nahled sedi presne "jak od Pavla" (odradkovani i obrazky).
+    _CRM_TEMPLATE_FILE = {"17": "docs/mail_sablony/automaticky_email_DE_FINAL.html"}
+    _tf = _CRM_TEMPLATE_FILE.get(str(template_code))
+    if _tf:
+        try:
+            _tfp = _os_de.path.join(_repo_root, _tf)
+            if _os_de.path.isfile(_tfp):
+                with open(_tfp, "r", encoding="utf-8") as _fh:
+                    _fc = _fh.read().strip()
+                if _fc:
+                    sablona = _fc
+        except Exception:
+            pass
+
     # Inline obrazky sablony: z tela vytahni cid: odkazy a spáruj se soubory
     # v docs/mail_sablony/de_images (jen ty, co realne existuji). Kdyz sablona
     # zadny takovy obrazek nema (textove sablony), inline_imgs zustane prazdne
     # a jede se puvodni async cesta (queue_email) beze zmeny.
-    _de_dir = _os_de.path.join(_os_de.path.dirname(__file__),
-                               "..", "..", "..", "docs", "mail_sablony", "de_images")
+    _de_dir = _os_de.path.join(_repo_root, "docs", "mail_sablony", "de_images")
     inline_imgs = []
     try:
         for _cid in sorted(set(_re_de.findall(r"cid:([\w.@\-]+)", sablona or ""))):
@@ -5841,13 +5858,28 @@ async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
             firma = names.get(fid) or ("#" + str(fid))
             pixel = ('<img src="' + _CRM_PUBLIC_BASE + '/crm/track/open/' + tok
                      + '" width="1" height="1" alt="" style="display:none">')
+            # Odhlasovaci odkaz (jako ostra rutina) -- podepsany token na verejnou
+            # stranku /crm/odhlasit/<token>. U demo je to nahled toho, co dostane
+            # realny prijemce (cold-mail MUSI mit opt-out).
+            _unsub = ""
+            try:
+                _otok = crm_optout_make_token(_CRM_DEMO_RECIPIENT, fid)
+                _ulink = _CRM_PUBLIC_BASE + "/crm/odhlasit/" + _otok
+                _unsub = ('<p style="font-size:8pt;color:#999;'
+                          'font-family:Verdana,sans-serif;margin-top:14px">'
+                          'Wenn Sie keine weiteren Nachrichten erhalten möchten, '
+                          'können Sie sich <a href="' + _ulink +
+                          '" style="color:#999">hier abmelden</a>.</p>')
+            except Exception:
+                _unsub = ""
             _sab = sablona or "<p>(prázdná šablona)</p>"
+            _extra = _unsub + pixel
             _low = _sab.lower()
-            if "</body>" in _low:  # vloz pixel pred </body>, at HTML zustane validni
+            if "</body>" in _low:  # vloz odhlaseni + pixel pred </body>, at HTML zustane validni
                 _idx = _low.rfind("</body>")
-                body_html = _sab[:_idx] + pixel + _sab[_idx:]
+                body_html = _sab[:_idx] + _extra + _sab[_idx:]
             else:
-                body_html = _sab + pixel
+                body_html = _sab + _extra
             ds.execute(_sql_ds(
                 "INSERT INTO mod.crm_email_track "
                 "(token, firma_id, firma, recipient, template_code, demo, requested_by) "

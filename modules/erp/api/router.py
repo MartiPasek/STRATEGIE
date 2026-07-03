@@ -47616,6 +47616,10 @@ def _render_full_page(
        za base (window._erpTitleBase). -->
   <title>{title_tag_html}</title>
   <script>window._erpTitleBase = {title_base_js};</script>
+  <!-- AG Grid Enterprise licence (Claude-23 3.7.2026): nastaví window.AG_GRID_LICENSE_KEY
+       PŘED init gridů → ErpDataGrid zapne Enterprise (pravý-klik context menu = akce
+       jako Uklidit, set-filtry, export) bez vodoznaku. Klíč AG-134000. -->
+  <script src="/static/ag_license.js?v=20260703b"></script>
 
   <!-- B+9+++ (6.5.2026): PWA install — Add to Home Screen na mobilu
        → standalone mode bez URL bar / browser chrome.

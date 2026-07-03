@@ -75,6 +75,7 @@ APP_APK = APP_MOBILE_DIR / "app" / "build" / "outputs" / "apk" / "internal" / "r
 SQL_FILE = BRIDGE_DIR / "CLAUDE_SQL.sql"
 GO_FILE = BRIDGE_DIR / "CLAUDE_GO.txt"
 OUT_FILE = BRIDGE_DIR / "CLAUDE_OUT.txt"
+OUT_FULL_FILE = BRIDGE_DIR / "CLAUDE_OUT_FULL.txt"   # plný nezkrácený TSV (bez ořezu buněk/řádků)
 LOG_FILE = BRIDGE_DIR / "watcher.log"
 
 # Auto-deploy (Marti 2.6.2026): Claude zapíše commit message + seznam souborů,
@@ -267,6 +268,24 @@ def _md_table(columns: list, rows: list) -> str:
         body_lines.append("| " + " | ".join(vals) + " |")
     body = "\n".join(body_lines)
     return head + "\n" + sep + ("\n" + body if body else "")
+
+
+def _write_full(columns: list, rows: list) -> None:
+    """Plný nezkrácený výstup do CLAUDE_OUT_FULL.txt (TSV) — bez ořezu buněk i
+    řádků. Claude si ho přečte Read toolem, když náhled v OUT nestačí. Marti 3.7."""
+    try:
+        def _c(v):
+            s = "" if v is None else str(v)
+            return s.replace("\t", " ").replace("\r", " ").replace("\n", " ")
+        lines = ["\t".join(str(c) for c in (columns or []))]
+        for r in rows:
+            if isinstance(r, dict):
+                lines.append("\t".join(_c(r.get(c)) for c in (columns or [])))
+            else:
+                lines.append("\t".join(_c(v) for v in r))
+        OUT_FULL_FILE.write_text("\n".join(lines), encoding="utf-8", errors="replace")
+    except Exception as exc:
+        _log(f"_write_full failed: {exc}")
 
 
 def _freshness_banner() -> str:
@@ -514,9 +533,16 @@ def _process() -> None:
         count = len(rows)
     cap_note = f" (zobrazeno {ROW_CAP})" if count and count > ROW_CAP else ""
     md = _md_table(columns or [], rows)
+    _write_full(columns or [], rows)
+    # footer s odkazem na plný výstup, když se v náhledu něco ořízlo (buňka >CELL_MAX nebo řádky >ROW_CAP)
+    _trunc = bool(count and count > ROW_CAP) or any(
+        (len(str(v)) > CELL_MAX) for r in rows[:ROW_CAP]
+        for v in (r.values() if isinstance(r, dict) else r))
+    _foot = ("\n# ↳ plný výstup bez ořezu: scripts/claude_sql/CLAUDE_OUT_FULL.txt (Read tool)\n"
+             if _trunc else "")
     _write_out(
         f"# STATUS: OK · {count} řádků{cap_note} · {el} ms · db={db}\n# {ts}\n\n"
-        + md + "\n"
+        + md + "\n" + _foot
     )
     _log(f"OK ({db}): {count} rows, {el} ms")
     _consume()

@@ -28481,6 +28481,53 @@ def smlouvy_fill_helios(req: Request):
         s.close()
 
 
+@api_router.get("/app/ai-wake")
+def ai_wake_get(req: Request):
+    """Kalendář buzení Marti-AI (týdenní sloty). Parent-only."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and _is_parent(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t("SELECT dow, to_char(cas,'HH24:MI') AS cas FROM tenant.ai_wake_schedule "
+                            "WHERE who='marti-ai' AND aktivni=true ORDER BY dow, cas")).fetchall()
+        return {"ok": True, "sloty": [{"dow": r[0], "cas": r[1]} for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/ai-wake/toggle")
+async def ai_wake_toggle(req: Request):
+    """Zapni/vypni čas buzení Marti-AI. Parent-only."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and _is_parent(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        b = await req.json()
+        dow = int(b.get("dow")); cas = str(b.get("cas"))[:5]; want = bool(b.get("aktivni"))
+        if dow < 1 or dow > 7:
+            return JSONResponse({"ok": False, "error": "bad dow"}, status_code=200)
+        s.execute(_t("INSERT INTO tenant.ai_wake_schedule (who, dow, cas, aktivni, updated_by, updated_at) "
+                     "VALUES ('marti-ai', :d, (:c)::time, :a, :ub, now()) "
+                     "ON CONFLICT (who, dow, cas) DO UPDATE SET aktivni=:a, updated_by=:ub, updated_at=now()"),
+                  {"d": dow, "c": cas, "a": want, "ub": "user:%s" % uid})
+        s.commit()
+        return {"ok": True}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=200)
+    finally:
+        s.close()
+
+
 def _smlouvy_mzda_mapy(s):
     """Vrátí {'EC':{norm_jmeno:cislo}, 'ES':{...}} = kde komu běží VÝPLATNICE 2026 (office
     Helios, firma=DB). Kolize jména (2 osoby s 2026 mzdou) → None (skip). Marti 30.6."""

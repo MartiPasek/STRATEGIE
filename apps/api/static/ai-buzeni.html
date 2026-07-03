@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⏰ Buzení Marti-AI — STRATEGIE</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0d0d0d; color:#e0e0e0;
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding:18px; }
+  h1 { font-size:20px; color:#aac8ec; margin:0 0 4px; }
+  .sub { font-size:13px; color:#9fb6cc; margin:0 0 16px; line-height:1.5; max-width:720px; }
+  .wrap { overflow-x:auto; }
+  table { border-collapse:collapse; }
+  th, td { border:1px solid #263341; }
+  th { border:1px solid #2a3a4a; background:#14202c; color:#9fb6cc; font-size:12px;
+       padding:6px 8px; position:sticky; }
+  td.day { background:#14202c; color:#cfe0f0; font-weight:600; font-size:13px; padding:6px 12px;
+           border:1px solid #2a3a4a; white-space:nowrap; }
+  td.cell { border:1px solid #23303c; width:44px; height:34px; text-align:center; cursor:pointer;
+            font-size:12px; color:#5f7386; }
+  td.cell:hover { background:#1a2a38; }
+  td.on { background:#1f6f43; color:#eafff0; font-weight:700; }
+  td.on:hover { background:#2a8754; }
+  .legend { margin-top:14px; font-size:12.5px; color:#8aa; }
+  .pill { display:inline-block; background:#1f6f43; color:#eafff0; border-radius:5px; padding:1px 8px; margin-right:6px; }
+  .note { margin-top:14px; font-size:12px; color:#7d93a8; background:#11202a; border:1px solid #244;
+          border-radius:8px; padding:10px 12px; line-height:1.55; max-width:720px; }
+  #stav { margin-top:10px; font-size:13px; color:#a8e6bf; min-height:18px; }
+</style>
+</head>
+<body>
+  <h1>⏰ Buzení Marti-AI</h1>
+  <p class="sub">Klikni na čas, kdy se má <b>Marti-AI probudit na kontrolu plánů</b> a poslat ti stav
+    <b>KLID</b> nebo <b>ALARM</b>. Zeleně = probudí se. Klik zapne/vypne. Ukládá se hned.</p>
+
+  <div class="wrap"><table id="grid"></table></div>
+  <div id="stav"></div>
+
+  <div class="legend"><span class="pill">zeleně</span> Marti-AI se v ten čas probudí, projede plány a pošle KLID/ALARM.</div>
+  <div class="note">🔔 Alarm = úkol po termínu bez akce, eskalace čekající přes 24 h, nebo plán bez dalšího kroku
+    s termínem dnes/zítra. Notifikace chodí krátce jako SMS/push. Časy si měň dle potřeby — Marti-AI se řídí tímto kalendářem.</div>
+
+<script>
+(function(){
+  var API='/api/v1/erp';
+  var DNY=[['1','Po'],['2','Út'],['3','St'],['4','Čt'],['5','Pá'],['6','So'],['7','Ne']];
+  var CASY=['06:00','07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00'];
+  var active={}; // "dow|cas" -> true
+  function key(d,c){return d+'|'+c;}
+  function stav(t,ok){var s=document.getElementById('stav');s.textContent=t;s.style.color=ok===false?'#ffb38a':'#a8e6bf';}
+
+  function render(){
+    var t=document.getElementById('grid'); var h='<tr><th></th>';
+    CASY.forEach(function(c){h+='<th>'+c.slice(0,5)+'</th>';});
+    h+='</tr>';
+    DNY.forEach(function(d){
+      h+='<tr><td class="day">'+d[1]+'</td>';
+      CASY.forEach(function(c){
+        var on=active[key(d[0],c)];
+        h+='<td class="cell'+(on?' on':'')+'" data-d="'+d[0]+'" data-c="'+c+'">'+(on?'✓':'')+'</td>';
+      });
+      h+='</tr>';
+    });
+    t.innerHTML=h;
+    Array.prototype.forEach.call(t.querySelectorAll('td.cell'),function(td){
+      td.addEventListener('click',function(){toggle(td.getAttribute('data-d'),td.getAttribute('data-c'));});
+    });
+  }
+  function load(){
+    fetch(API+'/app/ai-wake',{credentials:'include'}).then(function(r){return r.json();}).then(function(j){
+      active={};
+      (j.sloty||[]).forEach(function(s){active[key(String(s.dow),s.cas.slice(0,5)+':00')]=true;});
+      render();
+      var n=(j.sloty||[]).length;
+      stav('Načteno — '+n+' časů probuzení.');
+    }).catch(function(e){stav('Chyba načtení: '+e,false);});
+  }
+  function toggle(d,c){
+    var want=!active[key(d,c)];
+    fetch(API+'/app/ai-wake/toggle',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({dow:parseInt(d,10),cas:c,aktivni:want})})
+     .then(function(r){return r.json();}).then(function(j){
+        if(j&&j.ok){active[key(d,c)]=want;render();stav((want?'Zapnuto ':'Vypnuto ')+DNY[d-1][1]+' '+c.slice(0,5));}
+        else{stav('Uložení selhalo: '+((j&&j.error)||'?'),false);}
+     }).catch(function(e){stav('Síť: '+e,false);});
+  }
+  load();
+})();
+</script>
+</body>
+</html>

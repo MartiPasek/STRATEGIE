@@ -924,6 +924,15 @@ def connect_mailbox_page_alias():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/ai-buzeni")
+def ai_buzeni_page():
+    """Týdenní kalendář buzení Marti-AI (kdy se probudí na kontrolu plánů → KLID/ALARM).
+    Parent-only přes API /api/v1/erp/app/ai-wake. Claude ID23 3.7.2026."""
+    return FileResponse(os.path.join(static_dir, "ai-buzeni.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/podpisy")
 def podpisy_page():
     """Interní správa e-podpisu smluv (finanční/HR okruh). Marti 1.7.2026."""

@@ -842,7 +842,19 @@ def export_tisax_to_ro(limit: int = 12, offset: int = 0) -> dict:
     mcp = get_eurosoft_mcp_client()
     if mcp is None:
         return {"ok": False, "error": "EUROSOFT MCP nedostupný"}
-    root = os.path.normpath(_DOC_STORE_ROOT)
+    # skutečný root úložiště: storage_path v DB má disk D:, ale na cloudu je C: →
+    # zkus víc kandidátů a vyber existující
+    _cands = [_DOC_STORE_ROOT, r"C:\Data\STRATEGIE\Dokumenty", r"D:\Data\STRATEGIE\Dokumenty"]
+    real_root = next((c for c in _cands if os.path.isdir(c)), _DOC_STORE_ROOT)
+    root = os.path.normpath(real_root)
+
+    def _remap(sp: str) -> str:
+        # vezmi část cesty za '...Dokumenty' a přilep na skutečný root (přemapuje disk)
+        s = (sp or "").replace("/", "\\")
+        i = s.lower().rfind("dokumenty")
+        tail = s[i + len("dokumenty"):].lstrip("\\/") if i >= 0 else os.path.basename(s)
+        return os.path.normpath(os.path.join(root, tail))
+
     sd = get_data_session()
     okc = errc = 0
     rows_out: list = []
@@ -879,7 +891,7 @@ def export_tisax_to_ro(limit: int = 12, offset: int = 0) -> dict:
         for d in docs:
             rel = (d["name"] or "").replace("\\", "/").lstrip("/")
             try:
-                full = os.path.normpath(d["storage_path"] or "")
+                full = _remap(d["storage_path"] or "")
                 if not full.startswith(root) or not os.path.isfile(full):
                     raise RuntimeError("zdroj chybí")
                 with open(full, "rb") as fh:

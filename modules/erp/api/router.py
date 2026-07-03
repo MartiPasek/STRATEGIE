@@ -33828,6 +33828,21 @@ async def diag_sql(req: Request) -> JSONResponse:
                                  "rows": [["%s: %s" % (type(_me).__name__, str(_me)[:200]), _tbms.format_exc()[-400:]]],
                                  "count": 1})
 
+    #   @@MAILTREE <uid>  → postaví soudeček <osoba> → Email → 4 přehledy pod VP (klon fw řetězce)
+    if sql.upper().startswith("@@MAILTREE"):
+        import traceback as _tbmt
+        try:
+            _mt = sql[len("@@MAILTREE"):].split()
+            if not _mt or not _mt[0].isdigit():
+                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MAILTREE <uid>"]], "count": 1})
+            from modules.erp.api.mail_mirror import build_mail_tree as _bmt
+            _rv = _bmt(int(_mt[0]))
+            return JSONResponse({"ok": True, "columns": ["vysledek"], "rows": [[str(_rv)[:800]]], "count": 1})
+        except Exception as _mte:
+            return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
+                                 "rows": [["%s: %s" % (type(_mte).__name__, str(_mte)[:200]), _tbmt.format_exc()[-500:]]],
+                                 "count": 1})
+
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):

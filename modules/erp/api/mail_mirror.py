@@ -168,3 +168,135 @@ def sync_user_bg(uid: int, limit: int = 300, with_attachments: bool = True, tena
     """Spustí sync na pozadí (kvůli 30s timeoutu mostu)."""
     threading.Thread(target=lambda: sync_user(uid, limit=limit,
                      with_attachments=with_attachments, tenant_id=tenant_id), daemon=True).start()
+
+
+# ─── FW strom: soudeček Email + 4 přehledy nad zrcadlem (klon z existujícího přehledu) ───
+
+TEMPLATE_CORE_ID = 139   # 📥 Poptávky (VP) = vzor pro klon fw řetězce
+VP_NODE_ID = 119         # 📁 VP — Vedení projektů
+
+
+def _table_cols(s, table):
+    return [r[0] for r in s.execute(text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema='fw' AND table_name=:t ORDER BY ordinal_position"),
+        {"t": table}).fetchall()]
+
+
+def _clone_row(s, table, src_id, overrides):
+    """Naklonuje fw řádek (INSERT ... SELECT, schema-agnostic). overrides pro
+    sloupce, které v tabulce neexistují, se ignorují. Vrací nové id."""
+    cols = _table_cols(s, table)
+    skip = {"id", "created_at", "updated_at"}
+    use = [c for c in cols if c not in skip]
+    ov = {k: v for k, v in overrides.items() if k in use}
+    sel, params = [], {}
+    for c in use:
+        if c in ov:
+            params["v_" + c] = ov[c]
+            sel.append(":v_" + c + " AS " + c)
+        else:
+            sel.append(c)
+    return s.execute(text(
+        "INSERT INTO fw." + table + " (" + ", ".join(use) + ") SELECT " + ", ".join(sel) +
+        " FROM fw." + table + " WHERE id=:sid RETURNING id"),
+        {**params, "sid": src_id}).scalar()
+
+
+def _mail_prehled_sql(uid, where_extra):
+    return (
+        "SELECT id, "
+        "to_char(datum,'DD.MM.YYYY HH24:MI') AS \"Datum\", "
+        "od_jmeno AS \"Od\", od_email AS \"E-mail\", "
+        "predmet AS \"Předmět\", "
+        "CASE WHEN ma_prilohy THEN '📎' ELSE '' END AS \"Příl.\", "
+        "left(telo_text, 300) AS \"Náhled\", "
+        "stav AS \"Stav\" "
+        "FROM tenant.mail_message WHERE tenant_id=2 AND user_id=%d AND %s "
+        "ORDER BY datum DESC NULLS LAST" % (int(uid), where_extra))
+
+
+def build_mail_tree(uid: int, tenant_id: int = 2) -> dict:
+    """Postaví (idempotentně) soudeček <jméno> → Email → 4 přehledy pod VP.
+    Přehledy = klon fw řetězce z TEMPLATE_CORE_ID, sql nad tenant.mail_message.
+    visibility_scope=NULL (rodiče vidí hned) + visibility_user_ids=[uid]."""
+    prehledy = [
+        ("dorucene", "📥 Doručené", "slozka='dorucene' AND stav='nove'", 10),
+        ("zpracovane", "✅ Zpracované", "slozka='dorucene' AND stav='zpracovane'", 20),
+        ("odeslane", "📤 Odeslané", "slozka='odeslane'", 30),
+        ("koncepty", "📝 Koncepty", "slozka='koncepty'", 40),
+    ]
+    s = get_data_session()
+    created = []
+    try:
+        # jméno uživatele pro label soudečku
+        nm = s.execute(text("SELECT COALESCE(first_name||' '||last_name, 'Uživatel '||id) "
+                            "FROM public.users WHERE id=:i"), {"i": uid}).scalar() or ("Uživatel %s" % uid)
+
+        # 1) soudeček osoby pod VP
+        person_label = "👤 " + nm
+        pid = s.execute(text("SELECT id FROM fw.menu_node WHERE parent_id=:p AND label=:l"),
+                        {"p": VP_NODE_ID, "l": person_label}).scalar()
+        if not pid:
+            pid = s.execute(text(
+                "INSERT INTO fw.menu_node (label,parent_id,sort_order,status,visibility_scope,"
+                "visibility_user_ids,created_by_text,updated_by_text) "
+                "VALUES (:l,:p,:so,'active',NULL,:vu,'claude-23','claude-23') RETURNING id"),
+                {"l": person_label, "p": VP_NODE_ID, "so": 500 + uid, "vu": [uid]}).scalar()
+            created.append("soudecek %s" % person_label)
+
+        # 2) soudeček Email pod osobou
+        eid = s.execute(text("SELECT id FROM fw.menu_node WHERE parent_id=:p AND label=:l"),
+                        {"p": pid, "l": "✉️ Email"}).scalar()
+        if not eid:
+            eid = s.execute(text(
+                "INSERT INTO fw.menu_node (label,parent_id,sort_order,status,visibility_scope,"
+                "visibility_user_ids,created_by_text,updated_by_text) "
+                "VALUES ('✉️ Email',:p,10,'active',NULL,:vu,'claude-23','claude-23') RETURNING id"),
+                {"p": pid, "vu": [uid]}).scalar()
+            created.append("soudecek Email")
+
+        # 3) template řetězec
+        tcode = s.execute(text("SELECT code FROM fw.core WHERE id=:i"), {"i": TEMPLATE_CORE_ID}).scalar()
+        t_ds = s.execute(text("SELECT id FROM fw.data_source WHERE code=:c ORDER BY id LIMIT 1"),
+                         {"c": tcode}).fetchone()
+        if not t_ds:
+            return {"ok": False, "error": "template data_source pro core %s nenalezen" % TEMPLATE_CORE_ID}
+        t_ds_id = t_ds[0]
+        t_ops = s.execute(text("SELECT id, data_set_id, operation_kind FROM fw.data_source_op "
+                               "WHERE data_source_id=:d"), {"d": t_ds_id}).fetchall()
+        t_sel_op = next((o for o in t_ops if o[2] == 'select'), (t_ops[0] if t_ops else None))
+        t_cd = s.execute(text("SELECT id FROM fw.comp_def WHERE core_id=:c ORDER BY id LIMIT 1"),
+                         {"c": TEMPLATE_CORE_ID}).fetchone()
+
+        for key, label, where_extra, so in prehledy:
+            code = "mail_%s_%d" % (key, uid)
+            # už existuje?
+            if s.execute(text("SELECT 1 FROM fw.core WHERE code=:c"), {"c": code}).fetchone():
+                continue
+            new_sql = _mail_prehled_sql(uid, where_extra)
+            # data_set (klon select data_setu template + náš sql)
+            new_dset = _clone_row(s, "data_set", t_sel_op[1],
+                                  {"code": code, "sql_text": new_sql, "description": label})
+            # data_source
+            new_ds = _clone_row(s, "data_source", t_ds_id, {"code": code, "name": label})
+            # data_source_op (klon select op → nové ds + dset)
+            _clone_row(s, "data_source_op", t_sel_op[0],
+                       {"data_source_id": new_ds, "data_set_id": new_dset})
+            # core
+            new_core = _clone_row(s, "core", TEMPLATE_CORE_ID, {"code": code, "label": label})
+            # comp_def (root grid → nové core + data_source)
+            if t_cd:
+                _clone_row(s, "comp_def", t_cd[0], {"core_id": new_core, "data_source_id": new_ds})
+            # menu_node pod Email
+            s.execute(text(
+                "INSERT INTO fw.menu_node (label,parent_id,sort_order,status,visibility_scope,"
+                "visibility_user_ids,core_id,created_by_text,updated_by_text) "
+                "VALUES (:l,:p,:so,'active',NULL,:vu,:c,'claude-23','claude-23')"),
+                {"l": label, "p": eid, "so": so, "vu": [uid], "c": new_core})
+            created.append(label)
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True, "user_id": uid, "vytvoreno": created,
+            "person_node": pid, "email_node": eid}

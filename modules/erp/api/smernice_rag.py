@@ -780,8 +780,30 @@ def ingest_bozp_rag(limit: int = 20, only_oblast: str | None = None, redo: bool 
             try:
                 rd = _fs_read_ro(cesta)
                 if not rd.get("ok"):
+                    # čtení selhalo (typicky >50 MB cap nebo chybějící soubor) →
+                    # zaregistruj aspoň metadata-stub (dohledatelný názvem, neblokuje dávku)
+                    _rerr = str(rd.get("error") or "")[:180]
+                    popis = "%s / %s — %s%s [soubor nečten: %s]" % (
+                        oblast, kat or "-", nazev,
+                        (" (verze %s)" % verze) if verze else "", _rerr)
+                    sd.execute(_t("DELETE FROM tenant.kb_smernice_soubor WHERE ec_smernice_id=:e"), {"e": ec_id})
+                    sd.execute(_t("DELETE FROM tenant.kb_smernice WHERE ec_id=:e"), {"e": ec_id})
+                    sd.execute(_t(
+                        "INSERT INTO tenant.kb_smernice (ec_id, nazev, typ_text, kategorie, popis_text, "
+                        "status_text, archiv, pristupnost_text, autor, files_synced_at) VALUES "
+                        "(:e,:n,:typ,:kat,:p,'Aktivní',0,'Vedoucí',:aut,now())"),
+                        {"e": ec_id, "n": nazev, "typ": oblast, "kat": oblast, "p": popis,
+                         "aut": "BOZP/PO TISAX (%s)" % (tref or "Míša")})
+                    sd.execute(_t(
+                        "INSERT INTO tenant.kb_smernice_soubor (ec_smernice_id, nazev_souboru, pripona, "
+                        "cesta, text_extract, extract_ok, extract_err, extracted_at) VALUES "
+                        "(:e,:n,:pr,:cesta,NULL,false,:err,now())"),
+                        {"e": ec_id, "n": fname,
+                         "pr": (fname.rsplit(".", 1)[-1].lower()[:8] if "." in fname else ""),
+                         "cesta": cesta, "err": _rerr})
+                    sd.commit()
                     errc += 1
-                    rows_out.append([nazev, "čtení selhalo: " + str(rd.get("error"))[:60]])
+                    rows_out.append([nazev, "stub (nečten): " + _rerr[:50]])
                     continue
                 data = _b64.b64decode(rd.get("content") or "")
                 txt, ok, err = _extract_text(fname, data)

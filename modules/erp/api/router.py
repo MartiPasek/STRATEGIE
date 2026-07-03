@@ -33634,6 +33634,7 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MBTEST <uid> [username_override]"]], "count": 1})
             _muid = int(_mp[0])
             _uover = _mp[1] if len(_mp) > 1 else None
+            _smtpover = _mp[2] if len(_mp) > 2 else None
             from sqlalchemy import text as _tmb
             from core.database_data import get_data_session as _gdmb
             _sm = _gdmb()
@@ -33647,7 +33648,7 @@ async def diag_sql(req: Request) -> JSONResponse:
                                      "rows": [["schránka není napojená (chybí login nebo heslo)"]], "count": 1})
             from core.crypto import decrypt as _decmb
             _pw = _decmb(_r[1])
-            _smtp = (_r[3] or _r[0])   # adresa schránky = display, fallback login
+            _smtp = (_smtpover or _r[3] or _r[0])   # adresa schránky = override/display/login
             import urllib3 as _u3mb
             _u3mb.disable_warnings()
             from exchangelib import Credentials as _Cr, Account as _Ac, Configuration as _Cf, DELEGATE as _DG

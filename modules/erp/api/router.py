@@ -22287,6 +22287,7 @@ def _mirror_run_job(job_key):
         "mirror_att_to_ec_test": lambda: _mirror_att_to_ec(test_one=True),
         "mirror_att_to_ec_dry": lambda: _mirror_att_to_ec(dry=True),
         "sync_ec_dochazka_sumaden": lambda: _sync_dochazka_sumaden(),
+        "sync_sumaden_2026_05": lambda: _sync_dochazka_sumaden(2026, 5),
         "sync_ec_doklady": lambda: _sync_ec_doklady_zbozi(cap_per_table=300000),
         "sync_ec_kalkulace": lambda: _sync_ec_kalkulace(),
         "sync_ec_ukoly": lambda: _sync_ec_ukoly(),
@@ -37627,7 +37628,7 @@ def _sync_plan_to_dochazka(rok: int = None) -> dict:
         s.close()
 
 
-def _sync_dochazka_sumaden(year: int = 2026) -> dict:
+def _sync_dochazka_sumaden(year: int = 2026, month=None) -> dict:
     """Marti 18.6.2026 — mzdové podklady: denní souhrn docházky z Centrály.
     EC_Dochazka_SumaDen (per osoba × den: FPD, odpracováno montáž/režie/přesčas,
     absence dovolená/nemoc/sickday/OČR/lékař/náhr.volno/nař.volno/absence, chybí/pauza,
@@ -37647,7 +37648,8 @@ def _sync_dochazka_sumaden(year: int = 2026) -> dict:
            "CasNahradniVolno nahr, CasNarizenoVolno nariz, CasAbsence absc, "
            "CasMaterska mat, CasPrekazkaVPraci prek, "
            "CasChybi chybi, CasPauza pauza, CAST(ISNULL(Uzavreno,0) AS int) uz "
-           "FROM EC_Dochazka_SumaDen WHERE DatumPripadu_Y = " + str(int(year)))
+           "FROM EC_Dochazka_SumaDen WHERE DatumPripadu_Y = " + str(int(year))
+           + ((" AND DatumPripadu_M = " + str(int(month))) if month else ""))
     raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
                              {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
     r = _j.loads(raw) if isinstance(raw, str) else raw
@@ -37672,6 +37674,12 @@ def _sync_dochazka_sumaden(year: int = 2026) -> dict:
     s = cm.__enter__()
     n = 0
     try:
+        # Scoped refresh (Marti 3.7.2026): jen daný měsíc = smaž celý měsíc PŘED upsertem,
+        # ať zmizí i staré nafouknuté dny navíc (fond-fill), co Helios SumaDen nemá.
+        # att_day_summary daného měsíce = čistá 1:1 pravda Heliosu. (červen NESAHAT — mzdy.)
+        if month:
+            s.execute(_t("DELETE FROM tenant.att_day_summary WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
+                      {"y": int(year), "m": int(month)})
         umap = {}
         for er in s.execute(_t("SELECT cislo_zam, max(user_id) FROM tenant.att_employee "
                                "WHERE tenant_id=2 AND cislo_zam IS NOT NULL GROUP BY cislo_zam")).fetchall():

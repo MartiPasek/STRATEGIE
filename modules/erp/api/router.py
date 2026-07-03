@@ -28528,6 +28528,29 @@ async def ai_wake_toggle(req: Request):
         s.close()
 
 
+@api_router.get("/app/ai-uspora")
+def ai_uspora_get(req: Request):
+    """Souhrn úspor AI (log práce). Parent-only."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and _is_parent(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        tot = s.execute(_t("SELECT COALESCE(sum(uspora_kc),0), COALESCE(round(sum(human_min)/60.0,1),0), count(*) FROM tenant.ai_work_log")).fetchone()
+        dnes = s.execute(_t("SELECT COALESCE(sum(uspora_kc),0), count(*) FROM tenant.ai_work_log WHERE den=CURRENT_DATE")).fetchone()
+        dny = s.execute(_t("SELECT to_char(den,'DD.MM.') d, akci, lidskych_hodin, uspora_kc, kumulativne_kc FROM tenant.ai_uspora_souhrn ORDER BY den DESC LIMIT 30")).fetchall()
+        log = s.execute(_t("SELECT to_char(den,'DD.MM.') d, actor, akce, uspora_kc FROM tenant.ai_work_log ORDER BY ts DESC LIMIT 40")).fetchall()
+        return {"ok": True,
+                "celkem_kc": int(tot[0] or 0), "celkem_hod": float(tot[1] or 0), "celkem_akci": tot[2],
+                "dnes_kc": int(dnes[0] or 0), "dnes_akci": dnes[1],
+                "dny": [{"den": r[0], "akci": r[1], "hod": float(r[2] or 0), "kc": int(r[3] or 0), "kum": int(r[4] or 0)} for r in dny],
+                "log": [{"den": r[0], "actor": r[1], "akce": r[2], "kc": int(r[3] or 0)} for r in log]}
+    finally:
+        s.close()
+
+
 def _smlouvy_mzda_mapy(s):
     """Vrátí {'EC':{norm_jmeno:cislo}, 'ES':{...}} = kde komu běží VÝPLATNICE 2026 (office
     Helios, firma=DB). Kolize jména (2 osoby s 2026 mzdou) → None (skip). Marti 30.6."""

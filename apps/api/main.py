@@ -924,6 +924,14 @@ def connect_mailbox_page_alias():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/ai-uspora")
+def ai_uspora_page():
+    """Souhrn úspor AI (co AI udělala a ušetřila). Parent-only přes API. Claude ID23 3.7.2026."""
+    return FileResponse(os.path.join(static_dir, "ai-uspora.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/ai-buzeni")
 def ai_buzeni_page():
     """Týdenní kalendář buzení Marti-AI (kdy se probudí na kontrolu plánů → KLID/ALARM).

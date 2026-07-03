@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>💰 Co AI ušetřila — STRATEGIE</title>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0d0d0d; color:#e0e0e0;
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding:16px; }
+  h1 { font-size:19px; color:#aac8ec; margin:0 0 12px; }
+  .big { background:linear-gradient(135deg,#123322,#0f2a1c); border:1px solid #2c6e3f; border-radius:16px;
+         padding:18px; text-align:center; margin-bottom:14px; }
+  .big .kc { font-size:34px; font-weight:800; color:#7dffb0; }
+  .big .lb { font-size:12.5px; color:#9fd8b6; margin-top:2px; }
+  .row2 { display:flex; gap:10px; margin-bottom:16px; }
+  .card { flex:1; background:#141b17; border:1px solid #244; border-radius:12px; padding:12px; text-align:center; }
+  .card .n { font-size:20px; font-weight:700; color:#cfe0f0; } .card .l { font-size:11.5px; color:#8aa; margin-top:2px; }
+  h2 { font-size:13px; color:#9fb6cc; margin:16px 0 8px; text-transform:uppercase; letter-spacing:.04em; }
+  .item { border-bottom:1px solid #1e2830; padding:9px 2px; display:flex; justify-content:space-between; gap:10px; }
+  .item .a { font-size:13px; color:#dfe8f0; } .item .m { font-size:12.5px; color:#7dffb0; white-space:nowrap; font-weight:600; }
+  .item .d { font-size:11px; color:#6f8296; }
+  .note { margin-top:16px; font-size:11.5px; color:#7d93a8; line-height:1.5; }
+</style>
+</head>
+<body>
+  <h1>💰 Co AI udělala a ušetřila</h1>
+  <div class="big"><div class="kc" id="celkem">…</div><div class="lb">celková úspora AI proti lidské práci</div></div>
+  <div class="row2">
+    <div class="card"><div class="n" id="dnes">…</div><div class="l">dnes (Kč)</div></div>
+    <div class="card"><div class="n" id="hod">…</div><div class="l">lidských hodin</div></div>
+    <div class="card"><div class="n" id="akci">…</div><div class="l">úkonů AI</div></div>
+  </div>
+  <h2>Po dnech</h2><div id="dny"></div>
+  <h2>Poslední úkony</h2><div id="log"></div>
+  <div class="note">Odhad lidského ekvivalentu × sazba dle typu práce (analytik/vývojář/architekt). Konzervativní, obhajitelné. Aktualizuje se s každou akcí AI týmu (Claude‑23/24, Marti‑AI).</div>
+<script>
+(function(){
+  function fmt(n){ return (n||0).toLocaleString('cs-CZ')+' Kč'; }
+  function esc(t){ var d=document.createElement('div'); d.textContent=t||''; return d.innerHTML; }
+  fetch('/api/v1/erp/app/ai-uspora',{credentials:'include'}).then(function(r){return r.json();}).then(function(j){
+    if(!j||!j.ok){ document.getElementById('celkem').textContent='—'; return; }
+    document.getElementById('celkem').textContent=fmt(j.celkem_kc);
+    document.getElementById('dnes').textContent=(j.dnes_kc||0).toLocaleString('cs-CZ');
+    document.getElementById('hod').textContent=j.celkem_hod;
+    document.getElementById('akci').textContent=j.celkem_akci;
+    var dd=document.getElementById('dny');
+    (j.dny||[]).forEach(function(x){
+      dd.insertAdjacentHTML('beforeend','<div class="item"><div><div class="a">'+esc(x.den)+'</div><div class="d">'+x.akci+' úkonů · '+x.hod+' h · kumul. '+fmt(x.kum)+'</div></div><div class="m">'+fmt(x.kc)+'</div></div>');
+    });
+    var lg=document.getElementById('log');
+    (j.log||[]).forEach(function(x){
+      lg.insertAdjacentHTML('beforeend','<div class="item"><div><div class="a">'+esc(x.akce)+'</div><div class="d">'+esc(x.den)+' · '+esc(x.actor)+'</div></div><div class="m">'+fmt(x.kc)+'</div></div>');
+    });
+  }).catch(function(e){ document.getElementById('celkem').textContent='chyba'; });
+})();
+</script>
+</body>
+</html>

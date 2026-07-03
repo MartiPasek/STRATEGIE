@@ -705,6 +705,13 @@ async def eurosoft_dir_delete(
         return {"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}
 
 
+async def eurosoft_fs_ping(**_extra: Any) -> dict[str, Any]:
+    """Liveness/verze probe — potvrzuje, že běží aktuální filesystem_tools (test
+    bezobslužného self-update). Vrací budovu a počet fs toolů."""
+    return {"ok": True, "pong": True, "ver": "selfupdate-task-v1",
+            "namespaces": {k: bool(v) for k, v in _namespace_bases().items()}}
+
+
 FILESYSTEM_TOOL_SPECS = [
     {
         "name": "eurosoft_file_list",
@@ -901,6 +908,11 @@ FILESYSTEM_TOOL_SPECS.append({
         "recursive": {"type": "boolean", "description": "true = smaž i obsah (default false = jen prázdnou)."},
     }},
 })
+FILESYSTEM_TOOL_SPECS.append({
+    "name": "eurosoft_fs_ping",
+    "description": "Liveness/verze probe filesystem toolů (test self-update).",
+    "inputSchema": {"type": "object", "properties": {}},
+})
 
 
 FILESYSTEM_TOOL_HANDLERS = {
@@ -914,4 +926,5 @@ FILESYSTEM_TOOL_HANDLERS = {
     "eurosoft_dir_copy": eurosoft_dir_copy,
     "eurosoft_fs_reorg": eurosoft_fs_reorg,
     "eurosoft_dir_delete": eurosoft_dir_delete,
+    "eurosoft_fs_ping": eurosoft_fs_ping,
 }

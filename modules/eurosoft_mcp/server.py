@@ -350,33 +350,59 @@ async def self_update(request: Request):
         steps.append({"krok": "pull_only", "ok": True})
         return JSONResponse({"ok": True, "steps": steps,
                              "note": "Bez restartu — pull hotov, kód dosedne až příští restart služby."})
+    # FIX (Claude ID23, 3.7.2026): odpojený Popen je POTOMEK služby → NSSM ho při
+    #   Stop-Service zabije spolu s procesním stromem → copy+start nedoběhne (stará
+    #   verze zůstane). Řešení: restart spustit jako JEDNORÁZOVOU naplánovanou úlohu
+    #   pod SYSTEM — běží mimo job služby (Task Scheduler), přežije zastavení služby.
+    #   LocalSystem smí úlohu vytvořit i spustit. Fallback = původní detached Popen.
+    task_ps1 = os.path.join(repo, "scripts", "mcp", "mcp_selfupdate_restart.ps1")
+    tn = "EUROSOFT-MCP-SelfUpdate"
+    used = None
     try:
-        DETACHED = 0x00000008  # DETACHED_PROCESS (Windows)
-        _ps = (
-            f"Start-Sleep -Seconds 1; "
-            f"Stop-Service '{svc}' -Force -ErrorAction SilentlyContinue; "
-            # počkej, až služba REÁLNĚ přejde do Stopped (uvolní zámky .py), max 20 s:
-            f"$i=0; while(((Get-Service '{svc}').Status -ne 'Stopped') -and ($i -lt 40)){{Start-Sleep -Milliseconds 500; $i++}}; "
-            f"Start-Sleep -Seconds 2; "
-            # robustní copy: víc pokusů/čekání; /IS = přepiš i shodné (jistota nového obsahu):
-            f"robocopy '{src_dir}' '{pkg_dir}' *.py /NJH /NJS /NP /IS /R:8 /W:2 | Out-Null; "
-            f"Remove-Item -Recurse -Force '{pkg_dir}\\__pycache__' -ErrorAction SilentlyContinue; "
-            f"Start-Service '{svc}'"
-        )
-        _sp.Popen(
-            ["powershell", "-NoProfile", "-Command", _ps],
-            creationflags=DETACHED,
-            stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-        )
-        steps.append({"krok": "stop_copy_start", "sluzba": svc, "kdy": "+1 s (detached)"})
+        if os.path.isfile(task_ps1):
+            tr = ('powershell -NoProfile -ExecutionPolicy Bypass -File "%s" '
+                  '-Svc "%s" -Src "%s" -Pkg "%s"' % (task_ps1, svc, src_dir, pkg_dir))
+            c = _sp.run(["schtasks", "/create", "/tn", tn, "/tr", tr,
+                         "/sc", "once", "/st", "23:59", "/ru", "SYSTEM", "/rl", "HIGHEST", "/f"],
+                        capture_output=True, text=True, timeout=30)
+            rr = _sp.run(["schtasks", "/run", "/tn", tn],
+                         capture_output=True, text=True, timeout=30)
+            steps.append({"krok": "schtasks", "create_rc": c.returncode, "run_rc": rr.returncode,
+                          "out": (c.stdout + c.stderr + rr.stdout + rr.stderr).strip()[-500:]})
+            if rr.returncode == 0:
+                used = "schtasks"
+        if used is None:
+            # fallback: odpojený PowerShell + BREAKAWAY_FROM_JOB (pokus uniknout job killu)
+            DETACHED = 0x00000008
+            BREAKAWAY = 0x01000000
+            NEWGRP = 0x00000200
+            _ps = (
+                f"Start-Sleep -Seconds 1; "
+                f"Stop-Service '{svc}' -Force -ErrorAction SilentlyContinue; "
+                f"$i=0; while(((Get-Service '{svc}').Status -ne 'Stopped') -and ($i -lt 40)){{Start-Sleep -Milliseconds 500; $i++}}; "
+                f"Start-Sleep -Seconds 2; "
+                f"robocopy '{src_dir}' '{pkg_dir}' *.py /NJH /NJS /NP /IS /R:8 /W:2 | Out-Null; "
+                f"Remove-Item -Recurse -Force '{pkg_dir}\\__pycache__' -ErrorAction SilentlyContinue; "
+                f"Start-Service '{svc}'"
+            )
+            try:
+                _sp.Popen(["powershell", "-NoProfile", "-Command", _ps],
+                          creationflags=DETACHED | BREAKAWAY | NEWGRP,
+                          stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+            except Exception:
+                _sp.Popen(["powershell", "-NoProfile", "-Command", _ps],
+                          creationflags=DETACHED | NEWGRP,
+                          stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+            used = "detached"
+            steps.append({"krok": "stop_copy_start", "sluzba": svc, "kdy": "+1 s (detached fallback)"})
     except Exception as e:
-        steps.append({"krok": "stop_copy_start", "ok": False, "detail": str(e)})
+        steps.append({"krok": "restart", "ok": False, "detail": str(e)})
         return JSONResponse(
             {"ok": False, "error": "spawn_failed", "detail": str(e), "steps": steps},
             status_code=500,
         )
 
-    logger.info("Self-update: detached stop-copy-start naplánován (svc=%s)", svc)
+    logger.info("Self-update: restart naplánován (svc=%s, metoda=%s)", svc, used)
     return JSONResponse({
         "ok": True,
         "steps": steps,

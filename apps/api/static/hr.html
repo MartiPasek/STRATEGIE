@@ -40,6 +40,21 @@
   .panel .phd{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800;color:var(--title);margin:2px 0 18px}
   .panel .phd .pi{width:26px;height:26px;border-radius:50%;background:var(--ic-bg);color:var(--green-d);display:inline-flex;align-items:center;justify-content:center;font-size:14px}
   .panel .phd .cnt{font-size:13px;color:var(--muted);font-weight:600;margin-left:2px}
+  .panel .phd .jhint{font-size:11px;color:#aab2bd;font-weight:500;margin-left:auto}
+  .jrow{display:flex;gap:12px;align-items:center;padding:10px 12px;border-top:1px solid #f2f4f6;border-radius:9px;margin:2px 0}
+  .jrow:first-child{border-top:0}
+  .jic{flex:0 0 36px;height:36px;border-radius:9px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:18px}
+  .jbd{flex:1;min-width:0}
+  .jnm{font-weight:700;color:var(--title);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .jsub{font-size:12.5px;color:var(--muted);margin-top:1px}
+  .jbadge{font-size:10.5px;font-weight:800;letter-spacing:.3px;padding:1px 8px;border-radius:20px;background:#eef1f4;color:#66707d}
+  .j-major{background:linear-gradient(180deg,#fff7e0,#fffdf6);border:1px solid #f0d98a;padding:12px}
+  .j-major .jic{background:#fbe6a0}
+  .j-major .jnm{font-size:15px}
+  .j-major .jbadge{background:#e0a400;color:#fff}
+  .j-minor{background:#f7fafd;border:1px solid #e4ecf5;padding:11px 12px}
+  .j-minor .jic{background:#e9f1fb}
+  .j-minor .jbadge{background:#dbe7ff;color:#3a5a9c}
   .mrow{display:flex;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid #f2f4f6}
   .mrow:first-child{border-top:0}
   .mrow .mic{flex:0 0 34px;height:34px;border-radius:9px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:17px}
@@ -97,6 +112,11 @@
   </div>
 
   <div class="panel">
+    <div class="phd"><span class="pi">🎂</span> Narozeniny a výročí <span class="cnt" id="jubCnt"></span><span class="jhint">nejbližších 30 dní</span></div>
+    <div id="jubList"><div class="empty">Načítám…</div></div>
+  </div>
+
+  <div class="panel">
     <div class="phd"><span class="pi">▦</span> Personalistika — přehled</div>
     <div class="grid" id="grid"></div>
   </div>
@@ -146,6 +166,7 @@ function renderTiles(){
 async function load(){
   renderTiles();
   loadMimoPanel();
+  loadJubilea();
   const d=await j(API+"/app/hr/dashboard");
   const bEl=document.getElementById('badges'), aEl=document.getElementById('akt');
   if(!d.ok){
@@ -175,6 +196,21 @@ async function loadMimoPanel(){
   if(cnt)cnt.textContent='('+(d.pocet||0)+')';
   if(!d.lide||!d.lide.length){list.innerHTML='<div class="empty">Dnes jsou všichni v kanceláři. 🎉</div>';return;}
   list.innerHTML=mimoRows(d.lide);
+}
+function jubRow(jx){
+  let badge='';
+  if(jx.tier&&jx.tier!=='normal'){const bt=jx.kind==='vyroci'?(jx.roky+' LET'):(jx.roky+'. NAR.');badge='<span class="jbadge">'+esc(bt)+'</span>';}
+  const za=jx.za_dni===0?'dnes':(jx.za_dni===1?'zítra':('za '+jx.za_dni+' dní'));
+  return '<div class="jrow j-'+esc(jx.tier||'normal')+'"><span class="jic">'+esc(jx.ikona||'•')+'</span><div class="jbd"><div class="jnm">'+esc(jx.jmeno)+badge+'</div><div class="jsub">'+esc(jx.popis)+' · '+esc(jx.datum_cz)+' · '+za+'</div></div></div>';
+}
+async function loadJubilea(){
+  const list=document.getElementById('jubList'), cnt=document.getElementById('jubCnt');
+  if(!list)return;
+  const d=await j(API+"/app/hr/jubilea?days=30");
+  if(!d.ok){list.innerHTML='<div class="empty">Nemáš oprávnění nebo chyba: '+esc(d.error||'')+'</div>';return;}
+  if(cnt)cnt.textContent='('+(d.pocet||0)+')';
+  if(!d.jubilea||!d.jubilea.length){list.innerHTML='<div class="empty">V nejbližších 30 dnech žádná jubilea. 🎈</div>';return;}
+  list.innerHTML=d.jubilea.map(jubRow).join('');
 }
 async function openMimo(){
   const m=document.getElementById('modal'); m.classList.add('on');

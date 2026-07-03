@@ -7687,6 +7687,101 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/jubilea")
+async def app_hr_jubilea(req: Request) -> JSONResponse:
+    """Krok 2 HR modul (Šárka 3.7.2026): nadcházející narozeniny + pracovní výročí
+    v okně N dní, s výpočtem let a zvýrazněním jubileí. Významná pracovní výročí
+    10/20 = 'major' (🏆), 5/15/25/30/35/40 + kulaté narozeniny = 'minor' (⭐).
+    HR-gated. Slouží k panelu i k předstihovému upozornění."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    import datetime as _dt
+    try:
+        days = int(req.query_params.get("days") or 30)
+    except Exception:
+        days = 30
+    days = max(1, min(days, 366))
+    _MES = ["", "ledna", "února", "března", "dubna", "května", "června",
+            "července", "srpna", "září", "října", "listopadu", "prosince"]
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "WITH eng AS (SELECT ae.user_id, min(e.smlouva_od) smlouva_od"
+            "  FROM tenant.engagement e JOIN tenant.att_employee ae ON ae.id=e.employee_id"
+            "  WHERE e.tenant_id=2 AND e.is_current AND ae.user_id IS NOT NULL"
+            "  GROUP BY ae.user_id),"
+            " nm AS (SELECT user_id,"
+            "  max(trim(coalesce(first_name,'')||' '||coalesce(last_name,''))) jmeno,"
+            "  max(birth_date) birth FROM tenant.hr_person"
+            "  WHERE tenant_id=2 AND is_current GROUP BY user_id)"
+            " SELECT n.user_id, n.jmeno, n.birth, eng.smlouva_od"
+            " FROM nm n LEFT JOIN eng ON eng.user_id=n.user_id"
+            " WHERE n.birth IS NOT NULL OR eng.smlouva_od IS NOT NULL")).fetchall()
+        today = _dt.date.today()
+
+        def _next_occ(d):
+            if not d:
+                return None
+            y = today.year
+            try:
+                occ = d.replace(year=y)
+            except ValueError:
+                occ = _dt.date(y, 2, 28)
+            if occ < today:
+                try:
+                    occ = d.replace(year=y + 1)
+                except ValueError:
+                    occ = _dt.date(y + 1, 2, 28)
+            return occ
+
+        def _cz(d):
+            return "%d. %s" % (d.day, _MES[d.month]) if d else ""
+
+        WORK_MAJOR = {10, 20}
+        WORK_MINOR = {5, 15, 25, 30, 35, 40}
+        BDAY_MAJOR = {50, 60}
+        BDAY_MINOR = {30, 40, 70, 80}
+        items = []
+        for user_id, jmeno, birth, smlouva_od in rows:
+            jm = (jmeno or "").strip() or ("ID " + str(user_id))
+            occ = _next_occ(birth)
+            if occ is not None and 0 <= (occ - today).days <= days:
+                age = occ.year - birth.year
+                if age >= 1:
+                    tier = "major" if age in BDAY_MAJOR else ("minor" if age in BDAY_MINOR else "normal")
+                    items.append({
+                        "user_id": user_id, "jmeno": jm, "kind": "narozeniny", "ikona": "🎂",
+                        "datum": occ.isoformat(), "datum_cz": _cz(occ),
+                        "za_dni": (occ - today).days, "roky": age, "tier": tier,
+                        "popis": "%d. narozeniny" % age,
+                    })
+            occ2 = _next_occ(smlouva_od)
+            if occ2 is not None and 0 <= (occ2 - today).days <= days:
+                yrs = occ2.year - smlouva_od.year
+                if yrs >= 1:
+                    tier = "major" if yrs in WORK_MAJOR else ("minor" if yrs in WORK_MINOR else "normal")
+                    items.append({
+                        "user_id": user_id, "jmeno": jm, "kind": "vyroci",
+                        "ikona": "🏆" if tier == "major" else ("⭐" if tier == "minor" else "🎉"),
+                        "datum": occ2.isoformat(), "datum_cz": _cz(occ2),
+                        "za_dni": (occ2 - today).days, "roky": yrs, "tier": tier,
+                        "popis": "%d let ve firmě" % yrs,
+                    })
+        items.sort(key=lambda x: (x["za_dni"], 0 if x["tier"] == "major" else (1 if x["tier"] == "minor" else 2)))
+        return JSONResponse({"ok": True, "jubilea": items, "pocet": len(items)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _recruit_scope(s, uid: int):
     """Marti-AI Q2 (13.6.): rodiče + HR skupina vidí vše ('all'); recruiter jen
     svá výběrová řízení ('own'); ostatní nic (None)."""

@@ -45,6 +45,10 @@
       '    <div id="hrpMimoList"><div class="hrp-empty">Načítám…</div></div>' +
       '  </div>' +
       '  <div class="hrp-panel">' +
+      '    <div class="hrp-phd"><span class="hrp-pi">🎂</span> Narozeniny a výročí <span class="hrp-cnt" id="hrpJubCnt"></span><span class="hrp-jhint">nejbližších 30 dní</span></div>' +
+      '    <div id="hrpJubList"><div class="hrp-empty">Načítám…</div></div>' +
+      '  </div>' +
+      '  <div class="hrp-panel">' +
       '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
       '    <div class="hrp-grid" id="hrpGrid"></div>' +
       '  </div>' +
@@ -56,6 +60,7 @@
 
     renderTiles(el.querySelector("#hrpGrid"));
     loadMimoPanel(el);
+    loadJubilea(el);
 
     fetch(EP, { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -141,6 +146,40 @@
       .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
   }
 
+  // Panel „Narozeniny a výročí" (Krok 2, Šárka 3.7.2026) — nadcházející jubilea,
+  // významná (10/20 let) zvýrazněná 🏆, ostatní kulatá ⭐.
+  function jubRowHtml(j) {
+    var badge = "";
+    if (j.tier && j.tier !== "normal") {
+      var bt = (j.kind === "vyroci") ? (j.roky + " LET") : (j.roky + ". NAR.");
+      badge = '<span class="hrp-jbadge">' + esc(bt) + '</span>';
+    }
+    var za = (j.za_dni === 0) ? "dnes" : (j.za_dni === 1 ? "zítra" : ("za " + j.za_dni + " dní"));
+    return '<div class="hrp-jrow hrp-j-' + esc(j.tier || "normal") + '">' +
+      '<span class="hrp-jic">' + esc(j.ikona || "•") + '</span>' +
+      '<div class="hrp-jbd"><div class="hrp-jnm">' + esc(j.jmeno) + badge + '</div>' +
+      '<div class="hrp-jsub">' + esc(j.popis) + ' · ' + esc(j.datum_cz) + ' · ' + za + '</div></div></div>';
+  }
+  function loadJubilea(root) {
+    var list = root.querySelector("#hrpJubList");
+    var cnt = root.querySelector("#hrpJubCnt");
+    if (!list) return;
+    fetch("/api/v1/erp/app/hr/jubilea?days=30", { credentials: "include" })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          list.innerHTML = '<div class="hrp-empty">Nemáš oprávnění nebo chyba: ' + esc(d && d.error || "") + '</div>';
+          return;
+        }
+        if (cnt) { cnt.textContent = "(" + (d.pocet || 0) + ")"; }
+        if (!d.jubilea || !d.jubilea.length) {
+          list.innerHTML = '<div class="hrp-empty">V nejbližších 30 dnech žádná jubilea. 🎈</div>'; return;
+        }
+        list.innerHTML = d.jubilea.map(jubRowHtml).join("");
+      })
+      .catch(function () { list.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
+  }
+
   // Modal „Mimo kancelář dnes" — seznam jmen + důvod (Krok 1).
   function openMimo() {
     var m = ensureModal();
@@ -198,6 +237,21 @@
       '.hrp-phd{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800;color:#2b3a4a;margin:2px 0 16px;}' +
       '.hrp-pi{width:26px;height:26px;border-radius:50%;background:#f0f4ec;color:#5f9331;display:inline-flex;align-items:center;justify-content:center;font-size:14px;}' +
       '.hrp-cnt{font-size:13px;color:#8a94a3;font-weight:600;margin-left:2px;}' +
+      '.hrp-jhint{font-size:11px;color:#aab2bd;font-weight:500;margin-left:auto;}' +
+      '.hrp-jrow{display:flex;gap:12px;align-items:center;padding:10px 12px;border-top:1px solid #f2f4f6;border-radius:9px;margin:2px 0;}' +
+      '.hrp-jrow:first-child{border-top:0;}' +
+      '.hrp-jic{flex:0 0 36px;height:36px;border-radius:9px;background:#f0f4ec;display:flex;align-items:center;justify-content:center;font-size:18px;}' +
+      '.hrp-jbd{flex:1;min-width:0;}' +
+      '.hrp-jnm{font-weight:700;color:#2b3a4a;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}' +
+      '.hrp-jsub{font-size:12.5px;color:#8a94a3;margin-top:1px;}' +
+      '.hrp-jbadge{font-size:10.5px;font-weight:800;letter-spacing:.3px;padding:1px 8px;border-radius:20px;background:#eef1f4;color:#66707d;}' +
+      '.hrp-j-major{background:linear-gradient(180deg,#fff7e0,#fffdf6);border:1px solid #f0d98a;padding:12px;}' +
+      '.hrp-j-major .hrp-jic{background:#fbe6a0;}' +
+      '.hrp-j-major .hrp-jnm{font-size:15px;}' +
+      '.hrp-j-major .hrp-jbadge{background:#e0a400;color:#fff;}' +
+      '.hrp-j-minor{background:#f7fafd;border:1px solid #e4ecf5;padding:11px 12px;}' +
+      '.hrp-j-minor .hrp-jic{background:#e9f1fb;}' +
+      '.hrp-j-minor .hrp-jbadge{background:#dbe7ff;color:#3a5a9c;}' +
       '.hrp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:6px 26px;}' +
       '.hrp-tile{display:flex;gap:13px;padding:14px 10px;border-radius:10px;align-items:flex-start;}' +
       '.hrp-tile.click{cursor:pointer;}' +

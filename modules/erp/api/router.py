@@ -7564,11 +7564,12 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         mimo = s.execute(_t(
             "SELECT count(*) FROM (SELECT e.user_id,"
             " (array_agg(t.code ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,"
-            " bool_or(t.code='homeoffice') ho"
+            " bool_or(t.code='homeoffice' OR (t.code='work' AND en.note ILIKE :hopat)) ho"
             " FROM tenant.att_entry en JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2"
             " JOIN tenant.att_entry_type t ON t.id=en.entry_type_id"
             " WHERE en.entry_date=current_date AND COALESCE(en.status,'') NOT IN ('superseded','announced')"
-            " GROUP BY e.user_id) q WHERE q.abs_code IS NOT NULL OR q.ho")).scalar() or 0
+            " GROUP BY e.user_id) q WHERE q.abs_code IS NOT NULL OR q.ho"),
+            {"hopat": "%home office%"}).scalar() or 0
         vyb = s.execute(_t(
             "SELECT title, position_text, date_open, date_valid_to FROM tenant.recruit_posting"
             " WHERE tenant_id=2 AND COALESCE(published,false)=true AND date_open<=current_date"
@@ -7643,14 +7644,15 @@ async def app_hr_mimo(req: Request) -> JSONResponse:
             " FROM (SELECT e.user_id,"
             "   (array_agg(t.code  ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,"
             "   (array_agg(t.label ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_label,"
-            "   bool_or(t.code='homeoffice') ho"
+            "   bool_or(t.code='homeoffice' OR (t.code='work' AND en.note ILIKE :hopat)) ho"
             "   FROM tenant.att_entry en"
             "   JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2"
             "   JOIN tenant.att_entry_type t ON t.id=en.entry_type_id"
             "   WHERE en.entry_date=current_date AND COALESCE(en.status,'') NOT IN ('superseded','announced')"
             "   GROUP BY e.user_id) q"
             " WHERE q.abs_code IS NOT NULL OR q.ho"
-            " ORDER BY jmeno")).fetchall()
+            " ORDER BY jmeno"),
+            {"hopat": "%home office%"}).fetchall()
         def _ic(abs_code, ho):
             c = (abs_code or "").lower()
             if "nemoc" in c or "sick" in c:

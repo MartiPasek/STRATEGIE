@@ -7577,6 +7577,74 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/hr/mimo")
+async def app_hr_mimo(req: Request) -> JSONResponse:
+    """Krok 1 HR modul (Šárka 3.7.2026): rozpad badge 'mimo' na seznam lidí, kteří
+    DNES nejsou v kanceláři (absence + home office) + důvod. Stejný zdroj jako badge
+    v /app/hr/dashboard (att_entry + att_employee + att_entry_type). HR-gated."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _hr_can_manage(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT q.user_id, q.abs_code, q.abs_label, q.ho, COALESCE("
+            "  (SELECT trim(coalesce(p.first_name,'')||' '||coalesce(p.last_name,''))"
+            "     FROM tenant.hr_person p WHERE p.user_id=q.user_id AND p.tenant_id=2 AND p.is_current"
+            "     ORDER BY p.id DESC LIMIT 1),"
+            "  (SELECT trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,''))"
+            "     FROM public.users u WHERE u.id=q.user_id)) AS jmeno"
+            " FROM (SELECT e.user_id,"
+            "   (array_agg(t.code  ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_code,"
+            "   (array_agg(t.label ORDER BY en.id DESC) FILTER (WHERE t.category='absence'))[1] abs_label,"
+            "   bool_or(t.code='homeoffice') ho"
+            "   FROM tenant.att_entry en"
+            "   JOIN tenant.att_employee e ON e.id=en.employee_id AND e.tenant_id=2"
+            "   JOIN tenant.att_entry_type t ON t.id=en.entry_type_id"
+            "   WHERE en.entry_date=current_date AND COALESCE(en.status,'') NOT IN ('superseded','announced')"
+            "   GROUP BY e.user_id) q"
+            " WHERE q.abs_code IS NOT NULL OR q.ho"
+            " ORDER BY jmeno")).fetchall()
+        def _ic(abs_code, ho):
+            c = (abs_code or "").lower()
+            if "nemoc" in c or "sick" in c:
+                return "🤒"
+            if "dovol" in c or "vacation" in c:
+                return "🏖️"
+            if "lekar" in c or "lékař" in c or "doctor" in c:
+                return "🩺"
+            if "ocr" in c or "osetr" in c or "ošetr" in c:
+                return "🧑‍⚕️"
+            if abs_code:
+                return "📋"
+            return "🏠"
+        lide = []
+        for user_id, abs_code, abs_label, ho, jmeno in rows:
+            duv = []
+            if abs_label:
+                duv.append(abs_label)
+            if ho:
+                duv.append("Home office")
+            nm = (jmeno or "").strip() or ("ID " + str(user_id))
+            lide.append({
+                "user_id": user_id,
+                "jmeno": nm,
+                "duvod": " + ".join(duv) if duv else "—",
+                "ikona": _ic(abs_code, ho),
+            })
+        return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _recruit_scope(s, uid: int):
     """Marti-AI Q2 (13.6.): rodiče + HR skupina vidí vše ('all'); recruiter jen
     svá výběrová řízení ('own'); ostatní nic (None)."""

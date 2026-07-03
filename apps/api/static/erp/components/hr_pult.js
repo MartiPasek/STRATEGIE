@@ -8,7 +8,7 @@
   var EP = "/api/v1/erp/app/hr/dashboard";
 
   var TILES = [
-    { ic: "🏖️", t: "Mimo kancelář", d: "Kdo dnes není ve firmě (absence + home office).", st: "live" },
+    { ic: "🏖️", t: "Mimo kancelář", d: "Kdo dnes není ve firmě (absence + home office).", st: "live", act: "mimo" },
     { ic: "🎂", t: "Narozeniny a výročí", d: "Blížící se narozeniny a výročí nástupu.", st: "live" },
     { ic: "🆕", t: "Noví + budoucí nástupy", d: "Kdo nastoupil za poslední rok a kdo teprve nastoupí.", st: "live" },
     { ic: "🧲", t: "Výběrová řízení", d: "Běžící nábor, editace, publikace (Teamio).", st: "live", go: "/recruit" },
@@ -62,10 +62,12 @@
         }
         var b = d.badges || {};
         bEl.innerHTML =
-          badge(b.mimo, "Mimo kancelář dnes") +
+          badge(b.mimo, "Mimo kancelář dnes", "mimo") +
           badge(b.naroz, "Narozeniny / výročí (7 dní)") +
           badge(b.novi, "Noví (do roka)") +
           badge(b.vyberka, "Běžící výběrová řízení");
+        var _mb = bEl.querySelector('[data-act="mimo"]');
+        if (_mb) { _mb.onclick = openMimo; }
         var akt = d.aktuality || [];
         if (!akt.length) { aEl.innerHTML = '<div class="hrp-empty">Žádné aktuality.</div>'; return; }
         aEl.innerHTML = akt.map(function (a) {
@@ -83,7 +85,7 @@
     g.innerHTML = "";
     TILES.forEach(function (x) {
       var d = document.createElement("div");
-      d.className = "hrp-tile" + (x.go ? " click" : "");
+      d.className = "hrp-tile" + ((x.go || x.act) ? " click" : "");
       var tag = (x.st === "live")
         ? '<span class="hrp-tag live">funkční</span>'
         : '<span class="hrp-tag soon">připravujeme</span>';
@@ -92,13 +94,60 @@
         '<div class="hrp-tt">' + esc(x.t) + ' ' + tag + '</div>' +
         '<div class="hrp-dd">' + esc(x.d) + '</div></div>';
       if (x.go) { d.onclick = function () { window.open(x.go, "_blank"); }; }
+      else if (x.act === "mimo") { d.onclick = openMimo; }
       g.appendChild(d);
     });
   }
 
-  function badge(n, l) {
-    return '<div class="hrp-badge"><div class="hrp-n">' + (n == null ? "0" : n) +
+  function badge(n, l, act) {
+    return '<div class="hrp-badge' + (act ? ' click' : '') + '"' +
+      (act ? ' data-act="' + act + '"' : '') + '><div class="hrp-n">' + (n == null ? "0" : n) +
       '</div><div class="hrp-l">' + esc(l) + '</div><div class="hrp-bar"></div></div>';
+  }
+
+  // Modal „Mimo kancelář dnes" — seznam jmen + důvod (Krok 1).
+  function openMimo() {
+    var m = ensureModal();
+    m.classList.add("on");
+    var body = m.querySelector("#hrpModalBody");
+    var ttl = m.querySelector("#hrpModalTitle");
+    body.innerHTML = '<div class="hrp-empty">Načítám…</div>';
+    ttl.textContent = "🏖️ Mimo kancelář dnes";
+    fetch("/api/v1/erp/app/hr/mimo", { credentials: "include" })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (d) {
+        if (!d || !d.ok) {
+          body.innerHTML = '<div class="hrp-empty">Chyba: ' + esc(d && d.error || "") + '</div>'; return;
+        }
+        ttl.textContent = "🏖️ Mimo kancelář dnes (" + (d.pocet || 0) + ")";
+        if (!d.lide || !d.lide.length) {
+          body.innerHTML = '<div class="hrp-empty">Dnes jsou všichni v kanceláři. 🎉</div>'; return;
+        }
+        body.innerHTML = d.lide.map(function (p) {
+          return '<div class="hrp-mrow"><span class="hrp-mic">' + esc(p.ikona || "•") +
+            '</span><div><div class="hrp-mnm">' + esc(p.jmeno) + '</div><div class="hrp-mdv">' +
+            esc(p.duvod) + '</div></div></div>';
+        }).join("");
+      })
+      .catch(function () { body.innerHTML = '<div class="hrp-empty">✗ síť</div>'; });
+  }
+  function closeMimo() { var m = document.getElementById("hrpModal"); if (m) m.classList.remove("on"); }
+  function ensureModal() {
+    var m = document.getElementById("hrpModal");
+    if (m) return m;
+    m = document.createElement("div");
+    m.id = "hrpModal";
+    m.className = "hrp-modal";
+    m.innerHTML =
+      '<div class="hrp-modal-card">' +
+      '<div class="hrp-modal-hd"><span id="hrpModalTitle">🏖️ Mimo kancelář dnes</span>' +
+      '<span class="hrp-x">✕</span></div>' +
+      '<div id="hrpModalBody"><div class="hrp-empty">Načítám…</div></div>' +
+      '</div>';
+    m.addEventListener("click", function (e) { if (e.target === m) closeMimo(); });
+    m.querySelector(".hrp-x").addEventListener("click", closeMimo);
+    document.body.appendChild(m);
+    return m;
   }
 
   function style() {
@@ -127,6 +176,18 @@
       '.hrp-feed .hrp-row:first-of-type{border-top:0;}' +
       '.hrp-ic{flex:0 0 30px;height:30px;border-radius:8px;background:#f0f4ec;display:flex;align-items:center;justify-content:center;font-size:15px;}' +
       '.hrp-empty{padding:20px;color:#8a94a3;text-align:center;font-style:italic;}' +
+      '.hrp-badge.click{cursor:pointer;}' +
+      '.hrp-modal{display:none;position:fixed;inset:0;background:rgba(20,30,50,.45);z-index:99999;align-items:flex-start;justify-content:center;padding:56px 16px;}' +
+      '.hrp-modal.on{display:flex;}' +
+      '.hrp-modal-card{background:#fff;border-radius:14px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(20,30,50,.25);overflow:hidden;max-height:80vh;display:flex;flex-direction:column;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;}' +
+      '.hrp-modal-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #e7eaef;font-weight:800;color:#2b3a4a;}' +
+      '.hrp-x{cursor:pointer;color:#8a94a3;font-size:18px;line-height:1;}' +
+      '#hrpModalBody{overflow:auto;}' +
+      '.hrp-mrow{display:flex;gap:12px;align-items:center;padding:11px 18px;border-top:1px solid #f2f4f6;}' +
+      '.hrp-mrow:first-child{border-top:0;}' +
+      '.hrp-mic{flex:0 0 34px;height:34px;border-radius:9px;background:#f0f4ec;display:flex;align-items:center;justify-content:center;font-size:17px;}' +
+      '.hrp-mnm{font-weight:700;color:#2b3a4a;}' +
+      '.hrp-mdv{font-size:12.5px;color:#8a94a3;}' +
       '</style>';
   }
 

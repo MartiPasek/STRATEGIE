@@ -57,6 +57,19 @@
   .feed .row:first-of-type{border-top:0}
   .feed .row .ic{flex:0 0 30px;height:30px;border-radius:8px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:15px}
   .empty{padding:22px;color:var(--muted);text-align:center;font-style:italic}
+  .badge.click{cursor:pointer}
+  /* Modal Mimo kancelář */
+  .modal{display:none;position:fixed;inset:0;background:rgba(20,30,50,.45);z-index:50;align-items:flex-start;justify-content:center;padding:56px 16px}
+  .modal.on{display:flex}
+  .modal-card{background:#fff;border-radius:14px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(20,30,50,.25);overflow:hidden;max-height:80vh;display:flex;flex-direction:column}
+  .modal-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);font-weight:800;color:var(--title)}
+  .modal-hd .x{cursor:pointer;color:var(--muted);font-weight:400;font-size:18px;line-height:1}
+  #modalBody{overflow:auto}
+  .mrow{display:flex;gap:12px;align-items:center;padding:11px 18px;border-top:1px solid #f2f4f6}
+  .mrow:first-child{border-top:0}
+  .mrow .mic{flex:0 0 34px;height:34px;border-radius:9px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:17px}
+  .mrow .mnm{font-weight:700;color:var(--title)}
+  .mrow .mdv{font-size:12.5px;color:var(--muted)}
   @media(max-width:640px){.wrap{padding:0 12px}.panel{padding:16px}}
 </style>
 </head>
@@ -83,6 +96,13 @@
   </div>
 </div>
 
+<div id="modal" class="modal" onclick="if(event.target===this)closeMimo()">
+  <div class="modal-card">
+    <div class="modal-hd"><span id="modalTitle">🏖️ Mimo kancelář dnes</span><span class="x" onclick="closeMimo()">✕</span></div>
+    <div id="modalBody"><div class="empty">Načítám…</div></div>
+  </div>
+</div>
+
 <script>
 const API="/api/v1/erp";
 function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
@@ -90,7 +110,7 @@ async function j(u){const r=await fetch(u,{credentials:'same-origin'});return r.
 
 // Dlaždice HR modulu (kroky dle plánu; live = má už data, soon = připravujeme)
 const TILES=[
-  {ic:"🏖️",t:"Mimo kancelář",d:"Kdo dnes není ve firmě (absence + home office).",st:"live",go:null},
+  {ic:"🏖️",t:"Mimo kancelář",d:"Kdo dnes není ve firmě (absence + home office).",st:"live",act:"mimo"},
   {ic:"🎂",t:"Narozeniny a výročí",d:"Blížící se narozeniny a výročí nástupu.",st:"live",go:null},
   {ic:"🆕",t:"Noví + budoucí nástupy",d:"Kdo nastoupil za poslední rok a kdo teprve nastoupí.",st:"live",go:null},
   {ic:"🧲",t:"Výběrová řízení",d:"Běžící nábor, editace, publikace (Teamio).",st:"live",go:"/recruit"},
@@ -102,12 +122,13 @@ const TILES=[
 function renderTiles(){
   const g=document.getElementById('grid'); g.innerHTML='';
   for(const x of TILES){
-    const el=document.createElement('div'); el.className='tile'+(x.go?' click':'');
+    const el=document.createElement('div'); el.className='tile'+((x.go||x.act)?' click':'');
     const tag=(x.st==='live')?'<span class="tag live">funkční</span>':'<span class="tag soon">připravujeme</span>';
     el.innerHTML='<div class="ico">'+x.ic+'</div><div class="bd">'+
       '<div class="tt">'+esc(x.t)+' '+tag+'</div>'+
       '<div class="dd">'+esc(x.d)+'</div></div>';
     if(x.go){el.onclick=()=>{location.href=x.go;};}
+    else if(x.act==='mimo'){el.onclick=openMimo;}
     g.appendChild(el);
   }
 }
@@ -121,7 +142,7 @@ async function load(){
   }
   const b=d.badges||{};
   bEl.innerHTML=
-    badge(b.mimo,"Mimo kancelář dnes")+
+    badge(b.mimo,"Mimo kancelář dnes","mimo")+
     badge(b.naroz,"Narozeniny / výročí (7 dní)")+
     badge(b.novi,"Noví (do roka)")+
     badge(b.vyberka,"Běžící výběrová řízení");
@@ -129,7 +150,19 @@ async function load(){
   if(!akt.length){aEl.innerHTML='<div class="empty">Žádné aktuality.</div>';return;}
   aEl.innerHTML=akt.map(a=>'<div class="row"><span class="ic">'+esc(a.ikona||'•')+'</span><span>'+esc(a.text)+'</span></div>').join('');
 }
-function badge(n,l){return '<div class="badge"><div class="n">'+(n==null?'0':n)+'</div><div class="l">'+esc(l)+'</div><div class="bar"></div></div>';}
+function badge(n,l,act){return '<div class="badge'+(act?' click':'')+'"'+(act?' onclick="openMimo()"':'')+'><div class="n">'+(n==null?'0':n)+'</div><div class="l">'+esc(l)+'</div><div class="bar"></div></div>';}
+
+async function openMimo(){
+  const m=document.getElementById('modal'); m.classList.add('on');
+  const body=document.getElementById('modalBody'); body.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+"/app/hr/mimo");
+  if(!d.ok){body.innerHTML='<div class="empty">Chyba: '+esc(d.error||'')+'</div>';return;}
+  document.getElementById('modalTitle').textContent='🏖️ Mimo kancelář dnes ('+(d.pocet||0)+')';
+  if(!d.lide||!d.lide.length){body.innerHTML='<div class="empty">Dnes jsou všichni v kanceláři. 🎉</div>';return;}
+  body.innerHTML=d.lide.map(p=>'<div class="mrow"><span class="mic">'+esc(p.ikona||'•')+'</span><div><div class="mnm">'+esc(p.jmeno)+'</div><div class="mdv">'+esc(p.duvod)+'</div></div></div>').join('');
+}
+function closeMimo(){document.getElementById('modal').classList.remove('on');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMimo();});
 load();
 </script>
 </body>

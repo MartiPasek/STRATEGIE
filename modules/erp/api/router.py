@@ -24524,7 +24524,7 @@ _SCOPED_APPROVER_UIDS = frozenset(_uid for _uid, _ in _SCOPED_APPROVERS.values()
 # náhled do paměti/diáře; platí JEN na requesty Z TÉTO instance (cizí instance se approvera
 # netýkají, routing je per-requested_by). Audit drží beze změny (claude_write_request.
 # decided_by_user_id + fw.claude_sql_log + HR/finance tenant.hr_write_audit).
-_FULL_APPROVERS = frozenset({_PETA_INSTANCE})  # claude-26 / Petra (user 18)
+_FULL_APPROVERS = frozenset({_PETA_INSTANCE, _SARKA_INSTANCE})  # claude-26 / Petra (18) + claude-25 / Šárka (13) — plné samoschvalování, rodičovské potvrzení Kristý 3.7.2026
 
 
 def _route_scoped_write(sql: str, allowed_prefixes=_PETA_ALLOWED_PREFIXES) -> dict:
@@ -24633,7 +24633,8 @@ def _effective_approver(requested_by: str, sql: str, bound_user_id):
     # vč. destruktivních a napříč schématy. Routovací brána se přeskakuje. Platí jen
     # na requesty z této instance (rb už je matchnuté v _SCOPED_APPROVERS výše).
     if rb in _FULL_APPROVERS:
-        return appr_uid, "normal", "plné samoschvalování instance (Marti 29.6.2026)"
+        _full_note = ("Kristý 3.7.2026" if rb == _SARKA_INSTANCE else "Marti 29.6.2026")
+        return appr_uid, "normal", "plné samoschvalování instance (rodičovské potvrzení " + _full_note + ")"
     route = _route_scoped_write(sql, prefixes)
     if route["ok"]:
         return appr_uid, "normal", route["reason"]

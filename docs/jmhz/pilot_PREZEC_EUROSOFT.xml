@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PREZEC version="1.1" partialAccept="N" xmlns="http://schemas.cssz.cz/PREZEC/2026" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://schemas.cssz.cz/PREZEC/2026 PREZEC26 1.2.xsd">
+  <VENDOR productName="STRATEGIE" productVersion="STRATEGIE_PREZEC_0.1"/>
+  <SENDER EmailNotifikace="marti-ai@eurosoft.com" ISDSreport="" VerzeProtokolu="1"/>
+  <employees>
+    <employee sqnr="1" act="9" idform="27BD5283-5D2B-4089-81E6-A6B78C05AAD4" dat="2026-07-03" predat="2026-07-01">
+      <client bno="9001010030">
+        <name sur="Zeman" fir="Pavel"/>
+        <birth nam="Zeman" cit="Praha"/>
+        <stat cnt="CZ"/>
+      </client>
+      <comp vs="1180109983"/>
+    </employee>
+    <employee sqnr="2" act="9" idform="3F23212F-AC62-4EBD-922E-6F1A143439BF" dat="2026-07-03" predat="2026-07-01">
+      <client bno="9002020034">
+        <name sur="Kolářová" fir="Eliška"/>
+        <birth nam="Nováková" cit="Kladno"/>
+        <stat cnt="CZ"/>
+      </client>
+      <comp vs="1180109983"/>
+    </employee>
+    <employee sqnr="3" act="9" idform="BF8C9AC2-1413-484F-95A8-88F67E4ADF20" dat="2026-07-03" predat="2026-07-01">
+      <client bno="9003030051">
+        <name sur="Honomichlová" fir="Ivana"/>
+        <birth nam="Svobodová" cit="Beroun"/>
+        <stat cnt="CZ"/>
+      </client>
+      <comp vs="1180109983"/>
+    </employee>
+    <employee sqnr="4" act="9" idform="AAF44E73-1E71-4D5E-BF71-B47EDD321B7D" dat="2026-07-03" predat="2026-07-01">
+      <client bno="9004040063">
+        <name sur="Bernardová" fir="Andrea"/>
+        <birth nam="Dvořáková" cit="Praha"/>
+        <stat cnt="CZ"/>
+      </client>
+      <comp vs="1180109983"/>
+    </employee>
+    <employee sqnr="5" act="9" idform="4BD57B9D-48F0-4323-9A76-95041C8B62F9" dat="2026-07-03" predat="2026-07-01">
+      <client bno="9005050106">
+        <name sur="Veverka" fir="Jiří"/>
+        <birth nam="Veverka" cit="Příbram"/>
+        <stat cnt="CZ"/>
+      </client>
+      <comp vs="1180109983"/>
+    </employee>
+  </employees>
+</PREZEC>

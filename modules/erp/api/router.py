@@ -33548,6 +33548,22 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_de).__name__, str(_de)[:300]),
                                  "tb": _tbds.format_exc()[-800:]})
 
+    #   @@EPVAL <soubor> [PROD]  → ověří XML (docs/jmhz/) proti oficiálnímu validátoru ČSSZ
+    #   (SOAP, anonymní, test t-epodani.cssz.cz). JMHZ = per formularOsoby; PREZEC/REGZEC = celý root.
+    if sql.upper().startswith("@@EPVAL"):
+        import traceback as _tbev
+        try:
+            _ep = sql[len("@@EPVAL"):].split()
+            if not _ep:
+                return JSONResponse({"ok": False, "error": "@@EPVAL <soubor> [PROD]"})
+            _fname = _ep[0]
+            _test = not (len(_ep) > 1 and _ep[1].strip().upper() == "PROD")
+            from modules.erp.api.epodani_validace import validate_file as _epval
+            return JSONResponse(_epval(_fname, test=_test))
+        except Exception as _ee:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ee).__name__, str(_ee)[:300]),
+                                 "tb": _tbev.format_exc()[-800:]})
+
     #   @@KALKSYNC → zrcadlí EC_Kalk* (DB_EC) → tenant.kalk_* (baseline 2014)
     #   @@KALKINFO → přehled naplnění zrcadla
     if sql.upper().startswith("@@KALK"):

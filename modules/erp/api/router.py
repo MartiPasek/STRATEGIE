@@ -33637,7 +33637,7 @@ async def diag_sql(req: Request) -> JSONResponse:
             from core.database_data import get_data_session as _gdmb
             _sm = _gdmb()
             try:
-                _r = _sm.execute(_tmb("SELECT ews_email, ews_password_encrypted, ews_server "
+                _r = _sm.execute(_tmb("SELECT ews_email, ews_password_encrypted, ews_server, ews_display_email "
                                       "FROM public.users WHERE id=:i"), {"i": _muid}).fetchone()
             finally:
                 _sm.close()
@@ -33645,16 +33645,22 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": True, "columns": ["stav"],
                                      "rows": [["schránka není napojená (chybí login nebo heslo)"]], "count": 1})
             from core.crypto import decrypt as _decmb
-            from modules.notifications.application.email_service import _get_account as _gamb
             _pw = _decmb(_r[1])
-            _acct = _gamb(email=_r[0], password=_pw, server=(_r[2] or None))
+            _smtp = (_r[3] or _r[0])   # adresa schránky = display, fallback login
+            import urllib3 as _u3mb
+            _u3mb.disable_warnings()
+            from exchangelib import Credentials as _Cr, Account as _Ac, Configuration as _Cf, DELEGATE as _DG
+            _cfgmb = _Cf(server=str(_r[2] or "").replace("https://", "").replace("http://", ""),
+                         credentials=_Cr(username=_r[0], password=_pw))
+            _acct = _Ac(primary_smtp_address=_smtp, config=_cfgmb, autodiscover=False, access_type=_DG)
             _total = _acct.inbox.total_count
             try:
                 _unread = _acct.inbox.unread_count
             except Exception:
                 _unread = "?"
             _pw = None  # zahodit heslo z paměti hned po přihlášení
-            _rows = [["prihlaseni", "OK (overeno naostro)"], ["login", _r[0]], ["server", _r[2]],
+            _rows = [["prihlaseni", "OK (overeno naostro)"], ["login (username)", _r[0]],
+                     ["schranka (SMTP)", _smtp], ["server", _r[2]],
                      ["inbox celkem", str(_total)], ["neprectene", str(_unread)]]
             try:
                 for _m in _acct.inbox.all().only("subject", "sender", "datetime_received").order_by("-datetime_received")[:5]:

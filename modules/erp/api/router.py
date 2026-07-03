@@ -5806,18 +5806,48 @@ async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
     except Exception:
         pass
 
-    from modules.notifications.application.email_service import queue_email
+    from modules.notifications.application.email_service import queue_email, send_email_or_raise
     from core.database_data import get_data_session as _gds_ds
     from sqlalchemy import text as _sql_ds
+    import os as _os_de, re as _re_de
+
+    # Inline obrazky sablony: z tela vytahni cid: odkazy a spáruj se soubory
+    # v docs/mail_sablony/de_images (jen ty, co realne existuji). Kdyz sablona
+    # zadny takovy obrazek nema (textove sablony), inline_imgs zustane prazdne
+    # a jede se puvodni async cesta (queue_email) beze zmeny.
+    _de_dir = _os_de.path.join(_os_de.path.dirname(__file__),
+                               "..", "..", "..", "docs", "mail_sablony", "de_images")
+    inline_imgs = []
+    try:
+        for _cid in sorted(set(_re_de.findall(r"cid:([\w.@\-]+)", sablona or ""))):
+            _fn = _cid.split("@", 1)[0]
+            _fp = _os_de.path.join(_de_dir, _fn)
+            if _os_de.path.isfile(_fp):
+                inline_imgs.append((_fp, _cid))
+    except Exception:
+        inline_imgs = []
+
+    # Rich HTML sablona s inline obrazky (napr. DE) -> posli SYNCHRONNE jako
+    # pravé HTML + prilozene obrazky. Sync = bounded cap, at nevyprsi request.
+    _rich = bool(inline_imgs)
+    _batch = ids[:5] if _rich else ids
+    truncated = _rich and len(ids) > len(_batch)
+
     sent, errs = 0, []
     ds = _gds_ds()
     try:
-        for fid in ids:
+        for fid in _batch:
             tok = _uuid_ds.uuid4().hex
             firma = names.get(fid) or ("#" + str(fid))
             pixel = ('<img src="' + _CRM_PUBLIC_BASE + '/crm/track/open/' + tok
                      + '" width="1" height="1" alt="" style="display:none">')
-            body_html = (sablona or "<p>(prázdná šablona)</p>") + pixel
+            _sab = sablona or "<p>(prázdná šablona)</p>"
+            _low = _sab.lower()
+            if "</body>" in _low:  # vloz pixel pred </body>, at HTML zustane validni
+                _idx = _low.rfind("</body>")
+                body_html = _sab[:_idx] + pixel + _sab[_idx:]
+            else:
+                body_html = _sab + pixel
             ds.execute(_sql_ds(
                 "INSERT INTO mod.crm_email_track "
                 "(token, firma_id, firma, recipient, template_code, demo, requested_by) "
@@ -5825,13 +5855,21 @@ async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
                 {"tok": tok, "fid": fid, "firma": firma[:200], "rec": _CRM_DEMO_RECIPIENT,
                  "tc": template_code, "by": "uid:%d" % uid})
             try:
-                queue_email(to=_CRM_DEMO_RECIPIENT,
-                            subject=("[DEMO] " + predmet + " — " + firma)[:200],
-                            body=body_html, persona_id=_CRM_DEMO_FROM_PERSONA,
-                            from_identity="persona", purpose="user_request")
+                if _rich:
+                    send_email_or_raise(
+                        to=_CRM_DEMO_RECIPIENT,
+                        subject=("[DEMO] " + predmet + " — " + firma)[:200],
+                        body=body_html, persona_id=_CRM_DEMO_FROM_PERSONA,
+                        from_identity="persona", html_body=True,
+                        inline_images=inline_imgs)
+                else:
+                    queue_email(to=_CRM_DEMO_RECIPIENT,
+                                subject=("[DEMO] " + predmet + " — " + firma)[:200],
+                                body=body_html, persona_id=_CRM_DEMO_FROM_PERSONA,
+                                from_identity="persona", purpose="user_request")
                 sent += 1
             except Exception as se:
-                errs.append(str(se)[:80])
+                errs.append(str(se)[:120])
         ds.commit()
     except Exception as exc:
         try:
@@ -5842,9 +5880,11 @@ async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "Demo odeslání selhalo"}, status_code=500)
     finally:
         ds.close()
-    logger.info("[crm_demo_send] uid=%d sent=%d to=%s tmpl=%s",
-                uid, sent, _CRM_DEMO_RECIPIENT, template_code)
-    return JSONResponse({"ok": True, "sent": sent, "recipient": _CRM_DEMO_RECIPIENT, "errors": errs})
+    logger.info("[crm_demo_send] uid=%d sent=%d rich=%s imgs=%d to=%s tmpl=%s",
+                uid, sent, _rich, len(inline_imgs), _CRM_DEMO_RECIPIENT, template_code)
+    return JSONResponse({"ok": True, "sent": sent, "recipient": _CRM_DEMO_RECIPIENT,
+                         "errors": errs, "inline_images": len(inline_imgs),
+                         "truncated": truncated})
 
 
 @api_router.post("/crm/osloveni/track-status")

@@ -1128,6 +1128,8 @@ def send_email_or_raise(
     cc: list[str] | str | None = None,
     bcc: list[str] | str | None = None,
     attachment_document_ids: list[int] | None = None,
+    html_body: bool = False,
+    inline_images: list | None = None,
 ) -> None:
     """
     Odesle email. V pripade selhani hodi EmailAuthError / EmailSendError /
@@ -1206,8 +1208,19 @@ def send_email_or_raise(
 
         # REST 27.4.2026: Apply persona signature -- pokud persona ma signature_html,
         # body se prevede na HTMLBody + inline images se naclonni do messagu.
-        sig_body, sig_attachments = _apply_persona_signature(persona_id, body)
-        msg_kwargs["body"] = sig_body
+        # html_body=True (napr. CRM HTML sablona od Pavla): posli telo jako HOTOVE
+        # HTML -- NEprohanej pres markdown/plain-text a NEpripojuj personovy podpis
+        # (sablona uz nese vlastni podpis i vlastni inline obrazky pres cid).
+        if html_body:
+            try:
+                from exchangelib import HTMLBody as _HTMLBody_rb
+                msg_kwargs["body"] = _HTMLBody_rb(body)
+            except Exception:
+                msg_kwargs["body"] = body
+            sig_attachments = []
+        else:
+            sig_body, sig_attachments = _apply_persona_signature(persona_id, body)
+            msg_kwargs["body"] = sig_body
 
         message = Message(**msg_kwargs)
         # Attach inline images z signature (po Message create, pred send)
@@ -1216,6 +1229,26 @@ def send_email_or_raise(
                 message.attach(_sig_att)
             except Exception as _att_err:
                 logger.warning(f"EMAIL | persona signature attach failed: {_att_err}")
+
+        # Explicitni inline obrazky (napr. CRM sablona: 14 obrazku s vlastnim
+        # Content-ID). inline_images = list[(file_path, content_id)].
+        if inline_images:
+            import os as _os_ii, mimetypes as _mt_ii
+            from exchangelib import FileAttachment as _FA_ii
+            _ii_ok = 0
+            for _ii in inline_images:
+                try:
+                    _fp, _cid = _ii
+                    with open(_fp, "rb") as _fh:
+                        _data = _fh.read()
+                    _ct = _mt_ii.guess_type(_fp)[0] or "application/octet-stream"
+                    message.attach(_FA_ii(
+                        name=_os_ii.path.basename(_fp), content=_data,
+                        content_id=_cid, content_type=_ct, is_inline=True))
+                    _ii_ok += 1
+                except Exception as _ii_err:
+                    logger.warning(f"EMAIL | inline image attach failed: {_ii_err}")
+            logger.info(f"EMAIL | inline images attached | count={_ii_ok}/{len(inline_images)}")
 
         # Phase 27b: regular attachments (xlsx/pdf/docx atd.) z documents.
         # Tenant gate: pri send_email z konverzace defaultujeme is_parent=True

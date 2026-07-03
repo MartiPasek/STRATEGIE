@@ -873,7 +873,20 @@ def export_tisax_to_ro(limit: int = 12, offset: int = 0) -> dict:
             one = sd.execute(_t2("SELECT storage_path FROM public.documents WHERE project_id=5 "
                                  "AND original_filename NOT LIKE '%~$%' ORDER BY name LIMIT 1")).scalar()
             diag.append(["vzor_storage_path", str(one)])
-            diag.append(["vzor_isfile", str(os.path.isfile(os.path.normpath(one)) if one else False)])
+            diag.append(["vzor_isfile_raw", str(os.path.isfile(os.path.normpath(one)) if one else False)])
+            _rm = _remap(one) if one else ""
+            diag.append(["vzor_remap", _rm])
+            diag.append(["vzor_remap_isfile", str(os.path.isfile(_rm) if _rm else False)])
+            try:
+                _n = len(os.listdir(os.path.join(root, "2"))) if os.path.isdir(os.path.join(root, "2")) else 0
+                diag.append(["pocet v root/2", str(_n)])
+            except Exception:
+                pass
+            # kolik TISAX id má fyzický soubor po remapu
+            _all = sd.execute(_t2("SELECT storage_path FROM public.documents WHERE project_id=5 "
+                                  "AND original_filename NOT LIKE '%~$%'")).scalars().all()
+            _hit = sum(1 for x in _all if os.path.isfile(_remap(x)))
+            diag.append(["TISAX souboru nalezeno", "%d / %d" % (_hit, len(_all))])
             # zkus najít soubor i jinde (běžné kořeny)
             for alt in (r"D:\Data\STRATEGIE\Dokumenty", r"C:\Data\STRATEGIE\Dokumenty",
                         r"C:\STRATEGIE\Dokumenty", r"D:\STRATEGIE\Dokumenty"):

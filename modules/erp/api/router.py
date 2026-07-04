@@ -12493,15 +12493,26 @@ def app_plan_firma(req: Request) -> JSONResponse:
             "SELECT day, hodiny, is_holiday, je_pracovni, holiday_name, "
             " CASE extract(isodow from day)::int WHEN 1 THEN 'Po' WHEN 2 THEN 'Út' WHEN 3 THEN 'St' "
             "   WHEN 4 THEN 'Čt' WHEN 5 THEN 'Pá' WHEN 6 THEN 'So' ELSE 'Ne' END AS weekday, "
-            " extract(week from day)::int AS iso_week "
+            " extract(week from day)::int AS iso_week, firemni_vyjimka "
             "FROM tenant.firemni_kalendar WHERE tenant_id=2 "
             "AND date_part('year', day)=date_part('year', CURRENT_DATE) ORDER BY day")).fetchall()
         plan = []
         for r in rows:
-            dt = 'holiday' if r[2] else ('work' if r[3] else 'weekend')
-            plan.append({"date": r[0].isoformat(), "hours": float(r[1] or 0),
+            hod = float(r[1] or 0)
+            firma_exc = bool(r[7])
+            if r[2]:
+                dt = 'holiday'
+            elif firma_exc and hod == 0:
+                dt = 'exoff'          # celofiremní volno (např. vánoční zavření)
+            elif firma_exc and hod > 0:
+                dt = 'exception'      # celofiremní změna hodin
+            elif r[3]:
+                dt = 'work'
+            else:
+                dt = 'weekend'
+            plan.append({"date": r[0].isoformat(), "hours": hod,
                          "day_type": dt, "holiday_name": r[4],
-                         "weekday": r[5], "iso_week": r[6]})
+                         "weekday": r[5], "iso_week": r[6], "exc_scope": "firma"})
         return JSONResponse({"ok": True, "has_plan": len(plan) > 0, "uvazek": 40, "plan": plan})
     finally:
         try:

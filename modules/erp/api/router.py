@@ -13488,9 +13488,10 @@ async def app_plan_scope_save(req: Request) -> JSONResponse:
         b = await req.json()
     except Exception:
         b = {}
-    st = str((b or {}).get("scope_type") or "").strip().lower()
-    if st not in ("group", "user"):
-        return JSONResponse({"ok": False, "error": "Neznámý rozsah."})
+    # Skupiny výjimky = vrstva pro SKUPINY (omezení výroby / nařízené přesčasy), ne jednotlivce.
+    st = str((b or {}).get("scope_type") or "group").strip().lower()
+    if st != "group":
+        return JSONResponse({"ok": False, "error": "Skupinové výjimky jsou jen pro skupiny, ne jednotlivce."})
     try:
         sid = int((b or {}).get("scope_id") or 0)
         d = _dt.date.fromisoformat(str((b or {}).get("date") or "")[:10])
@@ -13504,8 +13505,9 @@ async def app_plan_scope_save(req: Request) -> JSONResponse:
     reason = str((b or {}).get("reason") or "").strip()[:200] or None
     cm, s = _att_session()
     try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Editace skupinových výjimek: JEN rodiče nebo vedoucí personalistiky (Šárka Novotná, uid 13).
+        if not (_is_parent(s, uid) or int(uid) == 13):
+            return JSONResponse({"ok": False, "error": "Skupinové výjimky smí editovat jen rodiče nebo vedoucí personalistiky."}, status_code=403)
         s.execute(_t(
             "INSERT INTO tenant.att_exception_scope (tenant_id, ex_date, scope_type, scope_id, hours, reason, created_by) "
             "VALUES (2, :d, :st, :sid, :h, :r, :u) "
@@ -13536,8 +13538,9 @@ async def app_plan_scope_delete(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "id"})
     cm, s = _att_session()
     try:
-        if not _hr_can_manage(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Mazání skupinových výjimek: JEN rodiče nebo vedoucí personalistiky (Šárka Novotná, uid 13).
+        if not (_is_parent(s, uid) or int(uid) == 13):
+            return JSONResponse({"ok": False, "error": "Skupinové výjimky smí editovat jen rodiče nebo vedoucí personalistiky."}, status_code=403)
         s.execute(_t("DELETE FROM tenant.att_exception_scope WHERE tenant_id=2 AND id=:i"), {"i": rid})
         s.commit()
         return JSONResponse({"ok": True})

@@ -7537,7 +7537,7 @@ setTimeout(function(){
       var addB=el('<button class="ghost" style="padding:6px 12px;border-color:#3a7a4c;color:#7fe0a0;font-weight:700;">+ Přidat</button>');
       addB.addEventListener("click",function(){ excDialog(null, mode); });
       hd.appendChild(addB); left.appendChild(hd);
-      left.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:8px;">'+(mode==='scope'?'Volno / zkrácený den jen pro <b>skupinu</b> (např. Výroba) nebo <b>jednotlivce</b>. Přebíjí firemní výjimku.':'Firemní den pro <b>celou firmu</b>. <b>0 h</b> = volno, jinak počet odpracovaných hodin (i pracovní víkend).')+' Plán (vrstva 1) zůstává nedotčený.</div>'));
+      left.appendChild(el('<div class="hint" style="line-height:1.6;margin-bottom:8px;">'+(mode==='scope'?'Volno / zkrácený den / přesčas jen pro <b>skupinu</b> (např. Výroba — omezení při nedostatku práce nebo nařízené přesčasy). Přebíjí firemní výjimku. Edituje jen vedení / personalistika.':'Firemní den pro <b>celou firmu</b>. <b>0 h</b> = volno, jinak počet odpracovaných hodin (i pracovní víkend).')+' Plán (vrstva 1) zůstává nedotčený.</div>'));
       var box=el('<div></div>'); left.appendChild(box);
       box.innerHTML='<div class="hint">Načítám…</div>';
       Promise.all([api("GET","/api/v1/erp/app/plan/exceptions",""),api("GET","/api/v1/erp/app/plan/scope-exceptions","")]).then(function(res){
@@ -7545,7 +7545,7 @@ setTimeout(function(){
         if(jc&&jc.ok===false&&jc.error){ box.appendChild(el('<div class="hint">'+esc(jc.error)+'</div>')); return; }
         var items=[];
         if(mode!=='scope' && jc&&jc.ok&&jc.exceptions){ jc.exceptions.forEach(function(e){ items.push({kind:'firma',date:e.date,hours:e.hours,reason:e.reason,scope_name:'Celá firma',icon:'🏢'}); }); }
-        if(mode==='scope' && js&&js.ok&&js.items){ js.items.forEach(function(e){ items.push({kind:'scope',id:e.id,scope_type:e.scope_type,scope_id:e.scope_id,date:e.date,hours:e.hours,reason:e.reason,scope_name:e.scope_name,icon:(e.scope_type==='group'?'👥':'👤')}); }); }
+        if(mode==='scope' && js&&js.ok&&js.items){ js.items.filter(function(e){ return e.scope_type==='group'; }).forEach(function(e){ items.push({kind:'scope',id:e.id,scope_type:e.scope_type,scope_id:e.scope_id,date:e.date,hours:e.hours,reason:e.reason,scope_name:e.scope_name,icon:'👥'}); }); }
         if(!items.length){ box.appendChild(el('<div class="hint">Zatím žádné výjimky.</div>')); return; }
         items.sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); });
         items.forEach(function(e){
@@ -7553,13 +7553,14 @@ setTimeout(function(){
           var lbl=(e.hours===0?"volno":(nf(e.hours)+" h"));
           row.appendChild(el('<div style="flex:1;"><b>'+czd2(e.date)+'</b> · <span style="color:#e6a93a;font-weight:600;">'+lbl+'</span> <span class="hint">'+e.icon+' '+esc(e.scope_name)+'</span>'+(e.reason?('<br><span class="hint">'+esc(e.reason)+'</span>'):'')+'</div>'));
           var edit=el('<button class="ghost" style="padding:6px 12px;border-color:#3a5a8c;color:#9cf;">Upravit</button>');
-          edit.addEventListener("click",function(){ excDialog(e); });
+          edit.addEventListener("click",function(){ excDialog(e, mode); });
           row.appendChild(edit); box.appendChild(row);
         });
       });
     }
     function excDialog(ex, mode){
       var isEdit=!!ex;
+      var _reMode=isEdit?(ex.kind==='firma'?'firma':'scope'):(mode||'firma');  // po uložení/smazání se vrať do stejné sekce
       var t=new Date(); var today=t.getFullYear()+"-"+("0"+(t.getMonth()+1)).slice(-2)+"-"+("0"+t.getDate()).slice(-2);
       var inS="width:100%;box-sizing:border-box;padding:10px;border-radius:9px;border:1px solid #2b3a5c;background:#0a1226;color:#e8eefc;";
       var ov=el('<div style="position:fixed;inset:0;z-index:300;background:rgba(2,6,14,.72);display:flex;align-items:center;justify-content:center;padding:20px;"></div>');
@@ -7581,10 +7582,8 @@ setTimeout(function(){
       if(isEdit){
         scopeBox.appendChild(el('<div class="hint">Rozsah: <b>'+(ex.kind==='firma'?'Celá firma':((ex.scope_type==='group'?'Skupina — ':'Jednotlivec — ')+esc(ex.scope_name)))+'</b></div>'));
       } else if(mode==='scope'){
-        scopeBox.appendChild(el('<label class="hint" style="display:block;margin:2px 0;">Rozsah</label>'));
-        var sSel2=el('<select style="'+inS+'"><option value="group">Skupina</option><option value="user">Jednotlivec</option></select>');
-        sSel2.addEventListener("change",function(){ scopeType=sSel2.value; ensureTargets(buildTgt); });
-        scopeBox.appendChild(sSel2);
+        scopeType='group';
+        scopeBox.appendChild(el('<div class="hint">Rozsah: <b>Skupina</b></div>'));
         ensureTargets(buildTgt);
       } else {
         scopeBox.appendChild(el('<div class="hint">Rozsah: <b>Celá firma</b></div>'));
@@ -7601,7 +7600,7 @@ setTimeout(function(){
       cancel.addEventListener("click",function(){ ov.remove(); });
       save.addEventListener("click",function(){
         var hrs=parseFloat(hI.value)||0, reason=rI.value; save.disabled=true;
-        var done=function(r){ if(r&&r.ok){ ov.remove(); renderExc(); } else { save.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } };
+        var done=function(r){ if(r&&r.ok){ ov.remove(); renderExc(_reMode); } else { save.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } };
         if(isEdit){
           if(ex.kind==='firma') api("POST","/api/v1/erp/app/plan/exceptions",{date:ex.date,hours:hrs,reason:reason}).then(done);
           else api("POST","/api/v1/erp/app/plan/scope-exceptions",{scope_type:ex.scope_type,scope_id:ex.scope_id,date:ex.date,hours:hrs,reason:reason}).then(done);
@@ -7617,7 +7616,7 @@ setTimeout(function(){
         var del=el('<button class="ghost full" style="margin-top:8px;color:#f87171;border-color:#5a2b2b;">🗑 Smazat výjimku</button>');
         del.addEventListener("click",function(){
           if(!confirm("Smazat výjimku "+czd2(ex.date)+"?")) return; del.disabled=true;
-          var done=function(r){ if(r&&r.ok){ ov.remove(); renderExc(); } else { del.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } };
+          var done=function(r){ if(r&&r.ok){ ov.remove(); renderExc(_reMode); } else { del.disabled=false; alert("Chyba: "+((r&&r.error)||"?")); } };
           if(ex.kind==='firma') api("POST","/api/v1/erp/app/plan/exceptions/delete",{date:ex.date}).then(done);
           else api("POST","/api/v1/erp/app/plan/scope-exceptions/delete",{id:ex.id}).then(done);
         });

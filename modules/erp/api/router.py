@@ -34141,10 +34141,13 @@ async def diag_sql(req: Request) -> JSONResponse:
         finally:
             _s.close()
         if not r:
-            return JSONResponse({"ok": True, "domena": _dom, "nalezeno": False, "dostupne_domeny": dostupne})
-        return JSONResponse({"ok": True, "domena": r[0] or "(obecná)", "nazev": r[1],
-                             "identita": r[2], "znalosti": r[3], "tools": r[4],
-                             "dostupne_domeny": dostupne})
+            return JSONResponse({"ok": True, "columns": ["orient"],
+                                 "rows": [["Doména '%s' nenalezena. Dostupné: %s" % (_dom, ", ".join(dostupne))]]})
+        _txt = ("DOMÉNA: %s (%s)\nDostupné domény: %s\n\n=== IDENTITA ===\n%s\n\n=== ZNALOSTI ===\n%s\n\n=== TOOLY ===\n%s"
+                % (r[0] or "(obecná)", r[1] or "", ", ".join(dostupne),
+                   r[2] or "", r[3] or "", r[4] or ""))
+        _rows = [[_txt[i:i + 150]] for i in range(0, len(_txt), 150)]
+        return JSONResponse({"ok": True, "columns": ["orient"], "rows": _rows})
 
     #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)
     if sql.upper().startswith("@@MZDY") and not sql.upper().startswith("@@MZDYCHECK"):

@@ -7014,7 +7014,7 @@ setTimeout(function(){
       right.appendChild(bDn);
     }
     // Marti 14.6. večer: pořadí lišty shora dolů — Můj plán, Moje podmínky,
-    // Koho čekáme, Plán skupiny, [admin:] Firma plán, Cílené výjimky, Firma výjimky, ČR 40h.
+    // Koho čekáme, Plán skupiny, [admin:] Skupiny výjimky, Firma plán, Firma výjimky, ČR 40h.
     var bMy=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#3a6b4c;color:#9ce0b0;font-weight:700;font-size:12px;line-height:1.25;">👤<br>Můj<br>plán</button>');
     bMy.addEventListener("click",function(){ renderPlan(false,'mydefault'); });
     var bUv=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#6b4a2a;color:#e6b97a;font-weight:700;font-size:12px;line-height:1.25;">📋<br>Moje<br>podmínky</button>');
@@ -7025,7 +7025,7 @@ setTimeout(function(){
     bGrp.addEventListener("click",function(){ renderGroupPlan(); });
     var bFirma=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#2a6b5a;color:#7fe0c8;font-weight:700;font-size:12px;line-height:1.25;">🏭<br>Firma<br>plán</button>');
     bFirma.addEventListener("click",function(){ renderPlan(true); });
-    var bScope=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#5a3a6b;color:#c9a6e6;font-weight:700;font-size:12px;line-height:1.25;">🎯<br>Cílené<br>výjimky</button>');
+    var bScope=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#5a3a6b;color:#c9a6e6;font-weight:700;font-size:12px;line-height:1.25;">👥<br>Skupiny<br>výjimky</button>');
     bScope.addEventListener("click",function(){ renderExc('scope'); });
     var bExc=el('<button class="ghost" style="padding:12px 4px;text-align:center;border-color:#6b5a2a;color:#e6c86a;font-weight:700;font-size:12px;line-height:1.25;">🏢<br>Firma<br>výjimky</button>');
     bExc.addEventListener("click",function(){ renderExc('firma'); });
@@ -7050,8 +7050,8 @@ setTimeout(function(){
     right.appendChild(bDay);
     right.appendChild(bGrp);
     if(!WEEKONLY){
-      right.appendChild(bFirma);
       right.appendChild(bScope);
+      right.appendChild(bFirma);
       right.appendChild(bExc);
       right.appendChild(el('<div class="hint" style="text-align:center;font-size:10px;line-height:1.3;margin-top:4px;">Vyrobit<br>základ</div>'));
       right.appendChild(bGen);
@@ -7533,7 +7533,7 @@ setTimeout(function(){
       mode=mode||'firma';
       left.innerHTML='';
       var hd=el('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"></div>');
-      hd.appendChild(el('<b>'+(mode==='scope'?'🎯 Cílené výjimky':'🏢 Firemní výjimky')+'</b>'));
+      hd.appendChild(el('<b>'+(mode==='scope'?'👥 Skupiny výjimky':'🏢 Firemní výjimky')+'</b>'));
       var addB=el('<button class="ghost" style="padding:6px 12px;border-color:#3a7a4c;color:#7fe0a0;font-weight:700;">+ Přidat</button>');
       addB.addEventListener("click",function(){ excDialog(null, mode); });
       hd.appendChild(addB); left.appendChild(hd);

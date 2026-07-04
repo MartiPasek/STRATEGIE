@@ -21841,21 +21841,22 @@ def _sync_vyroba_work_app(days: int = 3, tenant: int = 2, frm: str = None,
             "FROM tenant.work_alloc wa "
             "WHERE wa.tenant_id=:t AND wa.ended_at IS NOT NULL AND wa.cinnost_id IS NOT NULL "
             "  AND COALESCE(wa.project_ref,'')<>'' AND LOWER(COALESCE(wa.project_ref,''))<>'rezie' "
-            "  AND " + _wh + " ORDER BY wa.id"), p0).mappings().fetchall()
+            "  AND " + _wh + " ORDER BY wa.id"), p0).fetchall()
+        # poziční: 0=id 1=user_id 2=project_ref 3=cinnost_id 4=d 5=z 6=k 7=hod 8=cz
         seen_ud = set()
         for sg in segs:
-            ud = (sg["user_id"], sg["d"])
+            ud = (sg[1], sg[4])
             if ud not in seen_ud:
                 seen_ud.add(ud)
                 sess.execute(_t(
                     "DELETE FROM tenant.vyroba_work WHERE tenant_id=:t AND source_system='centrala1' "
                     "AND datum=:d::date AND user_id=:u"),
-                    {"t": tenant, "d": sg["d"], "u": sg["user_id"]})
+                    {"t": tenant, "d": sg[4], "u": sg[1]})
         for sg in segs:
             total += 1
-            p = {"t": tenant, "u": sg["user_id"], "cz": sg["cz"], "zak": sg["project_ref"],
-                 "cin": sg["cinnost_id"], "d": sg["d"], "z": sg["z"], "k": sg["k"],
-                 "h": sg["hod"], "sid": int(sg["id"])}
+            p = {"t": tenant, "u": sg[1], "cz": sg[8], "zak": sg[2],
+                 "cin": sg[3], "d": sg[4], "z": sg[5], "k": sg[6],
+                 "h": sg[7], "sid": int(sg[0])}
             res = sess.execute(_t(
                 "UPDATE tenant.vyroba_work SET zakazka_ref=:zak, "
                 "cinnost_id=(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1), "

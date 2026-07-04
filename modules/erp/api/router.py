@@ -12647,11 +12647,8 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
                 "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE) ORDER BY ex_date, id")).fetchall():
                 if rr[2] in grp:
                     eff[rr[0]] = (float(rr[1]), "skupina")
-            for rr in s.execute(_t(
-                "SELECT ex_date, hours FROM tenant.att_exception_scope "
-                "WHERE tenant_id=2 AND scope_type='user' AND scope_id=:u "
-                "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)"), {"u": target}).fetchall():
-                eff[rr[0]] = (float(rr[1]), "osobní")
+            # OSOBNÍ (user) vrstvu do „Můj plán" NEzapékáme — osobní korekce se ukazuje jako
+            # návrh/korekce navrch (přeškrtne původní plán), ne jako zapečená hodnota. Marti 4.7.
         except Exception:
             eff = {}
         out = []

@@ -22803,6 +22803,83 @@ def _disk_space_monitor():
         logger.warning("[disk_mon] notify failed: %s", e)
 
 
+_REEMBED_LAST = [0.0]
+
+
+def _knowledge_embed_due(limit: int = 50) -> int:
+    """Zaembeduje jednotky tenant.knowledge bez embeddingu NEBO s reembed_due=true
+    (text se změnil přes DB trigger). Po zaindexování shodí reembed_due. Vrací počet.
+    Sdílí logiku s @@KNOWEMBED. Marti 4.7.2026 (vlajky u vektorů = držíme aktuální)."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    try:
+        from modules.rag.application.embeddings import embed_documents as _emb
+    except Exception:
+        return 0
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, domain_key, hook, content FROM tenant.knowledge "
+            "WHERE tenant_id=2 AND active AND (embedding IS NULL OR reembed_due) "
+            "ORDER BY id LIMIT :l"), {"l": limit}).fetchall()
+        if not rows:
+            return 0
+        texts = ["[%s] %s\n%s" % (r[1] or "", r[2] or "", (r[3] or "")[:2000]) for r in rows]
+        vecs = _emb(texts)
+        if not vecs or len(vecs) != len(rows):
+            return 0
+        n = 0
+        for r, v in zip(rows, vecs):
+            vs = "[" + ",".join("%.6f" % x for x in v) + "]"
+            s.execute(_t("UPDATE tenant.knowledge SET embedding=(:v)::vector, reembed_due=false WHERE id=:i"),
+                      {"v": vs, "i": r[0]})
+            n += 1
+        s.commit()
+        return n
+    except Exception:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return 0
+    finally:
+        s.close()
+
+
+def _reembed_due_pass():
+    """Self-gated (1×/2min): pokud má knowledge/kb_smernice řádky s reembed_due nebo bez
+    embeddingu, přeembeduje malou dávku. Levný COUNT nejdřív → když není co, nic nevolá
+    (žádné Voyage kredity nazmar). Drží vektory aktuální po editaci textu."""
+    import time as _tm
+    if _tm.time() - _REEMBED_LAST[0] < 120:
+        return
+    _REEMBED_LAST[0] = _tm.time()
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        due = s.execute(_t(
+            "SELECT (SELECT count(*) FROM tenant.knowledge "
+            "        WHERE tenant_id=2 AND active AND (embedding IS NULL OR reembed_due)), "
+            "       (SELECT count(*) FROM tenant.kb_smernice "
+            "        WHERE (embedding IS NULL OR reembed_due) AND (archiv=0 OR archiv IS NULL))"
+        )).first()
+    finally:
+        s.close()
+    kn_due, sm_due = (due[0] or 0) if due else 0, (due[1] or 0) if due else 0
+    if kn_due:
+        try:
+            _knowledge_embed_due(50)
+        except Exception as _ke:
+            logger.warning("[reembed knowledge] %s", _ke)
+    if sm_due:
+        try:
+            from modules.erp.api.smernice_rag import kb_embed_batch as _kb
+            _kb(50)
+        except Exception as _se:
+            logger.warning("[reembed smernice] %s", _se)
+
+
 async def _att_sync_loop():
     import asyncio as _aio
     while not _ATT_SYNC_STOP[0]:
@@ -22811,6 +22888,10 @@ async def _att_sync_loop():
             loop = _aio.get_event_loop()
             await loop.run_in_executor(None, _att_sync_today)
             await loop.run_in_executor(None, _maybe_auto_checkout_midnight)
+            try:  # auto re-embed vektorů (self-gated 1×/2min, jen když je co) — Marti 4.7.
+                await loop.run_in_executor(None, _reembed_due_pass)
+            except Exception as _re:
+                logger.warning("[reembed_pass] %s", _re)
             try:  # průběžné dny aktivního OČR → docházka (self-gated 1×/hod)
                 await loop.run_in_executor(None, _ocr_extend_active)
             except Exception as _oe:
@@ -34379,7 +34460,7 @@ async def diag_sql(req: Request) -> JSONResponse:
             else:
                 rows = _s.execute(_tke(
                     "SELECT id, domain_key, hook, content FROM tenant.knowledge "
-                    "WHERE tenant_id=2 AND active AND embedding IS NULL")).fetchall()
+                    "WHERE tenant_id=2 AND active AND (embedding IS NULL OR reembed_due)")).fetchall()
             if not rows:
                 return JSONResponse({"ok": True, "columns": ["info"], "rows": [["Nic k indexaci (vše už má embedding)."]]})
             _texts = ["[%s] %s\n%s" % (r[1] or "", r[2] or "", (r[3] or "")[:2000]) for r in rows]
@@ -34390,7 +34471,7 @@ async def diag_sql(req: Request) -> JSONResponse:
             _n = 0
             for _r, _v in zip(rows, _vecs):
                 _vs = "[" + ",".join("%.6f" % _x for _x in _v) + "]"
-                _s.execute(_tke("UPDATE tenant.knowledge SET embedding=(:v)::vector WHERE id=:i"), {"v": _vs, "i": _r[0]})
+                _s.execute(_tke("UPDATE tenant.knowledge SET embedding=(:v)::vector, reembed_due=false WHERE id=:i"), {"v": _vs, "i": _r[0]})
                 _n += 1
             _s.commit()
             return JSONResponse({"ok": True, "columns": ["info"], "rows": [["Zaindexováno %d jednotek (Voyage-3, 1024d)." % _n]]})

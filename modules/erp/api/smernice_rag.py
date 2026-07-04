@@ -690,7 +690,7 @@ def kb_embed_batch(limit: int = 100) -> dict:
             "  (SELECT left(string_agg(f.text_extract, ' ¶ '), 2500) FROM tenant.kb_smernice_soubor f "
             "     WHERE f.ec_smernice_id=s.ec_id AND f.extract_ok) AS filetext "
             "FROM tenant.kb_smernice s "
-            "WHERE s.embedding IS NULL AND (s.archiv=0 OR s.archiv IS NULL) "
+            "WHERE (s.embedding IS NULL OR s.reembed_due) AND (s.archiv=0 OR s.archiv IS NULL) "
             "ORDER BY s.ec_id LIMIT :lim"), {"lim": limit}).fetchall()
         if not rows:
             return {"ok": True, "indexed": 0, "zbyva": 0, "msg": "vše zaindexováno"}
@@ -701,12 +701,12 @@ def kb_embed_batch(limit: int = 100) -> dict:
         n = 0
         for r, v in zip(rows, vecs):
             vs = "[" + ",".join("%.6f" % x for x in v) + "]"
-            sd.execute(_t("UPDATE tenant.kb_smernice SET embedding=(:v)::vector WHERE ec_id=:e"),
+            sd.execute(_t("UPDATE tenant.kb_smernice SET embedding=(:v)::vector, reembed_due=false WHERE ec_id=:e"),
                        {"v": vs, "e": r[0]})
             n += 1
         sd.commit()
         left = sd.execute(_t(
-            "SELECT count(*) FROM tenant.kb_smernice WHERE embedding IS NULL "
+            "SELECT count(*) FROM tenant.kb_smernice WHERE (embedding IS NULL OR reembed_due) "
             "AND (archiv=0 OR archiv IS NULL)")).scalar() or 0
         return {"ok": True, "indexed": n, "zbyva": int(left)}
     except Exception as e:

@@ -34191,16 +34191,69 @@ async def diag_sql(req: Request) -> JSONResponse:
                     "WHERE tenant_id=2 AND active AND domain_key='' LIMIT 1")).first()
             dostupne = [(x[0] or "(obecná)") for x in _s.execute(_to(
                 "SELECT domain_key FROM tenant.domain_env WHERE tenant_id=2 AND active ORDER BY domain_key")).fetchall()]
+            _kmap = ""
+            if r:
+                _kh = _s.execute(_to(
+                    "SELECT name, hook FROM tenant.knowledge WHERE tenant_id=2 AND active AND domain_key=:d ORDER BY name"),
+                    {"d": r[0] or ""}).fetchall()
+                if _kh:
+                    _kmap = "\n\n=== MAPA JEDNOTEK (natáhni plný obsah: @@KNOW <název>) ===\n" + "\n".join(
+                        ["- %s — %s" % (x[0], x[1]) for x in _kh])
         finally:
             _s.close()
         if not r:
             return JSONResponse({"ok": True, "columns": ["orient"],
                                  "rows": [["Doména '%s' nenalezena. Dostupné: %s" % (_dom, ", ".join(dostupne))]]})
-        _txt = ("DOMÉNA: %s (%s)\nDostupné domény: %s\n\n=== IDENTITA ===\n%s\n\n=== ZNALOSTI ===\n%s\n\n=== TOOLY ===\n%s"
+        _txt = ("DOMÉNA: %s (%s)\nDostupné domény: %s\n\n=== IDENTITA ===\n%s\n\n=== ZNALOSTI ===\n%s\n\n=== TOOLY ===\n%s%s"
                 % (r[0] or "(obecná)", r[1] or "", ", ".join(dostupne),
-                   r[2] or "", r[3] or "", r[4] or ""))
+                   r[2] or "", r[3] or "", r[4] or "", _kmap))
         _rows = [[_txt[i:i + 150]] for i in range(0, len(_txt), 150)]
         return JSONResponse({"ok": True, "columns": ["orient"], "rows": _rows})
+
+    #   @@MAP [doména]  → scopovaná mapa hooků jednotek (index jako MEMORY.md). Bez arg = vše.
+    if sql.upper().startswith("@@MAP"):
+        from core.database_data import get_data_session as _gmp
+        from sqlalchemy import text as _tmp
+        parts = sql.split()
+        _dm = parts[1].upper() if len(parts) > 1 else None
+        _s = _gmp()
+        try:
+            if _dm:
+                rows = _s.execute(_tmp(
+                    "SELECT domain_key, name, hook FROM tenant.knowledge "
+                    "WHERE tenant_id=2 AND active AND domain_key=:d ORDER BY name"), {"d": _dm}).fetchall()
+            else:
+                rows = _s.execute(_tmp(
+                    "SELECT domain_key, name, hook FROM tenant.knowledge "
+                    "WHERE tenant_id=2 AND active ORDER BY domain_key, name")).fetchall()
+        finally:
+            _s.close()
+        if not rows:
+            return JSONResponse({"ok": True, "columns": ["mapa"],
+                                 "rows": [["Mapa je zatím prázdná" + ((" pro doménu " + _dm) if _dm else "") + "."]]})
+        out = [["[%s] %s — %s" % (r[0] or "-", r[1], r[2])] for r in rows]
+        return JSONResponse({"ok": True, "columns": ["mapa (@@KNOW <název>)"], "rows": out})
+
+    #   @@KNOW <název>  → natáhne plný obsah jednotky know-how (lazy load do session)
+    if sql.upper().startswith("@@KNOW"):
+        from core.database_data import get_data_session as _gkn
+        from sqlalchemy import text as _tkn
+        parts = sql.split(None, 1)
+        _nm = parts[1].strip() if len(parts) > 1 else ""
+        _s = _gkn()
+        try:
+            r = _s.execute(_tkn(
+                "SELECT name, domain_key, hook, content, links FROM tenant.knowledge "
+                "WHERE tenant_id=2 AND active AND name=:n LIMIT 1"), {"n": _nm}).first()
+        finally:
+            _s.close()
+        if not r:
+            return JSONResponse({"ok": True, "columns": ["know"],
+                                 "rows": [["Jednotka '%s' nenalezena. @@MAP = seznam jednotek." % _nm]]})
+        _txt = ("JEDNOTKA: %s [doména %s]\nHOOK: %s\n%s\n\n%s"
+                % (r[0], r[1] or "-", r[2], ("SOUVISÍ: " + r[4]) if r[4] else "", r[3]))
+        _rows = [[_txt[i:i + 150]] for i in range(0, len(_txt), 150)]
+        return JSONResponse({"ok": True, "columns": ["know"], "rows": _rows})
 
     #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)
     if sql.upper().startswith("@@MZDY") and not sql.upper().startswith("@@MZDYCHECK"):

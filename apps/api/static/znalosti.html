@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paměť sítě — znalosti</title>
+<style>
+  :root{--bg:#0f1720;--card:#1b2430;--ink:#e7edf3;--dim:#9aa7b4;--line:#2a3542;
+    --accent:#4ea1ff;--ok:#34c759;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:16px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:13.5px;margin-bottom:14px}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;
+    position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5}
+  .bar label{color:var(--dim);font-size:13px}
+  select{background:#121a24;color:var(--ink);border:1px solid var(--line);border-radius:9px;
+    padding:8px 11px;font-size:14px}
+  .info{color:var(--dim);font-size:12.5px;margin-bottom:12px}
+  .info b{color:var(--accent)}
+  .dom{margin:16px 0 6px;font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden}
+  .hd{padding:11px 14px;cursor:pointer;user-select:none;display:flex;gap:10px;align-items:baseline}
+  .hd:hover{background:#202b38}
+  .hd .nm{font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;color:#8fd0ff;white-space:nowrap}
+  .hd .hk{color:var(--ink)}
+  .body{display:none;padding:0 14px 14px}
+  .card.open .body{display:block}
+  .fld{margin-top:10px}
+  .fld label{display:block;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+  input.f,textarea{width:100%;background:#121a24;color:var(--ink);border:1px solid var(--line);
+    border-radius:9px;padding:8px 11px;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
+  .row{display:flex;gap:10px;align-items:center;margin-top:12px}
+  button{background:var(--accent);color:#04121f;border:0;border-radius:9px;padding:8px 15px;font-weight:700;cursor:pointer}
+  button.sec{background:#26303c;color:var(--ink)}
+  .st{font-size:13px;color:var(--dim)} .st.ok{color:var(--ok)} .st.err{color:#ff6b63}
+  .load{color:var(--dim);padding:20px 4px}
+  .foot{color:var(--dim);font-size:12px;margin-top:20px;line-height:1.7}
+  code{background:#0c141d;padding:1px 5px;border-radius:5px;color:#8fd0ff}
+</style>
+</head>
+<body>
+  <h1>🧠 Paměť sítě — znalosti</h1>
+  <div class="sub">Jednotky know-how, které nese Marti-AI i Claude. Přepni „očima koho" a uvidíš přesně tu <b>scopovanou mapu</b>, kterou má daná osoba vždy v promptu — nic víc.</div>
+  <div class="bar">
+    <label>👁 Zobrazit očima:</label>
+    <select id="who" onchange="apply()"><option value="">Vše (celá paměť)</option></select>
+  </div>
+  <div class="info" id="info"></div>
+  <div id="list"><div class="load">Načítám paměť…</div></div>
+  <div class="foot">
+    Tohle je přesně to, co má subjekt „v hlavě": index (hooky). Plný text jednotky se natáhne až na vyžádání — u Clauda <code>@@KNOW &lt;název&gt;</code>, u Marti-AI přes <code>GO &lt;doména&gt;</code>. Úpravy se projeví hned na obou.
+  </div>
+<script>
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+var UNITS=[], SUBJ=[];
+
+function apply(){
+  var who=document.getElementById('who').value;
+  var doms=null, nm='';
+  if(who){ var sj=SUBJ.filter(function(x){return String(x.user_id)===who;})[0];
+           if(sj){doms=sj.domains; nm=sj.name;} }
+  var info=document.getElementById('info');
+  if(who && doms){ info.innerHTML='<b>'+esc(nm)+'</b> vidí jen domény: <b>'+doms.map(esc).join(', ')+'</b> — '+
+      UNITS.filter(function(u){return doms.indexOf(u.domain)>=0;}).length+' jednotek.'; }
+  else { info.innerHTML='Celá paměť sítě — <b>'+UNITS.length+'</b> jednotek napříč doménami.'; }
+  var vis=UNITS.filter(function(u){return !doms || doms.indexOf(u.domain)>=0;});
+  render(vis);
+}
+function render(list){
+  var el=document.getElementById('list');
+  if(!list.length){el.innerHTML='<div class="load">Žádné jednotky pro tento výběr.</div>';return;}
+  var html='', lastDom=null;
+  list.forEach(function(u){
+    if(u.domain!==lastDom){ html+='<div class="dom">'+esc(u.domain||'(bez domény)')+'</div>'; lastDom=u.domain; }
+    var i=UNITS.indexOf(u);
+    html+='<div class="card" id="c'+i+'">'+
+      '<div class="hd" onclick="tog('+i+')"><span class="nm">'+esc(u.name)+'</span><span class="hk">'+esc(u.hook)+'</span></div>'+
+      '<div class="body">'+
+        '<div class="fld"><label>Doména</label><input class="f" id="d'+i+'" value="'+esc(u.domain)+'"></div>'+
+        '<div class="fld"><label>Hook (řádek do mapy)</label><input class="f" id="h'+i+'" value="'+esc(u.hook)+'"></div>'+
+        '<div class="fld"><label>Obsah (natáhne se na vyžádání)</label><textarea id="t'+i+'" rows="9">'+esc(u.content)+'</textarea></div>'+
+        '<div class="fld"><label>Souvisí (názvy, čárkou)</label><input class="f" id="l'+i+'" value="'+esc(u.links)+'"></div>'+
+        '<div class="row"><button onclick="save('+i+')">💾 Uložit</button>'+
+          '<span class="st" id="s'+i+'">'+(u.updated_by?('upravil '+esc(u.updated_by)+' · '+esc(u.updated_at||'')):'')+'</span></div>'+
+      '</div></div>';
+  });
+  el.innerHTML=html;
+}
+function tog(i){var c=document.getElementById('c'+i); if(c) c.classList.toggle('open');}
+function save(i){
+  var u=UNITS[i];
+  var body={name:u.name, domain:document.getElementById('d'+i).value,
+    hook:document.getElementById('h'+i).value, content:document.getElementById('t'+i).value,
+    links:document.getElementById('l'+i).value};
+  var st=document.getElementById('s'+i); st.className='st'; st.textContent='Ukládám…';
+  fetch('/api/v1/erp/app/znalosti/save',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(x){ if(x.ok){st.className='st ok';st.textContent='✓ Uloženo';
+        u.domain=body.domain.toUpperCase();u.hook=body.hook;u.content=body.content;u.links=body.links;}
+      else{st.className='st err';st.textContent='Chyba: '+(x.error||'nešlo');} })
+    .catch(function(e){st.className='st err';st.textContent='Chyba: '+esc(e);});
+}
+
+fetch('/api/v1/erp/app/znalosti',{credentials:'include'})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(!d.ok){document.getElementById('list').innerHTML='<div class="load">Nemáš přístup nebo je potřeba se přihlásit.</div>';return;}
+    UNITS=d.units||[]; SUBJ=d.subjects||[];
+    var sel=document.getElementById('who');
+    SUBJ.forEach(function(s){var o=document.createElement('option');o.value=String(s.user_id);
+      o.textContent=s.name+' ('+s.domains.join(', ')+')';sel.appendChild(o);});
+    apply();
+  })
+  .catch(function(e){document.getElementById('list').innerHTML='<div class="load">Chyba načtení: '+esc(e)+'</div>';});
+</script>
+</body>
+</html>

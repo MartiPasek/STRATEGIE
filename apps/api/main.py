@@ -959,6 +959,15 @@ def domeny_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/znalosti")
+def znalosti_page():
+    """Paměť sítě (tenant.knowledge) — vidět jednotky + ladit + mapa očima konkrétní osoby.
+    Scope přes API /api/v1/erp/app/znalosti = rodiče + cockpit. Claude ID23 4.7.2026."""
+    return FileResponse(os.path.join(static_dir, "znalosti.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/podpisy")
 def podpisy_page():
     """Interní správa e-podpisu smluv (finanční/HR okruh). Marti 1.7.2026."""

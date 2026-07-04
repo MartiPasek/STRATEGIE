@@ -28864,6 +28864,66 @@ async def domeny_save(req: Request):
         s.close()
 
 
+@api_router.get("/app/znalosti")
+def znalosti_get(req: Request):
+    """Review paměťové vrstvy tenant.knowledge (jednotky) + scope (kdo vidí co).
+    Okno pro lidi — vidět mapu očima konkrétní osoby. Rodiče + cockpit. Claude ID23 4.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        units = s.execute(_t(
+            "SELECT name, domain_key, hook, content, COALESCE(links,''), COALESCE(updated_by,''), "
+            "  to_char(updated_at,'DD.MM.YYYY HH24:MI') FROM tenant.knowledge "
+            "WHERE tenant_id=2 AND active ORDER BY domain_key, name")).fetchall()
+        scope = s.execute(_t(
+            "SELECT s.user_id, "
+            "  COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'user '||s.user_id), "
+            "  string_agg(DISTINCT s.domain_key, ',' ORDER BY s.domain_key) "
+            "FROM tenant.domain_scope s JOIN public.users u ON u.id=s.user_id "
+            "WHERE s.tenant_id=2 AND s.active GROUP BY s.user_id, u.first_name, u.last_name "
+            "ORDER BY u.first_name")).fetchall()
+        return {"ok": True,
+                "units": [{"name": r[0], "domain": r[1], "hook": r[2], "content": r[3],
+                           "links": r[4], "updated_by": r[5], "updated_at": r[6]} for r in units],
+                "subjects": [{"user_id": r[0], "name": r[1], "domains": (r[2] or "").split(",")} for r in scope]}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/znalosti/save")
+async def znalosti_save(req: Request):
+    """Ulož úpravu jednotky know-how (rodiče + cockpit) — lidé ladí paměť s Claudem."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        b = await req.json()
+        nm = str((b or {}).get("name") or "").strip()
+        res = s.execute(_t(
+            "UPDATE tenant.knowledge SET domain_key=:d, hook=:h, content=:c, links=:l, "
+            "updated_by=:ub, updated_at=now() WHERE tenant_id=2 AND name=:n"),
+            {"d": str(b.get("domain") or "").upper()[:40], "h": b.get("hook") or "",
+             "c": b.get("content") or "", "l": b.get("links") or "",
+             "ub": "user:%s" % uid, "n": nm})
+        s.commit()
+        return {"ok": (res.rowcount or 0) > 0}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=200)
+    finally:
+        s.close()
+
+
 def _smlouvy_mzda_mapy(s):
     """Vrátí {'EC':{norm_jmeno:cislo}, 'ES':{...}} = kde komu běží VÝPLATNICE 2026 (office
     Helios, firma=DB). Kolize jména (2 osoby s 2026 mzdou) → None (skip). Marti 30.6."""

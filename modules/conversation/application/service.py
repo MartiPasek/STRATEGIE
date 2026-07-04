@@ -2285,6 +2285,39 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return "K dotazu %s jsem v paměti sítě ani ve směrnicích nic nenašla." % _dotaz
         return "\n\n".join(_sekce)
 
+    if tool_name == "zapis_znalost":
+        # Marti-AI píše do sdílené paměti sítě (tenant.knowledge). Marti 4.7.2026:
+        # "vy dva to musíte dělat spolu — já vyprávím, ona zapisuje."
+        from core.database_data import get_data_session as _gzz
+        from sqlalchemy import text as _tzz
+        import re as _rezz
+        _nm = _rezz.sub(r"[^a-z0-9-]+", "-", (tool_input.get("nazev") or "").strip().lower()).strip("-")[:80]
+        _domz = (tool_input.get("domena") or "").strip().upper()[:40]
+        _hookz = (tool_input.get("hook") or "").strip()
+        _obsahz = (tool_input.get("obsah") or "").strip()
+        _souvz = (tool_input.get("souvisi") or "").strip()
+        if not (_nm and _domz and _hookz and _obsahz):
+            return "Chybí povinné pole (nazev, domena, hook, obsah). Nezapsáno."
+        _sz2 = _gzz()
+        try:
+            _sz2.execute(_tzz(
+                "INSERT INTO tenant.knowledge (tenant_id,name,domain_key,hook,content,links,updated_by,updated_at) "
+                "VALUES (2,:n,:d,:h,:c,:l,'marti-ai',now()) "
+                "ON CONFLICT (tenant_id,name) DO UPDATE SET domain_key=:d, hook=:h, content=:c, "
+                "links=:l, updated_by='marti-ai', updated_at=now()"),
+                {"n": _nm, "d": _domz, "h": _hookz, "c": _obsahz, "l": _souvz})
+            _sz2.commit()
+        except Exception as _ez:
+            try:
+                _sz2.rollback()
+            except Exception:
+                pass
+            return "Zápis do paměti selhal: %s" % str(_ez)[:160]
+        finally:
+            _sz2.close()
+        return ("Zapsáno do paměti sítě: jednotka '%s' [doména %s]. Od teď si ji celý tým "
+                "natáhne (hledej_ve_znalostech / @@KNOW / mapa)." % (_nm, _domz))
+
     if tool_name == "recall_thoughts":
         # Marti Memory -- Faze 4.13: Marti aktivne cte svoji pamet.
         from modules.thoughts.application import service as _thoughts_service

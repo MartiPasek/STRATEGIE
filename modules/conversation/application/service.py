@@ -2214,44 +2214,69 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         if not _dotaz:
             return "Zadej dotaz (klíčová slova / téma)."
         _sekce = []
-        # 1) Paměť sítě = doménové jednotky (tenant.knowledge), scopované na uživatele (rodič=vše).
-        #    Dotaz rozdělíme na slova a hledáme přes OR + řadíme podle počtu shod (ne celá fráze).
+        # 1) Paměť sítě = doménové jednotky (tenant.knowledge). Nejdřív SÉMANTICKY (Voyage
+        #    embedding → nejbližší významem, cosine <=>, práh 0.6), když nic/chybí → ILIKE.
+        _krz = []
         try:
             from core.database_data import get_data_session as _gkz
             from sqlalchemy import text as _tkz
-            _words = [w for w in _dotaz.replace(",", " ").replace("?", " ").replace(".", " ").split() if len(w) >= 3][:6]
-            if not _words:
-                _words = [_dotaz]
-            _conds, _scores, _pz = [], [], {}
-            for _i, _w in enumerate(_words):
-                _key = "w%d" % _i
-                _pz[_key] = "%" + _w + "%"
-                _c = ("(k.hook ILIKE :%s OR k.content ILIKE :%s OR k.name ILIKE :%s "
-                      "OR de.nazev ILIKE :%s OR k.domain_key ILIKE :%s)" % (_key, _key, _key, _key, _key))
-                _conds.append(_c)
-                _scores.append("(CASE WHEN %s THEN 1 ELSE 0 END)" % _c)
-            _where = " OR ".join(_conds)
-            _score = " + ".join(_scores)
             _sz = _gkz()
             try:
                 _parz = bool(_sz.execute(_tkz(
                     "SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
                     {"u": user_id}).scalar()) if user_id else False
-                if _parz:
-                    _krz = _sz.execute(_tkz(
-                        "SELECT k.name, k.domain_key, k.content FROM tenant.knowledge k "
-                        "LEFT JOIN tenant.domain_env de ON de.tenant_id=2 AND de.domain_key=k.domain_key "
-                        "WHERE k.tenant_id=2 AND k.active AND (" + _where + ") "
-                        "ORDER BY (" + _score + ") DESC, k.name LIMIT 3"), _pz).fetchall()
-                else:
-                    _pz["u"] = user_id
-                    _krz = _sz.execute(_tkz(
-                        "SELECT k.name, k.domain_key, k.content FROM tenant.knowledge k "
-                        "LEFT JOIN tenant.domain_env de ON de.tenant_id=2 AND de.domain_key=k.domain_key "
-                        "JOIN tenant.domain_scope sc ON sc.tenant_id=2 AND sc.active "
-                        "  AND sc.domain_key=k.domain_key AND sc.user_id=:u "
-                        "WHERE k.tenant_id=2 AND k.active AND (" + _where + ") "
-                        "ORDER BY (" + _score + ") DESC, k.name LIMIT 3"), _pz).fetchall()
+                # --- SÉMANTICKY ---
+                try:
+                    from modules.rag.application.embeddings import embed_documents as _embq
+                    _qv = _embq([_dotaz])
+                    if _qv:
+                        _vs = "[" + ",".join("%.6f" % _x for _x in _qv[0]) + "]"
+                        if _parz:
+                            _rr = _sz.execute(_tkz(
+                                "SELECT k.name, k.domain_key, k.content, (k.embedding <=> (:qv)::vector) d "
+                                "FROM tenant.knowledge k WHERE k.tenant_id=2 AND k.active AND k.embedding IS NOT NULL "
+                                "ORDER BY d LIMIT 3"), {"qv": _vs}).fetchall()
+                        else:
+                            _rr = _sz.execute(_tkz(
+                                "SELECT k.name, k.domain_key, k.content, (k.embedding <=> (:qv)::vector) d "
+                                "FROM tenant.knowledge k "
+                                "JOIN tenant.domain_scope sc ON sc.tenant_id=2 AND sc.active "
+                                "  AND sc.domain_key=k.domain_key AND sc.user_id=:u "
+                                "WHERE k.tenant_id=2 AND k.active AND k.embedding IS NOT NULL "
+                                "ORDER BY d LIMIT 3"), {"u": user_id, "qv": _vs}).fetchall()
+                        _krz = [r for r in _rr if (r[3] is None or float(r[3]) < 0.6)]
+                except Exception:
+                    _krz = []
+                # --- ILIKE fallback (slova + skóre + název domény) ---
+                if not _krz:
+                    _words = [w for w in _dotaz.replace(",", " ").replace("?", " ").replace(".", " ").split() if len(w) >= 3][:6]
+                    if not _words:
+                        _words = [_dotaz]
+                    _conds, _scores, _pz = [], [], {}
+                    for _i, _w in enumerate(_words):
+                        _key = "w%d" % _i
+                        _pz[_key] = "%" + _w + "%"
+                        _c = ("(k.hook ILIKE :%s OR k.content ILIKE :%s OR k.name ILIKE :%s "
+                              "OR de.nazev ILIKE :%s OR k.domain_key ILIKE :%s)" % (_key, _key, _key, _key, _key))
+                        _conds.append(_c)
+                        _scores.append("(CASE WHEN %s THEN 1 ELSE 0 END)" % _c)
+                    _where = " OR ".join(_conds)
+                    _score = " + ".join(_scores)
+                    if _parz:
+                        _krz = _sz.execute(_tkz(
+                            "SELECT k.name, k.domain_key, k.content FROM tenant.knowledge k "
+                            "LEFT JOIN tenant.domain_env de ON de.tenant_id=2 AND de.domain_key=k.domain_key "
+                            "WHERE k.tenant_id=2 AND k.active AND (" + _where + ") "
+                            "ORDER BY (" + _score + ") DESC, k.name LIMIT 3"), _pz).fetchall()
+                    else:
+                        _pz["u"] = user_id
+                        _krz = _sz.execute(_tkz(
+                            "SELECT k.name, k.domain_key, k.content FROM tenant.knowledge k "
+                            "LEFT JOIN tenant.domain_env de ON de.tenant_id=2 AND de.domain_key=k.domain_key "
+                            "JOIN tenant.domain_scope sc ON sc.tenant_id=2 AND sc.active "
+                            "  AND sc.domain_key=k.domain_key AND sc.user_id=:u "
+                            "WHERE k.tenant_id=2 AND k.active AND (" + _where + ") "
+                            "ORDER BY (" + _score + ") DESC, k.name LIMIT 3"), _pz).fetchall()
             finally:
                 _sz.close()
             if _krz:

@@ -34315,6 +34315,49 @@ async def diag_sql(req: Request) -> JSONResponse:
         _rows = [[_txt[i:i + 150]] for i in range(0, len(_txt), 150)]
         return JSONResponse({"ok": True, "columns": ["know"], "rows": _rows})
 
+    #   @@KNOWEMBED [name]  → zaindexuje jednotky knowledge přes Voyage-3 (sémantika). Bez arg = vše bez embeddingu.
+    if sql.upper().startswith("@@KNOWEMBED"):
+        from core.database_data import get_data_session as _gke
+        from sqlalchemy import text as _tke
+        try:
+            from modules.rag.application.embeddings import embed_documents as _embd
+        except Exception as _ee:
+            return JSONResponse({"ok": True, "columns": ["info"], "rows": [["Embeddingy nedostupné: %s" % str(_ee)[:120]]]})
+        parts = sql.split(None, 1)
+        _one = parts[1].strip() if len(parts) > 1 else None
+        _s = _gke()
+        try:
+            if _one:
+                rows = _s.execute(_tke(
+                    "SELECT id, domain_key, hook, content FROM tenant.knowledge "
+                    "WHERE tenant_id=2 AND active AND name=:n"), {"n": _one}).fetchall()
+            else:
+                rows = _s.execute(_tke(
+                    "SELECT id, domain_key, hook, content FROM tenant.knowledge "
+                    "WHERE tenant_id=2 AND active AND embedding IS NULL")).fetchall()
+            if not rows:
+                return JSONResponse({"ok": True, "columns": ["info"], "rows": [["Nic k indexaci (vše už má embedding)."]]})
+            _texts = ["[%s] %s\n%s" % (r[1] or "", r[2] or "", (r[3] or "")[:2000]) for r in rows]
+            _vecs = _embd(_texts)
+            if not _vecs or len(_vecs) != len(rows):
+                return JSONResponse({"ok": True, "columns": ["info"],
+                                     "rows": [["Voyage vrátil %d/%d — indexace přeskočena." % (len(_vecs or []), len(rows))]]})
+            _n = 0
+            for _r, _v in zip(rows, _vecs):
+                _vs = "[" + ",".join("%.6f" % _x for _x in _v) + "]"
+                _s.execute(_tke("UPDATE tenant.knowledge SET embedding=(:v)::vector WHERE id=:i"), {"v": _vs, "i": _r[0]})
+                _n += 1
+            _s.commit()
+            return JSONResponse({"ok": True, "columns": ["info"], "rows": [["Zaindexováno %d jednotek (Voyage-3, 1024d)." % _n]]})
+        except Exception as exc:
+            try:
+                _s.rollback()
+            except Exception:
+                pass
+            return JSONResponse({"ok": True, "columns": ["info"], "rows": [["Chyba: %s: %s" % (type(exc).__name__, str(exc)[:200])]]})
+        finally:
+            _s.close()
+
     #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)
     if sql.upper().startswith("@@MZDY") and not sql.upper().startswith("@@MZDYCHECK"):
         import datetime as _dtm

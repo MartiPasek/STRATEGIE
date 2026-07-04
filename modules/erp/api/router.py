@@ -12478,6 +12478,34 @@ async def app_plan_generate_base(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+@api_router.get("/app/plan/firma")
+def app_plan_firma(req: Request) -> JSONResponse:
+    """Firemní plán = SDÍLENÝ firemní kalendář (ČR svátky + celofiremní výjimky), model A.
+    Stejný pro všechny, nečte per-user att_plan_day → nikdy prázdný. Skupina/osobní jsou
+    overlaye navrch per subjekt. Claude ID23 4.7.2026 (Marti „Firma plán = vrstva, ne jednotlivci")."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT day, hodiny, is_holiday, je_pracovni, holiday_name "
+            "FROM tenant.firemni_kalendar WHERE tenant_id=2 "
+            "AND date_part('year', day)=date_part('year', CURRENT_DATE) ORDER BY day")).fetchall()
+        plan = []
+        for r in rows:
+            dt = 'holiday' if r[2] else ('work' if r[3] else 'weekend')
+            plan.append({"date": r[0].isoformat(), "hours": float(r[1] or 0),
+                         "day_type": dt, "holiday_name": r[4]})
+        return JSONResponse({"ok": True, "has_plan": len(plan) > 0, "uvazek": 40, "plan": plan})
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
 @api_router.get("/app/plan/mine")
 async def app_plan_mine(req: Request) -> JSONResponse:
     """Můj plán na týdny dopředu (od dneška). HR/rodič může načíst cizí přes user_id."""

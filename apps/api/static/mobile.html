@@ -7059,7 +7059,9 @@ setTimeout(function(){
     function czd2(iso){ var p=(iso||"").split("-"); return p.length===3?(p[2]+"."+p[1]+"."+p[0]):iso; }
     function renderPlan(eff, src){
       left.innerHTML='<div class="hint">Načítám…</div>';
-      var _url=(src==='mydefault')?("/api/v1/erp/app/plan/my-default"+(AP?("?user_id="+AP.user_id):"")):"/api/v1/erp/app/plan/mine?weeks=10";
+      var _url= eff ? "/api/v1/erp/app/plan/firma"
+              : (src==='mydefault') ? ("/api/v1/erp/app/plan/my-default"+(AP?("?user_id="+AP.user_id):""))
+              : "/api/v1/erp/app/plan/mine?weeks=10";
       api("GET",_url,"").then(function(j){
         left.innerHTML="";
         if(!j||!j.ok){ left.appendChild(el('<div class="hint">Nelze načíst.</div>')); return; }

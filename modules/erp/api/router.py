@@ -21763,10 +21763,20 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
     sess = cm.__enter__()
     ins = upd = total = 0
     try:
+        # dedup: (cislo_zam, den) s app work_alloc segmenty → EC přeskoč (app má pravdu o činnosti)
+        try:
+            _appd = {(str(x[0]).strip(), str(x[1])) for x in sess.execute(_t(
+                "SELECT e.cislo_zam, to_char(wa.started_at::date,'YYYY-MM-DD') "
+                "FROM tenant.work_alloc wa JOIN tenant.att_employee e ON e.user_id=wa.user_id AND e.tenant_id=:t "
+                "WHERE wa.ended_at IS NOT NULL AND wa.cinnost_id IS NOT NULL AND e.cislo_zam IS NOT NULL"), {"t": tenant}).fetchall()}
+        except Exception:
+            _appd = set()
         for r in _rows(sql):
             rid = int(r["ID"]); total += 1
             cz = str(r.get("CisloZam") or "").strip()
             zak = (r.get("CisloZakazky") or "").strip()
+            if (cz, str(r.get("d"))) in _appd:
+                continue
             try:
                 cin = int(r.get("DruhCinnosti") or 0) or None
             except Exception:
@@ -21787,6 +21797,77 @@ def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
                     "zakazka_ref,cinnost_id,hodiny,source_system,source_id,created_at,updated_at) "
                     "VALUES (:t,(SELECT user_id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1),"
                     ":cz,:d,:z,:k,:zak,(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1),:h,'centrala1',:sid,now(),now())"), p)
+                ins += 1
+            else:
+                upd += 1
+        sess.commit()
+        cm.__exit__(None, None, None)
+        return {"ok": True, "total": total, "ins": ins, "upd": upd, "frm": frm, "to": to}
+    except Exception as exc:
+        try:
+            cm.__exit__(type(exc), exc, exc.__traceback__)
+        except Exception:
+            pass
+        return {"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}
+
+
+def _sync_vyroba_work_app(days: int = 3, tenant: int = 2, frm: str = None,
+                          to: str = None) -> dict:
+    """Fold app segmentů tenant.work_alloc → tenant.vyroba_work (source_system='app').
+    App-lidi (mobile) volí činnost per úsek → work_alloc má PRAVDU (EC u nich jen agregát
+    DruhCinnosti=4 natvrdo). Dedup: pro (user, den) s app segmenty smaž centrala1 řádky
+    (EC agregát), ať se nezapočítá dvakrát. Claude ID23 4.7.2026."""
+    from datetime import date as _date_d, timedelta as _td_d
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    if not frm:
+        frm = (_date_d.today() - _td_d(days=days)).isoformat()
+    cm = _pg.get_session()
+    sess = cm.__enter__()
+    ins = upd = total = 0
+    try:
+        _wh = "wa.started_at::date >= :frm"
+        p0 = {"t": tenant, "frm": frm}
+        if to:
+            _wh += " AND wa.started_at::date <= :toe"
+            p0["toe"] = to
+        segs = sess.execute(_t(
+            "SELECT wa.id, wa.user_id, wa.project_ref, wa.cinnost_id, "
+            "  to_char(wa.started_at::date,'YYYY-MM-DD') AS d, "
+            "  to_char(wa.started_at,'YYYY-MM-DD HH24:MI:SS') AS z, "
+            "  to_char(wa.ended_at,'YYYY-MM-DD HH24:MI:SS') AS k, "
+            "  round((EXTRACT(EPOCH FROM (wa.ended_at-wa.started_at))/3600.0)::numeric,3) AS hod, "
+            "  (SELECT cislo_zam FROM tenant.att_employee e WHERE e.user_id=wa.user_id AND e.tenant_id=:t LIMIT 1) AS cz "
+            "FROM tenant.work_alloc wa "
+            "WHERE wa.tenant_id=:t AND wa.ended_at IS NOT NULL AND wa.cinnost_id IS NOT NULL "
+            "  AND COALESCE(wa.project_ref,'')<>'' AND LOWER(COALESCE(wa.project_ref,''))<>'rezie' "
+            "  AND " + _wh + " ORDER BY wa.id"), p0).mappings().fetchall()
+        seen_ud = set()
+        for sg in segs:
+            ud = (sg["user_id"], sg["d"])
+            if ud not in seen_ud:
+                seen_ud.add(ud)
+                sess.execute(_t(
+                    "DELETE FROM tenant.vyroba_work WHERE tenant_id=:t AND source_system='centrala1' "
+                    "AND datum=:d::date AND user_id=:u"),
+                    {"t": tenant, "d": sg["d"], "u": sg["user_id"]})
+        for sg in segs:
+            total += 1
+            p = {"t": tenant, "u": sg["user_id"], "cz": sg["cz"], "zak": sg["project_ref"],
+                 "cin": sg["cinnost_id"], "d": sg["d"], "z": sg["z"], "k": sg["k"],
+                 "h": sg["hod"], "sid": int(sg["id"])}
+            res = sess.execute(_t(
+                "UPDATE tenant.vyroba_work SET zakazka_ref=:zak, "
+                "cinnost_id=(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1), "
+                "datum=:d::date, od=:z::timestamptz, konec=:k::timestamptz, hodiny=:h, "
+                "cislo_zam=:cz, user_id=:u, updated_at=now() "
+                "WHERE tenant_id=:t AND source_system='app' AND source_id=:sid"), p)
+            if (res.rowcount or 0) == 0:
+                sess.execute(_t(
+                    "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
+                    "zakazka_ref,cinnost_id,hodiny,source_system,source_id,created_at,updated_at) "
+                    "VALUES (:t,:u,:cz,:d::date,:z::timestamptz,:k::timestamptz,:zak,"
+                    "(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1),:h,'app',:sid,now(),now())"), p)
                 ins += 1
             else:
                 upd += 1
@@ -21976,6 +22057,11 @@ def _maybe_sync_ec_dochazka():
         _sync_vyroba_work_ec(days=3)
     except Exception as e:
         logger.warning("[vyroba_work_sync] %s", e)
+    try:
+        # App segmenty (work_alloc) → vyroba_work (reálná činnost app-lidí + dedup EC agregátu).
+        _sync_vyroba_work_app(days=3)
+    except Exception as e:
+        logger.warning("[vyroba_work_app_sync] %s", e)
 
 
 def _do_att_action(payload, uid, decision):
@@ -34031,7 +34117,9 @@ async def diag_sql(req: Request) -> JSONResponse:
         parts = sql.split()
         _frm = parts[1] if len(parts) > 1 else None
         _to = parts[2] if len(parts) > 2 else None
-        return JSONResponse(_sync_vyroba_work_ec(frm=_frm, to=_to))
+        _ec = _sync_vyroba_work_ec(frm=_frm, to=_to)
+        _app = _sync_vyroba_work_app(frm=_frm, to=_to)
+        return JSONResponse({"ok": bool(_ec.get("ok") and _app.get("ok")), "ec": _ec, "app": _app})
 
     #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)
     if sql.upper().startswith("@@MZDY") and not sql.upper().startswith("@@MZDYCHECK"):

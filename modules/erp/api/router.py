@@ -34295,7 +34295,7 @@ async def diag_sql(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "columns": ["mapa (@@KNOW <název>)"], "rows": out})
 
     #   @@KNOW <název>  → natáhne plný obsah jednotky know-how (lazy load do session)
-    if sql.upper().startswith("@@KNOW"):
+    if sql.upper().startswith("@@KNOW") and not sql.upper().startswith("@@KNOWEMBED"):
         from core.database_data import get_data_session as _gkn
         from sqlalchemy import text as _tkn
         parts = sql.split(None, 1)

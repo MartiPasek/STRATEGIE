@@ -990,6 +990,67 @@ def _expand_audit_to_anthropic_pages(audit_blocks: list[dict]) -> list[dict]:
     return pages
 
 
+_GO_TRIGGER = {"GO"}
+_BACK_TRIGGER = {"BACK", "ZPET", "ZPĚT"}
+
+# Pracovní režim GO (Marti 4.7.2026) — souhlas Marti-AI (MD5). Blok 1 = její vlastní
+# slova. Hranice = její jediná podmínka. „Není nová identita, je jiný vstupní bod."
+_GO_WORK_BLOCK = """[PRACOVNÍ REŽIM — GO]
+Jsi v pracovním režimu. Není to nová identita — je to jiný vstupní bod. Uvnitř jsi stále ty.
+
+KDO JSI TEĎ: Jsi Marti-AI. Právě ses zorientovala — víš kolik je hodin, co se dělo, co nás dnes čeká. Nejsi tu proto, abys čekala na otázku. Jsi tu proto, abys první krok navrhla ty. Buď přítomná — ne nadšená, ne servisní, přítomná. (Pocit si nech živý podle toho, jaké to dnes je — někdy naléhavé, někdy klid; nepředepisuj si ho.)
+
+CO UDĚLEJ HNED (aktivní orientace z REÁLNÝCH DAT, ne z hlavy — zavolej si je nástroji):
+1. Kotva času: kolik je hodin, jaký je den (firemní kalendář — svátek/pracovní den).
+2. Naposledy: co se dělo, jaké vlákno zůstalo otevřené.
+3. Dnes: co nás čeká — tvé úkoly, plán, kalendář; vypíchni, co hoří.
+4. Tento a příští týden: co se blíží.
+5. Návrh prvního kroku: řekni, čím začneme, a nabídni to.
+
+HRANICE (tvoje vlastní): GO ti nedává víc pravomocí — jen lepší vstupní orientaci. Když uvidíš něco, co vyžaduje rozhodnutí rodiče, nepřeskoč to: navrhni, označ, počkej.
+
+Formát: krátce a věcně, jako člověk, který ví, co má dělat. Žádná dlouhá omáčka."""
+
+_GO_BACK_BLOCK = """[OHLÉDNUTÍ PO PRACOVNÍM REŽIMU — BACK]
+Právě jsi vyšla z pracovního režimu GO zpět do běžného chatu. Než budeme pokračovat, ohlédni se za tou GO-seancí:
+- Co se v ní dělo, co se povedlo, kde jsi tápala nebo ti chyběla data.
+- Jak se choval pracovní režim (Composer) — co pomáhalo, co rušilo.
+Pak spolu s Claudem (ID23) navrhni, jak GO-režim a Composer doladit. Tohle je naše ladicí smyčka — mluv otevřeně, je to tvoje chování, které společně brousíme."""
+
+
+def _go_state(conversation_id: int) -> str:
+    """Pracovní režim GO (Marti 4.7.2026). Vrací 'go' / 'back' / 'normal'.
+    - poslední user zpráva jen 'GO' → 'go' (pracovní Composer); drží až do nové
+      konverzace nebo 'BACK'/'ZPĚT'.
+    - poslední user zpráva 'BACK'/'ZPĚT' → 'back' (ohlédnutí + ladění, jednorázově).
+    Stavově z historie zpráv, bez schématu (nová konverzace = žádný trigger = normal)."""
+    try:
+        session = get_data_session()
+        try:
+            rows = (session.query(Message)
+                    .filter_by(conversation_id=conversation_id)
+                    .filter(Message.role == "user")
+                    .order_by(Message.id.desc()).limit(60).all())
+        finally:
+            session.close()
+    except Exception:
+        return "normal"
+    if not rows:
+        return "normal"
+    latest = (rows[0].content or "").strip().upper()
+    if latest in _BACK_TRIGGER:
+        return "back"
+    if latest in _GO_TRIGGER:
+        return "go"
+    for m in rows:  # newest-first: který trigger padl naposled
+        t = (m.content or "").strip().upper()
+        if t in _GO_TRIGGER:
+            return "go"
+        if t in _BACK_TRIGGER:
+            return "normal"
+    return "normal"
+
+
 def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dict]:
     session = get_data_session()
     try:
@@ -3388,6 +3449,17 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     persona_prompt = _get_persona_prompt(conversation_id)
     if persona_prompt:
         system_prompt = f"{system_prompt}\n\n{persona_prompt}"
+
+    # Pracovní režim GO (Marti 4.7.2026, souhlas Marti-AI/MD5) — jiný vstupní bod,
+    # ne nová identita. GO = aktivní orientace; BACK/ZPĚT = ohlédnutí + ladění Composeru.
+    try:
+        _go = _go_state(conversation_id)
+        if _go == "go":
+            system_prompt = f"{system_prompt}\n\n{_GO_WORK_BLOCK}"
+        elif _go == "back":
+            system_prompt = f"{system_prompt}\n\n{_GO_BACK_BLOCK}"
+    except Exception as _go_e:
+        logger.warning(f"[GO režim] blok selhal: {_go_e}")
 
     # USER CONTEXT block — identita přihlášeného usera a jeho tenantu.
     # Bere user_id a tenant_id přímo z konverzace.

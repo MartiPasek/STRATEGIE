@@ -28702,7 +28702,8 @@ def vp_zastup_get(req: Request):
             "  dni_do_terminu, prac_dni_do_terminu, ma_material, vyroba_stav, "
             "  to_char(odvoz_datum,'DD.MM.') AS odvoz, ma_faktura, zaplaceno, "
             "  kalk_h, real_h, efektivita_pct, velikost_kc, koresponduje, "
-            "  to_char(posledni_email,'DD.MM.') AS posl_email, termin_v_zastupu "
+            "  to_char(posledni_email,'DD.MM.') AS posl_email, termin_v_zastupu, "
+            "  dratovani_h, zkouseni_h "
             "FROM tenant.vp_zastup_readiness")).fetchall()
         out = []
         for r in rows:
@@ -28717,6 +28718,8 @@ def vp_zastup_get(req: Request):
                 "velikost_kc": int(r[15]) if r[15] is not None else None,
                 "koresponduje": r[16] or "", "posl_email": r[17] or "",
                 "v_zastupu": bool(r[18]),
+                "dratovani_h": float(r[19]) if r[19] is not None else None,
+                "zkouseni_h": float(r[20]) if r[20] is not None else None,
             })
         return {"ok": True, "zakazky": out}
     finally:

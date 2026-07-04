@@ -78,6 +78,9 @@ function render(zz){
     if(z.real_h==null){ vyr='pend'; vyrTxt='—'; }
     else if(rem!=null && rem<=0){ vyr='ok'; vyrTxt='hotovo ('+z.real_h+' h)'; }
     else { vyr='wip'; vyrTxt=z.real_h+'/'+z.kalk_h+' h · zbývá '+rem+' h'; }
+    var zkOk=(z.zkouseni_h!=null && z.zkouseni_h>0);
+    var sZk=zkOk?'ok':'pend';
+    var zkTxt=zkOk?'prošla':((z.dratovani_h!=null&&z.dratovani_h>0)?'čeká':'—');
     var sOdv = z.odvoz?'ok':'pend'; var odvTxt=z.odvoz||'—';
     var sFak = z.faktura?'ok':'pend';
     var sZap = z.zaplaceno?'ok':'pend';
@@ -93,6 +96,7 @@ function render(zz){
       '<div class="flow">'+
         '<div class="step '+stepCls(sMat)+'"><div class="lb">Materiál</div><div class="vl">'+(z.material?'✓':'čeká')+'</div></div>'+
         '<div class="step '+stepCls(vyr)+'"><div class="lb">Výroba</div><div class="vl">'+vyrTxt+'</div></div>'+
+        '<div class="step '+stepCls(sZk)+'"><div class="lb">Zkušebna</div><div class="vl">'+zkTxt+'</div></div>'+
         '<div class="step '+stepCls(sOdv)+'"><div class="lb">Odvoz</div><div class="vl">'+odvTxt+'</div></div>'+
         '<div class="step '+stepCls(sFak)+'"><div class="lb">Faktura</div><div class="vl">'+(z.faktura?'✓':(z.odvoz?'lze':'po odvozu'))+'</div></div>'+
         '<div class="step '+stepCls(sZap)+'"><div class="lb">Zaplaceno</div><div class="vl">'+(z.zaplaceno?'✓':'—')+'</div></div>'+

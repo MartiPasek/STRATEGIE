@@ -2226,7 +2226,8 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             for _i, _w in enumerate(_words):
                 _key = "w%d" % _i
                 _pz[_key] = "%" + _w + "%"
-                _c = "(k.hook ILIKE :%s OR k.content ILIKE :%s OR k.name ILIKE :%s)" % (_key, _key, _key)
+                _c = ("(k.hook ILIKE :%s OR k.content ILIKE :%s OR k.name ILIKE :%s "
+                      "OR de.nazev ILIKE :%s OR k.domain_key ILIKE :%s)" % (_key, _key, _key, _key, _key))
                 _conds.append(_c)
                 _scores.append("(CASE WHEN %s THEN 1 ELSE 0 END)" % _c)
             _where = " OR ".join(_conds)
@@ -2239,12 +2240,14 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 if _parz:
                     _krz = _sz.execute(_tkz(
                         "SELECT k.name, k.domain_key, k.content FROM tenant.knowledge k "
+                        "LEFT JOIN tenant.domain_env de ON de.tenant_id=2 AND de.domain_key=k.domain_key "
                         "WHERE k.tenant_id=2 AND k.active AND (" + _where + ") "
                         "ORDER BY (" + _score + ") DESC, k.name LIMIT 3"), _pz).fetchall()
                 else:
                     _pz["u"] = user_id
                     _krz = _sz.execute(_tkz(
                         "SELECT k.name, k.domain_key, k.content FROM tenant.knowledge k "
+                        "LEFT JOIN tenant.domain_env de ON de.tenant_id=2 AND de.domain_key=k.domain_key "
                         "JOIN tenant.domain_scope sc ON sc.tenant_id=2 AND sc.active "
                         "  AND sc.domain_key=k.domain_key AND sc.user_id=:u "
                         "WHERE k.tenant_id=2 AND k.active AND (" + _where + ") "

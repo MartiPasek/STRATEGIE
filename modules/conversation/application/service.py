@@ -2210,34 +2210,64 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
     if tool_name == "hledej_ve_znalostech":
         # Sdílená RAG znalostní báze firmy (obchod, kalkulace, komponenty, procesy,
         # směrnice). Marti-AI si tahá JEN co potřebuje, na vyžádání (nezahlcuje prompt).
-        try:
-            from modules.erp.api.smernice_rag import kb_search as _kbs
-        except Exception as _ie:
-            return "Znalostní báze teď není dostupná (%s)." % str(_ie)[:120]
         _dotaz = (tool_input.get("dotaz") or "").strip()
         if not _dotaz:
             return "Zadej dotaz (klíčová slova / téma)."
-        _ai = bool(tool_input.get("ai_only"))
-        _res = _kbs(_dotaz, level=3 if _ai else 2, limit=6, ai_only=_ai)
-        if not _res.get("ok"):
-            return "Hledání selhalo: %s" % _res.get("error")
-        _rows = _res.get("rows") or []
-        if not _rows:
-            return "Ve znalostní bázi jsem k tomuto dotazu nic nenašla: %s" % _dotaz
-        _out = ["Ze znalostní báze (%s) k dotazu %s:" % ("řada AI" if _ai else "firma", _dotaz)]
-        for _r in _rows:
-            _nazev = _r[1] or ""
-            _popis = (_r[4] or "").strip()
-            _ury = (_r[6] or "").strip()
-            _soub = _r[5] or ""
-            _txt = _ury or _popis
-            _line = "• %s" % _nazev
-            if _txt:
-                _line += ": %s" % _txt[:280]
-            if _soub:
-                _line += " [příloha: %s]" % str(_soub)[:80]
-            _out.append(_line)
-        return "\n".join(_out)
+        _sekce = []
+        # 1) Paměť sítě = doménové jednotky (tenant.knowledge), scopované na uživatele (rodič=vše).
+        try:
+            from core.database_data import get_data_session as _gkz
+            from sqlalchemy import text as _tkz
+            _sz = _gkz()
+            try:
+                _parz = bool(_sz.execute(_tkz(
+                    "SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                    {"u": user_id}).scalar()) if user_id else False
+                if _parz:
+                    _krz = _sz.execute(_tkz(
+                        "SELECT name, domain_key, content FROM tenant.knowledge "
+                        "WHERE tenant_id=2 AND active AND (hook ILIKE :q OR content ILIKE :q OR name ILIKE :q) "
+                        "ORDER BY name LIMIT 3"), {"q": "%" + _dotaz + "%"}).fetchall()
+                else:
+                    _krz = _sz.execute(_tkz(
+                        "SELECT k.name, k.domain_key, k.content FROM tenant.knowledge k "
+                        "JOIN tenant.domain_scope sc ON sc.tenant_id=2 AND sc.active "
+                        "  AND sc.domain_key=k.domain_key AND sc.user_id=:u "
+                        "WHERE k.tenant_id=2 AND k.active "
+                        "  AND (k.hook ILIKE :q OR k.content ILIKE :q OR k.name ILIKE :q) "
+                        "ORDER BY k.name LIMIT 3"), {"u": user_id, "q": "%" + _dotaz + "%"}).fetchall()
+            finally:
+                _sz.close()
+            if _krz:
+                _b = ["Z paměti sítě (doménové jednotky):"]
+                for _u in _krz:
+                    _b.append("• [%s] %s:\n%s" % (_u[1], _u[0], (_u[2] or "").strip()[:1400]))
+                _sekce.append("\n".join(_b))
+        except Exception:
+            pass
+        # 2) RAG směrnic firmy.
+        try:
+            from modules.erp.api.smernice_rag import kb_search as _kbs
+            _ai = bool(tool_input.get("ai_only"))
+            _res = _kbs(_dotaz, level=3 if _ai else 2, limit=6, ai_only=_ai)
+            if _res.get("ok") and (_res.get("rows") or []):
+                _out = ["Ze znalostní báze směrnic (%s):" % ("řada AI" if _ai else "firma")]
+                for _r in (_res.get("rows") or []):
+                    _nazev = _r[1] or ""
+                    _txt = ((_r[6] or "").strip() or (_r[4] or "").strip())
+                    _soub = _r[5] or ""
+                    _line = "• %s" % _nazev
+                    if _txt:
+                        _line += ": %s" % _txt[:280]
+                    if _soub:
+                        _line += " [příloha: %s]" % str(_soub)[:80]
+                    _out.append(_line)
+                _sekce.append("\n".join(_out))
+        except Exception:
+            pass
+        if not _sekce:
+            return "K dotazu %s jsem v paměti sítě ani ve směrnicích nic nenašla." % _dotaz
+        return "\n\n".join(_sekce)
 
     if tool_name == "recall_thoughts":
         # Marti Memory -- Faze 4.13: Marti aktivne cte svoji pamet.

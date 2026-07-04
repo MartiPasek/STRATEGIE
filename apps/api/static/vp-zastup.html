@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zástup VP — zakázky</title>
+<style>
+  :root{
+    --bg:#0f1720; --card:#1b2430; --ink:#e7edf3; --dim:#9aa7b4;
+    --line:#2a3542; --ok:#34c759; --wip:#e0a72e; --pend:#5b6674;
+    --hot:#ff5a52; --accent:#4ea1ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:16px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:13.5px;margin-bottom:14px}
+  .banner{background:#3a1d1c;border:1px solid var(--hot);border-radius:12px;
+    padding:12px 14px;margin-bottom:14px;font-size:14px}
+  .banner b{color:#ffb3ae}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:14px 16px;margin-bottom:12px}
+  .card.hot{border-color:var(--hot)}
+  .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+  .zc{font-weight:700}
+  .nm{color:var(--dim);font-size:13px}
+  .term{text-align:right;font-size:13px;white-space:nowrap}
+  .term .d{font-weight:700}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700}
+  .pill.hot{background:#3a1d1c;color:#ffb3ae;border:1px solid var(--hot)}
+  .pill.warn{background:#3a331c;color:#ffe08a;border:1px solid var(--wip)}
+  .pill.ok{background:#12301f;color:#8ff0b5;border:1px solid var(--ok)}
+  .flow{display:flex;gap:6px;margin:12px 0 8px;flex-wrap:wrap}
+  .step{flex:1;min-width:88px;background:#121a24;border:1px solid var(--line);
+    border-radius:10px;padding:7px 8px;text-align:center}
+  .step .lb{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.3px}
+  .step .vl{font-size:13px;font-weight:700;margin-top:2px}
+  .st-ok .vl{color:var(--ok)} .st-ok{border-color:var(--ok)}
+  .st-wip .vl{color:var(--wip)} .st-wip{border-color:var(--wip)}
+  .st-pend .vl{color:var(--pend)}
+  .meta{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;
+    color:var(--dim);flex-wrap:wrap;border-top:1px solid var(--line);padding-top:9px;margin-top:4px}
+  .meta a{color:var(--accent);text-decoration:none}
+  .load{color:var(--dim);padding:20px 4px}
+  .foot{color:var(--dim);font-size:12px;margin-top:18px;line-height:1.7}
+</style>
+</head>
+<body>
+  <h1>🗂️ Zástup VP — zakázky ABSAUGWERK</h1>
+  <div class="sub">Eliška je na dovolené do 17.7. — Petra a Claude spolu drží přehled. Flow připravenosti: materiál → výroba → odvoz → faktura → zaplaceno.</div>
+  <div id="banner"></div>
+  <div id="list"><div class="load">Načítám zakázky…</div></div>
+  <div class="foot">
+    Zelená = hotovo · žlutá = probíhá · šedá = čeká. „Prac. dny" počítají svátky (5.+6.7. jsou svátky).<br>
+    Když si u něčeho nejsi jistá, napiš mi přes <a href="/claude-chat">💬 Chat s Claudem</a> — projdeme to spolu.
+  </div>
+<script>
+function stepCls(state){return state==='ok'?'st-ok':state==='wip'?'st-wip':'st-pend';}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+
+function render(zz){
+  var list=document.getElementById('list');
+  var banner=document.getElementById('banner');
+  if(!zz.length){list.innerHTML='<div class="load">Žádné otevřené zakázky.</div>';return;}
+  // urgent: v zástupu, neplaceno, prac_dni<=1, a výroba/odvoz nehotové
+  var hot=zz.filter(function(z){return z.v_zastupu && !z.zaplaceno && z.prac_dni!=null && z.prac_dni<=1;});
+  if(hot.length){
+    banner.innerHTML='<div class="banner">⚠️ <b>'+hot.length+'</b> zakázk'+(hot.length==1?'a má':'y mají')+
+      ' termín do jednoho pracovního dne ('+hot.map(function(z){return esc(z.cislo);}).join(', ')+
+      '). Kvůli svátkům 5.+6.7. je před termínem 8.7. jediný pracovní den — <b>úterý 7.7.</b></div>';
+  }
+  var html='';
+  zz.forEach(function(z){
+    // stavy kroků
+    var sMat = z.material?'ok':'pend';
+    var vyr, vyrTxt;
+    if(z.real_h==null){ vyr='pend'; vyrTxt='—'; }
+    else if(z.efektivita!=null && z.efektivita>=100){ vyr='ok'; vyrTxt=z.real_h+'/'+z.kalk_h+' h'; }
+    else { vyr='wip'; vyrTxt=z.real_h+'/'+z.kalk_h+' h'+(z.efektivita!=null?' ('+z.efektivita+'%)':''); }
+    var sOdv = z.odvoz?'ok':'pend'; var odvTxt=z.odvoz||'—';
+    var sFak = z.faktura?'ok':'pend';
+    var sZap = z.zaplaceno?'ok':'pend';
+    var urgent = z.v_zastupu && !z.zaplaceno && z.prac_dni!=null && z.prac_dni<=1;
+    var termPill = z.prac_dni==null?'' :
+      (z.prac_dni<=1?'<span class="pill hot">'+z.prac_dni+' prac. den</span>' :
+       z.prac_dni<=3?'<span class="pill warn">'+z.prac_dni+' prac. dny</span>' :
+       '<span class="pill ok">'+z.prac_dni+' prac. dní</span>');
+    html+='<div class="card'+(urgent?' hot':'')+'">'+
+      '<div class="top"><div><span class="zc">'+esc(z.cislo)+'</span> '+
+        '<span class="nm">— '+esc(z.nazev)+'</span></div>'+
+        '<div class="term"><div class="d">'+esc(z.termin)+'</div>'+termPill+'</div></div>'+
+      '<div class="flow">'+
+        '<div class="step '+stepCls(sMat)+'"><div class="lb">Materiál</div><div class="vl">'+(z.material?'✓':'čeká')+'</div></div>'+
+        '<div class="step '+stepCls(vyr)+'"><div class="lb">Výroba</div><div class="vl">'+vyrTxt+'</div></div>'+
+        '<div class="step '+stepCls(sOdv)+'"><div class="lb">Odvoz</div><div class="vl">'+odvTxt+'</div></div>'+
+        '<div class="step '+stepCls(sFak)+'"><div class="lb">Faktura</div><div class="vl">'+(z.faktura?'✓':'—')+'</div></div>'+
+        '<div class="step '+stepCls(sZap)+'"><div class="lb">Zaplaceno</div><div class="vl">'+(z.zaplaceno?'✓':'—')+'</div></div>'+
+      '</div>'+
+      '<div class="meta"><span>Fáze: '+esc(z.faze||'—')+'</span>'+
+        '<span>Poslední mail: '+(z.posl_email||'—')+'</span>'+
+        '<span><a href="/claude-chat">💬 napiš Claudovi</a></span></div>'+
+    '</div>';
+  });
+  list.innerHTML=html;
+}
+
+fetch('/api/v1/erp/app/vp-zastup',{credentials:'include'})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(!d.ok){document.getElementById('list').innerHTML='<div class="load">Nemáš přístup nebo je potřeba se přihlásit.</div>';return;}
+    render(d.zakazky||[]);
+  })
+  .catch(function(e){document.getElementById('list').innerHTML='<div class="load">Chyba načtení: '+esc(e)+'</div>';});
+</script>
+</body>
+</html>

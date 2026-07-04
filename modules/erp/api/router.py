@@ -28595,6 +28595,45 @@ def ai_uspora_get(req: Request):
         s.close()
 
 
+@api_router.get("/app/vp-zastup")
+def vp_zastup_get(req: Request):
+    """Živý pohled připravenosti zakázek pro zástup VP (Petra Dvořáková po dobu
+    Eliščiny dovolené 3.-17.7.). Scope: rodiče + Petra (40) + cockpit. Flow:
+    materiál → výroba → odvoz → faktura → zaplaceno + kalk/real hodiny +
+    pracovní dny do termínu (přes firemni_kalendar)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 40 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT cislo_zakazky, zakaznik, nazev, faze, to_char(termin,'DD.MM.YYYY') AS termin, "
+            "  dni_do_terminu, prac_dni_do_terminu, ma_material, vyroba_stav, "
+            "  to_char(odvoz_datum,'DD.MM.') AS odvoz, ma_faktura, zaplaceno, "
+            "  kalk_h, real_h, efektivita_pct, velikost_kc, koresponduje, "
+            "  to_char(posledni_email,'DD.MM.') AS posl_email, termin_v_zastupu "
+            "FROM tenant.vp_zastup_readiness")).fetchall()
+        out = []
+        for r in rows:
+            out.append({
+                "cislo": r[0], "zakaznik": r[1], "nazev": r[2], "faze": r[3],
+                "termin": r[4], "dni": r[5], "prac_dni": r[6],
+                "material": bool(r[7]), "vyroba_stav": r[8] or "",
+                "odvoz": r[9] or "", "faktura": bool(r[10]), "zaplaceno": bool(r[11]),
+                "kalk_h": float(r[12]) if r[12] is not None else None,
+                "real_h": float(r[13]) if r[13] is not None else None,
+                "efektivita": int(r[14]) if r[14] is not None else None,
+                "velikost_kc": int(r[15]) if r[15] is not None else None,
+                "koresponduje": r[16] or "", "posl_email": r[17] or "",
+                "v_zastupu": bool(r[18]),
+            })
+        return {"ok": True, "zakazky": out}
+    finally:
+        s.close()
+
+
 def _smlouvy_mzda_mapy(s):
     """Vrátí {'EC':{norm_jmeno:cislo}, 'ES':{...}} = kde komu běží VÝPLATNICE 2026 (office
     Helios, firma=DB). Kolize jména (2 osoby s 2026 mzdou) → None (skip). Marti 30.6."""

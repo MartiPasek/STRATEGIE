@@ -941,6 +941,15 @@ def ai_buzeni_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/vp-zastup")
+def vp_zastup_page():
+    """Živý pohled připravenosti zakázek pro zástup VP (Petra po dobu Eliščiny dovolené).
+    Scope přes API /api/v1/erp/app/vp-zastup = rodiče + Petra (40) + cockpit. Claude ID23 4.7.2026."""
+    return FileResponse(os.path.join(static_dir, "vp-zastup.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/podpisy")
 def podpisy_page():
     """Interní správa e-podpisu smluv (finanční/HR okruh). Marti 1.7.2026."""

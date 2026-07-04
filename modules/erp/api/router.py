@@ -21718,6 +21718,89 @@ async def att_absence(req: Request) -> JSONResponse:
 _LAST_DOCH_SYNC = [0.0]
 
 
+def _sync_vyroba_work_ec(days: int = 3, tenant: int = 2, frm: str = None,
+                         to: str = None) -> dict:
+    """Přídavný sync EC_Dochazka → tenant.vyroba_work = ODDĚLENÝ zakázkový systém
+    (zakázka + činnost + čas jako joby). NESahá na att_entry (docházka/mzdy zůstávají
+    beze změny). Nese DruhCinnosti (drátování/zkoušení/...), kterou att_entry mirror
+    zahazuje → z tohohle Petra/MD2-VP i Dušan vidí reálný stav výroby po činnostech.
+    Idempotentní přes source_system='centrala1'+source_id (EC ID). Claude ID23 4.7.2026."""
+    import json as _json_d
+    from datetime import date as _date_d, timedelta as _td_d
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return {"ok": False, "error": "mcp_unavailable"}
+
+    def _rows(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _json_d.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error")))
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    if not frm:
+        frm = (_date_d.today() - _td_d(days=days)).isoformat()
+    _wh = "DatumPripadu >= '" + frm + "'"
+    if to:
+        _to_excl = (_date_d.fromisoformat(to) + _td_d(days=1)).isoformat()
+        _wh += " AND DatumPripadu < '" + _to_excl + "'"
+    sql = ("SELECT ID, CisloZam, CONVERT(varchar(10),DatumPripadu,23) d, "
+           "CONVERT(varchar(19),CasZacatek,120) z, CONVERT(varchar(19),CasKonec,120) k, "
+           "CisloZakazky, DruhCinnosti, ISNULL(CasCelkemZakazka,0) hod "
+           "FROM EC_Dochazka WHERE " + _wh + " "
+           "AND ISNULL(CisloZakazky,'')<>'' AND LOWER(ISNULL(CisloZakazky,''))<>'rezie' "
+           "AND ISNULL(DruhCinnosti,0)>0 ORDER BY ID")
+
+    cm = _pg.get_session()
+    sess = cm.__enter__()
+    ins = upd = total = 0
+    try:
+        for r in _rows(sql):
+            rid = int(r["ID"]); total += 1
+            cz = str(r.get("CisloZam") or "").strip()
+            zak = (r.get("CisloZakazky") or "").strip()
+            try:
+                cin = int(r.get("DruhCinnosti") or 0) or None
+            except Exception:
+                cin = None
+            p = {"t": tenant, "cz": cz or None, "zak": zak, "cin": cin,
+                 "d": r.get("d"), "z": r.get("z"), "k": r.get("k"),
+                 "h": r.get("hod"), "sid": rid}
+            res = sess.execute(_t(
+                "UPDATE tenant.vyroba_work SET zakazka_ref=:zak, "
+                "cinnost_id=(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1), "
+                "datum=:d, od=:z, konec=:k, hodiny=:h, cislo_zam=:cz, "
+                "user_id=(SELECT user_id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1), "
+                "updated_at=now() "
+                "WHERE tenant_id=:t AND source_system='centrala1' AND source_id=:sid"), p)
+            if (res.rowcount or 0) == 0:
+                sess.execute(_t(
+                    "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
+                    "zakazka_ref,cinnost_id,hodiny,source_system,source_id,created_at,updated_at) "
+                    "VALUES (:t,(SELECT user_id FROM tenant.att_employee WHERE tenant_id=:t AND cislo_zam=:cz AND user_id IS NOT NULL LIMIT 1),"
+                    ":cz,:d,:z,:k,:zak,(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1),:h,'centrala1',:sid,now(),now())"), p)
+                ins += 1
+            else:
+                upd += 1
+        sess.commit()
+        cm.__exit__(None, None, None)
+        return {"ok": True, "total": total, "ins": ins, "upd": upd, "frm": frm, "to": to}
+    except Exception as exc:
+        try:
+            cm.__exit__(type(exc), exc, exc.__traceback__)
+        except Exception:
+            pass
+        return {"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}
+
+
 def _sync_ec_dochazka_recent(days: int = 3, tenant: int = 2, frm: str = None,
                              to: str = None, wipe: bool = False) -> dict:
     """Inkrementální upsert EC_Dochazka → tenant.att_entry (klíč
@@ -21887,6 +21970,12 @@ def _maybe_sync_ec_dochazka():
         _sync_ec_dochazka_recent(days=3)
     except Exception as e:
         logger.warning("[ec_doch_sync] %s", e)
+    try:
+        # Přídavný zakázkový systém (zakázka + činnost + čas). Oddělený od docházky —
+        # když selže, docházka/mzdy jedou dál. Claude ID23 4.7.2026.
+        _sync_vyroba_work_ec(days=3)
+    except Exception as e:
+        logger.warning("[vyroba_work_sync] %s", e)
 
 
 def _do_att_action(payload, uid, decision):
@@ -33932,6 +34021,14 @@ async def diag_sql(req: Request) -> JSONResponse:
         except Exception:
             return JSONResponse({"ok": False, "error": "@@DOCHAZKA <rok> <mesic|ROK>"})
         return JSONResponse(_sync_dochazka_ec(rok, mesic))
+
+    #   @@VYRWSYNC [frm] [to]  → EC_Dochazka → tenant.vyroba_work (zakázka+činnost+čas jako joby)
+    #   Backfill po měsících (frm/to YYYY-MM-DD); bez argumentů = posledních 3 dny. Neruší docházku.
+    if sql.upper().startswith("@@VYRWSYNC"):
+        parts = sql.split()
+        _frm = parts[1] if len(parts) > 1 else None
+        _to = parts[2] if len(parts) > 2 else None
+        return JSONResponse(_sync_vyroba_work_ec(frm=_frm, to=_to))
 
     #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)
     if sql.upper().startswith("@@MZDY") and not sql.upper().startswith("@@MZDYCHECK"):

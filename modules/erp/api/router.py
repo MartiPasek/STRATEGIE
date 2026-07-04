@@ -12490,14 +12490,18 @@ def app_plan_firma(req: Request) -> JSONResponse:
     cm, s = _att_session()
     try:
         rows = s.execute(_t(
-            "SELECT day, hodiny, is_holiday, je_pracovni, holiday_name "
+            "SELECT day, hodiny, is_holiday, je_pracovni, holiday_name, "
+            " CASE extract(isodow from day)::int WHEN 1 THEN 'Po' WHEN 2 THEN 'Út' WHEN 3 THEN 'St' "
+            "   WHEN 4 THEN 'Čt' WHEN 5 THEN 'Pá' WHEN 6 THEN 'So' ELSE 'Ne' END AS weekday, "
+            " extract(week from day)::int AS iso_week "
             "FROM tenant.firemni_kalendar WHERE tenant_id=2 "
             "AND date_part('year', day)=date_part('year', CURRENT_DATE) ORDER BY day")).fetchall()
         plan = []
         for r in rows:
             dt = 'holiday' if r[2] else ('work' if r[3] else 'weekend')
             plan.append({"date": r[0].isoformat(), "hours": float(r[1] or 0),
-                         "day_type": dt, "holiday_name": r[4]})
+                         "day_type": dt, "holiday_name": r[4],
+                         "weekday": r[5], "iso_week": r[6]})
         return JSONResponse({"ok": True, "has_plan": len(plan) > 0, "uvazek": 40, "plan": plan})
     finally:
         try:

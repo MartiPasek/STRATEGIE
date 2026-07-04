@@ -950,6 +950,15 @@ def vp_zastup_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/domeny")
+def domeny_page():
+    """Review doménového prostředí (domain_env) pro lidi — vidět, porovnat s realitou, ladit.
+    Scope přes API /api/v1/erp/app/domeny = rodiče + cockpit. Claude ID23 4.7.2026."""
+    return FileResponse(os.path.join(static_dir, "domeny.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/podpisy")
 def podpisy_page():
     """Interní správa e-podpisu smluv (finanční/HR okruh). Marti 1.7.2026."""

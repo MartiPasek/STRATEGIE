@@ -28811,6 +28811,59 @@ def vp_zastup_get(req: Request):
         s.close()
 
 
+@api_router.get("/app/domeny")
+def domeny_get(req: Request):
+    """Review doménového prostředí tenant.domain_env (identita+znalosti+tooly).
+    Okno pro lidi — porovnat s realitou a ladit s Claudem. Rodiče + cockpit. Claude ID23 4.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT domain_key, nazev, work_block, znalosti, tools, "
+            "  COALESCE(updated_by,''), to_char(updated_at,'DD.MM.YYYY HH24:MI') "
+            "FROM tenant.domain_env WHERE tenant_id=2 ORDER BY (domain_key=''), domain_key")).fetchall()
+        return {"ok": True, "domeny": [{
+            "domain_key": r[0], "nazev": r[1] or "", "identita": r[2] or "",
+            "znalosti": r[3] or "", "tools": r[4] or "",
+            "updated_by": r[5], "updated_at": r[6]} for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.post("/app/domeny/save")
+async def domeny_save(req: Request):
+    """Ulož úpravu domény (rodiče + cockpit) — lidé ladí prostředí spolu s Claudem."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        b = await req.json()
+        dk = str((b or {}).get("domain_key") or "").strip().upper()
+        res = s.execute(_t(
+            "UPDATE tenant.domain_env SET nazev=:n, work_block=:w, znalosti=:z, tools=:tl, "
+            "updated_by=:ub, updated_at=now() WHERE tenant_id=2 AND domain_key=:dk"),
+            {"n": str(b.get("nazev") or "")[:200], "w": b.get("identita") or "",
+             "z": b.get("znalosti") or "", "tl": b.get("tools") or "",
+             "ub": "user:%s" % uid, "dk": dk})
+        s.commit()
+        return {"ok": (res.rowcount or 0) > 0}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=200)
+    finally:
+        s.close()
+
+
 def _smlouvy_mzda_mapy(s):
     """Vrátí {'EC':{norm_jmeno:cislo}, 'ES':{...}} = kde komu běží VÝPLATNICE 2026 (office
     Helios, firma=DB). Kolize jména (2 osoby s 2026 mzdou) → None (skip). Marti 30.6."""

@@ -21833,9 +21833,7 @@ def _sync_vyroba_work_app(days: int = 3, tenant: int = 2, frm: str = None,
             p0["toe"] = to
         segs = sess.execute(_t(
             "SELECT wa.id, wa.user_id, wa.project_ref, wa.cinnost_id, "
-            "  to_char(wa.started_at::date,'YYYY-MM-DD') AS d, "
-            "  to_char(wa.started_at,'YYYY-MM-DD HH24:MI:SS') AS z, "
-            "  to_char(wa.ended_at,'YYYY-MM-DD HH24:MI:SS') AS k, "
+            "  wa.started_at::date AS d, wa.started_at AS z, wa.ended_at AS k, "
             "  round((EXTRACT(EPOCH FROM (wa.ended_at-wa.started_at))/3600.0)::numeric,3) AS hod, "
             "  (SELECT cislo_zam FROM tenant.att_employee e WHERE e.user_id=wa.user_id AND e.tenant_id=:t LIMIT 1) AS cz "
             "FROM tenant.work_alloc wa "
@@ -21850,7 +21848,7 @@ def _sync_vyroba_work_app(days: int = 3, tenant: int = 2, frm: str = None,
                 seen_ud.add(ud)
                 sess.execute(_t(
                     "DELETE FROM tenant.vyroba_work WHERE tenant_id=:t AND source_system='centrala1' "
-                    "AND datum=:d::date AND user_id=:u"),
+                    "AND datum=:d AND user_id=:u"),
                     {"t": tenant, "d": sg[4], "u": sg[1]})
         for sg in segs:
             total += 1
@@ -21860,14 +21858,14 @@ def _sync_vyroba_work_app(days: int = 3, tenant: int = 2, frm: str = None,
             res = sess.execute(_t(
                 "UPDATE tenant.vyroba_work SET zakazka_ref=:zak, "
                 "cinnost_id=(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1), "
-                "datum=:d::date, od=:z::timestamptz, konec=:k::timestamptz, hodiny=:h, "
+                "datum=:d, od=:z, konec=:k, hodiny=:h, "
                 "cislo_zam=:cz, user_id=:u, updated_at=now() "
                 "WHERE tenant_id=:t AND source_system='app' AND source_id=:sid"), p)
             if (res.rowcount or 0) == 0:
                 sess.execute(_t(
                     "INSERT INTO tenant.vyroba_work (tenant_id,user_id,cislo_zam,datum,od,konec,"
                     "zakazka_ref,cinnost_id,hodiny,source_system,source_id,created_at,updated_at) "
-                    "VALUES (:t,:u,:cz,:d::date,:z::timestamptz,:k::timestamptz,:zak,"
+                    "VALUES (:t,:u,:cz,:d,:z,:k,:zak,"
                     "(SELECT id FROM tenant.vyroba_cinnost WHERE id=:cin LIMIT 1),:h,'app',:sid,now(),now())"), p)
                 ins += 1
             else:

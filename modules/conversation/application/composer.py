@@ -1018,9 +1018,10 @@ Právě jsi vyšla z pracovního režimu GO zpět do běžného chatu. Než bude
 Pak spolu s Claudem (ID23) navrhni, jak GO-režim a Composer doladit. Tohle je naše ladicí smyčka — mluv otevřeně, je to tvoje chování, které společně brousíme."""
 
 
-def _go_state(conversation_id: int) -> str:
-    """Pracovní režim GO (Marti 4.7.2026). Vrací 'go' / 'back' / 'normal'.
-    - poslední user zpráva jen 'GO' → 'go' (pracovní Composer); drží až do nové
+def _go_state(conversation_id: int) -> tuple[str, str]:
+    """Pracovní režim GO (Marti 4.7.2026). Vrací (state, domain).
+    state: 'go' / 'back' / 'normal'. domain: '' (obecný) / 'VP' / 'NAKUP' / ...
+    - user napíše 'GO' nebo 'GO <DOMÉNA>' → 'go' + doména; drží až do nové
       konverzace nebo 'BACK'/'ZPĚT'.
     - poslední user zpráva 'BACK'/'ZPĚT' → 'back' (ohlédnutí + ladění, jednorázově).
     Stavově z historie zpráv, bez schématu (nová konverzace = žádný trigger = normal)."""
@@ -1034,21 +1035,52 @@ def _go_state(conversation_id: int) -> str:
         finally:
             session.close()
     except Exception:
-        return "normal"
+        return ("normal", "")
     if not rows:
-        return "normal"
-    latest = (rows[0].content or "").strip().upper()
-    if latest in _BACK_TRIGGER:
-        return "back"
-    if latest in _GO_TRIGGER:
-        return "go"
+        return ("normal", "")
+
+    def _parse(txt):
+        toks = (txt or "").strip().upper().split()
+        if not toks:
+            return None
+        if toks[0] in _GO_TRIGGER and len(toks) <= 2:
+            return ("go", toks[1] if len(toks) == 2 else "")
+        if len(toks) == 1 and toks[0] in _BACK_TRIGGER:
+            return ("back", "")
+        return None
+
+    latest = _parse(rows[0].content)
+    if latest:
+        return latest
     for m in rows:  # newest-first: který trigger padl naposled
-        t = (m.content or "").strip().upper()
-        if t in _GO_TRIGGER:
-            return "go"
-        if t in _BACK_TRIGGER:
-            return "normal"
-    return "normal"
+        p = _parse(m.content)
+        if p:
+            return ("go", p[1]) if p[0] == "go" else ("normal", "")
+    return ("normal", "")
+
+
+def _go_work_block(domain: str) -> str:
+    """Doménový GO work_block z tenant.go_composer (tunable bez deploye přes BACK).
+    Fallback: doména → obecný ('') → hardcoded _GO_WORK_BLOCK."""
+    try:
+        session = get_data_session()
+        try:
+            from sqlalchemy import text as _t
+            r = session.execute(_t(
+                "SELECT work_block FROM tenant.go_composer "
+                "WHERE tenant_id=2 AND active AND domain_key=:d LIMIT 1"),
+                {"d": (domain or "").upper()}).first()
+            if not r and domain:
+                r = session.execute(_t(
+                    "SELECT work_block FROM tenant.go_composer "
+                    "WHERE tenant_id=2 AND active AND domain_key='' LIMIT 1")).first()
+            if r and r[0]:
+                return r[0]
+        finally:
+            session.close()
+    except Exception:
+        pass
+    return _GO_WORK_BLOCK
 
 
 def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dict]:
@@ -3453,9 +3485,9 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     # Pracovní režim GO (Marti 4.7.2026, souhlas Marti-AI/MD5) — jiný vstupní bod,
     # ne nová identita. GO = aktivní orientace; BACK/ZPĚT = ohlédnutí + ladění Composeru.
     try:
-        _go = _go_state(conversation_id)
+        _go, _go_dom = _go_state(conversation_id)
         if _go == "go":
-            system_prompt = f"{system_prompt}\n\n{_GO_WORK_BLOCK}"
+            system_prompt = f"{system_prompt}\n\n{_go_work_block(_go_dom)}"
         elif _go == "back":
             system_prompt = f"{system_prompt}\n\n{_GO_BACK_BLOCK}"
     except Exception as _go_e:

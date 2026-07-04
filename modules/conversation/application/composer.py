@@ -1081,6 +1081,15 @@ def _go_work_block(domain: str) -> str:
                     parts.append("ZNALOSTI DOMÉNY:\n" + r[1])
                 if r[2]:
                     parts.append("TOOLY DOMÉNY (sáhni si po nich z reálných dat, ne z hlavy):\n" + r[2])
+                _kd = (domain or "").upper()
+                if _kd:
+                    kh = session.execute(_t(
+                        "SELECT name, hook FROM tenant.knowledge "
+                        "WHERE tenant_id=2 AND active AND domain_key=:d ORDER BY name"),
+                        {"d": _kd}).fetchall()
+                    if kh:
+                        parts.append("MAPA JEDNOTEK (hlubší detail k dispozici — když ho potřebuješ, řekni si o konkrétní jednotku):\n"
+                                     + "\n".join(["- %s — %s" % (x[0], x[1]) for x in kh]))
                 return "\n\n".join(parts)
         finally:
             session.close()

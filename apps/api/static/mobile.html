@@ -7110,7 +7110,7 @@ setTimeout(function(){
           var body=el('<div style="padding:4px 10px 8px;"></div>');
           ds.forEach(function(d){
             var dwork=(d.hours>0);
-            var dcol=dwork?"#34d399":(d.day_type==="holiday"?"#fbbf24":"#5b6b88");
+            var dcol=dwork?"#34d399":(d.day_type==="holiday"?"#fbbf24":(d.day_type==="exoff"?"#e6a93a":"#5b6b88"));
             var dToday=(d.date===todayIso); var dPast=(d.date<todayIso);
             var dReqs=ST.byDate[d.date]||[];
             // korekce typu hodiny/volno NAHRAZUJE plán → přeškrtnout původní hodnotu
@@ -7121,7 +7121,8 @@ setTimeout(function(){
               var _strk=hasRepl?'text-decoration:line-through;opacity:.55;':'';
               rightCell='<span style="display:inline-flex;align-items:baseline;gap:10px;'+_strk+'"><span style="color:#8fb4e8;font-size:12px;min-width:56px;text-align:right;">'+(d.start?'od '+d.start:'')+'</span><span style="color:#34d399;font-weight:700;min-width:46px;text-align:right;">'+_hhmm(d.hours)+'</span></span>';
             } else {
-              rightCell='<span style="color:'+dcol+';font-weight:600;'+(hasRepl?'text-decoration:line-through;opacity:.55;':'')+'">'+(d.day_type==="holiday"?"svátek":(d.day_type==="weekend"?"víkend":"volno"))+'</span>';
+              var _lbl2=(d.day_type==="holiday")?"svátek":((d.day_type==="weekend")?"víkend":((d.day_type==="exoff")?((d.exc_scope==='osobní'?'👤 osobní':(d.exc_scope==='skupina'?'👥 skupinové':'🏢 celofiremní'))+' volno'):"volno"));
+              rightCell='<span style="color:'+dcol+';font-weight:600;'+(hasRepl?'text-decoration:line-through;opacity:.55;':'')+'">'+_lbl2+'</span>';
             }
             var row=el('<div style="'+rs+'"><span'+(dToday?' style="font-weight:700;"':'')+'>'+(dToday?'▶ ':'')+d.weekday+' '+czd(d.date)+'</span>'+rightCell+'</div>');
             body.appendChild(row);

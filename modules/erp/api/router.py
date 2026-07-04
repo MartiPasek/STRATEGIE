@@ -12632,12 +12632,12 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
             gstart = ""
         # Marti 14.6.: výjimkové vrstvy (firma → skupina → osobní) se MUSÍ propsat
         # i do osobního plánu (Můj plán/Týden), ne jen do skupinového/efektivního.
-        eff = {}
+        eff = {}   # ex_date -> (hours, scope: firma|skupina|osobní), priorita osobní > skupina > firma
         try:
             for rr in s.execute(_t(
                 "SELECT ex_date, hours FROM tenant.att_calendar_exception "
                 "WHERE tenant_id=2 AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)")).fetchall():
-                eff[rr[0]] = float(rr[1])
+                eff[rr[0]] = (float(rr[1]), "firma")
             grp = set(g[0] for g in s.execute(_t(
                 "SELECT group_id FROM tenant.staff_group_member WHERE tenant_id=2 AND user_id=:u"),
                 {"u": target}).fetchall())
@@ -12646,12 +12646,12 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
                 "WHERE tenant_id=2 AND scope_type='group' "
                 "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE) ORDER BY ex_date, id")).fetchall():
                 if rr[2] in grp:
-                    eff[rr[0]] = float(rr[1])
+                    eff[rr[0]] = (float(rr[1]), "skupina")
             for rr in s.execute(_t(
                 "SELECT ex_date, hours FROM tenant.att_exception_scope "
                 "WHERE tenant_id=2 AND scope_type='user' AND scope_id=:u "
                 "AND date_part('year', ex_date)=date_part('year', CURRENT_DATE)"), {"u": target}).fetchall():
-                eff[rr[0]] = float(rr[1])
+                eff[rr[0]] = (float(rr[1]), "osobní")
         except Exception:
             eff = {}
         out = []
@@ -12659,6 +12659,7 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
         for day, is_wd, is_hol in cal:
             wd = day.isoweekday()  # 1=Po .. 7=Ne
             st = ""
+            exc_scope = None
             if is_hol:
                 dt, h = "holiday", 0
             elif wd in sched:
@@ -12666,27 +12667,27 @@ async def app_plan_my_default(req: Request) -> JSONResponse:
                     dt, h = "work", (sched[wd][1] if sched[wd][1] is not None else per_day)
                     st = sched[wd][2]
                 else:
-                    dt, h = "off", 0
+                    dt, h = ("weekend" if wd >= 6 else "off"), 0
             elif wd <= 5 and is_wd:
                 dt, h = "work", per_day
             else:
                 dt, h = ("weekend" if wd >= 6 else "off"), 0
             if dt == "work" and not st:
                 st = gstart
-            # přebití výjimkou (firma/skupina/osobní) — 0 h = volno, jinak počet hodin
-            exh = eff.get(day)
-            if exh is not None:
-                h = exh
-                if exh > 0:
+            # přebití výjimkou (firma/skupina/osobní) — 0 h = volno té úrovně, jinak počet hodin
+            exv = eff.get(day)
+            if exv is not None:
+                h, exc_scope = exv
+                if h > 0:
                     dt = "exception"
                     if not st:
                         st = gstart
                 else:
-                    dt, st = "off", ""
+                    dt, st = "exoff", ""
             total += h
             out.append({"date": day.isoformat(), "iso_week": day.isocalendar()[1],
                         "weekday": _PLAN_DAYLABEL.get(0 if wd == 7 else wd, "?"),
-                        "hours": float(h), "day_type": dt, "start": st})
+                        "hours": float(h), "day_type": dt, "start": st, "exc_scope": exc_scope})
         return JSONResponse({"ok": True, "plan": out, "uvazek": uvazek,
                              "total_hours": round(total, 2), "has_plan": len(out) > 0})
     finally:

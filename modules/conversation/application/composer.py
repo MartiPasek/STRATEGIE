@@ -1098,6 +1098,42 @@ def _go_work_block(domain: str) -> str:
     return _GO_WORK_BLOCK
 
 
+def _scoped_map_block(conversation_id: int) -> str | None:
+    """Scopovaná mapa znalostí — hooky jednotek subjektu, VŽDY v promptu (jako MEMORY.md).
+    User konverzace → jeho domény (tenant.domain_scope; rodič = vše) → hooky jednotek.
+    Malé (jen index). Plný obsah jednotky se natáhne až na vyžádání. Marti 4.7.2026."""
+    try:
+        from sqlalchemy import text as _t
+        conv_uid, _ = _get_conversation_context(conversation_id)
+        if not conv_uid:
+            return None
+        session = get_data_session()
+        try:
+            is_parent = session.execute(_t(
+                "SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                {"u": conv_uid}).scalar()
+            if is_parent:
+                rows = session.execute(_t(
+                    "SELECT domain_key, name, hook FROM tenant.knowledge "
+                    "WHERE tenant_id=2 AND active ORDER BY domain_key, name")).fetchall()
+            else:
+                rows = session.execute(_t(
+                    "SELECT k.domain_key, k.name, k.hook FROM tenant.knowledge k "
+                    "JOIN tenant.domain_scope s ON s.tenant_id=2 AND s.active "
+                    "  AND s.domain_key=k.domain_key AND s.user_id=:u "
+                    "WHERE k.tenant_id=2 AND k.active ORDER BY k.domain_key, k.name"),
+                    {"u": conv_uid}).fetchall()
+        finally:
+            session.close()
+        if not rows:
+            return None
+        lines = ["- [%s] %s — %s" % (r[0], r[1], r[2]) for r in rows]
+        return ("[TVÁ MAPA ZNALOSTÍ]\nToto je index jednotek know-how, které máš k dispozici (jako paměť — hooky, ne plný text). "
+                "Když potřebuješ hlubší detail konkrétní jednotky, řekni si o ni a dotáhne se plná.\n" + "\n".join(lines))
+    except Exception:
+        return None
+
+
 def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dict]:
     session = get_data_session()
     try:
@@ -3507,6 +3543,14 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
             system_prompt = f"{system_prompt}\n\n{_GO_BACK_BLOCK}"
     except Exception as _go_e:
         logger.warning(f"[GO režim] blok selhal: {_go_e}")
+
+    # Scopovaná mapa znalostí (Marti 4.7.2026) — vždy v promptu jako MEMORY.md, per subjekt.
+    try:
+        _smap = _scoped_map_block(conversation_id)
+        if _smap:
+            system_prompt = f"{system_prompt}\n\n{_smap}"
+    except Exception as _sm_e:
+        logger.warning(f"[mapa znalostí] blok selhal: {_sm_e}")
 
     # USER CONTEXT block — identita přihlášeného usera a jeho tenantu.
     # Bere user_id a tenant_id přímo z konverzace.

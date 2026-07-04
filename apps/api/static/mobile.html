@@ -7355,7 +7355,7 @@ setTimeout(function(){
           var col=(tp==="work")?"#34d399":(tp==="holiday"?"#fbbf24":(tp==="exception"?"#e6a93a":(tp==="exoff"?"#e6a93a":"#5b6b88")));
           var tag;
           if(tp==="exception"){ var ic=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic+' '+nf(h)+' h'; }
-          else if(tp==="exoff"){ var ic2=(d.exc_scope==='osobní'?'👤':(d.exc_scope==='skupina'?'👥':'🏢')); tag=ic2+' volno'; }
+          else if(tp==="exoff"){ var ic2=(d.exc_scope==='osobní'?'👤 osobní':(d.exc_scope==='skupina'?'👥 skupinové':'🏢 celofiremní')); tag=ic2+' volno'; }
           else if(tp==="work"){ tag=(d.start?('od '+d.start+' · '):'')+nf(h)+" h"; }
           else if(tp==="holiday"){ tag="svátek"; }
           else { tag=(d.day_type==="weekend"?"víkend":"volno"); }

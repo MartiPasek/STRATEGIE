@@ -51,7 +51,7 @@
   <div id="banner"></div>
   <div id="list"><div class="load">Načítám zakázky…</div></div>
   <div class="foot">
-    Zelená = hotovo · žlutá = probíhá · šedá = čeká. „Prac. dny" počítají svátky (5.+6.7. jsou svátky).<br>
+    Zelená = hotovo · žlutá = probíhá · šedá = čeká. „Prac. dny" počítají svátky (5.+6.7. jsou svátky). Faktura se dělá až po odvozu.<br>
     Když si u něčeho nejsi jistá, napiš mi přes <a href="/claude-chat">💬 Chat s Claudem</a> — projdeme to spolu.
   </div>
 <script>
@@ -63,7 +63,7 @@ function render(zz){
   var banner=document.getElementById('banner');
   if(!zz.length){list.innerHTML='<div class="load">Žádné otevřené zakázky.</div>';return;}
   // urgent: v zástupu, neplaceno, prac_dni<=1, a výroba/odvoz nehotové
-  var hot=zz.filter(function(z){return z.v_zastupu && !z.zaplaceno && z.prac_dni!=null && z.prac_dni<=1;});
+  var hot=zz.filter(function(z){var rem=(z.kalk_h!=null&&z.real_h!=null)?Math.max(0,z.kalk_h-z.real_h):0;return z.v_zastupu && !z.zaplaceno && z.prac_dni!=null && z.prac_dni<=1 && rem>8;});
   if(hot.length){
     banner.innerHTML='<div class="banner">⚠️ <b>'+hot.length+'</b> zakázk'+(hot.length==1?'a má':'y mají')+
       ' termín do jednoho pracovního dne ('+hot.map(function(z){return esc(z.cislo);}).join(', ')+
@@ -74,13 +74,14 @@ function render(zz){
     // stavy kroků
     var sMat = z.material?'ok':'pend';
     var vyr, vyrTxt;
+    var rem=(z.kalk_h!=null && z.real_h!=null)?Math.max(0,Math.round((z.kalk_h-z.real_h)*10)/10):null;
     if(z.real_h==null){ vyr='pend'; vyrTxt='—'; }
-    else if(z.efektivita!=null && z.efektivita>=100){ vyr='ok'; vyrTxt=z.real_h+'/'+z.kalk_h+' h'; }
-    else { vyr='wip'; vyrTxt=z.real_h+'/'+z.kalk_h+' h'+(z.efektivita!=null?' ('+z.efektivita+'%)':''); }
+    else if(rem!=null && rem<=0){ vyr='ok'; vyrTxt='hotovo ('+z.real_h+' h)'; }
+    else { vyr='wip'; vyrTxt=z.real_h+'/'+z.kalk_h+' h · zbývá '+rem+' h'; }
     var sOdv = z.odvoz?'ok':'pend'; var odvTxt=z.odvoz||'—';
     var sFak = z.faktura?'ok':'pend';
     var sZap = z.zaplaceno?'ok':'pend';
-    var urgent = z.v_zastupu && !z.zaplaceno && z.prac_dni!=null && z.prac_dni<=1;
+    var urgent = z.v_zastupu && !z.zaplaceno && z.prac_dni!=null && z.prac_dni<=1 && (rem==null?false:rem>8);
     var termPill = z.prac_dni==null?'' :
       (z.prac_dni<=1?'<span class="pill hot">'+z.prac_dni+' prac. den</span>' :
        z.prac_dni<=3?'<span class="pill warn">'+z.prac_dni+' prac. dny</span>' :
@@ -93,7 +94,7 @@ function render(zz){
         '<div class="step '+stepCls(sMat)+'"><div class="lb">Materiál</div><div class="vl">'+(z.material?'✓':'čeká')+'</div></div>'+
         '<div class="step '+stepCls(vyr)+'"><div class="lb">Výroba</div><div class="vl">'+vyrTxt+'</div></div>'+
         '<div class="step '+stepCls(sOdv)+'"><div class="lb">Odvoz</div><div class="vl">'+odvTxt+'</div></div>'+
-        '<div class="step '+stepCls(sFak)+'"><div class="lb">Faktura</div><div class="vl">'+(z.faktura?'✓':'—')+'</div></div>'+
+        '<div class="step '+stepCls(sFak)+'"><div class="lb">Faktura</div><div class="vl">'+(z.faktura?'✓':(z.odvoz?'lze':'po odvozu'))+'</div></div>'+
         '<div class="step '+stepCls(sZap)+'"><div class="lb">Zaplaceno</div><div class="vl">'+(z.zaplaceno?'✓':'—')+'</div></div>'+
       '</div>'+
       '<div class="meta"><span>Fáze: '+esc(z.faze||'—')+'</span>'+

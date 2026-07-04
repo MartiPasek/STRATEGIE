@@ -33367,6 +33367,51 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": True, "columns": ["soubor", "bytes", "unc"],
                                      "rows": [[rw_dest, len(data), unc]], "count": 1})
             return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "zápis na RW selhal")})
+        # @@FILES PUTDOC <rw_dest_path> <doc_id>
+        #   Zkopíruje dokument z úložiště (public.documents.storage_path, mimo repo)
+        #   na EUROSOFT RW share přes MCP file_write. Pro zpřístupnění Marti-AI generovaných
+        #   PDF/dokumentů do RW zóny (ZZ_Marti-AI RW/...). Marti 4.7.2026.
+        if op == "PUTDOC":
+            import base64 as _b64d
+            from sqlalchemy import text as _tpd
+            a = path.split(None, 1)
+            if len(a) < 2:
+                return JSONResponse({"ok": False, "error": "@@FILES PUTDOC <rw_dest> <doc_id>"})
+            rw_dest = a[0].strip().lstrip("/")
+            try:
+                doc_id = int(a[1].strip())
+            except ValueError:
+                return JSONResponse({"ok": False, "error": "doc_id musí být číslo"})
+            from core.database_data import get_data_session as _gdspd
+            _dspd = _gdspd()
+            try:
+                drow = _dspd.execute(_tpd(
+                    "SELECT storage_path FROM public.documents WHERE id=:i"),
+                    {"i": doc_id}).first()
+            finally:
+                _dspd.close()
+            if not drow or not drow[0] or not _op.isfile(drow[0]):
+                return JSONResponse({"ok": False, "error": "dokument nemá soubor na disku: %s" % doc_id})
+            try:
+                with open(drow[0], "rb") as _fh:
+                    data = _fh.read()
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
+                                         {"user_namespace": "rw", "path": rw_dest,
+                                          "content": _b64d.b64encode(data).decode("ascii"),
+                                          "encoding": "base64", "mode": "overwrite"},
+                                         conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]})
+            if isinstance(r, dict) and r.get("ok"):
+                unc = "\\\\EC-SERVER2\\Data\\ZZ_Marti-AI RW\\" + rw_dest.replace("/", "\\")
+                return JSONResponse({"ok": True, "columns": ["soubor", "bytes", "unc"],
+                                     "rows": [[rw_dest, len(data), unc]], "count": 1})
+            return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "zápis na RW selhal")})
         # @@FILES PUTREPODIR <rw_dest_dir> <repo_rel_dir>  — zkopíruje všechny soubory ze složky
         if op == "PUTREPODIR":
             import os as _osd, base64 as _b64d

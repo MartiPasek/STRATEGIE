@@ -1060,22 +1060,28 @@ def _go_state(conversation_id: int) -> tuple[str, str]:
 
 
 def _go_work_block(domain: str) -> str:
-    """Doménový GO work_block z tenant.go_composer (tunable bez deploye přes BACK).
+    """Doménové prostředí z tenant.domain_env = identita (work_block) + znalosti + tooly.
+    Sdílené: Marti-AI (GO) i Claude (@@ORIENT) čtou stejný řádek. Tunable bez deploye.
     Fallback: doména → obecný ('') → hardcoded _GO_WORK_BLOCK."""
     try:
         session = get_data_session()
         try:
             from sqlalchemy import text as _t
             r = session.execute(_t(
-                "SELECT work_block FROM tenant.go_composer "
+                "SELECT work_block, znalosti, tools FROM tenant.domain_env "
                 "WHERE tenant_id=2 AND active AND domain_key=:d LIMIT 1"),
                 {"d": (domain or "").upper()}).first()
             if not r and domain:
                 r = session.execute(_t(
-                    "SELECT work_block FROM tenant.go_composer "
+                    "SELECT work_block, znalosti, tools FROM tenant.domain_env "
                     "WHERE tenant_id=2 AND active AND domain_key='' LIMIT 1")).first()
             if r and r[0]:
-                return r[0]
+                parts = [r[0]]
+                if r[1]:
+                    parts.append("ZNALOSTI DOMÉNY:\n" + r[1])
+                if r[2]:
+                    parts.append("TOOLY DOMÉNY (sáhni si po nich z reálných dat, ne z hlavy):\n" + r[2])
+                return "\n\n".join(parts)
         finally:
             session.close()
     except Exception:

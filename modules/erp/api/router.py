@@ -34120,6 +34120,32 @@ async def diag_sql(req: Request) -> JSONResponse:
         _app = _sync_vyroba_work_app(frm=_frm, to=_to)
         return JSONResponse({"ok": bool(_ec.get("ok") and _app.get("ok")), "ec": _ec, "app": _app})
 
+    #   @@ORIENT <doména>  → načte doménové prostředí (identita+znalosti+tooly) z tenant.domain_env
+    #   do session Clauda. Sdílené s Marti-AI GO režimem. Bez argumentu = obecná + seznam domén.
+    if sql.upper().startswith("@@ORIENT"):
+        from core.database_data import get_data_session as _gdo
+        from sqlalchemy import text as _to
+        parts = sql.split()
+        _dom = parts[1].upper() if len(parts) > 1 else ""
+        _s = _gdo()
+        try:
+            r = _s.execute(_to(
+                "SELECT domain_key, nazev, work_block, znalosti, tools FROM tenant.domain_env "
+                "WHERE tenant_id=2 AND active AND domain_key=:d LIMIT 1"), {"d": _dom}).first()
+            if not r and _dom:
+                r = _s.execute(_to(
+                    "SELECT domain_key, nazev, work_block, znalosti, tools FROM tenant.domain_env "
+                    "WHERE tenant_id=2 AND active AND domain_key='' LIMIT 1")).first()
+            dostupne = [(x[0] or "(obecná)") for x in _s.execute(_to(
+                "SELECT domain_key FROM tenant.domain_env WHERE tenant_id=2 AND active ORDER BY domain_key")).fetchall()]
+        finally:
+            _s.close()
+        if not r:
+            return JSONResponse({"ok": True, "domena": _dom, "nalezeno": False, "dostupne_domeny": dostupne})
+        return JSONResponse({"ok": True, "domena": r[0] or "(obecná)", "nazev": r[1],
+                             "identita": r[2], "znalosti": r[3], "tools": r[4],
+                             "dostupne_domeny": dostupne})
+
     #   @@MZDY <firma> <rok> <mesic> [CLEAN]  → generování mezd server-side (most, volat opakovaně)
     if sql.upper().startswith("@@MZDY") and not sql.upper().startswith("@@MZDYCHECK"):
         import datetime as _dtm

@@ -2215,9 +2215,22 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return "Zadej dotaz (klíčová slova / téma)."
         _sekce = []
         # 1) Paměť sítě = doménové jednotky (tenant.knowledge), scopované na uživatele (rodič=vše).
+        #    Dotaz rozdělíme na slova a hledáme přes OR + řadíme podle počtu shod (ne celá fráze).
         try:
             from core.database_data import get_data_session as _gkz
             from sqlalchemy import text as _tkz
+            _words = [w for w in _dotaz.replace(",", " ").replace("?", " ").replace(".", " ").split() if len(w) >= 3][:6]
+            if not _words:
+                _words = [_dotaz]
+            _conds, _scores, _pz = [], [], {}
+            for _i, _w in enumerate(_words):
+                _key = "w%d" % _i
+                _pz[_key] = "%" + _w + "%"
+                _c = "(k.hook ILIKE :%s OR k.content ILIKE :%s OR k.name ILIKE :%s)" % (_key, _key, _key)
+                _conds.append(_c)
+                _scores.append("(CASE WHEN %s THEN 1 ELSE 0 END)" % _c)
+            _where = " OR ".join(_conds)
+            _score = " + ".join(_scores)
             _sz = _gkz()
             try:
                 _parz = bool(_sz.execute(_tkz(
@@ -2225,17 +2238,17 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     {"u": user_id}).scalar()) if user_id else False
                 if _parz:
                     _krz = _sz.execute(_tkz(
-                        "SELECT name, domain_key, content FROM tenant.knowledge "
-                        "WHERE tenant_id=2 AND active AND (hook ILIKE :q OR content ILIKE :q OR name ILIKE :q) "
-                        "ORDER BY name LIMIT 3"), {"q": "%" + _dotaz + "%"}).fetchall()
+                        "SELECT k.name, k.domain_key, k.content FROM tenant.knowledge k "
+                        "WHERE k.tenant_id=2 AND k.active AND (" + _where + ") "
+                        "ORDER BY (" + _score + ") DESC, k.name LIMIT 3"), _pz).fetchall()
                 else:
+                    _pz["u"] = user_id
                     _krz = _sz.execute(_tkz(
                         "SELECT k.name, k.domain_key, k.content FROM tenant.knowledge k "
                         "JOIN tenant.domain_scope sc ON sc.tenant_id=2 AND sc.active "
                         "  AND sc.domain_key=k.domain_key AND sc.user_id=:u "
-                        "WHERE k.tenant_id=2 AND k.active "
-                        "  AND (k.hook ILIKE :q OR k.content ILIKE :q OR k.name ILIKE :q) "
-                        "ORDER BY k.name LIMIT 3"), {"u": user_id, "q": "%" + _dotaz + "%"}).fetchall()
+                        "WHERE k.tenant_id=2 AND k.active AND (" + _where + ") "
+                        "ORDER BY (" + _score + ") DESC, k.name LIMIT 3"), _pz).fetchall()
             finally:
                 _sz.close()
             if _krz:

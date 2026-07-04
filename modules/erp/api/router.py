@@ -34797,6 +34797,11 @@ async def diag_sql(req: Request) -> JSONResponse:
                 _lim = int(_p[1]) if len(_p) > 1 and _p[1].isdigit() else 50
                 _cis = int(_p[2]) if len(_p) > 2 and _p[2].isdigit() else None
                 return JSONResponse(_smfiles(_lim, _cis))
+            if sql.upper().startswith("@@SMEMBED"):
+                from modules.erp.api.smernice_rag import kb_embed_batch as _kbe
+                _p = sql.split()
+                _lim = int(_p[1]) if len(_p) > 1 and _p[1].isdigit() else 100
+                return JSONResponse(_kbe(_lim))
             if sql.upper().startswith("@@DSADD"):
                 from modules.erp.api.smernice_rag import add_datasheet as _dsadd
                 return JSONResponse(_dsadd(sql[len("@@DSADD"):].strip()))

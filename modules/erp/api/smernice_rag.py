@@ -674,6 +674,51 @@ def kb_read(query: str) -> dict:
 
 # ── @@KB — fulltext hledání ────────────────────────────────────────────
 
+def kb_embed_batch(limit: int = 100) -> dict:
+    """Zaindexuje směrnice (nazev + typ + popis + preview textu příloh) přes Voyage-3
+    → tenant.kb_smernice.embedding. Dávkově (jen aktivní, bez embeddingu). Marti 4.7.2026."""
+    from core.database_data import get_data_session
+    from sqlalchemy import text as _t
+    try:
+        from modules.rag.application.embeddings import embed_documents
+    except Exception as e:
+        return {"ok": False, "error": "embeddings nedostupné: %s" % str(e)[:120]}
+    sd = get_data_session()
+    try:
+        rows = sd.execute(_t(
+            "SELECT s.ec_id, s.nazev, s.typ_text, left(COALESCE(s.popis_text,''), 1200) AS popis, "
+            "  (SELECT left(string_agg(f.text_extract, ' ¶ '), 2500) FROM tenant.kb_smernice_soubor f "
+            "     WHERE f.ec_smernice_id=s.ec_id AND f.extract_ok) AS filetext "
+            "FROM tenant.kb_smernice s "
+            "WHERE s.embedding IS NULL AND (s.archiv=0 OR s.archiv IS NULL) "
+            "ORDER BY s.ec_id LIMIT :lim"), {"lim": limit}).fetchall()
+        if not rows:
+            return {"ok": True, "indexed": 0, "zbyva": 0, "msg": "vše zaindexováno"}
+        texts = ["%s [%s]\n%s\n%s" % (r[1] or "", r[2] or "", r[3] or "", r[4] or "") for r in rows]
+        vecs = embed_documents(texts)
+        if not vecs or len(vecs) != len(rows):
+            return {"ok": False, "error": "voyage vrátil %d/%d" % (len(vecs or []), len(rows))}
+        n = 0
+        for r, v in zip(rows, vecs):
+            vs = "[" + ",".join("%.6f" % x for x in v) + "]"
+            sd.execute(_t("UPDATE tenant.kb_smernice SET embedding=(:v)::vector WHERE ec_id=:e"),
+                       {"v": vs, "e": r[0]})
+            n += 1
+        sd.commit()
+        left = sd.execute(_t(
+            "SELECT count(*) FROM tenant.kb_smernice WHERE embedding IS NULL "
+            "AND (archiv=0 OR archiv IS NULL)")).scalar() or 0
+        return {"ok": True, "indexed": n, "zbyva": int(left)}
+    except Exception as e:
+        try:
+            sd.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:200])}
+    finally:
+        sd.close()
+
+
 def kb_search(query: str, level: int = 2, limit: int = 8, ai_only: bool = False) -> dict:
     """Hledá v popisu směrnic + textu příloh. level = max úroveň přístupu (0/1/2/3).
     ai_only=True → JEN řada AI (pristupnost 'AI') = čistá orientace v AI znalostech
@@ -690,6 +735,33 @@ def kb_search(query: str, level: int = 2, limit: int = 8, ai_only: bool = False)
         allowed = [k for k, v in _PRIST_MAP.items() if v[1] <= level]
     sd = get_data_session()
     try:
+        # SÉMANTICKY nejdřív (Voyage embedding → nejbližší významem, cosine, práh 0.62).
+        try:
+            from modules.rag.application.embeddings import embed_documents as _embq
+            _qv = _embq([q])
+            if _qv:
+                _vs = "[" + ",".join("%.6f" % _x for _x in _qv[0]) + "]"
+                _sr = sd.execute(_t(
+                    "SELECT s.cislo, s.nazev, s.typ_text, s.pristupnost_text, "
+                    "  left(s.popis_text, 400) AS popis, "
+                    "  (SELECT string_agg(f.nazev_souboru, ', ') FROM tenant.kb_smernice_soubor f "
+                    "     WHERE f.ec_smernice_id=s.ec_id) AS soubory, "
+                    "  (SELECT left(string_agg(f.text_extract, ' ¶ '), 600) FROM tenant.kb_smernice_soubor f "
+                    "     WHERE f.ec_smernice_id=s.ec_id AND f.extract_ok) AS uryvek, "
+                    "  (s.embedding <=> (:qv)::vector) AS dist "
+                    "FROM tenant.kb_smernice s "
+                    "WHERE (s.archiv=0 OR s.archiv IS NULL) AND s.pristupnost_text = ANY(:allowed) "
+                    "  AND s.embedding IS NOT NULL "
+                    "ORDER BY dist LIMIT :lim"),
+                    {"qv": _vs, "allowed": allowed, "lim": limit}).all()
+                _sr = [r for r in _sr if (r[7] is None or float(r[7]) < 0.62)]
+                if _sr:
+                    cols = ["cislo", "nazev", "typ", "pristupnost", "popis", "soubory", "uryvek"]
+                    out = [[r[0], r[1], r[2], r[3], (r[4] or "")[:300], r[5], (r[6] or "")[:400]] for r in _sr]
+                    return {"ok": True, "dotaz": q, "level": level, "columns": cols,
+                            "rows": out, "count": len(out), "mode": "semantic"}
+        except Exception:
+            pass
         # Hledání PO SLOVECH (AND, nezávisle na pořadí) — každý term musí být
         # v názvu / popisu / textu přílohy. Lepší recall než sekvenční ILIKE.
         terms = [t for t in q.split() if t]

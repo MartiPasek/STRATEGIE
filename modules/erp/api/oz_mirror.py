@@ -248,6 +248,75 @@ def mirror(fw_code: str, oz_table: str, tenant_id: int = 2, repoint: bool = True
             "cols": [c["name"] + " " + c["pg_type"] for c in cols]}
 
 
+# ── Raw mirrory (bez fw.data_set) — cockpit-only zdroje s oz_* názvoslovím ──
+# Marti 5.7.2026: dorovnání sady o výdejky/vydané poptávky/příjemky pro leader cockpit.
+# resitel = COALESCE(LoginID z CisloZam, Autor) → řešitel všude. Auto-refresh přes
+# oz_sync_all (uloženo v oz_mirror_def, sql_mssql). NErepointují žádný strom.
+# Výdejky/příjemky omezené na 2023+ (fill() nestránkuje, plná historie by byla mega-pull).
+_OZ_RAW_BASE = (
+    "SELECT d.ID AS id, d.RadaDokladu AS rada, d.DruhPohybuZbo AS druh_pohybu, "
+    "d.PoradoveCislo AS poradove_cislo, dbo.EC_GetDoklad(d.ID) AS doklad, "
+    "RTRIM(d.CisloZakazky) AS cislozakazky, CAST(d.Splneno AS int) AS splneno, "
+    "d.StredNaklad AS stredisko, d.CisloOrg AS cisloorg, org.Nazev AS nazev, "
+    "orge._Zkratka_Nazvu AS zkratka_nazvu, COALESCE(z.LoginID, d.Autor) AS resitel, "
+    "de._OznPrjZakaznik AS oznprjzakaznik, de._PopisPrjZakaznik AS popisprjzakaznik, "
+    "dbo.EC_GetDoklad(d.NavaznyDoklad) AS navaznydoklad, d.NavaznaObjednavka AS navaznaobjednavka, "
+    "d.Autor AS autor, CAST(d.SumaKcBezDPH AS numeric(19,2)) AS sumakcbezdph, d.DatPorizeni AS datporizeni "
+    "FROM TabDokladyZbozi d WITH (NOLOCK) "
+    "LEFT JOIN TabCisOrg org ON d.CisloOrg=org.CisloOrg "
+    "LEFT JOIN TabCisOrg_EXT orge ON org.ID=orge.ID "
+    "LEFT JOIN TabCisZam z ON d.CisloZam=z.Cislo "
+    "LEFT JOIN TabDokladyZbozi_EXT de ON de.ID=d.ID "
+    "WHERE %s"
+)
+_OZ_RAW = {
+    "oz_vy_popt": _OZ_RAW_BASE % "d.RadaDokladu='940'",
+    "oz_vydejka": _OZ_RAW_BASE % ("d.RadaDokladu IN ('200','290') AND d.DruhPohybuZbo BETWEEN 2 AND 4 "
+                                  "AND d.DatPorizeni >= '2023-01-01'"),
+    "oz_prijemka": _OZ_RAW_BASE % "d.DruhPohybuZbo <= 1 AND d.DatPorizeni >= '2023-01-01'",
+}
+
+
+def mirror_raw(oz_table: str, tenant_id: int = 2):
+    """Zrcadlí raw MSSQL dotaz z _OZ_RAW do tenant.<oz_table> + uloží do oz_mirror_def
+    (auto-refresh přes sync_all). Nerepointuje žádný fw.data_set (cockpit-only zdroj)."""
+    from sqlalchemy import text as _t
+    from core.database_data import get_data_session
+    sql_mssql = _OZ_RAW.get(oz_table)
+    if not sql_mssql:
+        return {"ok": False, "error": "neznámý oz_raw: %s (mám: %s)" % (oz_table, ", ".join(_OZ_RAW))}
+    _ensure_def_table(tenant_id)
+    cols = describe(sql_mssql)
+    if not cols:
+        return {"ok": False, "error": "sp_describe nevrátil sloupce"}
+    create_table(oz_table, cols, tenant_id=tenant_id, drop=True)
+    res = fill(oz_table, sql_mssql, cols, tenant_id=tenant_id)
+    s = get_data_session()
+    try:
+        s.execute(_t(
+            "INSERT INTO tenant.oz_mirror_def(oz_table,fw_code,sql_mssql,last_sync_at,last_rows) "
+            "VALUES(:o,:f,:q,now(),:n) ON CONFLICT (oz_table) DO UPDATE SET "
+            "fw_code=EXCLUDED.fw_code, sql_mssql=EXCLUDED.sql_mssql, last_sync_at=now(), "
+            "last_rows=EXCLUDED.last_rows, updated_at=now()"),
+            {"o": oz_table, "f": "raw", "q": sql_mssql, "n": res.get("vlozeno")})
+        s.commit()
+    finally:
+        s.close()
+    return {"ok": True, "oz_table": oz_table, "sloupcu": len(cols), "vlozeno": res.get("vlozeno"),
+            "chyb": res.get("chyb"), "prvni_chyba": res.get("prvni_chyba")}
+
+
+def mirror_raw_all(tenant_id: int = 2):
+    """Vytvoří všechna raw zrcadla (oz_vy_popt, oz_vydejka, oz_prijemka)."""
+    out = []
+    for t in _OZ_RAW:
+        try:
+            out.append({"oz": t, **mirror_raw(t, tenant_id=tenant_id)})
+        except Exception as e:  # noqa: BLE001
+            out.append({"oz": t, "ok": False, "error": str(e)[:200]})
+    return {"ok": True, "vysledky": out}
+
+
 # Plán zrcadel: (fw.data_source code, cílová PG tabulka). Zkratky Marti 2.7.:
 # prij_ = přijaté, vy_ = vydané, fa = faktury.
 _OZ_PLAN = [

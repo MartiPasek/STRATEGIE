@@ -274,13 +274,19 @@ def sign_pages(cid: int, req: Request):
         data = _sign_pdf_bytes(s, tid, cid)
         if not data:
             return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        n = 0
         try:
             import fitz as _fz
-            d = _fz.open(stream=bytes(data), filetype="pdf")
-            n = int(d.page_count)
-            d.close()
+            _d = _fz.open(stream=bytes(data), filetype="pdf")
+            n = int(_d.page_count); _d.close()
         except Exception:
-            n = 1
+            n = 0
+        if not n:
+            try:
+                import pypdfium2 as _pf
+                n = len(_pf.PdfDocument(bytes(data)))
+            except Exception:
+                n = 1
         return {"ok": True, "pages": max(1, n)}
     finally:
         s.close()
@@ -298,21 +304,39 @@ def sign_img(cid: int, page: int, req: Request):
         data = _sign_pdf_bytes(s, tid, cid)
         if not data:
             return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        p = max(0, int(page))
+        img = None
+        # rasterizér 1: PyMuPDF (fitz)
         try:
+            import io as _io
+            from PIL import Image as _Img
             import fitz as _fz
-            p = max(0, int(page))
-            d = _fz.open(stream=bytes(data), filetype="pdf")
-            if p >= d.page_count:
-                d.close()
-                return JSONResponse({"ok": False, "error": "no_page"}, status_code=404)
-            pix = d[p].get_pixmap(dpi=140)
-            png = pix.tobytes("png")
-            d.close()
+            _d = _fz.open(stream=bytes(data), filetype="pdf")
+            if p < _d.page_count:
+                pix = _d[p].get_pixmap(dpi=140)
+                img = _Img.open(_io.BytesIO(pix.tobytes("png")))
+            _d.close()
+        except Exception:
+            img = None
+        # rasterizér 2 (fallback): pypdfium2 — čistý wheel bez systémových závislostí
+        if img is None:
+            try:
+                import pypdfium2 as _pf
+                _pdf = _pf.PdfDocument(bytes(data))
+                if p < len(_pdf):
+                    img = _pdf[p].render(scale=140 / 72.0).to_pil()
+            except Exception:
+                img = None
+        if img is None:
+            return JSONResponse({"ok": False, "error": "render_failed"}, status_code=500)
+        try:
+            import io as _io2
+            buf = _io2.BytesIO(); img.save(buf, "PNG")
             from fastapi.responses import Response
-            return Response(content=png, media_type="image/png",
+            return Response(content=buf.getvalue(), media_type="image/png",
                             headers={"Cache-Control": "private, max-age=120"})
         except Exception as exc:
-            return JSONResponse({"ok": False, "error": "render_failed: " + type(exc).__name__}, status_code=500)
+            return JSONResponse({"ok": False, "error": "encode_failed: " + type(exc).__name__}, status_code=500)
     finally:
         s.close()
 

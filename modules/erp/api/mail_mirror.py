@@ -88,10 +88,31 @@ def sync_folder(uid: int, slozka: str, limit: int = 300,
     if acct is None:
         acct = _account_for_user(uid)
     fld = _folder(acct, slozka)
+    # Inkrement (Marti 5.7.2026): fetchuj jen zprávy NOVĚJŠÍ než poslední synced —
+    # jinak se pokaždé tahá top 300 s plnými těly (pomalé/hang, zaseklo Eliščin sync).
+    # Po prvním sync jsou to jednotky → doběhne v sekundách.
+    _last = None
     try:
-        qs = fld.all().order_by("-datetime_received")[:limit]
+        _s0 = get_data_session()
+        try:
+            _last = _s0.execute(text(
+                "SELECT max(datum) FROM tenant.mail_message "
+                "WHERE tenant_id=:t AND user_id=:u AND slozka=:s"),
+                {"t": tenant_id, "u": uid, "s": slozka}).scalar()
+        finally:
+            _s0.close()
     except Exception:
-        qs = fld.all()[:limit]
+        _last = None
+    try:
+        if _last is not None:
+            qs = fld.filter(datetime_received__gt=_last).order_by("-datetime_received")[:limit]
+        else:
+            qs = fld.all().order_by("-datetime_received")[:limit]
+    except Exception:
+        try:
+            qs = fld.all().order_by("-datetime_received")[:limit]
+        except Exception:
+            qs = fld.all()[:limit]
     s = get_data_session()
     n = 0
     nnew = 0

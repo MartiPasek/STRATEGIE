@@ -39132,7 +39132,11 @@ def _refresh_employee_active() -> dict:
             "WHERE e.id=per.emp_id AND e.tenant_id=2 AND e.is_active=true "
             "  AND per.last_per < mx.g - 1 "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.work_relation wr WHERE wr.tenant_id=2 "
-            "       AND wr.user_id=e.user_id AND wr.relation IN ('osvc','dohoda','jednatel'))"
+            "       AND wr.user_id=e.user_id AND wr.relation IN ('osvc','dohoda','jednatel')) "
+            # Pojistka (Marti 5.7.2026): rodiče (is_marti_parent) ani vlastníka tenantu
+            # NIKDY nedeaktivovat — automatika ho jinak vyhodí (stalo se Martimu v EUROSOFTu).
+            "  AND NOT EXISTS (SELECT 1 FROM public.users u WHERE u.id=e.user_id AND u.is_marti_parent=true) "
+            "  AND e.user_id IS DISTINCT FROM (SELECT owner_user_id FROM public.tenants WHERE id=2)"
         )).rowcount
         # u zneaktivněných archivovat i členství v tenantu (ať zmizí ze seznamů lidí)
         s.execute(_t(
@@ -39141,7 +39145,10 @@ def _refresh_employee_active() -> dict:
             "  AND ut.user_id IN (SELECT e.user_id FROM tenant.att_employee e "
             "     WHERE e.tenant_id=2 AND e.is_active=false AND e.user_id IS NOT NULL) "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.work_relation wr WHERE wr.tenant_id=2 "
-            "       AND wr.user_id=ut.user_id AND wr.relation IN ('osvc','dohoda','jednatel'))"))
+            "       AND wr.user_id=ut.user_id AND wr.relation IN ('osvc','dohoda','jednatel')) "
+            # Pojistka (Marti 5.7.2026): rodiče ani vlastníka tenantu NIKDY nearchivovat.
+            "  AND NOT EXISTS (SELECT 1 FROM public.users u WHERE u.id=ut.user_id AND u.is_marti_parent=true) "
+            "  AND ut.user_id IS DISTINCT FROM (SELECT owner_user_id FROM public.tenants WHERE id=2)"))
         # a vyřadit je ze skupin lidí + plánu/docházky (jinak straší ve výpisech + nafukují kapacitu)
         for _tbl in ("tenant.staff_group_member", "tenant.att_plan_effective",
                      "tenant.att_plan_day", "tenant.work_alloc"):

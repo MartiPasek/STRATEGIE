@@ -6275,6 +6275,12 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 )
                 if not ut_rt:
                     return f"ℹ User id={target_uid_rt} neni clenem tenantu id={target_tid_rt}."
+                # Pojistka (Marti 5.7.2026): rodiče (is_marti_parent) ani vlastníka tenantu
+                # NIKDY nearchivovat — chránit zakladatele/rodiče před vyhozením z vlastní firmy.
+                if getattr(u_rt, "is_marti_parent", False):
+                    return f"❌ User id={target_uid_rt} je rodič (is_marti_parent) — rodiče nelze archivovat z tenantu (pojistka)."
+                if getattr(t_rt, "owner_user_id", None) and t_rt.owner_user_id == target_uid_rt:
+                    return f"❌ User id={target_uid_rt} je vlastník tenantu id={target_tid_rt} — vlastníka nelze archivovat (pojistka)."
                 if ut_rt.membership_status == "archived":
                     return f"ℹ User id={target_uid_rt} uz archived v tenantu id={target_tid_rt}."
                 old_status_rt = ut_rt.membership_status

@@ -496,7 +496,17 @@ def _maybe_finalize(s, tid, cid):
     if not e or e["stav"] == "completed":
         return
     orig = s.execute(_t("SELECT pdf_orig FROM tenant.contract_sign WHERE id=:c"), {"c": cid}).scalar()
-    final_bytes = _build_final_pdf(bytes(orig) if orig else b"", e, parties) if orig else None
+    _sig_bytes = None
+    try:
+        _iuid = s.execute(_t("SELECT user_id FROM tenant.contract_sign_party WHERE contract_id=:c AND role='internal'"),
+                          {"c": cid}).scalar()
+        if _iuid:
+            _sb = s.execute(_t("SELECT png_b64 FROM tenant.user_signature WHERE user_id=:u"), {"u": _iuid}).scalar()
+            if _sb:
+                _sig_bytes = base64.b64decode(_sb)
+    except Exception:
+        _sig_bytes = None
+    final_bytes = _build_final_pdf(bytes(orig) if orig else b"", e, parties, _sig_bytes) if orig else None
     if final_bytes:
         s.execute(_t("UPDATE tenant.contract_sign SET stav='completed',pdf_final=:f,completed_at=now(),updated_at=now() "
                      "WHERE id=:c"), {"f": final_bytes, "c": cid})
@@ -556,12 +566,13 @@ def _maybe_finalize(s, tid, cid):
         pass
 
 
-def _build_final_pdf(orig_bytes, e, parties):
-    """Sestaví finální PDF (bytes): originál + podpisová doložka. Vrací bytes nebo None."""
+def _build_final_pdf(orig_bytes, e, parties, sig_png_bytes=None):
+    """Sestaví finální PDF (bytes): originál + podpisová doložka (+ obrázek podpisu). Vrací bytes nebo None."""
     try:
         import io
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.units import mm
+        from reportlab.lib.utils import ImageReader
         from reportlab.pdfgen import canvas
         from pypdf import PdfReader, PdfWriter
     except Exception:
@@ -607,6 +618,19 @@ def _build_final_pdf(orig_bytes, e, parties):
             if p["email"]:
                 line("   e-mail: %s" % p["email"])
         line("")
+        if sig_png_bytes:
+            try:
+                line("Podpis za %s:" % (e["our_party"] or "nás"), bold=True)
+                sig = ImageReader(io.BytesIO(sig_png_bytes))
+                iw, ih = sig.getSize()
+                dispw = 55 * mm
+                disph = dispw * ih / float(iw)
+                c.drawImage(sig, 25 * mm, y - disph, width=dispw, height=disph,
+                            mask="auto", preserveAspectRatio=True)
+                c.line(25 * mm, y - disph - 1 * mm, 25 * mm + dispw, y - disph - 1 * mm)
+                y = y - disph - 8 * mm
+            except Exception:
+                pass
         line("Tato doložka je auditní stopou elektronického podpisu. Obě strany vyjádřily")
         line("souhlas s elektronickým podepsáním. Integritu dokumentu ověřuje SHA-256 otisk výše.")
         c.setFont(FI, 8)

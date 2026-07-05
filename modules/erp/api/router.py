@@ -40716,6 +40716,31 @@ def _ops_refresh_secondary() -> dict:
     src = _os.environ.get("STRATEGIE_PRIMARY_DIR") or r"C:\Projekty\STRATEGIE"
     if not _os.path.isdir(src):
         return {"ok": False, "result": "zdrojová (primární) složka neexistuje: %s" % src}
+    # POJISTKA (Marti 5.7.2026): NEPOVYŠUJ zálohu B, když API A není zdravé NEBO neběží na
+    # aktuální verzi pracovního adresáře. Jinak bychom rozbité/neověřené A propsali do B a
+    # přišli o blue-green fallback (A i B dole). B povyš jen z PROKAZATELNĚ dobrého A.
+    import requests as _rq_rs
+    aport = _os.environ.get("STRATEGIE_PRIMARY_PORT") or "8002"
+    try:
+        _dir_sha = _sp.check_output(["git", "-C", src, "rev-parse", "--short", "HEAD"],
+                                    stderr=_sp.DEVNULL, timeout=5).decode().strip()
+    except Exception:
+        _dir_sha = ""
+    try:
+        _ai = _rq_rs.get("http://127.0.0.1:%s/api/v1/api-info" % aport, timeout=4).json()
+    except Exception as _hexc:
+        return {"ok": False, "result": "POJISTKA: API A (:%s) neodpovídá (%s) — refresh zálohy "
+                "ZRUŠEN, ať nepropíšeme rozbité A do B. Ověř, že A zdravě běží, pak zkus znovu."
+                % (aport, type(_hexc).__name__)}
+    if not (isinstance(_ai, dict) and _ai.get("ok")):
+        return {"ok": False, "result": "POJISTKA: API A nehlásí OK (health) — refresh zálohy ZRUŠEN."}
+    _a_sha = (_ai.get("commit") or "").strip()
+    if _dir_sha and _a_sha and not (_a_sha.startswith(_dir_sha) or _dir_sha.startswith(_a_sha)):
+        return {"ok": False, "result": "POJISTKA: API A běží na jiné verzi (A=%s) než pracovní "
+                "adresář (%s) — A ještě nenaběhlo na aktuální kód. Nejdřív ověř, že A zdravě běží "
+                "novou verzi (deploy proběhl + restart OK), pak refresh — jinak bychom do B "
+                "propsali neověřený kód." % (_a_sha, _dir_sha)}
+    # A je zdravé a běží na aktuální verzi → bezpečné povýšit zálohu B.
     # API jako služba NEMÁ z web handleru práva spustit nssm/detached proces (12.6. doctrine).
     # Proto zapíšeme MARKER → STRATEGIE-RESTART-WATCHER (privilegovaný) spustí refresh_secondary.ps1.
     import json as _json, datetime as _dt

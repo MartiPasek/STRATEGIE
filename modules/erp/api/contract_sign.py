@@ -257,6 +257,63 @@ def sign_pdf(cid: int, req: Request):
         s.close()
 
 
+def _sign_pdf_bytes(s, tid, cid):
+    return s.execute(_t("SELECT COALESCE(pdf_final,pdf_orig) FROM tenant.contract_sign WHERE tenant_id=:t AND id=:c"),
+                     {"t": tid, "c": cid}).scalar()
+
+
+@contract_router.get("/app/sign/{cid}/pages")
+def sign_pages(cid: int, req: Request):
+    """Počet stránek PDF — pro obrázkový náhled (webview nevykreslí PDF v iframe)."""
+    uid = _uid(req)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        if not _can(uid, s):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        data = _sign_pdf_bytes(s, tid, cid)
+        if not data:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        try:
+            from pdf2image import pdfinfo_from_bytes
+            n = int(pdfinfo_from_bytes(bytes(data)).get("Pages") or 1)
+        except Exception:
+            n = 1
+        return {"ok": True, "pages": max(1, n)}
+    finally:
+        s.close()
+
+
+@contract_router.get("/app/sign/{cid}/img/{page}")
+def sign_img(cid: int, page: int, req: Request):
+    """Stránka PDF vykreslená jako PNG (robustní náhled i v mobilním webview)."""
+    uid = _uid(req)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        if not _can(uid, s):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        data = _sign_pdf_bytes(s, tid, cid)
+        if not data:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        try:
+            import io
+            from pdf2image import convert_from_bytes
+            p = max(0, int(page))
+            imgs = convert_from_bytes(bytes(data), dpi=140, first_page=p + 1, last_page=p + 1)
+            if not imgs:
+                return JSONResponse({"ok": False, "error": "no_page"}, status_code=404)
+            buf = io.BytesIO()
+            imgs[0].save(buf, "PNG")
+            from fastapi.responses import Response
+            return Response(content=buf.getvalue(), media_type="image/png",
+                            headers={"Cache-Control": "private, max-age=120"})
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": "render_failed: " + type(exc).__name__}, status_code=500)
+    finally:
+        s.close()
+
+
 @contract_router.post("/app/sign/{cid}/our-sign")
 async def sign_our(cid: int, req: Request):
     """Náš (interní) SES podpis klikem — audit kdo/kdy/IP/zařízení."""

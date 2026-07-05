@@ -6352,6 +6352,22 @@ def _is_email_in_system(email: str) -> bool:
         if u_ews:
             return True
 
+        # 4) firemní kontaktní databáze (zrcadla EC + CRM) — partneři/zákazníci,
+        #    kteří nejsou interní uživatelé (např. jednatelé, dodavatelé).
+        try:
+            from sqlalchemy import text as _sqltext
+            row = session.execute(_sqltext(
+                "SELECT 1 WHERE "
+                " EXISTS (SELECT 1 FROM tenant.ec_spojeni "
+                "         WHERE lower(trim(hodnota))=:e OR lower(trim(hodnota2))=:e) "
+                " OR EXISTS (SELECT 1 FROM tenant.ec_org WHERE lower(trim(obj_email))=:e) "
+                " OR EXISTS (SELECT 1 FROM tenant.crm_kontakt WHERE lower(trim(firma_email))=:e)"
+            ), {"e": needle}).first()
+            if row:
+                return True
+        except Exception:
+            pass
+
         return False
     finally:
         session.close()
@@ -6381,15 +6397,28 @@ def format_email_preview(
     attachment_document_ids: list[int] | None = None,
     cc: str | None = None, bcc: str | None = None,
 ) -> str:
-    # Varování pokud AI vygenerovala příjemce, který nikde v systému není —
-    # typická známka halucinace nebo překlepu.
+    # Varování pokud příjemce (To/CC/BCC) není ve firemní databázi —
+    # typická známka překlepu nebo halucinace adresy (Marti 5.7.2026).
+    import re as _re
+
+    def _split_addrs(v):
+        return [a.strip() for a in _re.split(r"[,;]+", str(v or "")) if a.strip() and "@" in a]
+
+    _unknown = []
+    for _a in _split_addrs(to) + _split_addrs(cc) + _split_addrs(bcc):
+        try:
+            if not _is_email_in_system(_a):
+                _unknown.append(_a)
+        except Exception:
+            pass
+
     try:
         in_system = _is_email_in_system(to)
     except Exception:
         in_system = False
     to_line = f"Komu: {to}"
     if not in_system:
-        to_line += "   ⚠️ TATO ADRESA NENÍ V SYSTÉMU — OVĚŘ NEŽ POTVRDÍŠ"
+        to_line += "   ⚠️ NENÍ VE FIREMNÍ DATABÁZI — OVĚŘ NEŽ POTVRDÍŠ"
 
     # Od: visibilni, aby user videl z ktere schranky to pujde (Marti-AI vs. moje)
     if sender_display:
@@ -6399,6 +6428,11 @@ def format_email_preview(
         from_line = None
 
     lines = [f"📧 Návrh emailu", ""]
+    if _unknown:
+        lines.append("⚠️ POZOR: tato adresa není ve firemní databázi (uživatelé, "
+                     "persony ani kontakty EC/CRM): " + ", ".join(_unknown))
+        lines.append("Ověř prosím, že je správná, než odešleš.")
+        lines.append("")
     if from_line:
         lines.append(from_line)
     lines.append(to_line)

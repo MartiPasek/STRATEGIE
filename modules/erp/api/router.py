@@ -34987,6 +34987,16 @@ async def diag_sql(req: Request) -> JSONResponse:
         reason = (pe.get("reason") or "").strip()
         if not to_e or "@" not in to_e or not subj or not bod:
             return JSONResponse({"ok": False, "error": "@@EMAIL: chybí/neplatné to/subject/body"})
+        # Pojistka (Marti 5.7.2026): příjemci, kteří NEJSOU ve firemní databázi
+        # (uživatelé / persony / kontakty EC+CRM) → varuj v OUT (neblokuje).
+        _unknown_rcpt = []
+        try:
+            from modules.conversation.application.tools import _is_email_in_system as _eis
+            for _addr in ([to_e] + (cc or [])):
+                if _addr and "@" in _addr and not _eis(_addr):
+                    _unknown_rcpt.append(_addr)
+        except Exception:
+            _unknown_rcpt = []
         # Přílohy (Marti 24.6.2026: "autonomní připojování příloh přes sandbox").
         #   "attach": ["scripts/.../soubor.xlsx", ...]     → soubory z repo working-dir cloudu
         #   "attach_b64": [{"name":"x.pdf","b64":"..."}]   → inline ze sandboxu (bez deploye)
@@ -35059,7 +35069,8 @@ async def diag_sql(req: Request) -> JSONResponse:
             audit_warn = str(e)
         return JSONResponse({"ok": True, "queued": True, "outbox_id": outbox_id,
                              "to": to_e, "cc": cc, "sender": "Marti-AI",
-                             "attachments": att_ids, "audit_warn": audit_warn})
+                             "attachments": att_ids, "audit_warn": audit_warn,
+                             "warn_unknown_recipients": (_unknown_rcpt or None)})
 
     # Autonomní čtení schránky Marti-AI (Marti 24.6.2026: "udělej si autonomní
     # čtení Marti-AI schránky a její kontrolu"). Read-only, NEmutuje read_at.

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eliška — vedení zakázek</title>
+<style>
+  :root{
+    --bg:#0f1720; --card:#1b2430; --ink:#e7edf3; --dim:#9aa7b4;
+    --line:#2a3542; --ok:#34c759; --wip:#e0a72e; --pend:#5b6674;
+    --hot:#ff5a52; --accent:#4ea1ff; --step:#12233a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:16px;max-width:820px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:13.5px;margin-bottom:14px}
+  .banner{background:#3a1d1c;border:1px solid var(--hot);border-radius:12px;
+    padding:12px 14px;margin-bottom:14px;font-size:14px}
+  .banner b{color:#ffb3ae}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:14px 16px;margin-bottom:12px}
+  .card.hot{border-color:var(--hot)}
+  .card.volno{box-shadow:inset 3px 0 0 var(--wip)}
+  .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+  .zc{font-weight:700;font-size:15.5px}
+  .nm{color:var(--dim);font-size:13px}
+  .term{text-align:right;font-size:13px;white-space:nowrap}
+  .term .d{font-weight:700;font-size:15px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700}
+  .pill.hot{background:#3a1d1c;color:#ffb3ae;border:1px solid var(--hot)}
+  .pill.warn{background:#3a331c;color:#ffe08a;border:1px solid var(--wip)}
+  .pill.ok{background:#12301f;color:#8ff0b5;border:1px solid var(--ok)}
+  .pill.faze{background:#16283f;color:#a9d3ff;border:1px solid #2c4a6e}
+  .row2{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 4px}
+  .kv{font-size:12.5px;color:var(--dim)}
+  .kv b{color:var(--ink)}
+  .eff .v{font-weight:700}
+  .krok{background:var(--step);border:1px solid #2c4a6e;border-radius:11px;
+    padding:10px 12px;margin:10px 0 6px;font-size:14px}
+  .krok .lb{font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-bottom:3px}
+  .meta{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;
+    color:var(--dim);flex-wrap:wrap;border-top:1px solid var(--line);padding-top:9px;margin-top:4px}
+  .load{color:var(--dim);padding:20px 4px}
+  .foot{color:var(--dim);font-size:12px;margin-top:18px;line-height:1.7}
+  .kpi{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .kpi .b{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 13px;flex:1;min-width:120px}
+  .kpi .b .n{font-size:19px;font-weight:800}
+  .kpi .b .l{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.3px}
+</style>
+</head>
+<body>
+  <h1>🗂️ Eliška — vedení zakázek</h1>
+  <div class="sub">Živý přehled tvých zakázek: fáze, termíny (pracovní dny), efektivita a navržený další krok. Zvýrazněné mají termín během tvého volna.</div>
+  <div id="kpi" class="kpi"></div>
+  <div id="banner"></div>
+  <div id="list"><div class="load">Načítám zakázky…</div></div>
+  <div class="foot">
+    🔴 termín ≤ 2 dny · 🟡 ≤ 5 dní · 🟢 dost času. Efektivita = kalkulované vs. odpracované hodiny.<br>
+    Další krok je návrh — potvrzuje se přes <a href="/claude-chat" style="color:var(--accent)">💬 Chat s Claudem</a>. Nic se neodešle bez tvého schválení.
+  </div>
+<script>
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+function fmtKc(n){return n==null?'—':(n).toLocaleString('cs-CZ')+' Kč';}
+function termPill(d){
+  if(d==null)return '<span class="pill ok">bez termínu</span>';
+  var cls=d<=2?'hot':d<=5?'warn':'ok';
+  var t=d<0?('po termínu '+(-d)+' dní'):(d+' dní');
+  return '<span class="pill '+cls+'">'+t+'</span>';
+}
+function render(zz){
+  var list=document.getElementById('list'), banner=document.getElementById('banner'), kpi=document.getElementById('kpi');
+  if(!zz.length){list.innerHTML='<div class="load">Žádné otevřené zakázky.</div>';return;}
+  var hot=zz.filter(function(z){return z.dni!=null && z.dni<=2;});
+  var volno=zz.filter(function(z){return z.v_volnu;});
+  var sumKc=zz.reduce(function(a,z){return a+(z.velikost_kc||0);},0);
+  kpi.innerHTML=
+    '<div class="b"><div class="n">'+zz.length+'</div><div class="l">otevřených zakázek</div></div>'+
+    '<div class="b"><div class="n" style="color:var(--hot)">'+hot.length+'</div><div class="l">hoří (≤2 dny)</div></div>'+
+    '<div class="b"><div class="n" style="color:var(--wip)">'+volno.length+'</div><div class="l">termín v tvém volnu</div></div>'+
+    '<div class="b"><div class="n">'+fmtKc(sumKc)+'</div><div class="l">objem</div></div>';
+  if(hot.length){
+    banner.innerHTML='<div class="banner">⚠️ <b>'+hot.length+'</b> zakázk'+(hot.length==1?'a hoří':'y hoří')+
+      ' (termín do 2 dnů): '+hot.map(function(z){return esc(z.cislo);}).join(', ')+'.</div>';
+  } else { banner.innerHTML=''; }
+  list.innerHTML=zz.map(function(z){
+    var eff=z.efektivita;
+    var effc=eff==null?'var(--dim)':(eff>=100?'var(--ok)':eff>=80?'var(--wip)':'var(--hot)');
+    return '<div class="card'+(z.dni!=null&&z.dni<=2?' hot':'')+(z.v_volnu?' volno':'')+'">'+
+      '<div class="top"><div><div class="zc">'+esc(z.cislo)+' · '+esc(z.zakaznik)+'</div>'+
+        '<div class="nm">'+esc(z.nazev)+'</div></div>'+
+        '<div class="term">'+termPill(z.dni)+'<div style="margin-top:3px;color:var(--dim)">'+esc(z.termin||'')+'</div></div></div>'+
+      '<div class="row2">'+
+        (z.faze?'<span class="pill faze">'+esc(z.faze)+'</span>':'')+
+        '<span class="kv">Objem: <b>'+fmtKc(z.velikost_kc)+'</b></span>'+
+        (eff!=null?'<span class="kv eff">Efektivita: <span class="v" style="color:'+effc+'">'+eff+' %</span> ('+(z.real_h||0)+'/'+(z.kalk_h||0)+' h)</span>':'')+
+      '</div>'+
+      (z.dalsi_krok?'<div class="krok"><div class="lb">Další krok (návrh)</div>'+esc(z.dalsi_krok)+'</div>':'')+
+      '<div class="meta"><span>'+(z.koresponduje?('Korespondence: '+esc(z.koresponduje)):'Bez korespondence')+'</span>'+
+        '<span>'+(z.posl_email?('Poslední e-mail: '+esc(z.posl_email)):'')+'</span></div>'+
+      '</div>';
+  }).join('');
+}
+fetch('/api/v1/erp/app/eliska/prehled',{credentials:'same-origin'})
+  .then(function(r){return r.json();})
+  .then(function(d){ if(d&&d.ok){render(d.zakazky||[]);} else {document.getElementById('list').innerHTML='<div class="load">Nemám oprávnění zobrazit (jen Eliška, rodiče, cockpit).</div>';} })
+  .catch(function(){document.getElementById('list').innerHTML='<div class="load">Chyba načítání.</div>';});
+</script>
+</body>
+</html>

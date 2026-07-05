@@ -965,6 +965,16 @@ def vp_zastup_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/eliska")
+def eliska_page():
+    """Eliščin produkční cockpit — vedení jejích zakázek (fáze, termíny, efektivita,
+    další krok). Scope přes API /app/eliska/prehled = rodiče + Eliška (34) + cockpit.
+    Marti 5.7.2026 — příprava VP na produkci před návratem Elišky 17.7."""
+    return FileResponse(os.path.join(static_dir, "eliska.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/domeny")
 def domeny_page():
     """Review doménového prostředí (domain_env) pro lidi — vidět, porovnat s realitou, ladit.

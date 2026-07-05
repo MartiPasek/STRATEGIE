@@ -28957,6 +28957,41 @@ def vp_zastup_get(req: Request):
         s.close()
 
 
+@api_router.get("/app/eliska/prehled")
+def eliska_prehled_get(req: Request):
+    """Eliščin produkční cockpit — její živé zakázky (tenant.eliska_rizeni) s fází,
+    termíny, efektivitou, korespondencí a navrženým dalším krokem. Scope: rodiče +
+    Eliška (34) + cockpit. Marti 5.7.2026 — příprava na produkci před návratem 17.7."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 34 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT cislo_zakazky, zakaznik, nazev, faze, to_char(termin,'DD.MM.YYYY') AS termin, "
+            "  dni_do_terminu, velikost_kc, kalk_h, real_h, efektivita_pct, koresponduje, "
+            "  to_char(posledni_email,'DD.MM.') AS posl_email, dalsi_krok, termin_v_jejim_volnu "
+            "FROM tenant.eliska_rizeni "
+            "ORDER BY (dni_do_terminu IS NULL), dni_do_terminu")).fetchall()
+        out = []
+        for r in rows:
+            out.append({
+                "cislo": r[0], "zakaznik": r[1], "nazev": r[2], "faze": r[3],
+                "termin": r[4], "dni": r[5],
+                "velikost_kc": int(r[6]) if r[6] is not None else None,
+                "kalk_h": float(r[7]) if r[7] is not None else None,
+                "real_h": float(r[8]) if r[8] is not None else None,
+                "efektivita": int(r[9]) if r[9] is not None else None,
+                "koresponduje": r[10] or "", "posl_email": r[11] or "",
+                "dalsi_krok": r[12] or "", "v_volnu": bool(r[13]),
+            })
+        return {"ok": True, "zakazky": out}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/domeny")
 def domeny_get(req: Request):
     """Review doménového prostředí tenant.domain_env (identita+znalosti+tooly).

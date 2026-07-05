@@ -244,35 +244,8 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logging.getLogger(__name__).warning(f"[lifespan] crm_email_track DDL failed: {exc}")
 
-    # Marti 5.7.2026: JEDNORAZOVY uklid public.documents (cerna dira duplicit + ~$ temp).
-    # Bridge role Marti-AI nema DELETE na public.* -> owner path (API=strategie). PO NABEHNUTI SMAZAT.
-    try:
-        from sqlalchemy import text as _t_cln
-        from core.database_data import get_data_session as _gs_cln
-        _ds_cln = _gs_cln()
-        try:
-            _delset = (
-                "SELECT id FROM public.documents "
-                " WHERE strpos(COALESCE(original_filename,name),'~$') > 0 "
-                "UNION "
-                "SELECT id FROM (SELECT id, row_number() OVER ("
-                " PARTITION BY COALESCE(NULLIF(original_filename,''),name), file_type, file_size_bytes "
-                " ORDER BY id) AS rn FROM public.documents WHERE project_id IS NULL) t WHERE rn > 1")
-            _n = _ds_cln.execute(_t_cln("SELECT count(*) FROM (" + _delset + ") d")).scalar()
-            if _n and int(_n) > 0:
-                _ds_cln.execute(_t_cln(
-                    "DELETE FROM public.document_vectors WHERE chunk_id IN "
-                    "(SELECT c.id FROM public.document_chunks c WHERE c.document_id IN (" + _delset + "))"))
-                _ds_cln.execute(_t_cln(
-                    "DELETE FROM public.document_chunks WHERE document_id IN (" + _delset + ")"))
-                _ds_cln.execute(_t_cln(
-                    "DELETE FROM public.documents WHERE id IN (" + _delset + ")"))
-                _ds_cln.commit()
-                logging.getLogger(__name__).warning(f"[lifespan] uklid documents: smazano {int(_n)} radku (dup+temp)")
-        finally:
-            _ds_cln.close()
-    except Exception as exc:
-        logging.getLogger(__name__).warning(f"[lifespan] uklid documents failed: {exc}")
+    # Pozn. 5.7.2026: one-off uklid public.documents (621 dup+temp radku, ~150 MB)
+    # zde bezel pres owner roli a byl po uspesnem behu odstranen (smazano ~623 radku).
 
     # Marti 9.6.2026: zivy 30s tik dochazky — mirror dnesku z Centraly.
     try:

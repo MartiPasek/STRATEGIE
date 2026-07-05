@@ -114,10 +114,30 @@
   _loadPdfImgs:function(id){
     var box=document.getElementById("pdfimgs"); if(!box)return;
     api("GET",B+"/"+id+"/pages").then(function(j){
-      var n=(j&&j.ok)?(j.pages||1):1; if(n>30)n=30; var html="";
-      for(var i=0;i<n;i++){ html+='<img src="'+B+"/"+id+"/img/"+i+'" loading="lazy" style="display:block;width:100%;border-radius:4px;margin-bottom:8px;background:#fff" alt="strana '+(i+1)+'">'; }
+      var n=(j&&j.ok)?(j.pages||1):1; if(n>30)n=30;
+      var html='<div class="mut" style="font-size:11px;text-align:center;margin-bottom:6px">Klepnutím na stránku ji zvětšíte 🔍</div>';
+      for(var i=0;i<n;i++){ html+='<img src="'+B+"/"+id+"/img/"+i+'" loading="lazy" onclick="SG._zoom('+id+','+i+')" style="display:block;width:100%;border-radius:4px;margin-bottom:8px;background:#fff;cursor:zoom-in" alt="strana '+(i+1)+'">'; }
       box.innerHTML=html;
-    }).catch(function(){ box.innerHTML='<div class="mut" style="padding:16px;text-align:center">Náhled se nepodařilo načíst — použij odkaz níže.</div>'; });
+    }).catch(function(){ box.innerHTML='<div class="mut" style="padding:16px;text-align:center">Náhled se nepodařilo načíst.</div>'; });
+  },
+  _zoom:function(id,page){
+    var ov=document.createElement("div");
+    ov.style.cssText="position:fixed;inset:0;z-index:99999;background:rgba(8,10,14,.97);overflow:auto;-webkit-overflow-scrolling:touch;padding:52px 8px 24px;text-align:center";
+    var st={w:100};
+    var img=new Image(); img.src=B+"/"+id+"/img/"+page+"?dpi=210";
+    img.style.cssText="width:100%;max-width:1000px;display:inline-block;background:#fff;border-radius:4px";
+    function setW(){ img.style.width=st.w+"%"; img.style.maxWidth=(st.w>100?"none":"1000px"); }
+    var bar=document.createElement("div");
+    bar.style.cssText="position:fixed;top:0;left:0;right:0;height:44px;display:flex;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.72)";
+    function mk(t){ var b=document.createElement("button"); b.textContent=t; b.style.cssText="font-size:16px;min-width:46px;padding:7px 14px;border-radius:9px;border:1px solid #3a4358;background:#1b2130;color:#dbe4f5;cursor:pointer"; return b; }
+    var bMinus=mk("−"),bPlus=mk("+"),bClose=mk("✕ Zavřít");
+    bPlus.onclick=function(e){ e.stopPropagation(); st.w=Math.min(400,st.w+40); setW(); };
+    bMinus.onclick=function(e){ e.stopPropagation(); st.w=Math.max(60,st.w-40); setW(); };
+    function close(){ try{document.body.removeChild(ov);}catch(e){} }
+    bClose.onclick=function(e){ e.stopPropagation(); close(); };
+    ov.addEventListener("click",function(e){ if(e.target===ov) close(); });
+    bar.appendChild(bMinus); bar.appendChild(bPlus); bar.appendChild(bClose);
+    ov.appendChild(bar); ov.appendChild(img); document.body.appendChild(ov);
   },
   dmsg:function(k,t){var m=document.getElementById("dmsg");if(m){m.className="msg "+k;m.textContent=t;m.style.display="block";}},
   oursign:function(id){SG.dmsg("","Podepisuji…");api("POST",B+"/"+id+"/our-sign",{}).then(function(j){if(j&&j.ok){SG.dmsg("ok","✓ Podepsáno za nás.");SG.open(id);loadList();}else SG.dmsg("err","✗ "+((j&&j.error)||"chyba"));});},

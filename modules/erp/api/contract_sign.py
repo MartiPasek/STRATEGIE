@@ -293,8 +293,8 @@ def sign_pages(cid: int, req: Request):
 
 
 @contract_router.get("/app/sign/{cid}/img/{page}")
-def sign_img(cid: int, page: int, req: Request):
-    """Stránka PDF vykreslená jako PNG (robustní náhled i v mobilním webview)."""
+def sign_img(cid: int, page: int, req: Request, dpi: int = 140):
+    """Stránka PDF vykreslená jako PNG (robustní náhled i v mobilním webview). dpi = ostrost pro zoom."""
     uid = _uid(req)
     s = _sess()
     try:
@@ -305,6 +305,7 @@ def sign_img(cid: int, page: int, req: Request):
         if not data:
             return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
         p = max(0, int(page))
+        _dpi = max(72, min(240, int(dpi or 140)))
         img = None
         # rasterizér 1: PyMuPDF (fitz)
         try:
@@ -313,7 +314,7 @@ def sign_img(cid: int, page: int, req: Request):
             import fitz as _fz
             _d = _fz.open(stream=bytes(data), filetype="pdf")
             if p < _d.page_count:
-                pix = _d[p].get_pixmap(dpi=140)
+                pix = _d[p].get_pixmap(dpi=_dpi)
                 img = _Img.open(_io.BytesIO(pix.tobytes("png")))
             _d.close()
         except Exception:
@@ -324,7 +325,7 @@ def sign_img(cid: int, page: int, req: Request):
                 import pypdfium2 as _pf
                 _pdf = _pf.PdfDocument(bytes(data))
                 if p < len(_pdf):
-                    img = _pdf[p].render(scale=140 / 72.0).to_pil()
+                    img = _pdf[p].render(scale=_dpi / 72.0).to_pil()
             except Exception:
                 img = None
         if img is None:

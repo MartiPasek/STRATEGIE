@@ -34300,6 +34300,44 @@ async def diag_sql(req: Request) -> JSONResponse:
         finally:
             _sd.close()
 
+    # Re-index existujícího dokumentu do document_vectors (Marti 5.7.2026, pro Claude-27
+    # F5 TISAX): smaže staré chunky/vektory a spustí znovu extract→chunk→embed.
+    #   @@RAGINDEX <doc_id>
+    if sql.upper().startswith("@@RAGINDEX"):
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
+        parts = sql.split(None, 1)
+        arg = (parts[1].strip() if len(parts) > 1 else "")
+        if not arg.isdigit():
+            return JSONResponse({"ok": False, "error": "@@RAGINDEX <doc_id>"})
+        did = int(arg)
+        _sd = _gds()
+        try:
+            meta = _sd.execute(_t("SELECT id, name, file_type FROM public.documents WHERE id=:i"),
+                               {"i": did}).first()
+            if not meta:
+                return JSONResponse({"ok": False, "error": "doc %s nenalezen" % did})
+            _sd.execute(_t("DELETE FROM public.document_vectors WHERE chunk_id IN "
+                           "(SELECT id FROM public.document_chunks WHERE document_id=:i)"), {"i": did})
+            _sd.execute(_t("DELETE FROM public.document_chunks WHERE document_id=:i"), {"i": did})
+            _sd.commit()
+        finally:
+            _sd.close()
+        try:
+            from modules.rag.application.service import process_document as _procdoc
+            _procdoc(did)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": "reindex %s selhal: %s" % (did, e)})
+        _sd2 = _gds()
+        try:
+            nv = _sd2.execute(_t(
+                "SELECT count(*) FROM public.document_vectors v "
+                "JOIN public.document_chunks c ON c.id=v.chunk_id WHERE c.document_id=:i"),
+                {"i": did}).scalar()
+        finally:
+            _sd2.close()
+        return JSONResponse({"ok": True, "doc_id": did, "name": meta.name, "vectors": nv})
+
     # Feedback z dokumentace/portálu (Marti 21.6.2026): co lidé i auditoři napsali.
     #   @@FEEDBACK            → posledních 100 (nové první)
     #   @@FEEDBACK NOVE       → jen nevyřízené

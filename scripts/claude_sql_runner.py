@@ -101,6 +101,13 @@ NOTIFY_OUT_FILE = BRIDGE_DIR / "CLAUDE_NOTIFY_OUT.txt"  # watcher zapíše výsl
 PULL_GO_FILE = BRIDGE_DIR / "CLAUDE_PULL_GO.txt"        # trigger (zapsat JAKO POSLEDNÍ)
 PULL_OUT_FILE = BRIDGE_DIR / "CLAUDE_PULL_OUT.txt"      # watcher zapíše výsledek
 
+# Doc push (Marti 5.7.2026): watcher přečte lokální soubory dokumentů (zůstaly na
+# tomto stroji z doby, kdy běžel jako produkce před migrací na cloud) a nahraje je
+# na cloud přes /app/docs/push-blob (uloží na server + srovná storage_path + RO zrcadlo).
+DOCPUSH_MSG_FILE = BRIDGE_DIR / "CLAUDE_DOCPUSH.txt"    # ř.1 = lokální složka; ř.2 (volit.) = ro_subdir
+DOCPUSH_GO_FILE = BRIDGE_DIR / "CLAUDE_DOCPUSH_GO.txt"  # trigger (zapsat JAKO POSLEDNÍ)
+DOCPUSH_OUT_FILE = BRIDGE_DIR / "CLAUDE_DOCPUSH_OUT.txt"
+
 # Sync Claudů (Marti 3.6.2026): freshness + work-lock
 WORK_LOCK_FILE = BRIDGE_DIR / "WORK_LOCK.txt"           # Claude píše: 1.ř popis, další ř soubory
 OTHER_WORK_FILE = BRIDGE_DIR / "OTHER_CLAUDE_WORK.txt"  # watcher píše: co staví ostatní
@@ -123,6 +130,7 @@ CLOUD_URL = os.environ.get(
     "CLAUDE_SQL_CLOUD_URL", "https://strategie-ai.com/api/v1/erp/diag-sql"
 )
 DEPLOY_URL = CLOUD_URL.replace("/diag-sql", "/deploy/now")
+PUSH_URL = CLOUD_URL.replace("/diag-sql", "/app/docs/push-blob")
 
 # Instance identita (Marti 2.6.2026) — dvě běžící instance Claude se nesmí poprat.
 #   NB Marti = 23, NB Kristy = 24. Nastav v NSSM AppEnvironmentExtra:
@@ -1452,6 +1460,74 @@ def _process_pull() -> None:
             pass
 
 
+def _process_docpush() -> None:
+    """Nahraje lokální soubory dokumentů na cloud (push-blob). CLAUDE_DOCPUSH.txt:
+    ř.1 = lokální složka (např. D:\\Data\\STRATEGIE\\Dokumenty\\2), ř.2 volit. = ro_subdir (TISAX).
+    Soubor musí být pojmenován <doc_id>.<ext>."""
+    import base64 as _b64, json as _j
+    token = os.environ.get("STRATEGIE_DEPLOY_TOKEN") or ""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    try:
+        lines = DOCPUSH_MSG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        lines = []
+    folder = (lines[0].strip() if lines else "")
+    ro_subdir = (lines[1].strip() if len(lines) > 1 else "")
+    if not folder or not os.path.isdir(folder):
+        try:
+            DOCPUSH_OUT_FILE.write_text(f"# DOCPUSH CHYBA\n# {ts}\nSlozka neexistuje: {folder!r}\n",
+                                        encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            DOCPUSH_GO_FILE.unlink()
+        except Exception:
+            pass
+        return
+    ok = err = 0
+    rows = []
+    for fn in sorted(os.listdir(folder)):
+        fp = os.path.join(folder, fn)
+        if not os.path.isfile(fp):
+            continue
+        stem = os.path.splitext(fn)[0]
+        if not stem.isdigit():
+            continue
+        doc_id = int(stem)
+        try:
+            with open(fp, "rb") as fh:
+                data = fh.read()
+            if len(data) > 60 * 1024 * 1024:
+                rows.append(f"{fn}: PRESKOCENO (>60 MB)"); err += 1; continue
+            payload = _j.dumps({"doc_id": doc_id, "b64": _b64.b64encode(data).decode("ascii"),
+                                "ro_subdir": ro_subdir}).encode("utf-8")
+            rq = urllib.request.Request(PUSH_URL, data=payload, method="POST",
+                headers={"Content-Type": "application/json", "X-Deploy-Token": token})
+            with urllib.request.urlopen(rq, timeout=90) as resp:
+                r = _j.loads(resp.read().decode("utf-8"))
+            if isinstance(r, dict) and r.get("ok"):
+                ok += 1
+                rows.append(f"{fn}: OK {r.get('bytes')} B" + (" +RO" if r.get("ro_mirror") else ""))
+            else:
+                err += 1
+                rows.append(f"{fn}: ERR {r.get('error') if isinstance(r, dict) else r}")
+        except Exception as exc:
+            err += 1
+            rows.append(f"{fn}: EXC {type(exc).__name__}: {str(exc)[:80]}")
+    body = "\n".join(rows[-500:])
+    try:
+        DOCPUSH_OUT_FILE.write_text(
+            f"# DOCPUSH OK · nahrano {ok} · chyb {err} · slozka {folder}\n# {ts}\n\n{body}\n",
+            encoding="utf-8")
+    except Exception:
+        pass
+    _log(f"docpush: ok={ok} err={err} folder={folder}")
+    try:
+        DOCPUSH_GO_FILE.unlink()
+    except Exception:
+        pass
+
+
 def main() -> None:
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
     _log(f"STRATEGIE-CLAUDE-SQL forwarder started · {INSTANCE_LABEL} · host={HOSTNAME} · dir={BRIDGE_DIR} · cloud={CLOUD_URL} · interval={SCAN_INTERVAL_SEC}s")
@@ -1483,6 +1559,8 @@ def main() -> None:
                     _process_build(); _did_work = True
                 if NOTIFY_GO_FILE.exists():
                     _process_notify(); _did_work = True
+                if DOCPUSH_GO_FILE.exists():
+                    _process_docpush(); _did_work = True
                 if GO_FILE.exists():
                     _process(); _did_work = True
                 if _did_work:

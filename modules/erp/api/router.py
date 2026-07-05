@@ -15339,6 +15339,71 @@ async def app_upload(
                          "version_name": version_name.strip(), "size": size})
 
 
+@api_router.post("/app/docs/push-blob")
+async def docs_push_blob(req: Request) -> JSONResponse:
+    """Watcher (X-Deploy-Token) nahraje bajty dokumentu z lokálního stroje na cloud:
+    uloží do documents_storage_dir (aby appka soubor otevřela + šel reindex) + srovná
+    storage_path + (best-effort) zrcadlí do ZZ-Marti-AI RO přes MCP. Marti 5.7.2026 —
+    TISAX binárky ležely na workstation místo na serveru."""
+    import os as _osdb, base64 as _b64db, json as _jdb
+    _tok = req.headers.get("X-Deploy-Token")
+    _env = _osdb.environ.get("STRATEGIE_DEPLOY_TOKEN")
+    if not (_tok and _env and _tok == _env):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    try:
+        b = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+    try:
+        doc_id = int(b.get("doc_id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "doc_id"}, status_code=400)
+    try:
+        data = _b64db.b64decode(b.get("b64") or "")
+    except Exception:
+        data = b""
+    if not data:
+        return JSONResponse({"ok": False, "error": "prázdné b64"}, status_code=400)
+    ro_subdir = (b.get("ro_subdir") or "").strip().strip("/")
+    from core.database_data import get_data_session as _gdp
+    from sqlalchemy import text as _tp
+    from core.config import settings as _cfg
+    s = _gdp()
+    try:
+        row = s.execute(_tp("SELECT tenant_id, file_type, original_filename, name "
+                            "FROM public.documents WHERE id=:i"), {"i": doc_id}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "doc %s neexistuje" % doc_id})
+        tid = int(row[0] or 0)
+        ext = (row[1] or _osdb.path.splitext(row[2] or row[3] or "")[1].lstrip(".") or "bin").lower()
+        tdir = _osdb.path.join(_cfg.documents_storage_dir, str(tid))
+        _osdb.makedirs(tdir, exist_ok=True)
+        dest = _osdb.path.abspath(_osdb.path.join(tdir, "%d.%s" % (doc_id, ext)))
+        with open(dest, "wb") as fh:
+            fh.write(data)
+        s.execute(_tp("UPDATE public.documents SET storage_path=:p WHERE id=:i"), {"p": dest, "i": doc_id})
+        s.commit()
+        orig = row[2] or row[3] or ("%d.%s" % (doc_id, ext))
+    finally:
+        s.close()
+    ro_ok = None
+    if ro_subdir:
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+            mcp = get_eurosoft_mcp_client()
+            if mcp is not None:
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
+                    {"user_namespace": "ro", "path": ro_subdir + "/" + orig,
+                     "content": _b64db.b64encode(data).decode("ascii"),
+                     "encoding": "base64", "mode": "overwrite"}, conversation_id=None)
+                rr = _jdb.loads(raw) if isinstance(raw, str) else raw
+                ro_ok = bool(isinstance(rr, dict) and rr.get("ok"))
+        except Exception:
+            ro_ok = False
+    return JSONResponse({"ok": True, "doc_id": doc_id, "bytes": len(data),
+                         "path": dest, "ro_mirror": ro_ok})
+
+
 # (snimky obrazovky presunuty VYSE pred @api_router.get("/app/{app_key}/latest")
 #  kvuli route ordering — literalni /app/screenshot/* musi byt pred /app/{app_key}/*)
 

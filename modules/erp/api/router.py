@@ -29026,7 +29026,7 @@ def vp_cockpit_get(req: Request):
         if not (uid and (_is_parent(s, uid) or int(uid) == 34 or _is_cockpit(s, uid))):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         FAZE = ["poptavka", "vydana_poptavka", "nabidka", "prijata_obj", "vydana_obj",
-                "prijata_faktura", "vydana_faktura", "vydejka", "prijemka"]
+                "prijemka", "vydejka", "prijata_faktura", "vydana_faktura"]
         # Jednotný zdroj = tenant.vp_pipeline (UNION oz_* zrcadel, řešitel/splněno/datum
         # normalizované; řešitel=autor u faktur/vyd.obj/výdejek/příjemek). Marti 5.7.2026.
         rows = s.execute(_t(

@@ -34438,6 +34438,32 @@ async def diag_sql(req: Request) -> JSONResponse:
             _sd2.close()
         return JSONResponse({"ok": True, "doc_id": did, "name": meta.name, "vectors": nv})
 
+    # Diagnostika/spuštění mirror jobu v procesu (Marti 5.7.2026): obejde plánovač,
+    # vrátí reálný výsledek/chybu. @@MIRRORRUN <job_key>
+    if sql.upper().startswith("@@MIRRORRUN"):
+        _jk = sql[len("@@MIRRORRUN"):].strip()
+        if not _jk:
+            return JSONResponse({"ok": False, "error": "@@MIRRORRUN <job_key>"})
+        try:
+            _ok, _done, _rows, _msg = _mirror_run_job(_jk)
+            from core.database_data import get_data_session as _gmr
+            from sqlalchemy import text as _tmr
+            _smr = _gmr()
+            try:
+                _smr.execute(_tmr(
+                    "UPDATE fw.mirror_job SET last_run_at=now(), last_status=:st, last_result=:r, "
+                    "last_rows=:n, last_done=:d, running=false, updated_at=now() WHERE job_key=:k"),
+                    {"st": ("ok" if _ok else "chyba"), "r": str(_msg)[:400], "n": (_rows or 0),
+                     "d": bool(_done), "k": _jk})
+                _smr.commit()
+            finally:
+                _smr.close()
+            return JSONResponse({"ok": bool(_ok), "job": _jk, "done": bool(_done),
+                                 "rows": _rows, "msg": str(_msg)[:300]})
+        except Exception as _emr:
+            return JSONResponse({"ok": False, "job": _jk,
+                                 "error": "%s: %s" % (type(_emr).__name__, str(_emr)[:280])})
+
     # Feedback z dokumentace/portálu (Marti 21.6.2026): co lidé i auditoři napsali.
     #   @@FEEDBACK            → posledních 100 (nové první)
     #   @@FEEDBACK NOVE       → jen nevyřízené

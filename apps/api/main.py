@@ -978,6 +978,16 @@ def eliska_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/vp-vez")
+def vp_vez_page():
+    """VP řídící věž — Eliška jako vedoucí vidí celý pipeline hromad po řešitelích
+    (moje / kolegové / celek). API /app/vp/cockpit = rodiče + Eliška (34) + cockpit.
+    Marti 5.7.2026 — leader cockpit nad ec_hromada_* mirrory."""
+    return FileResponse(os.path.join(static_dir, "vp-vez.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/domeny")
 def domeny_page():
     """Review doménového prostředí (domain_env) pro lidi — vidět, porovnat s realitou, ladit.

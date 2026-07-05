@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VP — řídící věž</title>
+<style>
+  :root{--bg:#0f1720;--card:#1b2430;--ink:#e7edf3;--dim:#9aa7b4;--line:#2a3542;
+    --ok:#34c759;--wip:#e0a72e;--pend:#5b6674;--hot:#ff5a52;--accent:#4ea1ff;
+    --eli:#7c5cff;--eli-bg:#1d1a33;--head:#12233a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:16px;max-width:1080px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:14px}
+  .kpi{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .kpi .b{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 13px;flex:1;min-width:120px}
+  .kpi .b .n{font-size:19px;font-weight:800}
+  .kpi .b .l{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.3px}
+  .tabs{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap}
+  .tab{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 15px;
+    font-size:13.5px;font-weight:600;cursor:pointer;color:var(--dim)}
+  .tab.on{background:var(--accent);border-color:var(--accent);color:#06101f}
+  .tab.on.eli{background:var(--eli);border-color:var(--eli);color:#fff}
+  .wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:720px}
+  th,td{padding:8px 10px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+  thead th{background:var(--head);color:#a9d3ff;font-size:11.5px;text-transform:uppercase;
+    letter-spacing:.3px;position:sticky;top:0}
+  th.who,td.who{text-align:left;font-weight:700}
+  tbody tr:hover{background:#161f2b}
+  tr.eli td{background:var(--eli-bg)}
+  tr.eli td.who{color:#c9bcff}
+  tr.celek td{background:#101826;font-weight:800;border-top:2px solid var(--line)}
+  .a{font-weight:800;font-size:14.5px}
+  .a.z{color:var(--pend);font-weight:500}
+  .t{color:var(--dim);font-size:11px;margin-left:3px}
+  .foot{color:var(--dim);font-size:12px;margin-top:16px;line-height:1.7}
+  .load{color:var(--dim);padding:22px 4px}
+  .chip{display:inline-block;background:var(--eli);color:#fff;font-size:10.5px;font-weight:700;
+    border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+  <h1>🗂️ VP — řídící věž</h1>
+  <div class="sub">Celý pipeline hromad po řešitelích — poptávka → nabídka → objednávky → faktury → výdejky. Velké číslo = <b>aktivní</b> (nesplněné za 18 měs.), malé = vše. Živě z Centrály.</div>
+  <div id="kpi" class="kpi"></div>
+  <div class="tabs">
+    <div class="tab on eli" data-lens="moje">🟣 Moje (Eliška)</div>
+    <div class="tab" data-lens="kolegove">Kolegové</div>
+    <div class="tab" data-lens="celek">Celek VP</div>
+  </div>
+  <div class="wrap"><table>
+    <thead><tr id="head"></tr></thead>
+    <tbody id="body"><tr><td class="load">Načítám hromady…</td></tr></tbody>
+  </table></div>
+  <div class="foot">
+    🟣 Eliška zvýrazněna. „Aktivní" = doklad není splněný a je z posledních 18 měsíců (aktuální rozpracovanost).<br>
+    Řádek <b>CELEK VP</b> = celé oddělení. Přepínač nahoře filtruje pohled: jen moje / kolegové / celek.
+  </div>
+<script>
+var FAZE_LBL={poptavka:"Poptávky",vydana_poptavka:"Vyd. popt.",nabidka:"Nabídky",
+  prijata_obj:"Přij. obj.",vydana_obj:"Vyd. obj.",prijata_faktura:"Přij. fakt.",
+  vydana_faktura:"Vyd. fakt.",vydejka:"Výdejky"};
+var DATA=null, LENS="moje";
+function esc(s){return(s==null?"":String(s)).replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c];});}
+function cell(o){
+  if(!o||(!o.akt&&!o.tot))return '<td><span class="a z">·</span></td>';
+  var a=o.akt||0,t=o.tot||0;
+  return '<td><span class="a'+(a?'':' z')+'">'+a+'</span><span class="t">/'+t+'</span></td>';
+}
+function head(faze){
+  var h='<th class="who">Řešitel</th>';
+  faze.forEach(function(f){h+='<th>'+esc(FAZE_LBL[f]||f)+'</th>';});
+  h+='<th>Aktivní</th>';
+  document.getElementById('head').innerHTML=h;
+}
+function rowHtml(p,faze,cls){
+  var h='<tr class="'+cls+'"><td class="who">'+esc(p.resitel)+(p.je_eliska?'<span class="chip">Eliška</span>':'')+'</td>';
+  faze.forEach(function(f){h+=cell(p.faze[f]);});
+  h+='<td><span class="a">'+p.aktivni+'</span></td></tr>';
+  return h;
+}
+function render(){
+  if(!DATA)return;
+  var faze=DATA.faze, body=document.getElementById('body'), h='';
+  var lidi=DATA.lidi||[];
+  var eli=lidi.filter(function(p){return p.je_eliska;});
+  var kol=lidi.filter(function(p){return !p.je_eliska;});
+  if(LENS==='moje'){
+    if(!eli.length){h='<tr><td class="load" colspan="'+(faze.length+2)+'">Eliška teď nemá aktivní hromady.</td></tr>';}
+    else eli.forEach(function(p){h+=rowHtml(p,faze,'eli');});
+  } else if(LENS==='kolegove'){
+    kol.forEach(function(p){h+=rowHtml(p,faze,'');});
+  } else {
+    lidi.forEach(function(p){h+=rowHtml(p,faze,p.je_eliska?'eli':'');});
+  }
+  var cr='<tr class="celek"><td class="who">CELEK VP</td>';
+  faze.forEach(function(f){cr+=cell(DATA.celek[f]);});
+  var ca=0;faze.forEach(function(f){ca+=(DATA.celek[f]?DATA.celek[f].akt:0);});
+  cr+='<td><span class="a">'+ca+'</span></td></tr>';
+  h+=cr;
+  body.innerHTML=h;
+}
+function kpi(){
+  var el=document.getElementById('kpi'),lidi=DATA.lidi||[];
+  var eli=lidi.filter(function(p){return p.je_eliska;})[0];
+  el.innerHTML=
+    '<div class="b"><div class="n">'+(DATA.aktivni_celkem||0)+'</div><div class="l">aktivních dokladů VP</div></div>'+
+    '<div class="b"><div class="n">'+lidi.length+'</div><div class="l">řešitelů v provozu</div></div>'+
+    '<div class="b"><div class="n" style="color:var(--eli)">'+(eli?eli.aktivni:0)+'</div><div class="l">aktivních — Eliška</div></div>';
+}
+document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
+  document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on','eli');});
+  t.classList.add('on');if(t.getAttribute('data-lens')==='moje')t.classList.add('eli');
+  LENS=t.getAttribute('data-lens');render();};});
+fetch('/api/v1/erp/app/vp/cockpit',{credentials:'same-origin'})
+  .then(function(r){return r.json();})
+  .then(function(d){if(d&&d.ok){DATA=d;head(d.faze);kpi();render();}
+    else{document.getElementById('body').innerHTML='<tr><td class="load">Nemám oprávnění (jen Eliška, rodiče, cockpit).</td></tr>';}})
+  .catch(function(){document.getElementById('body').innerHTML='<tr><td class="load">Chyba načítání.</td></tr>';});
+</script>
+<script src="/static/nav-back.js"></script>
+</body>
+</html>

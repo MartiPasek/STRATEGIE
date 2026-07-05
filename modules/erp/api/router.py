@@ -29020,6 +29020,60 @@ def eliska_prehled_get(req: Request):
         s.close()
 
 
+@api_router.get("/app/vp/cockpit")
+def vp_cockpit_get(req: Request):
+    """VP leader cockpit — Eliška jako vedoucí vidí celý pipeline hromad (poptávka →
+    vyd. poptávka → nabídka → přij./vyd. objednávky → přij./vyd. faktury → výdejky) po
+    řešitelích: svoje, kolegů i celek. Živě z tenant.ec_hromada_* (mirror DB_EC).
+    'Aktivní' = nesplněné za posl. 18 měsíců. Scope: rodiče + Eliška (34) + cockpit.
+    Marti 5.7.2026 — příprava VP na produkci před Eliščiným návratem 17.7."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 34 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        FAZE = ["poptavka", "vydana_poptavka", "nabidka", "prijata_obj", "vydana_obj",
+                "prijata_faktura", "vydana_faktura", "vydejka"]
+        rows = s.execute(_t(
+            "WITH v AS ("
+            " SELECT resitel,'poptavka' f,splneno,dat_porizeni d FROM tenant.ec_hromada_poptavka"
+            " UNION ALL SELECT resitel,'vydana_poptavka',splneno,dat_porizeni FROM tenant.ec_hromada_vydana_poptavka"
+            " UNION ALL SELECT resitel,'nabidka',splneno,dat_porizeni FROM tenant.ec_hromada_nabidka"
+            " UNION ALL SELECT resitel,'prijata_obj',splneno,dat_porizeni FROM tenant.ec_hromada_prijata_obj"
+            " UNION ALL SELECT resitel,'vydana_obj',splneno,dat_porizeni FROM tenant.ec_hromada_vydana_obj"
+            " UNION ALL SELECT resitel,'prijata_faktura',splneno,dat_porizeni FROM tenant.ec_hromada_prijata_faktura"
+            " UNION ALL SELECT resitel,'vydana_faktura',splneno,dat_porizeni FROM tenant.ec_hromada_vydana_faktura"
+            " UNION ALL SELECT resitel,'vydejka',splneno,dat_porizeni FROM tenant.ec_hromada_vydejka)"
+            " SELECT COALESCE(NULLIF(resitel,''),'—') r, f,"
+            "  count(*) FILTER (WHERE NOT COALESCE(splneno,false) AND d >= now()-interval '18 months') akt,"
+            "  count(*) tot"
+            " FROM v GROUP BY 1,f")).fetchall()
+        per = {}
+        celek = {f: {"akt": 0, "tot": 0} for f in FAZE}
+        for r in rows:
+            res, f, akt, tot = r[0], r[1], int(r[2] or 0), int(r[3] or 0)
+            per.setdefault(res, {ff: {"akt": 0, "tot": 0} for ff in FAZE})
+            if f in per[res]:
+                per[res][f] = {"akt": akt, "tot": tot}
+            celek[f]["akt"] += akt
+            celek[f]["tot"] += tot
+        lidi = []
+        for res, fz in per.items():
+            akt_sum = sum(fz[f]["akt"] for f in FAZE)
+            if akt_sum == 0:
+                continue
+            lidi.append({"resitel": res, "je_eliska": (res == "EKolarova"),
+                         "faze": fz, "aktivni": akt_sum,
+                         "celkem": sum(fz[f]["tot"] for f in FAZE)})
+        lidi.sort(key=lambda x: (-x["aktivni"], -x["celkem"]))
+        return {"ok": True, "faze": FAZE, "lidi": lidi, "celek": celek,
+                "aktivni_celkem": sum(celek[f]["akt"] for f in FAZE)}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/domeny")
 def domeny_get(req: Request):
     """Review doménového prostředí tenant.domain_env (identita+znalosti+tooly).

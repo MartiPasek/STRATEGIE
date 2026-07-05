@@ -215,6 +215,7 @@ setTimeout(function(){
   var stack = ["home"];
   var notifCount = null;
   var _planApprovalCount = 0;   // Marti 14.6.: počet plánů čekajících na MÉ schválení (přičítá se do badge Úkoly)
+  var _signPend = 0;   // Marti 5.7.: počet dokumentů čekajících na můj podpis (badge Podpisy smluv / Aplikace / Domů)
   var _hasUpdate = false;
   var _lastOk = 0;            // čas poslední úspěšné odezvy serveru (liveness)
   function markOk(){ _lastOk = Date.now(); }
@@ -643,6 +644,10 @@ setTimeout(function(){
       if(upd&&upd.has_update){
         var ru=el('<div class="homenotif"><div class="ic">🆕</div><div style="flex:1;min-width:0;"><div style="font-weight:600;">Nová verze STRATEGIE</div><div style="color:var(--mut);font-size:12px;">'+esc(upd.latest_name||"")+' — klepni pro aktualizaci</div></div><div class="chev">&#8250;</div></div>');
         ru.addEventListener("click",function(){ curTab="settings"; stack=["settings","set_about"]; render(); }); box.appendChild(ru);
+      }
+      if(_signPend>0){
+        var sc=el('<div class="homenotif" style="background:rgba(37,42,64,.92);border-color:#4b5a8a;"><div class="ic">✍️</div><div style="flex:1;min-width:0;"><div style="font-weight:600;">'+_signPend+' '+(_signPend===1?"dokument k podpisu":(_signPend>=2&&_signPend<=4?"dokumenty k podpisu":"dokumentů k podpisu"))+'</div><div style="color:var(--mut);font-size:12px;">Klepni pro podpisový modul</div></div><div class="chev">&#8250;</div></div>');
+        sc.addEventListener("click",function(){ openInApp("/podpisy"); }); box.appendChild(sc);
       }
       cmds.forEach(function(c){
         var r=el('<div class="homenotif"><div class="ic">'+CLAUDE_SVG.replace('width="26" height="26"','width="22" height="22"')+'</div><div style="flex:1;min-width:0;"><div style="font-weight:600;">'+esc(c.title||"Claude")+'</div><div style="color:var(--mut);font-size:12px;">'+esc((c.message||"").slice(0,60))+'</div></div><div class="chev">&#8250;</div></div>');
@@ -1505,7 +1510,7 @@ setTimeout(function(){
         gg.appendChild(appCell("🧑‍💼","HR modul",0,function(){openInApp("/hr-modul");}));
         gg.appendChild(appCell("🔒","HR",0,function(){go("hr_hub");}));
         gg.appendChild(appCell("🗂️","Vedení",0,function(){go("vedeni");}));
-        gg.appendChild(appCell("✍️","Podpisy smluv",0,function(){openInApp("/podpisy");}));
+        gg.appendChild(appCell("✍️","Podpisy smluv",(_signPend||0),function(){openInApp("/podpisy");}));
       }
       sec("👥 TÝM & PŘEHLEDY"); gg=grp();
       gg.appendChild(appCell("👀","Kdo kde dnes",0,function(){go("kdekdo");}));
@@ -6914,7 +6919,7 @@ setTimeout(function(){
 
   // ===== Urgentní notifikace „nutně tě potřebuju" (Marti 11.6.2026) =====
   var _urgentAC=null, _urgentSentCount=0, _urgentInCount=0;
-  function _homeNotifSum(){ return (notifCount||0)+(_urgentSentCount||0)+(_urgentInCount||0); }
+  function _homeNotifSum(){ return (notifCount||0)+(_urgentSentCount||0)+(_urgentInCount||0)+(_signPend||0); }
   function _urgentRing(){
     try{ if(navigator.vibrate) navigator.vibrate([220,120,220,120,320]); }catch(e){}
     try{
@@ -8729,7 +8734,7 @@ setTimeout(function(){
     navwrap.style.display="";
     bnav.appendChild(navBtn("🏠","Domů",curTab==="home"&&!atApps,function(){selectTab("home");},_homeNotifSum()));
     // Badge Aplikace = notifikace (WA/SMS) + nová verze appky (Marti 7.6.: ať je update vidět z hlavního menu).
-    bnav.appendChild(navBtn(APPS_SVG,"Aplikace",atApps,function(){ curTab="home"; stack=["home","apps"]; render(); },(((bd&&bd.total)||0)+(_hasUpdate?1:0))));
+    bnav.appendChild(navBtn(APPS_SVG,"Aplikace",atApps,function(){ curTab="home"; stack=["home","apps"]; render(); },(((bd&&bd.total)||0)+(_hasUpdate?1:0)+(_signPend||0))));
     bnav.appendChild(navBtn("🔔","Úkoly",curTab==="notifs",function(){selectTab("notifs");},(notifCount||0)+(_planApprovalCount||0)));
     bnav.appendChild(navBtn("👤","Kontakty",curTab==="contacts",function(){selectTab("contacts");},0));
     bnav.appendChild(navBtn("🏢","Firma",curTab==="firma",function(){selectTab("firma");},0));
@@ -8930,8 +8935,19 @@ setTimeout(function(){
     if(_dl){ var _dseg=_dl.split("/")[0]; setTimeout(function(){ try{ go(_dseg); }catch(e){} }, 950); }
   }catch(e){}
 
+  // Marti 5.7.: počet dokumentů čekajících na můj podpis → badge (Podpisy smluv / Aplikace / Domů) + karta na Domů.
+  function signPendLoad(){
+    api("GET","/api/v1/erp/app/sign/pending-count","").then(function(j){
+      var n=(j&&j.ok)?(j.count||0):0;
+      if(n!==_signPend){ _signPend=n; try{renderNav();}catch(e){}
+        var top=stack[stack.length-1];
+        if((curTab==="home"&&stack.length===1)||top==="apps"){ try{ render(); }catch(e){} }
+      }
+    }).catch(function(){});
+  }
   // Živé načítání úkolů — ať se nová notifikace objeví v appce sama (Marti 6.6.2026).
   function pollNotifs(){
+    try{ signPendLoad(); }catch(e){}   // počet dokumentů k podpisu
     try{ vyRefreshLive(); }catch(e){}   // živý refresh statusů konzole přes události
     // Marti 14.6.: badge Úkoly = plány ke schválení + schválené nepromítnuté korekce
     // (jen schvalovatelé, jinak 403→0).
@@ -8955,6 +8971,7 @@ setTimeout(function(){
     }).catch(function(){});
   }
   setInterval(pollNotifs, 6000);
+  try{ setTimeout(signPendLoad, 700); }catch(e){}   // Marti 5.7.: badge podpisů hned po startu
   setInterval(function(){ updateLive(); showDialCard(); }, 1000);
   // Při návratu do popředí (otevření z notifikace/launcheru) obnov hned.
   document.addEventListener("visibilitychange", function(){ if(!document.hidden){ refreshUpdate(); pollNotifs(); } });

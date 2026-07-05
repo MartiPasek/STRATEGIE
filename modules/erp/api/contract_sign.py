@@ -201,6 +201,25 @@ def sign_list(req: Request):
         s.close()
 
 
+@contract_router.get("/app/sign/pending-count")
+def sign_pending_count(req: Request):
+    """Počet dokumentů čekajících na náš (interní) podpis — pro badge v appce."""
+    uid = _uid(req)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        if not _can(uid, s):
+            return {"ok": True, "count": 0}
+        n = s.execute(_t("""SELECT count(DISTINCT c.id) FROM tenant.contract_sign c
+            JOIN tenant.contract_sign_party p ON p.contract_id=c.id AND p.role='internal'
+            WHERE c.tenant_id=:t AND COALESCE(p.signed,false)=false
+              AND COALESCE(c.stav,'') NOT IN ('completed','hotovo','podepsano','zruseno')"""),
+            {"t": tid}).scalar() or 0
+        return {"ok": True, "count": int(n)}
+    finally:
+        s.close()
+
+
 @contract_router.get("/app/sign/{cid}")
 def sign_detail(cid: int, req: Request):
     uid = _uid(req)

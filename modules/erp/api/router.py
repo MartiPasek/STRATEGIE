@@ -23209,6 +23209,13 @@ def _mirror_run_job(job_key):
         "sync_mail_eliska": lambda: __import__("modules.erp.api.mail_mirror",
                                                fromlist=["sync_user"]).sync_user(34, limit=100),
     }
+    # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
+    # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.
+    if job_key.startswith("zrc_"):
+        _zp = job_key.split("_", 2)
+        if len(_zp) == 3:
+            return _ucto_zrcadlo_run_one(_zp[1], _zp[2])
+        return (False, True, None, "špatný zrc job_key: %s" % job_key)
     fn = fnmap.get(job_key)
     if fn is None:
         return (False, True, None, "neznámý job")
@@ -29417,6 +29424,37 @@ def ucto_zrcadlo_run(req: Request):
         pass
     return {"ok": res.get("ok"), "key": key, "label": _ZRC_TABLES[key],
             "radku": radku, "cloud_rows": _zrc_cloud_count(cloud_db, key), "error": msg}
+
+
+def _ucto_zrcadlo_run_one(firma, key):
+    """Zrcadlí JEDNU účto tabulku office Helios → cloud Helios (pro scheduler / @@MIRRORRUN).
+    Vrací (ok, done, rows, msg) dle kontraktu _mirror_run_job. Loguje do ucto_zrcadlo_log,
+    aby UI ukázalo poslední běh. Marti 5.7.2026 — automatizace ručních zrcadel."""
+    from core.database_data import get_data_session as _gz
+    from sqlalchemy import text as _tz
+    firma = (firma or "EC").upper()
+    if key not in _ZRC_TABLES:
+        return (False, True, None, "neznámé zrcadlo: %s" % key)
+    src_db, cloud_db = _zrc_dbs(firma)
+    res = _xfer_table(src_db, cloud_db, key, _zrc_where(key, firma))
+    _err = str(res.get("error") or "")
+    if not res.get("ok") and ("nemá sloupce" in _err or "chybí a CREATE" in _err):
+        return (True, True, 0, "v této firmě není (skip)")
+    radku = res.get("preneseno") if res.get("ok") else None
+    msg = ("preneseno=%s" % radku) if res.get("ok") else _err[:300]
+    try:
+        _sz = _gz()
+        try:
+            _sz.execute(_tz(
+                "INSERT INTO tenant.ucto_zrcadlo_log (firma, mirror_key, radku, ok, msg, run_by) "
+                "VALUES (:f,:k,:r,:o,:m,0)"),
+                {"f": firma, "k": key, "r": radku, "o": bool(res.get("ok")), "m": msg})
+            _sz.commit()
+        finally:
+            _sz.close()
+    except Exception:
+        pass
+    return (bool(res.get("ok")), True, radku, msg)
 
 
 @api_router.get("/app/ucto/kontrola-ucetni")

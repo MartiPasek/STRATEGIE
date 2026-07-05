@@ -1433,12 +1433,12 @@ setTimeout(function(){
     function _w(html){ try{ var d=fr.contentWindow.document; d.open(); d.write(html); d.close(); } catch(e){ fr.srcdoc=html; } }
     // Caddy dává X-Frame-Options: DENY globálně → iframe src padá; vepíšeme obsah přes document.write.
     // + skryjeme vnitřní „← Zpět" stránky (máme topbar appky) a neutralizujeme history uvnitř iframu.
-    var _inj='<base href="'+location.origin+'/"><style>[onclick*="goBackApp"]{display:none!important}</style>'+
-             '<script>history.pushState=function(){};history.replaceState=function(){};<\/script>';
+    var _inj='<base href="'+location.origin+'/"><style>[onclick*="goBackApp"],#navBackBtn{display:none!important}</style>'+
+             '<script>window.__navBack=1;history.pushState=function(){};history.replaceState=function(){};<\/script>';
     _w('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#9fb0d0;font:15px system-ui;padding:16px">Načítám…</body>');
     fetch(u,{credentials:"same-origin"}).then(function(r){return r.text();}).then(function(html){
       if(html.indexOf("<base")<0){ html=html.replace(/<head([^>]*)>/i,'<head$1>'+_inj); }
-      else { html=html.replace(/<head([^>]*)>/i,'<head$1><style>[onclick*="goBackApp"]{display:none!important}</style><script>history.pushState=function(){};history.replaceState=function(){};<\/script>'); }
+      else { html=html.replace(/<head([^>]*)>/i,'<head$1><style>[onclick*="goBackApp"],#navBackBtn{display:none!important}</style><script>window.__navBack=1;history.pushState=function(){};history.replaceState=function(){};<\/script>'); }
       _w(html);
     }).catch(function(){ _w('<!doctype html><meta charset=utf-8><body style="background:#0b1020;color:#ff8a8a;font:15px system-ui;padding:16px">Nepodařilo se načíst přehled.</body>'); });
   }

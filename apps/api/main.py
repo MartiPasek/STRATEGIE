@@ -276,6 +276,61 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logging.getLogger(__name__).warning(f"[lifespan] mirror_sched start failed: {exc}")
 
+        # C27 5.7.2026: ONE-OFF zrcadleni TISAX (projekt 5) -> RW/ISO_TISAX (pak COPYTREE do RO).
+        # Bezi na pozadi (93 MCP zapisu, throttle 1.1s kvuli rate-limitu ~60/min).
+        # PO USPESNEM BEHU ODSTRANIT (jako predchozi one-off hooky).
+        def _tisax_mirror_oneoff():
+            import base64 as _b64tm, os as _ostm, time as _ttm, json as _jtm
+            from sqlalchemy import text as _txtm
+            from core.database_data import get_data_session as _gstm
+            from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client as _mcptm
+            _lg = logging.getLogger(__name__)
+            _ttm.sleep(12)  # nech MCP klienta nabehnout
+            try:
+                _ds = _gstm()
+                try:
+                    _rows = _ds.execute(_txtm(
+                        "SELECT id, name, storage_path FROM public.documents "
+                        "WHERE project_id=5 AND name LIKE 'TISAX/%'")).all()
+                finally:
+                    _ds.close()
+                _mcp = _mcptm()
+                if _mcp is None:
+                    _lg.warning("[tisax_mirror] MCP nedostupny"); return
+                _ok = _err = 0
+                for _r in _rows:
+                    try:
+                        if "Thumbs.db" in _r.name:
+                            continue
+                        if not _r.storage_path or not _ostm.path.isfile(_r.storage_path):
+                            _err += 1; continue
+                        _sub = _r.name[len("TISAX/"):].replace(" ", "_")
+                        with open(_r.storage_path, "rb") as _fh:
+                            _data = _fh.read()
+                        _raw = _mcp.call_tool_sync(
+                            "eurosoft_eurosoft_file_write",
+                            {"user_namespace": "rw", "path": "ISO_TISAX/" + _sub,
+                             "content": _b64tm.b64encode(_data).decode("ascii"),
+                             "encoding": "base64", "mode": "overwrite"},
+                            conversation_id=None)
+                        _res = _jtm.loads(_raw) if isinstance(_raw, str) else _raw
+                        if isinstance(_res, dict) and _res.get("ok"):
+                            _ok += 1
+                        else:
+                            _err += 1
+                    except Exception:
+                        _err += 1
+                    _ttm.sleep(1.1)
+                _lg.warning("[tisax_mirror] HOTOVO ok=%s err=%s z %s", _ok, _err, len(_rows))
+            except Exception as _exc:
+                _lg.warning("[tisax_mirror] selhal: %s", _exc)
+        try:
+            import threading as _thr_tm
+            _thr_tm.Thread(target=_tisax_mirror_oneoff, daemon=True).start()
+            logging.getLogger(__name__).warning("[tisax_mirror] one-off spusten na pozadi")
+        except Exception as _exc_tm:
+            logging.getLogger(__name__).warning(f"[tisax_mirror] start failed: {_exc_tm}")
+
     # Marti 20.6.2026: vault klic samobootstrap uz pri startu (nesmi cekat na klik).
     try:
         from modules.erp.api.router import _vault_fernet as _vf_boot

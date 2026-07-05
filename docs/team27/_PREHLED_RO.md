@@ -6,8 +6,6 @@
 
 **BOZP_PO/** — bezpečnost práce a požární ochrana (rozsáhlý archiv, beze změny).
 
-**Personalistika_NEW/** — personalistika (původní složka, beze změny).
-
 **Prezentace_IT/** — IT prezentace (beze změny).
 
 **ISO_TISAX/** — ISMS politiky a TISAX (6): směrnice obchodní etiky (CZ/DE/EN), DOC-01 Rozsah ISMS, vize ISO/TISAX (Mísa), pravidelné kontroly.
@@ -28,6 +26,7 @@
 
 ## Poznámky
 - Celkem nově uspořádáno **59 klíčových business dokumentů** (5. 7. 2026) z DB STRATEGIE, které dosud nebyly přehledně v RO.
+- Prázdná složka `Personalistika_NEW` (jen kostra bez souborů) sloučena do `Personalistika` a odstraněna (5. 7. 2026).
 - **Nezařazeno záměrně** (šum): ~500 inline obrázků z mailů, generátorové .py skripty, dočasné/testovací soubory, duplicity.
 - **Citlivé — do RO NEPATŘÍ** (jen sandbox/trezor): mzdy jednotlivců, OČR, trestní oznámení, osobní spoluvlastnictví. Řeší se s Petrou/Mísou.
 - **TODO (blokováno na nástroj ID23):** sémantické zaindexování fyzických RO souborů do RAG + doembedování 33 TISAX dokumentů (z toho 10 = `~$` Office temp soubory ke smazání).

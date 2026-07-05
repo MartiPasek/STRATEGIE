@@ -55,6 +55,36 @@ def extract_text(file_path: str) -> str:
     md = MarkItDown()
     result = md.convert(file_path)
     text = result.text_content or ""
+
+    # PDF OCR fallback (Marti 5.7.2026): markitdown u naskenovanych PDF (bez textove
+    # vrstvy) vrati prazdno. Rasterizace pres pypdfium2 (na cloudu je; Poppler/fitz
+    # nemusi byt) + Tesseract (ces+deu+eng). Cap 40 stran.
+    if ext == "pdf" and not (text and text.strip()):
+        try:
+            import pypdfium2 as _pdfium
+            from modules.rag.application.pdf_ocr import _import_tesseract as _imp_t
+            _pt, _ = _imp_t()
+            _pdf = _pdfium.PdfDocument(file_path)
+            _parts = []
+            _n = min(len(_pdf), 40)
+            for _i in range(_n):
+                _pil = _pdf[_i].render(scale=200 / 72.0).to_pil()
+                try:
+                    _t = _pt.image_to_string(_pil, lang="ces+deu+eng")
+                except Exception:
+                    _t = _pt.image_to_string(_pil, lang="eng")
+                if _t and _t.strip():
+                    _parts.append(_t)
+            try:
+                _pdf.close()
+            except Exception:
+                pass
+            text = "\n\n".join(_parts)
+            logger.info("RAG | PDF OCR fallback | %s | stran=%d | text_len=%d",
+                        file_path, _n, len(text))
+        except Exception as _oexc:
+            logger.warning("RAG | PDF OCR fallback selhal: %s", _oexc)
+
     # PostgreSQL TEXT sloupce nemohou obsahovat NUL bytes (\x00). Nektere
     # binarni formaty (.msg, .doc) muzou pres extrakci pustit residual NUL,
     # ktery pak rozbije insert. Defensivne strip + collapse opakovaneho whitespace.

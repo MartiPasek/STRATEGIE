@@ -154,6 +154,14 @@
     h.addEventListener("touchstart",down,{passive:false}); document.addEventListener("touchmove",move,{passive:false}); document.addEventListener("touchend",up);
   }
   };
+  window.__onAppBack=function(){
+    // Marti 5.7.: Zpět v appce → nejdřív zavři náhled dokumentu (overlay), pak detail smlouvy, teprve pak ven z modulu.
+    var ov=document.getElementById("sgZoomOv");
+    if(ov){ try{ov.parentNode.removeChild(ov);}catch(e){} return true; }
+    var D=document.getElementById("detail");
+    if(D && D.innerHTML && D.innerHTML.replace(/\s/g,"")!==""){ D.innerHTML=""; return true; }
+    return false;
+  };
   loadList();
 })();
 </script>

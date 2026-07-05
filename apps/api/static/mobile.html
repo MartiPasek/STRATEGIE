@@ -235,6 +235,8 @@ setTimeout(function(){
     try{ if(typeof window._planAnyOpen==="function" && window._planAnyOpen()) return; }catch(e){}
     // Marti 8.6.: nejdřív zavřít otevřený accordion (Výroba/kontakty), teprve pak odejít.
     try{ var _op=document.querySelector('#vylist li.ct.open'); if(_op){ _op.classList.remove('open'); var _x=_op.querySelector('.ctexp'); if(_x)_x.style.display='none'; return; } }catch(e){}
+    // Marti 5.7.: dej šanci vnitřní stránce (extview iframe) zpracovat Zpět (zavřít vlastní overlay/detail) DŘÍV než opustíme modul.
+    try{ if(stack[stack.length-1]==="extview"){ var _xf=document.getElementById("stgXvF"); if(_xf && _xf.contentWindow && typeof _xf.contentWindow.__onAppBack==="function" && _xf.contentWindow.__onAppBack()===true) return; } }catch(e){}
     // V appce otevřená stránka (extview): zpět o JEDEN krok v rámci appky (dokument → root ISO), ne ven.
     try{ if(stack[stack.length-1]==="extview" && _xvStack.length>1){ _xvStack.pop(); _xvSet(_xvStack[_xvStack.length-1]); render(); return; } }catch(e){}
     if(stack.length>1){ stack.pop(); render(); }

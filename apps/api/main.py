@@ -251,9 +251,12 @@ async def lifespan(app: FastAPI):
     # JEN na primáru. Blue-green secondary (adresář STRATEGIE-prev / STRATEGIE_INSTANCE_NAME
     # != primary) je den starý snímek → nesmí klofat mirror joby (bug „B krade joby ->
     # neznámý job", memory oz-mirror/saldo) ani dvojitě mirrorovat docházku do Centrály.
+    # POZOR (Marti 5.7.2026): sekundár detekuj JEN podle adresáře (STRATEGIE-prev).
+    # NE podle STRATEGIE_INSTANCE_NAME — primár ho může mít nastavený na jiný název
+    # (NSSM), a to by omylem vyplo plánovač i na primáru (stalo se → mirror stál).
     _repo_base_ls = os.path.basename(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    _is_secondary_ls = ("prev" in _repo_base_ls.lower()) or (_instance_name.lower() != "primary")
+    _is_secondary_ls = ("prev" in _repo_base_ls.lower())
     if _is_secondary_ls:
         logging.getLogger(__name__).warning(
             "[lifespan] secondary (%s) — background schedulery (att_sync, mirror) VYPNUTY",

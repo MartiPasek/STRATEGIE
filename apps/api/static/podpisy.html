@@ -96,18 +96,36 @@
       h+='<div class="mut" style="margin-top:6px">Protistrana: '+esc(e.counterparty_name||"")+' ('+esc(e.counterparty_email||"")+')</div>';
       h+='<div style="margin:10px 0"><div>'+(ours.signed?"✓":"○")+' Za nás: '+esc(ours.jmeno||"")+(ours.signed?(' — '+esc(ours.podpis_text||"")):"")+'</div>';
       h+='<div>'+(cp.signed?"✓":"○")+' Protistrana: '+esc(cp.jmeno||"")+(cp.signed?(' — podepsáno'):"")+'</div></div>';
-      h+='<button class="sec" onclick="window.open(\''+B+'/'+id+'/pdf\',\'_blank\')">⤓ Zobrazit PDF</button> ';
-      if(!ours.signed) h+='<button onclick="SG.oursign('+id+')">✍️ Podepsat za nás</button> ';
+      h+='<div style="margin:8px 0"><iframe src="'+B+'/'+id+'/pdf" style="width:100%;height:60vh;border:1px solid #2a3350;border-radius:8px;background:#fff"></iframe></div>';
+      h+='<a class="sec" href="'+B+'/'+id+'/pdf" target="_blank" rel="noopener" style="display:inline-block;padding:8px 12px;text-decoration:none;border-radius:8px">⤓ Otevřít PDF v novém okně</a>';
+      if(!ours.signed){
+        h+='<label style="display:flex;gap:8px;align-items:center;margin:12px 0 4px;font-size:14px;cursor:pointer"><input type="checkbox" id="reviewChk"> Otevřel(a) jsem si dokument výše a přečetl(a) jsem si ho.</label>';
+        h+='<div id="slidewrap" style="position:relative;height:52px;background:#1b2130;border:1px solid #2a3350;border-radius:26px;margin:6px 0;overflow:hidden;user-select:none;touch-action:none;opacity:.45;pointer-events:none"><div id="slidefill" style="position:absolute;left:0;top:0;bottom:0;width:52px;background:rgba(59,130,246,.22);border-radius:26px"></div><div id="slidelbl" style="position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#93a4c9;font-size:14px">Přetažením doprava podepište &#8594;</div><div id="slideh" style="position:absolute;left:3px;top:3px;width:46px;height:46px;border-radius:23px;background:#3b82f6;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:grab">✍️</div></div>';
+      }
       if(e.stav!=="completed") h+='<button onclick="SG.send('+id+')">📧 Odeslat protistraně</button>';
       h+='<div id="dmsg" class="msg"></div>';
       if((j.log||[]).length){h+='<div class="mut" style="margin-top:12px"><b>Auditní stopa:</b><br>'+j.log.map(function(l){return esc(l.at)+" — "+esc(l.akce)+" — "+esc(l.kdo||"")+(l.ip?(" ("+esc(l.ip)+")"):"");}).join("<br>")+'</div>';}
       h+='</div>';
       D.innerHTML=h; D.scrollIntoView({behavior:"smooth"});
+      if(!ours.signed){ try{SG._initSlider(id);}catch(e){} }
     });
   },
   dmsg:function(k,t){var m=document.getElementById("dmsg");if(m){m.className="msg "+k;m.textContent=t;m.style.display="block";}},
   oursign:function(id){SG.dmsg("","Podepisuji…");api("POST",B+"/"+id+"/our-sign",{}).then(function(j){if(j&&j.ok){SG.dmsg("ok","✓ Podepsáno za nás.");SG.open(id);loadList();}else SG.dmsg("err","✗ "+((j&&j.error)||"chyba"));});},
-  send:function(id){SG.dmsg("","Odesílám…");api("POST",B+"/"+id+"/send",{}).then(function(j){if(j&&j.ok){SG.dmsg("ok","✓ Odesláno protistraně"+(j.sent?" e-mailem.":" (e-mail se nezdařil, odkaz: "+j.odkaz+")"));SG.open(id);loadList();}else SG.dmsg("err","✗ "+((j&&j.error)||"chyba"));});}
+  send:function(id){SG.dmsg("","Odesílám…");api("POST",B+"/"+id+"/send",{}).then(function(j){if(j&&j.ok){SG.dmsg("ok","✓ Odesláno protistraně"+(j.sent?" e-mailem.":" (e-mail se nezdařil, odkaz: "+j.odkaz+")"));SG.open(id);loadList();}else SG.dmsg("err","✗ "+((j&&j.error)||"chyba"));});},
+  _initSlider:function(id){
+    var chk=document.getElementById("reviewChk"),wrap=document.getElementById("slidewrap"),h=document.getElementById("slideh"),fill=document.getElementById("slidefill"),lbl=document.getElementById("slidelbl");
+    if(!chk||!wrap||!h)return;
+    chk.addEventListener("change",function(){ if(chk.checked){wrap.style.opacity="1";wrap.style.pointerEvents="auto";} else {wrap.style.opacity="0.45";wrap.style.pointerEvents="none";} });
+    var dragging=false,startX=0,cur=0,max=0,done=false;
+    function setX(x){ if(x<0)x=0; if(x>max)x=max; cur=x; h.style.left=(3+x)+"px"; fill.style.width=(46+x)+"px"; if(lbl)lbl.style.opacity=String(1-(x/(max||1))); }
+    function px(e){ return (e.touches&&e.touches[0])?e.touches[0].clientX:e.clientX; }
+    function down(e){ if(done)return; dragging=true; max=wrap.clientWidth-52; startX=px(e)-cur; h.style.cursor="grabbing"; }
+    function move(e){ if(!dragging)return; if(e.cancelable)e.preventDefault(); setX(px(e)-startX); }
+    function up(){ if(!dragging)return; dragging=false; h.style.cursor="grab"; if(cur>=max-5){ done=true; if(lbl)lbl.textContent="Podepisuji…"; setX(max); wrap.style.pointerEvents="none"; SG.oursign(id); } else { var a=setInterval(function(){ cur-=7; if(cur<=0){cur=0;clearInterval(a);} setX(cur); },12); } }
+    h.addEventListener("mousedown",down); document.addEventListener("mousemove",move); document.addEventListener("mouseup",up);
+    h.addEventListener("touchstart",down,{passive:false}); document.addEventListener("touchmove",move,{passive:false}); document.addEventListener("touchend",up);
+  }
   };
   loadList();
 })();

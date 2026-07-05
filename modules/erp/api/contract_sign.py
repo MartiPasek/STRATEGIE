@@ -275,8 +275,10 @@ def sign_pages(cid: int, req: Request):
         if not data:
             return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
         try:
-            from pdf2image import pdfinfo_from_bytes
-            n = int(pdfinfo_from_bytes(bytes(data)).get("Pages") or 1)
+            import fitz as _fz
+            d = _fz.open(stream=bytes(data), filetype="pdf")
+            n = int(d.page_count)
+            d.close()
         except Exception:
             n = 1
         return {"ok": True, "pages": max(1, n)}
@@ -297,16 +299,17 @@ def sign_img(cid: int, page: int, req: Request):
         if not data:
             return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
         try:
-            import io
-            from pdf2image import convert_from_bytes
+            import fitz as _fz
             p = max(0, int(page))
-            imgs = convert_from_bytes(bytes(data), dpi=140, first_page=p + 1, last_page=p + 1)
-            if not imgs:
+            d = _fz.open(stream=bytes(data), filetype="pdf")
+            if p >= d.page_count:
+                d.close()
                 return JSONResponse({"ok": False, "error": "no_page"}, status_code=404)
-            buf = io.BytesIO()
-            imgs[0].save(buf, "PNG")
+            pix = d[p].get_pixmap(dpi=140)
+            png = pix.tobytes("png")
+            d.close()
             from fastapi.responses import Response
-            return Response(content=buf.getvalue(), media_type="image/png",
+            return Response(content=png, media_type="image/png",
                             headers={"Cache-Control": "private, max-age=120"})
         except Exception as exc:
             return JSONResponse({"ok": False, "error": "render_failed: " + type(exc).__name__}, status_code=500)

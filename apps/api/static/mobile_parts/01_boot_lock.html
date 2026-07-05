@@ -1,0 +1,9 @@
+<script>
+  // Marti 9.6.2026: appka je jen na výšku — zamkni orientaci na portrait.
+  // (PWA manifest + APK AndroidManifest jsou primární; tohle je okamžitý
+  // lock pro instalovaný PWA bez reinstalu. Tiše selže tam, kde to nejde.)
+  (function lockPortrait(){
+    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('portrait').catch(function(){}); } catch(e){}
+  })();
+  try { window.addEventListener('orientationchange', function(){ try{ if(screen.orientation&&screen.orientation.lock) screen.orientation.lock('portrait').catch(function(){}); }catch(e){} }); } catch(e){}
+</script>

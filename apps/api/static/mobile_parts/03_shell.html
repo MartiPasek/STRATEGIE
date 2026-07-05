@@ -1,0 +1,66 @@
+</head>
+<body>
+<script>
+/* Bílá smrt → viditelná chyba (Marti 7.6.). Chytá i parse error dalšího scriptu. */
+window.onerror=function(msg,src,line){
+  try{
+    var d=document.getElementById("bootErr");
+    if(!d){ d=document.createElement("div");
+      d.id="bootErr";
+      d.style.cssText="position:fixed;top:10px;left:10px;right:10px;z-index:99999;background:#3a1f24;border:1px solid #6e3540;border-radius:10px;padding:12px;color:#e08a8a;font:13px/1.5 system-ui;";
+      document.body.appendChild(d); }
+    d.innerHTML="⚠ Appka narazila na chybu — pošli mi prosím screenshot:<br><b>"
+      +String(msg).replace(/</g,"&lt;")+"</b><br>řádek "+line
+      +'<br><button onclick="location.reload()" style="margin-top:8px;padding:8px 14px;border:none;border-radius:8px;background:#4f8ef7;color:#fff;">🔄 Zkusit znovu</button>';
+  }catch(e){}
+  return false;
+};
+/* Marti 9.6.: promise chyby taky zviditelnit (onerror je nechytá). */
+window.addEventListener("unhandledrejection", function(ev){
+  try{ if(window.onerror) window.onerror("Promise: "+((ev&&ev.reason&&(ev.reason.message||ev.reason))||"?"),"",0); }catch(e){}
+});
+/* Boot watchdog: když appka do 7 s nenastartuje (prázdný shell / SW bílá smrt
+   / parse error), ukaž záchranu s tlačítky místo bílé obrazovky. */
+window.__stgBoot=false;
+setTimeout(function(){
+  if(window.__stgBoot) return;
+  /* Auto-recovery (Marti 18.6.): běžný user z rozbité staré cache nevyjede.
+     1× automaticky odregistruj SW + smaž cache + tvrdě (cache-bust) načti znovu.
+     Guard přes sessionStorage, ať není smyčka. Po úspěšném bootu se flag maže. */
+  try{
+    if(!sessionStorage.getItem("stgAutoHeal")){
+      sessionStorage.setItem("stgAutoHeal","1");
+      (async function(){
+        try{var rs=await navigator.serviceWorker.getRegistrations();for(var i=0;i<rs.length;i++){await rs[i].unregister();}}catch(e){}
+        try{var ks=await caches.keys();for(var j=0;j<ks.length;j++){await caches.delete(ks[j]);}}catch(e){}
+        try{location.replace(location.pathname+"?fresh="+Date.now());}catch(e){location.reload();}
+      })();
+      return;
+    }
+  }catch(e){}
+  try{
+    if(document.getElementById("bootErr")) return;
+    var o=document.createElement("div");
+    o.style.cssText="position:fixed;inset:0;z-index:99998;background:#0e1622;color:#e6edf5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;font:16px/1.5 system-ui;";
+    o.innerHTML='<div style="font-size:42px">🛠️</div><div style="font-size:18px;font-weight:700">Appka se nenačetla</div><div style="color:#9fb0c2;font-size:14px;max-width:300px">Nejspíš zůstala stará verze v paměti. Klepni na Vyčistit a načíst.</div>';
+    var b=document.createElement("button");
+    b.textContent="🧹 Vyčistit a načíst";
+    b.style.cssText="background:#10b981;color:#04150e;border:0;border-radius:12px;padding:14px 22px;font-size:16px;font-weight:700;";
+    b.onclick=function(){ (async function(){ try{var rs=await navigator.serviceWorker.getRegistrations();for(var i=0;i<rs.length;i++){await rs[i].unregister();}}catch(e){} try{var ks=await caches.keys();for(var j=0;j<ks.length;j++){await caches.delete(ks[j]);}}catch(e){} try{sessionStorage.removeItem("stgAutoHeal");}catch(e){} try{location.replace(location.pathname+"?fresh="+Date.now());}catch(e){location.reload();} })(); };
+    o.appendChild(b);
+    var b2=document.createElement("button");
+    b2.textContent="🔄 Jen zkusit znovu";
+    b2.style.cssText="background:#1b2738;color:#e6edf5;border:1px solid #2a3a4d;border-radius:12px;padding:12px 20px;font-size:15px;";
+    b2.onclick=function(){ location.reload(); };
+    o.appendChild(b2);
+    document.body.appendChild(o);
+  }catch(e){}
+}, 7000);
+</script>
+<div id="app"></div>
+<div id="navwrap">
+  <nav class="bottomnav bnavstatic" id="bnavx1" style="display:none;"></nav>
+  <nav class="bottomnav bnavstatic" id="bnavx2" style="display:none;"></nav>
+  <nav class="bottomnav bnavstatic" id="bnav"></nav>
+  <nav class="bottomnav bnavstatic" id="bnavback" style="display:none;"></nav>
+</div>

@@ -1,0 +1,101 @@
+<style>
+  :root { --bg:#0e0f11; --surf:#16181c; --bord:#2a2d33; --tx:#e8eaf0; --mut:#8a96a4;
+          --blue:#4f8ef7; --green:#10b981; --amber:#e0b070; --red:#e08a8a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx); font-family:system-ui,sans-serif;
+         padding:14px 14px 96px; -webkit-tap-highlight-color:transparent; }
+  .topbar { display:flex; align-items:center; gap:10px; margin-bottom:6px; min-height:40px; }
+  .back { font-size:15px; font-weight:600; cursor:pointer; color:var(--tx); background:rgba(255,255,255,.06); border:1px solid var(--bord); border-radius:10px; padding:7px 12px; margin-right:10px; display:inline-flex; align-items:center; line-height:1; -webkit-tap-highlight-color:transparent; }
+  .back:active { transform:scale(0.96); }
+  .title { font-size:21px; font-weight:700; }
+  .mode { font-size:11px; padding:3px 9px; border-radius:20px; margin-left:auto; }
+  .mode.native { background:rgba(16,185,129,.15); color:#5ee0b7; border:1px solid #1f6b53; }
+  .mode.web { background:rgba(79,142,247,.15); color:#9bc0fb; border:1px solid #2a4d80; }
+  .mode.dev { background:rgba(224,176,112,.15); color:var(--amber); border:1px solid #6e5326; }
+  .group { font-size:12px; color:var(--mut); text-transform:uppercase; letter-spacing:.04em; margin:18px 2px 4px; }
+  .list { background:var(--surf); border:1px solid var(--bord); border-radius:12px; overflow:hidden; }
+  .row { display:flex; align-items:center; gap:14px; padding:14px; border-bottom:1px solid #20262e; cursor:pointer; }
+  .row:last-child { border-bottom:none; }
+  .row .ic { font-size:20px; width:26px; text-align:center; }
+  .row .tx { flex:1; min-width:0; } .row .tt { font-size:15px; } .row .sub { font-size:12px; color:var(--mut); margin-top:2px; }
+  .row .chev { color:var(--mut); font-size:18px; }
+  .row .rbadge { background:#e24b4a; color:#fff; font-size:11px; min-width:18px; height:18px; line-height:18px; border-radius:9px; padding:0 5px; text-align:center; font-weight:700; margin-right:6px; }
+  .panel { margin-top:6px; }
+  label { font-size:12px; color:var(--mut); display:block; margin:12px 2px 4px; }
+  input { width:100%; background:#0f1620; border:1px solid var(--bord); border-radius:8px; padding:12px; color:var(--tx); font-size:15px; }
+  button { background:var(--blue); border:none; color:#fff; border-radius:8px; padding:12px 14px; font-size:14px; font-weight:600; cursor:pointer; }
+  button.full { width:100%; margin-top:12px; padding:13px; font-size:15px; }
+  button.green { background:var(--green); } button.ghost { background:transparent; border:1px solid var(--bord); color:var(--tx); }
+  button.warn { background:#3a1f24; border:1px solid #6e3540; color:var(--red); } button.sm { padding:8px 12px; font-size:13px; }
+  .hint { font-size:12px; color:var(--mut); margin-top:10px; line-height:1.5; }
+  .devinfo { margin-top:12px; padding:10px; border-radius:8px; background:rgba(224,176,112,.08); border:1px solid #6e5326; color:#e6c699; font-size:12.5px; line-height:1.5; }
+  ul { list-style:none; padding:0; margin:0; } li { padding:12px 0; border-bottom:1px solid #20262e; font-size:14px; } li:last-child { border-bottom:none; }
+  .nt { font-weight:600; } .nm { color:var(--mut); font-size:13px; margin:3px 0 9px; } .nactions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .big { font-size:16px; padding:8px 2px; }
+  .homebg { margin:-14px -14px -96px; min-height:100vh; border-radius:0; background:#1a2330 center top / cover no-repeat;
+            display:flex; flex-direction:column; justify-content:flex-end;
+            padding:18px 18px calc(92px + env(safe-area-inset-bottom,0)); }
+  .homenotif { background:rgba(20,24,30,.86); border:1px solid #2a2d33; border-radius:12px; padding:12px; margin-bottom:10px; display:flex; align-items:center; gap:12px; cursor:pointer; }
+  .homenotif .ic { font-size:22px; width:26px; text-align:center; } .homenotif .chev { color:var(--mut); font-size:18px; }
+  .homebg .h1 { font-size:26px; font-weight:800; } .homebg .h2 { color:#cdd6e2; margin-top:4px; font-size:14px; }
+  .homebg .h3 { color:#dfe7f0; margin-top:12px; font-size:15px; font-weight:600; }
+  .bottomnav { position:fixed; left:0; right:0; bottom:0; display:flex; background:#121519; border-top:1px solid var(--bord); z-index:50; padding-bottom:env(safe-area-inset-bottom,0); }
+  #navwrap { position:fixed; left:0; right:0; bottom:0; z-index:50; }
+  .bnavstatic { position:static; padding-bottom:0; min-height:52px; }
+  .navbackbtn { flex:1; background:transparent; color:var(--tx); border:0; font-size:16px; font-weight:600; padding:15px 0; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; -webkit-tap-highlight-color:transparent; }
+  .navbackbtn:active { background:rgba(255,255,255,.10); }
+  #navwrap > .bnavstatic:last-child { padding-bottom:env(safe-area-inset-bottom,0); }
+  .tabbtn { position:relative; flex:1; background:none; border:none; color:var(--mut); padding:9px 2px; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; border-radius:10px; margin:3px 2px; }
+  .tabbtn .i { font-size:21px; line-height:1; } .tabbtn.active { color:var(--blue); background:#262e3a; }
+  .nbadge { position:absolute; top:3px; left:50%; margin-left:6px; background:#e24b4a; color:#fff; font-size:10px; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 4px; text-align:center; font-weight:600; }
+  .appgrid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px 6px; margin-top:12px; }
+  .appcell { display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer; position:relative; }
+  .appicon { width:58px; height:58px; border-radius:15px; background:#16181c; border:1px solid #2a2d33; display:flex; align-items:center; justify-content:center; font-size:28px; overflow:hidden; }
+  .appicon img { width:100%; height:100%; object-fit:cover; }
+  .applabel { font-size:11px; text-align:center; color:#cdd6e2; line-height:1.2; }
+  .appbadge { position:absolute; top:-4px; right:8px; background:#e24b4a; color:#fff; font-size:10px; min-width:16px; height:16px; line-height:16px; border-radius:8px; padding:0 4px; text-align:center; font-weight:600; }
+  .dashgrid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:8px; }
+  .tile { background:var(--surf); border:1px solid var(--bord); border-radius:14px; padding:16px; cursor:pointer; min-height:92px; position:relative; }
+  .tile-ic { font-size:26px; } .tile-tt { font-weight:600; margin-top:8px; } .tile-sub { color:var(--mut); font-size:12px; margin-top:3px; }
+  .ct { border-bottom:1px solid #20262e; }
+  .cthead { display:flex; align-items:center; gap:11px; padding:7px 4px; cursor:pointer; }
+  .cav { width:38px; height:38px; border-radius:11px; flex-shrink:0; display:flex; align-items:center; justify-content:center; color:#0e1014; font-weight:700; font-size:15px; overflow:hidden; }
+  .cav img { width:100%; height:100%; object-fit:cover; }
+  .ctname { font-weight:600; font-size:14.5px; } .ctnum { color:var(--mut); font-size:12px; margin-top:1px; }
+  .ctexp { padding:2px 4px 12px 53px; }
+  .ctacts { display:flex; gap:14px; }
+  .cact { width:38px; height:38px; border-radius:11px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .cact svg { width:22px; height:22px; }
+  .cact.call { background:#22c55e; } .cact.sms { background:#3b82f6; }
+  /* Marti 8.6.: schovaný scrollbar (rail + seznam Výroby) — scrolluje, ale neruší. */
+  #vyrail, #vylist, #vyrail *, .vy-list { scrollbar-width:none; -ms-overflow-style:none; }
+  #vyrail::-webkit-scrollbar, #vylist::-webkit-scrollbar, .vy-list::-webkit-scrollbar { width:0; height:0; display:none; }
+  .vybadge { position:absolute; top:2px; right:4px; background:#ef4444; color:#fff; font-size:10px; font-weight:700; min-width:16px; height:16px; line-height:16px; border-radius:9px; padding:0 3px; text-align:center; }
+  .vybadge.gr { background:#10b981; color:#04150e; }
+  .vybadge.pulse { animation: vyp 1.05s ease-in-out infinite; }
+  @keyframes vyp { 0%,100%{ transform:scale(1); box-shadow:0 0 0 0 rgba(239,68,68,.6);} 50%{ transform:scale(1.28); box-shadow:0 0 0 5px rgba(239,68,68,0);} }
+  /* Otevřený kontakt (accordion) — záznam ~o 30 % větší + jemné zvýraznění. */
+  .ct.open { background:rgba(79,142,247,.07); border-radius:12px; }
+  .ct.open .cthead { padding:11px 8px; gap:14px; }
+  .ct.open .cav { width:50px; height:50px; border-radius:14px; font-size:19px; }
+  .ct.open .ctname { font-size:18.5px; } .ct.open .ctnum { font-size:14px; }
+  .ct.open .ctexp { padding-left:72px; }
+  .ct.open .cact { width:46px; height:46px; border-radius:14px; }
+  .ct.open .cact svg { width:26px; height:26px; }
+  /* ── Desktop „telefonní rámeček" (Marti 7.6.2026) ─────────────────────
+     Na PC (široké okno + myš) sevři appku do poměru telefonu 19,5:9
+     (Samsung S24, 2340×1080) — šířka se odvodí z výšky okna, vycentrováno.
+     Na mobilu se neaplikuje nic (media query pointer:fine + min-width). */
+  @media (min-width: 700px) and (pointer: fine) {
+    :root { --phone-w: min(100vw, calc(100vh * 9 / 19.5)); }
+    html { background:#000; }
+    body { max-width: var(--phone-w); margin: 0 auto;
+           border-left:1px solid #2a2d33; border-right:1px solid #2a2d33;
+           min-height:100vh; box-shadow:0 0 40px rgba(0,0,0,.55); }
+    #navwrap { left:50%; right:auto; transform:translateX(-50%);
+               width: var(--phone-w); }
+  }
+/* Marti 7.6. večer: pulz na rámečku rozhovoru, když čeká neschválená docházka */
+@keyframes dochPulse{0%,100%{box-shadow:0 0 0 0 rgba(224,176,112,0);border-color:#6e5326;}50%{box-shadow:0 0 0 6px rgba(224,176,112,.20);border-color:var(--amber);}}
+.doch-pulse{animation:dochPulse 1.6s ease-in-out infinite;}
+</style>

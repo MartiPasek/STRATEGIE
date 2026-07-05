@@ -23208,6 +23208,15 @@ def _mirror_run_job(job_key):
         # Mail zrcadlo — inkrementální sync schránky (Claude-23 3.7.2026). Bere posl. 100/složka.
         "sync_mail_eliska": lambda: __import__("modules.erp.api.mail_mirror",
                                                fromlist=["sync_user"]).sync_user(34, limit=100),
+        # VP/nákupní hromady — separátní mirror tabulky z DB_EC per řada (Marti 5.7.2026)
+        "hromada_poptavka": lambda: _sync_ec_hromada("poptavka"),
+        "hromada_vydana_poptavka": lambda: _sync_ec_hromada("vydana_poptavka"),
+        "hromada_nabidka": lambda: _sync_ec_hromada("nabidka"),
+        "hromada_prijata_obj": lambda: _sync_ec_hromada("prijata_obj"),
+        "hromada_vydana_obj": lambda: _sync_ec_hromada("vydana_obj"),
+        "hromada_prijata_faktura": lambda: _sync_ec_hromada("prijata_faktura"),
+        "hromada_vydana_faktura": lambda: _sync_ec_hromada("vydana_faktura"),
+        "hromada_vydejka": lambda: _sync_ec_hromada("vydejka"),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.
@@ -28976,12 +28985,17 @@ def eliska_prehled_get(req: Request):
     try:
         if not (uid and (_is_parent(s, uid) or int(uid) == 34 or _is_cockpit(s, uid))):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # eliska_rizeni (fáze/termín/další krok) + celý řetězec z vp_zastup_readiness
+        # (materiál → výroba → zkušebna → odvoz → faktura → zaplaceno). Marti 5.7.2026.
         rows = s.execute(_t(
-            "SELECT cislo_zakazky, zakaznik, nazev, faze, to_char(termin,'DD.MM.YYYY') AS termin, "
-            "  dni_do_terminu, velikost_kc, kalk_h, real_h, efektivita_pct, koresponduje, "
-            "  to_char(posledni_email,'DD.MM.') AS posl_email, dalsi_krok, termin_v_jejim_volnu "
-            "FROM tenant.eliska_rizeni "
-            "ORDER BY (dni_do_terminu IS NULL), dni_do_terminu")).fetchall()
+            "SELECT e.cislo_zakazky, e.zakaznik, e.nazev, e.faze, to_char(e.termin,'DD.MM.YYYY') AS termin, "
+            "  e.dni_do_terminu, e.velikost_kc, e.kalk_h, e.real_h, e.efektivita_pct, e.koresponduje, "
+            "  to_char(e.posledni_email,'DD.MM.') AS posl_email, e.dalsi_krok, e.termin_v_jejim_volnu, "
+            "  z.ma_material, z.vyroba_stav, z.zkouseni_h, to_char(z.odvoz_datum,'DD.MM.') AS odvoz, "
+            "  z.ma_faktura, z.zaplaceno "
+            "FROM tenant.eliska_rizeni e "
+            "LEFT JOIN tenant.vp_zastup_readiness z ON z.cislo_zakazky = e.cislo_zakazky "
+            "ORDER BY (e.dni_do_terminu IS NULL), e.dni_do_terminu")).fetchall()
         out = []
         for r in rows:
             out.append({
@@ -28993,6 +29007,13 @@ def eliska_prehled_get(req: Request):
                 "efektivita": int(r[9]) if r[9] is not None else None,
                 "koresponduje": r[10] or "", "posl_email": r[11] or "",
                 "dalsi_krok": r[12] or "", "v_volnu": bool(r[13]),
+                # řetězec (hromady)
+                "material": bool(r[14]) if r[14] is not None else None,
+                "vyroba_stav": r[15] or "",
+                "zkouseni_h": float(r[16]) if r[16] is not None else None,
+                "odvoz": r[17] or "",
+                "faktura": bool(r[18]) if r[18] is not None else None,
+                "zaplaceno": bool(r[19]) if r[19] is not None else None,
             })
         return {"ok": True, "zakazky": out}
     finally:
@@ -37478,6 +37499,154 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
 
         s.commit()
         return {"ok": True, **res}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+# ── VP/nákupní hromady: separátní mirror tabulky z DB_EC TabDokladyZbozi per řada ──
+# Marti 5.7.2026 — z DokladyZbozi/PolozkyZbozi děláme dedikované cloud tabulky per
+# přehled (řada+druh), PLNÁ historie (bez 2letého okna), stránkování po ID, upsert dle
+# Helios ID. Základ pro leader cockpit Eliška (sešití řetězce přes cislo_zakazky).
+# Mapa řad viz paměť vp-rady-dokladu-mapa. Šablona = Poptávky (900), pak replikace.
+_EC_HROMADA_CFG = {
+    "poptavka": {"tbl": "tenant.ec_hromada_poptavka", "where": "d.RadaDokladu='900'"},
+    "vydana_poptavka": {"tbl": "tenant.ec_hromada_vydana_poptavka", "where": "d.RadaDokladu='940'"},
+    "nabidka": {"tbl": "tenant.ec_hromada_nabidka", "where": "d.RadaDokladu='910'"},
+    "prijata_obj": {"tbl": "tenant.ec_hromada_prijata_obj", "where": "d.RadaDokladu='920'"},
+    "vydana_obj": {"tbl": "tenant.ec_hromada_vydana_obj", "where": "d.RadaDokladu='800'"},
+    "prijata_faktura": {"tbl": "tenant.ec_hromada_prijata_faktura",
+                        "where": "d.RadaDokladu IN ('500','510','520','530','540','560','590') AND d.DruhPohybuZbo BETWEEN 18 AND 19"},
+    "vydana_faktura": {"tbl": "tenant.ec_hromada_vydana_faktura",
+                       "where": "d.RadaDokladu IN ('600','620','630','640') AND d.DruhPohybuZbo BETWEEN 13 AND 14"},
+    "vydejka": {"tbl": "tenant.ec_hromada_vydejka",
+                "where": "d.RadaDokladu IN ('200','290') AND d.DruhPohybuZbo BETWEEN 2 AND 4"},
+}
+
+
+def _sync_ec_hromada(key: str) -> dict:
+    """Mirror jednoho VP/nákupního přehledu z DB_EC TabDokladyZbozi (dle řady/druhu)
+    do dedikované tenant.ec_hromada_<key>. Plná historie, stránkování po ID, upsert dle
+    ID (=Helios doklad). Řešitel=LoginID, org+zkratka, OznPrj/PopisPrj z _EXT, kontakt
+    z TabCisKOs. Marti 5.7.2026."""
+    import json as _j, time as _time
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    cfg = _EC_HROMADA_CFG[key]
+    tbl = cfg["tbl"]
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+
+    def rows_of(sql, _tries=4):
+        last = None
+        for _a in range(_tries):
+            try:
+                raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                         {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+                r = _j.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(r, dict):
+                    if r.get("ok") is False:
+                        raise RuntimeError(str(r.get("error")))
+                    for k in ("rows", "data", "result", "records"):
+                        if isinstance(r.get(k), list):
+                            return r[k]
+                    return []
+                return r if isinstance(r, list) else []
+            except Exception as e:
+                last = e
+                _time.sleep(3)
+        raise last
+
+    def s2(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    BLOCK = 1000
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    pulled = 0
+    last_id = 0
+    ins_sql = (
+        "INSERT INTO %s (id, firma, rada, druh_pohybu, poradove_cislo, doklad, cislo_zakazky, "
+        "splneno, stredisko, cislo_org, nazev_org, zkratka_nazvu, resitel, oznprj, popisprj, "
+        "navazny_doklad, navazna_objednavka, kontakt_osoba, ko_prijmeni, ko_jmeno, mena, "
+        "suma_kc_bez_dph, suma_val_bez_dph, termin, dat_realizace, autor, poznamka, dat_porizeni, synced_at) "
+        "VALUES (:id,'EC',:rada,:dp,:pc,:dok,:cz,:sp,:stred,:co,:noz,:zn,:res,:op,:pp,"
+        ":nd,:noj,:ko,:kop,:koj,:mn,:skc,:sval,:term,:datr,:aut,:pozn,:datp,now()) "
+        "ON CONFLICT (id) DO UPDATE SET rada=excluded.rada, druh_pohybu=excluded.druh_pohybu, "
+        "poradove_cislo=excluded.poradove_cislo, doklad=excluded.doklad, cislo_zakazky=excluded.cislo_zakazky, "
+        "splneno=excluded.splneno, stredisko=excluded.stredisko, cislo_org=excluded.cislo_org, "
+        "nazev_org=excluded.nazev_org, zkratka_nazvu=excluded.zkratka_nazvu, resitel=excluded.resitel, "
+        "oznprj=excluded.oznprj, popisprj=excluded.popisprj, navazny_doklad=excluded.navazny_doklad, "
+        "navazna_objednavka=excluded.navazna_objednavka, kontakt_osoba=excluded.kontakt_osoba, "
+        "ko_prijmeni=excluded.ko_prijmeni, ko_jmeno=excluded.ko_jmeno, mena=excluded.mena, "
+        "suma_kc_bez_dph=excluded.suma_kc_bez_dph, suma_val_bez_dph=excluded.suma_val_bez_dph, "
+        "termin=excluded.termin, dat_realizace=excluded.dat_realizace, autor=excluded.autor, "
+        "poznamka=excluded.poznamka, dat_porizeni=excluded.dat_porizeni, synced_at=now()" % tbl
+    )
+    try:
+        while True:
+            sql = (
+                "SELECT TOP %d d.ID, d.RadaDokladu, d.DruhPohybuZbo, d.PoradoveCislo, "
+                "dbo.EC_GetDoklad(d.ID) Doklad, RTRIM(d.CisloZakazky) CisloZakazky, "
+                "CAST(d.Splneno AS int) Splneno, d.StredNaklad Stredisko, d.CisloOrg, "
+                "org.Nazev NazevOrg, orge._Zkratka_Nazvu ZkratkaNazvu, z.LoginID Resitel, "
+                "de._OznPrjZakaznik OznPrj, de._PopisPrjZakaznik PopisPrj, "
+                "dbo.EC_GetDoklad(d.NavaznyDoklad) NavaznyDoklad, d.NavaznaObjednavka, "
+                "d.KontaktOsoba, ko.Prijmeni KoPrijmeni, ko.Jmeno KoJmeno, d.Mena, "
+                "CAST(d.SumaKcBezDPH AS numeric(19,2)) SumaKc, d.SumaValBezDPH SumaVal, "
+                "CONVERT(varchar(10),d.Splatnost,23) Termin, CONVERT(varchar(10),d.DatRealizace,23) DatReal, "
+                "d.Autor, SUBSTRING(REPLACE(SUBSTRING(d.Poznamka,1,255),NCHAR(13)+NCHAR(10),NCHAR(32)),1,255) Poznamka, "
+                "CONVERT(varchar(19),d.DatPorizeni,120) DatPor "
+                "FROM TabDokladyZbozi d WITH (NOLOCK) "
+                "LEFT JOIN TabCisOrg org ON d.CisloOrg=org.CisloOrg "
+                "LEFT JOIN TabCisOrg_EXT orge ON org.ID=orge.ID "
+                "LEFT JOIN TabCisZam z ON d.CisloZam=z.Cislo "
+                "LEFT JOIN TabDokladyZbozi_EXT de ON de.ID=d.ID "
+                "LEFT JOIN TabCisKOs ko ON d.KontaktOsoba=ko.ID "
+                "WHERE (%s) AND d.ID > %d ORDER BY d.ID" % (BLOCK, cfg["where"], last_id)
+            )
+            batch = rows_of(sql)
+            if not batch:
+                break
+            for row in batch:
+                rid = i2(row.get("ID"))
+                s.execute(_t(ins_sql), {
+                    "id": rid, "rada": s2(row.get("RadaDokladu")), "dp": i2(row.get("DruhPohybuZbo")),
+                    "pc": i2(row.get("PoradoveCislo")), "dok": s2(row.get("Doklad")),
+                    "cz": s2(row.get("CisloZakazky")), "sp": (i2(row.get("Splneno")) == 1),
+                    "stred": s2(row.get("Stredisko")), "co": i2(row.get("CisloOrg")),
+                    "noz": s2(row.get("NazevOrg")), "zn": s2(row.get("ZkratkaNazvu")),
+                    "res": s2(row.get("Resitel")), "op": s2(row.get("OznPrj")), "pp": s2(row.get("PopisPrj")),
+                    "nd": s2(row.get("NavaznyDoklad")), "noj": s2(row.get("NavaznaObjednavka")),
+                    "ko": i2(row.get("KontaktOsoba")), "kop": s2(row.get("KoPrijmeni")),
+                    "koj": s2(row.get("KoJmeno")), "mn": s2(row.get("Mena")), "skc": num(row.get("SumaKc")),
+                    "sval": num(row.get("SumaVal")), "term": s2(row.get("Termin")),
+                    "datr": s2(row.get("DatReal")), "aut": s2(row.get("Autor")),
+                    "pozn": s2(row.get("Poznamka")), "datp": s2(row.get("DatPor"))})
+                if rid:
+                    last_id = rid
+            pulled += len(batch)
+            s.commit()
+            if len(batch) < BLOCK:
+                break
+        return {"ok": True, "radku": pulled}
     except Exception:
         s.rollback()
         raise

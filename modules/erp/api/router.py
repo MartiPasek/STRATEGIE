@@ -35022,6 +35022,12 @@ async def diag_sql(req: Request) -> JSONResponse:
                     return JSONResponse({"ok": False, "error": "attach_contract %s: nemá pdf_final" % citem})
                 _fn = ("Podepsano_" + (_rr[0] or "dokument"))[:110] + ".pdf"
                 att_ids.append(_upl(file_bytes=bytes(_rr[1]), filename=_fn, tenant_id=2, user_id=1, display_name=_fn))
+            # "attach_docids": [123] → již existující dokumenty na cloudu (tenant 2)
+            for _did in (pe.get("attach_docids") or []):
+                try:
+                    att_ids.append(int(_did))
+                except Exception:
+                    pass
         except Exception as e:
             return JSONResponse({"ok": False, "error": "příloha selhala: %s" % e})
         _MARTI_AI_PERSONA = 1  # Marti-AI = autonomní odesílatel (default persona STRATEGIE)

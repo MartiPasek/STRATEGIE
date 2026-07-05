@@ -34497,7 +34497,7 @@ async def diag_sql(req: Request) -> JSONResponse:
             finally:
                 _smr.close()
             return JSONResponse({"ok": bool(_ok), "job": _jk, "done": bool(_done),
-                                 "rows": _rows, "msg": str(_msg)[:300]})
+                                 "pocet_radku": _rows, "msg": str(_msg)[:300]})
         except Exception as _emr:
             return JSONResponse({"ok": False, "job": _jk,
                                  "error": "%s: %s" % (type(_emr).__name__, str(_emr)[:280])})

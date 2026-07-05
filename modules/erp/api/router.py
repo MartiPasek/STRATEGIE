@@ -29035,21 +29035,14 @@ def vp_cockpit_get(req: Request):
         if not (uid and (_is_parent(s, uid) or int(uid) == 34 or _is_cockpit(s, uid))):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         FAZE = ["poptavka", "vydana_poptavka", "nabidka", "prijata_obj", "vydana_obj",
-                "prijata_faktura", "vydana_faktura", "vydejka"]
+                "prijata_faktura", "vydana_faktura", "vydejka", "prijemka"]
+        # Jednotný zdroj = tenant.vp_pipeline (UNION oz_* zrcadel, řešitel/splněno/datum
+        # normalizované; řešitel=autor u faktur/vyd.obj/výdejek/příjemek). Marti 5.7.2026.
         rows = s.execute(_t(
-            "WITH v AS ("
-            " SELECT resitel,'poptavka' f,splneno,dat_porizeni d FROM tenant.ec_hromada_poptavka"
-            " UNION ALL SELECT resitel,'vydana_poptavka',splneno,dat_porizeni FROM tenant.ec_hromada_vydana_poptavka"
-            " UNION ALL SELECT resitel,'nabidka',splneno,dat_porizeni FROM tenant.ec_hromada_nabidka"
-            " UNION ALL SELECT resitel,'prijata_obj',splneno,dat_porizeni FROM tenant.ec_hromada_prijata_obj"
-            " UNION ALL SELECT resitel,'vydana_obj',splneno,dat_porizeni FROM tenant.ec_hromada_vydana_obj"
-            " UNION ALL SELECT resitel,'prijata_faktura',splneno,dat_porizeni FROM tenant.ec_hromada_prijata_faktura"
-            " UNION ALL SELECT resitel,'vydana_faktura',splneno,dat_porizeni FROM tenant.ec_hromada_vydana_faktura"
-            " UNION ALL SELECT resitel,'vydejka',splneno,dat_porizeni FROM tenant.ec_hromada_vydejka)"
-            " SELECT COALESCE(NULLIF(resitel,''),'—') r, f,"
-            "  count(*) FILTER (WHERE NOT COALESCE(splneno,false) AND d >= now()-interval '18 months') akt,"
+            "SELECT COALESCE(NULLIF(resitel,''),'—') r, faze f,"
+            "  count(*) FILTER (WHERE NOT splneno AND datporizeni >= now()-interval '18 months') akt,"
             "  count(*) tot"
-            " FROM v GROUP BY 1,f")).fetchall()
+            " FROM tenant.vp_pipeline GROUP BY 1,faze")).fetchall()
         per = {}
         celek = {f: {"akt": 0, "tot": 0} for f in FAZE}
         for r in rows:

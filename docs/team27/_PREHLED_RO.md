@@ -4,7 +4,7 @@
 
 ## Struktura
 
-**BOZP_PO/** — bezpečnost práce a požární ochrana (rozsáhlý archiv, beze změny).
+**BOZP_PO/** — bezpečnost práce a požární ochrana (~1 736 souborů). Podsložky: `BOZP/` (bezpečnost práce), `PO/` (požární ochrana), `_ARCHIV_PO/` + `_ARCHIV_RW/` (starší verze), `_TEST/`.
 
 **Prezentace_IT/** — IT prezentace (beze změny).
 
@@ -29,4 +29,5 @@
 - Prázdná složka `Personalistika_NEW` (jen kostra bez souborů) sloučena do `Personalistika` a odstraněna (5. 7. 2026).
 - **Nezařazeno záměrně** (šum): ~500 inline obrázků z mailů, generátorové .py skripty, dočasné/testovací soubory, duplicity.
 - **Citlivé — do RO NEPATŘÍ** (jen sandbox/trezor): mzdy jednotlivců, OČR, trestní oznámení, osobní spoluvlastnictví. Řeší se s Petrou/Mísou.
-- **TODO (blokováno na nástroj ID23):** sémantické zaindexování fyzických RO souborů do RAG + doembedování 33 TISAX dokumentů (z toho 10 = `~$` Office temp soubory ke smazání).
+- **TODO (blokováno na nástroj ID23):** sémantické zaindexování fyzických RO souborů do RAG + doembedování 33 TISAX dokumentů.
+- **Úklid DB (připraveno pro ID23):** v `public.documents` je 571 duplicit + 10 `~$` temp souborů (~149 MB) — hotový skript `docs/team27/cleanup_documents_manifest_2026-07-05.md`.

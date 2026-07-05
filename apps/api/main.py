@@ -247,19 +247,31 @@ async def lifespan(app: FastAPI):
     # Pozn. 5.7.2026: one-off uklid public.documents (621 dup+temp radku, ~150 MB)
     # zde bezel pres owner roli a byl po uspesnem behu odstranen (smazano ~623 radku).
 
-    # Marti 9.6.2026: zivy 30s tik dochazky — mirror dnesku z Centraly.
-    try:
-        from modules.erp.api.router import _att_sync_start as _att_start
-        _att_start()
-    except Exception as exc:
-        logging.getLogger(__name__).warning(f"[lifespan] att_sync start failed: {exc}")
+    # Marti 5.7.2026: background schedulery (docházka sync + plánovač zrcadel) běží
+    # JEN na primáru. Blue-green secondary (adresář STRATEGIE-prev / STRATEGIE_INSTANCE_NAME
+    # != primary) je den starý snímek → nesmí klofat mirror joby (bug „B krade joby ->
+    # neznámý job", memory oz-mirror/saldo) ani dvojitě mirrorovat docházku do Centrály.
+    _repo_base_ls = os.path.basename(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    _is_secondary_ls = ("prev" in _repo_base_ls.lower()) or (_instance_name.lower() != "primary")
+    if _is_secondary_ls:
+        logging.getLogger(__name__).warning(
+            "[lifespan] secondary (%s) — background schedulery (att_sync, mirror) VYPNUTY",
+            _repo_base_ls)
+    else:
+        # Marti 9.6.2026: zivy 30s tik dochazky — mirror dnesku z Centraly.
+        try:
+            from modules.erp.api.router import _att_sync_start as _att_start
+            _att_start()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(f"[lifespan] att_sync start failed: {exc}")
 
-    # Marti 20.6.2026: planovac zrcadel (ridici centrum, automaticky zivot).
-    try:
-        from modules.erp.api.router import _mirror_sched_start as _mir_start
-        _mir_start()
-    except Exception as exc:
-        logging.getLogger(__name__).warning(f"[lifespan] mirror_sched start failed: {exc}")
+        # Marti 20.6.2026: planovac zrcadel (ridici centrum, automaticky zivot).
+        try:
+            from modules.erp.api.router import _mirror_sched_start as _mir_start
+            _mir_start()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(f"[lifespan] mirror_sched start failed: {exc}")
 
     # Marti 20.6.2026: vault klic samobootstrap uz pri startu (nesmi cekat na klik).
     try:

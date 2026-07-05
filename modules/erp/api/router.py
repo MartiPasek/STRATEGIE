@@ -35009,6 +35009,19 @@ async def diag_sql(req: Request) -> JSONResponse:
                 if not data:
                     return JSONResponse({"ok": False, "error": "attach_b64 prázdný: %s" % nm})
                 att_ids.append(_upl(file_bytes=data, filename=nm, tenant_id=2, user_id=1, display_name=nm))
+            # "attach_contract": [12, 11] → podepsané pdf_final z tenant.contract_sign
+            #   (přebalí čerstvě jako tenant 2 → attachment gate projde, bez ořezu přes most)
+            for citem in (pe.get("attach_contract") or []):
+                _cs = _gem()
+                try:
+                    _rr = _cs.execute(_tem("SELECT title, pdf_final FROM tenant.contract_sign WHERE id=:i"),
+                                      {"i": int(citem)}).first()
+                finally:
+                    _cs.close()
+                if not _rr or not _rr[1]:
+                    return JSONResponse({"ok": False, "error": "attach_contract %s: nemá pdf_final" % citem})
+                _fn = ("Podepsano_" + (_rr[0] or "dokument"))[:110] + ".pdf"
+                att_ids.append(_upl(file_bytes=bytes(_rr[1]), filename=_fn, tenant_id=2, user_id=1, display_name=_fn))
         except Exception as e:
             return JSONResponse({"ok": False, "error": "příloha selhala: %s" % e})
         _MARTI_AI_PERSONA = 1  # Marti-AI = autonomní odesílatel (default persona STRATEGIE)

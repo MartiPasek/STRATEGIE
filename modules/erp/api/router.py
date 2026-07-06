@@ -23657,8 +23657,8 @@ def _mirror_run_job(job_key):
         "sync_ec_org_kontakt": lambda: _sync_ec_org_kontakt(),
         "sync_ec_banka": lambda: _sync_ec_banka(),
         "sync_ec_banka_delta": lambda: _sync_ec_banka(delta_days=90),
-        "saldo_praha_ec": lambda: _sync_saldo_praha("UCTO_EC", "tenant.ec_saldo_fa"),
-        "saldo_praha_es": lambda: _sync_saldo_praha("UCTO_ES", "tenant.es_saldo_fa"),
+        "saldo_praha_ec": lambda: _sync_saldo_praha(_firma_cloud_db(1), "tenant.ec_saldo_fa"),
+        "saldo_praha_es": lambda: _sync_saldo_praha(_firma_cloud_db(2), "tenant.es_saldo_fa"),
         "sync_ec_saldo": lambda: _sync_ec_saldo(vs_bank_tbl='TabBankVypisR', vnitro_org=1),
         "sync_es_saldo": lambda: _sync_ec_saldo(src_tbl='[DB_IS].dbo.TabSaldoFA', tgt_tbl='tenant.es_saldo_fa',
                                                 vs_bank_tbl='[DB_IS].dbo.TabBankVypisR', vnitro_org=1),
@@ -27259,10 +27259,9 @@ def ucto_porovnani(req: Request):
     finally:
         s.close()
     firma = (req.query_params.get("firma") or "EC").upper()
-    if firma == "ES":
-        off_pfx, cloud_db, idobd = "[DB_IS]", "UCTO_ES", 1007
-    else:
-        off_pfx, cloud_db, idobd = "DB_EC", "UCTO_EC", 39
+    off_pfx = _firma_src_pfx(firma)
+    cloud_db = _firma_cloud_db(firma)
+    idobd = _firma_idobdobi(firma, 2025)
 
     def _konta_sql(pfx):
         return ("WITH latest AS (SELECT LTRIM(RTRIM(k.Ucet)) AS ucet, k.KonStavDEN_MD AS md, "
@@ -27388,10 +27387,8 @@ def ucto_mzdy(req: Request):
         rok = int(req.query_params.get("rok") or 2025)
     except Exception:
         rok = 2025
-    # IdObdobi: EC 39=2025/40=2026; ES 1007=2025/1008=2026
-    _OBD = {("EC", 2025): ("UCTO_EC", 39), ("EC", 2026): ("UCTO_EC", 40),
-            ("ES", 2025): ("UCTO_ES", 1007), ("ES", 2026): ("UCTO_ES", 1008)}
-    cloud_db, idobd = _OBD.get((firma, rok), ("UCTO_EC", 39))
+    cloud_db = _firma_cloud_db(firma)
+    idobd = _firma_idobdobi(firma, rok) or _firma_idobdobi(firma, 2025)
     _q = ("SELECT MONTH(d.DatumPripad) m, "
           "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetMD),3)='521' THEN d.CastkaMD ELSE 0 END),2) hrube, "
           "ROUND(SUM(CASE WHEN LEFT(LTRIM(d.UcetMD),3)='524' THEN d.CastkaMD ELSE 0 END),2) pojzam, "
@@ -30185,7 +30182,7 @@ def ucto_kontrola_ucetni(req: Request):
     finally:
         s.close()
     firma = (req.query_params.get("firma") or "EC").upper()
-    cloud_db, idobd = ("UCTO_ES", 1007) if firma == "ES" else ("UCTO_EC", 39)
+    cloud_db, idobd = _firma_cloud_db(firma), _firma_idobdobi(firma, 2025)
 
     # 1) měsíční zaúčtování (každý měsíc MD=DAL)
     mes = []
@@ -30266,7 +30263,7 @@ def ucto_doklady(req: Request):
     finally:
         s.close()
     firma = (req.query_params.get("firma") or "EC").upper()
-    cloud_db, idobd = ("UCTO_ES", 1007) if firma == "ES" else ("UCTO_EC", 39)
+    cloud_db, idobd = _firma_cloud_db(firma), _firma_idobdobi(firma, 2025)
     sbornik = (req.query_params.get("sbornik") or "").strip().replace("'", "''")
     doklad = (req.query_params.get("doklad") or "").strip().replace("'", "''")
     _W = " WHERE d.IdObdobi=" + str(idobd)
@@ -33987,7 +33984,7 @@ _MZDY_XFER_MAP = [
     ("EC_Mzdy_SumaMesic", "ROK"), ("EC_Mzdy_LandMarkVstupniData", "ROK"),
     ("LP_RozpadMzdy", "WHOLE"),
 ]
-_MZDY_XFER_TARGETS = {"EC": ("DB_EC", "UCTO_EC"), "ES": ("DB_IS", "UCTO_ES")}
+_MZDY_XFER_TARGETS = {m["code"]: (m["src"], m["cloud"]) for m in _FIRMA_DB.values()}  # jeden zdroj = _FIRMA_DB
 
 
 def _mzdy_mcp_rows(src_db, sql):

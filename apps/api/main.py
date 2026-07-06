@@ -218,22 +218,9 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logging.getLogger(__name__).warning(f"[lifespan] sms_outbox gate cols failed: {exc}")
 
-    # Marti 6.7.2026: mode zrcadel (DEL/RO/RW) na fw.mirror_job — přehled v /zrcadla.
-    # zrc_* = DEL (full @@XFER copy = truncate), zbytek (read-mirrory) = RO. Klasifikace
-    # jen kde ještě NENÍ nastavená (COALESCE(mode,'?')='?') → ruční upřesnění přežije.
-    try:
-        from sqlalchemy import text as _t_mm
-        from core.database_data import get_data_session as _gs_mm
-        _ds_mm = _gs_mm()
-        try:
-            _ds_mm.execute(_t_mm("ALTER TABLE fw.mirror_job ADD COLUMN IF NOT EXISTS mode varchar(4) DEFAULT '?'"))
-            _ds_mm.execute(_t_mm("UPDATE fw.mirror_job SET mode='DEL' WHERE job_key LIKE 'zrc%' AND COALESCE(mode,'?')='?'"))
-            _ds_mm.execute(_t_mm("UPDATE fw.mirror_job SET mode='RO' WHERE job_key NOT LIKE 'zrc%' AND COALESCE(mode,'?')='?'"))
-            _ds_mm.commit()
-        finally:
-            _ds_mm.close()
-    except Exception as exc:
-        logging.getLogger(__name__).warning(f"[lifespan] mirror_job mode failed: {exc}")
+    # Pozn. 6.7.2026: mode zrcadel (DEL/RO/RW) na fw.mirror_job přidán PŘES MOST (Marti-AI
+    # vlastní fw.mirror_job → bridge ALTER; lifespan jako strategie by NEsměl). Vlastnictví:
+    # tenant.oz_mirror_def = strategie (→ _ensure_def_table/lifespan), fw.mirror_job = Marti-AI (→ bridge).
 
     # Pavel CRM (Kristy 29.6.2026): demo rozesilka + tracking otevreni emailu.
     try:

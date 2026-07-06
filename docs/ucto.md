@@ -102,6 +102,17 @@ Centrály nad PF (~15 let, EC_ procedury zvlášť CZK / zvlášť EUR). Odesíl
   potvrdí `Realizovano`/saldo (tvrdé „zaplaceno").
 - Navíc příznak **`Nehradit`** na dokladu (nehradit vůbec) — jádro ho kontroluje a přeskočí.
 
+**Návrh k platbě — KTERÉ PF platit (ověřeno naostro 6.7.2026, `EC_Fin_GenNavrhKPlatbe`):**
+Filtr na `TabDokladyZbozi` (+ `_EXT`, + `TabCisOrg_EXT`):
+- `DruhPohybuZbo BETWEEN 18 AND 19` (PF), `PoradoveCislo>=0`, `Realizovano=1`, **`Saldo>0`** (otevřené),
+  `SumaKcPoZao>0`, `Obdobi>22`.
+- **NE** `_FinZakaz=1` (finanční zákaz platby, `_EXT`); ne zálohový daňový doklad (řada `52x`).
+- **Splatnost:** `GETDATE() >= (Splatnost − ISNULL(_DnyPredPlatbou,5))` — platí se cca **5 dní před splatností**
+  (per-dodavatel `TabCisOrg_EXT._DnyPredPlatbou`; Weidmüller CisloOrg=204 + Skonto → +2 dny tolerance).
+- Výsledek značí `_EXT._NavrhPlatby=1` (+ `_FinSchvaleni=1`). Řadu dělí `@RadaDokladuPoslCis`.
+- **Ověřeno 6.7. na živém DB_EC:** k platbě **7 PF CZK (396 296 Kč) + 19 PF EUR** = reprodukce naší selekce sedí na realitu.
+- **Test zítra (út 7.7. = platební den PF):** spustit náš návrh + EUROSOFT vygeneruje svůj platák → porovnat (stejné faktury? stejná částka=saldo, VS, účet dodavatele?). Realistické ověření „že to funguje".
+
 **Pro NÁŠ systém (závazné):** platák musí replikovat **úhradový zámek** — při generování zapsat úhradu
 proti faktuře, částku počítat jako **otevřené saldo**, odmítnout když je pokryto. Ověřit proti staré
 Centrále (stejné faktury → stejný platák/saldo). Odeslání přes RB Premium API. **TODO (další dny):**

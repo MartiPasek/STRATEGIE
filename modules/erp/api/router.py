@@ -6370,14 +6370,16 @@ def _crm_import_write(rows, obchodnik, create_akce, zdroj):
     created = skipped = akce_created = akce16 = bounced = 0
     errors = []
 
-    def _ins(table, data, retries=4):
+    def _ins(table, data, retries=6):
         for att in range(retries):
             try:
                 return _crm_mcp_insert(mcp, table, data)
             except Exception as exc:
                 msg = str(exc).lower()
-                if ("rate limit" in msg or "too many" in msg or "429" in msg) and att < retries - 1:
-                    _time.sleep(4)
+                is_rate = (("rate" in msg and "limit" in msg) or "exceeded" in msg
+                           or "429" in msg or "too many" in msg)
+                if is_rate and att < retries - 1:
+                    _time.sleep((att + 1) * 5)  # 5,10,15,20,25 s backoff
                     continue
                 raise
         return None
@@ -6407,7 +6409,7 @@ def _crm_import_write(rows, obchodnik, create_akce, zdroj):
         created += 1
         if email:
             existing.add(_key)
-        _time.sleep(0.15)
+        _time.sleep(1.1)
         # akce „Získání firmy" (IDAkce=16) — CRM z ní bere zobrazovaný název/web/e-mail
         if new_id:
             try:
@@ -6420,7 +6422,7 @@ def _crm_import_write(rows, obchodnik, create_akce, zdroj):
                 akce16 += 1
             except Exception as exc:
                 errors.append("[" + firma[:40] + "] akce16: " + str(exc)[:110])
-            _time.sleep(0.15)
+            _time.sleep(1.1)
         # akce „Email na info" (IDAkce=1)
         if create_akce and datum and new_id:
             deliv = _crm_import_delivered(r.get("doruceno"))
@@ -6444,7 +6446,7 @@ def _crm_import_write(rows, obchodnik, create_akce, zdroj):
                 bounced += 1 if deliv is False else 0
             except Exception as exc:
                 errors.append("[" + firma[:40] + "] akce: " + str(exc)[:110])
-            _time.sleep(0.15)
+            _time.sleep(1.1)
     return {"created": created, "skipped_dup": skipped, "akce_created": akce_created,
             "akce16": akce16, "bounced": bounced, "errors": errors[:50], "obchodnik": obchodnik}
 

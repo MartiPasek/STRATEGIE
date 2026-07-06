@@ -286,7 +286,7 @@
       if (!obchEl.value) { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "Vyber obchodníka."; return; }
       setGo(false); prevBtn.disabled = true;
       var all = previewRows.slice();
-      var CHUNK = 15, total = all.length, idx = 0;
+      var CHUNK = 10, total = all.length, idx = 0;
       var acc = { created: 0, skipped_dup: 0, akce_created: 0, akce16: 0, bounced: 0, errors: [] };
       msgEl.style.color = "#9fb6cc";
 

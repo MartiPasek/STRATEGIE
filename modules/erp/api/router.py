@@ -23277,13 +23277,64 @@ def _mirror_sched_tick():
         s2.close()
 
 
+# ── Blue-green hlídač: B nedohnal A → push Martimu (Marti 6.7.2026, „produkce začíná") ──
+# Grace 8 min od startu procesu (start ≈ deploy, protože deploy restartuje API A).
+# Notify max 1× per session; reset, jakmile B==A. Bez perzistentní tabulky (proces-lokální stav).
+_SECLAG = {"notified": False, "start": None}
+
+
+def _api_commit(port):
+    import requests as _rq
+    try:
+        j = _rq.get("http://127.0.0.1:%s/api/v1/api-info" % port, timeout=3).json()
+        return (str(j.get("commit") or "") or None)
+    except Exception:
+        return None
+
+
+def _maybe_notify_seclag():
+    import os as _os, time as _tt
+    if _SECLAG["start"] is None:
+        _SECLAG["start"] = _tt.time()
+    a = _api_commit(_os.environ.get("STRATEGIE_PRIMARY_PORT") or "8002")
+    b = _api_commit(_os.environ.get("STRATEGIE_SECONDARY_PORT") or "8003")
+    if not a or not b:
+        return
+    if a[:12] == b[:12]:
+        _SECLAG["notified"] = False
+        return
+    if _SECLAG["notified"] or (_tt.time() - _SECLAG["start"]) < 480:
+        return
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t2
+    ds = _g()
+    try:
+        title = "⚠️ Záloha API B nedohnala A"
+        msg = ("B běží starý kód (%s ≠ A %s) už přes 8 min. Srovnej přes "
+               "⚙ Ops → \U0001f4e6 Zkopírovat aktuální verzi do zálohy (API B) — jinak "
+               "může při zátěži servírovat starou verzi (blikání, chybějící joby)."
+               % (b[:8], a[:8]))
+        ds.execute(_t2("INSERT INTO fw.mobile_command (app_key,target_user_id,command_type,title,message,created_by) "
+                       "VALUES ('mobile',:u,'claude_msg',:t,:m,NULL)"),
+                   {"u": int(_DEFAULT_APPROVER_UID), "t": title[:120], "m": msg[:600]})
+        ds.commit()
+        _SECLAG["notified"] = True
+        logger.info("[seclag] B=%s != A=%s -> notify uid %s", b[:8], a[:8], _DEFAULT_APPROVER_UID)
+    finally:
+        ds.close()
+
+
 async def _mirror_sched_loop():
     import asyncio as _aio
+    _sl_tick = 0
     while not _MIRROR_SCHED_STOP[0]:
         try:
             await _aio.sleep(30)
             loop = _aio.get_event_loop()
             await loop.run_in_executor(None, _mirror_sched_tick)
+            _sl_tick += 1
+            if _sl_tick % 10 == 0:  # ~každých 5 min: hlídač blue-green lagu
+                await loop.run_in_executor(None, _maybe_notify_seclag)
         except _aio.CancelledError:
             break
         except Exception as e:

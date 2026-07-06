@@ -185,6 +185,19 @@ Kontrola má tři vrstvy (data v `TabBankSpojeni`):
 **Doktrína: AI/generátor účet jen OVĚŘÍ a označí; při neshodě NEGENERUJE platbu, ale zvedne varování. Platí i pro EUR (IBAN).**
 Verifikace = součást Fáze 0/1 platáku (viz `gemini-render-byte-exact`, `platebni-centrum-plataky`).
 
+**🔴🔴 SMRTELNĚ DŮLEŽITÉ — NAŠE VYGENEROVANÉ PLATÁKY NIKDY DO `oz_platak_*` (Marti 6.7.2026):**
+`oz_platak_tuz` / `oz_platak_zahr` jsou **DEL zrcadla staré Centrály** (`oz_mirror_def`, mód **DEL** = při každém
+`oz_sync_all` ~10 min **truncate + reload ze zdroje** DB_EC/přehledy 2370/2375). Jsou to **jen RO okna do staré
+Centrály**, ne úložiště. **Kdybychom do nich zapsali platák vygenerovaný na Cloudu (Praha), nejbližší synk ho SMAŽE**
+(zdroj = Centrála, náš cloudový platák tam není → truncate ho vyhodí). To je přesně ta past.
+- **Naše vygenerované platáky patří VÝHRADNĚ do vlastních RW tabulek `tenant.bank_platak` + `bank_platak_polozka`** —
+  žádné zrcadlo je nesahá, jsou v bezpečí. Generátor (task #44) zapisuje SEM.
+- **`oz_platak_*` = jen dočasné legacy okno** do staré Centrály (pro Peťu k porovnání, dokud běží starý svět).
+  Po úplném přechodu naostro se **vyřadí**.
+- **Záložka Platáky (`/platby`)** musí po spuštění generátoru číst **UNION**: naše `bank_platak` (Praha/Cloud) +
+  legacy `oz_platak_*` (Centrála), se štítkem zdroje u řádku. Po cutoveru zůstane jen `bank_platak`. (TODO u #44.)
+Stejná logika jako u salda výše: **co je NAŠE, drží se v NAŠICH RW tabulkách, nikdy v DEL zrcadle.**
+
 ---
 
 ## Changelog rozhodnutí
@@ -231,3 +244,8 @@ Verifikace = součást Fáze 0/1 platáku (viz `gemini-render-byte-exact`, `plat
   (*„je to zvyklá si kontrolovat, jsou to prachy"*). Data: EC tuz 466 (197,7 M), ES tuz 129 (52,2 M),
   EC zahr 1 380 (2,76 M €). Zrcadlo `oz_platak_*` = **RO** (jen čte Centrálu); od 7.7. platíme my → časem nahradí
   vlastní generátor (task #44/#45). Commit `4cfd7ea`. Paměť: [[platebni-centrum-plataky]].
+- **6.7.2026 (🔴 Marti chytil past): naše cloudové platáky NIKDY do `oz_platak_*`.** `oz_platak_tuz/zahr` jsou
+  **DEL zrcadla staré Centrály** (truncate+reload z DB_EC při `oz_sync_all`) → platák vygenerovaný na Cloudu (Praha)
+  by při dalším synku SMAZAL (zdroj = Centrála, náš tam není). Bezpečný domov = vlastní RW **`tenant.bank_platak` +
+  `bank_platak_polozka`** (už existují, žádné zrcadlo je nesahá); generátor (#44) píše sem. Záložka Platáky pak
+  UNION `bank_platak` + legacy `oz_platak_*` (štítek zdroje), po cutoveru jen naše. Doktrína zapsána v §10. Detail §10.

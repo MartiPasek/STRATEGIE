@@ -156,4 +156,8 @@ počítáme si ho sami:** `otevřené_saldo = částka faktury (suma_po_zao / su
 - **6.7.2026 (Platáky):** Rozklíčován systém platáků staré Centrály (CZK/EUR, `hp_OZGenPlat_*`); zapsáno
   „kde je zaplaceno" (saldo + `TabUhrady`) + pojistka proti dvojí platbě (úhradový zámek). Ověřena selekce
   návrhu k platbě naostro (7 CZK + 19 EUR PF k platbě). Nazrcadleno **`oz_uhrady`** (TabUhrady) k nám.
-  Cíl: stránka `/platby-navrh` pro Peťu + test út 7.7. (platební den PF).
+  Cíl: stránka pro Peťu + test út 7.7. (platební den PF).
+- **6.7.2026 (Platební centrum LIVE):** stránka **`/platby`** pro Peťu — endpoint `/app/platby/navrh`
+  (CZK 8/396 642 Kč + EUR 19/29 991 €, saldo z úhrad) + `/app/platby/vypisy` (60 tx z RB API). Datová
+  páteř: `oz_uhrady` + `oz_pf_platba` (+ `suma_val` pro EUR, BEZ Helios salda). Taby Platáky/Importy = roadmap.
+  Ověřeno v prohlížeči, 0 JS chyb. Paměť: [[platebni-centrum-plataky]].

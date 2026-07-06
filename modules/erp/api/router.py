@@ -29933,7 +29933,7 @@ _ZRC_TABLES = {t: lbl for _g, _gl, items in _ZRC_GROUPS for t, lbl in items}
 
 
 def _zrc_dbs(firma):
-    return ("DB_IS", "UCTO_ES") if (firma or "").upper() == "ES" else ("DB_EC", "UCTO_EC")
+    return _firma_dbs(firma)  # jediný zdroj pravdy = _FIRMA_DB (Marti 6.7.: mapping na jednom místě)
 
 
 def _zrc_where(table, firma):
@@ -29980,6 +29980,54 @@ def _zrc_office_count(src_db, table, where=None):
     return None
 
 
+def _firma_id(firma):
+    """Kanonické číslo firmy = company.id (EC=1, ES=2) z 'EC'/'ES'/'1'/'2'. Multitenant doktrína
+    (Marti 6.7.): do firma SLOUPCŮ patří číslo 1/2, ne text 'EC'/'ES'. 'EC'/'ES' zůstává jen tam,
+    kde se vybírá Helios DB (_firma_dbs)."""
+    return 1 if str(firma).upper() in ('EC', '1') else 2
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# JEDINÝ ZDROJ PRAVDY: firma (company.id 1/2) → databáze + účetní/mzdové období.
+# (Marti 6.7.2026: „mapping na UCTO_EC/UCTO_ES musí být na JEDNOM místě, ne na 10ti".)
+# src = kancelářský Helios přes MCP (DOČASNÉ, než zmigruje); cloud = 188.12 přes db=mssql188.
+# Přidání firmy (ST=3) = jeden řádek tady, ne hledat po kódu.
+_FIRMA_DB = {
+    1: {"code": "EC", "src": "DB_EC", "src_pfx": "DB_EC",   "cloud": "UCTO_EC"},
+    2: {"code": "ES", "src": "DB_IS", "src_pfx": "[DB_IS]", "cloud": "UCTO_ES"},
+}
+# Účetní IdObdobi v cloud Heliosu per (firma, rok). EC 39=2025/40=2026; ES 1007=2025/1008=2026.
+_FIRMA_IDOBDOBI = {
+    (1, 2025): 39, (1, 2026): 40,
+    (2, 2025): 1007, (2, 2026): 1008,
+}
+# Řídící DB na 188.12 = JEDNOTNÝ VSTUPNÍ BOD (Marti 6.7.: „na UCTO_EC/ES jedeme přes MOST").
+# Spojení db=mssql188 defaultně přistane v MOST; UCTO_EC/UCTO_ES se čtou cross-db z MOST
+# (plně kvalifikované UCTO_EC.dbo.X). Změna názvu řídící DB = jeden řádek tady.
+_CLOUD_CONTROL_DB = "MOST"
+
+
+def _firma_dbs(firma):
+    """(src_db, cloud_db) pro firmu — JEDINÝ zdroj mapping firma→Helios DB. Vrací ('DB_EC','UCTO_EC') / ('DB_IS','UCTO_ES')."""
+    m = _FIRMA_DB[_firma_id(firma)]
+    return m["src"], m["cloud"]
+
+
+def _firma_cloud_db(firma):
+    """Cloud Helios DB (UCTO_EC/UCTO_ES) pro firmu."""
+    return _FIRMA_DB[_firma_id(firma)]["cloud"]
+
+
+def _firma_src_pfx(firma):
+    """Prefix zdrojové office Helios DB pro cross-db SQL ('DB_EC' / '[DB_IS]')."""
+    return _FIRMA_DB[_firma_id(firma)]["src_pfx"]
+
+
+def _firma_idobdobi(firma, rok):
+    """Účetní IdObdobi cloud Heliosu pro (firma, rok)."""
+    return _FIRMA_IDOBDOBI.get((_firma_id(firma), int(rok)))
+
+
 def _zrc_cloud_count(cloud_db, table):
     r = _mssql188_query("SELECT COUNT(*) c FROM " + cloud_db + ".dbo.[" + table.strip().strip("[]") + "]")
     if r.get("ok") and r.get("rows"):
@@ -30008,7 +30056,7 @@ def ucto_zrcadla(req: Request):
             rs = s2.execute(_t(
                 "SELECT DISTINCT ON (mirror_key) mirror_key, radku, ok, run_at "
                 "FROM tenant.ucto_zrcadlo_log WHERE firma=:f "
-                "ORDER BY mirror_key, run_at DESC"), {"f": firma}).fetchall()
+                "ORDER BY mirror_key, run_at DESC"), {"f": _firma_id(firma)}).fetchall()
             for r in rs:
                 last[r[0]] = {"radku": r[1], "ok": r[2],
                               "run_at": r[3].isoformat() if r[3] else None}
@@ -30081,7 +30129,7 @@ def ucto_zrcadlo_run(req: Request):
             s3.execute(_t(
                 "INSERT INTO tenant.ucto_zrcadlo_log (firma, mirror_key, radku, ok, msg, run_by) "
                 "VALUES (:f,:k,:r,:o,:m,:u)"),
-                {"f": firma, "k": key, "r": radku, "o": bool(res.get("ok")),
+                {"f": _firma_id(firma), "k": key, "r": radku, "o": bool(res.get("ok")),
                  "m": msg, "u": uid})
             s3.commit()
         finally:
@@ -30114,7 +30162,7 @@ def _ucto_zrcadlo_run_one(firma, key):
             _sz.execute(_tz(
                 "INSERT INTO tenant.ucto_zrcadlo_log (firma, mirror_key, radku, ok, msg, run_by) "
                 "VALUES (:f,:k,:r,:o,:m,0)"),
-                {"f": firma, "k": key, "r": radku, "o": bool(res.get("ok")), "m": msg})
+                {"f": _firma_id(firma), "k": key, "r": radku, "o": bool(res.get("ok")), "m": msg})
             _sz.commit()
         finally:
             _sz.close()
@@ -33868,6 +33916,12 @@ def _mssql188_query(sql):
             return "<%d B>" % len(v)
         return v
 
+    # Jednotný vstupní bod: default DB spojení → MOST (řídící DB). UCTO_EC/ES cross-db z MOST.
+    import re as _remost188
+    if _remost188.search(r"DATABASE\s*=", conn_str, _remost188.I):
+        conn_str = _remost188.sub(r"DATABASE\s*=[^;]*", "DATABASE=" + _CLOUD_CONTROL_DB, conn_str, flags=_remost188.I)
+    else:
+        conn_str = conn_str.rstrip(";") + ";DATABASE=" + _CLOUD_CONTROL_DB
     cn = None
     try:
         cn = _po188.connect(conn_str, timeout=10, autocommit=True)

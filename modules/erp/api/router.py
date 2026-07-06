@@ -23178,6 +23178,8 @@ def _mirror_run_job(job_key):
         "sync_ec_org_kontakt": lambda: _sync_ec_org_kontakt(),
         "sync_ec_banka": lambda: _sync_ec_banka(),
         "sync_ec_banka_delta": lambda: _sync_ec_banka(delta_days=90),
+        "saldo_praha_ec": lambda: _sync_saldo_praha("UCTO_EC", "tenant.ec_saldo_fa"),
+        "saldo_praha_es": lambda: _sync_saldo_praha("UCTO_ES", "tenant.es_saldo_fa"),
         "sync_ec_saldo": lambda: _sync_ec_saldo(vs_bank_tbl='TabBankVypisR', vnitro_org=1),
         "sync_es_saldo": lambda: _sync_ec_saldo(src_tbl='[DB_IS].dbo.TabSaldoFA', tgt_tbl='tenant.es_saldo_fa',
                                                 vs_bank_tbl='[DB_IS].dbo.TabBankVypisR', vnitro_org=1),
@@ -38511,6 +38513,72 @@ def _sync_ec_saldo(_unused=None, src_tbl="TabSaldoFA", tgt_tbl="tenant.ec_saldo_
         s.execute(_t("DELETE FROM " + tgt_tbl + " WHERE synced_at < :rs"), {"rs": run_start})
         s.commit()
         return {"ok": True, "saldo": nz}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_saldo_praha(cloud_db="UCTO_EC", tgt_tbl="tenant.ec_saldo_fa") -> dict:
+    """Marti 6.7.2026: saldokonto ČTEME z PRAŽSKÉHO Heliosu (UCTO_EC/UCTO_ES.TabSaldoFA
+    přes db=mssql188), NE ze staré Plzně. Saldo = derivát deníku, počítá si ho Helios sám;
+    my ho jen zrcadlíme (mód DEL — Helios truth, plná kopie, malý objem). Dokud pražský
+    Helios saldokonto nepřepočte, TabSaldoFA = 0 → zrcadlo ukáže 0 (věrná realita Prahy)."""
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    sel = (
+        "SELECT IdFASaldo, ParovaciZnak, CisloOrg, CisloSalSk, DnuProdleniZapl, "
+        "COALESCE(NULLIF(MenaZobraz,''),NULLIF(Mena,''),'CZK') menaz, Saldo, Castka_Splatno, "
+        "Castka_Uhrazeno, Castka_MD, Castka_Dal, CONVERT(varchar(19),DatumSplatno,120) ds, "
+        "CONVERT(varchar(19),DatumUhrazeno,120) du, RTRIM(CisloZakazky) CisloZakazky, ICO, DIC "
+        "FROM " + cloud_db + ".dbo.TabSaldoFA WHERE Saldo <> 0")
+    res = _mssql188_query(sel)
+    if not res.get("ok"):
+        raise RuntimeError("Praha TabSaldoFA: " + str(res.get("error"))[:300])
+    rows = res.get("rows") or []
+
+    def s2(v):
+        v = (str(v).replace("\x00", "").strip() if v is not None else "")
+        return v or None
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def i2(v):
+        try:
+            return int(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    try:
+        s.execute(_t("DELETE FROM " + tgt_tbl))
+        nz = 0
+        for r in rows:
+            org = i2(r[2])
+            s.execute(_t(
+                "INSERT INTO " + tgt_tbl + " (src_id,parovaci_znak,cislo_org,cislo_sal_sk,dnu_prodleni,mena,saldo,"
+                "castka_splatno,castka_uhrazeno,castka_md,castka_dal,datum_splatno,datum_uhrazeno,cislo_zakazky,"
+                "ico,dic,ma_platba_vs,vnitroskupina,synced_at) "
+                "VALUES (:sid,:pz,:co,:ssk,:dnu,:me,:sa,:cs,:cu,:cmd,:cdal,:ds,:du,:cz,:ico,:dic,:mp,:vn,now()) "
+                "ON CONFLICT (src_id) DO UPDATE SET parovaci_znak=excluded.parovaci_znak,cislo_org=excluded.cislo_org,"
+                "cislo_sal_sk=excluded.cislo_sal_sk,dnu_prodleni=excluded.dnu_prodleni,mena=excluded.mena,"
+                "saldo=excluded.saldo,castka_splatno=excluded.castka_splatno,castka_uhrazeno=excluded.castka_uhrazeno,"
+                "castka_md=excluded.castka_md,castka_dal=excluded.castka_dal,datum_splatno=excluded.datum_splatno,"
+                "datum_uhrazeno=excluded.datum_uhrazeno,cislo_zakazky=excluded.cislo_zakazky,ico=excluded.ico,"
+                "dic=excluded.dic,vnitroskupina=excluded.vnitroskupina,synced_at=now()"),
+                {"sid": i2(r[0]), "pz": s2(r[1]), "co": org, "ssk": s2(r[3]), "dnu": i2(r[4]),
+                 "me": s2(r[5]), "sa": num(r[6]), "cs": num(r[7]), "cu": num(r[8]), "cmd": num(r[9]),
+                 "cdal": num(r[10]), "ds": s2(r[11]), "du": s2(r[12]), "cz": s2(r[13]),
+                 "ico": s2(r[14]), "dic": s2(r[15]), "mp": False, "vn": bool(org == 1)})
+            nz += 1
+        s.commit()
+        return {"ok": True, "saldo": nz, "_msg": "Praha %s: %d otevřených" % (cloud_db, nz)}
     except Exception:
         s.rollback()
         raise

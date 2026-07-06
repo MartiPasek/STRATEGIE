@@ -274,6 +274,15 @@ _OZ_RAW = {
     "oz_vydejka": _OZ_RAW_BASE % ("d.RadaDokladu IN ('200','290') AND d.DruhPohybuZbo BETWEEN 2 AND 4 "
                                   "AND d.DatPorizeni >= '2023-01-01'"),
     "oz_prijemka": _OZ_RAW_BASE % "d.DruhPohybuZbo <= 1 AND d.DatPorizeni >= '2023-01-01'",
+    # Úhrady (TabUhrady) — vazba na fakturu IDFak, částka, datum, původ platby. Základ pro
+    # „co je zaplaceno" + pojistku proti dvojí platbě (saldo = faktura − úhrady). Marti 6.7.2026.
+    "oz_uhrady": (
+        "SELECT u.ID AS id, u.IDFak AS id_fak, dbo.EC_GetDoklad(u.IDFak) AS doklad_fak, "
+        "u.Datum AS datum, u.CastkaUhrady AS castka_uhrady, u.Castka AS castka, "
+        "u.CastkaPoBance AS castka_po_bance, u.Mena AS mena, u.Puvod AS puvod, "
+        "u.RealUhradaVHM AS real_uhrada_hm "
+        "FROM TabUhrady u WITH (NOLOCK) WHERE u.Datum >= '2024-01-01'"
+    ),
 }
 
 

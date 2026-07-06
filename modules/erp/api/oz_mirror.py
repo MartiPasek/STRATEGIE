@@ -280,17 +280,16 @@ _OZ_RAW = {
     "oz_prijemka": _OZ_RAW_BASE % "d.DruhPohybuZbo <= 1 AND d.DatPorizeni >= '2023-01-01'",
     # Úhrady (TabUhrady) — vazba na fakturu IDFak, částka, datum, původ platby. Základ pro
     # „co je zaplaceno" + pojistku proti dvojí platbě (saldo = faktura − úhrady). Marti 6.7.2026.
+    # JEDNA tabulka, pole firma = company.id (EC=1, ES=2, ST=3). Multitenant/multifirma
+    # (tenant≠firma; Marti 6.7.). ES cross-db [DB_IS], bez EC_GetDoklad (cross-db UDF padá).
     "oz_uhrady": (
-        "SELECT u.ID AS id, u.IDFak AS id_fak, dbo.EC_GetDoklad(u.IDFak) AS doklad_fak, "
+        "SELECT u.ID AS id, 1 AS firma, u.IDFak AS id_fak, dbo.EC_GetDoklad(u.IDFak) AS doklad_fak, "
         "u.Datum AS datum, u.CastkaUhrady AS castka_uhrady, u.Castka AS castka, "
         "u.CastkaPoBance AS castka_po_bance, u.Mena AS mena, u.Puvod AS puvod, "
         "u.RealUhradaVHM AS real_uhrada_hm "
-        "FROM TabUhrady u WITH (NOLOCK) WHERE u.Datum >= '2024-01-01'"
-    ),
-    # ES úhrady (cross-db [DB_IS]) — pro reconciliaci platáky↔úhrady↔saldo pro firmu ES.
-    # Bez EC_GetDoklad (cross-db scalar UDF padá). Puvod=3 = platákové (měkký zámek). Marti 6.7.
-    "oz_uhrady_es": (
-        "SELECT u.ID AS id, u.IDFak AS id_fak, CAST(NULL AS nvarchar(40)) AS doklad_fak, "
+        "FROM TabUhrady u WITH (NOLOCK) WHERE u.Datum >= '2024-01-01' "
+        "UNION ALL "
+        "SELECT u.ID AS id, 2 AS firma, u.IDFak AS id_fak, CAST(NULL AS nvarchar(40)) AS doklad_fak, "
         "u.Datum AS datum, u.CastkaUhrady AS castka_uhrady, u.Castka AS castka, "
         "u.CastkaPoBance AS castka_po_bance, u.Mena AS mena, u.Puvod AS puvod, "
         "u.RealUhradaVHM AS real_uhrada_hm "
@@ -323,7 +322,7 @@ _OZ_RAW = {
     # Platáky (platební příkazy) — tuzemské (přehled Centrály 2370). Peťa si je kontroluje ("jsou to prachy").
     # Od 7.7.2026 platíme my → potřebujeme vlastní seznam zadaných platáku. RealizaceExport = vyexportováno.
     "oz_platak_tuz": (
-        "SELECT pt.ID AS id, 'EC' AS firma, pt.RealizaceExport AS realizace_export, "
+        "SELECT pt.ID AS id, 1 AS firma, pt.RealizaceExport AS realizace_export, "
         "CONVERT(varchar(10),pt.DatumVystaveni,23) AS datum_vystaveni, "
         "CONVERT(varchar(10),pt.DatumSplatnosti,23) AS datum_splatnosti, "
         "CONVERT(varchar(19),pt.DatPorizeni,120) AS dat_porizeni, "
@@ -342,7 +341,7 @@ _OZ_RAW = {
         "LEFT OUTER JOIN TabBankSpojeni bs ON pt.IDBankSpojeni=bs.ID "
         "WHERE pt.TypPrikazu=0 AND YEAR(pt.DatPorizeni) IN (2025,2026) "
         "UNION ALL "
-        "SELECT pt.ID AS id, 'ES' AS firma, pt.RealizaceExport AS realizace_export, "
+        "SELECT pt.ID AS id, 2 AS firma, pt.RealizaceExport AS realizace_export, "
         "CONVERT(varchar(10),pt.DatumVystaveni,23) AS datum_vystaveni, "
         "CONVERT(varchar(10),pt.DatumSplatnosti,23) AS datum_splatnosti, "
         "CONVERT(varchar(19),pt.DatPorizeni,120) AS dat_porizeni, "
@@ -363,7 +362,7 @@ _OZ_RAW = {
     ),
     # Platáky zahraniční (přehled Centrály 2375) — EUR, s IBAN/SWIFT příjemce.
     "oz_platak_zahr": (
-        "SELECT pz.ID AS id, 'EC' AS firma, pz.RealizaceExport AS realizace_export, "
+        "SELECT pz.ID AS id, 1 AS firma, pz.RealizaceExport AS realizace_export, "
         "CONVERT(varchar(10),pz.DatumVystaveni,23) AS datum_vystaveni, "
         "CONVERT(varchar(10),pz.DatumSplatnosti,23) AS datum_splatnosti, "
         "CONVERT(varchar(19),pz.DatPorizeni,120) AS dat_porizeni, "
@@ -385,7 +384,7 @@ _OZ_RAW = {
         "LEFT OUTER JOIN TabBankSpojeni prij ON pz.IDBankSpojeniPrijemce=prij.ID "
         "WHERE YEAR(pz.DatPorizeni) IN (2025,2026) "
         "UNION ALL "
-        "SELECT pz.ID AS id, 'ES' AS firma, pz.RealizaceExport AS realizace_export, "
+        "SELECT pz.ID AS id, 2 AS firma, pz.RealizaceExport AS realizace_export, "
         "CONVERT(varchar(10),pz.DatumVystaveni,23) AS datum_vystaveni, "
         "CONVERT(varchar(10),pz.DatumSplatnosti,23) AS datum_splatnosti, "
         "CONVERT(varchar(19),pz.DatPorizeni,120) AS dat_porizeni, "

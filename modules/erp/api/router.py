@@ -29611,7 +29611,7 @@ def platby_navrh_get(req: Request):
         if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         rows = s.execute(_t(
-            "WITH u AS (SELECT id_fak, SUM(castka) AS paid FROM tenant.oz_uhrady GROUP BY id_fak) "
+            "WITH u AS (SELECT id_fak, SUM(castka) AS paid FROM tenant.oz_uhrady WHERE firma=1 GROUP BY id_fak) "
             "SELECT p.mena, p.doklad, COALESCE(NULLIF(p.dodavatel,''),p.zkratka,'?') dod, "
             "  COALESCE(p.var_symbol,'') vs, to_char(p.splatnost::date,'DD.MM.YYYY') splat, "
             "  (p.splatnost::date - now()::date) dni, "

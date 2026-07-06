@@ -11,8 +11,12 @@ Volá se server-side z cloud API (jako epodani_validace pro ČSSZ). Výsledek �
 import requests
 
 ARES_URL = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/%s"
-ADIS_URL = "https://adisrws.mfcr.cz/adistc/axis2/services/rozhraniCRPDPH"
-ADIS_NS = "urn:cz:isvs:dph:schemas:rozhranicrpdph:v1:GetStatusNespolehlivyPlatceRozsireny"
+# Oprava 6.7.2026 (dohledáno z netu — původní ns z hlavy byl špatný, proto ReadTimeout/hang):
+# správný namespace = http://adis.mfcr.cz/rozhraniCRPDPH/ ; endpoint .../dpr/axis2/... .rozhraniCRPDPHSOAP
+# Pozn.: existuje i novější V2 (getStatusNespolehlivySubjektRozsirenyV2 / StatusNespolehlivySubjektRozsirenyV2Request).
+# Autoritativní tech. parametry: https://adisepo.mfcr.cz/adistc/adis/idpr_pub/dpr_info/ws_spdph.faces
+ADIS_URL = "https://adisrws.mfcr.cz/dpr/axis2/services/rozhraniCRPDPH.rozhraniCRPDPHSOAP"
+ADIS_NS = "http://adis.mfcr.cz/rozhraniCRPDPH/"
 
 
 def _ico8(ico):
@@ -87,7 +91,7 @@ def dph_lookup(dic) -> dict:
 
     status = None
     for el in root.iter():
-        if ln(el) == "statusPlatceDPH":
+        if ln(el) in ("statusPlatceDPH", "statusSubjekt"):  # V1 Platce i V2 Subjekt
             status = el
             break
     if status is None:

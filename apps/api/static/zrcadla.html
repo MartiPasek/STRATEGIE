@@ -125,7 +125,10 @@ function render(jobs){
   });
   listEl.innerHTML=h;
   Array.prototype.forEach.call(listEl.querySelectorAll(".run"),function(b){b.onclick=function(){
-    b.disabled=true;b.textContent="▶ zařazeno…";api("POST","/api/v1/erp/app/mirror/run",{job_key:b.getAttribute("data-k")}).then(function(){setTimeout(load,800);});};});
+    b.disabled=true;b.textContent="▶ běží…";
+    api("POST","/api/v1/erp/app/mirror/run",{job_key:b.getAttribute("data-k"),inline:true})
+      .then(function(){load();})
+      .catch(function(){b.disabled=false;b.textContent="▶ Spustit teď";});};});
   Array.prototype.forEach.call(listEl.querySelectorAll(".tog"),function(t){t.onclick=function(){
     var en=t.getAttribute("data-en")==="1";api("POST","/api/v1/erp/app/mirror/auto",{job_key:t.getAttribute("data-k"),enabled:!en}).then(load);};});
   Array.prototype.forEach.call(listEl.querySelectorAll(".iv"),function(i){i.onchange=function(){

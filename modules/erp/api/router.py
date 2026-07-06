@@ -35126,6 +35126,26 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_de).__name__, str(_de)[:300]),
                                  "tb": _tbds.format_exc()[-800:]})
 
+    #   @@ARES <ICO>  → ověří firmu v registru ARES (REST) — název, adresa, DIČ, aktivní/zaniklý.
+    if sql.upper().startswith("@@ARES"):
+        import traceback as _tba
+        try:
+            _ic = sql[len("@@ARES"):].strip().split()
+            if not _ic:
+                return JSONResponse({"ok": False, "error": "@@ARES <ICO>"})
+            from modules.erp.api.registr_verify import ares_lookup as _ar
+            _rv = _ar(_ic[0])
+            if not _rv.get("ok") or not _rv.get("nalezeno", False):
+                return JSONResponse({"ok": True, "columns": ["vysledek"], "rows": [[str(_rv)[:400]]], "count": 1})
+            _cols = ["ico", "nazev", "adresa", "dic", "pravni_forma", "vznik", "zanik", "aktivni"]
+            _rows = [[_rv.get("ico"), _rv.get("nazev"), _rv.get("adresa"), _rv.get("dic"),
+                      str(_rv.get("pravni_forma") or "")[:40], _rv.get("datum_vzniku"),
+                      _rv.get("datum_zaniku") or "-", ("ANO" if _rv.get("aktivni") else "NE")]]
+            return JSONResponse({"ok": True, "columns": _cols, "rows": _rows, "count": 1})
+        except Exception as _ae:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ae).__name__, str(_ae)[:200]),
+                                 "tb": _tba.format_exc()[-600:]})
+
     #   @@EPVAL <soubor> [PROD]  → ověří XML (docs/jmhz/) proti oficiálnímu validátoru ČSSZ
     #   (SOAP, anonymní, test t-epodani.cssz.cz). JMHZ = per formularOsoby; PREZEC/REGZEC = celý root.
     if sql.upper().startswith("@@EPVAL"):

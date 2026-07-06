@@ -287,6 +287,15 @@ _OZ_RAW = {
         "u.RealUhradaVHM AS real_uhrada_hm "
         "FROM TabUhrady u WITH (NOLOCK) WHERE u.Datum >= '2024-01-01'"
     ),
+    # ES úhrady (cross-db [DB_IS]) — pro reconciliaci platáky↔úhrady↔saldo pro firmu ES.
+    # Bez EC_GetDoklad (cross-db scalar UDF padá). Puvod=3 = platákové (měkký zámek). Marti 6.7.
+    "oz_uhrady_es": (
+        "SELECT u.ID AS id, u.IDFak AS id_fak, CAST(NULL AS nvarchar(40)) AS doklad_fak, "
+        "u.Datum AS datum, u.CastkaUhrady AS castka_uhrady, u.Castka AS castka, "
+        "u.CastkaPoBance AS castka_po_bance, u.Mena AS mena, u.Puvod AS puvod, "
+        "u.RealUhradaVHM AS real_uhrada_hm "
+        "FROM [DB_IS].dbo.TabUhrady u WITH (NOLOCK) WHERE u.Datum >= '2024-01-01'"
+    ),
     # PF k platbě (přijaté faktury) s PLNÝM filtrem návrhu k platbě — saldo + _FinZakaz +
     # _DnyPredPlatbou (per dodavatel) + SumaKcPoZao + Nehradit. Zdroj pro /platby-navrh. Marti 6.7.2026.
     "oz_pf_platba": (

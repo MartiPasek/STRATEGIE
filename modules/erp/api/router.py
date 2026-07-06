@@ -6021,6 +6021,434 @@ async def crm_osloveni_sablony(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "sablony": out})
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# CRM IMPORT FIREM (Kristý 6.7.2026) — znovupoužitelný import prospecting listu
+# firem do CRM (Centrála DB_EC): kontakty st.CRM_Kontakt + volitelně akce
+# „Email na info" (IDAkce=1) s vybraným obchodníkem jako Autorem (statistiky
+# obchodníka). Tlačítko v bandu „Přehled pro obchodníka" (core 136). Dedup dle
+# FirmaEmail. Zápis přes MCP strategie_insert_row (vrací new id → master-detail).
+# ═══════════════════════════════════════════════════════════════════════════
+
+_CRM_IMPORT_SYS_AUTORI = {"centrala", "suser_name()", "suser_sname()", "marti-ai",
+                          "system", "sa", ""}
+_CRM_IMPORT_EMAIL_AKCE = 1  # IDAkce „Email na info"
+_CRM_IMPORT_HDR_MAP = {
+    "firma": "firma", "firmatext": "firma", "nazev": "firma", "nazevfirmy": "firma",
+    "email": "email", "mail": "email", "obecnyemail": "email", "firmaemail": "email",
+    "web": "web", "www": "web", "firmaweb": "web",
+    "zeme": "zeme", "stat": "zeme",
+    "datumosloveni": "datum", "datum": "datum", "datumakce": "datum", "datumodeslani": "datum",
+    "doruceno": "doruceno", "dorucen": "doruceno",
+    "duvodnedoruceni": "duvod", "duvod": "duvod", "nedorucenoduvod": "duvod",
+    "segment": "segment", "prioritaosloveni": "priorita", "priorita": "priorita",
+    "potencial": "potencial", "obchodnipotencial": "potencial",
+    "sance": "sance", "sanceziskat": "sance",
+    "doporuceni": "doporuceni", "poznamka": "poznamka", "pozn": "poznamka",
+}
+
+
+def _crm_import_mcp():
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    return get_eurosoft_mcp_client()
+
+
+def _crm_mcp_rows(mcp, sql):
+    import json as _j
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error"))[:200])
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                return r[k]
+        return []
+    return r if isinstance(r, list) else []
+
+
+def _crm_mcp_insert(mcp, table, data):
+    import json as _j
+    raw = mcp.call_tool_sync("eurosoft_strategie_insert_row",
+                             {"schema": "st", "table": table, "data": data, "db_name": "DB_EC"},
+                             conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error"))[:200])
+        return r.get("id")
+    return None
+
+
+def _crm_import_norm_header(h):
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(h or "")).encode("ascii", "ignore").decode()
+    return s.strip().lower().replace(" ", "").replace("%", "").replace("-", "").replace("_", "")
+
+
+def _crm_import_parse_date(v):
+    import datetime as _d
+    if v is None or v == "":
+        return None
+    if isinstance(v, (_d.datetime, _d.date)):
+        return v.strftime("%Y-%m-%d")
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d. %m. %Y", "%d/%m/%Y", "%Y/%m/%d"):
+        try:
+            return _d.datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    try:
+        n = float(s)
+        return (_d.date(1899, 12, 30) + _d.timedelta(days=int(n))).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
+def _crm_import_delivered(v):
+    """Doručeno? True (doručeno) / False (nedoručeno) / None (neuvedeno)."""
+    if v is None or str(v).strip() == "":
+        return None
+    s = str(v).strip().lower()
+    if s in ("ne", "no", "0", "false", "nedoruceno", "nedoruceno"):
+        return False
+    if s in ("ano", "yes", "1", "true", "doruceno", "ok"):
+        return True
+    return None
+
+
+def _crm_import_popis(row):
+    parts = []
+    for lbl, k in (("Segment", "segment"), ("Priorita", "priorita"),
+                   ("Potenciál", "potencial"), ("Šance", "sance"),
+                   ("Doporučení", "doporuceni"), ("Pozn.", "poznamka")):
+        v = (str(row.get(k) or "")).strip()
+        if v:
+            if k == "sance" and not v.endswith("%"):
+                v = v + "%"
+            parts.append(lbl + ": " + v)
+    return " | ".join(parts)[:3900]
+
+
+def _crm_import_parse_rows(raw_bytes, filename):
+    """Parse xlsx/csv bytes → (rows, error)."""
+    import io as _io
+    fn = (filename or "").lower()
+    table = []
+    try:
+        if fn.endswith((".xlsx", ".xlsm", ".xls")):
+            import openpyxl as _ox
+            wb = _ox.load_workbook(_io.BytesIO(raw_bytes), read_only=True, data_only=True)
+            ws = wb.active
+            table = [list(r) for r in ws.iter_rows(values_only=True)]
+        else:
+            import csv as _csv
+            txt = raw_bytes.decode("utf-8-sig", errors="replace")
+            delim = ";" if txt.count(";") > txt.count(",") else ","
+            table = [list(r) for r in _csv.reader(_io.StringIO(txt), delimiter=delim)]
+    except Exception as exc:
+        return None, "Soubor se nepodařilo přečíst: " + str(exc)[:150]
+    table = [r for r in table if any((c is not None and str(c).strip() != "") for c in r)]
+    if len(table) < 2:
+        return None, "Soubor nemá data (hlavička + aspoň 1 řádek)."
+    hdr = [_crm_import_norm_header(c) for c in table[0]]
+    colmap = {}
+    for i, h in enumerate(hdr):
+        key = _CRM_IMPORT_HDR_MAP.get(h)
+        if key and key not in colmap:
+            colmap[key] = i
+    if "firma" not in colmap:
+        return None, "Chybí povinný sloupec 'Firma'."
+    rows = []
+    for r in table[1:]:
+        def cell(k):
+            i = colmap.get(k)
+            if i is None or i >= len(r):
+                return ""
+            v = r[i]
+            return "" if v is None else str(v).strip()
+        firma = cell("firma")
+        if not firma:
+            continue
+        di = colmap.get("datum")
+        dval = r[di] if (di is not None and di < len(r)) else None
+        rows.append({
+            "firma": firma[:256], "email": cell("email")[:256], "web": cell("web")[:1000],
+            "zeme": cell("zeme")[:128], "datum": _crm_import_parse_date(dval),
+            "doruceno": cell("doruceno"), "duvod": cell("duvod")[:200],
+            "segment": cell("segment"), "priorita": cell("priorita"),
+            "potencial": cell("potencial"), "sance": cell("sance"),
+            "doporuceni": cell("doporuceni"), "poznamka": cell("poznamka"),
+        })
+    return rows, None
+
+
+def _crm_import_existing_emails(mcp, emails):
+    ems = sorted({(e or "").strip().lower() for e in emails if e and "@" in e})
+    if not ems:
+        return set()
+    found = set()
+    for i in range(0, len(ems), 200):
+        chunk = ems[i:i + 200]
+        inlist = ", ".join("'" + e.replace("'", "''") + "'" for e in chunk)
+        sql = ("SELECT LOWER(LTRIM(RTRIM(FirmaEmail))) AS e FROM st.CRM_Kontakt WITH(NOLOCK) "
+               "WHERE FirmaEmail IS NOT NULL AND LOWER(LTRIM(RTRIM(FirmaEmail))) IN (" + inlist + ")")
+        for d in _crm_mcp_rows(mcp, sql):
+            dd = {(k or "").lower(): v for k, v in d.items()}
+            if dd.get("e"):
+                found.add(str(dd["e"]).strip().lower())
+    return found
+
+
+@api_router.get("/crm/import/obchodnici")
+async def crm_import_obchodnici(req: Request) -> JSONResponse:
+    """Seznam obchodníků (Autor) pro dropdown importu + login přihlášeného."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    names, cur_login = {}, None
+    try:
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
+        ds = _gds()
+        try:
+            for r in ds.execute(_t("SELECT login_name, first_name, last_name FROM public.users "
+                                   "WHERE login_name IS NOT NULL AND login_name <> ''")):
+                nm = (str(r[1] or "") + " " + str(r[2] or "")).strip()
+                names[str(r[0]).strip().lower()] = (nm or str(r[0]))
+            cl = ds.execute(_t("SELECT login_name FROM public.users WHERE id=:u"), {"u": int(uid)}).scalar()
+            cur_login = (str(cl).strip() if cl else None)
+        finally:
+            ds.close()
+    except Exception:
+        pass
+    autori = []
+    try:
+        mcp = _crm_import_mcp()
+        if mcp is not None:
+            sql = ("SELECT Autor, COUNT(*) n FROM st.CRM_Kontakt_Akce WITH(NOLOCK) "
+                   "WHERE Autor IS NOT NULL AND LTRIM(RTRIM(Autor))<>'' "
+                   "GROUP BY Autor ORDER BY COUNT(*) DESC")
+            for d in _crm_mcp_rows(mcp, sql):
+                dd = {(k or "").lower(): v for k, v in d.items()}
+                a = str(dd.get("autor") or "").strip()
+                if a and a.lower() not in _CRM_IMPORT_SYS_AUTORI:
+                    autori.append(a)
+    except Exception:
+        pass
+    seen, out = set(), []
+
+    def _add(login):
+        lg = (login or "").strip()
+        if not lg or lg.lower() in seen or lg.lower() in _CRM_IMPORT_SYS_AUTORI:
+            return
+        seen.add(lg.lower())
+        out.append({"login": lg, "label": names.get(lg.lower(), lg)})
+    if cur_login:
+        _add(cur_login)
+    for a in autori:
+        _add(a)
+    return JSONResponse({"ok": True, "obchodnici": out, "current": cur_login})
+
+
+@api_router.get("/crm/import/sablona")
+async def crm_import_sablona(req: Request):
+    """Stažení Excel šablony pro import firem."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    import io as _io
+    try:
+        import openpyxl as _ox
+        from openpyxl.styles import Font as _F, PatternFill as _PF
+        from openpyxl.utils import get_column_letter as _gcl
+        wb = _ox.Workbook()
+        ws = wb.active
+        ws.title = "Import firem"
+        cols = ["Firma", "E-mail", "Web", "Země", "Datum oslovení", "Doručeno",
+                "Důvod nedoručení", "Segment", "Priorita", "Potenciál", "Šance %",
+                "Doporučení", "Poznámka"]
+        ws.append(cols)
+        for i in range(1, len(cols) + 1):
+            cc = ws.cell(row=1, column=i)
+            cc.font = _F(bold=True, color="FFFFFF")
+            cc.fill = _PF("solid", fgColor="2F5496")
+        ws.append(["Ukázková firma s.r.o.", "info@ukazka.cz", "www.ukazka.cz", "DE",
+                   "24.6.2026", "ano", "", "balicí stroje", "A", "A", "70",
+                   "Oslovit jako kapacitního dodavatele", "poznámka"])
+        for i, w in enumerate([30, 26, 22, 8, 14, 10, 20, 22, 9, 10, 9, 34, 30], 1):
+            ws.column_dimensions[_gcl(i)].width = w
+        buf = _io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Šablonu nelze vytvořit: " + str(exc)[:120]},
+                            status_code=500)
+    from fastapi.responses import StreamingResponse as _SR
+    return _SR(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+               headers={"Content-Disposition": "attachment; filename=Import_firem_sablona.xlsx"})
+
+
+@api_router.post("/crm/import/preview")
+async def crm_import_preview(req: Request) -> JSONResponse:
+    """Náhled importu: parse souboru, validace, dedup dle FirmaEmail. Vrací rows+summary."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    try:
+        form = await req.form()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Chybí soubor"}, status_code=400)
+    up = form.get("file")
+    if up is None or not hasattr(up, "read"):
+        return JSONResponse({"ok": False, "error": "Nahraj prosím soubor (Excel/CSV)."}, status_code=400)
+    try:
+        raw = await up.read()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Soubor nelze načíst"}, status_code=400)
+    if not raw or len(raw) > 8 * 1024 * 1024:
+        return JSONResponse({"ok": False, "error": "Soubor je prázdný nebo > 8 MB."}, status_code=400)
+    rows, err = _crm_import_parse_rows(raw, getattr(up, "filename", ""))
+    if err:
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+    if not rows:
+        return JSONResponse({"ok": False, "error": "Soubor neobsahuje žádné firmy."}, status_code=400)
+    if len(rows) > 2000:
+        return JSONResponse({"ok": False, "error": "Najednou max 2000 firem."}, status_code=400)
+    dup = set()
+    try:
+        mcp = _crm_import_mcp()
+        if mcp is not None:
+            dup = _crm_import_existing_emails(mcp, [r["email"] for r in rows])
+    except Exception:
+        dup = set()
+    n_akce = n_ndr = n_dup = 0
+    for r in rows:
+        r["_dup"] = bool(r["email"] and r["email"].lower() in dup)
+        r["_akce"] = bool(r["datum"])
+        r["_bounced"] = (_crm_import_delivered(r["doruceno"]) is False)
+        n_dup += 1 if r["_dup"] else 0
+        n_akce += 1 if r["_akce"] else 0
+        n_ndr += 1 if r["_bounced"] else 0
+    summary = {"total": len(rows), "novych": sum(1 for r in rows if not r["_dup"]),
+               "duplicit": n_dup, "s_akci": n_akce, "nedoruceno": n_ndr}
+    return JSONResponse({"ok": True, "summary": summary, "rows": rows})
+
+
+@api_router.post("/crm/import/commit")
+async def crm_import_commit(req: Request) -> JSONResponse:
+    """Zápis importu do Centrály: kontakty + akce Email na info (Autor=obchodník)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    rows = body.get("rows") or []
+    obchodnik = str(body.get("obchodnik") or "").strip()
+    create_akce = bool(body.get("create_akce", True))
+    zdroj = (str(body.get("zdroj") or "Import").strip() or "Import")[:50]
+    if not rows:
+        return JSONResponse({"ok": False, "error": "Žádné řádky k importu"}, status_code=400)
+    if len(rows) > 2000:
+        return JSONResponse({"ok": False, "error": "Max 2000 firem"}, status_code=400)
+    if not obchodnik:
+        return JSONResponse({"ok": False, "error": "Vyber obchodníka"}, status_code=400)
+    ok_login = True
+    try:
+        from core.database_data import get_data_session as _gds
+        from sqlalchemy import text as _t
+        ds = _gds()
+        try:
+            ok_login = ds.execute(_t("SELECT 1 FROM public.users WHERE lower(login_name)=lower(:l) LIMIT 1"),
+                                  {"l": obchodnik}).first() is not None
+        finally:
+            ds.close()
+    except Exception:
+        ok_login = True
+    if not ok_login:
+        return JSONResponse({"ok": False, "error": "Neznámý obchodník: " + obchodnik}, status_code=400)
+    mcp = _crm_import_mcp()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
+    try:
+        existing = _crm_import_existing_emails(mcp, [str(r.get("email") or "") for r in rows])
+    except Exception:
+        existing = set()
+    import datetime as _dt
+    today = _dt.date.today().strftime("%Y-%m-%d")
+    created = skipped = akce_created = bounced = 0
+    errors = []
+    for r in rows:
+        firma = str(r.get("firma") or "").strip()[:256]
+        if not firma:
+            continue
+        email = str(r.get("email") or "").strip()[:256]
+        if email and email.lower() in existing:
+            skipped += 1
+            continue
+        datum = r.get("datum") or None
+        try:
+            new_id = _crm_mcp_insert(mcp, "CRM_Kontakt", {
+                "Autor": obchodnik, "DatPorizeni": (datum or today), "FirmaText": firma,
+                "FirmaEmail": (email or None),
+                "FirmaWeb": (str(r.get("web") or "").strip()[:1000] or None),
+                "Zeme": (str(r.get("zeme") or "").strip()[:128] or None),
+                "ZdrojKontaktu": zdroj, "Popis": (_crm_import_popis(r) or None),
+                "KontaktOveren": 0,
+            })
+        except Exception as exc:
+            errors.append("[" + firma[:40] + "] kontakt: " + str(exc)[:120])
+            continue
+        created += 1
+        if email:
+            existing.add(email.lower())
+        if create_akce and datum and new_id:
+            deliv = _crm_import_delivered(r.get("doruceno"))
+            splneno = 0 if deliv is False else 1
+            duvod = str(r.get("duvod") or "").strip()
+            if deliv is False:
+                prubeh = ("Odesláno oslovení na " + (email or firma) + " – NEDORUČENO"
+                          + ((" (" + duvod + ")") if duvod else ""))
+                pozn = ("E-mail nedoručen " + str(datum) + (" – " + duvod if duvod else ""))[:4000]
+            else:
+                prubeh = "Odesláno oslovení (Email na info) na " + (email or firma)
+                pozn = None
+            try:
+                _crm_mcp_insert(mcp, "CRM_Kontakt_Akce", {
+                    "IDHlav": int(new_id), "IDAkce": _CRM_IMPORT_EMAIL_AKCE, "Autor": obchodnik,
+                    "DatumAkce": datum, "DatPorizeni": datum, "Splneno": splneno,
+                    "Email": (email or None), "FirmaText": firma,
+                    "Prubeh": prubeh[:3900], "Poznamka": pozn,
+                })
+                akce_created += 1
+                bounced += 1 if deliv is False else 0
+            except Exception as exc:
+                errors.append("[" + firma[:40] + "] akce: " + str(exc)[:120])
+    logger.info("[crm_import_commit] uid=%d obchodnik=%s created=%d skip=%d akce=%d bounce=%d err=%d",
+                uid, obchodnik, created, skipped, akce_created, bounced, len(errors))
+    return JSONResponse({"ok": True, "report": {
+        "created": created, "skipped_dup": skipped, "akce_created": akce_created,
+        "bounced": bounced, "errors": errors[:50], "obchodnik": obchodnik}})
+
+
 @api_router.post("/app/mail/stav")
 async def app_mail_stav(req: Request) -> JSONResponse:
     """Uklidit e-mail: přesun mezi 'nove' (Doručené) a 'zpracovane' (Zpracované).

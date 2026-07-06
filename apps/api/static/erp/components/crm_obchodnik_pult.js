@@ -25,7 +25,9 @@
       '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">' +
       '  <span style="font-size:13px;font-weight:700;color:#aac8ec;">🔋 Vytížení dílny — výhled 3 měsíce</span>' +
       '  <span id="opPlanKpi" style="font-size:12px;color:#9fb6cc;"></span>' +
-      '  <span id="opStav" style="font-size:11px;color:#6f8296;margin-left:auto;"></span>' +
+      '  <button id="opImportBtn" style="margin-left:auto;font-size:12px;font-weight:600;color:#0f141a;' +
+      'background:#3ecf8e;border:0;border-radius:6px;padding:5px 11px;cursor:pointer;">📥 Import firem</button>' +
+      '  <span id="opStav" style="font-size:11px;color:#6f8296;"></span>' +
       '</div>' +
       '<div id="opBaty" style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;"></div>' +
       '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #1e2730;' +
@@ -34,6 +36,8 @@
     var baty = el.querySelector("#opBaty");
     var planKpi = el.querySelector("#opPlanKpi");
     var stav = el.querySelector("#opStav");
+    var impBtn = el.querySelector("#opImportBtn");
+    if (impBtn) impBtn.onclick = function () { openImportModal(); };
 
     fetch(EP_VYT, { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })
@@ -179,5 +183,138 @@
     }
   }
 
-  window.ObchodnikPult = { mount: mount, mountHovory: mountHovory };
+  // ── Import firem (Kristý 6.7.2026) ──────────────────────────────────────
+  var IMP_BASE = "/api/v1/erp/crm/import";
+
+  function openImportModal() {
+    if (document.getElementById("crmImpOverlay")) return;
+    var ov = document.createElement("div");
+    ov.id = "crmImpOverlay";
+    ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;" +
+      "display:flex;align-items:center;justify-content:center;padding:16px;";
+    ov.innerHTML =
+      '<div style="background:#131a22;border:1px solid #253143;border-radius:12px;width:560px;max-width:100%;' +
+      'max-height:90vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.5);">' +
+      '<div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #1e2730;">' +
+      '<span style="font-size:15px;font-weight:700;color:#eef3f8;">📥 Import firem do CRM</span>' +
+      '<button id="crmImpClose" style="margin-left:auto;background:none;border:0;color:#9fb6cc;font-size:20px;cursor:pointer;">×</button>' +
+      '</div>' +
+      '<div style="padding:16px;display:flex;flex-direction:column;gap:12px;">' +
+      '  <div style="font-size:12px;color:#9fb6cc;">Nahraj Excel/CSV podle šablony. Založí kontakty v CRM' +
+      ' a volitelně akci „Email na info". <a id="crmImpTpl" href="#" style="color:#5b8def;">Stáhnout šablonu</a></div>' +
+      '  <label style="font-size:12px;color:#cdd6e2;">Soubor (Excel/CSV)' +
+      '   <input id="crmImpFile" type="file" accept=".xlsx,.xls,.csv" style="display:block;margin-top:4px;color:#cdd6e2;font-size:12px;"></label>' +
+      '  <label style="font-size:12px;color:#cdd6e2;">Obchodník (autor záznamů)' +
+      '   <select id="crmImpObch" style="display:block;width:100%;margin-top:4px;background:#0e1620;color:#eef3f8;' +
+      'border:1px solid #2a3646;border-radius:6px;padding:6px;font-size:13px;"></select></label>' +
+      '  <label style="font-size:12px;color:#cdd6e2;">Zdroj (štítek kampaně)' +
+      '   <input id="crmImpZdroj" type="text" value="Import" maxlength="50" style="display:block;width:100%;margin-top:4px;' +
+      'background:#0e1620;color:#eef3f8;border:1px solid #2a3646;border-radius:6px;padding:6px;font-size:13px;box-sizing:border-box;"></label>' +
+      '  <label style="font-size:12px;color:#cdd6e2;display:flex;align-items:center;gap:8px;">' +
+      '   <input id="crmImpAkce" type="checkbox" checked> Zakládat akci „Email na info" (u řádků s datem oslovení)</label>' +
+      '  <div id="crmImpMsg" style="font-size:12px;color:#9fb6cc;min-height:18px;"></div>' +
+      '  <div id="crmImpSummary" style="font-size:12.5px;color:#cdd6e2;"></div>' +
+      '  <div style="display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #1e2730;padding-top:12px;">' +
+      '   <button id="crmImpPreview" style="font-size:13px;font-weight:600;color:#eef3f8;background:#2a3646;border:0;border-radius:6px;padding:8px 14px;cursor:pointer;">Náhled</button>' +
+      '   <button id="crmImpGo" disabled style="font-size:13px;font-weight:700;color:#0f141a;background:#3a4657;border:0;border-radius:6px;padding:8px 16px;cursor:not-allowed;">Importovat</button>' +
+      '  </div>' +
+      '</div></div>';
+    document.body.appendChild(ov);
+
+    var previewRows = null;
+    var fileEl = ov.querySelector("#crmImpFile");
+    var obchEl = ov.querySelector("#crmImpObch");
+    var zdrojEl = ov.querySelector("#crmImpZdroj");
+    var akceEl = ov.querySelector("#crmImpAkce");
+    var msgEl = ov.querySelector("#crmImpMsg");
+    var sumEl = ov.querySelector("#crmImpSummary");
+    var goBtn = ov.querySelector("#crmImpGo");
+    var prevBtn = ov.querySelector("#crmImpPreview");
+
+    function close() { if (ov.parentNode) ov.parentNode.removeChild(ov); }
+    ov.querySelector("#crmImpClose").onclick = close;
+    ov.onclick = function (e) { if (e.target === ov) close(); };
+    ov.querySelector("#crmImpTpl").onclick = function (e) {
+      e.preventDefault(); window.open(IMP_BASE + "/sablona", "_blank");
+    };
+
+    function setGo(on) {
+      goBtn.disabled = !on;
+      goBtn.style.background = on ? "#3ecf8e" : "#3a4657";
+      goBtn.style.cursor = on ? "pointer" : "not-allowed";
+    }
+
+    fetch(IMP_BASE + "/obchodnici", { credentials: "include" })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (j) {
+        var html = "";
+        (j && j.obchodnici || []).forEach(function (o) {
+          var sel = (j.current && o.login === j.current) ? " selected" : "";
+          html += '<option value="' + esc(o.login) + '"' + sel + '>' + esc(o.label) +
+            ' (' + esc(o.login) + ')</option>';
+        });
+        obchEl.innerHTML = html || '<option value="">(žádní obchodníci)</option>';
+      })
+      .catch(function () { obchEl.innerHTML = '<option value="">(nepodařilo se načíst)</option>'; });
+
+    prevBtn.onclick = function () {
+      if (!fileEl.files || !fileEl.files[0]) { msgEl.textContent = "Vyber soubor."; return; }
+      msgEl.style.color = "#9fb6cc"; msgEl.textContent = "Načítám náhled…";
+      sumEl.innerHTML = ""; setGo(false); previewRows = null;
+      var fd = new FormData(); fd.append("file", fileEl.files[0]);
+      fetch(IMP_BASE + "/preview", { method: "POST", credentials: "include", body: fd })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (j) {
+          if (!j || !j.ok) { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "✗ " + ((j && j.error) || "chyba náhledu"); return; }
+          previewRows = j.rows || [];
+          var s = j.summary || {};
+          msgEl.style.color = "#3ecf8e"; msgEl.textContent = "✓ Náhled hotový";
+          sumEl.innerHTML =
+            '<div style="background:#0e1620;border:1px solid #253143;border-radius:8px;padding:10px 12px;line-height:1.7;">' +
+            '<b>' + (s.total || 0) + '</b> firem v souboru · ' +
+            '<span style="color:#3ecf8e;">' + (s.novych || 0) + ' nových</span> · ' +
+            '<span style="color:#f0a93b;">' + (s.duplicit || 0) + ' už v CRM (přeskočí se)</span><br>' +
+            'Akce „Email na info": <b>' + (s.s_akci || 0) + '</b> · ' +
+            'z toho nedoručeno: <b style="color:#ff6b6b;">' + (s.nedoruceno || 0) + '</b></div>';
+          setGo((s.novych || 0) > 0);
+        })
+        .catch(function () { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "✗ síť"; });
+    };
+
+    goBtn.onclick = function () {
+      if (!previewRows || !previewRows.length) return;
+      if (!obchEl.value) { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "Vyber obchodníka."; return; }
+      setGo(false); prevBtn.disabled = true;
+      msgEl.style.color = "#9fb6cc"; msgEl.textContent = "Zapisuji do CRM… (může chvíli trvat)";
+      fetch(IMP_BASE + "/commit", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows: previewRows, obchodnik: obchEl.value,
+          create_akce: !!akceEl.checked, zdroj: (zdrojEl.value || "Import")
+        })
+      })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (j) {
+          prevBtn.disabled = false;
+          if (!j || !j.ok) { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "✗ " + ((j && j.error) || "zápis selhal"); setGo(true); return; }
+          var rp = j.report || {};
+          msgEl.style.color = "#3ecf8e"; msgEl.textContent = "✓ Import dokončen";
+          var eh = "";
+          if (rp.errors && rp.errors.length) {
+            eh = '<div style="color:#ff6b6b;margin-top:6px;">Chyby (' + rp.errors.length + '): ' +
+              esc(rp.errors.slice(0, 5).join(" · ")) + '</div>';
+          }
+          sumEl.innerHTML =
+            '<div style="background:#0e1620;border:1px solid #253143;border-radius:8px;padding:10px 12px;line-height:1.7;">' +
+            '✅ Založeno kontaktů: <b>' + (rp.created || 0) + '</b> (autor ' + esc(rp.obchodnik || "") + ')<br>' +
+            'Akcí „Email na info": <b>' + (rp.akce_created || 0) + '</b> · nedoručeno: <b>' + (rp.bounced || 0) + '</b><br>' +
+            'Přeskočeno (duplicita): <b>' + (rp.skipped_dup || 0) + '</b>' + eh + '</div>';
+          previewRows = null;
+        })
+        .catch(function () { prevBtn.disabled = false; msgEl.style.color = "#ff6b6b"; msgEl.textContent = "✗ síť při zápisu"; setGo(true); });
+    };
+  }
+
+  window.ObchodnikPult = { mount: mount, mountHovory: mountHovory, openImport: openImportModal };
 })();

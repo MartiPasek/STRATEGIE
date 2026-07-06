@@ -38,6 +38,9 @@
   .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700}
   .pill.hot{background:#3a1d1c;color:#ffb3ae} .pill.warn{background:#3a331c;color:#ffe08a} .pill.ok{background:#123024;color:#8ff0b5}
   .money{font-weight:800;font-variant-numeric:tabular-nums}
+  .chip{display:inline-block;padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:600;cursor:pointer;
+    background:var(--soft);border:1px solid var(--line);color:var(--dim)}
+  .chip:hover{color:var(--ink)} .chip.on{background:#12294a;color:var(--ink);border-color:var(--accent)}
   .load{color:var(--dim);padding:22px 4px}
   .soon{background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:26px 20px;text-align:center;color:var(--dim)}
   .soon .ic{font-size:30px} .soon h3{color:var(--ink);margin:10px 0 5px;font-size:16px}
@@ -56,10 +59,7 @@
   </div>
 
   <div id="navrhy" class="panel on"><div id="navrhy-body"><div class="load">Načítám návrh k platbě…</div></div></div>
-  <div id="plataky" class="panel">
-    <div class="soon"><div class="ic">🧾</div><h3>Platáky (CZK / EUR)</h3>
-      Generování platebních příkazů z návrhu — tuzemský (CZK) i zahraniční (EUR), s úhradovým zámkem proti dvojí platbě. <b>Připravujeme</b> (vzor: stará Centrála → náš platák → RB Premium API).</div>
-  </div>
+  <div id="plataky" class="panel"><div id="plataky-body"><div class="load">Načítám platáky…</div></div></div>
   <div id="importy" class="panel">
     <div class="soon"><div class="ic">⬇️</div><h3>Importy do banky</h3>
       Vygenerované importní soubory pro nahrání plateb do banky (starý formát). <b>Připravujeme.</b></div>
@@ -125,11 +125,61 @@ function loadVypisy(){
     .then(function(r){return r.json();}).then(renderVypisy)
     .catch(function(){document.getElementById('vypisy-body').innerHTML='<div class="load">Chyba načítání.</div>';});
 }
+var _platakyLoaded=false,_plataky=[],_firmy={},_pfFirma='all',_pfTyp='all';
+function platakyChips(){
+  var h='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">';
+  h+='<span class="chip'+(_pfFirma==='all'?' on':'')+'" data-f="all">Vše</span>';
+  Object.keys(_firmy).sort().forEach(function(k){
+    h+='<span class="chip'+(_pfFirma===k?' on':'')+'" data-f="'+k+'">'+esc(_firmy[k].nazev||_firmy[k].code)+'</span>';
+  });
+  h+='<span style="width:14px;display:inline-block"></span>';
+  [['all','Vše'],['tuz','Tuzemské'],['zahr','Zahraniční']].forEach(function(t){
+    h+='<span class="chip'+(_pfTyp===t[0]?' on':'')+'" data-t="'+t[0]+'">'+t[1]+'</span>';
+  });
+  return h+'</div>';
+}
+function bindPlatChips(){
+  document.querySelectorAll('#plataky-body .chip').forEach(function(c){c.onclick=function(){
+    if(c.dataset.f!=null)_pfFirma=c.dataset.f; if(c.dataset.t!=null)_pfTyp=c.dataset.t; renderPlataky();};});
+}
+function renderPlataky(){
+  var b=document.getElementById('plataky-body');
+  var list=_plataky.filter(function(p){
+    return (_pfFirma==='all'||String(p.firma)===_pfFirma)&&(_pfTyp==='all'||p.typ===_pfTyp);});
+  var sums={}; list.forEach(function(p){sums[p.mena]=(sums[p.mena]||0)+p.castka;});
+  var sh=Object.keys(sums).map(function(m){return money(sums[m],m);}).join(' · ')||'—';
+  var h=platakyChips()+'<div class="grp"><div class="gh"><div class="t">🧾 '+list.length+' platáku</div>'+
+    '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
+  if(!list.length){h+='<div class="load" style="padding:16px">Žádné platáky pro tento filtr.</div></div>';b.innerHTML=h;bindPlatChips();return;}
+  h+='<table><thead><tr><th>Datum</th><th>Firma</th><th></th><th>Odkud</th><th class="r">Faktur</th>'+
+     '<th>Seznam faktur</th><th>Splatnost</th><th>Stav</th><th class="r">Částka</th></tr></thead><tbody>';
+  list.forEach(function(p){
+    var fc=_firmy[String(p.firma)]?_firmy[String(p.firma)].code:('#'+p.firma);
+    var typ=p.typ==='tuz'?'<span class="pill" style="background:#12294a;color:var(--czk)">tuz</span>'
+      :'<span class="pill" style="background:#241b40;color:var(--eur)">zahr</span>';
+    var exp=p.export?'<span class="pill ok">✓ exportováno</span>':'<span class="pill warn">rozpracováno</span>';
+    h+='<tr><td>'+esc(p.vystaveni)+'</td><td class="dod">'+esc(fc)+'</td><td>'+typ+'</td>'+
+       '<td>'+esc(p.odkud)+'</td><td class="r">'+p.pocet+'</td>'+
+       '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis" title="'+esc(p.seznam)+'">'+esc(p.seznam)+'</td>'+
+       '<td>'+esc(p.splatnost)+'</td><td>'+exp+'</td>'+
+       '<td class="r money">'+money(p.castka,p.mena)+'</td></tr>';
+  });
+  b.innerHTML=h+'</tbody></table></div>'; bindPlatChips();
+}
+function loadPlataky(){
+  if(_platakyLoaded)return; _platakyLoaded=true;
+  fetch('/api/v1/erp/app/platby/plataky',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok){document.getElementById('plataky-body').innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
+      _plataky=d.plataky||[]; _firmy=d.firmy||{}; renderPlataky();
+    }).catch(function(){document.getElementById('plataky-body').innerHTML='<div class="load">Chyba načítání.</div>';});
+}
 document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
   document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on');});
   document.querySelectorAll('.panel').forEach(function(x){x.classList.remove('on');});
   t.classList.add('on');var p=t.getAttribute('data-p');document.getElementById(p).classList.add('on');
-  if(p==='vypisy')loadVypisy();};});
+  if(p==='vypisy')loadVypisy();
+  if(p==='plataky')loadPlataky();};});
 fetch('/api/v1/erp/app/platby/navrh',{credentials:'same-origin'})
   .then(function(r){return r.json();})
   .then(function(d){if(d&&d.ok){render(d);} else {document.getElementById('navrhy-body').innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';}})

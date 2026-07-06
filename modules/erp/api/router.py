@@ -29664,6 +29664,44 @@ def platby_vypisy_get(req: Request):
         s.close()
 
 
+@api_router.get("/app/platby/plataky")
+def platby_plataky_get(req: Request):
+    """Platáky (platební příkazy) — tuzemské (oz_platak_tuz) + zahraniční (oz_platak_zahr) per firma
+    (company.id 1/2). Peťa je kontroluje jako ve staré Centrále (přehledy 2370/2375). „Jsou to prachy."
+    Scope: rodiče + Petra (18) + cockpit. Marti 6.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT firma, 'tuz' typ, id, to_char(datum_vystaveni::date,'DD.MM.YYYY') vyst, "
+            "  to_char(datum_splatnosti::date,'DD.MM.YYYY') splat, COALESCE(odkud,'') odkud, pocet, "
+            "  castka_celkem, COALESCE(mena,'CZK') mena, COALESCE(seznam_faktur,'') sez, "
+            "  COALESCE(realizace_export,false) exp, COALESCE(autor,'') autor "
+            "FROM tenant.oz_platak_tuz "
+            "UNION ALL "
+            "SELECT firma, 'zahr', id, to_char(datum_vystaveni::date,'DD.MM.YYYY'), "
+            "  to_char(datum_splatnosti::date,'DD.MM.YYYY'), COALESCE(odkud,''), pocet, "
+            "  castka_celkem, COALESCE(mena,'EUR'), COALESCE(seznam_faktur,''), "
+            "  COALESCE(realizace_export,false), COALESCE(autor,'') "
+            "FROM tenant.oz_platak_zahr "
+            "ORDER BY 4 DESC NULLS LAST, id DESC LIMIT 500")).fetchall()
+        out = []
+        for r in rows:
+            out.append({"firma": int(r[0]) if r[0] is not None else 0, "typ": r[1], "id": r[2],
+                        "vystaveni": r[3] or "", "splatnost": r[4] or "", "odkud": r[5] or "",
+                        "pocet": int(r[6] or 0), "castka": float(r[7]) if r[7] is not None else 0.0,
+                        "mena": r[8], "seznam": r[9] or "", "export": bool(r[10]), "autor": r[11] or ""})
+        firmy = s.execute(_t("SELECT id, code, nazev FROM tenant.company WHERE aktivni ORDER BY id")).fetchall()
+        fmap = {str(int(f[0])): {"code": f[1], "nazev": f[2]} for f in firmy}
+        return {"ok": True, "plataky": out, "firmy": fmap}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/domeny")
 def domeny_get(req: Request):
     """Review doménového prostředí tenant.domain_env (identita+znalosti+tooly).
@@ -29984,6 +30022,11 @@ def _firma_id(firma):
     (Marti 6.7.): do firma SLOUPCŮ patří číslo 1/2, ne text 'EC'/'ES'. 'EC'/'ES' zůstává jen tam,
     kde se vybírá Helios DB (_firma_dbs)."""
     return 1 if str(firma).upper() in ('EC', '1') else 2
+
+
+def _firma_str(firma):
+    """firma jako TEXT '1'/'2' (pro sloupce typu text/varchar — mzdy/benefity). Vstup 'EC'/'ES'/'1'/'2'."""
+    return str(_firma_id(firma))
 
 
 # ════════════════════════════════════════════════════════════════════════════

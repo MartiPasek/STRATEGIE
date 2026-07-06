@@ -283,6 +283,27 @@ _OZ_RAW = {
         "u.RealUhradaVHM AS real_uhrada_hm "
         "FROM TabUhrady u WITH (NOLOCK) WHERE u.Datum >= '2024-01-01'"
     ),
+    # PF k platbě (přijaté faktury) s PLNÝM filtrem návrhu k platbě — saldo + _FinZakaz +
+    # _DnyPredPlatbou (per dodavatel) + SumaKcPoZao + Nehradit. Zdroj pro /platby-navrh. Marti 6.7.2026.
+    "oz_pf_platba": (
+        "SELECT d.ID AS id, dbo.EC_GetDoklad(d.ID) AS doklad, d.PoradoveCislo AS poradove_cislo, "
+        "d.RadaDokladu AS rada, d.DruhPohybuZbo AS druh, d.CisloOrg AS cislo_org, "
+        "org.Nazev AS dodavatel, orge._Zkratka_Nazvu AS zkratka, d.DodFak AS var_symbol, "
+        "ISNULL(NULLIF(LTRIM(RTRIM(d.Mena)),''),'CZK') AS mena, "
+        "CAST(d.Saldo AS numeric(18,2)) AS saldo, CAST(d.SumaKc AS numeric(18,2)) AS suma_kc, "
+        "CAST(d.SumaKcPoZao AS numeric(18,2)) AS suma_po_zao, CAST(d.Realizovano AS int) AS realizovano, "
+        "d.Obdobi AS obdobi, CONVERT(varchar(10), d.Splatnost, 23) AS splatnost, "
+        "ISNULL(de._FinZakaz,0) AS fin_zakaz, ISNULL(de._NavrhPlatby,0) AS navrh_platby, "
+        "ISNULL(de._FinSchvaleni,0) AS fin_schvaleni, ISNULL(orge._DnyPredPlatbou,5) AS dny_pred_platbou, "
+        "ISNULL(d.Nehradit,0) AS nehradit, CONVERT(varchar(10), d.DatPorizeni, 23) AS dat_porizeni, "
+        "d.PopisDodavky AS popis "
+        "FROM TabDokladyZbozi d WITH (NOLOCK) "
+        "LEFT JOIN TabCisOrg org ON d.CisloOrg=org.CisloOrg "
+        "LEFT JOIN TabCisOrg_EXT orge ON org.ID=orge.ID "
+        "LEFT JOIN TabDokladyZbozi_EXT de ON de.ID=d.ID "
+        "WHERE d.DruhPohybuZbo BETWEEN 18 AND 19 AND d.PoradoveCislo>=0 "
+        "AND (d.Saldo > 0 OR d.DatPorizeni >= '2025-01-01')"
+    ),
 }
 
 

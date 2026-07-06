@@ -29099,6 +29099,34 @@ def platby_navrh_get(req: Request):
         s.close()
 
 
+@api_router.get("/app/platby/vypisy")
+def platby_vypisy_get(req: Request):
+    """Výpisy z banky — posledních 60 transakcí z RB API (tenant.bank_transaction_raw): datum, směr,
+    částka, protiúčet, VS, zpráva + stav párování. Scope: rodiče + Petra (18) + cockpit. Marti 6.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT to_char(datum,'DD.MM.YYYY') d, castka, COALESCE(NULLIF(mena,''),'CZK') mena, "
+            "  COALESCE(smer,'') smer, COALESCE(protiucet,'') protiucet, COALESCE(vs,'') vs, "
+            "  LEFT(COALESCE(zprava,''),70) zprava, COALESCE(stav_parovani,'') stav, "
+            "  COALESCE(NULLIF(par_kategorie,''), NULLIF(par_zakazka,''), '') par "
+            "FROM tenant.bank_transaction_raw ORDER BY datum DESC, id DESC LIMIT 60")).fetchall()
+        out = []
+        for r in rows:
+            out.append({"datum": r[0], "castka": float(r[1]) if r[1] is not None else 0.0,
+                        "mena": r[2], "smer": r[3], "protiucet": r[4] or "", "vs": r[5] or "",
+                        "zprava": r[6] or "", "stav": r[7] or "", "par": r[8] or ""})
+        posl = s.execute(_t("SELECT to_char(max(datum),'DD.MM.YYYY') FROM tenant.bank_transaction_raw")).scalar()
+        return {"ok": True, "polozky": out, "posledni": posl}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/domeny")
 def domeny_get(req: Request):
     """Review doménového prostředí tenant.domain_env (identita+znalosti+tooly).

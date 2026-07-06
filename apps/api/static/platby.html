@@ -64,10 +64,7 @@
     <div class="soon"><div class="ic">⬇️</div><h3>Importy do banky</h3>
       Vygenerované importní soubory pro nahrání plateb do banky (starý formát). <b>Připravujeme.</b></div>
   </div>
-  <div id="vypisy" class="panel">
-    <div class="soon"><div class="ic">🏦</div><h3>Výpisy z banky</h3>
-      Bankovní výpisy a spárované úhrady — čteme živě přes RB Premium API. <b>Připravujeme napojení do centra.</b></div>
-  </div>
+  <div id="vypisy" class="panel"><div id="vypisy-body"><div class="load">Načítám výpisy z banky…</div></div></div>
 
   <div class="foot">
     „K platbě" = přijatá faktura je realizovaná, má otevřené saldo (částka − naše úhrady), není finančně zakázaná ani „nehradit",
@@ -104,10 +101,35 @@ function render(d){
     '<div class="b"><div class="n">'+(d.czk.pocet+d.eur.pocet)+'</div><div class="l">faktur celkem k platbě</div></div>';
   document.getElementById('navrhy-body').innerHTML=tableFor(d.czk,'CZK')+tableFor(d.eur,'EUR');
 }
+var _vypisyLoaded=false;
+function renderVypisy(d){
+  var b=document.getElementById('vypisy-body');
+  if(!d||!d.ok){b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
+  if(!d.polozky.length){b.innerHTML='<div class="load">Žádné transakce.</div>';return;}
+  var h='<div class="grp"><div class="gh"><div class="t">🏦 Poslední transakce ('+d.polozky.length+')</div>'+
+    '<div class="sum" style="font-size:12px;color:var(--dim);font-weight:600">poslední import: '+esc(d.posledni||'—')+'</div></div>'+
+    '<table><thead><tr><th>Datum</th><th></th><th>Protiúčet</th><th>VS</th><th>Zpráva</th><th>Párování</th><th class="r">Částka</th></tr></thead><tbody>';
+  d.polozky.forEach(function(t){
+    var out=(t.smer==='out'||t.castka<0);
+    h+='<tr><td>'+esc(t.datum)+'</td><td>'+(out?'<span class="pill hot">odchozí</span>':'<span class="pill ok">příchozí</span>')+'</td>'+
+      '<td>'+esc(t.protiucet)+'</td><td>'+esc(t.vs)+'</td><td>'+esc(t.zprava)+'</td>'+
+      '<td>'+(t.par?'<span class="pill ok">'+esc(t.par)+'</span>':esc(t.stav||''))+'</td>'+
+      '<td class="r money" style="color:'+(out?'var(--hot)':'var(--ok)')+'">'+money(Math.abs(t.castka),t.mena)+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  b.innerHTML=h;
+}
+function loadVypisy(){
+  if(_vypisyLoaded)return; _vypisyLoaded=true;
+  fetch('/api/v1/erp/app/platby/vypisy',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderVypisy)
+    .catch(function(){document.getElementById('vypisy-body').innerHTML='<div class="load">Chyba načítání.</div>';});
+}
 document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
   document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on');});
   document.querySelectorAll('.panel').forEach(function(x){x.classList.remove('on');});
-  t.classList.add('on');document.getElementById(t.getAttribute('data-p')).classList.add('on');};});
+  t.classList.add('on');var p=t.getAttribute('data-p');document.getElementById(p).classList.add('on');
+  if(p==='vypisy')loadVypisy();};});
 fetch('/api/v1/erp/app/platby/navrh',{credentials:'same-origin'})
   .then(function(r){return r.json();})
   .then(function(d){if(d&&d.ok){render(d);} else {document.getElementById('navrhy-body').innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';}})

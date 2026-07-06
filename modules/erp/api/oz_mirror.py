@@ -293,7 +293,7 @@ _OZ_RAW = {
         # POZOR: Helios Saldo se ZÁMĚRNĚ NEzrcadlí (Marti 6.7. — smrtelně důležité). Saldo si
         # počítáme sami = suma_po_zao/suma_kc − naše úhrady (oz_uhrady), jinak by 10min refresh
         # přepsal naše saldo po vygenerování platáku. Zrcadlíme jen stabilní částky faktury.
-        "CAST(d.SumaKc AS numeric(18,2)) AS suma_kc, "
+        "CAST(d.SumaKc AS numeric(18,2)) AS suma_kc, CAST(d.SumaVal AS numeric(18,2)) AS suma_val, "
         "CAST(d.SumaKcPoZao AS numeric(18,2)) AS suma_po_zao, CAST(d.Realizovano AS int) AS realizovano, "
         "d.Obdobi AS obdobi, CONVERT(varchar(10), d.Splatnost, 23) AS splatnost, "
         "ISNULL(de._FinZakaz,0) AS fin_zakaz, ISNULL(de._NavrhPlatby,0) AS navrh_platby, "

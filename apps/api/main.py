@@ -978,6 +978,15 @@ def eliska_page():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/platby")
+def platby_page():
+    """Platební centrum pro Peťu — návrhy k platbě CZK/EUR (naše saldo z úhrad), platáky, importy,
+    výpisy. API /app/platby/navrh = rodiče + Petra (18) + cockpit. Marti 6.7.2026."""
+    return FileResponse(os.path.join(static_dir, "platby.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
+
+
 @app.get("/vp-vez")
 def vp_vez_page():
     """VP řídící věž — Eliška jako vedoucí vidí celý pipeline hromad po řešitelích

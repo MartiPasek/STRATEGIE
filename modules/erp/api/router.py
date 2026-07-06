@@ -29058,6 +29058,47 @@ def vp_cockpit_get(req: Request):
         s.close()
 
 
+@api_router.get("/app/platby/navrh")
+def platby_navrh_get(req: Request):
+    """Platební centrum (Peťa) — návrh k platbě PF (CZK + EUR) z NAŠICH dat. Otevřené saldo =
+    částka faktury − naše úhrady (oz_uhrady), NE zrcadlené Helios saldo (to se nedrží — smrtelně
+    důležité, viz ucto.md). Filtr = stará selekce EC_Fin_GenNavrhKPlatbe (realizováno, ne
+    fin.zákaz/nehradit, obdobi>22, ne řada 52x = záloha, splatnost − dny předem). Scope: rodiče +
+    cockpit + Petra (18). Marti 6.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "WITH u AS (SELECT id_fak, SUM(castka) AS paid FROM tenant.oz_uhrady GROUP BY id_fak) "
+            "SELECT p.mena, p.doklad, COALESCE(NULLIF(p.dodavatel,''),p.zkratka,'?') dod, "
+            "  COALESCE(p.var_symbol,'') vs, to_char(p.splatnost::date,'DD.MM.YYYY') splat, "
+            "  (p.splatnost::date - now()::date) dni, "
+            "  ((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0)) open_saldo, "
+            "  p.poradove_cislo, COALESCE(p.popis,'') popis "
+            "FROM tenant.oz_pf_platba p LEFT JOIN u ON u.id_fak=p.id "
+            "WHERE p.realizovano=1 AND NOT p.fin_zakaz AND p.nehradit=0 AND p.suma_po_zao>0 "
+            "  AND p.obdobi>22 AND p.rada NOT LIKE '52%' "
+            "  AND now()::date >= (p.splatnost::date - (p.dny_pred_platbou||' days')::interval) "
+            "  AND ((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0)) > 0.5 "
+            "ORDER BY p.mena, p.splatnost")).fetchall()
+        czk, eur = [], []
+        for r in rows:
+            it = {"doklad": r[1] or "", "dodavatel": r[2] or "", "vs": r[3] or "", "splatnost": r[4],
+                  "dni": int(r[5]) if r[5] is not None else None,
+                  "castka": round(float(r[6]), 2) if r[6] is not None else 0.0,
+                  "cislo": r[7], "popis": (r[8] or "")[:70]}
+            (czk if r[0] == "CZK" else eur).append(it)
+        return {"ok": True,
+                "czk": {"pocet": len(czk), "suma": round(sum(x["castka"] for x in czk), 2), "polozky": czk},
+                "eur": {"pocet": len(eur), "suma": round(sum(x["castka"] for x in eur), 2), "polozky": eur}}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/domeny")
 def domeny_get(req: Request):
     """Review doménového prostředí tenant.domain_env (identita+znalosti+tooly).

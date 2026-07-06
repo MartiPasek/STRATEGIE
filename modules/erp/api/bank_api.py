@@ -236,8 +236,14 @@ def _p12_to_pem(p12_b64: str, password: str):
     return cert_pem, key_pem
 
 
-def _rb_call(bundle: dict, method: str, path: str, params=None, json_body=None, accept=None, timeout=40):
-    """mTLS volání na RB. Cert z trezoru → ephemeral temp PEM (smaže se hned). Vrací requests.Response."""
+def _rb_call(bundle: dict, method: str, path: str, params=None, json_body=None, accept=None,
+             data=None, content_type=None, extra_headers=None, timeout=40):
+    """mTLS volání na RB. Cert z trezoru → ephemeral temp PEM (smaže se hned). Vrací requests.Response.
+
+    json_body = JSON payload (Content-Type application/json).
+    data = syrové tělo (bytes/str) — pro import dávky (Gemini/SEPA-XML soubor); pošli i content_type.
+    extra_headers = dict dalších hlaviček (např. Batch-Import-Format).
+    """
     import requests, tempfile, os, uuid
     cert_pem, key_pem = _p12_to_pem(bundle.get("p12_b64") or "", bundle.get("password") or "")
     cf = tempfile.NamedTemporaryFile(delete=False, suffix=".pem"); cf.write(cert_pem); cf.close()
@@ -246,14 +252,58 @@ def _rb_call(bundle: dict, method: str, path: str, params=None, json_body=None, 
         headers = {"X-IBM-Client-Id": bundle.get("client_id") or "", "X-Request-Id": uuid.uuid4().hex[:60]}
         if accept:
             headers["Accept"] = accept
+        if content_type:
+            headers["Content-Type"] = content_type
+        if extra_headers:
+            headers.update({k: v for k, v in extra_headers.items() if v is not None})
         return requests.request(method, _RB_BASE + path, headers=headers, params=params,
-                                json=json_body, cert=(cf.name, kf.name), timeout=timeout)
+                                json=json_body, data=data, cert=(cf.name, kf.name), timeout=timeout)
     finally:
         for p in (cf.name, kf.name):
             try:
                 os.unlink(p)
             except Exception:
                 pass
+
+
+# ── Fáze 2: PLATBY — import dávky (platáku) do RB. NIKDY neprovede platbu, jen nahraje do IB (FOR_SIGN). ──
+# Batch-Import-Format hodnoty RB Premium API (POST /payments/batches):
+#   SEPA-XML, DOM-XML, ABO-KPC, CFD, CFU, CFA, GEMINI-* (náš byte-exact .p11/.f84 render → GEMINI).
+_RB_BATCH_FORMATS = ("SEPA-XML", "DOM-XML", "ABO-KPC", "CFD", "CFU", "CFA",
+                     "GEMINI-CFD", "GEMINI-CFU", "GEMINI-CFA")
+
+
+def _rb_import_batch(bundle: dict, content, batch_format: str):
+    """Nahraje dávku plateb (obsah platáku) do RB → IB jako koncept k PODPISU. NEPROVEDE platbu.
+    content = bytes (CP1250 Gemini soubor) nebo str; vrací (ok, dict). Člověk pak podepíše v bankovnictví."""
+    if isinstance(content, str):
+        content = content.encode("cp1250", "replace")
+    r = _rb_call(bundle, "POST", "/payments/batches", data=content,
+                 content_type="text/plain",
+                 extra_headers={"Batch-Import-Format": batch_format},
+                 accept="application/json", timeout=60)
+    ok = 200 <= r.status_code < 300
+    body = None
+    try:
+        body = r.json()
+    except Exception:
+        body = {"text": (r.text or "")[:400]}
+    return ok, {"http": r.status_code, "batchFileId": (body or {}).get("batchFileId"),
+                "state": (body or {}).get("state") or (body or {}).get("status"),
+                "raw": body}
+
+
+def _rb_batch_status(bundle: dict, batch_file_id: str):
+    """Stav importované dávky: DRAFT/FOR_SIGN/VERIFIED/PASSED…"""
+    r = _rb_call(bundle, "GET", "/payments/batches/%s" % batch_file_id,
+                 accept="application/json", timeout=40)
+    ok = 200 <= r.status_code < 300
+    try:
+        body = r.json()
+    except Exception:
+        body = {"text": (r.text or "")[:400]}
+    return ok, {"http": r.status_code, "state": (body or {}).get("state") or (body or {}).get("status"),
+                "raw": body}
 
 
 def _rb_accounts(bundle: dict):
@@ -411,6 +461,89 @@ async def bank_load_tx(cid: int, request: Request):
                 "celkem": total, "ucty": per}
     except Exception as exc:
         s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/bank/payment/import-batch")
+async def bank_import_batch(request: Request):
+    """Nahraje dávku plateb (platák) do RB IB k PODPISU. NEPROVEDE platbu — člověk podepíše v bankovnictví.
+    Body JSON: {conn_id, format, content?  |  gemini_ref?, validate:false}.
+      format = SEPA-XML/DOM-XML/ABO-KPC/CFD/CFU/CFA/GEMINI-* (náš .p11/.f84 render = GEMINI-*).
+      content = obsah dávky (text) — např. výstup scripts/rb/gemini_render.
+      validate=true → jen ověří strukturu volání bez odeslání (žádné volání RB).
+    Pojistky: parent/cockpit; platba se v bance jen připraví, podpis je LIDSKÝ krok."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cid = body.get("conn_id")
+    fmt = (body.get("format") or "").strip()
+    content = body.get("content")
+    validate = bool(body.get("validate"))
+    if not cid or not fmt:
+        return JSONResponse({"ok": False, "error": "Chybí conn_id nebo format."}, status_code=400)
+    if fmt not in _RB_BATCH_FORMATS:
+        return JSONResponse({"ok": False, "error": "Neznámý formát dávky: %s (povolené: %s)"
+                             % (fmt, ", ".join(_RB_BATCH_FORMATS))}, status_code=400)
+    if not content:
+        return JSONResponse({"ok": False, "error": "Chybí obsah dávky (content)."}, status_code=400)
+    # validate = suchý běh: neposílá do banky, jen potvrdí, že by volání proběhlo
+    if validate:
+        b = content.encode("cp1250", "replace") if isinstance(content, str) else content
+        return {"ok": True, "validate": True, "format": fmt, "bytes": len(b),
+                "note": "Suchý běh — do banky se NIC neodeslalo. Reálný import spusť bez validate."}
+    s = _sess()
+    try:
+        bundle = _bundle_for(s, cid)
+        if not bundle:
+            return JSONResponse({"ok": False, "error": "Napojení nemá uložený certifikát."}, status_code=400)
+        try:
+            ok, res = _rb_import_batch(bundle, content, fmt)
+        except Exception as exc:
+            _log(s, cid, None, "import_payment_batch", "event", "user:%s" % uid, "ERROR:%s" % type(exc).__name__,
+                 {"format": fmt, "err": str(exc)[:200]})
+            s.commit()
+            return JSONResponse({"ok": False, "error": "RB import selhal: %s: %s"
+                                 % (type(exc).__name__, str(exc)[:200])}, status_code=502)
+        _log(s, cid, None, "import_payment_batch", "event", "user:%s" % uid,
+             ("OK:%s" % res.get("batchFileId")) if ok else ("HTTP:%s" % res.get("http")),
+             {"format": fmt, "batchFileId": res.get("batchFileId"), "state": res.get("state")})
+        s.commit()
+        if not ok:
+            return JSONResponse({"ok": False, "error": "RB odmítla dávku (HTTP %s)" % res.get("http"),
+                                 "detail": res.get("raw")}, status_code=502)
+        return {"ok": True, "batchFileId": res.get("batchFileId"), "state": res.get("state"),
+                "note": "Dávka nahrána do internetového bankovnictví. Platbu je nutné PODEPSAT v bance (lidský krok)."}
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/bank/payment/batch-status")
+async def bank_batch_status(request: Request):
+    """Stav importované dávky v IB: ?conn_id=&batch_file_id=  → DRAFT/FOR_SIGN/VERIFIED/PASSED."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    cid = request.query_params.get("conn_id")
+    bfid = request.query_params.get("batch_file_id")
+    if not cid or not bfid:
+        return JSONResponse({"ok": False, "error": "Chybí conn_id nebo batch_file_id."}, status_code=400)
+    s = _sess()
+    try:
+        bundle = _bundle_for(s, int(cid))
+        if not bundle:
+            return JSONResponse({"ok": False, "error": "Napojení nemá uložený certifikát."}, status_code=400)
+        ok, res = _rb_batch_status(bundle, bfid)
+        return {"ok": ok, "state": res.get("state"), "http": res.get("http"), "detail": res.get("raw")}
+    except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)
     finally:
         s.close()

@@ -35146,6 +35146,29 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_ae).__name__, str(_ae)[:200]),
                                  "tb": _tba.format_exc()[-600:]})
 
+    #   @@DPH <DIC>  → status u správce daně (ADIS): je plátce DPH, nespolehlivý, zveřejněné účty (§109).
+    if sql.upper().startswith("@@DPH"):
+        import traceback as _tbd
+        try:
+            _dc = sql[len("@@DPH"):].strip().split()
+            if not _dc:
+                return JSONResponse({"ok": False, "error": "@@DPH <DIC>"})
+            from modules.erp.api.registr_verify import dph_lookup as _dl
+            _rv = _dl(_dc[0])
+            if not _rv.get("ok") or not _rv.get("nalezeno"):
+                return JSONResponse({"ok": True, "columns": ["vysledek"], "rows": [[str(_rv)[:500]]], "count": 1})
+            _u = _rv.get("zverejnene_ucty", [])
+            _ucty = " | ".join(
+                [("%s-%s/%s" % (x.get("predcisli") or "0", x.get("cislo") or "", x.get("kod_banky") or "")).lstrip("0-")
+                 for x in _u]) or "(žádné)"
+            _cols = ["dic", "je_platce_dph", "nespolehlivy", "datum", "zverejnene_ucty"]
+            _rows = [[_rv.get("dic"), ("ANO" if _rv.get("je_platce_dph") else "NE"),
+                      str(_rv.get("nespolehlivy") or "-"), _rv.get("datum") or "-", _ucty[:220]]]
+            return JSONResponse({"ok": True, "columns": _cols, "rows": _rows, "count": 1})
+        except Exception as _de2:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_de2).__name__, str(_de2)[:200]),
+                                 "tb": _tbd.format_exc()[-600:]})
+
     #   @@EPVAL <soubor> [PROD]  → ověří XML (docs/jmhz/) proti oficiálnímu validátoru ČSSZ
     #   (SOAP, anonymní, test t-epodani.cssz.cz). JMHZ = per formularOsoby; PREZEC/REGZEC = celý root.
     if sql.upper().startswith("@@EPVAL"):

@@ -11,6 +11,8 @@ Volá se server-side z cloud API (jako epodani_validace pro ČSSZ). Výsledek �
 import requests
 
 ARES_URL = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/%s"
+ADIS_URL = "https://adisrws.mfcr.cz/adistc/axis2/services/rozhraniCRPDPH"
+ADIS_NS = "urn:cz:isvs:dph:schemas:rozhranicrpdph:v1:GetStatusNespolehlivyPlatceRozsireny"
 
 
 def _ico8(ico):
@@ -49,3 +51,59 @@ def ares_lookup(ico) -> dict:
         "datum_zaniku": zanik,
         "aktivni": (zanik is None),
     }
+
+
+def dph_lookup(dic) -> dict:
+    """DIČ → status u správce daně (ADIS Registr DPH, SOAP). Vrací {ok, dic, nalezeno,
+    je_platce_dph, nespolehlivy (ANO/NE/NENALEZEN), datum, zverejnene_ucty[]}.
+    Tolerantní parsování (dle local-name), ať to nepadá na jmenných prostorech."""
+    from lxml import etree
+    d = "".join(ch for ch in str(dic or "").upper().replace("CZ", "") if ch.isdigit())
+    if not d:
+        return {"ok": False, "error": "neplatné DIČ"}
+    body = (
+        '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" '
+        'xmlns:v1="%s"><soapenv:Body>'
+        '<v1:StatusNespolehlivyPlatceRozsirenyRequest>'
+        '<v1:dic>%s</v1:dic>'
+        '</v1:StatusNespolehlivyPlatceRozsirenyRequest>'
+        '</soapenv:Body></soapenv:Envelope>' % (ADIS_NS, d)
+    ).encode("utf-8")
+    headers = {"Content-Type": "text/xml; charset=utf-8", "SOAPAction": ""}
+    try:
+        r = requests.post(ADIS_URL, data=body, headers=headers, timeout=25)
+    except Exception as e:
+        return {"ok": False, "error": "spojení ADIS: %s: %s" % (type(e).__name__, str(e)[:150])}
+    try:
+        root = etree.fromstring(r.content)
+    except Exception:
+        return {"ok": False, "http": r.status_code, "error": (r.text or "")[:300]}
+
+    def ln(el):
+        try:
+            return etree.QName(el).localname
+        except Exception:
+            return ""
+
+    status = None
+    for el in root.iter():
+        if ln(el) == "statusPlatceDPH":
+            status = el
+            break
+    if status is None:
+        # chybová/prázdná odpověď — vrať syrově pro diagnostiku
+        return {"ok": True, "dic": d, "nalezeno": False, "raw": (r.text or "")[:500]}
+    nespoleh = status.get("nespolehlivyPlatce")
+    dat = (status.get("datumZverejneniNespolehlivosti") or status.get("datumZverejneninespolehlivosti")
+           or status.get("datumZverejneni"))
+    ucty = []
+    for u in status.iter():
+        lname = ln(u)
+        if lname in ("standardniUcet", "nestandardniUcet"):
+            ucty.append({
+                "typ": lname, "predcisli": u.get("predcisli"), "cislo": u.get("cislo"),
+                "kod_banky": u.get("kodBanky"), "datum": u.get("datumZverejneni"),
+            })
+    je_platce = (nespoleh is not None) and (str(nespoleh).upper() != "NENALEZEN")
+    return {"ok": True, "dic": d, "nalezeno": True, "je_platce_dph": je_platce,
+            "nespolehlivy": nespoleh, "datum": dat, "zverejnene_ucty": ucty}

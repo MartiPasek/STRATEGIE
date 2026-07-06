@@ -42,6 +42,7 @@
 <div class="wrap">
   <div class="top"><h1>🪞 Zrcadla — kancelář → cloud</h1></div>
   <div class="sub">Jednotný přehled všech zrcadel — Centrála → STRATEGIE i účetnictví kancelář → cloud Helios (📒 Účto). Vše automatické: kdy naposledy běželo, další běh, interval, spustit teď.</div>
+  <div id="bwarn" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:#3a2a10;border:1px solid #b8860b;color:#ffd88a;font-size:13px"></div>
 
   <div class="top" style="margin-top:16px"><h2 style="font-size:17px;margin:0;font-weight:800">🔄 Zrcadla <span class="hint" style="font-weight:400">(plánovač)</span></h2>
     <button class="btn" id="refresh">↻ Obnovit</button>
@@ -177,8 +178,27 @@ function load(){
     render(jobs);
     var ozjob=null;
     for(var i=0;i<jobs.length;i++){if(jobs[i].job_key==="oz_sync_all"){ozjob=jobs[i];break;}}
-    renderOz(j.oz_mirrory||[], ozjob);
+    // Pojistka proti blikání: když přijde prázdný OZ seznam (typicky stale B při běhu),
+    // nemaž — nech poslední známý a jen naznač, že se aktualizuje.
+    var oz=j.oz_mirrory||[];
+    if(oz.length){_lastOz=oz;}
+    else if(_lastOz&&_lastOz.length){oz=_lastOz;}
+    renderOz(oz, ozjob);
   });
+  checkSecondary();
+}
+var _lastOz=null;
+function checkSecondary(){
+  api("GET","/api/v1/erp/app/ops/secondary-info").then(function(j){
+    var w=document.getElementById("bwarn");if(!w)return;
+    var stale=j&&j.b&&(j.b.stale===true || (j.a&&j.a.commit&&j.b.commit&&j.a.commit!==j.b.commit));
+    if(stale){
+      w.style.display="block";
+      w.innerHTML='⚠️ <b>Záložní API B je pozadu</b> (commit '+esc((j.b&&j.b.commit)||"?")+' vs A '+esc((j.a&&j.a.commit)||"?")+'). '
+        +'Dokud se nesrovná, může při běhu blikat OZ seznam (B ještě nemá nový kód) a chybět nové joby. '
+        +'Srovnej přes ⚙ Ops → <b>📦 Zkopírovat aktuální verzi do zálohy (API B)</b>.';
+    } else { w.style.display="none"; }
+  }).catch(function(){});
 }
 document.getElementById("refresh").onclick=load;
 document.getElementById("autoref").onclick=function(){_autoref=!_autoref;

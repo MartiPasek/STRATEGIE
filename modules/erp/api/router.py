@@ -6351,6 +6351,104 @@ async def crm_import_preview(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "summary": summary, "rows": rows})
 
 
+def _crm_import_write(rows, obchodnik, create_akce, zdroj):
+    """Sync zápis dávky do Centrály (běží v executoru, ne v event loopu → neblokuje app).
+    Per firma: hlavička st.CRM_Kontakt + akce „Získání firmy" (IDAkce=16, kvůli zobrazení
+    názvu v CRM) + volitelně „Email na info" (IDAkce=1). Dedup dle (FirmaText, FirmaEmail).
+    Retry na MCP rate-limit. Malé pauzy kvůli MCP limitu ~60 ops/min."""
+    import time as _time
+    import datetime as _dt
+    mcp = _crm_import_mcp()
+    if mcp is None:
+        return {"created": 0, "skipped_dup": 0, "akce_created": 0, "akce16": 0,
+                "bounced": 0, "errors": ["CRM (MCP) nedostupné"], "obchodnik": obchodnik}
+    try:
+        existing = _crm_import_existing_pairs(mcp, [str(r.get("email") or "") for r in rows])
+    except Exception:
+        existing = set()
+    today = _dt.date.today().strftime("%Y-%m-%d")
+    created = skipped = akce_created = akce16 = bounced = 0
+    errors = []
+
+    def _ins(table, data, retries=4):
+        for att in range(retries):
+            try:
+                return _crm_mcp_insert(mcp, table, data)
+            except Exception as exc:
+                msg = str(exc).lower()
+                if ("rate limit" in msg or "too many" in msg or "429" in msg) and att < retries - 1:
+                    _time.sleep(4)
+                    continue
+                raise
+        return None
+
+    for r in rows:
+        firma = str(r.get("firma") or "").strip()[:256]
+        if not firma:
+            continue
+        email = str(r.get("email") or "").strip()[:256]
+        _key = (firma.lower(), email.lower())
+        if email and _key in existing:
+            skipped += 1
+            continue
+        datum = r.get("datum") or None
+        popis = _crm_import_popis(r) or None
+        web = str(r.get("web") or "").strip()[:1000] or None
+        try:
+            new_id = _ins("CRM_Kontakt", {
+                "Autor": obchodnik, "DatPorizeni": (datum or today), "FirmaText": firma,
+                "FirmaEmail": (email or None), "FirmaWeb": web,
+                "Zeme": (str(r.get("zeme") or "").strip()[:128] or None),
+                "ZdrojKontaktu": zdroj, "Popis": popis, "KontaktOveren": 0,
+            })
+        except Exception as exc:
+            errors.append("[" + firma[:40] + "] kontakt: " + str(exc)[:110])
+            continue
+        created += 1
+        if email:
+            existing.add(_key)
+        _time.sleep(0.15)
+        # akce „Získání firmy" (IDAkce=16) — CRM z ní bere zobrazovaný název/web/e-mail
+        if new_id:
+            try:
+                _ins("CRM_Kontakt_Akce", {
+                    "IDHlav": int(new_id), "Poradi": 1, "IDAkce": 16, "Splneno": 1,
+                    "Autor": obchodnik, "DatPorizeni": (datum or today),
+                    "FirmaText": firma, "FirmaWeb": web, "Email": (email or None),
+                    "Popis": popis,
+                })
+                akce16 += 1
+            except Exception as exc:
+                errors.append("[" + firma[:40] + "] akce16: " + str(exc)[:110])
+            _time.sleep(0.15)
+        # akce „Email na info" (IDAkce=1)
+        if create_akce and datum and new_id:
+            deliv = _crm_import_delivered(r.get("doruceno"))
+            splneno = 0 if deliv is False else 1
+            duvod = str(r.get("duvod") or "").strip()
+            if deliv is False:
+                prubeh = ("Odesláno oslovení na " + (email or firma) + " – NEDORUČENO"
+                          + ((" (" + duvod + ")") if duvod else ""))
+                pozn = ("E-mail nedoručen " + str(datum) + (" – " + duvod if duvod else ""))[:4000]
+            else:
+                prubeh = "Odesláno oslovení (Email na info) na " + (email or firma)
+                pozn = None
+            try:
+                _ins("CRM_Kontakt_Akce", {
+                    "IDHlav": int(new_id), "Poradi": 2, "IDAkce": _CRM_IMPORT_EMAIL_AKCE,
+                    "Autor": obchodnik, "DatumAkce": datum, "DatPorizeni": datum,
+                    "Splneno": splneno, "Email": (email or None), "FirmaText": firma,
+                    "Prubeh": prubeh[:3900], "Poznamka": pozn,
+                })
+                akce_created += 1
+                bounced += 1 if deliv is False else 0
+            except Exception as exc:
+                errors.append("[" + firma[:40] + "] akce: " + str(exc)[:110])
+            _time.sleep(0.15)
+    return {"created": created, "skipped_dup": skipped, "akce_created": akce_created,
+            "akce16": akce16, "bounced": bounced, "errors": errors[:50], "obchodnik": obchodnik}
+
+
 @api_router.post("/crm/import/commit")
 async def crm_import_commit(req: Request) -> JSONResponse:
     """Zápis importu do Centrály: kontakty + akce Email na info (Autor=obchodník)."""
@@ -6389,69 +6487,17 @@ async def crm_import_commit(req: Request) -> JSONResponse:
         ok_login = True
     if not ok_login:
         return JSONResponse({"ok": False, "error": "Neznámý obchodník: " + obchodnik}, status_code=400)
-    mcp = _crm_import_mcp()
-    if mcp is None:
-        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
+    import asyncio as _aio
     try:
-        existing = _crm_import_existing_pairs(mcp, [str(r.get("email") or "") for r in rows])
-    except Exception:
-        existing = set()
-    import datetime as _dt
-    today = _dt.date.today().strftime("%Y-%m-%d")
-    created = skipped = akce_created = bounced = 0
-    errors = []
-    for r in rows:
-        firma = str(r.get("firma") or "").strip()[:256]
-        if not firma:
-            continue
-        email = str(r.get("email") or "").strip()[:256]
-        _key = (firma.strip().lower(), email.lower())
-        if email and _key in existing:
-            skipped += 1
-            continue
-        datum = r.get("datum") or None
-        try:
-            new_id = _crm_mcp_insert(mcp, "CRM_Kontakt", {
-                "Autor": obchodnik, "DatPorizeni": (datum or today), "FirmaText": firma,
-                "FirmaEmail": (email or None),
-                "FirmaWeb": (str(r.get("web") or "").strip()[:1000] or None),
-                "Zeme": (str(r.get("zeme") or "").strip()[:128] or None),
-                "ZdrojKontaktu": zdroj, "Popis": (_crm_import_popis(r) or None),
-                "KontaktOveren": 0,
-            })
-        except Exception as exc:
-            errors.append("[" + firma[:40] + "] kontakt: " + str(exc)[:120])
-            continue
-        created += 1
-        if email:
-            existing.add(_key)
-        if create_akce and datum and new_id:
-            deliv = _crm_import_delivered(r.get("doruceno"))
-            splneno = 0 if deliv is False else 1
-            duvod = str(r.get("duvod") or "").strip()
-            if deliv is False:
-                prubeh = ("Odesláno oslovení na " + (email or firma) + " – NEDORUČENO"
-                          + ((" (" + duvod + ")") if duvod else ""))
-                pozn = ("E-mail nedoručen " + str(datum) + (" – " + duvod if duvod else ""))[:4000]
-            else:
-                prubeh = "Odesláno oslovení (Email na info) na " + (email or firma)
-                pozn = None
-            try:
-                _crm_mcp_insert(mcp, "CRM_Kontakt_Akce", {
-                    "IDHlav": int(new_id), "IDAkce": _CRM_IMPORT_EMAIL_AKCE, "Autor": obchodnik,
-                    "DatumAkce": datum, "DatPorizeni": datum, "Splneno": splneno,
-                    "Email": (email or None), "FirmaText": firma,
-                    "Prubeh": prubeh[:3900], "Poznamka": pozn,
-                })
-                akce_created += 1
-                bounced += 1 if deliv is False else 0
-            except Exception as exc:
-                errors.append("[" + firma[:40] + "] akce: " + str(exc)[:120])
-    logger.info("[crm_import_commit] uid=%d obchodnik=%s created=%d skip=%d akce=%d bounce=%d err=%d",
-                uid, obchodnik, created, skipped, akce_created, bounced, len(errors))
-    return JSONResponse({"ok": True, "report": {
-        "created": created, "skipped_dup": skipped, "akce_created": akce_created,
-        "bounced": bounced, "errors": errors[:50], "obchodnik": obchodnik}})
+        report = await _aio.get_event_loop().run_in_executor(
+            None, _crm_import_write, rows, obchodnik, create_akce, zdroj)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Zápis selhal: " + str(exc)[:150]},
+                            status_code=500)
+    logger.info("[crm_import_commit] uid=%d obchodnik=%s created=%d skip=%d a16=%d aemail=%d err=%d",
+                uid, obchodnik, report.get("created", 0), report.get("skipped_dup", 0),
+                report.get("akce16", 0), report.get("akce_created", 0), len(report.get("errors", [])))
+    return JSONResponse({"ok": True, "report": report})
 
 
 @api_router.post("/app/mail/stav")

@@ -285,34 +285,64 @@
       if (!previewRows || !previewRows.length) return;
       if (!obchEl.value) { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "Vyber obchodníka."; return; }
       setGo(false); prevBtn.disabled = true;
-      msgEl.style.color = "#9fb6cc"; msgEl.textContent = "Zapisuji do CRM… (může chvíli trvat)";
-      fetch(IMP_BASE + "/commit", {
-        method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rows: previewRows, obchodnik: obchEl.value,
-          create_akce: !!akceEl.checked, zdroj: (zdrojEl.value || "Import")
+      var all = previewRows.slice();
+      var CHUNK = 15, total = all.length, idx = 0;
+      var acc = { created: 0, skipped_dup: 0, akce_created: 0, akce16: 0, bounced: 0, errors: [] };
+      msgEl.style.color = "#9fb6cc";
+
+      function finish(ok) {
+        prevBtn.disabled = false;
+        if (ok) { msgEl.style.color = "#3ecf8e"; msgEl.textContent = "✓ Import dokončen"; }
+        var eh = "";
+        if (acc.errors.length) {
+          eh = '<div style="color:#ff6b6b;margin-top:6px;">Chyby (' + acc.errors.length + '): ' +
+            esc(acc.errors.slice(0, 5).join(" · ")) + '</div>';
+        }
+        sumEl.innerHTML =
+          '<div style="background:#0e1620;border:1px solid #253143;border-radius:8px;padding:10px 12px;line-height:1.7;">' +
+          '✅ Založeno kontaktů: <b>' + acc.created + '</b> (autor ' + esc(obchEl.value) + ')<br>' +
+          'Akce „Získání firmy": <b>' + acc.akce16 + '</b> · „Email na info": <b>' + acc.akce_created +
+          '</b> · nedoručeno: <b>' + acc.bounced + '</b><br>' +
+          'Přeskočeno (duplicita): <b>' + acc.skipped_dup + '</b>' + eh + '</div>';
+        if (ok) previewRows = null;
+      }
+
+      function sendNext() {
+        if (idx >= total) { finish(true); return; }
+        var chunk = all.slice(idx, idx + CHUNK);
+        msgEl.textContent = "Zapisuji do CRM… " + Math.min(idx + chunk.length, total) + " / " + total;
+        fetch(IMP_BASE + "/commit", {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rows: chunk, obchodnik: obchEl.value,
+            create_akce: !!akceEl.checked, zdroj: (zdrojEl.value || "Import")
+          })
         })
-      })
-        .then(function (r) { return r.json().catch(function () { return {}; }); })
-        .then(function (j) {
-          prevBtn.disabled = false;
-          if (!j || !j.ok) { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "✗ " + ((j && j.error) || "zápis selhal"); setGo(true); return; }
-          var rp = j.report || {};
-          msgEl.style.color = "#3ecf8e"; msgEl.textContent = "✓ Import dokončen";
-          var eh = "";
-          if (rp.errors && rp.errors.length) {
-            eh = '<div style="color:#ff6b6b;margin-top:6px;">Chyby (' + rp.errors.length + '): ' +
-              esc(rp.errors.slice(0, 5).join(" · ")) + '</div>';
-          }
-          sumEl.innerHTML =
-            '<div style="background:#0e1620;border:1px solid #253143;border-radius:8px;padding:10px 12px;line-height:1.7;">' +
-            '✅ Založeno kontaktů: <b>' + (rp.created || 0) + '</b> (autor ' + esc(rp.obchodnik || "") + ')<br>' +
-            'Akcí „Email na info": <b>' + (rp.akce_created || 0) + '</b> · nedoručeno: <b>' + (rp.bounced || 0) + '</b><br>' +
-            'Přeskočeno (duplicita): <b>' + (rp.skipped_dup || 0) + '</b>' + eh + '</div>';
-          previewRows = null;
-        })
-        .catch(function () { prevBtn.disabled = false; msgEl.style.color = "#ff6b6b"; msgEl.textContent = "✗ síť při zápisu"; setGo(true); });
+          .then(function (r) { return r.json().catch(function () { return {}; }); })
+          .then(function (j) {
+            if (!j || !j.ok) {
+              msgEl.style.color = "#ff6b6b";
+              msgEl.textContent = "✗ " + ((j && j.error) || "zápis selhal") + " (u " + idx + "/" + total + ")";
+              finish(false); setGo(true); return;
+            }
+            var rp = j.report || {};
+            acc.created += rp.created || 0; acc.skipped_dup += rp.skipped_dup || 0;
+            acc.akce_created += rp.akce_created || 0; acc.akce16 += rp.akce16 || 0;
+            acc.bounced += rp.bounced || 0;
+            if (rp.errors && rp.errors.length) acc.errors = acc.errors.concat(rp.errors);
+            idx += chunk.length;
+            sumEl.innerHTML = '<div style="font-size:12px;color:#9fb6cc;">Hotovo ' + idx + ' / ' + total +
+              ' · založeno ' + acc.created + ' · přeskočeno ' + acc.skipped_dup + '</div>';
+            sendNext();
+          })
+          .catch(function () {
+            msgEl.style.color = "#ff6b6b";
+            msgEl.textContent = "✗ síť u " + idx + "/" + total + ". Spusť prosím znovu — dedup dopíše jen chybějící.";
+            finish(false); setGo(true);
+          });
+      }
+      sendNext();
     };
   }
 

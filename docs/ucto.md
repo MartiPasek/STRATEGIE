@@ -62,6 +62,32 @@ Proto příznaky **žijí v obou denících a zrcadlíme je obousměrně** (den�
 Paralelní jištění: **náš deník × Helios `TabDenik`** — když sedíme, je to jištění; když ne, ukáže chybu dřív.
 Reconciliace per období, skladové/vyloučené účty se přeskakují.
 
+## 7b. Saldokonto = derivát deníku (klíčový postřeh Marti 6.7.2026)
+**„Kdo komu dluží" NENÍ samostatný zdroj — je to jen POHLED na zaúčtovaný deník.**
+- Helios `TabSaldoFA` (saldokonto otevřených faktur) se opírá o **účetní DENÍK**, ne přímo o doklady/banku.
+  Důkaz ve struktuře tabulky: sloupce `Saldo_Ucet`/`SaldoCM_Ucet` (saldo z **účtu** = deníkového zápisu)
+  + `Castka_MD/Dal_Doklad` (jen zpětná vazba na doklad). `CisloSalSk` = přímo účet **311/321**, `ParovaciZnak` = VS.
+- Mechanika: doklad/banka **se zaúčtuje** → vznikne/změní se položka na saldokontním účtu, párovaná přes VS →
+  `Saldo = Σ MD − Σ Dal` na daném VS+účtu. Když = 0, faktura je zavřená a ze saldokonta vypadne.
+  **Řetěz: Doklad / Banka → zaúčtování → Deník → Saldokonto.**
+- Dvě strany: **311 = pohledávky** (vydané FV, oni dluží nám), **321 = závazky** (přijaté FP, dlužíme my).
+  Živě 6.7. (EC): 311 = 2 810 otevřených (nominál ~30,3 M, net 3,56 M po dobropisech/zálohách),
+  321 = 17 791 (net −2,89 M). Obří rozdíl nominál×net = vzájemně se rušící položky (net > magnituda).
+- **Naše platby NEjedou ze saldokonta** — jedou z `oz_pf_platba − oz_uhrady` (naše vlastní saldo, RW). Saldokonto = jen Helios pohled.
+
+**➜ ROZHODNUTÍ (Marti 6.7.): saldokonto Plzně UŽ NEZRCADLIT — číst z PRAHY.** Když saldo = derivát deníku
+a začínáme účtovat v **Praze**, tahat saldokonto ze staré Plzně je tahání mrtvého obrazu. Proto:
+- Smazány joby `sync_ec_saldo` + `sync_es_saldo` (Plzeň přes MCP), truncate `tenant.ec_saldo_fa` + `es_saldo_fa`.
+- **Saldo ČTEME z pražského Heliosu — NEDERIVUJEME ho.** Helios si `TabSaldoFA` počítá sám z deníku; my ho jen
+  zrcadlíme. Nové joby **`saldo_praha_ec` / `saldo_praha_es`** (`_sync_saldo_praha`, čtou `UCTO_EC`/`UCTO_ES.dbo.TabSaldoFA`
+  přes `db=mssql188`, mód DEL, denně). Zrcadlo míří na `ec_saldo_fa`/`es_saldo_fa` (stejný tvar → `/banka` beze změny).
+- **Proč NE ruční derivace z deníku:** zkusil jsem saldo dopočítat z `TabDenik.CastkaZust` (311/321) —
+  **divergovalo** od Helios saldokonta (311: 18,6 M vs 3,56 M; jiné počty). Helios má vlastní pravidla
+  (skupiny, agregace, párování) → nedohadovat, **nechat počítat Helios**.
+- **Teď pražská `TabSaldoFA` = 0** (Helios nakopírovaný deník ještě nepřepočetl) → zrcadlo věrně ukazuje **0**.
+  Naplní se samo, až se v Praze začne účtovat naostro (nebo Helios spustí přepočet saldokonta). Ověřeno 6.7.: oba joby OK, 0 řádků.
+- Potvrzuje model §2/§3: **deník = jediný zdroj pravdy; saldo, platáky i příznaky jsou jen jeho pohledy.**
+
 ## 8. Širší rámec (kontext, ne teď)
 Dvoupruhový model (jednoduché firmy u nás vč. DPH / složité EUROSOFT Helios B), budoucí společné
 účetnictví s **Martia 2000** pro řadu firem (klient = tenant), daňový poradce = legislativní zdroj pravdy
@@ -146,6 +172,19 @@ počítáme si ho sami:** `otevřené_saldo = částka faktury (suma_po_zao / su
 (+ mínus naše čerstvě vygenerované platáky = úhradový zámek). Zrcadlo nese jen **stabilní fakta faktury**
 (částka, dodavatel, VS, splatnost, `nehradit`, období, řada…), **NIKDY běžící saldo.** Platí i pro mzdy a další platby.
 
+**🔴🔴 SMRTELNĚ DŮLEŽITÉ — OVĚŘENÍ ČÍSLA ÚČTU PROTI PODVODU (Marti 6.7.2026):**
+Peníze musí odejít na **číslo účtu z faktury** (`TabDokladyZbozi.IDBankSpoj` → `TabBankSpojeni`), **ALE NIKDY slepě.**
+Před zařazením do platáku se **MUSÍ ověřit, že účet na faktuře odpovídá evidovanému účtu dodavatele.** Důvod:
+obrana proti **podvržené faktuře** (BEC / útok „změněné číslo účtu"). Když nesedí → **STOP, nezaplatit, eskalovat člověku.**
+Kontrola má tři vrstvy (data v `TabBankSpojeni`):
+- **(a) Vlastnictví:** účet z faktury musí patřit **správné organizaci** — `TabBankSpojeni(IDBankSpoj).IDOrg == cislo_org` dodavatele
+  na faktuře. (Podvodný účet pod cizí/žádnou org = red flag.)
+- **(b) Známý účet:** účet je mezi **evidovanými účty dodavatele** (ne poprvé viděný). Nový/neznámý účet → flag k ručnímu potvrzení.
+- **(c) Zveřejněný u správce daně:** `TabBankSpojeni.UcetVSeznamuSpravDane = 1` (+ `DatPoslOverSpravDaneSys/Uziv` = kdy ověřeno).
+  Legální opora §109 ZDPH (ručení za DPH při platbě na nezveřejněný účet). Nezveřejněný účet → varovat/blokovat.
+**Doktrína: AI/generátor účet jen OVĚŘÍ a označí; při neshodě NEGENERUJE platbu, ale zvedne varování. Platí i pro EUR (IBAN).**
+Verifikace = součást Fáze 0/1 platáku (viz `gemini-render-byte-exact`, `platebni-centrum-plataky`).
+
 ---
 
 ## Changelog rozhodnutí
@@ -161,3 +200,34 @@ počítáme si ho sami:** `otevřené_saldo = částka faktury (suma_po_zao / su
   (CZK 8/396 642 Kč + EUR 19/29 991 €, saldo z úhrad) + `/app/platby/vypisy` (60 tx z RB API). Datová
   páteř: `oz_uhrady` + `oz_pf_platba` (+ `suma_val` pro EUR, BEZ Helios salda). Taby Platáky/Importy = roadmap.
   Ověřeno v prohlížeči, 0 JS chyb. Paměť: [[platebni-centrum-plataky]].
+- **6.7.2026 (Saldokonto = derivát deníku → přestat zrcadlit):** Ověřeno strukturou `TabSaldoFA`
+  (`Saldo_Ucet`+`Castka_*_Doklad`, `CisloSalSk`=311/321) že saldokonto se opírá o **deník**, ne o doklad/banku.
+  Řetěz: Doklad/Banka → zaúčtování → Deník → Saldokonto. Marti: zrcadlit Plzeňské saldo při přechodu do Prahy
+  je nesmysl → **smazány joby `sync_ec_saldo`/`sync_es_saldo` + truncate `ec_saldo_fa`/`es_saldo_fa`**. Saldo teď
+  **ČTEME z pražského `UCTO_EC/ES.TabSaldoFA`** (nové joby `saldo_praha_ec/es`, `_sync_saldo_praha` přes `db=mssql188`) —
+  Helios ho počítá, my zrcadlíme. Ruční derivace z `TabDenik.CastkaZust` **zamítnuta** (divergovala od Helios saldokonta).
+  Pražská TabSaldoFA je zatím 0 → `/banka` ukazuje 0 (ověřeno). Viz §7b. Předtím opraven i UI módů zrcadel
+  (Spustit teď = inline; přeznačení pravdivě). Paměť: [[zrcadla-mody-del-ro-rw]], [[oz-mirror-engine]].
+- **6.7.2026 (Plzeňská zrcadla VYPNUTA — spouštět jen cíleně):** Všech **38 `zrc_*`** (office Plzeň → cloud Helios přes
+  @@XFER, truncate+reload) **vypnuto** (`enabled=false`) + label označen „· z Plzně". Skupiny: Mzdy 6, Zakázky 4,
+  Číselníky 6, Deník a osnova 10, Předkontace 12. **Důvod:** účtujeme v Praze → plzeňské přepisy jsou destruktivní/mrtvé.
+  **Mzdy byly aktivně škodlivé** (`TabMzSloz` = pražské spočítané složky přepisované plzeňskými každou hodinu). Ostatní
+  (deník/osnova/předkontace/číselníky) se jen zmrazí na plzeňském snímku — cloud přestane dostávat plzeňské změny (záměr).
+  Nic se nemaže; „Spustit teď" (inline) je pustí **cíleně** na vyžádání. Kdyby něco šlo potřeba obnovit z Plzně, zapnout
+  ten jeden job. **Kalkulace** (EC_Kalkulace*, ne zrc) naopak povýšeny na RO deltu přes přidaný `SystemRowVersion`
+  (backfill 39 s → delta 137 ms). Paměť: [[zrcadla-cloud-helios]], [[zrcadla-mody-del-ro-rw]].
+- **6.7.2026 (Gemini render HOTOVÝ + byte-exact):** Starý adaptér — TXT Gemini platák — převzat 1:1 z DB_EC procedur
+  `EC_Banka_RB_Gemini_Tuz`/`_Zahr`; `scripts/rb/gemini_render.py` (+ spec `gemini_format.md`). **Ověřeno na bajt na VŠECH
+  12 vzorcích** EUROSOFTu (6 TUZ + 6 ZAHR, jedna/více plateb, kombinované platáky). Paměť: [[gemini-render-byte-exact]].
+- **6.7.2026 (🔴 OVĚŘENÍ ÚČTU — anti-podvod, Marti „klíčové"):** Peníze na účet z faktury (`TabDokladyZbozi.IDBankSpoj`),
+  ale VŽDY ověřit proti evidenci: (a) `IDOrg` účtu == dodavatel, (b) známý účet, (c) `UcetVSeznamuSpravDane`=1 (§109 ZDPH).
+  Neshoda → NEGENEROVAT platbu, eskalovat. Součást Fáze 0/1 platáku. Detail §10.
+- **6.7.2026 (Přehled platáků pro Peťu — záložka LIVE):** V `/platby` nová záložka **🧾 Platáky** — živý přehled
+  vygenerovaných platáků z našich zrcadel (přehledy staré Centrály **2370 tuzemské + 2375 zahraniční** →
+  `tenant.oz_platak_tuz` + `oz_platak_zahr`). Endpoint **`/app/platby/plataky`** (router.py) = UNION obou tabulek
+  per firma, LIMIT 500 nejnovějších, scope **rodiče + Peťa (u18) + cockpit**. UI: chipy **firma (EC/ES) + typ
+  (tuz/zahr)**, sloupce Datum/Firma/typ/Odkud/počet faktur/**seznam faktur**/Splatnost/**stav exportu**
+  (✓ exportováno / rozpracováno)/Částka + součty per měna — Peťa vidí přesně to, na co je zvyklá z Centrály
+  (*„je to zvyklá si kontrolovat, jsou to prachy"*). Data: EC tuz 466 (197,7 M), ES tuz 129 (52,2 M),
+  EC zahr 1 380 (2,76 M €). Zrcadlo `oz_platak_*` = **RO** (jen čte Centrálu); od 7.7. platíme my → časem nahradí
+  vlastní generátor (task #44/#45). Commit `4cfd7ea`. Paměť: [[platebni-centrum-plataky]].

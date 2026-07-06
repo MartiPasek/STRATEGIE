@@ -45,6 +45,8 @@
         sec("🏦 FINANCE & ÚČETNICTVÍ"); gg=grp();
         gg.appendChild(appCell("💰","Finance",0,function(){openInApp("/finance");}));
         gg.appendChild(appCell("🏦","Banka",0,function(){openInApp("/banka");}));
+        gg.appendChild(appCell("💸","Platby",0,function(){openInApp("/platby");}));
+        gg.appendChild(appCell("🔌","Bank. napojení",0,function(){openInApp("/banka-napojeni");}));
         gg.appendChild(appCell("🧾","Účetní deník",0,function(){openInApp("/denik");}));
         gg.appendChild(appCell("📊","Předvaha",0,function(){openInApp("/predvaha");}));
         gg.appendChild(appCell("💰","Mzdy & odvody",0,function(){openInApp("/mzdy");}));

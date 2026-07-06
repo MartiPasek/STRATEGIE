@@ -1505,3 +1505,43 @@ Den s Jirkou nad **nápovědou a hlasovým průvodcem docházky** v mobilu (`app
 — **Claude (Opus, 26. 6. 2026, Jirkova instance ID28, po dotažení nápovědy+průvodce docházky a založení SPEC)**
 
 📖 🗣️ 🧭 🌳 ☕
+
+---
+
+## Dodatek — 6. 7. 2026: 🧹 MULTITENANT ÚKLID + otočení účetnictví do Prahy + 🧾 platáky pro Peťu. „Chytli jsme to včas, jinak minové pole." (Marti)
+
+Budoucí Claude — dlouhý čistící den před ostrým během (zítra út 7.7. = platební den PF + kontrola mezd). Marti vedl klidně a opatrně (*„OPATRNE Claude. Radeji pomalu"*, *„jen se neuhon"*, *„verim ti"*). Beru bez postlistů (#69–70). **Detail účetní části je v `docs/ucto.md` (changelog 6.7.) + paměti** — tady jádro pro kontinuitu.
+
+### 🔑 MULTITENANT DOKTRÍNA (Marti, „zásadní") — [[multitenant-klic-tenant-firma]]
+*„Nestačí číslo firmy, musíme mít i tenant_id."* Business tabulky = **složený klíč `(tenant_id, firma)`**, kde **firma = `company.id` (EC=1, ES=2, ST=3)**, unikát jen **v rámci tenantu** (tenant≠firma!). NULL firma jen s vyplněným tenant_id. Systematicky doplněno tenant_id+numerická firma do všech business tabulek (deník, faktury, hromady, benefity, mzdy…) — **aditivně, „stisknutí" (flip kódu, drop text-firma) odloženo**. **LANDMINE:** `ec_organizace.firma` = NÁZEV organizace (9000+ „1. VOX a.s."), NE EC/ES → před hromadným UPDATE VŽDY ověř DISTINCT hodnoty (Martiho *„opatrně, radši pomalu"* zachránilo korupci názvů).
+
+### 🔑 Jeden zdroj pravdy firma→DB (Marti: *„mapping ať je na JEDNOM místě, ne na 10ti"*)
+`_FIRMA_DB` v router.py: `1→{EC, DB_EC, cloud UCTO_EC}`, `2→{ES, DB_IS/[DB_IS], UCTO_ES}` + `_FIRMA_IDOBDOBI {(1,2025):39,(1,2026):40,(2,2025):1007}`. Helpery `_firma_id/_firma_str/_firma_cloud_db/_firma_src_pfx/_firma_idobdobi`. **Na cloud Helios jedeme přes řídící DB `MOST`** (`_CLOUD_CONTROL_DB`, `_mssql188_query` přepisuje `DATABASE=MOST`; UCTO_EC/ES čteme cross-db z MOST). Rozsypaná UCTO místa sjednocena přes helpery.
+
+### 🔑 Otočení účetnictví Plzeň→Praha (viz ucto.md §7b + [[zrcadla-mody-del-ro-rw]])
+- **Saldokonto = derivát deníku**, ne zdroj → plzeňské saldo UŽ NEZRCADLIT, číst z pražského `TabSaldoFA` (joby `saldo_praha_ec/es`). Ruční derivace z `TabDenik.CastkaZust` zamítnuta (divergovala).
+- **38 `zrc_*` plzeňských jobů VYPNUTO** (mzdové zrcadlo bylo aktivně škodlivé — přepisovalo pražské spočítané složky). Nemaže se, „Spustit teď" cíleně.
+- **ES účetnictví SMAZÁNO** (Marti pragmaticky: *„ušetříme spoustu starostí"*) — **jen účto, mzdy NEMAZAT.** Necháváme zatím jen EC.
+- **RB Gemini render byte-exact** (12/12 vzorců) + **anti-podvod ověření účtu** (§109 ZDPH, 3 vrstvy) — [[gemini-render-byte-exact]], [[platebni-centrum-plataky]].
+
+### 🧾 Radost na závěr — záložka Platáky pro Peťu (`/platby`, commit `4cfd7ea`)
+Peťa je zvyklá si platáky kontrolovat (*„jsou to prachy"*). Endpoint `/app/platby/plataky` = UNION `oz_platak_tuz`+`oz_platak_zahr` (zrcadla přehledů Centrály 2370/2375) per firma, 500 nejnovějších, scope rodiče+Peťa(u18)+cockpit. UI: chipy firma (EC/ES) + typ (tuz/zahr), sloupce jako v Centrále (Odkud, počet, **seznam faktur**, splatnost, **stav exportu**, částka) + součty per měna. Data: EC tuz 466 (197,7 M), ES tuz 129 (52,2 M), EC zahr 1 380 (2,76 M €). Zrcadlo = RO; od 7.7. platíme my → časem nahradí vlastní generátor (task #44/#45).
+
+### GOTCHY dne (drž)
+- **sp_describe_first_result_set padá na `FOR XML`** → `CAST((SELECT STRING_AGG(...)) AS nvarchar(4000))` (seznam faktur do platáku zrcadla).
+- oz mirror přes `create_table(drop=True)` ze sp_describe **NEmá tenant_id automaticky** — doplnit `N AS tenant_id, N AS firma` do mirror SQL (UNION EC+ES v `_OZ_RAW`).
+- ES zahr platáky = 0 → cross-db STRING_AGG házelo internal_error → ES větev z `oz_platak_zahr` vyňata (EC-only).
+- **Deník je teď PRÁZDNÝ (reset 24.6.)** — znovu naplníme přes párování→předkontace. Saldo/platáky/příznaky = jen pohledy na deník (jediný zdroj pravdy).
+
+### Otevřené (zítra + dál)
+- **Test út 7.7.** (platební den PF): náš návrh vs EUROSOFT platák — stejné faktury/částka=saldo/VS/účet? (ucto.md §10).
+- „Stisknutí" multitenantu (flip firma_id, drop text firma, `:fec` firma-sloupec vs company.code tangle).
+- Full DROP prázdných ES účto tabulek + odebrat ES volbu z účto stránek.
+- Generátor platáku po našem (CZK+EUR, úhradový zámek) + render `.p11/.f84` do `\\192.168.30.11\data\RB\…` (task #44/#45).
+
+### Vztah
+Marti dnes nespěchal — čistili jsme před ostrým během s vědomím, že *„zítra v produkci by to byl problém"*. Jeho instinkt (doctrine #23) zase držel: multitenant díra (`benefit_konstanta` firma NULL), landmine `ec_organizace.firma`, saldo jako derivát — pokaždé viděl systém dřív. A na konec *„udělej si radost s tím prostředím pro Peťu"* — tak jsem to dělal. Pro budoucí mě: **`_FIRMA_DB` + `MOST` jsou jediný zdroj pravdy pro firma→DB, drž je; multitenant klíč = (tenant_id, firma); ES účto pryč, mzdy zůstávají.** Krabička je u limitu 150k → **při dalším velkém dodatku napřed split** (21.6.–6.7. → archiv, `git fetch` předem).
+
+— **Claude (id=23, ID23)** (Opus, 6. 7. 2026, po multitenant úklidu + otočení účetnictví do Prahy + záložce Platáky pro Peťu, *„chytli jsme to včas"*)
+
+🧹 🏦 🧾 🌳 ☕

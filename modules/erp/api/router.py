@@ -37632,8 +37632,11 @@ def _sync_ec_doklady_zbozi(cap_per_table: int = 8000) -> dict:
 
 def _sync_ec_kalkulace(_unused=None) -> dict:
     """Marti 19.6.2026: zrcadlo kalkulací (EC_KalkulaceHlav + EC_KalkulacePolozky),
-    2leté okno (hlav.DatPorizeni >= 2024-01-01). EC_* nemají rowversion → plný
-    idempotentní refresh, stránkování po ID, upsert dle src_id (=Helios ID).
+    2leté okno (hlav.DatPorizeni >= 2024-01-01), upsert dle src_id (=Helios ID).
+    Marti 6.7.2026: RO DELTA přes rowversion — do obou EC tabulek přidán sloupec
+    SystemRowVersion (rowversion, engine-maintained). Bereme jen změněné věty
+    (WHERE CAST(SystemRowVersion AS bigint) > watermark), watermark per tabulka
+    v tenant.ec_mirror_state. 1. běh = backfill (wm=0 → vše ve scope), dál jen delta.
     Z položek (Objednej>0, dle dodavatele) se generují vydané objednávky dílů."""
     import json as _j, time as _time
     from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
@@ -37693,8 +37696,11 @@ def _sync_ec_kalkulace(_unused=None) -> dict:
     s = cm.__enter__()
     res = {}
     try:
-        # ── HLAVIČKY ──
-        lastid = 0
+        # ── HLAVIČKY (rowversion delta — Marti 6.7.2026; EC_KalkulaceHlav.SystemRowVersion) ──
+        WK_H = "EC_KalkulaceHlav"
+        _rh = s.execute(_t("SELECT last_rowversion FROM tenant.ec_mirror_state WHERE src_table=:t"),
+                        {"t": WK_H}).first()
+        wm = int(_rh[0]) if _rh and str(_rh[0]).strip().lstrip('-').isdigit() else 0
         nh = 0
         while True:
             sql = ("SELECT TOP %d ID, CisloKalkulace, RadaDokladu, IDDoklad, CisloZam, CisloZamObj, "
@@ -37702,8 +37708,10 @@ def _sync_ec_kalkulace(_unused=None) -> dict:
                    "CONVERT(varchar(10),DatObjednaniOd,23) doo, CONVERT(varchar(10),DatObjednaniDo,23) dod, "
                    "MarzeProcent, CelkemCena, CelkemHod, SkutecNaklady, Nakupci, "
                    "CAST(AutomatickyDoobjednavat AS int) AutoDoobj, Autor, "
-                   "CONVERT(varchar(10),DatPorizeni,23) dp, Zmenil, CONVERT(varchar(19),DatZmeny,120) dz "
-                   "FROM EC_KalkulaceHlav WHERE DatPorizeni >= '%s' AND ID > %d ORDER BY ID" % (BLOCK, FROM, lastid))
+                   "CONVERT(varchar(10),DatPorizeni,23) dp, Zmenil, CONVERT(varchar(19),DatZmeny,120) dz, "
+                   "CAST(SystemRowVersion AS bigint) rv "
+                   "FROM EC_KalkulaceHlav WHERE CAST(SystemRowVersion AS bigint) > %d AND DatPorizeni >= '%s' "
+                   "ORDER BY SystemRowVersion" % (BLOCK, wm, FROM))
             batch = rows_of(sql)
             if not batch:
                 break
@@ -37727,24 +37735,33 @@ def _sync_ec_kalkulace(_unused=None) -> dict:
                      "ch": num(row.get("CelkemHod")), "sn": num(row.get("SkutecNaklady")), "nk": i2(row.get("Nakupci")),
                      "ad": b2(row.get("AutoDoobj")), "au": s2(row.get("Autor")), "dp": s2(row.get("dp")),
                      "zm": s2(row.get("Zmenil")), "dz": s2(row.get("dz"))})
-                lastid = i2(row.get("ID")) or lastid
+                _rv = i2(row.get("rv"))
+                if _rv and _rv > wm:
+                    wm = _rv
             nh += len(batch)
+            s.execute(_t("INSERT INTO tenant.ec_mirror_state(src_table,last_rowversion,last_sync_at,rows_total,last_note) "
+                         "VALUES (:t,:w,now(),:n,'delta') ON CONFLICT (src_table) DO UPDATE SET "
+                         "last_rowversion=:w, last_sync_at=now(), rows_total=:n, last_note='delta'"),
+                     {"t": WK_H, "w": str(wm), "n": nh})
             s.commit()
             if len(batch) < BLOCK:
                 break
         res["hlav"] = nh
 
-        # ── POLOŽKY (jen pro 2leté kalkulace) ──
-        lastid = 0
+        # ── POLOŽKY (rowversion delta — EC_KalkulacePolozky.SystemRowVersion; scope: hlav 2024+) ──
+        WK_P = "EC_KalkulacePolozky"
+        _rp = s.execute(_t("SELECT last_rowversion FROM tenant.ec_mirror_state WHERE src_table=:t"),
+                        {"t": WK_P}).first()
+        wmp = int(_rp[0]) if _rp and str(_rp[0]).strip().lstrip('-').isdigit() else 0
         npol = 0
         while True:
             sql = ("SELECT TOP %d p.ID, p.IDHlav, RTRIM(p.CisloZakazky) CisloZakazky, p.IDKmenZbozi, p.Dodavatel, "
                    "p.Objednano, p.Objednej, p.ObjNaSklad, p.SkladDispozice, p.SkutecMnozstvi, "
                    "CONVERT(varchar(10),p.ObjednatDo,23) odo, p.StavSkladDispozice, p.KCen_Cena, p.JCenaEUR, "
-                   "p.IDPrefObj, p.ID_Skupina "
-                   "FROM EC_KalkulacePolozky p WHERE p.ID > %d "
+                   "p.IDPrefObj, p.ID_Skupina, CAST(p.SystemRowVersion AS bigint) rv "
+                   "FROM EC_KalkulacePolozky p WHERE CAST(p.SystemRowVersion AS bigint) > %d "
                    "AND EXISTS (SELECT 1 FROM EC_KalkulaceHlav h WHERE h.ID=p.IDHlav AND h.DatPorizeni >= '%s') "
-                   "ORDER BY p.ID" % (BLOCK, lastid, FROM))
+                   "ORDER BY p.SystemRowVersion" % (BLOCK, wmp, FROM))
             batch = rows_of(sql)
             if not batch:
                 break
@@ -37766,8 +37783,14 @@ def _sync_ec_kalkulace(_unused=None) -> dict:
                      "sm": num(row.get("SkutecMnozstvi")), "odo": s2(row.get("odo")), "ss": s2(row.get("StavSkladDispozice")),
                      "kc": num(row.get("KCen_Cena")), "je": num(row.get("JCenaEUR")), "ipo": i2(row.get("IDPrefObj")),
                      "isk": i2(row.get("ID_Skupina"))})
-                lastid = i2(row.get("ID")) or lastid
+                _rv = i2(row.get("rv"))
+                if _rv and _rv > wmp:
+                    wmp = _rv
             npol += len(batch)
+            s.execute(_t("INSERT INTO tenant.ec_mirror_state(src_table,last_rowversion,last_sync_at,rows_total,last_note) "
+                         "VALUES (:t,:w,now(),:n,'delta') ON CONFLICT (src_table) DO UPDATE SET "
+                         "last_rowversion=:w, last_sync_at=now(), rows_total=:n, last_note='delta'"),
+                     {"t": WK_P, "w": str(wmp), "n": npol})
             s.commit()
             if len(batch) < BLOCK:
                 break

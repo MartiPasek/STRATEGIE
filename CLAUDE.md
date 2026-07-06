@@ -8,6 +8,30 @@
 
 > **🧾 ÚČETNICTVÍ / SYSTÉM ZÁPISŮ = `docs/ucto.md`** (Marti 6.7.2026): jasná znalostní báze účtování a systému zápisů — **čti ji jako první při jakékoli práci na účtování a průběžně ji aktualizuj** (changelog rozhodnutí je v ní). Směr = otočit doklady+banku ze starého Heliosu (Plzeň) do nového (Praha, cloud 188.12); mzdy+deník už v Praze. Model (Marti 6.7.) = **standardně účtovat do peněžního deníku (`tenant.ucetni_denik`), BEZ sborníku 080**; dva příznaky **`Zkontrolováno`/`Rozporováno`** = hlavní nástroj účetní (kontrola PO zápisu, ne brána před ním); **deník = rozhraní mezi světy STRATEGIE↔Helios → příznaky ZRCADLÍME do OBOU** (Helios přes **`TabDenik_EXT`**, kterou vytvoříme — Helios `_EXT` mechanismus). Způsob B zásob (neúčtovat příjemky/výdejky), zakázky/střediska se v účto nerozlišují, Helios = jen účto+mzdy.
 
+## Dodatek — 6. 7. 2026 (Kristý, ID24, Cowork): 📥 CRM IMPORT FIREM — znovupoužitelné tlačítko (import leadů do Centrály) + maraton ladění. „jsi šikulka, Import dokončen!"
+
+Budoucí Claude (ID24) — dlouhý den s Kristý (Cowork). Cíl: naimportovat Pavlových „Premium 400" německých/DACH firem do CRM. Skončilo to **znovupoužitelnou featurou „📥 Import firem"** v Přehledu pro obchodníka (core 136) — a hromadou draze zaplacených lekcí. Výsledek LIVE a ověřený: **398 firem v Centrále, autor PZeman, 253 akcí Email na info, 20 nedoručeno, 0 rozbitých.**
+
+**🔑 NEJDŮLEŽITĚJŠÍ GOTCHA (drž!): CRM zobrazuje název/web/e-mail firmy z akce „Získání firmy" (`IDAkce=16`), NE z hlavičky `st.CRM_Kontakt.FirmaText`.** Přehled Kontakty i karta JOINují na tu akci (`AkceZiskaniFirmy`). Když import založí jen hlavičku (byť s FirmaText), firmy vypadají **prázdné**. → import MUSÍ ke každému kontaktu založit i akci `IDAkce=16` s firemními daty (FirmaText, FirmaWeb, Email, Popis). To samé řešily i staré importy (`docs/fix_import_80_firem_akce_ziskani_pro_marti_ai.md`, 18.6.). Na tomhle dnes vše viselo.
+
+**🔑 CRM = živá Centrála, ne PG zrcadlo.** Přehled „Kontakty" (core 62) i „Aktivity obchodníka" (dataset 92, `a.Autor AS Obchodník`) čtou **živě z DB_EC** (`st.CRM_Kontakt` / `st.CRM_Kontakt_Akce`, db_connection_id=2). `tenant.crm_kontakt` v PG (9189 ř.) je jen **zrcadlo** — import do něj se v ERP NEUKÁŽE. Zrcadlo je upsert-by-`src_id`, NEMAŽE (bezpečné). Autor obchodníka = `st.CRM_Kontakt_Akce.Autor`; Pavel = `PZeman` (= users.login_name).
+
+**🔑 RYCHLOST — hromadný zápis přes `strategie_query_raw` (bulk), NE řádek-po-řádku.** `strategie_query_raw` na DB_EC **POVOLUJE INSERT/UPDATE do `st.*`** (guard blokuje jen dbo). → import dělá pár velkých příkazů: kontakty dávkově `INSERT … VALUES (…),(…)`, akce Získání firmy `INSERT … SELECT ID,1,16,… FROM st.CRM_Kontakt WHERE ZdrojKontaktu=@z AND ID>@marker`, Email na info dávkově (read-back id-map). **Sekundy místo ~20 min** a obchází **MCP rate-limit ~60 zápisů/min** (`rate_limit_exceeded`). Řádek-po-řádku (strategie_insert_row) 400 firem = ~1000 MCP ops → naráží na limit + extrémně pomalé (Kristý: „v Centrále byl import hned").
+
+**Cesta k tomu (co NEfungovalo — nezkoušej znovu):** (1) per-row insert + pacing 0,15s → rate limit v ~140. (2) retry na „rate limit" (mezera) NEchytl `rate_limit_exceeded` (podtržítko). (3) pacing 1,1s/op (pod limit) → spolehlivé ale ~20 min → dávkové HTTP requesty vypršely na proxy timeout (~60s). (4) úloha na pozadí (thread + `/crm/import/status` polling) → neblokuje app, ale **in-memory job umře při každém deployi/restartu API** (Marti dnes deployoval permanentně → import opakovaně spadl). **Řešení všeho = bulk: hotovo v sekundách, než přijde deploy.**
+
+**Další gotchy:** • Dedup na dvojici **(FirmaText, FirmaEmail)**, ne jen e-mail — sesterské firmy sdílí jeden `info@` (Krones 4×, GEA 4×, Schubert 3×). • Zápis do DB_EC přes **Claude bridge NEJDE** (read-only) — z appky přes MCP ano; **mazání** partial importů dělala **Marti-AI** (kustod, po přímém potvrzení Kristý), rozsah `ZdrojKontaktu` + ID range, nejdřív akce pak hlavičky. • Escaping bulk SQL: `N'…'` + zdvojit `'` + strip `\r\n` (jinak „GO" na řádku rozseká batch). • Nedoručené (Splneno=0) párovat jen přesnou shodou obecné adresy (NDR z Outlook reportů, cp1250, dělení na `Od:\t`; datum odeslání = i z `modified` času dávkových Excelů, ověřeno proti NDR). • Barvičky gridu = `style_rules` v `layout_json` sestavy (`fw.comp_grid`); když zmizí sestava, zmizí i barvy — uložit znovu z UI. • **Mount truncation** znovu: `py_compile`/`node --check` velkého router.py/JS přes mount = falešný poplach; autoritativní = **cloud py_compile gate při deployi** + ast/node-check izolovaného bloku.
+
+**Soubory:** `modules/erp/api/router.py` (endpointy `/crm/import/{obchodnici,sablona,preview,commit,status}` + `_crm_import_bulk`), `apps/api/static/erp/components/crm_obchodnik_pult.js` (tlačítko + dialog + polling). Podklady + mazací SQL pro Marti-AI v `docs/crm_import/`. Commity `3902aa7f`→`104f5cbf` (6 deployů; bulk je ten správný vzor).
+
+**Vztah:** Kristý byla přes celý maraton trpělivá a milá (*„jsi šikulka"*, *„krásná práce"*), i když to přes 6 deployů padalo pořád na jiném (timeout → rate limit → restart). Poučení nesu: **u importu do CRM od začátku (a) akce `IDAkce=16`, (b) bulk `query_raw`.** To dvoje by ušetřilo celý den. Pozn.: CLAUDE.md je **nad limitem 150k** → před dalším velkým dodatkem SPLIT (dodatky 21.6.–6.7. → archiv, `git fetch` předem).
+
+— **Claude (id=24, Kristý, Cowork)** (Opus, 6. 7. 2026, po featuře „Import firem" — akce Získání firmy + bulk zápis, *„Import dokončen!"*)
+
+📥 🏢 ⚡ 🌳 ☕
+
+---
+
 ## Dodatek — 3. 7. 2026 (Kristý, ID24, Cowork): ✉️ CRM DE mailová šablona — oprava odřádkování + inline obrázků (demo-send). „Moc děkuji :-)"
 
 Budoucí Claude — Kristý přišla s tím, že „Pavlova šablona se rozhodila ve formátování" a demo‑mail dorazil bez obrázků (červené křížky „Propojený obrázek nelze zobrazit"). Řešeno z **Cowork session** (jiné dveře než dev, ale nad stejnou složkou + živý watcher `STRATEGIE-CLAUDE-SQL` → vzal jsem roli ID24 a jel přes bridge). Dvě nezávislé příčiny, obě v odeslané verzi:

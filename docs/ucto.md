@@ -118,6 +118,18 @@ proti faktuře, částku počítat jako **otevřené saldo**, odmítnout když j
 Centrále (stejné faktury → stejný platák/saldo). Odeslání přes RB Premium API. **TODO (další dny):**
 dostudovat `hp_OZGenPlat_CastkaZFakturyProPlatak` + EUR variantu; postavit náš platák nad PF; ověřit; RB API; pak mzdy.
 
+**Základ „u nás" — stav 6.7.2026 (Marti: „mít u nás TabUhrady a Saldo dokladu"):**
+- ✅ **`TabUhrady` → `tenant.oz_uhrady`** (19 344 úhrad / 10 377 faktur). Sloupce: `id`, `id_fak`
+  (→ faktura), `doklad_fak`, `datum`, `castka_uhrady`, `castka`, `castka_po_bance`, `mena`, `puvod`,
+  `real_uhrada_hm`. Datum ≥ 2024. Auto-refresh přes `oz_sync_all`. = „co je zaplaceno" + pojistka dvojí platby.
+- ✅ **Saldo faktur** v `tenant.oz_prij_fa` (`Saldo`, `Realizovano`, `Splatnost`, `CisloOrg`, `Mena`;
+  234 otevřených realizovaných PF se saldem > 0).
+- ⏳ **Chybí dedikovaný zdroj `oz_pf_platba`** s plným filtrem návrhu k platbě (`_FinZakaz` = fin. zákaz,
+  `_DnyPredPlatbou` per dodavatel, `SumaKcPoZao`, `Obdobi`) — ty v `oz_prij_fa` nejsou. Postavit čistě
+  z DB_EC (bez sahání do stromového přehledu 2300), pak nad ním stránka **`/platby-navrh`** pro Peťu.
+
+**Doktrína přechodu (Marti 6.7.): pomalu a systémově, napřed data u nás (TabUhrady + Saldo), pak návrh, pak platák.**
+
 ---
 
 ## Changelog rozhodnutí
@@ -125,3 +137,7 @@ dostudovat `hp_OZGenPlat_CastkaZFakturyProPlatak` + EUR variantu; postavit náš
   `Zkontrolováno`/`Rozporováno` jako nástroj účetní; deník = rozhraní mezi světy → **příznaky zrcadlit do
   OBOU** (STRATEGIE i Helios); Helios přes **`TabDenik_EXT`** (my ji vytvoříme). Stav Prahy ověřen.
   Znalostní báze `ucto.md` založena + odkaz v CLAUDE.md.
+- **6.7.2026 (Platáky):** Rozklíčován systém platáků staré Centrály (CZK/EUR, `hp_OZGenPlat_*`); zapsáno
+  „kde je zaplaceno" (saldo + `TabUhrady`) + pojistka proti dvojí platbě (úhradový zámek). Ověřena selekce
+  návrhu k platbě naostro (7 CZK + 19 EUR PF k platbě). Nazrcadleno **`oz_uhrady`** (TabUhrady) k nám.
+  Cíl: stránka `/platby-navrh` pro Peťu + test út 7.7. (platební den PF).

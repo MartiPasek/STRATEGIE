@@ -74,6 +74,39 @@ Dvoupruhový model (jednoduché firmy u nás vč. DPH / složité EUROSOFT Helio
 - `docs/helios_cloud_knowhow_mzdy_ucto.md`, `docs/parovani_banka_objednavky_model.md`.
 - Paměť: [[system-c-mzdy]], [[most-ridici-databaze]], [[zrcadla-cloud-helios]], [[kalkulacni-engine-live]].
 
+## 10. Platby / platáky (systém plateb — vzor stará Centrála, Marti 6.7.2026)
+Cíl: naučit se platit **„po našem" přes platáky** (platební příkazy). Vzor = funkční systém staré
+Centrály nad PF (~15 let, EC_ procedury zvlášť CZK / zvlášť EUR). Odesílat budeme přes naše
+**RB Premium API** (`bank_payment_order`), ne starý Gemini export. Učíme se **na PF**, ověříme
+**proti staré Centrále**, pak stejný princip na **mzdy** (Helios platák → náš platák).
+
+**Model (stará Centrála):**
+- Výběr PF → `EC_Banka_GenTuzemPlatPrikaz` (CZK) / `EC_Banka_GenZahrPlatPrikaz` (EUR) → smyčka faktur,
+  kontrola KS → jádro `hp_OZGenPlat_GenerujTuzPlatakCiInkaso`. Dispečer `EC_Banka_GenPlatPrikazy`, návrh
+  `EC_Fin_GenNavrhKPlatbe`.
+- Tabulky platáku: **`TabPlatTuz`** (hlavička PP), **`TabPlatTuzR`** (řádek: protistrana účet, částka,
+  VS/KS/SS, účel), **`TabPlatTuzRDetail`** (detail: `IDDokZbo` = faktura, `IDUhrady` = úhrada).
+- Bank. spojení dle měny: `hp_Get_IDBankSpojeni_VlastniOrg_PodleMeny`. Náš účet: `TabBankSpojeni`
+  (vlastní org, `Prednastaveno=1`).
+
+**🔑 KDE JE „ZAPLACENO" + POJISTKA PROTI DVOJÍ PLATBĚ (klíčové — nesmí se opomenout):**
+- „Zaplaceno" **NENÍ jeden boolean** — je odvozeno ze **salda faktury** (`TabDokladyZbozi.Saldo`) +
+  **úhrad** (`TabUhrady`) navázaných na fakturu. Realizace: `Realizovano` + `DatUhrady`.
+- **Pojistka:** při generování platáku se **hned vytvoří úhrada** (`hp_OZGenPlat_Uhrada_Nova_Nebo_Oprava`
+  → `TabUhrady`, navázaná na fakturu přes `TabPlatTuzRDetail.IDDokZbo`/`IDUhrady`). Částka k platbě =
+  `hp_OZGenPlat_CastkaZFakturyProPlatak` = **faktura MÍNUS už existující úhrady**. Když je faktura už
+  uhrazená/přeplacená (`@Preplaceno`) → procedura **odmítne a odroluje** (chyba 50072/50241).
+  → **Faktura nejde do platáku dvakrát: podruhé je otevřená částka 0.**
+- **Dvě vrstvy jistoty:** (1) **platák** = úhrada sníží otevřené saldo hned (měkký zámek „zadáno k platbě");
+  (2) **bankovní výpis** = `EC_Banka_AutoParovaniVypisu`/`AutoPrirazeniUhrad` spáruje reálnou platbu →
+  potvrdí `Realizovano`/saldo (tvrdé „zaplaceno").
+- Navíc příznak **`Nehradit`** na dokladu (nehradit vůbec) — jádro ho kontroluje a přeskočí.
+
+**Pro NÁŠ systém (závazné):** platák musí replikovat **úhradový zámek** — při generování zapsat úhradu
+proti faktuře, částku počítat jako **otevřené saldo**, odmítnout když je pokryto. Ověřit proti staré
+Centrále (stejné faktury → stejný platák/saldo). Odeslání přes RB Premium API. **TODO (další dny):**
+dostudovat `hp_OZGenPlat_CastkaZFakturyProPlatak` + EUR variantu; postavit náš platák nad PF; ověřit; RB API; pak mzdy.
+
 ---
 
 ## Changelog rozhodnutí

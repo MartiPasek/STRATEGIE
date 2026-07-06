@@ -138,6 +138,14 @@ dostudovat `hp_OZGenPlat_CastkaZFakturyProPlatak` + EUR variantu; postavit náš
 
 **Doktrína přechodu (Marti 6.7.): pomalu a systémově, napřed data u nás (TabUhrady + Saldo), pak návrh, pak platák.**
 
+**🔴 SMRTELNĚ DŮLEŽITÉ (Marti 6.7.): `Saldo` se NIKDY nezrcadlí z Heliosu do `oz_pf_platba`.**
+Zrcadlo se obnovuje **automaticky (oz_sync_all, 10 min)**. Kdybychom v něm drželi Helios `Saldo`, refresh by
+nám **PŘEPSAL naše saldo po vygenerování našich platáků** (Helios o naší platbě neví) → rozbila by se pojistka
+proti dvojí platbě i věrný obraz. Proto **`saldo` v `oz_pf_platba` NENÍ** a nesmí se tam vrátit. **Saldo je NAŠE,
+počítáme si ho sami:** `otevřené_saldo = částka faktury (suma_po_zao / suma_kc) − naše úhrady (oz_uhrady)`
+(+ mínus naše čerstvě vygenerované platáky = úhradový zámek). Zrcadlo nese jen **stabilní fakta faktury**
+(částka, dodavatel, VS, splatnost, `nehradit`, období, řada…), **NIKDY běžící saldo.** Platí i pro mzdy a další platby.
+
 ---
 
 ## Changelog rozhodnutí

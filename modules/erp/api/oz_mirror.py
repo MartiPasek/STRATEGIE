@@ -290,7 +290,10 @@ _OZ_RAW = {
         "d.RadaDokladu AS rada, d.DruhPohybuZbo AS druh, d.CisloOrg AS cislo_org, "
         "org.Nazev AS dodavatel, orge._Zkratka_Nazvu AS zkratka, d.DodFak AS var_symbol, "
         "ISNULL(NULLIF(LTRIM(RTRIM(d.Mena)),''),'CZK') AS mena, "
-        "CAST(d.Saldo AS numeric(18,2)) AS saldo, CAST(d.SumaKc AS numeric(18,2)) AS suma_kc, "
+        # POZOR: Helios Saldo se ZÁMĚRNĚ NEzrcadlí (Marti 6.7. — smrtelně důležité). Saldo si
+        # počítáme sami = suma_po_zao/suma_kc − naše úhrady (oz_uhrady), jinak by 10min refresh
+        # přepsal naše saldo po vygenerování platáku. Zrcadlíme jen stabilní částky faktury.
+        "CAST(d.SumaKc AS numeric(18,2)) AS suma_kc, "
         "CAST(d.SumaKcPoZao AS numeric(18,2)) AS suma_po_zao, CAST(d.Realizovano AS int) AS realizovano, "
         "d.Obdobi AS obdobi, CONVERT(varchar(10), d.Splatnost, 23) AS splatnost, "
         "ISNULL(de._FinZakaz,0) AS fin_zakaz, ISNULL(de._NavrhPlatby,0) AS navrh_platby, "
@@ -302,7 +305,7 @@ _OZ_RAW = {
         "LEFT JOIN TabCisOrg_EXT orge ON org.ID=orge.ID "
         "LEFT JOIN TabDokladyZbozi_EXT de ON de.ID=d.ID "
         "WHERE d.DruhPohybuZbo BETWEEN 18 AND 19 AND d.PoradoveCislo>=0 "
-        "AND (d.Saldo > 0 OR d.DatPorizeni >= '2025-01-01')"
+        "AND d.DatPorizeni >= '2024-01-01'"  # scope dle DATA, ne dle Helios salda (to je naše)
     ),
 }
 

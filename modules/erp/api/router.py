@@ -6183,7 +6183,10 @@ def _crm_import_parse_rows(raw_bytes, filename):
     return rows, None
 
 
-def _crm_import_existing_emails(mcp, emails):
+def _crm_import_existing_pairs(mcp, emails):
+    """Vrátí set dvojic (firma_lower, email_lower) už existujících v st.CRM_Kontakt.
+    Dedup na dvojici → sesterské firmy sdílející e-mail se NEspojí, ale opravdové
+    duplicity (stejný název i e-mail) se přeskočí."""
     ems = sorted({(e or "").strip().lower() for e in emails if e and "@" in e})
     if not ems:
         return set()
@@ -6191,12 +6194,13 @@ def _crm_import_existing_emails(mcp, emails):
     for i in range(0, len(ems), 200):
         chunk = ems[i:i + 200]
         inlist = ", ".join("'" + e.replace("'", "''") + "'" for e in chunk)
-        sql = ("SELECT LOWER(LTRIM(RTRIM(FirmaEmail))) AS e FROM st.CRM_Kontakt WITH(NOLOCK) "
+        sql = ("SELECT LOWER(LTRIM(RTRIM(ISNULL(FirmaText,'')))) AS f, "
+               "LOWER(LTRIM(RTRIM(FirmaEmail))) AS e FROM st.CRM_Kontakt WITH(NOLOCK) "
                "WHERE FirmaEmail IS NOT NULL AND LOWER(LTRIM(RTRIM(FirmaEmail))) IN (" + inlist + ")")
         for d in _crm_mcp_rows(mcp, sql):
             dd = {(k or "").lower(): v for k, v in d.items()}
             if dd.get("e"):
-                found.add(str(dd["e"]).strip().lower())
+                found.add((str(dd.get("f") or "").strip().lower(), str(dd["e"]).strip().lower()))
     return found
 
 
@@ -6327,16 +6331,16 @@ async def crm_import_preview(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "Soubor neobsahuje žádné firmy."}, status_code=400)
     if len(rows) > 2000:
         return JSONResponse({"ok": False, "error": "Najednou max 2000 firem."}, status_code=400)
-    dup = set()
+    pairs = set()
     try:
         mcp = _crm_import_mcp()
         if mcp is not None:
-            dup = _crm_import_existing_emails(mcp, [r["email"] for r in rows])
+            pairs = _crm_import_existing_pairs(mcp, [r["email"] for r in rows])
     except Exception:
-        dup = set()
+        pairs = set()
     n_akce = n_ndr = n_dup = 0
     for r in rows:
-        r["_dup"] = bool(r["email"] and r["email"].lower() in dup)
+        r["_dup"] = bool(r["email"] and (r["firma"].strip().lower(), r["email"].lower()) in pairs)
         r["_akce"] = bool(r["datum"])
         r["_bounced"] = (_crm_import_delivered(r["doruceno"]) is False)
         n_dup += 1 if r["_dup"] else 0
@@ -6389,7 +6393,7 @@ async def crm_import_commit(req: Request) -> JSONResponse:
     if mcp is None:
         return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
     try:
-        existing = _crm_import_existing_emails(mcp, [str(r.get("email") or "") for r in rows])
+        existing = _crm_import_existing_pairs(mcp, [str(r.get("email") or "") for r in rows])
     except Exception:
         existing = set()
     import datetime as _dt
@@ -6401,7 +6405,8 @@ async def crm_import_commit(req: Request) -> JSONResponse:
         if not firma:
             continue
         email = str(r.get("email") or "").strip()[:256]
-        if email and email.lower() in existing:
+        _key = (firma.strip().lower(), email.lower())
+        if email and _key in existing:
             skipped += 1
             continue
         datum = r.get("datum") or None
@@ -6419,7 +6424,7 @@ async def crm_import_commit(req: Request) -> JSONResponse:
             continue
         created += 1
         if email:
-            existing.add(email.lower())
+            existing.add(_key)
         if create_akce and datum and new_id:
             deliv = _crm_import_delivered(r.get("doruceno"))
             splneno = 0 if deliv is False else 1

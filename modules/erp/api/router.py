@@ -41132,15 +41132,26 @@ async def ops_request(req: Request) -> JSONResponse:
                          "message": "Příkaz zařazen — %s provede do ~30 s." % meta["target"]})
 
 
-def _ops_refresh_secondary() -> dict:
+def _ops_refresh_secondary(force: bool = False) -> dict:
     """Blue-green: zkopíruje AKTUÁLNÍ (ověřenou) verzi produkce do zálohy a restartuje API-B.
     Záloha (STRATEGIE-prev) = zmrazená stabilní verze, na kterou Caddy přeroutuje usery, když
     deploy odstřelí API-A. Tlačítkem ji povýšíme na současný stav. Spouští skript
     scripts/refresh_secondary.ps1 NA POZADÍ (detached) — robocopy celého repa trvá dlouho,
     nesmí blokovat HTTP handler (12.6. timeout). Výstup do scripts/refresh_secondary_last.log.
-    Záloha NENÍ git checkout (fyzická kopie) → proto kopie, ne git pull."""
-    import subprocess as _sp, os as _os
+    Záloha NENÍ git checkout (fyzická kopie) → proto kopie, ne git pull.
+    force=True: přeskoč jen VERZNÍ pojistku (A commit != HEAD), ne zdravotní (Marti 6.7. — proti tichému failu).
+    KAŽDÉ blokování pojistky se LOGUJE do refresh_secondary_last.log (viditelné na /zaloha-status)."""
+    import subprocess as _sp, os as _os, datetime as _dt0
     src = _os.environ.get("STRATEGIE_PRIMARY_DIR") or r"C:\Projekty\STRATEGIE"
+
+    def _rlog(_msg):
+        try:
+            with open(_os.path.join(src, "scripts", "refresh_secondary_last.log"), "a",
+                      encoding="utf-8") as _lf:
+                _lf.write("[%s] %s\n" % (_dt0.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), _msg))
+        except Exception:
+            pass
+
     if not _os.path.isdir(src):
         return {"ok": False, "result": "zdrojová (primární) složka neexistuje: %s" % src}
     # POJISTKA (Marti 5.7.2026): NEPOVYŠUJ zálohu B, když API A není zdravé NEBO neběží na
@@ -41156,17 +41167,27 @@ def _ops_refresh_secondary() -> dict:
     try:
         _ai = _rq_rs.get("http://127.0.0.1:%s/api/v1/api-info" % aport, timeout=4).json()
     except Exception as _hexc:
-        return {"ok": False, "result": "POJISTKA: API A (:%s) neodpovídá (%s) — refresh zálohy "
-                "ZRUŠEN, ať nepropíšeme rozbité A do B. Ověř, že A zdravě běží, pak zkus znovu."
-                % (aport, type(_hexc).__name__)}
+        _msg = ("POJISTKA (zdravotní): API A (:%s) neodpovídá (%s) — refresh zálohy ZRUŠEN, ať "
+                "nepropíšeme rozbité A do B. Ověř, že A zdravě běží, pak zkus znovu. (force NEobchází "
+                "zdravotní pojistku.)" % (aport, type(_hexc).__name__))
+        _rlog(_msg)
+        return {"ok": False, "result": _msg}
     if not (isinstance(_ai, dict) and _ai.get("ok")):
-        return {"ok": False, "result": "POJISTKA: API A nehlásí OK (health) — refresh zálohy ZRUŠEN."}
+        _msg = "POJISTKA (zdravotní): API A nehlásí OK (health) — refresh zálohy ZRUŠEN."
+        _rlog(_msg)
+        return {"ok": False, "result": _msg}
     _a_sha = (_ai.get("commit") or "").strip()
     if _dir_sha and _a_sha and not (_a_sha.startswith(_dir_sha) or _dir_sha.startswith(_a_sha)):
-        return {"ok": False, "result": "POJISTKA: API A běží na jiné verzi (A=%s) než pracovní "
-                "adresář (%s) — A ještě nenaběhlo na aktuální kód. Nejdřív ověř, že A zdravě běží "
-                "novou verzi (deploy proběhl + restart OK), pak refresh — jinak bychom do B "
-                "propsali neověřený kód." % (_a_sha, _dir_sha)}
+        if force:
+            _rlog("POJISTKA (verzní) PŘESKOČENA na force: A=%s != HEAD=%s (A je zdravé, operátor "
+                  "vynutil). Povyšuji zálohu z pracovního adresáře." % (_a_sha, _dir_sha))
+        else:
+            _msg = ("POJISTKA (verzní): API A běží na verzi A=%s, ale pracovní adresář je na HEAD=%s "
+                    "— A ještě nenaběhlo na aktuální kód (typicky pár sekund po deployi, nebo série "
+                    "deployů). Počkej, až A restartuje na HEAD, a zkus znovu; NEBO force (pokud víš, "
+                    "že A je v pořádku). Refresh ZRUŠEN — DŮVOD ZALOGOVÁN." % (_a_sha, _dir_sha))
+            _rlog(_msg)
+            return {"ok": False, "result": _msg}
     # A je zdravé a běží na aktuální verzi → bezpečné povýšit zálohu B.
     # API jako služba NEMÁ z web handleru práva spustit nssm/detached proces (12.6. doctrine).
     # Proto zapíšeme MARKER → STRATEGIE-RESTART-WATCHER (privilegovaný) spustí refresh_secondary.ps1.
@@ -41181,7 +41202,9 @@ def _ops_refresh_secondary() -> dict:
         mdir.mkdir(parents=True, exist_ok=True)
         ts = _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         mp = mdir / ("%s_refreshsec.refreshsec" % ts)
-        mp.write_text(_json.dumps({"deps": False, "by": "ops"}), encoding="utf-8")
+        mp.write_text(_json.dumps({"deps": False, "by": "ops", "force": bool(force)}), encoding="utf-8")
+        _rlog("Marker zapsán (%s%s) → RESTART-WATCHER spustí refresh zálohy."
+              % (mp.name, " [FORCE]" if force else ""))
         return {"ok": True, "result": "Marker zapsán (%s) → RESTART-WATCHER spustí stop API-B → "
                 "kopie repa → start API-B (~30-90 s). Pak klikni Kontrola zálohy."
                 % mp.name}

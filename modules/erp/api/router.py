@@ -6458,6 +6458,152 @@ def _crm_import_write(rows, obchodnik, create_akce, zdroj, progress=None):
             "akce16": akce16, "bounced": bounced, "errors": errors[:50], "obchodnik": obchodnik}
 
 
+def _crm_import_bulk(rows, obchodnik, create_akce, zdroj, progress=None):
+    """RYCHLÝ hromadný import do Centrály přes strategie_query_raw (bulk INSERT do st.*).
+    Kontakty (VALUES po dávkách) + akce „Získání firmy" (INSERT..SELECT z kontaktů) +
+    „Email na info" (VALUES). Pár příkazů místo tisíců → sekundy, obchází MCP rate-limit."""
+    import datetime as _dt
+    mcp = _crm_import_mcp()
+    if mcp is None:
+        return {"created": 0, "skipped_dup": 0, "akce_created": 0, "akce16": 0,
+                "bounced": 0, "errors": ["CRM (MCP) nedostupné"], "obchodnik": obchodnik}
+
+    def _sq(v):
+        if v is None or str(v).strip() == "":
+            return "NULL"
+        s = str(v).replace("'", "''").replace("\r", " ").replace("\n", " ")
+        return "N'" + s + "'"
+
+    def _dsql(v):
+        return ("'" + str(v) + "'") if v else "NULL"
+
+    def _exec(sql):
+        import json as _j
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict) and r.get("ok") is False:
+            raise RuntimeError(str(r.get("error"))[:300])
+        return r
+
+    today = _dt.date.today().strftime("%Y-%m-%d")
+    try:
+        existing = _crm_import_existing_pairs(mcp, [str(r.get("email") or "") for r in rows])
+    except Exception:
+        existing = set()
+    seen, new_rows = set(), []
+    for r in rows:
+        firma = str(r.get("firma") or "").strip()[:256]
+        if not firma:
+            continue
+        email = str(r.get("email") or "").strip()[:256]
+        key = (firma.lower(), email.lower())
+        if email and (key in existing or key in seen):
+            continue
+        seen.add(key)
+        r["_firma"] = firma
+        r["_email"] = email
+        r["_web"] = str(r.get("web") or "").strip()[:1000]
+        r["_zeme"] = str(r.get("zeme") or "").strip()[:128]
+        r["_datum"] = r.get("datum") or None
+        r["_popis"] = _crm_import_popis(r)
+        new_rows.append(r)
+    skipped = len(rows) - len(new_rows)
+    if progress is not None:
+        progress["total"] = len(rows)
+        progress["skipped"] = skipped
+    if not new_rows:
+        return {"created": 0, "skipped_dup": skipped, "akce_created": 0, "akce16": 0,
+                "bounced": 0, "errors": [], "obchodnik": obchodnik}
+
+    errors = []
+    try:
+        mrows = _crm_mcp_rows(mcp, "SELECT ISNULL(MAX(ID),0) AS m FROM st.CRM_Kontakt WITH(NOLOCK)")
+        marker = int((mrows[0].get("m") if mrows else 0) or 0)
+    except Exception as exc:
+        return {"created": 0, "skipped_dup": skipped, "akce_created": 0, "akce16": 0,
+                "bounced": 0, "errors": ["marker: " + str(exc)[:120]], "obchodnik": obchodnik}
+
+    CH = 60
+    created = 0
+    for i in range(0, len(new_rows), CH):
+        chunk = new_rows[i:i + CH]
+        vals = []
+        for r in chunk:
+            vals.append("(" + ",".join([
+                _sq(obchodnik), _dsql(r["_datum"] or today), _sq(r["_firma"]),
+                _sq(r["_email"]), _sq(r["_web"]), _sq(r["_zeme"]),
+                _sq(zdroj), _sq(r["_popis"]), "0"]) + ")")
+        try:
+            _exec("INSERT INTO st.CRM_Kontakt (Autor,DatPorizeni,FirmaText,FirmaEmail,"
+                  "FirmaWeb,Zeme,ZdrojKontaktu,Popis,KontaktOveren) VALUES " + ",".join(vals))
+            created += len(chunk)
+            if progress is not None:
+                progress["created"] = created
+                progress["done"] = created
+        except Exception as exc:
+            errors.append("kontakty: " + str(exc)[:160])
+
+    akce16 = 0
+    try:
+        _exec("INSERT INTO st.CRM_Kontakt_Akce (IDHlav,Poradi,IDAkce,Splneno,Autor,"
+              "DatPorizeni,FirmaText,FirmaWeb,Email,Popis) "
+              "SELECT ID,1,16,1,Autor,DatPorizeni,FirmaText,FirmaWeb,FirmaEmail,Popis "
+              "FROM st.CRM_Kontakt WITH(NOLOCK) WHERE ZdrojKontaktu=" + _sq(zdroj)
+              + " AND ID > " + str(marker))
+        akce16 = created
+    except Exception as exc:
+        errors.append("akce16: " + str(exc)[:160])
+
+    akce_email = bounced = 0
+    if create_akce:
+        idmap = {}
+        try:
+            back = _crm_mcp_rows(mcp, "SELECT ID, FirmaText, FirmaEmail FROM st.CRM_Kontakt "
+                                 "WITH(NOLOCK) WHERE ZdrojKontaktu=" + _sq(zdroj)
+                                 + " AND ID > " + str(marker))
+            for b in back:
+                bb = {(k or "").lower(): v for k, v in b.items()}
+                if bb.get("id") is not None:
+                    idmap[(str(bb.get("firmatext") or "").strip().lower(),
+                           str(bb.get("firmaemail") or "").strip().lower())] = int(bb["id"])
+        except Exception as exc:
+            errors.append("readback: " + str(exc)[:120])
+        evals = []
+        for r in new_rows:
+            if not r["_datum"]:
+                continue
+            idh = idmap.get((r["_firma"].lower(), r["_email"].lower()))
+            if not idh:
+                continue
+            deliv = _crm_import_delivered(r.get("doruceno"))
+            splneno = 0 if deliv is False else 1
+            duvod = str(r.get("duvod") or "").strip()
+            if deliv is False:
+                prubeh = ("Odesláno oslovení na " + (r["_email"] or r["_firma"]) + " – NEDORUČENO"
+                          + ((" (" + duvod + ")") if duvod else ""))
+                pozn = "E-mail nedoručen " + str(r["_datum"]) + (" – " + duvod if duvod else "")
+                bounced += 1
+            else:
+                prubeh = "Odesláno oslovení (Email na info) na " + (r["_email"] or r["_firma"])
+                pozn = None
+            evals.append("(" + ",".join([
+                str(idh), "2", str(_CRM_IMPORT_EMAIL_AKCE), _sq(obchodnik),
+                _dsql(r["_datum"]), _dsql(r["_datum"]), str(splneno),
+                _sq(r["_email"]), _sq(r["_firma"]), _sq(prubeh), _sq(pozn)]) + ")")
+            akce_email += 1
+        for i in range(0, len(evals), CH):
+            try:
+                _exec("INSERT INTO st.CRM_Kontakt_Akce (IDHlav,Poradi,IDAkce,Autor,DatumAkce,"
+                      "DatPorizeni,Splneno,Email,FirmaText,Prubeh,Poznamka) VALUES "
+                      + ",".join(evals[i:i + CH]))
+            except Exception as exc:
+                errors.append("akce email: " + str(exc)[:160])
+
+    return {"created": created, "skipped_dup": skipped, "akce_created": akce_email,
+            "akce16": akce16, "bounced": bounced, "errors": errors[:50], "obchodnik": obchodnik}
+
+
 @api_router.post("/crm/import/commit")
 async def crm_import_commit(req: Request) -> JSONResponse:
     """Zápis importu do Centrály: kontakty + akce Email na info (Autor=obchodník)."""
@@ -6505,7 +6651,7 @@ async def crm_import_commit(req: Request) -> JSONResponse:
 
     def _run():
         try:
-            rep = _crm_import_write(rows, obchodnik, create_akce, zdroj, progress=progress)
+            rep = _crm_import_bulk(rows, obchodnik, create_akce, zdroj, progress=progress)
             progress.update({"created": rep.get("created", 0), "akce16": rep.get("akce16", 0),
                              "akce_email": rep.get("akce_created", 0),
                              "skipped": rep.get("skipped_dup", 0), "bounced": rep.get("bounced", 0),

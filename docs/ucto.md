@@ -110,7 +110,15 @@ Filtr na `TabDokladyZbozi` (+ `_EXT`, + `TabCisOrg_EXT`):
 - **Splatnost:** `GETDATE() >= (Splatnost − ISNULL(_DnyPredPlatbou,5))` — platí se cca **5 dní před splatností**
   (per-dodavatel `TabCisOrg_EXT._DnyPredPlatbou`; Weidmüller CisloOrg=204 + Skonto → +2 dny tolerance).
 - Výsledek značí `_EXT._NavrhPlatby=1` (+ `_FinSchvaleni=1`). Řadu dělí `@RadaDokladuPoslCis`.
-- **Ověřeno 6.7. na živém DB_EC:** k platbě **7 PF CZK (396 296 Kč) + 19 PF EUR** = reprodukce naší selekce sedí na realitu.
+
+**🔑 Zálohový daňový doklad (řada `52x`) — VYLOUČIT z návrhu (Marti 6.7.):** stará selekce má podmínku
+`RadaDokladu <> CONVERT(int,'52'+@RadaDokladuPoslCis)`, tj. vyloučí řadu **`52x`** = *„Přijatá platba
+o zaplacené záloze — daňový doklad"*. Je to doklad **typu PF** (DruhPohybuZbo 18–19) a **má saldo > 0**,
+takže by ho návrh jinak vzal — ALE reprezentuje **už zaplacenou zálohu**, ne nový závazek. Kdyby se dostal
+do platáku, **zaplatila by se záloha podruhé.** Proto se vylučuje. → V našem `oz_pf_platba` byl kvůli tomu
+rozdíl **8 vs 7 CZK** faktur (ta jedna navíc = `52x`). **Náš filtr proto musí přidat `rada NOT LIKE '52%'`**
+(přesně `rada <> '52'+cis`), pak je shoda 100 %.
+- **Ověřeno 6.7. na živém DB_EC:** k platbě **7 PF CZK (396 296 Kč) + 19 PF EUR** = reprodukce naší selekce sedí na realitu (po vyloučení `52x`).
 - **Test zítra (út 7.7. = platební den PF):** spustit náš návrh + EUROSOFT vygeneruje svůj platák → porovnat (stejné faktury? stejná částka=saldo, VS, účet dodavatele?). Realistické ověření „že to funguje".
 
 **Pro NÁŠ systém (závazné):** platák musí replikovat **úhradový zámek** — při generování zapsat úhradu

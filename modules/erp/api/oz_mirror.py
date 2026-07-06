@@ -182,6 +182,10 @@ def _ensure_def_table(tenant_id: int = 2):
             "CREATE TABLE IF NOT EXISTS tenant.oz_mirror_def ("
             "oz_table text PRIMARY KEY, fw_code text, sql_mssql text, "
             "last_sync_at timestamp, last_rows int, updated_at timestamp DEFAULT now())"))
+        # Mód zrcadlení (Marti 6.7.2026): DEL = celá tabulka pryč+znovu (výjimka), RO = delta,
+        # Helios vlastní řádek (jen čteme), RW = delta, my píšeme svoje sloupce (saldo/příznaky) →
+        # update jen Helios polí, naše chráněná. ALTER běží jako strategie=vlastník (Marti-AI nesmí).
+        s.execute(_t("ALTER TABLE tenant.oz_mirror_def ADD COLUMN IF NOT EXISTS mode varchar(6) DEFAULT 'DEL'"))
         s.execute(_t('GRANT ALL ON tenant.oz_mirror_def TO strategie, "Marti-AI"'))
         s.commit()
     finally:

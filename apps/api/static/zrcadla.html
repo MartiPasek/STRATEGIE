@@ -49,6 +49,10 @@
   <div class="sub">Plánovač tik 30 s, watermark dotahuje i přerušené běhy.</div>
   <div class="health" id="health"><span class="hint">Načítám…</span></div>
   <div id="list"></div>
+
+  <div class="top" style="margin-top:20px"><h2 style="font-size:17px;margin:0;font-weight:800">🪞 OZ zrcadla <span class="hint" style="font-weight:400">(mód DEL / RO / RW)</span></h2></div>
+  <div class="sub">DEL = celá tabulka znovu · RO = jen čteme (Helios pán řádku) · <b>RW = píšeme svoje sloupce (saldo, příznaky) — chráněné před refreshem</b>.</div>
+  <div id="ozlist"></div>
 </div>
 <script>
 function qs(k){var v=new URLSearchParams(location.search).get(k);if(v)return v;
@@ -125,10 +129,29 @@ function render(jobs){
   Array.prototype.forEach.call(listEl.querySelectorAll(".iv"),function(i){i.onchange=function(){
     var v=parseInt(i.value,10);if(v>=1)api("POST","/api/v1/erp/app/mirror/auto",{job_key:i.getAttribute("data-k"),interval_min:v}).then(load);};});
 }
+function modeBadge(m){
+  var col={DEL:["#3a1d1c","#ffb3ae","#ff8a8a55"],RO:["#12294a","#7fc0ff","#4f8ef755"],
+           RW:["#241b40","#c9b6ff","#a78bfa66"]}[m]||["#1d2737","#8fa0b4","#2a3a55"];
+  var tip={DEL:"celá tabulka znovu",RO:"jen čteme (Helios pán řádku)",RW:"píšeme svoje sloupce — chráněné"}[m]||"";
+  return '<span class="badge" title="'+esc(tip)+'" style="background:'+col[0]+';color:'+col[1]+';border:1px solid '+col[2]+'">'+esc(m)+'</span>';
+}
+function renderOz(oz){
+  var el=document.getElementById("ozlist");
+  if(!oz||!oz.length){el.innerHTML='<div class="hint" style="padding:8px">Žádná OZ zrcadla.</div>';return;}
+  var h="";
+  oz.forEach(function(o){
+    h+='<div class="j"><div class="r1"><span class="nm">'+esc(o.oz_table)+'</span>'
+      +'<span class="grp">'+esc(o.fw_code)+'</span>'+modeBadge(o.mode)+'</div>'
+      +'<div class="meta">řádků: <b>'+(o.last_rows!=null?Number(o.last_rows).toLocaleString("cs-CZ"):"—")+'</b>'
+      +' · naposledy: '+(o.last_sync?esc(o.last_sync):"nikdy")+'</div></div>';
+  });
+  el.innerHTML=h;
+}
 function load(){
   api("GET","/api/v1/erp/app/mirror/status").then(function(j){
     if(!j||!j.ok){healthEl.innerHTML='<span class="res err">'+esc((j&&(j.error||j.detail))||"Nelze načíst (rodič only / běží registr?)")+'</span>';return;}
     render(j.jobs||[]);
+    renderOz(j.oz_mirrory||[]);
   });
 }
 document.getElementById("refresh").onclick=load;

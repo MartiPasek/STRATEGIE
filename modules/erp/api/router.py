@@ -23329,7 +23329,12 @@ def mirror_status(req: Request):
                 "enabled": r[4], "running": r[5], "last_status": r[6], "last_result": r[7],
                 "last_rows": r[8], "last_done": r[9], "last_run": r[10], "next_run": r[11],
                 "age_min": r[12], "run_min": r[13]} for r in rows]
-        return {"ok": True, "jobs": out}
+        # OZ zrcadla (oz_mirror_def) s módem DEL/RO/RW — přehled per tabulka (Marti 6.7.2026)
+        ozr = s.execute(_t(
+            "SELECT oz_table, COALESCE(mode,'DEL'), COALESCE(fw_code,'(raw)'), last_rows, "
+            "to_char(last_sync_at,'DD.MM. HH24:MI:SS') FROM tenant.oz_mirror_def ORDER BY mode DESC, oz_table")).fetchall()
+        oz = [{"oz_table": r[0], "mode": r[1], "fw_code": r[2], "last_rows": r[3], "last_sync": r[4]} for r in ozr]
+        return {"ok": True, "jobs": out, "oz_mirrory": oz}
     finally:
         s.close()
 

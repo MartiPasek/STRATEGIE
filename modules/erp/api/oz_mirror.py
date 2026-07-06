@@ -311,6 +311,52 @@ _OZ_RAW = {
         "WHERE d.DruhPohybuZbo BETWEEN 18 AND 19 AND d.PoradoveCislo>=0 "
         "AND d.DatPorizeni >= '2024-01-01'"  # scope dle DATA, ne dle Helios salda (to je naše)
     ),
+    # Platáky (platební příkazy) — tuzemské (přehled Centrály 2370). Peťa si je kontroluje ("jsou to prachy").
+    # Od 7.7.2026 platíme my → potřebujeme vlastní seznam zadaných platáku. RealizaceExport = vyexportováno.
+    "oz_platak_tuz": (
+        "SELECT pt.ID AS id, 'EC' AS firma, pt.RealizaceExport AS realizace_export, "
+        "CONVERT(varchar(10),pt.DatumVystaveni,23) AS datum_vystaveni, "
+        "CONVERT(varchar(10),pt.DatumSplatnosti,23) AS datum_splatnosti, "
+        "CONVERT(varchar(19),pt.DatPorizeni,120) AS dat_porizeni, "
+        "bs.NazevBankSpoj AS odkud, "
+        "(SELECT COUNT(ID) FROM TabPlatTuzRDetail WHERE IDHlavaPP=pt.ID) AS pocet, "
+        "CAST(pt.CastkaCelkem AS numeric(19,2)) AS castka_celkem, pt.Mena AS mena, "
+        "pt.PocetExportu AS pocet_exportu, pt.TypPrikazu AS typ_prikazu, pt.Autor AS autor, "
+        "bs.CisloUctu + '/' + bu.KodUstavu + ' ' + bs.Mena AS odkud_cislo_uctu, "
+        "pt.IDBankSpojeni AS id_bank_spojeni, pt.IdObdobi AS id_obdobi, "
+        "STUFF((SELECT ', '+CONVERT(nvarchar,r._PorCisFak) FROM TabPlatTuzR o "
+        "LEFT OUTER JOIN TabPlatTuzR_EXT r ON r.ID=o.ID WHERE o.IDHlavaPP=pt.ID FOR XML PATH('')),1,1,'') AS seznam_faktur, "
+        "pte._PathPayFile AS path_pay_file "
+        "FROM TabPlatTuz pt WITH (NOLOCK) "
+        "LEFT OUTER JOIN TabPlatTuz_EXT pte ON pt.ID=pte.ID "
+        "LEFT OUTER JOIN TabPenezniUstavy bu ON pt.IDBankUstavu=bu.ID "
+        "LEFT OUTER JOIN TabBankSpojeni bs ON pt.IDBankSpojeni=bs.ID "
+        "WHERE pt.TypPrikazu=0 AND pt.DatPorizeni >= '2025-01-01'"
+    ),
+    # Platáky zahraniční (přehled Centrály 2375) — EUR, s IBAN/SWIFT příjemce.
+    "oz_platak_zahr": (
+        "SELECT pz.ID AS id, 'EC' AS firma, pz.RealizaceExport AS realizace_export, "
+        "CONVERT(varchar(10),pz.DatumVystaveni,23) AS datum_vystaveni, "
+        "CONVERT(varchar(10),pz.DatumSplatnosti,23) AS datum_splatnosti, "
+        "CONVERT(varchar(19),pz.DatPorizeni,120) AS dat_porizeni, "
+        "plat.NazevBankSpoj AS odkud, prij.NazevBankSpoj AS komu, "
+        "pz.PocetDetailu AS pocet, CAST(pz.Castka AS numeric(19,2)) AS castka_celkem, pz.Mena AS mena, "
+        "pz.IDCilovaZeme AS cilova_zeme, pz.Autor AS autor, pz.PopisPlatby1 AS popis, "
+        "plat.CisloUctu + '/' + ubu.KodUstavu + ' ' + plat.Mena AS odkud_cislo_uctu, "
+        "prij.CisloUctu + '/' + pbu.KodUstavu AS kam_cislo, prij.IBANPisemny AS kam_iban, pbu.SWIFTUstavu AS kam_swift, "
+        "pz.Poplatky AS poplatky, pz.Priorita AS priorita, pz.IDObdobi AS id_obdobi, "
+        "pz.IDBankSpojeniPlatce AS id_bank_spojeni, "
+        "STUFF((SELECT ', '+CONVERT(nvarchar,r._PorCisFak) FROM TabPlatZahrDetail o "
+        "LEFT OUTER JOIN TabPlatZahrDetail_EXT r ON r.ID=o.ID WHERE o.IDHlavaPPZ=pz.ID FOR XML PATH('')),1,1,'') AS seznam_faktur, "
+        "pze._PathPayFile AS path_pay_file "
+        "FROM TabPlatZahr pz WITH (NOLOCK) "
+        "LEFT OUTER JOIN TabPlatZahr_EXT pze ON pz.ID=pze.ID "
+        "LEFT OUTER JOIN TabPenezniUstavy ubu ON pz.IDBankUstavuPlatce=ubu.ID "
+        "LEFT OUTER JOIN TabBankSpojeni plat ON pz.IDBankSpojeniPlatce=plat.ID "
+        "LEFT OUTER JOIN TabPenezniUstavy pbu ON pz.IDBankUstavuPrijemce=pbu.ID "
+        "LEFT OUTER JOIN TabBankSpojeni prij ON pz.IDBankSpojeniPrijemce=prij.ID "
+        "WHERE pz.DatPorizeni >= '2025-01-01'"
+    ),
 }
 
 

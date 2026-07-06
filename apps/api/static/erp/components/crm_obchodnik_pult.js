@@ -285,64 +285,62 @@
       if (!previewRows || !previewRows.length) return;
       if (!obchEl.value) { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "Vyber obchodníka."; return; }
       setGo(false); prevBtn.disabled = true;
-      var all = previewRows.slice();
-      var CHUNK = 10, total = all.length, idx = 0;
-      var acc = { created: 0, skipped_dup: 0, akce_created: 0, akce16: 0, bounced: 0, errors: [] };
-      msgEl.style.color = "#9fb6cc";
-
-      function finish(ok) {
-        prevBtn.disabled = false;
-        if (ok) { msgEl.style.color = "#3ecf8e"; msgEl.textContent = "✓ Import dokončen"; }
-        var eh = "";
-        if (acc.errors.length) {
-          eh = '<div style="color:#ff6b6b;margin-top:6px;">Chyby (' + acc.errors.length + '): ' +
-            esc(acc.errors.slice(0, 5).join(" · ")) + '</div>';
-        }
-        sumEl.innerHTML =
-          '<div style="background:#0e1620;border:1px solid #253143;border-radius:8px;padding:10px 12px;line-height:1.7;">' +
-          '✅ Založeno kontaktů: <b>' + acc.created + '</b> (autor ' + esc(obchEl.value) + ')<br>' +
-          'Akce „Získání firmy": <b>' + acc.akce16 + '</b> · „Email na info": <b>' + acc.akce_created +
-          '</b> · nedoručeno: <b>' + acc.bounced + '</b><br>' +
-          'Přeskočeno (duplicita): <b>' + acc.skipped_dup + '</b>' + eh + '</div>';
-        if (ok) previewRows = null;
-      }
-
-      function sendNext() {
-        if (idx >= total) { finish(true); return; }
-        var chunk = all.slice(idx, idx + CHUNK);
-        msgEl.textContent = "Zapisuji do CRM… " + Math.min(idx + chunk.length, total) + " / " + total;
-        fetch(IMP_BASE + "/commit", {
-          method: "POST", credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            rows: chunk, obchodnik: obchEl.value,
-            create_akce: !!akceEl.checked, zdroj: (zdrojEl.value || "Import")
-          })
+      msgEl.style.color = "#9fb6cc"; msgEl.textContent = "Spouštím import…";
+      fetch(IMP_BASE + "/commit", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows: previewRows, obchodnik: obchEl.value,
+          create_akce: !!akceEl.checked, zdroj: (zdrojEl.value || "Import")
         })
+      })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (j) {
+          if (!j || !j.ok || !j.job_id) {
+            msgEl.style.color = "#ff6b6b"; msgEl.textContent = "✗ " + ((j && j.error) || "start selhal");
+            prevBtn.disabled = false; setGo(true); return;
+          }
+          poll(j.job_id, j.total || previewRows.length, 0);
+        })
+        .catch(function () { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "✗ síť"; prevBtn.disabled = false; setGo(true); });
+
+      function poll(jobId, total, misses) {
+        fetch(IMP_BASE + "/status?job_id=" + encodeURIComponent(jobId), { credentials: "include" })
           .then(function (r) { return r.json().catch(function () { return {}; }); })
           .then(function (j) {
-            if (!j || !j.ok) {
-              msgEl.style.color = "#ff6b6b";
-              msgEl.textContent = "✗ " + ((j && j.error) || "zápis selhal") + " (u " + idx + "/" + total + ")";
-              finish(false); setGo(true); return;
+            if (!j || !j.ok || !j.progress) {
+              if (misses < 4) { setTimeout(function () { poll(jobId, total, misses + 1); }, 3000); return; }
+              msgEl.style.color = "#f0a93b";
+              msgEl.textContent = "Průběh nelze číst, ale úloha běží na serveru dál. Výsledek ověřím zvlášť.";
+              prevBtn.disabled = false; return;
             }
-            var rp = j.report || {};
-            acc.created += rp.created || 0; acc.skipped_dup += rp.skipped_dup || 0;
-            acc.akce_created += rp.akce_created || 0; acc.akce16 += rp.akce16 || 0;
-            acc.bounced += rp.bounced || 0;
-            if (rp.errors && rp.errors.length) acc.errors = acc.errors.concat(rp.errors);
-            idx += chunk.length;
-            sumEl.innerHTML = '<div style="font-size:12px;color:#9fb6cc;">Hotovo ' + idx + ' / ' + total +
-              ' · založeno ' + acc.created + ' · přeskočeno ' + acc.skipped_dup + '</div>';
-            sendNext();
+            var p = j.progress;
+            if (p.finished) {
+              msgEl.style.color = "#3ecf8e"; msgEl.textContent = "✓ Import dokončen";
+              var eh = "";
+              if (p.error_list && p.error_list.length) {
+                eh = '<div style="color:#ff6b6b;margin-top:6px;">Chyby (' + (p.errors || p.error_list.length) + '): ' +
+                  esc(p.error_list.slice(0, 5).join(" · ")) + '</div>';
+              }
+              if (p.fatal) eh += '<div style="color:#ff6b6b;margin-top:6px;">Fatální: ' + esc(p.fatal) + '</div>';
+              sumEl.innerHTML =
+                '<div style="background:#0e1620;border:1px solid #253143;border-radius:8px;padding:10px 12px;line-height:1.7;">' +
+                '✅ Založeno kontaktů: <b>' + (p.created || 0) + '</b> (autor ' + esc(p.obchodnik || obchEl.value) + ')<br>' +
+                'Akce „Získání firmy": <b>' + (p.akce16 || 0) + '</b> · „Email na info": <b>' + (p.akce_email || 0) +
+                '</b> · nedoručeno: <b>' + (p.bounced || 0) + '</b><br>' +
+                'Přeskočeno (duplicita): <b>' + (p.skipped || 0) + '</b>' + eh + '</div>';
+              prevBtn.disabled = false; previewRows = null;
+              return;
+            }
+            msgEl.style.color = "#9fb6cc";
+            msgEl.textContent = "Zapisuji do CRM… " + (p.done || 0) + " / " + (p.total || total) + " (běží na pozadí)";
+            sumEl.innerHTML = '<div style="font-size:12px;color:#9fb6cc;">Založeno ' + (p.created || 0) +
+              ' · Získání firmy ' + (p.akce16 || 0) + ' · Email na info ' + (p.akce_email || 0) +
+              ' · přeskočeno ' + (p.skipped || 0) + (p.errors ? ' · chyby ' + p.errors : '') + '</div>';
+            setTimeout(function () { poll(jobId, total, 0); }, 2500);
           })
-          .catch(function () {
-            msgEl.style.color = "#ff6b6b";
-            msgEl.textContent = "✗ síť u " + idx + "/" + total + ". Spusť prosím znovu — dedup dopíše jen chybějící.";
-            finish(false); setGo(true);
-          });
+          .catch(function () { setTimeout(function () { poll(jobId, total, misses + 1); }, 3000); });
       }
-      sendNext();
     };
   }
 

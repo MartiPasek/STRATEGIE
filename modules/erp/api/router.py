@@ -6351,8 +6351,11 @@ async def crm_import_preview(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "summary": summary, "rows": rows})
 
 
-def _crm_import_write(rows, obchodnik, create_akce, zdroj):
-    """Sync zápis dávky do Centrály (běží v executoru, ne v event loopu → neblokuje app).
+_CRM_IMPORT_JOBS = {}  # job_id → progress dict (in-memory, per API instance)
+
+
+def _crm_import_write(rows, obchodnik, create_akce, zdroj, progress=None):
+    """Sync zápis dávky do Centrály (běží v executoru/vlákně, ne v event loopu → neblokuje app).
     Per firma: hlavička st.CRM_Kontakt + akce „Získání firmy" (IDAkce=16, kvůli zobrazení
     názvu v CRM) + volitelně „Email na info" (IDAkce=1). Dedup dle (FirmaText, FirmaEmail).
     Retry na MCP rate-limit. Malé pauzy kvůli MCP limitu ~60 ops/min."""
@@ -6384,7 +6387,11 @@ def _crm_import_write(rows, obchodnik, create_akce, zdroj):
                 raise
         return None
 
-    for r in rows:
+    for _i, r in enumerate(rows):
+        if progress is not None:
+            progress.update({"done": _i, "created": created, "akce16": akce16,
+                             "akce_email": akce_created, "skipped": skipped,
+                             "bounced": bounced, "errors": len(errors)})
         firma = str(r.get("firma") or "").strip()[:256]
         if not firma:
             continue
@@ -6489,17 +6496,50 @@ async def crm_import_commit(req: Request) -> JSONResponse:
         ok_login = True
     if not ok_login:
         return JSONResponse({"ok": False, "error": "Neznámý obchodník: " + obchodnik}, status_code=400)
-    import asyncio as _aio
+    import uuid as _uuid, threading as _thr
+    job_id = _uuid.uuid4().hex
+    progress = {"job_id": job_id, "total": len(rows), "done": 0, "created": 0,
+                "akce16": 0, "akce_email": 0, "skipped": 0, "bounced": 0,
+                "errors": 0, "finished": False, "obchodnik": obchodnik}
+    _CRM_IMPORT_JOBS[job_id] = progress
+
+    def _run():
+        try:
+            rep = _crm_import_write(rows, obchodnik, create_akce, zdroj, progress=progress)
+            progress.update({"created": rep.get("created", 0), "akce16": rep.get("akce16", 0),
+                             "akce_email": rep.get("akce_created", 0),
+                             "skipped": rep.get("skipped_dup", 0), "bounced": rep.get("bounced", 0),
+                             "errors": len(rep.get("errors", [])),
+                             "error_list": rep.get("errors", [])[:20]})
+        except Exception as exc:
+            progress["fatal"] = str(exc)[:200]
+            logger.exception("[crm_import_job] %s", exc)
+        finally:
+            progress["done"] = len(rows)
+            progress["finished"] = True
+            logger.info("[crm_import_job] job=%s obchodnik=%s created=%d a16=%d aemail=%d skip=%d err=%d",
+                        job_id, obchodnik, progress.get("created", 0), progress.get("akce16", 0),
+                        progress.get("akce_email", 0), progress.get("skipped", 0),
+                        progress.get("errors", 0))
+
+    _thr.Thread(target=_run, daemon=True).start()
+    return JSONResponse({"ok": True, "job_id": job_id, "total": len(rows)})
+
+
+@api_router.get("/crm/import/status")
+async def crm_import_status(req: Request) -> JSONResponse:
+    """Průběh importní úlohy (in-memory per instance)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
     try:
-        report = await _aio.get_event_loop().run_in_executor(
-            None, _crm_import_write, rows, obchodnik, create_akce, zdroj)
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": "Zápis selhal: " + str(exc)[:150]},
-                            status_code=500)
-    logger.info("[crm_import_commit] uid=%d obchodnik=%s created=%d skip=%d a16=%d aemail=%d err=%d",
-                uid, obchodnik, report.get("created", 0), report.get("skipped_dup", 0),
-                report.get("akce16", 0), report.get("akce_created", 0), len(report.get("errors", [])))
-    return JSONResponse({"ok": True, "report": report})
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    prog = _CRM_IMPORT_JOBS.get(req.query_params.get("job_id") or "")
+    if not prog:
+        return JSONResponse({"ok": False, "error": "neznámá úloha"}, status_code=404)
+    return JSONResponse({"ok": True, "progress": prog})
 
 
 @api_router.post("/app/mail/stav")

@@ -331,7 +331,7 @@ _OZ_RAW = {
         "LEFT OUTER JOIN TabPlatTuz_EXT pte ON pt.ID=pte.ID "
         "LEFT OUTER JOIN TabPenezniUstavy bu ON pt.IDBankUstavu=bu.ID "
         "LEFT OUTER JOIN TabBankSpojeni bs ON pt.IDBankSpojeni=bs.ID "
-        "WHERE pt.TypPrikazu=0 AND pt.DatPorizeni >= '2025-01-01'"
+        "WHERE pt.TypPrikazu=0 AND YEAR(pt.DatPorizeni) IN (2025,2026)"
     ),
     # Platáky zahraniční (přehled Centrály 2375) — EUR, s IBAN/SWIFT příjemce.
     "oz_platak_zahr": (
@@ -355,7 +355,7 @@ _OZ_RAW = {
         "LEFT OUTER JOIN TabBankSpojeni plat ON pz.IDBankSpojeniPlatce=plat.ID "
         "LEFT OUTER JOIN TabPenezniUstavy pbu ON pz.IDBankUstavuPrijemce=pbu.ID "
         "LEFT OUTER JOIN TabBankSpojeni prij ON pz.IDBankSpojeniPrijemce=prij.ID "
-        "WHERE pz.DatPorizeni >= '2025-01-01'"
+        "WHERE YEAR(pz.DatPorizeni) IN (2025,2026)"
     ),
 }
 

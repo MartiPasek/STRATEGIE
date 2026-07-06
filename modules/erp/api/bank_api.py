@@ -267,34 +267,44 @@ def _rb_call(bundle: dict, method: str, path: str, params=None, json_body=None, 
 
 
 # ── Fáze 2: PLATBY — import dávky (platáku) do RB. NIKDY neprovede platbu, jen nahraje do IB (FOR_SIGN). ──
-# Batch-Import-Format hodnoty RB Premium API (POST /payments/batches):
-#   SEPA-XML, DOM-XML, ABO-KPC, CFD, CFU, CFA, GEMINI-* (náš byte-exact .p11/.f84 render → GEMINI).
-_RB_BATCH_FORMATS = ("SEPA-XML", "DOM-XML", "ABO-KPC", "CFD", "CFU", "CFA",
-                     "GEMINI-CFD", "GEMINI-CFU", "GEMINI-CFA")
+# Batch-Import-Format hodnoty RB Premium API (POST /payments/batches, autoritativní swagger 1.1.20240910):
+#   GEMINI-P11 (tuzemský platák .p11 = náš CZK render), GEMINI-P32, GEMINI-F84 (zahraniční .f84 = náš EUR),
+#   ABO-KPC, DOM-XML, SEPA-XML, CFD, CFU, CFA. Consumes text/plain. Vrací {batchFileId}.
+_RB_BATCH_FORMATS = ("GEMINI-P11", "GEMINI-P32", "GEMINI-F84",
+                     "ABO-KPC", "DOM-XML", "SEPA-XML", "CFD", "CFU", "CFA")
+# mapování naší měny/typu platáku → RB Gemini formát
+_RB_GEMINI_BY_MENA = {"CZK": "GEMINI-P11", "EUR": "GEMINI-F84"}
 
 
-def _rb_import_batch(bundle: dict, content, batch_format: str):
+def _rb_import_batch(bundle: dict, content, batch_format: str, batch_name=None, combined=False):
     """Nahraje dávku plateb (obsah platáku) do RB → IB jako koncept k PODPISU. NEPROVEDE platbu.
-    content = bytes (CP1250 Gemini soubor) nebo str; vrací (ok, dict). Člověk pak podepíše v bankovnictví."""
+    content = bytes (CP1250 Gemini soubor) nebo str; vrací (ok, dict). Člověk pak podepíše v bankovnictví.
+    combined=True → Batch-Combined-Payments (sdružené platáky). Batch-Autocorrect necháváme default (true)."""
     if isinstance(content, str):
         content = content.encode("cp1250", "replace")
+    xh = {"Batch-Import-Format": batch_format}
+    if batch_name:
+        xh["Batch-Name"] = str(batch_name)[:50]
+    if combined:
+        xh["Batch-Combined-Payments"] = "true"
     r = _rb_call(bundle, "POST", "/payments/batches", data=content,
-                 content_type="text/plain",
-                 extra_headers={"Batch-Import-Format": batch_format},
+                 content_type="text/plain", extra_headers=xh,
                  accept="application/json", timeout=60)
     ok = 200 <= r.status_code < 300
-    body = None
     try:
         body = r.json()
     except Exception:
         body = {"text": (r.text or "")[:400]}
+    err = None
+    if not ok and isinstance(body, dict):
+        err = body.get("error") or body.get("error_description")
     return ok, {"http": r.status_code, "batchFileId": (body or {}).get("batchFileId"),
-                "state": (body or {}).get("state") or (body or {}).get("status"),
-                "raw": body}
+                "error": err, "raw": body}
 
 
 def _rb_batch_status(bundle: dict, batch_file_id: str):
-    """Stav importované dávky: DRAFT/FOR_SIGN/VERIFIED/PASSED…"""
+    """Stav importované dávky: batchFileStatus (OK/ERROR/DELETED) + per-dávka status
+    (DRAFT/ERROR/FOR_SIGN/VERIFIED/PASSING_TO_BANK/PASSED/…). 202 = ještě se zpracovává."""
     r = _rb_call(bundle, "GET", "/payments/batches/%s" % batch_file_id,
                  accept="application/json", timeout=40)
     ok = 200 <= r.status_code < 300
@@ -302,8 +312,17 @@ def _rb_batch_status(bundle: dict, batch_file_id: str):
         body = r.json()
     except Exception:
         body = {"text": (r.text or "")[:400]}
-    return ok, {"http": r.status_code, "state": (body or {}).get("state") or (body or {}).get("status"),
-                "raw": body}
+    items = []
+    if isinstance(body, dict):
+        for it in (body.get("batchItems") or []):
+            items.append({"status": it.get("status"), "batchType": it.get("batchType"),
+                          "pocet": it.get("numberOfPayments"), "suma": it.get("sumAmount"),
+                          "mena": it.get("sumAmountCurrencyId")})
+    return ok, {"http": r.status_code,
+                "batchFileStatus": (body or {}).get("batchFileStatus"),
+                "errorCode": (body or {}).get("errorCode"),
+                "errorDescription": (body or {}).get("errorDescription"),
+                "polozky": items, "raw": body}
 
 
 def _rb_accounts(bundle: dict):
@@ -484,6 +503,8 @@ async def bank_import_batch(request: Request):
     cid = body.get("conn_id")
     fmt = (body.get("format") or "").strip()
     content = body.get("content")
+    batch_name = body.get("batch_name")
+    combined = bool(body.get("combined"))
     validate = bool(body.get("validate"))
     if not cid or not fmt:
         return JSONResponse({"ok": False, "error": "Chybí conn_id nebo format."}, status_code=400)
@@ -495,7 +516,7 @@ async def bank_import_batch(request: Request):
     # validate = suchý běh: neposílá do banky, jen potvrdí, že by volání proběhlo
     if validate:
         b = content.encode("cp1250", "replace") if isinstance(content, str) else content
-        return {"ok": True, "validate": True, "format": fmt, "bytes": len(b),
+        return {"ok": True, "validate": True, "format": fmt, "combined": combined, "bytes": len(b),
                 "note": "Suchý běh — do banky se NIC neodeslalo. Reálný import spusť bez validate."}
     s = _sess()
     try:
@@ -503,7 +524,7 @@ async def bank_import_batch(request: Request):
         if not bundle:
             return JSONResponse({"ok": False, "error": "Napojení nemá uložený certifikát."}, status_code=400)
         try:
-            ok, res = _rb_import_batch(bundle, content, fmt)
+            ok, res = _rb_import_batch(bundle, content, fmt, batch_name=batch_name, combined=combined)
         except Exception as exc:
             _log(s, cid, None, "import_payment_batch", "event", "user:%s" % uid, "ERROR:%s" % type(exc).__name__,
                  {"format": fmt, "err": str(exc)[:200]})
@@ -511,14 +532,15 @@ async def bank_import_batch(request: Request):
             return JSONResponse({"ok": False, "error": "RB import selhal: %s: %s"
                                  % (type(exc).__name__, str(exc)[:200])}, status_code=502)
         _log(s, cid, None, "import_payment_batch", "event", "user:%s" % uid,
-             ("OK:%s" % res.get("batchFileId")) if ok else ("HTTP:%s" % res.get("http")),
-             {"format": fmt, "batchFileId": res.get("batchFileId"), "state": res.get("state")})
+             ("OK:%s" % res.get("batchFileId")) if ok else ("HTTP:%s:%s" % (res.get("http"), res.get("error"))),
+             {"format": fmt, "batchFileId": res.get("batchFileId"), "error": res.get("error")})
         s.commit()
         if not ok:
-            return JSONResponse({"ok": False, "error": "RB odmítla dávku (HTTP %s)" % res.get("http"),
+            return JSONResponse({"ok": False, "error": "RB odmítla dávku (HTTP %s: %s)"
+                                 % (res.get("http"), res.get("error") or "?"),
                                  "detail": res.get("raw")}, status_code=502)
-        return {"ok": True, "batchFileId": res.get("batchFileId"), "state": res.get("state"),
-                "note": "Dávka nahrána do internetového bankovnictví. Platbu je nutné PODEPSAT v bance (lidský krok)."}
+        return {"ok": True, "batchFileId": res.get("batchFileId"),
+                "note": "Dávka nahrána do internetového bankovnictví jako koncept. Platbu je nutné PODEPSAT v bance (lidský krok)."}
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)
@@ -542,7 +564,9 @@ async def bank_batch_status(request: Request):
         if not bundle:
             return JSONResponse({"ok": False, "error": "Napojení nemá uložený certifikát."}, status_code=400)
         ok, res = _rb_batch_status(bundle, bfid)
-        return {"ok": ok, "state": res.get("state"), "http": res.get("http"), "detail": res.get("raw")}
+        return {"ok": ok, "http": res.get("http"), "batchFileStatus": res.get("batchFileStatus"),
+                "errorCode": res.get("errorCode"), "errorDescription": res.get("errorDescription"),
+                "polozky": res.get("polozky")}
     except Exception as exc:
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}, status_code=500)
     finally:

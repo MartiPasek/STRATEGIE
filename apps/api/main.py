@@ -912,6 +912,16 @@ def vyroba_page():
                                  "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
+@app.get("/overit")
+def overit_page():
+    """🔍 Ověření dodavatele — ARES identita + ADIS DPH status + zveřejněné účty.
+    Naše vlastní ověření s razítkem, nezávislé na Heliosu. Marti 6.7.2026 (pro Peťu)."""
+    return FileResponse(os.path.join(static_dir, "overit.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
+
+
 @app.get("/kalkulace")
 def kalkulace_page():
     """📐 Kalkulace rozváděčů — engine z DB_EC 2014 (CC×rabat→cena, koef→VKM/Arbeit).

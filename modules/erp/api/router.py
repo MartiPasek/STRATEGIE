@@ -32850,6 +32850,35 @@ def secondary_info(req: Request):
     return out
 
 
+@api_router.get("/app/verify-supplier")
+def verify_supplier(req: Request):
+    """Ověření dodavatele z registrů (ARES identita + ADIS DPH status/zveřejněné účty) —
+    NAŠE vlastní ověření s razítkem. Pro stránku /overit. Marti 6.7.2026 (překvapení pro Peťu)."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _gvs
+    _svs = _gvs()
+    try:
+        if not (is_marti_parent(uid) or _is_cockpit(_svs, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    finally:
+        _svs.close()
+    import datetime as _dtvs
+    q = (req.query_params.get("q") or "").strip().upper().replace(" ", "")
+    digits = "".join(ch for ch in q.replace("CZ", "") if ch.isdigit())
+    if not digits:
+        return JSONResponse({"ok": False, "error": "Zadej IČO nebo DIČ."})
+    ico = digits.zfill(8) if len(digits) <= 8 else digits
+    from modules.erp.api.registr_verify import ares_lookup as _ar, dph_lookup as _dl
+    ares = _ar(ico)
+    dic = (ares.get("dic") if ares.get("ok") else None) or ("CZ" + digits)
+    try:
+        dph = _dl(dic)
+    except Exception as _e:
+        dph = {"ok": False, "error": "%s: %s" % (type(_e).__name__, str(_e)[:150])}
+    return {"ok": True, "q": q, "ico": ico, "dic": dic, "ares": ares, "dph": dph,
+            "overeno_at": _dtvs.datetime.now().strftime("%d.%m.%Y %H:%M")}
+
+
 @api_router.post("/app/ops/secondary-refresh")
 async def secondary_refresh(req: Request):
     """Spustí refresh zálohy (zapíše .refreshsec marker → RESTART-WATCHER). Pro tlačítko na stránce."""

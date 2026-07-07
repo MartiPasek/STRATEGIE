@@ -125,7 +125,7 @@ function loadVypisy(){
     .then(function(r){return r.json();}).then(renderVypisy)
     .catch(function(){document.getElementById('vypisy-body').innerHTML='<div class="load">Chyba načítání.</div>';});
 }
-var _platakyLoaded=false,_plataky=[],_firmy={},_pfFirma='all',_pfTyp='all';
+var _platakyLoaded=false,_plataky=[],_firmy={},_pfFirma='all',_pfTyp='all',_ptotal=0,_psums={},_pshown=0;
 function platakyChips(){
   var h='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">';
   h+='<span class="chip'+(_pfFirma==='all'?' on':'')+'" data-f="all">Vše</span>';
@@ -140,15 +140,14 @@ function platakyChips(){
 }
 function bindPlatChips(){
   document.querySelectorAll('#plataky-body .chip').forEach(function(c){c.onclick=function(){
-    if(c.dataset.f!=null)_pfFirma=c.dataset.f; if(c.dataset.t!=null)_pfTyp=c.dataset.t; renderPlataky();};});
+    if(c.dataset.f!=null)_pfFirma=c.dataset.f; if(c.dataset.t!=null)_pfTyp=c.dataset.t; loadPlataky(true);};});
 }
 function renderPlataky(){
   var b=document.getElementById('plataky-body');
-  var list=_plataky.filter(function(p){
-    return (_pfFirma==='all'||String(p.firma)===_pfFirma)&&(_pfTyp==='all'||p.typ===_pfTyp);});
-  var sums={}; list.forEach(function(p){sums[p.mena]=(sums[p.mena]||0)+p.castka;});
-  var sh=Object.keys(sums).map(function(m){return money(sums[m],m);}).join(' · ')||'—';
-  var h=platakyChips()+'<div class="grp"><div class="gh"><div class="t">🧾 '+list.length+' platáku</div>'+
+  var list=_plataky;
+  var sh=Object.keys(_psums).map(function(m){return money(_psums[m],m);}).join(' · ')||'—';
+  var cap=(_pshown<_ptotal)?(' <span style="color:var(--dim);font-weight:400">(zobrazeno '+_pshown+' nejnovějších)</span>'):'';
+  var h=platakyChips()+'<div class="grp"><div class="gh"><div class="t">🧾 '+_ptotal+' platáku'+cap+'</div>'+
     '<div class="sum" style="font-size:13px">'+sh+'</div></div>';
   if(!list.length){h+='<div class="load" style="padding:16px">Žádné platáky pro tento filtr.</div></div>';b.innerHTML=h;bindPlatChips();return;}
   h+='<table><thead><tr><th>Datum</th><th>Firma</th><th></th><th>Odkud</th><th class="r">Faktur</th>'+
@@ -157,7 +156,7 @@ function renderPlataky(){
     var fc=_firmy[String(p.firma)]?_firmy[String(p.firma)].code:('#'+p.firma);
     var typ=p.typ==='tuz'?'<span class="pill" style="background:#12294a;color:var(--czk)">tuz</span>'
       :'<span class="pill" style="background:#241b40;color:var(--eur)">zahr</span>';
-    var exp=p.export?'<span class="pill ok">✓ exportováno</span>':'<span class="pill warn">rozpracováno</span>';
+    var exp=p.export?'<span class="pill ok">✓ odesláno do banky</span>':'';
     h+='<tr><td>'+esc(p.vystaveni)+'</td><td class="dod">'+esc(fc)+'</td><td>'+typ+'</td>'+
        '<td>'+esc(p.odkud)+'</td><td class="r">'+p.pocet+'</td>'+
        '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis" title="'+esc(p.seznam)+'">'+esc(p.seznam)+'</td>'+
@@ -166,12 +165,15 @@ function renderPlataky(){
   });
   b.innerHTML=h+'</tbody></table></div>'; bindPlatChips();
 }
-function loadPlataky(){
-  if(_platakyLoaded)return; _platakyLoaded=true;
-  fetch('/api/v1/erp/app/platby/plataky',{credentials:'same-origin'})
+function loadPlataky(force){
+  _platakyLoaded=true;
+  var b=document.getElementById('plataky-body');
+  if(b&&force){b.innerHTML=platakyChips()+'<div class="load">Načítám…</div>';bindPlatChips();}
+  var qs='?firma='+encodeURIComponent(_pfFirma)+'&typ='+encodeURIComponent(_pfTyp);
+  fetch('/api/v1/erp/app/platby/plataky'+qs,{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok){document.getElementById('plataky-body').innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
-      _plataky=d.plataky||[]; _firmy=d.firmy||{}; renderPlataky();
+      _plataky=d.plataky||[]; if(d.firmy)_firmy=d.firmy; _ptotal=d.total||0; _psums=d.sums||{}; _pshown=d.shown||_plataky.length; renderPlataky();
     }).catch(function(){document.getElementById('plataky-body').innerHTML='<div class="load">Chyba načítání.</div>';});
 }
 document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){

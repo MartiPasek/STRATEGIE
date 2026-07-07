@@ -29896,30 +29896,52 @@ def platby_plataky_get(req: Request):
     try:
         if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        # ORDER BY dle SKUTEČNÉHO data (ne zformátovaný text 'DD.MM.YYYY' — ten se
-        # řadil lexikograficky = podle dne, ne podle data). Marti 7.7.: nejnovější nahoře.
-        rows = s.execute(_t(
-            "SELECT firma, 'tuz' typ, id, to_char(datum_vystaveni::date,'DD.MM.YYYY') vyst, "
-            "  to_char(datum_splatnosti::date,'DD.MM.YYYY') splat, COALESCE(odkud,'') odkud, pocet, "
-            "  castka_celkem, COALESCE(mena,'CZK') mena, COALESCE(seznam_faktur,'') sez, "
-            "  COALESCE(realizace_export,false) exp, COALESCE(autor,'') autor, datum_vystaveni::date sortd "
-            "FROM tenant.oz_platak_tuz "
-            "UNION ALL "
-            "SELECT firma, 'zahr', id, to_char(datum_vystaveni::date,'DD.MM.YYYY'), "
-            "  to_char(datum_splatnosti::date,'DD.MM.YYYY'), COALESCE(odkud,''), pocet, "
-            "  castka_celkem, COALESCE(mena,'EUR'), COALESCE(seznam_faktur,''), "
-            "  COALESCE(realizace_export,false), COALESCE(autor,''), datum_vystaveni::date "
-            "FROM tenant.oz_platak_zahr "
-            "ORDER BY sortd DESC NULLS LAST, id DESC LIMIT 500")).fetchall()
+        # SERVER-SIDE filtr firma (EC=1/ES=2) + typ (tuz/zahr). Marti 7.7.: „něco nesedí" —
+        # globální LIMIT 500 přes VŠECHNY platáky ukrojil starší ES tuzemské (utopily se
+        # pod novějšími EC zahraničními) → filtr ukazoval jen pár. Teď filtr běží v DB
+        # a celkový počet/součet je PRAVDIVÝ (bez ohledu na zobrazených 500). ORDER dle SKUTEČNÉHO data.
+        firma = (req.query_params.get("firma") or "all").strip()
+        typ = (req.query_params.get("typ") or "all").strip()
+        params = {}
+        fw = ""
+        if firma in ("1", "2"):
+            params["f"] = int(firma)
+            fw = " WHERE firma = :f"
+        col_tuz = ("SELECT firma, 'tuz' typ, id, to_char(datum_vystaveni::date,'DD.MM.YYYY') vyst, "
+                   "  to_char(datum_splatnosti::date,'DD.MM.YYYY') splat, COALESCE(odkud,'') odkud, pocet, "
+                   "  castka_celkem, COALESCE(mena,'CZK') mena, COALESCE(seznam_faktur,'') sez, "
+                   "  COALESCE(realizace_export,false) exp, COALESCE(autor,'') autor, datum_vystaveni::date sortd "
+                   "FROM tenant.oz_platak_tuz" + fw)
+        col_zahr = ("SELECT firma, 'zahr', id, to_char(datum_vystaveni::date,'DD.MM.YYYY'), "
+                    "  to_char(datum_splatnosti::date,'DD.MM.YYYY'), COALESCE(odkud,''), pocet, "
+                    "  castka_celkem, COALESCE(mena,'EUR'), COALESCE(seznam_faktur,''), "
+                    "  COALESCE(realizace_export,false), COALESCE(autor,''), datum_vystaveni::date "
+                    "FROM tenant.oz_platak_zahr" + fw)
+        agg_tuz = "SELECT castka_celkem, COALESCE(mena,'CZK') mena FROM tenant.oz_platak_tuz" + fw
+        agg_zahr = "SELECT castka_celkem, COALESCE(mena,'EUR') mena FROM tenant.oz_platak_zahr" + fw
+        parts, aggs = [], []
+        if typ in ("all", "tuz"):
+            parts.append(col_tuz); aggs.append(agg_tuz)
+        if typ in ("all", "zahr"):
+            parts.append(col_zahr); aggs.append(agg_zahr)
+        if not parts:
+            parts.append(col_tuz); aggs.append(agg_tuz)
+        rows = s.execute(_t(" UNION ALL ".join(parts)
+                            + " ORDER BY sortd DESC NULLS LAST, id DESC LIMIT 500"), params).fetchall()
         out = []
         for r in rows:
             out.append({"firma": int(r[0]) if r[0] is not None else 0, "typ": r[1], "id": r[2],
                         "vystaveni": r[3] or "", "splatnost": r[4] or "", "odkud": r[5] or "",
                         "pocet": int(r[6] or 0), "castka": float(r[7]) if r[7] is not None else 0.0,
                         "mena": r[8], "seznam": r[9] or "", "export": bool(r[10]), "autor": r[11] or ""})
+        agg = s.execute(_t("SELECT mena, count(*) n, sum(castka_celkem) c FROM ("
+                           + " UNION ALL ".join(aggs) + ") q GROUP BY mena"), params).fetchall()
+        sums = {row[0]: float(row[2] or 0) for row in agg}
+        total = int(sum(int(row[1]) for row in agg))
         firmy = s.execute(_t("SELECT id, code, nazev FROM tenant.company WHERE aktivni ORDER BY id")).fetchall()
         fmap = {str(int(f[0])): {"code": f[1], "nazev": f[2]} for f in firmy}
-        return {"ok": True, "plataky": out, "firmy": fmap}
+        return {"ok": True, "plataky": out, "firmy": fmap, "total": total,
+                "sums": sums, "shown": len(out)}
     finally:
         s.close()
 

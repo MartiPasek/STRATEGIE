@@ -79,19 +79,32 @@ function dniPill(d){
   if(d<=3)return '<span class="pill warn">za '+d+' d</span>';
   return '<span class="pill ok">za '+d+' d</span>';
 }
+function firmaLbl(f){return f===2
+  ?'<span class="pill" style="background:#241b40;color:var(--eur)">ES</span>'
+  :'<span class="pill" style="background:#12294a;color:var(--czk)">EC</span>';}
 function tableFor(data,cur){
   var cls=cur==='CZK'?'c-czk':'c-eur';
   var h='<div class="grp"><div class="gh"><div class="t"><span class="cur '+cls+'">'+cur+'</span>'+
     data.pocet+' faktur k platbě</div><div class="sum">'+money(data.suma,cur)+'</div></div>';
   if(!data.polozky.length){h+='<div class="load" style="padding:16px">Nic k platbě v '+cur+'.</div></div>';return h;}
-  h+='<table><thead><tr><th>Doklad</th><th>Dodavatel</th><th>VS</th><th>Splatnost</th><th></th><th class="r">Částka</th></tr></thead><tbody>';
+  h+='<table><thead><tr><th>Doklad</th><th></th><th>Dodavatel</th><th>VS</th><th>Splatnost</th><th></th><th class="r">Částka</th></tr></thead><tbody>';
   data.polozky.forEach(function(p){
-    h+='<tr><td>'+esc(p.doklad)+'</td><td class="dod">'+esc(p.dodavatel)+'</td><td>'+esc(p.vs)+'</td>'+
+    h+='<tr><td>'+esc(p.doklad)+'</td><td>'+firmaLbl(p.firma)+'</td><td class="dod">'+esc(p.dodavatel)+'</td><td>'+esc(p.vs)+'</td>'+
       '<td>'+esc(p.splatnost)+'</td><td>'+dniPill(p.dni)+'</td>'+
       '<td class="r money">'+money(p.castka,cur)+'</td></tr>';
   });
   h+='</tbody></table></div>';
   return h;
+}
+var _nfFirma='all';
+function navrhChips(){
+  var opts=[['all','Vše'],['1','EUROSOFT - Control'],['2','EUROSOFT - System']];
+  var h='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">';
+  opts.forEach(function(o){h+='<span class="chip'+(_nfFirma===o[0]?' on':'')+'" data-nf="'+o[0]+'">'+o[1]+'</span>';});
+  return h+'</div>';
+}
+function bindNavrhChips(){
+  document.querySelectorAll('#navrhy-body .chip').forEach(function(c){c.onclick=function(){_nfFirma=c.dataset.nf;loadNavrhy(true);};});
 }
 function render(d){
   var kpi=document.getElementById('kpi');
@@ -99,7 +112,16 @@ function render(d){
     '<div class="b czk"><div class="n">'+money(d.czk.suma,'CZK')+'</div><div class="l">Návrh CZK · '+d.czk.pocet+' faktur</div></div>'+
     '<div class="b eur"><div class="n">'+money(d.eur.suma,'EUR')+'</div><div class="l">Návrh EUR · '+d.eur.pocet+' faktur</div></div>'+
     '<div class="b"><div class="n">'+(d.czk.pocet+d.eur.pocet)+'</div><div class="l">faktur celkem k platbě</div></div>';
-  document.getElementById('navrhy-body').innerHTML=tableFor(d.czk,'CZK')+tableFor(d.eur,'EUR');
+  document.getElementById('navrhy-body').innerHTML=navrhChips()+tableFor(d.czk,'CZK')+tableFor(d.eur,'EUR');
+  bindNavrhChips();
+}
+function loadNavrhy(force){
+  var b=document.getElementById('navrhy-body');
+  if(force){b.innerHTML=navrhChips()+'<div class="load">Načítám…</div>';bindNavrhChips();}
+  fetch('/api/v1/erp/app/platby/navrh?firma='+encodeURIComponent(_nfFirma),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){if(d&&d.ok){render(d);} else {b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';}})
+    .catch(function(){b.innerHTML='<div class="load">Chyba načítání.</div>';});
 }
 var _vypisyLoaded=false;
 function renderVypisy(d){
@@ -185,10 +207,7 @@ document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
   t.classList.add('on');var p=t.getAttribute('data-p');document.getElementById(p).classList.add('on');
   if(p==='vypisy')loadVypisy();
   if(p==='plataky')loadPlataky();};});
-fetch('/api/v1/erp/app/platby/navrh',{credentials:'same-origin'})
-  .then(function(r){return r.json();})
-  .then(function(d){if(d&&d.ok){render(d);} else {document.getElementById('navrhy-body').innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';}})
-  .catch(function(){document.getElementById('navrhy-body').innerHTML='<div class="load">Chyba načítání.</div>';});
+loadNavrhy();
 </script>
 <script src="/static/nav-back.js"></script>
 </body>

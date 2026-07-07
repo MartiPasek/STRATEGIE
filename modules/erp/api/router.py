@@ -29829,25 +29829,38 @@ def platby_navrh_get(req: Request):
     try:
         if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Firma (účetní) se v EC odvozuje z ŘADY dokladu (Marti 7.7. dle Peti):
+        # ES faktury jedou v EC pod zvláštními řadami 501(FPS)/531(FPZS)/541(FPOS),
+        # ostatní = EC. (Helios ES = jen mzdy; ES účto je v EC → Pohoda.) Data jsou
+        # v jedné DB (DB_EC), takže úhrady zůstávají firma=1 (bez cross-db).
+        firma = (req.query_params.get("firma") or "all").strip()
+        params = {}
+        ffilter = ""
+        _uf = "(CASE WHEN p.rada IN ('501','531','541') THEN 2 ELSE 1 END)"
+        if firma in ("1", "2"):
+            params["ff"] = int(firma)
+            ffilter = " AND " + _uf + " = :ff "
         rows = s.execute(_t(
             "WITH u AS (SELECT id_fak, SUM(castka) AS paid FROM tenant.oz_uhrady WHERE firma=1 GROUP BY id_fak) "
             "SELECT p.mena, p.doklad, COALESCE(NULLIF(p.dodavatel,''),p.zkratka,'?') dod, "
             "  COALESCE(p.var_symbol,'') vs, to_char(p.splatnost::date,'DD.MM.YYYY') splat, "
             "  (p.splatnost::date - now()::date) dni, "
             "  ((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0)) open_saldo, "
-            "  p.poradove_cislo, COALESCE(p.popis,'') popis "
+            "  p.poradove_cislo, COALESCE(p.popis,'') popis, " + _uf + " AS ufirma "
             "FROM tenant.oz_pf_platba p LEFT JOIN u ON u.id_fak=p.id "
             "WHERE p.realizovano=1 AND NOT p.fin_zakaz AND p.nehradit=0 AND p.suma_po_zao>0 "
             "  AND p.obdobi>22 AND p.rada NOT LIKE '52%' "
             "  AND now()::date >= (p.splatnost::date - (p.dny_pred_platbou||' days')::interval) "
             "  AND ((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0)) > 0.5 "
-            "ORDER BY p.mena, p.splatnost")).fetchall()
+            + ffilter +
+            "ORDER BY p.mena, p.splatnost"), params).fetchall()
         czk, eur = [], []
         for r in rows:
             it = {"doklad": r[1] or "", "dodavatel": r[2] or "", "vs": r[3] or "", "splatnost": r[4],
                   "dni": int(r[5]) if r[5] is not None else None,
                   "castka": round(float(r[6]), 2) if r[6] is not None else 0.0,
-                  "cislo": r[7], "popis": (r[8] or "")[:70]}
+                  "cislo": r[7], "popis": (r[8] or "")[:70],
+                  "firma": int(r[9]) if r[9] is not None else 1}
             (czk if r[0] == "CZK" else eur).append(it)
         return {"ok": True,
                 "czk": {"pocet": len(czk), "suma": round(sum(x["castka"] for x in czk), 2), "polozky": czk},

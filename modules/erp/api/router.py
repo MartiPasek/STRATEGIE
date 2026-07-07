@@ -29880,19 +29880,35 @@ def platby_vypisy_get(req: Request):
     try:
         if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # Firma = banka účtu (bank_connection.company_id: EC=1, ES=2) + filtr měny. Marti 7.7.
+        firma = (req.query_params.get("firma") or "all").strip()
+        mena = (req.query_params.get("mena") or "all").strip().upper()
+        params = {}
+        conds = []
+        if firma in ("1", "2"):
+            params["ff"] = int(firma); conds.append("c.company_id = :ff")
+        if mena in ("CZK", "EUR"):
+            params["mm"] = mena; conds.append("COALESCE(NULLIF(t.mena,''),'CZK') = :mm")
+        base = ("FROM tenant.bank_transaction_raw t "
+                "LEFT JOIN tenant.bank_connection_account a ON a.id=t.account_id "
+                "LEFT JOIN tenant.bank_connection c ON c.id=a.connection_id"
+                + ((" WHERE " + " AND ".join(conds)) if conds else ""))
         rows = s.execute(_t(
-            "SELECT to_char(datum,'DD.MM.YYYY') d, castka, COALESCE(NULLIF(mena,''),'CZK') mena, "
-            "  COALESCE(smer,'') smer, COALESCE(protiucet,'') protiucet, COALESCE(vs,'') vs, "
-            "  LEFT(COALESCE(zprava,''),70) zprava, COALESCE(stav_parovani,'') stav, "
-            "  COALESCE(NULLIF(par_kategorie,''), NULLIF(par_zakazka,''), '') par "
-            "FROM tenant.bank_transaction_raw ORDER BY datum DESC, id DESC LIMIT 60")).fetchall()
+            "SELECT to_char(t.datum,'DD.MM.YYYY') d, t.castka, COALESCE(NULLIF(t.mena,''),'CZK') mena, "
+            "  COALESCE(t.smer,'') smer, COALESCE(t.protiucet,'') protiucet, COALESCE(t.vs,'') vs, "
+            "  LEFT(COALESCE(t.zprava,''),70) zprava, COALESCE(t.stav_parovani,'') stav, "
+            "  COALESCE(NULLIF(t.par_kategorie,''), NULLIF(t.par_zakazka,''), '') par, "
+            "  COALESCE(c.company_id,1) firma " + base +
+            " ORDER BY t.datum DESC, t.id DESC LIMIT 100"), params).fetchall()
         out = []
         for r in rows:
             out.append({"datum": r[0], "castka": float(r[1]) if r[1] is not None else 0.0,
                         "mena": r[2], "smer": r[3], "protiucet": r[4] or "", "vs": r[5] or "",
-                        "zprava": r[6] or "", "stav": r[7] or "", "par": r[8] or ""})
-        posl = s.execute(_t("SELECT to_char(max(datum),'DD.MM.YYYY') FROM tenant.bank_transaction_raw")).scalar()
-        return {"ok": True, "polozky": out, "posledni": posl}
+                        "zprava": r[6] or "", "stav": r[7] or "", "par": r[8] or "",
+                        "firma": int(r[9]) if r[9] is not None else 1})
+        cnt = s.execute(_t("SELECT count(*) " + base), params).scalar()
+        posl = s.execute(_t("SELECT to_char(max(t.datum),'DD.MM.YYYY') " + base), params).scalar()
+        return {"ok": True, "polozky": out, "posledni": posl, "total": int(cnt or 0), "shown": len(out)}
     finally:
         s.close()
 

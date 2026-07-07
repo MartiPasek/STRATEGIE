@@ -125,29 +125,42 @@ function loadNavrhy(force){
     .then(function(d){if(d&&d.ok){render(d);} else {b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';}})
     .catch(function(){b.innerHTML='<div class="load">Chyba načítání.</div>';});
 }
-var _vypisyLoaded=false;
+var _vfFirma='all',_vfMena='all';
+function vypChips(){
+  var h='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px">';
+  [['all','Vše'],['1','EUROSOFT - Control'],['2','EUROSOFT - System']].forEach(function(o){
+    h+='<span class="chip'+(_vfFirma===o[0]?' on':'')+'" data-vf="'+o[0]+'">'+o[1]+'</span>';});
+  h+='<span style="width:14px;display:inline-block"></span>';
+  [['all','Vše'],['CZK','CZK'],['EUR','EUR']].forEach(function(o){
+    h+='<span class="chip'+(_vfMena===o[0]?' on':'')+'" data-vm="'+o[0]+'">'+o[1]+'</span>';});
+  return h+'</div>';
+}
+function bindVypChips(){
+  document.querySelectorAll('#vypisy-body .chip').forEach(function(c){c.onclick=function(){
+    if(c.dataset.vf!=null)_vfFirma=c.dataset.vf; if(c.dataset.vm!=null)_vfMena=c.dataset.vm; loadVypisy(true);};});
+}
 function renderVypisy(d){
   var b=document.getElementById('vypisy-body');
   if(!d||!d.ok){b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
-  if(!d.polozky.length){b.innerHTML='<div class="load">Žádné transakce.</div>';return;}
-  var h='<div class="grp"><div class="gh"><div class="t">🏦 Poslední transakce ('+d.polozky.length+')</div>'+
-    '<div class="sum" style="font-size:12px;color:var(--dim);font-weight:600">poslední import: '+esc(d.posledni||'—')+'</div></div>'+
-    '<table><thead><tr><th>Datum</th><th></th><th>Protiúčet</th><th>VS</th><th>Zpráva</th><th>Párování</th><th class="r">Částka</th></tr></thead><tbody>';
+  var h=vypChips()+'<div class="grp"><div class="gh"><div class="t">🏦 '+(d.total||0)+' transakcí</div>'+
+    '<div class="sum" style="font-size:12px;color:var(--dim);font-weight:600">poslední import: '+esc(d.posledni||'—')+'</div></div>';
+  if(!d.polozky.length){h+='<div class="load" style="padding:16px">Žádné transakce pro tento filtr.</div></div>';b.innerHTML=h;bindVypChips();return;}
+  h+='<table><thead><tr><th>Datum</th><th></th><th></th><th>Protiúčet</th><th>VS</th><th>Zpráva</th><th>Párování</th><th class="r">Částka</th></tr></thead><tbody>';
   d.polozky.forEach(function(t){
     var out=(t.smer==='out'||t.castka<0);
-    h+='<tr><td>'+esc(t.datum)+'</td><td>'+(out?'<span class="pill hot">odchozí</span>':'<span class="pill ok">příchozí</span>')+'</td>'+
+    h+='<tr><td>'+esc(t.datum)+'</td><td>'+firmaLbl(t.firma)+'</td><td>'+(out?'<span class="pill hot">odchozí</span>':'<span class="pill ok">příchozí</span>')+'</td>'+
       '<td>'+esc(t.protiucet)+'</td><td>'+esc(t.vs)+'</td><td>'+esc(t.zprava)+'</td>'+
       '<td>'+(t.par?'<span class="pill ok">'+esc(t.par)+'</span>':esc(t.stav||''))+'</td>'+
       '<td class="r money" style="color:'+(out?'var(--hot)':'var(--ok)')+'">'+money(Math.abs(t.castka),t.mena)+'</td></tr>';
   });
-  h+='</tbody></table></div>';
-  b.innerHTML=h;
+  h+='</tbody></table></div>'; b.innerHTML=h; bindVypChips();
 }
-function loadVypisy(){
-  if(_vypisyLoaded)return; _vypisyLoaded=true;
-  fetch('/api/v1/erp/app/platby/vypisy',{credentials:'same-origin'})
+function loadVypisy(force){
+  var b=document.getElementById('vypisy-body');
+  if(force){b.innerHTML=vypChips()+'<div class="load">Načítám…</div>';bindVypChips();}
+  fetch('/api/v1/erp/app/platby/vypisy?firma='+encodeURIComponent(_vfFirma)+'&mena='+encodeURIComponent(_vfMena),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderVypisy)
-    .catch(function(){document.getElementById('vypisy-body').innerHTML='<div class="load">Chyba načítání.</div>';});
+    .catch(function(){b.innerHTML='<div class="load">Chyba načítání.</div>';});
 }
 var _platakyLoaded=false,_plataky=[],_firmy={},_pfFirma='all',_pfTyp='all',_ptotal=0,_psums={},_pshown=0;
 function platakyChips(){

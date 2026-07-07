@@ -29915,7 +29915,7 @@ def platby_plataky_get(req: Request):
         col_zahr = ("SELECT firma, 'zahr', id, to_char(datum_vystaveni::date,'DD.MM.YYYY'), "
                     "  to_char(datum_splatnosti::date,'DD.MM.YYYY'), COALESCE(odkud,''), pocet, "
                     "  castka_celkem, COALESCE(mena,'EUR'), COALESCE(seznam_faktur,''), "
-                    "  COALESCE(realizace_export,false), COALESCE(autor,''), datum_vystaveni::date "
+                    "  COALESCE(realizace_export,false), COALESCE(autor,''), datum_vystaveni::date sortd "
                     "FROM tenant.oz_platak_zahr" + fw)
         agg_tuz = "SELECT castka_celkem, COALESCE(mena,'CZK') mena FROM tenant.oz_platak_tuz" + fw
         agg_zahr = "SELECT castka_celkem, COALESCE(mena,'EUR') mena FROM tenant.oz_platak_zahr" + fw

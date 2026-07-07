@@ -28559,6 +28559,52 @@ def _mzdy_loajalita_rows(firma, rok, mesic):
     return out
 
 
+# ── Prémie ze zakázek (OdmenazFinanciZak) → složka 651 (prémie). Peta 7.7.2026 ────────────
+#  Zdroj = tenant.att_finance_zakazek (zrcadlo SUM(OdmenazFinanciZak) z EC_Dochazka/DB_EC,
+#  plněno při @@DOCHSUM). Stejná logika, jakou starý systém plnil PremieFinanceZam do
+#  EC_Mzdy_SumaMesic (Tynčin select). Přičítá se do 651 stejně jako loajalita/prémie ze snapshotu
+#  (consolidate je sečte). Filtrujeme na firmu přes smlouvu, ať ES nesebere EC data.
+def _mzdy_finance_zakazek_rows(firma, rok, mesic):
+    """Vrací řádky (cislo, 651, koruny, 0) pro prémie ze zakázek za dané období.
+    Čte tenant.att_finance_zakazek (naše zrcadlo). Může být i záporné (korekce, např. -20)."""
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    fk_sm = 'EC' if str(firma).upper() in ('EC', '1') else 'ES'
+    ry = int(rok); rm = int(mesic)
+    s = _g()
+    try:
+        emp = set()
+        for r in s.execute(_t(
+            "SELECT sm.helios_cislo FROM tenant.user_smlouva sm "
+            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND sm.helios_cislo IS NOT NULL"),
+                {"fk": fk_sm}).fetchall():
+            try:
+                emp.add(int(r[0]))
+            except Exception:
+                pass
+        fin = {}
+        try:
+            for r in s.execute(_t(
+                "SELECT cislo_zam, COALESCE(SUM(castka),0) FROM tenant.att_finance_zakazek "
+                "WHERE tenant_id=2 AND rok=:y AND mesic=:mo GROUP BY cislo_zam"),
+                    {"y": ry, "mo": rm}).fetchall():
+                try:
+                    fin[int(r[0])] = float(r[1] or 0)
+                except Exception:
+                    pass
+        except Exception:
+            s.rollback()  # tabulka ještě neexistuje (před prvním @@DOCHSUM) → prázdné
+    finally:
+        s.close()
+    out = []
+    for cislo, castka in fin.items():
+        if emp and cislo not in emp:
+            continue  # jen lidé dané firmy (EC data ES nebere)
+        kc = int(round(castka))
+        if kc != 0:
+            out.append((cislo, 651, kc, 0))
+    return out
+
 
 # Generické příplatky/srážky (Marti 28.6.) — z wage_movement (mirror EC_FinPriplatkySrazkyDefinice)
 # do mzdy přes vlastní Helios CisloMS. Autoritativní mapa = EC číselník (MzdovaSlozka+ReakceMzdy),
@@ -28899,6 +28945,10 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
             prows = prows + _mzdy_loajalita_rows(firma, rok, mesic)
         except Exception:
             pass
+        try:
+            prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
+        except Exception:
+            pass
         # Absence (OČR/nemoc) → docházková MS 201/200 do předzpracování. Marti 28.6.: nechat
         # VIDITELNÉ na pásce. Helios sám náhradu nedopočítá (hodí Status 9 = „doplnit dávku"),
         # což je záměrný signál — monitor @@MZDYCHECK i Status 9 na to ukáží. Skutečný výpočet
@@ -29016,6 +29066,14 @@ def mzdy_generuj(req: Request):
             prows = prows + _mzdy_rucni_rows(firma)
         except Exception:
             pass  # ruční složky (odměna společníků 693, DPP 700 ap.) best-effort
+        try:
+            prows = prows + _mzdy_loajalita_rows(firma, rok, mesic)
+        except Exception:
+            pass  # loajalita (přesčas výroby) → 651, best-effort (Peta 7.7.2026)
+        try:
+            prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
+        except Exception:
+            pass  # prémie ze zakázek → 651, best-effort (Peta 7.7.2026)
         prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
         try:
             prows = _mzdy_consolidate(prows)
@@ -29552,7 +29610,7 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
         # Generátor ji přičítá rovnou do heliosového součtu 651, ale neukládá ji jako
         # wage_movement/snapshot, takže v rozpisu chyběla (součet položek < celková složka).
         # Dopočteme ji tady toutéž funkcí jako generátor — NIC se nezapisuje, jen zobrazení,
-        # aby rozpis seděl na celek. (Finance zakázek už jdou přes wage_movement.zakazka_ref.)
+        # aby rozpis seděl na celek. Totéž platí pro prémie ze zakázek (dopočet z att_finance_zakazek).
         if cms == 651:
             try:
                 _ci = int(cislo)
@@ -29566,6 +29624,13 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
                                     "castka": float(lkc), "zakazka": None, "zdroj": "dopocet"})
                         soucet += float(lkc)
                         break
+                # Prémie ze zakázek (OdmenazFinanciZak) → dopočtený řádek za prémie (Peta 7.7.2026)
+                for (fc, fms, fkc, _fh) in _mzdy_finance_zakazek_rows(firma, rok, mesic):
+                    if int(fc) == _ci and int(fms) == 651 and float(fkc or 0) != 0:
+                        pol.append({"typ": "Prémie ze zakázek", "kod": "finance_zakazek",
+                                    "castka": float(fkc), "zakazka": None, "zdroj": "dopocet"})
+                        soucet += float(fkc)
+                        break
         return {"ok": True, "polozky": pol, "soucet": round(soucet)}
     finally:
         s.close()
@@ -29573,6 +29638,7 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
 
 _WAGE_LABEL = {
     "proplaceni_vernostni": "Věrnostní poukázka",  # Peta 7.7.2026 (byl holý kód)
+    "finance_zakazek": "Prémie ze zakázek",  # Peta 7.7.2026 (dopočet z att_finance_zakazek)
     "zaklad": "Pevná základní složka", "os_ohodnoceni": "Osobní ohodnocení",
     "premie": "Prémie", "individualni": "Individuální složka", "vedeni_lidi": "Vedení lidí",
     "vedeni_obchod": "Vedení obchodu", "produkce": "Produkce", "kvalita": "Kvalita",
@@ -36498,7 +36564,14 @@ async def diag_sql(req: Request) -> JSONResponse:
             if len(_dp) < 2 or not _dp[0].isdigit() or not _dp[1].isdigit():
                 return JSONResponse({"ok": False, "error": "@@DOCHSUM <rok> <mesic>"})
             _dy, _dm = int(_dp[0]), int(_dp[1])
-            return JSONResponse(_sync_dochazka_sumaden(_dy, month=_dm))
+            _ds = _sync_dochazka_sumaden(_dy, month=_dm)
+            # Zároveň zrcadli prémie ze zakázek (OdmenazFinanciZak) za totéž období. Peta 7.7.2026.
+            try:
+                _ds["finance_zakazek"] = _sync_finance_zakazek(_dy, month=_dm)
+            except Exception as _fze:
+                if isinstance(_ds, dict):
+                    _ds["finance_zakazek"] = {"ok": False, "error": str(_fze)[:200]}
+            return JSONResponse(_ds)
         except Exception as _de:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_de).__name__, str(_de)[:300]),
                                  "tb": _tbds.format_exc()[-800:]})
@@ -41220,6 +41293,84 @@ def _sync_dochazka_sumaden(year: int = 2026, month=None) -> dict:
                  "absc": f(row.get("absc")), "mat": f(row.get("mat")), "prek": f(row.get("prek")),
                  "chybi": f(row.get("chybi")), "pauza": f(row.get("pauza")),
                  "uz": bool(int(row.get("uz") or 0))})
+            n += 1
+        s.commit()
+        return {"ok": True, "rows": len(rows), "upserted": n}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_finance_zakazek(year: int = 2026, month=None) -> dict:
+    """Peta 7.7.2026 — prémie ze zakázek: SUM(OdmenazFinanciZak) z EC_Dochazka (Centrála/DB_EC)
+    per osoba za období (DatumPripadu_Y/M) → tenant.att_finance_zakazek. Stejný výpočet, jakým
+    starý systém plnil sloupec PremieFinanceZam v EC_Mzdy_SumaMesic (Tynčin select). Idempotentní:
+    smaž období + upsert. Zdroj pravdy = DB_EC. Generátor mezd to pak přičítá do složky 651."""
+    import json as _j
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    sql = ("SELECT CisloZam cz, SUM(OdmenazFinanciZak) castka "
+           "FROM EC_Dochazka WHERE DatumPripadu_Y = " + str(int(year))
+           + ((" AND DatumPripadu_M = " + str(int(month))) if month else "")
+           + " GROUP BY CisloZam HAVING SUM(OdmenazFinanciZak) <> 0")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+
+    def f(v):
+        try:
+            return round(float(v), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    n = 0
+    mm = int(month) if month else 0
+    try:
+        # Tabulku zakládá API (bridge je read-only) — idempotentně při každém zrcadlení.
+        s.execute(_t(
+            "CREATE TABLE IF NOT EXISTS tenant.att_finance_zakazek ("
+            " tenant_id integer NOT NULL,"
+            " cislo_zam text NOT NULL,"
+            " rok integer NOT NULL,"
+            " mesic integer NOT NULL,"
+            " castka numeric(14,2) NOT NULL DEFAULT 0,"
+            " synced_at timestamptz DEFAULT now(),"
+            " PRIMARY KEY (tenant_id, cislo_zam, rok, mesic))"))
+        if month:
+            s.execute(_t("DELETE FROM tenant.att_finance_zakazek WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
+                      {"y": int(year), "m": mm})
+        else:
+            s.execute(_t("DELETE FROM tenant.att_finance_zakazek WHERE tenant_id=2 AND rok=:y"),
+                      {"y": int(year)})
+        for row in rows:
+            try:
+                cz = int(row.get("cz"))
+            except (TypeError, ValueError):
+                continue
+            s.execute(_t(
+                "INSERT INTO tenant.att_finance_zakazek (tenant_id, cislo_zam, rok, mesic, castka, synced_at) "
+                "VALUES (2, :cz, :y, :m, :castka, now()) "
+                "ON CONFLICT (tenant_id, cislo_zam, rok, mesic) DO UPDATE SET "
+                " castka=EXCLUDED.castka, synced_at=now()"),
+                {"cz": str(cz), "y": int(year), "m": mm, "castka": f(row.get("castka"))})
             n += 1
         s.commit()
         return {"ok": True, "rows": len(rows), "upserted": n}

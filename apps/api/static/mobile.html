@@ -852,7 +852,14 @@ setTimeout(function(){
     var ta=el('<textarea placeholder="Důvod (nepovinné)…" style="width:100%;min-height:64px;margin-bottom:14px;box-sizing:border-box;"></textarea>');
     card.appendChild(ta);
     var rowb=el('<div style="display:flex;gap:10px;"></div>');
-    var no=el('<button class="ghost" style="flex:1;margin  function mytodo(){
+    var no=el('<button class="ghost" style="flex:1;margin:0;">Zrušit</button>');
+    var yes=el('<button class="green" style="flex:1;margin:0;background:#b3402f;">🚫 Zamítnout</button>');
+    no.addEventListener("click",function(){ ov.remove(); });
+    yes.addEventListener("click",function(){ ov.remove(); var nt=(ta.value||"").trim(); if(onReject){ onReject(nt); } else { apDecide(r.id,"rejected",nt); } });
+    rowb.appendChild(no); rowb.appendChild(yes); card.appendChild(rowb);
+    ov.appendChild(card); document.body.appendChild(ov);
+  }
+  function mytodo(){
     app.innerHTML=topbar("📝 Moje TODO", true);
     var p=el('<div class="panel"></div>');
     var arow=el('<div style="display:flex;gap:8px;margin-bottom:10px;"></div>');

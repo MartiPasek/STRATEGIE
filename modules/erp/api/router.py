@@ -30115,7 +30115,12 @@ def platby_navrh_get(req: Request):
             params["ff"] = int(firma)
             ffilter = " AND " + _uf + " = :ff "
         rows = s.execute(_t(
-            "WITH u AS (SELECT id_fak, SUM(castka) AS paid FROM tenant.oz_uhrady WHERE firma=1 GROUP BY id_fak) "
+            # paid = Helios úhrady (oz_uhrady, mirror) + náš úhradový ZÁMEK (platak_uhrada_lock,
+            # zapsaný při generování platáku — přežije TRUNCATE mirroru; pojistka proti dvojí
+            # platbě v dalším běhu, než banka zaúčtuje). Marti 7.7.2026.
+            "WITH u AS (SELECT id_fak, SUM(castka) AS paid FROM ("
+            "  SELECT id_fak, castka FROM tenant.oz_uhrady WHERE firma=1"
+            "  UNION ALL SELECT id_fak, castka FROM tenant.platak_uhrada_lock) x GROUP BY id_fak) "
             "SELECT p.mena, p.doklad, COALESCE(NULLIF(p.dodavatel,''),p.zkratka,'?') dod, "
             "  COALESCE(p.var_symbol,'') vs, to_char(p.splatnost::date,'DD.MM.YYYY') splat, "
             "  (p.splatnost::date - now()::date) dni, "
@@ -30272,7 +30277,9 @@ def platby_faktury_get(req: Request):
         if stav == "open":
             conds.append(_open + " > 0.5")
         base = ("FROM tenant.oz_pf_platba p "
-                "LEFT JOIN (SELECT id_fak, SUM(castka) paid FROM tenant.oz_uhrady WHERE firma=1 GROUP BY id_fak) u "
+                "LEFT JOIN (SELECT id_fak, SUM(castka) paid FROM ("
+                "  SELECT id_fak, castka FROM tenant.oz_uhrady WHERE firma=1"
+                "  UNION ALL SELECT id_fak, castka FROM tenant.platak_uhrada_lock) x GROUP BY id_fak) u "
                 "  ON u.id_fak=p.id WHERE " + " AND ".join(conds))
         rows = s.execute(_t(
             "SELECT p.doklad, " + _uf + " ufirma, COALESCE(NULLIF(p.dodavatel,''),p.zkratka,'?') dod, "

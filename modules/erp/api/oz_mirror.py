@@ -321,8 +321,14 @@ _OZ_RAW = {
     ),
     # Platáky (platební příkazy) — tuzemské (přehled Centrály 2370). Peťa si je kontroluje ("jsou to prachy").
     # Od 7.7.2026 platíme my → potřebujeme vlastní seznam zadaných platáku. RealizaceExport = vyexportováno.
+    # Marti 7.7.2026: JEDEN zdroj = DB_EC. Firma se odvozuje z ES bankovního účtu
+    # (TabBankSpojeni_EXT._RadaDokladuPoslCis=1 = ES účet, kam Helios ES zrcadlí mzdové
+    # platáky; jinak EC). DB_EC je KOMPLETNÍ zdroj (ES platáky do 02.07.2026), dřívější
+    # [DB_IS] větev byla dormantní (končila 09.06) → zahozena.
     "oz_platak_tuz": (
-        "SELECT pt.ID AS id, 2 AS tenant_id, 1 AS firma, pt.RealizaceExport AS realizace_export, "
+        "SELECT pt.ID AS id, 2 AS tenant_id, "
+        "(CASE WHEN ISNULL(bse._RadaDokladuPoslCis,0)=1 THEN 2 ELSE 1 END) AS firma, "
+        "pt.RealizaceExport AS realizace_export, "
         "CONVERT(varchar(10),pt.DatumVystaveni,23) AS datum_vystaveni, "
         "CONVERT(varchar(10),pt.DatumSplatnosti,23) AS datum_splatnosti, "
         "CONVERT(varchar(19),pt.DatPorizeni,120) AS dat_porizeni, "
@@ -339,30 +345,14 @@ _OZ_RAW = {
         "LEFT OUTER JOIN TabPlatTuz_EXT pte ON pt.ID=pte.ID "
         "LEFT OUTER JOIN TabPenezniUstavy bu ON pt.IDBankUstavu=bu.ID "
         "LEFT OUTER JOIN TabBankSpojeni bs ON pt.IDBankSpojeni=bs.ID "
-        "WHERE pt.TypPrikazu=0 AND YEAR(pt.DatPorizeni) IN (2025,2026) "
-        "UNION ALL "
-        "SELECT pt.ID AS id, 2 AS tenant_id, 2 AS firma, pt.RealizaceExport AS realizace_export, "
-        "CONVERT(varchar(10),pt.DatumVystaveni,23) AS datum_vystaveni, "
-        "CONVERT(varchar(10),pt.DatumSplatnosti,23) AS datum_splatnosti, "
-        "CONVERT(varchar(19),pt.DatPorizeni,120) AS dat_porizeni, "
-        "bs.NazevBankSpoj AS odkud, "
-        "CAST((SELECT COUNT(ID) FROM [DB_IS].dbo.TabPlatTuzRDetail WHERE IDHlavaPP=pt.ID) AS int) AS pocet, "
-        "CAST(pt.CastkaCelkem AS numeric(19,2)) AS castka_celkem, pt.Mena AS mena, "
-        "pt.PocetExportu AS pocet_exportu, pt.TypPrikazu AS typ_prikazu, pt.Autor AS autor, "
-        "CAST(bs.CisloUctu + '/' + bu.KodUstavu + ' ' + bs.Mena AS nvarchar(60)) AS odkud_cislo_uctu, "
-        "pt.IDBankSpojeni AS id_bank_spojeni, pt.IdObdobi AS id_obdobi, "
-        "CAST((SELECT STRING_AGG(CONVERT(nvarchar(20),r._PorCisFak),', ') FROM [DB_IS].dbo.TabPlatTuzR o "
-        "LEFT OUTER JOIN [DB_IS].dbo.TabPlatTuzR_EXT r ON r.ID=o.ID WHERE o.IDHlavaPP=pt.ID) AS nvarchar(4000)) AS seznam_faktur, "
-        "pte._PathPayFile AS path_pay_file "
-        "FROM [DB_IS].dbo.TabPlatTuz pt WITH (NOLOCK) "
-        "LEFT OUTER JOIN [DB_IS].dbo.TabPlatTuz_EXT pte ON pt.ID=pte.ID "
-        "LEFT OUTER JOIN [DB_IS].dbo.TabPenezniUstavy bu ON pt.IDBankUstavu=bu.ID "
-        "LEFT OUTER JOIN [DB_IS].dbo.TabBankSpojeni bs ON pt.IDBankSpojeni=bs.ID "
+        "LEFT OUTER JOIN TabBankSpojeni_EXT bse ON bs.ID=bse.ID "
         "WHERE pt.TypPrikazu=0 AND YEAR(pt.DatPorizeni) IN (2025,2026)"
     ),
     # Platáky zahraniční (přehled Centrály 2375) — EUR, s IBAN/SWIFT příjemce.
     "oz_platak_zahr": (
-        "SELECT pz.ID AS id, 2 AS tenant_id, 1 AS firma, pz.RealizaceExport AS realizace_export, "
+        "SELECT pz.ID AS id, 2 AS tenant_id, "
+        "(CASE WHEN ISNULL(plate._RadaDokladuPoslCis,0)=1 THEN 2 ELSE 1 END) AS firma, "
+        "pz.RealizaceExport AS realizace_export, "
         "CONVERT(varchar(10),pz.DatumVystaveni,23) AS datum_vystaveni, "
         "CONVERT(varchar(10),pz.DatumSplatnosti,23) AS datum_splatnosti, "
         "CONVERT(varchar(19),pz.DatPorizeni,120) AS dat_porizeni, "
@@ -380,6 +370,7 @@ _OZ_RAW = {
         "LEFT OUTER JOIN TabPlatZahr_EXT pze ON pz.ID=pze.ID "
         "LEFT OUTER JOIN TabPenezniUstavy ubu ON pz.IDBankUstavuPlatce=ubu.ID "
         "LEFT OUTER JOIN TabBankSpojeni plat ON pz.IDBankSpojeniPlatce=plat.ID "
+        "LEFT OUTER JOIN TabBankSpojeni_EXT plate ON plat.ID=plate.ID "
         "LEFT OUTER JOIN TabPenezniUstavy pbu ON pz.IDBankUstavuPrijemce=pbu.ID "
         "LEFT OUTER JOIN TabBankSpojeni prij ON pz.IDBankSpojeniPrijemce=prij.ID "
         "WHERE YEAR(pz.DatPorizeni) IN (2025,2026)"

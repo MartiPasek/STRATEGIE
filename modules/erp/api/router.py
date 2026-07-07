@@ -29124,11 +29124,16 @@ def mzdy_vyplatnice_detail(req: Request):
     if sl.get("ok") and sl.get("rows"):
         for v in sl["rows"]:
             _styp = int(v[2] or 99); _skup = (v[3] or "Ostatní").strip()
+            _nazev = (v[1] or "").strip()
             # Landmark: složku 432 (os. ohodnocení / korekce) zobraz ve skupině
             # "Nespecifikovaný příjem" u OBL(794)/HO(795) (Peta 7.7.2026) — jen zobrazení.
             if int(v[0] or 0) == 432:
                 _styp = 5; _skup = "Nespecifikovaný příjem"
-            slozky.append({"cislo_ms": v[0], "nazev": (v[1] or "").strip(),
+                _nazev = (_nazev + " (osobní ohodnocení)") if _nazev else "Osobní ohodnocení"
+            # Kosmetika: "Fixní část platu" (složka 1) přejmenovat na "Základní plat" (Peta 7.7.2026).
+            if int(v[0] or 0) == 1:
+                _nazev = "Základní plat"
+            slozky.append({"cislo_ms": v[0], "nazev": _nazev,
                            "skup_typ": _styp, "skupina": _skup,
                            "hodiny": float(v[4] or 0), "dny": float(v[5] or 0), "koruny": float(v[6] or 0)})
     # Korekce Landmark: informativní řádek do skupiny "Nespecifikovaný příjem" pod OBL/HO
@@ -29242,6 +29247,7 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
 
 
 _WAGE_LABEL = {
+    "proplaceni_vernostni": "Věrnostní poukázka",  # Peta 7.7.2026 (byl holý kód)
     "zaklad": "Pevná základní složka", "os_ohodnoceni": "Osobní ohodnocení",
     "premie": "Prémie", "individualni": "Individuální složka", "vedeni_lidi": "Vedení lidí",
     "vedeni_obchod": "Vedení obchodu", "produkce": "Produkce", "kvalita": "Kvalita",

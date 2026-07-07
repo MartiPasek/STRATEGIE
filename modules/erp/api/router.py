@@ -28455,7 +28455,11 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
         obl_sazba = _OBL_SAZBA_KANCELAR if is_office else _OBL_SAZBA_DILNA
         obl_sazba_eff = 0.0 if cislo in obl_off else obl_sazba
         ho_elig = is_office or ((fkod, cislo) in _HO_DILNA_VYJIMKA)
-        ho_hod_narok = (ho_dny_by.get(cislo, 0) * daily_h) if ho_elig else 0.0
+        # HO „na pevno" (Peta 7.7.2026): kdo má nárok na home office (kancelář + výjimky dílna),
+        # má pevně 6 HO dnů — nezávisle na self-service volbě (benefit_volba). Kdo nárok nemá, HO nedostává.
+        # (Engine si to pak stejně poměrově zkrátí podle odpracovaného fondu.)
+        _HO_DNY_NAPEVNO = 6
+        ho_hod_narok = (_HO_DNY_NAPEVNO * daily_h) if ho_elig else 0.0
         obl, ho, korekce = _lm_engine(fond, odprac, wd, obl_sazba_eff, ho_hod_narok, V)
         if obl > 0:
             add.append((cislo, _OBL_MS, int(obl), 0))

@@ -27,6 +27,9 @@
       '  <span id="opPlanKpi" style="font-size:12px;color:#9fb6cc;"></span>' +
       '  <button id="opImportBtn" style="margin-left:auto;font-size:12px;font-weight:600;color:#0f141a;' +
       'background:#3ecf8e;border:0;border-radius:6px;padding:5px 11px;cursor:pointer;">📥 Import firem</button>' +
+      '  <button id="opOtevreniBtn" style="font-size:12px;font-weight:600;color:#aac8ec;' +
+      'background:#1e2a3a;border:1px solid #2f4256;border-radius:6px;padding:5px 11px;cursor:pointer;" ' +
+      'title="Kdo z oslovených firem si e-mail otevřel a kdy">📊 Přehled otevření</button>' +
       '  <span id="opStav" style="font-size:11px;color:#6f8296;"></span>' +
       '</div>' +
       '<div id="opBaty" style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;"></div>' +
@@ -38,6 +41,8 @@
     var stav = el.querySelector("#opStav");
     var impBtn = el.querySelector("#opImportBtn");
     if (impBtn) impBtn.onclick = function () { openImportModal(); };
+    var otBtn = el.querySelector("#opOtevreniBtn");
+    if (otBtn) otBtn.onclick = function () { window.open("/osloveni-otevreni", "_blank"); };
 
     fetch(EP_VYT, { credentials: "include" })
       .then(function (r) { return r.json().catch(function () { return {}; }); })

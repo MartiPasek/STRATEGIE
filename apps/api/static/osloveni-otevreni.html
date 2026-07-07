@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Přehled otevření e-mailů</title>
+<style>
+  :root{ --bg:#0b1020; --card:#16203c; --line:#26314f; --tx:#e8eef9; --mut:#9fb0d0;
+         --grn:#3ecf8e; --org:#f0a93b; --blu:#5b8def; --red:#ff6b6b; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,#0b1020,#0e1430 60%,#0b1020);color:var(--tx);min-height:100vh}
+  .wrap{max-width:1060px;margin:0 auto;padding:16px 14px 50px}
+  .hd{display:flex;align-items:center;gap:10px;margin:2px 2px 4px;flex-wrap:wrap}
+  .hd .ic{font-size:24px}.hd h1{font-size:18px;margin:0;font-weight:700}.hd .sp{flex:1}
+  .sub{color:var(--mut);font-size:13px;margin:6px 2px 14px;line-height:1.5}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 14px}
+  .kpi .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+  .kpi .l{font-size:12px;color:var(--mut);margin-top:3px}
+  .tabs{display:flex;gap:8px;margin:0 2px 14px;flex-wrap:wrap}
+  .tab{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:20px;
+       padding:6px 15px;font-size:13px;cursor:pointer}
+  .tab.on{background:rgba(91,141,239,.18);color:var(--blu);border-color:rgba(91,141,239,.4);font-weight:700}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+        border-radius:12px;overflow:hidden;font-size:13px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mut);font-weight:600;font-size:12px;cursor:pointer;white-space:nowrap;user-select:none}
+  th:hover{color:var(--tx)}
+  tr:last-child td{border-bottom:0}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .firma{font-weight:600}
+  .rec{color:var(--mut);font-size:12px}
+  .op-yes{color:var(--grn);font-weight:700;white-space:nowrap}
+  .op-no{color:var(--mut)}
+  .cnt{display:inline-block;min-width:22px;text-align:center;background:rgba(62,207,142,.16);
+       color:var(--grn);border-radius:9px;padding:1px 7px;font-size:12px;font-weight:700}
+  .cnt.zero{background:transparent;color:var(--mut);font-weight:400}
+  .nums{font-variant-numeric:tabular-nums;white-space:nowrap;color:#cdd6e2}
+  .empty{background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:26px;text-align:center;color:var(--mut)}
+  .muted{color:var(--mut);font-size:13px}
+  .tag-demo{font-size:10px;color:var(--org);background:rgba(240,169,59,.14);border-radius:8px;padding:1px 6px;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><div class="ic">📊</div><h1>Přehled otevření e-mailů</h1><div class="sp"></div>
+    <button class="tab" onclick="load()" title="Načíst znovu">🔄 Obnovit</button></div>
+  <div class="sub">Kdo z oslovených firem si e-mail otevřel a <b>kdy</b> — trasování je průběžné, takže tu uvidíš i otevření, ke kterým došlo dny po odeslání. Klikni na hlavičku sloupce pro seřazení.</div>
+
+  <div class="kpis" id="kpis"></div>
+  <div class="tabs">
+    <div class="tab on" data-druh="ostre" onclick="setDruh('ostre')">Ostré</div>
+    <div class="tab" data-druh="demo" onclick="setDruh('demo')">DEMO</div>
+    <div class="tab" data-druh="vse" onclick="setDruh('vse')">Vše</div>
+  </div>
+  <div id="list"><div class="muted" style="padding:10px 2px">Načítám…</div></div>
+  <div id="msg" class="muted" style="margin:10px 2px"></div>
+</div>
+<script>
+var DRUH = "ostre";
+var ROWS = [];
+var SORT = { key: "opened_at", dir: -1 };
+
+function esc(s){return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function fmt(iso){
+  if(!iso) return null;
+  var d = new Date(iso);
+  if(isNaN(d)) return null;
+  function p(n){return (n<10?"0":"")+n;}
+  return p(d.getDate())+"."+p(d.getMonth()+1)+"."+d.getFullYear()+" "+p(d.getHours())+":"+p(d.getMinutes());
+}
+async function j(u){var r=await fetch(u,{credentials:"include"});try{return await r.json();}catch(e){return {ok:false};}}
+
+function setDruh(d){
+  DRUH = d;
+  document.querySelectorAll(".tab[data-druh]").forEach(function(t){
+    t.classList.toggle("on", t.getAttribute("data-druh")===d);
+  });
+  load();
+}
+
+function sortBy(key){
+  if(SORT.key===key){ SORT.dir = -SORT.dir; } else { SORT.key = key; SORT.dir = (key==="firma"||key==="recipient")?1:-1; }
+  render();
+}
+
+function cmp(a,b){
+  var k=SORT.key, va=a[k], vb=b[k];
+  if(k==="opened_at"||k==="sent_at"){ va=va?Date.parse(va):0; vb=vb?Date.parse(vb):0; }
+  else if(k==="opens"){ va=va||0; vb=vb||0; }
+  else { va=(va||"").toString().toLowerCase(); vb=(vb||"").toString().toLowerCase(); }
+  if(va<vb) return -1*SORT.dir;
+  if(va>vb) return 1*SORT.dir;
+  return 0;
+}
+
+function render(){
+  var host=document.getElementById("list");
+  if(!ROWS.length){ host.innerHTML='<div class="empty">Zatím žádná odeslaná oslovení v této kategorii.</div>'; return; }
+  var arr=ROWS.slice().sort(cmp);
+  var arrow=function(k){ return SORT.key===k?(SORT.dir<0?" ▼":" ▲"):""; };
+  var h='<table><thead><tr>'+
+    '<th onclick="sortBy(\'firma\')">Firma'+arrow("firma")+'</th>'+
+    '<th onclick="sortBy(\'recipient\')">Příjemce'+arrow("recipient")+'</th>'+
+    '<th onclick="sortBy(\'sent_at\')">Odesláno'+arrow("sent_at")+'</th>'+
+    '<th onclick="sortBy(\'opened_at\')">Otevřeno'+arrow("opened_at")+'</th>'+
+    '<th onclick="sortBy(\'opens\')">Počet'+arrow("opens")+'</th>'+
+    '</tr></thead><tbody>';
+  arr.forEach(function(r){
+    var op=fmt(r.opened_at);
+    var demoTag = (DRUH==="vse" && r.demo) ? '<span class="tag-demo">DEMO</span>' : '';
+    h+='<tr>'+
+      '<td class="firma">'+esc(r.firma)+demoTag+'</td>'+
+      '<td class="rec">'+esc(r.recipient)+'</td>'+
+      '<td class="nums">'+(fmt(r.sent_at)||'—')+'</td>'+
+      '<td>'+(op?'<span class="op-yes">✓ '+op+'</span>':'<span class="op-no">—</span>')+'</td>'+
+      '<td><span class="cnt'+(r.opens?'':' zero')+'">'+(r.opens||0)+'</span></td>'+
+      '</tr>';
+  });
+  h+='</tbody></table>';
+  host.innerHTML=h;
+}
+
+async function load(){
+  document.getElementById("list").innerHTML='<div class="muted" style="padding:10px 2px">Načítám…</div>';
+  document.getElementById("msg").textContent="";
+  var res=await j("/api/v1/erp/crm/osloveni/prehled?druh="+encodeURIComponent(DRUH));
+  if(!res || !res.ok){
+    document.getElementById("list").innerHTML='<div class="empty">Přehled se nepodařilo načíst'+
+      (res&&res.error?(": "+esc(res.error)):"")+'.</div>';
+    document.getElementById("kpis").innerHTML="";
+    return;
+  }
+  ROWS = res.items||[];
+  var s=res.summary||{celkem:ROWS.length,otevreno:0};
+  var pct = s.celkem ? Math.round(100*s.otevreno/s.celkem) : 0;
+  document.getElementById("kpis").innerHTML=
+    '<div class="kpi"><div class="v">'+s.celkem+'</div><div class="l">Odesláno (příjemců)</div></div>'+
+    '<div class="kpi"><div class="v" style="color:var(--grn)">'+s.otevreno+'</div><div class="l">Otevřelo</div></div>'+
+    '<div class="kpi"><div class="v">'+pct+' %</div><div class="l">Míra otevření</div></div>';
+  render();
+}
+load();
+</script>
+</body>
+</html>

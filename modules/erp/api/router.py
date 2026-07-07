@@ -6176,6 +6176,60 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                          "truncated": truncated})
 
 
+@api_router.get("/crm/osloveni/prehled")
+async def crm_osloveni_prehled(req: Request) -> JSONResponse:
+    """Prehled rozeslanych osloveni + stav otevreni (mod.crm_email_track),
+    agregovane per firma + prijemce: kdy odeslano, kdy POPRVE otevreno (datum),
+    kolikrat. Ma smysl i kdyz nikdo neotevre hned (na rozdil od tlacitka
+    "Zkontrolovat otevreni" v dialogu). Query: druh=ostre|demo|vse (default
+    ostre). Auth: clen ERP NEBO rodic."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    druh = (req.query_params.get("druh") or "ostre").lower()
+    if druh == "ostre":
+        where = "WHERE demo = false "
+    elif druh == "demo":
+        where = "WHERE demo = true "
+    else:
+        where = ""  # vse
+    from core.database_data import get_data_session as _gds_pr
+    from sqlalchemy import text as _sql_pr
+    ds = _gds_pr()
+    try:
+        rows = ds.execute(_sql_pr(
+            "SELECT firma_id, MAX(firma) AS firma, recipient, "
+            " MAX(sent_at) AS sent_at, MAX(opened_at) AS opened_at, "
+            " COALESCE(SUM(open_count),0) AS opens, bool_or(demo) AS demo "
+            "FROM mod.crm_email_track " + where +
+            "GROUP BY firma_id, recipient "
+            "ORDER BY MAX(opened_at) DESC NULLS LAST, MAX(sent_at) DESC "
+            "LIMIT 3000")).mappings().all()
+    finally:
+        ds.close()
+    items, n_open = [], 0
+    for r in rows:
+        op = r["opened_at"]
+        if op:
+            n_open += 1
+        items.append({
+            "firma_id": r["firma_id"],
+            "firma": r["firma"] or ("#" + str(r["firma_id"])),
+            "recipient": r["recipient"] or "",
+            "sent_at": r["sent_at"].isoformat() if r["sent_at"] else None,
+            "opened_at": op.isoformat() if op else None,
+            "opens": int(r["opens"] or 0),
+            "demo": bool(r["demo"]),
+        })
+    return JSONResponse({"ok": True, "items": items,
+                         "summary": {"celkem": len(items), "otevreno": n_open,
+                                     "druh": druh}})
+
+
 @api_router.get("/crm/osloveni/sablony")
 async def crm_osloveni_sablony(req: Request) -> JSONResponse:
     """Cislenik e-mailovych sablon pro dropdown v "Oslovit vybrane".

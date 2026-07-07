@@ -1201,6 +1201,15 @@ def crm_plan_hovoru_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/osloveni-otevreni")
+def osloveni_otevreni_page():
+    """Přehled otevření e-mailů z CRM rozesílky — kdo z oslovených firem si e-mail
+    otevřel a KDY (průběžné trasování, ne jen okamžik po odeslání). Pro obchod
+    (Pavel) + vedení. Data z /crm/osloveni/prehled (mod.crm_email_track). Kristý 7.7.2026."""
+    return FileResponse(os.path.join(static_dir, "osloveni-otevreni.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/hra")
 def hra_page():
     """Replay dashboard účetní hry Claude — zrychlené přehrávání, jak Claude

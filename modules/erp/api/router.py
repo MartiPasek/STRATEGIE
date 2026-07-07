@@ -29959,6 +29959,54 @@ def platby_plataky_get(req: Request):
         s.close()
 
 
+@api_router.get("/app/platby/faktury")
+def platby_faktury_get(req: Request):
+    """Kompletní přehled PŘIJATÝCH faktur pro Peťu (rok 2025+2026) — zaplacené i nezaplacené.
+    Data z `oz_pf_platba` (EC, vč. ES řad). Firma odvozena z ŘADY (ES=501/531/541, jinak EC).
+    Stav = otevřené saldo (částka − naše úhrady oz_uhrady). Marti 7.7.2026. Scope rodiče+Petra(18)+cockpit."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        firma = (req.query_params.get("firma") or "all").strip()
+        stav = (req.query_params.get("stav") or "open").strip()   # open | all
+        params = {}
+        _uf = "(CASE WHEN p.rada IN ('501','531','541') THEN 2 ELSE 1 END)"
+        _open = "((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0))"
+        conds = ["p.realizovano=1", "p.rada NOT LIKE '52%'", "p.dat_porizeni::date >= DATE '2025-01-01'"]
+        if firma in ("1", "2"):
+            params["ff"] = int(firma); conds.append(_uf + " = :ff")
+        if stav == "open":
+            conds.append(_open + " > 0.5")
+        base = ("FROM tenant.oz_pf_platba p "
+                "LEFT JOIN (SELECT id_fak, SUM(castka) paid FROM tenant.oz_uhrady WHERE firma=1 GROUP BY id_fak) u "
+                "  ON u.id_fak=p.id WHERE " + " AND ".join(conds))
+        rows = s.execute(_t(
+            "SELECT p.doklad, " + _uf + " ufirma, COALESCE(NULLIF(p.dodavatel,''),p.zkratka,'?') dod, "
+            "  COALESCE(p.var_symbol,'') vs, p.mena, to_char(p.splatnost::date,'DD.MM.YYYY') splat, "
+            "  (CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) castka, " + _open + " open_saldo, "
+            "  (p.splatnost::date - now()::date) dni " + base +
+            " ORDER BY p.splatnost::date DESC NULLS LAST, p.id DESC LIMIT 1000"), params).fetchall()
+        out = []
+        for r in rows:
+            sal = float(r[7]) if r[7] is not None else 0.0
+            out.append({"doklad": r[0] or "", "firma": int(r[1]), "dodavatel": r[2] or "",
+                        "vs": r[3] or "", "mena": r[4] or "CZK", "splatnost": r[5],
+                        "castka": round(float(r[6]), 2) if r[6] is not None else 0.0,
+                        "saldo": round(sal, 2), "dni": int(r[8]) if r[8] is not None else None,
+                        "zaplaceno": sal <= 0.5})
+        agg = s.execute(_t("SELECT p.mena, count(*) n, SUM(" + _open + ") open_sum " + base + " GROUP BY p.mena"),
+                        params).fetchall()
+        sums = {row[0]: {"pocet": int(row[1]), "otevreno": round(float(row[2] or 0), 2)} for row in agg}
+        total = int(sum(int(row[1]) for row in agg))
+        return {"ok": True, "faktury": out, "sums": sums, "total": total, "shown": len(out)}
+    finally:
+        s.close()
+
+
 @api_router.get("/app/domeny")
 def domeny_get(req: Request):
     """Review doménového prostředí tenant.domain_env (identita+znalosti+tooly).

@@ -727,12 +727,23 @@ async def request_id_middleware(request: Request, call_next):
             # Parent-only poll endpointy: non-parent (Pavel) je polluje periodicky
             # a dostava ocekavany 403. Neni to chyba — banner se proste nezobrazi.
             # (Marti 3.6.: stovky 403/min od Pavla z diag-write/pending pollu.)
+            # Poll endpointy: nepřihlášený / nescopovaný klient je polluje periodicky
+            # a dostává OČEKÁVANÝ 401 (bez session) nebo 403 (bez práv) — není to chyba,
+            # jen to zaplaví diag log (Marti 7.7.: „lítá tu tolik warningů, ztrácíme přehled").
+            _is_poll_401 = _status == 401 and _path.startswith("/api/")
             _parent_poll_403_paths = (
                 "/api/v1/erp/diag-write/pending",
+                "/api/v1/erp/app/plan/approvals/users",
+                "/api/v1/erp/app/plan/approvals/unapplied",
+                "/api/v1/erp/claude-inbox",
+                "/api/v1/erp/claude-marti-mail",
+                "/api/v1/erp/claude-martiai-msgs",
+                "/api/v1/erp/instance/heartbeat",
+                "/api/v1/erp/deploy/preview",
             )
             _is_parent_poll_403 = _status == 403 and _path in _parent_poll_403_paths
             _skip = (
-                _is_auth_gate_401 or _is_post_root_405
+                _is_auth_gate_401 or _is_poll_401 or _is_post_root_405
                 or _is_scanner_noise or _is_parent_poll_403
             )
             if not _skip:

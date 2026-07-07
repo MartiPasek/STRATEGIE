@@ -28828,6 +28828,17 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows, only_zid=None):
             id_by_cislo[int(v[0])] = int(v[1])
         except Exception:
             pass
+    # JEN lidé s mzdovým masterem období (TabZamMzd) = zaměstnanci s pracovním poměrem.
+    # Vylučuje OSVČ/subdodavatele (Voříšek, Havlát…), kteří mají jen docházku/mzdovou podmínku,
+    # ale NE mzdový master → jinak vznikne orphan TabPredzp a padne FK TabPredzp→TabZamMzd
+    # (pád Heliosu 7.7.2026). Marti 7.7.2026: "ověř, jsou to opravdu jen zaměstnanci, ne OSVČ".
+    _mr = _mssql188_query("SELECT ZamestnanecId FROM " + cloud_db + ".dbo.TabZamMzd WHERE IdObdobi=" + o)
+    masters = set()
+    for v in (_mr.get("rows") or []):
+        try:
+            masters.add(int(v[0]))
+        except Exception:
+            pass
     del_sql = "DELETE FROM " + cloud_db + ".dbo.TabPredzp WHERE IdObdobi=" + o + " AND Autor='STRATEGIE'"
     if only_zid:
         del_sql += " AND ZamestnanecId=" + str(int(only_zid))
@@ -28840,7 +28851,7 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows, only_zid=None):
         dny = row[3] if len(row) > 3 else 0
         hod = float(row[4]) if len(row) > 4 else 0.0
         zid = id_by_cislo.get(int(c))
-        if not zid or (not kc and not dny and not hod):  # absence = Dny+Hodiny (koruny/náhradu dopočítá Helios)
+        if not zid or zid not in masters or (not kc and not dny and not hod):  # jen zaměstnanci s masterem; absence = Dny+Hodiny (náhradu dopočítá Helios)
             continue
         stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
                      "VALUES(%s,%d,%d,%.2f,%d,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), float(hod or 0), int(dny or 0), int(kc)))

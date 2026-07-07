@@ -281,7 +281,7 @@
             '<span style="color:#f0a93b;">' + (s.duplicit || 0) + ' už v CRM (nezakládají se znovu, jen se doplní akce oslovení)</span><br>' +
             'Akce „Email na info" k zapsání: <b>' + (s.s_akci || 0) + '</b> · ' +
             'z toho nedoručeno: <b style="color:#ff6b6b;">' + (s.nedoruceno || 0) + '</b></div>';
-          setGo((s.novych || 0) > 0);
+          setGo((s.novych || 0) > 0 || (s.s_akci || 0) > 0);
         })
         .catch(function () { msgEl.style.color = "#ff6b6b"; msgEl.textContent = "✗ síť"; });
     };

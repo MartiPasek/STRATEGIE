@@ -36580,6 +36580,48 @@ async def diag_sql(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_de).__name__, str(_de)[:300]),
                                  "tb": _tbds.format_exc()[-800:]})
 
+    #   @@RUCNI <firma> <cislo> <cislo_ms> <castka> [dny]  → založí/upraví ruční mzdovou složku
+    #   (tenant.mzdy_rucni_slozka) — durable, přežije přegenerování. Např. DPP odměna (složka 700).
+    #   castka=0 → složku deaktivuje. Peta 7.7.2026 (chyběl zápisový nástroj; můstek umí jen čtení).
+    if sql.upper().startswith("@@RUCNI"):
+        import traceback as _tbru
+        try:
+            _rp = sql[len("@@RUCNI"):].strip().split()
+            if len(_rp) < 4:
+                return JSONResponse({"ok": False, "error": "@@RUCNI <firma> <cislo> <cislo_ms> <castka> [dny]"})
+            _rf = _rp[0].upper()
+            _rf = 'EC' if _rf in ('EC', '1') else ('ES' if _rf in ('ES', '2') else _rf)
+            _rcislo = str(int(_rp[1]))
+            _rms = int(_rp[2])
+            _rkc = int(round(float(_rp[3])))
+            _rdny = int(_rp[4]) if len(_rp) > 4 else 0
+            from modules.strategie_pg.application import service as _pgru
+            from sqlalchemy import text as _tru
+            _cmru = _pgru.get_session()
+            _sru = _cmru.__enter__()
+            try:
+                _akt = (_rkc != 0 or _rdny != 0)
+                _upd = _sru.execute(_tru(
+                    "UPDATE tenant.mzdy_rucni_slozka SET castka=:kc, dny=:dny, aktivni=:ak "
+                    "WHERE tenant_id=2 AND firma=:f AND cislo=:c AND cislo_ms=:ms"),
+                    {"kc": _rkc, "dny": _rdny, "ak": _akt, "f": _rf, "c": _rcislo, "ms": _rms})
+                if _upd.rowcount == 0:
+                    _sru.execute(_tru(
+                        "INSERT INTO tenant.mzdy_rucni_slozka (tenant_id, firma, cislo, cislo_ms, castka, dny, aktivni) "
+                        "VALUES (2, :f, :c, :ms, :kc, :dny, :ak)"),
+                        {"f": _rf, "c": _rcislo, "ms": _rms, "kc": _rkc, "dny": _rdny, "ak": _akt})
+                    _akce = "vloženo"
+                else:
+                    _akce = "upraveno"
+                _sru.commit()
+            finally:
+                _cmru.__exit__(None, None, None)
+            return JSONResponse({"ok": True, "akce": _akce, "firma": _rf, "cislo": _rcislo,
+                                 "cislo_ms": _rms, "castka": _rkc, "dny": _rdny, "aktivni": _akt})
+        except Exception as _rue:
+            return JSONResponse({"ok": False, "error": "%s: %s" % (type(_rue).__name__, str(_rue)[:200]),
+                                 "tb": _tbru.format_exc()[-600:]})
+
     #   @@ARES <ICO>  → ověří firmu v registru ARES (REST) — název, adresa, DIČ, aktivní/zaniklý.
     if sql.upper().startswith("@@ARES"):
         import traceback as _tba

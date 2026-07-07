@@ -29180,6 +29180,24 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
             soucet += kc
             pol.append({"typ": _WAGE_LABEL.get(r[0], r[0]), "kod": r[0], "castka": kc,
                         "zakazka": (r[2] or None), "zdroj": r[3]})
+        # Loajalita (přesčas výroby) → dopočtený řádek do rozpisu složky 651 (Peta 7.7.2026).
+        # Generátor ji přičítá rovnou do heliosového součtu 651, ale neukládá ji jako
+        # wage_movement/snapshot, takže v rozpisu chyběla (součet položek < celková složka).
+        # Dopočteme ji tady toutéž funkcí jako generátor — NIC se nezapisuje, jen zobrazení,
+        # aby rozpis seděl na celek. (Finance zakázek už jdou přes wage_movement.zakazka_ref.)
+        if cms == 651:
+            try:
+                _ci = int(cislo)
+            except Exception:
+                _ci = None
+            if _ci is not None:
+                for (lc, lms, lkc, _lh) in _mzdy_loajalita_rows(firma, rok, mesic):
+                    # jen když loajalita má nenulovou hodnotu (Peta 7.7.2026)
+                    if int(lc) == _ci and int(lms) == 651 and float(lkc or 0) != 0:
+                        pol.append({"typ": "Loajalita (přesčas výroby)", "kod": "loajalita",
+                                    "castka": float(lkc), "zakazka": None, "zdroj": "dopocet"})
+                        soucet += float(lkc)
+                        break
         return {"ok": True, "polozky": pol, "soucet": round(soucet)}
     finally:
         s.close()

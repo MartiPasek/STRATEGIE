@@ -216,7 +216,7 @@ async function bd(cms, el){
   catch(e){ box.innerHTML='<div class="mut" style="padding:5px 16px">Chyba: '+e.message+'</div>'; return; }
   if(!d.ok || !d.polozky || !d.polozky.length){ box.innerHTML='<div class="mut" style="padding:5px 0 5px 16px;font-size:12px">Bez rozpisu (pevná složka / daně / pojištění).</div>'; return; }
   let h='';
-  d.polozky.forEach(p=>{ h+='<div class="row sub"><span class="n">• '+p.typ+(p.zakazka?' <span class="mut">('+p.zakazka+')</span>':'')+(p.zdroj==='zaklad'?' <span class="mut">[základ]</span>':' <span class="mut">[příplatek/srážka]</span>')+'</span><span class="h"></span><span class="c">'+fk(p.castka)+'</span></div>'; });
+  d.polozky.forEach(p=>{ h+='<div class="row sub"><span class="n">• '+p.typ+(p.zakazka?' <span class="mut">('+p.zakazka+')</span>':'')+(p.zdroj==='zaklad'?' <span class="mut">[základ]</span>':(p.zdroj==='dopocet'?' <span class="mut">[dopočet z docházky]</span>':' <span class="mut">[příplatek/srážka]</span>'))+'</span><span class="h"></span><span class="c">'+fk(p.castka)+'</span></div>'; });
   box.innerHTML=h;
 }
 function closePas(){document.getElementById('ovl').classList.remove('on');}

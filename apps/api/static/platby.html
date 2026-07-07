@@ -156,7 +156,10 @@ function renderPlataky(){
     var fc=_firmy[String(p.firma)]?_firmy[String(p.firma)].code:('#'+p.firma);
     var typ=p.typ==='tuz'?'<span class="pill" style="background:#12294a;color:var(--czk)">tuz</span>'
       :'<span class="pill" style="background:#241b40;color:var(--eur)">zahr</span>';
-    var exp=p.export?'<span class="pill ok">✓ odesláno do banky</span>':'';
+    // Historické platáky portované ze starého Heliosu = všechny už odeslané do
+    // banky (Marti 7.7.). RealizaceExport flag je u ES mezd vrtkavý → status
+    // srovnán s realitou jednotně pro EC i ES.
+    var exp='<span class="pill ok">✓ odesláno do banky</span>';
     h+='<tr><td>'+esc(p.vystaveni)+'</td><td class="dod">'+esc(fc)+'</td><td>'+typ+'</td>'+
        '<td>'+esc(p.odkud)+'</td><td class="r">'+p.pocet+'</td>'+
        '<td style="max-width:240px;overflow:hidden;text-overflow:ellipsis" title="'+esc(p.seznam)+'">'+esc(p.seznam)+'</td>'+

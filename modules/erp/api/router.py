@@ -24234,6 +24234,11 @@ def _mirror_run_job(job_key):
         # Mail zrcadlo — inkrementální sync schránky (Claude-23 3.7.2026). Bere posl. 100/složka.
         "sync_mail_eliska": lambda: __import__("modules.erp.api.mail_mirror",
                                                fromlist=["sync_user"]).sync_user(34, limit=100),
+        # Claude-27 7.7.2026: průběžný sync p.zeman (30, CRM) + projects (111, VP).
+        "sync_mail_pzeman": lambda: __import__("modules.erp.api.mail_mirror",
+                                               fromlist=["sync_user"]).sync_user(30, limit=100),
+        "sync_mail_projects": lambda: __import__("modules.erp.api.mail_mirror",
+                                                 fromlist=["sync_user"]).sync_user(111, limit=100),
     }
     # Účto zrcadla (office Helios → cloud Helios) jako scheduled joby: "zrc_<FIRMA>_<Table>".
     # Marti 5.7.2026 — automatizace dřív ručních zrcadel + viditelný poslední běh.
@@ -36843,14 +36848,18 @@ async def diag_sql(req: Request) -> JSONResponse:
         try:
             _ms = sql[len("@@MAILSYNC"):].split()
             if not _ms or not _ms[0].isdigit():
-                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MAILSYNC <uid> [limit] [noatt]"]], "count": 1})
+                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MAILSYNC <uid> [limit] [noatt] [since=YYYY-MM-DD]"]], "count": 1})
             _msuid = int(_ms[0])
             _mslim = int(_ms[1]) if len(_ms) > 1 and _ms[1].isdigit() else 300
             _msatt = not any(x.lower() == "noatt" for x in _ms[1:])
+            _mssince = None
+            for _x in _ms[1:]:
+                if _x.lower().startswith("since="):
+                    _mssince = _x.split("=", 1)[1]
             from modules.erp.api.mail_mirror import sync_user_bg as _msbg
-            _msbg(_msuid, limit=_mslim, with_attachments=_msatt)
+            _msbg(_msuid, limit=_mslim, with_attachments=_msatt, since=_mssince)
             return JSONResponse({"ok": True, "columns": ["stav"],
-                                 "rows": [["spuštěno na pozadí: uid=%s limit=%s prilohy=%s" % (_msuid, _mslim, _msatt)]],
+                                 "rows": [["spuštěno na pozadí: uid=%s limit=%s prilohy=%s since=%s" % (_msuid, _mslim, _msatt, _mssince)]],
                                  "count": 1})
         except Exception as _me:
             return JSONResponse({"ok": True, "columns": ["chyba", "tb"],
@@ -36863,9 +36872,18 @@ async def diag_sql(req: Request) -> JSONResponse:
         try:
             _mt = sql[len("@@MAILTREE"):].split()
             if not _mt or not _mt[0].isdigit():
-                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MAILTREE <uid>"]], "count": 1})
+                return JSONResponse({"ok": True, "columns": ["chyba"], "rows": [["@@MAILTREE <uid> [vp|crm|<node_id>]"]], "count": 1})
+            _mtparent = None
+            if len(_mt) > 1:
+                _pa = _mt[1].lower()
+                if _pa == "crm":
+                    _mtparent = 56
+                elif _pa == "vp":
+                    _mtparent = 119
+                elif _pa.isdigit():
+                    _mtparent = int(_pa)
             from modules.erp.api.mail_mirror import build_mail_tree as _bmt
-            _rv = _bmt(int(_mt[0]))
+            _rv = _bmt(int(_mt[0]), parent_node_id=_mtparent)
             return JSONResponse({"ok": True, "columns": ["vysledek"], "rows": [[str(_rv)[:800]]], "count": 1})
         except Exception as _mte:
             return JSONResponse({"ok": True, "columns": ["chyba", "tb"],

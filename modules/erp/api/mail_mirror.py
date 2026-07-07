@@ -84,10 +84,22 @@ def _save_attachments(m, uid: int, tenant_id: int):
 
 
 def sync_folder(uid: int, slozka: str, limit: int = 300,
-                with_attachments: bool = True, tenant_id: int = 2, acct=None) -> dict:
+                with_attachments: bool = True, tenant_id: int = 2, acct=None,
+                since=None) -> dict:
     if acct is None:
         acct = _account_for_user(uid)
     fld = _folder(acct, slozka)
+    # Backfill (Claude-27 7.7.2026): dolní hranice data → stáhne celý rok, ne jen
+    # posledních `limit`. since = "YYYY-MM-DD"; přebíjí inkrementální logiku níže.
+    _since_dt = None
+    if since:
+        try:
+            import datetime as _dtm
+            from exchangelib import EWSDateTime, UTC
+            _d = _dtm.date.fromisoformat(str(since)[:10])
+            _since_dt = EWSDateTime(_d.year, _d.month, _d.day, 0, 0, 0, tzinfo=UTC)
+        except Exception:
+            _since_dt = None
     # Inkrement (Marti 5.7.2026): fetchuj jen zprávy NOVĚJŠÍ než poslední synced —
     # jinak se pokaždé tahá top 300 s plnými těly (pomalé/hang, zaseklo Eliščin sync).
     # Po prvním sync jsou to jednotky → doběhne v sekundách.
@@ -104,7 +116,9 @@ def sync_folder(uid: int, slozka: str, limit: int = 300,
     except Exception:
         _last = None
     try:
-        if _last is not None:
+        if _since_dt is not None:
+            qs = fld.filter(datetime_received__gte=_since_dt).order_by("-datetime_received")[:limit]
+        elif _last is not None:
             qs = fld.filter(datetime_received__gt=_last).order_by("-datetime_received")[:limit]
         else:
             qs = fld.all().order_by("-datetime_received")[:limit]
@@ -190,22 +204,26 @@ def sync_folder(uid: int, slozka: str, limit: int = 300,
     return {"slozka": slozka, "zpracovano": n, "nove": nnew}
 
 
-def sync_user(uid: int, limit: int = 300, with_attachments: bool = True, tenant_id: int = 2) -> dict:
+def sync_user(uid: int, limit: int = 300, with_attachments: bool = True, tenant_id: int = 2,
+              since=None) -> dict:
     acct = _account_for_user(uid)
     out = []
     for slozka in _SLOZKY:
         try:
             out.append(sync_folder(uid, slozka, limit=limit,
-                                   with_attachments=with_attachments, tenant_id=tenant_id, acct=acct))
+                                   with_attachments=with_attachments, tenant_id=tenant_id,
+                                   acct=acct, since=since))
         except Exception as e:
             out.append({"slozka": slozka, "error": str(e)[:200]})
     return {"user_id": uid, "vysledky": out}
 
 
-def sync_user_bg(uid: int, limit: int = 300, with_attachments: bool = True, tenant_id: int = 2):
+def sync_user_bg(uid: int, limit: int = 300, with_attachments: bool = True, tenant_id: int = 2,
+                 since=None):
     """Spustí sync na pozadí (kvůli 30s timeoutu mostu)."""
     threading.Thread(target=lambda: sync_user(uid, limit=limit,
-                     with_attachments=with_attachments, tenant_id=tenant_id), daemon=True).start()
+                     with_attachments=with_attachments, tenant_id=tenant_id, since=since),
+                     daemon=True).start()
 
 
 # ─── FW strom: soudeček Email + 4 přehledy nad zrcadlem (klon z existujícího přehledu) ───
@@ -254,10 +272,12 @@ def _mail_prehled_sql(uid, where_extra):
         "ORDER BY datum DESC NULLS LAST" % (int(uid), where_extra))
 
 
-def build_mail_tree(uid: int, tenant_id: int = 2) -> dict:
-    """Postaví (idempotentně) soudeček <jméno> → Email → 4 přehledy pod VP.
+def build_mail_tree(uid: int, tenant_id: int = 2, parent_node_id: int = None) -> dict:
+    """Postaví (idempotentně) soudeček <jméno> → Email → 4 přehledy pod rodičem.
+    parent_node_id = kam soudeček osoby pověsit (default VP=119; CRM=56 pro obchodníky).
     Přehledy = klon fw řetězce z TEMPLATE_CORE_ID, sql nad tenant.mail_message.
     visibility_scope=NULL (rodiče vidí hned) + visibility_user_ids=[uid]."""
+    _parent = int(parent_node_id) if parent_node_id else VP_NODE_ID
     prehledy = [
         ("dorucene", "📥 Doručené", "slozka='dorucene' AND stav='nove'", 10),
         ("zpracovane", "✅ Zpracované", "slozka='dorucene' AND stav='zpracovane'", 20),
@@ -271,16 +291,16 @@ def build_mail_tree(uid: int, tenant_id: int = 2) -> dict:
         nm = s.execute(text("SELECT COALESCE(first_name||' '||last_name, 'Uživatel '||id) "
                             "FROM public.users WHERE id=:i"), {"i": uid}).scalar() or ("Uživatel %s" % uid)
 
-        # 1) soudeček osoby pod VP
+        # 1) soudeček osoby pod rodičem (VP default / CRM 56)
         person_label = "👤 " + nm
         pid = s.execute(text("SELECT id FROM fw.menu_node WHERE parent_id=:p AND label=:l"),
-                        {"p": VP_NODE_ID, "l": person_label}).scalar()
+                        {"p": _parent, "l": person_label}).scalar()
         if not pid:
             pid = s.execute(text(
                 "INSERT INTO fw.menu_node (label,parent_id,sort_order,status,visibility_scope,"
                 "visibility_user_ids,created_by_text,updated_by_text) "
-                "VALUES (:l,:p,:so,'active',NULL,:vu,'claude-23','claude-23') RETURNING id"),
-                {"l": person_label, "p": VP_NODE_ID, "so": 500 + uid, "vu": [uid]}).scalar()
+                "VALUES (:l,:p,:so,'active',NULL,:vu,'claude-27','claude-27') RETURNING id"),
+                {"l": person_label, "p": _parent, "so": 500 + uid, "vu": [uid]}).scalar()
             created.append("soudecek %s" % person_label)
 
         # 2) soudeček Email pod osobou

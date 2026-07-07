@@ -29127,6 +29127,35 @@ def mzdy_vyplatnice_detail(req: Request):
             slozky.append({"cislo_ms": v[0], "nazev": (v[1] or "").strip(),
                            "skup_typ": _styp, "skupina": _skup,
                            "hodiny": float(v[4] or 0), "dny": float(v[5] or 0), "koruny": float(v[6] or 0)})
+    # Korekce Landmark: informativní řádek do skupiny "Nespecifikovaný příjem" pod OBL/HO
+    # (Peta 7.7.2026). = neredukované os. ohodnocení, co zapisujeme (TabPredzp 432) − plné
+    # os. ohodnocení (snapshot). Ukazuje "srážku os. ohodnocení" (o kolik Landmark ponížil).
+    # NEmění hrubou (ta je v souhrnu z TabZamVyp) — jen zobrazení, jako srážka na staré pásce.
+    if any(int(x.get("cislo_ms") or 0) == 432 for x in slozky):
+        try:
+            from core.database_data import get_data_session as _g2
+            from sqlalchemy import text as _t2
+            _fec = 'EC' if firma in ('EC', '1') else 'ES'
+            _s2 = _g2()
+            try:
+                _v = float(_s2.execute(_t2(
+                    "SELECT COALESCE(SUM(castka),0) FROM tenant.helios_wage_snapshot "
+                    "WHERE tenant_id=2 AND firma=:f AND cislo::text=:c AND slozka='os_ohodnoceni' "
+                    "AND asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f)"),
+                    {"f": _fec, "c": str(header.get("cislo") or "").strip()}).scalar() or 0)
+            finally:
+                _s2.close()
+            _pz = _mssql188_query(
+                "SELECT ISNULL(SUM(Koruny),0) FROM " + cloud_db + ".dbo.TabPredzp "
+                "WHERE IdObdobi=" + o + " AND ZamestnanecId=" + z + " AND CisloMS=432")
+            _ned = float((_pz.get("rows") or [[0]])[0][0] or 0) if _pz.get("ok") else 0.0
+            _kor = round(_ned - _v)
+            if _v > 0 and abs(_kor) >= 1:
+                slozky.append({"cislo_ms": 4320, "nazev": "Korekce Landmark (srážka os. ohodnocení)",
+                               "skup_typ": 5, "skupina": "Nespecifikovaný příjem", "info": True,
+                               "hodiny": 0.0, "dny": 0.0, "koruny": float(_kor)})
+        except Exception:
+            pass
     return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "zam": zam,
             "idobdobi": idobd, "header": header, "souhrn": souhrn, "slozky": slozky}
 

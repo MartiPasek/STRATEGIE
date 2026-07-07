@@ -180,7 +180,9 @@ async function openPas(zam){
     const g=groups[t]; const rows=g.items.filter(s=>s.koruny||s.hodiny||s.dny);
     if(!rows.length) return;
     body+='<div class="grp"><h3>'+(g.nazev||grpName(+t)||'Ostatní')+'</h3>';
-    rows.forEach(s=>{ body+='<div class="row bdr" onclick="bd('+s.cislo_ms+',this)" title="Rozpis – z čeho se skládá"><span class="n">▸ '+s.nazev+'</span><span class="h">'+
+    rows.forEach(s=>{
+      if(s.info){ body+='<div class="row" style="opacity:.75;font-style:italic"><span class="n mut">'+s.nazev+'</span><span class="h"></span><span class="c mut">'+fk(s.koruny)+'</span></div>'; return; }
+      body+='<div class="row bdr" onclick="bd('+s.cislo_ms+',this)" title="Rozpis – z čeho se skládá"><span class="n">▸ '+s.nazev+'</span><span class="h">'+
       (s.hodiny?fh(s.hodiny)+' h':(s.dny?fh(s.dny)+' dní':''))+'</span><span class="c">'+fk(s.koruny)+'</span></div>'; });
     body+='</div>';
   });

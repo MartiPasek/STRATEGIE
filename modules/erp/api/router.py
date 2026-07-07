@@ -34721,6 +34721,40 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": True, "columns": ["soubor", "bytes", "unc"],
                                      "rows": [[rw_dest, len(data), unc]], "count": 1})
             return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "zápis na RW selhal")})
+        # @@FILES WRITE <abs_file_path>\n<base64 obsah>  → zapíše binárku na RW root (base_override).
+        #   Parent složka se auto-vytvoří. Pro generátor platáků (task #45): render .p11/.f84 →
+        #   zápis do D:\data\RB\Platební příkazy\{EC|ES}\<RRRRMMDD>\. Marti 7.7.2026.
+        if op == "WRITE":
+            import base64 as _b64w, os as _osw2
+            a = path.split("\n", 1)
+            if len(a) < 2 or not a[0].strip():
+                return JSONResponse({"ok": False, "error": "@@FILES WRITE <abs_path>\\n<base64>"})
+            abs_path = a[0].strip().strip('"')
+            b64c = "".join(a[1].split())
+            _dir = _osw2.path.dirname(abs_path)
+            _fn = _osw2.path.basename(abs_path)
+            if not _dir or not _fn:
+                return JSONResponse({"ok": False, "error": "neplatná absolutní cesta"})
+            try:
+                nbytes = len(_b64w.b64decode(b64c, validate=True))
+            except Exception as _eb:
+                return JSONResponse({"ok": False, "error": "špatný base64: " + str(_eb)[:80]})
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_write",
+                                         {"user_namespace": "rw", "base_override": _dir, "path": _fn,
+                                          "content": b64c, "encoding": "base64", "mode": "overwrite"},
+                                         conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "MCP zápis selhal: " + str(exc)[:160]})
+            if isinstance(r, dict) and r.get("ok"):
+                return JSONResponse({"ok": True, "columns": ["soubor", "bytes", "abs"],
+                                     "rows": [[_fn, nbytes, r.get("abs_path", abs_path)]], "count": 1})
+            return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "zápis selhal")})
         # @@FILES PUTDOC <rw_dest_path> <doc_id>
         #   Zkopíruje dokument z úložiště (public.documents.storage_path, mimo repo)
         #   na EUROSOFT RW share přes MCP file_write. Pro zpřístupnění Marti-AI generovaných

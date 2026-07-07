@@ -42012,16 +42012,26 @@ def _ops_refresh_secondary(force: bool = False) -> dict:
                                     stderr=_sp.DEVNULL, timeout=5).decode().strip()
     except Exception:
         _dir_sha = ""
-    try:
-        _ai = _rq_rs.get("http://127.0.0.1:%s/api/v1/api-info" % aport, timeout=4).json()
-    except Exception as _hexc:
-        _msg = ("POJISTKA (zdravotní): API A (:%s) neodpovídá (%s) — refresh zálohy ZRUŠEN, ať "
-                "nepropíšeme rozbité A do B. Ověř, že A zdravě běží, pak zkus znovu. (force NEobchází "
-                "zdravotní pojistku.)" % (aport, type(_hexc).__name__))
-        _rlog(_msg)
-        return {"ok": False, "result": _msg}
+    # Health-check je SELF-request A→A (:8002). Pod zátěží občas nestihne 4s timeout
+    # (ReadTimeout) → refresh se zbytečně zruší a B NIKDY nedožene A (Marti 7.7.). Proto
+    # 3 pokusy s delším timeoutem a krátkou pauzou — přechodná špička refresh nezablokuje.
+    import time as _time_rs
+    _ai = None
+    _hexc = None
+    for _attempt in range(3):
+        try:
+            _ai = _rq_rs.get("http://127.0.0.1:%s/api/v1/api-info" % aport, timeout=8).json()
+            break
+        except Exception as _e_rs:
+            _hexc = _e_rs
+            _ai = None
+            if _attempt < 2:
+                _time_rs.sleep(1.5)
     if not (isinstance(_ai, dict) and _ai.get("ok")):
-        _msg = "POJISTKA (zdravotní): API A nehlásí OK (health) — refresh zálohy ZRUŠEN."
+        _why = type(_hexc).__name__ if _hexc else "nehlásí OK"
+        _msg = ("POJISTKA (zdravotní): API A (:%s) neodpovídá ani po 3 pokusech (%s) — refresh zálohy "
+                "ZRUŠEN, ať nepropíšeme rozbité A do B. Ověř, že A zdravě běží, pak zkus znovu. "
+                "(force NEobchází zdravotní pojistku.)" % (aport, _why))
         _rlog(_msg)
         return {"ok": False, "result": _msg}
     _a_sha = (_ai.get("commit") or "").strip()

@@ -34612,11 +34612,14 @@ def _xfer_ddl(src_db, dst_db, t):
             pass
 
 
-def _xfer_table(src_db, dst_db, table, where=None):
+def _xfer_table(src_db, dst_db, table, where=None, append=False):
     """Přenos JEDNÉ tabulky z kancelářského Heliosu (MCP: DB_EC/DB_IS) → cloud MSSQL
     188.12 (pyodbc). 1:1 vč. původních id (IDENTITY_INSERT), jen vkládatelné sloupce
     (ne computed), triggery+constraints VYPNUTÉ při loadu, cíl napřed promazán.
-    Marti 25.6.2026. where = volitelná podmínka (bez 'WHERE')."""
+    Marti 25.6.2026. where = volitelná podmínka (bez 'WHERE').
+    append=True (Marti 7.7.2026): NEmaž cíl — jen doplň řádky ze zdroje dle where
+    (bezpečné doplnění chybějících řádků, existující zůstanou). Pro doplnění chybějících
+    starých mzd. období do TabMzdObd, ať projde FK z TabCisMzSl."""
     import os as _ox
     conn_str = _ox.environ.get("MSSQL188_CONN")
     if not conn_str:
@@ -34764,7 +34767,8 @@ def _xfer_table(src_db, dst_db, table, where=None):
                     pass
         except Exception:
             pass
-        cur.execute("DELETE FROM %s" % fq)
+        if not append:
+            cur.execute("DELETE FROM %s" % fq)
         if has_identity:
             cur.execute("SET IDENTITY_INSERT %s ON" % fq)
         n = 0
@@ -37703,8 +37707,23 @@ async def diag_sql(req: Request) -> JSONResponse:
     # ── @@XFER <src_db> <dst_db> <Tabulka> [| where] — přenos tabulky z kancelářského
     #    Heliosu (DB_EC/DB_IS přes MCP) → cloud MSSQL 188.12. 1:1 vč. původních id.
     #    Marti 25.6.2026 (přenos mezd + deníku, čistý start 2025-26). ──
+    # ── @@XFERADD <src_db> <dst_db> <Tabulka> [| where] — APPEND (nemaž cíl, jen doplň). ──
+    if sql.upper().startswith("@@XFERADD"):
+        _bxa = sql[9:].strip()
+        _wha = None
+        if "|" in _bxa:
+            _bxa, _wha = _bxa.split("|", 1)
+            _wha = _wha.strip() or None
+        _pxa = _bxa.split()
+        if len(_pxa) < 3:
+            return JSONResponse({"ok": False, "error": "@@XFERADD <src_db> <dst_db> <Tabulka> [| where]"})
+        from starlette.concurrency import run_in_threadpool as _rtpxa
+        _resxa = await _rtpxa(_xfer_table, _pxa[0], _pxa[1], _pxa[2], _wha, True)
+        return JSONResponse(_resxa if isinstance(_resxa, dict) else {"ok": False, "error": "xferadd selhal"})
+
     if (sql.upper().startswith("@@XFER") and not sql.upper().startswith("@@XFERMZDY")
-            and not sql.upper().startswith("@@XFERUCTO") and not sql.upper().startswith("@@XFERSYS")):
+            and not sql.upper().startswith("@@XFERUCTO") and not sql.upper().startswith("@@XFERSYS")
+            and not sql.upper().startswith("@@XFERADD")):
         _bx = sql[6:].strip()
         _wh = None
         if "|" in _bx:

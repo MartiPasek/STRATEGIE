@@ -49283,7 +49283,11 @@ def _build_system_root_from_db(uid=None, is_parent=True):
             WITH RECURSIVE base AS (
                 SELECT id, parent_id FROM fw.menu_node
                 WHERE status = 'active' AND (
-                    ( :is_parent AND (visibility_scope = 'parent_only' OR visibility_scope IS NULL) )
+                    -- Fix regrese (Claude-25/Šárka 7.7.2026): commit 57c94091 přidal
+                    -- `:is_parent AND ...` → ne-rodič (běžný zaměstnanec) neviděl NIC
+                    -- (91/114 uzlů je 'parent_only'). Obnoveno původní chování: uzly
+                    -- 'parent_only'/NULL vidí VŠICHNI; per-user grant zůstává přídavkem.
+                    ( visibility_scope = 'parent_only' OR visibility_scope IS NULL )
                     OR ( :uid = ANY(COALESCE(visibility_user_ids, ARRAY[]::integer[])) )
                 )
             ),

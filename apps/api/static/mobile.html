@@ -703,11 +703,18 @@ setTimeout(function(){
       ul.innerHTML="";
       cmds.forEach(function(c){
         var li=el('<li></li>');
-        var txt=el('<div style="cursor:pointer;"><div class="nt">'+esc(c.title||"Úkol")+'</div>'+(c.message?'<div class="nm" style="max-height:60px;overflow:hidden;">'+esc(c.message)+'</div>':'')+(c.message&&c.message.length>120?'<div style="color:var(--blue);font-size:12px;">klepni pro celé…</div>':'')+'</div>');
-        txt.addEventListener("click",function(){ openClaudeDetail(c); });
+        var isDoch=(c.title||"").indexOf("Potvrď si docházku")>=0;
+        var hint=isDoch?'<div style="color:var(--blue);font-size:12px;">klepni → otevřít docházku k potvrzení</div>'
+                       :(c.message&&c.message.length>120?'<div style="color:var(--blue);font-size:12px;">klepni pro celé…</div>':'');
+        var txt=el('<div style="cursor:pointer;"><div class="nt">'+esc(c.title||"Úkol")+'</div>'+(c.message?'<div class="nm" style="max-height:60px;overflow:hidden;">'+esc(c.message)+'</div>':'')+hint+'</div>');
+        txt.addEventListener("click",function(){ if(isDoch){ go("dochazka"); } else { openClaudeDetail(c); } });
         var a=el('<div class="nactions" style="margin-top:8px;"></div>');
         function b(l,cl,d){var x=el('<button class="sm '+cl+'">'+l+'</button>'); x.addEventListener("click",function(e){e.stopPropagation();act(c.id,d,li);}); a.appendChild(x);}
         if(c.command_type==="claude_confirm"){b("Odmítnout","warn","reject");b("Povolit","green","accept");}
+        else if(isDoch){
+          var ob=el('<button class="sm green">🖊 Otevřít docházku →</button>');
+          ob.addEventListener("click",function(e){e.stopPropagation();go("dochazka");}); a.appendChild(ob);
+        }
         else {
           var rb=el('<button class="sm green">💬 Odpovědět</button>');
           rb.addEventListener("click",function(e){e.stopPropagation();replyMsg(c,li);}); a.appendChild(rb);
@@ -845,14 +852,7 @@ setTimeout(function(){
     var ta=el('<textarea placeholder="Důvod (nepovinné)…" style="width:100%;min-height:64px;margin-bottom:14px;box-sizing:border-box;"></textarea>');
     card.appendChild(ta);
     var rowb=el('<div style="display:flex;gap:10px;"></div>');
-    var no=el('<button class="ghost" style="flex:1;margin:0;">Zrušit</button>');
-    var yes=el('<button class="green" style="flex:1;margin:0;background:#b3402f;">🚫 Zamítnout</button>');
-    no.addEventListener("click",function(){ ov.remove(); });
-    yes.addEventListener("click",function(){ ov.remove(); var nt=(ta.value||"").trim(); if(onReject){ onReject(nt); } else { apDecide(r.id,"rejected",nt); } });
-    rowb.appendChild(no); rowb.appendChild(yes); card.appendChild(rowb);
-    ov.appendChild(card); document.body.appendChild(ov);
-  }
-  function mytodo(){
+    var no=el('<button class="ghost" style="flex:1;margin  function mytodo(){
     app.innerHTML=topbar("📝 Moje TODO", true);
     var p=el('<div class="panel"></div>');
     var arow=el('<div style="display:flex;gap:8px;margin-bottom:10px;"></div>');

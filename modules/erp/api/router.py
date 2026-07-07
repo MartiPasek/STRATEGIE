@@ -16732,6 +16732,26 @@ async def att_confirm_day(req: Request) -> JSONResponse:
             "INSERT INTO tenant.att_day_confirm (tenant_id, employee_id, day, confirmed_by_user_id) "
             "VALUES (:t, :e, :d, :u) ON CONFLICT (tenant_id, employee_id, day) DO NOTHING"),
             {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": uid})
+        # Marti 7.7.2026: po potvrzení dne UKLIDIT jeho anomálii i mobilní notifikaci
+        # „🖊 Potvrď si docházku" — jinak notifikace svítí dál i po odsouhlasení.
+        s.execute(_t(
+            "DELETE FROM tenant.att_anomaly a USING tenant.att_entry e "
+            "WHERE a.tenant_id = :t AND a.rule = 'nepotvrzeny_den' AND a.employee_id = :e "
+            "  AND e.id = a.entry_id AND e.entry_date = :d"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()})
+        # notifikace nese v title '🖊 Potvrď si docházku' a message začíná 'DD.MM. …'
+        s.execute(_t(
+            "UPDATE fw.mobile_command SET status='done', decided_at=now() "
+            "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
+            "  AND title LIKE '%Potvrď si docházku%' AND message LIKE :dp"),
+            {"u": uid, "dp": day.strftime("%d.%m.") + "%"})
+        # když už žádný den nečeká na potvrzení, zhasni i případné zbylé připomínky
+        if not _att_unconfirmed_days(s, emp):
+            s.execute(_t(
+                "UPDATE fw.mobile_command SET status='done', decided_at=now() "
+                "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
+                "  AND title LIKE '%Potvrď si docházku%'"),
+                {"u": uid})
         s.commit()
         return JSONResponse({"ok": True, "day": day.isoformat()})
     except Exception as exc:
@@ -17041,6 +17061,18 @@ async def att_dispute_day(req: Request) -> JSONResponse:
             "VALUES (:t, :e, :d, :u, true, :n) "
             "ON CONFLICT (tenant_id, employee_id, day) DO UPDATE SET disputed = true, note = EXCLUDED.note"),
             {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "u": uid, "n": note or None})
+        # Marti 7.7.: rozporovaný den je taky vyřešený → zhasni vlastní připomínku
+        # „🖊 Potvrď si docházku" a ukliď anomálii nepotvrzeného dne.
+        s.execute(_t(
+            "DELETE FROM tenant.att_anomaly a USING tenant.att_entry e "
+            "WHERE a.tenant_id = :t AND a.rule = 'nepotvrzeny_den' AND a.employee_id = :e "
+            "  AND e.id = a.entry_id AND e.entry_date = :d"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()})
+        s.execute(_t(
+            "UPDATE fw.mobile_command SET status='done', decided_at=now() "
+            "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
+            "  AND title LIKE '%Potvrď si docházku%' AND message LIKE :dp"),
+            {"u": uid, "dp": day.strftime("%d.%m.") + "%"})
         # notifikace kontrole docházky (resolver) + tatínkovi jako anchor
         who = s.execute(_t(
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), em.full_name) "

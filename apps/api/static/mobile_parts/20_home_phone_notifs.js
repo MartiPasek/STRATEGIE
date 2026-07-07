@@ -192,11 +192,18 @@
       ul.innerHTML="";
       cmds.forEach(function(c){
         var li=el('<li></li>');
-        var txt=el('<div style="cursor:pointer;"><div class="nt">'+esc(c.title||"Úkol")+'</div>'+(c.message?'<div class="nm" style="max-height:60px;overflow:hidden;">'+esc(c.message)+'</div>':'')+(c.message&&c.message.length>120?'<div style="color:var(--blue);font-size:12px;">klepni pro celé…</div>':'')+'</div>');
-        txt.addEventListener("click",function(){ openClaudeDetail(c); });
+        var isDoch=(c.title||"").indexOf("Potvrď si docházku")>=0;
+        var hint=isDoch?'<div style="color:var(--blue);font-size:12px;">klepni → otevřít docházku k potvrzení</div>'
+                       :(c.message&&c.message.length>120?'<div style="color:var(--blue);font-size:12px;">klepni pro celé…</div>':'');
+        var txt=el('<div style="cursor:pointer;"><div class="nt">'+esc(c.title||"Úkol")+'</div>'+(c.message?'<div class="nm" style="max-height:60px;overflow:hidden;">'+esc(c.message)+'</div>':'')+hint+'</div>');
+        txt.addEventListener("click",function(){ if(isDoch){ go("dochazka"); } else { openClaudeDetail(c); } });
         var a=el('<div class="nactions" style="margin-top:8px;"></div>');
         function b(l,cl,d){var x=el('<button class="sm '+cl+'">'+l+'</button>'); x.addEventListener("click",function(e){e.stopPropagation();act(c.id,d,li);}); a.appendChild(x);}
         if(c.command_type==="claude_confirm"){b("Odmítnout","warn","reject");b("Povolit","green","accept");}
+        else if(isDoch){
+          var ob=el('<button class="sm green">🖊 Otevřít docházku →</button>');
+          ob.addEventListener("click",function(e){e.stopPropagation();go("dochazka");}); a.appendChild(ob);
+        }
         else {
           var rb=el('<button class="sm green">💬 Odpovědět</button>');
           rb.addEventListener("click",function(e){e.stopPropagation();replyMsg(c,li);}); a.appendChild(rb);

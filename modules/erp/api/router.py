@@ -42928,19 +42928,30 @@ def _ops_caddy_add_ucto() -> dict:
             txt = f.read()
     except Exception as exc:
         return {"ok": False, "result": "čtení Caddyfile selhalo: %s" % exc}
-    if "ucto.strategie-ai.com" in txt:
-        return {"ok": True, "result": "Blok ucto.strategie-ai.com už v Caddyfile je (žádná změna)."}
+    import re as _re
+    # Guacamole běží pod kontextem /guacamole/ (Tomcat), root vrací 404 → přesměruj / na
+    # /guacamole/. Ostatní cesty (vč. /guacamole/websocket-tunnel) jdou přes reverse_proxy.
     block = (
         "\nucto.strategie-ai.com {\n"
         "    # Cloud Helios pro účetní (Martia+Peta) přes Guacamole, bez VPN.\n"
         "    # 2FA řeší Guacamole (TOTP). IP allowlist doplníme až budeme mít IP účetní.\n"
+        "    @root path /\n"
+        "    redir @root /guacamole/\n"
         "    reverse_proxy 127.0.0.1:8080 {\n"
         "        header_up Host {host}\n"
         "        header_up X-Real-IP {remote_host}\n"
         "    }\n"
         "}\n"
     )
-    new = txt.rstrip("\n") + "\n" + block
+    if "redir @root /guacamole/" in txt:
+        return {"ok": True, "result": "Blok ucto.strategie-ai.com (s přesměrováním na /guacamole/) už v Caddyfile je (žádná změna)."}
+    if "ucto.strategie-ai.com {" in txt:
+        # starší blok bez přesměrování → nahraď celý ucto blok (od hlavičky po samostatné '}')
+        new = _re.sub(r"\n?ucto\.strategie-ai\.com \{.*?\n\}\n", block, txt, count=1, flags=_re.S)
+        _upd = "aktualizován (přidáno přesměrování / → /guacamole/)"
+    else:
+        new = txt.rstrip("\n") + "\n" + block
+        _upd = "přidán"
     bak = cfg + ".bak_ucto_" + _tm.strftime("%Y%m%d_%H%M%S")
     try:
         _sh.copyfile(cfg, bak)
@@ -42955,8 +42966,8 @@ def _ops_caddy_add_ucto() -> dict:
                         headers={"Content-Type": "text/caddyfile"}, method="POST")
         with _u.urlopen(rq, timeout=30) as resp:
             if 200 <= getattr(resp, "status", 200) < 300:
-                return {"ok": True, "result": "Blok ucto.strategie-ai.com přidán + reload OK "
-                        "(admin /load). HTTPS/Let's Encrypt naběhne automaticky. Backup: %s" % bak}
+                return {"ok": True, "result": "Blok ucto.strategie-ai.com %s + reload OK "
+                        "(admin /load). / → /guacamole/. HTTPS/Let's Encrypt automaticky. Backup: %s" % (_upd, bak)}
             return {"ok": False, "result": "admin /load HTTP %s" % getattr(resp, "status", "?")}
     except Exception as _adm_exc:
         try:

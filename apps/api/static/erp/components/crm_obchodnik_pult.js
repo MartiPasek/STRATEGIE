@@ -278,8 +278,8 @@
             '<div style="background:#0e1620;border:1px solid #253143;border-radius:8px;padding:10px 12px;line-height:1.7;">' +
             '<b>' + (s.total || 0) + '</b> firem v souboru · ' +
             '<span style="color:#3ecf8e;">' + (s.novych || 0) + ' nových</span> · ' +
-            '<span style="color:#f0a93b;">' + (s.duplicit || 0) + ' už v CRM (přeskočí se)</span><br>' +
-            'Akce „Email na info": <b>' + (s.s_akci || 0) + '</b> · ' +
+            '<span style="color:#f0a93b;">' + (s.duplicit || 0) + ' už v CRM (nezakládají se znovu, jen se doplní akce oslovení)</span><br>' +
+            'Akce „Email na info" k zapsání: <b>' + (s.s_akci || 0) + '</b> · ' +
             'z toho nedoručeno: <b style="color:#ff6b6b;">' + (s.nedoruceno || 0) + '</b></div>';
           setGo((s.novych || 0) > 0);
         })

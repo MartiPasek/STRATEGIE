@@ -28266,7 +28266,7 @@ def _mzdy_priplatky_rows(firma, rok, mesic, only_cislo=None):
             sel_params["oc"] = str(oc)
         rows = s.execute(_t(
             "SELECT ae.cislo_zam AS cislo, msm.ext_code AS cislo_ms, wm.import_src_id AS ecid, "
-            "  COALESCE(wm.amount, wm.hours*wm.rate, 0) AS castka, wm.zakazka_ref AS zak "
+            "  COALESCE(wm.amount, wm.hours*wm.rate, 0) AS castka, wm.zakazka_ref AS zak, wct.code AS kod "
             "FROM tenant.wage_movement wm "
             "JOIN tenant.engagement e ON e.id=wm.engagement_id "
             "JOIN tenant.company c ON c.id=e.company_id AND c.code=:fec "
@@ -28275,9 +28275,9 @@ def _mzdy_priplatky_rows(firma, rok, mesic, only_cislo=None):
             "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
             "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
             "WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') "
-            # VYJMA: HO/OBL/korekce (benefit systém) + srazka_telefon (EC číselník ReakceMzdy=False,
-            # EC řeší telefon zvlášť; sign/mechanismus doladit → TODO mirror číselníku ReakceMzdy)
-            "  AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod','srazka_telefon') "
+            # VYJMA: HO/OBL/korekce (benefit systém). srazka_telefon už NEvyjímáme —
+            # promítá se jako srážka do složky 953 (znaménko otočíme níž). Peta 7.7.2026.
+            "  AND wct.code NOT IN ('nahrada_home_office','nahrada_obleceni','korekce_os_ohod') "
             + sel_filter +
             "  AND wm.valid_from <= (make_date(:y,:mo,1) + INTERVAL '1 month' - INTERVAL '1 day') "
             "  AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))"),
@@ -28296,11 +28296,15 @@ def _mzdy_priplatky_rows(firma, rok, mesic, only_cislo=None):
         for r in rows:
             try:
                 cislo = int(str(r[0]).strip()); ms = int(r[1]); ecid = r[2]
-                kc = float(r[3] or 0); zak = r[4]
+                kc = float(r[3] or 0); zak = r[4]; kod = r[5]
             except Exception:
                 continue
             if not kc:
                 continue
+            # Telefonní tarif (srazka_telefon): zdroj je záporný (−254), ale Helios srážku do
+            # složky 953 chce KLADNĚ a odečte ji sám dle typu složky. Otočíme znaménko. Peta 7.7.2026.
+            if kod == 'srazka_telefon':
+                kc = -kc
             agg[(cislo, ms)] = agg.get((cislo, ms), 0) + kc
             s.execute(_t(
                 "INSERT INTO tenant.zamestnanecky_zavazek (firma, cislo, rok, mesic, zdroj, zdroj_id, "

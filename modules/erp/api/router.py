@@ -29896,19 +29896,21 @@ def platby_plataky_get(req: Request):
     try:
         if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        # ORDER BY dle SKUTEČNÉHO data (ne zformátovaný text 'DD.MM.YYYY' — ten se
+        # řadil lexikograficky = podle dne, ne podle data). Marti 7.7.: nejnovější nahoře.
         rows = s.execute(_t(
             "SELECT firma, 'tuz' typ, id, to_char(datum_vystaveni::date,'DD.MM.YYYY') vyst, "
             "  to_char(datum_splatnosti::date,'DD.MM.YYYY') splat, COALESCE(odkud,'') odkud, pocet, "
             "  castka_celkem, COALESCE(mena,'CZK') mena, COALESCE(seznam_faktur,'') sez, "
-            "  COALESCE(realizace_export,false) exp, COALESCE(autor,'') autor "
+            "  COALESCE(realizace_export,false) exp, COALESCE(autor,'') autor, datum_vystaveni::date sortd "
             "FROM tenant.oz_platak_tuz "
             "UNION ALL "
             "SELECT firma, 'zahr', id, to_char(datum_vystaveni::date,'DD.MM.YYYY'), "
             "  to_char(datum_splatnosti::date,'DD.MM.YYYY'), COALESCE(odkud,''), pocet, "
             "  castka_celkem, COALESCE(mena,'EUR'), COALESCE(seznam_faktur,''), "
-            "  COALESCE(realizace_export,false), COALESCE(autor,'') "
+            "  COALESCE(realizace_export,false), COALESCE(autor,''), datum_vystaveni::date "
             "FROM tenant.oz_platak_zahr "
-            "ORDER BY 4 DESC NULLS LAST, id DESC LIMIT 500")).fetchall()
+            "ORDER BY sortd DESC NULLS LAST, id DESC LIMIT 500")).fetchall()
         out = []
         for r in rows:
             out.append({"firma": int(r[0]) if r[0] is not None else 0, "typ": r[1], "id": r[2],

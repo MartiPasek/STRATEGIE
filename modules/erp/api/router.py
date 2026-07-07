@@ -34794,6 +34794,30 @@ async def diag_sql(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": True, "columns": ["soubor", "bytes", "abs"],
                                      "rows": [[_fn, nbytes, r.get("abs_path", abs_path)]], "count": 1})
             return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "zápis selhal")})
+        # @@FILES DEL <abs_file_path>  → smaže JEDEN soubor na RW rootu (base_override). Marti 7.7.2026.
+        if op == "DEL":
+            import os as _osd
+            abs_path = path.strip().strip('"')
+            if not abs_path:
+                return JSONResponse({"ok": False, "error": "@@FILES DEL <abs_path>"})
+            _dir = _osd.path.dirname(abs_path)
+            _fn = _osd.path.basename(abs_path)
+            if not _dir or not _fn:
+                return JSONResponse({"ok": False, "error": "neplatná absolutní cesta"})
+            try:
+                from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                mcp = get_eurosoft_mcp_client()
+                if mcp is None:
+                    return JSONResponse({"ok": False, "error": "EUROSOFT MCP nedostupný"})
+                raw = mcp.call_tool_sync("eurosoft_eurosoft_file_delete",
+                                         {"user_namespace": "rw", "base_override": _dir, "path": _fn},
+                                         conversation_id=None)
+                r = _jf.loads(raw) if isinstance(raw, str) else raw
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "MCP mazání selhalo: " + str(exc)[:160]})
+            if isinstance(r, dict) and r.get("ok"):
+                return JSONResponse({"ok": True, "columns": ["smazano"], "rows": [[abs_path]], "count": 1})
+            return JSONResponse({"ok": False, "error": (r.get("error") if isinstance(r, dict) else "mazání selhalo")})
         # @@FILES PUTDOC <rw_dest_path> <doc_id>
         #   Zkopíruje dokument z úložiště (public.documents.storage_path, mimo repo)
         #   na EUROSOFT RW share přes MCP file_write. Pro zpřístupnění Marti-AI generovaných

@@ -28610,6 +28610,42 @@ def _mzdy_finance_zakazek_rows(firma, rok, mesic):
     return out
 
 
+# ── DPP odměny (typ 1 z Centrály) → složka 700 (DPP). Peta 7.7.2026 ────────────────────────
+#  Zdroj = tenant.att_dpp_odmena (zrcadlo EC_FinPriplatkySrazkyDefinice typ 1, plněno při @@DOCHSUM).
+#  Skládá se do složky 700 (DPP, srážková daň 15 %) — stejná složka jako ruční DPP (_mzdy_rucni_rows).
+#  Jen EC (DPP z Centrály → EC mzda). Pozor na dvojí započtení: pokud má člověk DPP i ručně
+#  (mzdy_rucni_slozka 700), sečte se — proto ruční složku u lidí, co jedou z Centrály, deaktivovat.
+def _mzdy_dpp_rows(firma, rok, mesic):
+    """Vrací řádky (cislo, 700, koruny, 0) pro DPP odměny za období z tenant.att_dpp_odmena."""
+    if str(firma).upper() not in ('EC', '1'):
+        return []
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    ry = int(rok); rm = int(mesic)
+    s = _g()
+    fin = {}
+    try:
+        try:
+            for r in s.execute(_t(
+                "SELECT cislo_zam, COALESCE(SUM(castka),0) FROM tenant.att_dpp_odmena "
+                "WHERE tenant_id=2 AND rok=:y AND mesic=:mo GROUP BY cislo_zam"),
+                    {"y": ry, "mo": rm}).fetchall():
+                try:
+                    fin[int(r[0])] = float(r[1] or 0)
+                except Exception:
+                    pass
+        except Exception:
+            s.rollback()  # tabulka ještě neexistuje (před prvním @@DOCHSUM) → prázdné
+    finally:
+        s.close()
+    out = []
+    for cislo, castka in fin.items():
+        kc = int(round(castka))
+        if kc != 0:
+            out.append((cislo, 700, kc, 0))
+    return out
+
+
 # Generické příplatky/srážky (Marti 28.6.) — z wage_movement (mirror EC_FinPriplatkySrazkyDefinice)
 # do mzdy přes vlastní Helios CisloMS. Autoritativní mapa = EC číselník (MzdovaSlozka+ReakceMzdy),
 # zrcadlená v wage_system_mapping. VYJMA HO/OBL/korekce (typy 10/30/40 = ReakceMzdy False → benefit systém).
@@ -28953,6 +28989,10 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
             prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
         except Exception:
             pass
+        try:
+            prows = prows + _mzdy_dpp_rows(firma, rok, mesic)
+        except Exception:
+            pass
         # Absence (OČR/nemoc) → docházková MS 201/200 do předzpracování. Marti 28.6.: nechat
         # VIDITELNÉ na pásce. Helios sám náhradu nedopočítá (hodí Status 9 = „doplnit dávku"),
         # což je záměrný signál — monitor @@MZDYCHECK i Status 9 na to ukáží. Skutečný výpočet
@@ -29078,6 +29118,10 @@ def mzdy_generuj(req: Request):
             prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
         except Exception:
             pass  # prémie ze zakázek → 651, best-effort (Peta 7.7.2026)
+        try:
+            prows = prows + _mzdy_dpp_rows(firma, rok, mesic)
+        except Exception:
+            pass  # DPP odměny → 700, best-effort (Peta 7.7.2026)
         prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
         try:
             prows = _mzdy_consolidate(prows)
@@ -36575,6 +36619,12 @@ async def diag_sql(req: Request) -> JSONResponse:
             except Exception as _fze:
                 if isinstance(_ds, dict):
                     _ds["finance_zakazek"] = {"ok": False, "error": str(_fze)[:200]}
+            # Zrcadli i DPP odměny (typ 1 z Centrály) → att_dpp_odmena. Peta 7.7.2026.
+            try:
+                _ds["dpp"] = _sync_dpp_from_ec(_dy, month=_dm)
+            except Exception as _dppe:
+                if isinstance(_ds, dict):
+                    _ds["dpp"] = {"ok": False, "error": str(_dppe)[:200]}
             return JSONResponse(_ds)
         except Exception as _de:
             return JSONResponse({"ok": False, "error": "%s: %s" % (type(_de).__name__, str(_de)[:300]),
@@ -41417,6 +41467,89 @@ def _sync_finance_zakazek(year: int = 2026, month=None) -> dict:
                 "ON CONFLICT (tenant_id, cislo_zam, rok, mesic) DO UPDATE SET "
                 " castka=EXCLUDED.castka, synced_at=now()"),
                 {"cz": str(cz), "y": int(year), "m": mm, "castka": f(row.get("castka"))})
+            n += 1
+        s.commit()
+        return {"ok": True, "rows": len(rows), "upserted": n}
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _sync_dpp_from_ec(year: int = 2026, month=None) -> dict:
+    """Peta 7.7.2026 — DPP odměny (typ 1 „Položka do dohody o provedení práce") z Centrály
+    (EC_FinPriplatkySrazkyDefinice, DB_EC) → tenant.att_dpp_odmena. Bere schválené záznamy
+    AKTIVNÍ pro dané období (PlatnostOd<=konec měsíce, PlatnostDo IS NULL nebo >=začátek) —
+    pokrývá i opakující se (Mesicne) vedené pod starším rokem. Idempotentní: smaž období +
+    upsert. Generátor je pak skládá do složky 700 (DPP) na výplatnici. Zdroj pravdy = Centrála."""
+    import json as _j
+    import calendar as _cal
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    from modules.strategie_pg.application import service as _pg
+    from sqlalchemy import text as _t
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        raise RuntimeError("EUROSOFT MCP nedostupné")
+    ry = int(year); rm = int(month) if month else 1
+    ld = _cal.monthrange(ry, rm)[1]
+    d_start = "%04d-%02d-01" % (ry, rm)
+    d_end = "%04d-%02d-%02d" % (ry, rm, ld)
+    sql = ("SELECT CisloZam cz, SUM(Castka) castka FROM EC_FinPriplatkySrazkyDefinice "
+           "WHERE Typ=1 AND ISNULL(Schvaleno,0)=1 "
+           "  AND PlatnostOd <= '" + d_end + "' "
+           "  AND (PlatnostDo IS NULL OR PlatnostDo >= '" + d_start + "') "
+           "GROUP BY CisloZam HAVING SUM(Castka) <> 0")
+    raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                             {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    rows = []
+    if isinstance(r, dict):
+        if r.get("ok") is False:
+            raise RuntimeError(str(r.get("error")))
+        for k in ("rows", "data", "result", "records"):
+            if isinstance(r.get(k), list):
+                rows = r[k]
+                break
+    elif isinstance(r, list):
+        rows = r
+
+    def f(v):
+        try:
+            return round(float(v), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    cm = _pg.get_session()
+    s = cm.__enter__()
+    n = 0
+    mm = int(month) if month else 0
+    try:
+        s.execute(_t(
+            "CREATE TABLE IF NOT EXISTS tenant.att_dpp_odmena ("
+            " tenant_id integer NOT NULL,"
+            " cislo_zam text NOT NULL,"
+            " rok integer NOT NULL,"
+            " mesic integer NOT NULL,"
+            " castka numeric(14,2) NOT NULL DEFAULT 0,"
+            " synced_at timestamptz DEFAULT now(),"
+            " PRIMARY KEY (tenant_id, cislo_zam, rok, mesic))"))
+        if month:
+            s.execute(_t("DELETE FROM tenant.att_dpp_odmena WHERE tenant_id=2 AND rok=:y AND mesic=:m"),
+                      {"y": ry, "m": mm})
+        else:
+            s.execute(_t("DELETE FROM tenant.att_dpp_odmena WHERE tenant_id=2 AND rok=:y"), {"y": ry})
+        for row in rows:
+            try:
+                cz = int(row.get("cz"))
+            except (TypeError, ValueError):
+                continue
+            s.execute(_t(
+                "INSERT INTO tenant.att_dpp_odmena (tenant_id, cislo_zam, rok, mesic, castka, synced_at) "
+                "VALUES (2, :cz, :y, :m, :castka, now()) "
+                "ON CONFLICT (tenant_id, cislo_zam, rok, mesic) DO UPDATE SET "
+                " castka=EXCLUDED.castka, synced_at=now()"),
+                {"cz": str(cz), "y": ry, "m": mm, "castka": f(row.get("castka"))})
             n += 1
         s.commit()
         return {"ok": True, "rows": len(rows), "upserted": n}

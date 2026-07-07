@@ -41972,7 +41972,12 @@ async def ops_request(req: Request) -> JSONResponse:
 
     # Cloud akce → spustit hned inline.
     if not meta.get("remote"):
-        result = _ops_execute_cloud(action_key, rid, uid)
+        # _ops_execute_cloud dělá BLOKUJÍCÍ self-HTTP (refresh_secondary health-check A→A
+        # :8002). V async handleru by zablokoval event loop → vlastní api-info se neobslouží
+        # → ReadTimeout → B NIKDY nedožene A (Marti 7.7.). Pustit MIMO smyčku (threadpool),
+        # ať zůstane volná pro obsloužení self-callu.
+        from starlette.concurrency import run_in_threadpool as _ritp_ops
+        result = await _ritp_ops(_ops_execute_cloud, action_key, rid, uid)
         return JSONResponse(jsonable_encoder({"ok": True, "request_id": rid,
                                               "remote": False, **result}))
     # Remote akce → ve frontě, agent si ji vyzvedne v heartbeatu (do ~30 s).

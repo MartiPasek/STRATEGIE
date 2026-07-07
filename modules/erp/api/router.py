@@ -5732,6 +5732,9 @@ async def crm_osloveni_enqueue(req: Request) -> JSONResponse:
 _CRM_DEMO_RECIPIENT = "k.ksirova@eurosoft.com"
 _CRM_DEMO_FROM_PERSONA = 1  # marti-ai@eurosoft.com
 _CRM_PUBLIC_BASE = "https://strategie-ai.com"
+# Ostra rozesilka (Kristy 7.7.2026): posila na REALNE prijemce firem
+# (osobni e-mail IDAkce=17, jinak firemni info@ IDAkce=16) z Pavlovy schranky.
+_CRM_LIVE_FROM_USER = 30  # Pavel Zeman (PZeman) -- from_identity="user"
 
 
 @api_router.post("/crm/osloveni/demo-send")
@@ -5962,6 +5965,215 @@ async def crm_osloveni_track_status(req: Request) -> JSONResponse:
             "opens": int(r["opens"] or 0),
         })
     return JSONResponse({"ok": True, "items": items})
+
+
+@api_router.post("/crm/osloveni/send")
+async def crm_osloveni_send(req: Request) -> JSONResponse:
+    """OSTRE odeslani osloveni: posle sablonu + tracking pixel + odhlasovaci odkaz
+    na REALNE prijemce vybranych firem (osobni e-mail z IDAkce=17, jinak firemni
+    info@ z IDAkce=16) z Pavlovy schranky (from_identity="user", uid 30). Preskoci
+    odhlasene (mod.crm_email_optout) a firmy bez e-mailu. Eviduje do
+    mod.crm_email_track (demo=false) az po uspesnem odeslani/zarazeni.
+    Auth: clen ERP NEBO rodic. Telo: {"idhlav_list":[...], "template_id":"9"}."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné tělo"}, status_code=400)
+    ids = []
+    for x in (body.get("idhlav_list") or []):
+        try:
+            ids.append(int(x))
+        except Exception:
+            pass
+    ids = sorted(set(ids))
+    if not ids:
+        return JSONResponse({"ok": False, "error": "Nevybral jsi žádné firmy"}, status_code=400)
+    ids = ids[:100]  # bezpecnostni strop na jeden beh
+    template_code = str(body.get("template_id") or body.get("template_code") or "9")[:32]
+
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    import json as _j_ls, uuid as _uuid_ls
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
+
+    def _mcp_rows(sql):
+        raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                                 {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
+        r = _j_ls.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(r, dict):
+            if r.get("ok") is False:
+                raise RuntimeError(str(r.get("error"))[:200])
+            for k in ("rows", "data", "result", "records"):
+                if isinstance(r.get(k), list):
+                    return r[k]
+        return r if isinstance(r, list) else []
+
+    # Sablona (stejne jako demo-send: st.CRM_Kontakt_MailSablonyCis)
+    try:
+        trow = _mcp_rows(
+            "SELECT Sablona, PredmetEmailu FROM st.CRM_Kontakt_MailSablonyCis "
+            "WITH(NOLOCK) WHERE ID = " + str(int(template_code)))
+    except Exception as exc:
+        logger.exception("[crm_live_send] template %s", exc)
+        return JSONResponse({"ok": False, "error": "Šablonu se nepodařilo načíst"}, status_code=502)
+    if not trow:
+        return JSONResponse({"ok": False, "error": "Šablona ID %s nenalezena" % template_code}, status_code=404)
+    t0 = {(k or "").lower(): v for k, v in trow[0].items()}
+    sablona = (t0.get("sablona") or "").strip()
+    predmet = (t0.get("predmetemailu") or "Oslovení").strip()
+
+    # Prijemci per firma (osobni IDAkce=17 -> jinak firemni info@ IDAkce=16)
+    id_list = ",".join(str(i) for i in ids)
+    by_id = {}
+    try:
+        for d in _mcp_rows(
+            "SELECT a.IDHlav AS firma_id,"
+            " MAX(CASE WHEN a.IDAkce=16 THEN a.FirmaText END) AS firma,"
+            " MAX(CASE WHEN a.IDAkce=16 THEN a.Email END) AS firma_email,"
+            " MAX(CASE WHEN a.IDAkce=17 AND a.Email LIKE '%@%' THEN a.Email END) AS osobni_email"
+            " FROM st.CRM_Kontakt_Akce a WITH(NOLOCK) WHERE a.IDHlav IN ("
+            + id_list + ") GROUP BY a.IDHlav"):
+            dd = {(k or "").lower(): v for k, v in d.items()}
+            try:
+                by_id[int(dd.get("firma_id"))] = dd
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.exception("[crm_live_send] recipients %s", exc)
+        return JSONResponse({"ok": False, "error": "Načtení příjemců selhalo"}, status_code=502)
+
+    # Rozhodni prijemce (osobni > firemni), posbirej bez e-mailu
+    targets, no_email = [], 0
+    for fid in ids:
+        dd = by_id.get(fid, {})
+        firma = (dd.get("firma") or ("#" + str(fid))).strip()
+        rec = ((dd.get("osobni_email") or "").strip() or (dd.get("firma_email") or "").strip())
+        if not rec or "@" not in rec:
+            no_email += 1
+            continue
+        targets.append((fid, firma, rec))
+
+    # Opt-out filtr (mod.crm_email_optout)
+    from core.database_data import get_data_session as _gds_ls
+    from sqlalchemy import text as _sql_ls
+    opted = set()
+    recs_lower = sorted(set(r.lower() for _, _, r in targets))
+    if recs_lower:
+        ds0 = _gds_ls()
+        try:
+            opted = set(ds0.execute(_sql_ls(
+                "SELECT DISTINCT email_norm FROM mod.crm_email_optout WHERE email_norm = ANY(:l)"
+            ), {"l": recs_lower}).scalars().all())
+        finally:
+            ds0.close()
+    targets2 = [(f, fr, r) for (f, fr, r) in targets if r.lower() not in opted]
+    skipped_optout = len(targets) - len(targets2)
+
+    if not targets2:
+        return JSONResponse({"ok": True, "sent": 0, "skipped_optout": skipped_optout,
+                             "skipped_noemail": no_email, "errors": [],
+                             "note": "Žádný odesílatelný příjemce (vše bez e-mailu nebo odhlášeno)."})
+
+    # Sablona file override + inline obrazky (stejne jako demo-send)
+    from modules.notifications.application.email_service import queue_email, send_email_or_raise
+    import os as _os_ls, re as _re_ls
+    _repo_root = _os_ls.path.abspath(
+        _os_ls.path.join(_os_ls.path.dirname(__file__), "..", "..", ".."))
+    _CRM_TEMPLATE_FILE = {"17": "docs/mail_sablony/automaticky_email_DE_FINAL.html"}
+    _tf = _CRM_TEMPLATE_FILE.get(str(template_code))
+    if _tf:
+        try:
+            _tfp = _os_ls.path.join(_repo_root, _tf)
+            if _os_ls.path.isfile(_tfp):
+                with open(_tfp, "r", encoding="utf-8") as _fh:
+                    _fc = _fh.read().strip()
+                if _fc:
+                    sablona = _fc
+        except Exception:
+            pass
+    _de_dir = _os_ls.path.join(_repo_root, "docs", "mail_sablony", "de_images")
+    inline_imgs = []
+    try:
+        for _cid in sorted(set(_re_ls.findall(r"cid:([\w.@\-]+)", sablona or ""))):
+            _fn = _cid.split("@", 1)[0]
+            _fp = _os_ls.path.join(_de_dir, _fn)
+            if _os_ls.path.isfile(_fp):
+                inline_imgs.append((_fp, _cid))
+    except Exception:
+        inline_imgs = []
+    # Rich HTML sablona (inline obrazky, napr. DE #17) -> sync send, cap 5 (proxy
+    # timeout). Textove sablony -> queue_email (worker odesle asynchronne).
+    _rich = bool(inline_imgs)
+    _batch = targets2[:5] if _rich else targets2
+    truncated = _rich and len(targets2) > len(_batch)
+
+    sent, errs = 0, []
+    ds = _gds_ls()
+    try:
+        for (fid, firma, rec) in _batch:
+            tok = _uuid_ls.uuid4().hex
+            pixel = ('<img src="' + _CRM_PUBLIC_BASE + '/crm/track/open/' + tok
+                     + '" width="1" height="1" alt="" style="display:none">')
+            _unsub = ""
+            try:
+                _otok = crm_optout_make_token(rec, fid)
+                _ulink = _CRM_PUBLIC_BASE + "/crm/odhlasit/" + _otok
+                _unsub = ('<p style="font-size:8pt;color:#999;'
+                          'font-family:Verdana,sans-serif;margin-top:14px">'
+                          'Wenn Sie keine weiteren Nachrichten erhalten möchten, '
+                          'können Sie sich <a href="' + _ulink +
+                          '" style="color:#999">hier abmelden</a>.</p>')
+            except Exception:
+                _unsub = ""
+            _sab = sablona or "<p>(prázdná šablona)</p>"
+            _extra = _unsub + pixel
+            _low = _sab.lower()
+            if "</body>" in _low:
+                _idx = _low.rfind("</body>")
+                body_html = _sab[:_idx] + _extra + _sab[_idx:]
+            else:
+                body_html = _sab + _extra
+            _subj = (predmet + " — " + firma)[:200]
+            try:
+                if _rich:
+                    send_email_or_raise(
+                        to=rec, subject=_subj, body=body_html,
+                        user_id=_CRM_LIVE_FROM_USER, from_identity="user",
+                        html_body=True, inline_images=inline_imgs)
+                else:
+                    queue_email(to=rec, subject=_subj, body=body_html,
+                                user_id=_CRM_LIVE_FROM_USER, from_identity="user",
+                                purpose="user_request")
+                # Trasovani zapis AZ po uspesnem odeslani/zarazeni (demo=false)
+                ds.execute(_sql_ls(
+                    "INSERT INTO mod.crm_email_track "
+                    "(token, firma_id, firma, recipient, template_code, demo, requested_by) "
+                    "VALUES (:tok,:fid,:firma,:rec,:tc,false,:by)"),
+                    {"tok": tok, "fid": fid, "firma": firma[:200], "rec": rec[:200],
+                     "tc": template_code, "by": "uid:%d" % uid})
+                ds.commit()
+                sent += 1
+            except Exception as se:
+                try:
+                    ds.rollback()
+                except Exception:
+                    pass
+                errs.append((firma[:40] + ": " + str(se))[:160])
+    finally:
+        ds.close()
+    logger.info("[crm_live_send] uid=%d sent=%d rich=%s optout=%d noemail=%d tmpl=%s",
+                uid, sent, _rich, skipped_optout, no_email, template_code)
+    return JSONResponse({"ok": True, "sent": sent, "skipped_optout": skipped_optout,
+                         "skipped_noemail": no_email, "errors": errs,
+                         "truncated": truncated})
 
 
 @api_router.get("/crm/osloveni/sablony")

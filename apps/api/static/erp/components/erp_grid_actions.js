@@ -431,8 +431,10 @@
           }).catch(function () { /* ponech fallback 9/10 */ });
         var note = document.createElement("div");
         note.style.cssText = "font-size:12px;color:#8aa;margin-top:10px;";
-        note.innerHTML = "Firmy se jen <b>zařadí do fronty</b> — odeslání proběhne řízeně až po " +
-          "právním schválení. Tímto se <b>nic neodešle</b>.";
+        note.innerHTML = "<b>📤 Odeslat na ostro</b> = odešle z Pavlovy schránky na reálné firmy " +
+          "(odhlášené a bez e-mailu se přeskočí), s trasováním otevření. &nbsp;·&nbsp; " +
+          "<b>Zařadit do fronty</b> = nic se neodešle. &nbsp;·&nbsp; " +
+          "<b>DEMO</b> = jen na tvoji adresu.";
         var row = document.createElement("div");
         row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;margin-top:18px;";
         function mk(t, bg, fn) {
@@ -521,8 +523,45 @@
             btnDemo.disabled = false; btnDemo.textContent = "📨 Odeslat teď (DEMO)";
           });
         });
+        // OSTRE odeslani z Pavlovy schranky na realne firmy (Claude-24/Kristy 7.7.2026).
+        // Spousti clovek kliknutim + potvrzenim. Trasovani otevreni (pixel) je soucasti.
+        var btnLive = mk("📤 Odeslat na ostro", "#dc2626", function () {
+          if (!window.confirm("OSTRÉ odeslání z Pavlovy schránky na REÁLNÉ firmy (" + N + ").\n\n" +
+              "Odhlášené a firmy bez e-mailu se automaticky přeskočí.\nOpravdu odeslat?")) return;
+          btnLive.disabled = true; btnLive.textContent = "Odesílám…";
+          fetch("/api/v1/erp/crm/osloveni/send", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idhlav_list: idhlavList, template_id: sel.value }),
+          }).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (j) { return { r: r, j: j }; });
+          }).then(function (x) {
+            if (x.r.ok && x.j.ok) {
+              var extra = [];
+              if (x.j.skipped_optout) extra.push("odhlášeno " + x.j.skipped_optout);
+              if (x.j.skipped_noemail) extra.push("bez e-mailu " + x.j.skipped_noemail);
+              if (x.j.truncated) extra.push("zbytek pošli dalším klikem");
+              _osloveniToast("success", "✓ Odesláno na ostro: " + x.j.sent +
+                (extra.length ? " (" + extra.join(", ") + ")" : ""));
+              note.innerHTML = "Odesláno na ostro z <b>Pavlovy schránky</b> (" + x.j.sent + "). " +
+                "Za chvíli klikni <b>🔄 Zkontrolovat otevření</b>.";
+              btnLive.textContent = "🔄 Zkontrolovat otevření";
+              btnLive.disabled = false;
+              btnLive.onclick = _oslTrackCheck;
+              if ((x.j.errors || []).length) {
+                _osloveniToast("error", "Část se nepodařila: " + x.j.errors.slice(0, 2).join(" | "));
+              }
+            } else {
+              _osloveniToast("error", "✗ " + ((x.j && x.j.error) || ("HTTP " + x.r.status)));
+              btnLive.disabled = false; btnLive.textContent = "📤 Odeslat na ostro";
+            }
+          }).catch(function (e) {
+            _osloveniToast("error", "✗ Síť: " + (e && e.message || e));
+            btnLive.disabled = false; btnLive.textContent = "📤 Odeslat na ostro";
+          });
+        });
         var btnNo = mk("Zrušit", "#3a3a3a", function () { close(false); });
-        row.appendChild(btnDemo); row.appendChild(btnOk); row.appendChild(btnNo);
+        row.appendChild(btnLive); row.appendChild(btnDemo); row.appendChild(btnOk); row.appendChild(btnNo);
         dlg.appendChild(h); dlg.appendChild(listBox); dlg.appendChild(sumLine);
         dlg.appendChild(lab); dlg.appendChild(sel); dlg.appendChild(note); dlg.appendChild(row);
         bd.appendChild(dlg); document.body.appendChild(bd);

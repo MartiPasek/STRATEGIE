@@ -41889,7 +41889,7 @@ def _sync_vyroba_plan_from_ec() -> dict:
            "LEFT JOIN EC_Vytizeni_Zakazky v ON v.CisloZakazky = m.CisloZakazky "
            "LEFT JOIN TabCisZam z ON z.Cislo = m.CisloZam "
            "WHERE m.Datum >= CAST(GETDATE() AS DATE) "
-           "AND m.Datum < DATEADD(day, 60, CAST(GETDATE() AS DATE))")
+           "AND m.Datum < DATEADD(day, 100, CAST(GETDATE() AS DATE))")
     raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
                              {"sql": sql, "db_name": "DB_EC"}, conversation_id=None)
     r = _json_v.loads(raw) if isinstance(raw, str) else raw

@@ -38111,6 +38111,10 @@ _OPS_ACTIONS = {
         "label": "🛡️ Caddy: failover připnuté verze na primární (když záloha neběží)",
         "target": "cloud", "remote": False,
     },
+    "caddy_add_ucto": {
+        "label": "🌐 Caddy: přidat ucto.strategie-ai.com (Helios pro účetní přes prohlížeč)",
+        "target": "cloud", "remote": False,
+    },
     "publish_app_mobile": {
         "label": "Nahrát mobilní APK z buildu (NB → server)",
         "target": "instance:23", "remote": True, "op": "publish_app_mobile",
@@ -42694,6 +42698,71 @@ def _ops_caddy_pin_failover() -> dict:
             % (", ".join(changed) or "0", reload_msg, bak)}
 
 
+def _ops_caddy_add_ucto() -> dict:
+    """Přidá do ŽIVÉHO Caddyfile (C:\\caddy\\Caddyfile) blok pro
+    'ucto.strategie-ai.com' → reverse_proxy na lokální Guacamole (127.0.0.1:8080),
+    HTTPS+Let's Encrypt automaticky. Bez IP allowlistu (2FA řeší Guacamole TOTP;
+    IP doplníme 1 změnou až budeme mít IP účetní). Idempotentní (kontrola bloku).
+    Backup + reload přes admin API /load s rollbackem při nevalidním configu.
+    Cloud Helios pro účetní (Martia+Peta) přes prohlížeč, bez VPN. Marti 7.7.2026."""
+    import os as _os, shutil as _sh, time as _tm
+    cfg = _os.environ.get("STRATEGIE_CADDYFILE") or r"C:\caddy\Caddyfile"
+    if not _os.path.isfile(cfg):
+        return {"ok": False, "result": "Caddyfile nenalezen: %s" % cfg}
+    try:
+        with open(cfg, "r", encoding="utf-8") as f:
+            txt = f.read()
+    except Exception as exc:
+        return {"ok": False, "result": "čtení Caddyfile selhalo: %s" % exc}
+    if "ucto.strategie-ai.com" in txt:
+        return {"ok": True, "result": "Blok ucto.strategie-ai.com už v Caddyfile je (žádná změna)."}
+    block = (
+        "\nucto.strategie-ai.com {\n"
+        "    # Cloud Helios pro účetní (Martia+Peta) přes Guacamole, bez VPN.\n"
+        "    # 2FA řeší Guacamole (TOTP). IP allowlist doplníme až budeme mít IP účetní.\n"
+        "    reverse_proxy 127.0.0.1:8080 {\n"
+        "        header_up Host {host}\n"
+        "        header_up X-Real-IP {remote_host}\n"
+        "    }\n"
+        "}\n"
+    )
+    new = txt.rstrip("\n") + "\n" + block
+    bak = cfg + ".bak_ucto_" + _tm.strftime("%Y%m%d_%H%M%S")
+    try:
+        _sh.copyfile(cfg, bak)
+        with open(cfg, "w", encoding="utf-8") as f:
+            f.write(new)
+    except Exception as exc:
+        return {"ok": False, "result": "zápis Caddyfile selhal: %s" % exc}
+    admin = _os.environ.get("STRATEGIE_CADDY_ADMIN") or "http://localhost:2019"
+    try:
+        import urllib.request as _u, urllib.error as _ue
+        rq = _u.Request(admin.rstrip("/") + "/load", data=new.encode("utf-8"),
+                        headers={"Content-Type": "text/caddyfile"}, method="POST")
+        with _u.urlopen(rq, timeout=30) as resp:
+            if 200 <= getattr(resp, "status", 200) < 300:
+                return {"ok": True, "result": "Blok ucto.strategie-ai.com přidán + reload OK "
+                        "(admin /load). HTTPS/Let's Encrypt naběhne automaticky. Backup: %s" % bak}
+            return {"ok": False, "result": "admin /load HTTP %s" % getattr(resp, "status", "?")}
+    except Exception as _adm_exc:
+        try:
+            import urllib.error as _ue2
+            if isinstance(_adm_exc, _ue2.HTTPError):
+                _b = ""
+                try:
+                    _b = _adm_exc.read().decode("utf-8", "replace")[:200]
+                except Exception:
+                    pass
+                _sh.copyfile(bak, cfg)
+                return {"ok": False, "result": "admin /load odmítl config (%s): %s → rollback"
+                        % (_adm_exc.code, _b)}
+        except Exception:
+            pass
+    # admin API nedostupné → soubor upravený a platný, jen restart služby
+    return {"ok": False, "result": "Edit OK (blok přidán), ale admin /load nedostupné — "
+            "stačí Restart-Service STRATEGIE-CADDY. Backup: %s" % bak}
+
+
 def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
     """Spustí cloud-lokální ops akci (běží na cloud APP). Zatím: restart_api
     přes RESTART-WATCHER marker. Aktualizuje fw.ops_request."""
@@ -42717,6 +42786,10 @@ def _ops_execute_cloud(action_key: str, rid, uid) -> dict:
             result = out.get("result") or ""
         elif action_key == "caddy_pin_failover":
             out = _ops_caddy_pin_failover()
+            status = "done" if out.get("ok") else "error"
+            result = out.get("result") or ""
+        elif action_key == "caddy_add_ucto":
+            out = _ops_caddy_add_ucto()
             status = "done" if out.get("ok") else "error"
             result = out.get("result") or ""
         elif action_key == "sync_zakazky":

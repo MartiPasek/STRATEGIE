@@ -24750,14 +24750,16 @@ async def netscan_ingest(req: Request) -> JSONResponse:
         # SELECT na tenant.* → dřív padalo „permission denied for table att_entry"
         # každý netscan (error flood). Claude-24 diagnostika 26.6.
         from sqlalchemy import text as _th_ns
-        _sh = _att_session()
+        # _att_session() vrací (cm, s) — dřív se tuple omylem přiřadil do _sh
+        # → 'tuple' object has no attribute 'execute' každý netscan (Marti 7.7.).
+        _cm_ns, _sh = _att_session()
         try:
             _sh.execute(_th_ns("UPDATE tenant.att_entry SET is_active=false, updated_at=now() "
                                "WHERE tenant_id=2 AND is_active=true "
                                "AND (ended_at IS NOT NULL OR started_at > now())"))
             _sh.commit()
         finally:
-            _sh.close()
+            _cm_ns.__exit__(None, None, None)
     except Exception:
         logger.exception("[netscan] att self-heal failed")
     # …a při té příležitosti hlídka anomálií (dedup v tabulce → žádný spam)

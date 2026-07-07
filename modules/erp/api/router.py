@@ -6724,10 +6724,30 @@ def _crm_import_write(rows, obchodnik, create_akce, zdroj, progress=None):
             "akce16": akce16, "bounced": bounced, "errors": errors[:50], "obchodnik": obchodnik}
 
 
+def _crm_import_existing_map(mcp, emails):
+    """(firma_lower, email_lower) -> ID pro už existující kontakty v st.CRM_Kontakt."""
+    ems = sorted({(e or "").strip().lower() for e in emails if e and "@" in e})
+    m = {}
+    for i in range(0, len(ems), 200):
+        inlist = ", ".join("'" + e.replace("'", "''") + "'" for e in ems[i:i + 200])
+        try:
+            for d in _crm_mcp_rows(mcp, "SELECT ID, FirmaText, FirmaEmail FROM st.CRM_Kontakt "
+                                   "WITH(NOLOCK) WHERE FirmaEmail IS NOT NULL AND "
+                                   "LOWER(LTRIM(RTRIM(FirmaEmail))) IN (" + inlist + ")"):
+                dd = {(k or "").lower(): v for k, v in d.items()}
+                if dd.get("id") is not None:
+                    m[(str(dd.get("firmatext") or "").strip().lower(),
+                       str(dd.get("firmaemail") or "").strip().lower())] = int(dd["id"])
+        except Exception:
+            pass
+    return m
+
+
 def _crm_import_bulk(rows, obchodnik, create_akce, zdroj, progress=None):
     """RYCHLÝ hromadný import do Centrály přes strategie_query_raw (bulk INSERT do st.*).
-    Kontakty (VALUES po dávkách) + akce „Získání firmy" (INSERT..SELECT z kontaktů) +
-    „Email na info" (VALUES). Pár příkazů místo tisíců → sekundy, obchází MCP rate-limit."""
+    NOVÉ firmy: kontakt + akce „Získání firmy" + „Email na info". Firmy UŽ v CRM: jen se
+    DOPLNÍ akce „Email na info" (má-li řádek datum a firma tu akci k tomu datu ještě nemá)
+    — kvůli opakovanému oslovování stejných leadů. Pár příkazů → sekundy, obchází rate-limit."""
     import datetime as _dt
     mcp = _crm_import_mcp()
     if mcp is None:
@@ -6752,19 +6772,48 @@ def _crm_import_bulk(rows, obchodnik, create_akce, zdroj, progress=None):
             raise RuntimeError(str(r.get("error"))[:300])
         return r
 
+    def _akce_email_vals(idh, r):
+        deliv = _crm_import_delivered(r.get("doruceno"))
+        splneno = 0 if deliv is False else 1
+        duvod = str(r.get("duvod") or "").strip()
+        if deliv is False:
+            prubeh = ("Odesláno oslovení na " + (r["_email"] or r["_firma"]) + " – NEDORUČENO"
+                      + ((" (" + duvod + ")") if duvod else ""))
+            pozn = "E-mail nedoručen " + str(r["_datum"]) + (" – " + duvod if duvod else "")
+        else:
+            prubeh = "Odesláno oslovení (Email na info) na " + (r["_email"] or r["_firma"])
+            pozn = None
+        return ("(" + ",".join([
+            str(idh), "2", str(_CRM_IMPORT_EMAIL_AKCE), _sq(obchodnik),
+            _dsql(r["_datum"]), _dsql(r["_datum"]), str(splneno),
+            _sq(r["_email"]), _sq(r["_firma"]), _sq(prubeh), _sq(pozn)]) + ")", deliv is False)
+
+    def _insert_email_akce(evals):
+        for j in range(0, len(evals), CH):
+            try:
+                _exec("INSERT INTO st.CRM_Kontakt_Akce (IDHlav,Poradi,IDAkce,Autor,DatumAkce,"
+                      "DatPorizeni,Splneno,Email,FirmaText,Prubeh,Poznamka) VALUES "
+                      + ",".join(evals[j:j + CH]))
+            except Exception as exc:
+                errors.append("akce email: " + str(exc)[:160])
+
     today = _dt.date.today().strftime("%Y-%m-%d")
+    CH = 60
+    errors = []
     try:
-        existing = _crm_import_existing_pairs(mcp, [str(r.get("email") or "") for r in rows])
+        existing_map = _crm_import_existing_map(mcp, [str(r.get("email") or "") for r in rows])
     except Exception:
-        existing = set()
-    seen, new_rows = set(), []
+        existing_map = {}
+
+    seen = set()
+    new_rows, existing_hits = [], []
     for r in rows:
         firma = str(r.get("firma") or "").strip()[:256]
         if not firma:
             continue
         email = str(r.get("email") or "").strip()[:256]
         key = (firma.lower(), email.lower())
-        if email and (key in existing or key in seen):
+        if email and key in seen:
             continue
         seen.add(key)
         r["_firma"] = firma
@@ -6773,101 +6822,110 @@ def _crm_import_bulk(rows, obchodnik, create_akce, zdroj, progress=None):
         r["_zeme"] = str(r.get("zeme") or "").strip()[:128]
         r["_datum"] = r.get("datum") or None
         r["_popis"] = _crm_import_popis(r)
-        new_rows.append(r)
-    skipped = len(rows) - len(new_rows)
+        if email and key in existing_map:
+            existing_hits.append((r, existing_map[key]))
+        else:
+            new_rows.append(r)
     if progress is not None:
         progress["total"] = len(rows)
-        progress["skipped"] = skipped
-    if not new_rows:
-        return {"created": 0, "skipped_dup": skipped, "akce_created": 0, "akce16": 0,
-                "bounced": 0, "errors": [], "obchodnik": obchodnik}
 
-    errors = []
-    try:
-        mrows = _crm_mcp_rows(mcp, "SELECT ISNULL(MAX(ID),0) AS m FROM st.CRM_Kontakt WITH(NOLOCK)")
-        marker = int((mrows[0].get("m") if mrows else 0) or 0)
-    except Exception as exc:
-        return {"created": 0, "skipped_dup": skipped, "akce_created": 0, "akce16": 0,
-                "bounced": 0, "errors": ["marker: " + str(exc)[:120]], "obchodnik": obchodnik}
+    created = akce16 = akce_email = bounced = akce_existing = 0
 
-    CH = 60
-    created = 0
-    for i in range(0, len(new_rows), CH):
-        chunk = new_rows[i:i + CH]
-        vals = []
-        for r in chunk:
-            vals.append("(" + ",".join([
-                _sq(obchodnik), _dsql(r["_datum"] or today), _sq(r["_firma"]),
-                _sq(r["_email"]), _sq(r["_web"]), _sq(r["_zeme"]),
-                _sq(zdroj), _sq(r["_popis"]), "0"]) + ")")
+    # ── NOVÉ firmy: kontakt + akce Získání firmy + Email na info ──
+    if new_rows:
+        marker = None
         try:
-            _exec("INSERT INTO st.CRM_Kontakt (Autor,DatPorizeni,FirmaText,FirmaEmail,"
-                  "FirmaWeb,Zeme,ZdrojKontaktu,Popis,KontaktOveren) VALUES " + ",".join(vals))
-            created += len(chunk)
-            if progress is not None:
-                progress["created"] = created
-                progress["done"] = created
+            mrows = _crm_mcp_rows(mcp, "SELECT ISNULL(MAX(ID),0) AS m FROM st.CRM_Kontakt WITH(NOLOCK)")
+            marker = int((mrows[0].get("m") if mrows else 0) or 0)
         except Exception as exc:
-            errors.append("kontakty: " + str(exc)[:160])
-
-    akce16 = 0
-    try:
-        _exec("INSERT INTO st.CRM_Kontakt_Akce (IDHlav,Poradi,IDAkce,Splneno,Autor,"
-              "DatPorizeni,FirmaText,FirmaWeb,Email,Popis) "
-              "SELECT ID,1,16,1,Autor,DatPorizeni,FirmaText,FirmaWeb,FirmaEmail,Popis "
-              "FROM st.CRM_Kontakt WITH(NOLOCK) WHERE ZdrojKontaktu=" + _sq(zdroj)
-              + " AND ID > " + str(marker))
-        akce16 = created
-    except Exception as exc:
-        errors.append("akce16: " + str(exc)[:160])
-
-    akce_email = bounced = 0
-    if create_akce:
-        idmap = {}
-        try:
-            back = _crm_mcp_rows(mcp, "SELECT ID, FirmaText, FirmaEmail FROM st.CRM_Kontakt "
-                                 "WITH(NOLOCK) WHERE ZdrojKontaktu=" + _sq(zdroj)
-                                 + " AND ID > " + str(marker))
-            for b in back:
-                bb = {(k or "").lower(): v for k, v in b.items()}
-                if bb.get("id") is not None:
-                    idmap[(str(bb.get("firmatext") or "").strip().lower(),
-                           str(bb.get("firmaemail") or "").strip().lower())] = int(bb["id"])
-        except Exception as exc:
-            errors.append("readback: " + str(exc)[:120])
-        evals = []
-        for r in new_rows:
-            if not r["_datum"]:
-                continue
-            idh = idmap.get((r["_firma"].lower(), r["_email"].lower()))
-            if not idh:
-                continue
-            deliv = _crm_import_delivered(r.get("doruceno"))
-            splneno = 0 if deliv is False else 1
-            duvod = str(r.get("duvod") or "").strip()
-            if deliv is False:
-                prubeh = ("Odesláno oslovení na " + (r["_email"] or r["_firma"]) + " – NEDORUČENO"
-                          + ((" (" + duvod + ")") if duvod else ""))
-                pozn = "E-mail nedoručen " + str(r["_datum"]) + (" – " + duvod if duvod else "")
-                bounced += 1
-            else:
-                prubeh = "Odesláno oslovení (Email na info) na " + (r["_email"] or r["_firma"])
-                pozn = None
-            evals.append("(" + ",".join([
-                str(idh), "2", str(_CRM_IMPORT_EMAIL_AKCE), _sq(obchodnik),
-                _dsql(r["_datum"]), _dsql(r["_datum"]), str(splneno),
-                _sq(r["_email"]), _sq(r["_firma"]), _sq(prubeh), _sq(pozn)]) + ")")
-            akce_email += 1
-        for i in range(0, len(evals), CH):
+            errors.append("marker: " + str(exc)[:120])
+        if marker is not None:
+            for i in range(0, len(new_rows), CH):
+                chunk = new_rows[i:i + CH]
+                vals = []
+                for r in chunk:
+                    vals.append("(" + ",".join([
+                        _sq(obchodnik), _dsql(r["_datum"] or today), _sq(r["_firma"]),
+                        _sq(r["_email"]), _sq(r["_web"]), _sq(r["_zeme"]),
+                        _sq(zdroj), _sq(r["_popis"]), "0"]) + ")")
+                try:
+                    _exec("INSERT INTO st.CRM_Kontakt (Autor,DatPorizeni,FirmaText,FirmaEmail,"
+                          "FirmaWeb,Zeme,ZdrojKontaktu,Popis,KontaktOveren) VALUES " + ",".join(vals))
+                    created += len(chunk)
+                    if progress is not None:
+                        progress["created"] = created
+                        progress["done"] = created
+                except Exception as exc:
+                    errors.append("kontakty: " + str(exc)[:160])
             try:
-                _exec("INSERT INTO st.CRM_Kontakt_Akce (IDHlav,Poradi,IDAkce,Autor,DatumAkce,"
-                      "DatPorizeni,Splneno,Email,FirmaText,Prubeh,Poznamka) VALUES "
-                      + ",".join(evals[i:i + CH]))
+                _exec("INSERT INTO st.CRM_Kontakt_Akce (IDHlav,Poradi,IDAkce,Splneno,Autor,"
+                      "DatPorizeni,FirmaText,FirmaWeb,Email,Popis) "
+                      "SELECT ID,1,16,1,Autor,DatPorizeni,FirmaText,FirmaWeb,FirmaEmail,Popis "
+                      "FROM st.CRM_Kontakt WITH(NOLOCK) WHERE ZdrojKontaktu=" + _sq(zdroj)
+                      + " AND ID > " + str(marker))
+                akce16 = created
             except Exception as exc:
-                errors.append("akce email: " + str(exc)[:160])
+                errors.append("akce16: " + str(exc)[:160])
+            if create_akce:
+                idmap = {}
+                try:
+                    for b in _crm_mcp_rows(mcp, "SELECT ID, FirmaText, FirmaEmail FROM st.CRM_Kontakt "
+                                           "WITH(NOLOCK) WHERE ZdrojKontaktu=" + _sq(zdroj)
+                                           + " AND ID > " + str(marker)):
+                        bb = {(k or "").lower(): v for k, v in b.items()}
+                        if bb.get("id") is not None:
+                            idmap[(str(bb.get("firmatext") or "").strip().lower(),
+                                   str(bb.get("firmaemail") or "").strip().lower())] = int(bb["id"])
+                except Exception as exc:
+                    errors.append("readback: " + str(exc)[:120])
+                evals = []
+                for r in new_rows:
+                    if not r["_datum"]:
+                        continue
+                    idh = idmap.get((r["_firma"].lower(), r["_email"].lower()))
+                    if not idh:
+                        continue
+                    v, isb = _akce_email_vals(idh, r)
+                    evals.append(v)
+                    akce_email += 1
+                    bounced += 1 if isb else 0
+                _insert_email_akce(evals)
 
-    return {"created": created, "skipped_dup": skipped, "akce_created": akce_email,
-            "akce16": akce16, "bounced": bounced, "errors": errors[:50], "obchodnik": obchodnik}
+    # ── EXISTUJÍCÍ firmy: doplnit akci „Email na info" (dedup dle (ID, datum)) ──
+    skipped = 0
+    if create_akce and existing_hits:
+        want = [(r, cid) for (r, cid) in existing_hits if r["_datum"]]
+        ids = sorted({cid for (_, cid) in want})
+        have = set()
+        for i in range(0, len(ids), 200):
+            idlist = ",".join(str(x) for x in ids[i:i + 200])
+            try:
+                for a in _crm_mcp_rows(mcp, "SELECT IDHlav, CONVERT(varchar(10),DatumAkce,23) AS d "
+                                       "FROM st.CRM_Kontakt_Akce WITH(NOLOCK) WHERE IDAkce="
+                                       + str(_CRM_IMPORT_EMAIL_AKCE) + " AND IDHlav IN (" + idlist + ")"):
+                    aa = {(k or "").lower(): v for k, v in a.items()}
+                    if aa.get("idhlav") is not None:
+                        have.add((int(aa["idhlav"]), str(aa.get("d") or "")))
+            except Exception as exc:
+                errors.append("existing readback: " + str(exc)[:120])
+        evals = []
+        for (r, cid) in want:
+            if (int(cid), str(r["_datum"])) in have:
+                continue
+            v, isb = _akce_email_vals(cid, r)
+            evals.append(v)
+            akce_existing += 1
+            bounced += 1 if isb else 0
+        _insert_email_akce(evals)
+        skipped = len(existing_hits) - akce_existing
+
+    if progress is not None:
+        progress.update({"done": len(rows), "created": created, "akce16": akce16,
+                         "akce_email": akce_email + akce_existing, "akce_existing": akce_existing,
+                         "bounced": bounced, "skipped": skipped, "errors": len(errors)})
+    return {"created": created, "skipped_dup": skipped, "akce_created": akce_email + akce_existing,
+            "akce16": akce16, "akce_existing": akce_existing, "bounced": bounced,
+            "errors": errors[:50], "obchodnik": obchodnik}
 
 
 @api_router.post("/crm/import/commit")
@@ -6920,6 +6978,7 @@ async def crm_import_commit(req: Request) -> JSONResponse:
             rep = _crm_import_bulk(rows, obchodnik, create_akce, zdroj, progress=progress)
             progress.update({"created": rep.get("created", 0), "akce16": rep.get("akce16", 0),
                              "akce_email": rep.get("akce_created", 0),
+                             "akce_existing": rep.get("akce_existing", 0),
                              "skipped": rep.get("skipped_dup", 0), "bounced": rep.get("bounced", 0),
                              "errors": len(rep.get("errors", [])),
                              "error_list": rep.get("errors", [])[:20]})

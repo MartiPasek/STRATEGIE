@@ -333,6 +333,7 @@
                 '✅ Založeno kontaktů: <b>' + (p.created || 0) + '</b> (autor ' + esc(p.obchodnik || obchEl.value) + ')<br>' +
                 'Akce „Získání firmy": <b>' + (p.akce16 || 0) + '</b> · „Email na info": <b>' + (p.akce_email || 0) +
                 '</b> · nedoručeno: <b>' + (p.bounced || 0) + '</b><br>' +
+                (p.akce_existing ? 'Z toho doplněno k firmám už v CRM: <b>' + p.akce_existing + '</b><br>' : '') +
                 'Přeskočeno (duplicita): <b>' + (p.skipped || 0) + '</b>' + eh + '</div>';
               prevBtn.disabled = false; previewRows = null;
               return;

@@ -29010,6 +29010,14 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
         except Exception:
             pass
         try:
+            # Jednatelé/společníci (odměna 693) = JEN odměna, žádné zaměstnanecké složky
+            # (dovolená/stravenky/OBL boří výpočet a nepatří jim — jako Mózer). Peta 7.7.2026.
+            _spol = set(int(r[0]) for r in prows if int(r[1]) == 693)
+            if _spol:
+                prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) == 693]
+        except Exception:
+            pass
+        try:
             prows = _mzdy_consolidate(prows)
         except Exception:
             pass
@@ -29127,6 +29135,13 @@ def mzdy_generuj(req: Request):
         except Exception:
             pass  # DPP odměny → 700, best-effort (Peta 7.7.2026)
         prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
+        try:
+            # Jednatel/společník (odměna 693) = JEN odměna, žádné zaměstnanecké složky. Peta 7.7.2026.
+            _spol = set(int(r[0]) for r in prows if int(r[1]) == 693)
+            if _spol:
+                prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) == 693]
+        except Exception:
+            pass
         try:
             prows = _mzdy_consolidate(prows)
         except Exception:

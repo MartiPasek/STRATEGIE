@@ -29119,8 +29119,13 @@ def mzdy_vyplatnice_detail(req: Request):
     slozky = []
     if sl.get("ok") and sl.get("rows"):
         for v in sl["rows"]:
+            _styp = int(v[2] or 99); _skup = (v[3] or "Ostatní").strip()
+            # Landmark: složku 432 (os. ohodnocení / korekce) zobraz ve skupině
+            # "Nespecifikovaný příjem" u OBL(794)/HO(795) (Peta 7.7.2026) — jen zobrazení.
+            if int(v[0] or 0) == 432:
+                _styp = 5; _skup = "Nespecifikovaný příjem"
             slozky.append({"cislo_ms": v[0], "nazev": (v[1] or "").strip(),
-                           "skup_typ": int(v[2] or 99), "skupina": (v[3] or "Ostatní").strip(),
+                           "skup_typ": _styp, "skupina": _skup,
                            "hodiny": float(v[4] or 0), "dny": float(v[5] or 0), "koruny": float(v[6] or 0)})
     return {"ok": True, "firma": firma, "rok": rok, "mesic": mesic, "zam": zam,
             "idobdobi": idobd, "header": header, "souhrn": souhrn, "slozky": slozky}

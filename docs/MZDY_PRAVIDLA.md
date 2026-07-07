@@ -36,12 +36,16 @@ DPP se daní srážkově 15 % (bez pojistného), jednatelská odměna 693 = pln�
 
 ## Jednatelé / společníci (kdo má odměnu 693)
 
-Osoby s odměnou 693 (jednatelé/společníci) dostávají v mzdě **JEN odměnu (693) + stravenky (793)**.
+Osoby s odměnou 693 (jednatelé/společníci) dostávají v mzdě **odměnu (693) + PLNÉ stravné (793)**.
 **NEdostávají** dovolenou/absenci (211/200/201), OBL (794) ani HO (795).
 
-Důvod: náhradu za dovolenou Helios neumí spočítat bez mzdového základu (průměrného výdělku) →
-bořilo to výpočet celé pásky. Protože nemají dovolenou, mají **vždy nárok na plné stravné**.
-Referenční „čistý" případ = Mózer (47). Filtr je v generaci hned před `_mzdy_consolidate`.
+- **Plné stravné** = celý pracovní fond měsíce (Po–Pá) × sazba (`_STRAVENKA_KC`), NE jen napíchané dny.
+  Dopočítává se napevno — protože jednatelé „nemají dovolenou", berou se jako plně přítomní.
+  Platí v každé firmě, kde je jednatel generován (např. Pašek dostane stravné v EC i ES; Mózer taky).
+- **Důvod vyloučení dovolené:** náhradu za dovolenou Helios neumí spočítat bez mzdového základu
+  (průměrného výdělku) → bořilo to výpočet celé pásky.
+
+Filtr je v generaci hned před `_mzdy_consolidate` (celková i jednotlivcová cesta).
 
 ## Prémie ze zakázek (651)
 

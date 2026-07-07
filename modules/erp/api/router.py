@@ -29010,11 +29010,16 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
         except Exception:
             pass
         try:
-            # Jednatelé/společníci (odměna 693) = odměna + stravenky (793), NIC dalšího
-            # (dovolená/OBL/HO ne). Dovolená jim bořila výpočet; nemají ji → plné stravné. Peta 7.7.2026.
+            # Jednatelé/společníci (odměna 693) = odměna + PLNÉ stravné, nic dalšího (dovolená/OBL/HO ne).
+            # Nemají dovolenou → stravné za CELÝ pracovní fond měsíce (Po–Pá), ne jen napíchané dny. Peta 7.7.2026.
             _spol = set(int(r[0]) for r in prows if int(r[1]) == 693)
             if _spol:
-                prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) in (693, 793)]
+                import calendar as _calsp
+                _ldsp = _calsp.monthrange(int(rok), int(mesic))[1]
+                _wdsp = sum(1 for _x in range(1, _ldsp + 1) if _calsp.weekday(int(rok), int(mesic), _x) < 5)
+                prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) == 693]
+                for _csp in _spol:
+                    prows.append((_csp, _STRAVENKA_MS, _wdsp * _STRAVENKA_KC, _wdsp))
         except Exception:
             pass
         try:
@@ -29136,10 +29141,15 @@ def mzdy_generuj(req: Request):
             pass  # DPP odměny → 700, best-effort (Peta 7.7.2026)
         prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
         try:
-            # Jednatel/společník (odměna 693) = odměna + stravenky (793), nic dalšího. Peta 7.7.2026.
+            # Jednatel/společník (odměna 693) = odměna + PLNÉ stravné (celý fond), nic dalšího. Peta 7.7.2026.
             _spol = set(int(r[0]) for r in prows if int(r[1]) == 693)
             if _spol:
-                prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) in (693, 793)]
+                import calendar as _calsp
+                _ldsp = _calsp.monthrange(int(rok), int(mesic))[1]
+                _wdsp = sum(1 for _x in range(1, _ldsp + 1) if _calsp.weekday(int(rok), int(mesic), _x) < 5)
+                prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) == 693]
+                for _csp in _spol:
+                    prows.append((_csp, _STRAVENKA_MS, _wdsp * _STRAVENKA_KC, _wdsp))
         except Exception:
             pass
         try:

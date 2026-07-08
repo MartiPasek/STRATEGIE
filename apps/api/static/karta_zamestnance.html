@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🪪 Karta zaměstnance</title>
+<style>
+  /* Tmavé ERP schéma (Šárka 8.7.2026) */
+  :root{--bg:#0f141a;--panel:#161c24;--panel2:#12181f;--line:#233040;--line2:#1e2730;
+        --txt:#cdd6e2;--title:#e8eef5;--accent:#aac8ec;--muted:#7f8ea0;--ic:#1f2a37;}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;color:var(--txt);background:var(--bg)}
+  .top{background:var(--panel2);border-bottom:1px solid var(--line);padding:11px 18px;display:flex;align-items:center;gap:10px}
+  .top .b{font-weight:800;font-size:16px;color:var(--title)}
+  .top .sub{font-size:12px;color:var(--muted);margin-left:2px}
+  .wrap{max-width:1200px;margin:16px auto;padding:0 14px;display:grid;grid-template-columns:300px 1fr;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card .hd{padding:11px 14px;font-weight:800;color:var(--title);border-bottom:1px solid var(--line);font-size:13.5px}
+  #srch{width:100%;border:0;border-bottom:1px solid var(--line);padding:10px 14px;font:inherit;outline:none;background:var(--panel);color:var(--txt)}
+  #srch::placeholder{color:#5d6b7c}
+  .lst{max-height:76vh;overflow:auto}
+  .prow{padding:10px 14px;border-top:1px solid var(--line2);cursor:pointer}
+  .prow:first-child{border-top:0}
+  .prow:hover{background:#1b232d}
+  .prow.sel{background:#1e2a38}
+  .prow .nm{font-weight:700;color:var(--title)}
+  .prow .mt{font-size:12px;color:var(--muted)}
+  .det{padding:0}
+  .phead{display:flex;align-items:center;gap:14px;padding:18px 20px;border-bottom:1px solid var(--line);background:#12181f}
+  .avatar{width:54px;height:54px;border-radius:50%;background:#1f2a37;color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800}
+  .phead .nm{font-size:20px;font-weight:800;color:var(--title)}
+  .phead .mt{font-size:13px;color:var(--muted);margin-top:2px}
+  .sects{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;padding:18px 20px}
+  .sec{display:flex;gap:12px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#12181f;align-items:flex-start}
+  .sec.on{cursor:pointer}
+  .sec.on:hover{background:#1b232d;border-color:#2b3a4a}
+  .sec .si{flex:0 0 40px;height:40px;border-radius:10px;background:var(--ic);display:flex;align-items:center;justify-content:center;font-size:20px}
+  .sec .st{font-weight:700;color:var(--title);font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .sec .sd{font-size:12px;color:var(--muted);margin-top:2px}
+  .tag{font-size:9.5px;font-weight:800;letter-spacing:.3px;padding:1px 7px;border-radius:20px}
+  .tag.on{background:#16301f;color:#7fe0a0}
+  .tag.soon{background:#23262b;color:#7f8ea0}
+  .empty{padding:40px;color:var(--muted);text-align:center;font-style:italic}
+</style>
+</head>
+<body>
+<div class="top"><span class="b">🪪 Karta zaměstnance</span><span class="sub">· vše o člověku na jednom místě</span></div>
+<div class="wrap">
+  <div class="card">
+    <div class="hd">Zaměstnanci <span id="cnt" style="color:#5d6b7c;font-weight:600"></span></div>
+    <input id="srch" placeholder="🔎 Hledat…">
+    <div class="lst" id="lst"><div class="empty">Načítám…</div></div>
+  </div>
+  <div class="card"><div class="det" id="det"><div class="empty">Vyber zaměstnance vlevo.</div></div></div>
+</div>
+<script>
+const API="/api/v1/erp";
+let LIDE=[];
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+async function j(u){const r=await fetch(u,{credentials:'same-origin'});return r.json();}
+function ini(n){return (n||'?').trim().split(/\s+/).map(x=>x[0]||'').slice(0,2).join('').toUpperCase();}
+
+// Sekce karty (dle Pinya „Profil pracovníka" × Centrála). on=napojeno, go=cíl.
+const SEKCE=[
+  {ic:"🧾",t:"Základní údaje",d:"Osobní údaje, adresy, kontakty, doklady.",on:true},
+  {ic:"💼",t:"Pracovní údaje",d:"Poměr, smlouva, úvazek, zařazení.",on:true},
+  {ic:"💰",t:"Finanční podmínky",d:"Mzdové složky (jen oprávnění).",on:true,go:"/finance-podminky"},
+  {ic:"📄",t:"Dokumenty",d:"Smlouvy, dodatky, podpisy (spis).",on:true},
+  {ic:"🏖️",t:"Přítomnost/absence",d:"Zůstatek, docházka, absence.",on:true},
+  {ic:"🩺",t:"Lékařské prohlídky",d:"Platnosti, potvrzení.",on:true},
+  {ic:"👥",t:"Skupiny a kvalifikace",d:"Zařazení do skupin, kvalifikace.",on:true},
+  {ic:"🎓",t:"Školení",d:"Absolvovaná + plánovaná (BOZP/PO).",on:false},
+  {ic:"💻",t:"IT / svěřený majetek",d:"Notebook, telefon, klíče, protokol.",on:false},
+  {ic:"🧭",t:"Onboarding",d:"Nástupní checklist a úkoly.",on:false},
+  {ic:"📚",t:"Interní předpisy",d:"Seznámení se směrnicemi.",on:false},
+  {ic:"⭐",t:"Hodnocení / KPI",d:"Periodické hodnocení, cíle.",on:false},
+  {ic:"📝",t:"Dotazníky",d:"Evidence dotazníků.",on:false},
+  {ic:"🖥️",t:"E-learning",d:"Kurzy, skóre.",on:false},
+];
+
+async function load(){
+  const d=await j(API+"/app/hr/people");
+  const l=document.getElementById('lst');
+  if(!d.ok){l.innerHTML='<div class="empty">🔒 Nemáš oprávnění ('+esc(d.error||'')+').</div>';return;}
+  LIDE=d.lide||[];
+  document.getElementById('cnt').textContent='('+LIDE.length+')';
+  render();
+}
+function render(){
+  const q=(document.getElementById('srch').value||'').toLowerCase();
+  const l=document.getElementById('lst');
+  const f=LIDE.filter(p=>(p.jmeno||'').toLowerCase().includes(q));
+  if(!f.length){l.innerHTML='<div class="empty">Nic nenalezeno.</div>';return;}
+  l.innerHTML=f.map(p=>'<div class="prow" data-u="'+p.user_id+'" onclick="openP('+p.user_id+',this)">'+
+    '<div class="nm">'+esc(p.jmeno)+'</div><div class="mt">'+esc(p.mesto||'')+
+    (p.ma_kartu?'':' · <span style="color:#c98">bez karty</span>')+'</div></div>').join('');
+}
+document.getElementById('srch').addEventListener('input',render);
+
+function openP(uid,row){
+  document.querySelectorAll('.prow').forEach(e=>e.classList.remove('sel'));
+  if(row)row.classList.add('sel');
+  const p=LIDE.find(x=>x.user_id===uid)||{};
+  const det=document.getElementById('det');
+  let h='<div class="phead"><div class="avatar">'+esc(ini(p.jmeno))+'</div>'+
+    '<div><div class="nm">'+esc(p.jmeno||'')+'</div><div class="mt">'+esc(p.mesto||'')+'</div></div></div>';
+  h+='<div class="sects">';
+  for(const s of SEKCE){
+    const tag=s.on?'<span class="tag on">napojeno</span>':'<span class="tag soon">připravujeme</span>';
+    const cls='sec'+(s.go?' on':'');
+    const click=s.go?(' onclick="window.open(\''+s.go+'\',\'_blank\')"'):'';
+    h+='<div class="'+cls+'"'+click+'><div class="si">'+s.ic+'</div><div>'+
+      '<div class="st">'+esc(s.t)+' '+tag+'</div><div class="sd">'+esc(s.d)+'</div></div></div>';
+  }
+  h+='</div>';
+  det.innerHTML=h;
+}
+load();
+</script>
+</body>
+</html>

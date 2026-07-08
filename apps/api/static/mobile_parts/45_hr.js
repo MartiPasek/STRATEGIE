@@ -13,7 +13,7 @@
     g1.appendChild(appCell("🏛️","Firma",0,function(){go("hr_firma");}));
     g1.appendChild(appCell("👥","Skupiny",0,function(){go("hr_skupiny");}));
     g1.appendChild(appCell("📋","Podmínky",0,function(){go("hr_podminky");}));
-    g1.appendChild(appCell("🪪","Lidé — složky",0,function(){go("hr_people");}));
+    g1.appendChild(appCell("🪪","Karta zaměstnance",0,function(){go("hr_people");}));
     g1.appendChild(appCell("🧩","Režimy",0,function(){go("hr_rezimy");}));
     app.appendChild(g1);
     s("NÁBOR (externí)");
@@ -113,7 +113,7 @@
     app.appendChild(l2);
     app.appendChild(_hrSec("JEDNOTLIVCI"));
     var l3=el('<div class="list"></div>');
-    l3.appendChild(row("🪪","Lidé — personální složky","Karta člověka: režim · podmínky · docházka",function(){ go("hr_people"); }));
+    l3.appendChild(row("🪪","Karta zaměstnance","Karta člověka: režim · podmínky · docházka",function(){ go("hr_people"); }));
     l3.appendChild(row("🧩","Režimy","Forma HPP/OSVČ/DPP, režim docházky, konto",function(){ go("hr_rezimy"); }));
     l3.appendChild(row("🗓️","Zdroj docházky","Kdo píchá jen ve STRATEGII (a má vypnutou starou docházku)",function(){ go("hr_att_source"); }));
     l3.appendChild(row("🗓️","Absence — žádosti a schvalování","Dovolená / HO / lékař → schválí vedoucí",function(){ go("absence"); }));

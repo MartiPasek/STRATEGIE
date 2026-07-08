@@ -1282,6 +1282,15 @@ def finance_podminky_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/karta-zamestnance")
+def karta_zamestnance_page():
+    """🪪 Karta zaměstnance (Šárka 8.7.2026) — 360° karta v ERP (Pinya × Centrála),
+    iterativně plněné sekce. Seznam z /app/hr/people (HR-gated). Data sekcí gated
+    příslušnými endpointy."""
+    return FileResponse(os.path.join(static_dir, "karta_zamestnance.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/denik")
 def denik_page():
     """Přehled účetního deníku — živé zápisy řazené dle jistoty (triáž pro účetní).

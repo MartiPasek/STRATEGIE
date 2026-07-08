@@ -67,7 +67,7 @@ async function load(){
   document.getElementById('grid').innerHTML='';document.getElementById('kpi').innerHTML='';
   const {od,doo}=monthRange(document.getElementById('mesic').value);
   const r=await fetch(API+'/api/v1/erp/app/dochazka/zakazky?od='+od+'&do='+doo+(SRC?('&src='+SRC):''),{credentials:'include'}).then(x=>x.json());
-  if(!r.ok){document.getElementById('msg').textContent=r.error==='forbidden'?'Nedostupné (přihlas se jako rodič / okruh cockpitu).':(r.error||'chyba');return;}
+  if(!r.ok){document.getElementById('msg').textContent=r.error==='forbidden'?'Nedostupné — přihlas se.':(r.error||'chyba');return;}
   const rows=r.rows||[], su=r.souhrn||{};
   document.getElementById('kpi').innerHTML=
     box(su.lidi,'lidí')+box(su.zakazek,'zakázek')+box((su.hodin||0).toLocaleString('cs-CZ'),'hodin celkem')+box(su.radku,'segmentů');

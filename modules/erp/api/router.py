@@ -27892,14 +27892,15 @@ def banka_saldo(req: Request):
 @api_router.get("/app/dochazka/zakazky")
 def dochazka_zakazky_ep(req: Request):
     """Docházka všech lidí s rozpadem po zakázkách (z tenant.vyroba_work + oz_zakazky).
-    Přehled PŘED přenosem do staré Centrály. Marti 8.7.2026. Okruh cockpitu."""
+    Přehled PŘED přenosem do staré Centrály. Marti 8.7.2026.
+    Viditelnost: VŠEM přihlášeným (Marti 8.7.2026 „všem", přes Jirku) — dřív jen cockpit."""
     uid = _uid_from_token_or_cookie(req)
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     import datetime as _dt
     s = _g()
     try:
-        if not _is_cockpit(s, uid):
+        if not uid:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         today = _dt.date.today()
         od = req.query_params.get("od") or today.replace(day=1).isoformat()

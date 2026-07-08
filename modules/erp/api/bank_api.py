@@ -677,6 +677,43 @@ def bank_zustatky(request: Request):
         s.close()
 
 
+@bank_router.get("/app/bank/debug-balance")
+def bank_debug_balance(request: Request):
+    """DOČASNÉ (Claude 8.7.): ukáže surovou RB odpověď /accounts + /balance, abych trefil
+    parsing zůstatku. Parent-only. Po opravě smazat."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        cid = s.execute(_t("SELECT id FROM tenant.bank_connection WHERE tenant_id=:tn ORDER BY id LIMIT 1"),
+                        {"tn": _TENANT}).scalar()
+        bundle = _bundle_for(s, cid)
+        if not bundle:
+            return JSONResponse({"ok": False, "error": "no bundle"}, status_code=400)
+        accs = _rb_accounts(bundle)
+        first = next((a for a in accs if a.get("accountNumber")), {})
+        num = first.get("accountNumber")
+        ccy = first.get("mainCurrency") or first.get("currency") or "CZK"
+        tries = {}
+        for pth in ["/accounts/%s/%s/balance" % (num, ccy),
+                    "/accounts/%s/balance" % num,
+                    "/accounts/%s/%s" % (num, ccy)]:
+            try:
+                r = _rb_call(bundle, "GET", pth)
+                body = None
+                try:
+                    body = r.json()
+                except Exception:
+                    body = (r.text or "")[:400]
+                tries[pth] = {"status": r.status_code, "body": body}
+            except Exception as e:
+                tries[pth] = {"err": "%s: %s" % (type(e).__name__, str(e)[:160])}
+        return {"ok": True, "accounts_raw": accs[:2], "num": num, "ccy": ccy, "balance_tries": tries}
+    finally:
+        s.close()
+
+
 @bank_router.get("/app/bank/vypisy")
 def bank_vypisy(request: Request):
     """Výpisy — richší list (vč. id pro detail + protistrana z raw). Filtry firma+měna.

@@ -16,6 +16,7 @@
   select{background:#19202e;color:#e8edf6;border:1px solid #26303f;border-radius:10px;padding:10px 12px;font-size:15px;width:100%;max-width:440px}
   .pick{margin-bottom:12px}
   .pick label{display:block;font-size:11px;color:#8fa3bd;margin-bottom:4px}
+  .pick input{background:#19202e;color:#e8edf6;border:1px solid #26303f;border-radius:10px;padding:10px 12px;font-size:15px;width:100%;max-width:440px;margin-bottom:6px}
   .kpi{display:flex;gap:10px;margin-bottom:12px}
   .kpi .box{flex:1;background:#19202e;border:1px solid #26303f;border-radius:12px;padding:10px 12px;text-align:center}
   .kpi .n{font-size:20px;font-weight:800}
@@ -42,6 +43,7 @@
 <div class="sub">Odpracované hodiny s rozpadem po zakázkách. Můžeš se podívat i na kolegu.</div>
 <div class="pick">
   <label>Osoba</label>
+  <input type="text" id="osobaHledat" placeholder="🔎 Hledat člověka…" oninput="renderOsoba(this.value)" autocomplete="off">
   <select id="osoba" onchange="load()"></select>
 </div>
 <div class="chips">
@@ -56,8 +58,15 @@
 <div id="list"></div>
 
 <script>
-var DNI=30, SELUID=null;
+var DNI=30, SELUID=null, LIDE=[];
 function setDni(n){DNI=n;[7,14,30,90,365].forEach(function(x){document.getElementById('c'+x).classList.toggle('on',x===DNI);});load();}
+function renderOsoba(q){
+  var sel=document.getElementById('osoba');
+  var f=(q||'').toLowerCase().trim();
+  var list=LIDE.filter(function(x){return !f || (x.jmeno||'').toLowerCase().indexOf(f)>=0;});
+  if(!list.length){sel.innerHTML='<option value="">— nikdo nenalezen —</option>';return;}
+  sel.innerHTML=list.map(function(x){return '<option value="'+x.user_id+'"'+(String(x.user_id)===String(SELUID)?' selected':'')+'>'+esc(x.jmeno)+'</option>';}).join('');
+}
 function loadLide(){
   fetch('/api/v1/erp/app/dochazka/lide',{credentials:'include'}).then(function(r){return r.json();}).then(function(r){
     var sel=document.getElementById('osoba');
@@ -65,7 +74,7 @@ function loadLide(){
     var me=r.me||{},lide=(r.lide||[]).slice();
     if(me.user_id && !lide.some(function(x){return x.user_id===me.user_id;})) lide.unshift({user_id:me.user_id,jmeno:(me.jmeno||'Já')+' (já)'});
     SELUID=me.user_id||(lide[0]&&lide[0].user_id)||null;
-    sel.innerHTML=lide.map(function(x){return '<option value="'+x.user_id+'"'+(x.user_id===SELUID?' selected':'')+'>'+esc(x.jmeno)+'</option>';}).join('');
+    LIDE=lide; renderOsoba('');
     load();
   }).catch(function(){document.getElementById('msg').textContent='Nepodařilo se načíst seznam lidí.';});
 }

@@ -78,10 +78,7 @@
   <div id="faktury" class="panel on"><div id="faktury-body"><div class="load">Načítám faktury…</div></div></div>
   <div id="navrhy" class="panel"><div id="navrhy-body"><div class="load">Načítám návrh k platbě…</div></div></div>
   <div id="platplat" class="panel"><div id="platplat-body"><div class="load">Načítám platáky k platbě…</div></div></div>
-  <div id="importy" class="panel">
-    <div class="soon"><div class="ic">⬇️</div><h3>Importy do banky</h3>
-      Vygenerované importní soubory pro nahrání plateb do banky (starý formát). <b>Připravujeme.</b></div>
-  </div>
+  <div id="importy" class="panel"><div id="importy-body"><div class="load">Načítám importy do banky…</div></div></div>
   <div id="zaplacene" class="panel"><div id="plataky-body"><div class="load">Načítám zaplacené platáky…</div></div></div>
   <div id="vypisy" class="panel"><div id="vypisy-body"><div class="load">Načítám výpisy z banky…</div></div></div>
 
@@ -468,6 +465,7 @@ function renderPlataky(){
     var fc=_firmy[String(p.firma)]?_firmy[String(p.firma)].code:('#'+p.firma);
     var typ=p.typ==='tuz'?'<span class="pill" style="background:#12294a;color:var(--czk)">tuz</span>'
       :'<span class="pill" style="background:#241b40;color:var(--eur)">zahr</span>';
+    if(p.zdroj==='nas')typ+=' <span class="pill" style="background:#173a2a;color:#7be3b0" title="náš platák (Praha)">náš</span>';
     var exp='<span class="pill ok">✓ odesláno do banky</span>';
     h+='<tr><td>'+esc(p.vystaveni)+'</td><td class="dod">'+esc(fc)+'</td><td>'+typ+'</td>'+
        '<td>'+esc(p.odkud)+'</td><td class="r">'+p.pocet+'</td>'+
@@ -554,6 +552,31 @@ function renderPlatplat(){
   });
   b.innerHTML=h+'</tbody></table></div>';
 }
+var _importy=[];
+function loadImporty(){
+  var b=document.getElementById('importy-body');
+  fetch('/api/v1/erp/app/platby/importy',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok){b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
+      _importy=d.importy||[]; renderImporty();
+    }).catch(function(){b.innerHTML='<div class="load">Chyba načítání.</div>';});
+}
+function renderImporty(){
+  var b=document.getElementById('importy-body');var list=_importy;
+  var h='<div class="sub">Fyzické platák soubory (.p11 tuzemské / .f84 zahraniční) k nahrání do RB. „čeká na import" = vygenerováno, ještě nenahráno; „odesláno" = už v bance. Klikni na soubor pro detail + obsah.</div>';
+  h+='<div class="grp"><div class="gh"><div class="t">⬇️ '+list.length+' souborů</div></div>';
+  if(!list.length){h+='<div class="load" style="padding:16px">Žádné importní soubory.</div></div>';b.innerHTML=h;return;}
+  h+='<table><thead><tr><th>Datum</th><th>Firma</th><th></th><th>Soubor</th><th>Složka</th><th class="r">Plateb</th><th class="r">Suma</th><th>Stav</th></tr></thead><tbody>';
+  list.forEach(function(p){
+    var typ=p.typ==='tuz'?'<span class="pill" style="background:#12294a;color:var(--czk)">tuz</span>':'<span class="pill" style="background:#241b40;color:var(--eur)">zahr</span>';
+    var st=p.stav==='odeslano'?'<span class="pill ok">✓ odesláno</span>':'<span class="pill warn">čeká na import</span>';
+    h+='<tr><td>'+esc(p.datum)+'</td><td class="dod">'+esc(p.firma_kod)+'</td><td>'+typ+'</td>'+
+       '<td class="mono" style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openDetail('+p.id+')" title="Detail + obsah">'+esc(p.soubor)+'</td>'+
+       '<td class="mono" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;color:var(--dim)" title="'+esc(p.cesta)+'">'+esc(p.cesta)+'</td>'+
+       '<td class="r">'+p.pocet+'</td><td class="r money">'+money(p.suma,p.mena)+'</td><td>'+st+'</td></tr>';
+  });
+  b.innerHTML=h+'</tbody></table></div>';
+}
 document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
   document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on');});
   document.querySelectorAll('.panel').forEach(function(x){x.classList.remove('on');});
@@ -562,7 +585,8 @@ document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
   if(p==='faktury')loadFaktury();
   if(p==='navrhy')loadNavrhy();
   if(p==='platplat')loadPlatplat();
-  if(p==='zaplacene')loadPlataky();};});
+  if(p==='zaplacene')loadPlataky();
+  if(p==='importy')loadImporty();};});
 loadFaktury();
 </script>
 <script src="/static/nav-back.js"></script>

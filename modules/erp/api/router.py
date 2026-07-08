@@ -31185,15 +31185,28 @@ def platby_plataky_get(req: Request):
         col_tuz = ("SELECT firma, 'tuz' typ, id, to_char(datum_vystaveni::date,'DD.MM.YYYY') vyst, "
                    "  to_char(datum_splatnosti::date,'DD.MM.YYYY') splat, COALESCE(odkud,'') odkud, pocet, "
                    "  castka_celkem, COALESCE(mena,'CZK') mena, COALESCE(seznam_faktur,'') sez, "
-                   "  COALESCE(realizace_export,false) exp, COALESCE(autor,'') autor, datum_vystaveni::date sortd "
+                   "  COALESCE(realizace_export,false) exp, COALESCE(autor,'') autor, datum_vystaveni::date sortd, 'helios' zdroj "
                    "FROM tenant.oz_platak_tuz" + fw)
         col_zahr = ("SELECT firma, 'zahr', id, to_char(datum_vystaveni::date,'DD.MM.YYYY'), "
                     "  to_char(datum_splatnosti::date,'DD.MM.YYYY'), COALESCE(odkud,''), pocet, "
                     "  castka_celkem, COALESCE(mena,'EUR'), COALESCE(seznam_faktur,''), "
-                    "  COALESCE(realizace_export,false), COALESCE(autor,''), datum_vystaveni::date sortd "
+                    "  COALESCE(realizace_export,false), COALESCE(autor,''), datum_vystaveni::date sortd, 'helios' "
                     "FROM tenant.oz_platak_zahr" + fw)
         agg_tuz = "SELECT castka_celkem, COALESCE(mena,'CZK') mena FROM tenant.oz_platak_tuz" + fw
         agg_zahr = "SELECT castka_celkem, COALESCE(mena,'EUR') mena FROM tenant.oz_platak_zahr" + fw
+        # NAŠE odeslané platáky (bank_platak stav='odeslano') — pražské od 7.7. (Helios už platáky nedělá).
+        _tp = (typ if typ in ("tuz", "zahr") else None)
+        if _tp:
+            params["tp"] = _tp
+        fw_nas = " WHERE stav='odeslano'" + (" AND firma=:f" if firma in ("1", "2") else "") + (" AND typ=:tp" if _tp else "")
+        col_nas = ("SELECT firma, typ, id, to_char(datum_vytvoreni,'DD.MM.YYYY'), "
+                   "  to_char(datum_splatnosti,'DD.MM.YYYY'), 'RB '||COALESCE(mena,'CZK'), COALESCE(pocet_polozek,0), "
+                   "  COALESCE(suma,0), COALESCE(mena,'CZK'), "
+                   "  COALESCE((SELECT string_agg(COALESCE(NULLIF(l.doklad_vs,''),l.dodavatel),', ' ORDER BY l.id) "
+                   "    FROM tenant.platak_uhrada_lock l WHERE l.platak_id=bp.id),''), true, "
+                   "  COALESCE(poznamka,''), datum_vytvoreni::date, 'nas' "
+                   "FROM tenant.bank_platak bp" + fw_nas)
+        agg_nas = "SELECT suma AS castka_celkem, COALESCE(mena,'CZK') mena FROM tenant.bank_platak bp" + fw_nas
         parts, aggs = [], []
         if typ in ("all", "tuz"):
             parts.append(col_tuz); aggs.append(agg_tuz)
@@ -31201,6 +31214,7 @@ def platby_plataky_get(req: Request):
             parts.append(col_zahr); aggs.append(agg_zahr)
         if not parts:
             parts.append(col_tuz); aggs.append(agg_tuz)
+        parts.append(col_nas); aggs.append(agg_nas)
         rows = s.execute(_t(" UNION ALL ".join(parts)
                             + " ORDER BY sortd DESC NULLS LAST, id DESC LIMIT 500"), params).fetchall()
         out = []
@@ -31208,7 +31222,8 @@ def platby_plataky_get(req: Request):
             out.append({"firma": int(r[0]) if r[0] is not None else 0, "typ": r[1], "id": r[2],
                         "vystaveni": r[3] or "", "splatnost": r[4] or "", "odkud": r[5] or "",
                         "pocet": int(r[6] or 0), "castka": float(r[7]) if r[7] is not None else 0.0,
-                        "mena": r[8], "seznam": r[9] or "", "export": bool(r[10]), "autor": r[11] or ""})
+                        "mena": r[8], "seznam": r[9] or "", "export": bool(r[10]), "autor": r[11] or "",
+                        "zdroj": (r[13] if len(r) > 13 else "helios")})
         agg = s.execute(_t("SELECT mena, count(*) n, sum(castka_celkem) c FROM ("
                            + " UNION ALL ".join(aggs) + ") q GROUP BY mena"), params).fetchall()
         sums = {row[0]: float(row[2] or 0) for row in agg}
@@ -31217,6 +31232,42 @@ def platby_plataky_get(req: Request):
         fmap = {str(int(f[0])): {"code": f[1], "nazev": f[2]} for f in firmy}
         return {"ok": True, "plataky": out, "firmy": fmap, "total": total,
                 "sums": sums, "shown": len(out)}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/platby/importy")
+def platby_importy_get(req: Request):
+    """Importy do banky — fyzické platák soubory (.p11/.f84) k nahrání do RB.
+    Naše bank_platak se souborem: stav 'vygenerovano' = čeká na import, 'odeslano' = už odesláno.
+    Zdroj pravdy = adresář \\Platební příkazy\\{EC|ES}\\<datum>\\. Rodiče+Petra(18)+cockpit. Claude ID23 8.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        firma = (req.query_params.get("firma") or "all").strip()
+        params = {}
+        cond = "COALESCE(soubor_nazev,'')<>'' AND stav<>'smazano'"
+        if firma in ("1", "2"):
+            params["f"] = int(firma); cond += " AND firma=:f"
+        rows = s.execute(_t(
+            "SELECT id, firma, typ, mena, stav, COALESCE(soubor_nazev,''), COALESCE(soubor_cesta,''), "
+            "  COALESCE(pocet_polozek,0), COALESCE(suma,0), to_char(datum_vytvoreni,'DD.MM.YYYY'), "
+            "  to_char(created_at AT TIME ZONE 'Europe/Prague','DD.MM.YYYY HH24:MI') "
+            "FROM tenant.bank_platak WHERE " + cond +
+            " ORDER BY datum_vytvoreni DESC NULLS LAST, id DESC LIMIT 300"), params).fetchall()
+        _fk = {1: "EC", 2: "ES"}
+        out = []
+        for r in rows:
+            frm = int(r[1]) if r[1] is not None else 0
+            out.append({"id": int(r[0]), "firma": frm, "firma_kod": _fk.get(frm, "?"),
+                        "typ": r[2], "mena": r[3], "stav": r[4] or "", "soubor": r[5], "cesta": r[6],
+                        "pocet": int(r[7]), "suma": float(r[8]) if r[8] is not None else 0.0,
+                        "datum": r[9] or "", "vytvoreno": r[10] or ""})
+        return {"ok": True, "importy": out, "pocet": len(out)}
     finally:
         s.close()
 

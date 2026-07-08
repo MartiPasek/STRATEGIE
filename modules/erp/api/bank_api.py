@@ -732,8 +732,9 @@ def bank_vypisy(request: Request):
             "  COALESCE(c.company_id,1) firma, "
             "  COALESCE(t.raw #>> '{entryDetails,transactionDetails,relatedParties,counterParty,name}','') protistrana "
             + base + " ORDER BY t.datum DESC, t.id DESC LIMIT 300"), params).fetchall()
-        _KATLBL = {"mzda": "mzdy", "dan": "daň", "soc_poj": "sociální", "zdrav_poj": "zdrav. poj.",
-                   "karta": "karta", "zak_pojisteni": "zák. pojištění", "opakovana": "opakovaná"}
+        _KATLBL = {"mzda": "mzdy", "dan": "daň", "dan_mzda": "daň ze mzdy", "soc_poj": "sociální",
+                   "zdrav_poj": "zdrav. poj.", "karta": "karta", "zak_pojisteni": "zák. pojištění",
+                   "poplatek": "bank. poplatek", "vnitroskupina": "vnitroskupina", "opakovana": "opakovaná"}
         out = []
         for r in rows:
             met, rada, zak, kat = r[8], r[9], r[10], r[11]
@@ -796,8 +797,9 @@ def bank_vypis_detail(request: Request):
         acc = (cp.get("account", {}) or {})
         rem = (det.get("remittanceInformation", {}) or {})
         _met, _rada, _zak, _kat = r[14], r[15], r[16], r[17]
-        _katlbl = {"mzda": "mzdy", "dan": "daň", "soc_poj": "sociální", "zdrav_poj": "zdrav. poj.",
-                   "karta": "karta", "zak_pojisteni": "zák. pojištění", "opakovana": "opakovaná"}
+        _katlbl = {"mzda": "mzdy", "dan": "daň", "dan_mzda": "daň ze mzdy", "soc_poj": "sociální",
+                   "zdrav_poj": "zdrav. poj.", "karta": "karta", "zak_pojisteni": "zák. pojištění",
+                   "poplatek": "bank. poplatek", "vnitroskupina": "vnitroskupina", "opakovana": "opakovaná"}
         if _zak:
             _par = "zakázka " + _zak + (" (doklad " + _rada + ")" if _rada else "")
         elif _rada:
@@ -990,6 +992,19 @@ def parovat_all(s):
             "par_kategorie = CASE WHEN ltrim(ks,'0')='1178' THEN 'karta' "
             "  WHEN zprava ILIKE '%%pojištění%%' THEN 'zak_pojisteni' ELSE par_kategorie END "
             "WHERE par_metoda IS NULL AND (ltrim(ks,'0')='1178' OR zprava ILIKE '%%pojištění%%')"))
+        # F) vnitroskupina — protiúčet je jeden z NAŠICH účtů (převod EC↔ES / mezi účty). Claude 8.7.
+        s.execute(_t(
+            "UPDATE tenant.bank_transaction_raw t SET par_metoda='vnitroskupina', "
+            "  par_kategorie='vnitroskupina', par_at=now() "
+            "FROM (SELECT DISTINCT cislo_uctu FROM tenant.bank_connection_account "
+            "      WHERE COALESCE(aktivni,true) AND COALESCE(cislo_uctu,'')<>'') o "
+            "WHERE t.par_metoda IS NULL AND t.protiucet LIKE '%%'||o.cislo_uctu"))
+        # G) bankovní poplatky / souhrnné položky / úroky. Claude 8.7.
+        s.execute(_t(
+            "UPDATE tenant.bank_transaction_raw t SET par_metoda='opakovana', "
+            "  par_kategorie='poplatek', par_at=now() "
+            "WHERE par_metoda IS NULL AND (zprava ILIKE '%%Souhrnná položka%%' "
+            "  OR zprava ILIKE '%%poplat%%' OR zprava ILIKE '%%úrok%%' OR zprava ILIKE '%%Cena za%%')"))
         s.commit()
         # souhrn
         celkem = s.execute(_t("SELECT count(*) FROM tenant.bank_transaction_raw")).scalar()

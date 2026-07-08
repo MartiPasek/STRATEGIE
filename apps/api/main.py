@@ -1378,6 +1378,14 @@ def dochazka_zakazky_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/moje-dochazka")
+def moje_dochazka_page():
+    """Vlastní historie docházky s rozpadem po zakázkách (self-scoped) pro mobilní
+    appku — každý vidí jen svá data. Marti 8.7.2026."""
+    return FileResponse(os.path.join(static_dir, "moje-dochazka.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/osnova")
 def osnova_page():
     """Účtová osnova po letech (z deníku) — porovnání let. Marti 25.6.2026."""

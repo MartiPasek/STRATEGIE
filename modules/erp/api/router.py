@@ -27710,6 +27710,47 @@ def dochazka_zakazky_ep(req: Request):
         s.close()
 
 
+@api_router.get("/app/dochazka/moje")
+def dochazka_moje_ep(req: Request):
+    """Vlastní historie docházky s rozpadem po zakázkách (SELF-scoped — každý vidí
+    JEN svá data). Pro mobilní appku. Marti 8.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    s = _g()
+    try:
+        today = _dt.date.today()
+        od = req.query_params.get("od") or (today - _dt.timedelta(days=90)).isoformat()
+        do = req.query_params.get("do") or today.isoformat()
+        rows = s.execute(_t("""
+            SELECT to_char(w.datum,'YYYY-MM-DD') datum_iso, to_char(w.datum,'DD.MM.YYYY') den,
+                   COALESCE(w.source_system,'?') src, trim(w.zakazka_ref) zak,
+                   COALESCE(z."Nazev",'') nazev, ROUND(COALESCE(w.hodiny,0)::numeric,2) hod
+            FROM tenant.vyroba_work w
+            LEFT JOIN LATERAL (SELECT "Nazev" FROM tenant.oz_zakazky z2
+                               WHERE trim(z2."CisloZakazky")=trim(w.zakazka_ref) LIMIT 1) z ON true
+            WHERE w.user_id=:uid AND w.datum>=:od AND w.datum<=:do
+            ORDER BY w.datum DESC, zak"""), {"uid": uid, "od": od, "do": do}).mappings().all()
+        days = {}
+        for r in rows:
+            d = r["datum_iso"]
+            g = days.setdefault(d, {"datum_iso": d, "den": r["den"], "hod": 0.0, "zakazky": []})
+            g["zakazky"].append({"zak": r["zak"], "nazev": r["nazev"],
+                                 "src": r["src"], "hod": float(r["hod"] or 0)})
+            g["hod"] += float(r["hod"] or 0)
+        out = sorted(days.values(), key=lambda x: x["datum_iso"], reverse=True)
+        for g in out:
+            g["hod"] = round(g["hod"], 2)
+        total = round(sum(g["hod"] for g in out), 1)
+        return {"ok": True, "od": od, "do": do, "dny": out,
+                "souhrn": {"dnu": len(out), "hodin": total}}
+    finally:
+        s.close()
+
+
 def _kalk_gate(req: Request):
     """ACL pro kalkulační modul = okruh cockpitu (rodiče + scoped approveři + fin/HR skupiny).
     Vrací (uid) nebo None při zákazu."""

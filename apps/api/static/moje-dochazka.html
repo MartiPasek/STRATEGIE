@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Moje docházka</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:12px 12px 40px;background:#0f1420;color:#e8edf6}
+  h1{font-size:18px;margin:2px 0 2px}
+  .sub{color:#9fb0c8;font-size:12px;margin-bottom:12px}
+  .chips{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .chip{background:#27313f;color:#cdd9ea;border:0;border-radius:16px;padding:8px 15px;font-size:13px;cursor:pointer}
+  .chip.on{background:#2563eb;color:#fff}
+  .kpi{display:flex;gap:10px;margin-bottom:12px}
+  .kpi .box{flex:1;background:#19202e;border:1px solid #26303f;border-radius:12px;padding:10px 12px;text-align:center}
+  .kpi .n{font-size:20px;font-weight:800}
+  .kpi .l{font-size:11px;color:#8fa3bd}
+  .day{background:#19202e;border:1px solid #26303f;border-radius:14px;padding:12px 13px;margin-bottom:10px}
+  .day .dh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .day .dd{font-size:15px;font-weight:700}
+  .day .dhod{font-size:15px;font-weight:800;color:#8fe0a0}
+  .zak{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid #232c3b;font-size:13px}
+  .zak:first-of-type{border-top:0}
+  .zak .zl{min-width:0}
+  .zak .zk{font-family:ui-monospace,Menlo,monospace;color:#9fd0ff;font-weight:600}
+  .zak .zn{color:#b9c6da;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62vw}
+  .zak .zh{white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:700}
+  .src{font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle}
+  .src.app{background:#16243a;color:#7fb0ff}.src.centrala1{background:#1e2a1a;color:#9ada8b}
+  #msg{color:#9fb0c8;font-size:13px;margin-top:10px}
+</style>
+</head>
+<body>
+<h1>📋 Moje docházka</h1>
+<div class="sub">Tvoje odpracované hodiny s rozpadem po zakázkách. Vidíš jen svá data.</div>
+<div class="chips">
+  <button class="chip on" id="c30" onclick="setDni(30)">30 dní</button>
+  <button class="chip" id="c90" onclick="setDni(90)">90 dní</button>
+  <button class="chip" id="c365" onclick="setDni(365)">Rok</button>
+</div>
+<div class="kpi" id="kpi"></div>
+<div id="msg">Načítám…</div>
+<div id="list"></div>
+
+<script>
+var DNI=30;
+function setDni(n){DNI=n;[30,90,365].forEach(function(x){document.getElementById('c'+x).classList.toggle('on',x===DNI);});load();}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function iso(d){return d.toISOString().slice(0,10);}
+function srcTag(s){var m={app:'App',centrala1:'Dílna'};return '<span class="src '+esc(s)+'">'+(m[s]||esc(s))+'</span>';}
+function hod(v){return Number(v||0).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function load(){
+  document.getElementById('list').innerHTML='';document.getElementById('kpi').innerHTML='';
+  document.getElementById('msg').textContent='Načítám…';
+  var today=new Date();var od=new Date();od.setDate(od.getDate()-DNI);
+  fetch('/api/v1/erp/app/dochazka/moje?od='+iso(od)+'&do='+iso(today),{credentials:'include'})
+    .then(function(r){return r.json();})
+    .then(function(r){
+      if(!r.ok){document.getElementById('msg').textContent=(r.error==='forbidden')?'Přihlas se prosím.':(r.error||'chyba');return;}
+      var dny=r.dny||[],su=r.souhrn||{};
+      document.getElementById('kpi').innerHTML=
+        '<div class="box"><div class="n">'+(su.dnu||0)+'</div><div class="l">dní</div></div>'+
+        '<div class="box"><div class="n">'+hod(su.hodin)+'</div><div class="l">hodin celkem</div></div>';
+      if(!dny.length){document.getElementById('msg').textContent='Za zvolené období nemáš žádné zaznamenané hodiny.';return;}
+      document.getElementById('msg').textContent='';
+      document.getElementById('list').innerHTML=dny.map(function(d){
+        var zak=(d.zakazky||[]).map(function(z){
+          return '<div class="zak"><div class="zl"><span class="zk">'+esc(z.zak||'—')+'</span>'+srcTag(z.src)+
+                 '<div class="zn">'+esc(z.nazev||'')+'</div></div><div class="zh">'+hod(z.hod)+' h</div></div>';
+        }).join('');
+        return '<div class="day"><div class="dh"><div class="dd">'+esc(d.den)+'</div><div class="dhod">'+hod(d.hod)+' h</div></div>'+zak+'</div>';
+      }).join('');
+    })
+    .catch(function(){document.getElementById('msg').textContent='Nepodařilo se načíst.';});
+}
+load();
+</script>
+</body>
+</html>

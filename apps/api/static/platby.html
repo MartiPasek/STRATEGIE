@@ -94,6 +94,12 @@
     <div class="mb" id="platak-body"><div class="load">Připravuji náhled…</div></div>
   </div></div>
 
+  <div id="platakDetailOv" class="ov" style="z-index:60"><div class="modal">
+    <div class="mh"><div class="t" id="platak-detail-title">Detail</div>
+      <button class="x" onclick="closeDetail()">✕</button></div>
+    <div class="mb" id="platak-detail-body"><div class="load">…</div></div>
+  </div></div>
+
 <script>
 function esc(s){return(s==null?"":String(s)).replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c];});}
 function money(n,cur){return (n==null?0:n).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+cur;}
@@ -169,13 +175,14 @@ function loadVygenerovane(){
       _platakGen=(d&&d.ok&&d.plataky)||[];
       var g=document.getElementById('platak-gen'); if(!g)return;
       if(!_platakGen.length){g.innerHTML='';return;}
-      var h='<div class="grp" style="border-color:#2b5e46"><div class="gh"><div class="t">✅ Naše vygenerované platáky</div>'+
-        '<div class="sum" style="font-size:12px;color:var(--dim);font-weight:600">'+_platakGen.length+' aktivních (zamykají saldo)</div></div>'+
+      var h='<div class="grp" style="border-color:#2b5e46"><div class="gh">'+
+        '<div class="t">✅ Naše vygenerované platáky <span style="font-size:12px;color:var(--dim);font-weight:600">('+_platakGen.length+' aktivních, zamykají saldo)</span></div>'+
+        '<button class="btn" style="padding:5px 12px;font-size:12px" onclick="openSoubory()">📁 Soubory na disku</button></div>'+
         '<table><thead><tr><th>Vytvořeno</th><th>Firma</th><th></th><th>Soubor</th><th class="r">Plateb</th><th class="r">Suma</th><th></th></tr></thead><tbody>';
       _platakGen.forEach(function(p){
         var typ=p.typ==='tuz'?'<span class="pill" style="background:#12294a;color:var(--czk)">tuz</span>':'<span class="pill" style="background:#241b40;color:var(--eur)">zahr</span>';
         h+='<tr><td>'+esc(p.vytvoreno)+'</td><td class="dod">'+esc(p.firma_kod)+'</td><td>'+typ+'</td>'+
-          '<td class="mono" style="color:var(--ink)">'+esc(p.soubor)+'</td><td class="r">'+p.pocet+'</td>'+
+          '<td class="mono" style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openDetail('+p.id+')" title="Zobrazit detail + obsah souboru">'+esc(p.soubor)+'</td><td class="r">'+p.pocet+'</td>'+
           '<td class="r money">'+money(p.suma,p.mena)+'</td>'+
           '<td><button class="btn" style="padding:4px 10px;font-size:12px;border-color:var(--hot);background:#2a1416;color:#ffb3ae" onclick="smazatPlatak('+p.id+',this)">🗑 Smazat</button></td></tr>';
       });
@@ -201,6 +208,67 @@ function commitPlatak(firma,mena,btn){
       if(d&&d.ok){window.alert('✅ Vygenerováno: '+d.pocet+' plateb · '+money(d.suma,d.mena)+'\n'+d.cesta+d.soubor);openPlatakReload();}
       else{btn.disabled=false;btn.textContent='✅ Vygenerovat platák';window.alert('Nepovedlo se: '+((d&&d.error)||'chyba'));}
     }).catch(function(){btn.disabled=false;btn.textContent='✅ Vygenerovat platák';window.alert('Chyba generování.');});
+}
+function closeDetail(){document.getElementById('platakDetailOv').classList.remove('on');}
+function openDetail(id){
+  document.getElementById('platakDetailOv').classList.add('on');
+  document.getElementById('platak-detail-title').textContent='🧾 Detail platáku #'+id;
+  var b=document.getElementById('platak-detail-body');b.innerHTML='<div class="load">Načítám detail + obsah souboru…</div>';
+  fetch('/api/v1/erp/app/platby/platak/detail?id='+id,{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderDetail)
+    .catch(function(){b.innerHTML='<div class="load">Chyba detailu.</div>';});
+}
+function renderDetail(d){
+  var b=document.getElementById('platak-detail-body');
+  if(!d||!d.ok){b.innerHTML='<div class="load">'+esc((d&&d.error)||'Chyba.')+'</div>';return;}
+  var hd=d.header;
+  var h='<div class="sub">'+esc(hd.firma_kod)+' · '+esc(hd.typ)+' · '+esc(hd.mena)+' · '+hd.pocet+' plateb · <b>'+money(hd.suma,hd.mena)+'</b> · z účtu '+esc(hd.nas_ucet)+' · vytvořeno '+esc(hd.vytvoreno)+'</div>';
+  h+='<div class="mono" style="margin-bottom:10px">📁 '+esc(hd.cesta)+esc(hd.soubor)+'</div>';
+  h+='<div class="grp"><div class="gh"><div class="t">Položky platáku ('+d.polozky.length+')</div></div>'+
+    '<table><thead><tr><th>Doklad/VS</th><th>Dodavatel</th><th>Splatnost</th><th class="r">Částka</th></tr></thead><tbody>';
+  d.polozky.forEach(function(p){
+    h+='<tr><td class="mono">'+esc(p.vs)+'</td><td class="dod">'+esc(p.dodavatel)+'</td><td>'+esc(p.splatnost)+'</td>'+
+      '<td class="r money">'+money(p.castka,p.mena)+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  h+='<div class="grp"><div class="gh"><div class="t">Obsah souboru — přesně jak je na disku</div></div>';
+  if(d.obsah_err){h+='<div class="load" style="padding:12px">Soubor nelze přečíst: '+esc(d.obsah_err)+'</div>';}
+  else if(!d.obsah||!d.obsah.length){h+='<div class="load" style="padding:12px">Soubor je prázdný nebo nedostupný.</div>';}
+  else{
+    var pre='';d.obsah.forEach(function(ln){pre+=esc(ln)+'\n';});
+    h+='<pre style="margin:0;padding:12px;overflow:auto;max-height:38vh;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#cfe4ff;white-space:pre;background:var(--soft)">'+pre+'</pre>';
+  }
+  h+='</div>';
+  b.innerHTML=h;
+}
+function openSoubory(){
+  document.getElementById('platakDetailOv').classList.add('on');
+  document.getElementById('platak-detail-title').textContent='📁 Soubory na disku (RB adresář)';
+  var b=document.getElementById('platak-detail-body');b.innerHTML='<div class="load">Čtu složky z disku…</div>';
+  fetch('/api/v1/erp/app/platby/platak/soubory',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderSoubory)
+    .catch(function(){b.innerHTML='<div class="load">Chyba čtení složek.</div>';});
+}
+function renderSoubory(d){
+  var b=document.getElementById('platak-detail-body');
+  if(!d||!d.ok){b.innerHTML='<div class="load">'+esc((d&&d.error)||'Chyba.')+'</div>';return;}
+  if(!d.slozky||!d.slozky.length){b.innerHTML='<div class="load">Zatím žádné složky s platáky.</div>';return;}
+  var h='';
+  d.slozky.forEach(function(sl){
+    h+='<div class="grp"><div class="gh"><div class="t mono" style="font-size:12px">📁 '+esc(sl.cesta)+'</div>'+
+      '<div class="sum" style="font-size:12px;color:var(--dim);font-weight:600">'+sl.soubory.length+' souborů</div></div>';
+    if(sl.err){h+='<div class="load" style="padding:12px">Nelze načíst: '+esc(sl.err)+'</div>';}
+    else if(!sl.soubory.length){h+='<div class="load" style="padding:12px">Prázdná složka.</div>';}
+    else{
+      h+='<table><thead><tr><th>Soubor</th><th class="r">Velikost</th></tr></thead><tbody>';
+      sl.soubory.forEach(function(f){
+        h+='<tr><td class="mono" style="color:var(--ink)">'+esc(f.nazev)+'</td><td class="r">'+(f.velikost!=null?f.velikost+' B':'—')+'</td></tr>';
+      });
+      h+='</tbody></table>';
+    }
+    h+='</div>';
+  });
+  b.innerHTML=h;
 }
 function renderPlatak(d){
   var b=document.getElementById('platak-preview')||document.getElementById('platak-body');

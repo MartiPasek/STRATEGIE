@@ -145,6 +145,38 @@ def _mcp_file_delete(abs_dir, fn):
     return isinstance(r, dict) and r.get("ok")
 
 
+def _mcp_file_read(abs_dir, fn):
+    """Přečti soubor přes MCP (RO) → bytes."""
+    raw = _mcp().call_tool_sync("eurosoft_eurosoft_file_read",
+                                {"user_namespace": "ro", "base_override": abs_dir, "path": fn,
+                                 "encoding": "base64"}, conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(r, dict) and r.get("ok") is False:
+        raise RuntimeError(str(r.get("error"))[:160])
+    b64 = (r.get("content") or r.get("data") or "") if isinstance(r, dict) else str(r)
+    return _b64.b64decode(b64)
+
+
+def _mcp_file_list(abs_dir):
+    """Výpis složky přes MCP (RO) → list[{nazev, typ, velikost}]."""
+    raw = _mcp().call_tool_sync("eurosoft_eurosoft_file_list",
+                                {"user_namespace": "ro", "base_override": abs_dir, "subpath": ""},
+                                conversation_id=None)
+    r = _j.loads(raw) if isinstance(raw, str) else raw
+    if isinstance(r, dict) and r.get("ok") is False:
+        raise RuntimeError(str(r.get("error"))[:160])
+    items = (r.get("items") or r.get("files") or r.get("entries") or []) if isinstance(r, dict) else (r or [])
+    out = []
+    for it in items:
+        if isinstance(it, dict):
+            out.append({"nazev": it.get("name") or it.get("filename") or it.get("path"),
+                        "typ": it.get("type") or ("dir" if it.get("is_dir") else "file"),
+                        "velikost": it.get("size")})
+        else:
+            out.append({"nazev": it, "typ": "", "velikost": None})
+    return out
+
+
 # ------------------------------------------------------------------ jádro
 _NAVRH_SQL = (
     "WITH u AS (SELECT id_fak, SUM(castka) AS paid FROM ("
@@ -499,5 +531,81 @@ def platak_vygenerovane(req: Request):
                         "suma": float(r[6]) if r[6] is not None else 0.0,
                         "datum": r[7] or "", "vytvoreno": r[8] or ""})
         return {"ok": True, "plataky": out, "pocet": len(out)}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/platby/platak/detail")
+def platak_detail(req: Request):
+    """Detail platáku: hlavička + položky (ze zámku) + obsah souboru (.p11/.f84
+    přečtený z disku, cp1250). Pro zobrazení, co v platáku je. Marti 8.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            pid = int(req.query_params.get("id"))
+        except Exception:
+            return JSONResponse({"ok": False, "error": "Zadej id."}, status_code=400)
+        row = s.execute(_t(
+            "SELECT id, firma, typ, mena, COALESCE(soubor_nazev,''), COALESCE(soubor_cesta,''), "
+            "  COALESCE(pocet_polozek,0), COALESCE(suma,0), to_char(datum_vytvoreni,'DD.MM.YYYY'), "
+            "  to_char(created_at AT TIME ZONE 'Europe/Prague','DD.MM.YYYY HH24:MI'), stav, "
+            "  COALESCE(nas_ucet,'') FROM tenant.bank_platak WHERE id=:pid"), {"pid": pid}).fetchone()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Platák nenalezen."}, status_code=404)
+        frm = int(row[1]) if row[1] is not None else 0
+        header = {"id": int(row[0]), "firma": frm, "firma_kod": _FIRMA_KOD.get(frm, "?"),
+                  "typ": row[2], "mena": row[3], "soubor": row[4], "cesta": row[5],
+                  "pocet": int(row[6]), "suma": float(row[7]) if row[7] is not None else 0.0,
+                  "datum": row[8] or "", "vytvoreno": row[9] or "", "stav": row[10] or "",
+                  "nas_ucet": row[11] or ""}
+        pol = s.execute(_t(
+            "SELECT id_fak, COALESCE(dodavatel,''), COALESCE(doklad_vs,''), castka, mena, "
+            "  to_char(splatnost,'DD.MM.YYYY') FROM tenant.platak_uhrada_lock "
+            "WHERE platak_id=:pid ORDER BY id"), {"pid": pid}).fetchall()
+        polozky = [{"id_fak": int(p[0]), "dodavatel": p[1] or "", "vs": p[2] or "",
+                    "castka": float(p[3]) if p[3] is not None else 0.0, "mena": p[4] or "",
+                    "splatnost": p[5] or ""} for p in pol]
+        obsah, obsah_err = [], None
+        if header["soubor"] and header["cesta"]:
+            try:
+                b = _mcp_file_read(header["cesta"].rstrip("\\"), header["soubor"])
+                txt = b.decode("cp1250", "replace").replace("\r\n", "\n")
+                obsah = [ln for ln in txt.split("\n") if ln.strip()]
+            except Exception as exc:
+                obsah_err = str(exc)[:160]
+        return {"ok": True, "header": header, "polozky": polozky,
+                "obsah": obsah, "obsah_err": obsah_err}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/platby/platak/soubory")
+def platak_soubory(req: Request):
+    """Výpis fyzických souborů ve složkách platáků na disku (z distinct cest
+    našich platáků). Marti 8.7.2026 — „vidět tu složku s těmi soubory"."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        cesty = s.execute(_t(
+            "SELECT DISTINCT soubor_cesta FROM tenant.bank_platak "
+            "WHERE soubor_cesta IS NOT NULL AND soubor_cesta<>'' "
+            "ORDER BY soubor_cesta DESC LIMIT 20")).fetchall()
+        slozky = []
+        for (cesta,) in cesty:
+            try:
+                files = [f for f in _mcp_file_list(cesta.rstrip("\\")) if f["typ"] != "dir"]
+                slozky.append({"cesta": cesta, "soubory": files, "err": None})
+            except Exception as exc:
+                slozky.append({"cesta": cesta, "soubory": [], "err": str(exc)[:160]})
+        return {"ok": True, "slozky": slozky, "pocet": len(slozky)}
     finally:
         s.close()

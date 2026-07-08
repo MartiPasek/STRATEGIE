@@ -28417,25 +28417,41 @@ _STRAVENKA_MS = 793
 
 
 def _mzdy_stravenky_rows(firma, rok, mesic):
-    """Pro každého s nárokem (engagement.stravenky_od ≤ období) spočítá dny >4 h
-    z docházky att_day_summary → složka 793 (Dny, Koruny=Dny×82)."""
+    """Stravenky (MS 793) = odpracované dny >4 h x 82 Kc. Pravidla (Peta 8.7.2026):
+      - JEN Po-Pa; SD (sick day) = pritomnost -> nalezi; nemoc/lekar/dovolena/DN/OCR/materska = ne.
+      - montaz (sluzebni cesta, att_day_summary.cas_montaz>0) = ne (diety -> duplicita).
+      - JEN HPP; narok az od mesice PO zkusebni dobe (konci-li posl. dnem mesice -> tyz mesic)."""
+    import calendar as _cal
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
+    ry = int(rok); rm = int(mesic)
+    _ld = _cal.monthrange(ry, rm)[1]
+    _fd = "%04d-%02d-01" % (ry, rm)
+    _lastd = "%04d-%02d-%02d" % (ry, rm, _ld)
     s = _g()
     try:
-        # Nárok = odpracované dny >4 h (Marti). Firma se rozliší až při zápisu (join na
-        # TabCisZam dané firmy v _mzdy_predzprac_apply). Enrollment (stravenky_od) = TODO doladit.
-        # Nárok = odpracovaný den >4 h, KTERÝ NENÍ absenční (OČR/nemoc/dovolená/… ze
-        # záznamu i z registru případů) — Marti 28.6.: stravenka jen za reálně odpracovaný den.
+        # narok: JEN HPP + po zkusebni (zkusebni_do < 1. den mesice, NEBO = posl. den mesice)
+        elig = set()
+        for r in s.execute(_t(
+            "SELECT DISTINCT sm.helios_cislo FROM tenant.user_smlouva sm "
+            "JOIN tenant.att_employee e ON e.tenant_id=2 AND e.user_id=sm.user_id "
+            "LEFT JOIN tenant.engagement g ON g.employee_id=e.id AND g.is_current=true "
+            "WHERE sm.tenant_id=2 AND LOWER(COALESCE(sm.typ_smlouvy,''))='hpp' "
+            "  AND sm.helios_cislo IS NOT NULL "
+            "  AND (g.zkusebni_do IS NULL OR g.zkusebni_do < CAST(:fd AS date) "
+            "       OR g.zkusebni_do = CAST(:ld AS date))"),
+                {"fd": _fd, "ld": _lastd}).fetchall():
+            try:
+                elig.add(int(r[0]))
+            except Exception:
+                pass
         rr = s.execute(_t(
-            # Marti 29.6.: počet dní z AUTORITATIVNÍHO att_entry (work+HO+fond_doplneni >4 h),
-            # NE z att_day_summary.cas_celkem (sparse = jen reálně napíchaný čas → u volné
-            # docházky podhodnocené, viz Martin 6 dní vs reálných 16). Absenční dny vyloučeny.
             "SELECT e.cislo_zam, COUNT(DISTINCT d.entry_date) AS dny "
             "FROM (SELECT a.employee_id, a.entry_date FROM tenant.att_entry a "
             "      JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-            "      WHERE et.code IN ('work','homeoffice','fond_doplneni') "
+            "      WHERE et.code IN ('work','homeoffice','fond_doplneni','sickday') "
             "        AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
+            "        AND EXTRACT(dow FROM a.entry_date) BETWEEN 1 AND 5 "
             "      GROUP BY a.employee_id, a.entry_date HAVING SUM(a.hours)>4) d "
             "JOIN tenant.att_employee e ON e.id=d.employee_id "
             "WHERE e.tenant_id=2 "
@@ -28443,7 +28459,7 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
             "     JOIN tenant.att_employee e2 ON e2.id=a.employee_id "
             "     JOIN tenant.att_entry_type et2 ON et2.id=a.entry_type_id "
             "     WHERE e2.cislo_zam=e.cislo_zam AND a.entry_date=d.entry_date "
-            "       AND et2.code IN ('family_care','sick','vacation','medical','unpaid','sickday','maternity')) "
+            "       AND et2.code IN ('family_care','sick','vacation','medical','unpaid','maternity')) "
             "  AND NOT EXISTS (SELECT 1 FROM tenant.att_ocr_case c "
             "     JOIN tenant.att_employee e3 ON e3.id=c.employee_id "
             "     WHERE e3.cislo_zam=e.cislo_zam AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
@@ -28452,8 +28468,11 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
             "     JOIN tenant.att_employee e4 ON e4.id=c.employee_id "
             "     WHERE e4.cislo_zam=e.cislo_zam AND COALESCE(c.stav,'') NOT IN ('zruseno','zamitnuto') "
             "       AND c.datum_od<=d.entry_date AND COALESCE(c.datum_do, CURRENT_DATE)>=d.entry_date) "
+            "  AND NOT EXISTS (SELECT 1 FROM tenant.att_day_summary sds "
+            "     WHERE sds.tenant_id=2 AND CAST(sds.cislo_zam AS text)=e.cislo_zam AND sds.datum=d.entry_date "
+            "       AND COALESCE(sds.cas_montaz,0) > 0) "
             "GROUP BY e.cislo_zam"),
-            {"y": rok, "mo": mesic}).fetchall()
+            {"y": ry, "mo": rm}).fetchall()
     finally:
         s.close()
     out = []
@@ -28462,7 +28481,7 @@ def _mzdy_stravenky_rows(firma, rok, mesic):
             c = int(r[0]); dny = int(r[1] or 0)
         except Exception:
             continue
-        if dny > 0:
+        if dny > 0 and c in elig:
             out.append((c, _STRAVENKA_MS, dny * _STRAVENKA_KC, dny))
     return out
 

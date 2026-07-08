@@ -237,10 +237,10 @@ def platak_preview(req: Request):
             for it in items:
                 acc = ucty.get(it["id_fak"], {}) or {}
                 warns = []
-                # splatnost render: max(splatnost, dnes)
+                # Datum splatnosti na platáku = VŽDY DNEŠNÍ (Peťa 8.7.2026), i když má
+                # faktura splatnost později — platba se provede dnes, ne až v den splatnosti.
                 sp = it["splat_d"] or dnes
-                sp_eff = sp if sp >= dnes else dnes
-                datum_splat6 = sp_eff.strftime("%y%m%d")
+                datum_splat6 = dnes.strftime("%y%m%d")
                 plati = bool(sp <= nextpd)  # plať, když nepočká s rezervou na příští PD
 
                 # anti-podvod (JEN VARUJE):

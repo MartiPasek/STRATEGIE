@@ -1370,6 +1370,14 @@ def predkontace_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/dochazka-zakazky")
+def dochazka_zakazky_page():
+    """Docházka všech lidí s rozpadem po zakázkách (z vyroba_work). Přehled před
+    přenosem do staré Centrály. Marti 8.7.2026."""
+    return FileResponse(os.path.join(static_dir, "dochazka-zakazky.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/osnova")
 def osnova_page():
     """Účtová osnova po letech (z deníku) — porovnání let. Marti 25.6.2026."""

@@ -27665,6 +27665,51 @@ def banka_saldo(req: Request):
         s.close()
 
 
+@api_router.get("/app/dochazka/zakazky")
+def dochazka_zakazky_ep(req: Request):
+    """Docházka všech lidí s rozpadem po zakázkách (z tenant.vyroba_work + oz_zakazky).
+    Přehled PŘED přenosem do staré Centrály. Marti 8.7.2026. Okruh cockpitu."""
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    import datetime as _dt
+    s = _g()
+    try:
+        if not _is_cockpit(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        today = _dt.date.today()
+        od = req.query_params.get("od") or today.replace(day=1).isoformat()
+        do = req.query_params.get("do") or today.isoformat()
+        src = (req.query_params.get("src") or "").strip()
+        wh = "w.tenant_id=2 AND w.datum >= :od AND w.datum <= :do"
+        params = {"od": od, "do": do}
+        if src in ("app", "centrala1"):
+            wh += " AND w.source_system = :src"
+            params["src"] = src
+        rows = s.execute(_t("""
+            SELECT COALESCE(u.first_name||' '||u.last_name,'?') jmeno, w.user_id, w.cislo_zam,
+                   to_char(w.datum,'YYYY-MM-DD') datum_iso, to_char(w.datum,'DD.MM.YYYY') den,
+                   COALESCE(w.source_system,'?') src, trim(w.zakazka_ref) zak,
+                   COALESCE(z."Nazev",'') nazev, ROUND(COALESCE(w.hodiny,0)::numeric,2) hod,
+                   (SELECT string_agg(DISTINCT e.status, ',') FROM tenant.att_entry e
+                      JOIN tenant.att_employee ae ON ae.id=e.employee_id
+                     WHERE ae.user_id=w.user_id AND e.tenant_id=2 AND e.entry_date=w.datum) stav
+            FROM tenant.vyroba_work w
+            LEFT JOIN public.users u ON u.id=w.user_id
+            LEFT JOIN LATERAL (SELECT "Nazev" FROM tenant.oz_zakazky z2
+                               WHERE trim(z2."CisloZakazky")=trim(w.zakazka_ref) LIMIT 1) z ON true
+            WHERE """ + wh + """
+            ORDER BY w.datum DESC, jmeno, zak"""), params).mappings().all()
+        out = [dict(r) for r in rows]
+        lidi = len({r["user_id"] for r in out})
+        zaks = len({r["zak"] for r in out if r["zak"]})
+        hod = round(sum(float(r["hod"] or 0) for r in out), 1)
+        return {"ok": True, "od": od, "do": do, "src": src, "rows": out,
+                "souhrn": {"lidi": lidi, "zakazek": zaks, "hodin": hod, "radku": len(out)}}
+    finally:
+        s.close()
+
+
 def _kalk_gate(req: Request):
     """ACL pro kalkulační modul = okruh cockpitu (rodiče + scoped approveři + fin/HR skupiny).
     Vrací (uid) nebo None při zákazu."""

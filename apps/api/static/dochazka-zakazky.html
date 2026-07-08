@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docházka po zakázkách</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:14px;background:#0f1420;color:#e8edf6}
+  a{color:#7fb0ff}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{color:#9fb0c8;font-size:12px;margin-bottom:14px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .fbtn{background:#27313f;color:#cdd9ea;border:0;border-radius:16px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .fbtn.on{background:#2563eb;color:#fff}
+  input[type=month],input[type=date]{background:#19202e;color:#e8edf6;border:1px solid #26303f;border-radius:8px;padding:6px 10px;font-size:13px}
+  .muted{color:#8295ad;font-size:12px}
+  .kpi{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .kpi .box{background:#19202e;border:1px solid #26303f;border-radius:10px;padding:8px 14px}
+  .kpi .n{font-size:18px;font-weight:700}
+  .kpi .l{font-size:11px;color:#8fa3bd}
+  #msg{color:#9fb0c8;font-size:13px;margin:6px 0}
+</style>
+<script src="/static/ag_license.js"></script>
+<script src="/static/aggrid_lite.js"></script>
+</head>
+<body>
+<h1>📋 Docházka po zakázkách</h1>
+<div class="sub">Rozpad odpracovaného času všech lidí po zakázkách (nový systém: app i tablet/Centrála). Seskupeno po lidech — táhni sloupec „Zakázka" do pruhu nahoře pro rozpad po zakázkách. <a href="/finance">← Finance</a></div>
+<div class="bar">
+  <span class="muted">Měsíc:</span>
+  <input type="month" id="mesic">
+  <span style="width:10px"></span>
+  <span class="muted">Zdroj:</span>
+  <button class="fbtn on" id="s_" onclick="setSrc('')">Vše</button>
+  <button class="fbtn" id="s_app" onclick="setSrc('app')">📱 App (nový)</button>
+  <button class="fbtn" id="s_centrala1" onclick="setSrc('centrala1')">🏭 Centrála (tablet)</button>
+</div>
+<div class="kpi" id="kpi"></div>
+<div id="msg">Načítám…</div>
+<div id="grid"></div>
+
+<script>
+const API='';
+let SRC='';
+function setSrc(v){SRC=v;['','app','centrala1'].forEach(x=>document.getElementById('s_'+x).classList.toggle('on',x===SRC));load();}
+function fmtDen(p){const v=p.value;if(!v)return '';const a=String(v).split('-');return a.length===3?(a[2]+'.'+a[1]+'.'+a[0]):v;}
+const SRCLBL={app:'📱 App',centrala1:'🏭 Centrála'};
+function srcLbl(p){return SRCLBL[p.value]||p.value||'';}
+function stavBadge(p){const v=p.value||'';if(!v)return '';
+  const map={confirmed:'#8fe0a0',approved:'#8fe0a0',pending:'#f0c674',superseded:'#8295ad'};
+  return v.split(',').map(x=>'<span style="color:'+(map[x]||'#cdd9ea')+'">'+x+'</span>').join(', ');}
+function monthRange(ym){
+  const [y,m]=ym.split('-').map(Number);
+  const od=ym+'-01';
+  const last=new Date(y,m,0).getDate();
+  const today=new Date();
+  let doo=ym+'-'+String(last).padStart(2,'0');
+  // aktuální měsíc → do dneška
+  if(today.getFullYear()===y && (today.getMonth()+1)===m){
+    doo=today.toISOString().slice(0,10);
+  }
+  return {od,doo};
+}
+async function load(){
+  document.getElementById('msg').textContent='Načítám…';
+  document.getElementById('grid').innerHTML='';document.getElementById('kpi').innerHTML='';
+  const {od,doo}=monthRange(document.getElementById('mesic').value);
+  const r=await fetch(API+'/api/v1/erp/app/dochazka/zakazky?od='+od+'&do='+doo+(SRC?('&src='+SRC):''),{credentials:'include'}).then(x=>x.json());
+  if(!r.ok){document.getElementById('msg').textContent=r.error==='forbidden'?'Nedostupné (přihlas se jako rodič / okruh cockpitu).':(r.error||'chyba');return;}
+  const rows=r.rows||[], su=r.souhrn||{};
+  document.getElementById('kpi').innerHTML=
+    box(su.lidi,'lidí')+box(su.zakazek,'zakázek')+box((su.hodin||0).toLocaleString('cs-CZ'),'hodin celkem')+box(su.radku,'segmentů');
+  document.getElementById('msg').textContent=rows.length?('Seskupeno po lidech. Sloupce lze řadit, filtrovat, přeskupovat'+(AGLite.isEnterprise()?' a exportovat do Excelu.':' a exportovat do CSV.')):'Za zvolené období nejsou žádné zakázkové segmenty.';
+  const cols=[
+    {headerName:'Člověk',field:'jmeno',rowGroup:true,hide:true},
+    {headerName:'EC číslo',field:'cislo_zam',maxWidth:110,type:'numericColumn'},
+    {headerName:'Den',field:'datum_iso',valueFormatter:fmtDen,maxWidth:130,sort:'desc'},
+    {headerName:'Zakázka',field:'zak',minWidth:120,enableRowGroup:true,cellStyle:{fontFamily:'ui-monospace,Menlo,monospace'}},
+    {headerName:'Název zakázky',field:'nazev',flex:2,minWidth:240},
+    {headerName:'Zdroj',field:'src',valueFormatter:srcLbl,maxWidth:150,enableRowGroup:true},
+    {headerName:'Stav docházky',field:'stav',cellRenderer:p=>stavBadge(p),maxWidth:170},
+    {headerName:'Hodiny',field:'hod',type:'numericColumn',aggFunc:'sum',maxWidth:120,
+      valueFormatter:p=>(p.value==null?'':Number(p.value).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2}))},
+  ];
+  await AGLite.mount('grid',cols,rows,{csvName:'dochazka_zakazky',totals:['hod'],
+    height:'calc(100vh - 250px)',groupDefaultExpanded:0});
+}
+function box(n,l){return '<div class="box"><div class="n">'+(n==null?'—':n)+'</div><div class="l">'+l+'</div></div>';}
+(function init(){
+  const d=new Date();
+  document.getElementById('mesic').value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  document.getElementById('mesic').addEventListener('change',load);
+  load();
+})();
+</script>
+<script src="/static/nav-back.js"></script>
+</body>
+</html>

@@ -180,7 +180,7 @@ def _mcp_file_list(abs_dir):
 # ------------------------------------------------------------------ jádro
 _NAVRH_SQL = (
     "WITH u AS (SELECT id_fak, SUM(castka) AS paid FROM ("
-    "  SELECT id_fak, castka FROM tenant.oz_uhrady WHERE firma=1"
+    "  SELECT id_fak, castka_po_bance AS castka FROM tenant.oz_uhrady WHERE firma=1"
     "  UNION ALL SELECT id_fak, castka FROM tenant.platak_uhrada_lock) x GROUP BY id_fak) "
     "SELECT p.id, p.mena, p.doklad, COALESCE(NULLIF(p.dodavatel,''),p.zkratka,'?') dod, "
     "  COALESCE(p.var_symbol,'') vs, to_char(p.splatnost::date,'DD.MM.YYYY') splat, "

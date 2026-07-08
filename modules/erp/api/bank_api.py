@@ -745,7 +745,7 @@ def bank_vypisy(request: Request):
             elif kat:
                 par = _KATLBL.get(kat, kat)
             elif met:
-                par = met
+                par = "platák" if met == "platak" else met
             else:
                 par = ""
             out.append({"id": int(r[0]), "datum": r[1], "castka": float(r[2]) if r[2] is not None else 0.0,
@@ -807,7 +807,7 @@ def bank_vypis_detail(request: Request):
         elif _kat:
             _par = _katlbl.get(_kat, _kat)
         elif _met:
-            _par = _met
+            _par = "platák" if _met == "platak" else _met
         else:
             _par = ""
         detail = {
@@ -974,6 +974,23 @@ def parovat_all(s):
             "WHERE t.par_metoda IS NULL AND t.zprava ~ '^\\d{4}' "
             "  AND d.rada = (regexp_match(t.zprava, '^(\\d{3})0*(\\d+)'))[1] "
             "  AND ltrim(d.cislo,'0') = (regexp_match(t.zprava, '^(\\d{3})0*(\\d+)'))[2]"))
+        # C2) NÁŠ PLATÁK — odchozí platbu, kterou jsme generovali, ZNÁME z platak_uhrada_lock.
+        #     Match: částka+měna + (supplier VS z locku shoduje t.vs  NEBO  „ID:{id_fak}" ve zprávě
+        #     = to co jsme dali do .f84). Zakázku doplní ec_doklad_zbozi (EC); u ES (mirror nemá)
+        #     zůstane jen 'platak' — ale platba je spárovaná (vazbu na doklad známe). Claude 8.7.
+        s.execute(_t(
+            "UPDATE tenant.bank_transaction_raw t "
+            "SET par_metoda='platak', par_doklad_id=l.id_fak, par_doklad_rada=d.rada, "
+            "    par_zakazka=NULLIF(d.cislo_zakazky,''), par_at=now() "
+            "FROM tenant.platak_uhrada_lock l "
+            "LEFT JOIN tenant.ec_doklad_zbozi d ON d.id = l.id_fak "
+            "WHERE t.par_metoda IS NULL AND t.smer='out' "
+            "  AND abs(abs(t.castka) - l.castka) < 0.5 "
+            "  AND COALESCE(NULLIF(t.mena,''),'CZK') = COALESCE(l.mena,'CZK') "
+            "  AND ( (COALESCE(t.vs,'')<>'' "
+            "         AND regexp_replace(COALESCE(l.doklad_vs,''),'\\D','','g')<>'' "
+            "         AND ltrim(t.vs,'0') = ltrim(regexp_replace(l.doklad_vs,'\\D','','g'),'0')) "
+            "       OR t.zprava ~ ('ID' || chr(58) || '0*' || l.id_fak || '([^0-9]|$)') )"))
         # D) opakované přes text/účet — mzdy/pojištění/daně co mají KS/účet varianty mimo bank_predpis
         #    (Marti 24.6.: Helios mzdy generuje 'Výplata na účet' dávky; pojišťovny/ČSSZ/FÚ dle účtu)
         s.execute(_t(

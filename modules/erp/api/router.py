@@ -28987,12 +28987,13 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             continue
         fond = daily_h * workdays
         absh = abs_by.get(cislo, 0.0)
-        odprac = max(0.0, fond - absh)
+        # Landmark (firma Landmark rrci za logiku): odpracovane DNY = MROUND((fond - absence)/uvazek; 0,5)
+        # - pulden granularita (potvrzeno proti Landmark Excelu, napr. Zeman 21,5, Bernardova 19).
+        # OBL = dny x sazba; HO a korekce se krati podilem odprac/fond = dny/pracovni_dny. (Peta 8.7.2026)
+        obl_dny = _lm_mr((fond - absh) / daily_h, 0.5) if daily_h else 0.0
+        odprac = obl_dny * daily_h
         if fond <= 0 or odprac <= 0:
             continue
-        # OBL/HO dny = odprac hodiny (fond-absence) ZAOKROUHLENE na cele / denni uvazek
-        # (ne pocet napichanych dnu); montaz+svatek nesnizuji, SD=pritomnost. Kveten 45/45.
-        obl_dny = float(round(odprac)) / daily_h if daily_h else 0.0
         V = osoh_by.get(cislo, 0.0)
         is_office = user_id in skup24
         obl_sazba = _OBL_SAZBA_KANCELAR if is_office else _OBL_SAZBA_DILNA

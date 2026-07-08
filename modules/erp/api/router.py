@@ -50426,7 +50426,11 @@ def system_tree_json(req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_erp_member(uid)
 
-    db_roots = _build_system_root_from_db(uid=uid, is_parent=is_marti_parent(uid))
+    # is_parent zde = "vidí celý strom vč. private uzlů" → rodič NEBO admin
+    # (Jirka 8.7.2026: admin je sysadmin tier, spravuje/dohlíží — musí vidět i
+    # scoped private uzly jako Dušanova Výroba). is_immutable filtr níže zůstává
+    # jen na is_marti_parent (SYSTEM uzly admin nevidí, business+private ano).
+    db_roots = _build_system_root_from_db(uid=uid, is_parent=is_parent_or_admin(uid))
 
     tree: list = []
     if isinstance(db_roots, list):

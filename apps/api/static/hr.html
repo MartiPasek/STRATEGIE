@@ -6,26 +6,27 @@
 <title>🧑‍💼 HR přehled</title>
 <style>
   :root{
-    --green:#7cb342;      /* Pinya akcentní zelená */
-    --green-d:#5f9331;
-    --ink:#33404d;        /* tmavý text */
-    --title:#2b3a4a;
-    --muted:#8a94a3;      /* popisky */
-    --line:#e7eaef;
-    --bg:#f4f5f7;
-    --card:#ffffff;
-    --ic-bg:#f0f4ec;      /* světle zelené pozadí ikon */
+    /* Tmavé ERP schéma (Šárka 8.7.2026 — sladit s ERP/Marti-AI) */
+    --green:#aac8ec;      /* akcent (ERP modrá) */
+    --green-d:#7fb0e0;
+    --ink:#cdd6e2;        /* text */
+    --title:#e8eef5;
+    --muted:#7f8ea0;      /* popisky */
+    --line:#233040;
+    --bg:#0f141a;
+    --card:#161c24;
+    --ic-bg:#1f2a37;      /* pozadí ikon */
   }
   *{box-sizing:border-box}
   body{margin:0;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;color:var(--ink);background:var(--bg)}
-  /* Horní nav — světlá se zeleným akcentem (Pinya) */
-  .topbar{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 1px 2px rgba(20,30,50,.04)}
+  /* Horní nav — tmavá dle ERP */
+  .topbar{background:var(--card);border-bottom:1px solid var(--line)}
   .topbar .inner{max-width:1180px;margin:0 auto;padding:11px 18px;display:flex;align-items:center;gap:12px}
   .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;color:var(--title)}
   .brand .dot{width:26px;height:26px;border-radius:8px;background:var(--green);display:inline-flex;align-items:center;justify-content:center;font-size:15px}
   .brand .sub{font-weight:500;font-size:12px;color:var(--muted);margin-left:2px}
   .topbar .spacer{margin-left:auto}
-  .pill{font-size:12px;color:var(--green-d);background:var(--ic-bg);border:1px solid #e0ead4;border-radius:20px;padding:4px 12px;font-weight:700}
+  .pill{font-size:12px;color:var(--green-d);background:var(--ic-bg);border:1px solid #2b3a4a;border-radius:20px;padding:4px 12px;font-weight:700}
   .wrap{max-width:1180px;margin:18px auto;padding:0 18px}
 
   /* KPI badges — jemné stat karty */
@@ -40,22 +41,22 @@
   .panel .phd{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800;color:var(--title);margin:2px 0 18px}
   .panel .phd .pi{width:26px;height:26px;border-radius:50%;background:var(--ic-bg);color:var(--green-d);display:inline-flex;align-items:center;justify-content:center;font-size:14px}
   .panel .phd .cnt{font-size:13px;color:var(--muted);font-weight:600;margin-left:2px}
-  .panel .phd .jhint{font-size:11px;color:#aab2bd;font-weight:500;margin-left:auto}
-  .jrow{display:flex;gap:12px;align-items:center;padding:10px 12px;border-top:1px solid #f2f4f6;border-radius:9px;margin:2px 0}
+  .panel .phd .jhint{font-size:11px;color:#5d6b7c;font-weight:500;margin-left:auto}
+  .jrow{display:flex;gap:12px;align-items:center;padding:10px 12px;border-top:1px solid #1e2730;border-radius:9px;margin:2px 0}
   .jrow:first-child{border-top:0}
   .jic{flex:0 0 36px;height:36px;border-radius:9px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:18px}
   .jbd{flex:1;min-width:0}
   .jnm{font-weight:700;color:var(--title);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .jsub{font-size:12.5px;color:var(--muted);margin-top:1px}
-  .jbadge{font-size:10.5px;font-weight:800;letter-spacing:.3px;padding:1px 8px;border-radius:20px;background:#eef1f4;color:#66707d}
-  .j-major{background:linear-gradient(180deg,#fff7e0,#fffdf6);border:1px solid #f0d98a;padding:12px}
-  .j-major .jic{background:#fbe6a0}
+  .jbadge{font-size:10.5px;font-weight:800;letter-spacing:.3px;padding:1px 8px;border-radius:20px;background:#233040;color:#aac8ec}
+  .j-major{background:#241d0c;border:1px solid #4a3a16;padding:12px}
+  .j-major .jic{background:#4a3a16}
   .j-major .jnm{font-size:15px}
-  .j-major .jbadge{background:#e0a400;color:#fff}
-  .j-minor{background:#f7fafd;border:1px solid #e4ecf5;padding:11px 12px}
-  .j-minor .jic{background:#e9f1fb}
-  .j-minor .jbadge{background:#dbe7ff;color:#3a5a9c}
-  .mrow{display:flex;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid #f2f4f6}
+  .j-major .jbadge{background:#e0a400;color:#1a1206}
+  .j-minor{background:#16202b;border:1px solid #24303d;padding:11px 12px}
+  .j-minor .jic{background:#1f2a37}
+  .j-minor .jbadge{background:#1f2a37;color:#aac8ec}
+  .mrow{display:flex;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid #1e2730}
   .mrow:first-child{border-top:0}
   .mrow .mic{flex:0 0 34px;height:34px;border-radius:9px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:17px}
   .mrow .mnm{font-weight:700;color:var(--title)}
@@ -67,26 +68,26 @@
   .tile .tt{font-weight:700;color:var(--title);font-size:14.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .tile .dd{font-size:12.5px;color:var(--muted);margin-top:2px}
   .tile.click{cursor:pointer}
-  .tile.click:hover{background:#fafcf7}
+  .tile.click:hover{background:#1b232d}
   .tag{display:inline-block;border-radius:20px;padding:1px 9px;font-size:10.5px;font-weight:700;letter-spacing:.2px}
-  .tag.soon{background:#f1f3f5;color:#9aa4b1}
+  .tag.soon{background:#23262b;color:#7f8ea0}
   .tag.live{background:var(--ic-bg);color:var(--green-d)}
 
   /* Aktuality */
   .feed .phd{margin-bottom:10px}
-  .feed .row{display:flex;gap:11px;padding:10px 6px;border-top:1px solid #f2f4f6;font-size:13.5px;align-items:center}
+  .feed .row{display:flex;gap:11px;padding:10px 6px;border-top:1px solid #1e2730;font-size:13.5px;align-items:center}
   .feed .row:first-of-type{border-top:0}
   .feed .row .ic{flex:0 0 30px;height:30px;border-radius:8px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:15px}
   .empty{padding:22px;color:var(--muted);text-align:center;font-style:italic}
   .badge.click{cursor:pointer}
   /* Modal Mimo kancelář */
-  .modal{display:none;position:fixed;inset:0;background:rgba(20,30,50,.45);z-index:50;align-items:flex-start;justify-content:center;padding:56px 16px}
+  .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:flex-start;justify-content:center;padding:56px 16px}
   .modal.on{display:flex}
-  .modal-card{background:#fff;border-radius:14px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(20,30,50,.25);overflow:hidden;max-height:80vh;display:flex;flex-direction:column}
+  .modal-card{background:#161c24;border:1px solid #233040;border-radius:14px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden;max-height:80vh;display:flex;flex-direction:column}
   .modal-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);font-weight:800;color:var(--title)}
   .modal-hd .x{cursor:pointer;color:var(--muted);font-weight:400;font-size:18px;line-height:1}
   #modalBody{overflow:auto}
-  .mrow{display:flex;gap:12px;align-items:center;padding:11px 18px;border-top:1px solid #f2f4f6}
+  .mrow{display:flex;gap:12px;align-items:center;padding:11px 18px;border-top:1px solid #1e2730}
   .mrow:first-child{border-top:0}
   .mrow .mic{flex:0 0 34px;height:34px;border-radius:9px;background:var(--ic-bg);display:flex;align-items:center;justify-content:center;font-size:17px}
   .mrow .mnm{font-weight:700;color:var(--title)}

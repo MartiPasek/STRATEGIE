@@ -78,7 +78,15 @@ odpracovaného fondu (absence sníží). Kdo nárok nemá, HO nedostane.
 - **Vyloučené činnosti** (den bez stravenky): **dovolená, lékař, nemoc, OČR, montáž (služební cesta), mateřská, DN (dovolená navíc)**.
 - **Sick day (SD) NÁLEŽÍ** — bere se jako přítomnost.
 - **Režie NENÍ důvod k vyloučení** — režie je *zakázka*, ne činnost; rozhoduje činnost. Proto se čte z **`att_day_summary`** (činnostní zrcadlo, čte `DruhCinnosti`), NE z `att_entry` (které třídí podle zakázky a „režii" schová jako `overhead`).
-- **Nezáleží na tom, jestli konkrétní den něco napíchal** — kdo splnil fond, má stravenku i za naadělané dny; kdo fond nesplnil, vzal si dovolenou/SD → to je už v těch činnostech.
+- **Nezáleží na tom, jestli konkrétní den něco napíchal** (viz Princip FPD níže).
+
+### Princip FPD (fond pracovní doby)
+
+Stravenka se **neváže na odpíchané hodiny konkrétního dne**, ale na **splnění měsíčního fondu** (FPD = fond pracovní doby dle úvazku, Po–Pá):
+
+- Kdo **fond splnil** — odpracoval, nebo si chybějící hodiny **nadělal** jindy — má stravenku za **každý pracovní den** kromě dnů s vyloučenou činností. Proto se počítají i dny, kdy fyzicky nepřišel, ale fond doháněl (např. Urbanová 3. a 5. 6. → měla nárok).
+- Kdo **fond nesplnil**, pokryl si chybějící dny **dovolenou nebo SD** — a to už je v činnostech (dovolená = den ven, SD = den náleží). Proto **fond nekontrolujeme zvlášť** — promítne se sám přes činnosti.
+- Důsledek: **„režie" (zakázka) sama o sobě stravenku neubírá**; ubírá ji jen **vyloučená činnost**. Rozhoduje `DruhCinnosti`, ne zakázka.
 
 **Neaktivní zaměstnance do mezd NEPOČÍTÁME** — kdo v měsíci nemá docházku (`att_day_summary`), stravenky nedostane (pojistka přímo ve funkci; navíc nemá výplatnici, StavES ∉ (0,1)).
 

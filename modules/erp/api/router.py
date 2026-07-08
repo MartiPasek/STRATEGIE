@@ -30260,10 +30260,17 @@ def mzdy_vyplatnice_detail(req: Request):
             _fec = 'EC' if firma in ('EC', '1') else 'ES'
             _s2 = _g2()
             try:
+                # Základ pro korekci = SOUČET VŠECH snapshotových složek mapovaných na 432
+                # (os_ohodnoceni + vedeni_lidi + individualni + vedeni_obchod), ne jen os_ohodnoceni.
+                # Jinak řádek "spolkne" přesunuté složky a ukáže špatnou korekci (Kristý 8.7.2026).
+                # Landmark korekce = predzp_432 (_ned) - tento základ (_v).
                 _v = float(_s2.execute(_t2(
-                    "SELECT COALESCE(SUM(castka),0) FROM tenant.helios_wage_snapshot "
-                    "WHERE tenant_id=2 AND firma=:f AND cislo::text=:c AND slozka='os_ohodnoceni' "
-                    "AND asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f)"),
+                    "SELECT COALESCE(SUM(sn.castka),0) FROM tenant.helios_wage_snapshot sn "
+                    "JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
+                    "JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id "
+                    "  AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true)=true AND msm.ext_code='432' "
+                    "WHERE sn.tenant_id=2 AND sn.firma=:f AND sn.cislo::text=:c "
+                    "  AND sn.asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:f)"),
                     {"f": _fec, "c": str(header.get("cislo") or "").strip()}).scalar() or 0)
             finally:
                 _s2.close()

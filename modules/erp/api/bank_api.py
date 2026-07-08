@@ -667,6 +667,100 @@ def bank_zustatky(request: Request):
         s.close()
 
 
+@bank_router.get("/app/bank/vypisy")
+def bank_vypisy(request: Request):
+    """Výpisy — richší list (vč. id pro detail + protistrana z raw). Filtry firma+měna.
+    Nahrazuje /app/platby/vypisy pro UI. Claude 8.7.2026."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    firma = (request.query_params.get("firma") or "all").strip()
+    mena = (request.query_params.get("mena") or "all").strip().upper()
+    s = _sess()
+    try:
+        conds, params = [], {}
+        if firma in ("1", "2"):
+            params["ff"] = int(firma); conds.append("c.company_id = :ff")
+        if mena in ("CZK", "EUR"):
+            params["mm"] = mena; conds.append("COALESCE(NULLIF(t.mena,''),'CZK') = :mm")
+        base = ("FROM tenant.bank_transaction_raw t "
+                "LEFT JOIN tenant.bank_connection_account a ON a.id=t.account_id "
+                "LEFT JOIN tenant.bank_connection c ON c.id=a.connection_id"
+                + ((" WHERE " + " AND ".join(conds)) if conds else ""))
+        rows = s.execute(_t(
+            "SELECT t.id, to_char(t.datum,'DD.MM.YYYY') d, t.castka, COALESCE(NULLIF(t.mena,''),'CZK') mena, "
+            "  COALESCE(t.smer,'') smer, COALESCE(t.protiucet,'') protiucet, COALESCE(t.vs,'') vs, "
+            "  LEFT(COALESCE(t.zprava,''),90) zprava, COALESCE(t.stav_parovani,'') stav, "
+            "  COALESCE(NULLIF(t.par_kategorie,''), NULLIF(t.par_zakazka,''), '') par, "
+            "  COALESCE(c.company_id,1) firma, "
+            "  COALESCE(t.raw #>> '{entryDetails,transactionDetails,relatedParties,counterParty,name}','') protistrana "
+            + base + " ORDER BY t.datum DESC, t.id DESC LIMIT 300"), params).fetchall()
+        out = []
+        for r in rows:
+            out.append({"id": int(r[0]), "datum": r[1], "castka": float(r[2]) if r[2] is not None else 0.0,
+                        "mena": r[3], "smer": r[4], "protiucet": r[5], "vs": r[6], "zprava": r[7],
+                        "stav": r[8], "par": r[9], "firma": int(r[10]) if r[10] is not None else 1,
+                        "protistrana": r[11]})
+        cnt = s.execute(_t("SELECT count(*) " + base), params).scalar()
+        posl = s.execute(_t("SELECT to_char(max(t.datum),'DD.MM.YYYY') " + base), params).scalar()
+        return {"ok": True, "polozky": out, "posledni": posl, "total": int(cnt or 0), "shown": len(out)}
+    finally:
+        s.close()
+
+
+@bank_router.get("/app/bank/vypis-detail")
+def bank_vypis_detail(request: Request):
+    """Detail jedné transakce — vše z raw (protistrana, valuty, VS/KS/SS, karta,
+    kód transakce, zprávy) + syrové JSON. Marti 8.7.2026 („detail to jistí")."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        tid = int(request.query_params.get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Zadej id."}, status_code=400)
+    s = _sess()
+    try:
+        r = s.execute(_t(
+            "SELECT t.id, to_char(t.datum,'DD.MM.YYYY'), t.castka, COALESCE(NULLIF(t.mena,''),'CZK'), "
+            "  COALESCE(t.smer,''), COALESCE(t.protiucet,''), COALESCE(t.vs,''), COALESCE(t.ks,''), "
+            "  COALESCE(t.ss,''), COALESCE(t.zprava,''), COALESCE(t.stav_parovani,''), COALESCE(t.ext_id,''), "
+            "  COALESCE(c.company_id,1), COALESCE(a.cislo_uctu,''), t.raw "
+            "FROM tenant.bank_transaction_raw t "
+            "LEFT JOIN tenant.bank_connection_account a ON a.id=t.account_id "
+            "LEFT JOIN tenant.bank_connection c ON c.id=a.connection_id WHERE t.id=:id"), {"id": tid}).first()
+        if not r:
+            return JSONResponse({"ok": False, "error": "Transakce nenalezena."}, status_code=404)
+        raw = r[14] or {}
+        if isinstance(raw, str):
+            try:
+                raw = _json.loads(raw)
+            except Exception:
+                raw = {}
+        det = ((raw.get("entryDetails", {}) or {}).get("transactionDetails", {}) or {})
+        cp = ((det.get("relatedParties", {}) or {}).get("counterParty", {}) or {})
+        acc = (cp.get("account", {}) or {})
+        rem = (det.get("remittanceInformation", {}) or {})
+        detail = {
+            "id": int(r[0]), "datum": r[1], "castka": float(r[2]) if r[2] is not None else 0.0,
+            "mena": r[3], "smer": r[4], "protiucet": r[5], "vs": r[6], "ks": r[7], "ss": r[8],
+            "zprava": r[9], "stav": r[10], "ext_id": r[11],
+            "firma": int(r[12]) if r[12] is not None else 1, "nas_ucet": r[13],
+            "protistrana_nazev": cp.get("name") or "",
+            "protistrana_ucet": acc.get("iban") or acc.get("accountNumber") or "",
+            "value_date": (raw.get("valueDate") or "")[:10],
+            "booking_date": (raw.get("bookingDate") or "")[:10],
+            "card": det.get("paymentCardNumber") or "",
+            "bank_code": ((raw.get("bankTransactionCode", {}) or {}).get("code") or ""),
+            "unstructured": rem.get("unstructured") or "",
+            "originator": rem.get("originatorMessage") or "",
+            "raw_pretty": _json.dumps(raw, ensure_ascii=False, indent=2),
+        }
+        return {"ok": True, "detail": detail}
+    finally:
+        s.close()
+
+
 @bank_router.post("/app/bank/payment/import-batch")
 async def bank_import_batch(request: Request):
     """Nahraje dávku plateb (platák) do RB IB k PODPISU. NEPROVEDE platbu — člověk podepíše v bankovnictví.

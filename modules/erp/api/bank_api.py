@@ -530,8 +530,8 @@ def sync_all_tx(days: int = 90):
     nacteno, zustatku, chyb = 0, 0, 0
     try:
         conns = [r[0] for r in s.execute(_t(
-            "SELECT id FROM tenant.bank_connection WHERE tenant_id=:tn AND COALESCE(aktivni,true) "
-            "ORDER BY id"), {"tn": _TENANT}).fetchall()]
+            "SELECT id FROM tenant.bank_connection WHERE tenant_id=:tn ORDER BY id"),
+            {"tn": _TENANT}).fetchall()]
         date_to = _dt.date.today()
         date_from = date_to - _dt.timedelta(days=max(1, days) - 1)
         for cid in conns:

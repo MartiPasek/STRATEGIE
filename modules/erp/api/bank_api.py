@@ -2946,6 +2946,11 @@ def _start_bank_sync_scheduler():
         return
     _BANK_SYNC_STARTED[0] = True
     try:
+        import os as _osx
+        # JEN na primáru — na blue-green sekundáru (adresář STRATEGIE-prev) scheduler NEspouštěj
+        # (stejně jako att_sync/mirror v main.py lifespan; jinak by po povýšení B běžel 2×). 8.7.
+        if "prev" in _osx.path.abspath(__file__).lower():
+            return
         import threading as _thr
         _thr.Thread(target=_bank_sync_loop, daemon=True, name="bank-sync").start()
     except Exception:

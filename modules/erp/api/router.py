@@ -29300,30 +29300,36 @@ def _mzdy_absence_rows(firma, rok, mesic):
     tenant.user_smlouva (Marti 30.6.2026): absence agreguje per USER, firemní číslo =
     user_smlouva.helios_cislo pro DANOU firmu (kde běží mzda 2026, bez kolizí), OSVČ
     (typ='osvc') VEN. Náhrady nepočítáme — Dny+Hodiny do MS, Helios dopočítá z průměru.
-    Vrací (cislo, ms, koruny=0, dny, hodiny)."""
+    Vrací (cislo, ms, koruny=0, dny, hodiny) NEBO u lékaře/OČR
+    (cislo, ms, 0, dny, hodiny, datum_od, datum_do).
+
+    Kristý 8.7.2026: LÉKAŘ (243) + OČR (251) potřebují v Heliosu OBDOBÍ (DatumOd/DatumDo),
+    jinak se NEkrátí základ (na rozdíl od dovolené). Proto je generujeme JEDEN ŘÁDEK PER DEN
+    s datem. Nemocenskou (sick/200) sem zatím nepřidáváme — DNP dopisuje účetní ručně."""
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     fkod = "EC" if str(firma).upper() in ("EC", "1") else "ES"
+    # Jednatelé (odměna 693, bez mzdového základu) VEN z absence — Helios neumí spočítat
+    # náhradu bez základu → výpočet padá. Detekce: aktivní ruční složka 693.
+    _jedn = ("   AND NOT EXISTS (SELECT 1 FROM tenant.mzdy_rucni_slozka jd WHERE jd.tenant_id=2 "
+             "        AND jd.firma=:f AND jd.cislo_ms=693 AND COALESCE(jd.aktivni,true)=true "
+             "        AND jd.cislo=sm.helios_cislo::text) ")
+    _join = ("FROM tenant.att_entry a "
+             "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id AND et.category='absence' "
+             "JOIN tenant.att_employee e ON e.id=a.employee_id "
+             "JOIN tenant.user_smlouva sm ON sm.user_id=e.user_id AND sm.tenant_id=2 "
+             "   AND sm.firma=:f AND sm.typ_smlouvy<>'osvc' AND sm.helios_cislo IS NOT NULL " + _jedn +
+             "WHERE a.tenant_id=2 "
+             "  AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo ")
     s = _g()
+    out = []
     try:
+        # (A) agregát bez období — dovolená/nemoc/neplacené/mateřská (beze změny)
         rows = s.execute(_t(
             "SELECT sm.helios_cislo AS cislo, et.code AS code, "
-            "  COUNT(DISTINCT a.entry_date) AS dny, COALESCE(SUM(a.hours),0) AS hod "
-            "FROM tenant.att_entry a "
-            "JOIN tenant.att_entry_type et ON et.id=a.entry_type_id AND et.category='absence' "
-            "JOIN tenant.att_employee e ON e.id=a.employee_id "
-            "JOIN tenant.user_smlouva sm ON sm.user_id=e.user_id AND sm.tenant_id=2 "
-            "   AND sm.firma=:f AND sm.typ_smlouvy<>'osvc' AND sm.helios_cislo IS NOT NULL "
-            # Jednatelé (odměna 693, bez mzdového základu) VEN z absence — Helios neumí
-            # spočítat náhradu bez základu → výpočet padá. Detekce: aktivní ruční složka 693.
-            "   AND NOT EXISTS (SELECT 1 FROM tenant.mzdy_rucni_slozka jd WHERE jd.tenant_id=2 "
-            "        AND jd.firma=:f AND jd.cislo_ms=693 AND COALESCE(jd.aktivni,true)=true "
-            "        AND jd.cislo=sm.helios_cislo::text) "
-            "WHERE a.tenant_id=2 "
-            "  AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
-            "  AND et.code IN ('vacation','medical','sick','family_care','unpaid','maternity') "
+            "  COUNT(DISTINCT a.entry_date) AS dny, COALESCE(SUM(a.hours),0) AS hod " + _join +
+            "  AND et.code IN ('vacation','sick','unpaid','maternity') "
             "GROUP BY sm.helios_cislo, et.code"), {"f": fkod, "y": rok, "mo": mesic}).fetchall()
-        out = []
         for r in rows:
             try:
                 cislo = int(str(r[0]).strip()); ms = _ABS_CODE_TO_MS.get(r[1])
@@ -29333,6 +29339,23 @@ def _mzdy_absence_rows(firma, rok, mesic):
             if not ms or (dny <= 0 and hod <= 0):
                 continue
             out.append((cislo, ms, 0, int(round(dny)), round(hod, 2)))
+        # (B) lékař + OČR — JEDEN ŘÁDEK PER DEN s DatumOd/DatumDo (Helios kvůli krácení
+        # základu potřebuje období). Kristý 8.7.2026.
+        drows = s.execute(_t(
+            "SELECT sm.helios_cislo AS cislo, et.code AS code, a.entry_date AS den, "
+            "  COALESCE(SUM(a.hours),0) AS hod " + _join +
+            "  AND et.code IN ('medical','family_care') "
+            "GROUP BY sm.helios_cislo, et.code, a.entry_date"), {"f": fkod, "y": rok, "mo": mesic}).fetchall()
+        for r in drows:
+            try:
+                cislo = int(str(r[0]).strip()); ms = _ABS_CODE_TO_MS.get(r[1])
+                den = r[2]; hod = float(r[3] or 0)
+            except Exception:
+                continue
+            if not ms or hod <= 0 or not den:
+                continue
+            ds = den.isoformat()
+            out.append((cislo, ms, 0, 1, round(hod, 2), ds, ds))
         return out
     finally:
         s.close()
@@ -29340,10 +29363,16 @@ def _mzdy_absence_rows(firma, rok, mesic):
 
 def _mzdy_consolidate(prows):
     """Sečte koruny + dny + hodiny per (cislo, cislo_ms) — víc zdrojů do jedné Helios složky
-    (např. 651 ze snapshotu premie/vedení + příplatků odměny). 5. prvek = hodiny (absence)."""
+    (např. 651 ze snapshotu premie/vedení + příplatků odměny). 5. prvek = hodiny (absence).
+    Řádky S OBDOBÍM (7-tuple s datum_od = lékař/OČR) NEKONSOLIDUJEME — každé období/den má
+    vlastní řádek s vlastním DatumOd/DatumDo (Kristý 8.7.2026)."""
     agg = {}
     order = []
+    dated = []
     for row in prows:
+        if len(row) >= 7 and row[5]:  # má DatumOd → propustit beze změny (nekonsolidovat)
+            dated.append(tuple(row))
+            continue
         try:
             c = int(row[0]); ms = int(row[1]); kc = int(row[2] or 0)
             dny = int(row[3] if len(row) > 3 else 0)
@@ -29356,13 +29385,15 @@ def _mzdy_consolidate(prows):
         agg[(c, ms)][0] += kc
         agg[(c, ms)][1] += dny
         agg[(c, ms)][2] += hod
-    return [(c, ms, agg[(c, ms)][0], agg[(c, ms)][1], round(agg[(c, ms)][2], 2)) for (c, ms) in order]
+    return [(c, ms, agg[(c, ms)][0], agg[(c, ms)][1], round(agg[(c, ms)][2], 2)) for (c, ms) in order] + dated
 
 
 def _mzdy_predzprac_apply(cloud_db, idobd, rows, only_zid=None):
     """Zapíše předzpracování PER-ŘÁDEK přes 3-part jména (bez USE/temp/cursor) — spolehlivé
     přes API _mssql188_query a trigger-safe (single-row INSERT projde Helios triggerem).
-    rows=(cislo,cislo_ms,koruny). Pevná 1 i na kartu. Vrací None=OK / chybový string.
+    rows=(cislo,cislo_ms,koruny[,dny,hodiny[,datum_od,datum_do]]). Když řádek nese datum_od/datum_do
+    (lékař/OČR), plníme i DatumOd/DatumDo/DochazkaOd/DochazkaDo (Helios pak ponížil základ).
+    Pevná 1 i na kartu. Vrací None=OK / chybový string.
     only_zid = přegenerování JEN jednoho člověka: čistá voda předzpracování se omezí na jeho
     ZamestnanecId, aby se STRATEGIE řádky ostatních nesmazaly."""
     o = str(int(idobd))
@@ -29397,11 +29428,20 @@ def _mzdy_predzprac_apply(cloud_db, idobd, rows, only_zid=None):
         c, ms, kc = row[0], row[1], row[2]
         dny = row[3] if len(row) > 3 else 0
         hod = float(row[4]) if len(row) > 4 else 0.0
+        dod = row[5] if len(row) > 5 else None  # DatumOd (lékař/OČR — kvůli krácení základu)
+        ddo = row[6] if len(row) > 6 else None  # DatumDo
         zid = id_by_cislo.get(int(c))
         if not zid or zid not in masters or (not kc and not dny and not hod):  # jen zaměstnanci s masterem; absence = Dny+Hodiny (náhradu dopočítá Helios)
             continue
-        stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
-                     "VALUES(%s,%d,%d,%.2f,%d,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), float(hod or 0), int(dny or 0), int(kc)))
+        if dod and ddo:
+            # docházková absence s OBDOBÍM (lékař/OČR) → plníme DatumOd/DatumDo + DochazkaOd/DochazkaDo,
+            # aby Helios ponížil základ a spočítal správnou mzdu i před ručním DNP účetní. Kristý 8.7.2026.
+            stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,DatumOd,DatumDo,DochazkaOd,DochazkaDo,Sazba,Autor,DatPorizeni) "
+                         "VALUES(%s,%d,%d,%.2f,%d,%d,'%s','%s','%s','%s',0,'STRATEGIE',GETDATE());"
+                         % (o, zid, int(ms), float(hod or 0), int(dny or 0), int(kc), dod, ddo, dod, ddo))
+        else:
+            stmts.append("INSERT " + cloud_db + ".dbo.TabPredzp(IdObdobi,ZamestnanecId,CisloMS,Hodiny,Dny,Koruny,Sazba,Autor,DatPorizeni) "
+                         "VALUES(%s,%d,%d,%.2f,%d,%d,0,'STRATEGIE',GETDATE());" % (o, zid, int(ms), float(hod or 0), int(dny or 0), int(kc)))
         if int(ms) == 1:
             kart.append("UPDATE " + cloud_db + ".dbo.TabZamMzd SET ZakladniPlat=%d WHERE ZamestnanecId=%d AND IdObdobi=%s;" % (int(kc), zid, o))
     allstmts = stmts + kart

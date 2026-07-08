@@ -5888,9 +5888,9 @@ async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
                 _ulink = _CRM_PUBLIC_BASE + "/crm/odhlasit/" + _otok
                 _unsub = ('<p style="font-size:8pt;color:#999;'
                           'font-family:Verdana,sans-serif;margin-top:14px">'
-                          'Wenn Sie keine weiteren Nachrichten erhalten möchten, '
+                          'Wenn Sie von mir keine E-Mails mehr erhalten möchten, '
                           'können Sie sich <a href="' + _ulink +
-                          '" style="color:#999">hier abmelden</a>.</p>')
+                          '" style="color:#999">hier abmelden</a>. Ich werde Ihren Wunsch respektieren.</p>')
             except Exception:
                 _unsub = ""
             _sab = sablona or "<p>(prázdná šablona)</p>"
@@ -6146,9 +6146,9 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                 _ulink = _CRM_PUBLIC_BASE + "/crm/odhlasit/" + _otok
                 _unsub = ('<p style="font-size:8pt;color:#999;'
                           'font-family:Verdana,sans-serif;margin-top:14px">'
-                          'Wenn Sie keine weiteren Nachrichten erhalten möchten, '
+                          'Wenn Sie von mir keine E-Mails mehr erhalten möchten, '
                           'können Sie sich <a href="' + _ulink +
-                          '" style="color:#999">hier abmelden</a>.</p>')
+                          '" style="color:#999">hier abmelden</a>. Ich werde Ihren Wunsch respektieren.</p>')
             except Exception:
                 _unsub = ""
             _sab = sablona or "<p>(prázdná šablona)</p>"
@@ -15700,6 +15700,106 @@ def app_crm_plan_hovoru(req: Request) -> JSONResponse:
     import datetime as _dt
     return JSONResponse({"ok": True, "rows": out,
                          "generated": _dt.datetime.now().strftime("%d.%m.%Y %H:%M")})
+
+
+@api_router.post("/app/crm/hovor-zapis")
+async def app_crm_hovor_zapis(req: Request) -> JSONResponse:
+    """Zápis průběhu hovoru → nová akce telefonát (IDAkce=2) do st.CRM_Kontakt_Akce (DB_EC),
+    volitelně posun PristiKontakt na firmě. Diktování průběhu řeší frontend přes /app/transcribe
+    (Whisper). Autor = login_name uživatele (Autor v CRM = login, např. Pavel = 'PZeman').
+    Přístup: rodič / ambasador / obchod — stejně jako plán hovorů. Kristý 7.7.2026."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        isp = s.execute(_t("SELECT COALESCE(is_marti_parent,false) FROM public.users WHERE id=:u"),
+                        {"u": int(uid)}).scalar()
+    finally:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+    if not isp and not _is_ambassador(uid) and not _is_obchod(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        idh = int((body or {}).get("id") or 0)
+    except Exception:
+        idh = 0
+    prubeh = str((body or {}).get("prubeh") or "").strip()
+    pristi = str((body or {}).get("pristi") or "").strip()
+    firma = str((body or {}).get("firma") or "").strip()[:256] or None
+    if not idh:
+        return JSONResponse({"ok": False, "error": "Chybí firma (id)."})
+    if not prubeh:
+        return JSONResponse({"ok": False, "error": "Prázdný průběh hovoru."})
+    # Autor = login uživatele (v CRM je Autor login_name)
+    autor = ""
+    try:
+        from core.database_data import get_data_session as _gds_au
+        _sa = _gds_au()
+        try:
+            autor = (_sa.execute(_t(
+                "SELECT COALESCE(NULLIF(login_name,''), NULLIF(short_name,''), '') "
+                "FROM public.users WHERE id=:i"), {"i": int(uid)}).scalar() or "").strip()
+        finally:
+            _sa.close()
+    except Exception:
+        autor = ""
+    if not autor:
+        return JSONResponse({"ok": False, "error": "Uživatel nemá login (Autor pro CRM)."})
+    import datetime as _dt
+    pristi_ok = None
+    if pristi:
+        try:
+            pristi_ok = _dt.date.fromisoformat(pristi).isoformat()
+        except Exception:
+            return JSONResponse({"ok": False, "error": "Neplatné datum příštího kontaktu."})
+    mcp = _crm_import_mcp()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "mcp_unavailable"}, status_code=503)
+    today = _dt.date.today().isoformat()
+    # Další pořadí akce v rámci firmy
+    poradi = 1
+    try:
+        prows = _crm_mcp_rows(mcp, "SELECT ISNULL(MAX(Poradi),0)+1 AS p "
+                              "FROM st.CRM_Kontakt_Akce WITH(NOLOCK) WHERE IDHlav=" + str(idh))
+        pl = {(k or "").lower(): v for k, v in (prows[0] if prows else {}).items()}
+        poradi = int(pl.get("p") or 1)
+    except Exception:
+        poradi = 1
+    # INSERT telefonát (IDAkce=2 = telefonát na firmu) — objeví se i v „proběhlé hovory za týden"
+    try:
+        new_id = _crm_mcp_insert(mcp, "CRM_Kontakt_Akce", {
+            "IDHlav": idh, "Poradi": poradi, "IDAkce": 2, "Splneno": 1,
+            "Autor": autor, "DatumAkce": today, "DatPorizeni": today,
+            "FirmaText": firma, "Prubeh": prubeh[:3900],
+        })
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": "Zápis hovoru selhal: " + str(exc)[:200]},
+                            status_code=502)
+    # Volitelný posun příštího kontaktu na firmě
+    pristi_set = False
+    if pristi_ok:
+        try:
+            import json as _j
+            raw = mcp.call_tool_sync("eurosoft_strategie_query_raw",
+                {"sql": "UPDATE st.CRM_Kontakt SET PristiKontakt='" + pristi_ok
+                        + "' WHERE ID=" + str(idh), "db_name": "DB_EC"}, conversation_id=None)
+            rr = _j.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(rr, dict) and rr.get("ok") is False:
+                raise RuntimeError(str(rr.get("error"))[:200])
+            pristi_set = True
+        except Exception as exc:
+            return JSONResponse({"ok": True, "akce_id": new_id, "pristi_set": False,
+                                 "warn": "Hovor uložen, ale posun příštího kontaktu selhal: "
+                                         + str(exc)[:160]})
+    return JSONResponse({"ok": True, "akce_id": new_id, "pristi_set": pristi_set})
 
 
 @api_router.get("/app/crm/hovory-tyden")

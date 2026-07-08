@@ -9,7 +9,7 @@
 | Složka (CisloMS) | Co to je | Zdroj | Jak |
 |---|---|---|---|
 | 1 | Základní plat | mzdová karta Helios (snapshot) | `helios_wage_snapshot` → předzpracování |
-| 432 | Osobní ohodnocení / Landmark korekce | snapshot + benefit engine | `_mzdy_benefity_apply` |
+| 432 | Osobní ohodnocení (+ Vedení lidí, Individuální složka, Vedení obchodu, Prémie jednatel u ne-jednatelů) | snapshot + benefit engine | `_mzdy_benefity_apply`; **432 se KRÁTÍ dle docházky** (viz níže) |
 | 651 | Prémie / příplatky / odměny (bucket) | viz níže (základ + loajalita + zakázky) | více zdrojů, `_mzdy_consolidate` je sečte |
 | 693 | Odměny společníků / jednatelská odměna | **Centrála** (typ 17) | `att_odmena_centrala` → `_mzdy_odmeny_rows` |
 | 700 | DPP odměna | **Centrála** (typ 1 pevná, typ 3 hodinová) | `att_odmena_centrala` → `_mzdy_odmeny_rows` |
@@ -46,6 +46,25 @@ Osoby s odměnou 693 (jednatelé/společníci) dostávají v mzdě **odměnu (69
   (průměrného výdělku) → bořilo to výpočet celé pásky.
 
 Filtr je v generaci hned před `_mzdy_consolidate` (celková i jednotlivcová cesta).
+
+## Vedení lidí / Individuální složka / Vedení obchodu / Prémie jednatel → složka 432 (Kristý 8.7.2026)
+
+Tyhle čtyři položky dřív padaly do bucketu **651** (prémie), od 8. 7. 2026 jedou na složku
+**432** (osobní ohodnocení). Rozhodnutí Kristý — patří mezi osobní ohodnocení, ne prémie.
+
+- **Vedení lidí (`vedeni_lidi`), Individuální složka (`individualni`), Vedení obchodu (`vedeni_obchod`)**
+  jsou snapshotové složky → přesun = jen přemapování v `tenant.wage_system_mapping`
+  (`ext_code` 651 → 432, `ext_label` = „Osobní ohodnocení - měs."). `vedeni_obchod` mapování
+  dřív nemělo, přidáno nově.
+- **Prémie jednatel** = odměna společníka (typicky 1000 Kč) u lidí, co **NEJSOU** jednatelé
+  (`_JEDNATELE_CISLA = {2, 41, 47}` = Pašek EC 2 / ES 41, Mózer EC 47). Generátor jejich
+  693 přehazuje na 432 (dřív 651) — řádky v `_mzdy_full_run`; rozpis-endpoint dopočítává
+  řádek „Prémie jednatel" v rozpisu **432**. Skuteční jednatelé (v setu) drží **693** (+ plné stravné).
+
+> ⚠️ **DŮLEŽITÉ — 432 se KRÁTÍ dle odpracované doby** (Helios ji počítá jako základní plat),
+> zatímco 651 se platila celá. U lidí s absencí (dovolená/nemoc) se tyhle položky poměrově sníží.
+> Příklad: č.465 (odpracoval 148/176 h) → 432 zkráceno na ~84 %. Plná docházka = beze změny.
+> Kristý 8.7.2026 potvrdila, že krácení je **správně** (osobní ohodnocení se krátit má).
 
 ## Prémie ze zakázek (651)
 

@@ -28334,7 +28334,7 @@ _HO_MS, _OBL_MS, _POHYB_MS = 795, 794, 432
 _HO_HOD_SAZBA = 43.0
 _OBL_SAZBA_KANCELAR, _OBL_SAZBA_DILNA = 109.0, 279.0
 _HO_DILNA_VYJIMKA = {("2", 476)}                     # Bláha ES 476 = dílna, ale má HO
-_LM_ABS_CODES = ('vacation', 'medical', 'sick', 'sickday', 'family_care', 'unpaid', 'maternity')
+_LM_ABS_CODES = ('vacation', 'medical', 'sick', 'family_care', 'unpaid', 'maternity')
 
 
 def _lm_mr(x, m):   # Excel MROUND
@@ -28407,11 +28407,24 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             "FROM tenant.user_smlouva sm "
             "LEFT JOIN tenant.att_employee e ON e.tenant_id=2 AND e.user_id=sm.user_id "
             "LEFT JOIN tenant.engagement g ON g.employee_id=e.id AND g.is_current=true "
-            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND COALESCE(sm.typ_smlouvy,'')<>'osvc' "
+            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND LOWER(COALESCE(sm.typ_smlouvy,''))='hpp' "  # nahrady JEN HPP (Peta 8.7.2026)
             "  AND sm.helios_cislo IS NOT NULL GROUP BY sm.helios_cislo, sm.user_id"),
                 {"fk": fk_sm}).fetchall():
             try:
                 emp[int(r[0])] = (int(r[1]), float(r[2] or 40) / 5.0)
+            except Exception:
+                pass
+        probace = set()  # zkusebni doba -> Landmark az PO ni (Peta 8.7.2026)
+        _od0 = "%04d-%02d-01" % (ry, rm)
+        for r in s.execute(_t(
+            "SELECT sm.helios_cislo FROM tenant.user_smlouva sm "
+            "JOIN tenant.att_employee e ON e.tenant_id=2 AND e.user_id=sm.user_id "
+            "JOIN tenant.engagement g ON g.employee_id=e.id AND g.is_current=true "
+            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND sm.helios_cislo IS NOT NULL "
+            "  AND g.zkusebni_do IS NOT NULL AND g.zkusebni_do >= CAST(:d0 AS date)"),
+                {"fk": fk_sm, "d0": _od0}).fetchall():
+            try:
+                probace.add(int(r[0]))
             except Exception:
                 pass
         ho_dny_by = {}; obl_off = set()
@@ -28447,7 +28460,7 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             "FROM tenant.att_entry a JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
             "JOIN tenant.att_employee e ON e.id=a.employee_id "
             "WHERE e.tenant_id=2 AND et.code IN "
-            "  ('vacation','medical','sick','sickday','family_care','unpaid','maternity') "
+            "  ('vacation','medical','sick','family_care','unpaid','maternity') "
             "  AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
             "GROUP BY e.cislo_zam"), {"y": ry, "mo": rm}).fetchall():
             try:
@@ -28468,11 +28481,18 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
         wd = days_by.get(cislo, 0)
         if wd <= 0:
             continue
+        if cislo in probace:            # zkusebni doba -> bez Landmark nahrad (Peta 8.7.2026)
+            continue
+        if daily_h < 6:                 # denni uvazek < 6 h -> bez naroku (Peta 8.7.2026)
+            continue
         fond = daily_h * workdays
         absh = abs_by.get(cislo, 0.0)
         odprac = max(0.0, fond - absh)
         if fond <= 0 or odprac <= 0:
             continue
+        # OBL/HO dny = odprac hodiny (fond-absence) ZAOKROUHLENE na cele / denni uvazek
+        # (ne pocet napichanych dnu); montaz+svatek nesnizuji, SD=pritomnost. Kveten 45/45.
+        obl_dny = float(round(odprac)) / daily_h if daily_h else 0.0
         V = osoh_by.get(cislo, 0.0)
         is_office = user_id in skup24
         obl_sazba = _OBL_SAZBA_KANCELAR if is_office else _OBL_SAZBA_DILNA
@@ -28483,7 +28503,7 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
         # (Engine si to pak stejně poměrově zkrátí podle odpracovaného fondu.)
         _HO_DNY_NAPEVNO = 6
         ho_hod_narok = (_HO_DNY_NAPEVNO * daily_h) if ho_elig else 0.0
-        obl, ho, korekce = _lm_engine(fond, odprac, wd, obl_sazba_eff, ho_hod_narok, V)
+        obl, ho, korekce = _lm_engine(fond, odprac, obl_dny, obl_sazba_eff, ho_hod_narok, V)
         if obl > 0:
             add.append((cislo, _OBL_MS, int(obl), 0))
         if ho > 0:

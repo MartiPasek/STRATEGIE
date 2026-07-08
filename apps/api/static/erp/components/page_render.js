@@ -43,6 +43,14 @@
     // ─── Render helpers ──────────────────────────────────────────────
 
     function _renderDraftedPlaceholder(mainContent, tab, coreCode, coreId) {
+      // Finanční podmínky (Šárka 8.7.2026): jádro hr.finance = iframe zamčené stránky
+      // /finance-podminky (data gated na 8 přes _finance_can_uid; strom-uzel viditelný
+      // jen pro 8 přes visibility_user_ids). Tmavý ERP vzhled → sedne do plochy.
+      if (String(coreCode) === 'hr.finance') {
+        mainContent.innerHTML = '<iframe src="/finance-podminky" title="Finanční podmínky" '
+          + 'style="width:100%;height:100%;border:0;display:block;background:#0f141a;"></iframe>';
+        return;
+      }
       // HR přehled (Šárka 3.7.2026): jádro hr.prehled je záměrně „drafted" (bez
       // root gridu) — obsah dodává HR pult (Pinya styl). Mount ho MÍSTO placeholderu.
       if (String(coreCode) === 'hr.prehled'

@@ -146,28 +146,76 @@ function verdiktPill(v){
     :v==='podezrely'?'<span class="vpill v-pod">účet ≠ dodavatel</span>'
     :'<span class="vpill v-chybi">chybí účet</span>';
 }
+var _platakGen=[];
 function openPlatak(){
   document.getElementById('platakOv').classList.add('on');
-  var b=document.getElementById('platak-body');
-  b.innerHTML='<div class="load">Připravuji náhled (čtu účty příjemců z Centrály)…</div>';
+  document.getElementById('platak-body').innerHTML=
+    '<div id="platak-gen"></div><div id="platak-preview"><div class="load">Připravuji náhled (čtu účty příjemců z Centrály)…</div></div>';
+  loadVygenerovane();
   fetch('/api/v1/erp/app/platby/platak/preview?firma='+encodeURIComponent(_nfFirma),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderPlatak)
-    .catch(function(){b.innerHTML='<div class="load">Chyba náhledu.</div>';});
+    .catch(function(){var p=document.getElementById('platak-preview');if(p)p.innerHTML='<div class="load">Chyba náhledu.</div>';});
 }
 function closePlatak(){document.getElementById('platakOv').classList.remove('on');}
+function openPlatakReload(){
+  var p=document.getElementById('platak-preview');if(p)p.innerHTML='<div class="load">Aktualizuji náhled…</div>';
+  fetch('/api/v1/erp/app/platby/platak/preview?firma='+encodeURIComponent(_nfFirma),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderPlatak).catch(function(){});
+  loadNavrhy(true);
+}
+function loadVygenerovane(){
+  fetch('/api/v1/erp/app/platby/platak/vygenerovane',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      _platakGen=(d&&d.ok&&d.plataky)||[];
+      var g=document.getElementById('platak-gen'); if(!g)return;
+      if(!_platakGen.length){g.innerHTML='';return;}
+      var h='<div class="grp" style="border-color:#2b5e46"><div class="gh"><div class="t">✅ Naše vygenerované platáky</div>'+
+        '<div class="sum" style="font-size:12px;color:var(--dim);font-weight:600">'+_platakGen.length+' aktivních (zamykají saldo)</div></div>'+
+        '<table><thead><tr><th>Vytvořeno</th><th>Firma</th><th></th><th>Soubor</th><th class="r">Plateb</th><th class="r">Suma</th><th></th></tr></thead><tbody>';
+      _platakGen.forEach(function(p){
+        var typ=p.typ==='tuz'?'<span class="pill" style="background:#12294a;color:var(--czk)">tuz</span>':'<span class="pill" style="background:#241b40;color:var(--eur)">zahr</span>';
+        h+='<tr><td>'+esc(p.vytvoreno)+'</td><td class="dod">'+esc(p.firma_kod)+'</td><td>'+typ+'</td>'+
+          '<td class="mono" style="color:var(--ink)">'+esc(p.soubor)+'</td><td class="r">'+p.pocet+'</td>'+
+          '<td class="r money">'+money(p.suma,p.mena)+'</td>'+
+          '<td><button class="btn" style="padding:4px 10px;font-size:12px;border-color:var(--hot);background:#2a1416;color:#ffb3ae" onclick="smazatPlatak('+p.id+',this)">🗑 Smazat</button></td></tr>';
+      });
+      g.innerHTML=h+'</tbody></table></div>';
+    }).catch(function(){});
+}
+function smazatPlatak(id,btn){
+  if(!window.confirm('Smazat platák? Uvolní se úhradový zámek — faktury se vrátí do návrhu a saldo se obnoví. Soubor se smaže z disku.'))return;
+  btn.disabled=true;btn.textContent='mažu…';
+  fetch('/api/v1/erp/app/platby/platak/smazat',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({platak_id:id})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok){openPlatakReload();}
+      else{btn.disabled=false;btn.textContent='🗑 Smazat';window.alert('Nepovedlo se: '+((d&&d.error)||'chyba'));}
+    }).catch(function(){btn.disabled=false;btn.textContent='🗑 Smazat';window.alert('Chyba mazání.');});
+}
+function commitPlatak(firma,mena,btn){
+  if(!window.confirm('Vygenerovat platák '+mena+' pro '+(firma===2?'ES':'EC')+'?\nZapíše soubor na disk a zamkne faktury (saldo dolů). Jde kdykoli smazat.'))return;
+  btn.disabled=true;btn.textContent='generuji…';
+  fetch('/api/v1/erp/app/platby/platak/commit',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({firma:firma,mena:mena})})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok){window.alert('✅ Vygenerováno: '+d.pocet+' plateb · '+money(d.suma,d.mena)+'\n'+d.cesta+d.soubor);openPlatakReload();}
+      else{btn.disabled=false;btn.textContent='✅ Vygenerovat platák';window.alert('Nepovedlo se: '+((d&&d.error)||'chyba'));}
+    }).catch(function(){btn.disabled=false;btn.textContent='✅ Vygenerovat platák';window.alert('Chyba generování.');});
+}
 function renderPlatak(d){
-  var b=document.getElementById('platak-body');
+  var b=document.getElementById('platak-preview')||document.getElementById('platak-body');
   if(!d||!d.ok){b.innerHTML='<div class="load">'+esc((d&&d.error)||'Nemám oprávnění nebo nastala chyba.')+'</div>';return;}
   if(!d.skupiny||!d.skupiny.length){b.innerHTML='<div class="load">'+esc(d.info||'Nic k platbě pro tento filtr.')+'</div>';return;}
-  var h='<div class="sub">Dnes '+esc(d.dnes)+' · příští platební den <b>'+esc(d.pristi_platebni_den)+'</b>. „Platí" = faktura nepočká s rezervou na příští běh. '+
-    '<b>Nic se nezapisuje</b> — jen náhled toho, co by se vygenerovalo.</div>';
+  var h='<div class="sub">Dnes '+esc(d.dnes)+' · příští platební den <b>'+esc(d.pristi_platebni_den)+'</b>. „Platí" = faktura nepočká s rezervou na příští běh. Datum splatnosti na platáku = dnešní.</div>';
   if(d.ec_error){h+='<div class="pill hot" style="display:block;padding:8px 12px;margin-bottom:12px">Účty z DB_EC se nenačetly: '+esc(d.ec_error)+'</div>';}
   d.skupiny.forEach(function(g){
     var cls=g.mena==='CZK'?'c-czk':'c-eur';
     h+='<div class="grp"><div class="gh"><div class="t"><span class="cur '+cls+'">'+g.mena+'</span>'+
       esc(g.firma_kod)+' · '+g.pocet+' faktur <span style="color:var(--dim);font-weight:600">('+g.pocet_plati+' platí teď)</span></div>'+
       '<div class="sum">'+money(g.suma_plati,g.mena)+'</div></div>';
-    h+='<div class="mono" style="padding:6px 14px 2px">→ '+esc(g.cesta)+esc(g.soubor)+'</div>';
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px 4px;gap:10px">'+
+       '<span class="mono">→ '+esc(g.cesta)+esc(g.soubor)+'</span>'+
+       (g.pocet_plati>0?'<button class="btn" onclick="commitPlatak('+g.firma+',\''+g.mena+'\',this)">✅ Vygenerovat platák</button>':'')+'</div>';
     h+='<table><thead><tr><th>Doklad</th><th>Dodavatel</th><th>Účet příjemce</th><th>Splatnost</th><th>Kontrola</th><th></th><th class="r">Částka</th></tr></thead><tbody>';
     g.polozky.forEach(function(p){
       var warnTitle=(p.warns&&p.warns.length)?' title="'+esc(p.warns.join(' | '))+'"':'';
@@ -181,8 +229,7 @@ function renderPlatak(d){
     });
     h+='</tbody></table></div>';
   });
-  h+='<div class="foot" style="margin-top:8px">Fáze 2 (zápis .p11/.f84 na disk + úhradový zámek) přidáme po tvém odsouhlasení náhledu. '+
-    'Najetím na „Kontrolu" uvidíš detail varování. Zatím se nic nezapsalo.</div>';
+  h+='<div class="foot" style="margin-top:8px">Vygenerování zapíše soubor .p11/.f84 na disk (RB adresář) a zamkne faktury (měkký zámek jako v Heliosu) — saldo hned klesne. Platák jde kdykoli smazat výše (zámek se uvolní, saldo se vrátí). Odeslání do banky + podpis dělá člověk.</div>';
   b.innerHTML=h;
 }
 function loadNavrhy(force){

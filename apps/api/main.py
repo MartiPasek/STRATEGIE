@@ -1272,6 +1272,16 @@ def hr_modul_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/finance-podminky")
+def finance_podminky_page():
+    """💰 Finanční podmínky zaměstnanců (Šárka 8.7.2026) — CITLIVÉ.
+    Data z /app/hr/finance/* (gate _finance_can_uid = pevný seznam 8 lidí:
+    skupina HR + Marti). Stránka je jen skořápka; veškerá data i částky
+    servíruje jen zamčený endpoint (403 pro neoprávněné)."""
+    return FileResponse(os.path.join(static_dir, "finance_podminky.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/denik")
 def denik_page():
     """Přehled účetního deníku — živé zápisy řazené dle jistoty (triáž pro účetní).

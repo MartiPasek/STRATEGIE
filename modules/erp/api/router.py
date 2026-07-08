@@ -9104,6 +9104,130 @@ async def app_hr_gratulace_rozhodni(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ── Finanční podmínky zaměstnanců (Šárka 8.7.2026) — CITLIVÉ, přístup jen 8 lidí ──
+# Allowlist po domluvě Šárka + Marti: skupina HR (7) + Marti Pašek. PEVNÝ seznam ID
+# (u mezd radši explicitně než membership, ať se přístup nerozšíří nechtěně):
+#   1=Marti Pašek, 11=Kristýna Marešová, 13=Šárka Novotná, 18=Petra Šafránková,
+#   107=Petra Fajmonová, 20=Jiří Honomichl, 109=Tomáš Hrbek, 108=Marta Šafaříková
+_FINANCE_ALLOW = frozenset({1, 11, 13, 18, 107, 20, 109, 108})
+
+
+def _finance_can_uid(uid) -> bool:
+    try:
+        return int(uid) in _FINANCE_ALLOW
+    except Exception:
+        return False
+
+
+@api_router.get("/app/hr/finance/lide")
+async def app_hr_finance_lide(req: Request) -> JSONResponse:
+    """CITLIVÉ — finanční podmínky, seznam lidí. Přístup jen allowlist (_finance_can_uid)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    if not _finance_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT ae.user_id, COALESCE("
+            "  (SELECT trim(coalesce(p.first_name,'')||' '||coalesce(p.last_name,''))"
+            "     FROM tenant.hr_person p WHERE p.user_id=ae.user_id AND p.tenant_id=2 AND p.is_current"
+            "     ORDER BY p.id DESC LIMIT 1),"
+            "  (SELECT trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,''))"
+            "     FROM public.users u WHERE u.id=ae.user_id)) AS jmeno,"
+            " string_agg(DISTINCT co.code, '/' ORDER BY co.code) AS firmy,"
+            " string_agg(DISTINCT COALESCE(en.druh_text, en.engagement_type), ', ') AS typy,"
+            " max(en.pozice_text) AS pozice"
+            " FROM tenant.engagement en"
+            " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
+            " LEFT JOIN tenant.company co ON co.id=en.company_id"
+            " WHERE en.tenant_id=2 AND en.is_current AND ae.user_id IS NOT NULL"
+            " GROUP BY ae.user_id ORDER BY jmeno")).fetchall()
+        lide = [{"user_id": r[0], "jmeno": (r[1] or "").strip() or ("ID " + str(r[0])),
+                 "firmy": r[2] or "", "typy": r[3] or "", "pozice": r[4] or ""} for r in rows]
+        return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/finance/osoba")
+async def app_hr_finance_osoba(req: Request) -> JSONResponse:
+    """CITLIVÉ — finanční podmínky jednoho člověka (poměry + mzdové složky). Allowlist only."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    _ab = _amb_block_others(req)
+    if _ab is not None:
+        return _ab
+    if not _finance_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        target = int(req.query_params.get("uid") or 0)
+    except Exception:
+        target = 0
+    if not target:
+        return JSONResponse({"ok": False, "error": "bad_uid"}, status_code=400)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        jmeno = s.execute(_t(
+            "SELECT COALESCE("
+            "  (SELECT trim(coalesce(p.first_name,'')||' '||coalesce(p.last_name,''))"
+            "     FROM tenant.hr_person p WHERE p.user_id=:u AND p.tenant_id=2 AND p.is_current ORDER BY p.id DESC LIMIT 1),"
+            "  (SELECT trim(coalesce(u.first_name,'')||' '||coalesce(u.last_name,'')) FROM public.users u WHERE u.id=:u))"),
+            {"u": target}).scalar()
+        engs = s.execute(_t(
+            "SELECT en.id, co.code AS firma, COALESCE(en.druh_text, en.engagement_type) AS typ,"
+            " en.smlouva_od, en.smlouva_do, en.zkusebni_do, en.uvazek_tyden_h, en.uvazek_real_tyden_h,"
+            " en.fond_mesic_h, en.hodinovka, en.pozice_text"
+            " FROM tenant.engagement en"
+            " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
+            " LEFT JOIN tenant.company co ON co.id=en.company_id"
+            " WHERE ae.user_id=:u AND en.tenant_id=2 AND en.is_current"
+            " ORDER BY co.code, en.id"), {"u": target}).fetchall()
+        eng_ids = [int(e[0]) for e in engs]
+        comps = {}
+        if eng_ids:
+            ids_sql = ",".join(str(i) for i in eng_ids)
+            for r in s.execute(_t(
+                "SELECT wc.engagement_id, ct.code, ct.label, ct.kind, ct.applies_to,"
+                " wc.amount_planned, wc.amount_real, wc.per_hour"
+                " FROM tenant.wage_component wc"
+                " JOIN tenant.wage_component_type ct ON ct.id=wc.component_type_id"
+                " WHERE wc.engagement_id IN (" + ids_sql + ")"
+                " ORDER BY ct.is_base_salary DESC NULLS LAST, ct.label")).fetchall():
+                comps.setdefault(int(r[0]), []).append({
+                    "kod": r[1], "nazev": r[2], "kind": r[3], "applies_to": r[4],
+                    "plan": (float(r[5]) if r[5] is not None else None),
+                    "real": (float(r[6]) if r[6] is not None else None),
+                    "per_hour": bool(r[7])})
+        pomery = []
+        for e in engs:
+            pomery.append({
+                "engagement_id": int(e[0]), "firma": e[1] or "", "typ": e[2] or "",
+                "smlouva_od": e[3].isoformat() if e[3] else None,
+                "smlouva_do": e[4].isoformat() if e[4] else None,
+                "zkusebni_do": e[5].isoformat() if e[5] else None,
+                "uvazek": (float(e[6]) if e[6] is not None else None),
+                "uvazek_real": (float(e[7]) if e[7] is not None else None),
+                "fond_mesic": (float(e[8]) if e[8] is not None else None),
+                "hodinovka": bool(e[9]), "pozice": e[10] or "",
+                "slozky": comps.get(int(e[0]), []),
+            })
+        return JSONResponse({"ok": True, "jmeno": (jmeno or "").strip() or ("ID " + str(target)), "pomery": pomery})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 def _recruit_scope(s, uid: int):
     """Marti-AI Q2 (13.6.): rodiče + HR skupina vidí vše ('all'); recruiter jen
     svá výběrová řízení ('own'); ostatní nic (None)."""

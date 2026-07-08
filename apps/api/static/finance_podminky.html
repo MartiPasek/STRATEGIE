@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>💰 Finanční podmínky</title>
+<style>
+  :root{--navy:#23145F;--green:#7cb342;--ink:#33404d;--title:#2b3a4a;--muted:#8a94a3;--line:#e7eaef;--bg:#f4f5f7;}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+  .top{background:#fff;border-bottom:1px solid var(--line);padding:11px 18px;display:flex;align-items:center;gap:10px}
+  .top .b{font-weight:800;font-size:16px;color:var(--title);display:flex;align-items:center;gap:8px}
+  .lock{margin-left:auto;font-size:11px;font-weight:700;color:#9a6b00;background:#fff6e0;border:1px solid #f0d98a;border-radius:20px;padding:3px 11px}
+  .wrap{max-width:1180px;margin:16px auto;padding:0 14px;display:grid;grid-template-columns:320px 1fr;gap:16px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card .hd{padding:11px 14px;font-weight:800;color:var(--title);border-bottom:1px solid var(--line);font-size:13.5px}
+  #srch{width:100%;border:0;border-bottom:1px solid var(--line);padding:10px 14px;font:inherit;outline:none}
+  .lst{max-height:74vh;overflow:auto}
+  .prow{padding:10px 14px;border-top:1px solid #f2f4f6;cursor:pointer}
+  .prow:first-child{border-top:0}
+  .prow:hover{background:#fafcf7}
+  .prow.sel{background:#f0f4ec}
+  .prow .nm{font-weight:700;color:var(--title)}
+  .prow .mt{font-size:12px;color:var(--muted)}
+  .chip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:20px;padding:1px 8px;background:#eef1f4;color:#66707d;margin-right:4px}
+  .det{padding:16px 18px}
+  .pomer{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .pomer h3{margin:0 0 4px;font-size:15px;color:var(--navy);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .meta{font-size:12.5px;color:var(--muted);margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;padding:4px 8px;border-bottom:1px solid var(--line)}
+  td{padding:6px 8px;border-bottom:1px solid #f2f4f6}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .base td{font-weight:700;color:var(--title)}
+  .empty{padding:26px;color:var(--muted);text-align:center;font-style:italic}
+  .ph{font-size:10px;color:#aab2bd;margin-left:4px}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="b">💰 Finanční podmínky</div>
+  <span class="lock">🔒 citlivé · jen oprávnění</span>
+</div>
+<div class="wrap">
+  <div class="card">
+    <div class="hd">Zaměstnanci <span id="cnt" class="ph"></span></div>
+    <input id="srch" placeholder="🔎 Hledat jméno…">
+    <div class="lst" id="lst"><div class="empty">Načítám…</div></div>
+  </div>
+  <div class="card"><div class="det" id="det"><div class="empty">Vyber zaměstnance vlevo.</div></div></div>
+</div>
+<script>
+const API="/api/v1/erp";
+let LIDE=[];
+function esc(s){return (s==null?'':String(s)).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+async function j(u){const r=await fetch(u,{credentials:'same-origin'});return r.json();}
+function kc(n){return n==null?'—':n.toLocaleString('cs-CZ',{maximumFractionDigits:2})+' Kč';}
+
+async function load(){
+  const d=await j(API+"/app/hr/finance/lide");
+  const l=document.getElementById('lst');
+  if(!d.ok){l.innerHTML='<div class="empty">🔒 Nemáš oprávnění zobrazit finanční podmínky.</div>';return;}
+  LIDE=d.lide||[];
+  document.getElementById('cnt').textContent='('+LIDE.length+')';
+  render();
+}
+function render(){
+  const q=(document.getElementById('srch').value||'').toLowerCase();
+  const l=document.getElementById('lst');
+  const f=LIDE.filter(p=>p.jmeno.toLowerCase().includes(q));
+  if(!f.length){l.innerHTML='<div class="empty">Nic nenalezeno.</div>';return;}
+  l.innerHTML=f.map(p=>'<div class="prow" data-u="'+p.user_id+'" onclick="openP('+p.user_id+',this)">'+
+    '<div class="nm">'+esc(p.jmeno)+'</div><div class="mt">'+
+    (p.firmy?'<span class="chip">'+esc(p.firmy)+'</span>':'')+esc(p.typy||'')+
+    (p.pozice?' · '+esc(p.pozice):'')+'</div></div>').join('');
+}
+document.getElementById('srch').addEventListener('input',render);
+
+async function openP(uid,row){
+  document.querySelectorAll('.prow').forEach(e=>e.classList.remove('sel'));
+  if(row)row.classList.add('sel');
+  const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
+  const d=await j(API+"/app/hr/finance/osoba?uid="+uid);
+  if(!d.ok){det.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>';return;}
+  if(!d.pomery||!d.pomery.length){det.innerHTML='<div class="empty">'+esc(d.jmeno)+' — žádný aktuální poměr.</div>';return;}
+  let h='<h2 style="margin:0 0 14px;color:#2b3a4a;">'+esc(d.jmeno)+'</h2>';
+  for(const p of d.pomery){
+    h+='<div class="pomer"><h3>'+esc(p.typ||'poměr')+
+      (p.firma?' <span class="chip">'+esc(p.firma)+'</span>':'')+
+      (p.hodinovka?' <span class="chip">hodinová</span>':'')+'</h3>'+
+      '<div class="meta">'+
+      (p.pozice?esc(p.pozice)+' · ':'')+
+      'úvazek '+(p.uvazek!=null?p.uvazek+' h/týd':'—')+
+      ' · smlouva '+(p.smlouva_od||'—')+(p.smlouva_do?' – '+p.smlouva_do:'')+
+      (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>';
+    if(p.slozky&&p.slozky.length){
+      h+='<table><tr><th>Mzdová složka</th><th style="text-align:right">Plán</th><th style="text-align:right">Skutečnost</th></tr>';
+      for(const c of p.slozky){
+        const ph=c.per_hour?'<span class="ph">/hod</span>':'';
+        h+='<tr class="'+(c.kind==='base'||/zaklad|is_base/.test(c.kod||'')?'base':'')+'"><td>'+esc(c.nazev||c.kod)+ph+'</td>'+
+          '<td class="num">'+kc(c.plan)+'</td><td class="num">'+kc(c.real)+'</td></tr>';
+      }
+      h+='</table>';
+    } else { h+='<div class="empty" style="padding:12px">Bez zadaných mzdových složek.</div>'; }
+    h+='</div>';
+  }
+  det.innerHTML=h;
+}
+load();
+</script>
+</body>
+</html>

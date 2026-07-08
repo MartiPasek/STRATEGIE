@@ -28993,11 +28993,13 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             continue
         fond = daily_h * workdays
         absh = abs_by.get(cislo, 0.0)
-        # Landmark (firma Landmark rrci za logiku): odpracovane DNY = MROUND((fond - absence)/uvazek; 0,5)
-        # - pulden granularita (potvrzeno proti Landmark Excelu, napr. Zeman 21,5, Bernardova 19).
-        # OBL = dny x sazba; HO a korekce se krati podilem odprac/fond = dny/pracovni_dny. (Peta 8.7.2026)
-        obl_dny = _lm_mr((fond - absh) / daily_h, 0.5) if daily_h else 0.0
-        odprac = obl_dny * daily_h
+        # Landmark (ES Excel, radek Dvorakova): OBL = ROUND(F x sazba), F = Pocet odpracovanych dnu =
+        # (fond - absence)/uvazek BEZ zaokrouhleni. Puldenni hodnoty (21,5) v Excelu vznikaji jen proto,
+        # ze absence byva cely den; kdo ma castecnou absenci (napr. lekar 5h z 6h dne) ma F zlomkove
+        # (Dvorakova 21,1667 -> OBL=ROUND(21,1667*109)=2307). Zaokrouhluje se az OBL na cele Kc.
+        # HO a korekce se krati podilem odprac/fond z RAW hodin. (Peta 8.7.2026)
+        obl_dny = ((fond - absh) / daily_h) if daily_h else 0.0
+        odprac = fond - absh
         if fond <= 0 or odprac <= 0:
             continue
         V = osoh_by.get(cislo, 0.0)

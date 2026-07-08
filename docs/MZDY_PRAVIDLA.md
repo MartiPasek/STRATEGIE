@@ -65,6 +65,25 @@ Kdo má **nárok na HO** (kancelář = skupina 24 + výjimky dílny, viz `_HO_DI
 **napevno 6 HO dnů** — nezávisle na self-service volbě. Engine to poměrově zkrátí podle
 odpracovaného fondu (absence sníží). Kdo nárok nemá, HO nedostane.
 
+## Stravenky (793) — nárok a výpočet (Peta 8. 7. 2026)
+
+**Nárok** má zaměstnanec, který splňuje VŠE:
+- **HPP** (ne DPP/OSVČ),
+- je **po zkušební době** (nárok od měsíce po skončení zkušební; končí-li zkušební posledním dnem měsíce, náleží už ten měsíc),
+- má **denní úvazek ≥ 6 h** (týdenní ≥ 30 h). Kdo má míň (např. Veverková, Vlková), nárok **nemá**.
+
+**Výpočet** (`_mzdy_stravenky_rows`, MS 793, `_STRAVENKA_KC` = 82 Kč/den):
+> **stravenky = pracovní dny v měsíci (Po–Pá) − dny s vyloučenou činností**
+
+- **Vyloučené činnosti** (den bez stravenky): **dovolená, lékař, nemoc, OČR, montáž (služební cesta), mateřská, DN (dovolená navíc)**.
+- **Sick day (SD) NÁLEŽÍ** — bere se jako přítomnost.
+- **Režie NENÍ důvod k vyloučení** — režie je *zakázka*, ne činnost; rozhoduje činnost. Proto se čte z **`att_day_summary`** (činnostní zrcadlo, čte `DruhCinnosti`), NE z `att_entry` (které třídí podle zakázky a „režii" schová jako `overhead`).
+- **Nezáleží na tom, jestli konkrétní den něco napíchal** — kdo splnil fond, má stravenku i za naadělané dny; kdo fond nesplnil, vzal si dovolenou/SD → to je už v těch činnostech.
+
+**Neaktivní zaměstnance do mezd NEPOČÍTÁME** — kdo v měsíci nemá docházku (`att_day_summary`), stravenky nedostane (pojistka přímo ve funkci; navíc nemá výplatnici, StavES ∉ (0,1)).
+
+**Jednatelé** (odměna 693) — viz sekce výše: plné stravné za celý fond (Po–Pá) bez ohledu na docházku.
+
 ## Lidé na běžné mzdové kartě
 
 Kdo NENÍ v Centrále v příplatcích/odměnách (např. **Vlková 361**) → bere se z **mzdové karty

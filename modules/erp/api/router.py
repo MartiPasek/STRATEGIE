@@ -28901,15 +28901,22 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
             "SELECT uk.user_id FROM tenant.att_user_kategorie uk "
             "JOIN tenant.att_kategorie k ON k.id=uk.kategorie_id "
             "WHERE k.tenant_id=2 AND k.dopichavat_fond=true AND k.aktivni=true")).fetchall())
+        _pstart = "%04d-%02d-01" % (ry, rm)
+        _pend = "%04d-%02d-%02d" % (ry, rm, ld)
         emp = {}
         for r in s.execute(_t(
-            "SELECT sm.helios_cislo, sm.user_id, COALESCE(MAX(g.uvazek_tyden_h),40) "
+            "SELECT sm.helios_cislo, sm.user_id, COALESCE(ge.uvazek_tyden_h,40) "
             "FROM tenant.user_smlouva sm "
             "LEFT JOIN tenant.att_employee e ON e.tenant_id=2 AND e.user_id=sm.user_id "
-            "LEFT JOIN tenant.engagement g ON g.employee_id=e.id AND g.is_current=true "
-            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND LOWER(COALESCE(sm.typ_smlouvy,''))='hpp' "  # nahrady JEN HPP (Peta 8.7.2026)
-            "  AND sm.helios_cislo IS NOT NULL GROUP BY sm.helios_cislo, sm.user_id"),
-                {"fk": fk_sm}).fetchall():
+            "LEFT JOIN LATERAL (SELECT g.uvazek_tyden_h FROM tenant.engagement g "
+            "  WHERE g.employee_id=e.id "
+            "    AND (g.valid_from IS NULL OR g.valid_from <= CAST(:pend AS date)) "
+            "    AND (g.valid_to IS NULL OR g.valid_to >= CAST(:pstart AS date)) "
+            "  ORDER BY (g.valid_from IS NULL) ASC, g.valid_from DESC NULLS LAST, g.is_current DESC "
+            "  LIMIT 1) ge ON true "
+            "WHERE sm.tenant_id=2 AND sm.firma=:fk AND LOWER(COALESCE(sm.typ_smlouvy,''))='hpp' "  # nahrady JEN HPP; uvazek dle platnosti vymeru k mesici (Peta 8.7.2026)
+            "  AND sm.helios_cislo IS NOT NULL"),
+                {"fk": fk_sm, "pstart": _pstart, "pend": _pend}).fetchall():
             try:
                 emp[int(r[0])] = (int(r[1]), float(r[2] or 40) / 5.0)
             except Exception:

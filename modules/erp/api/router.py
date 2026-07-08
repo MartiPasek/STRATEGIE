@@ -28639,6 +28639,7 @@ def _mzdy_predzprac_rows(firma):
 # Sazba 85→82 Kč (Marti 30.6.2026).
 _STRAVENKA_KC = 82
 _STRAVENKA_MS = 793
+_JEDNATELE_CISLA = {2, 41, 47}  # plne stravne + odmena 693 jen tihle; ostatni 693->651 (Peta 8.7.2026)
 
 
 def _mzdy_stravenky_rows(firma, rok, mesic):
@@ -29456,7 +29457,8 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
         try:
             # Jednatelé/společníci (odměna 693) = odměna + PLNÉ stravné, nic dalšího (dovolená/OBL/HO ne).
             # Nemají dovolenou → stravné za CELÝ pracovní fond měsíce (Po–Pá), ne jen napíchané dny. Peta 7.7.2026.
-            _spol = set(int(r[0]) for r in prows if int(r[1]) == 693)
+            prows = [((r[0], 651) + tuple(r[2:])) if (int(r[1]) == 693 and int(r[0]) not in _JEDNATELE_CISLA) else r for r in prows]
+            _spol = set(int(r[0]) for r in prows if int(r[1]) == 693) & _JEDNATELE_CISLA
             if _spol:
                 import calendar as _calsp
                 _ldsp = _calsp.monthrange(int(rok), int(mesic))[1]
@@ -29586,7 +29588,8 @@ def mzdy_generuj(req: Request):
         prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
         try:
             # Jednatel/společník (odměna 693) = odměna + PLNÉ stravné (celý fond), nic dalšího. Peta 7.7.2026.
-            _spol = set(int(r[0]) for r in prows if int(r[1]) == 693)
+            prows = [((r[0], 651) + tuple(r[2:])) if (int(r[1]) == 693 and int(r[0]) not in _JEDNATELE_CISLA) else r for r in prows]
+            _spol = set(int(r[0]) for r in prows if int(r[1]) == 693) & _JEDNATELE_CISLA
             if _spol:
                 import calendar as _calsp
                 _ldsp = _calsp.monthrange(int(rok), int(mesic))[1]

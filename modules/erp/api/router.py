@@ -281,6 +281,22 @@ def _eurosoft_member_role(user_id: int) -> str | None:
 # ERP/CRM NEsmí. Business R/W jen explicitně přidělené role (allow-list).
 _ERP_BUSINESS_ROLES = frozenset({"member", "admin", "owner"})
 
+# Scoped ERP uživatelé (8.7.2026, Marti + Marti-AI OK): NEjsou business členové
+# (role zůstává 'employee'), ale pustíme je do /erp s OŘEZANÝM stromem — vidí JEN
+# soudečky výslovně přidělené přes fw.menu_node.visibility_user_ids (whitelist režim
+# v _build_system_root_from_db). Použito pro vedoucího výroby Dušana Havláta (41),
+# aby viděl jen docházku svého týmu (soudeček "🏭 Výroba"). Per-uživatel, ne role —
+# stejný mechanismus jako přidělené soudečky Elišky/Pavla, jen restriktivní strom.
+_ERP_SCOPED_USERS = frozenset({41})
+
+
+def _is_erp_scoped(user_id: int) -> bool:
+    """True pro scoped uživatele (whitelist strom, jen přidělené soudečky)."""
+    try:
+        return int(user_id) in _ERP_SCOPED_USERS
+    except Exception:
+        return False
+
 
 def _is_active_eurosoft_member(user_id: int) -> bool:
     """True pokud user je aktivní BUSINESS člen EUROSOFT tenantu (id=2).
@@ -291,10 +307,12 @@ def _is_active_eurosoft_member(user_id: int) -> bool:
 
 def _require_erp_member(user_id: int) -> None:
     """Phase D gate (business/nav endpointy): rodič NEBO aktivní člen
-    ERP-enabled tenantu (EUROSOFT id=2)."""
+    ERP-enabled tenantu (EUROSOFT id=2) NEBO scoped uživatel (whitelist strom)."""
     if is_marti_parent(user_id):
         return
     if _is_active_eurosoft_member(user_id):
+        return
+    if _is_erp_scoped(user_id):
         return
     raise HTTPException(
         status_code=403,
@@ -50180,7 +50198,9 @@ def _build_system_root_from_db(uid=None, is_parent=True):
                     -- `:is_parent AND ...` → ne-rodič (běžný zaměstnanec) neviděl NIC
                     -- (91/114 uzlů je 'parent_only'). Obnoveno původní chování: uzly
                     -- 'parent_only'/NULL vidí VŠICHNI; per-user grant zůstává přídavkem.
-                    ( visibility_scope = 'parent_only' OR visibility_scope IS NULL )
+                    -- Scoped uživatel (8.7.2026, Dušan 41): NEvidí broad parent_only/NULL,
+                    -- vidí JEN uzly kde je ve visibility_user_ids (+ kaskáda předků přes vis).
+                    ( NOT :scoped AND ( visibility_scope = 'parent_only' OR visibility_scope IS NULL ) )
                     OR ( :uid = ANY(COALESCE(visibility_user_ids, ARRAY[]::integer[])) )
                 )
             ),
@@ -50202,6 +50222,7 @@ def _build_system_root_from_db(uid=None, is_parent=True):
             ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.label
         """)
         result = ds.execute(sql, {"is_parent": bool(is_parent),
+                                  "scoped": _is_erp_scoped(uid) if uid is not None else False,
                                   "uid": (int(uid) if uid is not None else -1)})
         rows = [dict(r._mapping) for r in result]
     except Exception:

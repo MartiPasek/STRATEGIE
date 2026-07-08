@@ -45,6 +45,21 @@
   .soon{background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:26px 20px;text-align:center;color:var(--dim)}
   .soon .ic{font-size:30px} .soon h3{color:var(--ink);margin:10px 0 5px;font-size:16px}
   .foot{color:var(--dim);font-size:12px;margin-top:18px;line-height:1.7;border-top:1px solid var(--line);padding-top:12px}
+  /* generátor platáků — tlačítko + náhledový modal */
+  .btn{display:inline-block;padding:8px 16px;border-radius:10px;font-size:13.5px;font-weight:700;cursor:pointer;
+    border:1px solid var(--accent);background:#12294a;color:#cfe4ff}
+  .btn:hover{background:#173456} .btn.wide{margin:0 0 14px}
+  .ov{position:fixed;inset:0;background:rgba(4,8,14,.72);display:none;align-items:flex-start;justify-content:center;z-index:50;padding:24px;overflow:auto}
+  .ov.on{display:flex}
+  .modal{background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:980px;width:100%;overflow:hidden}
+  .modal .mh{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .modal .mh .t{font-weight:800;font-size:16px}
+  .modal .mb{padding:14px 18px;max-height:74vh;overflow:auto}
+  .modal .x{cursor:pointer;color:var(--dim);font-size:20px;background:none;border:none}
+  .vpill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700}
+  .v-ok{background:#123024;color:#8ff0b5} .v-amber{background:#3a331c;color:#ffe08a}
+  .v-pod{background:#3a1d1c;color:#ffb3ae} .v-chybi{background:#2a2f3a;color:#b9c4d4}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--dim)}
 </style>
 </head>
 <body>
@@ -72,6 +87,13 @@
     „K platbě" = přijatá faktura je realizovaná, má otevřené saldo (částka − naše úhrady), není finančně zakázaná ani „nehradit",
     a je ≤ dnů před splatností (dle dodavatele). Zálohové daňové doklady (řada 52x) se vylučují. Data se drží aktuální automaticky.
   </div>
+
+  <div id="platakOv" class="ov"><div class="modal">
+    <div class="mh"><div class="t">🧾 Náhled platáku <span style="font-size:12px;color:var(--dim);font-weight:600">(nic se nezapisuje)</span></div>
+      <button class="x" onclick="closePlatak()">✕</button></div>
+    <div class="mb" id="platak-body"><div class="load">Připravuji náhled…</div></div>
+  </div></div>
+
 <script>
 function esc(s){return(s==null?"":String(s)).replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c];});}
 function money(n,cur){return (n==null?0:n).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+cur;}
@@ -114,8 +136,54 @@ function render(d){
     '<div class="b czk"><div class="n">'+money(d.czk.suma,'CZK')+'</div><div class="l">Návrh CZK · '+d.czk.pocet+' faktur</div></div>'+
     '<div class="b eur"><div class="n">'+money(d.eur.suma,'EUR')+'</div><div class="l">Návrh EUR · '+d.eur.pocet+' faktur</div></div>'+
     '<div class="b"><div class="n">'+(d.czk.pocet+d.eur.pocet)+'</div><div class="l">faktur celkem k platbě</div></div>';
-  document.getElementById('navrhy-body').innerHTML=navrhChips()+tableFor(d.czk,'CZK')+tableFor(d.eur,'EUR');
+  var btn='<button class="btn wide" onclick="openPlatak()">🧾 Vygeneruj platák (náhled)</button>';
+  document.getElementById('navrhy-body').innerHTML=navrhChips()+btn+tableFor(d.czk,'CZK')+tableFor(d.eur,'EUR');
   bindNavrhChips();
+}
+function verdiktPill(v){
+  return v==='ok'?'<span class="vpill v-ok">OK</span>'
+    :v==='amber'?'<span class="vpill v-amber">§109 nezveřejněn</span>'
+    :v==='podezrely'?'<span class="vpill v-pod">účet ≠ dodavatel</span>'
+    :'<span class="vpill v-chybi">chybí účet</span>';
+}
+function openPlatak(){
+  document.getElementById('platakOv').classList.add('on');
+  var b=document.getElementById('platak-body');
+  b.innerHTML='<div class="load">Připravuji náhled (čtu účty příjemců z Centrály)…</div>';
+  fetch('/api/v1/erp/app/platby/platak/preview?firma='+encodeURIComponent(_nfFirma),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderPlatak)
+    .catch(function(){b.innerHTML='<div class="load">Chyba náhledu.</div>';});
+}
+function closePlatak(){document.getElementById('platakOv').classList.remove('on');}
+function renderPlatak(d){
+  var b=document.getElementById('platak-body');
+  if(!d||!d.ok){b.innerHTML='<div class="load">'+esc((d&&d.error)||'Nemám oprávnění nebo nastala chyba.')+'</div>';return;}
+  if(!d.skupiny||!d.skupiny.length){b.innerHTML='<div class="load">'+esc(d.info||'Nic k platbě pro tento filtr.')+'</div>';return;}
+  var h='<div class="sub">Dnes '+esc(d.dnes)+' · příští platební den <b>'+esc(d.pristi_platebni_den)+'</b>. „Platí" = faktura nepočká s rezervou na příští běh. '+
+    '<b>Nic se nezapisuje</b> — jen náhled toho, co by se vygenerovalo.</div>';
+  if(d.ec_error){h+='<div class="pill hot" style="display:block;padding:8px 12px;margin-bottom:12px">Účty z DB_EC se nenačetly: '+esc(d.ec_error)+'</div>';}
+  d.skupiny.forEach(function(g){
+    var cls=g.mena==='CZK'?'c-czk':'c-eur';
+    h+='<div class="grp"><div class="gh"><div class="t"><span class="cur '+cls+'">'+g.mena+'</span>'+
+      esc(g.firma_kod)+' · '+g.pocet+' faktur <span style="color:var(--dim);font-weight:600">('+g.pocet_plati+' platí teď)</span></div>'+
+      '<div class="sum">'+money(g.suma_plati,g.mena)+'</div></div>';
+    h+='<div class="mono" style="padding:6px 14px 2px">→ '+esc(g.cesta)+esc(g.soubor)+'</div>';
+    h+='<table><thead><tr><th>Doklad</th><th>Dodavatel</th><th>Účet příjemce</th><th>Splatnost</th><th>Kontrola</th><th></th><th class="r">Částka</th></tr></thead><tbody>';
+    g.polozky.forEach(function(p){
+      var warnTitle=(p.warns&&p.warns.length)?' title="'+esc(p.warns.join(' | '))+'"':'';
+      var rowbg=(p.verdikt==='chybi'||p.verdikt==='podezrely')?' style="background:#1e1416"':'';
+      h+='<tr'+rowbg+'><td>'+esc(p.doklad)+'</td><td class="dod">'+esc(p.dodavatel)+'</td>'+
+        '<td class="mono" style="color:var(--ink)">'+esc(p.ucet||'—')+'</td>'+
+        '<td>'+esc(p.splatnost)+'</td>'+
+        '<td'+warnTitle+'>'+verdiktPill(p.verdikt)+'</td>'+
+        '<td>'+(p.plati?'<span class="pill ok">platí</span>':'<span class="pill" style="background:#26303f;color:#8ea3bd">odloží</span>')+'</td>'+
+        '<td class="r money">'+money(p.castka,g.mena)+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+  });
+  h+='<div class="foot" style="margin-top:8px">Fáze 2 (zápis .p11/.f84 na disk + úhradový zámek) přidáme po tvém odsouhlasení náhledu. '+
+    'Najetím na „Kontrolu" uvidíš detail varování. Zatím se nic nezapsalo.</div>';
+  b.innerHTML=h;
 }
 function loadNavrhy(force){
   var b=document.getElementById('navrhy-body');
@@ -193,9 +261,6 @@ function renderPlataky(){
     var fc=_firmy[String(p.firma)]?_firmy[String(p.firma)].code:('#'+p.firma);
     var typ=p.typ==='tuz'?'<span class="pill" style="background:#12294a;color:var(--czk)">tuz</span>'
       :'<span class="pill" style="background:#241b40;color:var(--eur)">zahr</span>';
-    // Historické platáky portované ze starého Heliosu = všechny už odeslané do
-    // banky (Marti 7.7.). RealizaceExport flag je u ES mezd vrtkavý → status
-    // srovnán s realitou jednotně pro EC i ES.
     var exp='<span class="pill ok">✓ odesláno do banky</span>';
     h+='<tr><td>'+esc(p.vystaveni)+'</td><td class="dod">'+esc(fc)+'</td><td>'+typ+'</td>'+
        '<td>'+esc(p.odkud)+'</td><td class="r">'+p.pocet+'</td>'+

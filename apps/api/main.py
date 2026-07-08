@@ -41,6 +41,7 @@ from modules.media.api.router import router as media_router
 from modules.md_pyramid.api.router import router as md_pyramid_router
 # Phase A (5.5.2026) — STRATEGIE ERP renderer (read-only Centrála 1 jádra)
 from modules.erp.api.router import router as erp_router, api_router as erp_api_router
+import modules.erp.api.platak_generator  # platak generator preview/commit (task #44/#45)
 from modules.erp.api.carddav import carddav_router, carddav_mgmt_router
 from modules.erp.api.directories import dir_router  # Fáze A: systém adresářů dokumentů (18.6.2026)
 from modules.erp.api.iso_cockpit import iso_router  # ISO 27001 cockpit — elektronické vedení ISMS (21.6.2026)

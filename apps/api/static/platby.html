@@ -67,20 +67,22 @@
   <div class="sub">Vše k platbám po ruce — návrhy k platbě, platáky, importy do banky i výpisy. Saldo počítáme z našich úhrad (Helios do něj nesahá).</div>
   <div id="kpi" class="kpi"></div>
   <div class="tabs">
-    <button class="tab on" data-p="navrhy">📋 Návrhy k platbě</button>
-    <button class="tab" data-p="faktury">📄 Faktury</button>
-    <button class="tab" data-p="plataky">🧾 Platáky</button>
+    <button class="tab on" data-p="faktury">📄 Faktury</button>
+    <button class="tab" data-p="navrhy">📋 Návrhy k platbě</button>
+    <button class="tab" data-p="platplat">🧾 Platáky k platbě</button>
     <button class="tab" data-p="importy">⬇️ Importy do banky</button>
+    <button class="tab" data-p="zaplacene">✅ Zaplacené platáky</button>
     <button class="tab" data-p="vypisy">🏦 Výpisy z banky</button>
   </div>
 
-  <div id="navrhy" class="panel on"><div id="navrhy-body"><div class="load">Načítám návrh k platbě…</div></div></div>
-  <div id="faktury" class="panel"><div id="faktury-body"><div class="load">Načítám faktury…</div></div></div>
-  <div id="plataky" class="panel"><div id="plataky-body"><div class="load">Načítám platáky…</div></div></div>
+  <div id="faktury" class="panel on"><div id="faktury-body"><div class="load">Načítám faktury…</div></div></div>
+  <div id="navrhy" class="panel"><div id="navrhy-body"><div class="load">Načítám návrh k platbě…</div></div></div>
+  <div id="platplat" class="panel"><div id="platplat-body"><div class="load">Načítám platáky k platbě…</div></div></div>
   <div id="importy" class="panel">
     <div class="soon"><div class="ic">⬇️</div><h3>Importy do banky</h3>
       Vygenerované importní soubory pro nahrání plateb do banky (starý formát). <b>Připravujeme.</b></div>
   </div>
+  <div id="zaplacene" class="panel"><div id="plataky-body"><div class="load">Načítám zaplacené platáky…</div></div></div>
   <div id="vypisy" class="panel"><div id="vypisy-body"><div class="load">Načítám výpisy z banky…</div></div></div>
 
   <div class="foot">
@@ -103,6 +105,7 @@
 <script>
 function esc(s){return(s==null?"":String(s)).replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c];});}
 function money(n,cur){return (n==null?0:n).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+cur;}
+function _dparse(s){var m=/^(\d{2})\.(\d{2})\.(\d{4})$/.exec(s||'');return m?(+m[3]*10000+ +m[2]*100+ +m[1]):99999999;}
 function dniPill(d){
   if(d==null)return '';
   if(d<0)return '<span class="pill hot">po splatnosti '+(-d)+' d</span>';
@@ -164,10 +167,14 @@ function openPlatak(){
 }
 function closePlatak(){document.getElementById('platakOv').classList.remove('on');}
 function openPlatakReload(){
-  var p=document.getElementById('platak-preview');if(p)p.innerHTML='<div class="load">Aktualizuji náhled…</div>';
-  fetch('/api/v1/erp/app/platby/platak/preview?firma='+encodeURIComponent(_nfFirma),{credentials:'same-origin'})
-    .then(function(r){return r.json();}).then(renderPlatak).catch(function(){});
+  var p=document.getElementById('platak-preview');
+  if(p){p.innerHTML='<div class="load">Aktualizuji náhled…</div>';
+    fetch('/api/v1/erp/app/platby/platak/preview?firma='+encodeURIComponent(_nfFirma),{credentials:'same-origin'})
+      .then(function(r){return r.json();}).then(renderPlatak).catch(function(){});
+    loadVygenerovane();
+  }
   loadNavrhy(true);
+  var pp=document.getElementById('platplat');if(pp&&pp.classList.contains('on'))loadPlatplat();
 }
 function loadVygenerovane(){
   fetch('/api/v1/erp/app/platby/platak/vygenerovane',{credentials:'same-origin'})
@@ -433,8 +440,34 @@ function loadFaktury(force){
   fetch('/api/v1/erp/app/platby/faktury?firma='+encodeURIComponent(_ffFirma)+'&stav='+encodeURIComponent(_ffStav),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok){b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
-      _faktury=d.faktury||[]; _fsums=d.sums||{}; _ftotal=d.total||0; _fshown=d.shown||_faktury.length; renderFaktury();
+      _faktury=d.faktury||[]; _fsums=d.sums||{}; _ftotal=d.total||0; _fshown=d.shown||_faktury.length;
+      _faktury.sort(function(a,b){var ap=a.zaplaceno?1:0,bp=b.zaplaceno?1:0;if(ap!==bp)return ap-bp;return _dparse(a.splatnost)-_dparse(b.splatnost);});
+      renderFaktury();
     }).catch(function(){b.innerHTML='<div class="load">Chyba načítání.</div>';});
+}
+function loadPlatplat(){
+  var b=document.getElementById('platplat-body');
+  fetch('/api/v1/erp/app/platby/platak/vygenerovane',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok){b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
+      _platakGen=d.plataky||[]; renderPlatplat();
+    }).catch(function(){b.innerHTML='<div class="load">Chyba načítání.</div>';});
+}
+function renderPlatplat(){
+  var b=document.getElementById('platplat-body');var list=_platakGen;
+  var h='<div class="sub">Naše vygenerované platáky čekající na odeslání do banky. Zamykají saldo (faktury zmizí z Návrhů). Klikni na soubor pro detail + obsah; smazání uvolní zámek (saldo se vrátí).</div>';
+  h+='<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn" style="padding:6px 14px;font-size:12.5px" onclick="openSoubory()">📁 Soubory na disku</button></div>';
+  h+='<div class="grp"><div class="gh"><div class="t">🧾 '+list.length+' platáku k platbě</div></div>';
+  if(!list.length){b.innerHTML=h+'<div class="load" style="padding:16px">Zatím žádné vygenerované platáky. Vygeneruj je v záložce „Návrhy k platbě".</div></div>';return;}
+  h+='<table><thead><tr><th>Vytvořeno</th><th>Firma</th><th></th><th>Soubor</th><th class="r">Plateb</th><th class="r">Suma</th><th></th></tr></thead><tbody>';
+  list.forEach(function(p){
+    var typ=p.typ==='tuz'?'<span class="pill" style="background:#12294a;color:var(--czk)">tuz</span>':'<span class="pill" style="background:#241b40;color:var(--eur)">zahr</span>';
+    h+='<tr><td>'+esc(p.vytvoreno)+'</td><td class="dod">'+esc(p.firma_kod)+'</td><td>'+typ+'</td>'+
+      '<td class="mono" style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openDetail('+p.id+')" title="Detail + obsah souboru">'+esc(p.soubor)+'</td>'+
+      '<td class="r">'+p.pocet+'</td><td class="r money">'+money(p.suma,p.mena)+'</td>'+
+      '<td><button class="btn" style="padding:4px 10px;font-size:12px;border-color:var(--hot);background:#2a1416;color:#ffb3ae" onclick="smazatPlatak('+p.id+',this)">🗑 Smazat</button></td></tr>';
+  });
+  b.innerHTML=h+'</tbody></table></div>';
 }
 document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
   document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on');});
@@ -442,8 +475,10 @@ document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){
   t.classList.add('on');var p=t.getAttribute('data-p');document.getElementById(p).classList.add('on');
   if(p==='vypisy')loadVypisy();
   if(p==='faktury')loadFaktury();
-  if(p==='plataky')loadPlataky();};});
-loadNavrhy();
+  if(p==='navrhy')loadNavrhy();
+  if(p==='platplat')loadPlatplat();
+  if(p==='zaplacene')loadPlataky();};});
+loadFaktury();
 </script>
 <script src="/static/nav-back.js"></script>
 </body>

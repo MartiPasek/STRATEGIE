@@ -991,6 +991,21 @@ def parovat_all(s):
             "         AND regexp_replace(COALESCE(l.doklad_vs,''),'\\D','','g')<>'' "
             "         AND ltrim(t.vs,'0') = ltrim(regexp_replace(l.doklad_vs,'\\D','','g'),'0')) "
             "       OR t.zprava ~ ('ID' || chr(58) || '0*' || l.id_fak || '([^0-9]|$)') )"))
+        # C3) NÁŠ DOKLAD KDEKOLIV ve zprávě (ne jen na začátku). Helios dává do zprávy
+        #     „ID:{platak}:{vs} {NÁŠ doklad}" — vytáhni token s NAŠÍ řadou (500/501/530/531/
+        #     540/541/600/601/630/640) odkudkoliv a spáruj na ec_doklad_zbozi. Marti 8.7.: „Helios
+        #     paruje pres ID, jen jsme si ho nedotahli."
+        _rgx = "(500|501|530|531|540|541|600|601|630|640)"
+        s.execute(_t(
+            "UPDATE tenant.bank_transaction_raw t "
+            "SET par_metoda='doklad_zprava', par_doklad_rada=d.rada, par_doklad_id=d.id, "
+            "    par_zakazka=NULLIF(d.cislo_zakazky,''), par_at=now() "
+            "FROM tenant.ec_doklad_zbozi d "
+            "WHERE t.par_metoda IS NULL "
+            "  AND t.zprava ~ ('(^|[^0-9])' || :rgx || '[0-9]{5,7}([^0-9]|$)') "
+            "  AND d.rada = (regexp_match(t.zprava, '(?:^|[^0-9])' || :rgx || '0*([0-9]+)(?:[^0-9]|$)'))[1] "
+            "  AND ltrim(d.cislo,'0') = (regexp_match(t.zprava, '(?:^|[^0-9])' || :rgx || '0*([0-9]+)(?:[^0-9]|$)'))[2]"),
+            {"rgx": _rgx})
         # D) opakované přes text/účet — mzdy/pojištění/daně co mají KS/účet varianty mimo bank_predpis
         #    (Marti 24.6.: Helios mzdy generuje 'Výplata na účet' dávky; pojišťovny/ČSSZ/FÚ dle účtu)
         s.execute(_t(

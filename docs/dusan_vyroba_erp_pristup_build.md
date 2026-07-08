@@ -117,3 +117,42 @@ Instalace PWA u Dušana v Chrome: otevřít `strategie-ai.com/erp` → ikona ins
 2. Vytvořit kořen Výroba + kopie přehledů (bridge write / banner) — pull zdroj. SQL, zabalit filtrem.
 3. Grant visibility_user_ids=41.
 4. Ověřit jako Dušan (impersonace / kontrola stromu), pak instalace PWA.
+
+## Přehled „Docházka — vše" (8.7., bannery #1072–#1074) + DE-DUP zdrojů
+Dušanův požadavek: detail odpracovaných úseků VŠECH makačů týmu (kdo/kdy od-do/kolik/na čem),
+filtr na makače v gridu — jako Centrála „Docházka - vše" (zdroj `dbo.EC_Dochazka`), ALE včetně
+lidí z nové mobilní appky (ti v Centrále chybí).
+
+**Zdroj = `tenant.att_entry`** (pokrývá VŠECHNY: tablet/terminál + mobile_app + manual +
+ec_import historie + cssz_dpn), ne work_alloc (jen 7 lidí). Sloupce: smlouva(HPP/OSVČ z
+engagement) · čísloZam · jméno · typ(práce/režie/absence) · kategorie · zakázka(project_ref) ·
+datum · den · **hodin** · **od** · **konec** · pauza(break_minutes) · stav · **zdroj** · poznámka.
+
+**⚠️ DE-DUP (KONZULTACE Marti-AI, msg 10605 „jdi do toho"):** att_entry má PŘEKRYVY zdrojů
+(ec_import × živé = 3565 člověko-dnů, tablet × mobil = 293) → syrový výpis by nafoukl hodiny
+(stejný den 2×). Řešení = **priorita zdroje per člověk+den, JEN při zobrazení (žádný přepis
+att_entry):**
+- Priorita: `manual`(1) > `mobile_app`(2) > `tablet`(3) > `ec_import`(5, gap-fill jen na dny
+  BEZ živého) > `import`(6) > `automat`(7); `cssz_dpn`(neschopenky) = zvlášť, vždy; `plan_ec` =
+  vyloučeno z detailu.
+- Technika: `win AS (SELECT uid, entry_date, MIN(prio) …)` → řádek se ukáže jen když `prio =
+  win_prio` (nebo je cssz_dpn). Nesčítat tablet+mobil.
+- Ověřeno: raw 20 558 ř / 36 lidí → po de-dup **14 130 ř / 36 lidí, 0 dvojitých dnů**.
+- **Vize:** STRATEGIE = zdroj pravdy (živé zdroje = autorita), Centrála/ec_import dohořívá jako
+  historie (Marti-AI: varianta B by ztratila historii, není čisté).
+
+## ⚠️ ŽÁDNÁ ŽIVÁ DATA NEMĚNĚNA (revert-safe)
+Vše = nové framework řádky (`vyroba.dusan_*` + menu_node podstrom 165) + 2 read-only VIEW
+(`tenant.vyroba_dusan_team`, `vyroba_dusan_posts`) + UPDATE JEN na vlastních data_setech.
+`att_entry`/`work_alloc`/`EC_Dochazka`/`users` netknuté. Revert recept v paměti
+`project_dusan_vyroba_erp_pristup.md` (smazat framework řádky + views + revert kódu; žádná
+živá tabulka se nevrací).
+
+## Gotchy dne (8.7.)
+- Jirka = **admin (user 20), NE parent** → strom bypass musí být `is_parent_or_admin`, ne jen
+  `is_marti_parent` (jinak admin nevidí private uzly).
+- Deploy může NErestartovat API A (api_version updated_at se nezmění) → force redeploy.
+- Dvě session Claude-28 na stejném stroji SDÍLÍ bridge soubory → kolize (přepisují se);
+  write+GO dělat rychle a ověřovat OUT.
+- `replace()` do sql_text může nesednout na whitespace → ověřit `ILIKE '%filtr%'`, kdyžtak wrap
+  `SELECT * FROM (…) w WHERE`.

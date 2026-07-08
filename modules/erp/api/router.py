@@ -9198,16 +9198,19 @@ async def app_hr_finance_osoba(req: Request) -> JSONResponse:
             ids_sql = ",".join(str(i) for i in eng_ids)
             for r in s.execute(_t(
                 "SELECT wc.engagement_id, ct.code, ct.label, ct.kind, ct.applies_to,"
-                " wc.amount_planned, wc.amount_real, wc.per_hour"
+                " wc.amount_planned, wc.amount_real, wc.per_hour, wc.id, ct.id AS ct_id,"
+                " wc.changed_by_text, wc.changed_at"
                 " FROM tenant.wage_component wc"
                 " JOIN tenant.wage_component_type ct ON ct.id=wc.component_type_id"
                 " WHERE wc.engagement_id IN (" + ids_sql + ")"
                 " ORDER BY ct.is_base_salary DESC NULLS LAST, ct.label")).fetchall():
                 comps.setdefault(int(r[0]), []).append({
+                    "id": int(r[8]), "component_type_id": int(r[9]),
                     "kod": r[1], "nazev": r[2], "kind": r[3], "applies_to": r[4],
                     "plan": (float(r[5]) if r[5] is not None else None),
                     "real": (float(r[6]) if r[6] is not None else None),
-                    "per_hour": bool(r[7])})
+                    "per_hour": bool(r[7]),
+                    "changed_by": r[10], "changed_at": (r[11].isoformat() if r[11] else None)})
         pomery = []
         for e in engs:
             pomery.append({
@@ -9222,6 +9225,121 @@ async def app_hr_finance_osoba(req: Request) -> JSONResponse:
                 "slozky": comps.get(int(e[0]), []),
             })
         return JSONResponse({"ok": True, "jmeno": (jmeno or "").strip() or ("ID " + str(target)), "pomery": pomery})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/finance/slozky-typy")
+async def app_hr_finance_slozky_typy(req: Request) -> JSONResponse:
+    """CITLIVÉ — číselník mzdových složek (pro přidání). Allowlist only."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _finance_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, code, label, kind, applies_to, eligible_contract_types, is_base_salary"
+            " FROM tenant.wage_component_type WHERE tenant_id=2 AND COALESCE(aktivni,true)=true"
+            " ORDER BY is_base_salary DESC NULLS LAST, label")).fetchall()
+        typy = [{"id": int(r[0]), "kod": r[1], "nazev": r[2], "kind": r[3],
+                 "applies_to": r[4], "eligible": r[5], "je_zaklad": bool(r[6])} for r in rows]
+        return JSONResponse({"ok": True, "typy": typy})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/finance/slozka-save")
+async def app_hr_finance_slozka_save(req: Request) -> JSONResponse:
+    """CITLIVÉ — úprava/přidání mzdové složky. Allowlist only. Audit changed_by/at.
+    Body: id (existující wc) NEBO engagement_id + component_type_id (nová); amount_planned,
+    amount_real, per_hour."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _finance_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+
+    def _num(x):
+        try:
+            return round(float(x), 2) if x not in (None, "") else None
+        except Exception:
+            return None
+    wc_id = body.get("id")
+    eng_id = body.get("engagement_id")
+    ct_id = body.get("component_type_id")
+    plan = _num(body.get("amount_planned"))
+    real = _num(body.get("amount_real"))
+    per_hour = bool(body.get("per_hour"))
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        who = s.execute(_t("SELECT trim(coalesce(first_name,'')||' '||coalesce(last_name,''))"
+                           " FROM public.users WHERE id=:u"), {"u": uid}).scalar() or ("uid " + str(uid))
+        if wc_id:
+            r = s.execute(_t(
+                "UPDATE tenant.wage_component SET amount_planned=:p, amount_real=:r, per_hour=:ph,"
+                " changed_by_text=:who, changed_at=now() WHERE id=:id AND tenant_id=2"),
+                {"p": plan, "r": real, "ph": per_hour, "who": who, "id": int(wc_id)})
+            if (r.rowcount or 0) == 0:
+                return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        else:
+            if not eng_id or not ct_id:
+                return JSONResponse({"ok": False, "error": "chybi engagement_id/component_type_id"}, status_code=400)
+            okeng = s.execute(_t("SELECT 1 FROM tenant.engagement WHERE id=:e AND tenant_id=2"),
+                              {"e": int(eng_id)}).first()
+            if not okeng:
+                return JSONResponse({"ok": False, "error": "engagement nenalezen"}, status_code=400)
+            ex = s.execute(_t("SELECT id FROM tenant.wage_component WHERE tenant_id=2 AND engagement_id=:e"
+                              " AND component_type_id=:c LIMIT 1"),
+                           {"e": int(eng_id), "c": int(ct_id)}).scalar()
+            if ex:
+                s.execute(_t("UPDATE tenant.wage_component SET amount_planned=:p, amount_real=:r, per_hour=:ph,"
+                             " changed_by_text=:who, changed_at=now() WHERE id=:id"),
+                          {"p": plan, "r": real, "ph": per_hour, "who": who, "id": int(ex)})
+            else:
+                s.execute(_t(
+                    "INSERT INTO tenant.wage_component (tenant_id, engagement_id, component_type_id,"
+                    " amount_planned, amount_real, per_hour, changed_by_text, changed_at)"
+                    " VALUES (2,:e,:c,:p,:r,:ph,:who,now())"),
+                    {"e": int(eng_id), "c": int(ct_id), "p": plan, "r": real, "ph": per_hour, "who": who})
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/finance/slozka-smazat")
+async def app_hr_finance_slozka_smazat(req: Request) -> JSONResponse:
+    """CITLIVÉ — smazání mzdové složky. Allowlist only."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _finance_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+        wc_id = int(body.get("id"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad_id"}, status_code=400)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        s.execute(_t("DELETE FROM tenant.wage_component WHERE id=:id AND tenant_id=2"), {"id": wc_id})
+        s.commit()
+        return JSONResponse({"ok": True})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:

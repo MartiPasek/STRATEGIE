@@ -5,35 +5,49 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>💰 Finanční podmínky</title>
 <style>
-  :root{--navy:#23145F;--green:#7cb342;--ink:#33404d;--title:#2b3a4a;--muted:#8a94a3;--line:#e7eaef;--bg:#f4f5f7;}
+  /* Tmavé schéma dle ERP STRATEGIE (Šárka 8.7.2026 — držet stejné jako ERP/Marti-AI) */
+  :root{--bg:#0f141a;--panel:#161c24;--panel2:#12181f;--line:#233040;--line2:#1e2730;
+        --txt:#cdd6e2;--title:#e8eef5;--accent:#aac8ec;--muted:#7f8ea0;--in:#0f141a;}
   *{box-sizing:border-box}
-  body{margin:0;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;color:var(--ink);background:var(--bg)}
-  .top{background:#fff;border-bottom:1px solid var(--line);padding:11px 18px;display:flex;align-items:center;gap:10px}
+  body{margin:0;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;color:var(--txt);background:var(--bg)}
+  .top{background:var(--panel2);border-bottom:1px solid var(--line);padding:11px 18px;display:flex;align-items:center;gap:10px}
   .top .b{font-weight:800;font-size:16px;color:var(--title);display:flex;align-items:center;gap:8px}
-  .lock{margin-left:auto;font-size:11px;font-weight:700;color:#9a6b00;background:#fff6e0;border:1px solid #f0d98a;border-radius:20px;padding:3px 11px}
+  .lock{margin-left:auto;font-size:11px;font-weight:700;color:#ffcf6b;background:#2a2312;border:1px solid #4a3a16;border-radius:20px;padding:3px 11px}
   .wrap{max-width:1180px;margin:16px auto;padding:0 14px;display:grid;grid-template-columns:320px 1fr;gap:16px}
-  .card{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .card .hd{padding:11px 14px;font-weight:800;color:var(--title);border-bottom:1px solid var(--line);font-size:13.5px}
-  #srch{width:100%;border:0;border-bottom:1px solid var(--line);padding:10px 14px;font:inherit;outline:none}
+  #srch{width:100%;border:0;border-bottom:1px solid var(--line);padding:10px 14px;font:inherit;outline:none;background:var(--panel);color:var(--txt)}
+  #srch::placeholder{color:#5d6b7c}
   .lst{max-height:74vh;overflow:auto}
-  .prow{padding:10px 14px;border-top:1px solid #f2f4f6;cursor:pointer}
+  .prow{padding:10px 14px;border-top:1px solid var(--line2);cursor:pointer}
   .prow:first-child{border-top:0}
-  .prow:hover{background:#fafcf7}
-  .prow.sel{background:#f0f4ec}
+  .prow:hover{background:#1b232d}
+  .prow.sel{background:#1e2a38}
   .prow .nm{font-weight:700;color:var(--title)}
   .prow .mt{font-size:12px;color:var(--muted)}
-  .chip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:20px;padding:1px 8px;background:#eef1f4;color:#66707d;margin-right:4px}
+  .chip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:20px;padding:1px 8px;background:#1f2a37;color:var(--accent);margin-right:4px}
   .det{padding:16px 18px}
-  .pomer{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
-  .pomer h3{margin:0 0 4px;font-size:15px;color:var(--navy);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pomer{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;background:#12181f}
+  .pomer h3{margin:0 0 4px;font-size:15px;color:var(--accent);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .meta{font-size:12.5px;color:var(--muted);margin-bottom:12px}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;padding:4px 8px;border-bottom:1px solid var(--line)}
-  td{padding:6px 8px;border-bottom:1px solid #f2f4f6}
+  td{padding:6px 8px;border-bottom:1px solid var(--line2)}
   td.num{text-align:right;font-variant-numeric:tabular-nums}
   .base td{font-weight:700;color:var(--title)}
   .empty{padding:26px;color:var(--muted);text-align:center;font-style:italic}
-  .ph{font-size:10px;color:#aab2bd;margin-left:4px}
+  .ph{font-size:10px;color:#5d6b7c;margin-left:4px}
+  .ei{width:100px;border:1px solid #2b3a4a;background:var(--in);color:var(--txt);border-radius:6px;padding:3px 6px;font:inherit;text-align:right}
+  .ei:focus{outline:none;border-color:var(--accent)}
+  .sbtn{border:1px solid #2b3a4a;background:#1b232d;color:var(--txt);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:12px;font-weight:600}
+  .sbtn:hover{background:#232d39}
+  .sbtn.p{background:#2e6f3e;border-color:#3a8a4d;color:#eafff0}
+  .sbtn.p:hover{background:#357f47}
+  .sbtn.d{color:#ff8a7a;border-color:#5a2a26}
+  .addbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+  .addbar select{border:1px solid #2b3a4a;background:var(--in);color:var(--txt);border-radius:6px;padding:4px 6px;font:inherit;max-width:220px}
+  .aud{font-size:10.5px;color:#5d6b7c;margin-top:6px}
+  .savemsg{font-size:12px;color:#7fe0a0;margin-left:8px}
 </style>
 </head>
 <body>
@@ -76,15 +90,22 @@ function render(){
 }
 document.getElementById('srch').addEventListener('input',render);
 
+let CURU=null, TYPY=[];
+function typyOpts(){ return '<option value="">+ složka…</option>'+TYPY.map(t=>'<option value="'+t.id+'">'+esc(t.nazev||t.kod)+'</option>').join(''); }
+async function loadTypy(){ const d=await j(API+"/app/hr/finance/slozky-typy"); if(d.ok)TYPY=d.typy||[]; }
+function nval(v){ if(v==null)return ''; return v; }
+
 async function openP(uid,row){
+  CURU=uid;
   document.querySelectorAll('.prow').forEach(e=>e.classList.remove('sel'));
-  if(row)row.classList.add('sel');
+  const sel=row||document.querySelector('.prow[data-u="'+uid+'"]'); if(sel)sel.classList.add('sel');
   const det=document.getElementById('det'); det.innerHTML='<div class="empty">Načítám…</div>';
   const d=await j(API+"/app/hr/finance/osoba?uid="+uid);
   if(!d.ok){det.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>';return;}
   if(!d.pomery||!d.pomery.length){det.innerHTML='<div class="empty">'+esc(d.jmeno)+' — žádný aktuální poměr.</div>';return;}
   let h='<h2 style="margin:0 0 14px;color:#2b3a4a;">'+esc(d.jmeno)+'</h2>';
   for(const p of d.pomery){
+    const eg=p.engagement_id;
     h+='<div class="pomer"><h3>'+esc(p.typ||'poměr')+
       (p.firma?' <span class="chip">'+esc(p.firma)+'</span>':'')+
       (p.hodinovka?' <span class="chip">hodinová</span>':'')+'</h3>'+
@@ -93,19 +114,54 @@ async function openP(uid,row){
       'úvazek '+(p.uvazek!=null?p.uvazek+' h/týd':'—')+
       ' · smlouva '+(p.smlouva_od||'—')+(p.smlouva_do?' – '+p.smlouva_do:'')+
       (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>';
-    if(p.slozky&&p.slozky.length){
-      h+='<table><tr><th>Mzdová složka</th><th style="text-align:right">Plán</th><th style="text-align:right">Skutečnost</th></tr>';
-      for(const c of p.slozky){
-        const ph=c.per_hour?'<span class="ph">/hod</span>':'';
-        h+='<tr class="'+(c.kind==='base'||/zaklad|is_base/.test(c.kod||'')?'base':'')+'"><td>'+esc(c.nazev||c.kod)+ph+'</td>'+
-          '<td class="num">'+kc(c.plan)+'</td><td class="num">'+kc(c.real)+'</td></tr>';
-      }
-      h+='</table>';
-    } else { h+='<div class="empty" style="padding:12px">Bez zadaných mzdových složek.</div>'; }
+    h+='<table><tr><th>Mzdová složka</th><th style="text-align:right">Plán</th><th style="text-align:right">Skutečnost</th><th></th></tr>';
+    let lastAud='';
+    for(const c of (p.slozky||[])){
+      const ph=c.per_hour?'<span class="ph">/hod</span>':'';
+      const base=(c.je_zaklad||/zaklad/.test(c.kod||''))?'base':'';
+      h+='<tr class="'+base+'" data-wc="'+c.id+'"><td>'+esc(c.nazev||c.kod)+ph+'</td>'+
+        '<td class="num"><input class="ei" data-f="plan" value="'+nval(c.plan)+'"></td>'+
+        '<td class="num"><input class="ei" data-f="real" value="'+nval(c.real)+'"></td>'+
+        '<td style="white-space:nowrap"><button class="sbtn p" onclick="saveRow(this,'+c.id+')">💾</button> '+
+        '<button class="sbtn d" onclick="delRow('+c.id+')" title="Smazat">✕</button></td></tr>';
+      if(c.changed_at) lastAud=c.changed_at.substring(0,10)+(c.changed_by?' · '+esc(c.changed_by):'');
+    }
+    h+='</table>';
+    h+='<div class="addbar"><select id="at_'+eg+'">'+typyOpts()+'</select>'+
+      '<input class="ei" id="ap_'+eg+'" placeholder="plán"><input class="ei" id="ar_'+eg+'" placeholder="skut.">'+
+      '<button class="sbtn" onclick="addRow('+eg+')">+ přidat</button>'+
+      '<span class="savemsg" id="sm_'+eg+'"></span></div>';
+    if(lastAud) h+='<div class="aud">Poslední změna: '+lastAud+'</div>';
     h+='</div>';
   }
   det.innerHTML=h;
 }
+async function _post(url,payload){
+  const r=await fetch(API+url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  return r.json().catch(()=>({}));
+}
+async function saveRow(btn,wcId){
+  const tr=btn.closest('tr');
+  const plan=tr.querySelector('[data-f="plan"]').value;
+  const real=tr.querySelector('[data-f="real"]').value;
+  if(!confirm('Uložit změnu mzdové složky?'))return;
+  const d=await _post('/app/hr/finance/slozka-save',{id:wcId,amount_planned:plan,amount_real:real});
+  if(d.ok){ openP(CURU); } else { alert('Nepovedlo se: '+(d.error||'')); }
+}
+async function delRow(wcId){
+  if(!confirm('Opravdu smazat tuto mzdovou složku?'))return;
+  const d=await _post('/app/hr/finance/slozka-smazat',{id:wcId});
+  if(d.ok){ openP(CURU); } else { alert('Nepovedlo se: '+(d.error||'')); }
+}
+async function addRow(eg){
+  const ct=document.getElementById('at_'+eg).value;
+  if(!ct){alert('Vyber složku.');return;}
+  const plan=document.getElementById('ap_'+eg).value;
+  const real=document.getElementById('ar_'+eg).value;
+  const d=await _post('/app/hr/finance/slozka-save',{engagement_id:eg,component_type_id:parseInt(ct,10),amount_planned:plan,amount_real:real});
+  if(d.ok){ openP(CURU); } else { alert('Nepovedlo se: '+(d.error||'')); }
+}
+loadTypy();
 load();
 </script>
 </body>

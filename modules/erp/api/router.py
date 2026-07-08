@@ -28833,6 +28833,7 @@ _HO_MS, _OBL_MS, _POHYB_MS = 795, 794, 432
 _HO_HOD_SAZBA = 43.0
 _OBL_SAZBA_KANCELAR, _OBL_SAZBA_DILNA = 109.0, 279.0
 _HO_DILNA_VYJIMKA = {("2", 476)}                     # Bláha ES 476 = dílna, ale má HO
+_HO_BEZ_NAROKU = {("2", 442), ("2", 489)}            # Hruzova ES 442, Nepodalova ES 489 = kancelar BEZ naroku na HO (Peta 8.7.2026)
 _LM_ABS_CODES = ('vacation', 'medical', 'sick', 'family_care', 'unpaid', 'maternity')
 
 
@@ -28996,7 +28997,7 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
         is_office = user_id in skup24
         obl_sazba = _OBL_SAZBA_KANCELAR if is_office else _OBL_SAZBA_DILNA
         obl_sazba_eff = 0.0 if cislo in obl_off else obl_sazba
-        ho_elig = is_office or ((fkod, cislo) in _HO_DILNA_VYJIMKA)
+        ho_elig = (is_office or ((fkod, cislo) in _HO_DILNA_VYJIMKA)) and (fkod, cislo) not in _HO_BEZ_NAROKU
         # HO „na pevno" (Peta 7.7.2026): kdo má nárok na home office (kancelář + výjimky dílna),
         # má pevně 6 HO dnů — nezávisle na self-service volbě (benefit_volba). Kdo nárok nemá, HO nedostává.
         # (Engine si to pak stejně poměrově zkrátí podle odpracovaného fondu.)

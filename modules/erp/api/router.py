@@ -28953,16 +28953,15 @@ def _mzdy_benefity_apply(prows, firma, rok, mesic):
                 days_by[int(r[0])] = int(r[1] or 0)
             except Exception:
                 pass
-        # absence HODINY z att_entry (ec_real) — dovolená, lékař, nemoc, OČR, neplacené, mateřská
+        # absence HODINY cinnostne z att_day_summary (cte DruhCinnosti) — dovolena, lekar, nemoc, OCR, materska.
+        # Cinnostni zdroj jako stravenky (NE att_entry, kde rezie schova absenci). Montaz = pritomnost. (Peta 8.7.2026)
         abs_by = {}
         for r in s.execute(_t(
-            "SELECT e.cislo_zam, COALESCE(SUM(a.hours),0) "
-            "FROM tenant.att_entry a JOIN tenant.att_entry_type et ON et.id=a.entry_type_id "
-            "JOIN tenant.att_employee e ON e.id=a.employee_id "
-            "WHERE e.tenant_id=2 AND et.code IN "
-            "  ('vacation','medical','sick','family_care','unpaid','maternity') "
-            "  AND EXTRACT(year FROM a.entry_date)=:y AND EXTRACT(month FROM a.entry_date)=:mo "
-            "GROUP BY e.cislo_zam"), {"y": ry, "mo": rm}).fetchall():
+            "SELECT cislo_zam, COALESCE(SUM(COALESCE(cas_dovolena,0)+COALESCE(cas_lekar,0)"
+            "+COALESCE(cas_nemoc,0)+COALESCE(cas_ocr,0)+COALESCE(cas_materska,0)),0) "
+            "FROM tenant.att_day_summary "
+            "WHERE tenant_id=2 AND rok=:y AND mesic=:mo "
+            "GROUP BY cislo_zam"), {"y": ry, "mo": rm}).fetchall():
             try:
                 abs_by[int(r[0])] = float(r[1] or 0)
             except Exception:

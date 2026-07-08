@@ -13,6 +13,9 @@
   .chips{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
   .chip{background:#27313f;color:#cdd9ea;border:0;border-radius:16px;padding:8px 15px;font-size:13px;cursor:pointer}
   .chip.on{background:#2563eb;color:#fff}
+  select{background:#19202e;color:#e8edf6;border:1px solid #26303f;border-radius:10px;padding:10px 12px;font-size:15px;width:100%;max-width:440px}
+  .pick{margin-bottom:12px}
+  .pick label{display:block;font-size:11px;color:#8fa3bd;margin-bottom:4px}
   .kpi{display:flex;gap:10px;margin-bottom:12px}
   .kpi .box{flex:1;background:#19202e;border:1px solid #26303f;border-radius:12px;padding:10px 12px;text-align:center}
   .kpi .n{font-size:20px;font-weight:800}
@@ -29,12 +32,18 @@
   .zak .zh{white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:700}
   .src{font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px;vertical-align:middle}
   .src.app{background:#16243a;color:#7fb0ff}.src.centrala1{background:#1e2a1a;color:#9ada8b}
+  .src.rezie{background:#2a2233;color:#d7b3ff}
+  .zak .zk.rez{color:#d7b3ff}
   #msg{color:#9fb0c8;font-size:13px;margin-top:10px}
 </style>
 </head>
 <body>
-<h1>📋 Moje docházka</h1>
-<div class="sub">Tvoje odpracované hodiny s rozpadem po zakázkách. Vidíš jen svá data.</div>
+<h1>📋 Docházka po zakázkách</h1>
+<div class="sub">Odpracované hodiny s rozpadem po zakázkách. Můžeš se podívat i na kolegu.</div>
+<div class="pick">
+  <label>Osoba</label>
+  <select id="osoba" onchange="load()"></select>
+</div>
 <div class="chips">
   <button class="chip on" id="c30" onclick="setDni(30)">30 dní</button>
   <button class="chip" id="c90" onclick="setDni(90)">90 dní</button>
@@ -45,17 +54,29 @@
 <div id="list"></div>
 
 <script>
-var DNI=30;
+var DNI=30, SELUID=null;
 function setDni(n){DNI=n;[30,90,365].forEach(function(x){document.getElementById('c'+x).classList.toggle('on',x===DNI);});load();}
+function loadLide(){
+  fetch('/api/v1/erp/app/dochazka/lide',{credentials:'include'}).then(function(r){return r.json();}).then(function(r){
+    var sel=document.getElementById('osoba');
+    if(!r.ok){sel.innerHTML='<option value="">—</option>';load();return;}
+    var me=r.me||{},lide=(r.lide||[]).slice();
+    if(me.user_id && !lide.some(function(x){return x.user_id===me.user_id;})) lide.unshift({user_id:me.user_id,jmeno:(me.jmeno||'Já')+' (já)'});
+    SELUID=me.user_id||(lide[0]&&lide[0].user_id)||null;
+    sel.innerHTML=lide.map(function(x){return '<option value="'+x.user_id+'"'+(x.user_id===SELUID?' selected':'')+'>'+esc(x.jmeno)+'</option>';}).join('');
+    load();
+  }).catch(function(){document.getElementById('msg').textContent='Nepodařilo se načíst seznam lidí.';});
+}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function iso(d){return d.toISOString().slice(0,10);}
-function srcTag(s){var m={app:'App',centrala1:'Dílna'};return '<span class="src '+esc(s)+'">'+(m[s]||esc(s))+'</span>';}
+function srcTag(s){var m={app:'App',centrala1:'Dílna',rezie:'Režie'};return '<span class="src '+esc(s)+'">'+(m[s]||esc(s))+'</span>';}
 function hod(v){return Number(v||0).toLocaleString('cs-CZ',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function load(){
+  var sel=document.getElementById('osoba'); if(sel&&sel.value) SELUID=sel.value;
   document.getElementById('list').innerHTML='';document.getElementById('kpi').innerHTML='';
   document.getElementById('msg').textContent='Načítám…';
   var today=new Date();var od=new Date();od.setDate(od.getDate()-DNI);
-  fetch('/api/v1/erp/app/dochazka/moje?od='+iso(od)+'&do='+iso(today),{credentials:'include'})
+  fetch('/api/v1/erp/app/dochazka/moje?od='+iso(od)+'&do='+iso(today)+(SELUID?('&uid='+SELUID):''),{credentials:'include'})
     .then(function(r){return r.json();})
     .then(function(r){
       if(!r.ok){document.getElementById('msg').textContent=(r.error==='forbidden')?'Přihlas se prosím.':(r.error||'chyba');return;}
@@ -75,7 +96,7 @@ function load(){
     })
     .catch(function(){document.getElementById('msg').textContent='Nepodařilo se načíst.';});
 }
-load();
+loadLide();
 </script>
 </body>
 </html>

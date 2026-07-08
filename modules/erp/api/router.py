@@ -27710,13 +27710,45 @@ def dochazka_zakazky_ep(req: Request):
         s.close()
 
 
-@api_router.get("/app/dochazka/moje")
-def dochazka_moje_ep(req: Request):
-    """Vlastní historie docházky s rozpadem po zakázkách (SELF-scoped — každý vidí
-    JEN svá data). Pro mobilní appku. Marti 8.7.2026."""
+@api_router.get("/app/dochazka/lide")
+def dochazka_lide_ep(req: Request):
+    """Seznam lidí (kdo má výrobní záznamy) pro výběr v přehledu docházky po
+    zakázkách. Kdokoli přihlášený — každý smí vidět i kolegu. Marti 8.7.2026."""
     uid = _uid_from_token_or_cookie(req)
     if not uid:
         return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    s = _g()
+    try:
+        rows = s.execute(_t(
+            "SELECT u.id user_id, COALESCE(u.first_name||' '||u.last_name,'?') jmeno "
+            "FROM public.users u WHERE u.id IN ("
+            "  SELECT w.user_id FROM tenant.vyroba_work w "
+            "    WHERE w.tenant_id=2 AND w.user_id IS NOT NULL "
+            "  UNION "
+            "  SELECT ds.user_id FROM tenant.att_day_summary ds "
+            "    WHERE ds.tenant_id=2 AND ds.user_id IS NOT NULL AND COALESCE(ds.cas_celkem,0)>0) "
+            "ORDER BY jmeno")).mappings().all()
+        me = s.execute(_t("SELECT COALESCE(first_name||' '||last_name,'?') j "
+                          "FROM public.users WHERE id=:i"), {"i": uid}).scalar()
+        return {"ok": True, "me": {"user_id": uid, "jmeno": me or ("uživatel %s" % uid)},
+                "lide": [dict(r) for r in rows]}
+    finally:
+        s.close()
+
+
+@api_router.get("/app/dochazka/moje")
+def dochazka_moje_ep(req: Request):
+    """Historie docházky s rozpadem po zakázkách. Default = přihlášený uživatel;
+    ?uid=<id> ukáže kolegu (každý smí vidět kolegu — Marti 8.7.2026)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        target = int(req.query_params.get("uid") or uid)
+    except Exception:
+        target = uid
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     import datetime as _dt
@@ -27725,25 +27757,53 @@ def dochazka_moje_ep(req: Request):
         today = _dt.date.today()
         od = req.query_params.get("od") or (today - _dt.timedelta(days=90)).isoformat()
         do = req.query_params.get("do") or today.isoformat()
-        rows = s.execute(_t("""
-            SELECT to_char(w.datum,'YYYY-MM-DD') datum_iso, to_char(w.datum,'DD.MM.YYYY') den,
+
+        def _dlabel(iso):
+            p = str(iso).split("-")
+            return (p[2] + "." + p[1] + "." + p[0]) if len(p) == 3 else str(iso)
+
+        # 1) Přítomnost (docházka) per den = att_day_summary.cas_celkem (čistý denní
+        #    součet; att_entry NEsčítat — má překryvná pole work/nenarokova).
+        pres = s.execute(_t(
+            "SELECT to_char(ds.datum,'YYYY-MM-DD') d, "
+            "       ROUND(COALESCE(ds.cas_celkem,0)::numeric,2) h "
+            "FROM tenant.att_day_summary ds "
+            "WHERE ds.user_id=:uid AND ds.tenant_id=2 AND COALESCE(ds.cas_celkem,0)>0 "
+            "  AND ds.datum>=:od AND ds.datum<=:do"),
+            {"uid": target, "od": od, "do": do}).mappings().all()
+
+        # 2) Zakázkové segmenty (rozpad) per den z vyroba_work
+        zak = s.execute(_t("""
+            SELECT to_char(w.datum,'YYYY-MM-DD') datum_iso,
                    COALESCE(w.source_system,'?') src, trim(w.zakazka_ref) zak,
                    COALESCE(z."Nazev",'') nazev, ROUND(COALESCE(w.hodiny,0)::numeric,2) hod
             FROM tenant.vyroba_work w
             LEFT JOIN LATERAL (SELECT "Nazev" FROM tenant.oz_zakazky z2
                                WHERE trim(z2."CisloZakazky")=trim(w.zakazka_ref) LIMIT 1) z ON true
             WHERE w.user_id=:uid AND w.datum>=:od AND w.datum<=:do
-            ORDER BY w.datum DESC, zak"""), {"uid": uid, "od": od, "do": do}).mappings().all()
+            ORDER BY w.datum DESC, zak"""), {"uid": target, "od": od, "do": do}).mappings().all()
+
         days = {}
-        for r in rows:
+        for p in pres:
+            d = p["d"]
+            days[d] = {"datum_iso": d, "den": _dlabel(d),
+                       "presence": float(p["h"] or 0), "zakazky": []}
+        for r in zak:
             d = r["datum_iso"]
-            g = days.setdefault(d, {"datum_iso": d, "den": r["den"], "hod": 0.0, "zakazky": []})
-            g["zakazky"].append({"zak": r["zak"], "nazev": r["nazev"],
+            g = days.setdefault(d, {"datum_iso": d, "den": _dlabel(d),
+                                    "presence": 0.0, "zakazky": []})
+            g["zakazky"].append({"zak": r["zak"] or "—", "nazev": r["nazev"],
                                  "src": r["src"], "hod": float(r["hod"] or 0)})
-            g["hod"] += float(r["hod"] or 0)
+        # Univerzálně: zbytek přítomnosti bez zakázky = Režie (i pro lidi bez zakázek)
+        for d, g in days.items():
+            zh = round(sum(z["hod"] for z in g["zakazky"]), 2)
+            rez = round(g["presence"] - zh, 2)
+            if rez > 0.05:
+                g["zakazky"].append({"zak": "REŽIE", "nazev": "Režie (bez zakázky)",
+                                     "src": "rezie", "hod": rez})
+            g["hod"] = round(g["presence"] if g["presence"] > 0 else zh, 2)
+            g.pop("presence", None)
         out = sorted(days.values(), key=lambda x: x["datum_iso"], reverse=True)
-        for g in out:
-            g["hod"] = round(g["hod"], 2)
         total = round(sum(g["hod"] for g in out), 1)
         return {"ok": True, "od": od, "do": do, "dny": out,
                 "souhrn": {"dnu": len(out), "hodin": total}}

@@ -41,20 +41,22 @@
       '<div class="hrp-wrap">' +
       '  <div class="hrp-badges" id="hrpBadges"><div class="hrp-empty">Načítám…</div></div>' +
       '  <div class="hrp-panel">' +
-      '    <div class="hrp-phd"><span class="hrp-pi">🏖️</span> Mimo kancelář dnes <span class="hrp-cnt" id="hrpMimoCnt"></span></div>' +
-      '    <div id="hrpMimoList"><div class="hrp-empty">Načítám…</div></div>' +
-      '  </div>' +
-      '  <div class="hrp-panel">' +
-      '    <div class="hrp-phd"><span class="hrp-pi">🎂</span> Narozeniny a výročí <span class="hrp-cnt" id="hrpJubCnt"></span><span class="hrp-jhint">nejbližších 30 dní</span></div>' +
-      '    <div id="hrpJubList"><div class="hrp-empty">Načítám…</div></div>' +
-      '  </div>' +
-      '  <div class="hrp-panel">' +
       '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
       '    <div class="hrp-grid" id="hrpGrid"></div>' +
       '  </div>' +
-      '  <div class="hrp-panel hrp-feed">' +
-      '    <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
-      '    <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
+      '  <div class="hrp-blocks">' +
+      '    <div class="hrp-panel">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🏖️</span> Mimo kancelář dnes <span class="hrp-cnt" id="hrpMimoCnt"></span></div>' +
+      '      <div id="hrpMimoList"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
+      '    <div class="hrp-panel">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">🎂</span> Narozeniny a výročí <span class="hrp-cnt" id="hrpJubCnt"></span><span class="hrp-jhint">30 dní</span></div>' +
+      '      <div id="hrpJubList"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
+      '    <div class="hrp-panel hrp-feed">' +
+      '      <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
+      '      <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
+      '    </div>' +
       '  </div>' +
       '</div>';
 
@@ -280,6 +282,8 @@
   function style() {
     return '<style>' +
       '.hrp-wrap{max-width:1180px;margin:0 auto;color:#cdd6e2;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;}' +
+      '.hrp-blocks{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px;align-items:start;}' +
+      '.hrp-blocks .hrp-panel{margin:0;}' +
       '.hrp-badges{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;}' +
       '.hrp-badge{background:#161c24;border:1px solid #233040;border-radius:12px;padding:14px 16px;}' +
       '.hrp-n{font-size:28px;font-weight:800;color:#e8eef5;line-height:1;}' +

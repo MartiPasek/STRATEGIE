@@ -539,51 +539,82 @@ def sync_all_tx(days: int = 90):
             if not bundle:
                 continue
             accs = [dict(r) for r in s.execute(_t(
-                "SELECT id, cislo_uctu, mena, sc_historie, sc_zustatky FROM tenant.bank_connection_account "
+                "SELECT id, cislo_uctu, COALESCE(nazev,'') nazev, mena, sc_historie, sc_zustatky "
+                "FROM tenant.bank_connection_account "
                 "WHERE connection_id=:c AND aktivni AND (sc_historie OR sc_zustatky) ORDER BY id"),
                 {"c": cid}).mappings().all()]
+            present = {(a["cislo_uctu"], (a["mena"] or "CZK")) for a in accs}
+
+            def _ensure_ccy_acc(cislo, ccy, nazev):
+                row = s.execute(_t(
+                    "SELECT id FROM tenant.bank_connection_account "
+                    "WHERE connection_id=:c AND cislo_uctu=:cu AND mena=:m"),
+                    {"c": cid, "cu": cislo, "m": ccy}).first()
+                if row:
+                    return row[0]
+                return s.execute(_t(
+                    "INSERT INTO tenant.bank_connection_account "
+                    "(connection_id, cislo_uctu, nazev, mena, sc_historie, sc_zustatky, sc_vypisy, sc_platby) "
+                    "VALUES (:c,:cu,:n,:m,true,true,true,false) RETURNING id"),
+                    {"c": cid, "cu": cislo, "n": ((nazev or "") + " (" + ccy + ")").strip(), "m": ccy}).scalar()
+
             for a in accs:
-                ccy = a["mena"] or "CZK"
-                if a.get("sc_historie"):
-                    try:
-                        page = 1
-                        while True:
-                            r = _rb_call(bundle, "GET", "/accounts/%s/%s/transactions" % (a["cislo_uctu"], ccy),
-                                         params={"from": date_from.isoformat(), "to": date_to.isoformat(), "page": page})
-                            if r.status_code == 204:
-                                break
-                            r.raise_for_status()
-                            j = r.json()
-                            for t in j.get("transactions", []):
-                                tx = _norm_tx(t, ccy)
-                                if not tx["ext_id"]:
-                                    continue
-                                res = s.execute(_t(
-                                    "INSERT INTO tenant.bank_transaction_raw "
-                                    "(account_id, ext_id, datum, castka, mena, smer, protiucet, vs, ks, ss, zprava, raw) "
-                                    "VALUES (:aid,:e,:d,:ca,:m,:sm,:pu,:vs,:ks,:ss,:z,CAST(:raw AS jsonb)) "
-                                    "ON CONFLICT (account_id, ext_id) WHERE ext_id IS NOT NULL DO NOTHING"),
-                                    {"aid": a["id"], "e": tx["ext_id"], "d": tx["datum"], "ca": tx["castka"],
-                                     "m": tx["mena"], "sm": tx["smer"], "pu": tx["protiucet"], "vs": tx["vs"],
-                                     "ks": tx["ks"], "ss": tx["ss"], "z": tx["zprava"], "raw": _json.dumps(tx["raw"])})
-                                nacteno += (res.rowcount or 0)
-                            if j.get("lastPage", True):
-                                break
-                            page += 1
-                    except Exception as exc:
-                        chyb += 1
-                        _log(s, cid, a["id"], "get_transactions", "sched", "system", "ERROR:%s" % type(exc).__name__)
-                if a.get("sc_zustatky"):
-                    try:
-                        bal = _rb_balance(bundle, a["cislo_uctu"], ccy)
-                        if bal is not None:
-                            s.execute(_t("UPDATE tenant.bank_connection_account "
-                                         "SET zustatek=:z, zustatek_mena=:m, zustatek_at=now() WHERE id=:id"),
-                                      {"z": bal, "m": ccy, "id": a["id"]})
-                            zustatku += 1
-                    except Exception as exc:
-                        chyb += 1
-                        _log(s, cid, a["id"], "get_balance", "sched", "system", "ERROR:%s" % type(exc).__name__)
+                ccy_main = a["mena"] or "CZK"
+                # kanály = hlavní měna účtu + (jednou) EUR SONDA pro ne-EUR účet bez EUR řádku.
+                # EUROSOFT drží EUR pod stejným číslem účtu (platby zahraničně z CZK) →
+                # RB je vrací přes /accounts/{cislo}/EUR/. EUR řádek se založí líně jen když data jsou.
+                channels = [(a["id"], a["cislo_uctu"], ccy_main, a.get("sc_historie"), a.get("sc_zustatky"))]
+                if ccy_main != "EUR" and (a["cislo_uctu"], "EUR") not in present:
+                    channels.append((None, a["cislo_uctu"], "EUR", True, True))
+                for (acc_id, cislo, ccy, do_hist, do_zust) in channels:
+                    probe = acc_id is None
+                    if do_hist:
+                        try:
+                            page = 1
+                            while True:
+                                r = _rb_call(bundle, "GET", "/accounts/%s/%s/transactions" % (cislo, ccy),
+                                             params={"from": date_from.isoformat(), "to": date_to.isoformat(), "page": page})
+                                if r.status_code == 204:
+                                    break
+                                r.raise_for_status()
+                                j = r.json()
+                                txs = j.get("transactions", [])
+                                if txs and acc_id is None:
+                                    acc_id = _ensure_ccy_acc(cislo, ccy, a["nazev"])
+                                for t in txs:
+                                    tx = _norm_tx(t, ccy)
+                                    if not tx["ext_id"]:
+                                        continue
+                                    res = s.execute(_t(
+                                        "INSERT INTO tenant.bank_transaction_raw "
+                                        "(account_id, ext_id, datum, castka, mena, smer, protiucet, vs, ks, ss, zprava, raw) "
+                                        "VALUES (:aid,:e,:d,:ca,:m,:sm,:pu,:vs,:ks,:ss,:z,CAST(:raw AS jsonb)) "
+                                        "ON CONFLICT (account_id, ext_id) WHERE ext_id IS NOT NULL DO NOTHING"),
+                                        {"aid": acc_id, "e": tx["ext_id"], "d": tx["datum"], "ca": tx["castka"],
+                                         "m": tx["mena"], "sm": tx["smer"], "pu": tx["protiucet"], "vs": tx["vs"],
+                                         "ks": tx["ks"], "ss": tx["ss"], "z": tx["zprava"], "raw": _json.dumps(tx["raw"])})
+                                    nacteno += (res.rowcount or 0)
+                                if j.get("lastPage", True):
+                                    break
+                                page += 1
+                        except Exception:
+                            if not probe:
+                                chyb += 1
+                                _log(s, cid, acc_id, "get_transactions", "sched", "system", "ERROR:%s" % ccy)
+                    if do_zust:
+                        try:
+                            bal = _rb_balance(bundle, cislo, ccy)
+                            if bal is not None:
+                                if acc_id is None:
+                                    acc_id = _ensure_ccy_acc(cislo, ccy, a["nazev"])
+                                s.execute(_t("UPDATE tenant.bank_connection_account "
+                                             "SET zustatek=:z, zustatek_mena=:m, zustatek_at=now() WHERE id=:id"),
+                                          {"z": bal, "m": ccy, "id": acc_id})
+                                zustatku += 1
+                        except Exception:
+                            if not probe:
+                                chyb += 1
+                                _log(s, cid, acc_id, "get_balance", "sched", "system", "ERROR:%s" % ccy)
             s.commit()
         return {"ok": True, "done": True, "nacteno": nacteno, "zustatku": zustatku, "chyb": chyb}
     except Exception as exc:

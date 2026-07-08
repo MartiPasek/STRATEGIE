@@ -1,5 +1,13 @@
 # Mzdy — pravidla a zdroje složek (STRATEGIE)
 
+> ⚠️ **ŽIVNOSTNÍCI (OSVČ) NEMAJÍ VÝPLATU (MZDU).** Nikdy jim negeneruj výplatnici ani mzdové
+> složky — OSVČ fakturují, nejsou v zaměstnaneckém mzdovém režimu. `@@MZDY` bere JEN lidi
+> z automatické mzdové agendy Heliosu (`TabZamMzd`, Automat=1) + Landmark náhrady jen HPP
+> (`user_smlouva.typ_smlouvy='hpp'`), takže OSVČ přirozeně vypadnou. Když člověk nemá
+> `user_smlouva` řádek, do mzdové logiky vůbec nevstoupí. Pozor: OSVČ může mít mzdovou kartu
+> ve `helios_wage_snapshot` jako referenci — to NEZNAMENÁ nárok na výplatu. (Kristý 8.7.2026,
+> *„stále se nám to v instancích vrací"*.)
+
 > Živá poznámka k logice generování mezd. Autoritativní zdroj podkladů pro mzdy je
 > **.188 (UCTO_EC / UCTO_ES)** a **Centrála (DB_EC)** pro odměny/docházku. Z .30.11 (DB_EC)
 > bereme jen to, co je zde uvedené. Poslední velká revize: Peta, 7. 7. 2026.

@@ -74,19 +74,18 @@ Obrazovka **🤝 Spolupráce** (Firma → Spolupráce, nebo dlaždice v Aplikac�
 | 4 | 🧾 Příchod: vyber zakázku | pruvodce_zakazka.png |
 | 5 | 🔧 Příchod: vyber činnost a Makat | pruvodce_cinnost.png |
 | 6 | 💬 Příchod jinak — přes menu | pruvodce_menu.png |
-| 7 | 🍽️ Pauza / oběd | pruvodce_prehled.png \* |
-| 8 | 🤝 Jednání, pochůzka, dřív/později | pruvodce_prehled.png \* |
-| 9 | 🏠 Konec práce — odchod | pruvodce_prehled.png \* |
+| 7 | 🍽️ Pauza / oběd | pruvodce_jinak.png |
+| 8 | 🤝 Jednání, pochůzka, dřív/později | pruvodce_jinak.png |
+| 9 | 🏠 Konec práce — odchod | pruvodce_odchod.png |
 | 10 | ✅ Potvrzení docházky | pruvodce_potvrzeni.png |
 | 11 | 🧭 Dovolená, nemoc, lékař, OČR… | pruvodce_jinde.png |
 | 12 | 🆘 Pomoc, opravy a přehledy | pruvodce_menu.png |
 
-\* **Známé omezení:** kroky 7–9 jsou akce **ve směně** (menu 🙈 Teď to bude jinak).
-Snímek tohoto on-shift menu nešlo pořídit, protože vyžaduje aktivní píchnutí
-(reálnou docházku testera neměníme). Proto u nich je `pruvodce_prehled.png`
-(ukazuje zelené tlačítko „Potřebuji ti něco říct", což je krok 1). **TODO:**
-až bude někdo reálně ve směně, pořídit `pruvodce_pauza.png` / `pruvodce_jinak.png`
-(menu 🙈) a doplnit je ke krokům 7–9.
+✅ **On-shift snímky doplněny 8. 7. 2026** (Jirka byl ve směně — session auth.json):
+kroky 7–9 mají reálné snímky rozbaleného menu 🙈 Teď to bude jinak. Pořízeno
+skriptem, který **jen otevírá menu (💬 → 🙈), nikdy nekliká akční volby** —
+docházka testera se nemění. Pozn.: na snímku je i volba „🧾 Nepřítomnost OSVČ…"
+(tester je OSVČ; HPP lidem se nezobrazuje) — narace ji nezmiňuje, nevadí.
 
 ## Obrázky (`apps/api/static/navod_dochazka/`)
 Verzovaná pravda = **`apps/api/static/navod_dochazka/pruvodce_*.png`** (to appka servíruje).
@@ -99,6 +98,8 @@ do `pruvodce_*.png`. **`P_*.png` jsou regenerovatelné mezivýstupy — do gitu 
 - `pruvodce_menu.png` ← P_menu (menu „Potřebuji" mimo směnu)
 - `pruvodce_jinde.png` ← P_jinde_osobni (Tady budu jinde → Osobní důvody)
 - `pruvodce_potvrzeni.png` ← S10_potvrzeni (jantarová karta potvrzení)
+- `pruvodce_jinak.png` ← P_onshift_jinak (VE SMĚNĚ: 💬 → 🙈 Teď to bude jinak rozbalené — pauza/najíst/dříve/později/jednání/pochůzka/nepočítej)
+- `pruvodce_odchod.png` ← P_onshift_jinak2 (totéž odscrollované, 🫡 „Dnes už se mnou nepočítej" nahoře)
 
 ## Jak znovu pořídit / aktualizovat snímky
 ```
@@ -107,7 +108,9 @@ node scripts/screenshot_dochazka_pruvodce.js   # -> docs/navod_screenshoty/P_*.p
 ```
 Vyžaduje platný `docs/navod_screenshoty/auth.json` (uložená session; cookies expirace ~9/2026).
 Když vyprší: `node scripts/screenshot_login.js` (interaktivní přihlášení) → nový auth.json.
-On-shift menu (🙈) jde pořídit jen když je tester ve směně.
+On-shift menu (🙈) jde pořídit jen když je tester (auth.json user) ve směně — skript
+smí jen otevírat menu (💬, 🙈), NIKDY neklikat akční volby (pauza/odchod/…), jinak
+změní reálnou docházku.
 
 ## Gotchy (drž!)
 - **ASCII `"` uvnitř dvojitě uvozovaných JS stringů (`v:`, items) rozbije parsování** →

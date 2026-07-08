@@ -79,13 +79,13 @@
       {t:"💬 Příchod jinak — přes menu", img:IMG+"pruvodce_menu.png",
        cap:'<p class="hint" style="margin-top:0">Rychlá alternativa — ťukni zelené <b style="color:#3fb950">💬 Potřebuji ti něco říct…</b>:</p><div class="dp-step">🏢 <b>Jsem v práci…</b> — běžný příchod</div><div class="dp-step">🏠 <b>Nejsem v práci… (home office)</b></div><div class="dp-step">🚗 <b>Jedu do práce…</b> — když jsi teprve na cestě (vybereš, za jak dlouho dorazíš)</div><div class="dp-step">🌅 Potřebuji přijít později… · 🕔 Potřebuji skončit dříve…</div>',
        v:"Příchod jde i rychleji, přes zelené tlačítko Potřebuji ti něco říct. Tam ťuknete Jsem v práci pro běžný příchod, nebo Nejsem v práci, home office, když děláte z domova. Když jste teprve na cestě, vyberte Jedu do práce a kolegové uvidí, že dorazíte. Najdete tu i volby Potřebuji přijít později a Potřebuji skončit dříve."},
-      {t:"🍽️ Pauza / oběd", img:IMG+"pruvodce_prehled.png",
-       cap:'<p class="hint" style="margin-top:0">Během směny ťukni zelené <b style="color:#3fb950">💬 Potřebuji ti něco říct…</b>, pak:</p><div class="dp-step"><b style="color:#d29922">🙈 Teď to bude jinak…</b> → 🍃 Jdu se provětrat / najíst · nebo ☕ Krátká pauza</div><div class="dp-step dp-amber">⏸ Hodiny STOJÍ (pauza se nepočítá).</div><div class="dp-step dp-ok">Po pauze: ✅ Jsem zpět — pokračuju.</div>',
+      {t:"🍽️ Pauza / oběd", img:IMG+"pruvodce_jinak.png",
+       cap:'<p class="hint" style="margin-top:0">Během směny ťukni zelené <b style="color:#3fb950">💬 Potřebuji ti něco říct…</b>, pak:</p><div class="dp-step"><b style="color:#d29922">🙈 Teď to bude jinak…</b> → ☕ Potřebuju krátkou pauzu · nebo 🍃 Jdu se provětrat / najíst</div><div class="dp-step dp-amber">⏸ Hodiny STOJÍ (pauza se nepočítá).</div><div class="dp-step dp-ok">Po pauze: ✅ Jsem zpět — pokračuju.</div>',
        v:"Když jdete na oběd nebo si dáte pauzu, ťukněte zelené Potřebuji ti něco říct, pak oranžové Teď to bude jinak, a vyberte Jdu se provětrat nebo najíst, případně Potřebuju krátkou pauzu. Hodiny se zastaví, pauza se nepočítá. Po pauze se vraťte tlačítkem Jsem zpět, pokračuju."},
-      {t:"🤝 Jednání, pochůzka, dřív/později", img:IMG+"pruvodce_prehled.png",
+      {t:"🤝 Jednání, pochůzka, dřív/později", img:IMG+"pruvodce_jinak.png",
        cap:'<p class="hint" style="margin-top:0">Také přes 💬 → <b style="color:#d29922">🙈 Teď to bude jinak…</b>:</p><div class="dp-step">📅 <b>Mám jednání…</b> · 🚗 <b>Mám služební pochůzku…</b> (zadáš čas) — <b>hodiny TIKAJÍ DÁL</b>, jen info, kde jsi.</div><div class="dp-step">🌅 <b>Potřebuji přijít později…</b> · 🕔 <b>Potřebuji skončit dříve…</b></div>',
        v:"Když máte během práce schůzku nebo pochůzku, ťukněte Potřebuji ti něco říct, Teď to bude jinak, a vyberte Mám jednání nebo Mám služební pochůzku. Zadáte, jak dlouho to potrvá. Pozor, tohle není pauza, hodiny běží dál. Je to jen informace pro kolegy, kde zrovna jste."},
-      {t:"🏠 Konec práce — odchod", img:IMG+"pruvodce_prehled.png",
+      {t:"🏠 Konec práce — odchod", img:IMG+"pruvodce_odchod.png",
        cap:'<div class="dp-step"><b>1.</b> 💬 Potřebuji ti něco říct…</div><div class="dp-step"><b>2.</b> <b style="color:#d29922">🙈 Teď to bude jinak…</b></div><div class="dp-step dp-warn"><b>3.</b> 🫡 Dnes už se mnou nepočítej ;)</div><div class="dp-step dp-ok">✓ Směna ukončena — uvidíš souhrn hodin.</div><p class="hint">Zapomněl ses odhlásit? Systém tě o půlnoci odhlásí sám — ale raději se odhlas sám, je to přesnější.</p>',
        v:"Když končíte a jdete domů, ťukněte zelené Potřebuji ti něco říct, pak oranžové Teď to bude jinak, a nakonec Dnes už se mnou nepočítej. Směna se ukončí a uvidíte souhrn hodin. Když se zapomenete odhlásit, systém vás o půlnoci odhlásí sám a upozorní vás, ale raději se odhlašte sami, je to přesnější."},
       {t:"✅ Potvrzení docházky", img:IMG+"pruvodce_potvrzeni.png",
@@ -255,6 +255,7 @@
       }).catch(function(){});
     })();
     _tg1.appendChild(appCell("🕓","Historie",0,function(){ go("doch_historie"); }));
+    _tg1.appendChild(appCell("📦","Po zakázkách",0,function(){ openInApp("/moje-dochazka"); }));
     _tg1.appendChild(appCell("📋","Moje žádosti",0,function(){ go("moje_zadosti"); }));
     _tg1.appendChild(appCell("🧭","Tady budu jinde",0,function(){
       var jb=document.getElementById("dochJindeBox"); if(!jb) return;

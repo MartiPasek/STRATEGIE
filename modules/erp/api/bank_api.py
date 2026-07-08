@@ -521,6 +521,35 @@ def _rb_balance(bundle, cislo_uctu, ccy):
     return None
 
 
+def _rb_balances(bundle, cislo_uctu):
+    """Zůstatky účtu ze VŠECH měn: GET /accounts/{cislo}/balance → currencyFolders[].
+    → {currency: value}. Bere CLBD (účetní zůstatek), fallback CLAV (disponibilní).
+    Ověřeno na reálné RB odpovědi (Marti 8.7.2026). Jeden call = CZK i EUR."""
+    r = _rb_call(bundle, "GET", "/accounts/%s/balance" % cislo_uctu)
+    if r.status_code == 204:
+        return {}
+    r.raise_for_status()
+    j = r.json()
+    out = {}
+    for f in (j.get("currencyFolders") or []):
+        ccy = f.get("currency")
+        if not ccy:
+            continue
+        bals = {}
+        for b in (f.get("balances") or []):
+            if b.get("balanceType") and b.get("value") is not None:
+                bals[b["balanceType"]] = b["value"]
+        val = bals.get("CLBD")
+        if val is None:
+            val = bals.get("CLAV")
+        if val is not None:
+            try:
+                out[ccy] = float(val)
+            except Exception:
+                pass
+    return out
+
+
 def sync_all_tx(days: int = 90):
     """Automatický sync bankovních výpisů: pro VŠECHNA aktivní napojení načte transakce
     (posl. `days` dní) pro účty se scope historie + zjistí zůstatky (scope zůstatky).
@@ -563,10 +592,10 @@ def sync_all_tx(days: int = 90):
                 # kanály = hlavní měna účtu + (jednou) EUR SONDA pro ne-EUR účet bez EUR řádku.
                 # EUROSOFT drží EUR pod stejným číslem účtu (platby zahraničně z CZK) →
                 # RB je vrací přes /accounts/{cislo}/EUR/. EUR řádek se založí líně jen když data jsou.
-                channels = [(a["id"], a["cislo_uctu"], ccy_main, a.get("sc_historie"), a.get("sc_zustatky"))]
+                channels = [(a["id"], a["cislo_uctu"], ccy_main, a.get("sc_historie"))]
                 if ccy_main != "EUR" and (a["cislo_uctu"], "EUR") not in present:
-                    channels.append((None, a["cislo_uctu"], "EUR", True, True))
-                for (acc_id, cislo, ccy, do_hist, do_zust) in channels:
+                    channels.append((None, a["cislo_uctu"], "EUR", True))
+                for (acc_id, cislo, ccy, do_hist) in channels:
                     probe = acc_id is None
                     if do_hist:
                         try:
@@ -601,20 +630,18 @@ def sync_all_tx(days: int = 90):
                             if not probe:
                                 chyb += 1
                                 _log(s, cid, acc_id, "get_transactions", "sched", "system", "ERROR:%s" % ccy)
-                    if do_zust:
-                        try:
-                            bal = _rb_balance(bundle, cislo, ccy)
-                            if bal is not None:
-                                if acc_id is None:
-                                    acc_id = _ensure_ccy_acc(cislo, ccy, a["nazev"])
-                                s.execute(_t("UPDATE tenant.bank_connection_account "
-                                             "SET zustatek=:z, zustatek_mena=:m, zustatek_at=now() WHERE id=:id"),
-                                          {"z": bal, "m": ccy, "id": acc_id})
-                                zustatku += 1
-                        except Exception:
-                            if not probe:
-                                chyb += 1
-                                _log(s, cid, acc_id, "get_balance", "sched", "system", "ERROR:%s" % ccy)
+                # ZŮSTATKY — jeden call /accounts/{cislo}/balance → všechny měny (currencyFolders)
+                if a.get("sc_zustatky"):
+                    try:
+                        for fccy, val in _rb_balances(bundle, a["cislo_uctu"]).items():
+                            aid = a["id"] if fccy == ccy_main else _ensure_ccy_acc(a["cislo_uctu"], fccy, a["nazev"])
+                            s.execute(_t("UPDATE tenant.bank_connection_account "
+                                         "SET zustatek=:z, zustatek_mena=:m, zustatek_at=now() WHERE id=:id"),
+                                      {"z": val, "m": fccy, "id": aid})
+                            zustatku += 1
+                    except Exception:
+                        chyb += 1
+                        _log(s, cid, a["id"], "get_balance", "sched", "system", "ERROR")
             s.commit()
         # po nasyncování rovnou spárovat (aby výpisy nebyly věčně „nové")
         napar = None
@@ -673,43 +700,6 @@ def bank_zustatky(request: Request):
                         "firma": int(r[6]) if r[6] is not None else 1,
                         "posledni_tx": r[7] or ""})
         return {"ok": True, "ucty": out}
-    finally:
-        s.close()
-
-
-@bank_router.get("/app/bank/debug-balance")
-def bank_debug_balance(request: Request):
-    """DOČASNÉ (Claude 8.7.): ukáže surovou RB odpověď /accounts + /balance, abych trefil
-    parsing zůstatku. Parent-only. Po opravě smazat."""
-    uid = _uid(request)
-    if not uid or not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    s = _sess()
-    try:
-        cid = s.execute(_t("SELECT id FROM tenant.bank_connection WHERE tenant_id=:tn ORDER BY id LIMIT 1"),
-                        {"tn": _TENANT}).scalar()
-        bundle = _bundle_for(s, cid)
-        if not bundle:
-            return JSONResponse({"ok": False, "error": "no bundle"}, status_code=400)
-        accs = _rb_accounts(bundle)
-        first = next((a for a in accs if a.get("accountNumber")), {})
-        num = first.get("accountNumber")
-        ccy = first.get("mainCurrency") or first.get("currency") or "CZK"
-        tries = {}
-        for pth in ["/accounts/%s/%s/balance" % (num, ccy),
-                    "/accounts/%s/balance" % num,
-                    "/accounts/%s/%s" % (num, ccy)]:
-            try:
-                r = _rb_call(bundle, "GET", pth)
-                body = None
-                try:
-                    body = r.json()
-                except Exception:
-                    body = (r.text or "")[:400]
-                tries[pth] = {"status": r.status_code, "body": body}
-            except Exception as e:
-                tries[pth] = {"err": "%s: %s" % (type(e).__name__, str(e)[:160])}
-        return {"ok": True, "accounts_raw": accs[:2], "num": num, "ccy": ccy, "balance_tries": tries}
     finally:
         s.close()
 

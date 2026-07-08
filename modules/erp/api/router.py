@@ -29633,7 +29633,7 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
         try:
             # Jednatelé/společníci (odměna 693) = odměna + PLNÉ stravné, nic dalšího (dovolená/OBL/HO ne).
             # Nemají dovolenou → stravné za CELÝ pracovní fond měsíce (Po–Pá), ne jen napíchané dny. Peta 7.7.2026.
-            prows = [((r[0], 651) + tuple(r[2:])) if (int(r[1]) == 693 and int(r[0]) not in _JEDNATELE_CISLA) else r for r in prows]
+            prows = [((r[0], 432) + tuple(r[2:])) if (int(r[1]) == 693 and int(r[0]) not in _JEDNATELE_CISLA) else r for r in prows]
             _spol = set(int(r[0]) for r in prows if int(r[1]) == 693) & _JEDNATELE_CISLA
             if _spol:
                 import calendar as _calsp
@@ -29764,7 +29764,7 @@ def mzdy_generuj(req: Request):
         prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
         try:
             # Jednatel/společník (odměna 693) = odměna + PLNÉ stravné (celý fond), nic dalšího. Peta 7.7.2026.
-            prows = [((r[0], 651) + tuple(r[2:])) if (int(r[1]) == 693 and int(r[0]) not in _JEDNATELE_CISLA) else r for r in prows]
+            prows = [((r[0], 432) + tuple(r[2:])) if (int(r[1]) == 693 and int(r[0]) not in _JEDNATELE_CISLA) else r for r in prows]
             _spol = set(int(r[0]) for r in prows if int(r[1]) == 693) & _JEDNATELE_CISLA
             if _spol:
                 import calendar as _calsp
@@ -30331,29 +30331,34 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
                                     "castka": float(fkc), "zakazka": None, "zdroj": "dopocet"})
                         soucet += float(fkc)
                         break
-                # Jednatelska odmena u NE-jednatele: generator ji prehazuje z 693 na 651
-                # (premie), ale mapovani ji drzi na 693, takze v rozpisu 651 chybela.
-                # Ukazeme ji jako "Premie jednatel" (Peta 8.7.2026).
-                if _ci not in _JEDNATELE_CISLA:
-                    _pj = s.execute(_t(
-                        "SELECT COALESCE((SELECT SUM(sn.castka) FROM tenant.helios_wage_snapshot sn "
-                        "  JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
-                        "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                        "  WHERE sn.tenant_id=2 AND sn.firma=:fec AND sn.cislo::text=:cislo AND msm.ext_code='693' "
-                        "    AND sn.asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:fec)),0)"
-                        "+COALESCE((SELECT SUM(COALESCE(wm.amount, wm.hours*wm.rate,0)) FROM tenant.wage_movement wm "
-                        "  JOIN tenant.engagement e ON e.id=wm.engagement_id "
-                        "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:cislo "
-                        "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
-                        "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
-                        "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND msm.ext_code='693' "
-                        "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
-                        "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))),0)"),
-                        {"fec": fec, "cislo": cislo, "y": rok, "mo": mesic}).scalar()
-                    if _pj and float(_pj) != 0:
-                        pol.append({"typ": "Prémie jednatel", "kod": "premie_jednatel",
-                                    "castka": float(_pj), "zakazka": None, "zdroj": "dopocet"})
-                        soucet += float(_pj)
+        # Prémie jednatel (dopočet z 693 pro NE-jednatele) → od 8.7.2026 na složce 432
+        # (osobní ohodnocení), dřív 651. Generator přehazuje 693→432, ale mapování drží
+        # zdroj na 693, takže v rozpisu 432 dopočteme. Kristý 8.7.2026.
+        if cms == 432:
+            try:
+                _ci432 = int(cislo)
+            except Exception:
+                _ci432 = None
+            if _ci432 is not None and _ci432 not in _JEDNATELE_CISLA:
+                _pj = s.execute(_t(
+                    "SELECT COALESCE((SELECT SUM(sn.castka) FROM tenant.helios_wage_snapshot sn "
+                    "  JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
+                    "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
+                    "  WHERE sn.tenant_id=2 AND sn.firma=:fec AND sn.cislo::text=:cislo AND msm.ext_code='693' "
+                    "    AND sn.asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:fec)),0)"
+                    "+COALESCE((SELECT SUM(COALESCE(wm.amount, wm.hours*wm.rate,0)) FROM tenant.wage_movement wm "
+                    "  JOIN tenant.engagement e ON e.id=wm.engagement_id "
+                    "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:cislo "
+                    "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
+                    "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
+                    "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND msm.ext_code='693' "
+                    "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
+                    "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))),0)"),
+                    {"fec": fec, "cislo": cislo, "y": rok, "mo": mesic}).scalar()
+                if _pj and float(_pj) != 0:
+                    pol.append({"typ": "Prémie jednatel", "kod": "premie_jednatel",
+                                "castka": float(_pj), "zakazka": None, "zdroj": "dopocet"})
+                    soucet += float(_pj)
         return {"ok": True, "polozky": pol, "soucet": round(soucet)}
     finally:
         s.close()

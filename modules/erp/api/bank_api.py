@@ -485,6 +485,157 @@ async def bank_load_tx(cid: int, request: Request):
         s.close()
 
 
+def _rb_balance(bundle, cislo_uctu, ccy):
+    """Zůstatek účtu z RB API (GET /accounts/{acc}/{ccy}/balance). Parsuje běžné tvary
+    odpovědi defenzivně. → float | None. Claude 8.7.2026."""
+    try:
+        r = _rb_call(bundle, "GET", "/accounts/%s/%s/balance" % (cislo_uctu, ccy))
+        if r.status_code == 204:
+            return None
+        r.raise_for_status()
+        j = r.json()
+    except Exception:
+        return None
+
+    def _num(x):
+        if isinstance(x, dict):
+            x = x.get("value")
+        try:
+            return float(x)
+        except Exception:
+            return None
+    if isinstance(j, dict):
+        for key in ("currentBalance", "availableBalance", "balance", "bookedBalance",
+                    "closingBalance", "value"):
+            if key in j:
+                v = _num(j[key])
+                if v is not None:
+                    return v
+        for arrkey in ("balances", "accountBalances"):
+            arr = j.get(arrkey)
+            if isinstance(arr, list) and arr:
+                first = arr[0] if isinstance(arr[0], dict) else {}
+                v = _num(first.get("amount") or first.get("balance") or first)
+                if v is not None:
+                    return v
+    return None
+
+
+def sync_all_tx(days: int = 90):
+    """Automatický sync bankovních výpisů: pro VŠECHNA aktivní napojení načte transakce
+    (posl. `days` dní) pro účty se scope historie + zjistí zůstatky (scope zůstatky).
+    Idempotentní (ON CONFLICT DO NOTHING). Volá se ze scheduleru i ručně. Claude 8.7.2026."""
+    import datetime as _dt
+    s = _sess()
+    nacteno, zustatku, chyb = 0, 0, 0
+    try:
+        conns = [r[0] for r in s.execute(_t(
+            "SELECT id FROM tenant.bank_connection WHERE tenant_id=:tn AND COALESCE(aktivni,true) "
+            "ORDER BY id"), {"tn": _TENANT}).fetchall()]
+        date_to = _dt.date.today()
+        date_from = date_to - _dt.timedelta(days=max(1, days) - 1)
+        for cid in conns:
+            bundle = _bundle_for(s, cid)
+            if not bundle:
+                continue
+            accs = [dict(r) for r in s.execute(_t(
+                "SELECT id, cislo_uctu, mena, sc_historie, sc_zustatky FROM tenant.bank_connection_account "
+                "WHERE connection_id=:c AND aktivni AND (sc_historie OR sc_zustatky) ORDER BY id"),
+                {"c": cid}).mappings().all()]
+            for a in accs:
+                ccy = a["mena"] or "CZK"
+                if a.get("sc_historie"):
+                    try:
+                        page = 1
+                        while True:
+                            r = _rb_call(bundle, "GET", "/accounts/%s/%s/transactions" % (a["cislo_uctu"], ccy),
+                                         params={"from": date_from.isoformat(), "to": date_to.isoformat(), "page": page})
+                            if r.status_code == 204:
+                                break
+                            r.raise_for_status()
+                            j = r.json()
+                            for t in j.get("transactions", []):
+                                tx = _norm_tx(t, ccy)
+                                if not tx["ext_id"]:
+                                    continue
+                                res = s.execute(_t(
+                                    "INSERT INTO tenant.bank_transaction_raw "
+                                    "(account_id, ext_id, datum, castka, mena, smer, protiucet, vs, ks, ss, zprava, raw) "
+                                    "VALUES (:aid,:e,:d,:ca,:m,:sm,:pu,:vs,:ks,:ss,:z,CAST(:raw AS jsonb)) "
+                                    "ON CONFLICT (account_id, ext_id) WHERE ext_id IS NOT NULL DO NOTHING"),
+                                    {"aid": a["id"], "e": tx["ext_id"], "d": tx["datum"], "ca": tx["castka"],
+                                     "m": tx["mena"], "sm": tx["smer"], "pu": tx["protiucet"], "vs": tx["vs"],
+                                     "ks": tx["ks"], "ss": tx["ss"], "z": tx["zprava"], "raw": _json.dumps(tx["raw"])})
+                                nacteno += (res.rowcount or 0)
+                            if j.get("lastPage", True):
+                                break
+                            page += 1
+                    except Exception as exc:
+                        chyb += 1
+                        _log(s, cid, a["id"], "get_transactions", "sched", "system", "ERROR:%s" % type(exc).__name__)
+                if a.get("sc_zustatky"):
+                    try:
+                        bal = _rb_balance(bundle, a["cislo_uctu"], ccy)
+                        if bal is not None:
+                            s.execute(_t("UPDATE tenant.bank_connection_account "
+                                         "SET zustatek=:z, zustatek_mena=:m, zustatek_at=now() WHERE id=:id"),
+                                      {"z": bal, "m": ccy, "id": a["id"]})
+                            zustatku += 1
+                    except Exception as exc:
+                        chyb += 1
+                        _log(s, cid, a["id"], "get_balance", "sched", "system", "ERROR:%s" % type(exc).__name__)
+            s.commit()
+        return {"ok": True, "done": True, "nacteno": nacteno, "zustatku": zustatku, "chyb": chyb}
+    except Exception as exc:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "done": True, "_msg": "%s: %s" % (type(exc).__name__, str(exc)[:200])}
+    finally:
+        s.close()
+
+
+@bank_router.post("/app/bank/sync-now")
+async def bank_sync_now(request: Request):
+    """Ruční spuštění sync výpisů + zůstatků (tlačítko „Načíst teď"). Parent/cockpit."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    out = sync_all_tx()
+    return out
+
+
+@bank_router.get("/app/bank/zustatky")
+def bank_zustatky(request: Request):
+    """Zůstatky účtů (z posledního sync) + poslední transakce. Pro kartu nad výpisy.
+    Parent/cockpit. Claude 8.7.2026."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        rows = s.execute(_t(
+            "SELECT a.cislo_uctu, COALESCE(a.nazev,''), COALESCE(a.mena,'CZK'), a.zustatek, "
+            "  COALESCE(a.zustatek_mena, a.mena, 'CZK'), "
+            "  to_char(a.zustatek_at AT TIME ZONE 'Europe/Prague','DD.MM.YYYY HH24:MI'), "
+            "  COALESCE(c.company_id,1), "
+            "  (SELECT to_char(max(t.datum),'DD.MM.YYYY') FROM tenant.bank_transaction_raw t WHERE t.account_id=a.id) "
+            "FROM tenant.bank_connection_account a "
+            "LEFT JOIN tenant.bank_connection c ON c.id=a.connection_id "
+            "WHERE COALESCE(a.aktivni,true) ORDER BY c.company_id, a.cislo_uctu")).fetchall()
+        out = []
+        for r in rows:
+            out.append({"ucet": r[0], "nazev": r[1], "mena": r[2],
+                        "zustatek": float(r[3]) if r[3] is not None else None,
+                        "zustatek_mena": r[4], "zustatek_at": r[5] or "",
+                        "firma": int(r[6]) if r[6] is not None else 1,
+                        "posledni_tx": r[7] or ""})
+        return {"ok": True, "ucty": out}
+    finally:
+        s.close()
+
+
 @bank_router.post("/app/bank/payment/import-batch")
 async def bank_import_batch(request: Request):
     """Nahraje dávku plateb (platák) do RB IB k PODPISU. NEPROVEDE platbu — člověk podepíše v bankovnictví.
@@ -2477,3 +2628,80 @@ async def kontace_radky(request: Request):
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)
     finally:
         s.close()
+
+
+# ════════════════════════════════════════════════════════════════════
+# Automatický scheduler výpisů (Claude 8.7.2026) — bez zásahu do router.py.
+# Lehké vlákno startující při importu modulu. Bezpečné proti dvojímu běhu
+# (blue-green A+B) přes PG advisory lock držený po celou dobu sync + kontrolu
+# stáří posledního běhu (bank_api_log 'sync_all') + per-proces throttle.
+# ════════════════════════════════════════════════════════════════════
+import time as _time_mod
+
+_BANK_SYNC_LOCK_ID = 778812
+_BANK_SYNC_STARTED = [False]
+_BANK_SYNC_LAST_MONO = [0.0]
+_BANK_SYNC_MIN_S = 3300   # ~55 min
+
+
+def _bank_sync_tick():
+    now_mono = _time_mod.monotonic()
+    if _BANK_SYNC_LAST_MONO[0] and (now_mono - _BANK_SYNC_LAST_MONO[0]) < _BANK_SYNC_MIN_S:
+        return
+    from core.database_data import get_data_session as _g
+    s = _g()
+    got = False
+    try:
+        got = s.execute(_t("SELECT pg_try_advisory_lock(:k)"), {"k": _BANK_SYNC_LOCK_ID}).scalar()
+        if not got:
+            return
+        # cross-instance freshness dle posledního zalogovaného sync_all
+        try:
+            last = s.execute(_t("SELECT max(created_at) FROM tenant.bank_api_log "
+                                "WHERE operace='sync_all'")).scalar()
+            if last is not None:
+                import datetime as _dt
+                if (_dt.datetime.now(getattr(last, "tzinfo", None)) - last).total_seconds() < _BANK_SYNC_MIN_S:
+                    _BANK_SYNC_LAST_MONO[0] = now_mono
+                    return
+        except Exception:
+            pass
+        sync_all_tx()
+        _BANK_SYNC_LAST_MONO[0] = now_mono
+        try:
+            _log(s, None, None, "sync_all", "sched", "system", "OK")
+            s.commit()
+        except Exception:
+            pass
+    finally:
+        if got:
+            try:
+                s.execute(_t("SELECT pg_advisory_unlock(:k)"), {"k": _BANK_SYNC_LOCK_ID})
+                s.commit()
+            except Exception:
+                pass
+        s.close()
+
+
+def _bank_sync_loop():
+    _time_mod.sleep(120)   # nech app nabootovat
+    while True:
+        try:
+            _bank_sync_tick()
+        except Exception:
+            pass
+        _time_mod.sleep(900)   # kontrola co 15 min; reálný sync ~1×/hod dle stáří
+
+
+def _start_bank_sync_scheduler():
+    if _BANK_SYNC_STARTED[0]:
+        return
+    _BANK_SYNC_STARTED[0] = True
+    try:
+        import threading as _thr
+        _thr.Thread(target=_bank_sync_loop, daemon=True, name="bank-sync").start()
+    except Exception:
+        pass
+
+
+_start_bank_sync_scheduler()

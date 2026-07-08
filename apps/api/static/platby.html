@@ -332,9 +332,13 @@ function bindVypChips(){
 function renderVypisy(d){
   var b=document.getElementById('vypisy-body');
   if(!d||!d.ok){b.innerHTML='<div class="load">Nemám oprávnění (jen Peťa, rodiče, cockpit).</div>';return;}
-  var h=vypChips()+'<div class="grp"><div class="gh"><div class="t">🏦 '+(d.total||0)+' transakcí</div>'+
-    '<div class="sum" style="font-size:12px;color:var(--dim);font-weight:600">poslední import: '+esc(d.posledni||'—')+'</div></div>';
-  if(!d.polozky.length){h+='<div class="load" style="padding:16px">Žádné transakce pro tento filtr.</div></div>';b.innerHTML=h;bindVypChips();return;}
+  var top=vypChips()+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px">'+
+      '<div id="vypisy-zustatky" style="flex:1"><div class="load" style="padding:0">Zůstatky…</div></div>'+
+      '<button class="btn" style="padding:6px 14px;white-space:nowrap" onclick="syncNow(this)">🔄 Načíst teď</button></div>';
+  var h=top+'<div class="grp"><div class="gh"><div class="t">🏦 '+(d.total||0)+' transakcí</div>'+
+    '<div class="sum" style="font-size:12px;color:var(--dim);font-weight:600">poslední transakce: '+esc(d.posledni||'—')+'</div></div>';
+  if(!d.polozky.length){h+='<div class="load" style="padding:16px">Žádné transakce pro tento filtr.</div></div>';b.innerHTML=h;bindVypChips();loadZustatky();return;}
   h+='<table><thead><tr><th>Datum</th><th></th><th></th><th>Protiúčet</th><th>VS</th><th>Zpráva</th><th>Párování</th><th class="r">Částka</th></tr></thead><tbody>';
   d.polozky.forEach(function(t){
     var out=(t.smer==='out'||t.castka<0);
@@ -343,7 +347,33 @@ function renderVypisy(d){
       '<td>'+(t.par?'<span class="pill ok">'+esc(t.par)+'</span>':esc(t.stav||''))+'</td>'+
       '<td class="r money" style="color:'+(out?'var(--hot)':'var(--ok)')+'">'+money(Math.abs(t.castka),t.mena)+'</td></tr>';
   });
-  h+='</tbody></table></div>'; b.innerHTML=h; bindVypChips();
+  h+='</tbody></table></div>'; b.innerHTML=h; bindVypChips(); loadZustatky();
+}
+function loadZustatky(){
+  var z=document.getElementById('vypisy-zustatky'); if(!z)return;
+  fetch('/api/v1/erp/app/bank/zustatky',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      var zz=document.getElementById('vypisy-zustatky'); if(!zz)return;
+      if(!d||!d.ok||!d.ucty||!d.ucty.length){zz.innerHTML='';return;}
+      var h='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+      d.ucty.forEach(function(u){
+        var stale=(u.zustatek==null);
+        h+='<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;min-width:150px">'+
+          '<div style="font-size:16px;font-weight:800;color:'+(stale?'var(--dim)':'var(--ink)')+'">'+(stale?'— zůstatek':money(u.zustatek,u.zustatek_mena))+'</div>'+
+          '<div style="font-size:11px;color:var(--dim);margin-top:2px">'+firmaLbl(u.firma)+' '+esc(u.ucet)+
+          (u.zustatek_at?' · '+esc(u.zustatek_at):'')+'</div></div>';
+      });
+      zz.innerHTML=h+'</div>';
+    }).catch(function(){var zz=document.getElementById('vypisy-zustatky');if(zz)zz.innerHTML='';});
+}
+function syncNow(btn){
+  btn.disabled=true;var t=btn.textContent;btn.textContent='načítám z banky…';
+  fetch('/api/v1/erp/app/bank/sync-now',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      btn.disabled=false;btn.textContent=t;
+      if(d&&d.ok){window.alert('✅ Načteno: '+(d.nacteno||0)+' nových transakcí · '+(d.zustatku||0)+' zůstatků'+(d.chyb?(' · '+d.chyb+' chyb'):''));loadVypisy(true);}
+      else{window.alert('Sync nedoběhl: '+((d&&(d._msg||d.error))||'chyba'));}
+    }).catch(function(){btn.disabled=false;btn.textContent=t;window.alert('Chyba při načítání z banky.');});
 }
 function loadVypisy(force){
   var b=document.getElementById('vypisy-body');

@@ -3,9 +3,43 @@
 > Kanonický popis, **jak to teď funguje**, aby se to dalo snadno opravovat a ladit
 > a aby obsah **vždy odpovídal skutečné funkčnosti** docházky.
 > Udržuj tenhle soubor při každé změně nápovědy/průvodce nebo menu docházky.
-> Poslední aktualizace: 26. 6. 2026.
+> Poslední aktualizace: 8. 7. 2026.
 
-## Kde to je v kódu (vše v `apps/api/static/mobile.html`)
+## ⚠️⚠️ BUILD: `mobile.html` je od 5. 7. 2026 GENEROVANÝ — needituj ho přímo!
+
+`apps/api/static/mobile.html` (jeden velký servírovaný soubor, ~9 000 řádků) je
+od 5. 7. 2026 **generovaný** scriptem `scripts/build_mobile.py` slepením partialů
+z **`apps/api/static/mobile_parts/`** (`NN_nazev.js|html|css`, řadí se čísly).
+Split udělal **Claude-27 (Zuzka)** na rozhodnutí **Claude-23 (Marti)** —
+„mechanismus A: build-step concat, ne deploy-time". Hlavička v `mobile.html` to hlásí.
+
+**🎯 Docházka (nápověda + průvodce + celá obrazovka) = partial `mobile_parts/60_dochazka.js`**
+(`dochHelp` ~ř. 1, `dochPruvodce` ~ř. 60; `35_apps_vedeni.js` na to jen volá dlaždicí).
+To je 147 kB partial — největší ze všech.
+
+**Workflow, když děláme s docházkou:**
+```
+1. edituj mobile_parts/60_dochazka.js   (NE mobile.html!)
+2. python scripts/build_mobile.py       (přegeneruje mobile.html)
+3. commit OBOJE: 60_dochazka.js + mobile.html
+```
+
+**🚨 KRITICKÁ PAST — partialy bývají ZASTARALÉ (reality ≠ workflow):** Claude-23/Marti
+i po splitu **občas editují `mobile.html` napřímo** a nepropíšou to zpět do partialů
+(ověřeno 8.7.: committnutý `mobile.html` měl 2 přímé úpravy — dlaždice „📦 Po zakázkách"
++ „HR modul" rename — které v partialech NEBYLY). **Kdybys editoval partial a rebuildoval,
+tyhle přímé úpravy SMAŽEŠ.** Proto PŘED každou prací s partialem:
+```
+python scripts/build_mobile.py; git diff --stat apps/api/static/mobile.html
+# prázdný diff = parts jsou v souladu, můžeš editovat partial.
+# NEprázdný diff = někdo editoval mobile.html napřímo → NEJDŘÍV ty přímé
+#   úpravy přenes do správného partialu (a teprve pak edituj/rebuild),
+#   jinak je rebuildem přepíšeš. Pak: git checkout -- mobile.html a začni.
+```
+(Dřív bylo možné mobile.html editovat přímo — proto memory + tento SPEC. Doctrine (e)
+„srovnej lokál s realitou" platí i tady: čerstvý `git fetch/pull` před buildem.)
+
+## Kde to je v kódu (partial `apps/api/static/mobile_parts/60_dochazka.js` → build → `mobile.html`)
 
 | Co | Funkce / místo |
 |---|---|

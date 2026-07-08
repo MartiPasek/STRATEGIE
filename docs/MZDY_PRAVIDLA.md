@@ -65,6 +65,8 @@ Kdo má **nárok na HO** (kancelář = skupina 24 + výjimky dílny, viz `_HO_DI
 **napevno 6 HO dnů** — nezávisle na self-service volbě. Engine to poměrově zkrátí podle
 odpracovaného fondu (absence sníží). Kdo nárok nemá, HO nedostane.
 
+**Výjimka BEZ nároku na HO** (kancelář, ale HO nedostávají): **Hrůzová ES 442, Nepodalová ES 489** (`_HO_BEZ_NAROKU`, Peta 8. 7. 2026). OBL (794) jim zůstává, jen HO (795) ne.
+
 ## Stravenky (793) — nárok a výpočet (Peta 8. 7. 2026)
 
 **Nárok** má zaměstnanec, který splňuje VŠE:

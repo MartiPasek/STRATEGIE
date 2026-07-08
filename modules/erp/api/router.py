@@ -50202,6 +50202,9 @@ def _build_system_root_from_db(uid=None, is_parent=True):
                     -- vidí JEN uzly kde je ve visibility_user_ids (+ kaskáda předků přes vis).
                     ( NOT :scoped AND ( visibility_scope = 'parent_only' OR visibility_scope IS NULL ) )
                     OR ( :uid = ANY(COALESCE(visibility_user_ids, ARRAY[]::integer[])) )
+                    -- Rodičovský bypass (doctrine #5, Jirka 8.7.2026): rodič vidí VŠECHNO,
+                    -- včetně 'private' uzlů (např. Dušanova Výroba). Scoped nikdy není rodič.
+                    OR ( :is_parent )
                 )
             ),
             vis AS (

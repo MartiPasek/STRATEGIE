@@ -45,6 +45,8 @@
   <select id="osoba" onchange="load()"></select>
 </div>
 <div class="chips">
+  <button class="chip" id="c7" onclick="setDni(7)">Týden</button>
+  <button class="chip" id="c14" onclick="setDni(14)">14 dní</button>
   <button class="chip on" id="c30" onclick="setDni(30)">30 dní</button>
   <button class="chip" id="c90" onclick="setDni(90)">90 dní</button>
   <button class="chip" id="c365" onclick="setDni(365)">Rok</button>
@@ -55,7 +57,7 @@
 
 <script>
 var DNI=30, SELUID=null;
-function setDni(n){DNI=n;[30,90,365].forEach(function(x){document.getElementById('c'+x).classList.toggle('on',x===DNI);});load();}
+function setDni(n){DNI=n;[7,14,30,90,365].forEach(function(x){document.getElementById('c'+x).classList.toggle('on',x===DNI);});load();}
 function loadLide(){
   fetch('/api/v1/erp/app/dochazka/lide',{credentials:'include'}).then(function(r){return r.json();}).then(function(r){
     var sel=document.getElementById('osoba');

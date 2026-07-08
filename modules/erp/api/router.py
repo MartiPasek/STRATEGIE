@@ -29296,7 +29296,8 @@ def _mzdy_absence_rows(firma, rok, mesic):
     Kristý 8.7.2026: LÉKAŘ (243) + OČR (251) potřebují v Heliosu OBDOBÍ (DatumOd/DatumDo),
     jinak se NEkrátí základ (na rozdíl od dovolené). Generujeme je jako SOUVISLÁ OBDOBÍ —
     navazující dny (mezera jen přes víkend = pořád jedno období) v jednom řádku, nenavazující
-    úsek = další řádek. Nemocenskou (sick/200) sem zatím nepřidáváme — DNP dopisuje účetní ručně."""
+    úsek = další řádek. NEMOCENSKÁ (sick/200) jede stejně jako lékař/OČR — souvislé období
+    s DatumOd/DatumDo (kvůli krácení základu); rozhodnutí DNP dopisuje účetní ručně. Kristý 8.7.2026."""
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     fkod = "EC" if str(firma).upper() in ("EC", "1") else "ES"
@@ -29315,11 +29316,11 @@ def _mzdy_absence_rows(firma, rok, mesic):
     s = _g()
     out = []
     try:
-        # (A) agregát bez období — dovolená/nemoc/neplacené/mateřská (beze změny)
+        # (A) agregát bez období — dovolená/neplacené/mateřská (beze změny)
         rows = s.execute(_t(
             "SELECT sm.helios_cislo AS cislo, et.code AS code, "
             "  COUNT(DISTINCT a.entry_date) AS dny, COALESCE(SUM(a.hours),0) AS hod " + _join +
-            "  AND et.code IN ('vacation','sick','unpaid','maternity') "
+            "  AND et.code IN ('vacation','unpaid','maternity') "
             "GROUP BY sm.helios_cislo, et.code"), {"f": fkod, "y": rok, "mo": mesic}).fetchall()
         for r in rows:
             try:
@@ -29330,14 +29331,14 @@ def _mzdy_absence_rows(firma, rok, mesic):
             if not ms or (dny <= 0 and hod <= 0):
                 continue
             out.append((cislo, ms, 0, int(round(dny)), round(hod, 2)))
-        # (B) lékař + OČR — SOUVISLÁ OBDOBÍ do JEDNOHO řádku s DatumOd/DatumDo (Helios kvůli
-        # krácení základu potřebuje období). Navazující dny (mezera jen přes víkend) = jedno
-        # období; nenavazující úsek = další řádek. Kristý 8.7.2026.
+        # (B) lékař + OČR + NEMOCENSKÁ — SOUVISLÁ OBDOBÍ do JEDNOHO řádku s DatumOd/DatumDo
+        # (Helios kvůli krácení základu potřebuje období). Navazující dny (mezera jen přes víkend)
+        # = jedno období; nenavazující úsek = další řádek. DNP u nemocenské řeší účetní. Kristý 8.7.2026.
         import datetime as _dt
         drows = s.execute(_t(
             "SELECT sm.helios_cislo AS cislo, et.code AS code, a.entry_date AS den, "
             "  COALESCE(SUM(a.hours),0) AS hod " + _join +
-            "  AND et.code IN ('medical','family_care') "
+            "  AND et.code IN ('medical','family_care','sick') "
             "GROUP BY sm.helios_cislo, et.code, a.entry_date"), {"f": fkod, "y": rok, "mo": mesic}).fetchall()
         by_key = {}
         for r in drows:

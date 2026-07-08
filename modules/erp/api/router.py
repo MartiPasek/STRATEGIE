@@ -30273,6 +30273,29 @@ def mzdy_vyplatnice_slozka_detail(req: Request):
                                     "castka": float(fkc), "zakazka": None, "zdroj": "dopocet"})
                         soucet += float(fkc)
                         break
+                # Jednatelska odmena u NE-jednatele: generator ji prehazuje z 693 na 651
+                # (premie), ale mapovani ji drzi na 693, takze v rozpisu 651 chybela.
+                # Ukazeme ji jako "Premie jednatel" (Peta 8.7.2026).
+                if _ci not in _JEDNATELE_CISLA:
+                    _pj = s.execute(_t(
+                        "SELECT COALESCE((SELECT SUM(sn.castka) FROM tenant.helios_wage_snapshot sn "
+                        "  JOIN tenant.wage_component_type wct ON wct.tenant_id=2 AND wct.code=sn.slozka "
+                        "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
+                        "  WHERE sn.tenant_id=2 AND sn.firma=:fec AND sn.cislo::text=:cislo AND msm.ext_code='693' "
+                        "    AND sn.asof=(SELECT MAX(asof) FROM tenant.helios_wage_snapshot WHERE tenant_id=2 AND firma=:fec)),0)"
+                        "+COALESCE((SELECT SUM(COALESCE(wm.amount, wm.hours*wm.rate,0)) FROM tenant.wage_movement wm "
+                        "  JOIN tenant.engagement e ON e.id=wm.engagement_id "
+                        "  JOIN tenant.att_employee ae ON ae.id=e.employee_id AND ae.cislo_zam=:cislo "
+                        "  JOIN tenant.wage_component_type wct ON wct.id=wm.movement_type_id "
+                        "  JOIN tenant.wage_system_mapping msm ON msm.movement_type_id=wct.id AND msm.ext_system_code='HELIOS' AND COALESCE(msm.active,true) "
+                        "  WHERE wm.tenant_id=2 AND wm.status IN ('approved','exported') AND msm.ext_code='693' "
+                        "    AND wm.valid_from <= (make_date(:y,:mo,1)+INTERVAL '1 month'-INTERVAL '1 day') "
+                        "    AND (wm.valid_to IS NULL OR wm.valid_to >= make_date(:y,:mo,1))),0)"),
+                        {"fec": fec, "cislo": cislo, "y": rok, "mo": mesic}).scalar()
+                    if _pj and float(_pj) != 0:
+                        pol.append({"typ": "Prémie jednatel", "kod": "premie_jednatel",
+                                    "castka": float(_pj), "zakazka": None, "zdroj": "dopocet"})
+                        soucet += float(_pj)
         return {"ok": True, "polozky": pol, "soucet": round(soucet)}
     finally:
         s.close()

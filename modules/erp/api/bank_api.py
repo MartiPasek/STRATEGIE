@@ -616,7 +616,17 @@ def sync_all_tx(days: int = 90):
                                 chyb += 1
                                 _log(s, cid, acc_id, "get_balance", "sched", "system", "ERROR:%s" % ccy)
             s.commit()
-        return {"ok": True, "done": True, "nacteno": nacteno, "zustatku": zustatku, "chyb": chyb}
+        # po nasyncování rovnou spárovat (aby výpisy nebyly věčně „nové")
+        napar = None
+        try:
+            napar = parovat_all(s).get("naparovano")
+        except Exception:
+            try:
+                s.rollback()
+            except Exception:
+                pass
+        return {"ok": True, "done": True, "nacteno": nacteno, "zustatku": zustatku,
+                "chyb": chyb, "naparovano": napar}
     except Exception as exc:
         try:
             s.rollback()
@@ -690,20 +700,36 @@ def bank_vypisy(request: Request):
         rows = s.execute(_t(
             "SELECT t.id, to_char(t.datum,'DD.MM.YYYY') d, t.castka, COALESCE(NULLIF(t.mena,''),'CZK') mena, "
             "  COALESCE(t.smer,'') smer, COALESCE(t.protiucet,'') protiucet, COALESCE(t.vs,'') vs, "
-            "  LEFT(COALESCE(t.zprava,''),90) zprava, COALESCE(t.stav_parovani,'') stav, "
-            "  COALESCE(NULLIF(t.par_kategorie,''), NULLIF(t.par_zakazka,''), '') par, "
+            "  LEFT(COALESCE(t.zprava,''),90) zprava, COALESCE(t.par_metoda,'') met, "
+            "  COALESCE(t.par_doklad_rada,'') rada, COALESCE(t.par_zakazka,'') zak, COALESCE(t.par_kategorie,'') kat, "
             "  COALESCE(c.company_id,1) firma, "
             "  COALESCE(t.raw #>> '{entryDetails,transactionDetails,relatedParties,counterParty,name}','') protistrana "
             + base + " ORDER BY t.datum DESC, t.id DESC LIMIT 300"), params).fetchall()
+        _KATLBL = {"mzda": "mzdy", "dan": "daň", "soc_poj": "sociální", "zdrav_poj": "zdrav. poj.",
+                   "karta": "karta", "zak_pojisteni": "zák. pojištění", "opakovana": "opakovaná"}
         out = []
         for r in rows:
+            met, rada, zak, kat = r[8], r[9], r[10], r[11]
+            if zak:
+                par = "zakázka " + zak
+            elif rada:
+                par = "doklad " + rada
+            elif kat:
+                par = _KATLBL.get(kat, kat)
+            elif met:
+                par = met
+            else:
+                par = ""
             out.append({"id": int(r[0]), "datum": r[1], "castka": float(r[2]) if r[2] is not None else 0.0,
                         "mena": r[3], "smer": r[4], "protiucet": r[5], "vs": r[6], "zprava": r[7],
-                        "stav": r[8], "par": r[9], "firma": int(r[10]) if r[10] is not None else 1,
-                        "protistrana": r[11]})
+                        "parovani": par, "naparovano": bool(met),
+                        "firma": int(r[12]) if r[12] is not None else 1, "protistrana": r[13]})
         cnt = s.execute(_t("SELECT count(*) " + base), params).scalar()
+        napar = s.execute(_t("SELECT count(*) " + base + (" AND " if conds else " WHERE ")
+                             + "t.par_metoda IS NOT NULL"), params).scalar()
         posl = s.execute(_t("SELECT to_char(max(t.datum),'DD.MM.YYYY') " + base), params).scalar()
-        return {"ok": True, "polozky": out, "posledni": posl, "total": int(cnt or 0), "shown": len(out)}
+        return {"ok": True, "polozky": out, "posledni": posl, "total": int(cnt or 0),
+                "naparovano": int(napar or 0), "shown": len(out)}
     finally:
         s.close()
 
@@ -725,13 +751,14 @@ def bank_vypis_detail(request: Request):
             "SELECT t.id, to_char(t.datum,'DD.MM.YYYY'), t.castka, COALESCE(NULLIF(t.mena,''),'CZK'), "
             "  COALESCE(t.smer,''), COALESCE(t.protiucet,''), COALESCE(t.vs,''), COALESCE(t.ks,''), "
             "  COALESCE(t.ss,''), COALESCE(t.zprava,''), COALESCE(t.stav_parovani,''), COALESCE(t.ext_id,''), "
-            "  COALESCE(c.company_id,1), COALESCE(a.cislo_uctu,''), t.raw "
+            "  COALESCE(c.company_id,1), COALESCE(a.cislo_uctu,''), COALESCE(t.par_metoda,''), "
+            "  COALESCE(t.par_doklad_rada,''), COALESCE(t.par_zakazka,''), COALESCE(t.par_kategorie,''), t.raw "
             "FROM tenant.bank_transaction_raw t "
             "LEFT JOIN tenant.bank_connection_account a ON a.id=t.account_id "
             "LEFT JOIN tenant.bank_connection c ON c.id=a.connection_id WHERE t.id=:id"), {"id": tid}).first()
         if not r:
             return JSONResponse({"ok": False, "error": "Transakce nenalezena."}, status_code=404)
-        raw = r[14] or {}
+        raw = r[18] or {}
         if isinstance(raw, str):
             try:
                 raw = _json.loads(raw)
@@ -741,11 +768,25 @@ def bank_vypis_detail(request: Request):
         cp = ((det.get("relatedParties", {}) or {}).get("counterParty", {}) or {})
         acc = (cp.get("account", {}) or {})
         rem = (det.get("remittanceInformation", {}) or {})
+        _met, _rada, _zak, _kat = r[14], r[15], r[16], r[17]
+        _katlbl = {"mzda": "mzdy", "dan": "daň", "soc_poj": "sociální", "zdrav_poj": "zdrav. poj.",
+                   "karta": "karta", "zak_pojisteni": "zák. pojištění", "opakovana": "opakovaná"}
+        if _zak:
+            _par = "zakázka " + _zak + (" (doklad " + _rada + ")" if _rada else "")
+        elif _rada:
+            _par = "doklad " + _rada
+        elif _kat:
+            _par = _katlbl.get(_kat, _kat)
+        elif _met:
+            _par = _met
+        else:
+            _par = ""
         detail = {
             "id": int(r[0]), "datum": r[1], "castka": float(r[2]) if r[2] is not None else 0.0,
             "mena": r[3], "smer": r[4], "protiucet": r[5], "vs": r[6], "ks": r[7], "ss": r[8],
             "zprava": r[9], "stav": r[10], "ext_id": r[11],
             "firma": int(r[12]) if r[12] is not None else 1, "nas_ucet": r[13],
+            "parovani": _par, "par_metoda": _met,
             "protistrana_nazev": cp.get("name") or "",
             "protistrana_ucet": acc.get("iban") or acc.get("accountNumber") or "",
             "value_date": (raw.get("valueDate") or "")[:10],
@@ -865,15 +906,11 @@ _PAR_RADA_PRIO = [
 ]
 
 
-@bank_router.post("/app/bank/parovat")
-def bank_parovat(request: Request):
-    """Spustí párovací engine nad bank_transaction_raw. Naplní par_* (metoda/řada/zakázka/
-    kategorie/doklad). Vrací souhrn. Parent-only."""
-    uid = _uid(request)
-    if not uid or not _is_parent(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    s = _sess()
-    try:
+def parovat_all(s):
+    """Párovací engine nad bank_transaction_raw (idempotentní full re-run). Naplní
+    par_metoda/rada/zakazka/kategorie/doklad. Sdílí endpoint i automatický sync. Vrací souhrn.
+    Claude 8.7.2026 (vytaženo z bank_parovat, aby běželo i po syncu)."""
+    if True:
         # reset (idempotentní re-run)
         s.execute(_t("UPDATE tenant.bank_transaction_raw SET par_metoda=NULL, par_doklad_rada=NULL, "
                      "par_zakazka=NULL, par_kategorie=NULL, par_doklad_id=NULL"))
@@ -935,8 +972,20 @@ def bank_parovat(request: Request):
             "FROM tenant.bank_transaction_raw GROUP BY 1,2 ORDER BY pocet DESC")).mappings().all()]
         naparovano = s.execute(_t("SELECT count(*) FROM tenant.bank_transaction_raw WHERE par_metoda IS NOT NULL")).scalar()
         se_zak = s.execute(_t("SELECT count(*) FROM tenant.bank_transaction_raw WHERE par_zakazka IS NOT NULL")).scalar()
-        return {"ok": True, "celkem": celkem, "naparovano": naparovano, "se_zakazkou": se_zak,
-                "rozpad": by_met}
+        return {"celkem": int(celkem or 0), "naparovano": int(naparovano or 0),
+                "se_zakazkou": int(se_zak or 0), "rozpad": by_met}
+
+
+@bank_router.post("/app/bank/parovat")
+def bank_parovat(request: Request):
+    """Spustí párovací engine nad bank_transaction_raw. Parent-only."""
+    uid = _uid(request)
+    if not uid or not _is_parent(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    s = _sess()
+    try:
+        out = parovat_all(s)
+        return {"ok": True, **out}
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": "%s: %s" % (type(exc).__name__, str(exc)[:300])}, status_code=500)

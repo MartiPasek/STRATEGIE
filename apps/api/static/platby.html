@@ -335,20 +335,27 @@ function renderVypisy(d){
   var top=vypChips()+
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px">'+
       '<div id="vypisy-zustatky" style="flex:1"><div class="load" style="padding:0">Zůstatky…</div></div>'+
-      '<button class="btn" style="padding:6px 14px;white-space:nowrap" onclick="syncNow(this)">🔄 Načíst teď</button></div>';
-  var h=top+'<div class="grp"><div class="gh"><div class="t">🏦 '+(d.total||0)+' transakcí</div>'+
+      '<div style="display:flex;gap:6px;white-space:nowrap">'+
+        '<button class="btn" style="padding:6px 12px" onclick="parovatNow(this)">🔗 Spárovat</button>'+
+        '<button class="btn" style="padding:6px 12px" onclick="syncNow(this)">🔄 Načíst teď</button></div></div>';
+  var parInfo=(d.naparovano!=null)?(' · <span style="color:var(--ok)">spárováno '+d.naparovano+'/'+(d.total||0)+'</span>'):'';
+  var h=top+'<div class="grp"><div class="gh"><div class="t">🏦 '+(d.total||0)+' transakcí'+parInfo+'</div>'+
     '<div class="sum" style="font-size:12px;color:var(--dim);font-weight:600">poslední transakce: '+esc(d.posledni||'—')+'</div></div>';
   if(!d.polozky.length){h+='<div class="load" style="padding:16px">Žádné transakce pro tento filtr.</div></div>';b.innerHTML=h;bindVypChips();loadZustatky();return;}
-  h+='<table><thead><tr><th>Datum</th><th></th><th></th><th>Protistrana</th><th>VS</th><th>Zpráva</th><th class="r">Částka</th></tr></thead><tbody>';
+  h+='<table><thead><tr><th>Datum</th><th></th><th></th><th>Protistrana</th><th>VS</th><th>Zpráva</th><th>Párování</th><th class="r">Částka</th></tr></thead><tbody>';
   d.polozky.forEach(function(t){
     var out=(t.smer==='out'||t.castka<0);
     var proti=t.protistrana||t.protiucet||'';
+    var par=t.naparovano
+      ?'<span class="pill ok" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom">'+esc(t.parovani)+'</span>'
+      :'<span class="pill" style="background:#2a2f3a;color:#8ea3bd">nenapárováno</span>';
     h+='<tr style="cursor:pointer" onclick="openVypisDetail('+t.id+')" title="Detail transakce">'+
       '<td>'+esc(t.datum)+'</td><td>'+firmaLbl(t.firma)+'</td>'+
       '<td>'+(out?'<span class="pill hot">odchozí</span>':'<span class="pill ok">příchozí</span>')+'</td>'+
-      '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">'+esc(proti)+'</td>'+
+      '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">'+esc(proti)+'</td>'+
       '<td>'+esc(t.vs)+'</td>'+
-      '<td style="max-width:230px;overflow:hidden;text-overflow:ellipsis">'+esc(t.zprava)+'</td>'+
+      '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">'+esc(t.zprava)+'</td>'+
+      '<td>'+par+'</td>'+
       '<td class="r money" style="color:'+(out?'var(--hot)':'var(--ok)')+'">'+money(Math.abs(t.castka),t.mena)+'</td></tr>';
   });
   h+='</tbody></table></div>'; b.innerHTML=h; bindVypChips(); loadZustatky();
@@ -381,7 +388,8 @@ function renderVypisDetail(d){
   h+=row('Platební karta', x.card);
   h+=row('Kód transakce', x.bank_code);
   h+=row('Reference banky', x.ext_id);
-  h+=row('Párování', x.stav);
+  h+=row('Párování', x.parovani||'nenapárováno');
+  h+=row('Metoda párování', x.par_metoda);
   h+='</tbody></table>';
   h+='<details style="margin-top:12px"><summary style="cursor:pointer;color:var(--dim)">Surová data (JSON)</summary>'+
     '<pre style="margin:6px 0 0;padding:12px;overflow:auto;max-height:34vh;font-size:11px;background:var(--soft);white-space:pre-wrap">'+esc(x.raw_pretty||'')+'</pre></details>';
@@ -403,6 +411,15 @@ function loadZustatky(){
       });
       zz.innerHTML=h+'</div>';
     }).catch(function(){var zz=document.getElementById('vypisy-zustatky');if(zz)zz.innerHTML='';});
+}
+function parovatNow(btn){
+  btn.disabled=true;var t=btn.textContent;btn.textContent='páruji…';
+  fetch('/api/v1/erp/app/bank/parovat',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){
+      btn.disabled=false;btn.textContent=t;
+      if(d&&d.ok){window.alert('🔗 Spárováno '+(d.naparovano||0)+' z '+(d.celkem||0)+' ('+(d.se_zakazkou||0)+' se zakázkou).');loadVypisy(true);}
+      else{window.alert('Párování nedoběhlo: '+((d&&d.error)||'chyba'));}
+    }).catch(function(){btn.disabled=false;btn.textContent=t;window.alert('Chyba párování.');});
 }
 function syncNow(btn){
   btn.disabled=true;var t=btn.textContent;btn.textContent='načítám z banky…';

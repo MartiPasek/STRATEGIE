@@ -1,45 +1,36 @@
-# 🎨 Grafika pro Google Play listing
+# 🎨 Grafika pro Google Play listing (STRATEGIE Mobil)
 
-Vygenerováno 25. 6. 2026 (Claude). Generátor: `gen.mjs` (Playwright Chromium →
-PNG v přesných rozměrech). Přegenerovat: `node docs/google_play_grafika/gen.mjs`.
+Aktualizováno 8. 7. 2026 (Claude). **Branding = modré „S"** na antracitu (dle
+`apps/api/static/erp/icon.svg`) — sjednoceno na ikoně, banneru i launcheru appky.
 
-## Hotové assety ✅
+## Hotové assety ✅ (vše nahráno v Play Console)
 
-| Soubor | Rozměr | K čemu | Stav |
-|---|---|---|---|
-| `icon_512.png` | 512×512 | App icon (povinné) | ✅ hotovo |
-| `feature_1024x500.png` | 1024×500 | Feature graphic (povinné) | ✅ hotovo |
-
-Branding: logo STRATEGIE = 3 rostoucí sloupce teal→zelená (#2DD4BF/#34D399/#4ADE80)
-+ datový bod (#A7F3D0) na tmavém podkladu — přesně dle ikony appky.
-
-> Pozn.: Play si **app icon sám zaoblí** — proto je 512 plný čtverec, bez vlastního
-> zaoblení. Důležitý obsah je v bezpečné zóně (od krajů).
-
-## Screenshoty (min. 2, povinné) — 2 hotové, doplnit z účtu s daty 🟡
-
-Screenshoty **musí ukazovat reálné obrazovky appky** (pravidlo Play). Pořídil
-jsem je z **veřejného demo režimu** živého webu (`▶️ Vyzkoušet ukázku`, read-only,
-1080×1920) a zarámoval do telefonu s titulkem.
-
-**Hotové (reálné, listing-ready):**
-| Soubor | Obrazovka | Titulek |
+| Soubor | Rozměr | K čemu |
 |---|---|---|
-| `play_ss_1_moduly.png` | Aplikace (mřížka modulů) | „Všechny firemní moduly na jednom místě" |
-| `play_ss_2_ukoly.png` | Úkoly / oznámení | „Úkoly a oznámení pod kontrolou" |
+| `icon_512.png` | 512×512 | App icon — modré „S" (Play si sám zaoblí, plný čtverec) |
+| `feature_1024x500.png` | 1024×500 | Feature graphic — „S STRATEGIE" na navy |
+| `play_phone_1..5.png` | 1080×2160 | Snímky telefonu (5×) |
+| `play_tablet_1..3.png` | 1600×2560 | Snímky tabletu 7" i 10" (3×) |
 
-Surové záběry: `ss_tab_Aplikace.png`, `ss_tab_ukoly.png`.
-Nástroje (reprodukovatelné): `_capture.mjs` (zachytí demo), `frames.mjs` (zarámuje).
+Snímky (demo obrazovky): 1 moduly · 2 docházka „Makat" · 3 týden plán/realita ·
+4 nápověda + hlasový průvodce · 5 úkoly.
 
-**⚠️ Omezení demo režimu:** demo účet má **málo dat** → docházka, přehledy, firma
-jsou prázdné/placeholder, a domovská obrazovka ukazuje **fotku (demo avatar)**,
-která se na veřejný byznys listing nehodí. Proto z dema bohaté obrazovky nejdou.
+## 🔁 Jak snímky přegenerovat (plně automaticky, z demo účtu)
 
-**Doplnit (až bude účet s daty / přihlášený telefon):** docházka (vyplněný týden),
-přehledy/FLOW, AI asistent, plán absencí. Postup: zachytit (systémový screenshot
-nebo `_capture.mjs` s přihlášením) → prohnat `frames.mjs` (jen přidat řádky do SHOTS).
-Ideálně mít **4–6** screenshotů.
+```
+node docs/google_play_grafika/capture_demo.mjs      # nasnima demo -> _raw/*.png
+python docs/google_play_grafika/frame_screenshots.py # oramuje -> play_phone/tablet_*.png
+python scripts/play_api_upload.py screenshots        # nahraje do Play pres API
+```
 
-## Další volitelné assety (Play je nevyžaduje pro start)
-- Promo video (YouTube odkaz) — později.
-- Tablet screenshoty — jen pokud budeme cílit i tablety.
+- **Demo účet** (`/api/v1/auth/demo-login`, UKÁZKA s.r.o.) = syntetická data, ŽÁDNÁ
+  reálná — bezpečné pro veřejný listing. Reálný účet NIKDY (osobní údaje!).
+- **Přeskakuje se Domů** (avatar dítě = persona Marti-AI, na listing se nehodí).
+- **Poměr telefonu MUSÍ být ≤ 2:1** (1080×2160 OK; 1080×2280 = 2,11 → Google odmítne).
+- `_raw/` = surové záběry, gitignored (regenerovatelné).
+
+## 📤 Upload do Play
+
+Přes **Google Play Developer API** (servisní účet) — `scripts/play_api_upload.py`,
+plně bez file pickeru. Setup: `docs/google_play_api_setup.md`. Klíč:
+`APP/Mobile/play-api-key.json` (gitignored, TAJNÝ).

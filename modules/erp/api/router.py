@@ -29294,8 +29294,9 @@ def _mzdy_absence_rows(firma, rok, mesic):
     (cislo, ms, 0, dny, hodiny, datum_od, datum_do).
 
     Kristý 8.7.2026: LÉKAŘ (243) + OČR (251) potřebují v Heliosu OBDOBÍ (DatumOd/DatumDo),
-    jinak se NEkrátí základ (na rozdíl od dovolené). Proto je generujeme JEDEN ŘÁDEK PER DEN
-    s datem. Nemocenskou (sick/200) sem zatím nepřidáváme — DNP dopisuje účetní ručně."""
+    jinak se NEkrátí základ (na rozdíl od dovolené). Generujeme je jako SOUVISLÁ OBDOBÍ —
+    navazující dny (mezera jen přes víkend = pořád jedno období) v jednom řádku, nenavazující
+    úsek = další řádek. Nemocenskou (sick/200) sem zatím nepřidáváme — DNP dopisuje účetní ručně."""
     from core.database_data import get_data_session as _g
     from sqlalchemy import text as _t
     fkod = "EC" if str(firma).upper() in ("EC", "1") else "ES"
@@ -29329,13 +29330,16 @@ def _mzdy_absence_rows(firma, rok, mesic):
             if not ms or (dny <= 0 and hod <= 0):
                 continue
             out.append((cislo, ms, 0, int(round(dny)), round(hod, 2)))
-        # (B) lékař + OČR — JEDEN ŘÁDEK PER DEN s DatumOd/DatumDo (Helios kvůli krácení
-        # základu potřebuje období). Kristý 8.7.2026.
+        # (B) lékař + OČR — SOUVISLÁ OBDOBÍ do JEDNOHO řádku s DatumOd/DatumDo (Helios kvůli
+        # krácení základu potřebuje období). Navazující dny (mezera jen přes víkend) = jedno
+        # období; nenavazující úsek = další řádek. Kristý 8.7.2026.
+        import datetime as _dt
         drows = s.execute(_t(
             "SELECT sm.helios_cislo AS cislo, et.code AS code, a.entry_date AS den, "
             "  COALESCE(SUM(a.hours),0) AS hod " + _join +
             "  AND et.code IN ('medical','family_care') "
             "GROUP BY sm.helios_cislo, et.code, a.entry_date"), {"f": fkod, "y": rok, "mo": mesic}).fetchall()
+        by_key = {}
         for r in drows:
             try:
                 cislo = int(str(r[0]).strip()); ms = _ABS_CODE_TO_MS.get(r[1])
@@ -29344,8 +29348,30 @@ def _mzdy_absence_rows(firma, rok, mesic):
                 continue
             if not ms or hod <= 0 or not den:
                 continue
-            ds = den.isoformat()
-            out.append((cislo, ms, 0, 1, round(hod, 2), ds, ds))
+            by_key.setdefault((cislo, ms), []).append((den, hod))
+        for (cislo, ms), items in by_key.items():
+            items.sort(key=lambda x: x[0])
+            p_od = p_do = None; p_hod = 0.0; p_dny = 0
+            for den, hod in items:
+                if p_od is None:
+                    p_od = p_do = den; p_hod = hod; p_dny = 1
+                    continue
+                # navazuje na běžící období? (mezi p_do a den jsou jen víkendové dny)
+                nav = den > p_do
+                if nav:
+                    d = p_do + _dt.timedelta(days=1)
+                    while d < den:
+                        if d.weekday() < 5:  # chybí pracovní den → nenavazuje
+                            nav = False
+                            break
+                        d += _dt.timedelta(days=1)
+                if nav:
+                    p_do = den; p_hod += hod; p_dny += 1
+                else:
+                    out.append((cislo, ms, 0, p_dny, round(p_hod, 2), p_od.isoformat(), p_do.isoformat()))
+                    p_od = p_do = den; p_hod = hod; p_dny = 1
+            if p_od is not None:
+                out.append((cislo, ms, 0, p_dny, round(p_hod, 2), p_od.isoformat(), p_do.isoformat()))
         return out
     finally:
         s.close()

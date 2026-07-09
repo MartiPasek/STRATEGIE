@@ -243,6 +243,9 @@ async def lifespan(app: FastAPI):
                 " opened_at timestamptz,"
                 " open_count int NOT NULL DEFAULT 0,"
                 " opened_ip varchar(60))"))
+            _ds_trk.execute(_t_trk(
+                "ALTER TABLE mod.crm_email_track "
+                "ADD COLUMN IF NOT EXISTS opened_ua varchar(300)"))
             _ds_trk.commit()
         finally:
             _ds_trk.close()
@@ -1092,13 +1095,23 @@ def crm_track_open(token: str, request: Request):
         from sqlalchemy import text as _t_to
         from core.database_data import get_data_session as _gs_to
         _ip = (request.client.host if request and request.client else None)
+        _ua = ((request.headers.get("user-agent") if request else None) or "")
         _ds = _gs_to()
         try:
+            # Grace okno: nacteni pixelu do 15 s od odeslani = automaticke stazeni
+            # (dorucovaci scan / Outlook auto-download u interniho odesilatele),
+            # NE skutecne otevreni -> opened_at se v tom okne nenastavi. open_count
+            # pocita vsechny zasahy (raw), opened_ua/ip = prvni zasah (diagnostika).
             _ds.execute(_t_to(
                 "UPDATE mod.crm_email_track SET open_count = open_count + 1,"
-                " opened_at = COALESCE(opened_at, now()),"
-                " opened_ip = COALESCE(opened_ip, :ip) WHERE token = :t"),
-                {"t": (token or "")[:48], "ip": (_ip or "")[:60]})
+                " opened_ip = COALESCE(opened_ip, :ip),"
+                " opened_ua = COALESCE(opened_ua, :ua),"
+                " opened_at = COALESCE(opened_at,"
+                "   CASE WHEN now() - sent_at >= interval '15 seconds'"
+                "        THEN now() ELSE NULL END)"
+                " WHERE token = :t"),
+                {"t": (token or "")[:48], "ip": (_ip or "")[:60],
+                 "ua": (_ua or "")[:300]})
             _ds.commit()
         finally:
             _ds.close()

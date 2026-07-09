@@ -245,9 +245,10 @@ def run_core_import(arg: str) -> dict:
             s.execute(_t("UPDATE fw.data_set SET sql_text=:sql, db_connection_id=:db WHERE id=:id"),
                       {"sql": select_sql, "db": DEFAULT_DB_CONNECTION_ID, "id": dset_id})
         else:
+            # pozn.: created_by je INTEGER (user id) → vynecháváme (autor = fw.core.created_by_text + git)
             dset_id = int(s.execute(_t(
-                "INSERT INTO fw.data_set (code, version, sql_text, db_connection_id, status, is_system, is_immutable, created_by) "
-                "VALUES (:c, 1, :sql, :db, 'active', false, false, 'Claude-24') RETURNING id"
+                "INSERT INTO fw.data_set (code, version, sql_text, db_connection_id, status, is_system, is_immutable) "
+                "VALUES (:c, 1, :sql, :db, 'active', false, false) RETURNING id"
             ), {"c": dset_code, "sql": select_sql, "db": DEFAULT_DB_CONNECTION_ID}).scalar())
 
         dsrc_row = s.execute(_t("SELECT id FROM fw.data_source WHERE code=:c"), {"c": code}).first()
@@ -255,8 +256,8 @@ def run_core_import(arg: str) -> dict:
             dsrc_id = int(dsrc_row[0])
         else:
             dsrc_id = int(s.execute(_t(
-                "INSERT INTO fw.data_source (code, version, name, status, is_system, is_immutable, created_by) "
-                "VALUES (:c, 1, :n, 'active', false, false, 'Claude-24') RETURNING id"
+                "INSERT INTO fw.data_source (code, version, name, status, is_system, is_immutable) "
+                "VALUES (:c, 1, :n, 'active', false, false) RETURNING id"
             ), {"c": code, "n": label}).scalar())
 
         op_row = s.execute(_t(

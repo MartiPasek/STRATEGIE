@@ -59,6 +59,7 @@
   <div class="card">
     <div class="hd">Zaměstnanci <span id="cnt" class="ph"></span></div>
     <input id="srch" placeholder="🔎 Hledat jméno…">
+    <select id="fpoz" style="width:100%;border:0;border-top:1px solid var(--line);padding:8px 14px;background:var(--panel);color:var(--txt);font:inherit;outline:none"><option value="">— všechny pozice —</option></select>
     <div class="lst" id="lst"><div class="empty">Načítám…</div></div>
   </div>
   <div class="card"><div class="det" id="det"><div class="empty">Vyber zaměstnance vlevo.</div></div></div>
@@ -80,15 +81,20 @@ async function load(){
 }
 function render(){
   const q=(document.getElementById('srch').value||'').toLowerCase();
+  const fp=(document.getElementById('fpoz')||{}).value||'';
   const l=document.getElementById('lst');
-  const f=LIDE.filter(p=>p.jmeno.toLowerCase().includes(q));
+  const f=LIDE.filter(p=>p.jmeno.toLowerCase().includes(q) && (!fp || (p.pozice_ciselnik||'')===fp));
   if(!f.length){l.innerHTML='<div class="empty">Nic nenalezeno.</div>';return;}
   l.innerHTML=f.map(p=>'<div class="prow" data-u="'+p.user_id+'" onclick="openP('+p.user_id+',this)">'+
-    '<div class="nm">'+esc(p.jmeno)+'</div><div class="mt">'+
+    '<div class="nm">'+esc(p.jmeno)+(p.cislo?' <span class="chip">č. '+esc(p.cislo)+'</span>':'')+'</div><div class="mt">'+
     (p.firmy?'<span class="chip">'+esc(p.firmy)+'</span>':'')+esc(p.typy||'')+
     (p.pozice?' · '+esc(p.pozice):'')+'</div></div>').join('');
 }
 document.getElementById('srch').addEventListener('input',render);
+document.getElementById('fpoz').addEventListener('change',render);
+let POZ=[];
+async function loadPozice(){ const d=await j(API+"/app/hr/finance/pozice-ciselnik"); if(d.ok){ POZ=d.pozice||[]; const f=document.getElementById('fpoz'); if(f)f.innerHTML='<option value="">— všechny pozice —</option>'+POZ.map(o=>'<option value="'+esc(o.label)+'">'+esc(o.label)+'</option>').join(''); } }
+function pozOpts(sel){ return '<option value="">— nezařazeno —</option>'+POZ.map(o=>'<option value="'+o.id+'"'+(o.id===sel?' selected':'')+'>'+esc(o.label)+'</option>').join(''); }
 
 let CURU=null, TYPY=[];
 function typyOpts(){ return '<option value="">+ složka…</option>'+TYPY.map(t=>'<option value="'+t.id+'">'+esc(t.nazev||t.kod)+'</option>').join(''); }
@@ -110,10 +116,12 @@ async function openP(uid,row){
       (p.firma?' <span class="chip">'+esc(p.firma)+'</span>':'')+
       (p.hodinovka?' <span class="chip">hodinová</span>':'')+'</h3>'+
       '<div class="meta">'+
-      (p.pozice?esc(p.pozice)+' · ':'')+
+      (p.cislo?'č. zam. '+esc(p.cislo)+' · ':'')+
       'úvazek '+(p.uvazek!=null?p.uvazek+' h/týd':'—')+
       ' · smlouva '+(p.smlouva_od||'—')+(p.smlouva_do?' – '+p.smlouva_do:'')+
-      (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>';
+      (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>'+
+      '<div class="addbar" style="margin-top:0;padding-top:8px"><label style="color:var(--muted);font-size:12px">Pozice:</label>'+
+      '<select onchange="savePozice('+eg+',this.value)">'+pozOpts(p.position_id)+'</select></div>';
     h+='<table><tr><th>Mzdová složka</th><th style="text-align:right">Plán</th><th style="text-align:right">Skutečnost</th><th></th></tr>';
     for(const c of (p.slozky||[])){
       const ph=c.per_hour?'<span class="ph">/hod</span>':'';
@@ -159,7 +167,12 @@ async function addRow(eg){
   const d=await _post('/app/hr/finance/slozka-save',{engagement_id:eg,component_type_id:parseInt(ct,10),amount_planned:plan,amount_real:real});
   if(d.ok){ openP(CURU); } else { alert('Nepovedlo se: '+(d.error||'')); }
 }
+async function savePozice(eg,pid){
+  const d=await _post('/app/hr/finance/pozice-save',{engagement_id:eg,position_id:pid?parseInt(pid,10):null});
+  if(d.ok){ await load(); openP(CURU); } else { alert('Nepovedlo se: '+(d.error||'')); }
+}
 loadTypy();
+loadPozice();
 load();
 </script>
 </body>

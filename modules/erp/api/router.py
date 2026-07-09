@@ -9345,15 +9345,84 @@ async def app_hr_finance_lide(req: Request) -> JSONResponse:
             "     FROM public.users u WHERE u.id=ae.user_id)) AS jmeno,"
             " string_agg(DISTINCT co.code, '/' ORDER BY co.code) AS firmy,"
             " string_agg(DISTINCT COALESCE(en.druh_text, en.engagement_type), ', ') AS typy,"
-            " max(en.pozice_text) AS pozice"
+            " max(en.pozice_text) AS pozice,"
+            " string_agg(DISTINCT jp.label, ', ') AS pozice_cis,"
+            " string_agg(DISTINCT ae.cislo_zam, '/') AS cislo"
             " FROM tenant.engagement en"
             " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
             " LEFT JOIN tenant.company co ON co.id=en.company_id"
+            " LEFT JOIN tenant.job_position jp ON jp.id=en.position_id"
             " WHERE en.tenant_id=2 AND en.is_current AND ae.user_id IS NOT NULL"
             " GROUP BY ae.user_id ORDER BY jmeno")).fetchall()
         lide = [{"user_id": r[0], "jmeno": (r[1] or "").strip() or ("ID " + str(r[0])),
-                 "firmy": r[2] or "", "typy": r[3] or "", "pozice": r[4] or ""} for r in rows]
+                 "firmy": r[2] or "", "typy": r[3] or "",
+                 "pozice": (r[5] or r[4] or ""), "pozice_ciselnik": (r[5] or ""),
+                 "cislo": r[6] or ""} for r in rows]
         return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/hr/finance/pozice-ciselnik")
+async def app_hr_finance_pozice_ciselnik(req: Request) -> JSONResponse:
+    """CITLIVÉ — číselník pracovních pozic pro výběr. Allowlist only."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _finance_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        rows = s.execute(_t(
+            "SELECT id, label, COALESCE(level,''), COALESCE(segment,'')"
+            " FROM tenant.job_position WHERE tenant_id=2 AND aktivni"
+            " ORDER BY sort_order NULLS LAST, label")).fetchall()
+        pozice = [{"id": int(r[0]), "label": r[1], "level": r[2], "segment": r[3]} for r in rows]
+        return JSONResponse({"ok": True, "pozice": pozice})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/hr/finance/pozice-save")
+async def app_hr_finance_pozice_save(req: Request) -> JSONResponse:
+    """CITLIVÉ — přiřazení pracovní pozice (číselník) k poměru. Allowlist only.
+    Body: engagement_id, position_id (prázdné = zrušit zařazení)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    if not _finance_can_uid(uid):
+        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    eng_id = body.get("engagement_id")
+    pos_id = body.get("position_id")
+    if not eng_id:
+        return JSONResponse({"ok": False, "error": "chybi engagement_id"}, status_code=400)
+    try:
+        pos_val = int(pos_id) if pos_id not in (None, "", 0, "0") else None
+    except Exception:
+        pos_val = None
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if pos_val is not None:
+            okpos = s.execute(_t("SELECT 1 FROM tenant.job_position WHERE id=:p AND tenant_id=2 AND aktivni"),
+                              {"p": pos_val}).first()
+            if not okpos:
+                return JSONResponse({"ok": False, "error": "pozice nenalezena"}, status_code=400)
+        r = s.execute(_t("UPDATE tenant.engagement SET position_id=:p WHERE id=:e AND tenant_id=2"),
+                      {"p": pos_val, "e": int(eng_id)})
+        if (r.rowcount or 0) == 0:
+            return JSONResponse({"ok": False, "error": "pomer nenalezen"}, status_code=404)
+        s.commit()
+        return JSONResponse({"ok": True})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
@@ -9389,10 +9458,11 @@ async def app_hr_finance_osoba(req: Request) -> JSONResponse:
         engs = s.execute(_t(
             "SELECT en.id, co.code AS firma, COALESCE(en.druh_text, en.engagement_type) AS typ,"
             " en.smlouva_od, en.smlouva_do, en.zkusebni_do, en.uvazek_tyden_h, en.uvazek_real_tyden_h,"
-            " en.fond_mesic_h, en.hodinovka, en.pozice_text"
+            " en.fond_mesic_h, en.hodinovka, en.pozice_text, en.position_id, jp.label, ae.cislo_zam"
             " FROM tenant.engagement en"
             " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
             " LEFT JOIN tenant.company co ON co.id=en.company_id"
+            " LEFT JOIN tenant.job_position jp ON jp.id=en.position_id"
             " WHERE ae.user_id=:u AND en.tenant_id=2 AND en.is_current"
             " ORDER BY co.code, en.id"), {"u": target}).fetchall()
         eng_ids = [int(e[0]) for e in engs]
@@ -9424,7 +9494,11 @@ async def app_hr_finance_osoba(req: Request) -> JSONResponse:
                 "uvazek": (float(e[6]) if e[6] is not None else None),
                 "uvazek_real": (float(e[7]) if e[7] is not None else None),
                 "fond_mesic": (float(e[8]) if e[8] is not None else None),
-                "hodinovka": bool(e[9]), "pozice": e[10] or "",
+                "hodinovka": bool(e[9]),
+                "pozice": (e[12] or e[10] or ""),
+                "pozice_text": e[10] or "",
+                "position_id": (int(e[11]) if e[11] is not None else None),
+                "cislo": e[13] or "",
                 "slozky": comps.get(int(e[0]), []),
             })
         return JSONResponse({"ok": True, "jmeno": (jmeno or "").strip() or ("ID " + str(target)), "pomery": pomery})

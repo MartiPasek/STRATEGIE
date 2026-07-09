@@ -278,12 +278,35 @@
     _tg2.appendChild(appCell("💰","Moje finance",0,function(){ go("moje_finance"); }));
     _tg2.appendChild(appCell("🗓️","Nepřítomnosti",0,function(){ go("absence"); }));
     _toolsWrap.appendChild(_tg2);
+    // 🛠 Opravy docházky (Jirka 9.7.2026, zadal Marti): sekce JEN pro editory
+    // (staff_group DOCHÁZKA - OPRAVY). Mimo _toolsWrap — editor ji vidí i když
+    // sám zrovna maká. Badge = počet položek fronty K vyřešení.
+    var _fixSec=el('<div id="dochFixSec" style="display:none;margin:2px 0 6px;"></div>');
+    _fixSec.appendChild(el('<div style="margin:10px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">SPRÁVA DOCHÁZKY</div>'));
+    var _fixGrid=el('<div class="appgrid"></div>');
+    var _fixCell=appCell("🛠","Opravy docházky",0,function(){ go("doch_opravy"); });
+    _fixGrid.appendChild(_fixCell); _fixSec.appendChild(_fixGrid);
+    (function _fixGate(){
+      function show(n){ _fixSec.style.display="block"; var old=_fixCell.querySelector('.appbadge'); if(old)old.remove();
+        if(n>0)_fixCell.appendChild(el('<span class="appbadge" style="background:#f59e0b;">'+(n>99?"99+":n)+'</span>')); }
+      if(window._canFixDoch===false) return;
+      if(window._canFixDoch===true){ show(window._fixQueueN||0); }
+      api("GET","/api/v1/erp/app/attendance/fix/allowed","").then(function(j){
+        window._canFixDoch=!!(j&&j.ok&&j.can_fix);
+        if(!window._canFixDoch){ _fixSec.style.display="none"; return; }
+        show(window._fixQueueN||0);
+        api("GET","/api/v1/erp/app/attendance/fix/queue","").then(function(q){
+          if(q&&q.ok){ window._fixQueueN=((q.anomalie||[]).length+(q.rozpory||[]).length); show(window._fixQueueN); }
+        }).catch(function(){});
+      }).catch(function(){});
+    })();
     // Marti 14.6.: pořadí obrazovky — nadpis → sekce Zakázky a činnosti (dochAction)
     // → „Potřebuji ti něco říct" (dochNow) → optická mezera → zbytek (region + sekce).
     p.appendChild(el('<div id="dochAction" style="margin-top:12px;"></div>'));
     p.appendChild(el('<div id="dochNow" class="doch-pulse" style="margin-top:12px;background:rgba(79,142,247,.07);border:1px solid #2a4d80;border-radius:14px;padding:14px;">Načítám…</div>'));
     p.appendChild(el('<div style="height:30px;"></div>'));  // optická mezera, ať to neruší
     p.appendChild(_toolsWrap);
+    p.appendChild(_fixSec);  // 🛠 Opravy docházky — viditelné editorům vždy (i při běžící směně)
     var lc=el('<div style="margin-top:4px;"><ul id="dochSecs" style="list-style:none;padding:0;margin:0;"></ul></div>');
     var su=lc.querySelector("#dochSecs");
     // Marti 7.6. večer: lidské názvy sekcí — docházka mluví jako kolega.
@@ -1713,5 +1736,252 @@
               :(kons.length?(' do <b style="color:var(--tx);">'+esc(kons[kons.length-1])+'</b>'):''));
     }
     mk(today,"dochSpanToday"); mk(yest,"dochSpanYest");
+  }
+  // ───── 🛠 OPRAVY DOCHÁZKY POVĚŘENÝMI (Jirka 9.7.2026, zadal Marti Pašek) ─────
+  // Editoři = staff_group „DOCHÁZKA - OPRAVY" (backend /app/attendance/fix/*).
+  // Oprava = supersede + nový záznam s povinným důvodem; dotčený dostane
+  // notifikaci a může rozporovat. Lidé sami zpětně needitují.
+  var _FIX_REASONS=["zapomenutý odchod","zapomenutý návrat z pauzy","zapomenutý příchod","chybný typ záznamu","omylem založený záznam"];
+  var _FIX_TYPES=[["work","🧾 Práce"],["overhead","🧰 Režie"],["homeoffice","🏠 Home office"],["commute","🚗 Cesta"],["break","☕ Pauza"]];
+  function _fixReasonBox(){
+    var w=el('<div style="margin-top:8px;"></div>');
+    w.appendChild(el('<div class="hint" style="margin-bottom:4px;">Důvod (povinný):</div>'));
+    var chips=el('<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;"></div>');
+    var ta=el('<input placeholder="…nebo napiš vlastní důvod" style="width:100%;">');
+    _FIX_REASONS.forEach(function(r){
+      var c=el('<button class="ghost sm" style="font-size:12px;">'+esc(r)+'</button>');
+      c.addEventListener("click",function(){ ta.value=r; });
+      chips.appendChild(c);
+    });
+    w.appendChild(chips); w.appendChild(ta); w._input=ta;
+    return w;
+  }
+  function _fixConfirm(fx, txt, onYes){
+    fx.querySelectorAll(".trimconf").forEach(function(x){x.remove();});
+    var cw=el('<div class="trimconf" style="margin-top:6px;background:rgba(16,185,129,.10);border:1px solid var(--green);border-radius:8px;padding:10px;"></div>');
+    cw.appendChild(el('<div style="font-size:14px;">'+txt+'</div>'));
+    var br=el('<div style="display:flex;gap:8px;margin-top:8px;"></div>');
+    var ano=el('<button class="green sm" style="flex:1;">Ano</button>');
+    var ne=el('<button class="ghost sm">Ne</button>');
+    br.appendChild(ano); br.appendChild(ne); cw.appendChild(br); fx.appendChild(cw);
+    ne.addEventListener("click",function(){ cw.remove(); });
+    ano.addEventListener("click",function(){ ano.disabled=true; ne.disabled=true; onYes(cw); });
+  }
+  function doch_opravy(){
+    app.innerHTML=topbar("🛠 Opravy docházky", true); _dochTopPad();
+    var p=el('<div class="panel"></div>'); app.appendChild(p);
+    var tabs=el('<div style="display:flex;gap:8px;margin:2px 0 10px;flex-wrap:wrap;"></div>');
+    var box=el('<div></div>');
+    p.appendChild(tabs); p.appendChild(box);
+    function tabBtn(lbl,fn){
+      var b=el('<button class="ghost sm">'+lbl+'</button>');
+      b.addEventListener("click",function(){
+        tabs.querySelectorAll("button").forEach(function(x){ x.style.borderColor=""; x.style.color=""; });
+        b.style.borderColor="var(--green)"; b.style.color="var(--green)"; fn();
+      });
+      tabs.appendChild(b); return b;
+    }
+    var tq=tabBtn("📥 K vyřešení",function(){ _fixQueueLoad(box); });
+    tabBtn("🔍 Najít člověka",function(){ _fixPeopleLoad(box); });
+    tabBtn("📜 Historie oprav",function(){ _fixAuditLoad(box); });
+    tq.click();
+  }
+  function _fixOpenDay(uid2,name,day){ window._fixCtx={uid:uid2,name:name||"",day:day}; go("doch_opravy_den"); }
+  function _fixQueueLoad(box){
+    box.innerHTML='<div class="hint">Načítám frontu…</div>';
+    api("GET","/api/v1/erp/app/attendance/fix/queue","").then(function(j){
+      box.innerHTML="";
+      if(!(j&&j.ok)){ box.innerHTML='<div class="hint">✗ '+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>'; return; }
+      var an=j.anomalie||[], rz=j.rozpory||[];
+      window._fixQueueN=an.length+rz.length;
+      if(!an.length&&!rz.length){ box.appendChild(el('<div class="hint">Všechno vyřešeno. 👍 Nic nečeká.</div>')); return; }
+      function card(name,day,detail,extra){
+        var c=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;margin-bottom:8px;"></div>');
+        c.appendChild(el('<div style="font-size:13.5px;font-weight:700;">'+esc(name||"?")+' · '+esc(day||"")+'</div>'));
+        c.appendChild(el('<div style="font-size:13px;margin-top:2px;">'+esc(detail||"")+(extra||"")+'</div>'));
+        var ar=el('<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;"></div>');
+        c.appendChild(ar); c._ar=ar;
+        var fx=el('<div style="margin-top:4px;"></div>'); c.appendChild(fx); c._fx=fx;
+        return c;
+      }
+      if(rz.length) box.appendChild(el('<div class="hint" style="margin:2px 0 6px;font-weight:600;">✋ Rozporované dny</div>'));
+      rz.forEach(function(r){
+        var c=card(r.name,r.day,"„"+(r.note||"")+"“");
+        var bo=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">🛠 Otevřít den</button>');
+        bo.addEventListener("click",function(){ _fixOpenDay(r.user_id,r.name,r.day); });
+        var bv=el('<button class="ghost sm">✓ Vyřešeno</button>');
+        bv.addEventListener("click",function(){
+          c._fx.innerHTML=""; var rb=_fixReasonBox(); c._fx.appendChild(rb);
+          var ok=el('<button class="green sm full" style="margin-top:6px;">Označit jako vyřešené</button>'); c._fx.appendChild(ok);
+          ok.addEventListener("click",function(){
+            api("POST","/api/v1/erp/app/attendance/fix/resolve",{uid:r.user_id,day:r.day,reason:(rb._input.value||"").trim()}).then(function(x){
+              if(x&&x.ok){ c.remove(); } else { c._fx.innerHTML='<div class="hint">✗ '+esc((x&&x.error)||"Nepodařilo se.")+'</div>'; }
+            });
+          });
+        });
+        c._ar.appendChild(bo); c._ar.appendChild(bv);
+        box.appendChild(c);
+      });
+      if(an.length) box.appendChild(el('<div class="hint" style="margin:8px 0 6px;font-weight:600;">⚠ Nesrovnalosti (automatická kontrola)</div>'));
+      an.forEach(function(a){
+        var extra=(a.rule==="zapomenuty_odchod"&&a.navrh_konec)?('<div class="hint" style="margin-top:2px;">💡 Poslední aktivita na zakázce: '+esc(a.navrh_konec)+'</div>'):"";
+        var c=card(a.name,a.day,a.detail,extra);
+        var bo=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">🛠 Otevřít den</button>');
+        bo.addEventListener("click",function(){ _fixOpenDay(a.user_id,a.name,a.day); });
+        var bv=el('<button class="ghost sm">✓ V pořádku</button>');
+        bv.addEventListener("click",function(){
+          c._fx.innerHTML=""; var rb=_fixReasonBox(); c._fx.appendChild(rb);
+          var ok=el('<button class="green sm full" style="margin-top:6px;">Označit jako v pořádku</button>'); c._fx.appendChild(ok);
+          ok.addEventListener("click",function(){
+            api("POST","/api/v1/erp/app/attendance/fix/resolve",{anomaly_id:a.id,reason:(rb._input.value||"").trim()}).then(function(x){
+              if(x&&x.ok){ c.remove(); } else { c._fx.innerHTML='<div class="hint">✗ '+esc((x&&x.error)||"Nepodařilo se.")+'</div>'; }
+            });
+          });
+        });
+        c._ar.appendChild(bo); c._ar.appendChild(bv);
+        box.appendChild(c);
+      });
+    });
+  }
+  function _fixPeopleLoad(box){
+    box.innerHTML='<div class="hint">Načítám lidi…</div>';
+    api("GET","/api/v1/erp/app/dochazka/lide","").then(function(j){
+      box.innerHTML="";
+      var lide=(j&&j.lide)||[];
+      var si=el('<input placeholder="🔍 hledat jméno…" autocomplete="off" style="width:100%;">');
+      var dt=el('<input type="date" value="'+_locDate(0)+'" style="width:100%;margin-top:6px;">');
+      var res=el('<div style="margin-top:8px;"></div>');
+      box.appendChild(si); box.appendChild(dt); box.appendChild(res);
+      function rend(){
+        var q=(si.value||"").trim().toLowerCase();
+        res.innerHTML="";
+        lide.filter(function(l){ return !q || (l.jmeno||"").toLowerCase().indexOf(q)>=0; }).slice(0,40).forEach(function(l){
+          var b=el('<button class="ghost full" style="margin-top:6px;text-align:left;">👤 '+esc(l.jmeno||"?")+'</button>');
+          b.addEventListener("click",function(){ _fixOpenDay(l.user_id,l.jmeno,dt.value||_locDate(0)); });
+          res.appendChild(b);
+        });
+        if(!res.childNodes.length) res.innerHTML='<div class="hint">Nikdo nenalezen.</div>';
+      }
+      si.addEventListener("input",rend); rend();
+    });
+  }
+  function _fixAuditLoad(box){
+    box.innerHTML='<div class="hint">Načítám historii…</div>';
+    api("GET","/api/v1/erp/app/attendance/fix/audit","").then(function(j){
+      box.innerHTML="";
+      var it=(j&&j.items)||[];
+      if(!it.length){ box.innerHTML='<div class="hint">Zatím žádné opravy.</div>'; return; }
+      var ICO={fix:"✏️",add:"➕",void:"🗑",resolve:"✓",period_lock:"🔒",period_unlock:"🔓"};
+      it.forEach(function(r){
+        var c=el('<div style="border-bottom:1px solid var(--bord);padding:8px 2px;font-size:13px;"></div>');
+        c.appendChild(el('<div><b>'+(ICO[r.action]||"·")+' '+esc(r.person||"")+'</b>'+(r.day?(' · '+esc(r.day)):'')+' <span class="hint">('+esc(r.actor||"?")+', '+esc(r.ts||"")+')</span></div>'));
+        var d=[]; if(r.old)d.push("před: "+r.old); if(r.new)d.push("po: "+r.new); if(r.detail)d.push(r.detail);
+        if(d.length) c.appendChild(el('<div class="hint" style="margin-top:2px;">'+esc(d.join(" · "))+'</div>'));
+        box.appendChild(c);
+      });
+    });
+  }
+  function doch_opravy_den(){
+    var ctx=window._fixCtx||{};
+    app.innerHTML=topbar("🛠 "+(ctx.name||"Oprava dne"), true); _dochTopPad();
+    var p=el('<div class="panel"></div>'); app.appendChild(p);
+    var dt=el('<input type="date" value="'+esc(ctx.day||_locDate(0))+'" style="width:100%;">');
+    p.appendChild(dt);
+    var box=el('<div style="margin-top:8px;"></div>'); p.appendChild(box);
+    dt.addEventListener("change",function(){ ctx.day=dt.value; load(); });
+    function load(){
+      box.innerHTML='<div class="hint">Načítám den…</div>';
+      api("GET","/api/v1/erp/app/attendance/fix/day?uid="+ctx.uid+"&day="+encodeURIComponent(dt.value||""),"").then(function(j){
+        box.innerHTML="";
+        if(!(j&&j.ok)){ box.innerHTML='<div class="hint">✗ '+esc((j&&j.error)||"Nepodařilo se načíst.")+'</div>'; return; }
+        if(j.locked) box.appendChild(el('<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:10px;padding:10px;margin-bottom:8px;font-size:13px;">🔒 Období je uzamčeno (mzdy zpracovány) — opravy nejsou možné. Odemknout smí Peťa/Šárka.</div>'));
+        // ➕ doplnění chybějícího záznamu
+        var addB=el('<button class="ghost full" style="margin-bottom:8px;border-color:var(--green);color:var(--green);">➕ Přidat záznam (zapomenutý příchod…)</button>');
+        var addFx=el('<div style="margin-bottom:8px;"></div>');
+        if(!j.locked){ box.appendChild(addB); box.appendChild(addFx); }
+        addB.addEventListener("click",function(){
+          addFx.innerHTML="";
+          var w=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;"></div>');
+          var sel=el('<select style="width:100%;"></select>');
+          _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'">'+t[1]+'</option>')); });
+          var t1=el('<input type="time" style="width:46%;">'), t2=el('<input type="time" style="width:46%;">');
+          var tr=el('<div style="display:flex;gap:8%;margin-top:6px;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
+          var zk=el('<input placeholder="🧾 zakázka (jen u práce, nepovinné)" style="width:100%;margin-top:6px;">');
+          var rb=_fixReasonBox();
+          var ok=el('<button class="green full" style="margin-top:8px;">Uložit nový záznam</button>');
+          var st=el('<div class="hint" style="margin-top:4px;"></div>');
+          w.appendChild(sel); w.appendChild(tr); w.appendChild(zk); w.appendChild(rb); w.appendChild(ok); w.appendChild(st);
+          addFx.appendChild(w);
+          ok.addEventListener("click",function(){
+            if(!t1.value||!t2.value){ st.textContent="Vyplň časy od–do."; return; }
+            if(!(rb._input.value||"").trim()){ st.textContent="Důvod je povinný."; return; }
+            _fixConfirm(addFx,"Přidat "+esc(sel.value)+" "+esc(t1.value)+"–"+esc(t2.value)+" pro <b>"+esc(ctx.name||"")+"</b> ("+esc(dt.value)+")?",function(cw){
+              api("POST","/api/v1/erp/app/attendance/fix/add",{uid:ctx.uid,day:dt.value,type_code:sel.value,zac:t1.value,kon:t2.value,project_ref:(zk.value||"").trim()||null,reason:rb._input.value.trim()}).then(function(r){
+                if(r&&r.ok){ load(); } else { cw.remove(); st.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
+              });
+            });
+          });
+        });
+        var es=j.entries||[];
+        if(!es.length){ box.appendChild(el('<div class="hint">Žádné záznamy v tomto dni.</div>')); return; }
+        es.forEach(function(e2){
+          var gone=(e2.status==="superseded");
+          var row=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;margin-bottom:8px;'+(gone?'opacity:.45;':'')+'"></div>');
+          var badge="";
+          if(gone) badge=' <span style="font-size:11px;color:var(--mut);">(nahrazeno/storno)</span>';
+          else if(e2.running) badge=' <span style="font-size:11px;color:var(--green);">● běží</span>';
+          else if(e2.source_system) badge=' <span style="font-size:11px;color:var(--amber);">🏛 Centrála</span>';
+          if(e2.source==="manual_fix") badge+=' <span style="font-size:11px;color:#7c8cdb;">🛠 opraveno</span>';
+          row.appendChild(el('<div style="font-size:13.5px;font-weight:600;">'+esc(e2.typ||"")+' '+esc((e2.zac||"?")+" – "+(e2.kon||"…"))+(e2.hours!=null?(' · '+fmtHM(e2.hours)):'')+(e2.project_ref?(' · 🧾 '+esc(e2.project_ref)):'')+badge+'</div>'));
+          if(e2.note) row.appendChild(el('<div class="hint" style="margin-top:2px;">'+esc(e2.note)+'</div>'));
+          if(e2.source_system&&!gone) row.appendChild(el('<div class="hint" style="margin-top:2px;">Záznam vlastní stará Centrála — oprava se dělá tam (Dušan) a sem se přezrcadlí.</div>'));
+          if(e2.editable&&!e2.running&&e2.zac){
+            var ar=el('<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;"></div>');
+            var be=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">✏️ Opravit</button>');
+            var bs=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);">🗑 Storno</button>');
+            ar.appendChild(be); ar.appendChild(bs); row.appendChild(ar);
+            var fx=el('<div style="margin-top:6px;"></div>'); row.appendChild(fx);
+            be.addEventListener("click",function(){
+              fx.innerHTML="";
+              var t1=el('<input type="time" value="'+esc(e2.zac||"")+'" style="width:46%;">');
+              var t2=el('<input type="time" value="'+esc(e2.kon||"")+'" style="width:46%;">');
+              var tr=el('<div style="display:flex;gap:8%;"></div>'); tr.appendChild(t1); tr.appendChild(t2);
+              var sel=el('<select style="width:100%;margin-top:6px;"></select>');
+              _FIX_TYPES.forEach(function(t){ sel.appendChild(el('<option value="'+t[0]+'"'+(t[0]===e2.code?' selected':'')+'>'+t[1]+'</option>')); });
+              var rb=_fixReasonBox();
+              var ok=el('<button class="green full" style="margin-top:8px;">Uložit opravu</button>');
+              var st=el('<div class="hint" style="margin-top:4px;"></div>');
+              fx.appendChild(tr); fx.appendChild(sel); fx.appendChild(rb); fx.appendChild(ok); fx.appendChild(st);
+              ok.addEventListener("click",function(){
+                if(!t1.value||!t2.value){ st.textContent="Vyplň oba časy."; return; }
+                if(!(rb._input.value||"").trim()){ st.textContent="Důvod je povinný."; return; }
+                _fixConfirm(fx,"Opravit záznam z <b>"+esc((e2.zac||"?")+"–"+(e2.kon||"…"))+"</b> na <b>"+esc(t1.value+"–"+t2.value)+"</b>?",function(cw){
+                  api("POST","/api/v1/erp/app/attendance/fix/entry",{id:e2.id,zac:t1.value,kon:t2.value,type_code:sel.value,reason:rb._input.value.trim()}).then(function(r){
+                    if(r&&r.ok){ load(); } else { cw.remove(); st.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
+                  });
+                });
+              });
+            });
+            bs.addEventListener("click",function(){
+              fx.innerHTML="";
+              var rb=_fixReasonBox(); fx.appendChild(rb);
+              var ok=el('<button class="ghost full" style="margin-top:6px;border-color:var(--amber);color:var(--amber);">Stornovat záznam</button>');
+              var st=el('<div class="hint" style="margin-top:4px;"></div>');
+              fx.appendChild(ok); fx.appendChild(st);
+              ok.addEventListener("click",function(){
+                if(!(rb._input.value||"").trim()){ st.textContent="Důvod je povinný."; return; }
+                _fixConfirm(fx,"Opravdu stornovat záznam <b>"+esc((e2.zac||"?")+"–"+(e2.kon||"…"))+"</b>?",function(cw){
+                  api("POST","/api/v1/erp/app/attendance/fix/void",{id:e2.id,reason:rb._input.value.trim()}).then(function(r){
+                    if(r&&r.ok){ load(); } else { cw.remove(); st.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
+                  });
+                });
+              });
+            });
+          }
+          box.appendChild(row);
+        });
+      });
+    }
+    load();
   }
   // ───── PŘIHLÁSIT JAKO (impersonace pro test docházky, Marti 7.6.) ─────

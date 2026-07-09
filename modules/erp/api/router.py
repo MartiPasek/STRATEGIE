@@ -19023,6 +19023,652 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
         cm.__exit__(None, None, None)
 
 
+# ---------------------------------------------------------------------------
+# OPRAVY DOCHÁZKY POVĚŘENÝMI OSOBAMI (Jirka 9.7.2026, zadal Marti Pašek).
+# Skupina staff_group 'DOCHÁZKA - OPRAVY' (bez parent/admin bypassu — „zpětně
+# opravují jen jmenovaní"). Oprava = supersede původního řádku + nový řádek
+# source='manual_fix' s povinným důvodem; audit tenant.att_audit; notifikace
+# dotčenému (✋ může rozporovat). Zámek období tenant.att_period_lock (mzdy).
+# Návrh: docs/dochazka_opravy_navrh.md. Konzultace Marti-AI 9.7. (msg 10626).
+# ---------------------------------------------------------------------------
+
+_ATT_FIX_GROUP = "DOCHÁZKA - OPRAVY"
+_ATT_FIX_TYPES = ("work", "overhead", "homeoffice", "commute", "break")
+_ATT_LOCK_UIDS = frozenset({18, 13})  # Peťa (mzdy/finance) + Šárka (HR) — Jirka 9.7.: „obě"
+
+
+def _att_can_fix(s, uid) -> bool:
+    """Členství ve skupině DOCHÁZKA - OPRAVY. Vědomě BEZ parent/admin bypassu."""
+    if not uid:
+        return False
+    from sqlalchemy import text as _t
+    m = s.execute(_t(
+        "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
+        "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false AND g.name=:g AND m.user_id=:u"),
+        {"g": _ATT_FIX_GROUP, "u": uid}).first()
+    return m is not None
+
+
+def _att_can_lock(s, uid) -> bool:
+    """Zámek období smí Peťa/Šárka (Jirka 9.7. „obě") + rodiče."""
+    if uid in _ATT_LOCK_UIDS:
+        return True
+    try:
+        return bool(is_marti_parent(uid))
+    except Exception:
+        return False
+
+
+def _att_period_locked(s, d) -> bool:
+    """True = měsíc dne d je uzamčen (mzdy zpracovány). Bez tabulky (před DDL) → False."""
+    from sqlalchemy import text as _t
+    try:
+        r = s.execute(_t("SELECT 1 FROM tenant.att_period_lock WHERE tenant_id=:t AND rok=:r AND mesic=:m"),
+                      {"t": _ATT_TENANT, "r": d.year, "m": d.month}).first()
+        return r is not None
+    except Exception:
+        s.rollback()
+        return False
+
+
+def _att_fix_audit(s, action, entry_id, emp_id, actor_uid, actor_name,
+                   old_note=None, new_note=None, detail=None, old_date=None):
+    from sqlalchemy import text as _t
+    s.execute(_t(
+        "INSERT INTO tenant.att_audit (tenant_id, entry_id, employee_id, action, "
+        "actor_user_id, actor_text, old_entry_date, old_note, new_note, detail, created_at) "
+        "VALUES (:t,:i,:e,:a,:u,:at,CAST(:d AS date),:onn,:nnn,:dt,now())"),
+        {"t": _ATT_TENANT, "i": entry_id, "e": emp_id, "a": action, "u": actor_uid,
+         "at": actor_name, "d": old_date, "onn": old_note, "nnn": new_note, "dt": detail})
+
+
+def _att_fix_notify(s, emp_id, actor_uid, actor_name, title, msg):
+    """Notifikace dotčenému (fw.mobile_command). Sám sobě editor nenotifikuje."""
+    from sqlalchemy import text as _t
+    try:
+        r = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp_id}).first()
+        emp_uid = int(r[0]) if (r and r[0]) else None
+        if emp_uid and emp_uid != actor_uid:
+            s.execute(_t(
+                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
+                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, :by)"),
+                {"uid": emp_uid, "ti": title, "msg": msg[:600], "by": actor_uid})
+    except Exception:
+        pass
+
+
+@api_router.get("/app/attendance/fix/allowed")
+async def att_fix_allowed(req: Request) -> JSONResponse:
+    """Pro UI: smí přihlášený opravovat docházku / spravovat zámek období?"""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    cm, s = _att_session()
+    try:
+        out = {"ok": True, "can_fix": _att_can_fix(s, uid), "can_lock": _att_can_lock(s, uid)}
+        s.commit()
+        return JSONResponse(out)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/attendance/fix/queue")
+async def att_fix_queue(req: Request) -> JSONResponse:
+    """Fronta „K vyřešení": nevyřešené anomálie (mimo nepotvrzený den — to je
+    osobní zodpovědnost) + rozporované dny (✋). S návrhem konce u zapomenutého
+    odchodu (poslední aktivita na zakázce)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        anom = s.execute(_t(
+            "SELECT a.id, a.rule, a.detail, a.entry_id, a.employee_id, e.entry_date::text, "
+            "       em.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
+            "       (SELECT to_char(max(w.ended_at),'HH24:MI') FROM tenant.work_alloc w "
+            "         WHERE w.user_id = em.user_id AND w.started_at::date = e.entry_date AND w.ended_at IS NOT NULL) "
+            "FROM tenant.att_anomaly a "
+            "JOIN tenant.att_entry e ON e.id = a.entry_id "
+            "JOIN tenant.att_employee em ON em.id = a.employee_id "
+            "LEFT JOIN public.users u ON u.id = em.user_id "
+            "WHERE a.tenant_id = :t AND a.resolved_at IS NULL AND a.rule <> 'nepotvrzeny_den' "
+            "  AND e.status <> 'superseded' "
+            "ORDER BY e.entry_date DESC, a.id DESC LIMIT 120"),
+            {"t": _ATT_TENANT}).fetchall()
+        disp = s.execute(_t(
+            "SELECT c.id, c.employee_id, c.day::text, COALESCE(c.note,''), em.user_id, "
+            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_day_confirm c "
+            "JOIN tenant.att_employee em ON em.id = c.employee_id "
+            "LEFT JOIN public.users u ON u.id = em.user_id "
+            "WHERE c.tenant_id = :t AND c.disputed = true AND c.day >= current_date - 60 "
+            "ORDER BY c.day DESC LIMIT 60"),
+            {"t": _ATT_TENANT}).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True,
+            "anomalie": [{"id": r[0], "rule": r[1], "detail": r[2], "entry_id": r[3],
+                          "employee_id": r[4], "day": r[5], "user_id": r[6], "name": r[7],
+                          "navrh_konec": r[8]} for r in anom],
+            "rozpory": [{"id": r[0], "employee_id": r[1], "day": r[2], "note": r[3],
+                         "user_id": r[4], "name": r[5]} for r in disp]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/attendance/fix/day")
+async def att_fix_day(req: Request) -> JSONResponse:
+    """Detail dne pro editora — VŠECHNY záznamy vč. superseded (šedě) a day_end,
+    s příznakem editovatelnosti (jen STRATEGIE řádky, neuzamčené období)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            day = _dt.strptime(str(req.query_params.get("day") or "")[:10], "%Y-%m-%d").date()
+            tuid = int(req.query_params.get("uid") or 0)
+        except Exception:
+            return JSONResponse({"ok": False, "error": "invalid_params"}, status_code=400)
+        emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
+                        {"t": _ATT_TENANT, "u": tuid}).scalar()
+        if not emp:
+            return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
+        locked = _att_period_locked(s, day)
+        rows = s.execute(_t(
+            "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
+            "       e.hours, e.project_ref, e.note, et.label, et.code, et.category, "
+            "       e.status, e.is_active, COALESCE(e.source_system,''), COALESCE(e.source,'') "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
+            "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = :d "
+            "AND e.status <> 'announced' "
+            "ORDER BY e.started_at NULLS LAST, e.id"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
+        jm = _user_jmeno(s, tuid)
+        s.commit()
+        return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked,
+            "entries": [
+            {"id": r[0], "zac": r[1], "kon": r[2],
+             "hours": (float(r[3]) if r[3] is not None else None),
+             "project_ref": r[4], "note": r[5], "typ": r[6], "code": r[7], "cat": r[8],
+             "status": r[9], "running": bool(r[10] and not r[2]),
+             "source_system": r[11], "source": r[12],
+             "editable": (not locked) and (not r[11]) and r[9] != "superseded"} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _att_fix_parse_hhmm(v):
+    import re as _re
+    v = str(v or "").strip()[:5]
+    return v if _re.fullmatch(r"[0-2][0-9]:[0-5][0-9]", v) else None
+
+
+def _att_fix_overlap(s, emp, new_start, new_end, exclude_id):
+    """Vrátí popis kolidujícího záznamu, nebo None. Porovnává jen presence
+    segmenty s oběma časy; day_end marker se nepočítá."""
+    from sqlalchemy import text as _t
+    r = s.execute(_t(
+        "SELECT to_char(e.started_at,'HH24:MI') || CHR(8211) || to_char(e.ended_at,'HH24:MI') || ' ' || et.label "
+        "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
+        "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.id <> :x "
+        "  AND e.status NOT IN ('superseded','announced') AND et.code <> 'day_end' "
+        "  AND et.category = 'presence' AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
+        "  AND e.started_at < CAST(:ne AS timestamp) AND e.ended_at > CAST(:ns AS timestamp) LIMIT 1"),
+        {"t": _ATT_TENANT, "e": emp, "x": exclude_id or 0,
+         "ne": new_end.isoformat(sep=" "), "ns": new_start.isoformat(sep=" ")}).scalar()
+    return r
+
+
+@api_router.post("/app/attendance/fix/entry")
+async def att_fix_entry(req: Request) -> JSONResponse:
+    """Oprava časů/typu záznamu editorem: supersede původního + nový řádek
+    source='manual_fix'. Povinný důvod. Srovná work_alloc, uklidí anomálie,
+    audituje a notifikuje dotčeného."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        eid = int((body or {}).get("id") or 0)
+    except Exception:
+        eid = 0
+    zac = _att_fix_parse_hhmm((body or {}).get("zac"))
+    kon = _att_fix_parse_hhmm((body or {}).get("kon"))
+    tcode = str((body or {}).get("type_code") or "").strip() or None
+    reason = str((body or {}).get("reason") or "").strip()[:300]
+    if not (eid and zac and kon):
+        return JSONResponse({"ok": False, "error": "Zadej platné časy od–do (HH:MM)."})
+    if not reason:
+        return JSONResponse({"ok": False, "error": "Důvod opravy je povinný."})
+    if tcode and tcode not in _ATT_FIX_TYPES:
+        return JSONResponse({"ok": False, "error": "Nepovolený typ záznamu."})
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        row = s.execute(_t(
+            "SELECT e.id, e.employee_id, e.entry_date, e.started_at, e.ended_at, "
+            "       e.entry_type_id, et.code, e.project_ref, COALESCE(e.break_minutes,0), "
+            "       e.status, COALESCE(e.source_system,''), e.is_active, "
+            "       to_char(e.started_at,'HH24:MI'), COALESCE(to_char(e.ended_at,'HH24:MI'),'…'), et.label "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
+            "WHERE e.id = :i AND e.tenant_id = :t"),
+            {"i": eid, "t": _ATT_TENANT}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
+        if row[9] == "superseded":
+            return JSONResponse({"ok": False, "error": "Záznam už byl nahrazen novější opravou."})
+        if row[10]:
+            return JSONResponse({"ok": False, "error": "Záznam vlastní stará Centrála — oprav ho v Centrále, sem se přezrcadlí."})
+        if row[11] and row[4] is None:
+            return JSONResponse({"ok": False, "error": "Běžící záznam nelze opravit — člověk zrovna maká (počkej na odchod)."})
+        if row[3] is None:
+            return JSONResponse({"ok": False, "error": "Záznam bez času začátku (absence) — oprav přes absence, ne tady."})
+        if _att_period_locked(s, row[2]):
+            return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány). Odemknout smí Peťa/Šárka."}, status_code=409)
+        emp = int(row[1])
+        sd = row[3].date()
+        ed = row[4].date() if row[4] is not None else sd
+        # konec se drží na dni PŮVODNÍHO konce (job přes půlnoc — vzor entry-trim, Marti 7.6.)
+        new_start = _dt.combine(sd, _dt.strptime(zac, "%H:%M").time())
+        new_end = _dt.combine(ed, _dt.strptime(kon, "%H:%M").time())
+        if new_end <= new_start:
+            return JSONResponse({"ok": False, "error": "Konec musí být po začátku."})
+        if (new_end - new_start) > _td(hours=20):
+            return JSONResponse({"ok": False, "error": "Úsek přes 20 hodin — to nebude správně."})
+        ovl = _att_fix_overlap(s, emp, new_start, new_end, eid)
+        if ovl:
+            return JSONResponse({"ok": False, "error": "Nové časy se překrývají se záznamem " + str(ovl) + "."})
+        new_code = tcode or row[6]
+        tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
+                        {"t": _ATT_TENANT, "c": new_code}).scalar()
+        if not tid:
+            return JSONResponse({"ok": False, "error": "Typ záznamu nenalezen."})
+        pref = row[7] if new_code in ("work",) else None
+        brk = int(row[8])
+        hrs = round(max((new_end - new_start).total_seconds() / 3600.0 - brk / 60.0, 0.0), 2)
+        actor = _user_jmeno(s, uid)
+        old_desc = (row[14] or "") + " " + (row[12] or "?") + "–" + (row[13] or "…")
+        nn = "🛠 OPRAVA (" + actor + "): " + reason + " (původně " + old_desc.strip() + ", #" + str(eid) + ")"
+        nid = s.execute(_t(
+            "INSERT INTO tenant.att_entry (tenant_id, employee_id, entry_date, entry_type_id, hours, "
+            "started_at, ended_at, break_minutes, project_ref, note, status, source, is_active, "
+            "created_by_id, created_at, updated_at) "
+            "VALUES (:t,:e,:d,:ti,:h,CAST(:ns AS timestamp),CAST(:ne AS timestamp),:b,:pr,:n,"
+            "'approved','manual_fix',false,:u,now(),now()) RETURNING id"),
+            {"t": _ATT_TENANT, "e": emp, "d": sd.isoformat(), "ti": tid, "h": hrs,
+             "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
+             "b": brk, "pr": pref, "n": nn, "u": uid}).scalar()
+        s.execute(_t(
+            "UPDATE tenant.att_entry SET status='superseded', is_active=false, "
+            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
+            "WHERE id=:i"),
+            {"i": eid, "nn": "nahrazeno opravou #" + str(nid) + " (" + actor + ")"})
+        # work_alloc: úseky zakázek patřící k původnímu segmentu zkrátit na nový konec
+        if row[6] in ("work", "overhead") and row[4] is not None:
+            try:
+                tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
+                if tu:
+                    s.execute(_t(
+                        "UPDATE tenant.work_alloc SET "
+                        "ended_at = GREATEST(CAST(:ns AS timestamptz), LEAST(ended_at, CAST(:ne AS timestamptz))), "
+                        "started_at = LEAST(CAST(:ne AS timestamptz), GREATEST(started_at, CAST(:ns AS timestamptz))), "
+                        "updated_at = now() "
+                        "WHERE user_id=:u AND started_at >= CAST(:os AS timestamptz) - interval '1 minute' "
+                        "  AND started_at < CAST(:oe AS timestamptz) "
+                        "  AND (ended_at IS NULL OR ended_at > CAST(:ne AS timestamptz) OR started_at < CAST(:ns AS timestamptz))"),
+                        {"u": tu, "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
+                         "os": row[3].isoformat(sep=" "), "oe": row[4].isoformat(sep=" ")})
+            except Exception:
+                pass
+        s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
+                     "WHERE tenant_id=:t AND entry_id=:i AND resolved_at IS NULL"),
+                  {"t": _ATT_TENANT, "i": eid})
+        _att_fix_audit(s, "fix", nid, emp, uid, actor,
+                       old_note=old_desc.strip(), new_note=(new_code + " " + zac + "–" + kon),
+                       detail=reason + " | původní #" + str(eid), old_date=sd.isoformat())
+        _att_fix_notify(s, emp, uid, actor, "🛠 Oprava docházky",
+                        actor + " opravil(a) tvou docházku " + sd.strftime("%d.%m.") + ": "
+                        + old_desc.strip() + " → " + zac + "–" + kon + " (" + reason + "). "
+                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
+        s.commit()
+        return JSONResponse({"ok": True, "id": nid, "hours": hrs})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/fix/add")
+async def att_fix_add(req: Request) -> JSONResponse:
+    """Doplnění chybějícího záznamu (zapomenutý příchod) editorem."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt, timedelta as _td, date as _date
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        tuid = int((body or {}).get("uid") or 0)
+    except Exception:
+        tuid = 0
+    zac = _att_fix_parse_hhmm((body or {}).get("zac"))
+    kon = _att_fix_parse_hhmm((body or {}).get("kon"))
+    tcode = str((body or {}).get("type_code") or "work").strip()
+    pref = str((body or {}).get("project_ref") or "").strip()[:40] or None
+    reason = str((body or {}).get("reason") or "").strip()[:300]
+    try:
+        day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Neplatné datum."})
+    if not (tuid and zac and kon):
+        return JSONResponse({"ok": False, "error": "Zadej osobu a časy od–do (HH:MM)."})
+    if not reason:
+        return JSONResponse({"ok": False, "error": "Důvod je povinný."})
+    if tcode not in _ATT_FIX_TYPES:
+        return JSONResponse({"ok": False, "error": "Nepovolený typ záznamu."})
+    if day > _date.today():
+        return JSONResponse({"ok": False, "error": "Do budoucnosti se nedoplňuje — na to je Výhled/ohlášení."})
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        if _att_period_locked(s, day):
+            return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány). Odemknout smí Peťa/Šárka."}, status_code=409)
+        emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
+                        {"t": _ATT_TENANT, "u": tuid}).scalar()
+        if not emp:
+            return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
+        new_start = _dt.combine(day, _dt.strptime(zac, "%H:%M").time())
+        new_end = _dt.combine(day, _dt.strptime(kon, "%H:%M").time())
+        if new_end <= new_start:
+            return JSONResponse({"ok": False, "error": "Konec musí být po začátku."})
+        if (new_end - new_start) > _td(hours=20):
+            return JSONResponse({"ok": False, "error": "Úsek přes 20 hodin — to nebude správně."})
+        ovl = _att_fix_overlap(s, emp, new_start, new_end, None)
+        if ovl:
+            return JSONResponse({"ok": False, "error": "Časy se překrývají se záznamem " + str(ovl) + "."})
+        if pref and tcode == "work":
+            zk = s.execute(_t("SELECT typ FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c AND pichatelna=true"),
+                           {"t": _ATT_TENANT, "c": pref}).first()
+            if not zk:
+                return JSONResponse({"ok": False, "error": "Zakázka " + pref + " není píchatelná / neexistuje."})
+        else:
+            pref = None
+        tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
+                        {"t": _ATT_TENANT, "c": tcode}).scalar()
+        if not tid:
+            return JSONResponse({"ok": False, "error": "Typ záznamu nenalezen."})
+        hrs = round((new_end - new_start).total_seconds() / 3600.0, 2)
+        actor = _user_jmeno(s, uid)
+        nn = "🛠 DOPLNĚNO (" + actor + "): " + reason
+        nid = s.execute(_t(
+            "INSERT INTO tenant.att_entry (tenant_id, employee_id, entry_date, entry_type_id, hours, "
+            "started_at, ended_at, project_ref, note, status, source, is_active, "
+            "created_by_id, created_at, updated_at) "
+            "VALUES (:t,:e,:d,:ti,:h,CAST(:ns AS timestamp),CAST(:ne AS timestamp),:pr,:n,"
+            "'approved','manual_fix',false,:u,now(),now()) RETURNING id"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "ti": tid, "h": hrs,
+             "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
+             "pr": pref, "n": nn, "u": uid}).scalar()
+        _att_fix_audit(s, "add", nid, emp, uid, actor,
+                       new_note=(tcode + " " + zac + "–" + kon), detail=reason,
+                       old_date=day.isoformat())
+        _att_fix_notify(s, emp, uid, actor, "🛠 Doplnění docházky",
+                        actor + " doplnil(a) do tvé docházky " + day.strftime("%d.%m.") + " záznam "
+                        + zac + "–" + kon + " (" + reason + "). "
+                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
+        s.commit()
+        return JSONResponse({"ok": True, "id": nid, "hours": hrs})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/fix/void")
+async def att_fix_void(req: Request) -> JSONResponse:
+    """Storno omylného záznamu editorem (supersede, nikdy DELETE)."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        eid = int((body or {}).get("id") or 0)
+    except Exception:
+        eid = 0
+    reason = str((body or {}).get("reason") or "").strip()[:300]
+    if not eid:
+        return JSONResponse({"ok": False, "error": "missing_id"}, status_code=400)
+    if not reason:
+        return JSONResponse({"ok": False, "error": "Důvod storna je povinný."})
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        row = s.execute(_t(
+            "SELECT e.employee_id, e.entry_date, COALESCE(to_char(e.started_at,'HH24:MI'),'?'), "
+            "       COALESCE(to_char(e.ended_at,'HH24:MI'),'…'), e.status, COALESCE(e.source_system,''), et.label "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
+            "WHERE e.id=:i AND e.tenant_id=:t"),
+            {"i": eid, "t": _ATT_TENANT}).first()
+        if not row:
+            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
+        if row[4] == "superseded":
+            return JSONResponse({"ok": False, "error": "Záznam už je zneplatněný."})
+        if row[5]:
+            return JSONResponse({"ok": False, "error": "Záznam vlastní stará Centrála — oprav ho v Centrále."})
+        if _att_period_locked(s, row[1]):
+            return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány). Odemknout smí Peťa/Šárka."}, status_code=409)
+        emp = int(row[0])
+        actor = _user_jmeno(s, uid)
+        desc = (row[6] or "") + " " + row[2] + "–" + row[3]
+        s.execute(_t(
+            "UPDATE tenant.att_entry SET status='superseded', is_active=false, "
+            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
+            "WHERE id=:i"),
+            {"i": eid, "nn": "🛠 STORNO (" + actor + "): " + reason})
+        s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
+                     "WHERE tenant_id=:t AND entry_id=:i AND resolved_at IS NULL"),
+                  {"t": _ATT_TENANT, "i": eid})
+        _att_fix_audit(s, "void", eid, emp, uid, actor, old_note=desc.strip(),
+                       detail=reason, old_date=row[1].isoformat())
+        _att_fix_notify(s, emp, uid, actor, "🛠 Storno záznamu docházky",
+                        actor + " stornoval(a) v tvé docházce " + row[1].strftime("%d.%m.")
+                        + " záznam " + desc.strip() + " (" + reason + "). "
+                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/fix/resolve")
+async def att_fix_resolve(req: Request) -> JSONResponse:
+    """Odbavení položky fronty bez zásahu: anomálie (anomaly_id) nebo rozpor
+    dne (uid+day) — s poznámkou proč je to v pořádku."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    from datetime import datetime as _dt
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    reason = str((body or {}).get("reason") or "").strip()[:300]
+    aid = 0
+    tuid = 0
+    try:
+        aid = int((body or {}).get("anomaly_id") or 0)
+    except Exception:
+        pass
+    try:
+        tuid = int((body or {}).get("uid") or 0)
+    except Exception:
+        pass
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        actor = _user_jmeno(s, uid)
+        if aid:
+            r = s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
+                             "WHERE tenant_id=:t AND id=:i AND resolved_at IS NULL RETURNING employee_id, entry_id"),
+                          {"t": _ATT_TENANT, "i": aid}).first()
+            if r:
+                _att_fix_audit(s, "resolve", r[1], r[0], uid, actor, detail="anomálie OK: " + (reason or "-"))
+            s.commit()
+            return JSONResponse({"ok": True})
+        if tuid:
+            try:
+                day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
+            except Exception:
+                return JSONResponse({"ok": False, "error": "Neplatné datum."})
+            emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
+                            {"t": _ATT_TENANT, "u": tuid}).scalar()
+            if emp:
+                s.execute(_t(
+                    "UPDATE tenant.att_day_confirm SET disputed=false, "
+                    "note = COALESCE(note,'') || ' | vyřešeno (' || :a || '): ' || :r "
+                    "WHERE tenant_id=:t AND employee_id=:e AND day=:d AND disputed=true"),
+                    {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "a": actor, "r": (reason or "-")})
+                _att_fix_audit(s, "resolve", None, emp, uid, actor,
+                               detail="rozpor dne vyřešen: " + (reason or "-"), old_date=day.isoformat())
+            s.commit()
+            return JSONResponse({"ok": True})
+        return JSONResponse({"ok": False, "error": "missing_target"}, status_code=400)
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/attendance/fix/audit")
+async def att_fix_audit_list(req: Request) -> JSONResponse:
+    """Přehled oprav (att_audit) pro editory — kdo, komu, kdy, co, před→po."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = s.execute(_t(
+            "SELECT a.id, a.action, a.entry_id, a.old_entry_date::text, a.old_note, a.new_note, "
+            "       a.detail, a.actor_text, to_char(a.created_at,'DD.MM. HH24:MI'), "
+            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "FROM tenant.att_audit a "
+            "LEFT JOIN tenant.att_employee em ON em.id = a.employee_id "
+            "LEFT JOIN public.users u ON u.id = em.user_id "
+            "WHERE a.tenant_id = :t AND a.action IN ('fix','add','void','resolve','period_lock','period_unlock') "
+            "ORDER BY a.id DESC LIMIT 200"),
+            {"t": _ATT_TENANT}).fetchall()
+        s.commit()
+        return JSONResponse({"ok": True, "items": [
+            {"id": r[0], "action": r[1], "entry_id": r[2], "day": r[3], "old": r[4],
+             "new": r[5], "detail": r[6], "actor": r[7], "ts": r[8], "person": r[9]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/attendance/period-lock")
+async def att_period_lock_list(req: Request) -> JSONResponse:
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        if not (_att_can_fix(s, uid) or _att_can_lock(s, uid)):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            rows = s.execute(_t(
+                "SELECT l.rok, l.mesic, to_char(l.locked_at,'DD.MM.YYYY'), l.note, "
+                "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), 'user '||l.locked_by) "
+                "FROM tenant.att_period_lock l LEFT JOIN public.users u ON u.id = l.locked_by "
+                "WHERE l.tenant_id=:t ORDER BY l.rok DESC, l.mesic DESC"),
+                {"t": _ATT_TENANT}).fetchall()
+        except Exception:
+            s.rollback()
+            rows = []
+        s.commit()
+        return JSONResponse({"ok": True, "can_lock": _att_can_lock(s, uid), "items": [
+            {"rok": r[0], "mesic": r[1], "od": r[2], "note": r[3], "kdo": r[4]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.post("/app/attendance/period-lock")
+async def att_period_lock_set(req: Request) -> JSONResponse:
+    """Zamknout/odemknout měsíc pro opravy (mzdy). Peťa/Šárka + rodiče."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        rok = int((body or {}).get("rok") or 0)
+        mesic = int((body or {}).get("mesic") or 0)
+    except Exception:
+        rok = mesic = 0
+    lock = bool((body or {}).get("lock"))
+    note = str((body or {}).get("note") or "").strip()[:200]
+    if not (2020 <= rok <= 2100 and 1 <= mesic <= 12):
+        return JSONResponse({"ok": False, "error": "Neplatné období."})
+    cm, s = _att_session()
+    try:
+        if not _att_can_lock(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        actor = _user_jmeno(s, uid)
+        if lock:
+            s.execute(_t(
+                "INSERT INTO tenant.att_period_lock (tenant_id, rok, mesic, locked_by, note) "
+                "VALUES (:t,:r,:m,:u,:n) ON CONFLICT (tenant_id, rok, mesic) DO NOTHING"),
+                {"t": _ATT_TENANT, "r": rok, "m": mesic, "u": uid, "n": note or None})
+        else:
+            s.execute(_t("DELETE FROM tenant.att_period_lock WHERE tenant_id=:t AND rok=:r AND mesic=:m"),
+                      {"t": _ATT_TENANT, "r": rok, "m": mesic})
+        _att_fix_audit(s, "period_lock" if lock else "period_unlock", None, None, uid, actor,
+                       detail=str(mesic) + "/" + str(rok) + (" — " + note if note else ""))
+        s.commit()
+        return JSONResponse({"ok": True})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
 @api_router.get("/app/zakazky")
 async def app_zakazky(req: Request) -> JSONResponse:
     """Marti 7.6.: picker zakázek pro píchání (VR/SW/PR/Rezie). Jen píchatelné

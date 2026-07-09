@@ -1419,6 +1419,14 @@ def moje_dochazka_page():
                         headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.get("/dochazka-opravy")
+def dochazka_opravy_page():
+    """Správa docházky — opravy chybných záznamů pověřenými osobami (skupina
+    DOCHÁZKA - OPRAVY). Data gated na serveru (_att_can_fix). Jirka 9.7.2026."""
+    return FileResponse(os.path.join(static_dir, "dochazka-opravy.html"),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.get("/osnova")
 def osnova_page():
     """Účtová osnova po letech (z deníku) — porovnání let. Marti 25.6.2026."""

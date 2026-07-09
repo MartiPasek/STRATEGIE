@@ -8934,8 +8934,13 @@ def _bday_banner_path():
 
 
 def _bday_html(jmeno):
-    je = (jmeno or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return _BDAY_HTML % {"osloveni": _osloveni(jmeno), "jmeno": je}
+    # Do oslovení jen křestní jméno (Šárka 8.7.2026 — příjmení v oslovení nechce);
+    # pohlaví Milá/Milý určujeme z CELÉHO jména (příjmení -ová).
+    full = (jmeno or "").strip()
+    parts = full.split()
+    krestni = parts[0] if parts else full
+    je = krestni.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return _BDAY_HTML % {"osloveni": _osloveni(full), "jmeno": je}
 
 
 @api_router.get("/app/hr/gratulace")

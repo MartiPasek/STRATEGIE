@@ -1098,16 +1098,16 @@ def crm_track_open(token: str, request: Request):
         _ua = ((request.headers.get("user-agent") if request else None) or "")
         _ds = _gs_to()
         try:
-            # Grace okno: nacteni pixelu do 15 s od odeslani = automaticke stazeni
-            # (dorucovaci scan / Outlook auto-download u interniho odesilatele),
-            # NE skutecne otevreni -> opened_at se v tom okne nenastavi. open_count
-            # pocita vsechny zasahy (raw), opened_ua/ip = prvni zasah (diagnostika).
+            # Grace okno: nacteni pixelu do 5 s od odeslani = okamzite automaticke
+            # stazeni (dorucovaci scan / auto-download), NE skutecne otevreni ->
+            # opened_at se v tom okne nenastavi. Realna otevreni chodi >~8 s.
+            # open_count pocita vsechny zasahy (raw), opened_ua/ip = prvni zasah.
             _ds.execute(_t_to(
                 "UPDATE mod.crm_email_track SET open_count = open_count + 1,"
                 " opened_ip = COALESCE(opened_ip, :ip),"
                 " opened_ua = COALESCE(opened_ua, :ua),"
                 " opened_at = COALESCE(opened_at,"
-                "   CASE WHEN now() - sent_at >= interval '15 seconds'"
+                "   CASE WHEN now() - sent_at >= interval '5 seconds'"
                 "        THEN now() ELSE NULL END)"
                 " WHERE token = :t"),
                 {"t": (token or "")[:48], "ip": (_ip or "")[:60],

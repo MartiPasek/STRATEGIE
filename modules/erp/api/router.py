@@ -5968,10 +5968,14 @@ async def crm_osloveni_track_status(req: Request) -> JSONResponse:
     from sqlalchemy import text as _sql_ts
     ds = _gds_ts()
     try:
+        # POSLEDNI odeslani per firma (ne MAX pres historii) -- jinak stare
+        # otevreni z drivejsich testu "prosakne" a fresh neotevreny mail hlasi
+        # otevreno. DISTINCT ON bere radek s nejnovejsim sent_at pro kazdou firmu.
         rows = ds.execute(_sql_ts(
-            "SELECT firma_id, MAX(sent_at) AS sent_at, MAX(opened_at) AS opened_at, "
-            "COALESCE(SUM(open_count),0) AS opens FROM mod.crm_email_track "
-            "WHERE firma_id = ANY(:ids) GROUP BY firma_id"), {"ids": ids}).mappings().all()
+            "SELECT DISTINCT ON (firma_id) firma_id, sent_at, opened_at, "
+            "COALESCE(open_count,0) AS opens FROM mod.crm_email_track "
+            "WHERE firma_id = ANY(:ids) "
+            "ORDER BY firma_id, sent_at DESC"), {"ids": ids}).mappings().all()
     finally:
         ds.close()
     items = []

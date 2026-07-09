@@ -493,6 +493,13 @@
             // pravý klik na kontakt → 📁 Dokumenty → /files?type=kontakt&id=.
             _ctxMenuActions.push("docfiles");
           }
+          // Tracking otevření (Kristy 9.7.2026): na přehledu Aktivity obchodníka
+          // (core 124) → pravý klik na e-mailové akce → 📊 Tracking (stav otevření).
+          if (/crm_aktivity_obchodnik/i.test(_coreCodeForGraph) ||
+              /crm_aktivity_obchodnik/i.test(String(_gridCodeForActions)) ||
+              String(coreId) === "124") {
+            _ctxMenuActions.push("tracking");
+          }
           // Mail přehledy (Claude-23 3.7.2026): „Otevřít e-mail" (detail) na všech
           // 4 přehledech; Doručené → „Uklidit", Zpracované → „Vrátit".
           if (/mail_(dorucene|zpracovane|odeslane|koncepty)/i.test(_coreCodeForGraph) ||
@@ -506,6 +513,14 @@
           if (/mail_zpracovane/i.test(_coreCodeForGraph) ||
               /mail_zpracovane/i.test(String(_gridCodeForActions))) {
             _ctxMenuActions.push("mail_vratit");
+          }
+          // Kalkulace jádro (Claude-24/Kristy 9.7.2026): na přehledu Kalkulace
+          // a nabídky (core 140, vp_kalkulace) → pravý klik „🧮 Kalkulace jádro"
+          // / Alt+M → otevře jádro 188 (@@COREIMPORT z Centrály form 271).
+          if (/^vp_kalkulace$/i.test(_coreCodeForGraph) ||
+              /^vp_kalkulace$/i.test(String(_gridCodeForActions)) ||
+              String(coreId) === "140") {
+            _ctxMenuActions.push("kalkulace_jadro");
           }
           // Register edit form coreId pro gridCode (drz Marti "fw self
           // edited" doctrine 11.5. — DesignFwForm vola registry lookup).
@@ -724,6 +739,36 @@
               },
             });
             gridHost.__erpGridInst = gridInst;
+            // Alt+M (Claude-24/Kristy 9.7.2026): klávesová zkratka pro akci
+            // „🧮 Kalkulace jádro" — jen na gridu, který má akci v context
+            // menu (gate výše). Vybraný řádek → dispatch stejné akce jako
+            // pravý klik (doctrine #15 „stejně zobrazit, stejně funkce").
+            if (_ctxMenuActions.indexOf("kalkulace_jadro") !== -1) {
+              try {
+                gridHost.addEventListener("keydown", function (ev) {
+                  if (!ev.altKey || String(ev.key || "").toLowerCase() !== "m") return;
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  var _sel = [];
+                  try { _sel = gridInst.gridApi.getSelectedRows() || []; } catch (_eSel) {}
+                  if (!window.ErpGridActions ||
+                      typeof window.ErpGridActions.dispatch !== "function") return;
+                  window.ErpGridActions.dispatch("kalkulace_jadro", {
+                    gridCode: _gridCodeForActions,
+                    coreId: coreId,
+                    rowData: _sel[0] || null,
+                    rowIds: _sel.map(function (r) {
+                      return r && (r.ID != null ? r.ID : r.id);
+                    }).filter(function (x) { return x != null; }),
+                    gridApi: gridInst.gridApi,
+                    refreshFn: (typeof gridInst.refreshFromSource === "function")
+                      ? function () { return gridInst.refreshFromSource(); } : null,
+                  }).catch(function (err) {
+                    console.warn("[page_render Alt+M] kalkulace_jadro failed:", err);
+                  });
+                });
+              } catch (_eKb) { /* never crash render */ }
+            }
             // Etapa F Krok 2 (24.5.2026 vecer pozde, Marti's "prepinani
             // zalozek bez refreshe"): assign per-tab pane property pro
             // closeTab destroy lookup. mainContent v Krok 2 architecture =

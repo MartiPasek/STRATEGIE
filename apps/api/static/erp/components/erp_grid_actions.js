@@ -383,6 +383,84 @@
       return "<span style='background:#3a3a3a;color:#bbb;padding:1px 7px;border-radius:10px;font-size:11px'>bez e-mailu</span>";
     }
 
+    function _fmtTs(iso) {
+      if (!iso) return "";
+      try {
+        return new Date(iso).toLocaleString("cs-CZ", { day: "2-digit", month: "2-digit",
+          year: "numeric", hour: "2-digit", minute: "2-digit" });
+      } catch (e) { return String(iso); }
+    }
+
+    // Dialog „📊 Tracking" na přehledu Aktivity obchodníka (core 124): pro vybrané
+    // řádky (akce) ukáže stav odeslání + otevření z tracking pixelu (crm_email_track).
+    function _trackingDialog(actionIds) {
+      return fetch("/api/v1/erp/crm/aktivity/tracking", {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_ids: actionIds }),
+      }).then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (j) {
+          if (!j || !j.ok) { _osloveniToast("error", "✗ Tracking se nepodařilo načíst"); return; }
+          var items = j.items || [];
+          var opened = 0, mails = 0;
+          var rowsHtml = items.map(function (it) {
+            var stav;
+            if (!it.found) {
+              stav = "<span style='color:#888'>řádek nenalezen</span>";
+            } else if (!it.is_email) {
+              stav = "<span style='color:#c9a227'>není e-mail" +
+                (it.typ ? " (" + _oslEsc(it.typ) + ")" : "") + "</span>";
+            } else {
+              mails++;
+              if (it.opened_at) {
+                opened++;
+                stav = "<b style='color:#a3e4a3'>Otevřeno ✓</b> <span style='color:#8ab88a'>" +
+                  _oslEsc(_fmtTs(it.opened_at)) + (it.opens > 1 ? " · " + it.opens + "×" : "") + "</span>";
+              } else if (it.has_track || it.sent_at) {
+                stav = "<span style='color:#9fc4ec'>Odesláno</span> <span style='color:#7f9fbf'>" +
+                  _oslEsc(_fmtTs(it.sent_at)) + "</span> · <span style='color:#999'>zatím neotevřeno</span>";
+              } else {
+                stav = "<span style='color:#888'>bez trackingu (neodesláno přes systém)</span>";
+              }
+            }
+            var kdo = _oslEsc((it && it.firma) || ("#" + (it && it.action_id)));
+            var mail = (it && it.email) ? " <span style='color:#7a90a8'>· " + _oslEsc(it.email) + "</span>" : "";
+            return "<div style='padding:8px 4px;border-bottom:1px solid #1c1c1c'>" +
+              "<div style='font-weight:600;color:#dfe7ef'>" + kdo + mail + "</div>" +
+              "<div style='margin-top:2px;font-size:12px'>" + stav + "</div></div>";
+          }).join("");
+
+          var bd = document.createElement("div");
+          bd.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100001;" +
+            "display:flex;align-items:center;justify-content:center;";
+          var dlg = document.createElement("div");
+          dlg.style.cssText = "background:#151515;border:1px solid #333;border-radius:12px;" +
+            "width:min(560px,94vw);max-height:82vh;overflow:auto;padding:18px 20px;" +
+            "font-family:system-ui,-apple-system,sans-serif;color:#dfe7ef;box-shadow:0 10px 40px rgba(0,0,0,.6);";
+          var sum = mails ? ("Otevřeno <b style='color:#a3e4a3'>" + opened + "</b> z " + mails + " e-mailů")
+                          : "Ve výběru není e-mailová akce";
+          dlg.innerHTML = "<div style='font-weight:700;font-size:15px;margin-bottom:2px'>📊 Tracking otevření</div>" +
+            "<div style='color:#9fb6cc;font-size:12px;margin-bottom:12px'>" + sum + "</div>" +
+            (rowsHtml || "<div style='color:#9fb6cc;padding:8px'>Žádná data.</div>");
+          var btn = document.createElement("button");
+          btn.textContent = "Zavřít";
+          btn.style.cssText = "margin-top:14px;background:#2a2a2a;color:#dfe7ef;border:1px solid #444;" +
+            "border-radius:8px;padding:8px 18px;font-size:13px;cursor:pointer;";
+          function close() {
+            if (bd.parentNode) bd.parentNode.removeChild(bd);
+            document.removeEventListener("keydown", onEsc);
+          }
+          function onEsc(e) { if (e.key === "Escape") close(); }
+          btn.onclick = close;
+          bd.onclick = function (e) { if (e.target === bd) close(); };
+          document.addEventListener("keydown", onEsc);
+          dlg.appendChild(btn);
+          bd.appendChild(dlg); document.body.appendChild(bd);
+        }).catch(function (e) {
+          _osloveniToast("error", "✗ Síť: " + (e && e.message || e));
+        });
+    }
+
     // Dialog: nahled prijemcu (osobni/info@/zadny/odhlaseno) + vyber sablony +
     // zarazeni vybranych firem do fronty mod.crm_outreach.
     // NEPOSILA — odeslani je krok odesilaci rutiny (Marti-AI) za pravnim OK.
@@ -876,6 +954,57 @@
             return Promise.reject(new Error("no_rows"));
           }
           return _osloveniDialog(ids, ctx.refreshFn);
+        },
+      },
+      // Tracking otevření (Kristy 9.7.2026): na přehledu Aktivity obchodníka
+      // (core 124) vyber e-mailové akce -> stav odeslání + otevření z pixelu.
+      // Gate v page_render.js (jen crm_aktivity_obchodnik). Multi-row přes ctx.rowIds.
+      tracking: {
+        key: "tracking",
+        icon: "📊",
+        label: "Tracking otevření",
+        hint: "Zobrazit stav odeslání a otevření u vybraných e-mailů",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) {
+          var ids = (Array.isArray(ctx.rowIds) && ctx.rowIds.length > 0)
+            ? ctx.rowIds.slice()
+            : (ctx.rowData ? [ctx.rowData.id != null ? ctx.rowData.id : ctx.rowData.ID] : []);
+          ids = ids.filter(function (x) { return x != null && x !== ""; });
+          if (ids.length === 0) {
+            alert("⚠ Tracking: nejprve vyber řádek(y) s e-mailem (lze i více).");
+            return Promise.reject(new Error("no_rows"));
+          }
+          return _trackingDialog(ids);
+        },
+      },
+      // Kalkulace jádro (Claude-24/Kristy 9.7.2026): na přehledu Kalkulace a
+      // nabídky (core 140, vp_kalkulace) otevře edit jádro „Kalkulace jádro"
+      // (core 188 = @@COREIMPORT z Centrály form 271) pro vybraný řádek.
+      // Gate + klávesová zkratka Alt+M v page_render.js (jen vp_kalkulace).
+      kalkulace_jadro: {
+        key: "kalkulace_jadro",
+        icon: "🧮",
+        label: "Kalkulace jádro",
+        hint: "Otevřít kartu kalkulace pro vybraný řádek (Alt+M)",
+        shortcut: "Alt+M",
+        cssClass: "erp-action-kalkulace-jadro",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) {
+          var rid = null;
+          if (ctx.rowData) {
+            // MSSQL/MCP uppercase ID parity (28.5.2026 #3)
+            rid = ctx.rowData.ID != null ? ctx.rowData.ID : ctx.rowData.id;
+          }
+          if (rid == null) {
+            alert("⚠ Kalkulace jádro: nejprve vyber řádek kalkulace.");
+            return Promise.reject(new Error("no_row"));
+          }
+          return _openFwEditForm(
+            ctx.gridCode, rid, "edit", ctx.refreshFn,
+            { overrideCoreId: 188 }  // 188 = kalkulace_jadro (fw.core)
+          );
         },
       },
       // Složka dokumentů záznamu (Marti 18.6.2026) — systém adresářů (dir_config).

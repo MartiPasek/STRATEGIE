@@ -103,7 +103,7 @@ async function openP(uid,row){
   const d=await j(API+"/app/hr/finance/osoba?uid="+uid);
   if(!d.ok){det.innerHTML='<div class="empty">🔒 '+esc(d.error||'chyba')+'</div>';return;}
   if(!d.pomery||!d.pomery.length){det.innerHTML='<div class="empty">'+esc(d.jmeno)+' — žádný aktuální poměr.</div>';return;}
-  let h='<h2 style="margin:0 0 14px;color:#2b3a4a;">'+esc(d.jmeno)+'</h2>';
+  let h='<h2 style="margin:0 0 14px;color:var(--title);">'+esc(d.jmeno)+'</h2>';
   for(const p of d.pomery){
     const eg=p.engagement_id;
     h+='<div class="pomer"><h3>'+esc(p.typ||'poměr')+
@@ -115,23 +115,21 @@ async function openP(uid,row){
       ' · smlouva '+(p.smlouva_od||'—')+(p.smlouva_do?' – '+p.smlouva_do:'')+
       (p.zkusebni_do?' · zkušební do '+p.zkusebni_do:'')+'</div>';
     h+='<table><tr><th>Mzdová složka</th><th style="text-align:right">Plán</th><th style="text-align:right">Skutečnost</th><th></th></tr>';
-    let lastAud='';
     for(const c of (p.slozky||[])){
       const ph=c.per_hour?'<span class="ph">/hod</span>':'';
       const base=(c.je_zaklad||/zaklad/.test(c.kod||''))?'base':'';
-      h+='<tr class="'+base+'" data-wc="'+c.id+'"><td>'+esc(c.nazev||c.kod)+ph+'</td>'+
+      const aud=c.changed_by?('<div class="aud" title="Kdo naposledy měnil tuto složku">✎ '+esc(c.changed_by)+(c.changed_at?' · '+c.changed_at.substring(0,10):'')+'</div>'):'';
+      h+='<tr class="'+base+'" data-wc="'+c.id+'"><td>'+esc(c.nazev||c.kod)+ph+aud+'</td>'+
         '<td class="num"><input class="ei" data-f="plan" value="'+nval(c.plan)+'"></td>'+
         '<td class="num"><input class="ei" data-f="real" value="'+nval(c.real)+'"></td>'+
         '<td style="white-space:nowrap"><button class="sbtn p" onclick="saveRow(this,'+c.id+')">💾</button> '+
         '<button class="sbtn d" onclick="delRow('+c.id+')" title="Smazat">✕</button></td></tr>';
-      if(c.changed_at) lastAud=c.changed_at.substring(0,10)+(c.changed_by?' · '+esc(c.changed_by):'');
     }
     h+='</table>';
     h+='<div class="addbar"><select id="at_'+eg+'">'+typyOpts()+'</select>'+
       '<input class="ei" id="ap_'+eg+'" placeholder="plán"><input class="ei" id="ar_'+eg+'" placeholder="skut.">'+
       '<button class="sbtn" onclick="addRow('+eg+')">+ přidat</button>'+
       '<span class="savemsg" id="sm_'+eg+'"></span></div>';
-    if(lastAud) h+='<div class="aud">Poslední změna: '+lastAud+'</div>';
     h+='</div>';
   }
   det.innerHTML=h;

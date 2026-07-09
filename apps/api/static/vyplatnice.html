@@ -248,24 +248,27 @@ async function bd(cms, el, auto){
 }
 function _rozpisHtml(pol){ let h=''; pol.forEach(p=>{ h+='<div class="row sub"><span class="n">• '+p.typ+(p.zakazka?' <span class="mut">('+p.zakazka+')</span>':'')+(p.zdroj==='zaklad'?' <span class="mut">[základ]</span>':(p.zdroj==='dopocet'?' <span class="mut">[dopočet z docházky]</span>':' <span class="mut">[příplatek/srážka]</span>'))+'</span><span class="h"></span><span class="c">'+fk(p.castka)+'</span></div>'; }); return h; }
 function autoExpandRozpisy(){ document.querySelectorAll('#pas .bdr[data-cms]').forEach(el=>{ const typ=el.getAttribute('data-typ'); if(typ==='11'||typ==='12') return; bd(Number(el.getAttribute('data-cms')), el, true); }); }
-function pasPrintInner(H,S,d,r,m){
+async function pasPrintInner(H,S,d,r,m){
   const mn=['','leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
   const groups={}; (d.slozky||[]).forEach(s=>{ (groups[s.skup_typ]=groups[s.skup_typ]||{nazev:s.skupina,items:[]}).items.push(s); });
   const skey=t=>(groups[t].nazev && /(Základní|Mzda)/i.test(groups[t].nazev))?-1:Number(t);
   let body='';
-  Object.keys(groups).sort((a,b)=>skey(a)-skey(b)).forEach(t=>{
+  const order=Object.keys(groups).sort((a,b)=>skey(a)-skey(b));
+  for(const t of order){
     const g=groups[t]; const rows=g.items.filter(s=>s.koruny||s.hodiny||s.dny);
-    if(!rows.length) return;
+    if(!rows.length) continue;
+    const det=await Promise.all(rows.map(s=>{ if((+t===11)||(+t===12)||/sleva na dani/i.test(s.nazev||'')) return Promise.resolve(null); return fetch('/api/v1/erp/app/mzdy/vyplatnice-slozka-detail?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&cislo='+encodeURIComponent(H.cislo||'')+'&cislo_ms='+s.cislo_ms,{credentials:'include'}).then(x=>x.json()).catch(()=>null); }));
     body+='<div class="grp"><h3>'+(g.nazev||grpName(+t)||'Ostatní')+'</h3>';
-    rows.forEach(s=>{
+    rows.forEach((s,i)=>{
       if(/sleva na dani/i.test(s.nazev||'')){
         const zakl=Math.min(ZAKL_SLEVA_POPLATNIK, s.koruny||0); const zvyh=(s.koruny||0)-zakl;
         body+='<div class="row"><span class="n">▸ '+s.nazev+'</span><span class="h"></span><span class="c">'+fk(s.koruny)+'</span></div>';
         body+='<div class="bddet"><div class="row sub"><span class="n">• Základní sleva na dani</span><span class="h"></span><span class="c">'+fk(zakl)+'</span></div>'+(zvyh>0?'<div class="row sub"><span class="n">• Daňové zvýhodnění</span><span class="h"></span><span class="c">'+fk(zvyh)+'</span></div>':'')+'</div>'; return; }
       body+='<div class="row"><span class="n">▸ '+s.nazev+'</span><span class="h">'+(s.hodiny?fh(s.hodiny)+' h':(s.dny?fh(s.dny)+' dní':''))+'</span><span class="c">'+fk(s.koruny)+'</span></div>';
+      const dd=det[i]; if(dd && dd.ok && dd.polozky && dd.polozky.length){ body+='<div class="bddet">'+_rozpisHtml(dd.polozky)+'</div>'; }
     });
     body+='</div>';
-  });
+  }
   const firmaPoj=(d.slozky||[]).filter(s=>s.skup_typ==12 && /firma/i.test(s.nazev)).reduce((a,s)=>a+s.koruny,0);
   const naklad=S.hruba+firmaPoj;
   return '<div class="pashead"><div><h2>'+H.prijmeni+' '+H.jmeno+'</h2>'+
@@ -291,7 +294,7 @@ async function printAll(){
     const zam=LIDI[i].zam_id;
     let d; try{ d=await (await fetch('/api/v1/erp/app/mzdy/vyplatnice-detail?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&zam='+zam,{credentials:'include'})).json(); }catch(e){ continue; }
     if(!d.ok) continue;
-    out+='<div class="pasprint">'+pasPrintInner(d.header,d.souhrn,d,r,m)+'</div>';
+    out+='<div class="pasprint">'+(await pasPrintInner(d.header,d.souhrn,d,r,m))+'</div>';
     if(btn) btn.textContent='Připravuji… '+(i+1)+'/'+LIDI.length;
   }
   let box=document.getElementById('printAll'); if(!box){ box=document.createElement('div'); box.id='printAll'; document.body.appendChild(box); }

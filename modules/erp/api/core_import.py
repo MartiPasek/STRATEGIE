@@ -154,8 +154,15 @@ def _run_generator(core_id: int, fields: list[str], force: bool) -> str:
     ctx = {"coreId": int(core_id), "force": bool(force)}
     if fields:
         ctx["fields"] = fields
-    prev = os.environ.get("SANDBOX_CONTEXT")
+    # Generátor čeká env jako v sandboxu: SANDBOX_CONTEXT + STRATEGIE_DATA_DB_URL.
+    # DB URL bereme stejně jako python_runner (Pydantic settings, ne shell env).
+    from core.config import settings as _cfg
+    db_url = getattr(_cfg, "database_data_url", "") or ""
+    if not db_url:
+        raise RuntimeError("core.config.settings.database_data_url je prázdné")
+    prev = {k: os.environ.get(k) for k in ("SANDBOX_CONTEXT", "STRATEGIE_DATA_DB_URL")}
     os.environ["SANDBOX_CONTEXT"] = json.dumps(ctx, ensure_ascii=True)
+    os.environ["STRATEGIE_DATA_DB_URL"] = db_url
     buf = io.StringIO()
     exit_code = 0
     try:
@@ -164,10 +171,11 @@ def _run_generator(core_id: int, fields: list[str], force: bool) -> str:
     except SystemExit as e:
         exit_code = int(e.code) if isinstance(e.code, int) else (0 if not e.code else 1)
     finally:
-        if prev is None:
-            os.environ.pop("SANDBOX_CONTEXT", None)
-        else:
-            os.environ["SANDBOX_CONTEXT"] = prev
+        for k, v in prev.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
     out = buf.getvalue()
     if exit_code != 0:
         raise RuntimeError(f"generátor selhal (exit {exit_code}): {out[-600:]}")

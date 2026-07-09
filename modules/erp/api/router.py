@@ -6001,6 +6001,110 @@ async def crm_osloveni_track_status(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "items": items})
 
 
+@api_router.post("/crm/aktivity/tracking")
+async def crm_aktivity_tracking(req: Request) -> JSONResponse:
+    """Tracking otevření pro vybrané řádky přehledu „Aktivity obchodníka".
+    Vstup: {"action_ids":[<st.CRM_Kontakt_Akce.ID>, ...]} = vybrané řádky.
+    Pro každou akci resolve firma/e-mail/typ z DB_EC (MCP), pak stav odeslání +
+    otevření z mod.crm_email_track (poslední odeslání per firma). Auth: člen ERP / rodič."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "Nepřihlášen"}, status_code=401)
+    try:
+        _require_erp_member(uid)
+    except HTTPException as he:
+        return JSONResponse({"ok": False, "error": he.detail}, status_code=he.status_code)
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    aids = []
+    for x in (body.get("action_ids") or body.get("rowIds") or []):
+        try:
+            aids.append(int(x))
+        except Exception:
+            pass
+    aids = sorted(set(aids))[:50]
+    if not aids:
+        return JSONResponse({"ok": True, "items": []})
+
+    from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+    mcp = get_eurosoft_mcp_client()
+    if mcp is None:
+        return JSONResponse({"ok": False, "error": "CRM (MCP) nedostupné"}, status_code=503)
+
+    def _g(d, k):
+        dl = {(kk or "").lower(): vv for kk, vv in d.items()}
+        return dl.get(k)
+
+    try:
+        arows = _crm_mcp_rows(mcp,
+            "SELECT a.ID AS aid, a.IDHlav AS fid, a.IDAkce AS idakce, cis.Nazev AS typ, "
+            "a.Email AS email, a.FirmaText AS firma, "
+            "CONVERT(varchar(10), a.DatumAkce, 23) AS datum "
+            "FROM st.CRM_Kontakt_Akce a WITH(NOLOCK) "
+            "LEFT JOIN st.CRM_Kontakt_AkceCis cis WITH(NOLOCK) ON cis.ID = a.IDAkce "
+            "WHERE a.ID IN (" + ",".join(str(i) for i in aids) + ")")
+    except Exception as exc:
+        logger.exception("[crm_aktivity_tracking] resolve %s", exc)
+        return JSONResponse({"ok": False, "error": "Akce se nepodařilo načíst"}, status_code=502)
+
+    meta, fids = {}, []
+    for d in (arows or []):
+        try:
+            aid = int(_g(d, "aid"))
+        except Exception:
+            continue
+        fid = _g(d, "fid")
+        try:
+            fid = int(fid) if fid is not None else None
+        except Exception:
+            fid = None
+        meta[aid] = {
+            "fid": fid,
+            "idakce": int(_g(d, "idakce") or 0),
+            "typ": (_g(d, "typ") or "").strip() or None,
+            "email": (_g(d, "email") or "").strip() or None,
+            "firma": (_g(d, "firma") or "").strip() or None,
+            "datum": _g(d, "datum"),
+        }
+        if fid is not None:
+            fids.append(fid)
+
+    trk = {}
+    if fids:
+        from core.database_data import get_data_session as _gds_tk
+        from sqlalchemy import text as _sql_tk
+        ds = _gds_tk()
+        try:
+            for r in ds.execute(_sql_tk(
+                "SELECT DISTINCT ON (firma_id) firma_id, sent_at, opened_at, "
+                "COALESCE(open_count,0) AS opens FROM mod.crm_email_track "
+                "WHERE firma_id = ANY(:ids) ORDER BY firma_id, sent_at DESC"),
+                {"ids": sorted(set(fids))}).mappings().all():
+                trk[int(r["firma_id"])] = r
+        finally:
+            ds.close()
+
+    items = []
+    for aid in aids:
+        m = meta.get(aid)
+        if not m:
+            items.append({"action_id": aid, "found": False})
+            continue
+        t = trk.get(m["fid"]) if m["fid"] is not None else None
+        items.append({
+            "action_id": aid, "found": True,
+            "is_email": (m["idakce"] == 1),  # „Email na info"
+            "typ": m["typ"], "firma": m["firma"], "email": m["email"], "datum": m["datum"],
+            "has_track": bool(t),
+            "sent_at": t["sent_at"].isoformat() if (t and t["sent_at"]) else None,
+            "opened_at": t["opened_at"].isoformat() if (t and t["opened_at"]) else None,
+            "opens": int(t["opens"]) if t else 0,
+        })
+    return JSONResponse({"ok": True, "items": items})
+
+
 @api_router.post("/crm/osloveni/send")
 async def crm_osloveni_send(req: Request) -> JSONResponse:
     """OSTRE odeslani osloveni: posle sablonu + tracking pixel + odhlasovaci odkaz
@@ -37290,6 +37394,19 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   @@VPTRIAGE → AI klasifikace cekajicich (typ/zakaznik/predmet/shrnuti/jistota)
     #   @@VPTEST <text> → ad-hoc test klasifikace na libovolnem textu (bez schranky)
     #   @@VPINFO → prehled VP poptavek + whitelist + zda je schranka projects@ pripojena
+    #   @@COREIMPORT <ec_form_id> [<zdroj>] [--force] → import jádra z Centrály
+    #   (EC_FormDef) do fw.*: core + edit-select + nativní generátor polí + popisky.
+    #   Kristý/Claude-24 9.7.2026, pilot form 271. Detail: modules/erp/api/core_import.py
+    if sql.upper().startswith("@@COREIMPORT"):
+        import traceback as _tbci
+        try:
+            from modules.erp.api.core_import import run_core_import as _rci
+            return JSONResponse(_rci(sql[len("@@COREIMPORT"):].strip()))
+        except Exception as _cie:
+            return JSONResponse({"ok": False,
+                                 "error": "%s: %s" % (type(_cie).__name__, str(_cie)[:400]),
+                                 "tb": _tbci.format_exc()[-1200:]})
+
     if sql.upper().startswith("@@VP"):
         import traceback as _tbvp
         try:

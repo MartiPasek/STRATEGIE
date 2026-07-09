@@ -93,6 +93,7 @@
 const fk=(n)=>n==null?"—":Number(Math.round(n)).toLocaleString("cs-CZ")+" Kč";
 const fh=(n)=>!n?"":Number(n).toLocaleString("cs-CZ");
 let FIRMA="ES", LIDI=[];
+const ZAKL_SLEVA_POPLATNIK=2570; // Kč/měsíc – základní sleva na poplatníka (2026: 30 840 Kč/rok). Při změně legislativy měnit jen tuto hodnotu.
 function setF(f){FIRMA=f;document.querySelectorAll('#firmaSeg button').forEach(b=>b.classList.toggle('on',b.dataset.f===f));load();}
 function rm(){return {r:document.getElementById('rok').value,m:document.getElementById('mesic').value};}
 function fillSelectors(){
@@ -182,6 +183,15 @@ async function openPas(zam){
     body+='<div class="grp"><h3>'+(g.nazev||grpName(+t)||'Ostatní')+'</h3>';
     rows.forEach(s=>{
       if(s.info){ body+='<div class="row"><span class="n">▸ '+s.nazev+'</span><span class="h"></span><span class="c">'+fk(s.koruny)+'</span></div>'; return; }
+      if(/sleva na dani/i.test(s.nazev||'')){                       // rozpis slevy na dani – jen vizuálně, obsah se nemění
+        const zakl=Math.min(ZAKL_SLEVA_POPLATNIK, s.koruny||0);     // základní sleva na poplatníka
+        const zvyh=(s.koruny||0)-zakl;                             // zbytek = daňové zvýhodnění (děti apod.)
+        body+='<div class="row"><span class="n">▸ '+s.nazev+'</span><span class="h"></span><span class="c">'+fk(s.koruny)+'</span></div>';
+        body+='<div class="bddet">'+
+          '<div class="row sub"><span class="n">• Základní sleva na dani <span class="mut">(na poplatníka)</span></span><span class="h"></span><span class="c">'+fk(zakl)+'</span></div>'+
+          (zvyh>0?'<div class="row sub"><span class="n">• Daňové zvýhodnění</span><span class="h"></span><span class="c">'+fk(zvyh)+'</span></div>':'')+
+          '</div>';
+        return; }
       body+='<div class="row bdr" onclick="bd('+s.cislo_ms+',this)" title="Rozpis – z čeho se skládá"><span class="n">▸ '+s.nazev+'</span><span class="h">'+
       (s.hodiny?fh(s.hodiny)+' h':(s.dny?fh(s.dny)+' dní':''))+'</span><span class="c">'+fk(s.koruny)+'</span></div>'; });
     body+='</div>';

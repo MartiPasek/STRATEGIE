@@ -1293,7 +1293,9 @@ def finance_podminky_page():
     skupina HR + Marti). Stránka je jen skořápka; veškerá data i částky
     servíruje jen zamčený endpoint (403 pro neoprávněné)."""
     return FileResponse(os.path.join(static_dir, "finance_podminky.html"),
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
 @app.get("/karta-zamestnance")
@@ -1302,7 +1304,9 @@ def karta_zamestnance_page():
     iterativně plněné sekce. Seznam z /app/hr/people (HR-gated). Data sekcí gated
     příslušnými endpointy."""
     return FileResponse(os.path.join(static_dir, "karta_zamestnance.html"),
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
 @app.get("/denik")

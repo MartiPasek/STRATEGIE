@@ -8734,6 +8734,14 @@ async def app_hr_dashboard(req: Request) -> JSONResponse:
         for title, pos, do, dv in vyb:
             akt.insert(0, {"typ": "vyberka", "ikona": "🧲",
                            "text": "Výběrové řízení: %s — běží od %s%s" % (title or pos or "?", _cz(do), (" do " + _cz(dv)) if dv else "")})
+        # Vlastní stálé aktuality (Šárka 8.7.2026) — dokud nebude editovatelný seznam z UI.
+        akt.append({"typ": "info", "ikona": "🎓",
+                    "text": "Praxe studenta SOUE — Marek Horník (od 7. 9. 2026, liché týdny)"})
+        akt.append({"typ": "info", "ikona": "📋",
+                    "text": "Dušanovi na konci kvartálu poslat výrobní směrnice"})
+        if today <= _dt.date(2026, 12, 18):
+            akt.append({"typ": "info", "ikona": "🎄",
+                        "text": "18. 12. 2026 — vánoční večírek v Srdcovce (jako loni)"})
         badges = {"mimo": int(mimo), "naroz": cnt["narozeniny"] + cnt["vyroci"], "novi": cnt["novy"], "vyberka": len(vyb)}
         return JSONResponse({"ok": True, "badges": badges, "aktuality": akt})
     except Exception as exc:

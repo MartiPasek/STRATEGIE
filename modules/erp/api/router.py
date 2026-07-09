@@ -5874,6 +5874,13 @@ async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
     sent, errs = 0, []
     ds = _gds_ds()
     try:
+        _autor_ds = None
+        try:
+            _autor_ds = ds.execute(_sql_ds(
+                "SELECT login_name FROM public.users WHERE id=:u"),
+                {"u": int(uid)}).scalar()
+        except Exception:
+            _autor_ds = None
         for fid in _batch:
             tok = _uuid_ds.uuid4().hex
             firma = names.get(fid) or ("#" + str(fid))
@@ -5921,6 +5928,11 @@ async def crm_osloveni_demo_send(req: Request) -> JSONResponse:
                                 body=body_html, persona_id=_CRM_DEMO_FROM_PERSONA,
                                 from_identity="persona", purpose="user_request")
                 sent += 1
+                try:
+                    _crm_zaloz_email_akci(mcp, fid, firma, None, _autor_ds, demo=True)
+                except Exception as _ae:
+                    logger.warning("[crm_demo_send] akce nezalozena fid=%s: %s",
+                                   fid, str(_ae)[:120])
             except Exception as se:
                 errs.append(str(se)[:120])
         ds.commit()
@@ -6140,6 +6152,14 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
     sent, errs = 0, []
     ds = _gds_ls()
     try:
+        _autor_ls = None
+        try:
+            _autor_ls = ds.execute(_sql_ls(
+                "SELECT login_name FROM public.users WHERE id=:u"),
+                {"u": int(_CRM_LIVE_FROM_USER)}).scalar()
+        except Exception:
+            _autor_ls = None
+        _autor_ls = _autor_ls or "PZeman"
         for (fid, firma, rec) in _batch:
             tok = _uuid_ls.uuid4().hex
             pixel = ('<img src="' + _CRM_PUBLIC_BASE + '/crm/track/open/' + tok
@@ -6183,6 +6203,11 @@ async def crm_osloveni_send(req: Request) -> JSONResponse:
                      "tc": template_code, "by": "uid:%d" % uid})
                 ds.commit()
                 sent += 1
+                try:
+                    _crm_zaloz_email_akci(mcp, fid, firma, rec, _autor_ls)
+                except Exception as _ae:
+                    logger.warning("[crm_live_send] akce nezalozena fid=%s: %s",
+                                   fid, str(_ae)[:120])
             except Exception as se:
                 try:
                     ds.rollback()
@@ -6366,6 +6391,28 @@ def _crm_mcp_insert(mcp, table, data):
             raise RuntimeError(str(r.get("error"))[:200])
         return r.get("id")
     return None
+
+
+def _crm_zaloz_email_akci(mcp, fid, firma, email, autor, splneno=1, demo=False):
+    """Po odeslani osloveni zalozi v st.CRM_Kontakt_Akce akci „Email na info"
+    (IDAkce=1) -- aby obchodnik (Pavel) videl v Aktivitach, KDY firme poslal
+    e-mail. Poradi = dalsi volne pro danou firmu (bez kolize s importem). Zapis
+    pres strategie_query_raw (povoluje INSERT do st.*). Autor = login obchodnika
+    (napr. 'PZeman'). demo=True -> Prubeh oznacen [DEMO], at se neplete s ostrym."""
+    def _sq(v):
+        if v is None or v == "":
+            return "NULL"
+        return ("N'" + str(v).replace("'", "''").replace("\r", " ")
+                .replace("\n", " ")[:3900] + "'")
+    prubeh = ("[DEMO] " if demo else "") + "Odesláno oslovení (Email na info) na " + (email or firma or "")
+    sql = (
+        "INSERT INTO st.CRM_Kontakt_Akce "
+        "(IDHlav, Poradi, IDAkce, Autor, DatumAkce, DatPorizeni, Splneno, Email, FirmaText, Prubeh) "
+        "SELECT " + str(int(fid)) + ", ISNULL(MAX(Poradi),0)+1, 1, " + _sq(autor)
+        + ", CAST(GETDATE() AS date), CAST(GETDATE() AS date), " + str(int(splneno))
+        + ", " + _sq(email) + ", " + _sq(firma) + ", " + _sq(prubeh)
+        + " FROM st.CRM_Kontakt_Akce WHERE IDHlav = " + str(int(fid)))
+    _crm_mcp_rows(mcp, sql)  # INSERT do st.* je pres strategie_query_raw povolen
 
 
 def _crm_import_norm_header(h):

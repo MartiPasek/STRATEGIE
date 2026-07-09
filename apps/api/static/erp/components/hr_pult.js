@@ -197,6 +197,7 @@
       _gratPost("preview", j).then(function (d) {
         if (d && d.ok) {
           var m = ensureModal(); m.classList.add("on");
+          m.querySelector(".hrp-modal-card").classList.add("hrp-modal-wide");
           m.querySelector("#hrpModalTitle").textContent = "Náhled přání — " + j.jmeno;
           m.querySelector("#hrpModalBody").innerHTML = d.html;
         }
@@ -242,6 +243,7 @@
   function openMimo() {
     var m = ensureModal();
     m.classList.add("on");
+    m.querySelector(".hrp-modal-card").classList.remove("hrp-modal-wide");
     var body = m.querySelector("#hrpModalBody");
     var ttl = m.querySelector("#hrpModalTitle");
     body.innerHTML = '<div class="hrp-empty">Načítám…</div>';
@@ -342,6 +344,7 @@
       '.hrp-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;align-items:flex-start;justify-content:center;padding:56px 16px;}' +
       '.hrp-modal.on{display:flex;}' +
       '.hrp-modal-card{background:#161c24;border:1px solid #233040;border-radius:14px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden;max-height:80vh;display:flex;flex-direction:column;color:#cdd6e2;font:14px/1.55 -apple-system,Segoe UI,Roboto,system-ui,sans-serif;}' +
+      '.hrp-modal-card.hrp-modal-wide{max-width:720px;max-height:90vh;}' +
       '.hrp-modal-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #233040;font-weight:800;color:#e8eef5;}' +
       '.hrp-x{cursor:pointer;color:#7f8ea0;font-size:18px;line-height:1;}' +
       '#hrpModalBody{overflow:auto;}' +

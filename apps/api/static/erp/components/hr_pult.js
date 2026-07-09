@@ -39,11 +39,9 @@
     el.innerHTML =
       style() +
       '<div class="hrp-wrap">' +
+      // 1) KPI statistiky (sloupce dle nadpisu s čísly)
       '  <div class="hrp-badges" id="hrpBadges"><div class="hrp-empty">Načítám…</div></div>' +
-      '  <div class="hrp-panel">' +
-      '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
-      '    <div class="hrp-grid" id="hrpGrid"></div>' +
-      '  </div>' +
+      // 2) blok s detailními informacemi (za těmi čísly)
       '  <div class="hrp-blocks">' +
       '    <div class="hrp-panel">' +
       '      <div class="hrp-phd"><span class="hrp-pi">🏖️</span> Mimo kancelář dnes <span class="hrp-cnt" id="hrpMimoCnt"></span></div>' +
@@ -53,10 +51,16 @@
       '      <div class="hrp-phd"><span class="hrp-pi">🎂</span> Narozeniny a výročí <span class="hrp-cnt" id="hrpJubCnt"></span><span class="hrp-jhint">30 dní</span></div>' +
       '      <div id="hrpJubList"><div class="hrp-empty">Načítám…</div></div>' +
       '    </div>' +
-      '    <div class="hrp-panel hrp-feed">' +
-      '      <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
-      '      <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
-      '    </div>' +
+      '  </div>' +
+      // 3) Aktuality
+      '  <div class="hrp-panel hrp-feed">' +
+      '    <div class="hrp-phd"><span class="hrp-pi">📣</span> Aktuality</div>' +
+      '    <div id="hrpAkt"><div class="hrp-empty">Načítám…</div></div>' +
+      '  </div>' +
+      // 4) Přehled dlaždic (až dole)
+      '  <div class="hrp-panel">' +
+      '    <div class="hrp-phd"><span class="hrp-pi">▦</span> Personalistika — přehled</div>' +
+      '    <div class="hrp-grid" id="hrpGrid"></div>' +
       '  </div>' +
       '</div>';
 

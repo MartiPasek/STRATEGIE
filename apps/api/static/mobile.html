@@ -1478,7 +1478,7 @@ setTimeout(function(){
     function sec(t){ app.appendChild(el('<div style="margin:16px 6px 6px;font-size:12px;font-weight:700;letter-spacing:.5px;color:#7c8cdb;">'+t+'</div>')); }
     function grp(){ var gg=el('<div class="appgrid"></div>'); app.appendChild(gg); return gg; }
     function buildApps(ac){
-      ac=ac||{}; var fin=!!ac.fin, par=!!ac.parent, vp=!!ac.vp;
+      ac=ac||{}; var fin=!!ac.fin, par=!!ac.parent, vp=!!ac.vp; var uid=ac.uid||0;
       var isMember=!fin&&!par&&!vp; var gg;
       if(isMember){
         app.appendChild(el('<div style="margin:12px 4px 2px;background:linear-gradient(110deg,rgba(45,212,191,.10),rgba(96,165,250,.06));border:1px solid var(--bord);border-radius:14px;padding:12px 14px;font-size:13.5px;line-height:1.5;color:var(--mut);">👋 <b style="color:var(--tx);">Vítej!</b> Tady vidíš, co se ve firmě děje — kdo na čem dělá, kapacity dílny, zakázky i dokumentace. Klidně se rozhlédni.</div>'));
@@ -1490,6 +1490,7 @@ setTimeout(function(){
       sec("🏭 VÝROBA & OBCHOD"); gg=grp();
       gg.appendChild(appCell("🏭","Výroba",0,function(){go("vyroba_hub");}));
       if(vp) gg.appendChild(appCell("👔","VP",0,function(){openVyroba("vp");}));
+      if(uid===1||uid===11||uid===34) gg.appendChild(appCell("🗼","VP věž",0,function(){openInApp("/vp-vez");}));
       gg.appendChild(appCell("🧪","Zkušebna",0,function(){openVyroba("zkusebna");}));
       gg.appendChild(appCell("📊","FLOW",0,function(){openInApp("/flow");}));
       gg.appendChild(appCell("📈","Vytížení",0,function(){openInApp("/vytizeni");}));

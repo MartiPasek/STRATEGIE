@@ -244,9 +244,10 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
         else:
             gb_id = int(s.execute(_t(
                 "INSERT INTO fw.comp_def (core_id, type_id, name, caption, layout, "
-                "is_active, sort_order, parent_comp_def_id, region_slot, created_by_text) "
+                "is_active, sort_order, parent_comp_def_id, region_slot, "
+                "created_by_text, updated_by_text) "
                 "VALUES (:c, :t, :n, :cap, CAST(:lay AS jsonb), :act, :so, :par, 'main', "
-                "'Claude-24 @@COREIMPORT') RETURNING id"),
+                "'Claude-24 @@COREIMPORT', 'Claude-24 @@COREIMPORT') RETURNING id"),
                 {"c": core_id, "t": by_code["groupbox"]["id"], "n": name, "cap": cap,
                  "lay": layout, "act": not only_grids, "so": (i + 1) * 10,
                  "par": client_panel_id}).scalar())

@@ -56,7 +56,12 @@
   .sumrow{display:flex;justify-content:space-between;padding:1px 0;font-variant-numeric:tabular-nums}
   .sumrow.big{font-size:15px;font-weight:700;border-top:1px solid #2c3a52;margin-top:3px;padding-top:5px}
   .x{background:transparent;border:0;color:#9fb0c8;font-size:20px;cursor:pointer;line-height:1}
-  @media print{body{background:#fff;color:#000}.ovl{position:static;background:#fff;padding:0}.pas{border:0;max-width:none}.bar,.cards,.note,.x,.tools{display:none!important}}
+  #printAll{display:none}
+  @media print{body{background:#fff;color:#000}.ovl{position:static;background:#fff;padding:0}.pas{border:0;max-width:none}.bar,.cards,.note,.x,.tools{display:none!important}
+  body.printing-all .wrap,body.printing-all .ovl{display:none!important}
+  body.printing-all #printAll{display:block!important}
+  body.printing-all #printAll *{color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .pasprint{page-break-after:always}.pasprint:last-child{page-break-after:auto}}
 </style>
 </head>
 <body>
@@ -73,6 +78,7 @@
     <select id="mesic"></select>
     <button class="act" onclick="load()">Načíst</button>
     <button class="act" id="listBtn" title="Otevře pásky a listuje se šipkami ← → (jako v PDF)" onclick="if(LIDI.length){openPas(LIDI[0].zam_id)}else{alert('Nejdřív načti období.')}">📖 Listovat pásky</button>
+    <button class="act" id="printAllBtn" title="Připraví všechny pásky k tisku – každá na samostatnou stránku (jako PDF)" onclick="printAll()">🖨 Tisk všech</button>
     <button class="gen" id="genBtn" onclick="generuj()">▶ Generovat mzdy (čistá voda)</button>
     <div class="prog" id="prog" style="display:none"><i id="progBar"></i></div>
     <span id="genMsg" class="mut" style="font-size:12px"></span>
@@ -242,6 +248,59 @@ async function bd(cms, el, auto){
 }
 function _rozpisHtml(pol){ let h=''; pol.forEach(p=>{ h+='<div class="row sub"><span class="n">• '+p.typ+(p.zakazka?' <span class="mut">('+p.zakazka+')</span>':'')+(p.zdroj==='zaklad'?' <span class="mut">[základ]</span>':(p.zdroj==='dopocet'?' <span class="mut">[dopočet z docházky]</span>':' <span class="mut">[příplatek/srážka]</span>'))+'</span><span class="h"></span><span class="c">'+fk(p.castka)+'</span></div>'; }); return h; }
 function autoExpandRozpisy(){ document.querySelectorAll('#pas .bdr[data-cms]').forEach(el=>{ const typ=el.getAttribute('data-typ'); if(typ==='11'||typ==='12') return; bd(Number(el.getAttribute('data-cms')), el, true); }); }
+function pasPrintInner(H,S,d,r,m){
+  const mn=['','leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
+  const groups={}; (d.slozky||[]).forEach(s=>{ (groups[s.skup_typ]=groups[s.skup_typ]||{nazev:s.skupina,items:[]}).items.push(s); });
+  const skey=t=>(groups[t].nazev && /(Základní|Mzda)/i.test(groups[t].nazev))?-1:Number(t);
+  let body='';
+  Object.keys(groups).sort((a,b)=>skey(a)-skey(b)).forEach(t=>{
+    const g=groups[t]; const rows=g.items.filter(s=>s.koruny||s.hodiny||s.dny);
+    if(!rows.length) return;
+    body+='<div class="grp"><h3>'+(g.nazev||grpName(+t)||'Ostatní')+'</h3>';
+    rows.forEach(s=>{
+      if(/sleva na dani/i.test(s.nazev||'')){
+        const zakl=Math.min(ZAKL_SLEVA_POPLATNIK, s.koruny||0); const zvyh=(s.koruny||0)-zakl;
+        body+='<div class="row"><span class="n">▸ '+s.nazev+'</span><span class="h"></span><span class="c">'+fk(s.koruny)+'</span></div>';
+        body+='<div class="bddet"><div class="row sub"><span class="n">• Základní sleva na dani</span><span class="h"></span><span class="c">'+fk(zakl)+'</span></div>'+(zvyh>0?'<div class="row sub"><span class="n">• Daňové zvýhodnění</span><span class="h"></span><span class="c">'+fk(zvyh)+'</span></div>':'')+'</div>'; return; }
+      body+='<div class="row"><span class="n">▸ '+s.nazev+'</span><span class="h">'+(s.hodiny?fh(s.hodiny)+' h':(s.dny?fh(s.dny)+' dní':''))+'</span><span class="c">'+fk(s.koruny)+'</span></div>';
+    });
+    body+='</div>';
+  });
+  const firmaPoj=(d.slozky||[]).filter(s=>s.skup_typ==12 && /firma/i.test(s.nazev)).reduce((a,s)=>a+s.koruny,0);
+  const naklad=S.hruba+firmaPoj;
+  return '<div class="pashead"><div><h2>'+H.prijmeni+' '+H.jmeno+'</h2>'+
+    '<div class="meta">Os. číslo '+(H.cislo||'?')+(H.stredisko?' · středisko '+H.stredisko:'')+' · '+(FIRMA==='ES'?'EUROSOFT-System':'EUROSOFT-Control')+'<br>Období '+mn[m]+' '+r+(H.zakladni_plat?' · základní plat '+fk(H.zakladni_plat):'')+'</div></div></div>'+
+    '<div class="pasbody">'+body+
+    '<div class="sumblk">'+
+    '<div class="sumrow"><span>Hrubá mzda</span><span class="hruba">'+fk(S.hruba)+'</span></div>'+
+    '<div class="sumrow"><span class="mut">Sociální pojištění (zaměstnanec)</span><span>−'+fk(S.sp_zam)+'</span></div>'+
+    '<div class="sumrow"><span class="mut">Zdravotní pojištění (zaměstnanec)</span><span>−'+fk(S.zp_zam)+'</span></div>'+
+    '<div class="sumrow"><span class="mut">Záloha daně po slevě</span><span>−'+fk(S.dan_po_sleve)+'</span></div>'+
+    (S.bonus?'<div class="sumrow"><span class="mut">Daňový bonus</span><span>+'+fk(S.bonus)+'</span></div>':'')+
+    '<div class="sumrow big"><span>Čistá mzda</span><span class="cista">'+fk(S.cista)+'</span></div>'+
+    '<div class="sumrow" style="margin-top:8px"><span class="mut">Pojištění zaměstnavatele</span><span class="mut">'+fk(firmaPoj)+'</span></div>'+
+    '<div class="sumrow"><span class="mut">Náklad zaměstnavatele</span><span>'+fk(naklad)+'</span></div>'+
+    '</div></div>';
+}
+async function printAll(){
+  if(!LIDI.length){ alert('Nejdřív načti období.'); return; }
+  const {r,m}=rm(); const btn=document.getElementById('printAllBtn');
+  if(btn){ btn.disabled=true; btn.textContent='Připravuji… 0/'+LIDI.length; }
+  let out='';
+  for(let i=0;i<LIDI.length;i++){
+    const zam=LIDI[i].zam_id;
+    let d; try{ d=await (await fetch('/api/v1/erp/app/mzdy/vyplatnice-detail?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&zam='+zam,{credentials:'include'})).json(); }catch(e){ continue; }
+    if(!d.ok) continue;
+    out+='<div class="pasprint">'+pasPrintInner(d.header,d.souhrn,d,r,m)+'</div>';
+    if(btn) btn.textContent='Připravuji… '+(i+1)+'/'+LIDI.length;
+  }
+  let box=document.getElementById('printAll'); if(!box){ box=document.createElement('div'); box.id='printAll'; document.body.appendChild(box); }
+  box.innerHTML=out;
+  document.body.classList.add('printing-all');
+  if(btn){ btn.disabled=false; btn.textContent='🖨 Tisk všech'; }
+  window.print();
+  setTimeout(function(){ document.body.classList.remove('printing-all'); box.innerHTML=''; }, 800);
+}
 function closePas(){document.getElementById('ovl').classList.remove('on'); if(window.__verPending){ location.reload(); }}
 function pasNav(d){ if(!LIDI.length) return; let i=(window._pasIdx==null?0:window._pasIdx)+d; if(i<0)i=0; if(i>LIDI.length-1)i=LIDI.length-1; if(i===window._pasIdx) return; openPas(LIDI[i].zam_id); }
 document.addEventListener('keydown',e=>{ const open=document.getElementById('ovl').classList.contains('on'); if(e.key==='Escape'){ closePas(); return; } if(!open) return; if(e.key==='ArrowRight'||e.key==='PageDown'){ e.preventDefault(); pasNav(1); } else if(e.key==='ArrowLeft'||e.key==='PageUp'){ e.preventDefault(); pasNav(-1); } });

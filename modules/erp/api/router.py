@@ -8930,10 +8930,43 @@ _BDAY_HTML = (
 )
 
 
-def _osloveni(jmeno):
+def _is_fem(jmeno):
     parts = (jmeno or "").split()
-    fem = any(p.lower().endswith(("ová", "á")) for p in parts)
-    return "Milá" if fem else "Milý"
+    return any(p.lower().endswith(("ová", "á")) for p in parts)
+
+
+def _osloveni(jmeno):
+    return "Milá" if _is_fem(jmeno) else "Milý"
+
+
+def _vokativ(jmeno, fem):
+    """Křestní jméno do 5. pádu (oslovení) — heuristika pro běžná česká jména.
+    Šárka 8.7.2026: 'Milá Iva' je špatně, správně 'Milá Ivo'."""
+    j = (jmeno or "").strip()
+    if not j:
+        return j
+    low = j.lower()
+    if fem:
+        return (j[:-1] + "o") if low.endswith("a") else j   # Iva->Ivo, Šárka->Šárko; Marie->Marie
+    spec = {"petr": "Petře", "jiří": "Jiří", "ondřej": "Ondřeji", "pavel": "Pavle",
+            "karel": "Karle", "zdeněk": "Zdeňku"}
+    if low in spec:
+        return spec[low]
+    if low.endswith("a"):
+        return j[:-1] + "o"                                 # Honza->Honzo
+    if low.endswith(("e", "ě", "i", "í", "o", "u", "y", "ý")):
+        return j                                            # Jiří, Tobiáš? -> beze změny samohlásky
+    if low.endswith("ek"):
+        return j[:-2] + "ku"                                # Marek->Marku, Radek->Radku
+    if low.endswith("el"):
+        return j[:-2] + "le"                                # Karel->Karle
+    if low.endswith("ch"):
+        return j + "u"                                      # Vojtěch->Vojtěchu
+    if low.endswith(("š", "č", "ž", "ř", "j", "c", "ď", "ť", "ň")):
+        return j + "i"                                      # Tomáš->Tomáši, Ondřej->Ondřeji
+    if low.endswith(("k", "g", "h")):
+        return j + "u"
+    return j + "e"                                          # Jan->Jane, Martin->Martine, Dušan->Dušane
 
 
 def _bday_banner_path():
@@ -8947,8 +8980,10 @@ def _bday_html(jmeno):
     full = (jmeno or "").strip()
     parts = full.split()
     krestni = parts[0] if parts else full
-    je = krestni.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return _BDAY_HTML % {"osloveni": _osloveni(full), "jmeno": je}
+    fem = _is_fem(full)
+    vok = _vokativ(krestni, fem)   # 5. pád: Iva -> Ivo
+    je = vok.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return _BDAY_HTML % {"osloveni": ("Milá" if fem else "Milý"), "jmeno": je}
 
 
 @api_router.get("/app/hr/gratulace")

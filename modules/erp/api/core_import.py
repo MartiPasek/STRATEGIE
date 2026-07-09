@@ -93,10 +93,12 @@ def _comp_type_id(s, code: str) -> int:
 
 
 def _read_centrala(ec_form_id: int) -> dict:
-    """Z Centrály: název formuláře, jeho SQL_Select a mapa {sloupec_lower: popisek}.
+    """Z Centrály: název formuláře, SQL_Select a KOMPLETNÍ strom komponent.
 
-    Popisky: v EC_FormDefEditProperty je per-komponenta FieldName (na co je pole
-    napojené) a Caption (jak se jmenuje). Spárováním vznikne caption mapa.
+    Komponenty (EC_FormDefEdit, Smazana=0) + pivot properties:
+    ParentName ('Def'=form, 'Footer'=patička, 'c<ID>'=komponenta), Caption,
+    FieldName, Top/Left (pozice → pořadí). Typ (int) mapuje na
+    fw.comp_type.centrala_id.
     """
     hdr = _ec(f"SELECT ID, Nazev, CAST(SQL_Select AS nvarchar(max)) AS sqltext "
               f"FROM dbo.EC_FormDef WHERE ID = {int(ec_form_id)}")
@@ -105,22 +107,200 @@ def _read_centrala(ec_form_id: int) -> dict:
     nazev = (hdr[0].get("Nazev") or "").strip() or f"core_{ec_form_id}"
     sqltext = hdr[0].get("sqltext") or ""
 
-    prop = _ec(
-        "SELECT e.ID AS c, "
+    comps = _ec(
+        "SELECT e.ID AS cid, e.Typ AS typ, "
+        "MAX(CASE WHEN P.Property='ParentName' THEN P.Value END) AS par, "
+        "MAX(CASE WHEN P.Property='Caption' THEN COALESCE(NULLIF(P.Value,''),P.ValueFMX) END) AS cap, "
         "MAX(CASE WHEN P.Property='FieldName' THEN P.Value END) AS fld, "
-        "MAX(CASE WHEN P.Property='Caption' THEN COALESCE(NULLIF(P.Value,''),P.ValueFMX) END) AS cap "
+        "MAX(CASE WHEN P.Property='Top' THEN P.Value END) AS t, "
+        "MAX(CASE WHEN P.Property='Left' THEN P.Value END) AS l "
         f"FROM dbo.EC_FormDefEdit e "
         f"LEFT JOIN dbo.EC_FormDefEditProperty P ON P.ID_FormDefEdit = e.ID "
-        f"WHERE e.ID_Form = {int(ec_form_id)} "
-        "GROUP BY e.ID"
+        f"WHERE e.ID_Form = {int(ec_form_id)} AND e.Smazana = 0 "
+        "GROUP BY e.ID, e.Typ"
     )
-    caption_map: dict[str, str] = {}
-    for r in prop:
-        fld = (r.get("fld") or "").strip()
-        cap = (r.get("cap") or "").strip()
-        if fld and cap:
-            caption_map[fld.lower()] = cap
-    return {"nazev": nazev, "sql_select": sqltext, "caption_map": caption_map}
+    # alias mapa z Centrála SQL: "X.CisloKalkulace AS Kalkulace" → kalkulace→cislokalkulace
+    alias_base: dict[str, str] = {}
+    for m in re.finditer(r"([\w\[\]\._]+)\s+AS\s+(\w+)", sqltext, re.IGNORECASE):
+        base = m.group(1).split(".")[-1].strip("[]_")
+        alias_base[m.group(2).lower()] = base.lower()
+    return {"nazev": nazev, "sql_select": sqltext,
+            "comps": comps, "alias_base": alias_base}
+
+
+def _match_field(fld: str, src_cols: list[str], alias_base: dict, user_map: dict) -> str | None:
+    """Namapuj Centrála FieldName na sloupec zdroje.
+
+    Pořadí: (1) --map od uživatele, (2) přesná shoda (ci), (3) přes alias
+    z Centrála SQL (alias→základní sloupec), (4) prefix shoda (≥8 znaků,
+    kryje oříznuté názvy view — OznPrjZakazni vs OznPrjZakaznik).
+    """
+    f = (fld or "").strip().lower()
+    if not f:
+        return None
+    by_lower = {c.lower(): c for c in src_cols}
+    if f in user_map:
+        return by_lower.get(user_map[f].lower())
+    if f in by_lower:
+        return by_lower[f]
+    base = alias_base.get(f)
+    if base and base in by_lower:
+        return by_lower[base]
+    cand = base or f
+    if len(cand) >= 8:
+        for cl, orig in by_lower.items():
+            if cl.startswith(cand) or cand.startswith(cl):
+                return orig
+    return None
+
+
+def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
+                          user_map: dict) -> dict:
+    """Přenese rozložení z Centrály: groupboxy, zařazení polí, captiony,
+    pořadí (Top/Left), typy (comp_type.centrala_id). Pole mimo Centrálu
+    deaktivuje (is_active=false) — v DESIGN se dají kdykoli vrátit.
+
+    Kódové gridy (typ 11/21) a tlačítka (typ 8) se NEpřenáší (logika je
+    v Delphi) — groupboxy gridů se založí jako NEAKTIVNÍ placeholdery
+    pro fázi 2, tlačítka jen hlásíme.
+    """
+    rep = {"groupboxes": 0, "fields_mapped": 0, "fields_hidden": 0,
+           "grids_skipped": 0, "buttons_skipped": 0, "unmatched": []}
+
+    # comp_type mapy: centrala_id → (id, code, kind) + code → id
+    trows = s.execute(_t(
+        "SELECT id, code, kind, centrala_id FROM fw.comp_type")).mappings().all()
+    by_centrala = {int(r["centrala_id"]): r for r in trows if r["centrala_id"] is not None}
+    by_code = {r["code"]: r for r in trows}
+    if "groupbox" not in by_code:
+        raise RuntimeError("fw.comp_type 'groupbox' nenalezen")
+
+    # vygenerované komponenty jádra: root + panely + pole (name=sloupec)
+    gen = s.execute(_t(
+        "SELECT id, type_id, name, caption, parent_comp_def_id, root "
+        "FROM fw.comp_def WHERE core_id=:c"), {"c": core_id}).mappings().all()
+    root = next((g for g in gen if g["root"]), None)
+    if not root:
+        raise RuntimeError(f"core {core_id} nemá root komponentu (spusť generátor)")
+    fields_by_name = {(g["name"] or "").lower(): g for g in gen
+                      if g["name"] and not g["root"]}
+    # klientský panel = rodič vygenerovaných polí (nejčastější parent)
+    parents = {}
+    for g in gen:
+        if g["name"] and (g["name"] or "").lower() in {c.lower() for c in src_cols}:
+            parents[g["parent_comp_def_id"]] = parents.get(g["parent_comp_def_id"], 0) + 1
+    client_panel_id = max(parents, key=parents.get) if parents else root["id"]
+
+    # strom Centrály
+    comps = cen["comps"]
+    def as_int(v, d=0):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return d
+    nodes = {int(c["cid"]): c for c in comps}
+    def parent_key(c):
+        p = (c.get("par") or "").strip()
+        if p.lower().startswith("c") and p[1:].isdigit():
+            return int(p[1:])
+        return p or "Def"
+
+    # groupboxy s captionem → naše groupboxy (bez captionu = jen vizuální pás,
+    # ten se překlenuje — děti jdou k jeho rodiči)
+    def resolved_container(cid):
+        """Vystoupej stromem na nejbližší groupbox S captionem (nebo root)."""
+        seen = set()
+        cur = cid
+        while isinstance(cur, int) and cur in nodes and cur not in seen:
+            seen.add(cur)
+            n = nodes[cur]
+            if int(n["typ"]) == 12 and (n.get("cap") or "").strip():
+                return cur
+            cur = parent_key(n)
+        return None
+
+    gb_map: dict[int, int] = {}   # Centrála groupbox cid → fw.comp_def.id
+    gb_order = sorted(
+        [c for c in comps if int(c["typ"]) == 12 and (c.get("cap") or "").strip()],
+        key=lambda c: (as_int(c.get("t")), as_int(c.get("l"))))
+    for i, gb in enumerate(gb_order):
+        cid = int(gb["cid"])
+        cap = (gb.get("cap") or "").strip()
+        # obsahuje jen gridy? → placeholder (neaktivní) pro fázi 2
+        child_typs = [int(n["typ"]) for n in comps if parent_key(n) == cid]
+        only_grids = child_typs and all(t in (11, 21) for t in child_typs)
+        name = "gb_centrala_%d" % cid
+        row = s.execute(_t(
+            "SELECT id FROM fw.comp_def WHERE core_id=:c AND name=:n"),
+            {"c": core_id, "n": name}).first()
+        layout = json.dumps({"label": cap, "border_mode": "top"})
+        if row:
+            gb_id = int(row[0])
+            s.execute(_t(
+                "UPDATE fw.comp_def SET caption=:cap, sort_order=:so, is_active=:act, "
+                "layout=CAST(:lay AS jsonb), parent_comp_def_id=:par WHERE id=:id"),
+                {"cap": cap, "so": (i + 1) * 10, "act": not only_grids,
+                 "lay": layout, "par": client_panel_id, "id": gb_id})
+        else:
+            gb_id = int(s.execute(_t(
+                "INSERT INTO fw.comp_def (core_id, type_id, name, caption, layout, "
+                "is_active, sort_order, parent_comp_def_id, region_slot, created_by_text) "
+                "VALUES (:c, :t, :n, :cap, CAST(:lay AS jsonb), :act, :so, :par, 'main', "
+                "'Claude-24 @@COREIMPORT') RETURNING id"),
+                {"c": core_id, "t": by_code["groupbox"]["id"], "n": name, "cap": cap,
+                 "lay": layout, "act": not only_grids, "so": (i + 1) * 10,
+                 "par": client_panel_id}).scalar())
+        gb_map[cid] = gb_id
+        rep["groupboxes"] += 1
+
+    # pole: mapování FieldName → sloupec zdroje, caption, container, pořadí, typ
+    mapped_cols: set[str] = set()
+    for c in comps:
+        typ = int(c["typ"])
+        if typ in (11, 21):
+            rep["grids_skipped"] += 1
+            continue
+        if typ == 8:
+            rep["buttons_skipped"] += 1
+            continue
+        fld = (c.get("fld") or "").strip()
+        if not fld:
+            continue
+        col = _match_field(fld, src_cols, cen["alias_base"], user_map)
+        if not col:
+            rep["unmatched"].append(fld)
+            continue
+        g = fields_by_name.get(col.lower())
+        if not g:
+            continue
+        cont_cid = resolved_container(parent_key(c))
+        parent_id = gb_map.get(cont_cid, client_panel_id)
+        cap = (c.get("cap") or "").strip() or col
+        so = as_int(c.get("t")) * 10000 + as_int(c.get("l"))
+        # typ přes centrala_id — jen leaf typy polí (grid/button/groupbox už odfiltrované)
+        new_type = None
+        ct = by_centrala.get(typ)
+        if ct and ct["kind"] == "leaf" and ct["code"] not in ("grid", "gridpoldoklad", "button"):
+            new_type = int(ct["id"])
+        s.execute(_t(
+            "UPDATE fw.comp_def SET caption=:cap, parent_comp_def_id=:par, "
+            "sort_order=:so, is_active=true" +
+            (", type_id=:tid" if new_type else "") + " WHERE id=:id"),
+            dict({"cap": cap, "par": parent_id, "so": so, "id": g["id"]},
+                 **({"tid": new_type} if new_type else {})))
+        mapped_cols.add(col.lower())
+        rep["fields_mapped"] += 1
+
+    # pole zdroje, která na Centrála formuláři nejsou → schovat (kosmetika)
+    for name_l, g in fields_by_name.items():
+        if name_l in mapped_cols:
+            continue
+        if name_l not in {c.lower() for c in src_cols}:
+            continue  # ne-datová komponenta (panel apod.)
+        s.execute(_t("UPDATE fw.comp_def SET is_active=false WHERE id=:id"),
+                  {"id": g["id"]})
+        rep["fields_hidden"] += 1
+    return rep
 
 
 def _source_to_select(zdroj: str | None, centrala_sql: str) -> str:
@@ -182,32 +362,28 @@ def _run_generator(core_id: int, fields: list[str], force: bool) -> str:
     return out
 
 
-def _apply_captions(s, core_id: int, caption_map: dict[str, str]) -> int:
-    """Nastaví fw.comp_def.caption z Centrály (podle názvu pole = sloupec)."""
-    if not caption_map:
-        return 0
-    rows = s.execute(_t(
-        "SELECT id, name FROM fw.comp_def WHERE core_id = :c AND name IS NOT NULL"
-    ), {"c": core_id}).mappings().all()
-    n = 0
-    for r in rows:
-        cap = caption_map.get((r["name"] or "").lower())
-        if cap:
-            s.execute(_t("UPDATE fw.comp_def SET caption = :cap WHERE id = :id"),
-                      {"cap": cap, "id": r["id"]})
-            n += 1
-    return n
-
-
 # ── hlavní vstup ─────────────────────────────────────────────────────────────
 
 def run_core_import(arg: str) -> dict:
-    """Parsuje '<ec_form_id> [<zdroj>] [--force]' a provede import. Vrací dict pro JSONResponse."""
+    """Parsuje '<ec_form_id> [<zdroj>] [--force] [--map A=B,C=D]'. Vrací dict pro JSONResponse.
+
+    --map = ruční mapování Centrála FieldName → sloupec zdroje pro případy,
+    kdy auto-mapování (přesná shoda / alias z Centrála SQL / prefix) nestačí.
+    """
     try:
+        user_map: dict[str, str] = {}
+        mm = re.search(r"--map\s+(\S+)", arg)
+        if mm:
+            for pair in mm.group(1).split(","):
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    user_map[k.strip().lower()] = v.strip()
+            arg = arg.replace(mm.group(0), "")
         force = "--force" in arg
         arg = arg.replace("--force", "").strip()
         if not arg:
-            return {"ok": False, "error": "použití: @@COREIMPORT <ec_form_id> [<zdroj>] [--force]"}
+            return {"ok": False,
+                    "error": "použití: @@COREIMPORT <ec_form_id> [<zdroj>] [--force] [--map A=B,C=D]"}
         parts = arg.split(None, 1)
         ec_form_id = int(parts[0])
         zdroj = parts[1].strip() if len(parts) > 1 else None
@@ -286,8 +462,9 @@ def run_core_import(arg: str) -> dict:
         fields = _fields_of(s, select_sql)
         gen_out = _run_generator(core_id, fields, force)
 
-        # 5. popisky z Centrály
-        caps = _apply_captions(s, core_id, cen["caption_map"])
+        # 5. layout z Centrály: groupboxy + zařazení polí + captiony + pořadí
+        #    + typy (centrala_id) + schování polí mimo Centrálu
+        rep = _layout_from_centrala(s, core_id, cen, fields, user_map)
         s.commit()
 
         comp_cnt = int(s.execute(_t("SELECT count(*) FROM fw.comp_def WHERE core_id=:c"),
@@ -303,8 +480,13 @@ def run_core_import(arg: str) -> dict:
                 ["edit_select", select_sql[:120]],
                 ["poli_v_datasetu", len(fields)],
                 ["komponent_celkem", comp_cnt],
-                ["popisku_z_centraly", caps],
-                ["generator", (gen_out or "")[-300:]],
+                ["groupboxy", rep["groupboxes"]],
+                ["poli_namapovano", rep["fields_mapped"]],
+                ["poli_schovano", rep["fields_hidden"]],
+                ["gridy_preskoceny (faze 2)", rep["grids_skipped"]],
+                ["tlacitka_preskocena (Delphi)", rep["buttons_skipped"]],
+                ["nenamapovano (dopln --map)", ", ".join(rep["unmatched"]) or "—"],
+                ["generator", (gen_out or "")[-160:]],
             ],
         }
     except Exception as e:

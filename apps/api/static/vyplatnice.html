@@ -192,7 +192,7 @@ async function openPas(zam){
           (zvyh>0?'<div class="row sub"><span class="n">• Daňové zvýhodnění</span><span class="h"></span><span class="c">'+fk(zvyh)+'</span></div>':'')+
           '</div>';
         return; }
-      body+='<div class="row bdr" onclick="bd('+s.cislo_ms+',this)" title="Rozpis – z čeho se skládá"><span class="n">▸ '+s.nazev+'</span><span class="h">'+
+      body+='<div class="row bdr" data-cms="'+s.cislo_ms+'" data-typ="'+t+'" onclick="bd('+s.cislo_ms+',this)" title="Rozpis – z čeho se skládá"><span class="n">▸ '+s.nazev+'</span><span class="h">'+
       (s.hodiny?fh(s.hodiny)+' h':(s.dny?fh(s.dny)+' dní':''))+'</span><span class="c">'+fk(s.koruny)+'</span></div>'; });
     body+='</div>';
   });
@@ -217,11 +217,14 @@ async function openPas(zam){
       '<div class="sumrow" style="margin-top:10px"><span class="mut">Pojištění zaměstnavatele</span><span class="mut">'+fk(firmaPoj)+'</span></div>'+
       '<div class="sumrow"><span class="mut">Náklad zaměstnavatele</span><span>'+fk(naklad)+'</span></div>'+
       '</div></div>';
+  autoExpandRozpisy();
 }
-async function bd(cms, el){
+async function bd(cms, el, auto){
   const nx=el.nextElementSibling;
-  if(nx && nx.classList.contains('bddet')){ nx.remove(); return; }
+  if(nx && nx.classList.contains('bddet')){ if(auto) return; nx.remove(); return; }
   const {r,m}=rm();
+  const url='/api/v1/erp/app/mzdy/vyplatnice-slozka-detail?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&cislo='+encodeURIComponent(window._pasCislo||'')+'&cislo_ms='+cms;
+  if(auto){ let da; try{ da=await(await fetch(url,{credentials:'include'})).json(); }catch(e){ return; } if(!da.ok||!da.polozky||!da.polozky.length) return; if(el.nextElementSibling&&el.nextElementSibling.classList.contains('bddet')) return; el.insertAdjacentHTML('afterend','<div class="bddet">'+_rozpisHtml(da.polozky)+'</div>'); return; }
   el.insertAdjacentHTML('afterend','<div class="bddet"><div class="mut" style="padding:5px 0 5px 16px;font-size:12px">Načítám rozpis…</div></div>');
   const box=el.nextElementSibling;
   let d; try{ d=await(await fetch('/api/v1/erp/app/mzdy/vyplatnice-slozka-detail?firma='+FIRMA+'&rok='+r+'&mesic='+m+'&cislo='+encodeURIComponent(window._pasCislo||'')+'&cislo_ms='+cms,{credentials:'include'})).json(); }
@@ -231,6 +234,8 @@ async function bd(cms, el){
   d.polozky.forEach(p=>{ h+='<div class="row sub"><span class="n">• '+p.typ+(p.zakazka?' <span class="mut">('+p.zakazka+')</span>':'')+(p.zdroj==='zaklad'?' <span class="mut">[základ]</span>':(p.zdroj==='dopocet'?' <span class="mut">[dopočet z docházky]</span>':' <span class="mut">[příplatek/srážka]</span>'))+'</span><span class="h"></span><span class="c">'+fk(p.castka)+'</span></div>'; });
   box.innerHTML=h;
 }
+function _rozpisHtml(pol){ let h=''; pol.forEach(p=>{ h+='<div class="row sub"><span class="n">• '+p.typ+(p.zakazka?' <span class="mut">('+p.zakazka+')</span>':'')+(p.zdroj==='zaklad'?' <span class="mut">[základ]</span>':(p.zdroj==='dopocet'?' <span class="mut">[dopočet z docházky]</span>':' <span class="mut">[příplatek/srážka]</span>'))+'</span><span class="h"></span><span class="c">'+fk(p.castka)+'</span></div>'; }); return h; }
+function autoExpandRozpisy(){ document.querySelectorAll('#pas .bdr[data-cms]').forEach(el=>{ const typ=el.getAttribute('data-typ'); if(typ==='11'||typ==='12') return; bd(Number(el.getAttribute('data-cms')), el, true); }); }
 function closePas(){document.getElementById('ovl').classList.remove('on');}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closePas();});
 fillSelectors(); load();

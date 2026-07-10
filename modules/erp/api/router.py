@@ -29184,7 +29184,8 @@ def dochazka_lide_ep(req: Request):
     s = _g()
     try:
         rows = s.execute(_t(
-            "SELECT u.id user_id, COALESCE(u.first_name||' '||u.last_name,'?') jmeno "
+            # Jirka 10.7.: NULL křestní (např. Brigádník Saxana) nulovalo celý concat → „?".
+            "SELECT u.id user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''),'?') jmeno "
             "FROM public.users u WHERE u.id IN ("
             "  SELECT w.user_id FROM tenant.vyroba_work w "
             "    WHERE w.tenant_id=2 AND w.user_id IS NOT NULL "

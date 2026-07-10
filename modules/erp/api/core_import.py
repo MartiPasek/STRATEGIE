@@ -324,6 +324,20 @@ def _fields_of(s, select_sql: str) -> list[str]:
     return list(res.keys())
 
 
+def _ensure_lower_id(select_sql: str, cols: list[str]) -> str:
+    """Zajistí, že edit-select má sloupec `id` (malé) — PG obal formuláře skládá
+    `SELECT * FROM (<sql>) sub WHERE id = <row>`. Naše zrcadla Centrály mají ale
+    klíč v PascalCase (`ID`), takže malé `id` neexistuje → formulář se načte prázdný.
+    Když sloupec přesně `id` chybí, ale existuje `ID`/`Id`, doplní alias.
+    """
+    if any(c == "id" for c in cols):
+        return select_sql
+    idc = next((c for c in cols if c.lower() == "id"), None)
+    if not idc:
+        return select_sql  # zdroj nemá ID sloupec — neřešíme
+    return f'SELECT sub.*, sub."{idc}" AS id FROM ({select_sql}) sub'
+
+
 def _run_generator(core_id: int, fields: list[str], force: bool) -> str:
     """Spustí NATIVNÍ generátor polí v procesu (reuse vytvorit_edit_jadro_2).
 
@@ -399,6 +413,9 @@ def run_core_import(arg: str) -> dict:
         code = _slug(cen["nazev"])
         label = cen["nazev"]
         select_sql = _source_to_select(zdroj, cen["sql_select"])
+        # sloupce zdroje (i pro generátor/layout) + normalizace `id` pro form-load
+        raw_cols = _fields_of(s, select_sql)
+        store_sql = _ensure_lower_id(select_sql, raw_cols)
 
         # 2. upsert fw.core (idempotentně dle code)
         # BEZPEČNOSTNÍ GUARD (Kristý 9.7.2026): existující core se stejným kódem
@@ -428,13 +445,13 @@ def run_core_import(arg: str) -> dict:
         if dset_row:
             dset_id = int(dset_row[0])
             s.execute(_t("UPDATE fw.data_set SET sql_text=:sql, db_connection_id=:db WHERE id=:id"),
-                      {"sql": select_sql, "db": DEFAULT_DB_CONNECTION_ID, "id": dset_id})
+                      {"sql": store_sql, "db": DEFAULT_DB_CONNECTION_ID, "id": dset_id})
         else:
             # pozn.: created_by je INTEGER (user id) → vynecháváme (autor = fw.core.created_by_text + git)
             dset_id = int(s.execute(_t(
                 "INSERT INTO fw.data_set (code, version, sql_text, db_connection_id, status, is_system, is_immutable) "
                 "VALUES (:c, 1, :sql, :db, 'active', false, false) RETURNING id"
-            ), {"c": dset_code, "sql": select_sql, "db": DEFAULT_DB_CONNECTION_ID}).scalar())
+            ), {"c": dset_code, "sql": store_sql, "db": DEFAULT_DB_CONNECTION_ID}).scalar())
 
         dsrc_row = s.execute(_t("SELECT id FROM fw.data_source WHERE code=:c"), {"c": code}).first()
         if dsrc_row:
@@ -459,8 +476,9 @@ def run_core_import(arg: str) -> dict:
 
         s.commit()  # aby generátor viděl core + edit-select
 
-        # 4. sloupce zdroje + spuštění nativního generátoru
-        fields = _fields_of(s, select_sql)
+        # 4. spuštění nativního generátoru (fields = reálné sloupce zdroje, bez
+        #    pomocného `id` aliasu — ten je jen pro form-load, ne pro komponenty)
+        fields = raw_cols
         gen_out = _run_generator(core_id, fields, force)
 
         # 5. layout z Centrály: groupboxy + zařazení polí + captiony + pořadí
@@ -478,7 +496,7 @@ def run_core_import(arg: str) -> dict:
                 ["core_id", core_id],
                 ["core.code", code],
                 ["core.label", label],
-                ["edit_select", select_sql[:120]],
+                ["edit_select", store_sql[:120]],
                 ["poli_v_datasetu", len(fields)],
                 ["komponent_celkem", comp_cnt],
                 ["groupboxy", rep["groupboxes"]],

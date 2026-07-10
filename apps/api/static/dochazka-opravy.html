@@ -117,7 +117,7 @@ function loadQueue(){
     rz.forEach(function(r){
       var c=card(r.name,r.day,'„'+(r.note||'')+'“');
       var bo=el('<button class="b g">🛠 Otevřít den</button>');bo.addEventListener('click',function(){openDay(r.user_id,r.name,r.day);});
-      var bv=el('<button class="b">✓ Vyřešeno</button>');bv.addEventListener('click',function(){resolveUI(c,{uid:r.user_id,day:r.day});});
+      var bv=el('<button class="b g">✓ Vyřídit bez opravy</button>');bv.addEventListener('click',function(){resolveUI(c,{uid:r.user_id,day:r.day});});
       c._ar.appendChild(bo);c._ar.appendChild(bv);L.appendChild(c);
     });
     if(an.length)L.appendChild(el('<div class="sec">⚠ NESROVNALOSTI (AUTOMATICKÁ KONTROLA)</div>'));
@@ -125,7 +125,7 @@ function loadQueue(){
       var ex=(a.rule==='zapomenuty_odchod'&&a.navrh_konec)?('<div class="hint">💡 Poslední aktivita na zakázce: '+esc(a.navrh_konec)+'</div>'):'';
       var c=card(a.name,a.day,a.detail,ex);
       var bo=el('<button class="b g">🛠 Otevřít den</button>');bo.addEventListener('click',function(){openDay(a.user_id,a.name,a.day);});
-      var bv=el('<button class="b">✓ V pořádku</button>');bv.addEventListener('click',function(){resolveUI(c,{anomaly_id:a.id});});
+      var bv=el('<button class="b g">✓ V pořádku — vyřídit</button>');bv.addEventListener('click',function(){resolveUI(c,{anomaly_id:a.id});});
       c._ar.appendChild(bo);c._ar.appendChild(bv);L.appendChild(c);
     });
   });

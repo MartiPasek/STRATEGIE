@@ -1810,10 +1810,10 @@
         var c=card(r.name,r.day,"„"+(r.note||"")+"“");
         var bo=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">🛠 Otevřít den</button>');
         bo.addEventListener("click",function(){ _fixOpenDay(r.user_id,r.name,r.day); });
-        var bv=el('<button class="ghost sm">✓ Vyřešeno</button>');
+        var bv=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">✓ Vyřídit bez opravy</button>');
         bv.addEventListener("click",function(){
           c._fx.innerHTML=""; var rb=_fixReasonBox(); c._fx.appendChild(rb);
-          var ok=el('<button class="green sm full" style="margin-top:6px;">Označit jako vyřešené</button>'); c._fx.appendChild(ok);
+          var ok=el('<button class="green sm full" style="margin-top:6px;">Označit jako vyřízené</button>'); c._fx.appendChild(ok);
           ok.addEventListener("click",function(){
             api("POST","/api/v1/erp/app/attendance/fix/resolve",{uid:r.user_id,day:r.day,reason:(rb._input.value||"").trim()}).then(function(x){
               if(x&&x.ok){ c.remove(); } else { c._fx.innerHTML='<div class="hint">✗ '+esc((x&&x.error)||"Nepodařilo se.")+'</div>'; }
@@ -1829,7 +1829,7 @@
         var c=card(a.name,a.day,a.detail,extra);
         var bo=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">🛠 Otevřít den</button>');
         bo.addEventListener("click",function(){ _fixOpenDay(a.user_id,a.name,a.day); });
-        var bv=el('<button class="ghost sm">✓ V pořádku</button>');
+        var bv=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">✓ V pořádku — vyřídit</button>');
         bv.addEventListener("click",function(){
           c._fx.innerHTML=""; var rb=_fixReasonBox(); c._fx.appendChild(rb);
           var ok=el('<button class="green sm full" style="margin-top:6px;">Označit jako v pořádku</button>'); c._fx.appendChild(ok);

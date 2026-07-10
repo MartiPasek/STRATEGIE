@@ -48,6 +48,10 @@
   .addbar select{border:1px solid #2b3a4a;background:var(--in);color:var(--txt);border-radius:6px;padding:4px 6px;font:inherit;max-width:220px}
   .aud{font-size:10.5px;color:#5d6b7c;margin-top:6px}
   .savemsg{font-size:12px;color:#7fe0a0;margin-left:8px}
+  .flt{width:100%;border:1px solid #2b3a4a;background:var(--in);color:var(--txt);border-radius:6px;padding:5px 6px;font:inherit;outline:none}
+  .flt:focus{border-color:var(--accent)}
+  .fbar{padding:8px 12px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .fexp{padding:2px 12px 8px;display:flex;gap:8px;align-items:center}
 </style>
 </head>
 <body>
@@ -59,7 +63,16 @@
   <div class="card">
     <div class="hd">Zaměstnanci <span id="cnt" class="ph"></span></div>
     <input id="srch" placeholder="🔎 Hledat jméno…">
-    <select id="fpoz" style="width:100%;border:0;border-top:1px solid var(--line);padding:8px 14px;background:var(--panel);color:var(--txt);font:inherit;outline:none"><option value="">— všechny pozice —</option></select>
+    <div class="fbar">
+      <select id="ffirma" class="flt"><option value="">Všechny firmy</option><option value="EC">EUROSOFT-Control (EC)</option><option value="ES">EUROSOFT-System (ES)</option></select>
+      <select id="fdruh" class="flt"><option value="">Všechny typy</option><option value="HPP">HPP</option><option value="OSVC">OSVČ</option><option value="DPP">DPP</option></select>
+      <select id="fpoz" class="flt"><option value="">Všechny pozice</option></select>
+      <select id="fsort" class="flt"><option value="az">Jméno A–Z</option><option value="za">Jméno Z–A</option><option value="poz">Dle pozice</option><option value="cislo">Dle čísla</option></select>
+    </div>
+    <div class="fexp">
+      <button class="sbtn" onclick="exportCsv()">⬇ Export (CSV)</button>
+      <span class="ph" id="fcnt"></span>
+    </div>
     <div class="lst" id="lst"><div class="empty">Načítám…</div></div>
   </div>
   <div class="card"><div class="det" id="det"><div class="empty">Vyber zaměstnance vlevo.</div></div></div>
@@ -79,21 +92,48 @@ async function load(){
   document.getElementById('cnt').textContent='('+LIDE.length+')';
   render();
 }
+function _val(id){return (document.getElementById(id)||{}).value||'';}
+function applyFilters(){
+  const q=_val('srch').toLowerCase();
+  const fp=_val('fpoz'), ff=_val('ffirma').toUpperCase(), fd=_val('fdruh').toUpperCase(), fs=_val('fsort')||'az';
+  let f=LIDE.filter(p=>p.jmeno.toLowerCase().includes(q)
+    && (!fp || (p.pozice_ciselnik||'')===fp)
+    && (!ff || (p.firmy||'').toUpperCase().includes(ff))
+    && (!fd || (p.typy||'').toUpperCase().includes(fd)));
+  f=f.slice().sort((a,b)=>{
+    if(fs==='za') return b.jmeno.localeCompare(a.jmeno,'cs');
+    if(fs==='poz') return (a.pozice||'žžž').localeCompare(b.pozice||'žžž','cs')||a.jmeno.localeCompare(b.jmeno,'cs');
+    if(fs==='cislo') return ((parseInt(a.cislo,10)||0)-(parseInt(b.cislo,10)||0))||a.jmeno.localeCompare(b.jmeno,'cs');
+    return a.jmeno.localeCompare(b.jmeno,'cs');
+  });
+  return f;
+}
 function render(){
-  const q=(document.getElementById('srch').value||'').toLowerCase();
-  const fp=(document.getElementById('fpoz')||{}).value||'';
   const l=document.getElementById('lst');
-  const f=LIDE.filter(p=>p.jmeno.toLowerCase().includes(q) && (!fp || (p.pozice_ciselnik||'')===fp));
+  const f=applyFilters();
+  const c=document.getElementById('fcnt'); if(c)c.textContent=f.length+' z '+LIDE.length;
   if(!f.length){l.innerHTML='<div class="empty">Nic nenalezeno.</div>';return;}
   l.innerHTML=f.map(p=>'<div class="prow" data-u="'+p.user_id+'" onclick="openP('+p.user_id+',this)">'+
     '<div class="nm">'+esc(p.jmeno)+(p.cislo?' <span class="chip">č. '+esc(p.cislo)+'</span>':'')+'</div><div class="mt">'+
     (p.firmy?'<span class="chip">'+esc(p.firmy)+'</span>':'')+esc(p.typy||'')+
     (p.pozice?' · '+esc(p.pozice):'')+'</div></div>').join('');
 }
+function exportCsv(){
+  const rows=applyFilters();
+  const esc2=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
+  const head=['Jméno','Číslo zaměstnance','Firma','Typ úvazku','Pozice'];
+  const lines=[head.map(esc2).join(';')];
+  rows.forEach(p=>lines.push([p.jmeno,p.cislo,p.firmy,p.typy,p.pozice].map(esc2).join(';')));
+  const csv='﻿'+lines.join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='financni_podminky_'+new Date().toISOString().slice(0,10).replace(/-/g,'')+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
+}
 document.getElementById('srch').addEventListener('input',render);
-document.getElementById('fpoz').addEventListener('change',render);
+['fpoz','ffirma','fdruh','fsort'].forEach(id=>{const e=document.getElementById(id); if(e)e.addEventListener('change',render);});
 let POZ=[];
-async function loadPozice(){ const d=await j(API+"/app/hr/finance/pozice-ciselnik"); if(d.ok){ POZ=d.pozice||[]; const f=document.getElementById('fpoz'); if(f)f.innerHTML='<option value="">— všechny pozice —</option>'+POZ.map(o=>'<option value="'+esc(o.label)+'">'+esc(o.label)+'</option>').join(''); } }
+async function loadPozice(){ const d=await j(API+"/app/hr/finance/pozice-ciselnik"); if(d.ok){ POZ=d.pozice||[]; const f=document.getElementById('fpoz'); if(f)f.innerHTML='<option value="">Všechny pozice</option>'+POZ.map(o=>'<option value="'+esc(o.label)+'">'+esc(o.label)+'</option>').join(''); } }
 function pozOpts(sel){ return '<option value="">— nezařazeno —</option>'+POZ.map(o=>'<option value="'+o.id+'"'+(o.id===sel?' selected':'')+'>'+esc(o.label)+'</option>').join(''); }
 
 let CURU=null, TYPY=[];

@@ -514,6 +514,14 @@
               /mail_zpracovane/i.test(String(_gridCodeForActions))) {
             _ctxMenuActions.push("mail_vratit");
           }
+          // Součet hodin (Claude-28/Jirka 10.7.2026, pro Dušana Havláta):
+          // na přehledu Docházka — vše (core 183, vyroba.dusan_dochazka_vse)
+          // → vyber řádky → pravý klik „Σ Součet hodin" → informativní okno.
+          if (/vyroba\.dusan_dochazka_vse/i.test(_coreCodeForGraph) ||
+              /grid_vyroba_dusan_dochazka_vse/i.test(String(_gridCodeForActions)) ||
+              String(coreId) === "183") {
+            _ctxMenuActions.push("soucet_hodin");
+          }
           // Kalkulace jádro (Claude-24/Kristy 9.7.2026): na přehledu Kalkulace
           // a nabídky (core 140, vp_kalkulace) → pravý klik „🧮 Kalkulace jádro"
           // / Alt+M → otevře jádro 188 (@@COREIMPORT z Centrály form 271).

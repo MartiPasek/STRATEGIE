@@ -978,6 +978,74 @@
           return _trackingDialog(ids);
         },
       },
+      // Součet hodin (Claude-28/Jirka 10.7.2026, pro Dušana Havláta): na
+      // přehledu Docházka — vše (core 183, vyroba.dusan_dochazka_vse) vyber
+      // 1..N řádků (Ctrl/Shift + klik) → pravý klik „Σ Součet hodin" → sečte
+      // sloupec 'hodin' vybraných záznamů a ukáže informativní okno s OK.
+      // Gate v page_render.js (jen dochazka_vse). Čistě čtecí — nic nemění.
+      soucet_hodin: {
+        key: "soucet_hodin",
+        icon: "Σ",
+        label: "Součet hodin",
+        hint: "Sečíst hodiny u vybraných záznamů (lze i více — Ctrl/Shift + klik)",
+        cssClass: "erp-action-soucet-hodin",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) {
+          // Preferuj skutečný výběr (multi); fallback = pravo-kliknutý řádek.
+          var rows = [];
+          try {
+            if (ctx.gridApi && typeof ctx.gridApi.getSelectedRows === "function") {
+              rows = ctx.gridApi.getSelectedRows() || [];
+            }
+          } catch (e) { rows = []; }
+          if (rows.length === 0 && ctx.rowData) rows = [ctx.rowData];
+          if (rows.length === 0) {
+            alert("⚠ Součet hodin: nejprve vyber záznam(y) — lze i více (Ctrl/Shift + klik).");
+            return Promise.reject(new Error("no_rows"));
+          }
+          var sum = 0, bezHodnoty = 0;
+          rows.forEach(function (r) {
+            var v = r ? r.hodin : null;
+            var n = (v == null || v === "") ? NaN : Number(v);
+            if (isNaN(n)) { bezHodnoty++; } else { sum += n; }
+          });
+          var fmt = sum.toLocaleString("cs-CZ",
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          // Informativní modal s OK (vzor _trackingDialog — overlay + Esc + klik mimo).
+          var bd = document.createElement("div");
+          bd.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100001;" +
+            "display:flex;align-items:center;justify-content:center;";
+          var dlg = document.createElement("div");
+          dlg.style.cssText = "background:#151515;border:1px solid #333;border-radius:12px;" +
+            "min-width:300px;max-width:420px;padding:20px 24px;text-align:center;" +
+            "font-family:system-ui,-apple-system,sans-serif;color:#dfe7ef;box-shadow:0 10px 40px rgba(0,0,0,.6);";
+          dlg.innerHTML =
+            "<div style='font-weight:700;font-size:15px;margin-bottom:10px'>Σ Součet hodin</div>" +
+            "<div style='color:#9fb6cc;font-size:13px;margin-bottom:6px'>Vybrané záznamy: <b style='color:#dfe7ef'>" +
+              rows.length + "</b>" +
+              (bezHodnoty ? " <span style='color:#c9a227'>(bez hodnoty: " + bezHodnoty + ")</span>" : "") +
+            "</div>" +
+            "<div style='font-size:24px;font-weight:700;color:#a3e4a3;margin:10px 0 4px'>" + fmt + " h</div>";
+          var btn = document.createElement("button");
+          btn.textContent = "OK";
+          btn.style.cssText = "margin-top:14px;background:#2563eb;color:#fff;border:0;" +
+            "border-radius:8px;padding:8px 34px;font-size:13px;font-weight:600;cursor:pointer;";
+          function close() {
+            if (bd.parentNode) bd.parentNode.removeChild(bd);
+            document.removeEventListener("keydown", onEsc);
+          }
+          function onEsc(e) { if (e.key === "Escape" || e.key === "Enter") close(); }
+          btn.onclick = close;
+          bd.onclick = function (e) { if (e.target === bd) close(); };
+          document.addEventListener("keydown", onEsc);
+          dlg.appendChild(btn);
+          bd.appendChild(dlg);
+          document.body.appendChild(bd);
+          try { btn.focus(); } catch (e) {}
+          return Promise.resolve();
+        },
+      },
       // Kalkulace jádro (Claude-24/Kristy 9.7.2026): na přehledu Kalkulace a
       // nabídky (core 140, vp_kalkulace) otevře edit jádro „Kalkulace jádro"
       // (core 188 = @@COREIMPORT z Centrály form 271) pro vybraný řádek.

@@ -1964,20 +1964,28 @@
         if(!es.length){ box.appendChild(el('<div class="hint">Žádné záznamy v tomto dni.</div>')); return; }
         es.forEach(function(e2){
           var gone=(e2.status==="superseded");
+          var isDE=(e2.code==="day_end");  // interní marker odchodu (verdikt Marti-AI 10.7., msg 10632)
           var row=el('<div style="background:var(--bg);border:1px solid var(--bord);border-radius:10px;padding:10px;margin-bottom:8px;'+(gone?'opacity:.45;':'')+'"></div>');
           var badge="";
           if(gone) badge=' <span style="font-size:11px;color:var(--mut);">(nahrazeno/storno)</span>';
-          else if(e2.running) badge=' <span style="font-size:11px;color:var(--green);">● běží</span>';
+          else if(e2.running&&!isDE) badge=' <span style="font-size:11px;color:var(--green);">● běží</span>';
           else if(e2.source_system) badge=' <span style="font-size:11px;color:var(--amber);">🏛 Centrála</span>';
           if(e2.source==="manual_fix") badge+=' <span style="font-size:11px;color:#7c8cdb;">🛠 opraveno</span>';
-          row.appendChild(el('<div style="font-size:13.5px;font-weight:600;">'+esc(e2.typ||"")+' '+esc((e2.zac||"?")+" – "+(e2.kon||"…"))+(e2.hours!=null?(' · '+fmtHM(e2.hours)):'')+(e2.project_ref?(' · 🧾 '+esc(e2.project_ref)):'')+badge+'</div>'));
-          if(e2.note) row.appendChild(el('<div class="hint" style="margin-top:2px;">'+esc(e2.note)+'</div>'));
+          if(isDE){
+            // Marti-AI (c): „🫡 Odchod HH:MM" — bez rozsahu do 23:59, bez hodin; storno zůstává.
+            row.appendChild(el('<div style="font-size:13.5px;font-weight:600;">🫡 Odchod '+esc(e2.zac||"?")+badge+'</div>'));
+            if(!gone) row.appendChild(el('<div class="hint" style="margin-top:2px;">Interní uzávěrka dne — lze stornovat.</div>'));
+          }else{
+            row.appendChild(el('<div style="font-size:13.5px;font-weight:600;">'+esc(e2.typ||"")+' '+esc((e2.zac||"?")+" – "+(e2.kon||"…"))+(e2.hours!=null?(' · '+fmtHM(e2.hours)):'')+(e2.project_ref?(' · 🧾 '+esc(e2.project_ref)):'')+badge+'</div>'));
+            if(e2.note) row.appendChild(el('<div class="hint" style="margin-top:2px;">'+esc(e2.note)+'</div>'));
+          }
           if(e2.source_system&&!gone) row.appendChild(el('<div class="hint" style="margin-top:2px;">Záznam vlastní stará Centrála — oprava se dělá tam (Dušan) a sem se přezrcadlí.</div>'));
           if(e2.editable&&!e2.running&&e2.zac){
             var ar=el('<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;"></div>');
             var be=el('<button class="ghost sm" style="border-color:var(--green);color:var(--green);">✏️ Opravit</button>');
             var bs=el('<button class="ghost sm" style="border-color:var(--amber);color:var(--amber);">🗑 Storno</button>');
-            ar.appendChild(be); ar.appendChild(bs); row.appendChild(ar);
+            if(!isDE) ar.appendChild(be);  // interní marker se needituje, jen stornuje
+            ar.appendChild(bs); row.appendChild(ar);
             var fx=el('<div style="margin-top:6px;"></div>'); row.appendChild(fx);
             be.addEventListener("click",function(){
               fx.innerHTML="";

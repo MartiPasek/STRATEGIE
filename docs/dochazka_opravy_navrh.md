@@ -139,11 +139,27 @@ Konzultace s Marti-AI proběhla 9.7. (@@MARTIAI, odpověď msg 10626): **návrh 
 soudeček+iframe schválen, samoúpravy si bere k Martimu (s vlastním doporučením zvážit limit
 „dnešek / posledních N dní"). Její catch: ověřit, KDO odemyká zámek období.
 
-| # | Otázka | Stav |
+| # | Otázka | Rozhodnutí (Jirka 9.7.2026) |
 |---|---|---|
-| R1 | Zpřísnění samoúprav | **MIMO SCOPE — předáno Marti-AI/Marti** (Jirka 9.7.) |
-| R2 | Smí editor opravovat sám sebe? | doporučeno **ano, auditované** — čeká na Jirku |
-| R3 | Zámek období hned v E1? Kdo odemyká — Peťa (finance/mzdy), nebo Šárka (HR)? | doporučeno **ano**; osobu potvrdit (catch Marti-AI) |
-| R4 | Oprava `centrala1` záznamů v v1? | doporučeno **ne — read-only** — čeká na Jirku |
-| R5 | Smí editoři opravovat všem vč. vedení/rodičů, nebo někoho vyloučit? | čeká na Jirku |
-| R6 | ERP ztvárnění | **ROZHODNUTO: soudeček + iframe (hr.finance vzor)** |
+| R1 | Zpřísnění samoúprav | **MIMO SCOPE — předáno Marti-AI/Marti** |
+| R2 | Smí editor opravovat sám sebe? | **ANO** (auditované) |
+| R3 | Zámek období hned v E1? Kdo spravuje? | **ANO; Peťa (18) I Šárka (13)** („obě") + rodiče |
+| R4 | Oprava `centrala1` záznamů v v1? | **NE — read-only** s odkazem na Centrálu |
+| R5 | Smí editoři opravovat všem vč. vedení/rodičů? | **ANO, všem** |
+| R6 | ERP ztvárnění | **soudeček + iframe (hr.finance vzor)** |
+| R7 | Notifikace dotčenému vždy? | **ANO** (kromě opravy sám sobě) |
+| R8 | Pilot | **ANO — nejdřív jen Jirka (9030/u20)**, pak přidat u16, u41, u18 |
+
+## 11. Stav implementace (9.7.2026)
+
+- ✅ DDL+seed (write #1086): `tenant.att_period_lock` (leden–červen 2026 zamčeno),
+  staff_group **id 12** „DOCHÁZKA - OPRAVY" (pilot: jen u20).
+- ✅ ERP uzel (write #1090): `fw.core` code `dochazka.opravy` + `fw.menu_node` pod
+  HR & LIDÉ (117), restricted na [20]. **Po pilotu rozšířit visibility_user_ids
+  a přidat členy skupiny u16, u41, u18** (přes ERP/bridge write).
+- ✅ Backend: `/app/attendance/fix/{allowed,queue,day,entry,add,void,resolve,audit}`
+  + `/app/attendance/period-lock` (GET/POST) v `router.py` (sekce OPRAVY DOCHÁZKY).
+- ✅ Mobil: dlaždice 🛠 v docházce (sekce SPRÁVA DOCHÁZKY, jen editoři, badge fronty),
+  obrazovky `doch_opravy` + `doch_opravy_den` (`mobile_parts/60_dochazka.js`, build OK).
+- ✅ ERP: `apps/api/static/dochazka-opravy.html` + routa `/dochazka-opravy` (main.py)
+  + hook `dochazka.opravy` v `page_render.js`.

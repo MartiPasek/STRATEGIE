@@ -1006,6 +1006,22 @@ async def mail_send_doc(req: Request):
                     raw = base64.b64decode(doc_b64)
                 except Exception as exc:
                     return JSONResponse({"ok": False, "error": "base64 přílohy: " + str(exc)[:120]}, status_code=400)
+            rf = str(b.get("repo_file") or "").strip()
+            if rf and not raw:
+                # Příloha přenesena na server přes git (spolehlivé, byte-přesné) místo base64
+                # v JSON (dlouhý řetězec se cestou komolí). Marti 10.7.2026.
+                try:
+                    import os as _osrf
+                    _root = _osrf.path.abspath(_osrf.path.join(_osrf.path.dirname(__file__), "..", "..", ".."))
+                    _p = _osrf.path.normpath(_osrf.path.join(_root, rf))
+                    if _p.startswith(_root) and _osrf.path.isfile(_p):
+                        with open(_p, "rb") as _fh:
+                            raw = _fh.read()
+                        fn = _osrf.path.basename(_p)[:120]
+                    else:
+                        return JSONResponse({"ok": False, "error": "repo_file nenalezen"}, status_code=400)
+                except Exception as exc:
+                    return JSONResponse({"ok": False, "error": "repo_file: " + str(exc)[:120]}, status_code=500)
         if "@" not in to or not subject or not body:
             return JSONResponse({"ok": False, "error": "Chybí to / subject / body."}, status_code=400)
         att_ids = None

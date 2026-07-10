@@ -973,23 +973,44 @@ async def mail_send_doc(req: Request):
         tid = _tenant(req, uid, s)
         if not _can(uid, s):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        try:
-            b = await req.json()
-        except Exception:
-            b = {}
-        b = b or {}
-        to = str(b.get("to") or "").strip()
-        cc = [str(x).strip() for x in (b.get("cc") or []) if str(x).strip()]
-        subject = str(b.get("subject") or "").strip()
-        body = str(b.get("body") or "").strip()
-        fn = str(b.get("filename") or "priloha.pdf").strip()[:120]
-        doc_b64 = b.get("doc_b64") or ""
+        raw = None
+        fn = "priloha.pdf"
+        ct = (req.headers.get("content-type") or "")
+        if "multipart/form-data" in ct:
+            # Spolehlivý přenos přílohy = skutečný soubor (ne base64 v JSON, který se
+            # při dlouhém řetězci poškodí). Marti 10.7.2026.
+            form = await req.form()
+            to = str(form.get("to") or "").strip()
+            _cc = form.get("cc") or ""
+            cc = [x.strip() for x in str(_cc).split(",") if x.strip()]
+            subject = str(form.get("subject") or "").strip()
+            body = str(form.get("body") or "").strip()
+            upl = form.get("file")
+            if upl is not None and hasattr(upl, "read"):
+                raw = await upl.read()
+                fn = (getattr(upl, "filename", None) or "priloha.pdf")[:120]
+        else:
+            try:
+                b = await req.json()
+            except Exception:
+                b = {}
+            b = b or {}
+            to = str(b.get("to") or "").strip()
+            cc = [str(x).strip() for x in (b.get("cc") or []) if str(x).strip()]
+            subject = str(b.get("subject") or "").strip()
+            body = str(b.get("body") or "").strip()
+            fn = str(b.get("filename") or "priloha.pdf").strip()[:120]
+            doc_b64 = b.get("doc_b64") or ""
+            if doc_b64:
+                try:
+                    raw = base64.b64decode(doc_b64)
+                except Exception as exc:
+                    return JSONResponse({"ok": False, "error": "base64 přílohy: " + str(exc)[:120]}, status_code=400)
         if "@" not in to or not subject or not body:
             return JSONResponse({"ok": False, "error": "Chybí to / subject / body."}, status_code=400)
         att_ids = None
-        if doc_b64:
+        if raw:
             try:
-                raw = base64.b64decode(doc_b64)
                 from modules.rag.application.service import upload_document
                 doc_id = upload_document(file_bytes=raw, filename=fn, tenant_id=tid, user_id=uid)
                 att_ids = [doc_id] if doc_id else None

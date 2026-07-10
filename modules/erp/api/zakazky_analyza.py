@@ -99,24 +99,26 @@ CREATE TABLE IF NOT EXISTS tenant.zakazky_zisk_mirror (
 );
 """
 
-_EC_SQL = (
-    "SELECT CisloZakazky, Nazev, "
-    "YEAR(DatPosledniVF) AS rok_vf, MONTH(DatPosledniVF) AS mesic_vf, "
-    "LEFT(CisloZakazky,2) AS prefix, "
-    "CAST(ISNULL(VynosyCelkem,0) AS decimal(18,2)) AS vynosy, "
-    "CAST(ISNULL(NakladyCelkemPevne,0) AS decimal(18,2)) AS naklady_pevne, "
-    "CAST(ISNULL(ZiskZakazkyPevny,0) AS decimal(18,2)) AS zisk_pevny, "
-    "CAST(ISNULL(NakladyMaterial,0) AS decimal(18,2)) AS naklady_material, "
-    "CAST(ISNULL(SumKalkMaterial,0) AS decimal(18,2)) AS kalk_material, "
-    "CAST(ISNULL(KalkHodinyCelkem,0) AS decimal(18,2)) AS kalk_hodiny, "
-    "CAST(ISNULL(RealHodinyCelkem,0) AS decimal(18,2)) AS real_hodiny, "
-    "CAST(ISNULL(RealHodinyCelkemEf,0) AS decimal(18,2)) AS real_hodiny_ef, "
-    "ISNULL(CAST(Stredisko AS varchar(60)),'') AS stredisko, "
-    "CAST(ISNULL(Ukonceno,0) AS int) AS ukonceno "
-    "FROM EC_ZakazkyZisk "
-    "WHERE Irelevantni=0 AND DatPosledniVF IS NOT NULL "
-    "AND YEAR(DatPosledniVF) BETWEEN " + str(ROK_OD) + " AND " + str(ROK_DO)
-)
+def _ec_sql(rok):
+    # Po letech (MCP strategie_query_raw nezvládne tisíce řádků najednou -> internal_error).
+    return (
+        "SELECT CisloZakazky, Nazev, "
+        "YEAR(DatPosledniVF) AS rok_vf, MONTH(DatPosledniVF) AS mesic_vf, "
+        "LEFT(CisloZakazky,2) AS prefix, "
+        "CAST(ISNULL(VynosyCelkem,0) AS decimal(18,2)) AS vynosy, "
+        "CAST(ISNULL(NakladyCelkemPevne,0) AS decimal(18,2)) AS naklady_pevne, "
+        "CAST(ISNULL(ZiskZakazkyPevny,0) AS decimal(18,2)) AS zisk_pevny, "
+        "CAST(ISNULL(NakladyMaterial,0) AS decimal(18,2)) AS naklady_material, "
+        "CAST(ISNULL(SumKalkMaterial,0) AS decimal(18,2)) AS kalk_material, "
+        "CAST(ISNULL(KalkHodinyCelkem,0) AS decimal(18,2)) AS kalk_hodiny, "
+        "CAST(ISNULL(RealHodinyCelkem,0) AS decimal(18,2)) AS real_hodiny, "
+        "CAST(ISNULL(RealHodinyCelkemEf,0) AS decimal(18,2)) AS real_hodiny_ef, "
+        "ISNULL(CAST(Stredisko AS varchar(60)),'') AS stredisko, "
+        "CAST(ISNULL(Ukonceno,0) AS int) AS ukonceno "
+        "FROM EC_ZakazkyZisk "
+        "WHERE Irelevantni=0 AND DatPosledniVF IS NOT NULL "
+        "AND YEAR(DatPosledniVF) = " + str(int(rok))
+    )
 
 _COLS = ["cislo_zakazky", "nazev", "rok_vf", "mesic_vf", "prefix", "vynosy",
          "naklady_pevne", "zisk_pevny", "naklady_material", "kalk_material",
@@ -148,10 +150,12 @@ async def zakazky_mirror_refresh(req: Request):
     try:
         if not _admin_ok(uid, s):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        try:
-            rows = _ec_query(_EC_SQL)
-        except Exception as exc:
-            return JSONResponse({"ok": False, "error": "EC dotaz: " + str(exc)[:200]}, status_code=502)
+        rows = []
+        for _yr in range(ROK_OD, ROK_DO + 1):
+            try:
+                rows.extend(_ec_query(_ec_sql(_yr)))
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "EC dotaz (rok %s): %s" % (_yr, str(exc)[:180])}, status_code=502)
         # normalizace řádků
         norm = []
         for d in rows:

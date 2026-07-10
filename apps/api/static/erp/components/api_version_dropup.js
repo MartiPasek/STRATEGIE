@@ -313,7 +313,6 @@
         ${pin ? '<button type="button" class="api-version-unpin-btn" id="erpFooterApiVersionUnpinBtn">↩ Vrátit na aktuální</button>' : ""}
         <button type="button" class="api-version-diff-btn" id="erpFooterApiVersionDiffBtn">🔍 Co je nového? (diff)</button>
         ${_state.isParent ? `<button type="button" class="api-version-diff-btn" id="erpFooterApidBtn" style="margin-top:4px;${_isApidMode() ? 'background:#7a5;border-color:#7a5;color:#fff;' : ''}">${_isApidMode() ? '↩ Zpět na ostrý systém' : '🧪 Testovací API D (kopie dat)'}</button>` : ""}
-        ${_state.isParent ? `<button type="button" class="api-version-diff-btn" id="erpFooterCoreImportBtn" style="margin-top:4px;">📥 Import jádra z Centrály</button>` : ""}
       </div>
     `;
 
@@ -367,16 +366,6 @@
         e.stopPropagation();
         _closeDropup();
         if (_isApidMode()) { _exitApid(); } else { _enterApid(); }
-      });
-    }
-
-    // Import jádra z Centrály (jen rodice)
-    const coreImportBtn = document.getElementById("erpFooterCoreImportBtn");
-    if (coreImportBtn) {
-      coreImportBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        _closeDropup();
-        _showCoreImportModal();
       });
     }
 
@@ -496,164 +485,6 @@
       closeBtn.addEventListener("click", () => modal.remove());
     }
     modal.querySelector(".api-version-diff-modal-backdrop").addEventListener("click", () => modal.remove());
-  }
-
-  // ---------------------------------------------------------------------
-  // Import jádra z Centrály (@@COREIMPORT přes /diag-sql) — jen rodice.
-  // Backend beze změny: @@COREIMPORT už dispatchuje /diag-sql (parent-only).
-  // Bezpečné: má guard (nepřepíše cizí jádro), pracuje jen s jedním core_id.
-  // ---------------------------------------------------------------------
-
-  async function _runCoreImport(sqlCmd) {
-    const res = await fetch("/api/v1/erp/diag-sql", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql: sqlCmd, db: "pg" }),
-    });
-    const txt = await res.text();
-    let data = null;
-    try { data = JSON.parse(txt); } catch (e) { /* ne-JSON odpoved */ }
-    if (!res.ok) {
-      const msg = (data && (data.error || data.detail)) ||
-        ("HTTP " + res.status + ": " + txt.slice(0, 300));
-      throw new Error(msg);
-    }
-    return data;
-  }
-
-  function _showCoreImportModal() {
-    const existing = document.getElementById("erpCoreImportModal");
-    if (existing) existing.remove();
-
-    const inp = "width:100%;box-sizing:border-box;background:#0f1419;border:1px solid #2a3340;" +
-      "color:#cfd6df;border-radius:4px;padding:7px 9px;font-size:13px;";
-
-    const modal = document.createElement("div");
-    modal.id = "erpCoreImportModal";
-    modal.style.cssText =
-      "position:fixed;inset:0;z-index:2147483646;display:flex;" +
-      "align-items:center;justify-content:center;";
-    modal.innerHTML =
-      '<div id="erpCoreImportBackdrop" style="position:absolute;inset:0;background:rgba(0,0,0,.6);"></div>' +
-      '<div style="position:relative;background:#1a1f26;border:1px solid #2a3340;border-radius:8px;' +
-      'width:560px;max-width:94vw;max-height:88vh;display:flex;flex-direction:column;color:#cfd6df;' +
-      'font:13px/1.5 system-ui,Segoe UI,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.5);">' +
-        '<div style="padding:12px 16px;border-bottom:1px solid #2a3340;display:flex;align-items:center;' +
-        'justify-content:space-between;background:#141a20;border-radius:8px 8px 0 0;">' +
-          '<b style="font-size:14px;">📥 Import jádra z Centrály</b>' +
-          '<button type="button" id="erpCiClose" style="background:transparent;border:none;' +
-          'color:#9aa6b5;font-size:16px;cursor:pointer;line-height:1;">✕</button>' +
-        '</div>' +
-        '<div style="padding:14px 16px;overflow:auto;">' +
-          '<label style="display:block;margin-bottom:4px;color:#8b95a5;">Číslo formuláře v Centrále (EC_FormDef.ID)</label>' +
-          '<input id="erpCiEcId" type="number" inputmode="numeric" placeholder="např. 271" style="' + inp + 'margin-bottom:12px;">' +
-          '<label style="display:block;margin-bottom:4px;color:#8b95a5;">Zdroj dat (volitelné)</label>' +
-          '<input id="erpCiZdroj" type="text" placeholder="tabulka/view (např. tenant.oz_vy_nab) nebo celý SELECT — prázdné = odvodit z Centrály" style="' + inp + 'margin-bottom:10px;">' +
-          '<details style="margin-bottom:10px;">' +
-            '<summary style="cursor:pointer;color:#8b95a5;user-select:none;">Pokročilé</summary>' +
-            '<div style="padding:10px 0 0 0;">' +
-              '<label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;">' +
-                '<input id="erpCiForce" type="checkbox"> Přegenerovat komponenty od nuly (--force)' +
-              '</label>' +
-              '<label style="display:block;margin-bottom:4px;color:#8b95a5;">Ruční mapování polí (--map)</label>' +
-              '<input id="erpCiMap" type="text" placeholder="A=B,C=D" style="' + inp + '">' +
-            '</div>' +
-          '</details>' +
-          '<div style="font-size:11.5px;color:#6a7686;background:#12171d;border:1px solid #222b35;' +
-          'border-radius:4px;padding:8px 10px;margin-bottom:12px;">' +
-            'ℹ️ Přenese se <b>jen zadané jádro</b> (jeden core). Jádro se stejným kódem, které nevzniklo ' +
-            'z tohoto importu, se <b>nepřepíše</b> — akce to nahlásí. Gridy a tlačítka z Delphi se nepřenášejí.' +
-          '</div>' +
-          '<div id="erpCiResult" style="display:none;"></div>' +
-        '</div>' +
-        '<div style="padding:10px 16px;border-top:1px solid #2a3340;display:flex;gap:8px;' +
-        'justify-content:flex-end;background:#141a20;border-radius:0 0 8px 8px;">' +
-          '<button type="button" id="erpCiCancel" style="background:#232b35;border:1px solid #2a3340;' +
-          'color:#cfd6df;border-radius:5px;padding:7px 14px;cursor:pointer;">Zavřít</button>' +
-          '<button type="button" id="erpCiRun" style="background:#2f6f4f;border:1px solid #3a8a63;' +
-          'color:#fff;border-radius:5px;padding:7px 16px;cursor:pointer;font-weight:600;">Přenést</button>' +
-        '</div>' +
-      '</div>';
-
-    document.body.appendChild(modal);
-
-    const close = () => modal.remove();
-    document.getElementById("erpCiClose").addEventListener("click", close);
-    document.getElementById("erpCiCancel").addEventListener("click", close);
-    document.getElementById("erpCoreImportBackdrop").addEventListener("click", close);
-
-    const ecEl = document.getElementById("erpCiEcId");
-    setTimeout(() => ecEl.focus(), 0);
-
-    const runBtn = document.getElementById("erpCiRun");
-    runBtn.addEventListener("click", async () => {
-      const ec = (ecEl.value || "").trim();
-      if (!/^\d+$/.test(ec)) {
-        ecEl.style.borderColor = "#c0562f";
-        ecEl.focus();
-        return;
-      }
-      ecEl.style.borderColor = "#2a3340";
-      const zdroj = (document.getElementById("erpCiZdroj").value || "").trim();
-      const force = document.getElementById("erpCiForce").checked;
-      const map = (document.getElementById("erpCiMap").value || "").trim();
-
-      let cmd = "@@COREIMPORT " + ec;
-      if (zdroj) cmd += " " + zdroj;
-      if (force) cmd += " --force";
-      if (map) cmd += " --map " + map.replace(/\s+/g, "");
-
-      const resultEl = document.getElementById("erpCiResult");
-      resultEl.style.display = "block";
-      resultEl.innerHTML = '<div style="color:#8b95a5;">⏳ Přenáším jádro ' + _escapeHtml(ec) +
-        '… (může to pár vteřin trvat)</div>';
-      runBtn.disabled = true;
-      runBtn.style.opacity = "0.6";
-      runBtn.textContent = "Přenáším…";
-
-      try {
-        const data = await _runCoreImport(cmd);
-        _renderCoreImportResult(resultEl, data);
-      } catch (e) {
-        resultEl.innerHTML = '<div style="color:#e0836a;background:#241416;border:1px solid #3a2020;' +
-          'border-radius:4px;padding:10px;">❌ ' + _escapeHtml(e.message || String(e)) + '</div>';
-      } finally {
-        runBtn.disabled = false;
-        runBtn.style.opacity = "1";
-        runBtn.textContent = "Přenést";
-      }
-    });
-  }
-
-  function _renderCoreImportResult(el, data) {
-    if (!data) {
-      el.innerHTML = '<div style="color:#e0836a;">Prázdná odpověď serveru.</div>';
-      return;
-    }
-    if (data.ok === false) {
-      const tb = data.tb
-        ? '<pre style="white-space:pre-wrap;color:#8b95a5;font-size:11px;margin-top:6px;' +
-          'max-height:160px;overflow:auto;">' + _escapeHtml(data.tb) + '</pre>'
-        : "";
-      el.innerHTML = '<div style="color:#e0836a;background:#241416;border:1px solid #3a2020;' +
-        'border-radius:4px;padding:10px;">❌ ' + _escapeHtml(data.error || "Import selhal.") + tb + '</div>';
-      return;
-    }
-    const rows = data.rows || [];
-    const trs = rows.map((r) => {
-      const k = _escapeHtml(String(r && r[0] != null ? r[0] : ""));
-      const v = _escapeHtml(String(r && r[1] != null ? r[1] : ""));
-      return '<tr><td style="padding:3px 10px 3px 0;color:#8b95a5;white-space:nowrap;vertical-align:top;">' +
-        k + '</td><td style="padding:3px 0;color:#cfd6df;word-break:break-word;">' + v + '</td></tr>';
-    }).join("");
-    el.innerHTML =
-      '<div style="color:#7ecb8f;background:#12211a;border:1px solid #204a30;border-radius:4px;padding:10px;">' +
-        '<b>✅ Jádro přeneseno.</b>' +
-        '<table style="margin-top:8px;border-collapse:collapse;font-size:12px;width:100%;">' + trs + '</table>' +
-        '<div style="margin-top:8px;color:#8b95a5;font-size:11.5px;">Otevři přehled a jádro (Alt+M); ' +
-        'rozložení i šířky se přenesly z Centrály. Případně dolaď v DESIGN režimu.</div>' +
-      '</div>';
   }
 
   // ---------------------------------------------------------------------

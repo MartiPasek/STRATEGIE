@@ -2383,6 +2383,128 @@
                 },
               });
 
+              // Import jádra z Centrály (Kristý 10.7.2026) — DESIGN mode, kontext
+              // = tento přehled (gridCode). Naimportuje jádro z Centrály a rovnou
+              // ho NAVÁŽE na tento přehled (@@COREIMPORT --bind). Přes /diag-sql
+              // (rodič). Pojistka: existující vazbu bez potvrzení nepřepíše.
+              designItems.push({
+                name: "📥 Import jádra z Centrály",
+                tooltip: "Naimportovat jádro z Centrály a navázat na tento přehled",
+                action: function () {
+                  var _gc = gridCode;
+                  if (typeof window._erpOpenCoreImportModal !== "function") {
+                    window._erpOpenCoreImportModal = function (gc) {
+                      var esc = function (s) {
+                        return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+                          return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+                        });
+                      };
+                      var old = document.getElementById("erpCoreImportModal");
+                      if (old) old.remove();
+                      var inp = "width:100%;box-sizing:border-box;background:#0f1419;border:1px solid #2a3340;color:#cfd6df;border-radius:4px;padding:7px 9px;font-size:13px;";
+                      var m = document.createElement("div");
+                      m.id = "erpCoreImportModal";
+                      m.style.cssText = "position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;";
+                      m.innerHTML =
+                        '<div id="erpCiBack" style="position:absolute;inset:0;background:rgba(0,0,0,.6);"></div>' +
+                        '<div style="position:relative;background:#1a1f26;border:1px solid #2a3340;border-radius:8px;width:560px;max-width:94vw;max-height:88vh;display:flex;flex-direction:column;color:#cfd6df;font:13px/1.5 system-ui,Segoe UI,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.5);">' +
+                          '<div style="padding:12px 16px;border-bottom:1px solid #2a3340;display:flex;align-items:center;justify-content:space-between;background:#141a20;border-radius:8px 8px 0 0;">' +
+                            '<b style="font-size:14px;">📥 Import jádra z Centrály</b>' +
+                            '<button type="button" id="erpCiX" style="background:transparent;border:none;color:#9aa6b5;font-size:16px;cursor:pointer;line-height:1;">✕</button>' +
+                          '</div>' +
+                          '<div style="padding:14px 16px;overflow:auto;">' +
+                            '<div style="font-size:12px;color:#8b95a5;margin-bottom:12px;">Naváže se na přehled: <b style="color:#cfd6df;">' + esc(gc) + '</b></div>' +
+                            '<label style="display:block;margin-bottom:4px;color:#8b95a5;">Číslo formuláře v Centrále (EC_FormDef.ID)</label>' +
+                            '<input id="erpCiEc" type="number" inputmode="numeric" placeholder="např. 271" style="' + inp + 'margin-bottom:12px;">' +
+                            '<label style="display:block;margin-bottom:4px;color:#8b95a5;">Zdroj dat (volitelné)</label>' +
+                            '<input id="erpCiZ" type="text" placeholder="tabulka/view nebo SELECT — prázdné = odvodit z Centrály" style="' + inp + 'margin-bottom:10px;">' +
+                            '<details style="margin-bottom:10px;"><summary style="cursor:pointer;color:#8b95a5;user-select:none;">Pokročilé</summary><div style="padding:10px 0 0 0;">' +
+                              '<label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;"><input id="erpCiF" type="checkbox"> Přegenerovat od nuly (--force)</label>' +
+                              '<label style="display:block;margin-bottom:4px;color:#8b95a5;">Ruční mapování polí (--map)</label>' +
+                              '<input id="erpCiM" type="text" placeholder="A=B,C=D" style="' + inp + '">' +
+                            '</div></details>' +
+                            '<div id="erpCiRes" style="display:none;"></div>' +
+                          '</div>' +
+                          '<div style="padding:10px 16px;border-top:1px solid #2a3340;display:flex;gap:8px;justify-content:flex-end;background:#141a20;border-radius:0 0 8px 8px;">' +
+                            '<button type="button" id="erpCiCancel" style="background:#232b35;border:1px solid #2a3340;color:#cfd6df;border-radius:5px;padding:7px 14px;cursor:pointer;">Zavřít</button>' +
+                            '<button type="button" id="erpCiRun" style="background:#2f6f4f;border:1px solid #3a8a63;color:#fff;border-radius:5px;padding:7px 16px;cursor:pointer;font-weight:600;">Přenést</button>' +
+                          '</div>' +
+                        '</div>';
+                      document.body.appendChild(m);
+                      var close = function () { m.remove(); };
+                      m.querySelector("#erpCiX").addEventListener("click", close);
+                      m.querySelector("#erpCiCancel").addEventListener("click", close);
+                      m.querySelector("#erpCiBack").addEventListener("click", close);
+                      var ecEl = m.querySelector("#erpCiEc");
+                      setTimeout(function () { try { ecEl.focus(); } catch (e) {} }, 0);
+                      var runBtn = m.querySelector("#erpCiRun");
+                      var resEl = m.querySelector("#erpCiRes");
+                      var renderRes = function (d) {
+                        if (!d) { resEl.innerHTML = '<div style="color:#e0836a;">Prázdná odpověď serveru.</div>'; return; }
+                        if (d.ok === false) {
+                          resEl.innerHTML = '<div style="color:#e0836a;background:#241416;border:1px solid #3a2020;border-radius:4px;padding:10px;">❌ ' + esc(d.error || "Import selhal.") + '</div>';
+                          return;
+                        }
+                        var rows = d.rows || [];
+                        var bindWarn = false;
+                        var trs = rows.map(function (r) {
+                          var k = esc(r && r[0] != null ? r[0] : "");
+                          var v = esc(r && r[1] != null ? r[1] : "");
+                          if (r && String(r[0]).indexOf("vazba") !== -1 && String(r[1]).indexOf("už má jádro") !== -1) bindWarn = true;
+                          return '<tr><td style="padding:3px 10px 3px 0;color:#8b95a5;white-space:nowrap;vertical-align:top;">' + k + '</td><td style="padding:3px 0;color:#cfd6df;word-break:break-word;">' + v + '</td></tr>';
+                        }).join("");
+                        var confirmHtml = bindWarn
+                          ? '<div style="margin-top:8px;padding:8px 10px;background:#20200f;border:1px solid #4a4020;border-radius:4px;color:#e0c56a;">⚠ Tento přehled už má navázané jádro. <button type="button" id="erpCiRebind" style="margin-left:6px;background:#7a5a20;border:1px solid #a07a2a;color:#fff;border-radius:4px;padding:4px 10px;cursor:pointer;">Přepsat vazbu</button></div>'
+                          : "";
+                        resEl.innerHTML =
+                          '<div style="color:' + (bindWarn ? "#e0c56a" : "#7ecb8f") + ';background:' + (bindWarn ? "#20200f" : "#12211a") + ';border:1px solid ' + (bindWarn ? "#4a4020" : "#204a30") + ';border-radius:4px;padding:10px;">' +
+                            '<b>' + (bindWarn ? "⚠ Jádro naimportováno, vazba NEpřepsána." : "✅ Jádro přeneseno a navázáno.") + '</b>' +
+                            '<table style="margin-top:8px;border-collapse:collapse;font-size:12px;width:100%;">' + trs + '</table>' + confirmHtml +
+                          '</div>';
+                        if (bindWarn) {
+                          var rb = document.getElementById("erpCiRebind");
+                          if (rb) rb.addEventListener("click", function () { doRun(true); });
+                        }
+                      };
+                      var doRun = function (rebind) {
+                        var ec = (ecEl.value || "").trim();
+                        if (!/^\d+$/.test(ec)) { ecEl.style.borderColor = "#c0562f"; ecEl.focus(); return; }
+                        ecEl.style.borderColor = "#2a3340";
+                        var zd = (m.querySelector("#erpCiZ").value || "").trim();
+                        var fc = m.querySelector("#erpCiF").checked;
+                        var mp = (m.querySelector("#erpCiM").value || "").trim();
+                        var cmd = "@@COREIMPORT " + ec;
+                        if (zd) cmd += " " + zd;
+                        cmd += " --bind " + gc;
+                        if (fc) cmd += " --force";
+                        if (mp) cmd += " --map " + mp.replace(/\s+/g, "");
+                        if (rebind) cmd += " --rebind";
+                        resEl.style.display = "block";
+                        resEl.innerHTML = '<div style="color:#8b95a5;">⏳ Přenáším jádro ' + esc(ec) + '… (může to pár vteřin trvat)</div>';
+                        runBtn.disabled = true; runBtn.style.opacity = "0.6"; runBtn.textContent = "Přenáším…";
+                        fetch("/api/v1/erp/diag-sql", {
+                          method: "POST", credentials: "include",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ sql: cmd, db: "pg" })
+                        })
+                          .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, status: r.status, t: t }; }); })
+                          .then(function (rr) {
+                            var d = null; try { d = JSON.parse(rr.t); } catch (e) {}
+                            if (!rr.ok) { throw new Error((d && (d.error || d.detail)) || ("HTTP " + rr.status + ": " + String(rr.t).slice(0, 200))); }
+                            renderRes(d);
+                          })
+                          .catch(function (e) {
+                            resEl.innerHTML = '<div style="color:#e0836a;background:#241416;border:1px solid #3a2020;border-radius:4px;padding:10px;">❌ ' + esc(e.message || e) + '</div>';
+                          })
+                          .then(function () { runBtn.disabled = false; runBtn.style.opacity = "1"; runBtn.textContent = "Přenést"; });
+                      };
+                      runBtn.addEventListener("click", function () { doRun(false); });
+                    };
+                  }
+                  window._erpOpenCoreImportModal(_gc);
+                },
+              });
+
               // Akce 3/3 — Jádro pro řádek (jen pokud klikáme na řádku)
               if (node && node.data) {
                 const rowId = node.data.ID || node.data.id || node.data.Id || node.id || "-";

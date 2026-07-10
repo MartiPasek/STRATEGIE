@@ -6822,10 +6822,16 @@ setTimeout(function(){
     api("GET","/api/v1/erp/app/dochazka/lide","").then(function(j){
       box.innerHTML="";
       var lide=(j&&j.lide)||[];
+      // Jirka 10.7.: pořadí volby je volné — den→člověk i člověk→den (den jde
+      // přepnout i potom v detailu šipkami).
+      box.appendChild(el('<div class="hint" style="margin-bottom:4px;">📅 Který den zobrazit (jde změnit i potom v detailu):</div>'));
+      var dr=_fixDateRow(_locDate(0), null);
+      var dt=dr.input;
+      box.appendChild(dr.row);
+      box.appendChild(el('<div class="hint" style="margin:10px 0 4px;">👤 Čí docházku otevřít:</div>'));
       var si=el('<input placeholder="🔍 hledat jméno…" autocomplete="off" style="width:100%;">');
-      var dt=el('<input type="date" value="'+_locDate(0)+'" style="width:100%;margin-top:6px;">');
       var res=el('<div style="margin-top:8px;"></div>');
-      box.appendChild(si); box.appendChild(dt); box.appendChild(res);
+      box.appendChild(si); box.appendChild(res);
       function rend(){
         var q=(si.value||"").trim().toLowerCase();
         res.innerHTML="";
@@ -6856,15 +6862,43 @@ setTimeout(function(){
       });
     });
   }
+  // Jirka 10.7.: den se volí POHODLNĚ a v libovolném pořadí (den→člověk i
+  // člověk→den) — šipky ◀/▶ + kalendář + název dne v týdnu.
+  var _FIX_DNY=["neděle","pondělí","úterý","středa","čtvrtek","pátek","sobota"];
+  function _fixDayLabel(v){
+    try{ var d=new Date(v+"T12:00:00"); return _FIX_DNY[d.getDay()]+" "+d.getDate()+"."+(d.getMonth()+1)+"."; }
+    catch(e){ return ""; }
+  }
+  function _fixDateRow(initial, onChange){
+    var row=el('<div style="display:flex;gap:8px;align-items:flex-start;"></div>');
+    var bp=el('<button class="ghost sm" style="width:46px;flex:none;font-size:16px;margin:0;">◀</button>');
+    var mid=el('<div style="flex:1;min-width:0;"></div>');
+    var inp=el('<input type="date" value="'+esc(initial)+'" style="width:100%;">');
+    var lab=el('<div class="hint" style="text-align:center;margin-top:2px;">'+esc(_fixDayLabel(initial))+'</div>');
+    mid.appendChild(inp); mid.appendChild(lab);
+    var bn=el('<button class="ghost sm" style="width:46px;flex:none;font-size:16px;margin:0;">▶</button>');
+    row.appendChild(bp); row.appendChild(mid); row.appendChild(bn);
+    function pad2(n){ return (n<10?"0":"")+n; }
+    function shift(days){
+      try{ var d=new Date((inp.value||_locDate(0))+"T12:00:00"); d.setDate(d.getDate()+days);
+           inp.value=d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()); }catch(e){ return; }
+      fire();
+    }
+    function fire(){ lab.textContent=_fixDayLabel(inp.value); if(onChange) onChange(inp.value); }
+    bp.addEventListener("click",function(){ shift(-1); });
+    bn.addEventListener("click",function(){ shift(1); });
+    inp.addEventListener("change",fire);
+    return {row: row, input: inp};
+  }
   function doch_opravy_den(){
     var ctx=window._fixCtx||{};
     app.innerHTML=topbar("🛠 "+(ctx.name||"Oprava dne"), true); _dochTopPad();
     var p=el('<div class="panel"></div>'); app.appendChild(p);
-    var dt=el('<input type="date" value="'+esc(ctx.day||_locDate(0))+'" style="width:100%;">');
-    p.appendChild(dt);
+    var dr=_fixDateRow(ctx.day||_locDate(0), function(v){ ctx.day=v; load(); });
+    var dt=dr.input;
+    p.appendChild(dr.row);
     var box=el('<div style="margin-top:8px;"></div>'); p.appendChild(box);
     p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod spodní lištu (Jirka 10.7.)
-    dt.addEventListener("change",function(){ ctx.day=dt.value; load(); });
     function load(){
       box.innerHTML='<div class="hint">Načítám den…</div>';
       api("GET","/api/v1/erp/app/attendance/fix/day?uid="+ctx.uid+"&day="+encodeURIComponent(dt.value||""),"").then(function(j){

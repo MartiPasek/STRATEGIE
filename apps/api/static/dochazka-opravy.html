@@ -72,6 +72,26 @@ function reasonBox(){
   REASONS.forEach(function(r){var b=el('<button class="b" style="font-size:11.5px;">'+esc(r)+'</button>');b.addEventListener('click',function(){inp.value=r;});ch.appendChild(b);});
   w.appendChild(ch);w.appendChild(inp);w._input=inp;return w;
 }
+// Jirka 10.7.: pohodlná volba dne — šipky ◀/▶ + kalendář + název dne v týdnu.
+var DNY=['neděle','pondělí','úterý','středa','čtvrtek','pátek','sobota'];
+function dayLabel(v){try{var d=new Date(v+'T12:00:00');return DNY[d.getDay()]+' '+d.getDate()+'.'+(d.getMonth()+1)+'.';}catch(e){return '';}}
+function dateRow(initial,onChange){
+  var row=el('<div style="display:flex;gap:8px;align-items:flex-start;"></div>');
+  var bp=el('<button class="b" style="width:44px;flex:none;">◀</button>');
+  var mid=el('<div style="flex:1;min-width:0;"></div>');
+  var inp=el('<input type="date" value="'+esc(initial)+'" style="width:100%;">');
+  var lab=el('<div class="hint" style="text-align:center;">'+esc(dayLabel(initial))+'</div>');
+  mid.appendChild(inp);mid.appendChild(lab);
+  var bn=el('<button class="b" style="width:44px;flex:none;">▶</button>');
+  row.appendChild(bp);row.appendChild(mid);row.appendChild(bn);
+  function pad2(n){return (n<10?'0':'')+n;}
+  function shift(days){try{var d=new Date((inp.value||today())+'T12:00:00');d.setDate(d.getDate()+days);inp.value=d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());}catch(e){return;}fire();}
+  function fire(){lab.textContent=dayLabel(inp.value);if(onChange)onChange(inp.value);}
+  bp.addEventListener('click',function(){shift(-1);});
+  bn.addEventListener('click',function(){shift(1);});
+  inp.addEventListener('change',fire);
+  return {row:row,input:inp};
+}
 function confirmBox(fx,txt,onYes){
   fx.querySelectorAll('.conf').forEach(function(x){x.remove();});
   var c=el('<div class="conf"></div>');
@@ -135,10 +155,14 @@ function loadPeople(){
   var L=document.getElementById('left');L.innerHTML='<div class="hint">Načítám lidi…</div>';
   api('GET','/api/v1/erp/app/dochazka/lide').then(function(j){
     L.innerHTML='';LIDE=(j.lide||[]);
+    L.appendChild(el('<div class="hint" style="margin-bottom:4px;">📅 Který den zobrazit (jde změnit i potom v detailu):</div>'));
+    var dr=dateRow(today(),null);
+    var dt=dr.input;
+    L.appendChild(dr.row);
+    L.appendChild(el('<div class="hint" style="margin:10px 0 4px;">👤 Čí docházku otevřít:</div>'));
     var si=el('<input class="full" id="who" placeholder="🔎 hledat jméno…">');
-    var dt=el('<input type="date" value="'+today()+'" style="margin-top:6px;">');
     var res=el('<div style="margin-top:8px;"></div>');
-    L.appendChild(si);L.appendChild(dt);L.appendChild(res);
+    L.appendChild(si);L.appendChild(res);
     function rend(){
       var q=(si.value||'').toLowerCase().trim();res.innerHTML='';
       LIDE.filter(function(l){return !q||(l.jmeno||'').toLowerCase().indexOf(q)>=0;}).forEach(function(l){
@@ -205,9 +229,10 @@ function openDay(uid,name,day){
   var R=document.getElementById('right');
   R.innerHTML='';
   R.appendChild(el('<div class="sec" style="margin-top:0;">DEN — '+esc(name||'?')+'</div>'));
-  var dt=el('<input type="date" value="'+esc(day)+'">');R.appendChild(dt);
+  var dr=dateRow(day,function(v){CTX.day=v;render();});
+  var dt=dr.input;
+  R.appendChild(dr.row);
   var box=el('<div style="margin-top:8px;"></div>');R.appendChild(box);
-  dt.addEventListener('change',function(){CTX.day=dt.value;render();});
   function render(){
     box.innerHTML='<div class="hint">Načítám den…</div>';
     api('GET','/api/v1/erp/app/attendance/fix/day?uid='+CTX.uid+'&day='+encodeURIComponent(dt.value)).then(function(j){

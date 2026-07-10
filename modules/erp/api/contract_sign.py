@@ -960,3 +960,48 @@ async def sign_self(req: Request):
         return JSONResponse({"ok": False, "error": "Selhalo: %s" % type(exc).__name__}, status_code=500)
     finally:
         s.close()
+
+
+@contract_router.post("/app/mail/send-doc")
+async def mail_send_doc(req: Request):
+    """Obecné odeslání e-mailu z AI schránky (marti-ai@, persona 1) s jednou přílohou
+    (dokument v base64). Parent / finance-HR okruh. Marti 10.7.2026 — odpověď na dotaz
+    kolegy + příloha. Body: {to, cc:[], subject, body, filename, doc_b64}."""
+    uid = _uid(req)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        if not _can(uid, s):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            b = await req.json()
+        except Exception:
+            b = {}
+        b = b or {}
+        to = str(b.get("to") or "").strip()
+        cc = [str(x).strip() for x in (b.get("cc") or []) if str(x).strip()]
+        subject = str(b.get("subject") or "").strip()
+        body = str(b.get("body") or "").strip()
+        fn = str(b.get("filename") or "priloha.pdf").strip()[:120]
+        doc_b64 = b.get("doc_b64") or ""
+        if "@" not in to or not subject or not body:
+            return JSONResponse({"ok": False, "error": "Chybí to / subject / body."}, status_code=400)
+        att_ids = None
+        if doc_b64:
+            try:
+                raw = base64.b64decode(doc_b64)
+                from modules.rag.application.service import upload_document
+                doc_id = upload_document(file_bytes=raw, filename=fn, tenant_id=tid, user_id=uid)
+                att_ids = [doc_id] if doc_id else None
+            except Exception as exc:
+                return JSONResponse({"ok": False, "error": "příloha selhala: " + str(exc)[:150]}, status_code=500)
+        from modules.notifications.application.email_service import queue_email
+        try:
+            res = queue_email(to=to, subject=subject[:250], body=body, cc=(cc or None),
+                              persona_id=1, from_identity="persona", tenant_id=tid,
+                              purpose="user_request", attachment_document_ids=att_ids)
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": "odeslání selhalo: " + str(exc)[:150]}, status_code=500)
+        return {"ok": True, "vysledek": res, "to": to, "cc": cc, "priloha": bool(att_ids)}
+    finally:
+        s.close()

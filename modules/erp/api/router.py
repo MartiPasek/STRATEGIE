@@ -19569,7 +19569,8 @@ async def att_fix_void(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         row = s.execute(_t(
             "SELECT e.employee_id, e.entry_date, COALESCE(to_char(e.started_at,'HH24:MI'),'?'), "
-            "       COALESCE(to_char(e.ended_at,'HH24:MI'),'…'), e.status, COALESCE(e.source_system,''), et.label "
+            "       COALESCE(to_char(e.ended_at,'HH24:MI'),'…'), e.status, COALESCE(e.source_system,''), et.label, "
+            "       e.started_at, e.ended_at "
             "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
             "WHERE e.id=:i AND e.tenant_id=:t"),
             {"i": eid, "t": _ATT_TENANT}).first()
@@ -19598,8 +19599,177 @@ async def att_fix_void(req: Request) -> JSONResponse:
                         actor + " stornoval(a) v tvé docházce " + row[1].strftime("%d.%m.")
                         + " záznam " + desc.strip() + " (" + reason + "). "
                         "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
+        # Jirka 10.7.: storno přerušení (odchod/omyl) může nechat den rozstřižený —
+        # když na sebe okolní záznamy navazují a mají STEJNÝ typ i zakázku, nabídni
+        # sloučení (UI se zeptá, sešití dělá /fix/merge).
+        offer = _att_fix_merge_candidate(s, emp, row[1], row[7], row[8], eid)
         s.commit()
-        return JSONResponse({"ok": True})
+        return JSONResponse({"ok": True, "merge_offer": offer})
+    except Exception as exc:
+        s.rollback()
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _att_fix_merge_candidate(s, emp, day, x_start, x_end, exclude_id):
+    """Po stornu přerušení X najdi navazující segmenty: A končí ~u začátku X,
+    B začíná ~u konce X (tolerance 3 min). Kandidát na sloučení JEN při přesné
+    shodě typu i zakázky (Jirka 10.7.: práce×režie se neslučuje). Vrací dict
+    {a_id, b_id, popis} nebo None."""
+    from sqlalchemy import text as _t
+    if x_start is None:
+        return None
+    xe = x_end or x_start
+    try:
+        a = s.execute(_t(
+            "SELECT e.id, e.entry_type_id, COALESCE(e.project_ref,''), et.label, "
+            "       to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI') "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d AND e.id<>:x "
+            "  AND e.status NOT IN ('superseded','announced') AND COALESCE(e.source_system,'')='' "
+            "  AND et.category='presence' AND et.code NOT IN ('day_end','break') "
+            "  AND e.ended_at IS NOT NULL "
+            "  AND abs(EXTRACT(EPOCH FROM (e.ended_at - CAST(:xs AS timestamp)))) <= 180 "
+            "ORDER BY e.ended_at DESC LIMIT 1"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "x": exclude_id,
+             "xs": x_start.isoformat(sep=" ")}).first()
+        b = s.execute(_t(
+            "SELECT e.id, e.entry_type_id, COALESCE(e.project_ref,''), et.label, "
+            "       to_char(e.started_at,'HH24:MI'), COALESCE(to_char(e.ended_at,'HH24:MI'),'…') "
+            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+            "WHERE e.tenant_id=:t AND e.employee_id=:e AND e.entry_date=:d AND e.id<>:x "
+            "  AND e.status NOT IN ('superseded','announced') AND COALESCE(e.source_system,'')='' "
+            "  AND et.category='presence' AND et.code NOT IN ('day_end','break') "
+            "  AND e.started_at IS NOT NULL "
+            "  AND abs(EXTRACT(EPOCH FROM (e.started_at - CAST(:xe AS timestamp)))) <= 180 "
+            "ORDER BY e.started_at LIMIT 1"),
+            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "x": exclude_id,
+             "xe": xe.isoformat(sep=" ")}).first()
+    except Exception:
+        return None
+    if not (a and b) or a[0] == b[0]:
+        return None
+    if a[1] != b[1] or a[2] != b[2]:
+        return None  # jiný typ nebo zakázka → neslučovat
+    return {"a_id": a[0], "b_id": b[0],
+            "popis": (a[3] or "") + " " + (a[4] or "?") + "–" + (a[5] or "?")
+                     + "  +  " + (b[3] or "") + " " + (b[4] or "?") + "–" + (b[5] or "…")}
+
+
+@api_router.post("/app/attendance/fix/merge")
+async def att_fix_merge(req: Request) -> JSONResponse:
+    """Sešití navazujících záznamů po stornu přerušení (Jirka 10.7.): B se
+    zneplatní, A převezme jeho konec (běžící B → A se znovu otevře jako běžící).
+    Jen při přesné shodě typu i zakázky. Auditované, dotčený dostane notifikaci."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    try:
+        a_id = int((body or {}).get("a_id") or 0)
+        b_id = int((body or {}).get("b_id") or 0)
+    except Exception:
+        a_id = b_id = 0
+    reason = str((body or {}).get("reason") or "sloučení navazujících záznamů po stornu").strip()[:300]
+    if not (a_id and b_id) or a_id == b_id:
+        return JSONResponse({"ok": False, "error": "missing_ids"}, status_code=400)
+    cm, s = _att_session()
+    try:
+        if not _att_can_fix(s, uid):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        rows = {}
+        for rid in (a_id, b_id):
+            rows[rid] = s.execute(_t(
+                "SELECT e.id, e.employee_id, e.entry_date, e.started_at, e.ended_at, "
+                "       e.entry_type_id, COALESCE(e.project_ref,''), COALESCE(e.break_minutes,0), "
+                "       e.status, COALESCE(e.source_system,''), e.is_active, et.label, e.project_ref "
+                "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id=e.entry_type_id "
+                "WHERE e.id=:i AND e.tenant_id=:t"), {"i": rid, "t": _ATT_TENANT}).first()
+        A, B = rows[a_id], rows[b_id]
+        if not (A and B):
+            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
+        if A[1] != B[1]:
+            return JSONResponse({"ok": False, "error": "Záznamy nepatří stejné osobě."})
+        if A[8] == "superseded" or B[8] == "superseded":
+            return JSONResponse({"ok": False, "error": "Jeden ze záznamů už je zneplatněný."})
+        if A[9] or B[9]:
+            return JSONResponse({"ok": False, "error": "Záznam vlastní stará Centrála — sloučení tady nejde."})
+        if A[5] != B[5] or A[6] != B[6]:
+            return JSONResponse({"ok": False, "error": "Záznamy nemají stejný typ a zakázku — neslučuji."})
+        if A[4] is None or B[3] is None:
+            return JSONResponse({"ok": False, "error": "Chybí časy pro sešití."})
+        gap = (B[3] - A[4]).total_seconds()
+        if gap < -60 or gap > 900:
+            return JSONResponse({"ok": False, "error": "Záznamy na sebe nenavazují (mezera přes 15 min)."})
+        if _att_period_locked(s, A[2]):
+            return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány)."}, status_code=409)
+        emp = int(A[1])
+        actor = _user_jmeno(s, uid)
+        b_running = bool(B[10]) and B[4] is None
+        brk = int(A[7]) + int(B[7])
+        if b_running:
+            new_end = None
+            hrs = None
+        else:
+            new_end = B[4]
+            hrs = round(max((B[4] - A[3]).total_seconds() / 3600.0 - brk / 60.0, 0.0), 2)
+        a_zac = A[3].strftime("%H:%M")
+        a_kon = A[4].strftime("%H:%M")
+        b_kon = B[4].strftime("%H:%M") if B[4] is not None else "…"
+        nn = "🛠 SLOUČENO (" + actor + "): " + reason + " (navázán #" + str(b_id) + ", původně do " + a_kon + ")"
+        s.execute(_t(
+            "UPDATE tenant.att_entry SET ended_at=CAST(:ne AS timestamp), is_active=:ia, hours=:h, "
+            "break_minutes=:b, note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, "
+            "updated_at=now() WHERE id=:i"),
+            {"ne": (new_end.isoformat(sep=" ") if new_end is not None else None),
+             "ia": b_running, "h": hrs, "b": brk, "nn": nn, "i": a_id})
+        s.execute(_t(
+            "UPDATE tenant.att_entry SET status='superseded', is_active=false, "
+            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
+            "WHERE id=:i"),
+            {"i": b_id, "nn": "sloučeno do #" + str(a_id) + " (" + actor + ")"})
+        # Osa zakázek: sešij i work_alloc — úsek A protáhni přes úsek B (stejná
+        # zakázka+činnost), úsek B zparazituj na nulovou délku (<60 s se ignoruje).
+        try:
+            tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
+            if tu:
+                wa = s.execute(_t(
+                    "SELECT a.id, b.id, b.ended_at "
+                    "FROM tenant.work_alloc a, tenant.work_alloc b "
+                    "WHERE a.user_id=:u AND b.user_id=:u AND a.id<>b.id "
+                    "  AND a.ended_at IS NOT NULL "
+                    "  AND abs(EXTRACT(EPOCH FROM (a.ended_at - CAST(:ae AS timestamptz)))) <= 180 "
+                    "  AND abs(EXTRACT(EPOCH FROM (b.started_at - CAST(:bs AS timestamptz)))) <= 180 "
+                    "  AND COALESCE(a.project_ref,'') = COALESCE(b.project_ref,'') "
+                    "  AND COALESCE(a.cinnost_id,0) = COALESCE(b.cinnost_id,0) LIMIT 1"),
+                    {"u": tu, "ae": A[4].isoformat(sep=" "), "bs": B[3].isoformat(sep=" ")}).first()
+                if wa:
+                    s.execute(_t("UPDATE tenant.work_alloc SET ended_at=:e, updated_at=now() WHERE id=:i"),
+                              {"e": wa[2], "i": wa[0]})
+                    s.execute(_t("UPDATE tenant.work_alloc SET ended_at=started_at, updated_at=now() WHERE id=:i"),
+                              {"i": wa[1]})
+        except Exception:
+            pass
+        s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
+                     "WHERE tenant_id=:t AND entry_id IN (:a,:b) AND resolved_at IS NULL"),
+                  {"t": _ATT_TENANT, "a": a_id, "b": b_id})
+        _att_fix_audit(s, "merge", a_id, emp, uid, actor,
+                       old_note=(A[11] or "") + " " + a_zac + "–" + a_kon + " + " + B[3].strftime("%H:%M") + "–" + b_kon,
+                       new_note=(A[11] or "") + " " + a_zac + "–" + (new_end.strftime("%H:%M") if new_end else "běží"),
+                       detail=reason + " | sloučen #" + str(b_id) + " do #" + str(a_id),
+                       old_date=A[2].isoformat())
+        _att_fix_notify(s, emp, uid, actor, "🛠 Sloučení záznamů docházky",
+                        actor + " sloučil(a) v tvé docházce " + A[2].strftime("%d.%m.")
+                        + " navazující záznamy do jednoho: " + (A[11] or "") + " " + a_zac + "–"
+                        + (new_end.strftime("%H:%M") if new_end else "běží") + " (" + reason + "). "
+                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
+        s.commit()
+        return JSONResponse({"ok": True, "id": a_id, "running": b_running})
     except Exception as exc:
         s.rollback()
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
@@ -19687,7 +19857,7 @@ async def att_fix_audit_list(req: Request) -> JSONResponse:
             "FROM tenant.att_audit a "
             "LEFT JOIN tenant.att_employee em ON em.id = a.employee_id "
             "LEFT JOIN public.users u ON u.id = em.user_id "
-            "WHERE a.tenant_id = :t AND a.action IN ('fix','add','void','resolve','period_lock','period_unlock') "
+            "WHERE a.tenant_id = :t AND a.action IN ('fix','add','void','merge','resolve','period_lock','period_unlock') "
             "ORDER BY a.id DESC LIMIT 200"),
             {"t": _ATT_TENANT}).fetchall()
         s.commit()

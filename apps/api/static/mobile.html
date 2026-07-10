@@ -6846,7 +6846,7 @@ setTimeout(function(){
       box.innerHTML="";
       var it=(j&&j.items)||[];
       if(!it.length){ box.innerHTML='<div class="hint">Zatím žádné opravy.</div>'; return; }
-      var ICO={fix:"✏️",add:"➕",void:"🗑",resolve:"✓",period_lock:"🔒",period_unlock:"🔓"};
+      var ICO={fix:"✏️",add:"➕",void:"🗑",merge:"🔗",resolve:"✓",period_lock:"🔒",period_unlock:"🔓"};
       it.forEach(function(r){
         var c=el('<div style="border-bottom:1px solid var(--bord);padding:8px 2px;font-size:13px;"></div>');
         c.appendChild(el('<div><b>'+(ICO[r.action]||"·")+' '+esc(r.person||"")+'</b>'+(r.day?(' · '+esc(r.day)):'')+' <span class="hint">('+esc(r.actor||"?")+', '+esc(r.ts||"")+')</span></div>'));
@@ -6948,7 +6948,28 @@ setTimeout(function(){
                 if(!(rb._input.value||"").trim()){ st.textContent="Důvod je povinný."; return; }
                 _fixConfirm(fx,"Opravdu stornovat záznam <b>"+esc((e2.zac||"?")+"–"+(e2.kon||"…"))+"</b>?",function(cw){
                   api("POST","/api/v1/erp/app/attendance/fix/void",{id:e2.id,reason:rb._input.value.trim()}).then(function(r){
-                    if(r&&r.ok){ load(); } else { cw.remove(); st.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); }
+                    if(!(r&&r.ok)){ cw.remove(); st.textContent="✗ "+((r&&r.error)||"Nepodařilo se."); return; }
+                    // Jirka 10.7.: storno přerušení → když okolní záznamy navazují
+                    // (stejný typ i zakázka), nabídni sešití do jednoho záznamu.
+                    if(r.merge_offer&&r.merge_offer.a_id){
+                      var mo=r.merge_offer;
+                      cw.remove(); fx.innerHTML="";
+                      var mw=el('<div class="trimconf" style="margin-top:6px;background:rgba(79,142,247,.10);border:1px solid var(--blue);border-radius:8px;padding:10px;"></div>');
+                      mw.appendChild(el('<div style="font-size:14px;">Stornováno ✅ Okolní záznamy na sebe navazují (stejný typ i zakázka):<br><b>'+esc(mo.popis)+'</b><br>Sloučit do jednoho záznamu?</div>'));
+                      var mbr=el('<div style="display:flex;gap:8px;margin-top:8px;"></div>');
+                      var many=el('<button class="green sm" style="flex:1;">🔗 Sloučit</button>');
+                      var mne=el('<button class="ghost sm">Nechat rozdělené</button>');
+                      mbr.appendChild(many); mbr.appendChild(mne); mw.appendChild(mbr); fx.appendChild(mw);
+                      mne.addEventListener("click",function(){ load(); });
+                      many.addEventListener("click",function(){
+                        many.disabled=true; mne.disabled=true;
+                        api("POST","/api/v1/erp/app/attendance/fix/merge",{a_id:mo.a_id,b_id:mo.b_id,reason:"sloučení po stornu přerušení"}).then(function(m){
+                          if(m&&m.ok){ load(); } else { mw.innerHTML='<div class="hint">✗ '+esc((m&&m.error)||"Sloučení se nepovedlo.")+'</div>'; setTimeout(load,1800); }
+                        });
+                      });
+                      return;
+                    }
+                    load();
                   });
                 });
               });

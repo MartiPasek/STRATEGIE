@@ -190,17 +190,29 @@ _NAVRH_SQL = (
     "FROM tenant.oz_pf_platba p LEFT JOIN u ON u.id_fak=p.id "
     "WHERE p.realizovano=1 AND NOT p.fin_zakaz AND p.nehradit=0 AND p.suma_po_zao>0 "
     "  AND p.obdobi>22 AND p.rada NOT LIKE '52%' "
-    "  AND now()::date >= (p.splatnost::date - (p.dny_pred_platbou||' days')::interval) "
+    "  AND p.splatnost::date <= :cutoff "
     "  AND ((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0)) > 0.5 "
     "{ffilter}{mfilter} ORDER BY p.mena, p.splatnost"
 )
 
 
-def _build_groups(s, firma, mena_f):
+def _parse_cutoff(v):
+    """ISO 'YYYY-MM-DD' -> date; prazdne/spatne -> dnes+7 (Peta: 'splatnost do')."""
+    if v:
+        try:
+            return _dt.date.fromisoformat(str(v)[:10])
+        except Exception:
+            pass
+    return _dt.date.today() + _dt.timedelta(days=7)
+
+
+def _build_groups(s, firma, mena_f, cutoff=None):
     """Návrh → účty z DB_EC → verdikt (jen varuje) → payment-day. Vrací
-    (groups, meta). groups[key=(firma,mena)] = list resolved items. NIC nezapisuje."""
+    (groups, meta). cutoff = posledni datum splatnosti (Peta: 'splatnost do'). NIC nezapisuje."""
     from sqlalchemy import text as _t
-    params = {}
+    if cutoff is None:
+        cutoff = _dt.date.today() + _dt.timedelta(days=7)
+    params = {"cutoff": cutoff}
     ffilter = ""
     if firma in ("1", "2"):
         params["ff"] = int(firma)
@@ -223,7 +235,7 @@ def _build_groups(s, firma, mena_f):
 
     dnes = _dt.date.today()
     nextpd = _next_platebni_den(dnes)
-    meta = {"dnes": dnes, "nextpd": nextpd,
+    meta = {"dnes": dnes, "nextpd": nextpd, "cutoff": cutoff,
             "datum_vytv6": dnes.strftime("%y%m%d"), "datum_vytv8": dnes.strftime("%Y%m%d"),
             "datum_splat6": dnes.strftime("%y%m%d")}   # Peťa: splatnost VŽDY dnešní
 
@@ -254,7 +266,7 @@ def _build_groups(s, firma, mena_f):
         acc = ucty.get(it["id_fak"], {}) or {}
         warns = []
         sp = it["splat_d"] or dnes
-        it["plati"] = bool(sp <= nextpd)
+        it["plati"] = bool(sp <= cutoff)
 
         dok_org = _clean(acc.get("dok_org"))
         ucet_org = _clean(acc.get("ucet_org"))
@@ -291,7 +303,7 @@ def _build_groups(s, firma, mena_f):
 
 
 def _render_item(it, porad, meta):
-    """Vyrenderuj jeden řádek platáku pro položku (nebo None u chybějícího účtu)."""
+    """Vyrenderuj jeden řádek platáku pro položku (nebo None u chybâjícího účtu)."""
     if it["verdikt"] == "chybi":
         return None
     acc = it["acc"]
@@ -341,7 +353,8 @@ def platak_preview(req: Request):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         firma = (req.query_params.get("firma") or "all").strip()
         mena_f = (req.query_params.get("mena") or "all").strip().upper()
-        buckets, meta = _build_groups(s, firma, mena_f)
+        cutoff = _parse_cutoff(req.query_params.get("splatnost_do"))
+        buckets, meta = _build_groups(s, firma, mena_f, cutoff)
         if not buckets:
             return {"ok": True, "skupiny": [], "pocet": 0,
                     "dnes": meta["dnes"].strftime("%d.%m.%Y"),
@@ -397,11 +410,12 @@ async def platak_commit(req: Request):
         b = await req.json()
         firma = str((b or {}).get("firma") or "").strip()
         mena = str((b or {}).get("mena") or "").strip().upper()
+        cutoff = _parse_cutoff((b or {}).get("splatnost_do"))
         if firma not in ("1", "2") or mena not in ("CZK", "EUR"):
             return JSONResponse({"ok": False, "error": "Zadej firmu (1/2) a měnu (CZK/EUR)."}, status_code=400)
         frm = int(firma)
 
-        buckets, meta = _build_groups(s, firma, mena)
+        buckets, meta = _build_groups(s, firma, mena, cutoff)
         if meta["ec_err"]:
             return JSONResponse({"ok": False, "error": "Účty z DB_EC se nenačetly: " + meta["ec_err"]}, status_code=502)
         items = buckets.get((frm, mena), [])

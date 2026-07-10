@@ -77,6 +77,15 @@ GO_FILE = BRIDGE_DIR / "CLAUDE_GO.txt"
 OUT_FILE = BRIDGE_DIR / "CLAUDE_OUT.txt"
 OUT_FULL_FILE = BRIDGE_DIR / "CLAUDE_OUT_FULL.txt"   # plný nezkrácený TSV (bez ořezu buněk/řádků)
 LOG_FILE = BRIDGE_DIR / "watcher.log"
+LOG_MAX_BYTES = 1_500_000                            # rotace watcher.log > ~1.5 MB (drž složku lehkou pro 9p mount)
+
+# Nonce-pojmenovaný výstup (Marti 10.7.2026): Cowork device-bridge (9p mount) kešuje
+# obsah PODLE CESTY → re-stage stejné CLAUDE_OUT.txt vrací starou (stale) verzi.
+# Fix: když GO obsahuje `nonce=<token>`, watcher zapíše výstup NAVÍC do
+# CLAUDE_OUT__<token>.txt / CLAUDE_OUT_FULL__<token>.txt. Cowork čte vždy poprvé
+# viděnou cestu → nikdy stale. Dev session (Claude Code) čte přímo z FS = beze změny.
+_current_nonce: str | None = None
+NONCE_KEEP = 8                                        # kolik nonce kopií na base držet (úklid starších)
 
 # Auto-deploy (Marti 2.6.2026): Claude zapíše commit message + seznam souborů,
 # watcher na NB udělá git add/commit/push + zavolá cloud /deploy/now.
@@ -199,11 +208,31 @@ SCREENSHOT_UID = os.environ.get("CLAUDE_SCREENSHOT_UID") or ("11" if INSTANCE_ID
 _shot_last_epoch = 0
 
 
+def _rotate_log() -> None:
+    """Rotace watcher.log když překročí LOG_MAX_BYTES → watcher.log.1 (drž složku
+    lehkou, jinak se 9p mount na 12MB logu dusí a čtení z Coworku je stale)."""
+    try:
+        if LOG_FILE.exists() and LOG_FILE.stat().st_size > LOG_MAX_BYTES:
+            bak = LOG_FILE.with_name("watcher.log.1")
+            try:
+                if bak.exists():
+                    bak.unlink()
+                LOG_FILE.rename(bak)          # tento proces mezi zápisy handle nedrží → rename projde
+            except OSError:
+                try:
+                    LOG_FILE.write_text("", encoding="utf-8")   # fallback: truncate
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
 def _log(msg: str) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     try:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_log()
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError:
@@ -278,6 +307,31 @@ def _md_table(columns: list, rows: list) -> str:
     return head + "\n" + sep + ("\n" + body if body else "")
 
 
+def _also_nonce(base: Path, content: str) -> None:
+    """Zapíše kopii výstupu do <stem>__<nonce><suffix> (poprvé viděná cesta pro
+    Cowork = obchází 9p cache-by-path) + úklid starších nonce kopií daného base.
+    No-op když GO nonce neobsahuje (dev session)."""
+    n = _current_nonce
+    if not n:
+        return
+    try:
+        nf = base.with_name(f"{base.stem}__{n}{base.suffix}")
+        nf.write_text(content, encoding="utf-8", errors="replace")
+    except Exception as exc:
+        _log(f"nonce write failed ({base.name}): {exc}")
+    try:
+        pat = f"{base.stem}__*{base.suffix}"
+        olds = sorted(base.parent.glob(pat),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        for p in olds[NONCE_KEEP:]:
+            try:
+                p.unlink()
+            except OSError:
+                pass
+    except Exception:
+        pass
+
+
 def _write_full(columns: list, rows: list) -> None:
     """Plný nezkrácený výstup do CLAUDE_OUT_FULL.txt (TSV) — bez ořezu buněk i
     řádků. Claude si ho přečte Read toolem, když náhled v OUT nestačí. Marti 3.7."""
@@ -291,7 +345,9 @@ def _write_full(columns: list, rows: list) -> None:
                 lines.append("\t".join(_c(r.get(c)) for c in (columns or [])))
             else:
                 lines.append("\t".join(_c(v) for v in r))
-        OUT_FULL_FILE.write_text("\n".join(lines), encoding="utf-8", errors="replace")
+        full = "\n".join(lines)
+        OUT_FULL_FILE.write_text(full, encoding="utf-8", errors="replace")
+        _also_nonce(OUT_FULL_FILE, full)
     except Exception as exc:
         _log(f"_write_full failed: {exc}")
 
@@ -314,11 +370,13 @@ def _freshness_banner() -> str:
 
 
 def _write_out(text_body: str) -> None:
+    content = _freshness_banner() + text_body
     try:
         OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        OUT_FILE.write_text(_freshness_banner() + text_body, encoding="utf-8")
+        OUT_FILE.write_text(content, encoding="utf-8")
     except OSError as exc:
         _log(f"write OUT failed: {exc}")
+    _also_nonce(OUT_FILE, content)
 
 
 def _read_work_lock() -> tuple:
@@ -443,6 +501,8 @@ def _local_alert(title: str, msg: str) -> None:
 
 
 def _process() -> None:
+    global _current_nonce
+    _current_nonce = None
     db = "pg"
     try:
         go_raw = GO_FILE.read_text(encoding="utf-8", errors="replace").strip().lower()
@@ -450,6 +510,9 @@ def _process() -> None:
         m = re.search(r"db\s*=\s*([a-z0-9_]+)", go_raw)
         if m:
             db = m.group(1)
+        mn = re.search(r"nonce\s*=\s*([a-z0-9_]+)", go_raw)
+        if mn:
+            _current_nonce = mn.group(1)
     except Exception:
         pass
 

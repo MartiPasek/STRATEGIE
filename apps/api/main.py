@@ -1426,9 +1426,13 @@ def moje_dochazka_page():
 @app.get("/dochazka-opravy")
 def dochazka_opravy_page():
     """Správa docházky — opravy chybných záznamů pověřenými osobami (skupina
-    DOCHÁZKA - OPRAVY). Data gated na serveru (_att_can_fix). Jirka 9.7.2026."""
+    DOCHÁZKA - OPRAVY). Data gated na serveru (_att_can_fix). Jirka 9.7.2026.
+    XFO/CSP hlavičky: globální middleware dává DENY → v ERP iframe by se stránka
+    nenačetla (vzor finance-podminky, Jirka 10.7.)."""
     return FileResponse(os.path.join(static_dir, "dochazka-opravy.html"),
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "X-Frame-Options": "SAMEORIGIN",
+                                 "Content-Security-Policy": "frame-ancestors 'self'"})
 
 
 @app.get("/osnova")

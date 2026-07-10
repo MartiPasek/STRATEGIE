@@ -631,6 +631,25 @@ def _build_final_pdf(orig_bytes, e, parties, sig_png_bytes=None):
                 y = y - disph - 8 * mm
             except Exception:
                 pass
+        # Podpisový blok protistrany (Marti 10.7.2026): jejich auditní stopa se ukáže
+        # rovnocenně k našemu bloku — slušnost vůči protistraně + poctivá doložka. Textový
+        # SES „podpis" (jméno + čas + IP + e-mail); nezávisle na tom, kdo a z jakého e-mailu
+        # podepsal — vykreslíme, co máme v auditní stopě.
+        _cp = next((q for q in parties if q.get("role") != "internal" and q.get("signed")), None)
+        if _cp:
+            _csat = _cp["signed_at"].strftime("%d.%m.%Y %H:%M:%S") if _cp.get("signed_at") else "?"
+            _cpnm = (_cp.get("jmeno") or "").strip()
+            line("Podpis za protistranu%s:" % ((" — " + _cpnm) if _cpnm else ""), bold=True)
+            line("   elektronicky (SES) podepsáno %s" % _csat)
+            _cptail = "   IP %s" % (_cp.get("signed_ip") or "?")
+            if _cp.get("email"):
+                _cptail += ", e-mail %s" % _cp["email"]
+            line(_cptail)
+            try:
+                c.line(25 * mm, y + 3 * mm, 25 * mm + 55 * mm, y + 3 * mm)
+            except Exception:
+                pass
+            y -= 5 * mm
         line("Tato doložka je auditní stopou elektronického podpisu. Obě strany vyjádřily")
         line("souhlas s elektronickým podepsáním. Integritu dokumentu ověřuje SHA-256 otisk výše.")
         c.setFont(FI, 8)

@@ -190,29 +190,17 @@ _NAVRH_SQL = (
     "FROM tenant.oz_pf_platba p LEFT JOIN u ON u.id_fak=p.id "
     "WHERE p.realizovano=1 AND NOT p.fin_zakaz AND p.nehradit=0 AND p.suma_po_zao>0 "
     "  AND p.obdobi>22 AND p.rada NOT LIKE '52%' "
-    "  AND p.splatnost::date <= :cutoff "
+    "  AND now()::date >= (p.splatnost::date - (p.dny_pred_platbou||' days')::interval) "
     "  AND ((CASE WHEN p.mena='CZK' THEN p.suma_kc ELSE p.suma_val END) - COALESCE(u.paid,0)) > 0.5 "
     "{ffilter}{mfilter} ORDER BY p.mena, p.splatnost"
 )
 
 
-def _parse_cutoff(v):
-    """ISO 'YYYY-MM-DD' -> date; prazdne/spatne -> dnes+7 (Peta: 'splatnost do')."""
-    if v:
-        try:
-            return _dt.date.fromisoformat(str(v)[:10])
-        except Exception:
-            pass
-    return _dt.date.today() + _dt.timedelta(days=7)
-
-
-def _build_groups(s, firma, mena_f, cutoff=None):
+def _build_groups(s, firma, mena_f):
     """Návrh → účty z DB_EC → verdikt (jen varuje) → payment-day. Vrací
-    (groups, meta). cutoff = posledni datum splatnosti (Peta: 'splatnost do'). NIC nezapisuje."""
+    (groups, meta). groups[key=(firma,mena)] = list resolved items. NIC nezapisuje."""
     from sqlalchemy import text as _t
-    if cutoff is None:
-        cutoff = _dt.date.today() + _dt.timedelta(days=7)
-    params = {"cutoff": cutoff}
+    params = {}
     ffilter = ""
     if firma in ("1", "2"):
         params["ff"] = int(firma)
@@ -235,7 +223,7 @@ def _build_groups(s, firma, mena_f, cutoff=None):
 
     dnes = _dt.date.today()
     nextpd = _next_platebni_den(dnes)
-    meta = {"dnes": dnes, "nextpd": nextpd, "cutoff": cutoff,
+    meta = {"dnes": dnes, "nextpd": nextpd,
             "datum_vytv6": dnes.strftime("%y%m%d"), "datum_vytv8": dnes.strftime("%Y%m%d"),
             "datum_splat6": dnes.strftime("%y%m%d")}   # Peťa: splatnost VŽDY dnešní
 
@@ -266,7 +254,7 @@ def _build_groups(s, firma, mena_f, cutoff=None):
         acc = ucty.get(it["id_fak"], {}) or {}
         warns = []
         sp = it["splat_d"] or dnes
-        it["plati"] = bool(sp <= cutoff)
+        it["plati"] = bool(sp <= nextpd)
 
         dok_org = _clean(acc.get("dok_org"))
         ucet_org = _clean(acc.get("ucet_org"))
@@ -353,8 +341,7 @@ def platak_preview(req: Request):
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         firma = (req.query_params.get("firma") or "all").strip()
         mena_f = (req.query_params.get("mena") or "all").strip().upper()
-        cutoff = _parse_cutoff(req.query_params.get("splatnost_do"))
-        buckets, meta = _build_groups(s, firma, mena_f, cutoff)
+        buckets, meta = _build_groups(s, firma, mena_f)
         if not buckets:
             return {"ok": True, "skupiny": [], "pocet": 0,
                     "dnes": meta["dnes"].strftime("%d.%m.%Y"),
@@ -410,12 +397,11 @@ async def platak_commit(req: Request):
         b = await req.json()
         firma = str((b or {}).get("firma") or "").strip()
         mena = str((b or {}).get("mena") or "").strip().upper()
-        cutoff = _parse_cutoff((b or {}).get("splatnost_do"))
         if firma not in ("1", "2") or mena not in ("CZK", "EUR"):
             return JSONResponse({"ok": False, "error": "Zadej firmu (1/2) a měnu (CZK/EUR)."}, status_code=400)
         frm = int(firma)
 
-        buckets, meta = _build_groups(s, firma, mena, cutoff)
+        buckets, meta = _build_groups(s, firma, mena)
         if meta["ec_err"]:
             return JSONResponse({"ok": False, "error": "Účty z DB_EC se nenačetly: " + meta["ec_err"]}, status_code=502)
         items = buckets.get((frm, mena), [])
@@ -621,5 +607,115 @@ def platak_soubory(req: Request):
             except Exception as exc:
                 slozky.append({"cesta": cesta, "soubory": [], "err": str(exc)[:160]})
         return {"ok": True, "slozky": slozky, "pocet": len(slozky)}
+    finally:
+        s.close()
+
+
+# ============ IMPORT MZDOVÝCH PLATÁKŮ z Helios (UCTO) → Platební centrum ============
+# Marti 10.7.2026: mzdové platáky vygeneruje Helios (TabPlatTuz + TabPlatTuzR v cloud
+# UCTO_EC/UCTO_ES). Tenhle endpoint je přečte, vyrenderuje .p11 STEJNÝM renderem jako
+# dodavatelské (render_tuz_line, byte-exact) a uloží do tenant.bank_platak + soubor na
+# disk → objeví se v „Platáky k platbě", odeslatelné do RB. Každý platák (Mzdy na účet /
+# Odvody / Kooperativa …) = jeden .p11 soubor. ?dry=1 → jen náhled, NIC nezapisuje.
+@api_router.post("/app/platby/platak/mzdy-import")
+async def platak_mzdy_import(req: Request):
+    uid = _uid_from_token_or_cookie(req)
+    from core.database_data import get_data_session as _g
+    from sqlalchemy import text as _t
+    from modules.erp.api.router import _mssql188_query
+    from collections import OrderedDict as _OD
+    s = _g()
+    try:
+        if not (uid and (_is_parent(s, uid) or int(uid) == 18 or _is_cockpit(s, uid))):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        try:
+            b = await req.json()
+        except Exception:
+            b = {}
+        b = b or {}
+        firma = str(b.get("firma") or req.query_params.get("firma") or "").strip().upper()
+        dry = str(b.get("dry") or req.query_params.get("dry") or "").strip().lower() in ("1", "true", "ano")
+        _now = _dt.date.today()
+        try:
+            rok = int(b.get("rok") or req.query_params.get("rok") or _now.year)
+            mesic = int(b.get("mesic") or req.query_params.get("mesic") or _now.month)
+        except Exception:
+            rok, mesic = _now.year, _now.month
+        if firma in ("1", "EC"):
+            frm, cloud_db = 1, "UCTO_EC"
+        elif firma in ("2", "ES"):
+            frm, cloud_db = 2, "UCTO_ES"
+        else:
+            return JSONResponse({"ok": False, "error": "Zadej firmu EC nebo ES."}, status_code=400)
+        _ro = _mssql188_query("SELECT IdObdobi FROM " + cloud_db + ".dbo.TabMzdObd WHERE Rok=" +
+                              str(rok) + " AND Mesic=" + str(mesic))
+        if not (_ro.get("ok") and _ro.get("rows")):
+            return JSONResponse({"ok": False, "error": "období v cloud Heliosu není (TabMzdObd)"}, status_code=400)
+        idobd = int(_ro["rows"][0][0])
+        q = ("SELECT p.ID, dv.Nazev, p.Mena, r.Castka, "
+             "ISNULL(r.VariabilniSymbol,''), ISNULL(r.KonstantniSymbol,''), ISNULL(r.SpecifickySymbol,''), "
+             "ISNULL(bs.CisloUctu,''), ISNULL(pu.KodUstavu,''), ISNULL(r.DispozicniZprava,'') "
+             "FROM " + cloud_db + ".dbo.TabPlatTuz p "
+             "JOIN " + cloud_db + ".dbo.TabDefPlatPrik dv ON p.MzdPredpis=dv.Kod AND p.IdMzdObd=dv.IdObdobi "
+             "JOIN " + cloud_db + ".dbo.TabPlatTuzR r ON r.IDHlavaPP=p.ID "
+             "LEFT JOIN " + cloud_db + ".dbo.TabBankSpojeni bs ON r.IDBankSpojeni=bs.ID "
+             "LEFT JOIN " + cloud_db + ".dbo.TabPenezniUstavy pu ON r.IDBankUstavu=pu.ID "
+             "WHERE p.IdMzdObd=" + str(idobd) + " ORDER BY p.ID, r.ID")
+        rr = _mssql188_query(q)
+        if not rr.get("ok"):
+            return JSONResponse({"ok": False, "error": "čtení Helios platáků: " + str(rr.get("error"))[:200]}, status_code=502)
+        rows = rr.get("rows") or []
+        if not rows:
+            return {"ok": True, "plataky": [], "info": "V Heliosu nejsou platáky pro toto období."}
+        groups = _OD()
+        for row in rows:
+            plid = int(row[0])
+            if plid not in groups:
+                groups[plid] = {"nazev": _clean(row[1]), "mena": (_clean(row[2]) or "CZK").upper(), "lines": []}
+            groups[plid]["lines"].append(row)
+        nas = _NAS_UCET.get(frm, "")
+        dnes = _dt.date.today()
+        dv6 = dnes.strftime("%y%m%d")
+        now = _dt.datetime.now()
+        out = []
+        for plid, g in groups.items():
+            if g["mena"] != "CZK":
+                out.append({"platak": g["nazev"], "preskoceno": "zatím jen CZK tuzemské", "mena": g["mena"]})
+                continue
+            lines = []
+            suma = 0.0
+            for i, row in enumerate(g["lines"], start=1):
+                castka = float(row[3] or 0)
+                suma += castka
+                lines.append(render_tuz_line(
+                    porad=i, datum_vytv=dv6, castka=castka, ks=_clean(row[5]), vs=_clean(row[4]),
+                    ss=_clean(row[6]), kod_ustavu_prij=_clean(row[8]), ucet_prij=_clean(row[7]),
+                    ucet_klient=nas, datum_splat=dv6, ucel=(_clean(row[9]) or g["nazev"])))
+            content = b"".join(ln.encode("cp1250") + b"\r\n" for ln in lines)
+            b64c = _b64.b64encode(content).decode("ascii")
+            abs_dir, fn = _target(frm, "CZK", dnes, now)
+            fn = fn[:-4] + "_" + str(plid) + fn[-4:]   # unikátní soubor per platák
+            info = {"platak": g["nazev"], "mena": "CZK", "pocet": len(lines),
+                    "suma": round(suma, 2), "soubor": fn, "cesta": abs_dir + "\\",
+                    "nahled": [(l[:120] + "…") if len(l) > 120 else l for l in lines[:2]]}
+            if not dry:
+                try:
+                    pid = s.execute(_t(
+                        "INSERT INTO tenant.bank_platak (firma, typ, mena, nas_ucet, datum_vytvoreni, "
+                        "datum_splatnosti, pocet_polozek, suma, stav, soubor_nazev, soubor_cesta, poznamka, vytvoril_user_id) "
+                        "VALUES (:firma,'tuz','CZK',:nas,CURRENT_DATE,CURRENT_DATE,:pocet,:suma,'vygenerovano',:fn,:cesta,:pozn,:uid) RETURNING id"),
+                        {"firma": frm, "nas": nas, "pocet": len(lines), "suma": round(suma, 2),
+                         "fn": fn, "cesta": abs_dir + "\\", "pozn": "MZDY: " + g["nazev"], "uid": int(uid)}).scalar()
+                    s.flush()
+                    _mcp_file_write(abs_dir, fn, b64c)
+                    s.commit()
+                    info["platak_id"] = int(pid)
+                except Exception as exc:
+                    s.rollback()
+                    info["chyba"] = str(exc)[:200]
+            out.append(info)
+        return {"ok": True, "firma": _FIRMA_KOD.get(frm, "?"), "idobdobi": idobd, "dry": dry,
+                "pocet_plataku": len([x for x in out if x.get("pocet")]),
+                "suma_celkem": round(sum(x.get("suma", 0) for x in out), 2), "plataky": out}
     finally:
         s.close()

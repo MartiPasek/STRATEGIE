@@ -28,8 +28,10 @@
 <h1>📋 Docházka po zakázkách</h1>
 <div class="sub">Rozpad odpracovaného času všech lidí po zakázkách (nový systém: app i tablet/Centrála). Seskupeno po lidech — táhni sloupec „Zakázka" do pruhu nahoře pro rozpad po zakázkách. <a href="/finance">← Finance</a></div>
 <div class="bar">
-  <span class="muted">Měsíc:</span>
-  <input type="month" id="mesic">
+  <span class="muted">Období:</span>
+  <input type="month" id="mesic_od" title="Od měsíce">
+  <span class="muted">–</span>
+  <input type="month" id="mesic_do" title="Do měsíce">
   <span style="width:10px"></span>
   <span class="muted">Zdroj:</span>
   <button class="fbtn on" id="s_" onclick="setSrc('')">Vše</button>
@@ -50,12 +52,16 @@ function srcLbl(p){return SRCLBL[p.value]||p.value||'';}
 function stavBadge(p){const v=p.value||'';if(!v)return '';
   const map={confirmed:'#8fe0a0',approved:'#8fe0a0',pending:'#f0c674',superseded:'#8295ad'};
   return v.split(',').map(x=>'<span style="color:'+(map[x]||'#cdd9ea')+'">'+x+'</span>').join(', ');}
-function monthRange(ym){
-  const [y,m]=ym.split('-').map(Number);
-  const od=ym+'-01';
+function monthRange(ymOd,ymDo){
+  // rozsah více měsíců: od 1. dne prvního měsíce do posledního dne druhého
+  if(ymDo<ymOd){const t=ymOd;ymOd=ymDo;ymDo=t;
+    document.getElementById('mesic_od').value=ymOd;
+    document.getElementById('mesic_do').value=ymDo;}
+  const od=ymOd+'-01';
+  const [y,m]=ymDo.split('-').map(Number);
   const last=new Date(y,m,0).getDate();
   const today=new Date();
-  let doo=ym+'-'+String(last).padStart(2,'0');
+  let doo=ymDo+'-'+String(last).padStart(2,'0');
   // aktuální měsíc → do dneška
   if(today.getFullYear()===y && (today.getMonth()+1)===m){
     doo=today.toISOString().slice(0,10);
@@ -65,7 +71,8 @@ function monthRange(ym){
 async function load(){
   document.getElementById('msg').textContent='Načítám…';
   document.getElementById('grid').innerHTML='';document.getElementById('kpi').innerHTML='';
-  const {od,doo}=monthRange(document.getElementById('mesic').value);
+  const {od,doo}=monthRange(document.getElementById('mesic_od').value,
+                            document.getElementById('mesic_do').value);
   const r=await fetch(API+'/api/v1/erp/app/dochazka/zakazky?od='+od+'&do='+doo+(SRC?('&src='+SRC):''),{credentials:'include'}).then(x=>x.json());
   if(!r.ok){document.getElementById('msg').textContent=r.error==='forbidden'?'Nedostupné — přihlas se.':(r.error||'chyba');return;}
   const rows=r.rows||[], su=r.souhrn||{};
@@ -89,8 +96,11 @@ async function load(){
 function box(n,l){return '<div class="box"><div class="n">'+(n==null?'—':n)+'</div><div class="l">'+l+'</div></div>';}
 (function init(){
   const d=new Date();
-  document.getElementById('mesic').value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
-  document.getElementById('mesic').addEventListener('change',load);
+  const ym=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  document.getElementById('mesic_od').value=ym;
+  document.getElementById('mesic_do').value=ym;
+  document.getElementById('mesic_od').addEventListener('change',load);
+  document.getElementById('mesic_do').addEventListener('change',load);
   load();
 })();
 </script>

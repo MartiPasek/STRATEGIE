@@ -566,6 +566,92 @@ def _maybe_finalize(s, tid, cid):
         pass
 
 
+@contract_router.post("/app/sign/{cid}/regenerate")
+async def sign_regenerate(cid: int, req: Request):
+    """Přegeneruj finální PDF hotové smlouvy novým renderem doložky (Marti 10.7.2026):
+    doplněný symetrický podpisový blok protistrany + oprava fontu (DejaVu, plná čeština).
+    Neposílá znovu odkaz k podpisu, jen přerenderuje pdf_final z uloženého originálu +
+    podpisů. ?resend=1 → přepošle aktualizované finální PDF v příloze oběma stranám."""
+    uid = _uid(req)
+    s = _sess()
+    try:
+        tid = _tenant(req, uid, s)
+        if not _can(uid, s):
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        e = _envelope(s, tid, cid)
+        if not e:
+            return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+        parties = _parties(s, cid)
+        orig = s.execute(_t("SELECT pdf_orig FROM tenant.contract_sign WHERE id=:c"), {"c": cid}).scalar()
+        if not orig:
+            return JSONResponse({"ok": False, "error": "chybí originál PDF"}, status_code=400)
+        _sig_bytes = None
+        try:
+            _iuid = s.execute(_t("SELECT user_id FROM tenant.contract_sign_party WHERE contract_id=:c AND role='internal'"),
+                              {"c": cid}).scalar()
+            if _iuid:
+                _sb = s.execute(_t("SELECT png_b64 FROM tenant.user_signature WHERE user_id=:u"), {"u": _iuid}).scalar()
+                if _sb:
+                    _sig_bytes = base64.b64decode(_sb)
+        except Exception:
+            _sig_bytes = None
+        final_bytes = _build_final_pdf(bytes(orig), e, parties, _sig_bytes)
+        if not final_bytes:
+            return JSONResponse({"ok": False, "error": "render doložky selhal"}, status_code=500)
+        s.execute(_t("UPDATE tenant.contract_sign SET pdf_final=:f,updated_at=now() WHERE id=:c"),
+                  {"f": final_bytes, "c": cid})
+        s.commit()
+        try:
+            _log(s, tid, cid, "regenerated", _user_name(s, uid), _client_ip(req), "",
+                 "přegenerování finálního PDF (doložka obou stran)")
+            s.commit()
+        except Exception:
+            pass
+        resend = str(req.query_params.get("resend") or "").strip().lower() in ("1", "true", "ano")
+        sent = []
+        if resend:
+            try:
+                from modules.notifications.application.email_service import queue_email
+                emails = []
+                cp = [p for p in parties if p["role"] == "counterparty"]
+                if cp and cp[0].get("email"):
+                    emails.append(cp[0]["email"])
+                if e.get("counterparty_email"):
+                    emails.append(e["counterparty_email"])
+                our_uid = s.execute(_t("SELECT user_id FROM tenant.contract_sign_party WHERE contract_id=:c AND role='internal'"),
+                                    {"c": cid}).scalar()
+                if our_uid:
+                    oem = s.execute(_t("""SELECT contact_value FROM public.user_contacts WHERE user_id=:u
+                        AND contact_type='email' AND status='active' ORDER BY is_primary DESC, id LIMIT 1"""),
+                        {"u": our_uid}).scalar()
+                    if oem:
+                        emails.append(oem)
+                doc_id = None
+                try:
+                    from modules.rag.application.service import upload_document
+                    fn = ("Podepsano_" + (e["title"] or "smlouva"))[:120] + ".pdf"
+                    doc_id = upload_document(file_bytes=final_bytes, filename=fn, tenant_id=tid, user_id=(our_uid or 1))
+                except Exception:
+                    doc_id = None
+                body = ("Dobrý den,\n\nv příloze zasíláme aktualizované finální podepsané PDF dokumentu %s "
+                        "s podpisovou doložkou obou stran (auditní stopa: jména, časy, IP, otisk dokumentu). "
+                        "Tisk ani sken není potřeba.\n\nS pozdravem\n%s") % (
+                            e["title"], e["our_party"] or "STRATEGIE-System s.r.o.")
+                for em in set(emails):
+                    try:
+                        queue_email(to=em, subject="Podepsáno (aktualizováno): %s" % e["title"], body=body,
+                                    persona_id=1, from_identity="persona", tenant_id=tid, purpose="user_request",
+                                    attachment_document_ids=([doc_id] if doc_id else None))
+                        sent.append(em)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return {"ok": True, "cid": cid, "velikost": len(final_bytes), "resend": resend, "odeslano": sent}
+    finally:
+        s.close()
+
+
 def _build_final_pdf(orig_bytes, e, parties, sig_png_bytes=None):
     """Sestaví finální PDF (bytes): originál + podpisová doložka (+ obrázek podpisu). Vrací bytes nebo None."""
     try:

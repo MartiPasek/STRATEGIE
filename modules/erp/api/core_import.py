@@ -113,7 +113,8 @@ def _read_centrala(ec_form_id: int) -> dict:
         "MAX(CASE WHEN P.Property='Caption' THEN COALESCE(NULLIF(P.Value,''),P.ValueFMX) END) AS cap, "
         "MAX(CASE WHEN P.Property='FieldName' THEN P.Value END) AS fld, "
         "MAX(CASE WHEN P.Property='Top' THEN P.Value END) AS t, "
-        "MAX(CASE WHEN P.Property='Left' THEN P.Value END) AS l "
+        "MAX(CASE WHEN P.Property='Left' THEN P.Value END) AS l, "
+        "MAX(CASE WHEN P.Property='Width' THEN P.Value END) AS w "
         f"FROM dbo.EC_FormDefEdit e "
         f"LEFT JOIN dbo.EC_FormDefEditProperty P ON P.ID_FormDefEdit = e.ID "
         f"WHERE e.ID_Form = {int(ec_form_id)} AND e.Smazana = 0 "
@@ -236,10 +237,19 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
         layout = json.dumps({"label": cap, "border_mode": "top"})
         if row:
             gb_id = int(row[0])
+            # Pojistka (Kristý 10.7.): NEDEAKTIVUJ groupbox, který už má aktivní
+            # děti (např. embedded gridy dodané po importu) — jinak by re-run
+            # @@COREIMPORT skryl gridy. only_grids placeholder platí jen když
+            # groupbox nemá vlastní aktivní obsah.
+            has_active_child = s.execute(_t(
+                "SELECT EXISTS(SELECT 1 FROM fw.comp_def "
+                "WHERE parent_comp_def_id=:g AND is_active=true)"),
+                {"g": gb_id}).scalar()
+            act = (not only_grids) or bool(has_active_child)
             s.execute(_t(
                 "UPDATE fw.comp_def SET caption=:cap, sort_order=:so, is_active=:act, "
                 "layout=CAST(:lay AS jsonb), parent_comp_def_id=:par WHERE id=:id"),
-                {"cap": cap, "so": (i + 1) * 10, "act": not only_grids,
+                {"cap": cap, "so": (i + 1) * 10, "act": act,
                  "lay": layout, "par": client_panel_id, "id": gb_id})
         else:
             gb_id = int(s.execute(_t(
@@ -283,12 +293,20 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
         ct = by_centrala.get(typ)
         if ct and ct["kind"] == "leaf" and ct["code"] not in ("grid", "gridpoldoklad", "button"):
             new_type = int(ct["id"])
-        s.execute(_t(
-            "UPDATE fw.comp_def SET caption=:cap, parent_comp_def_id=:par, "
-            "sort_order=:so, is_active=true" +
-            (", type_id=:tid" if new_type else "") + " WHERE id=:id"),
-            dict({"cap": cap, "par": parent_id, "so": so, "id": g["id"]},
-                 **({"tid": new_type} if new_type else {})))
+        # Šířka z Centrály (bod 2, Kristý 10.7.): Width (px) → layout.max_width
+        # (edit-form renderer: el.style.maxWidth). Merge do stávajícího layoutu,
+        # ať nepřepíšu always_new_row apod.
+        wv = as_int(c.get("w"))
+        set_sql = "caption=:cap, parent_comp_def_id=:par, sort_order=:so, is_active=true"
+        params = {"cap": cap, "par": parent_id, "so": so, "id": g["id"]}
+        if new_type:
+            set_sql += ", type_id=:tid"
+            params["tid"] = new_type
+        if wv and wv > 0:
+            set_sql += (", layout = COALESCE(layout,'{}'::jsonb) "
+                        "|| jsonb_build_object('max_width', :mw)")
+            params["mw"] = wv
+        s.execute(_t("UPDATE fw.comp_def SET " + set_sql + " WHERE id=:id"), params)
         mapped_cols.add(col.lower())
         rep["fields_mapped"] += 1
 

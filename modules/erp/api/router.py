@@ -18061,19 +18061,13 @@ async def att_dispute_day(req: Request) -> JSONResponse:
             "WHERE target_user_id = :u AND command_type = 'claude_msg' AND status = 'pending' "
             "  AND title LIKE '%Potvrď si docházku%' AND message LIKE :dp"),
             {"u": uid, "dp": day.strftime("%d.%m.") + "%"})
-        # notifikace kontrole docházky (resolver) + tatínkovi jako anchor
+        # Marti 10.7.: rozpory chodí editorům oprav dle působnosti (kancelář/výroba),
+        # už NE Martimu/supervizorovi. Fallback {1}, kdyby editoři nebyli k nalezení.
         who = s.execute(_t(
             "SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')),''), em.full_name) "
             "FROM tenant.att_employee em LEFT JOIN public.users u ON u.id = em.user_id WHERE em.id = :e"),
             {"e": emp}).scalar() or ("zaměstnanec " + str(emp))
-        targets = {1}
-        try:
-            sup = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                            {"e": emp}).scalar()
-            if sup:
-                targets.add(int(sup))
-        except Exception:
-            pass
+        targets = _att_fix_editors_for_emp(s, emp) or {1}
         msg = (who + " rozporoval docházku za " + str(day.day) + ". " + str(day.month) + "."
                + ((" — „" + note + "“") if note else "") + " Mrkni na záznamy a doladěte to spolu.")
         for uid2 in sorted(targets):
@@ -19099,14 +19093,8 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
             "ON CONFLICT (tenant_id, employee_id, day) DO UPDATE SET disputed = true"),
             {"t": _ATT_TENANT, "e": int(row[4]), "d": str(row[1]), "u": uid, "n": note[:300]})
         who = _user_jmeno(s, uid)
-        targets = {1}
-        try:
-            sup = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                            {"e": int(row[4])}).scalar()
-            if sup:
-                targets.add(int(sup))
-        except Exception:
-            pass
+        # Marti 10.7.: rozpor na jobu → editorům oprav dle působnosti, ne Martimu.
+        targets = _att_fix_editors_for_emp(s, int(row[4])) or {1}
         msg = (who + " hlásí problém na záznamu " + str(row[1]) + " "
                + (row[2] or "?") + "–" + (row[3] or "…") + " — „" + note + "“")
         for uid2 in sorted(targets):
@@ -19199,6 +19187,30 @@ def _att_fix_scope_emps(s, scope):
             out.add(eid)
         elif scope == "kancelar" and not je_vyroba:
             out.add(eid)
+    return out
+
+
+def _att_fix_editors_for_emp(s, emp_id):
+    """Editoři oprav, do jejichž působnosti osoba spadá (Marti 10.7.: chyby
+    v docházce a rozpory lidí chodí Petře=kanceláře / Míše+Dušanovi=výroba,
+    už NE Martimu). Správce se scope 'vse' se nenotifikuje. Vrací set user_id
+    (může být prázdný — volající si řeší fallback)."""
+    out = set()
+    from sqlalchemy import text as _t
+    try:
+        rows = s.execute(_t(
+            "SELECT f.user_id, f.scope FROM tenant.att_fix_scope f "
+            "JOIN tenant.staff_group_member m ON m.user_id = f.user_id AND m.tenant_id = 2 "
+            "JOIN tenant.staff_group g ON g.id = m.group_id AND g.tenant_id = 2 "
+            "  AND COALESCE(g.archived,false) = false AND g.name = :g "
+            "WHERE f.scope IN ('kancelar','vyroba')"),
+            {"g": _ATT_FIX_GROUP}).fetchall()
+        for sc in {r[1] for r in rows}:
+            emps = _att_fix_scope_emps(s, sc)
+            if emps is None or int(emp_id) in emps:
+                out |= {int(r[0]) for r in rows if r[1] == sc}
+    except Exception:
+        pass
     return out
 
 
@@ -43931,15 +43943,15 @@ def _att_anomaly_scan(notify: bool = True) -> dict:
                 targets = set()
                 if emp_uid:
                     targets.add(int(emp_uid))
-                # nepotvrzený den = osobní zodpovědnost (Fáze 1) → bez supervizora
+                # nepotvrzený den = osobní zodpovědnost (Fáze 1) → jen dotyčný.
+                # Marti 10.7.: ostatní nesrovnalosti chodí EDITORŮM oprav dle
+                # působnosti (Peťa=kanceláře, Míša+Dušan=výroba), už NE supervizorovi.
                 if rule != "nepotvrzeny_den":
-                    try:
-                        sup = s.execute(_t("SELECT tenant.resolve_role(2, :e, 'attendance_supervisor')"),
-                                        {"e": emp_id}).scalar()
-                        if sup:
-                            targets.add(int(sup))
-                    except Exception:
-                        pass
+                    eds = _att_fix_editors_for_emp(s, emp_id)
+                    if eds:
+                        targets |= eds
+                    else:
+                        targets.add(1)  # fallback — ať se chyba nikdy neztratí
                 for uid2 in sorted(targets):
                     mine = (emp_uid is not None and uid2 == int(emp_uid))
                     if rule == "nepotvrzeny_den":

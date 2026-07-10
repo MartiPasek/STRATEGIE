@@ -193,6 +193,28 @@ def _touch_restart_marker(proposal_id: int, proposed_by: str) -> tuple[bool, str
         return False, f"{type(exc).__name__}: {exc}"
 
 
+def _touch_refresh_secondary_marker(proposal_id: int, deps: bool = False) -> tuple[bool, str]:
+    """Marti 10.7.2026: po KAŽDÉM úspěšném deployi automaticky srovnat blue-green
+    zálohu (API B) na aktuální A. Zapíše .refreshsec marker → STRATEGIE-RESTART-WATCHER
+    spustí refresh_secondary.ps1 (stop B → robocopy A→prev → start B). Dřív se dělalo
+    ručně tlačítkem; bez toho hlídač nagoval „⚠ Záloha API B nedohnala A" po každém deployi.
+    deps=True (změna pyproject/poetry.lock) → záloha pustí i poetry install.
+    Selhání NENÍ fatální — jen warning, deploy A tím není dotčen."""
+    try:
+        MARKER_DIR.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        marker_path = MARKER_DIR / f"{ts}_autodeploy_p{proposal_id}_refreshsec.refreshsec"
+        import json
+        marker_path.write_text(
+            json.dumps({"deps": bool(deps), "by": "auto_deploy", "proposal_id": proposal_id},
+                       ensure_ascii=False),
+            encoding="utf-8")
+        return True, str(marker_path)
+    except Exception as exc:
+        logger.warning(f"_touch_refresh_secondary_marker failed: {exc}")
+        return False, f"{type(exc).__name__}: {exc}"
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────
@@ -461,6 +483,23 @@ def _execute_deployment(proposal_id: int) -> dict:
         ds.commit()
     finally:
         ds.close()
+
+    # Auto-srovnání blue-green zálohy B (Marti 10.7.2026): po každém úspěšném deployi
+    # povýš zálohu na aktuální kód. Dřív ruční tlačítko → hlídač nagoval po každém deployi.
+    # deps podle toho, jestli se měnil pyproject/poetry.lock. Nikdy nefatální.
+    try:
+        _deps_rs = any(("pyproject" in str(_c).lower() or "poetry.lock" in str(_c).lower())
+                       for _c in (_changed or []))
+        _rs_ok, _rs_info = _touch_refresh_secondary_marker(proposal_id, _deps_rs)
+        _emit(
+            ("📦 Auto-srovnání zálohy B naplánováno (RESTART-WATCHER povýší API B)"
+             if _rs_ok else f"⚠ Auto-srovnání zálohy B se nepodařilo naplánovat: {_rs_info[:150]}"),
+            "deploy.executed",
+            {"proposal_id": proposal_id, "refreshsec_marker": (_rs_info if _rs_ok else None),
+             "deps": _deps_rs},
+        )
+    except Exception as _rs_exc:
+        logger.warning(f"deployment #{proposal_id}: auto-refresh secondary failed: {_rs_exc}")
 
     return {
         "ok": True,

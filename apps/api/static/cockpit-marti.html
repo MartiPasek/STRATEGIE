@@ -56,6 +56,9 @@
 <div class="lbl">📡 Stav teď</div>
 <div class="stats" id="stats"></div>
 
+<div class="lbl" id="zaloha-lbl">🟩 Záloha (blue‑green API B)</div>
+<div class="cards" id="zaloha"><div class="c"><div class="ds">Načítám…</div></div></div>
+
 <div class="lbl">🏦 Účetnictví, finance & migrace do cloudu</div>
 <div class="mods">
   <a class="mod" href="/zrcadla"><span class="i">🪞</span><span class="t">Zrcadla</span><span class="d">kancelář → cloud + monitor</span></a>
@@ -137,8 +140,52 @@ async function loadStats(){
   document.getElementById('stats').innerHTML=DEF.map(d=>tile(d,st[d.k])).join('');
   document.getElementById('ts').textContent='živá data · '+(r.ts||'');
 }
-loadStats();
+
+// ── 🟩 Záloha API‑B (blue‑green) ────────────────────────────────────────────
+function zEsc(s){return(s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+var zpoll=false;
+function loadZaloha(){
+  return fetch(API+'/api/v1/erp/app/ops/secondary-info',{credentials:'include'}).then(x=>x.json()).then(function(d){
+    var el=document.getElementById('zaloha'), lbl=document.getElementById('zaloha-lbl');
+    if(!el)return;
+    if(!d||d.ok===false){ if(lbl)lbl.style.display='none'; el.style.display='none'; return; } // jen rodič
+    var a=d.a||{}, b=d.b||{};
+    var aRun=a&&a.ok!==false, bRun=b&&b.ok!==false;
+    // „aktuální" = shoda mtime router.py v obou složkách (stejná definice jako /zaloha-status)
+    var current=!!(d.code_primary&&d.code_prev&&d.code_primary===d.code_prev)&&aRun&&bRun;
+    var badge=current?'<span class="b live">✅ Aktuální</span>'
+      :'<span class="b" style="background:rgba(240,179,90,.18);color:#f0b35a">⚠️ Pozadu — povýšit</span>';
+    var pend=d.pending?' <span class="b wait">⏳ probíhá</span>':'';
+    var mono='font-family:ui-monospace,monospace';
+    var h='<div class="c"><div class="top"><span class="nm">🟩 Záloha API‑B (blue‑green)</span>'+badge+pend+'</div>'
+      +'<div class="ds">Verze, na kterou Caddy přeroutuje uživatele, když spadne API‑A.<br>'
+      +'A (8002): '+(aRun?'běží':'<b style="color:#f87171">nedostupné</b>')+' · kód '+zEsc(d.code_primary||'?')+'<br>'
+      +'B (8003): '+(bRun?'běží':'<b style="color:#f87171">nedostupné</b>')+' · kód '+zEsc(d.code_prev||'?')
+      +' · commit <span style="'+mono+'">'+zEsc(b.commit||'?')+'</span></div>'
+      +'<div style="margin-top:10px;display:flex;gap:9px;align-items:center;flex-wrap:wrap">'
+      +'<button id="zbtn" onclick="zRefresh()"'+(current?' disabled':'')
+      +' style="background:'+(current?'#1b2740':'#5b9dff')+';color:'+(current?'#56688a':'#06101f')
+      +';border:0;border-radius:9px;padding:8px 14px;font-weight:700;cursor:'+(current?'default':'pointer')+'">📦 Povýšit zálohu na aktuální</button>'
+      +'<a href="/zaloha-status" style="color:#8094b3;font-size:12px">detail →</a>'
+      +'<span id="zstat" style="color:#8094b3;font-size:12px"></span></div></div>';
+    el.innerHTML=h;
+  }).catch(function(){});
+}
+function zRefresh(){
+  var btn=document.getElementById('zbtn'), st=document.getElementById('zstat');
+  if(btn)btn.disabled=true; if(st)st.textContent='Spouštím (stop B → kopie → start B)…';
+  fetch(API+'/api/v1/erp/app/ops/secondary-refresh',{method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({deps:false})})
+    .then(x=>x.json()).then(function(r){
+      if(!r||!r.ok){ if(st)st.textContent='chyba: '+zEsc((r&&r.error)||'?'); if(btn)btn.disabled=false; return; }
+      if(st)st.textContent='Kopíruji… (~10–90 s)'; zpoll=true; var n=0;
+      var iv=setInterval(function(){n++;loadZaloha();if(n>40||!zpoll){clearInterval(iv);zpoll=false;}},3000);
+    }).catch(function(){ if(st)st.textContent='chyba spojení'; if(btn)btn.disabled=false; });
+}
+
+loadStats(); loadZaloha();
 setInterval(loadStats,60000);
+setInterval(function(){if(!zpoll)loadZaloha();},60000);
 </script>
 </body>
 </html>

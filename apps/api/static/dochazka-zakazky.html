@@ -28,10 +28,13 @@
 <h1>📋 Docházka po zakázkách</h1>
 <div class="sub">Rozpad odpracovaného času všech lidí po zakázkách (nový systém: app i tablet/Centrála). Seskupeno po lidech — táhni sloupec „Zakázka" do pruhu nahoře pro rozpad po zakázkách. <a href="/finance">← Finance</a></div>
 <div class="bar">
-  <span class="muted">Období:</span>
-  <input type="month" id="mesic_od" title="Od měsíce">
-  <span class="muted">–</span>
-  <input type="month" id="mesic_do" title="Do měsíce">
+  <span class="muted" id="mesic_lbl">Měsíc:</span>
+  <input type="month" id="mesic_od" title="Měsíc (v režimu od–do: od měsíce)">
+  <span id="rng_do" style="display:none">
+    <span class="muted">–</span>
+    <input type="month" id="mesic_do" title="Do měsíce">
+  </span>
+  <button class="fbtn" id="rngbtn" onclick="toggleRng()" title="Zobrazit rozsah více měsíců (od–do)">📅 Od–do</button>
   <span style="width:10px"></span>
   <span class="muted">Zdroj:</span>
   <button class="fbtn on" id="s_" onclick="setSrc('')">Vše</button>
@@ -45,7 +48,16 @@
 <script>
 const API='';
 let SRC='';
+let RNG=false; // režim od–do (více měsíců) — volitelný, default jeden měsíc
 function setSrc(v){SRC=v;['','app','centrala1'].forEach(x=>document.getElementById('s_'+x).classList.toggle('on',x===SRC));load();}
+function toggleRng(){
+  RNG=!RNG;
+  document.getElementById('rng_do').style.display=RNG?'':'none';
+  document.getElementById('rngbtn').classList.toggle('on',RNG);
+  document.getElementById('mesic_lbl').textContent=RNG?'Období:':'Měsíc:';
+  if(RNG)document.getElementById('mesic_do').value=document.getElementById('mesic_od').value;
+  load();
+}
 function fmtDen(p){const v=p.value;if(!v)return '';const a=String(v).split('-');return a.length===3?(a[2]+'.'+a[1]+'.'+a[0]):v;}
 const SRCLBL={app:'📱 App',centrala1:'🏭 Centrála'};
 function srcLbl(p){return SRCLBL[p.value]||p.value||'';}
@@ -53,6 +65,7 @@ function stavBadge(p){const v=p.value||'';if(!v)return '';
   const map={confirmed:'#8fe0a0',approved:'#8fe0a0',pending:'#f0c674',superseded:'#8295ad'};
   return v.split(',').map(x=>'<span style="color:'+(map[x]||'#cdd9ea')+'">'+x+'</span>').join(', ');}
 function monthRange(ymOd,ymDo){
+  if(!RNG)ymDo=ymOd; // default = jeden konkrétní měsíc; od–do jen na přání (RNG)
   // rozsah více měsíců: od 1. dne prvního měsíce do posledního dne druhého
   if(ymDo<ymOd){const t=ymOd;ymOd=ymDo;ymDo=t;
     document.getElementById('mesic_od').value=ymOd;

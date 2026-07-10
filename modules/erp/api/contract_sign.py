@@ -579,18 +579,31 @@ def _build_final_pdf(orig_bytes, e, parties, sig_png_bytes=None):
         return False
     try:
         # Unicode font s plnou českou diakritikou (ě/ř/ů/ď/ť/ň) — reportlab Helvetica (WinAnsi)
-        # je nemá a dělá z nich ■. Použij Windows Arial; fallback na Helvetiku.
+        # je nemá a dělá z nich ■. Robustní kaskáda (Marti 10.7.2026): _font_files() vezme
+        # repo fonts/DejaVuSans.ttf (plná čeština) → Windows fonty → reportlab Vera. Dřív to
+        # spoléhalo jen na C:\Windows\Fonts\verdana.ttf, která na serveru chyběla → registrace
+        # spadla do except → Helvetica → rozdrolená diakritika v doložce. DejaVu v repu to řeší.
         FN, FB, FI = "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
         try:
             import os as _os
             from reportlab.pdfbase import pdfmetrics
             from reportlab.pdfbase.ttfonts import TTFont
-            _fd = (_os.environ.get("WINDIR") or "C:\\Windows") + "\\Fonts\\"
-            if "CzSans" not in pdfmetrics.getRegisteredFontNames():
-                pdfmetrics.registerFont(TTFont("CzSans", _fd + "verdana.ttf"))
-                pdfmetrics.registerFont(TTFont("CzSans-Bold", _fd + "verdanab.ttf"))
-                pdfmetrics.registerFont(TTFont("CzSans-It", _fd + "verdanai.ttf"))
-            FN, FB, FI = "CzSans", "CzSans-Bold", "CzSans-It"
+            from modules.erp.api.doc_templates import _font_files as _ff
+            if "CzSans" not in set(pdfmetrics.getRegisteredFontNames()):
+                _n, _b = _ff()
+                if _n:
+                    pdfmetrics.registerFont(TTFont("CzSans", _n))
+                    pdfmetrics.registerFont(TTFont("CzSans-Bold", _b or _n))
+                    _it = _n
+                    for _c in (_n.replace("DejaVuSans.ttf", "DejaVuSans-Oblique.ttf"),
+                               _n.replace("verdana.ttf", "verdanai.ttf"),
+                               _n.replace("arial.ttf", "ariali.ttf")):
+                        if _c != _n and _os.path.exists(_c):
+                            _it = _c
+                            break
+                    pdfmetrics.registerFont(TTFont("CzSans-It", _it))
+            if "CzSans" in set(pdfmetrics.getRegisteredFontNames()):
+                FN, FB, FI = "CzSans", "CzSans-Bold", "CzSans-It"
         except Exception:
             pass
         buf = io.BytesIO()

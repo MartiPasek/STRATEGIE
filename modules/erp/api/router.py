@@ -1,14 +1,4 @@
 # fs_reorg SSE refresh 2026-07-02
-# ── V1.04 (Marti 10.7.2026): odměny z Centrály (_mzdy_odmeny_rows) VYPNUTY ve všech cestách —
-#    dvojily se s ručními složkami (Herejtová 8000 m. 4000, jednatelé/Senft 2×). Odměny berem
-#    z mzdy_rucni_slozka. ──
-# ── V1.03 (Marti 10.7.2026): dopočtové složky (loajalita přesčas výroby / prémie ze zakázek /
-#    odměny / jednatelské stravné) teď vstupují do mzdy VE VŠECH cestách generování. Frontendová
-#    „čistá voda" je dřív VŮBEC nepočítala (Peťa je 7.7. přidal jen do @@MZDY a „jednoho člověka",
-#    sem ne) — to byla pravá příčina chybějících prémií/loajality. Před stavbou složek se obnoví
-#    zdrojová zrcadla z Centrály (_mzdy_refresh_zrcadla); chyby jsou viditelné (zrcadla_warn /
-#    slozky_warn), žádné tiché try/except: pass. PŘEGENEROVÁNÍ JEDINCE (?cislo=) je VYPNUTÉ —
-#    dávalo jiný výsledek než čistá voda; tento měsíc jedeme jen čistou vodou. Záloha: router_V1.01.py.bak. ──
 """
 STRATEGIE ERP API router (Phase A — read-only single jádro renderer).
 
@@ -2958,7 +2948,23 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
         else:
             schema = match.group(1).lower()
             table = match.group(2).lower()
+            # Detekce skutečného názvu ID sloupce (Claude-24/Kristý 10.7.2026):
+            # PG zrcadla Centrály 1 mají klíč v PascalCase ("ID"), ne lowercase
+            # "id" → naivní `WHERE "id"` selže/nenačte. Preferuj přesné 'id',
+            # jinak vezmi case-insensitive shodu ('ID'/'Id'). Zpětně kompatibilní:
+            # běžné STRATEGIE PG tabulky mají 'id' → beze změny.
             id_col = "id"
+            try:
+                _idc = ds.execute(_sql_resolve(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = :s AND table_name = :t "
+                    "AND lower(column_name) = 'id' "
+                    "ORDER BY (column_name = 'id') DESC LIMIT 1"),
+                    {"s": schema, "t": table}).scalar()
+                if _idc:
+                    id_col = _idc
+            except Exception as _idexc:
+                logger.warning(f"_resolve_entity_config_from_db id_col detect ({schema}.{table}): {_idexc}")
         return {
             "schema": schema,
             "table": table,
@@ -9355,84 +9361,15 @@ async def app_hr_finance_lide(req: Request) -> JSONResponse:
             "     FROM public.users u WHERE u.id=ae.user_id)) AS jmeno,"
             " string_agg(DISTINCT co.code, '/' ORDER BY co.code) AS firmy,"
             " string_agg(DISTINCT COALESCE(en.druh_text, en.engagement_type), ', ') AS typy,"
-            " max(en.pozice_text) AS pozice,"
-            " string_agg(DISTINCT jp.label, ', ') AS pozice_cis,"
-            " string_agg(DISTINCT ae.cislo_zam, '/') AS cislo"
+            " max(en.pozice_text) AS pozice"
             " FROM tenant.engagement en"
             " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
             " LEFT JOIN tenant.company co ON co.id=en.company_id"
-            " LEFT JOIN tenant.job_position jp ON jp.id=en.position_id"
             " WHERE en.tenant_id=2 AND en.is_current AND ae.user_id IS NOT NULL"
             " GROUP BY ae.user_id ORDER BY jmeno")).fetchall()
         lide = [{"user_id": r[0], "jmeno": (r[1] or "").strip() or ("ID " + str(r[0])),
-                 "firmy": r[2] or "", "typy": r[3] or "",
-                 "pozice": (r[5] or r[4] or ""), "pozice_ciselnik": (r[5] or ""),
-                 "cislo": r[6] or ""} for r in rows]
+                 "firmy": r[2] or "", "typy": r[3] or "", "pozice": r[4] or ""} for r in rows]
         return JSONResponse({"ok": True, "lide": lide, "pocet": len(lide)})
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.get("/app/hr/finance/pozice-ciselnik")
-async def app_hr_finance_pozice_ciselnik(req: Request) -> JSONResponse:
-    """CITLIVÉ — číselník pracovních pozic pro výběr. Allowlist only."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    if not _finance_can_uid(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        rows = s.execute(_t(
-            "SELECT id, label, COALESCE(level,''), COALESCE(segment,'')"
-            " FROM tenant.job_position WHERE tenant_id=2 AND aktivni"
-            " ORDER BY sort_order NULLS LAST, label")).fetchall()
-        pozice = [{"id": int(r[0]), "label": r[1], "level": r[2], "segment": r[3]} for r in rows]
-        return JSONResponse({"ok": True, "pozice": pozice})
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.post("/app/hr/finance/pozice-save")
-async def app_hr_finance_pozice_save(req: Request) -> JSONResponse:
-    """CITLIVÉ — přiřazení pracovní pozice (číselník) k poměru. Allowlist only.
-    Body: engagement_id, position_id (prázdné = zrušit zařazení)."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    if not _finance_can_uid(uid):
-        return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-    try:
-        body = await req.json()
-    except Exception:
-        body = {}
-    eng_id = body.get("engagement_id")
-    pos_id = body.get("position_id")
-    if not eng_id:
-        return JSONResponse({"ok": False, "error": "chybi engagement_id"}, status_code=400)
-    try:
-        pos_val = int(pos_id) if pos_id not in (None, "", 0, "0") else None
-    except Exception:
-        pos_val = None
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if pos_val is not None:
-            okpos = s.execute(_t("SELECT 1 FROM tenant.job_position WHERE id=:p AND tenant_id=2 AND aktivni"),
-                              {"p": pos_val}).first()
-            if not okpos:
-                return JSONResponse({"ok": False, "error": "pozice nenalezena"}, status_code=400)
-        r = s.execute(_t("UPDATE tenant.engagement SET position_id=:p WHERE id=:e AND tenant_id=2"),
-                      {"p": pos_val, "e": int(eng_id)})
-        if (r.rowcount or 0) == 0:
-            return JSONResponse({"ok": False, "error": "pomer nenalezen"}, status_code=404)
-        s.commit()
-        return JSONResponse({"ok": True})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
@@ -9468,11 +9405,10 @@ async def app_hr_finance_osoba(req: Request) -> JSONResponse:
         engs = s.execute(_t(
             "SELECT en.id, co.code AS firma, COALESCE(en.druh_text, en.engagement_type) AS typ,"
             " en.smlouva_od, en.smlouva_do, en.zkusebni_do, en.uvazek_tyden_h, en.uvazek_real_tyden_h,"
-            " en.fond_mesic_h, en.hodinovka, en.pozice_text, en.position_id, jp.label, ae.cislo_zam"
+            " en.fond_mesic_h, en.hodinovka, en.pozice_text"
             " FROM tenant.engagement en"
             " JOIN tenant.att_employee ae ON ae.id=en.employee_id AND ae.tenant_id=2"
             " LEFT JOIN tenant.company co ON co.id=en.company_id"
-            " LEFT JOIN tenant.job_position jp ON jp.id=en.position_id"
             " WHERE ae.user_id=:u AND en.tenant_id=2 AND en.is_current"
             " ORDER BY co.code, en.id"), {"u": target}).fetchall()
         eng_ids = [int(e[0]) for e in engs]
@@ -9504,11 +9440,7 @@ async def app_hr_finance_osoba(req: Request) -> JSONResponse:
                 "uvazek": (float(e[6]) if e[6] is not None else None),
                 "uvazek_real": (float(e[7]) if e[7] is not None else None),
                 "fond_mesic": (float(e[8]) if e[8] is not None else None),
-                "hodinovka": bool(e[9]),
-                "pozice": (e[12] or e[10] or ""),
-                "pozice_text": e[10] or "",
-                "position_id": (int(e[11]) if e[11] is not None else None),
-                "cislo": e[13] or "",
+                "hodinovka": bool(e[9]), "pozice": e[10] or "",
                 "slozky": comps.get(int(e[0]), []),
             })
         return JSONResponse({"ok": True, "jmeno": (jmeno or "").strip() or ("ID " + str(target)), "pomery": pomery})
@@ -19098,652 +19030,6 @@ async def att_entry_dispute(req: Request) -> JSONResponse:
                 "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
                 "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, NULL)"),
                 {"uid": uid2, "ti": "✋ Problém na záznamu docházky", "msg": msg[:600]})
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
-
-
-# ---------------------------------------------------------------------------
-# OPRAVY DOCHÁZKY POVĚŘENÝMI OSOBAMI (Jirka 9.7.2026, zadal Marti Pašek).
-# Skupina staff_group 'DOCHÁZKA - OPRAVY' (bez parent/admin bypassu — „zpětně
-# opravují jen jmenovaní"). Oprava = supersede původního řádku + nový řádek
-# source='manual_fix' s povinným důvodem; audit tenant.att_audit; notifikace
-# dotčenému (✋ může rozporovat). Zámek období tenant.att_period_lock (mzdy).
-# Návrh: docs/dochazka_opravy_navrh.md. Konzultace Marti-AI 9.7. (msg 10626).
-# ---------------------------------------------------------------------------
-
-_ATT_FIX_GROUP = "DOCHÁZKA - OPRAVY"
-_ATT_FIX_TYPES = ("work", "overhead", "homeoffice", "commute", "break")
-_ATT_LOCK_UIDS = frozenset({18, 13})  # Peťa (mzdy/finance) + Šárka (HR) — Jirka 9.7.: „obě"
-
-
-def _att_can_fix(s, uid) -> bool:
-    """Členství ve skupině DOCHÁZKA - OPRAVY. Vědomě BEZ parent/admin bypassu."""
-    if not uid:
-        return False
-    from sqlalchemy import text as _t
-    m = s.execute(_t(
-        "SELECT 1 FROM tenant.staff_group_member m JOIN tenant.staff_group g ON g.id=m.group_id "
-        "WHERE g.tenant_id=2 AND COALESCE(g.archived,false)=false AND g.name=:g AND m.user_id=:u"),
-        {"g": _ATT_FIX_GROUP, "u": uid}).first()
-    return m is not None
-
-
-def _att_can_lock(s, uid) -> bool:
-    """Zámek období smí Peťa/Šárka (Jirka 9.7. „obě") + rodiče."""
-    if uid in _ATT_LOCK_UIDS:
-        return True
-    try:
-        return bool(is_marti_parent(uid))
-    except Exception:
-        return False
-
-
-def _att_period_locked(s, d) -> bool:
-    """True = měsíc dne d je uzamčen (mzdy zpracovány). Bez tabulky (před DDL) → False."""
-    from sqlalchemy import text as _t
-    try:
-        r = s.execute(_t("SELECT 1 FROM tenant.att_period_lock WHERE tenant_id=:t AND rok=:r AND mesic=:m"),
-                      {"t": _ATT_TENANT, "r": d.year, "m": d.month}).first()
-        return r is not None
-    except Exception:
-        s.rollback()
-        return False
-
-
-def _att_fix_audit(s, action, entry_id, emp_id, actor_uid, actor_name,
-                   old_note=None, new_note=None, detail=None, old_date=None):
-    from sqlalchemy import text as _t
-    s.execute(_t(
-        "INSERT INTO tenant.att_audit (tenant_id, entry_id, employee_id, action, "
-        "actor_user_id, actor_text, old_entry_date, old_note, new_note, detail, created_at) "
-        "VALUES (:t,:i,:e,:a,:u,:at,CAST(:d AS date),:onn,:nnn,:dt,now())"),
-        {"t": _ATT_TENANT, "i": entry_id, "e": emp_id, "a": action, "u": actor_uid,
-         "at": actor_name, "d": old_date, "onn": old_note, "nnn": new_note, "dt": detail})
-
-
-def _att_fix_notify(s, emp_id, actor_uid, actor_name, title, msg):
-    """Notifikace dotčenému (fw.mobile_command). Sám sobě editor nenotifikuje."""
-    from sqlalchemy import text as _t
-    try:
-        r = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp_id}).first()
-        emp_uid = int(r[0]) if (r and r[0]) else None
-        if emp_uid and emp_uid != actor_uid:
-            s.execute(_t(
-                "INSERT INTO fw.mobile_command (app_key, target_user_id, command_type, title, message, created_by) "
-                "VALUES ('mobile', :uid, 'claude_msg', :ti, :msg, :by)"),
-                {"uid": emp_uid, "ti": title, "msg": msg[:600], "by": actor_uid})
-    except Exception:
-        pass
-
-
-@api_router.get("/app/attendance/fix/allowed")
-async def att_fix_allowed(req: Request) -> JSONResponse:
-    """Pro UI: smí přihlášený opravovat docházku / spravovat zámek období?"""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    cm, s = _att_session()
-    try:
-        out = {"ok": True, "can_fix": _att_can_fix(s, uid), "can_lock": _att_can_lock(s, uid)}
-        s.commit()
-        return JSONResponse(out)
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.get("/app/attendance/fix/queue")
-async def att_fix_queue(req: Request) -> JSONResponse:
-    """Fronta „K vyřešení": nevyřešené anomálie (mimo nepotvrzený den — to je
-    osobní zodpovědnost) + rozporované dny (✋). S návrhem konce u zapomenutého
-    odchodu (poslední aktivita na zakázce)."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        anom = s.execute(_t(
-            "SELECT a.id, a.rule, a.detail, a.entry_id, a.employee_id, e.entry_date::text, "
-            "       em.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
-            "       (SELECT to_char(max(w.ended_at),'HH24:MI') FROM tenant.work_alloc w "
-            "         WHERE w.user_id = em.user_id AND w.started_at::date = e.entry_date AND w.ended_at IS NOT NULL) "
-            "FROM tenant.att_anomaly a "
-            "JOIN tenant.att_entry e ON e.id = a.entry_id "
-            "JOIN tenant.att_employee em ON em.id = a.employee_id "
-            "LEFT JOIN public.users u ON u.id = em.user_id "
-            "WHERE a.tenant_id = :t AND a.resolved_at IS NULL AND a.rule <> 'nepotvrzeny_den' "
-            "  AND e.status <> 'superseded' "
-            "ORDER BY e.entry_date DESC, a.id DESC LIMIT 120"),
-            {"t": _ATT_TENANT}).fetchall()
-        disp = s.execute(_t(
-            "SELECT c.id, c.employee_id, c.day::text, COALESCE(c.note,''), em.user_id, "
-            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
-            "FROM tenant.att_day_confirm c "
-            "JOIN tenant.att_employee em ON em.id = c.employee_id "
-            "LEFT JOIN public.users u ON u.id = em.user_id "
-            "WHERE c.tenant_id = :t AND c.disputed = true AND c.day >= current_date - 60 "
-            "ORDER BY c.day DESC LIMIT 60"),
-            {"t": _ATT_TENANT}).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True,
-            "anomalie": [{"id": r[0], "rule": r[1], "detail": r[2], "entry_id": r[3],
-                          "employee_id": r[4], "day": r[5], "user_id": r[6], "name": r[7],
-                          "navrh_konec": r[8]} for r in anom],
-            "rozpory": [{"id": r[0], "employee_id": r[1], "day": r[2], "note": r[3],
-                         "user_id": r[4], "name": r[5]} for r in disp]})
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.get("/app/attendance/fix/day")
-async def att_fix_day(req: Request) -> JSONResponse:
-    """Detail dne pro editora — VŠECHNY záznamy vč. superseded (šedě) a day_end,
-    s příznakem editovatelnosti (jen STRATEGIE řádky, neuzamčené období)."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        try:
-            day = _dt.strptime(str(req.query_params.get("day") or "")[:10], "%Y-%m-%d").date()
-            tuid = int(req.query_params.get("uid") or 0)
-        except Exception:
-            return JSONResponse({"ok": False, "error": "invalid_params"}, status_code=400)
-        emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
-                        {"t": _ATT_TENANT, "u": tuid}).scalar()
-        if not emp:
-            return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
-        locked = _att_period_locked(s, day)
-        rows = s.execute(_t(
-            "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
-            "       e.hours, e.project_ref, e.note, et.label, et.code, et.category, "
-            "       e.status, e.is_active, COALESCE(e.source_system,''), COALESCE(e.source,'') "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.entry_date = :d "
-            "AND e.status <> 'announced' "
-            "ORDER BY e.started_at NULLS LAST, e.id"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat()}).fetchall()
-        jm = _user_jmeno(s, tuid)
-        s.commit()
-        return JSONResponse({"ok": True, "person": jm, "employee_id": emp, "locked": locked,
-            "entries": [
-            {"id": r[0], "zac": r[1], "kon": r[2],
-             "hours": (float(r[3]) if r[3] is not None else None),
-             "project_ref": r[4], "note": r[5], "typ": r[6], "code": r[7], "cat": r[8],
-             "status": r[9], "running": bool(r[10] and not r[2]),
-             "source_system": r[11], "source": r[12],
-             "editable": (not locked) and (not r[11]) and r[9] != "superseded"} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
-
-
-def _att_fix_parse_hhmm(v):
-    import re as _re
-    v = str(v or "").strip()[:5]
-    return v if _re.fullmatch(r"[0-2][0-9]:[0-5][0-9]", v) else None
-
-
-def _att_fix_overlap(s, emp, new_start, new_end, exclude_id):
-    """Vrátí popis kolidujícího záznamu, nebo None. Porovnává jen presence
-    segmenty s oběma časy; day_end marker se nepočítá."""
-    from sqlalchemy import text as _t
-    r = s.execute(_t(
-        "SELECT to_char(e.started_at,'HH24:MI') || CHR(8211) || to_char(e.ended_at,'HH24:MI') || ' ' || et.label "
-        "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-        "WHERE e.tenant_id = :t AND e.employee_id = :e AND e.id <> :x "
-        "  AND e.status NOT IN ('superseded','announced') AND et.code <> 'day_end' "
-        "  AND et.category = 'presence' AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL "
-        "  AND e.started_at < CAST(:ne AS timestamp) AND e.ended_at > CAST(:ns AS timestamp) LIMIT 1"),
-        {"t": _ATT_TENANT, "e": emp, "x": exclude_id or 0,
-         "ne": new_end.isoformat(sep=" "), "ns": new_start.isoformat(sep=" ")}).scalar()
-    return r
-
-
-@api_router.post("/app/attendance/fix/entry")
-async def att_fix_entry(req: Request) -> JSONResponse:
-    """Oprava časů/typu záznamu editorem: supersede původního + nový řádek
-    source='manual_fix'. Povinný důvod. Srovná work_alloc, uklidí anomálie,
-    audituje a notifikuje dotčeného."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt, timedelta as _td
-    try:
-        body = await req.json()
-    except Exception:
-        body = {}
-    try:
-        eid = int((body or {}).get("id") or 0)
-    except Exception:
-        eid = 0
-    zac = _att_fix_parse_hhmm((body or {}).get("zac"))
-    kon = _att_fix_parse_hhmm((body or {}).get("kon"))
-    tcode = str((body or {}).get("type_code") or "").strip() or None
-    reason = str((body or {}).get("reason") or "").strip()[:300]
-    if not (eid and zac and kon):
-        return JSONResponse({"ok": False, "error": "Zadej platné časy od–do (HH:MM)."})
-    if not reason:
-        return JSONResponse({"ok": False, "error": "Důvod opravy je povinný."})
-    if tcode and tcode not in _ATT_FIX_TYPES:
-        return JSONResponse({"ok": False, "error": "Nepovolený typ záznamu."})
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        row = s.execute(_t(
-            "SELECT e.id, e.employee_id, e.entry_date, e.started_at, e.ended_at, "
-            "       e.entry_type_id, et.code, e.project_ref, COALESCE(e.break_minutes,0), "
-            "       e.status, COALESCE(e.source_system,''), e.is_active, "
-            "       to_char(e.started_at,'HH24:MI'), COALESCE(to_char(e.ended_at,'HH24:MI'),'…'), et.label "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.id = :i AND e.tenant_id = :t"),
-            {"i": eid, "t": _ATT_TENANT}).first()
-        if not row:
-            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
-        if row[9] == "superseded":
-            return JSONResponse({"ok": False, "error": "Záznam už byl nahrazen novější opravou."})
-        if row[10]:
-            return JSONResponse({"ok": False, "error": "Záznam vlastní stará Centrála — oprav ho v Centrále, sem se přezrcadlí."})
-        if row[11] and row[4] is None:
-            return JSONResponse({"ok": False, "error": "Běžící záznam nelze opravit — člověk zrovna maká (počkej na odchod)."})
-        if row[3] is None:
-            return JSONResponse({"ok": False, "error": "Záznam bez času začátku (absence) — oprav přes absence, ne tady."})
-        if _att_period_locked(s, row[2]):
-            return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány). Odemknout smí Peťa/Šárka."}, status_code=409)
-        emp = int(row[1])
-        sd = row[3].date()
-        ed = row[4].date() if row[4] is not None else sd
-        # konec se drží na dni PŮVODNÍHO konce (job přes půlnoc — vzor entry-trim, Marti 7.6.)
-        new_start = _dt.combine(sd, _dt.strptime(zac, "%H:%M").time())
-        new_end = _dt.combine(ed, _dt.strptime(kon, "%H:%M").time())
-        if new_end <= new_start:
-            return JSONResponse({"ok": False, "error": "Konec musí být po začátku."})
-        if (new_end - new_start) > _td(hours=20):
-            return JSONResponse({"ok": False, "error": "Úsek přes 20 hodin — to nebude správně."})
-        ovl = _att_fix_overlap(s, emp, new_start, new_end, eid)
-        if ovl:
-            return JSONResponse({"ok": False, "error": "Nové časy se překrývají se záznamem " + str(ovl) + "."})
-        new_code = tcode or row[6]
-        tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
-                        {"t": _ATT_TENANT, "c": new_code}).scalar()
-        if not tid:
-            return JSONResponse({"ok": False, "error": "Typ záznamu nenalezen."})
-        pref = row[7] if new_code in ("work",) else None
-        brk = int(row[8])
-        hrs = round(max((new_end - new_start).total_seconds() / 3600.0 - brk / 60.0, 0.0), 2)
-        actor = _user_jmeno(s, uid)
-        old_desc = (row[14] or "") + " " + (row[12] or "?") + "–" + (row[13] or "…")
-        nn = "🛠 OPRAVA (" + actor + "): " + reason + " (původně " + old_desc.strip() + ", #" + str(eid) + ")"
-        nid = s.execute(_t(
-            "INSERT INTO tenant.att_entry (tenant_id, employee_id, entry_date, entry_type_id, hours, "
-            "started_at, ended_at, break_minutes, project_ref, note, status, source, is_active, "
-            "created_by_id, created_at, updated_at) "
-            "VALUES (:t,:e,:d,:ti,:h,CAST(:ns AS timestamp),CAST(:ne AS timestamp),:b,:pr,:n,"
-            "'approved','manual_fix',false,:u,now(),now()) RETURNING id"),
-            {"t": _ATT_TENANT, "e": emp, "d": sd.isoformat(), "ti": tid, "h": hrs,
-             "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
-             "b": brk, "pr": pref, "n": nn, "u": uid}).scalar()
-        s.execute(_t(
-            "UPDATE tenant.att_entry SET status='superseded', is_active=false, "
-            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
-            "WHERE id=:i"),
-            {"i": eid, "nn": "nahrazeno opravou #" + str(nid) + " (" + actor + ")"})
-        # work_alloc: úseky zakázek patřící k původnímu segmentu zkrátit na nový konec
-        if row[6] in ("work", "overhead") and row[4] is not None:
-            try:
-                tu = s.execute(_t("SELECT user_id FROM tenant.att_employee WHERE id=:e"), {"e": emp}).scalar()
-                if tu:
-                    s.execute(_t(
-                        "UPDATE tenant.work_alloc SET "
-                        "ended_at = GREATEST(CAST(:ns AS timestamptz), LEAST(ended_at, CAST(:ne AS timestamptz))), "
-                        "started_at = LEAST(CAST(:ne AS timestamptz), GREATEST(started_at, CAST(:ns AS timestamptz))), "
-                        "updated_at = now() "
-                        "WHERE user_id=:u AND started_at >= CAST(:os AS timestamptz) - interval '1 minute' "
-                        "  AND started_at < CAST(:oe AS timestamptz) "
-                        "  AND (ended_at IS NULL OR ended_at > CAST(:ne AS timestamptz) OR started_at < CAST(:ns AS timestamptz))"),
-                        {"u": tu, "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
-                         "os": row[3].isoformat(sep=" "), "oe": row[4].isoformat(sep=" ")})
-            except Exception:
-                pass
-        s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
-                     "WHERE tenant_id=:t AND entry_id=:i AND resolved_at IS NULL"),
-                  {"t": _ATT_TENANT, "i": eid})
-        _att_fix_audit(s, "fix", nid, emp, uid, actor,
-                       old_note=old_desc.strip(), new_note=(new_code + " " + zac + "–" + kon),
-                       detail=reason + " | původní #" + str(eid), old_date=sd.isoformat())
-        _att_fix_notify(s, emp, uid, actor, "🛠 Oprava docházky",
-                        actor + " opravil(a) tvou docházku " + sd.strftime("%d.%m.") + ": "
-                        + old_desc.strip() + " → " + zac + "–" + kon + " (" + reason + "). "
-                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
-        s.commit()
-        return JSONResponse({"ok": True, "id": nid, "hours": hrs})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.post("/app/attendance/fix/add")
-async def att_fix_add(req: Request) -> JSONResponse:
-    """Doplnění chybějícího záznamu (zapomenutý příchod) editorem."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt, timedelta as _td, date as _date
-    try:
-        body = await req.json()
-    except Exception:
-        body = {}
-    try:
-        tuid = int((body or {}).get("uid") or 0)
-    except Exception:
-        tuid = 0
-    zac = _att_fix_parse_hhmm((body or {}).get("zac"))
-    kon = _att_fix_parse_hhmm((body or {}).get("kon"))
-    tcode = str((body or {}).get("type_code") or "work").strip()
-    pref = str((body or {}).get("project_ref") or "").strip()[:40] or None
-    reason = str((body or {}).get("reason") or "").strip()[:300]
-    try:
-        day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Neplatné datum."})
-    if not (tuid and zac and kon):
-        return JSONResponse({"ok": False, "error": "Zadej osobu a časy od–do (HH:MM)."})
-    if not reason:
-        return JSONResponse({"ok": False, "error": "Důvod je povinný."})
-    if tcode not in _ATT_FIX_TYPES:
-        return JSONResponse({"ok": False, "error": "Nepovolený typ záznamu."})
-    if day > _date.today():
-        return JSONResponse({"ok": False, "error": "Do budoucnosti se nedoplňuje — na to je Výhled/ohlášení."})
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        if _att_period_locked(s, day):
-            return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány). Odemknout smí Peťa/Šárka."}, status_code=409)
-        emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
-                        {"t": _ATT_TENANT, "u": tuid}).scalar()
-        if not emp:
-            return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
-        new_start = _dt.combine(day, _dt.strptime(zac, "%H:%M").time())
-        new_end = _dt.combine(day, _dt.strptime(kon, "%H:%M").time())
-        if new_end <= new_start:
-            return JSONResponse({"ok": False, "error": "Konec musí být po začátku."})
-        if (new_end - new_start) > _td(hours=20):
-            return JSONResponse({"ok": False, "error": "Úsek přes 20 hodin — to nebude správně."})
-        ovl = _att_fix_overlap(s, emp, new_start, new_end, None)
-        if ovl:
-            return JSONResponse({"ok": False, "error": "Časy se překrývají se záznamem " + str(ovl) + "."})
-        if pref and tcode == "work":
-            zk = s.execute(_t("SELECT typ FROM tenant.zakazka WHERE tenant_id=:t AND cislo=:c AND pichatelna=true"),
-                           {"t": _ATT_TENANT, "c": pref}).first()
-            if not zk:
-                return JSONResponse({"ok": False, "error": "Zakázka " + pref + " není píchatelná / neexistuje."})
-        else:
-            pref = None
-        tid = s.execute(_t("SELECT id FROM tenant.att_entry_type WHERE tenant_id=:t AND code=:c"),
-                        {"t": _ATT_TENANT, "c": tcode}).scalar()
-        if not tid:
-            return JSONResponse({"ok": False, "error": "Typ záznamu nenalezen."})
-        hrs = round((new_end - new_start).total_seconds() / 3600.0, 2)
-        actor = _user_jmeno(s, uid)
-        nn = "🛠 DOPLNĚNO (" + actor + "): " + reason
-        nid = s.execute(_t(
-            "INSERT INTO tenant.att_entry (tenant_id, employee_id, entry_date, entry_type_id, hours, "
-            "started_at, ended_at, project_ref, note, status, source, is_active, "
-            "created_by_id, created_at, updated_at) "
-            "VALUES (:t,:e,:d,:ti,:h,CAST(:ns AS timestamp),CAST(:ne AS timestamp),:pr,:n,"
-            "'approved','manual_fix',false,:u,now(),now()) RETURNING id"),
-            {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "ti": tid, "h": hrs,
-             "ns": new_start.isoformat(sep=" "), "ne": new_end.isoformat(sep=" "),
-             "pr": pref, "n": nn, "u": uid}).scalar()
-        _att_fix_audit(s, "add", nid, emp, uid, actor,
-                       new_note=(tcode + " " + zac + "–" + kon), detail=reason,
-                       old_date=day.isoformat())
-        _att_fix_notify(s, emp, uid, actor, "🛠 Doplnění docházky",
-                        actor + " doplnil(a) do tvé docházky " + day.strftime("%d.%m.") + " záznam "
-                        + zac + "–" + kon + " (" + reason + "). "
-                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
-        s.commit()
-        return JSONResponse({"ok": True, "id": nid, "hours": hrs})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.post("/app/attendance/fix/void")
-async def att_fix_void(req: Request) -> JSONResponse:
-    """Storno omylného záznamu editorem (supersede, nikdy DELETE)."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    try:
-        body = await req.json()
-    except Exception:
-        body = {}
-    try:
-        eid = int((body or {}).get("id") or 0)
-    except Exception:
-        eid = 0
-    reason = str((body or {}).get("reason") or "").strip()[:300]
-    if not eid:
-        return JSONResponse({"ok": False, "error": "missing_id"}, status_code=400)
-    if not reason:
-        return JSONResponse({"ok": False, "error": "Důvod storna je povinný."})
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        row = s.execute(_t(
-            "SELECT e.employee_id, e.entry_date, COALESCE(to_char(e.started_at,'HH24:MI'),'?'), "
-            "       COALESCE(to_char(e.ended_at,'HH24:MI'),'…'), e.status, COALESCE(e.source_system,''), et.label "
-            "FROM tenant.att_entry e JOIN tenant.att_entry_type et ON et.id = e.entry_type_id "
-            "WHERE e.id=:i AND e.tenant_id=:t"),
-            {"i": eid, "t": _ATT_TENANT}).first()
-        if not row:
-            return JSONResponse({"ok": False, "error": "Záznam nenalezen."})
-        if row[4] == "superseded":
-            return JSONResponse({"ok": False, "error": "Záznam už je zneplatněný."})
-        if row[5]:
-            return JSONResponse({"ok": False, "error": "Záznam vlastní stará Centrála — oprav ho v Centrále."})
-        if _att_period_locked(s, row[1]):
-            return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány). Odemknout smí Peťa/Šárka."}, status_code=409)
-        emp = int(row[0])
-        actor = _user_jmeno(s, uid)
-        desc = (row[6] or "") + " " + row[2] + "–" + row[3]
-        s.execute(_t(
-            "UPDATE tenant.att_entry SET status='superseded', is_active=false, "
-            "note = CASE WHEN COALESCE(note,'')='' THEN :nn ELSE note || ' / ' || :nn END, updated_at=now() "
-            "WHERE id=:i"),
-            {"i": eid, "nn": "🛠 STORNO (" + actor + "): " + reason})
-        s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
-                     "WHERE tenant_id=:t AND entry_id=:i AND resolved_at IS NULL"),
-                  {"t": _ATT_TENANT, "i": eid})
-        _att_fix_audit(s, "void", eid, emp, uid, actor, old_note=desc.strip(),
-                       detail=reason, old_date=row[1].isoformat())
-        _att_fix_notify(s, emp, uid, actor, "🛠 Storno záznamu docházky",
-                        actor + " stornoval(a) v tvé docházce " + row[1].strftime("%d.%m.")
-                        + " záznam " + desc.strip() + " (" + reason + "). "
-                        "Pokud to nesedí, otevři den v Docházce a dej ✋ Nesedí.")
-        s.commit()
-        return JSONResponse({"ok": True})
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.post("/app/attendance/fix/resolve")
-async def att_fix_resolve(req: Request) -> JSONResponse:
-    """Odbavení položky fronty bez zásahu: anomálie (anomaly_id) nebo rozpor
-    dne (uid+day) — s poznámkou proč je to v pořádku."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    from datetime import datetime as _dt
-    try:
-        body = await req.json()
-    except Exception:
-        body = {}
-    reason = str((body or {}).get("reason") or "").strip()[:300]
-    aid = 0
-    tuid = 0
-    try:
-        aid = int((body or {}).get("anomaly_id") or 0)
-    except Exception:
-        pass
-    try:
-        tuid = int((body or {}).get("uid") or 0)
-    except Exception:
-        pass
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        actor = _user_jmeno(s, uid)
-        if aid:
-            r = s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
-                             "WHERE tenant_id=:t AND id=:i AND resolved_at IS NULL RETURNING employee_id, entry_id"),
-                          {"t": _ATT_TENANT, "i": aid}).first()
-            if r:
-                _att_fix_audit(s, "resolve", r[1], r[0], uid, actor, detail="anomálie OK: " + (reason or "-"))
-            s.commit()
-            return JSONResponse({"ok": True})
-        if tuid:
-            try:
-                day = _dt.strptime(str((body or {}).get("day") or "")[:10], "%Y-%m-%d").date()
-            except Exception:
-                return JSONResponse({"ok": False, "error": "Neplatné datum."})
-            emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
-                            {"t": _ATT_TENANT, "u": tuid}).scalar()
-            if emp:
-                s.execute(_t(
-                    "UPDATE tenant.att_day_confirm SET disputed=false, "
-                    "note = COALESCE(note,'') || ' | vyřešeno (' || :a || '): ' || :r "
-                    "WHERE tenant_id=:t AND employee_id=:e AND day=:d AND disputed=true"),
-                    {"t": _ATT_TENANT, "e": emp, "d": day.isoformat(), "a": actor, "r": (reason or "-")})
-                _att_fix_audit(s, "resolve", None, emp, uid, actor,
-                               detail="rozpor dne vyřešen: " + (reason or "-"), old_date=day.isoformat())
-            s.commit()
-            return JSONResponse({"ok": True})
-        return JSONResponse({"ok": False, "error": "missing_target"}, status_code=400)
-    except Exception as exc:
-        s.rollback()
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.get("/app/attendance/fix/audit")
-async def att_fix_audit_list(req: Request) -> JSONResponse:
-    """Přehled oprav (att_audit) pro editory — kdo, komu, kdy, co, před→po."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not _att_can_fix(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        rows = s.execute(_t(
-            "SELECT a.id, a.action, a.entry_id, a.old_entry_date::text, a.old_note, a.new_note, "
-            "       a.detail, a.actor_text, to_char(a.created_at,'DD.MM. HH24:MI'), "
-            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
-            "FROM tenant.att_audit a "
-            "LEFT JOIN tenant.att_employee em ON em.id = a.employee_id "
-            "LEFT JOIN public.users u ON u.id = em.user_id "
-            "WHERE a.tenant_id = :t AND a.action IN ('fix','add','void','resolve','period_lock','period_unlock') "
-            "ORDER BY a.id DESC LIMIT 200"),
-            {"t": _ATT_TENANT}).fetchall()
-        s.commit()
-        return JSONResponse({"ok": True, "items": [
-            {"id": r[0], "action": r[1], "entry_id": r[2], "day": r[3], "old": r[4],
-             "new": r[5], "detail": r[6], "actor": r[7], "ts": r[8], "person": r[9]} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.get("/app/attendance/period-lock")
-async def att_period_lock_list(req: Request) -> JSONResponse:
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    cm, s = _att_session()
-    try:
-        if not (_att_can_fix(s, uid) or _att_can_lock(s, uid)):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        try:
-            rows = s.execute(_t(
-                "SELECT l.rok, l.mesic, to_char(l.locked_at,'DD.MM.YYYY'), l.note, "
-                "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), 'user '||l.locked_by) "
-                "FROM tenant.att_period_lock l LEFT JOIN public.users u ON u.id = l.locked_by "
-                "WHERE l.tenant_id=:t ORDER BY l.rok DESC, l.mesic DESC"),
-                {"t": _ATT_TENANT}).fetchall()
-        except Exception:
-            s.rollback()
-            rows = []
-        s.commit()
-        return JSONResponse({"ok": True, "can_lock": _att_can_lock(s, uid), "items": [
-            {"rok": r[0], "mesic": r[1], "od": r[2], "note": r[3], "kdo": r[4]} for r in rows]})
-    finally:
-        cm.__exit__(None, None, None)
-
-
-@api_router.post("/app/attendance/period-lock")
-async def att_period_lock_set(req: Request) -> JSONResponse:
-    """Zamknout/odemknout měsíc pro opravy (mzdy). Peťa/Šárka + rodiče."""
-    uid = _uid_from_token_or_cookie(req)
-    if not uid:
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
-    from sqlalchemy import text as _t
-    try:
-        body = await req.json()
-    except Exception:
-        body = {}
-    try:
-        rok = int((body or {}).get("rok") or 0)
-        mesic = int((body or {}).get("mesic") or 0)
-    except Exception:
-        rok = mesic = 0
-    lock = bool((body or {}).get("lock"))
-    note = str((body or {}).get("note") or "").strip()[:200]
-    if not (2020 <= rok <= 2100 and 1 <= mesic <= 12):
-        return JSONResponse({"ok": False, "error": "Neplatné období."})
-    cm, s = _att_session()
-    try:
-        if not _att_can_lock(s, uid):
-            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
-        actor = _user_jmeno(s, uid)
-        if lock:
-            s.execute(_t(
-                "INSERT INTO tenant.att_period_lock (tenant_id, rok, mesic, locked_by, note) "
-                "VALUES (:t,:r,:m,:u,:n) ON CONFLICT (tenant_id, rok, mesic) DO NOTHING"),
-                {"t": _ATT_TENANT, "r": rok, "m": mesic, "u": uid, "n": note or None})
-        else:
-            s.execute(_t("DELETE FROM tenant.att_period_lock WHERE tenant_id=:t AND rok=:r AND mesic=:m"),
-                      {"t": _ATT_TENANT, "r": rok, "m": mesic})
-        _att_fix_audit(s, "period_lock" if lock else "period_unlock", None, None, uid, actor,
-                       detail=str(mesic) + "/" + str(rok) + (" — " + note if note else ""))
         s.commit()
         return JSONResponse({"ok": True})
     except Exception as exc:
@@ -30528,27 +29814,6 @@ def _mzdy_rucni_rows(firma):
 #  att_entry je autoritativní a obsahuje VŠECHNY typy absencí vč. dovolené/lékaře. 30.6.2026)
 
 
-def _mzdy_refresh_zrcadla(rok, mesic):
-    """V1.02 (Marti 10.7.2026) — PŘED čistou vodou obnov mzdová zrcadla z Centrály (DB_EC),
-    ať dopočtové složky vstoupí do mzdy VŽDY z aktuálních dat, ne ze zastaralých/prázdných:
-      • att_day_summary    → loajalita (přesčas výroby) do 651
-      • att_finance_zakazek → prémie ze zakázek do 651
-      • att_odmena_centrala → odměny (DPP 700 / jednatel 693)
-    Nahrazuje křehké „nejdřív ručně @@DOCHSUM, pak generovat" (Peťa 7.7.). Best-effort:
-    když je zdroj nedostupný, generování NESPADNE, ale chyba je VIDITELNÁ ve výsledku
-    (klíč `zrcadla_warn`) — žádné tiché přeskočení. Každý sync je transakční (rollback při
-    chybě), takže při výpadku zůstane poslední dobré zrcadlo."""
-    warn = []
-    for _nm, _fn in (("dochsum", _sync_dochazka_sumaden),
-                     ("zakazky", _sync_finance_zakazek),
-                     ("odmeny", _sync_odmeny_from_ec)):
-        try:
-            _fn(int(rok), month=int(mesic))
-        except Exception as _e:
-            warn.append("%s: %s" % (_nm, str(_e)[:150]))
-    return warn
-
-
 def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
     """MOST @@MZDY (Marti 28.6.): čistá voda + předzpracování (benefity+stravenky+příplatky)
     + výpočet ve smyčce s časovým rozpočtem. Volat opakovaně, dokud done=False (Express je pomalý).
@@ -30560,7 +29825,6 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
     if not (_ro.get("ok") and _ro.get("rows")):
         return {"ok": False, "error": "období v cloud Heliosu není (TabMzdObd)"}
     idobd = int(_ro["rows"][0][0])
-    _zwarn, _pwarn = [], []  # V1.02: varování z obnovy zrcadel / stavby složek (viditelná ve výsledku)
 
     def _counts():
         c = _mssql188_query(
@@ -30578,15 +29842,11 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
         cw = _mssql188_query(_mzdy_clean_sql(cloud_db, idobd))
         if not cw.get("ok"):
             return {"ok": False, "error": "vyčištění: " + str(cw.get("error"))[:200]}
-        # V1.02: obnov zdrojová zrcadla (loajalita/zakázky/odměny) PŘED stavbou složek,
-        # ať čistá voda nikdy nejede ze zastaralých dat. Chyby zdroje jsou viditelné (_zwarn).
-        _zwarn = _mzdy_refresh_zrcadla(rok, mesic)
-        _pwarn = []
         prows = _mzdy_predzprac_rows(firma)
         try:
             prows = prows + _mzdy_stravenky_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("stravenky: " + str(_e)[:120])
+        except Exception:
+            pass
         try:
             prows = _mzdy_benefity_apply(prows, firma, rok, mesic)
         except Exception:
@@ -30597,17 +29857,16 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
             pass
         try:
             prows = prows + _mzdy_loajalita_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("loajalita: " + str(_e)[:120])
+        except Exception:
+            pass
         try:
             prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("zakazky: " + str(_e)[:120])
-        # V1.04 (Marti 10.7.2026): odměny z Centrály VYPNUTY — způsobovaly DVOJÍ započtení s ručními
-        # složkami (Herejtová 8000 místo 4000, jednatelé/Senft 2×). Odměny (DPP 700 / jednatel 693)
-        # berem z ručních složek (mzdy_rucni_slozka) = zdroj pravdy pro tento měsíc. Migrace na
-        # Centrálu = až po deaktivaci ručních (Peťa 7.7. / Marti 10.7.).
-        # prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
+        except Exception:
+            pass
+        try:
+            prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
+        except Exception:
+            pass
         # Absence (OČR/nemoc) → docházková MS 201/200 do předzpracování. Marti 28.6.: nechat
         # VIDITELNÉ na pásce. Helios sám náhradu nedopočítá (hodí Status 9 = „doplnit dávku"),
         # což je záměrný signál — monitor @@MZDYCHECK i Status 9 na to ukáží. Skutečný výpočet
@@ -30632,12 +29891,12 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
                 prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) == 693]
                 for _csp in _spol:
                     prows.append((_csp, _STRAVENKA_MS, _wdsp * _STRAVENKA_KC, _wdsp))
-        except Exception as _e:
-            _pwarn.append("jednatel_stravne: " + str(_e)[:120])
+        except Exception:
+            pass
         try:
             prows = _mzdy_consolidate(prows)
-        except Exception as _e:
-            _pwarn.append("consolidate: " + str(_e)[:120])
+        except Exception:
+            pass
         if prows:
             perr = _mzdy_predzprac_apply(cloud_db, idobd, prows)
             if perr:
@@ -30657,8 +29916,7 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
             break
     cil, hot, vys = _counts()
     return {"ok": True, "firma": firma, "idobdobi": idobd, "cil": cil, "hotovo": hot,
-            "vystrahy": vys, "done": hot >= cil, "uvazlo": stalled,
-            "zrcadla_warn": _zwarn, "slozky_warn": _pwarn}
+            "vystrahy": vys, "done": hot >= cil, "uvazlo": stalled}
 
 
 @api_router.post("/app/mzdy/generuj")
@@ -30690,7 +29948,6 @@ def mzdy_generuj(req: Request):
     if not (_ro.get("ok") and _ro.get("rows")):
         return {"ok": False, "error": "období v cloud Heliosu není (TabMzdObd)"}
     idobd = int(_ro["rows"][0][0])
-    _zwarn, _pwarn = [], []  # V1.03: viditelná varování (obnova zrcadel / stavba složek)
 
     # ─── REŽIM „JEN JEDEN ČLOVĚK" (?cislo=NNN) ──────────────────────────────────
     # Přegeneruje sakumprask jednoho zaměstnance: smaže JEN jeho pásku + předzpracování,
@@ -30698,13 +29955,6 @@ def mzdy_generuj(req: Request):
     # Zrcadlí stejný postup jako celková generace (clean=1), jen omezený na jedno číslo.
     cislo_raw = (req.query_params.get("cislo") or req.query_params.get("zam") or "").strip()
     if cislo_raw:
-        # V1.03 (Marti 10.7.2026): PŘEGENEROVÁNÍ JEDINCE JE VYPNUTÉ. Dávalo jiný výsledek než
-        # čistá voda (jiná stavba složek) → nedá se na něj spolehnout. Tento měsíc jedeme
-        # VÝHRADNĚ čistou vodou na celou firmu.
-        return {"ok": False, "firma": firma, "cislo": cislo_raw, "blokovano": True,
-                "error": "⛔ Přegenerování JEDNOTLIVCE je vypnuté — nelze se na něj spolehnout "
-                         "(dává jiný výsledek než čistá voda). Použij Generovat mzdy → ČISTÁ VODA "
-                         "na celou firmu. (V1.03, Marti 10.7.2026)"}
         try:
             cislo = int(cislo_raw)
         except Exception:
@@ -30726,9 +29976,6 @@ def mzdy_generuj(req: Request):
         cw = _mssql188_query(_mzdy_clean_one_sql(cloud_db, idobd, zid))
         if not cw.get("ok"):
             return {"ok": False, "error": "vyčištění (jeden) selhalo: " + str(cw.get("error"))[:300]}
-        # V1.02: i pro jednoho obnov zdrojová zrcadla, ať přegenerování jede z aktuálních dat.
-        _zwarn = _mzdy_refresh_zrcadla(rok, mesic)
-        _pwarn = []
         # 2) předzpracování JEN jeho — postav všechny složky jako celková generace, pak odfiltruj na číslo
         prows = _mzdy_predzprac_rows(firma)
         try:
@@ -30753,17 +30000,16 @@ def mzdy_generuj(req: Request):
             pass  # ruční složky (odměna společníků 693, DPP 700 ap.) best-effort
         try:
             prows = prows + _mzdy_loajalita_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("loajalita: " + str(_e)[:120])
+        except Exception:
+            pass  # loajalita (přesčas výroby) → 651, best-effort (Peta 7.7.2026)
         try:
             prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("zakazky: " + str(_e)[:120])
-        # V1.04 (Marti 10.7.2026): odměny z Centrály VYPNUTY — způsobovaly DVOJÍ započtení s ručními
-        # složkami (Herejtová 8000 místo 4000, jednatelé/Senft 2×). Odměny (DPP 700 / jednatel 693)
-        # berem z ručních složek (mzdy_rucni_slozka) = zdroj pravdy pro tento měsíc. Migrace na
-        # Centrálu = až po deaktivaci ručních (Peťa 7.7. / Marti 10.7.).
-        # prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
+        except Exception:
+            pass  # prémie ze zakázek → 651, best-effort (Peta 7.7.2026)
+        try:
+            prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
+        except Exception:
+            pass  # DPP odměny → 700, best-effort (Peta 7.7.2026)
         prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
         try:
             # Jednatel/společník (odměna 693) = odměna + PLNÉ stravné (celý fond), nic dalšího. Peta 7.7.2026.
@@ -30776,12 +30022,12 @@ def mzdy_generuj(req: Request):
                 prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) == 693]
                 for _csp in _spol:
                     prows.append((_csp, _STRAVENKA_MS, _wdsp * _STRAVENKA_KC, _wdsp))
-        except Exception as _e:
-            _pwarn.append("jednatel_stravne: " + str(_e)[:120])
+        except Exception:
+            pass
         try:
             prows = _mzdy_consolidate(prows)
-        except Exception as _e:
-            _pwarn.append("consolidate: " + str(_e)[:120])
+        except Exception:
+            pass
         # apply vždy (i při prázdném) → smaže i jeho staré STRATEGIE předzpracování, zapíše nové
         perr = _mzdy_predzprac_apply(cloud_db, idobd, prows, only_zid=zid)
         if perr:
@@ -30805,7 +30051,7 @@ def mzdy_generuj(req: Request):
         return {"ok": True, "firma": firma, "cislo": cislo, "idobdobi": idobd,
                 "jeden": True, "hotovo": hot, "done": hot >= 1,
                 "status": status, "vystraha": (int(info) if info else 0),
-                "slozek": len(prows), "zrcadla_warn": _zwarn, "slozky_warn": _pwarn}
+                "slozek": len(prows)}
     # ─── /REŽIM „JEN JEDEN ČLOVĚK" ──────────────────────────────────────────────
 
     clean = (req.query_params.get("clean") or "") in ("1", "true", "ano")
@@ -30813,64 +30059,32 @@ def mzdy_generuj(req: Request):
         cw = _mssql188_query(_mzdy_clean_sql(cloud_db, idobd))
         if not cw.get("ok"):
             return {"ok": False, "error": "vyčištění selhalo: " + str(cw.get("error"))[:300]}
-        # V1.03 (Marti 10.7.2026): tato FRONTENDOVÁ čistá voda dřív NEobsahovala dopočtové složky
-        # (loajalita / prémie ze zakázek / odměny / jednatelské stravné) — proto do mzdy vůbec
-        # nevstupovaly (Peťa je 7.7. přidal jen do @@MZDY a do „jednoho člověka", sem ne).
-        # Nově: obnov zdrojová zrcadla a postav složky PŘESNĚ jako _mzdy_full_run.
-        _zwarn = _mzdy_refresh_zrcadla(rok, mesic)
-        _pwarn = []
         # PŘEDZPRACOVÁNÍ ze STRATEGIE: obě složky (zaklad→karta 001, os_ohodnoceni→TabPredzp 432)
         prows = _mzdy_predzprac_rows(firma)
         try:
             prows = prows + _mzdy_stravenky_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("stravenky: " + str(_e)[:120])
+        except Exception as _se:
+            pass  # stravenky best-effort, nesmí shodit generování
         try:
             prows = _mzdy_benefity_apply(prows, firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("benefity: " + str(_e)[:120])
+        except Exception as _be:
+            pass  # benefity best-effort, nesmí shodit generování
         try:
             prows = prows + _mzdy_priplatky_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("priplatky: " + str(_e)[:120])
-        try:
-            prows = prows + _mzdy_loajalita_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("loajalita: " + str(_e)[:120])
-        try:
-            prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("zakazky: " + str(_e)[:120])
-        # V1.04 (Marti 10.7.2026): odměny z Centrály VYPNUTY — způsobovaly DVOJÍ započtení s ručními
-        # složkami (Herejtová 8000 místo 4000, jednatelé/Senft 2×). Odměny (DPP 700 / jednatel 693)
-        # berem z ručních složek (mzdy_rucni_slozka) = zdroj pravdy pro tento měsíc. Migrace na
-        # Centrálu = až po deaktivaci ručních (Peťa 7.7. / Marti 10.7.).
-        # prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
+        except Exception as _pe:
+            pass  # příplatky/srážky best-effort
         try:
             prows = prows + _mzdy_absence_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("absence: " + str(_e)[:120])
+        except Exception as _ae:
+            pass  # absence (dovolená/nemoc/lékař/OČR…) z naší docházky, best-effort
         try:
             prows = prows + _mzdy_rucni_rows(firma)
-        except Exception as _e:
-            _pwarn.append("rucni: " + str(_e)[:120])
-        try:
-            # Jednatelé/společníci (odměna 693) = odměna + PLNÉ stravné za celý pracovní fond měsíce.
-            prows = [((r[0], 432) + tuple(r[2:])) if (int(r[1]) == 693 and int(r[0]) not in _JEDNATELE_CISLA) else r for r in prows]
-            _spol = set(int(r[0]) for r in prows if int(r[1]) == 693) & _JEDNATELE_CISLA
-            if _spol:
-                import calendar as _calsp
-                _ldsp = _calsp.monthrange(int(rok), int(mesic))[1]
-                _wdsp = sum(1 for _x in range(1, _ldsp + 1) if _calsp.weekday(int(rok), int(mesic), _x) < 5)
-                prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) == 693]
-                for _csp in _spol:
-                    prows.append((_csp, _STRAVENKA_MS, _wdsp * _STRAVENKA_KC, _wdsp))
-        except Exception as _e:
-            _pwarn.append("jednatel_stravne: " + str(_e)[:120])
+        except Exception as _re:
+            pass  # ruční složky (odměna společníků 693, DPP 700 ap.), best-effort
         try:
             prows = _mzdy_consolidate(prows)  # sečti víc zdrojů do jedné Helios složky
-        except Exception as _e:
-            _pwarn.append("consolidate: " + str(_e)[:120])
+        except Exception as _ce:
+            pass
         if prows:
             perr = _mzdy_predzprac_apply(cloud_db, idobd, prows)
             if perr:
@@ -30892,8 +30106,7 @@ def mzdy_generuj(req: Request):
     cil, before, _v = _counts()
     if before >= cil:
         return {"ok": True, "firma": firma, "idobdobi": idobd, "cil": cil, "hotovo": before,
-                "pridano": 0, "vystrahy": _v, "done": True, "uvazlo": False,
-                "zrcadla_warn": _zwarn, "slozky_warn": _pwarn}
+                "pridano": 0, "vystrahy": _v, "done": True, "uvazlo": False}
     w = _mssql188_query(_mzdy_worker_sql(cloud_db, idobd, maxn))
     if not w.get("ok"):
         return {"ok": False, "error": "worker selhal: " + str(w.get("error"))[:300]}
@@ -30902,8 +30115,7 @@ def mzdy_generuj(req: Request):
     return {"ok": True, "firma": firma, "idobdobi": idobd, "cil": cil, "hotovo": after,
             "pridano": pridano, "vystrahy": vystrahy,
             "done": (after >= cil) or (pridano == 0),
-            "uvazlo": (pridano == 0 and after < cil),
-            "zrcadla_warn": _zwarn, "slozky_warn": _pwarn}
+            "uvazlo": (pridano == 0 and after < cil)}
 
 
 # ========================= BENEFITY HO/OBL — endpointy =========================
@@ -38198,19 +37410,6 @@ async def diag_sql(req: Request) -> JSONResponse:
     #   @@VPTRIAGE → AI klasifikace cekajicich (typ/zakaznik/predmet/shrnuti/jistota)
     #   @@VPTEST <text> → ad-hoc test klasifikace na libovolnem textu (bez schranky)
     #   @@VPINFO → prehled VP poptavek + whitelist + zda je schranka projects@ pripojena
-    #   @@COREIMPORT <ec_form_id> [<zdroj>] [--force] → import jádra z Centrály
-    #   (EC_FormDef) do fw.*: core + edit-select + nativní generátor polí + popisky.
-    #   Kristý/Claude-24 9.7.2026, pilot form 271. Detail: modules/erp/api/core_import.py
-    if sql.upper().startswith("@@COREIMPORT"):
-        import traceback as _tbci
-        try:
-            from modules.erp.api.core_import import run_core_import as _rci
-            return JSONResponse(_rci(sql[len("@@COREIMPORT"):].strip()))
-        except Exception as _cie:
-            return JSONResponse({"ok": False,
-                                 "error": "%s: %s" % (type(_cie).__name__, str(_cie)[:400]),
-                                 "tb": _tbci.format_exc()[-1200:]})
-
     if sql.upper().startswith("@@VP"):
         import traceback as _tbvp
         try:

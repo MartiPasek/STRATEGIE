@@ -1,10 +1,11 @@
 # fs_reorg SSE refresh 2026-07-02
-# ── V1.02 (Marti 10.7.2026): čisté započtení loajality (přesčas výroby) + prémií ze zakázek
-#    + jednatelského stravného do mzdy. Generování (čistá voda i „jeden člověk") teď PŘED
-#    stavbou složek obnoví zdrojová zrcadla z Centrály (_mzdy_refresh_zrcadla), takže dopočtové
-#    složky vstoupí vždy z aktuálních dat — konec „nejdřív ručně @@DOCHSUM". Chyby zdroje jsou
-#    viditelné ve výsledku (zrcadla_warn / slozky_warn), žádné tiché try/except: pass.
-#    Předchozí verze zálohována jako scripts/backups/router_V1.01.py. ──
+# ── V1.03 (Marti 10.7.2026): dopočtové složky (loajalita přesčas výroby / prémie ze zakázek /
+#    odměny / jednatelské stravné) teď vstupují do mzdy VE VŠECH cestách generování. Frontendová
+#    „čistá voda" je dřív VŮBEC nepočítala (Peťa je 7.7. přidal jen do @@MZDY a „jednoho člověka",
+#    sem ne) — to byla pravá příčina chybějících prémií/loajality. Před stavbou složek se obnoví
+#    zdrojová zrcadla z Centrály (_mzdy_refresh_zrcadla); chyby jsou viditelné (zrcadla_warn /
+#    slozky_warn), žádné tiché try/except: pass. PŘEGENEROVÁNÍ JEDINCE (?cislo=) je VYPNUTÉ —
+#    dávalo jiný výsledek než čistá voda; tento měsíc jedeme jen čistou vodou. Záloha: router_V1.01.py.bak. ──
 """
 STRATEGIE ERP API router (Phase A — read-only single jádro renderer).
 
@@ -30685,6 +30686,7 @@ def mzdy_generuj(req: Request):
     if not (_ro.get("ok") and _ro.get("rows")):
         return {"ok": False, "error": "období v cloud Heliosu není (TabMzdObd)"}
     idobd = int(_ro["rows"][0][0])
+    _zwarn, _pwarn = [], []  # V1.03: viditelná varování (obnova zrcadel / stavba složek)
 
     # ─── REŽIM „JEN JEDEN ČLOVĚK" (?cislo=NNN) ──────────────────────────────────
     # Přegeneruje sakumprask jednoho zaměstnance: smaže JEN jeho pásku + předzpracování,
@@ -30692,6 +30694,13 @@ def mzdy_generuj(req: Request):
     # Zrcadlí stejný postup jako celková generace (clean=1), jen omezený na jedno číslo.
     cislo_raw = (req.query_params.get("cislo") or req.query_params.get("zam") or "").strip()
     if cislo_raw:
+        # V1.03 (Marti 10.7.2026): PŘEGENEROVÁNÍ JEDINCE JE VYPNUTÉ. Dávalo jiný výsledek než
+        # čistá voda (jiná stavba složek) → nedá se na něj spolehnout. Tento měsíc jedeme
+        # VÝHRADNĚ čistou vodou na celou firmu.
+        return {"ok": False, "firma": firma, "cislo": cislo_raw, "blokovano": True,
+                "error": "⛔ Přegenerování JEDNOTLIVCE je vypnuté — nelze se na něj spolehnout "
+                         "(dává jiný výsledek než čistá voda). Použij Generovat mzdy → ČISTÁ VODA "
+                         "na celou firmu. (V1.03, Marti 10.7.2026)"}
         try:
             cislo = int(cislo_raw)
         except Exception:
@@ -30799,32 +30808,63 @@ def mzdy_generuj(req: Request):
         cw = _mssql188_query(_mzdy_clean_sql(cloud_db, idobd))
         if not cw.get("ok"):
             return {"ok": False, "error": "vyčištění selhalo: " + str(cw.get("error"))[:300]}
+        # V1.03 (Marti 10.7.2026): tato FRONTENDOVÁ čistá voda dřív NEobsahovala dopočtové složky
+        # (loajalita / prémie ze zakázek / odměny / jednatelské stravné) — proto do mzdy vůbec
+        # nevstupovaly (Peťa je 7.7. přidal jen do @@MZDY a do „jednoho člověka", sem ne).
+        # Nově: obnov zdrojová zrcadla a postav složky PŘESNĚ jako _mzdy_full_run.
+        _zwarn = _mzdy_refresh_zrcadla(rok, mesic)
+        _pwarn = []
         # PŘEDZPRACOVÁNÍ ze STRATEGIE: obě složky (zaklad→karta 001, os_ohodnoceni→TabPredzp 432)
         prows = _mzdy_predzprac_rows(firma)
         try:
             prows = prows + _mzdy_stravenky_rows(firma, rok, mesic)
-        except Exception as _se:
-            pass  # stravenky best-effort, nesmí shodit generování
+        except Exception as _e:
+            _pwarn.append("stravenky: " + str(_e)[:120])
         try:
             prows = _mzdy_benefity_apply(prows, firma, rok, mesic)
-        except Exception as _be:
-            pass  # benefity best-effort, nesmí shodit generování
+        except Exception as _e:
+            _pwarn.append("benefity: " + str(_e)[:120])
         try:
             prows = prows + _mzdy_priplatky_rows(firma, rok, mesic)
-        except Exception as _pe:
-            pass  # příplatky/srážky best-effort
+        except Exception as _e:
+            _pwarn.append("priplatky: " + str(_e)[:120])
+        try:
+            prows = prows + _mzdy_loajalita_rows(firma, rok, mesic)
+        except Exception as _e:
+            _pwarn.append("loajalita: " + str(_e)[:120])
+        try:
+            prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
+        except Exception as _e:
+            _pwarn.append("zakazky: " + str(_e)[:120])
+        try:
+            prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
+        except Exception as _e:
+            _pwarn.append("odmeny: " + str(_e)[:120])
         try:
             prows = prows + _mzdy_absence_rows(firma, rok, mesic)
-        except Exception as _ae:
-            pass  # absence (dovolená/nemoc/lékař/OČR…) z naší docházky, best-effort
+        except Exception as _e:
+            _pwarn.append("absence: " + str(_e)[:120])
         try:
             prows = prows + _mzdy_rucni_rows(firma)
-        except Exception as _re:
-            pass  # ruční složky (odměna společníků 693, DPP 700 ap.), best-effort
+        except Exception as _e:
+            _pwarn.append("rucni: " + str(_e)[:120])
+        try:
+            # Jednatelé/společníci (odměna 693) = odměna + PLNÉ stravné za celý pracovní fond měsíce.
+            prows = [((r[0], 432) + tuple(r[2:])) if (int(r[1]) == 693 and int(r[0]) not in _JEDNATELE_CISLA) else r for r in prows]
+            _spol = set(int(r[0]) for r in prows if int(r[1]) == 693) & _JEDNATELE_CISLA
+            if _spol:
+                import calendar as _calsp
+                _ldsp = _calsp.monthrange(int(rok), int(mesic))[1]
+                _wdsp = sum(1 for _x in range(1, _ldsp + 1) if _calsp.weekday(int(rok), int(mesic), _x) < 5)
+                prows = [r for r in prows if int(r[0]) not in _spol or int(r[1]) == 693]
+                for _csp in _spol:
+                    prows.append((_csp, _STRAVENKA_MS, _wdsp * _STRAVENKA_KC, _wdsp))
+        except Exception as _e:
+            _pwarn.append("jednatel_stravne: " + str(_e)[:120])
         try:
             prows = _mzdy_consolidate(prows)  # sečti víc zdrojů do jedné Helios složky
-        except Exception as _ce:
-            pass
+        except Exception as _e:
+            _pwarn.append("consolidate: " + str(_e)[:120])
         if prows:
             perr = _mzdy_predzprac_apply(cloud_db, idobd, prows)
             if perr:
@@ -30846,7 +30886,8 @@ def mzdy_generuj(req: Request):
     cil, before, _v = _counts()
     if before >= cil:
         return {"ok": True, "firma": firma, "idobdobi": idobd, "cil": cil, "hotovo": before,
-                "pridano": 0, "vystrahy": _v, "done": True, "uvazlo": False}
+                "pridano": 0, "vystrahy": _v, "done": True, "uvazlo": False,
+                "zrcadla_warn": _zwarn, "slozky_warn": _pwarn}
     w = _mssql188_query(_mzdy_worker_sql(cloud_db, idobd, maxn))
     if not w.get("ok"):
         return {"ok": False, "error": "worker selhal: " + str(w.get("error"))[:300]}
@@ -30855,7 +30896,8 @@ def mzdy_generuj(req: Request):
     return {"ok": True, "firma": firma, "idobdobi": idobd, "cil": cil, "hotovo": after,
             "pridano": pridano, "vystrahy": vystrahy,
             "done": (after >= cil) or (pridano == 0),
-            "uvazlo": (pridano == 0 and after < cil)}
+            "uvazlo": (pridano == 0 and after < cil),
+            "zrcadla_warn": _zwarn, "slozky_warn": _pwarn}
 
 
 # ========================= BENEFITY HO/OBL — endpointy =========================

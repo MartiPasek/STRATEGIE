@@ -668,7 +668,7 @@ async def platak_mzdy_import(req: Request):
         idobd = int(_ro["rows"][0][0])
         q = ("SELECT p.ID, dv.Nazev, p.Mena, r.Castka, "
              "ISNULL(r.VariabilniSymbol,''), ISNULL(r.KonstantniSymbol,''), ISNULL(r.SpecifickySymbol,''), "
-             "ISNULL(bs.CisloUctu,''), ISNULL(pu.KodUstavu,''), ISNULL(r.DispozicniZprava,'') "
+             "ISNULL(bs.CisloUctu,''), ISNULL(pu.KodUstavu,''), ISNULL(r.UcelPlatby,'') "
              "FROM " + cloud_db + ".dbo.TabPlatTuz p "
              "JOIN " + cloud_db + ".dbo.TabDefPlatPrik dv ON p.MzdPredpis=dv.Kod AND p.IdMzdObd=dv.IdObdobi "
              "JOIN " + cloud_db + ".dbo.TabPlatTuzR r ON r.IDHlavaPP=p.ID "
@@ -712,6 +712,11 @@ async def platak_mzdy_import(req: Request):
             info = {"platak": g["nazev"], "mena": "CZK", "pocet": len(lines),
                     "suma": round(suma, 2), "soubor": fn, "cesta": abs_dir + "\\",
                     "nahled": [(l[:120] + "…") if len(l) > 120 else l for l in lines[:2]]}
+            if dry:
+                info["polozky"] = [{"ucet": _clean(rw[7]), "kod": _clean(rw[8]),
+                                    "castka": round(float(rw[3] or 0), 2),
+                                    "vs": _clean(rw[4]), "ucel": (_clean(rw[9]) or g["nazev"])}
+                                   for rw in g["lines"]]
             if not dry:
                 try:
                     pid = s.execute(_t(

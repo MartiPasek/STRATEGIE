@@ -1,4 +1,7 @@
 # fs_reorg SSE refresh 2026-07-02
+# ── V1.04 (Marti 10.7.2026): odměny z Centrály (_mzdy_odmeny_rows) VYPNUTY ve všech cestách —
+#    dvojily se s ručními složkami (Herejtová 8000 m. 4000, jednatelé/Senft 2×). Odměny berem
+#    z mzdy_rucni_slozka. ──
 # ── V1.03 (Marti 10.7.2026): dopočtové složky (loajalita přesčas výroby / prémie ze zakázek /
 #    odměny / jednatelské stravné) teď vstupují do mzdy VE VŠECH cestách generování. Frontendová
 #    „čistá voda" je dřív VŮBEC nepočítala (Peťa je 7.7. přidal jen do @@MZDY a „jednoho člověka",
@@ -30600,10 +30603,11 @@ def _mzdy_full_run(firma, rok, mesic, force_clean=False, budget_s=22):
             prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
         except Exception as _e:
             _pwarn.append("zakazky: " + str(_e)[:120])
-        try:
-            prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("odmeny: " + str(_e)[:120])
+        # V1.04 (Marti 10.7.2026): odměny z Centrály VYPNUTY — způsobovaly DVOJÍ započtení s ručními
+        # složkami (Herejtová 8000 místo 4000, jednatelé/Senft 2×). Odměny (DPP 700 / jednatel 693)
+        # berem z ručních složek (mzdy_rucni_slozka) = zdroj pravdy pro tento měsíc. Migrace na
+        # Centrálu = až po deaktivaci ručních (Peťa 7.7. / Marti 10.7.).
+        # prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
         # Absence (OČR/nemoc) → docházková MS 201/200 do předzpracování. Marti 28.6.: nechat
         # VIDITELNÉ na pásce. Helios sám náhradu nedopočítá (hodí Status 9 = „doplnit dávku"),
         # což je záměrný signál — monitor @@MZDYCHECK i Status 9 na to ukáží. Skutečný výpočet
@@ -30755,10 +30759,11 @@ def mzdy_generuj(req: Request):
             prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
         except Exception as _e:
             _pwarn.append("zakazky: " + str(_e)[:120])
-        try:
-            prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("odmeny: " + str(_e)[:120])
+        # V1.04 (Marti 10.7.2026): odměny z Centrály VYPNUTY — způsobovaly DVOJÍ započtení s ručními
+        # složkami (Herejtová 8000 místo 4000, jednatelé/Senft 2×). Odměny (DPP 700 / jednatel 693)
+        # berem z ručních složek (mzdy_rucni_slozka) = zdroj pravdy pro tento měsíc. Migrace na
+        # Centrálu = až po deaktivaci ručních (Peťa 7.7. / Marti 10.7.).
+        # prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
         prows = [r for r in prows if int(r[0]) == cislo]  # JEN on
         try:
             # Jednatel/společník (odměna 693) = odměna + PLNÉ stravné (celý fond), nic dalšího. Peta 7.7.2026.
@@ -30836,10 +30841,11 @@ def mzdy_generuj(req: Request):
             prows = prows + _mzdy_finance_zakazek_rows(firma, rok, mesic)
         except Exception as _e:
             _pwarn.append("zakazky: " + str(_e)[:120])
-        try:
-            prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
-        except Exception as _e:
-            _pwarn.append("odmeny: " + str(_e)[:120])
+        # V1.04 (Marti 10.7.2026): odměny z Centrály VYPNUTY — způsobovaly DVOJÍ započtení s ručními
+        # složkami (Herejtová 8000 místo 4000, jednatelé/Senft 2×). Odměny (DPP 700 / jednatel 693)
+        # berem z ručních složek (mzdy_rucni_slozka) = zdroj pravdy pro tento měsíc. Migrace na
+        # Centrálu = až po deaktivaci ručních (Peťa 7.7. / Marti 10.7.).
+        # prows = prows + _mzdy_odmeny_rows(firma, rok, mesic)
         try:
             prows = prows + _mzdy_absence_rows(firma, rok, mesic)
         except Exception as _e:

@@ -1042,3 +1042,12 @@ async def mail_send_doc(req: Request):
         return {"ok": True, "vysledek": res, "to": to, "cc": cc, "priloha": bool(att_ids)}
     finally:
         s.close()
+
+
+# Analýza hospodaření zakázek (Marti 10.7.2026) — registruje své endpointy na
+# contract_router (import až tady dole, aby byl contract_router hotový).
+try:
+    from modules.erp.api import zakazky_analyza as _zakazky_analyza  # noqa: F401
+except Exception as _e_za:
+    import logging as _lg_za
+    _lg_za.getLogger(__name__).warning("zakazky_analyza import selhal: %s", _e_za)

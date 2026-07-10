@@ -483,10 +483,13 @@ def _run_generator(core_id: int, fields: list[str], force: bool) -> str:
 # ── hlavní vstup ─────────────────────────────────────────────────────────────
 
 def run_core_import(arg: str) -> dict:
-    """Parsuje '<ec_form_id> [<zdroj>] [--force] [--map A=B,C=D]'. Vrací dict pro JSONResponse.
+    """Parsuje '<ec_form_id> [<zdroj>] [--force] [--map A=B,C=D] [--bind <grid_code>] [--rebind]'.
 
-    --map = ruční mapování Centrála FieldName → sloupec zdroje pro případy,
-    kdy auto-mapování (přesná shoda / alias z Centrála SQL / prefix) nestačí.
+    --map    = ruční mapování Centrála FieldName → sloupec zdroje.
+    --bind <grid_code> = po importu navázat nové jádro na přehled <grid_code>
+                         (= fw.core.code přehledu) → edit se pak otevře z řádku.
+    --rebind = povolit přepis existující vazby (pojistka: bez něj se vazba
+               NEpřepíše, jen se nahlásí, že přehled už jádro má).
     """
     try:
         user_map: dict[str, str] = {}
@@ -497,11 +500,19 @@ def run_core_import(arg: str) -> dict:
                     k, v = pair.split("=", 1)
                     user_map[k.strip().lower()] = v.strip()
             arg = arg.replace(mm.group(0), "")
+        # --bind <grid_code> (navázání na přehled) — vytáhnout před split ec/zdroj
+        bind_grid = None
+        bm = re.search(r"--bind\s+(\S+)", arg)
+        if bm:
+            bind_grid = bm.group(1).strip()
+            arg = arg.replace(bm.group(0), "")
+        rebind = "--rebind" in arg
+        arg = arg.replace("--rebind", "")
         force = "--force" in arg
         arg = arg.replace("--force", "").strip()
         if not arg:
             return {"ok": False,
-                    "error": "použití: @@COREIMPORT <ec_form_id> [<zdroj>] [--force] [--map A=B,C=D]"}
+                    "error": "použití: @@COREIMPORT <ec_form_id> [<zdroj>] [--force] [--map A=B,C=D] [--bind <grid_code>] [--rebind]"}
         parts = arg.split(None, 1)
         ec_form_id = int(parts[0])
         zdroj = parts[1].strip() if len(parts) > 1 else None
@@ -589,6 +600,25 @@ def run_core_import(arg: str) -> dict:
         rep = _layout_from_centrala(s, core_id, cen, fields, user_map)
         s.commit()
 
+        # 6. (volitelně) navázání na přehled: grid_code(list core.code) → toto jádro.
+        #    Edit se pak z řádku přehledu otevře nativně (přes FW_EDIT_FORM_REGISTRY,
+        #    který se seeduje z fw.edit_form_binding). Pojistka: bez --rebind se
+        #    existující vazba NEpřepíše (Kristý 10.7.).
+        bind_info = "—"
+        if bind_grid:
+            from modules.erp.api import edit_form_binding as _efb
+            br = _efb.set_binding(s, bind_grid, core_id, force=rebind)
+            if br.get("ok"):
+                s.commit()
+                bind_info = f"{bind_grid} → core {core_id}"
+                if br.get("replaced"):
+                    bind_info += f" (přepsáno z core {br['replaced']})"
+            elif br.get("already_bound") is not None:
+                bind_info = (f"⚠ přehled '{bind_grid}' už má jádro core {br['already_bound']} "
+                             f"— NEnavázáno; pro přepsání přidej --rebind")
+            else:
+                bind_info = f"⚠ vazba selhala: {br.get('error')}"
+
         comp_cnt = int(s.execute(_t("SELECT count(*) FROM fw.comp_def WHERE core_id=:c"),
                                  {"c": core_id}).scalar())
         return {
@@ -608,6 +638,7 @@ def run_core_import(arg: str) -> dict:
                 ["gridy_preskoceny (faze 2)", rep["grids_skipped"]],
                 ["tlacitka_preskocena (Delphi)", rep["buttons_skipped"]],
                 ["nenamapovano (dopln --map)", ", ".join(rep["unmatched"]) or "—"],
+                ["vazba na prehled", bind_info],
                 ["generator", (gen_out or "")[-160:]],
             ],
         }

@@ -37247,6 +37247,31 @@ def _xfer_sys_run(targets):
     _log("_DONE", "_RUN", None, None, True, None)
 
 
+@api_router.get("/edit-form-binding/all")
+async def edit_form_binding_all(req: Request) -> JSONResponse:
+    """Vazby prehled(grid_code) -> editacni jadro(core_id) z fw.edit_form_binding.
+    Frontend jimi seeduje FW_EDIT_FORM_REGISTRY (erp_grid_actions.js), aby se edit
+    otevrel z radku prehledu. Ctou VSICHNI prihlaseni; tolerantni k chybejici tabulce.
+    Autor: Claude-24 (Kristy) 10.7.2026."""
+    from core.database_data import get_data_session as _gds_efb
+    from modules.erp.api import edit_form_binding as _efb_mod
+    _get_uid(req)
+    ds = _gds_efb()
+    try:
+        return JSONResponse({"ok": True, "bindings": _efb_mod.get_all_bindings(ds, tolerant=True)})
+    except Exception as _efb_exc:
+        try:
+            logger.warning("edit_form_binding_all failed: %s" % _efb_exc)
+        except Exception:
+            pass
+        return JSONResponse({"ok": True, "bindings": {}})
+    finally:
+        try:
+            ds.close()
+        except Exception:
+            pass
+
+
 @api_router.post("/diag-sql")
 async def diag_sql(req: Request) -> JSONResponse:
     """Claude SQL bridge (1.6.2026, Marti: "máme na to tooly ve STRATEGII"):

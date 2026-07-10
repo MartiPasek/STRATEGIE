@@ -991,6 +991,9 @@
         cssClass: "erp-action-soucet-hodin",
         destructive: false,
         requiresRow: true,
+        // Uživatelská akce → v context menu ÚPLNĚ DOLE (datagrid.js userItems),
+        // ne mezi systémovými CRUD nahoře (Jirka 10.7.2026).
+        userAction: true,
         handler: function (ctx) {
           // Preferuj skutečný výběr (multi); fallback = pravo-kliknutý řádek.
           var rows = [];

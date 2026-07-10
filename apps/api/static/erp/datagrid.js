@@ -2198,6 +2198,10 @@
           // Drží Marti "stejne zobrazit, stejne funkce" — same source jako
           // workspace toolbar + grid header toolbar (3 vrstvy sync).
           const crudItems = [];
+          // Uživatelské akce (Claude-28/Jirka 10.7.2026): ActionDef s
+          // userAction:true jde na ÚPLNÝ KONEC menu (za built-ins/custom),
+          // oddělené separátorem — ne mezi systémové CRUD nahoře.
+          const userItems = [];
           try {
             const actionKeys = opts.contextMenuActions;
             if (Array.isArray(actionKeys) && actionKeys.length > 0
@@ -2258,7 +2262,8 @@
                 const initDisabled = _stateMap[action.key] === true;
                 const needRowDisabled = action.requiresRow && !rowData;
                 const disabled = initDisabled || needRowDisabled;
-                crudItems.push({
+                // userAction:true → dolní sekce menu (uživatelské akce).
+                (action.userAction === true ? userItems : crudItems).push({
                   // UI polish (24.5.2026 vecer pozde, Marti's "ikony uplne
                   // vlevo do samostatneho prostoru"): split icon + name pro
                   // native AG Grid layout — icon v dedicated left slot,
@@ -2423,6 +2428,8 @@
           if (oiItems.length > 0) all.push("separator", ...oiItems);
           if (designItems.length > 0) all.push("separator", ...designItems);
           if (custom.length > 0) all.push("separator", ...custom);
+          // Uživatelské akce (userAction:true) — úplně dole, za vším.
+          if (userItems.length > 0) all.push("separator", ...userItems);
           return all;
         },
         // Excel-like keyboard nav (Marti's MVP standard 5.5.2026)

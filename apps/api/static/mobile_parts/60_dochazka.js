@@ -1773,6 +1773,7 @@
     var tabs=el('<div style="display:flex;gap:8px;margin:2px 0 10px;flex-wrap:wrap;"></div>');
     var box=el('<div></div>');
     p.appendChild(tabs); p.appendChild(box);
+    p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod spodní lištu (Jirka 10.7.)
     function tabBtn(lbl,fn){
       var b=el('<button class="ghost sm">'+lbl+'</button>');
       b.addEventListener("click",function(){
@@ -1855,7 +1856,8 @@
       function rend(){
         var q=(si.value||"").trim().toLowerCase();
         res.innerHTML="";
-        lide.filter(function(l){ return !q || (l.jmeno||"").toLowerCase().indexOf(q)>=0; }).slice(0,40).forEach(function(l){
+        // Jirka 10.7.: BEZ oříznutí — musí být vidět všichni (67 lidí; slice(0,40) utínal M–Z).
+        lide.filter(function(l){ return !q || (l.jmeno||"").toLowerCase().indexOf(q)>=0; }).forEach(function(l){
           var b=el('<button class="ghost full" style="margin-top:6px;text-align:left;">👤 '+esc(l.jmeno||"?")+'</button>');
           b.addEventListener("click",function(){ _fixOpenDay(l.user_id,l.jmeno,dt.value||_locDate(0)); });
           res.appendChild(b);
@@ -1888,6 +1890,7 @@
     var dt=el('<input type="date" value="'+esc(ctx.day||_locDate(0))+'" style="width:100%;">');
     p.appendChild(dt);
     var box=el('<div style="margin-top:8px;"></div>'); p.appendChild(box);
+    p.appendChild(el('<div style="height:120px;"></div>'));  // rezerva pod spodní lištu (Jirka 10.7.)
     dt.addEventListener("change",function(){ ctx.day=dt.value; load(); });
     function load(){
       box.innerHTML='<div class="hint">Načítám den…</div>';

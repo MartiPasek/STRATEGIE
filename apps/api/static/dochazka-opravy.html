@@ -141,7 +141,7 @@ function loadPeople(){
     L.appendChild(si);L.appendChild(dt);L.appendChild(res);
     function rend(){
       var q=(si.value||'').toLowerCase().trim();res.innerHTML='';
-      LIDE.filter(function(l){return !q||(l.jmeno||'').toLowerCase().indexOf(q)>=0;}).slice(0,50).forEach(function(l){
+      LIDE.filter(function(l){return !q||(l.jmeno||'').toLowerCase().indexOf(q)>=0;}).forEach(function(l){
         var b=el('<button class="b full" style="margin-top:6px;text-align:left;">👤 '+esc(l.jmeno||'?')+'</button>');
         b.addEventListener('click',function(){openDay(l.user_id,l.jmeno,dt.value||today());});
         res.appendChild(b);

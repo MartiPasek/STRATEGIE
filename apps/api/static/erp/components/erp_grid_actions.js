@@ -50,6 +50,36 @@
       // (Etapa D seed dnes: "system_new.framework_data_sources": <coreId>)
     };
 
+    // DB-řízená vazba (Kristý 10.7.2026): registr se při loadu naseeduje z
+    // fw.edit_form_binding přes GET /edit-form-binding/all. Statické záznamy
+    // výše mají přednost (override). Tím jde jádro navázat na přehled za běhu
+    // (import z Centrály zapíše vazbu) bez editace tohoto souboru.
+    // Přídavné + tolerantní: když endpoint/tabulka chybí, registr zůstane
+    // prázdný = chování jako dosud.
+    var _EFB_SEEDED = false;
+    function _seedEditFormRegistryFromDb() {
+      if (_EFB_SEEDED) return Promise.resolve();
+      _EFB_SEEDED = true;
+      return fetch("/api/v1/erp/edit-form-binding/all", { credentials: "include" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          var b = d && d.bindings;
+          if (!b || typeof b !== "object") return;
+          Object.keys(b).forEach(function (gridCode) {
+            // statický záznam (ruční override) NEpřepisujeme
+            if (FW_EDIT_FORM_REGISTRY[gridCode] == null) {
+              FW_EDIT_FORM_REGISTRY[gridCode] = b[gridCode];
+            }
+          });
+        })
+        .catch(function (e) {
+          // best-effort; registr zůstane jak je (fallback = dnešní chování)
+          try { console.warn("[ErpGridActions] edit-form-binding seed skip:", e); } catch (_e) {}
+        });
+    }
+    // seed hned při načtení modulu (async, neblokuje)
+    try { _seedEditFormRegistryFromDb(); } catch (_e) {}
+
     // ════════════════════════════════════════════════════════════════════
     // Helpers — internal
     // ════════════════════════════════════════════════════════════════════

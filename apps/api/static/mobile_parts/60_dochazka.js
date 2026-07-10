@@ -1846,7 +1846,8 @@
   }
   function _fixPeopleLoad(box){
     box.innerHTML='<div class="hint">Načítám lidi…</div>';
-    api("GET","/api/v1/erp/app/dochazka/lide","").then(function(j){
+    // Jirka 10.7. (rozhodl Marti): seznam JEN v působnosti editora (kancelář/výroba/vše).
+    api("GET","/api/v1/erp/app/attendance/fix/lide","").then(function(j){
       box.innerHTML="";
       var lide=(j&&j.lide)||[];
       // Jirka 10.7.: pořadí volby je volné — den→člověk i člověk→den (den jde

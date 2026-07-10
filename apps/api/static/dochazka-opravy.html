@@ -155,7 +155,7 @@ function loadQueue(){
 // ── lidé ──
 function loadPeople(){
   var L=document.getElementById('left');L.innerHTML='<div class="hint">Načítám lidi…</div>';
-  api('GET','/api/v1/erp/app/dochazka/lide').then(function(j){
+  api('GET','/api/v1/erp/app/attendance/fix/lide').then(function(j){
     L.innerHTML='';LIDE=(j.lide||[]);
     L.appendChild(el('<div class="hint" style="margin-bottom:4px;">📅 Který den zobrazit (jde změnit i potom v detailu):</div>'));
     var dr=dateRow(today(),null);

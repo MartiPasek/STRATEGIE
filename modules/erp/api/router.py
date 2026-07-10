@@ -19149,6 +19149,59 @@ def _att_can_fix(s, uid) -> bool:
     return m is not None
 
 
+def _att_fix_scope(s, uid):
+    """Působnost editora oprav (rozhodl Marti, 10.7.2026): None = není editor;
+    'vse' (Jirka) / 'vyroba' (Míša, Dušan) / 'kancelar' (Peťa). Zdroj:
+    tenant.att_fix_scope; editor bez řádku = 'vse' (bezpečný default pilotu)."""
+    if not _att_can_fix(s, uid):
+        return None
+    from sqlalchemy import text as _t
+    try:
+        sc = s.execute(_t("SELECT scope FROM tenant.att_fix_scope WHERE user_id=:u"),
+                       {"u": uid}).scalar()
+        return (sc or "vse")
+    except Exception:
+        s.rollback()
+        return "vse"
+
+
+def _att_fix_scope_emps(s, scope):
+    """None = bez omezení (vše). Jinak set employee_id v působnosti editora:
+    'vyroba' = podřízení Dušana Havláta (org podstrom pod jeho posty, user 41);
+    'kancelar' = všichni ostatní; lidé BEZ aktivního org zařazení = OBĚ strany
+    (Jirka 10.7., rozhodl Marti — hraniční lidi vidí kancelář i výroba)."""
+    if scope in (None, "vse"):
+        return None
+    from sqlalchemy import text as _t
+    rows = s.execute(_t(
+        "WITH RECURSIVE dp AS ("
+        "  SELECT a.post_id AS id FROM tenant.org_post_assign a"
+        "  JOIN tenant.att_employee de ON de.id = a.employee_id"
+        "  WHERE de.tenant_id=2 AND de.user_id=41 AND a.aktivni AND COALESCE(a.potencialni,false)=false"
+        "  UNION"
+        "  SELECT c.id FROM tenant.org_post c JOIN dp ON c.parent_post_id = dp.id"
+        "), vyr AS ("
+        "  SELECT DISTINCT a.employee_id FROM tenant.org_post_assign a"
+        "  JOIN dp ON dp.id = a.post_id WHERE a.aktivni AND COALESCE(a.potencialni,false)=false"
+        "), zar AS ("
+        "  SELECT DISTINCT a.employee_id FROM tenant.org_post_assign a"
+        "  WHERE a.aktivni AND COALESCE(a.potencialni,false)=false"
+        ") "
+        "SELECT e.id, (e.id IN (SELECT employee_id FROM vyr)), "
+        "       (e.id IN (SELECT employee_id FROM zar)) "
+        "FROM tenant.att_employee e WHERE e.tenant_id=2")).fetchall()
+    out = set()
+    for r in rows:
+        eid, je_vyroba, ma_zarazeni = int(r[0]), bool(r[1]), bool(r[2])
+        if not ma_zarazeni:
+            out.add(eid)  # nezařazený → vidí ho obě strany
+        elif scope == "vyroba" and je_vyroba:
+            out.add(eid)
+        elif scope == "kancelar" and not je_vyroba:
+            out.add(eid)
+    return out
+
+
 def _att_can_lock(s, uid) -> bool:
     """Zámek období smí Peťa/Šárka (Jirka 9.7. „obě") + rodiče."""
     if uid in _ATT_LOCK_UIDS:
@@ -19205,7 +19258,8 @@ async def att_fix_allowed(req: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     cm, s = _att_session()
     try:
-        out = {"ok": True, "can_fix": _att_can_fix(s, uid), "can_lock": _att_can_lock(s, uid)}
+        sc = _att_fix_scope(s, uid)
+        out = {"ok": True, "can_fix": sc is not None, "scope": sc, "can_lock": _att_can_lock(s, uid)}
         s.commit()
         return JSONResponse(out)
     finally:
@@ -19223,8 +19277,10 @@ async def att_fix_queue(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _att_can_fix(s, uid):
+        _sc = _att_fix_scope(s, uid)
+        if _sc is None:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        _emps = _att_fix_scope_emps(s, _sc)
         anom = s.execute(_t(
             "SELECT a.id, a.rule, a.detail, a.entry_id, a.employee_id, e.entry_date::text, "
             "       em.user_id, COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
@@ -19248,6 +19304,9 @@ async def att_fix_queue(req: Request) -> JSONResponse:
             "ORDER BY c.day DESC LIMIT 60"),
             {"t": _ATT_TENANT}).fetchall()
         s.commit()
+        if _emps is not None:  # působnost editora (kancelář/výroba)
+            anom = [r for r in anom if int(r[4]) in _emps]
+            disp = [r for r in disp if int(r[1]) in _emps]
         return JSONResponse({"ok": True,
             "anomalie": [{"id": r[0], "rule": r[1], "detail": r[2], "entry_id": r[3],
                           "employee_id": r[4], "day": r[5], "user_id": r[6], "name": r[7],
@@ -19269,7 +19328,8 @@ async def att_fix_day(req: Request) -> JSONResponse:
     from datetime import datetime as _dt
     cm, s = _att_session()
     try:
-        if not _att_can_fix(s, uid):
+        _sc = _att_fix_scope(s, uid)
+        if _sc is None:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
         try:
             day = _dt.strptime(str(req.query_params.get("day") or "")[:10], "%Y-%m-%d").date()
@@ -19280,6 +19340,9 @@ async def att_fix_day(req: Request) -> JSONResponse:
                         {"t": _ATT_TENANT, "u": tuid}).scalar()
         if not emp:
             return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
+        _emps = _att_fix_scope_emps(s, _sc)
+        if _emps is not None and int(emp) not in _emps:
+            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         locked = _att_period_locked(s, day)
         rows = s.execute(_t(
             "SELECT e.id, to_char(e.started_at,'HH24:MI'), to_char(e.ended_at,'HH24:MI'), "
@@ -19379,6 +19442,9 @@ async def att_fix_entry(req: Request) -> JSONResponse:
         if _att_period_locked(s, row[2]):
             return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány). Odemknout smí Peťa/Šárka."}, status_code=409)
         emp = int(row[1])
+        _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        if _emps is not None and emp not in _emps:
+            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         sd = row[3].date()
         ed = row[4].date() if row[4] is not None else sd
         # konec se drží na dni PŮVODNÍHO konce (job přes půlnoc — vzor entry-trim, Marti 7.6.)
@@ -19495,6 +19561,9 @@ async def att_fix_add(req: Request) -> JSONResponse:
                         {"t": _ATT_TENANT, "u": tuid}).scalar()
         if not emp:
             return JSONResponse({"ok": False, "error": "Osoba nemá docházkovou kartu."})
+        _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        if _emps is not None and int(emp) not in _emps:
+            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         new_start = _dt.combine(day, _dt.strptime(zac, "%H:%M").time())
         new_end = _dt.combine(day, _dt.strptime(kon, "%H:%M").time())
         if new_end <= new_start:
@@ -19583,6 +19652,9 @@ async def att_fix_void(req: Request) -> JSONResponse:
         if _att_period_locked(s, row[1]):
             return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány). Odemknout smí Peťa/Šárka."}, status_code=409)
         emp = int(row[0])
+        _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        if _emps is not None and emp not in _emps:
+            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         actor = _user_jmeno(s, uid)
         desc = (row[6] or "") + " " + row[2] + "–" + row[3]
         s.execute(_t(
@@ -19709,6 +19781,9 @@ async def att_fix_merge(req: Request) -> JSONResponse:
         if _att_period_locked(s, A[2]):
             return JSONResponse({"ok": False, "error": "Období je uzamčeno (mzdy zpracovány)."}, status_code=409)
         emp = int(A[1])
+        _emps = _att_fix_scope_emps(s, _att_fix_scope(s, uid))
+        if _emps is not None and emp not in _emps:
+            return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
         actor = _user_jmeno(s, uid)
         b_running = bool(B[10]) and B[4] is None
         brk = int(A[7]) + int(B[7])
@@ -19803,10 +19878,16 @@ async def att_fix_resolve(req: Request) -> JSONResponse:
         pass
     cm, s = _att_session()
     try:
-        if not _att_can_fix(s, uid):
+        _sc = _att_fix_scope(s, uid)
+        if _sc is None:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        _emps = _att_fix_scope_emps(s, _sc)
         actor = _user_jmeno(s, uid)
         if aid:
+            _ae = s.execute(_t("SELECT employee_id FROM tenant.att_anomaly WHERE tenant_id=:t AND id=:i"),
+                            {"t": _ATT_TENANT, "i": aid}).scalar()
+            if _ae is not None and _emps is not None and int(_ae) not in _emps:
+                return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
             r = s.execute(_t("UPDATE tenant.att_anomaly SET resolved_at=now() "
                              "WHERE tenant_id=:t AND id=:i AND resolved_at IS NULL RETURNING employee_id, entry_id"),
                           {"t": _ATT_TENANT, "i": aid}).first()
@@ -19821,6 +19902,8 @@ async def att_fix_resolve(req: Request) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": "Neplatné datum."})
             emp = s.execute(_t("SELECT id FROM tenant.att_employee WHERE tenant_id=:t AND user_id=:u"),
                             {"t": _ATT_TENANT, "u": tuid}).scalar()
+            if emp and _emps is not None and int(emp) not in _emps:
+                return JSONResponse({"ok": False, "error": "Osoba není ve tvé působnosti (kancelář/výroba)."}, status_code=403)
             if emp:
                 s.execute(_t(
                     "UPDATE tenant.att_day_confirm SET disputed=false, "
@@ -19848,12 +19931,15 @@ async def att_fix_audit_list(req: Request) -> JSONResponse:
     from sqlalchemy import text as _t
     cm, s = _att_session()
     try:
-        if not _att_can_fix(s, uid):
+        _sc = _att_fix_scope(s, uid)
+        if _sc is None:
             return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        _emps = _att_fix_scope_emps(s, _sc)
         rows = s.execute(_t(
             "SELECT a.id, a.action, a.entry_id, a.old_entry_date::text, a.old_note, a.new_note, "
             "       a.detail, a.actor_text, to_char(a.created_at,'DD.MM. HH24:MI'), "
-            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name) "
+            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), em.full_name), "
+            "       a.employee_id "
             "FROM tenant.att_audit a "
             "LEFT JOIN tenant.att_employee em ON em.id = a.employee_id "
             "LEFT JOIN public.users u ON u.id = em.user_id "
@@ -19861,9 +19947,41 @@ async def att_fix_audit_list(req: Request) -> JSONResponse:
             "ORDER BY a.id DESC LIMIT 200"),
             {"t": _ATT_TENANT}).fetchall()
         s.commit()
+        if _emps is not None:  # působnost: cizí lidi nezobrazovat (řádky bez osoby, např. zámek, zůstávají)
+            rows = [r for r in rows if r[10] is None or int(r[10]) in _emps]
         return JSONResponse({"ok": True, "items": [
             {"id": r[0], "action": r[1], "entry_id": r[2], "day": r[3], "old": r[4],
              "new": r[5], "detail": r[6], "actor": r[7], "ts": r[8], "person": r[9]} for r in rows]})
+    finally:
+        cm.__exit__(None, None, None)
+
+
+@api_router.get("/app/attendance/fix/lide")
+async def att_fix_lide(req: Request) -> JSONResponse:
+    """Seznam lidí pro editory oprav — JEN v působnosti editora (kancelář/výroba/vše).
+    Zdroj = aktivní docházkové karty (att_employee) s napojeným userem."""
+    uid = _uid_from_token_or_cookie(req)
+    if not uid:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    from sqlalchemy import text as _t
+    cm, s = _att_session()
+    try:
+        _sc = _att_fix_scope(s, uid)
+        if _sc is None:
+            return JSONResponse({"ok": False, "error": "forbidden"}, status_code=403)
+        _emps = _att_fix_scope_emps(s, _sc)
+        rows = s.execute(_t(
+            "SELECT e.id, e.user_id, "
+            "       COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),''), e.full_name, '?') "
+            "FROM tenant.att_employee e LEFT JOIN public.users u ON u.id = e.user_id "
+            "WHERE e.tenant_id = :t AND e.is_active AND e.user_id IS NOT NULL "
+            "ORDER BY 3"),
+            {"t": _ATT_TENANT}).fetchall()
+        s.commit()
+        if _emps is not None:
+            rows = [r for r in rows if int(r[0]) in _emps]
+        return JSONResponse({"ok": True, "scope": _sc,
+                             "lide": [{"user_id": r[1], "jmeno": r[2]} for r in rows]})
     finally:
         cm.__exit__(None, None, None)
 

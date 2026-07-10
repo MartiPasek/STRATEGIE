@@ -114,7 +114,8 @@ def _read_centrala(ec_form_id: int) -> dict:
         "MAX(CASE WHEN P.Property='FieldName' THEN P.Value END) AS fld, "
         "MAX(CASE WHEN P.Property='Top' THEN P.Value END) AS t, "
         "MAX(CASE WHEN P.Property='Left' THEN P.Value END) AS l, "
-        "MAX(CASE WHEN P.Property='Width' THEN P.Value END) AS w "
+        "MAX(CASE WHEN P.Property='Width' THEN P.Value END) AS w, "
+        "MAX(CASE WHEN P.Property='Align' THEN P.Value END) AS align "
         f"FROM dbo.EC_FormDefEdit e "
         f"LEFT JOIN dbo.EC_FormDefEditProperty P ON P.ID_FormDefEdit = e.ID "
         f"WHERE e.ID_Form = {int(ec_form_id)} AND e.Smazana = 0 "
@@ -157,13 +158,25 @@ def _match_field(fld: str, src_cols: list[str], alias_base: dict, user_map: dict
 
 def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
                           user_map: dict) -> dict:
-    """Přenese rozložení z Centrály: groupboxy, zařazení polí, captiony,
-    pořadí (Top/Left), typy (comp_type.centrala_id). Pole mimo Centrálu
-    deaktivuje (is_active=false) — v DESIGN se dají kdykoli vrátit.
+    """Přenese rozložení z Centrály 1:1 — VČETNĚ Delphi align dokování.
 
-    Kódové gridy (typ 11/21) a tlačítka (typ 8) se NEpřenáší (logika je
-    v Delphi) — groupboxy gridů se založí jako NEAKTIVNÍ placeholdery
-    pro fázi 2, tlačítka jen hlásíme.
+    Delphi align (alTop/alLeft/alClient/…) se v STRATEGII mapuje NATIVNĚ na
+    layout.align (renderer _buildAlignLayout: top/bottom pásy + middle row
+    left|client|right). Proto reprodukujeme CELÝ strom kontejnerů z Centrály:
+
+      • type-12 s captionem   → fw groupbox  (viditelný rámeček + label)
+      • type-12 bez captionu   → fw panel     (neviditelný strukturální wrap,
+                                               border_mode=none) — nese jen align
+      • align → layout.align   (altop→top, alleft→left, alclient→client, …)
+      • Width u alLeft/alRight → layout.max_width (renderer = cílová šířka pásu)
+      • Height u alTop/alBottom→ layout.height (dopočítá se z výšky gridů uvnitř)
+
+    Pole se zařadí do svého SKUTEČNÉHO kontejneru z Centrály (ne do nejbližšího
+    captioned). Kódové gridy (typ 11/21) a tlačítka (typ 8) se nepřenáší (logika
+    je v Delphi) — groupboxy gridů zůstávají jako placeholder / už dodané gridy.
+
+    Pojistka reuse (Kristý 10.7.): kontejner s AKTIVNÍMI dětmi (např. embedded
+    grid dodaný po importu) se re-runem NEDEAKTIVUJE.
     """
     rep = {"groupboxes": 0, "fields_mapped": 0, "fields_hidden": 0,
            "grids_skipped": 0, "buttons_skipped": 0, "unmatched": []}
@@ -173,8 +186,9 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
         "SELECT id, code, kind, centrala_id FROM fw.comp_type")).mappings().all()
     by_centrala = {int(r["centrala_id"]): r for r in trows if r["centrala_id"] is not None}
     by_code = {r["code"]: r for r in trows}
-    if "groupbox" not in by_code:
-        raise RuntimeError("fw.comp_type 'groupbox' nenalezen")
+    for _need in ("groupbox", "panel"):
+        if _need not in by_code:
+            raise RuntimeError(f"fw.comp_type '{_need}' nenalezen")
 
     # vygenerované komponenty jádra: root + panely + pole (name=sloupec)
     gen = s.execute(_t(
@@ -206,51 +220,76 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
             return int(p[1:])
         return p or "Def"
 
-    # groupboxy s captionem → naše groupboxy (bez captionu = jen vizuální pás,
-    # ten se překlenuje — děti jdou k jeho rodiči)
-    def resolved_container(cid):
-        """Vystoupej stromem na nejbližší groupbox S captionem (nebo root)."""
-        seen = set()
-        cur = cid
+    # Delphi align → STRATEGIE layout.align. alNone/neznámé → None (default client).
+    ALIGN_MAP = {"altop": "top", "albottom": "bottom", "alleft": "left",
+                 "alright": "right", "alclient": "client"}
+    def map_align(a):
+        return ALIGN_MAP.get((a or "").strip().lower())
+
+    # hloubka v Centrála stromu (kvůli parent-first vytváření kontejnerů)
+    def depth_of(cid):
+        d, cur, seen = 0, cid, set()
         while isinstance(cur, int) and cur in nodes and cur not in seen:
             seen.add(cur)
-            n = nodes[cur]
-            if int(n["typ"]) == 12 and (n.get("cap") or "").strip():
-                return cur
-            cur = parent_key(n)
-        return None
+            cur = parent_key(nodes[cur])
+            d += 1
+        return d
 
-    gb_map: dict[int, int] = {}   # Centrála groupbox cid → fw.comp_def.id
-    gb_order = sorted(
-        [c for c in comps if int(c["typ"]) == 12 and (c.get("cap") or "").strip()],
-        key=lambda c: (as_int(c.get("t")), as_int(c.get("l"))))
-    for i, gb in enumerate(gb_order):
+    # ── 1) reprodukce CELÉHO stromu type-12 kontejnerů (parent-first) ──────────
+    cont_map: dict[int, int] = {}          # Centrála cid → fw.comp_def.id
+    cont_meta: dict[int, dict] = {}         # fw.comp_def.id → {align, cen_h}
+    containers = sorted(
+        [c for c in comps if int(c["typ"]) == 12],
+        key=lambda c: (depth_of(int(c["cid"])), as_int(c.get("t")), as_int(c.get("l"))))
+    for i, gb in enumerate(containers):
         cid = int(gb["cid"])
         cap = (gb.get("cap") or "").strip()
+        al = map_align(gb.get("align"))
+        is_panel = not cap                 # bez captionu → strukturální panel
+        type_code = "panel" if is_panel else "groupbox"
+        name = ("panel_centrala_%d" if is_panel else "gb_centrala_%d") % cid
+
+        # rodič = skutečný Centrála rodič-kontejner (pokud reprodukovaný), jinak
+        # klientský panel. (Def/Footer nejsou kontejnery → client_panel.)
+        pk = parent_key(gb)
+        parent_id = cont_map.get(pk) if isinstance(pk, int) else None
+        if not parent_id:
+            parent_id = client_panel_id
+
+        # layout: label+rámeček jen pro captioned; align; šířka pásu pro left/right
+        layout_d = {}
+        if cap:
+            layout_d["label"] = cap
+            layout_d["border_mode"] = "top"
+        if al:
+            layout_d["align"] = al
+        wv = as_int(gb.get("w"))
+        if al in ("left", "right") and wv > 0:
+            layout_d["max_width"] = wv
+        layout = json.dumps(layout_d, ensure_ascii=False)
+
         # obsahuje jen gridy? → placeholder (neaktivní) pro fázi 2
         child_typs = [int(n["typ"]) for n in comps if parent_key(n) == cid]
-        only_grids = child_typs and all(t in (11, 21) for t in child_typs)
-        name = "gb_centrala_%d" % cid
+        only_grids = bool(child_typs) and all(t in (11, 21) for t in child_typs)
+
+        # idempotence: hledej podle obou možných jmen (typ se mohl změnit)
         row = s.execute(_t(
-            "SELECT id FROM fw.comp_def WHERE core_id=:c AND name=:n"),
-            {"c": core_id, "n": name}).first()
-        layout = json.dumps({"label": cap, "border_mode": "top"})
+            "SELECT id FROM fw.comp_def WHERE core_id=:c AND name IN (:n1,:n2)"),
+            {"c": core_id, "n1": name, "n2": "gb_centrala_%d" % cid}).first()
         if row:
             gb_id = int(row[0])
-            # Pojistka (Kristý 10.7.): NEDEAKTIVUJ groupbox, který už má aktivní
-            # děti (např. embedded gridy dodané po importu) — jinak by re-run
-            # @@COREIMPORT skryl gridy. only_grids placeholder platí jen když
-            # groupbox nemá vlastní aktivní obsah.
             has_active_child = s.execute(_t(
                 "SELECT EXISTS(SELECT 1 FROM fw.comp_def "
                 "WHERE parent_comp_def_id=:g AND is_active=true)"),
                 {"g": gb_id}).scalar()
             act = (not only_grids) or bool(has_active_child)
             s.execute(_t(
-                "UPDATE fw.comp_def SET caption=:cap, sort_order=:so, is_active=:act, "
-                "layout=CAST(:lay AS jsonb), parent_comp_def_id=:par WHERE id=:id"),
-                {"cap": cap, "so": (i + 1) * 10, "act": act,
-                 "lay": layout, "par": client_panel_id, "id": gb_id})
+                "UPDATE fw.comp_def SET type_id=:tid, name=:n, caption=:cap, "
+                "sort_order=:so, is_active=:act, layout=CAST(:lay AS jsonb), "
+                "parent_comp_def_id=:par WHERE id=:id"),
+                {"tid": by_code[type_code]["id"], "n": name, "cap": cap or None,
+                 "so": (i + 1) * 10, "act": act, "lay": layout,
+                 "par": parent_id, "id": gb_id})
         else:
             gb_id = int(s.execute(_t(
                 "INSERT INTO fw.comp_def (core_id, type_id, name, caption, layout, "
@@ -258,16 +297,29 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
                 "created_by_text, updated_by_text) "
                 "VALUES (:c, :t, :n, :cap, CAST(:lay AS jsonb), :act, :so, :par, 'main', "
                 "'Claude-24 @@COREIMPORT', 'Claude-24 @@COREIMPORT') RETURNING id"),
-                {"c": core_id, "t": by_code["groupbox"]["id"], "n": name, "cap": cap,
-                 "lay": layout, "act": not only_grids, "so": (i + 1) * 10,
-                 "par": client_panel_id}).scalar())
-        gb_map[cid] = gb_id
+                {"c": core_id, "t": by_code[type_code]["id"], "n": name,
+                 "cap": cap or None, "lay": layout, "act": not only_grids,
+                 "so": (i + 1) * 10, "par": parent_id}).scalar())
+        cont_map[cid] = gb_id
+        cont_meta[gb_id] = {"align": al, "cen_h": as_int(gb.get("h"))}
         rep["groupboxes"] += 1
 
-    # pole: mapování FieldName → sloupec zdroje, caption, container, pořadí, typ
+    # nejbližší reprodukovaný kontejner (jakýkoli type-12) nad komponentou
+    def resolved_container(cid):
+        seen, cur = set(), cid
+        while isinstance(cur, int) and cur in nodes and cur not in seen:
+            seen.add(cur)
+            if cur in cont_map:
+                return cur
+            cur = parent_key(nodes[cur])
+        return None
+
+    # ── 2) pole: mapování FieldName → sloupec, caption, kontejner, pořadí, typ ──
     mapped_cols: set[str] = set()
     for c in comps:
         typ = int(c["typ"])
+        if typ == 12:
+            continue                       # kontejnery už hotové
         if typ in (11, 21):
             rep["grids_skipped"] += 1
             continue
@@ -285,7 +337,7 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
         if not g:
             continue
         cont_cid = resolved_container(parent_key(c))
-        parent_id = gb_map.get(cont_cid, client_panel_id)
+        parent_id = cont_map.get(cont_cid, client_panel_id)
         cap = (c.get("cap") or "").strip() or col
         so = as_int(c.get("t")) * 10000 + as_int(c.get("l"))
         # typ přes centrala_id — jen leaf typy polí (grid/button/groupbox už odfiltrované)
@@ -293,9 +345,8 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
         ct = by_centrala.get(typ)
         if ct and ct["kind"] == "leaf" and ct["code"] not in ("grid", "gridpoldoklad", "button"):
             new_type = int(ct["id"])
-        # Šířka z Centrály (bod 2, Kristý 10.7.): Width (px) → layout.max_width
-        # (edit-form renderer: el.style.maxWidth). Merge do stávajícího layoutu,
-        # ať nepřepíšu always_new_row apod.
+        # Šířka z Centrály (bod 2, Kristý 10.7.): Width (px) → layout.max_width.
+        # Merge do stávajícího layoutu, ať nepřepíšu always_new_row apod.
         wv = as_int(c.get("w"))
         set_sql = "caption=:cap, parent_comp_def_id=:par, sort_order=:so, is_active=true"
         params = {"cap": cap, "par": parent_id, "so": so, "id": g["id"]}
@@ -310,7 +361,41 @@ def _layout_from_centrala(s, core_id: int, cen: dict, src_cols: list[str],
         mapped_cols.add(col.lower())
         rep["fields_mapped"] += 1
 
-    # pole zdroje, která na Centrála formuláři nejsou → schovat (kosmetika)
+    # ── 3) výška alTop/alBottom kontejnerů = max výška gridu uvnitř + rámeček ───
+    # (top/bottom pás v renderu potřebuje flex-basis na svislé ose; jinak by
+    #  se pás s embedded gridem uvnitř sesypal. Dopočítá se rekurzivně z gridů.)
+    CHROME = 64
+    grid_h = {}
+    try:
+        rows = s.execute(_t(
+            "WITH RECURSIVE tree AS ("
+            "  SELECT id AS anc, id AS node FROM fw.comp_def WHERE core_id=:core "
+            "  UNION ALL "
+            "  SELECT t.anc, ch.id FROM tree t "
+            "    JOIN fw.comp_def ch ON ch.parent_comp_def_id = t.node) "
+            "SELECT t.anc AS anc, MAX((d.layout->>'height_px')::int) AS maxh "
+            "FROM tree t JOIN fw.comp_def d ON d.id = t.node "
+            "JOIN fw.comp_type ct ON ct.id = d.type_id "
+            "WHERE ct.code IN ('grid','grid_modern','gridpoldoklad','nested_grid') "
+            "  AND (d.layout->>'height_px') ~ '^[0-9]+$' "
+            "GROUP BY t.anc"), {"core": core_id}).mappings().all()
+        grid_h = {int(r["anc"]): int(r["maxh"]) for r in rows if r["maxh"] is not None}
+    except Exception:
+        grid_h = {}
+    for fw_id, meta in cont_meta.items():
+        if meta["align"] not in ("top", "bottom"):
+            continue
+        h = grid_h.get(fw_id)
+        if h:
+            h = h + CHROME
+        else:
+            h = max(meta["cen_h"], 120)    # fallback: Centrála výška (Delphi px ≈ web)
+        s.execute(_t(
+            "UPDATE fw.comp_def SET layout = COALESCE(layout,'{}'::jsonb) "
+            "|| jsonb_build_object('height', :h) WHERE id=:id"),
+            {"h": int(h), "id": fw_id})
+
+    # ── 4) pole zdroje, která na Centrála formuláři nejsou → schovat ───────────
     for name_l, g in fields_by_name.items():
         if name_l in mapped_cols:
             continue

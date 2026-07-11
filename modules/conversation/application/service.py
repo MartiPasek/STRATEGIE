@@ -82,7 +82,7 @@ def _haiku_reply(conversation_id, user_message, user_id=None, tenant_id=None, us
         _hk_name = None
     _hk_system = HAIKU_SYSTEM_PROMPT
     if _hk_name:
-        _hk_system = HAIKU_SYSTEM_PROMPT + "\n\nPrávě mluvíš s: " + _hk_name + ". Klidně ho/ji oslov jménem. NEVYMÝŠLEJ si jméno."
+        _hk_system = HAIKU_SYSTEM_PROMPT + "\n\nDŮLEŽITÉ — jméno člověka, se kterým právě mluvíš, JE: " + _hk_name + ". To je jistá, ověřená informace, kterou znáš. Když se tě zeptá na své jméno nebo kdo je, s klidem a jistotou odpověz " + _hk_name + ". Nikdy neříkej, že jeho jméno neznáš, a nevymýšlej si jiné."
     _hk_traced = False
     try:
         _hk_tel.begin_chat_trace()

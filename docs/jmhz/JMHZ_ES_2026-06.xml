@@ -3,12 +3,12 @@
 	<n1:VENDOR productName="STRATEGIE" productVersion="STRATEGIE_JMHZ_0.1"/>
 	<n1:SENDER EmailNotifikace="marti-ai@eurosoft.com" ISDSreport="" VerzeProtokolu="1"/>
 	<n1:hlavicka>
-		<n1:idPodani>cf92205e-4fbc-4a09-b783-f55ae1d90f10</n1:idPodani>
+		<n1:idPodani>4bfebea2-5221-4fb5-9a7d-855563e02d75</n1:idPodani>
 		<n1:typPodani>R</n1:typPodani>
 		<n1:variabilniSymbol>1180109983</n1:variabilniSymbol>
 		<n1:mesic>6</n1:mesic>
 		<n1:rok>2026</n1:rok>
-		<n1:datumVyplneni>2026-07-11T14:16:29Z</n1:datumVyplneni>
+		<n1:datumVyplneni>2026-07-11T14:19:13Z</n1:datumVyplneni>
 		<n1:balikPoradi>1</n1:balikPoradi>
 		<n1:balikyPocet>1</n1:balikyPocet>
 		<n1:formularePocetVBaliku>2</n1:formularePocetVBaliku>
@@ -37,7 +37,7 @@
 	<n1:formulareOsob>
 	<n1:formularOsoby>
 		<n1:hlavicka>
-			<n1:idFormulare>d14a0b34-52b2-4084-bc37-9dced8508f9c</n1:idFormulare>
+			<n1:idFormulare>4a2b9317-430e-4ce9-b472-c9c61c9cfb19</n1:idFormulare>
 			<n1:typFormulare>R</n1:typFormulare>
 			<n1:primarniPpv>true</n1:primarniPpv>
 		</n1:hlavicka>
@@ -129,7 +129,10 @@
 				<form:odpracovaneHodiny>
 					<form:pocet>128</form:pocet>
 				</form:odpracovaneHodiny>
+				<form:neodpracovaneHodiny>
+					<form:hodinyNeodpracCelkem>32</form:hodinyNeodpracCelkem>
 					<form:hodinyNeodpracOcr>32</form:hodinyNeodpracOcr>
+				</form:neodpracovaneHodiny>
 			</form:prubehZamestnani>
 			<form:prijem>
 				<form:dan>
@@ -151,7 +154,7 @@
 	</n1:formularOsoby>
 	<n1:formularOsoby>
 		<n1:hlavicka>
-			<n1:idFormulare>95214405-0355-4523-9b06-ef725c1d1ff0</n1:idFormulare>
+			<n1:idFormulare>f0d55937-3943-4ea1-ae94-b8acb3d4cff8</n1:idFormulare>
 			<n1:typFormulare>R</n1:typFormulare>
 			<n1:primarniPpv>true</n1:primarniPpv>
 		</n1:hlavicka>

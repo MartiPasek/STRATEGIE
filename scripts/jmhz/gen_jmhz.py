@@ -82,9 +82,11 @@ def _person_form(a, rok, mesic, dni_v_mesici):
     ocr_hodiny = float(a.get("ocr_hodiny", 0) or 0)
     hod_ocr_xml = ""
     if ocr_hodiny:
-        hod_ocr_xml = "\n\t\t\t\t\t<form:hodinyNeodpracOcr>%s</form:hodinyNeodpracOcr>" % (
-            ("%.3f" % ocr_hodiny).rstrip("0").rstrip(".")
-        )
+        _oh = ("%.3f" % ocr_hodiny).rstrip("0").rstrip(".")
+        hod_ocr_xml = ("\n\t\t\t\t<form:neodpracovaneHodiny>"
+                       "\n\t\t\t\t\t<form:hodinyNeodpracCelkem>%s</form:hodinyNeodpracCelkem>"
+                       "\n\t\t\t\t\t<form:hodinyNeodpracOcr>%s</form:hodinyNeodpracOcr>"
+                       "\n\t\t\t\t</form:neodpracovaneHodiny>" % (_oh, _oh))
     vyl_xml = ""
     odec_xml = ""
     if ocr_dny:
